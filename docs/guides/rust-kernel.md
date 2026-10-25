@@ -1229,6 +1229,32 @@ enumeration, out-of-range float-to-integer casts, a group list shorter than the
 face count), Rust refuses or clamps and the difference is documented at the
 function. Record layouts are size-asserted on both sides of the ABI.
 
+## Ray-tracing scene (`tapioca-raycast`, raycast plan E0)
+
+The query semantics live in `geometry::ray`; the scene lives in its own crate.
+`geometry` declares `TriangleIndex` (which triangles a ray can meet) and owns
+everything that decides a hit: the occlusion-ray preamble, the double-precision
+slab test (far bound widened by two ulps, so traversal never culls a triangle
+the triangle test would accept), the watertight triangle test with back faces
+kept, and the directional batch with `CpuTraversal`'s thread policy.
+`tapioca-raycast` (forbid unsafe, depends only on `geometry`) builds a validated,
+immutable `Scene` with a deterministic binned-SAH hierarchy and implements the
+trait; `geometry` never names it. A different tree therefore cannot change an
+answer, only its speed.
+
+ABI: `Geometry/RaycastRustFfi.h` (`tapioca_raycast_scene_build`, `_destroy`,
+`tapioca_raycast_occlude_directional`); a scene is shareable across threads.
+C++: `tapioca::geometry::RustRaycastScene`, built from a snapshot exactly as
+`QueryEngine` concatenates it. Opt-in; no production consumer is switched.
+
+Parity is per ray against `QueryEngine::Occluded` (`test_raycast_rust_parity.cpp`):
+random rays with every tmin/tmax edge (zero, negative, NaN, tiny, inverted),
+signed-zero and zero directions, axis-aligned rays along faces and edges,
+coincident and degenerate triangles, survey coordinates; the directional batch
+equals `CpuTraversal` for every `maxParallel`. The exit criterion is zero
+mismatches. Scenes are refused (not repaired) for non-finite coordinates, an
+index out of range, or 2^31 triangles and more.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:
