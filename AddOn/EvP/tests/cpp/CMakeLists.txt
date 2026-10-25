@@ -851,6 +851,7 @@ endif ()
 
 set (EVP_TEST_SOURCES
     test_rayworker.cpp
+    test_viewpointcollisions.cpp
     test_extractioncapture.cpp
     test_mesh_extraction.cpp
     test_editdocument.cpp

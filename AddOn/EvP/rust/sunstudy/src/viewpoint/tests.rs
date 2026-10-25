@@ -72,6 +72,10 @@ fn an_open_viewpoint_is_the_full_disc_without_querying() {
     assert_eq!(w.calls.get(), 0);
     assert_eq!(r.perimeter.len(), 1440);
     assert_eq!(r.collision_count, 0);
+    assert!(
+        r.ray_mesh.iter().all(Option::is_none),
+        "every ray reaches the radius"
+    );
     assert!((r.area - std::f64::consts::PI * 100.0).abs() < 0.1);
     assert!(
         r.perimeter
@@ -93,6 +97,21 @@ fn context_clips_the_isovist_at_the_first_hit() {
     };
     assert_eq!(w.calls.get(), 1);
     assert!(r.collision_count > 0);
+    assert_eq!(r.ray_mesh.len(), r.perimeter.len());
+    assert_eq!(
+        r.ray_mesh.iter().filter(|m| m.is_some()).count(),
+        r.collision_count,
+        "one blocker per collision"
+    );
+    for (mesh, p) in r.ray_mesh.iter().zip(&r.perimeter) {
+        match mesh {
+            Some(m) => assert!(
+                *m == 1 && (p[0] - 5.0).abs() < 1e-9,
+                "stopped rays end on the wall"
+            ),
+            None => assert!(p[0] < 5.0 + 1e-9, "open rays end on the radius"),
+        }
+    }
     assert!(r.perimeter.iter().all(|p| p[0] <= 5.0 + 1e-9));
     assert!(r.area < std::f64::consts::PI * 100.0);
 }

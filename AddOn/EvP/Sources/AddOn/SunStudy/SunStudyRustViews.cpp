@@ -17,7 +17,7 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaRayHit) == 16);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaBoundedRay) == 64);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaRayQueryVtable) == 40);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaViewpointRequest) == 80);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaViewpointOutput) == 32);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaViewpointOutput) == 40);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaVisibilityOptions) == 120);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaVisibilityRequest) == 192);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaVisibilitySummary) == 88);
@@ -151,8 +151,9 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
     std::vector<std::array<double, 3>> perimeter (options.rays);
     size_t counts[2] = { 0, 0 };
     double area = 0.0;
+    std::vector<int64_t> rayMesh (options.rays, -1);
     const TapiocaViewpointOutput output { reinterpret_cast<double (*)[3]> (perimeter.data ()), perimeter.size (),
-                                          &counts, &area };
+                                          &counts, &area, rayMesh.data () };
     static_assert (sizeof (std::array<double, 3>) == sizeof (double[3]));
     if (!Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_viewpoint (&request, &output, m, n); },
                  result.error))
@@ -161,6 +162,8 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
     result.captureStamp = snapshot->captureStamp;
     perimeter.resize (counts[0]);
     result.perimeter = std::move (perimeter);
+    rayMesh.resize (counts[0]);
+    result.rayMesh = std::move (rayMesh);
     result.collisionCount = counts[1];
     result.area = area;
     result.valid = true;

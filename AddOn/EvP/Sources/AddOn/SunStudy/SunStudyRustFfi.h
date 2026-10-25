@@ -894,8 +894,8 @@ typedef struct {
  * sampleFaces.data is null, sampleFaces.count its length and maskOffset its
  * start in the read buffer. */
 typedef struct {
-    size_t ranges[9]; /* firstFace, faceCount, firstSample, sampleCount, firstPatch,
-                         patchCount, degenerate, undersized, excluded */
+    size_t ranges[9];  /* firstFace, faceCount, firstSample, sampleCount, firstPatch,
+                          patchCount, degenerate, undersized, excluded */
     size_t winding[4]; /* groups, closed, flipped, flippedTriangles */
     TapiocaByteView sampleFaces;
     size_t maskOffset;
@@ -987,14 +987,14 @@ TapiocaStatus tapioca_sunstudy_surface_build (const TapiocaSurfaceBuildRequest* 
 TapiocaStatus tapioca_sunstudy_surface_destroy (TapiocaSurfaceResult* handle, char* error, size_t errorCapacity);
 
 typedef struct {
-    size_t sizes[8]; /* triangle samples, triangle layouts, patch samples, patch spans,
-                        patchOfTriangle, layout meshes, mask bytes, span text bytes */
+    size_t sizes[8];   /* triangle samples, triangle layouts, patch samples, patch spans,
+                          patchOfTriangle, layout meshes, mask bytes, span text bytes */
     size_t counts[4];  /* reusedMeshes, rebuiltMeshes, reusedSamples, generatedSamples */
     size_t winding[4]; /* summed WindingReport */
     size_t triangleCounters[3];
     size_t patchCounters[3];
     TapiocaSurfaceOptions options; /* the layout's */
-    uint8_t flags[5]; /* result, triangle grid, patch grid, layout valid; sample limit */
+    uint8_t flags[5];              /* result, triangle grid, patch grid, layout valid; sample limit */
 } TapiocaSurfaceResultSummary;
 
 TapiocaStatus tapioca_sunstudy_surface_summary (const TapiocaSurfaceResult* handle, TapiocaSurfaceResultSummary* out,
@@ -1003,8 +1003,8 @@ TapiocaStatus tapioca_sunstudy_surface_summary (const TapiocaSurfaceResult* hand
 /* Each destination holds the size the summary reported (xyz: three per
  * sample); null only where that size is zero. */
 typedef struct {
-    double* triangleReals[3];      /* positions, normals, areas */
-    uint32_t* triangleIndices[4];  /* faces, groups, cellColumns, cellRows */
+    double* triangleReals[3];     /* positions, normals, areas */
+    uint32_t* triangleIndices[4]; /* faces, groups, cellColumns, cellRows */
     TapiocaFaceLayout* triangleLayouts;
     double* patchReals[3];     /* positions, normals, areas */
     uint32_t* patchIndices[4]; /* cellColumns, cellRows, spanOf, patchOfTriangle */
@@ -1196,8 +1196,8 @@ TapiocaStatus tapioca_sunstudy_follower_create (TapiocaSunStudyFollower** out, c
 TapiocaStatus tapioca_sunstudy_follower_destroy (TapiocaSunStudyFollower* handle, char* error, size_t errorCapacity);
 
 typedef struct {
-    uint8_t kind; /* 0 adopt, 1 observe, 2 shouldStart, 3 msUntilStart, 4 noteStarted, 5 canPublish,
-                     6 noteCompleted, 7 noteFailed, 8 clear, 9 setDebounce, 10 read only */
+    uint8_t kind;          /* 0 adopt, 1 observe, 2 shouldStart, 3 msUntilStart, 4 noteStarted, 5 canPublish,
+                              6 noteCompleted, 7 noteFailed, 8 clear, 9 setDebounce, 10 read only */
     uint64_t signature[3]; /* geometry, sun, sampling */
     int64_t nowMs;
     uint64_t generation;
@@ -1275,6 +1275,7 @@ typedef struct {
     size_t capacity;
     size_t (*counts)[2]; /* points, collisions */
     double* area;
+    int64_t* rayMesh; /* capacity entries: stopping mesh index, or -1 */
 } TapiocaViewpointOutput;
 
 /* RunViewpointStudy; a refusal returns TAPIOCA_ERR_STATE with its message. */
@@ -1282,8 +1283,8 @@ TapiocaStatus tapioca_sunstudy_viewpoint (const TapiocaViewpointRequest* request
                                           char* error, size_t errorCapacity);
 
 typedef struct {
-    double reals[4];   /* spacing, normalOffset, tmin, coneDegrees */
-    size_t limits[4];  /* maxSamples, maxAimPoints, maxRays, maxParallel */
+    double reals[4];  /* spacing, normalOffset, tmin, coneDegrees */
+    size_t limits[4]; /* maxSamples, maxAimPoints, maxRays, maxParallel */
     double point[3];
     double direction[3];
     uint8_t origin; /* VisibilityOrigin */
@@ -1312,8 +1313,8 @@ typedef struct {
     uint8_t domain;
 } TapiocaVisibilitySummary;
 
-TapiocaStatus tapioca_sunstudy_visibility_summary (const TapiocaVisibilityResult* handle,
-                                                   TapiocaVisibilitySummary* out, char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_visibility_summary (const TapiocaVisibilityResult* handle, TapiocaVisibilitySummary* out,
+                                                   char* error, size_t errorCapacity);
 
 typedef struct {
     double* values;

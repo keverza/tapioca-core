@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <set>
 
 namespace evp::sunstudy {
@@ -49,22 +50,27 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
         return result;
     }
     result.perimeter.reserve (options.rays);
+    result.rayMesh.reserve (options.rays);
     for (size_t ray = 0; ray < options.rays; ++ray) {
         if (cancelled ()) {
             result.perimeter.clear ();
+            result.rayMesh.clear ();
             result.error = "viewpoint calculation cancelled";
             return result;
         }
         const double angle = 6.28318530717958647692 * double (ray) / double (options.rays);
         const double direction[3] = { std::cos (angle), std::sin (angle), 0.0 };
         double distance = options.radius;
+        int64_t blocker = -1;
         if (engine != nullptr) {
             const auto hit = engine->RaycastMasked (options.point.data (), direction, options.radius, mask);
             if (hit.hit) {
                 distance = (std::max) (0.0, (std::min) (distance, hit.t));
                 ++result.collisionCount;
+                blocker = static_cast<int64_t> (hit.meshIndex);
             }
         }
+        result.rayMesh.push_back (blocker);
         result.perimeter.push_back ({ options.point[0] + distance * direction[0],
                                       options.point[1] + distance * direction[1], options.point[2] });
     }
@@ -77,6 +83,72 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
     }
     result.valid = true;
     return result;
+}
+
+std::vector<ViewpointBlocker> ViewpointBlockers (const ViewpointStudyResult& result, const geomsrv::Snapshot& snapshot)
+{
+    std::vector<ViewpointBlocker> blockers;
+    if (!result.valid || result.snapshotId != snapshot.id || result.rayMesh.size () != result.perimeter.size ())
+        return blockers;
+    std::vector<size_t> slot (snapshot.meshes.size (), SIZE_MAX);
+    for (size_t ray = 0; ray < result.rayMesh.size (); ++ray) {
+        const int64_t mesh = result.rayMesh[ray];
+        if (mesh < 0 || static_cast<size_t> (mesh) >= snapshot.meshes.size ())
+            continue;
+        const auto& end = result.perimeter[ray];
+        const double distance = std::hypot (end[0] - result.options.point[0], end[1] - result.options.point[1]);
+        size_t& index = slot[static_cast<size_t> (mesh)];
+        if (index == SIZE_MAX) {
+            index = blockers.size ();
+            blockers.push_back (
+                { static_cast<size_t> (mesh), snapshot.meshes[static_cast<size_t> (mesh)].guid, 0, distance });
+        }
+        ViewpointBlocker& blocker = blockers[index];
+        ++blocker.rays;
+        blocker.nearest = (std::min) (blocker.nearest, distance);
+    }
+    std::stable_sort (blockers.begin (), blockers.end (), [] (const ViewpointBlocker& a, const ViewpointBlocker& b) {
+        if (a.rays != b.rays)
+            return a.rays > b.rays;
+        if (a.nearest != b.nearest)
+            return a.nearest < b.nearest;
+        return a.mesh < b.mesh;
+    });
+    return blockers;
+}
+
+std::vector<ViewpointArc> ViewpointArcs (const std::vector<int64_t>& rayMesh)
+{
+    std::vector<ViewpointArc> arcs;
+    const size_t count = rayMesh.size ();
+    if (count == 0)
+        return arcs;
+    // Start at a ray whose predecessor differs, so a run crossing ray 0 stays whole.
+    size_t start = 0;
+    while (start < count && rayMesh[start] == rayMesh[(start + count - 1) % count])
+        ++start;
+    if (start == count)
+        return { { 0, count, rayMesh[0] } }; // one outcome all the way round
+    for (size_t offset = 0; offset < count; ++offset) {
+        const size_t ray = (start + offset) % count;
+        if (arcs.empty () || arcs.back ().mesh != rayMesh[ray])
+            arcs.push_back ({ ray, 0, rayMesh[ray] });
+        ++arcs.back ().count;
+    }
+    return arcs;
+}
+
+bool ToggleViewpointContext (std::vector<std::string>& context, const std::string& guid)
+{
+    const std::string key = CanonicalGuid (guid);
+    const auto kept = std::remove_if (context.begin (), context.end (),
+                                      [&] (const std::string& entry) { return CanonicalGuid (entry) == key; });
+    if (kept != context.end ()) {
+        context.erase (kept, context.end ()); // every spelling of the same element
+        return false;
+    }
+    context.push_back (guid);
+    return true;
 }
 
 ViewpointStudyResult RunSelectedViewpointStudy (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,

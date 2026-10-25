@@ -11,6 +11,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -248,6 +250,11 @@ TEST (SunStudyRustViewsParity, ViewpointMatchesEveryBit)
             ASSERT_EQ (a.perimeter.size (), e.perimeter.size ());
             EXPECT_EQ (
                 std::memcmp (a.perimeter.data (), e.perimeter.data (), e.perimeter.size () * sizeof (double) * 3), 0);
+            EXPECT_EQ (a.rayMesh, e.rayMesh) << "the element that stopped each ray";
+            if (!context.empty ())
+                EXPECT_EQ (
+                    size_t (std::count_if (e.rayMesh.begin (), e.rayMesh.end (), [] (int64_t m) { return m >= 0; })),
+                    e.collisionCount);
         }
     }
     ViewpointOptions bad;
@@ -278,6 +285,7 @@ TEST (SunStudyRustViewsParity, TheSelectedViewpointMatchesTheCppStudyUnderEither
         OverrideSunStudyCore (std::nullopt);
         ASSERT_TRUE (actual.valid) << actual.error;
         EXPECT_EQ (actual.collisionCount, expected.collisionCount);
+        EXPECT_EQ (actual.rayMesh, expected.rayMesh);
         EXPECT_TRUE (SameBits (actual.area, expected.area));
         EXPECT_EQ (std::memcmp (actual.perimeter.data (), expected.perimeter.data (),
                                 expected.perimeter.size () * sizeof (double) * 3),

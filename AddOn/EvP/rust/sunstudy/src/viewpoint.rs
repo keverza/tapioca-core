@@ -38,6 +38,9 @@ impl Default for ViewpointOptions {
 pub struct ViewpointResult {
     /// Counter-clockwise perimeter.
     pub perimeter: Vec<[f64; 3]>,
+    /// Per ray, aligned with `perimeter`: the snapshot mesh whose Context
+    /// element stopped it, `None` when it reached the radius.
+    pub ray_mesh: Vec<Option<usize>>,
     /// Rays that stopped at Context.
     pub collision_count: usize,
     /// Enclosed area, m^2.
@@ -136,10 +139,13 @@ pub fn run_viewpoint(
     let [px, py, pz] = options.point;
     for (dir, hit) in directions.iter().zip(&hits) {
         let mut distance = options.radius;
+        let mut blocker = None;
         if hit.hit {
             distance = cpp_max(0.0, cpp_min(distance, hit.t));
             result.collision_count += 1;
+            blocker = Some(hit.mesh);
         }
+        result.ray_mesh.push(blocker);
         result
             .perimeter
             .push([px + distance * dir[0], py + distance * dir[1], pz]);

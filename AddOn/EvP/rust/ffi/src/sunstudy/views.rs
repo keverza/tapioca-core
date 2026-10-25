@@ -268,6 +268,8 @@ pub struct ViewpointOutput {
     pub counts: *mut [usize; 2],
     /// Enclosed area.
     pub area: *mut f64,
+    /// Per ray: the stopping mesh index, or -1 (`capacity` entries).
+    pub ray_mesh: *mut i64,
 }
 
 /// `RunViewpointStudy`; a refusal fails with its message.
@@ -299,6 +301,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_viewpoint(
             regions.output(target.perimeter, target.capacity);
             regions.output(target.counts, 1);
             regions.output(target.area, 1);
+            regions.output(target.ray_mesh, target.capacity);
             regions.check()?;
             let context = regions.context();
             let meshes = meshes_of(&context, &list)?;
@@ -322,6 +325,11 @@ pub unsafe extern "C" fn tapioca_sunstudy_viewpoint(
                 .counts
                 .write([result.perimeter.len(), result.collision_count]);
             target.area.write(result.area);
+            for (i, mesh) in result.ray_mesh.iter().enumerate() {
+                let value = mesh.map_or(-1, |m| i64::try_from(m).unwrap_or(-1));
+                // SAFETY: i < perimeter.len() <= capacity, checked above.
+                target.ray_mesh.add(i).write(value);
+            }
             Ok(())
         })
     }
