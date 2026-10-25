@@ -156,7 +156,8 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
         return false;
     }
     if (s.sources.size () > 4096 || s.operations.size () > 4096 || s.objects.size () > 4096 ||
-        s.regions.size () > 65536 || s.terrainControls.size () > 4096 || s.entrances.size () > 4096) {
+        s.regions.size () > 65536 || s.terrainControls.size () > 4096 || s.entrances.size () > 4096 ||
+        s.edges.size () > 4096) {
         error = "landscape exceeds its source/operation/object/region budget";
         return false;
     }
@@ -245,6 +246,19 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
             return false;
         }
     }
+    // An edge's own rules (EditLandscapeEdge.hpp) are checked when it is set; a stored one
+    // only has to be well formed, so deleting its baseline path leaves it for the user.
+    for (const auto& edge : s.edges) {
+        const double values[] = { edge.width,    edge.topZ,      edge.bottomZ,      edge.footingDepth,
+                                  edge.stairRun, edge.stairRise, edge.landingDepth, edge.clearance };
+        if (!claim (edge.id) || edge.kind > EdgeKind::Stair || edge.highSide > EdgeSide::Right ||
+            edge.pathId == kNoId || edge.pathId >= doc.nextId || edge.stairSteps < 0 ||
+            !std::all_of (std::begin (values), std::end (values), [] (double x) { return std::isfinite (x); }) ||
+            !Material (edge.material) || !Guid (edge.stairGuid) || !Guid (edge.wallGuid)) {
+            error = "landscape.edges: invalid ID, kind, baseline, finite parameter, material or GUID";
+            return false;
+        }
+    }
     for (const auto& v : s.operations) {
         const size_t n = v.inputs.size ();
         const bool unary = v.kind == OperationKind::Stroke || v.kind == OperationKind::Offset;
@@ -269,8 +283,8 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
         if (!claim (v.id) || v.kind > ObjectKind::Edge || !Material (v.baseMaterial) || !std::isfinite (v.thickness) ||
             v.thickness < 0 || !operations.count (v.footprintOperation) ||
             (v.pathId && edit::FindPath (doc, v.pathId) == nullptr) ||
-            std::any_of (
-                v.maskOperations.begin (), v.maskOperations.end (), [&] (Id id) { return !operations.count (id); })) {
+            std::any_of (v.maskOperations.begin (), v.maskOperations.end (),
+                         [&] (Id id) { return !operations.count (id); })) {
             error = "landscape.objects: invalid identity, footprint, mask, path or material";
             return false;
         }

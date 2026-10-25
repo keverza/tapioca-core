@@ -12,10 +12,19 @@ constexpr double kSame = 0.05;      // crossings closer than this are one
 constexpr double kOnSurface = 0.02; // an end this far beyond a path's edge still meets it
 constexpr double kAtBreak = 1.0e-3; // a break this close to a junction is the junction's
 
+// Consecutive centreline segments [first, last) with their plan bounds: segment pairs whose
+// chunks do not overlap cannot cross, so they are never tested.
+struct Chunk {
+    size_t first = 0, last = 0;
+    double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0;
+};
+constexpr size_t kChunk = 16;
+
 struct Line {
     AlignmentGeometry g;
     std::vector<double> stations;
     std::vector<Vec3> points;
+    std::vector<Chunk> chunks;
     double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0, reach = 0.0; // bounds, and the widest half
 };
 
@@ -40,8 +49,24 @@ bool Sample (const Path& p, Line& out)
         out.y0 = std::min (out.y0, q.y), out.y1 = std::max (out.y1, q.y);
     }
     for (const auto& r : p.sections)
-        out.reach = std::max ({ out.reach, r.widthLeft, r.widthRight });
+        out.reach = std::max ({ out.reach, r.widthLeft, r.widthRight, r.endLeft, r.endRight });
+    for (size_t k = 0; k + 1 < out.points.size (); k += kChunk) {
+        Chunk c { k, std::min (k + kChunk, out.points.size () - 1) };
+        c.x0 = c.x1 = out.points[k].x;
+        c.y0 = c.y1 = out.points[k].y;
+        for (size_t i = k; i <= c.last; ++i) {
+            c.x0 = std::min (c.x0, out.points[i].x), c.x1 = std::max (c.x1, out.points[i].x);
+            c.y0 = std::min (c.y0, out.points[i].y), c.y1 = std::max (c.y1, out.points[i].y);
+        }
+        out.chunks.push_back (c);
+    }
     return true;
+}
+
+bool Overlap (const Chunk& a, const Chunk& b)
+{
+    constexpr double e = 1.0e-9; // Cross admits ends a hair outside the segment
+    return a.x0 <= b.x1 + e && b.x0 <= a.x1 + e && a.y0 <= b.y1 + e && b.y0 <= a.y1 + e;
 }
 
 bool Near (const Line& a, const Line& b, double margin)
@@ -64,14 +89,14 @@ bool Cross (Vec3 a, Vec3 b, Vec3 c, Vec3 d, double& u, double& v)
 }
 
 // Path b's surface `offset` off its centre at `station`, above the centre: the crossfall's share.
-double Rise (const Path& b, double station, double offset)
+double Rise (const Path& b, double length, double station, double offset)
 {
-    const Section* s = SectionAt (b.sections, station);
-    if (s == nullptr)
+    if (b.sections.empty ())
         return 0.0;
+    const Section s = SectionIn (b.sections, length, station);
     double left = 0.0, right = 0.0;
-    EdgeDrops (*s, left, right);
-    const double width = offset >= 0.0 ? s->widthLeft : s->widthRight;
+    EdgeDrops (s, left, right);
+    const double width = offset >= 0.0 ? s.widthLeft : s.widthRight;
     const double share = width > 1.0e-9 ? std::min (std::abs (offset) / width, 1.0) : 0.0;
     return (offset >= 0.0 ? left : right) * share;
 }
@@ -144,14 +169,15 @@ std::vector<Junction> FindJunctions (const std::vector<Path>& paths)
                 Placement on;
                 if (!StationOf (lines[b].g, p, s, offset) || !Locate (lines[b].g, s, on))
                     continue;
-                const Section* r = SectionAt (paths[b].sections, s);
-                const double half = r == nullptr ? 0.0 : offset >= 0.0 ? r->widthLeft : r->widthRight;
+                const Section r = SectionIn (paths[b].sections, lines[b].g.length, s);
+                const double half = offset >= 0.0 ? r.widthLeft : r.widthRight;
                 // Abreast of b (not beyond its end) and on its surface.
                 if (DistanceXY (on.point, p) > std::abs (offset) + 1.0e-3 || std::abs (offset) > half + kOnSurface)
                     continue;
                 if (known (a, b, p, half + lines[a].reach))
                     continue;
-                out.push_back ({ a, b, end, ToEnd (s, lines[b].g.length, half), Rise (paths[b], s, offset), p });
+                out.push_back ({ a, b, end, ToEnd (s, lines[b].g.length, half),
+                                 Rise (paths[b], lines[b].g.length, s, offset), p });
             }
         }
     // Centrelines crossing, away from the ends already joined.
@@ -160,19 +186,31 @@ std::vector<Junction> FindJunctions (const std::vector<Path>& paths)
             if (!ok[a] || !ok[b] || !Near (lines[a], lines[b], 0.0))
                 continue;
             const Line &la = lines[a], &lb = lines[b];
-            for (size_t k = 0; k + 1 < la.points.size (); ++k)
-                for (size_t l = 0; l + 1 < lb.points.size (); ++l) {
-                    double u = 0.0, v = 0.0;
-                    if (!Cross (la.points[k], la.points[k + 1], lb.points[l], lb.points[l + 1], u, v))
-                        continue;
-                    const Vec3 at = Lerp (la.points[k], la.points[k + 1], u);
-                    if (known (a, b, at, kSame + la.reach + lb.reach))
-                        continue;
-                    const double sa = la.stations[k] + u * (la.stations[k + 1] - la.stations[k]);
-                    const double sb = lb.stations[l] + v * (lb.stations[l + 1] - lb.stations[l]);
-                    out.push_back (
-                        { a, b, ToEnd (sa, la.g.length, kAtBreak), ToEnd (sb, lb.g.length, kAtBreak), 0.0, at });
-                }
+            // Every segment pair in the same order as a plain double loop, only the pairs whose
+            // chunks overlap tested: the junctions and their order are unchanged.
+            std::vector<const Chunk*> near;
+            for (const auto& ca : la.chunks) {
+                near.clear ();
+                for (const auto& cb : lb.chunks)
+                    if (Overlap (ca, cb))
+                        near.push_back (&cb);
+                if (near.empty ())
+                    continue;
+                for (size_t k = ca.first; k < ca.last; ++k)
+                    for (const Chunk* cb : near)
+                        for (size_t l = cb->first; l < cb->last; ++l) {
+                            double u = 0.0, v = 0.0;
+                            if (!Cross (la.points[k], la.points[k + 1], lb.points[l], lb.points[l + 1], u, v))
+                                continue;
+                            const Vec3 at = Lerp (la.points[k], la.points[k + 1], u);
+                            if (known (a, b, at, kSame + la.reach + lb.reach))
+                                continue;
+                            const double sa = la.stations[k] + u * (la.stations[k + 1] - la.stations[k]);
+                            const double sb = lb.stations[l] + v * (lb.stations[l + 1] - lb.stations[l]);
+                            out.push_back ({ a, b, ToEnd (sa, la.g.length, kAtBreak), ToEnd (sb, lb.g.length, kAtBreak),
+                                             0.0, at });
+                        }
+            }
         }
     return out;
 }

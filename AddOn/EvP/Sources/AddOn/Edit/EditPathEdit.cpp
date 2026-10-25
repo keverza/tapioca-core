@@ -457,7 +457,12 @@ bool SplitPathSection (Document& doc, Id path, double station, std::string& erro
 {
     const Id id = NewId (doc);
     const bool ok = EditPath (
-        doc, path, [&] (Path& p, std::string& why) { return SplitSection (p.sections, station, id, why); }, error);
+        doc, path,
+        [&] (Path& p, std::string& why) {
+            AlignmentGeometry g;
+            return BuildAlignment (p.points, g, why) && SplitSection (p.sections, g.length, station, id, why);
+        },
+        error);
     if (ok && created != nullptr)
         *created = id;
     return ok;
@@ -494,6 +499,13 @@ bool SetPathWidth (Document& doc, Id path, Id range, double left, double right, 
         doc, path, [&] (Path& p, std::string& why) { return SetWidth (p.sections, range, left, right, why); }, error);
 }
 
+bool SetPathTaper (Document& doc, Id path, Id range, bool taper, double endLeft, double endRight, std::string& error)
+{
+    return EditPath (
+        doc, path,
+        [&] (Path& p, std::string& why) { return SetTaper (p.sections, range, taper, endLeft, endRight, why); }, error);
+}
+
 bool SetPathWidthFromPoint (Document& doc, Id path, Vec3 point, std::string& error)
 {
     return EditPath (
@@ -504,7 +516,21 @@ bool SetPathWidthFromPoint (Document& doc, Id path, Vec3 point, std::string& err
             if (!BuildAlignment (p.points, g, why) || !StationOf (g, point, station, offset))
                 return false;
             const Section* s = SectionAt (p.sections, station);
-            return s != nullptr && SetWidthFromOffset (p.sections, s->id, offset, why);
+            if (s == nullptr)
+                return false;
+            if (!s->taper)
+                return SetWidthFromOffset (p.sections, s->id, offset, why);
+            // A taper has a width at each end: the drag sets the nearer one.
+            const size_t i = static_cast<size_t> (s - p.sections.data ());
+            const double end = i + 1 < p.sections.size () ? p.sections[i + 1].station : g.length;
+            if (station - s->station <= end - station)
+                return SetWidthFromOffset (p.sections, s->id, offset, why);
+            if (!std::isfinite (offset) || std::abs (offset) < 1.0e-6) {
+                why = "drag the edge away from the centreline";
+                return false;
+            }
+            return offset > 0.0 ? SetTaper (p.sections, s->id, true, offset, -1.0, why)
+                                : SetTaper (p.sections, s->id, true, -1.0, -offset, why);
         },
         error);
 }

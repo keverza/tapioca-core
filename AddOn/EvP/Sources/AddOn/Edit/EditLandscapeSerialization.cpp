@@ -102,6 +102,9 @@ Value PathsValue (const edit::Document& doc, LandscapeStorage mode)
                                                  { "station", Number (s.station) },
                                                  { "widthLeft", Number (s.widthLeft) },
                                                  { "widthRight", Number (s.widthRight) },
+                                                 { "taper", Flag (s.taper) },
+                                                 { "endLeft", Number (s.endLeft) },
+                                                 { "endRight", Number (s.endRight) },
                                                  { "crossfall", Number (s.crossfall) },
                                                  { "fall", Integer (int (s.fall)) },
                                                  { "shoulder", Number (s.shoulder) },
@@ -210,7 +213,24 @@ Value DescriptorValue (const RegionDescriptor& d)
 Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
 {
     const auto& s = *doc.landscape;
-    Array sources, operations, objects, regions, assignments, patches, bindings, controls, entrances;
+    Array sources, operations, objects, regions, assignments, patches, bindings, controls, entrances, edges;
+    for (const auto& e : s.edges)
+        edges.push_back (Value::Object ({ { "id", IdValue (e.id) },
+                                          { "kind", Integer (int (e.kind)) },
+                                          { "path", IdValue (e.pathId) },
+                                          { "width", Number (e.width) },
+                                          { "topZ", Number (e.topZ) },
+                                          { "bottomZ", Number (e.bottomZ) },
+                                          { "footingDepth", Number (e.footingDepth) },
+                                          { "stairRun", Number (e.stairRun) },
+                                          { "stairRise", Number (e.stairRise) },
+                                          { "stairSteps", Integer (e.stairSteps) },
+                                          { "landingDepth", Number (e.landingDepth) },
+                                          { "clearance", Number (e.clearance) },
+                                          { "highSide", Integer (int (e.highSide)) },
+                                          { "material", MaterialValue (e.material) },
+                                          { "stair", Text (e.stairGuid) },
+                                          { "wall", Text (e.wallGuid) } }));
     for (const auto& e : s.entrances)
         entrances.push_back (Value::Object ({ { "id", IdValue (e.id) },
                                               { "source", IdValue (e.source) },
@@ -282,25 +302,25 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
                                              { "role", Text (v.role) },
                                              { "revision", IdValue (v.revision) } }));
     }
-    return Value::Object (
-        { { "version", Integer (1) },
-          { "mode", Text (mode == LandscapeStorage::Virtual ? "virtual" : "native") },
-          { "sessionUuid", Text (UuidText (s.sessionUuid)) },
-          { "nextId", IdValue (doc.nextId) },
-          { "revision", IdValue (doc.revision) },
-          { "entities", Entities (doc, mode) },
-          { "paths", PathsValue (doc, mode) },
-          { "landscape", Value::Object ({ { "sourceTerrainGuid", Text (s.sourceTerrainGuid) },
-                                          { "propertyLine", IdValue (s.propertyLineSourceId) },
-                                          { "sources", Value::Array (std::move (sources)) },
-                                          { "operations", Value::Array (std::move (operations)) },
-                                          { "objects", Value::Array (std::move (objects)) },
-                                          { "regions", Value::Array (std::move (regions)) },
-                                          { "assignments", Value::Array (std::move (assignments)) },
-                                          { "patches", Value::Array (std::move (patches)) },
-                                          { "bindings", Value::Array (std::move (bindings)) },
-                                          { "terrainControls", Value::Array (std::move (controls)) },
-                                          { "entrances", Value::Array (std::move (entrances)) } }) } });
+    return Value::Object ({ { "version", Integer (1) },
+                            { "mode", Text (mode == LandscapeStorage::Virtual ? "virtual" : "native") },
+                            { "sessionUuid", Text (UuidText (s.sessionUuid)) },
+                            { "nextId", IdValue (doc.nextId) },
+                            { "revision", IdValue (doc.revision) },
+                            { "entities", Entities (doc, mode) },
+                            { "paths", PathsValue (doc, mode) },
+                            { "landscape", Value::Object ({ { "sourceTerrainGuid", Text (s.sourceTerrainGuid) },
+                                                            { "propertyLine", IdValue (s.propertyLineSourceId) },
+                                                            { "sources", Value::Array (std::move (sources)) },
+                                                            { "operations", Value::Array (std::move (operations)) },
+                                                            { "objects", Value::Array (std::move (objects)) },
+                                                            { "regions", Value::Array (std::move (regions)) },
+                                                            { "assignments", Value::Array (std::move (assignments)) },
+                                                            { "patches", Value::Array (std::move (patches)) },
+                                                            { "bindings", Value::Array (std::move (bindings)) },
+                                                            { "terrainControls", Value::Array (std::move (controls)) },
+                                                            { "entrances", Value::Array (std::move (entrances)) },
+                                                            { "edges", Value::Array (std::move (edges)) } }) } });
 }
 
 bool ValidateStoredRegions (const edit::Document& doc, std::string& error)

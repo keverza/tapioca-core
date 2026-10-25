@@ -17,10 +17,14 @@ int IndexOf (const std::vector<Section>& sections, Id id)
     return -1;
 }
 
+bool Wide (double left, double right)
+{
+    return left >= 0.0 && right >= 0.0 && left + right > 0.0 && std::isfinite (left + right);
+}
+
 bool Fine (const Section& s, std::string& error)
 {
-    if (!(s.widthLeft >= 0.0) || !(s.widthRight >= 0.0) || !(s.widthLeft + s.widthRight > 0.0) ||
-        !std::isfinite (s.widthLeft + s.widthRight)) {
+    if (!Wide (s.widthLeft, s.widthRight) || (s.taper && !Wide (s.endLeft, s.endRight))) {
         error = "a path needs a width";
         return false;
     }
@@ -72,6 +76,23 @@ const Section* SectionAt (const std::vector<Section>& sections, double station)
     return found;
 }
 
+Section SectionIn (const std::vector<Section>& sections, double length, double station)
+{
+    const Section* at = SectionAt (sections, station);
+    if (at == nullptr)
+        return {};
+    Section out = *at;
+    if (!at->taper)
+        return out;
+    const size_t i = static_cast<size_t> (at - sections.data ());
+    const double end = i + 1 < sections.size () ? sections[i + 1].station : length;
+    const double span = end - at->station;
+    const double t = span > kStationTolerance ? std::clamp ((station - at->station) / span, 0.0, 1.0) : 0.0;
+    out.widthLeft = at->widthLeft + (at->endLeft - at->widthLeft) * t;
+    out.widthRight = at->widthRight + (at->endRight - at->widthRight) * t;
+    return out;
+}
+
 void EdgeDrops (const Section& s, double& left, double& right)
 {
     const double c = s.crossfall / 100.0;
@@ -91,7 +112,7 @@ void EdgeDrops (const Section& s, double& left, double& right)
     }
 }
 
-bool SplitSection (std::vector<Section>& sections, double station, Id id, std::string& error)
+bool SplitSection (std::vector<Section>& sections, double length, double station, Id id, std::string& error)
 {
     const Section* at = SectionAt (sections, station);
     if (at == nullptr || !(station > kStationTolerance)) {
@@ -103,9 +124,14 @@ bool SplitSection (std::vector<Section>& sections, double station, Id id, std::s
             error = "a range already starts there";
             return false;
         }
-    Section next = *at;
+    Section next = SectionIn (sections, length, station);
     next.id = id;
     next.station = station;
+    if (at->taper) {
+        Section& before = sections[static_cast<size_t> (at - sections.data ())];
+        before.endLeft = next.widthLeft;
+        before.endRight = next.widthRight;
+    }
     sections.insert (std::upper_bound (sections.begin (), sections.end (), station,
                                        [] (double s, const Section& x) { return s < x.station; }),
                      next);
@@ -152,6 +178,8 @@ bool SetWidth (std::vector<Section>& sections, Id id, double left, double right,
         s.widthLeft = left;
     if (right >= 0.0)
         s.widthRight = right;
+    if (!s.taper)
+        s.endLeft = s.widthLeft, s.endRight = s.widthRight;
     if (!Fine (s, error))
         return false;
     sections[static_cast<size_t> (i)] = s;
@@ -163,6 +191,30 @@ bool SetWidthEverywhere (std::vector<Section>& sections, double left, double rig
     for (const auto& s : sections)
         if (!SetWidth (sections, s.id, left, right, error))
             return false;
+    return true;
+}
+
+bool SetTaper (std::vector<Section>& sections, Id id, bool taper, double endLeft, double endRight, std::string& error)
+{
+    const int i = IndexOf (sections, id);
+    if (i < 0) {
+        error = "the range no longer exists";
+        return false;
+    }
+    Section s = sections[static_cast<size_t> (i)];
+    // A range that starts to taper does so from where it is: a side not given stays parallel.
+    if (!taper || !s.taper)
+        s.endLeft = s.widthLeft, s.endRight = s.widthRight;
+    s.taper = taper;
+    if (taper) {
+        if (endLeft >= 0.0)
+            s.endLeft = endLeft;
+        if (endRight >= 0.0)
+            s.endRight = endRight;
+    }
+    if (!Fine (s, error))
+        return false;
+    sections[static_cast<size_t> (i)] = s;
     return true;
 }
 

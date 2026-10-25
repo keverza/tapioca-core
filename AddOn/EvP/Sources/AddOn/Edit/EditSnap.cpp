@@ -1,5 +1,6 @@
 #include "Edit/EditSnap.hpp"
 #include "Edit/EditShape.hpp"
+#include "Edit/EditSnapInternal.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -61,18 +62,11 @@ Vec3 ProjectToPlane (const Plane& plane, Vec3 p)
 
 namespace {
 
-struct P2 {
-    double x = 0.0, y = 0.0;
-};
-
-struct Frame {
-    Vec3 origin, u, v;
-    P2 To (Vec3 p) const
-    {
-        const Vec3 d = p - origin;
-        return { Dot (d, u), Dot (d, v) };
-    }
-};
+using snapgather::Frame;
+using snapgather::Gather;
+using snapgather::P2;
+using snapgather::Pt;
+using snapgather::Seg;
 
 double Dist (P2 a, P2 b)
 {
@@ -104,20 +98,6 @@ bool Cross2 (P2 a, P2 b, P2 c, P2 d, double& t, double& s)
     s = ((c.x - a.x) * ry - (c.y - a.y) * rx) / den;
     return true;
 }
-
-struct Seg {
-    Vec3 a, b;
-    Ref ref;
-    std::string context;
-    int run = -1; // a piece of a drawn curve: the curve's number (unique in the gather), -1 straight
-};
-
-struct Pt {
-    Vec3 p;
-    SnapKind kind;
-    Ref ref;
-    std::string context;
-};
 
 // A guide line that the cursor is on: an axis through the anchor, a segment's
 // extension, or a segment itself. Crossings between two of them are snap points.
@@ -156,6 +136,10 @@ bool Excluded (const std::vector<Ref>& exclude, Id entity, Id vertex)
     }
     return false;
 }
+
+} // namespace
+
+namespace snapgather {
 
 void Gather (const Document& doc, const SnapContext& context, const SnapQuery& query, std::vector<Pt>& points,
              std::vector<Seg>& segments)
@@ -229,10 +213,18 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
         bool moving = false;
         for (const auto& r : query.exclude)
             moving |= r.entity == path.id;
-        PathOutline o;
+        PathOutline built;
+        const PathOutline* found = nullptr;
         std::string error;
-        if (moving || !Outline (path, query.pathStep, o, error))
+        if (moving)
             continue;
+        if (query.outlines != nullptr)
+            found = query.outlines->Get (path, query.pathStep);
+        else if (Outline (path, query.pathStep, built, error))
+            found = &built;
+        if (found == nullptr)
+            continue;
+        const PathOutline& o = *found;
         for (size_t i = 0; i < o.points.size (); ++i)
             points.push_back ({ o.points[i], SnapKind::Endpoint, { path.id, Part::PathPoint, path.points[i].id }, {} });
         for (size_t i = 0; i < o.breaks.size (); ++i)
@@ -255,6 +247,10 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
         points.push_back ({ Lerp (s.a, s.b, 0.5), SnapKind::Midpoint, {}, s.source });
     }
 }
+
+} // namespace snapgather
+
+namespace {
 
 bool Better (const Candidate& a, const Candidate& b)
 {
@@ -300,12 +296,42 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
     const bool on = std::isfinite (tol) && tol > 0.0;
     const auto has = [&] (uint32_t mode) { return (query.modes & mode) != 0; };
 
-    std::vector<Pt> points;
-    std::vector<Seg> segments;
+    std::vector<Pt> gatheredPoints;
+    std::vector<Seg> gatheredSegments;
+    const std::vector<Pt>* points = &gatheredPoints;
+    const std::vector<Seg>* segments = &gatheredSegments;
+    // With an index, only the targets that can be offered: points within the tolerance, and
+    // segments within it or -- for an extension -- with an end within the extension's reach.
+    // Visited in gather order, the result is the full scan's.
+    const SnapTargets::Index* index =
+        query.targets != nullptr && query.targets->Built () != nullptr && query.targets->Built ()->For (doc, query)
+            ? query.targets->Built ()
+            : nullptr;
+    std::vector<uint32_t> nearPoints, nearSegments;
     constexpr uint32_t sceneModes = kSnapEndpoint | kSnapMidpoint | kSnapIntersection | kSnapCentre |
                                     kSnapPerpendicular | kSnapNearest | kSnapExtension;
-    if (on && (query.modes & sceneModes) != 0)
-        Gather (doc, context, query, points, segments);
+    if (on && (query.modes & sceneModes) != 0) {
+        if (index != nullptr) {
+            points = &index->points;
+            segments = &index->segments;
+            const P2 c = index->frame.To (query.cursor);
+            const double reach =
+                has (kSnapExtension) ? (query.extensionReach > 0.0 ? query.extensionReach : 25.0 * tol) : 0.0;
+            index->Near (index->pointCells, c, tol, nearPoints);
+            index->Near (index->segmentCells, c, std::max (tol, reach), nearSegments);
+        }
+        else
+            Gather (doc, context, query, gatheredPoints, gatheredSegments);
+    }
+    // Every gathered target, or only the indexed ones near the cursor, in gather order.
+    const auto visit = [&] (const auto& all, const std::vector<uint32_t>& near, const auto& body) {
+        if (index == nullptr)
+            for (const auto& item : all)
+                body (item);
+        else
+            for (uint32_t i : near)
+                body (all[i]);
+    };
 
     std::optional<Candidate> best;
     const auto offer = [&] (Candidate c) {
@@ -316,23 +342,23 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
     };
 
     // Notable points. A middle is offered with its edge, below, so it can name the edge.
-    for (const auto& p : points) {
+    visit (*points, nearPoints, [&] (const Pt& p) {
         if (p.kind == SnapKind::Midpoint)
-            continue;
+            return;
         const uint32_t mode = p.kind == SnapKind::Endpoint   ? kSnapEndpoint
                               : p.kind == SnapKind::Midpoint ? kSnapMidpoint
                                                              : kSnapCentre;
         if (has (mode))
             offer ({ p.kind, p.p, Dist (frame.To (p.p), cursor), p.ref, p.context, {}, SnapKindName (p.kind) });
-    }
+    });
 
     // Segments near the cursor: nearest point, perpendicular foot from the anchor.
     std::vector<Line> lines;
-    for (const auto& s : segments) {
+    visit (*segments, nearSegments, [&] (const Seg& s) {
         const P2 a = frame.To (s.a), b = frame.To (s.b);
         const double t = LineParameter (a, b, cursor);
         if (std::isnan (t))
-            continue; // seen edge-on: it is a point in this projection
+            return; // seen edge-on: it is a point in this projection
         const double clamped = std::clamp (t, 0.0, 1.0);
         const double near = Dist (At (a, b, clamped), cursor);
         // On a curve, the edge it reports is the tangent there, a few tolerances long.
@@ -412,7 +438,7 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
                          s.b });
             }
         }
-    }
+    });
 
     // Axis guides through the anchor.
     if (query.anchor && has (kSnapAxis)) {

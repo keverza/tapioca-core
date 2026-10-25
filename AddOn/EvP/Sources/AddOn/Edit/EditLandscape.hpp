@@ -146,6 +146,29 @@ struct LandscapeEntrance {
     std::string doorGuid;
     bool operator== (const LandscapeEntrance&) const = default;
 };
+// A step in the designed ground along a straight baseline (a path in Document::paths): a
+// curb, a retaining (holding) wall or a stair. The baseline runs from the low end to the high
+// end of a stair; for a curb or wall `highSide` (looking along it) is the upper ground. The
+// native stair stays Archicad's: `stairGuid` links it, `wallGuid` names a committed curb/wall.
+enum class EdgeKind : uint8_t { Curb, RetainingWall, Stair };
+enum class EdgeSide : uint8_t { Left, Right };
+struct EdgeSpec {
+    Id id = kNoId;
+    EdgeKind kind = EdgeKind::Curb;
+    Id pathId = kNoId;
+    double width = 0.15;              // curb top width / wall thickness / flight width
+    double topZ = 0.0, bottomZ = 0.0; // upper and lower ground levels (a stair's top and foot)
+    double footingDepth = 0.0;        // a wall's foot below bottomZ
+    double stairRun = 0.30, stairRise = 0.17;
+    int stairSteps = 0;
+    double landingDepth = 0.0; // level run at a stair's top, inside the baseline
+    double clearance = 0.05;   // a stair's underside above the terrain
+    EdgeSide highSide = EdgeSide::Left;
+    MaterialSpec material;
+    std::string stairGuid, wallGuid;
+    bool operator== (const EdgeSpec&) const = default;
+};
+
 struct LandscapeSession {
     std::array<uint8_t, 16> sessionUuid {};
     std::string sourceTerrainGuid;
@@ -159,6 +182,7 @@ struct LandscapeSession {
     std::vector<LandscapeBinding> bindings;
     std::vector<LandscapeTerrainControl> terrainControls;
     std::vector<LandscapeEntrance> entrances;
+    std::vector<EdgeSpec> edges;
     // Document::nextId/revision are the sole allocator/publication authority.
     bool operator== (const LandscapeSession&) const = default;
 };

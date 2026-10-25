@@ -37,6 +37,12 @@ void Reverse (Path& path, double length)
         Section section = sections[i];
         section.station = length - (i + 1 < sections.size () ? sections[i + 1].station : length);
         std::swap (section.widthLeft, section.widthRight);
+        std::swap (section.endLeft, section.endRight);
+        // A taper runs the other way: it starts at the widths it used to end at.
+        if (section.taper) {
+            std::swap (section.widthLeft, section.endLeft);
+            std::swap (section.widthRight, section.endRight);
+        }
         section.fall = Flipped (section.fall);
         path.sections.push_back (section);
     }
@@ -275,7 +281,7 @@ bool SplitPath (Document& doc, Id id, double station, std::string& error, Id* cr
     b.profile.insert (b.profile.begin (), seam);
     a.sections.clear ();
     b.sections.clear ();
-    Section active = *SectionAt (source->sections, station);
+    Section active = SectionIn (source->sections, g.length, station);
     active.id = NewId (result);
     active.station = 0;
     b.sections.push_back (active);
@@ -286,6 +292,12 @@ bool SplitPath (Document& doc, Id id, double station, std::string& error, Id* cr
             section.station -= station;
             b.sections.push_back (section);
         }
+    }
+    // A taper cut by the split ends where the cut is, at its widths there.
+    if (!a.sections.empty () && a.sections.back ().taper &&
+        a.sections.back ().id == SectionAt (source->sections, station)->id) {
+        a.sections.back ().endLeft = active.widthLeft;
+        a.sections.back ().endRight = active.widthRight;
     }
     a.kerbs.clear ();
     b.kerbs.clear ();
