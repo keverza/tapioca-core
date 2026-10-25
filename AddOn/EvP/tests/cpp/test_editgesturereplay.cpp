@@ -46,9 +46,11 @@ TEST (EditGestureReplay, CachedFramesMatchUncachedFrames)
         er::Replay (scene, g, 16, {}, {}, &plain);
         geomsrv::edit::PickGeometryCache pick;
         geomsrv::edit::PathOutlineCache outlines;
+        geomsrv::edit::SnapTargets snapTargets;
         er::Caches caches;
         caches.pick = &pick;
         caches.outlines = &outlines;
+        caches.snapTargets = &snapTargets;
         er::Replay (scene, g, 16, {}, caches, &cached);
         ASSERT_EQ (plain.size (), cached.size ());
         for (size_t i = 0; i < plain.size (); ++i)

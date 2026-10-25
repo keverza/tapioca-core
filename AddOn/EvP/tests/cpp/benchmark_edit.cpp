@@ -20,10 +20,12 @@ int main (int argc, char** argv)
             for (bool cached : { false, true }) {
                 geomsrv::edit::PickGeometryCache pick;
                 geomsrv::edit::PathOutlineCache outlines;
+                geomsrv::edit::SnapTargets snapTargets;
                 er::Caches caches;
                 if (cached) {
                     caches.pick = &pick;
                     caches.outlines = &outlines;
+                    caches.snapTargets = &snapTargets;
                 }
                 er::Replay (scene, g, 3, options, caches); // warm the allocator and the caches' first build
                 const er::Timing t = er::Replay (scene, g, frames, options, caches);

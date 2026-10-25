@@ -10,6 +10,7 @@
 #include "Edit/EditPathOutlineCache.hpp"
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -81,6 +82,8 @@ struct SnapContext {
     std::function<bool (double x, double y, double& z)> height;
 };
 
+class SnapTargets;
+
 struct SnapQuery {
     Vec3 cursor;                // on the working plane
     double tolerance = 0.1;     // metres: the host converts its pixel radius
@@ -94,6 +97,11 @@ struct SnapQuery {
     // Optional, caller-owned: the paths' outlines at `pathStep` are taken from it instead of
     // tessellated at every query. The snap is identical with or without it.
     PathOutlineCache* outlines = nullptr;
+    // Optional, caller-owned: what the document and the host context offer, gathered once and
+    // indexed in the working plane (SnapTargets::Update), so a query visits only what lies near
+    // the cursor. Used only when it was updated for this query's exclusions, step and plane;
+    // otherwise the snap gathers as before. The snap is identical with or without it.
+    const SnapTargets* targets = nullptr;
     // Moving items must not snap to themselves: a vertex ref also drops the
     // segments that touch it, an entity ref drops the whole entity.
     std::vector<Ref> exclude;
@@ -130,6 +138,35 @@ struct SnapResult {
 };
 
 SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuery& query);
+
+// The snap targets of a document and a host context, kept between queries. The pointer moves
+// far more often than the document changes, so hovering re-gathers nothing: Update rebuilds
+// only when the document's entities or paths (compared by value, so an edit can never leave a
+// stale index in use), the caller's `contextKey` (bumped whenever the host context's points,
+// segments or source names change), the query's exclusions, path step or working plane differ
+// from the last build. One thread; one per editor session.
+class SnapTargets {
+  public:
+    SnapTargets ();
+    ~SnapTargets ();
+    SnapTargets (SnapTargets&&) noexcept;
+    SnapTargets& operator= (SnapTargets&&) noexcept;
+    // True when it rebuilt.
+    bool Update (const Document& doc, const SnapContext& context, uint64_t contextKey, const SnapQuery& query);
+    void Reset ();
+    size_t Points () const;
+    size_t Segments () const;
+    uint64_t builds = 0;
+
+    struct Index;
+    const Index* Built () const
+    {
+        return index_.get ();
+    }
+
+  private:
+    std::unique_ptr<Index> index_;
+};
 
 // Edges of something being moved: `edges` are where they would be at `translate`. When one
 // lies within `query.tolerance` of a parallel target edge, `translate` is corrected so the

@@ -871,6 +871,7 @@ set (EVP_TEST_SOURCES
     test_editlandscapeedge.cpp
     test_editgesturereplay.cpp
     test_editpathoutlinecache.cpp
+    test_editsnaptargets.cpp
     test_editlandscapeconstraints.cpp
     test_editlandscapefillet.cpp
     test_editlandscapegenerated.cpp

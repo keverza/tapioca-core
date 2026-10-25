@@ -275,6 +275,58 @@ bool Better (const Candidate& a, const Candidate& b)
 // point far from the gesture is rejected before any projection -- a source far in Z is never
 // excused by where it happens to land on screen. A segment is judged by its computed candidate,
 // never by blanket-rejecting a source whose endpoints happen to be off-screen.
+} // namespace
+
+// The gathered targets, and a uniform grid over them in the working plane's frame: each cell
+// lists the points in it and the segments whose bounds touch it, in gather order.
+struct SnapTargets::Index {
+    uint64_t contextKey = 0;
+    std::vector<Entity> entities; // what it was gathered from, compared on every use
+    std::vector<Path> paths;
+    std::vector<Ref> exclude;
+    double pathStep = 0.0;
+    Plane plane;
+    Frame frame;
+    std::vector<Pt> points;
+    std::vector<Seg> segments;
+    double x0 = 0.0, y0 = 0.0, cell = 1.0;
+    int nx = 0, ny = 0;
+    std::vector<std::vector<uint32_t>> pointCells, segmentCells;
+
+    bool For (const Document& doc, const SnapQuery& q) const
+    {
+        return exclude == q.exclude && pathStep == q.pathStep && entities == doc.entities && paths == doc.paths &&
+               plane.origin == q.plane.origin && plane.normal == q.plane.normal && plane.u == q.plane.u;
+    }
+    int Column (double x) const
+    {
+        return std::clamp (int (std::floor ((x - x0) / cell)), 0, nx - 1);
+    }
+    int Row (double y) const
+    {
+        return std::clamp (int (std::floor ((y - y0) / cell)), 0, ny - 1);
+    }
+    // Indices whose cells meet the square of half side `radius` about `c`, ascending: the
+    // gather order, so every tie and crossing is met in the order a full scan meets it.
+    void Near (const std::vector<std::vector<uint32_t>>& cells, P2 c, double radius, std::vector<uint32_t>& out) const
+    {
+        out.clear ();
+        if (nx == 0 || !(radius >= 0.0) || !std::isfinite (c.x + c.y + radius))
+            return;
+        const int cx0 = Column (c.x - radius), cx1 = Column (c.x + radius);
+        const int cy0 = Row (c.y - radius), cy1 = Row (c.y + radius);
+        for (int y = cy0; y <= cy1; ++y)
+            for (int x = cx0; x <= cx1; ++x) {
+                const auto& list = cells[size_t (y) * size_t (nx) + size_t (x)];
+                out.insert (out.end (), list.begin (), list.end ());
+            }
+        std::sort (out.begin (), out.end ());
+        out.erase (std::unique (out.begin (), out.end ()), out.end ());
+    }
+};
+
+namespace {
+
 bool Screened (const SnapQuery& query, const Vec3& p)
 {
     if (!query.screen)
@@ -296,6 +348,82 @@ bool Screened (const SnapQuery& query, const Vec3& p)
 
 } // namespace
 
+SnapTargets::SnapTargets () = default;
+SnapTargets::~SnapTargets () = default;
+SnapTargets::SnapTargets (SnapTargets&&) noexcept = default;
+SnapTargets& SnapTargets::operator= (SnapTargets&&) noexcept = default;
+
+void SnapTargets::Reset ()
+{
+    index_.reset ();
+}
+
+size_t SnapTargets::Points () const
+{
+    return index_ ? index_->points.size () : 0;
+}
+
+size_t SnapTargets::Segments () const
+{
+    return index_ ? index_->segments.size () : 0;
+}
+
+bool SnapTargets::Update (const Document& doc, const SnapContext& context, uint64_t contextKey, const SnapQuery& query)
+{
+    if (index_ && index_->contextKey == contextKey && index_->For (doc, query))
+        return false;
+    auto index = std::make_unique<Index> ();
+    index->entities = doc.entities;
+    index->paths = doc.paths;
+    index->contextKey = contextKey;
+    index->exclude = query.exclude;
+    index->pathStep = query.pathStep;
+    index->plane = query.plane;
+    index->frame.origin = query.plane.origin;
+    PlaneAxes (query.plane, index->frame.u, index->frame.v);
+    Gather (doc, context, query, index->points, index->segments);
+    // The grid's extent and cell: about one target per cell, at most 512 cells a side.
+    double x0 = INFINITY, y0 = INFINITY, x1 = -INFINITY, y1 = -INFINITY;
+    const auto grow = [&] (Vec3 p) {
+        const P2 q = index->frame.To (p);
+        if (!std::isfinite (q.x) || !std::isfinite (q.y))
+            return;
+        x0 = std::min (x0, q.x), x1 = std::max (x1, q.x);
+        y0 = std::min (y0, q.y), y1 = std::max (y1, q.y);
+    };
+    for (const auto& p : index->points)
+        grow (p.p);
+    for (const auto& s : index->segments)
+        grow (s.a), grow (s.b);
+    if (std::isfinite (x0)) {
+        const double w = std::max (x1 - x0, 1.0e-6), h = std::max (y1 - y0, 1.0e-6);
+        const double n = double (std::max<size_t> (1, index->points.size () + index->segments.size ()));
+        index->cell = std::max ({ std::sqrt (w * h / n), w / 512.0, h / 512.0, 1.0e-3 });
+        index->x0 = x0, index->y0 = y0;
+        index->nx = int (std::floor (w / index->cell)) + 1;
+        index->ny = int (std::floor (h / index->cell)) + 1;
+        index->pointCells.assign (size_t (index->nx) * size_t (index->ny), {});
+        index->segmentCells.assign (index->pointCells.size (), {});
+        for (uint32_t i = 0; i < index->points.size (); ++i) {
+            const P2 q = index->frame.To (index->points[i].p);
+            if (std::isfinite (q.x) && std::isfinite (q.y))
+                index->pointCells[size_t (index->Row (q.y)) * size_t (index->nx) + size_t (index->Column (q.x))]
+                    .push_back (i);
+        }
+        for (uint32_t i = 0; i < index->segments.size (); ++i) {
+            const P2 a = index->frame.To (index->segments[i].a), b = index->frame.To (index->segments[i].b);
+            if (!std::isfinite (a.x + a.y + b.x + b.y))
+                continue;
+            for (int y = index->Row (std::min (a.y, b.y)); y <= index->Row (std::max (a.y, b.y)); ++y)
+                for (int x = index->Column (std::min (a.x, b.x)); x <= index->Column (std::max (a.x, b.x)); ++x)
+                    index->segmentCells[size_t (y) * size_t (index->nx) + size_t (x)].push_back (i);
+        }
+    }
+    index_ = std::move (index);
+    ++builds;
+    return true;
+}
+
 SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuery& query)
 {
     SnapResult result;
@@ -308,12 +436,42 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
     const bool on = std::isfinite (tol) && tol > 0.0;
     const auto has = [&] (uint32_t mode) { return (query.modes & mode) != 0; };
 
-    std::vector<Pt> points;
-    std::vector<Seg> segments;
+    std::vector<Pt> gatheredPoints;
+    std::vector<Seg> gatheredSegments;
+    const std::vector<Pt>* points = &gatheredPoints;
+    const std::vector<Seg>* segments = &gatheredSegments;
+    // With an index, only the targets that can be offered: points within the tolerance, and
+    // segments within it or -- for an extension -- with an end within the extension's reach.
+    // Visited in gather order, the result is the full scan's.
+    const SnapTargets::Index* index =
+        query.targets != nullptr && query.targets->Built () != nullptr && query.targets->Built ()->For (doc, query)
+            ? query.targets->Built ()
+            : nullptr;
+    std::vector<uint32_t> nearPoints, nearSegments;
     constexpr uint32_t sceneModes = kSnapEndpoint | kSnapMidpoint | kSnapIntersection | kSnapCentre |
                                     kSnapPerpendicular | kSnapNearest | kSnapExtension;
-    if (on && (query.modes & sceneModes) != 0)
-        Gather (doc, context, query, points, segments);
+    if (on && (query.modes & sceneModes) != 0) {
+        if (index != nullptr) {
+            points = &index->points;
+            segments = &index->segments;
+            const P2 c = index->frame.To (query.cursor);
+            const double reach =
+                has (kSnapExtension) ? (query.extensionReach > 0.0 ? query.extensionReach : 25.0 * tol) : 0.0;
+            index->Near (index->pointCells, c, tol, nearPoints);
+            index->Near (index->segmentCells, c, std::max (tol, reach), nearSegments);
+        }
+        else
+            Gather (doc, context, query, gatheredPoints, gatheredSegments);
+    }
+    // Every gathered target, or only the indexed ones near the cursor, in gather order.
+    const auto visit = [&] (const auto& all, const std::vector<uint32_t>& near, const auto& body) {
+        if (index == nullptr)
+            for (const auto& item : all)
+                body (item);
+        else
+            for (uint32_t i : near)
+                body (all[i]);
+    };
 
     std::optional<Candidate> best;
     const auto offer = [&] (Candidate c) {
@@ -324,23 +482,23 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
     };
 
     // Notable points. A middle is offered with its edge, below, so it can name the edge.
-    for (const auto& p : points) {
+    visit (*points, nearPoints, [&] (const Pt& p) {
         if (p.kind == SnapKind::Midpoint)
-            continue;
+            return;
         const uint32_t mode = p.kind == SnapKind::Endpoint   ? kSnapEndpoint
                               : p.kind == SnapKind::Midpoint ? kSnapMidpoint
                                                              : kSnapCentre;
         if (has (mode))
             offer ({ p.kind, p.p, Dist (frame.To (p.p), cursor), p.ref, p.context, {}, SnapKindName (p.kind) });
-    }
+    });
 
     // Segments near the cursor: nearest point, perpendicular foot from the anchor.
     std::vector<Line> lines;
-    for (const auto& s : segments) {
+    visit (*segments, nearSegments, [&] (const Seg& s) {
         const P2 a = frame.To (s.a), b = frame.To (s.b);
         const double t = LineParameter (a, b, cursor);
         if (std::isnan (t))
-            continue; // seen edge-on: it is a point in this projection
+            return; // seen edge-on: it is a point in this projection
         const double clamped = std::clamp (t, 0.0, 1.0);
         const double near = Dist (At (a, b, clamped), cursor);
         // On a curve, the edge it reports is the tangent there, a few tolerances long.
@@ -420,7 +578,7 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
                          s.b });
             }
         }
-    }
+    });
 
     // Axis guides through the anchor.
     if (query.anchor && has (kSnapAxis)) {

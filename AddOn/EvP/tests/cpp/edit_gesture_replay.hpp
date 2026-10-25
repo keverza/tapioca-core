@@ -75,6 +75,7 @@ inline const char* GestureName (Gesture g)
 struct Caches {
     ed::PickGeometryCache* pick = nullptr;
     ed::PathOutlineCache* outlines = nullptr; // shared by the snap and both pavings; pruned per frame
+    ed::SnapTargets* snapTargets = nullptr;   // updated before each snap, rebuilt only on a change
 };
 
 // Everything a frame produced that a cache must not change.
@@ -160,6 +161,10 @@ inline FrameResult RunFrame (ed::Document& doc, const Scene& scene, Gesture gest
     q.tolerance = o.pickRadius / o.pixelsPerMetre;
     q.pathStep = o.pathStep;
     q.outlines = caches.outlines;
+    if (caches.snapTargets != nullptr) {
+        caches.snapTargets->Update (doc, {}, 0, q);
+        q.targets = caches.snapTargets;
+    }
     if (gesture == Gesture::Drag && path != nullptr)
         q.exclude.push_back ({ moved, ed::Part::PathPoint, path->points.front ().id });
     const ed::SnapResult snap = ed::Snap (doc, {}, q);
