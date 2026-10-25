@@ -185,6 +185,9 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
         result.error = "visibility study needs a live non-empty snapshot";
         return result;
     }
+    // The display reads the snapshot itself (capture stamp, element GUIDs),
+    // not only its id: the C++ study keeps it, so this one must too.
+    result.snapshot = snapshot;
     result.snapshotId = snapshot->id;
     RayShim shim { snapshot, nullptr, &isCancelled };
     const TapiocaRayQueryVtable vtable = VtableOf (shim);

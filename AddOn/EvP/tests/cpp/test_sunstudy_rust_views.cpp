@@ -115,6 +115,8 @@ void ExpectSameVisibility (const VisibilityStudyResult& e, const VisibilityStudy
     EXPECT_TRUE (SameBits (a.analysedArea, e.analysedArea)) << what << " area";
     EXPECT_EQ (a.displayElements, e.displayElements) << what;
     EXPECT_EQ (a.snapshotId, e.snapshotId) << what;
+    // The display path dereferences the snapshot, so the pointer is contract too.
+    EXPECT_EQ (a.snapshot, e.snapshot) << what;
     EXPECT_TRUE (SameBits (a.grid.positions, e.grid.positions)) << what << " triangle cells";
     EXPECT_TRUE (SameBits (a.patchGrid.positions, e.patchGrid.positions)) << what << " patch cells";
     EXPECT_EQ (a.atlas.width, e.atlas.width) << what;
