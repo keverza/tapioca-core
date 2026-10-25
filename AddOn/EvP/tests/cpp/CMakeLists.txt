@@ -1304,6 +1304,14 @@ endif ()
 # the software device every Windows has, no hardware GPU (test_guestdepthpull.cpp).
 if (WIN32)
     target_link_libraries (EvPGeomTests PRIVATE d3dcompiler dxguid d3d11 dxgi)
+    # The DXR worker's backend, differential against the CPU reference backend
+    # (test_dxrbackend.cpp). It creates its own D3D12 device and SKIPS without a
+    # DXR Tier 1.0 adapter. The worker executable itself is built by the add-on.
+    target_sources (EvPGeomTests PRIVATE test_dxrbackend.cpp
+        "${EVP_ROOT}/Sources/DxrWorker/DxrDevice.cpp"
+        "${EVP_ROOT}/Sources/DxrWorker/DxrBackend.cpp")
+    target_include_directories (EvPGeomTests PRIVATE "${EVP_ROOT}/Sources")
+    target_link_libraries (EvPGeomTests PRIVATE d3d12)
 endif ()
 
 if (MSVC)

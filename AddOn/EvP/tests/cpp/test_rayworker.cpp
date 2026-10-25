@@ -246,6 +246,15 @@ TEST (RayWorkerProtocol, ReasonCodesAreTheContractStrings)
     EXPECT_STREQ (GpuReasonCode (GpuReason::OutOfMemory), "out_of_memory");
     EXPECT_STREQ (GpuReasonCode (GpuReason::WorkerMissing), "worker_missing");
     EXPECT_STREQ (GpuReasonCode (GpuReason::DisabledForSession), "gpu_disabled_for_session");
+    EXPECT_STREQ (GpuReasonCode (GpuReason::DxrUnsupported), "dxr_unsupported");
+    EXPECT_STREQ (GpuReasonCode (GpuReason::WorkerTimeout), "worker_timeout");
+    EXPECT_STREQ (GpuReasonCode (GpuReason::DeviceRemoved), "device_removed");
+    EXPECT_STREQ (GpuReasonCode (GpuReason::PrecisionUnsupported), "precision_unsupported");
+    EXPECT_STREQ (GpuReasonCode (GpuReason::ValidationFailed), "validation_failed");
+    // The wire value is contract too: a newer worker's reason must be known here.
+    EXPECT_EQ (static_cast<uint32_t> (GpuReason::ValidationFailed), 13u);
+    EXPECT_TRUE (IsKnownGpuReason (13));
+    EXPECT_FALSE (IsKnownGpuReason (14));
     EXPECT_FALSE (IsKnownGpuReason (99));
 }
 

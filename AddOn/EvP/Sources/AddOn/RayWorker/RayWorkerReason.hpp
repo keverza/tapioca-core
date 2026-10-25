@@ -33,6 +33,17 @@ enum class GpuReason : uint32_t {
     DisabledForSession = 7,
     // The worker refused or failed a request for a reason not listed above.
     WorkerFailed = 8,
+    // G0 additions (HANDOFF-SunStudyRust.md §7.1 G1 reasons):
+    // A D3D12 device exists but no adapter offers DXR Tier 1.0.
+    DxrUnsupported = 9,
+    // The worker or the GPU missed a startup, heartbeat or dispatch deadline.
+    WorkerTimeout = 10,
+    // The graphics device was removed or reset during the work.
+    DeviceRemoved = 11,
+    // The device cannot meet the precision contract for this scene.
+    PrecisionUnsupported = 12,
+    // A result failed validation (corrupt, stale or inconsistent).
+    ValidationFailed = 13,
 };
 
 // The stable text, e.g. "worker_crashed". Unknown values map to "unknown".
