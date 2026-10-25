@@ -200,13 +200,15 @@ void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, doub
         std::vector<uint32_t> next (area.triangles.begin (), area.triangles.begin () + firstSplit);
         next.reserve (area.triangles.size () + 6);
         uint32_t made = UINT32_MAX;
+        // Triangles it does not split are copied a run at a time, in place.
+        size_t run = firstSplit;
         for (size_t i = firstSplit; i + 2 < area.triangles.size (); i += 3) {
             const uint32_t a = area.triangles[i], b = area.triangles[i + 1], c = area.triangles[i + 2];
             std::array<double, 3> w;
-            if (!splits (i, w)) {
-                next.insert (next.end (), { a, b, c });
+            if (!splits (i, w))
                 continue;
-            }
+            next.insert (next.end (), area.triangles.begin () + run, area.triangles.begin () + i);
+            run = i + 3;
             if (made == UINT32_MAX) {
                 made = uint32_t (area.vertices.size ());
                 area.vertices.push_back ({ p.x, p.y, height (p) });
@@ -217,6 +219,8 @@ void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, doub
                 if (w[(k + 2) % 3] > 1e-9)
                     next.insert (next.end (), { ids[k], ids[(k + 1) % 3], made });
         }
+        next.insert (next.end (), area.triangles.begin () + run,
+                     area.triangles.begin () + (area.triangles.size () / 3) * 3);
         area.triangles = std::move (next);
     }
     ImproveEdges (area);

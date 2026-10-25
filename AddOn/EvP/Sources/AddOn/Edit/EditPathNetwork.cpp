@@ -82,28 +82,64 @@ double BeyondFloor (const Source& s, Vec3 p)
 }
 
 // The height at a plan point: the path it lies in (or nearest, at a junction's rounding).
+//
+// The nearest is the path with the least `beyond`, the first of them in `sources` order on a
+// tie, and the junctions blend in `sources` order. Finding that least value does not need the
+// order, so the paths are tried nearest bound first and the search stops where no bound can
+// beat it; the winner and the blend are then read in the original order, so the result is the
+// one a plain pass over every path gives, to the bit.
 double HeightAt (const std::vector<Source>& sources, Vec3 p)
 {
-    double best = std::numeric_limits<double>::infinity (), z = 0.0;
-    double weighted = 0, weights = 0, blend = 0;
-    for (const auto& s : sources) {
-        double influence = 0;
+    struct Probe {
+        double floor = 0, influence = 0, h = 0, beyond = 0;
+        bool done = false, ok = false;
+    };
+    thread_local std::vector<Probe> probes;
+    thread_local std::vector<size_t> order;
+    probes.assign (sources.size (), {});
+    order.clear ();
+    for (size_t i = 0; i < sources.size (); ++i) {
+        const Source& s = sources[i];
+        Probe& probe = probes[i];
         if (p.x >= s.jx0 && p.x <= s.jx1 && p.y >= s.jy0 && p.y <= s.jy1)
             for (const auto& [at, radius] : s.junctions) {
                 const double t = std::clamp (2.0 - DistanceXY (p, at) / radius, 0.0, 1.0);
-                influence = std::max (influence, t * t * (3 - 2 * t));
+                probe.influence = std::max (probe.influence, t * t * (3 - 2 * t));
             }
-        // A path that can neither be the nearest nor blend into a junction here changes
-        // nothing: skipping it is exact, not an approximation.
-        if (influence <= 0 && BeyondFloor (s, p) > best)
+        probe.floor = BeyondFloor (s, p);
+        order.push_back (i);
+    }
+    const auto measure = [&] (size_t i) -> const Probe& {
+        Probe& probe = probes[i];
+        if (!probe.done) {
+            probe.ok = SurfaceHeight (*sources[i].path, sources[i].geometry, p, probe.h, probe.beyond);
+            probe.done = true;
+        }
+        return probe;
+    };
+    std::sort (order.begin (), order.end (), [&] (size_t a, size_t b) { return probes[a].floor < probes[b].floor; });
+    double best = std::numeric_limits<double>::infinity ();
+    for (size_t i : order) {
+        if (probes[i].floor > best)
+            break; // every later bound is larger still
+        const Probe& probe = measure (i);
+        if (probe.ok && probe.beyond < best)
+            best = probe.beyond;
+    }
+    double z = 0.0;
+    for (const auto& probe : probes)
+        if (probe.done && probe.ok && probe.beyond == best) {
+            z = probe.h;
+            break;
+        }
+    double weighted = 0, weights = 0, blend = 0;
+    for (size_t i = 0; i < sources.size (); ++i) {
+        if (probes[i].influence <= 0)
             continue;
-        double h = 0.0, beyond = 0.0;
-        if (!SurfaceHeight (*s.path, s.geometry, p, h, beyond))
+        const Probe& probe = measure (i);
+        if (!probe.ok)
             continue;
-        if (beyond < best)
-            best = beyond, z = h;
-        if (influence <= 0)
-            continue;
+        const Source& s = sources[i];
         double station = 0, offset = 0;
         Placement frame;
         if (!StationOf (s.geometry, p, station, offset) || !Locate (s.geometry, station, frame))
@@ -111,10 +147,10 @@ double HeightAt (const std::vector<Source>& sources, Vec3 p)
         const Section section = SectionIn (s.path->sections, s.geometry.length, station);
         const double width = std::max (section.widthLeft, section.widthRight);
         const double distance = DistanceXY (p, frame.point) / width;
-        const double weight = influence / std::pow (1 + distance * distance, 2);
-        weighted += weight * h;
+        const double weight = probe.influence / std::pow (1 + distance * distance, 2);
+        weighted += weight * probe.h;
         weights += weight;
-        blend = std::max (blend, influence);
+        blend = std::max (blend, probe.influence);
     }
     // A continuous partition of unity replaces the old deepest-strip winner
     // inside junctions. Feather back to the authored arms outside the junction.
@@ -260,7 +296,11 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
                 KerbSide side = KerbSide::Left;
                 int sample = -1;
                 double station = 0.0;
-                if (OnOutline (sources[s].outline, v, side, sample, station))
+                // OnOutline accepts nothing farther than kOn from the outline's samples.
+                const Source& src = sources[s];
+                if (v.x < src.x0 - kOn || v.x > src.x1 + kOn || v.y < src.y0 - kOn || v.y > src.y1 + kOn)
+                    continue;
+                if (OnOutline (src.outline, v, side, sample, station))
                     owners.push_back ({ s, side, station });
             }
             if (owners.empty ())
