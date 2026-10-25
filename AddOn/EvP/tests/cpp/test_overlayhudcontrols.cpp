@@ -119,7 +119,7 @@ std::vector<std::pair<float, float>> Controls (Fresh& hud, const std::vector<con
 {
     std::vector<std::pair<float, float>> runs;
     bool in = false;
-    for (float y = Top (host) + 100; y < Top (host) + host.height - 36; y += 2.0f) {
+    for (float y = Top (host) + 55; y < Top (host) + host.height - 36; y += 2.0f) {
         const bool hand = hud.Lay (panels, At (x, y)).hand;
         if (hand && !in)
             runs.push_back ({ y, y });
@@ -195,11 +195,25 @@ TEST (OverlayHudControls, TitledPanelsAreTabsOfOneHost)
     EXPECT_TRUE (Box (hud.Lay ({ &sunAgain, &areaAgain }, At (600.0f, 600.0f)).host, 0x3355CCFFu, box));
 }
 
-// ⚠️ THE USER, 2026-09-30: one tab at the side, its text turned 90 degrees, that opens and
-// closes the panel. It stands at the view's right edge, taller than wide, its title running
-// down it under the overlay's circle; filled with the accent while the host is open. The close button at the end of the
-// host's tab row closes it too, and every open and close is said.
-TEST (OverlayHudControls, OneTurnedTabOpensAndClosesTheHost)
+TEST (OverlayHudControls, ActiveWorkflowTabReturnsFromSettings)
+{
+    Watched hud;
+    RightDock (hud.state);
+    const layers::Panel panel = Titled ("Area metrics");
+    OpenSettings (hud, { &panel });
+    const hud::Layout settings = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    ASSERT_EQ (hud.engine.Selected (), "tapioca.settings");
+    const float x = Left (settings.host) + 40.0f;
+    const float y = Top (settings.host) + 16.0f;
+    EXPECT_TRUE (hud.Lay ({ &panel }, At (x, y)).hand);
+    hud.Click ({ &panel }, x, y);
+    EXPECT_EQ (hud.engine.Selected (), "hud#0");
+    EXPECT_FALSE (hud.state->criteriaTextActive);
+}
+
+// The side dock is vertical and attached to the panel. Its separate arrow toggles
+// the panel; the turned title opens workflow choices without changing panel state.
+TEST (OverlayHudControls, OneTurnedTabHasASeparatePanelArrow)
 {
     Watched hud;
     RightDock (hud.state);
@@ -225,34 +239,15 @@ TEST (OverlayHudControls, OneTurnedTabOpensAndClosesTheHost)
     EXPECT_FALSE (hud.engine.Open ());
     EXPECT_TRUE (closed.host.vertices.empty ());
     EXPECT_FALSE (Box (closed.dock, panel.accentRgba, box)) << "in the card's colours while closed";
-    hud.Click ({ &panel }, x, y);
+    hud.Click ({ &panel }, x, collapseY);
     EXPECT_TRUE (hud.engine.Open ());
-
-    // The close button, last along the tab row.
-    const hud::Layout again = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    const float headerY = Top (again.host) + 16;
-    float collapseX = -1;
-    bool inControl = false;
-    int controls = 0;
-    for (float sample = Left (again.host) + 12; sample < Left (again.host) + again.host.width - 12; sample += 2) {
-        const bool hand = hud.Lay ({ &panel }, At (sample, headerY)).hand;
-        if (hand && !inControl)
-            ++controls;
-        if (controls == 2 && hand) {
-            collapseX = sample;
-            break;
-        }
-        inControl = hand;
-    }
-    ASSERT_GT (collapseX, 0);
-    hud.Click ({ &panel }, collapseX, headerY);
-    EXPECT_FALSE (hud.engine.Open ());
-    ASSERT_EQ (hud.heard.size (), 3u);
+    const hud::Layout choices = hud.Click ({ &panel }, x, y);
+    EXPECT_TRUE (choices.popup);
+    EXPECT_TRUE (hud.engine.Open ()) << "the workflow picker does not collapse the panel";
+    ASSERT_EQ (hud.heard.size (), 2u);
     EXPECT_EQ (hud.heard[0].kind, "hud");
     EXPECT_EQ (hud.heard[0].text, "closed");
     EXPECT_EQ (hud.heard[1].text, "open");
-    EXPECT_EQ (hud.heard[2].text, "closed");
-    EXPECT_EQ (hud.heard[2].title, "Area metrics");
 }
 
 // A layer's first titled panel asked to start collapsed starts the host closed; a panel
@@ -431,8 +426,8 @@ TEST (OverlayHudControls, SettingsSetsTheTextSizeInBothViews)
 
 // ⚠️ THE USER, 2026-09-30: on the side tab, a filled or empty circle that shows and hides the
 // whole overlay and its HUD without destroying them. Pressed, nothing is laid out but the
-// dock, and the change is said; the dock's title brings everything back, the panel open.
-TEST (OverlayHudControls, TheDocksCircleHidesTheOverlayAndItsTitleBringsItBack)
+// dock, and the change is said; the dock arrow brings the panel back.
+TEST (OverlayHudControls, TheDocksCircleHidesTheOverlayAndItsArrowBringsItBack)
 {
     Watched hud;
     RightDock (hud.state);
@@ -455,8 +450,8 @@ TEST (OverlayHudControls, TheDocksCircleHidesTheOverlayAndItsTitleBringsItBack)
     ASSERT_EQ (hud.heard.size (), 1u);
     EXPECT_EQ (hud.heard[0].kind, "overlay");
     EXPECT_EQ (hud.heard[0].text, "hidden");
-    // Its title: everything back, the panel open.
-    hud.Click ({ &panel, &plain }, x, 400.0f + hidden.dock.offset[1] + hidden.dock.height * 0.6f);
+    // Its arrow: everything back, the panel open.
+    hud.Click ({ &panel, &plain }, x, 400.0f + hidden.dock.offset[1] + hidden.dock.height - hidden.dock.width * 0.5f);
     const hud::Layout back = hud.Lay ({ &panel, &plain }, At (600.0f, 600.0f));
     EXPECT_TRUE (hud::ContentShown (*hud.state));
     EXPECT_TRUE (hud.engine.Open ());
@@ -479,9 +474,9 @@ TEST (OverlayHudControls, SettingsHidesALayerAndItsPanels)
     // The check boxes, at the page's left: Show overlay, Hover readout, then one per layer.
     const float x = Left (settings.host) + 24.0f;
     std::vector<std::pair<float, float>> boxes = Controls (hud, { &panel }, settings.host, x);
-    ASSERT_EQ (boxes.size (), 5u); // The collapsed Graphics style lab follows the layer checkboxes.
+    ASSERT_EQ (boxes.size (), 4u); // Show overlay, hover readout, then the two layer checkboxes.
     const uint64_t revision = hud::Revision (*hud.state);
-    hud.Click ({ &panel }, x, Middle (boxes[3]));
+    hud.Click ({ &panel }, x, Middle (boxes[2]));
     EXPECT_FALSE (hud::LayerShown (*hud.state, "hud"));
     EXPECT_TRUE (hud::LayerShown (*hud.state, "tapioca.storeySlices"));
     EXPECT_GT (hud::Revision (*hud.state), revision);
@@ -492,7 +487,7 @@ TEST (OverlayHudControls, SettingsHidesALayerAndItsPanels)
     const hud::Layout without = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     EXPECT_EQ (hud.engine.Selected (), "tapioca.settings");
     boxes = Controls (hud, { &panel }, without.host, x);
-    ASSERT_GE (boxes.size (), 4u);
+    ASSERT_GE (boxes.size (), 3u);
     hud.Click ({ &panel }, x, Middle (boxes[2]));
     EXPECT_TRUE (hud::LayerShown (*hud.state, "hud"));
     EXPECT_EQ (hud.engine.Selected (), "tapioca.settings") << "visibility does not navigate";
@@ -510,7 +505,7 @@ TEST (OverlayHudControls, ALayerWithoutAPanelHasTheDockAndSettings)
     EXPECT_FALSE (hud.engine.Open ());
     EXPECT_TRUE (first.host.vertices.empty ());
     const float x = 1200.0f + first.dock.offset[0] + first.dock.width * 0.5f;
-    hud.Click ({}, x, 400.0f + first.dock.offset[1] + first.dock.height * 0.6f);
+    hud.Click ({}, x, 400.0f + first.dock.offset[1] + first.dock.height - first.dock.width * 0.5f);
     const hud::Layout open = hud.Lay ({}, At (600.0f, 600.0f));
     EXPECT_TRUE (hud.engine.Open ());
     EXPECT_GT (open.host.height, 0.0f);
@@ -572,9 +567,9 @@ TEST (OverlayHudControls, ARightClickOnTheHudOpensItsMenu)
     ASSERT_TRUE (again.popup);
     EXPECT_FALSE (hud::ContentShown (*hud.state)) << "a right click is not the title's press";
     items = Rows (again.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 4u) << "family heading, workflow, pages and dock location";
-    ASSERT_TRUE (Box (again.overlay, panel.textRgba, box));
-    hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[1]));
+    ASSERT_EQ (items.size (), 1u) << "the dock context menu only offers its location submenu";
+    hud.Click ({ &panel }, 600.0f, 600.0f); // dismiss the context menu
+    hud.Click ({ &panel }, dx, Top (hidden.dock) + hidden.dock.height - hidden.dock.width * 0.5f);
     EXPECT_TRUE (hud::ContentShown (*hud.state));
     EXPECT_TRUE (hud.engine.Open ());
     EXPECT_GT (hud.Lay ({ &panel }, At (600.0f, 600.0f)).host.height, 0.0f);
@@ -644,7 +639,7 @@ TEST (OverlayHudControls, ASectionFoldedInTheHostIsSaidOnce)
     // The section's row: under the tab row, the swatch and the row. Found by pointing down
     // the page until the hand shows below the tab row.
     float row = 0.0f;
-    for (float probeY = Top (open.host) + 110; probeY < Top (open.host) + open.host.height && row == 0.0f;
+    for (float probeY = Top (open.host) + 75; probeY < Top (open.host) + open.host.height && row == 0.0f;
          probeY += 2.0f)
         if (hud.Lay ({ &panel }, At (Left (open.host) + 60.0f, probeY)).hand)
             row = probeY;
@@ -723,8 +718,8 @@ TEST (OverlayHudControls, HoverModeReadsOutInThePanelAndTintsTheItem)
     const hud::Layout settings = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     const float x = Left (settings.host) + 24.0f;
     const std::vector<std::pair<float, float>> boxes = Controls (hud, { &panel }, settings.host, x);
-    ASSERT_EQ (boxes.size (), 4u) << "Show overlay, Hover readout, the layer, Graphics style lab";
-    hud.Click ({ &panel }, x, Middle (boxes[2]));
+    ASSERT_EQ (boxes.size (), 3u) << "Show overlay, Hover readout, the layer";
+    hud.Click ({ &panel }, x, Middle (boxes[1]));
     EXPECT_TRUE (hud::HoverMode (*hud.state));
     ASSERT_EQ (hud.heard.back ().kind, "hover");
     EXPECT_EQ (hud.heard.back ().text, "on");
@@ -757,8 +752,29 @@ TEST (OverlayHudControls, HoverModeReadsOutInThePanelAndTintsTheItem)
     EXPECT_FLOAT_EQ (hud.Lay ({ &panel }, nothing).host.height, idle.host.height);
 }
 
-// The chip's workflow menu opens a closed panel; the panel's menu still controls readout.
-TEST (OverlayHudControls, DockWorkflowMenuOpensPanelAndItsMenuEnablesReadout)
+TEST (OverlayHudControls, DockFlyoutListsWorkflowsAndClosesAfterSelection)
+{
+    Watched hud;
+    RightDock (hud.state);
+    const layers::Panel sun = Titled ("Sun study"), area = Titled ("Area metrics");
+    const hud::Layout before = hud.Lay ({ &sun, &area }, At (600.0f, 600.0f));
+    const float x = Left (before.dock) + before.dock.width * 0.5f;
+    const float y = Top (before.dock) + before.dock.width * 2.5f;
+    const hud::Layout choices = hud.Click ({ &sun, &area }, x, y);
+    ASSERT_TRUE (choices.popup);
+    EXPECT_EQ (hud.engine.Selected (), "hud#0");
+    const auto rows = Rows (choices.overlay, sun.textRgba);
+    ASSERT_EQ (rows.size (), 2u);
+    float box[4] = {};
+    ASSERT_TRUE (Box (choices.overlay, sun.textRgba, box));
+    hud.Click ({ &sun, &area }, box[0] + 4.0f, Middle (rows[1]));
+    EXPECT_EQ (hud.engine.Selected (), "hud#1");
+    EXPECT_FALSE (hud.Lay ({ &sun, &area }, At (600.0f, 600.0f)).popup);
+    EXPECT_FALSE (hud.state->criteriaTextActive);
+}
+
+// The chip's workflow flyout opens a closed panel; the panel's menu still controls readout.
+TEST (OverlayHudControls, DockWorkflowFlyoutOpensPanelAndItsMenuEnablesReadout)
 {
     Watched hud;
     RightDock (hud.state);
@@ -769,18 +785,19 @@ TEST (OverlayHudControls, DockWorkflowMenuOpensPanelAndItsMenuEnablesReadout)
     const hud::Layout closed = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     ASSERT_FALSE (hud::HudOpen (*hud.state));
     ASSERT_EQ (closed.host.vertices.size (), 0u) << "closed to the dock";
-    // The dock's title: the menu from there.
+    // The dock's title: the workflow tabs from there.
     const float dx = 1200.0f + closed.dock.offset[0] + closed.dock.width * 0.5f;
-    const float dy = 400.0f + closed.dock.offset[1] + closed.dock.width * 0.5f;
-    const hud::Layout menu = RightClick (hud, { &panel }, dx, dy);
+    const float dy = Top (closed.dock) + closed.dock.width * 2.5f;
+    const hud::Layout menu = hud.Click ({ &panel }, dx, dy);
     ASSERT_TRUE (menu.popup);
     auto items = Rows (menu.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 4u) << "family heading, workflow, pages and dock location";
+    ASSERT_EQ (items.size (), 1u) << "one available workflow";
     float box[4] = {};
     ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
-    hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[1]));
+    hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[0]));
     EXPECT_TRUE (hud::HudOpen (*hud.state));
     const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_FALSE (open.popup) << "the workflow tabs disappear after selection";
     const float x = Left (open.host) + open.host.width * 0.5f;
     const float y = Top (open.host) + open.host.height - 4.0f;
     const hud::Layout panelMenu = RightClick (hud, { &panel }, x, y);

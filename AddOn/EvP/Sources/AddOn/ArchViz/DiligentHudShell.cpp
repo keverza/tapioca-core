@@ -95,8 +95,6 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     }
     if (dock.press.top)
         surfaceswitch::Request (surfaceswitch::Surface::Overlay);
-    if (dock.press.title)
-        shell.open = true;
     if (dock.press.collapse)
         shell.open = !shell.open;
 
@@ -135,8 +133,6 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
         hudshell::Host (spec, shell.held, shell.shownLast, shell.placement, page, nullptr, &shell.navigation);
     if (!result.pressed.empty ())
         shell.held = result.pressed;
-    if (result.closed)
-        shell.open = false;
     // The dock over everything: a panel dragged onto it never hides it.
     if (ImGuiWindow* const dock = ImGui::FindWindowByName ("###tapioca.dock"); dock != nullptr)
         ImGui::BringWindowToDisplayFront (dock);

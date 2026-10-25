@@ -267,9 +267,11 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, const 
     }
     {
         const auto& press = dock.press;
-        if (press.collapse)
+        if (press.collapse) {
+            if (!open)
+                ShowOverlay (true);
             SetOpen (!open);
-        const bool pressed = press.title;
+        }
         if (press.lock) {
             store->editLocked = !store->editLocked;
             // Out of locked mode nothing stays selected (user, 2026-10-16: "When exit locked mode
@@ -294,11 +296,6 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, const 
         }
         else if (press.top && !own.viewerSurface) {
             ShowOverlay (!store->shown);
-        }
-        else if (pressed) {
-            // Hidden, the title brings everything back, the panel open.
-            ShowOverlay (true);
-            SetOpen (true);
         }
     }
     inset = store->host.dock.edge == hudshell::DockEdge::Right ? window->Size.x + kDockGap * ui : 0;
@@ -471,8 +468,6 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
         changes.push_back (
             { "panel", panel ? result.pressed : std::string (), title, std::string (), -1, 1.0, title, true });
     }
-    if (result.closed)
-        SetOpen (false);
 }
 
 // ⚠️ THE HUD'S OWN MENU ON A RIGHT CLICK (the user, 2026-09-30: right click on the HUD to

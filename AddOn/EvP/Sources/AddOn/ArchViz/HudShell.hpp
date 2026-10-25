@@ -138,7 +138,7 @@ constexpr uint32_t kBusyRgba = 0xE8A33DFFu;
 constexpr uint32_t kErrorRgba = 0xE5484DFFu;
 uint32_t CircleColour (const Circle& circle, uint32_t ink, double seconds);
 
-// What the user pressed on the dock: its title, its top circle, its bottom circle.
+// What the user pressed on the dock: the title opens workflow tabs; the arrow toggles the panel.
 struct DockPress {
     bool title = false;
     bool top = false;
@@ -174,6 +174,9 @@ ImVec2 DockPosition (const DockPlacement& placement, ImVec2 view, ImVec2 size, f
 ImVec2 DockFraction (const DockPlacement& placement);
 void SnapDock (DockPlacement& placement, ImVec2 position, ImVec2 view, ImVec2 size, float scale);
 ImVec2 MagneticDockPosition (ImVec2 position, ImVec2 view, ImVec2 size, float scale);
+struct DockPanelRect;
+// Position the workflow flyout beside the dock on the side with the most usable space.
+DockPanelRect WorkflowFlyoutAtDock (ImVec2 view, ImVec2 dockMin, ImVec2 dockMax, ImVec2 wanted);
 struct HostTab;
 struct DockResult {
     DockPress press;
@@ -262,15 +265,12 @@ struct NavigationState {
     std::string workflowTitle;
 };
 std::string ResolveNavigation (const std::string& input, const std::vector<HostTab>& tabs);
-// Draw inside an open popup. Both dock and panel selector call this one menu.
-std::string WorkflowMenu (const std::vector<HostTab>& tabs, const std::string& held);
-std::string NavigationHeader (const HostSpec& spec, const std::string& held, NavigationState& state, bool& collapse);
+std::string NavigationHeader (const HostSpec& spec, const std::string& held, NavigationState& state);
 std::string NavigationInput (const HostSpec& spec, NavigationState& state, bool& active);
 
 struct HostResult {
     bool textActive = false;
     bool drawn = false;
-    bool closed = false;  // the close button at the tab row's end
     std::string pressed;  // the tab the user pressed in this frame; empty for none
     std::string shown;    // the tab whose page was drawn
     bool moved = false;   // dragged in this frame: `placement` says where to

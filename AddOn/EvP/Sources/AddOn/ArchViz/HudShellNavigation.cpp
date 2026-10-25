@@ -21,52 +21,6 @@ bool Global (const std::string& key)
 {
     return key == kSelectionKey || key == kSettingsKey || key == kDebugKey || key == kStatsKey;
 }
-WorkflowFamily FamilyOf (const HostTab& tab)
-{
-    return Global (tab.key) ? WorkflowFamily::Global : tab.family;
-}
-const char* FamilyName (WorkflowFamily family)
-{
-    switch (family) {
-        case WorkflowFamily::Analyze:
-            return "Analyze";
-        case WorkflowFamily::Design:
-            return "Design";
-        case WorkflowFamily::Document:
-            return "Document";
-        case WorkflowFamily::Other:
-            return "Other workflows";
-        case WorkflowFamily::Global:
-            return "Pages";
-    }
-    return "Other workflows";
-}
-
-bool WorkflowSelector (const std::string& title, ui::IconId icon)
-{
-    const ImGuiStyle& style = ImGui::GetStyle ();
-    const ImVec2 text = ImGui::CalcTextSize (title.c_str ());
-    const float height = ImGui::GetFrameHeight ();
-    const float glyph = std::round (height * 0.64f);
-    const float arrow = std::round (height * 0.30f);
-    const float iconSpace = icon == ui::IconId::None ? 0.0f : glyph + style.ItemInnerSpacing.x;
-    const float width = style.FramePadding.x * 2.0f + iconSpace + text.x + style.ItemInnerSpacing.x + arrow;
-    const bool pressed = ImGui::Button ("##workflowSelector", ImVec2 (width, height));
-    const ImVec2 min = ImGui::GetItemRectMin (), max = ImGui::GetItemRectMax ();
-    const ImU32 ink = ImGui::GetColorU32 (ImGuiCol_Text);
-    ImDrawList* const draw = ImGui::GetWindowDrawList ();
-    const float middle = std::round ((min.y + max.y) * 0.5f);
-    const float left = std::round (min.x + style.FramePadding.x);
-    if (icon != ui::IconId::None)
-        ui::DrawIcon (draw, icon, ImVec2 (left + glyph * 0.5f, middle), glyph, ink);
-    draw->AddText (ImVec2 (left + iconSpace, std::round (middle - text.y * 0.5f)), ink, title.c_str ());
-    const float centre = std::round (max.x - style.FramePadding.x - arrow * 0.5f);
-    const float half = std::round (arrow * 0.5f);
-    // The bundled font lacks the Unicode down chevron; geometry is legible in both HUD hosts.
-    draw->AddTriangleFilled (ImVec2 (centre - half, middle - 1.0f), ImVec2 (centre + half, middle - 1.0f),
-                             ImVec2 (centre, middle + half), ink);
-    return pressed;
-}
 } // namespace
 
 std::string ResolveNavigation (const std::string& input, const std::vector<HostTab>& tabs)
@@ -88,41 +42,7 @@ std::string ResolveNavigation (const std::string& input, const std::vector<HostT
     return found;
 }
 
-std::string WorkflowMenu (const std::vector<HostTab>& tabs, const std::string& held)
-{
-    std::string selected;
-    for (const auto family :
-         { WorkflowFamily::Analyze, WorkflowFamily::Design, WorkflowFamily::Document, WorkflowFamily::Other }) {
-        bool heading = false;
-        std::string group;
-        for (const auto& tab : tabs) {
-            if (FamilyOf (tab) != family)
-                continue;
-            if (!heading) {
-                ImGui::SeparatorText (FamilyName (family));
-                heading = true;
-            }
-            if (!tab.group.empty () && tab.group != group) {
-                group = tab.group;
-                ImGui::TextDisabled ("%s", group.c_str ());
-            }
-            if (ImGui::MenuItem ((tab.title + "##" + tab.key).c_str (), nullptr, tab.key == held))
-                selected = tab.key;
-            if (!tab.purpose.empty ())
-                Tip (tab.purpose);
-        }
-    }
-    if (ImGui::BeginMenu ("Pages")) {
-        for (const auto& tab : tabs)
-            if (FamilyOf (tab) == WorkflowFamily::Global &&
-                ImGui::MenuItem ((tab.title + "##" + tab.key).c_str (), nullptr, tab.key == held))
-                selected = tab.key;
-        ImGui::EndMenu ();
-    }
-    return selected;
-}
-
-std::string NavigationHeader (const HostSpec& spec, const std::string& held, NavigationState& state, bool& collapse)
+std::string NavigationHeader (const HostSpec& spec, const std::string& held, NavigationState& state)
 {
     std::string selected;
     const HostTab* current = nullptr;
@@ -138,19 +58,14 @@ std::string NavigationHeader (const HostSpec& spec, const std::string& held, Nav
         state.workflowTitle = current->title;
         workflow = current;
     }
-    const std::string title = workflow ? workflow->title : "Choose workflow";
-    if (WorkflowSelector (title, workflow ? workflow->icon : ui::IconId::None) ||
-        ImGui::IsItemClicked (ImGuiMouseButton_Right))
-        ImGui::OpenPopup ("##workflowMenu");
-    const std::string action = "Choose a workflow; switching does not run a command.";
-    Tip (workflow && !workflow->purpose.empty () ? action + " " + workflow->purpose : action);
-    if (ImGui::BeginPopup ("##workflowMenu")) {
-        selected = WorkflowMenu (spec.tabs, held);
-        ImGui::EndPopup ();
+    if (workflow) {
+        ImGui::PushID (workflow->key.c_str ());
+        if (ui::IconTextButton ("##workflow", workflow->icon, workflow->title.c_str (), workflow->key == held))
+            selected = workflow->key;
+        ImGui::PopID ();
+        if (ImGui::GetContentRegionAvail ().x > 90 * spec.ui)
+            ImGui::SameLine ();
     }
-    ImGui::SameLine ();
-    collapse = ImGui::SmallButton ("-##collapse");
-    Tip ("Collapse panel; keep drafts and selection");
     for (const auto& tab : spec.tabs) {
         if (!Global (tab.key))
             continue;
@@ -167,11 +82,6 @@ std::string NavigationHeader (const HostSpec& spec, const std::string& held, Nav
             ImGui::SameLine ();
     }
     ImGui::NewLine ();
-    if (current && Global (held)) {
-        ImGui::TextUnformatted (current->title.c_str ());
-        if (workflow && ImGui::SmallButton (("Back to " + workflow->title).c_str ()))
-            selected = workflow->key;
-    }
     return selected;
 }
 
@@ -182,17 +92,17 @@ std::string NavigationInput (const HostSpec& spec, NavigationState& state, bool&
     ImGui::SetNextItemWidth (-1);
     ImGui::BeginDisabled (!spec.textInput);
     const char* hint =
-        spec.textInput ? "show Settings / workflow <name>" : "Keyboard commands unavailable; use selector";
+        spec.textInput ? "show Settings / workflow <name>" : "Keyboard commands unavailable; use dock tab";
     const bool submit =
         ImGui::InputTextWithHint ("##hudCommand", hint, state.input, sizeof state.input,
                                   ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_EscapeClearsAll);
     active = ImGui::IsItemActive ();
     ImGui::EndDisabled ();
     Tip (spec.textInput ? "Navigation commands only in this pass. Use the exact page name."
-                        : "Keyboard input is not available in this viewer; use the workflow selector.");
+                        : "Keyboard input is not available in this viewer; use the dock tab.");
     if (submit) {
         selected = ResolveNavigation (state.input, spec.tabs);
-        state.message = selected.empty () ? "No unique page matches. Use its exact name from the selector." : "";
+        state.message = selected.empty () ? "No unique page matches. Use its exact name from the dock list." : "";
         if (!selected.empty ())
             state.input[0] = '\0';
     }

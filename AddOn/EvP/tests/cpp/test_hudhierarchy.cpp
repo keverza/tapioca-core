@@ -120,23 +120,24 @@ TEST (HudHierarchy, InvalidNavigationShowsAReadableErrorCard)
     EXPECT_TRUE (Box (out.host, 0x34201FFFu, box));
 }
 
-TEST (HudHierarchy, PanelWorkflowSelectorOpensWithoutSwitchingOrTakingTextFocus)
+TEST (HudHierarchy, WorkflowFlyoutUsesTheSideWithRoom)
 {
-    Watched hud;
-    hud::OwnPages own;
-    own.standalone = true;
-    hud.engine.SetOwnPages (own);
-    layers::Panel panel;
-    panel.title = "My workflow";
-    const auto open = hud.Lay ({ &panel }, At (0, 0));
-    const std::string selected = hud.engine.Selected ();
-    const auto menu = hud.Click ({ &panel }, Left (open.host) + 40, Top (open.host) + 50);
-    EXPECT_TRUE (menu.popup);
-    EXPECT_EQ (hud.engine.Selected (), selected);
-    EXPECT_FALSE (hud.state->criteriaTextActive);
+    const ImVec2 view (1200, 800), wanted (180, 160);
+    auto flyout = shell::WorkflowFlyoutAtDock (view, { 0, 0 }, { 200, 28 }, wanted);
+    EXPECT_EQ (flyout.side, shell::DockEdge::Right);
+    EXPECT_FLOAT_EQ (flyout.position.x, 200);
+    flyout = shell::WorkflowFlyoutAtDock (view, { 1000, 0 }, { 1200, 28 }, wanted);
+    EXPECT_EQ (flyout.side, shell::DockEdge::Left);
+    EXPECT_FLOAT_EQ (flyout.position.x + flyout.size.x, 1000);
+    flyout = shell::WorkflowFlyoutAtDock (view, { 500, 0 }, { 700, 28 }, wanted);
+    EXPECT_EQ (flyout.side, shell::DockEdge::Bottom);
+    EXPECT_FLOAT_EQ (flyout.position.y, 28);
+    flyout = shell::WorkflowFlyoutAtDock (view, { 500, 772 }, { 700, 800 }, wanted);
+    EXPECT_EQ (flyout.side, shell::DockEdge::Top);
+    EXPECT_FLOAT_EQ (flyout.position.y + flyout.size.y, 772);
 }
 
-TEST (HudHierarchy, PanelWorkflowSelectorAlsoOpensOnRightClick)
+TEST (HudHierarchy, DockTitleOpensWorkflowTabsWithoutSwitchingOrTakingTextFocus)
 {
     Watched hud;
     hud::OwnPages own;
@@ -145,12 +146,12 @@ TEST (HudHierarchy, PanelWorkflowSelectorAlsoOpensOnRightClick)
     layers::Panel panel;
     panel.title = "My workflow";
     const auto open = hud.Lay ({ &panel }, At (0, 0));
-    const float x = Left (open.host) + 40, y = Top (open.host) + 50;
-    hud.Lay ({ &panel }, At (x, y));
-    hud.Lay ({ &panel }, At (x, y, { { 1, true } }));
-    hud.Lay ({ &panel }, At (x, y, { { 1, false } }));
-    const auto menu = hud.Lay ({ &panel }, At (x, y));
+    const float x = Left (open.dock) + open.dock.height * 2 + 8;
+    const float y = Top (open.dock) + open.dock.height * 0.5f;
+    const std::string selected = hud.engine.Selected ();
+    const auto menu = hud.Click ({ &panel }, x, y);
     EXPECT_TRUE (menu.popup);
+    EXPECT_EQ (hud.engine.Selected (), selected);
     EXPECT_FALSE (hud.state->criteriaTextActive);
 }
 
@@ -217,7 +218,7 @@ TEST (HudHierarchy, DockOrientationAndPanelBoundsFollowEveryAnchor)
     }
 }
 
-TEST (HudHierarchy, DockTitleOpensButOnlyTheSeparateControlCollapses)
+TEST (HudHierarchy, DockArrowCollapsesAndExpandsThePanel)
 {
     Watched hud;
     hud::OwnPages own;
@@ -227,12 +228,13 @@ TEST (HudHierarchy, DockTitleOpensButOnlyTheSeparateControlCollapses)
     const float left = Left (out.dock), top = Top (out.dock);
     const float y = top + out.dock.height * 0.5f;
     const float titleX = left + out.dock.height * 2 + 8;
-    hud.Click ({}, titleX, y);
-    EXPECT_TRUE (hud::HudOpen (*hud.state));
     const float collapseX = left + out.dock.width - 1.5f * out.dock.height;
     hud.Click ({}, collapseX, y);
     EXPECT_FALSE (hud::HudOpen (*hud.state));
-    hud.Click ({}, titleX, y);
+    const auto choices = hud.Click ({}, titleX, y);
+    EXPECT_TRUE (choices.popup);
+    EXPECT_FALSE (hud::HudOpen (*hud.state));
+    hud.Click ({}, collapseX, y);
     EXPECT_TRUE (hud::HudOpen (*hud.state));
     EXPECT_FALSE (hud.state->criteriaTextActive);
 }

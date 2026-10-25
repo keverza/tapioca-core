@@ -517,7 +517,7 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     if (result.drawn) {
         if (commandAbove)
             result.pressed = NavigationInput (spec, nav, result.textActive);
-        const auto chosen = NavigationHeader (spec, held, nav, result.closed);
+        const auto chosen = NavigationHeader (spec, held, nav);
         if (!chosen.empty ())
             result.pressed = chosen;
         result.shown = held;

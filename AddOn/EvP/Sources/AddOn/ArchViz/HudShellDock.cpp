@@ -34,7 +34,7 @@ ImDrawFlags Corners (ImDrawFlags ends, bool open, DockEdge side)
 }
 } // namespace
 
-// One dock with surface circles, an open-only title and a separate collapse control.
+// One dock with surface circles, a workflow-list title and a separate panel arrow.
 // Top/bottom edges use a horizontal title; left/right edges turn it vertically.
 DockPress DockTab (const char* id, const std::string& label, const layers::Panel& panel, bool open, const Circle& top,
                    const Circle* bottom, ImVec2 padding, float scale, const bool* locked, bool horizontal,
@@ -130,7 +130,7 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
     }
     if (horizontal && locked != nullptr)
         ImGui::SameLine (0, 0);
-    // Drag the label to move the whole assembly; a click only opens it.
+    // Drag the label to move the whole assembly; a click opens workflow choices.
     press.title =
         ImGui::InvisibleButton ("##title", horizontal ? ImVec2 (std::ceil (text.x + 2.0f * padding.y), across)
                                                       : ImVec2 (across, std::ceil (text.x + 2.0f * padding.y)));
@@ -141,13 +141,43 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
         press.delta = ImGui::GetIO ().MouseDelta;
     if (ImGui::GetCurrentContext ()->IO.MouseDragMaxDistanceSqr[0] > 36.0f)
         press.title = false;
-    Tip ("Open workflow panel. Right-click to choose a workflow or dock position; drag to move.");
+    Tip ("Choose a workflow. Drag to move; right-click for dock location.");
     if (horizontal)
         ImGui::SameLine (0, 0);
     press.collapse = ImGui::InvisibleButton ("##collapse", ImVec2 (across, across));
+    const ImVec2 arrowMin = ImGui::GetItemRectMin ();
     ImVec2 last = ImGui::GetItemRectMax ();
-    part (ImGui::GetItemRectMin (), last, bottom != nullptr ? ImDrawFlags_RoundCornersNone : lastCorners);
-    draw->AddText (ImVec2 (last.x - across + padding.x, last.y - across + padding.x), Packed (ink), open ? "-" : "+");
+    part (arrowMin, last, bottom != nullptr ? ImDrawFlags_RoundCornersNone : lastCorners);
+    const ImVec2 centre (std::floor ((arrowMin.x + last.x) * 0.5f), std::floor ((arrowMin.y + last.y) * 0.5f));
+    const float half = std::floor (across * 0.16f) + 0.5f;
+    DockEdge direction = panelSide;
+    if (open)
+        direction = panelSide == DockEdge::Top      ? DockEdge::Bottom
+                    : panelSide == DockEdge::Bottom ? DockEdge::Top
+                    : panelSide == DockEdge::Left   ? DockEdge::Right
+                                                    : DockEdge::Left;
+    ImVec2 arrowA, arrowB, arrowC;
+    if (direction == DockEdge::Top) {
+        arrowA = { centre.x - half, centre.y - half * 0.5f };
+        arrowB = { centre.x + half, centre.y - half * 0.5f };
+        arrowC = { centre.x, centre.y + half };
+    }
+    else if (direction == DockEdge::Bottom) {
+        arrowA = { centre.x - half, centre.y + half * 0.5f };
+        arrowB = { centre.x + half, centre.y + half * 0.5f };
+        arrowC = { centre.x, centre.y - half };
+    }
+    else if (direction == DockEdge::Left) {
+        arrowA = { centre.x - half * 0.5f, centre.y - half };
+        arrowB = { centre.x - half * 0.5f, centre.y + half };
+        arrowC = { centre.x + half, centre.y };
+    }
+    else {
+        arrowA = { centre.x + half * 0.5f, centre.y - half };
+        arrowB = { centre.x + half * 0.5f, centre.y + half };
+        arrowC = { centre.x - half, centre.y };
+    }
+    draw->AddTriangleFilled (arrowA, arrowB, arrowC, Packed (ink));
     Tip (open ? "Collapse panel" : "Expand panel");
     if (bottom != nullptr) {
         if (horizontal)
@@ -262,6 +292,43 @@ ImVec2 MagneticDockPosition (ImVec2 position, ImVec2 view, ImVec2 size, float sc
     return position;
 }
 
+DockPanelRect WorkflowFlyoutAtDock (ImVec2 view, ImVec2 dockMin, ImVec2 dockMax, ImVec2 wanted)
+{
+    struct Candidate {
+        DockEdge side;
+        float room;
+        float required;
+    };
+    const Candidate candidates[] = { { DockEdge::Right, view.x - dockMax.x, wanted.x },
+                                     { DockEdge::Left, dockMin.x, wanted.x },
+                                     { DockEdge::Bottom, view.y - dockMax.y, wanted.y },
+                                     { DockEdge::Top, dockMin.y, wanted.y } };
+    const Candidate* chosen = &candidates[0];
+    for (const Candidate& candidate : candidates)
+        if ((candidate.room >= candidate.required && chosen->room < chosen->required) ||
+            ((candidate.room >= candidate.required) == (chosen->room >= chosen->required) &&
+             candidate.room > chosen->room))
+            chosen = &candidate;
+    DockPanelRect result;
+    result.side = chosen->side;
+    result.size = { (std::min) (wanted.x, view.x), (std::min) (wanted.y, view.y) };
+    if (chosen->side == DockEdge::Right || chosen->side == DockEdge::Left)
+        result.size.x = (std::min) (result.size.x, (std::max) (0.0f, chosen->room));
+    else
+        result.size.y = (std::min) (result.size.y, (std::max) (0.0f, chosen->room));
+    result.position = { std::clamp (dockMin.x, 0.0f, view.x - result.size.x),
+                        std::clamp (dockMin.y, 0.0f, view.y - result.size.y) };
+    if (chosen->side == DockEdge::Right)
+        result.position.x = dockMax.x;
+    else if (chosen->side == DockEdge::Left)
+        result.position.x = dockMin.x - result.size.x;
+    else if (chosen->side == DockEdge::Bottom)
+        result.position.y = dockMax.y;
+    else
+        result.position.y = dockMin.y - result.size.y;
+    return result;
+}
+
 DockPanelRect PanelAtDock (ImVec2 view, ImVec2 a, ImVec2 b, DockEdge edge, bool horizontal, ImVec2 wanted, float gap)
 {
     edge = PanelSide (view, a, b, edge, horizontal);
@@ -311,13 +378,44 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
     if (ImGui::Begin ("###tapioca.dock", nullptr, flags)) {
         const DockEdge side = PanelSide (view, pos, ImVec2 (pos.x + size.x, pos.y + size.y), p.edge, p.horizontal);
         result.press = DockTab ("##hud", label, look, open, top, bottom, padding, ui, locked, p.horizontal, side);
+        if (result.press.title)
+            ImGui::OpenPopup ("##dockWorkflows");
         if (ImGui::IsWindowHovered () && ImGui::IsMouseClicked (ImGuiMouseButton_Right)) {
             ClaimRightClick ();
             ImGui::OpenPopup ("##dockPosition");
         }
         const int menuColours = PushLook (look, ui);
+        float width = 120.0f * ui;
+        size_t workflowCount = 0;
+        for (const HostTab& tab : tabs)
+            if (tab.key != kStatsKey && tab.key != kSelectionKey && tab.key != kSettingsKey && tab.key != kDebugKey) {
+                width = (std::max) (width, ImGui::CalcTextSize (tab.title.c_str ()).x + 32.0f * ui);
+                ++workflowCount;
+            }
+        const ImVec2 wanted (width, (std::max) (1.0f, float (workflowCount)) * ImGui::GetFrameHeightWithSpacing () +
+                                        2.0f * ImGui::GetStyle ().WindowPadding.y);
+        const DockPanelRect flyout = WorkflowFlyoutAtDock (view, pos, ImVec2 (pos.x + size.x, pos.y + size.y), wanted);
+        ImGui::SetNextWindowPos (flyout.position);
+        ImGui::SetNextWindowSize (flyout.size);
+        if (ImGui::BeginPopup ("##dockWorkflows",
+                               ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing)) {
+            if (workflowCount == 0)
+                ImGui::TextDisabled ("No workflows available");
+            for (const HostTab& tab : tabs) {
+                if (tab.key == kStatsKey || tab.key == kSelectionKey || tab.key == kSettingsKey || tab.key == kDebugKey)
+                    continue;
+                ImGui::PushID (tab.key.c_str ());
+                if (ImGui::Selectable (tab.title.c_str (), tab.key == held)) {
+                    result.selected = tab.key;
+                    ImGui::CloseCurrentPopup ();
+                }
+                if (!tab.purpose.empty ())
+                    Tip (tab.purpose);
+                ImGui::PopID ();
+            }
+            ImGui::EndPopup ();
+        }
         if (ImGui::BeginPopup ("##dockPosition")) {
-            result.selected = WorkflowMenu (tabs, held);
             if (ImGui::BeginMenu ("Dock location")) {
                 struct Anchor {
                     const char* name;
