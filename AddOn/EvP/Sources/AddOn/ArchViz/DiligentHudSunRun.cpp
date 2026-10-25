@@ -55,6 +55,24 @@ int Weekday (int year, int month, int day)
     return (sunday0 + 6) % 7;
 }
 
+// A disabled-colour note that wraps at the panel edge instead of running past it.
+void NoteWrapped (const char* text)
+{
+    ImGui::PushStyleColor (ImGuiCol_Text, ImGui::GetStyleColorVec4 (ImGuiCol_TextDisabled));
+    ImGui::TextWrapped ("%s", text);
+    ImGui::PopStyleColor ();
+}
+
+// The widest label beside a field, so every field leaves room for its label
+// at any font size -- a fixed margin cut "timestep" off at the panel's edge.
+float LabelColumn ()
+{
+    float widest = 0.0f;
+    for (const char* label : { "date", "timestep", "cell size", "centre", "radius" })
+        widest = (std::max) (widest, ImGui::CalcTextSize (label).x);
+    return widest + ImGui::GetStyle ().ItemInnerSpacing.x + 2.0f;
+}
+
 // A button showing the date; the popup is a month calendar with the solstices
 // and the equinox a click away -- the dates a study is usually asked for.
 void DatePicker (HudState& state)
@@ -62,7 +80,7 @@ void DatePicker (HudState& state)
     char label[32];
     std::snprintf (label, sizeof (label), "%04d-%02d-%02d##sunrundate", state.sunRunYear, state.sunRunMonth,
                    state.sunRunDay);
-    if (ImGui::Button (label, ImVec2 (-60.0f, 0.0f)))
+    if (ImGui::Button (label, ImVec2 (-LabelColumn (), 0.0f)))
         ImGui::OpenPopup ("sunrun-calendar");
     ImGui::SameLine ();
     ImGui::TextUnformatted ("date");
@@ -149,17 +167,25 @@ void RoleRow (const char* label, std::vector<std::string>& role, std::vector<std
     ImGui::PopID ();
 }
 
-// The scene's bounds, recomputed once per snapshot rather than every frame.
+// The scene's bounds, recomputed once per capture rather than every frame.
+//
+// ⚠️ THE VIEWER'S SHARED CAPTURE WHEN THERE IS NO SNAPSHOT. Current() is
+// published only by BuildSnapshot, which the run itself calls; reading it alone
+// left the form "waiting for the model" with the model on screen.
 bool SceneBounds (double min[3], double max[3])
 {
-    static uint64_t seen = 0;
+    static const void* seen = nullptr;
+    static uint64_t seenId = 0;
     static bool valid = false;
     static double lo[3] = {}, hi[3] = {};
-    const auto snapshot = MeshStore::Get ().Current ();
+    auto snapshot = MeshStore::Get ().Current ();
+    if (snapshot == nullptr)
+        snapshot = MeshStore::Get ().Shared ();
     if (snapshot == nullptr)
         return false;
-    if (snapshot->id != seen) {
-        seen = snapshot->id;
+    if (snapshot.get () != seen || snapshot->id != seenId) {
+        seen = snapshot.get ();
+        seenId = snapshot->id;
         valid = evp::sunstudy::SnapshotBounds (*snapshot, lo, hi);
     }
     std::copy (lo, lo + 3, min);
@@ -227,27 +253,27 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
 
     ImGui::BeginDisabled (status.running);
     DatePicker (state);
-    ImGui::SetNextItemWidth (-60.0f);
+    ImGui::SetNextItemWidth (-LabelColumn ());
     ImGui::Combo ("timestep##sunrun", &state.sunRunTimestep, kTimestepNames, 3);
-    ImGui::SetNextItemWidth (-60.0f);
+    ImGui::SetNextItemWidth (-LabelColumn ());
     ImGui::SliderFloat ("cell size##sunrun", &state.sunRunGrid, 0.25f, 10.0f, "%.2f m", ImGuiSliderFlags_Logarithmic);
 
     if (ImGui::TreeNode ("Roles")) {
-        ImGui::TextDisabled ("Analysis: everything not in Context or Ignored");
+        NoteWrapped ("Analysis: everything not in Context or Ignored");
         RoleRow ("Context", state.sunRunContext, state.sunRunIgnored, state.visibilitySelection);
         RoleRow ("Ignored", state.sunRunIgnored, state.sunRunContext, state.visibilitySelection);
         if (state.visibilitySelection.empty ())
-            ImGui::TextDisabled ("Select elements to assign them a role");
+            NoteWrapped ("Select elements to assign them a role");
         ImGui::TreePop ();
     }
 
     ImGui::Checkbox ("Limit to cylinder", &state.sunRunBounded);
     if (state.sunRunBounded) {
-        ImGui::SetNextItemWidth (-60.0f);
+        ImGui::SetNextItemWidth (-LabelColumn ());
         double centre[2] = { state.sunRunCentre[0], state.sunRunCentre[1] };
         if (ImGui::DragScalarN ("centre##sunrun", ImGuiDataType_Double, centre, 2, 0.1f, nullptr, nullptr, "%.1f"))
             std::copy (centre, centre + 2, state.sunRunCentre);
-        ImGui::SetNextItemWidth (-60.0f);
+        ImGui::SetNextItemWidth (-LabelColumn ());
         ImGui::DragFloat ("radius##sunrun", &state.sunRunRadius, 0.25f, 1.0f, 100000.0f, "%.1f m");
         state.sunRunRadius = (std::max) (state.sunRunRadius, 1.0f);
         if (ImGui::SmallButton (state.sunRunPickingCentre ? "Click the model..." : "Pick centre"))
@@ -257,15 +283,14 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
         if (ImGui::SmallButton ("Centre on scene"))
             CentreOnScene (state, min, max);
         ImGui::EndDisabled ();
-        ImGui::TextDisabled ("Outside: casts shadow, not measured");
+        NoteWrapped ("Outside: casts shadow, not measured");
     }
     else
         state.sunRunPickingCentre = false;
     ImGui::EndDisabled ();
 
     if (!status.running) {
-        ImGui::BeginDisabled (!haveScene);
-        if (ImGui::Button ("Run sun study", ImVec2 (-1.0f, 0.0f))) {
+        if (ImGui::Button ("Run sun study##sunrunstart", ImVec2 (-1.0f, 0.0f))) {
             sunstudyhud::Request request;
             request.year = state.sunRunYear;
             request.month = state.sunRunMonth;
@@ -282,9 +307,6 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
             state.sunRunSubmitError.clear ();
             sunstudyhud::Submit (request, state.sunRunSubmitError);
         }
-        ImGui::EndDisabled ();
-        if (!haveScene)
-            ImGui::TextDisabled ("Waiting for the model");
     }
     else if (status.stage == "calculating" && status.totalSteps > 0) {
         char overlay[48];
