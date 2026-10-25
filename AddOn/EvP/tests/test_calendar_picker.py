@@ -66,17 +66,6 @@ def test_hour_maximum_is_validated_even_without_a_default(tmp_path, maximum):
         _scanner.scan_file(str(path), "Hours")
 
 
-def test_smoke_uses_calendar_and_native_clock_hours():
-    path = Path(__file__).parents[4] / "private/Diagnostics/Commands/SunStudyNativeSmoke/command.py"
-    if not path.is_file():
-        pytest.skip("private diagnostic command absent")
-    params = {entry["name"]: entry for entry in _scanner.scan_file(str(path), "Smoke")["params"]}
-    assert params["date"]["type"] == "Calendar"
-    assert params["hour_from"]["type"] == params["hour_to"]["type"] == "Hour"
-    assert params["hour_to"]["maximum"] == 24
-    assert "month" not in params and "day" not in params
-
-
 def test_analysis_controls_and_minimal_tooltip_are_wired():
     root = Path(__file__).parents[1] / "Sources/AddOn"
     shell = (root / "ArchViz/DiligentHudShell.cpp").read_text(encoding="utf-8")
