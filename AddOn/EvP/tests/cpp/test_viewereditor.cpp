@@ -140,8 +140,8 @@ TEST (ViewerEditor, ViewerDockRequestsTheOverlayWithoutHidingOrReplacingTheEdito
     host.engine.SetOwnPages (pages);
     const auto layout = host.Lay ({}, hudtest::At (600, 400));
     const auto& dock = layout.dock;
-    const float x = 1200 + dock.offset[0] + dock.width * .5f;
-    const float y = 400 + dock.offset[1] + dock.width * .5f;
+    const float x = hudtest::Left (dock) + dock.height * .5f;
+    const float y = hudtest::Top (dock) + dock.height * .5f;
     host.Click ({}, x, y);
     EXPECT_TRUE (hud::TakeViewerRequest (*host.state));
     EXPECT_FALSE (hud::TakeViewerRequest (*host.state));

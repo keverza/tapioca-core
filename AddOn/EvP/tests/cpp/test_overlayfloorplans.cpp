@@ -306,6 +306,10 @@ TEST (OverlayFloorPlans, AFlatPickedOnTheLockedPlanOpensTheSelectionTab)
     own.selection.known = true;
     own.selection.count = 1;
     gui.engine.SetOwnPages (own);
+    // Keep the dock clear of the plan geometry whose picking this test exercises.
+    gui.state->host.dock.edge = geomsrv::archviz::hudshell::DockEdge::Right;
+    gui.state->host.dock.along = 0.5f;
+    gui.state->host.dock.horizontal = false;
     hud::SetEditLocked (*gui.state, true);
     hud::SetHudOpen (*gui.state, false);
     hud::SelectKey (*gui.state, hud::kStatsKey);

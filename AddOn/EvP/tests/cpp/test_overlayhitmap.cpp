@@ -6,6 +6,7 @@
 
 #include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayScene.hpp"
 
 #include <gtest/gtest.h>
@@ -315,6 +316,11 @@ TEST (OverlayHitMap, APanelsRegionHoldsItsTriangles)
     panel.items = { row };
     panel.anchor = layers::PanelAnchor::Right;
     layer.panels = { layers::Panel (), panel };
+    auto state = hud::NewState ();
+    state->host.dock.edge = geomsrv::archviz::hudshell::DockEdge::Right;
+    state->host.dock.along = 0.5f;
+    state->host.dock.horizontal = false;
+    HudEngine ().UseState (state);
     const scene::Scene drawn =
         scene::PrepareSceneHud ({ std::make_shared<const layers::Layer> (layer) }, &HudEngine (), 1.5f);
     // The untitled panel, the host showing the titled one, and the dock.
