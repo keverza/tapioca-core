@@ -36,6 +36,7 @@ bool StartViewerCamera (Camera& camera, HudState& hud, const CameraStart& start,
 bool NavigateViewer (Camera& camera, HudState& hud, const InputSnapshot& input, uint32_t width, uint32_t height)
 {
     bool moved = false;
+    camera.SetNavigationSmoothing (hud.navSmoothing);
     if (hud.planMode) {
         camera.SetOrbitLocked (!hud.planOrbit);
         if (hud.planTopView) {

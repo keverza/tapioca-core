@@ -363,10 +363,44 @@ bool Camera::ApplyInput (const InputSnapshot& input, bool imguiWantsMouse, uint3
     lastY_ = input.y;
     haveLast_ = true;
 
-    if (nav_ == NavMode::None || (dx == 0 && dy == 0))
+    // The movement this frame applies: all of it, or the smoothed share of what
+    // is pending. The tail keeps draining after release, in the mode it was for.
+    float mx = float (dx), my = float (dy);
+    NavMode mode = nav_;
+    if (smoothing_) {
+        const uint64_t nowUs = uint64_t (std::chrono::duration_cast<std::chrono::microseconds> (
+                                             std::chrono::steady_clock::now ().time_since_epoch ())
+                                             .count ());
+        if (nav_ != NavMode::None) {
+            if (nav_ != pendingNav_ && pendingNav_ != NavMode::None)
+                pendingX_ = pendingY_ = 0.0f; // Shift changed the mode: do not orbit with a pan's tail
+            pendingNav_ = nav_;
+            pendingX_ += float (dx);
+            pendingY_ += float (dy);
+        }
+        mode = pendingNav_;
+        const double dt = drainedUs_ == 0 ? 0.0 : double (nowUs - drainedUs_) * 1.0e-6;
+        drainedUs_ = nowUs;
+        constexpr double kTimeConstant = 0.025;
+        const float share = float (1.0 - std::exp (-(std::min) (dt, 0.25) / kTimeConstant));
+        mx = pendingX_ * share;
+        my = pendingY_ * share;
+        pendingX_ -= mx;
+        pendingY_ -= my;
+        // Under a hundredth of a pixel the tail is finished; drop it rather than
+        // move the camera by nothing for ever.
+        if (std::abs (pendingX_) < 0.01f && std::abs (pendingY_) < 0.01f) {
+            mx += pendingX_;
+            my += pendingY_;
+            pendingX_ = pendingY_ = 0.0f;
+            if (nav_ == NavMode::None)
+                pendingNav_ = NavMode::None;
+        }
+    }
+    if (mode == NavMode::None || (mx == 0.0f && my == 0.0f))
         return moved;
 
-    if (nav_ == NavMode::Orbit) {
+    if (mode == NavMode::Orbit) {
         // ⚠️ AN ORBIT LEAVES THE TOP-DOWN POSE, as SetOrbit does, and from where it is: the orbit
         // just short of the pole whose screen up is the plan's -- (-cos yaw, -sin yaw) there
         // against (-sin r, cos r), so yaw = r - 90 degrees. Kept, the pose's fixed roll fought
@@ -376,11 +410,11 @@ bool Camera::ApplyInput (const InputSnapshot& input, bool imguiWantsMouse, uint3
             pitch_ = kPitchLimit;
             topDown_ = false;
         }
-        yaw_ -= float (dx) * kOrbitPerPixel;
+        yaw_ -= mx * kOrbitPerPixel;
         // Dragging DOWN looks down at the model, which is the convention every
         // CAD orbit uses; inverting it here is the single most complained-about
         // thing a viewer can get wrong.
-        pitch_ = std::clamp (pitch_ + float (dy) * kOrbitPerPixel, -kPitchLimit, kPitchLimit);
+        pitch_ = std::clamp (pitch_ + my * kOrbitPerPixel, -kPitchLimit, kPitchLimit);
         moved = true;
     }
     else {
@@ -392,9 +426,9 @@ bool Camera::ApplyInput (const InputSnapshot& input, bool imguiWantsMouse, uint3
         Basis (right, up);
         const float metresPerPixel = 2.0f * FocalHalfHeight () / h;
 
-        targetX_ -= (right[0] * float (dx) - up[0] * float (dy)) * metresPerPixel;
-        targetY_ -= (right[1] * float (dx) - up[1] * float (dy)) * metresPerPixel;
-        targetZ_ -= (right[2] * float (dx) - up[2] * float (dy)) * metresPerPixel;
+        targetX_ -= (right[0] * mx - up[0] * my) * metresPerPixel;
+        targetY_ -= (right[1] * mx - up[1] * my) * metresPerPixel;
+        targetZ_ -= (right[2] * mx - up[2] * my) * metresPerPixel;
         moved = true;
     }
 

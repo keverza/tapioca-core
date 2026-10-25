@@ -383,6 +383,8 @@ struct HudState {
     // Off until its first live A/B. The control makes the port reversible while
     // the unfiltered HDR fallback remains exactly the previously verified path.
     bool temporalAntiAliasing = false;
+    // Sub-pixel smoothing of drag navigation (Camera::SetNavigationSmoothing).
+    bool navSmoothing = true;
     float taaStability = 0.9f;
 
     // 6500 K and tint 0 are the EXACT identity (AutoExposure.hpp), so these

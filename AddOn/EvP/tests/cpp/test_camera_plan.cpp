@@ -8,7 +8,9 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cmath>
+#include <thread>
 
 using namespace geomsrv::archviz;
 
@@ -249,4 +251,40 @@ TEST (CameraPlan, TheProjectionToggleKeepsThePicture)
     plan.SwitchProjection (true);
     EXPECT_NEAR (plan.OrthoHalfHeightMetres (), 12.0f, 1e-3f);
     EXPECT_NEAR (Eye (plan), 3.1f, 1e-3f) << "back on the cut";
+}
+
+// ⚠️ SMOOTHING SPREADS THE MOVE, IT MUST NOT CHANGE IT. A staircase drag, smoothed,
+// lands where the unsmoothed one does once the tail has drained -- or a long pan
+// would drift away from the cursor that drove it.
+TEST (CameraPlan, SmoothedNavigationLandsWhereTheRawOneDoes)
+{
+    Camera raw;
+    raw.SetTarget (0.0f, 0.0f, 0.0f);
+    raw.SetDistance (40.0f);
+    raw.SetOrbit (0.4f, 0.5f);
+    Camera smooth = raw;
+    smooth.SetNavigationSmoothing (true);
+
+    for (Camera* camera : { &raw, &smooth }) {
+        InputSnapshot input = Pointer (500, 300);
+        camera->ApplyInput (input, false, kWidth, kHeight);
+        input.navButton = true;
+        input.shift = true; // an orbit: the case the staircase was worst in
+        camera->ApplyInput (input, false, kWidth, kHeight);
+        for (int step = 0; step < 30; ++step) {
+            // (1,0), (0,1), (1,1): the whole-pixel staircase of a slow diagonal.
+            input.x += step % 3 != 1 ? 1 : 0;
+            input.y += step % 3 != 0 ? 1 : 0;
+            camera->ApplyInput (input, false, kWidth, kHeight);
+            std::this_thread::sleep_for (std::chrono::milliseconds (2));
+        }
+        input.navButton = false;
+        input.shift = false;
+        for (int drain = 0; drain < 100; ++drain) { // the tail, after release
+            camera->ApplyInput (input, false, kWidth, kHeight);
+            std::this_thread::sleep_for (std::chrono::milliseconds (5));
+        }
+    }
+    EXPECT_NEAR (smooth.YawDegrees (), raw.YawDegrees (), 1.0e-3);
+    EXPECT_NEAR (smooth.PitchDegrees (), raw.PitchDegrees (), 1.0e-3);
 }

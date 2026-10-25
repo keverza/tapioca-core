@@ -138,6 +138,16 @@ class Camera final {
     {
         return orbitLocked_;
     }
+    // ⚠️ SUB-PIXEL SMOOTHING OF DRAG NAVIGATION, off unless asked for. The cursor
+    // is read once per frame in whole pixels at irregular moments, so a slow
+    // diagonal drag arrives as (1,0),(0,1),(1,1)... and the view moves in a
+    // staircase -- worst in an orbit, where every pixel is a rotation. On, each
+    // frame applies a fraction of the movement not yet applied (time constant
+    // ~25 ms, frame-rate independent); the total is exact, nothing drifts.
+    void SetNavigationSmoothing (bool on)
+    {
+        smoothing_ = on;
+    }
 
     // ⚠️ VERTICAL, in degrees. Archicad's own `viewCone` is HORIZONTAL, so a
     // caller copying Archicad's camera must convert with the aspect ratio
@@ -266,6 +276,12 @@ class Camera final {
     // direction — plan §1.1), so the differencing happens here.
     int32_t lastX_ = 0, lastY_ = 0;
     bool haveLast_ = false;
+    // Drag movement received but not yet applied (pixels), the mode it is for,
+    // and when it was last drained -- see SetNavigationSmoothing.
+    bool smoothing_ = false;
+    float pendingX_ = 0.0f, pendingY_ = 0.0f;
+    NavMode pendingNav_ = NavMode::None;
+    uint64_t drainedUs_ = 0;
 
     // ---- the plan-overlay pose (SetOrthographic / SetTopDown) ---------------
     bool orthographic_ = false;
