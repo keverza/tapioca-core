@@ -67,3 +67,31 @@ TEST (SunStudyBounds, PickedContextStaysContextAndIgnoredIsInNeither)
     EXPECT_EQ (roles.analysis, (std::vector<std::string> { "{BBBB-2}" }));
     EXPECT_EQ (roles.context, (std::vector<std::string> { "{AAAA-1}" }));
 }
+
+TEST (SunStudyBounds, NewInsideElementIsMeasuredAndDeletedElementIsDropped)
+{
+    geomsrv::Snapshot snapshot = Scene ();
+    const AnalysisCylinder cylinder { 0.5, 0.5, 2.0 };
+    const BoundedRoles before = SplitByCylinder (snapshot, cylinder, {}, {});
+    snapshot.meshes.push_back (Square ("{DDDD-4}", 1, 0));
+    snapshot.meshes.push_back (Square ("{EEEE-5}", 10, 1));
+    const BoundedRoles afterCreation = SplitByCylinder (snapshot, cylinder, {}, {});
+    EXPECT_EQ (before.analysis, (std::vector<std::string> { "{AAAA-1}" }));
+    EXPECT_EQ (afterCreation.analysis, (std::vector<std::string> { "{AAAA-1}", "{DDDD-4}" }));
+    EXPECT_EQ (afterCreation.context, (std::vector<std::string> { "{BBBB-2}", "{CCCC-3}", "{EEEE-5}" }));
+
+    const BoundedRoles withPicks = SplitByCylinder (snapshot, cylinder, { "{AAAA-1}" }, { "{CCCC-3}" });
+    EXPECT_EQ (withPicks.analysis, (std::vector<std::string> { "{DDDD-4}" }));
+    EXPECT_EQ (withPicks.context, (std::vector<std::string> { "{AAAA-1}", "{BBBB-2}", "{EEEE-5}" }));
+
+    snapshot.meshes.erase (snapshot.meshes.begin ());
+    const BoundedRoles afterDeletion = SplitByCylinder (snapshot, cylinder, {}, {});
+    EXPECT_EQ (afterDeletion.analysis, (std::vector<std::string> { "{DDDD-4}" }));
+}
+
+TEST (SunStudyBounds, ExplicitAnalysisCannotWidenTheCylinder)
+{
+    const BoundedRoles roles = SplitByCylinder (Scene (), { 0.5, 0.5, 2.0 }, {}, {}, { "{BBBB-2}" });
+    EXPECT_TRUE (roles.analysis.empty ());
+    EXPECT_EQ (roles.context, (std::vector<std::string> { "{AAAA-1}", "{BBBB-2}", "{CCCC-3}" }));
+}

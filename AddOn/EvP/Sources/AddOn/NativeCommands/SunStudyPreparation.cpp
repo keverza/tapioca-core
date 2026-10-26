@@ -20,6 +20,13 @@ void LogSunStudySurfaceSampling (uint64_t snapshot, const evp::sunstudy::Surface
                          std::to_string (result.generatedSamples) + " valid=" + std::to_string (result.valid));
 }
 
+void LogSunStudyCylinderMembership (uint64_t snapshot, size_t analysis, const std::string& entered,
+                                    const std::string& left)
+{
+    archviz::ArchVizLog ("sun cylinder: snapshot=" + std::to_string (snapshot) +
+                         " analysis=" + std::to_string (analysis) + " entered=[" + entered + "] left=[" + left + "]");
+}
+
 bool SunStudySnapshotBounds (const Snapshot& snapshot, double min[3], double max[3])
 {
     bool haveBounds = false;

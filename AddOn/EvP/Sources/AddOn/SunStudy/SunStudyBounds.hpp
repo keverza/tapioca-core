@@ -32,15 +32,16 @@ bool SnapshotBounds (const geomsrv::Snapshot& snapshot, double min[3], double ma
 
 // The role lists StartSunStudy takes, with BOTH named so nothing is left to the
 // "everything else" defaults: inside and not picked -> analysis; outside, or
-// picked as context -> context. Ignored elements are in neither (the caller
-// sends its ignored list as it is). GUIDs are compared canonically and
+// picked as context -> context. An explicit Analysis list narrows the inside
+// set. Ignored elements are in neither. GUIDs are compared canonically and
 // returned as the snapshot spells them.
 struct BoundedRoles {
     std::vector<std::string> analysis;
     std::vector<std::string> context;
 };
 BoundedRoles SplitByCylinder (const geomsrv::Snapshot& snapshot, const AnalysisCylinder& cylinder,
-                              const std::vector<std::string>& context, const std::vector<std::string>& ignored);
+                              const std::vector<std::string>& context, const std::vector<std::string>& ignored,
+                              const std::vector<std::string>& analysis = {});
 
 } // namespace evp::sunstudy
 

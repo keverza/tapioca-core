@@ -15,6 +15,7 @@
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudyAtlasReuse.hpp"
+#include "SunStudy/SunStudyBounds.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudySurfaceSampling.hpp"
 #include "SunStudy/SunStudyPreset.hpp"
@@ -25,6 +26,7 @@
 
 #include <cmath>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -120,13 +122,55 @@ class StartSunStudyCommand : public MainThreadCommand {
         const double glassThreshold = ReadDouble (params, "glassThreshold", 0.4);
         if (!std::isfinite (glassThreshold) || glassThreshold < 0.0 || glassThreshold > 1.0)
             return NativeCommandResult::Failure ("glassThreshold must be a transparency fraction from 0 to 1");
+        const std::string sampleMode = ReadString (params, "samples", "surfaces");
+        const bool sampleSurfaces = (sampleMode == "surfaces");
+        const bool sampleExplicit = (sampleMode == "explicit");
+        const std::string domainName = ReadString (params, "domain", "triangle");
+        const bool patchDomain = (domainName == "patch");
+        evp::sunstudy::AnalysisCylinder clip;
+        if (GS::UniString clipError;
+            !sunstudysupport::ReadAnalysisCylinder (params, patchDomain && sampleSurfaces, clip, clipError))
+            return NativeCommandResult::Failure (clipError);
+
+        std::vector<std::string> boundedAnalysis, boundedContext;
+        if (clip.radius > 0.0) {
+            auto bounded = evp::sunstudy::SplitByCylinder (*snapshot, clip, contextPicked, ignoredPicked, analysisPicked);
+            if (bounded.analysis.empty ())
+                return NativeCommandResult::Failure ("no analysed element reaches into the analysis cylinder");
+            boundedAnalysis = std::move (bounded.analysis);
+            boundedContext = std::move (bounded.context);
+
+            std::set<std::string> previous;
+            if (reuseSource != nullptr && reuseSource->clipRadius > 0.0 && reuseSource->snapshot != nullptr) {
+                const auto prior = evp::sunstudy::SplitByCylinder (
+                    *reuseSource->snapshot, { reuseSource->clipX, reuseSource->clipY, reuseSource->clipRadius },
+                    reuseSource->contextElements, reuseSource->ignoredElements, reuseSource->analysisElements);
+                for (const auto& guid : prior.analysis)
+                    previous.insert (evp::sunstudy::CanonicalGuid (guid));
+            }
+            std::string entered, left;
+            std::set<std::string> current;
+            for (const auto& guid : boundedAnalysis) {
+                const auto canonical = evp::sunstudy::CanonicalGuid (guid);
+                current.insert (canonical);
+                if (previous.count (canonical) == 0)
+                    entered += (entered.empty () ? "" : ",") + guid;
+            }
+            for (const auto& guid : previous)
+                if (current.count (guid) == 0)
+                    left += (left.empty () ? "" : ",") + guid;
+            LogSunStudyCylinderMembership (snapshot->id, boundedAnalysis.size (), entered, left);
+        }
         const auto preset = requestedPreset;
         const std::string presetReason = "manual selection";
+        const auto& effectiveAnalysis = clip.radius > 0.0 ? boundedAnalysis : analysisPicked;
+        const auto& effectiveContext = clip.radius > 0.0 ? boundedContext : contextPicked;
         // In a design preset, all unpicked geometry is CONTEXT, not implicitly
         // ignored just because the user also named some Context elements.
         auto roles = evp::sunstudy::ResolveElementRoles (
-            *snapshot, analysisPicked,
-            !preset.empty () && !analysisPicked.empty () ? std::vector<std::string> {} : contextPicked, ignoredPicked);
+            *snapshot, effectiveAnalysis,
+            !preset.empty () && !effectiveAnalysis.empty () ? std::vector<std::string> {} : effectiveContext,
+            ignoredPicked);
         if (roles.analysisNamedButAbsent) {
             // ⚠️ REFUSED, NOT WIDENED. An empty intersection is not an empty
             // list: "measure these" with none of them present must not become
@@ -184,17 +228,6 @@ class StartSunStudyCommand : public MainThreadCommand {
         const double spacing = ReadDouble (params, "grid", 2.0);
         const double pad = ReadDouble (params, "pad", -1.0);
         const double zOffset = ReadDouble (params, "zOffset", 0.10);
-        const std::string sampleMode = ReadString (params, "samples", "surfaces");
-        const bool sampleSurfaces = (sampleMode == "surfaces");
-        const bool sampleExplicit = (sampleMode == "explicit");
-
-        // Sampling says what to measure; domain says how to dice model faces.
-        const std::string domainName = ReadString (params, "domain", "triangle");
-        const bool patchDomain = (domainName == "patch");
-        evp::sunstudy::AnalysisCylinder clip;
-        if (GS::UniString clipError;
-            !sunstudysupport::ReadAnalysisCylinder (params, patchDomain && sampleSurfaces, clip, clipError))
-            return NativeCommandResult::Failure (clipError);
         if (!patchDomain && domainName != "triangle") {
             return NativeCommandResult::Failure (GS::UniString ("'domain' must be 'triangle' or 'patch', not '") +
                                                  GS::UniString (domainName.c_str (), CC_UTF8) + "'");

@@ -413,6 +413,27 @@ def test_viewer_and_follower_share_only_complete_revision_guarded_sliced_capture
     assert "ACAPI_" not in assembly and "MainThreadGate" not in assembly
 
 
+def test_bounded_hud_rerun_uses_current_snapshot_and_guide_visibility_is_display_only():
+    runner = (_ADDON / "NativeCommands" / "SunStudyHudRunner.cpp").read_text(encoding="utf-8")
+    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    hud = (_ADDON / "ArchViz" / "DiligentHudSunRun.cpp").read_text(encoding="utf-8")
+    assert 'params.Add ("clipRadius", request.radius)' in runner
+    assert 'AddGuids (params, "analysisElements"' not in runner
+    assert 'AddGuids (params, "contextElements", request.contextElements)' in runner
+    assert 'params.Add ("clipRadius", config.clipRadius)' in driver
+    assert 'SplitByCylinder (*snapshot, clip, contextPicked, ignoredPicked, analysisPicked)' in commands
+    assert 'record->contextElements = contextPicked' in commands
+    assert 'record->analysisElements = analysisPicked' in commands
+    preparation = (_ADDON / "NativeCommands" / "SunStudyPreparation.cpp").read_text(encoding="utf-8")
+    assert 'LogSunStudyCylinderMembership (snapshot->id, boundedAnalysis.size (), entered, left)' in commands
+    assert 'sun cylinder: snapshot=' in preparation
+    assert 'ImGui::Checkbox ("Show cylinder", &state.sunRunShowBounds)' in hud
+    assert '!state.sunRunShowBounds' in hud.split('void DrawSunStudyBoundsOverlay', 1)[1]
+    assert '!state.sunRunShowBounds' in hud.split('void ServiceSunStudyBoundsGumball', 1)[1]
+    assert 'request.bounded = state.sunRunBounded' in hud
+
+
 def test_replacements_reuse_allocations_and_renderer_uploads_exact_base_regions_with_full_fallback():
     commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
     assert "record->patchAtlas = reuseSource->patchAtlas" in commands

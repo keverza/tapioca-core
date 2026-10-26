@@ -24,13 +24,16 @@ bool SnapshotBounds (const geomsrv::Snapshot& snapshot, double min[3], double ma
 }
 
 BoundedRoles SplitByCylinder (const geomsrv::Snapshot& snapshot, const AnalysisCylinder& cylinder,
-                              const std::vector<std::string>& context, const std::vector<std::string>& ignored)
+                              const std::vector<std::string>& context, const std::vector<std::string>& ignored,
+                              const std::vector<std::string>& analysis)
 {
-    std::set<std::string> picked, skipped;
+    std::set<std::string> picked, skipped, allowed;
     for (const auto& guid : context)
         picked.insert (CanonicalGuid (guid));
     for (const auto& guid : ignored)
         skipped.insert (CanonicalGuid (guid));
+    for (const auto& guid : analysis)
+        allowed.insert (CanonicalGuid (guid));
 
     // One plan box per ELEMENT: an element may arrive as several meshes.
     struct Box {
@@ -61,7 +64,9 @@ BoundedRoles SplitByCylinder (const geomsrv::Snapshot& snapshot, const AnalysisC
         const double dx = std::clamp (cylinder.x, box.lo[0], box.hi[0]) - cylinder.x;
         const double dy = std::clamp (cylinder.y, box.lo[1], box.hi[1]) - cylinder.y;
         const bool inside = dx * dx + dy * dy <= cylinder.radius * cylinder.radius;
-        (inside && picked.count (canonical) == 0 ? roles.analysis : roles.context).push_back (box.guid);
+        (inside && picked.count (canonical) == 0 && (allowed.empty () || allowed.count (canonical) != 0)
+             ? roles.analysis
+             : roles.context).push_back (box.guid);
     }
     return roles;
 }

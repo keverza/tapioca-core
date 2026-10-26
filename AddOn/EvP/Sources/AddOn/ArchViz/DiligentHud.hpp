@@ -177,6 +177,7 @@ struct HudState {
     std::vector<std::string> sunRunIgnored;
     // The analysis cylinder; its centre/radius are seeded from the scene once.
     bool sunRunBounded = false;
+    bool sunRunShowBounds = true;
     bool sunRunBoundsSeeded = false;
     bool sunRunPickingCentre = false;
     // The cylinder's gumball drag (DiligentHudSunRun.cpp): axis 0/1 an arrow,

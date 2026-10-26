@@ -306,6 +306,7 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     ImGui::SetNextItemWidth (-LabelColumn ());
     ImGui::SliderFloat ("cell size##sunrun", &state.sunRunGrid, 0.25f, 10.0f, "%.2f m", ImGuiSliderFlags_Logarithmic);
 
+
     if (ImGui::TreeNode ("Roles")) {
         NoteWrapped ("Analysis: everything not in Context or Ignored");
         RoleRow ("Context", state.sunRunContext, state.sunRunIgnored, state.visibilitySelection);
@@ -317,6 +318,10 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
 
     ImGui::Checkbox ("Limit to cylinder", &state.sunRunBounded);
     if (state.sunRunBounded) {
+        if (ImGui::Checkbox ("Show cylinder", &state.sunRunShowBounds) && !state.sunRunShowBounds) {
+            state.sunRunPickingCentre = false;
+            state.sunRunDragging = false;
+        }
         ImGui::SetNextItemWidth (-LabelColumn ());
         double centre[2] = { state.sunRunCentre[0], state.sunRunCentre[1] };
         if (ImGui::DragScalarN ("centre##sunrun", ImGuiDataType_Double, centre, 2, 0.1f, nullptr, nullptr, "%.1f"))
@@ -324,15 +329,17 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
         ImGui::SetNextItemWidth (-LabelColumn ());
         ImGui::DragFloat ("radius##sunrun", &state.sunRunRadius, 0.25f, 1.0f, 100000.0f, "%.1f m");
         state.sunRunRadius = (std::max) (state.sunRunRadius, 1.0f);
-        if (ImGui::SmallButton (state.sunRunPickingCentre ? "Click the model..." : "Pick centre"))
-            state.sunRunPickingCentre = !state.sunRunPickingCentre;
-        ImGui::SameLine ();
-        ImGui::BeginDisabled (!haveScene);
-        if (ImGui::SmallButton ("Centre on scene"))
-            CentreOnScene (state, min, max);
-        ImGui::EndDisabled ();
-        NoteWrapped ("Only faces inside are measured; everything still casts shadow. Drag the arrows or disc to move "
-                     "it, the grip on the ring to resize.");
+        if (state.sunRunShowBounds) {
+            if (ImGui::SmallButton (state.sunRunPickingCentre ? "Click the model..." : "Pick centre"))
+                state.sunRunPickingCentre = !state.sunRunPickingCentre;
+            ImGui::SameLine ();
+            ImGui::BeginDisabled (!haveScene);
+            if (ImGui::SmallButton ("Centre on scene"))
+                CentreOnScene (state, min, max);
+            ImGui::EndDisabled ();
+            NoteWrapped ("Only faces inside are measured; everything still casts shadow. Drag the arrows or disc to move "
+                         "it, the grip on the ring to resize.");
+        }
     }
     else
         state.sunRunPickingCentre = false;
@@ -380,7 +387,7 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
 
 void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
 {
-    if (!state.sunRunBounded || viewProj == nullptr || width == 0 || height == 0)
+    if (!state.sunRunBounded || !state.sunRunShowBounds || viewProj == nullptr || width == 0 || height == 0)
         return;
     constexpr int kSegments = 64;
     const double z[2] = { state.sunRunFloor, (std::max) (state.sunRunTop, state.sunRunFloor + 0.01) };
@@ -416,7 +423,8 @@ void ServiceSunStudyBoundsGumball (HudState& state, const InputSnapshot& input, 
                                    uint32_t width, uint32_t height, const float rayOrigin[3],
                                    const float rayDirection[3])
 {
-    if (!state.sunRunBounded || state.readOnly || viewProj == nullptr || width == 0 || height == 0) {
+    if (!state.sunRunBounded || !state.sunRunShowBounds || state.readOnly || viewProj == nullptr || width == 0 ||
+        height == 0) {
         state.sunRunDragging = false;
         return;
     }
@@ -467,7 +475,8 @@ void ServiceSunStudyBoundsGumball (HudState& state, const InputSnapshot& input, 
 void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, const float origin[3],
                                 const float direction[3])
 {
-    if (!state.sunRunPickingCentre || state.wantsMouse || !input.inside || !LeftReleased (input))
+    if (!state.sunRunBounded || !state.sunRunShowBounds || !state.sunRunPickingCentre || state.wantsMouse ||
+        !input.inside || !LeftReleased (input))
         return;
     // On the scene's floor plane: the centre is a plan position, and the floor
     // is under every click that looks down at the model.

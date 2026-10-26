@@ -4,9 +4,7 @@
 #include "NativeCommands/SunStudyHudRunner.hpp"
 
 #include "AddOnCommands.hpp" // ExecuteNativeCommand, CommandNeedsMainThread
-#include "Geometry/MeshStore.hpp"
 #include "Python/MainThreadGate.hpp"
-#include "SunStudy/SunStudyBounds.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -124,25 +122,12 @@ void Run (Request request)
 
     SetStage ("starting");
     GS::ObjectState params = StartParams (request);
-    std::vector<std::string> analysis, context = request.contextElements;
-    if (request.bounded) {
-        const auto snapshot = MeshStore::Get ().Current ();
-        if (snapshot == nullptr)
-            return finish ("failed", "no model snapshot to bound");
-        auto roles = evp::sunstudy::SplitByCylinder (*snapshot, { request.centreX, request.centreY, request.radius },
-                                                     request.contextElements, request.ignoredElements);
-        if (roles.analysis.empty ())
-            return finish ("failed", "no analysed element reaches into the analysis cylinder");
-        analysis = std::move (roles.analysis);
-        context = std::move (roles.context);
-    }
     if (request.bounded) {
         params.Add ("clipX", request.centreX);
         params.Add ("clipY", request.centreY);
         params.Add ("clipRadius", request.radius);
     }
-    AddGuids (params, "analysisElements", analysis);
-    AddGuids (params, "contextElements", context);
+    AddGuids (params, "contextElements", request.contextElements);
     AddGuids (params, "ignoredElements", request.ignoredElements);
     const NativeCommandResult start = Call ("StartSunStudy", params);
     if (!start.ok)
