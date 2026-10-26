@@ -22,6 +22,8 @@ struct Request {
     int year = 2026, month = 3, day = 21;
     int timestep = 15; // minutes: 15, 30 or 60
     double grid = 1.0; // cell size, metres
+    std::string preset = "early";
+    double glassThreshold = 0.4;
     // The palette command's roles: Context casts shadow and is not measured,
     // Ignored is absent; everything else is analysed.
     std::vector<std::string> contextElements;

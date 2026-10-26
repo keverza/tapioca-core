@@ -20,6 +20,7 @@
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
+#include "SunStudy/SunStudyPreset.hpp"
 
 #include <imgui.h>
 
@@ -306,6 +307,24 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     ImGui::SetNextItemWidth (-LabelColumn ());
     ImGui::SliderFloat ("cell size##sunrun", &state.sunRunGrid, 0.25f, 10.0f, "%.2f m", ImGuiSliderFlags_Logarithmic);
 
+    ImGui::RadioButton ("Early model##sunrun", &state.sunRunPreset, 0);
+    ImGui::SameLine ();
+    ImGui::RadioButton ("Late model##sunrun", &state.sunRunPreset, 1);
+    NoteWrapped (state.sunRunPreset == 1 ? "Late measures faces with at least 40% transparency; other faces still cast shadow."
+                                         : "Early measures all eligible faces.");
+    auto snapshot = MeshStore::Get ().Current ();
+    const uint64_t captureStamp = MeshStore::Get ().CaptureStamp ();
+    if (snapshot == nullptr || snapshot->scope != "all" || snapshot->captureStamp != captureStamp ||
+        !snapshot->completeModel)
+        snapshot = MeshStore::Get ().Shared ();
+    const size_t triangleCount = snapshot != nullptr && snapshot->scope == "all" &&
+                                         snapshot->captureStamp == captureStamp && snapshot->completeModel
+                                     ? snapshot->TotalTriangles ()
+                                     : 0;
+    const std::string advice = evp::sunstudy::SunStudyPresetAdvice (
+        triangleCount, state.sunRunPreset == 1 ? "late" : "early");
+    if (!advice.empty ())
+        NoteWrapped (advice.c_str ());
 
     if (ImGui::TreeNode ("Roles")) {
         NoteWrapped ("Analysis: everything not in Context or Ignored");
@@ -353,6 +372,7 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
             request.day = state.sunRunDay;
             request.timestep = kTimesteps[std::clamp (state.sunRunTimestep, 0, kTimestepCount - 1)];
             request.grid = state.sunRunGrid;
+            request.preset = state.sunRunPreset == 1 ? "late" : "early";
             request.contextElements = state.sunRunContext;
             request.ignoredElements = state.sunRunIgnored;
             request.bounded = state.sunRunBounded;

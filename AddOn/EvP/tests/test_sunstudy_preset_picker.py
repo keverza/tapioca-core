@@ -54,3 +54,31 @@ def test_native_advice_is_orange_below_picker_and_never_extracts_or_selects():
     idle = shell.split("void ControlPalette::PanelIdle", 1)[1].split("void ControlPalette::RefreshSearchFilter", 1)[0]
     assert "params.RefreshAdvisories ()" in idle
     assert idle.index("itemsDisabled.load ()") < idle.index("params.RefreshAdvisories ()")
+
+
+def test_native_hud_maps_both_presets_and_follower_keeps_the_selection():
+    hud = (ADDON / "ArchViz" / "DiligentHudSunRun.cpp").read_text(encoding="utf-8")
+    state = (ADDON / "ArchViz" / "DiligentHud.hpp").read_text(encoding="utf-8")
+    request = (ADDON / "NativeCommands" / "SunStudyHudRunner.hpp").read_text(encoding="utf-8")
+    runner = (ADDON / "NativeCommands" / "SunStudyHudRunner.cpp").read_text(encoding="utf-8")
+    follower = (ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    display = (ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    commands = (ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+
+    assert "int sunRunPreset = 0" in state
+    assert 'ImGui::RadioButton ("Early model##sunrun", &state.sunRunPreset, 0)' in hud
+    assert 'ImGui::RadioButton ("Late model##sunrun", &state.sunRunPreset, 1)' in hud
+    assert 'request.preset = state.sunRunPreset == 1 ? "late" : "early"' in hud
+    assert 'std::string preset = "early"' in request
+    assert "double glassThreshold = 0.4" in request
+    assert 'params.Add ("preset", GS::UniString (request.preset.c_str (), CC_UTF8))' in runner
+    assert 'params.Add ("glassThreshold", request.glassThreshold)' in runner
+    assert 'config.preset = metadata.preset' in display
+    assert 'config.glassThreshold = metadata.glassThreshold' in display
+    assert 'params.Add ("preset", GS::UniString (config.preset.c_str (), CC_UTF8))' in follower
+    assert 'params.Add ("glassThreshold", config.glassThreshold)' in follower
+    assert 'if (!start.ok)\n        return failed (start);' in runner
+    assert 'status.stage == "failed"' in hud and 'status.error' in hud
+    assert "no transparency-qualified glass faces" in commands
+    assert 'SunStudyPresetAdvice (' in hud
+    assert 'snapshot->captureStamp == captureStamp && snapshot->completeModel' in hud

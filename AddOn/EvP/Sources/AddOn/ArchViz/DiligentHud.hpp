@@ -173,6 +173,7 @@ struct HudState {
     int sunRunYear = 2026, sunRunMonth = 3, sunRunDay = 21;
     int sunRunTimestep = 2;  // stop index into 5 / 10 / 15 / 20 / 30 minutes
     float sunRunGrid = 1.0f; // cell size, metres
+    int sunRunPreset = 0;
     std::vector<std::string> sunRunContext;
     std::vector<std::string> sunRunIgnored;
     // The analysis cylinder; its centre/radius are seeded from the scene once.

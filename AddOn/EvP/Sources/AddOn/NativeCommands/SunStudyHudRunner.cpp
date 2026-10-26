@@ -87,8 +87,8 @@ GS::ObjectState StartParams (const Request& request)
     params.Add ("samples", GS::UniString ("surfaces"));
     params.Add ("domain", GS::UniString ("patch"));
     params.Add ("backend", GS::UniString ("cpu"));
-    params.Add ("preset", GS::UniString ("early"));
-    params.Add ("glassThreshold", 0.4);
+    params.Add ("preset", GS::UniString (request.preset.c_str (), CC_UTF8));
+    params.Add ("glassThreshold", request.glassThreshold);
     return params;
 }
 
