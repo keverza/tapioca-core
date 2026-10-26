@@ -1,6 +1,6 @@
 #include "Geometry/Primitives.hpp"
 
-#include <clipper2/clipper.h>
+#include "Geometry/PlanarTriangulation.hpp"
 
 #include <cmath>
 #include <utility>
@@ -74,55 +74,29 @@ bool OutlinePlane (const std::vector<Vector3>& outline, Vector3& normal, std::st
 
 // Triangles of a planar outline, as index triples into `outline`.
 //
-// Clipper2 answers with COORDINATES, not indices, so each triangle corner is
-// matched back to the nearest outline vertex. That is exact for the vertices the
-// triangulator kept - it does not move them - and the tolerance only has to cover
-// the fixed-point round trip Clipper2 does internally.
+// Caps retain outline vertex identity. A repaired cover may introduce crossing
+// points, which the primitive cannot represent and must never remap to a corner.
 bool TriangulateOutline (const std::vector<Vector3>& outline, const Vector3& normal, const Vector3& xAxis,
                          const Vector3& yAxis, std::vector<uint32_t>& indices, std::string& error)
 {
     (void) normal;
-    Clipper2Lib::PathD flat;
-    flat.reserve (outline.size ());
+    std::vector<double> flat;
+    flat.reserve (outline.size () * 2);
     const Vector3& origin = outline.front ();
     for (const Vector3& point : outline) {
         const Vector3 local = Subtract (point, origin);
-        flat.push_back ({ Dot (local, xAxis), Dot (local, yAxis) });
+        flat.push_back (Dot (local, xAxis));
+        flat.push_back (Dot (local, yAxis));
     }
 
-    Clipper2Lib::PathsD triangles;
-    if (Clipper2Lib::Triangulate (Clipper2Lib::PathsD { flat }, 8, triangles) !=
-        Clipper2Lib::TriangulateResult::success) {
-        // Self-intersecting outlines are the common cause and the one worth
-        // naming: Clipper2 refuses them rather than guessing which loop is the
-        // shape, and so does this.
-        error = "the outline could not be triangulated - it may cross itself";
+    PlanarTriangulation cap;
+    if (!TriangulatePlanar ({ { flat.data (), outline.size () } }, false, cap, error))
+        return false;
+    if (cap.cover != PlanarCover::Exact || !cap.generatedXY.empty ()) {
+        error = "TriangulationConstraint: an extrusion needs an exact outline cover - it may cross itself";
         return false;
     }
-
-    indices.clear ();
-    for (const Clipper2Lib::PathD& triangle : triangles) {
-        if (triangle.size () != 3)
-            continue;
-        for (const Clipper2Lib::PointD& corner : triangle) {
-            std::size_t best = 0;
-            double bestDistance = -1.0;
-            for (std::size_t index = 0; index < flat.size (); ++index) {
-                const double dx = flat[index].x - corner.x;
-                const double dy = flat[index].y - corner.y;
-                const double distance = dx * dx + dy * dy;
-                if (bestDistance < 0.0 || distance < bestDistance) {
-                    bestDistance = distance;
-                    best = index;
-                }
-            }
-            indices.push_back (static_cast<uint32_t> (best));
-        }
-    }
-    if (indices.empty ()) {
-        error = "the outline produced no triangles";
-        return false;
-    }
+    indices = std::move (cap.triangles);
     return true;
 }
 

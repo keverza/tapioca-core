@@ -62,7 +62,8 @@ bool MakeSphere (const Vector3& centre, double radius, int segments, Mesh& mesh,
 // vertex is only correct for a convex outline, and the outlines this catalog will
 // meet are floor plates, cores and L-shaped footprints - concave by default, and
 // a fan over one of those produces triangles OUTSIDE the shape. So the caps go
-// through Clipper2's triangulator, and the polygon is projected onto its own
+// through the planar triangulation adapter, accepting only an exact cover, and
+// the polygon is projected onto its own
 // best-fit plane first so that a vertical profile works as well as a horizontal
 // one. A wall section is exactly as common as a slab here.
 //
