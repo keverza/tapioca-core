@@ -3,6 +3,7 @@
 #include <clipper2/clipper.h>
 
 #include <cmath>
+#include <utility>
 
 namespace geomsrv::engine {
 namespace {
@@ -303,6 +304,12 @@ bool MakeExtrusion (const std::vector<Vector3>& outline, const Vector3& directio
     const bool alongNormal = Dot (direction, normal) >= 0.0;
     const Vector3 nearNormal = alongNormal ? Vector3 { -normal.x, -normal.y, -normal.z } : normal;
     const Vector3 farNormal = alongNormal ? normal : Vector3 { -normal.x, -normal.y, -normal.z };
+    // Cap indices follow the outline normal; orient them along the sweep before
+    // reversing the near cap. Normals alone do not change back-face culling.
+    if (!alongNormal) {
+        for (size_t index = 0; index + 2 < capIndices.size (); index += 3)
+            std::swap (capIndices[index], capIndices[index + 2]);
+    }
 
     for (const Vector3& point : loop)
         PushVertex (mesh, point.x, point.y, point.z, nearNormal.x, nearNormal.y, nearNormal.z);
@@ -337,8 +344,14 @@ bool MakeExtrusion (const std::vector<Vector3>& outline, const Vector3& directio
                     wallNormal.z);
         PushVertex (mesh, a.x + direction.x, a.y + direction.y, a.z + direction.z, wallNormal.x, wallNormal.y,
                     wallNormal.z);
-        PushTriangle (mesh, base, base + 1, base + 2);
-        PushTriangle (mesh, base, base + 2, base + 3);
+        if (alongNormal) {
+            PushTriangle (mesh, base, base + 1, base + 2);
+            PushTriangle (mesh, base, base + 2, base + 3);
+        }
+        else {
+            PushTriangle (mesh, base + 2, base + 1, base);
+            PushTriangle (mesh, base + 3, base + 2, base);
+        }
     }
 
     GrowBounds (mesh);

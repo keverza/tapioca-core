@@ -935,6 +935,7 @@ set (EVP_TEST_SOURCES
     test_normals.cpp
     test_geometryengine.cpp
     test_curves.cpp
+    test_primitives.cpp
     test_planartriangulation.cpp
     test_meshgroups.cpp
     test_surfacesourcemap.cpp
