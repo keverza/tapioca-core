@@ -52,6 +52,7 @@ set (MSGPACK_INC "${REF_DIR}/msgpack-c-cpp_master/include" CACHE PATH "msgpack-c
 set (NANORT_INC  "${REF_DIR}/nanort-release"            CACHE PATH "nanort include dir")
 set (GLM_INC     "${REF_DIR}/glm-master"                CACHE PATH "GLM include dir")
 set (CLIPPER2_DIR "${REF_DIR}/Clipper2-main/CPP"         CACHE PATH "Clipper2 C++ source dir")
+set (EARSTRIP_INC "${REF_DIR}/earstrip-main"            CACHE PATH "earstrip include dir")
 set (QUICKJS_DIR "${REF_DIR}/quickjs-ng"                CACHE PATH "quickjs-ng C source dir")
 set (WEBVIEW2_DIR "${REF_DIR}/webview2-1.0.2478.35" CACHE PATH "Microsoft WebView2 SDK package")
 
@@ -424,7 +425,8 @@ target_include_directories (${ADDON_LIB} PRIVATE
     ${ResourceObjectsDir}                     # generated ResourceMDIDIds.hpp
     ${AC_API_DEVKIT_DIR}/Support/Inc)
 target_include_directories (${ADDON_LIB} SYSTEM PRIVATE
-    ${HTTPLIB_INC} ${MSGPACK_INC} ${NANORT_INC} ${GLM_INC} "${WEBVIEW2_DIR}/build/native/include")
+    ${HTTPLIB_INC} ${MSGPACK_INC} ${NANORT_INC} ${GLM_INC} ${EARSTRIP_INC}
+    "${WEBVIEW2_DIR}/build/native/include")
 
 file (GLOB ModuleFolders ${AC_API_DEVKIT_DIR}/Support/Modules/*)
 target_include_directories (${ADDON_LIB} SYSTEM PRIVATE ${ModuleFolders})

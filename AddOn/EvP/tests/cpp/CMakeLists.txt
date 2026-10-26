@@ -43,6 +43,7 @@ set (GTEST_DIR  "${REF_DIR}/googletest")
 set (NANORT_INC "${REF_DIR}/nanort-release")
 set (GLM_INC "${REF_DIR}/glm-master")
 set (CLIPPER2_DIR "${REF_DIR}/Clipper2-main/CPP")
+set (EARSTRIP_INC "${REF_DIR}/earstrip-main")
 set (QUICKJS_DIR "${REF_DIR}/quickjs-ng")
 # Scene text is shipped production code, so its pinned dependencies and tests
 # belong to the default offline gate rather than an optional coverage tier.
@@ -75,6 +76,7 @@ set (EVP_GEOM_SOURCES
     # black pole, a solid half-missing under back-face culling - so it belongs
     # under an offline gate rather than in front of someone in Archicad.
     "${GEOM_DIR}/Primitives.cpp"
+    "${GEOM_DIR}/PlanarTriangulation.cpp"
     # Curves.cpp and Transforms.cpp are the other two halves of the modelling
     # catalog, and both fail as PICTURES rather than as errors - an arc that
     # collapses because its plane normal was crossed with a parallel axis, a
@@ -933,6 +935,7 @@ set (EVP_TEST_SOURCES
     test_normals.cpp
     test_geometryengine.cpp
     test_curves.cpp
+    test_planartriangulation.cpp
     test_meshgroups.cpp
     test_surfacesourcemap.cpp
     test_exposed_surface.cpp
@@ -1132,6 +1135,9 @@ endif ()
 if (NOT EXISTS "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.engine.cpp")
     message (FATAL_ERROR "Clipper2 not found at ${CLIPPER2_DIR} â€” see AddOn/EvP/README.md.")
 endif ()
+if (NOT EXISTS "${EARSTRIP_INC}/include/earstrip.hpp")
+    message (FATAL_ERROR "earstrip not found at ${EARSTRIP_INC} â€” run tools/build/provision-reference.ps1 -FromUpstream -Profile test.")
+endif ()
 
 add_library (gtest_vendored STATIC
     "${GTEST_DIR}/src/gtest-all.cc"
@@ -1222,7 +1228,7 @@ target_include_directories (EvPGeomTests PRIVATE
     "${GEOM_DIR}"
     "${EVP_ROOT}/Sources/AddOn/Python"
     "${CMAKE_CURRENT_SOURCE_DIR}")
-target_include_directories (EvPGeomTests SYSTEM PRIVATE "${NANORT_INC}" "${GLM_INC}")
+target_include_directories (EvPGeomTests SYSTEM PRIVATE "${NANORT_INC}" "${GLM_INC}" "${EARSTRIP_INC}")
 target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2 TapiocaQuickJs TapiocaImGui
                                            ${TAPIOCA_TEXT_LIBS})
 if (TAPIOCA_LINK_RUST_GEOMETRY)
