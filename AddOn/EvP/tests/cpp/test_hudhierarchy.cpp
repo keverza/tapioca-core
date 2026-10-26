@@ -120,6 +120,44 @@ TEST (HudHierarchy, InvalidNavigationShowsAReadableErrorCard)
     EXPECT_TRUE (Box (out.host, 0x34201FFFu, box));
 }
 
+TEST (HudHierarchy, NativeVirtualEditorIsAvailableWithoutAPublishedPanel)
+{
+    Watched hud;
+    hud::OwnPages own;
+    own.standalone = true;
+    hud.engine.SetOwnPages (own);
+    Navigate (hud, {}, "virtual editor");
+    EXPECT_EQ (hud.engine.Selected (), "virtual-editor#0");
+    EXPECT_FALSE (hud::VirtualEditorActive (*hud.state));
+    ASSERT_TRUE (hud::OpenVirtualEditorWorkflow (*hud.state));
+    EXPECT_TRUE (hud::VirtualEditorActive (*hud.state));
+    const auto* session = hud::VirtualEditor (*hud.state);
+    ASSERT_TRUE (session->edits.Doc ().landscape.has_value ());
+    std::string error;
+    EXPECT_TRUE (geomsrv::edit::Validate (session->edits.Doc (), error)) << error;
+    ASSERT_TRUE (hud::OpenVirtualEditorWorkflow (*hud.state));
+    EXPECT_EQ (hud::VirtualEditor (*hud.state), session);
+    Navigate (hud, {}, "Settings");
+    EXPECT_TRUE (hud::VirtualEditorActive (*hud.state));
+    hud::StopVirtualEditor (*hud.state, "test complete");
+    Navigate (hud, {}, "virtual editor");
+    EXPECT_EQ (hud.engine.Selected (), "virtual-editor#0");
+    layers::Clear ("virtual-editor");
+}
+
+TEST (HudHierarchy, ViewerEditorKeepsAnalysisInNativeNavigation)
+{
+    Watched hud;
+    hud::OwnPages own;
+    own.standalone = true;
+    own.viewerSurface = true;
+    hud.engine.SetOwnPages (own);
+    Navigate (hud, {}, "Virtual editor");
+    EXPECT_EQ (hud.engine.Selected (), "virtual-editor#0");
+    Navigate (hud, {}, "Analysis");
+    EXPECT_EQ (hud.engine.Selected (), "@viewer.analysis");
+}
+
 TEST (HudHierarchy, WorkflowFlyoutUsesTheSideWithRoom)
 {
     const ImVec2 view (1200, 800), wanted (180, 160);

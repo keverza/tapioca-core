@@ -6,6 +6,7 @@
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
 #include <atomic>
@@ -15,10 +16,15 @@
 namespace geomsrv::archviz::vieweredit {
 namespace {
 std::atomic<bool> s_active { false };
+std::atomic<bool> s_running { false }, s_requested { false };
+std::atomic<bool> s_analysisRequested { false };
 std::atomic<uint64_t> s_generation { 0 };
 std::atomic<int64_t> s_drawn { 0 };
 std::mutex s_mutex;
 Frame s_frame;
+hudshell::DockPlacement s_dock;
+uint32_t s_fontStep = hudshell::kFontStepDefault;
+bool s_placementRequested = false;
 std::unique_ptr<Drawing> s_pending;
 HWND s_window = nullptr;
 UINT_PTR s_timer = 0;
@@ -45,15 +51,39 @@ bool Hovering ()
 
 bool Refresh ()
 {
-    if (!Active () || s_refreshing)
+    if (!Running () || s_refreshing)
         return false;
     if (!DiligentViewport::Get ().IsRunning ()) {
         Stop (true); // renderer failure must not silently discard the document
         return false;
     }
     const auto state = guesttext::HudState ();
+    if (s_requested.exchange (false)) {
+        {
+            std::lock_guard<std::mutex> lock (s_mutex);
+            if (s_placementRequested) {
+                state->host.dock = s_dock;
+                state->fontStep = s_fontStep;
+                s_placementRequested = false;
+            }
+        }
+        if (overlayhud::OpenVirtualEditorWorkflow (*state)) {
+            overlayinput::HudOwner owner { &Shown, &Refresh, &Redraw, &Hovering };
+            std::string error;
+            if (overlayinput::Attach (overlayinput::View::ThreeD, s_window, owner, error)) {
+                overlayhud::RestoreVirtualEditor (*state, overlayhud::TakeVirtualEditor (*state));
+                s_active.store (true);
+            }
+            else
+                ArchVizLog ("VIEWER EDITOR input could not start: " + error);
+        }
+    }
+    if (!Active ())
+        return false;
     if (!overlayhud::VirtualEditorActive (*state)) {
-        Stop ();
+        s_active.store (false);
+        overlayinput::Detach (overlayinput::View::ThreeD);
+        overlayinput::EnableRoofEditKeys (false);
         return false;
     }
     Frame frame;
@@ -95,6 +125,25 @@ bool Refresh ()
     auto drawing = std::make_unique<Drawing> ();
     drawing->scale = scale;
     drawing->hud = overlayscene::PrepareSceneHud (overlaylayers::Layers (), engine, scale, input);
+    if (engine->Selected () == "@viewer.analysis") {
+        // Navigation releases input, not the document. Renderer-owned analysis keeps
+        // its own state; no Session or ImGui pointer crosses the thread boundary.
+        auto session = overlayhud::TakeVirtualEditor (*state);
+        overlayhud::RestoreVirtualEditor (*state, std::move (session));
+        overlayhud::SetEditLocked (*state, false);
+        overlayinput::Detach (overlayinput::View::ThreeD);
+        overlayinput::EnableRoofEditKeys (false);
+        {
+            std::lock_guard<std::mutex> lock (s_mutex);
+            s_dock = state->host.dock;
+            s_dock.workflowFlyoutOpen = false;
+            s_fontStep = state->fontStep;
+        }
+        s_analysisRequested.store (true);
+        s_active.store (false);
+        s_refreshing = false;
+        return true;
+    }
     overlayinput::HitMap hit;
     hit.regions = drawing->hud.regions;
     hit.dpiScale = scale;
@@ -113,7 +162,9 @@ bool Refresh ()
     }
     if (!overlayhud::VirtualEditorActive (*state)) {
         s_refreshing = false;
-        Stop ();
+        s_active.store (false);
+        overlayinput::Detach (overlayinput::View::ThreeD);
+        overlayinput::EnableRoofEditKeys (false);
         return true;
     }
     std::vector<std::shared_ptr<const overlaylayers::Layer>> layers;
@@ -159,6 +210,28 @@ bool Active ()
 {
     return s_active.load ();
 }
+bool Running ()
+{
+    return s_running.load ();
+}
+void RequestWorkflow (const hudshell::DockPlacement& dock, uint32_t fontStep)
+{
+    std::lock_guard<std::mutex> lock (s_mutex);
+    s_dock = dock;
+    s_dock.workflowFlyoutOpen = false;
+    s_fontStep = fontStep;
+    s_placementRequested = true;
+    s_requested.store (true);
+}
+bool TakeAnalysisRequest (hudshell::DockPlacement& dock, uint32_t& fontStep)
+{
+    if (!s_analysisRequested.exchange (false))
+        return false;
+    std::lock_guard<std::mutex> lock (s_mutex);
+    dock = s_dock;
+    fontStep = s_fontStep;
+    return true;
+}
 uint64_t Generation ()
 {
     return s_generation.load ();
@@ -166,7 +239,7 @@ uint64_t Generation ()
 void PublishFrame (Frame frame)
 {
     std::lock_guard<std::mutex> lock (s_mutex);
-    if (Active ())
+    if (Running ())
         s_frame = std::move (frame);
 }
 std::unique_ptr<Drawing> TakeDrawing ()
@@ -182,19 +255,15 @@ void Drawn (uint64_t generation)
 
 bool Start (void* window)
 {
-    if (Active ())
+    if (Running ())
         return true;
-    if (!overlayhud::VirtualEditorActive (*guesttext::HudState ()))
-        return true; // ordinary viewer, no editor input/HUD
     s_window = static_cast<HWND> (window);
     s_generation.fetch_add (1);
-    s_active.store (true);
+    s_running.store (true);
     s_drawn.store (0);
-    std::string error;
-    overlayinput::HudOwner owner { &Shown, &Refresh, &Redraw, &Hovering };
-    if (!overlayinput::Attach (overlayinput::View::ThreeD, s_window, owner, error) ||
-        !(s_timer = ::SetTimer (nullptr, 0, 15, Tick))) {
-        ArchVizLog ("VIEWER EDITOR input could not start: " + error);
+    s_requested.store (overlayhud::VirtualEditorActive (*guesttext::HudState ()));
+    if (!(s_timer = ::SetTimer (nullptr, 0, 15, Tick))) {
+        ArchVizLog ("VIEWER EDITOR timer could not start");
         Stop (true);
         return false;
     }
@@ -203,8 +272,11 @@ bool Start (void* window)
 
 void Stop (bool preserve)
 {
-    if (!s_active.exchange (false))
+    if (!s_running.exchange (false))
         return;
+    s_active.store (false);
+    s_requested.store (false);
+    s_analysisRequested.store (false);
     s_generation.fetch_add (1);
     if (s_timer)
         ::KillTimer (nullptr, s_timer);
@@ -226,6 +298,8 @@ void Stop (bool preserve)
     s_hudHash = 0;
     std::lock_guard<std::mutex> lock (s_mutex);
     s_frame = {};
+    s_dock = {};
+    s_placementRequested = false;
     s_pending.reset ();
 }
 } // namespace geomsrv::archviz::vieweredit

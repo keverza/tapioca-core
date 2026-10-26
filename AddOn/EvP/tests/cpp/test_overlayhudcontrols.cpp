@@ -782,9 +782,9 @@ TEST (OverlayHudControls, DockFlyoutListsWorkflowsAndClosesAfterSelection)
     ASSERT_TRUE (Box (hovered.overlay, darken (sun.accentRgba), fill)) << "hover darkens the dock fill";
     EXPECT_LE (fill[2] - fill[0], before.dock.width) << "the choice fits within the dock tab's width";
     EXPECT_GT (fill[3] - fill[1], fill[2] - fill[0]) << "the choice label follows the vertical tab";
-    EXPECT_GE (fill[0], Left (before.dock) - before.dock.width - 1.0f);
-    EXPECT_LE (fill[2], Left (before.dock) + 1.0f);
-    EXPECT_NEAR ((fill[0] + fill[2]) * 0.5f, Left (before.dock) - before.dock.width * 0.5f, 1.0f)
+    EXPECT_GE (fill[0], Left (before.dock) - 1.0f);
+    EXPECT_LE (fill[2], Left (before.dock) + before.dock.width + 1.0f);
+    EXPECT_NEAR ((fill[0] + fill[2]) * 0.5f, Left (before.dock) + before.dock.width * 0.5f, 1.0f)
         << "the vertical choice is centered across the dock's width";
     hud.Click ({ &sun, &area }, choiceX, choiceY);
     EXPECT_EQ (hud.engine.Selected (), "hud#1");
@@ -807,11 +807,29 @@ TEST (OverlayHudControls, LeftDockFlyoutFollowsTheVerticalTab)
     ASSERT_TRUE (Box (choices.overlay, sun.accentRgba, fill));
     EXPECT_LT (fill[2] - fill[0], 2.0f * before.dock.width + 2.0f);
     EXPECT_GT (fill[3] - fill[1], fill[2] - fill[0]);
-    const float choiceX = Left (before.dock) + before.dock.width + 10.0f;
+    const float choiceX = Left (before.dock) + before.dock.width * 0.5f;
     const float choiceY = fill[3] - 8.0f;
     hud.Click ({ &sun, &area }, choiceX, choiceY);
     EXPECT_EQ (hud.engine.Selected (), "hud#1");
     EXPECT_FALSE (hud.Lay ({ &sun, &area }, At (600.0f, 600.0f)).popup);
+}
+
+TEST (OverlayHudControls, TopDockFlyoutCentersAHorizontalRow)
+{
+    Watched hud;
+    const layers::Panel sun = Titled ("Sun study"), area = Titled ("Area metrics");
+    const auto before = hud.Lay ({ &sun, &area }, At (600, 600));
+    const float titleX = Left (before.dock) + before.dock.height * 2.5f;
+    const float titleY = Top (before.dock) + before.dock.height * 0.5f;
+    const auto choices = hud.Click ({ &sun, &area }, titleX, titleY);
+    ASSERT_TRUE (choices.popup);
+    float fill[4] = {};
+    ASSERT_TRUE (Box (choices.overlay, sun.accentRgba, fill));
+    EXPECT_GE (fill[0], Left (before.dock) + before.dock.width);
+    EXPECT_GT (fill[2] - fill[0], fill[3] - fill[1]);
+    EXPECT_NEAR ((fill[1] + fill[3]) * 0.5f, titleY, 1.0f);
+    hud.Click ({ &sun, &area }, fill[2] - 8, titleY);
+    EXPECT_EQ (hud.engine.Selected (), "hud#1");
 }
 
 // The chip's workflow flyout opens a closed panel; the panel's menu still controls readout.

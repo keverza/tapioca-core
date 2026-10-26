@@ -267,8 +267,8 @@ std::vector<std::shared_ptr<const overlaylayers::Layer>> ShownLayers ();
 void FollowHudState ();
 // Command boundaries release a roof's borrowed lock and command-owned layers
 // before the next Run, even when no renderer/idle poll is active. `next` is the command
-// about to run (its catalog path): a virtual editor that command opened survives its own
-// runs with its layer, so its "Report" and "Close" find it. Empty releases everything.
+// about to run (its catalog path). The native virtual-editor workflow survives named
+// command runs with its layer and document. Empty releases everything at a project boundary.
 void ClearCommandPreviews (const std::string& next = {});
 // The command the palette last started (its catalog path), for a session to record as
 // its owner; empty before the first run.

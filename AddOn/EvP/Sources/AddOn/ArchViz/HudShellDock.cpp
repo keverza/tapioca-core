@@ -308,10 +308,10 @@ DockPanelRect WorkflowFlyoutAtDock (ImVec2 view, ImVec2 dockMin, ImVec2 dockMax,
     const Candidate* chosen = &candidates[horizontal ? 0 : 2];
     for (const Candidate& candidate : candidates)
         if ((horizontal == (candidate.side == DockEdge::Right || candidate.side == DockEdge::Left)))
-        if ((candidate.room >= candidate.required && chosen->room < chosen->required) ||
-            ((candidate.room >= candidate.required) == (chosen->room >= chosen->required) &&
-             candidate.room > chosen->room))
-            chosen = &candidate;
+            if ((candidate.room >= candidate.required && chosen->room < chosen->required) ||
+                ((candidate.room >= candidate.required) == (chosen->room >= chosen->required) &&
+                 candidate.room > chosen->room))
+                chosen = &candidate;
     DockPanelRect result;
     result.side = chosen->side;
     result.size = { (std::min) (wanted.x, view.x), (std::min) (wanted.y, view.y) };
@@ -407,13 +407,12 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
             totalAlong = std::ceil (ImGui::CalcTextSize ("No workflows available").x + 2.0f * padAlong);
         }
         const float gaps = float (workflowCount > 0 ? workflowCount - 1 : 0) * spacing;
-        const ImVec2 wanted =
-            p.horizontal ? ImVec2 (totalAlong + gaps, across)
-                         : ImVec2 (across, totalAlong + gaps);
+        const ImVec2 wanted = p.horizontal ? ImVec2 (totalAlong + gaps, across) : ImVec2 (across, totalAlong + gaps);
         const DockPanelRect flyout = WorkflowFlyoutAtDock (view, pos, ImVec2 (pos.x + size.x, pos.y + size.y), wanted);
         ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0, 0));
         ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
         ImGui::PushStyleVar (ImGuiStyleVar_ItemSpacing, ImVec2 (0, spacing));
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowMinSize, ImVec2 (0, 0));
         ImGui::PushStyleColor (ImGuiCol_PopupBg, ImVec4 (0, 0, 0, 0));
         ImGui::SetNextWindowPos (flyout.position);
         ImGui::SetNextWindowSize (flyout.size);
@@ -501,7 +500,7 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
         else if (!result.press.titleActive && !result.press.title)
             p.workflowFlyoutOpen = false;
         ImGui::PopStyleColor ();
-        ImGui::PopStyleVar (3);
+        ImGui::PopStyleVar (4);
         if (ImGui::BeginPopup ("##dockPosition")) {
             if (ImGui::BeginMenu ("Dock location")) {
                 struct Anchor {

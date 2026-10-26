@@ -80,7 +80,7 @@ void ViewerEditorDraw::Update (Diligent::IRenderDevice* device, Diligent::IDevic
                                Diligent::ITextureView* target, Diligent::ITextureView* depth, const float* view,
                                const float* projection, uint32_t width, uint32_t height)
 {
-    if (!vieweredit::Active ()) {
+    if (!vieweredit::Running ()) {
         Clear ();
         return;
     }
@@ -95,6 +95,8 @@ void ViewerEditorDraw::Update (Diligent::IRenderDevice* device, Diligent::IDevic
     frame.width = width;
     frame.height = height;
     vieweredit::PublishFrame (frame);
+    if (!vieweredit::Active ())
+        return;
     const auto stored = StoredEncodingView (target);
     Diligent::ITextureView* bound = stored ? stored.RawPtr () : target;
     context->SetRenderTargets (1, &bound, depth, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);

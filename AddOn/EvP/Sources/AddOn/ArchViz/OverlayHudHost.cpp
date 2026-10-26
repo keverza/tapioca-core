@@ -204,13 +204,27 @@ std::vector<hudshell::HostTab> Engine::Impl::Tabs (const std::vector<const layer
     if (own.standalone) {
         tabs.push_back ({ kStatsKey, "Stats" });
         tabs.push_back ({ kSelectionKey, "Selection" });
-        tabs.push_back ({ hudmassing::kTabKey, "Massing", {}, archviz::ui::IconId::HomeSimple });
+        tabs.push_back ({ hudmassing::kTabKey, "Massing" });
         tabs.back ().family = hudshell::WorkflowFamily::Design;
         tabs.back ().group = "Massing";
         tabs.back ().token = "massing";
         tabs.back ().purpose = "Explore massing feasibility and its results.";
     }
+    if (own.standalone) {
+        tabs.push_back ({ std::string (editlayers::kLayer) + "#0", "Virtual editor" });
+        tabs.back ().family = hudshell::WorkflowFamily::Design;
+        tabs.back ().group = "Editing";
+        tabs.back ().token = "virtual editor";
+        tabs.back ().purpose = "Edit virtual geometry before applying changes.";
+        if (own.viewerSurface) {
+            tabs.push_back ({ "@viewer.analysis", "Analysis" });
+            tabs.back ().family = hudshell::WorkflowFamily::Analyze;
+            tabs.back ().purpose = "Sun study, view quality and viewpoint.";
+        }
+    }
     for (const size_t i : titled) {
+        if (own.standalone && LayerOf (keys[i]) == editlayers::kLayer)
+            continue;
         tabs.push_back ({ keys[i], panels[i]->title });
         auto& tab = tabs.back ();
         const std::string layerName = LayerOf (keys[i]);
@@ -407,6 +421,16 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     // Settings.
     spec.tabs = Tabs (panels, keys);
     const auto page = [&] (const std::string& k) {
+        if (k == std::string (editlayers::kLayer) + "#0") {
+            if (store->virtualEditor)
+                edithud::Panel (*store->virtualEditor);
+            else {
+                ImGui::TextWrapped ("Create virtual geometry without changing the Archicad model.");
+                if (ImGui::Button ("Open virtual editor"))
+                    OpenVirtualEditorWorkflow (*store);
+            }
+            return;
+        }
         if (k == hudmassing::kTabKey) {
             MassingPage ();
             return;

@@ -4,6 +4,7 @@
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include <cmath>
+#include <random>
 #include <utility>
 
 // The virtual editor's lifecycle on the HUD's state, in the roof editor's pattern: a
@@ -63,6 +64,28 @@ void StopVirtualEditor (State& state, const char* reason)
     state.editLocked = state.virtualEditor->previousLock;
     state.virtualEditor.reset ();
     ++state.revision;
+}
+
+bool OpenVirtualEditorWorkflow (State& state)
+{
+    if (state.virtualEditor)
+        return true;
+    edit::Document doc;
+    std::array<uint8_t, 16> uuid;
+    std::random_device random;
+    for (auto& byte : uuid)
+        byte = static_cast<uint8_t> (random ());
+    uuid[6] = (uuid[6] & 0x0F) | 0x40;
+    uuid[8] = (uuid[8] & 0x3F) | 0x80;
+    std::string error;
+    if (!tapioca::geometry::StartLandscape (doc, uuid, error))
+        return false;
+    if (!StartVirtualEditor (state, std::move (doc), {}, {}, 0.0, false))
+        return false;
+    overlaylayers::Layer layer;
+    edithud::Follow (*state.virtualEditor, layer);
+    overlaylayers::Set (std::move (layer));
+    return true;
 }
 
 bool VirtualEditorActive (const State& state)

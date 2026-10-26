@@ -5,6 +5,7 @@
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/HudConsole.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
+#include "ArchViz/ViewerEditor.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h> // ImGuiWindow: the dock's width, for the view's right column
@@ -55,8 +56,12 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
 {
     const ImVec2 view = ImVec2 (float (width), float (height));
     const float scale = frame.dpiScale;
-    const float ui = scale * hudshell::FontScaleOfStep (shell.fontStep);
     const layers::Panel& look = ViewerLook ();
+    if (vieweredit::TakeAnalysisRequest (shell.dock, shell.fontStep)) {
+        shell.held = kSunStudyKey;
+        shell.open = true;
+    }
+    const float ui = scale * hudshell::FontScaleOfStep (shell.fontStep);
     // Keep command/step metadata current even with the Analysis page closed.
     state.sunStepCount = scene.sunStudy.stepCount;
     state.sunStepMinutes = scene.sunStudy.stepMinutes;
@@ -72,6 +77,11 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     tabs.back ().family = hudshell::WorkflowFamily::Analyze;
     tabs.back ().token = "analysis";
     tabs.back ().purpose = "Study sun, view quality and the current viewpoint.";
+    tabs.push_back ({ "@viewer.editor", "Virtual editor" });
+    tabs.back ().family = hudshell::WorkflowFamily::Design;
+    tabs.back ().group = "Editing";
+    tabs.back ().token = "virtual editor";
+    tabs.back ().purpose = "Create or resume native virtual geometry editing.";
     tabs.push_back ({ hudshell::kSettingsKey, "Settings" });
     // The console's errors and warnings not shown yet, counted on the tab (HudConsole.hpp).
     const uint32_t unseen = hudconsole::Unseen (hudconsole::Entries (), shell.consoleSeen, shell.consoleCleared);
@@ -121,6 +131,11 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
             SelectionPage (shell, state, ui);
         else if (key == kSunStudyKey)
             SunStudyPage (state, scene);
+        else if (key == "@viewer.editor") {
+            ImGui::TextWrapped ("Create or resume virtual geometry without changing the Archicad model.");
+            if (ImGui::Button ("Open virtual editor"))
+                vieweredit::RequestWorkflow (shell.dock, shell.fontStep);
+        }
         else if (key == hudshell::kSettingsKey)
             SettingsPage (shell, state, scene);
         else if (key == hudshell::kDebugKey)

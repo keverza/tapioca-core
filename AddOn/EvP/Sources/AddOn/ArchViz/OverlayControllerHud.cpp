@@ -332,7 +332,9 @@ void ClearCommandPreviews (const std::string& next)
 {
     g_runningCommand = next;
     overlayhud::State& state = *guesttext::HudState ();
-    const bool keepEditor = !next.empty () && overlayhud::VirtualEditorOwnedBy (state, next);
+    // Virtual editing is a native workflow: unrelated palette commands do not
+    // discard its document. Project boundaries still close the session.
+    const bool keepEditor = !next.empty () && overlayhud::VirtualEditorActive (state);
     overlayhud::StopRoofEditor (state);
     if (!keepEditor) {
         overlayhud::StopVirtualEditor (state, next.empty () ? "a project boundary" : "another command ran");

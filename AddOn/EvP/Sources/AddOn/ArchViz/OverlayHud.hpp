@@ -372,6 +372,7 @@ bool StartVirtualEditor (State& state, edit::Document doc, std::string role = {}
 // `reason` goes to archviz.log with the session's last state.
 void StopVirtualEditor (State& state, const char* reason = "stopped");
 bool VirtualEditorActive (const State& state);
+bool OpenVirtualEditorWorkflow (State& state);
 const edithud::Session* VirtualEditor (const State& state);
 edithud::Session* VirtualEditor (State& state);
 bool FollowVirtualEditor (State& state, overlaylayers::Layer& layer, bool& clear);

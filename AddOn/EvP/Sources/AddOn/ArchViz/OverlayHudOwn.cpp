@@ -91,6 +91,10 @@ std::string Engine::Impl::TitleOf (const std::string& tabKey, const std::vector<
         return "Selection";
     if (tabKey == hudmassing::kTabKey)
         return "Massing";
+    if (tabKey == "virtual-editor#0")
+        return "Virtual editor";
+    if (tabKey == "@viewer.analysis")
+        return "Analysis";
     if (tabKey == kDebugKey)
         return "Debug";
     for (size_t i = 0; i < panels.size () && i < keys.size (); ++i)

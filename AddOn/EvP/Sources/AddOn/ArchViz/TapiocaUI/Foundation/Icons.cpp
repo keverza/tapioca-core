@@ -112,8 +112,7 @@ bool IconTextButton (const char* id, IconId icon, const char* label, bool active
     const float left = at.x + style.FramePadding.x;
     if (icon != IconId::None)
         DrawIcon (draw, icon, ImVec2 (left + glyph * 0.5f, at.y + side * 0.5f), glyph, ink);
-    draw->AddText (ImVec2 (left + lead, at.y + (side - text.y) * 0.5f),
-                   ImGui::GetColorU32 (ImGuiCol_Text), label, end);
+    draw->AddText (ImVec2 (left + lead, at.y + (side - text.y) * 0.5f), ImGui::GetColorU32 (ImGuiCol_Text), label, end);
     return pressed;
 }
 
