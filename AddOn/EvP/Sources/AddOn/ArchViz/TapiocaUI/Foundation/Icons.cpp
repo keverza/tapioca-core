@@ -101,7 +101,8 @@ bool IconTextButton (const char* id, IconId icon, const char* label, bool active
     const ImVec2 text = ImGui::CalcTextSize (label, end);
     const float side = ImGui::GetFrameHeight ();
     const float glyph = GlyphSide (side);
-    const float width = style.FramePadding.x * 2.0f + glyph + style.ItemInnerSpacing.x + text.x;
+    const float lead = icon == IconId::None ? 0.0f : glyph + style.ItemInnerSpacing.x;
+    const float width = style.FramePadding.x * 2.0f + lead + text.x;
     const ImVec2 at = ImGui::GetCursorScreenPos ();
     const bool pressed = ImGui::InvisibleButton (id, ImVec2 (width, side));
     ImU32 ground = 0, ink = 0;
@@ -109,8 +110,9 @@ bool IconTextButton (const char* id, IconId icon, const char* label, bool active
     ImDrawList* const draw = ImGui::GetWindowDrawList ();
     draw->AddRectFilled (at, ImVec2 (at.x + width, at.y + side), ground, style.FrameRounding);
     const float left = at.x + style.FramePadding.x;
-    DrawIcon (draw, icon, ImVec2 (left + glyph * 0.5f, at.y + side * 0.5f), glyph, ink);
-    draw->AddText (ImVec2 (left + glyph + style.ItemInnerSpacing.x, at.y + (side - text.y) * 0.5f),
+    if (icon != IconId::None)
+        DrawIcon (draw, icon, ImVec2 (left + glyph * 0.5f, at.y + side * 0.5f), glyph, ink);
+    draw->AddText (ImVec2 (left + lead, at.y + (side - text.y) * 0.5f),
                    ImGui::GetColorU32 (ImGuiCol_Text), label, end);
     return pressed;
 }

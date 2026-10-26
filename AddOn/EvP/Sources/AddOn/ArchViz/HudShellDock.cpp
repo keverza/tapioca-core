@@ -304,8 +304,10 @@ DockPanelRect WorkflowFlyoutAtDock (ImVec2 view, ImVec2 dockMin, ImVec2 dockMax,
                                      { DockEdge::Left, dockMin.x, wanted.x },
                                      { DockEdge::Bottom, view.y - dockMax.y, wanted.y },
                                      { DockEdge::Top, dockMin.y, wanted.y } };
-    const Candidate* chosen = &candidates[0];
+    const bool horizontal = dockMax.x - dockMin.x >= dockMax.y - dockMin.y;
+    const Candidate* chosen = &candidates[horizontal ? 0 : 2];
     for (const Candidate& candidate : candidates)
+        if ((horizontal == (candidate.side == DockEdge::Right || candidate.side == DockEdge::Left)))
         if ((candidate.room >= candidate.required && chosen->room < chosen->required) ||
             ((candidate.room >= candidate.required) == (chosen->room >= chosen->required) &&
              candidate.room > chosen->room))
@@ -317,8 +319,8 @@ DockPanelRect WorkflowFlyoutAtDock (ImVec2 view, ImVec2 dockMin, ImVec2 dockMax,
         result.size.x = (std::min) (result.size.x, (std::max) (0.0f, chosen->room));
     else
         result.size.y = (std::min) (result.size.y, (std::max) (0.0f, chosen->room));
-    result.position = { std::clamp (dockMin.x, 0.0f, view.x - result.size.x),
-                        std::clamp (dockMin.y, 0.0f, view.y - result.size.y) };
+    result.position = { std::clamp ((dockMin.x + dockMax.x - result.size.x) * 0.5f, 0.0f, view.x - result.size.x),
+                        std::clamp ((dockMin.y + dockMax.y - result.size.y) * 0.5f, 0.0f, view.y - result.size.y) };
     if (chosen->side == DockEdge::Right)
         result.position.x = dockMax.x;
     else if (chosen->side == DockEdge::Left)
@@ -393,21 +395,20 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
         const float padAcross = std::round (3.0f * ui);
         const float spacing = std::round (2.0f * ui);
         const float buttonAcross = std::ceil (ImGui::GetTextLineHeight () + 2.0f * padAcross);
-        float longest = 0.0f, totalAlong = 0.0f;
+        float totalAlong = 0.0f;
         size_t workflowCount = 0;
         for (const HostTab& tab : tabs)
             if (tab.key != kStatsKey && tab.key != kSelectionKey && tab.key != kSettingsKey && tab.key != kDebugKey) {
                 const float length = std::ceil (ImGui::CalcTextSize (tab.title.c_str ()).x + 2.0f * padAlong);
-                longest = (std::max) (longest, length);
                 totalAlong += length;
                 ++workflowCount;
             }
         if (workflowCount == 0) {
-            longest = totalAlong = std::ceil (ImGui::CalcTextSize ("No workflows available").x + 2.0f * padAlong);
+            totalAlong = std::ceil (ImGui::CalcTextSize ("No workflows available").x + 2.0f * padAlong);
         }
         const float gaps = float (workflowCount > 0 ? workflowCount - 1 : 0) * spacing;
         const ImVec2 wanted =
-            p.horizontal ? ImVec2 (longest, float ((std::max) (size_t (1), workflowCount)) * buttonAcross + gaps)
+            p.horizontal ? ImVec2 (totalAlong + gaps, across)
                          : ImVec2 (across, totalAlong + gaps);
         const DockPanelRect flyout = WorkflowFlyoutAtDock (view, pos, ImVec2 (pos.x + size.x, pos.y + size.y), wanted);
         ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0, 0));
@@ -436,13 +437,20 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
                 ImGui::PushStyleVar (
                     ImGuiStyleVar_FrameRounding,
                     (std::min) (float (graphicssettings::Number ("ui.dock.rounding", 6)) * scale, buttonAcross * 0.5f));
+                bool firstChoice = true;
                 const auto choice = [&] (const char* title) {
                     const ImVec2 labelSize = ImGui::CalcTextSize (title);
                     const float length = std::ceil (labelSize.x + 2.0f * padAlong);
                     const ImVec2 buttonSize = p.horizontal ? ImVec2 ((std::min) (flyout.size.x, length), buttonAcross)
                                                            : ImVec2 ((std::min) (flyout.size.x, buttonAcross), length);
-                    if (!p.horizontal)
+                    if (p.horizontal) {
+                        if (!firstChoice)
+                            ImGui::SameLine (0, spacing);
+                        ImGui::SetCursorPosY (std::floor ((flyout.size.y - buttonSize.y) * 0.5f));
+                    }
+                    else
                         ImGui::SetCursorPosX (std::floor ((flyout.size.x - buttonSize.x) * 0.5f));
+                    firstChoice = false;
                     const bool pressed = ImGui::Button (p.horizontal ? title : "##workflow", buttonSize);
                     if (!p.horizontal) {
                         ImDrawList* draw = ImGui::GetWindowDrawList ();

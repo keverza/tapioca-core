@@ -130,11 +130,17 @@ TEST (HudHierarchy, WorkflowFlyoutUsesTheSideWithRoom)
     EXPECT_EQ (flyout.side, shell::DockEdge::Left);
     EXPECT_FLOAT_EQ (flyout.position.x + flyout.size.x, 1000);
     flyout = shell::WorkflowFlyoutAtDock (view, { 500, 0 }, { 700, 28 }, wanted);
-    EXPECT_EQ (flyout.side, shell::DockEdge::Bottom);
-    EXPECT_FLOAT_EQ (flyout.position.y, 28);
+    EXPECT_EQ (flyout.side, shell::DockEdge::Right);
+    EXPECT_FLOAT_EQ (flyout.position.x, 700);
     flyout = shell::WorkflowFlyoutAtDock (view, { 500, 772 }, { 700, 800 }, wanted);
-    EXPECT_EQ (flyout.side, shell::DockEdge::Top);
-    EXPECT_FLOAT_EQ (flyout.position.y + flyout.size.y, 772);
+    EXPECT_EQ (flyout.side, shell::DockEdge::Right);
+    EXPECT_FLOAT_EQ (flyout.position.y + flyout.size.y, 800);
+    flyout = shell::WorkflowFlyoutAtDock (view, { 0, 200 }, { 28, 400 }, { 22, 160 });
+    EXPECT_EQ (flyout.side, shell::DockEdge::Bottom);
+    EXPECT_FLOAT_EQ (flyout.position.x, 3);
+    EXPECT_FLOAT_EQ (flyout.position.y, 400);
+    flyout = shell::WorkflowFlyoutAtDock (view, { 300, 0 }, { 500, 28 }, { 180, 22 });
+    EXPECT_FLOAT_EQ (flyout.position.y, 3);
 }
 
 TEST (HudHierarchy, DockTitleOpensWorkflowTabsWithoutSwitchingOrTakingTextFocus)
