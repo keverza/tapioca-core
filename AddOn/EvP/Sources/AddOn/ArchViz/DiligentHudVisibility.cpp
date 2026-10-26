@@ -127,18 +127,17 @@ void Cross (const double a[3], const double b[3], double out[3])
 
 } // namespace
 
-void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene)
+void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene, int origin)
 {
     const auto status = visibilitystudy::GetStatus ();
-    bool changed = false;
+    const bool originChanged = state.visibilityOrigin != origin;
+    state.visibilityOrigin = origin;
+    bool changed = originChanged;
     ImGui::BeginDisabled (status.running);
-    ImGui::TextWrapped (
-        "Analysis receives the gradient. Context occludes. Focus is checked for visibility from Analysis.");
+    ImGui::TextWrapped (origin == 0
+                            ? "Analysis receives the gradient. Context occludes. Focus is checked for visibility from Analysis."
+                            : "Focus receives the gradient. Context occludes. Visibility is checked from a placed view point.");
     ImGui::TextDisabled ("Current viewport selection: %u element(s)", unsigned (state.visibilitySelection.size ()));
-
-    changed |= ImGui::RadioButton ("Analysis surfaces", &state.visibilityOrigin, 0);
-    ImGui::SameLine ();
-    changed |= ImGui::RadioButton ("Placed view point", &state.visibilityOrigin, 1);
     if (state.visibilityOrigin == 0)
         changed |= RoleRow ("Analysis", state.visibilityFrom, state.visibilityTo, state.visibilityContext,
                             state.visibilitySelection);

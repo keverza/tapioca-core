@@ -219,7 +219,7 @@ std::vector<hudshell::HostTab> Engine::Impl::Tabs (const std::vector<const layer
         if (own.viewerSurface) {
             tabs.push_back ({ "@viewer.analysis", "Analysis" });
             tabs.back ().family = hudshell::WorkflowFamily::Analyze;
-            tabs.back ().purpose = "Sun study, view quality and viewpoint.";
+            tabs.back ().purpose = "Sun study, surface visibility, point visibility and viewpoint.";
         }
     }
     for (const size_t i : titled) {

@@ -154,12 +154,21 @@ void SunStudyPage (HudState& state, const DiligentSceneStats& scene)
         DrawSunStudyHudSection (state, scene);
         ImGui::EndTabItem ();
     }
-    const ImGuiTabItemFlags visibilityFlags =
-        changed && scene.sunStudy.analysisKind == 1 ? ImGuiTabItemFlags_SetSelected : 0;
-    if (ImGui::BeginTabItem ("View quality", nullptr, visibilityFlags)) {
+    const bool selectVisibility = changed && scene.sunStudy.analysisKind == 1;
+    const ImGuiTabItemFlags surfaceFlags =
+        selectVisibility && state.visibilityOrigin == 0 ? ImGuiTabItemFlags_SetSelected : 0;
+    if (ImGui::BeginTabItem ("Surface visibility", nullptr, surfaceFlags)) {
         state.viewpointPlacing = false;
         state.viewpointPickingContext = false;
-        DrawVisibilityHudSection (state, scene);
+        DrawVisibilityHudSection (state, scene, 0);
+        ImGui::EndTabItem ();
+    }
+    const ImGuiTabItemFlags pointFlags =
+        selectVisibility && state.visibilityOrigin == 1 ? ImGuiTabItemFlags_SetSelected : 0;
+    if (ImGui::BeginTabItem ("Point visibility", nullptr, pointFlags)) {
+        state.viewpointPlacing = false;
+        state.viewpointPickingContext = false;
+        DrawVisibilityHudSection (state, scene, 1);
         ImGui::EndTabItem ();
     }
     const ImGuiTabItemFlags viewpointFlags = state.viewpointSelectTab ? ImGuiTabItemFlags_SetSelected : 0;

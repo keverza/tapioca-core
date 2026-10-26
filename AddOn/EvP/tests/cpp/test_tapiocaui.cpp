@@ -550,7 +550,9 @@ TEST (TapiocaUiTabs, ChildTabsSitOnTheirParentsColourAndTheShownOneIsDarker)
     ASSERT_TRUE (shell::BeginSubTabs ("##children"));
     if (ImGui::BeginTabItem ("Sun study"))
         ImGui::EndTabItem ();
-    if (ImGui::BeginTabItem ("View quality"))
+    if (ImGui::BeginTabItem ("Surface visibility"))
+        ImGui::EndTabItem ();
+    if (ImGui::BeginTabItem ("Point visibility"))
         ImGui::EndTabItem ();
     shell::EndSubTabs ();
     EXPECT_TRUE (Stacks::Now () == before);

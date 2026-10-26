@@ -300,7 +300,8 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
 {
     const SunStudyOverlayStatus& study = scene.sunStudy;
     if (study.drawing && study.analysisKind == 1) {
-        ImGui::TextWrapped ("A visibility study is on screen. Open the Visibility tab for its controls and legend.");
+        ImGui::TextWrapped (
+            "A visibility study is on screen. Open Surface visibility or Point visibility for its controls and legend.");
         return;
     }
     // The study is asked for here, not only in the palette: open until the
