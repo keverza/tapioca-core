@@ -24,9 +24,9 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
             layer.polylines.push_back (line (ring, true, edge, style.lineWidth, true));
         if (!fill)
             return;
-        std::vector<edit::Vec3> triangles;
+        lg::LandscapePreviewMesh preview;
         std::string error;
-        if (!lg::LandscapePreviewTriangles (r, triangles, error)) {
+        if (!lg::BuildLandscapePreviewMesh (r, preview, error)) {
             layers::Text warning;
             warning.text = error;
             warning.at[0] = r.seed.x;
@@ -37,8 +37,9 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
             return;
         }
         layers::Mesh mesh;
-        for (const auto& p : triangles) {
-            mesh.indices.push_back (uint32_t (mesh.indices.size ()));
+        mesh.indices = std::move (preview.triangles);
+        mesh.points.reserve (preview.vertices.size () * 3);
+        for (const auto& p : preview.vertices) {
             mesh.points.insert (mesh.points.end (), { p.x, p.y, f.landscapeZ });
         }
         mesh.rgba = edge == style.landscapeEdge ? style.landscapeFill : (edge & 0xFFFFFF00u) | 0x28u;

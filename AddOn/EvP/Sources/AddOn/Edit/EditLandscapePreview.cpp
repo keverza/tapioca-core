@@ -1,9 +1,11 @@
 #include "Edit/EditLandscapeInternal.hpp"
+#include "Geometry/PlanarTriangulation.hpp"
 #include <clipper2/clipper.h>
 #include <clipper2/clipper.triangulation.h>
 #include <cmath>
 #include <algorithm>
 #include <tuple>
+#include <utility>
 
 namespace tapioca::geometry {
 namespace edit = geomsrv::edit;
@@ -74,6 +76,56 @@ bool SeedLandscapeDemo (edit::Document& doc, double z, std::string& error)
     if (!RebuildLandscape (candidate, result, error))
         return false;
     doc = std::move (candidate);
+    return true;
+}
+
+bool BuildLandscapePreviewMesh (const DerivedRegion& region, LandscapePreviewMesh& mesh, std::string& error)
+{
+    constexpr const char* warning = "Landscape preview triangulation failed; outlines only.";
+    if (!std::isfinite (region.seed.z)) {
+        error = std::string (warning) + " Preview elevation must be finite.";
+        return false;
+    }
+    std::vector<std::vector<double>> coordinates;
+    coordinates.reserve (region.rings.size ());
+    for (const auto& ring : region.rings) {
+        auto& xy = coordinates.emplace_back ();
+        xy.reserve (ring.size () * 2);
+        for (const auto& point : ring)
+            xy.insert (xy.end (), { point.x, point.y });
+    }
+    std::vector<geomsrv::engine::PlanarRing> rings;
+    rings.reserve (coordinates.size ());
+    for (const auto& xy : coordinates)
+        rings.push_back ({ xy.data (), xy.size () / 2 });
+
+    geomsrv::engine::PlanarTriangulation triangulation;
+    std::string detail;
+    if (!geomsrv::engine::TriangulatePlanar (rings, false, triangulation, detail)) {
+        error = std::string (warning) + " " + detail;
+        return false;
+    }
+    // Many valid holes select the constrained path. The adapter checks declared
+    // area for every cover with holes; a repaired single outer lacks that gate
+    // (its non-zero fill could differ from its shoelace area), so refuse it.
+    const bool checkedConstrained = triangulation.cover == geomsrv::engine::PlanarCover::Repaired && rings.size () > 1;
+    if ((triangulation.cover != geomsrv::engine::PlanarCover::Exact && !checkedConstrained) ||
+        !triangulation.generatedXY.empty ()) {
+        error = std::string (warning) + " A complete cover without generated vertices is required.";
+        return false;
+    }
+
+    LandscapePreviewMesh prepared;
+    size_t count = 0;
+    for (const auto& ring : region.rings)
+        count += ring.size ();
+    prepared.vertices.reserve (count);
+    for (const auto& ring : region.rings)
+        for (const auto& point : ring)
+            prepared.vertices.push_back ({ point.x, point.y, region.seed.z });
+    prepared.triangles = std::move (triangulation.triangles);
+    mesh = std::move (prepared);
+    error.clear ();
     return true;
 }
 

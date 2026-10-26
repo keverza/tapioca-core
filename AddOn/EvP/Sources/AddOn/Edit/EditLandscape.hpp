@@ -282,7 +282,18 @@ bool ValidateLandscapeTerrainEdit (const geomsrv::edit::Document& doc, const std
 const DerivedRegion* LandscapeFaceAt (const LandscapeResult& result, Vec3 point);
 // Virtual demonstration only. Refuses a nonempty document; never reads/writes the SDK.
 bool SeedLandscapeDemo (geomsrv::edit::Document& doc, double z, std::string& error);
-// Hole-aware preview triangulation. No third-party types leave Edit/.
+struct LandscapePreviewMesh {
+    std::vector<Vec3> vertices;
+    std::vector<uint32_t> triangles;
+};
+// One already-classified outer plus holes, in raw ring order, at seed.z.
+// Exact covers and area-checked constrained covers with holes are displayed;
+// approximate covers and generated crossing vertices refuse. Failure leaves
+// mesh untouched for the caller's existing outlines-only warning.
+bool BuildLandscapePreviewMesh (const DerivedRegion& region, LandscapePreviewMesh& mesh, std::string& error);
+// Legacy expanded triangulation retained for terrain masks: its rings may be
+// multiple disconnected outers, not the single-outer indexed preview contract.
+// No third-party types leave Edit/.
 bool LandscapePreviewTriangles (const DerivedRegion& region, std::vector<Vec3>& triangles, std::string& error);
 bool LandscapeSourcePreview (const geomsrv::edit::Document& doc, const LandscapeSource& source,
                              std::vector<Vec3>& points, bool& closed, std::string& error);
