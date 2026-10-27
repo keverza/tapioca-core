@@ -3,7 +3,7 @@
 
 // ArchViz/StorySliceLayer — the GPU half of the storey slice overlay.
 //
-// It owns ONLY resources: two vertex buffers (the outline ribbon and the fill),
+// It owns ONLY resources: outline/fill vertex buffers and the fill index buffer,
 // one constant buffer, four pipeline states and the draws. The geometry comes
 // from StorySliceGeometry, which is pure and tested offline. Same split as
 // PlanAnchorLayer and DiligentShadowMap, for the same reason: resource setup
@@ -91,7 +91,7 @@ class StorySliceLayer final {
     // ordinary (no storey selected, or a storey the model does not reach).
     bool Upload (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                  const std::vector<StorySliceVertex>& outline, const std::vector<StorySliceFillVertex>& fill,
-                 std::string& error);
+                 const std::vector<uint32_t>& fillIndices, std::string& error);
 
     struct DrawParams {
         float widthPixels = 2.0f;

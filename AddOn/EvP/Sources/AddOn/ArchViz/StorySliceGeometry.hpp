@@ -138,6 +138,14 @@ bool BuildIndexedSliceFill (const std::vector<SliceChain>& chains, double z, Sto
 // conversion. Refusal leaves area untouched; valid empty domains measure zero.
 bool MeasureSliceFill (const StorySliceFillMesh& mesh, double& area, std::string& error);
 
+// Extraction's producer-side packing boundary: append shared world-float GPU
+// vertices/indices, but return THIS domain's measured double area before packing.
+// Existing renderer float-coordinate precision is unchanged; do not measure the
+// packed vertices. Failure appends nothing and leaves area unchanged.
+bool AppendIndexedSliceFill (const std::vector<SliceChain>& chains, double z,
+                             std::vector<StorySliceFillVertex>& vertices, std::vector<uint32_t>& indices, double& area,
+                             std::string& error);
+
 // The nonnegative area enclosed by the closed chains under even-odd, in square
 // metres. Exposed because it is the honest way to TEST the fill — a triangle
 // count says nothing about whether the right region was covered — and because a

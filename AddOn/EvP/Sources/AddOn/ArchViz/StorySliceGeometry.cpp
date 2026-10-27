@@ -433,6 +433,39 @@ bool MeasureSliceFill (const StorySliceFillMesh& mesh, double& area, std::string
     return true;
 }
 
+bool AppendIndexedSliceFill (const std::vector<SliceChain>& chains, double z,
+                             std::vector<StorySliceFillVertex>& vertices, std::vector<uint32_t>& indices, double& area,
+                             std::string& error)
+{
+    StorySliceFillMesh mesh;
+    double measured = 0;
+    if (!BuildIndexedSliceFill (chains, z, mesh, error) || !MeasureSliceFill (mesh, measured, error))
+        return false;
+    const size_t limit = (std::numeric_limits<uint32_t>::max) ();
+    if (vertices.size () > limit || mesh.points.size () / 3 > limit - vertices.size () || indices.size () > limit ||
+        mesh.indices.size () > limit - indices.size ()) {
+        error = "slice fill upload exceeds the GPU index/count range";
+        return false;
+    }
+    std::vector<StorySliceFillVertex> packed;
+    packed.reserve (mesh.points.size () / 3);
+    for (size_t i = 0; i < mesh.points.size (); i += 3) {
+        for (size_t k = 0; k < 3; ++k)
+            if (std::abs (mesh.points[i + k]) > (std::numeric_limits<float>::max) ()) {
+                error = "slice fill upload coordinate is outside the finite GPU float range";
+                return false;
+            }
+        packed.push_back ({ float (mesh.points[i]), float (mesh.points[i + 1]), float (mesh.points[i + 2]) });
+    }
+    const auto base = uint32_t (vertices.size ());
+    vertices.insert (vertices.end (), packed.begin (), packed.end ());
+    for (uint32_t index : mesh.indices)
+        indices.push_back (base + index);
+    area = measured;
+    error.clear ();
+    return true;
+}
+
 double UnionArea (const std::vector<SliceChain>& chains)
 {
     StorySliceFillMesh mesh;

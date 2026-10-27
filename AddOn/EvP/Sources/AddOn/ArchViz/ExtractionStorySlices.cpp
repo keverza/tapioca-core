@@ -113,17 +113,15 @@ void StorySliceAccumulator::Cut (const Mesh& mesh)
 
 namespace {
 
-// Total area of the triangles in [begin, end) of a fill buffer, square metres.
-double TriangleFanArea (const std::vector<StorySliceFillVertex>& tris, size_t begin)
+bool Fill (const std::vector<SliceChain>& chains, double z, StorySliceUpload& upload, double& area)
 {
-    double area = 0.0;
-    for (size_t i = begin; i + 2 < tris.size (); i += 3) {
-        const double ax = tris[i].x, ay = tris[i].y;
-        const double bx = tris[i + 1].x, by = tris[i + 1].y;
-        const double cx = tris[i + 2].x, cy = tris[i + 2].y;
-        area += std::fabs ((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) * 0.5;
-    }
-    return area;
+    std::string error;
+    if (AppendIndexedSliceFill (chains, z, upload.fill, upload.fillIndices, area, error))
+        return true;
+    const std::string message = "slice fill at " + std::to_string (z) + " m refused: " + error;
+    ArchVizLog ("extraction: " + message);
+    hudconsole::Warning ("Model", message + "; outlines retained, area unavailable for this cut");
+    return false;
 }
 
 } // namespace
@@ -138,24 +136,25 @@ void StorySliceAccumulator::FinishAndPush ()
         // Unioned as a storey is, built as one -- an outline ribbon and a fill -- and pushed
         // alone: an empty set is an answer too (the cut misses the model), and replaces the last.
         auto plan = std::make_unique<StorySliceUpload> ();
+        bool measured = true;
         const std::vector<UnionSegment> unioned =
             planLoops_.empty () ? std::vector<UnionSegment> {} : UnionLoops (planLoops_);
         if (!unioned.empty ()) {
             const std::vector<SliceChain> chains = ChainUnionSegments (unioned);
             BuildSliceRibbon (chains, float (planZ_), plan->outline);
-            BuildSliceFill (chains, float (planZ_), plan->fill);
-            plan->areaM2 = TriangleFanArea (plan->fill, 0);
-            plan->storeys = 1;
+            measured = Fill (chains, planZ_, *plan, plan->areaM2);
+            plan->storeys = measured ? 1 : 0;
         }
-        ArchVizLog ("extraction: plan cut at " + std::to_string (planZ_) + " m - " +
-                    std::to_string (planLoops_.size ()) + " loops, " + std::to_string (unioned.size ()) +
-                    " union segments, " + std::to_string (int64_t (plan->areaM2)) + " m2 cut");
+        ArchVizLog (
+            "extraction: plan cut at " + std::to_string (planZ_) + " m - " + std::to_string (planLoops_.size ()) +
+            " loops, " + std::to_string (unioned.size ()) + " union segments, " +
+            (measured ? std::to_string (int64_t (plan->areaM2)) + " m2 cut" : "area unavailable: fill refused"));
         // The plan view's one sign that it works: the walls it found, or that it found none.
         char height[32] = {};
         std::snprintf (height, sizeof (height), "%.2f m", planZ_);
         if (unioned.empty ())
             hudconsole::Warning ("Viewer", std::string ("the plan's cut at ") + height + " meets nothing");
-        else
+        else if (measured)
             hudconsole::Note ("Viewer", std::string ("the plan's cut at ") + height + ": " +
                                             std::to_string (int64_t (plan->areaM2)) + " m2 of walls");
         SceneCmdQueue::Get ().PushPlanCut (std::move (plan));
@@ -167,6 +166,7 @@ void StorySliceAccumulator::FinishAndPush ()
     auto upload = std::make_unique<StorySliceUpload> ();
     std::vector<storeyslices::Storey> perStorey;
     size_t segments = 0;
+    bool measured = true;
     for (size_t si = 0; si < loops_.size (); ++si) {
         if (loops_[si].empty ())
             continue; // this plane misses the model entirely
@@ -181,14 +181,13 @@ void StorySliceAccumulator::FinishAndPush ()
         // ⚠️ THE FILL IS BUILT EVEN THOUGH IT MAY NOT BE DRAWN. Toggling it in the
         // HUD must not need a re-extraction -- that would put a multi-second stall
         // behind a checkbox whose entire purpose is quick comparison.
-        const size_t fillBegin = upload->fill.size ();
-        BuildSliceFill (chains, z, upload->fill);
-        // ⚠️ MEASURED FROM THE TRIANGLES JUST BUILT, NOT VIA UnionArea. That helper
-        // is the same decomposition again, and calling it here would run the whole
-        // trapezoid sweep TWICE per storey to learn something the triangles already
-        // on hand say exactly. It stays the tested definition of the area; this is
-        // the same sum over the same triangles.
-        const double area = TriangleFanArea (upload->fill, fillBegin);
+        // Measure the indexed DOUBLE domain once, before producer-side packing
+        // into the renderer's existing world-float representation.
+        double area = 0;
+        if (!Fill (chains, planes_[si], *upload, area)) {
+            measured = false;
+            continue; // do not publish an authoritative per-storey zero after refusal
+        }
         upload->areaM2 += area;
         ++upload->storeys;
         storeyslices::Storey storey;
@@ -200,11 +199,21 @@ void StorySliceAccumulator::FinishAndPush ()
         perStorey.push_back (std::move (storey));
     }
 
-    ArchVizLog ("extraction: story slices - " + std::to_string (upload->storeys) + "/" +
-                std::to_string (planes_.size ()) + " storeys cut, " + std::to_string (segments) + " union segments, " +
-                std::to_string (upload->outline.size ()) + " outline vertices, " +
-                std::to_string (upload->fill.size ()) + " fill vertices, " +
-                std::to_string (static_cast<int64_t> (upload->areaM2)) + " m2");
+    if (!measured) {
+        // A partial sum is not the model's area. Publish only the full outlines
+        // and an empty measured snapshot, not successful-storey fragments.
+        upload->fill.clear ();
+        upload->fillIndices.clear ();
+        upload->areaM2 = 0;
+        upload->storeys = 0;
+        perStorey.clear ();
+    }
+    ArchVizLog (
+        "extraction: story slices - " + std::to_string (upload->storeys) + "/" + std::to_string (planes_.size ()) +
+        " storeys cut, " + std::to_string (segments) + " union segments, " + std::to_string (upload->outline.size ()) +
+        " outline vertices, " + std::to_string (upload->fill.size ()) + " fill vertices, " +
+        std::to_string (upload->fillIndices.size ()) + " fill indices, " +
+        (measured ? std::to_string (static_cast<int64_t> (upload->areaM2)) + " m2" : "area unavailable: fill refused"));
     SceneCmdQueue::Get ().PushStorySlices (std::move (upload));
     storeyslices::Publish (std::move (perStorey));
 

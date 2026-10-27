@@ -252,6 +252,7 @@ struct EnvironmentUpload {
 struct StorySliceUpload {
     std::vector<StorySliceVertex> outline;
     std::vector<StorySliceFillVertex> fill;
+    std::vector<uint32_t> fillIndices; // shared fill vertices; outline remains expanded ribbon triangles
 
     // What was cut, for the HUD. ⚠️ `storeys` > 0 with an empty `outline` is the
     // diagnosis for "I turned slices on and see nothing": the storeys were read

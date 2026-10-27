@@ -34,7 +34,8 @@ size_t PointNodeUpload::Bytes () const
 
 size_t StorySliceUpload::Bytes () const
 {
-    return outline.capacity () * sizeof (StorySliceVertex) + fill.capacity () * sizeof (StorySliceFillVertex);
+    return outline.capacity () * sizeof (StorySliceVertex) + fill.capacity () * sizeof (StorySliceFillVertex) +
+           fillIndices.capacity () * sizeof (uint32_t);
 }
 
 SceneCmdQueue& SceneCmdQueue::Get ()

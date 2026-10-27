@@ -181,10 +181,12 @@ void DrawSliceSet (Diligent::IRenderDevice* device, Diligent::IDeviceContext* co
         dirty = false;
         static const std::vector<StorySliceVertex> kNoOutline;
         static const std::vector<StorySliceFillVertex> kNoFill;
+        static const std::vector<uint32_t> kNoIndices;
         const std::vector<StorySliceVertex>& outline = pending != nullptr ? pending->outline : kNoOutline;
         const std::vector<StorySliceFillVertex>& fill = pending != nullptr ? pending->fill : kNoFill;
+        const auto& fillIndices = pending != nullptr ? pending->fillIndices : kNoIndices;
         std::string uploadError;
-        if (!layer.Upload (device, context, outline, fill, uploadError)) {
+        if (!layer.Upload (device, context, outline, fill, fillIndices, uploadError)) {
             ArchVizLog (std::string ("Diligent scene: ") + setName + " not uploaded (" + uploadError + ")");
             hudconsole::Warning ("Viewer", std::string ("the ") + setName + " was not uploaded: " + uploadError);
         }

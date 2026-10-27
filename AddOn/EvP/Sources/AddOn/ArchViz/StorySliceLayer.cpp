@@ -1,4 +1,5 @@
 #include "ArchViz/StorySliceLayer.hpp"
+// OVERLAY-INVARIANTS.md: indexed geometry only; no camera, composition or depth-policy change.
 
 #include "ArchViz/StorySliceGeometry.hpp"
 
@@ -216,10 +217,7 @@ void UnpackRgba (uint32_t rgba, float out[4])
 } // namespace
 
 struct StorySliceLayer::Impl {
-    // Two PSOs per drawable, differing ONLY in the depth comparison. A PSO is
-    // immutable in Diligent, so "same pipeline, other depth func" is a different
-    // object rather than a state change -- the stateless-design difference from
-    // bgfx::setState that DiligentSceneImpl.hpp already calls out.
+    // Immutable PSOs: each drawable's pair differs ONLY in depth comparison.
     RefCntAutoPtr<Diligent::IPipelineState> outlineVisiblePso;
     RefCntAutoPtr<Diligent::IPipelineState> outlineOccludedPso;
     RefCntAutoPtr<Diligent::IPipelineState> fillVisiblePso;
@@ -231,11 +229,14 @@ struct StorySliceLayer::Impl {
     RefCntAutoPtr<Diligent::IBuffer> constants;
     RefCntAutoPtr<Diligent::IBuffer> outlineVertices;
     RefCntAutoPtr<Diligent::IBuffer> fillVertices;
+    RefCntAutoPtr<Diligent::IBuffer> fillIndices;
 
     size_t outlineCount = 0;
     size_t outlineCapacity = 0;
     size_t fillCount = 0;
     size_t fillCapacity = 0;
+    size_t fillIndexCount = 0;
+    size_t fillIndexCapacity = 0;
     bool ready = false;
 };
 
@@ -266,6 +267,7 @@ void StorySliceLayer::Shutdown ()
         return;
     impl_->outlineVertices.Release ();
     impl_->fillVertices.Release ();
+    impl_->fillIndices.Release ();
     impl_->constants.Release ();
     impl_->outlineVisibleSrb.Release ();
     impl_->outlineOccludedSrb.Release ();
@@ -279,6 +281,7 @@ void StorySliceLayer::Shutdown ()
     impl_->outlineCapacity = 0;
     impl_->fillCount = 0;
     impl_->fillCapacity = 0;
+    impl_->fillIndexCount = impl_->fillIndexCapacity = 0;
     impl_->ready = false;
 }
 
@@ -343,10 +346,7 @@ bool StorySliceLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffe
         Diligent::LayoutElement { 0, 0, 3, Diligent::VT_FLOAT32, Diligent::False }, // position
     };
 
-    // One builder for all four, so the only thing that can differ between them is
-    // what is passed in. Two hand-written copies of a PSO description differing
-    // in one field is precisely how the visible and occluded passes would drift
-    // into disagreeing about, say, blending.
+    // One builder keeps visible/occluded blend and layout policies identical.
     auto buildPso = [&] (const char* name, Diligent::IShader* vsIn, Diligent::IShader* psIn,
                          const Diligent::LayoutElement* layout, Diligent::Uint32 layoutCount,
                          Diligent::COMPARISON_FUNCTION depthFunc, RefCntAutoPtr<Diligent::IPipelineState>& psoOut,
@@ -401,10 +401,8 @@ bool StorySliceLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffe
         return true;
     };
 
-    // ⚠️ LESS_EQUAL, NOT LESS, for the visible pass. A section contour sits
-    // EXACTLY on the surface it cuts wherever the cut plane grazes a floor slab,
-    // so equal depth is the common case rather than the edge case -- and under
-    // LESS the contour would vanish along precisely those runs.
+    // LESS_EQUAL, not LESS: floor-tangent contours commonly share the surface's
+    // depth and would disappear under a strict comparison.
     if (!buildPso ("Story slice outline (visible) PSO", vs, ps, outlineLayout, _countof (outlineLayout),
                    Diligent::COMPARISON_FUNC_LESS_EQUAL, impl_->outlineVisiblePso, impl_->outlineVisibleSrb))
         return false;
@@ -424,12 +422,12 @@ bool StorySliceLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffe
 
 namespace {
 
-// Grow-only upload of one vertex array. Shared by the outline and the fill
-// because they differ in nothing but their element size, and two copies of a
-// map-and-memcpy is two places for a stale count to survive a failed map.
+// Grow-only upload of a vertex or index array. Counts clear on failure so stale
+// geometry never draws with a new payload's range.
 bool UploadBuffer (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, const char* name,
                    const void* data, size_t count, size_t stride, RefCntAutoPtr<Diligent::IBuffer>& buffer,
-                   size_t& capacity, size_t& outCount, std::string& error)
+                   size_t& capacity, size_t& outCount, std::string& error,
+                   Diligent::BIND_FLAGS bind = Diligent::BIND_VERTEX_BUFFER)
 {
     outCount = count;
     if (count == 0)
@@ -443,7 +441,7 @@ bool UploadBuffer (Diligent::IRenderDevice* device, Diligent::IDeviceContext* co
         vbd.Name = name;
         vbd.Size = Diligent::Uint64 (want * stride);
         vbd.Usage = Diligent::USAGE_DYNAMIC;
-        vbd.BindFlags = Diligent::BIND_VERTEX_BUFFER;
+        vbd.BindFlags = bind;
         vbd.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
         device->CreateBuffer (vbd, nullptr, &buffer);
         if (buffer == nullptr) {
@@ -458,9 +456,6 @@ bool UploadBuffer (Diligent::IRenderDevice* device, Diligent::IDeviceContext* co
     Diligent::PVoid mapped = nullptr;
     context->MapBuffer (buffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
     if (mapped == nullptr) {
-        // ⚠️ THE COUNT IS ZEROED, NOT LEFT ALONE. A failed map leaves the buffer
-        // holding the PREVIOUS storey set, and drawing that at the new count is a
-        // confident picture of the wrong building.
         outCount = 0;
         error = std::string ("Diligent MapBuffer(") + name + ") failed";
         return false;
@@ -474,7 +469,8 @@ bool UploadBuffer (Diligent::IRenderDevice* device, Diligent::IDeviceContext* co
 
 bool StorySliceLayer::Upload (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                               const std::vector<StorySliceVertex>& outline,
-                              const std::vector<StorySliceFillVertex>& fill, std::string& error)
+                              const std::vector<StorySliceFillVertex>& fill, const std::vector<uint32_t>& fillIndices,
+                              std::string& error)
 {
     if (!impl_->ready) {
         error = "StorySliceLayer::Upload before Init";
@@ -483,18 +479,25 @@ bool StorySliceLayer::Upload (Diligent::IRenderDevice* device, Diligent::IDevice
     const bool a = UploadBuffer (device, context, "Story slice outline vertices", outline.data (), outline.size (),
                                  sizeof (StorySliceVertex), impl_->outlineVertices, impl_->outlineCapacity,
                                  impl_->outlineCount, error);
-    // ⚠️ BOTH ARE ATTEMPTED EVEN IF THE FIRST FAILED. They are one picture: an
-    // outline uploaded over a stale fill draws a contour around last storey's
-    // shaded region, which looks like a registration bug rather than an upload
-    // failure. Whichever fails zeroes its own count, so the picture degrades to
-    // "half of it is missing", which is legible.
+    // Always attempt the new fill even after an outline failure. Vertex/index
+    // arrays form one fill: failure of either hides both, never a stale pairing.
     std::string fillError;
-    const bool b = UploadBuffer (device, context, "Story slice fill vertices", fill.data (), fill.size (),
-                                 sizeof (StorySliceFillVertex), impl_->fillVertices, impl_->fillCapacity,
-                                 impl_->fillCount, fillError);
-    if (a && !b)
+    const bool valid = fillIndices.size () % 3 == 0 && std::all_of (fillIndices.begin (), fillIndices.end (),
+                                                                    [&] (uint32_t i) { return i < fill.size (); });
+    const bool b = valid && UploadBuffer (device, context, "Story slice fill vertices", fill.data (), fill.size (),
+                                          sizeof (StorySliceFillVertex), impl_->fillVertices, impl_->fillCapacity,
+                                          impl_->fillCount, fillError);
+    const bool c =
+        b && UploadBuffer (device, context, "Story slice fill indices", fillIndices.data (), fillIndices.size (),
+                           sizeof (uint32_t), impl_->fillIndices, impl_->fillIndexCapacity, impl_->fillIndexCount,
+                           fillError, Diligent::BIND_INDEX_BUFFER);
+    if (!valid)
+        fillError = "Story slice fill has malformed or out-of-range indices";
+    if (!c)
+        impl_->fillCount = impl_->fillIndexCount = 0;
+    if (a && !c)
         error = fillError;
-    return a && b;
+    return a && c;
 }
 
 void StorySliceLayer::Draw (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
@@ -503,7 +506,8 @@ void StorySliceLayer::Draw (Diligent::IDeviceContext* context, const float viewP
     if (!impl_->ready || surfaceWidth == 0 || surfaceHeight == 0)
         return;
     const bool haveOutline = impl_->outlineCount > 0 && impl_->outlineVertices != nullptr;
-    const bool haveFill = params.drawFill && impl_->fillCount > 0 && impl_->fillVertices != nullptr;
+    const bool haveFill = params.drawFill && impl_->fillCount > 0 && impl_->fillVertices != nullptr &&
+                          impl_->fillIndexCount > 0 && impl_->fillIndices != nullptr;
     if (!haveOutline && !haveFill)
         return;
 
@@ -538,19 +542,28 @@ void StorySliceLayer::Draw (Diligent::IDeviceContext* context, const float viewP
         return true;
     };
 
-    auto drawPass = [&] (Diligent::IBuffer* vertices, size_t count, Diligent::Uint32 stride,
-                         Diligent::IPipelineState* pso, Diligent::IShaderResourceBinding* srb) {
+    auto drawPass = [&] (Diligent::IBuffer* vertices, size_t count, bool indexed, Diligent::IPipelineState* pso,
+                         Diligent::IShaderResourceBinding* srb) {
         Diligent::IBuffer* vertexBuffers[1] = { vertices };
         const Diligent::Uint64 offsets[1] = { 0 };
         context->SetVertexBuffers (0, 1, vertexBuffers, offsets, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
                                    Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
         context->SetPipelineState (pso);
         context->CommitShaderResources (srb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-        Diligent::DrawAttribs draw;
-        draw.NumVertices = Diligent::Uint32 (count);
-        draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
-        context->Draw (draw);
-        (void) stride;
+        if (indexed) {
+            context->SetIndexBuffer (impl_->fillIndices, 0, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+            Diligent::DrawIndexedAttribs draw;
+            draw.NumIndices = Diligent::Uint32 (count);
+            draw.IndexType = Diligent::VT_UINT32;
+            draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+            context->DrawIndexed (draw);
+        }
+        else {
+            Diligent::DrawAttribs draw;
+            draw.NumVertices = Diligent::Uint32 (count);
+            draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+            context->Draw (draw);
+        }
     };
 
     const bool drawOccluded = params.occluded != OccludedStyle::Hidden;
@@ -561,23 +574,21 @@ void StorySliceLayer::Draw (Diligent::IDeviceContext* context, const float viewP
     if (haveFill) {
         constants.dash[2] = 0.0f; // a dashed FILL is meaningless
         if (upload ())
-            drawPass (impl_->fillVertices, impl_->fillCount, sizeof (StorySliceFillVertex), impl_->fillVisiblePso,
-                      impl_->fillVisibleSrb);
+            drawPass (impl_->fillVertices, impl_->fillIndexCount, true, impl_->fillVisiblePso, impl_->fillVisibleSrb);
         if (drawOccluded && upload ())
-            drawPass (impl_->fillVertices, impl_->fillCount, sizeof (StorySliceFillVertex), impl_->fillOccludedPso,
-                      impl_->fillOccludedSrb);
+            drawPass (impl_->fillVertices, impl_->fillIndexCount, true, impl_->fillOccludedPso, impl_->fillOccludedSrb);
     }
 
     if (haveOutline) {
         constants.dash[2] = 0.0f; // the visible half is always solid
         if (upload ())
-            drawPass (impl_->outlineVertices, impl_->outlineCount, sizeof (StorySliceVertex), impl_->outlineVisiblePso,
+            drawPass (impl_->outlineVertices, impl_->outlineCount, false, impl_->outlineVisiblePso,
                       impl_->outlineVisibleSrb);
         if (drawOccluded) {
             constants.dash[2] = (params.occluded == OccludedStyle::Dashed) ? 1.0f : 0.0f;
             if (upload ())
-                drawPass (impl_->outlineVertices, impl_->outlineCount, sizeof (StorySliceVertex),
-                          impl_->outlineOccludedPso, impl_->outlineOccludedSrb);
+                drawPass (impl_->outlineVertices, impl_->outlineCount, false, impl_->outlineOccludedPso,
+                          impl_->outlineOccludedSrb);
         }
     }
 }

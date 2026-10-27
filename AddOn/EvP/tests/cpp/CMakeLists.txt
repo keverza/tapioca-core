@@ -924,6 +924,7 @@ set (EVP_TEST_SOURCES
     test_storysliceunion.cpp
     test_storyslicegeometry.cpp
     test_indexedslicecallers.cpp
+    test_indexedsliceupload.cpp
     test_automaticpreview.cpp
     test_command_filter.cpp
     test_param_layout.cpp
@@ -1439,3 +1440,21 @@ target_compile_definitions (EvPGeomTests PRIVATE EVP_SCENE_TEXT_FONT="${TAPIOCA_
 enable_testing ()
 include (GoogleTest)
 gtest_discover_tests (EvPGeomTests DISCOVERY_TIMEOUT 60)
+
+# Compile the real indexed slice buffer/draw seam without linking an add-on or
+# requiring a device/DevKit. The same pinned Diligent headers already supply ImGui.
+if (WIN32)
+    set (SLICE_DILIGENT "${REF_DIR}/DiligentEngine-master")
+    add_library (TapiocaSliceRenderCompile OBJECT
+        "${EVP_ROOT}/Sources/AddOn/ArchViz/StorySliceLayer.cpp"
+        "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentSceneDraw.cpp")
+    target_include_directories (TapiocaSliceRenderCompile PRIVATE "${EVP_ROOT}/Sources/AddOn")
+    target_include_directories (TapiocaSliceRenderCompile SYSTEM PRIVATE
+        "${SLICE_DILIGENT}/DiligentCore/Graphics/GraphicsEngine/interface"
+        "${SLICE_DILIGENT}/DiligentCore/Common/interface"
+        "${SLICE_DILIGENT}/DiligentCore/Primitives/interface"
+        "${SLICE_DILIGENT}/DiligentCore/Platforms/interface"
+        "${SLICE_DILIGENT}/DiligentFX" "${GLM_INC}")
+    target_compile_definitions (TapiocaSliceRenderCompile PRIVATE PLATFORM_WIN32=1 NOMINMAX)
+    add_dependencies (EvPGeomTests TapiocaSliceRenderCompile)
+endif ()
