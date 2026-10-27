@@ -128,7 +128,7 @@ TEST (HudHierarchy, NativeVirtualEditorIsAvailableWithoutAPublishedPanel)
     hud.engine.SetOwnPages (own);
     Navigate (hud, {}, "virtual editor");
     EXPECT_EQ (hud.engine.Selected (), "virtual-editor#0");
-    EXPECT_FALSE (hud::VirtualEditorActive (*hud.state));
+    EXPECT_TRUE (hud::VirtualEditorActive (*hud.state));
     ASSERT_TRUE (hud::OpenVirtualEditorWorkflow (*hud.state));
     EXPECT_TRUE (hud::VirtualEditorActive (*hud.state));
     const auto* session = hud::VirtualEditor (*hud.state);
@@ -143,6 +143,32 @@ TEST (HudHierarchy, NativeVirtualEditorIsAvailableWithoutAPublishedPanel)
     hud::StopVirtualEditor (*hud.state, "test complete");
     Navigate (hud, {}, "virtual editor");
     EXPECT_EQ (hud.engine.Selected (), "virtual-editor#0");
+    layers::Clear ("virtual-editor");
+}
+
+TEST (HudHierarchy, DockVirtualEditorChoiceStartsTheWorkflowWithoutASecondButton)
+{
+    Watched hud;
+    hud::OwnPages own;
+    own.standalone = true;
+    hud.engine.SetOwnPages (own);
+    hud.state->host.selected = geomsrv::archviz::hudmassing::kTabKey;
+    const auto before = hud.Lay ({}, At (600, 600));
+    const float y = Top (before.dock) + before.dock.height * 0.5f;
+    const auto choices = hud.Click ({}, Left (before.dock) + before.dock.height * 2.5f, y);
+    ASSERT_TRUE (choices.popup);
+    float fill[4] = {};
+    ASSERT_TRUE (Box (choices.overlay, shell::PlainLook ().accentRgba, fill));
+    hud.Click ({}, fill[2] - 8, y); // Last workflow is Virtual editor.
+    EXPECT_EQ (hud.engine.Selected (), "virtual-editor#0");
+    ASSERT_TRUE (hud::VirtualEditorActive (*hud.state));
+    EXPECT_TRUE (hud::EditLocked (*hud.state));
+    EXPECT_TRUE (hud::VirtualEditor (*hud.state)->edits.Doc ().landscape.has_value ());
+    const auto* session = hud::VirtualEditor (*hud.state);
+    hud.Lay ({}, At (600, 600));
+    EXPECT_EQ (hud::VirtualEditor (*hud.state), session);
+    EXPECT_EQ (session->edits.UndoDepth (), 0u);
+    hud::StopVirtualEditor (*hud.state, "test complete");
     layers::Clear ("virtual-editor");
 }
 

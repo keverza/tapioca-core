@@ -274,6 +274,8 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, const 
     windows[windows.size () - 2] = window;
     if (!dock.selected.empty ()) {
         store->host.selected = dock.selected;
+        if (dock.selected == std::string (editlayers::kLayer) + "#0")
+            OpenVirtualEditorWorkflow (*store);
         const std::string title = TitleOf (dock.selected, panels, keys);
         changes.push_back ({ "panel", dock.selected, title, std::string (), -1, 1.0, title, true });
         ShowOverlay (true);
@@ -485,6 +487,8 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     hostScrolls = result.scrolls;
     if (!result.pressed.empty ()) {
         host.selected = result.pressed;
+        if (result.pressed == std::string (editlayers::kLayer) + "#0")
+            OpenVirtualEditorWorkflow (*store);
         const std::string title = TitleOf (result.pressed, panels, keys);
         bool panel = false;
         for (const size_t i : titled)
