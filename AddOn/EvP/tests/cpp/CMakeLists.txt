@@ -923,6 +923,7 @@ set (EVP_TEST_SOURCES
     test_previewpanelstate.cpp
     test_storysliceunion.cpp
     test_storyslicegeometry.cpp
+    test_indexedslicecallers.cpp
     test_automaticpreview.cpp
     test_command_filter.cpp
     test_param_layout.cpp

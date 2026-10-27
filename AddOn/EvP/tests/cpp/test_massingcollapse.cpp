@@ -466,19 +466,24 @@ TEST (MassingCollapse, ProjectionAcrossTerrainCreasesPreservesUnionAreaAndHatchP
     ASSERT_TRUE (zone::Project (result, terrain, projected, error)) << error;
     ASSERT_EQ (projected.meshes.size (), 1u);
     const auto& points = projected.meshes[0].points;
+    const auto& indices = projected.meshes[0].indices;
     double area = 0;
     const auto elevation = [&] (double x, double y) {
         x -= ox;
         y -= oy;
         return 100 + (x >= y ? x - y : 1.5 * (y - x));
     };
-    for (size_t i = 0; i < points.size (); i += 9) {
-        area += std::abs ((points[i + 3] - points[i]) * (points[i + 7] - points[i + 1]) -
-                          (points[i + 4] - points[i + 1]) * (points[i + 6] - points[i])) /
+    ASSERT_EQ (indices.size () % 3, 0u);
+    for (uint32_t index : indices)
+        ASSERT_LT (index, points.size () / 3);
+    for (size_t i = 0; i < indices.size (); i += 3) {
+        const size_t a = size_t (indices[i]) * 3, b = size_t (indices[i + 1]) * 3, c = size_t (indices[i + 2]) * 3;
+        area += std::abs ((points[b] - points[a]) * (points[c + 1] - points[a + 1]) -
+                          (points[b + 1] - points[a + 1]) * (points[c] - points[a])) /
                 2;
-        for (size_t j = i; j < i + 9; j += 3)
-            EXPECT_NEAR (points[j + 2], elevation (points[j], points[j + 1]) + 0.012, 2e-6);
     }
+    for (size_t j = 0; j < points.size (); j += 3)
+        EXPECT_NEAR (points[j + 2], elevation (points[j], points[j + 1]) + 0.012, 2e-6);
     EXPECT_NEAR (area, result.area, 1e-5) << "no lost or double-filled area at triangle boundaries";
     ASSERT_FALSE (projected.polylines.empty ());
     for (const auto& line : projected.polylines) {

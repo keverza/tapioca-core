@@ -246,20 +246,26 @@ bool Build (const std::vector<massingslices::Input>& inputs, const Mesh& terrain
         }
         out.chains.push_back (std::move (chain));
     }
-    std::vector<StorySliceFillVertex> triangles;
-    BuildSliceFill (local, 0, triangles);
-    if (triangles.size () > 600000)
+    StorySliceFillMesh indexed;
+    double fillArea = 0;
+    if (!BuildIndexedSliceFill (local, drawingZ + 0.01, indexed, error) || !MeasureSliceFill (indexed, fillArea, error))
+        return false;
+    if (std::abs (fillArea - out.area) > (std::max) (1e-6, out.area * 1e-9))
+        return Fail (error, "Collapse-zone fill area differs from its union.");
+    if (indexed.indices.size () > 600000 || indexed.points.size () / 3 > 600000)
         return Fail (error, "Collapse-zone fill exceeds its triangle-vertex budget.");
-    if (!unioned.empty () && triangles.empty ())
+    if (!unioned.empty () && indexed.indices.empty ())
         return Fail (error, "Collapse-zone union could not be triangulated.");
     overlaylayers::Mesh fill;
     fill.rgba = 0xAA446528;
     fill.styled = true;
     fill.style.behind = overlaylayers::Behind::Show;
     fill.hoverTitle = "Building collapse zone (0.3333 x slab top height above topography)";
-    for (const auto& v : triangles) {
-        fill.indices.push_back (uint32_t (fill.points.size () / 3));
-        fill.points.insert (fill.points.end (), { ox + v.x, oy + v.y, drawingZ + 0.01 });
+    fill.points = std::move (indexed.points);
+    fill.indices = std::move (indexed.indices);
+    for (size_t i = 0; i < fill.points.size (); i += 3) {
+        fill.points[i] += ox;
+        fill.points[i + 1] += oy;
     }
     if (!fill.indices.empty ())
         out.layer.meshes.push_back (std::move (fill));

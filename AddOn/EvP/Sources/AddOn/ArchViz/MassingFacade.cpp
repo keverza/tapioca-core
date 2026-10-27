@@ -126,9 +126,8 @@ bool Prisms (const std::vector<Input>& inputs, double& area, std::string& error)
     return true;
 }
 
-Mesh Prism (const Input& input, const cp::PathsD& paths, double ox, double oy)
+bool Prism (const Input& input, const cp::PathsD& paths, double ox, double oy, Mesh& mesh, std::string& error)
 {
-    Mesh mesh;
     std::vector<SliceChain> chains;
     const auto vertex = [&] (double x, double y, double z) {
         mesh.triangles.push_back (uint32_t (mesh.VertexCount ()));
@@ -151,17 +150,24 @@ Mesh Prism (const Input& input, const cp::PathsD& paths, double ox, double oy)
             vertex (a.x, a.y, input.slab.top);
         }
     }
-    std::vector<StorySliceFillVertex> caps;
-    BuildSliceFill (chains, 0, caps);
-    for (size_t i = 0; i + 2 < caps.size (); i += 3) {
-        const double cross = (caps[i + 1].x - caps[i].x) * (caps[i + 2].y - caps[i].y) -
-                             (caps[i + 1].y - caps[i].y) * (caps[i + 2].x - caps[i].x);
-        for (int j : { 0, cross > 0 ? 1 : 2, cross > 0 ? 2 : 1 })
-            vertex (caps[i + j].x, caps[i + j].y, input.slab.top);
-        for (int j : { 0, cross > 0 ? 2 : 1, cross > 0 ? 1 : 2 })
-            vertex (caps[i + j].x, caps[i + j].y, input.slab.bottom);
+    StorySliceFillMesh caps;
+    // Footprints and exposed-surface sections use precision 7. Do not coarsen
+    // the cap boundary to the visual preview's precision-6 default.
+    if (!BuildIndexedSliceFill (chains, 0, caps, error, 7))
+        return false;
+    const auto topBase = uint32_t (mesh.VertexCount ());
+    for (size_t i = 0; i < caps.points.size (); i += 3)
+        mesh.vertices.insert (mesh.vertices.end (), { caps.points[i] + ox, caps.points[i + 1] + oy, input.slab.top });
+    const auto bottomBase = uint32_t (mesh.VertexCount ());
+    for (size_t i = 0; i < caps.points.size (); i += 3)
+        mesh.vertices.insert (mesh.vertices.end (),
+                              { caps.points[i] + ox, caps.points[i + 1] + oy, input.slab.bottom });
+    for (size_t i = 0; i < caps.indices.size (); i += 3) {
+        const auto a = caps.indices[i], b = caps.indices[i + 1], c = caps.indices[i + 2];
+        mesh.triangles.insert (mesh.triangles.end (), { topBase + a, topBase + b, topBase + c, bottomBase + a,
+                                                        bottomBase + c, bottomBase + b });
     }
-    return mesh;
+    return true;
 }
 
 bool Surfaces (const std::vector<std::shared_ptr<const Mesh>>& bodies, double& area, std::string& error)
@@ -273,7 +279,10 @@ bool Facade (const std::vector<Input>& inputs, double& area, std::string& error)
             const double ox = input.slab.outer.xy[0], oy = input.slab.outer.xy[1];
             if (!Footprints ({ input }, footprints, ox, oy, error))
                 return false;
-            bodies.push_back (std::make_shared<const Mesh> (Prism (input, footprints.front (), ox, oy)));
+            Mesh prism;
+            if (!Prism (input, footprints.front (), ox, oy, prism, error))
+                return false;
+            bodies.push_back (std::make_shared<const Mesh> (std::move (prism)));
         }
     }
     return Surfaces (bodies, area, error);

@@ -161,20 +161,28 @@ bool Project (const std::vector<SliceChain>& chains, double originSum, const Mes
                 chain.xy.insert (chain.xy.end (), { q.x, q.y });
             patches.push_back (std::move (chain));
         }
-        std::vector<StorySliceFillVertex> triangles;
-        BuildSliceFill (patches, 0, triangles);
-        if (!clipped.empty () && triangles.empty ())
+        StorySliceFillMesh indexed;
+        if (!BuildIndexedSliceFill (patches, 0, indexed, error))
+            return false;
+        if (!clipped.empty () && indexed.indices.empty ())
             return Fail (error, "Collapse topography patch could not be triangulated.");
-        for (size_t k = 0; k + 2 < triangles.size (); k += 3) {
+        fillVertices += indexed.indices.size ();
+        if (fillVertices > 600000)
+            return Fail (error, "Collapse projected fill output budget exceeded.");
+        if ((style.fillRgba & 255u) != 0) {
+            const auto base = uint32_t (fill.points.size () / 3);
+            for (size_t k = 0; k < indexed.points.size (); k += 3) {
+                const cp::PointD q { indexed.points[k], indexed.points[k + 1] };
+                fill.points.insert (fill.points.end (), { q.x + ox, q.y + oy, height (q) + 0.012 });
+            }
+            for (uint32_t index : indexed.indices)
+                fill.indices.push_back (base + index);
+        }
+        for (size_t k = 0; k < indexed.indices.size (); k += 3) {
             cp::PointD triangle[3];
             for (size_t v = 0; v < 3; ++v) {
-                triangle[v] = { triangles[k + v].x, triangles[k + v].y };
-                ++fillVertices;
-                if ((style.fillRgba & 255u) != 0) {
-                    fill.indices.push_back (uint32_t (fill.points.size () / 3));
-                    fill.points.insert (fill.points.end (),
-                                        { triangle[v].x + ox, triangle[v].y + oy, height (triangle[v]) + 0.012 });
-                }
+                const size_t at = size_t (indexed.indices[k + v]) * 3;
+                triangle[v] = { indexed.points[at], indexed.points[at + 1] };
             }
             const double low = (std::min) ({ triangle[0].x + triangle[0].y, triangle[1].x + triangle[1].y,
                                              triangle[2].x + triangle[2].y });
@@ -206,8 +214,6 @@ bool Project (const std::vector<SliceChain>& chains, double originSum, const Mes
                 if (out.polylines.size () > 100000)
                     return Fail (error, "Collapse projected hatch output budget exceeded.");
             }
-            if (fillVertices > 600000)
-                return Fail (error, "Collapse projected fill output budget exceeded.");
         }
     }
     if (!topFaces)

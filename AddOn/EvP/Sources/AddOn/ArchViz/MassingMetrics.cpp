@@ -97,38 +97,35 @@ bool ExtrudeChains (const std::vector<SliceChain>& chains, double bottom, double
 {
     if (chains.empty ())
         return true;
-    const double ox = chains.front ().xy[0], oy = chains.front ().xy[1];
-    const auto paths = Paths (chains, ox, oy);
-    std::vector<SliceChain> local;
-    for (const auto& path : paths) {
-        SliceChain chain;
-        chain.closed = true;
-        for (const auto& p : path)
-            chain.xy.insert (chain.xy.end (), { p.x, p.y });
-        local.push_back (std::move (chain));
-    }
-    std::vector<StorySliceFillVertex> triangles;
-    BuildSliceFill (local, 0, triangles);
-    if (triangles.empty ()) {
+    if (!std::isfinite (bottom) || !std::isfinite (top))
+        return error = "Floor volume requires finite elevations.", false;
+    StorySliceFillMesh cap;
+    if (!BuildIndexedSliceFill (chains, 0, cap, error))
+        return false;
+    if (cap.indices.empty ()) {
         error = "Could not triangulate floor volume; no partial highlight published.";
         return false;
     }
+    const auto origin = std::find_if (chains.begin (), chains.end (),
+                                      [] (const auto& chain) { return chain.closed && chain.Count () >= 3; });
+    const double ox = origin->xy[0], oy = origin->xy[1];
+    const auto paths = Paths (chains, ox, oy);
     const auto vertex = [&] (double x, double y, double z) {
         mesh.indices.push_back (uint32_t (mesh.points.size () / 3));
         mesh.points.insert (mesh.points.end (), { x + ox, y + oy, z });
     };
-    for (size_t i = 0; i + 2 < triangles.size (); i += 3) {
-        auto a = triangles[i], b = triangles[i + 1], c = triangles[i + 2];
-        if ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) < 0)
-            std::swap (b, c);
-        if (topCap) {
-            vertex (a.x, a.y, top);
-            vertex (b.x, b.y, top);
-            vertex (c.x, c.y, top);
-        }
-        vertex (c.x, c.y, bottom);
-        vertex (b.x, b.y, bottom);
-        vertex (a.x, a.y, bottom);
+    const auto topBase = uint32_t (mesh.points.size () / 3);
+    if (topCap)
+        for (size_t i = 0; i < cap.points.size (); i += 3)
+            mesh.points.insert (mesh.points.end (), { cap.points[i], cap.points[i + 1], top });
+    const auto bottomBase = uint32_t (mesh.points.size () / 3);
+    for (size_t i = 0; i < cap.points.size (); i += 3)
+        mesh.points.insert (mesh.points.end (), { cap.points[i], cap.points[i + 1], bottom });
+    for (size_t i = 0; i < cap.indices.size (); i += 3) {
+        const auto a = cap.indices[i], b = cap.indices[i + 1], c = cap.indices[i + 2];
+        if (topCap)
+            mesh.indices.insert (mesh.indices.end (), { topBase + a, topBase + b, topBase + c });
+        mesh.indices.insert (mesh.indices.end (), { bottomBase + c, bottomBase + b, bottomBase + a });
     }
     for (const auto& path : paths)
         for (size_t i = 0; i < path.size (); ++i) {
@@ -348,20 +345,15 @@ bool Highlight (const Result& result, const std::string& function, overlaylayers
             const auto& chains = function == kBuiltHover ? patch.built : patch.unbuilt;
             if (chains.empty ())
                 continue;
-            const double ox = chains[0].xy[0], oy = chains[0].xy[1];
-            std::vector<SliceChain> local = chains;
-            for (auto& chain : local) {
+            for (const auto& chain : chains) {
                 work += chain.Count ();
                 if (work > 200000)
                     return error = "Coverage highlight contour budget exceeded.", false;
-                for (size_t i = 0; i < chain.Count (); ++i) {
-                    chain.xy[i * 2] -= ox;
-                    chain.xy[i * 2 + 1] -= oy;
-                }
             }
-            std::vector<StorySliceFillVertex> triangles;
-            BuildSliceFill (local, 0, triangles);
-            if (triangles.empty ())
+            StorySliceFillMesh indexed;
+            if (!BuildIndexedSliceFill (chains, patch.z + 0.012, indexed, error))
+                return false;
+            if (indexed.indices.empty ())
                 return error = "Could not triangulate the complete coverage highlight.", false;
             overlaylayers::Mesh mesh;
             mesh.rgba = function == kBuiltHover ? 0x9AA0A6FF : 0x66BB6AFF;
@@ -369,10 +361,8 @@ bool Highlight (const Result& result, const std::string& function, overlaylayers
             mesh.style.opacity = 0.65f;
             mesh.style.behind = overlaylayers::Behind::Show;
             mesh.style.cullBack = false;
-            for (const auto& p : triangles) {
-                mesh.indices.push_back (uint32_t (mesh.points.size () / 3));
-                mesh.points.insert (mesh.points.end (), { p.x + ox, p.y + oy, patch.z + 0.012 });
-            }
+            mesh.points = std::move (indexed.points);
+            mesh.indices = std::move (indexed.indices);
             points += mesh.points.size () / 3;
             if (points > 600000)
                 return error = "Coverage highlight fill budget exceeded.", false;
