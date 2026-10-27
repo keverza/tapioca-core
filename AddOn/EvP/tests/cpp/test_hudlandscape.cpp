@@ -203,6 +203,53 @@ TEST (HudLandscape, DrawingBetweenTwoEndpointsRemapsTerrainOwnersAndRoundTrips)
     EXPECT_EQ (s.edits.Doc ().landscape, doc.landscape);
 }
 
+TEST (HudLandscape, KeyboardAndMenuDeletePathWithItsSourcesAndTerrainOwner)
+{
+    for (bool menu : { false, true }) {
+        ed::Document doc;
+        std::string error;
+        ASSERT_TRUE (lg::StartLandscape (doc, { 3 }, error));
+        const auto path = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2);
+        lg::LandscapeSource source;
+        source.role = lg::SourceRole::PathCenterline;
+        source.pathId = path;
+        ed::Id sourceId = 0, operationId = 0, objectId = 0;
+        ASSERT_TRUE (lg::AddLandscapeSource (doc, source, sourceId, error));
+        lg::LandscapeOperation stroke;
+        stroke.kind = lg::OperationKind::Stroke;
+        stroke.inputs = { sourceId };
+        ASSERT_TRUE (lg::AddLandscapeOperation (doc, stroke, operationId, error));
+        lg::HardscapeObject owner;
+        owner.kind = lg::ObjectKind::Path;
+        owner.pathId = path;
+        owner.footprintOperation = operationId;
+        ASSERT_TRUE (lg::AddHardscapeObject (doc, owner, objectId, error));
+        eh::Session s (doc);
+        s.selection.Set ({ { path, ed::Part::Entity, 0 } });
+        if (menu) {
+            s.menu.target = eh::MenuTarget::Path;
+            s.menu.ref = { path, ed::Part::Entity, 0 };
+            eh::RunMenuItem (s, "delete");
+        }
+        else {
+            auto input = hudtest::At (600, 500);
+            input.keys = { { 0x2E, true } };
+            eh::Keys (s, input, false);
+        }
+        ASSERT_TRUE (s.edits.Doc ().paths.empty ()) << s.message;
+        EXPECT_TRUE (s.edits.Doc ().landscape->sources[0].deleted);
+        EXPECT_EQ (s.edits.Doc ().landscape->objects[0].pathId, ed::kNoId);
+        EXPECT_EQ (s.edits.Doc ().landscape->operations, doc.landscape->operations);
+        EXPECT_TRUE (ed::Validate (s.edits.Doc (), error)) << error;
+        EXPECT_EQ (s.edits.UndoDepth (), 1u);
+        ASSERT_TRUE (s.edits.Undo ());
+        EXPECT_EQ (s.edits.Doc ().landscape, doc.landscape);
+        EXPECT_EQ (s.edits.Doc ().paths, doc.paths);
+        ASSERT_TRUE (s.edits.Redo ());
+        EXPECT_TRUE (s.edits.Doc ().paths.empty ());
+    }
+}
+
 TEST (HudLandscape, KeepSubtractEditUndoRedoAndCodecUseTheExistingHistory)
 {
     eh::Session s (Demo ());

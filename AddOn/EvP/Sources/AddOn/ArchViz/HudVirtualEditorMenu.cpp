@@ -42,6 +42,20 @@ void DeleteSelection (Session& s)
         return;
     const bool ok = s.edits.Apply ([items] (edit::Document& d, std::string& error) {
         for (const auto& r : items) {
+            if (r.part == edit::Part::Entity && d.landscape) {
+                std::vector<edit::Id> sources;
+                for (const auto& source : d.landscape->sources)
+                    if (!source.deleted && (source.pathId == r.entity || source.entityId == r.entity))
+                        sources.push_back (source.id);
+                // Keep source/operation ancestry as tombstones, not live references
+                // to geometry about to disappear. Session owns the one undo entry.
+                for (const auto source : sources)
+                    if (!tapioca::geometry::DeleteLandscapeSource (d, source, error))
+                        return false;
+                for (auto& object : d.landscape->objects)
+                    if (object.pathId == r.entity)
+                        object.pathId = edit::kNoId;
+            }
             if (edit::FindPath (d, r.entity) != nullptr) {
                 bool done = true;
                 switch (r.part) {
