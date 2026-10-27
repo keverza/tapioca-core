@@ -127,16 +127,23 @@ struct StorySliceFillMesh {
 
 // Replaces out atomically on success, including a valid empty even-odd domain.
 // Open/short chains bound nothing. Closed chains must contain complete finite
-// XY pairs within +/-1e9 metres; normalization uses local ClipperD precision 6
-// (a 2^-20 metre grid in the pinned dependency), not exact world coordinates.
+// XY pairs within +/-1e9 metres. decimalPrecision (0..8) controls local ClipperD
+// normalization: 6 defaults to a 2^-20 metre grid; 7 retains the facade caller's
+// 2^-24 grid. This is not exact-coordinate preservation.
 // Approximate covers and generated triangulator crossings refuse with a reason.
 bool BuildIndexedSliceFill (const std::vector<SliceChain>& chains, double z, StorySliceFillMesh& out,
-                            std::string& error);
+                            std::string& error, int decimalPrecision = 6);
 
-// The signed area enclosed by the closed chains under even-odd, in square
+// Checked positive triangle area from double differences, before any GPU float
+// conversion. Refusal leaves area untouched; valid empty domains measure zero.
+bool MeasureSliceFill (const StorySliceFillMesh& mesh, double& area, std::string& error);
+
+// The nonnegative area enclosed by the closed chains under even-odd, in square
 // metres. Exposed because it is the honest way to TEST the fill — a triangle
 // count says nothing about whether the right region was covered — and because a
-// massing feasibility study wants exactly this number for a storey.
+// massing feasibility study wants exactly this number for a storey. Uses the
+// default indexed normalization precision; returns NaN, never a fake zero, on
+// invalid input/refusal. Call BuildIndexedSliceFill/MeasureSliceFill for errors.
 double UnionArea (const std::vector<SliceChain>& chains);
 
 } // namespace archviz

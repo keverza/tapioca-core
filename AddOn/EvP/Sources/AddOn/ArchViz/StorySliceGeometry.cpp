@@ -297,9 +297,13 @@ size_t BuildSliceFill (const std::vector<SliceChain>& chains, float z, std::vect
 }
 
 bool BuildIndexedSliceFill (const std::vector<SliceChain>& chains, double z, StorySliceFillMesh& out,
-                            std::string& error)
+                            std::string& error, int decimalPrecision)
 {
     namespace cp = Clipper2Lib;
+    if (decimalPrecision < 0 || decimalPrecision > 8) {
+        error = "slice fill decimal precision must be within 0..8";
+        return false;
+    }
     if (!std::isfinite (z)) {
         error = "slice fill elevation must be finite";
         return false;
@@ -332,7 +336,7 @@ bool BuildIndexedSliceFill (const std::vector<SliceChain>& chains, double z, Sto
         paths.push_back (std::move (path));
     }
 
-    cp::ClipperD clipper (6);
+    cp::ClipperD clipper (decimalPrecision);
     cp::PolyTreeD tree;
     clipper.AddSubject (paths);
     if (!clipper.Execute (cp::ClipType::Union, cp::FillRule::EvenOdd, tree)) {
@@ -396,24 +400,46 @@ bool BuildIndexedSliceFill (const std::vector<SliceChain>& chains, double z, Sto
     return true;
 }
 
+bool MeasureSliceFill (const StorySliceFillMesh& mesh, double& area, std::string& error)
+{
+    const auto fail = [&] (const char* reason) {
+        error = reason;
+        return false;
+    };
+    if (mesh.points.size () % 3 || mesh.indices.size () % 3)
+        return fail ("slice fill measurement requires complete XYZ points and triangles");
+    for (double coordinate : mesh.points)
+        if (!std::isfinite (coordinate))
+            return fail ("slice fill measurement requires finite coordinates");
+    for (uint32_t index : mesh.indices)
+        if (index >= mesh.points.size () / 3)
+            return fail ("slice fill measurement index is out of range");
+    double total = 0, correction = 0;
+    for (size_t i = 0; i < mesh.indices.size (); i += 3) {
+        const size_t a = size_t (mesh.indices[i]) * 3, b = size_t (mesh.indices[i + 1]) * 3,
+                     c = size_t (mesh.indices[i + 2]) * 3;
+        const double cross = (mesh.points[b] - mesh.points[a]) * (mesh.points[c + 1] - mesh.points[a + 1]) -
+                             (mesh.points[c] - mesh.points[a]) * (mesh.points[b + 1] - mesh.points[a + 1]);
+        if (!std::isfinite (cross) || cross <= 0)
+            return fail ("slice fill measurement requires positive finite triangles");
+        const double value = cross * 0.5 - correction, next = total + value;
+        correction = (next - total) - value;
+        total = next;
+    }
+    if (!std::isfinite (total))
+        return fail ("slice fill measured area is not finite");
+    area = total;
+    error.clear ();
+    return true;
+}
+
 double UnionArea (const std::vector<SliceChain>& chains)
 {
-    // ⚠️ THE ABSOLUTE VALUE PER RING IS WRONG AND IS NOT WHAT THIS DOES. Under
-    // even-odd a hole's ring must SUBTRACT, and which way it winds is not
-    // guaranteed by anything upstream — the union classifies edges, it does not
-    // orient them. So the area is measured the same way the fill is built: by
-    // trapezoids over the arrangement, where a hole is simply a region the
-    // even-odd pairing never marks as inside.
-    std::vector<StorySliceFillVertex> tris;
-    BuildSliceFill (chains, 0.0f, tris);
-
-    double area = 0.0;
-    for (size_t i = 0; i + 2 < tris.size (); i += 3) {
-        const double ax = tris[i].x, ay = tris[i].y;
-        const double bx = tris[i + 1].x, by = tris[i + 1].y;
-        const double cx = tris[i + 2].x, cy = tris[i + 2].y;
-        area += std::fabs ((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) * 0.5;
-    }
+    StorySliceFillMesh mesh;
+    std::string error;
+    double area = std::numeric_limits<double>::quiet_NaN ();
+    if (!BuildIndexedSliceFill (chains, 0, mesh, error) || !MeasureSliceFill (mesh, area, error))
+        return std::numeric_limits<double>::quiet_NaN ();
     return area;
 }
 

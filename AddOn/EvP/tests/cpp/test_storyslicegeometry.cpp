@@ -433,8 +433,9 @@ TEST (IndexedSliceFill, BothWindingsClosureAndSurveyCoordinatesPreserveSmallDeta
         std::string error;
         ASSERT_TRUE (BuildIndexedSliceFill ({ chain }, 123.456789, mesh, error)) << error;
         EXPECT_NEAR (IndexedArea (mesh), 0.34375, 1e-9);
-        RecordProperty ("legacySurveyArea", std::to_string (UnionArea ({ chain })));
+        RecordProperty ("legacySurveyArea", std::to_string (FillArea ({ chain })));
         RecordProperty ("indexedSurveyArea", std::to_string (IndexedArea (mesh)));
+        EXPECT_NEAR (UnionArea ({ chain }), 0.34375, 1e-9);
         for (size_t i = 2; i < mesh.points.size (); i += 3)
             EXPECT_DOUBLE_EQ (mesh.points[i], 123.456789);
     }
@@ -491,4 +492,53 @@ TEST (IndexedSliceFill, ManyHolesRetainTheConstrainedAreaCheckedCover)
     std::string error;
     ASSERT_TRUE (BuildIndexedSliceFill (chains, 0, mesh, error)) << error;
     EXPECT_NEAR (IndexedArea (mesh), 1472, 1e-6);
+}
+
+TEST (IndexedSliceFill, ExplicitNormalizationPrecisionRetainsFacadeGridAndRefusesInvalidOptions)
+{
+    const double width = 1 + std::ldexp (1.0, -23);
+    const auto chain = Ring ({ 0, 0, width, 0, width, 1, 0, 1 });
+    StorySliceFillMesh mesh;
+    std::string error;
+    ASSERT_TRUE (BuildIndexedSliceFill ({ chain }, 0, mesh, error, 7)) << error;
+    double area = -1;
+    ASSERT_TRUE (geomsrv::archviz::MeasureSliceFill (mesh, area, error)) << error;
+    EXPECT_DOUBLE_EQ (area, width);
+    ASSERT_TRUE (BuildIndexedSliceFill ({ chain }, 0, mesh, error, 6)) << error;
+    ASSERT_TRUE (geomsrv::archviz::MeasureSliceFill (mesh, area, error)) << error;
+    EXPECT_DOUBLE_EQ (area, 1);
+    const auto before = mesh.points;
+    for (int precision : { -1, 9 }) {
+        EXPECT_FALSE (BuildIndexedSliceFill ({ chain }, 0, mesh, error, precision));
+        EXPECT_EQ (mesh.points, before);
+        EXPECT_FALSE (error.empty ());
+    }
+}
+
+TEST (IndexedSliceFill, MeasurementRefusesCorruptMeshesAtomicallyAndUnionDoesNotInventZero)
+{
+    StorySliceFillMesh valid;
+    std::string error;
+    ASSERT_TRUE (BuildIndexedSliceFill ({ Ring ({ 0, 0, 1, 0, 1, 1, 0, 1 }) }, 0, valid, error));
+    for (int fault = 0; fault < 5; ++fault) {
+        auto bad = valid;
+        if (fault == 0)
+            bad.points.pop_back ();
+        if (fault == 1)
+            bad.indices.pop_back ();
+        if (fault == 2)
+            bad.indices[0] = 999;
+        if (fault == 3)
+            bad.points[0] = std::numeric_limits<double>::infinity ();
+        if (fault == 4)
+            std::swap (bad.indices[0], bad.indices[1]);
+        double area = 123;
+        EXPECT_FALSE (geomsrv::archviz::MeasureSliceFill (bad, area, error));
+        EXPECT_EQ (area, 123);
+        EXPECT_FALSE (error.empty ());
+    }
+    double area = 123;
+    EXPECT_TRUE (geomsrv::archviz::MeasureSliceFill ({}, area, error));
+    EXPECT_EQ (area, 0);
+    EXPECT_TRUE (std::isnan (UnionArea ({ Ring ({ 0, 0, 1, 0, 1 }) })));
 }
