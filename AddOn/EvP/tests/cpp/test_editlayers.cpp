@@ -1,6 +1,7 @@
 #include "ArchViz/EditLayers.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include <gtest/gtest.h>
+#include <cmath>
 
 namespace ed = geomsrv::edit;
 namespace el = geomsrv::archviz::editlayers;
@@ -229,6 +230,35 @@ TEST (EditLayers, PathsDrawSurfaceGradesCrossfallAndFixedPoints)
     for (const auto& p : layer.points)
         red |= p.rgba == el::Style {}.fixedBreak;
     EXPECT_TRUE (red);
+}
+
+TEST (EditLayers, SlopeArrowsFollowBendsAndAvoidTheirControlPoints)
+{
+    for (double radius : { 0.0, 8.0 }) {
+        ed::Document doc;
+        const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 1 } }, 2.0);
+        std::string error;
+        ASSERT_TRUE (ed::SetPathRadius (doc, id, doc.paths[0].points[1].id, radius, error));
+        ed::AlignmentGeometry g;
+        ASSERT_TRUE (ed::BuildAlignment (doc.paths[0].points, g, error));
+        const auto layer = el::Build (doc, {});
+        size_t arrows = 0;
+        for (const auto& line : layer.polylines) {
+            if (line.endArrow != layers::Terminator::Arrow || line.rgba != el::Style {}.text)
+                continue;
+            ++arrows;
+            for (size_t i = 0; i + 5 < line.points.size (); i += 3) {
+                const ed::Vec3 a { line.points[i], line.points[i + 1], line.points[i + 2] };
+                const ed::Vec3 b { line.points[i + 3], line.points[i + 4], line.points[i + 5] };
+                double station = 0, offset = 0;
+                ASSERT_TRUE (ed::StationOf (g, ed::Lerp (a, b, 0.5), station, offset));
+                EXPECT_LT (std::abs (offset), 0.002) << "the arrow must not cut diagonally across a bend";
+                for (const auto& point : doc.paths[0].points)
+                    EXPECT_GT (ed::DistanceXY (a, point.p), 0.25);
+            }
+        }
+        EXPECT_EQ (arrows, 1u);
+    }
 }
 
 TEST (EditLayers, SelectedPathPartsAreHighlighted)

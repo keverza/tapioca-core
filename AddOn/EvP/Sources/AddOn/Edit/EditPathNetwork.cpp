@@ -681,6 +681,39 @@ std::vector<StationSpan> PathAnnotationSpans (const std::vector<Path>& paths, Id
     if (!(to > from))
         return spans;
     spans.push_back ({ from, to });
+    const auto exclude = [&] (double lo, double hi) {
+        std::vector<StationSpan> kept;
+        for (const auto& span : spans) {
+            if (span.to <= lo || span.from >= hi)
+                kept.push_back (span);
+            else {
+                if (span.from < lo)
+                    kept.push_back ({ span.from, lo });
+                if (span.to > hi)
+                    kept.push_back ({ hi, span.to });
+            }
+        }
+        spans = std::move (kept);
+    };
+    for (const auto& path : paths) {
+        if (path.id != id)
+            continue;
+        AlignmentGeometry geometry;
+        std::string error;
+        if (!BuildAlignment (path.points, geometry, error))
+            continue;
+        // An annotation and its full arrow need a clear run, not a midpoint
+        // directly on a control/grade handle or across a sharp direction change.
+        const auto avoid = [&] (double station) {
+            const Section section = SectionIn (path.sections, geometry.length, station);
+            const double gap = std::max (0.25, 0.5 * std::max (section.widthLeft, section.widthRight));
+            exclude (station - gap, station + gap);
+        };
+        for (double station : geometry.pointStations)
+            avoid (station);
+        for (const auto& grade : path.profile)
+            avoid (grade.station);
+    }
     for (const auto& j : FindJunctions (paths)) {
         const Path &a = paths[j.a], &b = paths[j.b];
         if (a.id != id && b.id != id)
@@ -707,18 +740,7 @@ std::vector<StationSpan> PathAnnotationSpans (const std::vector<Path>& paths, Id
                 if (k.other == (path->id == a.id ? b.id : a.id))
                     radius = std::max (radius, k.radius);
         const double lo = station - reach - radius - 0.1, hi = station + reach + radius + 0.1;
-        std::vector<StationSpan> kept;
-        for (const auto& span : spans) {
-            if (span.to <= lo || span.from >= hi)
-                kept.push_back (span);
-            else {
-                if (span.from < lo)
-                    kept.push_back ({ span.from, lo });
-                if (span.to > hi)
-                    kept.push_back ({ hi, span.to });
-            }
-        }
-        spans = std::move (kept);
+        exclude (lo, hi);
     }
     return spans;
 }

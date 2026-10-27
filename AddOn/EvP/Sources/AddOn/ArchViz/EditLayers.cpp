@@ -521,8 +521,19 @@ void AddPathMarks (const edit::Document& doc, const edit::Path& path, const edit
         halfSpan = std::min (halfSpan, (s1 - s0) * 0.1);
         if (!CentreAt (o, station - halfSpan, a) || !CentreAt (o, station + halfSpan, b))
             continue;
-        if (std::abs (grade) > 1.0e-9)
-            layer.polylines.push_back (grade > 0.0 ? Arrow (b, a, style.text) : Arrow (a, b, style.text));
+        if (std::abs (grade) > 1.0e-9) {
+            std::vector<Vec3> run { a };
+            for (size_t k = 0; k < o.stations.size (); ++k)
+                if (o.stations[k] > station - halfSpan + 1e-9 && o.stations[k] < station + halfSpan - 1e-9)
+                    run.push_back (o.centre[k]);
+            run.push_back (b);
+            if (grade > 0.0)
+                std::reverse (run.begin (), run.end ());
+            auto arrow = Line (run, false, style.text, 1.5f);
+            arrow.endArrow = layers::Terminator::Arrow;
+            arrow.behind = layers::Behind::Show;
+            layer.polylines.push_back (std::move (arrow));
+        }
     }
 
     // Crossfall: arrows from the high side towards the falling edge(s) in each range.
