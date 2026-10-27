@@ -8,6 +8,16 @@ ROOT = Path(__file__).parents[1] / "Sources" / "AddOn"
 SOURCE = ROOT / "NativeCommands" / "VirtualEditorCommands.cpp"
 
 
+def test_viewer_flyout_opens_editor_directly_through_the_main_thread_request():
+    source = (ROOT / "ArchViz" / "DiligentHudShell.cpp").read_text(encoding="utf-8")
+    select = source[source.index("const auto select =") : source.index("const auto dock =")]
+    assert 'if (key == "@viewer.editor")' in select
+    assert "vieweredit::RequestWorkflow (shell.dock, shell.fontStep)" in select
+    assert "select (dock.selected)" in source
+    assert "select (result.pressed)" in source
+    assert 'Button ("Open virtual editor")' not in source
+
+
 def test_surface_switch_uses_deferred_owner_and_strict_transport_enums():
     source = SOURCE.read_text(encoding="utf-8")
     schemas = [json.loads(text) for text in re.findall(r'R"json\((.*?)\)json"', source, re.S)]

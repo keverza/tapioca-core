@@ -95,14 +95,18 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     hudshell::Circle overlay;
     overlay.tip = "The overlay: press to switch to it (the viewer closes)";
     const hudshell::Circle viewer = ViewerCircle (scene);
+    const auto select = [&] (const std::string& key) {
+        shell.held = key;
+        shell.open = true;
+        if (key == "@viewer.editor")
+            vieweredit::RequestWorkflow (shell.dock, shell.fontStep);
+    };
     const auto dock =
         hudshell::Dock (shell.dock, view, scale, ui, font,
                         shell.navigation.workflowTitle.empty () ? "Tapioca" : shell.navigation.workflowTitle, look,
                         shell.open, overlay, &viewer, nullptr, tabs, shell.held);
-    if (!dock.selected.empty ()) {
-        shell.held = dock.selected;
-        shell.open = true;
-    }
+    if (!dock.selected.empty ())
+        select (dock.selected);
     if (dock.press.top)
         surfaceswitch::Request (surfaceswitch::Surface::Overlay);
     if (dock.press.collapse)
@@ -131,11 +135,8 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
             SelectionPage (shell, state, ui);
         else if (key == kSunStudyKey)
             SunStudyPage (state, scene);
-        else if (key == "@viewer.editor") {
-            ImGui::TextWrapped ("Create or resume virtual geometry without changing the Archicad model.");
-            if (ImGui::Button ("Open virtual editor"))
-                vieweredit::RequestWorkflow (shell.dock, shell.fontStep);
-        }
+        else if (key == "@viewer.editor")
+            ImGui::TextUnformatted ("Opening virtual editor...");
         else if (key == hudshell::kSettingsKey)
             SettingsPage (shell, state, scene);
         else if (key == hudshell::kDebugKey)
@@ -147,7 +148,7 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     const hudshell::HostResult result =
         hudshell::Host (spec, shell.held, shell.shownLast, shell.placement, page, nullptr, &shell.navigation);
     if (!result.pressed.empty ())
-        shell.held = result.pressed;
+        select (result.pressed);
     // The dock over everything: a panel dragged onto it never hides it.
     if (ImGuiWindow* const dock = ImGui::FindWindowByName ("###tapioca.dock"); dock != nullptr)
         ImGui::BringWindowToDisplayFront (dock);
