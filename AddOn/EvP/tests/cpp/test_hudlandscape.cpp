@@ -2,6 +2,7 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -120,6 +121,86 @@ TEST (HudLandscape, SixSourcesStayInOneDocumentAndCacheIsRevisionScoped)
     EXPECT_EQ (s.edits.Doc ().landscape->sources.size (), 6u);
     ASSERT_EQ (s.edits.Doc ().landscape->operations.size (), 1u);
     EXPECT_EQ (s.edits.Doc ().landscape->operations[0].faces.size (), 1u);
+}
+
+TEST (HudLandscape, EndpointExtensionsFinishAndJoinWithSourcesInEveryOrientation)
+{
+    for (bool startExisting : { false, true })
+        for (bool startDrawn : { false, true }) {
+            ed::Document doc;
+            std::string error;
+            ASSERT_TRUE (lg::StartLandscape (doc, { 1 }, error));
+            const auto path = ed::AddPath (doc,
+                                           startExisting ? std::vector<ed::Vec3> { { 10, 0, 0 }, { 0, 0, 0 } }
+                                                         : std::vector<ed::Vec3> { { 0, 0, 0 }, { 10, 0, 0 } },
+                                           2);
+            lg::LandscapeSource source;
+            source.role = lg::SourceRole::PathCenterline;
+            source.pathId = path;
+            ed::Id sourceId = 0;
+            ASSERT_TRUE (lg::AddLandscapeSource (doc, source, sourceId, error));
+            eh::Session s (doc);
+            s.tool = eh::Tool::Path;
+            s.drawing = startDrawn ? std::vector<ed::Vec3> { { 10, 0, 0 }, { 20, 0, 0 } }
+                                   : std::vector<ed::Vec3> { { 20, 0, 0 }, { 10, 0, 0 } };
+            eh::detail::FinishDrawing (s);
+            ASSERT_TRUE (s.drawing.empty ()) << s.message;
+            ASSERT_EQ (s.edits.Doc ().paths.size (), 1u) << s.message;
+            EXPECT_EQ (s.edits.Doc ().paths[0].id, path);
+            ASSERT_EQ (s.edits.Doc ().landscape->sources.size (), 2u);
+            for (const auto& joinedSource : s.edits.Doc ().landscape->sources)
+                EXPECT_EQ (joinedSource.pathId, path);
+            EXPECT_TRUE (ed::Validate (s.edits.Doc (), error)) << error;
+            EXPECT_EQ (s.terrainPath, path);
+            EXPECT_EQ (s.edits.UndoDepth (), 1u);
+            ASSERT_TRUE (s.edits.Undo ());
+            EXPECT_EQ (s.edits.Doc ().paths, doc.paths);
+            EXPECT_EQ (s.edits.Doc ().landscape, doc.landscape);
+            ASSERT_TRUE (s.edits.Redo ());
+            EXPECT_EQ (s.edits.Doc ().paths.size (), 1u);
+        }
+}
+
+TEST (HudLandscape, DrawingBetweenTwoEndpointsRemapsTerrainOwnersAndRoundTrips)
+{
+    ed::Document doc;
+    std::string error;
+    ASSERT_TRUE (lg::StartLandscape (doc, { 2 }, error));
+    const auto first = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2);
+    const auto second = ed::AddPath (doc, { { 20, 0, 0 }, { 30, 0, 0 } }, 2);
+    for (const auto path : { first, second }) {
+        lg::LandscapeSource source;
+        source.role = lg::SourceRole::PathCenterline;
+        source.pathId = path;
+        ed::Id sourceId = 0, operationId = 0, objectId = 0;
+        ASSERT_TRUE (lg::AddLandscapeSource (doc, source, sourceId, error));
+        lg::LandscapeOperation stroke;
+        stroke.kind = lg::OperationKind::Stroke;
+        stroke.inputs = { sourceId };
+        ASSERT_TRUE (lg::AddLandscapeOperation (doc, stroke, operationId, error));
+        lg::HardscapeObject owner;
+        owner.kind = lg::ObjectKind::Path;
+        owner.pathId = path;
+        owner.footprintOperation = operationId;
+        ASSERT_TRUE (lg::AddHardscapeObject (doc, owner, objectId, error));
+    }
+    eh::Session s (doc);
+    s.tool = eh::Tool::Path;
+    s.drawing = { { 10, 0, 0 }, { 20, 0, 0 } };
+    eh::detail::FinishDrawing (s);
+    ASSERT_TRUE (s.drawing.empty ()) << s.message;
+    ASSERT_EQ (s.edits.Doc ().paths.size (), 1u);
+    for (const auto& object : s.edits.Doc ().landscape->objects)
+        EXPECT_EQ (object.pathId, first);
+    EXPECT_EQ (s.edits.Doc ().landscape->operations, doc.landscape->operations);
+    EXPECT_EQ (s.edits.UndoDepth (), 1u);
+    std::string definition;
+    ASSERT_TRUE (lg::WriteLandscape (s.edits.Doc (), lg::LandscapeStorage::Virtual, definition, error)) << error;
+    ed::Document restored;
+    ASSERT_TRUE (lg::ReadLandscape (definition, restored, error)) << error;
+    EXPECT_EQ (restored.paths, s.edits.Doc ().paths);
+    ASSERT_TRUE (s.edits.Undo ());
+    EXPECT_EQ (s.edits.Doc ().landscape, doc.landscape);
 }
 
 TEST (HudLandscape, KeepSubtractEditUndoRedoAndCodecUseTheExistingHistory)

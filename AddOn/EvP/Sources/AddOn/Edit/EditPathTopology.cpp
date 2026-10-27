@@ -153,6 +153,17 @@ bool JoinPathEnds (Document& doc, Id first, bool firstStart, Id second, bool sec
     result.paths.erase (std::remove_if (result.paths.begin (), result.paths.end (),
                                         [=] (const Path& path) { return path.id == second; }),
                         result.paths.end ());
+    // Sources/owners keep their authored identities and operation ancestry, but
+    // the retired path is now the surviving run. Validate must see that remap in
+    // the same transaction, including when finishing a newly drawn extension.
+    if (result.landscape) {
+        for (auto& source : result.landscape->sources)
+            if (source.pathId == second)
+                source.pathId = first;
+        for (auto& object : result.landscape->objects)
+            if (object.pathId == second)
+                object.pathId = first;
+    }
     // Junction intent is stored on the lower-id path. A merge can change that
     // owner; move the request as well as remapping its other-path reference.
     std::vector<std::pair<Id, KerbCorner>> transferred;
