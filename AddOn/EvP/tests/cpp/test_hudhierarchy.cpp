@@ -172,6 +172,26 @@ TEST (HudHierarchy, DockVirtualEditorChoiceStartsTheWorkflowWithoutASecondButton
     layers::Clear ("virtual-editor");
 }
 
+TEST (HudHierarchy, ReopeningTheVirtualWorkflowRestoresItsHiddenUnlockedSession)
+{
+    Watched view;
+    ASSERT_TRUE (hud::OpenVirtualEditorWorkflow (*view.state));
+    const auto* session = hud::VirtualEditor (*view.state);
+    view.state->hidden.insert ("virtual-editor");
+    view.state->editLocked = false;
+    view.state->shown = false;
+    view.state->host.selected = geomsrv::archviz::hudmassing::kTabKey;
+    ASSERT_TRUE (hud::OpenVirtualEditorWorkflow (*view.state));
+    EXPECT_EQ (hud::VirtualEditor (*view.state), session);
+    EXPECT_TRUE (hud::EditLocked (*view.state));
+    EXPECT_TRUE (view.state->shown);
+    EXPECT_TRUE (hud::LayerShown (*view.state, "virtual-editor"));
+    EXPECT_EQ (view.state->host.selected, "virtual-editor#0");
+    EXPECT_EQ (session->edits.UndoDepth (), 0u);
+    hud::StopVirtualEditor (*view.state, "test complete");
+    layers::Clear ("virtual-editor");
+}
+
 TEST (HudHierarchy, ViewerEditorKeepsAnalysisInNativeNavigation)
 {
     Watched hud;

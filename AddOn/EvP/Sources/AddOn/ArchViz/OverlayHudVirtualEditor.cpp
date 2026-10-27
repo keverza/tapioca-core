@@ -68,8 +68,19 @@ void StopVirtualEditor (State& state, const char* reason)
 
 bool OpenVirtualEditorWorkflow (State& state)
 {
-    if (state.virtualEditor)
+    if (state.virtualEditor) {
+        const auto key = std::string (editlayers::kLayer) + "#0";
+        const bool changed = !state.editLocked || !state.shown || state.hidden.count (editlayers::kLayer) ||
+                             !state.host.open || state.host.selected != key || state.host.workflow != key;
+        state.editLocked = true;
+        state.shown = true;
+        state.hidden.erase (editlayers::kLayer);
+        state.host.open = true;
+        state.host.selected = state.host.workflow = key;
+        if (changed)
+            ++state.revision;
         return true;
+    }
     edit::Document doc;
     std::array<uint8_t, 16> uuid;
     std::random_device random;
