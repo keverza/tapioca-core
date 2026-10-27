@@ -345,15 +345,15 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
 // A kerb corner where a curved edge meets another (the user, 2026-10-24: "intersection of arc and
 // straight line allows too small fillets"). The curve arrives as its sampled chords, and a fillet
 // can only use the chord beside it, so a corner on a curve got a radius of a few centimetres. Each
-// requested corner's sampled neighbours within its radius -- slight turns that are not corners of
-// their own -- are dropped, so its leg on the curve is one chord as long as the fillet needs.
+// corner's sampled neighbours within its feasible tangent reach -- slight turns that are not
+// corners of their own -- are dropped. Unfitted requested radii must not erase distant curves.
 cp::PathD Thinned (const cp::PathD& ring, const std::vector<PavedCorner>& corners)
 {
     const size_t n = ring.size ();
     const auto requested = [&] (const cp::PointD& p) {
         for (const auto& c : corners)
             if (c.at.x == p.x && c.at.y == p.y)
-                return c.requestedRadius;
+                return c.key.radius / std::tan (c.half);
         return 0.0;
     };
     const auto slight = [&] (size_t i) {

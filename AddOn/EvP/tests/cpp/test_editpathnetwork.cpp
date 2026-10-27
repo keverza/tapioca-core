@@ -789,3 +789,31 @@ TEST (EditPathNetwork, AJunctionOnABendStillTakesItsKerbRadius)
         }
     EXPECT_EQ (junctions, 4U);
 }
+
+TEST (EditPathNetwork, OversizedKerbRequestsDoNotTruncateAnAdjacentOffsetArc)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 12, 0, 0 }, { 12, 12, 0 } }, 3.0);
+    std::string error;
+    ASSERT_TRUE (ed::SetPathRadius (doc, id, doc.paths[0].points[1].id, 7.9, error));
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, id, 100, error));
+    ed::AlignmentGeometry g;
+    ASSERT_TRUE (ed::BuildAlignment (doc.paths[0].points, g, error));
+    ed::StationFrame mid;
+    ASSERT_TRUE (ed::Evaluate (doc.paths[0], g, g.elements[1].start + g.elements[1].length * 0.5, mid));
+    for (double step : { 0.5, 8.0 }) {
+        const auto paved = ed::Pave (doc.paths, step, false);
+        ASSERT_TRUE (paved.warning.empty ()) << paved.warning;
+        ASSERT_EQ (paved.rings.size (), 1u);
+        for (const auto p : { mid.leftEdge, mid.rightEdge }) {
+            double distance = 1e100;
+            for (const auto& ring : paved.rings)
+                for (size_t i = 0; i < ring.size (); ++i) {
+                    const auto a = ring[i], b = ring[(i + 1) % ring.size ()], d = b - a;
+                    const double t = std::clamp (ed::Dot (p - a, d) / ed::Dot (d, d), 0.0, 1.0);
+                    distance = std::min (distance, ed::DistanceXY (p, ed::Lerp (a, b, t)));
+                }
+            EXPECT_LT (distance, 0.0011);
+        }
+    }
+}

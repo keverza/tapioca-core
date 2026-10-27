@@ -114,6 +114,34 @@ TEST (EditPath, SampleStationsHitEveryFeature)
         EXPECT_LE (s[i + 1] - s[i], 2.0 + 1e-9);
 }
 
+TEST (EditPath, CoarseSurfaceStepKeepsArcOffsetsWithinOneMillimetre)
+{
+    for (double hand : { -1.0, 1.0 }) {
+        ed::Document doc;
+        const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 12, 0, 0 }, { 12, hand * 12, 0 } }, 3.0);
+        std::string error;
+        ASSERT_TRUE (ed::SetPathRadius (doc, id, doc.paths[0].points[1].id, 7.9, error)) << error;
+        ed::AlignmentGeometry g;
+        ASSERT_TRUE (ed::BuildAlignment (doc.paths[0].points, g, error));
+        ASSERT_EQ (g.elements.size (), 3u);
+        const auto& arc = g.elements[1];
+        ed::PathOutline outline;
+        ASSERT_TRUE (ed::Outline (doc.paths[0], 8.0, outline, error)) << error;
+        for (size_t i = 0; i + 1 < outline.stations.size (); ++i) {
+            if (outline.stations[i] < arc.start - 1e-9 || outline.stations[i + 1] > arc.start + arc.length + 1e-9)
+                continue;
+            for (const auto* edge : { &outline.left, &outline.right }) {
+                const auto a = (*edge)[i], b = (*edge)[i + 1];
+                const double radius = ed::DistanceXY (a, arc.centre);
+                const double sag = radius - ed::DistanceXY (ed::Lerp (a, b, 0.5), arc.centre);
+                EXPECT_LE (sag, 0.001 + 1e-9);
+            }
+        }
+        EXPECT_FALSE (FoldsOver (outline.left));
+        EXPECT_FALSE (FoldsOver (outline.right));
+    }
+}
+
 TEST (EditPath, MovingAPointRestationsAnchorsButNeverHeights)
 {
     Footpath f;

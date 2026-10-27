@@ -158,10 +158,28 @@ bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& e
     if (!ValidatePath (path, g, error))
         return false;
     std::vector<double> stations = SampleStations (path, g, maxStep);
+    // Mesh spacing may grow during a drag; it must not turn an offset arc into a
+    // long chord (or a false sharp junction). Bound both offset edges to 1 mm,
+    // using the outer radius, independently of the surface refinement budget.
+    double width = 0.0;
+    for (const auto& section : path.sections)
+        width = std::max ({ width, section.widthLeft, section.widthRight, section.taper ? section.endLeft : 0.0,
+                            section.taper ? section.endRight : 0.0 });
+    for (const auto& element : g.elements) {
+        if (element.kind != ElementKind::Arc)
+            continue;
+        const double angle = 4.0 * std::asin (std::sqrt (std::min (0.5, 0.001 / (2.0 * (element.radius + width)))));
+        const auto pieces = static_cast<size_t> (std::ceil (std::abs (element.sweep) / angle));
+        for (size_t i = 1; i < pieces; ++i)
+            stations.push_back (element.start + element.length * double (i) / double (pieces));
+    }
     for (size_t i = 1; i < path.sections.size (); ++i)
         if (!path.sections[i - 1].taper)
             stations.push_back (std::max (0.0, path.sections[i].station - 1.0e-3));
     std::sort (stations.begin (), stations.end ());
+    stations.erase (
+        std::unique (stations.begin (), stations.end (), [] (double a, double b) { return b - a < 1.0e-9; }),
+        stations.end ());
     for (double s : stations) {
         StationFrame f;
         if (!Evaluate (path, g, s, f))
