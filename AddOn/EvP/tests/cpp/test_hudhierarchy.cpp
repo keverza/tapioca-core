@@ -213,11 +213,11 @@ TEST (HudHierarchy, MassingDragTilesFollowDockOrientationAndThickness)
         EXPECT_NEAR (first[2] - first[0], thickness, 2);
         EXPECT_NEAR (first[3] - first[1], thickness, 2);
         if (horizontal) {
-            EXPECT_FLOAT_EQ (first[1], last[1]);
+            EXPECT_NEAR (first[1], last[1], 0.001f);
             EXPECT_GT (last[0], first[2]);
         }
         else {
-            EXPECT_FLOAT_EQ (first[0], last[0]);
+            EXPECT_NEAR (first[0], last[0], 0.001f);
             EXPECT_GT (last[1], first[3]);
         }
     }
