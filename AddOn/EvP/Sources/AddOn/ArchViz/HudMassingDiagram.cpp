@@ -1,5 +1,6 @@
 #include "ArchViz/HudMassingDiagram.hpp"
 #include "ArchViz/GraphicsSettings.hpp"
+#include "ArchViz/HudConsole.hpp"
 #include "ArchViz/StorySliceGeometry.hpp"
 #include <clipper2/clipper.h>
 #include <algorithm>
@@ -107,6 +108,7 @@ void DrawDiagramZeroOffset (ImDrawList& draw, const std::vector<ScreenPoint>& po
                 area > 0 ? ScreenPoint { dy / length, -dx / length } : ScreenPoint { -dy / length, dx / length };
     }
     std::vector<ImDrawVert> vertices;
+    std::vector<uint32_t> indices;
     const auto uv = ImGui::GetIO ().Fonts->TexUvWhitePixel;
     for (size_t i = 0; i < points.size (); ++i) {
         if (!zero[i])
@@ -137,24 +139,36 @@ void DrawDiagramZeroOffset (ImDrawList& draw, const std::vector<ScreenPoint>& po
                 chain.xy.insert (chain.xy.end (), { p.x, p.y });
             chains.push_back (std::move (chain));
         }
-        std::vector<StorySliceFillVertex> triangles;
-        BuildSliceFill (chains, 0, triangles);
-        for (const auto& p : triangles) {
-            const double distance = (p.x - a.x) * n.x + (p.y - a.y) * n.y;
+        StorySliceFillMesh mesh;
+        std::string error;
+        if (!BuildIndexedSliceFill (chains, 0, mesh, error)) {
+            hudconsole::Warning ("Massing diagram", "Zero-offset band not drawn: " + error);
+            return;
+        }
+        const auto base = uint32_t (vertices.size ());
+        // The clipped quad lies between distance 0 and depth. Its fade is affine
+        // there, so a different triangulation must interpolate the same gradient;
+        // clamp only absorbs clipping-grid roundoff at either boundary.
+        for (size_t k = 0; k < mesh.points.size (); k += 3) {
+            const double x = mesh.points[k], y = mesh.points[k + 1];
+            const double distance = (x - a.x) * n.x + (y - a.y) * n.y;
             const int alpha = int (std::lround (170 * (1 - std::clamp (distance / depth, 0.0, 1.0))));
             const auto colour = graphicssettings::Colour ("diagram.zeroOffsetColor", 0xFFC146FFu);
             vertices.push_back (
-                { { p.x + origin.x, p.y + origin.y },
+                { { float (x + origin.x), float (y + origin.y) },
                   uv,
                   overlaylayers::ToUnorm ((colour & 0xFFFFFF00u) | uint32_t (alpha * (colour & 255u) / 255)) });
         }
-        if (vertices.size () > 24000)
+        for (uint32_t index : mesh.indices)
+            indices.push_back (base + index);
+        if (vertices.size () > 24000 || indices.size () > 24000)
             return;
     }
-    draw.PrimReserve (int (vertices.size ()), int (vertices.size ()));
-    for (const auto& vertex : vertices) {
-        draw.PrimWriteIdx (ImDrawIdx (draw._VtxCurrentIdx));
+    draw.PrimReserve (int (indices.size ()), int (vertices.size ()));
+    const auto base = draw._VtxCurrentIdx;
+    for (uint32_t index : indices)
+        draw.PrimWriteIdx (ImDrawIdx (base + index));
+    for (const auto& vertex : vertices)
         draw.PrimWriteVtx (vertex.pos, vertex.uv, vertex.col);
-    }
 }
 } // namespace geomsrv::archviz::hudmassingrules

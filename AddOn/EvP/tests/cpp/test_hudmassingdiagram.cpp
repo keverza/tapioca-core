@@ -163,3 +163,56 @@ TEST (HudMassingDiagram, ZeroOffsetCornerJoinsRemainOutsideAndNonzeroAssignments
             transparentOuterVertex = true;
     EXPECT_TRUE (transparentOuterVertex);
 }
+
+TEST (HudMassingDiagram, IndexedZeroOffsetSharesCornersAndPreservesTheAnalyticGradientAtEveryScale)
+{
+    constexpr ImU32 yellow = IM_COL32 (255, 193, 70, 170);
+    for (float font : { 6.5f, 13.0f, 26.0f })
+        for (bool reverse : { false, true }) {
+            DiagramWidget widget;
+            std::vector<av::ScreenPoint> points { { 50, 50 }, { 150, 50 }, { 150, 150 }, { 50, 150 } };
+            if (reverse)
+                std::reverse (points.begin (), points.end ());
+            std::vector<bool> zero (4, false);
+            zero[reverse ? 2 : 0] = true;
+            const int beforeVertices = widget.draw->VtxBuffer.Size, beforeIndices = widget.draw->IdxBuffer.Size;
+            diagram::DrawDiagramZeroOffset (*widget.draw, points, zero, font);
+            EXPECT_EQ (widget.draw->VtxBuffer.Size - beforeVertices, 4);
+            EXPECT_EQ (widget.draw->IdxBuffer.Size - beforeIndices, 6);
+            const float depth = (std::min) (30.0f, font / 13 * 18);
+            for (float x : { 52.0f, 75.0f, 99.0f, 135.0f, 148.0f })
+                for (float fraction : { 0.05f, 0.2f, 0.51f, 0.8f, 0.95f })
+                    EXPECT_NEAR (widget.AlphaAt (yellow, { x, 50 - fraction * depth }), 170 * (1 - fraction), 1.1f);
+            EXPECT_EQ (widget.AlphaAt (yellow, { 100, 51 }), 0);
+            EXPECT_EQ (widget.AlphaAt (yellow, { 100, 50 - depth - 1 }), 0);
+        }
+}
+
+TEST (HudMassingDiagram, ObliqueAndNarrowClippedBandsKeepLinearAlphaAndDoNotFillTheParcel)
+{
+    constexpr ImU32 yellow = IM_COL32 (255, 193, 70, 170);
+    {
+        DiagramWidget widget;
+        const std::vector<av::ScreenPoint> points { { 50, 50 }, { 150, 100 }, { 100, 200 }, { 0, 150 } };
+        diagram::DrawDiagramZeroOffset (*widget.draw, points, { true, false, false, false }, 13);
+        const float nx = 1 / std::sqrt (5.0f), ny = -2 / std::sqrt (5.0f);
+        for (float t : { 0.05f, 0.4f, 0.75f, 0.95f })
+            for (float d : { 2.0f, 8.0f, 15.0f }) {
+                const ImVec2 p { 50 + 100 * t + nx * d, 50 + 50 * t + ny * d };
+                EXPECT_NEAR (widget.AlphaAt (yellow, p), 170 * (1 - d / 18), 1.1f);
+            }
+        EXPECT_EQ (widget.AlphaAt (yellow, { 98, 79 }), 0);
+    }
+    {
+        DiagramWidget widget;
+        const std::vector<av::ScreenPoint> points { { 50, 50 },  { 170, 50 }, { 170, 170 }, { 150, 170 },
+                                                    { 150, 70 }, { 140, 70 }, { 140, 170 }, { 50, 170 } };
+        std::vector<bool> zero (points.size (), false);
+        zero[3] = true;
+        diagram::DrawDiagramZeroOffset (*widget.draw, points, zero, 13);
+        for (float y : { 75.0f, 100.0f, 150.0f, 165.0f })
+            for (float d : { 1.0f, 4.0f, 8.0f })
+                EXPECT_NEAR (widget.AlphaAt (yellow, { 150 - d, y }), 170 * (1 - d / 18), 1.1f);
+        EXPECT_EQ (widget.AlphaAt (yellow, { 139, 120 }), 0);
+    }
+}
