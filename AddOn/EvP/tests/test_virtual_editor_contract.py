@@ -18,6 +18,15 @@ def test_viewer_flyout_opens_editor_directly_through_the_main_thread_request():
     assert 'Button ("Open virtual editor")' not in source
 
 
+def test_native_editor_and_viewer_do_not_publish_the_navigation_command_strip():
+    host = (ROOT / "ArchViz" / "OverlayHudHost.cpp").read_text(encoding="utf-8")
+    assert 'spec.textInput = !own.viewerSurface && host.selected != std::string (editlayers::kLayer) + "#0"' in host
+    navigation = (ROOT / "ArchViz" / "HudShellNavigation.cpp").read_text(encoding="utf-8")
+    body = navigation[navigation.index("std::string NavigationInput (") :]
+    assert body.index("if (!spec.textInput)") < body.index("ImGui::Separator ()")
+    assert "Navigation commands only in this pass" not in body
+
+
 def test_surface_switch_uses_deferred_owner_and_strict_transport_enums():
     source = SOURCE.read_text(encoding="utf-8")
     schemas = [json.loads(text) for text in re.findall(r'R"json\((.*?)\)json"', source, re.S)]
