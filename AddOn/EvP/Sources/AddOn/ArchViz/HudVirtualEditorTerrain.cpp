@@ -170,8 +170,7 @@ struct TerrainDesignState {
     std::string error;
     // The built surface's contour lines, traced once per outcome and interval (DrawTerrainDesign):
     // a selection change republishes the layer and must not trace a large mesh again.
-    const lg::TerrainDesignOutcome* contoursFor = nullptr;
-    size_t contoursTriangles = 0;
+    uint64_t contoursGeneration = UINT64_MAX;
     double contoursInterval = 0.0;
     std::vector<edit::Contour> contours;
 };
@@ -453,16 +452,16 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
             const double interval = s.contourStep > 0.0 ? s.contourStep
                                     : hi > lo           ? std::max (edit::NiceStep (hi - lo, 10), 0.1)
                                                         : 0.0;
-            if (state.contoursFor != current || state.contoursTriangles != build.triangles.size () ||
-                state.contoursInterval != interval) {
+            // Publication replaces an optional in place: its address and triangle
+            // count can both stay unchanged while every height/contour moves.
+            if (state.contoursGeneration != current->generation || state.contoursInterval != interval) {
                 edit::PavedArea surface;
                 for (size_t i = 0; i + 2 < build.points.size (); i += 3)
                     surface.vertices.push_back ({ build.points[i], build.points[i + 1], build.points[i + 2] });
                 surface.triangles = build.triangles;
                 state.contours =
                     interval > 0.0 ? edit::SurfaceContours (surface, interval) : std::vector<edit::Contour> {};
-                state.contoursFor = current;
-                state.contoursTriangles = build.triangles.size ();
+                state.contoursGeneration = current->generation;
                 state.contoursInterval = interval;
             }
             for (const auto& c : state.contours) {

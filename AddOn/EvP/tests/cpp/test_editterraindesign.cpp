@@ -3,6 +3,7 @@
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditTerrainDesignJob.hpp"
+#include "Edit/EditTerrainOutline.hpp"
 #include "Geometry/Mesh.hpp"
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditPath.hpp"
@@ -1010,6 +1011,44 @@ TEST (HudTerrainDesign, ATerrainSetBeforeItsPathWaitsAndTheDesignStartsWhenOneIs
     EXPECT_TRUE (eh::CurrentTerrainDesign (session)->built) << eh::CurrentTerrainDesign (session)->error;
 }
 
+TEST (EditTerrainOutline, SmallPathMovesKeepSlopesLocalOnATwoTriangleTerrain)
+{
+    const std::vector<uint32_t> triangles { 0, 1, 2, 0, 2, 3 };
+    const ProvenanceRequest provenance;
+    for (double crease : { 0.0, 0.8 })
+        for (double move : { -0.02, 0.0, 0.02 }) {
+            const std::vector<double> points { 0, 0, 0, 40, 0, crease, 40, 40, crease, 0, 40, -crease };
+            edit::Document doc;
+            std::string error;
+            ASSERT_TRUE (StartLandscape (doc, { 1 }, error));
+            const auto path =
+                edit::AddPath (doc, { { 5, 30, 0.36 }, { 14 + move, 20, 0.3 }, { 44, 25 + move, 0.16 } }, 3);
+            edit::AlignmentGeometry geometry;
+            ASSERT_TRUE (edit::BuildAlignment (doc.paths[0].points, geometry, error));
+            edit::Id grade = 0;
+            ASSERT_TRUE (edit::InsertPathBreak (doc, path, geometry.pointStations[1], error, &grade));
+            ASSERT_TRUE (edit::SetPathElevation (doc, path, grade, 0.3, error));
+            EditTerrainInput input { { points, triangles }, provenance, doc.revision, {} };
+            TerrainDesignResult result;
+            uint32_t unreached = 0;
+            ASSERT_TRUE (EvaluateOutlineDesign (doc, input, {}, result, unreached, error)) << error;
+            EXPECT_EQ (unreached, 0u) << "move " << move;
+            const std::vector<double> queries { 5, 5, 30, 35, 37, 6, 25, 2 };
+            std::vector<TerrainSample> samples, baseline;
+            TerrainFieldSummary summary;
+            ASSERT_TRUE (
+                SampleTerrain ({ result.build.points, result.build.triangles }, queries, 0.25, samples, summary, error))
+                << error;
+            ASSERT_TRUE (SampleTerrain ({ points, triangles }, queries, 0.25, baseline, summary, error));
+            ASSERT_EQ (samples.size (), baseline.size ());
+            for (size_t i = 0; i < samples.size (); ++i) {
+                EXPECT_TRUE (samples[i].onSurface);
+                EXPECT_NEAR (samples[i].height, baseline[i].height, 1e-6)
+                    << "remote terrain changed after move " << move << ", crease " << crease;
+            }
+        }
+}
+
 TEST (HudTerrainDesign, FixedControlSelectionSharesHistoryWorkerAndConflictLayer)
 {
     TerrainHostFixture fixture;
@@ -1225,6 +1264,52 @@ TEST (HudTerrainDesign, OneHistoryOwnsTheDesignAndItsDerivedWorkerLayer)
     ASSERT_TRUE (AwaitTerrain (session, layer));
     EXPECT_EQ (TerrainMesh (layer)->points, baseline);
     EXPECT_EQ (session.edits.UndoDepth (), 1U);
+}
+
+TEST (HudTerrainDesign, ANewMeshGenerationRetracesContoursEvenWhenTheTriangleCountIsUnchanged)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    session.contourStep = 0.5;
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path));
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto contours = [] (const layers::Layer& value) {
+        std::vector<std::vector<double>> lines;
+        for (const auto& line : value.polylines)
+            if (line.rgba == 0x2F4A35E6u || line.rgba == 0x37523D99u)
+                lines.push_back (line.points);
+        return lines;
+    };
+    const auto before = contours (layer);
+    ASSERT_FALSE (before.empty ());
+    const auto* previous = eh::CurrentTerrainDesign (session);
+    const auto triangles = previous->result.build.triangles.size ();
+    const auto generation = previous->generation;
+    ASSERT_TRUE (session.edits.Apply ([&] (edit::Document& doc, std::string&) {
+        for (auto& grade : edit::FindPath (doc, fixture.path)->profile)
+            grade.z += 0.02;
+        return true;
+    }));
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto* current = eh::CurrentTerrainDesign (session);
+    ASSERT_EQ (current, previous) << "publisher reuses its optional storage";
+    ASSERT_EQ (current->result.build.triangles.size (), triangles);
+    ASSERT_GT (current->generation, generation);
+    edit::PavedArea surface;
+    for (size_t i = 0; i + 2 < current->result.build.points.size (); i += 3)
+        surface.vertices.push_back ({ current->result.build.points[i], current->result.build.points[i + 1],
+                                      current->result.build.points[i + 2] });
+    surface.triangles = current->result.build.triangles;
+    std::vector<std::vector<double>> expected;
+    for (const auto& contour : edit::SurfaceContours (surface, session.contourStep)) {
+        std::vector<double> line;
+        for (const auto p : contour.points)
+            line.insert (line.end (), { p.x, p.y, p.z });
+        expected.push_back (std::move (line));
+    }
+    EXPECT_TRUE (contours (layer) == expected) << "contours must belong to the current mesh generation";
+    EXPECT_FALSE (contours (layer) == before) << "a small edit cannot keep the previous mesh's contours";
 }
 
 TEST (HudTerrainDesign, TypedCrossSectionApplyRebuildsTheExistingPreviewWithoutAddingWorkerHistory)
