@@ -528,10 +528,12 @@ cp::PathsD Transport (const DerivedRegion& old, const std::function<const Source
 {
     const auto names = [] (const SourceChords* table, const PlanarEdgePiece& p, const RegionBoundaryPiece& piece) {
         return table && p.piece < table->segments.size () &&
-               std::any_of (piece.support.begin (), piece.support.end (), [&] (const BoundaryRef& ref) {
-                   const auto& now = table->segments[p.piece];
-                   return ref.source == p.source && std::find (now.begin (), now.end (), ref.segment) != now.end ();
-               });
+               std::any_of (
+                   piece.support.begin (), piece.support.end (),
+                   [&] (const BoundaryRef& ref) {
+                       const auto& now = table->segments[p.piece];
+                       return ref.source == p.source && std::find (now.begin (), now.end (), ref.segment) != now.end ();
+                   });
     };
     cp::PathsD outer, holes;
     for (size_t r = 0; r < old.boundary.size (); ++r) {
@@ -808,10 +810,6 @@ bool ValidateLandscapeTerrainEdit (const edit::Document& doc, const std::vector<
         error = result.error;
         return false;
     }
-    if (result.propertyLine.empty ()) {
-        error = "PropertyLineOutside: terrain edit requires a property line";
-        return false;
-    }
     PlanarCurve footprint;
     footprint.source = 1; // Request-local locator; no authored identity is allocated.
     footprint.closed = true;
@@ -819,6 +817,13 @@ bool ValidateLandscapeTerrainEdit (const edit::Document& doc, const std::vector<
     if (!SimpleRing (footprint, error)) {
         error = "PropertyLineOutside: terrain footprint is invalid: " + error;
         return false;
+    }
+    // With no explicit property boundary, the captured topography is the edit
+    // boundary itself. Validate it first; never manufacture an authored source
+    // or let this fallback hide an invalid explicit property line.
+    if (result.propertyLine.empty ()) {
+        error.clear ();
+        return true;
     }
     DerivedRegion property, terrain;
     property.rings = { result.propertyLine };

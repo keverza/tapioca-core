@@ -465,6 +465,22 @@ TEST (EditLandscape, PropertyLineRequiresClosedStraightSimpleGeometryAndContains
     EXPECT_NE (result.error.find ("PropertyLineArcUnsupported"), std::string::npos);
 }
 
+TEST (EditLandscape, MissingPropertyLineUsesAValidatedTopographyBoundaryWithoutAuthoringOne)
+{
+    const auto doc = Start ();
+    const auto before = doc;
+    std::string error;
+    EXPECT_TRUE (
+        geo::ValidateLandscapeTerrainEdit (doc, { { 0, 0, 0 }, { 10, 0, 1 }, { 10, 10, 2 }, { 0, 10, 1 } }, error))
+        << error;
+    EXPECT_EQ (doc.landscape, before.landscape);
+    EXPECT_EQ (doc.nextId, before.nextId);
+    EXPECT_EQ (doc.revision, before.revision);
+    EXPECT_FALSE (
+        geo::ValidateLandscapeTerrainEdit (doc, { { 0, 0, 0 }, { 10, 10, 0 }, { 10, 0, 0 }, { 0, 10, 0 } }, error));
+    EXPECT_FALSE (geo::ValidateLandscapeTerrainEdit (doc, {}, error));
+}
+
 TEST (EditLandscape, PropertyLineRefusalsAreNamedAndLeaveTheDocumentUntouched)
 {
     constexpr double kPi = 3.14159265358979323846;

@@ -342,7 +342,8 @@ void TerrainSetupPanel (Session& s)
     if (chosen)
         SectionPanel (s, chosen);
     if (!doc.landscape->propertyLineSourceId) {
-        ImGui::TextWrapped ("Optional: a property line limits the design area.");
+        ImGui::TextWrapped ("Without a property line, the topography boundary limits the design area. "
+                            "Draw a property line to override it.");
         if (ImGui::Button ("Draw property line"))
             DrawTerrainPropertyLine (s);
     }

@@ -100,6 +100,7 @@ TEST (HudTerrainSetup, FreshLandscapeOffersCreationInsteadOfAnEmptySelectorAndDi
     const auto text = PanelText (session);
     EXPECT_NE (text.find ("Draw design path"), std::string::npos) << text;
     EXPECT_NE (text.find ("Draw property line"), std::string::npos) << text;
+    EXPECT_NE (text.find ("topography boundary"), std::string::npos) << text;
     EXPECT_EQ (text.find ("Choose a design path"), std::string::npos) << text;
     EXPECT_EQ (text.find ("Capture selected Mesh"), std::string::npos) << text;
     EXPECT_TRUE (session.edits.Doc ().paths.empty ());
