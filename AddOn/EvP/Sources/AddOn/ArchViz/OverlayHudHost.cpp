@@ -29,6 +29,11 @@ std::string LayerOf (const std::string& key)
     return key.substr (0, key.rfind ('#'));
 }
 
+bool UtilityPage (const std::string& key)
+{
+    return key == kStatsKey || key == kSelectionKey || key == kSettingsKey || key == kDebugKey;
+}
+
 // A layer's name as Settings says it: the add-on's own (`tapioca.storeySlices`) in words
 // ("Storey slices"), a caller's as the caller named it.
 std::string Readable (const std::string& name)
@@ -51,6 +56,17 @@ std::string Readable (const std::string& name)
 }
 
 } // namespace
+
+std::vector<hudshell::HostTab> WorkflowInfoTabs (std::vector<hudshell::HostTab> tabs, const std::string& workflow)
+{
+    // Stats and native selection/metadata behavior belong to the Archicad/massing
+    // workflow, not the virtual document. Keep display settings and diagnostics.
+    if (workflow == std::string (editlayers::kLayer) + "#0")
+        tabs.erase (std::remove_if (tabs.begin (), tabs.end (),
+                                    [] (const auto& tab) { return tab.key == kStatsKey || tab.key == kSelectionKey; }),
+                    tabs.end ());
+    return tabs;
+}
 
 bool ReadoutOnPage (const Hover& hover, const std::string& pageKey, const std::vector<std::string>& titledPanelKeys)
 {
@@ -108,6 +124,8 @@ void Engine::Impl::Gather (const std::vector<const layers::Panel*>& panels, cons
         host.selected = standalone        ? std::string (kStatsKey)
                         : titled.empty () ? std::string (kSettingsKey)
                                           : keys[titled.front ()];
+    if (!UtilityPage (host.selected))
+        host.workflow = host.selected;
     for (const size_t i : titled)
         if (keys[i] == host.selected) {
             shown = i;
@@ -274,6 +292,8 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, const 
     windows[windows.size () - 2] = window;
     if (!dock.selected.empty ()) {
         store->host.selected = dock.selected;
+        if (!UtilityPage (dock.selected))
+            store->host.workflow = dock.selected;
         if (dock.selected == std::string (editlayers::kLayer) + "#0")
             OpenVirtualEditorWorkflow (*store);
         const std::string title = TitleOf (dock.selected, panels, keys);
@@ -421,7 +441,14 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     spec.pageWidthPixels = showsPanel ? panels[shown]->pageWidthPixels : 0.0f;
     // Stats and Selection, the panels, Settings and Debug; without own pages the panels and
     // Settings.
-    spec.tabs = Tabs (panels, keys);
+    spec.tabs = WorkflowInfoTabs (Tabs (panels, keys), host.workflow);
+    if (navigation.workflow != host.workflow)
+        for (const auto& tab : spec.tabs)
+            if (tab.key == host.workflow) {
+                navigation.workflow = tab.key;
+                navigation.workflowTitle = tab.title;
+                break;
+            }
     const auto page = [&] (const std::string& k) {
         if (k == std::string (editlayers::kLayer) + "#0") {
             if (store->virtualEditor)
@@ -487,6 +514,8 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     hostScrolls = result.scrolls;
     if (!result.pressed.empty ()) {
         host.selected = result.pressed;
+        if (!UtilityPage (result.pressed))
+            host.workflow = result.pressed;
         if (result.pressed == std::string (editlayers::kLayer) + "#0")
             OpenVirtualEditorWorkflow (*store);
         const std::string title = TitleOf (result.pressed, panels, keys);

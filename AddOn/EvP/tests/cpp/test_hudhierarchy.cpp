@@ -215,6 +215,38 @@ TEST (HudHierarchy, VirtualEditorNeverShowsTheMassingDragTiles)
     layers::Clear ("virtual-editor");
 }
 
+TEST (HudHierarchy, VirtualEditorInfoOmitsNativeMassingPagesButKeepsWorkflowNavigation)
+{
+    const std::vector<shell::HostTab> registry = { { shell::kStatsKey, "Stats" },
+                                                   { shell::kSelectionKey, "Selection" },
+                                                   { geomsrv::archviz::hudmassing::kTabKey, "Massing" },
+                                                   { "virtual-editor#0", "Virtual editor" },
+                                                   { shell::kSettingsKey, "Settings" },
+                                                   { shell::kDebugKey, "Debug" } };
+    const auto tabs = hud::WorkflowInfoTabs (registry, "virtual-editor#0");
+    EXPECT_TRUE (shell::ResolveNavigation ("Stats", tabs).empty ());
+    EXPECT_TRUE (shell::ResolveNavigation ("Selection", tabs).empty ());
+    EXPECT_EQ (shell::ResolveNavigation ("Settings", tabs), shell::kSettingsKey);
+    EXPECT_EQ (shell::ResolveNavigation ("Debug", tabs), shell::kDebugKey);
+    EXPECT_EQ (shell::ResolveNavigation ("Massing", tabs), geomsrv::archviz::hudmassing::kTabKey);
+    EXPECT_EQ (shell::ResolveNavigation ("Stats", registry), shell::kStatsKey);
+    EXPECT_EQ (hud::WorkflowInfoTabs (registry, geomsrv::archviz::hudmassing::kTabKey).size (), registry.size ());
+
+    Watched view;
+    hud::OwnPages own;
+    own.standalone = true;
+    view.engine.SetOwnPages (own);
+    view.state->host.selected = "virtual-editor#0";
+    view.Lay ({}, At (0, 0));
+    EXPECT_EQ (view.state->host.workflow, "virtual-editor#0");
+    view.state->host.selected = shell::kSettingsKey;
+    view.Lay ({}, At (0, 0));
+    EXPECT_EQ (view.state->host.workflow, "virtual-editor#0");
+    view.state->host.selected = geomsrv::archviz::hudmassing::kTabKey;
+    view.Lay ({}, At (0, 0));
+    EXPECT_EQ (view.state->host.workflow, geomsrv::archviz::hudmassing::kTabKey);
+}
+
 TEST (HudHierarchy, MassingDragTilesFollowDockOrientationAndThickness)
 {
     for (const auto edge :

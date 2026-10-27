@@ -48,6 +48,9 @@ using hudshell::kSelectionKey;
 using hudshell::kSettingsKey;
 using hudshell::kStatsKey;
 
+// The dock retains every workflow; only the inspector's utility pages are scoped.
+std::vector<hudshell::HostTab> WorkflowInfoTabs (std::vector<hudshell::HostTab> tabs, const std::string& workflow);
+
 // The dock and the text size are every HUD's (HudShell.hpp).
 using hudshell::kDockFontPixels;
 using hudshell::kDockGap;
@@ -105,6 +108,7 @@ struct State {
         bool known = false; // set from the panels the first time there were any
         bool open = true;
         std::string selected;
+        std::string workflow; // Shared across surfaces; utility pages do not change the active workflow.
         hudshell::Placement placement;
         hudshell::DockPlacement dock;
     };
