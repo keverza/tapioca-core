@@ -137,7 +137,7 @@ TEST (HudTerrainSetup, DrawActionsUseTheExistingToolsAndCompletedPathBecomesTheC
     EXPECT_NE (session.edits.Doc ().landscape->propertyLineSourceId, 0U);
 }
 
-TEST (HudTerrainSetup, OnlyLiveAuthoredPathsAreListedAndInitialChoiceFollowsSelectionOrTheOnlyPath)
+TEST (HudTerrainSetup, LiveExistingPathsResolveWithoutDrawingAndExplicitChoiceIsPreserved)
 {
     auto doc = EmptyLandscape ();
     edit::AddPath (doc, { { 0, 30, 10 }, { 20, 30, 10 } }, 2); // Unbound, not a design source.
@@ -147,7 +147,11 @@ TEST (HudTerrainSetup, OnlyLiveAuthoredPathsAreListedAndInitialChoiceFollowsSele
     EXPECT_EQ (eh::ResolveTerrainDesignPath (sole), first);
     const auto second = AddDesignPath (doc, 10);
     eh::Session session (doc);
-    EXPECT_EQ (eh::ResolveTerrainDesignPath (session), 0U); // Ambiguous: never just pick the first item.
+    EXPECT_EQ (eh::ResolveTerrainDesignPath (session), first); // Existing networks need no throwaway new path.
+    EXPECT_NE (PanelText (session).find ("Edit design path"), std::string::npos);
+    EXPECT_TRUE (session.drawing.empty ());
+    EXPECT_EQ (session.edits.UndoDepth (), 0U);
+    session.terrainPath = 0; // A selection made before the initial resolution wins over the fallback.
     session.selection.Set ({ { second, edit::Part::Entity, 0 } });
     EXPECT_EQ (eh::ResolveTerrainDesignPath (session), second);
     EXPECT_EQ (session.edits.UndoDepth (), 0U);

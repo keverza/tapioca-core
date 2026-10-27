@@ -91,7 +91,10 @@ edit::Id ResolveTerrainDesignPath (Session& s)
             selected.insert (ref.entity);
     if (selected.size () == 1)
         s.terrainPath = *selected.begin ();
-    else if (paths.size () == 1)
+    // Outline terrain grades the whole network; this is its initial inspector/
+    // band owner, not permission to draw. Existing paths must be usable without
+    // manufacturing another one. Selection and explicit choices still win.
+    else if (!paths.empty ())
         s.terrainPath = paths.front ();
     return s.terrainPath;
 }
