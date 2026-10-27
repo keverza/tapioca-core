@@ -817,3 +817,42 @@ TEST (EditPathNetwork, OversizedKerbRequestsDoNotTruncateAnAdjacentOffsetArc)
         }
     }
 }
+
+TEST (EditPathNetwork, RoughSurfaceQualityNeverChangesThePavedBoundary)
+{
+    for (double radius : { 0.0, 3.0, 7.9 }) {
+        ed::Document doc;
+        const auto id = ed::AddPath (doc, { { -6, 12, 0 }, { 0, 2, 0 }, { 0, 0, 0 }, { 15, 3, 1 } }, 3.0);
+        std::string error;
+        ASSERT_TRUE (ed::EditPath (
+            doc, id,
+            [=] (ed::Path& path, std::string&) {
+                path.points[1].radius = radius; // A bend fitted against its short following leg.
+                return true;
+            },
+            error))
+            << error;
+        const auto resting = ed::Pave (doc.paths, 0.5, false);
+        ASSERT_TRUE (resting.warning.empty ()) << resting.warning;
+        ASSERT_FALSE (resting.rings.empty ());
+        for (double step : { 2.0, 4.0, 8.0 }) {
+            const auto rough = ed::Pave (doc.paths, step, false);
+            EXPECT_TRUE (rough.warning.empty ()) << rough.warning;
+            EXPECT_TRUE (rough.rings == resting.rings) << "radius " << radius << ", surface step " << step;
+        }
+        EXPECT_EQ (doc.paths[0].id, id);
+    }
+}
+
+TEST (EditPathNetwork, RoughPavingKeepsItsBoundaryButStillCoarsensTheInterior)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 12, 0, 0 }, { 12, 12, 1 } }, 3.0);
+    std::string error;
+    ASSERT_TRUE (ed::SetPathRadius (doc, id, doc.paths[0].points[1].id, 3.0, error));
+    const auto resting = ed::Pave (doc.paths, 0.5), rough = ed::Pave (doc.paths, 4.0);
+    ASSERT_FALSE (rough.triangles.empty ());
+    EXPECT_TRUE (rough.rings == resting.rings);
+    EXPECT_LT (rough.triangles.size (), resting.triangles.size ());
+    ExpectMeshFillsItsOutline (rough);
+}

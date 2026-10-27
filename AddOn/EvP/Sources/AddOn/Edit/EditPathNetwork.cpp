@@ -506,6 +506,10 @@ bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, Vec3 p, double
 PavedArea Pave (const std::vector<Path>& paths, double step, bool surface, PathOutlineCache* outlines)
 {
     PavedArea out;
+    // A gesture may coarsen the interior mesh, never the footprint it fills.
+    // Hover/range outlines use 0.5 m: keep the same boundary at every coarser
+    // surface quality, including the short-leg joins whose untangling needs it.
+    const double outlineStep = step > 0.0 ? std::min (step, 0.5) : 0.5;
     std::vector<Source> sources;
     cp::PathsD united;
     for (const auto& path : paths) {
@@ -515,12 +519,12 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface, PathO
         if (!ValidatePath (path, s.geometry, error))
             continue;
         if (outlines != nullptr) {
-            const PathOutline* cached = outlines->Get (path, step);
+            const PathOutline* cached = outlines->Get (path, outlineStep);
             if (cached == nullptr)
                 continue;
             s.outline = *cached;
         }
-        else if (!Outline (path, step, s.outline, error))
+        else if (!Outline (path, outlineStep, s.outline, error))
             continue;
         if (s.outline.left.size () < 2)
             continue;
