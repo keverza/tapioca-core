@@ -88,18 +88,16 @@ std::string NavigationHeader (const HostSpec& spec, const std::string& held, Nav
 std::string NavigationInput (const HostSpec& spec, NavigationState& state, bool& active)
 {
     std::string selected;
+    active = false;
+    if (!spec.textInput)
+        return selected;
     ImGui::Separator ();
     ImGui::SetNextItemWidth (-1);
-    ImGui::BeginDisabled (!spec.textInput);
-    const char* hint =
-        spec.textInput ? "show Settings / workflow <name>" : "Keyboard commands unavailable; use dock tab";
     const bool submit =
-        ImGui::InputTextWithHint ("##hudCommand", hint, state.input, sizeof state.input,
+        ImGui::InputTextWithHint ("##hudCommand", "show Settings / workflow <name>", state.input, sizeof state.input,
                                   ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_EscapeClearsAll);
     active = ImGui::IsItemActive ();
-    ImGui::EndDisabled ();
-    Tip (spec.textInput ? "Navigation commands only in this pass. Use the exact page name."
-                        : "Keyboard input is not available in this viewer; use the dock tab.");
+    Tip ("Navigate to a page using its name from the dock list.");
     if (submit) {
         selected = ResolveNavigation (state.input, spec.tabs);
         state.message = selected.empty () ? "No unique page matches. Use its exact name from the dock list." : "";

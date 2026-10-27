@@ -137,7 +137,8 @@ TEST (HudHierarchy, NativeVirtualEditorIsAvailableWithoutAPublishedPanel)
     EXPECT_TRUE (geomsrv::edit::Validate (session->edits.Doc (), error)) << error;
     ASSERT_TRUE (hud::OpenVirtualEditorWorkflow (*hud.state));
     EXPECT_EQ (hud::VirtualEditor (*hud.state), session);
-    Navigate (hud, {}, "Settings");
+    hud.state->host.selected = shell::kSettingsKey;
+    hud.Lay ({}, At (0, 0));
     EXPECT_TRUE (hud::VirtualEditorActive (*hud.state));
     hud::StopVirtualEditor (*hud.state, "test complete");
     Navigate (hud, {}, "virtual editor");
@@ -152,10 +153,74 @@ TEST (HudHierarchy, ViewerEditorKeepsAnalysisInNativeNavigation)
     own.standalone = true;
     own.viewerSurface = true;
     hud.engine.SetOwnPages (own);
-    Navigate (hud, {}, "Virtual editor");
+    hud.state->host.selected = "virtual-editor#0";
+    hud.Lay ({}, At (600, 600));
+    const auto before = hud.Lay ({}, At (600, 600));
     EXPECT_EQ (hud.engine.Selected (), "virtual-editor#0");
-    Navigate (hud, {}, "Analysis");
+    const float y = Top (before.dock) + before.dock.height * 0.5f;
+    const auto choices = hud.Click ({}, Left (before.dock) + before.dock.height * 2.5f, y);
+    ASSERT_TRUE (choices.popup);
+    float fill[4] = {};
+    ASSERT_TRUE (Box (choices.overlay, shell::PlainLook ().accentRgba, fill));
+    hud.Click ({}, fill[2] - 8, y); // Analysis is the last workflow, after Virtual editor.
     EXPECT_EQ (hud.engine.Selected (), "@viewer.analysis");
+}
+
+TEST (HudHierarchy, VirtualEditorNeverShowsTheMassingDragTiles)
+{
+    Watched hud;
+    hud::OwnPages own;
+    own.standalone = true;
+    hud.engine.SetOwnPages (own);
+    auto input = At (600, 600);
+    input.planar = true;
+    hud::SetEditLocked (*hud.state, true);
+    hud.state->host.selected = geomsrv::archviz::hudmassing::kTabKey;
+    const uint32_t tile =
+        geomsrv::archviz::floorprogramme::ColourForRooms (geomsrv::archviz::floorprogramme::Default (), 1);
+    EXPECT_TRUE (Drawn (hud.Lay ({}, input), tile));
+    hud.state->host.selected = "virtual-editor#0";
+    EXPECT_FALSE (Drawn (hud.Lay ({}, input), tile));
+    ASSERT_TRUE (hud::OpenVirtualEditorWorkflow (*hud.state));
+    EXPECT_FALSE (Drawn (hud.Lay ({}, input), tile));
+    hud.state->host.selected = shell::kSettingsKey;
+    EXPECT_FALSE (Drawn (hud.Lay ({}, input), tile)) << "an editor session must not borrow massing tools";
+    hud::StopVirtualEditor (*hud.state, "test complete");
+    layers::Clear ("virtual-editor");
+}
+
+TEST (HudHierarchy, MassingDragTilesFollowDockOrientationAndThickness)
+{
+    for (const auto edge :
+         { shell::DockEdge::Top, shell::DockEdge::Bottom, shell::DockEdge::Left, shell::DockEdge::Right }) {
+        Watched hud;
+        hud::OwnPages own;
+        own.standalone = true;
+        hud.engine.SetOwnPages (own);
+        hud.state->host.selected = geomsrv::archviz::hudmassing::kTabKey;
+        hud.state->host.dock.edge = edge;
+        hud::SetEditLocked (*hud.state, true);
+        auto input = At (600, 600);
+        input.planar = true;
+        hud.Lay ({}, input);
+        const auto out = hud.Lay ({}, input);
+        const auto programme = geomsrv::archviz::floorprogramme::Default ();
+        float first[4] = {}, last[4] = {};
+        ASSERT_TRUE (Box (out.overlay, geomsrv::archviz::floorprogramme::ColourForRooms (programme, 1), first));
+        ASSERT_TRUE (Box (out.overlay, geomsrv::archviz::floorprogramme::ColourForRooms (programme, 5), last));
+        const bool horizontal = edge == shell::DockEdge::Top || edge == shell::DockEdge::Bottom;
+        const float thickness = horizontal ? out.dock.height : out.dock.width;
+        EXPECT_NEAR (first[2] - first[0], thickness, 2);
+        EXPECT_NEAR (first[3] - first[1], thickness, 2);
+        if (horizontal) {
+            EXPECT_FLOAT_EQ (first[1], last[1]);
+            EXPECT_GT (last[0], first[2]);
+        }
+        else {
+            EXPECT_FLOAT_EQ (first[0], last[0]);
+            EXPECT_GT (last[1], first[3]);
+        }
+    }
 }
 
 TEST (HudHierarchy, WorkflowFlyoutUsesTheSideWithRoom)

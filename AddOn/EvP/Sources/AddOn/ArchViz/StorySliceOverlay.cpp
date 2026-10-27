@@ -68,6 +68,12 @@ void Say (const std::string& message)
 // refusal said when the store will not take it.
 bool Show (Built built)
 {
+    // Geometry publication only; OVERLAY-INVARIANTS.md camera/composition and
+    // state-restoration contracts are unchanged. A refused fill is not silent.
+    for (const auto& warning : built.fillWarnings) {
+        ArchVizLog ("STOREY SLICES  " + warning);
+        hudconsole::Warning ("Storey slices", warning);
+    }
     g_state.slices = built.slices;
     g_state.areaM2 = built.areaM2;
     if (built.slices == 0) {

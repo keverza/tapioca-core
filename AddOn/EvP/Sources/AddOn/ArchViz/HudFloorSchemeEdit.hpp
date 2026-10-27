@@ -81,11 +81,10 @@ void OnView (std::map<std::string, EditorPtr>& editors, buildingplan::Planner& p
              const std::map<std::string, buildingplan::Plan>& plans, std::map<std::string, buildingplan::Draft>& drafts,
              const floorprogramme::Programme& programme, const massingareas::Coefficients& coefficients,
              const ViewOnto& onto, bool hovered, float scale);
-// The flats of 1 to 5 rooms and a stair, one above the other, to drag onto the locked plan view (user,
-// 2026-10-14: "If overlay is locked below the mini panel show vertical column of the unit block to
-// add"), in the current window, each block `width` across (the dock's tab, user 2026-10-15: "thinner
-// width same as the blue tab"; 0: the Plan view's size). OnView takes the drop as the canvas does.
-void LockedPalette (const floorprogramme::Programme& programme, float scale, float width = 0);
+// The flats of 1 to 5 rooms and a stair to drag onto the locked plan view.
+// Square tiles use the dock's thickness (`side`; 0: the Plan view's size), in a
+// row for a horizontal dock and a column otherwise. OnView takes the drop.
+void LockedPalette (const floorprogramme::Programme& programme, float scale, float side = 0, bool horizontal = false);
 
 // True while a Plan view's flats are still flowing to a scheme just planned: the owner lays the HUD
 // out again until they settle.

@@ -105,8 +105,9 @@ std::string AreaText (double areaM2, uint32_t decimals, const std::string& name,
 
 struct Built {
     overlaylayers::Layer layer;
-    uint32_t slices = 0; // slices drawn
-    double areaM2 = 0.0; // their areas summed
+    uint32_t slices = 0;                   // slices drawn
+    double areaM2 = 0.0;                   // their areas summed
+    std::vector<std::string> fillWarnings; // refused fill keeps outlines/labels, never a guessed cover
 };
 
 // The layer for these slices under these controls; empty of primitives when no slice

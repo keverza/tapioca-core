@@ -257,7 +257,7 @@ struct HostSpec {
     ImVec2 dockMin, dockMax;
     DockEdge dockEdge = DockEdge::Right;
     bool dockHorizontal = false;
-    bool textInput = false;
+    bool textInput = false; // false: omit the navigation-command strip entirely
 };
 
 struct NavigationState {

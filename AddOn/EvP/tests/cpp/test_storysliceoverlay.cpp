@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 
 namespace so = geomsrv::archviz::storysliceoverlay;
 namespace ss = geomsrv::archviz::storeyslices;
@@ -257,4 +258,92 @@ TEST (StorySliceOverlay, EveryLabelOnASliceTakesOneSize)
     EXPECT_FLOAT_EQ (built.layer.texts[0].sizeMetres, built.layer.texts[1].sizeMetres);
     EXPECT_LE (built.layer.texts[0].sizeMetres, so::LabelSizeMetres (0.0, 50.0, 0.0, built.layer.texts[1].text) + 1e-9)
         << "no larger than the smaller slice's own";
+}
+
+TEST (StorySliceOverlay, IndexedFillKeepsHolesIslandsSharedVerticesAndStyle)
+{
+    so::Slice slice;
+    slice.chains = { Square (0, 0, 10, 10), Square (2, 2, 8, 8), Square (3, 3, 7, 7), Square (20, 0, 22, 2) };
+    slice.z = 3.125;
+    slice.areaM2 = 84;
+    slice.storey = 2;
+    slice.name = "Second";
+    so::Controls controls;
+    controls.label = false;
+    controls.liftMetres = 0.25;
+    controls.fillOpacity = 0.4f;
+    controls.fillBehind = layers::Behind::Show;
+    auto built = so::BuildLayer ({ slice }, controls);
+    ASSERT_EQ (built.layer.meshes.size (), 1u);
+    EXPECT_TRUE (built.fillWarnings.empty ());
+    const auto& mesh = built.layer.meshes.front ();
+    EXPECT_EQ (mesh.points.size () / 3, 16u);
+    EXPECT_LT (mesh.points.size () / 3, mesh.indices.size ());
+    EXPECT_EQ (mesh.rgba, controls.fillRgba);
+    EXPECT_TRUE (mesh.styled);
+    EXPECT_EQ (mesh.style.behind, controls.fillBehind);
+    EXPECT_FLOAT_EQ (mesh.style.opacity, controls.fillOpacity);
+    EXPECT_EQ (mesh.hoverTitle, "Second");
+    EXPECT_EQ (built.areaM2, 84);
+    EXPECT_EQ (built.layer.polylines.size (), slice.chains.size ());
+    EXPECT_EQ (layers::Validate (built.layer), "");
+    double area = 0;
+    for (size_t i = 0; i < mesh.indices.size (); i += 3) {
+        const size_t a = 3 * mesh.indices[i], b = 3 * mesh.indices[i + 1], c = 3 * mesh.indices[i + 2];
+        const double cross = (mesh.points[b] - mesh.points[a]) * (mesh.points[c + 1] - mesh.points[a + 1]) -
+                             (mesh.points[c] - mesh.points[a]) * (mesh.points[b + 1] - mesh.points[a + 1]);
+        EXPECT_GT (cross, 0);
+        area += cross / 2;
+    }
+    EXPECT_NEAR (area, 84, 1e-6);
+    for (size_t i = 2; i < mesh.points.size (); i += 3)
+        EXPECT_DOUBLE_EQ (mesh.points[i], 3.375);
+    const auto again = so::BuildLayer ({ slice }, controls);
+    EXPECT_EQ (mesh.points, again.layer.meshes[0].points);
+    EXPECT_EQ (mesh.indices, again.layer.meshes[0].indices);
+}
+
+TEST (StorySliceOverlay, SurveyFillPreservesSubFloatFeaturesAndDuplicateContoursCancel)
+{
+    so::Slice slice;
+    slice.chains = { Square (600000, 6500000, 600000.25, 6500000.125) };
+    slice.areaM2 = 0.03125;
+    so::Controls controls;
+    controls.label = false;
+    auto built = so::BuildLayer ({ slice }, controls);
+    ASSERT_EQ (built.layer.meshes.size (), 1u);
+    const auto& mesh = built.layer.meshes[0];
+    EXPECT_EQ (mesh.points.size (), 12u);
+    EXPECT_EQ (mesh.indices.size (), 6u);
+    bool top = false;
+    for (size_t i = 1; i < mesh.points.size (); i += 3)
+        top = top || mesh.points[i] == 6500000.125;
+    EXPECT_TRUE (top);
+    slice.chains.push_back (slice.chains.front ());
+    built = so::BuildLayer ({ slice }, controls);
+    EXPECT_TRUE (built.layer.meshes.empty ());
+    EXPECT_TRUE (built.fillWarnings.empty ());
+    EXPECT_EQ (built.layer.polylines.size (), 2u);
+}
+
+TEST (StorySliceOverlay, RefusedFillReportsTheStoreyAndKeepsOtherSlicesAndOutlines)
+{
+    so::Slice bad;
+    bad.chains = { Square (0, 0, 1, 1) };
+    bad.chains[0].xy.push_back (1); // malformed XY pair
+    bad.storey = 9;
+    so::Slice good;
+    good.chains = { Square (3, 0, 4, 1) };
+    so::Controls controls;
+    controls.label = false;
+    auto built = so::BuildLayer ({ bad, good }, controls);
+    ASSERT_EQ (built.fillWarnings.size (), 1u);
+    EXPECT_NE (built.fillWarnings[0].find ("Storey 9: outlines only:"), std::string::npos);
+    EXPECT_NE (built.fillWarnings[0].find ("complete XY pairs"), std::string::npos);
+    EXPECT_EQ (built.layer.meshes.size (), 1u);
+    EXPECT_EQ (built.layer.polylines.size (), 2u);
+    EXPECT_EQ (built.slices, 2u);
+    controls.fillOpacity = 0;
+    built = so::BuildLayer ({ bad }, controls);
+    EXPECT_TRUE (built.fillWarnings.empty ()) << "disabled fill is not triangulated";
 }

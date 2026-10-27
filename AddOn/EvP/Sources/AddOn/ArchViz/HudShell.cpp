@@ -525,10 +525,10 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
         const bool available =
             std::any_of (spec.tabs.begin (), spec.tabs.end (), [&] (const auto& tab) { return tab.key == held; });
         if (available && page)
-            result.scrolls = ScrollingPage (
-                held, page, tallest,
-                (std::max) (footerLast, (commandAbove ? 0.0f : 3.0f) * ImGui::GetFrameHeightWithSpacing ()), true,
-                width - 2 * style.WindowPadding.x);
+            result.scrolls = ScrollingPage (held, page, tallest,
+                                            (std::max) (footerLast, (commandAbove || !spec.textInput ? 0.0f : 3.0f) *
+                                                                        ImGui::GetFrameHeightWithSpacing ()),
+                                            true, width - 2 * style.WindowPadding.x);
         else
             ImGui::TextWrapped ("This workflow is no longer available. Choose a workflow to continue.");
     }

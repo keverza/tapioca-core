@@ -135,25 +135,29 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
     // Behind every panel, whenever it was made.
     ImGui::BringWindowToDisplayBack (ImGui::GetCurrentWindow ());
     ImGui::End ();
-    // The blocks to add, one above the other under the dock, to drag onto the plan (user,
-    // 2026-10-14: "If overlay is locked below the mini panel show vertical column of the unit block
-    // to add").
-    // The column is the dock's tab's width, flush under it, and has no panel behind its blocks
-    // (user, 2026-10-15: "thinner width same as the blue tab. and no black background").
-    if (!store->roofEditor && input.planar && dockMax.y > dockMin.y && dockMax.x > dockMin.x) {
-        const float width = dockMax.x - dockMin.x;
-        ImGui::SetNextWindowPos (ImVec2 (dockMin.x, dockMax.y + kDockGap * ui));
+    // Massing's drag tiles follow the rail, not its label length. Neither editor
+    // owns these tools, including the virtual-editor page before a session opens.
+    if (!store->roofEditor && !store->virtualEditor &&
+        store->host.selected != std::string (editlayers::kLayer) + "#0" && input.planar && dockMax.y > dockMin.y &&
+        dockMax.x > dockMin.x) {
+        const bool horizontal = store->host.dock.horizontal;
+        const float side = horizontal ? dockMax.y - dockMin.y : dockMax.x - dockMin.x;
+        const float along = 6 * side + 5 * 4 * ui;
+        const auto palette = hudshell::WorkflowFlyoutAtDock (view, dockMin, dockMax,
+                                                             horizontal ? ImVec2 (along, side) : ImVec2 (side, along));
+        ImGui::SetNextWindowPos (palette.position);
         const ImGuiWindowFlags column = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
                                         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize |
                                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
                                         ImGuiWindowFlags_NoNav;
         ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0.0f, 0.0f));
         ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowMinSize, ImVec2 (0, 0));
         const bool open = ImGui::Begin ("###tapioca.lockedPalette", nullptr, column);
-        ImGui::PopStyleVar (2); // the window's own; its tooltips keep the look's padding
+        ImGui::PopStyleVar (3); // the window's own; its tooltips keep the look's padding
         if (open) {
             ImGui::PushStyleVar (ImGuiStyleVar_ItemSpacing, ImVec2 (0.0f, 0.0f));
-            hudfloorscheme::LockedPalette (store->massingProgramme, ui, width);
+            hudfloorscheme::LockedPalette (store->massingProgramme, ui, side, horizontal);
             ImGui::PopStyleVar ();
         }
         ImGui::End ();

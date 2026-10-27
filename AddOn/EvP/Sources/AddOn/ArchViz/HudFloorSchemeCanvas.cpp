@@ -310,9 +310,9 @@ double PartyDistance (const Editor& e)
 // The palette above the plan: flats of 1 to 5 rooms and a stair, each a square to drag onto it.
 } // namespace geomsrv::archviz::hudfloorscheme::detail
 namespace geomsrv::archviz::hudfloorscheme {
-void LockedPalette (const floorprogramme::Programme& programme, float scale, float width)
+void LockedPalette (const floorprogramme::Programme& programme, float scale, float side, bool horizontal)
 {
-    detail::Palette (programme, scale, true, width);
+    detail::Palette (programme, scale, !horizontal, side);
 }
 } // namespace geomsrv::archviz::hudfloorscheme
 namespace geomsrv::archviz::hudfloorscheme::detail {

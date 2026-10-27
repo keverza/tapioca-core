@@ -257,14 +257,14 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
                                           heights.empty () ? slice.z : heights.back ());
 
         if ((fill & 0xFFu) != 0 && controls.fillOpacity > 0.0f) {
-            std::vector<StorySliceFillVertex> triangles;
-            BuildSliceFill (slice.chains, float (z), triangles);
-            if (triangles.size () >= 3) {
+            StorySliceFillMesh indexed;
+            std::string error;
+            if (!BuildIndexedSliceFill (slice.chains, z, indexed, error))
+                out.fillWarnings.push_back ("Storey " + std::to_string (slice.storey) + ": outlines only: " + error);
+            else if (!indexed.indices.empty ()) {
                 layers::Mesh mesh;
-                for (const StorySliceFillVertex& v : triangles) {
-                    mesh.indices.push_back (uint32_t (mesh.points.size () / 3));
-                    mesh.points.insert (mesh.points.end (), { double (v.x), double (v.y), z });
-                }
+                mesh.points = std::move (indexed.points);
+                mesh.indices = std::move (indexed.indices);
                 mesh.rgba = fill;
                 mesh.styled = true;
                 mesh.style.opacity = controls.fillOpacity;

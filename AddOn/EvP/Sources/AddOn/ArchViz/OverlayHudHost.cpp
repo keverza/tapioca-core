@@ -415,7 +415,7 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     spec.dockMax = dockMax;
     spec.dockEdge = store->host.dock.edge;
     spec.dockHorizontal = store->host.dock.horizontal;
-    spec.textInput = true;
+    spec.textInput = !own.viewerSurface && host.selected != std::string (editlayers::kLayer) + "#0";
     spec.pageWidthPixels = showsPanel ? panels[shown]->pageWidthPixels : 0.0f;
     // Stats and Selection, the panels, Settings and Debug; without own pages the panels and
     // Settings.

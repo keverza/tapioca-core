@@ -127,7 +127,8 @@ struct StorySliceFillMesh {
 
 // Replaces out atomically on success, including a valid empty even-odd domain.
 // Open/short chains bound nothing. Closed chains must contain complete finite
-// XY pairs within +/-1e9 metres; normalization uses a local 1e-6 metre grid.
+// XY pairs within +/-1e9 metres; normalization uses local ClipperD precision 6
+// (a 2^-20 metre grid in the pinned dependency), not exact world coordinates.
 // Approximate covers and generated triangulator crossings refuse with a reason.
 bool BuildIndexedSliceFill (const std::vector<SliceChain>& chains, double z, StorySliceFillMesh& out,
                             std::string& error);

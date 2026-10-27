@@ -75,6 +75,37 @@ TEST (HudContextMenu, AControlsClaimSurvivesHeldFramesAndReleaseButNotTheNextCli
     ImGui::SetCurrentContext (previous);
 }
 
+TEST (HudNavigation, HostsWithoutTextInputDoNotDrawACommandOrItsStaleError)
+{
+    auto* previous = ImGui::GetCurrentContext ();
+    auto* context = ImGui::CreateContext ();
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.DisplaySize = { 800, 600 };
+    io.DeltaTime = 1.0f / 60;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    ImGui::NewFrame ();
+    ImGui::Begin ("navigation");
+    ImGui::TextUnformatted ("Workflow header");
+    const auto last = GImGui->LastItemData.ID;
+    const auto before = ImGui::GetCursorPos ();
+    shell::HostSpec spec;
+    shell::NavigationState nav;
+    nav.message = "A previous navigation error";
+    bool active = true;
+    EXPECT_TRUE (shell::NavigationInput (spec, nav, active).empty ());
+    EXPECT_FALSE (active);
+    EXPECT_EQ (GImGui->LastItemData.ID, last);
+    EXPECT_FLOAT_EQ (ImGui::GetCursorPosX (), before.x);
+    EXPECT_FLOAT_EQ (ImGui::GetCursorPosY (), before.y);
+    ImGui::End ();
+    ImGui::Render ();
+    ImGui::DestroyContext (context);
+    ImGui::SetCurrentContext (previous);
+}
+
 // ⚠️ THE USER: the vertical tab's hover text on a light background, as a tooltip to the left
 // side, not where the pointer is.
 TEST (HudTips, TheDocksCircleSaysItsTipToItsLeftOnALightGround)

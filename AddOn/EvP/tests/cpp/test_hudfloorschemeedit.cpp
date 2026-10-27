@@ -1046,6 +1046,25 @@ TEST (HudFloorSchemeEdit, TheLockedPalettesBlocksAreTheWidthTheyAreGiven)
     EXPECT_GE (size.y, 6 * 26) << "six blocks, one above the other";
 }
 
+TEST (HudFloorSchemeEdit, HorizontalLockedPaletteUsesCompactSquaresInOneRow)
+{
+    OnViewFrame frame;
+    ImVec2 size {};
+    frame ({ 10, 10 }, false, false, [&] (bool) {
+        ImGui::SetNextWindowPos ({ 100, 100 });
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0, 0));
+        ImGui::Begin ("##row", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::PopStyleVar ();
+        const ImVec2 at = ImGui::GetCursorScreenPos ();
+        hf::LockedPalette (fp::Default (), 1, 26, true);
+        const ImVec2 end = ImGui::GetItemRectMax ();
+        size = { end.x - at.x, end.y - at.y };
+        ImGui::End ();
+    });
+    EXPECT_FLOAT_EQ (size.y, 26);
+    EXPECT_FLOAT_EQ (size.x, 6 * 26 + 5 * 4);
+}
+
 // User, 2026-10-14: "Some animation would be when a drag dropping unit like how they shift and reflow
 // like amebae, bubbles or voronoi." A floor planned again flows: each flat from the outline it
 // overlaps most, a new flat growing from its middle, a flat gone shrinking away; settled after
