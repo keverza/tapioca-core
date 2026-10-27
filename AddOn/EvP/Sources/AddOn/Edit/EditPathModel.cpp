@@ -169,7 +169,12 @@ bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& e
         if (element.kind != ElementKind::Arc)
             continue;
         const double angle = 4.0 * std::asin (std::sqrt (std::min (0.5, 0.001 / (2.0 * (element.radius + width)))));
-        const auto pieces = static_cast<size_t> (std::ceil (std::abs (element.sweep) / angle));
+        const double count = std::ceil (std::abs (element.sweep) / angle);
+        if (!(count <= 4096.0) || double (stations.size ()) + count > 250000.0) {
+            error = "path offset arcs exceed the tessellation work limit";
+            return false;
+        }
+        const auto pieces = static_cast<size_t> (count);
         for (size_t i = 1; i < pieces; ++i)
             stations.push_back (element.start + element.length * double (i) / double (pieces));
     }

@@ -142,6 +142,20 @@ TEST (EditPath, CoarseSurfaceStepKeepsArcOffsetsWithinOneMillimetre)
     }
 }
 
+TEST (EditPath, OffsetArcRefusesExcessiveSamplingBeforeAllocatingOrConvertingTheCount)
+{
+    Footpath f;
+    for (double width : { 1e9, 1e300 }) {
+        auto path = f.P ();
+        path.sections[0].widthLeft = width;
+        ed::PathOutline outline;
+        std::string error;
+        EXPECT_FALSE (ed::Outline (path, 8.0, outline, error));
+        EXPECT_NE (error.find ("work limit"), std::string::npos);
+        EXPECT_TRUE (outline.stations.empty ());
+    }
+}
+
 TEST (EditPath, MovingAPointRestationsAnchorsButNeverHeights)
 {
     Footpath f;
