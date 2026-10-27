@@ -14,13 +14,19 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <algorithm>
+#include <limits>
+#include <map>
+#include <string>
 #include <vector>
 
 using geomsrv::Polyline;
+using geomsrv::archviz::BuildIndexedSliceFill;
 using geomsrv::archviz::BuildSliceFill;
 using geomsrv::archviz::BuildSliceRibbon;
 using geomsrv::archviz::ChainUnionSegments;
 using geomsrv::archviz::SliceChain;
+using geomsrv::archviz::StorySliceFillMesh;
 using geomsrv::archviz::StorySliceFillVertex;
 using geomsrv::archviz::StorySliceVertex;
 using geomsrv::archviz::UnionArea;
@@ -285,4 +291,204 @@ TEST (StorySliceGeometry, EmptyChainsFillNothing)
     std::vector<StorySliceFillVertex> tris;
     EXPECT_EQ (BuildSliceFill ({}, 0.0f, tris), 0u);
     EXPECT_DOUBLE_EQ (UnionArea ({}), 0.0);
+}
+
+namespace {
+SliceChain Ring (std::initializer_list<double> xy)
+{
+    return { xy, true };
+}
+
+double IndexedArea (const StorySliceFillMesh& mesh)
+{
+    double area = 0;
+    for (size_t i = 0; i < mesh.indices.size (); i += 3) {
+        const size_t a = 3 * mesh.indices[i], b = 3 * mesh.indices[i + 1], c = 3 * mesh.indices[i + 2];
+        const double cross = (mesh.points[b] - mesh.points[a]) * (mesh.points[c + 1] - mesh.points[a + 1]) -
+                             (mesh.points[c] - mesh.points[a]) * (mesh.points[b + 1] - mesh.points[a + 1]);
+        EXPECT_GT (cross, 0);
+        area += cross / 2;
+    }
+    return area;
+}
+
+bool EvenOddAt (const std::vector<SliceChain>& chains, double x, double y)
+{
+    bool inside = false;
+    for (const auto& chain : chains) {
+        if (!chain.closed)
+            continue;
+        for (size_t i = 0, j = chain.Count () - 1; i < chain.Count (); j = i++) {
+            const double ax = chain.xy[2 * i], ay = chain.xy[2 * i + 1], bx = chain.xy[2 * j], by = chain.xy[2 * j + 1];
+            if ((ay > y) != (by > y) && x < ax + (y - ay) * (bx - ax) / (by - ay))
+                inside = !inside;
+        }
+    }
+    return inside;
+}
+} // namespace
+
+TEST (IndexedSliceFill, CorpusPreservesEvenOddAreaContainmentAndDeterminism)
+{
+    const auto outer = Ring ({ 0, 0, 10, 0, 10, 10, 0, 10 });
+    const auto hole = Ring ({ 2, 2, 8, 2, 8, 8, 2, 8 });
+    struct Fixture {
+        const char* name;
+        std::vector<SliceChain> chains;
+        double area;
+    };
+    const std::vector<Fixture> fixtures {
+        { "L", { Ring ({ 0, 0, 4, 0, 4, 1, 1, 1, 1, 4, 0, 4 }) }, 7 },
+        { "U", { Ring ({ 0, 0, 4, 0, 4, 4, 3, 4, 3, 1, 1, 1, 1, 4, 0, 4 }) }, 10 },
+        { "notched", { Ring ({ 0, 0, 6, 0, 6, 5, 5, 4, 5, 2, 3, 2, 3, 4, 1, 5, 0, 4 }) }, 22 },
+        { "nested", { outer, hole, Ring ({ 3, 3, 7, 3, 7, 7, 3, 7 }), Ring ({ 4, 4, 6, 4, 6, 6, 4, 6 }) }, 76 },
+        { "duplicate", { outer, outer }, 0 },
+        { "touching", { Ring ({ 0, 0, 2, 0, 2, 2, 0, 2, 0, 0, -2, 0, -2, -2, 0, -2 }) }, 8 },
+        { "disjoint", { outer, Ring ({ 20, 1, 22, 1, 22, 3, 20, 3 }), hole }, 68 },
+        { "overlapXor", { outer, Ring ({ 5, 0, 15, 0, 15, 10, 5, 10 }) }, 100 },
+        { "doubleWalk", { Ring ({ 0, 0, 2, 0, 2, 2, 0, 2, 0, 0, 2, 0, 2, 2, 0, 2 }) }, 0 }
+    };
+    for (const auto& fixture : fixtures) {
+        SCOPED_TRACE (fixture.name);
+        StorySliceFillMesh mesh, again;
+        std::string error = "stale";
+        ASSERT_TRUE (BuildIndexedSliceFill (fixture.chains, 7.5, mesh, error)) << error;
+        EXPECT_TRUE (error.empty ());
+        ASSERT_EQ (mesh.indices.size () % 3, 0u);
+        for (auto index : mesh.indices)
+            ASSERT_LT (index, mesh.points.size () / 3);
+        EXPECT_NEAR (IndexedArea (mesh), fixture.area, 1e-6);
+        EXPECT_NEAR (IndexedArea (mesh), FillArea (fixture.chains), 1e-4);
+        ASSERT_TRUE (BuildIndexedSliceFill (fixture.chains, 7.5, again, error)) << error;
+        EXPECT_EQ (mesh.points, again.points);
+        EXPECT_EQ (mesh.indices, again.indices);
+        for (size_t i = 2; i < mesh.points.size (); i += 3)
+            EXPECT_DOUBLE_EQ (mesh.points[i], 7.5);
+        for (size_t i = 0; i < mesh.indices.size (); i += 3) {
+            for (size_t corner = 0; corner < 3; ++corner) {
+                double x = 0, y = 0;
+                for (size_t k = 0; k < 3; ++k) {
+                    const size_t at = mesh.indices[i + k] * 3;
+                    const double weight = corner == k ? 0.6 : 0.2;
+                    x += weight * mesh.points[at];
+                    y += weight * mesh.points[at + 1];
+                }
+                EXPECT_TRUE (EvenOddAt (fixture.chains, x, y));
+            }
+        }
+        std::vector<StorySliceFillVertex> legacy;
+        BuildSliceFill (fixture.chains, 0, legacy);
+        RecordProperty (std::string (fixture.name) + "_legacyVertices", int (legacy.size ()));
+        RecordProperty (std::string (fixture.name) + "_indexedVertices", int (mesh.points.size () / 3));
+        RecordProperty (std::string (fixture.name) + "_indexedTriangles", int (mesh.indices.size () / 3));
+    }
+}
+
+TEST (IndexedSliceFill, ConcaveSharedEdgesHaveNoBandTJunctions)
+{
+    const auto chain = Ring ({ 0, 0, 6, 0, 6, 5, 5, 4, 5, 2, 3, 2, 3, 4, 1, 5, 0, 4 });
+    StorySliceFillMesh mesh;
+    std::string error;
+    ASSERT_TRUE (BuildIndexedSliceFill ({ chain }, 0, mesh, error)) << error;
+    std::map<std::pair<uint32_t, uint32_t>, int> edges;
+    for (size_t i = 0; i < mesh.indices.size (); i += 3)
+        for (size_t k = 0; k < 3; ++k) {
+            auto a = mesh.indices[i + k], b = mesh.indices[i + (k + 1) % 3];
+            ++edges[std::minmax (a, b)];
+        }
+    size_t boundary = 0, shared = 0;
+    for (const auto& [edge, uses] : edges) {
+        EXPECT_TRUE (uses == 1 || uses == 2);
+        boundary += uses == 1;
+        shared += uses == 2;
+        const size_t a = 3 * edge.first, b = 3 * edge.second;
+        const double dx = mesh.points[b] - mesh.points[a], dy = mesh.points[b + 1] - mesh.points[a + 1];
+        for (size_t p = 0; p < mesh.points.size (); p += 3) {
+            const double px = mesh.points[p] - mesh.points[a], py = mesh.points[p + 1] - mesh.points[a + 1];
+            const double dot = px * dx + py * dy;
+            EXPECT_FALSE (std::abs (px * dy - py * dx) < 1e-10 && dot > 1e-10 && dot < dx * dx + dy * dy - 1e-10);
+        }
+    }
+    EXPECT_EQ (boundary, chain.Count ());
+    EXPECT_EQ (shared, chain.Count () - 3);
+    EXPECT_EQ (mesh.points.size () / 3, chain.Count ());
+    std::vector<StorySliceFillVertex> legacy;
+    BuildSliceFill ({ chain }, 0, legacy);
+    EXPECT_LT (mesh.indices.size (), legacy.size ());
+}
+
+TEST (IndexedSliceFill, BothWindingsClosureAndSurveyCoordinatesPreserveSmallDetails)
+{
+    for (bool reverse : { false, true }) {
+        auto chain = Ring ({ 0, 0, 0.25, 0, 1, 0, 1, 0.125, 0.25, 0.125, 0.25, 1, 0, 1, 0, 0 });
+        std::vector<std::pair<double, double>> points;
+        for (size_t i = 0; i < chain.Count (); ++i)
+            points.emplace_back (chain.xy[2 * i] + 600000, chain.xy[2 * i + 1] + 6500000);
+        if (reverse)
+            std::reverse (points.begin (), points.end ());
+        chain.xy.clear ();
+        for (auto [x, y] : points)
+            chain.xy.insert (chain.xy.end (), { x, y });
+        StorySliceFillMesh mesh;
+        std::string error;
+        ASSERT_TRUE (BuildIndexedSliceFill ({ chain }, 123.456789, mesh, error)) << error;
+        EXPECT_NEAR (IndexedArea (mesh), 0.34375, 1e-9);
+        RecordProperty ("legacySurveyArea", std::to_string (UnionArea ({ chain })));
+        RecordProperty ("indexedSurveyArea", std::to_string (IndexedArea (mesh)));
+        for (size_t i = 2; i < mesh.points.size (); i += 3)
+            EXPECT_DOUBLE_EQ (mesh.points[i], 123.456789);
+    }
+}
+
+TEST (IndexedSliceFill, InvalidInputsRefuseAtomicallyAndEmptyDomainsReplace)
+{
+    const auto square = Ring ({ 0, 0, 1, 0, 1, 1, 0, 1 });
+    const double nan = std::numeric_limits<double>::quiet_NaN ();
+    for (auto chain : { Ring ({ 0, 0, 1, 0, 1 }), Ring ({ 0, 0, 1, 0, nan, 1 }), Ring ({ 0, 0, 1e10, 0, 0, 1 }) }) {
+        StorySliceFillMesh mesh { { 1, 2, 3 }, { 0 } };
+        std::string error;
+        ASSERT_FALSE (BuildIndexedSliceFill ({ square, chain }, 0, mesh, error));
+        EXPECT_FALSE (error.empty ());
+        EXPECT_EQ (mesh.points, (std::vector<double> { 1, 2, 3 }));
+        EXPECT_EQ (mesh.indices, (std::vector<uint32_t> { 0 }));
+    }
+    StorySliceFillMesh mesh { { 1, 2, 3 }, { 0 } };
+    std::string error;
+    EXPECT_FALSE (BuildIndexedSliceFill ({ square }, nan, mesh, error));
+    EXPECT_EQ (mesh.points, (std::vector<double> { 1, 2, 3 }));
+    auto open = square;
+    open.closed = false;
+    for (const auto& chains :
+         std::vector<std::vector<SliceChain>> { {}, { open }, { Ring ({ 0, 0, 1, 1 }) }, { square, square } }) {
+        ASSERT_TRUE (BuildIndexedSliceFill (chains, 0, mesh, error)) << error;
+        EXPECT_TRUE (mesh.points.empty ());
+        EXPECT_TRUE (mesh.indices.empty ());
+        EXPECT_TRUE (error.empty ());
+    }
+}
+
+TEST (IndexedSliceFill, CrossingChainsAreNormalizedBeforeNonZeroTriangulation)
+{
+    const auto bow = Ring ({ 0, 0, 4, 4, 0, 4, 4, 0 });
+    StorySliceFillMesh mesh;
+    std::string error;
+    ASSERT_TRUE (BuildIndexedSliceFill ({ bow }, 0, mesh, error)) << error;
+    EXPECT_NEAR (IndexedArea (mesh), 8, 1e-6);
+    bool crossing = false;
+    for (size_t i = 0; i < mesh.points.size (); i += 3)
+        crossing = crossing || (mesh.points[i] == 2 && mesh.points[i + 1] == 2);
+    EXPECT_TRUE (crossing) << "normalization owns generated intersection vertices";
+}
+
+TEST (IndexedSliceFill, ManyHolesRetainTheConstrainedAreaCheckedCover)
+{
+    std::vector<SliceChain> chains { Ring ({ 0, 0, 40, 0, 40, 40, 0, 40 }) };
+    for (int i = 0; i < 128; ++i) {
+        const double x = 1 + (i % 16) * 2, y = 1 + (i / 16) * 2;
+        chains.push_back (Ring ({ x, y, x + 1, y, x + 1, y + 1, x, y + 1 }));
+    }
+    StorySliceFillMesh mesh;
+    std::string error;
+    ASSERT_TRUE (BuildIndexedSliceFill (chains, 0, mesh, error)) << error;
+    EXPECT_NEAR (IndexedArea (mesh), 1472, 1e-6);
 }

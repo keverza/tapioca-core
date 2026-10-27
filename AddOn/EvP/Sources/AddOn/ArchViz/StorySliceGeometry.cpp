@@ -1,8 +1,12 @@
 #include "ArchViz/StorySliceGeometry.hpp"
+#include "Geometry/PlanarTriangulation.hpp"
+
+#include <clipper2/clipper.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <unordered_map>
 #include <utility>
 
@@ -290,6 +294,106 @@ size_t BuildSliceFill (const std::vector<SliceChain>& chains, float z, std::vect
         }
     }
     return out.size () - before;
+}
+
+bool BuildIndexedSliceFill (const std::vector<SliceChain>& chains, double z, StorySliceFillMesh& out,
+                            std::string& error)
+{
+    namespace cp = Clipper2Lib;
+    if (!std::isfinite (z)) {
+        error = "slice fill elevation must be finite";
+        return false;
+    }
+    cp::PathsD paths;
+    double originX = 0, originY = 0;
+    for (const auto& chain : chains) {
+        if (!chain.closed)
+            continue;
+        if (chain.xy.size () % 2 != 0) {
+            error = "slice fill requires complete XY pairs";
+            return false;
+        }
+        for (double value : chain.xy) {
+            if (!std::isfinite (value) || std::abs (value) > 1e9) {
+                error = "slice fill coordinates must be finite and within +/-1e9 metres";
+                return false;
+            }
+        }
+        if (chain.Count () < 3)
+            continue;
+        if (paths.empty ()) {
+            originX = chain.xy[0];
+            originY = chain.xy[1];
+        }
+        cp::PathD path;
+        path.reserve (chain.Count ());
+        for (size_t i = 0; i < chain.Count (); ++i)
+            path.emplace_back (chain.xy[2 * i] - originX, chain.xy[2 * i + 1] - originY);
+        paths.push_back (std::move (path));
+    }
+
+    cp::ClipperD clipper (6);
+    cp::PolyTreeD tree;
+    clipper.AddSubject (paths);
+    if (!clipper.Execute (cp::ClipType::Union, cp::FillRule::EvenOdd, tree)) {
+        error = "slice fill even-odd normalization refused";
+        return false;
+    }
+    StorySliceFillMesh result;
+    // Each non-hole owns only its immediate hole children. Grandchildren are
+    // separate filled islands, never extra holes passed to the triangulator.
+    const auto collect = [&] (const auto& self, const cp::PolyPathD& node) -> bool {
+        if (!node.Polygon ().empty () && !node.IsHole ()) {
+            std::vector<std::vector<double>> coordinates;
+            const auto append = [&] (const cp::PathD& path) {
+                std::vector<double> xy;
+                xy.reserve (path.size () * 2);
+                for (const auto& point : path)
+                    xy.insert (xy.end (), { point.x, point.y });
+                coordinates.push_back (std::move (xy));
+            };
+            append (node.Polygon ());
+            for (const auto& child : node)
+                if (child->IsHole ())
+                    append (child->Polygon ());
+            std::vector<engine::PlanarRing> rings;
+            size_t count = 0;
+            for (const auto& xy : coordinates) {
+                rings.push_back ({ xy.data (), xy.size () / 2 });
+                count += xy.size () / 2;
+            }
+            engine::PlanarTriangulation cover;
+            if (!engine::TriangulatePlanar (rings, false, cover, error))
+                return false;
+            // Many valid holes take the constrained route; the adapter checks
+            // their declared area. A repaired single outer has no such gate.
+            if ((cover.cover != engine::PlanarCover::Exact &&
+                 !(cover.cover == engine::PlanarCover::Repaired && rings.size () > 1)) ||
+                !cover.generatedXY.empty ()) {
+                error = "slice fill requires an exact normalized cover without generated crossings";
+                return false;
+            }
+            const size_t base = result.points.size () / 3;
+            if (count > (std::numeric_limits<uint32_t>::max) () - base) {
+                error = "slice fill exceeds the shared vertex index range";
+                return false;
+            }
+            for (const auto& xy : coordinates)
+                for (size_t i = 0; i < xy.size (); i += 2)
+                    result.points.insert (result.points.end (), { xy[i] + originX, xy[i + 1] + originY, z });
+            for (uint32_t index : cover.triangles)
+                result.indices.push_back (static_cast<uint32_t> (base + index));
+        }
+        for (const auto& child : node)
+            if (!self (self, *child))
+                return false;
+        return true;
+    };
+    if (!collect (collect, tree))
+        return false;
+    out = std::move (result);
+    error.clear ();
+    return true;
 }
 
 double UnionArea (const std::vector<SliceChain>& chains)

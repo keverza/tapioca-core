@@ -30,6 +30,8 @@
 #include "ArchViz/StorySliceUnion.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <string>
 #include <vector>
 
 namespace geomsrv {
@@ -112,6 +114,23 @@ size_t BuildSliceRibbon (const std::vector<SliceChain>& chains, float z, std::ve
 // Appends; returns how many vertices were appended. Open chains are ignored —
 // they cannot bound a region.
 size_t BuildSliceFill (const std::vector<SliceChain>& chains, float z, std::vector<StorySliceFillVertex>& out);
+
+// Indexed alternative; the scanline path above remains available to measured
+// callers. Clipper2 resolves even-odd regions first, including nested islands,
+// duplicate contours and intersections. Indices address shared normalized ring
+// vertices, NOT original chain identities (normalization can generate corners).
+// Double world XYZ avoids the legacy float conversion at survey coordinates.
+struct StorySliceFillMesh {
+    std::vector<double> points;
+    std::vector<uint32_t> indices;
+};
+
+// Replaces out atomically on success, including a valid empty even-odd domain.
+// Open/short chains bound nothing. Closed chains must contain complete finite
+// XY pairs within +/-1e9 metres; normalization uses a local 1e-6 metre grid.
+// Approximate covers and generated triangulator crossings refuse with a reason.
+bool BuildIndexedSliceFill (const std::vector<SliceChain>& chains, double z, StorySliceFillMesh& out,
+                            std::string& error);
 
 // The signed area enclosed by the closed chains under even-odd, in square
 // metres. Exposed because it is the honest way to TEST the fill — a triangle
