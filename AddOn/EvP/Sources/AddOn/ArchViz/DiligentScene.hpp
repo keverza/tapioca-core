@@ -415,6 +415,8 @@ class DiligentScene final {
     void SetSunStudyView (const SunStudyViewSettings& view);
     // The study the tint is drawing, or empty. RENDER THREAD.
     std::string ShownSunStudyId () const;
+    // Its SunStudyAtlasUpload::analysisKind: 0 the sun study, 1 visibility.
+    uint32_t ShownAnalysisKind () const;
 
     // How well surfaces are lit. ⚠️ A SEPARATE AXIS FROM RenderMode, not more
     // cases of it -- ViewerSettings.hpp says why, and it is the CameraSyncMode

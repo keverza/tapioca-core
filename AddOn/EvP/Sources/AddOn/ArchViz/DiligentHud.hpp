@@ -27,6 +27,7 @@
 // the mouse is down. The cost is that ImGui gets mouse and modifiers but no text
 // entry, which a diagnostic HUD does not need.
 
+#include "ArchViz/AnalysisTabs.hpp"
 #include "ArchViz/DiligentScene.hpp" // ElementInfo, for the hover callout
 #include "ArchViz/TraceAnnotationLayer.hpp"
 
@@ -209,7 +210,8 @@ struct HudState {
     std::string visibilitySubmitError;
     double visibilityPoint[3] = { 0.0, 0.0, 0.0 };
     double visibilityDirection[3] = { 1.0, 0.0, 0.0 };
-    std::string analysisSeenStudy; // the drawn study the Analysis tabs last followed
+    // Which Analysis tab has the focus; only its result is shown (AnalysisTabs.hpp).
+    analysistabs::Focus analysisFocus;
     bool viewpointPlacing = false;
     // Clicking a model element adds it to Context, or removes it (Viewpoint tab).
     bool viewpointPickingContext = false;
@@ -217,7 +219,6 @@ struct HudState {
     bool viewpointDragging = false;
     int viewpointDragAxis = -1;
     uint64_t viewpointSeenRevision = 0;
-    bool viewpointSelectTab = false;
     double viewpointDragPoint[3] = {}, viewpointDragParameter[3] = {};
     float annotationTextHeightMetres = 0.18f;
     float annotationDimensionOffsetMetres = 0.25f;
@@ -634,6 +635,10 @@ class DiligentScene;
 struct SunStudyViewSettings;
 // The HUD state the frame loop hands to DiligentScene::SetSunStudyView.
 SunStudyViewSettings SunStudyViewOf (const HudState& state);
+// Once a frame, in DiligentHudAnalysisView.cpp: follow a newly shown study to its
+// Analysis tab, and hand the scene the tint view with the tint suppressed on
+// every other tab.
+void ApplyAnalysisView (DiligentScene& scene, HudState& state);
 void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
                                const float direction[3]);
 void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height);

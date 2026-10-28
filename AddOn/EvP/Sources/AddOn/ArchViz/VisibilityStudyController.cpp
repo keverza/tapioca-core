@@ -40,6 +40,7 @@ class Worker final {
             cancelled_.store (false);
             status_ = {};
             status_.running = true;
+            status_.origin = request.options.origin == evp::sunstudy::VisibilityOrigin::Point ? 1 : 0;
             status_.snapshotId = request.snapshot != nullptr ? request.snapshot->id : 0;
             generation = ++generation_;
             displayGeneration_ = SceneCmdQueue::Get ().ClaimAnalysisDisplay (1);

@@ -821,7 +821,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             }
             scene.SetRenderMode (static_cast<SceneRenderMode> (hudState.renderMode));
             scene.SetWireframeSettings (float (hudState.wireTessellation), hudState.wireLineWidth);
-            scene.SetSunStudyView (SunStudyViewOf (hudState));
+            ApplyAnalysisView (scene, hudState);
             // Quality and the sun filter have no command: HUD-only, no reconciliation.
             scene.SetRenderQuality (hudState.renderQuality == int (RenderQuality::Realistic) ? RenderQuality::Realistic
                                                                                              : RenderQuality::Fast);

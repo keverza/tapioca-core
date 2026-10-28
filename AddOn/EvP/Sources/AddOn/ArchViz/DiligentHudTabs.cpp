@@ -142,41 +142,39 @@ void SelectionPage (Shell& shell, const HudState& state, float ui)
 
 void SunStudyPage (HudState& state, const DiligentSceneStats& scene)
 {
-    // Follow a study that ARRIVES, never one that leaves: a role edit clears the
-    // display, and following that clear sent the page back to the first tab.
-    const std::string shown = scene.sunStudy.drawing ? scene.sunStudy.studyId : std::string ();
-    const bool changed = !shown.empty () && shown != state.analysisSeenStudy;
-    state.analysisSeenStudy = shown;
+    // ⚠️ THE TAB BAR ONLY REPORTS AND OBEYS THE FOCUS (AnalysisTabs.hpp). Which
+    // study arrived, and so which tab to select, is decided once a frame by
+    // ApplyAnalysisView, whichever page is open; a clear never selects a tab.
+    auto& focus = state.analysisFocus;
+    const auto flags = [&focus] (int tab) {
+        return focus.selectTab == tab ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+    };
     if (!hudshell::BeginSubTabs ("##analysis-study"))
         return;
-    const ImGuiTabItemFlags sunFlags = changed && scene.sunStudy.analysisKind == 0 ? ImGuiTabItemFlags_SetSelected : 0;
-    if (ImGui::BeginTabItem ("Sun study", nullptr, sunFlags)) {
+    if (ImGui::BeginTabItem ("Sun study", nullptr, flags (analysistabs::kSunTab))) {
+        analysistabs::Opened (focus, analysistabs::kSunTab);
         state.visibilityPlacingPoint = false;
         state.viewpointPlacing = false;
         state.viewpointPickingContext = false;
         DrawSunStudyHudSection (state, scene);
         ImGui::EndTabItem ();
     }
-    const bool selectVisibility = changed && scene.sunStudy.analysisKind == 1;
-    const ImGuiTabItemFlags surfaceFlags =
-        selectVisibility && state.visibilityOrigin == 0 ? ImGuiTabItemFlags_SetSelected : 0;
-    if (ImGui::BeginTabItem ("Surface visibility", nullptr, surfaceFlags)) {
+    if (ImGui::BeginTabItem ("Surface visibility", nullptr, flags (analysistabs::kSurfaceVisibilityTab))) {
+        analysistabs::Opened (focus, analysistabs::kSurfaceVisibilityTab);
         state.viewpointPlacing = false;
         state.viewpointPickingContext = false;
         DrawVisibilityHudSection (state, scene, 0);
         ImGui::EndTabItem ();
     }
-    const ImGuiTabItemFlags pointFlags =
-        selectVisibility && state.visibilityOrigin == 1 ? ImGuiTabItemFlags_SetSelected : 0;
-    if (ImGui::BeginTabItem ("Point visibility", nullptr, pointFlags)) {
+    if (ImGui::BeginTabItem ("Point visibility", nullptr, flags (analysistabs::kPointVisibilityTab))) {
+        analysistabs::Opened (focus, analysistabs::kPointVisibilityTab);
         state.viewpointPlacing = false;
         state.viewpointPickingContext = false;
         DrawVisibilityHudSection (state, scene, 1);
         ImGui::EndTabItem ();
     }
-    const ImGuiTabItemFlags viewpointFlags = state.viewpointSelectTab ? ImGuiTabItemFlags_SetSelected : 0;
-    if (ImGui::BeginTabItem ("Viewpoint", nullptr, viewpointFlags)) {
-        state.viewpointSelectTab = false;
+    if (ImGui::BeginTabItem ("Viewpoint", nullptr, flags (analysistabs::kViewpointTab))) {
+        analysistabs::Opened (focus, analysistabs::kViewpointTab);
         state.visibilityPlacingPoint = false;
         DrawViewpointHudSection (state);
         ImGui::EndTabItem ();

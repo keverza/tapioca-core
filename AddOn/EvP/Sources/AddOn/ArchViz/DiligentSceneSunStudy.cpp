@@ -601,7 +601,7 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
 {
     if (impl_ == nullptr || context == nullptr || impl_->sunAtlasSRV == nullptr)
         return;
-    if (impl_->sunElementsAttached == 0)
+    if (impl_->sunElementsAttached == 0 || impl_->sunTintSuppressed)
         return;
 
     // Built on first use and never retried after a failure -- the same shape and
@@ -727,6 +727,11 @@ std::string DiligentScene::ShownSunStudyId () const
     return impl_ != nullptr && impl_->sunAtlasSRV != nullptr ? impl_->sunStudyId : std::string ();
 }
 
+uint32_t DiligentScene::ShownAnalysisKind () const
+{
+    return impl_ != nullptr ? impl_->sunAnalysisKind : 0u;
+}
+
 void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
 {
     if (impl_ == nullptr)
@@ -740,6 +745,7 @@ void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
     // The slider's top is "9+": at it, no surface is cut off for having MORE.
     impl_->sunFilterHi = view.hi >= kSunHoursFilterOpenTop ? 1.0e9f : (std::max) (impl_->sunFilterLo, view.hi);
     impl_->sunFilterHide = view.hide;
+    impl_->sunTintSuppressed = view.suppressed;
     impl_->sunBlueThreshold = view.blueThreshold;
     impl_->sunFirstShadowStep = view.firstShadowStep;
     impl_->sunEndShadowStep = view.endShadowStep;

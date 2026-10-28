@@ -181,10 +181,11 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
         state.viewpointSeenRevision = shared->revision;
         state.viewpointDragging = false;
         if (shared->enabled)
-            state.viewpointSelectTab = true;
+            analysistabs::Select (state.analysisFocus, analysistabs::kViewpointTab);
     }
     state.viewpointOwnsMouse = false;
-    if (state.readOnly || !shared->enabled || !shared->pointValid || state.viewpointPlacing) {
+    if (state.readOnly || !shared->enabled || !shared->pointValid || state.viewpointPlacing ||
+        state.analysisFocus.tab != analysistabs::kViewpointTab) {
         state.viewpointDragging = false;
         viewpointstudy::Tick (visibilitystudy::ViewerCapture ());
         return;
@@ -264,7 +265,8 @@ void PlaceViewpointFromPick (HudState& state, const DiligentScene&, const InputS
 void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
 {
     const auto settings = viewpointstudy::GetSettings ();
-    if (state.readOnly || !settings->enabled || !settings->pointValid || viewProj == nullptr)
+    if (state.readOnly || !settings->enabled || !settings->pointValid || viewProj == nullptr ||
+        state.analysisFocus.tab != analysistabs::kViewpointTab)
         return;
     ImDrawList* draw = ImGui::GetBackgroundDrawList ();
     const auto status = viewpointstudy::GetStatus ();

@@ -130,13 +130,16 @@ void Cross (const double a[3], const double b[3], double out[3])
 void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene, int origin)
 {
     const auto status = visibilitystudy::GetStatus ();
-    const bool originChanged = state.visibilityOrigin != origin;
+    // Switching between the two visibility tabs only hides the other's result
+    // (AnalysisTabs.hpp); a change here clears a result only when it is this tab's.
     state.visibilityOrigin = origin;
-    bool changed = originChanged;
+    const bool ownResult =
+        scene.sunStudy.drawing && scene.sunStudy.analysisKind == 1 && state.analysisFocus.shownOrigin == origin;
+    bool changed = false;
     ImGui::BeginDisabled (status.running);
-    ImGui::TextWrapped (origin == 0
-                            ? "Analysis receives the gradient. Context occludes. Focus is checked for visibility from Analysis."
-                            : "Focus receives the gradient. Context occludes. Visibility is checked from a placed view point.");
+    ImGui::TextWrapped (
+        origin == 0 ? "Analysis receives the gradient. Context occludes. Focus is checked for visibility from Analysis."
+                    : "Focus receives the gradient. Context occludes. Visibility is checked from a placed view point.");
     ImGui::TextDisabled ("Current viewport selection: %u element(s)", unsigned (state.visibilitySelection.size ()));
     if (state.visibilityOrigin == 0)
         changed |= RoleRow ("Analysis", state.visibilityFrom, state.visibilityTo, state.visibilityContext,
@@ -175,7 +178,8 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     if (state.visibilityOrigin == 0)
         state.visibilityPlacingPoint = false;
     if (changed) {
-        visibilitystudy::ClearDisplay ();
+        if (ownResult)
+            visibilitystudy::ClearDisplay ();
         state.visibilitySubmitError.clear ();
     }
 
@@ -213,10 +217,9 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     }
     else if (!state.visibilitySubmitError.empty ())
         hudshell::ErrorNotice ("Visibility failed: " + state.visibilitySubmitError);
-    else if (!changed && !status.error.empty ())
+    else if (!changed && !status.error.empty () && status.origin == origin)
         hudshell::ErrorNotice ("Visibility failed: " + status.error);
-    else if (!changed && status.complete && scene.sunStudy.analysisKind == 1 && scene.sunStudy.drawing &&
-             scene.sunStudy.studyId == status.studyId) {
+    else if (!changed && status.complete && ownResult && scene.sunStudy.studyId == status.studyId) {
         ImGui::Text ("%.1f%% mean visible", status.meanVisibility * 100.0);
         ImGui::TextDisabled ("%u cells, %u aim point(s), %.2f M rays, %.0f ms", unsigned (status.sampleCount),
                              unsigned (status.aimPointCount), double (status.rayCount) / 1.0e6,
@@ -230,7 +233,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     Swatch ("##visibility-clear", 0x4B8358FFu);
     ImGui::SameLine ();
     ImGui::TextUnformatted ("visible");
-    if (scene.sunStudy.drawing && scene.sunStudy.analysisKind == 1) {
+    if (ownResult) {
         ImGui::TextDisabled ("%s, %u tinted element(s)", scene.sunStudy.studyId.c_str (),
                              unsigned (scene.sunStudy.elementsAttached));
         if (ImGui::SmallButton ("Clear visibility"))
@@ -276,7 +279,8 @@ void ServiceAnalysisInteractions (HudState& state, const DiligentScene& scene, c
 
 void DrawVisibilityConeOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
 {
-    if (state.visibilityOrigin != 1 || !state.visibilityPointValid || viewProj == nullptr || width == 0 || height == 0)
+    if (state.analysisFocus.tab != analysistabs::kPointVisibilityTab || !state.visibilityPointValid ||
+        viewProj == nullptr || width == 0 || height == 0)
         return;
     double direction[3] = { state.visibilityDirection[0], state.visibilityDirection[1], state.visibilityDirection[2] };
     Normalize (direction);

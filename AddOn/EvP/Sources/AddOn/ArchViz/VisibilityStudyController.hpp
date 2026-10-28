@@ -24,6 +24,7 @@ struct Status {
     bool complete = false;
     std::string studyId;
     std::string error;
+    int origin = 0; // the submitted VisibilityOrigin: 0 surfaces, 1 a placed point
     uint64_t snapshotId = 0;
     size_t sampleCount = 0;
     size_t aimPointCount = 0;

@@ -20,13 +20,17 @@ def test_analysis_has_separate_surface_and_point_visibility_tabs():
 def test_visibility_tabs_set_the_submitted_study_origin():
     source = (_ARCHVIZ / "DiligentHudVisibility.cpp").read_text(encoding="utf-8")
     assert "state.visibilityOrigin = origin;" in source
-    assert "bool changed = originChanged;" in source
+    # Switching tabs hides the other tab's result; it must not clear it.
+    assert "originChanged" not in source
+    assert " ".join(source.split()).count("if (ownResult) visibilitystudy::ClearDisplay ();") == 1
     assert "request.options.origin = state.visibilityOrigin == 0" in source
 
 
 def test_clearing_a_study_does_not_send_the_analysis_page_to_its_first_tab():
-    # A role edit clears the display; only a study that ARRIVES may pick a tab.
+    # A role edit clears the display; only the focus (AnalysisTabs) may pick a tab,
+    # and test_analysistabs.cpp holds that a clear never moves it.
     tabs = (_ARCHVIZ / "DiligentHudTabs.cpp").read_text(encoding="utf-8")
-    page = tabs.split("void SunStudyPage", 1)[1].split("hudshell::BeginSubTabs", 1)[0]
-    assert "const bool changed = !shown.empty () && shown != state.analysisSeenStudy;" in page
+    page = tabs.split("void SunStudyPage", 1)[1].split("void DebugPage", 1)[0]
     assert "analysisKind" not in page
+    assert page.count("ImGuiTabItemFlags_SetSelected") == 1
+    assert "focus.selectTab == tab" in page

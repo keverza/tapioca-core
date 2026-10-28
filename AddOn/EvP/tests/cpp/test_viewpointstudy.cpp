@@ -149,6 +149,7 @@ TEST (ViewpointGumballInteraction, HudMouseCapturePreventsDraggingAndHoverDoesNo
     settings.options.point = { 0, 0, 0.5 };
     view::Configure (settings);
     HudState hud;
+    hud.analysisFocus.tab = analysistabs::kViewpointTab;
     InputSnapshot input;
     input.inside = true;
     input.x = 400;
@@ -217,6 +218,7 @@ TEST (ViewpointGumballInteraction, DragOwnsTheMouseMovesPointAndReleasesWithoutS
     settings.options.point = { 0, 0, 0 };
     view::Configure (settings);
     HudState hud;
+    hud.analysisFocus.tab = analysistabs::kViewpointTab;
     InputSnapshot input;
     input.inside = true;
     input.x = 400;

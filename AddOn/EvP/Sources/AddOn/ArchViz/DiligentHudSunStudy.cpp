@@ -229,7 +229,9 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     }
     const std::string id = scene.ShownSunStudyId ();
     const std::shared_ptr<const Snapshot> snapshot = MeshStore::Get ().Current ();
-    if (id.empty () || snapshot == nullptr) {
+    // A tint another Analysis tab owns is not drawn, so it has nothing to report.
+    if (id.empty () || snapshot == nullptr ||
+        !analysistabs::ShowsTint (state.analysisFocus, id, scene.ShownAnalysisKind ())) {
         state.sunReadingState = 0;
         return;
     }
@@ -300,8 +302,8 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
 {
     const SunStudyOverlayStatus& study = scene.sunStudy;
     if (study.drawing && study.analysisKind == 1) {
-        ImGui::TextWrapped (
-            "A visibility study is on screen. Open Surface visibility or Point visibility for its controls and legend.");
+        ImGui::TextWrapped ("A visibility study is on screen. Open Surface visibility or Point visibility for its "
+                            "controls and legend.");
         return;
     }
     // The study is asked for here, not only in the palette: open until the

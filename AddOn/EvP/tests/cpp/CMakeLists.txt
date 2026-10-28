@@ -196,6 +196,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointGumball.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewpointProjection.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudViewpoint.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisTabs.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudGumball.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRecordCore.cpp"
@@ -1059,6 +1060,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyocclusion.cpp
     test_visibilitystudy.cpp
     test_viewpointstudy.cpp
+    test_analysistabs.cpp
     test_sunstudyoccluders.cpp
     test_sunstudyselectionbinding.cpp
     test_sunstudygputraversal.cpp

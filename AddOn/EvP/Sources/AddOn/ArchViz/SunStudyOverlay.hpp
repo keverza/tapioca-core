@@ -217,6 +217,10 @@ struct SunStudyViewSettings {
     float lo = 0.0f;
     float hi = kSunHoursFilterOpenTop;
     bool hide = false;
+    // The whole tint off: the resident study belongs to an Analysis tab that is
+    // not in focus (ArchViz/AnalysisTabs.hpp). It stays resident, so returning to
+    // that tab shows it again without re-running anything.
+    bool suppressed = false;
     float blueThreshold = -1.0f; // disabled; otherwise hours below this are #28536B
     uint32_t firstShadowStep = 0;
     uint32_t endShadowStep = 0xffffffffu;
