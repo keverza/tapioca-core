@@ -198,7 +198,7 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
         double view[3] = { options.direction[0], options.direction[1], options.direction[2] };
         if (!std::isfinite (options.point[0]) || !std::isfinite (options.point[1]) ||
             !std::isfinite (options.point[2])) {
-            result.error = "visibility point needs finite coordinates";
+            result.error = "visibility point needs finite coordinates, a non-zero direction and a 1..179 degree cone";
             return result;
         }
         if (options.view == VisibilityView::Sphere) {
@@ -211,7 +211,8 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
         }
         else if (options.view != VisibilityView::Cone || !Normalize (view) || !std::isfinite (options.coneDegrees) ||
                  options.coneDegrees < 1.0 || options.coneDegrees > 179.0) {
-            result.error = "visibility cone needs a non-zero direction and a 1..179 degree angle";
+            // ⚠️ THE RUST KERNEL'S WORDING, kept: the parity tests compare refusals.
+            result.error = "visibility point needs finite coordinates, a non-zero direction and a 1..179 degree cone";
             return result;
         }
     }
