@@ -204,15 +204,15 @@ struct HudState {
     float visibilityGrid = 2.0f;
     int visibilityAimPoints = 32;
     float visibilityConeDegrees = 90.0f;
-    bool visibilityPlacingPoint = false;
-    bool visibilityPointValid = false;
-    bool visibilityPlacementMiss = false;
     std::string visibilitySubmitError;
-    double visibilityPoint[3] = { 0.0, 0.0, 0.0 };
+    // The point is the viewpoint's (one gumball for both tabs); the cone's aim and
+    // the point a shown result was run from are point visibility's own.
     double visibilityDirection[3] = { 1.0, 0.0, 0.0 };
+    double visibilityRunPoint[3] = { 0.0, 0.0, 0.0 };
     // Which Analysis tab has the focus; only its result is shown (AnalysisTabs.hpp).
     analysistabs::Focus analysisFocus;
-    bool viewpointPlacing = false;
+    bool viewpointPlacing = false; // the next model click places the shared point
+    bool viewpointPlacementMiss = false;
     // Clicking a model element adds it to Context, or removes it (Viewpoint tab).
     bool viewpointPickingContext = false;
     bool viewpointOwnsMouse = false;

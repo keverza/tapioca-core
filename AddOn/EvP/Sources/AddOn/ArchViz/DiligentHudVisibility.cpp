@@ -6,9 +6,6 @@
 #include "ArchViz/ViewpointStudyController.hpp"
 #include "ArchViz/VisibilityStudyController.hpp"
 #include "ArchViz/VisibilityStudyCapture.hpp"
-#include "Geometry/MeshStore.hpp"
-#include "Geometry/QueryEngine.hpp"
-#include "SunStudy/SunStudyRoles.hpp"
 
 #include <imgui.h>
 
@@ -88,14 +85,6 @@ void Swatch (const char* id, unsigned rgba)
                         ImVec2 (16.0f, 16.0f));
 }
 
-bool LeftReleased (const InputSnapshot& input)
-{
-    for (int i = 0; i < input.transitionCount; ++i)
-        if (input.transitions[i].button == kMouseLeft && !input.transitions[i].down)
-            return true;
-    return false;
-}
-
 bool Project (const double point[3], const float viewProj[16], uint32_t width, uint32_t height, ImVec2& screen)
 {
     const float input[4] = { float (point[0]), float (point[1]), float (point[2]), 1.0f };
@@ -124,6 +113,22 @@ void Cross (const double a[3], const double b[3], double out[3])
     out[0] = a[1] * b[2] - a[2] * b[1];
     out[1] = a[2] * b[0] - a[0] * b[2];
     out[2] = a[0] * b[1] - a[1] * b[0];
+}
+
+bool DrawConeAim (double direction[3])
+{
+    constexpr float kDegrees = 57.2957795130823208768f;
+    float azimuth = float (std::atan2 (direction[1], direction[0])) * kDegrees;
+    float elevation = float (std::asin ((std::max) (-1.0, (std::min) (1.0, direction[2])))) * kDegrees;
+    bool changed = ImGui::SliderFloat ("cone azimuth", &azimuth, -180.0f, 180.0f, "%.0f deg");
+    changed |= ImGui::SliderFloat ("cone elevation", &elevation, -89.0f, 89.0f, "%.0f deg");
+    if (!changed)
+        return false;
+    const double a = double (azimuth / kDegrees), e = double (elevation / kDegrees);
+    direction[0] = std::cos (e) * std::cos (a);
+    direction[1] = std::cos (e) * std::sin (a);
+    direction[2] = std::sin (e);
+    return true;
 }
 
 } // namespace
@@ -164,21 +169,27 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     }
 
     if (state.visibilityOrigin == 1) {
-        if (ImGui::Button (state.visibilityPlacingPoint ? "Click the model..." : "Place view point")) {
-            state.visibilityPlacingPoint = true;
-            state.visibilityPlacementMiss = false;
-            changed = true;
+        // The Viewpoint tab's point: placed, typed or dragged in either tab.
+        if (ImGui::Button (state.viewpointPlacing ? "Click a model surface..." : "Place view point")) {
+            state.viewpointPlacing = true;
+            state.viewpointPlacementMiss = false;
+            state.viewpointDragging = false;
         }
-        ImGui::SameLine ();
-        if (state.visibilityPointValid)
-            ImGui::TextDisabled ("%.2f, %.2f, %.2f m", state.visibilityPoint[0], state.visibilityPoint[1],
-                                 state.visibilityPoint[2]);
-        else
-            ImGui::TextDisabled ("not placed");
-        if (state.visibilityPlacementMiss)
+        if (ImGui::InputScalarN ("Point XYZ (m)", ImGuiDataType_Double, shared.options.point.data (), 3, nullptr,
+                                 nullptr, "%.2f")) {
+            shared.pointValid = true;
+            ConfigureViewpoint (state, shared);
+        }
+        if (state.viewpointPlacementMiss)
             ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "Point missed the model; click a surface.");
         changed |= ImGui::SliderFloat ("view cone", &state.visibilityConeDegrees, 10.0f, 179.0f, "%.0f deg");
-        ImGui::TextDisabled ("The cone looks back toward the camera used to place it.");
+        changed |= DrawConeAim (state.visibilityDirection);
+        ImGui::TextDisabled ("Drag the gumball to move the point; the Viewpoint tab shares it.");
+        // A shown result was run from where the point was then; once it moves the
+        // gradient no longer describes it.
+        if (ownResult &&
+            !std::equal (state.visibilityRunPoint, state.visibilityRunPoint + 3, shared.options.point.begin ()))
+            changed = true;
     }
 
     changed |= ImGui::SliderFloat ("square cells", &state.visibilityGrid, 0.25f, 10.0f, "%.2f m",
@@ -188,8 +199,6 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     if (state.visibilityOrigin == 0)
         changed |= ImGui::SliderInt ("Focus aim points", &state.visibilityAimPoints, 1, 128);
     ImGui::EndDisabled ();
-    if (state.visibilityOrigin == 0)
-        state.visibilityPlacingPoint = false;
     if (changed) {
         if (ownResult)
             visibilitystudy::ClearDisplay ();
@@ -200,10 +209,10 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     if (capture == nullptr)
         ImGui::TextDisabled ("Waiting for a complete, current viewer capture.");
     const bool ready = capture != nullptr && !status.running && !state.visibilityTo.empty () &&
-                       (state.visibilityOrigin == 0 ? !state.visibilityFrom.empty () : state.visibilityPointValid);
+                       (state.visibilityOrigin == 0 ? !state.visibilityFrom.empty () : shared.pointValid);
     ImGui::BeginDisabled (!ready);
     if (ImGui::Button ("Run visibility", ImVec2 (-1.0f, 0.0f))) {
-        state.visibilityPlacingPoint = false;
+        state.viewpointPlacing = false;
         visibilitystudy::Request request;
         request.snapshot = capture;
         request.fromElements = state.visibilityFrom;
@@ -218,7 +227,8 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
         request.options.spacing = state.visibilityGrid;
         request.options.maxAimPoints = static_cast<size_t> ((std::max) (1, state.visibilityAimPoints));
         request.options.coneDegrees = state.visibilityConeDegrees;
-        std::copy (state.visibilityPoint, state.visibilityPoint + 3, request.options.point);
+        std::copy (shared.options.point.begin (), shared.options.point.end (), request.options.point);
+        std::copy (shared.options.point.begin (), shared.options.point.end (), state.visibilityRunPoint);
         std::copy (state.visibilityDirection, state.visibilityDirection + 3, request.options.direction);
         state.visibilitySubmitError.clear ();
         visibilitystudy::Submit (std::move (request), state.visibilitySubmitError);
@@ -260,42 +270,15 @@ void ServiceAnalysisInteractions (HudState& state, const DiligentScene& scene, c
 {
     ServiceSunStudyInspector (state, scene, origin, direction);
     ServiceSunStudyCentrePick (state, input, origin, direction);
-    if (!state.visibilityPlacingPoint || state.wantsMouse || !input.inside || !LeftReleased (input))
-        return;
-    state.visibilityPlacementMiss = true;
-    const auto snapshot = visibilitystudy::ViewerCapture ();
-    if (snapshot == nullptr || !state.hover.valid)
-        return;
-    const double rayOrigin[3] = { origin[0], origin[1], origin[2] };
-    const double rayDirection[3] = { direction[0], direction[1], direction[2] };
-    QueryEngine::RayHit hit;
-    const auto picked = evp::sunstudy::CanonicalGuid (state.hover.guid);
-    for (size_t mesh = 0; mesh < snapshot->meshes.size (); ++mesh) {
-        if (evp::sunstudy::CanonicalGuid (snapshot->meshes[mesh].guid) != picked)
-            continue;
-        const auto candidate =
-            QueryEngine::RaycastMesh (*snapshot, mesh, rayOrigin, rayDirection, hit.hit ? hit.t : 1.0e6);
-        if (candidate.hit)
-            hit = candidate;
-    }
-    if (!hit.hit)
-        return;
-    for (int axis = 0; axis < 3; ++axis) {
-        // Pull the eye 5 cm toward the camera and look back at it. This avoids a
-        // self-hit at the placement surface and gives the click a visible bearing.
-        state.visibilityPoint[axis] = hit.point[axis] - double (direction[axis]) * 0.05;
-        state.visibilityDirection[axis] = -double (direction[axis]);
-    }
-    state.visibilityPointValid = true;
-    state.visibilityPlacingPoint = false;
-    state.visibilityPlacementMiss = false;
 }
 
 void DrawVisibilityConeOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
 {
-    if (state.analysisFocus.tab != analysistabs::kPointVisibilityTab || !state.visibilityPointValid ||
-        viewProj == nullptr || width == 0 || height == 0)
+    const auto shared = viewpointstudy::GetSettings ();
+    if (state.analysisFocus.tab != analysistabs::kPointVisibilityTab || !shared->pointValid || viewProj == nullptr ||
+        width == 0 || height == 0)
         return;
+    const double* point = shared->options.point.data ();
     double direction[3] = { state.visibilityDirection[0], state.visibilityDirection[1], state.visibilityDirection[2] };
     Normalize (direction);
     const bool nearVertical = std::abs (direction[2]) > 0.9;
@@ -315,14 +298,14 @@ void DrawVisibilityConeOverlay (const HudState& state, const float viewProj[16],
     std::array<bool, kSegments> visible = {};
     for (size_t i = 0; i < kSegments; ++i) {
         const double angle = 2.0 * 3.14159265358979323846 * double (i) / double (kSegments);
-        double point[3];
+        double at[3];
         for (int axis = 0; axis < 3; ++axis)
-            point[axis] = state.visibilityPoint[axis] + direction[axis] * length +
-                          radius * (u[axis] * std::cos (angle) + v[axis] * std::sin (angle));
-        visible[i] = Project (point, viewProj, width, height, ring[i]);
+            at[axis] = point[axis] + direction[axis] * length +
+                       radius * (u[axis] * std::cos (angle) + v[axis] * std::sin (angle));
+        visible[i] = Project (at, viewProj, width, height, ring[i]);
     }
     ImVec2 apex;
-    if (!Project (state.visibilityPoint, viewProj, width, height, apex))
+    if (!Project (point, viewProj, width, height, apex))
         return;
     ImDrawList* draw = ImGui::GetForegroundDrawList ();
     const ImU32 colour = IM_COL32 (75, 131, 88, 230);

@@ -273,3 +273,39 @@ TEST (ViewpointWorker, WholeSceneContextStopsRaysWithoutAnExplicitList)
     EXPECT_EQ (status.result->collisionCount, 0u) << "empty explicit Context is the radius circle";
     view::Shutdown ();
 }
+
+TEST (ViewpointGumballInteraction, PointVisibilityDragsTheSharedPointEvenWithTheViewpointHidden)
+{
+    using namespace geomsrv::archviz;
+    view::Shutdown ();
+    view::Settings settings;
+    settings.enabled = false; // "Show viewpoint" off: the isovist is not drawn
+    settings.options.point = { 0, 0, 0 };
+    view::Configure (settings);
+    HudState hud;
+    InputSnapshot input;
+    input.inside = true;
+    input.x = 400;
+    input.y = 300;
+    input.buttons = kMouseLeft;
+    input.transitions[0] = { kMouseLeft, true };
+    input.transitionCount = 1;
+    float viewMatrix[16], projection[16], matrix[16];
+    const float eye[3] = { 0, 0, 10 }, target[3] = { 0, 0, 0 }, up[3] = { 0, 1, 0 };
+    LookAtRH (viewMatrix, eye, target, up);
+    OrthographicRH (projection, -4, 4, -3, 3, 0.1f, 100);
+    Multiply (matrix, viewMatrix, projection);
+    const float start[3] = { 0, 0, 10 }, direction[3] = { 0, 0, -1 }, moved[3] = { 1, -2, 10 };
+    hud.analysisFocus.tab = analysistabs::kViewpointTab;
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, start, direction);
+    EXPECT_FALSE (hud.viewpointDragging) << "a hidden viewpoint has no gumball on its own tab";
+    hud.analysisFocus.tab = analysistabs::kPointVisibilityTab;
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, start, direction);
+    ASSERT_TRUE (hud.viewpointDragging);
+    input.transitionCount = 0;
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, moved, direction);
+    EXPECT_DOUBLE_EQ (view::GetSettings ()->options.point[0], 1);
+    EXPECT_DOUBLE_EQ (view::GetSettings ()->options.point[1], -2);
+    EXPECT_FALSE (view::GetSettings ()->enabled) << "moving the point must not switch the isovist on";
+    view::Shutdown ();
+}

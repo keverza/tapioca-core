@@ -104,6 +104,14 @@ void DrawContextList (viewpointstudy::Settings& settings, const viewpointstudy::
     ImGui::TreePop ();
 }
 
+// The point's gumball: on the Viewpoint tab while it is shown, and always on
+// Point visibility, whose point it also is.
+bool ShowsPointGumball (const HudState& state, const viewpointstudy::Settings& settings)
+{
+    return (state.analysisFocus.tab == analysistabs::kViewpointTab && settings.enabled) ||
+           state.analysisFocus.tab == analysistabs::kPointVisibilityTab;
+}
+
 bool LeftTransition (const InputSnapshot& input, bool down)
 {
     for (int i = 0; i < input.transitionCount; ++i)
@@ -220,8 +228,7 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
             analysistabs::Select (state.analysisFocus, analysistabs::kViewpointTab);
     }
     state.viewpointOwnsMouse = false;
-    if (state.readOnly || !shared->enabled || !shared->pointValid || state.viewpointPlacing ||
-        state.analysisFocus.tab != analysistabs::kViewpointTab) {
+    if (state.readOnly || !shared->pointValid || state.viewpointPlacing || !ShowsPointGumball (state, *shared)) {
         state.viewpointDragging = false;
         viewpointstudy::Tick (visibilitystudy::ViewerCapture ());
         return;
@@ -271,11 +278,11 @@ void PlaceViewpointFromPick (HudState& state, const DiligentScene&, const InputS
         ConfigureViewpoint (state, std::move (settings));
         return;
     }
-    if (!state.viewpointPlacing || state.wantsMouse || !input.inside || !LeftTransition (input, false) ||
-        !state.hover.valid)
+    if (!state.viewpointPlacing || state.wantsMouse || !input.inside || !LeftTransition (input, false))
         return;
+    state.viewpointPlacementMiss = true;
     const auto snapshot = visibilitystudy::ViewerCapture ();
-    if (snapshot == nullptr)
+    if (snapshot == nullptr || !state.hover.valid)
         return;
     const double origin[3] = { rayOrigin[0], rayOrigin[1], rayOrigin[2] };
     const double direction[3] = { rayDirection[0], rayDirection[1], rayDirection[2] };
@@ -293,21 +300,26 @@ void PlaceViewpointFromPick (HudState& state, const DiligentScene&, const InputS
         return;
     auto settings = *viewpointstudy::GetSettings ();
     settings.pointValid = true;
-    for (int axis = 0; axis < 3; ++axis)
+    for (int axis = 0; axis < 3; ++axis) {
+        // Pull the eye 5 cm toward the camera: no self-hit at the surface. Point
+        // visibility's cone looks back along the click, which gives it a bearing.
         settings.options.point[axis] = hit.point[axis] - direction[axis] * 0.05;
+        state.visibilityDirection[axis] = -direction[axis];
+    }
     ConfigureViewpoint (state, std::move (settings));
     state.viewpointPlacing = false;
+    state.viewpointPlacementMiss = false;
 }
 
 void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
 {
     const auto settings = viewpointstudy::GetSettings ();
-    if (state.readOnly || !settings->enabled || !settings->pointValid || viewProj == nullptr ||
-        state.analysisFocus.tab != analysistabs::kViewpointTab)
+    if (state.readOnly || !settings->pointValid || viewProj == nullptr || !ShowsPointGumball (state, *settings))
         return;
+    const bool isovist = state.analysisFocus.tab == analysistabs::kViewpointTab;
     ImDrawList* draw = ImGui::GetBackgroundDrawList ();
     const auto status = viewpointstudy::GetStatus ();
-    if (status.result != nullptr) {
+    if (isovist && status.result != nullptr) {
         const auto& perimeter = status.result->perimeter;
         const auto flags = draw->Flags;
         draw->Flags &= ~ImDrawListFlags_AntiAliasedFill;
@@ -351,7 +363,7 @@ void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint
                            ElementLabel (visibilitystudy::ViewerCapture ().get (), state.hover.guid).c_str ());
     }
     // The full circle is a radius guide, distinct from the clipped visibility boundary.
-    for (size_t i = 0; i < 180; ++i) {
+    for (size_t i = 0; isovist && i < 180; ++i) {
         ImVec2 ends[2];
         bool visible = true;
         for (int end = 0; end < 2; ++end) {
