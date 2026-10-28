@@ -218,6 +218,7 @@ struct HudState {
     bool viewpointOwnsMouse = false;
     bool viewpointDragging = false;
     int viewpointDragAxis = -1;
+    int viewpointHotPart = -1; // the gumball part under the cursor or dragged (HitGumball's numbering)
     uint64_t viewpointSeenRevision = 0;
     double viewpointDragPoint[3] = {}, viewpointDragParameter[3] = {};
     float annotationTextHeightMetres = 0.18f;

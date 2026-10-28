@@ -22,7 +22,9 @@ struct Gumball {
 Gumball MakeGumball (const double point[3], const float viewProj[16], uint32_t width, uint32_t height);
 // 0..2 an axis arrow, 3 the centre disc, -1 nothing.
 int HitGumball (const Gumball& gizmo, float x, float y);
-void DrawGumball (const Gumball& gizmo, ImDrawList* draw);
+// `hot` is the part under the cursor or being dragged, numbered as HitGumball
+// numbers it (-1 none): drawn lighter and heavier, so it reads as grabbable.
+void DrawGumball (const Gumball& gizmo, ImDrawList* draw, int hot = -1);
 
 } // namespace geomsrv::archviz
 

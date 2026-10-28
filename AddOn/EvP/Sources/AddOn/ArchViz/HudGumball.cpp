@@ -73,25 +73,36 @@ int HitGumball (const Gumball& gizmo, float x, float y)
     return picked;
 }
 
-void DrawGumball (const Gumball& gizmo, ImDrawList* draw)
+void DrawGumball (const Gumball& gizmo, ImDrawList* draw, int hot)
 {
     if (!gizmo.valid || draw == nullptr)
         return;
     const ImU32 colours[3] = { IM_COL32 (235, 80, 70, 255), IM_COL32 (70, 190, 100, 255),
                                IM_COL32 (80, 140, 245, 255) };
+    const ImU32 hotColours[3] = { IM_COL32 (255, 160, 150, 255), IM_COL32 (160, 235, 175, 255),
+                                  IM_COL32 (165, 200, 255, 255) };
     const char* names[3] = { "X", "Y", "Z" };
     for (int axis = 0; axis < 3; ++axis) {
         if (!gizmo.visible[axis])
             continue;
+        const bool lit = hot == axis;
+        const ImU32 colour = lit ? hotColours[axis] : colours[axis];
+        const float head = lit ? 13.0f : 10.0f;
         const auto tip = gizmo.ends[axis];
-        draw->AddLine (gizmo.center, tip, colours[axis], 3.0f);
+        draw->AddLine (gizmo.center, tip, colour, lit ? 5.0f : 3.0f);
         const float dx = tip.x - gizmo.center.x, dy = tip.y - gizmo.center.y;
         const float length = std::hypot (dx, dy), ux = dx / length, uy = dy / length;
-        draw->AddTriangleFilled (tip, ImVec2 (tip.x - ux * 10 - uy * 5, tip.y - uy * 10 + ux * 5),
-                                 ImVec2 (tip.x - ux * 10 + uy * 5, tip.y - uy * 10 - ux * 5), colours[axis]);
-        draw->AddText (ImVec2 (tip.x + 5, tip.y + 5), colours[axis], names[axis]);
+        draw->AddTriangleFilled (
+            tip, ImVec2 (tip.x - ux * head - uy * head * 0.5f, tip.y - uy * head + ux * head * 0.5f),
+            ImVec2 (tip.x - ux * head + uy * head * 0.5f, tip.y - uy * head - ux * head * 0.5f), colour);
+        draw->AddText (ImVec2 (tip.x + 5, tip.y + 5), colour, names[axis]);
     }
-    draw->AddCircleFilled (gizmo.center, 7.0f, IM_COL32 (245, 196, 79, 255));
+    if (hot == 3) {
+        draw->AddCircleFilled (gizmo.center, 9.5f, IM_COL32 (255, 222, 140, 255));
+        draw->AddCircle (gizmo.center, 12.0f, IM_COL32 (255, 255, 255, 220), 0, 2.0f);
+    }
+    else
+        draw->AddCircleFilled (gizmo.center, 7.0f, IM_COL32 (245, 196, 79, 255));
 }
 
 } // namespace geomsrv::archviz

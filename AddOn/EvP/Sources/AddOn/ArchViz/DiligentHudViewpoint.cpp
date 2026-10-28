@@ -228,6 +228,7 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
             analysistabs::Select (state.analysisFocus, analysistabs::kViewpointTab);
     }
     state.viewpointOwnsMouse = false;
+    state.viewpointHotPart = -1;
     if (state.readOnly || !shared->pointValid || state.viewpointPlacing || !ShowsPointGumball (state, *shared)) {
         state.viewpointDragging = false;
         viewpointstudy::Tick (visibilitystudy::ViewerCapture ());
@@ -263,6 +264,7 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
         if (LeftTransition (input, false) || !(input.buttons & kMouseLeft))
             state.viewpointDragging = false;
     }
+    state.viewpointHotPart = state.viewpointDragging ? state.viewpointDragAxis : (state.wantsMouse ? -1 : hit);
     viewpointstudy::Tick (visibilitystudy::ViewerCapture ());
 }
 
@@ -379,7 +381,19 @@ void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint
     const auto gizmo = MakeGumball (settings->options.point.data (), viewProj, width, height);
     if (!gizmo.valid)
         return;
-    DrawGumball (gizmo, ImGui::GetForegroundDrawList ());
+    DrawGumball (gizmo, ImGui::GetForegroundDrawList (), state.viewpointHotPart);
+    if (state.viewpointHotPart < 0)
+        return;
+    // The cursor and a tooltip say the point can be dragged, before the press.
+    hudshell::OwnCursor ();
+    ImGui::SetMouseCursor (ImGuiMouseCursor_ResizeAll);
+    if (!state.viewpointDragging) {
+        static const char* const kAxes[3] = { "X", "Y", "Z" };
+        if (state.viewpointHotPart == 3)
+            ImGui::SetTooltip ("Drag to move the point in plan");
+        else
+            ImGui::SetTooltip ("Drag to move the point along %s", kAxes[state.viewpointHotPart]);
+    }
 }
 
 } // namespace geomsrv::archviz::viewerhud

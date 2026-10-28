@@ -309,3 +309,32 @@ TEST (ViewpointGumballInteraction, PointVisibilityDragsTheSharedPointEvenWithThe
     EXPECT_FALSE (view::GetSettings ()->enabled) << "moving the point must not switch the isovist on";
     view::Shutdown ();
 }
+
+TEST (ViewpointGumballInteraction, HoverLightsThePartWithoutTakingTheMouse)
+{
+    using namespace geomsrv::archviz;
+    view::Shutdown ();
+    view::Settings settings;
+    settings.enabled = true;
+    settings.options.point = { 0, 0, 0 };
+    view::Configure (settings);
+    HudState hud;
+    hud.analysisFocus.tab = analysistabs::kViewpointTab;
+    InputSnapshot input;
+    input.inside = true;
+    input.x = 400; // over the centre disc
+    input.y = 300;
+    float viewMatrix[16], projection[16], matrix[16];
+    const float eye[3] = { 0, 0, 10 }, target[3] = { 0, 0, 0 }, up[3] = { 0, 1, 0 };
+    LookAtRH (viewMatrix, eye, target, up);
+    OrthographicRH (projection, -4, 4, -3, 3, 0.1f, 100);
+    Multiply (matrix, viewMatrix, projection);
+    const float origin[3] = { 0, 0, 10 }, direction[3] = { 0, 0, -1 };
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, origin, direction);
+    EXPECT_EQ (hud.viewpointHotPart, 3);
+    EXPECT_FALSE (hud.viewpointOwnsMouse) << "hover alone must not block navigation";
+    input.x = 50;
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, origin, direction);
+    EXPECT_EQ (hud.viewpointHotPart, -1);
+    view::Shutdown ();
+}
