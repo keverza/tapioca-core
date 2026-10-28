@@ -663,6 +663,11 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     constants.sunStudyPreview[0] = impl_->sunBlueThreshold;
     constants.sunStudyPreview[1] = float ((std::min) (impl_->sunFirstShadowStep, impl_->sunStepCount));
     constants.sunStudyPreview[2] = float ((std::min) (impl_->sunEndShadowStep, impl_->sunStepCount));
+    for (int channel = 0; channel < 3; ++channel) {
+        const int shift = 24 - 8 * channel;
+        constants.visibilityLowColor[channel] = float ((impl_->visibilityLowRgba >> shift) & 0xffu) / 255.0f;
+        constants.visibilityHighColor[channel] = float ((impl_->visibilityHighRgba >> shift) & 0xffu) / 255.0f;
+    }
     UploadConstants (context, impl_->constants, constants);
 
     if (Diligent::IShaderResourceVariable* atlas = srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_sunAtlas"))
@@ -746,6 +751,8 @@ void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
     impl_->sunFilterHi = view.hi >= kSunHoursFilterOpenTop ? 1.0e9f : (std::max) (impl_->sunFilterLo, view.hi);
     impl_->sunFilterHide = view.hide;
     impl_->sunTintSuppressed = view.suppressed;
+    impl_->visibilityLowRgba = view.visibilityLowRgba;
+    impl_->visibilityHighRgba = view.visibilityHighRgba;
     impl_->sunBlueThreshold = view.blueThreshold;
     impl_->sunFirstShadowStep = view.firstShadowStep;
     impl_->sunEndShadowStep = view.endShadowStep;

@@ -124,6 +124,21 @@ bool DrawSharedContextToggle (viewpointstudy::Settings& settings)
     return changed;
 }
 
+bool ColourPicker (const char* label, uint32_t& rgba, bool alpha)
+{
+    float colour[4] = { float ((rgba >> 24) & 0xffu) / 255.0f, float ((rgba >> 16) & 0xffu) / 255.0f,
+                        float ((rgba >> 8) & 0xffu) / 255.0f, float (rgba & 0xffu) / 255.0f };
+    const ImGuiColorEditFlags flags =
+        ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoDragDrop |
+        (alpha ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha);
+    if (!ImGui::ColorEdit4 (label, colour, flags))
+        return false;
+    rgba = 0;
+    for (int channel = 0; channel < 4; ++channel)
+        rgba = (rgba << 8) | uint32_t (std::lround ((std::min) (1.0f, (std::max) (0.0f, colour[channel])) * 255.0f));
+    return true;
+}
+
 void DrawViewpointHudSection (HudState& state)
 {
     auto settings = *viewpointstudy::GetSettings ();
@@ -189,8 +204,19 @@ void DrawViewpointHudSection (HudState& state)
         settings.options.radius = (std::max) (0.1, (std::min) (10000.0, settings.options.radius));
         ConfigureViewpoint (state, std::move (settings));
     }
-    ImGui::TextDisabled ("Drag X/Y/Z arrows; drag the centre in XY. Fill: warm yellow, 50%%.");
-    ImGui::TextDisabled ("Edge: orange where Context stops the ray, yellow at the radius.");
+    ImGui::TextDisabled ("Drag X/Y/Z arrows; drag the centre in XY.");
+    ColourPicker ("Fill", state.viewpointFillRgba, true);
+    ImGui::SameLine ();
+    ColourPicker ("Open edge", state.viewpointEdgeRgba, true);
+    ImGui::SameLine ();
+    ColourPicker ("Blocked edge", state.viewpointBlockedRgba, true);
+    ImGui::SameLine ();
+    if (ImGui::SmallButton ("Reset##viewpoint-colours")) {
+        const HudState defaults;
+        state.viewpointFillRgba = defaults.viewpointFillRgba;
+        state.viewpointEdgeRgba = defaults.viewpointEdgeRgba;
+        state.viewpointBlockedRgba = defaults.viewpointBlockedRgba;
+    }
     if (status.calculating)
         ImGui::TextDisabled ("Updating visibility...");
     else if (!status.error.empty ())

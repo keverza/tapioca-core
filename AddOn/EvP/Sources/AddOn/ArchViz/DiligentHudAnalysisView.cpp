@@ -44,6 +44,8 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state)
                                     SceneCmdQueue::Get ().AnalysisDisplayGeneration (), origin);
     SunStudyViewSettings view = SunStudyViewOf (state);
     view.suppressed = !analysistabs::ShowsTint (state.analysisFocus, shown, kind);
+    view.visibilityLowRgba = state.visibilityLowRgba;
+    view.visibilityHighRgba = state.visibilityHighRgba;
     scene.SetSunStudyView (view);
 }
 
@@ -59,7 +61,12 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
         return;
     }
     const auto status = viewpointstudy::GetStatus ();
-    const ViewpointOverlayStyle style;
+    ViewpointOverlayStyle style;
+    style.fillRgba = state.viewpointFillRgba;
+    style.openEdgeRgba = state.viewpointEdgeRgba;
+    style.blockedRgba = state.viewpointBlockedRgba;
+    // The guide circle is the open edge's colour, quieter.
+    style.guideRgba = (state.viewpointEdgeRgba & 0xFFFFFF00u) | ((state.viewpointEdgeRgba & 0xFFu) * 2u / 3u);
     // Rebuilt only when what it draws changes; the camera is the layer's viewProj.
     uint64_t key = 1469598103934665603ull;
     const void* result = status.result.get ();

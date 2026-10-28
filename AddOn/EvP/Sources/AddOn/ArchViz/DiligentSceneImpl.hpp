@@ -403,6 +403,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     float sunFilterHi = 24.0f;
     bool sunFilterHide = false;
     bool sunTintSuppressed = false; // SunStudyViewSettings::suppressed
+    uint32_t visibilityLowRgba = 0xB84E45FFu, visibilityHighRgba = 0x4B8358FFu;
     float sunBlueThreshold = -1.0f;
     uint32_t sunFirstShadowStep = 0;
     uint32_t sunEndShadowStep = 0xffffffffu;

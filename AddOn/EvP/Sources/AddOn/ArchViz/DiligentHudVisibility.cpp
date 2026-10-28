@@ -77,14 +77,6 @@ bool RoleRow (const char* label, std::vector<std::string>& role, std::vector<std
     return changed;
 }
 
-void Swatch (const char* id, unsigned rgba)
-{
-    const ImVec4 colour (float ((rgba >> 24) & 0xff) / 255.0f, float ((rgba >> 16) & 0xff) / 255.0f,
-                         float ((rgba >> 8) & 0xff) / 255.0f, float (rgba & 0xff) / 255.0f);
-    ImGui::ColorButton (id, colour, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
-                        ImVec2 (16.0f, 16.0f));
-}
-
 bool Project (const double point[3], const float viewProj[16], uint32_t width, uint32_t height, ImVec2& screen)
 {
     const float input[4] = { float (point[0]), float (point[1]), float (point[2]), 1.0f };
@@ -250,13 +242,16 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
                              status.analysisMilliseconds);
     }
 
-    Swatch ("##visibility-blocked", 0xB84E45FFu);
+    // Both visibility tabs share the gradient; the tint redraws with it at once.
+    ColourPicker ("not visible", state.visibilityLowRgba, false);
     ImGui::SameLine ();
-    ImGui::TextUnformatted ("not visible");
+    ColourPicker ("visible", state.visibilityHighRgba, false);
     ImGui::SameLine ();
-    Swatch ("##visibility-clear", 0x4B8358FFu);
-    ImGui::SameLine ();
-    ImGui::TextUnformatted ("visible");
+    if (ImGui::SmallButton ("Reset##visibility-colours")) {
+        const HudState defaults;
+        state.visibilityLowRgba = defaults.visibilityLowRgba;
+        state.visibilityHighRgba = defaults.visibilityHighRgba;
+    }
     if (ownResult) {
         ImGui::TextDisabled ("%s, %u tinted element(s)", scene.sunStudy.studyId.c_str (),
                              unsigned (scene.sunStudy.elementsAttached));

@@ -209,6 +209,12 @@ struct HudState {
     // the point a shown result was run from are point visibility's own.
     double visibilityDirection[3] = { 1.0, 0.0, 0.0 };
     double visibilityRunPoint[3] = { 0.0, 0.0, 0.0 };
+    // The analysis shading's colours, 0xRRGGBBAA, set by the tabs' pickers.
+    uint32_t visibilityLowRgba = 0xB84E45FFu;  // not visible
+    uint32_t visibilityHighRgba = 0x4B8358FFu; // visible
+    uint32_t viewpointFillRgba = 0xF5C44F80u;
+    uint32_t viewpointEdgeRgba = 0xE1A428E6u;    // where a ray reached the radius; the guide circle
+    uint32_t viewpointBlockedRgba = 0xEC6240F0u; // where Context stopped it
     // Which Analysis tab has the focus; only its result is shown (AnalysisTabs.hpp).
     analysistabs::Focus analysisFocus;
     bool viewpointPlacing = false; // the next model click places the shared point
@@ -657,6 +663,8 @@ namespace viewerhud {
 // A HUD edit configures through this so it is never mistaken for a command's.
 void ConfigureViewpoint (HudState& state, viewpointstudy::Settings settings);
 bool DrawSharedContextToggle (viewpointstudy::Settings& settings);
+// A swatch that opens a colour picker; `alpha` adds the opacity bar.
+bool ColourPicker (const char* label, uint32_t& rgba, bool alpha);
 void ServiceAnalysisInteractions (HudState& state, const DiligentScene& scene, const InputSnapshot& input,
                                   const float origin[3], const float direction[3]);
 void DrawVisibilityConeOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);

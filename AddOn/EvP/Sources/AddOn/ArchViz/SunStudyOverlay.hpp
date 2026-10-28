@@ -221,6 +221,9 @@ struct SunStudyViewSettings {
     // not in focus (ArchViz/AnalysisTabs.hpp). It stays resident, so returning to
     // that tab shows it again without re-running anything.
     bool suppressed = false;
+    // The visibility gradient's ends, 0xRRGGBBAA (sRGB): not visible, visible.
+    uint32_t visibilityLowRgba = 0xB84E45FFu;
+    uint32_t visibilityHighRgba = 0x4B8358FFu;
     float blueThreshold = -1.0f; // disabled; otherwise hours below this are #28536B
     uint32_t firstShadowStep = 0;
     uint32_t endShadowStep = 0xffffffffu;

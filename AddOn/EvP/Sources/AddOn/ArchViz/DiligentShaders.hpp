@@ -300,6 +300,10 @@ struct DiligentSceneConstants {
     float sunStudyFan[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     // x = blue cutoff hours (-1 disabled), yz = preview step interval [first,end).
     float sunStudyPreview[4] = { -1.0f, 0.0f, 0.0f, 0.0f };
+    // ---- appended for the visibility study's HUD colours ---------------------
+    // rgb = sRGB of not visible (0) and of visible (1); w unused.
+    float visibilityLowColor[4] = { 0.722f, 0.306f, 0.271f, 1.0f };
+    float visibilityHighColor[4] = { 0.294f, 0.514f, 0.345f, 1.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -340,7 +344,7 @@ enum class DiligentDebugView : int {
 };
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
-                                                      16 + 64 + 16 + 16 + 16 + 16 + 16 + 16,
+                                                      16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -397,6 +401,8 @@ cbuffer ArchVizConstants
                                 // z = step count
     float4   g_sunStudyFan;     // xyz = chosen steps as bits (asuint), w = count
     float4   g_sunStudyPreview; // x = blue cutoff, yz = shadow preview interval
+    float4   g_visibilityLow;   // rgb = sRGB colour of "not visible"
+    float4   g_visibilityHigh;  // rgb = sRGB colour of "visible"
 };
 )hlsl";
 
@@ -834,11 +840,10 @@ float3 RoleColor (float role)
 
 float3 VisibilityColor (float visible)
 {
-    // The requested two-colour study: blocked red -> visible green. Decode the
-    // sRGB endpoints before the SRGB render target encodes them.
-    float3 blocked = float3 (0.722, 0.306, 0.271); // danger #B84E45
-    float3 clear = float3 (0.294, 0.514, 0.345);   // success #4B8358
-    return SrgbToLinear (lerp (blocked, clear, saturate (visible)));
+    // The two-colour study, blocked -> visible, as the HUD's pickers set them
+    // (default danger #B84E45 -> success #4B8358). Decode the sRGB endpoints
+    // before the SRGB render target encodes them.
+    return SrgbToLinear (lerp (g_visibilityLow.rgb, g_visibilityHigh.rgb, saturate (visible)));
 }
 
 void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput psOut)
