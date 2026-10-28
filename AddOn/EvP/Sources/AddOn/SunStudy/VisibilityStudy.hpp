@@ -20,6 +20,9 @@
 namespace evp::sunstudy {
 
 enum class VisibilityOrigin : uint8_t { Surfaces = 0, Point = 1 };
+// What a point sees (VisibilityOrigin::Point only): a cone about `direction`,
+// or a sphere cut to a band of elevations -- how much sky and ground it sees.
+enum class VisibilityView : uint8_t { Cone = 0, Sphere = 1 };
 
 struct VisibilityStudyOptions {
     VisibilityOrigin origin = VisibilityOrigin::Surfaces;
@@ -38,6 +41,11 @@ struct VisibilityStudyOptions {
     double point[3] = { 0.0, 0.0, 0.0 };
     double direction[3] = { 1.0, 0.0, 0.0 };
     double coneDegrees = 90.0;
+    // Sphere: directions whose elevation lies in [min, max] degrees, -90 straight
+    // down .. 90 the zenith. The full sphere is -90..90.
+    VisibilityView view = VisibilityView::Cone;
+    double minElevationDegrees = -90.0;
+    double maxElevationDegrees = 90.0;
 };
 
 struct VisibilityStudyResult {

@@ -475,3 +475,46 @@ TEST_F (VisibilityStudyControllerTests, ANewSunRequestCannotBeOverwrittenByTheVi
     EXPECT_TRUE (queue.OwnsAnalysisDisplay (sun));
     EXPECT_EQ (queue.PendingCount (), 0u);
 }
+
+TEST (VisibilityStudy, PointSphereSeesEveryDirectionWithinItsElevationBand)
+{
+    auto options = Options ();
+    options.origin = VisibilityOrigin::Point;
+    options.point[0] = 3.0;
+    options.point[1] = 1.0;
+    options.point[2] = 1.0;
+    options.direction[0] = -1.0; // facing away: a cone would see nothing
+    options.coneDegrees = 60.0;
+    const auto cone = RunVisibilityStudy (Scene (false), {}, { "to" }, options);
+    ASSERT_TRUE (cone.valid) << cone.error;
+    EXPECT_EQ (cone.visibleSamples, 0u);
+
+    options.view = VisibilityView::Sphere;
+    const auto sphere = RunVisibilityStudy (Scene (false), {}, { "to" }, options);
+    ASSERT_TRUE (sphere.valid) << sphere.error;
+    EXPECT_GT (sphere.visibleSamples, 0u) << "the sphere has no facing";
+
+    // Only the sky above 60 degrees: the target sits about the horizon.
+    options.minElevationDegrees = 60.0;
+    const auto sky = RunVisibilityStudy (Scene (false), {}, { "to" }, options);
+    ASSERT_TRUE (sky.valid) << sky.error;
+    EXPECT_EQ (sky.visibleSamples, 0u);
+
+    options.minElevationDegrees = 10.0;
+    options.maxElevationDegrees = -10.0;
+    EXPECT_FALSE (RunVisibilityStudy (Scene (false), {}, { "to" }, options).valid) << "an inverted band";
+}
+
+TEST (VisibilityStudy, SphereViewNeverReachesAKernelThatOnlyKnowsCones)
+{
+    auto options = Options ();
+    options.origin = VisibilityOrigin::Point;
+    options.point[0] = 3.0;
+    options.point[1] = 1.0;
+    options.point[2] = 1.0;
+    options.direction[0] = -1.0;
+    options.view = VisibilityView::Sphere;
+    const auto selected = RunSelectedVisibilityStudy (Scene (false), {}, { "to" }, options);
+    ASSERT_TRUE (selected.valid) << selected.error;
+    EXPECT_GT (selected.visibleSamples, 0u) << "measured as a sphere, not as a cone facing away";
+}

@@ -197,9 +197,21 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
     if (options.origin == VisibilityOrigin::Point) {
         double view[3] = { options.direction[0], options.direction[1], options.direction[2] };
         if (!std::isfinite (options.point[0]) || !std::isfinite (options.point[1]) ||
-            !std::isfinite (options.point[2]) || !Normalize (view) || !std::isfinite (options.coneDegrees) ||
-            options.coneDegrees < 1.0 || options.coneDegrees > 179.0) {
-            result.error = "visibility point needs finite coordinates, a non-zero direction and a 1..179 degree cone";
+            !std::isfinite (options.point[2])) {
+            result.error = "visibility point needs finite coordinates";
+            return result;
+        }
+        if (options.view == VisibilityView::Sphere) {
+            if (!std::isfinite (options.minElevationDegrees) || !std::isfinite (options.maxElevationDegrees) ||
+                options.minElevationDegrees < -90.0 || options.maxElevationDegrees > 90.0 ||
+                options.minElevationDegrees > options.maxElevationDegrees) {
+                result.error = "visibility sphere needs elevations -90 <= min <= max <= 90 degrees";
+                return result;
+            }
+        }
+        else if (options.view != VisibilityView::Cone || !Normalize (view) || !std::isfinite (options.coneDegrees) ||
+                 options.coneDegrees < 1.0 || options.coneDegrees > 179.0) {
+            result.error = "visibility cone needs a non-zero direction and a 1..179 degree angle";
             return result;
         }
     }
@@ -300,12 +312,21 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
 
     if (options.origin == VisibilityOrigin::Point) {
         double view[3] = { options.direction[0], options.direction[1], options.direction[2] };
-        if (!Normalize (view)) {
+        const bool sphere = options.view == VisibilityView::Sphere;
+        if (!sphere && !Normalize (view)) {
             result.error = "visibility point needs a non-zero view direction";
             return result;
         }
         const double cone = (std::max) (1.0, (std::min) (179.0, options.coneDegrees));
         const double cosHalf = std::cos (cone * 0.5 * 3.14159265358979323846 / 180.0);
+        // The sphere's band as sines of elevation: a unit direction's z IS that sine.
+        const double sinLow = std::sin (options.minElevationDegrees * 3.14159265358979323846 / 180.0);
+        const double sinHigh = std::sin (options.maxElevationDegrees * 3.14159265358979323846 / 180.0);
+        const auto seen = [&] (const double dir[3]) {
+            if (sphere)
+                return dir[2] >= sinLow - 1.0e-12 && dir[2] <= sinHigh + 1.0e-12;
+            return dir[0] * view[0] + dir[1] * view[1] + dir[2] * view[2] >= cosHalf;
+        };
         for (size_t first = 0; first < result.Count (); first += kRayBatch) {
             if (Cancelled (isCancelled)) {
                 result.error = "visibility study cancelled";
@@ -324,8 +345,7 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
                     dir[axis] = target[axis] - options.point[axis];
                 }
                 const double distance = std::sqrt (DistanceSquared (target, options.point));
-                if (!(distance > options.tmin) || !Normalize (dir) ||
-                    dir[0] * view[0] + dir[1] * view[1] + dir[2] * view[2] < cosHalf)
+                if (!(distance > options.tmin) || !Normalize (dir) || !seen (dir))
                     continue;
                 OcclusionRay ray;
                 std::copy (options.point, options.point + 3, ray.origin);
@@ -474,7 +494,10 @@ VisibilityStudyResult RunSelectedVisibilityStudy (std::shared_ptr<const geomsrv:
                                                   const std::function<bool ()>& isCancelled)
 {
 #if defined(TAPIOCA_GEOMETRY_RUST)
-    if (SelectedSunStudyCore () == SunStudyCoreKind::Rust)
+    // ⚠️ THE SPHERE VIEW IS C++ ONLY: the Rust kernel's options carry a cone and
+    // no view kind, so it would silently measure a cone.
+    const bool rustView = options.origin != VisibilityOrigin::Point || options.view == VisibilityView::Cone;
+    if (SelectedSunStudyCore () == SunStudyCoreKind::Rust && rustView)
         return rust::RunVisibilityStudy (std::move (snapshot), fromElements, toElements, options, isCancelled);
 #endif
     return RunVisibilityStudy (std::move (snapshot), fromElements, toElements, options, isCancelled);
