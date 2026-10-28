@@ -17,6 +17,10 @@ def test_debug_scene_export_requests_in_layout_and_writes_only_from_the_controll
     assert "RequestDebugExport (s)" in panel
     assert "SaveDebugExport" not in panel and "EncodeDebugScene" not in panel
     assert "edithud::SaveDebugExport (*state->virtualEditor)" in controller
+    for host in (controller, viewer):
+        # Both native-only hosts dereference State and its Session; forward declarations are insufficient.
+        assert '#include "ArchViz/OverlayHudEngine.hpp"' in host
+        assert '#include "ArchViz/HudVirtualEditor.hpp"' in host
     assert viewer.index("edithud::SaveDebugExport (*state->virtualEditor)") > viewer.index(
         "drawing->hud = overlayscene::PrepareSceneHud"
     )

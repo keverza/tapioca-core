@@ -14,6 +14,7 @@
 #include "ArchViz/OverlayClickTiming.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayHudModel.hpp"
