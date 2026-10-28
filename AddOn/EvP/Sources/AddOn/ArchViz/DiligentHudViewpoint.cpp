@@ -152,8 +152,7 @@ void DrawViewpointHudSection (HudState& state)
 {
     auto settings = *viewpointstudy::GetSettings ();
     bool changed = false;
-    ImGui::TextWrapped (
-        "Horizontal visibility at the point's height. Context stops rays; empty Context gives the full circle.");
+    ImGui::TextWrapped ("What the point sees out to the radius. Context stops rays; empty Context sees all of it.");
     changed |= ImGui::Checkbox ("Show viewpoint", &settings.enabled);
     const auto status = viewpointstudy::GetStatus ();
     changed |= DrawSharedContextToggle (settings);
@@ -214,6 +213,51 @@ void DrawViewpointHudSection (HudState& state)
         settings.enabled = true;
         changed = true;
     }
+    auto& options = settings.options;
+    int mode = int (options.mode);
+    const char* const modes[] = { "Plan isovist", "Field of view", "Spherical isovist" };
+    if (Choice ("##viewpoint-mode", mode, modes, 3)) {
+        options.mode = evp::sunstudy::ViewpointMode (mode);
+        changed = true;
+    }
+    ImGui::SetItemTooltip ("Plan isovist: all round, in the horizontal plane at the point's height. Field of view: "
+                           "the same within a view angle. Spherical isovist: every direction within a band of "
+                           "elevations, as a visible volume.");
+    if (options.mode == evp::sunstudy::ViewpointMode::FieldOfView) {
+        changed |= ImGui::InputDouble ("bearing (deg)", &options.bearingDegrees, 5.0, 45.0, "%.0f");
+        ImGui::SetItemTooltip ("The view's centre, counterclockwise from +X (east).");
+        if (state.visibilityTargetSet) {
+            ImGui::SameLine ();
+            if (ImGui::SmallButton ("Aim at target")) {
+                options.bearingDegrees = std::atan2 (state.visibilityTarget[1] - options.point[1],
+                                                     state.visibilityTarget[0] - options.point[0]) *
+                                         180.0 / 3.14159265358979323846;
+                changed = true;
+            }
+            ImGui::SetItemTooltip ("Face Point visibility's cone target.");
+        }
+        float angle = float (options.fieldOfViewDegrees);
+        if (ImGui::SliderFloat ("view angle", &angle, 1.0f, 359.0f, "%.0f deg")) {
+            options.fieldOfViewDegrees = double (angle);
+            changed = true;
+        }
+        ImGui::SetItemTooltip ("The field of view's full horizontal angle.");
+    }
+    else if (options.mode == evp::sunstudy::ViewpointMode::Sphere) {
+        float sky = float (options.maxElevationDegrees), ground = float (options.minElevationDegrees);
+        if (ImGui::SliderFloat ("sky up to##viewpoint", &sky, -89.0f, 90.0f, "%.0f deg")) {
+            options.maxElevationDegrees = double (sky);
+            options.minElevationDegrees = (std::min) (options.minElevationDegrees, double (sky) - 1.0);
+            changed = true;
+        }
+        ImGui::SetItemTooltip ("The highest elevation seen: 90 is the whole sky, 0 none of it.");
+        if (ImGui::SliderFloat ("ground down to##viewpoint", &ground, -90.0f, 89.0f, "%.0f deg")) {
+            options.minElevationDegrees = double (ground);
+            options.maxElevationDegrees = (std::max) (options.maxElevationDegrees, double (ground) + 1.0);
+            changed = true;
+        }
+        ImGui::SetItemTooltip ("The lowest elevation seen: -90 straight down, 0 nothing below the horizon.");
+    }
     changed |= AdaptiveSlider ("Radius (m)", settings.options.radius, state.viewpointRadiusRange,
                                state.viewpointRadiusHeld, 0.1, 10000.0, "%.1f");
     ImGui::SetItemTooltip ("The range rescales on release; ctrl+click to type a value.");
@@ -235,6 +279,9 @@ void DrawViewpointHudSection (HudState& state)
         ImGui::TextDisabled ("Updating visibility...");
     else if (!status.error.empty ())
         hudshell::ErrorNotice (status.error);
+    else if (status.result != nullptr && status.result->options.mode == evp::sunstudy::ViewpointMode::Sphere)
+        ImGui::Text ("%.0f m3 visible; %.0f%% of directions open", status.result->volume,
+                     status.result->openFraction * 100.0);
     else if (status.result != nullptr)
         ImGui::Text ("%.1f m2 visible; %u of %u rays hit Context", status.result->area,
                      unsigned (status.result->collisionCount), unsigned (status.result->perimeter.size ()));

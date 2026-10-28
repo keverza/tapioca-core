@@ -78,8 +78,13 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
     uint64_t key = 1469598103934665603ull;
     const void* result = status.result.get ();
     Mix (key, &result, sizeof (result));
-    Mix (key, settings->options.point.data (), sizeof (double) * 3);
-    Mix (key, &settings->options.radius, sizeof (settings->options.radius));
+    const auto& options = settings->options;
+    Mix (key, options.point.data (), sizeof (double) * 3);
+    for (const double value : { options.radius, options.bearingDegrees, options.fieldOfViewDegrees,
+                                options.minElevationDegrees, options.maxElevationDegrees })
+        Mix (key, &value, sizeof (value));
+    const auto mode = uint8_t (options.mode);
+    Mix (key, &mode, sizeof (mode));
     Mix (key, &style, sizeof (style));
     key |= 1u; // never the "hidden" key
     if (key == scene.AnalysisOverlayKey ()) {
@@ -87,8 +92,7 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
                                    modelIsDrawn);
         return;
     }
-    const GhPreviewDrawables drawables =
-        BuildViewpointOverlay (settings->options.point, settings->options.radius, status.result.get (), style);
+    const GhPreviewDrawables drawables = BuildViewpointOverlay (settings->options, status.result.get (), style);
     scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, &drawables, key,
                                modelIsDrawn);
 }

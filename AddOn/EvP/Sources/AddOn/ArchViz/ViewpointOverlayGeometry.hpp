@@ -24,9 +24,11 @@ struct ViewpointOverlayStyle {
     uint32_t guideRgba = 0xF5C44F96u;    // the full radius circle
 };
 
-// `result` may be null (still calculating): the guide circle alone is built.
-// A result for another point is drawn where IT was computed, never moved.
-GhPreviewDrawables BuildViewpointOverlay (const std::array<double, 3>& point, double radius,
+// `options` are the current settings: they place the guide (circle, field of
+// view arc and edges, or the sphere's band rings). `result` may be null (still
+// calculating), and is drawn where IT was computed, never moved: a fan for the
+// plan modes, the visibility hull for a sphere.
+GhPreviewDrawables BuildViewpointOverlay (const evp::sunstudy::ViewpointOptions& options,
                                           const evp::sunstudy::ViewpointStudyResult* result,
                                           const ViewpointOverlayStyle& style);
 
