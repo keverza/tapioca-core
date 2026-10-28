@@ -348,6 +348,20 @@ bool ValidateStoredRegions (const edit::Document& doc, std::string& error)
 } // namespace tapioca::geometry::landscape_json
 
 namespace tapioca::geometry {
+std::string WriteLandscapeDebugSnapshot (const geomsrv::edit::Document& doc)
+{
+    std::string text;
+    if (doc.landscape) {
+        landscape_json::WriteValue (landscape_json::DocumentValue (doc, LandscapeStorage::Virtual), text);
+        return text;
+    }
+    auto copy = doc;
+    copy.landscape.emplace ();
+    copy.landscape->sessionUuid = { 1 }; // Codec envelope only; the dump records hadLandscape=false.
+    landscape_json::WriteValue (landscape_json::DocumentValue (copy, LandscapeStorage::Virtual), text);
+    return text;
+}
+
 bool WriteLandscape (const geomsrv::edit::Document& doc, LandscapeStorage mode, std::string& text, std::string& error)
 {
     error.clear ();

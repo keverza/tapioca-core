@@ -30,6 +30,8 @@
 #include "ArchViz/HudFloorPlanFiles.hpp"
 #include "ArchViz/RoofSlopeBake.hpp"
 #include "ArchViz/VirtualEditorTerrainCapture.hpp"
+#include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "Palette/ProgrammeDialog.hpp"
 
 #include <algorithm>
@@ -93,6 +95,11 @@ void FollowHudState ()
     roofslopebake::Follow (state);
     FollowTerrainCapture (state);
     FollowDraftingImport (state);
+    if (state->virtualEditor && state->virtualEditor->debugExportRequested) {
+        edithud::SaveDebugExport (*state->virtualEditor);
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    }
     overlaylayers::Layer roof;
     bool clearRoof = false;
     if (overlayhud::FollowRoofEditor (*state, roof, clearRoof)) {

@@ -12,6 +12,10 @@ enum class LandscapeStorage : uint8_t { Virtual, Native };
 // neither calls the SDK nor writes project metadata.
 using LandscapeCapture = std::function<bool (const LandscapeSource&, std::map<Id, Vec3>&, std::string&)>;
 bool WriteLandscape (const geomsrv::edit::Document& doc, LandscapeStorage mode, std::string& text, std::string& error);
+// Diagnostic snapshot, NOT persistence acceptance. Preserve even a broken region/DAG
+// without evaluating or repairing it. A missing landscape is represented by an empty one
+// in the snapshot only; callers record whether the original document had a landscape.
+std::string WriteLandscapeDebugSnapshot (const geomsrv::edit::Document& doc);
 bool ReadLandscape (const std::string& text, geomsrv::edit::Document& doc, std::string& error,
                     const LandscapeCapture& capture = {});
 } // namespace tapioca::geometry

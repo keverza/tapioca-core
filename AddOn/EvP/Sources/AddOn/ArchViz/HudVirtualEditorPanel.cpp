@@ -3,6 +3,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
+#include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include <imgui.h>
@@ -69,6 +70,18 @@ void Panel (Session& s)
     LandscapePanel (s);
     ImGui::Text ("%zu objects   %zu paths   %zu selected", doc.entities.size (), doc.paths.size (),
                  s.selection.Items ().size ());
+    ImGui::BeginDisabled (s.debugExportRequested || s.edits.InGesture () || !s.drawing.empty () || s.terrainCapture ||
+                          s.draftingImport || GizmoModeLocked (s) || s.landscapeCommand);
+    if (ImGui::Button (s.debugExportRequested ? "Export requested..." : "Export debug scene"))
+        RequestDebugExport (s);
+    ImGui::EndDisabled ();
+    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip ("Save paths, fillet settings, captured topography and current design to a new JSON file "
+                           "in %%LOCALAPPDATA%%\\Tapioca\\dumps. Export before and after a problematic edit.");
+    if (!s.debugExportPath.empty ())
+        ImGui::TextWrapped ("Debug scene saved: %s", s.debugExportPath.c_str ());
+    if (!s.debugExportError.empty ())
+        ImGui::TextWrapped ("Debug export failed: %s", s.debugExportError.c_str ());
     ImGui::BeginDisabled (s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s));
     if (ImGui::RadioButton ("Select (V)", s.tool == Tool::Select))
         s.tool = Tool::Select, s.landscapeMode = LandscapeMode::Select, s.drawing.clear ();

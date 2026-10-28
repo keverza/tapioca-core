@@ -1,6 +1,8 @@
 #include "Edit/EditTerrainDesign.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
+#include "ArchViz/HudVirtualEditorDebug.hpp"
+#include "virtual_editor_debug_replay.hpp"
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditTerrainDesignJob.hpp"
 #include "Edit/EditTerrainOutline.hpp"
@@ -17,6 +19,11 @@
 #include <limits>
 #include <thread>
 #include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <iterator>
 
 namespace {
 using namespace tapioca::geometry;
@@ -890,6 +897,197 @@ bool AwaitTerrain (eh::Session& session, layers::Layer& layer, bool refused = fa
     return false;
 }
 } // namespace
+
+TEST (VirtualEditorDebug, ExportedTerrainReplaysTheSameMeshOffline)
+{
+    for (bool nativeSolid : { false, true }) {
+        TerrainHostFixture fixture;
+        auto mesh = std::make_shared<geomsrv::Mesh> (*fixture.mesh);
+        if (nativeSolid) {
+            // Keep the entire native solid in the dump, not just its worker-compacted upward surface.
+            for (size_t i = 0; i < 12; i += 3)
+                mesh->vertices.insert (mesh->vertices.end (), { mesh->vertices[i], mesh->vertices[i + 1], -10 });
+            const std::vector<uint32_t> shell { 4, 6, 5, 4, 7, 6, 0, 5, 1, 0, 4, 5, 1, 6, 2,
+                                                1, 5, 6, 2, 7, 3, 2, 6, 7, 3, 4, 0, 3, 7, 4 };
+            mesh->triangles.insert (mesh->triangles.end (), shell.begin (), shell.end ());
+            mesh->triSourceBody.assign (12, 1);
+            mesh->triSourcePgon.assign (12, 2);
+            mesh->triMaterial.assign (12, 3);
+            mesh->triSurfaceAttribute.assign (12, 4);
+        }
+        eh::Session session (fixture.doc);
+        ASSERT_TRUE (eh::StartTerrainDesign (session, { mesh, nativeSolid, {} }, fixture.path));
+        layers::Layer layer;
+        ASSERT_TRUE (AwaitTerrain (session, layer));
+        const auto* current = eh::CurrentTerrainDesign (session);
+        ASSERT_NE (current, nullptr);
+        const auto before = session.edits.Doc ();
+        const auto depth = session.edits.UndoDepth ();
+        std::string text, error;
+        ASSERT_TRUE (eh::EncodeDebugScene (session, text, error)) << error;
+        const auto parsed = evp::nodegraph::json::Parse (text);
+        ASSERT_TRUE (parsed.ok) << parsed.error;
+        const auto scene = debugreplay::Read (parsed.value);
+        EXPECT_EQ (scene.doc.paths, before.paths);
+        EXPECT_EQ (scene.doc.entities, before.entities);
+        EXPECT_EQ (scene.doc.landscape, before.landscape);
+        EXPECT_EQ (scene.doc.nextId, before.nextId);
+        EXPECT_EQ (scene.doc.revision, before.revision);
+        EXPECT_EQ (scene.baseline.vertices, mesh->vertices);
+        EXPECT_EQ (scene.baseline.triangles, mesh->triangles);
+        EXPECT_EQ (scene.baseline.triSourceBody, mesh->triSourceBody);
+        EXPECT_EQ (scene.baseline.triSourcePgon, mesh->triSourcePgon);
+        EXPECT_EQ (scene.baseline.triMaterial, mesh->triMaterial);
+        EXPECT_EQ (scene.baseline.triSurfaceAttribute, mesh->triSurfaceAttribute);
+        EXPECT_EQ (scene.nativeSolid, nativeSolid);
+        const auto replayed = debugreplay::Run (scene);
+        ASSERT_TRUE (replayed.built) << replayed.error;
+        EXPECT_EQ (replayed.result.build.points, current->result.build.points);
+        EXPECT_EQ (replayed.result.build.triangles, current->result.build.triangles);
+        EXPECT_EQ (replayed.unmet, current->unmet);
+        EXPECT_EQ (session.edits.UndoDepth (), depth);
+        EXPECT_EQ (session.edits.Doc ().landscape, before.landscape);
+    }
+}
+
+TEST (VirtualEditorDebug, EditedSceneNeverExportsAnOlderOutcomeAndRetainsStaleBaseline)
+{
+    TerrainHostFixture fixture;
+    bool fresh = true;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (session, { fixture.mesh, false, [&] { return fresh; } }, fixture.path));
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    ASSERT_TRUE (session.edits.Apply ([&] (edit::Document& doc, std::string& error) {
+        return edit::EditPath (
+            doc, fixture.path,
+            [] (edit::Path& path, std::string&) {
+                for (auto& point : path.profile)
+                    point.z += 0.02;
+                return true;
+            },
+            error);
+    }));
+    std::string text, error;
+    ASSERT_TRUE (eh::EncodeDebugScene (session, text, error)) << error;
+    auto parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok);
+    EXPECT_TRUE (parsed.value.Find ("outcome")->IsNull ());
+    EXPECT_EQ (debugreplay::Read (parsed.value).baseline.vertices, fixture.mesh->vertices);
+    fresh = false;
+    ASSERT_TRUE (eh::EncodeDebugScene (session, text, error)) << error;
+    parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok);
+    bool baselineFresh = true;
+    ASSERT_TRUE (parsed.value.Find ("baselineFresh")->AsBool (baselineFresh));
+    EXPECT_FALSE (baselineFresh);
+    EXPECT_TRUE (parsed.value.Find ("outcome")->IsNull ());
+    EXPECT_EQ (debugreplay::Read (parsed.value).baseline.vertices, fixture.mesh->vertices);
+}
+
+TEST (VirtualEditorDebug, TerrainCanBeDumpedBeforeAnyPathExists)
+{
+    TerrainHostFixture fixture;
+    auto doc = fixture.doc;
+    doc.paths.clear ();
+    eh::Session session (doc);
+    ASSERT_TRUE (eh::SetTerrainBaseline (session, { fixture.mesh, false, {} }, 0));
+    std::string text, error;
+    ASSERT_TRUE (eh::EncodeDebugScene (session, text, error)) << error;
+    const auto parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok);
+    EXPECT_TRUE (debugreplay::Read (parsed.value).doc.paths.empty ());
+    EXPECT_EQ (debugreplay::Read (parsed.value).baseline.vertices, fixture.mesh->vertices);
+}
+
+TEST (VirtualEditorDebug, ChangingGradingModeDoesNotPairNewOptionsWithThePreviousMesh)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path));
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto revision = session.edits.Doc ().revision;
+    eh::SetTerrainBand (session, true);
+    EXPECT_EQ (session.edits.Doc ().revision, revision);
+    std::string text, error;
+    ASSERT_TRUE (eh::EncodeDebugScene (session, text, error)) << error;
+    const auto parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok);
+    EXPECT_TRUE (parsed.value.Find ("outcome")->IsNull ());
+    EXPECT_FALSE (debugreplay::Read (parsed.value).options.outline);
+}
+
+TEST (VirtualEditorDebug, RefusedDesignStillExportsItsInputsAndReplaysItsError)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path));
+    ASSERT_TRUE (session.edits.Apply ([&] (edit::Document& doc, std::string& error) {
+        return edit::EditPath (
+            doc, fixture.path,
+            [] (edit::Path& path, std::string&) {
+                for (auto& point : path.points)
+                    point.p.x += 500;
+                return true;
+            },
+            error);
+    }));
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer, true));
+    const auto* current = eh::CurrentTerrainDesign (session);
+    ASSERT_NE (current, nullptr);
+    ASSERT_FALSE (current->built);
+    ASSERT_FALSE (current->error.empty ());
+    std::string text, error;
+    ASSERT_TRUE (eh::EncodeDebugScene (session, text, error)) << error;
+    const auto parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok);
+    const auto scene = debugreplay::Read (parsed.value);
+    const auto replayed = debugreplay::Run (scene);
+    EXPECT_FALSE (replayed.built);
+    EXPECT_EQ (replayed.error, current->error);
+    EXPECT_EQ (replayed.unmet, current->unmet);
+}
+
+TEST (VirtualEditorDebug, ReplayDumpFromEnvironment)
+{
+#ifdef _WIN32
+    const auto* path = _wgetenv (L"TAPIOCA_VIRTUAL_EDITOR_REPLAY");
+#else
+    const auto* path = std::getenv ("TAPIOCA_VIRTUAL_EDITOR_REPLAY");
+#endif
+    if (!path || !*path)
+        GTEST_SKIP () << "Set TAPIOCA_VIRTUAL_EDITOR_REPLAY to an Export debug scene JSON file.";
+    const auto file = std::filesystem::path (path);
+    ASSERT_LE (std::filesystem::file_size (file), 512ULL * 1024 * 1024);
+    std::ifstream input (file, std::ios::binary);
+    ASSERT_TRUE (input);
+    const std::string text { std::istreambuf_iterator<char> (input), {} };
+    const auto parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok) << parsed.error;
+    const auto scene = debugreplay::Read (parsed.value);
+    const auto paved = edit::Pave (scene.doc.paths);
+    std::cout << "Replay paths=" << scene.doc.paths.size () << " pavedTriangles=" << paved.triangles.size () / 3
+              << " warning=" << paved.warning << '\n';
+    bool active = false;
+    ASSERT_TRUE (parsed.value.Find ("designActive")->AsBool (active));
+    if (!active)
+        return; // A path-only/terrain-first dump is still useful for fillet diagnosis.
+    const auto outcome = debugreplay::Run (scene);
+    std::cout << "Replay built=" << outcome.built << " triangles=" << outcome.result.build.triangles.size () / 3
+              << " error=" << outcome.error << '\n';
+    for (const auto& condition : outcome.unmet)
+        std::cout << "Unmet: " << condition << '\n';
+    const auto* saved = parsed.value.Find ("outcome");
+    if (!saved || saved->IsNull ())
+        return; // Pending exports have inputs, not an invented expected output.
+    const debugreplay::lj::Reader expected (*saved, "outcome");
+    EXPECT_EQ (outcome.built, expected.Field ("built").Flag ());
+    EXPECT_EQ (outcome.error, expected.Field ("error").Text ());
+    EXPECT_EQ (outcome.result.build.points, debugreplay::Buffer<double> (expected.Field ("points")));
+    EXPECT_EQ (outcome.result.build.triangles, debugreplay::Buffer<uint32_t> (expected.Field ("triangles")));
+}
 
 TEST (HudTerrainDesign, LifecycleLogsDistinguishCaptureBuildPublicationAndLayerWithoutPerFrameSpam)
 {

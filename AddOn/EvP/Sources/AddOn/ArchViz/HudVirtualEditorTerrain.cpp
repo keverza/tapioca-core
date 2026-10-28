@@ -1,5 +1,6 @@
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "Geometry/Mesh.hpp"
 #include "Edit/EditPathContours.hpp"
@@ -174,6 +175,27 @@ struct TerrainDesignState {
     double contoursInterval = 0.0;
     std::vector<edit::Contour> contours;
 };
+
+TerrainDebugSource GetTerrainDebugSource (const Session& s)
+{
+    TerrainDebugSource out;
+    const auto* baseline = s.terrainDesign ? &s.terrainDesign->baseline : s.terrainBaseline.get ();
+    if (baseline) {
+        out.mesh = baseline->mesh;
+        out.nativeSolid = baseline->nativeSolid;
+        out.fresh = !baseline->current || baseline->current ();
+    }
+    if (s.terrainDesign) {
+        out.active = true;
+        out.options = s.terrainDesign->options;
+        out.fresh = out.fresh && !s.terrainDesign->invalid;
+        const auto* published = s.terrainDesign->publisher.Current (s.edits.Doc ());
+        out.outcomeMatchesOptions = s.terrainDesign->requestedRevision == s.edits.Doc ().revision &&
+                                    !s.terrainDesign->worker.valid () && published &&
+                                    published->generation == s.terrainDesign->publisher.Latest ();
+    }
+    return out;
+}
 
 namespace {
 // A cross-section slider's gesture is the one the worker builds through: it is the live edit.
@@ -558,6 +580,16 @@ void TerrainDesignPanel (Session& s)
 
 #else
 namespace geomsrv::archviz::edithud {
+TerrainDebugSource GetTerrainDebugSource (const Session& s)
+{
+    TerrainDebugSource out;
+    if (s.terrainBaseline) {
+        out.mesh = s.terrainBaseline->mesh;
+        out.nativeSolid = s.terrainBaseline->nativeSolid;
+        out.fresh = !s.terrainBaseline->current || s.terrainBaseline->current ();
+    }
+    return out;
+}
 bool StartTerrainDesign (Session& s, std::shared_ptr<const Mesh>, edit::Id)
 {
     s.message = "Terrain design requires the Rust geometry build.";

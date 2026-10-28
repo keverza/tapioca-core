@@ -8,6 +8,23 @@ ROOT = Path(__file__).parents[1] / "Sources" / "AddOn"
 SOURCE = ROOT / "NativeCommands" / "VirtualEditorCommands.cpp"
 
 
+def test_debug_scene_export_requests_in_layout_and_writes_only_from_the_controller():
+    panel = (ROOT / "ArchViz" / "HudVirtualEditorPanel.cpp").read_text(encoding="utf-8")
+    controller = (ROOT / "ArchViz" / "OverlayControllerHud.cpp").read_text(encoding="utf-8")
+    viewer = (ROOT / "ArchViz" / "ViewerEditor.cpp").read_text(encoding="utf-8")
+    export = (ROOT / "ArchViz" / "HudVirtualEditorDebug.cpp").read_text(encoding="utf-8")
+    assert '"Export debug scene"' in panel
+    assert "RequestDebugExport (s)" in panel
+    assert "SaveDebugExport" not in panel and "EncodeDebugScene" not in panel
+    assert "edithud::SaveDebugExport (*state->virtualEditor)" in controller
+    assert viewer.index("edithud::SaveDebugExport (*state->virtualEditor)") > viewer.index(
+        "drawing->hud = overlayscene::PrepareSceneHud"
+    )
+    assert 'L"wbx"' in export  # exclusive creation, not overwrite/truncation
+    assert ' / "Tapioca" / "dumps"' in export
+    assert "WriteLandscapeDebugSnapshot" in export
+
+
 def test_viewer_flyout_opens_editor_directly_through_the_main_thread_request():
     source = (ROOT / "ArchViz" / "DiligentHudShell.cpp").read_text(encoding="utf-8")
     select = source[source.index("const auto select =") : source.index("const auto dock =")]

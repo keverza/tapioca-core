@@ -605,6 +605,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscapeCommand.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscapePanel.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTerrain.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDebug.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTerrainSetup.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorNavigation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorPlane.cpp"
@@ -888,6 +889,7 @@ set (EVP_TEST_SOURCES
     test_editlandscapestroke.cpp
     test_hudlandscapesets.cpp
     test_editlandscapeserialization.cpp
+    test_virtualeditordebug.cpp
     test_editpathnetwork.cpp
     test_fillet2d.cpp
     test_editpathcontours.cpp

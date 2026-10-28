@@ -7,6 +7,8 @@
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
 #include <atomic>
@@ -125,6 +127,10 @@ bool Refresh ()
     auto drawing = std::make_unique<Drawing> ();
     drawing->scale = scale;
     drawing->hud = overlayscene::PrepareSceneHud (overlaylayers::Layers (), engine, scale, input);
+    // This host has no overlay-controller refresh. Drain its explicit file action
+    // here on the main thread, after layout, never on the renderer's Present.
+    if (state->virtualEditor && state->virtualEditor->debugExportRequested)
+        edithud::SaveDebugExport (*state->virtualEditor);
     if (engine->Selected () == "@viewer.analysis") {
         // Navigation releases input, not the document. Renderer-owned analysis keeps
         // its own state; no Session or ImGui pointer crosses the thread boundary.

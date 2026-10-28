@@ -297,6 +297,9 @@ struct Session {
     std::string labelText;
     std::vector<edit::Ref> publishedSelection;
     std::string message;
+    bool debugExportRequested = false;
+    uint64_t debugExportRevision = 0;
+    std::string debugExportPath, debugExportError;
     roofcanvas::Frame canvas;
     ContextMenu menu;
 
