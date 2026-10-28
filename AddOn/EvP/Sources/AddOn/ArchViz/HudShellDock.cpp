@@ -46,7 +46,8 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
     const float r = (std::min) (float (graphicssettings::Number ("ui.dock.rounding", 6)) * scale, across * 0.5f);
     const uint32_t fill = open ? graphicssettings::Colour ("ui.dock.activeBackground", panel.accentRgba)
                                : graphicssettings::Colour ("ui.dock.background", panel.backgroundRgba);
-    const uint32_t ink = graphicssettings::Colour ("ui.dock.text", open ? Contrast (fill) : panel.textRgba);
+    const uint32_t ink = open ? graphicssettings::Colour ("ui.dock.activeText", 0xFFFFFFFFu)
+                              : graphicssettings::Colour ("ui.dock.text", panel.textRgba);
     const double seconds = ImGui::GetTime ();
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     const ImDrawFlags firstCorners =
@@ -423,7 +424,8 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
             else {
                 const uint32_t fill = open ? graphicssettings::Colour ("ui.dock.activeBackground", look.accentRgba)
                                            : graphicssettings::Colour ("ui.dock.background", look.backgroundRgba);
-                const uint32_t ink = graphicssettings::Colour ("ui.dock.text", open ? Contrast (fill) : look.textRgba);
+                const uint32_t ink = open ? graphicssettings::Colour ("ui.dock.activeText", 0xFFFFFFFFu)
+                                          : graphicssettings::Colour ("ui.dock.text", look.textRgba);
                 const ImVec4 base = ImGui::ColorConvertU32ToFloat4 (Packed (fill));
                 const auto darker = [&] (float factor) {
                     return ImVec4 (base.x * factor, base.y * factor, base.z * factor, base.w);

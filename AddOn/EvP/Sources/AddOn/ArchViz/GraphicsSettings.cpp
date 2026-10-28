@@ -82,6 +82,9 @@ Snapshot Defaults ()
     add ("ui.dock.background", "Dock interaction", Kind::Colour, 0xFAFAFAEEu, 0, 4294967295.0);
     add ("ui.dock.activeBackground", "Dock interaction", Kind::Colour, 0x5A7F62FFu, 0, 4294967295.0);
     add ("ui.dock.text", "Dock interaction", Kind::Colour, 0x1C211DFFu, 0, 4294967295.0);
+    // The open tab's own ink: white on the accent. One key for both states let the
+    // closed tab's dark default win over the accent's contrast colour.
+    add ("ui.dock.activeText", "Dock interaction", Kind::Colour, 0xFFFFFFFFu, 0, 4294967295.0);
     add ("ui.dock.hover", "Dock interaction", Kind::Colour, 0x5A7F624Du, 0, 4294967295.0);
     add ("ui.dock.pressed", "Dock interaction", Kind::Colour, 0x5A7F627Au, 0, 4294967295.0);
     add ("ui.dock.busy", "Dock interaction", Kind::Colour, 0xE8A33DFFu, 0, 4294967295.0);
