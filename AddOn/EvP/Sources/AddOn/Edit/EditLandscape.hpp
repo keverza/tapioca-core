@@ -3,6 +3,7 @@
 
 #include "Edit/EditPlanar.hpp"
 #include <array>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -100,6 +101,19 @@ struct LandscapeOperation {
     bool operator== (const LandscapeOperation&) const = default;
 };
 enum class ObjectKind : uint8_t { Path, Playground, Plaza, Parking, MaterialRegion, Edge };
+enum class RegionElevationMode : uint8_t { Existing, Constant };
+enum class RegionSlopeMode : uint8_t { None, TwoPoints, ContourLine };
+enum class RegionFallSide : uint8_t { Left, Right };
+struct RegionSurface {
+    RegionElevationMode elevation = RegionElevationMode::Existing;
+    RegionSlopeMode slope = RegionSlopeMode::None;
+    // One authored plane definition, not another boundary curve. first.z is
+    // the absolute level, or the first of two absolute point elevations.
+    Vec3 first, second { 1, 0, 0 };
+    double gradePercent = 2;
+    RegionFallSide fallsTo = RegionFallSide::Right;
+    bool operator== (const RegionSurface&) const = default;
+};
 struct HardscapeObject {
     Id id = kNoId, pathId = kNoId, footprintOperation = kNoId;
     ObjectKind kind = ObjectKind::Playground;
@@ -110,6 +124,7 @@ struct HardscapeObject {
     // The RegionBoundary source that owns this object's lifecycle; zero for
     // legacy/independently authored objects. Geometry still lives on the source.
     Id boundarySource = kNoId;
+    std::optional<RegionSurface> surface;
     bool operator== (const HardscapeObject&) const = default;
 };
 struct RegionIdentity {
@@ -285,6 +300,12 @@ bool SetLandscapePropertyLine (geomsrv::edit::Document& doc, Id source, std::str
 bool SetLandscapeSourceRole (geomsrv::edit::Document& doc, Id entity, SourceRole role, std::string& error);
 bool SetReferenceLineStyle (geomsrv::edit::Document& doc, Id source, ReferenceLineStyle style, std::string& error);
 bool LandscapeLineVisible (const geomsrv::edit::Document& doc, Id entity);
+bool ValidateRegionSurface (const RegionSurface& surface, std::string& error);
+// Existing has no vertical target. Constant/two-point/contour targets are
+// preview metadata only; this function never edits a terrain mesh.
+std::optional<double> RegionSurfaceElevation (const RegionSurface& surface, Vec3 point);
+bool SetRegionSurface (geomsrv::edit::Document& doc, Id object, const RegionSurface& surface,
+                       const MaterialSpec& material, std::string& error);
 // Names the session's base terrain: sets sourceTerrainGuid and keeps exactly one
 // live Terrain source carrying that GUID (created on first use, otherwise
 // updated), returning its ID. One authored edit; no geometry is read.

@@ -51,7 +51,8 @@ struct PanelGui {
         ImGui::DestroyContext (context);
         ImGui::SetCurrentContext (previous);
     }
-    std::string Frame (eh::Session& session, ImVec2 pointer = { 850, 1350 }, bool down = false, bool landscape = false)
+    std::string Frame (eh::Session& session, ImVec2 pointer = { 850, 1350 }, bool down = false, bool landscape = false,
+                       int region = 0)
     {
         auto& io = ImGui::GetIO ();
         io.AddMousePosEvent (pointer.x, pointer.y);
@@ -61,7 +62,9 @@ struct PanelGui {
         ImGui::SetNextWindowSize ({ 700, 1300 });
         ImGui::Begin ("terrain setup", nullptr, ImGuiWindowFlags_NoSavedSettings);
         ImGui::LogToBuffer ();
-        if (landscape)
+        if (region)
+            eh::RegionPanel (session, region == 2);
+        else if (landscape)
             eh::LandscapePanel (session);
         else
             eh::TerrainDesignPanel (session);
@@ -116,6 +119,79 @@ TEST (HudTerrainSetup, LandscapeSourceRoleControlsDoNotShareImGuiIds)
             EXPECT_LE (gui.context->HoveredIdPreviousFrameItemCount, 1) << "at " << x << ", " << y;
         }
     EXPECT_GT (hovered, 0u);
+}
+
+TEST (HudTerrainSetup, RegionSurfacePanelNamesContourDirectionAndHidesForReferenceSelection)
+{
+    auto doc = EmptyLandscape ();
+    const auto region = edit::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, true);
+    const auto reference = edit::AddPolyline (doc, { { 20, 0, 0 }, { 30, 0, 0 } }, false);
+    std::string error;
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, region, lg::SourceRole::RegionBoundary, error));
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, reference, lg::SourceRole::ReferenceLine, error));
+    const auto object = doc.landscape->objects[0].id;
+    auto surface = *doc.landscape->objects[0].surface;
+    surface.elevation = lg::RegionElevationMode::Constant;
+    surface.slope = lg::RegionSlopeMode::ContourLine;
+    ASSERT_TRUE (lg::SetRegionSurface (doc, object, surface, {}, error));
+    eh::Session session (doc);
+    session.selection.Set ({ { region, edit::Part::Entity, 0 } });
+    PanelGui gui;
+    const auto text = gui.Frame (session, { 850, 1350 }, false, false, 1);
+    EXPECT_NE (text.find ("Fall side"), std::string::npos);
+    EXPECT_NE (text.find ("perpendicular"), std::string::npos);
+    EXPECT_NE (text.find ("not applied yet"), std::string::npos);
+    EXPECT_EQ (session.landscapeObject, object);
+    const auto materialText = gui.Frame (session, { 850, 1350 }, false, false, 2);
+    EXPECT_NE (materialText.find ("#26"), std::string::npos);
+    EXPECT_NE (materialText.find ("Material preset metadata"), std::string::npos);
+    session.selection.Set ({ { reference, edit::Part::Entity, 0 } });
+    const auto refText = gui.Frame (session, { 850, 1350 }, false, false, 1);
+    EXPECT_EQ (refText.find ("Elevation"), std::string::npos);
+    const auto refMaterial = gui.Frame (session, { 850, 1350 }, false, false, 2);
+    EXPECT_EQ (refMaterial.find ("Material preset metadata"), std::string::npos);
+    EXPECT_EQ (session.edits.UndoDepth (), 0u);
+}
+
+TEST (HudTerrainSetup, RegionSlopeCanTakeTwoSelectedVerticesInOneUndoableClick)
+{
+    auto doc = EmptyLandscape ();
+    const auto line = edit::AddPolyline (doc, { { 1, 2, 10 }, { 11, 2, 10.5 }, { 11, 12, 10 } }, true);
+    std::string error;
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, line, lg::SourceRole::RegionBoundary, error));
+    const auto object = doc.landscape->objects[0].id;
+    auto surface = *doc.landscape->objects[0].surface;
+    surface.elevation = lg::RegionElevationMode::Constant;
+    surface.slope = lg::RegionSlopeMode::TwoPoints;
+    ASSERT_TRUE (lg::SetRegionSurface (doc, object, surface, {}, error));
+    eh::Session session (doc);
+    session.selection.Set ({ { line, edit::Part::Vertex, doc.entities[0].vertices[0].id },
+                             { line, edit::Part::Vertex, doc.entities[0].vertices[1].id } });
+    PanelGui gui;
+    gui.Frame (session, { 850, 1350 }, false, false, 1);
+    const auto* window = ImGui::FindWindowByName ("terrain setup");
+    const auto scope = ImHashStr ("region-surface", 0, window->ID);
+    const auto owner = ImHashStr (std::to_string (object).c_str (), 0, scope);
+    const auto target = ImHashStr ("Use two selected vertices", 0, owner);
+    bool clicked = false;
+    for (float y = 24; y < 1250; y += 4) {
+        const ImVec2 pointer { 40, y };
+        gui.Frame (session, pointer, false, false, 1);
+        if (gui.context->HoveredId != target)
+            continue;
+        gui.Frame (session, pointer, true, false, 1);
+        gui.Frame (session, pointer, false, false, 1);
+        clicked = true;
+        break;
+    }
+    ASSERT_TRUE (clicked);
+    const auto& after = *session.edits.Doc ().landscape->objects[0].surface;
+    EXPECT_EQ (after.first, doc.entities[0].vertices[0].p);
+    EXPECT_EQ (after.second, doc.entities[0].vertices[1].p);
+    EXPECT_EQ (session.edits.Doc ().entities, doc.entities);
+    EXPECT_EQ (session.edits.UndoDepth (), 1u);
+    ASSERT_TRUE (session.edits.Undo ());
+    EXPECT_EQ (session.edits.Doc ().landscape, doc.landscape);
 }
 
 TEST (HudTerrainSetup, FreshLandscapeOffersCreationInsteadOfAnEmptySelectorAndDisabledDeadEnd)

@@ -257,7 +257,7 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
     });
     Each (landscape.Field ("objects"), [&] (const Reader& item) {
         item.Fields ({ "id", "path", "footprint", "kind", "name", "material", "thickness", "masks" },
-                     { "boundarySource" });
+                     { "boundarySource", "surface" });
         HardscapeObject object;
         object.id = item.Field ("id").Identifier ();
         object.pathId = item.Field ("path").Identifier ();
@@ -269,6 +269,16 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
         object.maskOperations = item.Field ("masks").Ids ();
         if (item.Has ("boundarySource"))
             object.boundarySource = item.Field ("boundarySource").Identifier ();
+        if (item.Has ("surface")) {
+            const auto surface = item.Field ("surface");
+            surface.Fields ({ "elevation", "slope", "first", "second", "gradePercent", "fallsTo" });
+            object.surface = RegionSurface { Enum (surface.Field ("elevation"), RegionElevationMode::Constant),
+                                             Enum (surface.Field ("slope"), RegionSlopeMode::ContourLine),
+                                             surface.Field ("first").Point (),
+                                             surface.Field ("second").Point (),
+                                             surface.Field ("gradePercent").Number (),
+                                             Enum (surface.Field ("fallsTo"), RegionFallSide::Right) };
+        }
         s.objects.push_back (std::move (object));
     });
     Each (landscape.Field ("regions"), [&] (const Reader& item) {

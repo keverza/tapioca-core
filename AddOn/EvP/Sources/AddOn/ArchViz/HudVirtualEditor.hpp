@@ -352,6 +352,7 @@ bool SetSelectedSourceRole (Session& session, tapioca::geometry::SourceRole role
 // The role the selected lines share, or none when they have no source or differ.
 std::optional<tapioca::geometry::SourceRole> SelectedSourceRole (const Session& session);
 void LandscapePanel (Session& session);
+void RegionPanel (Session& session, bool materialsOnly = false);
 // A building entrance where `point` lies within `reach` metres of a building outline, at the
 // working plane's height; one undo step (HudVirtualEditorEntrances.cpp).
 bool PlaceEntrance (Session& session, edit::Vec3 point, double reach);

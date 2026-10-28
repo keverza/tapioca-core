@@ -142,11 +142,10 @@ void LandscapePanel (Session& s)
                 ImGui::TextWrapped (
                     "Reference line: snappable linework only. No fill, material, quantities or terrain effect. "
                     "Use Reference line display below to change line style, visibility and lock.");
-            else if (shared == lg::SourceRole::RegionBoundary)
-                ImGui::TextWrapped ("Region boundary: closed footprint and hardscape object. "
-                                    "Surface metadata and terrain grading are not enabled yet.");
             ImGui::TextDisabled ("A region boundary must be a closed editor-owned line.");
             ReferenceLinesPanel (s);
+            if (shared != lg::SourceRole::ReferenceLine)
+                RegionPanel (s);
             ImGui::EndTabItem ();
         }
         if (ImGui::BeginTabItem ("Operations")) {
@@ -173,7 +172,7 @@ void LandscapePanel (Session& s)
             ImGui::EndTabItem ();
         }
         if (ImGui::BeginTabItem ("Materials")) {
-            ImGui::TextDisabled ("Material authoring follows in H3/H13. No terrain or native output yet.");
+            RegionPanel (s, true);
             ImGui::EndTabItem ();
         }
         if (ImGui::BeginTabItem ("Warnings")) {

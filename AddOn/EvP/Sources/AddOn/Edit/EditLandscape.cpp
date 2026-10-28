@@ -165,6 +165,7 @@ bool SyncRegionUsage (edit::Document& doc, const LandscapeSource& source, std::s
         region.kind = ObjectKind::Plaza;
         region.name = "Region";
         region.boundarySource = source.id;
+        region.surface.emplace ();
         region.footprintOperation = operation;
         s.objects.push_back (region);
         return true;
@@ -394,6 +395,11 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
             }
     std::set<Id> boundaryOwners;
     for (const auto& v : s.objects) {
+        if (v.surface && (!v.boundarySource || !ValidateRegionSurface (*v.surface, error))) {
+            if (error.empty ())
+                error = "Surface metadata needs a region-boundary owner.";
+            return false;
+        }
         if (!claim (v.id) || v.kind > ObjectKind::Edge || !Material (v.baseMaterial) || !std::isfinite (v.thickness) ||
             v.thickness < 0 || !operations.count (v.footprintOperation) ||
             (v.pathId && edit::FindPath (doc, v.pathId) == nullptr) ||
@@ -835,5 +841,27 @@ bool LandscapeLineVisible (const edit::Document& doc, Id entity)
                 !source.lineStyle.visible)
                 return false;
     return true;
+}
+
+bool SetRegionSurface (edit::Document& doc, Id object, const RegionSurface& surface, const MaterialSpec& material,
+                       std::string& error)
+{
+    return Mutate (
+        doc,
+        [=] (edit::Document& d, std::string& e) {
+            for (auto& region : d.landscape->objects)
+                if (region.id == object && region.boundarySource &&
+                    std::any_of (d.landscape->sources.begin (), d.landscape->sources.end (), [&] (const auto& source) {
+                        return source.id == region.boundarySource && !source.deleted &&
+                               source.role == SourceRole::RegionBoundary;
+                    })) {
+                    region.surface = surface;
+                    region.baseMaterial = material;
+                    return true;
+                }
+            e = "Select a region-boundary object.";
+            return false;
+        },
+        error);
 }
 } // namespace tapioca::geometry

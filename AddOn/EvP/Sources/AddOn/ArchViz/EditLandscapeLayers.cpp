@@ -20,8 +20,19 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
         return out;
     };
     const auto region = [&] (const lg::DerivedRegion& r, uint32_t edge, bool fill) {
-        for (const auto& ring : r.rings)
-            layer.polylines.push_back (line (ring, true, edge, style.lineWidth, true));
+        const lg::RegionSurface* surface = nullptr;
+        for (const auto& object : doc.landscape->objects)
+            if (object.id == r.objectId && object.surface)
+                surface = &*object.surface;
+        const auto at = [&] (edit::Vec3 p) {
+            p.z = surface ? lg::RegionSurfaceElevation (*surface, p).value_or (f.landscapeZ) : f.landscapeZ;
+            return p;
+        };
+        for (auto ring : r.rings) {
+            for (auto& p : ring)
+                p = at (p);
+            layer.polylines.push_back (line (ring, true, edge, style.lineWidth, false));
+        }
         if (!fill)
             return;
         lg::LandscapePreviewMesh preview;
@@ -40,7 +51,8 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
         mesh.indices = std::move (preview.triangles);
         mesh.points.reserve (preview.vertices.size () * 3);
         for (const auto& p : preview.vertices) {
-            mesh.points.insert (mesh.points.end (), { p.x, p.y, f.landscapeZ });
+            const auto q = at (p);
+            mesh.points.insert (mesh.points.end (), { q.x, q.y, q.z });
         }
         mesh.rgba = edge == style.landscapeEdge ? style.landscapeFill : (edge & 0xFFFFFF00u) | 0x28u;
         mesh.styled = true;
