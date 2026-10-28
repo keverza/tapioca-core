@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 using namespace geomsrv::archviz;
 
 namespace {
@@ -82,6 +84,7 @@ TEST (ViewpointOverlay, ASphereIsAHullOverItsRayEndsColouredByWhatStoppedThem)
     result.options.mode = evp::sunstudy::ViewpointMode::Sphere;
     result.options.sphereRows = 2;
     result.options.sphereColumns = 4;
+    result.options.point = { 0, 0, 0 };
     result.perimeter = { { 1, 0, -1 }, { 0, 1, -1 }, { -1, 0, -1 }, { 0, -1, -1 },
                          { 1, 0, 1 },  { 0, 1, 1 },  { -1, 0, 1 },  { 0, -1, 1 } };
     result.rayMesh = { -1, -1, -1, -1, 0, -1, -1, -1 };
@@ -91,4 +94,8 @@ TEST (ViewpointOverlay, ASphereIsAHullOverItsRayEndsColouredByWhatStoppedThem)
     EXPECT_EQ (bucket.meshIndices.size (), 4u * 6u) << "one band of quads, wrapping all round";
     EXPECT_EQ (bucket.meshVertices[4].rgba & 0xFFFFFF00u, style.blockedRgba & 0xFFFFFF00u);
     EXPECT_EQ (bucket.meshVertices[5].rgba, style.fillRgba);
+    // Inset toward the point, off the surface the ray stopped on.
+    const double reach = std::sqrt (double (bucket.meshVertices[4].x) * bucket.meshVertices[4].x +
+                                    double (bucket.meshVertices[4].z) * bucket.meshVertices[4].z);
+    EXPECT_NEAR (reach, std::sqrt (2.0) - 0.05, 1e-6);
 }

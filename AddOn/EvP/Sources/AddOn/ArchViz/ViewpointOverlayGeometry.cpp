@@ -10,6 +10,11 @@ namespace {
 constexpr size_t kGuideSegments = 180;
 constexpr double kRunTickMetres = 0.25; // half-height of the mark at each end of a Context run
 constexpr double kPi = 3.14159265358979323846;
+// ⚠️ THE SPHERE'S HULL IS INSET TOWARD THE POINT. A ray that stops on Context
+// ends exactly ON that surface, so the hull between neighbouring stopped rays
+// lies in the wall's own plane and z-fights it. 5 cm, and at most a tenth of
+// the ray, keeps it just in front of the surface it describes.
+constexpr double kSphereInsetMetres = 0.05;
 
 void Segment (const std::array<double, 3>& a, const std::array<double, 3>& b, uint32_t rgba, GhPreviewBucket& bucket)
 {
@@ -92,13 +97,16 @@ void Sphere (const evp::sunstudy::ViewpointStudyResult& result, const ViewpointO
     const bool rays = result.rayMesh.size () == result.perimeter.size ();
     // The fill's alpha on the blocked colour, so blocked and open read alike in weight.
     const uint32_t blocked = (style.blockedRgba & 0xFFFFFF00u) | (style.fillRgba & 0xFFu);
+    const auto& point = result.options.point;
     for (size_t i = 0; i < result.perimeter.size (); ++i) {
-        const auto& at = result.perimeter[i];
-        double normal[3] = { at[0] - result.options.point[0], at[1] - result.options.point[1],
-                             at[2] - result.options.point[2] };
+        const auto& end = result.perimeter[i];
+        double normal[3] = { end[0] - point[0], end[1] - point[1], end[2] - point[2] };
         const double length = std::sqrt (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
         for (double& n : normal)
             n = length > 1.0e-12 ? n / length : 0.0;
+        const double reach = length - (std::min) (kSphereInsetMetres, 0.1 * length);
+        const std::array<double, 3> at = { point[0] + normal[0] * reach, point[1] + normal[1] * reach,
+                                           point[2] + normal[2] * reach };
         bucket.meshVertices.push_back (Vertex (at, normal, rays && result.rayMesh[i] >= 0 ? blocked : style.fillRgba));
     }
     for (size_t row = 0; row + 1 < rows; ++row)
