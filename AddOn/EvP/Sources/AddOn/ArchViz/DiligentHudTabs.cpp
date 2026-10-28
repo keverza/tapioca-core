@@ -142,8 +142,11 @@ void SelectionPage (Shell& shell, const HudState& state, float ui)
 
 void SunStudyPage (HudState& state, const DiligentSceneStats& scene)
 {
-    const bool changed = state.analysisSeenKind != scene.sunStudy.analysisKind;
-    state.analysisSeenKind = scene.sunStudy.analysisKind;
+    // Follow a study that ARRIVES, never one that leaves: a role edit clears the
+    // display, and following that clear sent the page back to the first tab.
+    const std::string shown = scene.sunStudy.drawing ? scene.sunStudy.studyId : std::string ();
+    const bool changed = !shown.empty () && shown != state.analysisSeenStudy;
+    state.analysisSeenStudy = shown;
     if (!hudshell::BeginSubTabs ("##analysis-study"))
         return;
     const ImGuiTabItemFlags sunFlags = changed && scene.sunStudy.analysisKind == 0 ? ImGuiTabItemFlags_SetSelected : 0;

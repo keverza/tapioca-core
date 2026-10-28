@@ -22,3 +22,11 @@ def test_visibility_tabs_set_the_submitted_study_origin():
     assert "state.visibilityOrigin = origin;" in source
     assert "bool changed = originChanged;" in source
     assert "request.options.origin = state.visibilityOrigin == 0" in source
+
+
+def test_clearing_a_study_does_not_send_the_analysis_page_to_its_first_tab():
+    # A role edit clears the display; only a study that ARRIVES may pick a tab.
+    tabs = (_ARCHVIZ / "DiligentHudTabs.cpp").read_text(encoding="utf-8")
+    page = tabs.split("void SunStudyPage", 1)[1].split("hudshell::BeginSubTabs", 1)[0]
+    assert "const bool changed = !shown.empty () && shown != state.analysisSeenStudy;" in page
+    assert "analysisKind" not in page

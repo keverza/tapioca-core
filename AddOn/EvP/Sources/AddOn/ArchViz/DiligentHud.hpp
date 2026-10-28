@@ -209,7 +209,7 @@ struct HudState {
     std::string visibilitySubmitError;
     double visibilityPoint[3] = { 0.0, 0.0, 0.0 };
     double visibilityDirection[3] = { 1.0, 0.0, 0.0 };
-    uint32_t analysisSeenKind = 0xffffffffu;
+    std::string analysisSeenStudy; // the drawn study the Analysis tabs last followed
     bool viewpointPlacing = false;
     // Clicking a model element adds it to Context, or removes it (Viewpoint tab).
     bool viewpointPickingContext = false;
