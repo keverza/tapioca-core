@@ -24,7 +24,12 @@ Gumball MakeGumball (const double point[3], const float viewProj[16], uint32_t w
 int HitGumball (const Gumball& gizmo, float x, float y);
 // `hot` is the part under the cursor or being dragged, numbered as HitGumball
 // numbers it (-1 none): drawn lighter and heavier, so it reads as grabbable.
-void DrawGumball (const Gumball& gizmo, ImDrawList* draw, int hot = -1);
+// `centre` tells handles apart: the view point is yellow, a target another hue.
+void DrawGumball (const Gumball& gizmo, ImDrawList* draw, int hot = -1, ImU32 centre = IM_COL32 (245, 196, 79, 255));
+// A handle that is not the selected one: its centre alone, a click target.
+void DrawGumballMarker (ImVec2 at, ImDrawList* draw, bool hot, ImU32 centre);
+// How near the cursor must be to a marker to pick it, in pixels.
+constexpr float kGumballMarkerPickPixels = 9.0f;
 
 } // namespace geomsrv::archviz
 

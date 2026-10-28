@@ -437,13 +437,42 @@ TEST (ViewpointGumballInteraction, TheConeTargetHasItsOwnGumballAndStopsFollowin
     Multiply (matrix, viewMatrix, projection);
     const float start[3] = { 2, 0, 10 }, direction[3] = { 0, 0, -1 }, moved[3] = { 3, 1, 10 };
     viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, start, direction);
-    ASSERT_TRUE (hud.viewpointDragging);
+    ASSERT_TRUE (hud.viewpointDragging) << "pressing the target's marker selects it and drags it in plan";
     EXPECT_EQ (hud.viewpointDragHandle, 1);
+    EXPECT_EQ (hud.viewpointActiveHandle, 1) << "the target now shows its gumball, the point a marker";
     input.transitionCount = 0;
     viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, moved, direction);
     EXPECT_DOUBLE_EQ (hud.visibilityTarget[0], 3.0);
     EXPECT_DOUBLE_EQ (hud.visibilityTarget[1], 1.0);
     EXPECT_TRUE (hud.visibilityTargetEdited);
     EXPECT_DOUBLE_EQ (view::GetSettings ()->options.point[0], 0.0) << "the point keeps still";
+    view::Shutdown ();
+}
+
+TEST (ViewpointGumballInteraction, ATargetFacingFieldOfViewTurnsToItsTarget)
+{
+    using namespace geomsrv::archviz;
+    view::Shutdown ();
+    view::Settings settings;
+    settings.enabled = true;
+    settings.options.point = { 0, 0, 0 };
+    settings.options.mode = ViewpointMode::FieldOfView;
+    view::Configure (settings);
+    HudState hud;
+    hud.analysisFocus.tab = analysistabs::kViewpointTab;
+    hud.viewpointFaceTarget = true;
+    hud.visibilityTargetSet = true;
+    hud.visibilityTarget[0] = 0.0;
+    hud.visibilityTarget[1] = 5.0;
+    InputSnapshot input;
+    float matrix[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    const float origin[3] = { 0, 0, 10 }, direction[3] = { 0, 0, -1 };
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, origin, direction);
+    EXPECT_NEAR (view::GetSettings ()->options.bearingDegrees, 90.0, 1e-9);
+    EXPECT_EQ (hud.viewpointActiveHandle, 0) << "the view point stays selected until the target is clicked";
+    hud.viewpointFaceTarget = false;
+    hud.visibilityTarget[0] = 5.0;
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, origin, direction);
+    EXPECT_NEAR (view::GetSettings ()->options.bearingDegrees, 90.0, 1e-9) << "a free bearing ignores the target";
     view::Shutdown ();
 }

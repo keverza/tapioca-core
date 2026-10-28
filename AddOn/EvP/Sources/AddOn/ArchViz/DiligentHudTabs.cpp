@@ -154,6 +154,7 @@ void SunStudyPage (HudState& state, const DiligentSceneStats& scene)
     if (ImGui::BeginTabItem ("Sun study", nullptr, flags (analysistabs::kSunTab))) {
         analysistabs::Opened (focus, analysistabs::kSunTab);
         state.viewpointPlacing = false;
+        state.viewpointPlacingTarget = false;
         state.viewpointPickingContext = false;
         DrawSunStudyHudSection (state, scene);
         ImGui::EndTabItem ();

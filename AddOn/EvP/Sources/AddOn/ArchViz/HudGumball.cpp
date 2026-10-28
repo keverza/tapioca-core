@@ -73,7 +73,29 @@ int HitGumball (const Gumball& gizmo, float x, float y)
     return picked;
 }
 
-void DrawGumball (const Gumball& gizmo, ImDrawList* draw, int hot)
+namespace {
+
+ImU32 Lighter (ImU32 colour)
+{
+    ImVec4 c = ImGui::ColorConvertU32ToFloat4 (colour);
+    c.x += (1.0f - c.x) * 0.45f;
+    c.y += (1.0f - c.y) * 0.45f;
+    c.z += (1.0f - c.z) * 0.45f;
+    return ImGui::ColorConvertFloat4ToU32 (c);
+}
+
+} // namespace
+
+void DrawGumballMarker (ImVec2 at, ImDrawList* draw, bool hot, ImU32 centre)
+{
+    if (draw == nullptr)
+        return;
+    draw->AddCircleFilled (at, hot ? 8.0f : 6.0f, hot ? Lighter (centre) : centre);
+    draw->AddCircle (at, hot ? 10.5f : 8.0f, hot ? IM_COL32 (255, 255, 255, 230) : IM_COL32 (20, 24, 28, 200), 0,
+                     hot ? 2.0f : 1.5f);
+}
+
+void DrawGumball (const Gumball& gizmo, ImDrawList* draw, int hot, ImU32 centre)
 {
     if (!gizmo.valid || draw == nullptr)
         return;
@@ -98,11 +120,11 @@ void DrawGumball (const Gumball& gizmo, ImDrawList* draw, int hot)
         draw->AddText (ImVec2 (tip.x + 5, tip.y + 5), colour, names[axis]);
     }
     if (hot == 3) {
-        draw->AddCircleFilled (gizmo.center, 9.5f, IM_COL32 (255, 222, 140, 255));
+        draw->AddCircleFilled (gizmo.center, 9.5f, Lighter (centre));
         draw->AddCircle (gizmo.center, 12.0f, IM_COL32 (255, 255, 255, 220), 0, 2.0f);
     }
     else
-        draw->AddCircleFilled (gizmo.center, 7.0f, IM_COL32 (245, 196, 79, 255));
+        draw->AddCircleFilled (gizmo.center, 7.0f, centre);
 }
 
 } // namespace geomsrv::archviz

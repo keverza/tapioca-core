@@ -235,8 +235,13 @@ struct HudState {
     bool viewpointDragging = false;
     int viewpointDragAxis = -1;
     int viewpointHotPart = -1;   // the gumball part under the cursor or dragged (HitGumball's numbering)
-    int viewpointDragHandle = 0; // 0 the shared point, 1 point visibility's cone target
+    int viewpointDragHandle = 0; // 0 the shared point, 1 the target
     int viewpointHotHandle = 0;
+    // Only the selected handle shows its gumball; the other is a marker a click selects.
+    int viewpointActiveHandle = 0;
+    bool viewpointPlacingTarget = false; // the next model click places the target
+    // Field of view: its bearing follows the target (shared with point visibility's cone).
+    bool viewpointFaceTarget = false;
     uint64_t viewpointSeenRevision = 0;
     double viewpointDragPoint[3] = {}, viewpointDragParameter[3] = {};
     float annotationTextHeightMetres = 0.18f;
@@ -675,8 +680,12 @@ namespace viewerhud {
 // A HUD edit configures through this so it is never mistaken for a command's.
 void ConfigureViewpoint (HudState& state, viewpointstudy::Settings settings);
 bool DrawSharedContextToggle (viewpointstudy::Settings& settings);
-// Point visibility's cone target has a gumball of its own.
-bool ShowsTargetGumball (const HudState& state);
+// The target -- point visibility's cone target, and what a target-facing field
+// of view faces -- is shown and movable on those two tabs.
+bool ShowsTargetPoint (const HudState& state);
+// The view point's and the target's colours, so the two never read as one.
+constexpr uint32_t kViewPointRgba = 0xF5C44FFFu;   // yellow
+constexpr uint32_t kTargetPointRgba = 0x50BEEBFFu; // blue
 // DiligentHudControls.cpp. A swatch that opens a colour picker; `alpha` adds the opacity bar.
 bool ColourPicker (const char* label, uint32_t& rgba, bool alpha);
 // A choice among options: a row of buttons below four short options, a list box

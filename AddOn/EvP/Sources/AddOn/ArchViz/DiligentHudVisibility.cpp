@@ -211,6 +211,7 @@ bool DrawPointControls (HudState& state, viewpointstudy::Settings& shared, const
     // The Viewpoint tab's point: placed, typed or dragged in either tab.
     if (ImGui::Button (state.viewpointPlacing ? "Click a model surface..." : "Place view point")) {
         state.viewpointPlacing = true;
+        state.viewpointPlacingTarget = false;
         state.viewpointPlacementMiss = false;
         state.viewpointDragging = false;
     }
@@ -246,6 +247,13 @@ bool DrawPointControls (HudState& state, viewpointstudy::Settings& shared, const
         }
         ImGui::SetItemTooltip ("Where the cone looks: Focus's centre until you move it. The cone keeps its target "
                                "when the point moves; drag the target's gumball too.");
+        if (ImGui::SmallButton (state.viewpointPlacingTarget ? "Click a model surface...##target" : "Place target")) {
+            state.viewpointPlacingTarget = true;
+            state.viewpointPlacing = false;
+            state.viewpointDragging = false;
+        }
+        ImGui::SetItemTooltip ("Click the model where the cone should look.");
+        ImGui::SameLine ();
         ImGui::BeginDisabled (!state.visibilityTargetEdited);
         if (ImGui::SmallButton ("Focus centre")) {
             state.visibilityTargetEdited = false;

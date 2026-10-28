@@ -109,8 +109,10 @@ void DrawGumballHint (const HudState& state)
     if (state.viewpointDragging)
         return;
     static const char* const kAxes[3] = { "X", "Y", "Z" };
-    const char* what = state.viewpointHotHandle == 1 ? "the cone's target" : "the point";
-    if (state.viewpointHotPart == 3)
+    const char* what = state.viewpointHotHandle == 1 ? "the target" : "the view point";
+    if (state.viewpointHotHandle != state.viewpointActiveHandle)
+        ImGui::SetTooltip ("Click to select %s; drag to move it in plan", what);
+    else if (state.viewpointHotPart == 3)
         ImGui::SetTooltip ("Drag to move %s in plan", what);
     else
         ImGui::SetTooltip ("Drag to move %s along %s", what, kAxes[state.viewpointHotPart]);
@@ -126,10 +128,15 @@ bool LeftTransition (const InputSnapshot& input, bool down)
 
 } // namespace
 
-bool ShowsTargetGumball (const HudState& state)
+bool ShowsTargetPoint (const HudState& state)
 {
-    return !state.readOnly && state.analysisFocus.tab == analysistabs::kPointVisibilityTab &&
-           state.visibilityView == 0 && state.visibilityTargetSet;
+    if (state.readOnly || !state.visibilityTargetSet)
+        return false;
+    if (state.analysisFocus.tab == analysistabs::kPointVisibilityTab)
+        return state.visibilityView == 0;
+    const auto settings = viewpointstudy::GetSettings ();
+    return state.analysisFocus.tab == analysistabs::kViewpointTab && settings->enabled &&
+           settings->options.mode == evp::sunstudy::ViewpointMode::FieldOfView && state.viewpointFaceTarget;
 }
 
 void ConfigureViewpoint (HudState& state, viewpointstudy::Settings settings)
@@ -208,6 +215,7 @@ void DrawViewpointHudSection (HudState& state)
         settings.pointValid = true;
     if (ImGui::Button (state.viewpointPlacing ? "Click a model surface..." : "Place viewpoint")) {
         state.viewpointPlacing = true;
+        state.viewpointPlacingTarget = false;
         state.viewpointPickingContext = false;
         state.viewpointDragging = false;
         settings.enabled = true;
@@ -224,17 +232,32 @@ void DrawViewpointHudSection (HudState& state)
                            "the same within a view angle. Spherical isovist: every direction within a band of "
                            "elevations, as a visible volume.");
     if (options.mode == evp::sunstudy::ViewpointMode::FieldOfView) {
-        changed |= ImGui::InputDouble ("bearing (deg)", &options.bearingDegrees, 5.0, 45.0, "%.0f");
-        ImGui::SetItemTooltip ("The view's centre, counterclockwise from +X (east).");
-        if (state.visibilityTargetSet) {
-            ImGui::SameLine ();
-            if (ImGui::SmallButton ("Aim at target")) {
-                options.bearingDegrees = std::atan2 (state.visibilityTarget[1] - options.point[1],
-                                                     state.visibilityTarget[0] - options.point[0]) *
-                                         180.0 / 3.14159265358979323846;
-                changed = true;
+        ImGui::Checkbox ("Face target", &state.viewpointFaceTarget);
+        ImGui::SetItemTooltip ("The view turns to face a target point, and keeps facing it as either moves. "
+                               "Point visibility's cone shares the target.");
+        if (state.viewpointFaceTarget) {
+            if (ImGui::SmallButton (state.viewpointPlacingTarget ? "Click a model surface...##target"
+                                                                 : "Place target")) {
+                state.viewpointPlacingTarget = true;
+                state.viewpointPlacing = false;
+                state.viewpointPickingContext = false;
+                state.viewpointDragging = false;
             }
-            ImGui::SetItemTooltip ("Face Point visibility's cone target.");
+            ImGui::SetItemTooltip ("Click the model where the view should face.");
+            if (ImGui::InputScalarN ("Target XYZ (m)##viewpoint", ImGuiDataType_Double, state.visibilityTarget, 3,
+                                     nullptr, nullptr, "%.2f")) {
+                state.visibilityTargetSet = true;
+                state.visibilityTargetEdited = true;
+            }
+            ImGui::SetItemTooltip ("Or click its blue marker in the view and drag its gumball.");
+            if (!state.visibilityTargetSet)
+                ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "Place a target to face.");
+            else
+                ImGui::Text ("bearing %.0f deg", options.bearingDegrees);
+        }
+        else {
+            changed |= ImGui::InputDouble ("bearing (deg)", &options.bearingDegrees, 5.0, 45.0, "%.0f");
+            ImGui::SetItemTooltip ("The view's centre, counterclockwise from +X (east).");
         }
         float angle = float (options.fieldOfViewDegrees);
         if (ImGui::SliderFloat ("view angle", &angle, 1.0f, 359.0f, "%.0f deg")) {
@@ -304,26 +327,48 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
     state.viewpointOwnsMouse = false;
     state.viewpointHotPart = -1;
     const bool point = !state.readOnly && shared->pointValid && ShowsPointGumball (state, *shared);
-    const bool target = ShowsTargetGumball (state);
-    if (state.viewpointPlacing || (!point && !target)) {
+    const bool target = ShowsTargetPoint (state);
+    // A target-facing field of view turns with its target, whichever moved.
+    if (target && state.analysisFocus.tab == analysistabs::kViewpointTab) {
+        const double bearing = std::atan2 (state.visibilityTarget[1] - shared->options.point[1],
+                                           state.visibilityTarget[0] - shared->options.point[0]) *
+                               180.0 / 3.14159265358979323846;
+        if (std::abs (bearing - shared->options.bearingDegrees) > 1.0e-6) {
+            auto settings = *shared;
+            settings.options.bearingDegrees = bearing;
+            ConfigureViewpoint (state, std::move (settings));
+        }
+    }
+    if (!target)
+        state.viewpointActiveHandle = 0;
+    else if (!point)
+        state.viewpointActiveHandle = 1;
+    if (state.viewpointPlacing || state.viewpointPlacingTarget || (!point && !target)) {
         state.viewpointDragging = false;
         viewpointstudy::Tick (visibilitystudy::ViewerCapture ());
         return;
     }
-    // Two handles: the shared point, and point visibility's cone target. The
-    // point wins where they overlap -- it is the one the target is seen from.
+    // Two handles, the shared point and the target. Only the selected one has a
+    // gumball; the other is a marker, and pressing it selects it and drags it in
+    // plan at once, the way its centre disc would.
     const float x = float (CursorTargetX (input, width)), y = float (CursorTargetY (input, height));
-    const int pointHit = point && input.inside
-                             ? HitGumball (MakeGumball (shared->options.point.data (), viewProj, width, height), x, y)
-                             : -1;
-    const int targetHit = target && input.inside && pointHit < 0
-                              ? HitGumball (MakeGumball (state.visibilityTarget, viewProj, width, height), x, y)
-                              : -1;
-    const int hit = pointHit >= 0 ? pointHit : targetHit;
-    const int handle = pointHit >= 0 ? 0 : 1;
+    const int active = state.viewpointActiveHandle;
+    const auto activeGizmo =
+        MakeGumball (active == 0 ? shared->options.point.data () : state.visibilityTarget, viewProj, width, height);
+    const auto otherGizmo =
+        MakeGumball (active == 0 ? state.visibilityTarget : shared->options.point.data (), viewProj, width, height);
+    const bool otherShown = active == 0 ? target : point;
+    int hit = input.inside ? HitGumball (activeGizmo, x, y) : -1;
+    int handle = active;
+    if (hit < 0 && input.inside && otherShown && otherGizmo.valid &&
+        std::hypot (x - otherGizmo.center.x, y - otherGizmo.center.y) <= kGumballMarkerPickPixels) {
+        hit = 3;
+        handle = 1 - active;
+    }
     const double origin[3] = { rayOrigin[0], rayOrigin[1], rayOrigin[2] };
     const double direction[3] = { rayDirection[0], rayDirection[1], rayDirection[2] };
     if (!state.viewpointDragging && !state.wantsMouse && hit >= 0 && LeftTransition (input, true)) {
+        state.viewpointActiveHandle = handle;
         state.viewpointDragAxis = hit;
         state.viewpointDragHandle = handle;
         if (handle == 0)
@@ -377,7 +422,9 @@ void PlaceViewpointFromPick (HudState& state, const DiligentScene&, const InputS
         ConfigureViewpoint (state, std::move (settings));
         return;
     }
-    if (!state.viewpointPlacing || state.wantsMouse || !input.inside || !LeftTransition (input, false))
+    const bool placingTarget = state.viewpointPlacingTarget;
+    if ((!state.viewpointPlacing && !placingTarget) || state.wantsMouse || !input.inside ||
+        !LeftTransition (input, false))
         return;
     state.viewpointPlacementMiss = true;
     const auto snapshot = visibilitystudy::ViewerCapture ();
@@ -397,6 +444,16 @@ void PlaceViewpointFromPick (HudState& state, const DiligentScene&, const InputS
     }
     if (!hit.hit)
         return;
+    if (placingTarget) {
+        // On the surface itself: the target is what is looked at, not an eye.
+        std::copy (hit.point, hit.point + 3, state.visibilityTarget);
+        state.visibilityTargetSet = true;
+        state.visibilityTargetEdited = true;
+        state.viewpointActiveHandle = 1;
+        state.viewpointPlacingTarget = false;
+        state.viewpointPlacementMiss = false;
+        return;
+    }
     auto settings = *viewpointstudy::GetSettings ();
     settings.pointValid = true;
     for (int axis = 0; axis < 3; ++axis) {
@@ -408,6 +465,7 @@ void PlaceViewpointFromPick (HudState& state, const DiligentScene&, const InputS
     ConfigureViewpoint (state, std::move (settings));
     state.viewpointPlacing = false;
     state.viewpointPlacementMiss = false;
+    state.viewpointActiveHandle = 0;
 }
 
 // The isovist itself is drawn occluded by the model (UpdateAndDrawAnalysisOverlay);
@@ -417,12 +475,20 @@ void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint
     const auto settings = viewpointstudy::GetSettings ();
     if (viewProj == nullptr)
         return;
-    if (ShowsTargetGumball (state)) {
-        const auto aim = MakeGumball (state.visibilityTarget, viewProj, width, height);
-        if (aim.valid)
-            DrawGumball (aim, ImGui::GetForegroundDrawList (),
-                         state.viewpointHotHandle == 1 ? state.viewpointHotPart : -1);
-    }
+    ImDrawList* front = ImGui::GetForegroundDrawList ();
+    const auto handle = [&] (int which, const double* at, uint32_t rgba) {
+        const auto gizmo = MakeGumball (at, viewProj, width, height);
+        if (!gizmo.valid)
+            return;
+        const ImU32 centre = IM_COL32 ((rgba >> 24) & 0xffu, (rgba >> 16) & 0xffu, (rgba >> 8) & 0xffu, rgba & 0xffu);
+        const int hot = state.viewpointHotHandle == which ? state.viewpointHotPart : -1;
+        if (state.viewpointActiveHandle == which)
+            DrawGumball (gizmo, front, hot, centre);
+        else
+            DrawGumballMarker (gizmo.center, front, hot >= 0, centre);
+    };
+    if (ShowsTargetPoint (state))
+        handle (1, state.visibilityTarget, kTargetPointRgba);
     if (state.readOnly || !settings->pointValid || !ShowsPointGumball (state, *settings))
         return DrawGumballHint (state);
     if (state.viewpointPickingContext && state.hover.valid && !state.wantsMouse) {
@@ -431,10 +497,7 @@ void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint
         ImGui::SetTooltip ("Click to %s Context:\n%s", adding ? "add to" : "remove from",
                            ElementLabel (visibilitystudy::ViewerCapture ().get (), state.hover.guid).c_str ());
     }
-    const auto gizmo = MakeGumball (settings->options.point.data (), viewProj, width, height);
-    if (!gizmo.valid)
-        return;
-    DrawGumball (gizmo, ImGui::GetForegroundDrawList (), state.viewpointHotHandle == 0 ? state.viewpointHotPart : -1);
+    handle (0, settings->options.point.data (), kViewPointRgba);
     DrawGumballHint (state);
 }
 
