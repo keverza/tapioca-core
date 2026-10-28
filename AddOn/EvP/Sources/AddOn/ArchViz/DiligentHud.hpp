@@ -640,6 +640,11 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state);
 // Analysis tab, and hand the scene the tint view with the tint suppressed on
 // every other tab.
 void ApplyAnalysisView (DiligentScene& scene, HudState& state);
+// After the preview, in the same file: the viewpoint isovist, occluded by the
+// model. Shown only on the Viewpoint tab while the viewpoint is.
+void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContext* context, const HudState& state,
+                                   const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
+                                   uint32_t depthFormat, bool modelIsDrawn);
 void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
                                const float direction[3]);
 void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height);

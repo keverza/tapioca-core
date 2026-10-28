@@ -604,6 +604,16 @@ class DiligentScene final {
     void GhPreviewStats (size_t& meshIndices, size_t& lineVertices, size_t& labels, size_t& deferredKinds,
                          bool& truncated) const;
 
+    // The analysis overlay: world-space drawables (the viewpoint isovist) drawn
+    // depth-tested against the model, through a preview layer of its own.
+    // `replacement` uploads new content named `key`; nullptr redraws what `key`
+    // already names. Key 0 hides it. Call it after the scene, like the preview:
+    // it lays down the model's occlusion depth itself when the pass did not.
+    uint64_t AnalysisOverlayKey () const;
+    void DrawAnalysisOverlay (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                              uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                              const GhPreviewDrawables* replacement, uint64_t key, bool modelIsDrawn);
+
     // ---- picking (PLAT-RE34) -----------------------------------------------
     // The same geometry, drawn as FLAT ID COLOURS into DiligentPickBuffer's id
     // target.

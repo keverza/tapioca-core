@@ -866,9 +866,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             // Grasshopper's preview, over the slices; ⚠️ NOT gated on
             // `offscreen` either -- see the helper.
-            if (!annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input))
+            if (!annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input)) {
                 UpdateAndDrawGhPreview (scene, context, hudState, viewProj, width, height, target.ColorFormat (),
                                         target.DepthFormat (), modelIsDrawn);
+                UpdateAndDrawAnalysisOverlay (scene, context, hudState, viewProj, width, height, target.ColorFormat (),
+                                              target.DepthFormat (), modelIsDrawn);
+            }
             gpuTimings.Begin (context, GpuTimingStage::Post);
             const bool textReady = UpdateAndDrawSceneText (
                 textLayer, device, context, mutex_, pendingTextLabels_, textLabelSeq_.load (), lastTextLabelSeq,

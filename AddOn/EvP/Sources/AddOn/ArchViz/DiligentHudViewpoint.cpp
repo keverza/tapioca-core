@@ -2,9 +2,7 @@
 #include "ArchViz/HudGumball.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
-#include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/PointGumball.hpp"
-#include "ArchViz/ViewpointProjection.hpp"
 #include "ArchViz/ViewpointStudyController.hpp"
 #include "ArchViz/VisibilityStudyCapture.hpp"
 #include "Geometry/QueryEngine.hpp"
@@ -21,18 +19,6 @@
 
 namespace geomsrv::archviz::viewerhud {
 namespace {
-
-bool Project (const double point[3], const float matrix[16], uint32_t width, uint32_t height, ImVec2& pixel)
-{
-    const float world[4] = { float (point[0]), float (point[1]), float (point[2]), 1.0f };
-    float clip[4];
-    TransformPoint (clip, world, matrix);
-    if (!std::isfinite (clip[3]) || clip[3] <= 1.0e-6f || clip[2] < 0.0f || clip[2] > clip[3])
-        return false;
-    pixel =
-        ImVec2 ((clip[0] / clip[3] * 0.5f + 0.5f) * float (width), (0.5f - clip[1] / clip[3] * 0.5f) * float (height));
-    return std::isfinite (pixel.x) && std::isfinite (pixel.y);
-}
 
 // "Wall {1A2B3C4D}", or "Element {...}" for a type the criteria table does not name.
 std::string ElementLabel (const Snapshot* snapshot, const std::string& guid)
@@ -313,70 +299,18 @@ void PlaceViewpointFromPick (HudState& state, const DiligentScene&, const InputS
     state.viewpointPlacementMiss = false;
 }
 
+// The isovist itself is drawn occluded by the model (UpdateAndDrawAnalysisOverlay);
+// only what must stay on top of it is drawn here.
 void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
 {
     const auto settings = viewpointstudy::GetSettings ();
     if (state.readOnly || !settings->pointValid || viewProj == nullptr || !ShowsPointGumball (state, *settings))
         return;
-    const bool isovist = state.analysisFocus.tab == analysistabs::kViewpointTab;
-    ImDrawList* draw = ImGui::GetBackgroundDrawList ();
-    const auto status = viewpointstudy::GetStatus ();
-    if (isovist && status.result != nullptr) {
-        const auto& perimeter = status.result->perimeter;
-        const auto flags = draw->Flags;
-        draw->Flags &= ~ImDrawListFlags_AntiAliasedFill;
-        for (size_t i = 0; i < perimeter.size (); ++i) {
-            const auto polygon =
-                ProjectViewpointTriangle (status.result->options.point.data (), perimeter[i].data (),
-                                          perimeter[(i + 1) % perimeter.size ()].data (), viewProj, width, height);
-            for (size_t triangle = 1; triangle + 1 < polygon.count; ++triangle)
-                draw->AddTriangleFilled (ImVec2 (polygon.points[0][0], polygon.points[0][1]),
-                                         ImVec2 (polygon.points[triangle][0], polygon.points[triangle][1]),
-                                         ImVec2 (polygon.points[triangle + 1][0], polygon.points[triangle + 1][1]),
-                                         IM_COL32 (245, 196, 79, 128));
-            ImVec2 a, b;
-            if (Project (perimeter[i].data (), viewProj, width, height, a) &&
-                Project (perimeter[(i + 1) % perimeter.size ()].data (), viewProj, width, height, b)) {
-                // An edge between two stopped rays lies on Context: draw it as a collision.
-                const auto& rayMesh = status.result->rayMesh;
-                const bool blocked = rayMesh.size () == perimeter.size () && rayMesh[i] >= 0 &&
-                                     rayMesh[(i + 1) % perimeter.size ()] >= 0;
-                draw->AddLine (a, b, blocked ? IM_COL32 (236, 98, 64, 240) : IM_COL32 (225, 164, 40, 230),
-                               blocked ? 3.0f : 2.0f);
-            }
-        }
-        draw->Flags = flags;
-        // Mark where each Context run starts and ends: the edges of what blocks the view.
-        if (status.result->rayMesh.size () == perimeter.size ())
-            for (const auto& arc : evp::sunstudy::ViewpointArcs (status.result->rayMesh)) {
-                if (arc.mesh < 0 || arc.count == perimeter.size ())
-                    continue;
-                for (const size_t ray : { arc.first, (arc.first + arc.count - 1) % perimeter.size () }) {
-                    ImVec2 at;
-                    if (Project (perimeter[ray].data (), viewProj, width, height, at))
-                        draw->AddCircleFilled (at, 4.0f, IM_COL32 (236, 98, 64, 255));
-                }
-            }
-    }
     if (state.viewpointPickingContext && state.hover.valid && !state.wantsMouse) {
         auto context = settings->context;
         const bool adding = evp::sunstudy::ToggleViewpointContext (context, state.hover.guid);
         ImGui::SetTooltip ("Click to %s Context:\n%s", adding ? "add to" : "remove from",
                            ElementLabel (visibilitystudy::ViewerCapture ().get (), state.hover.guid).c_str ());
-    }
-    // The full circle is a radius guide, distinct from the clipped visibility boundary.
-    for (size_t i = 0; isovist && i < 180; ++i) {
-        ImVec2 ends[2];
-        bool visible = true;
-        for (int end = 0; end < 2; ++end) {
-            const double angle = 6.28318530717958647692 * double (i + end) / 180.0;
-            const double point[3] = { settings->options.point[0] + settings->options.radius * std::cos (angle),
-                                      settings->options.point[1] + settings->options.radius * std::sin (angle),
-                                      settings->options.point[2] };
-            visible &= Project (point, viewProj, width, height, ends[end]);
-        }
-        if (visible)
-            draw->AddLine (ends[0], ends[1], IM_COL32 (245, 196, 79, 150), 1.0f);
     }
     const auto gizmo = MakeGumball (settings->options.point.data (), viewProj, width, height);
     if (!gizmo.valid)

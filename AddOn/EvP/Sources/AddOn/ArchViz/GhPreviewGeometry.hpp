@@ -194,6 +194,10 @@ GhPreviewDrawables BuildGhPreviewDrawables (const evp::preview::GhPreviewSnapsho
 // which wins over ordinary: selection is the thing the user is doing right now.
 uint32_t GhPreviewColour (uint8_t flags, const GhPreviewStyle& style);
 
+// One screen-width ribbon segment, for other world-space overlays that draw
+// through GhPreviewLayer (the viewpoint isovist). A zero-length segment adds nothing.
+void AppendPreviewSegment (const float a[3], const float b[3], uint32_t rgba, GhPreviewBucket& bucket);
+
 } // namespace archviz
 } // namespace geomsrv
 

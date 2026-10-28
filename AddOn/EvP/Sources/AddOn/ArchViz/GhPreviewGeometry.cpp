@@ -262,6 +262,11 @@ void AppendPointMarker (const GhPreviewPrimitive& primitive, uint32_t rgba, floa
 
 } // namespace
 
+void AppendPreviewSegment (const float a[3], const float b[3], uint32_t rgba, GhPreviewBucket& bucket)
+{
+    AppendSegment (Vec3 { a[0], a[1], a[2] }, Vec3 { b[0], b[1], b[2] }, rgba, bucket);
+}
+
 uint32_t GhPreviewColour (uint8_t flags, const GhPreviewStyle& style)
 {
     // ⚠️ SELECTION AND HIGHLIGHT OUTRANK "IS AN EDGE". An edge of a selected

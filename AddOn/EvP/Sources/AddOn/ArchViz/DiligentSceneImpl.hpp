@@ -629,6 +629,20 @@ struct geomsrv::archviz::DiligentScene::Impl {
         ghPreviewDeferredKinds = 0;
         ghPreviewTruncated = false;
     }
+
+    // ---- the analysis overlay (DiligentSceneAnalysisOverlay.cpp) ---------------
+    // The viewpoint isovist, through its own preview layer. `analysisOverlayKey`
+    // names what is uploaded; 0 is nothing.
+    GhPreviewLayer analysisOverlay;
+    uint64_t analysisOverlayKey = 0;
+    bool analysisOverlayInitFailed = false;
+
+    void ShutdownAnalysisOverlay ()
+    {
+        analysisOverlay.Shutdown ();
+        analysisOverlayKey = 0;
+        analysisOverlayInitFailed = false;
+    }
     Diligent::ITextureView* taaView = nullptr;
     bool taaEnabled = false;
     float taaStability = 0.9f;
