@@ -3,6 +3,7 @@
 #include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditLandscapeInternal.hpp"
 #include "Geometry/GeometryRustOutlineTerrain.hpp"
+#include "Geometry/ClipperPlanRing.hpp"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -22,28 +23,28 @@ cp::PathD Path (const std::vector<double>& ring)
 }
 
 // Strictly inside the area the paths fill: inside an outer ring and no hole, on none.
-bool InsideShape (const cp::PathsD& shape, cp::PointD p)
+bool InsideShape (const std::vector<std::pair<ClipperPlanRing, int>>& shape, cp::PointD p)
 {
     int winding = 0;
-    for (const auto& path : shape) {
-        const auto where = cp::PointInPolygon (p, path);
+    for (const auto& [path, sign] : shape) {
+        const auto where = path.Locate (p);
         if (where == cp::PointInPolygonResult::IsOn)
             return false;
         if (where == cp::PointInPolygonResult::IsInside)
-            winding += cp::Area (path) > 0 ? 1 : -1;
+            winding += sign;
     }
     return winding > 0;
 }
 
 // A closed ring as the two open halves a breakline must be, kept only when every vertex is
 // strictly inside the region.
-void AddRing (const cp::PathD& ring, const cp::PathD& region, std::vector<std::vector<double>>& lines)
+void AddRing (const cp::PathD& ring, const ClipperPlanRing& region, std::vector<std::vector<double>>& lines)
 {
     const size_t n = ring.size ();
     if (n < 3)
         return;
     for (const auto& p : ring)
-        if (cp::PointInPolygon (p, region) != cp::PointInPolygonResult::IsInside)
+        if (region.Locate (p) != cp::PointInPolygonResult::IsInside)
             return;
     const size_t half = n / 2;
     std::vector<double> first, second;
@@ -122,21 +123,25 @@ bool EvaluateOutlineDesign (const edit::Document& doc, const EditTerrainInput& i
         return false;
     }
     const cp::PathD region = *largest;
+    const ClipperPlanRing regionLocation (region);
+    std::vector<std::pair<ClipperPlanRing, int>> gradedLocation;
+    for (const auto& ring : graded)
+        gradedLocation.emplace_back (ClipperPlanRing (ring), cp::Area (ring) > 0 ? 1 : -1);
     // The outline and the rings its faces lie on, inside the region.
     std::vector<std::vector<double>> lines;
     for (const auto& ring : graded)
-        AddRing (ring, region, lines);
+        AddRing (ring, regionLocation, lines);
     for (const double d : Distances (o)) {
         auto ring = cp::InflatePaths (graded, d, cp::JoinType::Round, cp::EndType::Polygon, 2.0, kPrecision, 0.05);
         ring = cp::Intersect (ring, inner, cp::FillRule::NonZero, kPrecision);
         for (const auto& path : ring)
-            AddRing (path, region, lines);
+            AddRing (path, regionLocation, lines);
     }
     // The paved surface's own vertices inside it, so its profile and crossfall are kept.
     std::vector<double> spots;
     for (const auto& v : paved.vertices)
-        if (InsideShape (graded, { v.x, v.y }) &&
-            cp::PointInPolygon (cp::PointD { v.x, v.y }, region) == cp::PointInPolygonResult::IsInside)
+        if (InsideShape (gradedLocation, { v.x, v.y }) &&
+            regionLocation.Locate ({ v.x, v.y }) == cp::PointInPolygonResult::IsInside)
             spots.insert (spots.end (), { v.x, v.y, 0.0 });
     std::vector<double> surface;
     for (const auto& v : paved.vertices)

@@ -7,6 +7,7 @@
 #include "Edit/EditTerrainDesignJob.hpp"
 #include "Edit/EditTerrainOutline.hpp"
 #include "Geometry/Mesh.hpp"
+#include "Geometry/ClipperPlanRing.hpp"
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditPath.hpp"
 #include "Edit/EditPathEdit.hpp"
@@ -1085,6 +1086,17 @@ TEST (VirtualEditorDebug, ReplayDumpFromEnvironment)
     const debugreplay::lj::Reader expected (*saved, "outcome");
     EXPECT_EQ (outcome.built, expected.Field ("built").Flag ());
     EXPECT_EQ (outcome.error, expected.Field ("error").Text ());
+    const auto savedPoints = debugreplay::Buffer<double> (expected.Field ("points"));
+    if (savedPoints.size () == outcome.result.build.points.size ()) {
+        double maxDelta = 0;
+        size_t different = 0;
+        for (size_t i = 0; i < savedPoints.size (); ++i) {
+            const double delta = std::abs (savedPoints[i] - outcome.result.build.points[i]);
+            maxDelta = std::max (maxDelta, delta);
+            different += delta > 0;
+        }
+        std::cout << "Replay differing coordinates=" << different << " max delta=" << maxDelta << '\n';
+    }
     EXPECT_EQ (outcome.result.build.points, debugreplay::Buffer<double> (expected.Field ("points")));
     EXPECT_EQ (outcome.result.build.triangles, debugreplay::Buffer<uint32_t> (expected.Field ("triangles")));
 }
@@ -1245,6 +1257,93 @@ TEST (EditTerrainOutline, SmallPathMovesKeepSlopesLocalOnATwoTriangleTerrain)
                     << "remote terrain changed after move " << move << ", crease " << crease;
             }
         }
+}
+
+TEST (EditTerrainOutline, CapturedPathPlacementsKeepRemoteTerrainAtItsBaseline)
+{
+    // User exports 08:20:08 / 08:20:23 (visually correct) / 08:20:42 UTC, 2026-10-28.
+    // Only durable region history is omitted from the fixture; all paths/profiles/kerbs are retained.
+    std::ifstream file (std::filesystem::path (EVP_TEST_FIXTURE_DIR) / "path-placement-20261028.document.json");
+    const std::string text { std::istreambuf_iterator<char> (file), {} };
+    const auto parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok) << parsed.error;
+    edit::Document original;
+    debugreplay::lj::ReadDocument ({ parsed.value, "document" }, original, LandscapeStorage::Virtual);
+    constexpr double side = 17.96522521070513, base = -0.19999999999999996;
+    const std::vector<double> points { 0, 0, base, side, 0, base, side, side, base, 0, side, base };
+    const std::vector<uint32_t> triangles { 0, 1, 2, 0, 2, 3 };
+    const ProvenanceRequest provenance;
+    for (const edit::Vec3 shift : { edit::Vec3 { 0, 0, 0 },
+                                    { -1.402718185676473, -0.285991086400059, 0 },
+                                    { 0.4221773180191345, 7.50386136221105, 0 } }) {
+        for (double perturb : { -0.02, 0.0, 0.02 }) {
+            auto doc = original;
+            for (auto& path : doc.paths)
+                for (auto& point : path.points)
+                    point.p = point.p + shift + edit::Vec3 { perturb, 0, 0 };
+            const auto paved = edit::Pave (doc.paths);
+            ASSERT_TRUE (paved.warning.empty ()) << paved.warning;
+            const auto distance = [&] (edit::Vec3 p) {
+                double best = std::numeric_limits<double>::infinity ();
+                for (const auto& ring : paved.rings)
+                    for (size_t i = 0; i < ring.size (); ++i) {
+                        const auto a = ring[i], b = ring[(i + 1) % ring.size ()], d = b - a;
+                        const double length2 = d.x * d.x + d.y * d.y;
+                        const double t =
+                            length2 > 0 ? std::clamp (((p.x - a.x) * d.x + (p.y - a.y) * d.y) / length2, 0.0, 1.0) : 0;
+                        best = std::min (best, edit::DistanceXY (p, a + d * t));
+                    }
+                return best;
+            };
+            std::vector<double> queries;
+            for (double x = 0.5; x < side; x += 0.5)
+                for (double y = 0.5; y < side; y += 0.5)
+                    if (distance ({ x, y, 0 }) > 3)
+                        queries.insert (queries.end (), { x, y });
+            ASSERT_FALSE (queries.empty ());
+            TerrainDesignResult result;
+            uint32_t unreached = 0;
+            std::string error;
+            ASSERT_TRUE (EvaluateOutlineDesign (doc, { { points, triangles }, provenance, doc.revision, {} }, {},
+                                                result, unreached, error))
+                << error;
+            EXPECT_EQ (unreached, 0u);
+            std::vector<TerrainSample> samples;
+            TerrainFieldSummary summary;
+            ASSERT_TRUE (
+                SampleTerrain ({ result.build.points, result.build.triangles }, queries, 0.25, samples, summary, error))
+                << error;
+            double maxError = 0;
+            for (const auto& sample : samples) {
+                ASSERT_TRUE (sample.onSurface);
+                maxError = std::max (maxError, std::abs (sample.height - base));
+            }
+            EXPECT_LT (maxError, 1e-5) << "shift " << shift.x << ", " << shift.y << "; perturb " << perturb;
+        }
+    }
+}
+
+TEST (EditTerrainOutline, SubMetreRingLocationSurvivesWindingAndSurveyTranslations)
+{
+    namespace cp = Clipper2Lib;
+    for (double offset : { 0.0, 1000000.0, -1000000.0 })
+        for (bool reverse : { false, true }) {
+            cp::PathD ring { { offset + 0.25, offset + 0.25 },
+                             { offset + 0.75, offset + 0.25 },
+                             { offset + 0.75, offset + 0.75 },
+                             { offset + 0.25, offset + 0.75 } };
+            if (reverse)
+                std::reverse (ring.begin (), ring.end ());
+            const ClipperPlanRing location (ring);
+            EXPECT_EQ (location.Locate ({ offset + 0.5, offset + 0.5 }), cp::PointInPolygonResult::IsInside);
+            EXPECT_EQ (location.Locate ({ offset + 0.74, offset + 0.5 }), cp::PointInPolygonResult::IsInside);
+            EXPECT_EQ (location.Locate ({ offset + 0.75, offset + 0.5 }), cp::PointInPolygonResult::IsOn);
+            EXPECT_EQ (location.Locate ({ offset + 0.76, offset + 0.5 }), cp::PointInPolygonResult::IsOutside);
+        }
+    EXPECT_EQ (ClipperPlanRing ({}).Locate ({ 0, 0 }), cp::PointInPolygonResult::IsOutside);
+    const ClipperPlanRing invalid (
+        cp::PathD { { std::numeric_limits<double>::infinity (), 0.0 }, { 1.0, 0.0 }, { 1.0, 1.0 } });
+    EXPECT_EQ (invalid.Locate ({ 0, 0 }), cp::PointInPolygonResult::IsOutside);
 }
 
 TEST (HudTerrainDesign, FixedControlSelectionSharesHistoryWorkerAndConflictLayer)
