@@ -46,27 +46,35 @@ void EditRole (std::vector<std::string>& role, std::vector<std::string>& other, 
 }
 
 bool RoleRow (const char* label, std::vector<std::string>& role, std::vector<std::string>& other,
-              std::vector<std::string>& third, const std::vector<std::string>& selection)
+              std::vector<std::string>& third, const std::vector<std::string>& selection, const char* tip = nullptr)
 {
     bool changed = false;
     ImGui::PushID (label);
     ImGui::Text ("%s  %u element(s)", label, unsigned (role.size ()));
+    if (tip != nullptr)
+        ImGui::SetItemTooltip ("%s", tip);
     const bool haveSelection = !selection.empty ();
+    const auto fromSelection = [&selection] {
+        ImGui::SetItemTooltip ("From the viewer selection: %u element(s)", unsigned (selection.size ()));
+    };
     ImGui::BeginDisabled (!haveSelection);
     if (ImGui::SmallButton ("Replace")) {
         EditRole (role, other, third, selection, RoleEdit::Replace);
         changed = true;
     }
+    fromSelection ();
     ImGui::SameLine ();
     if (ImGui::SmallButton ("Add")) {
         EditRole (role, other, third, selection, RoleEdit::Add);
         changed = true;
     }
+    fromSelection ();
     ImGui::SameLine ();
     if (ImGui::SmallButton ("Remove")) {
         EditRole (role, other, third, selection, RoleEdit::Remove);
         changed = true;
     }
+    fromSelection ();
     ImGui::EndDisabled ();
     ImGui::SameLine ();
     if (ImGui::SmallButton ("Clear")) {
@@ -138,23 +146,21 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     ImGui::TextWrapped (
         origin == 0 ? "Analysis receives the gradient. Context occludes. Focus is checked for visibility from Analysis."
                     : "Focus receives the gradient. Context occludes. Visibility is checked from a placed view point.");
-    ImGui::TextDisabled ("Current viewport selection: %u element(s)", unsigned (state.visibilitySelection.size ()));
     // Context is the viewpoint's, shared by all three view-analysis tabs; Analysis
     // and Focus are shared by the two visibility tabs.
     auto shared = *viewpointstudy::GetSettings ();
     const auto sharedContext = shared.context;
     bool contextChanged = DrawSharedContextToggle (shared);
     if (state.visibilityOrigin == 0)
-        changed |=
-            RoleRow ("Analysis", state.visibilityFrom, state.visibilityTo, shared.context, state.visibilitySelection);
-    if (shared.contextAll)
-        ImGui::TextDisabled ("Every element occludes, Analysis and Focus included.");
-    else {
+        changed |= RoleRow ("Analysis", state.visibilityFrom, state.visibilityTo, shared.context,
+                            state.visibilitySelection, "Receives the gradient; outlined violet.");
+    if (!shared.contextAll)
         contextChanged |=
-            RoleRow ("Context", shared.context, state.visibilityFrom, state.visibilityTo, state.visibilitySelection);
-        ImGui::TextDisabled ("Empty Context: no context blockers; unassigned objects are ignored.");
-    }
-    changed |= RoleRow ("Focus", state.visibilityTo, state.visibilityFrom, shared.context, state.visibilitySelection);
+            RoleRow ("Context", shared.context, state.visibilityFrom, state.visibilityTo, state.visibilitySelection,
+                     "Occludes. Empty: no blockers; unassigned objects are ignored.");
+    changed |= RoleRow ("Focus", state.visibilityTo, state.visibilityFrom, shared.context, state.visibilitySelection,
+                        origin == 0 ? "Checked for visibility from Analysis; outlined magenta."
+                                    : "Receives the gradient; outlined magenta.");
     if (contextChanged || shared.context != sharedContext) {
         ConfigureViewpoint (state, shared);
         changed = true;
@@ -172,11 +178,11 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
             shared.pointValid = true;
             ConfigureViewpoint (state, shared);
         }
+        ImGui::SetItemTooltip ("Or drag the gumball; the Viewpoint tab shares this point.");
         if (state.viewpointPlacementMiss)
             ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "Point missed the model; click a surface.");
         changed |= ImGui::SliderFloat ("view cone", &state.visibilityConeDegrees, 10.0f, 179.0f, "%.0f deg");
         changed |= DrawConeAim (state.visibilityDirection);
-        ImGui::TextDisabled ("Drag the gumball to move the point; the Viewpoint tab shares it.");
         // A shown result was run from where the point was then; once it moves the
         // gradient no longer describes it.
         if (ownResult &&
@@ -186,8 +192,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
 
     changed |= ImGui::SliderFloat ("square cells", &state.visibilityGrid, 0.25f, 10.0f, "%.2f m",
                                    ImGuiSliderFlags_Logarithmic);
-    const char* domains[] = { "Triangle (oracle)", "Patch (coplanar surfaces)" };
-    changed |= ImGui::Combo ("sampling domain", &state.visibilityDomain, domains, 2);
+    ImGui::SetItemTooltip ("Cells over coplanar surface patches.");
     if (state.visibilityOrigin == 0)
         changed |= ImGui::SliderInt ("Focus aim points", &state.visibilityAimPoints, 1, 128);
     ImGui::EndDisabled ();
@@ -212,8 +217,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
         // Without an explicit Context the whole capture occludes.
         request.options.explicitContext = !shared.contextAll;
         request.options.contextElements = shared.context;
-        request.options.domain = state.visibilityDomain == 1 ? evp::sunstudy::SamplingDomain::SurfacePatch
-                                                             : evp::sunstudy::SamplingDomain::TriangleLegacy;
+        request.options.domain = evp::sunstudy::SamplingDomain::SurfacePatch;
         request.options.origin = state.visibilityOrigin == 0 ? evp::sunstudy::VisibilityOrigin::Surfaces
                                                              : evp::sunstudy::VisibilityOrigin::Point;
         request.options.spacing = state.visibilityGrid;
@@ -237,12 +241,11 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
         hudshell::ErrorNotice ("Visibility failed: " + status.error);
     else if (!changed && status.complete && ownResult && scene.sunStudy.studyId == status.studyId) {
         ImGui::Text ("%.1f%% mean visible", status.meanVisibility * 100.0);
-        ImGui::TextDisabled ("%u cells, %u aim point(s), %.2f M rays, %.0f ms", unsigned (status.sampleCount),
-                             unsigned (status.aimPointCount), double (status.rayCount) / 1.0e6,
-                             status.analysisMilliseconds);
+        ImGui::SetItemTooltip ("%u cells, %u aim point(s), %.2f M rays, %.0f ms", unsigned (status.sampleCount),
+                               unsigned (status.aimPointCount), double (status.rayCount) / 1.0e6,
+                               status.analysisMilliseconds);
     }
 
-    ImGui::TextDisabled (origin == 0 ? "Outlined: Focus magenta, Analysis violet." : "Outlined: Focus magenta.");
     // Both visibility tabs share the gradient; the tint redraws with it at once.
     ColourPicker ("not visible", state.visibilityLowRgba, false);
     ImGui::SameLine ();
@@ -254,10 +257,10 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
         state.visibilityHighRgba = defaults.visibilityHighRgba;
     }
     if (ownResult) {
-        ImGui::TextDisabled ("%s, %u tinted element(s)", scene.sunStudy.studyId.c_str (),
-                             unsigned (scene.sunStudy.elementsAttached));
         if (ImGui::SmallButton ("Clear visibility"))
             visibilitystudy::ClearDisplay ();
+        ImGui::SetItemTooltip ("%s, %u tinted element(s)", scene.sunStudy.studyId.c_str (),
+                               unsigned (scene.sunStudy.elementsAttached));
     }
 }
 

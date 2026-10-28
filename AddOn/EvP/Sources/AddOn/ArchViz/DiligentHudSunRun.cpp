@@ -308,10 +308,10 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     ImGui::SliderFloat ("cell size##sunrun", &state.sunRunGrid, 0.25f, 10.0f, "%.2f m", ImGuiSliderFlags_Logarithmic);
 
     ImGui::RadioButton ("Early model##sunrun", &state.sunRunPreset, 0);
+    ImGui::SetItemTooltip ("Early measures all eligible faces.");
     ImGui::SameLine ();
     ImGui::RadioButton ("Late model##sunrun", &state.sunRunPreset, 1);
-    NoteWrapped (state.sunRunPreset == 1 ? "Late measures faces with at least 40% transparency; other faces still cast shadow."
-                                         : "Early measures all eligible faces.");
+    ImGui::SetItemTooltip ("Late measures faces with at least 40%% transparency; other faces still cast shadow.");
     auto snapshot = MeshStore::Get ().Current ();
     const uint64_t captureStamp = MeshStore::Get ().CaptureStamp ();
     if (snapshot == nullptr || snapshot->scope != "all" || snapshot->captureStamp != captureStamp ||
@@ -321,17 +321,16 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
                                          snapshot->captureStamp == captureStamp && snapshot->completeModel
                                      ? snapshot->TotalTriangles ()
                                      : 0;
-    const std::string advice = evp::sunstudy::SunStudyPresetAdvice (
-        triangleCount, state.sunRunPreset == 1 ? "late" : "early");
+    const std::string advice =
+        evp::sunstudy::SunStudyPresetAdvice (triangleCount, state.sunRunPreset == 1 ? "late" : "early");
     if (!advice.empty ())
         NoteWrapped (advice.c_str ());
 
-    if (ImGui::TreeNode ("Roles")) {
-        NoteWrapped ("Analysis: everything not in Context or Ignored");
+    const bool rolesOpen = ImGui::TreeNode ("Roles");
+    ImGui::SetItemTooltip ("Analysis: everything not in Context or Ignored. Select elements to assign them a role.");
+    if (rolesOpen) {
         RoleRow ("Context", state.sunRunContext, state.sunRunIgnored, state.visibilitySelection);
         RoleRow ("Ignored", state.sunRunIgnored, state.sunRunContext, state.visibilitySelection);
-        if (state.visibilitySelection.empty ())
-            NoteWrapped ("Select elements to assign them a role");
         ImGui::TreePop ();
     }
 
@@ -351,13 +350,13 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
         if (state.sunRunShowBounds) {
             if (ImGui::SmallButton (state.sunRunPickingCentre ? "Click the model..." : "Pick centre"))
                 state.sunRunPickingCentre = !state.sunRunPickingCentre;
+            ImGui::SetItemTooltip ("Only faces inside are measured; everything still casts shadow. Drag the arrows "
+                                   "or disc to move it, the grip on the ring to resize.");
             ImGui::SameLine ();
             ImGui::BeginDisabled (!haveScene);
             if (ImGui::SmallButton ("Centre on scene"))
                 CentreOnScene (state, min, max);
             ImGui::EndDisabled ();
-            NoteWrapped ("Only faces inside are measured; everything still casts shadow. Drag the arrows or disc to move "
-                         "it, the grip on the ring to resize.");
         }
     }
     else

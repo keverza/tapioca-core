@@ -375,8 +375,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     if (shadows) {
         const char* styles[] = { "Single", "Morning / evening", "Time fan (diagnostic)" };
         int style = current == 5 ? 0 : current == 6 ? 1 : 2;
-        ImGui::SetNextItemWidth (-60.0f);
-        if (ImGui::Combo ("view##shadowstyle", &style, styles, 3)) {
+        if (viewerhud::Choice ("view##shadowstyle", style, styles, 3)) {
             state.sunView = style == 0 ? 2 : kMultipleView;
             state.sunFanInterval = style == 1 ? kFanAmPm : 2;
         }

@@ -60,11 +60,12 @@ void DrawContextList (viewpointstudy::Settings& settings, const viewpointstudy::
         ImGui::TreePop ();
         return;
     }
-    if (!ImGui::TreeNodeEx ("##viewpoint-context", ImGuiTreeNodeFlags_DefaultOpen, "Context: %u object(s)",
-                            unsigned (settings.context.size ())))
-        return;
+    const bool open = ImGui::TreeNodeEx ("##viewpoint-context", ImGuiTreeNodeFlags_DefaultOpen, "Context: %u object(s)",
+                                         unsigned (settings.context.size ()));
     if (settings.context.empty ())
-        ImGui::TextDisabled ("None: every ray reaches the radius.");
+        ImGui::SetItemTooltip ("None: every ray reaches the radius.");
+    if (!open)
+        return;
     size_t remove = settings.context.size ();
     for (size_t i = 0; i < settings.context.size (); ++i) {
         ImGui::PushID (int (i));
@@ -119,24 +120,9 @@ void ConfigureViewpoint (HudState& state, viewpointstudy::Settings settings)
 bool DrawSharedContextToggle (viewpointstudy::Settings& settings)
 {
     const bool changed = ImGui::Checkbox ("Whole scene as Context", &settings.contextAll);
-    if (ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("Shared by Surface visibility, Point visibility and Viewpoint.");
+    ImGui::SetItemTooltip ("Every element occludes, Analysis and Focus included. Shared by Surface visibility, "
+                           "Point visibility and Viewpoint.");
     return changed;
-}
-
-bool ColourPicker (const char* label, uint32_t& rgba, bool alpha)
-{
-    float colour[4] = { float ((rgba >> 24) & 0xffu) / 255.0f, float ((rgba >> 16) & 0xffu) / 255.0f,
-                        float ((rgba >> 8) & 0xffu) / 255.0f, float (rgba & 0xffu) / 255.0f };
-    const ImGuiColorEditFlags flags =
-        ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoDragDrop |
-        (alpha ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha);
-    if (!ImGui::ColorEdit4 (label, colour, flags))
-        return false;
-    rgba = 0;
-    for (int channel = 0; channel < 4; ++channel)
-        rgba = (rgba << 8) | uint32_t (std::lround ((std::min) (1.0f, (std::max) (0.0f, colour[channel])) * 255.0f));
-    return true;
 }
 
 void DrawViewpointHudSection (HudState& state)
@@ -158,16 +144,19 @@ void DrawViewpointHudSection (HudState& state)
             changed = true;
         }
     }
-    if (state.viewpointPickingContext)
-        ImGui::TextDisabled ("Click elements to add or remove them; the viewer selection is not used.");
+    ImGui::SetItemTooltip ("Click elements in the viewer to add or remove them; the viewer selection is not used.");
     DrawContextList (settings, status, changed);
     if (!settings.contextAll) {
-        ImGui::TextDisabled ("From the viewer selection:");
+        const auto fromSelection = [&state] {
+            ImGui::SetItemTooltip ("From the viewer selection: %u element(s)",
+                                   unsigned (state.visibilitySelection.size ()));
+        };
         ImGui::BeginDisabled (state.visibilitySelection.empty ());
         if (ImGui::SmallButton ("Replace Context")) {
             settings.context = state.visibilitySelection;
             changed = true;
         }
+        fromSelection ();
         ImGui::SameLine ();
         if (ImGui::SmallButton ("Add")) {
             for (const auto& guid : state.visibilitySelection)
@@ -175,6 +164,7 @@ void DrawViewpointHudSection (HudState& state)
                     settings.context.push_back (guid);
             changed = true;
         }
+        fromSelection ();
         ImGui::SameLine ();
         if (ImGui::SmallButton ("Remove")) {
             for (const auto& guid : state.visibilitySelection)
@@ -182,6 +172,7 @@ void DrawViewpointHudSection (HudState& state)
                                         settings.context.end ());
             changed = true;
         }
+        fromSelection ();
         ImGui::EndDisabled ();
         if (ImGui::SmallButton ("Clear Context")) {
             settings.context.clear ();
@@ -190,6 +181,7 @@ void DrawViewpointHudSection (HudState& state)
     }
     changed |= ImGui::InputScalarN ("Point XYZ (m)", ImGuiDataType_Double, settings.options.point.data (), 3, nullptr,
                                     nullptr, "%.2f");
+    ImGui::SetItemTooltip ("Or drag the gumball: X/Y/Z arrows along an axis, the centre disc in plan.");
     if (changed)
         settings.pointValid = true;
     if (ImGui::Button (state.viewpointPlacing ? "Click a model surface..." : "Place viewpoint")) {
@@ -199,12 +191,11 @@ void DrawViewpointHudSection (HudState& state)
         settings.enabled = true;
         changed = true;
     }
-    changed |= ImGui::InputDouble ("Radius (m)", &settings.options.radius, 1.0, 10.0, "%.2f");
-    if (changed) {
-        settings.options.radius = (std::max) (0.1, (std::min) (10000.0, settings.options.radius));
+    changed |= AdaptiveSlider ("Radius (m)", settings.options.radius, state.viewpointRadiusRange,
+                               state.viewpointRadiusHeld, 0.1, 10000.0, "%.1f");
+    ImGui::SetItemTooltip ("The range rescales on release; ctrl+click to type a value.");
+    if (changed)
         ConfigureViewpoint (state, std::move (settings));
-    }
-    ImGui::TextDisabled ("Drag X/Y/Z arrows; drag the centre in XY.");
     ColourPicker ("Fill", state.viewpointFillRgba, true);
     ImGui::SameLine ();
     ColourPicker ("Open edge", state.viewpointEdgeRgba, true);
@@ -224,6 +215,7 @@ void DrawViewpointHudSection (HudState& state)
     else if (status.result != nullptr)
         ImGui::Text ("%.1f m2 visible; %u of %u rays hit Context", status.result->area,
                      unsigned (status.result->collisionCount), unsigned (status.result->perimeter.size ()));
+    ImGui::SetItemTooltip ("Edge: the blocked colour where Context stops a ray, the open colour at the radius.");
 }
 
 void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, const float viewProj[16],

@@ -338,3 +338,14 @@ TEST (ViewpointGumballInteraction, HoverLightsThePartWithoutTakingTheMouse)
     EXPECT_EQ (hud.viewpointHotPart, -1);
     view::Shutdown ();
 }
+
+TEST (AdaptiveSlider, RangeIsTheNextOneTwoFiveStepAtLeastTwiceTheValue)
+{
+    using geomsrv::archviz::viewerhud::AdaptiveSliderRange;
+    EXPECT_DOUBLE_EQ (AdaptiveSliderRange (20.0), 50.0);
+    EXPECT_DOUBLE_EQ (AdaptiveSliderRange (50.0), 100.0);
+    EXPECT_DOUBLE_EQ (AdaptiveSliderRange (100.0), 200.0);
+    EXPECT_DOUBLE_EQ (AdaptiveSliderRange (240.0), 500.0);
+    EXPECT_DOUBLE_EQ (AdaptiveSliderRange (3.0), 10.0);
+    EXPECT_NEAR (AdaptiveSliderRange (0.3), 1.0, 1.0e-12);
+}

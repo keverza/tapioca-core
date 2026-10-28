@@ -199,7 +199,6 @@ struct HudState {
     std::vector<std::string> visibilitySelection;
     std::vector<std::string> visibilityFrom;
     std::vector<std::string> visibilityTo;
-    int visibilityDomain = 1; // 0 triangle oracle, 1 coplanar patches
     int visibilityOrigin = 0; // 0 surfaces, 1 placed point
     float visibilityGrid = 2.0f;
     int visibilityAimPoints = 32;
@@ -219,6 +218,8 @@ struct HudState {
     analysistabs::Focus analysisFocus;
     bool viewpointPlacing = false; // the next model click places the shared point
     bool viewpointPlacementMiss = false;
+    double viewpointRadiusRange = 0.0; // the radius slider's top; 0 until first drawn
+    bool viewpointRadiusHeld = false;
     // Clicking a model element adds it to Context, or removes it (Viewpoint tab).
     bool viewpointPickingContext = false;
     bool viewpointOwnsMouse = false;
@@ -663,8 +664,17 @@ namespace viewerhud {
 // A HUD edit configures through this so it is never mistaken for a command's.
 void ConfigureViewpoint (HudState& state, viewpointstudy::Settings settings);
 bool DrawSharedContextToggle (viewpointstudy::Settings& settings);
-// A swatch that opens a colour picker; `alpha` adds the opacity bar.
+// DiligentHudControls.cpp. A swatch that opens a colour picker; `alpha` adds the opacity bar.
 bool ColourPicker (const char* label, uint32_t& rgba, bool alpha);
+// A choice among options: a row of buttons below four short options, a list box
+// when one is long, a combo from four up. Returns true when `value` changed.
+bool Choice (const char* label, int& value, const char* const options[], int count);
+// A 0..range slider whose range follows its value, re-chosen on release
+// (AdaptiveSliderRange); `held` is the caller's, kept between frames.
+bool AdaptiveSlider (const char* label, double& value, double& range, bool& held, double minimum, double maximum,
+                     const char* format);
+// The smallest 1, 2 or 5 x 10^k at least twice `value`: 20 -> 50, 50 -> 100.
+double AdaptiveSliderRange (double value);
 void ServiceAnalysisInteractions (HudState& state, const DiligentScene& scene, const InputSnapshot& input,
                                   const float origin[3], const float direction[3]);
 void DrawVisibilityConeOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
