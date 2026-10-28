@@ -99,6 +99,23 @@ bool ShowsPointGumball (const HudState& state, const viewpointstudy::Settings& s
            state.analysisFocus.tab == analysistabs::kPointVisibilityTab;
 }
 
+// The cursor and a tooltip say a handle can be dragged, before the press.
+void DrawGumballHint (const HudState& state)
+{
+    if (state.viewpointHotPart < 0)
+        return;
+    hudshell::OwnCursor ();
+    ImGui::SetMouseCursor (ImGuiMouseCursor_ResizeAll);
+    if (state.viewpointDragging)
+        return;
+    static const char* const kAxes[3] = { "X", "Y", "Z" };
+    const char* what = state.viewpointHotHandle == 1 ? "the cone's target" : "the point";
+    if (state.viewpointHotPart == 3)
+        ImGui::SetTooltip ("Drag to move %s in plan", what);
+    else
+        ImGui::SetTooltip ("Drag to move %s along %s", what, kAxes[state.viewpointHotPart]);
+}
+
 bool LeftTransition (const InputSnapshot& input, bool down)
 {
     for (int i = 0; i < input.transitionCount; ++i)
@@ -108,6 +125,12 @@ bool LeftTransition (const InputSnapshot& input, bool down)
 }
 
 } // namespace
+
+bool ShowsTargetGumball (const HudState& state)
+{
+    return !state.readOnly && state.analysisFocus.tab == analysistabs::kPointVisibilityTab &&
+           state.visibilityView == 0 && state.visibilityTargetSet;
+}
 
 void ConfigureViewpoint (HudState& state, viewpointstudy::Settings settings)
 {
@@ -233,20 +256,33 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
     }
     state.viewpointOwnsMouse = false;
     state.viewpointHotPart = -1;
-    if (state.readOnly || !shared->pointValid || state.viewpointPlacing || !ShowsPointGumball (state, *shared)) {
+    const bool point = !state.readOnly && shared->pointValid && ShowsPointGumball (state, *shared);
+    const bool target = ShowsTargetGumball (state);
+    if (state.viewpointPlacing || (!point && !target)) {
         state.viewpointDragging = false;
         viewpointstudy::Tick (visibilitystudy::ViewerCapture ());
         return;
     }
-    const auto gizmo = MakeGumball (shared->options.point.data (), viewProj, width, height);
-    const int hit =
-        input.inside ? HitGumball (gizmo, float (CursorTargetX (input, width)), float (CursorTargetY (input, height)))
-                     : -1;
+    // Two handles: the shared point, and point visibility's cone target. The
+    // point wins where they overlap -- it is the one the target is seen from.
+    const float x = float (CursorTargetX (input, width)), y = float (CursorTargetY (input, height));
+    const int pointHit = point && input.inside
+                             ? HitGumball (MakeGumball (shared->options.point.data (), viewProj, width, height), x, y)
+                             : -1;
+    const int targetHit = target && input.inside && pointHit < 0
+                              ? HitGumball (MakeGumball (state.visibilityTarget, viewProj, width, height), x, y)
+                              : -1;
+    const int hit = pointHit >= 0 ? pointHit : targetHit;
+    const int handle = pointHit >= 0 ? 0 : 1;
     const double origin[3] = { rayOrigin[0], rayOrigin[1], rayOrigin[2] };
     const double direction[3] = { rayDirection[0], rayDirection[1], rayDirection[2] };
     if (!state.viewpointDragging && !state.wantsMouse && hit >= 0 && LeftTransition (input, true)) {
         state.viewpointDragAxis = hit;
-        std::copy (shared->options.point.begin (), shared->options.point.end (), state.viewpointDragPoint);
+        state.viewpointDragHandle = handle;
+        if (handle == 0)
+            std::copy (shared->options.point.begin (), shared->options.point.end (), state.viewpointDragPoint);
+        else
+            std::copy (state.visibilityTarget, state.visibilityTarget + 3, state.viewpointDragPoint);
         state.viewpointDragging =
             PointGumballParameter (state.viewpointDragPoint, hit, origin, direction, state.viewpointDragParameter);
     }
@@ -255,7 +291,16 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
         (!state.wantsMouse && hit >= 0 && (LeftTransition (input, true) || (input.buttons & kMouseLeft)));
     if (state.viewpointDragging) {
         double parameter[3];
-        if (PointGumballParameter (state.viewpointDragPoint, state.viewpointDragAxis, origin, direction, parameter)) {
+        if (state.viewpointDragHandle == 1 &&
+            PointGumballParameter (state.viewpointDragPoint, state.viewpointDragAxis, origin, direction, parameter)) {
+            for (int axis = 0; axis < 3; ++axis)
+                state.visibilityTarget[axis] =
+                    state.viewpointDragPoint[axis] + parameter[axis] - state.viewpointDragParameter[axis];
+            state.visibilityTargetEdited = true; // moved by hand: it no longer follows Focus
+        }
+        else if (state.viewpointDragHandle == 0 &&
+                 PointGumballParameter (state.viewpointDragPoint, state.viewpointDragAxis, origin, direction,
+                                        parameter)) {
             auto settings = *shared;
             for (int axis = 0; axis < 3; ++axis)
                 settings.options.point[axis] =
@@ -269,6 +314,7 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
             state.viewpointDragging = false;
     }
     state.viewpointHotPart = state.viewpointDragging ? state.viewpointDragAxis : (state.wantsMouse ? -1 : hit);
+    state.viewpointHotHandle = state.viewpointDragging ? state.viewpointDragHandle : handle;
     viewpointstudy::Tick (visibilitystudy::ViewerCapture ());
 }
 
@@ -322,8 +368,16 @@ void PlaceViewpointFromPick (HudState& state, const DiligentScene&, const InputS
 void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
 {
     const auto settings = viewpointstudy::GetSettings ();
-    if (state.readOnly || !settings->pointValid || viewProj == nullptr || !ShowsPointGumball (state, *settings))
+    if (viewProj == nullptr)
         return;
+    if (ShowsTargetGumball (state)) {
+        const auto aim = MakeGumball (state.visibilityTarget, viewProj, width, height);
+        if (aim.valid)
+            DrawGumball (aim, ImGui::GetForegroundDrawList (),
+                         state.viewpointHotHandle == 1 ? state.viewpointHotPart : -1);
+    }
+    if (state.readOnly || !settings->pointValid || !ShowsPointGumball (state, *settings))
+        return DrawGumballHint (state);
     if (state.viewpointPickingContext && state.hover.valid && !state.wantsMouse) {
         auto context = settings->context;
         const bool adding = evp::sunstudy::ToggleViewpointContext (context, state.hover.guid);
@@ -333,19 +387,8 @@ void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint
     const auto gizmo = MakeGumball (settings->options.point.data (), viewProj, width, height);
     if (!gizmo.valid)
         return;
-    DrawGumball (gizmo, ImGui::GetForegroundDrawList (), state.viewpointHotPart);
-    if (state.viewpointHotPart < 0)
-        return;
-    // The cursor and a tooltip say the point can be dragged, before the press.
-    hudshell::OwnCursor ();
-    ImGui::SetMouseCursor (ImGuiMouseCursor_ResizeAll);
-    if (!state.viewpointDragging) {
-        static const char* const kAxes[3] = { "X", "Y", "Z" };
-        if (state.viewpointHotPart == 3)
-            ImGui::SetTooltip ("Drag to move the point in plan");
-        else
-            ImGui::SetTooltip ("Drag to move the point along %s", kAxes[state.viewpointHotPart]);
-    }
+    DrawGumball (gizmo, ImGui::GetForegroundDrawList (), state.viewpointHotHandle == 0 ? state.viewpointHotPart : -1);
+    DrawGumballHint (state);
 }
 
 } // namespace geomsrv::archviz::viewerhud

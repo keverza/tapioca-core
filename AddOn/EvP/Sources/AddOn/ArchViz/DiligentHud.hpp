@@ -206,8 +206,17 @@ struct HudState {
     std::string visibilitySubmitError;
     // The point is the viewpoint's (one gumball for both tabs); the cone's aim and
     // the point a shown result was run from are point visibility's own.
-    double visibilityDirection[3] = { 1.0, 0.0, 0.0 };
-    double visibilityRunPoint[3] = { 0.0, 0.0, 0.0 };
+    double visibilityDirection[3] = { 1.0, 0.0, 0.0 }; // the cone's bearing when it has no target
+    // Point visibility: a cone aimed at a target, or a sphere cut to a band of
+    // elevations. The target follows Focus's centre until it is moved.
+    int visibilityView = 0; // 0 view cone, 1 view sphere
+    double visibilityTarget[3] = { 0.0, 0.0, 0.0 };
+    bool visibilityTargetSet = false;
+    bool visibilityTargetEdited = false;
+    std::string visibilityTargetFollowKey;  // the capture and Focus the target last followed
+    float visibilitySkyDegrees = 90.0f;     // sphere: the highest elevation seen
+    float visibilityGroundDegrees = -90.0f; // sphere: the lowest
+    std::string visibilityLiveKey;          // the inputs of the last point run submitted
     // The analysis shading's colours, 0xRRGGBBAA, set by the tabs' pickers.
     uint32_t visibilityLowRgba = 0xB84E45FFu;  // not visible
     uint32_t visibilityHighRgba = 0x4B8358FFu; // visible
@@ -225,7 +234,9 @@ struct HudState {
     bool viewpointOwnsMouse = false;
     bool viewpointDragging = false;
     int viewpointDragAxis = -1;
-    int viewpointHotPart = -1; // the gumball part under the cursor or dragged (HitGumball's numbering)
+    int viewpointHotPart = -1;   // the gumball part under the cursor or dragged (HitGumball's numbering)
+    int viewpointDragHandle = 0; // 0 the shared point, 1 point visibility's cone target
+    int viewpointHotHandle = 0;
     uint64_t viewpointSeenRevision = 0;
     double viewpointDragPoint[3] = {}, viewpointDragParameter[3] = {};
     float annotationTextHeightMetres = 0.18f;
@@ -664,6 +675,8 @@ namespace viewerhud {
 // A HUD edit configures through this so it is never mistaken for a command's.
 void ConfigureViewpoint (HudState& state, viewpointstudy::Settings settings);
 bool DrawSharedContextToggle (viewpointstudy::Settings& settings);
+// Point visibility's cone target has a gumball of its own.
+bool ShowsTargetGumball (const HudState& state);
 // DiligentHudControls.cpp. A swatch that opens a colour picker; `alpha` adds the opacity bar.
 bool ColourPicker (const char* label, uint32_t& rgba, bool alpha);
 // A choice among options: a row of buttons below four short options, a list box

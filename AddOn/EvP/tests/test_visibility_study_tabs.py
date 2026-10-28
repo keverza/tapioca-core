@@ -22,7 +22,8 @@ def test_visibility_tabs_set_the_submitted_study_origin():
     assert "state.visibilityOrigin = origin;" in source
     # Switching tabs hides the other tab's result; it must not clear it.
     assert "originChanged" not in source
-    assert " ".join(source.split()).count("if (ownResult) visibilitystudy::ClearDisplay ();") == 1
+    # A surface result clears on a change; a point result is replaced live.
+    assert " ".join(source.split()).count("if (ownResult && !live) visibilitystudy::ClearDisplay ();") == 1
     assert "request.options.origin = state.visibilityOrigin == 0" in source
 
 

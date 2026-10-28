@@ -410,3 +410,40 @@ TEST (ViewpointStudy, ModesOtherThanPlanNeverReachAKernelWithoutThem)
     ASSERT_TRUE (result.valid) << result.error;
     EXPECT_LT (result.perimeter.size (), options.rays) << "a sector, not the full plan circle";
 }
+
+TEST (ViewpointGumballInteraction, TheConeTargetHasItsOwnGumballAndStopsFollowingFocusWhenDragged)
+{
+    using namespace geomsrv::archviz;
+    view::Shutdown ();
+    view::Settings settings;
+    settings.options.point = { 0, 0, 0 };
+    view::Configure (settings);
+    HudState hud;
+    hud.analysisFocus.tab = analysistabs::kPointVisibilityTab;
+    hud.visibilityView = 0;
+    hud.visibilityTarget[0] = 2.0; // 600 px across an 8 m wide, 800 px view
+    hud.visibilityTargetSet = true;
+    InputSnapshot input;
+    input.inside = true;
+    input.x = 600;
+    input.y = 300;
+    input.buttons = kMouseLeft;
+    input.transitions[0] = { kMouseLeft, true };
+    input.transitionCount = 1;
+    float viewMatrix[16], projection[16], matrix[16];
+    const float eye[3] = { 0, 0, 10 }, target[3] = { 0, 0, 0 }, up[3] = { 0, 1, 0 };
+    LookAtRH (viewMatrix, eye, target, up);
+    OrthographicRH (projection, -4, 4, -3, 3, 0.1f, 100);
+    Multiply (matrix, viewMatrix, projection);
+    const float start[3] = { 2, 0, 10 }, direction[3] = { 0, 0, -1 }, moved[3] = { 3, 1, 10 };
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, start, direction);
+    ASSERT_TRUE (hud.viewpointDragging);
+    EXPECT_EQ (hud.viewpointDragHandle, 1);
+    input.transitionCount = 0;
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, moved, direction);
+    EXPECT_DOUBLE_EQ (hud.visibilityTarget[0], 3.0);
+    EXPECT_DOUBLE_EQ (hud.visibilityTarget[1], 1.0);
+    EXPECT_TRUE (hud.visibilityTargetEdited);
+    EXPECT_DOUBLE_EQ (view::GetSettings ()->options.point[0], 0.0) << "the point keeps still";
+    view::Shutdown ();
+}
