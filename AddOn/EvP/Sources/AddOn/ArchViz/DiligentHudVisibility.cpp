@@ -3,6 +3,7 @@
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
+#include "ArchViz/ViewpointStudyController.hpp"
 #include "ArchViz/VisibilityStudyController.hpp"
 #include "ArchViz/VisibilityStudyCapture.hpp"
 #include "Geometry/MeshStore.hpp"
@@ -141,14 +142,26 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
         origin == 0 ? "Analysis receives the gradient. Context occludes. Focus is checked for visibility from Analysis."
                     : "Focus receives the gradient. Context occludes. Visibility is checked from a placed view point.");
     ImGui::TextDisabled ("Current viewport selection: %u element(s)", unsigned (state.visibilitySelection.size ()));
+    // Context is the viewpoint's, shared by all three view-analysis tabs; Analysis
+    // and Focus are shared by the two visibility tabs.
+    auto shared = *viewpointstudy::GetSettings ();
+    const auto sharedContext = shared.context;
+    bool contextChanged = DrawSharedContextToggle (shared);
     if (state.visibilityOrigin == 0)
-        changed |= RoleRow ("Analysis", state.visibilityFrom, state.visibilityTo, state.visibilityContext,
-                            state.visibilitySelection);
-    changed |= RoleRow ("Context", state.visibilityContext, state.visibilityFrom, state.visibilityTo,
-                        state.visibilitySelection);
-    changed |=
-        RoleRow ("Focus", state.visibilityTo, state.visibilityFrom, state.visibilityContext, state.visibilitySelection);
-    ImGui::TextDisabled ("Empty Context: no context blockers; unassigned objects are ignored.");
+        changed |=
+            RoleRow ("Analysis", state.visibilityFrom, state.visibilityTo, shared.context, state.visibilitySelection);
+    if (shared.contextAll)
+        ImGui::TextDisabled ("Every element occludes, Analysis and Focus included.");
+    else {
+        contextChanged |=
+            RoleRow ("Context", shared.context, state.visibilityFrom, state.visibilityTo, state.visibilitySelection);
+        ImGui::TextDisabled ("Empty Context: no context blockers; unassigned objects are ignored.");
+    }
+    changed |= RoleRow ("Focus", state.visibilityTo, state.visibilityFrom, shared.context, state.visibilitySelection);
+    if (contextChanged || shared.context != sharedContext) {
+        ConfigureViewpoint (state, shared);
+        changed = true;
+    }
 
     if (state.visibilityOrigin == 1) {
         if (ImGui::Button (state.visibilityPlacingPoint ? "Click the model..." : "Place view point")) {
@@ -195,8 +208,9 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
         request.snapshot = capture;
         request.fromElements = state.visibilityFrom;
         request.toElements = state.visibilityTo;
-        request.options.explicitContext = true;
-        request.options.contextElements = state.visibilityContext;
+        // Without an explicit Context the whole capture occludes.
+        request.options.explicitContext = !shared.contextAll;
+        request.options.contextElements = shared.context;
         request.options.domain = state.visibilityDomain == 1 ? evp::sunstudy::SamplingDomain::SurfacePatch
                                                              : evp::sunstudy::SamplingDomain::TriangleLegacy;
         request.options.origin = state.visibilityOrigin == 0 ? evp::sunstudy::VisibilityOrigin::Surfaces

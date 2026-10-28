@@ -53,12 +53,27 @@ std::string ElementLabel (const Snapshot* snapshot, const std::string& guid)
 }
 
 // Context rows: each element with the rays it stopped in the current result.
+// With the whole scene as Context there is no list to edit, only what blocks.
 void DrawContextList (viewpointstudy::Settings& settings, const viewpointstudy::Status& status, bool& changed)
 {
     const auto snapshot = visibilitystudy::ViewerCapture ();
     std::vector<evp::sunstudy::ViewpointBlocker> blockers;
     if (status.result != nullptr && snapshot != nullptr)
         blockers = evp::sunstudy::ViewpointBlockers (*status.result, *snapshot);
+    if (settings.contextAll) {
+        constexpr size_t kShownBlockers = 8;
+        if (!ImGui::TreeNodeEx ("##viewpoint-blockers", ImGuiTreeNodeFlags_DefaultOpen, "Blocking: %u object(s)",
+                                unsigned (blockers.size ())))
+            return;
+        for (size_t i = 0; i < blockers.size () && i < kShownBlockers; ++i)
+            ImGui::TextColored (ImVec4 (0.93f, 0.42f, 0.30f, 1.0f), "%s  %u ray(s), nearest %.2f m",
+                                ElementLabel (snapshot.get (), blockers[i].guid).c_str (), unsigned (blockers[i].rays),
+                                blockers[i].nearest);
+        if (blockers.size () > kShownBlockers)
+            ImGui::TextDisabled ("and %u more", unsigned (blockers.size () - kShownBlockers));
+        ImGui::TreePop ();
+        return;
+    }
     if (!ImGui::TreeNodeEx ("##viewpoint-context", ImGuiTreeNodeFlags_DefaultOpen, "Context: %u object(s)",
                             unsigned (settings.context.size ())))
         return;
@@ -99,6 +114,22 @@ bool LeftTransition (const InputSnapshot& input, bool down)
 
 } // namespace
 
+void ConfigureViewpoint (HudState& state, viewpointstudy::Settings settings)
+{
+    // Record the revision as seen: a HUD edit from another Analysis tab (shared
+    // Context, the shared point) must not read as a command and take the focus.
+    viewpointstudy::Configure (std::move (settings));
+    state.viewpointSeenRevision = viewpointstudy::GetSettings ()->revision;
+}
+
+bool DrawSharedContextToggle (viewpointstudy::Settings& settings)
+{
+    const bool changed = ImGui::Checkbox ("Whole scene as Context", &settings.contextAll);
+    if (ImGui::IsItemHovered ())
+        ImGui::SetTooltip ("Shared by Surface visibility, Point visibility and Viewpoint.");
+    return changed;
+}
+
 void DrawViewpointHudSection (HudState& state)
 {
     auto settings = *viewpointstudy::GetSettings ();
@@ -107,41 +138,46 @@ void DrawViewpointHudSection (HudState& state)
         "Horizontal visibility at the point's height. Context stops rays; empty Context gives the full circle.");
     changed |= ImGui::Checkbox ("Show viewpoint", &settings.enabled);
     const auto status = viewpointstudy::GetStatus ();
+    changed |= DrawSharedContextToggle (settings);
     if (ImGui::Button (state.viewpointPickingContext ? "Done picking" : "Pick Context in viewer")) {
         state.viewpointPickingContext = !state.viewpointPickingContext;
         state.viewpointPlacing = false;
-        if (state.viewpointPickingContext && !settings.enabled) {
+        if (state.viewpointPickingContext && (!settings.enabled || settings.contextAll)) {
+            // Picking edits the explicit list; the whole scene has none.
             settings.enabled = true;
+            settings.contextAll = false;
             changed = true;
         }
     }
     if (state.viewpointPickingContext)
         ImGui::TextDisabled ("Click elements to add or remove them; the viewer selection is not used.");
     DrawContextList (settings, status, changed);
-    ImGui::TextDisabled ("From the viewer selection:");
-    ImGui::BeginDisabled (state.visibilitySelection.empty ());
-    if (ImGui::SmallButton ("Replace Context")) {
-        settings.context = state.visibilitySelection;
-        changed = true;
-    }
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Add")) {
-        for (const auto& guid : state.visibilitySelection)
-            if (std::find (settings.context.begin (), settings.context.end (), guid) == settings.context.end ())
-                settings.context.push_back (guid);
-        changed = true;
-    }
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Remove")) {
-        for (const auto& guid : state.visibilitySelection)
-            settings.context.erase (std::remove (settings.context.begin (), settings.context.end (), guid),
-                                    settings.context.end ());
-        changed = true;
-    }
-    ImGui::EndDisabled ();
-    if (ImGui::SmallButton ("Clear Context")) {
-        settings.context.clear ();
-        changed = true;
+    if (!settings.contextAll) {
+        ImGui::TextDisabled ("From the viewer selection:");
+        ImGui::BeginDisabled (state.visibilitySelection.empty ());
+        if (ImGui::SmallButton ("Replace Context")) {
+            settings.context = state.visibilitySelection;
+            changed = true;
+        }
+        ImGui::SameLine ();
+        if (ImGui::SmallButton ("Add")) {
+            for (const auto& guid : state.visibilitySelection)
+                if (std::find (settings.context.begin (), settings.context.end (), guid) == settings.context.end ())
+                    settings.context.push_back (guid);
+            changed = true;
+        }
+        ImGui::SameLine ();
+        if (ImGui::SmallButton ("Remove")) {
+            for (const auto& guid : state.visibilitySelection)
+                settings.context.erase (std::remove (settings.context.begin (), settings.context.end (), guid),
+                                        settings.context.end ());
+            changed = true;
+        }
+        ImGui::EndDisabled ();
+        if (ImGui::SmallButton ("Clear Context")) {
+            settings.context.clear ();
+            changed = true;
+        }
     }
     changed |= ImGui::InputScalarN ("Point XYZ (m)", ImGuiDataType_Double, settings.options.point.data (), 3, nullptr,
                                     nullptr, "%.2f");
@@ -157,7 +193,7 @@ void DrawViewpointHudSection (HudState& state)
     changed |= ImGui::InputDouble ("Radius (m)", &settings.options.radius, 1.0, 10.0, "%.2f");
     if (changed) {
         settings.options.radius = (std::max) (0.1, (std::min) (10000.0, settings.options.radius));
-        viewpointstudy::Configure (std::move (settings));
+        ConfigureViewpoint (state, std::move (settings));
     }
     ImGui::TextDisabled ("Drag X/Y/Z arrows; drag the centre in XY. Fill: warm yellow, 50%%.");
     ImGui::TextDisabled ("Edge: orange where Context stops the ray, yellow at the radius.");
@@ -231,7 +267,8 @@ void PlaceViewpointFromPick (HudState& state, const DiligentScene&, const InputS
         auto settings = *viewpointstudy::GetSettings ();
         evp::sunstudy::ToggleViewpointContext (settings.context, state.hover.guid);
         settings.enabled = true;
-        viewpointstudy::Configure (std::move (settings));
+        settings.contextAll = false;
+        ConfigureViewpoint (state, std::move (settings));
         return;
     }
     if (!state.viewpointPlacing || state.wantsMouse || !input.inside || !LeftTransition (input, false) ||
@@ -258,7 +295,7 @@ void PlaceViewpointFromPick (HudState& state, const DiligentScene&, const InputS
     settings.pointValid = true;
     for (int axis = 0; axis < 3; ++axis)
         settings.options.point[axis] = hit.point[axis] - direction[axis] * 0.05;
-    viewpointstudy::Configure (std::move (settings));
+    ConfigureViewpoint (state, std::move (settings));
     state.viewpointPlacing = false;
 }
 

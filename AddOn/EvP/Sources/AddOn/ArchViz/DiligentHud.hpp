@@ -195,10 +195,10 @@ struct HudState {
 
     // Exclusive Analysis / Context / Focus roles. Point mode replaces Analysis
     // with one placed view cone and displays the gradient on Focus instead.
+    // Context lives in the viewpoint settings, shared with the Viewpoint tab.
     std::vector<std::string> visibilitySelection;
     std::vector<std::string> visibilityFrom;
     std::vector<std::string> visibilityTo;
-    std::vector<std::string> visibilityContext;
     int visibilityDomain = 1; // 0 triangle oracle, 1 coplanar patches
     int visibilityOrigin = 0; // 0 surfaces, 1 placed point
     float visibilityGrid = 2.0f;
@@ -643,7 +643,14 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
                                const float direction[3]);
 void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height);
 
+namespace viewpointstudy {
+struct Settings;
+}
 namespace viewerhud {
+// The viewpoint settings hold the Context (and point) all view-analysis tabs share.
+// A HUD edit configures through this so it is never mistaken for a command's.
+void ConfigureViewpoint (HudState& state, viewpointstudy::Settings settings);
+bool DrawSharedContextToggle (viewpointstudy::Settings& settings);
 void ServiceAnalysisInteractions (HudState& state, const DiligentScene& scene, const InputSnapshot& input,
                                   const float origin[3], const float direction[3]);
 void DrawVisibilityConeOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);

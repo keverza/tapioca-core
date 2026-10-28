@@ -102,6 +102,7 @@ TEST (ViewpointWorker, CoalescesMovementAndClearsOnCaptureInvalidationAndShutdow
     geomsrv::MeshStore::Get ().PublishShared (scene);
     view::Settings settings;
     settings.enabled = true;
+    settings.contextAll = false;
     settings.context = { "wall" };
     for (int move = 0; move < 20; ++move) {
         settings.options.point[0] = 4.0 + move;
@@ -174,6 +175,7 @@ TEST (ViewpointWorker, MovingRetainsTheLastCompleteFillButRoleChangesAndDisableC
     const auto scene = Scene ();
     view::Settings settings;
     settings.enabled = true;
+    settings.contextAll = false;
     view::Configure (settings);
     view::Tick (scene);
     ASSERT_TRUE (Wait ());
@@ -245,5 +247,29 @@ TEST (ViewpointGumballInteraction, DragOwnsTheMouseMovesPointAndReleasesWithoutS
     viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, moved, direction);
     EXPECT_FALSE (hud.viewpointDragging);
     EXPECT_TRUE (hud.viewpointOwnsMouse) << "release belongs to the gumball, not a background selection";
+    view::Shutdown ();
+}
+
+TEST (ViewpointWorker, WholeSceneContextStopsRaysWithoutAnExplicitList)
+{
+    view::Shutdown ();
+    const auto scene = Scene ();
+    view::Settings settings;
+    settings.enabled = true;
+    ASSERT_TRUE (settings.contextAll) << "the viewer's default Context is the whole scene";
+    view::Configure (settings);
+    view::Tick (scene);
+    ASSERT_TRUE (Wait ());
+    auto status = view::GetStatus ();
+    ASSERT_NE (status.result, nullptr) << status.error;
+    EXPECT_GT (status.result->collisionCount, 0u) << "the wall stops the rays toward it";
+    settings.contextAll = false;
+    view::Configure (settings);
+    EXPECT_EQ (view::GetStatus ().result, nullptr) << "a Context change clears the fill";
+    view::Tick (scene);
+    ASSERT_TRUE (Wait ());
+    status = view::GetStatus ();
+    ASSERT_NE (status.result, nullptr) << status.error;
+    EXPECT_EQ (status.result->collisionCount, 0u) << "empty explicit Context is the radius circle";
     view::Shutdown ();
 }

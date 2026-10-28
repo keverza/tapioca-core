@@ -19,10 +19,11 @@ class Worker {
     void Configure (Settings settings)
     {
         std::lock_guard<std::mutex> lock (mutex_);
-        const auto previous =
-            settings_->enabled && settings.enabled && settings.pointValid && settings_->context == settings.context
-                ? status_.result
-                : nullptr;
+        const auto previous = settings_->enabled && settings.enabled && settings.pointValid &&
+                                      settings_->contextAll == settings.contextAll &&
+                                      settings_->context == settings.context
+                                  ? status_.result
+                                  : nullptr;
         settings.revision = ++generation_;
         settings_ = std::make_shared<const Settings> (std::move (settings));
         status_ = {};
@@ -113,8 +114,15 @@ class Worker {
                 settings = settings_;
                 generation = pendingGeneration_;
             }
-            auto result = evp::sunstudy::RunSelectedViewpointStudy (snapshot, settings->context, settings->options,
-                                                                    [&] { return generation_.load () != generation; });
+            std::vector<std::string> everything;
+            if (settings->contextAll) {
+                everything.reserve (snapshot->meshes.size ());
+                for (const auto& mesh : snapshot->meshes)
+                    everything.push_back (mesh.guid);
+            }
+            auto result = evp::sunstudy::RunSelectedViewpointStudy (
+                snapshot, settings->contextAll ? everything : settings->context, settings->options,
+                [&] { return generation_.load () != generation; });
             std::lock_guard<std::mutex> lock (mutex_);
             if (generation_.load () != generation)
                 continue;

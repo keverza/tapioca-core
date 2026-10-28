@@ -9,6 +9,10 @@ struct Settings {
     uint64_t revision = 0;
     bool enabled = false;
     bool pointValid = true;
+    // Every captured element stops rays -- the viewer's default. False: only
+    // `context` does, and an empty `context` gives the full radius circle.
+    // The Analysis tabs share this Context with surface and point visibility.
+    bool contextAll = true;
     std::vector<std::string> context;
     evp::sunstudy::ViewpointOptions options;
 };

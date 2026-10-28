@@ -161,6 +161,7 @@ class SetViewpointStudyCommand : public MainThreadCommand {
         params.Get ("show", show);
         archviz::viewpointstudy::Settings settings;
         settings.enabled = show;
+        settings.contextAll = false; // the command's Context is always explicit
         if (show) {
             if (!archviz::DiligentViewport::Get ().IsRunning ())
                 return NativeCommandResult::Failure ("open the Tapioca 3D Viewer before setting a viewpoint");
