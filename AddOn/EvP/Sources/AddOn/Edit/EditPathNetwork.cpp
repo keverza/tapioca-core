@@ -333,6 +333,7 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
             // Width is a hardscape policy; shared-edge/nonlocal fitting belongs
             // to Fillet2D, not independent half-edge clamps at each corner.
             c.maxRadius = c.convex ? 0.98 * (std::isfinite (half) ? half : 0.0) : kMaxReentrant;
+            c.radiusLimit = c.maxRadius;
             c.requestedRadius = c.key.radius;
             c.key.radius = std::min (c.key.radius, c.maxRadius);
             c.at = { v.x, v.y, HeightAt (sources, v) };

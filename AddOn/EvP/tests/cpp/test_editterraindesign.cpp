@@ -1071,6 +1071,11 @@ TEST (VirtualEditorDebug, ReplayDumpFromEnvironment)
     const auto paved = edit::Pave (scene.doc.paths);
     std::cout << "Replay paths=" << scene.doc.paths.size () << " pavedTriangles=" << paved.triangles.size () / 3
               << " warning=" << paved.warning << '\n';
+    for (const auto& corner : paved.corners)
+        std::cout << "Corner path=" << corner.path << " point=" << corner.key.point << " other=" << corner.key.other
+                  << " side=" << int (corner.key.side) << " otherSide=" << int (corner.key.otherSide)
+                  << " radius=" << corner.key.radius << " max=" << corner.maxRadius
+                  << " requested=" << corner.requestedRadius << " at=" << corner.at.x << ',' << corner.at.y << '\n';
     bool active = false;
     ASSERT_TRUE (parsed.value.Find ("designActive")->AsBool (active));
     if (!active)

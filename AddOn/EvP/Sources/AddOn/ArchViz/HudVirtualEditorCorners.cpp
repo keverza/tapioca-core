@@ -426,7 +426,9 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
         Vec3 at;
         if (DragOnto (s, m, mouse, s.kerb.at.z, s.kerb.at, at)) {
             double r = edit::KerbRadiusFromGrip (s.kerb, at, s.navigation.gripInset);
-            r = std::min (std::round (r * 100.0) / 100.0, s.kerb.maxRadius); // to the centimetre, as fits
+            // The current fit can have zero spare shared-edge budget, or only one
+            // short arc chord. A new request must let paving refit both neighbours.
+            r = std::min (std::round (r * 100.0) / 100.0, s.kerb.radiusLimit);
             if (const auto locked = s.tracker.Locked (edit::Quantity::Radius))
                 r = *locked;
             if (!s.edits.Move (KerbEdit (s.kerb, r)))

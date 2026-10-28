@@ -3057,6 +3057,114 @@ TEST (HudVirtualEditor, KerbGripsRoundAPathsCornersAndItsJunctions)
     EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
 }
 
+TEST (HudVirtualEditor, AnAdjacentFilletGripIsNotFrozenByThePreviousFilletsSharedEdgeBudget)
+{
+    // Actual fourth user export, 2026-10-28 08:27:04 UTC; IDs are allocated by the fixture.
+    ed::Document doc;
+    const auto a = ed::AddPath (doc,
+                                { { 4.119212130433046, 11.891922756980053, 0 },
+                                  { 15.362747412903907, 11.891922756980053, 0 },
+                                  { 16.653792888652745, 5.093506074555809, 0 } },
+                                1.5);
+    const auto b = ed::AddPath (
+        doc, { { 11.963539071691788, 15.111365272454991, 0 }, { 9.790006815051344, 4.358100423812802, 0 } }, 1.5);
+    std::string error;
+    const ed::KerbCorner large { 0, b, ed::KerbSide::Right, ed::KerbSide::Left, 3.4412825878567763 };
+    ASSERT_TRUE (ed::SetKerbRadius (doc, a, large, large.radius, error));
+    const auto middle = doc.paths[0].points[1].id;
+    ed::PavedCorner next;
+    for (const auto& c : ed::Pave (doc.paths, 0.5, false).corners)
+        if (c.path == a && c.key.point == middle && c.key.side == ed::KerbSide::Right)
+            next = c;
+    ASSERT_EQ (next.key.point, middle);
+    ASSERT_LT (next.maxRadius, 1e-3) << "the existing fillet consumes the shared straight leg";
+    Drive d (doc);
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 } });
+    const auto screen = [] (ed::Vec3 p) { return ImVec2 { 600 + 20 * float (p.x), 500 - 20 * float (p.y) }; };
+    const auto g = screen (ed::KerbGripAt (next, 0.8));
+    const auto to = screen (ed::KerbGripAt (next, 0.8) + next.bisector * 1.0);
+    d.At (g.x, g.y);
+    ASSERT_GE (d.S ().hoverKerb, 0);
+    d.Press (g.x, g.y);
+    d.At (to.x, to.y);
+    d.Release (to.x, to.y);
+    const auto& after = *ed::FindPath (d.D (), a);
+    ASSERT_EQ (after.kerbs.size (), 2u);
+    EXPECT_GT (after.kerbs.back ().radius, 0.5);
+    EXPECT_DOUBLE_EQ (after.kerbs.front ().radius, large.radius) << "existing requested intent is retained";
+    const auto paved = ed::Pave (d.D ().paths, 0.5, false);
+    ASSERT_TRUE (paved.warning.empty ()) << paved.warning;
+    bool found = false;
+    for (const auto& c : paved.corners)
+        if (c.path == a && c.key.point == middle && c.key.side == ed::KerbSide::Right) {
+            EXPECT_GT (c.key.radius, 0.1);
+            found = true;
+        }
+    EXPECT_TRUE (found);
+    EXPECT_EQ (after.points, doc.paths[0].points);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    ASSERT_TRUE (d.S ().edits.Undo ());
+    EXPECT_EQ (d.S ().edits.Doc ().paths, doc.paths);
+    ASSERT_TRUE (d.S ().edits.Redo ());
+    EXPECT_EQ (d.S ().edits.Doc ().paths[0].kerbs.size (), 2u);
+}
+
+TEST (HudVirtualEditor, CurvedJunctionGripsCanGrowBeyondTheirInitialSampledChord)
+{
+    for (bool bothArcs : { false, true }) {
+        ed::Document doc;
+        const auto a = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 }, { 20, 20, 0 } }, 2);
+        const auto b = bothArcs ? ed::AddPath (doc, { { 0, 12, 0 }, { 20, 12, 0 }, { 20, -8, 0 } }, 2)
+                                : ed::AddPath (doc, { { 15, -4, 0 }, { 15, 20, 0 } }, 2);
+        std::string error;
+        ASSERT_TRUE (ed::SetPathRadius (doc, a, doc.paths[0].points[1].id, 12, error));
+        if (bothArcs)
+            ASSERT_TRUE (ed::SetPathRadius (doc, b, doc.paths[1].points[1].id, 12, error));
+        ed::AlignmentGeometry ga, gb;
+        ASSERT_TRUE (ed::BuildAlignment (doc.paths[0].points, ga, error));
+        ASSERT_TRUE (ed::BuildAlignment (doc.paths[1].points, gb, error));
+        ed::PavedCorner chosen;
+        chosen.maxRadius = 1e100;
+        for (const auto& c : ed::Pave (doc.paths, 0.5, false).corners) {
+            if (c.convex || c.path != a || c.key.other != b)
+                continue;
+            double station = 0, offset = 0;
+            ed::Placement at;
+            if (!ed::StationOf (ga, c.at, station, offset) || !ed::Locate (ga, station, at) ||
+                std::abs (at.curvature) < 1e-8)
+                continue;
+            if (bothArcs && (!ed::StationOf (gb, c.at, station, offset) || !ed::Locate (gb, station, at) ||
+                             std::abs (at.curvature) < 1e-8))
+                continue;
+            if (c.maxRadius < chosen.maxRadius)
+                chosen = c;
+        }
+        ASSERT_EQ (chosen.key.other, b) << "both arcs=" << bothArcs;
+        ASSERT_LT (chosen.maxRadius, 0.5);
+        Drive d (doc);
+        d.S ().selection.Set ({ { a, ed::Part::Entity, 0 } });
+        const auto screen = [] (ed::Vec3 p) { return ImVec2 { 600 + 20 * float (p.x), 500 - 20 * float (p.y) }; };
+        const auto g = screen (ed::KerbGripAt (chosen, 0.8));
+        const auto to = screen (ed::KerbGripAt (chosen, 0.8) + chosen.bisector * 1.0);
+        d.At (g.x, g.y);
+        ASSERT_GE (d.S ().hoverKerb, 0);
+        d.Press (g.x, g.y);
+        d.At (to.x, to.y);
+        d.Release (to.x, to.y);
+        ASSERT_FALSE (d.D ().paths[0].kerbs.empty ());
+        EXPECT_GT (d.D ().paths[0].kerbs.back ().radius, 1.0);
+        const auto paved = ed::Pave (d.D ().paths, 0.5, false);
+        ASSERT_TRUE (paved.warning.empty ()) << paved.warning;
+        bool found = false;
+        for (const auto& c : paved.corners)
+            if (c.path == chosen.path && c.key.Same (chosen.key)) {
+                EXPECT_GT (c.key.radius, 0.5);
+                found = true;
+            }
+        EXPECT_TRUE (found);
+    }
+}
+
 TEST (HudVirtualEditor, KerbGripsShowAtACrossingFromEitherPath)
 {
     // A + crossing; only a control point of the newer path B is selected. The four corners

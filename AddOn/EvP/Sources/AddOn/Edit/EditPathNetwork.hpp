@@ -30,7 +30,8 @@ struct PavedCorner {
     Vec3 bisector;                // plan unit, into the wedge its rounding cuts (outside) or fills
     double half = 0.0;            // half that wedge's angle
     bool convex = true;           // an outside corner
-    double maxRadius = 0;         // what it can take: most of the narrowest half width outside
+    double maxRadius = 0;         // feasible with the current neighbours' fitted radii
+    double radiusLimit = 0;       // hardscape policy cap; a new request may rebalance neighbours
     double requestedRadius = 0.0; // stored intent, retried when the surrounding paths change
     bool Limited () const
     {
