@@ -11,10 +11,23 @@
 
 namespace evp::sunstudy {
 
+// Plan: the horizontal isovist, all round, in the XY plane at point.z.
+// FieldOfView: the same within a horizontal view angle about a bearing.
+// Sphere: the spherical (3D) isovist, rays over a band of elevations.
+enum class ViewpointMode : uint8_t { Plan = 0, FieldOfView = 1, Sphere = 2 };
+
 struct ViewpointOptions {
     std::array<double, 3> point { 0.0, 0.0, 1.6 };
-    double radius = 20.0; // metres, horizontal XY section at point.z
-    size_t rays = 720;
+    double radius = 20.0; // metres
+    size_t rays = 720;    // plan: all round; field of view: pro rata to its angle
+    ViewpointMode mode = ViewpointMode::Plan;
+    double bearingDegrees = 0.0;      // field of view: its centre, counterclockwise from +X
+    double fieldOfViewDegrees = 90.0; // field of view: the full horizontal angle, 1..359
+    // Sphere: elevations seen, -90 straight down .. 90 the zenith, and the grid.
+    double minElevationDegrees = -90.0;
+    double maxElevationDegrees = 90.0;
+    size_t sphereColumns = 96; // azimuth steps all round
+    size_t sphereRows = 33;    // elevation steps across the band, both ends included
 };
 
 struct ViewpointStudyResult {
@@ -22,14 +35,25 @@ struct ViewpointStudyResult {
     std::string error;
     uint64_t snapshotId = 0, captureStamp = 0;
     ViewpointOptions options;
-    // Counterclockwise, without duplicate closing vertex. Fan triangulation
+    // Plan: counterclockwise, without duplicate closing vertex. Fan triangulation
     // about options.point preserves concave isovists without a convex hull.
+    // Field of view: the same from one edge of the angle to the other, OPEN --
+    // the fan closes through the point, not from the last ray to the first.
+    // Sphere: options.sphereRows x sphereColumns ray ends, row-major from the
+    // lowest elevation; each row wraps all round.
     std::vector<std::array<double, 3>> perimeter;
     // Per ray, aligned with `perimeter`: the snapshot mesh index of the Context
     // element that stopped it, or -1 when it reached the radius.
     std::vector<int64_t> rayMesh;
     size_t collisionCount = 0;
-    double area = 0.0;
+    double area = 0.0;         // plan and field of view: square metres seen
+    double volume = 0.0;       // sphere: cubic metres seen
+    double openFraction = 0.0; // the share of rays (sphere: of solid angle) that reach the radius
+
+    bool Closed () const
+    {
+        return options.mode == ViewpointMode::Plan;
+    }
 };
 
 // One Context element that stops viewpoint rays.

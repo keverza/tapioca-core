@@ -349,3 +349,64 @@ TEST (AdaptiveSlider, RangeIsTheNextOneTwoFiveStepAtLeastTwiceTheValue)
     EXPECT_DOUBLE_EQ (AdaptiveSliderRange (3.0), 10.0);
     EXPECT_NEAR (AdaptiveSliderRange (0.3), 1.0, 1.0e-12);
 }
+
+TEST (ViewpointStudy, FieldOfViewIsAnOpenSectorAboutItsBearing)
+{
+    ViewpointOptions options;
+    options.mode = ViewpointMode::FieldOfView;
+    options.bearingDegrees = 90.0;
+    options.fieldOfViewDegrees = 60.0;
+    const auto result = RunViewpointStudy (Scene (), {}, options);
+    ASSERT_TRUE (result.valid) << result.error;
+    EXPECT_FALSE (result.Closed ());
+    ASSERT_GE (result.perimeter.size (), 2u);
+    // Both edges of the angle: 60 and 120 degrees.
+    EXPECT_NEAR (
+        std::atan2 (result.perimeter.front ()[1] - options.point[1], result.perimeter.front ()[0] - options.point[0]),
+        60.0 * 3.14159265358979323846 / 180.0, 1e-9);
+    EXPECT_NEAR (
+        std::atan2 (result.perimeter.back ()[1] - options.point[1], result.perimeter.back ()[0] - options.point[0]),
+        120.0 * 3.14159265358979323846 / 180.0, 1e-9);
+    const double sector = 3.14159265358979323846 * options.radius * options.radius / 6.0;
+    EXPECT_NEAR (result.area, sector, sector * 0.01);
+    EXPECT_DOUBLE_EQ (result.openFraction, 1.0);
+    options.fieldOfViewDegrees = 360.0;
+    EXPECT_FALSE (RunViewpointStudy (Scene (), {}, options).valid) << "all round is the plan isovist";
+}
+
+TEST (ViewpointStudy, SphereMeasuresVolumeAndOpenSkyWithinItsBand)
+{
+    ViewpointOptions options;
+    options.mode = ViewpointMode::Sphere;
+    const auto open = RunViewpointStudy (Scene (), {}, options);
+    ASSERT_TRUE (open.valid) << open.error;
+    EXPECT_EQ (open.perimeter.size (), options.sphereRows * options.sphereColumns);
+    const double ball = 4.0 / 3.0 * 3.14159265358979323846 * std::pow (options.radius, 3.0);
+    EXPECT_NEAR (open.volume, ball, ball * 1e-9);
+    EXPECT_DOUBLE_EQ (open.openFraction, 1.0);
+
+    const auto walled = RunViewpointStudy (Scene (), { "wall" }, options);
+    ASSERT_TRUE (walled.valid) << walled.error;
+    EXPECT_GT (walled.collisionCount, 0u);
+    EXPECT_LT (walled.openFraction, 1.0);
+    EXPECT_LT (walled.volume, ball);
+
+    // Only the sky above 80 degrees passes over the 10 m wall 2 m away.
+    options.minElevationDegrees = 80.0;
+    const auto sky = RunViewpointStudy (Scene (), { "wall" }, options);
+    ASSERT_TRUE (sky.valid) << sky.error;
+    EXPECT_EQ (sky.collisionCount, 0u);
+
+    options.minElevationDegrees = 90.0;
+    EXPECT_FALSE (RunViewpointStudy (Scene (), {}, options).valid) << "an empty band";
+}
+
+TEST (ViewpointStudy, ModesOtherThanPlanNeverReachAKernelWithoutThem)
+{
+    ViewpointOptions options;
+    options.mode = ViewpointMode::FieldOfView;
+    options.fieldOfViewDegrees = 30.0;
+    const auto result = RunSelectedViewpointStudy (Scene (), {}, options);
+    ASSERT_TRUE (result.valid) << result.error;
+    EXPECT_LT (result.perimeter.size (), options.rays) << "a sector, not the full plan circle";
+}

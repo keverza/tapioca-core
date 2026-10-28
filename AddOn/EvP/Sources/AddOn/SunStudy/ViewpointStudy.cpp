@@ -28,6 +28,25 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
         result.error = "viewpoint needs a snapshot, finite point, positive radius and 32..1440 rays";
         return result;
     }
+    if (options.mode == ViewpointMode::FieldOfView &&
+        (!std::isfinite (options.bearingDegrees) || !std::isfinite (options.fieldOfViewDegrees) ||
+         options.fieldOfViewDegrees < 1.0 || options.fieldOfViewDegrees > 359.0)) {
+        result.error = "viewpoint field of view needs a finite bearing and a 1..359 degree angle";
+        return result;
+    }
+    if (options.mode == ViewpointMode::Sphere &&
+        (!std::isfinite (options.minElevationDegrees) || !std::isfinite (options.maxElevationDegrees) ||
+         options.minElevationDegrees < -90.0 || options.maxElevationDegrees > 90.0 ||
+         options.minElevationDegrees >= options.maxElevationDegrees || options.sphereColumns < 8 ||
+         options.sphereColumns > 720 || options.sphereRows < 2 || options.sphereRows > 361)) {
+        result.error = "viewpoint sphere needs elevations -90 <= min < max <= 90, 8..720 columns and 2..361 rows";
+        return result;
+    }
+    if (options.mode != ViewpointMode::Plan && options.mode != ViewpointMode::FieldOfView &&
+        options.mode != ViewpointMode::Sphere) {
+        result.error = "viewpoint mode must be plan, field of view or sphere";
+        return result;
+    }
     result.snapshotId = snapshot->id;
     result.captureStamp = snapshot->captureStamp;
     std::set<std::string> selected;
@@ -49,38 +68,79 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
         result.error = "viewpoint could not acquire the shared snapshot query index";
         return result;
     }
-    result.perimeter.reserve (options.rays);
-    result.rayMesh.reserve (options.rays);
-    for (size_t ray = 0; ray < options.rays; ++ray) {
-        if (cancelled ()) {
-            result.perimeter.clear ();
-            result.rayMesh.clear ();
-            result.error = "viewpoint calculation cancelled";
-            return result;
-        }
-        const double angle = 6.28318530717958647692 * double (ray) / double (options.rays);
-        const double direction[3] = { std::cos (angle), std::sin (angle), 0.0 };
-        double distance = options.radius;
-        int64_t blocker = -1;
-        if (engine != nullptr) {
-            const auto hit = engine->RaycastMasked (options.point.data (), direction, options.radius, mask);
-            if (hit.hit) {
-                distance = (std::max) (0.0, (std::min) (distance, hit.t));
-                ++result.collisionCount;
-                blocker = static_cast<int64_t> (hit.meshIndex);
+    constexpr double kRadians = 3.14159265358979323846 / 180.0;
+    const bool sphere = options.mode == ViewpointMode::Sphere;
+    const bool sector = options.mode == ViewpointMode::FieldOfView;
+    // A field of view keeps the plan's angular density and both edges of its angle.
+    const size_t sectorRays =
+        (std::max) (size_t (2), size_t (std::lround (double (options.rays) * options.fieldOfViewDegrees / 360.0)) + 1);
+    const size_t rows = sphere ? options.sphereRows : 1;
+    const size_t columns = sphere ? options.sphereColumns : sector ? sectorRays : options.rays;
+    result.perimeter.reserve (rows * columns);
+    result.rayMesh.reserve (rows * columns);
+    double openWeight = 0.0, totalWeight = 0.0;
+    for (size_t row = 0; row < rows; ++row) {
+        // Elevation of this row, and the band of the sphere it stands for (its
+        // solid angle per unit azimuth is the difference of sines across it).
+        const double elevation =
+            sphere ? options.minElevationDegrees +
+                         (options.maxElevationDegrees - options.minElevationDegrees) * double (row) / double (rows - 1)
+                   : 0.0;
+        const double half =
+            sphere ? 0.5 * (options.maxElevationDegrees - options.minElevationDegrees) / double (rows - 1) : 0.0;
+        const double low = (std::max) (options.minElevationDegrees, elevation - half);
+        const double high = (std::min) (options.maxElevationDegrees, elevation + half);
+        const double band = sphere ? std::sin (high * kRadians) - std::sin (low * kRadians) : 1.0;
+        for (size_t column = 0; column < columns; ++column) {
+            if (cancelled ()) {
+                result.perimeter.clear ();
+                result.rayMesh.clear ();
+                result.error = "viewpoint calculation cancelled";
+                return result;
             }
+            const double angle = sector ? (options.bearingDegrees - 0.5 * options.fieldOfViewDegrees +
+                                           options.fieldOfViewDegrees * double (column) / double (columns - 1)) *
+                                              kRadians
+                                        : 6.28318530717958647692 * double (column) / double (columns);
+            const double up = elevation * kRadians;
+            const double direction[3] = { std::cos (up) * std::cos (angle), std::cos (up) * std::sin (angle),
+                                          std::sin (up) };
+            double distance = options.radius;
+            int64_t blocker = -1;
+            if (engine != nullptr) {
+                const auto hit = engine->RaycastMasked (options.point.data (), direction, options.radius, mask);
+                if (hit.hit) {
+                    distance = (std::max) (0.0, (std::min) (distance, hit.t));
+                    ++result.collisionCount;
+                    blocker = static_cast<int64_t> (hit.meshIndex);
+                }
+            }
+            result.rayMesh.push_back (blocker);
+            result.perimeter.push_back ({ options.point[0] + distance * direction[0],
+                                          options.point[1] + distance * direction[1],
+                                          options.point[2] + distance * direction[2] });
+            // Each ray stands for band x (2 pi / columns) steradians of the sphere.
+            const double weight = band;
+            totalWeight += weight;
+            openWeight += blocker < 0 ? weight : 0.0;
+            if (sphere)
+                result.volume +=
+                    weight * (6.28318530717958647692 / double (columns)) * distance * distance * distance / 3.0;
         }
-        result.rayMesh.push_back (blocker);
-        result.perimeter.push_back ({ options.point[0] + distance * direction[0],
-                                      options.point[1] + distance * direction[1], options.point[2] });
     }
-    for (size_t i = 0; i < result.perimeter.size (); ++i) {
-        const auto& a = result.perimeter[i];
-        const auto& b = result.perimeter[(i + 1) % result.perimeter.size ()];
-        result.area += ((a[0] - options.point[0]) * (b[1] - options.point[1]) -
-                        (a[1] - options.point[1]) * (b[0] - options.point[0])) *
-                       0.5;
+    if (!sphere) {
+        const size_t count = result.perimeter.size ();
+        for (size_t i = 0; i < count; ++i) {
+            if (sector && i + 1 == count)
+                break; // open: the angle's two edges meet at the point, adding no area
+            const auto& a = result.perimeter[i];
+            const auto& b = result.perimeter[(i + 1) % count];
+            result.area += ((a[0] - options.point[0]) * (b[1] - options.point[1]) -
+                            (a[1] - options.point[1]) * (b[0] - options.point[0])) *
+                           0.5;
+        }
     }
+    result.openFraction = totalWeight > 0.0 ? openWeight / totalWeight : 0.0;
     result.valid = true;
     return result;
 }
@@ -96,7 +156,8 @@ std::vector<ViewpointBlocker> ViewpointBlockers (const ViewpointStudyResult& res
         if (mesh < 0 || static_cast<size_t> (mesh) >= snapshot.meshes.size ())
             continue;
         const auto& end = result.perimeter[ray];
-        const double distance = std::hypot (end[0] - result.options.point[0], end[1] - result.options.point[1]);
+        const double distance = std::hypot (end[0] - result.options.point[0], end[1] - result.options.point[1],
+                                            end[2] - result.options.point[2]);
         size_t& index = slot[static_cast<size_t> (mesh)];
         if (index == SIZE_MAX) {
             index = blockers.size ();
@@ -157,8 +218,15 @@ ViewpointStudyResult RunSelectedViewpointStudy (const std::shared_ptr<const geom
                                                 const std::function<bool ()>& isCancelled)
 {
 #if defined(TAPIOCA_GEOMETRY_RUST)
-    if (SelectedSunStudyCore () == SunStudyCoreKind::Rust)
-        return rust::RunViewpointStudy (snapshot, context, options, isCancelled);
+    // ⚠️ ONLY THE PLAN ISOVIST REACHES THE RUST KERNEL: its options have no mode,
+    // so a field of view or a sphere would come back as a full plan circle.
+    if (SelectedSunStudyCore () == SunStudyCoreKind::Rust && options.mode == ViewpointMode::Plan) {
+        auto result = rust::RunViewpointStudy (snapshot, context, options, isCancelled);
+        if (result.valid && !result.rayMesh.empty ())
+            result.openFraction = double (std::count (result.rayMesh.begin (), result.rayMesh.end (), int64_t (-1))) /
+                                  double (result.rayMesh.size ());
+        return result;
+    }
 #endif
     return RunViewpointStudy (snapshot, context, options, isCancelled);
 }
