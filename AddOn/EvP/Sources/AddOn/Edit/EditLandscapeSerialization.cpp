@@ -241,16 +241,23 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
         controls.push_back (Value::Object ({ { "source", IdValue (control.source) },
                                              { "vertex", IdValue (control.vertex) },
                                              { "enabled", Flag (control.enabled) } }));
-    for (const auto& v : s.sources)
-        sources.push_back (Value::Object ({ { "id", IdValue (v.id) },
-                                            { "entity", IdValue (v.entityId) },
-                                            { "path", IdValue (v.pathId) },
-                                            { "role", Integer (int (v.role)) },
-                                            { "guid", Text (v.archicadGuid) },
-                                            { "revision", IdValue (v.revision) },
-                                            { "deleted", Flag (v.deleted) },
-                                            { "reference", Flag (v.reference) },
-                                            { "arcAngles", Numbers (v.arcAngles) } }));
+    for (const auto& v : s.sources) {
+        Object source { { "id", IdValue (v.id) },
+                        { "entity", IdValue (v.entityId) },
+                        { "path", IdValue (v.pathId) },
+                        { "role", Integer (int (v.role)) },
+                        { "guid", Text (v.archicadGuid) },
+                        { "revision", IdValue (v.revision) },
+                        { "deleted", Flag (v.deleted) },
+                        { "reference", Flag (v.reference) },
+                        { "arcAngles", Numbers (v.arcAngles) } };
+        if (!(v.lineStyle == ReferenceLineStyle {}))
+            source.emplace ("lineStyle", Value::Object ({ { "visible", Flag (v.lineStyle.visible) },
+                                                          { "locked", Flag (v.lineStyle.locked) },
+                                                          { "rgba", IdValue (v.lineStyle.rgba) },
+                                                          { "widthPixels", Number (v.lineStyle.widthPixels) } }));
+        sources.push_back (Value::Object (std::move (source)));
+    }
     for (const auto& v : s.operations)
         operations.push_back (Value::Object ({ { "id", IdValue (v.id) },
                                                { "kind", Integer (int (v.kind)) },
@@ -261,15 +268,19 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
                                                { "offset", Number (v.offset) },
                                                { "material", MaterialValue (v.material) },
                                                { "priority", Integer (v.priority) } }));
-    for (const auto& v : s.objects)
-        objects.push_back (Value::Object ({ { "id", IdValue (v.id) },
-                                            { "path", IdValue (v.pathId) },
-                                            { "footprint", IdValue (v.footprintOperation) },
-                                            { "kind", Integer (int (v.kind)) },
-                                            { "name", Text (v.name) },
-                                            { "material", MaterialValue (v.baseMaterial) },
-                                            { "thickness", Number (v.thickness) },
-                                            { "masks", IdsValue (v.maskOperations) } }));
+    for (const auto& v : s.objects) {
+        Object object { { "id", IdValue (v.id) },
+                        { "path", IdValue (v.pathId) },
+                        { "footprint", IdValue (v.footprintOperation) },
+                        { "kind", Integer (int (v.kind)) },
+                        { "name", Text (v.name) },
+                        { "material", MaterialValue (v.baseMaterial) },
+                        { "thickness", Number (v.thickness) },
+                        { "masks", IdsValue (v.maskOperations) } };
+        if (v.boundarySource)
+            object.emplace ("boundarySource", IdValue (v.boundarySource));
+        objects.push_back (Value::Object (std::move (object)));
+    }
     for (const auto& v : s.regions)
         regions.push_back (Value::Object ({ { "id", IdValue (v.id) },
                                             { "descriptor", DescriptorValue (v.descriptor) },

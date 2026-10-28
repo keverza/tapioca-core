@@ -236,7 +236,7 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out, std::map<Id, Sha
             continue;
         }
         // Path and terrain sources have no planar curve.
-        if (source.pathId || source.role == SourceRole::Terrain) {
+        if (source.pathId || source.role == SourceRole::Terrain || source.role == SourceRole::ReferenceLine) {
             values[source.id] = {};
             continue;
         }

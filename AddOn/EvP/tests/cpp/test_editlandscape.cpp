@@ -3,6 +3,8 @@
 #include "Edit/EditPolyline.hpp"
 #include "Edit/EditSession.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditLandscapeSerialization.hpp"
+#include "Edit/EditSnap.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
@@ -68,6 +70,175 @@ double Area (const geo::LandscapeResult& result)
     return sum;
 }
 } // namespace
+
+TEST (EditLandscape, ReferenceLineIsEditableLineworkNotAFaceOrOperationInput)
+{
+    for (bool closed : { false, true }) {
+        auto doc = Start ();
+        const auto line = edit::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, closed);
+        std::string error;
+        ASSERT_TRUE (geo::SetLandscapeSourceRole (doc, line, geo::SourceRole::ReferenceLine, error)) << error;
+        const auto source = doc.landscape->sources[0];
+        EXPECT_FALSE (source.reference);
+        const auto result = Evaluate (doc);
+        EXPECT_TRUE (result.faces.empty ());
+        EXPECT_TRUE (result.regions.empty ());
+        EXPECT_TRUE (doc.landscape->objects.empty ());
+        std::vector<edit::Vec3> points;
+        bool isClosed = false;
+        ASSERT_TRUE (geo::LandscapeSourcePreview (doc, source, points, isClosed, error));
+        EXPECT_EQ (isClosed, closed);
+        EXPECT_GE (points.size (), 4u);
+        geo::LandscapeOperation op;
+        op.kind = geo::OperationKind::Stroke;
+        op.inputs = { source.id };
+        edit::Id id = 0;
+        EXPECT_FALSE (geo::AddLandscapeOperation (doc, op, id, error));
+        EXPECT_NE (error.find ("Reference lines"), std::string::npos);
+        EXPECT_FALSE (geo::SetLandscapeTerrainControl (doc, source.id, doc.entities[0].vertices[0].id, true, error));
+        EXPECT_NE (error.find ("Reference lines"), std::string::npos);
+        std::string json;
+        ASSERT_TRUE (geo::WriteLandscape (doc, geo::LandscapeStorage::Virtual, json, error)) << error;
+        edit::Document loaded;
+        ASSERT_TRUE (geo::ReadLandscape (json, loaded, error)) << error;
+        EXPECT_EQ (loaded.landscape, doc.landscape);
+        EXPECT_EQ (loaded.entities, doc.entities);
+    }
+}
+
+TEST (EditLandscape, RegionUsageCreatesAndCleansItsOwnedRecordsWithExactUndo)
+{
+    auto doc = Start ();
+    const auto line = edit::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, true);
+    std::string error;
+    ASSERT_TRUE (geo::SetLandscapeSourceRole (doc, line, geo::SourceRole::ReferenceLine, error));
+    edit::Session session (doc);
+    ASSERT_TRUE (session.Apply ([=] (auto& d, auto& e) {
+        return geo::SetLandscapeSourceRole (d, line, geo::SourceRole::RegionBoundary, e);
+    })) << session.Message ();
+    const auto boundary = session.Doc ();
+    ASSERT_EQ (boundary.landscape->objects.size (), 1u);
+    ASSERT_EQ (boundary.landscape->operations.size (), 1u);
+    EXPECT_EQ (boundary.landscape->objects[0].boundarySource, boundary.landscape->sources[0].id);
+    EXPECT_NEAR (Area (Evaluate (boundary)), 100, 1e-6);
+    std::string json;
+    ASSERT_TRUE (geo::WriteLandscape (boundary, geo::LandscapeStorage::Virtual, json, error));
+    edit::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (json, loaded, error)) << error;
+    EXPECT_EQ (loaded.landscape, boundary.landscape);
+    ASSERT_TRUE (session.Apply ([=] (auto& d, auto& e) {
+        auto& s = *d.landscape;
+        geo::MaterialAssignment assignment;
+        assignment.id = edit::NewId (d);
+        assignment.region = s.regions[0].id;
+        assignment.material.preset = geo::MaterialPreset::Grass;
+        s.assignments.push_back (assignment);
+        return true;
+    }));
+    const auto assigned = session.Doc ();
+    ASSERT_TRUE (session.Apply ([=] (auto& d, auto& e) {
+        return geo::SetLandscapeSourceRole (d, line, geo::SourceRole::ReferenceLine, e);
+    })) << session.Message ();
+    EXPECT_TRUE (session.Doc ().landscape->objects.empty ());
+    EXPECT_TRUE (session.Doc ().landscape->operations.empty ());
+    EXPECT_TRUE (session.Doc ().landscape->assignments.empty ());
+    EXPECT_TRUE (session.Doc ().landscape->regions.empty ());
+    EXPECT_TRUE (Evaluate (session.Doc ()).faces.empty ());
+    EXPECT_EQ (session.Doc ().entities, doc.entities);
+    ASSERT_TRUE (session.Undo ());
+    EXPECT_EQ (session.Doc ().landscape, assigned.landscape);
+    ASSERT_TRUE (session.Redo ());
+    EXPECT_TRUE (session.Doc ().landscape->objects.empty ());
+}
+
+TEST (EditLandscape, RegionUsageRefusesOpenLinesAndExternalConsumersAtomically)
+{
+    auto doc = Start ();
+    const auto open = edit::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, false);
+    std::string error;
+    const auto initial = doc;
+    EXPECT_FALSE (geo::SetLandscapeSourceRole (doc, open, geo::SourceRole::RegionBoundary, error));
+    EXPECT_NE (error.find ("closed"), std::string::npos);
+    EXPECT_EQ (doc.landscape, initial.landscape);
+    EXPECT_EQ (doc.nextId, initial.nextId);
+    const auto source = Square (doc, 0, 0);
+    const auto line = doc.landscape->sources.back ().entityId;
+    ASSERT_TRUE (geo::SetLandscapeSourceRole (doc, line, geo::SourceRole::RegionBoundary, error));
+    Operation (doc, geo::OperationKind::Offset, { source });
+    const auto used = doc;
+    EXPECT_FALSE (geo::SetLandscapeSourceRole (doc, line, geo::SourceRole::ReferenceLine, error));
+    EXPECT_NE (error.find ("dependent"), std::string::npos);
+    EXPECT_EQ (doc.landscape, used.landscape);
+    EXPECT_EQ (doc.nextId, used.nextId);
+}
+
+TEST (EditLandscape, ReferenceLineVisibilityStyleAndLockPersistWithoutLosingSnaps)
+{
+    auto doc = Start ();
+    const auto line = edit::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, false);
+    std::string error;
+    ASSERT_TRUE (geo::SetLandscapeSourceRole (doc, line, geo::SourceRole::ReferenceLine, error));
+    const auto id = doc.landscape->sources[0].id;
+    geo::ReferenceLineStyle style;
+    style.locked = true;
+    style.widthPixels = 3.5;
+    style.rgba = 0xAABBCCFF;
+    ASSERT_TRUE (geo::SetReferenceLineStyle (doc, id, style, error));
+    edit::SnapQuery query;
+    query.cursor = { 0.01, 0, 0 };
+    query.tolerance = 0.1;
+    EXPECT_TRUE (edit::Snap (doc, {}, query).snapped) << "locked visible reference remains snappable";
+    edit::Session session (doc);
+    EXPECT_FALSE (session.Apply ([=] (auto& d, auto&) {
+        edit::Find (d, line)->vertices[0].p.x = 1;
+        return true;
+    }));
+    EXPECT_NE (session.Message ().find ("locked"), std::string::npos);
+    EXPECT_EQ (session.Doc ().entities, doc.entities);
+    style.visible = false;
+    ASSERT_TRUE (session.Apply ([=] (auto& d, auto& e) { return geo::SetReferenceLineStyle (d, id, style, e); }));
+    EXPECT_FALSE (edit::Snap (session.Doc (), {}, query).snapped);
+    edit::PickView view;
+    view.toScreen = [] (edit::Vec3 p, double& x, double& y) {
+        x = p.x;
+        y = p.y;
+        return true;
+    };
+    EXPECT_TRUE (edit::Pick (session.Doc (), view, 0, 0, edit::kPickAll, 0.1).empty ());
+    std::string json;
+    ASSERT_TRUE (geo::WriteLandscape (session.Doc (), geo::LandscapeStorage::Virtual, json, error));
+    edit::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (json, loaded, error)) << error;
+    EXPECT_EQ (loaded.landscape, session.Doc ().landscape);
+    ASSERT_TRUE (session.Undo ());
+    EXPECT_EQ (session.Doc ().landscape->sources[0].lineStyle, doc.landscape->sources[0].lineStyle);
+    EXPECT_TRUE (edit::Snap (session.Doc (), {}, query).snapped);
+    style.widthPixels = std::numeric_limits<double>::quiet_NaN ();
+    EXPECT_FALSE (geo::SetReferenceLineStyle (loaded, id, style, error));
+}
+
+TEST (EditLandscape, ImportedGuideRemainsShownSnappableAndLockedNotANewReferenceUsage)
+{
+    auto doc = Start ();
+    geo::LandscapeSource source;
+    source.entityId = edit::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, false);
+    source.reference = true;
+    source.archicadGuid = "00112233-4455-6677-8899-AABBCCDDEEFF";
+    edit::Id id = 0;
+    std::string error;
+    ASSERT_TRUE (geo::AddLandscapeSource (doc, source, id, error));
+    EXPECT_EQ (doc.landscape->sources[0].role, geo::SourceRole::Guide);
+    EXPECT_TRUE (geo::LandscapeLineVisible (doc, source.entityId));
+    EXPECT_FALSE (geo::SetLandscapeSourceRole (doc, source.entityId, geo::SourceRole::RegionBoundary, error));
+    EXPECT_FALSE (geo::SetReferenceLineStyle (doc, id, {}, error));
+    edit::Session session (doc);
+    EXPECT_FALSE (session.Apply ([=] (auto& d, auto&) {
+        edit::Find (d, source.entityId)->vertices[0].p.x = 1;
+        return true;
+    }));
+    EXPECT_NE (session.Message ().find ("Archicad"), std::string::npos);
+    EXPECT_EQ (session.Doc ().landscape, doc.landscape);
+}
 
 TEST (EditLandscape, OneDocumentOwnsIdsAndSessionUndo)
 {

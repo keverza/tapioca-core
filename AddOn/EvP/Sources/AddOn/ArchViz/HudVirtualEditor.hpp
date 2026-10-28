@@ -113,7 +113,7 @@ struct Session {
     edit::SnapContext context; // host geometry snapshot, filled by the starting command
     Tool tool = Tool::Select;
     LandscapeMode landscapeMode = LandscapeMode::Select;
-    tapioca::geometry::SourceRole landscapeRole = tapioca::geometry::SourceRole::Guide;
+    tapioca::geometry::SourceRole landscapeRole = tapioca::geometry::SourceRole::ReferenceLine;
     tapioca::geometry::LandscapeResult landscape;
     uint64_t landscapeRevision = UINT64_MAX, landscapeBuilds = 0;
     double publishedLandscapeZ = 0.0;

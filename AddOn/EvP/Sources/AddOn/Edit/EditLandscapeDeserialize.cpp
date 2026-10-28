@@ -216,16 +216,28 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
             s.edges.push_back (std::move (edge));
         });
     Each (landscape.Field ("sources"), [&] (const Reader& item) {
-        item.Fields ({ "id", "entity", "path", "role", "guid", "revision", "deleted", "arcAngles" }, { "reference" });
+        item.Fields ({ "id", "entity", "path", "role", "guid", "revision", "deleted", "arcAngles" },
+                     { "reference", "lineStyle" });
         LandscapeSource source;
         source.id = item.Field ("id").Identifier ();
         source.entityId = item.Field ("entity").Identifier ();
         source.pathId = item.Field ("path").Identifier ();
-        source.role = Enum (item.Field ("role"), SourceRole::Building);
+        source.role = Enum (item.Field ("role"), SourceRole::RegionBoundary);
         source.archicadGuid = Guid (item.Field ("guid"));
         source.revision = item.Field ("revision").Identifier ();
         source.deleted = item.Field ("deleted").Flag ();
         source.reference = item.Has ("reference") && item.Field ("reference").Flag ();
+        if (item.Has ("lineStyle")) {
+            const auto style = item.Field ("lineStyle");
+            style.Fields ({ "visible", "locked", "rgba", "widthPixels" });
+            source.lineStyle.visible = style.Field ("visible").Flag ();
+            source.lineStyle.locked = style.Field ("locked").Flag ();
+            const auto rgba = style.Field ("rgba").Identifier ();
+            if (rgba > UINT32_MAX)
+                Fail (style.path, "32-bit RGBA colour required");
+            source.lineStyle.rgba = static_cast<uint32_t> (rgba);
+            source.lineStyle.widthPixels = style.Field ("widthPixels").Number ();
+        }
         Each (item.Field ("arcAngles"), [&] (const Reader& angle) { source.arcAngles.push_back (angle.Number ()); });
         s.sources.push_back (std::move (source));
     });
@@ -244,7 +256,8 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
         s.operations.push_back (std::move (op));
     });
     Each (landscape.Field ("objects"), [&] (const Reader& item) {
-        item.Fields ({ "id", "path", "footprint", "kind", "name", "material", "thickness", "masks" });
+        item.Fields ({ "id", "path", "footprint", "kind", "name", "material", "thickness", "masks" },
+                     { "boundarySource" });
         HardscapeObject object;
         object.id = item.Field ("id").Identifier ();
         object.pathId = item.Field ("path").Identifier ();
@@ -254,6 +267,8 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
         object.baseMaterial = item.Field ("material").Material ();
         object.thickness = item.Field ("thickness").Number ();
         object.maskOperations = item.Field ("masks").Ids ();
+        if (item.Has ("boundarySource"))
+            object.boundarySource = item.Field ("boundarySource").Identifier ();
         s.objects.push_back (std::move (object));
     });
     Each (landscape.Field ("regions"), [&] (const Reader& item) {

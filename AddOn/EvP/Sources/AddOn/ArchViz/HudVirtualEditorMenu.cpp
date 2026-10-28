@@ -258,7 +258,9 @@ std::vector<MenuItem> MenuItems (const Session& s)
                 const auto role = SelectedSourceRole (s);
                 Rule (items);
                 items.push_back (
-                    Item ("role.guide", "Use as region boundary", {}, true, role == lg::SourceRole::Guide));
+                    Item ("role.reference", "Use as reference line", {}, true, role == lg::SourceRole::ReferenceLine));
+                items.push_back (Item ("role.region", "Use as region boundary", {}, e->closed,
+                                       role == lg::SourceRole::RegionBoundary));
                 items.push_back (Item ("role.cutter", "Use as cutter", {}, true, role == lg::SourceRole::Cutter));
                 items.push_back (Item ("role.material", "Use as material boundary", {}, true,
                                        role == lg::SourceRole::MaterialBoundary));
@@ -392,9 +394,11 @@ void RunMenuItem (Session& s, const std::string& id)
         UsePathPartPlane (s, s.menu.ref);
     else if (id == "plane.pathStation")
         BeginPathPlaneEntry (s, s.menu.ref.entity);
-    else if (id == "role.guide" || id == "role.cutter" || id == "role.material" || id == "role.property" ||
-             id == "role.building")
-        SetSelectedSourceRole (s, id == "role.guide"      ? tapioca::geometry::SourceRole::Guide
+    else if (id == "role.guide" || id == "role.reference" || id == "role.region" || id == "role.cutter" ||
+             id == "role.material" || id == "role.property" || id == "role.building")
+        SetSelectedSourceRole (s, id == "role.reference"  ? tapioca::geometry::SourceRole::ReferenceLine
+                                  : id == "role.region"   ? tapioca::geometry::SourceRole::RegionBoundary
+                                  : id == "role.guide"    ? tapioca::geometry::SourceRole::Guide
                                   : id == "role.cutter"   ? tapioca::geometry::SourceRole::Cutter
                                   : id == "role.material" ? tapioca::geometry::SourceRole::MaterialBoundary
                                   : id == "role.building" ? tapioca::geometry::SourceRole::Building

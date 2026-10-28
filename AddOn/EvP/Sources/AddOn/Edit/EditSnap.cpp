@@ -146,6 +146,8 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
 {
     int runBase = 0; // each entity's curves numbered apart from the next one's
     for (const auto& e : doc.entities) {
+        if (!tapioca::geometry::LandscapeLineVisible (doc, e.id))
+            continue;
         if (Excluded (query.exclude, e.id, kNoId))
             continue;
         const Vec3 up { 0.0, 0.0, e.kind == Kind::Extrusion ? e.height : 0.0 };

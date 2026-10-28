@@ -29,6 +29,10 @@ const char* RoleName (SourceRole role)
             return "building";
         case SourceRole::Terrain:
             return "terrain";
+        case SourceRole::ReferenceLine:
+            return "reference-line";
+        case SourceRole::RegionBoundary:
+            return "region-boundary";
     }
     return "source";
 }

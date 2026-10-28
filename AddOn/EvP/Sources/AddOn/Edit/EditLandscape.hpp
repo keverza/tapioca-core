@@ -25,7 +25,10 @@ enum class SourceRole : uint8_t {
     Terrain,
     // A closed building footprint: a boundary like any other, and the outline its
     // entrances (LandscapeEntrance) sit on.
-    Building
+    Building,
+    // Editor-owned display linework, independent of the Archicad import lock.
+    ReferenceLine,
+    RegionBoundary
 };
 enum class MaterialPreset : uint8_t { None, HardPaving, RubberPlayground, Gravel, Asphalt, ReinforcedGrass, Grass };
 struct MaterialSpec {
@@ -37,6 +40,12 @@ struct MaterialSpec {
 
 // Geometry stays in the universal document. The source owns the semantic role,
 // native link and optional analytic arc angles, never a second editable curve.
+struct ReferenceLineStyle {
+    bool visible = true, locked = false;
+    uint32_t rgba = 0x8090A0FF;
+    double widthPixels = 1.5;
+    bool operator== (const ReferenceLineStyle&) const = default;
+};
 struct LandscapeSource {
     Id id = kNoId, entityId = kNoId, pathId = kNoId;
     SourceRole role = SourceRole::Guide;
@@ -48,6 +57,7 @@ struct LandscapeSource {
     // shows it locked and only Archicad changes its geometry. Otherwise the editor owns the
     // line and `archicadGuid` is only where native storage writes it.
     bool reference = false;
+    ReferenceLineStyle lineStyle;
     bool operator== (const LandscapeSource&) const = default;
 };
 
@@ -97,6 +107,9 @@ struct HardscapeObject {
     MaterialSpec baseMaterial;
     double thickness = 0.0;
     std::vector<Id> maskOperations;
+    // The RegionBoundary source that owns this object's lifecycle; zero for
+    // legacy/independently authored objects. Geometry still lives on the source.
+    Id boundarySource = kNoId;
     bool operator== (const HardscapeObject&) const = default;
 };
 struct RegionIdentity {
@@ -270,6 +283,8 @@ bool SetLandscapePropertyLine (geomsrv::edit::Document& doc, Id source, std::str
 // A path's centreline and the terrain are not roles a line can be given; Building needs a closed
 // line. A line that stops being a building loses its entrances.
 bool SetLandscapeSourceRole (geomsrv::edit::Document& doc, Id entity, SourceRole role, std::string& error);
+bool SetReferenceLineStyle (geomsrv::edit::Document& doc, Id source, ReferenceLineStyle style, std::string& error);
+bool LandscapeLineVisible (const geomsrv::edit::Document& doc, Id entity);
 // Names the session's base terrain: sets sourceTerrainGuid and keeps exactly one
 // live Terrain source carrying that GUID (created on first use, otherwise
 // updated), returning its ID. One authored edit; no geometry is read.

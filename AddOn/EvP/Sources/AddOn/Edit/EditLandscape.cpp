@@ -143,6 +143,90 @@ bool Allocate (edit::Document& doc, Id& id, std::string& error)
     id = edit::NewId (doc);
     return true;
 }
+
+bool SyncRegionUsage (edit::Document& doc, const LandscapeSource& source, std::string& error)
+{
+    auto& s = *doc.landscape;
+    const auto owned = std::find_if (s.objects.begin (), s.objects.end (),
+                                     [&] (const auto& o) { return o.boundarySource == source.id; });
+    if (source.role == SourceRole::RegionBoundary && !source.deleted) {
+        if (owned != s.objects.end ())
+            return true;
+        Id operation = 0, object = 0;
+        if (!Allocate (doc, operation, error) || !Allocate (doc, object, error))
+            return false;
+        LandscapeOperation footprint;
+        footprint.id = operation;
+        footprint.kind = OperationKind::RegionSelect;
+        footprint.inputs = { source.id };
+        s.operations.push_back (footprint);
+        HardscapeObject region;
+        region.id = object;
+        region.kind = ObjectKind::Plaza;
+        region.name = "Region";
+        region.boundarySource = source.id;
+        region.footprintOperation = operation;
+        s.objects.push_back (region);
+        return true;
+    }
+    const Id object = owned == s.objects.end () ? 0 : owned->id;
+    const Id operation = owned == s.objects.end () ? 0 : owned->footprintOperation;
+    // Never silently delete somebody else's DAG or reinterpret a stored face
+    // selector. Unshared auto-owned records can be removed in one undoable edit.
+    if (owned != s.objects.end () || source.role == SourceRole::ReferenceLine) {
+        for (const auto& op : s.operations) {
+            const bool own = op.id == operation && op.kind == OperationKind::RegionSelect &&
+                             op.inputs == std::vector<Id> { source.id } && op.faces.empty ();
+            if (own)
+                continue;
+            if (op.id == operation || std::find (op.inputs.begin (), op.inputs.end (), source.id) != op.inputs.end () ||
+                (operation && std::find (op.inputs.begin (), op.inputs.end (), operation) != op.inputs.end ())) {
+                error = "Remove dependent landscape operations before changing this line's usage.";
+                return false;
+            }
+        }
+        for (const auto& other : s.objects)
+            if (other.id != object && operation &&
+                (other.footprintOperation == operation ||
+                 std::find (other.maskOperations.begin (), other.maskOperations.end (), operation) !=
+                     other.maskOperations.end ())) {
+                error = "Remove dependent landscape objects before changing this line's usage.";
+                return false;
+            }
+    }
+    if (object) {
+        std::set<Id> regions, assignments, patches;
+        for (const auto& region : s.regions)
+            if (region.descriptor.object == object ||
+                std::find (region.descriptor.operations.begin (), region.descriptor.operations.end (), operation) !=
+                    region.descriptor.operations.end ())
+                regions.insert (region.id);
+        for (const auto& assignment : s.assignments)
+            if (regions.count (assignment.region) || assignment.mask == operation)
+                assignments.insert (assignment.id);
+        for (const auto& patch : s.patches)
+            if (patch.object == object || assignments.count (patch.assignment))
+                patches.insert (patch.key);
+        std::erase_if (s.objects, [=] (const auto& v) { return v.id == object; });
+        std::erase_if (s.operations, [=] (const auto& v) { return v.id == operation; });
+        std::erase_if (s.regions, [&] (const auto& v) { return regions.count (v.id); });
+        std::erase_if (s.assignments, [&] (const auto& v) { return assignments.count (v.id); });
+        std::erase_if (s.patches, [&] (const auto& v) { return patches.count (v.key); });
+        for (auto& region : s.regions)
+            std::erase_if (region.predecessors, [&] (Id id) { return regions.count (id); });
+        for (auto& patch : s.patches) {
+            std::erase_if (patch.predecessorRegions, [&] (Id id) { return regions.count (id); });
+            std::erase_if (patch.predecessorPatches, [&] (Id id) { return patches.count (id); });
+        }
+        std::erase_if (s.bindings, [=] (const auto& v) {
+            return (v.kind == BindingKind::Object && v.logicalId == object) ||
+                   (v.kind == BindingKind::Operation && v.logicalId == operation);
+        });
+    }
+    if (source.role == SourceRole::ReferenceLine)
+        std::erase_if (s.terrainControls, [&] (const auto& c) { return c.source == source.id; });
+    return true;
+}
 } // namespace
 
 bool ValidateLandscape (const edit::Document& doc, std::string& error)
@@ -203,12 +287,20 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
     size_t terrains = 0;
     for (const auto& v : s.sources) {
         const bool terrain = v.role == SourceRole::Terrain;
-        if (!claim (v.id) || v.role > SourceRole::Building || !Guid (v.archicadGuid) ||
+        if (!claim (v.id) || v.role > SourceRole::RegionBoundary || !Guid (v.archicadGuid) ||
             (v.reference && (v.archicadGuid.empty () || !v.entityId)) ||
             (terrain ? (v.entityId != 0 || v.pathId != 0 || !v.arcAngles.empty ())
                      : ((v.entityId == 0) == (v.pathId == 0))) ||
             (v.pathId && v.role != SourceRole::PathCenterline)) {
             error = "landscape.sources: conflicting ID, role, geometry reference or GUID";
+            return false;
+        }
+        if (!std::isfinite (v.lineStyle.widthPixels) || v.lineStyle.widthPixels < 0.5 || v.lineStyle.widthPixels > 10) {
+            error = "Reference line width must be between 0.5 and 10 pixels.";
+            return false;
+        }
+        if (v.role == SourceRole::ReferenceLine && v.reference) {
+            error = "ReferenceLine is editor-owned linework; imported lines retain their Archicad reference role.";
             return false;
         }
         if (terrain && !v.deleted && (++terrains > 1 || v.archicadGuid != s.sourceTerrainGuid)) {
@@ -221,6 +313,13 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
             return false;
         }
         sources.insert (v.id);
+        if (!v.deleted && v.role == SourceRole::RegionBoundary) {
+            const auto* line = edit::Find (doc, v.entityId);
+            if (!line || line->kind != edit::Kind::Polyline || !line->closed || v.reference) {
+                error = "A region boundary must be a closed editor-owned line.";
+                return false;
+            }
+        }
         if (const auto* entity = edit::Find (doc, v.entityId))
             for (const auto& vertex : entity->vertices)
                 if (!std::isfinite (vertex.radius) || vertex.radius < 0 || !edit::Finite (vertex.in) ||
@@ -234,6 +333,13 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
         if (!sources.count (control.source) || control.vertex >= doc.nextId ||
             !controls.emplace (control.source, control.vertex).second) {
             error = "landscape.terrainControls: unknown source, invalid vertex or duplicate control";
+            return false;
+        }
+    for (const auto& source : s.sources)
+        if (source.role == SourceRole::ReferenceLine &&
+            std::any_of (s.terrainControls.begin (), s.terrainControls.end (),
+                         [&] (const auto& c) { return c.source == source.id && c.enabled; })) {
+            error = "Reference lines cannot constrain terrain.";
             return false;
         }
     for (const auto& entrance : s.entrances) {
@@ -253,7 +359,8 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
                                   edge.stairRun, edge.stairRise, edge.landingDepth, edge.clearance };
         if (!claim (edge.id) || edge.kind > EdgeKind::Stair || edge.highSide > EdgeSide::Right ||
             edge.pathId == kNoId || edge.pathId >= doc.nextId || edge.stairSteps < 0 ||
-            !std::all_of (std::begin (values), std::end (values), [] (double x) { return std::isfinite (x); }) ||
+            !std::all_of (
+                std::begin (values), std::end (values), [] (double x) { return std::isfinite (x); }) ||
             !Material (edge.material) || !Guid (edge.stairGuid) || !Guid (edge.wallGuid)) {
             error = "landscape.edges: invalid ID, kind, baseline, finite parameter, material or GUID";
             return false;
@@ -273,23 +380,42 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
     }
     for (const auto& op : s.operations)
         for (Id input : op.inputs)
-            if (!sources.count (input) && !operations.count (input)) {
+            if (std::any_of (s.sources.begin (), s.sources.end (), [=] (const auto& source) {
+                    return source.id == input && source.role == SourceRole::ReferenceLine;
+                })) {
+                error = "Reference lines cannot be landscape operation inputs.";
+                return false;
+            }
+            else if (!sources.count (input) && !operations.count (input)) {
                 // Deleted sources retain their catalog entry. An unknown or
                 // wrong-domain ID is corrupt ancestry, not an orphan tombstone.
                 error = "landscape.operations.inputs: unknown source/operation identity";
                 return false;
             }
+    std::set<Id> boundaryOwners;
     for (const auto& v : s.objects) {
         if (!claim (v.id) || v.kind > ObjectKind::Edge || !Material (v.baseMaterial) || !std::isfinite (v.thickness) ||
             v.thickness < 0 || !operations.count (v.footprintOperation) ||
             (v.pathId && edit::FindPath (doc, v.pathId) == nullptr) ||
-            std::any_of (v.maskOperations.begin (), v.maskOperations.end (),
-                         [&] (Id id) { return !operations.count (id); })) {
+            std::any_of (
+                v.maskOperations.begin (), v.maskOperations.end (), [&] (Id id) { return !operations.count (id); })) {
             error = "landscape.objects: invalid identity, footprint, mask, path or material";
             return false;
         }
         objects.insert (v.id);
+        if (v.boundarySource && (!boundaryOwners.insert (v.boundarySource).second || v.pathId ||
+                                 std::none_of (s.sources.begin (), s.sources.end (), [&] (const auto& source) {
+                                     return source.id == v.boundarySource && source.role == SourceRole::RegionBoundary;
+                                 }))) {
+            error = "landscape.objects: a region object needs a unique region-boundary source";
+            return false;
+        }
     }
+    for (const auto& source : s.sources)
+        if (!source.deleted && source.role == SourceRole::RegionBoundary && !boundaryOwners.count (source.id)) {
+            error = "A region boundary needs its owned footprint and object.";
+            return false;
+        }
     const auto descriptor = [&] (const RegionDescriptor& d) {
         if ((d.object && !objects.count (d.object)) || !SortedUnique (d.sources) ||
             std::any_of (d.sources.begin (), d.sources.end (), [&] (Id id) { return !sources.count (id); }) ||
@@ -399,6 +525,11 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
                 return false;
             }
     }
+    for (const auto& object : s.objects)
+        if (object.boundarySource && !reachable[object.footprintOperation].count (object.boundarySource)) {
+            error = "A region object's footprint must depend on its region-boundary source.";
+            return false;
+        }
     return true;
 }
 
@@ -500,7 +631,7 @@ bool AddLandscapeSource (edit::Document& doc, LandscapeSource source, Id& id, st
                 return false;
             }
             d.landscape->sources.push_back (source);
-            return true;
+            return SyncRegionUsage (d, source, e);
         },
         error);
     if (ok)
@@ -522,7 +653,7 @@ bool DeleteLandscapeSource (edit::Document& doc, Id id, std::string& error)
                     entrances.erase (std::remove_if (entrances.begin (), entrances.end (),
                                                      [id] (const LandscapeEntrance& e) { return e.source == id; }),
                                      entrances.end ());
-                    return true;
+                    return SyncRegionUsage (d, source, e);
                 }
             e = "source does not exist";
             return false;
@@ -628,8 +759,10 @@ bool SetLandscapeSourceRole (edit::Document& doc, Id entity, SourceRole role, st
         error = "a line cannot be given that role";
         return false;
     }
-    if (const auto* line = edit::Find (doc, entity); role == SourceRole::Building && line && !line->closed) {
-        error = "a building outline must be a closed line";
+    if (const auto* line = edit::Find (doc, entity);
+        (role == SourceRole::Building || role == SourceRole::RegionBoundary) && line && !line->closed) {
+        error = role == SourceRole::RegionBoundary ? "A region boundary must be a closed line."
+                                                   : "a building outline must be a closed line";
         return false;
     }
     return Mutate (
@@ -653,6 +786,10 @@ bool SetLandscapeSourceRole (edit::Document& doc, Id entity, SourceRole role, st
                 found = sources.end () - 1;
             }
             const Id previous = d.landscape->propertyLineSourceId;
+            if (found->reference && found->role != role) {
+                e = "That line is referenced from Archicad and locked here: edit it in Archicad.";
+                return false;
+            }
             if (found->role == SourceRole::Building && role != SourceRole::Building) {
                 auto& entrances = d.landscape->entrances;
                 const Id id = found->id;
@@ -669,8 +806,34 @@ bool SetLandscapeSourceRole (edit::Document& doc, Id entity, SourceRole role, st
             }
             else if (previous == found->id)
                 d.landscape->propertyLineSourceId = 0;
-            return true;
+            return SyncRegionUsage (d, *found, e);
         },
         error);
+}
+
+bool SetReferenceLineStyle (edit::Document& doc, Id source, ReferenceLineStyle style, std::string& error)
+{
+    return Mutate (
+        doc,
+        [=] (edit::Document& d, std::string& e) {
+            for (auto& line : d.landscape->sources)
+                if (line.id == source && !line.deleted && line.role == SourceRole::ReferenceLine && !line.reference) {
+                    line.lineStyle = style;
+                    return true;
+                }
+            e = "Select an editor-owned reference line.";
+            return false;
+        },
+        error);
+}
+
+bool LandscapeLineVisible (const edit::Document& doc, Id entity)
+{
+    if (doc.landscape)
+        for (const auto& source : doc.landscape->sources)
+            if (!source.deleted && source.entityId == entity && source.role == SourceRole::ReferenceLine &&
+                !source.lineStyle.visible)
+                return false;
+    return true;
 }
 } // namespace tapioca::geometry

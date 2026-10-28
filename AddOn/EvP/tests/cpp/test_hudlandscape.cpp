@@ -750,6 +750,51 @@ TEST (HudLandscape, AnyLineTakesALandscapeRoleInOneUndoStep)
     EXPECT_EQ (before.landscape->sources.size () + 2, s.edits.Doc ().landscape->sources.size ());
 }
 
+TEST (HudLandscape, ReferenceLineAndRegionBoundaryUseDistinctMenusAndLineOnlyRendering)
+{
+    ed::Document doc;
+    std::string error;
+    ASSERT_TRUE (lg::StartLandscape (doc, { 1 }, error));
+    const auto line = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, true);
+    const auto open = ed::AddPolyline (doc, { { 20, 0, 0 }, { 30, 0, 0 } }, false);
+    eh::Session s (doc);
+    s.selection.Set ({ { line, ed::Part::Entity, 0 } });
+    s.menu.target = eh::MenuTarget::Object;
+    s.menu.ref = { line, ed::Part::Entity, 0 };
+    const auto offers = [&] (const char* id) {
+        for (const auto& item : eh::MenuItems (s))
+            if (item.id == id)
+                return item.enabled;
+        return false;
+    };
+    ASSERT_TRUE (offers ("role.reference"));
+    ASSERT_TRUE (offers ("role.region"));
+    eh::RunMenuItem (s, "role.reference");
+    ASSERT_EQ (eh::SelectedSourceRole (s), lg::SourceRole::ReferenceLine);
+    auto result = eh::Landscape (s);
+    EXPECT_TRUE (result.faces.empty ());
+    el::Feedback feedback;
+    feedback.landscape = &result;
+    layers::Layer layer;
+    el::AddLandscape (s.edits.Doc (), feedback, {}, layer);
+    EXPECT_TRUE (layer.meshes.empty ());
+    ASSERT_EQ (layer.polylines.size (), 1u);
+    EXPECT_EQ (layer.polylines[0].rgba, lg::ReferenceLineStyle {}.rgba);
+    const auto reference = s.edits.Doc ();
+    eh::RunMenuItem (s, "role.region");
+    ASSERT_EQ (eh::SelectedSourceRole (s), lg::SourceRole::RegionBoundary) << s.message;
+    EXPECT_EQ (s.edits.Doc ().landscape->objects.size (), 1u);
+    EXPECT_NEAR (Area (s), 100, 1e-6);
+    ASSERT_TRUE (s.edits.Undo ());
+    EXPECT_EQ (s.edits.Doc ().landscape, reference.landscape);
+    s.selection.Set ({ { open, ed::Part::Entity, 0 } });
+    s.menu.ref = { open, ed::Part::Entity, 0 };
+    EXPECT_FALSE (offers ("role.region"));
+    EXPECT_TRUE (offers ("role.reference"));
+    EXPECT_FALSE (eh::SetSelectedSourceRole (s, lg::SourceRole::RegionBoundary));
+    EXPECT_NE (s.message.find ("closed"), std::string::npos);
+}
+
 TEST (HudLandscape, EntrancesArePlacedOnABuildingOutlineAndAPathIsSentToOne)
 {
     namespace lg = tapioca::geometry;

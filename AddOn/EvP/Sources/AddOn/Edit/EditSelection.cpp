@@ -121,6 +121,8 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
                 std::any_of (source.arcAngles.begin (), source.arcAngles.end (), [] (double a) { return a != 0; }))
                 arcSources.emplace (source.entityId, &source);
     for (const auto& e : doc.entities) {
+        if (!tapioca::geometry::LandscapeLineVisible (doc, e.id))
+            continue;
         std::vector<Vec3> analyticOutline;
         if (const auto source = arcSources.find (e.id); source != arcSources.end ()) {
             bool closed = false;
@@ -404,6 +406,8 @@ std::vector<Ref> InRegion (const Document& doc, const PickView& view, const std:
     };
     std::vector<Ref> found;
     for (const auto& e : doc.entities) {
+        if (!tapioca::geometry::LandscapeLineVisible (doc, e.id))
+            continue;
         const Vec3 up { 0.0, 0.0, e.kind == Kind::Extrusion ? e.height : 0.0 };
         if (filter & kPickVertex)
             for (const auto& v : e.vertices)

@@ -61,7 +61,7 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
                 selected || hover);
     }
     for (const auto& source : doc.landscape->sources) {
-        if (source.deleted)
+        if (source.deleted || (source.role == lg::SourceRole::ReferenceLine && !source.lineStyle.visible))
             continue;
         std::vector<edit::Vec3> points;
         bool closed = false;
@@ -71,6 +71,10 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
         const bool property = source.id == doc.landscape->propertyLineSourceId;
         auto stroke = line (points, closed, property ? style.propertyLine : style.landscapeSource,
                             property ? style.selectedWidth : style.lineWidth, false);
+        if (source.role == lg::SourceRole::ReferenceLine) {
+            stroke.rgba = source.lineStyle.rgba;
+            stroke.widthPixels = static_cast<float> (source.lineStyle.widthPixels);
+        }
         stroke.dashMetres =
             property ? std::vector<float> { 0.8f, 0.15f, 0.15f, 0.15f } : std::vector<float> { 0.4f, 0.25f };
         layer.polylines.push_back (std::move (stroke));

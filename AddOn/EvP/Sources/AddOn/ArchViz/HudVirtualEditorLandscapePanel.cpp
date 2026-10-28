@@ -6,6 +6,41 @@
 
 namespace geomsrv::archviz::edithud {
 namespace lg = tapioca::geometry;
+namespace {
+void ReferenceLinesPanel (Session& s)
+{
+    if (!ImGui::CollapsingHeader ("Reference line display"))
+        return;
+    ImGui::BeginDisabled (GizmoModeLocked (s) || !s.drawing.empty () || s.edits.InGesture ());
+    const auto sources = s.edits.Doc ().landscape->sources;
+    for (const auto& source : sources) {
+        if (source.deleted || source.role != lg::SourceRole::ReferenceLine || source.reference)
+            continue;
+        ImGui::PushID (std::to_string (source.id).c_str ());
+        ImGui::Text ("Line %llu", static_cast<unsigned long long> (source.entityId));
+        auto style = source.lineStyle;
+        bool changed = ImGui::Checkbox ("Visible", &style.visible);
+        ImGui::SameLine ();
+        changed |= ImGui::Checkbox ("Locked", &style.locked);
+        changed |= ImGui::InputDouble ("Width (pixels)", &style.widthPixels, 0.5, 1, "%.1f");
+        float colour[4];
+        for (int i = 0; i < 4; ++i)
+            colour[i] = float ((style.rgba >> (24 - i * 8)) & 255) / 255;
+        if (ImGui::ColorEdit4 ("Line colour", colour)) {
+            style.rgba = 0;
+            for (int i = 0; i < 4; ++i)
+                style.rgba |= uint32_t (colour[i] * 255 + 0.5f) << (24 - i * 8);
+            changed = true;
+        }
+        if (changed && !s.edits.Apply ([id = source.id, style] (edit::Document& doc, std::string& error) {
+                return lg::SetReferenceLineStyle (doc, id, style, error);
+            }))
+            s.message = s.edits.Message ();
+        ImGui::PopID ();
+    }
+    ImGui::EndDisabled ();
+}
+} // namespace
 void LandscapePanel (Session& s)
 {
     if (!s.edits.Doc ().landscape)
@@ -60,12 +95,12 @@ void LandscapePanel (Session& s)
     ImGui::BeginDisabled (s.landscapeCommand.has_value ());
     if (hudshell::BeginSubTabs ("##landscape")) {
         if (ImGui::BeginTabItem ("Sources")) {
-            const char* roles[] = { "Guide", "Cutter", "Property line" };
-            const lg::SourceRole values[] = { lg::SourceRole::Guide, lg::SourceRole::Cutter,
-                                              lg::SourceRole::PropertyLine };
+            const char* roles[] = { "Reference line", "Region boundary", "Cutter", "Property line" };
+            const lg::SourceRole values[] = { lg::SourceRole::ReferenceLine, lg::SourceRole::RegionBoundary,
+                                              lg::SourceRole::Cutter, lg::SourceRole::PropertyLine };
             ImGui::PushID ("draw-source-role");
-            for (int i = 0; i < 3; ++i) {
-                if (i)
+            for (int i = 0; i < 4; ++i) {
+                if (i % 2)
                     ImGui::SameLine ();
                 if (ImGui::RadioButton (roles[i], s.landscapeRole == values[i]))
                     s.landscapeRole = values[i];
@@ -80,7 +115,8 @@ void LandscapePanel (Session& s)
             const struct {
                 const char* label;
                 lg::SourceRole role;
-            } uses[] = { { "Region boundary", lg::SourceRole::Guide },
+            } uses[] = { { "Reference line", lg::SourceRole::ReferenceLine },
+                         { "Region boundary", lg::SourceRole::RegionBoundary },
                          { "Cutter", lg::SourceRole::Cutter },
                          { "Material boundary", lg::SourceRole::MaterialBoundary },
                          { "Property line", lg::SourceRole::PropertyLine },
@@ -102,6 +138,15 @@ void LandscapePanel (Session& s)
             }
             ImGui::PopID ();
             ImGui::EndDisabled ();
+            if (shared == lg::SourceRole::ReferenceLine)
+                ImGui::TextWrapped (
+                    "Reference line: snappable linework only. No fill, material, quantities or terrain effect. "
+                    "Use Reference line display below to change line style, visibility and lock.");
+            else if (shared == lg::SourceRole::RegionBoundary)
+                ImGui::TextWrapped ("Region boundary: closed footprint and hardscape object. "
+                                    "Surface metadata and terrain grading are not enabled yet.");
+            ImGui::TextDisabled ("A region boundary must be a closed editor-owned line.");
+            ReferenceLinesPanel (s);
             ImGui::EndTabItem ();
         }
         if (ImGui::BeginTabItem ("Operations")) {

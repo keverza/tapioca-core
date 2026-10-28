@@ -50,16 +50,13 @@ bool RegisterSource (edit::Document& d, edit::Id created, bool path, tapioca::ge
 {
     if (!d.landscape)
         return true;
+    if (!path)
+        return tapioca::geometry::SetLandscapeSourceRole (d, created, role, error);
     tapioca::geometry::LandscapeSource source;
-    source.entityId = path ? edit::kNoId : created;
-    source.pathId = path ? created : edit::kNoId;
-    source.role = path ? tapioca::geometry::SourceRole::PathCenterline : role;
+    source.pathId = created;
+    source.role = tapioca::geometry::SourceRole::PathCenterline;
     edit::Id id = edit::kNoId;
-    if (!tapioca::geometry::AddLandscapeSource (d, source, id, error))
-        return false;
-    if (!path && role == tapioca::geometry::SourceRole::PropertyLine)
-        return tapioca::geometry::SetLandscapePropertyLine (d, id, error);
-    return true;
+    return tapioca::geometry::AddLandscapeSource (d, source, id, error);
 }
 } // namespace
 

@@ -23,6 +23,14 @@ static bool ReferencesKept (const Document& candidate, const Document& from, std
     if (!from.landscape)
         return true;
     for (const auto& source : from.landscape->sources) {
+        if (!source.deleted && source.role == tapioca::geometry::SourceRole::ReferenceLine && source.lineStyle.locked) {
+            const auto* was = Find (from, source.entityId);
+            const auto* now = Find (candidate, source.entityId);
+            if (was && (!now || !(*now == *was))) {
+                error = "That reference line is locked. Unlock it in Sources before editing its geometry.";
+                return false;
+            }
+        }
         if (source.deleted || !source.reference || !source.entityId)
             continue;
         const Entity* was = Find (from, source.entityId);
