@@ -204,6 +204,13 @@ constexpr float kSelectionOutlineColor[4] = { 0.05f, 0.85f, 1.0f, 1.0f };
 constexpr float kHoverOutlineColor[4] = { 1.0f, 0.62f, 0.10f, 1.0f };
 constexpr float kHoverOutlinePixels = 2.0f;
 
+// The visibility ROLE silhouettes (DiligentScene::SetAnalysisHighlight): which
+// element is Focus and which is Analysis, so the gradient can be read against
+// what it was measured from. Hues apart from the selection's cyan, the hover's
+// amber and the gradient's own red and green; the selection's weight.
+constexpr float kFocusOutlineColor[4] = { 0.95f, 0.25f, 0.75f, 1.0f };   // magenta
+constexpr float kAnalysisOutlineColor[4] = { 0.62f, 0.42f, 1.0f, 1.0f }; // violet
+
 // The wireframe's line colour. Alpha below 1 so overlapping edges on a dense
 // mesh build up instead of saturating into a solid mass.
 constexpr float kWireframeColor[4] = { 0.10f, 0.85f, 1.0f, 0.75f };
@@ -234,6 +241,7 @@ struct Entry {
     // then resolve to whichever element took its place.
     uint32_t pickId = kNoPickId;
     bool selected = false;
+    uint8_t analysisRole = 0; // 0 none, 1 Focus, 2 Analysis (SetAnalysisHighlight)
     bool seenThisBatch = false;
     bool hasBounds = false;
     float boundsMin[3] = { 0.0f, 0.0f, 0.0f };
@@ -675,6 +683,21 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // stair extracts a second later, unselected, and the tint simply never
     // appears -- indistinguishable from the bridge not working at all.
     std::vector<std::string> selectionGuids;
+
+    // The visibility roles outlined, KEPT for the same reason as the selection:
+    // an element extracted after the roles were set must still be outlined.
+    std::vector<std::string> focusGuids, analysisGuids;
+
+    uint8_t AnalysisRoleOf (const std::string& guid) const
+    {
+        for (const std::string& g : focusGuids)
+            if (g == guid)
+                return 1;
+        for (const std::string& g : analysisGuids)
+            if (g == guid)
+                return 2;
+        return 0;
+    }
 
     bool IsSelectedGuid (const std::string& guid) const
     {

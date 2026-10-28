@@ -675,6 +675,11 @@ class DiligentScene final {
     // message to stay in step with it.
     void SetSelection (const std::vector<std::string>& guids);
 
+    // The visibility roles to outline: Focus and Analysis, each in its own
+    // colour. WHOLE SETS, like the selection; equal sets cost a compare, so the
+    // HUD may call it every frame. Outline only -- no tint, no selection.
+    void SetAnalysisHighlight (const std::vector<std::string>& focus, const std::vector<std::string>& analysis);
+
     // Which element the cursor is over, as a PICK ID rather than a GUID, and 0
     // for none. It gets its own silhouette so the user can see what a click
     // would take before making it (PLAT-RE136).

@@ -242,6 +242,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
                              status.analysisMilliseconds);
     }
 
+    ImGui::TextDisabled (origin == 0 ? "Outlined: Focus magenta, Analysis violet." : "Outlined: Focus magenta.");
     // Both visibility tabs share the gradient; the tint redraws with it at once.
     ColourPicker ("not visible", state.visibilityLowRgba, false);
     ImGui::SameLine ();

@@ -253,6 +253,7 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 if (e.pickId == kNoPickId)
                     e.pickId = impl_->nextPickId++;
                 e.selected = impl_->IsSelectedGuid (e.guid);
+                e.analysisRole = impl_->AnalysisRoleOf (e.guid);
                 // ⚠️ 32-BIT. A curtain wall passes 65,535 vertices easily and a
                 // 16-bit buffer wraps silently.
                 e.indices32 = true;
@@ -456,6 +457,17 @@ void DiligentScene::SetSelection (const std::vector<std::string>& guids)
     impl_->selectionGuids = guids;
     for (Entry& e : impl_->elements)
         e.selected = impl_->IsSelectedGuid (e.guid);
+}
+
+void DiligentScene::SetAnalysisHighlight (const std::vector<std::string>& focus,
+                                          const std::vector<std::string>& analysis)
+{
+    if (impl_ == nullptr || (impl_->focusGuids == focus && impl_->analysisGuids == analysis))
+        return;
+    impl_->focusGuids = focus;
+    impl_->analysisGuids = analysis;
+    for (Entry& e : impl_->elements)
+        e.analysisRole = impl_->AnalysisRoleOf (e.guid);
 }
 
 // ⚠️ NO LOOP OVER THE ELEMENTS, unlike SetSelection above. The hover is stored

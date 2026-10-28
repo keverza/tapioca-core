@@ -94,7 +94,8 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
     // two objects that must agree about depth, cull and blend forever.
     const uint32_t hoverId = impl_->hoverId;
     const int outlineIndex = CullIndex (cull);
-    const bool anyOutline = !impl_->selectionGuids.empty () || hoverId != kNoPickId;
+    const bool anyOutline = !impl_->selectionGuids.empty () || hoverId != kNoPickId || !impl_->focusGuids.empty () ||
+                            !impl_->analysisGuids.empty ();
     if (cull != CullMode::None && impl_->outlinePso[outlineIndex] != nullptr && anyOutline) {
         context->SetPipelineState (impl_->outlinePso[outlineIndex]);
         context->CommitShaderResources (impl_->outlineSrb[outlineIndex],
@@ -113,6 +114,23 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
             if (!e.selected || e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
                 continue;
             drawHull (e);
+        }
+
+        // The visibility roles, at the selection's weight and before the hover
+        // (which re-uploads a thinner offset). A selected element keeps its cyan:
+        // the selection is what the user is doing right now.
+        for (const uint8_t role : { uint8_t (1), uint8_t (2) }) {
+            const float* colour = role == 1 ? kFocusOutlineColor : kAnalysisOutlineColor;
+            bool uploaded = false;
+            for (const Entry& e : impl_->elements) {
+                if (e.analysisRole != role || e.selected || e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
+                    continue;
+                if (!uploaded) {
+                    uploadConstants (colour[0], colour[1], colour[2], colour[3]);
+                    uploaded = true;
+                }
+                drawHull (e);
+            }
         }
 
         // ⚠️ SKIPPED WHEN THE HOVERED ELEMENT IS ALREADY SELECTED. Two hulls on
