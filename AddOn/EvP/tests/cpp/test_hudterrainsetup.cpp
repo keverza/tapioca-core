@@ -51,7 +51,7 @@ struct PanelGui {
         ImGui::DestroyContext (context);
         ImGui::SetCurrentContext (previous);
     }
-    std::string Frame (eh::Session& session, ImVec2 pointer = { 850, 1350 }, bool down = false)
+    std::string Frame (eh::Session& session, ImVec2 pointer = { 850, 1350 }, bool down = false, bool landscape = false)
     {
         auto& io = ImGui::GetIO ();
         io.AddMousePosEvent (pointer.x, pointer.y);
@@ -61,7 +61,10 @@ struct PanelGui {
         ImGui::SetNextWindowSize ({ 700, 1300 });
         ImGui::Begin ("terrain setup", nullptr, ImGuiWindowFlags_NoSavedSettings);
         ImGui::LogToBuffer ();
-        eh::TerrainDesignPanel (session);
+        if (landscape)
+            eh::LandscapePanel (session);
+        else
+            eh::TerrainDesignPanel (session);
         const std::string text = context->LogBuffer.c_str ();
         ImGui::LogFinish ();
         ImGui::End ();
@@ -93,6 +96,27 @@ std::string PanelText (eh::Session& session)
     return gui.Frame (session);
 }
 } // namespace
+
+TEST (HudTerrainSetup, LandscapeSourceRoleControlsDoNotShareImGuiIds)
+{
+    eh::Session session (EmptyLandscape ());
+    PanelGui gui;
+    gui.Frame (session, { 850, 1350 }, false, true);
+    // Exercise the actual submitted widgets: ImGui counts duplicate IDs against
+    // the previous frame's hovered item, including a disabled selection control.
+    size_t hovered = 0;
+    for (float y = 24; y < 1250; y += 8)
+        for (float x : { 30.0f, 130.0f, 240.0f }) {
+            const ImVec2 point { x, y };
+            gui.Frame (session, point, false, true);
+            if (!gui.context->HoveredId)
+                continue;
+            ++hovered;
+            gui.Frame (session, point, false, true);
+            EXPECT_LE (gui.context->HoveredIdPreviousFrameItemCount, 1) << "at " << x << ", " << y;
+        }
+    EXPECT_GT (hovered, 0u);
+}
 
 TEST (HudTerrainSetup, FreshLandscapeOffersCreationInsteadOfAnEmptySelectorAndDisabledDeadEnd)
 {

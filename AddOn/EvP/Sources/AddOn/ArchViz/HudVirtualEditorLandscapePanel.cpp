@@ -63,12 +63,14 @@ void LandscapePanel (Session& s)
             const char* roles[] = { "Guide", "Cutter", "Property line" };
             const lg::SourceRole values[] = { lg::SourceRole::Guide, lg::SourceRole::Cutter,
                                               lg::SourceRole::PropertyLine };
+            ImGui::PushID ("draw-source-role");
             for (int i = 0; i < 3; ++i) {
                 if (i)
                     ImGui::SameLine ();
                 if (ImGui::RadioButton (roles[i], s.landscapeRole == values[i]))
                     s.landscapeRole = values[i];
             }
+            ImGui::PopID ();
             ImGui::TextWrapped (
                 "Select source geometry directly in the view. Start a command above to pick its faces.");
             // The selected lines' role: any line can be a region's boundary, a cutter, a material
@@ -91,12 +93,14 @@ void LandscapePanel (Session& s)
                 ImGui::TextDisabled ("%zu line%s referenced from Archicad: locked here, edit in Archicad.", references,
                                      references == 1 ? "" : "s");
             ImGui::TextUnformatted ("Use selected lines as:");
+            ImGui::PushID ("selected-source-role");
             for (size_t i = 0; i < std::size (uses); ++i) {
                 if (i % 2)
                     ImGui::SameLine ();
                 if (ImGui::RadioButton (uses[i].label, shared == uses[i].role))
                     SetSelectedSourceRole (s, uses[i].role);
             }
+            ImGui::PopID ();
             ImGui::EndDisabled ();
             ImGui::EndTabItem ();
         }
