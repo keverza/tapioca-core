@@ -21,8 +21,9 @@ std::optional<lg::HardscapeObject> ActiveRegion (Session& s)
                         return std::nullopt;
                     selected = object.id;
                 }
-    if (selected)
-        s.landscapeObject = selected;
+    if (!selected)
+        return std::nullopt;
+    s.landscapeObject = selected;
     for (const auto& object : doc.landscape->objects)
         if (object.id == s.landscapeObject && object.boundarySource &&
             std::any_of (doc.landscape->sources.begin (), doc.landscape->sources.end (), [&] (const auto& source) {
@@ -147,9 +148,10 @@ void RegionPanel (Session& s, bool materialsOnly)
             material.preset = lg::MaterialPreset (preset);
             changed = true;
         }
-        ImGui::TextWrapped ("Fill: %s", material.fillName.empty () ? "not assigned" : material.fillName.c_str ());
-        ImGui::TextWrapped ("Surface: %s",
-                            material.surfaceName.empty () ? "not assigned" : material.surfaceName.c_str ());
+        const auto fill = material.fillName.empty () ? material.fillGuid : material.fillName;
+        const auto finish = material.surfaceName.empty () ? material.surfaceGuid : material.surfaceName;
+        ImGui::TextWrapped ("Fill: %s", fill.empty () ? "not assigned" : fill.c_str ());
+        ImGui::TextWrapped ("Surface: %s", finish.empty () ? "not assigned" : finish.c_str ());
         ImGui::TextWrapped ("Shared Archicad fill/surface picker and GUID resolution are pending (#26). "
                             "Stored material references are retained, not replaced by the preset. "
                             "Native material availability and hatch rendering are not certified here.");

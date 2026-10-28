@@ -133,7 +133,9 @@ TEST (HudTerrainSetup, RegionSurfacePanelNamesContourDirectionAndHidesForReferen
     auto surface = *doc.landscape->objects[0].surface;
     surface.elevation = lg::RegionElevationMode::Constant;
     surface.slope = lg::RegionSlopeMode::ContourLine;
-    ASSERT_TRUE (lg::SetRegionSurface (doc, object, surface, {}, error));
+    lg::MaterialSpec material;
+    material.fillGuid = "00112233-4455-6677-8899-AABBCCDDEEFF";
+    ASSERT_TRUE (lg::SetRegionSurface (doc, object, surface, material, error));
     eh::Session session (doc);
     session.selection.Set ({ { region, edit::Part::Entity, 0 } });
     PanelGui gui;
@@ -145,11 +147,16 @@ TEST (HudTerrainSetup, RegionSurfacePanelNamesContourDirectionAndHidesForReferen
     const auto materialText = gui.Frame (session, { 850, 1350 }, false, false, 2);
     EXPECT_NE (materialText.find ("#26"), std::string::npos);
     EXPECT_NE (materialText.find ("Material preset metadata"), std::string::npos);
+    EXPECT_NE (materialText.find (material.fillGuid), std::string::npos) << "A stored GUID is not 'not assigned'.";
     session.selection.Set ({ { reference, edit::Part::Entity, 0 } });
     const auto refText = gui.Frame (session, { 850, 1350 }, false, false, 1);
     EXPECT_EQ (refText.find ("Elevation"), std::string::npos);
     const auto refMaterial = gui.Frame (session, { 850, 1350 }, false, false, 2);
     EXPECT_EQ (refMaterial.find ("Material preset metadata"), std::string::npos);
+    session.selection.Clear ();
+    const auto cleared = gui.Frame (session, { 850, 1350 }, false, false, 1);
+    EXPECT_EQ (cleared.find ("Elevation"), std::string::npos)
+        << "A remembered boolean owner is not a property-panel selection.";
     EXPECT_EQ (session.edits.UndoDepth (), 0u);
 }
 
