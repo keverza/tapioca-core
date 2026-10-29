@@ -41,6 +41,7 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state)
         if (!shown.empty () && status.studyId == shown)
             origin = status.origin;
     }
+    viewerhud::FollowAnalysisPath (state);
     auto& queue = SceneCmdQueue::Get ();
     analysistabs::FollowShownStudy (state.analysisFocus, shown, kind, queue.AnalysisDisplayGeneration (), origin);
     // ⚠️ EACH TINT TAB PUTS ITS OWN STUDY BACK. The three share one tint channel,

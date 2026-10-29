@@ -13,6 +13,7 @@
 #include <imgui.h>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -422,24 +423,63 @@ void DrawAnalysisPathButtons (HudState& state)
     ImGui::SetItemTooltip ("Forget the path; the point stays where it is.");
 }
 
-bool DrawAnalysisPathControls (HudState& state, viewpointstudy::Settings& settings, bool steer)
+// The point on the path at its place, at the profile's height there; with `steer`
+// a field of view turns the way the path runs. False when the path has no length.
+bool PlaceOnPath (const HudState& state, viewpointstudy::Settings& settings, bool steer)
+{
+    const auto& path = state.analysisPath;
+    analysispath::Point3 at, tangent;
+    if (path == nullptr || !analysispath::Evaluate (*path, state.analysisPathAt, at, tangent))
+        return false;
+    settings.options.point = { at[0], at[1],
+                               at[2] + analysisprofile::ZAt (state.analysisProfile,
+                                                             double (state.analysisPathAt) * path->Length ()) };
+    settings.pointValid = true;
+    if (steer && std::hypot (tangent[0], tangent[1]) > 1.0e-9)
+        settings.options.bearingDegrees = std::atan2 (tangent[1], tangent[0]) * 180.0 / 3.14159265358979323846;
+    return true;
+}
+
+void FollowAnalysisPath (HudState& state)
 {
     bool moved = false;
     const auto imported = analysispathsource::Latest ();
     if (imported.serial != state.analysisPathSerial) {
         state.analysisPathSerial = imported.serial;
-        state.analysisPathError = imported.error;
-        if (imported.path != nullptr) {
-            state.analysisPath = imported.path;
-            state.analysisPathAt = 0.0f;
-            // Its saved profile, or eye height all along until one is drawn.
-            state.analysisProfile =
-                imported.profile != nullptr ? *imported.profile : analysisprofile::Flat (imported.path->Length (), 1.6);
-            analysisprofile::Fit (state.analysisProfile, imported.path->Length ());
-            state.analysisProfileDirty = false;
-            state.analysisProfileAnchor = state.analysisProfileDrag = -1;
-            state.analysisProfileNote = imported.profile != nullptr ? "Height profile read from the Polyline." : "";
-            moved = true; // onto its start
+        if (imported.refreshed) {
+            // The followed Polyline, edited or deleted in Archicad: an answer about
+            // the path in hand only, never one replaced or deleted since.
+            const bool ours = state.analysisPath != nullptr && !state.analysisPathGone;
+            if (ours && imported.gone) {
+                state.analysisPathGone = true;
+                state.analysisPathError = imported.error;
+            }
+            else if (ours && imported.path != nullptr && imported.path->guid == state.analysisPath->guid) {
+                // Same place along it and the same profile, stretched to its new length.
+                state.analysisPath = imported.path;
+                analysisprofile::Fit (state.analysisProfile, imported.path->Length ());
+                state.analysisPathError.clear ();
+                moved = true;
+            }
+            else if (ours && !imported.error.empty ())
+                state.analysisPathError = imported.error;
+        }
+        else {
+            state.analysisPathError = imported.error;
+            if (imported.path != nullptr) {
+                state.analysisPath = imported.path;
+                state.analysisPathGone = false;
+                state.analysisPathAt = 0.0f;
+                // Its saved profile, or eye height all along until one is drawn.
+                state.analysisProfile = imported.profile != nullptr
+                                            ? *imported.profile
+                                            : analysisprofile::Flat (imported.path->Length (), 1.6);
+                analysisprofile::Fit (state.analysisProfile, imported.path->Length ());
+                state.analysisProfileDirty = false;
+                state.analysisProfileAnchor = state.analysisProfileDrag = -1;
+                state.analysisProfileNote = imported.profile != nullptr ? "Height profile read from the Polyline." : "";
+                moved = true; // onto its start
+            }
         }
     }
     const auto saved = analysispathsource::LastSave ();
@@ -453,15 +493,35 @@ bool DrawAnalysisPathControls (HudState& state, viewpointstudy::Settings& settin
                 saved.error.empty () ? "Height profile saved on the Polyline." : "Not saved: " + saved.error;
         }
     }
+    // ⚠️ POLLED, NOT WATCHED. A Polyline is 2D: editing it need not move the 3D
+    // capture's stamp, so its own modification stamp is compared on the main
+    // thread, a couple of times a second, one check in flight at a time.
+    const double now = std::chrono::duration<double> (std::chrono::steady_clock::now ().time_since_epoch ()).count ();
+    if (state.analysisPath != nullptr && !state.analysisPathGone && now - state.analysisPathPolled >= 0.5) {
+        state.analysisPathPolled = now;
+        analysispathsource::RequestRefresh (state.analysisPath->guid, state.analysisPath->stamp);
+    }
+    if (!moved)
+        return;
+    auto settings = *viewpointstudy::GetSettings ();
+    const bool steer = settings.options.mode == evp::sunstudy::ViewpointMode::FieldOfView &&
+                       !state.viewpointFaceTarget && state.viewpointAlongPath;
+    if (PlaceOnPath (state, settings, steer))
+        ConfigureViewpoint (state, std::move (settings));
+}
+
+bool DrawAnalysisPathControls (HudState& state, viewpointstudy::Settings& settings, bool steer)
+{
+    bool moved = false;
     const auto& path = state.analysisPath;
     if (path != nullptr)
-        ImGui::TextDisabled ("Path: Polyline {%s}, %.1f m%s",
+        ImGui::TextDisabled ("Path: Polyline {%s}, %.1f m%s%s",
                              evp::sunstudy::CanonicalGuid (path->guid).substr (0, 8).c_str (), path->Length (),
-                             path->closed ? ", closed" : "");
+                             path->closed ? ", closed" : "", state.analysisPathGone ? "" : ", following edits");
     if (!state.analysisPathError.empty ())
         ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "Path: %s", state.analysisPathError.c_str ());
     if (path == nullptr)
-        return moved;
+        return false;
     float metres = state.analysisPathAt * float (path->Length ());
     if (ImGui::SliderFloat ("along path", &metres, 0.0f, float (path->Length ()), "%.2f m")) {
         state.analysisPathAt = path->Length () > 0.0 ? metres / float (path->Length ()) : 0.0f;
@@ -473,18 +533,7 @@ bool DrawAnalysisPathControls (HudState& state, viewpointstudy::Settings& settin
         moved |= ImGui::Checkbox ("Look along path", &state.viewpointAlongPath);
         ImGui::SetItemTooltip ("The field of view faces the way the path runs at the point.");
     }
-    if (!moved)
-        return false;
-    analysispath::Point3 at, tangent;
-    if (!analysispath::Evaluate (*path, state.analysisPathAt, at, tangent))
-        return false;
-    settings.options.point = { at[0], at[1],
-                               at[2] + analysisprofile::ZAt (state.analysisProfile,
-                                                             double (state.analysisPathAt) * path->Length ()) };
-    settings.pointValid = true;
-    if (steer && state.viewpointAlongPath && std::hypot (tangent[0], tangent[1]) > 1.0e-9)
-        settings.options.bearingDegrees = std::atan2 (tangent[1], tangent[0]) * 180.0 / 3.14159265358979323846;
-    return true;
+    return moved && PlaceOnPath (state, settings, steer && state.viewpointAlongPath);
 }
 
 void DrawViewpointHudSection (HudState& state)

@@ -8,6 +8,7 @@
 // Pure: no ACAPI, no ImGui. AnalysisPathSource reads the element.
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,7 @@ using Point3 = std::array<double, 3>;
 
 struct Path {
     std::string guid;           // the Archicad element it was read from
+    uint64_t stamp = 0;         // the element's modification stamp when it was read
     std::vector<Point3> points; // arcs tessellated; a closed path ends on its first point
     std::vector<double> along;  // cumulative length at each point, metres; along[0] == 0
     bool closed = false;

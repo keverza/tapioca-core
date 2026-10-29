@@ -21,6 +21,10 @@ Imported Latest ()
     return {};
 }
 
+void RequestRefresh (std::string, uint64_t)
+{
+}
+
 void RequestSave (std::string, analysisprofile::Profile)
 {
 }

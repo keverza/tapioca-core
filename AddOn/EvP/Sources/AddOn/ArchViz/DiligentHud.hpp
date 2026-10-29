@@ -256,6 +256,8 @@ struct HudState {
     // Viewpoint), and the point's place on it (0..1 of its length).
     std::shared_ptr<const analysispath::Path> analysisPath;
     uint64_t analysisPathSerial = 0; // the last AnalysisPathSource import taken
+    bool analysisPathGone = false;   // deleted in Archicad: kept, no longer followed
+    double analysisPathPolled = 0.0; // steady-clock seconds of the last stamp check
     std::string analysisPathError;
     float analysisPathAt = 0.0f;
     // The point's height above the path, a Bezier profile by station, kept on the
@@ -714,6 +716,9 @@ bool DrawSharedContextToggle (viewpointstudy::Settings& settings);
 // -- the point's place along it, and its height. True when they moved the point
 // in `settings` (and, with `steer`, a field of view's bearing); the caller configures.
 void DrawAnalysisPathButtons (HudState& state);
+// Once a frame, whichever page is open: takes imports, saves and the followed
+// Polyline's edits in Archicad, and moves the shared point with its path.
+void FollowAnalysisPath (HudState& state);
 bool DrawAnalysisPathControls (HudState& state, viewpointstudy::Settings& settings, bool steer);
 // The target -- point visibility's cone target, and what a target-facing field
 // of view faces -- is shown and movable on those two tabs.

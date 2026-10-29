@@ -11,6 +11,7 @@
 #include "Metadata/MetadataStorage.hpp"
 #include "NativeCommands/CommandUtils.hpp" // WalkPolygonRings: the one walk of a polygon memo
 
+#include <atomic>
 #include <mutex>
 #include <vector>
 
@@ -23,6 +24,7 @@ namespace meta = metadata;
 std::mutex s_mutex;
 Imported s_latest;
 Saved s_saved;
+std::atomic<bool> s_refreshing { false };
 
 std::string Describe (GSErrCode err)
 {
@@ -80,6 +82,7 @@ bool ReadPolyline (const API_Element& element, analysispath::Path& path, std::st
         error = "the Polyline has no length";
         return false;
     }
+    path.stamp = uint64_t (element.header.modiStamp);
     return true;
 }
 
@@ -133,6 +136,13 @@ bool Save (const std::string& guid, const analysisprofile::Profile& profile, std
     return result == NoError;
 }
 
+void Publish (Imported imported)
+{
+    std::lock_guard<std::mutex> lock (s_mutex);
+    imported.serial = s_latest.serial + 1;
+    s_latest = std::move (imported);
+}
+
 // MAIN THREAD.
 void Import ()
 {
@@ -155,9 +165,33 @@ void Import ()
     }
     if (imported.path == nullptr && imported.error.empty ())
         imported.error = "select a Polyline in Archicad first";
-    std::lock_guard<std::mutex> lock (s_mutex);
-    imported.serial = s_latest.serial + 1;
-    s_latest = std::move (imported);
+    Publish (std::move (imported));
+}
+
+// MAIN THREAD.
+void Refresh (const std::string& guid, uint64_t stamp)
+{
+    API_Element element {};
+    element.header.guid = APIGuidFromString (guid.c_str ());
+    API_Elem_Head head {};
+    head.guid = element.header.guid;
+    if (ACAPI_Element_GetHeader (&head) != NoError) {
+        Imported gone;
+        gone.refreshed = gone.gone = true;
+        gone.error = "the Polyline is no longer in the project";
+        Publish (std::move (gone));
+        return;
+    }
+    if (uint64_t (head.modiStamp) == stamp)
+        return;
+    Imported imported;
+    imported.refreshed = true;
+    auto path = std::make_shared<analysispath::Path> ();
+    if (ACAPI_Element_Get (&element) == NoError && ReadPolyline (element, *path, imported.error))
+        imported.path = std::move (path);
+    else if (imported.error.empty ())
+        imported.error = "the edited Polyline could not be read";
+    Publish (std::move (imported));
 }
 
 } // namespace
@@ -176,6 +210,17 @@ Imported Latest ()
 {
     std::lock_guard<std::mutex> lock (s_mutex);
     return s_latest;
+}
+
+void RequestRefresh (std::string guid, uint64_t stamp)
+{
+    if (s_refreshing.exchange (true))
+        return;
+    if (!selectionmetadata::Later ([guid, stamp] () {
+            Refresh (guid, stamp);
+            s_refreshing.store (false);
+        }))
+        s_refreshing.store (false);
 }
 
 void RequestSave (std::string guid, analysisprofile::Profile profile)
