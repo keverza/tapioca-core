@@ -193,22 +193,17 @@ bool EvaluateRegionTerrain (const geomsrv::edit::Document& doc, std::shared_ptr<
             parameters.maxDistance = reach;
             parameters.cut = { { TerrainSlope::Unit::Percent, settings.cutPercent, 0 }, reach };
             parameters.fill = { { TerrainSlope::Unit::Percent, settings.fillPercent, 0 }, reach };
-            if (object.surface->slope != RegionSlopeMode::None) {
+            if (object.surface->elevation == RegionElevationMode::Boundary ||
+                object.surface->slope != RegionSlopeMode::None) {
                 // The shipped Rust Area target is level-only. Use its existing
                 // Surface target for an arbitrary authored plane, never a fake path
                 // or an ignored Area crossfall parameter.
                 LandscapePreviewMesh target;
-                if (!BuildLandscapePreviewMesh (shape[0], target, error))
+                if (!BuildRegionSurfaceMesh (doc, object, shape[0], target, error))
                     return false;
                 std::vector<double> points;
-                for (auto p : target.vertices) {
-                    const auto z = RegionSurfaceElevation (*object.surface, p);
-                    if (!z) {
-                        error = "RegionTerrainPlane: nonfinite target height";
-                        return false;
-                    }
-                    points.insert (points.end (), { p.x, p.y, *z });
-                }
+                for (const auto& p : target.vertices)
+                    points.insert (points.end (), { p.x, p.y, p.z });
                 parameters.target = TerrainEditTarget::Surface;
                 parameters.surface = static_cast<uint32_t> (targetPoints.size ());
                 targetPoints.push_back (std::move (points));

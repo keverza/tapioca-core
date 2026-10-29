@@ -101,7 +101,9 @@ struct LandscapeOperation {
     bool operator== (const LandscapeOperation&) const = default;
 };
 enum class ObjectKind : uint8_t { Path, Playground, Plaza, Parking, MaterialRegion, Edge };
-enum class RegionElevationMode : uint8_t { Existing, Constant };
+// Persisted values: Existing/Constant remain unchanged; new regions select
+// Boundary and read the source's current sampled curve Z instead of a copy.
+enum class RegionElevationMode : uint8_t { Existing, Constant, Boundary };
 enum class RegionSlopeMode : uint8_t { None, TwoPoints, ContourLine };
 enum class RegionFallSide : uint8_t { Left, Right };
 enum class RegionTerrainEffect : uint8_t { None, Grade, Add, Subtract };
@@ -339,6 +341,9 @@ struct LandscapePreviewMesh {
 // approximate covers and generated crossing vertices refuse. Failure leaves
 // mesh untouched for the caller's existing outlines-only warning.
 bool BuildLandscapePreviewMesh (const DerivedRegion& region, LandscapePreviewMesh& mesh, std::string& error);
+// Authored boundary Z or explicit plane, shared by target display and grading.
+bool BuildRegionSurfaceMesh (const geomsrv::edit::Document& doc, const HardscapeObject& object,
+                             const DerivedRegion& footprint, LandscapePreviewMesh& mesh, std::string& error);
 // Legacy expanded triangulation retained for terrain masks: its rings may be
 // multiple disconnected outers, not the single-outer indexed preview contract.
 // No third-party types leave Edit/.

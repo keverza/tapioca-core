@@ -151,3 +151,28 @@ TEST (EditRegionSurface, PreviewUsesTheTargetPlaneWithoutMovingAuthoredLinework)
     }
     EXPECT_EQ (doc.entities, lines);
 }
+
+TEST (EditRegionSurface, NewRegionUsesItsAuthoredBoundaryHeightsInTheTargetPreview)
+{
+    auto doc = Region ();
+    ASSERT_EQ (doc.landscape->objects[0].surface->elevation, lg::RegionElevationMode::Boundary);
+    for (auto& v : doc.entities[0].vertices)
+        v.p.z = 2 + v.p.x * 0.1;
+    ++doc.revision;
+    lg::LandscapeResult landscape;
+    ASSERT_TRUE (lg::EvaluateLandscape (doc, landscape)) << landscape.error;
+    lg::LandscapePreviewMesh target;
+    std::string error;
+    ASSERT_TRUE (lg::BuildRegionSurfaceMesh (doc, doc.landscape->objects[0], landscape.regions[0], target, error))
+        << error;
+    for (const auto& p : target.vertices)
+        EXPECT_NEAR (p.z, 2 + p.x * 0.1, 1e-9);
+    namespace el = geomsrv::archviz::editlayers;
+    el::Feedback feedback;
+    feedback.landscape = &landscape;
+    geomsrv::archviz::overlaylayers::Layer layer;
+    el::AddLandscape (doc, feedback, {}, layer);
+    ASSERT_EQ (layer.meshes.size (), 1u);
+    for (size_t i = 0; i < layer.meshes[0].points.size (); i += 3)
+        EXPECT_NEAR (layer.meshes[0].points[i + 2], 2 + layer.meshes[0].points[i] * 0.1, 1e-9);
+}

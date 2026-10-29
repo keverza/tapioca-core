@@ -1,4 +1,7 @@
 #include "Edit/EditLandscape.hpp"
+#include "Edit/EditDocument.hpp"
+#include "Edit/EditPathNetwork.hpp"
+#include <algorithm>
 #include <cmath>
 
 namespace tapioca::geometry {
@@ -15,23 +18,24 @@ bool ValidateRegionTerrain (const HardscapeObject& object, std::string& error)
         return false;
     }
     if (terrain.effect != RegionTerrainEffect::None &&
-        (!object.boundarySource || !object.surface || object.surface->elevation != RegionElevationMode::Constant)) {
-        error = "RegionTerrain: choose a Constant target elevation before enabling Grade/Add/Subtract";
+        (!object.boundarySource || !object.surface || object.surface->elevation == RegionElevationMode::Existing)) {
+        error = "RegionTerrain: choose Boundary curve Z or Constant elevation before enabling Grade/Add/Subtract";
         return false;
     }
     return true;
 }
 bool ValidateRegionSurface (const RegionSurface& surface, std::string& error)
 {
-    if (surface.elevation > RegionElevationMode::Constant || surface.slope > RegionSlopeMode::ContourLine ||
+    if (surface.elevation > RegionElevationMode::Boundary || surface.slope > RegionSlopeMode::ContourLine ||
         surface.fallsTo > RegionFallSide::Right || !geomsrv::edit::Finite (surface.first) ||
         !geomsrv::edit::Finite (surface.second) || !std::isfinite (surface.gradePercent) || surface.gradePercent < 0 ||
         surface.gradePercent > 1000) {
         error = "Region surface needs finite points, a valid mode and a grade from 0 to 1000 percent.";
         return false;
     }
-    if (surface.elevation == RegionElevationMode::Existing && surface.slope != RegionSlopeMode::None) {
-        error = "Choose Constant elevation before defining a target slope; Existing has no vertical target.";
+    if (surface.elevation != RegionElevationMode::Constant && surface.slope != RegionSlopeMode::None) {
+        error = "Explicit slopes require Constant elevation; Boundary uses the curve Z and Existing has no vertical "
+                "target.";
         return false;
     }
     const double length = std::hypot (surface.second.x - surface.first.x, surface.second.y - surface.first.y);
@@ -46,7 +50,7 @@ bool ValidateRegionSurface (const RegionSurface& surface, std::string& error)
 std::optional<double> RegionSurfaceElevation (const RegionSurface& surface, Vec3 point)
 {
     std::string error;
-    if (!ValidateRegionSurface (surface, error) || surface.elevation == RegionElevationMode::Existing ||
+    if (!ValidateRegionSurface (surface, error) || surface.elevation != RegionElevationMode::Constant ||
         !geomsrv::edit::Finite (point))
         return std::nullopt;
     const double dx = surface.second.x - surface.first.x, dy = surface.second.y - surface.first.y;
@@ -59,5 +63,68 @@ std::optional<double> RegionSurfaceElevation (const RegionSurface& surface, Vec3
         z -= left * (surface.fallsTo == RegionFallSide::Left ? 1 : -1) * surface.gradePercent / 100;
     }
     return std::isfinite (z) ? std::optional<double> (z) : std::nullopt;
+}
+
+bool BuildRegionSurfaceMesh (const geomsrv::edit::Document& doc, const HardscapeObject& object,
+                             const DerivedRegion& footprint, LandscapePreviewMesh& mesh, std::string& error)
+{
+    error.clear ();
+    if (!object.surface || object.surface->elevation == RegionElevationMode::Existing) {
+        error = "RegionSurface: an authored elevation target is required";
+        return false;
+    }
+    if (!ValidateRegionSurface (*object.surface, error))
+        return false;
+    LandscapePreviewMesh target;
+    if (!BuildLandscapePreviewMesh (footprint, target, error))
+        return false;
+    if (object.surface->elevation == RegionElevationMode::Constant) {
+        for (auto& point : target.vertices) {
+            const auto z = RegionSurfaceElevation (*object.surface, point);
+            if (!z) {
+                error = "RegionSurface: nonfinite target height";
+                return false;
+            }
+            point.z = *z;
+        }
+    }
+    else {
+        if (!doc.landscape) {
+            error = "RegionSurface: landscape is missing";
+            return false;
+        }
+        const auto source =
+            std::find_if (doc.landscape->sources.begin (), doc.landscape->sources.end (), [&] (const auto& s) {
+                return s.id == object.boundarySource && !s.deleted && s.role == SourceRole::RegionBoundary;
+            });
+        std::vector<Vec3> boundary;
+        bool closed = false;
+        if (source == doc.landscape->sources.end () ||
+            !LandscapeSourcePreview (doc, *source, boundary, closed, error) || !closed) {
+            if (error.empty ())
+                error = "RegionSurface: live closed boundary required";
+            return false;
+        }
+        DerivedRegion authored;
+        authored.rings = { boundary };
+        LandscapePreviewMesh cover;
+        if (!BuildLandscapePreviewMesh (authored, cover, error))
+            return false;
+        // The existing polygon triangulator retains boundary vertex order. Use
+        // the actual sampled curve heights, never the flattened DAG's seed Z.
+        cover.vertices = boundary;
+        geomsrv::edit::PavedArea surface;
+        surface.vertices = std::move (cover.vertices);
+        surface.triangles = std::move (cover.triangles);
+        for (auto& point : target.vertices)
+            if (!geomsrv::edit::PavedHeight (surface, point, point.z)) {
+                error =
+                    "RegionSurface: derived footprint leaves its authored height surface; choose a Constant override";
+                return false;
+            }
+    }
+    mesh = std::move (target);
+    error.clear ();
+    return true;
 }
 } // namespace tapioca::geometry

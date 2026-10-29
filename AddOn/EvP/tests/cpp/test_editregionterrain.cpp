@@ -7,6 +7,7 @@
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditPolyline.hpp"
 #include "virtual_editor_debug_replay.hpp"
 #include <gtest/gtest.h>
 #include <chrono>
@@ -81,6 +82,69 @@ TEST (EditRegionTerrain, TwoTriangleBaselineGetsAFlatTerraceAndLocalTransition)
     lg::ProvenanceDiagnostic diagnostic;
     EXPECT_TRUE (lg::ValidateProvenance (result.evaluation.terrain.inputProvenance, diagnostic, error)) << error;
     EXPECT_EQ (capture->triangles.size (), 6u) << "The captured baseline is immutable.";
+}
+
+TEST (EditRegionTerrain, AuthoredBoundaryElevationsGradeTheSurfaceAndFollowVertexEditsWithUndo)
+{
+    Fixture fixture;
+    std::string error;
+    auto surface = *fixture.doc.landscape->objects[0].surface;
+    surface.elevation = lg::RegionElevationMode::Boundary;
+    ASSERT_TRUE (lg::SetRegionSurface (fixture.doc, fixture.object, surface, {}, error)) << error;
+    const auto entity = fixture.doc.entities[0].id;
+    // A non-planar quad: each point's height must survive; a single separate
+    // surface.first.z cannot describe this target.
+    for (size_t i = 0; i < 4; ++i)
+        fixture.doc.entities[0].vertices[i].p.z = double (i + 1);
+    ++fixture.doc.revision;
+    edit::Session session (fixture.doc);
+    const auto run = [&] (const edit::Document& doc) {
+        auto copy = fixture;
+        copy.doc = doc;
+        lg::RegionTerrainResult result;
+        EXPECT_TRUE (lg::EvaluateRegionTerrain (doc, copy.Capture (), result, error)) << error;
+        return result;
+    };
+    auto result = run (session.Doc ());
+    ASSERT_FALSE (result.evaluation.terrain.points.empty ());
+    for (const auto& vertex : session.Doc ().entities[0].vertices)
+        EXPECT_NEAR (Height (result, vertex.p.x, vertex.p.y), vertex.p.z, 1e-6);
+    const auto vertex = session.Doc ().entities[0].vertices[0];
+    ASSERT_TRUE (session.Apply ([&] (auto& doc, auto& e) {
+        return edit::MoveVertex (doc, entity, vertex.id, { vertex.p.x, vertex.p.y, 5 }, e);
+    })) << session.Message ();
+    result = run (session.Doc ());
+    EXPECT_NEAR (Height (result, vertex.p.x, vertex.p.y), 5, 1e-6);
+    ASSERT_TRUE (session.Undo ());
+    result = run (session.Doc ());
+    EXPECT_NEAR (Height (result, vertex.p.x, vertex.p.y), 1, 1e-6);
+    std::string json;
+    ASSERT_TRUE (lg::WriteLandscape (session.Doc (), lg::LandscapeStorage::Virtual, json, error)) << error;
+    edit::Document loaded;
+    ASSERT_TRUE (lg::ReadLandscape (json, loaded, error)) << error;
+    EXPECT_EQ (loaded.landscape, session.Doc ().landscape);
+}
+
+TEST (EditRegionTerrain, CurvedBoundaryUsesTheActualSampledCurveHeights)
+{
+    Fixture fixture;
+    std::string error;
+    fixture.doc.landscape->sources[0].arcAngles.assign (4, 1.5707963267948966);
+    for (size_t i = 0; i < 4; ++i)
+        fixture.doc.entities[0].vertices[i].p.z = 1 + double (i) * 0.1;
+    auto surface = *fixture.doc.landscape->objects[0].surface;
+    surface.elevation = lg::RegionElevationMode::Boundary;
+    ASSERT_TRUE (lg::SetRegionSurface (fixture.doc, fixture.object, surface, {}, error)) << error;
+    std::vector<edit::Vec3> boundary;
+    bool closed = false;
+    ASSERT_TRUE (lg::LandscapeSourcePreview (fixture.doc, fixture.doc.landscape->sources[0], boundary, closed, error))
+        << error;
+    ASSERT_TRUE (closed);
+    ASSERT_GT (boundary.size (), 4u);
+    lg::RegionTerrainResult result;
+    ASSERT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, fixture.Capture (), result, error)) << error;
+    for (size_t i = 0; i < boundary.size (); i += std::max (size_t (1), boundary.size () / 8))
+        EXPECT_NEAR (Height (result, boundary[i].x, boundary[i].y), boundary[i].z, 1e-6);
 }
 
 TEST (EditRegionTerrain, AddNeverCutsAndSubtractNeverFills)

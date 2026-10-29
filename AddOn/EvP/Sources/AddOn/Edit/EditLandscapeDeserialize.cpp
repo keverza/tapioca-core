@@ -282,7 +282,7 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
         if (item.Has ("surface")) {
             const auto surface = item.Field ("surface");
             surface.Fields ({ "elevation", "slope", "first", "second", "gradePercent", "fallsTo" });
-            object.surface = RegionSurface { Enum (surface.Field ("elevation"), RegionElevationMode::Constant),
+            object.surface = RegionSurface { Enum (surface.Field ("elevation"), RegionElevationMode::Boundary),
                                              Enum (surface.Field ("slope"), RegionSlopeMode::ContourLine),
                                              surface.Field ("first").Point (),
                                              surface.Field ("second").Point (),

@@ -21,10 +21,21 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
     };
     const auto region = [&] (const lg::DerivedRegion& r, uint32_t edge, bool fill) {
         const lg::RegionSurface* surface = nullptr;
+        const lg::HardscapeObject* owner = nullptr;
         for (const auto& object : doc.landscape->objects)
-            if (object.id == r.objectId && object.surface)
+            if (object.id == r.objectId && object.surface) {
                 surface = &*object.surface;
+                owner = &object;
+            }
+        lg::LandscapePreviewMesh preview;
+        std::string error;
+        const bool boundary = surface && surface->elevation == lg::RegionElevationMode::Boundary;
+        if (boundary && !lg::BuildRegionSurfaceMesh (doc, *owner, r, preview, error))
+            return;
+        size_t boundaryVertex = 0;
         const auto at = [&] (edit::Vec3 p) {
+            if (boundary)
+                return preview.vertices.at (boundaryVertex++);
             p.z = surface ? lg::RegionSurfaceElevation (*surface, p).value_or (f.landscapeZ) : f.landscapeZ;
             return p;
         };
@@ -35,9 +46,7 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
         }
         if (!fill)
             return;
-        lg::LandscapePreviewMesh preview;
-        std::string error;
-        if (!lg::BuildLandscapePreviewMesh (r, preview, error)) {
+        if (!boundary && !lg::BuildLandscapePreviewMesh (r, preview, error)) {
             layers::Text warning;
             warning.text = error;
             warning.at[0] = r.seed.x;
@@ -50,6 +59,7 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
         layers::Mesh mesh;
         mesh.indices = std::move (preview.triangles);
         mesh.points.reserve (preview.vertices.size () * 3);
+        boundaryVertex = 0;
         for (const auto& p : preview.vertices) {
             const auto q = at (p);
             mesh.points.insert (mesh.points.end (), { q.x, q.y, q.z });

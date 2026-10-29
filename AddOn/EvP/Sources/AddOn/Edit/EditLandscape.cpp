@@ -166,6 +166,7 @@ bool SyncRegionUsage (edit::Document& doc, const LandscapeSource& source, std::s
         region.name = "Region";
         region.boundarySource = source.id;
         region.surface.emplace ();
+        region.surface->elevation = RegionElevationMode::Boundary;
         region.footprintOperation = operation;
         s.objects.push_back (region);
         return true;
