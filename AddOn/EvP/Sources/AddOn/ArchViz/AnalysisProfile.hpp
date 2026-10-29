@@ -44,6 +44,11 @@ Profile Flat (double length, double z);
 // pinned to 0 and `length`. An unusable profile becomes Flat at its mean height.
 void Fit (Profile& profile, double length);
 
+// Kept in metres for a path now `length` long: anchors stay where they are along
+// it, the last end moves to `length`, and interior anchors at or past it go. For a
+// path edited in place, where stretching would slide the heights along it.
+void Extend (Profile& profile, double length);
+
 // The offset at `station`, clamped to the profile's span.
 double ZAt (const Profile& profile, double station);
 

@@ -88,3 +88,19 @@ TEST (AnalysisProfile, TheMetadataRoundTripsAndRefusesWhatIsNotAProfile)
     single.value.list.resize (1);
     EXPECT_FALSE (Decode (single, read, error));
 }
+
+TEST (AnalysisProfile, ExtendKeepsHeightsInMetresAndDropsAnchorsPastTheNewEnd)
+{
+    Profile profile = Flat (20.0, 1.0);
+    Insert (profile, 5.0);
+    MoveAnchor (profile, 1, 5.0, 3.0);
+    Insert (profile, 15.0);
+    Extend (profile, 30.0);
+    EXPECT_DOUBLE_EQ (profile.anchors.back ().station, 30.0);
+    EXPECT_NEAR (profile.anchors[1].station, 5.0, 1e-12) << "not stretched";
+    EXPECT_NEAR (ZAt (profile, 5.0), 3.0, 1e-12);
+    Extend (profile, 10.0);
+    EXPECT_EQ (profile.anchors.size (), 3u) << "the anchor at 15 m is past the end";
+    EXPECT_DOUBLE_EQ (profile.anchors.back ().station, 10.0);
+    EXPECT_NEAR (ZAt (profile, 5.0), 3.0, 1e-12);
+}

@@ -455,9 +455,14 @@ void FollowAnalysisPath (HudState& state)
                 state.analysisPathError = imported.error;
             }
             else if (ours && imported.path != nullptr && imported.path->guid == state.analysisPath->guid) {
-                // Same place along it and the same profile, stretched to its new length.
+                // ⚠️ THE POINT KEEPS ITS PLACE IN THE SCENE, NOT ON THE CURVE. A
+                // fraction of the length would slide it whenever a far vertex moved;
+                // it goes to the edited path's nearest point instead, and the profile
+                // keeps its heights in metres along it.
+                const auto settings = viewpointstudy::GetSettings ();
                 state.analysisPath = imported.path;
-                analysisprofile::Fit (state.analysisProfile, imported.path->Length ());
+                state.analysisPathAt = float (analysispath::Nearest (*imported.path, settings->options.point));
+                analysisprofile::Extend (state.analysisProfile, imported.path->Length ());
                 state.analysisPathError.clear ();
                 moved = true;
             }

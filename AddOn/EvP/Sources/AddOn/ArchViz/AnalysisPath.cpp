@@ -82,4 +82,26 @@ bool Evaluate (const Path& path, double t, Point3& at, Point3& tangent)
     return span > 0.0;
 }
 
+double Nearest (const Path& path, const Point3& point)
+{
+    if (path.points.size () < 2 || path.along.size () != path.points.size () || path.Length () <= 0.0)
+        return 0.0;
+    double best = 1.0e300, along = 0.0;
+    for (size_t i = 1; i < path.points.size (); ++i) {
+        const Point3& a = path.points[i - 1];
+        const Point3& b = path.points[i];
+        const double dx = b[0] - a[0], dy = b[1] - a[1];
+        const double span = dx * dx + dy * dy;
+        const double f =
+            span > 0.0 ? std::clamp (((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / span, 0.0, 1.0) : 0.0;
+        const double ex = a[0] + dx * f - point[0], ey = a[1] + dy * f - point[1];
+        const double distance = ex * ex + ey * ey;
+        if (distance < best) {
+            best = distance;
+            along = path.along[i - 1] + (path.along[i] - path.along[i - 1]) * f;
+        }
+    }
+    return along / path.Length ();
+}
+
 } // namespace geomsrv::archviz::analysispath

@@ -123,6 +123,20 @@ void Fit (Profile& profile, double length)
     profile.anchors.back ().station = length;
 }
 
+void Extend (Profile& profile, double length)
+{
+    length = (std::max) (length, 2.0 * kMinGapMetres);
+    if (!Usable (profile)) {
+        Fit (profile, length);
+        return;
+    }
+    auto& anchors = profile.anchors;
+    while (anchors.size () > 2 && anchors[anchors.size () - 2].station >= length - kMinGapMetres)
+        anchors.erase (anchors.end () - 2);
+    anchors.front ().station = 0.0;
+    anchors.back ().station = (std::max) (length, anchors[anchors.size () - 2].station + kMinGapMetres);
+}
+
 double ZAt (const Profile& profile, double station)
 {
     size_t segment = 0;

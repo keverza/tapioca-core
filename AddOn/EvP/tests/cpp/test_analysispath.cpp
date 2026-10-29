@@ -64,3 +64,14 @@ TEST (AnalysisPath, TooFewPointsOrNoLengthIsAnEmptyPath)
     EXPECT_FALSE (Evaluate (Build ("", { 1, 1 }, {}, false, 0.0), 0.5, at, tangent));
     EXPECT_FALSE (Evaluate (Build ("", { 1, 1, 1, 1 }, {}, false, 0.0), 0.5, at, tangent));
 }
+
+TEST (AnalysisPath, TheNearestPointIsFoundInPlanWhereverItIsAlong)
+{
+    const Path path = Build ("{guid}", { 0, 0, 10, 0, 10, 10 }, {}, false, 0.0);
+    EXPECT_NEAR (Nearest (path, { 4, 1, 5 }), 0.2, 1e-12) << "height does not count";
+    EXPECT_NEAR (Nearest (path, { 12, 5, 0 }), 0.75, 1e-12);
+    EXPECT_NEAR (Nearest (path, { -3, -3, 0 }), 0.0, 1e-12);
+    // An edited path: the same scene point maps to its new place along it.
+    const Path longer = Build ("{guid}", { -10, 0, 10, 0, 10, 10 }, {}, false, 0.0);
+    EXPECT_NEAR (Nearest (longer, { 4, 1, 5 }) * longer.Length (), 14.0, 1e-12);
+}

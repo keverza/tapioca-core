@@ -39,6 +39,10 @@ Path Build (std::string guid, const std::vector<double>& xy, const std::vector<d
 // unit tangent there, in the direction the path runs. False for an empty path.
 bool Evaluate (const Path& path, double t, Point3& at, Point3& tangent);
 
+// The `t` (0..1 of the length) of the path's point nearest `point` in plan. 0 for
+// an empty path.
+double Nearest (const Path& path, const Point3& point);
+
 } // namespace geomsrv::archviz::analysispath
 
 #endif
