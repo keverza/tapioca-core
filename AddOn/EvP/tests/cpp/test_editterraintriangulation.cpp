@@ -250,6 +250,38 @@ TEST (EditTerrainTriangulation, SplitRetainsTheSurfaceAndResolvesAllSupportsAndN
     EXPECT_NEAR (sampled.samples[1].height, Surface (6.5, 2.5), 1e-12);
 }
 
+TEST (EditTerrainTriangulation, DerivedRingRetainsTerrainOwnerWhenBoundaryOperationIsIndependent)
+{
+    SplitFixture fixture;
+    const auto boundaryOperation = fixture.Operation (fixture.footprint);
+    fixture.Capture ();
+    fixture.provenance.table.operations.push_back ({ boundaryOperation, {} });
+    // A second object's boundary is not a descendant of the terrain owner's
+    // footprint. Preparation must not invent a DAG edge to make it one.
+    const auto before = fixture.doc.landscape;
+    const auto original = fixture.provenance;
+    auto options = fixture.Options ();
+    options.operation = boundaryOperation;
+    const std::array<Vec3, 4> ring { Vec3 { 2, 2, 0 }, { 6, 2, 0 }, { 6, 6, 0 }, { 2, 6, 0 } };
+    const std::array<SourceId, 1> sources { fixture.footprint };
+    EditTerrainSplitResult result;
+    std::string error;
+    ASSERT_TRUE (SplitEditTerrainRing (fixture.doc, fixture.Input (), options, ring, sources, result, error)) << error;
+    const auto& combined = result.split.inputProvenance;
+    for (const auto& row : combined.table.mappings)
+        if (row.domain == IdentityDomain::Edge) {
+            EXPECT_EQ (row.object, kOwner);
+            EXPECT_TRUE (Contains (combined.table.operationIds, row.operations, fixture.base));
+            EXPECT_TRUE (Contains (combined.table.operationIds, row.operations, boundaryOperation));
+        }
+    ProvenanceDiagnostic diagnostic;
+    EXPECT_TRUE (ValidateProvenance (result.meshProvenance, diagnostic, error)) << error;
+    EXPECT_EQ (diagnostic, ProvenanceDiagnostic::None);
+    EXPECT_EQ (fixture.provenance, original);
+    EXPECT_EQ (fixture.doc.landscape, before);
+    EXPECT_TRUE (std::equal (fixture.points.begin (), fixture.points.end (), result.split.points.begin ()));
+}
+
 TEST (EditTerrainTriangulation, SplitFirstEvaluationPreservesEveryOutsideFragmentAndPropertyEdge)
 {
     SplitFixture fixture;

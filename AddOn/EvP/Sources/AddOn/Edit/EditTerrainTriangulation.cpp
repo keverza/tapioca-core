@@ -389,8 +389,8 @@ bool SplitEditTerrainRing (const geomsrv::edit::Document& doc, const EditTerrain
                 error = "TerrainRingShape: bounded closed ring and source contributors required";
             return false;
         }
-        if (!NewTables (input.provenance, options.splitTable, options.meshTable) ||
-            !UniformOwner (input.provenance, options.object) ||
+        const auto* owner = UniformOwner (input.provenance, options.object);
+        if (!NewTables (input.provenance, options.splitTable, options.meshTable) || !owner ||
             !CurrentParents (doc, input.provenance, options.operation)) {
             error = "ProvenanceConflict: derived split needs fresh tables and its current uniform owner/operation";
             return false;
@@ -412,7 +412,10 @@ bool SplitEditTerrainRing (const geomsrv::edit::Document& doc, const EditTerrain
         guide.kind = MappingKind::Generated;
         guide.object = options.object;
         guide.sources = Append (combined.table.sourceIds, std::set<uint64_t> (sources.begin (), sources.end ()));
-        guide.operations = Append (combined.table.operationIds, { options.operation });
+        // The constraint edits this terrain owner even when its boundary comes
+        // from an independent object. Retain both contributors, as property
+        // preparation does; never fabricate a dependency between their DAGs.
+        guide.operations = Append (combined.table.operationIds, { owner->operation, options.operation });
         std::vector<double> line;
         for (size_t i = 0; i < ring.size (); ++i) {
             line.insert (line.end (), { ring[i].x, ring[i].y, ring[i].z });

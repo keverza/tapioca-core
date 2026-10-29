@@ -5,8 +5,12 @@
 #include "Geometry/Mesh.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
+#include "virtual_editor_debug_replay.hpp"
 #include <gtest/gtest.h>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <thread>
 
 namespace lg = tapioca::geometry;
@@ -217,6 +221,91 @@ TEST (EditRegionTerrain, MixedPreparedSceneRefusesAtomicallyUntilSplitterEndpoin
     auto changed = fixture.doc;
     ++changed.revision;
     EXPECT_EQ (publisher.Current (changed), nullptr);
+}
+
+TEST (EditRegionTerrain, CapturedNativeTerrainWithIndependentBoundaryBuildsBothRegionAndPath)
+{
+    const auto file = std::filesystem::path (__FILE__).parent_path () / "fixtures/region-boundary-20261029.debug.json";
+    std::ifstream input (file, std::ios::binary);
+    ASSERT_TRUE (input);
+    const std::string text { std::istreambuf_iterator<char> (input), {} };
+    const auto parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok) << parsed.error;
+    auto scene = debugreplay::Read (parsed.value);
+    const auto originalPoints = scene.baseline.vertices;
+    const auto originalTriangles = scene.baseline.triangles;
+    const auto originalLandscape = scene.doc.landscape;
+    for (bool includePath : { false, true }) {
+        SCOPED_TRACE (includePath);
+        scene.options.source = includePath ? 8 : 0;
+        const auto result = debugreplay::Run (scene);
+        ASSERT_TRUE (result.built) << result.error;
+        EXPECT_TRUE (result.error.empty ());
+        ASSERT_TRUE (result.regions);
+        ASSERT_TRUE (result.regions->input->native);
+        EXPECT_EQ (result.regions->input->native->points, originalPoints);
+        EXPECT_EQ (result.regions->input->native->triangles, originalTriangles);
+        EXPECT_EQ (result.regions->input->points.size (), 12u) << "The native solid compacts to four upward vertices.";
+        EXPECT_GT (result.result.build.site.fill, 0);
+        EXPECT_FALSE (result.result.build.triangles.empty ());
+        lg::ProvenanceDiagnostic diagnostic;
+        std::string error;
+        // The outline lane is preview-only, not attributed final path faces.
+        // Validate its actual retained stage input and the complete area input.
+        ASSERT_TRUE (result.capture);
+        EXPECT_TRUE (lg::ValidateProvenance (result.capture->provenance, diagnostic, error)) << error;
+        EXPECT_EQ (diagnostic, lg::ProvenanceDiagnostic::None);
+        EXPECT_TRUE (lg::ValidateProvenance (result.regions->evaluation.terrain.inputProvenance, diagnostic, error))
+            << error;
+        EXPECT_EQ (diagnostic, lg::ProvenanceDiagnostic::None);
+        const std::array<double, 6> query { 6.5, 6, 10.5921960923966, 14.2999855870725, 0.5, 0.5 };
+        std::vector<lg::TerrainSample> samples;
+        lg::TerrainFieldSummary summary;
+        ASSERT_TRUE (lg::SampleTerrain ({ result.result.build.points, result.result.build.triangles }, query, 0.25,
+                                        samples, summary, error))
+            << error;
+        ASSERT_EQ (samples.size (), 3u);
+        for (const auto& sample : samples)
+            EXPECT_TRUE (sample.onSurface);
+        EXPECT_NEAR (samples[0].height, 0, 1e-6) << "The region actually grades the baseline.";
+        EXPECT_NEAR (samples[1].height, includePath ? 0.07 : -0.2, 1e-6);
+        EXPECT_NEAR (samples[2].height, -0.2, 1e-12) << "Remote terrain stays at its captured level.";
+        const auto repeated = debugreplay::Run (scene);
+        ASSERT_TRUE (repeated.built) << repeated.error;
+        EXPECT_EQ (repeated.result.build.points, result.result.build.points);
+        EXPECT_EQ (repeated.result.build.triangles, result.result.build.triangles);
+    }
+    EXPECT_EQ (scene.doc.landscape, originalLandscape);
+    EXPECT_EQ (scene.baseline.vertices, originalPoints);
+    EXPECT_EQ (scene.baseline.triangles, originalTriangles);
+}
+
+TEST (EditRegionTerrain, CoincidentRegionResplittingRefusesAtomicallyUntilEndpointGapIsResolved)
+{
+    Fixture fixture;
+    std::string error;
+    const auto line = edit::AddPolyline (fixture.doc, { { 5, 5, 0 }, { 15, 5, 0 }, { 15, 15, 0 }, { 5, 15, 0 } }, true);
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (fixture.doc, line, lg::SourceRole::RegionBoundary, error)) << error;
+    const auto second = fixture.doc.landscape->objects.back ().id;
+    auto surface = *fixture.doc.landscape->objects[0].surface;
+    surface.first.z = 3;
+    ASSERT_TRUE (lg::SetRegionSurface (fixture.doc, second, surface, {}, error)) << error;
+    ASSERT_TRUE (lg::SetRegionTerrain (fixture.doc, second, fixture.doc.landscape->objects[0].terrain, error)) << error;
+    const auto before = fixture.doc.landscape;
+    const auto capture = fixture.Capture ();
+    const auto originalPoints = capture->points;
+    const auto originalTriangles = capture->triangles;
+    lg::RegionTerrainResult result;
+    // A separate #82 case: repeating the already split footprint/transition
+    // rings can still collapse a constraint. Ownership attribution is repaired,
+    // but this test must not be mistaken for multi-region success acceptance.
+    ASSERT_FALSE (lg::EvaluateRegionTerrain (fixture.doc, capture, result, error));
+    EXPECT_NE (error.find ("TriangulationDegenerate"), std::string::npos) << error;
+    EXPECT_TRUE (result.evaluation.terrain.points.empty ());
+    EXPECT_TRUE (result.preparation.empty ()) << "No partial region stage escapes a failed preparation.";
+    EXPECT_EQ (capture->points, originalPoints);
+    EXPECT_EQ (capture->triangles, originalTriangles);
+    EXPECT_EQ (fixture.doc.landscape, before);
 }
 
 TEST (EditRegionTerrain, RegionOnlyHudStartsFromHeldTerrainAndRebuildsAfterUndo)
