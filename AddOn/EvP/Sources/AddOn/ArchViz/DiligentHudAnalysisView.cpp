@@ -47,13 +47,13 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state)
     view.visibilityLowRgba = state.visibilityLowRgba;
     view.visibilityHighRgba = state.visibilityHighRgba;
     scene.SetSunStudyView (view);
-    // Outline what the visibility tab in focus measures: Focus always, and the
-    // Analysis surfaces on the surface tab, where they carry the gradient.
+    // Outline what the visibility tab in focus measures: Analysis, which carries
+    // the gradient on both, and Focus on the surface tab, where it is looked at.
     static const std::vector<std::string> kNone;
     const int tab = state.analysisFocus.tab;
     const bool visibilityTab = tab == analysistabs::kSurfaceVisibilityTab || tab == analysistabs::kPointVisibilityTab;
-    scene.SetAnalysisHighlight (visibilityTab ? state.visibilityTo : kNone,
-                                tab == analysistabs::kSurfaceVisibilityTab ? state.visibilityFrom : kNone);
+    scene.SetAnalysisHighlight (tab == analysistabs::kSurfaceVisibilityTab ? state.visibilityTo : kNone,
+                                visibilityTab ? state.visibilityFrom : kNone);
 }
 
 void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContext* context, const HudState& state,

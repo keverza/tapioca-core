@@ -97,8 +97,9 @@ void Normalize (double value[3])
     value[2] /= length;
 }
 
-// The centre of Focus's bounding box, where an untouched cone target sits.
-bool FocusCentre (const Snapshot& snapshot, const std::vector<std::string>& focus, double centre[3])
+// The centre of the receivers' bounding box (point visibility: Analysis), where
+// an untouched cone target sits.
+bool RoleCentre (const Snapshot& snapshot, const std::vector<std::string>& focus, double centre[3])
 {
     std::set<std::string> wanted;
     for (const auto& guid : focus)
@@ -141,8 +142,12 @@ visibilitystudy::Request MakeRequest (const HudState& state, const viewpointstud
 {
     visibilitystudy::Request request;
     request.snapshot = std::move (capture);
-    request.fromElements = state.visibilityFrom;
-    request.toElements = state.visibilityTo;
+    // ⚠️ POINT VISIBILITY'S RECEIVERS ARE ANALYSIS, NOT FOCUS. On both tabs
+    // Analysis is what takes the gradient; the kernel's point mode calls its
+    // receivers TO, so Analysis goes there and there is no FROM.
+    const bool point = state.visibilityOrigin != 0;
+    request.fromElements = point ? std::vector<std::string> {} : state.visibilityFrom;
+    request.toElements = point ? state.visibilityFrom : state.visibilityTo;
     // Without an explicit Context the whole capture occludes.
     request.options.explicitContext = !shared.contextAll;
     request.options.contextElements = shared.context;
@@ -204,15 +209,15 @@ bool DrawPointControls (HudState& state, viewpointstudy::Settings& shared, const
     if (state.viewpointPlacementMiss)
         ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "Point missed the model; click a surface.");
     if (state.visibilityView == 0) {
-        // Until the user moves it, the target follows Focus's centre.
+        // Until the user moves it, the target follows Analysis's centre.
         if (!state.visibilityTargetEdited && capture != nullptr) {
             std::string key = std::to_string (capture->id);
-            for (const auto& guid : state.visibilityTo)
+            for (const auto& guid : state.visibilityFrom)
                 key += "|" + guid;
             if (key != state.visibilityTargetFollowKey) {
                 state.visibilityTargetFollowKey = key;
                 double centre[3];
-                if (FocusCentre (*capture, state.visibilityTo, centre)) {
+                if (RoleCentre (*capture, state.visibilityFrom, centre)) {
                     std::copy (centre, centre + 3, state.visibilityTarget);
                     state.visibilityTargetSet = true;
                     changed = true;
@@ -225,7 +230,7 @@ bool DrawPointControls (HudState& state, viewpointstudy::Settings& shared, const
             state.visibilityTargetEdited = true;
             changed = true;
         }
-        ImGui::SetItemTooltip ("Where the cone looks: Focus's centre until you move it. The cone keeps its target "
+        ImGui::SetItemTooltip ("Where the cone looks: Analysis's centre until you move it. The cone keeps its target "
                                "when the point moves; drag the target's gumball too.");
         if (ImGui::SmallButton (state.viewpointPlacingTarget ? "Click a model surface...##target" : "Place target")) {
             state.viewpointPlacingTarget = true;
@@ -235,11 +240,11 @@ bool DrawPointControls (HudState& state, viewpointstudy::Settings& shared, const
         ImGui::SetItemTooltip ("Click the model where the cone should look.");
         ImGui::SameLine ();
         ImGui::BeginDisabled (!state.visibilityTargetEdited);
-        if (ImGui::SmallButton ("Focus centre")) {
+        if (ImGui::SmallButton ("Analysis centre")) {
             state.visibilityTargetEdited = false;
             state.visibilityTargetFollowKey.clear ();
         }
-        ImGui::SetItemTooltip ("Aim at the centre of Focus's bounding box again, and follow it.");
+        ImGui::SetItemTooltip ("Aim at the centre of Analysis's bounding box again, and follow it.");
         ImGui::EndDisabled ();
         changed |= ImGui::SliderFloat ("cone angle", &state.visibilityConeDegrees, 10.0f, 179.0f, "%.0f deg");
         ImGui::SetItemTooltip ("The cone's full opening angle.");
@@ -276,23 +281,24 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     // A point run follows its controls live, so they stay usable while it runs.
     ImGui::BeginDisabled (status.running && !live);
     ImGui::TextWrapped (
-        origin == 0 ? "Analysis receives the gradient. Context occludes. Focus is checked for visibility from Analysis."
-                    : "Focus receives the gradient. Context occludes. Visibility is checked from a placed view point.");
+        origin == 0
+            ? "Analysis receives the gradient. Context occludes. Focus is checked for visibility from Analysis."
+            : "Analysis receives the gradient. Context occludes. Visibility is checked from a placed view point.");
     // Context is the viewpoint's, shared by all three view-analysis tabs; Analysis
-    // and Focus are shared by the two visibility tabs.
+    // is shared by the two visibility tabs, and receives on both. Focus is the
+    // surface tab's alone: a point sees from itself.
     auto shared = *viewpointstudy::GetSettings ();
     const auto sharedContext = shared.context;
     bool contextChanged = DrawSharedContextToggle (shared);
-    if (state.visibilityOrigin == 0)
-        changed |= RoleRow ("Analysis", state.visibilityFrom, state.visibilityTo, shared.context,
-                            state.visibilitySelection, "Receives the gradient; outlined violet.");
+    changed |= RoleRow ("Analysis", state.visibilityFrom, state.visibilityTo, shared.context, state.visibilitySelection,
+                        "Receives the gradient; outlined violet.");
     if (!shared.contextAll)
         contextChanged |=
             RoleRow ("Context", shared.context, state.visibilityFrom, state.visibilityTo, state.visibilitySelection,
                      "Occludes. Empty: no blockers; unassigned objects are ignored.");
-    changed |= RoleRow ("Focus", state.visibilityTo, state.visibilityFrom, shared.context, state.visibilitySelection,
-                        origin == 0 ? "Checked for visibility from Analysis; outlined magenta."
-                                    : "Receives the gradient; outlined magenta.");
+    if (origin == 0)
+        changed |= RoleRow ("Focus", state.visibilityTo, state.visibilityFrom, shared.context,
+                            state.visibilitySelection, "Checked for visibility from Analysis; outlined magenta.");
     if (contextChanged || shared.context != sharedContext) {
         ConfigureViewpoint (state, shared);
         changed = true;
@@ -319,7 +325,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     if (live) {
         // ⚠️ NO RUN BUTTON: every change re-runs, coalesced -- a run still going is
         // cancelled first, and the newest inputs are submitted once it stops.
-        const bool ready = capture != nullptr && !state.visibilityTo.empty () && shared.pointValid;
+        const bool ready = capture != nullptr && !state.visibilityFrom.empty () && shared.pointValid;
         if (ready) {
             auto request = MakeRequest (state, shared, capture);
             const std::string key = LiveKey (request, shared);
@@ -333,8 +339,8 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
                 }
             }
         }
-        else if (state.visibilityTo.empty ())
-            ImGui::TextDisabled ("Assign Focus to see what the point sees.");
+        else if (state.visibilityFrom.empty ())
+            ImGui::TextDisabled ("Assign Analysis to see what the point sees.");
     }
     else {
         const bool ready =
