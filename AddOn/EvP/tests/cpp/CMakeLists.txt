@@ -196,6 +196,10 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointGumball.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewpointProjection.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudViewpoint.cpp"
+    # The shared point's Polyline path: the pure curve here, its ACAPI read stubbed
+    # as "nothing imported" (AnalysisPathSourceStub.cpp).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisPath.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/AnalysisPathSourceStub.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisTabs.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewpointOverlayGeometry.cpp"
@@ -1072,6 +1076,7 @@ set (EVP_TEST_SOURCES
     test_visibilitystudy.cpp
     test_viewpointstudy.cpp
     test_analysistabs.cpp
+    test_analysispath.cpp
     test_viewpointoverlay.cpp
     test_sunstudyoccluders.cpp
     test_sunstudyselectionbinding.cpp

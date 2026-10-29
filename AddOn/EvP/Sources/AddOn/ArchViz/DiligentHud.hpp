@@ -27,6 +27,7 @@
 // the mouse is down. The cost is that ImGui gets mouse and modifiers but no text
 // entry, which a diagnostic HUD does not need.
 
+#include "ArchViz/AnalysisPath.hpp"
 #include "ArchViz/AnalysisTabs.hpp"
 #include "ArchViz/DiligentScene.hpp" // ElementInfo, for the hover callout
 #include "ArchViz/TraceAnnotationLayer.hpp"
@@ -250,6 +251,14 @@ struct HudState {
     bool viewpointPlacingTarget = false; // the next model click places the target
     // Field of view: its bearing follows the target (shared with point visibility's cone).
     bool viewpointFaceTarget = false;
+    // A Polyline from Archicad the shared point travels along (Point visibility and
+    // Viewpoint), the point's place on it (0..1 of its length) and height above it.
+    std::shared_ptr<const analysispath::Path> analysisPath;
+    uint64_t analysisPathSerial = 0; // the last AnalysisPathSource import taken
+    std::string analysisPathError;
+    float analysisPathAt = 0.0f;
+    float analysisPathHeight = 1.6f;
+    bool viewpointAlongPath = false; // a field of view looks the way the path runs
     uint64_t viewpointSeenRevision = 0;
     double viewpointDragPoint[3] = {}, viewpointDragParameter[3] = {};
     float annotationTextHeightMetres = 0.18f;
@@ -689,6 +698,10 @@ namespace viewerhud {
 // A HUD edit configures through this so it is never mistaken for a command's.
 void ConfigureViewpoint (HudState& state, viewpointstudy::Settings settings);
 bool DrawSharedContextToggle (viewpointstudy::Settings& settings);
+// The shared point's path row: import, replace or delete the Archicad Polyline,
+// and the point's place along it. True when it moved the point in `settings`
+// (and, with `steer`, a field of view's bearing); the caller configures.
+bool DrawAnalysisPathRow (HudState& state, viewpointstudy::Settings& settings, bool steer);
 // The target -- point visibility's cone target, and what a target-facing field
 // of view faces -- is shown and movable on those two tabs.
 bool ShowsTargetPoint (const HudState& state);

@@ -206,6 +206,8 @@ bool DrawPointControls (HudState& state, viewpointstudy::Settings& shared, const
         ConfigureViewpoint (state, shared);
     }
     ImGui::SetItemTooltip ("Or drag the gumball; the Viewpoint tab shares this point.");
+    if (DrawAnalysisPathRow (state, shared, false))
+        ConfigureViewpoint (state, shared);
     if (state.viewpointPlacementMiss)
         ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "Point missed the model; click a surface.");
     if (state.visibilityView == 0) {

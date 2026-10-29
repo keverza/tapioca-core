@@ -107,13 +107,17 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
             Mix (key, &value, sizeof (value));
         for (const bool flag : { guide.sphere, guide.hasTarget })
             Mix (key, &flag, sizeof (flag));
+        const void* path = state.analysisPath.get ();
+        Mix (key, &path, sizeof (path));
         key |= 1u;
         if (key == scene.AnalysisOverlayKey ()) {
             scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, nullptr, key,
                                        modelIsDrawn);
             return;
         }
-        const GhPreviewDrawables drawables = BuildPointVisibilityGuides (guide);
+        GhPreviewDrawables drawables = BuildPointVisibilityGuides (guide);
+        if (state.analysisPath != nullptr)
+            AppendPolyline (state.analysisPath->points, kAnalysisPathRgba, drawables.depthTested);
         scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, &drawables, key,
                                    modelIsDrawn);
         return;
@@ -149,6 +153,8 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
     if (target)
         Mix (key, state.visibilityTarget, sizeof (state.visibilityTarget));
     Mix (key, &style, sizeof (style));
+    const void* path = state.analysisPath.get ();
+    Mix (key, &path, sizeof (path));
     key |= 1u; // never the "hidden" key
     if (key == scene.AnalysisOverlayKey ()) {
         scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, nullptr, key,
@@ -160,6 +166,8 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
         AppendGuideSegment (options.point,
                             { state.visibilityTarget[0], state.visibilityTarget[1], state.visibilityTarget[2] },
                             style.guideRgba, drawables.depthTested);
+    if (state.analysisPath != nullptr)
+        AppendPolyline (state.analysisPath->points, kAnalysisPathRgba, drawables.depthTested);
     scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, &drawables, key,
                                modelIsDrawn);
 }

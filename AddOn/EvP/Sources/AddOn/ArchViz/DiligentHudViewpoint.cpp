@@ -1,3 +1,4 @@
+#include "ArchViz/AnalysisPathSource.hpp"
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/HudGumball.hpp"
 #include "ArchViz/HudShell.hpp"
@@ -199,6 +200,66 @@ bool DrawSharedContextToggle (viewpointstudy::Settings& settings)
     return changed;
 }
 
+bool DrawAnalysisPathRow (HudState& state, viewpointstudy::Settings& settings, bool steer)
+{
+    bool moved = false;
+    const auto imported = analysispathsource::Latest ();
+    if (imported.serial != state.analysisPathSerial) {
+        state.analysisPathSerial = imported.serial;
+        state.analysisPathError = imported.error;
+        if (imported.path != nullptr) {
+            state.analysisPath = imported.path;
+            state.analysisPathAt = 0.0f;
+            moved = true; // onto its start
+        }
+    }
+    const auto& path = state.analysisPath;
+    if (path == nullptr)
+        ImGui::TextDisabled ("Path: none");
+    else
+        ImGui::Text ("Path: Polyline {%s}, %.1f m%s", evp::sunstudy::CanonicalGuid (path->guid).substr (0, 8).c_str (),
+                     path->Length (), path->closed ? ", closed" : "");
+    ImGui::SameLine ();
+    if (ImGui::SmallButton (path == nullptr ? "Import selected##path" : "Replace##path"))
+        analysispathsource::RequestImport ();
+    ImGui::SetItemTooltip ("Take the first Polyline selected in Archicad, at its storey's level, as the path the "
+                           "point travels along.");
+    if (path != nullptr) {
+        ImGui::SameLine ();
+        if (ImGui::SmallButton ("Delete##path")) {
+            state.analysisPath.reset ();
+            state.analysisPathError.clear ();
+            return false; // the point stays where the path left it
+        }
+        ImGui::SetItemTooltip ("Forget the path; the point stays where it is.");
+    }
+    if (!state.analysisPathError.empty ())
+        ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "Path: %s", state.analysisPathError.c_str ());
+    if (path == nullptr)
+        return moved;
+    float metres = state.analysisPathAt * float (path->Length ());
+    if (ImGui::SliderFloat ("along path", &metres, 0.0f, float (path->Length ()), "%.2f m")) {
+        state.analysisPathAt = path->Length () > 0.0 ? metres / float (path->Length ()) : 0.0f;
+        moved = true;
+    }
+    ImGui::SetItemTooltip ("Where the point is on the path, from its start; ctrl+click to type.");
+    moved |= ImGui::SliderFloat ("height above path", &state.analysisPathHeight, 0.0f, 10.0f, "%.2f m");
+    if (steer) {
+        moved |= ImGui::Checkbox ("Look along path", &state.viewpointAlongPath);
+        ImGui::SetItemTooltip ("The field of view faces the way the path runs at the point.");
+    }
+    if (!moved)
+        return false;
+    analysispath::Point3 at, tangent;
+    if (!analysispath::Evaluate (*path, state.analysisPathAt, at, tangent))
+        return false;
+    settings.options.point = { at[0], at[1], at[2] + double (state.analysisPathHeight) };
+    settings.pointValid = true;
+    if (steer && state.viewpointAlongPath && std::hypot (tangent[0], tangent[1]) > 1.0e-9)
+        settings.options.bearingDegrees = std::atan2 (tangent[1], tangent[0]) * 180.0 / 3.14159265358979323846;
+    return true;
+}
+
 void DrawViewpointHudSection (HudState& state)
 {
     auto settings = *viewpointstudy::GetSettings ();
@@ -265,6 +326,10 @@ void DrawViewpointHudSection (HudState& state)
         settings.enabled = true;
         changed = true;
     }
+    // A target to face wins over the path's direction.
+    changed |= DrawAnalysisPathRow (state, settings,
+                                    settings.options.mode == evp::sunstudy::ViewpointMode::FieldOfView &&
+                                        !state.viewpointFaceTarget);
     auto& options = settings.options;
     int mode = int (options.mode);
     const char* const modes[] = { "Plan isovist", "Field of view", "Spherical isovist" };

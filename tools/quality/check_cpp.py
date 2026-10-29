@@ -448,6 +448,11 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # Its three ACAPI reads fail in the add-on's one vocabulary for a failed call;
     # CLAUDE.md forbids reporting a bare GSErrCode.
     ("ArchViz/SlabSliceSource.cpp", "Diagnostics/ApiError.hpp"),
+    # The analysis point's path reads the selected Polyline's polygon through the
+    # same one walk (polyline mode: an open polyline repeats no node), and says a
+    # failed read in the add-on's vocabulary -- the main-thread half of a HUD read.
+    ("ArchViz/AnalysisPathSource.cpp", "NativeCommands/CommandUtils.hpp"),
+    ("ArchViz/AnalysisPathSource.cpp", "Diagnostics/ApiError.hpp"),
     # Massing's main-thread database adapter describes ACAPI failures in the HUD;
     # the pure Define widgets/model include neither Diagnostics nor the DevKit.
     ("ArchViz/MassingModel.cpp", "Diagnostics/ApiError.hpp"),

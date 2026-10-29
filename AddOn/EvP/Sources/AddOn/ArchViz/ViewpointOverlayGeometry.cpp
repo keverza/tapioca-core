@@ -196,6 +196,12 @@ GhPreviewDrawables BuildViewpointOverlay (const evp::sunstudy::ViewpointOptions&
     return drawables;
 }
 
+void AppendPolyline (const std::vector<std::array<double, 3>>& points, uint32_t rgba, GhPreviewBucket& bucket)
+{
+    for (size_t i = 0; i + 1 < points.size (); ++i)
+        Segment (points[i], points[i + 1], rgba, bucket);
+}
+
 void AppendGuideSegment (const std::array<double, 3>& a, const std::array<double, 3>& b, uint32_t rgba,
                          GhPreviewBucket& bucket)
 {

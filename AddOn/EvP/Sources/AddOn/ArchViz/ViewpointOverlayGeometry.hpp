@@ -12,6 +12,7 @@
 #include "SunStudy/ViewpointStudy.hpp"
 
 #include <array>
+#include <vector>
 #include <cstdint>
 
 namespace geomsrv::archviz {
@@ -42,6 +43,10 @@ constexpr uint32_t kViewSphereGlyphRgba = 0x2F7BFFC8u;
 constexpr uint32_t kViewSphereBandRgba = 0x2F7BFFFFu;
 void AppendViewSphereGlyph (const std::array<double, 3>& centre, double radius, double minElevationDegrees,
                             double maxElevationDegrees, uint32_t rgba, uint32_t bandRgba, GhPreviewBucket& bucket);
+// The shared point's Archicad path (AnalysisPath.hpp), teal: apart from the
+// point's yellow, the target's blue and the role outlines' violet and magenta.
+constexpr uint32_t kAnalysisPathRgba = 0x2EC4A6E6u;
+void AppendPolyline (const std::vector<std::array<double, 3>>& points, uint32_t rgba, GhPreviewBucket& bucket);
 void AppendGuideSegment (const std::array<double, 3>& a, const std::array<double, 3>& b, uint32_t rgba,
                          GhPreviewBucket& bucket);
 
