@@ -666,3 +666,69 @@ TEST (ViewpointStudy, APlanIsovistBakesAsItsRayEndsAndAFieldOfViewFromItsPoint)
     options.mode = ViewpointMode::Sphere;
     EXPECT_TRUE (ViewpointPlanOutline (RunViewpointStudy (Scene (), {}, options)).empty ()) << "not a plan";
 }
+
+TEST (ViewpointStudy, ABakedContourDrawsTheRadiusAsArcsAndAWallAsItsTwoEnds)
+{
+    static constexpr double kPi = 3.14159265358979323846;
+    const auto sumOfArcs = [] (const ViewpointPlanContour& contour) {
+        double sum = 0.0;
+        for (const double angle : contour.arcAngles) {
+            EXPECT_LE (std::abs (angle), kPi) << "a fill edge's arc is at most pi";
+            sum += angle;
+        }
+        return sum;
+    };
+    ViewpointOptions options;
+    options.rays = 64;
+    options.radius = 5.0;
+    options.point = { 1.0, 2.0, 1.6 };
+    const auto circle = ViewpointBakeContour (RunViewpointStudy (Scene (), {}, options));
+    ASSERT_EQ (circle.points.size (), circle.arcAngles.size ());
+    EXPECT_LE (circle.points.size (), 4u) << "64 ray ends become a few arcs";
+    EXPECT_NEAR (sumOfArcs (circle), 2.0 * kPi, 1e-9);
+    for (const auto& p : circle.points)
+        EXPECT_NEAR (std::hypot (p[0] - 1.0, p[1] - 2.0), 5.0, 1e-9);
+
+    options.mode = ViewpointMode::FieldOfView;
+    options.fieldOfViewDegrees = 90.0;
+    const auto wedge = ViewpointBakeContour (RunViewpointStudy (Scene (), {}, options));
+    ASSERT_EQ (wedge.points.size (), 3u) << "the point and one arc";
+    EXPECT_DOUBLE_EQ (wedge.arcAngles[0], 0.0);
+    EXPECT_NEAR (wedge.arcAngles[1], kPi / 2.0, 1e-9);
+    EXPECT_DOUBLE_EQ (wedge.arcAngles[2], 0.0);
+
+    // The wall's face x = 2 stops every ray within acos(0.1) of +X.
+    options = {};
+    const auto walled = RunViewpointStudy (Scene (), { "wall" }, options);
+    ASSERT_TRUE (walled.valid) << walled.error;
+    const auto contour = ViewpointBakeContour (walled);
+    ASSERT_EQ (contour.points.size (), contour.arcAngles.size ());
+    EXPECT_LE (contour.points.size (), 5u) << "two wall ends and the arc's ends and split";
+    size_t onWall = 0;
+    for (size_t i = 0; i < contour.points.size (); ++i) {
+        const auto& p = contour.points[i];
+        const bool circular = std::abs (std::hypot (p[0], p[1]) - options.radius) < 1e-6;
+        EXPECT_TRUE (circular || std::abs (p[0] - 2.0) < 1e-9) << "a vertex off both the wall and the radius";
+        onWall += circular ? 0 : 1;
+    }
+    EXPECT_EQ (onWall, 2u);
+    const double step = 2.0 * kPi / double (options.rays);
+    EXPECT_NEAR (sumOfArcs (contour), 2.0 * kPi - 2.0 * std::acos (0.1), 2.0 * step);
+
+    // A closed room: no arcs, and each wall keeps only its two ends, the
+    // corners cut between the last rays on either side.
+    auto room = std::make_shared<geomsrv::Snapshot> (evptest::MakeSnapshot (
+        { evptest::MakeBox ("east", 3, -3, -1, 0.2, 6, 4), evptest::MakeBox ("west", -3.2, -3, -1, 0.2, 6, 4),
+          evptest::MakeBox ("north", -3, 3, -1, 6, 0.2, 4), evptest::MakeBox ("south", -3, -3.2, -1, 6, 0.2, 4) },
+        geomsrv::MeshStore::Get ().NextId ()));
+    room->completeModel = true;
+    room->captureStamp = geomsrv::MeshStore::Get ().CaptureStamp ();
+    options.point = { 0.3, -0.2, 1.6 };
+    const auto enclosed = RunViewpointStudy (room, { "east", "west", "north", "south" }, options);
+    ASSERT_TRUE (enclosed.valid) << enclosed.error;
+    ASSERT_EQ (enclosed.collisionCount, options.rays);
+    const auto walls = ViewpointBakeContour (enclosed);
+    EXPECT_LE (walls.points.size (), 8u);
+    EXPECT_GE (walls.points.size (), 4u);
+    EXPECT_DOUBLE_EQ (sumOfArcs (walls), 0.0);
+}

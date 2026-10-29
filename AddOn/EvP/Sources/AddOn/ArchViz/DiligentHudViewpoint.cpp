@@ -743,12 +743,12 @@ void DrawViewpointHudSection (HudState& state)
         return;
     ImGui::BeginDisabled (status.calculating);
     if (ImGui::Button ("Bake as Fill")) {
-        auto outline = evp::sunstudy::ViewpointPlanOutline (*result);
-        if (outline.empty ())
+        auto contour = evp::sunstudy::ViewpointBakeContour (*result);
+        if (contour.points.empty ())
             state.viewpointBakeNote = "Not baked: the viewpoint area has no area.";
         else {
             state.viewpointBakeNote = "Baking...";
-            viewpointbake::RequestBake (std::move (outline));
+            viewpointbake::RequestBake (std::move (contour));
         }
     }
     ImGui::EndDisabled ();

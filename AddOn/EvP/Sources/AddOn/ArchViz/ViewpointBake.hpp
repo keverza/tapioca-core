@@ -9,15 +9,15 @@
 //
 // ANY THREAD: RequestBake, LastBake.
 
-#include <array>
+#include "SunStudy/ViewpointStudy.hpp"
+
 #include <cstdint>
 #include <string>
-#include <vector>
 
 namespace geomsrv::archviz::viewpointbake {
 
-// `outline`: evp::sunstudy::ViewpointPlanOutline, metres in plan.
-void RequestBake (std::vector<std::array<double, 2>> outline);
+// `contour`: evp::sunstudy::ViewpointBakeContour, metres in plan.
+void RequestBake (evp::sunstudy::ViewpointPlanContour contour);
 
 struct Baked {
     uint64_t serial = 0; // grows with each finished bake

@@ -385,6 +385,15 @@ bool BuildStraightPolygonMemo (const GS::Array<GS::ObjectState>& outline, const 
     return BuildFillPolygon (outline, holes, polygon, memo, error);
 }
 
+bool BuildFillPolygonMemo (const GS::ObjectState& fill, API_Polygon& polygon, API_ElementMemo& memo,
+                           GS::UniString& error)
+{
+    GS::Array<GS::ObjectState> outline, holes;
+    fill.Get ("polygonOutline", outline);
+    fill.Get ("holes", holes);
+    return BuildFillPolygon (outline, holes, polygon, memo, error) && AddFillArcs (fill, memo, polygon.nArcs, error);
+}
+
 NativeCommandRegistrations GetDraftingFillCommandRegistrations ()
 {
     return MakeRegistrationView (s_draftingFillRegistrations);

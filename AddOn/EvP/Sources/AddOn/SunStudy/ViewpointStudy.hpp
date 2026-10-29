@@ -94,6 +94,19 @@ std::vector<ViewpointArc> ViewpointArcs (const std::vector<int64_t>& rayMesh);
 // sphere, an invalid result, or one with no area.
 std::vector<std::array<double, 2>> ViewpointPlanOutline (const ViewpointStudyResult& result);
 
+// ViewpointPlanOutline cleaned up to bake: where rays reached the radius the
+// edge is an arc of the radius circle, and a run of ray ends along one straight
+// surface is kept as its two ends. `arcAngles[i]` is the signed angle of the edge
+// from points[i] to points[i + 1] (the last edge closes to points[0]): 0 for a
+// straight edge, counterclockwise positive, at most pi -- a longer arc is split.
+struct ViewpointPlanContour {
+    std::vector<std::array<double, 2>> points;
+    std::vector<double> arcAngles;
+};
+// `straightMetres`: how far a ray end may lie off the line through its
+// neighbours and still be dropped.
+ViewpointPlanContour ViewpointBakeContour (const ViewpointStudyResult& result, double straightMetres = 0.002);
+
 // Add `guid` to `context`, or remove it when present (GUIDs compared in
 // canonical form; order otherwise kept). Returns true when it was added.
 bool ToggleViewpointContext (std::vector<std::string>& context, const std::string& guid);

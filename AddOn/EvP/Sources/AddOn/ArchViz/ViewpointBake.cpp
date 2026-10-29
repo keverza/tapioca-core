@@ -7,7 +7,7 @@
 #include "ArchViz/ViewpointBake.hpp"
 
 #include "Diagnostics/ApiError.hpp"                // DescribeErr - never print a bare GSErrCode
-#include "NativeCommands/DraftingFillCommands.hpp" // BuildStraightPolygonMemo: the one fill polygon build
+#include "NativeCommands/DraftingFillCommands.hpp" // BuildFillPolygonMemo: the one fill polygon build
 
 #include <mutex>
 
@@ -67,9 +67,10 @@ bool ActiveStory (short& index, std::string& name, std::string& error)
 }
 
 // MAIN THREAD.
-void Bake (const std::vector<std::array<double, 2>>& outline, Baked& baked)
+void Bake (const evp::sunstudy::ViewpointPlanContour& contour, Baked& baked)
 {
-    if (outline.size () < 3 || outline.size () > 4096) {
+    if (contour.points.size () < 3 || contour.points.size () > 4096 ||
+        contour.arcAngles.size () != contour.points.size ()) {
         baked.error = "the viewpoint area needs 3..4096 points to bake";
         return;
     }
@@ -89,16 +90,21 @@ void Bake (const std::vector<std::array<double, 2>>& outline, Baked& baked)
         return;
     }
     element.header.floorInd = story;
-    GS::Array<GS::ObjectState> points, holes;
-    for (const auto& p : outline) {
+    GS::Array<GS::ObjectState> points;
+    GS::Array<double> arcAngles;
+    for (size_t i = 0; i < contour.points.size (); ++i) {
         GS::ObjectState point;
-        point.Add ("x", p[0]);
-        point.Add ("y", p[1]);
+        point.Add ("x", contour.points[i][0]);
+        point.Add ("y", contour.points[i][1]);
         points.Push (point);
+        arcAngles.Push (contour.arcAngles[i]);
     }
+    GS::ObjectState fill;
+    fill.Add ("polygonOutline", points);
+    fill.Add ("arcAngles", arcAngles);
     API_ElementMemo memo {};
     GS::UniString polygonError;
-    if (!BuildStraightPolygonMemo (points, holes, element.hatch.poly, memo, polygonError)) {
+    if (!BuildFillPolygonMemo (fill, element.hatch.poly, memo, polygonError)) {
         ACAPI_DisposeElemMemoHdls (&memo);
         baked.error = polygonError.ToCStr (0, MaxUSize, CC_UTF8).Get ();
         return;
@@ -112,16 +118,16 @@ void Bake (const std::vector<std::array<double, 2>>& outline, Baked& baked)
 
 } // namespace
 
-void RequestBake (std::vector<std::array<double, 2>> outline)
+void RequestBake (evp::sunstudy::ViewpointPlanContour contour)
 {
     const auto finish = [] (Baked baked) {
         std::lock_guard<std::mutex> lock (s_mutex);
         baked.serial = s_baked.serial + 1;
         s_baked = std::move (baked);
     };
-    if (selectionmetadata::Later ([outline = std::move (outline), finish] () {
+    if (selectionmetadata::Later ([contour = std::move (contour), finish] () {
             Baked baked;
-            Bake (outline, baked);
+            Bake (contour, baked);
             finish (std::move (baked));
         }))
         return;
