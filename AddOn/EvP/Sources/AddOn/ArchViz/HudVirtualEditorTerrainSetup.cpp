@@ -311,13 +311,15 @@ void TerrainSetupPanel (Session& s)
     const auto& doc = s.edits.Doc ();
     if (!doc.landscape || !ImGui::CollapsingHeader ("Topography preview", ImGuiTreeNodeFlags_DefaultOpen))
         return;
-    ImGui::TextWrapped ("Path-driven terrain preview. Draw or select an authored path, then capture one native Mesh. "
+    ImGui::TextWrapped ("Region and path terrain preview. Enable a region target or select an authored path, then "
+                        "capture one native Mesh. "
                         "No native terrain is written.");
     const auto paths = TerrainDesignPaths (s);
     ResolveTerrainDesignPath (s);
     ImGui::BeginDisabled (!Idle (s) && !s.terrainSectionDrag);
     if (paths.empty ())
-        ImGui::TextWrapped ("No authored design paths yet. Draw one in the view to begin.");
+        ImGui::TextWrapped ("No authored design paths yet. Regions can grade without a path. "
+                            "Draw a path only when you also want path-driven grading.");
     else {
         const auto available = std::find (paths.begin (), paths.end (), s.terrainPath) != paths.end ();
         const auto label = available ? "Path " + std::to_string (s.terrainPath) : "Select an authored path";

@@ -129,7 +129,7 @@ void Run (const std::shared_ptr<overlayhud::State>& state, const std::shared_ptr
         log ("selection cleared=" + std::to_string (deselected == NoError));
     }
     finish (request->path ? "Terrain set. Edit the design path's profile and cross-section to update the preview."
-                          : "Terrain set. Draw or select a design path to grade it.");
+                          : "Terrain set. Enable a region's Grade/Add/Subtract or draw/select a design path.");
 }
 } // namespace
 

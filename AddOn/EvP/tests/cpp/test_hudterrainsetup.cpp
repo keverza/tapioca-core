@@ -160,6 +160,17 @@ TEST (HudTerrainSetup, RegionSurfacePanelNamesContourDirectionAndHidesForReferen
     EXPECT_EQ (session.edits.UndoDepth (), 0u);
 }
 
+TEST (HudTerrainSetup, RegionOnlyWorkflowDoesNotRequireAnAuthoredDesignPath)
+{
+    eh::Session session (EmptyLandscape ());
+    session.terrainPaths = false;
+    PanelGui gui;
+    const auto text = gui.Frame (session);
+    EXPECT_NE (text.find ("Region and path terrain preview"), std::string::npos);
+    EXPECT_NE (text.find ("Regions can grade without a path"), std::string::npos);
+    EXPECT_NE (text.find ("Set terrain from selection"), std::string::npos);
+}
+
 TEST (HudTerrainSetup, RegionSlopeCanTakeTwoSelectedVerticesInOneUndoableClick)
 {
     auto doc = EmptyLandscape ();
