@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cfloat>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -325,19 +326,27 @@ bool DrawPathProfile (HudState& state, double length)
         if (hit < 0 && under (screen (profile.anchors[i].station, profile.anchors[i].z)))
             hit = int (i) * 3;
     }
-    if (over && ImGui::IsMouseDoubleClicked (ImGuiMouseButton_Left) && hit < 0) {
-        state.analysisProfileAnchor = int (Insert (profile, world (mouse).first));
-        state.analysisProfileDrag = -1;
-        edited ();
-    }
-    else if (over && ImGui::IsMouseClicked (ImGuiMouseButton_Left)) {
+    // ⚠️ THE DOUBLE-CLICK IS TIMED HERE, NOT BY ImGui. The HUD's frames follow
+    // the viewer's, and ImGui's own double-click never fired on this canvas: two
+    // presses on empty canvas within the time, a few pixels apart, add an anchor.
+    // Only the slider moves the point; the canvas shows where it is.
+    if (over && ImGui::IsMouseClicked (ImGuiMouseButton_Left)) {
+        const double now = ImGui::GetTime ();
+        const bool twice =
+            hit < 0 && now - state.analysisProfileClickAt <= 0.45 &&
+            std::hypot (mouse.x - state.analysisProfileClickPos[0], mouse.y - state.analysisProfileClickPos[1]) <= 6.0f;
+        state.analysisProfileClickAt = twice ? -1.0 : now;
+        state.analysisProfileClickPos[0] = mouse.x;
+        state.analysisProfileClickPos[1] = mouse.y;
         state.analysisProfileDrag = hit;
         if (hit >= 0)
             state.analysisProfileAnchor = hit / 3;
-        else {
-            state.analysisPathAt = float (world (mouse).first / length);
-            moved = true;
+        else if (twice) {
+            state.analysisProfileAnchor = int (Insert (profile, world (mouse).first));
+            edited ();
         }
+        else
+            state.analysisProfileAnchor = -1;
     }
     if (over && ImGui::IsMouseClicked (ImGuiMouseButton_Right) && hit >= 0 && hit % 3 == 0 &&
         Remove (profile, size_t (hit / 3))) {
@@ -361,7 +370,7 @@ bool DrawPathProfile (HudState& state, double length)
     if (over && state.analysisProfileDrag < 0) {
         const auto [s, z] = world (mouse);
         ImGui::SetTooltip ("%.2f m along, %.2f m up\nDrag a point or handle; double-click adds a point, right-click "
-                           "removes one;\nclick moves the view point there.",
+                           "removes one.\nThe along-path slider moves the view point.",
                            s, z);
     }
 
@@ -528,7 +537,8 @@ bool DrawAnalysisPathControls (HudState& state, viewpointstudy::Settings& settin
     if (path == nullptr)
         return false;
     float metres = state.analysisPathAt * float (path->Length ());
-    if (ImGui::SliderFloat ("along path", &metres, 0.0f, float (path->Length ()), "%.2f m")) {
+    ImGui::SetNextItemWidth (-FLT_MIN);
+    if (ImGui::SliderFloat ("##along-path", &metres, 0.0f, float (path->Length ()), "along path %.2f m")) {
         state.analysisPathAt = path->Length () > 0.0 ? metres / float (path->Length ()) : 0.0f;
         moved = true;
     }

@@ -263,10 +263,12 @@ struct HudState {
     // The point's height above the path, a Bezier profile by station, kept on the
     // Polyline as metadata; edited on the path's profile canvas.
     analysisprofile::Profile analysisProfile;
-    bool analysisProfileDirty = false; // edited since it was read or saved
-    int analysisProfileAnchor = -1;    // the selected anchor, or -1
-    int analysisProfileDrag = -1;      // anchor * 3 + part (0 anchor, 1 out handle, 2 in handle)
-    float analysisProfileZ[2] = {};    // the canvas's height range, held while dragging
+    bool analysisProfileDirty = false;     // edited since it was read or saved
+    int analysisProfileAnchor = -1;        // the selected anchor, or -1
+    int analysisProfileDrag = -1;          // anchor * 3 + part (0 anchor, 1 out handle, 2 in handle)
+    float analysisProfileZ[2] = {};        // the canvas's height range, held while dragging
+    double analysisProfileClickAt = -1.0;  // ImGui time of the last press on empty canvas
+    float analysisProfileClickPos[2] = {}; // and where it was
     uint64_t analysisProfileSaveSerial = 0;
     uint64_t analysisProfileEdits = 0;  // edits made, so a save names the one it stored
     uint64_t analysisProfileSaving = 0; // `analysisProfileEdits` when the last save was asked for
