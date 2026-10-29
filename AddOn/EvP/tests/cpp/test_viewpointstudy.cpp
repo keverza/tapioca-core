@@ -641,3 +641,28 @@ TEST (ViewpointGumballInteraction, TheSquareMovesInPlanAndTheCentreSnapsTheTarge
     view::Shutdown ();
     geomsrv::MeshStore::Get ().Release ();
 }
+
+TEST (ViewpointStudy, APlanIsovistBakesAsItsRayEndsAndAFieldOfViewFromItsPoint)
+{
+    ViewpointOptions options;
+    options.rays = 64;
+    options.radius = 5.0;
+    options.point = { 1.0, 2.0, 1.6 };
+    const auto plan = RunViewpointStudy (Scene (), {}, options);
+    ASSERT_TRUE (plan.valid) << plan.error;
+    const auto ring = ViewpointPlanOutline (plan);
+    ASSERT_EQ (ring.size (), 64u);
+    for (const auto& p : ring)
+        EXPECT_NEAR (std::hypot (p[0] - 1.0, p[1] - 2.0), 5.0, 1e-9);
+
+    options.mode = ViewpointMode::FieldOfView;
+    options.fieldOfViewDegrees = 90.0;
+    const auto fan = RunViewpointStudy (Scene (), {}, options);
+    ASSERT_TRUE (fan.valid) << fan.error;
+    const auto wedge = ViewpointPlanOutline (fan);
+    ASSERT_EQ (wedge.size (), fan.perimeter.size () + 1);
+    EXPECT_DOUBLE_EQ (wedge.front ()[0], 1.0) << "the point opens the wedge";
+
+    options.mode = ViewpointMode::Sphere;
+    EXPECT_TRUE (ViewpointPlanOutline (RunViewpointStudy (Scene (), {}, options)).empty ()) << "not a plan";
+}

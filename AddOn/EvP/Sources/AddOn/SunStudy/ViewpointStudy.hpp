@@ -88,6 +88,12 @@ struct ViewpointArc {
 };
 std::vector<ViewpointArc> ViewpointArcs (const std::vector<int64_t>& rayMesh);
 
+// A plan isovist or field of view as one polygon in plan, to bake: x, y pairs
+// without a closing repeat -- the ray ends, and for a field of view the point
+// first. Points within a millimetre of the one before are merged. Empty for a
+// sphere, an invalid result, or one with no area.
+std::vector<std::array<double, 2>> ViewpointPlanOutline (const ViewpointStudyResult& result);
+
 // Add `guid` to `context`, or remove it when present (GUIDs compared in
 // canonical form; order otherwise kept). Returns true when it was added.
 bool ToggleViewpointContext (std::vector<std::string>& context, const std::string& guid);

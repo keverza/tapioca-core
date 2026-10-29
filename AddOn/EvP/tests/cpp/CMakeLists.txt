@@ -201,6 +201,8 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisPath.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisProfile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/AnalysisPathSourceStub.cpp"
+    # The viewpoint's Bake button makes an Archicad Fill; stubbed as "nothing baked".
+    "${CMAKE_CURRENT_SOURCE_DIR}/ViewpointBakeStub.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisTabs.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewpointOverlayGeometry.cpp"

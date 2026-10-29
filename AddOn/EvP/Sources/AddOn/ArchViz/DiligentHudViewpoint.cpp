@@ -4,6 +4,7 @@
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/PointGumball.hpp"
+#include "ArchViz/ViewpointBake.hpp"
 #include "ArchViz/ViewpointStudyController.hpp"
 #include "ArchViz/VisibilityStudyCapture.hpp"
 #include "Geometry/QueryEngine.hpp"
@@ -730,6 +731,36 @@ void DrawViewpointHudSection (HudState& state)
         ImGui::Text ("%.1f m2 visible; %u of %u rays hit Context", status.result->area,
                      unsigned (status.result->collisionCount), unsigned (status.result->perimeter.size ()));
     ImGui::SetItemTooltip ("Edge: the blocked colour where Context stops a ray, the open colour at the radius.");
+    // A plan isovist or field of view, kept in the project as an Archicad Fill.
+    const auto baked = viewpointbake::LastBake ();
+    if (baked.serial != state.viewpointBakeSerial) {
+        state.viewpointBakeSerial = baked.serial;
+        state.viewpointBakeNote =
+            baked.error.empty () ? "Baked as a Fill on " + baked.story + "." : "Not baked: " + baked.error;
+    }
+    const auto& result = status.result;
+    if (result == nullptr || !result->valid || result->options.mode == evp::sunstudy::ViewpointMode::Sphere)
+        return;
+    ImGui::BeginDisabled (status.calculating);
+    if (ImGui::Button ("Bake as Fill")) {
+        auto outline = evp::sunstudy::ViewpointPlanOutline (*result);
+        if (outline.empty ())
+            state.viewpointBakeNote = "Not baked: the viewpoint area has no area.";
+        else {
+            state.viewpointBakeNote = "Baking...";
+            viewpointbake::RequestBake (std::move (outline));
+        }
+    }
+    ImGui::EndDisabled ();
+    ImGui::SetItemTooltip ("Make the area shown an Archicad Fill on the floor plan's active story, with the Fill "
+                           "tool's current settings. One undo step.");
+    if (!state.viewpointBakeNote.empty ()) {
+        ImGui::SameLine ();
+        if (state.viewpointBakeNote.rfind ("Not baked", 0) == 0)
+            ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "%s", state.viewpointBakeNote.c_str ());
+        else
+            ImGui::TextDisabled ("%s", state.viewpointBakeNote.c_str ());
+    }
 }
 
 void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, const float viewProj[16],

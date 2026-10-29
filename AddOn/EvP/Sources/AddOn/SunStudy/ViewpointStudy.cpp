@@ -340,6 +340,34 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
     return result;
 }
 
+std::vector<std::array<double, 2>> ViewpointPlanOutline (const ViewpointStudyResult& result)
+{
+    std::vector<std::array<double, 2>> outline;
+    if (!result.valid || result.options.mode == ViewpointMode::Sphere)
+        return outline;
+    const auto add = [&] (double x, double y) {
+        if (!outline.empty () && std::hypot (x - outline.back ()[0], y - outline.back ()[1]) < 1.0e-3)
+            return;
+        outline.push_back ({ x, y });
+    };
+    if (!result.Closed ())
+        add (result.options.point[0], result.options.point[1]);
+    for (const auto& end : result.perimeter)
+        add (end[0], end[1]);
+    while (outline.size () > 1 &&
+           std::hypot (outline.front ()[0] - outline.back ()[0], outline.front ()[1] - outline.back ()[1]) < 1.0e-3)
+        outline.pop_back ();
+    double twiceArea = 0.0;
+    for (size_t i = 0; i < outline.size (); ++i) {
+        const auto& a = outline[i];
+        const auto& b = outline[(i + 1) % outline.size ()];
+        twiceArea += (a[0] - outline[0][0]) * (b[1] - outline[0][1]) - (b[0] - outline[0][0]) * (a[1] - outline[0][1]);
+    }
+    if (outline.size () < 3 || std::abs (twiceArea) < 1.0e-9)
+        outline.clear ();
+    return outline;
+}
+
 std::vector<ViewpointBlocker> ViewpointBlockers (const ViewpointStudyResult& result, const geomsrv::Snapshot& snapshot)
 {
     std::vector<ViewpointBlocker> blockers;

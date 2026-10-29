@@ -273,7 +273,9 @@ struct HudState {
     uint64_t analysisProfileEdits = 0;  // edits made, so a save names the one it stored
     uint64_t analysisProfileSaving = 0; // `analysisProfileEdits` when the last save was asked for
     std::string analysisProfileNote;
-    bool viewpointAlongPath = false; // a field of view looks the way the path runs
+    bool viewpointAlongPath = false;  // a field of view looks the way the path runs
+    uint64_t viewpointBakeSerial = 0; // the last ViewpointBake outcome taken
+    std::string viewpointBakeNote;
     uint64_t viewpointSeenRevision = 0;
     double viewpointDragPoint[3] = {}, viewpointDragParameter[3] = {};
     float annotationTextHeightMetres = 0.18f;

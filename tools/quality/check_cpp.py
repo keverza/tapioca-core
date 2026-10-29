@@ -453,6 +453,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # failed read in the add-on's vocabulary -- the main-thread half of a HUD read.
     ("ArchViz/AnalysisPathSource.cpp", "NativeCommands/CommandUtils.hpp"),
     ("ArchViz/AnalysisPathSource.cpp", "Diagnostics/ApiError.hpp"),
+    # The viewpoint's Bake button makes its area a Fill through the one fill polygon
+    # build (closing repeat, winding) that Tapioca.CreateFills and the massing bake share.
+    ("ArchViz/ViewpointBake.cpp", "NativeCommands/DraftingFillCommands.hpp"),
+    ("ArchViz/ViewpointBake.cpp", "Diagnostics/ApiError.hpp"),
     # Massing's main-thread database adapter describes ACAPI failures in the HUD;
     # the pure Define widgets/model include neither Diagnostics nor the DevKit.
     ("ArchViz/MassingModel.cpp", "Diagnostics/ApiError.hpp"),
