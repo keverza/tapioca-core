@@ -6,6 +6,7 @@
 #include "Edit/EditLandscapeJsonInternal.hpp"
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditTerrainDesignJob.hpp"
+#include "Edit/EditRegionTerrain.hpp"
 #include "Geometry/Mesh.hpp"
 #include <cmath>
 #include <limits>
@@ -105,7 +106,7 @@ inline lg::TerrainDesignOutcome Run (const Scene& scene)
     job.options = scene.options;
     job.region = scene.region;
     job.surfaceTable = scene.nativeSolid ? 5 : 0;
-    return lg::RunTerrainDesign (job);
+    return lg::RunLandscapeTerrainDesign (job);
 }
 #endif
 } // namespace debugreplay

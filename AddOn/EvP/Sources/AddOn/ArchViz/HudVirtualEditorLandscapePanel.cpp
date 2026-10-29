@@ -178,7 +178,7 @@ void LandscapePanel (Session& s)
         if (ImGui::BeginTabItem ("Warnings")) {
             Landscape (s);
             if (!s.edits.Doc ().landscape->propertyLineSourceId)
-                ImGui::TextWrapped ("No property line. Terrain-affecting operations require one.");
+                ImGui::TextWrapped ("No property line: the captured terrain boundary limits region/path grading.");
             if (s.landscape.diagnostics.empty () && s.landscape.planarDiagnostics.empty () &&
                 s.landscape.error.empty ())
                 ImGui::TextDisabled ("No evaluation warnings.");

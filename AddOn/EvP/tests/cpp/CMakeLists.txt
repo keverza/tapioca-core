@@ -830,6 +830,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscape.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditRegionSurface.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditRegionTerrain.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrainJob.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEntrance.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEdge.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEval.cpp"

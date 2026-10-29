@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -83,6 +84,8 @@ void RegionPanel (Session& s, bool materialsOnly)
     auto surface = object->surface.value_or (lg::RegionSurface {});
     auto material = object->baseMaterial;
     bool changed = false;
+    auto terrain = object->terrain;
+    bool terrainChanged = false;
     ImGui::BeginDisabled (GizmoModeLocked (s) || !s.drawing.empty () || s.edits.InGesture ());
     if (!materialsOnly) {
         int elevation = int (surface.elevation);
@@ -137,9 +140,38 @@ void RegionPanel (Session& s, bool materialsOnly)
         if (surface.elevation == lg::RegionElevationMode::Existing)
             ImGui::TextWrapped ("Existing has no vertical target: the captured terrain is unchanged. "
                                 "Choose Constant to author a flat level or slope.");
-        ImGui::TextWrapped (
-            "Target surface preview only. Terrain add/subtract, grade and edge transitions are not applied yet. "
-            "Union/Subtract above change the footprint, not vertical cut/fill.");
+        ImGui::BeginDisabled (surface.elevation != lg::RegionElevationMode::Constant);
+        int effect = int (terrain.effect);
+        if (ImGui::Combo (
+                "Terrain interaction", &effect,
+                "None (target preview only)\0Grade (cut and fill)\0Add (raise only)\0Subtract (lower only)\0")) {
+            terrain.effect = lg::RegionTerrainEffect (effect);
+            terrainChanged = true;
+        }
+        int transition = int (terrain.transition);
+        if (ImGui::Combo ("Ground transition", &transition, "Falloff\0Daylight slopes\0")) {
+            terrain.transition = lg::RegionTerrainTransition (transition);
+            terrainChanged = true;
+        }
+        if (terrain.transition == lg::RegionTerrainTransition::Falloff)
+            terrainChanged |= ImGui::InputDouble ("Falloff width (m)", &terrain.falloff, 0, 0, "%.2f",
+                                                  ImGuiInputTextFlags_EnterReturnsTrue);
+        else {
+            terrainChanged |= ImGui::InputDouble ("Maximum reach (m)", &terrain.reach, 0, 0, "%.2f",
+                                                  ImGuiInputTextFlags_EnterReturnsTrue);
+            terrainChanged |= ImGui::InputDouble ("Cut face (%)", &terrain.cutPercent, 0, 0, "%.2f",
+                                                  ImGuiInputTextFlags_EnterReturnsTrue);
+            terrainChanged |= ImGui::InputDouble ("Fill face (%)", &terrain.fillPercent, 0, 0, "%.2f",
+                                                  ImGuiInputTextFlags_EnterReturnsTrue);
+        }
+        ImGui::EndDisabled ();
+        ImGui::TextWrapped ("Union/Subtract above change the footprint, not vertical cut/fill. "
+                            "Region targets grade first; path profiles take priority where composition succeeds. "
+                            "Some mixed region/path scenes currently refuse (#82); no partial topography is published. "
+                            "None is target preview only. Existing has no vertical target. Set a terrain to build the "
+                            "actual topography.");
+        if (TerrainGuid (s).empty ())
+            ImGui::TextDisabled ("Set the topography in the terrain controls above.");
     }
     else {
         int preset = int (material.preset);
@@ -158,6 +190,10 @@ void RegionPanel (Session& s, bool materialsOnly)
     }
     if (changed && !s.edits.Apply ([id = object->id, surface, material] (edit::Document& doc, std::string& error) {
             return lg::SetRegionSurface (doc, id, surface, material, error);
+        }))
+        s.message = s.edits.Message ();
+    if (terrainChanged && !s.edits.Apply ([id = object->id, terrain] (edit::Document& doc, std::string& error) {
+            return lg::SetRegionTerrain (doc, id, terrain, error);
         }))
         s.message = s.edits.Message ();
     ImGui::EndDisabled ();

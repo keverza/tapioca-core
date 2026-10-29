@@ -9,6 +9,7 @@
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDebug.hpp"
+#include "ArchViz/VirtualEditorTerrainCapture.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
 #include <atomic>
@@ -131,6 +132,8 @@ bool Refresh ()
     // here on the main thread, after layout, never on the renderer's Present.
     if (state->virtualEditor && state->virtualEditor->debugExportRequested)
         edithud::SaveDebugExport (*state->virtualEditor);
+    FollowTerrainCapture (state);
+    FollowDraftingImport (state);
     if (engine->Selected () == "@viewer.analysis") {
         // Navigation releases input, not the document. Renderer-owned analysis keeps
         // its own state; no Session or ImGui pointer crosses the thread boundary.

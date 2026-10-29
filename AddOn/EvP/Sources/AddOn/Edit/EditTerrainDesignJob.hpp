@@ -7,6 +7,7 @@
 #include <memory>
 
 namespace tapioca::geometry {
+struct RegionTerrainResult;
 
 // The widest a side slope's plan reach is widened to when it does not meet the ground, metres.
 constexpr double kMaxSlopeReach = 100.0;
@@ -40,6 +41,8 @@ struct TerrainDesignJob {
 
 // What a worker produced, stamped with what it was computed against.
 struct TerrainDesignOutcome {
+    std::shared_ptr<const RegionTerrainResult>
+        regions;                                   // Attributed area stage, retained through optional path composition.
     std::shared_ptr<const TerrainCapture> capture; // Retains full input/native ancestry behind the result.
     uint64_t generation = 0, revision = 0;
     std::array<uint8_t, 16> session {};

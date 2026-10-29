@@ -142,7 +142,7 @@ TEST (HudTerrainSetup, RegionSurfacePanelNamesContourDirectionAndHidesForReferen
     const auto text = gui.Frame (session, { 850, 1350 }, false, false, 1);
     EXPECT_NE (text.find ("Fall side"), std::string::npos);
     EXPECT_NE (text.find ("perpendicular"), std::string::npos);
-    EXPECT_NE (text.find ("not applied yet"), std::string::npos);
+    EXPECT_NE (text.find ("Terrain interaction"), std::string::npos);
     EXPECT_EQ (session.landscapeObject, object);
     const auto materialText = gui.Frame (session, { 850, 1350 }, false, false, 2);
     EXPECT_NE (materialText.find ("#26"), std::string::npos);

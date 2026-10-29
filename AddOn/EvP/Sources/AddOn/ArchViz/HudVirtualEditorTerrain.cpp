@@ -154,6 +154,7 @@ void TerrainControlsPanel (Session& s)
 
 #if defined(TAPIOCA_GEOMETRY_RUST)
 #include "Edit/EditTerrainCapture.hpp"
+#include "Edit/EditRegionTerrain.hpp"
 #include <algorithm>
 #include <chrono>
 #include <exception>
@@ -208,13 +209,28 @@ bool Author (edit::Document& doc, const Mesh& mesh, edit::Id path, bool band, lg
              std::string& error)
 {
     // No property line: the design area is the path's reach on the terrain (the worker clips it).
-    if (!doc.landscape || !edit::FindPath (doc, path)) {
+    if (!doc.landscape || (path && !edit::FindPath (doc, path))) {
         error = "Choose a landscape path before starting terrain design.";
         return false;
     }
     edit::Id terrain = 0;
     if (!lg::SetLandscapeTerrain (doc, mesh.guid, terrain, error))
         return false;
+    if (!path) {
+        const auto regions = lg::TerrainRegionObjects (doc);
+        if (regions.empty ()) {
+            error = "Enable Grade/Add/Subtract on a region or choose a design path.";
+            return false;
+        }
+        const auto& objects = doc.landscape->objects;
+        const auto object =
+            std::find_if (objects.begin (), objects.end (), [&] (const auto& o) { return o.id == regions[0]; });
+        options.source = 0;
+        options.object = object->id;
+        options.operation = object->footprintOperation;
+        lg::TerrainCapture capture;
+        return lg::CaptureLandscapeTerrain (doc, mesh, { options.object, 2, 1 }, capture, error);
+    }
     for (const auto& source : doc.landscape->sources)
         if (!source.deleted && source.role == lg::SourceRole::PathCenterline && source.pathId == path)
             options.source = source.id;
@@ -312,7 +328,7 @@ bool SetTerrainBaseline (Session& s, TerrainDesignBaseline baseline, edit::Id pa
     s.terrainDesign.reset ();
     s.terrainBaseline = std::make_shared<TerrainDesignBaseline> (std::move (baseline));
     s.publishedRevision = UINT64_MAX;
-    s.message = "Terrain set. Draw or select a design path to grade it.";
+    s.message = "Terrain set. Enable a region's Grade/Add/Subtract or draw/select a design path.";
     LogTerrain (s, "baseline held guid=" + s.terrainBaseline->mesh->guid);
     return true;
 }
@@ -328,7 +344,8 @@ void PollTerrainDesign (Session& s)
 {
     // A terrain set first starts its design when a path appears, once input is idle.
     if (s.terrainBaseline && !s.terrainDesign && Idle (s) && !s.terrainCapture) {
-        if (const auto path = ResolveTerrainDesignPath (s)) {
+        const auto path = ResolveTerrainDesignPath (s);
+        if (path || !lg::TerrainRegionObjects (s.edits.Doc ()).empty ()) {
             auto baseline = *s.terrainBaseline;
             if (StartTerrainDesign (s, std::move (baseline), path))
                 s.terrainBaseline.reset ();
@@ -370,6 +387,23 @@ void PollTerrainDesign (Session& s)
     }
     if (state.invalid || !Idle (s) || state.requestedRevision == doc.revision)
         return;
+    if (!state.options.source) {
+        const auto path = ResolveTerrainDesignPath (s);
+        const bool owner =
+            doc.landscape && std::any_of (doc.landscape->objects.begin (), doc.landscape->objects.end (),
+                                          [&] (const auto& object) { return object.id == state.options.object; });
+        if (path || (!owner && !lg::TerrainRegionObjects (doc).empty ())) {
+            const auto baseline = state.baseline;
+            StartTerrainDesign (s, baseline, path);
+            return;
+        }
+    }
+    if (!state.options.source && lg::TerrainRegionObjects (doc).empty ()) {
+        s.terrainBaseline = std::make_shared<TerrainDesignBaseline> (state.baseline);
+        s.terrainDesign.reset ();
+        s.publishedRevision = UINT64_MAX;
+        return;
+    }
     state.requestedRevision = doc.revision; // Refusals retry only after an edit.
     state.error.clear ();
     auto capture = std::make_shared<lg::TerrainCapture> ();
@@ -384,7 +418,7 @@ void PollTerrainDesign (Session& s)
     try {
         LogTerrain (s, "worker launch generation=" + std::to_string (job.generation) +
                            " nativeSurfaceRequired=" + std::to_string (job.surfaceTable != 0));
-        state.worker = lg::LaunchTerrainDesign (std::move (job));
+        state.worker = lg::LaunchLandscapeTerrainDesign (std::move (job));
     }
     catch (const std::exception& exception) {
         state.error = std::string ("TerrainDesignWorker: ") + exception.what ();
@@ -530,7 +564,7 @@ void TerrainDesignPanel (Session& s)
     const auto& state = *s.terrainDesign;
     ImGui::Separator ();
     bool band = s.terrainBand;
-    ImGui::BeginDisabled (state.worker.valid ());
+    ImGui::BeginDisabled (state.worker.valid () || !state.options.source);
     if (ImGui::Checkbox ("Grade along the chosen path only", &band))
         SetTerrainBand (s, band);
     ImGui::EndDisabled ();
@@ -555,8 +589,18 @@ void TerrainDesignPanel (Session& s)
         return;
     if (current->built) {
         ImGui::Text ("Cut %.3f m3   Fill %.3f m3", current->result.build.site.cut, current->result.build.site.fill);
-        ImGui::Text ("Path-conforming preview: %zu vertices, %zu triangles", current->result.build.points.size () / 3,
+        ImGui::Text ("Topography preview: %zu vertices, %zu triangles", current->result.build.points.size () / 3,
                      current->result.build.triangles.size () / 3);
+        if (current->regions) {
+            const auto& area = current->regions->evaluation.terrain;
+            for (const auto& report : area.reports)
+                ImGui::Text ("Region operation %llu: %u moved, %u reach clips, %u extension clips",
+                             static_cast<unsigned long long> (report.operation), report.report.moved,
+                             report.report.limitClipped, report.report.extensionClipped);
+            if (area.volumes)
+                for (const auto& volume : area.volumes->operations)
+                    ImGui::Text ("  Area stage: cut %.3f m3, fill %.3f m3", volume.cut, volume.fill);
+        }
     }
     const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
     if (s.edits.Doc ().landscape &&

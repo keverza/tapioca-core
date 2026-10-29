@@ -3,7 +3,11 @@
 #include "Edit/EditLandscapeSerialization.hpp"
 #include "Edit/EditSession.hpp"
 #include "Geometry/Mesh.hpp"
+#include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include <gtest/gtest.h>
+#include <chrono>
+#include <thread>
 
 namespace lg = tapioca::geometry;
 namespace edit = geomsrv::edit;
@@ -181,4 +185,73 @@ TEST (EditRegionTerrain, DaylightUsesTheAuthoredSideGrade)
     EXPECT_NEAR (Height (result, 10, 10), 2, 1e-7);
     EXPECT_NEAR (Height (result, 16, 10), 1, 1e-6);
     EXPECT_NEAR (Height (result, 19, 10), 0, 1e-12);
+}
+
+TEST (EditRegionTerrain, MixedPreparedSceneRefusesAtomicallyUntilSplitterEndpointGapIsResolved)
+{
+    Fixture fixture;
+    const auto path = edit::AddPath (fixture.doc, { { 2, 2, 0.5 }, { 2, 18, 0.5 } }, 1);
+    lg::LandscapeSource source;
+    source.pathId = path;
+    source.role = lg::SourceRole::PathCenterline;
+    std::string error;
+    edit::Id id = 0;
+    ASSERT_TRUE (lg::AddLandscapeSource (fixture.doc, source, id, error));
+    lg::TerrainDesignOptions options;
+    options.source = id;
+    options.object = fixture.object;
+    options.operation = fixture.doc.landscape->objects[0].footprintOperation;
+    options.outline = true;
+    lg::TerrainDesignPublisher publisher;
+    lg::TerrainDesignJob job;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, fixture.Capture (), options, {}, job, error));
+    auto result = lg::RunLandscapeTerrainDesign (job);
+    ASSERT_FALSE (result.built);
+    EXPECT_NE (result.error.find ("RegionPathComposition (#82)"), std::string::npos) << result.error;
+    EXPECT_TRUE (result.result.build.points.empty ()) << "Never publish a region-only or path-only partial result.";
+    ASSERT_TRUE (result.regions);
+    EXPECT_EQ (result.regions->input->points[2], 0);
+    EXPECT_NEAR (Height (*result.regions, 10, 10), 2, 1e-7);
+    EXPECT_TRUE (lg::RunTerrainDesign (job).built) << "The unchanged path lane still works on the original capture.";
+    ASSERT_TRUE (publisher.Publish (fixture.doc, std::move (result), error));
+    auto changed = fixture.doc;
+    ++changed.revision;
+    EXPECT_EQ (publisher.Current (changed), nullptr);
+}
+
+TEST (EditRegionTerrain, RegionOnlyHudStartsFromHeldTerrainAndRebuildsAfterUndo)
+{
+    namespace eh = geomsrv::archviz::edithud;
+    const auto await = [] (eh::Session& session) {
+        const auto end = std::chrono::steady_clock::now () + std::chrono::seconds (10);
+        while (std::chrono::steady_clock::now () < end) {
+            eh::PollTerrainDesign (session);
+            if (const auto* current = eh::CurrentTerrainDesign (session))
+                return current->built;
+            std::this_thread::sleep_for (std::chrono::milliseconds (1));
+        }
+        return false;
+    };
+    Fixture fixture;
+    const auto captured = fixture.Capture ();
+    auto mesh = std::make_shared<geomsrv::Mesh> ();
+    mesh->guid = captured->sourceTerrainGuid;
+    mesh->vertices = captured->points;
+    mesh->triangles = captured->triangles;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::SetTerrainBaseline (session, { mesh, false, {} }, 0));
+    ASSERT_TRUE (await (session)) << eh::GetTerrainDesignStatus (session).error;
+    EXPECT_TRUE (eh::GetTerrainDesignStatus (session).built);
+    EXPECT_GT (eh::GetTerrainDesignStatus (session).fill, 199);
+    auto target = *fixture.doc.landscape->objects[0].surface;
+    target.first.z = 1;
+    ASSERT_TRUE (session.edits.Apply (
+        [&] (auto& doc, auto& error) { return lg::SetRegionSurface (doc, fixture.object, target, {}, error); }));
+    EXPECT_EQ (eh::CurrentTerrainDesign (session), nullptr);
+    ASSERT_TRUE (await (session)) << eh::GetTerrainDesignStatus (session).error;
+    const auto lower = eh::GetTerrainDesignStatus (session).fill;
+    ASSERT_TRUE (session.edits.Undo ());
+    ASSERT_TRUE (await (session)) << eh::GetTerrainDesignStatus (session).error;
+    EXPECT_GT (eh::GetTerrainDesignStatus (session).fill, lower * 1.9);
+    EXPECT_EQ (mesh->vertices, captured->points);
 }

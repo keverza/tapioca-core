@@ -14,5 +14,7 @@ std::vector<Id> TerrainRegionObjects (const geomsrv::edit::Document& doc);
 // with Rust, then applies Rust area/surface edits. No path authoring or SDK calls.
 bool EvaluateRegionTerrain (const geomsrv::edit::Document& doc, std::shared_ptr<const TerrainCapture> input,
                             RegionTerrainResult& result, std::string& error);
+TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job);
+std::future<TerrainDesignOutcome> LaunchLandscapeTerrainDesign (TerrainDesignJob job);
 } // namespace tapioca::geometry
 #endif
