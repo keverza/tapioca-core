@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <set>
+#include <unordered_map>
 
 namespace evp::sunstudy {
 
@@ -21,6 +22,7 @@ using Point3 = std::array<double, 3>;
 constexpr size_t kMaxSurfaceCells = 120000; // cells tested per run, whatever the scene
 constexpr size_t kMaxCellSplits = 64;       // per triangle edge
 constexpr double kSeenSlackMetres = 0.02;   // a ray stopping this near its cell still reaches it
+constexpr double kCrossingMetres = 0.005;   // how closely a patch's border is bisected
 
 double Distance (const Point3& a, const Point3& b)
 {
@@ -71,9 +73,14 @@ size_t Splits (const std::array<Point3, 3>& t, double cell)
     return (std::min) (kMaxCellSplits, (std::max) (size_t (1), size_t (std::ceil (longest / cell))));
 }
 
-// Sphere: cut each near triangle into n x n cells, and keep the cells whose
-// centre lies within the radius and band and is reached by the ray to it. The
-// cell side starts from the radius and coarsens until the run fits its budget.
+// Sphere: lay an n x n barycentric grid on each near triangle and test its
+// corners for being seen: within the radius and band, and reached by the ray to
+// them. A cell seen at every corner is kept; a cell seen at some is cut at the
+// crossing on each of its mixed edges, found by bisecting along that edge.
+// ⚠️ CORNERS AND CROSSINGS, NOT CELL CENTRES. Keeping whole cells by their
+// centre stepped the patch's border cell by cell along the radius and every
+// shadow; a crossing puts it where the radius, the band or the shadow falls.
+// The cell side starts from the radius and coarsens until the run fits its budget.
 bool SeenSurfaces (const geomsrv::Snapshot& snapshot, const geomsrv::QueryEngine* engine,
                    const std::vector<uint8_t>& mask, bool everything, const ViewpointOptions& options,
                    ViewpointStudyResult& result, const std::function<bool ()>& cancelled)
@@ -109,44 +116,85 @@ bool SeenSurfaces (const geomsrv::Snapshot& snapshot, const geomsrv::QueryEngine
             return !engine->Occluded (eye.data (), direction, 0.0, reach);
         return !engine->RaycastMasked (eye.data (), direction, reach, mask).hit;
     };
+    // Where seen `from` and unseen `to` change over, to within kCrossingMetres.
+    const auto crossing = [&] (Point3 from, Point3 to) {
+        for (int step = 0; step < 16 && Distance (from, to) > kCrossingMetres; ++step) {
+            Point3 middle;
+            for (int axis = 0; axis < 3; ++axis)
+                middle[axis] = 0.5 * (from[axis] + to[axis]);
+            (seen (middle) ? from : to) = middle;
+        }
+        Point3 at;
+        for (int axis = 0; axis < 3; ++axis)
+            at[axis] = 0.5 * (from[axis] + to[axis]);
+        return at;
+    };
+    std::vector<Point3> corners;
+    std::vector<uint8_t> visible;
+    std::unordered_map<uint64_t, Point3> crossings; // by the edge's two corner indices
     std::vector<std::array<Point3, 3>> pieces;
     for (size_t index = 0; index < near.size (); ++index) {
         if ((index & 63u) == 0 && cancelled ())
             return false;
         const auto& t = near[index];
         const size_t n = Splits (t, cell);
-        // Barycentric grid: corner (i, j) is t0 + i/n (t1 - t0) + j/n (t2 - t0).
-        const auto corner = [&] (size_t i, size_t j) {
-            Point3 at;
-            for (int axis = 0; axis < 3; ++axis)
-                at[axis] = t[0][axis] + (t[1][axis] - t[0][axis]) * double (i) / double (n) +
-                           (t[2][axis] - t[0][axis]) * double (j) / double (n);
+        // Barycentric grid: corner (i, j) is t0 + i/n (t1 - t0) + j/n (t2 - t0),
+        // stored at i (n + 1) + j.
+        const size_t side = n + 1;
+        corners.assign (side * side, Point3 {});
+        visible.assign (side * side, 0);
+        bool whole = true;
+        for (size_t i = 0; i <= n; ++i)
+            for (size_t j = 0; i + j <= n; ++j) {
+                Point3& at = corners[i * side + j];
+                for (int axis = 0; axis < 3; ++axis)
+                    at[axis] = t[0][axis] + (t[1][axis] - t[0][axis]) * double (i) / double (n) +
+                               (t[2][axis] - t[0][axis]) * double (j) / double (n);
+                visible[i * side + j] = seen (at) ? 1 : 0;
+                whole = whole && visible[i * side + j] != 0;
+            }
+        if (whole) {
+            result.seenSurface.insert (result.seenSurface.end (), t.begin (), t.end ());
+            result.seenArea += TriangleArea (t[0], t[1], t[2]);
+            continue;
+        }
+        crossings.clear ();
+        const auto edge = [&] (size_t a, size_t b) {
+            const uint64_t key = uint64_t ((std::min) (a, b)) << 32 | uint64_t ((std::max) (a, b));
+            const auto found = crossings.find (key);
+            if (found != crossings.end ())
+                return found->second;
+            const Point3 at = visible[a] != 0 ? crossing (corners[a], corners[b]) : crossing (corners[b], corners[a]);
+            crossings.emplace (key, at);
             return at;
         };
         pieces.clear ();
-        bool whole = true;
         for (size_t i = 0; i < n; ++i)
             for (size_t j = 0; i + j < n; ++j)
                 for (int flip = 0; flip < (i + j + 1 < n ? 2 : 1); ++flip) {
-                    const std::array<Point3, 3> piece =
-                        flip == 0
-                            ? std::array<Point3, 3> { corner (i, j), corner (i + 1, j), corner (i, j + 1) }
-                            : std::array<Point3, 3> { corner (i + 1, j), corner (i + 1, j + 1), corner (i, j + 1) };
-                    Point3 centre;
-                    for (int axis = 0; axis < 3; ++axis)
-                        centre[axis] = (piece[0][axis] + piece[1][axis] + piece[2][axis]) / 3.0;
-                    if (seen (centre))
-                        pieces.push_back (piece);
-                    else
-                        whole = false;
+                    const size_t cell3[3] = { flip == 0 ? i * side + j : (i + 1) * side + j,
+                                              flip == 0 ? (i + 1) * side + j : (i + 1) * side + j + 1,
+                                              i * side + j + 1 };
+                    // The seen part of the cell: its seen corners, and a crossing
+                    // on each edge whose ends disagree. Three or four corners.
+                    Point3 polygon[4];
+                    size_t count = 0;
+                    for (size_t k = 0; k < 3; ++k) {
+                        const size_t a = cell3[k], b = cell3[(k + 1) % 3];
+                        if (visible[a] != 0)
+                            polygon[count++] = corners[a];
+                        if (visible[a] != visible[b])
+                            polygon[count++] = edge (a, b);
+                    }
+                    for (size_t k = 1; k + 1 < count; ++k)
+                        pieces.push_back ({ polygon[0], polygon[k], polygon[k + 1] });
                 }
-        if (whole)
-            pieces.assign (1, t);
         for (const auto& piece : pieces) {
             result.seenSurface.insert (result.seenSurface.end (), piece.begin (), piece.end ());
             result.seenArea += TriangleArea (piece[0], piece[1], piece[2]);
         }
     }
+    result.surfaceCellMetres = cell;
     return true;
 }
 

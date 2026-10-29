@@ -416,16 +416,45 @@ TEST (ViewpointStudy, SphereSeesOnlyTheNearFaceOfContextWithinItsRadius)
     EXPECT_EQ (walled.seenSurface.size () % 3, 0u);
     for (const auto& corner : walled.seenSurface)
         EXPECT_LT (corner[0], 2.25) << "the far face is hidden behind the near one";
-    // Within the radius: about the disc the 5 m sphere cuts from the face 2 m away.
+    // Within the radius: the disc the 5 m sphere cuts from the face 2 m away,
+    // its border cut where the radius crosses each cell, not stepped by cells.
     const double disc = 3.14159265358979323846 * (25.0 - 4.0);
-    EXPECT_GT (walled.seenArea, 0.6 * disc);
-    EXPECT_LT (walled.seenArea, 1.3 * disc);
+    EXPECT_GT (walled.seenArea, 0.98 * disc);
+    EXPECT_LT (walled.seenArea, 1.01 * disc);
+    EXPECT_NEAR (walled.surfaceCellMetres, 0.5, 1e-12);
+    for (const auto& corner : walled.seenSurface)
+        EXPECT_LT (std::hypot (corner[0], corner[1], corner[2] - options.point[2]), options.radius + 0.006)
+            << "no cell sticks out past the radius";
 
     // Out of reach: nothing seen.
     options.radius = 1.5;
     const auto short_ = RunViewpointStudy (Scene (), { "wall" }, options);
     ASSERT_TRUE (short_.valid) << short_.error;
     EXPECT_TRUE (short_.seenSurface.empty ());
+}
+
+TEST (ViewpointStudy, ASpheresShadowBorderFollowsTheOccludersEdge)
+{
+    // A post x 1..1.2, y -0.5..0.5 between the point and the wall: its front
+    // corners cast the shadow's edges onto the wall at y = +-1.
+    const auto scene = std::make_shared<geomsrv::Snapshot> (evptest::MakeSnapshot (
+        { evptest::MakeBox ("wall", 2, -20, -10, 0.5, 40, 20), evptest::MakeBox ("post", 1, -0.5, -10, 0.2, 1, 20) },
+        geomsrv::MeshStore::Get ().NextId ()));
+    ViewpointOptions options;
+    options.mode = ViewpointMode::Sphere;
+    options.point = { 0, 0, 0 };
+    options.radius = 5.0;
+    options.surfaceCellMetres = 0.5;
+    const auto result = RunViewpointStudy (scene, { "wall", "post" }, options);
+    ASSERT_TRUE (result.valid) << result.error;
+    size_t onBorder = 0;
+    for (const auto& corner : result.seenSurface) {
+        if (std::abs (corner[0] - 2.0) > 1e-6)
+            continue; // the wall's near face only
+        EXPECT_GT (std::abs (corner[1]), 0.99) << "nothing seen in the post's shadow";
+        onBorder += std::abs (corner[1]) < 1.01 ? 1u : 0u;
+    }
+    EXPECT_GT (onBorder, 8u) << "the border runs along the shadow's edge, not a cell away from it";
 }
 
 TEST (ViewpointStudy, ModesOtherThanPlanNeverReachAKernelWithoutThem)

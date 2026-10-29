@@ -50,9 +50,11 @@ struct ViewpointStudyResult {
     std::vector<int64_t> rayMesh;
     // Sphere: what the point sees of the capture's surfaces within the radius and
     // band, as triangles (three corners each). Every capture element receives;
-    // only Context occludes. A triangle seen whole is kept whole.
+    // only Context occludes. A triangle seen whole is kept whole; a partly seen
+    // one is cut along where the radius, band or a shadow crosses its cells.
     std::vector<std::array<double, 3>> seenSurface;
-    double seenArea = 0.0; // square metres of `seenSurface`
+    double seenArea = 0.0;          // square metres of `seenSurface`
+    double surfaceCellMetres = 0.0; // the cell side used, after any coarsening
     size_t collisionCount = 0;
     double area = 0.0;         // plan and field of view: square metres seen
     double volume = 0.0;       // sphere: cubic metres seen
