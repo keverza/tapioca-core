@@ -59,7 +59,8 @@ void DiligentScene::DrawAnalysisOverlay (Diligent::IDeviceContext* context, cons
     DrawOcclusionDepth (context, viewProj, true, modelIsDrawn, colorBufferFormat, depthBufferFormat);
     GhPreviewLayer::DrawParams params;
     params.lineWidthPixels = 2.0f;
-    params.ambient = 1.0f; // flat: the isovist is a measurement, not a lit surface
+    params.ambient = 1.0f;           // flat: the isovist is a measurement, not a lit surface
+    params.hiddenDashPixels = 10.0f; // guides behind the model stay, dashed
     impl_->analysisOverlay.Draw (context, viewProj, surfaceWidth, surfaceHeight, params);
 }
 

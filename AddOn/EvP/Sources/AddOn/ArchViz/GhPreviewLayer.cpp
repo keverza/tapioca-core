@@ -35,6 +35,7 @@ struct GhPreviewConstants {
     float pixelToNdc[4];
     // x = half the drawn line width in pixels.
     // y = half the WIDENED width: x + 1, which is the quad actually built.
+    // z = the hidden pass's dash period in pixels, w = its alpha scale.
     float params[4];
     // xyz = the world direction the legibility light comes from, w = ambient.
     float light[4];
@@ -135,6 +136,7 @@ struct PSInput
     float4 position : SV_POSITION;
     float4 color    : COLOR0;
     float  side     : TEXCOORD0;
+    nointerpolation float axis : TEXCOORD1;
 };
 
 void main (in VSInput vsIn, out PSInput psIn)
@@ -175,6 +177,8 @@ void main (in VSInput vsIn, out PSInput psIn)
     psIn.position = clip;
     psIn.color = vsIn.color.wzyx;
     psIn.side = vsIn.side;
+    // The screen axis the segment mostly runs along: the hidden pass dashes by it.
+    psIn.axis = abs (alongPixels.y) > abs (alongPixels.x) ? 1.0 : 0.0;
 }
 )hlsl";
 
@@ -196,6 +200,7 @@ struct PSInput
     float4 position : SV_POSITION;
     float4 color    : COLOR0;
     float  side     : TEXCOORD0;
+    nointerpolation float axis : TEXCOORD1;
 };
 
 struct PSOutput
@@ -211,6 +216,47 @@ void main (in PSInput psIn, out PSOutput psOut)
     float coverage = saturate (g_params.x + 0.5 - distPixels);
 
     psOut.color = float4 (psIn.color.rgb, psIn.color.a * coverage);
+}
+)hlsl";
+
+// The same ribbon where the model is IN FRONT of it: dashed and fainter, so a
+// guide behind a wall still reads as there, and as behind.
+//
+// ⚠️ DASHED BY SCREEN PIXEL ALONG THE SEGMENT'S MAIN AXIS, NOT BY ARC LENGTH. The
+// vertex has no length along its polyline (and the layout is a contract), and a
+// coordinate projected on each segment's own direction jumps at every joint of a
+// curve. x or y stays continuous round a curve except where it switches, once per
+// quarter turn.
+constexpr const char* kLineHiddenPS = R"hlsl(
+cbuffer GhPreviewConstants
+{
+    float4x4 g_viewProj;
+    float4   g_pixelToNdc;
+    float4   g_params;
+    float4   g_light;
+};
+
+struct PSInput
+{
+    float4 position : SV_POSITION;
+    float4 color    : COLOR0;
+    float  side     : TEXCOORD0;
+    nointerpolation float axis : TEXCOORD1;
+};
+
+struct PSOutput
+{
+    float4 color : SV_TARGET;
+};
+
+void main (in PSInput psIn, out PSOutput psOut)
+{
+    float along = psIn.axis > 0.5 ? psIn.position.y : psIn.position.x;
+    if (frac (along / g_params.z) > 0.55)
+        discard;
+    float distPixels = abs (psIn.side) * g_params.y;
+    float coverage = saturate (g_params.x + 0.5 - distPixels);
+    psOut.color = float4 (psIn.color.rgb, psIn.color.a * coverage * g_params.w);
 }
 )hlsl";
 
@@ -289,10 +335,12 @@ struct GhPreviewLayer::Impl {
     RefCntAutoPtr<Diligent::IPipelineState> meshXRayPso;
     RefCntAutoPtr<Diligent::IPipelineState> linePso;
     RefCntAutoPtr<Diligent::IPipelineState> lineXRayPso;
+    RefCntAutoPtr<Diligent::IPipelineState> lineHiddenPso;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> meshSrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> meshXRaySrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> lineSrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> lineXRaySrb;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> lineHiddenSrb;
     RefCntAutoPtr<Diligent::IBuffer> constants;
     Bucket depthTested;
     Bucket xray;
@@ -340,10 +388,12 @@ void GhPreviewLayer::Shutdown ()
     impl_->meshXRaySrb.Release ();
     impl_->lineSrb.Release ();
     impl_->lineXRaySrb.Release ();
+    impl_->lineHiddenSrb.Release ();
     impl_->meshPso.Release ();
     impl_->meshXRayPso.Release ();
     impl_->linePso.Release ();
     impl_->lineXRayPso.Release ();
+    impl_->lineHiddenPso.Release ();
     impl_->labelCount = 0;
     impl_->ready = false;
 }
@@ -376,7 +426,7 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         return true;
     };
 
-    RefCntAutoPtr<Diligent::IShader> meshVs, meshPs, lineVs, linePs;
+    RefCntAutoPtr<Diligent::IShader> meshVs, meshPs, lineVs, linePs, lineHiddenPs;
     if (!compile (Diligent::SHADER_TYPE_VERTEX, "Gh preview mesh VS", kMeshVS, meshVs))
         return false;
     if (!compile (Diligent::SHADER_TYPE_PIXEL, "Gh preview mesh PS", kMeshPS, meshPs))
@@ -384,6 +434,8 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
     if (!compile (Diligent::SHADER_TYPE_VERTEX, "Gh preview line VS", kLineVS, lineVs))
         return false;
     if (!compile (Diligent::SHADER_TYPE_PIXEL, "Gh preview line PS", kLinePS, linePs))
+        return false;
+    if (!compile (Diligent::SHADER_TYPE_PIXEL, "Gh preview hidden line PS", kLineHiddenPS, lineHiddenPs))
         return false;
 
     Diligent::BufferDesc cbd;
@@ -417,7 +469,8 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
     auto buildPso = [&] (const char* name, Diligent::IShader* vs, Diligent::IShader* ps,
                          const Diligent::LayoutElement* layout, Diligent::Uint32 layoutCount, bool depthTest,
                          bool depthWrite, RefCntAutoPtr<Diligent::IPipelineState>& pso,
-                         RefCntAutoPtr<Diligent::IShaderResourceBinding>& srb) -> bool {
+                         RefCntAutoPtr<Diligent::IShaderResourceBinding>& srb,
+                         Diligent::COMPARISON_FUNCTION depthFunc = Diligent::COMPARISON_FUNC_LESS_EQUAL) -> bool {
         Diligent::GraphicsPipelineStateCreateInfo pci;
         pci.PSODesc.Name = name;
         Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
@@ -465,7 +518,7 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         // to be seen THROUGH the building, and a primitive that occluded what it
         // was meant to reveal would be answering the opposite question.
         gp.DepthStencilDesc.DepthWriteEnable = depthWrite ? Diligent::True : Diligent::False;
-        gp.DepthStencilDesc.DepthFunc = Diligent::COMPARISON_FUNC_LESS_EQUAL;
+        gp.DepthStencilDesc.DepthFunc = depthFunc;
         gp.InputLayout.LayoutElements = layout;
         gp.InputLayout.NumElements = layoutCount;
 
@@ -500,8 +553,8 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
     };
 
     //                                                        depthTest  depthWrite
-    if (!buildPso ("Gh preview mesh PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), true, true,
-                   impl_->meshPso, impl_->meshSrb))
+    if (!buildPso ("Gh preview mesh PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), true, true, impl_->meshPso,
+                   impl_->meshSrb))
         return false;
     if (!buildPso ("Gh preview mesh x-ray PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), false, false,
                    impl_->meshXRayPso, impl_->meshXRaySrb))
@@ -514,6 +567,12 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         return false;
     if (!buildPso ("Gh preview line x-ray PSO", lineVs, linePs, lineLayout, _countof (lineLayout), false, false,
                    impl_->lineXRayPso, impl_->lineXRaySrb))
+        return false;
+    // GREATER: only where something already in the depth buffer is in front. The
+    // same pull toward the camera as the visible pass, so a line ON a surface is
+    // drawn once, solid, and never dashed over itself.
+    if (!buildPso ("Gh preview hidden line PSO", lineVs, lineHiddenPs, lineLayout, _countof (lineLayout), true, false,
+                   impl_->lineHiddenPso, impl_->lineHiddenSrb, Diligent::COMPARISON_FUNC_GREATER))
         return false;
 
     impl_->ready = true;
@@ -609,6 +668,8 @@ void GhPreviewLayer::Draw (Diligent::IDeviceContext* context, const float viewPr
     // The quad is built one pixel wider each way; the pixel shader ramps coverage
     // over that pixel. See kLinePS.
     constants.params[1] = halfWidth + 1.0f;
+    constants.params[2] = (std::max) (params.hiddenDashPixels, 1.0f);
+    constants.params[3] = (std::min) ((std::max) (params.hiddenAlpha, 0.0f), 1.0f);
 
     // A fixed, normalised direction. See kMeshVS: this is legibility, not a sun.
     constants.light[0] = 0.32f;
@@ -664,6 +725,20 @@ void GhPreviewLayer::Draw (Diligent::IDeviceContext* context, const float viewPr
     // before the depth-tested geometry would let an ordinary preview mesh blend
     // over the very thing the x-ray flag was set to reveal.
     drawBucket (impl_->depthTested, impl_->meshPso, impl_->meshSrb, impl_->linePso, impl_->lineSrb);
+    if (params.hiddenDashPixels > 0.0f && impl_->depthTested.lineVertexCount > 0 &&
+        impl_->depthTested.lineVertices != nullptr) {
+        // The depth-tested lines again, where they failed the test: dashed.
+        Diligent::IBuffer* buffers[1] = { impl_->depthTested.lineVertices };
+        const Diligent::Uint64 offsets[1] = { 0 };
+        context->SetVertexBuffers (0, 1, buffers, offsets, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
+                                   Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
+        context->SetPipelineState (impl_->lineHiddenPso);
+        context->CommitShaderResources (impl_->lineHiddenSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        Diligent::DrawAttribs draw;
+        draw.NumVertices = Diligent::Uint32 (impl_->depthTested.lineVertexCount);
+        draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+        context->Draw (draw);
+    }
     drawBucket (impl_->xray, impl_->meshXRayPso, impl_->meshXRaySrb, impl_->lineXRayPso, impl_->lineXRaySrb);
 }
 

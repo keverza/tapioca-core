@@ -4,7 +4,7 @@
 // ArchViz/GhPreviewLayer — the GPU half of the Grasshopper preview overlay.
 //
 // It owns ONLY resources: three vertex buffers, one index buffer, one constant
-// buffer, four pipeline states and the draws. The geometry comes from
+// buffer, five pipeline states and the draws. The geometry comes from
 // GhPreviewGeometry, which is pure and tested offline. Same split as
 // PlanAnchorLayer and StorySliceLayer, for the same reason.
 //
@@ -96,6 +96,11 @@ class GhPreviewLayer final {
         // a preview must stay readable on the side facing away from the light,
         // because the light here is a legibility device and not a sun.
         float ambient = 0.45f;
+        // > 0: the depth-tested lines are drawn a second time where the model
+        // hides them, dashed with this period in pixels and `hiddenAlpha` of
+        // their alpha. 0 (the preview's default) leaves hidden lines undrawn.
+        float hiddenDashPixels = 0.0f;
+        float hiddenAlpha = 0.55f;
     };
 
     void Draw (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
