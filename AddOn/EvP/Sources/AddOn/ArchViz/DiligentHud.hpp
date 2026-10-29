@@ -237,8 +237,11 @@ struct HudState {
     int viewpointHotPart = -1;   // the gumball part under the cursor or dragged (HitGumball's numbering)
     int viewpointDragHandle = 0; // 0 the shared point, 1 the target
     int viewpointHotHandle = 0;
-    // Only the selected handle shows its gumball; the other is a marker a click selects.
+    // Only the selected handle shows its gumball; the other is a marker a click
+    // selects. -1: neither, after a click off both.
     int viewpointActiveHandle = 0;
+    bool viewpointPressedOff = false; // pressed off every handle: a release in place deselects
+    float viewpointPressAt[2] = {};
     bool viewpointPlacingTarget = false; // the next model click places the target
     // Field of view: its bearing follows the target (shared with point visibility's cone).
     bool viewpointFaceTarget = false;

@@ -16,11 +16,21 @@ struct Gumball {
     ImVec2 center, ends[3];
     bool visible[3] = {};
     bool valid = false;
+    // The XY plane square between the X and Y arrows, when asked for and both
+    // arrows show: its four screen corners.
+    bool plane = false;
+    ImVec2 square[4];
 };
 
+// HitGumball's parts beyond the three arrows.
+constexpr int kGumballCentre = 3;
+constexpr int kGumballPlane = 4;
+
 // The arrows are ~70 px long whatever the zoom; an arrow seen end-on is hidden.
-Gumball MakeGumball (const double point[3], const float viewProj[16], uint32_t width, uint32_t height);
-// 0..2 an axis arrow, 3 the centre disc, -1 nothing.
+// `plane` adds the XY square.
+Gumball MakeGumball (const double point[3], const float viewProj[16], uint32_t width, uint32_t height,
+                     bool plane = false);
+// 0..2 an axis arrow, 3 the centre disc, 4 the plane square, -1 nothing.
 int HitGumball (const Gumball& gizmo, float x, float y);
 // `hot` is the part under the cursor or being dragged, numbered as HitGumball
 // numbers it (-1 none): drawn lighter and heavier, so it reads as grabbable.

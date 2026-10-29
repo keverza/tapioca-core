@@ -112,8 +112,10 @@ void DrawGumballHint (const HudState& state)
     const char* what = state.viewpointHotHandle == 1 ? "the target" : "the view point";
     if (state.viewpointHotHandle != state.viewpointActiveHandle)
         ImGui::SetTooltip ("Click to select %s; drag to move it in plan", what);
-    else if (state.viewpointHotPart == 3)
-        ImGui::SetTooltip ("Drag to move %s in plan", what);
+    else if (state.viewpointHotPart == kGumballCentre)
+        ImGui::SetTooltip ("Drag to place %s on the surface under the cursor", what);
+    else if (state.viewpointHotPart == kGumballPlane)
+        ImGui::SetTooltip ("Drag to move %s in plan, keeping its height", what);
     else
         ImGui::SetTooltip ("Drag to move %s along %s", what, kAxes[state.viewpointHotPart]);
 }
@@ -131,6 +133,33 @@ bool FaceTarget (const HudState& state, viewpointstudy::Settings& settings)
         return false;
     settings.options.bearingDegrees = bearing;
     return true;
+}
+
+// The centre disc's drag: onto the model surface under the cursor. The view
+// point stands 5 cm off it toward the camera, as "Place viewpoint" puts it.
+bool SnapUnderCursor (const double origin[3], const double direction[3], bool eye, double at[3])
+{
+    const auto snapshot = visibilitystudy::ViewerCapture ();
+    const auto engine = snapshot != nullptr ? QueryIndexCache::Get ().For (snapshot) : nullptr;
+    if (engine == nullptr)
+        return false;
+    const double length =
+        std::sqrt (direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2]);
+    if (length <= 1.0e-12)
+        return false;
+    const auto hit = engine->Raycast (origin, direction, 1.0e6);
+    if (!hit.hit)
+        return false;
+    for (int axis = 0; axis < 3; ++axis)
+        at[axis] = hit.point[axis] - (eye ? direction[axis] / length * 0.05 : 0.0);
+    return true;
+}
+
+// The drag's world move for a gumball part: an arrow's own axis, or the plan for
+// the square, the disc (until it finds a surface) and a marker.
+int DragAxis (int part)
+{
+    return part >= kGumballCentre ? 3 : part;
 }
 
 bool LeftTransition (const InputSnapshot& input, bool down)
@@ -350,10 +379,11 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
             ConfigureViewpoint (state, std::move (settings));
         viewpointstudy::Tick (visibilitystudy::ViewerCapture ());
     };
-    if (!target)
-        state.viewpointActiveHandle = 0;
-    else if (!point)
-        state.viewpointActiveHandle = 1;
+    // -1 is nothing selected: both handles show as markers, for a clean view.
+    if (state.viewpointActiveHandle == 1 && !target)
+        state.viewpointActiveHandle = point ? 0 : -1;
+    if (state.viewpointActiveHandle == 0 && !point)
+        state.viewpointActiveHandle = target ? 1 : -1;
     if (state.viewpointPlacing || state.viewpointPlacingTarget || (!point && !target)) {
         state.viewpointDragging = false;
         tick ();
@@ -361,59 +391,74 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
     }
     // Two handles, the shared point and the target. Only the selected one has a
     // gumball; the other is a marker, and pressing it selects it and drags it in
-    // plan at once, the way its centre disc would.
+    // plan at once, the way the square would. A click on neither deselects both.
     const float x = float (CursorTargetX (input, width)), y = float (CursorTargetY (input, height));
+    const bool shown[2] = { point, target };
+    const double* const position[2] = { shared->options.point.data (), state.visibilityTarget };
     const int active = state.viewpointActiveHandle;
-    const auto activeGizmo =
-        MakeGumball (active == 0 ? shared->options.point.data () : state.visibilityTarget, viewProj, width, height);
-    const auto otherGizmo =
-        MakeGumball (active == 0 ? state.visibilityTarget : shared->options.point.data (), viewProj, width, height);
-    const bool otherShown = active == 0 ? target : point;
-    int hit = input.inside ? HitGumball (activeGizmo, x, y) : -1;
-    int handle = active;
-    if (hit < 0 && input.inside && otherShown && otherGizmo.valid &&
-        std::hypot (x - otherGizmo.center.x, y - otherGizmo.center.y) <= kGumballMarkerPickPixels) {
-        hit = 3;
-        handle = 1 - active;
+    int hit = -1, handle = -1;
+    if (input.inside && active >= 0 && shown[active]) {
+        hit = HitGumball (MakeGumball (position[active], viewProj, width, height, true), x, y);
+        handle = hit >= 0 ? active : -1;
+    }
+    for (int other = 0; other < 2 && input.inside && hit < 0; ++other) {
+        if (other == active || !shown[other])
+            continue;
+        const auto marker = MakeGumball (position[other], viewProj, width, height);
+        if (marker.valid && std::hypot (x - marker.center.x, y - marker.center.y) <= kGumballMarkerPickPixels) {
+            hit = kGumballPlane;
+            handle = other;
+        }
     }
     const double origin[3] = { rayOrigin[0], rayOrigin[1], rayOrigin[2] };
     const double direction[3] = { rayDirection[0], rayDirection[1], rayDirection[2] };
-    if (!state.viewpointDragging && !state.wantsMouse && hit >= 0 && LeftTransition (input, true)) {
+    const bool pressed = LeftTransition (input, true), released = LeftTransition (input, false);
+    if (!state.viewpointDragging && !state.wantsMouse && hit >= 0 && pressed) {
         state.viewpointActiveHandle = handle;
         state.viewpointDragAxis = hit;
         state.viewpointDragHandle = handle;
-        if (handle == 0)
-            std::copy (shared->options.point.begin (), shared->options.point.end (), state.viewpointDragPoint);
-        else
-            std::copy (state.visibilityTarget, state.visibilityTarget + 3, state.viewpointDragPoint);
-        state.viewpointDragging =
-            PointGumballParameter (state.viewpointDragPoint, hit, origin, direction, state.viewpointDragParameter);
+        std::copy (position[handle], position[handle] + 3, state.viewpointDragPoint);
+        state.viewpointDragging = PointGumballParameter (state.viewpointDragPoint, DragAxis (hit), origin, direction,
+                                                         state.viewpointDragParameter) ||
+                                  hit == kGumballCentre;
+    }
+    // A click off every handle -- pressed and released in place -- deselects.
+    if (!state.wantsMouse && input.inside && hit < 0 && pressed && !state.viewpointDragging) {
+        state.viewpointPressedOff = true;
+        state.viewpointPressAt[0] = x;
+        state.viewpointPressAt[1] = y;
+    }
+    if (state.viewpointPressedOff && (released || !(input.buttons & kMouseLeft))) {
+        if (released && std::hypot (x - state.viewpointPressAt[0], y - state.viewpointPressAt[1]) <= 4.0f)
+            state.viewpointActiveHandle = -1;
+        state.viewpointPressedOff = false;
     }
     state.viewpointOwnsMouse =
-        state.viewpointDragging ||
-        (!state.wantsMouse && hit >= 0 && (LeftTransition (input, true) || (input.buttons & kMouseLeft)));
+        state.viewpointDragging || (!state.wantsMouse && hit >= 0 && (pressed || (input.buttons & kMouseLeft)));
     if (state.viewpointDragging) {
+        double moved[3];
+        bool ok = state.viewpointDragAxis == kGumballCentre &&
+                  SnapUnderCursor (origin, direction, state.viewpointDragHandle == 0, moved);
         double parameter[3];
-        if (state.viewpointDragHandle == 1 &&
-            PointGumballParameter (state.viewpointDragPoint, state.viewpointDragAxis, origin, direction, parameter)) {
+        if (!ok && PointGumballParameter (state.viewpointDragPoint, DragAxis (state.viewpointDragAxis), origin,
+                                          direction, parameter)) {
             for (int axis = 0; axis < 3; ++axis)
-                state.visibilityTarget[axis] =
-                    state.viewpointDragPoint[axis] + parameter[axis] - state.viewpointDragParameter[axis];
+                moved[axis] = state.viewpointDragPoint[axis] + parameter[axis] - state.viewpointDragParameter[axis];
+            ok = true;
+        }
+        if (ok && state.viewpointDragHandle == 1) {
+            std::copy (moved, moved + 3, state.visibilityTarget);
             state.visibilityTargetEdited = true; // moved by hand: it no longer follows Focus
         }
-        else if (state.viewpointDragHandle == 0 &&
-                 PointGumballParameter (state.viewpointDragPoint, state.viewpointDragAxis, origin, direction,
-                                        parameter)) {
+        else if (ok && state.viewpointDragHandle == 0) {
             auto settings = *shared;
-            for (int axis = 0; axis < 3; ++axis)
-                settings.options.point[axis] =
-                    state.viewpointDragPoint[axis] + parameter[axis] - state.viewpointDragParameter[axis];
+            std::copy (moved, moved + 3, settings.options.point.begin ());
             if (settings.options.point != shared->options.point) {
                 FaceTarget (state, settings);
                 ConfigureViewpoint (state, std::move (settings));
             }
         }
-        if (LeftTransition (input, false) || !(input.buttons & kMouseLeft))
+        if (released || !(input.buttons & kMouseLeft))
             state.viewpointDragging = false;
     }
     state.viewpointHotPart = state.viewpointDragging ? state.viewpointDragAxis : (state.wantsMouse ? -1 : hit);
@@ -488,7 +533,7 @@ void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint
         return;
     ImDrawList* front = ImGui::GetForegroundDrawList ();
     const auto handle = [&] (int which, const double* at, uint32_t rgba) {
-        const auto gizmo = MakeGumball (at, viewProj, width, height);
+        const auto gizmo = MakeGumball (at, viewProj, width, height, state.viewpointActiveHandle == which);
         if (!gizmo.valid)
             return;
         const ImU32 centre = IM_COL32 ((rgba >> 24) & 0xffu, (rgba >> 16) & 0xffu, (rgba >> 8) & 0xffu, rgba & 0xffu);

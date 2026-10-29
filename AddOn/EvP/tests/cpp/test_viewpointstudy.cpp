@@ -1,6 +1,7 @@
 #include "MeshFixtures.hpp"
 #include "SunStudy/ViewpointStudy.hpp"
 #include "ArchViz/ViewpointStudyController.hpp"
+#include "ArchViz/HudGumball.hpp"
 #include "ArchViz/PointGumball.hpp"
 #include "ArchViz/ViewpointProjection.hpp"
 #include "ArchViz/DiligentHud.hpp"
@@ -501,4 +502,113 @@ TEST (ViewpointGumballInteraction, ATargetFacingFieldOfViewTurnsToItsTarget)
     viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, origin, direction);
     EXPECT_NEAR (view::GetSettings ()->options.bearingDegrees, 90.0, 1e-9) << "a free bearing ignores the target";
     view::Shutdown ();
+}
+
+namespace {
+// Top-down, 8 m x 6 m across an 800 x 600 view: 100 px a metre, origin at the centre.
+void TopDown (float matrix[16])
+{
+    float viewMatrix[16], projection[16];
+    const float eye[3] = { 0, 0, 10 }, target[3] = { 0, 0, 0 }, up[3] = { 0, 1, 0 };
+    geomsrv::archviz::LookAtRH (viewMatrix, eye, target, up);
+    geomsrv::archviz::OrthographicRH (projection, -4, 4, -3, 3, 0.1f, 100);
+    geomsrv::archviz::Multiply (matrix, viewMatrix, projection);
+}
+
+void Press (geomsrv::archviz::InputSnapshot& input, float x, float y, bool down)
+{
+    using geomsrv::archviz::kMouseLeft;
+    input.inside = true;
+    input.x = x;
+    input.y = y;
+    input.buttons = down ? kMouseLeft : 0;
+    input.transitions[0] = { kMouseLeft, down };
+    input.transitionCount = 1;
+}
+} // namespace
+
+TEST (ViewpointGumballInteraction, AClickOffBothHandlesDeselectsThemAndADragDoesNot)
+{
+    using namespace geomsrv::archviz;
+    view::Shutdown ();
+    view::Settings settings;
+    settings.enabled = true;
+    settings.options.point = { 0, 0, 0 };
+    view::Configure (settings);
+    HudState hud;
+    hud.analysisFocus.tab = analysistabs::kViewpointTab;
+    float matrix[16];
+    TopDown (matrix);
+    const float origin[3] = { 0, 0, 10 }, direction[3] = { 0, 0, -1 };
+    InputSnapshot input;
+    Press (input, 100, 100, true);
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, origin, direction);
+    EXPECT_FALSE (hud.viewpointOwnsMouse) << "the press belongs to navigation";
+    Press (input, 160, 100, false);
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, origin, direction);
+    EXPECT_EQ (hud.viewpointActiveHandle, 0) << "an orbit drag keeps the selection";
+    Press (input, 100, 100, true);
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, origin, direction);
+    Press (input, 101, 100, false);
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, origin, direction);
+    EXPECT_EQ (hud.viewpointActiveHandle, -1) << "a click in place selects nothing";
+    // The point is now a marker: pressing it selects it and drags it in plan.
+    Press (input, 400, 300, true);
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, origin, direction);
+    EXPECT_TRUE (hud.viewpointDragging);
+    EXPECT_EQ (hud.viewpointActiveHandle, 0);
+    EXPECT_EQ (hud.viewpointDragAxis, kGumballPlane);
+    view::Shutdown ();
+}
+
+TEST (ViewpointGumballInteraction, TheSquareMovesInPlanAndTheCentreSnapsTheTargetOntoTheModel)
+{
+    using namespace geomsrv::archviz;
+    view::Shutdown ();
+    const auto scene = Scene (); // the wall: x 2..2.5, z -10..10
+    geomsrv::MeshStore::Get ().PublishShared (scene);
+    view::Settings settings;
+    settings.options.point = { -2, 0, 0 };
+    view::Configure (settings);
+    HudState hud;
+    hud.analysisFocus.tab = analysistabs::kPointVisibilityTab;
+    hud.visibilityView = 0;
+    hud.visibilityTargetSet = true;
+    hud.viewpointActiveHandle = 1;
+    float matrix[16];
+    TopDown (matrix);
+    const float direction[3] = { 0, 0, -1 };
+    const auto gizmo = MakeGumball (hud.visibilityTarget, matrix, 800, 600, true);
+    ASSERT_TRUE (gizmo.plane);
+    const ImVec2 square ((gizmo.square[0].x + gizmo.square[2].x) * 0.5f,
+                         (gizmo.square[0].y + gizmo.square[2].y) * 0.5f);
+    EXPECT_EQ (HitGumball (gizmo, square.x, square.y), kGumballPlane);
+
+    // The square: in plan, at the target's own height, whatever is under the cursor.
+    InputSnapshot input;
+    Press (input, square.x, square.y, true);
+    const float startRay[3] = { (square.x - 400.0f) / 100.0f, (300.0f - square.y) / 100.0f, 50 };
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, startRay, direction);
+    ASSERT_TRUE (hud.viewpointDragging);
+    input.transitionCount = 0;
+    const float overWall[3] = { startRay[0] + 2.2f, startRay[1], 50 };
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, overWall, direction);
+    EXPECT_NEAR (hud.visibilityTarget[0], 2.2, 1e-5);
+    EXPECT_DOUBLE_EQ (hud.visibilityTarget[2], 0.0) << "the square keeps the height";
+    Press (input, 0, 0, false);
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, overWall, direction);
+
+    // The centre disc: onto the surface under the cursor -- the wall's top.
+    hud.visibilityTarget[0] = 0.0;
+    Press (input, 400, 300, true);
+    const float atTarget[3] = { 0, 0, 50 }, onWall[3] = { 2.2f, 0, 50 };
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, atTarget, direction);
+    ASSERT_TRUE (hud.viewpointDragging);
+    EXPECT_EQ (hud.viewpointDragAxis, kGumballCentre);
+    input.transitionCount = 0;
+    viewerhud::ServiceViewpointInteractions (hud, input, matrix, 800, 600, onWall, direction);
+    EXPECT_NEAR (hud.visibilityTarget[0], 2.2, 1e-5);
+    EXPECT_NEAR (hud.visibilityTarget[2], 10.0, 1e-6) << "on the wall's top face, not at its old height";
+    view::Shutdown ();
+    geomsrv::MeshStore::Get ().Release ();
 }
