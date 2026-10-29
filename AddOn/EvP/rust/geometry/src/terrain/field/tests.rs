@@ -5,6 +5,33 @@ fn close(left: f64, right: f64, tolerance: f64) -> bool {
     (left - right).abs() <= tolerance
 }
 
+#[test]
+fn a_thin_prepared_triangle_keeps_its_exact_diagonal_covered() -> Result<(), FieldError> {
+    // Minimized from the user's 2026-10-29 shifted-region dump: the third
+    // weight was computed as 1-wa-wb and became -7e-10 on an exact shared edge.
+    let points = [
+        0.010_000_228_881_835_938,
+        0.010_000_228_881_835_938,
+        -0.2,
+        0.202_702_907_336_824_78,
+        0.202_702_907_336_824_78,
+        -0.2,
+        0.010_000_228_881_835_938,
+        0.010_000_229_004_347_14,
+        -0.2,
+    ];
+    let field = Field::new(&points, &[0, 1, 2])?;
+    let coordinate = 0.060_000_419_616_699_22;
+    let sample = field.height_at(coordinate, coordinate);
+    assert!(
+        sample.is_some_and(|s| close(s.height, -0.2, 1e-14)),
+        "{sample:?}"
+    );
+    assert!(sample.is_some_and(|s| s.weights[2] == 0.0));
+    assert!(field.height_at(coordinate + 1e-8, coordinate).is_none());
+    Ok(())
+}
+
 /// A `side x side` vertex grid at `spacing`, heights `z(x, y)`, two counter-
 /// clockwise triangles per cell split along the (0,0)-(1,1) diagonal.
 fn grid(side: u32, spacing: f64, z: impl Fn(f64, f64) -> f64) -> (Vec<f64>, Vec<u32>) {

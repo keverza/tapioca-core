@@ -5,6 +5,8 @@
 #include "Geometry/Mesh.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
+#include "Edit/EditPathContours.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include "virtual_editor_debug_replay.hpp"
 #include <gtest/gtest.h>
 #include <chrono>
@@ -306,6 +308,99 @@ TEST (EditRegionTerrain, CoincidentRegionResplittingRefusesAtomicallyUntilEndpoi
     EXPECT_EQ (capture->points, originalPoints);
     EXPECT_EQ (capture->triangles, originalTriangles);
     EXPECT_EQ (fixture.doc.landscape, before);
+}
+
+TEST (EditRegionTerrain, CapturedRectangleHasCleanContoursAndStillBuildsAfterPathAndTransitionEdits)
+{
+    // Geometry/profile values from the user's 10:17:45 and 10:19:30 UTC dumps.
+    // The native Mesh and options are identical to the earlier captured fixture;
+    // rebuild the authored geometry through public APIs, not its cached outcome.
+    const auto file = std::filesystem::path (__FILE__).parent_path () / "fixtures/region-boundary-20261029.debug.json";
+    std::ifstream input (file, std::ios::binary);
+    ASSERT_TRUE (input);
+    const std::string text { std::istreambuf_iterator<char> (input), {} };
+    const auto parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok) << parsed.error;
+    for (bool changed : { false, true }) {
+        SCOPED_TRACE (changed);
+        auto scene = debugreplay::Read (parsed.value);
+        scene.doc = {};
+        std::string error;
+        ASSERT_TRUE (lg::StartLandscape (scene.doc, { 1 }, error)) << error;
+        const auto path = edit::AddPath (scene.doc,
+                                         { changed ? edit::Vec3 { 2.3958113406403756, 8.920939441050294, 0 }
+                                                   : edit::Vec3 { 5.276001592382269, 11.225354576484476, 0 },
+                                           { 8.900047123605457, 13.317698239491644, 0 },
+                                           changed ? edit::Vec3 { 13.364166121962585, 11.203991004939164, 0 }
+                                                   : edit::Vec3 { 14.33789767803898, 11.524028649243991, 0 } },
+                                         1.5);
+        ASSERT_TRUE (edit::EditPath (
+            scene.doc, path,
+            [changed] (edit::Path& p, std::string&) {
+                p.profile.front ().z = changed ? 0.11000000000000001 : 0.04;
+                p.profile.back ().z = changed ? 0.19 : 0.04;
+                p.profile.back ().station = changed ? 12.790138717591025 : 9.910721665007785;
+                return true;
+            },
+            error))
+            << error;
+        lg::LandscapeSource source;
+        source.pathId = path;
+        source.role = lg::SourceRole::PathCenterline;
+        lg::Id pathSource = 0, operation = 0, owner = 0, terrain = 0;
+        ASSERT_TRUE (lg::AddLandscapeSource (scene.doc, source, pathSource, error)) << error;
+        lg::LandscapeOperation stroke;
+        stroke.kind = lg::OperationKind::Stroke;
+        stroke.inputs = { pathSource };
+        stroke.width = 1.5;
+        ASSERT_TRUE (lg::AddLandscapeOperation (scene.doc, stroke, operation, error)) << error;
+        lg::HardscapeObject object;
+        object.pathId = path;
+        object.kind = lg::ObjectKind::Path;
+        object.footprintOperation = operation;
+        ASSERT_TRUE (lg::AddHardscapeObject (scene.doc, object, owner, error)) << error;
+        ASSERT_TRUE (lg::SetLandscapeTerrain (scene.doc, scene.baseline.guid, terrain, error)) << error;
+        const auto rectangle = edit::AddPolyline (scene.doc,
+                                                  { { 6.316217305653341, 7.874297764609372, 0 },
+                                                    { 6.316217305653341, 4.524116466780111, 0 },
+                                                    { 10.728651210111392, 4.524116466780111, 0 },
+                                                    { 10.728651210111392, 7.874297764609372, 0 } },
+                                                  true);
+        ASSERT_TRUE (lg::SetLandscapeSourceRole (scene.doc, rectangle, lg::SourceRole::RegionBoundary, error)) << error;
+        const auto region = scene.doc.landscape->objects.back ().id;
+        lg::RegionSurface surface;
+        surface.elevation = lg::RegionElevationMode::Constant;
+        ASSERT_TRUE (lg::SetRegionSurface (scene.doc, region, surface, {}, error)) << error;
+        lg::RegionTerrain settings;
+        settings.effect = lg::RegionTerrainEffect::Grade;
+        settings.transition = changed ? lg::RegionTerrainTransition::Daylight : lg::RegionTerrainTransition::Falloff;
+        ASSERT_TRUE (lg::SetRegionTerrain (scene.doc, region, settings, error)) << error;
+        scene.options.source = pathSource;
+        scene.options.operation = operation;
+        scene.options.object = owner;
+        const auto result = debugreplay::Run (scene);
+        ASSERT_TRUE (result.built) << result.error;
+        edit::PavedArea mesh;
+        const auto& build = result.result.build;
+        for (size_t i = 0; i < build.points.size (); i += 3)
+            mesh.vertices.push_back ({ build.points[i], build.points[i + 1], build.points[i + 2] });
+        mesh.triangles = build.triangles;
+        const auto contours = edit::SurfaceContours (mesh, 0.1);
+        EXPECT_FALSE (contours.empty ()) << "Real graded contour levels remain visible.";
+        for (const auto& contour : contours)
+            EXPECT_GT (contour.z, -0.2 + 1e-12) << "A flat baseline must not draw scattered triangle-edge contours.";
+        const std::array<double, 6> query { 8, 6, 0.5, 0.5, 8.900047123605457, 13.317698239491644 };
+        std::vector<lg::TerrainSample> samples;
+        lg::TerrainFieldSummary summary;
+        ASSERT_TRUE (lg::SampleTerrain ({ build.points, build.triangles }, query, 0.25, samples, summary, error))
+            << error;
+        ASSERT_EQ (samples.size (), 3u);
+        for (const auto& sample : samples)
+            EXPECT_TRUE (sample.onSurface);
+        EXPECT_NEAR (samples[0].height, 0, 1e-6);
+        EXPECT_NEAR (samples[1].height, -0.2, 1e-10);
+        EXPECT_GT (samples[2].height, changed ? 0.1 : 0.039);
+    }
 }
 
 TEST (EditRegionTerrain, RegionOnlyHudStartsFromHeldTerrainAndRebuildsAfterUndo)

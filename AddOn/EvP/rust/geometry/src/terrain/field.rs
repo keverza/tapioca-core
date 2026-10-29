@@ -186,7 +186,15 @@ fn barycentric(points: &[[f64; 3]; 3], x: f64, y: f64) -> Option<[f64; 3]> {
     }
     let wa = ((bx - x) * (cy - y) - (by - y) * (cx - x)) / area;
     let wb = ((cx - x) * (ay - y) - (cy - y) * (ax - x)) / area;
-    Some([wa, wb, 1.0 - wa - wb])
+    // Compute every edge weight directly: subtracting two rounded weights from
+    // one can put an exact shared-edge point outside a very thin triangle.
+    // Normalize the partition without widening the existing inside tolerance.
+    let wc = ((ax - x) * (by - y) - (ay - y) * (bx - x)) / area;
+    let sum = wa + wb + wc;
+    if !(sum > 0.0 && sum.is_finite()) {
+        return None;
+    }
+    Some([wa / sum, wb / sum, wc / sum])
 }
 
 fn upward(points: &[[f64; 3]; 3]) -> bool {

@@ -164,12 +164,30 @@ fn crossing(
     Ok(Some(Found {
         segments: pair,
         position: [
-            p0[0] + along_first * (p1[0] - p0[0]),
-            p0[1] + along_first * (p1[1] - p0[1]),
+            intersection_coordinate([p0[0], p1[0]], [q0[0], q1[0]], along_first),
+            intersection_coordinate([p0[1], p1[1]], [q0[1], q1[1]], along_first),
             z_first,
         ],
         parameters: [along_first, along_second],
     }))
+}
+
+// An axis-aligned segment fixes this coordinate exactly. Evaluating it on the
+// other segment can round successive crossings onto opposite sides of the
+// axis and make their constraint chains cross again. This preserves an exact
+// input coordinate, not a tolerance weld or a change to crossing classification.
+#[expect(
+    clippy::float_cmp,
+    reason = "Only exact axis alignment fixes a coordinate; a near-axis segment must not be snapped"
+)]
+fn intersection_coordinate(first: [f64; 2], second: [f64; 2], parameter: f64) -> f64 {
+    if first[0] == first[1] {
+        first[0]
+    } else if second[0] == second[1] {
+        second[0]
+    } else {
+        first[0] + parameter * (first[1] - first[0])
+    }
 }
 
 fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 2] {
@@ -197,4 +215,96 @@ fn opposite(left: Ordering, right: Ordering) -> bool {
         (left, right),
         (Ordering::Less, Ordering::Greater) | (Ordering::Greater, Ordering::Less)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::terrain::{Constraint, Request, Role, triangulate};
+
+    #[test]
+    fn crossings_retain_the_exact_coordinate_of_an_axis_constraint()
+    -> Result<(), crate::terrain::Error> {
+        for shift in [0.0, 100_000.0] {
+            let x = shift + 0.060_000_419_616_699_22;
+            let mut points = vec![
+                shift,
+                shift,
+                0.0,
+                shift + 20.0,
+                shift,
+                0.0,
+                shift + 20.0,
+                shift + 20.0,
+                0.0,
+                shift,
+                shift + 20.0,
+                0.0,
+                shift + 0.01,
+                shift + 1.0,
+                0.0,
+                shift + 17.955_225,
+                shift + 2.0,
+                0.0,
+                x,
+                shift + 0.5,
+                0.0,
+                x,
+                shift + 3.0,
+                0.0,
+            ];
+            let constraints = [
+                Constraint {
+                    role: Role::Boundary,
+                    vertices: &[0, 1, 2, 3],
+                },
+                Constraint {
+                    role: Role::Breakline,
+                    vertices: &[4, 5],
+                },
+                Constraint {
+                    role: Role::Breakline,
+                    vertices: &[6, 7],
+                },
+            ];
+            // Exercise vertical and horizontal versions without a proximity snap.
+            for horizontal in [false, true] {
+                if horizontal {
+                    for p in points.as_chunks_mut::<3>().0 {
+                        p.swap(0, 1);
+                    }
+                }
+                let result = triangulate(&Request {
+                    points: &points,
+                    constraints: &constraints,
+                    z_tolerance: 0.0,
+                    refinement: None,
+                })?;
+                assert_eq!(result.crossings.len(), 1);
+                let crossing = result
+                    .crossings
+                    .first()
+                    .map(|c| c.vertex as usize)
+                    .ok_or(crate::terrain::Error::Index)?;
+                assert_eq!(
+                    result.points.get(crossing * 3 + usize::from(horizontal)),
+                    Some(&x)
+                );
+                assert!(
+                    result
+                        .constraint_edges
+                        .iter()
+                        .filter(|e| e.segment.constraint == 2)
+                        .all(|edge| {
+                            edge.vertices.iter().all(|&v| {
+                                result
+                                    .points
+                                    .get(v as usize * 3 + usize::from(horizontal))
+                                    .is_some_and(|z| z.to_bits() == x.to_bits())
+                            })
+                        })
+                );
+            }
+        }
+        Ok(())
+    }
 }
