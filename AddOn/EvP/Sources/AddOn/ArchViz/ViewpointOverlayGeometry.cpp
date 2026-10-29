@@ -10,11 +10,11 @@ namespace {
 constexpr size_t kGuideSegments = 180;
 constexpr double kRunTickMetres = 0.25; // half-height of the mark at each end of a Context run
 constexpr double kPi = 3.14159265358979323846;
-// ⚠️ THE SPHERE'S HULL IS INSET TOWARD THE POINT. A ray that stops on Context
-// ends exactly ON that surface, so the hull between neighbouring stopped rays
-// lies in the wall's own plane and z-fights it. 5 cm, and at most a tenth of
-// the ray, keeps it just in front of the surface it describes.
-constexpr double kSphereInsetMetres = 0.05;
+// ⚠️ THE SPHERE IS NOT DRAWN; THE SURFACES IT SEES ARE. A hull over the ray
+// ends lay in the plane of every wall a ray stopped on and z-fought it (an inset
+// only moved the fight), and a see-through shell hid the model it measured.
+// The seen cells are lifted off their surface along its normal, toward the point.
+constexpr double kSurfaceLiftMetres = 0.015;
 
 void Segment (const std::array<double, 3>& a, const std::array<double, 3>& b, uint32_t rgba, GhPreviewBucket& bucket)
 {
@@ -86,38 +86,34 @@ void Guide (const evp::sunstudy::ViewpointOptions& options, uint32_t rgba, GhPre
     }
 }
 
-// The spherical isovist: its ray ends as a closed-in-azimuth grid, each vertex
-// coloured by whether its ray reached the radius or stopped on Context.
+// The spherical isovist as what it reaches: each seen surface cell in the fill
+// colour, facing the point.
 void Sphere (const evp::sunstudy::ViewpointStudyResult& result, const ViewpointOverlayStyle& style,
              GhPreviewBucket& bucket)
 {
-    const size_t rows = result.options.sphereRows, columns = result.options.sphereColumns;
-    if (rows < 2 || columns < 3 || result.perimeter.size () != rows * columns)
-        return;
-    const bool rays = result.rayMesh.size () == result.perimeter.size ();
-    // The fill's alpha on the blocked colour, so blocked and open read alike in weight.
-    const uint32_t blocked = (style.blockedRgba & 0xFFFFFF00u) | (style.fillRgba & 0xFFu);
     const auto& point = result.options.point;
-    for (size_t i = 0; i < result.perimeter.size (); ++i) {
-        const auto& end = result.perimeter[i];
-        double normal[3] = { end[0] - point[0], end[1] - point[1], end[2] - point[2] };
+    const auto& seen = result.seenSurface;
+    for (size_t i = 0; i + 2 < seen.size (); i += 3) {
+        const auto &a = seen[i], &b = seen[i + 1], &c = seen[i + 2];
+        const double u[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] }, v[3] = { c[0] - a[0], c[1] - a[1], c[2] - a[2] };
+        double normal[3] = { u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
         const double length = std::sqrt (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+        if (length <= 1.0e-12)
+            continue;
+        const double toPoint =
+            normal[0] * (point[0] - a[0]) + normal[1] * (point[1] - a[1]) + normal[2] * (point[2] - a[2]);
         for (double& n : normal)
-            n = length > 1.0e-12 ? n / length : 0.0;
-        const double reach = length - (std::min) (kSphereInsetMetres, 0.1 * length);
-        const std::array<double, 3> at = { point[0] + normal[0] * reach, point[1] + normal[1] * reach,
-                                           point[2] + normal[2] * reach };
-        bucket.meshVertices.push_back (Vertex (at, normal, rays && result.rayMesh[i] >= 0 ? blocked : style.fillRgba));
-    }
-    for (size_t row = 0; row + 1 < rows; ++row)
-        for (size_t column = 0; column < columns; ++column) {
-            const uint32_t a = uint32_t (row * columns + column);
-            const uint32_t b = uint32_t (row * columns + (column + 1) % columns);
-            const uint32_t c = uint32_t ((row + 1) * columns + column);
-            const uint32_t d = uint32_t ((row + 1) * columns + (column + 1) % columns);
-            for (const uint32_t index : { a, b, d, a, d, c })
-                bucket.meshIndices.push_back (index);
+            n *= (toPoint < 0.0 ? -1.0 : 1.0) / length;
+        const auto base = uint32_t (bucket.meshVertices.size ());
+        for (const auto* corner : { &a, &b, &c }) {
+            const std::array<double, 3> at = { (*corner)[0] + normal[0] * kSurfaceLiftMetres,
+                                               (*corner)[1] + normal[1] * kSurfaceLiftMetres,
+                                               (*corner)[2] + normal[2] * kSurfaceLiftMetres };
+            bucket.meshVertices.push_back (Vertex (at, normal, style.fillRgba));
         }
+        for (uint32_t k = 0; k < 3; ++k)
+            bucket.meshIndices.push_back (base + k);
+    }
 }
 
 } // namespace

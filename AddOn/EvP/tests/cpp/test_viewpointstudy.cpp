@@ -401,6 +401,32 @@ TEST (ViewpointStudy, SphereMeasuresVolumeAndOpenSkyWithinItsBand)
     EXPECT_FALSE (RunViewpointStudy (Scene (), {}, options).valid) << "an empty band";
 }
 
+TEST (ViewpointStudy, SphereSeesOnlyTheNearFaceOfContextWithinItsRadius)
+{
+    // The wall is the box x 2..2.5; the point at x 0 sees its x = 2 face and
+    // nothing of the face behind it.
+    ViewpointOptions options;
+    options.mode = ViewpointMode::Sphere;
+    options.radius = 5.0;
+    options.surfaceCellMetres = 0.5;
+    const auto walled = RunViewpointStudy (Scene (), { "wall" }, options);
+    ASSERT_TRUE (walled.valid) << walled.error;
+    ASSERT_FALSE (walled.seenSurface.empty ());
+    EXPECT_EQ (walled.seenSurface.size () % 3, 0u);
+    for (const auto& corner : walled.seenSurface)
+        EXPECT_LT (corner[0], 2.25) << "the far face is hidden behind the near one";
+    // Within the radius: about the disc the 5 m sphere cuts from the face 2 m away.
+    const double disc = 3.14159265358979323846 * (25.0 - 4.0);
+    EXPECT_GT (walled.seenArea, 0.6 * disc);
+    EXPECT_LT (walled.seenArea, 1.3 * disc);
+
+    // Out of reach: nothing seen.
+    options.radius = 1.5;
+    const auto short_ = RunViewpointStudy (Scene (), { "wall" }, options);
+    ASSERT_TRUE (short_.valid) << short_.error;
+    EXPECT_TRUE (short_.seenSurface.empty ());
+}
+
 TEST (ViewpointStudy, ModesOtherThanPlanNeverReachAKernelWithoutThem)
 {
     ViewpointOptions options;

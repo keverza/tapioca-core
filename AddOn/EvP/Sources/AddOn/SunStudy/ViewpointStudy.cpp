@@ -14,6 +14,144 @@
 
 namespace evp::sunstudy {
 
+namespace {
+
+using Point3 = std::array<double, 3>;
+
+constexpr size_t kMaxSurfaceCells = 120000; // cells tested per run, whatever the scene
+constexpr size_t kMaxCellSplits = 64;       // per triangle edge
+constexpr double kSeenSlackMetres = 0.02;   // a ray stopping this near its cell still reaches it
+
+double Distance (const Point3& a, const Point3& b)
+{
+    return std::sqrt ((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
+}
+
+double TriangleArea (const Point3& a, const Point3& b, const Point3& c)
+{
+    const double u[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] }, v[3] = { c[0] - a[0], c[1] - a[1], c[2] - a[2] };
+    const double n[3] = { u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
+    return 0.5 * std::sqrt (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+}
+
+// The capture triangles whose bounding box comes within the radius.
+std::vector<std::array<Point3, 3>> NearTriangles (const geomsrv::Snapshot& snapshot, const ViewpointOptions& options)
+{
+    std::vector<std::array<Point3, 3>> near;
+    for (const auto& mesh : snapshot.meshes)
+        for (size_t i = 0; i + 2 < mesh.triangles.size (); i += 3) {
+            std::array<Point3, 3> corners;
+            bool ok = true;
+            for (size_t k = 0; k < 3; ++k) {
+                const size_t v = size_t (mesh.triangles[i + k]) * 3;
+                if (v + 2 >= mesh.vertices.size ()) {
+                    ok = false;
+                    break;
+                }
+                corners[k] = { mesh.vertices[v], mesh.vertices[v + 1], mesh.vertices[v + 2] };
+            }
+            if (!ok)
+                continue;
+            double gap = 0.0;
+            for (int axis = 0; axis < 3; ++axis) {
+                const double low = (std::min) ({ corners[0][axis], corners[1][axis], corners[2][axis] });
+                const double high = (std::max) ({ corners[0][axis], corners[1][axis], corners[2][axis] });
+                const double outside = (std::max) ({ low - options.point[axis], options.point[axis] - high, 0.0 });
+                gap += outside * outside;
+            }
+            if (gap <= options.radius * options.radius)
+                near.push_back (corners);
+        }
+    return near;
+}
+
+size_t Splits (const std::array<Point3, 3>& t, double cell)
+{
+    const double longest = (std::max) ({ Distance (t[0], t[1]), Distance (t[1], t[2]), Distance (t[2], t[0]) });
+    return (std::min) (kMaxCellSplits, (std::max) (size_t (1), size_t (std::ceil (longest / cell))));
+}
+
+// Sphere: cut each near triangle into n x n cells, and keep the cells whose
+// centre lies within the radius and band and is reached by the ray to it. The
+// cell side starts from the radius and coarsens until the run fits its budget.
+bool SeenSurfaces (const geomsrv::Snapshot& snapshot, const geomsrv::QueryEngine* engine,
+                   const std::vector<uint8_t>& mask, bool everything, const ViewpointOptions& options,
+                   ViewpointStudyResult& result, const std::function<bool ()>& cancelled)
+{
+    const auto near = NearTriangles (snapshot, options);
+    double cell = options.surfaceCellMetres > 0.0 ? options.surfaceCellMetres
+                                                  : (std::min) (1.0, (std::max) (0.1, options.radius / 80.0));
+    for (int pass = 0; pass < 12; ++pass) {
+        size_t cells = 0;
+        for (const auto& t : near)
+            cells += Splits (t, cell) * Splits (t, cell);
+        if (cells <= kMaxSurfaceCells)
+            break;
+        cell *= 1.5;
+    }
+    constexpr double kRadians = 3.14159265358979323846 / 180.0;
+    const double sinLow = std::sin (options.minElevationDegrees * kRadians);
+    const double sinHigh = std::sin (options.maxElevationDegrees * kRadians);
+    const Point3& eye = options.point;
+    const auto seen = [&] (const Point3& at) {
+        const double d = Distance (eye, at);
+        if (d > options.radius)
+            return false;
+        if (d < 1.0e-9)
+            return true;
+        const double direction[3] = { (at[0] - eye[0]) / d, (at[1] - eye[1]) / d, (at[2] - eye[2]) / d };
+        if (direction[2] < sinLow - 1.0e-12 || direction[2] > sinHigh + 1.0e-12)
+            return false;
+        if (engine == nullptr || d <= kSeenSlackMetres)
+            return true;
+        const double reach = d - kSeenSlackMetres;
+        if (everything)
+            return !engine->Occluded (eye.data (), direction, 0.0, reach);
+        return !engine->RaycastMasked (eye.data (), direction, reach, mask).hit;
+    };
+    std::vector<std::array<Point3, 3>> pieces;
+    for (size_t index = 0; index < near.size (); ++index) {
+        if ((index & 63u) == 0 && cancelled ())
+            return false;
+        const auto& t = near[index];
+        const size_t n = Splits (t, cell);
+        // Barycentric grid: corner (i, j) is t0 + i/n (t1 - t0) + j/n (t2 - t0).
+        const auto corner = [&] (size_t i, size_t j) {
+            Point3 at;
+            for (int axis = 0; axis < 3; ++axis)
+                at[axis] = t[0][axis] + (t[1][axis] - t[0][axis]) * double (i) / double (n) +
+                           (t[2][axis] - t[0][axis]) * double (j) / double (n);
+            return at;
+        };
+        pieces.clear ();
+        bool whole = true;
+        for (size_t i = 0; i < n; ++i)
+            for (size_t j = 0; i + j < n; ++j)
+                for (int flip = 0; flip < (i + j + 1 < n ? 2 : 1); ++flip) {
+                    const std::array<Point3, 3> piece =
+                        flip == 0
+                            ? std::array<Point3, 3> { corner (i, j), corner (i + 1, j), corner (i, j + 1) }
+                            : std::array<Point3, 3> { corner (i + 1, j), corner (i + 1, j + 1), corner (i, j + 1) };
+                    Point3 centre;
+                    for (int axis = 0; axis < 3; ++axis)
+                        centre[axis] = (piece[0][axis] + piece[1][axis] + piece[2][axis]) / 3.0;
+                    if (seen (centre))
+                        pieces.push_back (piece);
+                    else
+                        whole = false;
+                }
+        if (whole)
+            pieces.assign (1, t);
+        for (const auto& piece : pieces) {
+            result.seenSurface.insert (result.seenSurface.end (), piece.begin (), piece.end ());
+            result.seenArea += TriangleArea (piece[0], piece[1], piece[2]);
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,
                                         const std::vector<std::string>& context, const ViewpointOptions& options,
                                         const std::function<bool ()>& isCancelled)
@@ -141,6 +279,15 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
         }
     }
     result.openFraction = totalWeight > 0.0 ? openWeight / totalWeight : 0.0;
+    if (sphere && !SeenSurfaces (*snapshot, engine.get (), mask,
+                                 std::all_of (mask.begin (), mask.end (), [] (uint8_t on) { return on != 0; }), options,
+                                 result, cancelled)) {
+        result.perimeter.clear ();
+        result.rayMesh.clear ();
+        result.seenSurface.clear ();
+        result.error = "viewpoint calculation cancelled";
+        return result;
+    }
     result.valid = true;
     return result;
 }

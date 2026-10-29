@@ -27,7 +27,7 @@ struct ViewpointOverlayStyle {
 // `options` are the current settings: they place the guide (circle, field of
 // view arc and edges, or the sphere's band rings). `result` may be null (still
 // calculating), and is drawn where IT was computed, never moved: a fan for the
-// plan modes, the visibility hull for a sphere.
+// plan modes, the seen surface cells for a sphere (no shell of its own).
 GhPreviewDrawables BuildViewpointOverlay (const evp::sunstudy::ViewpointOptions& options,
                                           const evp::sunstudy::ViewpointStudyResult* result,
                                           const ViewpointOverlayStyle& style);

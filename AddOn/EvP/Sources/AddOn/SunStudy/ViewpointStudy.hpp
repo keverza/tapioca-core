@@ -28,6 +28,9 @@ struct ViewpointOptions {
     double maxElevationDegrees = 90.0;
     size_t sphereColumns = 96; // azimuth steps all round
     size_t sphereRows = 33;    // elevation steps across the band, both ends included
+    // Sphere: the side of the cells seen surfaces are cut into, metres; 0 picks
+    // one from the radius. Coarsened when the cells would exceed a fixed budget.
+    double surfaceCellMetres = 0.0;
 };
 
 struct ViewpointStudyResult {
@@ -45,6 +48,11 @@ struct ViewpointStudyResult {
     // Per ray, aligned with `perimeter`: the snapshot mesh index of the Context
     // element that stopped it, or -1 when it reached the radius.
     std::vector<int64_t> rayMesh;
+    // Sphere: what the point sees of the capture's surfaces within the radius and
+    // band, as triangles (three corners each). Every capture element receives;
+    // only Context occludes. A triangle seen whole is kept whole.
+    std::vector<std::array<double, 3>> seenSurface;
+    double seenArea = 0.0; // square metres of `seenSurface`
     size_t collisionCount = 0;
     double area = 0.0;         // plan and field of view: square metres seen
     double volume = 0.0;       // sphere: cubic metres seen

@@ -230,7 +230,7 @@ void DrawViewpointHudSection (HudState& state)
     }
     ImGui::SetItemTooltip ("Plan isovist: all round, in the horizontal plane at the point's height. Field of view: "
                            "the same within a view angle. Spherical isovist: every direction within a band of "
-                           "elevations, as a visible volume.");
+                           "elevations; the surfaces it reaches within the radius are coloured.");
     if (options.mode == evp::sunstudy::ViewpointMode::FieldOfView) {
         ImGui::Checkbox ("Face target", &state.viewpointFaceTarget);
         ImGui::SetItemTooltip ("The view turns to face a target point, and keeps facing it as either moves. "
@@ -303,7 +303,7 @@ void DrawViewpointHudSection (HudState& state)
     else if (!status.error.empty ())
         hudshell::ErrorNotice (status.error);
     else if (status.result != nullptr && status.result->options.mode == evp::sunstudy::ViewpointMode::Sphere)
-        ImGui::Text ("%.0f m3 visible; %.0f%% of directions open", status.result->volume,
+        ImGui::Text ("%.0f m2 of surface seen; %.0f%% of directions open", status.result->seenArea,
                      status.result->openFraction * 100.0);
     else if (status.result != nullptr)
         ImGui::Text ("%.1f m2 visible; %u of %u rays hit Context", status.result->area,

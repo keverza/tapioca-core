@@ -76,7 +76,7 @@ TEST (ViewpointOverlay, AFieldOfViewFanStopsAtItsLastRayAndDrawsItsTwoEdges)
     EXPECT_EQ (drawables.depthTested.lineVertices.size () - bare.depthTested.lineVertices.size (), 4u * 6u);
 }
 
-TEST (ViewpointOverlay, ASphereIsAHullOverItsRayEndsColouredByWhatStoppedThem)
+TEST (ViewpointOverlay, ASphereDrawsNoShellOnlyTheSurfacesItSeesLiftedTowardThePoint)
 {
     ViewpointOverlayStyle style;
     evp::sunstudy::ViewpointStudyResult result;
@@ -88,14 +88,18 @@ TEST (ViewpointOverlay, ASphereIsAHullOverItsRayEndsColouredByWhatStoppedThem)
     result.perimeter = { { 1, 0, -1 }, { 0, 1, -1 }, { -1, 0, -1 }, { 0, -1, -1 },
                          { 1, 0, 1 },  { 0, 1, 1 },  { -1, 0, 1 },  { 0, -1, 1 } };
     result.rayMesh = { -1, -1, -1, -1, 0, -1, -1, -1 };
+    const GhPreviewDrawables bare = BuildViewpointOverlay (result.options, &result, style);
+    EXPECT_TRUE (bare.depthTested.meshIndices.empty ()) << "no hull over the ray ends";
+
+    // One seen triangle in the plane x = 2, wound so its normal points away.
+    result.seenSurface = { { 2, 0, 0 }, { 2, 0, 1 }, { 2, 1, 0 } };
     const GhPreviewDrawables drawables = BuildViewpointOverlay (result.options, &result, style);
     const auto& bucket = drawables.depthTested;
-    ASSERT_EQ (bucket.meshVertices.size (), 8u);
-    EXPECT_EQ (bucket.meshIndices.size (), 4u * 6u) << "one band of quads, wrapping all round";
-    EXPECT_EQ (bucket.meshVertices[4].rgba & 0xFFFFFF00u, style.blockedRgba & 0xFFFFFF00u);
-    EXPECT_EQ (bucket.meshVertices[5].rgba, style.fillRgba);
-    // Inset toward the point, off the surface the ray stopped on.
-    const double reach = std::sqrt (double (bucket.meshVertices[4].x) * bucket.meshVertices[4].x +
-                                    double (bucket.meshVertices[4].z) * bucket.meshVertices[4].z);
-    EXPECT_NEAR (reach, std::sqrt (2.0) - 0.05, 1e-6);
+    ASSERT_EQ (bucket.meshVertices.size (), 3u);
+    EXPECT_EQ (bucket.meshIndices.size (), 3u);
+    for (const auto& vertex : bucket.meshVertices) {
+        EXPECT_EQ (vertex.rgba, style.fillRgba);
+        EXPECT_NEAR (vertex.x, 2.0f - 0.015f, 1e-6f) << "lifted off the wall toward the point";
+        EXPECT_LT (vertex.nx, -0.99f) << "facing the point";
+    }
 }
