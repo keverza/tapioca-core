@@ -333,11 +333,13 @@ bool Fill (Diligent::IDeviceContext* context, Diligent::IBuffer* buffer, const s
 struct GhPreviewLayer::Impl {
     RefCntAutoPtr<Diligent::IPipelineState> meshPso;
     RefCntAutoPtr<Diligent::IPipelineState> meshXRayPso;
+    RefCntAutoPtr<Diligent::IPipelineState> meshPulledPso;
     RefCntAutoPtr<Diligent::IPipelineState> linePso;
     RefCntAutoPtr<Diligent::IPipelineState> lineXRayPso;
     RefCntAutoPtr<Diligent::IPipelineState> lineHiddenPso;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> meshSrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> meshXRaySrb;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> meshPulledSrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> lineSrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> lineXRaySrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> lineHiddenSrb;
@@ -386,11 +388,13 @@ void GhPreviewLayer::Shutdown ()
     impl_->constants.Release ();
     impl_->meshSrb.Release ();
     impl_->meshXRaySrb.Release ();
+    impl_->meshPulledSrb.Release ();
     impl_->lineSrb.Release ();
     impl_->lineXRaySrb.Release ();
     impl_->lineHiddenSrb.Release ();
     impl_->meshPso.Release ();
     impl_->meshXRayPso.Release ();
+    impl_->meshPulledPso.Release ();
     impl_->linePso.Release ();
     impl_->lineXRayPso.Release ();
     impl_->lineHiddenPso.Release ();
@@ -470,7 +474,8 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
                          const Diligent::LayoutElement* layout, Diligent::Uint32 layoutCount, bool depthTest,
                          bool depthWrite, RefCntAutoPtr<Diligent::IPipelineState>& pso,
                          RefCntAutoPtr<Diligent::IShaderResourceBinding>& srb,
-                         Diligent::COMPARISON_FUNCTION depthFunc = Diligent::COMPARISON_FUNC_LESS_EQUAL) -> bool {
+                         Diligent::COMPARISON_FUNCTION depthFunc = Diligent::COMPARISON_FUNC_LESS_EQUAL,
+                         bool pulled = false) -> bool {
         Diligent::GraphicsPipelineStateCreateInfo pci;
         pci.PSODesc.Name = name;
         Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
@@ -489,8 +494,9 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         // triangle it covers. Without a bias that shows up as the edge stitching
         // in and out along its own length, which reads as a broken line rather
         // than as z-fighting. Meshes take no bias -- nothing is coincident with
-        // them.
-        if (!depthWrite && depthTest) {
+        // them -- except the `pulled` variant, whose meshes are drawn ON the
+        // model (see DrawParams::pullMeshes).
+        if ((!depthWrite || pulled) && depthTest) {
             gp.RasterizerDesc.DepthBias = -32;
             gp.RasterizerDesc.SlopeScaledDepthBias = -1.0f;
         }
@@ -558,6 +564,10 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         return false;
     if (!buildPso ("Gh preview mesh x-ray PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), false, false,
                    impl_->meshXRayPso, impl_->meshXRaySrb))
+        return false;
+    // The lines' pull, for surfaces laid over the model's own.
+    if (!buildPso ("Gh preview pulled mesh PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), true, true,
+                   impl_->meshPulledPso, impl_->meshPulledSrb, Diligent::COMPARISON_FUNC_LESS_EQUAL, true))
         return false;
     // ⚠️ THE RIBBON TESTS DEPTH AND DOES NOT WRITE IT. Writing would make a
     // polyline fight itself wherever two segments overlap at a corner -- each
@@ -724,7 +734,8 @@ void GhPreviewLayer::Draw (Diligent::IDeviceContext* context, const float viewPr
     // end up on top: it exists to be seen through the building, and drawing it
     // before the depth-tested geometry would let an ordinary preview mesh blend
     // over the very thing the x-ray flag was set to reveal.
-    drawBucket (impl_->depthTested, impl_->meshPso, impl_->meshSrb, impl_->linePso, impl_->lineSrb);
+    drawBucket (impl_->depthTested, params.pullMeshes ? impl_->meshPulledPso : impl_->meshPso,
+                params.pullMeshes ? impl_->meshPulledSrb : impl_->meshSrb, impl_->linePso, impl_->lineSrb);
     if (params.hiddenDashPixels > 0.0f && impl_->depthTested.lineVertexCount > 0 &&
         impl_->depthTested.lineVertices != nullptr) {
         // The depth-tested lines again, where they failed the test: dashed.

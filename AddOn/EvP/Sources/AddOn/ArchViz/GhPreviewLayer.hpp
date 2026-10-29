@@ -101,6 +101,11 @@ class GhPreviewLayer final {
         // their alpha. 0 (the preview's default) leaves hidden lines undrawn.
         float hiddenDashPixels = 0.0f;
         float hiddenAlpha = 0.55f;
+        // true: depth-tested meshes take the lines' pull toward the camera. For
+        // surfaces laid over the model's own (the spherical isovist's seen
+        // cells), where a fixed lift loses to depth precision at a distance and
+        // at grazing angles.
+        bool pullMeshes = false;
     };
 
     void Draw (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
