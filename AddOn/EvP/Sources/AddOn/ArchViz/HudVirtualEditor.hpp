@@ -99,6 +99,9 @@ struct Session {
     std::shared_ptr<TerrainDesignBaseline> terrainBaseline;
     std::shared_ptr<const MaterialPickerRequest> materialPicker;
     bool materialPickerQueued = false, materialCatalogQueued = false;
+    tapioca::geometry::Id regionSliderObject = 0; // Owns one undoable property-slider gesture.
+    uint32_t regionSliderId = 0;
+    double regionSliderMin = 0, regionSliderMax = 0;
     std::shared_ptr<const tapioca::geometry::MaterialCatalog> materialCatalog;
     uint64_t materialCatalogRevision = UINT64_MAX;
     std::string materialCatalogError;

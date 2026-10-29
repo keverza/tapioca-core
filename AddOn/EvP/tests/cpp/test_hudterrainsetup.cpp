@@ -171,6 +171,47 @@ TEST (HudTerrainSetup, RegionOnlyWorkflowDoesNotRequireAnAuthoredDesignPath)
     EXPECT_NE (text.find ("Set terrain from selection"), std::string::npos);
 }
 
+TEST (HudTerrainSetup, RegionElevationSliderDragsWithoutTypingAndCreatesOneUndoEntry)
+{
+    auto doc = EmptyLandscape ();
+    const auto line = edit::AddPolyline (doc, { { 0, 0, 2 }, { 10, 0, 2 }, { 10, 10, 2 }, { 0, 10, 2 } }, true);
+    std::string error;
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, line, lg::SourceRole::RegionBoundary, error));
+    const auto object = doc.landscape->objects[0].id;
+    auto surface = *doc.landscape->objects[0].surface;
+    surface.elevation = lg::RegionElevationMode::Constant;
+    surface.first.z = 2;
+    ASSERT_TRUE (lg::SetRegionSurface (doc, object, surface, {}, error));
+    eh::Session session (doc);
+    session.selection.Set ({ { line, edit::Part::Entity, 0 } });
+    PanelGui gui;
+    gui.Frame (session, { 850, 1350 }, false, false, 1);
+    const auto* window = ImGui::FindWindowByName ("terrain setup");
+    const auto root = ImHashStr ("region-surface", 0, window->ID);
+    const auto owner = ImHashStr (std::to_string (object).c_str (), 0, root);
+    const auto target = ImHashStr ("Elevation (m)", 0, owner);
+    float row = 0;
+    for (float y = 24; y < 1250; y += 2) {
+        gui.Frame (session, { 60, y }, false, false, 1);
+        if (gui.context->HoveredId == target) {
+            row = y + 2;
+            break;
+        }
+    }
+    ASSERT_GT (row, 0);
+    gui.Frame (session, { 60, row }, true, false, 1);
+    ASSERT_TRUE (session.edits.InGesture ());
+    gui.Frame (session, { 160, row }, true, false, 1);
+    gui.Frame (session, { 250, row }, true, false, 1);
+    EXPECT_EQ (session.edits.UndoDepth (), 0u);
+    gui.Frame (session, { 250, row }, false, false, 1);
+    EXPECT_FALSE (session.edits.InGesture ());
+    EXPECT_EQ (session.edits.UndoDepth (), 1u);
+    EXPECT_NE (session.edits.Doc ().landscape->objects[0].surface->first.z, 2);
+    ASSERT_TRUE (session.edits.Undo ());
+    EXPECT_EQ (session.edits.Doc ().landscape, doc.landscape);
+}
+
 TEST (HudTerrainSetup, RegionSlopeCanTakeTwoSelectedVerticesInOneUndoableClick)
 {
     auto doc = EmptyLandscape ();

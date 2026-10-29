@@ -36,14 +36,33 @@ std::optional<lg::HardscapeObject> ActiveRegion (Session& s)
     return std::nullopt;
 }
 
-bool PointFields (const char* label, edit::Vec3& point, bool elevation)
+bool Slider (Session& s, lg::Id object, const char* label, double& value, double lo, double hi, const char* format,
+             bool& release)
+{
+    const auto id = ImGui::GetID (label);
+    if (s.regionSliderId == id && s.regionSliderObject == object) {
+        lo = s.regionSliderMin;
+        hi = s.regionSliderMax;
+    }
+    ImGui::SliderScalar (label, ImGuiDataType_Double, &value, &lo, &hi, format, ImGuiSliderFlags_AlwaysClamp);
+    if (ImGui::IsItemActivated () && !s.edits.InGesture () && s.edits.Begin ()) {
+        s.regionSliderObject = object;
+        s.regionSliderId = id;
+        s.regionSliderMin = lo;
+        s.regionSliderMax = hi;
+    }
+    release |= ImGui::IsItemDeactivated () && s.regionSliderObject == object;
+    return ImGui::IsItemEdited ();
+}
+
+bool PointFields (Session& s, lg::Id object, const char* label, edit::Vec3& point, bool elevation, bool& release)
 {
     ImGui::PushID (label);
     ImGui::TextUnformatted (label);
-    bool changed = ImGui::InputDouble ("X (m)", &point.x, 0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
-    changed |= ImGui::InputDouble ("Y (m)", &point.y, 0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
+    bool changed = Slider (s, object, "X (m)", point.x, point.x - 10, point.x + 10, "%.3f", release);
+    changed |= Slider (s, object, "Y (m)", point.y, point.y - 10, point.y + 10, "%.3f", release);
     if (elevation)
-        changed |= ImGui::InputDouble ("Z (m)", &point.z, 0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
+        changed |= Slider (s, object, "Z (m)", point.z, point.z - 10, point.z + 10, "%.3f", release);
     ImGui::PopID ();
     return changed;
 }
@@ -72,7 +91,13 @@ bool SelectedSlopePoints (const Session& s, edit::Vec3& first, edit::Vec3& secon
 
 void RegionPanel (Session& s, bool materialsOnly)
 {
+    if (s.regionSliderObject && !s.edits.InGesture ())
+        s.regionSliderObject = s.regionSliderId = 0;
     const auto object = ActiveRegion (s);
+    if (s.regionSliderObject && (!object || object->id != s.regionSliderObject || materialsOnly)) {
+        s.edits.Cancel ();
+        s.regionSliderObject = s.regionSliderId = 0;
+    }
     if (!object) {
         if (materialsOnly)
             ImGui::TextWrapped ("Select one closed Region boundary to edit its material metadata.");
@@ -87,30 +112,37 @@ void RegionPanel (Session& s, bool materialsOnly)
     bool changed = false;
     auto terrain = object->terrain;
     bool terrainChanged = false;
-    ImGui::BeginDisabled (GizmoModeLocked (s) || !s.drawing.empty () || s.edits.InGesture ());
+    bool release = false;
+    ImGui::BeginDisabled (GizmoModeLocked (s) || !s.drawing.empty () ||
+                          (s.edits.InGesture () && !s.regionSliderObject));
     if (!materialsOnly) {
         int elevation = int (surface.elevation);
-        if (ImGui::Combo ("Elevation", &elevation, "Existing (no target)\0Constant (absolute metres)\0")) {
+        if (ImGui::Combo ("Elevation", &elevation,
+                          "Existing (no target)\0Constant (absolute metres)\0Boundary curve Z\0")) {
             surface.elevation = lg::RegionElevationMode (elevation);
-            if (surface.elevation == lg::RegionElevationMode::Existing)
+            if (surface.elevation != lg::RegionElevationMode::Constant)
                 surface.slope = lg::RegionSlopeMode::None;
+            if (surface.elevation == lg::RegionElevationMode::Existing) {
+                terrain.effect = lg::RegionTerrainEffect::None;
+                terrainChanged = true;
+            }
             changed = true;
         }
-        ImGui::BeginDisabled (surface.elevation == lg::RegionElevationMode::Existing);
+        ImGui::BeginDisabled (surface.elevation != lg::RegionElevationMode::Constant);
         int slope = int (surface.slope);
         if (ImGui::Combo ("Slope", &slope, "None (flat)\0Two points with elevations\0Contour line + grade\0")) {
             surface.slope = lg::RegionSlopeMode (slope);
             changed = true;
         }
         if (surface.slope == lg::RegionSlopeMode::None)
-            changed |= ImGui::InputDouble ("Elevation (m)", &surface.first.z, 0, 0, "%.3f",
-                                           ImGuiInputTextFlags_EnterReturnsTrue);
+            changed |= Slider (s, object->id, "Elevation (m)", surface.first.z, surface.first.z - 10,
+                               surface.first.z + 10, "%.3f", release);
         else {
-            changed |= PointFields ("First point / contour origin", surface.first, true);
-            changed |= PointFields ("Second point", surface.second, surface.slope == lg::RegionSlopeMode::TwoPoints);
+            changed |= PointFields (s, object->id, "First point / contour origin", surface.first, true, release);
+            changed |= PointFields (s, object->id, "Second point", surface.second,
+                                    surface.slope == lg::RegionSlopeMode::TwoPoints, release);
             if (surface.slope == lg::RegionSlopeMode::ContourLine) {
-                changed |= ImGui::InputDouble ("Grade (%)", &surface.gradePercent, 0, 0, "%.2f",
-                                               ImGuiInputTextFlags_EnterReturnsTrue);
+                changed |= Slider (s, object->id, "Grade (%)", surface.gradePercent, 0, 1000, "%.2f", release);
                 int side = int (surface.fallsTo);
                 if (ImGui::Combo ("Fall side", &side, "Left\0Right\0")) {
                     surface.fallsTo = lg::RegionFallSide (side);
@@ -138,10 +170,14 @@ void RegionPanel (Session& s, bool materialsOnly)
                 ImGui::TextDisabled ("Select exactly two vertices, or enter their coordinates above.");
         }
         ImGui::EndDisabled ();
+        if (surface.elevation == lg::RegionElevationMode::Boundary)
+            ImGui::TextWrapped (
+                "Boundary curve Z: the actual curve and vertex elevations define the triangulated surface. "
+                "Move boundary points vertically to change the topography; Constant is an explicit override.");
         if (surface.elevation == lg::RegionElevationMode::Existing)
             ImGui::TextWrapped ("Existing has no vertical target: the captured terrain is unchanged. "
                                 "Choose Constant to author a flat level or slope.");
-        ImGui::BeginDisabled (surface.elevation != lg::RegionElevationMode::Constant);
+        ImGui::BeginDisabled (surface.elevation == lg::RegionElevationMode::Existing);
         int effect = int (terrain.effect);
         if (ImGui::Combo (
                 "Terrain interaction", &effect,
@@ -155,15 +191,11 @@ void RegionPanel (Session& s, bool materialsOnly)
             terrainChanged = true;
         }
         if (terrain.transition == lg::RegionTerrainTransition::Falloff)
-            terrainChanged |= ImGui::InputDouble ("Falloff width (m)", &terrain.falloff, 0, 0, "%.2f",
-                                                  ImGuiInputTextFlags_EnterReturnsTrue);
+            terrainChanged |= Slider (s, object->id, "Falloff width (m)", terrain.falloff, 0.05, 100, "%.2f", release);
         else {
-            terrainChanged |= ImGui::InputDouble ("Maximum reach (m)", &terrain.reach, 0, 0, "%.2f",
-                                                  ImGuiInputTextFlags_EnterReturnsTrue);
-            terrainChanged |= ImGui::InputDouble ("Cut face (%)", &terrain.cutPercent, 0, 0, "%.2f",
-                                                  ImGuiInputTextFlags_EnterReturnsTrue);
-            terrainChanged |= ImGui::InputDouble ("Fill face (%)", &terrain.fillPercent, 0, 0, "%.2f",
-                                                  ImGuiInputTextFlags_EnterReturnsTrue);
+            terrainChanged |= Slider (s, object->id, "Maximum reach (m)", terrain.reach, 0.05, 100, "%.2f", release);
+            terrainChanged |= Slider (s, object->id, "Cut face (%)", terrain.cutPercent, 0.01, 1000, "%.2f", release);
+            terrainChanged |= Slider (s, object->id, "Fill face (%)", terrain.fillPercent, 0.01, 1000, "%.2f", release);
         }
         ImGui::EndDisabled ();
         ImGui::TextWrapped ("Union/Subtract above change the footprint, not vertical cut/fill. "
@@ -206,14 +238,21 @@ void RegionPanel (Session& s, bool materialsOnly)
                             "Missing materials need explicit replacement or clearing, never a preset substitution. "
                             "Native hatch-pattern rendering and output acceptance remain separate.");
     }
-    if (changed && !s.edits.Apply ([id = object->id, surface, material] (edit::Document& doc, std::string& error) {
-            return lg::SetRegionSurface (doc, id, surface, material, error);
-        }))
-        s.message = s.edits.Message ();
-    if (terrainChanged && !s.edits.Apply ([id = object->id, terrain] (edit::Document& doc, std::string& error) {
-            return lg::SetRegionTerrain (doc, id, terrain, error);
-        }))
-        s.message = s.edits.Message ();
+    if (changed || terrainChanged) {
+        const auto operation = [id = object->id, surface, material, terrain] (edit::Document& doc, std::string& error) {
+            if (surface.elevation == lg::RegionElevationMode::Existing &&
+                !lg::SetRegionTerrain (doc, id, terrain, error))
+                return false;
+            return lg::SetRegionSurface (doc, id, surface, material, error) &&
+                   lg::SetRegionTerrain (doc, id, terrain, error);
+        };
+        if (!(s.regionSliderObject ? s.edits.Move (operation) : s.edits.Apply (operation)))
+            s.message = s.edits.Message ();
+    }
+    if (release && s.regionSliderObject) {
+        s.edits.End ();
+        s.regionSliderObject = s.regionSliderId = 0;
+    }
     ImGui::EndDisabled ();
     ImGui::PopID ();
     ImGui::PopID ();
