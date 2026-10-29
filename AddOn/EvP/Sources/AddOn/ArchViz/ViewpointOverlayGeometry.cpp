@@ -58,6 +58,21 @@ void Arc (const std::array<double, 3>& centre, double radius, double from, doubl
     }
 }
 
+// A circle about `centre` in the plane spanned by unit `u` and `v`.
+void Ring (const std::array<double, 3>& centre, const double u[3], const double v[3], double radius, size_t segments,
+           uint32_t rgba, GhPreviewBucket& bucket)
+{
+    for (size_t i = 0; i < segments; ++i) {
+        std::array<double, 3> ends[2];
+        for (size_t end = 0; end < 2; ++end) {
+            const double angle = 2.0 * kPi * double (i + end) / double (segments);
+            for (int axis = 0; axis < 3; ++axis)
+                ends[end][axis] = centre[axis] + radius * (u[axis] * std::cos (angle) + v[axis] * std::sin (angle));
+        }
+        Segment (ends[0], ends[1], rgba, bucket);
+    }
+}
+
 // The isovist's guide: the full circle, the field of view's arc and its two
 // edges, or the sphere's horizon and the rings where its band is cut off.
 void Guide (const evp::sunstudy::ViewpointOptions& options, uint32_t rgba, GhPreviewBucket& bucket)
@@ -126,6 +141,9 @@ GhPreviewDrawables BuildViewpointOverlay (const evp::sunstudy::ViewpointOptions&
     GhPreviewDrawables drawables;
     GhPreviewBucket& bucket = drawables.depthTested;
     Guide (options, style.guideRgba, bucket);
+    if (options.mode == ViewpointMode::Sphere)
+        AppendViewSphereGlyph (options.point, kViewGlyphMetres, options.minElevationDegrees,
+                               options.maxElevationDegrees, style.guideRgba, style.openEdgeRgba, bucket);
     if (result == nullptr || !result->valid)
         return drawables;
     if (result->options.mode == ViewpointMode::Sphere) {
@@ -175,6 +193,69 @@ GhPreviewDrawables BuildViewpointOverlay (const evp::sunstudy::ViewpointOptions&
                 Segment (low, high, style.blockedRgba, bucket);
             }
         }
+    return drawables;
+}
+
+void AppendGuideSegment (const std::array<double, 3>& a, const std::array<double, 3>& b, uint32_t rgba,
+                         GhPreviewBucket& bucket)
+{
+    Segment (a, b, rgba, bucket);
+}
+
+void AppendViewSphereGlyph (const std::array<double, 3>& centre, double radius, double minElevationDegrees,
+                            double maxElevationDegrees, uint32_t rgba, uint32_t bandRgba, GhPreviewBucket& bucket)
+{
+    constexpr size_t kSegments = 48;
+    const double x[3] = { 1.0, 0.0, 0.0 }, y[3] = { 0.0, 1.0, 0.0 }, z[3] = { 0.0, 0.0, 1.0 };
+    Ring (centre, x, y, radius, kSegments, rgba, bucket); // the horizon
+    Ring (centre, x, z, radius, kSegments, rgba, bucket); // two meridians: the outline from any side
+    Ring (centre, y, z, radius, kSegments, rgba, bucket);
+    for (const double degrees : { minElevationDegrees, maxElevationDegrees }) {
+        if (std::abs (degrees) >= 89.5)
+            continue; // the pole: nothing cut off
+        const double e = degrees * kPi / 180.0;
+        Ring ({ centre[0], centre[1], centre[2] + radius * std::sin (e) }, x, y, radius * std::cos (e), kSegments,
+              bandRgba, bucket);
+    }
+}
+
+GhPreviewDrawables BuildPointVisibilityGuides (const PointVisibilityGuide& guide)
+{
+    GhPreviewDrawables drawables;
+    GhPreviewBucket& bucket = drawables.depthTested;
+    const std::array<double, 3> point = { guide.point[0], guide.point[1], guide.point[2] };
+    const uint32_t faint = (kPointVisibilityGuideRgba & 0xFFFFFF00u) | 0x8Cu;
+    if (guide.sphere) {
+        AppendViewSphereGlyph (point, kViewGlyphMetres, guide.minElevationDegrees, guide.maxElevationDegrees, faint,
+                               kPointVisibilityGuideRgba, bucket);
+        return drawables;
+    }
+    if (guide.hasTarget)
+        Segment (point, { guide.target[0], guide.target[1], guide.target[2] }, faint, bucket);
+    const double* d = guide.direction;
+    const bool nearVertical = std::abs (d[2]) > 0.9;
+    const double reference[3] = { 0.0, nearVertical ? 1.0 : 0.0, nearVertical ? 0.0 : 1.0 };
+    double u[3] = { d[1] * reference[2] - d[2] * reference[1], d[2] * reference[0] - d[0] * reference[2],
+                    d[0] * reference[1] - d[1] * reference[0] };
+    const double uLength = std::sqrt (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+    if (uLength <= 1.0e-12)
+        return drawables;
+    for (double& value : u)
+        value /= uLength;
+    const double v[3] = { d[1] * u[2] - d[2] * u[1], d[2] * u[0] - d[0] * u[2], d[0] * u[1] - d[1] * u[0] };
+    const double tangent = (std::max) (std::tan (guide.coneDegrees * 0.5 * kPi / 180.0), 1.0e-4);
+    const double radius = (std::min) (kViewGlyphMetres, 2.0 * tangent);
+    const double length = radius / tangent;
+    const std::array<double, 3> centre = { point[0] + d[0] * length, point[1] + d[1] * length,
+                                           point[2] + d[2] * length };
+    Ring (centre, u, v, radius, 48, kPointVisibilityGuideRgba, bucket);
+    for (int i = 0; i < 4; ++i) {
+        const double angle = 0.5 * kPi * double (i);
+        std::array<double, 3> rim;
+        for (int axis = 0; axis < 3; ++axis)
+            rim[axis] = centre[axis] + radius * (u[axis] * std::cos (angle) + v[axis] * std::sin (angle));
+        Segment (point, rim, kPointVisibilityGuideRgba, bucket);
+    }
     return drawables;
 }
 

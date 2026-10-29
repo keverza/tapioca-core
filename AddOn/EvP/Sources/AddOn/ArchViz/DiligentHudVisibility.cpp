@@ -1,8 +1,8 @@
 #include "ArchViz/DiligentHudShell.hpp"
 
 #include "ArchViz/InputRingBuffer.hpp"
-#include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
+#include "ArchViz/ViewpointOverlayGeometry.hpp"
 #include "ArchViz/ViewpointStudyController.hpp"
 #include "ArchViz/VisibilityStudyController.hpp"
 #include "ArchViz/VisibilityStudyCapture.hpp"
@@ -87,19 +87,6 @@ bool RoleRow (const char* label, std::vector<std::string>& role, std::vector<std
     return changed;
 }
 
-bool Project (const double point[3], const float viewProj[16], uint32_t width, uint32_t height, ImVec2& screen)
-{
-    const float input[4] = { float (point[0]), float (point[1]), float (point[2]), 1.0f };
-    float clip[4];
-    TransformPoint (clip, input, viewProj);
-    if (!std::isfinite (clip[0]) || !std::isfinite (clip[1]) || !std::isfinite (clip[2]) || !std::isfinite (clip[3]) ||
-        clip[3] <= 1.0e-6f || clip[2] < 0.0f || clip[2] > clip[3])
-        return false;
-    screen.x = (clip[0] / clip[3] * 0.5f + 0.5f) * float (width);
-    screen.y = (0.5f - clip[1] / clip[3] * 0.5f) * float (height);
-    return std::isfinite (screen.x) && std::isfinite (screen.y);
-}
-
 void Normalize (double value[3])
 {
     const double length = std::sqrt (value[0] * value[0] + value[1] * value[1] + value[2] * value[2]);
@@ -108,13 +95,6 @@ void Normalize (double value[3])
     value[0] /= length;
     value[1] /= length;
     value[2] /= length;
-}
-
-void Cross (const double a[3], const double b[3], double out[3])
-{
-    out[0] = a[1] * b[2] - a[2] * b[1];
-    out[1] = a[2] * b[0] - a[0] * b[2];
-    out[2] = a[0] * b[1] - a[1] * b[0];
 }
 
 // The centre of Focus's bounding box, where an untouched cone target sits.
@@ -412,80 +392,21 @@ void ServiceAnalysisInteractions (HudState& state, const DiligentScene& scene, c
     ServiceSunStudyCentrePick (state, input, origin, direction);
 }
 
-void DrawVisibilityConeOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
+bool PointVisibilityGuideOf (const HudState& state, PointVisibilityGuide& guide)
 {
     const auto shared = viewpointstudy::GetSettings ();
-    if (state.analysisFocus.tab != analysistabs::kPointVisibilityTab || !shared->pointValid || viewProj == nullptr ||
-        width == 0 || height == 0)
-        return;
-    const double* point = shared->options.point.data ();
-    ImVec2 apex;
-    if (!Project (point, viewProj, width, height, apex))
-        return;
-    ImDrawList* draw = ImGui::GetForegroundDrawList ();
-    const ImU32 colour = IM_COL32 (75, 131, 88, 230);
-    draw->AddCircleFilled (apex, 4.0f, colour);
-    constexpr size_t kSegments = 48;
-    constexpr double kPi = 3.14159265358979323846;
-    const auto ring = [&] (const double centre[3], const double u[3], const double v[3], double radius, ImU32 ink,
-                           float thickness) {
-        ImVec2 previous;
-        bool had = false;
-        for (size_t i = 0; i <= kSegments; ++i) {
-            const double angle = 2.0 * kPi * double (i) / double (kSegments);
-            double at[3];
-            for (int axis = 0; axis < 3; ++axis)
-                at[axis] = centre[axis] + radius * (u[axis] * std::cos (angle) + v[axis] * std::sin (angle));
-            ImVec2 pixel;
-            const bool has = Project (at, viewProj, width, height, pixel);
-            if (has && had)
-                draw->AddLine (previous, pixel, ink, thickness);
-            previous = pixel;
-            had = has;
-        }
-    };
-    if (state.visibilityView == 1) {
-        // The sphere: the horizon, and the band's sky and ground limits, 1 m out.
-        const double x[3] = { 1.0, 0.0, 0.0 }, y[3] = { 0.0, 1.0, 0.0 };
-        ring (point, x, y, 1.0, IM_COL32 (75, 131, 88, 140), 1.0f);
-        for (const float degrees : { state.visibilitySkyDegrees, state.visibilityGroundDegrees }) {
-            if (std::abs (degrees) >= 89.5f)
-                continue; // the pole: nothing cut off
-            const double e = double (degrees) * kPi / 180.0;
-            const double centre[3] = { point[0], point[1], point[2] + std::sin (e) };
-            ring (centre, x, y, std::cos (e), colour, 2.0f);
-        }
-        return;
-    }
-    double direction[3];
-    ConeDirection (state, point, direction);
-    // The line to the target the cone keeps while the point moves.
-    ImVec2 target;
-    if (state.visibilityTargetSet && Project (state.visibilityTarget, viewProj, width, height, target))
-        draw->AddLine (apex, target, IM_COL32 (75, 131, 88, 170), 1.5f);
-    const bool nearVertical = std::abs (direction[2]) > 0.9;
-    const double reference[3] = { 0.0, nearVertical ? 1.0 : 0.0, nearVertical ? 0.0 : 1.0 };
-    double u[3], v[3];
-    Cross (direction, reference, u);
-    Normalize (u);
-    Cross (direction, u, v);
-    Normalize (v);
-    const double halfAngle = double (state.visibilityConeDegrees) * 0.5 * kPi / 180.0;
-    const double tangent = (std::max) (std::tan (halfAngle), 1.0e-4);
-    const double radius = (std::min) (1.0, 2.0 * tangent);
-    const double length = radius / tangent;
-    const double centre[3] = { point[0] + direction[0] * length, point[1] + direction[1] * length,
-                               point[2] + direction[2] * length };
-    ring (centre, u, v, radius, colour, 2.0f);
-    for (int i = 0; i < 4; ++i) {
-        const double angle = 0.5 * kPi * double (i);
-        double at[3];
-        for (int axis = 0; axis < 3; ++axis)
-            at[axis] = centre[axis] + radius * (u[axis] * std::cos (angle) + v[axis] * std::sin (angle));
-        ImVec2 pixel;
-        if (Project (at, viewProj, width, height, pixel))
-            draw->AddLine (apex, pixel, colour, 1.5f);
-    }
+    if (state.readOnly || state.analysisFocus.tab != analysistabs::kPointVisibilityTab || !shared->pointValid)
+        return false;
+    guide = {};
+    std::copy (shared->options.point.begin (), shared->options.point.end (), guide.point);
+    guide.sphere = state.visibilityView == 1;
+    guide.minElevationDegrees = state.visibilityGroundDegrees;
+    guide.maxElevationDegrees = state.visibilitySkyDegrees;
+    guide.coneDegrees = state.visibilityConeDegrees;
+    ConeDirection (state, guide.point, guide.direction);
+    guide.hasTarget = state.visibilityTargetSet;
+    std::copy (state.visibilityTarget, state.visibilityTarget + 3, guide.target);
+    return true;
 }
 
 } // namespace geomsrv::archviz::viewerhud

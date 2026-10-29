@@ -675,6 +675,7 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
 namespace viewpointstudy {
 struct Settings;
 }
+struct PointVisibilityGuide; // ArchViz/ViewpointOverlayGeometry.hpp
 namespace viewerhud {
 // The viewpoint settings hold the Context (and point) all view-analysis tabs share.
 // A HUD edit configures through this so it is never mistaken for a command's.
@@ -699,7 +700,9 @@ bool AdaptiveSlider (const char* label, double& value, double& range, bool& held
 double AdaptiveSliderRange (double value);
 void ServiceAnalysisInteractions (HudState& state, const DiligentScene& scene, const InputSnapshot& input,
                                   const float origin[3], const float direction[3]);
-void DrawVisibilityConeOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
+// Point visibility's cone or sphere guide, for the depth-tested analysis
+// overlay; false when the tab is not showing one.
+bool PointVisibilityGuideOf (const HudState& state, PointVisibilityGuide& guide);
 void DrawViewpointHudSection (HudState& state);
 void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, const float viewProj[16],
                                    uint32_t width, uint32_t height, const float rayOrigin[3],

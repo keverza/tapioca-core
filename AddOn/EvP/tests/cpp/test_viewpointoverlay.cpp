@@ -103,3 +103,38 @@ TEST (ViewpointOverlay, ASphereDrawsNoShellOnlyTheSurfacesItSeesLiftedTowardTheP
         EXPECT_LT (vertex.nx, -0.99f) << "facing the point";
     }
 }
+
+TEST (ViewpointOverlay, ASphericalIsovistDrawsTheViewSphereGlyphAtItsPoint)
+{
+    evp::sunstudy::ViewpointOptions options;
+    options.mode = evp::sunstudy::ViewpointMode::Sphere;
+    options.minElevationDegrees = -30.0;
+    options.maxElevationDegrees = 60.0;
+    const GhPreviewDrawables plan = BuildViewpointOverlay (evp::sunstudy::ViewpointOptions {}, nullptr, {});
+    const GhPreviewDrawables sphere = BuildViewpointOverlay (options, nullptr, {});
+    // Three rings of 48 for the glyph and two band rings, on top of the radius
+    // guide's horizon and its own two band rings.
+    EXPECT_GT (sphere.depthTested.lineVertices.size (), plan.depthTested.lineVertices.size () + 5u * 48u * 6u - 1u);
+    bool nearPoint = false;
+    for (const auto& vertex : sphere.depthTested.lineVertices)
+        nearPoint |= std::abs (std::hypot (vertex.x - options.point[0], vertex.y - options.point[1],
+                                           vertex.z - options.point[2]) -
+                               kViewGlyphMetres) < 1e-4;
+    EXPECT_TRUE (nearPoint) << "a ring 1 m round the point";
+}
+
+TEST (ViewpointOverlay, PointVisibilityGuidesAreDepthTestedLines)
+{
+    PointVisibilityGuide guide;
+    guide.point[2] = 1.6;
+    guide.hasTarget = true;
+    guide.target[0] = 10.0;
+    const GhPreviewDrawables cone = BuildPointVisibilityGuides (guide);
+    EXPECT_TRUE (cone.xray.Empty ()) << "occluded by the model, not drawn through it";
+    EXPECT_TRUE (cone.depthTested.meshIndices.empty ());
+    // The target line, the ring and four rays.
+    EXPECT_EQ (cone.depthTested.lineVertices.size (), (1u + 48u + 4u) * 6u);
+    guide.sphere = true;
+    const GhPreviewDrawables sphere = BuildPointVisibilityGuides (guide);
+    EXPECT_EQ (sphere.depthTested.lineVertices.size (), 3u * 48u * 6u) << "a full band: the glyph's three rings";
+}

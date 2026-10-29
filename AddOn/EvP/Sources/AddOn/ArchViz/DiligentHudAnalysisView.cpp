@@ -60,6 +60,28 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
                                    const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
                                    uint32_t depthFormat, bool modelIsDrawn)
 {
+    PointVisibilityGuide guide;
+    if (viewerhud::PointVisibilityGuideOf (state, guide)) {
+        // Field by field: the struct's padding is not part of what it says.
+        uint64_t key = 1469598103934665603ull ^ 0x9E3779B97F4A7C15ull; // never a viewpoint key
+        Mix (key, guide.point, sizeof (guide.point));
+        Mix (key, guide.direction, sizeof (guide.direction));
+        Mix (key, guide.target, sizeof (guide.target));
+        for (const double value : { guide.coneDegrees, guide.minElevationDegrees, guide.maxElevationDegrees })
+            Mix (key, &value, sizeof (value));
+        for (const bool flag : { guide.sphere, guide.hasTarget })
+            Mix (key, &flag, sizeof (flag));
+        key |= 1u;
+        if (key == scene.AnalysisOverlayKey ()) {
+            scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, nullptr, key,
+                                       modelIsDrawn);
+            return;
+        }
+        const GhPreviewDrawables drawables = BuildPointVisibilityGuides (guide);
+        scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, &drawables, key,
+                                   modelIsDrawn);
+        return;
+    }
     const auto settings = viewpointstudy::GetSettings ();
     if (state.readOnly || !settings->enabled || !settings->pointValid ||
         state.analysisFocus.tab != analysistabs::kViewpointTab) {
@@ -85,6 +107,11 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
         Mix (key, &value, sizeof (value));
     const auto mode = uint8_t (options.mode);
     Mix (key, &mode, sizeof (mode));
+    // A target-facing field of view: the line to what it faces.
+    const bool target = viewerhud::ShowsTargetPoint (state);
+    Mix (key, &target, sizeof (target));
+    if (target)
+        Mix (key, state.visibilityTarget, sizeof (state.visibilityTarget));
     Mix (key, &style, sizeof (style));
     key |= 1u; // never the "hidden" key
     if (key == scene.AnalysisOverlayKey ()) {
@@ -92,7 +119,11 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
                                    modelIsDrawn);
         return;
     }
-    const GhPreviewDrawables drawables = BuildViewpointOverlay (settings->options, status.result.get (), style);
+    GhPreviewDrawables drawables = BuildViewpointOverlay (settings->options, status.result.get (), style);
+    if (target)
+        AppendGuideSegment (options.point,
+                            { state.visibilityTarget[0], state.visibilityTarget[1], state.visibilityTarget[2] },
+                            style.guideRgba, drawables.depthTested);
     scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, &drawables, key,
                                modelIsDrawn);
 }

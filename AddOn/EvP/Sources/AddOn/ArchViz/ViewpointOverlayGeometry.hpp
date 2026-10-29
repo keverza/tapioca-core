@@ -32,6 +32,31 @@ GhPreviewDrawables BuildViewpointOverlay (const evp::sunstudy::ViewpointOptions&
                                           const evp::sunstudy::ViewpointStudyResult* result,
                                           const ViewpointOverlayStyle& style);
 
+// The view field drawn small at the point, so its shape reads at a glance: a
+// wire sphere (horizon and two meridians) with the rings where an elevation
+// band is cut off drawn heavier in `bandRgba`.
+constexpr double kViewGlyphMetres = 1.0;
+void AppendViewSphereGlyph (const std::array<double, 3>& centre, double radius, double minElevationDegrees,
+                            double maxElevationDegrees, uint32_t rgba, uint32_t bandRgba, GhPreviewBucket& bucket);
+void AppendGuideSegment (const std::array<double, 3>& a, const std::array<double, 3>& b, uint32_t rgba,
+                         GhPreviewBucket& bucket);
+
+// Point visibility's guides, all world-space and depth-tested like the isovist.
+// Plain data, so the overlay can key its rebuild on the bytes.
+struct PointVisibilityGuide {
+    double point[3] = {};
+    double direction[3] = { 1.0, 0.0, 0.0 }; // cone: unit, toward the target
+    double coneDegrees = 90.0;
+    double minElevationDegrees = -90.0, maxElevationDegrees = 90.0; // sphere
+    double target[3] = {};
+    bool sphere = false;
+    bool hasTarget = false;
+};
+constexpr uint32_t kPointVisibilityGuideRgba = 0x4B8358E6u;
+// A cone (a ring 1 m out, four rays from the apex, the line to the target) or a
+// sphere glyph at the point.
+GhPreviewDrawables BuildPointVisibilityGuides (const PointVisibilityGuide& guide);
+
 } // namespace geomsrv::archviz
 
 #endif
