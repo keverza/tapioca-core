@@ -36,6 +36,10 @@ GhPreviewDrawables BuildViewpointOverlay (const evp::sunstudy::ViewpointOptions&
 // wire sphere (horizon and two meridians) with the rings where an elevation
 // band is cut off drawn heavier in `bandRgba`.
 constexpr double kViewGlyphMetres = 1.0;
+// The isovist's glyph is blue whatever the edge colours: the default yellow
+// guide barely showed against a lit model.
+constexpr uint32_t kViewSphereGlyphRgba = 0x2F7BFFC8u;
+constexpr uint32_t kViewSphereBandRgba = 0x2F7BFFFFu;
 void AppendViewSphereGlyph (const std::array<double, 3>& centre, double radius, double minElevationDegrees,
                             double maxElevationDegrees, uint32_t rgba, uint32_t bandRgba, GhPreviewBucket& bucket);
 void AppendGuideSegment (const std::array<double, 3>& a, const std::array<double, 3>& b, uint32_t rgba,

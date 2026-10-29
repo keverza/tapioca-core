@@ -117,9 +117,13 @@ TEST (ViewpointOverlay, ASphericalIsovistDrawsTheViewSphereGlyphAtItsPoint)
     EXPECT_GT (sphere.depthTested.lineVertices.size (), plan.depthTested.lineVertices.size () + 5u * 48u * 6u - 1u);
     bool nearPoint = false;
     for (const auto& vertex : sphere.depthTested.lineVertices)
-        nearPoint |= std::abs (std::hypot (vertex.x - options.point[0], vertex.y - options.point[1],
-                                           vertex.z - options.point[2]) -
-                               kViewGlyphMetres) < 1e-4;
+        if (std::abs (
+                std::hypot (vertex.x - options.point[0], vertex.y - options.point[1], vertex.z - options.point[2]) -
+                kViewGlyphMetres) < 1e-4) {
+            nearPoint = true;
+            EXPECT_TRUE (vertex.rgba == kViewSphereGlyphRgba || vertex.rgba == kViewSphereBandRgba)
+                << "blue, not the edge colour";
+        }
     EXPECT_TRUE (nearPoint) << "a ring 1 m round the point";
 }
 

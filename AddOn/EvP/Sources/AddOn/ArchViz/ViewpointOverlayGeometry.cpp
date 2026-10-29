@@ -143,7 +143,7 @@ GhPreviewDrawables BuildViewpointOverlay (const evp::sunstudy::ViewpointOptions&
     Guide (options, style.guideRgba, bucket);
     if (options.mode == ViewpointMode::Sphere)
         AppendViewSphereGlyph (options.point, kViewGlyphMetres, options.minElevationDegrees,
-                               options.maxElevationDegrees, style.guideRgba, style.openEdgeRgba, bucket);
+                               options.maxElevationDegrees, kViewSphereGlyphRgba, kViewSphereBandRgba, bucket);
     if (result == nullptr || !result->valid)
         return drawables;
     if (result->options.mode == ViewpointMode::Sphere) {
