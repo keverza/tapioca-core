@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <string>
 
 namespace evp::sunstudy {
 
@@ -32,6 +33,14 @@ struct OcclusionRay {
     double dir[3] = { 0.0, 0.0, 1.0 };
     double tmin = 0.0;
     double tmax = 0.0;
+};
+
+// The backend that answers, not the one asked for (SunStudy/SunStudyBackend.hpp).
+// `resolved` is empty while a lazily initialised backend has not been tried;
+// `fallbackReason` names why a GPU backend handed its rays to the CPU.
+struct TraversalBackendState {
+    std::string resolved = "cpu";
+    std::string fallbackReason;
 };
 
 class ITraversal {
@@ -82,6 +91,12 @@ class ITraversal {
     // one; treating them alike is how a study of nothing gets cached as a
     // result.
     virtual uint64_t SceneVersion () const = 0;
+
+    // The exact CPU tracer unless a backend says otherwise.
+    virtual TraversalBackendState ResolvedBackend () const
+    {
+        return {};
+    }
 };
 
 } // namespace evp::sunstudy

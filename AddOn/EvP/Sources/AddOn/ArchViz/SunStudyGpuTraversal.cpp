@@ -630,5 +630,17 @@ SunStudyGpuStats SunStudyGpuTraversal::Stats () const
     std::lock_guard<std::mutex> lock (impl_->mutex);
     return impl_->stats;
 }
+evp::sunstudy::TraversalBackendState SunStudyGpuTraversal::ResolvedBackend () const
+{
+    const SunStudyGpuStats stats = Stats ();
+    evp::sunstudy::TraversalBackendState state;
+    if (!stats.attempted)
+        state.resolved.clear ();
+    else if (stats.available)
+        state.resolved = "gpu";
+    else
+        state.fallbackReason = stats.error.empty () ? "GPU initialisation was cancelled" : stats.error;
+    return state;
+}
 
 } // namespace geomsrv::archviz

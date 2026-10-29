@@ -197,6 +197,15 @@ GpuReason RayWorkerTraversal::FallbackReason () const
     return static_cast<GpuReason> (reason_.load ());
 }
 
+sunstudy::TraversalBackendState RayWorkerTraversal::ResolvedBackend () const
+{
+    sunstudy::TraversalBackendState state;
+    state.resolved = ActualBackend ();
+    if (state.resolved == "cpu")
+        state.fallbackReason = DescribeGpuReason (FallbackReason ());
+    return state;
+}
+
 // ---- selection and the add-on's channel ------------------------------------
 
 std::string RequestedWorkerTraversal ()

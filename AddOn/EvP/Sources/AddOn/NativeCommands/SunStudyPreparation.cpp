@@ -118,6 +118,10 @@ void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_
         record.traversal = std::make_shared<archviz::SunStudyGpuTraversal> (
             std::move (occluders), record.occluders != nullptr ? record.occluders->context : nullptr, previousGpu);
     }
+    // Every producer, so a follower replacement shows it kept the adopted
+    // study's choice (#54); what ran is reported by the traversal itself.
+    archviz::ArchVizLog ("pipeline: stage=sun-backend snapshot=" + std::to_string (record.snapshotId) +
+                         " requested=" + record.backend + " automatic=" + (cancelled != nullptr ? "1" : "0"));
     if (record.occluders != nullptr && record.occluders->context != nullptr)
         archviz::ArchVizLog ("pipeline: stage=sun-context-index snapshot=" + std::to_string (record.snapshotId) +
                              " meshes=" + std::to_string (record.occluders->context->MeshCount ()) +

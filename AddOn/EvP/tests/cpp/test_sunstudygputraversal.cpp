@@ -203,6 +203,9 @@ TEST (SunStudyGpuTraversal, SmallBatchKeepsCpuAndDoesNotCreateDevice)
     EXPECT_EQ (out[1], 0);
     EXPECT_FALSE (gpu.Stats ().attempted);
     EXPECT_EQ (gpu.SceneVersion (), 501u);
+    // Not tried is neither GPU nor a fallback (#54).
+    EXPECT_TRUE (gpu.ResolvedBackend ().resolved.empty ());
+    EXPECT_TRUE (gpu.ResolvedBackend ().fallbackReason.empty ());
 }
 
 TEST (SunStudyGpuTraversal, DisabledGpuFallsBackToCpuWithoutCreatingDevice)
@@ -233,6 +236,9 @@ TEST (SunStudyGpuTraversal, DisabledGpuFallsBackToCpuWithoutCreatingDevice)
     EXPECT_EQ (gpu.Stats ().dispatches, 0u);
     EXPECT_EQ (gpu.Stats ().cpuFallbackRays, actual.size ());
     EXPECT_EQ (gpu.Stats ().error, "disabled by TAPIOCA_SUNSTUDY_GPU=0");
+    // The HUD and log read the `sun-gpu-fallback` reason from here (#54).
+    EXPECT_EQ (gpu.ResolvedBackend ().resolved, "cpu");
+    EXPECT_EQ (gpu.ResolvedBackend ().fallbackReason, "disabled by TAPIOCA_SUNSTUDY_GPU=0");
 }
 
 TEST (SunStudyGpuTraversal, HardwarePacketsMatchCpuAcrossDirectionsBoundsAndGeoreferencing)
@@ -253,6 +259,7 @@ TEST (SunStudyGpuTraversal, HardwarePacketsMatchCpuAcrossDirectionsBoundsAndGeor
                 if (Unavailable (gpu.Stats ()))
                     GTEST_SKIP () << gpu.Stats ().error;
                 ASSERT_TRUE (gpu.Stats ().available) << gpu.Stats ().error;
+                EXPECT_EQ (gpu.ResolvedBackend ().resolved, "gpu");
                 EXPECT_EQ (actual, expected) << "offset=" << offset << " tmax=" << tmax;
             }
         }

@@ -147,6 +147,15 @@
           },
           "admissionMilliseconds": {
             "type": "number"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "resolvedBackend": {
+            "type": "string"
+          },
+          "backendFallbackReason": {
+            "type": "string"
           }
         },
         "additionalProperties": false,
@@ -30542,6 +30551,16 @@
           },
           "jitter": {
             "type": "number"
+          },
+          "clipX": {
+            "type": "number"
+          },
+          "clipY": {
+            "type": "number"
+          },
+          "clipRadius": {
+            "type": "number",
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -31100,6 +31119,12 @@
             "type": "number"
           },
           "backend": {
+            "type": "string"
+          },
+          "resolvedBackend": {
+            "type": "string"
+          },
+          "backendFallbackReason": {
             "type": "string"
           }
         },

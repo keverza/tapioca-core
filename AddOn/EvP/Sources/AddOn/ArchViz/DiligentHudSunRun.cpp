@@ -19,6 +19,7 @@
 #include "ArchViz/PointGumball.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
+#include "SunStudy/SunStudyBackend.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
 #include "SunStudy/SunStudyPreset.hpp"
 
@@ -279,6 +280,29 @@ const char* StageText (const sunstudyhud::Status& status)
     return "Queued...";
 }
 
+// The form as a Request. Every input comes from `state`, so a rerun after
+// switching the backend changes nothing else.
+void SubmitRun (HudState& state)
+{
+    sunstudyhud::Request request;
+    request.year = state.sunRunYear;
+    request.month = state.sunRunMonth;
+    request.day = state.sunRunDay;
+    request.timestep = kTimesteps[std::clamp (state.sunRunTimestep, 0, kTimestepCount - 1)];
+    request.grid = state.sunRunGrid;
+    request.preset = state.sunRunPreset == 1 ? "late" : "early";
+    request.contextElements = state.sunRunContext;
+    request.ignoredElements = state.sunRunIgnored;
+    request.bounded = state.sunRunBounded;
+    request.centreX = state.sunRunCentre[0];
+    request.centreY = state.sunRunCentre[1];
+    request.radius = state.sunRunRadius;
+    request.backend = evp::sunstudy::SunStudyBackendForChoice (state.sunRunBackend);
+    state.sunRunPickingCentre = false;
+    state.sunRunSubmitError.clear ();
+    sunstudyhud::Submit (request, state.sunRunSubmitError);
+}
+
 } // namespace
 
 void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& study)
@@ -326,6 +350,13 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     if (!advice.empty ())
         NoteWrapped (advice.c_str ());
 
+    ImGui::RadioButton ("CPU##sunrunbackend", &state.sunRunBackend, 0);
+    ImGui::SetItemTooltip ("The exact CPU tracer, on every machine. Edits rerun on CPU too.");
+    ImGui::SameLine ();
+    ImGui::RadioButton ("GPU##sunrunbackend", &state.sunRunBackend, 1);
+    ImGui::SetItemTooltip ("FP64 D3D11 compute with exact CPU checks. Without a capable GPU the study finishes on CPU "
+                           "and says why.");
+
     const bool rolesOpen = ImGui::TreeNode ("Roles");
     ImGui::SetItemTooltip ("Analysis: everything not in Context or Ignored. Select elements to assign them a role.");
     if (rolesOpen) {
@@ -364,24 +395,8 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     ImGui::EndDisabled ();
 
     if (!status.running) {
-        if (ImGui::Button ("Run sun study##sunrunstart", ImVec2 (-1.0f, 0.0f))) {
-            sunstudyhud::Request request;
-            request.year = state.sunRunYear;
-            request.month = state.sunRunMonth;
-            request.day = state.sunRunDay;
-            request.timestep = kTimesteps[std::clamp (state.sunRunTimestep, 0, kTimestepCount - 1)];
-            request.grid = state.sunRunGrid;
-            request.preset = state.sunRunPreset == 1 ? "late" : "early";
-            request.contextElements = state.sunRunContext;
-            request.ignoredElements = state.sunRunIgnored;
-            request.bounded = state.sunRunBounded;
-            request.centreX = state.sunRunCentre[0];
-            request.centreY = state.sunRunCentre[1];
-            request.radius = state.sunRunRadius;
-            state.sunRunPickingCentre = false;
-            state.sunRunSubmitError.clear ();
-            sunstudyhud::Submit (request, state.sunRunSubmitError);
-        }
+        if (ImGui::Button ("Run sun study##sunrunstart", ImVec2 (-1.0f, 0.0f)))
+            SubmitRun (state);
     }
     else if (status.stage == "calculating" && status.totalSteps > 0) {
         char overlay[48];
@@ -402,6 +417,26 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
         ImGui::TextDisabled ("Cancelled");
     else if (!status.running && status.stage == "done")
         ImGui::TextDisabled ("Done in %.1f s", status.wallMs / 1000.0);
+
+    if (!status.requestedBackend.empty () && (status.running || status.stage == "done")) {
+        evp::sunstudy::SunStudyBackendReport report;
+        report.requested = status.requestedBackend;
+        report.resolved = status.resolvedBackend;
+        report.fallbackReason = status.backendFallbackReason;
+        const std::string backend = "Backend: " + evp::sunstudy::DescribeSunStudyBackend (report);
+        if (report.fallbackReason.empty ())
+            ImGui::TextDisabled ("%s", backend.c_str ());
+        else {
+            hudshell::ErrorNotice (backend);
+            if (!status.running) {
+                if (ImGui::SmallButton ("Rerun on CPU##sunrunfallback")) {
+                    state.sunRunBackend = 0;
+                    SubmitRun (state);
+                }
+                ImGui::SetItemTooltip ("Selects CPU and runs again with every other input unchanged.");
+            }
+        }
+    }
 }
 
 void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height)

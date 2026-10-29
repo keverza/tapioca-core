@@ -46,6 +46,13 @@ std::string ReadString (const GS::ObjectState& params, const char* key, const ch
 // A flat array of strings (element GUIDs); absent or empty reads as no entries.
 std::vector<std::string> ReadStringList (const GS::ObjectState& params, const char* key);
 
+// `backend` as sent, or the producer's default only when absent: a follower
+// replacement re-issues the adopted study's, never the automatic GPU (#54).
+bool ReadStartBackend (const GS::ObjectState& params, bool automatic, std::string& backend, std::string& error);
+// `resolvedBackend` and `backendFallbackReason`: what answered, beside what was
+// asked. The resolved value is empty until a lazily initialised GPU was tried.
+void AddBackendReport (GS::ObjectState& os, const std::string& studyId);
+
 // This machine's analysis ceiling for a study of `steps` timesteps in either
 // domain: the published GPU facts plus the free physical memory right now.
 // See SunStudy/SunStudyLimits.hpp.

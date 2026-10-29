@@ -806,6 +806,24 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
     return true;
 }
 
+bool SunStudyStore::Backend (const std::string& id, SunStudyBackendReport& report, std::string& error) const
+{
+    std::string requested;
+    std::shared_ptr<const ITraversal> traversal;
+    {
+        std::lock_guard<std::mutex> lock (mutex_);
+        const auto found = studies_.find (id);
+        if (found == studies_.end ()) {
+            error = "no sun study with id '" + id + "'";
+            return false;
+        }
+        requested = found->second->backend;
+        traversal = found->second->traversal;
+    }
+    report = ReportSunStudyBackend (requested, traversal.get ());
+    return true;
+}
+
 bool SunStudyStore::Erase (const std::string& id, uint64_t expectedRevision)
 {
     std::lock_guard<std::mutex> lock (mutex_);

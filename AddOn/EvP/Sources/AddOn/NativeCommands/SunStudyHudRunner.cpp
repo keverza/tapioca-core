@@ -4,6 +4,7 @@
 #include "NativeCommands/SunStudyHudRunner.hpp"
 
 #include "AddOnCommands.hpp" // ExecuteNativeCommand, CommandNeedsMainThread
+#include "ArchViz/ArchVizLog.hpp"
 #include "Python/MainThreadGate.hpp"
 
 #include <atomic>
@@ -86,7 +87,7 @@ GS::ObjectState StartParams (const Request& request)
     params.Add ("grid", request.grid);
     params.Add ("samples", GS::UniString ("surfaces"));
     params.Add ("domain", GS::UniString ("patch"));
-    params.Add ("backend", GS::UniString ("cpu"));
+    params.Add ("backend", GS::UniString (request.backend.c_str (), CC_UTF8));
     params.Add ("preset", GS::UniString (request.preset.c_str (), CC_UTF8));
     params.Add ("glassThreshold", request.glassThreshold);
     return params;
@@ -97,13 +98,25 @@ void Run (Request request)
     const auto started = std::chrono::steady_clock::now ();
     std::string studyId;
     const auto finish = [&] (const std::string& stage, const std::string& error) {
-        std::lock_guard<std::mutex> lock (gMutex);
-        gStatus.running = false;
-        gStatus.stage = stage;
-        gStatus.error = error;
-        gStatus.studyId = studyId;
-        gStatus.wallMs =
-            std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
+        std::string line;
+        {
+            std::lock_guard<std::mutex> lock (gMutex);
+            gStatus.running = false;
+            gStatus.stage = stage;
+            gStatus.error = error;
+            gStatus.studyId = studyId;
+            gStatus.wallMs =
+                std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
+            // Requested beside resolved: a GPU request that fell back is
+            // visible here and in the HUD, never rewritten to `cpu`.
+            if (!studyId.empty ())
+                line = "pipeline: stage=sun-hud-backend study=" + studyId + " requested=" + gStatus.requestedBackend +
+                       " resolved=" + (gStatus.resolvedBackend.empty () ? "untried" : gStatus.resolvedBackend) +
+                       " outcome=" + stage +
+                       (gStatus.backendFallbackReason.empty () ? "" : " reason=" + gStatus.backendFallbackReason);
+        }
+        if (!line.empty ())
+            archviz::ArchVizLog (line);
     };
     const auto failed = [&] (const NativeCommandResult& result) { finish ("failed", Utf8 (result.error)); };
 
@@ -161,10 +174,15 @@ void Run (Request request)
         state.data.Get ("totalSteps", total);
         state.data.Get ("advanced", advanced);
         state.data.Get ("converged", converged);
+        GS::UniString resolvedBackend, fallbackReason;
+        state.data.Get ("resolvedBackend", resolvedBackend);
+        state.data.Get ("backendFallbackReason", fallbackReason);
         {
             std::lock_guard<std::mutex> lock (gMutex);
             gStatus.resolvedSteps = size_t (resolved);
             gStatus.totalSteps = size_t (total);
+            gStatus.resolvedBackend = Utf8 (resolvedBackend);
+            gStatus.backendFallbackReason = Utf8 (fallbackReason);
         }
         if (converged)
             break;
@@ -202,6 +220,7 @@ bool Submit (const Request& request, std::string& error)
     gStatus.running = true;
     gStatus.stage = "queued";
     gStatus.runs = runs;
+    gStatus.requestedBackend = request.backend;
     gThread = std::thread (Run, request);
     return true;
 }

@@ -53,6 +53,9 @@ class SunStudyGpuTraversal final : public evp::sunstudy::ITraversal {
     void OccludeRays (const evp::sunstudy::OcclusionRay* rays, size_t count, uint8_t* out,
                       size_t maxParallel = 0) const override;
     uint64_t SceneVersion () const override;
+    // "gpu" once initialised, "cpu" with the reason once it disabled, empty
+    // before the first traced step tried the device.
+    evp::sunstudy::TraversalBackendState ResolvedBackend () const override;
     SunStudyGpuStats Stats () const;
 
   private:

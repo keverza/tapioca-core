@@ -185,6 +185,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/VisibilityStudy.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/ViewpointStudy.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPreset.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyBackend.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyWinding.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlasReuse.cpp"
@@ -1096,6 +1097,7 @@ set (EVP_TEST_SOURCES
     test_sunstudysampler.cpp
     test_sunstudysurfacesampling.cpp
     test_sunstudypreset.cpp
+    test_sunstudybackend.cpp
     test_sunstudyreceivers.cpp
     test_sunstudywinding.cpp
     test_sunstudyatlas.cpp

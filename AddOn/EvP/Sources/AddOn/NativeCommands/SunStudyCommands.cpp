@@ -43,12 +43,14 @@ using evp::sunstudy::SunStudyStore;
 
 // Shared parameter/packing helpers keep the calculation and display wire formats
 // identical; each command translation unit still exports one domain provider.
+using sunstudysupport::AddBackendReport;
 using sunstudysupport::LimitRefusal;
 using sunstudysupport::MachineAnalysisLimits;
 using sunstudysupport::PackBits;
 using sunstudysupport::PackDoubles;
 using sunstudysupport::ReadDouble;
 using sunstudysupport::ReadInt;
+using sunstudysupport::ReadStartBackend;
 using sunstudysupport::ReadString;
 using sunstudysupport::ReadStringList;
 using sunstudysupport::ReadStudyId;
@@ -80,9 +82,9 @@ class StartSunStudyCommand : public MainThreadCommand {
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        const auto backend = ReadString (params, "backend", cancelled_ != nullptr ? "gpu" : "cpu");
-        if (backend != "cpu" && backend != "gpu")
-            return NativeCommandResult::Failure ("backend must be cpu or gpu");
+        std::string backend, backendError;
+        if (!ReadStartBackend (params, cancelled_ != nullptr, backend, backendError))
+            return NativeCommandResult::Failure (Text (backendError));
         auto reuseSource = reuseSource_;
         auto captured = captured_;
         if (captured == nullptr) {
@@ -134,7 +136,8 @@ class StartSunStudyCommand : public MainThreadCommand {
 
         std::vector<std::string> boundedAnalysis, boundedContext;
         if (clip.radius > 0.0) {
-            auto bounded = evp::sunstudy::SplitByCylinder (*snapshot, clip, contextPicked, ignoredPicked, analysisPicked);
+            auto bounded =
+                evp::sunstudy::SplitByCylinder (*snapshot, clip, contextPicked, ignoredPicked, analysisPicked);
             if (bounded.analysis.empty ())
                 return NativeCommandResult::Failure ("no analysed element reaches into the analysis cylinder");
             boundedAnalysis = std::move (bounded.analysis);
@@ -564,6 +567,8 @@ class AdvanceSunStudyCommand : public MainThreadCommand {
         os.Add ("empty", progress.empty);
         os.Add ("analysisMilliseconds", metadata.analysisMilliseconds);
         os.Add ("admissionMilliseconds", metadata.admissionMilliseconds);
+        os.Add ("backend", Text (metadata.backend));
+        AddBackendReport (os, id);
         return os;
     }
 };
@@ -629,6 +634,7 @@ class SunStudyStateCommand : public MainThreadCommand {
         os.Add ("analysisMilliseconds", metadata.analysisMilliseconds);
         os.Add ("admissionMilliseconds", metadata.admissionMilliseconds);
         os.Add ("backend", Text (metadata.backend));
+        AddBackendReport (os, id);
         return os;
     }
 };
@@ -877,7 +883,10 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "converged":{"type":"boolean"},
                 "empty":{"type":"boolean"},
                 "analysisMilliseconds":{"type":"number"},
-                "admissionMilliseconds":{"type":"number"}
+                "admissionMilliseconds":{"type":"number"},
+                "backend":{"type":"string"},
+                "resolvedBackend":{"type":"string"},
+                "backendFallbackReason":{"type":"string"}
             },
             "additionalProperties":false,
             "required":["studyId","advanced","resolvedSteps","totalSteps","converged","empty"]
@@ -913,7 +922,9 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "sourceStepCount":{"type":"integer"},
                 "analysisMilliseconds":{"type":"number"},
                 "admissionMilliseconds":{"type":"number"},
-                "backend":{"type":"string"}
+                "backend":{"type":"string"},
+                "resolvedBackend":{"type":"string"},
+                "backendFallbackReason":{"type":"string"}
             },
             "additionalProperties":false,
             "required":["studyIds","studyCount","studyId","live"]

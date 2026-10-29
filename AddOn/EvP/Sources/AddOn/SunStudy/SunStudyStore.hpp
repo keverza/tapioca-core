@@ -28,6 +28,7 @@
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
+#include "SunStudy/SunStudyBackend.hpp"
 #include "SunStudy/SunStudyPatchAtlas.hpp"
 #include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudyReading.hpp"
@@ -312,6 +313,11 @@ class SunStudyStore final {
                       double& daylightHours, bool& converged, uint64_t& generation, std::string& error) const;
 
     bool Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const;
+
+    // The backend asked for and the one that answered (SunStudy/SunStudyBackend.hpp).
+    // The traversal is asked outside the store lock: a GPU backend's own lock
+    // may be held across a packet.
+    bool Backend (const std::string& id, SunStudyBackendReport& report, std::string& error) const;
 
     // The per-step lit bits as an atlas the SAME SHAPE as the hours atlas this
     // study displays (triangle or patch), plus each step's time and the solar

@@ -69,6 +69,7 @@ class RayWorkerTraversal final : public sunstudy::ITraversal {
     void OccludeRays (const sunstudy::OcclusionRay* rays, size_t count, uint8_t* out,
                       size_t maxParallel = 0) const override;
     uint64_t SceneVersion () const override;
+    evp::sunstudy::TraversalBackendState ResolvedBackend () const override;
 
     // "dxr", or "cpu" once a failure moved this traversal to the CPU.
     std::string ActualBackend () const;

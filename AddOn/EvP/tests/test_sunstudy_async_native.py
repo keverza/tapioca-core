@@ -214,7 +214,13 @@ def test_gpu_selection_is_explicit_for_both_producers_and_uses_role_filtered_sce
     assert "record.occluders != nullptr ? record.occluders->context : nullptr, previousGpu" in source
     commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
     assert "FinishSunStudyPreparation (*record, snapshot, reuseSource.get (), cancelled_, occluders)" in commands
-    assert 'ReadString (params, "backend", cancelled_ != nullptr ? "gpu" : "cpu")' in commands
+    # The producer default applies only when `backend` is absent; the default
+    # itself is pinned offline in test_sunstudybackend.cpp (#54).
+    assert "ReadStartBackend (params, cancelled_ != nullptr, backend, backendError)" in commands
+    support = (_ADDON / "NativeCommands" / "SunStudyCommandsSupport.cpp").read_text(encoding="utf-8")
+    assert 'params.Contains ("backend") ? &requested : nullptr' in support
+    runner = (_ADDON / "NativeCommands" / "SunStudyHudRunner.cpp").read_text(encoding="utf-8")
+    assert 'params.Add ("backend", GS::UniString (request.backend.c_str (), CC_UTF8))' in runner
     assert "sunfollow::Disable ()" in commands
     request = re.findall(r'R"json\((.*?)\)json"', commands.split('{ "StartSunStudy",', 1)[1], re.DOTALL)[0]
     assert json.loads(request)["properties"]["backend"]["enum"] == ["cpu", "gpu"]

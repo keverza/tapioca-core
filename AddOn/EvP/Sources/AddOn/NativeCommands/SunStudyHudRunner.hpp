@@ -32,6 +32,9 @@ struct Request {
     // into this plan circle are measured; the rest still cast shadow.
     bool bounded = false;
     double centreX = 0.0, centreY = 0.0, radius = 0.0;
+    // "cpu" or "gpu", sent as asked and kept by the follower's replacements
+    // (SunStudy/SunStudyBackend.hpp). CPU is the baseline.
+    std::string backend = "cpu";
 };
 
 struct Status {
@@ -43,6 +46,11 @@ struct Status {
     std::string error;
     double wallMs = 0.0;
     uint64_t runs = 0;
+    // As asked, and as it ran: `resolvedBackend` is empty until the first
+    // traced step; `backendFallbackReason` is the GPU's `sun-gpu-fallback`.
+    std::string requestedBackend;
+    std::string resolvedBackend;
+    std::string backendFallbackReason;
 };
 
 bool Submit (const Request& request, std::string& error);

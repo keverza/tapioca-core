@@ -4,6 +4,7 @@
 #include "NativeCommands/SunStudyCommandsSupport.hpp"
 
 #include "NativeCommands/CommandUtils.hpp" // Base64Encode / Base64Decode
+#include "SunStudy/SunStudyBackend.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 
 #include <cmath>
@@ -73,6 +74,23 @@ std::string ReadString (const GS::ObjectState& params, const char* key, const ch
     if (params.Get (key, value) && !value.IsEmpty ())
         return Utf8 (value);
     return std::string (fallback);
+}
+
+bool ReadStartBackend (const GS::ObjectState& params, bool automatic, std::string& backend, std::string& error)
+{
+    const std::string requested = ReadString (params, "backend", "");
+    return evp::sunstudy::ResolveStartBackend (params.Contains ("backend") ? &requested : nullptr, automatic, backend,
+                                               error);
+}
+
+void AddBackendReport (GS::ObjectState& os, const std::string& studyId)
+{
+    evp::sunstudy::SunStudyBackendReport report;
+    std::string error;
+    if (!evp::sunstudy::SunStudyStore::Get ().Backend (studyId, report, error))
+        return;
+    os.Add ("resolvedBackend", Text (report.resolved));
+    os.Add ("backendFallbackReason", Text (report.fallbackReason));
 }
 
 std::vector<std::string> ReadStringList (const GS::ObjectState& params, const char* key)

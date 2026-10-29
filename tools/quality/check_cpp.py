@@ -536,6 +536,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # The HUD's "Run sun study" hands a plain-value request to the runner that
     # owns the command sequence; the header carries no DevKit or command types.
     ("ArchViz/DiligentHudSunRun.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
+    # The runner writes one line per run to the existing host log: the requested
+    # and resolved sun backend (#54). It controls no renderer.
+    ("NativeCommands/SunStudyHudRunner.cpp", "ArchViz/ArchVizLog.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SceneCmdQueue.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SunStudyOverlay.hpp"),
