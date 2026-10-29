@@ -16,10 +16,10 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaFirstHitRay) == 56);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaRayHit) == 16);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaBoundedRay) == 64);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaRayQueryVtable) == 40);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaViewpointRequest) == 80);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaViewpointRequest) == 136);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaViewpointOutput) == 40);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaVisibilityOptions) == 120);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaVisibilityRequest) == 192);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaVisibilityOptions) == 136);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaVisibilityRequest) == 208);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaVisibilitySummary) == 88);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaVisibilityReadOutput) == 112);
 
@@ -148,12 +148,25 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
     request.radius = options.radius;
     request.rays = options.rays;
     request.queries = &vtable;
-    std::vector<std::array<double, 3>> perimeter (options.rays);
+    request.angles[0] = options.bearingDegrees;
+    request.angles[1] = options.fieldOfViewDegrees;
+    request.angles[2] = options.minElevationDegrees;
+    request.angles[3] = options.maxElevationDegrees;
+    request.grid[0] = options.sphereColumns;
+    request.grid[1] = options.sphereRows;
+    request.mode = static_cast<uint8_t> (options.mode);
+    // Room for every mode's rays: a field of view takes at most rays + 1, a
+    // sphere its grid (each bounded by the study's own refusal).
+    const size_t capacity = (std::max) (size_t (1), options.mode == ViewpointMode::Sphere
+                                                        ? (std::min) (options.sphereColumns, size_t (720)) *
+                                                              (std::min) (options.sphereRows, size_t (361))
+                                                        : (std::min) (options.rays, size_t (1440)) + 1);
+    std::vector<std::array<double, 3>> perimeter (capacity);
     size_t counts[2] = { 0, 0 };
-    double area = 0.0;
-    std::vector<int64_t> rayMesh (options.rays, -1);
+    double measures[3] = { 0.0, 0.0, 0.0 };
+    std::vector<int64_t> rayMesh (capacity, -1);
     const TapiocaViewpointOutput output { reinterpret_cast<double (*)[3]> (perimeter.data ()), perimeter.size (),
-                                          &counts, &area, rayMesh.data () };
+                                          &counts, &measures, rayMesh.data () };
     static_assert (sizeof (std::array<double, 3>) == sizeof (double[3]));
     if (!Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_viewpoint (&request, &output, m, n); },
                  result.error))
@@ -165,8 +178,11 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
     rayMesh.resize (counts[0]);
     result.rayMesh = std::move (rayMesh);
     result.collisionCount = counts[1];
-    result.area = area;
+    result.area = measures[0];
+    result.volume = measures[1];
+    result.openFraction = measures[2];
     result.valid = true;
+    AddViewpointSeenSurfaces (snapshot, context, result, isCancelled);
     return result;
 }
 
@@ -204,6 +220,8 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
     o.reals[1] = options.normalOffset;
     o.reals[2] = options.tmin;
     o.reals[3] = options.coneDegrees;
+    o.reals[4] = options.minElevationDegrees;
+    o.reals[5] = options.maxElevationDegrees;
     o.limits[0] = options.maxSamples;
     o.limits[1] = options.maxAimPoints;
     o.limits[2] = options.maxRays;
@@ -213,6 +231,7 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
     o.origin = static_cast<uint8_t> (options.origin);
     o.domain = static_cast<uint8_t> (options.domain);
     o.explicitContext = options.explicitContext ? 1 : 0;
+    o.view = static_cast<uint8_t> (options.view);
     request.queries = &vtable;
 
     TapiocaVisibilityResult* raw = nullptr;

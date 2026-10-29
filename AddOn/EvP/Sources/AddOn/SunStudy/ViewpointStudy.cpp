@@ -564,21 +564,42 @@ bool ToggleViewpointContext (std::vector<std::string>& context, const std::strin
     return true;
 }
 
+void AddViewpointSeenSurfaces (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,
+                               const std::vector<std::string>& context, ViewpointStudyResult& result,
+                               const std::function<bool ()>& isCancelled)
+{
+    if (!result.valid || result.options.mode != ViewpointMode::Sphere || snapshot == nullptr)
+        return;
+    std::set<std::string> selected;
+    for (const auto& guid : context)
+        selected.insert (CanonicalGuid (guid));
+    std::vector<uint8_t> mask (snapshot->meshes.size (), 0);
+    for (size_t mesh = 0; mesh < snapshot->meshes.size (); ++mesh)
+        mask[mesh] = selected.find (CanonicalGuid (snapshot->meshes[mesh].guid)) != selected.end ();
+    const auto engine = context.empty () ? nullptr : geomsrv::QueryIndexCache::Get ().For (snapshot);
+    const auto cancelled = [&] { return isCancelled && isCancelled (); };
+    if ((!context.empty () && engine == nullptr) ||
+        !SeenSurfaces (*snapshot, engine.get (), mask,
+                       std::all_of (mask.begin (), mask.end (), [] (uint8_t on) { return on != 0; }), result.options,
+                       result, cancelled)) {
+        result.perimeter.clear ();
+        result.rayMesh.clear ();
+        result.seenSurface.clear ();
+        result.valid = false;
+        result.error = engine == nullptr && !context.empty ()
+                           ? "viewpoint could not acquire the shared snapshot query index"
+                           : "viewpoint calculation cancelled";
+    }
+}
+
 ViewpointStudyResult RunSelectedViewpointStudy (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,
                                                 const std::vector<std::string>& context,
                                                 const ViewpointOptions& options,
                                                 const std::function<bool ()>& isCancelled)
 {
 #if defined(TAPIOCA_GEOMETRY_RUST)
-    // ⚠️ ONLY THE PLAN ISOVIST REACHES THE RUST KERNEL: its options have no mode,
-    // so a field of view or a sphere would come back as a full plan circle.
-    if (SelectedSunStudyCore () == SunStudyCoreKind::Rust && options.mode == ViewpointMode::Plan) {
-        auto result = rust::RunViewpointStudy (snapshot, context, options, isCancelled);
-        if (result.valid && !result.rayMesh.empty ())
-            result.openFraction = double (std::count (result.rayMesh.begin (), result.rayMesh.end (), int64_t (-1))) /
-                                  double (result.rayMesh.size ());
-        return result;
-    }
+    if (SelectedSunStudyCore () == SunStudyCoreKind::Rust)
+        return rust::RunViewpointStudy (snapshot, context, options, isCancelled);
 #endif
     return RunViewpointStudy (snapshot, context, options, isCancelled);
 }

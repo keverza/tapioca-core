@@ -1201,8 +1201,11 @@ the integration flip, and nothing in production calls the Rust path yet.
   index as a ray-query vtable: first hits with an optional mesh mask, any-hit
   occlusion), `viewpoint` and `visibility` (the studies' policies over that
   index and the ported sampler/atlases; `rust::RunViewpointStudy`,
-  `rust::RunVisibilityStudy`). Parity: lockstep scripted follower runs and
-  the C++ studies over the same BVH, bit for bit.
+  `rust::RunVisibilityStudy`). Every viewpoint mode (plan, field of view,
+  sphere) and both point views (cone, sphere band) run in Rust since
+  sun-study ABI v2; a sphere's seen surfaces stay a host pass over the C++
+  triangles (`AddViewpointSeenSurfaces`). Parity: lockstep scripted follower
+  runs and the C++ studies over the same BVH, bit for bit.
 - **P5 (flip behind `TAPIOCA_SUNSTUDY_CORE`):** studies
   started under the flag attach the Rust core (`AttachRustStudyCore` refuses
   a core whose atlas disagrees with the record's) and `SunStudyStore`,

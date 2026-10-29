@@ -12,15 +12,16 @@ use crate::borrow::SliceView;
 use crate::boundary::{Failure, call, memory_range};
 use tapioca_sunstudy::surface_sampling::{SamplingDomain, SurfaceSamplingResult};
 use tapioca_sunstudy::visibility::{
-    VisibilityOptions, VisibilityOrigin, VisibilityRequest, VisibilityResult, run_visibility,
+    VisibilityOptions, VisibilityOrigin, VisibilityRequest, VisibilityResult, VisibilityView,
+    run_visibility,
 };
 
 /// Visibility settings (`VisibilityStudyOptions`).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct VisibilityOptionsRecord {
-    /// Spacing, normal offset, tmin, cone degrees.
-    pub reals: [f64; 4],
+    /// Spacing, normal offset, tmin, cone degrees, min and max elevation degrees.
+    pub reals: [f64; 6],
     /// Max samples, max aim points, max rays, max parallel.
     pub limits: [usize; 4],
     /// The eye.
@@ -33,6 +34,8 @@ pub struct VisibilityOptionsRecord {
     pub domain: u8,
     /// 1 when Context is explicit.
     pub explicit_context: u8,
+    /// 0 cone, 1 sphere (point mode).
+    pub view: u8,
 }
 
 /// Visibility inputs.
@@ -59,7 +62,14 @@ fn options_of(
     r: &VisibilityOptionsRecord,
     context: Vec<String>,
 ) -> Result<VisibilityOptions, Failure> {
-    let [spacing, normal_offset, tmin, cone_degrees] = r.reals;
+    let [
+        spacing,
+        normal_offset,
+        tmin,
+        cone_degrees,
+        min_elevation_degrees,
+        max_elevation_degrees,
+    ] = r.reals;
     let [max_samples, max_aim_points, max_rays, max_parallel] = r.limits;
     // An unknown origin or domain is the C++ "invalid ... origin mode" refusal.
     let invalid =
@@ -90,6 +100,20 @@ fn options_of(
         point: r.point,
         direction: r.direction,
         cone_degrees,
+        // An unknown view is the C++ cone refusal for a point, which is
+        // neither view; surfaces have no view and ignore it.
+        view: match r.view {
+            0 => VisibilityView::Cone,
+            1 => VisibilityView::Sphere,
+            _ if r.origin != 1 => VisibilityView::Cone,
+            _ => {
+                return Err(Failure::State(
+                    "visibility point needs finite coordinates, a non-zero direction and a 1..179 degree cone",
+                ));
+            }
+        },
+        min_elevation_degrees,
+        max_elevation_degrees,
     })
 }
 

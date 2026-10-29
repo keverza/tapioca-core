@@ -64,6 +64,7 @@ fn an_open_viewpoint_is_the_full_disc_without_querying() {
         point: [0.0, 0.0, 1.6],
         radius: 10.0,
         rays: 1440,
+        ..ViewpointOptions::default()
     };
     let r = run_viewpoint(&MESHES, &[], &options, &w);
     let Ok(r) = r else {
@@ -91,6 +92,7 @@ fn context_clips_the_isovist_at_the_first_hit() {
         point: [0.0, 0.0, 1.0],
         radius: 10.0,
         rays: 360,
+        ..ViewpointOptions::default()
     };
     let Ok(r) = run_viewpoint(&MESHES, &["WALL"], &options, &w) else {
         unreachable!("refused");
@@ -152,5 +154,115 @@ fn refusals_carry_the_cpp_messages() {
     assert_eq!(
         ViewpointError::Cancelled.message(),
         "viewpoint calculation cancelled"
+    );
+}
+
+#[test]
+fn a_field_of_view_is_an_open_sector_at_the_plan_density() {
+    let w = wall();
+    let options = ViewpointOptions {
+        point: [0.0, 0.0, 1.0],
+        radius: 10.0,
+        rays: 360,
+        mode: ViewpointMode::FieldOfView,
+        bearing_degrees: 90.0,
+        field_of_view_degrees: 90.0,
+        ..ViewpointOptions::default()
+    };
+    let Ok(r) = run_viewpoint(&MESHES, &[], &options, &w) else {
+        unreachable!("refused");
+    };
+    assert_eq!(r.perimeter.len(), 91, "both edges of the angle");
+    let edge = 10.0 * (45.0_f64).to_radians().cos();
+    let (Some(first), Some(last)) = (r.perimeter.first(), r.perimeter.last()) else {
+        unreachable!("no rays");
+    };
+    assert!((first[0] - edge).abs() < 1e-9, "from bearing - 45 degrees");
+    assert!((last[0] + edge).abs() < 1e-9, "to bearing + 45 degrees");
+    assert!(
+        (r.area - std::f64::consts::PI * 25.0).abs() < 0.05,
+        "a quarter disc, not closed back across it"
+    );
+    assert!((r.open_fraction - 1.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn a_sphere_weighs_its_rows_by_solid_angle() {
+    let w = wall();
+    let options = ViewpointOptions {
+        point: [0.0, 0.0, 0.0],
+        radius: 10.0,
+        mode: ViewpointMode::Sphere,
+        sphere_columns: 64,
+        sphere_rows: 17,
+        ..ViewpointOptions::default()
+    };
+    let Ok(open) = run_viewpoint(&MESHES, &[], &options, &w) else {
+        unreachable!("refused");
+    };
+    assert_eq!(open.perimeter.len(), 64 * 17);
+    assert!(
+        open.perimeter.first().is_some_and(|p| p[2] < -9.99),
+        "row-major from the lowest elevation"
+    );
+    let ball = 4.0 / 3.0 * std::f64::consts::PI * 1000.0;
+    assert!(
+        (open.volume - ball).abs() < 1e-6 * ball,
+        "the bands add up to the whole sphere"
+    );
+    assert!((open.open_fraction - 1.0).abs() < 1e-12);
+    assert!(open.area.abs() < f64::EPSILON, "a sphere has no plan area");
+    let Ok(walled) = run_viewpoint(&MESHES, &["wall"], &options, &w) else {
+        unreachable!("refused");
+    };
+    assert!(walled.collision_count > 0);
+    assert!(walled.volume < open.volume);
+    assert!(walled.open_fraction > 0.4 && walled.open_fraction < 1.0);
+}
+
+#[test]
+fn mode_refusals_carry_the_cpp_messages() {
+    let w = wall();
+    let narrow = ViewpointOptions {
+        mode: ViewpointMode::FieldOfView,
+        field_of_view_degrees: 0.5,
+        ..ViewpointOptions::default()
+    };
+    assert_eq!(
+        run_viewpoint(&MESHES, &[], &narrow, &w),
+        Err(ViewpointError::BadFieldOfView)
+    );
+    for sphere in [
+        ViewpointOptions {
+            min_elevation_degrees: 10.0,
+            max_elevation_degrees: 10.0,
+            ..ViewpointOptions::default()
+        },
+        ViewpointOptions {
+            sphere_columns: 7,
+            ..ViewpointOptions::default()
+        },
+        ViewpointOptions {
+            sphere_rows: 362,
+            ..ViewpointOptions::default()
+        },
+    ] {
+        let options = ViewpointOptions {
+            mode: ViewpointMode::Sphere,
+            ..sphere
+        };
+        assert_eq!(
+            run_viewpoint(&MESHES, &[], &options, &w),
+            Err(ViewpointError::BadSphere)
+        );
+    }
+    let plan = ViewpointOptions {
+        sphere_rows: 0,
+        field_of_view_degrees: 0.0,
+        ..ViewpointOptions::default()
+    };
+    assert!(
+        run_viewpoint(&MESHES, &[], &plan, &w).is_ok(),
+        "a plan ignores the other modes' settings"
     );
 }

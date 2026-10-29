@@ -151,11 +151,17 @@ TEST (SunStudyRustViewsParity, VisibilityMatchesAcrossOriginsDomainsAndContext)
     for (int scene = 0; scene < 6; ++scene) {
         const auto snapshot = Scene (lcg, 100 + scene);
         geomsrv::QueryIndexCache::Get ().Release ();
-        for (const auto origin : { VisibilityOrigin::Surfaces, VisibilityOrigin::Point }) {
+        for (const int view : { 0, 1, 2 }) { // surfaces; a point's cone; a point's sphere
+            const auto origin = view == 0 ? VisibilityOrigin::Surfaces : VisibilityOrigin::Point;
             for (const auto domain : { SamplingDomain::SurfacePatch, SamplingDomain::TriangleLegacy }) {
                 for (int context = 0; context < 3; ++context) {
                     VisibilityStudyOptions options;
                     options.origin = origin;
+                    if (view == 2) {
+                        options.view = VisibilityView::Sphere;
+                        options.minElevationDegrees = lcg.Uniform (-90, 0);
+                        options.maxElevationDegrees = lcg.Uniform (0, 90);
+                    }
                     options.domain = domain;
                     options.spacing = scene % 2 == 0 ? 1.5 : 0.9;
                     options.maxAimPoints = scene % 3 == 0 ? 4 : 32; // forces the farthest-point reduction
@@ -174,8 +180,8 @@ TEST (SunStudyRustViewsParity, VisibilityMatchesAcrossOriginsDomainsAndContext)
                     const std::vector<std::string> from = { kFloor }, to = { kTower, kShed };
                     const auto e = RunVisibilityStudy (snapshot, from, to, options);
                     const auto a = rs::RunVisibilityStudy (snapshot, from, to, options);
-                    const std::string what = "scene " + std::to_string (scene) + " origin " +
-                                             std::to_string (int (origin)) + " domain " +
+                    const std::string what = "scene " + std::to_string (scene) + " view " +
+                                             std::to_string (view) + " domain " +
                                              std::to_string (int (domain)) + " context " + std::to_string (context);
                     ExpectSameVisibility (e, a, what);
                     if (::testing::Test::HasFatalFailure ())
@@ -188,7 +194,7 @@ TEST (SunStudyRustViewsParity, VisibilityMatchesAcrossOriginsDomainsAndContext)
             }
         }
     }
-    EXPECT_EQ (cases, 72u);
+    EXPECT_EQ (cases, 108u);
     EXPECT_GT (partial, 50u) << "the corpus must produce partial visibility, not only 0 and 1";
 }
 
@@ -217,6 +223,14 @@ TEST (SunStudyRustViewsParity, VisibilityRefusalsMatch)
     cases.back ().options.origin = VisibilityOrigin::Point;
     cases.back ().options.coneDegrees = 180;
     cases.push_back ({ { kFloor }, { kTower }, base });
+    cases.back ().options.origin = VisibilityOrigin::Point;
+    cases.back ().options.view = VisibilityView::Sphere;
+    cases.back ().options.minElevationDegrees = 20;
+    cases.back ().options.maxElevationDegrees = -20;
+    cases.push_back ({ { kFloor }, { kTower }, base });
+    cases.back ().options.origin = VisibilityOrigin::Point;
+    cases.back ().options.view = static_cast<VisibilityView> (7);
+    cases.push_back ({ { kFloor }, { kTower }, base });
     cases.back ().options.maxRays = 10; // fewer rays than cells
     cases.push_back ({ { kFloor }, { kTower, kShed }, base });
     cases.back ().options.maxRays = 900; // budget below one aim point per TO element
@@ -233,38 +247,78 @@ TEST (SunStudyRustViewsParity, VisibilityRefusalsMatch)
     ExpectSameVisibility (e, a, "cancelled");
 }
 
-TEST (SunStudyRustViewsParity, ViewpointMatchesEveryBit)
+void ExpectSameViewpoint (const ViewpointStudyResult& e, const ViewpointStudyResult& a, const std::string& what)
+{
+    ASSERT_EQ (a.valid, e.valid) << what << ": " << e.error << " / " << a.error;
+    EXPECT_EQ (a.error, e.error) << what;
+    EXPECT_EQ (a.collisionCount, e.collisionCount) << what;
+    EXPECT_TRUE (SameBits (a.area, e.area)) << what << " area";
+    EXPECT_TRUE (SameBits (a.volume, e.volume)) << what << " volume";
+    EXPECT_TRUE (SameBits (a.openFraction, e.openFraction)) << what << " open fraction";
+    ASSERT_EQ (a.perimeter.size (), e.perimeter.size ()) << what;
+    EXPECT_TRUE (SameBits (a.perimeter, e.perimeter)) << what << " ray ends";
+    EXPECT_EQ (a.rayMesh, e.rayMesh) << what << ": the element that stopped each ray";
+    EXPECT_TRUE (SameBits (a.seenSurface, e.seenSurface)) << what << " seen surfaces";
+    EXPECT_TRUE (SameBits (a.seenArea, e.seenArea)) << what << " seen area";
+    EXPECT_TRUE (SameBits (a.surfaceCellMetres, e.surfaceCellMetres)) << what << " cell";
+}
+
+TEST (SunStudyRustViewsParity, ViewpointMatchesEveryBitInEveryMode)
 {
     Lcg lcg (0x715b3ull);
+    size_t sectors = 0, spheres = 0;
     for (int scene = 0; scene < 8; ++scene) {
         const auto snapshot = Scene (lcg, 200 + scene);
         for (const auto& context : { std::vector<std::string> {}, std::vector<std::string> { kTower, kWall },
                                      std::vector<std::string> { kShed } }) {
-            ViewpointOptions options;
-            options.point = { lcg.Uniform (-5, 15), lcg.Uniform (-8, 12), lcg.Uniform (0.5, 3) };
-            options.radius = lcg.Uniform (5, 30);
-            options.rays = scene % 2 == 0 ? 720 : 97;
-            const auto e = RunViewpointStudy (snapshot, context, options);
-            const auto a = rs::RunViewpointStudy (snapshot, context, options);
-            ASSERT_EQ (a.valid, e.valid) << e.error << " / " << a.error;
-            EXPECT_EQ (a.collisionCount, e.collisionCount);
-            EXPECT_TRUE (SameBits (a.area, e.area));
-            ASSERT_EQ (a.perimeter.size (), e.perimeter.size ());
-            EXPECT_EQ (
-                std::memcmp (a.perimeter.data (), e.perimeter.data (), e.perimeter.size () * sizeof (double) * 3), 0);
-            EXPECT_EQ (a.rayMesh, e.rayMesh) << "the element that stopped each ray";
-            if (!context.empty ())
-                EXPECT_EQ (
-                    size_t (std::count_if (e.rayMesh.begin (), e.rayMesh.end (), [] (int64_t m) { return m >= 0; })),
-                    e.collisionCount);
+            for (const auto mode : { ViewpointMode::Plan, ViewpointMode::FieldOfView, ViewpointMode::Sphere }) {
+                ViewpointOptions options;
+                options.mode = mode;
+                options.point = { lcg.Uniform (-5, 15), lcg.Uniform (-8, 12), lcg.Uniform (0.5, 3) };
+                options.radius = lcg.Uniform (5, 30);
+                options.rays = scene % 2 == 0 ? 720 : 97;
+                options.bearingDegrees = lcg.Uniform (-400, 400);
+                options.fieldOfViewDegrees = lcg.Uniform (1, 359);
+                options.minElevationDegrees = lcg.Uniform (-90, 0);
+                options.maxElevationDegrees = lcg.Uniform (1, 90);
+                options.sphereColumns = scene % 2 == 0 ? 48 : 13;
+                options.sphereRows = scene % 2 == 0 ? 9 : 2;
+                options.surfaceCellMetres = 0.75;
+                const auto e = RunViewpointStudy (snapshot, context, options);
+                const auto a = rs::RunViewpointStudy (snapshot, context, options);
+                const std::string what = "scene " + std::to_string (scene) + " mode " + std::to_string (int (mode));
+                ExpectSameViewpoint (e, a, what);
+                if (::testing::Test::HasFatalFailure ())
+                    return;
+                EXPECT_TRUE (e.valid) << what << ": " << e.error;
+                if (!context.empty ())
+                    EXPECT_EQ (size_t (std::count_if (e.rayMesh.begin (), e.rayMesh.end (),
+                                                      [] (int64_t m) { return m >= 0; })),
+                               e.collisionCount);
+                sectors += mode == ViewpointMode::FieldOfView && e.perimeter.size () < options.rays ? 1 : 0;
+                spheres += mode == ViewpointMode::Sphere && !e.seenSurface.empty () ? 1 : 0;
+            }
         }
     }
+    EXPECT_EQ (sectors, 24u) << "every field of view is a sector";
+    EXPECT_GT (spheres, 12u) << "the corpus must see surfaces from its spheres";
     ViewpointOptions bad;
     bad.rays = 10;
+    ViewpointOptions narrow;
+    narrow.mode = ViewpointMode::FieldOfView;
+    narrow.fieldOfViewDegrees = 0.5;
+    ViewpointOptions flat;
+    flat.mode = ViewpointMode::Sphere;
+    flat.minElevationDegrees = flat.maxElevationDegrees = 10.0;
+    ViewpointOptions unknown;
+    unknown.mode = static_cast<ViewpointMode> (7);
     for (const auto& [snapshot, context, options] :
          { std::tuple { Scene (lcg, 300), std::vector<std::string> {}, bad },
            std::tuple { Scene (lcg, 301), std::vector<std::string> { "{0B000000-0000-0000-0000-0000000000FF}" },
-                        ViewpointOptions () } }) {
+                        ViewpointOptions () },
+           std::tuple { Scene (lcg, 302), std::vector<std::string> {}, narrow },
+           std::tuple { Scene (lcg, 303), std::vector<std::string> {}, flat },
+           std::tuple { Scene (lcg, 304), std::vector<std::string> {}, unknown } }) {
         const auto e = RunViewpointStudy (snapshot, context, options);
         const auto a = rs::RunViewpointStudy (snapshot, context, options);
         EXPECT_FALSE (e.valid);
@@ -277,21 +331,48 @@ TEST (SunStudyRustViewsParity, TheSelectedViewpointMatchesTheCppStudyUnderEither
 {
     Lcg lcg (0x715b4ull);
     const auto snapshot = Scene (lcg, 400);
-    ViewpointOptions options;
-    options.point = { 2.0, 8.0, 1.6 };
     const std::vector<std::string> context { kTower, kWall };
-    const auto expected = RunViewpointStudy (snapshot, context, options);
+    for (const auto mode : { ViewpointMode::Plan, ViewpointMode::FieldOfView, ViewpointMode::Sphere }) {
+        ViewpointOptions options;
+        options.point = { 2.0, 8.0, 1.6 };
+        options.mode = mode;
+        options.fieldOfViewDegrees = 120.0;
+        options.surfaceCellMetres = 1.0;
+        const auto expected = RunViewpointStudy (snapshot, context, options);
+        ASSERT_TRUE (expected.valid) << expected.error;
+        for (const auto kind : { SunStudyCoreKind::Cpp, SunStudyCoreKind::Rust }) {
+            OverrideSunStudyCore (kind);
+            const auto actual = RunSelectedViewpointStudy (snapshot, context, options);
+            OverrideSunStudyCore (std::nullopt);
+            ExpectSameViewpoint (expected, actual,
+                                 std::string (kind == SunStudyCoreKind::Rust ? "rust" : "cpp") + " mode " +
+                                     std::to_string (int (mode)));
+        }
+    }
+}
+
+TEST (SunStudyRustViewsParity, TheSelectedSphereVisibilityMatchesTheCppStudyUnderEitherCore)
+{
+    Lcg lcg (0x42c0ffefull);
+    const auto snapshot = Scene (lcg, 403);
+    VisibilityStudyOptions options;
+    options.origin = VisibilityOrigin::Point;
+    options.view = VisibilityView::Sphere;
+    options.point[0] = 6.0;
+    options.point[1] = 2.0;
+    options.point[2] = 1.6;
+    options.direction[0] = -1.0; // facing away: a sphere has no facing
+    options.minElevationDegrees = -30.0;
+    options.maxElevationDegrees = 60.0;
+    options.spacing = 0.9;
+    const auto expected = RunVisibilityStudy (snapshot, { kFloor }, { kTower, kShed }, options);
+    ASSERT_TRUE (expected.valid) << expected.error;
+    EXPECT_GT (expected.visibleSamples, 0u);
     for (const auto kind : { SunStudyCoreKind::Cpp, SunStudyCoreKind::Rust }) {
         OverrideSunStudyCore (kind);
-        const auto actual = RunSelectedViewpointStudy (snapshot, context, options);
+        const auto actual = RunSelectedVisibilityStudy (snapshot, { kFloor }, { kTower, kShed }, options);
         OverrideSunStudyCore (std::nullopt);
-        ASSERT_TRUE (actual.valid) << actual.error;
-        EXPECT_EQ (actual.collisionCount, expected.collisionCount);
-        EXPECT_EQ (actual.rayMesh, expected.rayMesh);
-        EXPECT_TRUE (SameBits (actual.area, expected.area));
-        EXPECT_EQ (std::memcmp (actual.perimeter.data (), expected.perimeter.data (),
-                                expected.perimeter.size () * sizeof (double) * 3),
-                   0);
+        ExpectSameVisibility (expected, actual, kind == SunStudyCoreKind::Rust ? "rust" : "cpp");
     }
 }
 

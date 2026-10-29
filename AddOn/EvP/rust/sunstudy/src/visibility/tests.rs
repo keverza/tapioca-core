@@ -124,6 +124,47 @@ fn a_point_sees_what_the_cone_contains() {
 }
 
 #[test]
+fn a_sphere_sees_its_band_of_elevations_whatever_the_direction() {
+    let facing_away = VisibilityOptions {
+        origin: VisibilityOrigin::Point,
+        domain: SamplingDomain::TriangleLegacy,
+        spacing: 1.0,
+        point: [0.0, 2.0, 1.5],
+        direction: [-1.0, 0.0, 0.0],
+        view: VisibilityView::Sphere,
+        ..VisibilityOptions::default()
+    };
+    let Ok(all) = run(&[], &["wall"], &facing_away, &Fake { fail: false }) else {
+        unreachable!("refused");
+    };
+    assert_eq!(
+        all.ray_count,
+        all.values.len(),
+        "every cell is in the full sphere"
+    );
+    // The wall stands 6 m away and 3 m tall about a 1.5 m eye: within +-15 degrees.
+    let sky = VisibilityOptions {
+        min_elevation_degrees: 30.0,
+        ..facing_away.clone()
+    };
+    let Ok(none) = run(&[], &["wall"], &sky, &Fake { fail: false }) else {
+        unreachable!("refused");
+    };
+    assert_eq!(none.ray_count, 0);
+    let inverted = VisibilityOptions {
+        min_elevation_degrees: 10.0,
+        max_elevation_degrees: -10.0,
+        ..facing_away
+    };
+    assert_eq!(
+        run(&[], &["wall"], &inverted, &Fake { fail: false }).map(|_| ()),
+        Err(VisibilityError(
+            "visibility sphere needs elevations -90 <= min <= max <= 90 degrees"
+        ))
+    );
+}
+
+#[test]
 fn refusals_come_in_the_cpp_order() {
     let fake = Fake { fail: false };
     let base = VisibilityOptions::default();

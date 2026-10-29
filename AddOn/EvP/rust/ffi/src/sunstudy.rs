@@ -245,10 +245,10 @@ const _: () = {
     assert!(size_of::<RayHitRecord>() == 16);
     assert!(size_of::<OcclusionRayRecord>() == 64);
     assert!(size_of::<RayQueryVtable>() == 40);
-    assert!(size_of::<ViewpointRequest>() == 80);
+    assert!(size_of::<ViewpointRequest>() == 136);
     assert!(size_of::<ViewpointOutput>() == 40);
-    assert!(size_of::<VisibilityOptionsRecord>() == 120);
-    assert!(size_of::<VisibilityRunRequest>() == 192);
+    assert!(size_of::<VisibilityOptionsRecord>() == 136);
+    assert!(size_of::<VisibilityRunRequest>() == 208);
     assert!(size_of::<VisibilitySummary>() == 88);
     assert!(size_of::<VisibilityReadOutput>() == 112);
 };

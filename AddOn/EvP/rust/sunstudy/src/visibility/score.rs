@@ -3,8 +3,8 @@
 
 use super::aims::{reduce_aim_points, target_candidates};
 use super::{
-    CANCELLED, RAY_BATCH, VisibilityError, VisibilityRequest, above, distance_squared, normalize,
-    point3, ray_error,
+    CANCELLED, RAY_BATCH, VisibilityError, VisibilityRequest, VisibilityView, above,
+    distance_squared, normalize, point3, ray_error,
 };
 use crate::raster::{cpp_max, cpp_min};
 use crate::rays::{FirstHitRay, OcclusionRay, RayHit, RayQueries};
@@ -25,14 +25,25 @@ pub(super) fn from_point(
     query: Option<&[u8]>,
 ) -> Result<Scored, VisibilityError> {
     let o = r.options;
+    let sphere = o.view == VisibilityView::Sphere;
     let mut view = o.direction;
-    if !normalize(&mut view) {
+    if !sphere && !normalize(&mut view) {
         return Err(VisibilityError(
             "visibility point needs a non-zero view direction",
         ));
     }
     let cone = cpp_max(1.0, cpp_min(179.0, o.cone_degrees));
     let cos_half = (cone * 0.5 * std::f64::consts::PI / 180.0).cos();
+    // The sphere's band as sines of elevation: a unit direction's z IS that sine.
+    let sin_low = (o.min_elevation_degrees * std::f64::consts::PI / 180.0).sin();
+    let sin_high = (o.max_elevation_degrees * std::f64::consts::PI / 180.0).sin();
+    let seen = |dir: &[f64; 3]| {
+        if sphere {
+            dir[2] >= sin_low - 1.0e-12 && dir[2] <= sin_high + 1.0e-12
+        } else {
+            dir[0] * view[0] + dir[1] * view[1] + dir[2] * view[2] >= cos_half
+        }
+    };
     let mut values = vec![0.0; cells.count];
     let mut ray_count = 0;
     for first in (0..cells.count).step_by(RAY_BATCH) {
@@ -57,10 +68,7 @@ pub(super) fn from_point(
                 target[2] - o.point[2],
             ];
             let distance = distance_squared(&target, &o.point).sqrt();
-            if !above(distance, o.tmin)
-                || !normalize(&mut dir)
-                || dir[0] * view[0] + dir[1] * view[1] + dir[2] * view[2] < cos_half
-            {
+            if !above(distance, o.tmin) || !normalize(&mut dir) || !seen(&dir) {
                 continue;
             }
             rays.push(OcclusionRay {

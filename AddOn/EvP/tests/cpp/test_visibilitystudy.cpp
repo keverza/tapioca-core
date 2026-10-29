@@ -505,7 +505,7 @@ TEST (VisibilityStudy, PointSphereSeesEveryDirectionWithinItsElevationBand)
     EXPECT_FALSE (RunVisibilityStudy (Scene (false), {}, { "to" }, options).valid) << "an inverted band";
 }
 
-TEST (VisibilityStudy, SphereViewNeverReachesAKernelThatOnlyKnowsCones)
+TEST (VisibilityStudy, TheSelectedSphereViewHasNoFacing)
 {
     auto options = Options ();
     options.origin = VisibilityOrigin::Point;

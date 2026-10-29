@@ -495,10 +495,7 @@ VisibilityStudyResult RunSelectedVisibilityStudy (std::shared_ptr<const geomsrv:
                                                   const std::function<bool ()>& isCancelled)
 {
 #if defined(TAPIOCA_GEOMETRY_RUST)
-    // ⚠️ THE SPHERE VIEW IS C++ ONLY: the Rust kernel's options carry a cone and
-    // no view kind, so it would silently measure a cone.
-    const bool rustView = options.origin != VisibilityOrigin::Point || options.view == VisibilityView::Cone;
-    if (SelectedSunStudyCore () == SunStudyCoreKind::Rust && rustView)
+    if (SelectedSunStudyCore () == SunStudyCoreKind::Rust)
         return rust::RunVisibilityStudy (std::move (snapshot), fromElements, toElements, options, isCancelled);
 #endif
     return RunVisibilityStudy (std::move (snapshot), fromElements, toElements, options, isCancelled);

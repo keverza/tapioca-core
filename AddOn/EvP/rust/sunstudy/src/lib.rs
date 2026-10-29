@@ -38,4 +38,4 @@ pub mod winding;
 ///
 /// Bumped only when an exported sun-study record or call changes shape, so the
 /// C++ wrapper can refuse a mismatched archive instead of misreading it.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;

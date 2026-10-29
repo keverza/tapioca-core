@@ -7,8 +7,9 @@
 //! - **Surfaces:** each cell of the FROM surfaces aims at a deterministic set
 //!   of TO aim points (farthest-point reduced, every TO element represented)
 //!   and scores the fraction whose first hit is a TO element.
-//! - **Point:** each cell of the TO surfaces inside the view cone is 1 when
-//!   the segment from the point is unobstructed, else 0.
+//! - **Point:** each cell of the TO surfaces inside the view (a cone about a
+//!   direction, or a band of elevations of the sphere) is 1 when the segment
+//!   from the point is unobstructed, else 0.
 //!
 //! An explicit Context (even empty) restricts every ray to Context + TO;
 //! otherwise rays see the whole model. Refusals carry the C++ texts.
@@ -38,6 +39,17 @@ pub enum VisibilityOrigin {
     Surfaces = 0,
     /// From one point toward the TO surfaces.
     Point = 1,
+}
+
+/// What a point sees (`VisibilityView`, point mode only).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum VisibilityView {
+    /// A cone of `cone_degrees` about `direction`.
+    #[default]
+    Cone = 0,
+    /// Every direction whose elevation lies in the band.
+    Sphere = 1,
 }
 
 /// Study settings (`VisibilityStudyOptions`).
@@ -71,6 +83,12 @@ pub struct VisibilityOptions {
     pub direction: Vec3,
     /// Full cone angle, degrees (point mode).
     pub cone_degrees: f64,
+    /// Cone or sphere (point mode).
+    pub view: VisibilityView,
+    /// Sphere: the lowest elevation seen, degrees (-90 straight down).
+    pub min_elevation_degrees: f64,
+    /// Sphere: the highest elevation seen, degrees (90 the zenith).
+    pub max_elevation_degrees: f64,
 }
 
 impl Default for VisibilityOptions {
@@ -90,6 +108,9 @@ impl Default for VisibilityOptions {
             point: [0.0; 3],
             direction: [1.0, 0.0, 0.0],
             cone_degrees: 90.0,
+            view: VisibilityView::Cone,
+            min_elevation_degrees: -90.0,
+            max_elevation_degrees: 90.0,
         }
     }
 }
@@ -262,16 +283,35 @@ fn validate(o: &VisibilityOptions) -> Result<(), VisibilityError> {
         ));
     }
     if o.origin == VisibilityOrigin::Point {
+        const BAD_POINT: VisibilityError = VisibilityError(
+            "visibility point needs finite coordinates, a non-zero direction and a 1..179 degree cone",
+        );
+        if !o.point.iter().all(|v| v.is_finite()) {
+            return Err(BAD_POINT);
+        }
         let mut view = o.direction;
-        if !o.point.iter().all(|v| v.is_finite())
-            || !normalize(&mut view)
-            || !o.cone_degrees.is_finite()
-            || o.cone_degrees < 1.0
-            || o.cone_degrees > 179.0
-        {
-            return Err(VisibilityError(
-                "visibility point needs finite coordinates, a non-zero direction and a 1..179 degree cone",
-            ));
+        match o.view {
+            VisibilityView::Sphere => {
+                if !o.min_elevation_degrees.is_finite()
+                    || !o.max_elevation_degrees.is_finite()
+                    || o.min_elevation_degrees < -90.0
+                    || o.max_elevation_degrees > 90.0
+                    || o.min_elevation_degrees > o.max_elevation_degrees
+                {
+                    return Err(VisibilityError(
+                        "visibility sphere needs elevations -90 <= min <= max <= 90 degrees",
+                    ));
+                }
+            }
+            VisibilityView::Cone => {
+                if !normalize(&mut view)
+                    || !o.cone_degrees.is_finite()
+                    || o.cone_degrees < 1.0
+                    || o.cone_degrees > 179.0
+                {
+                    return Err(BAD_POINT);
+                }
+            }
         }
     }
     Ok(())

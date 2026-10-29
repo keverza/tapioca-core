@@ -1,7 +1,7 @@
 #ifndef TAPIOCA_SUNSTUDY_RUST_FFI_H
 #define TAPIOCA_SUNSTUDY_RUST_FFI_H
 
-/* Sun-study C ABI v1, exported by the aggregate tapioca_core_ffi archive.
+/* Sun-study C ABI v2, exported by the aggregate tapioca_core_ffi archive.
  * Only implemented exports are declared here. Shares TapiocaStatus and the
  * error-buffer envelope with GeometryRustFfi.h: every call returns a status,
  * writes a NUL-terminated UTF-8 diagnostic prefix on failure, leaves outputs
@@ -16,7 +16,7 @@
 
 #include "Geometry/GeometryRustFfi.h"
 
-#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (1)
+#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (2)
 
 #ifdef __cplusplus
 extern "C" {
@@ -1268,28 +1268,33 @@ typedef struct {
     double radius;
     size_t rays;
     const TapiocaRayQueryVtable* queries;
+    double angles[4]; /* bearing, field of view, min and max elevation; degrees */
+    size_t grid[2];   /* sphere columns, rows */
+    uint8_t mode;     /* ViewpointMode */
 } TapiocaViewpointRequest;
 
 typedef struct {
-    double (*perimeter)[3];
+    double (*perimeter)[3]; /* one per ray: plan rays, sector rays, or sphere rows x columns */
     size_t capacity;
-    size_t (*counts)[2]; /* points, collisions */
-    double* area;
-    int64_t* rayMesh; /* capacity entries: stopping mesh index, or -1 */
+    size_t (*counts)[2];  /* points, collisions */
+    double (*measures)[3]; /* area, volume, openFraction */
+    int64_t* rayMesh;      /* capacity entries: stopping mesh index, or -1 */
 } TapiocaViewpointOutput;
 
-/* RunViewpointStudy; a refusal returns TAPIOCA_ERR_STATE with its message. */
+/* RunViewpointStudy without the sphere's seen surfaces (the host's pass over its
+ * own triangles); a refusal returns TAPIOCA_ERR_STATE with its message. */
 TapiocaStatus tapioca_sunstudy_viewpoint (const TapiocaViewpointRequest* request, const TapiocaViewpointOutput* output,
                                           char* error, size_t errorCapacity);
 
 typedef struct {
-    double reals[4];  /* spacing, normalOffset, tmin, coneDegrees */
+    double reals[6];  /* spacing, normalOffset, tmin, coneDegrees, min and max elevation degrees */
     size_t limits[4]; /* maxSamples, maxAimPoints, maxRays, maxParallel */
     double point[3];
     double direction[3];
     uint8_t origin; /* VisibilityOrigin */
     uint8_t domain; /* SamplingDomain */
     uint8_t explicitContext;
+    uint8_t view; /* VisibilityView */
 } TapiocaVisibilityOptions;
 
 typedef struct {

@@ -8,7 +8,7 @@ use crate::borrow::{BorrowContext, SliceView};
 use crate::boundary::{Failure, call};
 use tapioca_sunstudy::rays::{FirstHitRay, OcclusionRay, RayError, RayHit, RayQueries};
 use tapioca_sunstudy::surface_sampling::SamplingMesh;
-use tapioca_sunstudy::viewpoint::{ViewpointOptions, run_viewpoint};
+use tapioca_sunstudy::viewpoint::{ViewpointError, ViewpointMode, ViewpointOptions, run_viewpoint};
 
 /// One first-hit ray.
 #[repr(C)]
@@ -254,20 +254,26 @@ pub struct ViewpointRequest {
     pub rays: usize,
     /// The scene index.
     pub queries: *const RayQueryVtable,
+    /// Bearing, field of view, min and max elevation; degrees.
+    pub angles: [f64; 4],
+    /// Sphere columns, rows.
+    pub grid: [usize; 2],
+    /// 0 plan, 1 field of view, 2 sphere.
+    pub mode: u8,
 }
 
 /// Viewpoint outputs.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ViewpointOutput {
-    /// Perimeter points (`rays` of them).
+    /// Perimeter points (one per ray).
     pub perimeter: *mut [f64; 3],
     /// Capacity in points.
     pub capacity: usize,
     /// Points written, collisions.
     pub counts: *mut [usize; 2],
-    /// Enclosed area.
-    pub area: *mut f64,
+    /// Area, volume, open fraction.
+    pub measures: *mut [f64; 3],
     /// Per ray: the stopping mesh index, or -1 (`capacity` entries).
     pub ray_mesh: *mut i64,
 }
@@ -300,7 +306,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_viewpoint(
             regions.input(request.queries, 1);
             regions.output(target.perimeter, target.capacity);
             regions.output(target.counts, 1);
-            regions.output(target.area, 1);
+            regions.output(target.measures, 1);
             regions.output(target.ray_mesh, target.capacity);
             regions.check()?;
             let context = regions.context();
@@ -310,10 +316,23 @@ pub unsafe extern "C" fn tapioca_sunstudy_viewpoint(
             let queries = VtableQueries {
                 vtable: context.record(request.queries)?,
             };
+            let [bearing, field_of_view, min_elevation, max_elevation] = request.angles;
             let options = ViewpointOptions {
                 point: request.point,
                 radius: request.radius,
                 rays: request.rays,
+                mode: match request.mode {
+                    0 => ViewpointMode::Plan,
+                    1 => ViewpointMode::FieldOfView,
+                    2 => ViewpointMode::Sphere,
+                    _ => return Err(Failure::State(ViewpointError::BadMode.message())),
+                },
+                bearing_degrees: bearing,
+                field_of_view_degrees: field_of_view,
+                min_elevation_degrees: min_elevation,
+                max_elevation_degrees: max_elevation,
+                sphere_columns: request.grid[0],
+                sphere_rows: request.grid[1],
             };
             let result = run_viewpoint(&guids, &picked, &options, &queries)
                 .map_err(|e| Failure::State(e.message()))?;
@@ -324,7 +343,9 @@ pub unsafe extern "C" fn tapioca_sunstudy_viewpoint(
             target
                 .counts
                 .write([result.perimeter.len(), result.collision_count]);
-            target.area.write(result.area);
+            target
+                .measures
+                .write([result.area, result.volume, result.open_fraction]);
             for (i, mesh) in result.ray_mesh.iter().enumerate() {
                 let value = mesh.map_or(-1, |m| i64::try_from(m).unwrap_or(-1));
                 // SAFETY: i < perimeter.len() <= capacity, checked above.

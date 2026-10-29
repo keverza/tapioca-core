@@ -122,7 +122,7 @@ TEST (SunStudyRustParity, AbiVersionHandshake)
     uint32_t version = 0;
     std::string error = "stale";
     ASSERT_TRUE (rs::ReadAbiVersion (version, error)) << error;
-    EXPECT_EQ (version, 1u);
+    EXPECT_EQ (version, 2u); // v2: viewpoint modes and the sphere visibility view (#80)
     EXPECT_TRUE (error.empty ());
 }
 

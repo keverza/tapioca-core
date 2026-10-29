@@ -457,7 +457,7 @@ TEST (ViewpointStudy, ASpheresShadowBorderFollowsTheOccludersEdge)
     EXPECT_GT (onBorder, 8u) << "the border runs along the shadow's edge, not a cell away from it";
 }
 
-TEST (ViewpointStudy, ModesOtherThanPlanNeverReachAKernelWithoutThem)
+TEST (ViewpointStudy, TheSelectedFieldOfViewIsASector)
 {
     ViewpointOptions options;
     options.mode = ViewpointMode::FieldOfView;
