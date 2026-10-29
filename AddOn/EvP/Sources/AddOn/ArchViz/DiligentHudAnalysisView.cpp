@@ -11,6 +11,7 @@
 #include "ArchViz/ViewpointOverlayGeometry.hpp"
 #include "ArchViz/ViewpointStudyController.hpp"
 #include "ArchViz/VisibilityStudyController.hpp"
+#include "Geometry/MeshStore.hpp"
 
 namespace geomsrv::archviz {
 
@@ -40,8 +41,43 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state)
         if (!shown.empty () && status.studyId == shown)
             origin = status.origin;
     }
-    analysistabs::FollowShownStudy (state.analysisFocus, shown, kind,
-                                    SceneCmdQueue::Get ().AnalysisDisplayGeneration (), origin);
+    auto& queue = SceneCmdQueue::Get ();
+    analysistabs::FollowShownStudy (state.analysisFocus, shown, kind, queue.AnalysisDisplayGeneration (), origin);
+    // ⚠️ EACH TINT TAB PUTS ITS OWN STUDY BACK. The three share one tint channel,
+    // so the last run evicts the others; without this the sun tab said "a
+    // visibility study is on screen" and could not show its own again.
+    auto& focus = state.analysisFocus;
+    for (int tab = 0; tab < 3; ++tab)
+        if (focus.keptStudy[tab].empty ())
+            state.analysisKept[tab].reset ();
+    const int restore = analysistabs::KeepShownStudy (focus, shown, kind);
+    if (focus.lastShownTab >= 0) {
+        auto payload = scene.ShownAnalysisPayload ();
+        if (payload != nullptr && payload->studyId == shown)
+            state.analysisKept[focus.lastShownTab] = std::move (payload);
+    }
+    if (restore >= 0 && state.analysisKept[restore] != nullptr) {
+        const auto& kept = state.analysisKept[restore];
+        const bool stale = kept->analysisKind == 1 && kept->captureStamp != 0 &&
+                           kept->captureStamp != MeshStore::Get ().CaptureStamp ();
+        if (stale) {
+            // The model moved under it: forget it. The point tab re-runs live.
+            focus.keptStudy[restore].clear ();
+            state.analysisKept[restore].reset ();
+        }
+        else {
+            // Through the normal path, as a whole upload; the claim it makes is
+            // marked seen so the put-back does not move the focus.
+            const uint64_t claim = queue.ClaimAnalysisDisplay (kept->analysisKind);
+            focus.seenClaim = claim;
+            queue.PushAnalysisAtlas (claim, std::make_unique<SunStudyAtlasUpload> (*kept));
+        }
+        if (restore == analysistabs::kPointVisibilityTab) {
+            const auto status = visibilitystudy::GetStatus ();
+            if (stale || status.studyId != focus.keptStudy[restore])
+                state.visibilityLiveKey.clear (); // a newer run was lost to the switch
+        }
+    }
     SunStudyViewSettings view = SunStudyViewOf (state);
     view.suppressed = !analysistabs::ShowsTint (state.analysisFocus, shown, kind);
     view.visibilityLowRgba = state.visibilityLowRgba;

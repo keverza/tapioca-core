@@ -737,6 +737,11 @@ uint32_t DiligentScene::ShownAnalysisKind () const
     return impl_ != nullptr ? impl_->sunAnalysisKind : 0u;
 }
 
+std::shared_ptr<const SunStudyAtlasUpload> DiligentScene::ShownAnalysisPayload () const
+{
+    return impl_ != nullptr && impl_->sunAtlasSRV != nullptr ? impl_->sunStudyPayload : nullptr;
+}
+
 void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
 {
     if (impl_ == nullptr)

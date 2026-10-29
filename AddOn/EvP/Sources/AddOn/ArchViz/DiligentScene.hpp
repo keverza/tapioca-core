@@ -417,6 +417,9 @@ class DiligentScene final {
     std::string ShownSunStudyId () const;
     // Its SunStudyAtlasUpload::analysisKind: 0 the sun study, 1 visibility.
     uint32_t ShownAnalysisKind () const;
+    // What it is drawing from, whole (no incremental base): an Analysis tab keeps
+    // it to put back on screen. RENDER THREAD.
+    std::shared_ptr<const SunStudyAtlasUpload> ShownAnalysisPayload () const;
 
     // How well surfaces are lit. ⚠️ A SEPARATE AXIS FROM RenderMode, not more
     // cases of it -- ViewerSettings.hpp says why, and it is the CameraSyncMode

@@ -31,6 +31,11 @@ struct Focus {
     std::string seenStudy;
     uint64_t seenClaim = 0;
     int shownOrigin = 0; // the visibility origin of the resident kind-1 study
+    // Per tint tab (sun, surface, point): the last study it showed, which it puts
+    // back when it takes the focus again. Empty once cleared on its own tab.
+    std::string keptStudy[3];
+    int restoreTried = -1; // the tab a put-back was asked for since it took the focus
+    int lastShownTab = -1; // the tab whose study was shown last frame, or -1
 };
 
 // Once a frame, with the resident study (empty for none), its kind, the analysis
@@ -49,6 +54,14 @@ void Opened (Focus& focus, int tab);
 
 // Request a tab from outside the tab bar (a command, or a run started elsewhere).
 void Select (Focus& focus, int tab);
+
+// Once a frame, after FollowShownStudy: record the shown study as its tab's, and
+// forget a tab's study cleared while that tab had the focus. Returns the tab in
+// focus when its kept study should be put back on screen now -- it is not the one
+// shown, and no put-back was asked for since the tab took the focus -- else -1.
+// ⚠️ ONE ASK PER VISIT. A put-back the scene refuses (a stale visibility capture)
+// leaves the other study up; asking again every frame would never stop.
+int KeepShownStudy (Focus& focus, const std::string& shownStudy, uint32_t analysisKind);
 
 // Whether the resident study's tint draws: only on the tab that owns it.
 bool ShowsTint (const Focus& focus, const std::string& shownStudy, uint32_t analysisKind);

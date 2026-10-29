@@ -57,3 +57,56 @@ TEST (AnalysisTabs, OnlyTheOwningTabShowsTheTint)
     EXPECT_TRUE (ShowsTint (focus, "visibility-viewer-2", 1));
     EXPECT_TRUE (ShowsTint (focus, "", 0)) << "nothing resident, nothing to hide";
 }
+
+TEST (AnalysisTabs, EachTintTabPutsItsOwnStudyBackOncePerVisit)
+{
+    Focus focus;
+    FollowShownStudy (focus, "sun-1", 0, 1, 0);
+    Opened (focus, kSunTab);
+    EXPECT_EQ (KeepShownStudy (focus, "sun-1", 0), -1);
+    // A visibility run evicts the sun study from the shared channel.
+    FollowShownStudy (focus, "visibility-viewer-1", 1, 2, 0);
+    Opened (focus, kSurfaceVisibilityTab);
+    EXPECT_EQ (KeepShownStudy (focus, "visibility-viewer-1", 1), -1);
+    // Back on the sun tab: put the sun study back, and ask only once.
+    Opened (focus, kSunTab);
+    EXPECT_EQ (KeepShownStudy (focus, "visibility-viewer-1", 1), kSunTab);
+    EXPECT_EQ (KeepShownStudy (focus, "visibility-viewer-1", 1), -1) << "one ask per visit";
+    // It arrives under a claim the HUD marked seen: the focus stays.
+    focus.seenClaim = 3;
+    FollowShownStudy (focus, "sun-1", 0, 3, 0);
+    Opened (focus, kSunTab);
+    EXPECT_EQ (focus.tab, kSunTab);
+    EXPECT_EQ (focus.selectTab, -1);
+    EXPECT_EQ (KeepShownStudy (focus, "sun-1", 0), -1);
+    // And the visibility tab puts its own back in turn.
+    Opened (focus, kSurfaceVisibilityTab);
+    EXPECT_EQ (KeepShownStudy (focus, "sun-1", 0), kSurfaceVisibilityTab);
+}
+
+TEST (AnalysisTabs, APutBackVisibilityStudyKeepsItsOwnTabsOrigin)
+{
+    Focus focus;
+    focus.keptStudy[kSurfaceVisibilityTab] = "visibility-viewer-1";
+    focus.keptStudy[kPointVisibilityTab] = "visibility-viewer-2";
+    Opened (focus, kSurfaceVisibilityTab);
+    // The last run was the point tab's, but this is the surface tab's study.
+    FollowShownStudy (focus, "visibility-viewer-1", 1, 4, 1);
+    EXPECT_EQ (focus.shownOrigin, 0);
+    EXPECT_TRUE (ShowsTint (focus, "visibility-viewer-1", 1));
+}
+
+TEST (AnalysisTabs, AStudyClearedOnItsOwnTabIsNotPutBack)
+{
+    Focus focus;
+    FollowShownStudy (focus, "visibility-viewer-1", 1, 1, 0);
+    Opened (focus, kSurfaceVisibilityTab);
+    KeepShownStudy (focus, "visibility-viewer-1", 1);
+    FollowShownStudy (focus, "", 0, 2, 0);
+    KeepShownStudy (focus, "", 0);
+    EXPECT_TRUE (focus.keptStudy[kSurfaceVisibilityTab].empty ());
+    Opened (focus, kSunTab);
+    KeepShownStudy (focus, "", 0);
+    Opened (focus, kSurfaceVisibilityTab);
+    EXPECT_EQ (KeepShownStudy (focus, "", 0), -1);
+}

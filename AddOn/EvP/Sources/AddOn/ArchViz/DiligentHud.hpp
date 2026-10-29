@@ -32,6 +32,7 @@
 #include "ArchViz/TraceAnnotationLayer.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 namespace Diligent {
@@ -45,6 +46,7 @@ namespace archviz {
 
 struct InputSnapshot;
 struct DiligentSceneStats;
+struct SunStudyAtlasUpload;
 
 // What the HUD shows, and what the user can change from it. The viewport owns
 // one of these and reads it back after Draw.
@@ -225,6 +227,9 @@ struct HudState {
     uint32_t viewpointBlockedRgba = 0xEC6240F0u; // where Context stopped it
     // Which Analysis tab has the focus; only its result is shown (AnalysisTabs.hpp).
     analysistabs::Focus analysisFocus;
+    // What each tint tab (sun, surface, point) last showed, matching
+    // analysisFocus.keptStudy, to put back when the tab is opened again.
+    std::shared_ptr<const SunStudyAtlasUpload> analysisKept[3];
     bool viewpointPlacing = false; // the next model click places the shared point
     bool viewpointPlacementMiss = false;
     double viewpointRadiusRange = 0.0; // the radius slider's top; 0 until first drawn

@@ -300,12 +300,11 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
 
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
 {
-    const SunStudyOverlayStatus& study = scene.sunStudy;
-    if (study.drawing && study.analysisKind == 1) {
-        ImGui::TextWrapped ("A visibility study is on screen. Open Surface visibility or Point visibility for its "
-                            "controls and legend.");
-        return;
-    }
+    // ⚠️ A VISIBILITY STUDY ON THE SHARED CHANNEL IS NOT THIS TAB'S. It is hidden
+    // here (AnalysisTabs.hpp), so the tab reads as having no study and can run
+    // one; its own last one, if any, is put back by ApplyAnalysisView.
+    SunStudyOverlayStatus study = scene.sunStudy;
+    study.drawing = study.drawing && study.analysisKind == 0;
     // The study is asked for here, not only in the palette: open until the
     // first one is on screen, then folded under what it shows.
     if (ImGui::CollapsingHeader ("Run sun study", study.drawing ? 0 : ImGuiTreeNodeFlags_DefaultOpen))
