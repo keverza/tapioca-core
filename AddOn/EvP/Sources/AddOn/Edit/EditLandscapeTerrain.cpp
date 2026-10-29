@@ -243,6 +243,15 @@ bool Evaluate (const geomsrv::edit::Document& doc, const LandscapeTerrainRequest
         error = candidate.landscape.error;
         return false;
     }
+    if (candidate.landscape.propertyLine.empty () && !request.fallbackArea.empty () &&
+        (request.fallbackArea.size () < 9 || request.fallbackArea.size () % 3 != 0)) {
+        error = "TerrainRegionShape: fallback terrain cover requires at least three XYZ points";
+        return false;
+    }
+    if (candidate.landscape.propertyLine.empty ())
+        for (size_t i = 0; i + 2 < request.fallbackArea.size (); i += 3)
+            candidate.landscape.propertyLine.push_back (
+                { request.fallbackArea[i], request.fallbackArea[i + 1], request.fallbackArea[i + 2] });
     std::vector<OperationId> operationIds;
     for (const auto& edit : request.edits)
         operationIds.push_back (edit.operation);

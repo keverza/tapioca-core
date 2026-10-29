@@ -395,6 +395,8 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
             }
     std::set<Id> boundaryOwners;
     for (const auto& v : s.objects) {
+        if (!ValidateRegionTerrain (v, error))
+            return false;
         if (v.surface && (!v.boundarySource || !ValidateRegionSurface (*v.surface, error))) {
             if (error.empty ())
                 error = "Surface metadata needs a region-boundary owner.";
@@ -860,6 +862,24 @@ bool SetRegionSurface (edit::Document& doc, Id object, const RegionSurface& surf
                     return true;
                 }
             e = "Select a region-boundary object.";
+            return false;
+        },
+        error);
+}
+bool SetRegionTerrain (edit::Document& doc, Id object, RegionTerrain terrain, std::string& error)
+{
+    return Mutate (
+        doc,
+        [=] (edit::Document& d, std::string& e) {
+            for (auto& region : d.landscape->objects)
+                if (region.id == object && region.boundarySource &&
+                    std::any_of (d.landscape->sources.begin (), d.landscape->sources.end (), [&] (const auto& source) {
+                        return source.id == region.boundarySource && !source.deleted;
+                    })) {
+                    region.terrain = terrain;
+                    return true;
+                }
+            e = "Select a live region-boundary object.";
             return false;
         },
         error);

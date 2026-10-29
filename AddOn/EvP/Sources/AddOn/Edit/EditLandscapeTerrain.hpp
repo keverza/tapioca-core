@@ -16,6 +16,7 @@ struct LandscapeTerrainRequest {
     std::span<const double> queriesXY;
     double sampleStep = 0.25;
     std::optional<EditTerrainVolumeOptions> volumes;
+    std::span<const double> fallbackArea; // Derived terrain cover, only when there is no authored property line.
 };
 struct LandscapeConstraintHeights {
     Id operation = kNoId;

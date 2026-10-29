@@ -2,6 +2,25 @@
 #include <cmath>
 
 namespace tapioca::geometry {
+bool ValidateRegionTerrain (const HardscapeObject& object, std::string& error)
+{
+    const auto& terrain = object.terrain;
+    if (terrain.effect > RegionTerrainEffect::Subtract || terrain.transition > RegionTerrainTransition::Daylight ||
+        !std::isfinite (terrain.falloff) || terrain.falloff < 0.05 || terrain.falloff > 100 ||
+        !std::isfinite (terrain.reach) || terrain.reach < 0.05 || terrain.reach > 100 ||
+        !std::isfinite (terrain.cutPercent) || terrain.cutPercent <= 0 || terrain.cutPercent > 1000 ||
+        !std::isfinite (terrain.fillPercent) || terrain.fillPercent <= 0 || terrain.fillPercent > 1000) {
+        error = "RegionTerrain: finite transition widths/reaches (0.05..100 m) and positive cut/fill grades (<=1000%) "
+                "required";
+        return false;
+    }
+    if (terrain.effect != RegionTerrainEffect::None &&
+        (!object.boundarySource || !object.surface || object.surface->elevation != RegionElevationMode::Constant)) {
+        error = "RegionTerrain: choose a Constant target elevation before enabling Grade/Add/Subtract";
+        return false;
+    }
+    return true;
+}
 bool ValidateRegionSurface (const RegionSurface& surface, std::string& error)
 {
     if (surface.elevation > RegionElevationMode::Constant || surface.slope > RegionSlopeMode::ContourLine ||

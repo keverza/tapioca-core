@@ -27,6 +27,7 @@ struct EditTerrainSplitResult {
     std::vector<uint8_t> inside;
     std::vector<geomsrv::edit::Id> propertyVertices, propertySegments; // Authored document IDs, not array ordinals.
     std::vector<EditTerrainPropertyEdge> propertyEdges;
+    size_t derivedRingVertices = 0; // Transient derived ring; never authored vertex/segment IDs.
     bool operator== (const EditTerrainSplitResult&) const = default;
 };
 struct EditTerrainPreservation {
@@ -42,6 +43,11 @@ struct EditTerrainPreservation {
 // owner or downgraded requireObject flag. Inputs/result may alias; atomic refusal.
 bool SplitEditTerrain (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
                        const EditTerrainSplitOptions& options, EditTerrainSplitResult& result, std::string& error);
+// Derived footprint/transition/mask preparation. Caller derives the ring from
+// the current DAG; every contributor is retained, without inventing authored IDs.
+bool SplitEditTerrainRing (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
+                           const EditTerrainSplitOptions& options, std::span<const geomsrv::edit::Vec3> ring,
+                           std::span<const SourceId> sources, EditTerrainSplitResult& result, std::string& error);
 
 // Checks the proposed surface against the immutable split baseline. Plan/index
 // topology is unchanged everywhere; outside-face and property-edge vertices are

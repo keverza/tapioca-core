@@ -101,7 +101,7 @@ bool CatalogSource (const geomsrv::edit::Document& doc, const ProvenanceRequest&
 }
 
 EntityMapping Fragment (const ProvenanceRequest& input, std::span<const EntityMapping* const> parents,
-                        IdentityDomain domain, uint64_t index, OperationId operation, SourceId guide,
+                        IdentityDomain domain, uint64_t index, OperationId operation, std::span<const SourceId> guides,
                         std::span<const EntityPredecessor> predecessors, ProvenanceRequest& output)
 {
     EntityMapping row;
@@ -112,7 +112,8 @@ EntityMapping Fragment (const ProvenanceRequest& input, std::span<const EntityMa
     // A face fragment retains its one known patch membership. Interpolated
     // vertices need multiple parents; patch matching is not guessed there.
     row.patchKey = parents.size () == 1 ? parents.front ()->patchKey : 0;
-    std::set<uint64_t> sources { guide }, operations { operation };
+    std::set<uint64_t> sources (guides.begin (), guides.end ());
+    std::set<uint64_t> operations { operation };
     for (const auto* parent : parents) {
         for (uint64_t i = 0; i < parent->sources.count; ++i)
             sources.insert (input.table.sourceIds.at (parent->sources.offset + i));
@@ -124,6 +125,12 @@ EntityMapping Fragment (const ProvenanceRequest& input, std::span<const EntityMa
     row.predecessors = { output.table.predecessors.size (), predecessors.size () };
     output.table.predecessors.insert (output.table.predecessors.end (), predecessors.begin (), predecessors.end ());
     return row;
+}
+EntityMapping Fragment (const ProvenanceRequest& input, std::span<const EntityMapping* const> parents,
+                        IdentityDomain domain, uint64_t index, OperationId operation, SourceId guide,
+                        std::span<const EntityPredecessor> predecessors, ProvenanceRequest& output)
+{
+    return Fragment (input, parents, domain, index, operation, std::array<SourceId, 1> { guide }, predecessors, output);
 }
 } // namespace terrain_detail
 
@@ -200,7 +207,7 @@ bool Prepare (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
     return Validate (combined, error);
 }
 
-bool Remap (const EditTerrainInput& input, const EditTerrainSplitOptions& options, Id property,
+bool Remap (const EditTerrainInput& input, const EditTerrainSplitOptions& options, std::span<const SourceId> sources,
             EditTerrainSplitResult& candidate, std::string& error)
 {
     const auto& split = candidate.split;
@@ -216,7 +223,9 @@ bool Remap (const EditTerrainInput& input, const EditTerrainSplitOptions& option
     InputRows rows (combined);
     std::vector<const TerrainMapping*> newVertices (vertices), faceRows (faces);
     std::vector<uint32_t> parentCount (input.provenance.counts.faces);
-    std::vector<bool> lineVertices (candidate.propertyVertices.size ());
+    const size_t lineCount =
+        candidate.derivedRingVertices ? candidate.derivedRingVertices : candidate.propertyVertices.size ();
+    std::vector<bool> lineVertices (lineCount);
     std::vector<uint32_t> lineOutputs (lineVertices.size ());
     for (const auto& mapping : split.mappings) {
         if (mapping.kind == TerrainMappingKind::SplitFace) {
@@ -237,8 +246,8 @@ bool Remap (const EditTerrainInput& input, const EditTerrainSplitOptions& option
             lineOutputs.at (mapping.index) = mapping.values[0];
         }
         else if (mapping.kind == TerrainMappingKind::LineEdge) {
-            if (mapping.index >= candidate.propertySegments.size () || mapping.values[0] >= vertices ||
-                mapping.values[1] >= vertices || mapping.values[0] == mapping.values[1])
+            if (mapping.index >= lineCount || mapping.values[0] >= vertices || mapping.values[1] >= vertices ||
+                mapping.values[0] == mapping.values[1])
                 throw std::runtime_error ("invalid property edge support");
             candidate.propertyEdges.push_back ({ mapping.values[0], mapping.values[1], mapping.index });
         }
@@ -302,14 +311,14 @@ bool Remap (const EditTerrainInput& input, const EditTerrainSplitOptions& option
         }
         else
             throw std::runtime_error ("unknown new vertex host");
-        if (v[1] >= candidate.propertyVertices.size () || (v[0] != 1 && v[0] != 2))
+        if (v[1] >= lineCount || (v[0] != 1 && v[0] != 2))
             throw std::runtime_error ("unknown new vertex origin");
         const auto& guide =
             v[0] == 1 ? *rows.vertices.at (input.provenance.counts.vertices + v[1]) : *rows.edges.at (v[1]);
         parents.push_back (&guide);
         support.push_back ({ options.splitTable, guide.domain, guide.outputIndex });
         output.table.mappings.push_back (
-            Fragment (combined, parents, IdentityDomain::Vertex, i, options.operation, property, support, output));
+            Fragment (combined, parents, IdentityDomain::Vertex, i, options.operation, sources, support, output));
     }
     for (size_t i = 0; i < faces; ++i) {
         const auto* mapping = faceRows.at (i);
@@ -330,7 +339,7 @@ bool Remap (const EditTerrainInput& input, const EditTerrainSplitOptions& option
             const std::array<EntityPredecessor, 1> support { EntityPredecessor { options.splitTable,
                                                                                  IdentityDomain::Face, parent } };
             output.table.mappings.push_back (
-                Fragment (combined, parents, IdentityDomain::Face, i, options.operation, property, support, output));
+                Fragment (combined, parents, IdentityDomain::Face, i, options.operation, sources, support, output));
         }
     }
     return Validate (output, error);
@@ -351,7 +360,7 @@ bool SplitEditTerrain (const geomsrv::edit::Document& doc, const EditTerrainInpu
             line.insert (line.end (), { point.x, point.y, point.z });
         if (!SplitTerrainMesh ({ input.mesh.points, input.mesh.triangles, line, {}, combined }, candidate.split,
                                error) ||
-            !Remap (input, options, doc.landscape->propertyLineSourceId, candidate, error))
+            !Remap (input, options, std::array<SourceId, 1> { doc.landscape->propertyLineSourceId }, candidate, error))
             return false;
         candidate.revision = input.revision;
         candidate.sourceTerrainGuid = input.sourceTerrainGuid;
@@ -363,6 +372,73 @@ bool SplitEditTerrain (const geomsrv::edit::Document& doc, const EditTerrainInpu
     }
     catch (const std::exception& exception) {
         error = std::string ("TerrainSplitRefused: ") + exception.what ();
+        return false;
+    }
+}
+
+bool SplitEditTerrainRing (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
+                           const EditTerrainSplitOptions& options, std::span<const Vec3> ring,
+                           std::span<const SourceId> sources, EditTerrainSplitResult& result, std::string& error)
+{
+    try {
+        if (ring.size () < 3 || ring.size () > 65536 || sources.empty () ||
+            !terrain_detail::ValidateInput (doc, input, error) ||
+            !terrain_detail::ValidateOperations (doc, input.provenance,
+                                                 std::array<OperationId, 1> { options.operation }, error)) {
+            if (error.empty ())
+                error = "TerrainRingShape: bounded closed ring and source contributors required";
+            return false;
+        }
+        if (!NewTables (input.provenance, options.splitTable, options.meshTable) ||
+            !UniformOwner (input.provenance, options.object) ||
+            !CurrentParents (doc, input.provenance, options.operation)) {
+            error = "ProvenanceConflict: derived split needs fresh tables and its current uniform owner/operation";
+            return false;
+        }
+        for (const auto source : sources)
+            if (!CatalogSource (doc, input.provenance, source, "derived ring", error))
+                return false;
+        auto combined = input.provenance;
+        combined.table.context.tableId = options.splitTable;
+        combined.domains = 7;
+        combined.counts.vertices += ring.size ();
+        combined.counts.edges = ring.size ();
+        combined.table.supportTables.push_back ({ input.provenance.table.context, input.provenance.counts, false });
+        combined.table.mappings.clear ();
+        for (const auto& row : input.provenance.table.mappings)
+            combined.table.mappings.push_back (
+                Supported (row, row.domain, row.outputIndex, input.provenance.table.context.tableId, combined.table));
+        EntityMapping guide;
+        guide.kind = MappingKind::Generated;
+        guide.object = options.object;
+        guide.sources = Append (combined.table.sourceIds, std::set<uint64_t> (sources.begin (), sources.end ()));
+        guide.operations = Append (combined.table.operationIds, { options.operation });
+        std::vector<double> line;
+        for (size_t i = 0; i < ring.size (); ++i) {
+            line.insert (line.end (), { ring[i].x, ring[i].y, ring[i].z });
+            guide.domain = IdentityDomain::Vertex;
+            guide.outputIndex = input.provenance.counts.vertices + i;
+            combined.table.mappings.push_back (guide);
+            guide.domain = IdentityDomain::Edge;
+            guide.outputIndex = i;
+            combined.table.mappings.push_back (guide);
+        }
+        EditTerrainSplitResult candidate;
+        candidate.derivedRingVertices = ring.size ();
+        if (!terrain_detail::Validate (combined, error) ||
+            !SplitTerrainMesh ({ input.mesh.points, input.mesh.triangles, line, {}, combined }, candidate.split,
+                               error) ||
+            !Remap (input, options, sources, candidate, error))
+            return false;
+        candidate.revision = input.revision;
+        candidate.sourceTerrainGuid = input.sourceTerrainGuid;
+        candidate.baselineProvenance = input.provenance;
+        result = std::move (candidate);
+        error.clear ();
+        return true;
+    }
+    catch (const std::exception& exception) {
+        error = std::string ("TerrainRingSplit: ") + exception.what ();
         return false;
     }
 }

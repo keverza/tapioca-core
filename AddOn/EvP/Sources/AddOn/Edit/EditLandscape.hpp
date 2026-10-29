@@ -104,6 +104,14 @@ enum class ObjectKind : uint8_t { Path, Playground, Plaza, Parking, MaterialRegi
 enum class RegionElevationMode : uint8_t { Existing, Constant };
 enum class RegionSlopeMode : uint8_t { None, TwoPoints, ContourLine };
 enum class RegionFallSide : uint8_t { Left, Right };
+enum class RegionTerrainEffect : uint8_t { None, Grade, Add, Subtract };
+enum class RegionTerrainTransition : uint8_t { Falloff, Daylight };
+struct RegionTerrain {
+    RegionTerrainEffect effect = RegionTerrainEffect::None;
+    RegionTerrainTransition transition = RegionTerrainTransition::Falloff;
+    double falloff = 1, reach = 10, cutPercent = 50, fillPercent = 33;
+    bool operator== (const RegionTerrain&) const = default;
+};
 struct RegionSurface {
     RegionElevationMode elevation = RegionElevationMode::Existing;
     RegionSlopeMode slope = RegionSlopeMode::None;
@@ -125,6 +133,7 @@ struct HardscapeObject {
     // legacy/independently authored objects. Geometry still lives on the source.
     Id boundarySource = kNoId;
     std::optional<RegionSurface> surface;
+    RegionTerrain terrain;
     bool operator== (const HardscapeObject&) const = default;
 };
 struct RegionIdentity {
@@ -306,6 +315,8 @@ bool ValidateRegionSurface (const RegionSurface& surface, std::string& error);
 std::optional<double> RegionSurfaceElevation (const RegionSurface& surface, Vec3 point);
 bool SetRegionSurface (geomsrv::edit::Document& doc, Id object, const RegionSurface& surface,
                        const MaterialSpec& material, std::string& error);
+bool ValidateRegionTerrain (const HardscapeObject& object, std::string& error);
+bool SetRegionTerrain (geomsrv::edit::Document& doc, Id object, RegionTerrain terrain, std::string& error);
 // Names the session's base terrain: sets sourceTerrainGuid and keeps exactly one
 // live Terrain source carrying that GUID (created on first use, otherwise
 // updated), returning its ID. One authored edit; no geometry is read.
