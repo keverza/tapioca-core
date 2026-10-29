@@ -21,4 +21,13 @@ Imported Latest ()
     return {};
 }
 
+void RequestSave (std::string, analysisprofile::Profile)
+{
+}
+
+Saved LastSave ()
+{
+    return {};
+}
+
 } // namespace geomsrv::archviz::analysispathsource

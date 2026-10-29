@@ -7,7 +7,8 @@
 #include "ArchViz/SelectionMetadata.hpp"
 #include "ArchViz/SlabSliceSource.hpp"
 
-#include "Diagnostics/ApiError.hpp"        // DescribeErr - never print a bare GSErrCode
+#include "Diagnostics/ApiError.hpp" // DescribeErr - never print a bare GSErrCode
+#include "Metadata/MetadataStorage.hpp"
 #include "NativeCommands/CommandUtils.hpp" // WalkPolygonRings: the one walk of a polygon memo
 
 #include <mutex>
@@ -17,8 +18,11 @@ namespace geomsrv::archviz::analysispathsource {
 
 namespace {
 
+namespace meta = metadata;
+
 std::mutex s_mutex;
 Imported s_latest;
+Saved s_saved;
 
 std::string Describe (GSErrCode err)
 {
@@ -79,6 +83,56 @@ bool ReadPolyline (const API_Element& element, analysispath::Path& path, std::st
     return true;
 }
 
+// The profile kept on the Polyline, if any. MAIN THREAD.
+void ReadProfile (const std::string& guid, Imported& imported)
+{
+    meta::EntityMetadata entity;
+    bool present = false;
+    std::string error;
+    if (!meta::storage::Read (guid, entity, present, error)) {
+        imported.error = "its height profile could not be read: " + error;
+        return;
+    }
+    const meta::Property* property = present ? meta::FindProperty (entity, analysisprofile::kPropertyKey) : nullptr;
+    if (property == nullptr)
+        return;
+    auto profile = std::make_shared<analysisprofile::Profile> ();
+    if (!analysisprofile::Decode (*property, *profile, error)) {
+        imported.error = "its height profile was not used: " + error;
+        return;
+    }
+    imported.profile = std::move (profile);
+}
+
+// MAIN THREAD.
+bool Save (const std::string& guid, const analysisprofile::Profile& profile, std::string& error)
+{
+    meta::EntityMetadata entity;
+    bool present = false;
+    if (!meta::storage::Read (guid, entity, present, error))
+        return false;
+    meta::Property property = analysisprofile::Encode (profile);
+    const meta::Property* old = meta::FindProperty (entity, analysisprofile::kPropertyKey);
+    if (old != nullptr && old->value == property.value)
+        return true; // unchanged: no undo step
+    meta::SetProperty (entity, std::move (property));
+    meta::ProjectSchema schema;
+    bool stored = false;
+    if (!meta::storage::ReadSchema (schema, stored, error))
+        return false;
+    const auto issues = meta::Validate (entity, schema);
+    if (!issues.empty ()) {
+        error = issues.front ();
+        return false;
+    }
+    const GSErrCode result = ACAPI_CallUndoableCommand ("Tapioca analysis path profile", [&] () -> GSErrCode {
+        return meta::storage::Write (guid, entity, error) ? NoError : APIERR_GENERAL;
+    });
+    if (result != NoError && error.empty ())
+        error = "the profile was not stored (" + Describe (result) + ")";
+    return result == NoError;
+}
+
 // MAIN THREAD.
 void Import ()
 {
@@ -93,8 +147,10 @@ void Import ()
         if (ACAPI_Element_Get (&element) != NoError || element.header.type.typeID != API_PolyLineID)
             continue;
         auto path = std::make_shared<analysispath::Path> ();
-        if (ReadPolyline (element, *path, imported.error))
+        if (ReadPolyline (element, *path, imported.error)) {
             imported.path = std::move (path);
+            ReadProfile (guid, imported);
+        }
         break;
     }
     if (imported.path == nullptr && imported.error.empty ())
@@ -120,6 +176,27 @@ Imported Latest ()
 {
     std::lock_guard<std::mutex> lock (s_mutex);
     return s_latest;
+}
+
+void RequestSave (std::string guid, analysisprofile::Profile profile)
+{
+    const auto finish = [] (std::string guid, std::string error) {
+        std::lock_guard<std::mutex> lock (s_mutex);
+        s_saved = { s_saved.serial + 1, std::move (guid), std::move (error) };
+    };
+    if (selectionmetadata::Later ([guid, profile = std::move (profile), finish] () {
+            std::string error;
+            Save (guid, profile, error);
+            finish (guid, error);
+        }))
+        return;
+    finish (std::move (guid), "the save was not queued: the project message loop is unavailable");
+}
+
+Saved LastSave ()
+{
+    std::lock_guard<std::mutex> lock (s_mutex);
+    return s_saved;
 }
 
 } // namespace geomsrv::archviz::analysispathsource

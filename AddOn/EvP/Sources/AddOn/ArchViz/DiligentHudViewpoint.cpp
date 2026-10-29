@@ -15,6 +15,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -200,6 +201,209 @@ bool DrawSharedContextToggle (viewpointstudy::Settings& settings)
     return changed;
 }
 
+namespace {
+
+// A round step giving about `count` lines over `span`: 1, 2 or 5 times a power of ten.
+double RoundStep (double span, int count)
+{
+    const double raw = (std::max) (span, 1.0e-6) / double (count);
+    const double power = std::pow (10.0, std::floor (std::log10 (raw)));
+    for (const double m : { 1.0, 2.0, 5.0 })
+        if (raw <= m * power)
+            return m * power;
+    return 10.0 * power;
+}
+
+// The point's height along its path, drawn as the virtual editor's Path profile is
+// (HudVirtualEditorPanel.cpp): stations right, the offset above the path up, a
+// gutter for the grid's heights. Drag an anchor or a handle; double-click to add
+// an anchor, right-click one to remove it; click elsewhere to move the point there.
+// True when the point's place or height changed.
+bool DrawPathProfile (HudState& state, double length)
+{
+    using namespace analysisprofile;
+    Profile& profile = state.analysisProfile;
+    if (profile.anchors.size () < 2 || std::abs (profile.anchors.back ().station - length) > 1.0e-6)
+        Fit (profile, length);
+    bool moved = false;
+    const auto edited = [&] {
+        state.analysisProfileDirty = true;
+        ++state.analysisProfileEdits;
+        moved = true;
+    };
+    const float width = (std::max) (200.0f, ImGui::GetContentRegionAvail ().x);
+    const float height = 120.0f;
+    ImGui::InvisibleButton ("##path-profile", { width, height },
+                            ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    const ImVec2 min = ImGui::GetItemRectMin ();
+    const bool over = ImGui::IsItemHovered ();
+    const auto curve = Sample (profile, 24);
+    // The height range: the curve, its anchors and handles, and 0 (the path), padded.
+    // Held while dragging, so the canvas does not rescale under the cursor.
+    if (state.analysisProfileDrag < 0) {
+        double low = 0.0, high = 1.0;
+        for (const auto& [s, z] : curve) {
+            low = (std::min) (low, z);
+            high = (std::max) (high, z);
+        }
+        for (size_t i = 0; i < profile.anchors.size (); ++i)
+            for (const bool out : { true, false }) {
+                const double z = HandleTip (profile, i, out).second;
+                low = (std::min) (low, z);
+                high = (std::max) (high, z);
+            }
+        const double pad = 0.1 * (high - low) + 0.2;
+        state.analysisProfileZ[0] = float (low - pad);
+        state.analysisProfileZ[1] = float (high + pad);
+    }
+    const double zLow = state.analysisProfileZ[0], zHigh = state.analysisProfileZ[1];
+    const float gutter = ImGui::CalcTextSize ("-00.0").x + 6.0f;
+    const float x0 = min.x + gutter, x1 = min.x + width - 6.0f, y0 = min.y + 6.0f, y1 = min.y + height - 6.0f;
+    const auto screen = [&] (double s, double z) {
+        return ImVec2 { x0 + float (s / length) * (x1 - x0), y1 - float ((z - zLow) / (zHigh - zLow)) * (y1 - y0) };
+    };
+    const auto world = [&] (ImVec2 p) {
+        return std::pair<double, double> { std::clamp (double ((p.x - x0) / (x1 - x0)), 0.0, 1.0) * length,
+                                           zLow + double ((y1 - p.y) / (y1 - y0)) * (zHigh - zLow) };
+    };
+    ImDrawList* list = ImGui::GetWindowDrawList ();
+    list->PushClipRect (min, { min.x + width, min.y + height }, true);
+    list->AddRectFilled (min, { min.x + width, min.y + height }, IM_COL32 (250, 251, 252, 255), 4.0f);
+    const ImU32 grid = IM_COL32 (200, 205, 212, 255), faint = IM_COL32 (228, 231, 236, 255);
+    const ImU32 gridText = IM_COL32 (110, 118, 130, 255), ink = IM_COL32 (40, 48, 60, 255);
+    const ImU32 accent = IM_COL32 (62, 99, 221, 255);
+    const double across = RoundStep (length, 8);
+    for (double s = 0.0; s <= length + 1.0e-9; s += across)
+        list->AddLine ({ screen (s, 0).x, y0 }, { screen (s, 0).x, y1 }, faint, 1.0f);
+    const double up = RoundStep (zHigh - zLow, 4);
+    for (double z = std::ceil (zLow / up) * up; z <= zHigh; z += up) {
+        const float y = screen (0, z).y;
+        list->AddLine ({ x0, y }, { x1, y }, std::abs (z) < 1.0e-9 ? IM_COL32 (46, 196, 166, 255) : grid, 1.0f);
+        char text[24];
+        std::snprintf (text, sizeof text, "%.*f", up < 1.0 ? 1 : 0, z);
+        const ImVec2 size = ImGui::CalcTextSize (text);
+        list->AddText ({ x0 - 4.0f - size.x, y - size.y * 0.5f }, gridText, text);
+    }
+    for (size_t i = 0; i + 1 < curve.size (); ++i)
+        list->AddLine (screen (curve[i].first, curve[i].second), screen (curve[i + 1].first, curve[i + 1].second), ink,
+                       2.0f);
+    // Where the point is, in the view point's yellow.
+    const double here = double (state.analysisPathAt) * length;
+    const ImVec2 point = screen (here, ZAt (profile, here));
+    list->AddLine ({ point.x, y0 }, { point.x, y1 }, IM_COL32 (245, 196, 79, 160), 1.0f);
+    list->AddCircleFilled (point, 4.0f, IM_COL32 (245, 196, 79, 255));
+    // Anchors, and the selected one's handles.
+    const int selected = state.analysisProfileAnchor;
+    const auto handleShown = [&] (size_t i, bool out) {
+        return int (i) == selected && (out ? i + 1 < profile.anchors.size () : i > 0);
+    };
+    for (size_t i = 0; i < profile.anchors.size (); ++i) {
+        const ImVec2 at = screen (profile.anchors[i].station, profile.anchors[i].z);
+        for (const bool out : { true, false })
+            if (handleShown (i, out)) {
+                const auto [s, z] = HandleTip (profile, i, out);
+                const ImVec2 tip = screen (s, z);
+                list->AddLine (at, tip, accent, 1.0f);
+                list->AddRectFilled ({ tip.x - 3.5f, tip.y - 3.5f }, { tip.x + 3.5f, tip.y + 3.5f }, accent);
+            }
+        list->AddCircleFilled (at, 5.0f, int (i) == selected ? accent : ink);
+    }
+    list->PopClipRect ();
+
+    // ---- input ----------------------------------------------------------------
+    const ImVec2 mouse = ImGui::GetIO ().MousePos;
+    const auto under = [&] (ImVec2 p) { return std::hypot (mouse.x - p.x, mouse.y - p.y) <= 8.0f; };
+    int hit = -1; // anchor * 3 + part
+    for (size_t i = 0; i < profile.anchors.size () && hit < 0; ++i) {
+        for (const bool out : { true, false })
+            if (hit < 0 && handleShown (i, out)) {
+                const auto [s, z] = HandleTip (profile, i, out);
+                if (under (screen (s, z)))
+                    hit = int (i) * 3 + (out ? 1 : 2);
+            }
+        if (hit < 0 && under (screen (profile.anchors[i].station, profile.anchors[i].z)))
+            hit = int (i) * 3;
+    }
+    if (over && ImGui::IsMouseDoubleClicked (ImGuiMouseButton_Left) && hit < 0) {
+        state.analysisProfileAnchor = int (Insert (profile, world (mouse).first));
+        state.analysisProfileDrag = -1;
+        edited ();
+    }
+    else if (over && ImGui::IsMouseClicked (ImGuiMouseButton_Left)) {
+        state.analysisProfileDrag = hit;
+        if (hit >= 0)
+            state.analysisProfileAnchor = hit / 3;
+        else {
+            state.analysisPathAt = float (world (mouse).first / length);
+            moved = true;
+        }
+    }
+    if (over && ImGui::IsMouseClicked (ImGuiMouseButton_Right) && hit >= 0 && hit % 3 == 0 &&
+        Remove (profile, size_t (hit / 3))) {
+        state.analysisProfileAnchor = -1;
+        edited ();
+    }
+    if (state.analysisProfileDrag >= 0 && ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
+        const size_t index = size_t (state.analysisProfileDrag / 3);
+        const int part = state.analysisProfileDrag % 3;
+        const auto [s, z] = world (mouse);
+        if (index < profile.anchors.size ()) {
+            if (part == 0)
+                MoveAnchor (profile, index, s, z);
+            else
+                MoveHandle (profile, index, s, z, part == 1);
+            edited ();
+        }
+    }
+    else
+        state.analysisProfileDrag = -1;
+    if (over && state.analysisProfileDrag < 0) {
+        const auto [s, z] = world (mouse);
+        ImGui::SetTooltip ("%.2f m along, %.2f m up\nDrag a point or handle; double-click adds a point, right-click "
+                           "removes one;\nclick moves the view point there.",
+                           s, z);
+    }
+
+    // ---- the selected anchor, and keeping it ----------------------------------
+    if (selected >= 0 && size_t (selected) < profile.anchors.size ()) {
+        Anchor& a = profile.anchors[size_t (selected)];
+        double values[2] = { a.station, a.z };
+        ImGui::SetNextItemWidth (ImGui::CalcItemWidth ());
+        if (ImGui::InputScalarN ("along, up (m)##profile-anchor", ImGuiDataType_Double, values, 2, nullptr, nullptr,
+                                 "%.2f")) {
+            MoveAnchor (profile, size_t (selected), values[0], values[1]);
+            edited ();
+        }
+        ImGui::SetItemTooltip ("The selected profile point; the ends stay at the path's ends.");
+    }
+    if (ImGui::SmallButton ("Flat##profile")) {
+        double z = ZAt (profile, here);
+        profile = Flat (length, z);
+        state.analysisProfileAnchor = -1;
+        edited ();
+    }
+    ImGui::SetItemTooltip ("One height all along: the point's current one.");
+    ImGui::SameLine ();
+    ImGui::BeginDisabled (!state.analysisProfileDirty || state.analysisPath == nullptr);
+    if (ImGui::SmallButton ("Save to Polyline")) {
+        state.analysisProfileSaving = state.analysisProfileEdits;
+        state.analysisProfileNote = "Saving...";
+        analysispathsource::RequestSave (state.analysisPath->guid, profile);
+    }
+    ImGui::EndDisabled ();
+    ImGui::SetItemTooltip ("Keep the profile on the Polyline as Tapioca metadata (%s), one undo step.", kPropertyKey);
+    ImGui::SameLine ();
+    if (state.analysisProfileDirty)
+        ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "%s",
+                            state.analysisProfileNote.rfind ("Not saved", 0) == 0 ? state.analysisProfileNote.c_str ()
+                                                                                  : "unsaved");
+    else if (!state.analysisProfileNote.empty ())
+        ImGui::TextDisabled ("%s", state.analysisProfileNote.c_str ());
+    return moved;
+}
+
+} // namespace
+
 void DrawAnalysisPathButtons (HudState& state)
 {
     const bool none = state.analysisPath == nullptr;
@@ -228,7 +432,25 @@ bool DrawAnalysisPathControls (HudState& state, viewpointstudy::Settings& settin
         if (imported.path != nullptr) {
             state.analysisPath = imported.path;
             state.analysisPathAt = 0.0f;
+            // Its saved profile, or eye height all along until one is drawn.
+            state.analysisProfile =
+                imported.profile != nullptr ? *imported.profile : analysisprofile::Flat (imported.path->Length (), 1.6);
+            analysisprofile::Fit (state.analysisProfile, imported.path->Length ());
+            state.analysisProfileDirty = false;
+            state.analysisProfileAnchor = state.analysisProfileDrag = -1;
+            state.analysisProfileNote = imported.profile != nullptr ? "Height profile read from the Polyline." : "";
             moved = true; // onto its start
+        }
+    }
+    const auto saved = analysispathsource::LastSave ();
+    if (saved.serial != state.analysisProfileSaveSerial) {
+        state.analysisProfileSaveSerial = saved.serial;
+        if (state.analysisPath != nullptr && saved.guid == state.analysisPath->guid) {
+            // Edits made while it was saving are still unsaved.
+            if (saved.error.empty () && state.analysisProfileEdits == state.analysisProfileSaving)
+                state.analysisProfileDirty = false;
+            state.analysisProfileNote =
+                saved.error.empty () ? "Height profile saved on the Polyline." : "Not saved: " + saved.error;
         }
     }
     const auto& path = state.analysisPath;
@@ -246,7 +468,7 @@ bool DrawAnalysisPathControls (HudState& state, viewpointstudy::Settings& settin
         moved = true;
     }
     ImGui::SetItemTooltip ("Where the point is on the path, from its start; ctrl+click to type.");
-    moved |= ImGui::SliderFloat ("height above path", &state.analysisPathHeight, 0.0f, 10.0f, "%.2f m");
+    moved |= DrawPathProfile (state, path->Length ());
     if (steer) {
         moved |= ImGui::Checkbox ("Look along path", &state.viewpointAlongPath);
         ImGui::SetItemTooltip ("The field of view faces the way the path runs at the point.");
@@ -256,7 +478,9 @@ bool DrawAnalysisPathControls (HudState& state, viewpointstudy::Settings& settin
     analysispath::Point3 at, tangent;
     if (!analysispath::Evaluate (*path, state.analysisPathAt, at, tangent))
         return false;
-    settings.options.point = { at[0], at[1], at[2] + double (state.analysisPathHeight) };
+    settings.options.point = { at[0], at[1],
+                               at[2] + analysisprofile::ZAt (state.analysisProfile,
+                                                             double (state.analysisPathAt) * path->Length ()) };
     settings.pointValid = true;
     if (steer && state.viewpointAlongPath && std::hypot (tangent[0], tangent[1]) > 1.0e-9)
         settings.options.bearingDegrees = std::atan2 (tangent[1], tangent[0]) * 180.0 / 3.14159265358979323846;

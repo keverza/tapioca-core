@@ -28,6 +28,7 @@
 // entry, which a diagnostic HUD does not need.
 
 #include "ArchViz/AnalysisPath.hpp"
+#include "ArchViz/AnalysisProfile.hpp"
 #include "ArchViz/AnalysisTabs.hpp"
 #include "ArchViz/DiligentScene.hpp" // ElementInfo, for the hover callout
 #include "ArchViz/TraceAnnotationLayer.hpp"
@@ -252,12 +253,22 @@ struct HudState {
     // Field of view: its bearing follows the target (shared with point visibility's cone).
     bool viewpointFaceTarget = false;
     // A Polyline from Archicad the shared point travels along (Point visibility and
-    // Viewpoint), the point's place on it (0..1 of its length) and height above it.
+    // Viewpoint), and the point's place on it (0..1 of its length).
     std::shared_ptr<const analysispath::Path> analysisPath;
     uint64_t analysisPathSerial = 0; // the last AnalysisPathSource import taken
     std::string analysisPathError;
     float analysisPathAt = 0.0f;
-    float analysisPathHeight = 1.6f;
+    // The point's height above the path, a Bezier profile by station, kept on the
+    // Polyline as metadata; edited on the path's profile canvas.
+    analysisprofile::Profile analysisProfile;
+    bool analysisProfileDirty = false; // edited since it was read or saved
+    int analysisProfileAnchor = -1;    // the selected anchor, or -1
+    int analysisProfileDrag = -1;      // anchor * 3 + part (0 anchor, 1 out handle, 2 in handle)
+    float analysisProfileZ[2] = {};    // the canvas's height range, held while dragging
+    uint64_t analysisProfileSaveSerial = 0;
+    uint64_t analysisProfileEdits = 0;  // edits made, so a save names the one it stored
+    uint64_t analysisProfileSaving = 0; // `analysisProfileEdits` when the last save was asked for
+    std::string analysisProfileNote;
     bool viewpointAlongPath = false; // a field of view looks the way the path runs
     uint64_t viewpointSeenRevision = 0;
     double viewpointDragPoint[3] = {}, viewpointDragParameter[3] = {};
