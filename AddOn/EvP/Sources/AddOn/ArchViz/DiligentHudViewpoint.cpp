@@ -200,7 +200,25 @@ bool DrawSharedContextToggle (viewpointstudy::Settings& settings)
     return changed;
 }
 
-bool DrawAnalysisPathRow (HudState& state, viewpointstudy::Settings& settings, bool steer)
+void DrawAnalysisPathButtons (HudState& state)
+{
+    const bool none = state.analysisPath == nullptr;
+    ImGui::SameLine ();
+    if (ImGui::Button (none ? "Import path" : "Replace path"))
+        analysispathsource::RequestImport ();
+    ImGui::SetItemTooltip ("Take the first Polyline selected in Archicad, at its storey's level, as the path the "
+                           "point travels along.");
+    if (none)
+        return;
+    ImGui::SameLine ();
+    if (ImGui::Button ("Delete path")) {
+        state.analysisPath.reset (); // the point stays where the path left it
+        state.analysisPathError.clear ();
+    }
+    ImGui::SetItemTooltip ("Forget the path; the point stays where it is.");
+}
+
+bool DrawAnalysisPathControls (HudState& state, viewpointstudy::Settings& settings, bool steer)
 {
     bool moved = false;
     const auto imported = analysispathsource::Latest ();
@@ -214,25 +232,10 @@ bool DrawAnalysisPathRow (HudState& state, viewpointstudy::Settings& settings, b
         }
     }
     const auto& path = state.analysisPath;
-    if (path == nullptr)
-        ImGui::TextDisabled ("Path: none");
-    else
-        ImGui::Text ("Path: Polyline {%s}, %.1f m%s", evp::sunstudy::CanonicalGuid (path->guid).substr (0, 8).c_str (),
-                     path->Length (), path->closed ? ", closed" : "");
-    ImGui::SameLine ();
-    if (ImGui::SmallButton (path == nullptr ? "Import selected##path" : "Replace##path"))
-        analysispathsource::RequestImport ();
-    ImGui::SetItemTooltip ("Take the first Polyline selected in Archicad, at its storey's level, as the path the "
-                           "point travels along.");
-    if (path != nullptr) {
-        ImGui::SameLine ();
-        if (ImGui::SmallButton ("Delete##path")) {
-            state.analysisPath.reset ();
-            state.analysisPathError.clear ();
-            return false; // the point stays where the path left it
-        }
-        ImGui::SetItemTooltip ("Forget the path; the point stays where it is.");
-    }
+    if (path != nullptr)
+        ImGui::TextDisabled ("Path: Polyline {%s}, %.1f m%s",
+                             evp::sunstudy::CanonicalGuid (path->guid).substr (0, 8).c_str (), path->Length (),
+                             path->closed ? ", closed" : "");
     if (!state.analysisPathError.empty ())
         ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "Path: %s", state.analysisPathError.c_str ());
     if (path == nullptr)
@@ -267,6 +270,7 @@ void DrawViewpointHudSection (HudState& state)
     ImGui::TextWrapped ("What the point sees out to the radius. Context stops rays; empty Context sees all of it.");
     changed |= ImGui::Checkbox ("Show viewpoint", &settings.enabled);
     const auto status = viewpointstudy::GetStatus ();
+    ImGui::SeparatorText ("Context");
     changed |= DrawSharedContextToggle (settings);
     if (ImGui::Button (state.viewpointPickingContext ? "Done picking" : "Pick Context in viewer")) {
         state.viewpointPickingContext = !state.viewpointPickingContext;
@@ -313,23 +317,29 @@ void DrawViewpointHudSection (HudState& state)
             changed = true;
         }
     }
-    changed |= ImGui::InputScalarN ("Point XYZ (m)", ImGuiDataType_Double, settings.options.point.data (), 3, nullptr,
-                                    nullptr, "%.2f");
-    ImGui::SetItemTooltip ("Or drag the gumball: X/Y/Z arrows along an axis, the centre disc in plan.");
-    if (changed)
-        settings.pointValid = true;
+    ImGui::SeparatorText ("Point");
+    // Placing starts a pick; it does not make the old point valid (only an edit above does).
+    bool placed = false;
     if (ImGui::Button (state.viewpointPlacing ? "Click a model surface..." : "Place viewpoint")) {
         state.viewpointPlacing = true;
         state.viewpointPlacingTarget = false;
         state.viewpointPickingContext = false;
         state.viewpointDragging = false;
         settings.enabled = true;
-        changed = true;
+        placed = true;
     }
+    DrawAnalysisPathButtons (state);
+    changed |= ImGui::InputScalarN ("Point XYZ (m)", ImGuiDataType_Double, settings.options.point.data (), 3, nullptr,
+                                    nullptr, "%.2f");
+    ImGui::SetItemTooltip ("Or drag the gumball: X/Y/Z arrows along an axis, the centre disc in plan.");
+    if (changed)
+        settings.pointValid = true;
+    changed |= placed;
     // A target to face wins over the path's direction.
-    changed |= DrawAnalysisPathRow (state, settings,
-                                    settings.options.mode == evp::sunstudy::ViewpointMode::FieldOfView &&
-                                        !state.viewpointFaceTarget);
+    changed |= DrawAnalysisPathControls (state, settings,
+                                         settings.options.mode == evp::sunstudy::ViewpointMode::FieldOfView &&
+                                             !state.viewpointFaceTarget);
+    ImGui::SeparatorText ("View");
     auto& options = settings.options;
     int mode = int (options.mode);
     const char* const modes[] = { "Plan isovist", "Field of view", "Spherical isovist" };
@@ -403,6 +413,7 @@ void DrawViewpointHudSection (HudState& state)
     ImGui::SetItemTooltip ("The range rescales on release; ctrl+click to type a value.");
     if (changed)
         ConfigureViewpoint (state, std::move (settings));
+    ImGui::SeparatorText ("Display");
     ColourPicker ("Fill", state.viewpointFillRgba, true);
     ImGui::SameLine ();
     ColourPicker ("Open edge", state.viewpointEdgeRgba, true);

@@ -189,27 +189,30 @@ std::string LiveKey (const visibilitystudy::Request& request, const viewpointstu
 bool DrawPointControls (HudState& state, viewpointstudy::Settings& shared, const Snapshot* capture)
 {
     bool changed = false;
-    const char* const views[] = { "View cone", "View sphere" };
-    changed |= Choice ("##visibility-view", state.visibilityView, views, 2);
-    ImGui::SetItemTooltip ("Cone: what the point sees toward its target. Sphere: all round, within a band of "
-                           "elevations.");
-    // The Viewpoint tab's point: placed, typed or dragged in either tab.
+    // The Viewpoint tab's point: placed, typed, dragged or set on a path in either tab.
+    ImGui::SeparatorText ("Point");
     if (ImGui::Button (state.viewpointPlacing ? "Click a model surface..." : "Place view point")) {
         state.viewpointPlacing = true;
         state.viewpointPlacingTarget = false;
         state.viewpointPlacementMiss = false;
         state.viewpointDragging = false;
     }
+    DrawAnalysisPathButtons (state);
     if (ImGui::InputScalarN ("Point XYZ (m)", ImGuiDataType_Double, shared.options.point.data (), 3, nullptr, nullptr,
                              "%.2f")) {
         shared.pointValid = true;
         ConfigureViewpoint (state, shared);
     }
     ImGui::SetItemTooltip ("Or drag the gumball; the Viewpoint tab shares this point.");
-    if (DrawAnalysisPathRow (state, shared, false))
-        ConfigureViewpoint (state, shared);
     if (state.viewpointPlacementMiss)
         ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "Point missed the model; click a surface.");
+    if (DrawAnalysisPathControls (state, shared, false))
+        ConfigureViewpoint (state, shared);
+    ImGui::SeparatorText ("View");
+    const char* const views[] = { "View cone", "View sphere" };
+    changed |= Choice ("##visibility-view", state.visibilityView, views, 2);
+    ImGui::SetItemTooltip ("Cone: what the point sees toward its target. Sphere: all round, within a band of "
+                           "elevations.");
     if (state.visibilityView == 0) {
         // Until the user moves it, the target follows Analysis's centre.
         if (!state.visibilityTargetEdited && capture != nullptr) {
@@ -291,6 +294,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     // surface tab's alone: a point sees from itself.
     auto shared = *viewpointstudy::GetSettings ();
     const auto sharedContext = shared.context;
+    ImGui::SeparatorText ("Roles");
     bool contextChanged = DrawSharedContextToggle (shared);
     changed |= RoleRow ("Analysis", state.visibilityFrom, state.visibilityTo, shared.context, state.visibilitySelection,
                         "Receives the gradient; outlined violet.");
@@ -308,6 +312,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     if (live)
         changed |= DrawPointControls (state, shared, capture.get ());
 
+    ImGui::SeparatorText ("Sampling");
     changed |= ImGui::SliderFloat ("square cells", &state.visibilityGrid, 0.25f, 10.0f, "%.2f m",
                                    ImGuiSliderFlags_Logarithmic);
     ImGui::SetItemTooltip ("Cells over coplanar surface patches.");
@@ -322,6 +327,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
         state.visibilitySubmitError.clear ();
     }
 
+    ImGui::SeparatorText (live ? "Result" : "Run");
     if (capture == nullptr)
         ImGui::TextDisabled ("Waiting for a complete, current viewer capture.");
     if (live) {
@@ -374,6 +380,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     }
 
     // Both visibility tabs share the gradient; the tint redraws with it at once.
+    ImGui::SeparatorText ("Display");
     ColourPicker ("not visible", state.visibilityLowRgba, false);
     ImGui::SameLine ();
     ColourPicker ("visible", state.visibilityHighRgba, false);

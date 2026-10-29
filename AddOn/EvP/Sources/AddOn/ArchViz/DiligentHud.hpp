@@ -698,10 +698,12 @@ namespace viewerhud {
 // A HUD edit configures through this so it is never mistaken for a command's.
 void ConfigureViewpoint (HudState& state, viewpointstudy::Settings settings);
 bool DrawSharedContextToggle (viewpointstudy::Settings& settings);
-// The shared point's path row: import, replace or delete the Archicad Polyline,
-// and the point's place along it. True when it moved the point in `settings`
-// (and, with `steer`, a field of view's bearing); the caller configures.
-bool DrawAnalysisPathRow (HudState& state, viewpointstudy::Settings& settings, bool steer);
+// The shared point's path: Import, Replace and Delete buttons for the Archicad
+// Polyline, drawn on the row of the button before them; then the path's controls
+// -- the point's place along it, and its height. True when they moved the point
+// in `settings` (and, with `steer`, a field of view's bearing); the caller configures.
+void DrawAnalysisPathButtons (HudState& state);
+bool DrawAnalysisPathControls (HudState& state, viewpointstudy::Settings& settings, bool steer);
 // The target -- point visibility's cone target, and what a target-facing field
 // of view faces -- is shown and movable on those two tabs.
 bool ShowsTargetPoint (const HudState& state);
