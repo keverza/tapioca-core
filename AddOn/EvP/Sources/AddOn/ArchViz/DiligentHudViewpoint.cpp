@@ -118,6 +118,21 @@ void DrawGumballHint (const HudState& state)
         ImGui::SetTooltip ("Drag to move %s along %s", what, kAxes[state.viewpointHotPart]);
 }
 
+// A target-facing field of view turns with its target, whichever moved: set
+// in the same settings as the move, so a drag configures once per frame.
+bool FaceTarget (const HudState& state, viewpointstudy::Settings& settings)
+{
+    if (!ShowsTargetPoint (state) || state.analysisFocus.tab != analysistabs::kViewpointTab)
+        return false;
+    const double bearing = std::atan2 (state.visibilityTarget[1] - settings.options.point[1],
+                                       state.visibilityTarget[0] - settings.options.point[0]) *
+                           180.0 / 3.14159265358979323846;
+    if (std::abs (bearing - settings.options.bearingDegrees) <= 1.0e-6)
+        return false;
+    settings.options.bearingDegrees = bearing;
+    return true;
+}
+
 bool LeftTransition (const InputSnapshot& input, bool down)
 {
     for (int i = 0; i < input.transitionCount; ++i)
@@ -328,24 +343,20 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
     state.viewpointHotPart = -1;
     const bool point = !state.readOnly && shared->pointValid && ShowsPointGumball (state, *shared);
     const bool target = ShowsTargetPoint (state);
-    // A target-facing field of view turns with its target, whichever moved.
-    if (target && state.analysisFocus.tab == analysistabs::kViewpointTab) {
-        const double bearing = std::atan2 (state.visibilityTarget[1] - shared->options.point[1],
-                                           state.visibilityTarget[0] - shared->options.point[0]) *
-                               180.0 / 3.14159265358979323846;
-        if (std::abs (bearing - shared->options.bearingDegrees) > 1.0e-6) {
-            auto settings = *shared;
-            settings.options.bearingDegrees = bearing;
+    // Last, after this frame's move: the bearing faces where the point now is.
+    const auto tick = [&state] {
+        auto settings = *viewpointstudy::GetSettings ();
+        if (FaceTarget (state, settings))
             ConfigureViewpoint (state, std::move (settings));
-        }
-    }
+        viewpointstudy::Tick (visibilitystudy::ViewerCapture ());
+    };
     if (!target)
         state.viewpointActiveHandle = 0;
     else if (!point)
         state.viewpointActiveHandle = 1;
     if (state.viewpointPlacing || state.viewpointPlacingTarget || (!point && !target)) {
         state.viewpointDragging = false;
-        viewpointstudy::Tick (visibilitystudy::ViewerCapture ());
+        tick ();
         return;
     }
     // Two handles, the shared point and the target. Only the selected one has a
@@ -398,8 +409,8 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
                 settings.options.point[axis] =
                     state.viewpointDragPoint[axis] + parameter[axis] - state.viewpointDragParameter[axis];
             if (settings.options.point != shared->options.point) {
-                viewpointstudy::Configure (std::move (settings));
-                state.viewpointSeenRevision = viewpointstudy::GetSettings ()->revision;
+                FaceTarget (state, settings);
+                ConfigureViewpoint (state, std::move (settings));
             }
         }
         if (LeftTransition (input, false) || !(input.buttons & kMouseLeft))
@@ -407,7 +418,7 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
     }
     state.viewpointHotPart = state.viewpointDragging ? state.viewpointDragAxis : (state.wantsMouse ? -1 : hit);
     state.viewpointHotHandle = state.viewpointDragging ? state.viewpointDragHandle : handle;
-    viewpointstudy::Tick (visibilitystudy::ViewerCapture ());
+    tick ();
 }
 
 void PlaceViewpointFromPick (HudState& state, const DiligentScene&, const InputSnapshot& input,

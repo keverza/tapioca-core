@@ -16,19 +16,25 @@ class Worker {
         Shutdown ();
     }
 
+    // ⚠️ A MOVE DOES NOT CANCEL THE RUN IN FLIGHT. A drag configures every
+    // frame; cancelling each time meant no run ever finished until the drag
+    // stopped, so the fill trailed the point by the whole gesture. The run in
+    // flight publishes, and the newest settings follow it. Only what makes a
+    // result wrong rather than late -- other roles, disabling -- cancels.
     void Configure (Settings settings)
     {
         std::lock_guard<std::mutex> lock (mutex_);
-        const auto previous = settings_->enabled && settings.enabled && settings.pointValid &&
-                                      settings_->contextAll == settings.contextAll &&
-                                      settings_->context == settings.context
-                                  ? status_.result
-                                  : nullptr;
-        settings.revision = ++generation_;
+        const bool keeps = settings_->enabled && settings.enabled && settings.pointValid &&
+                           settings_->contextAll == settings.contextAll && settings_->context == settings.context;
+        settings.revision = ++revision_;
         settings_ = std::make_shared<const Settings> (std::move (settings));
-        status_ = {};
-        status_.result = previous;
-        pending_.reset ();
+        if (keeps)
+            status_.error.clear ();
+        else {
+            ++generation_;
+            pending_.reset ();
+            status_ = {};
+        }
         submittedRevision_ = 0;
         submittedSnapshot_ = 0;
     }
@@ -66,7 +72,7 @@ class Worker {
         submittedRevision_ = settings_->revision;
         submittedSnapshot_ = snapshot->id;
         pending_ = std::move (snapshot);
-        pendingGeneration_ = ++generation_;
+        pendingGeneration_ = generation_.load ();
         const auto previous = status_.result != nullptr && status_.result->snapshotId == pending_->id &&
                                       status_.result->captureStamp == pending_->captureStamp
                                   ? status_.result
@@ -126,7 +132,8 @@ class Worker {
             std::lock_guard<std::mutex> lock (mutex_);
             if (generation_.load () != generation)
                 continue;
-            status_.calculating = false;
+            // Superseded by a move, not cancelled: still the newest finished picture.
+            status_.calculating = pending_ != nullptr;
             if (!visibilitystudy::CaptureIsFresh (snapshot, snapshot->captureStamp)) {
                 status_.result.reset ();
                 status_.error = "the model changed during viewpoint calculation";
@@ -145,7 +152,7 @@ class Worker {
     std::thread thread_;
     bool stopping_ = false;
     std::atomic<uint64_t> generation_ { 0 };
-    uint64_t submittedRevision_ = 0, submittedSnapshot_ = 0, pendingGeneration_ = 0;
+    uint64_t revision_ = 0, submittedRevision_ = 0, submittedSnapshot_ = 0, pendingGeneration_ = 0;
     std::shared_ptr<const Settings> settings_ = std::make_shared<const Settings> ();
     std::shared_ptr<const Snapshot> pending_;
     Status status_;
