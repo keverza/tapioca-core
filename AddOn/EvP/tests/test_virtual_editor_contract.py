@@ -8,6 +8,23 @@ ROOT = Path(__file__).parents[1] / "Sources" / "AddOn"
 SOURCE = ROOT / "NativeCommands" / "VirtualEditorCommands.cpp"
 
 
+def test_shared_material_picker_is_native_queued_and_drained_by_both_hosts():
+    panel = (ROOT / "ArchViz" / "HudVirtualEditorRegions.cpp").read_text(encoding="utf-8")
+    queued = (ROOT / "ArchViz" / "VirtualEditorMaterialPicker.cpp").read_text(encoding="utf-8")
+    dialog = (ROOT / "Palette" / "HardscapeMaterialDialog.cpp").read_text(encoding="utf-8")
+    assert "RequestMaterialPicker (s, object->id)" in panel
+    assert "ACAPI_" not in panel
+    assert "MainThreadGate::Get ().Post" in queued
+    assert "request->revision == revision" in queued
+    assert "state->virtualEditor == session" in queued
+    assert "ACAPI_Dialog_CreateAttributePicker" in dialog
+    assert "ValidateMaterialAvailability" in dialog
+    assert "PickMaterialAttribute" in dialog
+    for name in ("OverlayControllerHud.cpp", "ViewerEditor.cpp"):
+        host = (ROOT / "ArchViz" / name).read_text(encoding="utf-8")
+        assert "FollowMaterialPicker (state)" in host
+
+
 def test_debug_scene_export_requests_in_layout_and_writes_only_from_the_controller():
     panel = (ROOT / "ArchViz" / "HudVirtualEditorPanel.cpp").read_text(encoding="utf-8")
     controller = (ROOT / "ArchViz" / "OverlayControllerHud.cpp").read_text(encoding="utf-8")

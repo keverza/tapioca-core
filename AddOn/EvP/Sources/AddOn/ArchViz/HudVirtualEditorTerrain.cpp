@@ -38,7 +38,7 @@ bool RequestTerrainCapture (Session& s, bool fromSelection)
         return false;
     }
     // The terrain comes first: neither a path nor a property line is needed to set it.
-    const auto path = ResolveTerrainDesignPath (s);
+    const auto path = s.terrainPaths ? ResolveTerrainDesignPath (s) : 0;
     const auto& doc = s.edits.Doc ();
     const auto bound = TerrainGuid (s);
     if (!doc.landscape) {
@@ -306,6 +306,8 @@ bool StartTerrainDesign (Session& s, TerrainDesignBaseline baseline, edit::Id pa
     }
     s.terrainDesign = std::move (state);
     s.terrainPath = path;
+    if (path)
+        s.terrainPaths = true;
     s.publishedRevision = UINT64_MAX;
     s.message.clear ();
     const auto& started = *s.terrainDesign;
@@ -344,7 +346,7 @@ void PollTerrainDesign (Session& s)
 {
     // A terrain set first starts its design when a path appears, once input is idle.
     if (s.terrainBaseline && !s.terrainDesign && Idle (s) && !s.terrainCapture) {
-        const auto path = ResolveTerrainDesignPath (s);
+        const auto path = s.terrainPaths ? ResolveTerrainDesignPath (s) : 0;
         if (path || !lg::TerrainRegionObjects (s.edits.Doc ()).empty ()) {
             auto baseline = *s.terrainBaseline;
             if (StartTerrainDesign (s, std::move (baseline), path))
@@ -388,7 +390,7 @@ void PollTerrainDesign (Session& s)
     if (state.invalid || !Idle (s) || state.requestedRevision == doc.revision)
         return;
     if (!state.options.source) {
-        const auto path = ResolveTerrainDesignPath (s);
+        const auto path = s.terrainPaths ? ResolveTerrainDesignPath (s) : 0;
         const bool owner =
             doc.landscape && std::any_of (doc.landscape->objects.begin (), doc.landscape->objects.end (),
                                           [&] (const auto& object) { return object.id == state.options.object; });
@@ -555,6 +557,22 @@ void SetTerrainBand (Session& s, bool band)
     s.publishedRevision = UINT64_MAX;
 }
 
+bool SetTerrainPaths (Session& s, bool enabled)
+{
+    if (!s.terrainDesign || s.terrainDesign->worker.valid () || !Idle (s))
+        return false;
+    if (!enabled && lg::TerrainRegionObjects (s.edits.Doc ()).empty ()) {
+        s.message = "Enable a region terrain target before switching to region-only grading.";
+        return false;
+    }
+    const auto baseline = s.terrainDesign->baseline;
+    const auto path = enabled ? ResolveTerrainDesignPath (s) : 0;
+    if (!StartTerrainDesign (s, baseline, path))
+        return false;
+    s.terrainPaths = enabled;
+    return true;
+}
+
 void TerrainDesignPanel (Session& s)
 {
     TerrainSetupPanel (s);
@@ -563,6 +581,14 @@ void TerrainDesignPanel (Session& s)
         return;
     const auto& state = *s.terrainDesign;
     ImGui::Separator ();
+    bool includePaths = s.terrainPaths;
+    ImGui::BeginDisabled (state.worker.valid ());
+    if (ImGui::Checkbox ("Include paths in terrain grading", &includePaths)) {
+        SetTerrainPaths (s, includePaths);
+        ImGui::EndDisabled ();
+        return; // A successful switch replaced the derived state.
+    }
+    ImGui::EndDisabled ();
     bool band = s.terrainBand;
     ImGui::BeginDisabled (state.worker.valid () || !state.options.source);
     if (ImGui::Checkbox ("Grade along the chosen path only", &band))
@@ -670,6 +696,12 @@ void DrawTerrainDesign (const Session&, overlaylayers::Layer&)
 void SetTerrainBand (Session& s, bool band)
 {
     s.terrainBand = band;
+}
+bool SetTerrainPaths (Session& s, bool enabled)
+{
+    (void) enabled;
+    s.message = "Terrain design requires the Rust geometry build.";
+    return false;
 }
 void TerrainDesignPanel (Session& s)
 {

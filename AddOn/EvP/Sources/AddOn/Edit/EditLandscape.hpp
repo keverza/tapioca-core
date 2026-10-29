@@ -317,6 +317,7 @@ bool SetRegionSurface (geomsrv::edit::Document& doc, Id object, const RegionSurf
                        const MaterialSpec& material, std::string& error);
 bool ValidateRegionTerrain (const HardscapeObject& object, std::string& error);
 bool SetRegionTerrain (geomsrv::edit::Document& doc, Id object, RegionTerrain terrain, std::string& error);
+bool SetHardscapeMaterial (geomsrv::edit::Document& doc, Id object, const MaterialSpec& material, std::string& error);
 // Names the session's base terrain: sets sourceTerrainGuid and keeps exactly one
 // live Terrain source carrying that GUID (created on first use, otherwise
 // updated), returning its ID. One authored edit; no geometry is read.

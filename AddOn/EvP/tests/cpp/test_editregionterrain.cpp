@@ -254,4 +254,18 @@ TEST (EditRegionTerrain, RegionOnlyHudStartsFromHeldTerrainAndRebuildsAfterUndo)
     ASSERT_TRUE (await (session)) << eh::GetTerrainDesignStatus (session).error;
     EXPECT_GT (eh::GetTerrainDesignStatus (session).fill, lower * 1.9);
     EXPECT_EQ (mesh->vertices, captured->points);
+    ASSERT_TRUE (session.edits.Apply ([] (auto& doc, auto& error) {
+        const auto path = edit::AddPath (doc, { { 2, 2, 0.5 }, { 2, 18, 0.5 } }, 1);
+        lg::LandscapeSource source;
+        source.pathId = path;
+        source.role = lg::SourceRole::PathCenterline;
+        edit::Id id = 0;
+        return lg::AddLandscapeSource (doc, source, id, error);
+    }));
+    ASSERT_TRUE (eh::SetTerrainPaths (session, false));
+    ASSERT_TRUE (await (session)) << eh::GetTerrainDesignStatus (session).error;
+    EXPECT_EQ (session.terrainPath, 0u);
+    EXPECT_FALSE (session.terrainPaths);
+    EXPECT_EQ (session.edits.Doc ().paths.size (), 1u) << "Region-only mode does not delete authored paths.";
+    EXPECT_GT (eh::GetTerrainDesignStatus (session).fill, 199);
 }

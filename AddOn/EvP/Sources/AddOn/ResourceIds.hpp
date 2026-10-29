@@ -209,6 +209,7 @@ constexpr short GraphEditorHtmlResId = 32571; // 'DATA', generated GraphUI/dist/
 constexpr short TextPromptResId = 32580;
 constexpr short MassingBakeResId = 32590;
 constexpr short ProgrammeDialogResId = 32591;
+constexpr short HardscapeMaterialResId = 32592;
 constexpr short TextPromptOkButtonId = 1;
 constexpr short TextPromptCancelButtonId = 2;
 constexpr short TextPromptLabelId = 3;

@@ -391,3 +391,14 @@
 2 "Close without changing the programme" CancelButton
 3 "Programme validation" LeftText_0
 }
+
+'GDLG' 32592 Modal | noGrow 40 40 520 192 "Hardscape material" {
+/* [1] */ Button 408 156 100 24 LargePlain "Apply"
+/* [2] */ Button 300 156 100 24 LargePlain "Cancel"
+/* [3] */ LeftText 12 92 496 52 SmallPlain vCenter ""
+}
+'DLGH' 32592 DLG_32592_HardscapeMaterial {
+1 "Apply explicitly chosen fill and surface GUIDs" OkButton
+2 "Close without changing the material" CancelButton
+3 "Material availability and replacement status" LeftText_0
+}

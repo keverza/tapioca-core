@@ -884,4 +884,19 @@ bool SetRegionTerrain (edit::Document& doc, Id object, RegionTerrain terrain, st
         },
         error);
 }
+bool SetHardscapeMaterial (edit::Document& doc, Id object, const MaterialSpec& material, std::string& error)
+{
+    return Mutate (
+        doc,
+        [=] (edit::Document& d, std::string& e) {
+            for (auto& target : d.landscape->objects)
+                if (target.id == object) {
+                    target.baseMaterial = material;
+                    return true;
+                }
+            e = "The material's hardscape object no longer exists.";
+            return false;
+        },
+        error);
+}
 } // namespace tapioca::geometry

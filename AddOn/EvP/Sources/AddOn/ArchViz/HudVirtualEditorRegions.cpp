@@ -1,5 +1,6 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
+#include "ArchViz/HudVirtualEditorMaterial.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -184,9 +185,26 @@ void RegionPanel (Session& s, bool materialsOnly)
         const auto finish = material.surfaceName.empty () ? material.surfaceGuid : material.surfaceName;
         ImGui::TextWrapped ("Fill: %s", fill.empty () ? "not assigned" : fill.c_str ());
         ImGui::TextWrapped ("Surface: %s", finish.empty () ? "not assigned" : finish.c_str ());
-        ImGui::TextWrapped ("Shared Archicad fill/surface picker and GUID resolution are pending (#26). "
-                            "Stored material references are retained, not replaced by the preset. "
-                            "Native material availability and hatch rendering are not certified here.");
+        if (ImGui::Button ("Choose Archicad fill / surface..."))
+            RequestMaterialPicker (s, object->id);
+        if (ImGui::Button ("Refresh project materials")) {
+            s.materialCatalogRevision = UINT64_MAX;
+            s.materialCatalog.reset ();
+        }
+        if (s.materialCatalog && s.materialCatalogRevision == s.edits.Doc ().revision) {
+            std::string error;
+            if (!lg::ValidateMaterialAvailability (material, *s.materialCatalog, error))
+                ImGui::TextWrapped ("%s", error.c_str ());
+            else
+                ImGui::TextDisabled ("Assigned native attributes resolve by GUID in this project.");
+        }
+        else if (!s.materialCatalogError.empty ())
+            ImGui::TextWrapped ("%s", s.materialCatalogError.c_str ());
+        else
+            ImGui::TextDisabled ("Waiting for the project's fill/surface catalog.");
+        ImGui::TextWrapped ("Shared material picker (#26): GUID/name persist; project indices do not. "
+                            "Missing materials need explicit replacement or clearing, never a preset substitution. "
+                            "Native hatch-pattern rendering and output acceptance remain separate.");
     }
     if (changed && !s.edits.Apply ([id = object->id, surface, material] (edit::Document& doc, std::string& error) {
             return lg::SetRegionSurface (doc, id, surface, material, error);

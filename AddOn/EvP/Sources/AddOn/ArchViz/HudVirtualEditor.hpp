@@ -31,6 +31,9 @@
 namespace geomsrv::archviz::overlayhud {
 struct Input;
 }
+namespace tapioca::geometry {
+struct MaterialCatalog;
+}
 
 namespace geomsrv::archviz::edithud {
 
@@ -85,6 +88,7 @@ struct ContextMenu {
     bool open = false;
 };
 
+struct MaterialPickerRequest;
 struct Session {
     edit::Session edits;
     std::shared_ptr<TerrainDesignState> terrainDesign; // Derived worker/cache follows this session between hosts.
@@ -93,6 +97,11 @@ struct Session {
     // The terrain set from Archicad before there is anything to grade: held until a design path
     // exists, then the design starts on it (SetTerrainBaseline). Null once a design owns it.
     std::shared_ptr<TerrainDesignBaseline> terrainBaseline;
+    std::shared_ptr<const MaterialPickerRequest> materialPicker;
+    bool materialPickerQueued = false, materialCatalogQueued = false;
+    std::shared_ptr<const tapioca::geometry::MaterialCatalog> materialCatalog;
+    uint64_t materialCatalogRevision = UINT64_MAX;
+    std::string materialCatalogError;
     bool terrainCaptureQueued = false;
     // Explicit UI request to add the Archicad selection's drafting; posted out of layout like the capture.
     bool draftingImport = false, draftingImportQueued = false;
@@ -106,6 +115,7 @@ struct Session {
     bool terrainSectionDrag = false;
     // Grade along the chosen design path's band only, instead of every path's paved outline.
     bool terrainBand = false;
+    bool terrainPaths = true; // False: explicit region-only topography, authored paths stay unchanged.
     edit::Selection selection;
     // Model-space outlines only; bounded to this session and reprojected for every pick.
     edit::PickGeometryCache pickCache;

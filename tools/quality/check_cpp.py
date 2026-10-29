@@ -247,6 +247,11 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # The main-thread bake facade asks one native DG modal for an immutable settings
     # value. UI construction/picker ownership stay in Palette, never in HUD layout.
     ("ArchViz/MassingBake.cpp", "Palette/MassingBakeDialog.hpp"),
+    # One queued main-thread adapter shares project attribute resolution and the
+    # native DG picker with both editor hosts. No SDK/UI calls occur in HUD layout;
+    # duplicating either catalog or dialog in ArchViz would create a second model.
+    ("ArchViz/VirtualEditorMaterialPicker.cpp", "NativeCommands/HardscapeMaterial.hpp"),
+    ("ArchViz/VirtualEditorMaterialPicker.cpp", "Palette/HardscapeMaterialDialog.hpp"),
     # Strict native guard/finalization adapters share the bake facade's session token;
     # a second token store would allow stale worker writes after project close.
     ("NativeCommands/MassingBakeCommands.cpp", "ArchViz/MassingBake.hpp"),
@@ -1414,7 +1419,10 @@ def _check_tapiocaui_boundary(failures: list[str]) -> None:
             local = LOCAL_INCLUDE.match(line)
             if local is not None:
                 included = local.group(1)
-                if not included.startswith(TAPIOCAUI_DIR + "/") and (relative, included) not in TAPIOCAUI_INCLUDE_EXCEPTIONS:
+                if (
+                    not included.startswith(TAPIOCAUI_DIR + "/")
+                    and (relative, included) not in TAPIOCAUI_INCLUDE_EXCEPTIONS
+                ):
                     failures.append(
                         f"TAPIOCAUI: {relative}:{number} includes {included}; the library includes only "
                         "itself and ImGui. Pass the data in, or record a file-specific exception in "

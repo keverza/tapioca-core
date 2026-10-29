@@ -608,6 +608,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscapeCommand.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscapePanel.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorRegions.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorMaterial.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTerrain.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDebug.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTerrainSetup.cpp"
@@ -829,6 +830,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarFaces.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscape.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditRegionSurface.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditMaterial.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditRegionTerrain.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrainJob.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEntrance.cpp"
@@ -885,6 +887,7 @@ set (EVP_TEST_SOURCES
     test_editplanarrobustfaces.cpp
     test_editlandscape.cpp
     test_editregionsurface.cpp
+    test_editmaterial.cpp
     test_editregionterrain.cpp
     test_editlandscapepreview.cpp
     test_editlandscapeentrance.cpp
