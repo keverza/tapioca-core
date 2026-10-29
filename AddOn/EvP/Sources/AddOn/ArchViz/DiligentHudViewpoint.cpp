@@ -324,6 +324,14 @@ void DrawViewpointHudSection (HudState& state)
             changed = true;
         }
         ImGui::SetItemTooltip ("The lowest elevation seen: -90 straight down, 0 nothing below the horizon.");
+        float grid = float (options.surfaceCellMetres);
+        if (ImGui::SliderFloat ("surface grid##viewpoint", &grid, 0.0f, 2.0f, grid < 0.05f ? "auto" : "%.2f m")) {
+            options.surfaceCellMetres = grid < 0.05f ? 0.0 : double (grid);
+            changed = true;
+        }
+        ImGui::SetItemTooltip ("The cell side surfaces are tested at; patch borders are cut where they cross a cell.\n"
+                               "Auto picks one from the radius. Finer finds smaller shadows and is slower; a run\n"
+                               "over its budget is coarsened.");
     }
     changed |= AdaptiveSlider ("Radius (m)", settings.options.radius, state.viewpointRadiusRange,
                                state.viewpointRadiusHeld, 0.1, 10000.0, "%.1f");
@@ -347,7 +355,12 @@ void DrawViewpointHudSection (HudState& state)
     else if (!status.error.empty ())
         hudshell::ErrorNotice (status.error);
     else if (status.result != nullptr && status.result->options.mode == evp::sunstudy::ViewpointMode::Sphere)
-        ImGui::Text ("%.0f m2 of surface seen; %.0f%% of directions open", status.result->seenArea,
+        ImGui::Text ("%.0f m2 of surface seen (%.2f m grid%s); %.0f%% of directions open", status.result->seenArea,
+                     status.result->surfaceCellMetres,
+                     status.result->surfaceCellMetres > status.result->options.surfaceCellMetres + 1e-9 &&
+                             status.result->options.surfaceCellMetres > 0.0
+                         ? ", coarsened"
+                         : "",
                      status.result->openFraction * 100.0);
     else if (status.result != nullptr)
         ImGui::Text ("%.1f m2 visible; %u of %u rays hit Context", status.result->area,
