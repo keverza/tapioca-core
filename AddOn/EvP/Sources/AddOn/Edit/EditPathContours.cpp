@@ -13,15 +13,23 @@ struct Cut {
     uint64_t key;
     Vec3 p;
 };
+// World metres, matching the existing endpoint snap below. Classifying an edge
+// with raw signs while snapping its cuts made roundoff on a level terrace trace
+// arbitrary triangle edges. The same on-level policy must govern both decisions.
+constexpr double kLevelTolerance = 1e-12;
+bool OnLevel (double z, double level)
+{
+    return std::abs (z - level) < kLevelTolerance;
+}
 void Trace (const PavedArea& mesh, double level, Id path, std::vector<Contour>& out)
 {
     std::vector<std::pair<Cut, Cut>> pieces;
     std::set<std::pair<uint64_t, uint64_t>> seen;
     const auto cut = [&] (uint32_t a, uint32_t b) {
         const Vec3 p = mesh.vertices[a], q = mesh.vertices[b];
-        if (std::abs (p.z - level) < 1e-12)
+        if (OnLevel (p.z, level))
             return Cut { a, { p.x, p.y, level } };
-        if (std::abs (q.z - level) < 1e-12)
+        if (OnLevel (q.z, level))
             return Cut { b, { q.x, q.y, level } };
         Vec3 at = Lerp (p, q, (level - p.z) / (q.z - p.z));
         at.z = level;
@@ -33,7 +41,8 @@ void Trace (const PavedArea& mesh, double level, Id path, std::vector<Contour>& 
         std::vector<Cut> cuts;
         for (int k = 0; k < 3; ++k) {
             const auto a = ids[k], b = ids[(k + 1) % 3];
-            if ((mesh.vertices[a].z >= level) != (mesh.vertices[b].z >= level))
+            const auto above = [level] (double z) { return z >= level || OnLevel (z, level); };
+            if (above (mesh.vertices[a].z) != above (mesh.vertices[b].z))
                 cuts.push_back (cut (a, b));
         }
         if (cuts.size () != 2 || DistanceXY (cuts[0].p, cuts[1].p) < 1e-10)

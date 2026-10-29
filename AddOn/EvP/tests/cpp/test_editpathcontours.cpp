@@ -47,6 +47,29 @@ TEST (EditPathContours, ALevelRampIsCutStraightAcrossAtEachLevel)
     }
 }
 
+TEST (EditPathContours, FlatTerrainRoundoffDoesNotTraceTheTriangulationAsContours)
+{
+    for (double level : { -0.2, 0.0, 125.0 }) {
+        ed::PavedArea mesh;
+        mesh.vertices = {
+            { 0, 0, level - 5e-15 }, { 20, 0, level + 5e-15 }, { 20, 20, level - 5e-15 }, { 0, 20, level + 5e-15 }
+        };
+        mesh.triangles = { 0, 1, 2, 0, 2, 3 };
+        EXPECT_TRUE (ed::SurfaceContours (mesh, 0.1).empty ()) << level;
+    }
+}
+
+TEST (EditPathContours, ARealSmallGradeStillCrossesAContourLevel)
+{
+    ed::PavedArea mesh;
+    mesh.vertices = { { 0, 0, -0.2 - 1e-8 }, { 20, 0, -0.2 + 1e-8 }, { 20, 20, -0.2 + 1e-8 }, { 0, 20, -0.2 - 1e-8 } };
+    mesh.triangles = { 0, 1, 2, 0, 2, 3 };
+    const auto lines = ed::SurfaceContours (mesh, 0.1);
+    ASSERT_EQ (lines.size (), 1u);
+    for (const auto& p : lines[0].points)
+        EXPECT_NEAR (p.x, 10, 1e-6);
+}
+
 TEST (EditPathContours, ACrossfallSkewsTheLines)
 {
     // Falling 2 % to the right on a 10 % grade: the right edge, 4 cm lower than the left,
