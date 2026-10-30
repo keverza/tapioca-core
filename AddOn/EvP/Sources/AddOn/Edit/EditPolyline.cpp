@@ -1,4 +1,5 @@
 #include "Edit/EditPolyline.hpp"
+#include "Edit/EditEllipse.hpp"
 #include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
@@ -60,8 +61,19 @@ bool CrossPlan (Vec3 a, Vec3 b, Vec3 c, Vec3 d, double& t, double& s)
     return true;
 }
 
+bool EllipseEditable (const Entity& e, std::string& error)
+{
+    if (e.ellipse) {
+        error = "a parametric ellipse is edited by its parameters; convert it to a curve for node edits";
+        return false;
+    }
+    return true;
+}
+
 bool Editable (const Entity& e, std::string& error)
 {
+    if (!EllipseEditable (e, error))
+        return false;
     if (e.kind == Kind::Extrusion) {
         error = "an extrusion profile keeps its shape here; edit its faces";
         return false;
@@ -101,6 +113,8 @@ std::vector<Vec3> Rectangle (Vec3 corner, Vec3 opposite)
 bool MoveVertex (Document& doc, Id entity, Id vertex, Vec3 to, std::string& error)
 {
     Entity* e = Get (doc, entity, error);
+    if (e != nullptr && !EllipseEditable (*e, error))
+        return false;
     const int i = e != nullptr ? VertexAt (*e, vertex, error) : -1;
     if (i < 0)
         return false;
@@ -120,6 +134,8 @@ bool MoveVertex (Document& doc, Id entity, Id vertex, Vec3 to, std::string& erro
 bool InsertVertex (Document& doc, Id entity, Id segment, Vec3 at, std::string& error, Id* created)
 {
     Entity* e = Get (doc, entity, error);
+    if (e != nullptr && !EllipseEditable (*e, error))
+        return false;
     const int k = e != nullptr ? SegmentAt (*e, segment, error) : -1;
     if (k < 0)
         return false;
@@ -156,6 +172,8 @@ bool InsertVertex (Document& doc, Id entity, Id segment, Vec3 at, std::string& e
 bool DeleteVertex (Document& doc, Id entity, Id vertex, std::string& error)
 {
     Entity* e = Get (doc, entity, error);
+    if (e != nullptr && !EllipseEditable (*e, error))
+        return false;
     const int found = e != nullptr ? VertexAt (*e, vertex, error) : -1;
     if (found < 0)
         return false;
@@ -180,6 +198,8 @@ bool MergeVertices (Document& doc, Id entity, double tolerance, std::string& err
 {
     Entity* e = Get (doc, entity, error);
     if (e == nullptr)
+        return false;
+    if (!EllipseEditable (*e, error))
         return false;
     const auto locked = [] (const Vertex& v) { return v.lockXY || v.lockZ; };
     for (size_t i = 0; i < SegmentCount (*e);) {
@@ -213,6 +233,8 @@ bool MergeVertices (Document& doc, Id entity, double tolerance, std::string& err
 bool OffsetSegment (Document& doc, Id entity, Id segment, double distance, std::string& error)
 {
     Entity* e = Get (doc, entity, error);
+    if (e != nullptr && !EllipseEditable (*e, error))
+        return false;
     const int k = e != nullptr ? SegmentAt (*e, segment, error) : -1;
     if (k < 0)
         return false;
@@ -274,6 +296,8 @@ bool OffsetEntity (Document& doc, Id entity, double distance, std::string& error
         error = "the entity no longer exists";
         return false;
     }
+    if (!EllipseEditable (*found, error))
+        return false;
     Entity copy = *found;
     const size_t n = copy.vertices.size (), segs = SegmentCount (copy);
     std::vector<Vec3> dirs (segs);
@@ -494,6 +518,11 @@ bool Join (Document& doc, Id first, Id second, double tolerance, std::string& er
 
 void ReverseOrder (Entity& e)
 {
+    if (e.ellipse) {
+        const Vec3 axisU = e.ellipse->axisU;
+        e.ellipse->axisU = e.ellipse->axisV * -1.0;
+        e.ellipse->axisV = axisU * -1.0;
+    }
     std::reverse (e.vertices.begin (), e.vertices.end ());
     // A handle that shaped the segment leaving a vertex now shapes the one arriving at it.
     for (auto& v : e.vertices)
@@ -619,6 +648,8 @@ void ReplaceCorner (Document& doc, Entity& e, const Corner& c, const std::vector
 bool Fillet (Document& doc, Id entity, Id vertex, double radius, int arcSegments, std::string& error)
 {
     Entity* e = Get (doc, entity, error);
+    if (e != nullptr && !EllipseEditable (*e, error))
+        return false;
     const int found = e != nullptr ? VertexAt (*e, vertex, error) : -1;
     if (found < 0)
         return false;
@@ -661,6 +692,8 @@ bool Fillet (Document& doc, Id entity, Id vertex, double radius, int arcSegments
 bool Chamfer (Document& doc, Id entity, Id vertex, double distance, std::string& error)
 {
     Entity* e = Get (doc, entity, error);
+    if (e != nullptr && !EllipseEditable (*e, error))
+        return false;
     const int found = e != nullptr ? VertexAt (*e, vertex, error) : -1;
     if (found < 0)
         return false;
@@ -683,6 +716,11 @@ bool SetCoordinate (Document& doc, const std::vector<Ref>& refs, int axis, doubl
     if (axis < 0 || axis > 2 || !std::isfinite (value)) {
         error = "pick X, Y or Z and a number";
         return false;
+    }
+    for (const auto& r : refs) {
+        const Entity* e = Find (doc, r.entity);
+        if (e != nullptr && !EllipseEditable (*e, error))
+            return false;
     }
     for (const auto& r : refs) {
         Entity* e = Get (doc, r.entity, error);

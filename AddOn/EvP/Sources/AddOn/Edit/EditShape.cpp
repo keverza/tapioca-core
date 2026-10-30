@@ -42,6 +42,10 @@ bool Editable (Document& doc, Id entity, Id vertex, Entity*& e, Vertex*& v, std:
         error = "that vertex no longer exists";
         return false;
     }
+    if (e->ellipse) {
+        error = "a parametric ellipse is edited by its parameters; convert it to a curve for handle edits";
+        return false;
+    }
     if (v->lockXY) {
         error = "that vertex is locked";
         return false;
@@ -156,6 +160,10 @@ bool SetSmooth (Document& doc, Id entity, Id vertex, bool smooth, std::string& e
 bool SetSegmentCurved (Document& doc, Id entity, Id segment, bool curved, std::string& error)
 {
     Entity* e = Find (doc, entity);
+    if (e != nullptr && e->ellipse) {
+        error = "a parametric ellipse is edited by its parameters; convert it to a curve for handle edits";
+        return false;
+    }
     const int i = e != nullptr ? SegmentIndex (*e, segment) : -1;
     if (i < 0) {
         error = "that segment no longer exists";
@@ -184,6 +192,10 @@ bool SetSegmentCurved (Document& doc, Id entity, Id segment, bool curved, std::s
 bool BendSegment (Document& doc, Id entity, Id segment, double t, Vec3 move, std::string& error)
 {
     Entity* e = Find (doc, entity);
+    if (e != nullptr && e->ellipse) {
+        error = "a parametric ellipse is edited by its parameters; convert it to a curve for handle edits";
+        return false;
+    }
     const int i = e != nullptr ? SegmentIndex (*e, segment) : -1;
     if (i < 0) {
         error = "that segment no longer exists";
@@ -451,6 +463,10 @@ bool SetCornerRadius (Document& doc, Id entity, const std::vector<Id>& vertices,
     Entity* e = Find (doc, entity);
     if (e == nullptr) {
         error = "that object no longer exists";
+        return false;
+    }
+    if (e->ellipse) {
+        error = "a parametric ellipse is edited by its parameters; convert it to a curve for corner edits";
         return false;
     }
     if (!(radius >= 0.0) || !std::isfinite (radius)) {

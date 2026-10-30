@@ -1,4 +1,5 @@
 #include "Edit/EditGizmo.hpp"
+#include "Edit/EditEllipse.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include <algorithm>
 #include <cmath>
@@ -635,6 +636,7 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
         std::map<Id, std::set<size_t>> moved;
         std::map<Id, std::vector<size_t>> faces;
         std::vector<Ref> pathParts;
+        std::set<Id> wholeEllipses;
         for (const auto& ref : selection) {
             if (FindPath (doc, ref.entity) != nullptr) {
                 pathParts.push_back (ref);
@@ -644,6 +646,13 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
             if (e == nullptr || !Exists (doc, ref)) {
                 error = "a selected item no longer exists";
                 return false;
+            }
+            if (e->ellipse) {
+                if (ref.part != Part::Entity) {
+                    error = "a parametric ellipse is edited by its parameters; convert it to a curve for node edits";
+                    return false;
+                }
+                wholeEllipses.insert (e->id);
             }
             auto& set = moved[e->id];
             const size_t n = e->vertices.size ();
@@ -702,6 +711,96 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
         for (auto& [id, indices] : moved) {
             Entity& e = *Find (doc, id);
             const Transform et = entityScale (e, indices.size ());
+            if (e.ellipse) {
+                if (!wholeEllipses.count (id) || indices.size () != e.vertices.size ()) {
+                    error = "a parametric ellipse must be transformed as a whole";
+                    return false;
+                }
+                if (t.extrude != 0.0) {
+                    error = "a parametric ellipse cannot be extruded; convert it to a curve first";
+                    return false;
+                }
+                Entity candidate = e;
+                EllipseDefinition definition = *e.ellipse;
+                const auto mapVector = [&] (Vec3 vector) {
+                    return Apply (et, definition.center + vector) - Apply (et, definition.center);
+                };
+                if (stretch) {
+                    Vec3 direction;
+                    if (t.stretchSide != 1 && t.stretchSide != -1) {
+                        error = "an ellipse stretch needs a positive or negative side";
+                        return false;
+                    }
+                    if (!Normalize (stretchDir, direction)) {
+                        error = "the ellipse stretch axis is invalid";
+                        return false;
+                    }
+                    const double alongU = Dot (definition.axisU, direction);
+                    const double alongV = Dot (definition.axisV, direction);
+                    const double halfWidth = std::hypot (alongU, alongV);
+                    if (halfWidth <= kMinSegment) {
+                        // A plane seen edge-on to the stretch axis has no width on that axis;
+                        // like any zero-width selection, it moves as one instead of scaling.
+                        definition.center = definition.center + direction * t.stretchBy;
+                    }
+                    else {
+                        const double factor = 1.0 + t.stretchSide * t.stretchBy / (2.0 * halfWidth);
+                        if (!(factor > 0.0) || !std::isfinite (factor)) {
+                            error = "that side would cross the opposite side of the ellipse";
+                            return false;
+                        }
+                        const Vec3 support = definition.axisU * alongU + definition.axisV * alongV;
+                        const Vec3 fixed = definition.center - support * (double (t.stretchSide) / halfWidth);
+                        definition.center = fixed + (definition.center - fixed) +
+                                            direction * (Dot (definition.center - fixed, direction) * (factor - 1.0));
+                        definition.axisU =
+                            definition.axisU + direction * (Dot (definition.axisU, direction) * (factor - 1.0));
+                        definition.axisV =
+                            definition.axisV + direction * (Dot (definition.axisV, direction) * (factor - 1.0));
+                    }
+                }
+                else {
+                    const Vec3 mappedCenter = Apply (et, definition.center);
+                    definition.axisU = mapVector (definition.axisU);
+                    definition.axisV = mapVector (definition.axisV);
+                    definition.center = mappedCenter;
+                }
+                if (definition.mode == EllipseMode::Circle) {
+                    const double u = Length (definition.axisU), v = Length (definition.axisV);
+                    const bool stillCircle = u >= kMinSegment && v >= kMinSegment &&
+                                             std::abs (u - v) <= 1.0e-9 * std::max (u, v) &&
+                                             std::abs (Dot (definition.axisU, definition.axisV)) <= 1.0e-9 * u * v;
+                    if (!stillCircle)
+                        definition.mode = EllipseMode::Ellipse;
+                    else {
+                        Vec3 normal, axisU, axisV;
+                        if (!Normalize (Cross (definition.axisU, definition.axisV), normal) ||
+                            !Normalize (definition.axisU, axisU) || !Normalize (definition.axisV, axisV)) {
+                            error = "the transformed circle has invalid axes";
+                            return false;
+                        }
+                        const double radius = 0.5 * (u + v);
+                        definition.axisU = axisU * radius;
+                        definition.axisV = axisV * radius;
+                    }
+                }
+                candidate.ellipse = definition;
+                if (!RegenerateEllipse (candidate, error))
+                    return false;
+                for (size_t i = 0; i < e.vertices.size (); ++i) {
+                    const auto& before = e.vertices[i];
+                    const auto& after = candidate.vertices[i];
+                    const bool xy =
+                        std::abs (after.p.x - before.p.x) > 1.0e-12 || std::abs (after.p.y - before.p.y) > 1.0e-12;
+                    const bool z = std::abs (after.p.z - before.p.z) > 1.0e-12;
+                    if ((xy && before.lockXY) || (z && before.lockZ)) {
+                        error = "a selected vertex is locked";
+                        return false;
+                    }
+                }
+                e = std::move (candidate);
+                continue;
+            }
             for (size_t i : indices) {
                 Vertex& v = e.vertices[i];
                 if (stretch && !flat && Dot (v.p - t.pivot, stretchDir) * t.stretchSide <= 1.0e-9)

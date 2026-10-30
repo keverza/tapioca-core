@@ -42,6 +42,16 @@ struct Segment {
     uint32_t tag = 0;
     bool operator== (const Segment&) const = default;
 };
+enum class EllipseMode : uint8_t { Circle, Ellipse };
+// An analytic ellipse in its plane: centre + axisU*cos(t) + axisV*sin(t).
+// The axes may be non-orthogonal after an affine transform; this is still an exact
+// ellipse (the axes are conjugate diameters). `mode` is authored identity, not inferred
+// from the current radii, so a flattened circle remains an ellipse if later made round.
+struct EllipseDefinition {
+    EllipseMode mode = EllipseMode::Ellipse;
+    Vec3 center, axisU, axisV;
+    bool operator== (const EllipseDefinition&) const = default;
+};
 // An Extrusion is a closed, horizontal profile lifted by `height`. Its faces are
 // 0 bottom, 1 top and 2 + i the side over segment i.
 struct Entity {
@@ -53,6 +63,7 @@ struct Entity {
     double height = 0.0;
     std::string role; // the owning tool's word for it ("centerline", "platform", ...)
     Membership member;
+    std::optional<EllipseDefinition> ellipse; // authoritative definition; vertices are its Bezier quarters
     bool operator== (const Entity&) const = default;
 };
 // The editor's own layers and groups, never Archicad's: nothing here creates an Archicad

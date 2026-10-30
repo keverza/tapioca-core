@@ -3,8 +3,8 @@
 
 // Closed shapes drawn from two points on a working plane: a rectangle corner to corner, a regular
 // polygon from its centre to a vertex, an ellipse from its centre to a corner of its bounding box.
-// Each becomes one ordinary closed polyline -- its vertices, segments and Bezier handles edited as
-// any other -- never a parametric object the editor has to keep alive.
+// Rectangles and polygons become ordinary closed polylines. An ellipse retains its analytic
+// circle/ellipse definition alongside the same four-quarter Bezier representation.
 #include "Edit/EditDocument.hpp"
 #include <string>
 #include <vector>

@@ -382,6 +382,8 @@ std::vector<Dimension> DimensionsFor (const Document& doc, const Ref& ref)
     const Entity* e = Find (doc, ref.entity);
     if (e == nullptr || !Exists (doc, ref))
         return out;
+    if (e->ellipse)
+        return out; // typed centre/radius/rotation fields use the ellipse parameter API
     switch (ref.part) {
         case Part::Segment:
             // A curve has a length along it; its direction and fall are its handles'.
@@ -519,6 +521,10 @@ Operation WriteDimension (const Dimension& d, double value)
         }
         if (FindPath (doc, d.ref.entity) != nullptr)
             return WritePath (doc, d, value, error);
+        if (const Entity* entity = Find (doc, d.ref.entity); entity != nullptr && entity->ellipse) {
+            error = "a parametric ellipse is edited by its parameters; convert it to a curve for node edits";
+            return false;
+        }
         if (d.ref.part == Part::Segment) {
             const bool z = d.quantity == Quantity::Slope;
             Entity* e = nullptr;

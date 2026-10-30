@@ -1,5 +1,8 @@
 #include "Edit/EditGizmo.hpp"
+#include "Edit/EditEllipse.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditPrimitives.hpp"
+#include "Edit/EditShape.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 
@@ -32,6 +35,49 @@ ed::Document Square (ed::Id& e)
     ed::Document doc;
     e = ed::AddPolyline (doc, { { 0, 0, 0 }, { 2, 0, 0 }, { 2, 2, 0 }, { 0, 2, 0 } }, true);
     return doc;
+}
+
+ed::Id Circle (ed::Document& doc, double radius)
+{
+    ed::PrimitiveInput input;
+    input.kind = ed::Primitive::Ellipse;
+    input.second = { radius, 0.0, 0.0 };
+    input.uniform = true;
+    std::string error;
+    const auto id = ed::AddPrimitive (doc, input, "circle", error);
+    EXPECT_NE (id, ed::kNoId) << error;
+    return id;
+}
+
+void ExpectOnEllipse (const ed::Entity& entity)
+{
+    ed::EllipseParameters parameters;
+    std::string error;
+    ASSERT_TRUE (ed::GetEllipseParameters (entity, parameters, error)) << error;
+    const ed::Vec3 seed = std::abs (parameters.normal.z) < 0.9 ? ed::Vec3 { 0, 0, 1 } : ed::Vec3 { 1, 0, 0 };
+    ed::Vec3 u, v;
+    ASSERT_TRUE (ed::Normalize (seed - parameters.normal * ed::Dot (seed, parameters.normal), u));
+    v = ed::Cross (parameters.normal, u);
+    u = u * std::cos (parameters.rotation) + v * std::sin (parameters.rotation);
+    v = ed::Cross (parameters.normal, u);
+    ASSERT_TRUE (entity.ellipse.has_value ());
+    for (int i = 0; i < 32; ++i) {
+        const double angle = i * 6.28318530717958647692 / 32.0;
+        const ed::Vec3 delta = entity.ellipse->axisU * std::cos (angle) + entity.ellipse->axisV * std::sin (angle);
+        const double x = ed::Dot (delta, u) / parameters.majorRadius;
+        const double y = ed::Dot (delta, v) / parameters.minorRadius;
+        EXPECT_NEAR (x * x + y * y, 1.0, 1.0e-12);
+        EXPECT_NEAR (ed::Dot (delta, parameters.normal), 0.0, 1.0e-12);
+    }
+    for (size_t i = 0; i < entity.segments.size (); ++i)
+        for (const auto& point : ed::SegmentPoints (entity, i)) {
+            const ed::Vec3 delta = point - parameters.center;
+            const double x = ed::Dot (delta, u) / parameters.majorRadius;
+            const double y = ed::Dot (delta, v) / parameters.minorRadius;
+            // Cubic quarter-arcs have at most ~0.000273 relative radial error;
+            // this assertion uses the squared normalized radius.
+            EXPECT_NEAR (x * x + y * y, 1.0, 5.5e-4);
+        }
 }
 } // namespace
 
@@ -85,6 +131,91 @@ TEST (EditGizmo, TwoDistinctPointsCanScaleAndTurnButNotAlongAnEmptyAxis)
         if (h.kind == ed::HandleKind::Ring)
             EXPECT_EQ (h.movable, h.axis != 0);
     }
+}
+
+TEST (EditGizmo, CircleAndEllipseTransformsRegenerateSemanticAxesAndKeepIds)
+{
+    ed::Document doc;
+    const ed::Id circle = Circle (doc, 2.0);
+    const ed::Entity original = *ed::Find (doc, circle);
+    std::vector<ed::Id> vertexIds, segmentIds;
+    for (const auto& vertex : original.vertices)
+        vertexIds.push_back (vertex.id);
+    for (const auto& segment : original.segments)
+        segmentIds.push_back (segment.id);
+
+    ed::Transform scale;
+    std::string error;
+    scale.scale = { 2.0, 1.0, 1.0 };
+    ASSERT_TRUE (ed::TransformOperation ({ { circle, ed::Part::Entity, 0 } }, scale) (doc, error)) << error;
+    const auto* ellipse = ed::Find (doc, circle);
+    ASSERT_NE (ellipse, nullptr);
+    ASSERT_TRUE (ellipse->ellipse.has_value ());
+    EXPECT_EQ (ellipse->ellipse->mode, ed::EllipseMode::Ellipse);
+    ed::EllipseParameters parameters;
+    ASSERT_TRUE (ed::GetEllipseParameters (*ellipse, parameters, error)) << error;
+    EXPECT_DOUBLE_EQ (parameters.majorRadius, 4.0);
+    EXPECT_DOUBLE_EQ (parameters.minorRadius, 2.0);
+    for (size_t i = 0; i < vertexIds.size (); ++i)
+        EXPECT_EQ (ellipse->vertices[i].id, vertexIds[i]);
+    for (size_t i = 0; i < segmentIds.size (); ++i)
+        EXPECT_EQ (ellipse->segments[i].id, segmentIds[i]);
+    ExpectOnEllipse (*ellipse);
+
+    ed::Transform rotate;
+    rotate.angle = 0.4;
+    ASSERT_TRUE (ed::TransformOperation ({ { circle, ed::Part::Entity, 0 } }, rotate) (doc, error)) << error;
+    ASSERT_TRUE (ed::GetEllipseParameters (*ed::Find (doc, circle), parameters, error)) << error;
+    EXPECT_NEAR (parameters.rotation, 0.4, 1e-12);
+    ExpectOnEllipse (*ed::Find (doc, circle));
+
+    ed::Document uniform;
+    const ed::Id round = Circle (uniform, 2.0);
+    ed::Transform scaleAll;
+    scaleAll.scale = { 3.0, 3.0, 3.0 };
+    ASSERT_TRUE (ed::TransformOperation ({ { round, ed::Part::Entity, 0 } }, scaleAll) (uniform, error)) << error;
+    ASSERT_TRUE (ed::GetEllipseParameters (*ed::Find (uniform, round), parameters, error)) << error;
+    EXPECT_EQ (parameters.mode, ed::EllipseMode::Circle);
+    EXPECT_DOUBLE_EQ (parameters.majorRadius, 6.0);
+    EXPECT_DOUBLE_EQ (parameters.minorRadius, 6.0);
+
+    ed::Document skewed;
+    const ed::Id tilted = Circle (skewed, 2.0);
+    ASSERT_TRUE (ed::SetEllipseRotation (skewed, tilted, 0.6, error)) << error;
+    ed::Transform nonuniform;
+    nonuniform.scale = { 2.0, 1.0, 1.0 };
+    ASSERT_TRUE (ed::TransformOperation ({ { tilted, ed::Part::Entity, 0 } }, nonuniform) (skewed, error)) << error;
+    EXPECT_EQ (ed::Find (skewed, tilted)->ellipse->mode, ed::EllipseMode::Ellipse);
+    EXPECT_TRUE (ed::ValidateEllipse (*ed::Find (skewed, tilted), error)) << error;
+    ExpectOnEllipse (*ed::Find (skewed, tilted));
+}
+
+TEST (EditGizmo, StretchingOneEllipseSideExpandsAnExactEllipseAndKeepsTheOppositeSide)
+{
+    ed::Document doc;
+    const ed::Id id = Circle (doc, 2.0);
+    const auto vertexIds =
+        std::vector<ed::Id> { ed::Find (doc, id)->vertices[0].id, ed::Find (doc, id)->vertices[1].id,
+                              ed::Find (doc, id)->vertices[2].id, ed::Find (doc, id)->vertices[3].id };
+    ed::Transform stretch;
+    stretch.stretchAxis = 0;
+    stretch.stretchSide = 1;
+    stretch.stretchBy = 2.0;
+    std::string error;
+    ASSERT_TRUE (ed::TransformOperation ({ { id, ed::Part::Entity, 0 } }, stretch) (doc, error)) << error;
+    const auto* ellipse = ed::Find (doc, id);
+    ASSERT_NE (ellipse, nullptr);
+    ed::EllipseParameters parameters;
+    ASSERT_TRUE (ed::GetEllipseParameters (*ellipse, parameters, error)) << error;
+    EXPECT_EQ (parameters.mode, ed::EllipseMode::Ellipse);
+    EXPECT_DOUBLE_EQ (parameters.center.x, 1.0);
+    EXPECT_DOUBLE_EQ (parameters.majorRadius, 3.0);
+    EXPECT_DOUBLE_EQ (parameters.minorRadius, 2.0);
+    EXPECT_DOUBLE_EQ (parameters.center.x - parameters.majorRadius, -2.0); // opposite edge fixed
+    for (size_t i = 0; i < vertexIds.size (); ++i)
+        EXPECT_EQ (ellipse->vertices[i].id, vertexIds[i]);
+    EXPECT_TRUE (ed::ValidateEllipse (*ellipse, error)) << error;
+    ExpectOnEllipse (*ellipse);
 }
 
 TEST (EditGizmo, PathControlsKeepPlanTransformsSeparateFromProfileAndWidth)

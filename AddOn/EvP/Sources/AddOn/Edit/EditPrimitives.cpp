@@ -1,4 +1,5 @@
 #include "Edit/EditPrimitives.hpp"
+#include "Edit/EditEllipse.hpp"
 #include <cmath>
 
 namespace geomsrv::edit {
@@ -83,6 +84,27 @@ Id AddPrimitive (Document& doc, const PrimitiveInput& input, const std::string& 
     PrimitiveOutline shape;
     if (!OutlinePrimitive (input, shape, error))
         return kNoId;
+    std::optional<EllipseDefinition> ellipse;
+    if (input.kind == Primitive::Ellipse) {
+        const Vec3 d = input.second - input.first;
+        double rx = std::abs (Along (d, input.u)), ry = std::abs (Along (d, input.v));
+        if (input.uniform)
+            rx = ry = std::hypot (Along (d, input.u), Along (d, input.v));
+        ellipse = EllipseDefinition { input.uniform ? EllipseMode::Circle : EllipseMode::Ellipse, input.first,
+                                      input.u * rx, input.v * ry };
+        Entity check;
+        check.closed = true;
+        check.vertices.resize (4);
+        check.segments.resize (4);
+        check.ellipse = ellipse;
+        if (!RegenerateEllipse (check, error))
+            return kNoId;
+        for (size_t i = 0; i < shape.points.size (); ++i) {
+            shape.points[i] = check.vertices[i].p;
+            shape.in[i] = check.vertices[i].in;
+            shape.out[i] = check.vertices[i].out;
+        }
+    }
     const Id id = AddPolyline (doc, shape.points, true, role);
     Entity* e = Find (doc, id);
     if (e == nullptr) {
@@ -93,6 +115,11 @@ Id AddPrimitive (Document& doc, const PrimitiveInput& input, const std::string& 
         e->vertices[i].in = shape.in[i];
         e->vertices[i].out = shape.out[i];
         e->vertices[i].smooth = true;
+    }
+    if (ellipse) {
+        e->ellipse = std::move (ellipse);
+        if (!RegenerateEllipse (*e, error))
+            return kNoId; // validated above; the document is unchanged on supported input
     }
     return id;
 }

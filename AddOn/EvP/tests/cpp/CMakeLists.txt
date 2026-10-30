@@ -837,6 +837,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditArrange.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditOrganize.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPrimitives.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditEllipse.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditImport.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditShape.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanar.cpp"

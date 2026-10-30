@@ -1,4 +1,5 @@
 #include "Edit/EditDocument.hpp"
+#include "Edit/EditEllipse.hpp"
 #include "Edit/EditOrganize.hpp"
 #include <algorithm>
 #include <cmath>
@@ -365,6 +366,13 @@ bool Validate (const Document& doc, std::string& error)
                 }
             if (!(SignedAreaXY (e.vertices) > 0.0)) {
                 error = "extrusion " + std::to_string (e.id) + " profile is not counter-clockwise";
+                return false;
+            }
+        }
+        if (e.ellipse) {
+            std::string why;
+            if (!ValidateEllipse (e, why)) {
+                error = "entity " + std::to_string (e.id) + ": " + why;
                 return false;
             }
         }

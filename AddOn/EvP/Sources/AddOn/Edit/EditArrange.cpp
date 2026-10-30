@@ -1,4 +1,5 @@
 #include "Edit/EditArrange.hpp"
+#include "Edit/EditEllipse.hpp"
 #include "Edit/EditOrganize.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPolyline.hpp"
@@ -152,6 +153,8 @@ bool Paste (Document& doc, const Clipboard& clip, Vec3 offset, std::vector<Ref>&
             v.id = kNoId;
             v.p = v.p + offset;
         }
+        if (e.ellipse)
+            e.ellipse->center = e.ellipse->center + offset;
         for (auto& s : e.segments)
             s.id = kNoId;
         place (e.member);
@@ -198,6 +201,7 @@ bool Mirror (Document& doc, const std::vector<Ref>& refs, Vec3 point, Vec3 axis,
         mirrored.insert (p.id);
     for (const auto& found : objects.entities) {
         Entity& e = *Find (doc, found.id);
+        const auto ellipse = e.ellipse;
         for (auto& v : e.vertices) {
             const Vec3 to = reflect (v.p);
             if (v.lockXY && moves (v.p, to)) {
@@ -210,6 +214,15 @@ bool Mirror (Document& doc, const std::vector<Ref>& refs, Vec3 point, Vec3 axis,
         }
         if (e.closed)
             ReverseOrder (e);
+        if (ellipse) {
+            // Reflection reverses winding; after reversing the anchors, swapping and
+            // negating the conjugate axes keeps each stable vertex id on its reflected point.
+            e.ellipse->center = reflect (ellipse->center);
+            e.ellipse->axisU = offset (ellipse->axisV) * -1.0;
+            e.ellipse->axisV = offset (ellipse->axisU) * -1.0;
+            if (!RegenerateEllipse (e, error))
+                return false;
+        }
     }
     for (const auto& found : objects.paths) {
         const bool ok = EditPath (

@@ -1,6 +1,8 @@
 #include "Edit/EditArrange.hpp"
+#include "Edit/EditEllipse.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPolyline.hpp"
+#include "Edit/EditPrimitives.hpp"
 #include "Edit/EditSession.hpp"
 #include <gtest/gtest.h>
 #include <set>
@@ -84,6 +86,46 @@ TEST (EditArrange, PasteAddsMovedCopiesWithFreshIdsAndTheirAttributes)
     EXPECT_EQ (after.size (), before.size () * 3);
     Valid (doc);
     EXPECT_FALSE (ed::Paste (doc, {}, {}, pasted, error));
+}
+
+TEST (EditArrange, PasteAndMirrorKeepEllipseDefinitionsAndFreshStableIds)
+{
+    ed::Document doc;
+    ed::PrimitiveInput input;
+    input.kind = ed::Primitive::Ellipse;
+    input.first = { 2, 3, 1 };
+    input.second = { 6, 3, 1 };
+    input.uniform = true;
+    std::string error;
+    const ed::Id id = ed::AddPrimitive (doc, input, "circle", error);
+    ASSERT_NE (id, ed::kNoId) << error;
+    const auto original = *ed::Find (doc, id);
+    std::vector<ed::Ref> pasted;
+    ASSERT_TRUE (ed::Paste (doc, ed::Copy (doc, { { id, ed::Part::Entity, 0 } }), { 10, -4, 2 }, pasted, error))
+        << error;
+    ASSERT_EQ (pasted.size (), 1u);
+    const auto* copy = ed::Find (doc, pasted.front ().entity);
+    ASSERT_NE (copy, nullptr);
+    ASSERT_TRUE (copy->ellipse.has_value ());
+    EXPECT_EQ (copy->ellipse->mode, ed::EllipseMode::Circle);
+    EXPECT_EQ (copy->ellipse->center, (ed::Vec3 { 12, -1, 3 }));
+    EXPECT_NE (copy->id, original.id);
+    for (size_t i = 0; i < copy->vertices.size (); ++i)
+        EXPECT_NE (copy->vertices[i].id, original.vertices[i].id);
+    EXPECT_TRUE (ed::Validate (doc, error)) << error;
+
+    const std::vector<ed::Id> ids = { original.vertices[0].id, original.vertices[1].id, original.vertices[2].id,
+                                      original.vertices[3].id };
+    ASSERT_TRUE (ed::Mirror (doc, { { id, ed::Part::Entity, 0 } }, { 0, 0, 0 }, { 0, 1, 0 }, error)) << error;
+    const auto* mirrored = ed::Find (doc, id);
+    ASSERT_NE (mirrored, nullptr);
+    ASSERT_TRUE (mirrored->ellipse.has_value ());
+    EXPECT_EQ (mirrored->ellipse->mode, ed::EllipseMode::Circle);
+    EXPECT_EQ (mirrored->ellipse->center, (ed::Vec3 { -2, 3, 1 }));
+    for (const ed::Id vertex : ids)
+        EXPECT_GE (ed::VertexIndex (*mirrored, vertex), 0);
+    EXPECT_TRUE (ed::ValidateEllipse (*mirrored, error)) << error;
+    EXPECT_TRUE (ed::Validate (doc, error)) << error;
 }
 
 TEST (EditArrange, APastedPathKeepsItsOwnReferencesAndDropsOnesToPathsLeftBehind)
