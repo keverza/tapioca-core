@@ -105,22 +105,10 @@ if (NOT TAPIOCA_TEST_BUILD_HASH)
 endif ()
 configure_file ("cmake/TestBuildInfo.hpp.in" "${ResourceObjectsDir}/TestBuildInfo.hpp" @ONLY)
 
-# ---- Notebook browser UI ---------------------------------------------------
+# ---- Embedded editor build infrastructure ---------------------------------
 find_program (NPM_EXECUTABLE NAMES npm.cmd npm REQUIRED)
 set (TAPIOCA_EMBEDDED_UI_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
 include ("${TAPIOCA_EMBEDDED_UI_CMAKE_DIR}/EmbeddedUI.cmake")
-set (NotebookUIFolder "${CMAKE_CURRENT_LIST_DIR}/NotebookUI")
-set (NOTEBOOK_UI_RESOURCE_ID 32551)
-file (GLOB_RECURSE NotebookUIFiles CONFIGURE_DEPENDS
-    "${NotebookUIFolder}/src/*"
-    "${NotebookUIFolder}/scripts/*"
-    "${NotebookUIFolder}/public/*")
-list (APPEND NotebookUIFiles
-    "${NotebookUIFolder}/index.html"
-    "${NotebookUIFolder}/tsconfig.json"
-    "${NotebookUIFolder}/vite.config.ts")
-
-TapiocaAddEmbeddedUI (NotebookUI "${NotebookUIFolder}" ${NotebookUIFiles})
 
 # ---- Node graph editor UI ---------------------------------------------------
 set (GraphUIFolder "${CMAKE_CURRENT_LIST_DIR}/GraphUI")
@@ -136,30 +124,6 @@ list (APPEND GraphUIFiles
     "${GraphUIFolder}/vite.config.ts")
 
 TapiocaAddEmbeddedUI (GraphUI "${GraphUIFolder}" ${GraphUIFiles})
-
-# ---- WebUI command palette preview -----------------------------------------
-# This first WebUI slice is intentionally a self-contained visual page. Keeping
-# it as a DATA resource gives the native palette the same no-server fallback and
-# deployment guarantees as the Notebook browser while the command bridge is built.
-set (WebUIFolder "${CMAKE_CURRENT_LIST_DIR}/WebUI")
-set (WEBUI_PANEL_RESOURCE_ID 32561)
-configure_file (
-    "${AddOnResourcesFolder}/RFIX.win/WebUIPanel.grc.in"
-    "${ResourceObjectsDir}/WebUIPanel.grc"
-    @ONLY)
-set (WebUIResourceRc2 "${ResourceObjectsDir}/WebUIPanel.grc.rc2")
-if (WIN32)
-    add_custom_command (
-        OUTPUT "${WebUIResourceRc2}"
-        DEPENDS "${WebUIFolder}/index.html" "${ResourceObjectsDir}/WebUIPanel.grc"
-        COMMENT "EvP: converting the Tapioca WebUI HTML resource"
-        COMMAND "${AC_API_DEVKIT_DIR}/Support/Tools/Win/ResConv.exe"
-            -m r -T W -q utf8 1252
-            -p "${WebUIFolder}"
-            -i "${ResourceObjectsDir}/WebUIPanel.grc"
-            -o "${WebUIResourceRc2}"
-        VERBATIM)
-endif ()
 
 # Noto Sans is embedded as a binary DATA resource. The text renderer loads the
 # immutable bytes directly, so screenshots never depend on machine fonts and a
@@ -201,24 +165,6 @@ if (WIN32)
             -i "${ResourceObjectsDir}/RoofDesignerFonts.grc" -o "${RoofDesignerFontResourceRc2}"
         VERBATIM)
 endif ()
-configure_file (
-    "${AddOnResourcesFolder}/RFIX.win/NotebookUI.grc.in"
-    "${ResourceObjectsDir}/NotebookUI.grc"
-    @ONLY)
-set (NotebookUIResourceRc2 "${ResourceObjectsDir}/NotebookUI.grc.rc2")
-if (WIN32)
-    add_custom_command (
-        OUTPUT "${NotebookUIResourceRc2}"
-        DEPENDS "${NotebookUIOutput}" "${ResourceObjectsDir}/NotebookUI.grc"
-        COMMENT "EvP: converting the Tapioca Notebook HTML resource"
-        COMMAND "${AC_API_DEVKIT_DIR}/Support/Tools/Win/ResConv.exe"
-            -m r -T W -q utf8 1252
-            -p "${NotebookUIBuildFolder}"
-            -i "${ResourceObjectsDir}/NotebookUI.grc"
-            -o "${NotebookUIResourceRc2}"
-        VERBATIM)
-endif ()
-
 configure_file (
     "${AddOnResourcesFolder}/RFIX.win/GraphUI.grc.in"
     "${ResourceObjectsDir}/GraphUI.grc"
@@ -272,8 +218,8 @@ get_filename_component (AddOnResourcesFolderAbsolute "${CMAKE_CURRENT_LIST_DIR}/
 
 add_custom_command (
     OUTPUT "${ResourceObjectsDir}/AddOnResources.stamp"
-    DEPENDS ${AddOnResourceFiles} ${AddOnImageFiles} "${NotebookUIOutput}" "${NotebookUIResourceRc2}"
-            "${GraphUIOutput}" "${GraphUIResourceRc2}" "${WebUIResourceRc2}" "${SceneTextFontResourceRc2}"
+    DEPENDS ${AddOnResourceFiles} ${AddOnImageFiles}
+            "${GraphUIOutput}" "${GraphUIResourceRc2}" "${SceneTextFontResourceRc2}"
             "${RoofDesignerFontResourceRc2}"
     COMMENT "GeometryServer: compiling resources..."
     COMMAND ${CMAKE_COMMAND} -E make_directory "${ResourceObjectsDir}"
@@ -287,7 +233,7 @@ add_custom_command (
     COMMAND ${CMAKE_COMMAND} -E touch "${ResourceObjectsDir}/AddOnResources.stamp"
 )
 add_custom_target (${ADDON_RES} ALL DEPENDS "${ResourceObjectsDir}/AddOnResources.stamp")
-add_dependencies (${ADDON_RES} EvPGraphUI EvPNotebookUI)
+add_dependencies (${ADDON_RES} EvPGraphUI)
 set_target_properties (${ADDON_RES} PROPERTIES FOLDER Resources)
 source_group ("Resources" FILES ${AddOnResourceFiles} ${AddOnImageFiles})
 

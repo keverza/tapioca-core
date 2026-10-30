@@ -41,10 +41,6 @@ constexpr short ArchVizOverlayMenuItemIndex = 1;
 // (ArchViz/OverlayController.hpp). The 2D overlay serves the floor plan.
 constexpr short Overlay2DMenuResId = 32515; // "Tapioca 2D Overlay"
 constexpr short Overlay2DMenuItemIndex = 1;
-constexpr short NotebookMenuResId = 32504; // "Tapioca Notebook"
-constexpr short NotebookMenuItemIndex = 1;
-constexpr short WebUIMenuResId = 32505; // "Tapioca WebUI panel"
-constexpr short WebUIMenuItemIndex = 1;
 // "Close Grasshopper" — the user-facing half of supervision. Grasshopper solves
 // in Tapioca.GhWorker.exe, which the add-on can kill unconditionally, and this is
 // where a user reaches that guarantee: the canvas's own X only HIDES the editor,
@@ -186,18 +182,6 @@ constexpr short PenPoolSize = 8;
 // holds only the status line and can never renumber anything.
 constexpr short ArchVizPaletteResId = 32540;
 constexpr short ArchVizStatusTextId = 1;
-
-// The notebook experiment palette ('GDLG' 32550). Its single Browser item fills
-// the client area and resizes with it.
-constexpr short NotebookPaletteResId = 32550;
-constexpr short NotebookBrowserId = 1;
-constexpr short NotebookHtmlResId = 32551; // 'DATA', generated NotebookUI/dist/index.html
-
-// The WebUI command palette preview ('GDLG' 32560). Its single Browser item fills
-// the client area and resizes with it.
-constexpr short WebUIPaletteResId = 32560;
-constexpr short WebUIBrowserId = 1;
-constexpr short WebUIHtmlResId = 32561; // 'DATA', embedded WebUI/index.html
 
 // The node-graph experiment palette ('GDLG' 32570). C++ owns the graph; this
 // browser is only its schema-driven editor view.

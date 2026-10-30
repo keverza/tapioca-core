@@ -29,9 +29,7 @@
 #include "ArchViz/Dxgi/PresentHook.hpp" // the DXGI detour — same rule, worse failure
 #include "ArchViz/PlanFrameSession.hpp" // the plan frame record — its hooks go first
 #include "ArchViz/ExperimentGuard.hpp"  // crash-loop guard — consulted before anything arms
-#include "Notebook/NotebookPalette.hpp"
 #include "Palette/GraphEditorPalette.hpp"
-#include "Palette/WebUIPalette.hpp"
 #include "Grasshopper/GhWorkerHost.hpp"         // the supervised Grasshopper worker process
 #include "RhinoCompute/RhinoComputeManager.hpp" // the supervised rhino.compute worker process
 #include "RayWorker/RayWorkerTraversal.hpp"     // the supervised DXR ray worker process
@@ -234,10 +232,6 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             // exit around a running one is a crash on close.
             if (ArchVizPanel::HasInstance ())
                 ArchVizPanel::DestroyInstance ();
-            if (NotebookPalette::HasInstance ())
-                NotebookPalette::DestroyInstance ();
-            if (WebUIPalette::HasInstance ())
-                WebUIPalette::DestroyInstance ();
             if (GraphEditorPalette::HasInstance ())
                 GraphEditorPalette::DestroyInstance ();
             // The Grasshopper worker is a separate process holding a pipe into
@@ -336,20 +330,6 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
             if (menuParams->menuItemRef.itemIndex == Overlay2DMenuItemIndex)
                 geomsrv::archviz::overlaycontrol::Toggle (geomsrv::archviz::overlaycontrol::Overlay::TwoD, "menu");
             break;
-        case NotebookMenuResId:
-            if (menuParams->menuItemRef.itemIndex == NotebookMenuItemIndex) {
-                RecordStartupEvent ("Notebook: menu command received");
-                NotebookPalette::Open ();
-                RecordStartupEvent ("Notebook: menu command completed");
-            }
-            break;
-        case WebUIMenuResId:
-            if (menuParams->menuItemRef.itemIndex == WebUIMenuItemIndex) {
-                RecordStartupEvent ("WebUI: menu command received");
-                WebUIPalette::Open ();
-                RecordStartupEvent ("WebUI: menu command completed");
-            }
-            break;
         case GraphEditorMenuResId:
             if (menuParams->menuItemRef.itemIndex == GraphEditorMenuItemIndex) {
                 RecordStartupEvent ("Node Graph: menu command received");
@@ -431,12 +411,6 @@ GSErrCode RegisterInterface (void)
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (ArchVizMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    ArchVizMenuResId, "3D viewer item");
-    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
-                   ACAPI_MenuItem_RegisterMenu (NotebookMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
-                   NotebookMenuResId, "notebook item");
-    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
-                   ACAPI_MenuItem_RegisterMenu (WebUIMenuResId, 0, MenuCode_UserDef, MenuFlag_Default), WebUIMenuResId,
-                   "WebUI item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (GraphEditorMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    GraphEditorMenuResId, "Node Graph item");
@@ -566,12 +540,6 @@ GSErrCode Initialize (void)
                    ACAPI_MenuItem_InstallMenuHandler (Overlay2DMenuResId, MenuCommandHandler), Overlay2DMenuResId,
                    "2D overlay item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
-                   ACAPI_MenuItem_InstallMenuHandler (NotebookMenuResId, MenuCommandHandler), NotebookMenuResId,
-                   "notebook item");
-    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
-                   ACAPI_MenuItem_InstallMenuHandler (WebUIMenuResId, MenuCommandHandler), WebUIMenuResId,
-                   "WebUI item");
-    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (GraphEditorMenuResId, MenuCommandHandler), GraphEditorMenuResId,
                    "Node Graph item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
@@ -625,16 +593,6 @@ GSErrCode Initialize (void)
     // The 3D viewer's own modeless window, registered on its own GUID so
     // Archicad remembers its placement and dock state separately.
     err = ArchVizPanel::RegisterPaletteControlCallBack ();
-    if (err != NoError)
-        return err;
-
-    err = NotebookPalette::RegisterPaletteControlCallBack ();
-    RecordStartup ("ACAPI_RegisterModelessWindow", err, NotebookPaletteResId, "notebook palette");
-    if (err != NoError)
-        return err;
-
-    err = WebUIPalette::RegisterPaletteControlCallBack ();
-    RecordStartup ("ACAPI_RegisterModelessWindow", err, WebUIPaletteResId, "WebUI palette");
     if (err != NoError)
         return err;
 
@@ -757,12 +715,6 @@ GSErrCode FreeData (void)
     if (ArchVizPanel::HasInstance ())
         ArchVizPanel::DestroyInstance ();
     ArchVizPanel::UnregisterPaletteControlCallBack ();
-    if (NotebookPalette::HasInstance ())
-        NotebookPalette::DestroyInstance ();
-    NotebookPalette::UnregisterPaletteControlCallBack ();
-    if (WebUIPalette::HasInstance ())
-        WebUIPalette::DestroyInstance ();
-    WebUIPalette::UnregisterPaletteControlCallBack ();
     if (GraphEditorPalette::HasInstance ())
         GraphEditorPalette::DestroyInstance ();
     GraphEditorPalette::UnregisterPaletteControlCallBack ();

@@ -63,16 +63,6 @@
 /* [  1] */	"Tapioca 2D Overlay^E3^ES^EE^EI^ED^EW^EL"
 }
 
-'STR#' 32504 "Menu strings - notebook" {
-/* [   ] */	"Tapioca"
-/* [  1] */	"Tapioca Notebook^E3^ES^EE^EI^ED^EW^EL"
-}
-
-'STR#' 32505 "Menu strings - WebUI" {
-/* [   ] */	"Tapioca"
-/* [  1] */	"Tapioca WebUI panel^E3^ES^EE^EI^ED^EW^EL"
-}
-
 'STR#' 32511 "Menu strings - node graph" {
 /* [   ] */	"Tapioca"
 /* [  1] */	"Node Graph^E3^ES^EE^EI^ED^EW^EL"
@@ -318,23 +308,6 @@
 
 'DLGH'  32540  DLG_32540_ArchVizPalette {
 1	"Renderer status"					LeftText_0
-}
-
-/* --- The Tapioca Notebook browser experiment ------------------------------ */
-'GDLG'  32550  Palette | topCaption | close | grow   0   0  420  800  "Tapioca Notebook" {
-/* [  1] */ Browser         0   0  420  800
-}
-
-'DLGH'  32550  DLG_32550_NotebookPalette {
-1	"Tapioca Notebook"				Browser_0
-}
-/* --- The Tapioca WebUI command palette preview ---------------------------- */
-'GDLG' 32560  Palette | topCaption | close | grow   0   0  960  720  "Tapioca WebUI panel" {
-/* [  1] */ Browser         0   0  960  720
-}
-
-'DLGH' 32560  DLG_32560_WebUIPalette {
-1	"Tapioca WebUI panel"			Browser_0
 }
 
 /* --- The schema-driven node graph editor ---------------------------------- */

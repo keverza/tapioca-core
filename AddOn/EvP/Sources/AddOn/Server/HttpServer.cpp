@@ -128,12 +128,6 @@ HttpServer::~HttpServer ()
     Stop ();
 }
 
-void HttpServer::SetWebUIPage (const std::string& html)
-{
-    std::lock_guard<std::mutex> lock (webUiMutex);
-    webUiPage = html;
-}
-
 void HttpServer::RegisterRoutes ()
 {
     // Liveness. Fully ACAPI-free — reads only the atomics in ServerState. Never
@@ -154,26 +148,6 @@ void HttpServer::RegisterRoutes ()
                                  "\"snapshotId\":" + std::to_string (st.snapshotId.load ()) + "}";
         res.set_content (body, "application/json");
     });
-
-    // The embedded browser starts on this same-origin route. The page is supplied
-    // by the native palette from a validated DATA resource; no writable directory
-    // or arbitrary file serving is involved.
-    const auto serveWebUI = [this] (const httplib::Request&, httplib::Response& res) {
-        std::string page;
-        {
-            std::lock_guard<std::mutex> lock (webUiMutex);
-            page = webUiPage;
-        }
-        if (page.empty ()) {
-            res.status = 503;
-            res.set_content ("{\"ok\":false,\"error\":\"WebUI page is not registered\"}", "application/json");
-            return;
-        }
-        res.set_content (page, "text/html; charset=UTF-8");
-    };
-    server->Get ("/ui", serveWebUI);
-    server->Get ("/ui/", serveWebUI);
-    server->Get ("/ui/index.html", serveWebUI);
 
     // ---- Zone C: the external-runtime bus ---------------------------------
     // The ONE endpoint a `runtime="external"` subprocess talks to. It is the exact
@@ -639,13 +613,11 @@ void HttpServer::RegisterRoutes ()
     });
     server->Get ("/screenshot/diligent", [serveShot] (const httplib::Request& req, httplib::Response& res) {
         const auto shot = ScreenshotStore::Get ().Diligent ();
-        const uint64_t requestedId = req.has_param ("id")
-                                         ? std::strtoull (req.get_param_value ("id").c_str (), nullptr, 10)
-                                         : 0;
+        const uint64_t requestedId =
+            req.has_param ("id") ? std::strtoull (req.get_param_value ("id").c_str (), nullptr, 10) : 0;
         if (!shot || requestedId == 0 || shot->id != requestedId) {
             res.status = 409;
-            res.set_content ("{\"ok\":false,\"error\":\"Diligent capture id is unavailable\"}",
-                             "application/json");
+            res.set_content ("{\"ok\":false,\"error\":\"Diligent capture id is unavailable\"}", "application/json");
             return;
         }
         serveShot (shot, res);

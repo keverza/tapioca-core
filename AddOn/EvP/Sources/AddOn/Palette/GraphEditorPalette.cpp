@@ -105,10 +105,8 @@ GraphEditorPalette::GraphEditorPalette ()
     // BeginEventProcessing that took Archicad down with no Windows Error
     // Reporting entry and no Archicad crash report to point at it.
     //
-    // WebUIPalette has the same Attach/BeginEventProcessing order and is fine,
-    // which is what made this look like house style: its `browser` is a MEMBER
-    // INITIALIZED IN THE INITIALISER LIST, so it exists before the body runs.
-    // A unique_ptr built in the body does not.
+    // A member initialized in the initializer list exists before the body runs;
+    // a unique_ptr built in the body does not.
     //
     // The rule: nothing an event handler touches may be constructed after the
     // event processing that can call it.
