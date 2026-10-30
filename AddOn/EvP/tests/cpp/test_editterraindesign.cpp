@@ -889,15 +889,6 @@ const layers::Mesh* TerrainMesh (const layers::Layer& layer)
     return nullptr;
 }
 
-// The last built surface drawn while it no longer matches the document (#71).
-const layers::Mesh* StaleTerrainMesh (const layers::Layer& layer)
-{
-    for (const auto& mesh : layer.meshes)
-        if (mesh.rgba == 0x9AA59CFFu)
-            return &mesh;
-    return nullptr;
-}
-
 bool AwaitTerrain (eh::Session& session, layers::Layer& layer, bool refused = false)
 {
     const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (10);
@@ -1412,7 +1403,8 @@ TEST (HudTerrainDesign, FixedControlSelectionSharesHistoryWorkerAndConflictLayer
     }));
     const auto depth = session.edits.UndoDepth ();
     eh::Follow (session, layer);
-    EXPECT_EQ (TerrainMesh (layer), nullptr); // Stale old build never draws.
+    EXPECT_EQ (eh::CurrentTerrainDesign (session), nullptr);  // Stale old build is never current,
+    EXPECT_TRUE (eh::GetTerrainDesignStatus (session).stale); // only shown until the rebuild (#71).
     ASSERT_TRUE (AwaitTerrain (session, layer, true));
     current = eh::CurrentTerrainDesign (session);
     ASSERT_NE (current, nullptr);
@@ -1651,7 +1643,9 @@ TEST (HudTerrainDesign, TypedCrossSectionApplyRebuildsTheExistingPreviewWithoutA
     ASSERT_TRUE (eh::ApplyTerrainSectionEdit (session)) << session.message;
     EXPECT_EQ (session.edits.UndoDepth (), depth + 1);
     eh::Follow (session, layer);
-    EXPECT_EQ (TerrainMesh (layer), nullptr);
+    ASSERT_NE (TerrainMesh (layer), nullptr) << "the last build stays until the rebuild (#71)";
+    EXPECT_EQ (TerrainMesh (layer)->points, original);
+    EXPECT_TRUE (eh::GetTerrainDesignStatus (session).stale);
     ASSERT_TRUE (AwaitTerrain (session, layer));
     EXPECT_NE (eh::CurrentTerrainDesign (session)->result.build.points, original);
     EXPECT_GT (eh::CurrentTerrainDesign (session)->result.build.site.cut, 0);
@@ -1694,7 +1688,7 @@ TEST (HudTerrainDesign, EditsCoalesceUntilReleaseAndStaleWorkersNeverDraw)
     EXPECT_TRUE (eh::CurrentTerrainDesign (session)->result.conflicts.empty ());
 }
 
-TEST (HudTerrainDesign, APathDragKeepsTheLastBuiltSurfaceDrawnAsStaleUntilItsRebuildPublishes)
+TEST (HudTerrainDesign, APathDragKeepsTheLastBuiltSurfaceDrawnUnchangedUntilItsRebuildPublishes)
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
@@ -1706,22 +1700,26 @@ TEST (HudTerrainDesign, APathDragKeepsTheLastBuiltSurfaceDrawnAsStaleUntilItsReb
     ASSERT_TRUE (AwaitTerrain (session, layer));
     const auto built = TerrainMesh (layer)->points;
     const auto generation = eh::CurrentTerrainDesign (session)->generation;
-    const auto staleLines = [] (const layers::Layer& value) {
+    const auto style = TerrainMesh (layer)->style;
+    size_t rings = 0; // The paths' outline shares the ring colour: count the built layer's.
+    for (const auto& line : layer.polylines)
+        rings += line.rgba == 0x37523DFFu;
+    const auto lines = [] (const layers::Layer& value) {
         size_t ring = 0, contours = 0;
         for (const auto& line : value.polylines)
-            ring += line.rgba == 0x6B756D99u, contours += line.rgba == 0x5E6A61B3u || line.rgba == 0x6B756D66u;
+            ring += line.rgba == 0x37523DFFu, contours += line.rgba == 0x2F4A35E6u || line.rgba == 0x37523D99u;
         return std::pair { ring, contours };
     };
+    // Drawn exactly as it was (the user, 2026-10-30: fading it is distracting); only the
+    // status, and the panel reading it, say it is stale.
     const auto stale = [&] {
-        const auto* mesh = StaleTerrainMesh (layer);
-        EXPECT_EQ (TerrainMesh (layer), nullptr) << "never presented as the current proposal";
-        EXPECT_NE (mesh, nullptr) << "no blank frame";
-        if (mesh) {
-            EXPECT_EQ (mesh->points, built) << "the last built surface, not a prediction";
-            EXPECT_LT (mesh->style.opacity, 0.9f);
-        }
-        const auto [ring, contours] = staleLines (layer);
-        EXPECT_EQ (ring, 1u);
+        const auto* mesh = TerrainMesh (layer);
+        ASSERT_NE (mesh, nullptr) << "no blank frame";
+        EXPECT_EQ (mesh->points, built) << "the last built surface, not a prediction";
+        EXPECT_EQ (mesh->style.opacity, style.opacity);
+        EXPECT_EQ (mesh->style.occludedOpacity, style.occludedOpacity);
+        const auto [ring, contours] = lines (layer);
+        EXPECT_EQ (ring, rings);
         EXPECT_GT (contours, 0u);
         const auto status = eh::GetTerrainDesignStatus (session);
         EXPECT_FALSE (status.current);
@@ -1760,15 +1758,15 @@ TEST (HudTerrainDesign, APathDragKeepsTheLastBuiltSurfaceDrawnAsStaleUntilItsReb
     const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (10);
     while (std::chrono::steady_clock::now () < deadline && !eh::CurrentTerrainDesign (session)) {
         eh::Follow (session, layer);
-        ASSERT_TRUE (TerrainMesh (layer) || StaleTerrainMesh (layer)) << "no blank frame before publication";
+        ASSERT_NE (TerrainMesh (layer), nullptr) << "no blank frame before publication";
         std::this_thread::sleep_for (std::chrono::milliseconds (1));
     }
     eh::Follow (session, layer);
     ASSERT_NE (eh::CurrentTerrainDesign (session), nullptr);
     EXPECT_GT (eh::CurrentTerrainDesign (session)->generation, generation);
-    EXPECT_NE (TerrainMesh (layer), nullptr);
-    EXPECT_EQ (StaleTerrainMesh (layer), nullptr) << "replaced atomically";
-    EXPECT_EQ (staleLines (layer), std::pair (size_t (0), size_t (0)));
+    ASSERT_NE (TerrainMesh (layer), nullptr);
+    EXPECT_NE (TerrainMesh (layer)->points, built) << "replaced by the rebuild";
+    EXPECT_EQ (lines (layer).first, rings);
     EXPECT_FALSE (eh::GetTerrainDesignStatus (session).stale);
     // A stale terrain capture hides even the last build, and keeps its error.
     ASSERT_TRUE (session.edits.Begin ());
@@ -1776,7 +1774,6 @@ TEST (HudTerrainDesign, APathDragKeepsTheLastBuiltSurfaceDrawnAsStaleUntilItsReb
     *valid = false;
     eh::Follow (session, layer);
     EXPECT_EQ (TerrainMesh (layer), nullptr);
-    EXPECT_EQ (StaleTerrainMesh (layer), nullptr);
     const auto status = eh::GetTerrainDesignStatus (session);
     EXPECT_FALSE (status.stale);
     EXPECT_EQ (status.error.rfind ("TerrainCaptureStale", 0), 0U) << status.error;

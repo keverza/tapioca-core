@@ -445,6 +445,10 @@ const lg::TerrainDesignOutcome* LastPublishedTerrainDesign (const Session& s, bo
         return nullptr;
     if (const auto* current = CurrentTerrainDesign (s))
         return current;
+    // A rebuild that could not even start (an undone design, a capture refused) will never
+    // replace it: the last build would stand for the document indefinitely.
+    if (!s.terrainDesign->error.empty ())
+        return nullptr;
     // A stale refusal has nothing to show: its places belong to paths that have moved.
     const auto* last = s.terrainDesign->publisher.LastPublished (s.edits.Doc ());
     stale = last && last->built;
@@ -483,7 +487,8 @@ TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
 void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
 {
     // Through a path move and until its rebuild publishes, the last built surface stays as the
-    // reference for the move (#71), faded and grey so it is not read as the proposal.
+    // reference for the move (#71). Drawn as it was (the user, 2026-10-30: a faded surface is
+    // distracting); the panel says it is stale.
     bool stale = false;
     const auto* current = LastPublishedTerrainDesign (s, stale);
     if (!current)
@@ -503,11 +508,6 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         mesh.style.opacity = 0.9f;
         mesh.style.behind = overlaylayers::Behind::Fade;
         mesh.style.occludedOpacity = 0.75f;
-        if (stale) {
-            mesh.rgba = 0x9AA59CFFu;
-            mesh.style.opacity = 0.45f;
-            mesh.style.occludedOpacity = 0.5f;
-        }
         if (!stale)
             LogTerrain (s, "layer proposed vertices=" + std::to_string (mesh.points.size () / 3) +
                                " triangles=" + std::to_string (mesh.indices.size () / 3) +
@@ -528,7 +528,7 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
                 ring.points.insert (ring.points.end (), build.points.begin () + at, build.points.begin () + at + 3);
             }
         ring.closed = true;
-        ring.rgba = stale ? 0x6B756D99u : 0x37523DFFu;
+        ring.rgba = 0x37523DFFu;
         layer.polylines.push_back (std::move (ring));
         // Its contours, as the paths' are drawn: the interval asked, else about ten over the heights
         // the surface spans; every fifth level an index line. On the surface's own triangles, so a
@@ -558,7 +558,7 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
                 for (const auto& p : c.points)
                     line.points.insert (line.points.end (), { p.x, p.y, p.z });
                 const bool index = std::fmod (std::abs (std::round (c.z / interval)), 5.0) == 0.0;
-                line.rgba = stale ? (index ? 0x5E6A61B3u : 0x6B756D66u) : (index ? 0x2F4A35E6u : 0x37523D99u);
+                line.rgba = index ? 0x2F4A35E6u : 0x37523D99u;
                 line.widthPixels = index ? 1.75f : 1.0f;
                 line.behind = overlaylayers::Behind::Show;
                 layer.polylines.push_back (std::move (line));
@@ -645,7 +645,7 @@ void TerrainDesignPanel (Session& s)
     else if (!status.error.empty ())
         ImGui::TextWrapped ("%s", lg::TerrainConditionText (status.error).c_str ());
     if (status.stale)
-        ImGui::TextWrapped ("Updating: the grey terrain is the last build and does not follow the paths yet. "
+        ImGui::TextWrapped ("Updating: the terrain shown is the last build and does not follow the paths yet. "
                             "It is replaced when the rebuild finishes.");
     if (!current)
         return;
