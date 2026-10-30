@@ -830,6 +830,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditGizmoContext.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSelection.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolyline.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineActions.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPrimitives.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditImport.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditShape.cpp"
