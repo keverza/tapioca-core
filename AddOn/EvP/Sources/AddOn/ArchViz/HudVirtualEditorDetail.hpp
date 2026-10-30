@@ -179,6 +179,10 @@ void History (Session& s, bool undo);
 void EndHandleDrag (Session& s);
 void EndDrag (Session& s);
 void DeleteSelection (Session& s);
+// What a drag of `ref` moves: the selection when it holds `ref`, else `ref` alone; and a view
+// change checked before numeric input may commit (HudVirtualEditor.cpp).
+std::vector<edit::Ref> Moving (const Session& s, const edit::Ref& ref);
+void CheckView (Session& s, const overlayhud::Input& v);
 // The clipboard (HudVirtualEditorMenu.cpp), on whole objects: copied, cut (copied, then
 // deleted), pasted with their centre at `at` or a step beside where they were, and
 // duplicated a step beside themselves. What is pasted is selected.
