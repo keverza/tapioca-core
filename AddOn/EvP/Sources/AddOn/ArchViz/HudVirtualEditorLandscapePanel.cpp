@@ -23,15 +23,9 @@ void ReferenceLinesPanel (Session& s)
         ImGui::SameLine ();
         changed |= ImGui::Checkbox ("Locked", &style.locked);
         changed |= ImGui::InputDouble ("Width (pixels)", &style.widthPixels, 0.5, 1, "%.1f");
-        float colour[4];
-        for (int i = 0; i < 4; ++i)
-            colour[i] = float ((style.rgba >> (24 - i * 8)) & 255) / 255;
-        if (ImGui::ColorEdit4 ("Line colour", colour)) {
-            style.rgba = 0;
-            for (int i = 0; i < 4; ++i)
-                style.rgba |= uint32_t (colour[i] * 255 + 0.5f) << (24 - i * 8);
-            changed = true;
-        }
+        changed |= detail::SwatchPicker ("line colour", style.rgba); // one undo step per colour chosen
+        ImGui::SameLine ();
+        ImGui::TextUnformatted ("Line colour");
         if (changed && !s.edits.Apply ([id = source.id, style] (edit::Document& doc, std::string& error) {
                 return lg::SetReferenceLineStyle (doc, id, style, error);
             }))

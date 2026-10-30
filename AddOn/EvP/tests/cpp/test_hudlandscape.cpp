@@ -7,6 +7,8 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
+#include <iterator>
+#include <set>
 
 namespace ed = geomsrv::edit;
 namespace eh = geomsrv::archviz::edithud;
@@ -821,4 +823,17 @@ TEST (HudLandscape, EntrancesArePlacedOnABuildingOutlineAndAPathIsSentToOne)
     EXPECT_NEAR (p.points.back ().p.x, 10, 1e-9);
     EXPECT_TRUE (p.profile.back ().fixed);
     EXPECT_DOUBLE_EQ (p.profile.back ().z, 0.3);
+}
+
+TEST (HudVirtualEditorSwatches, TheEditorOffersTwentyDistinctColoursThenWhiteAndBlack)
+{
+    namespace d = geomsrv::archviz::edithud::detail;
+    ASSERT_EQ (std::size (d::kSwatches), 22u);
+    EXPECT_EQ (d::kSwatches[0], 0xE6194BFFu);
+    EXPECT_EQ (d::kSwatches[20], 0xFFFFFFFFu);
+    EXPECT_EQ (d::kSwatches[21], 0x000000FFu);
+    std::set<uint32_t> distinct (std::begin (d::kSwatches), std::end (d::kSwatches));
+    EXPECT_EQ (distinct.size (), 22u);
+    for (const uint32_t c : d::kSwatches)
+        EXPECT_EQ (c & 0xFFu, 0xFFu); // opaque
 }

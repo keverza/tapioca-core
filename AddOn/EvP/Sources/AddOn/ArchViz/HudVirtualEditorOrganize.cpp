@@ -5,19 +5,35 @@
 #include <algorithm>
 #include <cstdio>
 #include <functional>
+#include <iterator>
 
 // The virtual editor's layers and groups palette, and the hide, lock, isolate and selection
 // commands the panel, the menu and the keys share (EditOrganize.hpp does the work).
 namespace geomsrv::archviz::edithud::detail {
 
 namespace {
-// The colours a layer can take; 0 is the editor's own line colour.
-constexpr uint32_t kLayerColours[] = { 0u,          0xD9480FFFu, 0x2F9E44FFu, 0x1971C2FFu, 0x9C36B5FFu,
-                                       0xF08C00FFu, 0x0C8599FFu, 0x495057FFu, 0xC2255CFFu };
+// The editor's own line colour (editlayers::Style::geometry), which a layer without one draws in.
+constexpr uint32_t kEditorLine = 0x2B8FE0FFu;
 
-ImU32 Colour (uint32_t rgba)
+ImVec4 Float4 (uint32_t rgba)
 {
-    return IM_COL32 ((rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF, rgba & 0xFF);
+    return { float ((rgba >> 24) & 0xFF) / 255.0f, float ((rgba >> 16) & 0xFF) / 255.0f,
+             float ((rgba >> 8) & 0xFF) / 255.0f, float (rgba & 0xFF) / 255.0f };
+}
+
+uint32_t Pack (const float c[4])
+{
+    uint32_t rgba = 0;
+    for (int i = 0; i < 4; ++i)
+        rgba |= uint32_t (std::clamp (c[i], 0.0f, 1.0f) * 255.0f + 0.5f) << (24 - i * 8);
+    return rgba;
+}
+
+std::string Hex (uint32_t rgba)
+{
+    char text[16];
+    std::snprintf (text, sizeof text, "#%06X", unsigned (rgba >> 8));
+    return text;
 }
 
 // One organisation edit as one undo step; the selection then lets go of what it hid or locked.
@@ -129,6 +145,48 @@ void GroupTree (Session& s, edit::Id group)
     ImGui::PopID ();
 }
 } // namespace
+
+bool SwatchPicker (const char* id, uint32_t& rgba, uint32_t editorColour)
+{
+    ImGui::PushID (id);
+    const uint32_t shown = rgba != 0 || editorColour == 0 ? rgba : editorColour;
+    static float custom[4]; // the picker's draft: one popup is open at a time
+    bool changed = false;
+    if (ImGui::ColorButton ("##swatch", Float4 (shown))) {
+        const ImVec4 c = Float4 (shown);
+        custom[0] = c.x, custom[1] = c.y, custom[2] = c.z, custom[3] = c.w;
+        ImGui::OpenPopup ("swatches");
+    }
+    if (ImGui::BeginPopup ("swatches")) {
+        const auto choose = [&] (uint32_t value) {
+            rgba = value;
+            changed = true;
+            ImGui::CloseCurrentPopup ();
+        };
+        if (editorColour != 0) {
+            if (ImGui::ColorButton ("The editor's own colour", Float4 (editorColour)))
+                choose (0);
+            ImGui::SameLine ();
+            ImGui::TextDisabled ("The editor's own");
+        }
+        for (size_t i = 0; i < std::size (kSwatches); ++i) {
+            if (i % 11 != 0)
+                ImGui::SameLine ();
+            ImGui::PushID (int (i));
+            if (ImGui::ColorButton (Hex (kSwatches[i]).c_str (), Float4 (kSwatches[i])))
+                choose (kSwatches[i]);
+            ImGui::PopID ();
+        }
+        ImGui::SeparatorText ("Your own");
+        ImGui::SetNextItemWidth (200.0f);
+        ImGui::ColorPicker4 ("##own", custom, ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_AlphaBar);
+        if (ImGui::SmallButton ("Use this colour"))
+            choose (Pack (custom));
+        ImGui::EndPopup ();
+    }
+    ImGui::PopID ();
+    return changed;
+}
 
 void Organize (Session& s, OrganizeCommand command)
 {
@@ -249,23 +307,9 @@ void OrganizeControls (Session& s)
             ChangeLayer (s, id, [locked] (edit::Layer& l) { l.locked = locked; });
         hudshell::Tip ("Locked: drawn and snapped to, not picked", hudshell::TipSide::Above);
         ImGui::SameLine ();
-        const uint32_t own = layer.rgba;
-        if (ImGui::ColorButton ("##colour", ImGui::ColorConvertU32ToFloat4 (Colour (own != 0 ? own : 0x2B8FE0FFu))))
-            ImGui::OpenPopup ("colours");
-        if (ImGui::BeginPopup ("colours")) {
-            for (const uint32_t c : kLayerColours) {
-                ImGui::PushID (int (c));
-                if (ImGui::ColorButton (c == 0 ? "Editor colour" : "##c",
-                                        ImGui::ColorConvertU32ToFloat4 (Colour (c != 0 ? c : 0x2B8FE0FFu)))) {
-                    ChangeLayer (s, id, [c] (edit::Layer& l) { l.rgba = c; });
-                    ImGui::CloseCurrentPopup ();
-                }
-                ImGui::SameLine ();
-                ImGui::PopID ();
-            }
-            ImGui::NewLine ();
-            ImGui::EndPopup ();
-        }
+        uint32_t colour = layer.rgba;
+        if (SwatchPicker ("colour", colour, kEditorLine))
+            ChangeLayer (s, id, [colour] (edit::Layer& l) { l.rgba = colour; });
         ImGui::SameLine ();
         char name[64];
         std::snprintf (name, sizeof name, "%s", layer.name.c_str ());
@@ -291,9 +335,12 @@ void OrganizeControls (Session& s)
         ImGui::PopID ();
     }
     if (ImGui::SmallButton ("New layer")) {
+        // Named and coloured in turn: each new layer takes the next swatch.
         const std::string name = "Layer " + std::to_string (layers.size ());
-        Change (s, [refs, name] (edit::Document& d, std::string&) {
+        const uint32_t colour = kSwatches[(layers.size () - 1) % std::size (kSwatches)];
+        Change (s, [refs, name, colour] (edit::Document& d, std::string&) {
             const edit::Id id = edit::AddLayer (d, name);
+            edit::FindLayer (d, id)->rgba = colour;
             std::string unused;
             if (!refs.empty ())
                 edit::MoveToLayer (d, refs, id, unused); // what is selected goes onto it

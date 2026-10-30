@@ -156,6 +156,18 @@ enum class OrganizeCommand : uint8_t {
 };
 void Organize (Session& s, OrganizeCommand command);
 void OrganizeControls (Session& s);
+
+// The colours the editor offers wherever a user picks one (a layer's, a reference line's): 20
+// colours chosen to stay apart from each other, then white and black, as 0xRRGGBBAA.
+inline constexpr uint32_t kSwatches[] = {
+    0xE6194BFFu, 0x3CB44BFFu, 0xFFE119FFu, 0x4363D8FFu, 0xF58231FFu, 0x911EB4FFu, 0x42D4F4FFu, 0xF032E6FFu,
+    0xBFEF45FFu, 0xFABED4FFu, 0x469990FFu, 0xDCBEFFFFu, 0x9A6324FFu, 0xFFFAC8FFu, 0x800000FFu, 0xAAFFC3FFu,
+    0x808000FFu, 0xFFD8B1FFu, 0x000075FFu, 0xA9A9A9FFu, 0xFFFFFFFFu, 0x000000FFu,
+};
+// A colour button that opens the swatches and a picker for a colour of one's own. True once per
+// choice (never per frame of a drag), with `rgba` set. With `editorColour` (not 0) the editor's
+// own colour is offered first, and choosing it sets `rgba` to 0.
+bool SwatchPicker (const char* id, uint32_t& rgba, uint32_t editorColour = 0);
 void DrawMarquee (Session& s, ImDrawList* draw, ImVec2 mouse);
 
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).
