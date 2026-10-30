@@ -5,6 +5,7 @@
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "Edit/EditPathContours.hpp"
+#include "Edit/EditOrganize.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include <imgui.h>
 #include <algorithm>
@@ -599,9 +600,11 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     const auto& doc = Doc (s);
     if (doc.landscape)
         Landscape (s);
+    if (edit::FindGroup (doc, s.enteredGroup) == nullptr)
+        s.enteredGroup = edit::kNoId; // ungrouped or undone since it was entered
     if (doc.revision == s.publishedRevision && s.selection.Items () == s.publishedSelection &&
         s.publishedPathStep == SurfaceStep (s) && s.quietPaths == s.publishedQuietPaths &&
-        (!doc.landscape || s.publishedLandscapeZ == s.plane.origin.z))
+        s.publishedGroup == s.enteredGroup && (!doc.landscape || s.publishedLandscapeZ == s.plane.origin.z))
         return false;
     edit::Selection shown = s.selection;
     shown.hover = {}; // hover is the view's transient feedback, not the layer's
@@ -613,6 +616,11 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     f.paved = &PavedSurface (s);
     f.quietPaths = &s.quietPaths;
     f.contours = s.contours ? &Contours (s) : nullptr;
+    // Inside a group, the rest of the scene fades so the group is what stands out.
+    const std::vector<edit::Id> focus =
+        s.enteredGroup != edit::kNoId ? edit::GroupMembers (doc, s.enteredGroup) : std::vector<edit::Id> {};
+    f.focus = s.enteredGroup != edit::kNoId ? &focus : nullptr;
+    s.publishedGroup = s.enteredGroup;
     // The live dimensions are the view's (HudVirtualEditorDraw.cpp): placed in pixels, they
     // can stand clear of the gizmo and the tracker, which model-anchored text cannot know.
     layer = editlayers::Build (doc, f);

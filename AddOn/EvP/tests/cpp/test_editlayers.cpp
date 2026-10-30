@@ -563,3 +563,26 @@ TEST (EditLayers, APathsLinesTakeItsLayersColour)
         zero = zero || l.rgba == 0x99AABBCCu;
     EXPECT_TRUE (zero);
 }
+
+TEST (EditLayers, InsideAGroupTheRestOfTheSceneIsFaded)
+{
+    ed::Document doc;
+    const ed::Id in = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 } }, false);
+    const ed::Id out = ed::AddPolyline (doc, { { 0, 5, 0 }, { 4, 5, 0 } }, false);
+    ed::AddPath (doc, { { 0, 10, 0 }, { 20, 10, 0 } }, 2);
+    (void) out;
+    const std::vector<ed::Id> focus { in };
+    el::Feedback f;
+    f.focus = &focus;
+    const auto drawn = el::Build (doc, f);
+    size_t full = 0, faded = 0;
+    for (const auto& l : drawn.polylines)
+        ((l.rgba & 0xFFu) == 0xFFu ? full : faded) += 1;
+    EXPECT_EQ (full, 1u);  // the group's one line
+    EXPECT_GT (faded, 1u); // the other line and the path's
+    for (const auto& m : drawn.meshes)
+        EXPECT_LT (m.rgba & 0xFFu, el::Style {}.pathSurface & 0xFFu);
+    // Outside a group nothing is faded.
+    for (const auto& l : el::Build (doc, {}).polylines)
+        EXPECT_EQ (l.rgba & 0xFFu, 0xFFu);
+}

@@ -4166,6 +4166,7 @@ TEST (HudVirtualEditor, ADoubleClickEditsInsideAGroupAndEscLeavesIt)
     ed::Document doc;
     const ed::Id a = ed::AddPolyline (doc, ed::Rectangle ({ 0, 0, 0 }, { 2, 2, 0 }), true);
     const ed::Id b = ed::AddPolyline (doc, ed::Rectangle ({ 4, 0, 0 }, { 6, 2, 0 }), true);
+    ed::AddPolyline (doc, ed::Rectangle ({ 10, 0, 0 }, { 12, 2, 0 }), true); // outside the group
     std::string error;
     const ed::Id g = ed::GroupObjects (doc, { { a, ed::Part::Entity, 0 }, { b, ed::Part::Entity, 0 } }, "pair", error);
     Drive d (std::move (doc));
@@ -4178,10 +4179,19 @@ TEST (HudVirtualEditor, ADoubleClickEditsInsideAGroupAndEscLeavesIt)
     ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
     EXPECT_EQ (d.S ().selection.Items ()[0].entity, a);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 0u); // the double click moved nothing
-    d.Key (0x1B);                              // deselect
-    d.Key (0x1B);                              // leave the group
+    // Inside it, the scene outside the group is drawn faded.
+    d.Frame ();
+    const auto faded = [&] {
+        return std::count_if (d.layer.polylines.begin (), d.layer.polylines.end (),
+                              [] (const auto& l) { return (l.rgba & 0xFFu) < 0x80u; });
+    };
+    EXPECT_GT (faded (), 0);
+    d.Key (0x1B); // deselect
+    d.Key (0x1B); // leave the group
     EXPECT_EQ (d.S ().enteredGroup, ed::kNoId);
     EXPECT_FALSE (d.S ().close);
+    d.Frame ();
+    EXPECT_EQ (faded (), 0); // out of it, nothing is
 }
 
 TEST (HudVirtualEditor, HideLockIsolateAndSelectLikeFromTheMenuAndKeys)

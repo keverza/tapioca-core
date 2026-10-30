@@ -884,6 +884,36 @@ std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style
 }
 
 namespace {
+// What the layer held before a part of the scene was added, so that part can be faded alone.
+struct Mark {
+    size_t polylines = 0, points = 0, meshes = 0, texts = 0, dimensions = 0;
+};
+Mark MarkOf (const layers::Layer& layer)
+{
+    return { layer.polylines.size (), layer.points.size (), layer.meshes.size (), layer.texts.size (),
+             layer.dimensions.size () };
+}
+uint32_t Faded (uint32_t rgba)
+{
+    return (rgba & 0xFFFFFF00u) | ((rgba & 0xFFu) / 4u);
+}
+void Fade (layers::Layer& layer, const Mark& from)
+{
+    for (size_t i = from.polylines; i < layer.polylines.size (); ++i)
+        layer.polylines[i].rgba = Faded (layer.polylines[i].rgba);
+    for (size_t i = from.points; i < layer.points.size (); ++i)
+        layer.points[i].rgba = Faded (layer.points[i].rgba);
+    for (size_t i = from.meshes; i < layer.meshes.size (); ++i) {
+        layer.meshes[i].rgba = Faded (layer.meshes[i].rgba);
+        for (auto& c : layer.meshes[i].vertexRgba)
+            c = Faded (c);
+    }
+    for (size_t i = from.texts; i < layer.texts.size (); ++i)
+        layer.texts[i].rgba = Faded (layer.texts[i].rgba);
+    for (size_t i = from.dimensions; i < layer.dimensions.size (); ++i)
+        layer.dimensions[i].rgba = Faded (layer.dimensions[i].rgba);
+}
+
 // The colour an object's lines are drawn in: its layer's, or the style's when the layer has none.
 uint32_t LineColour (const edit::Document& doc, const edit::Membership& m, uint32_t fallback)
 {
@@ -898,12 +928,18 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     layer.name = name;
     layer.lifetime = layers::LayerLifetime::Command;
     layer.occlusion = layers::Behind::Fade; // the edit stays readable behind the building
-    layers::PointSet vertices;
+    const auto inFocus = [&f] (edit::Id id) {
+        return f.focus == nullptr || std::find (f.focus->begin (), f.focus->end (), id) != f.focus->end ();
+    };
+    layers::PointSet vertices, faded;
     vertices.rgba = style.geometry;
     vertices.sizePixels = style.vertexPixels;
+    faded = vertices;
+    faded.rgba = Faded (style.geometry);
     for (const auto& e : doc.entities) {
         if (!edit::Shown (doc, e.member))
             continue;
+        const Mark before = MarkOf (layer);
         const bool source = f.landscape && doc.landscape &&
                             std::any_of (doc.landscape->sources.begin (), doc.landscape->sources.end (),
                                          [&] (const auto& s) { return s.entityId == e.id && !s.deleted; });
@@ -913,10 +949,16 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
         if (e.kind == edit::Kind::Extrusion)
             AddSolid (e, style.solid, layer);
         for (const auto& v : e.vertices)
-            Push (vertices.points, v.p);
+            Push ((inFocus (e.id) ? vertices : faded).points, v.p);
+        if (!inFocus (e.id))
+            Fade (layer, before);
     }
     if (!vertices.points.empty ())
         layer.points.push_back (std::move (vertices));
+    if (!faded.points.empty ())
+        layer.points.push_back (std::move (faded));
+    // The landscape, the shared surface and the contours are no group's: faded inside one.
+    const Mark shared = MarkOf (layer);
     if (f.landscape)
         AddLandscape (doc, f, style, layer);
     // The paths' one surface, paved once for the fill, its outline and the parts drawn on it. The
@@ -932,13 +974,18 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     if (f.contours != nullptr)
         for (const auto& c : *f.contours)
             layer.polylines.push_back (Line (c.points, false, style.contour, 1.0f));
+    if (f.focus != nullptr)
+        Fade (layer, shared);
     const auto quiet = [&] (edit::Id id) {
         return f.quietPaths && std::find (f.quietPaths->begin (), f.quietPaths->end (), id) != f.quietPaths->end ();
     };
     for (const auto& p : shown) {
         Style own = style; // the path's centre line and points in its layer's colour
         own.geometry = LineColour (doc, p.member, style.geometry);
+        const Mark before = MarkOf (layer);
         AddPath (doc, p, own, layer, paved, !f.labelsInView, !quiet (p.id));
+        if (!inFocus (p.id))
+            Fade (layer, before);
     }
     if (f.selection != nullptr) {
         for (const auto& ref : f.selection->Items ())
