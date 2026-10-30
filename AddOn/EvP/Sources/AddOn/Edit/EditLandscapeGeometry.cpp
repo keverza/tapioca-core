@@ -1,4 +1,5 @@
 #include "Edit/EditLandscapeInternal.hpp"
+#include "Edit/EditEllipse.hpp"
 #include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
@@ -329,9 +330,19 @@ bool ReadSourceCurve (const edit::Document& doc, const LandscapeSource& source, 
         error = "source is not an entity curve";
         return false;
     }
-    out.curve.closed = entity->closed;
+    edit::Entity regenerated;
+    const edit::Entity* geometry = entity;
+    if (entity->ellipse) {
+        regenerated = *entity;
+        if (!edit::RegenerateEllipse (regenerated, error))
+            return false;
+        geometry = &regenerated;
+    }
+    out.curve.closed = geometry->closed;
     out.curve.arcAngles = source.arcAngles;
-    const bool radii = std::any_of (entity->vertices.begin (), entity->vertices.end (),
+    if (entity->ellipse)
+        out.curve.arcAngles.clear (); // the analytic definition is already represented by its quarter Beziers
+    const bool radii = std::any_of (geometry->vertices.begin (), geometry->vertices.end (),
                                     [] (const auto& v) { return v.radius != 0.0; });
     if (radii) {
         if (std::any_of (source.arcAngles.begin (), source.arcAngles.end (), [] (double a) { return a != 0.0; })) {
@@ -339,16 +350,16 @@ bool ReadSourceCurve (const edit::Document& doc, const LandscapeSource& source, 
             return false;
         }
         double radius = 0.0;
-        for (const auto& v : entity->vertices)
+        for (const auto& v : geometry->vertices)
             radius = std::max (radius, v.radius);
         const double step = std::min (0.15, std::sqrt (0.008 / std::max (radius, 0.001)));
-        const auto features = edit::Features (*entity, step);
+        const auto features = edit::Features (*geometry, step);
         // Features lists every corner arc (its `segment` is the corner's vertex, and the
         // arcs are the first runs, two tangent points each) before the segments. Chain
         // the pieces end to start for the drawing order instead.
         const auto& edges = features.edges;
         const int arcs = int (features.tangentPoints.size () / 2);
-        const size_t count = entity->segments.size ();
+        const size_t count = geometry->segments.size ();
         if (edges.empty () || count == 0) {
             error = "source outline is empty";
             return false;
@@ -356,8 +367,8 @@ bool ReadSourceCurve (const edit::Document& doc, const LandscapeSource& source, 
         const auto arc = [&] (size_t k) { return edges[k].run >= 0 && edges[k].run < arcs; };
         size_t at = edges.size ();
         for (size_t k = 0; k < edges.size () && at == edges.size (); ++k)
-            if (entity->closed ? !arc (k) && edges[k].segment == 0
-                               : edit::Distance (edges[k].a, entity->vertices.front ().p) < 1.0e-9)
+            if (geometry->closed ? !arc (k) && edges[k].segment == 0
+                                 : edit::Distance (edges[k].a, geometry->vertices.front ().p) < 1.0e-9)
                 at = k;
         std::vector<bool> used (edges.size (), false);
         for (size_t n = 0; n < edges.size (); ++n) {
@@ -370,9 +381,9 @@ bool ReadSourceCurve (const edit::Document& doc, const LandscapeSource& source, 
             out.curve.points.push_back (edge.a);
             if (arc (at)) // corner `segment` joins segment segment-1 to segment
                 out.segments.push_back (
-                    { entity->segments[(edge.segment + count - 1) % count].id, entity->segments[edge.segment].id });
+                    { geometry->segments[(edge.segment + count - 1) % count].id, geometry->segments[edge.segment].id });
             else
-                out.segments.push_back ({ entity->segments[edge.segment].id });
+                out.segments.push_back ({ geometry->segments[edge.segment].id });
             size_t next = edges.size ();
             double best = 1.0e-9;
             for (size_t k = 0; k < edges.size (); ++k)
@@ -383,18 +394,18 @@ bool ReadSourceCurve (const edit::Document& doc, const LandscapeSource& source, 
                 return false;
             }
             at = next;
-            if (!entity->closed && n + 1 == edges.size ())
+            if (!geometry->closed && n + 1 == edges.size ())
                 out.curve.points.push_back (edge.b);
         }
         out.curve.arcAngles.clear ();
     }
     else {
-        for (const auto& v : entity->vertices) {
+        for (const auto& v : geometry->vertices) {
             out.curve.points.push_back (v.p);
             out.curve.inHandles.push_back (v.in);
             out.curve.outHandles.push_back (v.out);
         }
-        for (const auto& segment : entity->segments)
+        for (const auto& segment : geometry->segments)
             out.segments.push_back ({ segment.id });
     }
     return true;

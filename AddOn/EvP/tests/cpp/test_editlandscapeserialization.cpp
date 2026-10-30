@@ -1,6 +1,8 @@
 #include "Edit/EditLandscapeSerialization.hpp"
+#include "Edit/EditEllipse.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPolyline.hpp"
+#include "Edit/EditPrimitives.hpp"
 #include "Edit/EditSession.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -86,6 +88,29 @@ std::string Replace (std::string text, const std::string& from, const std::strin
         text.replace (at, from.size (), to);
     return text;
 }
+std::string RemoveEllipseMetadata (std::string text)
+{
+    const auto start = text.find ("\"ellipse\":{");
+    EXPECT_NE (start, std::string::npos);
+    if (start == std::string::npos)
+        return text;
+    size_t end = start + std::string ("\"ellipse\":{").size ();
+    int depth = 1;
+    for (; end < text.size () && depth > 0; ++end) {
+        if (text[end] == '{')
+            ++depth;
+        else if (text[end] == '}')
+            --depth;
+    }
+    EXPECT_EQ (depth, 0);
+    if (depth != 0)
+        return text;
+    if (end < text.size () && text[end] == ',')
+        ++end;
+    else if (start > 0 && text[start - 1] == ',')
+        return text.erase (start - 1, end - start + 1);
+    return text.erase (start, end - start);
+}
 void Same (const edit::Document& a, const edit::Document& b)
 {
     EXPECT_EQ (a.entities, b.entities);
@@ -124,10 +149,62 @@ TEST (EditLandscapeSerialization, FixedControlsReferenceAuthoredGeometryAndRound
     }
     // Older v1 payloads have no control field; they still read as an empty tier.
     auto legacy = Full ();
-    const auto text = Replace (Write (legacy), ",\"terrainControls\":[]", "");
+    const auto text = Replace (Write (legacy), "\"version\":2", "\"version\":1");
     edit::Document loaded;
     ASSERT_TRUE (geo::ReadLandscape (text, loaded, error)) << error;
     EXPECT_TRUE (loaded.landscape->terrainControls.empty ());
+}
+
+TEST (EditLandscapeSerialization, EllipseDefinitionsRoundTripAndLegacyV1NeverInfersOne)
+{
+    auto doc = Full ();
+    edit::PrimitiveInput input;
+    input.kind = edit::Primitive::Ellipse;
+    input.first = { 20, 30, 2 };
+    input.second = { 24, 32, 2 };
+    std::string error;
+    const edit::Id id = edit::AddPrimitive (doc, input, "ellipse", error);
+    ASSERT_NE (id, edit::kNoId) << error;
+    ASSERT_TRUE (edit::Validate (doc, error)) << error;
+
+    const std::string text = Write (doc);
+    EXPECT_NE (text.find ("\"ellipse\":{"), std::string::npos);
+    edit::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (text, loaded, error)) << error;
+    Same (doc, loaded);
+    ASSERT_TRUE (edit::Find (loaded, id)->ellipse.has_value ());
+    EXPECT_EQ (edit::Find (loaded, id)->ellipse, edit::Find (doc, id)->ellipse);
+
+    // Schema v1 predates primitive identity. Removing the extension and changing the
+    // version must preserve the stored cubic but must not guess a parametric definition.
+    const std::string legacy = Replace (RemoveEllipseMetadata (text), "\"version\":2", "\"version\":1");
+    edit::Document old;
+    ASSERT_TRUE (geo::ReadLandscape (legacy, old, error)) << error;
+    const auto* oldEllipse = edit::Find (old, id);
+    ASSERT_NE (oldEllipse, nullptr);
+    EXPECT_FALSE (oldEllipse->ellipse.has_value ());
+    EXPECT_EQ (oldEllipse->vertices, edit::Find (doc, id)->vertices);
+    EXPECT_EQ (oldEllipse->segments, edit::Find (doc, id)->segments);
+    EXPECT_TRUE (edit::Validate (old, error)) << error;
+
+    edit::Document invalid;
+    EXPECT_FALSE (geo::ReadLandscape (Replace (text, "\"mode\":1", "\"mode\":9"), invalid, error));
+    EXPECT_NE (error.find ("unknown enum"), std::string::npos);
+
+    auto native = doc;
+    geo::LandscapeSource source;
+    source.entityId = id;
+    source.archicadGuid = kSecondGuid;
+    edit::Id sourceId = 0;
+    ASSERT_TRUE (geo::AddLandscapeSource (native, source, sourceId, error)) << error;
+    ASSERT_TRUE (geo::ReadLandscape (Write (native, geo::LandscapeStorage::Native), loaded, error, Capture (native)))
+        << error;
+    Same (native, loaded);
+
+    ASSERT_TRUE (edit::ConvertEllipseToFreeform (doc, id, error)) << error;
+    ASSERT_TRUE (geo::ReadLandscape (Write (doc), loaded, error)) << error;
+    Same (doc, loaded);
+    EXPECT_FALSE (edit::Find (loaded, id)->ellipse.has_value ());
 }
 
 TEST (EditLandscapeSerialization, FixedControlMutationUsesOneHistoryAndRejectsNoOpsAndBadReferences)
@@ -277,12 +354,12 @@ TEST (EditLandscapeSerialization, MalformedUnknownDuplicateAndMissingFieldsNever
     const auto original = Full ();
     const auto valid = Write (original);
     for (const auto& text :
-         { std::string { "{" }, Replace (valid, "\"version\":1", "\"version\":2"),
+         { std::string { "{" }, Replace (valid, "\"version\":2", "\"version\":3"),
            Replace (valid, "\"mode\":\"virtual\",", ""), Replace (valid, "\"nextId\":", "\"extra\":0,\"nextId\":"),
            Replace (valid, "\"revision\":\"0\"", "\"revision\":0"),
            Replace (valid, "\"revision\":\"0\"", "\"revision\":\"00\""),
            Replace (valid, "\"revision\":\"0\"", "\"revision\":\"18446744073709551616\""),
-           Replace (valid, "\"version\":1", "\"version\":1,\"version\":1"),
+           Replace (valid, "\"version\":2", "\"version\":2,\"version\":2"),
            Replace (valid, "\"hatchDensity\":3.25", "\"hatchDensity\":-1"),
            Replace (valid, "\"kind\":7", "\"kind\":99") }) {
         auto destination = original;
@@ -300,7 +377,7 @@ TEST (EditLandscapeSerialization, StrictNumbersUnicodeAndBoundedJson)
     for (const auto* number : { "+1", "01", "1.", ".1", "1e", "1e999" }) {
         auto destination = original;
         std::string error;
-        EXPECT_FALSE (geo::ReadLandscape (Replace (valid, "\"version\":1", std::string ("\"version\":") + number),
+        EXPECT_FALSE (geo::ReadLandscape (Replace (valid, "\"version\":2", std::string ("\"version\":") + number),
                                           destination, error));
         Same (original, destination);
     }

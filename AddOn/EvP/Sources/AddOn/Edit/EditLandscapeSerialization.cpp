@@ -85,6 +85,11 @@ Value Entities (const edit::Document& doc, LandscapeStorage mode)
                       { "role", Text (entity.role) },
                       { "vertices", Value::Array (std::move (vertices)) },
                       { "segments", Value::Array (std::move (segments)) } };
+        if (entity.ellipse)
+            item.emplace ("ellipse", Value::Object ({ { "mode", Integer (int (entity.ellipse->mode)) },
+                                                      { "center", PointValue (entity.ellipse->center) },
+                                                      { "axisU", PointValue (entity.ellipse->axisU) },
+                                                      { "axisV", PointValue (entity.ellipse->axisV) } }));
         AddMember (item, entity.member);
         entities.push_back (Value::Object (std::move (item)));
     }
@@ -344,7 +349,7 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
                                              { "role", Text (v.role) },
                                              { "revision", IdValue (v.revision) } }));
     }
-    Object root { { "version", Integer (1) },
+    Object root { { "version", Integer (2) },
                   { "mode", Text (mode == LandscapeStorage::Virtual ? "virtual" : "native") },
                   { "sessionUuid", Text (UuidText (s.sessionUuid)) },
                   { "nextId", IdValue (doc.nextId) },

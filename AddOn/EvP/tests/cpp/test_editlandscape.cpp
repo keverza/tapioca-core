@@ -4,6 +4,7 @@
 #include "Edit/EditSession.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
+#include "Edit/EditPrimitives.hpp"
 #include "Edit/EditSnap.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -104,6 +105,39 @@ TEST (EditLandscape, ReferenceLineIsEditableLineworkNotAFaceOrOperationInput)
         EXPECT_EQ (loaded.landscape, doc.landscape);
         EXPECT_EQ (loaded.entities, doc.entities);
     }
+}
+
+TEST (EditLandscape, EllipseSourceCurveIsReadFromItsDefinitionRatherThanFlattenedAnchors)
+{
+    auto doc = Start ();
+    edit::PrimitiveInput input;
+    input.kind = edit::Primitive::Ellipse;
+    input.first = { 5, 6, 0 };
+    input.second = { 7, 6, 0 };
+    input.uniform = true;
+    std::string error;
+    const edit::Id entity = edit::AddPrimitive (doc, input, "boundary", error);
+    ASSERT_NE (entity, edit::kNoId) << error;
+    geo::LandscapeSource source;
+    source.entityId = entity;
+    edit::Id sourceId = 0;
+    ASSERT_TRUE (geo::AddLandscapeSource (doc, source, sourceId, error)) << error;
+    source = doc.landscape->sources.back ();
+
+    auto stale = doc;
+    edit::Find (stale, entity)->vertices[0].p.x += 50.0;
+    std::vector<edit::Vec3> points;
+    bool closed = false;
+    ASSERT_TRUE (geo::LandscapeSourcePreview (stale, source, points, closed, error)) << error;
+    ASSERT_TRUE (closed);
+    ASSERT_GE (points.size (), 8u);
+    double minX = points.front ().x, maxX = points.front ().x;
+    for (const auto& point : points) {
+        minX = std::min (minX, point.x);
+        maxX = std::max (maxX, point.x);
+    }
+    EXPECT_NEAR (minX, 3.0, 1.0e-6);
+    EXPECT_NEAR (maxX, 7.0, 1.0e-6);
 }
 
 TEST (EditLandscape, RegionUsageCreatesAndCleansItsOwnedRecordsWithExactUndo)

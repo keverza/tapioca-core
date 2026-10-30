@@ -93,10 +93,13 @@ void Organization (const Reader& root, edit::Document& doc)
     });
     doc.isolated = o.Field ("isolated").Ids ();
 }
-void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode)
+void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode, int version)
 {
     Each (root.Field ("entities"), [&] (const Reader& item) {
-        item.Fields ({ "id", "kind", "closed", "height", "role", "vertices", "segments" }, { "member" });
+        if (version == 1)
+            item.Fields ({ "id", "kind", "closed", "height", "role", "vertices", "segments" }, { "member" });
+        else
+            item.Fields ({ "id", "kind", "closed", "height", "role", "vertices", "segments" }, { "member", "ellipse" });
         edit::Entity e;
         e.id = item.Field ("id").Identifier ();
         e.kind = Enum (item.Field ("kind"), edit::Kind::Extrusion);
@@ -104,6 +107,13 @@ void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode)
         e.height = item.Field ("height").Number ();
         e.role = item.Field ("role").Text ();
         e.member = Member (item);
+        if (version >= 2 && item.Has ("ellipse")) {
+            const auto ellipse = item.Field ("ellipse");
+            ellipse.Fields ({ "mode", "center", "axisU", "axisV" });
+            e.ellipse = edit::EllipseDefinition { Enum (ellipse.Field ("mode"), edit::EllipseMode::Ellipse),
+                                                  ellipse.Field ("center").Point (), ellipse.Field ("axisU").Point (),
+                                                  ellipse.Field ("axisV").Point () };
+        }
         Each (item.Field ("vertices"), [&] (const Reader& vertex) {
             if (mode == LandscapeStorage::Virtual)
                 vertex.Fields ({ "id", "point", "lockXY", "lockZ", "radius", "in", "out", "smooth" });
@@ -215,7 +225,7 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
     doc.landscape.emplace ();
     auto& s = *doc.landscape;
     s.sessionUuid = Uuid (root.Field ("sessionUuid"));
-    Entities (root, doc, mode);
+    Entities (root, doc, mode, root.Field ("version").Integer ());
     Organization (root, doc);
     const auto landscape = root.Field ("landscape");
     landscape.Fields ({ "sourceTerrainGuid", "propertyLine", "sources", "operations", "objects", "regions",
@@ -394,7 +404,8 @@ bool ReadLandscape (const std::string& text, geomsrv::edit::Document& doc, std::
             return false;
         }
         lj::Reader root (parsed.value, "document");
-        if (root.Field ("version").Integer () != 1)
+        const int version = root.Field ("version").Integer ();
+        if (version != 1 && version != 2)
             lj::Fail ("document.version", "unsupported landscape schema version");
         const auto modeText = root.Field ("mode").Text ();
         if (modeText != "native" && modeText != "virtual")

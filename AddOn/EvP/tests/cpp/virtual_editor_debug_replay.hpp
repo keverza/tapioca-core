@@ -50,8 +50,9 @@ inline Scene Read (const js::JsonValue& value)
         throw std::runtime_error ("Unsupported virtual editor dump format/version");
     Scene scene;
     const auto document = root.Field ("document");
-    if (document.Field ("version").Integer () != 1 || document.Field ("mode").Text () != "virtual")
-        throw std::runtime_error ("Expected a schema-v1 virtual document");
+    const int version = document.Field ("version").Integer ();
+    if ((version != 1 && version != 2) || document.Field ("mode").Text () != "virtual")
+        throw std::runtime_error ("Expected a schema-v1 or schema-v2 virtual document");
     lj::ReadDocument (document, scene.doc, lg::LandscapeStorage::Virtual);
     if (!root.Field ("hadLandscape").Flag ())
         scene.doc.landscape.reset ();
