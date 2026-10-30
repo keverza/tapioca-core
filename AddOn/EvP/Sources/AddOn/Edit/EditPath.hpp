@@ -189,6 +189,7 @@ struct Path {
     // junctions with another path by the larger of the two (EditPathNetwork.hpp). 0: sharp.
     double edgeRadius = 0.0;
     std::vector<KerbCorner> kerbs; // corners set apart
+    Membership member;
     bool operator== (const Path&) const = default;
 };
 // Builds the alignment and checks the profile and ranges against its length.

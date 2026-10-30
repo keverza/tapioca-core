@@ -52,13 +52,32 @@ struct Entity {
     std::vector<Segment> segments;
     double height = 0.0;
     std::string role; // the owning tool's word for it ("centerline", "platform", ...)
+    Membership member;
     bool operator== (const Entity&) const = default;
+};
+// The editor's own layers and groups. A layer hides or locks everything on it; `rgba` 0
+// draws in the layer style's colour. A group may sit in another (`parent`), never in itself.
+struct Layer {
+    Id id = kNoId;
+    std::string name;
+    bool visible = true, locked = false;
+    uint32_t rgba = 0;
+    bool operator== (const Layer&) const = default;
+};
+struct Group {
+    Id id = kNoId;
+    std::string name;
+    Id parent = kNoId;
+    bool operator== (const Group&) const = default;
 };
 struct Document {
     std::vector<Entity> entities;
     std::vector<Path> paths; // ids share one space with the entities
     std::optional<tapioca::geometry::LandscapeSession> landscape;
-    Id nextId = 1; // never reused, so a deleted id cannot alias a later one
+    std::vector<Layer> layers;
+    std::vector<Group> groups;
+    std::vector<Id> isolated; // the objects Isolate hid, which Show isolated brings back
+    Id nextId = 1;            // never reused, so a deleted id cannot alias a later one
     uint64_t revision = 0;
 };
 

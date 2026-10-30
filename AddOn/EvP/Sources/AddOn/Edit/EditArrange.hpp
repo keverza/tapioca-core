@@ -11,10 +11,12 @@
 
 namespace geomsrv::edit {
 
-// Whole objects held apart from any document, with the ids they had there.
+// Whole objects held apart from any document, with the ids they had there, and the groups
+// copied whole with them: a group only partly copied is left behind.
 struct Clipboard {
     std::vector<Entity> entities;
     std::vector<Path> paths;
+    std::vector<Group> groups;
     bool Empty () const
     {
         return entities.empty () && paths.empty ();
@@ -28,7 +30,8 @@ bool Centre (const Clipboard& clip, Vec3& centre);
 // Adds the clipboard's objects moved by `offset`, with every id fresh. A path moves in plan
 // only (its heights are its profile's) and keeps its own kerb corners; a junction corner or
 // a crossing break comes along only when the other path is pasted with it. `pasted`
-// receives the new objects, whole.
+// receives the new objects, whole. Copies arrive shown and unlocked, on their layer if it
+// still exists, in fresh copies of the groups that came with them.
 bool Paste (Document& doc, const Clipboard& clip, Vec3 offset, std::vector<Ref>& pasted, std::string& error);
 
 // Reflects the whole objects `refs` reach across the vertical plane through `point` along

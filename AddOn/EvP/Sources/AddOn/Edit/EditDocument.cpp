@@ -1,4 +1,5 @@
 #include "Edit/EditDocument.hpp"
+#include "Edit/EditOrganize.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -387,7 +388,7 @@ bool Validate (const Document& doc, std::string& error)
             return false;
         }
     }
-    return tapioca::geometry::ValidateLandscape (doc, error);
+    return ValidateOrganization (doc, error) && tapioca::geometry::ValidateLandscape (doc, error);
 }
 
 } // namespace geomsrv::edit

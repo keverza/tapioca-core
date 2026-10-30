@@ -1,4 +1,5 @@
 #include "Edit/EditArrange.hpp"
+#include "Edit/EditOrganize.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPolyline.hpp"
 #include <algorithm>
@@ -22,6 +23,41 @@ Clipboard Copy (const Document& doc, const std::vector<Ref>& refs)
     for (const auto& p : doc.paths)
         if (wanted.count (p.id))
             clip.paths.push_back (p);
+    // A group comes along when every object in it is copied; an object keeps the innermost
+    // such group, and a group the nearest such one around it (groups nest, so it is its parent).
+    std::set<Id> copied;
+    for (const auto& e : clip.entities)
+        copied.insert (e.id);
+    for (const auto& p : clip.paths)
+        copied.insert (p.id);
+    std::map<Id, bool> whole;
+    const auto isWhole = [&] (Id group) {
+        if (group == kNoId)
+            return false;
+        if (const auto it = whole.find (group); it != whole.end ())
+            return it->second;
+        const auto members = GroupMembers (doc, group);
+        return whole[group] = std::all_of (members.begin (), members.end (), [&] (Id id) { return copied.count (id); });
+    };
+    std::set<Id> kept;
+    const auto regroup = [&] (Membership& m) {
+        Id g = m.group;
+        while (g != kNoId && !isWhole (g))
+            g = FindGroup (doc, g)->parent;
+        m.group = g;
+        for (; isWhole (g); g = FindGroup (doc, g)->parent)
+            kept.insert (g); // its parent holds more, or is whole too
+    };
+    for (auto& e : clip.entities)
+        regroup (e.member);
+    for (auto& p : clip.paths)
+        regroup (p.member);
+    for (Group g : doc.groups)
+        if (kept.count (g.id)) {
+            if (!kept.count (g.parent))
+                g.parent = kNoId; // the group around it stays behind
+            clip.groups.push_back (g);
+        }
     return clip;
 }
 
@@ -55,6 +91,20 @@ bool Paste (Document& doc, const Clipboard& clip, Vec3 offset, std::vector<Ref>&
         return false;
     }
     pasted.clear ();
+    std::map<Id, Id> groupIds;
+    for (const auto& g : clip.groups)
+        groupIds[g.id] = NewId (doc);
+    for (Group g : clip.groups) {
+        g.id = groupIds[g.id];
+        g.parent = groupIds.count (g.parent) ? groupIds[g.parent] : kNoId;
+        doc.groups.push_back (g);
+    }
+    const auto place = [&] (Membership& m) {
+        m.group = groupIds.count (m.group) ? groupIds[m.group] : kNoId;
+        if (FindLayer (doc, m.layer) == nullptr)
+            m.layer = kNoId;
+        m.hidden = m.locked = false;
+    };
     // Paths first, so that one pasted path's references to another find its new id.
     std::map<Id, Id> pathIds;
     for (const auto& p : clip.paths)
@@ -92,6 +142,7 @@ bool Paste (Document& doc, const Clipboard& clip, Vec3 offset, std::vector<Ref>&
             kerbs.push_back (k);
         }
         p.kerbs = std::move (kerbs);
+        place (p.member);
         pasted.push_back ({ p.id, Part::Entity, kNoId });
         doc.paths.push_back (std::move (p));
     }
@@ -103,6 +154,7 @@ bool Paste (Document& doc, const Clipboard& clip, Vec3 offset, std::vector<Ref>&
         }
         for (auto& s : e.segments)
             s.id = kNoId;
+        place (e.member);
         Normalize (doc, e);
         pasted.push_back ({ e.id, Part::Entity, kNoId });
         doc.entities.push_back (std::move (e));

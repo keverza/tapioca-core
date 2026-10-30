@@ -50,6 +50,17 @@ std::string UuidText (const std::array<uint8_t, 16>& uuid)
     }
     return text;
 }
+// Where an object sits in the editor's organisation; written only when it sits anywhere, so
+// a document that uses none keeps the bytes it always had.
+void AddMember (Object& object, const edit::Membership& m)
+{
+    if (m == edit::Membership {})
+        return;
+    object.emplace ("member", Value::Object ({ { "layer", IdValue (m.layer) },
+                                               { "group", IdValue (m.group) },
+                                               { "hidden", Flag (m.hidden) },
+                                               { "locked", Flag (m.locked) } }));
+}
 Value Entities (const edit::Document& doc, LandscapeStorage mode)
 {
     Array entities;
@@ -67,13 +78,15 @@ Value Entities (const edit::Document& doc, LandscapeStorage mode)
         for (const auto& s : entity.segments)
             segments.push_back (Value::Object (
                 { { "id", IdValue (s.id) }, { "width", Number (s.width) }, { "tag", IdValue (s.tag) } }));
-        entities.push_back (Value::Object ({ { "id", IdValue (entity.id) },
-                                             { "kind", Integer (int (entity.kind)) },
-                                             { "closed", Flag (entity.closed) },
-                                             { "height", Number (entity.height) },
-                                             { "role", Text (entity.role) },
-                                             { "vertices", Value::Array (std::move (vertices)) },
-                                             { "segments", Value::Array (std::move (segments)) } }));
+        Object item { { "id", IdValue (entity.id) },
+                      { "kind", Integer (int (entity.kind)) },
+                      { "closed", Flag (entity.closed) },
+                      { "height", Number (entity.height) },
+                      { "role", Text (entity.role) },
+                      { "vertices", Value::Array (std::move (vertices)) },
+                      { "segments", Value::Array (std::move (segments)) } };
+        AddMember (item, entity.member);
+        entities.push_back (Value::Object (std::move (item)));
     }
     return Value::Array (std::move (entities));
 }
@@ -117,13 +130,15 @@ Value PathsValue (const edit::Document& doc, LandscapeStorage mode)
                                               { "side", Integer (int (k.side)) },
                                               { "otherSide", Integer (int (k.otherSide)) },
                                               { "radius", Number (k.radius) } }));
-        paths.push_back (Value::Object ({ { "id", IdValue (path.id) },
-                                          { "role", Text (path.role) },
-                                          { "edgeRadius", Number (path.edgeRadius) },
-                                          { "points", Value::Array (std::move (points)) },
-                                          { "profile", Value::Array (std::move (profile)) },
-                                          { "sections", Value::Array (std::move (sections)) },
-                                          { "kerbs", Value::Array (std::move (kerbs)) } }));
+        Object item { { "id", IdValue (path.id) },
+                      { "role", Text (path.role) },
+                      { "edgeRadius", Number (path.edgeRadius) },
+                      { "points", Value::Array (std::move (points)) },
+                      { "profile", Value::Array (std::move (profile)) },
+                      { "sections", Value::Array (std::move (sections)) },
+                      { "kerbs", Value::Array (std::move (kerbs)) } };
+        AddMember (item, path.member);
+        paths.push_back (Value::Object (std::move (item)));
     }
     return Value::Array (std::move (paths));
 }
@@ -329,25 +344,42 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
                                              { "role", Text (v.role) },
                                              { "revision", IdValue (v.revision) } }));
     }
-    return Value::Object ({ { "version", Integer (1) },
-                            { "mode", Text (mode == LandscapeStorage::Virtual ? "virtual" : "native") },
-                            { "sessionUuid", Text (UuidText (s.sessionUuid)) },
-                            { "nextId", IdValue (doc.nextId) },
-                            { "revision", IdValue (doc.revision) },
-                            { "entities", Entities (doc, mode) },
-                            { "paths", PathsValue (doc, mode) },
-                            { "landscape", Value::Object ({ { "sourceTerrainGuid", Text (s.sourceTerrainGuid) },
-                                                            { "propertyLine", IdValue (s.propertyLineSourceId) },
-                                                            { "sources", Value::Array (std::move (sources)) },
-                                                            { "operations", Value::Array (std::move (operations)) },
-                                                            { "objects", Value::Array (std::move (objects)) },
-                                                            { "regions", Value::Array (std::move (regions)) },
-                                                            { "assignments", Value::Array (std::move (assignments)) },
-                                                            { "patches", Value::Array (std::move (patches)) },
-                                                            { "bindings", Value::Array (std::move (bindings)) },
-                                                            { "terrainControls", Value::Array (std::move (controls)) },
-                                                            { "entrances", Value::Array (std::move (entrances)) },
-                                                            { "edges", Value::Array (std::move (edges)) } }) } });
+    Object root { { "version", Integer (1) },
+                  { "mode", Text (mode == LandscapeStorage::Virtual ? "virtual" : "native") },
+                  { "sessionUuid", Text (UuidText (s.sessionUuid)) },
+                  { "nextId", IdValue (doc.nextId) },
+                  { "revision", IdValue (doc.revision) },
+                  { "entities", Entities (doc, mode) },
+                  { "paths", PathsValue (doc, mode) },
+                  { "landscape", Value::Object ({ { "sourceTerrainGuid", Text (s.sourceTerrainGuid) },
+                                                  { "propertyLine", IdValue (s.propertyLineSourceId) },
+                                                  { "sources", Value::Array (std::move (sources)) },
+                                                  { "operations", Value::Array (std::move (operations)) },
+                                                  { "objects", Value::Array (std::move (objects)) },
+                                                  { "regions", Value::Array (std::move (regions)) },
+                                                  { "assignments", Value::Array (std::move (assignments)) },
+                                                  { "patches", Value::Array (std::move (patches)) },
+                                                  { "bindings", Value::Array (std::move (bindings)) },
+                                                  { "terrainControls", Value::Array (std::move (controls)) },
+                                                  { "entrances", Value::Array (std::move (entrances)) },
+                                                  { "edges", Value::Array (std::move (edges)) } }) } };
+    // The editor's layers and groups, written only when there are any (AddMember's rule).
+    if (!doc.layers.empty () || !doc.groups.empty () || !doc.isolated.empty ()) {
+        Array layers, groups;
+        for (const auto& l : doc.layers)
+            layers.push_back (Value::Object ({ { "id", IdValue (l.id) },
+                                               { "name", Text (l.name) },
+                                               { "visible", Flag (l.visible) },
+                                               { "locked", Flag (l.locked) },
+                                               { "rgba", IdValue (l.rgba) } }));
+        for (const auto& g : doc.groups)
+            groups.push_back (Value::Object (
+                { { "id", IdValue (g.id) }, { "name", Text (g.name) }, { "parent", IdValue (g.parent) } }));
+        root.emplace ("organization", Value::Object ({ { "layers", Value::Array (std::move (layers)) },
+                                                       { "groups", Value::Array (std::move (groups)) },
+                                                       { "isolated", IdsValue (doc.isolated) } }));
+    }
+    return Value::Object (std::move (root));
 }
 
 bool ValidateStoredRegions (const edit::Document& doc, std::string& error)

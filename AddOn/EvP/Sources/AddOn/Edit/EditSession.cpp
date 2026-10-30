@@ -10,7 +10,8 @@ namespace geomsrv::edit {
 // model is compared without this function knowing it.
 static bool SameContent (const Document& a, const Document& b)
 {
-    return a.paths == b.paths && a.entities == b.entities && a.landscape == b.landscape;
+    return a.paths == b.paths && a.entities == b.entities && a.landscape == b.landscape && a.layers == b.layers &&
+           a.groups == b.groups && a.isolated == b.isolated;
 }
 
 // A line referenced from Archicad is Archicad's to edit (the user, 2026-10-24: "editable only
@@ -26,7 +27,12 @@ static bool ReferencesKept (const Document& candidate, const Document& from, std
         if (!source.deleted && source.role == tapioca::geometry::SourceRole::ReferenceLine && source.lineStyle.locked) {
             const auto* was = Find (from, source.entityId);
             const auto* now = Find (candidate, source.entityId);
-            if (was && (!now || !(*now == *was))) {
+            // Its geometry is Archicad's; where it sits in the editor's organisation is not.
+            const auto placed = [] (Entity e) {
+                e.member = {};
+                return e;
+            };
+            if (was && (!now || !(placed (*now) == placed (*was)))) {
                 error = "That reference line is locked. Unlock it in Sources before editing its geometry.";
                 return false;
             }

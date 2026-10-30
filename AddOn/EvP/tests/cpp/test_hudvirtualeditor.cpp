@@ -5,6 +5,7 @@
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayScene.hpp"
+#include "Edit/EditOrganize.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
 #include "hud_fixture.hpp"
@@ -4101,4 +4102,19 @@ TEST (HudVirtualEditor, TheMirrorToolMirrorsTheSelectionAcrossTwoClickedPoints)
     d.Key (0x1B);
     EXPECT_EQ (d.S ().tool, eh::Tool::Select);
     EXPECT_FALSE (d.S ().selection.Items ().empty ());
+}
+
+TEST (HudVirtualEditor, DeletingAGroupsObjectsTakesTheEmptyGroupToo)
+{
+    ed::Document doc;
+    const ed::Id a = ed::AddPolyline (doc, { { 0, 0, 0 }, { 1, 0, 0 } }, false);
+    const ed::Id b = ed::AddPolyline (doc, { { 0, 2, 0 }, { 1, 2, 0 } }, false);
+    std::string error;
+    ASSERT_NE (ed::GroupObjects (doc, { { a, ed::Part::Entity, 0 }, { b, ed::Part::Entity, 0 } }, {}, error),
+               ed::kNoId);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 }, { b, ed::Part::Entity, 0 } });
+    eh::RunMenuItem (d.S (), "delete");
+    EXPECT_TRUE (d.D ().entities.empty ());
+    EXPECT_TRUE (d.D ().groups.empty ());
 }

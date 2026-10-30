@@ -48,16 +48,52 @@ std::array<uint8_t, 16> Uuid (const Reader& reader)
     }
     return uuid;
 }
+edit::Membership Member (const Reader& item)
+{
+    edit::Membership m;
+    if (!item.Has ("member"))
+        return m;
+    const auto member = item.Field ("member");
+    member.Fields ({ "layer", "group", "hidden", "locked" });
+    m.layer = member.Field ("layer").Identifier ();
+    m.group = member.Field ("group").Identifier ();
+    m.hidden = member.Field ("hidden").Flag ();
+    m.locked = member.Field ("locked").Flag ();
+    return m;
+}
+void Organization (const Reader& root, edit::Document& doc)
+{
+    if (!root.Has ("organization"))
+        return;
+    const auto o = root.Field ("organization");
+    o.Fields ({ "layers", "groups", "isolated" });
+    Each (o.Field ("layers"), [&] (const Reader& item) {
+        item.Fields ({ "id", "name", "visible", "locked", "rgba" });
+        const auto rgba = item.Field ("rgba").Identifier ();
+        if (rgba > std::numeric_limits<uint32_t>::max ())
+            Fail (item.path + ".rgba", "32-bit colour overflow");
+        doc.layers.push_back ({ item.Field ("id").Identifier (), item.Field ("name").Text (),
+                                item.Field ("visible").Flag (), item.Field ("locked").Flag (),
+                                static_cast<uint32_t> (rgba) });
+    });
+    Each (o.Field ("groups"), [&] (const Reader& item) {
+        item.Fields ({ "id", "name", "parent" });
+        doc.groups.push_back (
+            { item.Field ("id").Identifier (), item.Field ("name").Text (), item.Field ("parent").Identifier () });
+    });
+    doc.isolated = o.Field ("isolated").Ids ();
+}
 void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode)
 {
     Each (root.Field ("entities"), [&] (const Reader& item) {
-        item.Fields ({ "id", "kind", "closed", "height", "role", "vertices", "segments" });
+        item.Fields ({ "id", "kind", "closed", "height", "role", "vertices", "segments" }, { "member" });
         edit::Entity e;
         e.id = item.Field ("id").Identifier ();
         e.kind = Enum (item.Field ("kind"), edit::Kind::Extrusion);
         e.closed = item.Field ("closed").Flag ();
         e.height = item.Field ("height").Number ();
         e.role = item.Field ("role").Text ();
+        e.member = Member (item);
         Each (item.Field ("vertices"), [&] (const Reader& vertex) {
             if (mode == LandscapeStorage::Virtual)
                 vertex.Fields ({ "id", "point", "lockXY", "lockZ", "radius", "in", "out", "smooth" });
@@ -90,10 +126,11 @@ void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode)
         doc.entities.push_back (std::move (e));
     });
     Each (root.Field ("paths"), [&] (const Reader& item) {
-        item.Fields ({ "id", "role", "edgeRadius", "points", "profile", "sections", "kerbs" });
+        item.Fields ({ "id", "role", "edgeRadius", "points", "profile", "sections", "kerbs" }, { "member" });
         edit::Path path;
         path.id = item.Field ("id").Identifier ();
         path.role = item.Field ("role").Text ();
+        path.member = Member (item);
         path.edgeRadius = item.Field ("edgeRadius").Number ();
         Each (item.Field ("points"), [&] (const Reader& point) {
             if (mode == LandscapeStorage::Virtual)
@@ -159,7 +196,8 @@ void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode)
 
 void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mode)
 {
-    root.Fields ({ "version", "mode", "sessionUuid", "nextId", "revision", "entities", "paths", "landscape" });
+    root.Fields ({ "version", "mode", "sessionUuid", "nextId", "revision", "entities", "paths", "landscape" },
+                 { "organization" });
     doc.nextId = root.Field ("nextId").Identifier ();
     doc.revision = root.Field ("revision").Identifier ();
     if (doc.nextId == 0)
@@ -168,6 +206,7 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
     auto& s = *doc.landscape;
     s.sessionUuid = Uuid (root.Field ("sessionUuid"));
     Entities (root, doc, mode);
+    Organization (root, doc);
     const auto landscape = root.Field ("landscape");
     landscape.Fields ({ "sourceTerrainGuid", "propertyLine", "sources", "operations", "objects", "regions",
                         "assignments", "patches", "bindings" },

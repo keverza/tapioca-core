@@ -2,6 +2,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "Edit/EditArrange.hpp"
+#include "Edit/EditOrganize.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPolyline.hpp"
 #include <imgui.h>
@@ -106,6 +107,7 @@ void DeleteSelection (Session& s)
                 return false;
             }
         }
+        edit::PruneGroups (d); // a group whose last object went goes with it
         return true;
     });
     if (ok)
