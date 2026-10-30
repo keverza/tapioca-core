@@ -20,7 +20,6 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include <chrono>
 #include "ArchViz/DiligentShaders.hpp"
-#include "Geometry/MeshStore.hpp"
 
 #include <Sampler.h>
 #include "Utilities/interface/DiligentFXShaderSourceStreamFactory.hpp"
@@ -284,11 +283,11 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, Diligent::ID
 
     if (device == nullptr || study == nullptr)
         return;
-    if (study->analysisKind == 1 && study->captureStamp != 0 &&
-        study->captureStamp != MeshStore::Get ().CaptureStamp ()) {
-        impl_->sunRejection = "visibility capture is stale; run it again";
-        return;
-    }
+    // ⚠️ A VISIBILITY STUDY FROM AN OLDER CAPTURE IS ACCEPTED, like a sun study.
+    // AttachSunStudy binds it per element and refuses the elements whose mesh
+    // changed, so an edit leaves the rest of the result up until the rerun that
+    // the following tab makes replaces it. Refusing it outright blanked the whole
+    // study on every edit and made each one a manual re-run.
     if (study->width == 0 || study->height == 0 || study->texels == nullptr) {
         impl_->sunRejection = "the study carried no atlas image";
         ArchVizLog ("Diligent scene: sun study refused -- " + impl_->sunRejection);
@@ -746,11 +745,6 @@ void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
 {
     if (impl_ == nullptr)
         return;
-    if (impl_->sunAnalysisKind == 1 && impl_->sunStudyPayload != nullptr && impl_->sunStudyPayload->captureStamp != 0 &&
-        impl_->sunStudyPayload->captureStamp != MeshStore::Get ().CaptureStamp ()) {
-        ClearSunStudy ();
-        impl_->sunRejection = "visibility invalidated by a model edit; run it again";
-    }
     impl_->sunFilterLo = (std::max) (0.0f, view.lo); // parenthesised: windows.h defines max
     // The slider's top is "9+": at it, no surface is cut off for having MORE.
     impl_->sunFilterHi = view.hi >= kSunHoursFilterOpenTop ? 1.0e9f : (std::max) (impl_->sunFilterLo, view.hi);

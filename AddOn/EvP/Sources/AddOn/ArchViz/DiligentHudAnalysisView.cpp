@@ -61,18 +61,13 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state)
         const auto& kept = state.analysisKept[restore];
         const bool stale = kept->analysisKind == 1 && kept->captureStamp != 0 &&
                            kept->captureStamp != MeshStore::Get ().CaptureStamp ();
-        if (stale) {
-            // The model moved under it: forget it. The point tab re-runs live.
-            focus.keptStudy[restore].clear ();
-            state.analysisKept[restore].reset ();
-        }
-        else {
-            // Through the normal path, as a whole upload; the claim it makes is
-            // marked seen so the put-back does not move the focus.
-            const uint64_t claim = queue.ClaimAnalysisDisplay (kept->analysisKind);
-            focus.seenClaim = claim;
-            queue.PushAnalysisAtlas (claim, std::make_unique<SunStudyAtlasUpload> (*kept));
-        }
+        // Through the normal path, as a whole upload; the claim it makes is
+        // marked seen so the put-back does not move the focus. A study the model
+        // moved under goes back too: its unchanged elements still read right, and
+        // the tab's follow re-runs it against the new capture.
+        const uint64_t claim = queue.ClaimAnalysisDisplay (kept->analysisKind);
+        focus.seenClaim = claim;
+        queue.PushAnalysisAtlas (claim, std::make_unique<SunStudyAtlasUpload> (*kept));
         if (restore == analysistabs::kPointVisibilityTab) {
             const auto status = visibilitystudy::GetStatus ();
             if (stale || status.studyId != focus.keptStudy[restore])
