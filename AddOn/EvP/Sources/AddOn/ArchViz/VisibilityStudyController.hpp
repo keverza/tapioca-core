@@ -24,6 +24,9 @@ struct Status {
     bool complete = false;
     std::string studyId;
     std::string error;
+    // The run was cancelled or the model changed under it: not a failure of its
+    // inputs. A workflow that follows its inputs runs again instead of reporting it.
+    bool superseded = false;
     int origin = 0; // the submitted VisibilityOrigin: 0 surfaces, 1 a placed point
     uint64_t snapshotId = 0;
     size_t sampleCount = 0;

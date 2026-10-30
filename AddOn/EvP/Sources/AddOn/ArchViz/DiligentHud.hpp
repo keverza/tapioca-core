@@ -29,6 +29,7 @@
 
 #include "ArchViz/AnalysisPath.hpp"
 #include "ArchViz/AnalysisProfile.hpp"
+#include "ArchViz/AnalysisLiveRerun.hpp"
 #include "ArchViz/AnalysisTabs.hpp"
 #include "ArchViz/DiligentScene.hpp" // ElementInfo, for the hover callout
 #include "ArchViz/TraceAnnotationLayer.hpp"
@@ -222,6 +223,10 @@ struct HudState {
     float visibilitySkyDegrees = 90.0f;     // sphere: the highest elevation seen
     float visibilityGroundDegrees = -90.0f; // sphere: the lowest
     std::string visibilityLiveKey;          // the inputs of the last point run submitted
+    // Surface visibility follows its inputs after its first run: a model edit or a
+    // changed setting re-runs it (AnalysisLiveRerun.hpp). Off, a change clears it.
+    bool visibilityLiveUpdate = true;
+    liverun::Follow visibilitySurfaceFollow;
     // The analysis shading's colours, 0xRRGGBBAA, set by the tabs' pickers.
     uint32_t visibilityLowRgba = 0xB84E45FFu;  // not visible
     uint32_t visibilityHighRgba = 0x4B8358FFu; // visible

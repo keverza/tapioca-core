@@ -63,9 +63,11 @@ class Worker final {
                 std::lock_guard<std::mutex> lock (mutex_);
                 if (generation != generation_)
                     return;
-                if (cancelled_.load ())
+                const bool cancelled = cancelled_.load ();
+                const bool stale = !cancelled && !CaptureIsFresh (request.snapshot, captureStamp);
+                if (cancelled)
                     displayError = "visibility study cancelled";
-                else if (!CaptureIsFresh (request.snapshot, captureStamp))
+                else if (stale)
                     displayError = "the model changed while visibility was calculating; run it again";
                 else if (result.valid && displayError.empty () && upload != nullptr) {
                     upload->captureStamp = captureStamp;
@@ -76,6 +78,7 @@ class Worker final {
                 status_.complete = result.valid && displayError.empty ();
                 status_.studyId = result.id;
                 status_.error = !result.error.empty () ? result.error : displayError;
+                status_.superseded = cancelled || stale;
                 status_.snapshotId = result.snapshotId;
                 status_.sampleCount = result.values.size ();
                 status_.aimPointCount = result.aimPointCount;

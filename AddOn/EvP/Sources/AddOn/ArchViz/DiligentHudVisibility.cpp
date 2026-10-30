@@ -1,5 +1,6 @@
 #include "ArchViz/DiligentHudShell.hpp"
 
+#include "ArchViz/AnalysisLiveRerun.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/ViewpointOverlayGeometry.hpp"
@@ -166,16 +167,31 @@ visibilitystudy::Request MakeRequest (const HudState& state, const viewpointstud
     return request;
 }
 
-// Everything a point run depends on: a different key is a different result.
+// Everything a run depends on, the capture included: a different key is a
+// different result. Point and surface runs both follow it.
 std::string LiveKey (const visibilitystudy::Request& request, const viewpointstudy::Settings& shared)
 {
-    const auto& o = request.options;
-    char numbers[320];
-    std::snprintf (numbers, sizeof (numbers), "%llu|%.6f,%.6f,%.6f|%.6f,%.6f,%.6f|%d|%.3f|%.3f,%.3f|%.4f|%d",
-                   static_cast<unsigned long long> (request.snapshot != nullptr ? request.snapshot->id : 0), o.point[0],
-                   o.point[1], o.point[2], o.direction[0], o.direction[1], o.direction[2], int (o.view), o.coneDegrees,
-                   o.minElevationDegrees, o.maxElevationDegrees, o.spacing, shared.contextAll ? 1 : 0);
+    auto o = request.options;
+    if (o.origin == evp::sunstudy::VisibilityOrigin::Surfaces) {
+        // The shared point and its view do not enter a surface run: moving the
+        // viewpoint on another tab must not re-run it.
+        o = {};
+        o.origin = request.options.origin;
+        o.spacing = request.options.spacing;
+        o.maxAimPoints = request.options.maxAimPoints;
+    }
+    else
+        o.maxAimPoints = 0; // the surface tab's slider; a point sees from itself
+    char numbers[360];
+    std::snprintf (numbers, sizeof (numbers), "%llu|%d|%.6f,%.6f,%.6f|%.6f,%.6f,%.6f|%d|%.3f|%.3f,%.3f|%.4f|%u|%d",
+                   static_cast<unsigned long long> (request.snapshot != nullptr ? request.snapshot->id : 0),
+                   int (o.origin), o.point[0], o.point[1], o.point[2], o.direction[0], o.direction[1], o.direction[2],
+                   int (o.view), o.coneDegrees, o.minElevationDegrees, o.maxElevationDegrees, o.spacing,
+                   unsigned (o.maxAimPoints), shared.contextAll ? 1 : 0);
     std::string key = numbers;
+    for (const auto& guid : request.fromElements)
+        key += "|" + guid;
+    key += "#";
     for (const auto& guid : request.toElements)
         key += "|" + guid;
     key += "#";
@@ -183,6 +199,11 @@ std::string LiveKey (const visibilitystudy::Request& request, const viewpointstu
         key += "|" + guid;
     return key;
 }
+
+// How long surface visibility's inputs must stay the same before it re-runs. A
+// surface run is far heavier than a point run, so a drag or a burst of edits
+// runs it once, at the end, rather than cancelling a run every frame.
+constexpr double kSurfaceQuietSeconds = 0.35;
 
 // Point visibility's own controls: the view, the point, and the cone's target or
 // the sphere's band. Returns true when the result they describe changed.
@@ -282,9 +303,15 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     const bool ownResult =
         scene.sunStudy.drawing && scene.sunStudy.analysisKind == 1 && state.analysisFocus.shownOrigin == origin;
     const auto capture = visibilitystudy::ViewerCapture ();
+    // ⚠️ SURFACE VISIBILITY FOLLOWS TOO, ONCE IT HAS RUN. A model edit or a changed
+    // setting re-runs it and the last result stays up until the new one replaces
+    // it, so a minor change never asks for another Run. "Live update" off restores
+    // the old contract: a change clears the result.
+    auto& follow = state.visibilitySurfaceFollow;
+    const bool following = !live && follow.armed && state.visibilityLiveUpdate;
     bool changed = false;
-    // A point run follows its controls live, so they stay usable while it runs.
-    ImGui::BeginDisabled (status.running && !live);
+    // A run that follows its controls keeps them usable while it runs.
+    ImGui::BeginDisabled (status.running && !live && !following);
     ImGui::TextWrapped (
         origin == 0
             ? "Analysis receives the gradient. Context occludes. Focus is checked for visibility from Analysis."
@@ -319,17 +346,18 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     if (state.visibilityOrigin == 0)
         changed |= ImGui::SliderInt ("Focus aim points", &state.visibilityAimPoints, 1, 128);
     ImGui::EndDisabled ();
-    // A surface result no longer describes its settings once they change. A
-    // point result is replaced by the next live run instead, so it stays up.
+    // A result that is not followed no longer describes its settings once they
+    // change. A followed one is replaced by the next run instead, so it stays up.
     if (changed) {
-        if (ownResult && !live)
+        if (ownResult && !live && !following)
             visibilitystudy::ClearDisplay ();
         state.visibilitySubmitError.clear ();
     }
 
     ImGui::SeparatorText (live ? "Result" : "Run");
     if (capture == nullptr)
-        ImGui::TextDisabled ("Waiting for a complete, current viewer capture.");
+        ImGui::TextDisabled (following || live ? "Model changed: updates once the viewer has read it again."
+                                               : "Waiting for a complete, current viewer capture.");
     if (live) {
         // ⚠️ NO RUN BUTTON: every change re-runs, coalesced -- a run still going is
         // cancelled first, and the newest inputs are submitted once it stops.
@@ -351,20 +379,42 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
             ImGui::TextDisabled ("Assign Analysis to see what the point sees.");
     }
     else {
-        const bool ready =
-            capture != nullptr && !status.running && !state.visibilityTo.empty () && !state.visibilityFrom.empty ();
-        ImGui::BeginDisabled (!ready);
-        if (ImGui::Button ("Run visibility", ImVec2 (-1.0f, 0.0f))) {
+        const bool inputs = capture != nullptr && !state.visibilityTo.empty () && !state.visibilityFrom.empty ();
+        const std::string key = inputs ? LiveKey (MakeRequest (state, shared, capture), shared) : std::string ();
+        if (following) {
+            switch (liverun::Decide (follow, key, status.running, ImGui::GetTime (), kSurfaceQuietSeconds)) {
+                case liverun::Step::Cancel:
+                    visibilitystudy::Cancel ();
+                    break;
+                case liverun::Step::Submit:
+                    state.visibilitySubmitError.clear ();
+                    if (visibilitystudy::Submit (MakeRequest (state, shared, capture), state.visibilitySubmitError))
+                        liverun::Submitted (follow, key);
+                    break;
+                case liverun::Step::Idle:
+                case liverun::Step::Wait:
+                    break;
+            }
+        }
+        ImGui::BeginDisabled (!inputs || status.running);
+        if (ImGui::Button (following ? "Run again" : "Run visibility", ImVec2 (-1.0f, 0.0f))) {
             state.viewpointPlacing = false;
             state.visibilitySubmitError.clear ();
-            visibilitystudy::Submit (MakeRequest (state, shared, capture), state.visibilitySubmitError);
+            if (visibilitystudy::Submit (MakeRequest (state, shared, capture), state.visibilitySubmitError))
+                liverun::Submitted (follow, key); // arms the follow
         }
         ImGui::EndDisabled ();
+        ImGui::Checkbox ("Live update", &state.visibilityLiveUpdate);
+        ImGui::SetItemTooltip ("After a run, edits in Archicad and changed settings re-run it; the last result stays "
+                               "up until the new one replaces it. Off: a change clears the result.");
+        if (!following && ownResult && capture != nullptr && status.snapshotId != 0 && status.snapshotId != capture->id)
+            ImGui::TextDisabled ("The model changed since this run.");
     }
-    // A live run superseded by the next one is cancelled on purpose: not a failure.
-    const bool superseded = live && status.error == "visibility study cancelled";
+    // A run superseded by the next one, or by a model edit, is not a failure when
+    // the tab follows its inputs: the next run replaces it.
+    const bool superseded = (live || following) && status.superseded;
     if (status.running) {
-        ImGui::TextUnformatted (live ? "Updating visibility..." : "Calculating visibility...");
+        ImGui::TextUnformatted (live || following ? "Updating visibility..." : "Calculating visibility...");
         if (!live && ImGui::SmallButton ("Cancel calculation"))
             visibilitystudy::Cancel ();
     }
@@ -394,6 +444,8 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
         if (ImGui::SmallButton ("Clear visibility")) {
             visibilitystudy::ClearDisplay ();
             state.visibilityLiveKey.clear ();
+            if (!live)
+                liverun::Disarm (follow); // nothing brings a cleared result back
         }
         ImGui::SetItemTooltip ("%s, %u tinted element(s)", scene.sunStudy.studyId.c_str (),
                                unsigned (scene.sunStudy.elementsAttached));
