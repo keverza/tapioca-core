@@ -635,6 +635,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorSnapControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorCorners.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorCurves.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorEllipse.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLabels.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeSkeleton.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRuns.cpp"
@@ -937,6 +938,7 @@ set (EVP_TEST_SOURCES
     test_editpath.cpp
     test_editprofileview.cpp
     test_hudvirtualeditor.cpp
+    test_hudvirtualeditorellipse.cpp
     test_viewereditor.cpp
     test_hudlandscape.cpp
     test_hudterrainsetup.cpp

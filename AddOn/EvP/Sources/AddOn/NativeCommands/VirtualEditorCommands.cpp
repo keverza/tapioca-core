@@ -193,6 +193,14 @@ GS::ObjectState Export (const edit::Document& doc)
         for (const auto& v : e.vertices)
             points.Push (Point (v.p));
         os.Add ("points", points);
+        if (e.ellipse) {
+            GS::ObjectState ellipse;
+            ellipse.Add ("mode", GS::UniString (e.ellipse->mode == edit::EllipseMode::Circle ? "circle" : "ellipse"));
+            ellipse.Add ("center", Point (e.ellipse->center));
+            ellipse.Add ("axisU", Point (e.ellipse->axisU));
+            ellipse.Add ("axisV", Point (e.ellipse->axisV));
+            os.Add ("ellipse", ellipse);
+        }
         polylines.Push (os);
     }
     for (const auto& p : doc.paths) {
@@ -538,7 +546,7 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
                 "active":{"type":"boolean"},"locked":{"type":"boolean"},"surface":{"type":"string","enum":["overlay","viewer"]},"revision":{"type":"integer"},"undoDepth":{"type":"integer"},"message":{"type":"string"},
                 "terrainDesign":{"type":"object","properties":{"active":{"type":"boolean"},"pending":{"type":"boolean"},"current":{"type":"boolean"},"stale":{"type":"boolean"},"built":{"type":"boolean"},"revision":{"type":"integer"},"vertices":{"type":"integer"},"triangles":{"type":"integer"},"conflicts":{"type":"integer"},"cut":{"type":"number"},"fill":{"type":"number"},"error":{"type":"string"}},"required":["active","pending","current","built","revision","vertices","triangles","conflicts","cut","fill","error"],"additionalProperties":false},
                 "document":{"type":"object","properties":{
-                  "polylines":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"kind":{"type":"string","enum":["polyline","extrusion"]},"role":{"type":"string"},"closed":{"type":"boolean"},"height":{"type":"number"},"points":{"type":"array","items":{"$ref":"#Point3D"}}},"required":["id","kind","role","closed","height","points"],"additionalProperties":false}},
+                  "polylines":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"kind":{"type":"string","enum":["polyline","extrusion"]},"role":{"type":"string"},"closed":{"type":"boolean"},"height":{"type":"number"},"points":{"type":"array","items":{"$ref":"#Point3D"}},"ellipse":{"type":"object","properties":{"mode":{"type":"string","enum":["circle","ellipse"]},"center":{"$ref":"#Point3D"},"axisU":{"$ref":"#Point3D"},"axisV":{"$ref":"#Point3D"}},"required":["mode","center","axisU","axisV"],"additionalProperties":false}},"required":["id","kind","role","closed","height","points"],"additionalProperties":false}},
                   "paths":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"role":{"type":"string"},"length":{"type":"number"},"points":{"type":"array","items":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"}},"required":["x","y","radius"],"additionalProperties":false}},"profile":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"z":{"type":"number"},"curve":{"type":"number"},"fixed":{"type":"boolean"},"binding":{"type":"string"}},"required":["station","z","curve","fixed","binding"],"additionalProperties":false}},"sections":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"widthLeft":{"type":"number"},"widthRight":{"type":"number"},"crossfall":{"type":"number"},"fall":{"type":"string","enum":["crown","left","right"]}},"required":["station","widthLeft","widthRight","crossfall","fall"],"additionalProperties":false}}},"required":["id","role","length","points","profile","sections"],"additionalProperties":false}},
                   "landscape":{"type":"string","maxLength":8388608},
                   "landscapeSummary":{"type":"object","properties":{"sources":{"type":"integer"},"operations":{"type":"integer"},"objects":{"type":"integer"},"faces":{"type":"integer"},"propertyLine":{"type":"string"},"regions":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"object":{"type":"string"},"area":{"type":"number"}},"required":["id","object","area"],"additionalProperties":false}},"warnings":{"type":"array","items":{"type":"string"}}},"required":["sources","operations","objects","faces","propertyLine","regions","warnings"],"additionalProperties":false}

@@ -85,6 +85,15 @@ void PenDrag (Session& s, const Map& m, ImVec2 mouse);
 void PenPreview (Session& s, const Map& m, edit::Vec3 hover, float scale);
 void ApplyPenHandles (edit::Document& d, edit::Id created, const std::vector<edit::Vec3>& handles);
 
+// The semantic inspector also accepts a selected anchor/segment of one ellipse. Fields
+// use metres and degrees; every accepted value or explicit conversion is one undo step.
+enum class EllipseField : uint8_t { CenterX, CenterY, CenterZ, MajorRadius, MinorRadius, Rotation };
+const edit::Entity* SelectedEllipse (const Session& s);
+bool SetSelectedEllipseValue (Session& s, EllipseField field, double value);
+bool SetSelectedEllipseMode (Session& s, edit::EllipseMode mode);
+bool ConvertSelectedEllipse (Session& s);
+void EllipseControls (Session& s);
+
 // Live-corner grips (HudVirtualEditorCorners.cpp): hover, drag, click and double click,
 // and their drawing. True when they took the pointer this frame.
 bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);

@@ -5,7 +5,9 @@
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayScene.hpp"
+#include "Edit/EditEllipse.hpp"
 #include "Edit/EditOrganize.hpp"
+#include "Edit/EditPrimitives.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
 #include "hud_fixture.hpp"
@@ -123,6 +125,43 @@ ed::Document Corner ()
     return doc;
 }
 } // namespace
+
+TEST (HudVirtualEditor, SemanticEllipseDoesNotOfferFreeformHandlesOrSegmentBending)
+{
+    ed::Document doc;
+    ed::PrimitiveInput input;
+    input.kind = ed::Primitive::Ellipse;
+    input.second = { 5, 2, 0 };
+    std::string error;
+    const auto id = ed::AddPrimitive (doc, input, "", error);
+    ASSERT_NE (id, ed::kNoId) << error;
+    const ed::Entity original = *ed::Find (doc, id);
+    Drive d (doc);
+    d.S ().selection.Set ({ { id, ed::Part::Vertex, original.vertices.front ().id } });
+    // The outgoing Bezier handle of the +X anchor would be at (700, 477.9).
+    d.At (700, 477.9f);
+    EXPECT_EQ (d.S ().hoverBezier, -1);
+    d.Press (700, 477.9f);
+    EXPECT_NE (d.S ().drag, eh::Drag::Bezier);
+    d.Release (700, 477.9f);
+    d.S ().selection.Set ({ { id, ed::Part::Segment, original.segments.front ().id } });
+    const auto on = ed::SegmentPoint (original, 0, 0.5);
+    d.Press (float (600 + 20 * on.x), float (500 - 20 * on.y));
+    EXPECT_NE (d.S ().drag, eh::Drag::Bend);
+    d.Release (float (600 + 20 * on.x), float (500 - 20 * on.y));
+    const auto* after = ed::Find (d.D (), id);
+    ASSERT_NE (after, nullptr);
+    ASSERT_TRUE (after->ellipse.has_value ());
+    EXPECT_DOUBLE_EQ (after->ellipse->axisU.x, original.ellipse->axisU.x);
+    EXPECT_DOUBLE_EQ (after->ellipse->axisV.y, original.ellipse->axisV.y);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    ASSERT_TRUE (d.S ().edits.Apply ([id] (ed::Document& document, std::string& message) {
+        return ed::ConvertEllipseToFreeform (document, id, message);
+    }));
+    d.S ().selection.Set ({ { id, ed::Part::Vertex, original.vertices.front ().id } });
+    d.At (700, 477.9f);
+    EXPECT_GE (d.S ().hoverBezier, 0) << "explicit conversion restores ordinary freeform handles";
+}
 
 TEST (HudVirtualEditor, StartingPublishesTheLayerAndBorrowsTheLock)
 {

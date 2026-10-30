@@ -46,7 +46,7 @@ std::vector<HandleEnd> Handles (const Session& s, const Map& m)
     };
     for (const auto& r : s.selection.Items ()) {
         const edit::Entity* e = edit::Find (doc, r.entity);
-        if (e == nullptr)
+        if (e == nullptr || e->ellipse)
             continue;
         if (r.part == edit::Part::Vertex) {
             const int i = edit::VertexIndex (*e, r.item);
@@ -115,7 +115,7 @@ bool CurveHandles (Session& s, const Map& m, ImVec2 mouse, bool hovered, const e
                 const edit::Ref r = hits.front ().ref;
                 const edit::Entity* e = edit::Find (Doc (s), r.entity);
                 const int i = e != nullptr ? edit::SegmentIndex (*e, r.item) : -1;
-                if (i >= 0 && edit::SegmentCurved (*e, size_t (i))) {
+                if (i >= 0 && !e->ellipse && edit::SegmentCurved (*e, size_t (i))) {
                     Vec3 at;
                     const Vec3 on = edit::SegmentPoint (*e, size_t (i), 0.5);
                     if (m.Onto (mouse.x, mouse.y, on.z, on, at) && s.edits.Begin (r)) {

@@ -112,6 +112,20 @@ def _state_schema():
     return json.loads(schemas[-1])["properties"]
 
 
+def test_editor_export_includes_optional_authoritative_ellipse_axes_with_strict_schema():
+    source = SOURCE.read_text(encoding="utf-8")
+    schemas = [json.loads(text) for text in re.findall(r'R"json\((.*?)\)json"', source, re.S)]
+    exported = schemas[1]["properties"]["document"]["properties"]["polylines"]["items"]
+    ellipse = exported["properties"]["ellipse"]
+    assert "ellipse" not in exported["required"]  # legacy/freeform export is unchanged
+    assert ellipse["required"] == ["mode", "center", "axisU", "axisV"]
+    assert ellipse["additionalProperties"] is False
+    assert ellipse["properties"]["mode"]["enum"] == ["circle", "ellipse"]
+    for point in ("center", "axisU", "axisV"):
+        assert ellipse["properties"][point] == {"$ref": "#Point3D"}
+        assert f"Point (e.ellipse->{point})" in source
+
+
 def test_editor_state_mode_table_and_schema_cover_every_gizmo_mode():
     header = (ROOT / "Edit" / "EditGizmo.hpp").read_text(encoding="utf-8")
     modes = re.search(r"enum class GizmoMode[^\{]*\{([^}]+)\}", header)[1]
