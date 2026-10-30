@@ -3974,3 +3974,22 @@ TEST (HudVirtualEditor, AProfileBindingSurvivesAPlanToThreeDViewSwitch)
     EXPECT_FALSE (d.S ().profileTyping);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
 }
+
+TEST (HudVirtualEditor, AnOffsetCopyUsesThePanelsDistance)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, ed::Rectangle ({ 0, 0, 0 }, { 2, 2, 0 }), true);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { e, ed::Part::Entity, 0 } });
+    d.S ().menu.target = eh::MenuTarget::Object;
+    d.S ().menu.ref = { e, ed::Part::Entity, 0 };
+    ASSERT_TRUE (d.Offers ("action.offset"));
+    eh::RunMenuItem (d.S (), "action.offset");
+    ASSERT_EQ (d.D ().entities.size (), 2u);
+    EXPECT_NEAR (std::abs (ed::SignedAreaXY (d.D ().entities[1].vertices)), 9.0, 1e-9); // 0.5 m outside
+    d.S ().actionDefaults.offsetDistance = 1.0;
+    eh::RunMenuItem (d.S (), "action.offset");
+    ASSERT_EQ (d.D ().entities.size (), 3u);
+    EXPECT_NEAR (std::abs (ed::SignedAreaXY (d.D ().entities[2].vertices)), 16.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+}

@@ -921,6 +921,71 @@ std::vector<Action> PolylineActions (const ActionDefaults& d)
         { "reverse", "Reverse direction", entity, 0xFu, 1, 0, [each] (const Document& doc, const Refs& refs) {
              return each (doc, refs, [] (const Entity& e) { return e.kind == Kind::Polyline; }, &ReverseDirection);
          } });
+    // A parallel copy of each selected outline; the copy is what the edit adds.
+    table.push_back ({ "offset", "Offset copy", entity, 0xFu, 1, 0, [d] (const Document& doc, const Refs& refs) {
+                          std::vector<Id> ids;
+                          for (const auto& r : refs)
+                              if (Find (doc, r.entity) != nullptr && r.part == Part::Entity)
+                                  ids.push_back (r.entity);
+                          if (ids.empty () || d.offsetDistance == 0.0)
+                              return Operation {};
+                          return Operation ([ids, d] (Document& x, std::string& error) {
+                              for (const Id id : ids) {
+                                  const Entity& e = *Find (x, id);
+                                  // OffsetEntity runs to the left, and an extrusion's profile
+                                  // outward; a ring of either winding goes outside.
+                                  const bool outside = e.closed && e.kind == Kind::Polyline;
+                                  const double left =
+                                      outside && SignedAreaXY (e.vertices) > 0.0 ? -d.offsetDistance : d.offsetDistance;
+                                  if (!OffsetEntity (x, id, left, error))
+                                      return false;
+                              }
+                              return true;
+                          });
+                      } });
+    // The first selected polyline is cut back to, or lengthened to meet, the second. Of its
+    // two ends, a trim takes the one that leaves the longer polyline and an extension the
+    // one that reaches the other sooner.
+    const auto planLength = [] (const Entity& e) {
+        double length = 0.0;
+        for (size_t i = 0; i < SegmentCount (e); ++i) {
+            size_t from = 0, to = 0;
+            SegmentEnds (e, i, from, to);
+            length += DistanceXY (e.vertices[from].p, e.vertices[to].p);
+        }
+        return length;
+    };
+    using EndEdit = bool (*) (Document&, Id, bool, Id, std::string&);
+    const auto toOther = [planLength] (const Document& doc, const Refs& refs, EndEdit edit, bool keepLonger) {
+        const Entity* e = Find (doc, refs[0].entity);
+        if (e == nullptr || Find (doc, refs[1].entity) == nullptr || e->closed || e->kind != Kind::Polyline ||
+            refs[0].part != Part::Entity || refs[1].part != Part::Entity)
+            return Operation {};
+        const Id id = refs[0].entity, other = refs[1].entity;
+        return Operation ([id, other, edit, keepLonger, planLength] (Document& x, std::string& error) {
+            Document start = x, end = x;
+            std::string whyStart, whyEnd;
+            const bool atStart = edit (start, id, true, other, whyStart);
+            const bool atEnd = edit (end, id, false, other, whyEnd);
+            if (!atStart && !atEnd) {
+                error = whyStart;
+                return false;
+            }
+            bool useStart = atStart;
+            if (atStart && atEnd) {
+                const double a = planLength (*Find (start, id)), b = planLength (*Find (end, id));
+                useStart = keepLonger ? a >= b : a <= b;
+            }
+            x = useStart ? std::move (start) : std::move (end);
+            return true;
+        });
+    };
+    table.push_back (
+        { "trim", "Trim to the other", entity, 0xFu, 2, 2,
+          [toOther] (const Document& doc, const Refs& refs) { return toOther (doc, refs, &TrimAtEntity, true); } });
+    table.push_back (
+        { "extend", "Extend to the other", entity, 0xFu, 2, 2,
+          [toOther] (const Document& doc, const Refs& refs) { return toOther (doc, refs, &ExtendToEntity, false); } });
     table.push_back (
         { "merge", "Merge duplicate vertices", entity, 0xFu, 1, 0, [d] (const Document&, const Refs& refs) {
              return Operation ([refs, d] (Document& x, std::string& error) {

@@ -199,18 +199,31 @@ void Panel (Session& s)
     if (ImGui::SmallButton ("Done"))
         s.close = true;
     // Context actions for what is selected.
-    static const std::vector<edit::Action> table = edit::PolylineActions ();
-    const auto actions = edit::Applicable (table, s.selection, edit::ViewKind::Plan);
-    for (size_t i = 0; i < actions.size (); ++i) {
-        if (i > 0)
+    // An action with nothing to do here is shown greyed, as the menu shows it.
+    bool offers = false, offset = false;
+    for (const edit::Action* a : edit::Applicable (Actions (s), s.selection, edit::ViewKind::Plan)) {
+        const auto op = a->make (doc, s.selection.Items ());
+        if (offers)
             ImGui::SameLine ();
-        if (ImGui::SmallButton (actions[i]->label.c_str ())) {
-            const auto op = actions[i]->make (doc, s.selection.Items ());
+        offers = true;
+        offset = offset || a->id == "offset";
+        ImGui::BeginDisabled (!op);
+        if (ImGui::SmallButton (a->label.c_str ())) {
             const edit::Id since = doc.nextId;
-            if (op && !s.edits.Apply (op))
+            if (!s.edits.Apply (op))
                 s.message = s.edits.Message ();
             SelectMade (s, since);
         }
+        ImGui::EndDisabled ();
+    }
+    // Its distance comes after the rows: changing it rebuilds the table they point into.
+    if (offset) {
+        float distance = float (s.actionDefaults.offsetDistance);
+        ImGui::SetNextItemWidth (110.0f);
+        if (ImGui::DragFloat ("Offset distance", &distance, 0.01f, -50.0f, 50.0f, "%.2f m"))
+            s.actionDefaults.offsetDistance = double (distance);
+        hudshell::Tip ("Positive: outside a closed outline or left of a line. Negative: inside or right.",
+                       hudshell::TipSide::Above);
     }
     ImGui::EndDisabled ();
 

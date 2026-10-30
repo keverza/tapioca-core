@@ -171,6 +171,9 @@ void History (Session& s, bool undo);
 void EndHandleDrag (Session& s);
 void EndDrag (Session& s);
 void DeleteSelection (Session& s);
+// The context actions for the session's settings, shared by the panel and the menu. A change
+// of setting rebuilds the table, so hold its rows only while nothing changes one.
+const std::vector<edit::Action>& Actions (const Session& s);
 // After an action: the selection keeps what still exists; when nothing does (a polyline
 // that became a path), what the action made -- ids from `since` on -- is selected whole.
 void SelectMade (Session& s, edit::Id since);

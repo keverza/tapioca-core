@@ -155,6 +155,8 @@ struct Session {
     uint64_t gumballRepositionRevision = 0;
     uint32_t filter = edit::kPickAll;
     double pathWidth = 1.5;
+    // The context actions' settings: an offset copy's distance.
+    edit::ActionDefaults actionDefaults;
     int polygonSides = 6; // the polygon tool's, Up and Down while it is placed
     std::string role;     // the starting command's word for what it edits
     std::string owner;    // the palette command that opened it: its own later runs keep it

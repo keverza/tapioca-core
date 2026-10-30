@@ -57,6 +57,9 @@ struct ActionDefaults {
     double mergeTolerance = 0.01;
     double joinTolerance = 0.01;
     double pathWidth = 1.5; // a path made along a polyline
+    // An offset copy's distance: positive outside a closed outline, to the left of an open line.
+    double offsetDistance = 0.5;
+    bool operator== (const ActionDefaults&) const = default;
 };
 // The shape editor's context actions, ready for `Applicable`.
 std::vector<Action> PolylineActions (const ActionDefaults& defaults = {});

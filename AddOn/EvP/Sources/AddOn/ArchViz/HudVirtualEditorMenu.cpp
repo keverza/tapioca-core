@@ -31,6 +31,18 @@ void History (Session& s, bool undo)
     s.selection.Prune (Doc (s));
 }
 
+const std::vector<edit::Action>& Actions (const Session& s)
+{
+    // One editor runs at a time, on the HUD's thread.
+    static edit::ActionDefaults builtFor;
+    static std::vector<edit::Action> table = edit::PolylineActions (builtFor);
+    if (!(builtFor == s.actionDefaults)) {
+        builtFor = s.actionDefaults;
+        table = edit::PolylineActions (builtFor);
+    }
+    return table;
+}
+
 void DeleteSelection (Session& s)
 {
     if (s.profileTyping) {
@@ -142,17 +154,11 @@ void Rule (std::vector<MenuItem>& items)
         items.back ().ruleAfter = true;
 }
 
-const std::vector<edit::Action>& Actions ()
-{
-    static const std::vector<edit::Action> table = edit::PolylineActions ();
-    return table;
-}
-
 // The polyline actions that apply to the selection, minus those this menu says better.
 void AddActions (const Session& s, std::vector<MenuItem>& items, std::initializer_list<const char*> skip)
 {
     bool any = false;
-    for (const edit::Action* a : edit::Applicable (Actions (), s.selection, edit::ViewKind::Plan)) {
+    for (const edit::Action* a : edit::Applicable (Actions (s), s.selection, edit::ViewKind::Plan)) {
         if (std::any_of (skip.begin (), skip.end (), [&] (const char* id) { return a->id == id; }))
             continue;
         if (!any)
@@ -476,7 +482,7 @@ void RunMenuItem (Session& s, const std::string& id)
             s.message = s.edits.Message ();
     }
     else if (id.rfind ("action.", 0) == 0) {
-        for (const auto& a : Actions ())
+        for (const auto& a : Actions (s))
             if ("action." + a.id == id) {
                 const auto op = a.make (doc, s.selection.Items ());
                 const edit::Id since = doc.nextId;

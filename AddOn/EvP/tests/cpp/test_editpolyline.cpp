@@ -1,5 +1,6 @@
 #include "Edit/EditPolyline.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cmath>
 
 namespace ed = geomsrv::edit;
@@ -369,4 +370,73 @@ TEST (EditPolyline, CloseOpenAndReverseAreActionsOnWholePolylines)
     EXPECT_FALSE (make ("close", { o }));
     ASSERT_TRUE (s.Apply (make ("open", { o })));
     EXPECT_FALSE (ed::Find (s.Doc (), open)->closed);
+}
+
+namespace {
+ed::Operation Make (const std::vector<ed::Action>& table, const std::string& id, const ed::Document& doc,
+                    const std::vector<ed::Ref>& refs)
+{
+    for (const auto& a : table)
+        if (a.id == id)
+            return a.make (doc, refs);
+    return {};
+}
+} // namespace
+
+TEST (EditPolyline, OffsetCopyGoesOutsideARingOfEitherWindingAndLeftOfALine)
+{
+    Doc d;
+    const ed::Id ccw = ed::AddPolyline (d.doc, ed::Rectangle ({ 0, 0, 0 }, { 2, 2, 0 }), true);
+    auto cw = ed::Rectangle ({ 5, 0, 0 }, { 7, 2, 0 });
+    std::reverse (cw.begin (), cw.end ());
+    const ed::Id clockwise = ed::AddPolyline (d.doc, cw, true);
+    const ed::Id line = ed::AddPolyline (d.doc, { { 0, 5, 0 }, { 4, 5, 0 } }, false);
+    ed::ActionDefaults defaults;
+    defaults.offsetDistance = 0.5;
+    const auto table = ed::PolylineActions (defaults);
+    ed::Session s (d.doc);
+    ASSERT_TRUE (s.Apply (
+        Make (table, "offset", s.Doc (),
+              { { ccw, ed::Part::Entity, 0 }, { clockwise, ed::Part::Entity, 0 }, { line, ed::Part::Entity, 0 } })))
+        << s.Message ();
+    const auto& made = s.Doc ().entities;
+    ASSERT_EQ (made.size (), 6u);
+    EXPECT_NEAR (std::abs (ed::SignedAreaXY (made[3].vertices)), 9.0, 1e-9);
+    EXPECT_NEAR (std::abs (ed::SignedAreaXY (made[4].vertices)), 9.0, 1e-9);
+    Near (made[5].vertices[0].p, 0, 5.5);
+    EXPECT_EQ (s.UndoDepth (), 1u);
+
+    defaults.offsetDistance = -0.5; // inside, and right of the line
+    ASSERT_TRUE (s.Apply (Make (ed::PolylineActions (defaults), "offset", s.Doc (),
+                                { { ccw, ed::Part::Entity, 0 }, { line, ed::Part::Entity, 0 } })));
+    EXPECT_NEAR (std::abs (ed::SignedAreaXY (s.Doc ().entities[6].vertices)), 1.0, 1e-9);
+    Near (s.Doc ().entities[7].vertices[0].p, 0, 4.5);
+    defaults.offsetDistance = 0.0;
+    EXPECT_FALSE (Make (ed::PolylineActions (defaults), "offset", s.Doc (), { { ccw, ed::Part::Entity, 0 } }));
+}
+
+TEST (EditPolyline, TrimKeepsTheLongerPieceAndExtendTheNearerEnd)
+{
+    Doc d;
+    const ed::Id wall = ed::AddPolyline (d.doc, { { 10, -5, 0 }, { 10, 5, 0 } }, false);
+    const ed::Id run = ed::AddPolyline (d.doc, { { 0, 1, 0 }, { 8, 1, 0 }, { 14, 1, 0 } }, false);
+    const auto table = ed::PolylineActions ();
+    const ed::Ref r { run, ed::Part::Entity, 0 }, w { wall, ed::Part::Entity, 0 };
+    ed::Session s (d.doc);
+    ASSERT_TRUE (s.Apply (Make (table, "trim", s.Doc (), { r, w }))) << s.Message ();
+    Near (ed::Find (s.Doc (), run)->vertices.front ().p, 0, 1);
+    Near (ed::Find (s.Doc (), run)->vertices.back ().p, 10, 1);
+    EXPECT_FALSE (s.Apply (Make (table, "trim", s.Doc (), { r, w }))); // nothing crosses now: nothing changes
+    Near (ed::Find (s.Doc (), run)->vertices.back ().p, 10, 1);
+
+    const ed::Id box = ed::AddPolyline (d.doc, ed::Rectangle ({ -2, -5, 0 }, { 10, 5, 0 }), true);
+    const ed::Id inside = ed::AddPolyline (d.doc, { { 3, 0, 0 }, { 6, 0, 0 } }, false);
+    ed::Session t (d.doc);
+    ASSERT_TRUE (
+        t.Apply (Make (table, "extend", t.Doc (), { { inside, ed::Part::Entity, 0 }, { box, ed::Part::Entity, 0 } })))
+        << t.Message ();
+    Near (ed::Find (t.Doc (), inside)->vertices.front ().p, 3, 0);
+    Near (ed::Find (t.Doc (), inside)->vertices.back ().p, 10, 0); // 4 m on, not 5 m back
+    // The one changed is the first picked; a ring has no end to change.
+    EXPECT_FALSE (Make (table, "extend", t.Doc (), { { box, ed::Part::Entity, 0 }, { inside, ed::Part::Entity, 0 } }));
 }
