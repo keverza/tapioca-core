@@ -90,6 +90,8 @@ bool SetSelectedEllipseMode (Session& s, edit::EllipseMode mode)
         const edit::Entity* current = edit::Find (doc, id);
         if (current == nullptr || !edit::GetEllipseParameters (*current, parameters, error))
             return false;
+        if (parameters.mode == mode)
+            return true;
         parameters.mode = mode;
         if (mode == edit::EllipseMode::Circle)
             parameters.minorRadius = parameters.majorRadius;

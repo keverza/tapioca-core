@@ -91,6 +91,23 @@ TEST (HudVirtualEditorEllipse, PartSelectionOffersExplicitUndoableConversion)
     EXPECT_EQ (detail::SelectedEllipse (s), nullptr);
 }
 
+TEST (HudVirtualEditorEllipse, ClickingTheCurrentModePreservesConjugateAxesWithoutHistory)
+{
+    eh::Session s;
+    const auto id = MakeEllipse (s);
+    ed::Document doc = s.edits.Doc ();
+    auto* entity = ed::Find (doc, id);
+    entity->ellipse->axisU = { 4, 1, 0 };
+    entity->ellipse->axisV = { 1, 2, 0 };
+    std::string error;
+    ASSERT_TRUE (ed::RegenerateEllipse (*entity, error));
+    s.edits = ed::Session (doc);
+    ASSERT_TRUE (detail::SetSelectedEllipseMode (s, ed::EllipseMode::Ellipse));
+    EXPECT_EQ (s.edits.UndoDepth (), 0u);
+    EXPECT_DOUBLE_EQ (ed::Find (s.edits.Doc (), id)->ellipse->axisU.y, 1);
+    EXPECT_DOUBLE_EQ (ed::Find (s.edits.Doc (), id)->ellipse->axisV.x, 1);
+}
+
 TEST (HudVirtualEditorEllipse, RefusesBusyLockedInvalidAndAmbiguousEditsWithoutHistory)
 {
     eh::Session s;
