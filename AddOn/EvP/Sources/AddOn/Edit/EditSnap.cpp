@@ -1,4 +1,5 @@
 #include "Edit/EditSnap.hpp"
+#include "Edit/EditOrganize.hpp"
 #include "Edit/EditShape.hpp"
 #include "Edit/EditSnapInternal.hpp"
 #include <algorithm>
@@ -146,7 +147,8 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
 {
     int runBase = 0; // each entity's curves numbered apart from the next one's
     for (const auto& e : doc.entities) {
-        if (!tapioca::geometry::LandscapeLineVisible (doc, e.id))
+        // A locked object is still drawn, so still snapped to; a hidden one is neither.
+        if (!tapioca::geometry::LandscapeLineVisible (doc, e.id) || !Shown (doc, e.member))
             continue;
         if (Excluded (query.exclude, e.id, kNoId))
             continue;
@@ -212,6 +214,8 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
     // Paths: control points and grade breaks are endpoints, the centreline and both
     // edges are edges. A path any exclusion names is moving and is skipped whole.
     for (const auto& path : doc.paths) {
+        if (!Shown (doc, path.member))
+            continue;
         bool moving = false;
         for (const auto& r : query.exclude)
             moving |= r.entity == path.id;

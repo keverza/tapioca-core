@@ -102,7 +102,7 @@ class Selection {
     // filter rule as the marquee. Fewer than three points select nothing.
     void Lasso (const Document& doc, const PickView& view, const std::vector<std::pair<double, double>>& outline,
                 uint32_t filter, bool additive);
-    // Drops references that an edit or an undo removed.
+    // Drops references that an edit or an undo removed, hid or locked.
     void Prune (const Document& doc);
 
     Ref hover;

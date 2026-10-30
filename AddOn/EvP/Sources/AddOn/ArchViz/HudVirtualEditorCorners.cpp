@@ -1,5 +1,6 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditOrganize.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditShape.hpp"
@@ -268,8 +269,8 @@ std::vector<edit::Id> KerbPaths (Session& s)
         for (const auto& c : corners)
             if (c.key.other != edit::kNoId && Shown (out, c))
                 for (edit::Id id : { c.path, c.key.other })
-                    if (std::find (out.begin (), out.end (), id) == out.end ())
-                        out.push_back (id), grew = true;
+                    if (std::find (out.begin (), out.end (), id) == out.end () && edit::Shown (Doc (s), id))
+                        out.push_back (id), grew = true; // a hidden path shows no grips
     }
     return out;
 }

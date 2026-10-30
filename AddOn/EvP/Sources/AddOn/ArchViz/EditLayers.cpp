@@ -1,4 +1,5 @@
 #include "ArchViz/EditLayers.hpp"
+#include "Edit/EditOrganize.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditShape.hpp"
 #include <algorithm>
@@ -847,15 +848,16 @@ std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style
     for (const auto& path : doc.paths) {
         edit::PathOutline o;
         std::string error;
-        if (edit::Outline (path, style.pathStep, o, error) && o.stations.size () >= 2) {
+        if (edit::Shown (doc, path.member) && edit::Outline (path, style.pathStep, o, error) &&
+            o.stations.size () >= 2) {
             PathMarkLabels (doc, path, o, style, out);
             PathDimensionLabels (doc, path, o, style, out);
         }
     }
     // Each rounded kerb corner's radius, from its fillet's centre to its middle.
     for (const auto& c : edit::Pave (doc.paths, style.pathStep, false).corners) {
-        if (c.key.radius < 0.005)
-            continue; // "R 0.00 m" says nothing
+        if (c.key.radius < 0.005 || !edit::Shown (doc, c.path))
+            continue; // "R 0.00 m" says nothing, and a hidden path says nothing at all
         const double r = c.key.radius;
         if (!(r > 0.0) || !(c.half > 1.0e-6))
             continue;
@@ -891,11 +893,15 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     vertices.rgba = style.geometry;
     vertices.sizePixels = style.vertexPixels;
     for (const auto& e : doc.entities) {
+        if (!edit::Shown (doc, e.member))
+            continue;
         const bool source = f.landscape && doc.landscape &&
                             std::any_of (doc.landscape->sources.begin (), doc.landscape->sources.end (),
                                          [&] (const auto& s) { return s.entityId == e.id && !s.deleted; });
+        // A layer with its own colour draws its objects in it.
+        const edit::Layer* on = edit::FindLayer (doc, e.member.layer);
         if (!source)
-            AddEntity (e, style.geometry, style.lineWidth, layer);
+            AddEntity (e, on != nullptr && on->rgba != 0 ? on->rgba : style.geometry, style.lineWidth, layer);
         if (e.kind == edit::Kind::Extrusion)
             AddSolid (e, style.solid, layer);
         for (const auto& v : e.vertices)
@@ -905,10 +911,15 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
         layer.points.push_back (std::move (vertices));
     if (f.landscape)
         AddLandscape (doc, f, style, layer);
-    // The paths' one surface, paved once for the fill, its outline and the parts drawn on it.
-    const edit::PavedArea built =
-        f.paved || doc.paths.empty () ? edit::PavedArea {} : edit::Pave (doc.paths, style.pathStep);
-    const edit::PavedArea* surface = doc.paths.empty () ? nullptr : f.paved ? f.paved : &built;
+    // The paths' one surface, paved once for the fill, its outline and the parts drawn on it. The
+    // cached paving holds every path, so with any of them hidden the shown ones are paved here.
+    std::vector<edit::Path> shown;
+    for (const auto& p : doc.paths)
+        if (edit::Shown (doc, p.member))
+            shown.push_back (p);
+    const edit::PavedArea* cached = shown.size () == doc.paths.size () ? f.paved : nullptr;
+    const edit::PavedArea built = cached || shown.empty () ? edit::PavedArea {} : edit::Pave (shown, style.pathStep);
+    const edit::PavedArea* surface = shown.empty () ? nullptr : cached ? cached : &built;
     const bool paved = surface != nullptr && AddPaved (*surface, style, layer);
     if (f.contours != nullptr)
         for (const auto& c : *f.contours)
@@ -916,7 +927,7 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     const auto quiet = [&] (edit::Id id) {
         return f.quietPaths && std::find (f.quietPaths->begin (), f.quietPaths->end (), id) != f.quietPaths->end ();
     };
-    for (const auto& p : doc.paths)
+    for (const auto& p : shown)
         AddPath (doc, p, style, layer, paved, !f.labelsInView, !quiet (p.id));
     if (f.selection != nullptr) {
         for (const auto& ref : f.selection->Items ())

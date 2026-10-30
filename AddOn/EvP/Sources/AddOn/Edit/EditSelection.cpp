@@ -1,4 +1,5 @@
 #include "Edit/EditSelection.hpp"
+#include "Edit/EditOrganize.hpp"
 #include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
@@ -121,7 +122,7 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
                 std::any_of (source.arcAngles.begin (), source.arcAngles.end (), [] (double a) { return a != 0; }))
                 arcSources.emplace (source.entityId, &source);
     for (const auto& e : doc.entities) {
-        if (!tapioca::geometry::LandscapeLineVisible (doc, e.id))
+        if (!tapioca::geometry::LandscapeLineVisible (doc, e.id) || !Pickable (doc, e.member))
             continue;
         std::vector<Vec3> analyticOutline;
         if (const auto source = arcSources.find (e.id); source != arcSources.end ()) {
@@ -216,6 +217,8 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
     }
     const uint64_t touched = cache != nullptr ? ++cache->tick : 0;
     for (const auto& path : doc.paths) {
+        if (!Pickable (doc, path.member))
+            continue;
         PathOutline built;
         const PathOutline* resolved = nullptr;
         if (cache != nullptr) {
@@ -406,7 +409,7 @@ std::vector<Ref> InRegion (const Document& doc, const PickView& view, const std:
     };
     std::vector<Ref> found;
     for (const auto& e : doc.entities) {
-        if (!tapioca::geometry::LandscapeLineVisible (doc, e.id))
+        if (!tapioca::geometry::LandscapeLineVisible (doc, e.id) || !Pickable (doc, e.member))
             continue;
         const Vec3 up { 0.0, 0.0, e.kind == Kind::Extrusion ? e.height : 0.0 };
         if (filter & kPickVertex)
@@ -443,7 +446,7 @@ std::vector<Ref> InRegion (const Document& doc, const PickView& view, const std:
     for (const auto& path : doc.paths) {
         PathOutline o;
         std::string error;
-        if (!Outline (path, kOutlineStep, o, error))
+        if (!Pickable (doc, path.member) || !Outline (path, kOutlineStep, o, error))
             continue;
         if (filter & kPickVertex) {
             for (size_t i = 0; i < o.points.size (); ++i)
@@ -506,9 +509,10 @@ void Selection::Lasso (const Document& doc, const PickView& view, const std::vec
 
 void Selection::Prune (const Document& doc)
 {
-    items.erase (std::remove_if (items.begin (), items.end (), [&] (const Ref& r) { return !Exists (doc, r); }),
-                 items.end ());
-    if (hover.entity != kNoId && !Exists (doc, hover))
+    // What was hidden or locked can no longer be picked, so it is no longer held either.
+    const auto gone = [&] (const Ref& r) { return !Exists (doc, r) || !Pickable (doc, r.entity); };
+    items.erase (std::remove_if (items.begin (), items.end (), gone), items.end ());
+    if (hover.entity != kNoId && gone (hover))
         hover = {};
 }
 

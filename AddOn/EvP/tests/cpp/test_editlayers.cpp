@@ -1,4 +1,5 @@
 #include "ArchViz/EditLayers.hpp"
+#include "Edit/EditOrganize.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
@@ -517,4 +518,26 @@ TEST (EditLayers, ASelectedRangesEdgesLieOnTheSurfaceThroughABend)
     }
     EXPECT_EQ (edges, 2u);
     EXPECT_GT (checked, 40u);
+}
+
+TEST (EditLayers, AHiddenObjectIsNotDrawnAndALayerColoursItsObjects)
+{
+    ed::Document doc;
+    const ed::Id line = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 } }, false);
+    const ed::Id other = ed::AddPolyline (doc, { { 0, 2, 0 }, { 4, 2, 0 } }, false);
+    const ed::Id path = ed::AddPath (doc, { { 0, 10, 0 }, { 20, 10, 0 } }, 2);
+    const auto all = el::Build (doc, {});
+    std::string error;
+    ASSERT_TRUE (ed::SetHidden (doc, { { line, ed::Part::Entity, 0 }, { path, ed::Part::Entity, 0 } }, true, error));
+    const ed::Id layer = ed::AddLayer (doc, "Kerbs");
+    ed::FindLayer (doc, layer)->rgba = 0x11223344u;
+    ed::MoveToLayer (doc, { { other, ed::Part::Entity, 0 } }, layer, error);
+    const auto some = el::Build (doc, {});
+    EXPECT_LT (some.polylines.size (), all.polylines.size ());
+    EXPECT_TRUE (some.meshes.empty ()); // the hidden path's surface is gone with it
+    bool coloured = false;
+    for (const auto& l : some.polylines)
+        coloured = coloured || l.rgba == 0x11223344u;
+    EXPECT_TRUE (coloured);
+    EXPECT_TRUE (el::PathLabels (doc).empty ());
 }

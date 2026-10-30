@@ -4,6 +4,8 @@
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPolyline.hpp"
 #include "Edit/EditSession.hpp"
+#include "Edit/EditSelection.hpp"
+#include "Edit/EditSnap.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
 
@@ -261,4 +263,41 @@ TEST (EditOrganize, ALockedReferenceLineCanBeHiddenAndLayeredButNotMoved)
         ed::Find (d, line)->vertices[0].p.x = 1;
         return true;
     }));
+}
+
+TEST (EditOrganize, HiddenObjectsAreNeitherPickedNorSnappedLockedOnesSnapButDoNotPick)
+{
+    Scene s;
+    ed::PickView view;
+    view.toScreen = [] (ed::Vec3 p, double& x, double& y) {
+        x = p.x * 100.0;
+        y = p.y * 100.0;
+        return true;
+    };
+    ed::SnapQuery query;
+    query.cursor = { 0.01, 0, 0 };
+    query.tolerance = 0.1;
+    query.modes = ed::kSnapEndpoint; // not the guides that run along b's bottom edge through here
+    EXPECT_FALSE (ed::Pick (s.doc, view, 0, 0, ed::kPickAll, 5).empty ());
+    ASSERT_TRUE (ed::SetLocked (s.doc, { s.R (s.a) }, true, s.error));
+    EXPECT_TRUE (ed::Pick (s.doc, view, 0, 0, ed::kPickAll, 5).empty ());
+    EXPECT_TRUE (ed::Snap (s.doc, {}, query).snapped);
+    ed::SetLocked (s.doc, { s.R (s.a) }, false, s.error);
+    ASSERT_TRUE (ed::SetHidden (s.doc, { s.R (s.a) }, true, s.error));
+    EXPECT_TRUE (ed::Pick (s.doc, view, 0, 0, ed::kPickAll, 5).empty ());
+    EXPECT_FALSE (ed::Snap (s.doc, {}, query).snapped);
+    // A path on a hidden layer.
+    const ed::Id layer = ed::AddLayer (s.doc, "Walks");
+    ed::MoveToLayer (s.doc, { s.R (s.path) }, layer, s.error);
+    EXPECT_FALSE (ed::Pick (s.doc, view, 500, 500, ed::kPickAll, 5).empty ());
+    ed::FindLayer (s.doc, layer)->visible = false;
+    EXPECT_TRUE (ed::Pick (s.doc, view, 500, 500, ed::kPickAll, 5).empty ());
+    // A marquee round everything takes only what can be picked.
+    ed::Selection sel;
+    sel.Marquee (s.doc, view, -100, -100, 1100, 700, ed::kPickAll, false);
+    EXPECT_EQ (Ids (sel.Items ()), (std::vector<ed::Id> { s.b, s.c }));
+    // And a selection drops what has been hidden since.
+    ed::SetHidden (s.doc, { s.R (s.b) }, true, s.error);
+    sel.Prune (s.doc);
+    EXPECT_EQ (Ids (sel.Items ()), (std::vector<ed::Id> { s.c }));
 }
