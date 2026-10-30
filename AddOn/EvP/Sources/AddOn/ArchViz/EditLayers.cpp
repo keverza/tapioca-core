@@ -883,6 +883,15 @@ std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style
     return out;
 }
 
+namespace {
+// The colour an object's lines are drawn in: its layer's, or the style's when the layer has none.
+uint32_t LineColour (const edit::Document& doc, const edit::Membership& m, uint32_t fallback)
+{
+    const edit::Layer* on = edit::FindLayer (doc, m.layer);
+    return on != nullptr && on->rgba != 0 ? on->rgba : fallback;
+}
+} // namespace
+
 layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& style, const std::string& name)
 {
     layers::Layer layer;
@@ -898,10 +907,9 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
         const bool source = f.landscape && doc.landscape &&
                             std::any_of (doc.landscape->sources.begin (), doc.landscape->sources.end (),
                                          [&] (const auto& s) { return s.entityId == e.id && !s.deleted; });
-        // A layer with its own colour draws its objects in it.
-        const edit::Layer* on = edit::FindLayer (doc, e.member.layer);
+        // A layer with its own colour draws its objects' lines in it.
         if (!source)
-            AddEntity (e, on != nullptr && on->rgba != 0 ? on->rgba : style.geometry, style.lineWidth, layer);
+            AddEntity (e, LineColour (doc, e.member, style.geometry), style.lineWidth, layer);
         if (e.kind == edit::Kind::Extrusion)
             AddSolid (e, style.solid, layer);
         for (const auto& v : e.vertices)
@@ -927,8 +935,11 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     const auto quiet = [&] (edit::Id id) {
         return f.quietPaths && std::find (f.quietPaths->begin (), f.quietPaths->end (), id) != f.quietPaths->end ();
     };
-    for (const auto& p : shown)
-        AddPath (doc, p, style, layer, paved, !f.labelsInView, !quiet (p.id));
+    for (const auto& p : shown) {
+        Style own = style; // the path's centre line and points in its layer's colour
+        own.geometry = LineColour (doc, p.member, style.geometry);
+        AddPath (doc, p, own, layer, paved, !f.labelsInView, !quiet (p.id));
+    }
     if (f.selection != nullptr) {
         for (const auto& ref : f.selection->Items ())
             if (!quiet (ref.entity))

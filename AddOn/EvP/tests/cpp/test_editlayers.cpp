@@ -541,3 +541,25 @@ TEST (EditLayers, AHiddenObjectIsNotDrawnAndALayerColoursItsObjects)
     EXPECT_TRUE (coloured);
     EXPECT_TRUE (el::PathLabels (doc).empty ());
 }
+
+TEST (EditLayers, APathsLinesTakeItsLayersColour)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2);
+    std::string error;
+    const ed::Id layer = ed::AddLayer (doc, "Walks");
+    ed::FindLayer (doc, layer)->rgba = 0x55667788u;
+    ed::MoveToLayer (doc, { { path, ed::Part::Entity, 0 } }, layer, error);
+    const auto drawn = el::Build (doc, {});
+    bool coloured = false;
+    for (const auto& l : drawn.polylines)
+        coloured = coloured || l.rgba == 0x55667788u;
+    EXPECT_TRUE (coloured);
+    doc.layer0.rgba = 0x99AABBCCu; // and layer 0's colour, for what is on it
+    const ed::Id line = ed::AddPolyline (doc, { { 0, 5, 0 }, { 4, 5, 0 } }, false);
+    (void) line;
+    bool zero = false;
+    for (const auto& l : el::Build (doc, {}).polylines)
+        zero = zero || l.rgba == 0x99AABBCCu;
+    EXPECT_TRUE (zero);
+}
