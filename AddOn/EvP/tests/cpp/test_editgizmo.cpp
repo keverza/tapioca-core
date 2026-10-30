@@ -218,6 +218,44 @@ TEST (EditGizmo, StretchingOneEllipseSideExpandsAnExactEllipseAndKeepsTheOpposit
     ExpectOnEllipse (*ellipse);
 }
 
+TEST (EditGizmo, TypedEllipseWidthUsesAnalyticSupportsInWorldAndLocalFrames)
+{
+    for (const bool scaled : { false, true })
+        for (const bool local : { false, true })
+            for (int axis = 0; axis < 2; ++axis)
+                for (const int side : { -1, 1 }) {
+                    ed::Document doc;
+                    const auto id = Circle (doc, 2.0);
+                    const std::vector<ed::Ref> whole { { id, ed::Part::Entity, 0 } };
+                    std::string error;
+                    ASSERT_TRUE (ed::SetEllipseRotation (doc, id, std::acos (-1.0) / 4.0, error)) << error;
+                    if (scaled) {
+                        ed::Transform scale;
+                        scale.scale = { 1.7, 0.6, 1.0 }; // conjugate, non-orthogonal authoring axes
+                        ASSERT_TRUE (ed::TransformOperation (whole, scale) (doc, error)) << error;
+                    }
+                    ed::Frame box = local ? ed::SelectionFrame (doc, whole, {}) : ed::Frame {};
+                    ASSERT_TRUE (ed::FitBox (doc, whole, box));
+                    const auto before = *ed::Find (doc, id)->ellipse;
+                    for (int a = 0; a < 3; ++a)
+                        EXPECT_NEAR (box.half[a], std::hypot (ed::Dot (before.axisU, box.axes[a]),
+                                                            ed::Dot (before.axisV, box.axes[a])), 1e-12);
+                    if (!scaled)
+                        EXPECT_NEAR (box.half[axis], 2.0, 1e-12);
+                    auto grip = Find (ed::GizmoMode::Stretch, ed::HandleKind::Side, axis);
+                    grip.side = side;
+                    const auto typed = ed::FromValue (box, grip, 6.0);
+                    ASSERT_TRUE (typed.ok) << typed.error;
+                    ASSERT_TRUE (ed::TransformOperation (whole, typed.transform) (doc, error)) << error;
+                    const auto after = *ed::Find (doc, id)->ellipse;
+                    EXPECT_NEAR (2.0 * std::hypot (ed::Dot (after.axisU, box.axes[axis]),
+                                                  ed::Dot (after.axisV, box.axes[axis])), 6.0, 1e-12);
+                    ASSERT_TRUE (ed::FitBox (doc, whole, box));
+                    EXPECT_NEAR (2.0 * box.half[axis], 6.0, 1e-12);
+                    ExpectOnEllipse (*ed::Find (doc, id));
+                }
+}
+
 TEST (EditGizmo, PathControlsKeepPlanTransformsSeparateFromProfileAndWidth)
 {
     ed::Document doc;

@@ -81,8 +81,9 @@ Frame SelectionFrame (const Document& doc, const std::vector<Ref>& items, Vec3 o
 
 namespace {
 
-// The vertex positions a selection covers: a whole entity's, a part's own.
-std::vector<Vec3> SelectedPoints (const Document& doc, const std::vector<Ref>& items)
+// Whole ellipses contribute analytic support points in the box's directions,
+// not just their four authoring anchors (which miss extrema after rotation/shear).
+std::vector<Vec3> SelectedPoints (const Document& doc, const std::vector<Ref>& items, const Frame& frame)
 {
     std::vector<Vec3> out;
     for (const auto& r : items) {
@@ -91,6 +92,18 @@ std::vector<Vec3> SelectedPoints (const Document& doc, const std::vector<Ref>& i
             continue;
         switch (r.part) {
             case Part::Entity:
+                if (e->ellipse) {
+                    const auto& ellipse = *e->ellipse;
+                    for (const auto& axis : frame.axes) {
+                        const double u = Dot (ellipse.axisU, axis), v = Dot (ellipse.axisV, axis);
+                        const double radius = std::hypot (u, v);
+                        const Vec3 support = radius > 0.0 ? (ellipse.axisU * u + ellipse.axisV * v) * (1.0 / radius)
+                                                         : Vec3 {};
+                        out.push_back (ellipse.center + support);
+                        out.push_back (ellipse.center - support);
+                    }
+                    break;
+                }
                 for (const auto& v : e->vertices)
                     out.push_back (v.p);
                 // An extrusion is measured to its top: its box centre is the shape's, not its
@@ -124,7 +137,7 @@ std::vector<Vec3> SelectedPoints (const Document& doc, const std::vector<Ref>& i
 
 bool FitBox (const Document& doc, const std::vector<Ref>& items, Frame& frame)
 {
-    const auto points = SelectedPoints (doc, items);
+    const auto points = SelectedPoints (doc, items, frame);
     if (points.empty ())
         return false;
     double lo[3], hi[3];
