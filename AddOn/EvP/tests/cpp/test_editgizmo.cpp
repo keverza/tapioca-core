@@ -238,8 +238,10 @@ TEST (EditGizmo, TypedEllipseWidthUsesAnalyticSupportsInWorldAndLocalFrames)
                     ASSERT_TRUE (ed::FitBox (doc, whole, box));
                     const auto before = *ed::Find (doc, id)->ellipse;
                     for (int a = 0; a < 3; ++a)
-                        EXPECT_NEAR (box.half[a], std::hypot (ed::Dot (before.axisU, box.axes[a]),
-                                                            ed::Dot (before.axisV, box.axes[a])), 1e-12);
+                        EXPECT_NEAR (
+                            box.half[a],
+                            std::hypot (ed::Dot (before.axisU, box.axes[a]), ed::Dot (before.axisV, box.axes[a])),
+                            1e-12);
                     if (!scaled)
                         EXPECT_NEAR (box.half[axis], 2.0, 1e-12);
                     auto grip = Find (ed::GizmoMode::Stretch, ed::HandleKind::Side, axis);
@@ -248,12 +250,159 @@ TEST (EditGizmo, TypedEllipseWidthUsesAnalyticSupportsInWorldAndLocalFrames)
                     ASSERT_TRUE (typed.ok) << typed.error;
                     ASSERT_TRUE (ed::TransformOperation (whole, typed.transform) (doc, error)) << error;
                     const auto after = *ed::Find (doc, id)->ellipse;
-                    EXPECT_NEAR (2.0 * std::hypot (ed::Dot (after.axisU, box.axes[axis]),
-                                                  ed::Dot (after.axisV, box.axes[axis])), 6.0, 1e-12);
+                    EXPECT_NEAR (
+                        2.0 * std::hypot (ed::Dot (after.axisU, box.axes[axis]), ed::Dot (after.axisV, box.axes[axis])),
+                        6.0, 1e-12);
                     ASSERT_TRUE (ed::FitBox (doc, whole, box));
                     EXPECT_NEAR (2.0 * box.half[axis], 6.0, 1e-12);
                     ExpectOnEllipse (*ed::Find (doc, id));
                 }
+}
+
+TEST (EditGizmo, TiltedConjugateEllipseBoxHasExactSupportsOnEveryAxis)
+{
+    ed::Document doc;
+    const auto id = Circle (doc, 2.0);
+    const std::vector<ed::Ref> whole { { id, ed::Part::Entity, 0 } };
+    std::string error;
+    ASSERT_TRUE (ed::SetEllipseRotation (doc, id, 0.7, error)) << error;
+    ed::Transform transform;
+    transform.scale = { 1.8, 0.6, 1.0 };
+    transform.angle = 0.8;
+    transform.rotationAxis = { 1, 0, 0 };
+    transform.translate = { 7, -3, 5 };
+    ASSERT_TRUE (ed::TransformOperation (whole, transform) (doc, error)) << error;
+    const auto definition = *ed::Find (doc, id)->ellipse;
+    for (const bool local : { false, true }) {
+        ed::Frame frame = local ? ed::SelectionFrame (doc, whole, {}) : ed::Frame {};
+        frame.origin = { 100, -30, 20 }; // fitting must not depend on the opening pivot
+        ASSERT_TRUE (ed::FitBox (doc, whole, frame));
+        EXPECT_NEAR (ed::Distance (frame.origin, definition.center), 0.0, 1e-12);
+        for (int a = 0; a < 3; ++a)
+            EXPECT_NEAR (
+                frame.half[a],
+                std::hypot (ed::Dot (definition.axisU, frame.axes[a]), ed::Dot (definition.axisV, frame.axes[a])),
+                1e-12);
+    }
+}
+
+TEST (EditGizmo, SeparatedEllipsesStretchOnTheChosenSideOfTheSharedPivot)
+{
+    for (const int side : { -1, 1 })
+        for (const double pivot : { -20.0, 0.0, 20.0 }) {
+            ed::Document doc;
+            const auto left = Circle (doc, 2.0), right = Circle (doc, 2.0);
+            std::string error;
+            ASSERT_TRUE (ed::SetEllipseCenter (doc, left, { -10, 0, 0 }, error)) << error;
+            ASSERT_TRUE (ed::SetEllipseCenter (doc, right, { 10, 0, 0 }, error)) << error;
+            const auto originals = doc.entities;
+            ed::Transform stretch;
+            stretch.pivot = { pivot, 0, 0 };
+            stretch.stretchAxis = 0;
+            stretch.stretchSide = side;
+            stretch.stretchBy = side * 2.0;
+            ASSERT_TRUE (ed::TransformOperation ({ { left, ed::Part::Entity, 0 }, { right, ed::Part::Entity, 0 } },
+                                                 stretch) (doc, error))
+                << error;
+            for (const auto& before : originals) {
+                const auto& after = *ed::Find (doc, before.id);
+                ASSERT_TRUE (after.ellipse.has_value ());
+                const bool moves = (before.ellipse->center.x - pivot) * side > 0;
+                EXPECT_DOUBLE_EQ (after.ellipse->center.x, before.ellipse->center.x + (moves ? side * 2.0 : 0.0));
+                EXPECT_EQ (after.ellipse->axisU, before.ellipse->axisU);
+                EXPECT_EQ (after.ellipse->axisV, before.ellipse->axisV);
+                EXPECT_EQ (after.ellipse->mode, ed::EllipseMode::Circle);
+                EXPECT_EQ (after.id, before.id);
+                if (!moves)
+                    EXPECT_EQ (after.vertices, before.vertices);
+                for (size_t i = 0; i < before.vertices.size (); ++i)
+                    EXPECT_EQ (after.vertices[i].id, before.vertices[i].id);
+            }
+        }
+}
+
+TEST (EditGizmo, MixedEllipseAndRectangleRespectTheSameStretchHalfPlane)
+{
+    for (const int side : { -1, 1 })
+        for (const double ellipseX : { -10.0, 10.0 }) {
+            ed::Document doc;
+            const auto ellipse = Circle (doc, 2.0);
+            const auto rectangle =
+                ed::AddPolyline (doc, { { -12, -2, 0 }, { 12, -2, 0 }, { 12, 2, 0 }, { -12, 2, 0 } }, true);
+            std::string error;
+            ASSERT_TRUE (ed::SetEllipseCenter (doc, ellipse, { ellipseX, 0, 0 }, error)) << error;
+            const auto original = *ed::Find (doc, rectangle);
+            const std::vector<ed::Ref> selection { { ellipse, ed::Part::Entity, 0 },
+                                                   { rectangle, ed::Part::Entity, 0 } };
+            ed::Frame frame;
+            ASSERT_TRUE (ed::FitBox (doc, selection, frame));
+            auto grip = Find (ed::GizmoMode::Stretch, ed::HandleKind::Side, 0);
+            grip.side = side;
+            const auto typed = ed::FromValue (frame, grip, 26.0);
+            ASSERT_TRUE (typed.ok) << typed.error;
+            ASSERT_TRUE (ed::TransformOperation (selection, typed.transform) (doc, error)) << error;
+            const auto& definition = *ed::Find (doc, ellipse)->ellipse;
+            EXPECT_DOUBLE_EQ (definition.center.x, ellipseX + (ellipseX * side > 0 ? side * 2.0 : 0.0));
+            EXPECT_DOUBLE_EQ (ed::Length (definition.axisU), 2.0);
+            EXPECT_DOUBLE_EQ (ed::Length (definition.axisV), 2.0);
+            const auto& after = *ed::Find (doc, rectangle);
+            for (size_t i = 0; i < original.vertices.size (); ++i) {
+                const double x = original.vertices[i].p.x;
+                EXPECT_DOUBLE_EQ (after.vertices[i].p.x, x + (x * side > 0 ? side * 2.0 : 0.0));
+            }
+            ASSERT_TRUE (ed::FitBox (doc, selection, frame));
+            EXPECT_NEAR (2.0 * frame.half[0], 26.0, 1e-12);
+        }
+}
+
+TEST (EditGizmo, EllipseStraddlingARelocatedPivotKeepsOppositeSupportAndRefusesCrossing)
+{
+    for (const int side : { -1, 1 }) {
+        ed::Document doc;
+        const auto id = Circle (doc, 2.0);
+        const auto original = *ed::Find (doc, id);
+        ed::Transform stretch;
+        stretch.pivot = { 0.75, 0, 0 }; // not the ellipse centre, but still cuts its interior
+        stretch.stretchAxis = 0;
+        stretch.stretchSide = side;
+        stretch.stretchBy = side * 2.0;
+        ed::Session session (doc);
+        ASSERT_TRUE (session.Apply (ed::TransformOperation ({ { id, ed::Part::Entity, 0 } }, stretch)));
+        const auto& after = *ed::Find (session.Doc (), id);
+        ASSERT_TRUE (after.ellipse.has_value ());
+        EXPECT_DOUBLE_EQ (after.ellipse->center.x, side * 1.0);
+        EXPECT_DOUBLE_EQ (ed::Length (after.ellipse->axisU), 3.0);
+        EXPECT_DOUBLE_EQ (after.ellipse->center.x - side * ed::Length (after.ellipse->axisU), -side * 2.0);
+        ExpectOnEllipse (after);
+        for (const double delta : { -4.0, -5.0 }) {
+            ed::Session crossing (doc);
+            stretch.stretchBy = side * delta;
+            EXPECT_FALSE (crossing.Apply (ed::TransformOperation ({ { id, ed::Part::Entity, 0 } }, stretch)));
+            EXPECT_NE (crossing.Message ().find ("cross"), std::string::npos);
+            EXPECT_EQ (ed::Find (crossing.Doc (), id)->vertices, original.vertices);
+            EXPECT_EQ (ed::Find (crossing.Doc (), id)->ellipse->mode, ed::EllipseMode::Circle);
+        }
+    }
+}
+
+TEST (EditGizmo, WhollyMovingEllipseCanPassThePivotWithoutChangingShape)
+{
+    for (const int side : { -1, 1 }) {
+        ed::Document doc;
+        const auto id = Circle (doc, 2.0);
+        std::string error;
+        ASSERT_TRUE (ed::SetEllipseCenter (doc, id, { side * 10.0, 0, 0 }, error)) << error;
+        ed::Transform stretch;
+        stretch.stretchAxis = 0;
+        stretch.stretchSide = side;
+        stretch.stretchBy = -side * 20.0;
+        ASSERT_TRUE (ed::TransformOperation ({ { id, ed::Part::Entity, 0 } }, stretch) (doc, error)) << error;
+        const auto& definition = *ed::Find (doc, id)->ellipse;
+        EXPECT_DOUBLE_EQ (definition.center.x, -side * 10.0);
+        EXPECT_DOUBLE_EQ (ed::Length (definition.axisU), 2.0);
+        EXPECT_DOUBLE_EQ (ed::Length (definition.axisV), 2.0);
+        EXPECT_EQ (definition.mode, ed::EllipseMode::Circle);
+    }
 }
 
 TEST (EditGizmo, PathControlsKeepPlanTransformsSeparateFromProfileAndWidth)

@@ -97,8 +97,8 @@ std::vector<Vec3> SelectedPoints (const Document& doc, const std::vector<Ref>& i
                     for (const auto& axis : frame.axes) {
                         const double u = Dot (ellipse.axisU, axis), v = Dot (ellipse.axisV, axis);
                         const double radius = std::hypot (u, v);
-                        const Vec3 support = radius > 0.0 ? (ellipse.axisU * u + ellipse.axisV * v) * (1.0 / radius)
-                                                         : Vec3 {};
+                        const Vec3 support =
+                            radius > 0.0 ? (ellipse.axisU * u + ellipse.axisV * v) * (1.0 / radius) : Vec3 {};
                         out.push_back (ellipse.center + support);
                         out.push_back (ellipse.center - support);
                     }
@@ -751,21 +751,26 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
                     const double alongU = Dot (definition.axisU, direction);
                     const double alongV = Dot (definition.axisV, direction);
                     const double halfWidth = std::hypot (alongU, alongV);
-                    if (halfWidth <= kMinSegment) {
-                        // A plane seen edge-on to the stretch axis has no width on that axis;
-                        // like any zero-width selection, it moves as one instead of scaling.
+                    const double sideCenter = Dot (definition.center - t.pivot, direction) * t.stretchSide;
+                    // Classify the entire analytic ellipse against the shared pivot, just as
+                    // ordinary vertices are classified. Other selected objects must not make
+                    // an untouched ellipse grow or a wholly moving ellipse change its radii.
+                    if (!flat && sideCenter + halfWidth <= 1.0e-9)
+                        continue;
+                    if (flat || sideCenter - halfWidth > 1.0e-9 || halfWidth <= kMinSegment) {
                         definition.center = definition.center + direction * t.stretchBy;
                     }
                     else {
+                        // A half-plane vertex displacement is not an ellipse. For a straddler,
+                        // preserve its identity with an affine stretch: fix the opposite
+                        // support and move the chosen support by stretchBy. The default
+                        // single-object pivot is its box centre, so it follows this policy too.
                         const double factor = 1.0 + t.stretchSide * t.stretchBy / (2.0 * halfWidth);
                         if (!(factor > 0.0) || !std::isfinite (factor)) {
                             error = "that side would cross the opposite side of the ellipse";
                             return false;
                         }
-                        const Vec3 support = definition.axisU * alongU + definition.axisV * alongV;
-                        const Vec3 fixed = definition.center - support * (double (t.stretchSide) / halfWidth);
-                        definition.center = fixed + (definition.center - fixed) +
-                                            direction * (Dot (definition.center - fixed, direction) * (factor - 1.0));
+                        definition.center = definition.center + direction * (0.5 * t.stretchBy);
                         definition.axisU =
                             definition.axisU + direction * (Dot (definition.axisU, direction) * (factor - 1.0));
                         definition.axisV =
