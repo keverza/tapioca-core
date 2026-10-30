@@ -273,3 +273,100 @@ TEST (EditPolyline, ActionTableRunsThroughTheSession)
     ASSERT_TRUE (s.Undo ());
     EXPECT_EQ (ed::Find (s.Doc (), e)->vertices.size (), 3u);
 }
+
+TEST (EditPolyline, ReverseKeepsTheShapeAndEveryIdOnItsItem)
+{
+    Doc d;
+    const ed::Id e = ed::AddPolyline (d.doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 4, 0 } }, false);
+    d.E (e).vertices[0].out = { 1, 1, 0 };
+    d.E (e).segments[0].width = 2.0;
+    const ed::Id first = d.V (e, 0), firstSegment = d.S (e, 0);
+    ASSERT_TRUE (ed::ReverseDirection (d.doc, e, d.error)) << d.error;
+    EXPECT_EQ (d.V (e, 2), first);
+    Near (d.E (e).vertices[2].in, 1, 1);  // the handle still shapes the same segment
+    EXPECT_EQ (d.S (e, 1), firstSegment); // which now runs from vertex 1 to vertex 2
+    EXPECT_DOUBLE_EQ (d.E (e).segments[1].width, 2.0);
+    d.Valid ();
+}
+
+TEST (EditPolyline, ReverseOnARingKeepsEachSegmentBetweenItsVertices)
+{
+    Doc d;
+    const ed::Id e = ed::AddPolyline (d.doc, { { 0, 0, 0 }, { 2, 0, 0 }, { 2, 2, 0 }, { 0, 2, 0 } }, true);
+    std::vector<std::pair<ed::Vec3, ed::Vec3>> before; // each segment's ends, by its id
+    const auto ends = [&] (ed::Id segment) {
+        const ed::Entity& x = d.E (e);
+        size_t from = 0, to = 0;
+        ed::SegmentEnds (x, size_t (ed::SegmentIndex (x, segment)), from, to);
+        return std::pair { x.vertices[from].p, x.vertices[to].p };
+    };
+    std::vector<ed::Id> ids;
+    for (size_t i = 0; i < 4; ++i)
+        ids.push_back (d.S (e, i)), before.push_back (ends (d.S (e, i)));
+    ASSERT_TRUE (ed::ReverseDirection (d.doc, e, d.error)) << d.error;
+    EXPECT_LT (ed::SignedAreaXY (d.E (e).vertices), 0.0);
+    for (size_t i = 0; i < 4; ++i) {
+        const auto [a, b] = ends (ids[i]);
+        Near (a, before[i].second.x, before[i].second.y);
+        Near (b, before[i].first.x, before[i].first.y);
+    }
+    d.Valid ();
+}
+
+TEST (EditPolyline, CloseAddsTheClosingSegmentOrMergesAnEndOnTheStart)
+{
+    Doc d;
+    const ed::Id e = ed::AddPolyline (d.doc, { { 0, 0, 0 }, { 2, 0, 0 }, { 2, 2, 0 } }, false);
+    ASSERT_TRUE (ed::Close (d.doc, e, d.error)) << d.error;
+    EXPECT_TRUE (d.E (e).closed);
+    EXPECT_EQ (d.E (e).segments.size (), 3u);
+    d.Valid ();
+    EXPECT_FALSE (ed::Close (d.doc, e, d.error));
+
+    const ed::Id back = ed::AddPolyline (d.doc, { { 0, 0, 0 }, { 2, 0, 0 }, { 2, 2, 0 }, { 0, 0, 0 } }, false);
+    const ed::Id last = d.S (back, 2);
+    ASSERT_TRUE (ed::Close (d.doc, back, d.error)) << d.error;
+    EXPECT_EQ (d.E (back).vertices.size (), 3u);
+    EXPECT_EQ (d.S (back, 2), last);
+    d.Valid ();
+
+    const ed::Id line = ed::AddPolyline (d.doc, { { 0, 0, 0 }, { 2, 0, 0 } }, false);
+    EXPECT_FALSE (ed::Close (d.doc, line, d.error));
+}
+
+TEST (EditPolyline, OpenRemovesTheClosingSegment)
+{
+    Doc d;
+    const ed::Id e = ed::AddPolyline (d.doc, { { 0, 0, 0 }, { 2, 0, 0 }, { 2, 2, 0 }, { 0, 2, 0 } }, true);
+    const ed::Id kept = d.S (e, 2);
+    ASSERT_TRUE (ed::Open (d.doc, e, d.error)) << d.error;
+    EXPECT_FALSE (d.E (e).closed);
+    EXPECT_EQ (d.E (e).segments.size (), 3u);
+    EXPECT_EQ (d.S (e, 2), kept);
+    d.Valid ();
+    EXPECT_FALSE (ed::Open (d.doc, e, d.error));
+}
+
+TEST (EditPolyline, CloseOpenAndReverseAreActionsOnWholePolylines)
+{
+    Doc d;
+    const ed::Id open = ed::AddPolyline (d.doc, { { 0, 0, 0 }, { 2, 0, 0 }, { 2, 2, 0 } }, false);
+    const ed::Id box = ed::AddExtrusion (d.doc, ed::Rectangle ({ 5, 0, 0 }, { 6, 1, 0 }), 1.0);
+    const auto table = ed::PolylineActions ();
+    const auto make = [&] (const std::string& id, std::vector<ed::Ref> refs) {
+        for (const auto& a : table)
+            if (a.id == id)
+                return a.make (d.doc, refs);
+        return ed::Operation {};
+    };
+    const ed::Ref o { open, ed::Part::Entity, 0 }, b { box, ed::Part::Entity, 0 };
+    EXPECT_FALSE (make ("open", { o }));
+    EXPECT_FALSE (make ("reverse", { b })); // an extrusion's profile keeps its winding
+    ed::Session s (d.doc);
+    ASSERT_TRUE (s.Apply (make ("close", { o, b })));
+    EXPECT_TRUE (ed::Find (s.Doc (), open)->closed);
+    d.doc = s.Doc ();
+    EXPECT_FALSE (make ("close", { o }));
+    ASSERT_TRUE (s.Apply (make ("open", { o })));
+    EXPECT_FALSE (ed::Find (s.Doc (), open)->closed);
+}

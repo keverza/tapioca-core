@@ -493,6 +493,63 @@ bool Join (Document& doc, Id first, Id second, double tolerance, std::string& er
     return true;
 }
 
+bool ReverseDirection (Document& doc, Id entity, std::string& error)
+{
+    Entity* e = Get (doc, entity, error);
+    if (e == nullptr || !Editable (*e, error))
+        return false;
+    std::reverse (e->vertices.begin (), e->vertices.end ());
+    // A handle that shaped the segment leaving a vertex now shapes the one arriving at it.
+    for (auto& v : e->vertices)
+        std::swap (v.in, v.out);
+    // Segment j now joins old vertices n-1-j and n-2-j: old segment n-2-j, which on a ring
+    // wraps, so the closing segment comes round to the end again.
+    std::reverse (e->segments.begin (), e->segments.end ());
+    if (e->closed && !e->segments.empty ())
+        std::rotate (e->segments.begin (), e->segments.begin () + 1, e->segments.end ());
+    return true;
+}
+
+bool Close (Document& doc, Id entity, std::string& error)
+{
+    Entity* e = Get (doc, entity, error);
+    if (e == nullptr || !Editable (*e, error))
+        return false;
+    if (e->closed) {
+        error = "the outline is already closed";
+        return false;
+    }
+    // Drawn back onto its start: its last segment becomes the closing one.
+    const bool onStart = Distance (e->vertices.front ().p, e->vertices.back ().p) < kMinSegment;
+    if (e->vertices.size () - (onStart ? 1 : 0) < 3) {
+        error = "a closed outline needs three corners";
+        return false;
+    }
+    if (onStart) {
+        Vertex& first = e->vertices.front ();
+        if (std::hypot (first.in.x, first.in.y) == 0.0)
+            first.in = e->vertices.back ().in;
+        e->vertices.pop_back ();
+    }
+    e->closed = true;
+    Normalize (doc, *e);
+    return true;
+}
+
+bool Open (Document& doc, Id entity, std::string& error)
+{
+    Entity* e = Get (doc, entity, error);
+    if (e == nullptr || !Editable (*e, error))
+        return false;
+    if (!e->closed) {
+        error = "the polyline is already open";
+        return false;
+    }
+    e->closed = false;
+    e->segments.pop_back ();
+    return true;
+}
+
 namespace {
 
 struct Corner {
@@ -832,6 +889,38 @@ std::vector<Action> PolylineActions (const ActionDefaults& d)
                               return Join (x, a, b, d.joinTolerance, error);
                           });
                       } });
+    // Whole polylines, each one the edit applies to; offered while any selected one has
+    // something to change.
+    using Change = bool (*) (Document&, Id, std::string&);
+    const auto each = [] (const Document& doc, const Refs& refs, bool (*wants) (const Entity&), Change change) {
+        std::vector<Id> ids;
+        for (const auto& r : refs)
+            if (const Entity* e = Find (doc, r.entity); e != nullptr && r.part == Part::Entity && wants (*e))
+                ids.push_back (e->id);
+        if (ids.empty ())
+            return Operation {};
+        return Operation ([ids, change] (Document& x, std::string& error) {
+            for (const Id id : ids)
+                if (!change (x, id, error))
+                    return false;
+            return true;
+        });
+    };
+    table.push_back (
+        { "close", "Close outline", entity, 0xFu, 1, 0, [each] (const Document& doc, const Refs& refs) {
+             return each (
+                 doc, refs,
+                 [] (const Entity& e) { return e.kind == Kind::Polyline && !e.closed && e.vertices.size () >= 3; },
+                 &Close);
+         } });
+    table.push_back ({ "open", "Open outline", entity, 0xFu, 1, 0, [each] (const Document& doc, const Refs& refs) {
+                          return each (
+                              doc, refs, [] (const Entity& e) { return e.kind == Kind::Polyline && e.closed; }, &Open);
+                      } });
+    table.push_back (
+        { "reverse", "Reverse direction", entity, 0xFu, 1, 0, [each] (const Document& doc, const Refs& refs) {
+             return each (doc, refs, [] (const Entity& e) { return e.kind == Kind::Polyline; }, &ReverseDirection);
+         } });
     table.push_back (
         { "merge", "Merge duplicate vertices", entity, 0xFu, 1, 0, [d] (const Document&, const Refs& refs) {
              return Operation ([refs, d] (Document& x, std::string& error) {

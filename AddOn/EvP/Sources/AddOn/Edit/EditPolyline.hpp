@@ -34,6 +34,14 @@ bool TrimAtEntity (Document& doc, Id entity, bool atStart, Id target, std::strin
 bool SplitAtVertex (Document& doc, Id entity, Id vertex, std::string& error, Id* created = nullptr);
 // Joins two open polylines whose ends meet within `tolerance`; meeting at both ends closes it.
 bool Join (Document& doc, Id first, Id second, double tolerance, std::string& error);
+// Runs a polyline the other way: vertices, segments and Bezier handles reversed, so the
+// drawn shape is unchanged and every id stays on its own item.
+bool ReverseDirection (Document& doc, Id entity, std::string& error);
+// Closes an open polyline with a new segment from its last vertex to its first; a last
+// vertex lying on the first merges into it.
+bool Close (Document& doc, Id entity, std::string& error);
+// Opens a closed polyline by removing its closing segment (last vertex back to the first).
+bool Open (Document& doc, Id entity, std::string& error);
 // Rounds a corner with an arc of `radius`, drawn as `arcSegments` straight pieces.
 bool Fillet (Document& doc, Id entity, Id vertex, double radius, int arcSegments, std::string& error);
 bool Chamfer (Document& doc, Id entity, Id vertex, double distance, std::string& error);
