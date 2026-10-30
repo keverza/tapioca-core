@@ -173,7 +173,6 @@ TIER_ASSIGNMENTS = {
     # it rather than the other way round.
     "NodeGraph/Data": "services",
     "NativeCommands": "features",
-    "Notebook": "UI",
     "Notify": "services",
     "Palette": "UI",
     "PlanOverlay": "features",

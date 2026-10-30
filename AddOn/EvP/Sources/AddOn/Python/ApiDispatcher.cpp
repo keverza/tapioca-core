@@ -13,8 +13,8 @@
 #include "NativeCommands/SchemaValidator.hpp"
 #include "PythonHost.hpp" // evp::ReportAlert
 #include "RunCancel.hpp"  // E9 — the running command's cancel token
-#include "WebUIDispatch.hpp"
-#include "WebUIRunState.hpp"
+#include "CommandControlDispatch.hpp"
+#include "CommandRunState.hpp"
 #include "../Notify/ChangeTracker.hpp"   // E25 — Archicad does not report OUR OWN writes
 #include "../Palette/ControlPalette.hpp" // evp.ui.status -> the palette's status line
 
@@ -369,7 +369,7 @@ GS::UniString DispatchApiCall (const GS::UniString& command, const GS::UniString
                                RunCancel::ReasonText (RunCancel::Get ().Reason ()) + ".",
                            command);
     }
-    else if (DispatchWebUIVerb (backend, name, command, params, data, error, ok)) {
+    else if (DispatchCommandControlVerb (backend, name, command, params, data, error, ok)) {
         backendName = "native";
     }
     else if (backend == "EvP" && name == "SetTracing") {
@@ -427,7 +427,7 @@ GS::UniString DispatchApiCall (const GS::UniString& command, const GS::UniString
             error = MakeError ("GateUnavailable", gateError, command);
         }
         else {
-            WebUIRunState::Get ().SetStatus (message);
+            CommandRunState::Get ().SetStatus (message);
             data.Add ("shown", message);
             ok = true;
         }
@@ -458,7 +458,7 @@ GS::UniString DispatchApiCall (const GS::UniString& command, const GS::UniString
             error = MakeError ("GateUnavailable", gateError, command);
         }
         else {
-            WebUIRunState::Get ().SetResults (headers, rows);
+            CommandRunState::Get ().SetResults (headers, rows);
             data.Add ("rows", (GS::Int32) rows.GetSize ());
             ok = true;
         }
@@ -483,7 +483,7 @@ GS::UniString DispatchApiCall (const GS::UniString& command, const GS::UniString
             error = MakeError ("GateUnavailable", gateError, command);
         }
         else {
-            WebUIRunState::Get ().SetResultText (resultText);
+            CommandRunState::Get ().SetResultText (resultText);
             data.Add ("shown", resultText);
             ok = true;
         }

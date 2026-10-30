@@ -24,3 +24,15 @@ The offline C++ suite needs its separate test profile:
 powershell -File tools/build/provision-reference.ps1 -FromUpstream -Profile test
 powershell -File AddOn/EvP/tests/cpp/Invoke-CppTests.ps1
 ```
+
+## UI boundaries
+
+The retired Notebook and standalone WebUI panels are not built or shipped.
+`GraphUI/` and `Palette/GraphEditorPalette.*` own the supported embedded editor;
+`cmake/EmbeddedUI.cmake` remains its shared frontend build infrastructure.
+The native control palette and HTTP data plane are unchanged.
+
+`Python/CommandControlDispatch.*` and `Python/CommandRunState.*` retain the shared
+command discovery, Run/Cancel/status/results and server-control bus verbs. The
+Python `evp.webui` report helpers are independent of the removed panel and remain
+available. The former panel's `/ui` HTTP routes are no longer registered.

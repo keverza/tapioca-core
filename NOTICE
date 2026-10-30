@@ -19,9 +19,9 @@ Other dependency boundaries are:
   the authorities recorded in AddOn/reference/CATALOG.yaml. Neither the Archicad
   Development Kit nor any other SDK is committed here, and no Graphisoft header
   text appears in these sources.
-- NotebookUI declares no runtime dependencies. Its build-time tooling
-  (TypeScript, Vite, vite-plugin-singlefile) is installed by npm from the
-  versions pinned in AddOn/EvP/NotebookUI/package-lock.json; consult that
+- GraphUI's runtime dependencies and build-time tooling (including Svelte,
+  TypeScript, Vite and vite-plugin-singlefile) are installed by npm from the
+  versions pinned in AddOn/EvP/GraphUI/package-lock.json; consult that
   lockfile and the upstream package metadata before redistributing a built
   bundle.
 - The Tapir command schema (ENZYME-APD/tapir-archicad-automation) is used during

@@ -6,6 +6,9 @@ surface. The text below is retained as historical design input only. Do not cont
 the Notebook UI, Python workflow document model, or UI-technology experiment from
 this specification.
 
+The Notebook frontend, native palette, menu entries and embedded resources have
+been removed from the add-on. This document describes history, not a shipped UI.
+
 ## Scope And Ownership
 
 `internal work item` owns the workflow and command-instance model, input bindings, aliases and ordering,

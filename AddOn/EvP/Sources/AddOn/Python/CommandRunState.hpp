@@ -1,5 +1,5 @@
-#ifndef EVP_PYTHON_WEBUIRUNSTATE_HPP
-#define EVP_PYTHON_WEBUIRUNSTATE_HPP
+#ifndef EVP_PYTHON_COMMANDRUNSTATE_HPP
+#define EVP_PYTHON_COMMANDRUNSTATE_HPP
 
 #include "Array.hpp"
 #include "UniString.hpp"
@@ -9,7 +9,7 @@
 
 namespace evp {
 
-struct WebUIRunSnapshot {
+struct CommandRunSnapshot {
     bool active = false;
     uint64_t generation = 0;
     GS::UniString title;
@@ -19,12 +19,11 @@ struct WebUIRunSnapshot {
     GS::UniString resultText;
 };
 
-// The browser is a second presentation of the one command runtime. This state
-// carries only the run's presentation data across the worker, HTTP, and browser
-// threads; command execution remains in CommandLaunch/CommandRunner.
-class WebUIRunState {
+// Presentation data for bus-launched commands, shared across worker and HTTP
+// threads. Command execution remains in CommandLaunch/CommandRunner.
+class CommandRunState {
   public:
-    static WebUIRunState& Get ();
+    static CommandRunState& Get ();
 
     bool Begin (uint64_t generation, const GS::UniString& title);
     void SetStatus (const GS::UniString& status);
@@ -32,13 +31,13 @@ class WebUIRunState {
     void SetResultText (const GS::UniString& text);
     void Finish (uint64_t generation, const GS::UniString& status);
 
-    WebUIRunSnapshot Snapshot () const;
+    CommandRunSnapshot Snapshot () const;
 
   private:
-    WebUIRunState () = default;
+    CommandRunState () = default;
 
     mutable std::mutex mutex;
-    WebUIRunSnapshot state;
+    CommandRunSnapshot state;
 };
 
 } // namespace evp

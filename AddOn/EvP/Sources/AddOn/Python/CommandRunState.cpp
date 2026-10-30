@@ -1,16 +1,16 @@
-#include "Python/WebUIRunState.hpp"
+#include "Python/CommandRunState.hpp"
 
 #include "Python/RunCancel.hpp"
 
 namespace evp {
 
-WebUIRunState& WebUIRunState::Get ()
+CommandRunState& CommandRunState::Get ()
 {
-    static WebUIRunState state;
+    static CommandRunState state;
     return state;
 }
 
-bool WebUIRunState::Begin (uint64_t generation, const GS::UniString& title)
+bool CommandRunState::Begin (uint64_t generation, const GS::UniString& title)
 {
     std::lock_guard<std::mutex> lock (mutex);
     if (state.active)
@@ -26,14 +26,14 @@ bool WebUIRunState::Begin (uint64_t generation, const GS::UniString& title)
     return true;
 }
 
-void WebUIRunState::SetStatus (const GS::UniString& status)
+void CommandRunState::SetStatus (const GS::UniString& status)
 {
     std::lock_guard<std::mutex> lock (mutex);
     if (state.active)
         state.status = status;
 }
 
-void WebUIRunState::SetResults (const GS::Array<GS::UniString>& headers, const GS::Array<GS::UniString>& rows)
+void CommandRunState::SetResults (const GS::Array<GS::UniString>& headers, const GS::Array<GS::UniString>& rows)
 {
     std::lock_guard<std::mutex> lock (mutex);
     if (!state.active)
@@ -43,7 +43,7 @@ void WebUIRunState::SetResults (const GS::Array<GS::UniString>& headers, const G
     state.resultText.Clear ();
 }
 
-void WebUIRunState::SetResultText (const GS::UniString& text)
+void CommandRunState::SetResultText (const GS::UniString& text)
 {
     std::lock_guard<std::mutex> lock (mutex);
     if (state.active) {
@@ -53,7 +53,7 @@ void WebUIRunState::SetResultText (const GS::UniString& text)
     }
 }
 
-void WebUIRunState::Finish (uint64_t generation, const GS::UniString& status)
+void CommandRunState::Finish (uint64_t generation, const GS::UniString& status)
 {
     RunCancel::Get ().EndRun (generation);
 
@@ -64,7 +64,7 @@ void WebUIRunState::Finish (uint64_t generation, const GS::UniString& status)
     state.status = status;
 }
 
-WebUIRunSnapshot WebUIRunState::Snapshot () const
+CommandRunSnapshot CommandRunState::Snapshot () const
 {
     std::lock_guard<std::mutex> lock (mutex);
     return state;

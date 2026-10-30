@@ -29,9 +29,34 @@ EXIT_TOOL_ERROR = 2
 # Only extensions worth reading. A credential in a .png is not a thing, and walking
 # the vendored reference tree byte by byte makes the check too slow to run often.
 TEXT_SUFFIXES = {
-    ".py", ".ps1", ".psm1", ".cpp", ".hpp", ".h", ".c", ".cc", ".js", ".jsx", ".ts",
-    ".tsx", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".md", ".txt", ".env",
-    ".xml", ".html", ".sh", ".bat", ".cmake", ".grc", ".rs",
+    ".py",
+    ".ps1",
+    ".psm1",
+    ".cpp",
+    ".hpp",
+    ".h",
+    ".c",
+    ".cc",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".md",
+    ".txt",
+    ".env",
+    ".xml",
+    ".html",
+    ".sh",
+    ".bat",
+    ".cmake",
+    ".grc",
+    ".rs",
 }
 
 # Vendored SDKs and archived material are not ours to fix, and the archive exists to
@@ -85,17 +110,19 @@ PROVIDER_MARKERS = re.compile(
     r"generativelanguage\.googleapis\.com)\b"
 )
 # Where provider configuration IS allowed to be named.
-PROVIDER_ALLOWED_PREFIXES = ("services/evaluator/", "docs/architecture/evaluator/",
-                             "project/decisions/", "CLEANUP-GOVERNANCE-PLAN.md",
-                             "tools/quality/check_secrets.py")
+PROVIDER_ALLOWED_PREFIXES = (
+    "services/evaluator/",
+    "docs/architecture/evaluator/",
+    "project/decisions/",
+    "CLEANUP-GOVERNANCE-PLAN.md",
+    "tools/quality/check_secrets.py",
+)
 # Code that must never name a provider, per plan section 2.9.
-PROVIDER_ISOLATED_PREFIXES = ("AddOn/", "services/webui/", "AddOn/EvP/NotebookUI/")
+PROVIDER_ISOLATED_PREFIXES = ("AddOn/", "services/webui/")
 
 
 def tracked_files(root: Path) -> list[str]:
-    result = subprocess.run(
-        ["git", "ls-files"], cwd=root, capture_output=True, text=True, check=False
-    )
+    result = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"git ls-files failed in {root}")
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
@@ -113,14 +140,10 @@ def scan_file(rel: str, text: str) -> list[tuple[str, int, str]]:
             if match and not PLACEHOLDER.search(match.group(0)):
                 findings.append((rel, number, label))
                 break
-        if rel.startswith(PROVIDER_ISOLATED_PREFIXES) and not rel.startswith(
-            PROVIDER_ALLOWED_PREFIXES
-        ):
+        if rel.startswith(PROVIDER_ISOLATED_PREFIXES) and not rel.startswith(PROVIDER_ALLOWED_PREFIXES):
             provider = PROVIDER_MARKERS.search(line)
             if provider:
-                findings.append(
-                    (rel, number, f"provider configuration outside the evaluator ({provider.group(0)})")
-                )
+                findings.append((rel, number, f"provider configuration outside the evaluator ({provider.group(0)})"))
     return findings
 
 

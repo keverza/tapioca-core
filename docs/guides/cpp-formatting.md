@@ -143,7 +143,7 @@ NativeCommands/  72   native command handlers, dispatchers
 Palette/         35   DG palette shell, param panels, results table
 Python/          22   PythonHost, ApiDispatcher, CommandRunner, gate
 Geometry/        19   mesh query, serialisation
-other AddOn/     28   Notify, Metadata, Server, Screenshot, PlanOverlay, Notebook,
+other AddOn/     28   Notify, Metadata, Server, Screenshot, PlanOverlay,
                       Diagnostics, and the lifecycle root
 EvPPy/            3   the C bridge DLL
 ```

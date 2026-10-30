@@ -31,6 +31,7 @@ __pycache__/
 # Generated deployable release tree and GitHub release asset.
 /dist/Tapioca/
 /dist/Tapioca-AC29.zip
+# Retired frontend build artifacts may remain in existing developer checkouts.
 /AddOn/EvP/NotebookUI/node_modules/
 /AddOn/EvP/NotebookUI/dist/
 # Dump DATA only. Was `*dump*`, which (core.ignorecase=true on Windows) also

@@ -290,9 +290,9 @@ def test_plan_overlay_return_releases_the_explicit_watch_session():
     assert "Owner::Watch" in panel
 
 
-def test_preview_enable_state_gates_palette_and_webui_watch_arming():
+def test_preview_enable_state_gates_palette_and_command_control_watch_arming():
     palette_run = (_ADDON / "Palette" / "ControlPaletteRun.cpp").read_text(encoding="utf-8")
-    webui = (_ADDON / "Python" / "WebUIDispatch.cpp").read_text(encoding="utf-8")
+    command_control = (_ADDON / "Python" / "CommandControlDispatch.cpp").read_text(encoding="utf-8")
     runtime = _RUNTIME.read_text(encoding="utf-8")
     native = (_ADDON / "NativeCommands" / "PreviewCommands.cpp").read_text(encoding="utf-8")
 
@@ -302,7 +302,7 @@ def test_preview_enable_state_gates_palette_and_webui_watch_arming():
     # a trace when either wants it; the preview scene is the palette's alone.
     assert "std::atomic<bool> overlayWatch" in runtime
     assert "PreviewRuntimeState::Get ().AcceptsWatchTraces ()" in palette_run
-    assert "PreviewRuntimeState::Get ().AcceptsWatchTraces ()" in webui
+    assert "PreviewRuntimeState::Get ().AcceptsWatchTraces ()" in command_control
     assert native.count("PreviewRuntimeState::Get ().IsEnabled ()") == 1
     assert native.count("PreviewRuntimeState::Get ().AcceptsWatchTraces ()") == 1
     assert native.count('Failure ("previews are disabled")') == 1

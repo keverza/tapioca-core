@@ -70,3 +70,28 @@ def test_http_server_keeps_data_plane_but_not_the_retired_panel_page():
         assert f'Get ("{route}"' in server
     assert 'Post ("/evp/call"' in server
     assert "HttpServer& SharedHttpServer ()" in header
+
+
+def test_command_control_api_is_independent_of_the_retired_panel():
+    python = _SOURCES / "AddOn/Python"
+    control = (python / "CommandControlDispatch.cpp").read_text(encoding="utf-8")
+    dispatcher = (python / "ApiDispatcher.cpp").read_text(encoding="utf-8")
+    state = (python / "CommandRunState.cpp").read_text(encoding="utf-8")
+
+    for verb in (
+        "GetCommands",
+        "RunCommand",
+        "GetRunState",
+        "CancelRun",
+        "GetServerState",
+        "StartServer",
+        "StopServer",
+    ):
+        assert f'name == "{verb}"' in control
+    assert "DispatchCommandControlVerb (backend, name, command, params, data, error, ok)" in dispatcher
+    for call in ("SetStatus (message)", "SetResults (headers, rows)", "SetResultText (resultText)"):
+        assert f"CommandRunState::Get ().{call}" in dispatcher
+    assert "LaunchCommand (request" in control
+    assert "RunCancel::Get ().EndRun (generation)" in state
+    assert "state.generation != generation" in state
+    assert (_SOURCES / "PyPackage/evp/webui.py").is_file()

@@ -1,4 +1,4 @@
-#include "WebUIDispatch.hpp"
+#include "CommandControlDispatch.hpp"
 
 #include "CommandCatalog.hpp"
 #include "CommandLaunch.hpp"
@@ -6,7 +6,7 @@
 #include "MainThreadGate.hpp"
 #include "PythonHost.hpp"
 #include "RunCancel.hpp"
-#include "WebUIRunState.hpp"
+#include "CommandRunState.hpp"
 #include "Preview/PreviewRuntimeState.hpp"
 #include "Server/HttpServer.hpp"
 #include "Server/ServerState.hpp"
@@ -30,8 +30,8 @@ struct RunStartOutcome {
 
 namespace evp {
 
-bool DispatchWebUIVerb (const GS::UniString& backend, const GS::UniString& name, const GS::UniString& command,
-                        const GS::ObjectState& params, GS::ObjectState& data, GS::ObjectState& error, bool& ok)
+bool DispatchCommandControlVerb (const GS::UniString& backend, const GS::UniString& name, const GS::UniString& command,
+                                 const GS::ObjectState& params, GS::ObjectState& data, GS::ObjectState& error, bool& ok)
 {
     if (backend != "EvP")
         return false;
@@ -104,17 +104,17 @@ bool DispatchWebUIVerb (const GS::UniString& backend, const GS::UniString& name,
                 }
 
                 const uint64_t generation = RunCancel::Get ().BeginRun (info.timeoutSeconds);
-                if (!WebUIRunState::Get ().Begin (generation, info.title)) {
+                if (!CommandRunState::Get ().Begin (generation, info.title)) {
                     RunCancel::Get ().EndRun (generation);
-                    start->error = "A WebUI command run is already active.";
+                    start->error = "A command-control run is already active.";
                     return;
                 }
 
-                WebUIRunState::Get ().SetStatus ("Running " + info.title + "...");
-                // The two empty strings are `action` and `menuRegion`: the WebUI
-                // starts RUNS, never output actions — those are the control
+                CommandRunState::Get ().SetStatus ("Running " + info.title + "...");
+                // The two empty strings are `action` and `menuRegion`: this verb
+                // starts runs, never output actions — those are the control
                 // palette's action bar and right-click menu, which act on a stored
-                // result the WebUI has no equivalent of.
+                // result this verb does not select.
                 // Armed when the palette's preview or the overlays' annotations will show it.
                 const bool watchArmed = preview::PreviewRuntimeState::Get ().AcceptsWatchTraces () &&
                                         (info.previewKind == "plan2d" || info.previewKind == "3d");
@@ -124,7 +124,7 @@ bool DispatchWebUIVerb (const GS::UniString& backend, const GS::UniString& name,
                                                      watchArmed,       external,           port,
                                                      generation };
                 LaunchCommand (request, [] (uint64_t finishedGeneration, const GS::UniString& status) {
-                    WebUIRunState::Get ().Finish (finishedGeneration, status);
+                    CommandRunState::Get ().Finish (finishedGeneration, status);
                 });
 
                 start->started = true;
@@ -149,7 +149,7 @@ bool DispatchWebUIVerb (const GS::UniString& backend, const GS::UniString& name,
     }
 
     if (name == "GetRunState") {
-        const WebUIRunSnapshot snapshot = WebUIRunState::Get ().Snapshot ();
+        const CommandRunSnapshot snapshot = CommandRunState::Get ().Snapshot ();
         data.Add ("active", snapshot.active);
         data.Add ("generation", (GS::Int64) snapshot.generation);
         data.Add ("title", snapshot.title);
@@ -165,7 +165,7 @@ bool DispatchWebUIVerb (const GS::UniString& backend, const GS::UniString& name,
         const bool requested = RunCancel::Get ().IsRunning ();
         if (requested) {
             RunCancel::Get ().Request (CancelReason::StopButton);
-            WebUIRunState::Get ().SetStatus ("Stopping...");
+            CommandRunState::Get ().SetStatus ("Stopping...");
         }
         data.Add ("requested", requested);
         ok = true;

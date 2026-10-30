@@ -258,14 +258,14 @@ if ($null -eq $vsInfo) {
 
 $nodePath = Find-CommandPath @("node.exe", "node")
 if ($null -eq $nodePath) {
-    Add-Result -Name "Node.js" -Status FAIL -Detail "node.exe was not found; the NotebookUI CMake target needs npm."
+    Add-Result -Name "Node.js" -Status FAIL -Detail "node.exe was not found; the GraphUI CMake target needs npm."
 } else {
     Invoke-ProgramCheck -Name "Node.js" -Path $nodePath -Arguments @("--version") | Out-Null
 }
 
 $npmPath = Find-CommandPath @("npm.cmd", "npm.exe", "npm")
 if ($null -eq $npmPath) {
-    Add-Result -Name "npm" -Status FAIL -Detail "npm was not found; CMake invokes npm ci for NotebookUI."
+    Add-Result -Name "npm" -Status FAIL -Detail "npm was not found; CMake invokes npm ci for GraphUI."
 } else {
     Invoke-ProgramCheck -Name "npm" -Path $npmPath -Arguments @("--version") | Out-Null
 }
