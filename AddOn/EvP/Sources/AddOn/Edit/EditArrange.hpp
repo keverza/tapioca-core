@@ -31,5 +31,12 @@ bool Centre (const Clipboard& clip, Vec3& centre);
 // receives the new objects, whole.
 bool Paste (Document& doc, const Clipboard& clip, Vec3 offset, std::vector<Ref>& pasted, std::string& error);
 
+// Reflects the whole objects `refs` reach across the vertical plane through `point` along
+// the plan direction `axis`; heights stay. A closed outline keeps its winding (its order
+// reverses with the reflection) and an open line its direction; Bezier handles and live
+// corners reflect with their points. A path reflects in plan and its sides trade places:
+// widths, falls and kerb corners. A locked vertex or control point off the axis refuses.
+bool Mirror (Document& doc, const std::vector<Ref>& refs, Vec3 point, Vec3 axis, std::string& error);
+
 } // namespace geomsrv::edit
 #endif

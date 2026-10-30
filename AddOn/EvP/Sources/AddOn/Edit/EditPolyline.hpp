@@ -37,6 +37,8 @@ bool Join (Document& doc, Id first, Id second, double tolerance, std::string& er
 // Runs a polyline the other way: vertices, segments and Bezier handles reversed, so the
 // drawn shape is unchanged and every id stays on its own item.
 bool ReverseDirection (Document& doc, Id entity, std::string& error);
+// The same reversal on any entity, an extrusion's profile included, without refusing.
+void ReverseOrder (Entity& entity);
 // Closes an open polyline with a new segment from its last vertex to its first; a last
 // vertex lying on the first merges into it.
 bool Close (Document& doc, Id entity, std::string& error);

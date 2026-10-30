@@ -4029,3 +4029,31 @@ TEST (HudVirtualEditor, CopyPasteCutAndDuplicateWorkOnWholeObjects)
     EXPECT_EQ (ed::Find (d.D (), e), nullptr);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 3u);
 }
+
+TEST (HudVirtualEditor, MirrorACopyAcrossTheGumballSelectsTheCopy)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 1, 0 } }, true);
+    Drive d (std::move (doc));
+    d.S ().localAxes = false; // the world's X and Y through the pivot
+    d.S ().selection.Set ({ { e, ed::Part::Entity, 0 } });
+    d.S ().pivot = ed::Vec3 { 0, 0, 0 };
+    d.S ().pivotFor = d.S ().selection.Items ();
+    d.S ().menu.target = eh::MenuTarget::Object;
+    ASSERT_TRUE (d.Offers ("mirror.copyY"));
+    eh::RunMenuItem (d.S (), "mirror.copyY"); // across the Y axis: x flips
+    ASSERT_EQ (d.D ().entities.size (), 2u);
+    EXPECT_DOUBLE_EQ (ed::Find (d.D (), e)->vertices[1].p.x, 4.0); // the original stays
+    const ed::Entity& copy = d.D ().entities[1];
+    double minX = 0.0;
+    for (const auto& v : copy.vertices)
+        minX = std::min (minX, v.p.x);
+    EXPECT_DOUBLE_EQ (minX, -4.0);
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ()[0].entity, copy.id);
+    d.S ().pivotFor = d.S ().selection.Items (); // the same pivot for the copy
+    eh::RunMenuItem (d.S (), "mirror.x");        // the copy itself, across X: y flips
+    for (const auto& v : d.D ().entities[1].vertices)
+        EXPECT_LE (v.p.y, 0.0);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+}

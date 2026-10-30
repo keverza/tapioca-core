@@ -138,3 +138,68 @@ TEST (EditArrange, PasteThroughTheSessionIsOneUndoStep)
     ASSERT_TRUE (s.Undo ());
     EXPECT_EQ (s.Doc ().entities.size (), 1u);
 }
+
+TEST (EditArrange, MirrorKeepsARingsWindingAndALinesDirection)
+{
+    ed::Document doc;
+    const ed::Id ring = ed::AddPolyline (doc, { { 0, 0, 1 }, { 2, 0, 1 }, { 2, 1, 1 } }, true);
+    const ed::Id line = ed::AddPolyline (doc, { { 0, 3, 0 }, { 2, 4, 0 } }, false);
+    const ed::Id box = ed::AddExtrusion (doc, ed::Rectangle ({ 0, 6, 0 }, { 1, 7, 0 }), 2.0);
+    ed::Find (doc, line)->vertices[0].out = { 1, 0, 0 };
+    const ed::Id corner = ed::Find (doc, ring)->vertices[1].id;
+    std::string error;
+    // Across the vertical plane x = 5.
+    ASSERT_TRUE (ed::Mirror (doc,
+                             { { ring, ed::Part::Entity, 0 },
+                               { line, ed::Part::Vertex, ed::Find (doc, line)->vertices[1].id },
+                               { box, ed::Part::Entity, 0 } },
+                             { 5, 0, 0 }, { 0, 1, 0 }, error))
+        << error;
+    const ed::Entity& r = *ed::Find (doc, ring);
+    EXPECT_GT (ed::SignedAreaXY (r.vertices), 0.0);
+    const int i = ed::VertexIndex (r, corner);
+    ASSERT_GE (i, 0);
+    EXPECT_DOUBLE_EQ (r.vertices[size_t (i)].p.x, 8.0);
+    EXPECT_DOUBLE_EQ (r.vertices[size_t (i)].p.z, 1.0);
+    const ed::Entity& l = *ed::Find (doc, line);
+    EXPECT_DOUBLE_EQ (l.vertices[0].p.x, 10.0); // still its start
+    EXPECT_DOUBLE_EQ (l.vertices[0].out.x, -1.0);
+    EXPECT_GT (ed::SignedAreaXY (ed::Find (doc, box)->vertices), 0.0);
+    Valid (doc);
+}
+
+TEST (EditArrange, MirrorRefusesALockedVertexOffTheLine)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, { { 0, 0, 0 }, { 2, 0, 0 } }, false);
+    ed::Find (doc, e)->vertices[1].lockXY = true;
+    std::string error;
+    ed::Document copy = doc;
+    EXPECT_FALSE (ed::Mirror (copy, { { e, ed::Part::Entity, 0 } }, { 0, 0, 0 }, { 0, 1, 0 }, error));
+    // On the line it does not move, so it may stay locked.
+    EXPECT_TRUE (ed::Mirror (doc, { { e, ed::Part::Entity, 0 } }, { 0, 0, 0 }, { 1, 0, 0 }, error)) << error;
+    EXPECT_FALSE (ed::Mirror (doc, { { e, ed::Part::Entity, 0 } }, { 0, 0, 0 }, { 0, 0, 1 }, error));
+}
+
+TEST (EditArrange, AMirroredPathTradesItsSides)
+{
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, 2.0);
+    ed::Path& path = *ed::FindPath (doc, p);
+    path.sections[0].widthLeft = 2.0;
+    path.sections[0].endLeft = 2.0;
+    path.sections[0].fall = ed::Fall::Left;
+    path.kerbs.push_back ({ path.points[1].id, ed::kNoId, ed::KerbSide::Right, ed::KerbSide::Left, 0.5 });
+    path.kerbs.push_back ({ path.points[0].id, ed::kNoId, ed::KerbSide::Start, ed::KerbSide::Left, 0.2 });
+    std::string error;
+    ASSERT_TRUE (ed::Mirror (doc, { { p, ed::Part::Entity, 0 } }, { 0, 0, 0 }, { 1, 0, 0 }, error)) << error;
+    const ed::Path& m = *ed::FindPath (doc, p);
+    EXPECT_DOUBLE_EQ (m.points[2].p.y, -10.0);
+    EXPECT_DOUBLE_EQ (m.sections[0].widthLeft, 1.0);
+    EXPECT_DOUBLE_EQ (m.sections[0].widthRight, 2.0);
+    EXPECT_DOUBLE_EQ (m.sections[0].endRight, 2.0);
+    EXPECT_EQ (m.sections[0].fall, ed::Fall::Right);
+    EXPECT_EQ (m.kerbs[0].side, ed::KerbSide::Left);
+    EXPECT_EQ (m.kerbs[1].side, ed::KerbSide::Start);
+    Valid (doc);
+}

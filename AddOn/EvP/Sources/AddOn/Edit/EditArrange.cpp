@@ -1,5 +1,8 @@
 #include "Edit/EditArrange.hpp"
+#include "Edit/EditPathEdit.hpp"
+#include "Edit/EditPolyline.hpp"
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <map>
 #include <set>
@@ -103,6 +106,86 @@ bool Paste (Document& doc, const Clipboard& clip, Vec3 offset, std::vector<Ref>&
         Normalize (doc, e);
         pasted.push_back ({ e.id, Part::Entity, kNoId });
         doc.entities.push_back (std::move (e));
+    }
+    return true;
+}
+
+namespace {
+KerbSide Opposite (KerbSide side)
+{
+    return side == KerbSide::Left ? KerbSide::Right : side == KerbSide::Right ? KerbSide::Left : side;
+}
+} // namespace
+
+bool Mirror (Document& doc, const std::vector<Ref>& refs, Vec3 point, Vec3 axis, std::string& error)
+{
+    Vec3 a;
+    if (!Normalize ({ axis.x, axis.y, 0.0 }, a)) {
+        error = "a mirror needs a direction in plan";
+        return false;
+    }
+    // Plan offsets reflect about the axis; points about the axis through `point`.
+    const auto offset = [a] (Vec3 d) {
+        const double along = 2.0 * (d.x * a.x + d.y * a.y);
+        return Vec3 { along * a.x - d.x, along * a.y - d.y, d.z };
+    };
+    const auto reflect = [&] (Vec3 p) {
+        const Vec3 r = offset ({ p.x - point.x, p.y - point.y, 0.0 });
+        return Vec3 { point.x + r.x, point.y + r.y, p.z };
+    };
+    const auto moves = [] (Vec3 from, Vec3 to) {
+        return std::abs (to.x - from.x) > 1.0e-9 || std::abs (to.y - from.y) > 1.0e-9;
+    };
+    const Clipboard objects = Copy (doc, refs);
+    if (objects.Empty ()) {
+        error = "select the objects to mirror";
+        return false;
+    }
+    std::set<Id> mirrored;
+    for (const auto& p : objects.paths)
+        mirrored.insert (p.id);
+    for (const auto& found : objects.entities) {
+        Entity& e = *Find (doc, found.id);
+        for (auto& v : e.vertices) {
+            const Vec3 to = reflect (v.p);
+            if (v.lockXY && moves (v.p, to)) {
+                error = "a locked vertex is off the mirror line";
+                return false;
+            }
+            v.p = to;
+            v.in = offset (v.in);
+            v.out = offset (v.out);
+        }
+        if (e.closed)
+            ReverseOrder (e);
+    }
+    for (const auto& found : objects.paths) {
+        const bool ok = EditPath (
+            doc, found.id,
+            [&] (Path& p, std::string& why) {
+                for (auto& c : p.points) {
+                    const Vec3 to = reflect (c.p);
+                    if (c.lockXY && moves (c.p, to)) {
+                        why = "a locked control point is off the mirror line";
+                        return false;
+                    }
+                    c.p = to;
+                }
+                for (auto& s : p.sections) {
+                    std::swap (s.widthLeft, s.widthRight);
+                    std::swap (s.endLeft, s.endRight);
+                    s.fall = s.fall == Fall::Left ? Fall::Right : s.fall == Fall::Right ? Fall::Left : s.fall;
+                }
+                for (auto& k : p.kerbs) {
+                    k.side = Opposite (k.side);
+                    if (k.other != kNoId && mirrored.count (k.other))
+                        k.otherSide = Opposite (k.otherSide);
+                }
+                return true;
+            },
+            error);
+        if (!ok)
+            return false;
     }
     return true;
 }

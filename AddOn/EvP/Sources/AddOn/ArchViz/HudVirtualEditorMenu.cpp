@@ -192,6 +192,33 @@ void DuplicateSelection (Session& s)
     }
     PasteObjects (s, clip, kPasteStep);
 }
+
+void MirrorSelection (Session& s, int axis, bool copy)
+{
+    if (!ClipboardIdle (s))
+        return;
+    const std::vector<edit::Ref> refs = s.selection.Items ();
+    const edit::Clipboard clip = edit::Copy (Doc (s), refs);
+    if (clip.Empty ()) {
+        s.message = "Select the objects to mirror.";
+        return;
+    }
+    const edit::Frame frame = GizmoFrame (s);
+    const edit::Vec3 point = frame.origin, direction = frame.axes[axis == 1 ? 1 : 0];
+    const edit::Id since = Doc (s).nextId;
+    if (!s.edits.Apply ([refs, clip, copy, point, direction] (edit::Document& d, std::string& error) {
+            std::vector<edit::Ref> targets = refs;
+            if (copy && !edit::Paste (d, clip, {}, targets, error))
+                return false;
+            return edit::Mirror (d, targets, point, direction, error);
+        })) {
+        s.message = s.edits.Message ();
+        return;
+    }
+    if (copy)
+        s.selection.Clear ();
+    SelectMade (s, since);
+}
 } // namespace detail
 
 void detail::SelectMade (Session& s, edit::Id since)
@@ -258,6 +285,13 @@ void AddClipboard (const Session& s, std::vector<MenuItem>& items)
     items.push_back (Item ("cut", "Cut", "Ctrl+X", idle && objects));
     items.push_back (Item ("paste", "Paste here", "Ctrl+V", idle && !s.clipboard.Empty ()));
     items.push_back (Item ("duplicate", "Duplicate", "Ctrl+D", idle && objects));
+    if (!objects)
+        return;
+    Rule (items);
+    items.push_back (Item ("mirror.x", "Mirror across gumball X", {}, idle));
+    items.push_back (Item ("mirror.y", "Mirror across gumball Y", {}, idle));
+    items.push_back (Item ("mirror.copyX", "Mirror a copy across gumball X", {}, idle));
+    items.push_back (Item ("mirror.copyY", "Mirror a copy across gumball Y", {}, idle));
 }
 
 void AddHistory (const Session& s, std::vector<MenuItem>& items)
@@ -491,6 +525,8 @@ void RunMenuItem (Session& s, const std::string& id)
         PasteClipboard (s, s.menu.at);
     else if (id == "duplicate")
         DuplicateSelection (s);
+    else if (id == "mirror.x" || id == "mirror.y" || id == "mirror.copyX" || id == "mirror.copyY")
+        MirrorSelection (s, id.back () == 'y' || id.back () == 'Y' ? 1 : 0, id.rfind ("mirror.copy", 0) == 0);
     else if (id == "close")
         s.close = true;
     else if (id == "plane.face")

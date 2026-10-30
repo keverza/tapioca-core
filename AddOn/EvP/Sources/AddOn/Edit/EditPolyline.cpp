@@ -492,20 +492,25 @@ bool Join (Document& doc, Id first, Id second, double tolerance, std::string& er
     return true;
 }
 
+void ReverseOrder (Entity& e)
+{
+    std::reverse (e.vertices.begin (), e.vertices.end ());
+    // A handle that shaped the segment leaving a vertex now shapes the one arriving at it.
+    for (auto& v : e.vertices)
+        std::swap (v.in, v.out);
+    // Segment j now joins old vertices n-1-j and n-2-j: old segment n-2-j, which on a ring
+    // wraps, so the closing segment comes round to the end again.
+    std::reverse (e.segments.begin (), e.segments.end ());
+    if (e.closed && !e.segments.empty ())
+        std::rotate (e.segments.begin (), e.segments.begin () + 1, e.segments.end ());
+}
+
 bool ReverseDirection (Document& doc, Id entity, std::string& error)
 {
     Entity* e = Get (doc, entity, error);
     if (e == nullptr || !Editable (*e, error))
         return false;
-    std::reverse (e->vertices.begin (), e->vertices.end ());
-    // A handle that shaped the segment leaving a vertex now shapes the one arriving at it.
-    for (auto& v : e->vertices)
-        std::swap (v.in, v.out);
-    // Segment j now joins old vertices n-1-j and n-2-j: old segment n-2-j, which on a ring
-    // wraps, so the closing segment comes round to the end again.
-    std::reverse (e->segments.begin (), e->segments.end ());
-    if (e->closed && !e->segments.empty ())
-        std::rotate (e->segments.begin (), e->segments.begin () + 1, e->segments.end ());
+    ReverseOrder (*e);
     return true;
 }
 
