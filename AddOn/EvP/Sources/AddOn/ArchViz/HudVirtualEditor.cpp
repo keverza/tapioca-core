@@ -488,6 +488,19 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
             default:
                 if (key.ctrl && (key.code == 'Z' || key.code == 'Y'))
                     history (key.code == 'Z');
+                else if (key.ctrl && !key.alt && !typing &&
+                         (key.code == 'C' || key.code == 'X' || key.code == 'V' || key.code == 'D')) {
+                    // The editor's own clipboard: a paste lands centred under the pointer.
+                    if (key.code == 'V') {
+                        edit::Vec3 at;
+                        const bool here = Map { v }.Onto (v.x, v.y, s.plane.origin.z, s.plane.origin, at);
+                        PasteClipboard (s, here ? std::optional<edit::Vec3> (at) : std::nullopt);
+                    }
+                    else if (key.code == 'D')
+                        DuplicateSelection (s);
+                    else
+                        CopySelection (s, key.code == 'X');
+                }
                 else if (!typing && !key.ctrl && !key.alt && (s.drag != Drag::None || s.planeTyping)) {
                     // No tool or gumball mode changes under a gesture: the handle held is one of
                     // this mode's, and the panel's tools are off until it ends too.

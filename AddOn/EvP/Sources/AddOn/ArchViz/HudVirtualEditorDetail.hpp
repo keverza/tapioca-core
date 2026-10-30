@@ -171,6 +171,12 @@ void History (Session& s, bool undo);
 void EndHandleDrag (Session& s);
 void EndDrag (Session& s);
 void DeleteSelection (Session& s);
+// The clipboard (HudVirtualEditorMenu.cpp), on whole objects: copied, cut (copied, then
+// deleted), pasted with their centre at `at` or a step beside where they were, and
+// duplicated a step beside themselves. What is pasted is selected.
+void CopySelection (Session& s, bool cut);
+void PasteClipboard (Session& s, std::optional<edit::Vec3> at);
+void DuplicateSelection (Session& s);
 // The context actions for the session's settings, shared by the panel and the menu. A change
 // of setting rebuilds the table, so hold its rows only while nothing changes one.
 const std::vector<edit::Action>& Actions (const Session& s);

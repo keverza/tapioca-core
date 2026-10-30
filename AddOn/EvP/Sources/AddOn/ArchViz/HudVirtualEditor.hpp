@@ -15,6 +15,7 @@
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/RoofSlopeCanvas.hpp"
+#include "Edit/EditArrange.hpp"
 #include "Edit/EditGizmo.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditPolyline.hpp"
@@ -157,9 +158,10 @@ struct Session {
     double pathWidth = 1.5;
     // The context actions' settings: an offset copy's distance.
     edit::ActionDefaults actionDefaults;
-    int polygonSides = 6; // the polygon tool's, Up and Down while it is placed
-    std::string role;     // the starting command's word for what it edits
-    std::string owner;    // the palette command that opened it: its own later runs keep it
+    edit::Clipboard clipboard; // whole objects copied or cut, for Paste
+    int polygonSides = 6;      // the polygon tool's, Up and Down while it is placed
+    std::string role;          // the starting command's word for what it edits
+    std::string owner;         // the palette command that opened it: its own later runs keep it
 
     // The gesture in progress.
     Drag drag = Drag::None;

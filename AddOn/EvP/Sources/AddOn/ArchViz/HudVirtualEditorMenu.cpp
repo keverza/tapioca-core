@@ -1,6 +1,7 @@
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditArrange.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPolyline.hpp"
 #include <imgui.h>
@@ -112,6 +113,85 @@ void DeleteSelection (Session& s)
     else
         s.message = s.edits.Message ();
 }
+
+namespace {
+// Where a paste with no place, or a duplicate, lands: beside the original, never on it, so
+// a copied path does not lie along the one it came from.
+constexpr edit::Vec3 kPasteStep { 1.0, -1.0, 0.0 };
+
+bool ClipboardIdle (Session& s)
+{
+    if (s.drag != Drag::None || !s.drawing.empty () || s.profileTyping || s.landscapeCommand ||
+        GumballRepositioning (s)) {
+        s.message = "Finish the current input or Esc it first.";
+        return false;
+    }
+    return true;
+}
+
+// Pastes `clip` moved by `offset` as one undo step and selects what it made.
+void PasteObjects (Session& s, const edit::Clipboard& clip, edit::Vec3 offset)
+{
+    const edit::Id since = Doc (s).nextId;
+    if (!s.edits.Apply ([clip, offset] (edit::Document& d, std::string& error) {
+            std::vector<edit::Ref> pasted;
+            return edit::Paste (d, clip, offset, pasted, error);
+        })) {
+        s.message = s.edits.Message ();
+        return;
+    }
+    s.selection.Clear ();
+    SelectMade (s, since);
+}
+} // namespace
+
+void CopySelection (Session& s, bool cut)
+{
+    if (!ClipboardIdle (s))
+        return;
+    edit::Clipboard clip = edit::Copy (Doc (s), s.selection.Items ());
+    if (clip.Empty ()) {
+        s.message = "Select the objects to copy.";
+        return;
+    }
+    s.clipboard = std::move (clip);
+    if (cut) {
+        // The whole objects go, whichever of their parts was selected.
+        std::vector<edit::Ref> whole;
+        for (const auto& p : s.clipboard.paths)
+            whole.push_back ({ p.id, edit::Part::Entity, edit::kNoId });
+        for (const auto& e : s.clipboard.entities)
+            whole.push_back ({ e.id, edit::Part::Entity, edit::kNoId });
+        s.selection.Set (whole);
+        DeleteSelection (s);
+    }
+}
+
+void PasteClipboard (Session& s, std::optional<edit::Vec3> at)
+{
+    if (!ClipboardIdle (s))
+        return;
+    if (s.clipboard.Empty ()) {
+        s.message = "Nothing has been copied.";
+        return;
+    }
+    edit::Vec3 offset = kPasteStep, centre;
+    if (at && edit::Centre (s.clipboard, centre))
+        offset = { at->x - centre.x, at->y - centre.y, 0.0 };
+    PasteObjects (s, s.clipboard, offset);
+}
+
+void DuplicateSelection (Session& s)
+{
+    if (!ClipboardIdle (s))
+        return;
+    const edit::Clipboard clip = edit::Copy (Doc (s), s.selection.Items ());
+    if (clip.Empty ()) {
+        s.message = "Select the objects to duplicate.";
+        return;
+    }
+    PasteObjects (s, clip, kPasteStep);
+}
 } // namespace detail
 
 void detail::SelectMade (Session& s, edit::Id since)
@@ -167,6 +247,17 @@ void AddActions (const Session& s, std::vector<MenuItem>& items, std::initialize
         // An action with nothing to do here (a sharp corner made sharp) is shown, greyed.
         items.push_back (Item ("action." + a->id, a->label, {}, bool (a->make (Doc (s), s.selection.Items ()))));
     }
+}
+
+void AddClipboard (const Session& s, std::vector<MenuItem>& items)
+{
+    Rule (items);
+    const bool idle = s.drag == Drag::None;
+    const bool objects = !edit::Copy (Doc (s), s.selection.Items ()).Empty ();
+    items.push_back (Item ("copy", "Copy", "Ctrl+C", idle && objects));
+    items.push_back (Item ("cut", "Cut", "Ctrl+X", idle && objects));
+    items.push_back (Item ("paste", "Paste here", "Ctrl+V", idle && !s.clipboard.Empty ()));
+    items.push_back (Item ("duplicate", "Duplicate", "Ctrl+D", idle && objects));
 }
 
 void AddHistory (const Session& s, std::vector<MenuItem>& items)
@@ -377,6 +468,8 @@ std::vector<MenuItem> MenuItems (const Session& s)
         else
             items.push_back (Item ("gizmo.reposition", "Reposition gumball", {}, CanRepositionGumball (s)));
     }
+    if (s.menu.target != MenuTarget::Drawing)
+        AddClipboard (s, items);
     AddHistory (s, items);
     if (s.menu.target == MenuTarget::View) {
         Rule (items);
@@ -392,6 +485,12 @@ void RunMenuItem (Session& s, const std::string& id)
         History (s, id == "undo");
     else if (id == "delete")
         DeleteSelection (s);
+    else if (id == "copy" || id == "cut")
+        CopySelection (s, id == "cut");
+    else if (id == "paste")
+        PasteClipboard (s, s.menu.at);
+    else if (id == "duplicate")
+        DuplicateSelection (s);
     else if (id == "close")
         s.close = true;
     else if (id == "plane.face")

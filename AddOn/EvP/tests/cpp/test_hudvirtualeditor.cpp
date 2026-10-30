@@ -3993,3 +3993,39 @@ TEST (HudVirtualEditor, AnOffsetCopyUsesThePanelsDistance)
     EXPECT_NEAR (std::abs (ed::SignedAreaXY (d.D ().entities[2].vertices)), 16.0, 1e-9);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
 }
+
+TEST (HudVirtualEditor, CopyPasteCutAndDuplicateWorkOnWholeObjects)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, ed::Rectangle ({ 0, 0, 0 }, { 2, 2, 0 }), true);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { e, ed::Part::Vertex, d.D ().entities[0].vertices[0].id } });
+    d.S ().menu.target = eh::MenuTarget::Vertex;
+    EXPECT_FALSE (d.Offers ("paste")); // nothing copied yet
+    ASSERT_TRUE (d.Offers ("copy"));
+    eh::RunMenuItem (d.S (), "copy");
+    ASSERT_EQ (d.S ().clipboard.entities.size (), 1u);
+    // Pasted with its centre where the menu was opened, and selected whole.
+    d.S ().menu.target = eh::MenuTarget::View;
+    d.S ().menu.at = { 10, 10, 0 };
+    ASSERT_TRUE (d.Offers ("paste"));
+    eh::RunMenuItem (d.S (), "paste");
+    ASSERT_EQ (d.D ().entities.size (), 2u);
+    EXPECT_DOUBLE_EQ (d.D ().entities[1].vertices[0].p.x, 9.0);
+    EXPECT_DOUBLE_EQ (d.D ().entities[1].vertices[0].p.y, 9.0);
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ()[0].entity, d.D ().entities[1].id);
+    EXPECT_EQ (d.S ().selection.Items ()[0].part, ed::Part::Entity);
+    // Ctrl+D: a copy a step beside the selected one.
+    d.input.keys = { { 'D', true, false, true } };
+    d.Frame ();
+    d.input.keys.clear ();
+    ASSERT_EQ (d.D ().entities.size (), 3u);
+    EXPECT_DOUBLE_EQ (d.D ().entities[2].vertices[0].p.x, 10.0);
+    EXPECT_DOUBLE_EQ (d.D ().entities[2].vertices[0].p.y, 8.0);
+    // Cut takes the original away; each step undoes on its own.
+    d.S ().selection.Set ({ { e, ed::Part::Entity, 0 } });
+    eh::RunMenuItem (d.S (), "cut");
+    EXPECT_EQ (ed::Find (d.D (), e), nullptr);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 3u);
+}
