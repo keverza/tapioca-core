@@ -14,10 +14,11 @@ namespace geomsrv::edit {
 
 Membership* MemberOf (Document& doc, Id object);
 const Membership* MemberOf (const Document& doc, Id object);
+// kNoId finds layer 0.
 Layer* FindLayer (Document& doc, Id layer);
 const Layer* FindLayer (const Document& doc, Id layer);
 const Group* FindGroup (const Document& doc, Id group);
-// Not hidden itself, and on no layer or a visible one.
+// Not hidden itself, and on a visible layer.
 bool Shown (const Document& doc, const Membership& member);
 bool Shown (const Document& doc, Id object);
 // Shown, and neither locked itself nor on a locked layer.
@@ -32,9 +33,9 @@ std::vector<Id> ObjectsOf (const Document& doc, const std::vector<Ref>& refs);
 std::vector<Ref> WholeRefs (const std::vector<Id>& objects);
 
 Id AddLayer (Document& doc, const std::string& name);
-// Its objects go to no layer.
+// Its objects go to layer 0, which itself cannot be deleted.
 bool DeleteLayer (Document& doc, Id layer, std::string& error);
-// `layer` kNoId takes the objects off every layer.
+// `layer` kNoId is layer 0.
 bool MoveToLayer (Document& doc, const std::vector<Ref>& refs, Id layer, std::string& error);
 
 // The outermost group an object belongs to, or kNoId.

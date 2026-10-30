@@ -55,8 +55,9 @@ struct Entity {
     Membership member;
     bool operator== (const Entity&) const = default;
 };
-// The editor's own layers and groups. A layer hides or locks everything on it; `rgba` 0
-// draws in the layer style's colour. A group may sit in another (`parent`), never in itself.
+// The editor's own layers and groups, never Archicad's: nothing here creates an Archicad
+// layer. A layer hides or locks everything on it and colours its lines; `rgba` 0 draws in the
+// layer style's colour. A group may sit in another (`parent`), never in itself.
 struct Layer {
     Id id = kNoId;
     std::string name;
@@ -74,6 +75,9 @@ struct Document {
     std::vector<Entity> entities;
     std::vector<Path> paths; // ids share one space with the entities
     std::optional<tapioca::geometry::LandscapeSession> landscape;
+    // Layer 0: always there, with no id, so every object is on a layer. It cannot be deleted
+    // or renamed; what leaves another layer lands on it.
+    Layer layer0 { kNoId, "0" };
     std::vector<Layer> layers;
     std::vector<Group> groups;
     std::vector<Id> isolated; // the objects Isolate hid, which Show isolated brings back

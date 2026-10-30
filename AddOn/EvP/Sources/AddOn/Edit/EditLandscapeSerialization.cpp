@@ -364,7 +364,8 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
                                                   { "entrances", Value::Array (std::move (entrances)) },
                                                   { "edges", Value::Array (std::move (edges)) } }) } };
     // The editor's layers and groups, written only when there are any (AddMember's rule).
-    if (!doc.layers.empty () || !doc.groups.empty () || !doc.isolated.empty ()) {
+    if (!doc.layers.empty () || !doc.groups.empty () || !doc.isolated.empty () ||
+        !(doc.layer0 == edit::Layer { 0, "0" })) {
         Array layers, groups;
         for (const auto& l : doc.layers)
             layers.push_back (Value::Object ({ { "id", IdValue (l.id) },
@@ -375,9 +376,13 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
         for (const auto& g : doc.groups)
             groups.push_back (Value::Object (
                 { { "id", IdValue (g.id) }, { "name", Text (g.name) }, { "parent", IdValue (g.parent) } }));
-        root.emplace ("organization", Value::Object ({ { "layers", Value::Array (std::move (layers)) },
-                                                       { "groups", Value::Array (std::move (groups)) },
-                                                       { "isolated", IdsValue (doc.isolated) } }));
+        root.emplace ("organization",
+                      Value::Object ({ { "layer0", Value::Object ({ { "visible", Flag (doc.layer0.visible) },
+                                                                    { "locked", Flag (doc.layer0.locked) },
+                                                                    { "rgba", IdValue (doc.layer0.rgba) } }) },
+                                       { "layers", Value::Array (std::move (layers)) },
+                                       { "groups", Value::Array (std::move (groups)) },
+                                       { "isolated", IdsValue (doc.isolated) } }));
     }
     return Value::Object (std::move (root));
 }

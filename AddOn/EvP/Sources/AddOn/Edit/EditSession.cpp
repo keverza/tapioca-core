@@ -10,8 +10,8 @@ namespace geomsrv::edit {
 // model is compared without this function knowing it.
 static bool SameContent (const Document& a, const Document& b)
 {
-    return a.paths == b.paths && a.entities == b.entities && a.landscape == b.landscape && a.layers == b.layers &&
-           a.groups == b.groups && a.isolated == b.isolated;
+    return a.paths == b.paths && a.entities == b.entities && a.landscape == b.landscape && a.layer0 == b.layer0 &&
+           a.layers == b.layers && a.groups == b.groups && a.isolated == b.isolated;
 }
 
 // A line referenced from Archicad is Archicad's to edit (the user, 2026-10-24: "editable only

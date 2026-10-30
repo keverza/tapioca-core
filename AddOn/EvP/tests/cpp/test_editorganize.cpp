@@ -319,3 +319,34 @@ TEST (EditOrganize, GroupingInsideAnEnteredGroupMakesAGroupWithinIt)
     EXPECT_EQ (ed::MemberOf (s.doc, s.a)->group, outer);
     EXPECT_FALSE (ed::Ungroup (s.doc, { s.R (s.a) }, s.error, outer)); // loose inside it
 }
+
+TEST (EditOrganize, LayerZeroAlwaysHoldsWhatNoOtherLayerDoes)
+{
+    Scene s;
+    ASSERT_NE (ed::FindLayer (s.doc, ed::kNoId), nullptr);
+    EXPECT_EQ (ed::FindLayer (s.doc, ed::kNoId)->name, "0");
+    EXPECT_FALSE (ed::DeleteLayer (s.doc, ed::kNoId, s.error));
+    const ed::Id layer = ed::AddLayer (s.doc, "Kerbs");
+    ed::MoveToLayer (s.doc, { s.R (s.a) }, layer, s.error);
+    // Hiding layer 0 hides everything not on another layer.
+    s.doc.layer0.visible = false;
+    EXPECT_TRUE (ed::Shown (s.doc, s.a));
+    EXPECT_FALSE (ed::Shown (s.doc, s.b));
+    EXPECT_FALSE (ed::Shown (s.doc, s.path));
+    s.doc.layer0.visible = true;
+    s.doc.layer0.locked = true;
+    EXPECT_FALSE (ed::Pickable (s.doc, s.b));
+    EXPECT_TRUE (ed::Pickable (s.doc, s.a));
+    // Deleting a layer puts its objects on layer 0, under its state.
+    ASSERT_TRUE (ed::DeleteLayer (s.doc, layer, s.error));
+    EXPECT_FALSE (ed::Pickable (s.doc, s.a));
+    // Its state round-trips.
+    namespace geo = tapioca::geometry;
+    ASSERT_TRUE (geo::StartLandscape (s.doc, { 1 }, s.error)) << s.error;
+    s.doc.layer0.rgba = 0x112233FFu;
+    std::string text;
+    ASSERT_TRUE (geo::WriteLandscape (s.doc, geo::LandscapeStorage::Virtual, text, s.error)) << s.error;
+    ed::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (text, loaded, s.error)) << s.error;
+    EXPECT_EQ (loaded.layer0, s.doc.layer0);
+}

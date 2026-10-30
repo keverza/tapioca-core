@@ -55,6 +55,8 @@ const Membership* MemberOf (const Document& doc, Id object)
 
 Layer* FindLayer (Document& doc, Id layer)
 {
+    if (layer == kNoId)
+        return &doc.layer0;
     for (auto& l : doc.layers)
         if (l.id == layer && layer != kNoId)
             return &l;
@@ -77,7 +79,7 @@ const Group* FindGroup (const Document& doc, Id group)
 bool Shown (const Document& doc, const Membership& m)
 {
     const Layer* layer = FindLayer (doc, m.layer);
-    return !m.hidden && (layer == nullptr || layer->visible);
+    return !m.hidden && layer != nullptr && layer->visible;
 }
 
 bool Shown (const Document& doc, Id object)
@@ -89,7 +91,7 @@ bool Shown (const Document& doc, Id object)
 bool Pickable (const Document& doc, const Membership& m)
 {
     const Layer* layer = FindLayer (doc, m.layer);
-    return Shown (doc, m) && !m.locked && (layer == nullptr || !layer->locked);
+    return Shown (doc, m) && !m.locked && !layer->locked;
 }
 
 bool Pickable (const Document& doc, Id object)
@@ -163,6 +165,10 @@ Id AddLayer (Document& doc, const std::string& name)
 
 bool DeleteLayer (Document& doc, Id layer, std::string& error)
 {
+    if (layer == kNoId) {
+        error = "layer 0 is always there";
+        return false;
+    }
     if (FindLayer (doc, layer) == nullptr) {
         error = "the layer no longer exists";
         return false;

@@ -184,7 +184,7 @@ void Organize (Session& s, OrganizeCommand command)
 
 void OrganizeControls (Session& s)
 {
-    // Open of itself once there is something to organise; the user's choice after that.
+    // Open of itself once there is something to organise beyond layer 0; the user's choice after that.
     if (!Doc (s).layers.empty () || !Doc (s).groups.empty ())
         ImGui::SetNextItemOpen (true, ImGuiCond_Once);
     if (!ImGui::TreeNode ("Layers and groups"))
@@ -231,10 +231,12 @@ void OrganizeControls (Session& s)
         Organize (s, OrganizeCommand::SameKind);
     ImGui::EndDisabled ();
 
-    // Layers: shown, locked, colour, name; the selection moves onto one, or off every layer.
+    // Layers, 0 first: shown, locked, colour, name; the selection moves onto one. They are the
+    // editor's alone: none of them is an Archicad layer.
     ImGui::SeparatorText ("Layers");
     const auto refs = s.selection.Items ();
-    const std::vector<edit::Layer> layers = Doc (s).layers; // a row's edit replaces the document
+    std::vector<edit::Layer> layers { Doc (s).layer0 }; // copies: a row's edit replaces the document
+    layers.insert (layers.end (), Doc (s).layers.begin (), Doc (s).layers.end ());
     for (const auto& layer : layers) {
         const edit::Id id = layer.id;
         ImGui::PushID (int (id));
@@ -268,23 +270,28 @@ void OrganizeControls (Session& s)
         char name[64];
         std::snprintf (name, sizeof name, "%s", layer.name.c_str ());
         ImGui::SetNextItemWidth (120.0f);
+        ImGui::BeginDisabled (id == edit::kNoId); // layer 0 keeps its name
         if (ImGui::InputText ("##name", name, sizeof name, ImGuiInputTextFlags_EnterReturnsTrue) &&
             layer.name != name) {
             const std::string renamed = name;
             ChangeLayer (s, id, [renamed] (edit::Layer& l) { l.name = renamed; });
         }
+        ImGui::EndDisabled ();
         ImGui::SameLine ();
         ImGui::BeginDisabled (refs.empty ());
         if (ImGui::SmallButton ("Move here"))
             Change (s, [refs, id] (edit::Document& d, std::string& e) { return edit::MoveToLayer (d, refs, id, e); });
         ImGui::EndDisabled ();
-        ImGui::SameLine ();
-        if (ImGui::SmallButton ("Delete"))
-            Change (s, [id] (edit::Document& d, std::string& e) { return edit::DeleteLayer (d, id, e); });
+        if (id != edit::kNoId) {
+            ImGui::SameLine ();
+            if (ImGui::SmallButton ("Delete"))
+                Change (s, [id] (edit::Document& d, std::string& e) { return edit::DeleteLayer (d, id, e); });
+            hudshell::Tip ("Its objects go to layer 0", hudshell::TipSide::Above);
+        }
         ImGui::PopID ();
     }
     if (ImGui::SmallButton ("New layer")) {
-        const std::string name = "Layer " + std::to_string (layers.size () + 1);
+        const std::string name = "Layer " + std::to_string (layers.size ());
         Change (s, [refs, name] (edit::Document& d, std::string&) {
             const edit::Id id = edit::AddLayer (d, name);
             std::string unused;
@@ -294,11 +301,6 @@ void OrganizeControls (Session& s)
         });
     }
     hudshell::Tip ("A new layer, with the selection moved onto it", hudshell::TipSide::Above);
-    ImGui::SameLine ();
-    ImGui::BeginDisabled (refs.empty ());
-    if (ImGui::SmallButton ("Off layers"))
-        Change (s, [refs] (edit::Document& d, std::string& e) { return edit::MoveToLayer (d, refs, edit::kNoId, e); });
-    ImGui::EndDisabled ();
 
     // Objects, by group. A group's name selects all of it; an object's, itself.
     ImGui::SeparatorText ("Objects");

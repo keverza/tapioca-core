@@ -27,8 +27,9 @@ bool Finite (Vec3 a);
 using Id = uint64_t;
 constexpr Id kNoId = 0;
 
-// Where an object sits in the editor's own organisation (EditOrganize.hpp): its layer and
-// innermost group (kNoId: none), and whether it is hidden or locked itself. A view state
+// Where an object sits in the editor's own organisation (EditOrganize.hpp): its layer (kNoId:
+// layer 0, which every document has) and innermost group (kNoId: none), and whether it is
+// hidden or locked itself. A view state
 // only: hiding or locking never changes the geometry or what Accept writes.
 struct Membership {
     Id layer = kNoId, group = kNoId;

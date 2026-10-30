@@ -66,7 +66,17 @@ void Organization (const Reader& root, edit::Document& doc)
     if (!root.Has ("organization"))
         return;
     const auto o = root.Field ("organization");
-    o.Fields ({ "layers", "groups", "isolated" });
+    o.Fields ({ "layers", "groups", "isolated" }, { "layer0" });
+    if (o.Has ("layer0")) {
+        const auto zero = o.Field ("layer0");
+        zero.Fields ({ "visible", "locked", "rgba" });
+        const auto rgba = zero.Field ("rgba").Identifier ();
+        if (rgba > std::numeric_limits<uint32_t>::max ())
+            Fail (zero.path + ".rgba", "32-bit colour overflow");
+        doc.layer0.visible = zero.Field ("visible").Flag ();
+        doc.layer0.locked = zero.Field ("locked").Flag ();
+        doc.layer0.rgba = static_cast<uint32_t> (rgba);
+    }
     Each (o.Field ("layers"), [&] (const Reader& item) {
         item.Fields ({ "id", "name", "visible", "locked", "rgba" });
         const auto rgba = item.Field ("rgba").Identifier ();
