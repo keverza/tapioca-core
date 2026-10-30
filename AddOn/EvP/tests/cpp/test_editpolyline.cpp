@@ -440,3 +440,34 @@ TEST (EditPolyline, TrimKeepsTheLongerPieceAndExtendTheNearerEnd)
     // The one changed is the first picked; a ring has no end to change.
     EXPECT_FALSE (Make (table, "extend", t.Doc (), { { box, ed::Part::Entity, 0 }, { inside, ed::Part::Entity, 0 } }));
 }
+
+TEST (EditPolyline, JoinKeepsTheCurvesOfAPolylineItTurnsRound)
+{
+    Doc d;
+    // `b` runs towards the meeting point, so the join turns it round: its curve, handled from
+    // its start, must still bulge the same way afterwards.
+    const ed::Id a = ed::AddPolyline (d.doc, { { 0, 0, 0 }, { 4, 0, 0 } }, false);
+    const ed::Id b = ed::AddPolyline (d.doc, { { 8, 0, 0 }, { 4, 0, 0 } }, false);
+    d.E (b).vertices[0].out = { -1, 2, 0 }; // leaving (8, 0) upwards
+    d.E (b).vertices[1].in = { 1, 2, 0 };   // arriving at (4, 0) from above
+    ASSERT_TRUE (ed::Join (d.doc, a, b, 0.01, d.error)) << d.error;
+    const auto& v = d.E (a).vertices;
+    ASSERT_EQ (v.size (), 3u);
+    Near (v[2].p, 8, 0);
+    Near (v[1].out, 1, 2); // the joined segment leaves (4, 0) upwards
+    Near (v[2].in, -1, 2); // and arrives at (8, 0) from above
+    d.Valid ();
+}
+
+TEST (EditPolyline, JoinClosingALoopKeepsTheClosingCurve)
+{
+    Doc d;
+    const ed::Id a = ed::AddPolyline (d.doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 4, 0 } }, false);
+    const ed::Id b = ed::AddPolyline (d.doc, { { 4, 4, 0 }, { 0, 4, 0 }, { 0, 0, 0 } }, false);
+    d.E (b).vertices[2].in = { -1, 1, 0 }; // the closing segment arrives at (0, 0) bulging out
+    ASSERT_TRUE (ed::Join (d.doc, a, b, 0.01, d.error)) << d.error;
+    ASSERT_TRUE (d.E (a).closed);
+    ASSERT_EQ (d.E (a).vertices.size (), 4u);
+    Near (d.E (a).vertices[0].in, -1, 1);
+    d.Valid ();
+}

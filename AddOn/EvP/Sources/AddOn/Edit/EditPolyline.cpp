@@ -88,13 +88,6 @@ std::vector<std::pair<Vec3, Vec3>> EdgesOf (const Entity& target)
     return out;
 }
 
-void Reverse (Entity& e)
-{
-    std::reverse (e.vertices.begin (), e.vertices.end ());
-    // Segment i joined i -> i + 1; after reversal it joins (n-2-i) -> (n-1-i).
-    std::reverse (e.segments.begin (), e.segments.end ());
-}
-
 } // namespace
 
 std::vector<Vec3> Rectangle (Vec3 corner, Vec3 opposite)
@@ -387,7 +380,7 @@ bool TrimAtEntity (Document& doc, Id entity, bool atStart, Id target, std::strin
     }
     const auto edges = EdgesOf (*t);
     if (!atStart)
-        Reverse (*e);
+        ReverseOrder (*e);
     bool done = false;
     for (size_t k = 0; k + 1 < e->vertices.size () && !done; ++k) {
         double first = std::numeric_limits<double>::infinity ();
@@ -403,7 +396,7 @@ bool TrimAtEntity (Document& doc, Id entity, bool atStart, Id target, std::strin
             if (e->vertices[i].lockXY) {
                 error = "trimming would remove a locked vertex";
                 if (!atStart)
-                    Reverse (*e);
+                    ReverseOrder (*e);
                 return false;
             }
         // Vertices before the cut go; the cut segment keeps its id and starts at the cut.
@@ -415,7 +408,7 @@ bool TrimAtEntity (Document& doc, Id entity, bool atStart, Id target, std::strin
         done = true;
     }
     if (!atStart)
-        Reverse (*e);
+        ReverseOrder (*e);
     if (!done)
         error = "the polyline never meets that entity";
     return done;
@@ -472,17 +465,24 @@ bool Join (Document& doc, Id first, Id second, double tolerance, std::string& er
     Entity tail = *b;
     if (near (a->vertices.front (), tail.vertices.front ()) || near (a->vertices.front (), tail.vertices.back ())) {
         if (!near (a->vertices.back (), tail.vertices.front ()) && !near (a->vertices.back (), tail.vertices.back ()))
-            Reverse (*a);
+            ReverseOrder (*a);
     }
     if (!near (a->vertices.back (), tail.vertices.front ()) && near (a->vertices.back (), tail.vertices.back ()))
-        Reverse (tail);
+        ReverseOrder (tail);
     if (!near (a->vertices.back (), tail.vertices.front ())) {
         error = "the polylines do not meet";
         return false;
     }
+    // The meeting vertex is a's; the handle shaping tail's first segment moves onto it.
+    Vertex& meet = a->vertices.back ();
+    if (std::hypot (meet.out.x, meet.out.y) == 0.0)
+        meet.out = tail.vertices.front ().out;
     a->vertices.insert (a->vertices.end (), tail.vertices.begin () + 1, tail.vertices.end ());
     a->segments.insert (a->segments.end (), tail.segments.begin (), tail.segments.end ());
     if (a->vertices.size () > 3 && near (a->vertices.front (), a->vertices.back ())) {
+        Vertex& first = a->vertices.front ();
+        if (std::hypot (first.in.x, first.in.y) == 0.0)
+            first.in = a->vertices.back ().in;
         a->vertices.pop_back (); // the last segment now closes onto the first vertex
         a->closed = true;
     }
