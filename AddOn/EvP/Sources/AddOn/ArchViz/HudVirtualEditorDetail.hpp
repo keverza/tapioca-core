@@ -131,6 +131,14 @@ bool DragOnto (const Session& s, const Map& m, ImVec2 mouse, double z, edit::Vec
 // which a release without a drag selects. Commit ends it at (x, y); Draw follows and shows it.
 void BeginMarquee (Session& s, ImVec2 mouse, bool additive, bool ctrl, std::vector<edit::PickHit> pressed);
 void CommitMarquee (Session& s, const edit::PickView& pick, float x, float y);
+// After a click, marquee or lasso changed the selection from `before`: each whole object picked
+// brings the rest of its group (EditOrganize WidenToGroups, inside the entered group), and one a
+// Shift-click took out takes its group out with it. True when that widened the selection.
+bool SelectGroups (Session& s, const std::vector<edit::Ref>& before);
+// Group and ungroup the selection (Ctrl+G, Ctrl+Shift+G), and enter or leave the group of the
+// object `ref` (a double click, Esc), each with its message.
+void GroupSelection (Session& s, bool group);
+bool EnterGroup (Session& s, const edit::Ref& ref);
 void DrawMarquee (Session& s, ImDrawList* draw, ImVec2 mouse);
 
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).

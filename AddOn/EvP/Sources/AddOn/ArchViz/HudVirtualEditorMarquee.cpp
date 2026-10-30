@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditOrganize.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -21,8 +22,69 @@ void BeginMarquee (Session& s, ImVec2 mouse, bool additive, bool ctrl, std::vect
 
 // A press that never left its point is a click on what it was pressed inside (or nothing);
 // otherwise the lasso's outline or the rectangle selects.
+bool SelectGroups (Session& s, const std::vector<edit::Ref>& before)
+{
+    const auto& doc = Doc (s);
+    if (edit::FindGroup (doc, s.enteredGroup) == nullptr)
+        s.enteredGroup = edit::kNoId;
+    std::vector<edit::Ref> items = s.selection.Items ();
+    for (const auto& r : before)
+        if (r.part == edit::Part::Entity && !s.selection.Contains (r)) {
+            const auto group = edit::WidenToGroups (doc, { r }, s.enteredGroup);
+            std::erase_if (items, [&] (const edit::Ref& x) {
+                return std::find (group.begin (), group.end (), x) != group.end ();
+            });
+        }
+    const auto widened = edit::WidenToGroups (doc, items, s.enteredGroup);
+    const bool grew = widened.size () > items.size ();
+    if (widened != s.selection.Items ())
+        s.selection.Set (widened);
+    return grew;
+}
+
+void GroupSelection (Session& s, bool group)
+{
+    if (s.drag != Drag::None || !s.drawing.empty ())
+        return;
+    const auto items = s.selection.Items ();
+    const edit::Id within = s.enteredGroup;
+    const bool ok = s.edits.Apply ([items, group, within] (edit::Document& d, std::string& error) {
+        return group ? edit::GroupObjects (d, items, {}, error, within) != edit::kNoId
+                     : edit::Ungroup (d, items, error, within);
+    });
+    if (!ok) {
+        s.message = s.edits.Message ();
+        return;
+    }
+    s.message = group ? "Grouped: a click now picks them together. Double-click to edit inside the group."
+                      : "Ungrouped one level.";
+}
+
+bool EnterGroup (Session& s, const edit::Ref& ref)
+{
+    const auto& doc = Doc (s);
+    const edit::Membership* m = edit::MemberOf (doc, ref.entity);
+    if (m == nullptr || m->group == edit::kNoId)
+        return false;
+    // One level further in: the group just inside the entered one on the object's way out.
+    edit::Id next = edit::kNoId;
+    for (const edit::Group* g = edit::FindGroup (doc, m->group); g != nullptr; g = edit::FindGroup (doc, g->parent)) {
+        if (g->id == s.enteredGroup)
+            break;
+        next = g->id;
+    }
+    if (next == edit::kNoId)
+        return false; // already in its own group
+    s.enteredGroup = next;
+    s.selection.Set ({ { ref.entity, edit::Part::Entity, edit::kNoId } });
+    SelectGroups (s, {});
+    s.message = "Editing inside " + edit::FindGroup (doc, next)->name + ". Esc with nothing selected leaves it.";
+    return true;
+}
+
 void CommitMarquee (Session& s, const edit::PickView& pick, float x, float y)
 {
+    const std::vector<edit::Ref> before = s.selection.Items ();
     if (std::hypot (x - s.startX, y - s.startY) <= kClickPixels) {
         if (!s.pressHits.empty ())
             s.selection.Click (s.pressHits, s.startX, s.startY, s.marqueeAdditive);
@@ -33,6 +95,7 @@ void CommitMarquee (Session& s, const edit::PickView& pick, float x, float y)
     }
     else
         s.selection.Marquee (Doc (s), pick, s.startX, s.startY, x, y, s.filter, s.marqueeAdditive);
+    SelectGroups (s, before);
     s.pressHits.clear ();
     s.lassoPoints.clear ();
     s.marqueeLasso = false;

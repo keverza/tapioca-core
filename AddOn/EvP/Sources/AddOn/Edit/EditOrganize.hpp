@@ -42,11 +42,14 @@ Id OutermostGroup (const Document& doc, Id object);
 // Every object in `group` or in a group inside it.
 std::vector<Id> GroupMembers (const Document& doc, Id group);
 // A new group of the objects `refs` reach. An object already grouped brings its outermost
-// group along, nested inside the new one. At least two objects or groups are needed.
-Id GroupObjects (Document& doc, const std::vector<Ref>& refs, const std::string& name, std::string& error);
-// Dissolves the outermost group of each object `refs` reach: its members and the groups
-// inside it move up one level.
-bool Ungroup (Document& doc, const std::vector<Ref>& refs, std::string& error);
+// group along, nested inside the new one. At least two objects or groups are needed. Inside
+// `within` (an entered group), the groups just inside it count as outermost, and a new group
+// of what is all inside it sits in it.
+Id GroupObjects (Document& doc, const std::vector<Ref>& refs, const std::string& name, std::string& error,
+                 Id within = kNoId);
+// Dissolves the outermost group (inside `within`) of each object `refs` reach: its members and
+// the groups inside it move up one level.
+bool Ungroup (Document& doc, const std::vector<Ref>& refs, std::string& error, Id within = kNoId);
 // Drops groups left with no object and no group inside them.
 void PruneGroups (Document& doc);
 // Each whole-object reference widened to every object of its outermost group (unless that

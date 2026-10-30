@@ -161,9 +161,11 @@ struct Session {
     edit::ActionDefaults actionDefaults;
     edit::Clipboard clipboard; // whole objects copied or cut, for Paste
     bool mirrorKeeps = false;  // the mirror tool keeps the original (mirrors a copy); Ctrl flips it
-    int polygonSides = 6;      // the polygon tool's, Up and Down while it is placed
-    std::string role;          // the starting command's word for what it edits
-    std::string owner;         // the palette command that opened it: its own later runs keep it
+    // The group being edited inside (double click): its own objects and groups pick apart.
+    edit::Id enteredGroup = edit::kNoId;
+    int polygonSides = 6; // the polygon tool's, Up and Down while it is placed
+    std::string role;     // the starting command's word for what it edits
+    std::string owner;    // the palette command that opened it: its own later runs keep it
 
     // The gesture in progress.
     Drag drag = Drag::None;

@@ -142,6 +142,8 @@ void Escape (Session& s)
         s.tool = Tool::Select; // the selection it was about to mirror stays
     else if (!s.selection.Items ().empty ())
         s.selection.Clear ();
+    else if (s.enteredGroup != edit::kNoId)
+        s.enteredGroup = edit::kNoId, s.message = "Out of the group: a click picks it whole again.";
     else
         s.close = true;
 }
@@ -490,6 +492,8 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
             default:
                 if (key.ctrl && (key.code == 'Z' || key.code == 'Y'))
                     history (key.code == 'Z');
+                else if (key.ctrl && !key.alt && !typing && key.code == 'G')
+                    GroupSelection (s, !key.shift);
                 else if (key.ctrl && !key.alt && !typing &&
                          (key.code == 'C' || key.code == 'X' || key.code == 'V' || key.code == 'D')) {
                     // The editor's own clipboard: a paste lands centred under the pointer.
@@ -675,10 +679,14 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             s.wholeGrab = !shift && hit.part != edit::Part::Entity && edit::Find (Doc (s), hit.entity) != nullptr &&
                           s.selection.Contains (whole);
             s.pressHits = hits;
-            if (!s.wholeGrab)
+            bool grouped = false; // the click picked a whole group: it drags as one, from this object
+            if (!s.wholeGrab) {
+                const std::vector<edit::Ref> before = s.selection.Items ();
                 s.selection.Click (hits, mouse.x, mouse.y, shift);
-            if (!shift && (s.wholeGrab || s.selection.Items ().size () == 1)) {
-                const edit::Ref pressed = s.wholeGrab ? whole : s.selection.Items ().front ();
+                grouped = SelectGroups (s, before) && s.selection.Contains (whole);
+            }
+            if (!shift && (s.wholeGrab || grouped || s.selection.Items ().size () == 1)) {
+                const edit::Ref pressed = s.wholeGrab || grouped ? whole : s.selection.Items ().front ();
                 const edit::Entity* e = edit::Find (Doc (s), pressed.entity);
                 if (pressed.part == edit::Part::Face && e != nullptr)
                     BeginFacePush (s, m, mouse.x, mouse.y, pressed);
@@ -709,6 +717,12 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
     if (hovered && ImGui::IsMouseDoubleClicked (0) && s.tool != Tool::Select)
         FinishDrawing (s);
+    else if (hovered && ImGui::IsMouseDoubleClicked (0) && !hits.empty () &&
+             (s.drag == Drag::None || (s.drag == Drag::Part && !s.dragStarted)) && EnterGroup (s, hits.front ().ref)) {
+        // A grouped object: edit inside its group. The second press began a drag of the group.
+        if (s.drag == Drag::Part)
+            s.edits.Cancel (), s.drag = Drag::None;
+    }
     if (hovered)
         PenDrag (s, m, mouse); // the pen's press past the threshold pulls out handles
 
@@ -860,7 +874,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     if (ImGui::IsMouseReleased (0) && !s.dragReleased && !s.navigation.blocked && s.drag == Drag::Part && s.wholeGrab &&
         std::hypot (mouse.x - s.startX, mouse.y - s.startY) < 3.0f) {
         s.edits.Cancel (); // a click on a selected object's corner picks the corner
+        const std::vector<edit::Ref> before = s.selection.Items ();
         s.selection.Click (s.pressHits, s.startX, s.startY, false);
+        SelectGroups (s, before);
         s.drag = Drag::None;
     }
     if (ImGui::IsMouseReleased (0))

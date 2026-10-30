@@ -288,6 +288,13 @@ void AddClipboard (const Session& s, std::vector<MenuItem>& items)
     if (!objects)
         return;
     Rule (items);
+    const auto refs = s.selection.Items ();
+    const bool grouped = std::any_of (refs.begin (), refs.end (), [&] (const edit::Ref& r) {
+        return edit::OutermostGroup (Doc (s), r.entity) != edit::kNoId;
+    });
+    items.push_back (Item ("group", "Group", "Ctrl+G", idle && edit::ObjectsOf (Doc (s), refs).size () >= 2));
+    items.push_back (Item ("ungroup", "Ungroup", "Ctrl+Shift+G", idle && grouped));
+    Rule (items);
     items.push_back (Item ("mirror.x", "Mirror across gumball X", {}, idle));
     items.push_back (Item ("mirror.y", "Mirror across gumball Y", {}, idle));
     items.push_back (Item ("mirror.copyX", "Mirror a copy across gumball X", {}, idle));
@@ -526,6 +533,8 @@ void RunMenuItem (Session& s, const std::string& id)
         PasteClipboard (s, s.menu.at);
     else if (id == "duplicate")
         DuplicateSelection (s);
+    else if (id == "group" || id == "ungroup")
+        GroupSelection (s, id == "group");
     else if (id == "mirror.x" || id == "mirror.y" || id == "mirror.copyX" || id == "mirror.copyY") {
         const edit::Frame frame = GizmoFrame (s); // its X or Y through its pivot
         MirrorSelection (s, frame.origin, frame.axes[id.back () == 'y' || id.back () == 'Y' ? 1 : 0],

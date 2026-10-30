@@ -4118,3 +4118,68 @@ TEST (HudVirtualEditor, DeletingAGroupsObjectsTakesTheEmptyGroupToo)
     EXPECT_TRUE (d.D ().entities.empty ());
     EXPECT_TRUE (d.D ().groups.empty ());
 }
+
+TEST (HudVirtualEditor, AClickPicksAWholeGroupWhichDragsAsOne)
+{
+    // Shapes large beside the gumball, so a press inside one lands clear of its handles.
+    ed::Document doc;
+    const ed::Id a = ed::AddPolyline (doc, ed::Rectangle ({ 0, 0, 0 }, { 10, 10, 0 }), true);
+    const ed::Id b = ed::AddPolyline (doc, ed::Rectangle ({ 12, 0, 0 }, { 22, 10, 0 }), true);
+    const ed::Id c = ed::AddPolyline (doc, ed::Rectangle ({ 0, 14, 0 }, { 10, 24, 0 }), true);
+    Drive d (std::move (doc));
+    d.S ().snapEnabled = false;
+    // Ctrl+G groups the selection.
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 }, { b, ed::Part::Entity, 0 } });
+    d.input.keys = { { 'G', true, false, true } };
+    d.Frame ();
+    ASSERT_EQ (d.D ().groups.size (), 1u);
+    // Pressed, a picks b too and the two drag as one. (A press on an unselected inside is a
+    // marquee until release, so a is selected first.)
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 } });
+    d.Press (660, 360); // (3, 7): clear of the gumball and of the corners' rounding grips
+    EXPECT_EQ (d.S ().selection.Items ().size (), 2u);
+    d.At (680, 360);
+    d.At (700, 360);
+    d.Release (700, 360); // 2 m to the right
+    EXPECT_DOUBLE_EQ (ed::Find (d.D (), a)->vertices[0].p.x, 2.0);
+    EXPECT_DOUBLE_EQ (ed::Find (d.D (), b)->vertices[0].p.x, 14.0);
+    EXPECT_DOUBLE_EQ (ed::Find (d.D (), c)->vertices[0].p.x, 0.0);
+    // Shift-click c in, then Shift-click a out: the whole group leaves with it.
+    d.input.shift = true;
+    d.Press (620, 100); // (1, 20)
+    d.Release (620, 100);
+    EXPECT_EQ (d.S ().selection.Items ().size (), 3u);
+    d.Press (760, 460); // (8, 2): inside a where it is now
+    d.Release (760, 460);
+    d.input.shift = false;
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ()[0].entity, c);
+    // Ctrl+Shift+G ungroups.
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 } });
+    d.input.keys = { { 'G', true, false, true, true } };
+    d.Frame ();
+    EXPECT_TRUE (d.D ().groups.empty ());
+}
+
+TEST (HudVirtualEditor, ADoubleClickEditsInsideAGroupAndEscLeavesIt)
+{
+    ed::Document doc;
+    const ed::Id a = ed::AddPolyline (doc, ed::Rectangle ({ 0, 0, 0 }, { 2, 2, 0 }), true);
+    const ed::Id b = ed::AddPolyline (doc, ed::Rectangle ({ 4, 0, 0 }, { 6, 2, 0 }), true);
+    std::string error;
+    const ed::Id g = ed::GroupObjects (doc, { { a, ed::Part::Entity, 0 }, { b, ed::Part::Entity, 0 } }, "pair", error);
+    Drive d (std::move (doc));
+    d.S ().snapEnabled = false;
+    d.Press (620, 480);
+    d.Release (620, 480);
+    d.Press (620, 480);
+    d.Release (620, 480);
+    ASSERT_EQ (d.S ().enteredGroup, g);
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ()[0].entity, a);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u); // the double click moved nothing
+    d.Key (0x1B);                              // deselect
+    d.Key (0x1B);                              // leave the group
+    EXPECT_EQ (d.S ().enteredGroup, ed::kNoId);
+    EXPECT_FALSE (d.S ().close);
+}

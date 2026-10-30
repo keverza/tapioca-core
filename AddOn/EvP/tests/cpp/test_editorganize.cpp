@@ -301,3 +301,21 @@ TEST (EditOrganize, HiddenObjectsAreNeitherPickedNorSnappedLockedOnesSnapButDoNo
     sel.Prune (s.doc);
     EXPECT_EQ (Ids (sel.Items ()), (std::vector<ed::Id> { s.c }));
 }
+
+TEST (EditOrganize, GroupingInsideAnEnteredGroupMakesAGroupWithinIt)
+{
+    Scene s;
+    const ed::Id outer = ed::GroupObjects (s.doc, { s.R (s.a), s.R (s.b), s.R (s.c) }, "beds", s.error);
+    ASSERT_NE (outer, ed::kNoId);
+    const ed::Id inner = ed::GroupObjects (s.doc, { s.R (s.a), s.R (s.b) }, "pair", s.error, outer);
+    ASSERT_NE (inner, ed::kNoId) << s.error;
+    EXPECT_EQ (ed::FindGroup (s.doc, inner)->parent, outer);
+    EXPECT_EQ (ed::OutermostGroup (s.doc, s.a), outer);
+    EXPECT_EQ (ed::MemberOf (s.doc, s.c)->group, outer);
+    s.Valid ();
+    // Ungrouped from inside, the inner group goes and its objects stay in the outer one.
+    ASSERT_TRUE (ed::Ungroup (s.doc, { s.R (s.a) }, s.error, outer)) << s.error;
+    EXPECT_EQ (ed::FindGroup (s.doc, inner), nullptr);
+    EXPECT_EQ (ed::MemberOf (s.doc, s.a)->group, outer);
+    EXPECT_FALSE (ed::Ungroup (s.doc, { s.R (s.a) }, s.error, outer)); // loose inside it
+}

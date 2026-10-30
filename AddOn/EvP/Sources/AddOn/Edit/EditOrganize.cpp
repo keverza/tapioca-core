@@ -201,12 +201,29 @@ std::vector<Id> GroupMembers (const Document& doc, Id group)
     return out;
 }
 
-Id GroupObjects (Document& doc, const std::vector<Ref>& refs, const std::string& name, std::string& error)
+namespace {
+// The group an object is in, as seen from inside `within`: the one just inside it on the
+// object's way out (kNoId: directly in it), or the outermost one when it is outside `within`.
+Id TopIn (const Document& doc, Id object, Id within, bool& inside)
+{
+    const auto chain = Chain (doc, MemberOf (doc, object)->group);
+    const auto at = std::find (chain.begin (), chain.end (), within);
+    inside = within != kNoId && at != chain.end ();
+    if (!inside)
+        return chain.empty () ? kNoId : chain.back ();
+    return at == chain.begin () ? kNoId : *(at - 1);
+}
+} // namespace
+
+Id GroupObjects (Document& doc, const std::vector<Ref>& refs, const std::string& name, std::string& error, Id within)
 {
     std::vector<Id> loose;
     std::set<Id> groups;
+    bool allInside = within != kNoId;
     for (const Id id : ObjectsOf (doc, refs)) {
-        const Id outer = OutermostGroup (doc, id);
+        bool inside = false;
+        const Id outer = TopIn (doc, id, within, inside);
+        allInside = allInside && inside;
         if (outer != kNoId)
             groups.insert (outer);
         else
@@ -219,6 +236,7 @@ Id GroupObjects (Document& doc, const std::vector<Ref>& refs, const std::string&
     Group g;
     g.id = NewId (doc);
     g.name = name.empty () ? "Group " + std::to_string (doc.groups.size () + 1) : name;
+    g.parent = allInside ? within : kNoId;
     for (auto& other : doc.groups)
         if (groups.count (other.id))
             other.parent = g.id;
@@ -228,18 +246,20 @@ Id GroupObjects (Document& doc, const std::vector<Ref>& refs, const std::string&
     return g.id;
 }
 
-bool Ungroup (Document& doc, const std::vector<Ref>& refs, std::string& error)
+bool Ungroup (Document& doc, const std::vector<Ref>& refs, std::string& error, Id within)
 {
     std::set<Id> outer;
-    for (const Id id : ObjectsOf (doc, refs))
-        if (const Id g = OutermostGroup (doc, id); g != kNoId)
+    for (const Id id : ObjectsOf (doc, refs)) {
+        bool inside = false;
+        if (const Id g = TopIn (doc, id, within, inside); g != kNoId)
             outer.insert (g);
+    }
     if (outer.empty ()) {
         error = "nothing selected is grouped";
         return false;
     }
     for (const Id g : outer) {
-        const Id parent = FindGroup (doc, g)->parent; // kNoId: an outermost group has none
+        const Id parent = FindGroup (doc, g)->parent; // `within`, or none
         for (auto& other : doc.groups)
             if (other.parent == g)
                 other.parent = parent;
