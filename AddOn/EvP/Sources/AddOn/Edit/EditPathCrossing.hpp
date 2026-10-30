@@ -23,6 +23,7 @@ struct Junction {
     Vec3 at; // plan
 };
 // Every junction among `paths`; paths that do not validate have none.
+// Only paths on the same editor layer meet.
 std::vector<Junction> FindJunctions (const std::vector<Path>& paths);
 
 // Puts each junction's breaks in place, retires those whose junction has gone, and makes

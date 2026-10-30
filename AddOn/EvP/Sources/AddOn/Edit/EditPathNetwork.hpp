@@ -57,7 +57,8 @@ struct PavedArea {
 // `step`: target sample/mesh-edge spacing, bounded at 250,000 triangles. Authored
 // profile/section features are inserted at both preview and resting quality.
 // Footprints are sampled at no coarser than 0.5 m, independently of surface quality.
-// Paths that do not validate are left out.
+// Paths that do not validate are left out. Paths on different editor layers are paved apart:
+// one layer's surface is never united with another's.
 // Without `surface`, only the outline and its corners (what grips need). `outlines` (optional)
 // spares the paths' tessellation when another call of the frame already did it; the result is
 // identical with or without it.

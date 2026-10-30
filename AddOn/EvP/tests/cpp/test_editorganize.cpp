@@ -1,7 +1,9 @@
 #include "Edit/EditArrange.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 #include "Edit/EditOrganize.hpp"
+#include "Edit/EditPathCrossing.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditPolyline.hpp"
 #include "Edit/EditSession.hpp"
 #include "Edit/EditSelection.hpp"
@@ -349,4 +351,31 @@ TEST (EditOrganize, LayerZeroAlwaysHoldsWhatNoOtherLayerDoes)
     ed::Document loaded;
     ASSERT_TRUE (geo::ReadLandscape (text, loaded, s.error)) << s.error;
     EXPECT_EQ (loaded.layer0, s.doc.layer0);
+}
+
+TEST (EditOrganize, PathsOnDifferentLayersNeitherMeetNorJoinNorPaveTogether)
+{
+    ed::Document doc;
+    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
+    const ed::Id b = ed::AddPath (doc, { { 10, -10, 0 }, { 10, 10, 0 } }, 2.0);
+    ASSERT_EQ (ed::FindJunctions (doc.paths).size (), 1u); // one layer: they cross
+    EXPECT_EQ (ed::Pave (doc.paths).rings.size (), 1u);    // and pave as one area
+    std::string error;
+    const ed::Id layer = ed::AddLayer (doc, "Bridge");
+    ASSERT_TRUE (ed::MoveToLayer (doc, { { b, ed::Part::Entity, 0 } }, layer, error));
+    EXPECT_TRUE (ed::FindJunctions (doc.paths).empty ());
+    EXPECT_EQ (ed::Pave (doc.paths).rings.size (), 2u); // two surfaces, overlapping
+    // A crossing on one layer links the two profiles; across layers it does not.
+    ed::Session s (doc);
+    ASSERT_TRUE (s.Apply ([a] (ed::Document& d, std::string& e) {
+        return ed::MovePathPoint (d, a, ed::FindPath (d, a)->points[1].id, { 21, 0, 0 }, e);
+    })) << s.Message ();
+    for (const auto& p : s.Doc ().paths)
+        for (const auto& br : p.profile)
+            EXPECT_EQ (br.crossing, ed::kNoId);
+    // An end dragged onto another layer's end stays its own path.
+    ASSERT_TRUE (s.Apply ([b] (ed::Document& d, std::string& e) {
+        return ed::MovePathPoint (d, b, ed::FindPath (d, b)->points[0].id, { 0, 0, 0 }, e);
+    })) << s.Message ();
+    EXPECT_EQ (s.Doc ().paths.size (), 2u);
 }

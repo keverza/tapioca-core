@@ -209,6 +209,8 @@ bool JoinMovedPathEnds (Document& doc, const Document& before, std::string& erro
                     for (bool startB : { true, false }) {
                         const auto& a = result.paths[i];
                         const auto& b = result.paths[j];
+                        if (a.member.layer != b.member.layer)
+                            continue; // paths on different layers stay apart
                         const Vec3 endA = startA ? a.points.front ().p : a.points.back ().p;
                         const Vec3 endB = startB ? b.points.front ().p : b.points.back ().p;
                         if (DistanceXY (endA, endB) > kJoin ||
@@ -216,8 +218,9 @@ bool JoinMovedPathEnds (Document& doc, const Document& before, std::string& erro
                             continue;
                         size_t ends = 0;
                         for (const auto& path : result.paths)
-                            for (const auto& p : { path.points.front ().p, path.points.back ().p })
-                                ends += DistanceXY (p, endA) <= kJoin;
+                            if (path.member.layer == a.member.layer)
+                                for (const auto& p : { path.points.front ().p, path.points.back ().p })
+                                    ends += DistanceXY (p, endA) <= kJoin;
                         if (ends != 2)
                             continue; // a branching node is not an arbitrary pairing
                         if (!JoinPathEnds (result, a.id, startA, b.id, startB, error))

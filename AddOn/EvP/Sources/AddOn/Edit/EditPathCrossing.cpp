@@ -150,6 +150,8 @@ std::vector<Junction> FindJunctions (const std::vector<Path>& paths)
     for (size_t i = 0; i < paths.size (); ++i)
         ok[i] = Sample (paths[i], lines[i]);
     std::vector<Junction> out;
+    // Paths on different editor layers never meet: they cross over or under each other.
+    const auto apart = [&] (size_t a, size_t b) { return paths[a].member.layer != paths[b].member.layer; };
     const auto known = [&] (size_t a, size_t b, Vec3 at, double reach) {
         for (const auto& j : out)
             if (((j.a == a && j.b == b) || (j.a == b && j.b == a)) && DistanceXY (j.at, at) < reach)
@@ -163,7 +165,7 @@ std::vector<Junction> FindJunctions (const std::vector<Path>& paths)
                 break;
             const Vec3 p = end == 0.0 ? lines[a].points.front () : lines[a].points.back ();
             for (size_t b = 0; b < paths.size (); ++b) {
-                if (b == a || !ok[b] || !Near (lines[a], lines[b], lines[b].reach + kOnSurface))
+                if (b == a || !ok[b] || apart (a, b) || !Near (lines[a], lines[b], lines[b].reach + kOnSurface))
                     continue;
                 double s = 0.0, offset = 0.0;
                 Placement on;
@@ -183,7 +185,7 @@ std::vector<Junction> FindJunctions (const std::vector<Path>& paths)
     // Centrelines crossing, away from the ends already joined.
     for (size_t a = 0; a < paths.size (); ++a)
         for (size_t b = a + 1; b < paths.size (); ++b) {
-            if (!ok[a] || !ok[b] || !Near (lines[a], lines[b], 0.0))
+            if (!ok[a] || !ok[b] || apart (a, b) || !Near (lines[a], lines[b], 0.0))
                 continue;
             const Line &la = lines[a], &lb = lines[b];
             // Every segment pair in the same order as a plain double loop, only the pairs whose
