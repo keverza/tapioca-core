@@ -193,7 +193,7 @@ void DuplicateSelection (Session& s)
     PasteObjects (s, clip, kPasteStep);
 }
 
-void MirrorSelection (Session& s, int axis, bool copy)
+void MirrorSelection (Session& s, edit::Vec3 point, edit::Vec3 direction, bool copy)
 {
     if (!ClipboardIdle (s))
         return;
@@ -203,8 +203,6 @@ void MirrorSelection (Session& s, int axis, bool copy)
         s.message = "Select the objects to mirror.";
         return;
     }
-    const edit::Frame frame = GizmoFrame (s);
-    const edit::Vec3 point = frame.origin, direction = frame.axes[axis == 1 ? 1 : 0];
     const edit::Id since = Doc (s).nextId;
     if (!s.edits.Apply ([refs, clip, copy, point, direction] (edit::Document& d, std::string& error) {
             std::vector<edit::Ref> targets = refs;
@@ -471,6 +469,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
             items.push_back (Item ("tool.rectangle", "Draw rectangle", "Q", true, s.tool == Tool::Rectangle));
             items.push_back (Item ("tool.polygon", "Draw polygon", "N", true, s.tool == Tool::Polygon));
             items.push_back (Item ("tool.ellipse", "Draw ellipse or circle", "O", true, s.tool == Tool::Ellipse));
+            items.push_back (Item ("tool.mirror", "Mirror across a line", "M", true, s.tool == Tool::Mirror));
             items.push_back (Item ("import.drafting", "Add Archicad selection's lines", {}, !s.draftingImport));
             Rule (items);
             items.push_back (Item ("select.all", "Select all", {}, !doc.entities.empty () || !doc.paths.empty ()));
@@ -525,8 +524,11 @@ void RunMenuItem (Session& s, const std::string& id)
         PasteClipboard (s, s.menu.at);
     else if (id == "duplicate")
         DuplicateSelection (s);
-    else if (id == "mirror.x" || id == "mirror.y" || id == "mirror.copyX" || id == "mirror.copyY")
-        MirrorSelection (s, id.back () == 'y' || id.back () == 'Y' ? 1 : 0, id.rfind ("mirror.copy", 0) == 0);
+    else if (id == "mirror.x" || id == "mirror.y" || id == "mirror.copyX" || id == "mirror.copyY") {
+        const edit::Frame frame = GizmoFrame (s); // its X or Y through its pivot
+        MirrorSelection (s, frame.origin, frame.axes[id.back () == 'y' || id.back () == 'Y' ? 1 : 0],
+                         id.rfind ("mirror.copy", 0) == 0);
+    }
     else if (id == "close")
         s.close = true;
     else if (id == "plane.face")
@@ -554,6 +556,8 @@ void RunMenuItem (Session& s, const std::string& id)
         s.tool = Tool::Path;
     else if (id == "tool.curve")
         s.tool = Tool::Curve;
+    else if (id == "tool.mirror")
+        ToolKey (s, 'M');
     else if (id == "tool.rectangle" || id == "tool.polygon" || id == "tool.ellipse")
         s.tool = id == "tool.rectangle" ? Tool::Rectangle
                  : id == "tool.polygon" ? Tool::Polygon

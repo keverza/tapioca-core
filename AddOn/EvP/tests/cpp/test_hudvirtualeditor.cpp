@@ -4057,3 +4057,48 @@ TEST (HudVirtualEditor, MirrorACopyAcrossTheGumballSelectsTheCopy)
         EXPECT_LE (v.p.y, 0.0);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
 }
+
+TEST (HudVirtualEditor, TheMirrorToolMirrorsTheSelectionAcrossTwoClickedPoints)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, ed::Rectangle ({ 0, 0, 0 }, { 2, 1, 0 }), true);
+    Drive d (std::move (doc));
+    d.S ().snapEnabled = false;
+    d.S ().selection.Set ({ { e, ed::Part::Entity, 0 } });
+    d.Key ('M');
+    ASSERT_EQ (d.S ().tool, eh::Tool::Mirror);
+    EXPECT_EQ (d.S ().selection.Items ().size (), 1u); // what it will mirror stays selected
+    d.Press (700, 560);
+    d.Release (700, 560); // (5, -3)
+    EXPECT_EQ (d.S ().drawing.size (), 1u);
+    d.At (700, 440);
+    d.Press (700, 440);
+    d.Release (700, 440); // (5, 3): the line x = 5
+    ASSERT_EQ (d.D ().entities.size (), 1u);
+    for (const auto& v : d.D ().entities[0].vertices) {
+        EXPECT_GE (v.p.x, 8.0 - 1e-9);
+        EXPECT_LE (v.p.x, 10.0 + 1e-9);
+    }
+    EXPECT_GT (ed::SignedAreaXY (d.D ().entities[0].vertices), 0.0);
+    EXPECT_EQ (d.S ().tool, eh::Tool::Select);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+
+    // Keeping the original mirrors a copy, which is selected.
+    d.S ().mirrorKeeps = true;
+    d.Key ('M');
+    d.Press (600, 500);
+    d.Release (600, 500); // (0, 0)
+    d.At (680, 500);
+    d.Press (680, 500);
+    d.Release (680, 500); // (4, 0): the line y = 0
+    ASSERT_EQ (d.D ().entities.size (), 2u);
+    EXPECT_EQ (d.S ().selection.Items ().front ().entity, d.D ().entities[1].id);
+    for (const auto& v : d.D ().entities[1].vertices)
+        EXPECT_LE (v.p.y, 1e-9);
+
+    // Esc before the first click leaves the tool and keeps the selection.
+    d.Key ('M');
+    d.Key (0x1B);
+    EXPECT_EQ (d.S ().tool, eh::Tool::Select);
+    EXPECT_FALSE (d.S ().selection.Items ().empty ());
+}

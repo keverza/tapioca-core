@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditArrange.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
 #include <cmath>
@@ -109,6 +110,12 @@ bool ToolKey (Session& s, uint32_t code)
         case 'O':
             draw (Tool::Ellipse);
             return true;
+        case 'M': // the selection stays: it is what the line mirrors
+            s.tool = Tool::Mirror, s.drawing.clear ();
+            s.landscapeMode = LandscapeMode::Select;
+            if (s.selection.Items ().empty ())
+                s.message = "Select what to mirror, then click the mirror line's two points.";
+            return true;
         case 0x26: // Up and Down: the polygon's sides, while it is the tool
         case 0x28:
             if (s.tool != Tool::Polygon)
@@ -121,11 +128,52 @@ bool ToolKey (Session& s, uint32_t code)
     }
 }
 
+namespace {
+// The mirror line from `a` towards `b`, run across the view, and the selected objects'
+// outlines as they would land: straight between their points, enough to aim by.
+void MirrorPreview (Session& s, const Map& m, Vec3 a, Vec3 b, float scale)
+{
+    Vec3 dir;
+    if (!edit::Normalize (Vec3 { b.x - a.x, b.y - a.y, 0.0 }, dir))
+        return;
+    const double reach = 2.0e3 * m.MetresPerPixel (m.v.x, m.v.y, a.z, a);
+    DashedLine (s, m, a - dir * reach, a + dir * reach, kGuide, 1.5f * scale);
+    Line (s, m, a, b, kGuide, 2.0f * scale);
+    const auto reflect = [&] (Vec3 p) {
+        const double along = 2.0 * ((p.x - a.x) * dir.x + (p.y - a.y) * dir.y);
+        return Vec3 { a.x + along * dir.x - (p.x - a.x), a.y + along * dir.y - (p.y - a.y), p.z };
+    };
+    const auto run = [&] (const std::vector<Vec3>& points, bool closed) {
+        for (size_t i = 0; i + 1 < points.size () + (closed ? 1 : 0); ++i)
+            Line (s, m, reflect (points[i]), reflect (points[(i + 1) % points.size ()]), kAccent, 1.5f * scale);
+    };
+    const edit::Clipboard objects = edit::Copy (Doc (s), s.selection.Items ());
+    for (const auto& e : objects.entities) {
+        std::vector<Vec3> points;
+        for (const auto& v : e.vertices)
+            points.push_back (v.p);
+        run (points, e.closed);
+    }
+    for (const auto& p : objects.paths) {
+        std::vector<Vec3> points;
+        for (const auto& c : p.points)
+            points.push_back (c.p);
+        run (points, false);
+    }
+}
+} // namespace
+
 // What a drawing tool has placed so far and where the pointer would put the next: the pen's
 // handles, a shape's outline (its quarter Beziers sampled for an ellipse), a line's run.
 void DrawingPreview (Session& s, const Map& m, bool shift, float scale)
 {
-    if (s.tool == Tool::Curve)
+    if (s.tool == Tool::Mirror) {
+        if (!s.drawing.empty ())
+            MirrorPreview (s, m, s.drawing.front (), s.snap.point, scale);
+        for (const auto& q : s.drawing)
+            Dot (s, m, q, 4.0f * scale, kGuide);
+    }
+    else if (s.tool == Tool::Curve)
         PenPreview (s, m, s.snap.point, scale);
     else if (ShapeTool (s.tool)) {
         edit::PrimitiveOutline shape;
@@ -182,10 +230,28 @@ void FinishShape (Session& s, edit::Vec3 second, bool uniform)
     s.message.clear ();
 }
 
+void FinishMirror (Session& s, edit::Vec3 second, bool copy)
+{
+    if (s.drawing.empty () || edit::DistanceXY (s.drawing.front (), second) < 1.0e-6) {
+        s.message = "Click a second point away from the first: the mirror line runs between them.";
+        return;
+    }
+    // The line is no longer being drawn once it is complete: the mirror is what happens next.
+    const edit::Vec3 first = s.drawing.front ();
+    s.drawing.clear ();
+    const uint64_t before = Doc (s).revision;
+    MirrorSelection (s, first, second - first, copy);
+    if (Doc (s).revision == before) {
+        s.drawing.push_back (first); // refused: the message says why; the first click stays
+        return;
+    }
+    s.tool = Tool::Select;
+}
+
 void FinishDrawing (Session& s)
 {
-    if (ShapeTool (s.tool))
-        return; // a shape ends at its second click, never at Enter or a double click
+    if (ShapeTool (s.tool) || s.tool == Tool::Mirror)
+        return; // a shape or a mirror line ends at its second click, never at Enter or a double click
     if (s.drawing.size () < 2) {
         s.drawing.clear ();
         return;

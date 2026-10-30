@@ -138,6 +138,8 @@ void Escape (Session& s)
     }
     else if (!s.drawing.empty ())
         s.drawing.clear (), s.references.clear ();
+    else if (s.tool == Tool::Mirror)
+        s.tool = Tool::Select; // the selection it was about to mirror stays
     else if (!s.selection.Items ().empty ())
         s.selection.Clear ();
     else
@@ -504,7 +506,7 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                 else if (!typing && !key.ctrl && !key.alt && (s.drag != Drag::None || s.planeTyping)) {
                     // No tool or gumball mode changes under a gesture: the handle held is one of
                     // this mode's, and the panel's tools are off until it ends too.
-                    if (key.code < 0x80 && key.code != 0 && std::strchr ("VLPBGRSTFEQNO", int (key.code)) != nullptr)
+                    if (key.code < 0x80 && key.code != 0 && std::strchr ("VLPBGRSTFEQNOM", int (key.code)) != nullptr)
                         s.message = "Finish the drag, or Esc it, before switching tool or mode.";
                 }
                 else if (!typing && !key.ctrl && !key.alt) {
@@ -609,7 +611,16 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             if (!s.drawing.empty ())
                 anchor = s.drawing.back ();
             if (Pointer (s, m, mouse, z, s.drawing.empty () ? Vec3 {} : s.drawing.back (), anchor, {}, scale, p)) {
-                if (ShapeTool (s.tool)) {
+                if (s.tool == Tool::Mirror) {
+                    // The mirror line's two points; Ctrl at the second flips "keep original".
+                    if (s.selection.Items ().empty ())
+                        s.message = "Select what to mirror first (V), then come back to the mirror tool (M).";
+                    else if (s.drawing.empty ())
+                        s.drawing.push_back (p);
+                    else
+                        FinishMirror (s, p, s.mirrorKeeps != ImGui::GetIO ().KeyCtrl);
+                }
+                else if (ShapeTool (s.tool)) {
                     // A shape is two clicks: the corner or centre, then the size.
                     if (s.drawing.empty ())
                         s.drawing.push_back (p);

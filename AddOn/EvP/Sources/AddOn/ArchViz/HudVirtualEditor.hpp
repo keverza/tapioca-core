@@ -43,7 +43,8 @@ struct TerrainCaptureRequest;
 struct TerrainSectionDraft;
 struct TerrainDesignBaseline;
 
-enum class Tool : uint8_t { Select, Polyline, Path, Curve, Rectangle, Polygon, Ellipse };
+// Mirror draws nothing: its two clicks are the line the selection is mirrored across.
+enum class Tool : uint8_t { Select, Polyline, Path, Curve, Rectangle, Polygon, Ellipse, Mirror };
 // The tools that place a closed shape from two clicks (edit::Primitive), not a run of points.
 constexpr bool ShapeTool (Tool tool)
 {
@@ -159,6 +160,7 @@ struct Session {
     // The context actions' settings: an offset copy's distance.
     edit::ActionDefaults actionDefaults;
     edit::Clipboard clipboard; // whole objects copied or cut, for Paste
+    bool mirrorKeeps = false;  // the mirror tool keeps the original (mirrors a copy); Ctrl flips it
     int polygonSides = 6;      // the polygon tool's, Up and Down while it is placed
     std::string role;          // the starting command's word for what it edits
     std::string owner;         // the palette command that opened it: its own later runs keep it

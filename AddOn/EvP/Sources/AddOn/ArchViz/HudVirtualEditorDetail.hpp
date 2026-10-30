@@ -177,9 +177,12 @@ void DeleteSelection (Session& s);
 void CopySelection (Session& s, bool cut);
 void PasteClipboard (Session& s, std::optional<edit::Vec3> at);
 void DuplicateSelection (Session& s);
-// The selected objects (or a copy of them, selected) mirrored across the gumball's axis
-// `axis` (0 its X, 1 its Y) through its pivot, as one undo step.
-void MirrorSelection (Session& s, int axis, bool copy);
+// The selected objects (or a copy of them, selected) mirrored across the vertical plane
+// through `point` along `direction`, as one undo step.
+void MirrorSelection (Session& s, edit::Vec3 point, edit::Vec3 direction, bool copy);
+// The mirror tool's second click: the selection mirrored across the line from its first
+// click, then back to Select with the result selected (HudVirtualEditorDrawing.cpp).
+void FinishMirror (Session& s, edit::Vec3 second, bool copy);
 // The context actions for the session's settings, shared by the panel and the menu. A change
 // of setting rebuilds the table, so hold its rows only while nothing changes one.
 const std::vector<edit::Action>& Actions (const Session& s);

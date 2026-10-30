@@ -102,6 +102,14 @@ void Panel (Session& s)
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Ellipse (O)", s.tool == Tool::Ellipse))
         s.tool = Tool::Ellipse, s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
+    ImGui::SameLine ();
+    if (ImGui::RadioButton ("Mirror (M)", s.tool == Tool::Mirror))
+        ToolKey (s, 'M');
+    if (s.tool == Tool::Mirror) {
+        ImGui::Checkbox ("Keep original", &s.mirrorKeeps);
+        ImGui::SameLine ();
+        ImGui::TextDisabled ("Click the mirror line's two points. Ctrl: the other way.");
+    }
     if (s.tool == Tool::Polygon) {
         ImGui::SetNextItemWidth (120);
         ImGui::SliderInt ("Sides (Up/Down)", &s.polygonSides, 3, edit::kMaxPolygonSides);
