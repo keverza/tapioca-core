@@ -4251,3 +4251,31 @@ TEST (HudVirtualEditor, TheLayersPaletteDrawsLayersGroupsAndObjects)
     EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
     EXPECT_EQ (d.D ().layers.size (), 1u);
 }
+
+TEST (HudVirtualEditor, CtrlClickPicksWithSelectAndTheToolComesBack)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, ed::Rectangle ({ 0, 0, 0 }, { 10, 10, 0 }), true);
+    Drive d (std::move (doc));
+    d.S ().snapEnabled = false;
+    d.Key ('L');
+    ASSERT_EQ (d.S ().tool, eh::Tool::Polyline);
+    d.input.ctrl = true;
+    d.At (660, 360); // (3, 7), inside the outline
+    EXPECT_EQ (d.S ().tool, eh::Tool::Select);
+    d.Press (660, 360);
+    d.Release (660, 360);
+    EXPECT_TRUE (d.S ().drawing.empty ()); // nothing was drawn
+    EXPECT_TRUE (d.S ().selection.Contains ({ e, ed::Part::Entity, 0 }));
+    d.input.ctrl = false;
+    d.At (660, 360);
+    EXPECT_EQ (d.S ().tool, eh::Tool::Polyline);
+    // Once a line is started, Ctrl does not take its tool away.
+    d.Press (900, 400);
+    d.Release (900, 400);
+    ASSERT_EQ (d.S ().drawing.size (), 1u);
+    d.input.ctrl = true;
+    d.At (920, 400);
+    EXPECT_EQ (d.S ().tool, eh::Tool::Polyline);
+    d.input.ctrl = false;
+}
