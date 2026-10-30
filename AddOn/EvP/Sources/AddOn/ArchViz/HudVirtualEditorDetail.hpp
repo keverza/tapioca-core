@@ -139,6 +139,23 @@ bool SelectGroups (Session& s, const std::vector<edit::Ref>& before);
 // object `ref` (a double click, Esc), each with its message.
 void GroupSelection (Session& s, bool group);
 bool EnterGroup (Session& s, const edit::Ref& ref);
+// Hiding, locking, isolating and the selection queries, as the panel, the menu and the keys
+// ask for them; and the panel's layers and groups palette (HudVirtualEditorOrganize.cpp).
+enum class OrganizeCommand : uint8_t {
+    Hide,
+    Lock,
+    Isolate,
+    ShowIsolated,
+    ShowAll,
+    UnlockAll,
+    SelectAll,
+    Invert,
+    SameRole,
+    SameLayer,
+    SameKind
+};
+void Organize (Session& s, OrganizeCommand command);
+void OrganizeControls (Session& s);
 void DrawMarquee (Session& s, ImDrawList* draw, ImVec2 mouse);
 
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).

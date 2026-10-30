@@ -234,6 +234,7 @@ void Panel (Session& s)
                        hudshell::TipSide::Above);
     }
     ImGui::EndDisabled ();
+    OrganizeControls (s);
 
     // What is selected, measured: the tracker's values (type a number over the view to set one).
     if (s.tracker.State () != edit::TrackerState::Hidden && !s.tracker.Items ().empty ()) {

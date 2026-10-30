@@ -629,6 +629,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorMenu.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorMarquee.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorKeys.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorOrganize.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorSnap.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorSnapControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorCorners.cpp"

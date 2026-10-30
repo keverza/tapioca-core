@@ -312,6 +312,11 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                     history (key.code == 'Z');
                 else if (key.ctrl && !key.alt && !typing && key.code == 'G')
                     GroupSelection (s, !key.shift);
+                else if (key.ctrl && !key.alt && !typing && key.code == 'A')
+                    Organize (s, OrganizeCommand::SelectAll);
+                else if (key.ctrl && !key.alt && !typing && (key.code == 'H' || key.code == 'L'))
+                    Organize (s, key.code == 'H' ? (key.shift ? OrganizeCommand::ShowAll : OrganizeCommand::Hide)
+                                                 : (key.shift ? OrganizeCommand::UnlockAll : OrganizeCommand::Lock));
                 else if (key.ctrl && !key.alt && !typing &&
                          (key.code == 'C' || key.code == 'X' || key.code == 'V' || key.code == 'D')) {
                     // The editor's own clipboard: a paste lands centred under the pointer.

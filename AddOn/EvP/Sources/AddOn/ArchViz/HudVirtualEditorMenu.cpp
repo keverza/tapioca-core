@@ -294,6 +294,12 @@ void AddClipboard (const Session& s, std::vector<MenuItem>& items)
     });
     items.push_back (Item ("group", "Group", "Ctrl+G", idle && edit::ObjectsOf (Doc (s), refs).size () >= 2));
     items.push_back (Item ("ungroup", "Ungroup", "Ctrl+Shift+G", idle && grouped));
+    items.push_back (Item ("org.hide", "Hide", "Ctrl+H", idle));
+    items.push_back (Item ("org.lock", "Lock", "Ctrl+L", idle));
+    items.push_back (Item ("org.isolate", "Isolate", {}, idle));
+    items.push_back (Item ("org.sameRole", "Select same role"));
+    items.push_back (Item ("org.sameLayer", "Select same layer"));
+    items.push_back (Item ("org.sameKind", "Select same kind"));
     Rule (items);
     items.push_back (Item ("mirror.x", "Mirror across gumball X", {}, idle));
     items.push_back (Item ("mirror.y", "Mirror across gumball Y", {}, idle));
@@ -481,7 +487,12 @@ std::vector<MenuItem> MenuItems (const Session& s)
             items.push_back (Item ("tool.mirror", "Mirror across a line", "M", true, s.tool == Tool::Mirror));
             items.push_back (Item ("import.drafting", "Add Archicad selection's lines", {}, !s.draftingImport));
             Rule (items);
-            items.push_back (Item ("select.all", "Select all", {}, !doc.entities.empty () || !doc.paths.empty ()));
+            items.push_back (
+                Item ("select.all", "Select all", "Ctrl+A", !doc.entities.empty () || !doc.paths.empty ()));
+            items.push_back (Item ("org.invert", "Invert selection"));
+            items.push_back (Item ("org.showIsolated", "Show isolated", {}, !doc.isolated.empty ()));
+            items.push_back (Item ("org.showAll", "Show all", "Ctrl+Shift+H"));
+            items.push_back (Item ("org.unlockAll", "Unlock all", "Ctrl+Shift+L"));
             items.push_back (Item ("select.none", "Deselect", "Esc", !s.selection.Items ().empty ()));
             Rule (items);
             items.push_back (Item ("snap.enabled", "Snapping enabled", {}, true, s.snapEnabled));
@@ -576,13 +587,19 @@ void RunMenuItem (Session& s, const std::string& id)
         s.drawing.clear ();
     else if (id == "select.none")
         s.selection.Clear ();
-    else if (id == "select.all") {
-        std::vector<edit::Ref> all;
-        for (const auto& e : doc.entities)
-            all.push_back ({ e.id, edit::Part::Entity, 0 });
-        for (const auto& p : doc.paths)
-            all.push_back ({ p.id, edit::Part::Entity, 0 });
-        s.selection.Set (all);
+    else if (id == "select.all")
+        Organize (s, OrganizeCommand::SelectAll); // what can be picked: not the hidden or locked
+    else if (id.rfind ("org.", 0) == 0) {
+        static const std::pair<const char*, OrganizeCommand> commands[] = {
+            { "org.hide", OrganizeCommand::Hide },           { "org.lock", OrganizeCommand::Lock },
+            { "org.isolate", OrganizeCommand::Isolate },     { "org.showIsolated", OrganizeCommand::ShowIsolated },
+            { "org.showAll", OrganizeCommand::ShowAll },     { "org.unlockAll", OrganizeCommand::UnlockAll },
+            { "org.invert", OrganizeCommand::Invert },       { "org.sameRole", OrganizeCommand::SameRole },
+            { "org.sameLayer", OrganizeCommand::SameLayer }, { "org.sameKind", OrganizeCommand::SameKind },
+        };
+        for (const auto& [name, command] : commands)
+            if (id == name)
+                Organize (s, command);
     }
     else if (id == "draw.finish")
         FinishDrawing (s);

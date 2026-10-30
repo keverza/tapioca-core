@@ -4183,3 +4183,61 @@ TEST (HudVirtualEditor, ADoubleClickEditsInsideAGroupAndEscLeavesIt)
     EXPECT_EQ (d.S ().enteredGroup, ed::kNoId);
     EXPECT_FALSE (d.S ().close);
 }
+
+TEST (HudVirtualEditor, HideLockIsolateAndSelectLikeFromTheMenuAndKeys)
+{
+    ed::Document doc;
+    const ed::Id a = ed::AddPolyline (doc, { { 0, 0, 0 }, { 1, 0, 0 } }, false, "kerb");
+    const ed::Id b = ed::AddPolyline (doc, { { 0, 2, 0 }, { 1, 2, 0 } }, false, "kerb");
+    const ed::Id c = ed::AddPolyline (doc, ed::Rectangle ({ 5, 0, 0 }, { 6, 1, 0 }), true, "bed");
+    Drive d (std::move (doc));
+    d.S ().menu.target = eh::MenuTarget::Object;
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 } });
+    eh::RunMenuItem (d.S (), "org.sameRole");
+    EXPECT_EQ (d.S ().selection.Items ().size (), 2u); // both kerbs
+    // Ctrl+H hides the selection, which lets go of it; Ctrl+A then takes only what is left.
+    d.input.keys = { { 'H', true, false, true } };
+    d.Frame ();
+    EXPECT_FALSE (ed::Shown (d.D (), a));
+    EXPECT_TRUE (d.S ().selection.Items ().empty ());
+    d.input.keys = { { 'A', true, false, true } };
+    d.Frame ();
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ()[0].entity, c);
+    d.input.keys = { { 'H', true, false, true, true } }; // Ctrl+Shift+H: show all
+    d.Frame ();
+    EXPECT_TRUE (ed::Shown (d.D (), b));
+    // Isolate c, then bring the rest back.
+    d.S ().selection.Set ({ { c, ed::Part::Entity, 0 } });
+    eh::RunMenuItem (d.S (), "org.isolate");
+    EXPECT_FALSE (ed::Shown (d.D (), a));
+    d.S ().menu.target = eh::MenuTarget::View;
+    ASSERT_TRUE (d.Offers ("org.showIsolated"));
+    eh::RunMenuItem (d.S (), "org.showIsolated");
+    EXPECT_TRUE (ed::Shown (d.D (), a));
+    // Ctrl+L locks; a locked object cannot be selected, and Unlock all frees it.
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 } });
+    d.input.keys = { { 'L', true, false, true } };
+    d.Frame ();
+    EXPECT_FALSE (ed::Pickable (d.D (), a));
+    eh::RunMenuItem (d.S (), "org.unlockAll");
+    EXPECT_TRUE (ed::Pickable (d.D (), a));
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 6u); // hide, show all, isolate, show isolated, lock, unlock
+}
+
+TEST (HudVirtualEditor, TheLayersPaletteDrawsLayersGroupsAndObjects)
+{
+    ed::Document doc;
+    const ed::Id a = ed::AddPolyline (doc, { { 0, 0, 0 }, { 1, 0, 0 } }, false, "kerb");
+    const ed::Id b = ed::AddPolyline (doc, { { 0, 2, 0 }, { 1, 2, 0 } }, false, "kerb");
+    ed::AddPath (doc, { { 0, 5, 0 }, { 10, 5, 0 } }, 1.5, "walk");
+    std::string error;
+    const ed::Id layer = ed::AddLayer (doc, "Kerbs");
+    ed::MoveToLayer (doc, { { a, ed::Part::Entity, 0 } }, layer, error);
+    ed::GroupObjects (doc, { { a, ed::Part::Entity, 0 }, { b, ed::Part::Entity, 0 } }, "pair", error);
+    Drive d (std::move (doc));
+    for (int i = 0; i < 3; ++i)
+        d.Frame (); // the palette opens of itself and lists them, without editing anything
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_EQ (d.D ().layers.size (), 1u);
+}
