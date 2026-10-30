@@ -541,6 +541,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffBoundaries.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffCriteria.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/EditLayers.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/EditLayersPlacement.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/EditLandscapeLayers.cpp"
     # ArchViz/OverlayText.cpp and OverlayScene.cpp are what the Diligent guest draws on
     # the overlays -- labels laid out around their anchors, dimensions, styled meshes,
