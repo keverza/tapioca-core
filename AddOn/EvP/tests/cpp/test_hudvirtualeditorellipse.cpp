@@ -68,7 +68,7 @@ TEST (HudVirtualEditorEllipse, CircleModeUsesMajorRadiusAndOneUndoRestoresEllips
     ASSERT_TRUE (s.edits.Undo ());
     EXPECT_EQ (Parameters (s, id).mode, ed::EllipseMode::Ellipse);
     EXPECT_DOUBLE_EQ (Parameters (s, id).minorRadius, 2);
-    ASSERT_TRUE (detail::SetSelectedEllipseMode (s, ed::EllipseMode::Ellipse));
+    EXPECT_FALSE (detail::SetSelectedEllipseMode (s, ed::EllipseMode::Ellipse));
 }
 
 TEST (HudVirtualEditorEllipse, PartSelectionOffersExplicitUndoableConversion)
@@ -91,7 +91,7 @@ TEST (HudVirtualEditorEllipse, PartSelectionOffersExplicitUndoableConversion)
     EXPECT_EQ (detail::SelectedEllipse (s), nullptr);
 }
 
-TEST (HudVirtualEditorEllipse, ClickingTheCurrentModePreservesConjugateAxesWithoutHistory)
+TEST (HudVirtualEditorEllipse, CurrentModeIsANoOpAndCenterEditsPreserveConjugateAxes)
 {
     eh::Session s;
     const auto id = MakeEllipse (s);
@@ -102,8 +102,12 @@ TEST (HudVirtualEditorEllipse, ClickingTheCurrentModePreservesConjugateAxesWitho
     std::string error;
     ASSERT_TRUE (ed::RegenerateEllipse (*entity, error));
     s.edits = ed::Session (doc);
-    ASSERT_TRUE (detail::SetSelectedEllipseMode (s, ed::EllipseMode::Ellipse));
+    EXPECT_FALSE (detail::SetSelectedEllipseMode (s, ed::EllipseMode::Ellipse));
     EXPECT_EQ (s.edits.UndoDepth (), 0u);
+    ASSERT_TRUE (detail::SetSelectedEllipseValue (s, detail::EllipseField::CenterY, 1.2345678901234567));
+    ASSERT_TRUE (detail::SetSelectedEllipseValue (s, detail::EllipseField::CenterZ, 3.2345678901234567));
+    EXPECT_DOUBLE_EQ (Parameters (s, id).center.y, 1.2345678901234567);
+    EXPECT_DOUBLE_EQ (Parameters (s, id).center.z, 3.2345678901234567);
     EXPECT_DOUBLE_EQ (ed::Find (s.edits.Doc (), id)->ellipse->axisU.y, 1);
     EXPECT_DOUBLE_EQ (ed::Find (s.edits.Doc (), id)->ellipse->axisV.x, 1);
 }
