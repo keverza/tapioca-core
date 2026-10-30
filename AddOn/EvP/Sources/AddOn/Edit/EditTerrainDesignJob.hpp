@@ -86,6 +86,9 @@ class TerrainDesignPublisher {
     bool Publish (const geomsrv::edit::Document& current, TerrainDesignOutcome outcome, std::string& error);
     // The published outcome while it still describes `current`; null otherwise.
     const TerrainDesignOutcome* Current (const geomsrv::edit::Document& current) const;
+    // Display only: the published outcome while it still belongs to `current`'s session and
+    // terrain, whatever revision it was built for. Never a status or publication answer.
+    const TerrainDesignOutcome* LastPublished (const geomsrv::edit::Document& current) const;
     uint64_t Latest () const
     {
         return latest;

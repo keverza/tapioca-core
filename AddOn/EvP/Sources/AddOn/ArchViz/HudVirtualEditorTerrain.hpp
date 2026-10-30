@@ -36,6 +36,7 @@ struct TerrainDesignBaseline {
 };
 struct TerrainDesignStatus {
     bool active = false, pending = false, current = false, built = false;
+    bool stale = false; // The layer shows the last built surface; it no longer matches the document.
     uint64_t revision = 0;
     size_t vertices = 0, triangles = 0, conflicts = 0;
     double cut = 0, fill = 0;
@@ -59,6 +60,10 @@ TerrainDesignStatus GetTerrainDesignStatus (const Session& session);
 // until input ends. Results never enter document state or its undo history.
 void PollTerrainDesign (Session& session);
 const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Session& session);
+// What the layer draws: the current outcome, else -- through a path move and until its rebuild
+// publishes -- the last built one of the same session and terrain, with `stale` set. Null when
+// there is none or the terrain capture is invalid. Display only; status reads CurrentTerrainDesign.
+const tapioca::geometry::TerrainDesignOutcome* LastPublishedTerrainDesign (const Session& session, bool& stale);
 void DrawTerrainDesign (const Session& session, overlaylayers::Layer& layer);
 void TerrainDesignPanel (Session& session);
 // Grade along the chosen path's band only (true), or from every path's paved outline (false, the

@@ -89,6 +89,7 @@ GS::ObjectState VirtualTerrainStatus (archviz::edithud::Session& session)
     result.Add ("active", status.active);
     result.Add ("pending", status.pending);
     result.Add ("current", status.current);
+    result.Add ("stale", status.stale);
     result.Add ("built", status.built);
     result.Add ("revision", static_cast<GS::Int64> (status.revision));
     result.Add ("vertices", static_cast<GS::Int64> (status.vertices));

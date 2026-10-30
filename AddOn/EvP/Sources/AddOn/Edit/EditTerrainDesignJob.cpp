@@ -225,4 +225,12 @@ const TerrainDesignOutcome* TerrainDesignPublisher::Current (const geomsrv::edit
     return published && Describes (current, *published) ? &*published : nullptr;
 }
 
+const TerrainDesignOutcome* TerrainDesignPublisher::LastPublished (const geomsrv::edit::Document& current) const
+{
+    return published && current.landscape && current.landscape->sessionUuid == published->session &&
+                   current.landscape->sourceTerrainGuid == published->sourceTerrainGuid
+               ? &*published
+               : nullptr;
+}
+
 } // namespace tapioca::geometry

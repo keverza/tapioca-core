@@ -679,6 +679,14 @@ TEST (EditTerrainDesignJob, AWorkerResultPublishesOnlyForTheDocumentItWasCompute
         << error;
     ++edited.revision; // The session publishes an accepted edit as a new revision.
     EXPECT_EQ (publisher.Current (edited), nullptr);
+    // Only the display may still show it, and only within its session and terrain.
+    EXPECT_EQ (publisher.LastPublished (edited), publisher.Current (fixture.doc));
+    auto foreign = edited;
+    foreign.landscape->sessionUuid[0] ^= 1;
+    EXPECT_EQ (publisher.LastPublished (foreign), nullptr);
+    foreign = edited;
+    foreign.landscape->sourceTerrainGuid += "-other";
+    EXPECT_EQ (publisher.LastPublished (foreign), nullptr);
     EXPECT_FALSE (publisher.Publish (edited, copy, error));
     EXPECT_EQ (error.rfind ("ProvenanceStale", 0), 0U) << error;
     // A capture stamped for the old revision cannot start a job for the new one.
@@ -877,6 +885,15 @@ const layers::Mesh* TerrainMesh (const layers::Layer& layer)
 {
     for (const auto& mesh : layer.meshes)
         if (mesh.rgba == 0x6E9A72FFu)
+            return &mesh;
+    return nullptr;
+}
+
+// The last built surface drawn while it no longer matches the document (#71).
+const layers::Mesh* StaleTerrainMesh (const layers::Layer& layer)
+{
+    for (const auto& mesh : layer.meshes)
+        if (mesh.rgba == 0x9AA59CFFu)
             return &mesh;
     return nullptr;
 }
@@ -1675,6 +1692,95 @@ TEST (HudTerrainDesign, EditsCoalesceUntilReleaseAndStaleWorkersNeverDraw)
     EXPECT_EQ (session.edits.UndoDepth (), depth + 1);
     ASSERT_NE (eh::CurrentTerrainDesign (session), nullptr);
     EXPECT_TRUE (eh::CurrentTerrainDesign (session)->result.conflicts.empty ());
+}
+
+TEST (HudTerrainDesign, APathDragKeepsTheLastBuiltSurfaceDrawnAsStaleUntilItsRebuildPublishes)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    session.contourStep = 0.5;
+    auto valid = std::make_shared<bool> (true);
+    eh::TerrainDesignBaseline baseline { fixture.mesh, false, [valid] { return *valid; } };
+    ASSERT_TRUE (eh::StartTerrainDesign (session, baseline, fixture.path)) << session.message;
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto built = TerrainMesh (layer)->points;
+    const auto generation = eh::CurrentTerrainDesign (session)->generation;
+    const auto staleLines = [] (const layers::Layer& value) {
+        size_t ring = 0, contours = 0;
+        for (const auto& line : value.polylines)
+            ring += line.rgba == 0x6B756D99u, contours += line.rgba == 0x5E6A61B3u || line.rgba == 0x6B756D66u;
+        return std::pair { ring, contours };
+    };
+    const auto stale = [&] {
+        const auto* mesh = StaleTerrainMesh (layer);
+        EXPECT_EQ (TerrainMesh (layer), nullptr) << "never presented as the current proposal";
+        EXPECT_NE (mesh, nullptr) << "no blank frame";
+        if (mesh) {
+            EXPECT_EQ (mesh->points, built) << "the last built surface, not a prediction";
+            EXPECT_LT (mesh->style.opacity, 0.9f);
+        }
+        const auto [ring, contours] = staleLines (layer);
+        EXPECT_EQ (ring, 1u);
+        EXPECT_GT (contours, 0u);
+        const auto status = eh::GetTerrainDesignStatus (session);
+        EXPECT_FALSE (status.current);
+        EXPECT_TRUE (status.stale);
+        EXPECT_EQ (eh::CurrentTerrainDesign (session), nullptr);
+    };
+    // Press: the gesture opens before anything moves.
+    ASSERT_TRUE (session.edits.Begin ());
+    session.publishedRevision = UINT64_MAX;
+    ASSERT_TRUE (eh::Follow (session, layer));
+    stale ();
+    // Each move restarts from the gesture's start, so the pointer's travel grows per frame.
+    const auto shift = [&] (double dy) {
+        return [&fixture, dy] (edit::Document& doc, std::string& error) {
+            return edit::EditPath (
+                doc, fixture.path,
+                [dy] (edit::Path& path, std::string&) {
+                    for (auto& point : path.points)
+                        point.p.y += dy;
+                    return true;
+                },
+                error);
+        };
+    };
+    for (int i = 1; i <= 5; ++i) {
+        ASSERT_TRUE (session.edits.Move (shift (0.25 * i)));
+        ASSERT_TRUE (eh::Follow (session, layer));
+        stale ();
+    }
+    EXPECT_FALSE (eh::GetTerrainDesignStatus (session).pending) << "no rebuild per pointer move";
+    // Release: the rebuild launches, and the stale surface holds until it publishes.
+    ASSERT_TRUE (session.edits.End ());
+    eh::Follow (session, layer);
+    stale ();
+    EXPECT_TRUE (eh::GetTerrainDesignStatus (session).pending);
+    const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (10);
+    while (std::chrono::steady_clock::now () < deadline && !eh::CurrentTerrainDesign (session)) {
+        eh::Follow (session, layer);
+        ASSERT_TRUE (TerrainMesh (layer) || StaleTerrainMesh (layer)) << "no blank frame before publication";
+        std::this_thread::sleep_for (std::chrono::milliseconds (1));
+    }
+    eh::Follow (session, layer);
+    ASSERT_NE (eh::CurrentTerrainDesign (session), nullptr);
+    EXPECT_GT (eh::CurrentTerrainDesign (session)->generation, generation);
+    EXPECT_NE (TerrainMesh (layer), nullptr);
+    EXPECT_EQ (StaleTerrainMesh (layer), nullptr) << "replaced atomically";
+    EXPECT_EQ (staleLines (layer), std::pair (size_t (0), size_t (0)));
+    EXPECT_FALSE (eh::GetTerrainDesignStatus (session).stale);
+    // A stale terrain capture hides even the last build, and keeps its error.
+    ASSERT_TRUE (session.edits.Begin ());
+    ASSERT_TRUE (session.edits.Move (shift (0.25)));
+    *valid = false;
+    eh::Follow (session, layer);
+    EXPECT_EQ (TerrainMesh (layer), nullptr);
+    EXPECT_EQ (StaleTerrainMesh (layer), nullptr);
+    const auto status = eh::GetTerrainDesignStatus (session);
+    EXPECT_FALSE (status.stale);
+    EXPECT_EQ (status.error.rfind ("TerrainCaptureStale", 0), 0U) << status.error;
+    ASSERT_TRUE (session.edits.End ());
 }
 
 TEST (HudTerrainDesign, RefusedDesignDrawsLocatedPlacesAndStartRefusalsAreAtomic)

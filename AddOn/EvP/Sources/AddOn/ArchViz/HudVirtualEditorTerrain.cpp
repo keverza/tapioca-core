@@ -175,6 +175,7 @@ struct TerrainDesignState {
     uint64_t contoursGeneration = UINT64_MAX;
     double contoursInterval = 0.0;
     std::vector<edit::Contour> contours;
+    uint64_t staleLogged = UINT64_MAX; // The generation last logged as drawn stale: once, not per move.
 };
 
 TerrainDebugSource GetTerrainDebugSource (const Session& s)
@@ -436,6 +437,20 @@ const lg::TerrainDesignOutcome* CurrentTerrainDesign (const Session& s)
     return s.terrainDesign->publisher.Current (s.edits.Doc ());
 }
 
+const lg::TerrainDesignOutcome* LastPublishedTerrainDesign (const Session& s, bool& stale)
+{
+    stale = false;
+    if (!s.terrainDesign || s.terrainDesign->invalid ||
+        (s.terrainDesign->baseline.current && !s.terrainDesign->baseline.current ()))
+        return nullptr;
+    if (const auto* current = CurrentTerrainDesign (s))
+        return current;
+    // A stale refusal has nothing to show: its places belong to paths that have moved.
+    const auto* last = s.terrainDesign->publisher.LastPublished (s.edits.Doc ());
+    stale = last && last->built;
+    return stale ? last : nullptr;
+}
+
 TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
 {
     TerrainDesignStatus status;
@@ -460,12 +475,17 @@ TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
             status.fill = current->result.build.site.fill;
         }
     }
+    else
+        LastPublishedTerrainDesign (s, status.stale);
     return status;
 }
 
 void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
 {
-    const auto* current = CurrentTerrainDesign (s);
+    // Through a path move and until its rebuild publishes, the last built surface stays as the
+    // reference for the move (#71), faded and grey so it is not read as the proposal.
+    bool stale = false;
+    const auto* current = LastPublishedTerrainDesign (s, stale);
     if (!current)
         return;
     if (current->built) {
@@ -483,9 +503,20 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         mesh.style.opacity = 0.9f;
         mesh.style.behind = overlaylayers::Behind::Fade;
         mesh.style.occludedOpacity = 0.75f;
-        LogTerrain (s, "layer proposed vertices=" + std::to_string (mesh.points.size () / 3) +
-                           " triangles=" + std::to_string (mesh.indices.size () / 3) +
-                           " guest=" + std::to_string (overlaylayers::DrawnByGuest (mesh, layer)));
+        if (stale) {
+            mesh.rgba = 0x9AA59CFFu;
+            mesh.style.opacity = 0.45f;
+            mesh.style.occludedOpacity = 0.5f;
+        }
+        if (!stale)
+            LogTerrain (s, "layer proposed vertices=" + std::to_string (mesh.points.size () / 3) +
+                               " triangles=" + std::to_string (mesh.indices.size () / 3) +
+                               " guest=" + std::to_string (overlaylayers::DrawnByGuest (mesh, layer)));
+        else if (s.terrainDesign->staleLogged != current->generation) {
+            s.terrainDesign->staleLogged = current->generation;
+            LogTerrain (s, "layer stale generation=" + std::to_string (current->generation) +
+                               " builtRevision=" + std::to_string (current->revision));
+        }
         layer.meshes.push_back (std::move (mesh));
         overlaylayers::Polyline ring;
         // The kernel's ordered ring includes every split crossing and its
@@ -497,7 +528,7 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
                 ring.points.insert (ring.points.end (), build.points.begin () + at, build.points.begin () + at + 3);
             }
         ring.closed = true;
-        ring.rgba = 0x37523DFFu;
+        ring.rgba = stale ? 0x6B756D99u : 0x37523DFFu;
         layer.polylines.push_back (std::move (ring));
         // Its contours, as the paths' are drawn: the interval asked, else about ten over the heights
         // the surface spans; every fifth level an index line. On the surface's own triangles, so a
@@ -527,13 +558,15 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
                 for (const auto& p : c.points)
                     line.points.insert (line.points.end (), { p.x, p.y, p.z });
                 const bool index = std::fmod (std::abs (std::round (c.z / interval)), 5.0) == 0.0;
-                line.rgba = index ? 0x2F4A35E6u : 0x37523D99u;
+                line.rgba = stale ? (index ? 0x5E6A61B3u : 0x6B756D66u) : (index ? 0x2F4A35E6u : 0x37523D99u);
                 line.widthPixels = index ? 1.75f : 1.0f;
                 line.behind = overlaylayers::Behind::Show;
                 layer.polylines.push_back (std::move (line));
             }
         }
     }
+    if (stale)
+        return; // Its conflict places were located on paths that have since moved.
     const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
     if (!current->built)
         LogTerrain (s,
@@ -611,6 +644,9 @@ void TerrainDesignPanel (Session& s)
     }
     else if (!status.error.empty ())
         ImGui::TextWrapped ("%s", lg::TerrainConditionText (status.error).c_str ());
+    if (status.stale)
+        ImGui::TextWrapped ("Updating: the grey terrain is the last build and does not follow the paths yet. "
+                            "It is replaced when the rebuild finishes.");
     if (!current)
         return;
     if (current->built) {
@@ -688,6 +724,11 @@ std::string TerrainGuid (const Session& s)
 }
 const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Session&)
 {
+    return nullptr;
+}
+const tapioca::geometry::TerrainDesignOutcome* LastPublishedTerrainDesign (const Session&, bool& stale)
+{
+    stale = false;
     return nullptr;
 }
 void DrawTerrainDesign (const Session&, overlaylayers::Layer&)
