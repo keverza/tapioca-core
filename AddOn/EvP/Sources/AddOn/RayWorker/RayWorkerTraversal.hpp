@@ -25,6 +25,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace geomsrv {
 class QueryEngine;
@@ -65,6 +66,10 @@ class RayWorkerTraversal final : public sunstudy::ITraversal {
     bool OccludeDirectionalCancellable (const double* origins, size_t count, const double dir[3], double tmin,
                                         double tmax, uint8_t* out, size_t maxParallel,
                                         const std::function<bool ()>& isCancelled) const override;
+    // One worker request for every hinted step; later per-step calls it
+    // foresaw are answered from it (see ITraversal::PrepareSteps).
+    void PrepareSteps (const double* positions, size_t count, const double* directions, size_t steps, double tmin,
+                       double tmax, const std::function<bool ()>& isCancelled) const override;
     // Arbitrary rays are not on the worker wire yet (G0 item 2): CPU.
     void OccludeRays (const sunstudy::OcclusionRay* rays, size_t count, uint8_t* out,
                       size_t maxParallel = 0) const override;
@@ -78,8 +83,29 @@ class RayWorkerTraversal final : public sunstudy::ITraversal {
     {
         return gpuCalls_.load ();
     }
+    // Per-step calls answered from a prepared batch, and batches requested.
+    uint64_t PreparedHits () const
+    {
+        return preparedHits_.load ();
+    }
+    uint64_t PreparedBatches () const
+    {
+        return preparedBatches_.load ();
+    }
 
   private:
+    // The hinted steps' answers: `lit` in the result layout over `positions`.
+    struct Prepared {
+        std::vector<double> positions;
+        std::vector<double> directions;
+        double tmin = 0.0, tmax = 0.0;
+        size_t words = 0;
+        std::vector<uint64_t> lit;
+    };
+    bool AnswerFromPrepared (const double* origins, size_t count, const double dir[3], double tmin, double tmax,
+                             uint8_t* out) const;
+    void FallBack (GpuReason reason, const std::string& detail) const;
+
     std::shared_ptr<const sunstudy::ITraversal> cpu_;
     std::shared_ptr<RayWorkerChannel> channel_;
     std::shared_ptr<const packet::Scene> scene_;
@@ -89,6 +115,10 @@ class RayWorkerTraversal final : public sunstudy::ITraversal {
     mutable std::atomic<bool> onCpu_ { false };
     mutable std::atomic<uint32_t> reason_ { 0 };
     mutable std::atomic<uint64_t> gpuCalls_ { 0 };
+    mutable std::atomic<uint64_t> preparedHits_ { 0 };
+    mutable std::atomic<uint64_t> preparedBatches_ { 0 };
+    mutable std::mutex preparedMutex_;
+    mutable std::shared_ptr<const Prepared> prepared_;
 };
 
 // TAPIOCA_SUNSTUDY_TRAVERSAL, lower-cased, when it names a worker backend:

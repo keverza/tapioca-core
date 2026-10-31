@@ -236,6 +236,16 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
         start = std::chrono::steady_clock::now ();
         const bool ready =
             lane.owns_lock () && sessionLock.owns_lock () && !isCancelled () && record->traversal != nullptr;
+        if (ready && !record->positions.empty () && !record->series.Empty ()) {
+            // The whole day, every advance: a backend that pays per request
+            // answers it once and ignores the repeats (ITraversal::PrepareSteps).
+            std::vector<double> directions;
+            directions.reserve (record->series.StepCount () * 3);
+            for (const SunStep& step : record->series.Steps ())
+                directions.insert (directions.end (), step.direction, step.direction + 3);
+            record->traversal->PrepareSteps (record->positions.data (), record->positions.size () / 3,
+                                             directions.data (), record->series.StepCount (), tmin, tmax, isCancelled);
+        }
 #if defined(TAPIOCA_GEOMETRY_RUST)
         if (ready && record->rustCore != nullptr) {
             std::string coreError;

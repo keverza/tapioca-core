@@ -14,6 +14,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 
 namespace evp::rayworker {
 
@@ -147,6 +148,10 @@ bool RayWorkerTraversal::OccludeDirectionalCancellable (const double* origins, s
 {
     if (onCpu_.load () || count == 0 || origins == nullptr || dir == nullptr || out == nullptr)
         return cpu_->OccludeDirectionalCancellable (origins, count, dir, tmin, tmax, out, maxParallel, isCancelled);
+    if (AnswerFromPrepared (origins, count, dir, tmin, tmax, out)) {
+        preparedHits_.fetch_add (1);
+        return true;
+    }
 
     packet::Request request;
     request.tmin = tmin;
@@ -167,17 +172,106 @@ bool RayWorkerTraversal::OccludeDirectionalCancellable (const double* origins, s
     if (outcome.superseded && !outcome.published && outcome.message == "cancelled")
         return false; // the caller cancelled; nothing to fall back from
 
-    const GpuReason reason = outcome.published
-                                 ? GpuReason::ValidationFailed
-                                 : (outcome.reason == GpuReason::None ? GpuReason::WorkerFailed : outcome.reason);
+    FallBack (outcome.published ? GpuReason::ValidationFailed
+                                : (outcome.reason == GpuReason::None ? GpuReason::WorkerFailed : outcome.reason),
+              outcome.message);
+    return cpu_->OccludeDirectionalCancellable (origins, count, dir, tmin, tmax, out, maxParallel, isCancelled);
+}
+
+void RayWorkerTraversal::FallBack (GpuReason reason, const std::string& detail) const
+{
     if (!onCpu_.exchange (true)) {
         reason_.store (static_cast<uint32_t> (reason));
         if (log_)
-            log_ ("pipeline: stage=sun-traversal requested=" + backendName_ +
-                  " actual=cpu reason=" + GpuReasonCode (reason) + " gpuSteps=" + std::to_string (gpuCalls_.load ()) +
-                  " detail=" + outcome.message);
+            log_ ("pipeline: stage=sun-traversal requested=" + backendName_ + " actual=cpu reason=" +
+                  GpuReasonCode (reason) + " gpuSteps=" + std::to_string (gpuCalls_.load ()) + " detail=" + detail);
     }
-    return cpu_->OccludeDirectionalCancellable (origins, count, dir, tmin, tmax, out, maxParallel, isCancelled);
+}
+
+void RayWorkerTraversal::PrepareSteps (const double* positions, size_t count, const double* directions, size_t steps,
+                                       double tmin, double tmax, const std::function<bool ()>& isCancelled) const
+{
+    if (onCpu_.load () || positions == nullptr || directions == nullptr || count == 0 || steps == 0)
+        return;
+    {
+        // The store hints the whole day before every advance: the same hint
+        // again costs a compare, not a trace.
+        std::lock_guard<std::mutex> lock (preparedMutex_);
+        const Prepared* p = prepared_.get ();
+        if (p != nullptr && p->tmin == tmin && p->tmax == tmax && p->positions.size () == count * 3 &&
+            p->directions.size () == steps * 3 &&
+            std::memcmp (p->positions.data (), positions, count * 3 * sizeof (double)) == 0 &&
+            std::memcmp (p->directions.data (), directions, steps * 3 * sizeof (double)) == 0)
+            return;
+    }
+    // ⚠️ NO NORMALS: every sample is traced along every direction, so a cached
+    // bit is pure occlusion -- what a per-step call asks -- whichever samples
+    // the accumulator later culls as facing away.
+    auto next = std::make_shared<Prepared> ();
+    next->positions.assign (positions, positions + count * 3);
+    next->directions.assign (directions, directions + steps * 3);
+    next->tmin = tmin;
+    next->tmax = tmax;
+    next->words = (steps + 63) / 64;
+    packet::Request request;
+    request.tmin = tmin;
+    request.tmax = tmax;
+    request.totalSteps = steps;
+    request.positions = next->positions;
+    request.directions = next->directions;
+    for (uint32_t k = 0; k < steps; ++k)
+        request.steps.push_back (k);
+    RayWorkerOutcome outcome = channel_->Run (epoch_, scene_, std::move (request), isCancelled, kRunTimeoutMs);
+    if (outcome.superseded && !outcome.published)
+        return; // cancelled: the per-step calls ask for themselves
+    const bool complete = outcome.published && outcome.result.sampleCount == count &&
+                          outcome.result.stepCount == steps && outcome.result.bits.size () == count * next->words &&
+                          std::all_of (outcome.result.resolved.begin (), outcome.result.resolved.end (),
+                                       [] (uint8_t r) { return r == 1; });
+    if (!complete) {
+        FallBack (outcome.published ? GpuReason::ValidationFailed
+                                    : (outcome.reason == GpuReason::None ? GpuReason::WorkerFailed : outcome.reason),
+                  outcome.message);
+        return;
+    }
+    next->lit = std::move (outcome.result.bits);
+    preparedBatches_.fetch_add (1);
+    std::lock_guard<std::mutex> lock (preparedMutex_);
+    prepared_ = std::move (next);
+}
+
+bool RayWorkerTraversal::AnswerFromPrepared (const double* origins, size_t count, const double dir[3], double tmin,
+                                             double tmax, uint8_t* out) const
+{
+    std::shared_ptr<const Prepared> p;
+    {
+        std::lock_guard<std::mutex> lock (preparedMutex_);
+        p = prepared_;
+    }
+    if (p == nullptr || p->tmin != tmin || p->tmax != tmax)
+        return false;
+    // The step: the same direction to the bit, as the hint gave it.
+    const size_t steps = p->directions.size () / 3;
+    size_t k = 0;
+    while (k < steps && std::memcmp (&p->directions[k * 3], dir, 3 * sizeof (double)) != 0)
+        ++k;
+    if (k == steps)
+        return false;
+    // ⚠️ EVERY ORIGIN MUST BE FOUND, BIT FOR BIT, IN ORDER. The accumulators
+    // pass a compacted subsequence of the study's samples; the walk below maps
+    // it back. Anything else (another order, a moved sample) is not answered
+    // here, and the per-step request answers it instead.
+    const size_t samples = p->positions.size () / 3;
+    const uint64_t bit = 1ull << (k % 64);
+    size_t j = 0;
+    for (size_t i = 0; i < count; ++i, ++j) {
+        while (j < samples && std::memcmp (&p->positions[j * 3], &origins[i * 3], 3 * sizeof (double)) != 0)
+            ++j;
+        if (j == samples)
+            return false;
+        out[i] = (p->lit[j * p->words + k / 64] & bit) != 0 ? uint8_t { 0 } : uint8_t { 1 };
+    }
+    return true;
 }
 
 void RayWorkerTraversal::OccludeRays (const sunstudy::OcclusionRay* rays, size_t count, uint8_t* out,

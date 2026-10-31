@@ -12,6 +12,7 @@
 #include "Geometry/QueryEngine.hpp"
 #include "MeshFixtures.hpp"
 #include "SunStudy/CpuTraversal.hpp"
+#include "SunStudy/SunStudyStore.hpp"
 
 #include <gtest/gtest.h>
 
@@ -453,3 +454,157 @@ TEST (RayWorkerTraversal, TheOptixWorkerExecutableAnswersWhatTheCpuTraversalAnsw
 }
 
 } // namespace
+
+// ---- a prepared day (ITraversal::PrepareSteps) -------------------------------
+
+namespace {
+
+std::vector<double> DayDirections (size_t steps)
+{
+    std::vector<double> directions;
+    for (size_t k = 0; k < steps; ++k) {
+        const double azimuth = 0.4 + 0.7 * double (k), elevation = 0.25 + 0.08 * double (k % 5);
+        directions.insert (directions.end (), { std::cos (elevation) * std::cos (azimuth),
+                                                std::cos (elevation) * std::sin (azimuth), std::sin (elevation) });
+    }
+    return directions;
+}
+
+std::shared_ptr<RayWorkerChannel> InProcessChannel ()
+{
+    return std::make_shared<RayWorkerChannel> (std::wstring (),
+                                               [] (const std::wstring& pipe, const std::string& segments) {
+                                                   win32::RunWorker (pipe, segments, MakeCpuReferenceBackend (), 50);
+                                               });
+}
+
+} // namespace
+
+TEST (RayWorkerTraversal, APreparedDayAnswersTheStepsItForesawWithTheSameBits)
+{
+    TraversalFixture f;
+    auto channel = InProcessChannel ();
+    RayWorkerTraversal traversal (f.cpu, channel, SceneFromIndices (f.engine.get (), nullptr), "dxr");
+    const size_t count = f.origins.size () / 3;
+    const std::vector<double> day = DayDirections (6);
+    traversal.PrepareSteps (f.origins.data (), count, day.data (), 6, 0.001, 0.0, {});
+    traversal.PrepareSteps (f.origins.data (), count, day.data (), 6, 0.001, 0.0, {});
+    EXPECT_EQ (traversal.PreparedBatches (), 1u) << "the same hint again is a compare, not a trace";
+
+    // Every sample, and a compacted subsequence (what the accumulators pass).
+    std::vector<double> every3rd;
+    for (size_t i = 0; i < count; i += 3)
+        every3rd.insert (every3rd.end (), f.origins.begin () + i * 3, f.origins.begin () + i * 3 + 3);
+    for (size_t k = 0; k < 6; ++k)
+        for (const std::vector<double>* origins : { &f.origins, &every3rd }) {
+            const size_t n = origins->size () / 3;
+            std::vector<uint8_t> expected (n), actual (n, 7);
+            f.cpu->OccludeDirectional (origins->data (), n, &day[k * 3], 0.001, 0.0, expected.data ());
+            ASSERT_TRUE (traversal.OccludeDirectionalCancellable (origins->data (), n, &day[k * 3], 0.001, 0.0,
+                                                                  actual.data (), 0, {}));
+            EXPECT_EQ (actual, expected) << "step " << k;
+        }
+    EXPECT_EQ (traversal.PreparedHits (), 12u);
+    EXPECT_EQ (traversal.GpuCalls (), 0u) << "no per-step request for a foreseen step";
+
+    // What it did not foresee is asked for, and answered the same.
+    std::vector<double> reversed;
+    for (size_t i = count; i-- > 0;)
+        reversed.insert (reversed.end (), f.origins.begin () + i * 3, f.origins.begin () + i * 3 + 3);
+    const double unforeseen[3] = { 0.3, -0.5, 0.8 };
+    struct Case {
+        const std::vector<double>* origins;
+        const double* dir;
+        double tmin;
+    };
+    for (const Case& c : { Case { &f.origins, unforeseen, 0.001 }, Case { &reversed, &day[0], 0.001 },
+                           Case { &f.origins, &day[3], 0.01 } }) {
+        std::vector<uint8_t> expected (count), actual (count, 7);
+        f.cpu->OccludeDirectional (c.origins->data (), count, c.dir, c.tmin, 0.0, expected.data ());
+        ASSERT_TRUE (traversal.OccludeDirectionalCancellable (c.origins->data (), count, c.dir, c.tmin, 0.0,
+                                                              actual.data (), 0, {}));
+        EXPECT_EQ (actual, expected);
+    }
+    EXPECT_EQ (traversal.PreparedHits (), 12u);
+    EXPECT_EQ (traversal.GpuCalls (), 3u);
+    EXPECT_EQ (traversal.ActualBackend (), "dxr");
+    channel->Shutdown ();
+}
+
+namespace {
+
+// A study the store runs to convergence one step per Advance, as the advance
+// worker does; returns its per-(sample, step) bits.
+std::vector<uint8_t> RunStudyThroughTheStore (const TraversalFixture& f,
+                                              std::shared_ptr<const evp::sunstudy::ITraversal> traversal, bool rustCore)
+{
+    using namespace evp::sunstudy;
+    auto record = std::make_unique<StudyRecord> ();
+    const std::vector<double> day = DayDirections (9);
+    std::vector<SunStep> steps (9);
+    for (size_t k = 0; k < steps.size (); ++k) {
+        steps[k].time = { 7 + int (k), 0 };
+        std::copy (&day[k * 3], &day[k * 3] + 3, steps[k].direction);
+        steps[k].altitudeDegrees = 20.0;
+    }
+    record->series = SunSeries::FromSteps (steps, 60);
+    record->traversal = std::move (traversal);
+    record->timestepMinutes = 60;
+    record->gridSpacing = 1.0;
+    // Ground samples facing up, and the tower's east wall facing +x: the
+    // accumulators cull the wall when the sun is behind it.
+    record->positions = f.origins;
+    for (size_t i = 0; i < f.origins.size () / 3; ++i)
+        record->normals.insert (record->normals.end (), { 0.0, 0.0, 1.0 });
+    for (int iz = 0; iz < 6; ++iz)
+        for (int iy = 0; iy < 4; ++iy) {
+            record->positions.insert (record->positions.end (), { 2.0, -1.5 + 0.9 * iy, 0.5 + 0.9 * iz });
+            record->normals.insert (record->normals.end (), { 1.0, 0.0, 0.0 });
+        }
+    const StudyInputs inputs { f.engine->SnapshotId (), record->series.Version (), 1 };
+    if (rustCore) {
+        std::string error;
+        EXPECT_TRUE (AttachRustStudyCore (*record, *f.engine->SourceSnapshot (), nullptr, 4096, error)) << error;
+    }
+    SyncStudy (*record, inputs);
+    SunStudyStore& store = SunStudyStore::Get ();
+    const std::string id = store.Insert (std::move (record));
+    std::string error;
+    for (int tick = 0; tick < 20; ++tick) {
+        size_t advanced = 0;
+        EXPECT_TRUE (store.Advance (id, 1, 1, 0.001, 0.0, advanced, error)) << error;
+        StudyProgress progress;
+        store.Progress (id, progress, error);
+        if (progress.converged)
+            break;
+    }
+    std::vector<double> hours, positions, normals;
+    std::vector<uint8_t> bits;
+    EXPECT_TRUE (store.Results (id, hours, positions, normals, &bits, error)) << error;
+    store.Erase (id);
+    return bits;
+}
+
+} // namespace
+
+TEST (RayWorkerTraversal, TheStorePreparesTheDaySoEveryStepOfAStudyIsOneRequest)
+{
+    TraversalFixture f;
+    for (const bool rustCore : { false, true }) {
+#if !defined(TAPIOCA_GEOMETRY_RUST)
+        if (rustCore)
+            continue;
+#endif
+        const char* core = rustCore ? "rust core" : "c++ core";
+        const std::vector<uint8_t> expected = RunStudyThroughTheStore (f, f.cpu, rustCore);
+        ASSERT_FALSE (expected.empty ()) << core;
+        auto channel = InProcessChannel ();
+        auto traversal =
+            std::make_shared<RayWorkerTraversal> (f.cpu, channel, SceneFromIndices (f.engine.get (), nullptr), "dxr");
+        EXPECT_EQ (RunStudyThroughTheStore (f, traversal, rustCore), expected) << core;
+        EXPECT_EQ (traversal->PreparedBatches (), 1u) << core;
+        EXPECT_GE (traversal->PreparedHits (), 9u) << core;
+        EXPECT_EQ (traversal->GpuCalls (), 0u) << core << ": every step was foreseen";
+        channel->Shutdown ();
+    }
+}

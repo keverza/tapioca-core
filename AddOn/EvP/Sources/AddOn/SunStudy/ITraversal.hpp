@@ -77,6 +77,27 @@ class ITraversal {
         return !isCancelled || !isCancelled ();
     }
 
+    // A HINT, never a query: the caller will soon ask OccludeDirectional for
+    // subsets of `positions` (xyz, `count`) along these `directions` (xyz,
+    // `steps`) with these bounds. A backend whose cost is per request (the
+    // out-of-process ray worker) may answer them all now in one; every other
+    // backend ignores it.
+    //
+    // ⚠️ RESULTS MUST BE IDENTICAL WHETHER OR NOT THIS RAN. A call it did not
+    // foresee -- other origins, another direction, other bounds -- is answered
+    // exactly as without it. Nothing is borrowed beyond the call.
+    virtual void PrepareSteps (const double* positions, size_t count, const double* directions, size_t steps,
+                               double tmin, double tmax, const std::function<bool ()>& isCancelled) const
+    {
+        (void) positions;
+        (void) count;
+        (void) directions;
+        (void) steps;
+        (void) tmin;
+        (void) tmax;
+        (void) isCancelled;
+    }
+
     // The general form: every query carries its own direction. Needed by the
     // hemisphere probe, where each sample fires a fan rather than one ray, and
     // by any second-bounce query.
