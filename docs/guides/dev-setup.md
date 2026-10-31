@@ -98,7 +98,9 @@ for the version/legacy geometry-validation archive. See
 ABI smoke test. No geometry algorithm is migrated; attributed identity validation
 is still a separate gate. `-DTAPIOCA_LINK_RUST_GEOMETRY=OFF` explicitly selects the
 legacy no-Rust rollback build; a missing toolchain must never silently skip the
-enabled archive or count as a validator pass.
+enabled archive or count as a validator pass. That build has no sun-study core:
+sun-study commands refuse with "this build has no sun-study core" (visibility and
+viewpoint studies still run).
 
 - `AddOn\reference\`: copy or provision it as described above.
 - `%LOCALAPPDATA%\Tapioca\palette.json`: copy only if the saved palette layout and

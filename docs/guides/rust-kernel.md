@@ -1171,9 +1171,12 @@ not completed soft/solve constraint enforcement.
 
 ## Sun-study core (`tapioca-sunstudy`)
 
-The SDK-free sun-study analysis core is being ported from `Sources/AddOn/SunStudy/`
-in phases; the C++ core stays the production authority and the parity oracle until
-the integration flip, and nothing in production calls the Rust path yet.
+The SDK-free sun-study analysis core was ported from `Sources/AddOn/SunStudy/` in
+phases. Since P7a the study core -- the accumulator, the session and the follower
+policy -- exists only in Rust: every study runs on `rust::RustStudyCore`, and a build
+without the archive has no sun-study core. The kernels (sampler, atlases, roles,
+series, raster, reading, ...) still run their C++ originals in production, pinned to
+their Rust twins by the parity tests, until P7b switches and deletes them.
 
 - **P0:** the crate, its `check_rust.py` registration (no dependencies; a
   `sunstudy -> geometry` edge is added only with a consumer) and
@@ -1233,18 +1236,28 @@ the integration flip, and nothing in production calls the Rust path yet.
   started under the flag attach the Rust core (`AttachRustStudyCore` refuses
   a core whose atlas disagrees with the record's) and `SunStudyStore`,
   display preparation, sample meshes and reuse delegate to it; the follower
-  driver runs `SelectableSunStudyFollower`; the viewpoint controller calls
+  driver ran a selectable follower (since P7a `SunStudyFollowerPolicy`); the viewpoint controller calls
   `RunSelectedViewpointStudy`, and the visibility controller and command call
   `RunSelectedVisibilityStudy` (the Rust result restores its
   `SunStudyPatchAtlas` with `FromState`). `test_sunstudy_rust_flip.cpp`
   compares a C++-core and a Rust-core study through every store reader and
   the display packet.
-- **P6 (default `rust`):** an unset flag selects the Rust core;
-  `TAPIOCA_SUNSTUDY_CORE=cpp` keeps the C++ core, which stays compiled as the
-  oracle and the escape hatch until it is deleted (P7). Offline, store
-  `Advance` to convergence costs the same on both cores (0.88-1.09x over
-  7k-74k samples, 48 steps, 1 and 8 workers): both trace through the same
-  C++ index.
+- **P6 (default `rust`):** an unset flag selected the Rust core;
+  `TAPIOCA_SUNSTUDY_CORE=cpp` kept the C++ core as the oracle and the escape
+  hatch. Offline, store `Advance` to convergence cost the same on both cores
+  (0.88-1.09x over 7k-74k samples, 48 steps, 1 and 8 workers): both trace
+  through the same C++ index.
+- **P7a (C++ study core deleted):** `OcclusionAccumulator`, `SunStudySession`,
+  `SunStudyFollower`, the core selection and `TAPIOCA_SUNSTUDY_CORE` are gone.
+  `StudyRecord` has no C++ session; `StartSunStudy` refuses a study whose core
+  cannot be attached (no archive, a refused core, an atlas mismatch) instead of
+  falling back; every store reader refuses a record without a core; reuse
+  seeds only through `RustStudyCore::ReuseFrom`. The driver holds
+  `SunStudyFollowerPolicy` (the Rust follower). The deleted classes' tests run
+  on the Rust wrappers (`test_sunstudyocclusion.cpp`, `test_sunstudysession.cpp`,
+  `test_sunstudyfollower.cpp`), and the flip and study tests hold every store
+  reader and the display packet to the C++ kernels recomputed from the core's
+  hours and bits (`sunstudy_kernel_oracle.hpp`).
 
 Parity is **bit-for-bit**, not within a tolerance: `test_sunstudy_rust_parity.cpp`
 runs each kernel and its C++ original over fixed-seed generated corpora and
@@ -1335,7 +1348,11 @@ cmake -S AddOn/EvP/tests/cpp -B AddOn/EvP/tests/cpp/build -DTAPIOCA_LINK_RUST_GE
 ```
 
 OFF excludes the services wrapper, Rust parity tests and native startup handshake;
-it does not certify Rust validators or permit attributed/terrain consumers. Set
+it does not certify Rust validators or permit attributed/terrain consumers. It also
+has no sun-study core (P7a): the build compiles, `StartSunStudy` refuses with "this
+build has no sun-study core", the follower policy stays inert, and the sun-study
+tests that run a study are compiled only with the archive. Visibility and viewpoint
+studies keep their C++ bodies in that build. Set
 the option back ON to restore the bridge. The additional full quality-gate target
 remains independently opt-in:
 
