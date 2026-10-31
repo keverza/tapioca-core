@@ -85,6 +85,26 @@ class OcclusionAccumulator final {
     {
         return traceMilliseconds_;
     }
+    // Of LastRayCount, the rays something blocked; the rest walked the whole
+    // path to the sky, which is the expensive half (#97 measures the split).
+    size_t LastHitCount () const
+    {
+        return hitCount_;
+    }
+    // What the caller allowed the traversal; 1 is the follower's choice.
+    size_t LastMaxParallel () const
+    {
+        return maxParallel_;
+    }
+    // The CALLING thread's CPU time over LastTraceMilliseconds. With one
+    // thread it is all the work, and a figure well under the wall time means
+    // the thread waited for a core rather than traversed. Other threads' time
+    // is not in it. Windows charges CPU time in scheduler ticks (~15.6 ms),
+    // so read it over a run (sun-run-end), not a short step.
+    double LastTraceCpuMilliseconds () const
+    {
+        return traceCpuMilliseconds_;
+    }
 
     // Resolve one timestep for every sample.
     //
@@ -152,6 +172,9 @@ class OcclusionAccumulator final {
     std::vector<uint64_t> dirtySteps_;
     double compactMilliseconds_ = 0.0;
     double traceMilliseconds_ = 0.0;
+    size_t hitCount_ = 0;
+    double traceCpuMilliseconds_ = 0.0;
+    size_t maxParallel_ = 0;
 
     // Reused across steps; see the header note on per-step allocation.
     mutable std::vector<double> frontFacingOrigins_;

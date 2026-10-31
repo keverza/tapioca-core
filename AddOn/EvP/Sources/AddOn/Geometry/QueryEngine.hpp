@@ -70,6 +70,14 @@ class QueryEngine {
     {
         return triToMesh.size ();
     }
+    // The BVH's shape, for the traversal telemetry: its node count and the
+    // deepest leaf. A tree far deeper than log2(triangles / leaf) is the
+    // first thing to rule out when a ray costs more on a bigger model (#97).
+    size_t BvhNodeCount () const;
+    size_t BvhDepth () const
+    {
+        return bvhDepth;
+    }
 
     // Index of a mesh in snapshot->meshes; its guid via MeshGuid.
     const std::string& MeshGuid (size_t idx) const
@@ -181,6 +189,7 @@ class QueryEngine {
     std::vector<uint32_t> faces;     // global triangle indices into verts
     std::vector<uint32_t> triToMesh; // meshIndex per global triangle
 
+    size_t bvhDepth = 0;
     std::unique_ptr<Impl> impl; // holds the nanort BVH (keeps nanort.h out of this header)
 
     // Closest point on triangle `globalTri` to p; returns squared distance.

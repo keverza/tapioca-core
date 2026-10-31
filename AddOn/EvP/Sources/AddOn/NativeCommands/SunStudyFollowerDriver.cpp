@@ -77,6 +77,7 @@ uint64_t gSnapshotRebuilds = 0;
 std::string gLastError;
 uint64_t s_sessionGeneration = 1;
 uint64_t s_runRevision = 0;
+int64_t s_runStartedMs = 0; // when the record was prepared, for sun-abandon
 uint64_t s_cancelledRuns = 0;
 uint64_t s_sliceSubmissions = 0;
 uint64_t s_sliceCompletions = 0;
@@ -364,6 +365,11 @@ void RetireRun (const char* reason, bool cancelled = true)
         ++s_cancelledRuns;
     evp::sunstudy::SunStudyStore::Get ().Erase (gRunStudyId, s_runRevision);
     Log ("retired study=" + gRunStudyId + " -- " + reason);
+    // The work thrown away with it, so a discarded long run is visible (#97 P0).
+    archviz::ArchVizLog ("pipeline: stage=sun-abandon study=" + gRunStudyId + " reason=\"" + reason +
+                         "\" resolved=" + std::to_string (s_runProgress.resolvedSteps) + "/" +
+                         std::to_string (s_runProgress.totalSteps) +
+                         " elapsedMs=" + std::to_string (NowMs () - s_runStartedMs));
     gRunStudyId.clear ();
     s_runRevision = 0;
 }
@@ -496,6 +502,7 @@ bool PollPreparation (int64_t now)
         return false;
     }
     gRunStudyId = output->studyId;
+    s_runStartedMs = NowMs ();
     s_runRevision = output->revision;
     s_stage = "calculating";
     return true;

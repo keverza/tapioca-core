@@ -72,6 +72,38 @@ TEST (SunStudyOcclusion, ShadowedAndSunlitSamplesAreDistinguished)
     EXPECT_TRUE (accumulator.Complete ());
 }
 
+// The sun-step telemetry's hit/clear split and thread budget (#97 P0): one
+// traced ray blocked, one clear, and the caller's maxParallel as given.
+TEST (SunStudyOcclusion, StepTelemetryCountsBlockedRaysAndKeepsTheThreadBudget)
+{
+    Scene scene;
+    OcclusionAccumulator accumulator (2, 2);
+    ASSERT_TRUE (accumulator.AccumulateStep (*scene.traversal, scene.Samples (), 0, kSunUp, 0.001, 0.0, 1));
+    EXPECT_EQ (accumulator.LastRayCount (), 2u);
+    EXPECT_EQ (accumulator.LastHitCount (), 1u);
+    EXPECT_EQ (accumulator.LastMaxParallel (), 1u);
+    EXPECT_GE (accumulator.LastTraceCpuMilliseconds (), 0.0);
+
+    // Every sample facing away: nothing traced, so nothing counted as blocked.
+    ASSERT_TRUE (
+        accumulator.AccumulateStep (*scene.traversal, scene.Samples (scene.down.data ()), 1, kSunUp, 0.001, 0.0, 4));
+    EXPECT_EQ (accumulator.LastRayCount (), 0u);
+    EXPECT_EQ (accumulator.LastHitCount (), 0u);
+    EXPECT_EQ (accumulator.LastMaxParallel (), 4u);
+}
+
+// Two triangles make one leaf under nanort's default leaf size: one node, depth 1.
+TEST (SunStudyOcclusion, QueryEngineReportsTheBvhShape)
+{
+    const QueryEngine engine (MakeRoofSnapshot ());
+    EXPECT_EQ (engine.BvhNodeCount (), 1u);
+    EXPECT_EQ (engine.BvhDepth (), 1u);
+    auto empty = std::make_shared<Snapshot> ();
+    const QueryEngine none (empty);
+    EXPECT_EQ (none.BvhNodeCount (), 0u);
+    EXPECT_EQ (none.BvhDepth (), 0u);
+}
+
 // ⚠️ A SURFACE TURNED AWAY FROM THE SUN IS SELF-SHADOWED WHATEVER THE GEOMETRY
 // DOES. Without this, the back of a wall counts the sun striking its front.
 TEST (SunStudyOcclusion, BackFacingSamplesAreNeverLit)

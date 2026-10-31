@@ -1,4 +1,5 @@
 #include "SunStudy/SunStudyOcclusion.hpp"
+#include "SunStudy/SunStudyThreadPolicy.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -100,6 +101,9 @@ bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const Sa
     const uint64_t bit = 1ull << (stepIndex % kBitsPerWord);
     const auto started = std::chrono::steady_clock::now ();
     traceMilliseconds_ = 0.0;
+    hitCount_ = 0;
+    traceCpuMilliseconds_ = 0.0;
+    maxParallel_ = maxParallel;
 
     // ⚠️ BACK-FACING SAMPLES ARE CULLED BEFORE THE RAY, NOT AFTER. A surface
     // turned away from the sun is self-shadowed whatever the geometry does, so
@@ -136,11 +140,13 @@ bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const Sa
     compactMilliseconds_ = std::chrono::duration<double, std::milli> (compacted - started).count ();
     if (traced > 0) {
         occluded_.assign (traced, 0u);
+        const double cpuBefore = CurrentThreadCpuMilliseconds ();
         if (!traversal.OccludeDirectionalCancellable (frontFacingOrigins_.data (), traced, sunDirection, tmin, tmax,
                                                       occluded_.data (), maxParallel, isCancelled))
             return false;
         traceMilliseconds_ =
             std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - compacted).count ();
+        traceCpuMilliseconds_ = CurrentThreadCpuMilliseconds () - cpuBefore;
     }
     if (isCancelled && isCancelled ())
         return false;
@@ -154,8 +160,10 @@ bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const Sa
     }
     if (traced > 0) {
         for (size_t i = 0; i < traced; ++i) {
-            if (occluded_[i] != 0)
+            if (occluded_[i] != 0) {
+                ++hitCount_;
                 continue; // something in the way
+            }
             const size_t s = frontFacingIndex_[i];
             bits_[s * wordsPerSample_ + word] |= bit;
         }
@@ -174,7 +182,7 @@ size_t OcclusionAccumulator::AccumulateRange (const ITraversal& traversal, const
                                               const std::function<bool ()>& isCancelled)
 {
     size_t done = 0;
-    const size_t limit = std::min (series.StepCount (), stepCount_);
+    const size_t limit = (std::min) (series.StepCount (), stepCount_);
     for (size_t step = firstStep; step < limit && done < maxSteps; ++step) {
         if (!AccumulateStep (traversal, samples, step, series.Step (step).direction, tmin, tmax, maxParallel,
                              isCancelled))

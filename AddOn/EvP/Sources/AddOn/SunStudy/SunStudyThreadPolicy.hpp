@@ -31,6 +31,24 @@ inline bool UseInteractiveStudyPriority ()
 #endif
 }
 
+// CPU time this thread has used, in milliseconds; 0 where unavailable. Set
+// beside a wall-clock interval it tells a slow traversal from a STARVED one:
+// the study worker runs below normal priority (#97 P0).
+inline double CurrentThreadCpuMilliseconds ()
+{
+#ifdef _WIN32
+    FILETIME created, exited, kernel, user;
+    if (::GetThreadTimes (::GetCurrentThread (), &created, &exited, &kernel, &user) == 0)
+        return 0.0;
+    const auto ticks = [] (const FILETIME& time) {
+        return (unsigned long long) (time.dwHighDateTime) << 32 | time.dwLowDateTime;
+    };
+    return double (ticks (kernel) + ticks (user)) / 10000.0; // 100 ns ticks
+#else
+    return 0.0;
+#endif
+}
+
 } // namespace evp::sunstudy
 
 #endif

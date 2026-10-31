@@ -3,13 +3,103 @@
 #include "SunStudy/SunStudyCoreSelection.hpp"
 #include "SunStudy/SunStudyReuse.hpp"
 #include "SunStudy/SunStudyOccluders.hpp"
+#include "SunStudy/CpuTraversal.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/SunStudyGpuTraversal.hpp"
 #include "RayWorker/RayWorkerTraversal.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <memory>
+#include <string>
 
 namespace geomsrv {
+
+namespace {
+
+constexpr size_t kUnknownCount = static_cast<size_t> (-1);
+
+struct SunRunTotals {
+    std::string scene;
+    bool started = false;
+    size_t steps = 0;
+    size_t rays = 0;
+    size_t hits = 0;
+    bool hitsKnown = true;
+    size_t threads = 0;
+    double traceMs = 0.0;
+    double traceCpuMs = 0.0;
+    bool cpuKnown = true;
+    double wallMs = 0.0;
+    std::chrono::steady_clock::time_point first;
+};
+
+std::string IndexFields (const char* role, const QueryEngine* index)
+{
+    const std::string name (role);
+    if (index == nullptr)
+        return " " + name + "Triangles=0";
+    return " " + name + "Triangles=" + std::to_string (index->TriangleCount ()) + " " + name +
+           "BvhNodes=" + std::to_string (index->BvhNodeCount ()) + " " + name +
+           "BvhDepth=" + std::to_string (index->BvhDepth ());
+}
+
+// The study's occluder indexes as traced: the analysis one first, then the
+// context one a clear ray ALSO walks (SunStudyPartitionTraversal).
+std::string SunRunSceneFields (const evp::sunstudy::SunStudyOccluders* occluders)
+{
+    if (occluders == nullptr)
+        return " occluders=none";
+    return IndexFields ("analysis", occluders->analysis.get ()) + IndexFields ("context", occluders->context.get ()) +
+           " contextReused=" + std::to_string (occluders->contextReused);
+}
+
+std::string Count (size_t value)
+{
+    return value == kUnknownCount ? std::string ("?") : std::to_string (value);
+}
+
+void NoteSunRunStep (SunRunTotals& totals, uint64_t snapshotId, const char* core, size_t samples, size_t stepCount,
+                     size_t resolved, size_t rays, size_t hits, size_t threads, double traceMs, double traceCpuMs,
+                     double wallMs)
+{
+    const std::string study = " snapshot=" + std::to_string (snapshotId) + " core=" + core;
+    if (!totals.started) {
+        totals.started = true;
+        totals.first = std::chrono::steady_clock::now ();
+        archviz::ArchVizLog ("pipeline: stage=sun-run-start" + study + " steps=" + std::to_string (stepCount) +
+                             " samples=" + std::to_string (samples) + " firstStep=" + std::to_string (resolved) +
+                             totals.scene);
+    }
+    ++totals.steps;
+    totals.rays += rays;
+    totals.hitsKnown = totals.hitsKnown && hits != kUnknownCount;
+    if (hits != kUnknownCount)
+        totals.hits += hits;
+    if (threads != kUnknownCount)
+        totals.threads = (std::max) (totals.threads, threads);
+    totals.traceMs += traceMs;
+    totals.cpuKnown = totals.cpuKnown && traceCpuMs >= 0.0;
+    totals.traceCpuMs += (std::max) (0.0, traceCpuMs);
+    totals.wallMs += wallMs;
+    if (resolved < stepCount)
+        return;
+    const double elapsedMs =
+        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - totals.first).count ();
+    const double usPerRay = totals.rays == 0 ? 0.0 : 1000.0 * totals.traceMs / double (totals.rays);
+    const size_t hitsTotal = totals.hitsKnown ? totals.hits : kUnknownCount;
+    archviz::ArchVizLog ("pipeline: stage=sun-run-end" + study + " steps=" + std::to_string (totals.steps) + "/" +
+                         std::to_string (stepCount) + " samples=" + std::to_string (samples) +
+                         " rays=" + std::to_string (totals.rays) + " hitRays=" + Count (hitsTotal) +
+                         " clearRays=" + Count (totals.hitsKnown ? totals.rays - totals.hits : kUnknownCount) +
+                         " threads=" + (totals.threads == 0 ? std::string ("?") : std::to_string (totals.threads)) +
+                         " traceMs=" + std::to_string (totals.traceMs) +
+                         " traceCpuMs=" + (totals.cpuKnown ? std::to_string (totals.traceCpuMs) : std::string ("?")) +
+                         " wallMs=" + std::to_string (totals.wallMs) + " elapsedMs=" + std::to_string (elapsedMs) +
+                         " usPerRay=" + std::to_string (usPerRay) + totals.scene);
+}
+
+} // namespace
 
 void LogSunStudySurfaceSampling (uint64_t snapshot, const evp::sunstudy::SurfaceSamplingResult& result)
 {
@@ -141,29 +231,45 @@ void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_
         " reusedSampleSteps=" + std::to_string (record.reusedSampleSteps) + " dirtySampleSteps=" +
         std::to_string (record.positions.size () / 3 * record.series.StepCount () - record.reusedSampleSteps) +
         " gridM=" + std::to_string (record.gridSpacing));
+    // One study's totals, carried from step to step: sun-run-start on its first
+    // traced step, sun-run-end on its last (#97 P0). The scene's shape goes on
+    // those two lines, not on every sun-step, because it is fixed per study.
+    auto totals = std::make_shared<SunRunTotals> ();
+    totals->scene = SunRunSceneFields (record.occluders.get ());
     if (record.rustCore != nullptr) {
-        record.rustStepObserver = [snapshotId] (size_t step, const TapiocaOcclusionState& state, double wallMs) {
+        record.rustStepObserver = [snapshotId, totals] (size_t step, const TapiocaOcclusionState& state,
+                                                        double wallMs) {
             archviz::ArchVizLog (
                 "pipeline: stage=sun-step snapshot=" + std::to_string (snapshotId) +
                 " core=rust step=" + std::to_string (step + 1) + "/" + std::to_string (state.stepCount) +
                 " samples=" + std::to_string (state.sampleCount) + " dirty=" + std::to_string (state.activeSamples) +
                 " rays=" + std::to_string (state.lastRayCount) + " compactMs=" + std::to_string (state.compactMs) +
                 " traceMs=" + std::to_string (state.traceMs) + " wallMs=" + std::to_string (wallMs));
+            NoteSunRunStep (*totals, snapshotId, "rust", state.sampleCount, state.stepCount, state.resolvedSteps,
+                            state.lastRayCount, kUnknownCount, kUnknownCount, state.traceMs, -1.0, wallMs);
         };
         return;
     }
-    record.session.SetStepObserver ([snapshotId] (size_t step, const evp::sunstudy::OcclusionAccumulator& accumulator,
-                                                  double wallMs) {
-        const size_t rays = accumulator.LastRayCount ();
-        archviz::ArchVizLog (
-            "pipeline: stage=sun-step snapshot=" + std::to_string (snapshotId) + " step=" + std::to_string (step + 1) +
-            "/" + std::to_string (accumulator.StepCount ()) +
-            " samples=" + std::to_string (accumulator.SampleCount ()) +
-            " dirty=" + std::to_string (accumulator.ActiveSampleCount ()) + " rays=" + std::to_string (rays) +
-            " rayPacketBytes=" + std::to_string (rays * (3 * sizeof (double) + sizeof (uint32_t) + 1)) +
-            " compactMs=" + std::to_string (accumulator.LastCompactMilliseconds ()) +
-            " traceMs=" + std::to_string (accumulator.LastTraceMilliseconds ()) + " wallMs=" + std::to_string (wallMs));
-    });
+    record.session.SetStepObserver (
+        [snapshotId, totals] (size_t step, const evp::sunstudy::OcclusionAccumulator& accumulator, double wallMs) {
+            const size_t rays = accumulator.LastRayCount ();
+            const size_t hits = accumulator.LastHitCount ();
+            const size_t threads = evp::sunstudy::ChooseThreadCount (rays, accumulator.LastMaxParallel ());
+            archviz::ArchVizLog (
+                "pipeline: stage=sun-step snapshot=" + std::to_string (snapshotId) +
+                " step=" + std::to_string (step + 1) + "/" + std::to_string (accumulator.StepCount ()) +
+                " samples=" + std::to_string (accumulator.SampleCount ()) +
+                " dirty=" + std::to_string (accumulator.ActiveSampleCount ()) + " rays=" + std::to_string (rays) +
+                " hitRays=" + std::to_string (hits) + " clearRays=" + std::to_string (rays - hits) + " maxParallel=" +
+                std::to_string (accumulator.LastMaxParallel ()) + " threads=" + std::to_string (threads) +
+                " rayPacketBytes=" + std::to_string (rays * (3 * sizeof (double) + sizeof (uint32_t) + 1)) +
+                " compactMs=" + std::to_string (accumulator.LastCompactMilliseconds ()) +
+                " traceMs=" + std::to_string (accumulator.LastTraceMilliseconds ()) + " traceCpuMs=" +
+                std::to_string (accumulator.LastTraceCpuMilliseconds ()) + " wallMs=" + std::to_string (wallMs));
+            NoteSunRunStep (*totals, snapshotId, "cpp", accumulator.SampleCount (), accumulator.StepCount (),
+                            accumulator.ResolvedStepCount (), rays, hits, threads, accumulator.LastTraceMilliseconds (),
+                            accumulator.LastTraceCpuMilliseconds (), wallMs);
+        });
 }
 
 } // namespace geomsrv

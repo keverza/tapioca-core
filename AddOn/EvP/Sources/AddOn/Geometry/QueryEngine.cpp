@@ -18,6 +18,25 @@ struct QueryEngine::Impl {
 
 namespace {
 
+// The deepest leaf, walked once after the build with an explicit stack.
+size_t MeasureDepth (const std::vector<nanort::BVHNode<double>>& nodes)
+{
+    if (nodes.empty ())
+        return 0;
+    size_t deepest = 0;
+    std::vector<std::pair<uint32_t, size_t>> pending { { 0u, 1u } };
+    while (!pending.empty ()) {
+        const auto [index, depth] = pending.back ();
+        pending.pop_back ();
+        deepest = (std::max) (deepest, depth);
+        if (nodes[index].flag == 0) {
+            pending.emplace_back (nodes[index].data[0], depth + 1);
+            pending.emplace_back (nodes[index].data[1], depth + 1);
+        }
+    }
+    return deepest;
+}
+
 class MaskedTriangleIntersector : public nanort::TriangleIntersector<double, nanort::TriangleIntersection<double>> {
   public:
     using Base = nanort::TriangleIntersector<double, nanort::TriangleIntersection<double>>;
@@ -106,7 +125,13 @@ QueryEngine::QueryEngine (std::shared_ptr<const Snapshot> snap) : snapshot (std:
         nanort::TriangleSAHPred<double> pred (verts.data (), faces.data (), sizeof (double) * 3);
         nanort::BVHBuildOptions<double> opts; // defaults are fine
         impl->accel.Build (static_cast<unsigned int> (triToMesh.size ()), tm, pred, opts);
+        bvhDepth = MeasureDepth (impl->accel.GetNodes ());
     }
+}
+
+size_t QueryEngine::BvhNodeCount () const
+{
+    return impl->accel.GetNodes ().size ();
 }
 
 QueryEngine::~QueryEngine () = default;
