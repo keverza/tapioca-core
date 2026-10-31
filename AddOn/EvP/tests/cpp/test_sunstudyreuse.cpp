@@ -462,8 +462,13 @@ TEST_P (SunStudyReuse, ChangedLastNormalKeepsOnlyThatSampleDirty)
     ASSERT_GT (LitSteps (*source, count - 1), 0u);
     // The last xyz normal's end is one-past the vector, never a valid subscript.
     for (auto* record : { target.get (), oracle.get () }) {
-        for (size_t axis = 0; axis < 3; ++axis)
+        // The core takes its samples from the grid the record copied them from.
+        auto& gridNormals = record->IsPatchDomain () ? record->patchGrid.normals : record->sampleGrid.normals;
+        for (size_t axis = 0; axis < 3; ++axis) {
             record->normals[(count - 1) * 3 + axis] *= -1.0;
+            gridNormals[(count - 1) * 3 + axis] *= -1.0;
+        }
+        AttachCore (*record);
     }
     const std::atomic<bool> cancelled { false };
     EXPECT_EQ (ReuseUnaffectedSamples (*source, *target, cancelled), count - 1);
