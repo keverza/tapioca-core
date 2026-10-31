@@ -174,6 +174,12 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
         gEarlyPending = false;
         Rearm (gRegularMs);
     }
+    // ⚠️ SETTIMER REPEATS WITHOUT REARM, SO THE NEXT DUE TIME MOVES HERE. Set
+    // only by Rearm, it went stale after the first period, every hint computed
+    // "due now, not now" and left the timer alone: on 2026-10-31 each hint was
+    // logged and every edit still waited for the 30 s tick.
+    else
+        gNextDueMs = int64_t (::GetTickCount64 ()) + gIntervalMs;
     // ⚠️ A PASS IN FLIGHT DEFERS THE RE-EXTRACTION, NOT THE
     // POLL. Skipping the whole tick was wrong in a way that took three runs to
     // see. The reasoning behind it was sound about GEOMETRY -- the pass already
