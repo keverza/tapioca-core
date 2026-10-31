@@ -37,6 +37,14 @@ SOFT_CAP = 1000
 # path relative to Sources/AddOn -> (max lines allowed, why it is allowed)
 # A file here may NOT grow. Shrink the number when you shrink the file.
 OVERSIZED = {
+    "NativeCommands/SunStudyCommands.cpp": (
+        1001,
+        "the file sat exactly at the cap when the C++ study core was deleted (P7a), and "
+        "StartSunStudy must now refuse a study whose Rust core cannot be attached instead "
+        "of falling back -- one line more. The seam for the split is StartSunStudy's study "
+        "assembly (roles, sampling, atlas, core) against the three slice/result commands "
+        "beside it; that split is its own structural commit and deletes this entry",
+    ),
     "ArchViz/Dxgi/InjectionRenderer.cpp": (
         1030,
         "THE SEAM IS NAMED AND THIS IS A DEBT, NOT A LICENCE. The ~22 session counters, "
