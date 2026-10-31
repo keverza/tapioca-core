@@ -8,9 +8,16 @@
 //
 // ⚠️ WHY NOT ARCHICAD'S 3D DIFFERENCE GENERATOR ON EVERY EDIT. It holds the main
 // thread ~3.1 s on an 806k-triangle model, and the user saw Archicad stop
-// responding around every update (2026-10-31). This walk lists the elements the
-// 3D window shows (ACAPI_Element_GetElemList, APIFilt_In3D) and compares each
-// header's modiStamp with the last walk: reads only, nothing written.
+// responding around every update (2026-10-31). This walk lists the project's
+// elements (ACAPI_Element_GetElemList), keeps those of a type that can draw in
+// 3D, and compares each header's modiStamp with the last walk: reads only,
+// nothing written.
+//
+// ⚠️ NOT APIFilt_In3D. The first live walk with it cost 1,308-1,454 ms over
+// 3,769 elements (17:00-17:05), a freeze as visible as half the generator's.
+// Without it a HIDDEN element (a layer turned off) is not reported gone by the
+// walk; the backstop generator and ModelContentWatch report that instead.
+// Each walk records how its time split (ListMs, HeaderMs) for the next run.
 //
 // ⚠️ WHAT AN ELEMENT'S OWN STAMP DOES NOT SAY. An element whose 3D changes only
 // through another -- a wall trimmed by a moved slab, a host cut by a moved
@@ -133,6 +140,15 @@ class Walker final {
     {
         return stamps_.size ();
     }
+    // How the last walk's time split: the element list, then the headers.
+    int64_t ListMs () const
+    {
+        return listMs_;
+    }
+    int64_t HeaderMs () const
+    {
+        return headerMs_;
+    }
     void Clear ()
     {
         stamps_.clear ();
@@ -142,6 +158,8 @@ class Walker final {
   private:
     Stamps stamps_;
     bool have_ = false;
+    int64_t listMs_ = 0;
+    int64_t headerMs_ = 0;
 };
 
 // MAIN THREAD. The element's current 3D box (ACAPI_Element_CalcBounds).

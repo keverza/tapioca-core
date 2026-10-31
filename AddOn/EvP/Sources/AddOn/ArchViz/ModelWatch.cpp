@@ -463,7 +463,10 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
                         (neighboursDropped > 0
                              ? " (" + std::to_string (neighboursDropped) + " more left to the backstop)"
                              : std::string ()) +
-                        (use3D ? " [3D difference]" : " [stamp walk, " + std::to_string (diff.elapsedMs) + " ms]"));
+                        (use3D ? " [3D difference]"
+                               : " [stamp walk, " + std::to_string (diff.elapsedMs) + " ms: list " +
+                                     std::to_string (gWalker.ListMs ()) + ", headers " +
+                                     std::to_string (gWalker.HeaderMs ()) + "]"));
             gPendingElements.clear ();
         }
         return;
@@ -641,8 +644,9 @@ bool Start (uint32_t floorMs)
         gStats.lastDiffMs = gStats.worstDiffMs = walked.elapsedMs;
         Rearm (
             (uint32_t) std::min<int64_t> (std::max<int64_t> (gFloorMs, walked.elapsedMs * kDutyDivisor), kCeilingMs));
-        ArchVizLog ("model watch: the element stamp walk takes " + std::to_string (walked.elapsedMs) + " ms over " +
-                    std::to_string (gWalker.Count ()) + " elements; it detects edits, polling every " +
+        ArchVizLog ("model watch: the element stamp walk takes " + std::to_string (walked.elapsedMs) + " ms (list " +
+                    std::to_string (gWalker.ListMs ()) + ", headers " + std::to_string (gWalker.HeaderMs ()) +
+                    ") over " + std::to_string (gWalker.Count ()) + " elements; it detects edits, polling every " +
                     std::to_string (gIntervalMs) +
                     " ms while the project stamp moves, and the 3D difference runs once the project is still");
     }
