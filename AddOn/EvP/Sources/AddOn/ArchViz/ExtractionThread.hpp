@@ -116,6 +116,10 @@ namespace archviz {
 // abandoned, and the message then says what was measured rather than assuming
 // which half failed.
 //
+// The one exception is a slice that NEVER STARTED: the gate revoked it from its
+// queue on the timeout, so waiting on it cannot succeed. That one is posted
+// again (extractionslice::JudgeTimedOutSlice; 2026-10-31, #97).
+//
 // ⚠️ SETTLE IS NOT A PERFORMANCE TUNING KNOB. A drag notifies per frame; without
 // it the viewer re-extracts continuously while the user is still moving the wall,
 // which competes with the edit itself for the main thread.

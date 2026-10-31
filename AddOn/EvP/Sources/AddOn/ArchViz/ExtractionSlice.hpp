@@ -50,6 +50,9 @@ struct SliceState {
         ++emptyReasons[kind][std::move (reason)];
     }
     std::atomic<int64_t> holdMs { 0 };
+    // Set by the job FIRST, on the main thread. A timed-out slice that never
+    // started was revoked by the gate and will never run (JudgeTimedOutSlice).
+    std::atomic<bool> started { false };
     std::atomic<bool> completed { false };
     std::vector<CapturedMeshPacket> meshes;
     // RE51: what this slice saw about which surfaces sit on which substances.
@@ -74,6 +77,32 @@ bool CaptureElementPacket (ModelerAPI::Model& model, int32_t index, std::vector<
 // whose element count is no longer `count` ends the slice at once with `changedTo` set.
 void Run (ModelerAPI::Model& model, int32_t count, SliceState& st, const std::set<std::string>& wanted, int64_t sliceMs,
           bool observeSubstances, const ProjectSubstances& substances);
+
+// What the pass does, `waitedMs` after a slice's Invoke timed out.
+//
+// ⚠️ A SLICE THAT NEVER STARTED IS NOT RUNNING LATE: IT IS GONE. On timeout the
+// gate revokes a job still in its queue, so the 8x wait below can only end in
+// abandonment. Measured 2026-10-31 on an 806k-triangle load: three slices
+// queued behind the model watch's 3 s difference poll, were revoked, and each
+// cost 13.5 s of a 139 s load with Archicad's main thread idle. A job the gate
+// had already dequeued sets `started` within its first instruction, so after
+// kUnstartedGraceMs an unstarted slice is safe to post again.
+enum class TimedOutSlice : uint8_t {
+    Wait,    // still running (or about to): keep waiting for `completed`
+    Harvest, // it finished after all
+    Retry,   // revoked, never ran: post the same cursor again
+    Abandon  // started and never finished within `deadlineMs`
+};
+constexpr int64_t kUnstartedGraceMs = 100;
+
+constexpr TimedOutSlice JudgeTimedOutSlice (bool started, bool completed, int64_t waitedMs, int64_t deadlineMs)
+{
+    if (completed)
+        return TimedOutSlice::Harvest;
+    if (!started && waitedMs >= kUnstartedGraceMs)
+        return TimedOutSlice::Retry;
+    return waitedMs >= deadlineMs ? TimedOutSlice::Abandon : TimedOutSlice::Wait;
+}
 
 } // namespace extractionslice
 } // namespace archviz

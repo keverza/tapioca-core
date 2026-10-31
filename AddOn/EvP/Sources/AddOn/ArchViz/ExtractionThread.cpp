@@ -501,6 +501,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         const bool observeSubstances = full && !substances->byAttribute.empty ();
         const bool ok = evp::MainThreadGate::Get ().Invoke (
             [model, count, st, wanted, sliceMs, observeSubstances, substances, handle] {
+                st->started.store (true);
                 if (modelwatch::CaptureStamp () != handle->captureStamp) {
                     st->changedTo.store (ModelElementCount (*model));
                     st->completed.store (true);
@@ -511,15 +512,35 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
             SliceTimeoutMs, sliceErr);
         const int64_t sliceElapsed = NowMs () - sliceStart;
 
-        // ⚠️ WAIT FOR A TIMED-OUT SLICE, NEVER RETRY IT - see the header.
+        // ⚠️ WAIT FOR A TIMED-OUT SLICE THAT STARTED, NEVER RETRY IT - see the
+        // header. One that never started was revoked: post it again
+        // (extractionslice::JudgeTimedOutSlice).
         if (!ok && !st->completed.load ()) {
-            const int64_t deadline = NowMs () + static_cast<int64_t> (SliceTimeoutMs) * 8;
-            {
-                std::lock_guard<std::mutex> lock (mutex_);
-                progress_.phase = "extracting - one element is taking longer than a slice";
-            }
-            while (!st->completed.load () && NowMs () < deadline && !stopFlag_.load ())
+            const int64_t timedOutAt = NowMs ();
+            const int64_t deadlineMs = static_cast<int64_t> (SliceTimeoutMs) * 8;
+            auto verdict = extractionslice::TimedOutSlice::Wait;
+            while (!stopFlag_.load ()) {
+                verdict = extractionslice::JudgeTimedOutSlice (st->started.load (), st->completed.load (),
+                                                               NowMs () - timedOutAt, deadlineMs);
+                if (verdict != extractionslice::TimedOutSlice::Wait)
+                    break;
+                {
+                    std::lock_guard<std::mutex> lock (mutex_);
+                    progress_.phase = "extracting - one element is taking longer than a slice";
+                }
                 std::this_thread::sleep_for (std::chrono::milliseconds (opt.gapMs));
+            }
+            if (verdict == extractionslice::TimedOutSlice::Retry) {
+                ArchVizLog ("pipeline: stage=geometry-slice-retry first=" + std::to_string (cursor) +
+                            " gateRoundTripMs=" + std::to_string (NowMs () - sliceStart) +
+                            " reason=revoked-before-start");
+                std::this_thread::sleep_for (std::chrono::milliseconds (opt.gapMs));
+                continue;
+            }
+            if (st->completed.load ()) {
+                std::lock_guard<std::mutex> lock (mutex_);
+                progress_.phase = partial ? "re-extracting" : "extracting";
+            }
         }
 
         if (!st->completed.load ()) {
