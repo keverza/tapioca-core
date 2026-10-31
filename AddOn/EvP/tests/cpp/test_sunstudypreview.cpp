@@ -283,6 +283,76 @@ TEST (SunStudyBands, RealShaderSteppedRampMatchesTheLegendAndTheOverlayIsOpaque)
     context->Unmap (staging.Get (), 0);
 }
 
+// The user's colours reach the tint: the low-sun lane recolours the category,
+// and the shadow overlay moves a shadowed patch toward its colour by its alpha.
+TEST (SunStudyColours, LowSunAndShadowOverlayLanesDriveTheRealShader)
+{
+    using Microsoft::WRL::ComPtr;
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> context;
+    ASSERT_TRUE (SUCCEEDED (D3D11CreateDevice (nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                               &device, nullptr, &context)));
+    // Every point is in the shadow map's shadow, so only the lane decides.
+    const std::string source = std::string (kArchVizCBuffer) +
+                               "float StudyEdgeLight (float3 worldPos, float3 normal) { return 0.0; }\n" +
+                               kArchVizSunTintPS + R"hlsl(
+RWStructuredBuffer<float4> result : register(u0);
+[numthreads(1,1,1)] void ColourTest(uint3 id : SV_DispatchThreadID) {
+    result[0] = float4(SunRamp(2.0, 0.25), 1.0);
+    result[1] = HoursOverlayColor(float3(0.5, 0.5, 0.5), float3(0,0,0), float3(0,0,1));
+}
+)hlsl";
+    ComPtr<ID3DBlob> code, error;
+    ASSERT_TRUE (SUCCEEDED (D3DCompile (source.data (), source.size (), "sun-colours", nullptr, nullptr, "ColourTest",
+                                        "cs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &code, &error)))
+        << (error ? static_cast<const char*> (error->GetBufferPointer ()) : "compile failed");
+    ComPtr<ID3D11ComputeShader> shader;
+    ASSERT_TRUE (
+        SUCCEEDED (device->CreateComputeShader (code->GetBufferPointer (), code->GetBufferSize (), nullptr, &shader)));
+    DiligentSceneConstants values;
+    values.sunStudyPreview[0] = 2.5f;
+    values.sunStudyShadow[3] = 1.0f;
+    SunStudyRgbaChannels (0xFF000080u, values.sunStudyLowSun);     // red low sun
+    SunStudyRgbaChannels (0xFF000080u, values.sunStudyShadowTint); // red shadow, ~50%
+    D3D11_BUFFER_DESC constantsDesc = {};
+    constantsDesc.ByteWidth = sizeof (values);
+    constantsDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    D3D11_SUBRESOURCE_DATA constantsData = { &values, 0, 0 };
+    ComPtr<ID3D11Buffer> constants;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&constantsDesc, &constantsData, &constants)));
+    D3D11_BUFFER_DESC outputDesc = {};
+    outputDesc.ByteWidth = 2 * 4 * sizeof (float);
+    outputDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+    outputDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    outputDesc.StructureByteStride = 4 * sizeof (float);
+    ComPtr<ID3D11Buffer> output, staging;
+    ComPtr<ID3D11UnorderedAccessView> view;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&outputDesc, nullptr, &output)));
+    ASSERT_TRUE (SUCCEEDED (device->CreateUnorderedAccessView (output.Get (), nullptr, &view)));
+    outputDesc.BindFlags = outputDesc.MiscFlags = 0;
+    outputDesc.Usage = D3D11_USAGE_STAGING;
+    outputDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&outputDesc, nullptr, &staging)));
+    context->CSSetShader (shader.Get (), nullptr, 0);
+    context->CSSetConstantBuffers (0, 1, constants.GetAddressOf ());
+    context->CSSetUnorderedAccessViews (0, 1, view.GetAddressOf (), nullptr);
+    context->Dispatch (1, 1, 1);
+    context->CopyResource (staging.Get (), output.Get ());
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    ASSERT_TRUE (SUCCEEDED (context->Map (staging.Get (), 0, D3D11_MAP_READ, 0, &mapped)));
+    const float* rgba = static_cast<const float*> (mapped.pData);
+    EXPECT_NEAR (rgba[0], 1.0f, 1e-6) << "the low-sun lane recolours the category";
+    EXPECT_NEAR (rgba[1], 0.0f, 1e-6);
+    // The form shade of an up-facing patch, as ShapeShade computes it, half-applied.
+    const float key = 0.70f / std::sqrt (0.45f * 0.45f + 0.55f * 0.55f + 0.70f * 0.70f);
+    const float shaded = 0.5f * (1.0f + (0.55f + 0.25f + 0.20f * key)) * 0.5f;
+    const float strength = 128.0f / 255.0f;
+    EXPECT_NEAR (rgba[4], shaded + (1.0f - shaded) * strength, 1e-5) << "toward the shadow colour by its alpha";
+    EXPECT_NEAR (rgba[5], shaded * (1.0f - strength), 1e-5);
+    EXPECT_FLOAT_EQ (rgba[7], 1.0f);
+    context->Unmap (staging.Get (), 0);
+}
+
 namespace {
 class SunStudyControls : public testing::Test {
   protected:

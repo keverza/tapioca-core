@@ -48,6 +48,18 @@ constexpr float kSunBandSlack = 1.0e-3f;
 // wash over the warm ramp. ⚠️ kArchVizSunTintPS's SunRamp carries the same
 // sRGB triple (31, 95, 209), and the D3D test reads it back.
 constexpr unsigned kSunLowSunHex = 0x1F5FD1;
+// The low-sun swatch and the shadow overlay are the user's to recolour; these
+// are the defaults, 0xRRGGBBAA in sRGB. The overlay's alpha is how far a
+// shadowed patch moves toward its colour: black at 45% darkens by 0.55.
+constexpr uint32_t kSunLowSunRgba = (kSunLowSunHex << 8) | 0xffu;
+constexpr uint32_t kSunShadowOverlayRgba = 0x00000073u;
+
+// sRGB 0..1 channels of an 0xRRGGBBAA colour, alpha last.
+inline void SunStudyRgbaChannels (uint32_t rgba, float out[4])
+{
+    for (int channel = 0; channel < 4; ++channel)
+        out[channel] = float ((rgba >> (24 - 8 * channel)) & 0xffu) / 255.0f;
+}
 
 // Evenly spaced with the open band at 9 h+, so ten bands are exactly the
 // smooth ramp's ten one-hour bins.

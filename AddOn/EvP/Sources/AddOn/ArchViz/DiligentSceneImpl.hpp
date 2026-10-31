@@ -434,6 +434,8 @@ struct geomsrv::archviz::DiligentScene::Impl {
     uint32_t sunFanCount = 0;
     // The hours view's display postprocess, HUD-only like the filter above.
     bool sunShadowOverlay = false;
+    uint32_t sunLowSunRgba = 0x1F5FD1FFu;
+    uint32_t sunShadowRgba = 0x00000073u;
     int sunBandCount = 0;
     float sunBandEdges[11] = {};
     // ---- what the last drawn frame actually did with the overlay ------------

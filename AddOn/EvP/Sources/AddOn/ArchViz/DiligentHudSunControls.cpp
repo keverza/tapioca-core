@@ -73,7 +73,8 @@ bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, f
     return changed;
 }
 
-void DrawSunStudyRampBar (ImDrawList* draw, ImVec2 start, ImVec2 size, int bands, const float* edges, float blueBelow)
+void DrawSunStudyRampBar (ImDrawList* draw, ImVec2 start, ImVec2 size, int bands, const float* edges, float blueBelow,
+                          unsigned lowSunHex)
 {
     const float top = kSunRampTop;
     const bool stepped = edges != nullptr && bands >= kSunBandsMin && bands <= kSunBandsMax;
@@ -100,10 +101,10 @@ void DrawSunStudyRampBar (ImDrawList* draw, ImVec2 start, ImVec2 size, int bands
     // Solid, as the surface draws it: below the cutoff the warm ramp is not shown.
     if (blueBelow > 0.0f)
         draw->AddRectFilled (start, ImVec2 (position ((std::min) (blueBelow, top)), start.y + size.y),
-                             Colour (kSunLowSunHex));
+                             Colour (lowSunHex));
 }
 
-void DrawSunStudyGradient (bool blue, float& threshold, int bands, float* edges)
+void DrawSunStudyGradient (bool blue, float& threshold, int bands, float* edges, unsigned lowSunHex)
 {
     constexpr float top = kSunRampTop;
     const bool stepped = edges != nullptr && bands >= kSunBandsMin && bands <= kSunBandsMax;
@@ -147,7 +148,8 @@ void DrawSunStudyGradient (bool blue, float& threshold, int bands, float* edges)
         }
     }
     ImDrawList* draw = ImGui::GetWindowDrawList ();
-    DrawSunStudyRampBar (draw, start, ImVec2 (width, height), stepped ? bands : 0, edges, blue ? threshold : -1.0f);
+    DrawSunStudyRampBar (draw, start, ImVec2 (width, height), stepped ? bands : 0, edges, blue ? threshold : -1.0f,
+                         lowSunHex);
     if (stepped)
         for (int i = 0; i < bands - 1; ++i) {
             const float x = position (edges[i]);
@@ -157,7 +159,7 @@ void DrawSunStudyGradient (bool blue, float& threshold, int bands, float* edges)
     if (blue) {
         const float edge = position (threshold);
         draw->AddRectFilled (ImVec2 (edge - 5, start.y + height - 3), ImVec2 (edge + 5, start.y + height + 9),
-                             Colour (kSunLowSunHex), 2.0f);
+                             Colour (lowSunHex), 2.0f);
         draw->AddRect (ImVec2 (edge - 5, start.y + height - 3), ImVec2 (edge + 5, start.y + height + 9), IM_COL32_WHITE,
                        2.0f);
     }

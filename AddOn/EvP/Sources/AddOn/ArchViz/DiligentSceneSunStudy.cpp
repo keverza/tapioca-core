@@ -674,6 +674,8 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     const bool stepped = impl_->sunBandCount >= kSunBandsMin && impl_->sunBandCount <= kSunBandsMax;
     constants.sunStudyPreview[3] = stepped ? float (impl_->sunBandCount) : 0.0f;
     std::copy (impl_->sunBandEdges, impl_->sunBandEdges + 11, constants.sunStudyBands);
+    SunStudyRgbaChannels (impl_->sunLowSunRgba, constants.sunStudyLowSun);
+    SunStudyRgbaChannels (impl_->sunShadowRgba, constants.sunStudyShadowTint);
     for (int channel = 0; channel < 3; ++channel) {
         const int shift = 24 - 8 * channel;
         constants.visibilityLowColor[channel] = float ((impl_->visibilityLowRgba >> shift) & 0xffu) / 255.0f;
@@ -773,6 +775,8 @@ void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
         impl_->sunFanMask[word] = view.fanMask[word];
     impl_->sunFanCount = view.fanCount;
     impl_->sunShadowOverlay = view.shadowOverlay;
+    impl_->sunLowSunRgba = view.lowSunRgba;
+    impl_->sunShadowRgba = view.shadowRgba;
     impl_->sunBandCount = view.bandCount;
     std::copy (view.bandEdges, view.bandEdges + 11, impl_->sunBandEdges);
 }

@@ -183,6 +183,40 @@ void DrawMachineLimits (const SunStudyOverlayStatus& study)
     }
 }
 
+// An inline colour swatch beside a toggle: a click opens the picker. 0xRRGGBBAA;
+// without `alpha` the colour is opaque and the alpha byte is left alone.
+bool InlineColour (const char* id, uint32_t& rgba, bool alpha, const char* tip)
+{
+    float channels[4];
+    SunStudyRgbaChannels (rgba, channels);
+    ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel;
+    flags |= alpha ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha;
+    const bool changed = ImGui::ColorEdit4 (id, channels, flags);
+    ImGui::SetItemTooltip ("%s", tip);
+    if (!changed)
+        return false;
+    uint32_t next = 0;
+    for (int channel = 0; channel < 4; ++channel) {
+        const float value = channel == 3 && !alpha ? float (rgba & 0xffu) / 255.0f : channels[channel];
+        next |= uint32_t (std::lround (std::clamp (value, 0.0f, 1.0f) * 255.0f)) << (24 - 8 * channel);
+    }
+    rgba = next;
+    return true;
+}
+
+// What the overlay does to a white surface, for the legend's swatch: white
+// moved toward the shadow colour by its opacity. sRGB, so approximate.
+unsigned ShadowOnWhite (uint32_t rgba)
+{
+    const float strength = float (rgba & 0xffu) / 255.0f;
+    unsigned hex = 0;
+    for (int channel = 0; channel < 3; ++channel) {
+        const float colour = float ((rgba >> (24 - 8 * channel)) & 0xffu);
+        hex |= unsigned (std::lround (255.0f + (colour - 255.0f) * strength)) << (16 - 8 * channel);
+    }
+    return hex;
+}
+
 // ---- the hours view's display postprocess (PLAT-RE156) ------------------------
 //
 // The shadow overlay, the gradient style and its legend. DISPLAY ONLY: every
@@ -197,6 +231,11 @@ void DrawSunStudyHoursDisplay (HudState& state)
     bool overlay = state.sunShadowOverlay && pcf;
     if (ImGui::Checkbox ("Shadow overlay", &overlay))
         state.sunShadowOverlay = overlay;
+    if (overlay) {
+        ImGui::SameLine ();
+        InlineColour ("##sunshadowcolour", state.sunShadowRgba, true,
+                      "Shadow colour, and its opacity: how far a shadowed patch moves toward it");
+    }
     ImGui::EndDisabled ();
     ImGui::SetItemTooltip ("%s", pcf ? "Darkens the analysis colour where the viewer's current sun casts shadow. "
                                        "Display only."
@@ -212,7 +251,7 @@ void DrawSunStudyHoursDisplay (HudState& state)
     if (viewerhud::Choice ("gradient##sungradient", style, styles, 2))
         state.sunGradientStepped = style == 1;
     if (!state.sunGradientStepped) {
-        DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold);
+        DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, 0, nullptr, state.sunLowSunRgba >> 8);
         return;
     }
     int count = std::clamp (state.sunBandCount, kSunBandsMin, kSunBandsMax);
@@ -237,7 +276,8 @@ void DrawSunStudyHoursDisplay (HudState& state)
         SunStudyDefaultBandEdges (count, state.sunBandEdges);
     }
     SunStudyClampBandEdges (count, state.sunBandEdges);
-    DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, count, state.sunBandEdges);
+    DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, count, state.sunBandEdges,
+                          state.sunLowSunRgba >> 8);
 }
 
 // The screenshot row: the size presets, and what the last one did. The frame
@@ -316,17 +356,18 @@ void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStat
         ImGui::TextUnformatted ("Direct sun hours");
         if (view.shadowOverlay) {
             ImGui::SameLine (0.0f, 2.0f * font);
-            LegendSwatch (0x000000, "shadow at the viewer's sun");
+            LegendSwatch (ShadowOnWhite (view.shadowRgba), "shadow at the viewer's sun");
         }
         if (view.blueThreshold > 0.0f) {
             ImGui::SameLine (0.0f, 2.0f * font);
-            LegendSwatch (kSunLowSunHex, ("low sun: below " + SunStudyClock (view.blueThreshold, true)).c_str ());
+            LegendSwatch (view.lowSunRgba >> 8,
+                          ("low sun: below " + SunStudyClock (view.blueThreshold, true)).c_str ());
         }
         // The gradient across the strip, and its hour steps under it: every
         // band edge when stepped, every hour when smooth.
         const ImVec2 at = ImGui::GetCursorScreenPos ();
         const ImVec2 size (ImGui::GetContentRegionAvail ().x, font);
-        DrawSunStudyRampBar (draw, at, size, view.bandCount, view.bandEdges, view.blueThreshold);
+        DrawSunStudyRampBar (draw, at, size, view.bandCount, view.bandEdges, view.blueThreshold, view.lowSunRgba >> 8);
         ImGui::Dummy (size);
         std::vector<float> ticks;
         if (view.bandCount > 0)
@@ -390,6 +431,8 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     view.endShadowStep = interval.second;
     view.viewOverride = ChosenMode (state);
     view.step = state.sunStep > 0 ? uint32_t (state.sunStep) : 0u;
+    view.lowSunRgba = state.sunLowSunRgba;
+    view.shadowRgba = state.sunShadowRgba;
     view.shadowOverlay =
         state.sunShadowOverlay && state.shadowsEnabled && state.shadowMode == int (DiligentShadowMode::Pcf);
     if (state.sunGradientStepped) {
@@ -705,9 +748,11 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         }
         ImGui::Checkbox ("Low-sun blue", &state.sunLowBlue);
         if (state.sunLowBlue) {
-            Swatch ("##lowsun", Rgb (kSunLowSunHex), "low sun: one solid category below the cutoff");
             ImGui::SameLine ();
-            ImGui::TextDisabled ("0:00h to %s", SunStudyClock (state.sunBlueThreshold, true).c_str ());
+            InlineColour ("##sunlowsuncolour", state.sunLowSunRgba, false,
+                          "Low-sun colour: every surface below the cutoff");
+            ImGui::SameLine ();
+            ImGui::TextDisabled ("below %s", SunStudyClock (state.sunBlueThreshold, true).c_str ());
         }
         DrawSunStudyHoursDisplay (state);
     }

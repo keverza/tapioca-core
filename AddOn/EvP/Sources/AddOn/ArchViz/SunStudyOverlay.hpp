@@ -237,6 +237,9 @@ struct SunStudyViewSettings {
     // The viewer's current sun shadows over the analysis colour, from the
     // scene's own PCF map; off, the hours colour ignores them.
     bool shadowOverlay = false;
+    // The user's colours, 0xRRGGBBAA sRGB (ArchViz/SunStudyPreview.hpp defaults).
+    uint32_t lowSunRgba = 0x1F5FD1FFu;
+    uint32_t shadowRgba = 0x00000073u;
     // 0 = the smooth ramp; otherwise kSunBandsMin..kSunBandsMax flat bands
     // split at `bandEdges` (ArchViz/SunStudyPreview.hpp).
     int bandCount = 0;

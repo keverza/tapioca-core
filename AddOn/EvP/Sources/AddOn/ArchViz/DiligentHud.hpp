@@ -148,6 +148,9 @@ struct HudState {
     // Stepped starts at kSunBandsDefault (4) bands, evenly split with the open
     // band at 9 h+; the edges are the legend's grips. None of it re-runs a study.
     bool sunShadowOverlay = false;
+    // Their colours, 0xRRGGBBAA sRGB, from the inline swatches beside each toggle.
+    uint32_t sunShadowRgba = 0x00000073u; // black at 45%
+    uint32_t sunLowSunRgba = 0x1F5FD1FFu;
     bool sunGradientStepped = false;
     int sunBandCount = 4;
     float sunBandEdges[11] = { 3.0f, 6.0f, 9.0f };

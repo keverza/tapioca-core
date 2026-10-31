@@ -309,6 +309,11 @@ struct DiligentSceneConstants {
     // The count - 1 band edges in hours, four per float4 (kSunBandsMax - 1 = 11
     // used); read only while sunStudyPreview[3] holds a count.
     float sunStudyBands[12] = { 0.0f };
+    // ---- appended for the user's hours-view colours ---------------------------
+    // rgb = sRGB of the low-sun category (kSunLowSunRgba by default), w unused;
+    // rgba = sRGB of the shadow overlay and how far a shadowed patch moves to it.
+    float sunStudyLowSun[4] = { 31.0f / 255.0f, 95.0f / 255.0f, 209.0f / 255.0f, 1.0f };
+    float sunStudyShadowTint[4] = { 0.0f, 0.0f, 0.0f, 115.0f / 255.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -349,7 +354,7 @@ enum class DiligentDebugView : int {
 };
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
-                                                      16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48,
+                                                      16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48 + 32,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -410,6 +415,8 @@ cbuffer ArchVizConstants
     float4   g_visibilityLow;   // rgb = sRGB colour of "not visible"
     float4   g_visibilityHigh;  // rgb = sRGB colour of "visible"
     float4   g_sunStudyBands[3]; // the stepped gradient's band edges, hours
+    float4   g_sunStudyLowSun;   // rgb = sRGB of the low-sun category
+    float4   g_sunStudyShadowTint; // rgb = sRGB of the shadow overlay, a = its strength
 };
 )hlsl";
 
@@ -735,7 +742,7 @@ float3 SunRamp (float hours, float quantum)
     int count = int (g_sunStudyPreview.w + 0.5);
     float3 warm = count >= 3 ? SunWarm (SunBandCentre (SunBand (snapped, count), count)) : SunWarm (snapped);
     if (g_sunStudyPreview.x >= 0.0 && hours < g_sunStudyPreview.x)
-        return SrgbToLinear (float3 (31.0, 95.0, 209.0) / 255.0); // kSunLowSunHex: a category, not a wash
+        return SrgbToLinear (g_sunStudyLowSun.rgb); // the user's low-sun swatch: a category, not a wash
     return warm;
 }
 
@@ -829,7 +836,7 @@ float4 HoursOverlayColor (float3 colour, float3 worldPos, float3 normal)
 {
     float3 shaded = colour * lerp (1.0, ShapeShade (normal), 0.5);
     if (g_sunStudyShadow.w > 0.5 && StudyEdgeLight (worldPos, normal) == 0.0)
-        shaded *= 0.55;
+        shaded = lerp (shaded, SrgbToLinear (g_sunStudyShadowTint.rgb), g_sunStudyShadowTint.a);
     return float4 (shaded, 1.0);
 }
 
