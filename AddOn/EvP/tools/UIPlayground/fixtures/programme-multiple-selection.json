@@ -1,0 +1,9 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudprogramme", "variant": "multiple-selection",
+  "status": {"kind": "ready", "message": "Several types with distinct ranges/colours; not a production mixed-selection mode."},
+  "data": {"types": [
+    {"rooms": 2, "minM2": 40, "maxM2": 45, "share": 0.5, "rgba": 4072754943},
+    {"rooms": 4, "minM2": 75, "maxM2": 80, "share": 0.5, "rgba": 1251006975}
+  ]}
+}

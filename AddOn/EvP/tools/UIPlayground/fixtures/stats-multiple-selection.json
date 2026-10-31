@@ -1,0 +1,11 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudmassingstats", "variant": "multiple-selection",
+  "status": {"kind": "ready", "message": "Two building selections with distinct fixture identifiers and uses."},
+  "data": {"clipped": false, "hasCoverage": true, "builtArea": 700, "unbuiltArea": 1300, "parcelArea": 2000,
+    "rows": [
+      {"guid": "building-a-floor-1", "function": "residential", "rgba": 4072754943, "floorHeight": 3, "rawArea": 900, "allowedArea": 800, "rawVolume": 2700, "allowedVolume": 2400},
+      {"guid": "building-b-floor-1", "function": "office", "rgba": 1251006975, "floorHeight": 3.3, "rawArea": 600, "allowedArea": 500, "rawVolume": 1980, "allowedVolume": 1650}
+    ]
+  }
+}

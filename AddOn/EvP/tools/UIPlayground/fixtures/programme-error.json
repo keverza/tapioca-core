@@ -1,0 +1,6 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudprogramme", "variant": "error",
+  "status": {"kind": "error", "message": "Mock recompute refused: no closed floor outline. Last valid programme retained."},
+  "data": {"types": [{"rooms": 2, "minM2": 40, "maxM2": 45, "share": 1}]}
+}

@@ -1,0 +1,6 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudmassingstats", "variant": "empty",
+  "status": {"kind": "ready", "message": "No floor slices or parcel coverage."},
+  "data": {"rows": [], "hasCoverage": false}
+}

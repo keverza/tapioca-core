@@ -1,0 +1,13 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudprogramme", "variant": "valid-populated",
+  "status": {"kind": "ready", "message": "Production Default brief. Shares are fractions of flat count."},
+  "data": {"types": [
+    {"rooms": 1.5, "minM2": 30, "maxM2": 36, "share": 0.05},
+    {"rooms": 2, "minM2": 40, "maxM2": 45, "share": 0.30},
+    {"rooms": 3, "minM2": 55, "maxM2": 65, "share": 0.20},
+    {"rooms": 3, "minM2": 65, "maxM2": 75, "share": 0.20},
+    {"rooms": 4, "minM2": 75, "maxM2": 80, "share": 0.20},
+    {"rooms": 5, "minM2": 80, "maxM2": 90, "share": 0.05}
+  ]}
+}

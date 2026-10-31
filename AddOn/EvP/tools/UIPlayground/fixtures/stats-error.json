@@ -1,0 +1,8 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudmassingstats", "variant": "error",
+  "status": {"kind": "error", "message": "Mock slice refresh failed: incomplete source outline. Last valid area mix retained."},
+  "data": {"clipped": true, "hasCoverage": true, "builtArea": 400, "unbuiltArea": 600, "parcelArea": 1000,
+    "rows": [{"guid": "building-a-floor-1", "function": "residential", "rgba": 4072754943, "floorHeight": 3, "rawArea": 900, "allowedArea": 800, "rawVolume": 2700, "allowedVolume": 2400}]
+  }
+}

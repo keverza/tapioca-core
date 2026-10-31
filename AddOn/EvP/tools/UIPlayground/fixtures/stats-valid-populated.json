@@ -1,0 +1,12 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudmassingstats", "variant": "valid-populated",
+  "status": {"kind": "ready", "message": "Areas in m2, volumes in m3. Allowed-area mix and parcel footprint coverage."},
+  "data": {"clipped": true, "hasCoverage": true, "builtArea": 1100, "unbuiltArea": 1900, "parcelArea": 3000,
+    "rows": [
+      {"guid": "building-a-floor-1", "function": "residential", "rgba": 4072754943, "floorHeight": 3, "rawArea": 900, "allowedArea": 800, "rawVolume": 2700, "allowedVolume": 2400},
+      {"guid": "building-a-floor-2", "function": "office", "rgba": 1251006975, "floorHeight": 3.3, "rawArea": 600, "allowedArea": 500, "rawVolume": 1980, "allowedVolume": 1650},
+      {"guid": "building-a-floor-0", "function": "commercial", "rgba": 3830918911, "floorHeight": 4, "rawArea": 400, "allowedArea": 400, "rawVolume": 1600, "allowedVolume": 1600}
+    ]
+  }
+}

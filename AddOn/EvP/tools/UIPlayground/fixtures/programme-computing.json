@@ -1,0 +1,6 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudprogramme", "variant": "computing",
+  "status": {"kind": "computing", "message": "Mock owner computing; last valid programme retained."},
+  "data": {"types": [{"rooms": 2, "minM2": 40, "maxM2": 45, "share": 1}]}
+}
