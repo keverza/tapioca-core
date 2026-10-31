@@ -15,6 +15,7 @@
 #include "NativeCommands/SunStudyDisplayPreparation.hpp"
 #include "NativeCommands/SelectionSetStore.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
+#include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/SunStudyAdvanceWorker.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyTaskWorker.hpp"
@@ -515,10 +516,11 @@ void SubmitAdvanceSlice (int64_t now)
     request.sessionGeneration = s_sessionGeneration;
     request.runGeneration = gRunGeneration;
     request.recordRevision = s_runRevision;
-    // Host interactivity takes precedence over CPU throughput. Single-thread
-    // traversal also avoids creating normal-priority shards from the low-priority
-    // worker. Budget is soft: a whole timestep can exceed it.
-    request.maxParallel = 1;
+    // Host interactivity still comes first: half the hardware threads at most,
+    // and the traversal's helpers inherit this worker's below-normal priority,
+    // so none competes with Archicad at normal priority. One thread was 7-9x
+    // slower on large models (#97). Budget is soft: a whole timestep can exceed it.
+    request.maxParallel = evp::sunstudy::BackgroundTraversalThreads ();
     request.maxMilliseconds = 40.0;
     const uint64_t sessionGeneration = s_sessionGeneration;
     request.onReady = [sessionGeneration] () { WakeFollower (sessionGeneration); };

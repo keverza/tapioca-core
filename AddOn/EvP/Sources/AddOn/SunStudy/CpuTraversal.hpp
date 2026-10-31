@@ -56,6 +56,18 @@ class CpuTraversal final : public ITraversal {
 // cannot fill.
 size_t ChooseThreadCount (size_t count, size_t maxParallel);
 
+// The calling thread's scheduling priority, and setting it on the current
+// thread. RunCpuTraversal's helpers take on the submitter's priority, so a
+// below-normal study worker never fans out into normal-priority threads that
+// would compete with Archicad (#97). No-ops off Windows.
+int CurrentThreadPriority ();
+void SetCurrentThreadPriority (int priority);
+
+// The follower's traversal budget: half the hardware threads, at most 8, at
+// least 1. It runs in the background while the user works, so it leaves the
+// other half to Archicad and the viewer.
+size_t BackgroundTraversalThreads ();
+
 } // namespace evp::sunstudy
 
 #endif

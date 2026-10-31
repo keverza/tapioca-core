@@ -15,6 +15,8 @@
 #include <cmath>
 #include <cstdio>
 #include <memory>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 using namespace evp::sunstudy;
@@ -354,4 +356,36 @@ TEST (CpuTraversal, CancellationPollsOnlyTheSubmittingThreadAndStopsBeforeTheTai
     ASSERT_TRUE (cpu.OccludeDirectionalCancellable (origins.data (), out.size (), kUp, 0.001, 0.0, out.data (), 4,
                                                     [] { return false; }));
     EXPECT_EQ (out, expected);
+}
+
+// ⚠️ A BELOW-NORMAL CALLER MUST NOT FAN OUT INTO NORMAL-PRIORITY THREADS. The
+// follower traces from a lowered worker; its helpers would otherwise compete
+// with Archicad at normal priority (#97).
+TEST (CpuTraversal, HelperThreadsTakeTheCallersPriority)
+{
+    const int original = CurrentThreadPriority ();
+    SetCurrentThreadPriority (-1); // THREAD_PRIORITY_BELOW_NORMAL on Windows
+    const int lowered = CurrentThreadPriority ();
+    std::mutex mutex;
+    std::vector<int> seen;
+    const bool complete = RunCpuTraversal (64 * 1024, 4, {}, [&] (size_t, size_t) {
+        const int priority = CurrentThreadPriority ();
+        std::lock_guard<std::mutex> lock (mutex);
+        seen.push_back (priority);
+    });
+    SetCurrentThreadPriority (original);
+    EXPECT_TRUE (complete);
+    ASSERT_FALSE (seen.empty ());
+    for (const int priority : seen)
+        EXPECT_EQ (priority, lowered);
+}
+
+TEST (CpuTraversal, TheBackgroundBudgetLeavesHalfTheMachine)
+{
+    const size_t budget = BackgroundTraversalThreads ();
+    EXPECT_GE (budget, 1u);
+    EXPECT_LE (budget, 8u);
+    const unsigned hardware = std::thread::hardware_concurrency ();
+    if (hardware >= 2)
+        EXPECT_LE (budget, hardware / 2);
 }

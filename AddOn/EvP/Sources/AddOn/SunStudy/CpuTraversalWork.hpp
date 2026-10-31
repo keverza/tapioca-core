@@ -36,9 +36,16 @@ bool RunCpuTraversal (size_t count, size_t maxParallel, const std::function<bool
     std::vector<std::thread> workers;
     const size_t threads = ChooseThreadCount (count, maxParallel);
     workers.reserve (threads - 1);
+    // Helpers run at the submitter's priority: a below-normal study worker
+    // must not fan out into normal-priority threads (#97).
+    const int priority = threads > 1 ? CurrentThreadPriority () : 0;
+    const auto helper = [&run, priority] () {
+        SetCurrentThreadPriority (priority);
+        run (false);
+    };
     try {
         for (size_t i = 1; i < threads; ++i)
-            workers.emplace_back (run, false);
+            workers.emplace_back (helper);
         run (true);
     }
     catch (...) {

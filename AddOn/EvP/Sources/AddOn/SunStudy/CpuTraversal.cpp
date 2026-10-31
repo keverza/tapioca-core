@@ -5,6 +5,13 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace evp::sunstudy {
 
 namespace {
@@ -53,6 +60,31 @@ size_t ChooseThreadCount (size_t count, size_t maxParallel)
     // Never more workers than there is work for, and never zero.
     threads = std::min (threads, count);
     return std::max<size_t> (1, threads);
+}
+
+int CurrentThreadPriority ()
+{
+#ifdef _WIN32
+    const int priority = ::GetThreadPriority (::GetCurrentThread ());
+    return priority == THREAD_PRIORITY_ERROR_RETURN ? THREAD_PRIORITY_NORMAL : priority;
+#else
+    return 0;
+#endif
+}
+
+void SetCurrentThreadPriority (int priority)
+{
+#ifdef _WIN32
+    ::SetThreadPriority (::GetCurrentThread (), priority);
+#else
+    (void) priority;
+#endif
+}
+
+size_t BackgroundTraversalThreads ()
+{
+    const unsigned hardware = std::thread::hardware_concurrency ();
+    return std::clamp<size_t> (hardware / 2, 1, 8);
 }
 
 CpuTraversal::CpuTraversal (std::shared_ptr<const geomsrv::QueryEngine> engine) : engine_ (std::move (engine))
