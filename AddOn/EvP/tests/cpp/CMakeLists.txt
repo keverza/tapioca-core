@@ -197,6 +197,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointGumball.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewpointProjection.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudViewpoint.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudViewpointService.cpp"
     # The shared point's Polyline path: the pure curve here, its ACAPI read stubbed
     # as "nothing imported" (AnalysisPathSourceStub.cpp).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisPath.cpp"
