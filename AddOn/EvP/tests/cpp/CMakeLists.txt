@@ -1344,6 +1344,21 @@ if (TAPIOCA_BUILD_EDIT_BENCHMARK)
         "${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries (TapiocaEditBench PRIVATE TapiocaClipper2)
 endif ()
+# The sun study's CPU traversal against triangle count, thread count and the
+# analysis/context split (#97 P0). C++ only: the nanort index and RunCpuTraversal.
+option (TAPIOCA_BUILD_SUNTRACE_BENCHMARK "Build the opt-in sun-trace traversal benchmark" OFF)
+if (TAPIOCA_BUILD_SUNTRACE_BENCHMARK)
+    add_executable (TapiocaSunTraceBench benchmark_suntrace.cpp
+        "${GEOM_DIR}/QueryEngine.cpp" "${GEOM_DIR}/MeshSerializer.cpp"
+        "${EVP_ROOT}/Sources/AddOn/SunStudy/CpuTraversal.cpp"
+        "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOccluders.cpp"
+        "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRoles.cpp")
+    target_compile_features (TapiocaSunTraceBench PRIVATE cxx_std_20)
+    target_include_directories (TapiocaSunTraceBench PRIVATE "${EVP_ROOT}/Sources/AddOn" "${GEOM_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_include_directories (TapiocaSunTraceBench SYSTEM PRIVATE "${NANORT_INC}")
+    target_compile_definitions (TapiocaSunTraceBench PRIVATE TAPIOCA_BENCH_CONFIG="$<CONFIG>")
+endif ()
 if (TAPIOCA_LINK_RUST_GEOMETRY)
     set_source_files_properties (test_geometry_rust_terrain_corpus.cpp PROPERTIES COMPILE_DEFINITIONS
         TAPIOCA_TERRAIN_CORPUS="${EVP_ROOT}/rust/tests/fixtures/landscape.terrain")
