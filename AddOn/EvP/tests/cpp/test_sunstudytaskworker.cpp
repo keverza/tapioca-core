@@ -16,6 +16,12 @@ using namespace evp::sunstudy;
 
 namespace {
 
+// ⚠️ A BOUND ON A HANG, NOT A SPEED LIMIT (#50). Every wait below ends the
+// moment its event arrives, so a passing test is as fast as before; this only
+// says how long a missing event takes to fail. 5 s failed under a parallel
+// MSVC build that took every core.
+constexpr auto kEventBound = std::chrono::seconds (60);
+
 struct PausedTask {
     std::promise<void> entered;
     std::future<void> entry = entered.get_future ();
@@ -59,11 +65,11 @@ struct PausedTask {
     }
     bool Started ()
     {
-        return entry.wait_for (std::chrono::seconds (5)) == std::future_status::ready;
+        return entry.wait_for (kEventBound) == std::future_status::ready;
     }
     bool WaitIdle ()
     {
-        const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (5);
+        const auto deadline = std::chrono::steady_clock::now () + kEventBound;
         while (worker.Busy ()) {
             if (std::chrono::steady_clock::now () >= deadline)
                 return false;
@@ -73,7 +79,7 @@ struct PausedTask {
     }
     bool WaitResult (StudyTaskCompletion& completion)
     {
-        const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (5);
+        const auto deadline = std::chrono::steady_clock::now () + kEventBound;
         while (!worker.Poll (completion)) {
             if (std::chrono::steady_clock::now () >= deadline)
                 return false;
@@ -177,7 +183,7 @@ TEST (SunStudyTaskWorker, PreparationNotificationCanPollOutsideTheMailboxLock)
     };
     task.Release ();
     ASSERT_TRUE (task.worker.Submit (task.request, task.error));
-    ASSERT_EQ (result.wait_for (std::chrono::seconds (5)), std::future_status::ready);
+    ASSERT_EQ (result.wait_for (kEventBound), std::future_status::ready);
     EXPECT_TRUE (result.get ().error.empty ());
     EXPECT_FALSE (task.worker.Busy ());
     task.worker.Shutdown ();

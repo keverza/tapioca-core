@@ -12,6 +12,12 @@ using namespace evp::sunstudy;
 
 namespace {
 
+// ⚠️ A BOUND ON A HANG, NOT A SPEED LIMIT (#50). Every wait below ends the
+// moment its event arrives, so a passing test is as fast as before; this only
+// says how long a missing event takes to fail. 5 s failed under a parallel
+// MSVC build that took every core.
+constexpr auto kEventBound = std::chrono::seconds (60);
+
 struct Gate {
     std::promise<void> entered;
     std::promise<void> release;
@@ -100,11 +106,11 @@ struct PausedStudy {
     }
     bool Started ()
     {
-        return entered.wait_for (std::chrono::seconds (5)) == std::future_status::ready;
+        return entered.wait_for (kEventBound) == std::future_status::ready;
     }
     bool WaitIdle ()
     {
-        const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (5);
+        const auto deadline = std::chrono::steady_clock::now () + kEventBound;
         while (worker.Busy ()) {
             if (std::chrono::steady_clock::now () >= deadline)
                 return false;
@@ -114,7 +120,7 @@ struct PausedStudy {
     }
     bool WaitResult (AdvanceCompletion& completion)
     {
-        const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (5);
+        const auto deadline = std::chrono::steady_clock::now () + kEventBound;
         while (!worker.Poll (completion)) {
             if (std::chrono::steady_clock::now () >= deadline)
                 return false;
@@ -228,7 +234,7 @@ TEST (SunStudyAdvanceWorker, CancellationDiscardsAnUnpolledCompletion)
     study.Release ();
     ASSERT_TRUE (study.worker.Submit (study.request, study.error));
     StudyProgress progress;
-    const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (5);
+    const auto deadline = std::chrono::steady_clock::now () + kEventBound;
     do {
         ASSERT_LT (std::chrono::steady_clock::now (), deadline);
         ASSERT_TRUE (SunStudyStore::Get ().Progress (study.request.studyId, progress, study.error));
@@ -262,7 +268,7 @@ TEST (SunStudyAdvanceWorker, CompletionNotificationCanPollThePublishedResultWith
     };
     study.Release ();
     ASSERT_TRUE (study.worker.Submit (study.request, study.error));
-    ASSERT_EQ (result.wait_for (std::chrono::seconds (5)), std::future_status::ready);
+    ASSERT_EQ (result.wait_for (kEventBound), std::future_status::ready);
     const auto completion = result.get ();
     EXPECT_TRUE (completion.succeeded);
     EXPECT_TRUE (completion.progress.converged);
