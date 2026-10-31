@@ -6,9 +6,11 @@
 #include "AddOnCommands.hpp" // ExecuteNativeCommand, CommandNeedsMainThread
 #include "ArchViz/ArchVizLog.hpp"
 #include "Python/MainThreadGate.hpp"
+#include "SunStudy/SunStudyStore.hpp"
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -200,6 +202,19 @@ void Run (Request request)
     show.Add ("depth", (GS::Int32) 0);
     if (const auto shown = Call ("ShowSunStudy", show); !shown.ok)
         return failed (shown);
+    // The result's fingerprint, so two runs of one model -- the other backend,
+    // another build -- can be compared from the log (#97).
+    evp::sunstudy::SunStudyResultSummary summary;
+    std::string summaryError;
+    if (evp::sunstudy::SunStudyStore::Get ().Summary (studyId, summary, summaryError)) {
+        char line[320];
+        std::snprintf (line, sizeof (line),
+                       "pipeline: stage=sun-result study=%s samples=%zu meanHours=%.9f minHours=%.6f maxHours=%.6f "
+                       "fullyLit=%zu fullyShaded=%zu daylightHours=%.6f",
+                       studyId.c_str (), summary.count, summary.meanHours, summary.minHours, summary.maxHours,
+                       summary.fullyLit, summary.fullyShaded, summary.daylightHours);
+        archviz::ArchVizLog (line);
+    }
     finish ("done", "");
 }
 
