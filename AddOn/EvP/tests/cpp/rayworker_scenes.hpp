@@ -93,6 +93,36 @@ inline void StreetScene (packet::Scene& scene, packet::Request& request)
     }
 }
 
+// A dense grid of `side` x `side` boxes, 0.6 m on 1 m centres, 1-10 m tall,
+// on a ground plane; up-facing samples in the 0.4 m streets and one high sun.
+// The street scene's handful of boxes never exercised a deep hierarchy: this
+// does (12 triangles a box, thousands of boxes).
+inline void BlockCity (packet::Scene& scene, packet::Request& request, int side)
+{
+    AddGround (scene, double (side) + 4.0, 0.0);
+    uint64_t state = 0x9E3779B97F4A7C15ull;
+    for (int b = 0; b < side * side; ++b) {
+        state = state * 6364136223846793005ull + 1442695040888963407ull;
+        const double h = 1.0 + 9.0 * double (state >> 11) * (1.0 / 9007199254740992.0);
+        const double x0 = double (b % side) + 0.2, y0 = double (b / side) + 0.2;
+        AddBox (scene, x0, y0, 0.0, x0 + 0.6, y0 + 0.6, h);
+    }
+    for (int iy = 0; iy < 2 * side; ++iy)
+        for (int ix = 0; ix < 2 * side; ++ix) {
+            request.positions.insert (request.positions.end (), { 0.1 + 0.5 * ix, 0.05 + 0.5 * iy, 0.05 });
+            request.normals.insert (request.normals.end (), { 0.0, 0.0, 1.0 });
+        }
+    const int steps = 6;
+    request.totalSteps = steps;
+    for (int k = 0; k < steps; ++k) {
+        const double azimuth = 0.3 + 1.0 * k, elevation = 0.5 + 0.15 * k;
+        request.steps.push_back (static_cast<uint32_t> (k));
+        request.directions.insert (request.directions.end (),
+                                   { std::cos (elevation) * std::cos (azimuth),
+                                     std::cos (elevation) * std::sin (azimuth), std::sin (elevation) });
+    }
+}
+
 struct Comparison {
     size_t differingBits = 0;
     size_t litBits = 0;

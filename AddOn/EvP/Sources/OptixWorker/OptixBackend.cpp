@@ -79,11 +79,18 @@ struct DeviceBuffer {
         bytes = size;
         return cuMemAlloc (&ptr, std::max<size_t> (size, 4));
     }
-    CUresult Upload (const void* data, size_t size)
+    // ⚠️ ON `stream`, NEVER THE LEGACY DEFAULT STREAM. Our stream is
+    // non-blocking, so it does not wait for cuMemcpyHtoD; and from pageable
+    // memory that call returns once the bytes are staged, not landed. A build
+    // or launch could then read a buffer whose tail was still in flight: from
+    // ~5,800 triangles (70 KB of indices) the block city traced almost every
+    // ray clear. Stream order is what makes the bytes visible to the work
+    // queued after them.
+    CUresult Upload (const void* data, size_t size, CUstream stream)
     {
         CUresult result = Alloc (size);
         if (result == CUDA_SUCCESS && size > 0)
-            result = cuMemcpyHtoD (ptr, data, size);
+            result = cuMemcpyHtoDAsync (ptr, data, size, stream);
         return result;
     }
 };
@@ -155,9 +162,9 @@ class OptixBackend final : public rayworker::RayBackend {
         cuCtxSetCurrent (cuda_);
         const std::vector<float> local = rayworker::LocalVertices (scene, origin_);
         DeviceBuffer vertices, indices, temp;
-        CUresult cu = vertices.Upload (local.data (), local.size () * sizeof (float));
+        CUresult cu = vertices.Upload (local.data (), local.size () * sizeof (float), stream_);
         if (cu == CUDA_SUCCESS)
-            cu = indices.Upload (scene.triangles.data (), scene.triangles.size () * sizeof (uint32_t));
+            cu = indices.Upload (scene.triangles.data (), scene.triangles.size () * sizeof (uint32_t), stream_);
         if (cu != CUDA_SUCCESS)
             return CudaReason (cu, "scene upload", error);
 
@@ -391,8 +398,8 @@ bool OptixBackend::CreatePipeline ()
             message_ = "optixSbtRecordPackHeader failed";
             return false;
         }
-    if (sbt_.Upload (records, sizeof (records)) != CUDA_SUCCESS ||
-        params_.Alloc (sizeof (LaunchParams)) != CUDA_SUCCESS) {
+    if (sbt_.Upload (records, sizeof (records), stream_) != CUDA_SUCCESS ||
+        cuStreamSynchronize (stream_) != CUDA_SUCCESS || params_.Alloc (sizeof (LaunchParams)) != CUDA_SUCCESS) {
         message_ = "shader binding table allocation failed";
         return false;
     }
@@ -412,11 +419,11 @@ GpuReason OptixBackend::Dispatch (const rayworker::RayBatch& batch, std::vector<
     cuCtxSetCurrent (cuda_);
     const size_t rayCount = batch.RayCount ();
     DeviceBuffer positions, rays, directions, out;
-    CUresult cu = positions.Upload (batch.positions.data (), batch.positions.size () * sizeof (float));
+    CUresult cu = positions.Upload (batch.positions.data (), batch.positions.size () * sizeof (float), stream_);
     if (cu == CUDA_SUCCESS)
-        cu = rays.Upload (batch.rays.data (), batch.rays.size () * sizeof (uint32_t));
+        cu = rays.Upload (batch.rays.data (), batch.rays.size () * sizeof (uint32_t), stream_);
     if (cu == CUDA_SUCCESS)
-        cu = directions.Upload (batch.directions.data (), batch.directions.size () * sizeof (float));
+        cu = directions.Upload (batch.directions.data (), batch.directions.size () * sizeof (float), stream_);
     if (cu == CUDA_SUCCESS)
         cu = out.Alloc (rayCount * sizeof (uint32_t));
     if (cu != CUDA_SUCCESS)
@@ -450,7 +457,9 @@ GpuReason OptixBackend::Dispatch (const rayworker::RayBatch& batch, std::vector<
             return CudaReason (cu, "launch", error);
     }
     occluded.resize (rayCount);
-    cu = cuMemcpyDtoH (occluded.data (), out.ptr, rayCount * sizeof (uint32_t));
+    cu = cuMemcpyDtoHAsync (occluded.data (), out.ptr, rayCount * sizeof (uint32_t), stream_);
+    if (cu == CUDA_SUCCESS)
+        cu = cuStreamSynchronize (stream_);
     if (cu != CUDA_SUCCESS)
         return CudaReason (cu, "readback", error);
     return GpuReason::None;

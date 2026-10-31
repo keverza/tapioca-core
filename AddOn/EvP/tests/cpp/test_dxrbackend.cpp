@@ -118,3 +118,18 @@ TEST_F (DxrBackendTest, CancellationReportsFailureAndNoBits)
 }
 
 } // namespace
+
+TEST_F (DxrBackendTest, ABlockCityMatchesTheCpuReferenceAtEverySize)
+{
+    // From a few dozen boxes to a few thousand: a hierarchy deep enough to
+    // matter, not only the street scene's five meshes.
+    for (const int side : { 4, 20, 22, 40, 70 }) {
+        packet::Scene scene;
+        packet::Request request;
+        BlockCity (scene, request, side);
+        const Comparison c = CompareWithCpuReference (*dxr_, scene, request);
+        EXPECT_GT (c.litBits, 0u) << "side " << side;
+        EXPECT_EQ (c.differingBits, 0u) << "side " << side << " (" << scene.triangleMesh.size () << " triangles), of "
+                                        << c.litBits << " lit bits";
+    }
+}
