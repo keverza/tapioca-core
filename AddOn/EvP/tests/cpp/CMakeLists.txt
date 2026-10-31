@@ -238,7 +238,6 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerPacket.cpp"
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerSupervisor.cpp"
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerService.cpp"
-    "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerCpuReference.cpp"
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerBatch.cpp"
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerClient.cpp"
     # SunStudyCache is the persistent analysis and, more importantly, the rule
@@ -892,7 +891,6 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
 endif ()
 
 set (EVP_TEST_SOURCES
-    test_rayworker.cpp
     test_viewpointcollisions.cpp
     test_extractioncapture.cpp
     test_mesh_extraction.cpp
@@ -1308,6 +1306,10 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustStudy.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustFollower.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustViews.cpp"
+        # The ray workers' CPU oracle runs the production (Rust) accumulator,
+        # so it and every test held to it need the archive (P7).
+        "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerCpuReference.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_rayworker.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_parity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_study.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_follower.cpp"
@@ -1406,17 +1408,22 @@ if (WIN32)
     # The DXR worker's backend, differential against the CPU reference backend
     # (test_dxrbackend.cpp). It creates its own D3D12 device and SKIPS without a
     # DXR Tier 1.0 adapter. The worker executable itself is built by the add-on.
-    target_sources (EvPGeomTests PRIVATE test_dxrbackend.cpp
-        "${EVP_ROOT}/Sources/DxrWorker/DxrDevice.cpp"
-        "${EVP_ROOT}/Sources/DxrWorker/DxrBackend.cpp")
+    # Both differentials are held to the CPU reference, so both need Rust.
+    if (TAPIOCA_LINK_RUST_GEOMETRY)
+        target_sources (EvPGeomTests PRIVATE test_dxrbackend.cpp
+            "${EVP_ROOT}/Sources/DxrWorker/DxrDevice.cpp"
+            "${EVP_ROOT}/Sources/DxrWorker/DxrBackend.cpp")
+        target_link_libraries (EvPGeomTests PRIVATE d3d12)
+    endif ()
     target_include_directories (EvPGeomTests PRIVATE "${EVP_ROOT}/Sources")
-    target_link_libraries (EvPGeomTests PRIVATE d3d12)
     # The worker's Win32 transport over a real pipe and file mappings
     # (test_rayworkerwin32.cpp), and the worker executable it spawns: built
     # beside the test binary so the test finds it without an installed add-on.
-    target_sources (EvPGeomTests PRIVATE test_rayworkerwin32.cpp
-        "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerWin32.cpp"
-        "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerTraversal.cpp")
+    if (TAPIOCA_LINK_RUST_GEOMETRY)
+        target_sources (EvPGeomTests PRIVATE test_rayworkerwin32.cpp
+            "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerWin32.cpp"
+            "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerTraversal.cpp")
+    endif ()
     set (EVP_RAYWORKER "${EVP_ROOT}/Sources/AddOn/RayWorker")
     add_executable (TapiocaDxrWorker
         "${EVP_ROOT}/Sources/DxrWorker/DxrWorkerMain.cpp"
@@ -1437,10 +1444,12 @@ if (WIN32)
     include ("${EVP_ROOT}/cmake/OptixWorker.cmake")
     tapioca_find_optix ()
     if (TAPIOCA_OPTIX_FOUND)
-        target_sources (EvPGeomTests PRIVATE test_optixbackend.cpp
-            "${EVP_ROOT}/Sources/OptixWorker/OptixBackend.cpp")
-        tapioca_add_optix_ir (EvPGeomTests "${EVP_ROOT}/Sources")
-        target_compile_definitions (EvPGeomTests PRIVATE TAPIOCA_TEST_OPTIX_WORKER=1)
+        if (TAPIOCA_LINK_RUST_GEOMETRY)
+            target_sources (EvPGeomTests PRIVATE test_optixbackend.cpp
+                "${EVP_ROOT}/Sources/OptixWorker/OptixBackend.cpp")
+            tapioca_add_optix_ir (EvPGeomTests "${EVP_ROOT}/Sources")
+            target_compile_definitions (EvPGeomTests PRIVATE TAPIOCA_TEST_OPTIX_WORKER=1)
+        endif ()
         add_executable (TapiocaOptixWorker
             "${EVP_ROOT}/Sources/OptixWorker/OptixWorkerMain.cpp"
             "${EVP_ROOT}/Sources/OptixWorker/OptixBackend.cpp"
@@ -1459,10 +1468,14 @@ endif ()
 # executables built beside it; no timing assertions.
 option (TAPIOCA_BUILD_RAYWORKER_BENCHMARK "Build the opt-in GPU ray worker benchmark" OFF)
 if (TAPIOCA_BUILD_RAYWORKER_BENCHMARK AND WIN32)
+    if (NOT TAPIOCA_LINK_RUST_GEOMETRY)
+        message (FATAL_ERROR "The ray worker benchmark's CPU oracle is the Rust accumulator: Rust ON")
+    endif ()
     add_executable (TapiocaRayWorkerBench benchmark_rayworker.cpp
         "${GEOM_DIR}/QueryEngine.cpp" "${GEOM_DIR}/BvhBuild.cpp" "${GEOM_DIR}/MeshSerializer.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/CpuTraversal.cpp"
-        "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOcclusion.cpp"
+        "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRust.cpp"
+        "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustOcclusion.cpp"
         "${EVP_RAYWORKER}/RayWorkerReason.cpp" "${EVP_RAYWORKER}/RayWorkerProtocol.cpp"
         "${EVP_RAYWORKER}/RayWorkerPacket.cpp" "${EVP_RAYWORKER}/RayWorkerSupervisor.cpp"
         "${EVP_RAYWORKER}/RayWorkerService.cpp" "${EVP_RAYWORKER}/RayWorkerCpuReference.cpp"
@@ -1471,7 +1484,9 @@ if (TAPIOCA_BUILD_RAYWORKER_BENCHMARK AND WIN32)
     target_include_directories (TapiocaRayWorkerBench PRIVATE "${EVP_ROOT}/Sources/AddOn" "${GEOM_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}")
     target_include_directories (TapiocaRayWorkerBench SYSTEM PRIVATE "${NANORT_INC}")
-    target_compile_definitions (TapiocaRayWorkerBench PRIVATE TAPIOCA_BENCH_CONFIG="$<CONFIG>")
+    target_compile_definitions (TapiocaRayWorkerBench PRIVATE TAPIOCA_BENCH_CONFIG="$<CONFIG>"
+        TAPIOCA_GEOMETRY_RUST=1)
+    TapiocaLinkRustCore (TapiocaRayWorkerBench)
     add_dependencies (TapiocaRayWorkerBench TapiocaDxrWorker)
     if (TARGET TapiocaOptixWorker)
         add_dependencies (TapiocaRayWorkerBench TapiocaOptixWorker)

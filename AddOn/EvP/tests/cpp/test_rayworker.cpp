@@ -12,7 +12,7 @@
 #include "RayWorker/RayWorkerService.hpp"
 #include "RayWorker/RayWorkerSupervisor.hpp"
 #include "SunStudy/CpuTraversal.hpp"
-#include "SunStudy/SunStudyOcclusion.hpp"
+#include "SunStudy/SunStudyRust.hpp"
 
 #include <gtest/gtest.h>
 
@@ -86,11 +86,11 @@ packet::Request Day (size_t steps)
     return request;
 }
 
-// The oracle: the sun study's accumulator over the original snapshot.
+// The oracle: the sun study's (Rust) accumulator over the original snapshot.
 std::vector<uint64_t> Oracle (const std::shared_ptr<geomsrv::Snapshot>& snapshot, const packet::Request& request)
 {
     const evp::sunstudy::CpuTraversal traversal (std::make_shared<geomsrv::QueryEngine> (snapshot));
-    evp::sunstudy::OcclusionAccumulator accumulator (request.positions.size () / 3, request.totalSteps);
+    evp::sunstudy::rust::RustOcclusionAccumulator accumulator (request.positions.size () / 3, request.totalSteps);
     evp::sunstudy::SampleSet set;
     set.positions = request.positions.data ();
     set.normals = request.normals.data ();

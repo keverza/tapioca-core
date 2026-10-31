@@ -248,6 +248,9 @@ if (NOT TAPIOCA_LINK_RUST_GEOMETRY)
     list (FILTER AddOnSourceFiles EXCLUDE REGEX "/Edit/Edit(TerrainAdapter|TerrainTriangulation|TerrainDesign|TerrainControls|TerrainDesignJob|TerrainOutline|TerrainCapture|SparseSolve|LandscapeTerrain|LandscapeTerrainSplit|LandscapeTerrainSolve)\\.cpp$")
     list (FILTER AddOnSourceFiles EXCLUDE REGEX "/Geometry/GeometryRust(Terrain|TerrainField|HybridTerrain|OutlineTerrain|Grading|Identity|Value|Affine|Polyline|Arc|Plane|MeshPrep|Raycast)\\.cpp$")
     list (FILTER AddOnSourceFiles EXCLUDE REGEX "/SunStudy/SunStudyRust[A-Za-z]*\\.cpp$")
+    # The ray workers' CPU oracle runs the Rust accumulator (P7); no product
+    # caller uses it.
+    list (FILTER AddOnSourceFiles EXCLUDE REGEX "/RayWorker/RayWorkerCpuReference\\.cpp$")
 endif ()
 
 # ---- ArchViz: the Diligent renderer ----------------------------------------

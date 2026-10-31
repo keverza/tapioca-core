@@ -3,10 +3,14 @@
 // The CPU reference backend lives apart from the service so a worker
 // executable links the wire without the geometry engine; tests and
 // diagnostics link both.
+//
+// ⚠️ ITS ACCUMULATOR IS THE PRODUCTION ONE, THE RUST CORE'S (P7). The oracle
+// a hardware backend is held to must be what the sun study actually runs, so
+// this needs the Rust archive and a no-Rust build leaves it out.
 
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/CpuTraversal.hpp"
-#include "SunStudy/SunStudyOcclusion.hpp"
+#include "SunStudy/SunStudyRust.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -79,7 +83,11 @@ class CpuReferenceBackend final : public RayBackend {
         }
         const auto started = std::chrono::steady_clock::now ();
         const size_t samples = request.positions.size () / 3;
-        evp::sunstudy::OcclusionAccumulator accumulator (samples, static_cast<size_t> (request.totalSteps));
+        evp::sunstudy::rust::RustOcclusionAccumulator accumulator (samples, static_cast<size_t> (request.totalSteps));
+        if (!accumulator.Valid ()) {
+            error = "the Rust accumulator could not be created: " + accumulator.LastError ();
+            return GpuReason::WorkerFailed;
+        }
         evp::sunstudy::SampleSet set;
         set.positions = request.positions.data ();
         set.normals = request.normals.empty () ? nullptr : request.normals.data ();
@@ -87,7 +95,7 @@ class CpuReferenceBackend final : public RayBackend {
         for (size_t i = 0; i < request.steps.size (); ++i) {
             if (!accumulator.AccumulateStep (*traversal_, set, request.steps[i], &request.directions[i * 3],
                                              request.tmin, request.tmax, 0, isCancelled)) {
-                error = "the run was cancelled";
+                error = isCancelled && isCancelled () ? "the run was cancelled" : accumulator.LastError ();
                 return GpuReason::WorkerFailed;
             }
         }
@@ -95,9 +103,7 @@ class CpuReferenceBackend final : public RayBackend {
         result.sampleCount = samples;
         result.stepCount = request.totalSteps;
         result.bits = accumulator.Bits ();
-        result.resolved.resize (static_cast<size_t> (request.totalSteps));
-        for (size_t step = 0; step < result.resolved.size (); ++step)
-            result.resolved[step] = accumulator.StepResolved (step) ? 1 : 0;
+        result.resolved = accumulator.StepsResolved ();
         return GpuReason::None;
     }
 
