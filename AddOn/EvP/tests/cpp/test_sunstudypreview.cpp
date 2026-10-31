@@ -131,9 +131,10 @@ RWStructuredBuffer<float4> result : register(u0);
     ASSERT_TRUE (SUCCEEDED (context->Map (staging.Get (), 0, D3D11_MAP_READ, 0, &mapped)));
     const float* rgba = static_cast<const float*> (mapped.pData);
     const auto linear = [] (float value) { return std::pow ((value + 0.055f) / 1.055f, 2.4f); };
-    EXPECT_NEAR (rgba[0], 0.4f * linear ((0.541f + 0.612f) * 0.5f) + 0.6f * linear (40.0f / 255.0f), 1e-6);
-    EXPECT_NEAR (rgba[1], 0.4f * linear ((0.310f + 0.353f) * 0.5f) + 0.6f * linear (83.0f / 255.0f), 1e-6);
-    EXPECT_NEAR (rgba[2], 0.4f * linear ((0.122f + 0.137f) * 0.5f) + 0.6f * linear (107.0f / 255.0f), 1e-6);
+    // Below the cutoff: the solid low-sun category, kSunLowSunHex, with nothing of the warm ramp in it.
+    EXPECT_NEAR (rgba[0], linear (float ((kSunLowSunHex >> 16) & 0xff) / 255.0f), 1e-6);
+    EXPECT_NEAR (rgba[1], linear (float ((kSunLowSunHex >> 8) & 0xff) / 255.0f), 1e-6);
+    EXPECT_NEAR (rgba[2], linear (float (kSunLowSunHex & 0xff) / 255.0f), 1e-6);
     EXPECT_FLOAT_EQ (rgba[3], 0.90f);
     EXPECT_FLOAT_EQ (rgba[7], 0.90f);
     EXPECT_NEAR (rgba[4], linear (0.612f), 1e-6) << "cutoff equality stays warm";
@@ -398,16 +399,20 @@ TEST_F (SunStudyControls, ThreePositionHoverButtonsSelectOffCursorAndPanelDirect
     }
 }
 
-TEST_F (SunStudyControls, BlueGradientOverlayRetainsTheWarmRampBelowAtSixtyPercent)
+TEST_F (SunStudyControls, LowSunIsASolidSwatchOnTheGradientNotATranslucentWash)
 {
     Frame (-1, false, true);
     Frame (-1, false, true);
-    bool translucentBlue = false;
+    bool solid = false, translucent = false;
+    const ImU32 blue = IM_COL32 ((kSunLowSunHex >> 16) & 0xff, (kSunLowSunHex >> 8) & 0xff, kSunLowSunHex & 0xff, 255);
     const auto* data = ImGui::GetDrawData ();
     for (int list = 0; list < data->CmdListsCount; ++list)
-        for (const auto& vertex : data->CmdLists[list]->VtxBuffer)
-            translucentBlue = translucentBlue || vertex.col == IM_COL32 (40, 83, 107, 153);
-    EXPECT_TRUE (translucentBlue);
+        for (const auto& vertex : data->CmdLists[list]->VtxBuffer) {
+            solid = solid || vertex.col == blue;
+            translucent = translucent || vertex.col == IM_COL32 (40, 83, 107, 153);
+        }
+    EXPECT_TRUE (solid);
+    EXPECT_FALSE (translucent);
 }
 
 TEST_F (SunStudyControls, SteppedGripDragsAnEdgeBetweenItsNeighbours)

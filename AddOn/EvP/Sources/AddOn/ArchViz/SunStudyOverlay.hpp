@@ -224,7 +224,7 @@ struct SunStudyViewSettings {
     // The visibility gradient's ends, 0xRRGGBBAA (sRGB): not visible, visible.
     uint32_t visibilityLowRgba = 0xB84E45FFu;
     uint32_t visibilityHighRgba = 0x4B8358FFu;
-    float blueThreshold = -1.0f; // disabled; otherwise hours below this are #28536B
+    float blueThreshold = -1.0f; // disabled; otherwise hours below this are kSunLowSunHex
     uint32_t firstShadowStep = 0;
     uint32_t endShadowStep = 0xffffffffu;
     int viewOverride = -1;

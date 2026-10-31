@@ -735,7 +735,7 @@ float3 SunRamp (float hours, float quantum)
     int count = int (g_sunStudyPreview.w + 0.5);
     float3 warm = count >= 3 ? SunWarm (SunBandCentre (SunBand (snapped, count), count)) : SunWarm (snapped);
     if (g_sunStudyPreview.x >= 0.0 && hours < g_sunStudyPreview.x)
-        return lerp (warm, SrgbToLinear (float3 (40.0, 83.0, 107.0) / 255.0), 0.60); // #28536B overlay
+        return SrgbToLinear (float3 (31.0, 95.0, 209.0) / 255.0); // kSunLowSunHex: a category, not a wash
     return warm;
 }
 

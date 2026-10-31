@@ -330,7 +330,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStat
             ImGui::TextDisabled ("9:00h+");
         }
         if (view.blueThreshold >= 0.0f)
-            LegendSwatch (0x28536B, ("below " + SunStudyClock (view.blueThreshold, true)).c_str ());
+            LegendSwatch (kSunLowSunHex, ("low sun: below " + SunStudyClock (view.blueThreshold, true)).c_str ());
     }
     else if (mode == 5) {
         char clock[16] = "--:--";
@@ -693,8 +693,11 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
             state.sunFilterHi = kSunHoursFilterOpenTop;
         }
         ImGui::Checkbox ("Low-sun blue", &state.sunLowBlue);
-        if (state.sunLowBlue)
-            ImGui::TextDisabled ("Below %s", SunStudyClock (state.sunBlueThreshold, true).c_str ());
+        if (state.sunLowBlue) {
+            Swatch ("##lowsun", Rgb (kSunLowSunHex), "low sun: one solid category below the cutoff");
+            ImGui::SameLine ();
+            ImGui::TextDisabled ("0:00h to %s", SunStudyClock (state.sunBlueThreshold, true).c_str ());
+        }
         DrawSunStudyHoursDisplay (state);
     }
 

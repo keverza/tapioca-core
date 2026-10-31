@@ -43,6 +43,12 @@ constexpr float kSunBandGap = 0.25f; // the edges' quarter-hour grid, and their 
 // Hours a few ulps under an edge (a 10-minute study's 3:00 h) still reach it.
 constexpr float kSunBandSlack = 1.0e-3f;
 
+// The LOW-SUN category: every hours value below the HUD's cutoff, one solid
+// saturated blue on the surface and in the legend alike -- a category, not a
+// wash over the warm ramp. ⚠️ kArchVizSunTintPS's SunRamp carries the same
+// sRGB triple (31, 95, 209), and the D3D test reads it back.
+constexpr unsigned kSunLowSunHex = 0x1F5FD1;
+
 // Evenly spaced with the open band at 9 h+, so ten bands are exactly the
 // smooth ramp's ten one-hour bins.
 inline void SunStudyDefaultBandEdges (int count, float edges[kSunBandsMax - 1])

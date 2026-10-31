@@ -97,9 +97,10 @@ void DrawSunStudyRampBar (ImDrawList* draw, ImVec2 start, ImVec2 size, int bands
             draw->AddRectFilledMultiColor (lo, hi, a, b, b, a);
         }
     }
-    if (blueBelow >= 0.0f)
+    // Solid, as the surface draws it: below the cutoff the warm ramp is not shown.
+    if (blueBelow > 0.0f)
         draw->AddRectFilled (start, ImVec2 (position ((std::min) (blueBelow, top)), start.y + size.y),
-                             IM_COL32 (40, 83, 107, 153));
+                             Colour (kSunLowSunHex));
 }
 
 void DrawSunStudyGradient (bool blue, float& threshold, int bands, float* edges)
@@ -156,7 +157,7 @@ void DrawSunStudyGradient (bool blue, float& threshold, int bands, float* edges)
     if (blue) {
         const float edge = position (threshold);
         draw->AddRectFilled (ImVec2 (edge - 5, start.y + height - 3), ImVec2 (edge + 5, start.y + height + 9),
-                             Colour (0x28536B), 2.0f);
+                             Colour (kSunLowSunHex), 2.0f);
         draw->AddRect (ImVec2 (edge - 5, start.y + height - 3), ImVec2 (edge + 5, start.y + height + 9), IM_COL32_WHITE,
                        2.0f);
     }
