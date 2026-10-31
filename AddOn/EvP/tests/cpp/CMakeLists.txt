@@ -1454,6 +1454,30 @@ if (WIN32)
     endif ()
 endif ()
 
+# The ray workers' share of a sun study over real IPC against the CPU reference
+# (raycast E5, #43): cold start, upload, build, warm p50/p95. It runs the worker
+# executables built beside it; no timing assertions.
+option (TAPIOCA_BUILD_RAYWORKER_BENCHMARK "Build the opt-in GPU ray worker benchmark" OFF)
+if (TAPIOCA_BUILD_RAYWORKER_BENCHMARK AND WIN32)
+    add_executable (TapiocaRayWorkerBench benchmark_rayworker.cpp
+        "${GEOM_DIR}/QueryEngine.cpp" "${GEOM_DIR}/BvhBuild.cpp" "${GEOM_DIR}/MeshSerializer.cpp"
+        "${EVP_ROOT}/Sources/AddOn/SunStudy/CpuTraversal.cpp"
+        "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOcclusion.cpp"
+        "${EVP_RAYWORKER}/RayWorkerReason.cpp" "${EVP_RAYWORKER}/RayWorkerProtocol.cpp"
+        "${EVP_RAYWORKER}/RayWorkerPacket.cpp" "${EVP_RAYWORKER}/RayWorkerSupervisor.cpp"
+        "${EVP_RAYWORKER}/RayWorkerService.cpp" "${EVP_RAYWORKER}/RayWorkerCpuReference.cpp"
+        "${EVP_RAYWORKER}/RayWorkerClient.cpp" "${EVP_RAYWORKER}/RayWorkerWin32.cpp")
+    target_compile_features (TapiocaRayWorkerBench PRIVATE cxx_std_20)
+    target_include_directories (TapiocaRayWorkerBench PRIVATE "${EVP_ROOT}/Sources/AddOn" "${GEOM_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_include_directories (TapiocaRayWorkerBench SYSTEM PRIVATE "${NANORT_INC}")
+    target_compile_definitions (TapiocaRayWorkerBench PRIVATE TAPIOCA_BENCH_CONFIG="$<CONFIG>")
+    add_dependencies (TapiocaRayWorkerBench TapiocaDxrWorker)
+    if (TARGET TapiocaOptixWorker)
+        add_dependencies (TapiocaRayWorkerBench TapiocaOptixWorker)
+    endif ()
+endif ()
+
 if (MSVC)
     # /W4 on OUR code (docs/guides/testing.md Â§5). The add-on ships at /W3; the host-free core
     # is where a stricter gate is affordable, so it starts here.
