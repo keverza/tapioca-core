@@ -68,10 +68,10 @@ TEST (ModelWatchEarlyPoll, ABurstIsWaitedOutButNotForever)
 TEST (ModelWatchEarlyPoll, PollsStaySpacedAndNeverLaterThanScheduled)
 {
     // A poll just ended: the next one waits out the spacing.
-    EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 49000, 100000), 49000 + watch::kEarlyPollSpacingMs);
+    EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 49900, 100000), 49900 + watch::kEarlyPollSpacingMs);
     // The regular tick is sooner anyway: leave the timer alone.
     EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 0, 50100), 50100);
-    EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 49000, 52000), 52000);
+    EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 49900, 50700), 50700);
 }
 
 // A 3 s diff on a large model must not be bought every 5 s, and a hint that
@@ -80,10 +80,13 @@ TEST (ModelWatchEarlyPoll, SpacingScalesWithTheDiffAndBacksOffOnMisses)
 {
     EXPECT_EQ (watch::EarlyPollSpacing (40, 0), watch::kEarlyPollSpacingMs);
     EXPECT_EQ (watch::EarlyPollSpacing (3000, 0), 3000 * watch::kEarlyPollDutyFactor);
-    EXPECT_EQ (watch::EarlyPollSpacing (40, 1), 2 * watch::kEarlyPollSpacingMs);
-    EXPECT_EQ (watch::EarlyPollSpacing (40, watch::kEarlyPollMaxBackoff),
-               watch::kEarlyPollSpacingMs << watch::kEarlyPollMaxBackoff);
-    EXPECT_EQ (watch::EarlyPollSpacing (40, 50), watch::EarlyPollSpacing (40, watch::kEarlyPollMaxBackoff)) << "capped";
+    EXPECT_EQ (watch::EarlyPollSpacing (3000, 1), 2 * 3000 * watch::kEarlyPollDutyFactor);
+    EXPECT_EQ (watch::EarlyPollSpacing (3000, watch::kEarlyPollMaxBackoff), (3000 * watch::kEarlyPollDutyFactor)
+                                                                                << watch::kEarlyPollMaxBackoff);
+    EXPECT_EQ (watch::EarlyPollSpacing (3000, 50), watch::EarlyPollSpacing (3000, watch::kEarlyPollMaxBackoff))
+        << "capped";
+    // A cheap poll never backs off: a miss after our own work must not delay the next edit.
+    EXPECT_EQ (watch::EarlyPollSpacing (40, 3), watch::kEarlyPollSpacingMs);
     EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 49000, 100000, 20000), 69000);
 }
 

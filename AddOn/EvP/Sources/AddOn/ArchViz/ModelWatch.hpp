@@ -136,9 +136,10 @@ bool RefreshNow ();
 //
 // ⚠️ AND IT CANNOT BECOME A STALL LOOP. An early poll costs what any poll costs
 // on the main thread, so early polls are EarlyPollSpacing apart: at least
-// kEarlyPollSpacingMs, at least kEarlyPollDutyFactor diffs, and doubled for each
-// early poll in a row that found no element change (up to kEarlyPollMaxBackoff
-// doublings). Any poll that finds an edit resets the backoff.
+// kEarlyPollSpacingMs, at least kEarlyPollDutyFactor diffs, and -- only when a
+// poll costs kExpensivePollMs or more -- doubled for each early poll in a row
+// that found no element change (up to kEarlyPollMaxBackoff doublings). Any poll
+// that finds an edit resets the backoff.
 //
 // ⚠️ MEASURED 2026-10-31: THIS EVENT DOES NOT FIRE FOR ELEMENT EDITS. Six
 // add/delete edits on the 806k-triangle model raised no ChangeProjectDB at all,
@@ -148,9 +149,14 @@ void NoteProjectChanged (int32_t cause);
 
 constexpr int64_t kEarlyPollSettleMs = 400;    // quiet after the last event of a burst
 constexpr int64_t kEarlyPollMaxDeferMs = 2000; // a long burst still polls this soon after it began
-constexpr int64_t kEarlyPollSpacingMs = 5000;  // from the end of the previous poll, at least
+constexpr int64_t kEarlyPollSpacingMs = 1000;  // from the end of the previous poll, at least
 constexpr int64_t kEarlyPollDutyFactor = 3;    // ... and at least this many diffs' cost
 constexpr uint32_t kEarlyPollMaxBackoff = 3;   // doublings of the spacing after misses
+// Below this a poll is cheap enough that a miss costs nothing worth backing off
+// from. ⚠️ THE BACKOFF WAS DELAYING REAL EDITS: our own work moves the stamp
+// after a pass, the hint finds nothing, and the user's next edit waited 10-20 s
+// behind the doubled spacing (2026-10-31 17:01-17:05).
+constexpr int64_t kExpensivePollMs = 250;
 // How often the stamp timer reads API_ProjectInfo.modiStamp. One read, no write.
 constexpr uint32_t kStampPollMs = 500;
 // A stamp move this soon after the watch's own extraction pass ends is taken as
@@ -180,6 +186,8 @@ inline int64_t EarlyPollSpacing (int64_t worstDiffMs, uint32_t misses)
     int64_t spacing = worstDiffMs * kEarlyPollDutyFactor;
     if (spacing < kEarlyPollSpacingMs)
         spacing = kEarlyPollSpacingMs;
+    if (worstDiffMs < kExpensivePollMs)
+        return spacing;
     return spacing << (misses < kEarlyPollMaxBackoff ? misses : kEarlyPollMaxBackoff);
 }
 
