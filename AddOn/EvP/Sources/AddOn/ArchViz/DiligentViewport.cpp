@@ -889,9 +889,10 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                                           planAnchorSeq_.load (), lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked,
                                           viewProj, width, height, planAnchorWidthPixels_.load (),
                                           planAnchorRgba_.load ());
-            if (!offscreen && surface.mode == SurfaceMode::PaletteChild)
+            if (!offscreen && !screenshot.Active () && surface.mode == SurfaceMode::PaletteChild)
                 editorDraw.Update (device, context, rtv, dsv, view, stableProj, width, height);
-            if (!offscreen && !annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input))
+            if (!offscreen && !annotationsOnly && !blanked && !screenshot.Active () &&
+                !ShouldIsolateGraphInteraction (hudState, input))
                 DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
             ProjectedDrawList annotations = UpdateAndDrawTraceAnnotations (
                 textLayer, device, context, blanked, offscreen, annotationsOnly, surface.nwh, rtv, dsv,
@@ -901,8 +902,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // ⚠️ NOT GATED ON `blanked`, ALONE AMONG THE LAYERS ABOVE. The blank
             // hides content drawn from a stale POSE; the panels have no pose to be
             // wrong about, and blanking them read as the viewer having crashed.
-            if (!offscreen && hud.IsReady () && !vieweredit::Active () &&
-                !screenshot.DrawLegend (hud, context, width, height, scene, hudState)) {
+            if (!offscreen && hud.IsReady () && !vieweredit::Active () && !screenshot.Active ()) {
                 const DiligentSceneStats hudScene = scene.Stats ();
                 {
                     // ⚠️ THE LOCK ENDS HERE, BEFORE Draw. `mutex_` is what the
@@ -927,7 +927,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             gpuTimings.EndFrame (frames, 1);
 
             context->SetRenderTargets (1, none, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
-            if (screenshot.Finish (context, scene, hudState))
+            if (screenshot.Finish (context, scene, hud, hudState))
                 continue; // a screenshot's frame is never presented
 
             if (captureThisFrame) {

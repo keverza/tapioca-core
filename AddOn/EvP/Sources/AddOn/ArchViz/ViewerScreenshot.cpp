@@ -18,6 +18,7 @@
 #include <windows.h>
 #include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
 #include <EngineFactoryD3D11.h>
+#include <DeviceContext.h>
 #include <GraphicsTypes.h>
 
 #include <chrono>
@@ -27,6 +28,7 @@
 #include <filesystem>
 #include <fstream>
 #include <system_error>
+#include <vector>
 
 namespace geomsrv::archviz {
 
@@ -40,16 +42,16 @@ std::string Utf8 (const std::filesystem::path& path)
     return std::string (text.begin (), text.end ());
 }
 
-// %LOCALAPPDATA%\Tapioca\logs, created if missing -- where the user asked for
-// screenshots, beside the logs that describe the run.
-bool LogsDirectory (std::filesystem::path& out, std::string& error)
+// %LOCALAPPDATA%\Tapioca\Export, created if missing: a screenshot is a
+// deliverable, not a diagnostic, so it does not go in the logs.
+bool ExportDirectory (std::filesystem::path& out, std::string& error)
 {
     const wchar_t* root = _wgetenv (L"LOCALAPPDATA");
     if (root == nullptr || *root == 0) {
         error = "LOCALAPPDATA is unavailable";
         return false;
     }
-    out = std::filesystem::path (root) / L"Tapioca" / L"logs";
+    out = std::filesystem::path (root) / L"Tapioca" / L"Export";
     std::error_code code;
     std::filesystem::create_directories (out, code);
     if (code) {
@@ -119,6 +121,7 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
         return surface;
     }
     target_ = std::move (target);
+    device_ = device;
     frames_ = 0;
     state.sunShotBusy = true;
     // The window's history is the wrong size and, at worst, the wrong pixels.
@@ -127,30 +130,62 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     return *target_;
 }
 
-bool ViewerScreenshot::DrawLegend (DiligentHud& hud, Diligent::IDeviceContext* context, uint32_t width, uint32_t height,
-                                   DiligentScene& scene, const HudState& state)
+// The legend as its own white strip, the image's width, read back for stacking
+// under the view. ⚠️ ITS OWN TARGET, NOT ROWS RESERVED IN THE VIEW'S: the
+// scene draws into the whole of whatever it is given, so a taller target would
+// stretch the camera instead of leaving room.
+static bool RenderLegendStrip (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, DiligentHud& hud,
+                               DiligentScene& scene, const HudState& state, uint32_t width, uint32_t height,
+                               float scale, std::vector<uint8_t>& rgba, std::string& error)
 {
-    if (target_ == nullptr)
+    DiligentViewportTarget strip;
+    if (!strip.Create (device, context, Diligent::GetEngineFactoryD3D11 (), SurfaceMode::Offscreen, nullptr, width,
+                       height, error))
         return false;
-    // Only the frame that is read back needs it; the settle frames are never seen.
-    if (frames_ + 1 >= kViewerScreenshotSettleFrames)
-        hud.DrawCaptureLegend (context, width, height, scale_, scene.Stats (), state);
-    return true;
+    Diligent::ITextureView* rtv = nullptr;
+    Diligent::ITextureView* dsv = nullptr;
+    bool ok = strip.BeginFrame (rtv, dsv);
+    if (ok) {
+        constexpr float kWhite[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        context->SetRenderTargets (1, &rtv, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        context->ClearRenderTarget (rtv, kWhite, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        hud.DrawCaptureLegend (context, width, height, scale, scene.Stats (), state);
+        context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
+        ok = strip.CaptureRgba (context, rgba, error);
+    }
+    else
+        error = "the legend strip returned no render target";
+    strip.Destroy (context);
+    return ok;
 }
 
-bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene& scene, HudState& state)
+bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene& scene, DiligentHud& hud,
+                               HudState& state)
 {
     if (target_ == nullptr)
         return false;
     if (++frames_ < kViewerScreenshotSettleFrames)
         return true;
 
+    const uint32_t width = target_->Width ();
+    const uint32_t viewHeight = target_->Height ();
+    const uint32_t stripHeight = hud.CaptureLegendHeight (scale_);
+    std::vector<uint8_t> image;
+    std::vector<uint8_t> strip;
     std::string png;
     std::string error;
     std::filesystem::path directory;
-    if (!target_->CapturePng (context, png, error))
+    // The view on top, the legend strip under it, one PNG.
+    bool ok = target_->CaptureRgba (context, image, error);
+    if (ok && stripHeight > 0) {
+        ok = RenderLegendStrip (device_, context, hud, scene, state, width, stripHeight, scale_, strip, error);
+        image.insert (image.end (), strip.begin (), strip.end ());
+    }
+    ok = ok && EncodeRgbaPng (image, width, viewHeight + (strip.empty () ? 0u : stripHeight), png, error) &&
+         ExportDirectory (directory, error);
+    if (!ok)
         Fail (state, error);
-    else if (LogsDirectory (directory, error)) {
+    else {
         const std::filesystem::path path = directory / ShotName (scale_);
         std::ofstream file (path, std::ios::binary);
         file.write (png.data (), static_cast<std::streamsize> (png.size ()));
@@ -164,8 +199,6 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
                         " bytes)");
         }
     }
-    else
-        Fail (state, error);
 
     Destroy (context);
     // Back to the window: its history is now the screenshot's size.

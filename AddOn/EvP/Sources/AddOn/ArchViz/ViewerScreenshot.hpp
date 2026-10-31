@@ -2,14 +2,14 @@
 #define EVP_ARCHVIZ_VIEWERSCREENSHOT_HPP
 
 // ArchViz/ViewerScreenshot — a high-resolution still of the LIVE viewer, with
-// the sun study's compact legend in the corner, saved to the logs folder.
+// the sun study's legend in a white strip under it, saved to Tapioca\Export.
 //
 // ⚠️ NOT StartCapture. That path is headless: it refuses while the viewer
 // runs and re-extracts the whole model, which is minutes on the models a sun
 // study is run on. This one borrows the running frame loop instead: for a few
 // frames the loop draws into an OFFSCREEN target of the chosen size, with the
-// same camera, scene and study, lets temporal antialiasing settle there, draws
-// only the legend over it, reads it back and goes back to the window. The
+// same camera, scene and study and no HUD or gizmo, lets temporal antialiasing
+// settle there, reads it back, adds the legend strip and goes back to the window. The
 // window shows its last presented frame meanwhile.
 //
 // ⚠️ THE PALETTE VIEWER ONLY. The offscreen target is RGBA8_UNORM_SRGB, which is
@@ -65,21 +65,19 @@ class ViewerScreenshot final {
                                        Diligent::IDeviceContext* context, DiligentScene& scene, HudState& state);
     bool Active () const;
 
-    // In the HUD's slot: on a screenshot frame, the legend alone, and true so
-    // the panels are not drawn into the image.
-    bool DrawLegend (DiligentHud& hud, Diligent::IDeviceContext* context, uint32_t width, uint32_t height,
-                     DiligentScene& scene, const HudState& state);
-
     // After the frame unbound its targets. True when the frame was the
-    // screenshot's, which is never presented; on the last one the PNG is
-    // written and the window's target is back for the next frame.
-    bool Finish (Diligent::IDeviceContext* context, DiligentScene& scene, HudState& state);
+    // screenshot's, which is never presented and carries no HUD. On the last
+    // one the view is read back, the legend is drawn as a white strip of its
+    // own under it (DiligentHud::DrawCaptureLegend), and the PNG is written to
+    // %LOCALAPPDATA%\Tapioca\Export; the window's target is back next frame.
+    bool Finish (Diligent::IDeviceContext* context, DiligentScene& scene, DiligentHud& hud, HudState& state);
 
     // ⚠️ BEFORE THE DEVICE IS RELEASED, like the surface target.
     void Destroy (Diligent::IDeviceContext* context);
 
   private:
     std::unique_ptr<DiligentViewportTarget> target_;
+    Diligent::IRenderDevice* device_ = nullptr; // the frame loop's, borrowed while a shot runs
     float scale_ = 1.0f;
     int frames_ = 0;
 };

@@ -21,6 +21,8 @@
 #include <PNGCodec.h>
 
 #include <atomic>
+#include <vector>
+#include <cstring>
 #include <string>
 #include <unordered_map>
 
@@ -602,9 +604,10 @@ void DiligentViewportTarget::Present ()
         impl_->presentFailures.fetch_add (1, std::memory_order_relaxed);
 }
 
-bool DiligentViewportTarget::CapturePng (Diligent::IDeviceContext* context, std::string& png, std::string& error)
+bool DiligentViewportTarget::CaptureRgba (Diligent::IDeviceContext* context, std::vector<uint8_t>& rgba,
+                                          std::string& error)
 {
-    png.clear ();
+    rgba.clear ();
     if (impl_ == nullptr || impl_->mode != SurfaceMode::Offscreen || context == nullptr ||
         impl_->offscreenColor == nullptr || impl_->offscreenStaging == nullptr) {
         error = "CapturePng requires a live offscreen target and context";
@@ -626,22 +629,37 @@ bool DiligentViewportTarget::CapturePng (Diligent::IDeviceContext* context, std:
         error = "the offscreen staging texture could not be mapped";
         return false;
     }
+    // Tightly packed: the staging stride is the driver's, not the image's.
+    const size_t row = size_t (impl_->width) * 4;
+    rgba.resize (row * impl_->height);
+    for (uint32_t y = 0; y < impl_->height; ++y)
+        std::memcpy (rgba.data () + row * y, static_cast<const uint8_t*> (mapped.pData) + size_t (mapped.Stride) * y,
+                     row);
+    context->UnmapTextureSubresource (impl_->offscreenStaging, 0, 0);
+    return true;
+}
 
+bool EncodeRgbaPng (const std::vector<uint8_t>& rgba, uint32_t width, uint32_t height, std::string& png,
+                    std::string& error)
+{
+    png.clear ();
     Diligent::RefCntAutoPtr<Diligent::IDataBlob> blob = Diligent::DataBlobImpl::Create ();
     // PNG's stable numeric colour-type value for RGBA. PNGCodec deliberately
     // exposes an int without exporting libpng's private include directory.
     constexpr int kPngColorTypeRgba = 6;
-    const auto encoded =
-        Diligent::EncodePng (static_cast<const Diligent::Uint8*> (mapped.pData), impl_->width, impl_->height,
-                             static_cast<Diligent::Uint32> (mapped.Stride), kPngColorTypeRgba, blob);
-    context->UnmapTextureSubresource (impl_->offscreenStaging, 0, 0);
-
+    const auto encoded = Diligent::EncodePng (rgba.data (), width, height, width * 4, kPngColorTypeRgba, blob);
     if (encoded != Diligent::ENCODE_PNG_RESULT_OK || blob == nullptr || blob->GetSize () == 0) {
         error = "Diligent EncodePng failed for the offscreen frame";
         return false;
     }
     png.assign (static_cast<const char*> (blob->GetConstDataPtr ()), blob->GetSize ());
     return true;
+}
+
+bool DiligentViewportTarget::CapturePng (Diligent::IDeviceContext* context, std::string& png, std::string& error)
+{
+    std::vector<uint8_t> rgba;
+    return CaptureRgba (context, rgba, error) && EncodeRgbaPng (rgba, impl_->width, impl_->height, png, error);
 }
 
 // Bound the number of already-rendered frames DXGI may hold before showing one.

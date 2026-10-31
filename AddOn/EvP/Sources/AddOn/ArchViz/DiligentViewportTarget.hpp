@@ -36,6 +36,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 struct IDXGISwapChain;
 
@@ -55,6 +56,10 @@ enum class SurfaceMode : uint8_t {
     Overlay = 1,
     Offscreen = 2,
 };
+
+// RGBA8 rows, tightly packed, as a PNG -- the encoder CapturePng uses.
+bool EncodeRgbaPng (const std::vector<uint8_t>& rgba, uint32_t width, uint32_t height, std::string& png,
+                    std::string& error);
 
 class DiligentViewportTarget final {
   public:
@@ -92,6 +97,8 @@ class DiligentViewportTarget final {
     // Offscreen mode only. The caller must unbind the colour target before this
     // call; the method copies through a staging texture and returns PNG bytes.
     bool CapturePng (Diligent::IDeviceContext* context, std::string& png, std::string& error);
+    // The same readback as raw RGBA8, tightly packed, Width () x Height ().
+    bool CaptureRgba (Diligent::IDeviceContext* context, std::vector<uint8_t>& rgba, std::string& error);
 
     // Applied at the next BeginFrame, not here: resizing between a bind and a
     // draw destroys the texture the context is holding.

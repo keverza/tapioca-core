@@ -687,11 +687,14 @@ class DiligentHud final {
                const DiligentSceneStats& scene, const ProjectedDrawList& annotations, const float viewProj[16],
                HudState& state, bool showControls = true);
 
-    // A SCREENSHOT frame's only HUD: the compact sun study legend in the
-    // corner, drawn at `scale` times its panel size so it reads the same on a
-    // 2x image. No input, no panels; the next Draw restores the panel's style.
+    // A SCREENSHOT's legend strip: the sun study legend laid out across a
+    // width x height strip the caller has bound and cleared white, at `scale`
+    // times the panel's text size so it reads the same on a 2x image. No input,
+    // no panels; the next Draw restores the panel's style.
     void DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,
                             const DiligentSceneStats& scene, const HudState& state);
+    // The strip's height for `scale`: title, ramp bar and hour labels.
+    uint32_t CaptureLegendHeight (float scale) const;
 
   private:
     struct Impl;
@@ -702,8 +705,9 @@ class DiligentHud final {
 // the hours range, its legend, and the role legend. Draws nothing unless a
 // study is on screen.
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene);
-// The screenshot's legend window, bottom-left: what the tint on the image
-// means, from the same painter and view state the panel uses.
+// The screenshot's legend strip: what the tint on the image means -- the
+// gradient and its hour steps -- from the same painter and view state the
+// panel uses. Fills the width x height display it is drawn into.
 void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStatus& study, uint32_t width,
                                 uint32_t height);
 // Its "Run sun study" form, in DiligentHudSunRun.cpp: date, timestep, cell

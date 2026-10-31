@@ -413,6 +413,22 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     state.wantsMouse = io.WantCaptureMouse;
 }
 
+namespace {
+// The legend's scale for a screenshot at `scale`: the panel's own system-DPI
+// scale times the image's. Fonts and sizes follow it exactly as Draw does.
+float CaptureDpiScale (float scale)
+{
+    const UINT systemDpi = ::GetDpiForSystem ();
+    return (systemDpi != 0 ? float (systemDpi) / 96.0f : 1.0f) * scale;
+}
+} // namespace
+
+uint32_t DiligentHud::CaptureLegendHeight (float scale) const
+{
+    // Padding, title, gap, bar, gap, hour labels, padding.
+    return uint32_t (std::lround (6.0f * 13.0f * CaptureDpiScale (scale)));
+}
+
 void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,
                                      const DiligentSceneStats& scene, const HudState& state)
 {
@@ -425,8 +441,7 @@ void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t
     io.DeltaTime = 1.0f / 60.0f;
     // ⚠️ NO POINTER: a hover state carried into the image would draw a tooltip.
     io.AddMousePosEvent (-FLT_MAX, -FLT_MAX);
-    const UINT systemDpi = ::GetDpiForSystem ();
-    const float dpiScale = (systemDpi != 0 ? float (systemDpi) / 96.0f : 1.0f) * scale;
+    const float dpiScale = CaptureDpiScale (scale);
     hudshell::BaseStyle (dpiScale * hudshell::FontScaleOfStep (impl_->shell.fontStep));
     impl_->renderer->NewFrame (width, height, Diligent::SURFACE_TRANSFORM_IDENTITY);
     ImGui::NewFrame ();
