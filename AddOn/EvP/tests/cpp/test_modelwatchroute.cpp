@@ -73,3 +73,29 @@ TEST (ModelWatchEarlyPoll, PollsStaySpacedAndNeverLaterThanScheduled)
     EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 0, 50100), 50100);
     EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 49000, 52000), 52000);
 }
+
+// A 3 s diff on a large model must not be bought every 5 s, and a hint that
+// keeps finding nothing backs off instead of switching itself off (#97).
+TEST (ModelWatchEarlyPoll, SpacingScalesWithTheDiffAndBacksOffOnMisses)
+{
+    EXPECT_EQ (watch::EarlyPollSpacing (40, 0), watch::kEarlyPollSpacingMs);
+    EXPECT_EQ (watch::EarlyPollSpacing (3000, 0), 3000 * watch::kEarlyPollDutyFactor);
+    EXPECT_EQ (watch::EarlyPollSpacing (40, 1), 2 * watch::kEarlyPollSpacingMs);
+    EXPECT_EQ (watch::EarlyPollSpacing (40, watch::kEarlyPollMaxBackoff),
+               watch::kEarlyPollSpacingMs << watch::kEarlyPollMaxBackoff);
+    EXPECT_EQ (watch::EarlyPollSpacing (40, 50), watch::EarlyPollSpacing (40, watch::kEarlyPollMaxBackoff)) << "capped";
+    EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 49000, 100000, 20000), 69000);
+}
+
+// The project stamp moves for selection changes too; a click must not buy a diff.
+TEST (ModelWatchStamp, OnlyAMoveThatIsNotTheSelectionOrTheWatchItselfIsAHint)
+{
+    using watch::JudgeStamp;
+    using watch::StampVerdict;
+    EXPECT_EQ (JudgeStamp (false, false, true, true), StampVerdict::Unchanged);
+    EXPECT_EQ (JudgeStamp (true, true, false, false), StampVerdict::DuringPass);
+    EXPECT_EQ (JudgeStamp (true, true, true, true), StampVerdict::DuringPass);
+    EXPECT_EQ (JudgeStamp (true, false, true, false), StampVerdict::SelectionOnly);
+    EXPECT_EQ (JudgeStamp (true, false, false, false), StampVerdict::Hint) << "an edit of what stays selected";
+    EXPECT_EQ (JudgeStamp (true, false, true, true), StampVerdict::Hint) << "a delete of the selection";
+}

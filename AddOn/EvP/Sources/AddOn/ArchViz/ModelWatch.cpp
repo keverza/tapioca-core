@@ -21,6 +21,7 @@
 #include <set>
 #include <string>
 #include <memory>
+#include <vector>
 
 namespace geomsrv {
 namespace archviz {
@@ -66,7 +67,68 @@ int64_t gBurstStartMs = 0;
 int64_t gLastPollEndMs = 0;
 bool gEarlyPending = false;
 uint32_t gEarlyMisses = 0;
-bool gEarlyDisabled = false;
+
+// The stamp timer (JudgeStamp): the project's modiStamp and selection as last
+// adopted, and whether the watch's own extraction ran at the previous tick.
+UINT_PTR gStampTimer = 0;
+uint64_t gStamp = 0;
+bool gStampKnown = false;
+std::vector<std::string> gSelection; // sorted element GUIDs
+bool gPassLastTick = false;
+// The stamp counters at the last hint, for the deltas its log line reports.
+uint32_t gHintSelectionOnly = 0;
+uint32_t gHintDuringPass = 0;
+
+// The selected elements' GUIDs, sorted. MAIN THREAD.
+bool ReadSelection (std::vector<std::string>& guids)
+{
+    API_SelectionInfo info = {};
+    GS::Array<API_Neig> neigs;
+    const GSErrCode err = ACAPI_Selection_Get (&info, &neigs, false);
+    if (info.marquee.coords != nullptr)
+        BMKillHandle (reinterpret_cast<GSHandle*> (&info.marquee.coords));
+    if (err != NoError && err != APIERR_NOSEL)
+        return false;
+    guids.clear ();
+    for (const API_Neig& neig : neigs)
+        guids.push_back (APIGuidToString (neig.guid).ToCStr ().Get ());
+    std::sort (guids.begin (), guids.end ());
+    guids.erase (std::unique (guids.begin (), guids.end ()), guids.end ());
+    return true;
+}
+
+// Whether any of `guids` is gone from the project: a delete of the selection.
+// Bounded, because a select-all of a large model must not become a header walk.
+bool AnyVanished (const std::vector<std::string>& guids)
+{
+    constexpr size_t kChecked = 256;
+    for (size_t i = 0; i < guids.size () && i < kChecked; ++i) {
+        API_Elem_Head head = {};
+        head.guid = APIGuidFromString (guids[i].c_str ());
+        if (ACAPI_Element_GetHeader (&head) != NoError)
+            return true;
+    }
+    return false;
+}
+
+bool ReadStamp (uint64_t& stamp)
+{
+    API_ProjectInfo project;
+    if (ACAPI_ProjectOperation_Project (&project) != NoError)
+        return false;
+    stamp = uint64_t (project.modiStamp);
+    return true;
+}
+
+// Take the current stamp and selection as the comparison point.
+void AdoptStamp ()
+{
+    gStampKnown = ReadStamp (gStamp);
+    if (!ReadSelection (gSelection))
+        gSelection.clear ();
+}
+
+void NoteHint (const std::string& what);
 
 // Start a fresh single pass. ⚠️ NOT StartLive: with observers off, the live loop
 // runs one pass and exits anyway (ExtractionThread's PLAT-RE68 branch), so the
@@ -157,19 +219,21 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     ++gStats.polls;
     gLastPollEndMs = int64_t (::GetTickCount64 ());
     gBurstStartMs = 0;
+    // ⚠️ RE-READ AFTER THE DIFF: generating the 3D model for it may move the
+    // project's stamp, and that move must not bring the next poll forward.
+    AdoptStamp ();
+    const bool found = diff.ok && (!diff.created.empty () || !diff.modified.empty () || !diff.deleted.empty ());
+    if (found)
+        gEarlyMisses = 0;
     if (early) {
         ++gStats.earlyPolls;
-        const bool found = diff.ok && (!diff.created.empty () || !diff.modified.empty () || !diff.deleted.empty ());
-        gEarlyMisses = found ? 0 : gEarlyMisses + 1;
-        if (gEarlyMisses >= kEarlyPollMisses && !gEarlyDisabled) {
-            gEarlyDisabled = true;
-            ArchVizLog ("model watch: " + std::to_string (kEarlyPollMisses) +
-                        " polls brought forward by a project-database event found no element change; "
-                        "the event is ignored for this session and edits follow the regular cadence");
-        }
-        else if (found)
-            ArchVizLog ("model watch: the poll brought forward by a project-database event found the edit, " +
-                        std::to_string (diff.elapsedMs) + " ms");
+        if (!found)
+            ++gEarlyMisses;
+        ArchVizLog (found ? "model watch: the poll brought forward found the edit, " + std::to_string (diff.elapsedMs) +
+                                " ms"
+                          : "model watch: the poll brought forward found no element change (" +
+                                std::to_string (gEarlyMisses) + " in a row); the next one waits " +
+                                std::to_string (EarlyPollSpacing (gStats.worstDiffMs, gEarlyMisses)) + " ms");
     }
 
     if (!diff.ok) {
@@ -344,6 +408,73 @@ void Rearm (uint32_t intervalMs, bool early)
     gStats.running = true;
 }
 
+void CALLBACK StampTimerProc (HWND, UINT, UINT_PTR, DWORD)
+{
+    if (gTimer == 0 || gBaseline == nullptr)
+        return;
+    const bool pass = ExtractionWorker::Get ().IsRunning ();
+    const bool passNowOrLastTick = pass || gPassLastTick;
+    gPassLastTick = pass;
+    uint64_t stamp = 0;
+    if (!ReadStamp (stamp))
+        return;
+    const bool moved = gStampKnown && stamp != gStamp;
+    if (!moved) {
+        gStamp = stamp;
+        gStampKnown = true;
+        return;
+    }
+    ++gStats.stampChanges;
+    std::vector<std::string> selection;
+    const bool selectionRead = ReadSelection (selection);
+    const bool selectionChanged = selectionRead && selection != gSelection;
+    const StampVerdict verdict =
+        JudgeStamp (moved, passNowOrLastTick, selectionChanged, selectionChanged && AnyVanished (gSelection));
+    gStamp = stamp;
+    if (selectionRead)
+        gSelection = std::move (selection);
+    switch (verdict) {
+        case StampVerdict::DuringPass:
+            ++gStats.stampDuringPass;
+            break;
+        case StampVerdict::SelectionOnly:
+            ++gStats.stampSelectionOnly;
+            break;
+        case StampVerdict::Hint: {
+            ++gStats.stampHints;
+            // Deltas since the previous hint (OVERLAY-INVARIANTS section 7), so a
+            // live log shows what the filter dropped between two edits.
+            NoteHint ("project stamp moved (since the last hint: " +
+                      std::to_string (gStats.stampSelectionOnly - gHintSelectionOnly) + " selection-only, " +
+                      std::to_string (gStats.stampDuringPass - gHintDuringPass) + " during a pass)");
+            gHintSelectionOnly = gStats.stampSelectionOnly;
+            gHintDuringPass = gStats.stampDuringPass;
+            break;
+        }
+        case StampVerdict::Unchanged:
+            break;
+    }
+}
+
+// Bring the next poll forward for a hint (`what`, logged once per burst).
+void NoteHint (const std::string& what)
+{
+    if (gTimer == 0 || gBaseline == nullptr)
+        return;
+    const int64_t now = int64_t (::GetTickCount64 ());
+    const bool first = gBurstStartMs == 0;
+    if (first)
+        gBurstStartMs = now;
+    const int64_t due = EarlyPollDue (now, gBurstStartMs, gLastPollEndMs, gNextDueMs,
+                                      EarlyPollSpacing (gStats.worstDiffMs, gEarlyMisses));
+    if (first)
+        ArchVizLog ("model watch: " + what + " -- polling in " + std::to_string ((std::max<int64_t>) (0, due - now)) +
+                    " ms, not " + std::to_string ((std::max<int64_t>) (0, gNextDueMs - now)) + " ms");
+    if (due >= gNextDueMs)
+        return;
+    Rearm (uint32_t ((std::max<int64_t>) (1, due - now)), /*early*/ true);
+}
+
 } // namespace
 
 bool Start (uint32_t floorMs)
@@ -358,9 +489,11 @@ bool Start (uint32_t floorMs)
     gBaseline = std::make_unique<modeldiff::Baseline> (modeldiff::Scope::Model);
     gStats = Stats {};
     gBurstStartMs = gLastPollEndMs = 0;
-    gEarlyPending = gEarlyDisabled = false;
+    gEarlyPending = false;
     gEarlyMisses = 0;
     gCeilingLogged = false;
+    gPassLastTick = false;
+    gHintSelectionOnly = gHintDuringPass = 0;
     // The sun's log is deduplicated across reads, and its memory of what it last
     // wrote is session state like the baseline beside it. See the header.
     ForgetEnvironmentLog ();
@@ -387,6 +520,13 @@ bool Start (uint32_t floorMs)
                     " ms). "
                     "No observers are attached and nothing is written to the project.");
     }
+    // The hint: the project's stamp, read every kStampPollMs (JudgeStamp).
+    AdoptStamp ();
+    if (gStampTimer != 0)
+        ::KillTimer (nullptr, gStampTimer);
+    gStampTimer = ::SetTimer (nullptr, 0, kStampPollMs, StampTimerProc);
+    if (gStampTimer == 0)
+        ArchVizLog ("model watch: the stamp timer could not be set; edits follow the regular cadence only.");
     return true;
 }
 
@@ -402,6 +542,13 @@ void Stop ()
         ::KillTimer (nullptr, gTimer);
         gTimer = 0;
     }
+    if (gStampTimer != 0) {
+        ::KillTimer (nullptr, gStampTimer);
+        gStampTimer = 0;
+    }
+    gStampKnown = false;
+    gSelection.clear ();
+    gPassLastTick = false;
     gBaseline.reset ();
     gIntervalMs = 0;
     gStats.running = false;
@@ -426,20 +573,7 @@ bool RefreshNow ()
 void NoteProjectChanged (int32_t cause)
 {
     ++gStats.projectChanges;
-    if (gTimer == 0 || gEarlyDisabled || gBaseline == nullptr)
-        return;
-    const int64_t now = int64_t (::GetTickCount64 ());
-    const bool first = gBurstStartMs == 0;
-    if (first)
-        gBurstStartMs = now;
-    const int64_t due = EarlyPollDue (now, gBurstStartMs, gLastPollEndMs, gNextDueMs);
-    if (first)
-        ArchVizLog ("model watch: project database changed (cause " + std::to_string (cause) + ") -- polling in " +
-                    std::to_string ((std::max<int64_t>) (0, due - now)) + " ms, not " +
-                    std::to_string ((std::max<int64_t>) (0, gNextDueMs - now)) + " ms");
-    if (due >= gNextDueMs)
-        return;
-    Rearm (uint32_t ((std::max<int64_t>) (1, due - now)), /*early*/ true);
+    NoteHint ("project database changed (cause " + std::to_string (cause) + ")");
 }
 
 void ServePending ()

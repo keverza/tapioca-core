@@ -73,9 +73,15 @@ struct Stats {
     // generator's lists dropped because the sweep had already updated every element they named.
     uint32_t sweepChanges = 0;
     uint32_t alreadySwept = 0;
-    // APINotify_ChangeProjectDB events seen, and the polls they brought forward.
+    // APINotify_ChangeProjectDB events seen, and the polls a hint brought forward.
     uint32_t projectChanges = 0;
     uint32_t earlyPolls = 0;
+    // The project's modiStamp (JudgeStamp): moves seen, moves taken as a hint, and moves
+    // dropped as a selection change or as the watch's own extraction.
+    uint32_t stampChanges = 0;
+    uint32_t stampHints = 0;
+    uint32_t stampSelectionOnly = 0;
+    uint32_t stampDuringPass = 0;
     int64_t lastDiffMs = 0;  // what the last poll cost
     int64_t worstDiffMs = 0; // the worst one, which is what set the interval
     uint32_t intervalMs = 0; // the cadence it has settled on
@@ -122,29 +128,79 @@ bool RefreshNow ();
 // regular cadence still runs, so an edit that raises no event is still seen.
 //
 // ⚠️ AND IT CANNOT BECOME A STALL LOOP. An early poll costs what any poll costs
-// on the main thread, so early polls are at least kEarlyPollSpacingMs apart, and
-// after kEarlyPollMisses early polls in a row that found no element change the
-// hint is ignored for the rest of the session, and the log says so.
+// on the main thread, so early polls are EarlyPollSpacing apart: at least
+// kEarlyPollSpacingMs, at least kEarlyPollDutyFactor diffs, and doubled for each
+// early poll in a row that found no element change (up to kEarlyPollMaxBackoff
+// doublings). Any poll that finds an edit resets the backoff.
+//
+// ⚠️ MEASURED 2026-10-31: THIS EVENT DOES NOT FIRE FOR ELEMENT EDITS. Six
+// add/delete edits on the 806k-triangle model raised no ChangeProjectDB at all,
+// and every one waited for the 30 s cadence. The hint that does move is the
+// project's modiStamp -- see the stamp timer and JudgeStamp below.
 void NoteProjectChanged (int32_t cause);
 
 constexpr int64_t kEarlyPollSettleMs = 400;    // quiet after the last event of a burst
 constexpr int64_t kEarlyPollMaxDeferMs = 2000; // a long burst still polls this soon after it began
-constexpr int64_t kEarlyPollSpacingMs = 5000;  // from the end of the previous poll
-constexpr uint32_t kEarlyPollMisses = 3;
+constexpr int64_t kEarlyPollSpacingMs = 5000;  // from the end of the previous poll, at least
+constexpr int64_t kEarlyPollDutyFactor = 3;    // ... and at least this many diffs' cost
+constexpr uint32_t kEarlyPollMaxBackoff = 3;   // doublings of the spacing after misses
+// How often the stamp timer reads API_ProjectInfo.modiStamp. One read, no write.
+constexpr uint32_t kStampPollMs = 500;
+
+// The spacing between early polls -- pure, so tests/cpp pins it.
+inline int64_t EarlyPollSpacing (int64_t worstDiffMs, uint32_t misses)
+{
+    int64_t spacing = worstDiffMs * kEarlyPollDutyFactor;
+    if (spacing < kEarlyPollSpacingMs)
+        spacing = kEarlyPollSpacingMs;
+    return spacing << (misses < kEarlyPollMaxBackoff ? misses : kEarlyPollMaxBackoff);
+}
+
+// What one stamp-timer tick makes of the project's modiStamp -- pure, so
+// tests/cpp pins it.
+//
+// ⚠️ THE STAMP IS A HINT WITH KNOWN FALSE POSITIVES. It moves for an element
+// edit, but also for a plain SELECTION change (ProjectCommands' GH2 Ping, which
+// fingerprints the selection for exactly this reason) and possibly for model
+// generation. A diff costs ~3 s of main thread on a large model, so a click that
+// selects must not buy one. A move that came with a selection change is a hint
+// only when an element that WAS selected no longer exists, which is what a
+// delete of the selection looks like. A creation that also changed the
+// selection is left to the regular cadence. While the watch's own extraction
+// runs (now or at the previous tick) the move is adopted, never a hint.
+enum class StampVerdict : uint8_t {
+    Unchanged,
+    DuringPass,    // the watch's own extraction may have moved it
+    SelectionOnly, // the selection changed and everything it held still exists
+    Hint           // bring the poll forward
+};
+
+inline StampVerdict JudgeStamp (bool stampMoved, bool passNowOrLastTick, bool selectionChanged,
+                                bool previouslySelectedVanished)
+{
+    if (!stampMoved)
+        return StampVerdict::Unchanged;
+    if (passNowOrLastTick)
+        return StampVerdict::DuringPass;
+    if (selectionChanged && !previouslySelectedVanished)
+        return StampVerdict::SelectionOnly;
+    return StampVerdict::Hint;
+}
 
 // When the brought-forward poll is due -- pure, so tests/cpp pins it. Never
-// earlier than `now`, never sooner than kEarlyPollSpacingMs after the last poll
+// earlier than `now`, never sooner than `spacingMs` (EarlyPollSpacing) after the last poll
 // ended, and never later than the poll already scheduled (`scheduledDue`): a
 // result equal to `scheduledDue` means "leave the timer alone".
-inline int64_t EarlyPollDue (int64_t now, int64_t burstStart, int64_t lastPollEnd, int64_t scheduledDue)
+inline int64_t EarlyPollDue (int64_t now, int64_t burstStart, int64_t lastPollEnd, int64_t scheduledDue,
+                             int64_t spacingMs = kEarlyPollSpacingMs)
 {
     int64_t due = now + kEarlyPollSettleMs;
     if (burstStart + kEarlyPollMaxDeferMs < due)
         due = burstStart + kEarlyPollMaxDeferMs;
     if (due < now)
         due = now;
-    if (due < lastPollEnd + kEarlyPollSpacingMs)
-        due = lastPollEnd + kEarlyPollSpacingMs;
+    if (due < lastPollEnd + spacingMs)
+        due = lastPollEnd + spacingMs;
     return due < scheduledDue ? due : scheduledDue;
 }
 
