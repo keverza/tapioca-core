@@ -223,3 +223,29 @@ TEST (BvhBuild, QueriesAgreeWithNanortsTreeRayForRay)
     EXPECT_GT (occluded, 400u);
     EXPECT_LT (occluded, 3600u);
 }
+
+// ⚠️ THE PARALLEL BUILD IS AN OPTIMISATION, NOT A DIFFERENT TREE. Built on one
+// thread and on eight, every node, link, box and leaf range is the same, so
+// what the parity test above proves for one holds for the other (#97).
+TEST (BvhBuild, ParallelAndSequentialTreesAreIdentical)
+{
+    const auto snap = AwkwardScene (6000);
+    const Soup soup = Flatten (*snap);
+    const size_t triangles = soup.faces.size () / 3;
+    ASSERT_GT (triangles, 4u * 16384u) << "large enough to fan out";
+    const BvhBuildResult one = BuildBinnedSahBvh (soup.vertices.data (), soup.faces.data (), triangles, 1);
+    for (const size_t threads : { size_t (2), size_t (3), size_t (8) }) {
+        const BvhBuildResult many = BuildBinnedSahBvh (soup.vertices.data (), soup.faces.data (), triangles, threads);
+        ASSERT_EQ (many.nodes.size (), one.nodes.size ()) << threads << " threads";
+        EXPECT_EQ (many.indices, one.indices) << threads << " threads";
+        EXPECT_EQ (many.depth, one.depth) << threads << " threads";
+        for (size_t n = 0; n < one.nodes.size (); ++n) {
+            const auto& a = one.nodes[n];
+            const auto& b = many.nodes[n];
+            ASSERT_TRUE (a.flag == b.flag && a.axis == b.axis && a.data[0] == b.data[0] && a.data[1] == b.data[1])
+                << "node " << n << ", " << threads << " threads";
+            for (int k = 0; k < 3; ++k)
+                ASSERT_TRUE (a.bmin[k] == b.bmin[k] && a.bmax[k] == b.bmax[k]) << "node " << n;
+        }
+    }
+}

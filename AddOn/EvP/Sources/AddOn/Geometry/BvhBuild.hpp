@@ -55,7 +55,13 @@ struct BvhBuildResult {
 constexpr size_t kBvhMaxDepth = 60;
 
 // `faces` holds 3 * `triangles` vertex indices into `vertices` (xyz doubles).
-BvhBuildResult BuildBinnedSahBvh (const double* vertices, const uint32_t* faces, size_t triangles);
+// `threads` 0 is BvhBuildThreads(); 1 builds on the calling thread alone. The
+// tree is the same either way. Helpers run at the caller's priority.
+BvhBuildResult BuildBinnedSahBvh (const double* vertices, const uint32_t* faces, size_t triangles, size_t threads = 0);
+
+// Half the hardware threads, at most 8: the index is rebuilt on every
+// sun-study refresh, while the user works (#97).
+size_t BvhBuildThreads ();
 
 } // namespace geomsrv
 

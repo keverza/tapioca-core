@@ -16,6 +16,7 @@
 //   TapiocaSunTraceBench [--sizes 1000,10000,...] [--threads 1,2,4,8,0] [--rays N]
 //   TapiocaSunTraceBench --snapshot model.msgpack   (a real model, see LoadDump)
 //   TapiocaSunTraceBench --sizes N --write-city city.msgpack   (a dump to check it)
+#include "Geometry/BvhBuild.hpp"
 #include "Geometry/MeshSerializer.hpp"
 #include "Geometry/QueryEngine.hpp"
 #include "MeshFixtures.hpp"
@@ -258,6 +259,34 @@ City LoadDump (const std::string& path, size_t samples)
     return city;
 }
 
+// The whole-scene tree's build, on one thread and on the default budget: the
+// index is rebuilt on every sun-study refresh (#97). The best of three each.
+void ReportBuild (const Snapshot& snapshot)
+{
+    std::vector<double> vertices;
+    std::vector<uint32_t> faces;
+    for (const auto& mesh : snapshot.meshes) {
+        const uint32_t base = static_cast<uint32_t> (vertices.size () / 3);
+        vertices.insert (vertices.end (), mesh.vertices.begin (), mesh.vertices.end ());
+        for (const uint32_t v : mesh.triangles)
+            faces.push_back (base + v);
+    }
+    const auto timeBuild = [&] (size_t threads) {
+        double best = 0.0;
+        for (int pass = 0; pass < 3; ++pass) {
+            const auto started = std::chrono::steady_clock::now ();
+            const auto tree = geomsrv::BuildBinnedSahBvh (vertices.data (), faces.data (), faces.size () / 3, threads);
+            const double ms =
+                std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
+            best = pass == 0 ? ms : (std::min) (best, ms);
+        }
+        return best;
+    };
+    const double one = timeBuild (1);
+    std::printf ("# BVH build: %.1f ms on 1 thread, %.1f ms on %zu threads\n", one, timeBuild (0),
+                 geomsrv::BvhBuildThreads ());
+}
+
 void Report (const char* index, const QueryEngine& all, const QueryEngine& first,
              const evp::sunstudy::SunStudyPartitionTraversal& traversal, const std::vector<std::vector<double>>& rays,
              const std::vector<Sun>& suns, const std::vector<size_t>& threads)
@@ -344,6 +373,7 @@ int main (int argc, char** argv)
         auto context = std::make_shared<const QueryEngine> (city.context);
         std::printf ("# %zu triangles: city and three indexes built in %.2f s\n", all->TriangleCount (),
                      Seconds (builtAt));
+        ReportBuild (*city.all);
         const auto rays = raysFor (city);
         Report ("single", *all, *all, evp::sunstudy::SunStudyPartitionTraversal (all, nullptr), rays, suns, threads);
         Report ("split", *all, *analysis, evp::sunstudy::SunStudyPartitionTraversal (analysis, context), rays, suns,
