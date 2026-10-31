@@ -26,6 +26,7 @@
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/DiligentViewportSupport.hpp"
 #include "ArchViz/DiligentViewportTarget.hpp"
+#include "ArchViz/ViewerScreenshot.hpp"
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/HardwareInput.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
@@ -72,6 +73,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
     // serves both -- see DiligentViewportTarget.hpp for why that is not
     // optional.
     DiligentViewportTarget target;
+    ViewerScreenshot screenshot; // a still at 1.5-3x, drawn through this loop (ViewerScreenshot.hpp)
     // Borrowed from the target once it exists, for the per-frame present count.
     // Never released -- the target owns it.
     IDXGISwapChain* dxgiSwapChain = nullptr;
@@ -103,6 +105,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         // destruction while the immediate context still holds its back buffers,
         // the HWND stays taken, and every reopen fails E_ACCESSDENIED for the
         // rest of the Archicad session.
+        screenshot.Destroy (context);
         target.Destroy (context);
         if (context != nullptr) {
             Diligent::RefCntAutoPtr<Diligent::IDeviceContextD3D11> nativeContext { context,
@@ -358,16 +361,18 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 }
             }
 
+            // The window's surface, or a screenshot's offscreen one for its frames.
+            DiligentViewportTarget& drawTo = screenshot.TargetFor (target, device, context, scene, hudState);
             Diligent::ITextureView* rtv = nullptr;
             Diligent::ITextureView* dsv = nullptr;
-            if (!target.BeginFrame (rtv, dsv))
+            if (!drawTo.BeginFrame (rtv, dsv))
                 throw std::runtime_error ("the viewport surface returned no back-buffer view "
                                           "for this frame");
 
             // ⚠️ THE SIZE COMES FROM THE SURFACE, NOT FROM WHAT WAS ASKED FOR.
             // See AdoptSurfaceSize: taking the requested size is what made a
             // rescaled Archicad come back distorted and out of place.
-            AdoptSurfaceSize (target, width, height);
+            AdoptSurfaceSize (drawTo, width, height);
 
             gpuTimings.BeginFrame (frames);
 
@@ -385,7 +390,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // TRANSPARENT BLACK -- the one value that means "nothing here" on a
             // premultiplied composition chain. Clearing the overlay to cyan would
             // paint a solid rectangle over Archicad's 3D window.
-            context->ClearRenderTarget (rtv, target.ClearColor (), Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+            context->ClearRenderTarget (rtv, drawTo.ClearColor (), Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 
             Diligent::ITextureView* none[1] = { nullptr };
             // ⚠️ THE A/B IS A PALETTE-CHILD DIAGNOSTIC AND IS SKIPPED ON THE
@@ -428,7 +433,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 // says the FIRST arm wrote.
                 context->InvalidateState ();
                 context->SetRenderTargets (1, &rtv, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-                context->ClearRenderTarget (rtv, target.ClearColor (),
+                context->ClearRenderTarget (rtv, drawTo.ClearColor (),
                                             Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
                 context->SetRenderTargets (1, none, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
                 context->Flush ();
@@ -542,7 +547,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // middle-button navigation still belongs to this viewer camera.
             if (vieweredit::Active ())
                 hudState.wantsMouse = false, hudState.viewpointOwnsMouse = false;
-            if (!offscreen)
+            if (!offscreen && !screenshot.Active ())
                 ServiceViewpointInput (camera, hudState, input, width, height);
             // ⚠️ THE HUD'S ANSWER IS FROM THE PREVIOUS FRAME, AND THAT IS
             // CORRECT. ImGui only knows whether it wants the mouse after its
@@ -552,7 +557,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // scene, which puts the panel underneath the building. One frame of
             // latency on "was that click for the combo box" is invisible; the
             // alternative is an orbit every time the user opens the dropdown.
-            if (!offscreen && NavigateViewer (camera, hudState, input, width, height))
+            if (!offscreen && !screenshot.Active () && NavigateViewer (camera, hudState, input, width, height))
                 userHasNavigated = true;
 
             // ---- the overlay path: Archicad drives ----------------------------
@@ -862,20 +867,20 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // Under the anchors; ⚠️ NOT gated on `offscreen` -- see the helper.
             if (!annotationsOnly && !ShouldIsolateGraphInteraction (hudState, input))
                 UpdateAndDrawStorySlices (scene, context, hudState, blanked, viewProj, width, height,
-                                          target.ColorFormat (), target.DepthFormat ());
+                                          drawTo.ColorFormat (), drawTo.DepthFormat ());
 
             // Grasshopper's preview, over the slices; ⚠️ NOT gated on
             // `offscreen` either -- see the helper.
             if (!annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input)) {
-                UpdateAndDrawGhPreview (scene, context, hudState, viewProj, width, height, target.ColorFormat (),
-                                        target.DepthFormat (), modelIsDrawn);
-                UpdateAndDrawAnalysisOverlay (scene, context, hudState, viewProj, width, height, target.ColorFormat (),
-                                              target.DepthFormat (), modelIsDrawn);
+                UpdateAndDrawGhPreview (scene, context, hudState, viewProj, width, height, drawTo.ColorFormat (),
+                                        drawTo.DepthFormat (), modelIsDrawn);
+                UpdateAndDrawAnalysisOverlay (scene, context, hudState, viewProj, width, height, drawTo.ColorFormat (),
+                                              drawTo.DepthFormat (), modelIsDrawn);
             }
             gpuTimings.Begin (context, GpuTimingStage::Post);
             const bool textReady = UpdateAndDrawSceneText (
                 textLayer, device, context, mutex_, pendingTextLabels_, textLabelSeq_.load (), lastTextLabelSeq,
-                textLabels, blanked, offscreen, surface.nwh, rtv, dsv, target.DepthShaderView (), motionViewProj,
+                textLabels, blanked, offscreen, surface.nwh, rtv, dsv, drawTo.DepthShaderView (), motionViewProj,
                 viewProj, width, height, captureDpi_.load (), Camera::NearClip (), camera.FarClip (),
                 camera.IsPerspective (), hudState);
             captureThisFrame = captureThisFrame && textReady;
@@ -890,13 +895,14 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
             ProjectedDrawList annotations = UpdateAndDrawTraceAnnotations (
                 textLayer, device, context, blanked, offscreen, annotationsOnly, surface.nwh, rtv, dsv,
-                target.DepthShaderView (), viewProj, width, height, Camera::NearClip (), camera.FarClip (),
+                drawTo.DepthShaderView (), viewProj, width, height, Camera::NearClip (), camera.FarClip (),
                 camera.IsPerspective (), hudState, input, annotationPlacementHistory, dimensionHoverState);
 
             // ⚠️ NOT GATED ON `blanked`, ALONE AMONG THE LAYERS ABOVE. The blank
             // hides content drawn from a stale POSE; the panels have no pose to be
             // wrong about, and blanking them read as the viewer having crashed.
-            if (!offscreen && hud.IsReady () && !vieweredit::Active ()) {
+            if (!offscreen && hud.IsReady () && !vieweredit::Active () &&
+                !screenshot.DrawLegend (hud, context, width, height, scene, hudState)) {
                 const DiligentSceneStats hudScene = scene.Stats ();
                 {
                     // ⚠️ THE LOCK ENDS HERE, BEFORE Draw. `mutex_` is what the
@@ -921,6 +927,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             gpuTimings.EndFrame (frames, 1);
 
             context->SetRenderTargets (1, none, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
+            if (screenshot.Finish (context, scene, hudState))
+                continue; // a screenshot's frame is never presented
 
             if (captureThisFrame) {
                 // ⚠️ BODY IN DiligentCapture.cpp, LEAVING THE ORDERED CALL

@@ -151,6 +151,14 @@ struct HudState {
     bool sunGradientStepped = false;
     int sunBandCount = 4;
     float sunBandEdges[11] = { 3.0f, 6.0f, 9.0f };
+    // The sun study SCREENSHOT (ArchViz/ViewerScreenshot.cpp): the preset, an
+    // index into kViewerScreenshotScales; the request the frame loop takes; and
+    // what the last one did, path or reason.
+    int sunShotPreset = 1;
+    bool sunShotRequested = false;
+    bool sunShotBusy = false;
+    bool sunShotFailed = false;
+    std::string sunShotResult;
     float sunTimeFrom = 0.0f;
     float sunTimeTo = 24.0f;
     // The hover INSPECTOR: 0 off, 1 a tooltip at the cursor, 2 a line in the
@@ -679,6 +687,12 @@ class DiligentHud final {
                const DiligentSceneStats& scene, const ProjectedDrawList& annotations, const float viewProj[16],
                HudState& state, bool showControls = true);
 
+    // A SCREENSHOT frame's only HUD: the compact sun study legend in the
+    // corner, drawn at `scale` times its panel size so it reads the same on a
+    // 2x image. No input, no panels; the next Draw restores the panel's style.
+    void DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,
+                            const DiligentSceneStats& scene, const HudState& state);
+
   private:
     struct Impl;
     Impl* impl_;
@@ -688,6 +702,10 @@ class DiligentHud final {
 // the hours range, its legend, and the role legend. Draws nothing unless a
 // study is on screen.
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene);
+// The screenshot's legend window, bottom-left: what the tint on the image
+// means, from the same painter and view state the panel uses.
+void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStatus& study, uint32_t width,
+                                uint32_t height);
 // Its "Run sun study" form, in DiligentHudSunRun.cpp: date, timestep, cell
 // size, roles and the analysis cylinder; plus the cylinder in the view and the
 // click that places its centre.

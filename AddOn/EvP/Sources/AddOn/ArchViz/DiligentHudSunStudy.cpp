@@ -16,6 +16,7 @@
 #include "ArchViz/HudShell.hpp" // the tips
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
+#include "ArchViz/ViewerScreenshot.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
@@ -237,7 +238,133 @@ void DrawSunStudyHoursDisplay (HudState& state)
     DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, count, state.sunBandEdges);
 }
 
+// The screenshot row: the size presets, and what the last one did. The frame
+// loop takes the request (ArchViz/ViewerScreenshot.cpp); this only asks.
+void DrawSunStudyScreenshotControls (HudState& state)
+{
+    state.sunShotPreset = std::clamp (state.sunShotPreset, 0, kViewerScreenshotScaleCount - 1);
+    char names[kViewerScreenshotScaleCount][48];
+    const char* labels[kViewerScreenshotScaleCount];
+    for (int i = 0; i < kViewerScreenshotScaleCount; ++i) {
+        const float scale = kViewerScreenshotScales[i];
+        std::snprintf (names[i], sizeof (names[i]), "%gx  %u x %u", double (scale),
+                       unsigned (ViewerScreenshotSize (state.width, scale)),
+                       unsigned (ViewerScreenshotSize (state.height, scale)));
+        labels[i] = names[i];
+    }
+    ImGui::BeginDisabled (state.sunShotRequested || state.sunShotBusy);
+    ImGui::SetNextItemWidth (ImGui::GetContentRegionAvail ().x * 0.55f);
+    ImGui::Combo ("##sunshotscale", &state.sunShotPreset, labels, kViewerScreenshotScaleCount);
+    ImGui::SameLine ();
+    if (ImGui::Button ("Screenshot##sunshot", ImVec2 (-1.0f, 0.0f))) {
+        state.sunShotRequested = true;
+        state.sunShotResult.clear ();
+        state.sunShotFailed = false;
+    }
+    ImGui::EndDisabled ();
+    ImGui::SetItemTooltip ("Renders the view at the chosen size with a small legend in the corner and saves a PNG "
+                           "to the Tapioca logs folder.");
+    if (state.sunShotRequested || state.sunShotBusy)
+        ImGui::TextDisabled ("Rendering screenshot...");
+    else if (state.sunShotFailed)
+        hudshell::ErrorNotice ("Screenshot not saved: " + state.sunShotResult);
+    else if (!state.sunShotResult.empty ()) {
+        ImGui::PushStyleColor (ImGuiCol_Text, ImGui::GetStyleColorVec4 (ImGuiCol_TextDisabled));
+        ImGui::TextWrapped ("Saved %s", state.sunShotResult.c_str ());
+        ImGui::PopStyleColor ();
+    }
+}
+
+// One legend row: a flat swatch and its words, on the draw list rather than a
+// ColorButton, so the image carries no widget frame.
+void LegendSwatch (unsigned hex, const char* label)
+{
+    const float size = ImGui::GetTextLineHeight ();
+    const ImVec2 at = ImGui::GetCursorScreenPos ();
+    ImGui::GetWindowDrawList ()->AddRectFilled (at, ImVec2 (at.x + size, at.y + size), ImGui::GetColorU32 (Rgb (hex)));
+    ImGui::Dummy (ImVec2 (size, size));
+    ImGui::SameLine ();
+    ImGui::TextUnformatted (label);
+}
+
 } // namespace
+
+void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStatus& study, uint32_t width,
+                                uint32_t height)
+{
+    (void) width;
+    if (!study.drawing || study.analysisKind != 0)
+        return;
+    const int chosen = ChosenMode (state);
+    const int mode = chosen >= 0 ? chosen : int (study.debugMode);
+    const float pad = ImGui::GetFontSize ();
+    ImGui::SetNextWindowPos (ImVec2 (pad, float (height) - pad), ImGuiCond_Always, ImVec2 (0.0f, 1.0f));
+    ImGui::PushStyleColor (ImGuiCol_WindowBg, ImVec4 (1.0f, 1.0f, 1.0f, 0.88f));
+    ImGui::PushStyleColor (ImGuiCol_Border, ImVec4 (0.0f, 0.0f, 0.0f, 0.25f));
+    ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.12f, 0.12f, 0.12f, 1.0f));
+    ImGui::PushStyleColor (ImGuiCol_TextDisabled, ImVec4 (0.38f, 0.38f, 0.38f, 1.0f));
+    ImGui::Begin ("##sun-capture-legend", nullptr,
+                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                      ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    if (mode == 0) {
+        const SunStudyViewSettings view = SunStudyViewOf (state);
+        ImGui::TextUnformatted (view.shadowOverlay ? "Direct sun hours, with current shadows" : "Direct sun hours");
+        const ImVec2 size (16.0f * pad, pad);
+        DrawSunStudyRampBar (ImGui::GetWindowDrawList (), ImGui::GetCursorScreenPos (), size, view.bandCount,
+                             view.bandEdges, view.blueThreshold);
+        ImGui::Dummy (size);
+        if (view.bandCount > 0) {
+            std::string ranges;
+            for (int band = 0; band < view.bandCount; ++band) {
+                const float lo = band > 0 ? view.bandEdges[band - 1] : 0.0f;
+                ranges += (band > 0 ? "  " : "") + SunStudyClock (lo) +
+                          (band < view.bandCount - 1 ? "-" + SunStudyClock (view.bandEdges[band]) : "+");
+            }
+            ImGui::PushTextWrapPos (ImGui::GetCursorPosX () + size.x);
+            ImGui::TextDisabled ("%s h", ranges.c_str ());
+            ImGui::PopTextWrapPos ();
+        }
+        else {
+            ImGui::TextDisabled ("0:00h");
+            ImGui::SameLine (size.x - ImGui::CalcTextSize ("9:00h+").x + ImGui::GetStyle ().WindowPadding.x);
+            ImGui::TextDisabled ("9:00h+");
+        }
+        if (view.blueThreshold >= 0.0f)
+            LegendSwatch (0x28536B, ("below " + SunStudyClock (view.blueThreshold, true)).c_str ());
+    }
+    else if (mode == 5) {
+        char clock[16] = "--:--";
+        if (state.sunStep >= 0 && size_t (state.sunStep) < study.stepMinutes.size ())
+            Clock (study.stepMinutes[size_t (state.sunStep)], clock, sizeof (clock));
+        ImGui::Text ("Shadow at %s", clock);
+        LegendSwatch (0xede8db, "sunlit");
+        LegendSwatch (0x4770cc, "shadowed");
+    }
+    else if (mode == 6) {
+        ImGui::TextUnformatted ("Shadow duration, morning / evening");
+        LegendSwatch (0xe8e8e6, "sunlit");
+        LegendSwatch (0x796ab1, "morning");
+        LegendSwatch (0xdf9792, "evening");
+        LegendSwatch (0xac80a2, "overlap");
+    }
+    else if (mode == 7) {
+        ImGui::TextUnformatted ("Shadow time fan: colour of the last shadow");
+        LegendSwatch (0x796ab1, "earliest");
+        LegendSwatch (0xdf9792, "latest");
+        LegendSwatch (0xd4d6d8, "never shadowed");
+    }
+    else if (mode == 4) {
+        ImGui::TextUnformatted ("Sun study roles");
+        LegendSwatch (0xf59e24, "analysis");
+        LegendSwatch (0x8599b3, "context");
+        LegendSwatch (0xd65cb8, "ignored");
+    }
+    else {
+        ImGui::TextUnformatted ("Sun study diagnostic view");
+    }
+    ImGui::End ();
+    ImGui::PopStyleColor (4);
+}
 
 SunStudyViewSettings SunStudyViewOf (const HudState& state)
 {
@@ -384,6 +511,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     ImGui::TextDisabled ("%s, %u element(s)", study.studyId.c_str (), unsigned (study.elementsAttached));
     if (study.preview)
         ImGui::TextUnformatted ("Coarse preview: complete day, not final grid");
+    DrawSunStudyScreenshotControls (state);
 
     // ---- the view ---------------------------------------------------------------
     //

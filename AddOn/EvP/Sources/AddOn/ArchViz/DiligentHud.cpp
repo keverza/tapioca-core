@@ -413,5 +413,30 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     state.wantsMouse = io.WantCaptureMouse;
 }
 
+void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,
+                                     const DiligentSceneStats& scene, const HudState& state)
+{
+    if (context == nullptr || !impl_->ready || width == 0 || height == 0)
+        return;
+    std::lock_guard<std::mutex> lock (ImGuiContextMutex ());
+    ImGui::SetCurrentContext (impl_->context);
+    ImGuiIO& io = ImGui::GetIO ();
+    io.DisplaySize = ImVec2 (float (width), float (height));
+    io.DeltaTime = 1.0f / 60.0f;
+    // ⚠️ NO POINTER: a hover state carried into the image would draw a tooltip.
+    io.AddMousePosEvent (-FLT_MAX, -FLT_MAX);
+    const UINT systemDpi = ::GetDpiForSystem ();
+    const float dpiScale = (systemDpi != 0 ? float (systemDpi) / 96.0f : 1.0f) * scale;
+    hudshell::BaseStyle (dpiScale * hudshell::FontScaleOfStep (impl_->shell.fontStep));
+    impl_->renderer->NewFrame (width, height, Diligent::SURFACE_TRANSFORM_IDENTITY);
+    ImGui::NewFrame ();
+    ImGui::PushFont (impl_->font, 13.0f * dpiScale);
+    DrawSunStudyCaptureLegend (state, scene.sunStudy, width, height);
+    ImGui::PopFont ();
+    ImGui::Render ();
+    impl_->renderer->RenderDrawData (context, ImGui::GetDrawData ());
+    impl_->renderer->EndFrame ();
+}
+
 } // namespace archviz
 } // namespace geomsrv

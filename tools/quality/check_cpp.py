@@ -63,7 +63,7 @@ OVERSIZED = {
         "area, and the next feature extracts a seam rather than adding to it",
     ),
     "ArchViz/DiligentViewport.cpp": (
-        1083,
+        1090,
         "the single render-thread lifecycle and frame-order authority. Device and "
         "target control, support algorithms, scene storage/draw passes, and offscreen "
         "target ownership already live in separate translation units; splitting the "
@@ -73,7 +73,10 @@ OVERSIZED = {
         "extracted to DiligentViewportSupport.cpp::UpdateAndDrawStorySlices, leaving only "
         "the ordered call site, which is irreducible for anything that draws in the frame. "
         "-10 for the viewer's plan mode (2026-10-03): the projection toggle's body moved to "
-        "ViewerPlanMode.cpp with the camera's start and navigation, three call sites left",
+        "ViewerPlanMode.cpp with the camera's start and navigation, three call sites left. "
+        "+7 for the viewer screenshot (2026-10-31): its body is ViewerScreenshot.cpp; left "
+        "here are the ordered call sites only -- which target the frame draws into, the "
+        "legend in the HUD's slot, the unpresented frames, the input gate and teardown",
     ),
     "Palette/ControlPalette.cpp": (
         626,
