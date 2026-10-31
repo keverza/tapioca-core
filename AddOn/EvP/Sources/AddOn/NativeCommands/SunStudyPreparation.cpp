@@ -166,6 +166,14 @@ void SunStudyPreparationTrace::Mark (const char* stage, size_t payloadBytes)
 void StartSunStudyCore (evp::sunstudy::StudyRecord& record, const Snapshot& snapshot,
                         const evp::sunstudy::StudyRecord* reuseSource, const evp::sunstudy::StudyInputs& inputs)
 {
+    // Timed, with the sync below and the reuse in FinishSunStudyPreparation: the
+    // sun-reuse-seed stage is all three, and on a 1.6M-sample refresh it is a
+    // second of every edit (#97).
+    const auto started = std::chrono::steady_clock::now ();
+    const auto msSince = [] (std::chrono::steady_clock::time_point since) {
+        return std::to_string (
+            std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - since).count ());
+    };
     if (evp::sunstudy::SelectedSunStudyCore () == evp::sunstudy::SunStudyCoreKind::Rust) {
         const auto limits =
             sunstudysupport::MachineAnalysisLimits (record.series.StepCount (), record.IsPatchDomain ());
@@ -173,9 +181,13 @@ void StartSunStudyCore (evp::sunstudy::StudyRecord& record, const Snapshot& snap
         const bool attached = evp::sunstudy::AttachRustStudyCore (
             record, snapshot, reuseSource, record.IsPatchDomain () ? limits.maxAtlasDimension : 8192u, error);
         archviz::ArchVizLog ("pipeline: stage=sun-core snapshot=" + std::to_string (snapshot.id) +
-                             " core=" + (attached ? "rust" : "cpp") + (attached ? "" : " reason=" + error));
+                             " core=" + (attached ? "rust" : "cpp") + " attachMs=" + msSince (started) +
+                             (attached ? "" : " reason=" + error));
     }
+    const auto syncing = std::chrono::steady_clock::now ();
     evp::sunstudy::SyncStudy (record, inputs);
+    archviz::ArchVizLog ("pipeline: stage=sun-core-sync snapshot=" + std::to_string (snapshot.id) +
+                         " wallMs=" + msSince (syncing));
 }
 
 void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_ptr<const Snapshot> snapshot,
@@ -221,8 +233,11 @@ void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_
     evp::sunstudy::SetSampleMeshes (record);
     const std::atomic<bool> notCancelled { false };
     // Manual benchmarks always trace a fresh day, even if grids/atlases reuse.
+    const auto reusing = std::chrono::steady_clock::now ();
     if (reuseSource != nullptr && cancelled != nullptr)
         evp::sunstudy::ReuseUnaffectedSamples (*reuseSource, record, cancelled != nullptr ? *cancelled : notCancelled);
+    const double reuseMs =
+        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - reusing).count ();
     const uint64_t snapshotId = record.snapshotId;
     archviz::ArchVizLog (
         "pipeline: stage=sun-reuse snapshot=" + std::to_string (snapshotId) + " samples=" +
@@ -230,7 +245,7 @@ void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_
         " dirty=" + std::to_string (record.positions.size () / 3 - record.reusedSamples) +
         " reusedSampleSteps=" + std::to_string (record.reusedSampleSteps) + " dirtySampleSteps=" +
         std::to_string (record.positions.size () / 3 * record.series.StepCount () - record.reusedSampleSteps) +
-        " gridM=" + std::to_string (record.gridSpacing));
+        " gridM=" + std::to_string (record.gridSpacing) + " wallMs=" + std::to_string (reuseMs));
     // One study's totals, carried from step to step: sun-run-start on its first
     // traced step, sun-run-end on its last (#97 P0). The scene's shape goes on
     // those two lines, not on every sun-step, because it is fixed per study.

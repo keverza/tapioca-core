@@ -1,8 +1,11 @@
 #include "ArchViz/SunStudyDisplayAssembler.hpp"
 #include "SunStudy/SunStudyDisplayData.hpp"
 #include "SunStudy/SunStudyStore.hpp"
+#include "ArchViz/ArchVizLog.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <string>
 
 namespace geomsrv::archviz {
 
@@ -18,9 +21,18 @@ std::unique_ptr<SunStudyAtlasUpload> SunStudyDisplayAssembler::Prepare (const ev
         error = "sun study display source is stale or the preview has not completed its day";
         return nullptr;
     }
+    // The parts of sun-display, logged as sun-display-parts: on a one-element
+    // edit of a 1.6M-sample study the whole display costs 2.2 s, and the fix
+    // differs for each part (#97).
+    using Clock = std::chrono::steady_clock;
+    const auto msSince = [] (Clock::time_point since) {
+        return std::chrono::duration<double, std::milli> (Clock::now () - since).count ();
+    };
+    const auto started = Clock::now ();
     const auto data = evp::sunstudy::PrepareStudyDisplayData (record, error, cancelled);
     if (data == nullptr)
         return nullptr;
+    const double dataMs = msSince (started);
     const auto& tiles = record.IsPatchDomain () ? data->patchTiles : record.atlas.tiles;
     const auto& layouts = record.IsPatchDomain () ? data->patchLayouts : record.sampleGrid.layouts;
     if (snapshot.TotalTriangles () != tiles.size ()) {
@@ -68,7 +80,9 @@ std::unique_ptr<SunStudyAtlasUpload> SunStudyDisplayAssembler::Prepare (const ev
         maps_[0].reset ();
         maps_[1].reset ();
     }
+    const auto mapping = Clock::now ();
     upload->sharedElements = maps_[roles ? 1 : 0].lock ();
+    const bool mapsRebuilt = upload->sharedElements == nullptr;
     if (upload->sharedElements == nullptr) {
         auto maps = std::make_shared<std::vector<SunStudyElementMap>> ();
         maps->reserve (snapshot.meshes.size ());
@@ -93,6 +107,8 @@ std::unique_ptr<SunStudyAtlasUpload> SunStudyDisplayAssembler::Prepare (const ev
         upload->sharedElements = maps;
         maps_[roles ? 1 : 0] = maps;
     }
+    const double mapsMs = msSince (mapping);
+    const auto diffing = Clock::now ();
     if (width_ == upload->width && height_ == upload->height) {
         if (auto base = previousImage_.lock (); base != nullptr && base->size () == upload->texels->size ()) {
             upload->baseTexels = std::move (base);
@@ -111,6 +127,10 @@ std::unique_ptr<SunStudyAtlasUpload> SunStudyDisplayAssembler::Prepare (const ev
     }
     if (cancelled ())
         return nullptr;
+    ArchVizLog ("pipeline: stage=sun-display-parts study=" + record.id + " dataMs=" + std::to_string (dataMs) +
+                " mapsMs=" + std::to_string (mapsMs) + " mapsRebuilt=" + std::to_string (mapsRebuilt) + " regionsMs=" +
+                std::to_string (msSince (diffing)) + " atlasRegions=" + std::to_string (upload->atlasRegions.size ()) +
+                " stepRegions=" + std::to_string (upload->stepRegions.size ()));
     previousImage_ = upload->texels;
     previousSteps_ = upload->stepMasks;
     width_ = upload->width;
