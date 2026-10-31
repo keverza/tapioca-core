@@ -584,6 +584,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingSegmentMap.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCalculation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingMetrics.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingUsage.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingHeadroom.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingBakeGeometry.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingHeadroomDisplay.cpp"
