@@ -35,10 +35,12 @@ namespace evp::sunstudy {
 // The inputs a study's result is valid for. Two studies with equal signatures
 // must produce equal numbers; anything that breaks that belongs in here.
 struct SunStudyDependencySignature {
-    // QueryEngine::SnapshotId() of the geometry that was sampled. ⚠️ THE
-    // SNAPSHOT, NOT A COUNT OF ELEMENTS: moving one wall changes what every
-    // other surface receives, so there is no such thing as a partially stale
-    // study (see `Stale` below).
+    // SunStudyGeometryKey of the geometry that was sampled. ⚠️ THE WHOLE
+    // MODEL, NOT A COUNT OF ELEMENTS: moving one wall changes what every other
+    // surface receives, so there is no such thing as a partially stale study
+    // (see `Stale` below). ⚠️ AND NOT THE SNAPSHOT ID: a material-only edit
+    // makes a new snapshot with the same key, and must not re-run the study
+    // (SunStudyResultKey.hpp, #97).
     uint64_t geometry = 0;
     // The day's sun: date, timestep, horizon filter, north, latitude, longitude.
     // ⚠️ A CONTENT HASH, NOT A COUNTER -- SunSeries::Version() already is one,
@@ -48,6 +50,10 @@ struct SunStudyDependencySignature {
     // Grid spacing, sample mode, jitter, normal offset -- what was measured and
     // where, as opposed to when.
     uint64_t sampling = 0;
+    // The snapshot id, for the log only. ⚠️ NOT COMPARED: two snapshots with
+    // one key are the same study. LAST, so `{ geometry, sun, sampling }`
+    // brace initialisers keep their meaning.
+    uint64_t snapshot = 0;
 
     bool operator== (const SunStudyDependencySignature& other) const
     {

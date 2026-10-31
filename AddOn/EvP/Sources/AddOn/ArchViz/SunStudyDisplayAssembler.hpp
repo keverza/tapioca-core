@@ -24,9 +24,15 @@ struct SunStudyDisplayOptions {
 // histories reuse immutable maps/images without retaining orphaned studies.
 class SunStudyDisplayAssembler {
   public:
+    // `materials`, when given, is a LATER snapshot with the same result key
+    // (SunStudyResultKey.hpp): each element's face maps follow ITS material
+    // order, because the viewer sorts an element's triangles by material
+    // (BuildMaterialGroups) and holds the later extraction. Only maps whose order
+    // changed are rebuilt; an element whose triangles differ is refused.
     std::unique_ptr<SunStudyAtlasUpload> Prepare (const evp::sunstudy::StudyRecord& record, const Snapshot& snapshot,
                                                   const SunStudyDisplayOptions& options, std::string& error,
-                                                  const std::function<bool ()>& isCancelled = {});
+                                                  const std::function<bool ()>& isCancelled = {},
+                                                  const Snapshot* materials = nullptr);
 
   private:
     std::mutex mutex_;

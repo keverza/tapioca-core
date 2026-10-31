@@ -5,9 +5,12 @@
 
 #include "NativeCommands/SunStudyCommandsSupport.hpp" // sunstudysupport::PlaceInputHash
 #include "SunStudy/SunStudyRoles.hpp"                 // CanonicalGuid
+#include "SunStudy/SunStudyResultKey.hpp"             // the study's geometry identity
+#include "ArchViz/ArchVizLog.hpp"
 #include "Geometry/MeshStore.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -103,6 +106,31 @@ uint64_t SamplingHash (const ActiveSunStudyConfig& config)
     return hash;
 }
 
+// The result key of `snapshot` for this config's preset, computed once per
+// snapshot: BuildCurrentSignature runs every tick, the hash walks every vertex.
+uint64_t GeometryKey (const std::shared_ptr<const Snapshot>& snapshot, const ActiveSunStudyConfig& config)
+{
+    static uint64_t s_id = 0, s_key = 0;
+    static bool s_glass = false;
+    static double s_threshold = 0.0;
+    if (snapshot == nullptr)
+        return 0;
+    const bool glass = config.preset == "late";
+    if (snapshot->id != s_id || glass != s_glass || config.glassThreshold != s_threshold) {
+        const auto started = std::chrono::steady_clock::now ();
+        s_key = evp::sunstudy::SunStudyGeometryKey (*snapshot, glass, config.glassThreshold);
+        s_id = snapshot->id;
+        s_glass = glass;
+        s_threshold = config.glassThreshold;
+        archviz::ArchVizLog (
+            "sun follow: result key snapshot=" + std::to_string (s_id) + " key=" + std::to_string (s_key) +
+            (glass ? " (late: glass mask included)" : " (material excluded)") + " wallMs=" +
+            std::to_string (
+                std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ()));
+    }
+    return s_key;
+}
+
 } // namespace
 
 SunStudyDependencySignature BuildCurrentSignature (const ActiveSunStudyConfig& config)
@@ -110,7 +138,8 @@ SunStudyDependencySignature BuildCurrentSignature (const ActiveSunStudyConfig& c
     SunStudyDependencySignature signature;
 
     const std::shared_ptr<const Snapshot> snapshot = MeshStore::Get ().Current ();
-    signature.geometry = snapshot != nullptr ? snapshot->id : 0;
+    signature.snapshot = snapshot != nullptr ? snapshot->id : 0;
+    signature.geometry = GeometryKey (snapshot, config);
 
     API_PlaceInfo place = {};
     if (ACAPI_GeoLocation_GetPlaceSets (&place) == NoError)

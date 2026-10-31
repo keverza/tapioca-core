@@ -71,7 +71,7 @@ void PublishManualDisplay (uint64_t generation, const ManualSunStudyDisplayReque
 
 void PrepareSunStudyDisplay (const std::string& id, uint64_t revision, std::shared_ptr<const Snapshot> snapshot,
                              const archviz::SunStudyDisplayOptions& options, PreparedSunStudyDisplay& result,
-                             const std::atomic<bool>& cancelled)
+                             const std::atomic<bool>& cancelled, std::shared_ptr<const Snapshot> materials)
 {
     const auto started = std::chrono::steady_clock::now ();
     if (snapshot == nullptr) {
@@ -82,8 +82,8 @@ void PrepareSunStudyDisplay (const std::string& id, uint64_t revision, std::shar
     const bool read = evp::sunstudy::SunStudyStore::Get ().ReadDisplayRecord (
         id, revision,
         [&] (const evp::sunstudy::StudyRecord& record) {
-            result.upload =
-                s_assembler.Prepare (record, *snapshot, options, result.error, [&] { return cancelled.load (); });
+            result.upload = s_assembler.Prepare (
+                record, *snapshot, options, result.error, [&] { return cancelled.load (); }, materials.get ());
         },
         error, &cancelled);
     if (!read) {

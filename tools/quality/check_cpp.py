@@ -465,6 +465,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # The model watch's element stamp walk (#97) reports a failed element listing
     # in the add-on's one vocabulary, as Notify/ModelDiff does for the generator.
     ("ArchViz/ModelStampWalk.cpp", "Diagnostics/ApiError.hpp"),
+    # The follower's signature logs the study result key's cost in the viewer's
+    # one log, as the driver it was moved out of does (#97).
+    ("NativeCommands/SunStudyFollowerSignature.cpp", "ArchViz/ArchVizLog.hpp"),
     # The extraction worker, started by Tapioca.RequestHostGeometry. The verb
     # exists precisely so host extraction does NOT share a lifecycle with camera
     # synchronisation -- opening the Diligent overlay to force one tore down the

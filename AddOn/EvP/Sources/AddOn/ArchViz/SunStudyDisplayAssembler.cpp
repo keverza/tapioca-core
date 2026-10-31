@@ -6,14 +6,14 @@
 #include <algorithm>
 #include <chrono>
 #include <string>
+#include <unordered_map>
 
 namespace geomsrv::archviz {
 
-std::unique_ptr<SunStudyAtlasUpload> SunStudyDisplayAssembler::Prepare (const evp::sunstudy::StudyRecord& record,
-                                                                        const Snapshot& snapshot,
-                                                                        const SunStudyDisplayOptions& options,
-                                                                        std::string& error,
-                                                                        const std::function<bool ()>& isCancelled)
+std::unique_ptr<SunStudyAtlasUpload>
+SunStudyDisplayAssembler::Prepare (const evp::sunstudy::StudyRecord& record, const Snapshot& snapshot,
+                                   const SunStudyDisplayOptions& options, std::string& error,
+                                   const std::function<bool ()>& isCancelled, const Snapshot* materials)
 {
     const auto cancelled = [&] { return record.cancelRequested.load () || (isCancelled && isCancelled ()); };
     const auto progress = record.CurrentProgress ();
@@ -82,7 +82,48 @@ std::unique_ptr<SunStudyAtlasUpload> SunStudyDisplayAssembler::Prepare (const ev
     }
     const auto mapping = Clock::now ();
     upload->sharedElements = maps_[roles ? 1 : 0].lock ();
-    const bool mapsRebuilt = upload->sharedElements == nullptr;
+    bool mapsRebuilt = upload->sharedElements == nullptr;
+    size_t retinted = 0;
+    if (materials != nullptr) {
+        // ⚠️ A RETINT, NOT A NEW STUDY: the record's tiles and face order stand;
+        // only the permutation the viewer draws them in moved with the material.
+        std::unordered_map<std::string, const Mesh*> later;
+        for (const Mesh& mesh : materials->meshes)
+            later.emplace (mesh.guid, &mesh);
+        const auto base = upload->sharedElements;
+        auto maps = std::make_shared<std::vector<SunStudyElementMap>> ();
+        maps->reserve (snapshot.meshes.size ());
+        uint32_t faceBase = 0;
+        for (size_t m = 0; m < snapshot.meshes.size (); ++m) {
+            if (cancelled ())
+                return nullptr;
+            const auto& mesh = snapshot.meshes[m];
+            const auto found = later.find (mesh.guid);
+            if (found == later.end () || found->second->triangles != mesh.triangles) {
+                error = "sun study retint found element " + mesh.guid + " changed in geometry";
+                return nullptr;
+            }
+            const auto& order = found->second->triMaterial;
+            if (base != nullptr && m < base->size () && order == mesh.triMaterial)
+                maps->push_back ((*base)[m]);
+            else {
+                SunStudyElementMap map;
+                map.guid = mesh.guid;
+                const bool valid = roles ? BuildSunStudyRoleMap (record.elementRoles[m], mesh.triangles, order, map)
+                                         : BuildSunStudyElementMap (tiles, layouts, record.gridSpacing, mesh.triangles,
+                                                                    order, faceBase, map);
+                if (!valid) {
+                    error = "sun study retint refused an incomplete element map";
+                    return nullptr;
+                }
+                maps->push_back (std::move (map));
+                ++retinted;
+            }
+            faceBase += static_cast<uint32_t> (mesh.TriangleCount ());
+        }
+        upload->sharedElements = maps; // never cached: the cache is the record's own order
+        mapsRebuilt = false;
+    }
     if (upload->sharedElements == nullptr) {
         auto maps = std::make_shared<std::vector<SunStudyElementMap>> ();
         maps->reserve (snapshot.meshes.size ());
@@ -128,8 +169,10 @@ std::unique_ptr<SunStudyAtlasUpload> SunStudyDisplayAssembler::Prepare (const ev
     if (cancelled ())
         return nullptr;
     ArchVizLog ("pipeline: stage=sun-display-parts study=" + record.id + " dataMs=" + std::to_string (dataMs) +
-                " mapsMs=" + std::to_string (mapsMs) + " mapsRebuilt=" + std::to_string (mapsRebuilt) + " regionsMs=" +
-                std::to_string (msSince (diffing)) + " atlasRegions=" + std::to_string (upload->atlasRegions.size ()) +
+                " mapsMs=" + std::to_string (mapsMs) + " mapsRebuilt=" + std::to_string (mapsRebuilt) +
+                (materials != nullptr ? " retintedElements=" + std::to_string (retinted) : std::string ()) +
+                " regionsMs=" + std::to_string (msSince (diffing)) +
+                " atlasRegions=" + std::to_string (upload->atlasRegions.size ()) +
                 " stepRegions=" + std::to_string (upload->stepRegions.size ()));
     previousImage_ = upload->texels;
     previousSteps_ = upload->stepMasks;

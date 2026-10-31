@@ -15,9 +15,11 @@ struct PreparedSunStudyDisplay {
 
 // Worker-only shared producer for manual display and follower display. The
 // caller owns publication guards and never waits for the host from this work.
+// `materials`: a later snapshot with the same result key, for a retint
+// (SunStudyDisplayAssembler::Prepare).
 void PrepareSunStudyDisplay (const std::string& id, uint64_t revision, std::shared_ptr<const Snapshot> snapshot,
                              const archviz::SunStudyDisplayOptions& options, PreparedSunStudyDisplay& result,
-                             const std::atomic<bool>& cancelled);
+                             const std::atomic<bool>& cancelled, std::shared_ptr<const Snapshot> materials = nullptr);
 
 struct ManualSunStudyDisplayRequest {
     std::string studyId;

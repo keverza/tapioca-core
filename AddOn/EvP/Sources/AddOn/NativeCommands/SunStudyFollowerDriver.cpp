@@ -121,6 +121,11 @@ struct PreparationResult {
 };
 std::shared_ptr<PreparationResult> s_preparation;
 std::shared_ptr<PreparedSunStudyDisplay> s_display;
+// A retint in flight (StartRetint), the snapshot it is for, and the snapshot
+// whose material order the visible tint follows.
+std::shared_ptr<PreparedSunStudyDisplay> s_retint;
+uint64_t s_retintSnapshot = 0;
+uint64_t s_shownSnapshot = 0;
 uint64_t s_displayGeneration = 0;
 uint64_t s_followDisplayGeneration = 0;
 
@@ -255,6 +260,7 @@ void RetireRun (const char* reason, bool cancelled = true)
 {
     PreparationWorker ().Cancel ();
     s_display.reset ();
+    s_retint.reset ();
     if (s_preparation != nullptr) {
         if (cancelled)
             ++s_cancelledRuns;
@@ -372,7 +378,7 @@ void StartReplacement (const SunStudyDependencySignature& signature, int64_t now
     }
     s_stage = "preparing";
     Log ("preparing generation=" + std::to_string (gRunGeneration) +
-         " snapshot=" + std::to_string (signature.geometry));
+         " snapshot=" + std::to_string (signature.snapshot));
 }
 
 bool PollPreparation (int64_t now)
@@ -567,6 +573,7 @@ void PollDisplay (int64_t now)
     Log ("display workerMs=" + std::to_string (completion.wallMilliseconds) +
          " readyWaitMs=" + std::to_string (ReadyWaitMs (completion.readyAt)));
     s_reuseRecord = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (gRunStudyId);
+    s_shownSnapshot = s_reuseRecord != nullptr ? s_reuseRecord->snapshotId : 0;
     gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now);
     ++gAccepted;
     ++gReruns;
@@ -574,6 +581,75 @@ void PollDisplay (int64_t now)
          " wallMs=" + std::to_string (NowMs () - s_phaseStartedMs) + " -- full-resolution queued for display");
     gRunStudyId.clear ();
     s_stage = "current";
+}
+
+// ⚠️ A MATERIAL-ONLY EDIT KEEPS THE STUDY AND ONLY RE-TINTS (#97). The result
+// key (SunStudyResultKey.hpp) did not move, so nothing is sampled or traced;
+// but the viewer re-sorted the edited element's triangles by material, so its
+// face maps must follow the new order or the scene refuses them (topology hash).
+// The record's own display is re-assembled against the later snapshot's
+// material order -- milliseconds, not the 4.7 s refresh it used to cost.
+void StartRetint (const SunStudyDependencySignature& world)
+{
+    const auto record = s_reuseRecord;
+    const auto later = MeshStore::Get ().Current ();
+    if (record == nullptr || record->id != gFollower.StudyId () || record->snapshot == nullptr || later == nullptr ||
+        later->id != world.snapshot) {
+        s_shownSnapshot = world.snapshot; // nothing to retint against; do not retry every tick
+        return;
+    }
+    archviz::SunStudyDisplayOptions options;
+    options.hoursMax = gConfig.hoursMax;
+    options.debug = gConfig.debug;
+    options.depth = gConfig.depth;
+    const auto id = record->id;
+    const auto revision = evp::sunstudy::SunStudyStore::Get ().Revision (id);
+    const auto source = record->snapshot;
+    s_retint = std::make_shared<PreparedSunStudyDisplay> ();
+    s_retintSnapshot = world.snapshot;
+    const auto output = s_retint;
+    evp::sunstudy::StudyTaskRequest request;
+    request.sessionGeneration = s_sessionGeneration;
+    request.runGeneration = gFollower.Generation ();
+    const auto sessionGeneration = s_sessionGeneration;
+    request.onReady = [sessionGeneration] { WakeFollower (sessionGeneration); };
+    request.execute = [id, revision, source, later, options, output] (const std::atomic<bool>& cancelled) {
+        PrepareSunStudyDisplay (id, revision, source, options, *output, cancelled, later);
+    };
+    request.discard = [output] { output->upload.reset (); };
+    if (!PreparationWorker ().Submit (std::move (request), gLastError)) {
+        s_retint.reset ();
+        s_shownSnapshot = world.snapshot;
+    }
+}
+
+void PollRetint ()
+{
+    evp::sunstudy::StudyTaskCompletion completion;
+    if (!PreparationWorker ().Poll (completion))
+        return;
+    const auto output = std::move (s_retint);
+    const uint64_t target = s_retintSnapshot;
+    s_shownSnapshot = target; // succeeded or not, this snapshot has been answered
+    const auto record = s_reuseRecord;
+    if (completion.sessionGeneration != s_sessionGeneration || completion.runGeneration != gFollower.Generation () ||
+        record == nullptr || output == nullptr) {
+        Log ("retint superseded");
+        return;
+    }
+    if (!completion.error.empty () || output->upload == nullptr || !archviz::DiligentViewport::Get ().IsRunning ()) {
+        Log ("retint failed -- " + (!completion.error.empty () ? completion.error : output->error));
+        return;
+    }
+    bool enqueued = false;
+    const uint64_t revision = evp::sunstudy::SunStudyStore::Get ().Revision (record->id);
+    evp::sunstudy::SunStudyStore::Get ().PublishDisplayRecord (record->id, revision, [&] {
+        enqueued =
+            archviz::SceneCmdQueue::Get ().PushAnalysisAtlas (s_followDisplayGeneration, std::move (output->upload));
+    });
+    Log (std::string (enqueued ? "retinted" : "retint not enqueued for") + " study " + record->id + " for snapshot " +
+         std::to_string (target) + " workerMs=" + std::to_string (completion.wallMilliseconds) +
+         " -- the result key did not move (material only), nothing was sampled or traced");
 }
 
 // ⚠️ THE LOCK IS ALREADY HELD BY THE CALLER. std::mutex is not recursive, so
@@ -664,6 +740,7 @@ void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint
     s_refreshSchedule.Reset (gSeenGeometryEdits);
     s_stage = "current";
     s_reuseRecord = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (studyId);
+    s_shownSnapshot = s_reuseRecord != nullptr ? s_reuseRecord->snapshotId : 0;
 
     const SunStudyDependencySignature signature = BuildCurrentSignature (gConfig);
     gFollower.Adopt (studyId, signature, NowMs ());
@@ -671,7 +748,7 @@ void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint
     gLastError.clear ();
 
     ArmTimer ();
-    Log ("following study " + studyId + " at snapshot " + std::to_string (signature.geometry));
+    Log ("following study " + studyId + " at snapshot " + std::to_string (signature.snapshot));
 }
 
 uint64_t SessionGeneration ()
@@ -821,6 +898,11 @@ void Tick ()
     gLastShouldDisplay = display;
 
     // ---- 4. act on the decision --------------------------------------------
+    // A retint belongs to the CURRENT study only; anything else supersedes it.
+    if (s_retint != nullptr && gFollower.State () != SunStudyFollowState::Current) {
+        PreparationWorker ().Cancel ();
+        s_retint.reset ();
+    }
     switch (gFollower.State ()) {
         case SunStudyFollowState::DirtyVisible:
             if (gFollower.ShouldStart (now) && !AdvanceWorker ().Busy () && !PreparationWorker ().Busy () &&
@@ -831,8 +913,14 @@ void Tick ()
             if (!s_navigationDeferred && PollPreparation (now))
                 AdvanceOneSlice (now);
             break;
-        case SunStudyFollowState::NoStudy:
         case SunStudyFollowState::Current:
+            if (s_retint != nullptr)
+                PollRetint ();
+            else if (world.snapshot != s_shownSnapshot && !s_navigationDeferred && !PreparationWorker ().Busy () &&
+                     !AdvanceWorker ().Busy ())
+                StartRetint (world);
+            break;
+        case SunStudyFollowState::NoStudy:
         case SunStudyFollowState::Starting:
         case SunStudyFollowState::Failed:
             break;
@@ -849,8 +937,11 @@ FollowerStats State ()
     stats.dirty = gFollower.IsDirty ();
     stats.generation = gFollower.Generation ();
     stats.studyId = gFollower.StudyId ();
-    stats.studySnapshot = gFollower.StudySignature ().geometry;
-    stats.sceneSnapshot = gFollower.WorldSignature ().geometry;
+    // The driver's own record, not the follower's: the Rust policy carries only
+    // the compared fields, and `geometry` is now a result key, not a snapshot id.
+    stats.studySnapshot = s_shownSnapshot;
+    const auto scene = MeshStore::Get ().Current ();
+    stats.sceneSnapshot = scene != nullptr ? scene->id : 0;
     stats.starts = gStarts;
     stats.acceptedCompletions = gAccepted;
     stats.discardedCompletions = gDiscarded;
