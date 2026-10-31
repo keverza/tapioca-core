@@ -228,8 +228,17 @@ bool RustStudyCore::Advance (const ITraversal& traversal, size_t maxSteps, doubl
     request.maxSteps = maxSteps;
     if (observer)
         request.observer = { const_cast<StepObserver*> (&observer), &ForwardObservation };
-    return Invoke (
-        [&] (char* m, size_t n) { return tapioca_sunstudy_study_advance (handle_, &request, &advanced, m, n); }, error);
+    if (!Invoke (
+            [&] (char* m, size_t n) { return tapioca_sunstudy_study_advance (handle_, &request, &advanced, m, n); },
+            error))
+        return false;
+    // Rust stops a slice at a failed trace and keeps what it had; the slice
+    // failed, and the caller hears why (the C++ session let the throw out).
+    if (shim.failed) {
+        error = shim.failure;
+        return false;
+    }
+    return true;
 }
 
 bool RustStudyCore::Progress (StudyProgress& progress, std::string& error) const

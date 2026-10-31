@@ -99,6 +99,10 @@ inline TapiocaTextArrayView ArrayView (const std::vector<TapiocaTextView>& views
 struct TraversalShim {
     const ITraversal* traversal = nullptr;
     const std::function<bool ()>* isCancelled = nullptr;
+    // Set when the traversal threw: Rust sees a failed trace and resolves
+    // nothing, and the caller reports this as the slice's error.
+    bool failed = false;
+    std::string failure;
 };
 
 // A vtable whose callbacks forward to `shim` and never let an exception reach

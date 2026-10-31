@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <exception>
 
 namespace evp::sunstudy::rust {
 
@@ -16,8 +17,8 @@ namespace detail {
 uint8_t ShimOccludeDirectional (void* context, const double* origins, size_t count, const double* direction,
                                 double tmin, double tmax, uint8_t* out, size_t maxParallel)
 {
+    auto* shim = static_cast<TraversalShim*> (context);
     try {
-        const auto* shim = static_cast<const TraversalShim*> (context);
         static const std::function<bool ()> kNever;
         const auto& cancel = shim->isCancelled != nullptr ? *shim->isCancelled : kNever;
         return shim->traversal->OccludeDirectionalCancellable (origins, count, direction, tmin, tmax, out, maxParallel,
@@ -25,8 +26,15 @@ uint8_t ShimOccludeDirectional (void* context, const double* origins, size_t cou
                    ? 1
                    : 0;
     }
-    catch (...) {
+    catch (const std::exception& exception) {
+        shim->failed = true;
+        shim->failure = exception.what ();
         return 2; // never unwind into Rust
+    }
+    catch (...) {
+        shim->failed = true;
+        shim->failure = "the traversal failed";
+        return 2;
     }
 }
 

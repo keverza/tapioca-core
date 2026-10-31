@@ -83,6 +83,8 @@ class RustStudyCore final {
                     size_t& reusedSampleSteps, std::string& error);
 
     // ---- the study ------------------------------------------------------
+    // False, with the exception's text, when the traversal threw; the steps
+    // resolved before it are kept.
     bool Advance (const ITraversal& traversal, size_t maxSteps, double tmin, double tmax, size_t maxParallel,
                   const std::function<bool ()>& isCancelled, const StepObserver& observer, size_t& advanced,
                   std::string& error) const;
