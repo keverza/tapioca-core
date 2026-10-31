@@ -462,6 +462,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # Massing's main-thread database adapter describes ACAPI failures in the HUD;
     # the pure Define widgets/model include neither Diagnostics nor the DevKit.
     ("ArchViz/MassingModel.cpp", "Diagnostics/ApiError.hpp"),
+    # The model watch's element stamp walk (#97) reports a failed element listing
+    # in the add-on's one vocabulary, as Notify/ModelDiff does for the generator.
+    ("ArchViz/ModelStampWalk.cpp", "Diagnostics/ApiError.hpp"),
     # The extraction worker, started by Tapioca.RequestHostGeometry. The verb
     # exists precisely so host extraction does NOT share a lifecycle with camera
     # synchronisation -- opening the Diligent overlay to force one tore down the
@@ -1335,6 +1338,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/OverlayCameraKeep.cpp",
     "ArchViz/OverlayCensusAnchor.cpp",
     "ArchViz/ModelContentWatch.cpp",
+    "ArchViz/ModelStampWalk.cpp",
     "ArchViz/OverlayHover3D.cpp",
     "ArchViz/OverlayRuntimeReport.cpp",
     "ArchViz/PlanFrameSession.cpp",

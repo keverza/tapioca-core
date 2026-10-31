@@ -1060,6 +1060,7 @@ set (EVP_TEST_SOURCES
     test_occluderstore.cpp
     test_modelwatchroute.cpp
     test_extractionslicewait.cpp
+    test_modelstampwalk.cpp
     test_logclaim.cpp
     test_breadcrumb.cpp
     test_camerarecognizer.cpp

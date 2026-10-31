@@ -84,6 +84,11 @@ struct Stats {
     uint32_t stampDuringPass = 0;
     // Regular ticks that asked Archicad nothing because the stamp had not moved (DiffWanted).
     uint32_t quietSkips = 0;
+    // The 3D generator run as the backstop (stampwalk::Backstop3DDue) and what it last
+    // cost; elements re-extracted because they touch a changed one (stampwalk::Neighbours).
+    uint32_t backstopPolls = 0;
+    int64_t lastBackstopMs = 0;
+    uint32_t neighbourUpdates = 0;
     int64_t lastDiffMs = 0;  // what the last poll cost
     int64_t worstDiffMs = 0; // the worst one, which is what set the interval
     uint32_t intervalMs = 0; // the cadence it has settled on

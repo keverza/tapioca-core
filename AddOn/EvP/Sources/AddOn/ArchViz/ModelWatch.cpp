@@ -9,6 +9,7 @@
 #include "ArchViz/ExtractionEnvironment.hpp" // ReadEnvironment, ForgetEnvironmentLog
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/ModelContentWatch.hpp" // the held model's element count
+#include "ArchViz/ModelStampWalk.hpp"    // the per-edit detector; the 3D generator is the backstop
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/Dxgi/CameraRecognizer.hpp" // census::NoteModelRevision
 #include "ArchViz/Dxgi/HostOccluders.hpp"    // hostocclusion::SetModelRevision
@@ -81,6 +82,18 @@ bool gStampMovedSincePoll = false;
 // The stamp counters at the last hint, for the deltas its log line reports.
 uint32_t gHintSelectionOnly = 0;
 uint32_t gHintDuringPass = 0;
+
+// ⚠️ TWO DETECTORS, AND WHICH ONE A TICK ASKS IS THE POINT (#97). The element
+// stamp walk answers every edit in milliseconds; the 3D generator (gBaseline)
+// holds the main thread ~3 s and runs only as the backstop, once the project has
+// been still (stampwalk::Backstop3DDue). The cadence follows the walk's cost.
+stampwalk::Walker gWalker;
+bool gWalkOk = false;         // its baseline was taken; without it the generator stays the detector
+int64_t gLast3DMs = 0;        // when the 3D generator last ran
+int64_t gLastStampMoveMs = 0; // when the stamp last moved, selection included
+bool gMovedSince3D = false;   // a non-selection move since the 3D generator last ran
+// What the walk (with its neighbours) already sent since the 3D generator last ran.
+std::set<std::string> gWalkedSince3D;
 
 // The selected elements' GUIDs, sorted. MAIN THREAD.
 bool ReadSelection (std::vector<std::string>& guids)
@@ -220,8 +233,11 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     if (gBaseline == nullptr)
         return;
 
-    if (!DiffWanted (early, gStampKnown && gStampTimer != 0, gStampMovedSincePoll,
-                     int64_t (::GetTickCount64 ()) - gLastPollEndMs)) {
+    const int64_t tickMs = int64_t (::GetTickCount64 ());
+    const bool backstop = !early && gStampTimer != 0 && gWalkOk &&
+                          stampwalk::Backstop3DDue (gMovedSince3D, tickMs - gLastStampMoveMs, tickMs - gLast3DMs);
+    if (!backstop &&
+        !DiffWanted (early, gStampKnown && gStampTimer != 0, gStampMovedSincePoll, tickMs - gLastPollEndMs)) {
         ++gStats.quietSkips;
         ServePending ();
         return;
@@ -231,9 +247,39 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     gLastPollMs = ::GetTickCount64 ();
     const std::set<std::string> swept = std::move (gSweptSincePoll);
     gSweptSincePoll.clear ();
-    const modeldiff::Result diff = gBaseline->Poll ();
+    // Without the stamp timer there is no idle to wait for, and without a walk
+    // baseline nothing to compare: the 3D generator is the only detector, as before #97.
+    const bool use3D = backstop || gStampTimer == 0 || !gWalkOk;
+    modeldiff::Result diff = use3D ? gBaseline->Poll () : gWalker.Poll ();
     ++gStats.polls;
     gLastPollEndMs = int64_t (::GetTickCount64 ());
+    if (use3D) {
+        gLast3DMs = gLastPollEndMs;
+        gMovedSince3D = false;
+    }
+    if (backstop) {
+        // ⚠️ WHAT THE WALK ALREADY SENT IS DROPPED HERE, BEFORE ANYTHING IS
+        // BUMPED. The generator reports every element edited since it last ran;
+        // re-sending those would redo their updates, and a capture-stamp bump
+        // with no pass behind it breaks the next incremental update's chain
+        // (SnapshotAssembly::CanUpdate) into a full re-extraction.
+        size_t already = 0;
+        for (auto* list : { &diff.created, &diff.modified, &diff.deleted }) {
+            const size_t before = list->size ();
+            list->erase (std::remove_if (list->begin (), list->end (),
+                                         [] (const std::string& guid) { return gWalkedSince3D.count (guid) != 0; }),
+                         list->end ());
+            already += before - list->size ();
+        }
+        gWalkedSince3D.clear ();
+        ++gStats.backstopPolls;
+        gStats.lastBackstopMs = diff.elapsedMs;
+        ArchVizLog ("model watch: backstop 3D difference after the project was still, " +
+                    std::to_string (diff.elapsedMs) + " ms -- " + std::to_string (already) +
+                    " already updated by the stamp walk; missed by it: " + std::to_string (diff.created.size ()) +
+                    " new, " + std::to_string (diff.modified.size ()) + " modified, " +
+                    std::to_string (diff.deleted.size ()) + " deleted");
+    }
     gBurstStartMs = 0;
     // ⚠️ RE-READ AFTER THE DIFF: generating the 3D model for it may move the
     // project's stamp, and that move must not bring the next poll forward.
@@ -266,8 +312,11 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     }
     gStats.lastError.clear ();
 
-    gStats.lastDiffMs = diff.elapsedMs;
-    gStats.worstDiffMs = std::max (gStats.worstDiffMs, diff.elapsedMs);
+    // The backstop's cost never sets the cadence: it is not what a tick asks.
+    if (!backstop) {
+        gStats.lastDiffMs = diff.elapsedMs;
+        gStats.worstDiffMs = std::max (gStats.worstDiffMs, diff.elapsedMs);
+    }
 
     // ---- adapt the cadence to what this project actually costs --------------
     // Driven by the WORST poll rather than the last one: the cost varies with
@@ -289,6 +338,13 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     // `firstCall` is the baseline being established, NOT an unchanged model --
     // re-extracting on it would rebuild the scene the viewer has only just built.
     if (diff.firstCall || !diff.AnythingChanged ()) {
+        // The walk reports no environment: a hint it found no element for may
+        // be the sun or the 3D window settings, which cost four floats to re-read.
+        if (early && !use3D && !diff.firstCall) {
+            EnvironmentUpload environment;
+            if (ReadEnvironment (environment))
+                SceneCmdQueue::Get ().PushEnvironment (environment);
+        }
         // A refresh deferred by a busy worker is taken as soon as one is free,
         // without waiting for another edit to come along and ask again.
         ServePending ();
@@ -365,6 +421,31 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
         return;
     }
     const auto published = MeshStore::Get ().Current ();
+    // ⚠️ THE WALK NAMES ONLY THE EDITED ELEMENT. What its edit trims or cuts --
+    // the host of a moved window, the walls of a moved slab -- keeps its own
+    // stamp, so the published elements touching the old and the new box go too.
+    size_t neighbours = 0, neighboursDropped = 0;
+    if (!use3D) {
+        const auto shared = MeshStore::Get ().Shared ();
+        if (shared != nullptr) {
+            const auto boxes = stampwalk::MeshBoxes (*shared);
+            std::vector<stampwalk::Box> changed;
+            for (const auto& [guid, box] : boxes)
+                if (named.count (guid) != 0)
+                    changed.push_back (box);
+            for (const std::string& guid : named) {
+                stampwalk::Box now;
+                if (stampwalk::ElementBox (guid, now))
+                    changed.push_back (now);
+            }
+            const std::vector<std::string> extra = stampwalk::Neighbours (
+                changed, boxes, named, stampwalk::kNeighbourToleranceM, stampwalk::kNeighbourCap, neighboursDropped);
+            neighbours = extra.size ();
+            gStats.neighbourUpdates += uint32_t (neighbours);
+            named.insert (extra.begin (), extra.end ());
+        }
+        gWalkedSince3D.insert (named.begin (), named.end ());
+    }
     const size_t elements =
         RouteModelSize (modelcontentwatch::Get ().elements, published != nullptr ? published->meshes.size () : 0);
     const Route route = RouteChange (named.size (), elements, gLastFullStartMs, previousPollMs);
@@ -377,7 +458,12 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
             ++gStats.refreshes;
             ArchVizLog ("model watch: updating " + std::to_string (gPendingElements.size ()) + " elements -- " +
                         std::to_string (diff.created.size ()) + " new, " + std::to_string (diff.modified.size ()) +
-                        " modified, " + std::to_string (diff.deleted.size ()) + " deleted");
+                        " modified, " + std::to_string (diff.deleted.size ()) + " deleted, " +
+                        std::to_string (neighbours) + " touching" +
+                        (neighboursDropped > 0
+                             ? " (" + std::to_string (neighboursDropped) + " more left to the backstop)"
+                             : std::string ()) +
+                        (use3D ? " [3D difference]" : " [stamp walk, " + std::to_string (diff.elapsedMs) + " ms]"));
             gPendingElements.clear ();
         }
         return;
@@ -445,6 +531,7 @@ void CALLBACK StampTimerProc (HWND, UINT, UINT_PTR, DWORD)
         return;
     }
     ++gStats.stampChanges;
+    gLastStampMoveMs = now;
     std::vector<std::string> selection;
     const bool selectionRead = ReadSelection (selection);
     const bool selectionChanged = selectionRead && selection != gSelection;
@@ -456,14 +543,14 @@ void CALLBACK StampTimerProc (HWND, UINT, UINT_PTR, DWORD)
     switch (verdict) {
         case StampVerdict::DuringPass:
             ++gStats.stampDuringPass;
-            gStampMovedSincePoll = true;
+            gStampMovedSincePoll = gMovedSince3D = true;
             break;
         case StampVerdict::SelectionOnly:
             ++gStats.stampSelectionOnly;
             break;
         case StampVerdict::Hint: {
             ++gStats.stampHints;
-            gStampMovedSincePoll = true;
+            gStampMovedSincePoll = gMovedSince3D = true;
             // Deltas since the previous hint (OVERLAY-INVARIANTS section 7), so a
             // live log shows what the filter dropped between two edits.
             NoteHint ("project stamp moved (since the last hint: " +
@@ -514,9 +601,11 @@ bool Start (uint32_t floorMs)
     gEarlyPending = false;
     gEarlyMisses = 0;
     gCeilingLogged = false;
-    gPassLastTick = gStampMovedSincePoll = false;
-    gLastPassEndMs = 0;
+    gPassLastTick = gStampMovedSincePoll = gMovedSince3D = false;
+    gLastPassEndMs = gLastStampMoveMs = 0;
     gHintSelectionOnly = gHintDuringPass = 0;
+    gWalker.Clear ();
+    gWalkedSince3D.clear ();
     // The sun's log is deduplicated across reads, and its memory of what it last
     // wrote is session state like the baseline beside it. See the header.
     ForgetEnvironmentLog ();
@@ -538,12 +627,28 @@ bool Start (uint32_t floorMs)
     else {
         gStats.lastDiffMs = first.elapsedMs;
         gStats.worstDiffMs = first.elapsedMs;
-        gLastPollEndMs = int64_t (::GetTickCount64 ()); // the baseline is a poll (DiffWanted)
+        gLastPollEndMs = gLast3DMs = int64_t (::GetTickCount64 ()); // the baseline is a poll (DiffWanted)
         ArchVizLog ("model watch: armed, polling every " + std::to_string (gIntervalMs) + " ms (baseline took " +
                     std::to_string (first.elapsedMs) +
                     " ms). "
                     "No observers are attached and nothing is written to the project.");
     }
+    // The per-edit detector's baseline. ⚠️ ITS COST, NOT THE 3D GENERATOR'S, SETS
+    // THE CADENCE from here on, so the interval goes back to the floor.
+    const modeldiff::Result walked = gWalker.Poll ();
+    gWalkOk = walked.ok;
+    if (walked.ok) {
+        gStats.lastDiffMs = gStats.worstDiffMs = walked.elapsedMs;
+        Rearm (
+            (uint32_t) std::min<int64_t> (std::max<int64_t> (gFloorMs, walked.elapsedMs * kDutyDivisor), kCeilingMs));
+        ArchVizLog ("model watch: the element stamp walk takes " + std::to_string (walked.elapsedMs) + " ms over " +
+                    std::to_string (gWalker.Count ()) + " elements; it detects edits, polling every " +
+                    std::to_string (gIntervalMs) +
+                    " ms while the project stamp moves, and the 3D difference runs once the project is still");
+    }
+    else
+        ArchVizLog ("model watch: the element stamp walk failed (" + walked.error +
+                    "); the 3D difference stays the detector");
     // The hint: the project's stamp, read every kStampPollMs (JudgeStamp).
     AdoptStamp ();
     if (gStampTimer != 0)
@@ -572,8 +677,11 @@ void Stop ()
     }
     gStampKnown = false;
     gSelection.clear ();
-    gPassLastTick = gStampMovedSincePoll = false;
-    gLastPassEndMs = 0;
+    gPassLastTick = gStampMovedSincePoll = gMovedSince3D = false;
+    gLastPassEndMs = gLastStampMoveMs = 0;
+    gWalker.Clear ();
+    gWalkOk = false;
+    gWalkedSince3D.clear ();
     gBaseline.reset ();
     gIntervalMs = 0;
     gStats.running = false;
@@ -589,8 +697,13 @@ bool RefreshNow ()
     // ⚠️ RE-BASELINE TOO. Without this the next tick reports everything that
     // changed before the manual refresh as still outstanding, and immediately
     // re-extracts the model that was just rebuilt.
-    if (gBaseline != nullptr)
+    if (gBaseline != nullptr) {
         gBaseline->Poll (/*reset*/ true);
+        gWalkOk = gWalker.Poll (/*reset*/ true).ok;
+        gLast3DMs = int64_t (::GetTickCount64 ());
+        gMovedSince3D = false;
+        gWalkedSince3D.clear ();
+    }
     ArchVizLog ("model watch: manual refresh -- re-extracting the whole model.");
     return true;
 }
