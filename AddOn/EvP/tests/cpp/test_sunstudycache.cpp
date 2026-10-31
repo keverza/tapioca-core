@@ -18,7 +18,9 @@
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/SunStudyCache.hpp"
-#include "SunStudy/SunStudyOcclusion.hpp"
+#if defined(TAPIOCA_GEOMETRY_RUST)
+#include "SunStudy/SunStudyRust.hpp"
+#endif
 #include "SunStudy/SurfacePatch.hpp"
 #include "gtest/gtest.h"
 
@@ -185,6 +187,8 @@ SunStudyCache BuildCache (const Scene& scene, double spacing)
     return cache;
 }
 
+// The study's accumulator is the Rust core's; a build without it resolves nothing.
+#if defined(TAPIOCA_GEOMETRY_RUST)
 // Resolve `keys` against `scene`'s geometry. Everything else is untouched --
 // which is the property the incremental path exists for.
 size_t ResolvePatches (SunStudyCache& cache, const Scene& scene, const std::vector<PatchKey>& keys,
@@ -211,7 +215,7 @@ size_t ResolvePatches (SunStudyCache& cache, const Scene& scene, const std::vect
         // ⚠️ A FRESH ACCUMULATOR PER PATCH. Its samples are a contiguous span, so
         // a subset run is the same code over a shorter SampleSet -- there is no
         // second engine here, which is the whole point.
-        OcclusionAccumulator accumulator (patch.SampleCount (), steps);
+        rust::RustOcclusionAccumulator accumulator (patch.SampleCount (), steps);
         SampleSet samples;
         samples.positions = patch.positions.data ();
         samples.normals = patch.normals.data ();
@@ -224,6 +228,7 @@ size_t ResolvePatches (SunStudyCache& cache, const Scene& scene, const std::vect
     }
     return resolved;
 }
+#endif
 
 std::vector<PatchKey> AllKeys (const SunStudyCache& cache)
 {
@@ -381,6 +386,7 @@ TEST (SunStudyCache, NoChangesDirtyNothing)
     EXPECT_TRUE (ClassifyDirtyPatches (cache, {}, suns.data (), suns.size () / 3, scene.Extent ()).empty ());
 }
 
+#if defined(TAPIOCA_GEOMETRY_RUST)
 // ---------------------------------------------------------------------------
 // THE ORACLE
 // ---------------------------------------------------------------------------
@@ -494,3 +500,4 @@ TEST (SunStudyCache, SkippingTheClassifierProducesTheWRONGAnswer)
     }
     EXPECT_TRUE (anyDisagreement) << "the fixture does not actually move any shadow, so the oracle proves nothing";
 }
+#endif

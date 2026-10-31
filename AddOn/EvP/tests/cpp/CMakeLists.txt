@@ -179,8 +179,6 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/CpuTraversal.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOccluders.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunSeries.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOcclusion.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySession.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySampler.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySurfaceSampling.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/VisibilityStudy.cpp"
@@ -213,16 +211,10 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudGumball.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRecordCore.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyCoreSelection.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyFollowerPolicy.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReuse.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAdvanceWorker.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyTaskWorker.cpp"
-    # SunStudyFollower is when a study is stale, when to recompute it and which
-    # result may become visible. It has no clock and no host of its own for
-    # exactly that reason: every rule in it is about TIME and IDENTITY, and both
-    # are what a live Archicad session cannot be asked to reproduce on demand.
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyFollower.cpp"
     # SurfacePatch is the analysis domain ABOVE the renderer's triangles: the
     # coplanar, edge-connected run of source triangles that one BIM surface was
     # tessellated into. It is here because the artefact it removes -- a diagonal
@@ -1093,7 +1085,6 @@ set (EVP_TEST_SOURCES
     test_bvhbuild.cpp
     test_cputraversal.cpp
     test_sunseries.cpp
-    test_sunstudyocclusion.cpp
     test_visibilitystudy.cpp
     test_viewpointstudy.cpp
     test_analysistabs.cpp
@@ -1105,7 +1096,6 @@ set (EVP_TEST_SOURCES
     test_sunstudyselectionbinding.cpp
     test_sunstudygputraversal.cpp
     test_sunstudypreview.cpp
-    test_sunstudysession.cpp
     test_sunstudytextureupdates.cpp
     test_sunstudytaskworker.cpp
     test_sunstudysampler.cpp
@@ -1116,7 +1106,6 @@ set (EVP_TEST_SOURCES
     test_sunstudywinding.cpp
     test_sunstudyatlas.cpp
     test_sunstudyoverlay.cpp
-    test_sunstudyfollower.cpp
     test_viewerpalettestate.cpp
     test_surfacepatch.cpp
     test_sunstudycache.cpp
@@ -1307,7 +1296,6 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_rayworker.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_parity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_study.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_follower.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_views.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_flip.cpp"
         # A study runs only on the Rust core (P7a): every test that files one in
@@ -1317,6 +1305,11 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyadvanceworker.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudydisplaypreparation.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyreuse.cpp"
+        # The accumulator, session and follower policy are the Rust core's;
+        # these are the deleted C++ classes' tests, ported onto it.
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyocclusion.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudysession.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyfollower.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_parity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_identity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_value.cpp"

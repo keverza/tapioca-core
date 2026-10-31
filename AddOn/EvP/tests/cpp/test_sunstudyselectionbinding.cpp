@@ -1,5 +1,5 @@
 #include "SunStudy/SunStudySelectionBinding.hpp"
-#include "SunStudy/SunStudyFollower.hpp"
+#include "SunStudy/SunStudyFollowerPolicy.hpp"
 
 #include <gtest/gtest.h>
 
@@ -62,11 +62,13 @@ TEST (SunStudySelectionBinding, ExplicitListsStayFixedAndPartialBindingRetainsOt
     EXPECT_EQ (ignored, (std::vector<std::string> { "excluded" }));
 }
 
+// The follower policy is the Rust follower; without it nothing is ever adopted.
+#if defined(TAPIOCA_GEOMETRY_RUST)
 TEST (SunStudySelectionBinding, RoleChangesSupersedeInFlightResultsWithoutClearingRenderableCache)
 {
     SunStudySelectionBinding binding { "Context", "Ignored", 8, 10 };
     std::vector<std::string> context { "site" }, ignored;
-    SunStudyFollower follower;
+    SunStudyFollowerPolicy follower;
     SunStudyDependencySignature initial { 41, 7, 1 }, first { 41, 7, 2 }, latest { 41, 7, 3 };
     follower.Adopt ("accepted", initial, 1000);
     ASSERT_EQ (binding.Refresh (8, { "site", "another" }, {}, context, ignored), SelectionBindingRefresh::Changed);
@@ -83,3 +85,4 @@ TEST (SunStudySelectionBinding, RoleChangesSupersedeInFlightResultsWithoutCleari
     EXPECT_TRUE (follower.CanPublishResult (generation, latest));
     EXPECT_TRUE (follower.NoteCompleted (generation, "restored", latest, 1800));
 }
+#endif

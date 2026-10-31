@@ -1,4 +1,4 @@
-// L2 offline tests for SunStudy/SunStudySession.
+// L2 offline tests for the study's session (rust::RustSunStudySession).
 //
 // The session is where the two promises live that the rest of the feature rests
 // on: that a study advances in small bounded steps rather than blocking, and
@@ -7,7 +7,7 @@
 // away.
 
 #include "SunStudy/CpuTraversal.hpp"
-#include "SunStudy/SunStudySession.hpp"
+#include "SunStudy/SunStudyRust.hpp"
 
 #include <gtest/gtest.h>
 
@@ -22,6 +22,11 @@ using geomsrv::QueryEngine;
 using geomsrv::Snapshot;
 
 namespace {
+
+// The study's session is the Rust core's (rust::RustSunStudySession); these
+// were the C++ SunStudySession's tests, ported unchanged when it was deleted
+// (P7a).
+using SunStudySession = rust::RustSunStudySession;
 
 std::shared_ptr<const Snapshot> MakeRoofSnapshot (uint64_t id = 21)
 {
@@ -288,7 +293,7 @@ TEST (SunStudySession, SliceSizeDoesNotChangeTheAnswer)
 
     ASSERT_TRUE (drip.Progress ().converged);
     ASSERT_TRUE (gulp.Progress ().converged);
-    EXPECT_EQ (drip.Accumulator ().Bits (), gulp.Accumulator ().Bits ());
+    EXPECT_EQ (drip.Bits (), gulp.Bits ());
     EXPECT_EQ (drip.SunHours (), gulp.SunHours ());
 }
 

@@ -1,11 +1,12 @@
 #ifndef EVP_SUNSTUDY_SUNSTUDYRUSTFOLLOWER_HPP
 #define EVP_SUNSTUDY_SUNSTUDYRUSTFOLLOWER_HPP
 
-// SunStudy/SunStudyRustFollower -- SunStudyFollower with its decisions made
-// by the Rust follower (P4). Same method surface as the C++ class, so the
-// driver swaps an implementation rather than a vocabulary. One thread at a
-// time, as the C++ follower. An ABI failure (which only a corrupted handle can
-// cause) leaves the last state and is reported through LastError.
+// SunStudy/SunStudyRustFollower -- the sun-study follower: when a study is
+// stale, when to recompute it and which result may become visible, decided by
+// the Rust follower (P4) over a caller-supplied clock. The driver holds it
+// through SunStudyFollowerPolicy. One thread at a time. An ABI failure (which
+// only a corrupted handle can cause) leaves the last state and is reported
+// through LastError.
 
 #include "SunStudy/SunStudyFollowState.hpp"
 #include "SunStudy/SunStudyRustFfi.h"

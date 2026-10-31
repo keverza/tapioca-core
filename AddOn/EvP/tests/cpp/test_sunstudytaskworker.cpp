@@ -1,6 +1,6 @@
 #include "SunStudy/SunStudyTaskWorker.hpp"
 #include "SunStudy/SunStudyRefreshSchedule.hpp"
-#include "SunStudy/SunStudyFollower.hpp"
+#include "SunStudy/SunStudyFollowerPolicy.hpp"
 #include "SunStudy/SunStudyPreviewPlan.hpp"
 
 #include <gtest/gtest.h>
@@ -395,11 +395,13 @@ TEST (SunStudyRefreshSchedule, WatchCadenceBurstCapturesOnlyTheFirstAndLatestMod
     EXPECT_FALSE (schedule.Pending ());
 }
 
+// The follower policy is the Rust follower; without it nothing is ever adopted.
+#if defined(TAPIOCA_GEOMETRY_RUST)
 TEST (SunStudyRefreshSchedule, CapturedGeometryDoesNotWaitThroughASecondFollowerDebounce)
 {
     SunStudyRefreshSchedule schedule;
     schedule.Reset (0);
-    SunStudyFollower follower;
+    SunStudyFollowerPolicy follower;
     const SunStudyDependencySignature original { 1, 2, 3 };
     const SunStudyDependencySignature edited { 2, 2, 3 };
     follower.Adopt ("original", original, 0);
@@ -417,6 +419,7 @@ TEST (SunStudyRefreshSchedule, CapturedGeometryDoesNotWaitThroughASecondFollower
     EXPECT_FALSE (follower.ShouldStart (899));
     EXPECT_TRUE (follower.ShouldStart (900));
 }
+#endif
 
 TEST (SunStudyRefreshSchedule, CancelledPreparationCannotBuildACaptureBacklog)
 {

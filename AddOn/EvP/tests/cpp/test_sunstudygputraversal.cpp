@@ -1,6 +1,8 @@
 #include "ArchViz/SunStudyGpuShader.hpp"
 #include "ArchViz/SunStudyGpuTraversal.hpp"
-#include "SunStudy/SunStudyOcclusion.hpp"
+#if defined(TAPIOCA_GEOMETRY_RUST)
+#include "SunStudy/SunStudyRust.hpp"
+#endif
 #include "MeshFixtures.hpp"
 
 #include <gtest/gtest.h>
@@ -272,6 +274,7 @@ TEST (SunStudyGpuTraversal, HardwarePacketsMatchCpuAcrossDirectionsBoundsAndGeor
     }
 }
 
+#if defined(TAPIOCA_GEOMETRY_RUST) // the study's accumulator is the Rust core's
 TEST (SunStudyGpuTraversal, BoundaryRaysAndAccumulatorBitsMatchCpu)
 {
     auto engine = std::make_shared<geomsrv::QueryEngine> (MakeScene ());
@@ -293,7 +296,7 @@ TEST (SunStudyGpuTraversal, BoundaryRaysAndAccumulatorBitsMatchCpu)
     evp::sunstudy::SampleSet samples;
     samples.positions = origins.data ();
     samples.count = origins.size () / 3;
-    evp::sunstudy::OcclusionAccumulator actual (samples.count, 2), expected (samples.count, 2);
+    evp::sunstudy::rust::RustOcclusionAccumulator actual (samples.count, 2), expected (samples.count, 2);
     const double up[3] = { 0.0, 0.0, 1.0 };
     ASSERT_TRUE (actual.AccumulateStep (gpu, samples, 0, up, 0.001, 0.0, 1));
     if (Unavailable (gpu.Stats ()))
@@ -307,6 +310,7 @@ TEST (SunStudyGpuTraversal, BoundaryRaysAndAccumulatorBitsMatchCpu)
     EXPECT_LT (gpu.Stats ().cpuCheckRays, gpu.Stats ().cpuFallbackRays + gpu.Stats ().validationRays);
     EXPECT_EQ (gpu.Stats ().cpuFallbackRays, gpu.Stats ().ambiguousRays + gpu.Stats ().workLimitRays);
 }
+#endif
 
 TEST (SunStudyGpuTraversal, PacketRingRefillsWithoutLosingTailOrReorderingAnswers)
 {
@@ -385,6 +389,7 @@ TEST (SunStudyGpuTraversal, ClosedAndSlopedSolidsAndThinOccludersMatchCpu)
     }
 }
 
+#if defined(TAPIOCA_GEOMETRY_RUST) // the study's accumulator is the Rust core's
 TEST (SunStudyGpuTraversal, SelectiveTraversalPreservesReusableCompleteDayBits)
 {
     auto engine = std::make_shared<geomsrv::QueryEngine> (MakeScene ());
@@ -395,11 +400,11 @@ TEST (SunStudyGpuTraversal, SelectiveTraversalPreservesReusableCompleteDayBits)
     samples.positions = origins.data ();
     samples.count = origins.size () / 3;
     const double up[3] = { 0.0, 0.0, 1.0 }, down[3] = { 0.0, 0.0, -1.0 };
-    evp::sunstudy::OcclusionAccumulator source (samples.count, 2), actual (samples.count, 2),
+    evp::sunstudy::rust::RustOcclusionAccumulator source (samples.count, 2), actual (samples.count, 2),
         expected (samples.count, 2);
     for (size_t step = 0; step < 2; ++step)
         ASSERT_TRUE (source.AccumulateStep (cpu, samples, step, down, 0.001, 0.0, 1));
-    std::vector<size_t> mapping (samples.count, evp::sunstudy::OcclusionAccumulator::kNoReuse);
+    std::vector<size_t> mapping (samples.count, evp::sunstudy::kNoReuse);
     for (size_t sample = 0; sample < samples.count; sample += 2)
         mapping[sample] = sample;
     ASSERT_TRUE (actual.SeedReusable (source, mapping));
@@ -409,15 +414,18 @@ TEST (SunStudyGpuTraversal, SelectiveTraversalPreservesReusableCompleteDayBits)
         ASSERT_TRUE (expected.AccumulateStep (cpu, samples, step, up, 0.001, 0.0, 1));
     }
     EXPECT_EQ (actual.Bits (), expected.Bits ());
+    // One word per sample (two steps): a reused sample keeps its source's bits.
+    const std::vector<uint64_t> actualBits = actual.Bits (), sourceBits = source.Bits ();
     for (size_t sample = 0; sample < samples.count; sample += 2)
-        for (size_t step = 0; step < 2; ++step)
-            EXPECT_EQ (actual.Lit (sample, step), source.Lit (sample, step));
+        EXPECT_EQ (actualBits[sample] & 3u, sourceBits[sample] & 3u);
     if (Unavailable (gpu.Stats ()))
         GTEST_SKIP () << gpu.Stats ().error;
     ASSERT_TRUE (gpu.Stats ().available) << gpu.Stats ().error;
     EXPECT_EQ (gpu.Stats ().gpuRays, 4096u * 2);
 }
+#endif
 
+#if defined(TAPIOCA_GEOMETRY_RUST) // the study's accumulator is the Rust core's
 TEST (SunStudyGpuTraversal, CancellationDoesNotCommitTimestep)
 {
     auto engine = std::make_shared<geomsrv::QueryEngine> (MakeScene ());
@@ -426,7 +434,7 @@ TEST (SunStudyGpuTraversal, CancellationDoesNotCommitTimestep)
     evp::sunstudy::SampleSet samples;
     samples.positions = origins.data ();
     samples.count = origins.size () / 3;
-    evp::sunstudy::OcclusionAccumulator accumulator (samples.count, 1);
+    evp::sunstudy::rust::RustOcclusionAccumulator accumulator (samples.count, 1);
     const double up[3] = { 0.0, 0.0, 1.0 };
     std::vector<uint8_t> warmup (4096);
     gpu.OccludeDirectional (origins.data (), warmup.size (), up, 0.001, 0.0, warmup.data (), 1);
@@ -436,18 +444,19 @@ TEST (SunStudyGpuTraversal, CancellationDoesNotCommitTimestep)
     // packet wait or during result checks; partial output never resolves a step.
     unsigned polls = 0;
     ASSERT_FALSE (accumulator.AccumulateStep (gpu, samples, 0, up, 0.001, 0.0, 1, [&] { return ++polls > 20; }));
-    EXPECT_FALSE (accumulator.StepResolved (0));
+    EXPECT_EQ (accumulator.StepsResolved ()[0], 0u);
     EXPECT_EQ (accumulator.ResolvedStepCount (), 0u);
-    EXPECT_TRUE (
-        std::all_of (accumulator.Bits ().begin (), accumulator.Bits ().end (), [] (uint64_t bit) { return bit == 0; }));
+    const std::vector<uint64_t> bits = accumulator.Bits ();
+    EXPECT_TRUE (std::all_of (bits.begin (), bits.end (), [] (uint64_t bit) { return bit == 0; }));
     if (initial.available)
         EXPECT_GT (gpu.Stats ().dispatches, initial.dispatches);
     ASSERT_TRUE (accumulator.AccumulateStep (gpu, samples, 0, up, 0.001, 0.0, 1));
     evp::sunstudy::CpuTraversal cpu (engine);
-    evp::sunstudy::OcclusionAccumulator expected (samples.count, 1);
+    evp::sunstudy::rust::RustOcclusionAccumulator expected (samples.count, 1);
     ASSERT_TRUE (expected.AccumulateStep (cpu, samples, 0, up, 0.001, 0.0, 1));
     EXPECT_EQ (accumulator.Bits (), expected.Bits ());
 }
+#endif
 
 TEST (SunStudyGpuTraversal, ConcurrentDirectionalCallsShareNoScratch)
 {

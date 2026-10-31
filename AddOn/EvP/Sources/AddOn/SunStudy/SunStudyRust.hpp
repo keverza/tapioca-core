@@ -162,8 +162,8 @@ bool AtlasChangedRegions (uint32_t width, uint32_t height, uint32_t layers, cons
 bool StepSchedule (const SunSeries& series, double fanIntervalMinutes, std::vector<uint16_t>& minutes,
                    std::vector<uint32_t>& fan, uint32_t& solarNoon, std::string& error);
 
-// OcclusionAccumulator backed by the Rust core. Same contract as the C++
-// class: one thread at a time, AccumulateStep commits a whole step or nothing.
+// The study's accumulator, one bit per (sample, step), in the Rust core. One
+// thread at a time; AccumulateStep commits a whole step or nothing.
 // A failed traversal or ABI refusal is reported through `LastError()` and the
 // call returns false. Movable, not copyable; the Rust handle is released in
 // the destructor.
@@ -212,11 +212,10 @@ class RustOcclusionAccumulator final {
     mutable std::string error_;
 };
 
-// SunStudySession backed by the Rust core. Same contract: Sync keeps the
-// caller's (non-owning) sample arrays for later Advance calls, a concurrent
-// Advance is refused (returns 0), and SunHours is too low until converged.
-// Thread-safe like the C++ session; the observer receives the accumulator's
-// counters instead of the accumulator itself.
+// A study session in the Rust core: Sync keeps the caller's (non-owning)
+// sample arrays for later Advance calls, a concurrent Advance is refused
+// (returns 0), and SunHours is too low until converged. Thread-safe; the
+// observer receives the accumulator's counters.
 class RustSunStudySession final {
   public:
     using StepObserver = std::function<void (size_t, const TapiocaOcclusionState&, double)>;

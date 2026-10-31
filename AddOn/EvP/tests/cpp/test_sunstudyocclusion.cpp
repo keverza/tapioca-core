@@ -1,4 +1,7 @@
-// L2 offline tests for SunStudy/SunStudyOcclusion.
+// L2 offline tests for the study's accumulator (rust::RustOcclusionAccumulator,
+// the Rust core's accumulator behind SunStudy/SunStudyRust.hpp). Ported from the
+// C++ OcclusionAccumulator's tests when that class was deleted (P7a); the
+// assertions are the same.
 //
 // The scene is arranged so every expected answer is known from arithmetic rather
 // than from a previous run: one flat occluder, samples either under it or beside
@@ -7,7 +10,7 @@
 // rule that an incomplete study must be recognisable as incomplete.
 
 #include "SunStudy/CpuTraversal.hpp"
-#include "SunStudy/SunStudyOcclusion.hpp"
+#include "SunStudy/SunStudyRust.hpp"
 
 #include <gtest/gtest.h>
 
@@ -58,6 +61,30 @@ struct Scene {
 
 const double kSunUp[3] = { 0.0, 0.0, 1.0 };
 
+using OcclusionAccumulator = rust::RustOcclusionAccumulator;
+
+// The accumulator's reads, from its whole-bitset and per-step snapshots.
+bool Lit (const OcclusionAccumulator& accumulator, size_t sample, size_t step)
+{
+    const std::vector<uint64_t> bits = accumulator.Bits ();
+    const size_t word = sample * accumulator.WordsPerSample () + step / 64;
+    return word < bits.size () && ((bits[word] >> (step % 64)) & 1u) != 0;
+}
+
+size_t LitStepCount (const OcclusionAccumulator& accumulator, size_t sample)
+{
+    size_t lit = 0;
+    for (size_t step = 0; step < accumulator.StepCount (); ++step)
+        lit += Lit (accumulator, sample, step) ? 1 : 0;
+    return lit;
+}
+
+bool StepResolved (const OcclusionAccumulator& accumulator, size_t step)
+{
+    const std::vector<uint8_t> flags = accumulator.StepsResolved ();
+    return step < flags.size () && flags[step] != 0;
+}
+
 } // namespace
 
 TEST (SunStudyOcclusion, ShadowedAndSunlitSamplesAreDistinguished)
@@ -67,29 +94,25 @@ TEST (SunStudyOcclusion, ShadowedAndSunlitSamplesAreDistinguished)
 
     ASSERT_TRUE (accumulator.AccumulateStep (*scene.traversal, scene.Samples (), 0, kSunUp, 0.001, 0.0, 1));
 
-    EXPECT_FALSE (accumulator.Lit (0, 0)) << "under the roof";
-    EXPECT_TRUE (accumulator.Lit (1, 0)) << "beside the roof";
+    EXPECT_FALSE (Lit (accumulator, 0, 0)) << "under the roof";
+    EXPECT_TRUE (Lit (accumulator, 1, 0)) << "beside the roof";
     EXPECT_TRUE (accumulator.Complete ());
 }
 
-// The sun-step telemetry's hit/clear split and thread budget (#97 P0): one
-// traced ray blocked, one clear, and the caller's maxParallel as given.
-TEST (SunStudyOcclusion, StepTelemetryCountsBlockedRaysAndKeepsTheThreadBudget)
+// The sun-step telemetry's ray count (#97 P0): both samples traced, then none
+// when every sample faces away. The C++ class's hit split, thread budget and
+// CPU time went with it; the Rust step reports rays and trace time.
+TEST (SunStudyOcclusion, StepTelemetryCountsTracedRays)
 {
     Scene scene;
     OcclusionAccumulator accumulator (2, 2);
     ASSERT_TRUE (accumulator.AccumulateStep (*scene.traversal, scene.Samples (), 0, kSunUp, 0.001, 0.0, 1));
     EXPECT_EQ (accumulator.LastRayCount (), 2u);
-    EXPECT_EQ (accumulator.LastHitCount (), 1u);
-    EXPECT_EQ (accumulator.LastMaxParallel (), 1u);
-    EXPECT_GE (accumulator.LastTraceCpuMilliseconds (), 0.0);
 
-    // Every sample facing away: nothing traced, so nothing counted as blocked.
+    // Every sample facing away: nothing traced.
     ASSERT_TRUE (
         accumulator.AccumulateStep (*scene.traversal, scene.Samples (scene.down.data ()), 1, kSunUp, 0.001, 0.0, 4));
     EXPECT_EQ (accumulator.LastRayCount (), 0u);
-    EXPECT_EQ (accumulator.LastHitCount (), 0u);
-    EXPECT_EQ (accumulator.LastMaxParallel (), 4u);
 }
 
 // Two triangles make one leaf under nanort's default leaf size: one node, depth 1.
@@ -115,15 +138,15 @@ TEST (SunStudyOcclusion, BackFacingSamplesAreNeverLit)
     ASSERT_TRUE (
         accumulator.AccumulateStep (*scene.traversal, scene.Samples (scene.down.data ()), 0, kSunUp, 0.001, 0.0, 1));
 
-    EXPECT_FALSE (accumulator.Lit (0, 0));
-    EXPECT_FALSE (accumulator.Lit (1, 0)) << "unobstructed but facing away";
+    EXPECT_FALSE (Lit (accumulator, 0, 0));
+    EXPECT_FALSE (Lit (accumulator, 1, 0)) << "unobstructed but facing away";
 
     // Turn them to face the sun and the unobstructed one lights up.
     accumulator.Reset ();
     ASSERT_TRUE (
         accumulator.AccumulateStep (*scene.traversal, scene.Samples (scene.up.data ()), 0, kSunUp, 0.001, 0.0, 1));
-    EXPECT_FALSE (accumulator.Lit (0, 0));
-    EXPECT_TRUE (accumulator.Lit (1, 0));
+    EXPECT_FALSE (Lit (accumulator, 0, 0));
+    EXPECT_TRUE (Lit (accumulator, 1, 0));
 }
 
 TEST (SunStudyOcclusion, WithoutNormalsEverySampleFacesTheSun)
@@ -133,7 +156,7 @@ TEST (SunStudyOcclusion, WithoutNormalsEverySampleFacesTheSun)
 
     // A bare ground grid: no orientation, so only geometry decides.
     ASSERT_TRUE (accumulator.AccumulateStep (*scene.traversal, scene.Samples (nullptr), 0, kSunUp, 0.001, 0.0, 1));
-    EXPECT_TRUE (accumulator.Lit (1, 0));
+    EXPECT_TRUE (Lit (accumulator, 1, 0));
 }
 
 TEST (SunStudyOcclusion, HoursCountResolvedStepsOnly)
@@ -144,8 +167,8 @@ TEST (SunStudyOcclusion, HoursCountResolvedStepsOnly)
     for (size_t step = 0; step < 4; ++step)
         ASSERT_TRUE (accumulator.AccumulateStep (*scene.traversal, scene.Samples (), step, kSunUp, 0.001, 0.0, 1));
 
-    EXPECT_EQ (accumulator.LitStepCount (0), 0u);
-    EXPECT_EQ (accumulator.LitStepCount (1), 4u);
+    EXPECT_EQ (LitStepCount (accumulator, 0), 0u);
+    EXPECT_EQ (LitStepCount (accumulator, 1), 4u);
 
     const std::vector<double> hours = accumulator.SunHours (0.25);
     ASSERT_EQ (hours.size (), 2u);
@@ -165,8 +188,8 @@ TEST (SunStudyOcclusion, AnIncompleteStudyReportsItselfIncomplete)
 
     EXPECT_FALSE (accumulator.Complete ());
     EXPECT_EQ (accumulator.ResolvedStepCount (), 2u);
-    EXPECT_TRUE (accumulator.StepResolved (0));
-    EXPECT_FALSE (accumulator.StepResolved (2));
+    EXPECT_TRUE (StepResolved (accumulator, 0));
+    EXPECT_FALSE (StepResolved (accumulator, 2));
 
     // The value is honest for what it covers, and lower than the finished one.
     EXPECT_NEAR (accumulator.SunHours (0.25)[1], 0.5, 1e-12);
@@ -183,7 +206,7 @@ TEST (SunStudyOcclusion, ReResolvingAStepIsIdempotent)
         ASSERT_TRUE (accumulator.AccumulateStep (*scene.traversal, scene.Samples (), 1, kSunUp, 0.001, 0.0, 1));
 
     EXPECT_EQ (accumulator.ResolvedStepCount (), 1u);
-    EXPECT_EQ (accumulator.LitStepCount (1), 1u) << "one step, however many times it was run";
+    EXPECT_EQ (LitStepCount (accumulator, 1), 1u) << "one step, however many times it was run";
 }
 
 // The same step re-run with the sun somewhere else must REPLACE the old answer,
@@ -194,14 +217,14 @@ TEST (SunStudyOcclusion, ReResolvingWithADifferentSunReplacesTheBit)
     OcclusionAccumulator accumulator (2, 1);
 
     ASSERT_TRUE (accumulator.AccumulateStep (*scene.traversal, scene.Samples (), 0, kSunUp, 0.001, 0.0, 1));
-    EXPECT_TRUE (accumulator.Lit (1, 0));
+    EXPECT_TRUE (Lit (accumulator, 1, 0));
 
     // Straight down: nothing below, but sample 1's bit must be recomputed from
     // scratch rather than left set.
     const double sunDown[3] = { 0.0, 0.0, -1.0 };
     ASSERT_TRUE (
         accumulator.AccumulateStep (*scene.traversal, scene.Samples (scene.up.data ()), 0, sunDown, 0.001, 0.0, 1));
-    EXPECT_FALSE (accumulator.Lit (1, 0)) << "back-facing now, so the old set bit must have been cleared";
+    EXPECT_FALSE (Lit (accumulator, 1, 0)) << "back-facing now, so the old set bit must have been cleared";
 }
 
 TEST (SunStudyOcclusion, CancellationDuringTraversalPreservesPreviouslyResolvedBits)
@@ -232,11 +255,11 @@ TEST (SunStudyOcclusion, CancellationDuringTraversalPreservesPreviouslyResolvedB
     const auto cancel = [&] { return traversal.cancelled; };
     EXPECT_FALSE (accumulator.AccumulateStep (traversal, scene.Samples (), 0, kSunUp, 0.001, 0.0, 1, cancel));
     EXPECT_EQ (accumulator.Bits (), before);
-    EXPECT_TRUE (accumulator.StepResolved (0));
+    EXPECT_TRUE (StepResolved (accumulator, 0));
     traversal.cancelled = false;
     EXPECT_FALSE (accumulator.AccumulateStep (traversal, scene.Samples (), 1, kSunUp, 0.001, 0.0, 1, cancel));
     EXPECT_EQ (accumulator.Bits (), before);
-    EXPECT_FALSE (accumulator.StepResolved (1));
+    EXPECT_FALSE (StepResolved (accumulator, 1));
     EXPECT_EQ (accumulator.ResolvedStepCount (), 1u);
 }
 
@@ -244,8 +267,9 @@ TEST (SunStudyOcclusion, CancelledEmptyStepDoesNotResolve)
 {
     Scene scene;
     OcclusionAccumulator accumulator (0, 1);
-    EXPECT_FALSE (accumulator.AccumulateStep (*scene.traversal, {}, 0, kSunUp, 0.001, 0.0, 1, [] { return true; }));
-    EXPECT_FALSE (accumulator.StepResolved (0));
+    EXPECT_FALSE (
+        accumulator.AccumulateStep (*scene.traversal, SampleSet {}, 0, kSunUp, 0.001, 0.0, 1, [] { return true; }));
+    EXPECT_FALSE (StepResolved (accumulator, 0));
 }
 
 TEST (SunStudyOcclusion, RangeAccumulationWalksTheSeriesInSlices)
@@ -276,7 +300,7 @@ TEST (SunStudyOcclusion, RangeAccumulationWalksTheSeriesInSlices)
         << "a slice larger than what remains stops at the end";
     EXPECT_TRUE (accumulator.Complete ());
 
-    EXPECT_EQ (accumulator.LitStepCount (1), 5u);
+    EXPECT_EQ (LitStepCount (accumulator, 1), 5u);
     EXPECT_NEAR (accumulator.SunHours (series.HoursPerStep ())[1], 5.0, 1e-12);
 }
 
@@ -292,12 +316,12 @@ TEST (SunStudyOcclusion, MoreThanSixtyFourStepsSpanMultipleWords)
         ASSERT_TRUE (accumulator.AccumulateStep (*scene.traversal, scene.Samples (), step, kSunUp, 0.001, 0.0, 1));
 
     EXPECT_TRUE (accumulator.Complete ());
-    EXPECT_EQ (accumulator.LitStepCount (1), 96u);
-    EXPECT_EQ (accumulator.LitStepCount (0), 0u);
-    EXPECT_TRUE (accumulator.Lit (1, 0));
-    EXPECT_TRUE (accumulator.Lit (1, 63)) << "last bit of word 0";
-    EXPECT_TRUE (accumulator.Lit (1, 64)) << "first bit of word 1";
-    EXPECT_TRUE (accumulator.Lit (1, 95));
+    EXPECT_EQ (LitStepCount (accumulator, 1), 96u);
+    EXPECT_EQ (LitStepCount (accumulator, 0), 0u);
+    EXPECT_TRUE (Lit (accumulator, 1, 0));
+    EXPECT_TRUE (Lit (accumulator, 1, 63)) << "last bit of word 0";
+    EXPECT_TRUE (Lit (accumulator, 1, 64)) << "first bit of word 1";
+    EXPECT_TRUE (Lit (accumulator, 1, 95));
 }
 
 TEST (SunStudyOcclusion, ResetClearsEverything)
@@ -309,8 +333,8 @@ TEST (SunStudyOcclusion, ResetClearsEverything)
 
     accumulator.Reset ();
     EXPECT_EQ (accumulator.ResolvedStepCount (), 0u);
-    EXPECT_FALSE (accumulator.Lit (1, 0));
-    EXPECT_FALSE (accumulator.StepResolved (0));
+    EXPECT_FALSE (Lit (accumulator, 1, 0));
+    EXPECT_FALSE (StepResolved (accumulator, 0));
 }
 
 TEST (SunStudyOcclusion, OutOfRangeOrMismatchedCallsChangeNothing)
@@ -363,13 +387,13 @@ TEST (SunStudyOcclusion, SelectiveTimesPreserveCleanBitsAcrossWordBoundariesAndC
     for (size_t step = 0; step < 70; ++step)
         ASSERT_TRUE (incremental.AccumulateStep (*scene.traversal, scene.Samples (), step, kSunUp, 0.001, 0.0, 1));
     for (size_t step = 0; step < 70; ++step) {
-        EXPECT_EQ (incremental.Lit (0, step), step != 63 && step != 64);
-        EXPECT_EQ (incremental.Lit (1, step), step == 4 || step == 69);
+        EXPECT_EQ (Lit (incremental, 0, step), step != 63 && step != 64);
+        EXPECT_EQ (Lit (incremental, 1, step), step == 4 || step == 69);
     }
     incremental.Reset ();
     ASSERT_TRUE (incremental.AccumulateStep (*scene.traversal, scene.Samples (), 0, kSunUp, 0.001, 0.0, 1));
-    EXPECT_FALSE (incremental.Lit (0, 0));
-    EXPECT_TRUE (incremental.Lit (1, 0));
+    EXPECT_FALSE (Lit (incremental, 0, 0));
+    EXPECT_TRUE (Lit (incremental, 1, 0));
 }
 
 TEST (SunStudyOcclusion, SelectiveTimesRejectMissingIdentityAndInvalidMasksWithoutChangingBits)
@@ -380,7 +404,7 @@ TEST (SunStudyOcclusion, SelectiveTimesRejectMissingIdentityAndInvalidMasksWitho
         ASSERT_TRUE (source.AccumulateStep (*scene.traversal, scene.Samples (), step, kSunUp, 0.001, 0.0, 1));
     EXPECT_FALSE (target.SeedReusable (source, { 0, 1 }, { 0, 0, 0 }));
     EXPECT_FALSE (target.SeedReusable (source, { 0, 1 }, { 0, 1ull << 6, 0, 0 }));
-    EXPECT_FALSE (target.SeedReusable (source, { OcclusionAccumulator::kNoReuse, 1 }, { 0, 0, 0, 0 }));
+    EXPECT_FALSE (target.SeedReusable (source, { kNoReuse, 1 }, { 0, 0, 0, 0 }));
     EXPECT_EQ (target.Bits (), (std::vector<uint64_t> { 0, 0, 0, 0 }));
     ASSERT_TRUE (target.SeedReusable (source, { 0, 1 }, { 0, 0, 0, 0 }));
     EXPECT_TRUE (target.Complete ());

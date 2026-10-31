@@ -1,5 +1,7 @@
-// Tests for SunStudy/SunStudyFollower — staleness, debounce and which result is
-// allowed to become visible.
+// Tests for the sun-study follower policy the driver runs
+// (SunStudy/SunStudyFollowerPolicy, the Rust follower) — staleness, debounce and
+// which result is allowed to become visible. These were the C++
+// SunStudyFollower's tests, ported unchanged when it was deleted (P7a).
 //
 // ⚠️ EVERY CASE HERE IS A BELIEVABLE WRONG PICTURE. A study shown after the model
 // moved is a heat map of a building that no longer exists; a study restarted on
@@ -12,7 +14,7 @@
 
 #include <string>
 
-#include "SunStudy/SunStudyFollower.hpp"
+#include "SunStudy/SunStudyFollowerPolicy.hpp"
 #include "gtest/gtest.h"
 
 using namespace evp::sunstudy;
@@ -28,12 +30,12 @@ SunStudyDependencySignature Sig (uint64_t geometry, uint64_t sun = 7, uint64_t s
     return s;
 }
 
+using SunStudyFollower = SunStudyFollowerPolicy;
+
 // A follower with a study already on screen, computed against snapshot 41.
-SunStudyFollower Adopted (int64_t now = 1000)
+void Adopt (SunStudyFollower& follower, int64_t now = 1000)
 {
-    SunStudyFollower follower;
     follower.Adopt ("study-a", Sig (41), now);
-    return follower;
 }
 
 } // namespace
@@ -50,7 +52,8 @@ TEST (SunStudyFollower, NavigationLeavesTheStudyCurrent)
     // must not learn the same habit: the dependency signature has no camera,
     // projection, viewport or selection in it, so observing the same world a
     // hundred times changes nothing.
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
     for (int tick = 0; tick < 100; ++tick) {
         EXPECT_FALSE (follower.Observe (Sig (41), 1000 + tick * 50));
         EXPECT_TRUE (follower.IsFullyCurrent ());
@@ -62,7 +65,8 @@ TEST (SunStudyFollower, NavigationLeavesTheStudyCurrent)
 
 TEST (SunStudyFollower, AnUndoneEditBecomesCurrentAgainWithoutRecomputing)
 {
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
     EXPECT_TRUE (follower.Observe (Sig (42), 1100));
     EXPECT_FALSE (follower.IsFullyCurrent ());
 
@@ -83,17 +87,20 @@ TEST (SunStudyFollower, AnUndoneEditBecomesCurrentAgainWithoutRecomputing)
 TEST (SunStudyFollower, GeometrySunAndSamplingEachMakeItStaleAndSayWhich)
 {
     {
-        SunStudyFollower follower = Adopted ();
+        SunStudyFollower follower;
+        Adopt (follower);
         EXPECT_TRUE (follower.Observe (Sig (42), 1100));
         EXPECT_EQ (follower.DirtyReason (), SunStudyDirtyReason::Geometry);
     }
     {
-        SunStudyFollower follower = Adopted ();
+        SunStudyFollower follower;
+        Adopt (follower);
         EXPECT_TRUE (follower.Observe (Sig (41, 8), 1100));
         EXPECT_EQ (follower.DirtyReason (), SunStudyDirtyReason::Sun);
     }
     {
-        SunStudyFollower follower = Adopted ();
+        SunStudyFollower follower;
+        Adopt (follower);
         EXPECT_TRUE (follower.Observe (Sig (41, 7, 12), 1100));
         EXPECT_EQ (follower.DirtyReason (), SunStudyDirtyReason::Sampling);
     }
@@ -106,7 +113,8 @@ TEST (SunStudyFollower, StalenessIsImmediateButTheCacheKeepsDrawing)
     // correct majority of it at the moment the user is reading it. Staleness is
     // a property of a REGION. So the study stops being FULLY CURRENT at once,
     // and goes on being RENDERABLE throughout.
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
     follower.Observe (Sig (42), 1100);
 
     EXPECT_FALSE (follower.IsFullyCurrent ()); // at once
@@ -129,7 +137,8 @@ TEST (SunStudyFollower, TwentyNotificationsInOneEditBurstProduceOneRun)
     // several notifications, and dragging an element produces a stream; a rate
     // limit would start a study in the middle of the drag and another when it
     // ended. The timer RESETS on every relevant change.
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
 
     int64_t now = 1000;
     for (int edit = 0; edit < 20; ++edit) {
@@ -159,7 +168,8 @@ TEST (SunStudyFollower, RepeatedObservationsOfTheSameWorldDoNotPostponeTheStart)
     // Every other test in this file called Observe only when the signature HAD
     // changed, which is precisely the case where the broken and the correct
     // behaviour agree. That is why they all passed while the live run hung.
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
 
     follower.Observe (Sig (42), 1000); // the edit
     ASSERT_TRUE (follower.HasDirtyRegions ());
@@ -177,7 +187,8 @@ TEST (SunStudyFollower, APollingCallerStillGetsTheBurstBehaviour)
 {
     // The other half of the same rule: polls must not postpone, but real changes
     // must. A drag produces both, interleaved.
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
 
     int64_t now = 1000;
     for (int edit = 0; edit < 5; ++edit) {
@@ -237,7 +248,8 @@ TEST (SunStudyFollower, AnEditDrivenAtTheTimerRateStartsExactlyOneRunAndLetsItAd
     // definition not equal to yet -- so every tick after the start found the
     // model stale again, bumped the generation and threw the run away. The
     // counters below are the whole assertion: one start, many slices.
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
 
     int starts = 0;
     int slices = 0;
@@ -262,7 +274,8 @@ TEST (SunStudyFollower, ASecondEditDuringTheRunStillSupersedesIt)
     // run's target rather than the study's makes an UNCHANGED world agreement --
     // it must not make a CHANGED one agreement too, or a result computed for a
     // building that has since moved would be displayed on the new one.
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
 
     int starts = 0;
     int slices = 0;
@@ -412,7 +425,8 @@ TEST (SunStudyFollower, ObservingWithNoStudyRecordsTheWorldWithoutInventingStale
 
 TEST (SunStudyFollower, TheCountdownIsReportedRatherThanProbedFor)
 {
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
     // Nothing waiting.
     EXPECT_EQ (follower.MillisecondsUntilStart (1000), -1);
 
@@ -432,7 +446,8 @@ TEST (SunStudyFollower, TheCountdownIsReportedRatherThanProbedFor)
 TEST (SunStudyFollower, TheDescriptionNamesBothSnapshots)
 {
     // "drawing=false" sends a reader nowhere. The numbers say which way to look.
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
     follower.Observe (Sig (42), 1100);
     const std::string text = follower.Describe ();
     EXPECT_NE (text.find ("42"), std::string::npos);
@@ -442,7 +457,8 @@ TEST (SunStudyFollower, TheDescriptionNamesBothSnapshots)
 
 TEST (SunStudyFollower, PreviewPublicationLeavesTheFinalGridRunActiveAcrossIdleTicks)
 {
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
     follower.Observe (Sig (42), 1100);
     const auto generation = follower.NoteStarted (Sig (42), 1400);
     ASSERT_TRUE (follower.CanPublishResult (generation, Sig (42)));
@@ -459,7 +475,8 @@ TEST (SunStudyFollower, PreviewPublicationLeavesTheFinalGridRunActiveAcrossIdleT
 
 TEST (SunStudyFollower, BothPreviewAndFinalPublicationRefuseSupersededOrWrongInputs)
 {
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
     follower.Observe (Sig (42), 1100);
     const auto generation = follower.NoteStarted (Sig (42), 1400);
     EXPECT_FALSE (follower.CanPublishResult (generation, Sig (41)));
@@ -471,7 +488,8 @@ TEST (SunStudyFollower, BothPreviewAndFinalPublicationRefuseSupersededOrWrongInp
 
 TEST (SunStudyFollower, DisplayFailureDoesNotAdoptAnUndisplayedOrErasedFinalCache)
 {
-    SunStudyFollower follower = Adopted ();
+    SunStudyFollower follower;
+    Adopt (follower);
     follower.Observe (Sig (42), 1100);
     const auto generation = follower.NoteStarted (Sig (42), 1400);
     ASSERT_TRUE (follower.CanPublishResult (generation, Sig (42)));
