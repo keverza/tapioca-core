@@ -15,6 +15,7 @@
 #include <fstream>
 #include <iterator>
 #include <thread>
+#include <cmath>
 
 namespace lg = tapioca::geometry;
 namespace edit = geomsrv::edit;
@@ -63,6 +64,66 @@ double Height (const lg::RegionTerrainResult& result, double x, double y)
     return samples.empty () ? -999 : samples[0].height;
 }
 } // namespace
+
+TEST (EditRegionTerrain, EquivalentCutSlopeFormsReachTheSameDaylightAndQuantities)
+{
+    Fixture fixture;
+    std::string error;
+    auto surface = *fixture.doc.landscape->objects[0].surface;
+    surface.first.z = -2;
+    ASSERT_TRUE (lg::SetRegionSurface (fixture.doc, fixture.object, surface, {}, error)) << error;
+    const auto baseline = fixture.Capture ()->points;
+    using Unit = lg::TerrainSlope::Unit;
+    double expectedCut = -1;
+    for (const lg::TerrainSlope cut : { lg::TerrainSlope { Unit::Percent, 100, 0 },
+                                        { Unit::Angle, std::atan (1.0), 0 },
+                                        { Unit::RiseRun, 1.5, 1.5 },
+                                        { Unit::Height, 2.5, 2.5 } }) {
+        SCOPED_TRACE (static_cast<int> (cut.unit));
+        auto settings = fixture.doc.landscape->objects[0].terrain;
+        settings.transition = lg::RegionTerrainTransition::Daylight;
+        settings.reach = 3; // Transition ring stays inside this captured 20 m square.
+        settings.cut = cut;
+        ASSERT_TRUE (lg::SetRegionTerrain (fixture.doc, fixture.object, settings, error)) << error;
+        const auto capture = fixture.Capture (); // Same geometry; stamp the current immutable document revision.
+        lg::RegionTerrainResult result;
+        ASSERT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, capture, result, error)) << error;
+        EXPECT_NEAR (Height (result, 10, 10), -2, 1e-8);
+        EXPECT_NEAR (Height (result, 4, 10), -1, 1e-8) << "1 m outside at 1:1 rises 1 m";
+        EXPECT_NEAR (Height (result, 1, 10), 0, 1e-8);
+        ASSERT_TRUE (result.evaluation.terrain.volumes);
+        const auto& volume = result.evaluation.terrain.volumes->site;
+        EXPECT_GT (volume.cut, 199);
+        EXPECT_NEAR (volume.fill, 0, 1e-8);
+        if (expectedCut < 0)
+            expectedCut = volume.cut;
+        EXPECT_NEAR (volume.cut, expectedCut, 1e-7);
+        EXPECT_EQ (capture->points, baseline);
+    }
+}
+
+TEST (EditRegionTerrain, OverreachingCutDaylightKeepsItsExistingAtomicRefusal)
+{
+    Fixture fixture;
+    std::string error;
+    auto surface = *fixture.doc.landscape->objects[0].surface;
+    surface.first.z = -2;
+    ASSERT_TRUE (lg::SetRegionSurface (fixture.doc, fixture.object, surface, {}, error)) << error;
+    auto settings = fixture.doc.landscape->objects[0].terrain;
+    settings.transition = lg::RegionTerrainTransition::Daylight;
+    // This percent-only case already refuses before any new unit is involved:
+    // the 10 m transition ring extends beyond the captured 20 m square. Keep
+    // that limitation visible; the unit slice must not weaken topology checks.
+    ASSERT_TRUE (lg::SetRegionTerrain (fixture.doc, fixture.object, settings, error)) << error;
+    const auto capture = fixture.Capture ();
+    const auto baseline = capture->points;
+    lg::RegionTerrainResult result;
+    result.evaluation.terrain.points = { 77 };
+    EXPECT_FALSE (lg::EvaluateRegionTerrain (fixture.doc, capture, result, error));
+    EXPECT_TRUE (error.starts_with ("TriangulationDegenerate")) << error;
+    EXPECT_EQ (result.evaluation.terrain.points, std::vector<double> { 77 });
+    EXPECT_EQ (capture->points, baseline);
+}
 
 TEST (EditRegionTerrain, TwoTriangleBaselineGetsAFlatTerraceAndLocalTransition)
 {
@@ -248,7 +309,8 @@ TEST (EditRegionTerrain, DaylightUsesTheAuthoredSideGrade)
     auto settings = fixture.doc.landscape->objects[0].terrain;
     settings.transition = lg::RegionTerrainTransition::Daylight;
     settings.reach = 3;
-    settings.cutPercent = settings.fillPercent = 100;
+    settings.cut = { lg::TerrainSlope::Unit::Percent, 100, 0 };
+    settings.fillPercent = 100;
     ASSERT_TRUE (lg::SetRegionTerrain (fixture.doc, fixture.object, settings, error));
     lg::RegionTerrainResult result;
     ASSERT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, fixture.Capture (), result, error)) << error;

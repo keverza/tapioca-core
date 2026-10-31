@@ -191,7 +191,7 @@ bool EvaluateRegionTerrain (const geomsrv::edit::Document& doc, std::shared_ptr<
                                         : TerrainEditTransition::Daylight;
             parameters.blur = settings.falloff;
             parameters.maxDistance = reach;
-            parameters.cut = { { TerrainSlope::Unit::Percent, settings.cutPercent, 0 }, reach };
+            parameters.cut = { settings.cut, reach };
             parameters.fill = { { TerrainSlope::Unit::Percent, settings.fillPercent, 0 }, reach };
             if (object.surface->elevation == RegionElevationMode::Boundary ||
                 object.surface->slope != RegionSlopeMode::None) {

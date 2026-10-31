@@ -47,6 +47,22 @@ bool Append (std::vector<double>& pool, std::span<const double> xyz, TapiocaTerr
 
 } // namespace
 
+bool ConvertTerrainSlope (const TerrainSlope& value, TerrainSlope::Unit unit, double referenceRun, TerrainSlope& result,
+                          std::string& error)
+{
+    const TapiocaSlopeRequest input { Slope (value), referenceRun, static_cast<uint32_t> (unit), 0 };
+    TapiocaTerrainSlope output {};
+    std::array<char, 256> buffer {};
+    const auto status = tapioca_slope_convert (&input, &output, buffer.data (), buffer.size ());
+    if (status != TAPIOCA_OK) {
+        error = Failure ("slope conversion", status, buffer);
+        return false;
+    }
+    result = { static_cast<TerrainSlope::Unit> (output.kind), output.a, output.b };
+    error.clear ();
+    return true;
+}
+
 bool SampleTerrain (const TerrainMeshView& mesh, std::span<const double> queriesXY, double step,
                     std::vector<TerrainSample>& samples, TerrainFieldSummary& summary, std::string& error)
 {

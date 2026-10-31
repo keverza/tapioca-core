@@ -480,6 +480,11 @@ typedef struct {
     uint32_t kind, reserved;
 } TapiocaTerrainSlope;
 typedef struct {
+    TapiocaTerrainSlope value;
+    double run;                    /* Positive reference run for new ratio/height forms, metres for height. */
+    uint32_t targetKind, reserved; /* Same 1..4 slope units; reserved zero. */
+} TapiocaSlopeRequest;
+typedef struct {
     TapiocaTerrainSlope slope;
     double extension;
     uint32_t hasExtension, reserved;
@@ -1109,6 +1114,17 @@ TapiocaStatus tapioca_terrain_surface (const TapiocaTerrainSurfaceRequest* reque
 // nested surface pool of an edit. Outputs are unchanged on any refusal.
 // Edit attribution refusals return STATE; all other refusals ARG.
 // Worker-classified; each call allocates.
+/* Fixed-size inspector conversion; no allocation or retained borrow. Same-form
+ * retains authored parts. Vertical uses
+ * angle or a 1:0 pair, not finite percent.
+ * Request/output/error must be live, aligned and mutually disjoint. Output
+ * is
+ * unchanged on refusal/contained panic; common foreign-memory/OOM/abort caveats
+ * apply. Angles remain radians
+ * at this boundary. */
+TapiocaStatus tapioca_slope_convert (const TapiocaSlopeRequest* request, TapiocaTerrainSlope* output, char* error,
+                                     size_t errorCapacity);
+
 TapiocaStatus tapioca_grading_solve (const TapiocaGradingRequest* request, const TapiocaGradingOutput* output,
                                      char* error, size_t errorCapacity);
 TapiocaStatus tapioca_terrain_sample (const TapiocaTerrainSampleRequest* request,

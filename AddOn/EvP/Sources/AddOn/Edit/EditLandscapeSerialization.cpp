@@ -300,12 +300,15 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
         if (v.boundarySource)
             object.emplace ("boundarySource", IdValue (v.boundarySource));
         if (!(v.terrain == RegionTerrain {}))
-            object.emplace ("terrain", Value::Object ({ { "effect", Integer (int (v.terrain.effect)) },
-                                                        { "transition", Integer (int (v.terrain.transition)) },
-                                                        { "falloff", Number (v.terrain.falloff) },
-                                                        { "reach", Number (v.terrain.reach) },
-                                                        { "cutPercent", Number (v.terrain.cutPercent) },
-                                                        { "fillPercent", Number (v.terrain.fillPercent) } }));
+            object.emplace ("terrain",
+                            Value::Object ({ { "effect", Integer (int (v.terrain.effect)) },
+                                             { "transition", Integer (int (v.terrain.transition)) },
+                                             { "falloff", Number (v.terrain.falloff) },
+                                             { "reach", Number (v.terrain.reach) },
+                                             { "cut", Value::Object ({ { "unit", Integer (int (v.terrain.cut.unit)) },
+                                                                       { "a", Number (v.terrain.cut.a) },
+                                                                       { "b", Number (v.terrain.cut.b) } }) },
+                                             { "fillPercent", Number (v.terrain.fillPercent) } }));
         if (v.surface) {
             const auto& surface = *v.surface;
             object.emplace ("surface", Value::Object ({ { "elevation", Integer (int (surface.elevation)) },
