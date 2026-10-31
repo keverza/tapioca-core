@@ -74,6 +74,14 @@ bool ValidateRegionSurface (const RegionSurface& surface, std::string& error)
     return true;
 }
 
+bool PrepareRegionSurface (const RegionSurface& surface, RegionSurface& prepared, std::string& error)
+{
+    if (!ValidateRegionSurface (surface, error))
+        return false;
+    prepared = surface;
+    return true;
+}
+
 std::optional<double> RegionSurfaceElevation (const RegionSurface& surface, Vec3 point)
 {
     std::string error;
@@ -100,14 +108,15 @@ bool BuildRegionSurfaceMesh (const geomsrv::edit::Document& doc, const Hardscape
         error = "RegionSurface: an authored elevation target is required";
         return false;
     }
-    if (!ValidateRegionSurface (*object.surface, error))
+    RegionSurface prepared;
+    if (!PrepareRegionSurface (*object.surface, prepared, error))
         return false;
     LandscapePreviewMesh target;
     if (!BuildLandscapePreviewMesh (footprint, target, error))
         return false;
     if (object.surface->elevation == RegionElevationMode::Constant) {
         for (auto& point : target.vertices) {
-            const auto z = RegionSurfaceElevation (*object.surface, point);
+            const auto z = RegionSurfaceElevation (prepared, point);
             if (!z) {
                 error = "RegionSurface: nonfinite target height";
                 return false;

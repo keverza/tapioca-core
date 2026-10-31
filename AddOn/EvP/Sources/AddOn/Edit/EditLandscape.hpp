@@ -315,6 +315,9 @@ bool SetLandscapeSourceRole (geomsrv::edit::Document& doc, Id entity, SourceRole
 bool SetReferenceLineStyle (geomsrv::edit::Document& doc, Id source, ReferenceLineStyle style, std::string& error);
 bool LandscapeLineVisible (const geomsrv::edit::Document& doc, Id entity);
 bool ValidateRegionSurface (const RegionSurface& surface, std::string& error);
+// Validated transient evaluation copy for mesh/layer loops; never persisted.
+// Refusal leaves prepared unchanged, including when input and output alias.
+bool PrepareRegionSurface (const RegionSurface& surface, RegionSurface& prepared, std::string& error);
 // Existing has no vertical target. Constant/two-point/contour targets are
 // preview metadata only; this function never edits a terrain mesh.
 std::optional<double> RegionSurfaceElevation (const RegionSurface& surface, Vec3 point);

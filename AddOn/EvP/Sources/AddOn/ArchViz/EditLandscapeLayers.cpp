@@ -29,6 +29,9 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
             }
         lg::LandscapePreviewMesh preview;
         std::string error;
+        lg::RegionSurface prepared;
+        if (surface && surface->elevation == lg::RegionElevationMode::Constant)
+            surface = lg::PrepareRegionSurface (*surface, prepared, error) ? &prepared : nullptr;
         const bool boundary = surface && surface->elevation == lg::RegionElevationMode::Boundary;
         if (boundary && !lg::BuildRegionSurfaceMesh (doc, *owner, r, preview, error))
             return;
