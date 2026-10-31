@@ -10,7 +10,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
+#include <deque>
 
 namespace evp::rayworker::win32 {
 
@@ -277,18 +279,51 @@ int RunWorker (const std::wstring& pipeName, const std::string& segments, std::u
                 if (!send (protocol::EncodeFrame (protocol::MessageType::Heartbeat, 0, 0, {})))
                     break;
         });
+    // ⚠️ FRAMES ARE READ ON THEIR OWN THREAD. The serve loop below is busy
+    // for the whole of a Trace; a Cancel read only after it would stop
+    // nothing. The reader records a Cancel at once and queues the rest.
+    std::mutex queueMutex;
+    std::condition_variable queued;
+    std::deque<std::vector<uint8_t>> frames;
+    bool hostGone = false;
+    std::thread reader;
+    if (code == 0)
+        reader = std::thread ([&] {
+            for (;;) {
+                std::vector<uint8_t> frame;
+                std::string error;
+                const bool ok = ReadFrame (pipe, stop.handle, frame, error);
+                if (ok && service.NoteCancel (frame))
+                    continue;
+                std::lock_guard<std::mutex> lock (queueMutex);
+                if (ok)
+                    frames.push_back (std::move (frame));
+                else
+                    hostGone = true;
+                queued.notify_one ();
+                if (!ok)
+                    return;
+            }
+        });
     while (code == 0 && !service.ShutdownRequested ()) {
         std::vector<uint8_t> frame;
-        std::string error;
-        if (!ReadFrame (pipe, nullptr, frame, error)) {
-            code = 4; // the host went away: nothing left to serve
-            break;
+        {
+            std::unique_lock<std::mutex> lock (queueMutex);
+            queued.wait (lock, [&] { return !frames.empty () || hostGone; });
+            if (frames.empty ()) {
+                code = 4; // the host went away: nothing left to serve
+                break;
+            }
+            frame = std::move (frames.front ());
+            frames.pop_front ();
         }
         for (const auto& reply : service.OnFrame (frame))
             if (!send (reply))
                 code = 4;
     }
     SetEvent (stop.handle);
+    if (reader.joinable ())
+        reader.join ();
     if (heartbeat.joinable ())
         heartbeat.join ();
     FlushFileBuffers (pipe);

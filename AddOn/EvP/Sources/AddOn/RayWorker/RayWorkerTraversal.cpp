@@ -82,8 +82,9 @@ RayWorkerOutcome RayWorkerChannel::Run (uint64_t sceneEpoch, std::shared_ptr<con
             if (outcome.generation == generation)
                 return outcome;
         if (isCancelled && isCancelled ()) {
-            // The run stays in flight; the next Submit supersedes it and its
-            // answer is discarded unpublished.
+            // The worker is told to stop between launches; its answer only
+            // frees it, so the next Run is not queued behind this trace.
+            client_.Cancel (generation, NowMs ());
             RayWorkerOutcome cancelled;
             cancelled.generation = generation;
             cancelled.superseded = true;

@@ -62,7 +62,8 @@ bool ParseWorkerArgs (int argc, wchar_t** argv, std::wstring& pipe, std::string&
 
 // The worker side: connect to `pipe`, say Hello, serve frames with `backend`
 // until Shutdown, a refused handshake or a broken pipe. Heartbeats go out on
-// their own thread every `heartbeatMs`. Returns the process exit code.
+// their own thread every `heartbeatMs`, and frames are read on another, so a
+// Cancel reaches a Trace in progress. Returns the process exit code.
 int RunWorker (const std::wstring& pipe, const std::string& segments, std::unique_ptr<RayBackend> backend,
                uint32_t heartbeatMs = 1000);
 

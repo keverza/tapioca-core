@@ -19,6 +19,9 @@
 // - repeated crashes disable GPU for the session (`gpu_disabled_for_session`);
 // - a result is accepted only for the run in flight and the resident scene;
 //   anything else is stale and discarded;
+// - a run the worker is tracing that is superseded or cancelled is named in
+//   `cancelRun`, so the worker stops it between launches instead of finishing
+//   work nobody will read;
 // - every refusal names a stable reason code, and the study falls back to
 //   the CPU (decision 14: say so, never degrade silently).
 
@@ -53,6 +56,7 @@ struct SupervisorAction {
     bool publish = false;      // the completed result may be published
     bool fallback = false;     // run this study on the CPU, citing `reason`
     uint64_t failedRun = 0;    // nonzero: this run failed; discard its results
+    uint64_t cancelRun = 0;    // nonzero: tell the worker to stop tracing this run
     GpuReason reason = GpuReason::None;
     protocol::HelloAckPayload ack;
 };
@@ -70,6 +74,9 @@ class RayWorkerSupervisor final {
     SupervisorAction SceneReady (uint64_t sceneEpoch, int64_t nowMs);
     SupervisorAction RunCompleted (uint64_t generation, uint64_t sceneEpoch, int64_t nowMs);
     SupervisorAction RunFailed (uint64_t generation, GpuReason reason, int64_t nowMs);
+    // The caller gave up on `generation`: it is neither published nor fallen
+    // back from, and the worker stays. No-op for any other run.
+    SupervisorAction CancelRun (uint64_t generation, int64_t nowMs);
     void Heartbeat (int64_t nowMs);
     // Periodic: silence past the timeout is treated as a crash.
     SupervisorAction Tick (int64_t nowMs);
@@ -115,6 +122,7 @@ class RayWorkerSupervisor final {
     uint32_t crashes_ = 0;
     uint32_t launches_ = 0;
     uint64_t activeRun_ = 0;     // the run in flight (Busy), or waiting to go
+    uint64_t sentRun_ = 0;       // the run the worker is tracing (Busy only)
     uint64_t pendingScene_ = 0;  // the scene the pending/active run needs
     uint64_t residentScene_ = 0; // the scene the worker holds (0: none)
     bool waitingForScene_ = false;

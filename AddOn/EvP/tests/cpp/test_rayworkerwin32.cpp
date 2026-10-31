@@ -23,6 +23,7 @@
 #endif
 #include <windows.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <cmath>
@@ -165,6 +166,84 @@ TEST (RayWorkerWin32, AStudyCrossesTheRealPipeAndSegmentsBitForBit)
     }
     EXPECT_EQ (client.Supervisor ().Launches (), 1u) << "the second run reuses the worker and its scene";
     EXPECT_EQ (client.Supervisor ().ResidentScene (), 7u);
+    client.Shutdown ();
+}
+
+// The CPU reference behind a first trace that runs until it is cancelled: a
+// stand-in for a long hardware trace, so the test sees whether a Cancel sent
+// mid-trace reaches the backend or waits behind it.
+struct StallingBackend final : RayBackend {
+    std::unique_ptr<RayBackend> cpu = MakeCpuReferenceBackend ();
+    std::shared_ptr<std::atomic<int>> stoppedByCancel;
+    bool stalled = false;
+
+    protocol::HelloPayload Describe () const override
+    {
+        return cpu->Describe ();
+    }
+    GpuReason BuildScene (const packet::Scene& scene, protocol::SceneReadyPayload& ready, std::string& error) override
+    {
+        return cpu->BuildScene (scene, ready, error);
+    }
+    GpuReason Trace (const packet::Request& request, packet::Result& result, protocol::RunTimings& timings,
+                     const std::function<bool ()>& isCancelled, std::string& error) override
+    {
+        if (!stalled) {
+            stalled = true;
+            const int64_t giveUp = NowMs () + 15000;
+            while (NowMs () < giveUp) {
+                if (isCancelled && isCancelled ()) {
+                    stoppedByCancel->store (1);
+                    error = "the run was cancelled";
+                    return GpuReason::WorkerFailed;
+                }
+                std::this_thread::sleep_for (std::chrono::milliseconds (1));
+            }
+        }
+        return cpu->Trace (request, result, timings, isCancelled, error);
+    }
+};
+
+TEST (RayWorkerWin32, ACancelReachesATraceInProgressAndTheNextRunIsNotQueuedBehindIt)
+{
+    auto stoppedByCancel = std::make_shared<std::atomic<int>> (0);
+    win32::WorkerProcess host ({}, [stoppedByCancel] (const std::wstring& pipe, const std::string& segments) {
+        auto backend = std::make_unique<StallingBackend> ();
+        backend->stoppedByCancel = stoppedByCancel;
+        win32::RunWorker (pipe, segments, std::move (backend), 50);
+    });
+    RayWorkerClient client (host.Segments (), host.Hooks ());
+    const auto scene = SceneWithBox ();
+    const packet::Request request = GroundRequest ();
+    const packet::Result expected = Expected (*scene, request);
+
+    client.Submit (1, 7, scene, request, NowMs ());
+    // Until the worker is tracing run 1 (and well past a heartbeat or two).
+    const int64_t until = NowMs () + 20000;
+    while (client.Supervisor ().State () != WorkerState::Busy && NowMs () < until) {
+        auto events = host.Take ();
+        for (const auto& frame : events.frames)
+            client.OnFrame (frame, NowMs ());
+        client.Tick (NowMs ());
+        std::this_thread::sleep_for (std::chrono::milliseconds (2));
+    }
+    ASSERT_EQ (client.Supervisor ().State (), WorkerState::Busy);
+    std::this_thread::sleep_for (std::chrono::milliseconds (200));
+
+    const int64_t cancelledAt = NowMs ();
+    client.Cancel (1, cancelledAt);
+    client.Submit (2, 7, scene, request, NowMs ());
+    std::vector<RayWorkerOutcome> outcomes;
+    ASSERT_TRUE (Pump (host, client, outcomes)) << "no outcome within the deadline";
+    const int64_t waitedMs = NowMs () - cancelledAt;
+    ASSERT_EQ (outcomes.size (), 1u) << "the cancelled run has no outcome of its own";
+    EXPECT_EQ (outcomes[0].generation, 2u);
+    EXPECT_TRUE (outcomes[0].published) << GpuReasonCode (outcomes[0].reason) << ": " << outcomes[0].message;
+    EXPECT_EQ (outcomes[0].result.bits, expected.bits);
+    EXPECT_EQ (stoppedByCancel->load (), 1) << "the trace ended on the cancel, not on its own";
+    EXPECT_LT (waitedMs, 5000) << "run 2 waited behind the cancelled trace";
+    EXPECT_EQ (client.Supervisor ().Launches (), 1u) << "a cancel is not a crash";
+    EXPECT_EQ (client.Supervisor ().Crashes (), 0u);
     client.Shutdown ();
 }
 

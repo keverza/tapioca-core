@@ -55,6 +55,20 @@ std::vector<uint8_t> RayWorkerService::Hello ()
     return Reply (protocol::MessageType::Hello, 0, protocol::Encode (backend_->Describe ()));
 }
 
+bool RayWorkerService::NoteCancel (const std::vector<uint8_t>& frame)
+{
+    protocol::Header header;
+    protocol::CancelPayload cancel;
+    std::string error;
+    if (!protocol::DecodeHeader (frame.data (), frame.size (), header, error) ||
+        header.messageType != protocol::MessageType::Cancel ||
+        frame.size () != protocol::HeaderSize + header.payloadBytes ||
+        !protocol::Decode (frame.data () + protocol::HeaderSize, header.payloadBytes, cancel, error))
+        return false;
+    cancelledRun_.store (cancel.runGeneration);
+    return true;
+}
+
 std::vector<std::vector<uint8_t>> RayWorkerService::OnFrame (const std::vector<uint8_t>& frame)
 {
     std::vector<std::vector<uint8_t>> out;
@@ -125,7 +139,8 @@ std::vector<std::vector<uint8_t>> RayWorkerService::OnFrame (const std::vector<u
                 protocol::RunResultPayload done;
                 const uint64_t generation = run.runGeneration;
                 const GpuReason reason = backend_->Trace (
-                    request, result, done.timings, [this, generation] { return cancelledRun_ == generation; }, error);
+                    request, result, done.timings, [this, generation] { return cancelledRun_.load () == generation; },
+                    error);
                 if (reason != GpuReason::None) {
                     out.push_back (Fail (id, reason, error));
                     return out;
@@ -145,12 +160,9 @@ std::vector<std::vector<uint8_t>> RayWorkerService::OnFrame (const std::vector<u
             }
             return out;
         }
-        case protocol::MessageType::Cancel: {
-            protocol::CancelPayload cancel;
-            if (protocol::Decode (payload, size, cancel, error))
-                cancelledRun_ = cancel.runGeneration;
+        case protocol::MessageType::Cancel:
+            NoteCancel (frame);
             return out;
-        }
         case protocol::MessageType::Shutdown:
             shutdown_ = true;
             return out;

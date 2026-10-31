@@ -59,6 +59,11 @@ void RayWorkerClient::Apply (const SupervisorAction& action, int64_t nowMs)
     else if (action.fallback && generation_ != 0) {
         Finish (generation_, action.reason, std::string ());
     }
+    if (action.cancelRun != 0) {
+        protocol::CancelPayload cancel;
+        cancel.runGeneration = action.cancelRun;
+        Send (protocol::MessageType::Cancel, protocol::Encode (cancel));
+    }
     if (action.sendHelloAck)
         Send (protocol::MessageType::HelloAck, protocol::Encode (action.ack));
     if (action.uploadScene && scene_ != nullptr) {
@@ -97,6 +102,15 @@ void RayWorkerClient::Submit (uint64_t generation, uint64_t sceneEpoch, std::sha
     scene_ = std::move (scene);
     request_ = std::move (request);
     Apply (supervisor_.RequestRun (generation, sceneEpoch, nowMs), nowMs);
+}
+
+void RayWorkerClient::Cancel (uint64_t generation, int64_t nowMs)
+{
+    if (generation == 0 || generation != generation_)
+        return;
+    generation_ = 0;
+    scene_.reset ();
+    Apply (supervisor_.CancelRun (generation, nowMs), nowMs);
 }
 
 void RayWorkerClient::OnFrame (const std::vector<uint8_t>& frame, int64_t nowMs)

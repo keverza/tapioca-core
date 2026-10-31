@@ -55,6 +55,10 @@ class RayWorkerClient final {
     // worker does not already hold that epoch.
     void Submit (uint64_t generation, uint64_t sceneEpoch, std::shared_ptr<const packet::Scene> scene,
                  packet::Request request, int64_t nowMs);
+    // The caller gave up on run `generation`: no outcome follows for it, and
+    // a worker tracing it is told to stop, so the next run is not queued
+    // behind it.
+    void Cancel (uint64_t generation, int64_t nowMs);
     void OnFrame (const std::vector<uint8_t>& frame, int64_t nowMs);
     void OnProcessExited (int64_t nowMs);
     void Tick (int64_t nowMs);

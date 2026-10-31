@@ -22,6 +22,7 @@ SupervisorAction RayWorkerSupervisor::Disable (GpuReason reason)
     state_ = WorkerState::Disabled;
     lastReason_ = reason;
     activeRun_ = 0;
+    sentRun_ = 0;
     residentScene_ = 0;
     waitingForScene_ = false;
     return action;
@@ -43,6 +44,7 @@ SupervisorAction RayWorkerSupervisor::Crashed ()
     state_ = WorkerState::Stopped;
     lastReason_ = GpuReason::WorkerCrashed;
     activeRun_ = 0;
+    sentRun_ = 0;
     residentScene_ = 0; // a new worker holds nothing
     waitingForScene_ = false;
     return action;
@@ -62,6 +64,7 @@ SupervisorAction RayWorkerSupervisor::Dispatch ()
     action.sendRun = true;
     waitingForScene_ = false;
     state_ = WorkerState::Busy;
+    sentRun_ = activeRun_;
     return action;
 }
 
@@ -80,6 +83,9 @@ SupervisorAction RayWorkerSupervisor::RequestRun (uint64_t generation, uint64_t 
                 SupervisorAction action;
                 action.failedRun = superseded;
                 action.reason = GpuReason::None;
+                // Only the first supersession of the traced run stops it.
+                if (superseded != 0 && superseded == sentRun_)
+                    action.cancelRun = superseded;
                 return action; // sent when the worker answers the old run
             }
         case WorkerState::Stopped: {
@@ -156,6 +162,7 @@ SupervisorAction RayWorkerSupervisor::RunCompleted (uint64_t generation, uint64_
     SupervisorAction action;
     // The worker is free either way.
     state_ = WorkerState::Ready;
+    sentRun_ = 0;
     if (generation == activeRun_ && sceneEpoch == pendingScene_ && sceneEpoch == residentScene_) {
         action.publish = true;
         activeRun_ = 0;
@@ -171,8 +178,11 @@ SupervisorAction RayWorkerSupervisor::RunFailed (uint64_t generation, GpuReason 
     lastHeard_ = nowMs;
     if (state_ != WorkerState::Busy && !waitingForScene_)
         return SupervisorAction ();
+    if (state_ == WorkerState::Busy && generation == sentRun_)
+        sentRun_ = 0;
     if (generation != activeRun_) {
-        // A superseded run failed; the newer one still goes.
+        // A superseded or cancelled run failed (a cancelled trace answers
+        // so); the newer one, if any, still goes.
         state_ = WorkerState::Ready;
         return Dispatch ();
     }
@@ -185,6 +195,22 @@ SupervisorAction RayWorkerSupervisor::RunFailed (uint64_t generation, GpuReason 
     if (reason == GpuReason::OutOfMemory)
         residentScene_ = 0; // the scene may not have survived either
     lastReason_ = reason;
+    return action;
+}
+
+SupervisorAction RayWorkerSupervisor::CancelRun (uint64_t generation, int64_t nowMs)
+{
+    (void) nowMs;
+    SupervisorAction action;
+    if (generation == 0 || generation != activeRun_)
+        return action;
+    // Launching or waiting for the scene: nothing was sent, so nothing is
+    // dispatched when the worker gets there. Busy: the worker is still
+    // tracing; it answers, and that answer only frees it.
+    if (state_ == WorkerState::Busy && sentRun_ == generation)
+        action.cancelRun = generation;
+    activeRun_ = 0;
+    waitingForScene_ = false;
     return action;
 }
 
@@ -217,6 +243,7 @@ SupervisorAction RayWorkerSupervisor::Shutdown ()
     if (state_ != WorkerState::Disabled)
         state_ = WorkerState::Stopped;
     activeRun_ = 0;
+    sentRun_ = 0;
     residentScene_ = 0;
     waitingForScene_ = false;
     return action;

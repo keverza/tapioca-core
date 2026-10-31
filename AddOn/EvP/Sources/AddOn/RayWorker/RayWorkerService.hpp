@@ -11,6 +11,7 @@
 #include "RayWorker/RayWorkerPacket.hpp"
 #include "RayWorker/RayWorkerProtocol.hpp"
 
+#include <atomic>
 #include <functional>
 #include <map>
 #include <memory>
@@ -69,6 +70,11 @@ class RayWorkerService final {
     std::vector<uint8_t> Hello ();
     // Handle one frame; returns the frames to send back (possibly none).
     std::vector<std::vector<uint8_t>> OnFrame (const std::vector<uint8_t>& frame);
+    // True when `frame` is a well-formed Cancel, which is then recorded.
+    // ⚠️ THE ONE CALL THAT MAY RUN ON ANOTHER THREAD THAN OnFrame: the
+    // transport's reader calls it while a Trace is in progress, so a cancel
+    // reaches the backend between launches rather than after the trace.
+    bool NoteCancel (const std::vector<uint8_t>& frame);
     bool ShutdownRequested () const
     {
         return shutdown_;
@@ -86,7 +92,7 @@ class RayWorkerService final {
     SegmentStore& segments_;
     uint32_t nextRequestId_ = 1;
     uint64_t residentScene_ = 0;
-    uint64_t cancelledRun_ = 0;
+    std::atomic<uint64_t> cancelledRun_ { 0 };
     bool accepted_ = false;
     bool shutdown_ = false;
 };

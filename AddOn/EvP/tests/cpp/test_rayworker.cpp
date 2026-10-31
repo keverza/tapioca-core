@@ -110,7 +110,9 @@ struct Loopback {
     std::unique_ptr<RayWorkerClient> client;
     bool startable = true;
     bool deliver = true; // false: the worker hangs and answers nothing
-    int launches = 0, kills = 0, uploads = 0;
+    bool hold = false;   // true: frames wait in `held` until Release
+    std::deque<std::vector<uint8_t>> held;
+    int launches = 0, kills = 0, uploads = 0, cancels = 0;
     std::function<std::unique_ptr<RayBackend> ()> backend = [] { return MakeCpuReferenceBackend (); };
     std::function<void (MemorySegmentStore&)> tamper; // after a worker reply, before the host reads
 
@@ -135,14 +137,40 @@ struct Loopback {
             if (proto::DecodeHeader (frame.data (), frame.size (), header, error) &&
                 header.messageType == proto::MessageType::UploadScene)
                 ++uploads;
-            if (worker == nullptr || !deliver)
+            if (proto::DecodeHeader (frame.data (), frame.size (), header, error) &&
+                header.messageType == proto::MessageType::Cancel)
+                ++cancels;
+            if (hold) {
+                held.push_back (std::move (frame));
                 return;
-            for (auto& reply : worker->OnFrame (frame))
-                toHost.push_back (std::move (reply));
-            if (tamper)
-                tamper (segments);
+            }
+            Deliver (frame);
         };
         client = std::make_unique<RayWorkerClient> (segments, std::move (hooks));
+    }
+
+    void Deliver (const std::vector<uint8_t>& frame)
+    {
+        if (worker == nullptr || !deliver)
+            return;
+        for (auto& reply : worker->OnFrame (frame))
+            toHost.push_back (std::move (reply));
+        if (tamper)
+            tamper (segments);
+    }
+
+    // Deliver what was held. `cancelsFirst` is the worker's reader thread
+    // recording a Cancel while the serve loop is still behind it.
+    void Release (bool cancelsFirst)
+    {
+        hold = false;
+        std::deque<std::vector<uint8_t>> frames;
+        frames.swap (held);
+        if (cancelsFirst && worker != nullptr)
+            for (const auto& frame : frames)
+                worker->NoteCancel (frame);
+        for (const auto& frame : frames)
+            Deliver (frame);
     }
 
     void Pump (int64_t now = 0)
@@ -402,6 +430,45 @@ TEST (RayWorkerSupervisor, StaleAndSupersededResultsAreNeverPublished)
     EXPECT_EQ (a.reason, GpuReason::ProtocolMismatch);
 }
 
+TEST (RayWorkerSupervisor, ACancelledOrSupersededTraceIsToldToStopOnce)
+{
+    RayWorkerSupervisor s;
+    proto::HelloPayload hello;
+    hello.capabilities = proto::CapabilityHardwareRayTracing;
+    s.RequestRun (1, 7, 0);
+    s.HelloReceived (hello, 0);
+    auto a = s.SceneReady (7, 0);
+    ASSERT_TRUE (a.sendRun);
+    a = s.RequestRun (2, 7, 1);
+    EXPECT_EQ (a.cancelRun, 1u) << "the traced run is superseded: stop it";
+    a = s.RequestRun (3, 7, 2);
+    EXPECT_EQ (a.cancelRun, 0u) << "run 2 was never sent; run 1 was already told";
+    EXPECT_EQ (a.failedRun, 2u);
+    a = s.RunFailed (1, GpuReason::WorkerFailed, 3);
+    EXPECT_FALSE (a.fallback) << "a stopped superseded trace is not a failure of the newer run";
+    EXPECT_TRUE (a.sendRun);
+
+    // The caller cancels the run in flight: no publish, no fallback, the worker stays.
+    a = s.CancelRun (3, 4);
+    EXPECT_EQ (a.cancelRun, 3u);
+    EXPECT_FALSE (a.fallback || a.kill || a.publish);
+    EXPECT_EQ (s.ActiveRun (), 0u);
+    a = s.RunCompleted (3, 7, 5);
+    EXPECT_FALSE (a.publish || a.sendRun) << "a result that arrives after its cancel only frees the worker";
+    EXPECT_EQ (s.State (), WorkerState::Ready);
+    EXPECT_EQ (s.LastReason (), GpuReason::None);
+    EXPECT_EQ (s.Crashes (), 0u);
+
+    // Cancelling another run, or one never sent, tells the worker nothing.
+    EXPECT_EQ (s.CancelRun (99, 6).cancelRun, 0u);
+    RayWorkerSupervisor launching;
+    launching.RequestRun (1, 7, 0);
+    a = launching.CancelRun (1, 1);
+    EXPECT_EQ (a.cancelRun, 0u);
+    a = launching.HelloReceived (hello, 2);
+    EXPECT_FALSE (a.uploadScene || a.sendRun) << "nothing is dispatched for a cancelled run";
+}
+
 // ---- end to end -------------------------------------------------------------------
 
 TEST (RayWorkerLoopback, TheWorkerAnswersBitForBitWhatTheSunStudyComputes)
@@ -523,4 +590,44 @@ TEST (RayWorkerLoopback, RefusalsReachTheCallerAsReasonCodes)
         EXPECT_EQ (loop.kills, 1);
         EXPECT_EQ (loop.client->Supervisor ().State (), WorkerState::Disabled);
     }
+}
+
+TEST (RayWorkerLoopback, ACancelledRunStopsInTheWorkerAndTheNextRunPublishes)
+{
+    Loopback loop;
+    const auto snapshot = City (1, 0);
+    const auto scene = std::make_shared<const packet::Scene> (packet::SceneFromSnapshot (*snapshot));
+    const auto request = Day (8);
+    ASSERT_TRUE (loop.Run (1, 1, scene, request)[0].published);
+
+    // Run 2 is sent; the caller cancels before the worker gets to it. The
+    // reader records the Cancel first, so the trace stops at once.
+    loop.hold = true;
+    loop.client->Submit (2, 1, scene, request, 1);
+    loop.client->Cancel (2, 2);
+    EXPECT_EQ (loop.cancels, 1);
+    loop.Release (true);
+    loop.Pump (3);
+    EXPECT_TRUE (loop.client->TakeOutcomes ().empty ()) << "a cancelled run has no outcome";
+    EXPECT_EQ (loop.client->Supervisor ().State (), WorkerState::Ready) << "its answer freed the worker";
+    EXPECT_EQ (loop.client->Supervisor ().LastReason (), GpuReason::None);
+
+    const auto outcomes = loop.Run (3, 1, scene, request, 4);
+    ASSERT_TRUE (outcomes.size () == 1 && outcomes[0].published) << outcomes[0].message;
+    EXPECT_EQ (outcomes[0].result.bits, Oracle (snapshot, request));
+    EXPECT_EQ (loop.launches, 1);
+    EXPECT_EQ (loop.uploads, 1);
+
+    // Superseding the traced run also stops it, and only the newer run publishes.
+    loop.hold = true;
+    loop.client->Submit (4, 1, scene, request, 5);
+    loop.client->Submit (5, 1, scene, request, 6);
+    EXPECT_EQ (loop.cancels, 2);
+    loop.Release (true);
+    loop.Pump (7);
+    const auto later = loop.client->TakeOutcomes ();
+    ASSERT_EQ (later.size (), 2u);
+    EXPECT_TRUE (later[0].generation == 4 && later[0].superseded && !later[0].published);
+    EXPECT_TRUE (later[1].generation == 5 && later[1].published) << later[1].message;
+    EXPECT_EQ (later[1].result.bits, Oracle (snapshot, request));
 }
