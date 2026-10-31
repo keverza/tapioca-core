@@ -87,6 +87,8 @@ TEST (ModelWatchEarlyPoll, SpacingScalesWithTheDiffAndBacksOffOnMisses)
         << "capped";
     // A cheap poll never backs off: a miss after our own work must not delay the next edit.
     EXPECT_EQ (watch::EarlyPollSpacing (40, 3), watch::kEarlyPollSpacingMs);
+    // A walk like the measured 176-280 ms (2026-10-31 17:36-17:39) never backs off.
+    EXPECT_EQ (watch::EarlyPollSpacing (400, 3), 400 * watch::kEarlyPollDutyFactor);
     EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 49000, 100000, 20000), 69000);
 }
 

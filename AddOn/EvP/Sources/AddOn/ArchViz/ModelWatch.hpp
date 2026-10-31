@@ -155,8 +155,11 @@ constexpr uint32_t kEarlyPollMaxBackoff = 3;   // doublings of the spacing after
 // Below this a poll is cheap enough that a miss costs nothing worth backing off
 // from. ⚠️ THE BACKOFF WAS DELAYING REAL EDITS: our own work moves the stamp
 // after a pass, the hint finds nothing, and the user's next edit waited 10-20 s
-// behind the doubled spacing (2026-10-31 17:01-17:05).
-constexpr int64_t kExpensivePollMs = 250;
+// behind the doubled spacing (2026-10-31 17:01-17:05). 500, not 250: the stamp
+// walk measured 176-280 ms at 17:36-17:39 and still backed off, so an edit
+// waited ~9 s behind the false hints our own pass leaves; the 3 s generator
+// stays well above it.
+constexpr int64_t kExpensivePollMs = 500;
 // How often the stamp timer reads API_ProjectInfo.modiStamp. One read, no write.
 constexpr uint32_t kStampPollMs = 500;
 // A stamp move this soon after the watch's own extraction pass ends is taken as
