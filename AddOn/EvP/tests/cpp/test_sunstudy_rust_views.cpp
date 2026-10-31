@@ -4,7 +4,6 @@
 // refusals must carry the same message.
 
 #include "Geometry/QueryEngine.hpp"
-#include "SunStudy/SunStudyCoreSelection.hpp"
 #include "SunStudy/SunStudyRustViews.hpp"
 #include "SunStudy/ViewpointStudy.hpp"
 #include "SunStudy/VisibilityStudy.hpp"
@@ -180,9 +179,9 @@ TEST (SunStudyRustViewsParity, VisibilityMatchesAcrossOriginsDomainsAndContext)
                     const std::vector<std::string> from = { kFloor }, to = { kTower, kShed };
                     const auto e = RunVisibilityStudy (snapshot, from, to, options);
                     const auto a = rs::RunVisibilityStudy (snapshot, from, to, options);
-                    const std::string what = "scene " + std::to_string (scene) + " view " +
-                                             std::to_string (view) + " domain " +
-                                             std::to_string (int (domain)) + " context " + std::to_string (context);
+                    const std::string what = "scene " + std::to_string (scene) + " view " + std::to_string (view) +
+                                             " domain " + std::to_string (int (domain)) + " context " +
+                                             std::to_string (context);
                     ExpectSameVisibility (e, a, what);
                     if (::testing::Test::HasFatalFailure ())
                         return;
@@ -327,7 +326,7 @@ TEST (SunStudyRustViewsParity, ViewpointMatchesEveryBitInEveryMode)
     }
 }
 
-TEST (SunStudyRustViewsParity, TheSelectedViewpointMatchesTheCppStudyUnderEitherCore)
+TEST (SunStudyRustViewsParity, TheSelectedViewpointIsTheRustStudyAndMatchesTheCppOne)
 {
     Lcg lcg (0x715b4ull);
     const auto snapshot = Scene (lcg, 400);
@@ -340,18 +339,12 @@ TEST (SunStudyRustViewsParity, TheSelectedViewpointMatchesTheCppStudyUnderEither
         options.surfaceCellMetres = 1.0;
         const auto expected = RunViewpointStudy (snapshot, context, options);
         ASSERT_TRUE (expected.valid) << expected.error;
-        for (const auto kind : { SunStudyCoreKind::Cpp, SunStudyCoreKind::Rust }) {
-            OverrideSunStudyCore (kind);
-            const auto actual = RunSelectedViewpointStudy (snapshot, context, options);
-            OverrideSunStudyCore (std::nullopt);
-            ExpectSameViewpoint (expected, actual,
-                                 std::string (kind == SunStudyCoreKind::Rust ? "rust" : "cpp") + " mode " +
-                                     std::to_string (int (mode)));
-        }
+        const auto actual = RunSelectedViewpointStudy (snapshot, context, options);
+        ExpectSameViewpoint (expected, actual, "mode " + std::to_string (int (mode)));
     }
 }
 
-TEST (SunStudyRustViewsParity, TheSelectedSphereVisibilityMatchesTheCppStudyUnderEitherCore)
+TEST (SunStudyRustViewsParity, TheSelectedSphereVisibilityIsTheRustStudyAndMatchesTheCppOne)
 {
     Lcg lcg (0x42c0ffefull);
     const auto snapshot = Scene (lcg, 403);
@@ -368,15 +361,11 @@ TEST (SunStudyRustViewsParity, TheSelectedSphereVisibilityMatchesTheCppStudyUnde
     const auto expected = RunVisibilityStudy (snapshot, { kFloor }, { kTower, kShed }, options);
     ASSERT_TRUE (expected.valid) << expected.error;
     EXPECT_GT (expected.visibleSamples, 0u);
-    for (const auto kind : { SunStudyCoreKind::Cpp, SunStudyCoreKind::Rust }) {
-        OverrideSunStudyCore (kind);
-        const auto actual = RunSelectedVisibilityStudy (snapshot, { kFloor }, { kTower, kShed }, options);
-        OverrideSunStudyCore (std::nullopt);
-        ExpectSameVisibility (expected, actual, kind == SunStudyCoreKind::Rust ? "rust" : "cpp");
-    }
+    ExpectSameVisibility (expected, RunSelectedVisibilityStudy (snapshot, { kFloor }, { kTower, kShed }, options),
+                          "sphere");
 }
 
-TEST (SunStudyRustViewsParity, TheSelectedVisibilityMatchesTheCppStudyUnderEitherCore)
+TEST (SunStudyRustViewsParity, TheSelectedVisibilityIsTheRustStudyAndMatchesTheCppOne)
 {
     Lcg lcg (0x42c0ffeeull);
     const auto snapshot = Scene (lcg, 401);
@@ -386,12 +375,8 @@ TEST (SunStudyRustViewsParity, TheSelectedVisibilityMatchesTheCppStudyUnderEithe
         options.spacing = 0.9;
         const auto expected = RunVisibilityStudy (snapshot, { kFloor }, { kTower, kShed }, options);
         ASSERT_TRUE (expected.valid) << expected.error;
-        for (const auto kind : { SunStudyCoreKind::Cpp, SunStudyCoreKind::Rust }) {
-            OverrideSunStudyCore (kind);
-            const auto actual = RunSelectedVisibilityStudy (snapshot, { kFloor }, { kTower, kShed }, options);
-            OverrideSunStudyCore (std::nullopt);
-            ExpectSameVisibility (expected, actual, kind == SunStudyCoreKind::Rust ? "rust" : "cpp");
-        }
+        ExpectSameVisibility (expected, RunSelectedVisibilityStudy (snapshot, { kFloor }, { kTower, kShed }, options),
+                              domain == SamplingDomain::SurfacePatch ? "patch" : "triangle");
     }
 }
 

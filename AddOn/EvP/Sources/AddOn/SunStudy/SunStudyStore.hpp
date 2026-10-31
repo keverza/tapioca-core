@@ -33,7 +33,9 @@
 #include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudyReading.hpp"
 #include "SunStudy/SunStudyStepAtlas.hpp"
-#include "SunStudy/SunStudySession.hpp"
+#include "SunStudy/SunSeries.hpp"
+#include "SunStudy/SunStudyProgress.hpp"
+#include "SunStudy/SunStudySampleSet.hpp"
 #include "SunStudy/SunStudySelectionBinding.hpp"
 #include "SunStudy/SunStudySurfaceSampling.hpp"
 #include "SunStudy/SunStudyResultSummary.hpp"
@@ -71,7 +73,6 @@ struct StudyRecord {
     std::vector<double> normals;
 
     SunSeries series;
-    SunStudySession session;
     std::shared_ptr<const ITraversal> traversal;
     std::shared_ptr<const SunStudyOccluders> occluders;
 
@@ -151,14 +152,13 @@ struct StudyRecord {
     // property incremental display depends on.
     SunStudyPatchAtlas patchAtlas;
 
-    // ---- the Rust core (P5, TAPIOCA_SUNSTUDY_CORE=rust) --------------------
+    // ---- the study core (issue #3, option A) --------------------------------
     //
-    // ⚠️ SPLIT RECORD (issue #3, option A). When set, the Rust core owns the
-    // session and every value read back; `session` above is never synced and
-    // must not be read -- use CurrentProgress(). The record's own grids and
-    // atlases are still built by the C++ start path and kept: the display
-    // assembler draws through them, and AttachRustStudyCore refuses a core
-    // whose atlas does not match them, leaving the study on the C++ core.
+    // ⚠️ SPLIT RECORD. The Rust core owns the session and every value read
+    // back; a record without one is refused by every reader (NoStudyCoreError).
+    // The record's own grids and atlases are still built by the C++ start path
+    // and kept: the display assembler draws through them, and
+    // AttachRustStudyCore refuses a core whose atlas does not match them.
     std::shared_ptr<rust::RustStudyCore> rustCore;
     std::function<void (size_t, const TapiocaOcclusionState&, double)> rustStepObserver;
 
@@ -169,18 +169,23 @@ struct StudyRecord {
 
     SampleSet Samples () const;
 
-    // Progress of whichever core runs this study.
+    // Progress of the study's core; an empty study when none is attached.
     StudyProgress CurrentProgress () const;
 };
 
-// Build the Rust core from `record`'s grids and attach it (P5); `snapshot` is
-// the one the grids were sampled from and `previous` the study being rerun. False, with `error`, leaves the record on
-// the C++ core: no Rust archive in this build, a refused core, or an atlas that does not match the record's.
+// Build the Rust core from `record`'s grids and attach it; `snapshot` is the one
+// the grids were sampled from and `previous` the study being rerun. False, with
+// `error`, means the study cannot run and must be refused: no sun-study core in
+// this build, a refused core, or an atlas that does not match the record's.
 bool AttachRustStudyCore (StudyRecord& record, const geomsrv::Snapshot& snapshot, const StudyRecord* previous,
                           uint32_t maxAtlasDimension, std::string& error);
 
-// Sync whichever core runs `record` against `inputs`.
+// Sync `record`'s core against `inputs`; nothing to do without one.
 void SyncStudy (StudyRecord& record, const StudyInputs& inputs);
+
+// Why a record without a core cannot be read or advanced. A build without the
+// Rust archive (TAPIOCA_LINK_RUST_GEOMETRY=OFF) has no sun-study core at all.
+std::string NoStudyCoreError ();
 
 // A patch-domain study expressed as the per-SOURCE-FACE arrays the display path
 // already reads: every triangle a patch claimed gets that PATCH's lattice and

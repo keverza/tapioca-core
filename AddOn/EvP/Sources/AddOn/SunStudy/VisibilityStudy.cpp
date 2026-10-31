@@ -3,7 +3,6 @@
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/CpuTraversalWork.hpp"
-#include "SunStudy/SunStudyCoreSelection.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyRustViews.hpp"
 #include "SunStudy/SunStudySurfaceSampling.hpp"
@@ -495,10 +494,10 @@ VisibilityStudyResult RunSelectedVisibilityStudy (std::shared_ptr<const geomsrv:
                                                   const std::function<bool ()>& isCancelled)
 {
 #if defined(TAPIOCA_GEOMETRY_RUST)
-    if (SelectedSunStudyCore () == SunStudyCoreKind::Rust)
-        return rust::RunVisibilityStudy (std::move (snapshot), fromElements, toElements, options, isCancelled);
-#endif
+    return rust::RunVisibilityStudy (std::move (snapshot), fromElements, toElements, options, isCancelled);
+#else
     return RunVisibilityStudy (std::move (snapshot), fromElements, toElements, options, isCancelled);
+#endif
 }
 
 } // namespace evp::sunstudy

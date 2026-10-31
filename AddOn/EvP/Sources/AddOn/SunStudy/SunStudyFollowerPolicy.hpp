@@ -1,12 +1,12 @@
-#ifndef EVP_SUNSTUDY_SUNSTUDYFOLLOWERSELECTION_HPP
-#define EVP_SUNSTUDY_SUNSTUDYFOLLOWERSELECTION_HPP
+#ifndef EVP_SUNSTUDY_SUNSTUDYFOLLOWERPOLICY_HPP
+#define EVP_SUNSTUDY_SUNSTUDYFOLLOWERPOLICY_HPP
 
-// SunStudy/SunStudyFollowerSelection -- the follower the driver runs: the C++
-// SunStudyFollower or, under TAPIOCA_SUNSTUDY_CORE=rust, the Rust policy (P5).
-// Chosen once, when constructed, so one driver never mixes the two. Same
-// method surface as SunStudyFollower; one thread at a time.
+// SunStudy/SunStudyFollowerPolicy -- the follower the driver runs: the Rust
+// follower policy, behind a face the driver can hold in every build. Without
+// the Rust archive there is no sun-study core, so no study is ever adopted:
+// the policy stays NoStudy and every call is inert. One thread at a time.
 
-#include "SunStudy/SunStudyFollower.hpp"
+#include "SunStudy/SunStudyFollowState.hpp"
 
 #include <memory>
 #include <string>
@@ -16,17 +16,12 @@ namespace rust {
 class RustSunStudyFollower;
 }
 
-class SelectableSunStudyFollower final {
+class SunStudyFollowerPolicy final {
   public:
-    SelectableSunStudyFollower ();
-    ~SelectableSunStudyFollower ();
-    SelectableSunStudyFollower (const SelectableSunStudyFollower&) = delete;
-    SelectableSunStudyFollower& operator= (const SelectableSunStudyFollower&) = delete;
-
-    bool UsesRust () const
-    {
-        return rust_ != nullptr;
-    }
+    SunStudyFollowerPolicy ();
+    ~SunStudyFollowerPolicy ();
+    SunStudyFollowerPolicy (const SunStudyFollowerPolicy&) = delete;
+    SunStudyFollowerPolicy& operator= (const SunStudyFollowerPolicy&) = delete;
 
     void Adopt (const std::string& studyId, const SunStudyDependencySignature& signature, int64_t nowMs);
     bool Observe (const SunStudyDependencySignature& world, int64_t nowMs);
@@ -57,7 +52,6 @@ class SelectableSunStudyFollower final {
     std::string Describe () const;
 
   private:
-    SunStudyFollower cpp_;
     std::unique_ptr<rust::RustSunStudyFollower> rust_;
 };
 

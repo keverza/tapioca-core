@@ -1,19 +1,19 @@
-// The P5 flip: a study started with the Rust core attached must answer every
-// SunStudyStore reader -- and the display packet -- exactly as the same study
-// on the C++ core. Two otherwise identical records are filed side by side,
-// advanced through the store's own Advance, and compared bit for bit after
-// every slice, cold and through reuse reruns. The selection flag, the
-// atlas-mismatch fallback and the mixed-core reuse rule are pinned too.
+// A study's every store reader -- and the display packet the overlay draws --
+// against the C++ kernels over the record's own grids and atlases
+// (sunstudy_kernel_oracle.hpp), after every slice, cold and through a reuse
+// rerun; and a rerun that reused samples ends where a cold study of the same
+// model ends. These replaced the C++-against-Rust flip comparison when the
+// C++ study core was deleted (P7a); the atlas-mismatch refusal is pinned too.
 
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/SunStudyAtlasReuse.hpp"
-#include "SunStudy/SunStudyCoreSelection.hpp"
 #include "SunStudy/SunStudyDisplayData.hpp"
 #include "SunStudy/SunStudyRaster.hpp"
 #include "SunStudy/SunStudyReuse.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyStore.hpp"
+#include "sunstudy_kernel_oracle.hpp"
 
 #include <gtest/gtest.h>
 
@@ -26,16 +26,8 @@
 namespace {
 
 using namespace evp::sunstudy;
-
-template <typename T> bool SameBits (const std::vector<T>& a, const std::vector<T>& b)
-{
-    return a.size () == b.size () && (a.empty () || std::memcmp (a.data (), b.data (), a.size () * sizeof (T)) == 0);
-}
-
-bool SameBits (double a, double b)
-{
-    return std::memcmp (&a, &b, sizeof a) == 0;
-}
+using evp::sunstudy::fixture::ExpectStoreMatchesKernels;
+using evp::sunstudy::fixture::SameBytes;
 
 void AppendQuad (geomsrv::Mesh& mesh, const double o[3], const double u[3], const double v[3], int cells)
 {
@@ -104,9 +96,9 @@ SunSeries Day (size_t count)
 enum class Domain { Ground, Triangle, Patch };
 
 // The start path in the order SunStudyCommands runs it, through the public
-// functions it calls. `rust` selects the core; `previous` is the reuse source.
-std::string Start (std::shared_ptr<geomsrv::Snapshot> snapshot, Domain domain, bool rust,
-                   std::shared_ptr<const StudyRecord> previous, bool& attached)
+// functions it calls. `previous` is the reuse source.
+std::string Start (std::shared_ptr<geomsrv::Snapshot> snapshot, Domain domain,
+                   std::shared_ptr<const StudyRecord> previous)
 {
     auto record = std::make_unique<StudyRecord> ();
     record->snapshotId = snapshot->id;
@@ -147,8 +139,7 @@ std::string Start (std::shared_ptr<geomsrv::Snapshot> snapshot, Domain domain, b
         gridVersion = record->positions.size ();
     }
     std::string error;
-    attached = rust && AttachRustStudyCore (*record, *snapshot, previous.get (), 8192, error);
-    EXPECT_EQ (attached, rust) << error;
+    EXPECT_TRUE (AttachRustStudyCore (*record, *snapshot, previous.get (), 8192, error)) << error;
     SyncStudy (*record, { snapshot->id, record->series.Version (), gridVersion });
     record->snapshot = snapshot;
     SetSampleMeshes (*record);
@@ -159,111 +150,64 @@ std::string Start (std::shared_ptr<geomsrv::Snapshot> snapshot, Domain domain, b
     return SunStudyStore::Get ().Insert (std::move (record));
 }
 
-// The store names the study in its refusals; compare them with the ids aligned.
-std::string Named (std::string text, const std::string& from, const std::string& to)
-{
-    const size_t at = text.find ("'" + from + "'");
-    if (at != std::string::npos)
-        text.replace (at + 1, from.size (), to);
-    return text;
-}
-
-void ExpectSameStore (const std::string& cpp, const std::string& rust, const std::string& what)
+// The display packet against the store's own readers: the overlay draws what
+// the store answers.
+void ExpectPacketMatchesStore (const std::string& id, const std::string& what)
 {
     auto& store = SunStudyStore::Get ();
-    std::string e, a;
-    StudyProgress pe, pa;
-    ASSERT_TRUE (store.Progress (cpp, pe, e) && store.Progress (rust, pa, a)) << e << a;
-    EXPECT_TRUE (pa.resolvedSteps == pe.resolvedSteps && pa.totalSteps == pe.totalSteps &&
-                 pa.sampleCount == pe.sampleCount && pa.converged == pe.converged && pa.empty == pe.empty)
-        << what << " progress";
-    std::vector<double> he, ha, xe, xa, ne, na;
-    std::vector<uint8_t> be, ba;
-    ASSERT_TRUE (store.Results (cpp, he, xe, ne, &be, e) && store.Results (rust, ha, xa, na, &ba, a)) << e << a;
-    EXPECT_TRUE (SameBits (he, ha) && SameBits (be, ba) && SameBits (xe, xa) && SameBits (ne, na)) << what;
-    SunStudyResultSummary se, sa;
-    ASSERT_TRUE (store.Summary (cpp, se, e) && store.Summary (rust, sa, a)) << e << a;
-    EXPECT_TRUE (sa.count == se.count && sa.fullyLit == se.fullyLit && sa.fullyShaded == se.fullyShaded &&
-                 SameBits (sa.meanHours, se.meanHours) && SameBits (sa.maxHours, se.maxHours))
-        << what << " summary";
-
-    uint32_t w1 = 0, h1 = 0, w2 = 0, h2 = 0;
-    std::vector<float> i1, i2;
-    std::string e1, e2;
-    EXPECT_EQ (store.AtlasImage (rust, w2, h2, i2, e2), store.AtlasImage (cpp, w1, h1, i1, e1)) << what;
-    EXPECT_EQ (Named (e2, rust, cpp), e1) << what;
-    EXPECT_TRUE (w1 == w2 && h1 == h2 && SameBits (i1, i2)) << what << " atlas image";
-    e1.clear ();
-    e2.clear ();
-    EXPECT_EQ (store.PatchAtlasImage (rust, w2, h2, i2, e2), store.PatchAtlasImage (cpp, w1, h1, i1, e1)) << what;
-    EXPECT_EQ (Named (e2, rust, cpp), e1) << what;
-    EXPECT_TRUE (SameBits (i1, i2)) << what << " patch image";
-
-    std::vector<AtlasTile> t1, t2;
-    std::vector<FaceLayout> l1, l2;
-    double s1 = 0, s2 = 0, d1 = 0, d2 = 0;
-    bool c1 = false, c2 = false;
-    uint64_t g1 = 0, g2 = 0;
-    e1.clear ();
-    e2.clear ();
-    const bool display = store.DisplayData (cpp, t1, l1, w1, h1, s1, i1, d1, c1, g1, e1);
-    EXPECT_EQ (store.DisplayData (rust, t2, l2, w2, h2, s2, i2, d2, c2, g2, e2), display) << what;
-    EXPECT_EQ (Named (e2, rust, cpp), e1) << what;
-    if (display) {
-        EXPECT_TRUE (SameBits (i1, i2) && t1.size () == t2.size () && l1.size () == l2.size () && c1 == c2)
-            << what << " display";
-        for (size_t f = 0; f < t1.size () && f < t2.size (); ++f)
-            ASSERT_TRUE (t1[f].x == t2[f].x && t1[f].y == t2[f].y && t1[f].width == t2[f].width &&
-                         std::memcmp (l1[f].origin, l2[f].origin, sizeof l1[f].origin) == 0)
-                << what << " face " << f;
-    }
-
-    StepMaskAtlas m1, m2;
-    std::vector<uint16_t> n1, n2;
-    uint32_t q1 = 0, q2 = 0;
-    e1.clear ();
-    e2.clear ();
-    EXPECT_EQ (store.StepMasks (rust, m2, n2, q2, e2), store.StepMasks (cpp, m1, n1, q1, e1)) << what;
-    EXPECT_EQ (Named (e2, rust, cpp), e1) << what;
-    EXPECT_TRUE (SameBits (m1.masks, m2.masks) && n1 == n2 && q1 == q2) << what << " masks";
-
-    // The display packet the overlay draws.
-    std::shared_ptr<const StudyRecord> r1, r2;
+    std::string error;
+    StepMaskAtlas masks;
+    std::vector<uint16_t> minutes;
+    uint32_t noon = 0;
+    const bool hasMasks = store.StepMasks (id, masks, minutes, noon, error);
+    std::vector<AtlasTile> tiles;
+    std::vector<FaceLayout> layouts;
+    std::vector<float> image;
+    uint32_t w = 0, h = 0;
+    double spacing = 0, daylight = 0;
+    bool converged = false;
+    uint64_t generation = 0;
+    const bool display =
+        store.DisplayData (id, tiles, layouts, w, h, spacing, image, daylight, converged, generation, error);
     store.ReadDisplayRecord (
-        cpp, store.Revision (cpp),
-        [&] (const StudyRecord& r) {
-            std::string error;
-            const auto p1 = PrepareStudyDisplayData (r, error);
-            store.ReadDisplayRecord (
-                rust, store.Revision (rust),
-                [&] (const StudyRecord& q) {
-                    const auto p2 = PrepareStudyDisplayData (q, error);
-                    ASSERT_EQ (p1 == nullptr, p2 == nullptr) << what << ": " << error;
-                    if (p1 != nullptr) {
-                        EXPECT_TRUE (p1->width == p2->width && p1->height == p2->height &&
-                                     SameBits (*p1->image, *p2->image) && SameBits (*p1->stepMasks, *p2->stepMasks) &&
-                                     p1->stepMinutes == p2->stepMinutes && p1->noonStep == p2->noonStep &&
-                                     SameBits (p1->area, p2->area) && p1->patchTiles.size () == p2->patchTiles.size ())
-                            << what << " display packet";
-                    }
-                },
-                error);
+        id, store.Revision (id),
+        [&] (const StudyRecord& record) {
+            std::string reason;
+            const auto packet = PrepareStudyDisplayData (record, reason);
+            ASSERT_EQ (packet != nullptr, display && hasMasks) << what << ": " << reason;
+            if (packet == nullptr)
+                return;
+            const size_t patchTiles = record.IsPatchDomain () ? tiles.size () : 0u;
+            EXPECT_TRUE (packet->width == w && packet->height == h && SameBytes (*packet->image, image) &&
+                         SameBytes (*packet->stepMasks, masks.masks) && packet->stepMinutes == minutes &&
+                         packet->noonStep == noon && packet->patchTiles.size () == patchTiles)
+                << what << " display packet";
         },
-        e);
+        error);
 }
 
-void AdvanceBoth (const std::string& cpp, const std::string& rust, const std::string& what)
+void AdvanceChecked (const std::string& id, const std::string& what)
 {
     for (int slice = 0; slice < 20; ++slice) {
-        size_t a = 0, b = 0;
+        size_t advanced = 0;
         std::string e;
-        ASSERT_TRUE (SunStudyStore::Get ().Advance (cpp, 4, 1, 0.001, 0.0, a, e)) << e;
-        ASSERT_TRUE (SunStudyStore::Get ().Advance (rust, 4, 1, 0.001, 0.0, b, e)) << e;
-        ASSERT_EQ (a, b) << what;
-        ExpectSameStore (cpp, rust, what + " slice " + std::to_string (slice));
-        if (a == 0 || ::testing::Test::HasFatalFailure ())
+        ASSERT_TRUE (SunStudyStore::Get ().Advance (id, 4, 1, 0.001, 0.0, advanced, e)) << e;
+        ExpectStoreMatchesKernels (id, what + " slice " + std::to_string (slice));
+        ExpectPacketMatchesStore (id, what + " slice " + std::to_string (slice));
+        if (advanced == 0 || ::testing::Test::HasFatalFailure ())
             return;
     }
+}
+
+std::vector<uint8_t> FinalBits (const std::string& id)
+{
+    std::vector<double> hours, positions, normals;
+    std::vector<uint8_t> bits;
+    std::string error;
+    size_t advanced = 0;
+    EXPECT_TRUE (SunStudyStore::Get ().Advance (id, 1000, 1, 0.001, 0.0, advanced, error)) << error;
+    EXPECT_TRUE (SunStudyStore::Get ().Results (id, hours, positions, normals, &bits, error)) << error;
+    return bits;
 }
 
 struct Cleanup {
@@ -274,80 +218,69 @@ struct Cleanup {
     ~Cleanup ()
     {
         SunStudyStore::Get ().Clear ();
-        OverrideSunStudyCore (std::nullopt);
     }
 };
 
 } // namespace
 
-TEST (SunStudyRustFlip, SelectionDefaultsToRustAndCanBeOverridden)
-{
-    Cleanup cleanup;
-    const SunStudyCoreKind available = RustSunStudyCoreAvailable () ? SunStudyCoreKind::Rust : SunStudyCoreKind::Cpp;
-    const char* value = std::getenv ("TAPIOCA_SUNSTUDY_CORE");
-    if (value == nullptr)
-        EXPECT_EQ (SelectedSunStudyCore (), available) << "the default is the Rust core (P6)";
-    else if (std::string (value) == "cpp")
-        EXPECT_EQ (SelectedSunStudyCore (), SunStudyCoreKind::Cpp) << "the escape hatch";
-    OverrideSunStudyCore (SunStudyCoreKind::Rust);
-    EXPECT_EQ (SelectedSunStudyCore (), available);
-    OverrideSunStudyCore (SunStudyCoreKind::Cpp);
-    EXPECT_EQ (SelectedSunStudyCore (), SunStudyCoreKind::Cpp);
-    OverrideSunStudyCore (std::nullopt);
-}
-
-TEST (SunStudyRustFlip, EveryStoreReaderAndTheDisplayPacketMatchTheCppCore)
+TEST (SunStudyRustFlip, EveryStoreReaderAndTheDisplayPacketMatchTheKernels)
 {
     Cleanup cleanup;
     for (const Domain domain : { Domain::Ground, Domain::Triangle, Domain::Patch }) {
         const std::string what = domain == Domain::Ground     ? "ground"
                                  : domain == Domain::Triangle ? "triangle"
                                                               : "patch";
-        bool attached = false;
         const auto scene = Scene (1, 2);
-        const std::string cpp = Start (scene, domain, false, nullptr, attached);
-        const std::string rust = Start (scene, domain, true, nullptr, attached);
-        ASSERT_TRUE (attached);
-        ExpectSameStore (cpp, rust, what + " fresh");
-        AdvanceBoth (cpp, rust, what);
+        const std::string id = Start (scene, domain, nullptr);
+        ASSERT_FALSE (id.empty ());
+        ExpectStoreMatchesKernels (id, what + " fresh");
+        AdvanceChecked (id, what);
         if (::testing::Test::HasFatalFailure ())
             return;
 
-        // A rerun after an edit reuses the unaffected samples on both cores.
-        const auto e = SunStudyStore::Get ().CompletedRecord (cpp), a = SunStudyStore::Get ().CompletedRecord (rust);
-        ASSERT_TRUE (e != nullptr && a != nullptr) << what;
+        // A rerun after an edit reuses the unaffected samples, and ends where a
+        // cold study of the edited model ends.
+        const auto source = SunStudyStore::Get ().CompletedRecord (id);
+        ASSERT_NE (source, nullptr) << what;
         const auto edited = Scene (2, 3.5);
-        const std::string cpp2 = Start (edited, domain, false, e, attached);
-        const std::string rust2 = Start (edited, domain, true, a, attached);
-        StudyRecord me, ma;
+        const std::string rerun = Start (edited, domain, source);
+        const std::string cold = Start (edited, domain, nullptr);
+        StudyRecord metadata;
         std::string error;
-        ASSERT_TRUE (SunStudyStore::Get ().Describe (cpp2, me, error) &&
-                     SunStudyStore::Get ().Describe (rust2, ma, error));
-        EXPECT_EQ (ma.reusedSamples, me.reusedSamples) << what;
-        EXPECT_EQ (ma.reusedSampleSteps, me.reusedSampleSteps) << what;
+        ASSERT_TRUE (SunStudyStore::Get ().Describe (rerun, metadata, error)) << error;
         if (domain != Domain::Ground)
-            EXPECT_GT (me.reusedSamples, 0u) << what << ": the rerun must reuse something";
-        ExpectSameStore (cpp2, rust2, what + " seeded");
-        AdvanceBoth (cpp2, rust2, what + " rerun");
+            EXPECT_GT (metadata.reusedSamples, 0u) << what << ": the rerun must reuse something";
+        ExpectStoreMatchesKernels (rerun, what + " seeded");
+        AdvanceChecked (rerun, what + " rerun");
+        EXPECT_EQ (FinalBits (rerun), FinalBits (cold)) << what << ": reuse is exact";
     }
 }
 
-TEST (SunStudyRustFlip, ARustStudyNeverSeedsFromACppSourceAndAMismatchStaysOnCpp)
+TEST (SunStudyRustFlip, ACorelessSourceSeedsNothingAndAMismatchIsRefused)
 {
     Cleanup cleanup;
-    bool attached = false;
     const auto scene = Scene (1, 2);
-    const std::string cpp = Start (scene, Domain::Patch, false, nullptr, attached);
+    const std::string id = Start (scene, Domain::Patch, nullptr);
     size_t advanced = 0;
     std::string error;
-    ASSERT_TRUE (SunStudyStore::Get ().Advance (cpp, 64, 1, 0.001, 0.0, advanced, error)) << error;
-    const auto source = SunStudyStore::Get ().CompletedRecord (cpp);
+    ASSERT_TRUE (SunStudyStore::Get ().Advance (id, 64, 1, 0.001, 0.0, advanced, error)) << error;
+    const auto source = SunStudyStore::Get ().CompletedRecord (id);
     ASSERT_NE (source, nullptr);
 
-    // Rust target, C++ source: traced afresh, never seeded from bits it cannot read.
-    const std::string rust = Start (Scene (2, 2), Domain::Patch, true, source, attached);
+    // A source without a core has no bits to give: the target is traced afresh.
+    auto coreless = std::make_shared<StudyRecord> ();
+    coreless->snapshot = source->snapshot;
+    coreless->snapshotId = source->snapshotId;
+    coreless->series = source->series;
+    coreless->gridSpacing = source->gridSpacing;
+    coreless->domain = source->domain;
+    coreless->positions = source->positions;
+    coreless->normals = source->normals;
+    coreless->sampleMeshes = source->sampleMeshes;
+    coreless->elementRoles = source->elementRoles;
+    const std::string target = Start (Scene (2, 2), Domain::Patch, coreless);
     StudyRecord metadata;
-    ASSERT_TRUE (SunStudyStore::Get ().Describe (rust, metadata, error));
+    ASSERT_TRUE (SunStudyStore::Get ().Describe (target, metadata, error));
     EXPECT_EQ (metadata.reusedSamples, 0u);
 
     // A record whose atlas disagrees with the core it would get is refused.
@@ -367,4 +300,10 @@ TEST (SunStudyRustFlip, ARustStudyNeverSeedsFromACppSourceAndAMismatchStaysOnCpp
     EXPECT_FALSE (AttachRustStudyCore (*record, *scene, nullptr, 8192, error));
     EXPECT_EQ (record->rustCore, nullptr);
     EXPECT_FALSE (error.empty ());
+
+    // And a record without a core is refused by every reader rather than read.
+    const std::string orphan = SunStudyStore::Get ().Insert (std::move (record));
+    std::vector<double> hours, positions, normals;
+    EXPECT_FALSE (SunStudyStore::Get ().Results (orphan, hours, positions, normals, nullptr, error));
+    EXPECT_EQ (error, NoStudyCoreError ());
 }

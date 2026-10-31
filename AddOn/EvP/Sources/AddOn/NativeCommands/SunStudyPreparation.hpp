@@ -14,11 +14,12 @@ void LogSunStudyCylinderMembership (uint64_t snapshot, size_t analysis, const st
 std::shared_ptr<const evp::sunstudy::SunStudyOccluders>
 PrepareSunStudyOccluders (std::shared_ptr<const Snapshot> snapshot, const evp::sunstudy::ElementRoles& roles,
                           const evp::sunstudy::StudyRecord* previous, const std::function<bool ()>& isCancelled);
-// Attach the Rust core when TAPIOCA_SUNSTUDY_CORE=rust selects it (P5), then
-// sync whichever core runs the study. A refused core is logged and the study
-// runs on the C++ core.
-void StartSunStudyCore (evp::sunstudy::StudyRecord& record, const Snapshot& snapshot,
-                        const evp::sunstudy::StudyRecord* reuseSource, const evp::sunstudy::StudyInputs& inputs);
+// Attach the study core and sync it. False, with `error`, when no core can run
+// the study (none in this build, or the core refused the record): the caller
+// refuses the study rather than storing one that cannot advance.
+bool StartSunStudyCore (evp::sunstudy::StudyRecord& record, const Snapshot& snapshot,
+                        const evp::sunstudy::StudyRecord* reuseSource, const evp::sunstudy::StudyInputs& inputs,
+                        std::string& error);
 void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_ptr<const Snapshot> snapshot,
                                 const evp::sunstudy::StudyRecord* reuseSource, const std::atomic<bool>* cancelled,
                                 std::shared_ptr<const QueryEngine> occluders);

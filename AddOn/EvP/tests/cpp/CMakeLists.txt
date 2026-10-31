@@ -214,7 +214,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRecordCore.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyCoreSelection.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyFollowerSelection.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyFollowerPolicy.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReuse.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAdvanceWorker.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyTaskWorker.cpp"
@@ -1106,11 +1106,7 @@ set (EVP_TEST_SOURCES
     test_sunstudygputraversal.cpp
     test_sunstudypreview.cpp
     test_sunstudysession.cpp
-    test_sunstudystore.cpp
     test_sunstudytextureupdates.cpp
-    test_sunstudydisplaypreparation.cpp
-    test_sunstudystore_concurrency.cpp
-    test_sunstudyadvanceworker.cpp
     test_sunstudytaskworker.cpp
     test_sunstudysampler.cpp
     test_sunstudysurfacesampling.cpp
@@ -1124,7 +1120,6 @@ set (EVP_TEST_SOURCES
     test_viewerpalettestate.cpp
     test_surfacepatch.cpp
     test_sunstudycache.cpp
-    test_sunstudyreuse.cpp
     test_sunstudypatchatlas.cpp
     test_sunstudyroles.cpp
     test_sunstudybounds.cpp
@@ -1315,6 +1310,13 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_follower.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_views.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_flip.cpp"
+        # A study runs only on the Rust core (P7a): every test that files one in
+        # the store, advances it or reuses it needs the archive.
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudystore.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudystore_concurrency.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyadvanceworker.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudydisplaypreparation.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyreuse.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_parity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_identity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_value.cpp"

@@ -17,6 +17,9 @@
 #include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyOccluders.hpp"
 #include "MeshFixtures.hpp"
+#if defined(TAPIOCA_GEOMETRY_RUST)
+#include "sunstudy_core_fixture.hpp"
+#endif
 #include "gtest/gtest.h"
 
 using namespace evp::sunstudy;
@@ -225,6 +228,8 @@ TEST (SunStudyReading, PickedMeshRaycastIsTwoSidedAndRejectsMissesAndInvalidMesh
     EXPECT_FALSE (geomsrv::QueryEngine::RaycastMesh (snapshot, 0, origin, direction, 0.0).hit);
 }
 
+// A study runs only on the Rust core; a build without it has no store reads.
+#if defined(TAPIOCA_GEOMETRY_RUST)
 TEST (SunStudyReading, RolePartitionedStudiesReadPickedSourceFacesInBothDomainsWithoutACachedBvh)
 {
     auto& store = SunStudyStore::Get ();
@@ -275,8 +280,9 @@ TEST (SunStudyReading, RolePartitionedStudiesReadPickedSourceFacesInBothDomainsW
                 step.altitudeDegrees = 90;
                 step.direction[2] = 1;
                 record->series = SunSeries::FromSteps ({ step }, 60);
-                record->session.Sync ({ snapshot->id, record->series.Version (), 1 }, record->series,
-                                      record->Samples ());
+                evp::sunstudy::fixture::BuildTestAtlas (*record);
+                evp::sunstudy::fixture::AttachTestCore (*record, { snapshot->id, record->series.Version (), 1 },
+                                                        snapshot.get ());
                 const auto id = store.Insert (std::move (record));
                 ASSERT_FALSE (id.empty ());
                 size_t advanced = 0;
@@ -308,3 +314,4 @@ TEST (SunStudyReading, RolePartitionedStudiesReadPickedSourceFacesInBothDomainsW
         }
     }
 }
+#endif

@@ -531,12 +531,14 @@ TEST (RayWorkerTraversal, APreparedDayAnswersTheStepsItForesawWithTheSameBits)
     channel->Shutdown ();
 }
 
+// A study runs only on the Rust core; a build without it has no store studies.
+#if defined(TAPIOCA_GEOMETRY_RUST)
 namespace {
 
 // A study the store runs to convergence one step per Advance, as the advance
 // worker does; returns its per-(sample, step) bits.
 std::vector<uint8_t> RunStudyThroughTheStore (const TraversalFixture& f,
-                                              std::shared_ptr<const evp::sunstudy::ITraversal> traversal, bool rustCore)
+                                              std::shared_ptr<const evp::sunstudy::ITraversal> traversal)
 {
     using namespace evp::sunstudy;
     auto record = std::make_unique<StudyRecord> ();
@@ -562,10 +564,9 @@ std::vector<uint8_t> RunStudyThroughTheStore (const TraversalFixture& f,
             record->normals.insert (record->normals.end (), { 1.0, 0.0, 0.0 });
         }
     const StudyInputs inputs { f.engine->SnapshotId (), record->series.Version (), 1 };
-    if (rustCore) {
-        std::string error;
-        EXPECT_TRUE (AttachRustStudyCore (*record, *f.engine->SourceSnapshot (), nullptr, 4096, error)) << error;
-    }
+    std::string attachError;
+    EXPECT_TRUE (AttachRustStudyCore (*record, *f.engine->SourceSnapshot (), nullptr, 4096, attachError))
+        << attachError;
     SyncStudy (*record, inputs);
     SunStudyStore& store = SunStudyStore::Get ();
     const std::string id = store.Insert (std::move (record));
@@ -590,21 +591,15 @@ std::vector<uint8_t> RunStudyThroughTheStore (const TraversalFixture& f,
 TEST (RayWorkerTraversal, TheStorePreparesTheDaySoEveryStepOfAStudyIsOneRequest)
 {
     TraversalFixture f;
-    for (const bool rustCore : { false, true }) {
-#if !defined(TAPIOCA_GEOMETRY_RUST)
-        if (rustCore)
-            continue;
-#endif
-        const char* core = rustCore ? "rust core" : "c++ core";
-        const std::vector<uint8_t> expected = RunStudyThroughTheStore (f, f.cpu, rustCore);
-        ASSERT_FALSE (expected.empty ()) << core;
-        auto channel = InProcessChannel ();
-        auto traversal =
-            std::make_shared<RayWorkerTraversal> (f.cpu, channel, SceneFromIndices (f.engine.get (), nullptr), "dxr");
-        EXPECT_EQ (RunStudyThroughTheStore (f, traversal, rustCore), expected) << core;
-        EXPECT_EQ (traversal->PreparedBatches (), 1u) << core;
-        EXPECT_GE (traversal->PreparedHits (), 9u) << core;
-        EXPECT_EQ (traversal->GpuCalls (), 0u) << core << ": every step was foreseen";
-        channel->Shutdown ();
-    }
+    const std::vector<uint8_t> expected = RunStudyThroughTheStore (f, f.cpu);
+    ASSERT_FALSE (expected.empty ());
+    auto channel = InProcessChannel ();
+    auto traversal =
+        std::make_shared<RayWorkerTraversal> (f.cpu, channel, SceneFromIndices (f.engine.get (), nullptr), "dxr");
+    EXPECT_EQ (RunStudyThroughTheStore (f, traversal), expected);
+    EXPECT_EQ (traversal->PreparedBatches (), 1u);
+    EXPECT_GE (traversal->PreparedHits (), 9u);
+    EXPECT_EQ (traversal->GpuCalls (), 0u) << "every step was foreseen";
+    channel->Shutdown ();
 }
+#endif

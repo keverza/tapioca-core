@@ -10,6 +10,7 @@
 
 #include "SunStudy/SunStudyRaster.hpp"
 #include "SunStudy/SunStudyStore.hpp"
+#include "sunstudy_core_fixture.hpp"
 
 #include <gtest/gtest.h>
 
@@ -71,7 +72,7 @@ std::unique_ptr<StudyRecord> MakeRecord (int steps = 4, uint64_t snapshotId = 31
     inputs.geometryVersion = engine->SnapshotId ();
     inputs.sunVersion = record->series.Version ();
     inputs.gridVersion = 1;
-    record->session.Sync (inputs, record->series, record->Samples ());
+    evp::sunstudy::fixture::AttachTestCore (*record, inputs);
     return record;
 }
 
@@ -344,7 +345,7 @@ TEST (SunStudyStore, EndToEndOverTheGroundGrid)
     inputs.geometryVersion = engine->SnapshotId ();
     inputs.sunVersion = record->series.Version ();
     inputs.gridVersion = 1;
-    record->session.Sync (inputs, record->series, record->Samples ());
+    evp::sunstudy::fixture::AttachTestCore (*record, inputs);
 
     const std::string id = SunStudyStore::Get ().Insert (std::move (record));
 

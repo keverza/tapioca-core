@@ -3,10 +3,13 @@
 #include "SunStudy/SunStudyAtlasReuse.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include "MeshFixtures.hpp"
+#include "sunstudy_core_fixture.hpp"
 
 #include <gtest/gtest.h>
 
 using namespace evp::sunstudy;
+using evp::sunstudy::fixture::AdvanceTestCore;
+using evp::sunstudy::fixture::AttachTestCore;
 using geomsrv::archviz::SunStudyDisplayAssembler;
 using geomsrv::archviz::SunStudyDisplayOptions;
 
@@ -43,7 +46,7 @@ std::unique_ptr<StudyRecord> Record (bool patch = false)
     step.direction[2] = 1.0;
     record->series = SunSeries::FromSteps ({ step, step, step }, 15);
     record->traversal = std::make_shared<CpuTraversal> (std::make_shared<geomsrv::QueryEngine> (snapshot));
-    record->session.Sync ({ 1, record->series.Version (), 1 }, record->series, record->Samples ());
+    AttachTestCore (*record, { 1, record->series.Version (), 1 }, snapshot.get ());
     return record;
 }
 } // namespace
@@ -99,7 +102,7 @@ TEST (SunStudyDisplayPreparation, BothDomainsMatchLegacyHoursAndEveryStepBitWith
 TEST (SunStudyDisplayPreparation, PaletteDepthAndNonRoleDebugChangesShareImagesBitsAndSideMaps)
 {
     auto record = Record ();
-    ASSERT_EQ (record->session.Advance (*record->traversal, 3), 3u);
+    ASSERT_EQ (AdvanceTestCore (*record, 3), 3u);
     SunStudyDisplayAssembler assembler;
     std::string error;
     auto initial = assembler.Prepare (*record, *record->snapshot, {}, error);
@@ -129,14 +132,14 @@ TEST (SunStudyDisplayPreparation, PartialDayCacheInvalidatesOnResolvedStepsEvenW
     auto record = Record (true);
     SunStudyDisplayAssembler assembler;
     std::string error;
-    ASSERT_EQ (record->session.Advance (*record->traversal, 1), 1u);
+    ASSERT_EQ (AdvanceTestCore (*record, 1), 1u);
     auto before = assembler.Prepare (*record, *record->snapshot, {}, error);
     ASSERT_NE (before, nullptr);
-    const auto generation = record->session.Progress ().generation;
-    ASSERT_EQ (record->session.Advance (*record->traversal, 1), 1u);
+    const auto generation = record->CurrentProgress ().generation;
+    ASSERT_EQ (AdvanceTestCore (*record, 1), 1u);
     auto after = assembler.Prepare (*record, *record->snapshot, {}, error);
     ASSERT_NE (after, nullptr);
-    EXPECT_EQ (record->session.Progress ().generation, generation);
+    EXPECT_EQ (record->CurrentProgress ().generation, generation);
     EXPECT_NE (before->texels, after->texels);
     EXPECT_NE (*before->texels, *after->texels);
     EXPECT_NE (*before->stepMasks, *after->stepMasks);
@@ -157,7 +160,7 @@ TEST (SunStudyDisplayPreparation, CancellationStaleSnapshotsAndIncompletePreview
     SunStudyDisplayOptions preview;
     preview.preview = true;
     EXPECT_EQ (assembler.Prepare (*record, *record->snapshot, preview, error), nullptr);
-    ASSERT_EQ (record->session.Advance (*record->traversal, 3), 3u);
+    ASSERT_EQ (AdvanceTestCore (*record, 3), 3u);
     auto shown = assembler.Prepare (*record, *record->snapshot, preview, error);
     ASSERT_NE (shown, nullptr);
     const auto image = shown->texels;
@@ -205,8 +208,9 @@ TEST (SunStudyDisplayPreparation, MultiwordDaysKeepEveryBinaryStepAndCancelledPa
             day[step].direction[2] = 1.0;
         }
         record->series = SunSeries::FromSteps (day, 15);
-        record->session.Sync ({ 1, record->series.Version (), 1 }, record->series, record->Samples ());
-        ASSERT_EQ (record->session.Advance (*record->traversal, 65), 65u);
+        record->rustCore.reset (); // the core is made for one day
+        ASSERT_TRUE (AttachTestCore (*record, { 1, record->series.Version (), 1 }, record->snapshot.get ()));
+        ASSERT_EQ (AdvanceTestCore (*record, 65), 65u);
         SunStudyDisplayAssembler assembler;
         std::string error;
         auto upload = assembler.Prepare (*record, *record->snapshot, {}, error);
@@ -218,8 +222,10 @@ TEST (SunStudyDisplayPreparation, MultiwordDaysKeepEveryBinaryStepAndCancelledPa
             for (int axis = 0; axis < 3; ++axis)
                 EXPECT_EQ (upload->stepSuns[step][size_t (axis)],
                            static_cast<float> (record->series.Steps ()[step].direction[axis]));
-        const auto hours = record->session.SunHours ();
-        const auto& acc = record->session.Accumulator ();
+        std::vector<double> hours;
+        std::vector<uint8_t> lit; // one byte per (sample, step), sample-major
+        ASSERT_TRUE (record->rustCore->SunHours (hours, error)) << error;
+        ASSERT_TRUE (record->rustCore->StepBits (lit, error)) << error;
         const size_t plane = static_cast<size_t> (upload->width) * upload->height;
         for (size_t sample = 0; sample < hours.size (); ++sample) {
             const int64_t texel =
@@ -230,7 +236,7 @@ TEST (SunStudyDisplayPreparation, MultiwordDaysKeepEveryBinaryStepAndCancelledPa
             for (size_t step = 0; step < 65; ++step)
                 EXPECT_EQ (((*upload->stepMasks)[(step >> 5) * plane + static_cast<size_t> (texel)] >> (step & 31u)) &
                                1u,
-                           acc.Lit (sample, step) ? 1u : 0u);
+                           lit[sample * 65 + step] != 0 ? 1u : 0u);
         }
     }
     std::vector<int64_t> texels (5000);
@@ -254,11 +260,11 @@ TEST (SunStudyDisplayPreparation, CancelledPartialDayRefreshNeverReplacesThePrio
     auto record = Record ();
     SunStudyDisplayAssembler assembler;
     std::string error;
-    ASSERT_EQ (record->session.Advance (*record->traversal, 1), 1u);
+    ASSERT_EQ (AdvanceTestCore (*record, 1), 1u);
     auto before = assembler.Prepare (*record, *record->snapshot, {}, error);
     ASSERT_NE (before, nullptr);
     const auto previous = record->displayCache;
-    ASSERT_EQ (record->session.Advance (*record->traversal, 1), 1u);
+    ASSERT_EQ (AdvanceTestCore (*record, 1), 1u);
     size_t checks = 0;
     EXPECT_EQ (assembler.Prepare (*record, *record->snapshot, {}, error, [&] { return ++checks >= 3; }), nullptr);
     EXPECT_EQ (record->displayCache, previous);

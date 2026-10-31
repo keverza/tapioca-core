@@ -123,8 +123,8 @@ void AddViewpointSeenSurfaces (const std::shared_ptr<const geomsrv::Snapshot>& s
                                const std::vector<std::string>& context, ViewpointStudyResult& result,
                                const std::function<bool ()>& isCancelled = {});
 
-// RunViewpointStudy on the core TAPIOCA_SUNSTUDY_CORE selects (P5); the
-// Rust policy returns the same result through the same C++ query index.
+// RunViewpointStudy on the Rust policy when this build links it, which returns the
+// same result through the same C++ query index; the C++ body otherwise.
 ViewpointStudyResult RunSelectedViewpointStudy (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,
                                                 const std::vector<std::string>& context,
                                                 const ViewpointOptions& options,

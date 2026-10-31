@@ -1,6 +1,7 @@
 // SunStudy/SunStudyRecordCore -- attaching the Rust study core to a record and
-// the calls that must ask whichever core runs it (P5). Compiled in every
-// build; the Rust half exists only with the archive (TAPIOCA_GEOMETRY_RUST).
+// the calls that ask it. Compiled in every build; without the Rust archive
+// (TAPIOCA_GEOMETRY_RUST undefined) no core can be attached and every study is
+// refused.
 
 #include "SunStudy/SunStudyStore.hpp"
 
@@ -20,7 +21,7 @@ StudyProgress StudyRecord::CurrentProgress () const
         return progress;
     }
 #endif
-    return session.Progress ();
+    return StudyProgress ();
 }
 
 void SyncStudy (StudyRecord& record, const StudyInputs& inputs)
@@ -29,10 +30,20 @@ void SyncStudy (StudyRecord& record, const StudyInputs& inputs)
     if (record.rustCore != nullptr) {
         std::string error;
         record.rustCore->Sync (inputs, error);
-        return;
     }
+#else
+    (void) record;
+    (void) inputs;
 #endif
-    record.session.Sync (inputs, record.series, record.Samples ());
+}
+
+std::string NoStudyCoreError ()
+{
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    return "the sun study has no core attached";
+#else
+    return "this build has no sun-study core";
+#endif
 }
 
 bool AttachRustStudyCore (StudyRecord& record, const geomsrv::Snapshot& snapshot, const StudyRecord* previous,
@@ -79,7 +90,7 @@ bool AttachRustStudyCore (StudyRecord& record, const geomsrv::Snapshot& snapshot
     if (coreHasAtlas != hasAtlas ||
         (hasAtlas && (info.displaySize[0] != width || info.displaySize[1] != height || info.displayFaces != faces)) ||
         info.sampleCount != record.positions.size () / 3) {
-        error = "the Rust study core does not match the record's atlas or samples; the study stays on the C++ core";
+        error = "the Rust study core does not match the record's atlas or samples";
         return false;
     }
     record.rustCore = std::shared_ptr<rust::RustStudyCore> (std::move (core));
@@ -89,7 +100,7 @@ bool AttachRustStudyCore (StudyRecord& record, const geomsrv::Snapshot& snapshot
     (void) snapshot;
     (void) previous;
     (void) maxAtlasDimension;
-    error = "this build has no Rust sun-study core";
+    error = NoStudyCoreError ();
     return false;
 #endif
 }

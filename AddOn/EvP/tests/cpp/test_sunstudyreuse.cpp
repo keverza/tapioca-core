@@ -1,4 +1,6 @@
 #include "SunStudy/SunStudyReuse.hpp"
+#include "SunStudy/SunStudyRustStudy.hpp"
+#include "sunstudy_core_fixture.hpp"
 #include "SunStudy/SunStudyWinding.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
 #include "ArchViz/ElementPacket.hpp"
@@ -80,6 +82,8 @@ class CountTraversal : public ITraversal {
     CpuTraversal cpu_;
 };
 
+void AttachCore (StudyRecord& record, uint64_t sunVersion = 0);
+
 std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> snapshot, bool patch, size_t steps = 4,
                                        const std::vector<std::string>& context = {},
                                        const std::vector<std::string>& ignored = {},
@@ -108,8 +112,7 @@ std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> 
         record->patchGrid = std::move (sampling.patches);
         record->positions = patch ? record->patchGrid.positions : record->sampleGrid.positions;
         record->normals = patch ? record->patchGrid.normals : record->sampleGrid.normals;
-        SetSampleMeshes (*record);
-        record->session.Sync ({ snapshot->id, record->series.Version (), 1 }, record->series, record->Samples ());
+        AttachCore (*record);
         return record;
     }
     std::vector<double> vertices;
@@ -154,15 +157,66 @@ std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> 
         record->positions = record->sampleGrid.positions;
         record->normals = record->sampleGrid.normals;
     }
-    SetSampleMeshes (*record);
-    record->session.Sync ({ snapshot->id, record->series.Version (), 1 }, record->series, record->Samples ());
+    AttachCore (*record);
     return record;
 }
 
-void Complete (StudyRecord& record)
+// What the start path does after sampling: the record's display atlas, the
+// core built over the same grids, its sync, then the sample-to-mesh map.
+void AttachCore (StudyRecord& record, uint64_t sunVersion)
 {
-    record.session.Advance (*record.traversal, 1000, 0.001, 0.0, 1);
-    ASSERT_TRUE (record.session.Progress ().converged);
+    record.rustCore.reset ();
+    evp::sunstudy::fixture::BuildTestAtlas (record);
+    evp::sunstudy::fixture::AttachTestCore (
+        record, { record.snapshotId, sunVersion != 0 ? sunVersion : record.series.Version (), 1 },
+        record.snapshot.get (), nullptr, 8192);
+    SetSampleMeshes (record);
+}
+
+// Advance to convergence; the dirty samples the first traced step saw (the
+// samples a seeded study traces at all), or 0 when nothing was traced.
+size_t Complete (StudyRecord& record)
+{
+    size_t active = 0, advanced = 0;
+    std::string error;
+    const rust::RustStudyCore::StepObserver first = [&active] (size_t, const TapiocaOcclusionState& state, double) {
+        if (active == 0)
+            active = state.activeSamples;
+    };
+    EXPECT_NE (record.rustCore, nullptr);
+    if (record.rustCore == nullptr)
+        return 0;
+    EXPECT_TRUE (record.rustCore->Advance (*record.traversal, 1000, 0.001, 0.0, 1, {}, first, advanced, error))
+        << error;
+    EXPECT_TRUE (record.CurrentProgress ().converged);
+    return active;
+}
+
+// One byte per (sample, step), sample-major: the store's Results wire.
+std::vector<uint8_t> Bits (const StudyRecord& record)
+{
+    std::vector<uint8_t> bits;
+    std::string error;
+    EXPECT_TRUE (record.rustCore != nullptr && record.rustCore->StepBits (bits, error)) << error;
+    return bits;
+}
+
+std::vector<double> Hours (const StudyRecord& record)
+{
+    std::vector<double> hours;
+    std::string error;
+    EXPECT_TRUE (record.rustCore != nullptr && record.rustCore->SunHours (hours, error)) << error;
+    return hours;
+}
+
+size_t LitSteps (const StudyRecord& record, size_t sample)
+{
+    const std::vector<uint8_t> bits = Bits (record);
+    const size_t steps = record.series.StepCount ();
+    size_t lit = 0;
+    for (size_t step = 0; step < steps && sample * steps + step < bits.size (); ++step)
+        lit += bits[sample * steps + step] != 0 ? 1 : 0;
+    return lit;
 }
 
 class SunStudyReuse : public testing::TestWithParam<bool> {};
@@ -195,8 +249,8 @@ TEST_P (SunStudyReuse, MoveAddDeleteAndReorderMatchFullRecomputationWithFewerRay
             EXPECT_LT (reused, incremental->positions.size () / 3) << edit;
         Complete (*incremental);
         Complete (*oracle);
-        EXPECT_EQ (incremental->session.Accumulator ().Bits (), oracle->session.Accumulator ().Bits ()) << edit;
-        EXPECT_EQ (incremental->session.SunHours (), oracle->session.SunHours ()) << edit;
+        EXPECT_EQ (Bits (*incremental), Bits (*oracle)) << edit;
+        EXPECT_EQ (Hours (*incremental), Hours (*oracle)) << edit;
         const auto* traced = dynamic_cast<const CountTraversal*> (incremental->traversal.get ());
         const auto* full = dynamic_cast<const CountTraversal*> (oracle->traversal.get ());
         EXPECT_LT (traced->rays, full->rays) << edit;
@@ -225,8 +279,8 @@ TEST_P (SunStudyReuse, RemovingContextOrIgnoredRestoresSamplesWithoutAGeometryEd
         EXPECT_LE (restored->reusedSamples, restored->positions.size () / 3 - restoredSamples);
         Complete (*restored);
         Complete (*oracle);
-        EXPECT_EQ (restored->session.Accumulator ().Bits (), oracle->session.Accumulator ().Bits ());
-        EXPECT_EQ (restored->session.SunHours (), oracle->session.SunHours ());
+        EXPECT_EQ (Bits (*restored), Bits (*oracle));
+        EXPECT_EQ (Hours (*restored), Hours (*oracle));
     }
 }
 
@@ -241,10 +295,9 @@ TEST_P (SunStudyReuse, LocalEditReusesUnaffectedTimesOnPartlyAffectedReceivers)
     const std::atomic<bool> cancelled { false };
     ReuseUnaffectedSamples (*source, *incremental, cancelled);
     EXPECT_GT (incremental->reusedSampleSteps, incremental->reusedSamples * 70);
-    const size_t wholeDayRays = incremental->session.Accumulator ().ActiveSampleCount () * 70;
-    Complete (*incremental);
+    const size_t wholeDayRays = Complete (*incremental) * 70;
     Complete (*oracle);
-    EXPECT_EQ (incremental->session.Accumulator ().Bits (), oracle->session.Accumulator ().Bits ());
+    EXPECT_EQ (Bits (*incremental), Bits (*oracle));
     const auto* traced = dynamic_cast<const CountTraversal*> (incremental->traversal.get ());
     EXPECT_LT (traced->rays, wholeDayRays);
 }
@@ -280,15 +333,15 @@ TEST_P (SunStudyReuse, CachedGridsAndSelectiveResultsMatchFreshCpuForEditsAndRol
         ReuseUnaffectedSamples (*source, *incremental, cancelled);
         Complete (*incremental);
         Complete (*oracle);
-        EXPECT_EQ (incremental->session.Accumulator ().Bits (), oracle->session.Accumulator ().Bits ());
-        EXPECT_EQ (incremental->session.SunHours (), oracle->session.SunHours ());
+        EXPECT_EQ (Bits (*incremental), Bits (*oracle));
+        EXPECT_EQ (Hours (*incremental), Hours (*oracle));
         EXPECT_GT (incremental->reusedSamples, 0u);
         if (edit == 4) {
-            EXPECT_EQ (incremental->session.Accumulator ().ActiveSampleCount (), 0u);
+            EXPECT_EQ (incremental->reusedSamples, incremental->positions.size () / 3) << "nothing left to trace";
             const auto* traced = dynamic_cast<const CountTraversal*> (incremental->traversal.get ());
             ASSERT_NE (traced, nullptr);
             EXPECT_EQ (traced->rays, 0u);
-            const auto hours = incremental->session.SunHours ();
+            const auto hours = Hours (*incremental);
             EXPECT_GT (std::count (hours.begin (), hours.end (), 0.0), 0);
         }
     }
@@ -301,9 +354,12 @@ TEST_P (SunStudyReuse, SourceMustBeCompleteCompatibleUnambiguousAndNotCancelled)
     std::atomic<bool> cancelled { false };
     EXPECT_EQ (ReuseUnaffectedSamples (*source, *target, cancelled), 0u);
     Complete (*source);
+    // The core holds the spacing and the day it was made with: remake it.
     target->gridSpacing *= 2;
+    AttachCore (*target);
     EXPECT_EQ (ReuseUnaffectedSamples (*source, *target, cancelled), 0u);
     target->gridSpacing = source->gridSpacing;
+    AttachCore (*target);
     cancelled = true;
     EXPECT_EQ (ReuseUnaffectedSamples (*source, *target, cancelled), 0u);
     cancelled = false;
@@ -311,8 +367,10 @@ TEST_P (SunStudyReuse, SourceMustBeCompleteCompatibleUnambiguousAndNotCancelled)
     EXPECT_EQ (ReuseUnaffectedSamples (*source, *target, cancelled), 0u);
     source->defaultRayBounds = true;
     target->series = Day (5);
+    AttachCore (*target);
     EXPECT_EQ (ReuseUnaffectedSamples (*source, *target, cancelled), 0u);
     target->series = source->series;
+    AttachCore (*target);
     auto ambiguous = Scene (9);
     ambiguous->meshes[2].guid = ambiguous->meshes[0].guid;
     target->snapshot = ambiguous;
@@ -340,8 +398,8 @@ TEST_P (SunStudyReuse, GlassFaceMasksMatchFreshCpuAndUnmeasuredFacesStillCastSha
         ReuseUnaffectedSamples (*source, *incremental, cancelled);
         Complete (*incremental);
         Complete (*oracle);
-        EXPECT_EQ (incremental->session.Accumulator ().Bits (), oracle->session.Accumulator ().Bits ());
-        EXPECT_EQ (incremental->session.SunHours (), oracle->session.SunHours ());
+        EXPECT_EQ (Bits (*incremental), Bits (*oracle));
+        EXPECT_EQ (Hours (*incremental), Hours (*oracle));
         EXPECT_GT (incremental->reusedSamples, 0u);
     }
 }
@@ -354,13 +412,14 @@ TEST_P (SunStudyReuse, OppositeSunsDoNotDirtyTheWholeSiteThroughTheUnionEnvelope
     const auto sun = SunSeries::FromSteps (steps, 1);
     auto source = Prepared (Scene (), GetParam ());
     source->series = sun;
-    source->session.Sync ({ 1, sun.Version (), 1 }, sun, source->Samples ());
+    AttachCore (*source);
     Complete (*source);
     auto target = Prepared (Scene (9), GetParam ());
     auto oracle = Prepared (Scene (9), GetParam ());
     for (auto* record : { target.get (), oracle.get () }) {
         record->series = sun;
-        record->session.Sync ({ 2, sun.Version (), 1 }, sun, record->Samples ());
+        record->snapshotId = 2;
+        AttachCore (*record);
     }
     const std::atomic<bool> cancelled { false };
     const size_t reused = ReuseUnaffectedSamples (*source, *target, cancelled);
@@ -368,25 +427,25 @@ TEST_P (SunStudyReuse, OppositeSunsDoNotDirtyTheWholeSiteThroughTheUnionEnvelope
     EXPECT_GE (reused, static_cast<size_t> (farSamples));
     Complete (*target);
     Complete (*oracle);
-    EXPECT_EQ (target->session.Accumulator ().Bits (), oracle->session.Accumulator ().Bits ());
+    EXPECT_EQ (Bits (*target), Bits (*oracle));
 }
 
 TEST_P (SunStudyReuse, MaterialOnlyEditNeedsNoRaysAndSeedPreservesNeverLitSamples)
 {
     auto source = Prepared (Scene (), GetParam ());
     Complete (*source);
-    const auto hours = source->session.SunHours ();
+    const auto hours = Hours (*source);
     ASSERT_GT (std::count (hours.begin (), hours.end (), 0.0), 0);
     auto next = Scene ();
     next->meshes[0].triMaterial = { 12, 13 };
     auto target = Prepared (next, GetParam ());
     const std::atomic<bool> cancelled { false };
     EXPECT_EQ (ReuseUnaffectedSamples (*source, *target, cancelled), target->positions.size () / 3);
-    EXPECT_TRUE (target->session.Progress ().converged);
-    EXPECT_EQ (target->session.Accumulator ().Bits (), source->session.Accumulator ().Bits ());
-    EXPECT_EQ (target->session.Accumulator ().ActiveSampleCount (), 0u);
-    Complete (*target);
-    EXPECT_EQ (target->session.SunHours (), hours);
+    EXPECT_TRUE (target->CurrentProgress ().converged);
+    EXPECT_EQ (Bits (*target), Bits (*source));
+    EXPECT_EQ (target->reusedSamples, target->positions.size () / 3) << "nothing left to trace";
+    EXPECT_EQ (Complete (*target), 0u);
+    EXPECT_EQ (Hours (*target), hours);
     const auto* traced = dynamic_cast<const CountTraversal*> (target->traversal.get ());
     ASSERT_NE (traced, nullptr);
     EXPECT_EQ (traced->rays, 0u);
@@ -400,7 +459,7 @@ TEST_P (SunStudyReuse, ChangedLastNormalKeepsOnlyThatSampleDirty)
     auto oracle = Prepared (Scene (), GetParam ());
     const size_t count = target->positions.size () / 3;
     ASSERT_GT (count, 1u);
-    ASSERT_GT (source->session.Accumulator ().LitStepCount (count - 1), 0u);
+    ASSERT_GT (LitSteps (*source, count - 1), 0u);
     // The last xyz normal's end is one-past the vector, never a valid subscript.
     for (auto* record : { target.get (), oracle.get () }) {
         for (size_t axis = 0; axis < 3; ++axis)
@@ -408,28 +467,33 @@ TEST_P (SunStudyReuse, ChangedLastNormalKeepsOnlyThatSampleDirty)
     }
     const std::atomic<bool> cancelled { false };
     EXPECT_EQ (ReuseUnaffectedSamples (*source, *target, cancelled), count - 1);
-    EXPECT_EQ (target->session.Accumulator ().ActiveSampleCount (), 1u);
-    EXPECT_FALSE (target->session.Progress ().converged);
-    Complete (*target);
+    EXPECT_FALSE (target->CurrentProgress ().converged);
+    EXPECT_EQ (Complete (*target), 1u) << "only that sample is traced";
     Complete (*oracle);
-    EXPECT_EQ (target->session.Accumulator ().Bits (), oracle->session.Accumulator ().Bits ());
-    EXPECT_EQ (target->session.SunHours (), oracle->session.SunHours ());
-    EXPECT_EQ (target->session.Accumulator ().LitStepCount (count - 1), 0u);
+    EXPECT_EQ (Bits (*target), Bits (*oracle));
+    EXPECT_EQ (Hours (*target), Hours (*oracle));
+    EXPECT_EQ (LitSteps (*target, count - 1), 0u);
 }
 
 INSTANTIATE_TEST_SUITE_P (Domains, SunStudyReuse, testing::Values (false, true));
 
 TEST (SunStudyReuseAccumulator, RejectsIncompleteBadIndexAndResetsSelectiveState)
 {
-    OcclusionAccumulator source (2, 1), target (2, 1);
+    rust::RustOcclusionAccumulator source (2, 1), target (2, 1);
     EXPECT_FALSE (target.SeedReusable (source, { 0, 1 }));
+    const auto complete = [] (const StudyRecord& record) {
+        rust::RustOcclusionAccumulator accumulator (record.positions.size () / 3, record.series.StepCount ());
+        EXPECT_EQ (
+            accumulator.AccumulateRange (*record.traversal, record.Samples (), record.series, 0, 1000, 0.001, 0.0, 1),
+            record.series.StepCount ());
+        return accumulator;
+    };
     auto record = Prepared (Scene (), false);
-    Complete (*record);
-    EXPECT_FALSE (target.SeedReusable (record->session.Accumulator (), { 0, 1 }));
+    EXPECT_FALSE (target.SeedReusable (complete (*record), { 0, 1 })) << "another day's steps";
     auto single = Prepared (Scene (), false, 1);
-    Complete (*single);
-    EXPECT_FALSE (target.SeedReusable (single->session.Accumulator (), { 0, 9999999 }));
-    EXPECT_TRUE (target.SeedReusable (single->session.Accumulator (), { 0, OcclusionAccumulator::kNoReuse }));
+    const auto day = complete (*single);
+    EXPECT_FALSE (target.SeedReusable (day, { 0, 9999999 }));
+    EXPECT_TRUE (target.SeedReusable (day, { 0, kNoReuse }));
     EXPECT_EQ (target.ActiveSampleCount (), 1u);
     target.Reset ();
     EXPECT_EQ (target.ActiveSampleCount (), 2u);
@@ -451,11 +515,11 @@ TEST (SunStudyReuseStore, CompletedHandleSurvivesEraseAndFurtherAdvanceIsImmutab
     StudyRecord metadata;
     ASSERT_TRUE (store.Describe (id, metadata, error));
     EXPECT_EQ (metadata.snapshotId, completed->snapshotId);
-    const auto bits = completed->session.Accumulator ().Bits ();
+    const auto bits = Bits (*completed);
     ASSERT_TRUE (store.Advance (id, 100, 1, 0.001, 0.0, advanced, error));
     EXPECT_EQ (advanced, 0u);
     ASSERT_TRUE (store.Erase (id));
-    EXPECT_EQ (completed->session.Accumulator ().Bits (), bits);
+    EXPECT_EQ (Bits (*completed), bits);
 }
 
 TEST (ScenePacketTelemetry, PayloadBytesExcludeUnusedCapacityAndQueueKeepsStamp)

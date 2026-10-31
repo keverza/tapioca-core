@@ -22,12 +22,10 @@ SunStudyResultSummary SummarizeRecord (const StudyRecord& record)
         record.rustCore->Summary (summary, error);
         return summary;
     }
+#else
+    (void) record;
 #endif
-    const auto& accumulator = record.session.Accumulator ();
-    const double quantum = record.series.HoursPerStep ();
-    return SummarizeSunHours (
-        accumulator.SampleCount (), record.series.DaylightHours (),
-        [&accumulator, quantum] (size_t sample) { return accumulator.LitStepCount (sample) * quantum; });
+    return SunStudyResultSummary ();
 }
 
 #if defined(TAPIOCA_GEOMETRY_RUST)
@@ -49,35 +47,6 @@ std::string RefusalText (const std::string& id, bool patchDomain, rust::StudyRea
     return std::string ();
 }
 #endif
-
-// The patch atlas image as the hours stand. Called with the store's lock HELD,
-// by both readers that serve it, so the whole-study image has one definition.
-std::vector<float> ScatterPatchImage (const StudyRecord& record)
-{
-    // ⚠️ THE SENTINEL IS THE INITIAL VALUE, NOT ZERO, AND IT IS NOT DECORATION.
-    // Every texel no sample lands on -- gutters, the space between shelves, the
-    // fragmentation the atlas deliberately never compacts away -- has to read as
-    // "no sample here", which the shader discards. Zero would read as "nought
-    // hours of sun", which is a legitimate measurement, and the unused half of
-    // the atlas would paint as permanent shadow.
-    std::vector<float> image (record.patchAtlas.TexelCount (), -1.0f);
-
-    const std::vector<double>& hours = record.session.SunHours ();
-
-    // Scattered PATCH BY PATCH through the atlas's own routine rather than
-    // sample by sample through a flat loop. It is the same routine the
-    // incremental path will use for a single surface, so the whole-study image
-    // and a one-surface update cannot disagree about where a patch's texels are.
-    std::vector<double> forSpan;
-    for (size_t spanIndex = 0; spanIndex < record.patchGrid.spans.size (); ++spanIndex) {
-        const PatchSampleSpan& span = record.patchGrid.spans[spanIndex];
-        if (span.first + span.count > hours.size ())
-            continue; // the study has not produced these yet
-        forSpan.assign (hours.begin () + span.first, hours.begin () + span.first + span.count);
-        record.patchAtlas.ScatterPatch (record.patchGrid, spanIndex, forSpan, image);
-    }
-    return image;
-}
 
 } // namespace
 
@@ -256,7 +225,7 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
         else
 #endif
             if (ready)
-            advanced = record->session.Advance (*record->traversal, maxSteps, tmin, tmax, maxParallel, isCancelled);
+            throw std::runtime_error (NoStudyCoreError ());
         const StudyProgress now = record->CurrentProgress ();
         if (sessionLock.owns_lock () && now.converged) {
             record->resultSummary = SummarizeRecord (*record);
@@ -363,9 +332,8 @@ bool SunStudyStore::SunHours (const std::string& id, std::vector<double>& hours,
         return true;
     }
 #endif
-    hours = found->second->session.SunHours ();
-    positions = found->second->positions;
-    return true;
+    error = NoStudyCoreError ();
+    return false;
 }
 
 bool SunStudyStore::Results (const std::string& id, std::vector<double>& hours, std::vector<double>& positions,
@@ -394,29 +362,11 @@ bool SunStudyStore::Results (const std::string& id, std::vector<double>& hours, 
         return true;
     }
 #endif
-    hours = record.session.SunHours ();
-    if (includePositions) {
-        positions = record.positions;
-        normals = record.normals;
-    }
-    else {
-        positions.clear ();
-        normals.clear ();
-    }
-
-    if (stepBits != nullptr) {
-        const OcclusionAccumulator& accumulator = record.session.Accumulator ();
-        const size_t samples = accumulator.SampleCount ();
-        const size_t steps = accumulator.StepCount ();
-        stepBits->assign (samples * steps, 0);
-        // Sample-major, so one sample's whole day is contiguous -- which is how
-        // every consumer reads it.
-        for (size_t sample = 0; sample < samples; ++sample) {
-            for (size_t step = 0; step < steps; ++step)
-                (*stepBits)[sample * steps + step] = accumulator.Lit (sample, step) ? 1u : 0u;
-        }
-    }
-    return true;
+    (void) record;
+    (void) includePositions;
+    (void) stepBits;
+    error = NoStudyCoreError ();
+    return false;
 }
 
 bool SunStudyStore::Summary (const std::string& id, SunStudyResultSummary& summary, std::string& error,
@@ -530,25 +480,12 @@ bool SunStudyStore::AtlasImage (const std::string& id, uint32_t& width, uint32_t
         return status == rust::StudyReadStatus::Ok;
     }
 #endif
-    if (!record.atlas.valid) {
-        // ⚠️ THE PATCH CASE IS NAMED SEPARATELY BECAUSE THE GENERAL MESSAGE IS
-        // A LIE FOR IT. A patch study WAS sampled on model surfaces; what it has
-        // is a different atlas. Telling its caller otherwise would send the next
-        // reader looking at the sampler instead of at the display path.
-        error = record.IsPatchDomain ()
-                    ? "study '" + id + "' is a patch-domain study - ask for its patch atlas, not the triangle one"
-                    : "study '" + id + "' has no atlas - it was not sampled on model surfaces";
-        return false;
-    }
-
-    width = record.atlas.width;
-    height = record.atlas.height;
-    // ⚠️ SCATTERED FROM THE HOURS AS THEY STAND, so a study still converging
-    // yields an atlas of the hours SO FAR -- which are too low. The caller is
-    // told `converged` alongside and must not paint a final picture from a
-    // partial one.
-    image = ScatterToAtlas (record.atlas, record.session.SunHours ());
-    return true;
+    (void) record;
+    (void) width;
+    (void) height;
+    (void) image;
+    error = NoStudyCoreError ();
+    return false;
 }
 
 bool SunStudyStore::PatchAtlasImage (const std::string& id, uint32_t& width, uint32_t& height,
@@ -573,15 +510,12 @@ bool SunStudyStore::PatchAtlasImage (const std::string& id, uint32_t& width, uin
         return status == rust::StudyReadStatus::Ok;
     }
 #endif
-    if (!record.IsPatchDomain () || !record.patchGrid.valid || record.patchAtlas.Width () == 0) {
-        error = "study '" + id + "' is not a patch-domain study with a packed atlas";
-        return false;
-    }
-
-    width = record.patchAtlas.Width ();
-    height = record.patchAtlas.Height ();
-    image = ScatterPatchImage (record);
-    return true;
+    (void) record;
+    (void) width;
+    (void) height;
+    (void) image;
+    error = NoStudyCoreError ();
+    return false;
 }
 
 bool SunStudyStore::DisplayData (const std::string& id, std::vector<AtlasTile>& tiles, std::vector<FaceLayout>& layouts,
@@ -619,40 +553,18 @@ bool SunStudyStore::DisplayData (const std::string& id, std::vector<AtlasTile>& 
         return true;
     }
 #endif
-    if (record.IsPatchDomain ()) {
-        if (!record.patchGrid.valid || record.patchAtlas.Width () == 0) {
-            error = "study '" + id + "' is a patch-domain study with no packed patch atlas";
-            return false;
-        }
-        if (!PatchFaceArrays (record.patchGrid, record.patchAtlas, tiles, layouts)) {
-            // ⚠️ A REFUSAL, NOT A PARTIAL ANSWER. A span with no rectangle means
-            // the atlas and the grid are not one study; drawing the rest would
-            // leave one surface wearing whatever texels it happened to address.
-            error = "study '" + id + "' has a patch the patch atlas did not place - the two are not one study";
-            return false;
-        }
-        width = record.patchAtlas.Width ();
-        height = record.patchAtlas.Height ();
-        image = ScatterPatchImage (record);
-    }
-    else {
-        if (!record.atlas.valid) {
-            error = "study '" + id + "' has no atlas - it was not sampled on model surfaces";
-            return false;
-        }
-        tiles = record.atlas.tiles;
-        layouts = record.sampleGrid.layouts;
-        width = record.atlas.width;
-        height = record.atlas.height;
-        image = ScatterToAtlas (record.atlas, record.session.SunHours ());
-    }
-
-    spacing = record.gridSpacing;
-    daylightHours = record.series.DaylightHours ();
-    const StudyProgress progress = progress_.at (id);
-    converged = progress.converged;
-    generation = progress.generation;
-    return true;
+    (void) record;
+    (void) tiles;
+    (void) layouts;
+    (void) width;
+    (void) height;
+    (void) spacing;
+    (void) image;
+    (void) daylightHours;
+    (void) converged;
+    (void) generation;
+    error = NoStudyCoreError ();
+    return false;
 }
 
 bool SunStudyStore::ReadAt (const std::string& id, uint64_t snapshotId, size_t face, size_t meshIndex,
@@ -682,10 +594,10 @@ bool SunStudyStore::ReadAt (const std::string& id, uint64_t snapshotId, size_t f
     if (record.rustCore != nullptr)
         return record.rustCore->ReadAt (face, point, reading, error);
 #endif
-    const std::vector<double>& hours = record.session.SunHours ();
-    reading = record.IsPatchDomain () ? ReadPatchStudyAt (record.patchGrid, record.gridSpacing, hours, face, point)
-                                      : ReadTriangleStudyAt (record.sampleGrid, record.gridSpacing, hours, face, point);
-    return true;
+    (void) face;
+    (void) point;
+    error = NoStudyCoreError ();
+    return false;
 }
 
 bool SunStudyStore::StepMasks (const std::string& id, StepMaskAtlas& atlas, std::vector<uint16_t>& stepMinutes,
@@ -712,41 +624,12 @@ bool SunStudyStore::StepMasks (const std::string& id, StepMaskAtlas& atlas, std:
         return status == rust::StudyReadStatus::Ok;
     }
 #endif
-    const OcclusionAccumulator& accumulator = record.session.Accumulator ();
-
-    // Where each sample's value sits in the atlas this study DISPLAYS -- the
-    // same table the hours image was scattered through, so the two images
-    // agree texel for texel.
-    std::vector<int64_t> texelOf (accumulator.SampleCount (), -1);
-    uint32_t width = 0;
-    uint32_t height = 0;
-    if (record.IsPatchDomain ()) {
-        if (!record.patchGrid.valid || record.patchAtlas.Width () == 0) {
-            error = "study '" + id + "' has no packed patch atlas";
-            return false;
-        }
-        width = record.patchAtlas.Width ();
-        height = record.patchAtlas.Height ();
-        for (size_t sample = 0; sample < texelOf.size (); ++sample)
-            texelOf[sample] = record.patchAtlas.TexelOf (record.patchGrid, sample);
-    }
-    else {
-        if (!record.atlas.valid) {
-            error = "study '" + id + "' has no atlas - it was not sampled on model surfaces";
-            return false;
-        }
-        width = record.atlas.width;
-        height = record.atlas.height;
-        for (size_t sample = 0; sample < texelOf.size () && sample < record.atlas.texels.size (); ++sample)
-            texelOf[sample] = record.atlas.texels[sample];
-    }
-
-    atlas = PackStepMasks (
-        accumulator.SampleCount (), accumulator.StepCount (),
-        [&accumulator] (size_t sample, size_t step) { return accumulator.Lit (sample, step); }, texelOf, width, height);
-    stepMinutes = StepMinutes (record.series);
-    noonStep = SolarNoonStep (record.series);
-    return true;
+    (void) record;
+    (void) atlas;
+    (void) stepMinutes;
+    (void) noonStep;
+    error = NoStudyCoreError ();
+    return false;
 }
 
 bool SunStudyStore::Footprint (const std::string& id, size_t& samples, double& analysedArea, std::string& error) const

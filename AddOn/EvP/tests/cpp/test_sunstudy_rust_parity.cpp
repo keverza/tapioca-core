@@ -11,6 +11,7 @@
 #include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/SunStudyAtlasReuse.hpp"
 #include "SunStudy/SunStudyReuse.hpp"
+#include "SunStudy/SunStudySession.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyRust.hpp"
 
@@ -1725,7 +1726,6 @@ std::unique_ptr<StudyRecord> ReuseRecord (std::shared_ptr<const geomsrv::Snapsho
         record->normals = record->sampleGrid.normals;
     }
     evp::sunstudy::SetSampleMeshes (*record);
-    record->session.Sync ({ snapshot->id, record->series.Version (), 1 }, record->series, record->Samples ());
     return record;
 }
 
@@ -1759,80 +1759,7 @@ std::shared_ptr<geomsrv::Snapshot> ReuseScene (Lcg& lcg, int edit, const geomsrv
     return snapshot;
 }
 
-void ExpectSameReuse (StudyRecord& expected, StudyRecord& actual, size_t e, size_t a, const char* what)
-{
-    EXPECT_EQ (a, e) << what;
-    EXPECT_EQ (actual.reusedSamples, expected.reusedSamples) << what;
-    EXPECT_EQ (actual.reusedSampleSteps, expected.reusedSampleSteps) << what;
-    EXPECT_EQ (actual.session.Accumulator ().ActiveSampleCount (), expected.session.Accumulator ().ActiveSampleCount ())
-        << what;
-    EXPECT_EQ (actual.session.Accumulator ().Bits (), expected.session.Accumulator ().Bits ()) << what;
-    expected.session.Advance (*expected.traversal, 1000, 0.001, 0.0, 1);
-    actual.session.Advance (*actual.traversal, 1000, 0.001, 0.0, 1);
-    EXPECT_EQ (actual.session.Accumulator ().Bits (), expected.session.Accumulator ().Bits ()) << what << " traced";
-}
-
 } // namespace
-
-TEST (SunStudyRustParity, ReusePlanningMatchesAcrossEditsDomainsAndRoles)
-{
-    Lcg lcg (0x4e05eull);
-    size_t reusedTotal = 0, cases = 0;
-    for (const bool patch : { false, true }) {
-        for (int edit = 0; edit < 6; ++edit) {
-            for (const size_t steps : { size_t { 5 }, size_t { 70 } }) {
-                const auto base = ReuseScene (lcg, -1, nullptr);
-                auto source = ReuseRecord (base, patch, steps, {});
-                source->session.Advance (*source->traversal, 1000, 0.001, 0.0, 1);
-                ASSERT_TRUE (source->session.Progress ().converged);
-                const auto edited = ReuseScene (lcg, edit, base.get ());
-                const std::vector<std::string> context =
-                    edit == 5 ? std::vector<std::string> { "shed" } : std::vector<std::string> {};
-                auto expected = ReuseRecord (edited, patch, steps, context);
-                auto actual = ReuseRecord (edited, patch, steps, context);
-                const std::atomic<bool> notCancelled { false };
-                const size_t e = evp::sunstudy::ReuseUnaffectedSamples (*source, *expected, notCancelled);
-                std::string error;
-                const size_t a = rs::ReuseUnaffectedSamples (*source, *actual, notCancelled, error);
-                ASSERT_TRUE (error.empty ()) << error;
-                ExpectSameReuse (*expected, *actual, e, a, patch ? "patch" : "triangle");
-                if (::testing::Test::HasFatalFailure ())
-                    return;
-                reusedTotal += e;
-                ++cases;
-            }
-        }
-    }
-    EXPECT_EQ (cases, 24u);
-    EXPECT_GT (reusedTotal, 100u) << "the corpus must actually reuse something";
-}
-
-TEST (SunStudyRustParity, ReuseRefusalsMatch)
-{
-    Lcg lcg (0x4ef5ull);
-    const auto base = ReuseScene (lcg, -1, nullptr);
-    auto source = ReuseRecord (base, false, 6, {});
-    auto unfinished = ReuseRecord (base, false, 6, {});
-    source->session.Advance (*source->traversal, 1000);
-    const std::atomic<bool> cancelled { true }, running { false };
-    for (int scenario = 0; scenario < 4; ++scenario) {
-        auto expected = ReuseRecord (base, false, scenario == 2 ? 7 : 6, {});
-        auto actual = ReuseRecord (base, false, scenario == 2 ? 7 : 6, {});
-        const StudyRecord& from = scenario == 0 ? *unfinished : *source;
-        const std::atomic<bool>& stop = scenario == 1 ? cancelled : running;
-        if (scenario == 3) { // ambiguous identity
-            auto ambiguous = std::make_shared<geomsrv::Snapshot> (*base);
-            ambiguous->meshes[3].guid = "{NEAR}";
-            expected = ReuseRecord (ambiguous, false, 6, {});
-            actual = ReuseRecord (ambiguous, false, 6, {});
-        }
-        std::string error;
-        EXPECT_EQ (rs::ReuseUnaffectedSamples (from, *actual, stop, error),
-                   evp::sunstudy::ReuseUnaffectedSamples (from, *expected, stop))
-            << "scenario " << scenario;
-        EXPECT_EQ (actual->session.Accumulator ().Bits (), expected->session.Accumulator ().Bits ());
-    }
-}
 
 TEST (SunStudyRustParity, PatchSampleMeshesMatch)
 {

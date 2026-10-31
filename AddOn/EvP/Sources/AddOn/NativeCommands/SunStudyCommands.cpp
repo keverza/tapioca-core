@@ -437,9 +437,13 @@ class StartSunStudyCommand : public MainThreadCommand {
         inputs.geometryVersion = snapshot->id;
         inputs.sunVersion = record->series.Version ();
         inputs.gridVersion = gridVersion;
-        StartSunStudyCore (*record, *snapshot, reuseSource.get (), inputs);
+        std::string coreError;
+        if (!StartSunStudyCore (*record, *snapshot, reuseSource.get (), inputs, coreError))
+            return NativeCommandResult::Failure (Text ("the sun study cannot run: " + coreError));
         FinishSunStudyPreparation (*record, snapshot, reuseSource.get (), cancelled_, occluders);
-        trace.Mark ("reuse-seed", record->session.Accumulator ().Bits ().size () * sizeof (uint64_t));
+        // The lit bitset the core holds: one bit per (sample, step), whole words per sample.
+        trace.Mark ("reuse-seed",
+                    record->positions.size () / 3 * ((record->series.StepCount () + 63) / 64) * sizeof (uint64_t));
 
         const StudyProgress progress = record->CurrentProgress ();
         const double daylightHours = record->series.DaylightHours ();

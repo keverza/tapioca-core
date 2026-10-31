@@ -1,5 +1,7 @@
 #include "SunStudy/SunStudyAdvanceWorker.hpp"
 #include "SunStudy/SunStudyStore.hpp"
+#include "SunStudy/SunStudyRustStudy.hpp"
+#include "sunstudy_core_fixture.hpp"
 
 #include <gtest/gtest.h>
 
@@ -71,7 +73,7 @@ std::unique_ptr<StudyRecord> Record (const std::shared_ptr<const ITraversal>& tr
         steps[step].direction[2] = 1.0;
     }
     record->series = SunSeries::FromSteps (steps, 60);
-    record->session.Sync ({ 31, record->series.Version (), 1 }, record->series, record->Samples ());
+    evp::sunstudy::fixture::AttachTestCore (*record, { 31, record->series.Version (), 1 });
     return record;
 }
 
@@ -356,17 +358,28 @@ TEST (SunStudyAdvanceWorker, ClearDuringCalculationStopsAtTheCurrentStep)
     EXPECT_EQ (SunStudyStore::Get ().Count (), 0u);
 }
 
-TEST (SunStudySession, CooperativeCancellationCommitsOnlyCompleteStepsAndCanResume)
+TEST (SunStudyCore, CooperativeCancellationCommitsOnlyCompleteStepsAndCanResume)
 {
     PausedStudy study;
     study.Release ();
     auto record = Record (study.traversal);
     bool cancelled = false;
-    record->session.SetStepObserver ([&cancelled] (size_t, const OcclusionAccumulator&, double) { cancelled = true; });
-    EXPECT_EQ (record->session.Advance (*study.traversal, 3, 0.001, 0.0, 1, [&cancelled] () { return cancelled; }), 1u);
-    EXPECT_EQ (record->session.Progress ().resolvedSteps, 1u);
-    EXPECT_FALSE (record->session.Progress ().converged);
-    EXPECT_EQ (record->session.Advance (*study.traversal, 3, 0.001, 0.0, 1), 2u);
-    EXPECT_TRUE (record->session.Progress ().converged);
-    EXPECT_EQ (record->session.SunHours (), std::vector<double> { 3.0 });
+    ASSERT_NE (record->rustCore, nullptr);
+    const rust::RustStudyCore::StepObserver stop = [&cancelled] (size_t, const TapiocaOcclusionState&, double) {
+        cancelled = true;
+    };
+    size_t advanced = 0;
+    std::string error;
+    ASSERT_TRUE (record->rustCore->Advance (
+        *study.traversal, 3, 0.001, 0.0, 1, [&cancelled] () { return cancelled; }, stop, advanced, error))
+        << error;
+    EXPECT_EQ (advanced, 1u);
+    EXPECT_EQ (record->CurrentProgress ().resolvedSteps, 1u);
+    EXPECT_FALSE (record->CurrentProgress ().converged);
+    ASSERT_TRUE (record->rustCore->Advance (*study.traversal, 3, 0.001, 0.0, 1, {}, {}, advanced, error)) << error;
+    EXPECT_EQ (advanced, 2u);
+    EXPECT_TRUE (record->CurrentProgress ().converged);
+    std::vector<double> hours;
+    ASSERT_TRUE (record->rustCore->SunHours (hours, error)) << error;
+    EXPECT_EQ (hours, std::vector<double> { 3.0 });
 }

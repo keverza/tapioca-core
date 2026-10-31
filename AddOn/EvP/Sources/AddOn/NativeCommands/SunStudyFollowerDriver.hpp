@@ -6,7 +6,8 @@
 //
 // ⚠️ IT DECIDES NOTHING. Every rule about when a study is stale, how long the
 // quiet period is and which result may become visible lives in the pure
-// `SunStudy/SunStudyFollower`, which is tested offline over a supplied clock
+// follower policy (`SunStudy/SunStudyFollowerPolicy`, the Rust follower), which
+// is tested offline over a supplied clock
 // because those rules are about TIME and IDENTITY and a live session cannot be
 // asked to reproduce either on demand. This file only:
 //
@@ -27,14 +28,14 @@
 //
 // The division, top to bottom:
 //
-//     SunStudyFollower        pure policy and state
+//     SunStudyFollowerPolicy  pure policy and state (the Rust follower)
 //     SunStudyFollowerDriver  this file: live orchestration
 //     ExecuteNativeCommand    the existing implementations
-//     SunStudySession         the analysis
+//     SunStudyStore           the analysis (the Rust study core)
 //     DiligentScene           a display consumer, and nothing more
 
-#include "SunStudy/SunStudyFollower.hpp"
-#include "SunStudy/SunStudyFollowerSelection.hpp"
+#include "SunStudy/SunStudyFollowState.hpp"
+#include "SunStudy/SunStudyFollowerPolicy.hpp"
 #include "SunStudy/SunStudySelectionBinding.hpp"
 
 #include <cstdint>

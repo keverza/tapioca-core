@@ -5,12 +5,12 @@
 //
 // Thin, SDK-free wrappers over SunStudyRustFfi.h: they own the error buffer,
 // translate the existing C++ value types to POD views and back, and turn a
-// refused call into `false` plus a message. Nothing in production calls them
-// yet — the C++ core stays authoritative and is the parity oracle
-// (test_sunstudy_rust_parity.cpp) until the TAPIOCA_SUNSTUDY_CORE flip.
+// refused call into `false` plus a message. The study core (accumulator,
+// session, follower) runs only here; the kernel wrappers are pinned to their
+// C++ twins by test_sunstudy_rust_parity.cpp until those are switched (P7b).
 //
-// The signatures deliberately speak the C++ core's own types so that the flip
-// swaps an implementation, not a vocabulary.
+// The signatures deliberately speak the C++ types so that a switch swaps an
+// implementation, not a vocabulary.
 
 #include "SunStudy/SunSeries.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
@@ -258,12 +258,6 @@ class RustSunStudySession final {
     mutable std::mutex errorMutex_;
     mutable std::string error_;
 };
-
-// ReuseUnaffectedSamples with the plan computed in Rust; the target's (C++)
-// session is seeded exactly where the C++ function seeds it. Returns the
-// reused sample count (0 for no reuse), as the C++ function does.
-size_t ReuseUnaffectedSamples (const StudyRecord& source, StudyRecord& target, const std::atomic<bool>& cancelled,
-                               std::string& error);
 
 // SetSampleMeshes, with the patch-domain map built in Rust.
 bool SetSampleMeshes (StudyRecord& record, std::string& error);

@@ -1,12 +1,15 @@
-// Differential tests: the Rust study core (the portable half of a split
-// StudyRecord) against SunStudyStore's readers over a C++ record built from the
-// same inputs. The store is the oracle; arrays are compared BIT FOR BIT.
+// Differential tests: a Rust study core built directly from the grids against
+// SunStudyStore's readers over a record built from the same inputs, and both
+// against the C++ kernels (sunstudy_kernel_oracle.hpp) recomputing every
+// image, mask, summary and reading from the hours. Arrays are compared BIT FOR
+// BIT.
 //
 // Each case builds the record the way the start path does (surface sampling,
-// stable triangle atlas or refitted patch atlas, sync, sample meshes, reuse),
-// files it in the store, and builds the Rust core from the same grid and the
-// previous core. Both are then advanced slice by slice with one traversal, and
-// every reader is compared after every slice, so partial results count too.
+// stable triangle atlas or refitted patch atlas, core attach, sync, sample
+// meshes, reuse), files it in the store, and builds a second core from the
+// same grid and the previous core. Both are then advanced slice by slice with
+// one traversal, and every reader is compared after every slice, so partial
+// results count too.
 
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/CpuTraversal.hpp"
@@ -16,6 +19,7 @@
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyRustStudy.hpp"
 #include "SunStudy/SunStudyStore.hpp"
+#include "sunstudy_kernel_oracle.hpp"
 
 #include <gtest/gtest.h>
 
@@ -231,7 +235,9 @@ Study Start (std::shared_ptr<const geomsrv::Snapshot> snapshot, Domain domain, s
     }
     EXPECT_NE (study.core, nullptr) << error;
     const StudyInputs inputs { snapshot->id, record->series.Version (), gridVersion };
-    record->session.Sync (inputs, record->series, record->Samples ());
+    std::string attachError;
+    EXPECT_TRUE (AttachRustStudyCore (*record, *snapshot, source, kMaxDimension, attachError)) << attachError;
+    SyncStudy (*record, inputs);
     EXPECT_TRUE (study.core->Sync (inputs, error)) << error;
     SetSampleMeshes (*record);
     EXPECT_TRUE (study.core->SetSampleMeshes (*snapshot, error)) << error;
@@ -370,6 +376,8 @@ void ExpectSameReads (const Study& study, const std::string& what)
     if (described)
         EXPECT_TRUE (info.displaySize[0] == we && info.displaySize[1] == he && info.displayFaces == faces) << what;
     EXPECT_TRUE (SameBits (info.daylightHours, daylight)) << what;
+
+    evp::sunstudy::fixture::ExpectStoreMatchesKernels (study.id, what);
 }
 
 // The hover reading at face centroids and jittered points, every face.
@@ -401,6 +409,8 @@ void ExpectSameReadings (const Study& study, Lcg& lcg, const std::string& what)
             ASSERT_TRUE (a.measured == e.measured && SameBits (a.hours, e.hours) && a.sample == e.sample &&
                          a.column == e.column && a.row == e.row && a.nearest == e.nearest)
                 << what << " face " << face << " point " << k;
+            if (face < faceCount && k < 2)
+                evp::sunstudy::fixture::ExpectReadingMatchesKernels (study.id, study.snapshot->id, face, point, what);
             measured += e.measured ? 1 : 0;
         }
     }

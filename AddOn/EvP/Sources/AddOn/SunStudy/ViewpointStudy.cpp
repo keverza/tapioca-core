@@ -1,7 +1,6 @@
 #include "SunStudy/ViewpointStudy.hpp"
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
-#include "SunStudy/SunStudyCoreSelection.hpp"
 
 #if defined(TAPIOCA_GEOMETRY_RUST)
 #include "SunStudy/SunStudyRustViews.hpp"
@@ -405,8 +404,7 @@ ViewpointPlanContour ViewpointBakeContour (const ViewpointStudyResult& result, d
                 const auto& b = ring[(i + 1) % n];
                 const double dx = b[0] - a[0], dy = b[1] - a[1], length = std::hypot (dx, dy);
                 const double bend =
-                    length < 1.0e-12 ? 0.0
-                                     : std::abs (dx * (ring[i][1] - a[1]) - dy * (ring[i][0] - a[0])) / length;
+                    length < 1.0e-12 ? 0.0 : std::abs (dx * (ring[i][1] - a[1]) - dy * (ring[i][0] - a[0])) / length;
                 if (bend > sharpest) {
                     sharpest = bend;
                     start = i;
@@ -598,10 +596,10 @@ ViewpointStudyResult RunSelectedViewpointStudy (const std::shared_ptr<const geom
                                                 const std::function<bool ()>& isCancelled)
 {
 #if defined(TAPIOCA_GEOMETRY_RUST)
-    if (SelectedSunStudyCore () == SunStudyCoreKind::Rust)
-        return rust::RunViewpointStudy (snapshot, context, options, isCancelled);
-#endif
+    return rust::RunViewpointStudy (snapshot, context, options, isCancelled);
+#else
     return RunViewpointStudy (snapshot, context, options, isCancelled);
+#endif
 }
 
 } // namespace evp::sunstudy
