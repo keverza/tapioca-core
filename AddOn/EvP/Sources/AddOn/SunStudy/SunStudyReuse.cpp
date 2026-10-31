@@ -185,7 +185,7 @@ size_t ReuseUnaffectedSamples (const StudyRecord& source, StudyRecord& target, c
         return 0;
 
     std::vector<GeometryChange> changes;
-    std::vector<size_t> oldMesh (target.snapshot->meshes.size (), OcclusionAccumulator::kNoReuse);
+    std::vector<size_t> oldMesh (target.snapshot->meshes.size (), kNoReuse);
     ChangedBounds scene;
     for (const auto* snapshot : { source.snapshot.get (), target.snapshot.get () }) {
         for (const auto& mesh : snapshot->meshes) {
@@ -259,7 +259,7 @@ size_t ReuseUnaffectedSamples (const StudyRecord& source, StudyRecord& target, c
         samplesBefore[mesh].push_back (sample);
     }
     std::vector<size_t> cursors (oldMesh.size (), 0);
-    std::vector<size_t> reuse (target.sampleMeshes.size (), OcclusionAccumulator::kNoReuse);
+    std::vector<size_t> reuse (target.sampleMeshes.size (), kNoReuse);
     const size_t steps = target.series.StepCount ();
     const size_t words = (steps + 63) / 64;
     if (words == 0)
@@ -278,7 +278,7 @@ size_t ReuseUnaffectedSamples (const StudyRecord& source, StudyRecord& target, c
             return 0;
         const size_t old = oldMesh[mesh];
         const size_t index = cursors[mesh]++;
-        if (old == OcclusionAccumulator::kNoReuse || index >= samplesBefore[old].size ())
+        if (old == kNoReuse || index >= samplesBefore[old].size ())
             continue;
         const size_t from = samplesBefore[old][index];
         const double* point = &target.positions[sample * 3];

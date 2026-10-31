@@ -6,7 +6,7 @@
 // out of SunStudyFollowerDriver.cpp unchanged (the driver passed its size cap).
 
 #include "NativeCommands/SunStudyFollowerDriver.hpp" // ActiveSunStudyConfig
-#include "SunStudy/SunStudyFollower.hpp"             // SunStudyDependencySignature
+#include "SunStudy/SunStudyFollowState.hpp"          // SunStudyDependencySignature
 
 namespace geomsrv {
 namespace sunfollow {

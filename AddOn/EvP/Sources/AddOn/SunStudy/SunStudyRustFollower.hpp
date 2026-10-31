@@ -7,7 +7,7 @@
 // time, as the C++ follower. An ABI failure (which only a corrupted handle can
 // cause) leaves the last state and is reported through LastError.
 
-#include "SunStudy/SunStudyFollower.hpp"
+#include "SunStudy/SunStudyFollowState.hpp"
 #include "SunStudy/SunStudyRustFfi.h"
 
 #include <cstdint>

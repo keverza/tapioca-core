@@ -1,7 +1,7 @@
 #ifndef EVP_SUNSTUDY_SUNSTUDYADVANCEWORKER_HPP
 #define EVP_SUNSTUDY_SUNSTUDYADVANCEWORKER_HPP
 
-#include "SunStudy/SunStudySession.hpp"
+#include "SunStudy/SunStudyProgress.hpp"
 
 #include <chrono>
 #include <condition_variable>

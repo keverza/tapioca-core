@@ -23,28 +23,13 @@
 
 #include "SunStudy/ITraversal.hpp"
 #include "SunStudy/SunSeries.hpp"
+#include "SunStudy/SunStudySampleSet.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <vector>
 
 namespace evp::sunstudy {
-
-// The analysis points. Non-owning: the caller keeps the arrays alive.
-struct SampleSet {
-    // xyz interleaved, `count` positions, already offset off their surface.
-    const double* positions = nullptr;
-
-    // xyz interleaved unit normals, or null for "no orientation".
-    //
-    // ⚠️ WITHOUT NORMALS EVERY SAMPLE IS TREATED AS FACING THE SUN, which is
-    // right for a bare ground grid and wrong for a facade: the back of a wall
-    // would count the sun that strikes its front. Supply them for anything with
-    // an orientation.
-    const double* normals = nullptr;
-
-    size_t count = 0;
-};
 
 class OcclusionAccumulator final {
   public:
@@ -64,7 +49,7 @@ class OcclusionAccumulator final {
 
     // Copy complete-day bits for proven unaffected samples. Unmapped samples
     // alone are traced on later steps; zero sunlight is a reusable result too.
-    static constexpr size_t kNoReuse = static_cast<size_t> (-1);
+    static constexpr size_t kNoReuse = sunstudy::kNoReuse;
     // Optional sample-major dirty-step words permit exact reuse at unaffected
     // times on a receiver that is affected elsewhere in the day.
     bool SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples,
