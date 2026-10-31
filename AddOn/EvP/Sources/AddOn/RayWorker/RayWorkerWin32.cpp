@@ -410,11 +410,14 @@ bool WorkerProcess::Launch (std::string& error)
 
 void WorkerProcess::Exited (const std::string& reason)
 {
-    std::lock_guard<std::mutex> lock (eventsMutex_);
-    if (!events_.exited) {
-        events_.exited = true;
-        events_.exitReason = reason;
+    {
+        std::lock_guard<std::mutex> lock (eventsMutex_);
+        if (!events_.exited) {
+            events_.exited = true;
+            events_.exitReason = reason;
+        }
     }
+    eventsQueued_.notify_all ();
 }
 
 void WorkerProcess::ReadLoop ()
@@ -447,14 +450,18 @@ void WorkerProcess::ReadLoop ()
         const bool ok = ReadFrame (pipe_, stop_, frame, error);
         if (WaitForSingleObject (stop_, 0) == WAIT_OBJECT_0)
             return; // our own Kill, not the worker's death
-        std::lock_guard<std::mutex> lock (eventsMutex_);
-        if (ok || frame.size () == protocol::HeaderSize)
-            events_.frames.push_back (std::move (frame));
-        if (!ok) {
-            events_.exited = true;
-            events_.exitReason = error;
-            return;
+        {
+            std::lock_guard<std::mutex> lock (eventsMutex_);
+            if (ok || frame.size () == protocol::HeaderSize)
+                events_.frames.push_back (std::move (frame));
+            if (!ok) {
+                events_.exited = true;
+                events_.exitReason = error;
+            }
         }
+        eventsQueued_.notify_all ();
+        if (!ok)
+            return;
     }
 }
 
@@ -497,6 +504,13 @@ WorkerProcess::Events WorkerProcess::Take ()
     Events out;
     std::swap (out, events_);
     return out;
+}
+
+bool WorkerProcess::Wait (int64_t timeoutMs)
+{
+    std::unique_lock<std::mutex> lock (eventsMutex_);
+    return eventsQueued_.wait_for (lock, std::chrono::milliseconds (std::max<int64_t> (timeoutMs, 0)),
+                                   [this] { return !events_.frames.empty () || events_.exited; });
 }
 
 RayWorkerHooks WorkerProcess::Hooks ()

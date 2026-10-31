@@ -14,7 +14,6 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
-#include <thread>
 
 namespace evp::rayworker {
 
@@ -29,6 +28,8 @@ int64_t NowMs ()
 // A step of a large model is a few hundred milliseconds of tracing; this is
 // the "the worker is wedged" bound, not a performance budget.
 constexpr int64_t kRunTimeoutMs = 120000;
+// The longest a Run waits for a frame before it rechecks cancellation.
+constexpr int64_t kPollMs = 5;
 
 std::atomic<uint64_t> gNextEpoch { 1 };
 
@@ -102,7 +103,9 @@ RayWorkerOutcome RayWorkerChannel::Run (uint64_t sceneEpoch, std::shared_ptr<con
             timedOut.message = "no answer within " + std::to_string (timeoutMs) + " ms";
             return timedOut;
         }
-        std::this_thread::sleep_for (std::chrono::microseconds (200));
+        // Woken by the next frame; the timeout only bounds how late a cancel
+        // or the wedge deadline is noticed.
+        host_.Wait (kPollMs);
     }
 }
 

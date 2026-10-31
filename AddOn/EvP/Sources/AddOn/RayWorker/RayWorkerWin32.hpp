@@ -19,6 +19,7 @@
 #include "RayWorker/RayWorkerService.hpp"
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -93,6 +94,12 @@ class WorkerProcess final {
         std::string exitReason;
     };
     Events Take ();
+    // Block until a frame or the peer's death is queued, or `timeoutMs`
+    // passes; true when there is something to Take.
+    // ⚠️ WAIT HERE, DO NOT SLEEP-POLL. A sleep on Windows lasts a timer tick
+    // (15.6 ms unless someone raised the resolution), and the sun study asks
+    // once per step: a 4 ms run measured 15 ms of wall time.
+    bool Wait (int64_t timeoutMs);
 
     SegmentStore& Segments ()
     {
@@ -117,6 +124,7 @@ class WorkerProcess final {
     std::thread worker_; // in-process only
     std::mutex writeMutex_;
     std::mutex eventsMutex_;
+    std::condition_variable eventsQueued_;
     Events events_;
     bool running_ = false;
 };

@@ -247,6 +247,25 @@ TEST (RayWorkerWin32, ACancelReachesATraceInProgressAndTheNextRunIsNotQueuedBehi
     client.Shutdown ();
 }
 
+TEST (RayWorkerWin32, TheHostWakesOnAFrameNotOnATimer)
+{
+    win32::WorkerProcess host ({}, [] (const std::wstring& pipe, const std::string& segments) {
+        win32::RunWorker (pipe, segments, MakeCpuReferenceBackend (), 60000);
+    });
+    EXPECT_FALSE (host.Wait (0)) << "nothing is queued before a launch";
+    std::string error;
+    ASSERT_TRUE (host.Launch (error)) << error;
+    // The worker's Hello wakes the wait long before its timeout; with a
+    // one-minute heartbeat, nothing else could.
+    const int64_t started = NowMs ();
+    ASSERT_TRUE (host.Wait (30000));
+    EXPECT_LT (NowMs () - started, 10000);
+    const auto events = host.Take ();
+    ASSERT_EQ (events.frames.size (), 1u);
+    EXPECT_FALSE (host.Wait (20)) << "taken: nothing left to wake for";
+    host.Kill ();
+}
+
 TEST (RayWorkerWin32, AMissingExecutableFallsBackWithWorkerMissing)
 {
     win32::WorkerProcess host (L"C:\\does-not-exist\\TapiocaDxrWorker.exe");
