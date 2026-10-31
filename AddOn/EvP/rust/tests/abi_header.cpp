@@ -32,7 +32,9 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainEditOutput) == 72, "
 static_assert (sizeof (TapiocaTerrainVolumes) == 40 && sizeof (TapiocaTerrainEditVolumes) == 40, "Volume ABI mismatch");
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainVolumeRequest) == 176, "Volume request ABI mismatch");
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainVolumeOutput) == 48, "Volume output ABI mismatch");
-static_assert (sizeof (TapiocaTerrainStation) == 152 && sizeof (TapiocaTerrainHybridLine) == 16, "Band ABI mismatch");
+static_assert (sizeof (TapiocaTerrainStation) == 160 && offsetof (TapiocaTerrainStation, rounding) == 152 &&
+                   sizeof (TapiocaTerrainHybridLine) == 16,
+               "Band ABI mismatch");
 static_assert (sizeof (TapiocaTerrainHybridVolumes) == 40 && sizeof (TapiocaTerrainHybridSide) == 24,
                "Band ABI mismatch");
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridRequest) == 360, "Band request ABI mismatch");
