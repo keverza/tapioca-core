@@ -14,6 +14,7 @@
 #include "AddOnVersion.hpp"
 #include "Palette/ControlPalette.hpp"
 #include "ArchViz/ArchVizPanel.hpp" // the Diligent 3D viewer palette
+#include "ArchViz/ModelWatch.hpp"   // the early poll a project-database event asks for
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayHudModel.hpp" // the HUD's Selection page, told when the selection changes
 #include "ArchViz/OverlayInput.hpp"
@@ -152,12 +153,17 @@ static void RefreshModelOpen ()
 
 // The project events this add-on catches: one mask, so registering and detaching
 // can never disagree about which ones are held.
-static constexpr GSFlags kProjectEvents =
-    APINotify_New | APINotify_NewAndReset | APINotify_Open | APINotify_Close | APINotify_Quit | APINotify_ChangeWindow;
+// APINotify_ChangeProjectDB: a HINT for the model watch to poll now rather than at its
+// backed-off cadence (modelwatch::NoteProjectChanged). Catching it writes nothing.
+static constexpr GSFlags kProjectEvents = APINotify_New | APINotify_NewAndReset | APINotify_Open | APINotify_Close |
+                                          APINotify_Quit | APINotify_ChangeWindow | APINotify_ChangeProjectDB;
 
-static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/)
+static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
 {
     switch (notifID) {
+        case APINotify_ChangeProjectDB:
+            geomsrv::archviz::modelwatch::NoteProjectChanged (param);
+            break;
         case APINotify_ChangeWindow:
             // The overlay leaves a view the moment the view is left: the 3D session's
             // hooks sit on the context every other view draws through too.

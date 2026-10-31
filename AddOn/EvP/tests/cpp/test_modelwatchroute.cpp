@@ -51,3 +51,25 @@ TEST (ModelWatchRoute, AnUncountedModelIsSizedByItsPublishedSnapshot)
     EXPECT_EQ (watch::RouteChange (1, watch::RouteModelSize (-1, 0), 0, 0), watch::Route::Full)
         << "nothing published yet: a full pass";
 }
+
+// 2026-10-31: a 3,169 ms generator backed the watch off to 30 s, and edits sat
+// unseen that long. A project-database event brings the next poll forward --
+// bounded so a chatty event can never turn polls into a stall loop.
+TEST (ModelWatchEarlyPoll, ABurstIsWaitedOutButNotForever)
+{
+    const int64_t scheduled = 100000;
+    // A lone event: the settle delay, long after the last poll.
+    EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 0, scheduled), 50000 + watch::kEarlyPollSettleMs);
+    // Events keep coming: still polled by the burst's deadline.
+    EXPECT_EQ (watch::EarlyPollDue (51900, 50000, 0, scheduled), 50000 + watch::kEarlyPollMaxDeferMs);
+    EXPECT_EQ (watch::EarlyPollDue (60000, 50000, 0, scheduled), 60000) << "never in the past";
+}
+
+TEST (ModelWatchEarlyPoll, PollsStaySpacedAndNeverLaterThanScheduled)
+{
+    // A poll just ended: the next one waits out the spacing.
+    EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 49000, 100000), 49000 + watch::kEarlyPollSpacingMs);
+    // The regular tick is sooner anyway: leave the timer alone.
+    EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 0, 50100), 50100);
+    EXPECT_EQ (watch::EarlyPollDue (50000, 50000, 49000, 52000), 52000);
+}

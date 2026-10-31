@@ -73,6 +73,9 @@ struct Stats {
     // generator's lists dropped because the sweep had already updated every element they named.
     uint32_t sweepChanges = 0;
     uint32_t alreadySwept = 0;
+    // APINotify_ChangeProjectDB events seen, and the polls they brought forward.
+    uint32_t projectChanges = 0;
+    uint32_t earlyPolls = 0;
     int64_t lastDiffMs = 0;  // what the last poll cost
     int64_t worstDiffMs = 0; // the worst one, which is what set the interval
     uint32_t intervalMs = 0; // the cadence it has settled on
@@ -106,6 +109,44 @@ void SetKeepAlive (bool keepAlive);
 // change, and "the picture looks wrong, rebuild it" is a request no change
 // detector can be asked to infer. Returns false when a pass is already running.
 bool RefreshNow ();
+
+// MAIN THREAD, from the add-on's project-event handler: Archicad says its project
+// database changed (`cause` is the event's parameter, logged). The next poll is
+// brought forward instead of waiting out the backed-off cadence.
+//
+// ⚠️ WHY: on a large project the difference generator is slow (3,169 ms on an
+// 806k-triangle model, 2026-10-31), the cadence backs off to its 30 s ceiling,
+// and an edit sat unseen for up to 30 s. The event is caught with
+// ACAPI_ProjectOperation_CatchProjectEvent, which writes nothing to the project,
+// unlike an element observer (PLAT-RE68). It is a HINT, never the only path: the
+// regular cadence still runs, so an edit that raises no event is still seen.
+//
+// ⚠️ AND IT CANNOT BECOME A STALL LOOP. An early poll costs what any poll costs
+// on the main thread, so early polls are at least kEarlyPollSpacingMs apart, and
+// after kEarlyPollMisses early polls in a row that found no element change the
+// hint is ignored for the rest of the session, and the log says so.
+void NoteProjectChanged (int32_t cause);
+
+constexpr int64_t kEarlyPollSettleMs = 400;    // quiet after the last event of a burst
+constexpr int64_t kEarlyPollMaxDeferMs = 2000; // a long burst still polls this soon after it began
+constexpr int64_t kEarlyPollSpacingMs = 5000;  // from the end of the previous poll
+constexpr uint32_t kEarlyPollMisses = 3;
+
+// When the brought-forward poll is due -- pure, so tests/cpp pins it. Never
+// earlier than `now`, never sooner than kEarlyPollSpacingMs after the last poll
+// ended, and never later than the poll already scheduled (`scheduledDue`): a
+// result equal to `scheduledDue` means "leave the timer alone".
+inline int64_t EarlyPollDue (int64_t now, int64_t burstStart, int64_t lastPollEnd, int64_t scheduledDue)
+{
+    int64_t due = now + kEarlyPollSettleMs;
+    if (burstStart + kEarlyPollMaxDeferMs < due)
+        due = burstStart + kEarlyPollMaxDeferMs;
+    if (due < now)
+        due = now;
+    if (due < lastPollEnd + kEarlyPollSpacingMs)
+        due = lastPollEnd + kEarlyPollSpacingMs;
+    return due < scheduledDue ? due : scheduledDue;
+}
 
 // What a poll's change list is answered with -- pure, so tests/cpp pins it.
 //

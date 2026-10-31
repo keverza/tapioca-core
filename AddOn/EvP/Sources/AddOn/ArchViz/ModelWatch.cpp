@@ -55,7 +55,18 @@ Stats gStats;
 // true rather than theoretical.
 std::unique_ptr<modeldiff::Baseline> gBaseline;
 
-void Rearm (uint32_t intervalMs);
+void Rearm (uint32_t intervalMs, bool early = false);
+
+// The early poll (NoteProjectChanged): when the timer will next fire, the regular
+// interval to go back to, the burst of events being waited out, when the last
+// poll ended, and whether early polls have stopped earning their cost.
+int64_t gNextDueMs = 0;
+uint32_t gRegularMs = 0;
+int64_t gBurstStartMs = 0;
+int64_t gLastPollEndMs = 0;
+bool gEarlyPending = false;
+uint32_t gEarlyMisses = 0;
+bool gEarlyDisabled = false;
 
 // Start a fresh single pass. ⚠️ NOT StartLive: with observers off, the live loop
 // runs one pass and exits anyway (ExtractionThread's PLAT-RE68 branch), so the
@@ -93,6 +104,14 @@ bool StartUpdate (const std::set<std::string>& guids)
 
 void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
 {
+    // ⚠️ AN EARLY ARM IS ONE SHOT. SetTimer repeats, so the regular period goes
+    // back FIRST, before any return below could leave the watch polling at the
+    // early delay.
+    const bool early = gEarlyPending;
+    if (early) {
+        gEarlyPending = false;
+        Rearm (gRegularMs);
+    }
     // ⚠️ A PASS IN FLIGHT DEFERS THE RE-EXTRACTION, NOT THE
     // POLL. Skipping the whole tick was wrong in a way that took three runs to
     // see. The reasoning behind it was sound about GEOMETRY -- the pass already
@@ -136,6 +155,22 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     gSweptSincePoll.clear ();
     const modeldiff::Result diff = gBaseline->Poll ();
     ++gStats.polls;
+    gLastPollEndMs = int64_t (::GetTickCount64 ());
+    gBurstStartMs = 0;
+    if (early) {
+        ++gStats.earlyPolls;
+        const bool found = diff.ok && (!diff.created.empty () || !diff.modified.empty () || !diff.deleted.empty ());
+        gEarlyMisses = found ? 0 : gEarlyMisses + 1;
+        if (gEarlyMisses >= kEarlyPollMisses && !gEarlyDisabled) {
+            gEarlyDisabled = true;
+            ArchVizLog ("model watch: " + std::to_string (kEarlyPollMisses) +
+                        " polls brought forward by a project-database event found no element change; "
+                        "the event is ignored for this session and edits follow the regular cadence");
+        }
+        else if (found)
+            ArchVizLog ("model watch: the poll brought forward by a project-database event found the edit, " +
+                        std::to_string (diff.elapsedMs) + " ms");
+    }
 
     if (!diff.ok) {
         // ⚠️ LOGGED ONCE PER DISTINCT MESSAGE, not once per tick. A generator
@@ -287,7 +322,7 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     }
 }
 
-void Rearm (uint32_t intervalMs)
+void Rearm (uint32_t intervalMs, bool early)
 {
     if (gTimer != 0)
         ::KillTimer (nullptr, gTimer);
@@ -300,7 +335,12 @@ void Rearm (uint32_t intervalMs)
         return;
     }
     gIntervalMs = intervalMs;
-    gStats.intervalMs = intervalMs;
+    gNextDueMs = int64_t (::GetTickCount64 ()) + intervalMs;
+    gEarlyPending = early;
+    if (!early) {
+        gRegularMs = intervalMs;
+        gStats.intervalMs = intervalMs;
+    }
     gStats.running = true;
 }
 
@@ -317,6 +357,9 @@ bool Start (uint32_t floorMs)
     // that was correct when it was built.
     gBaseline = std::make_unique<modeldiff::Baseline> (modeldiff::Scope::Model);
     gStats = Stats {};
+    gBurstStartMs = gLastPollEndMs = 0;
+    gEarlyPending = gEarlyDisabled = false;
+    gEarlyMisses = 0;
     gCeilingLogged = false;
     // The sun's log is deduplicated across reads, and its memory of what it last
     // wrote is session state like the baseline beside it. See the header.
@@ -378,6 +421,25 @@ bool RefreshNow ()
         gBaseline->Poll (/*reset*/ true);
     ArchVizLog ("model watch: manual refresh -- re-extracting the whole model.");
     return true;
+}
+
+void NoteProjectChanged (int32_t cause)
+{
+    ++gStats.projectChanges;
+    if (gTimer == 0 || gEarlyDisabled || gBaseline == nullptr)
+        return;
+    const int64_t now = int64_t (::GetTickCount64 ());
+    const bool first = gBurstStartMs == 0;
+    if (first)
+        gBurstStartMs = now;
+    const int64_t due = EarlyPollDue (now, gBurstStartMs, gLastPollEndMs, gNextDueMs);
+    if (first)
+        ArchVizLog ("model watch: project database changed (cause " + std::to_string (cause) + ") -- polling in " +
+                    std::to_string ((std::max<int64_t>) (0, due - now)) + " ms, not " +
+                    std::to_string ((std::max<int64_t>) (0, gNextDueMs - now)) + " ms");
+    if (due >= gNextDueMs)
+        return;
+    Rearm (uint32_t ((std::max<int64_t>) (1, due - now)), /*early*/ true);
 }
 
 void ServePending ()
