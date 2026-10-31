@@ -31,6 +31,11 @@ uint32_t Cell (const double point[3], const double origin[3], const double axis[
     const double invSpacing = static_cast<float> (1.0 / spacing);
     const double cell = std::floor (Dot (relative, gpuAxis) * invSpacing) - static_cast<double> (start);
     const double last = count > 0 ? static_cast<double> (count - 1) : 0.0;
+    // std::clamp passes a NaN through, and a NaN cast to uint32_t is undefined
+    // (#21): a non-finite hover point or a degenerate axis reads cell 0, as the
+    // Rust twin's clamp_cell does.
+    if (std::isnan (cell))
+        return 0;
     return static_cast<uint32_t> (std::clamp (cell, 0.0, last));
 }
 

@@ -39,12 +39,15 @@ std::vector<TimeOfDay> EnumerateTimesteps (int timestepMinutes, int hourFrom, in
 {
     std::vector<TimeOfDay> steps;
 
-    const int lo = std::max (0, hourFrom) * 60;
-    const int hi = std::min (24, hourTo) * 60;
-    const int step = std::max (1, timestepMinutes);
+    // 64-bit, as the Rust twin: `hourFrom * 60` and `total += step` overflow
+    // an int for inputs near INT_MAX (#21). `total` stays below 1440 inside
+    // the loop, so both parts fit an int.
+    const int64_t lo = static_cast<int64_t> (std::max (0, hourFrom)) * 60;
+    const int64_t hi = static_cast<int64_t> (std::min (24, hourTo)) * 60;
+    const int64_t step = std::max (1, timestepMinutes);
 
-    for (int total = lo; total < hi; total += step)
-        steps.push_back (TimeOfDay { total / 60, total % 60 });
+    for (int64_t total = lo; total < hi; total += step)
+        steps.push_back (TimeOfDay { static_cast<int> (total / 60), static_cast<int> (total % 60) });
 
     return steps;
 }

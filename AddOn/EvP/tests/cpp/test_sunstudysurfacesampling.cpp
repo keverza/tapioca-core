@@ -48,7 +48,7 @@ SurfaceSamplingResult WholeScene (const geomsrv::Snapshot& scene, const std::vec
         }
     }
     const auto oriented = OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (),
-                                         triangles.size () / 3, groups.data (), result.winding);
+                                         triangles.size () / 3, groups.data (), groups.size (), result.winding);
     if (settings.domain == SamplingDomain::SurfacePatch) {
         PatchSamplerOptions options;
         options.spacing = settings.spacing;

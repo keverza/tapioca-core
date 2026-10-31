@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <unordered_map>
 
@@ -23,13 +24,27 @@ struct Lattice {
     }
 };
 
+// A rounded double as int64, saturating as Rust's `as i64` does: NaN is 0 and
+// anything past the range is the nearest end (#21). llround's result for those
+// is unspecified, and MSVC returns INT64_MIN for both ends.
+int64_t SaturatingRound (double value)
+{
+    if (std::isnan (value))
+        return 0;
+    if (value >= 9223372036854775808.0)
+        return std::numeric_limits<int64_t>::max ();
+    if (value < -9223372036854775808.0)
+        return std::numeric_limits<int64_t>::min ();
+    return static_cast<int64_t> (std::llround (value));
+}
+
 Lattice Quantise (const double* p, double tolerance)
 {
     const double inverse = 1.0 / tolerance;
     Lattice key;
-    key.x = static_cast<int64_t> (std::llround (p[0] * inverse));
-    key.y = static_cast<int64_t> (std::llround (p[1] * inverse));
-    key.z = static_cast<int64_t> (std::llround (p[2] * inverse));
+    key.x = SaturatingRound (p[0] * inverse);
+    key.y = SaturatingRound (p[1] * inverse);
+    key.z = SaturatingRound (p[2] * inverse);
     return key;
 }
 
@@ -106,7 +121,7 @@ double SignedVolume (const double* vertices, const uint32_t* triangles, const ui
 }
 
 std::vector<uint32_t> OrientOutward (const double* vertices, size_t vertexCount, const uint32_t* triangles,
-                                     size_t faceCount, const uint32_t* groups, WindingReport& report,
+                                     size_t faceCount, const uint32_t* groups, size_t groupCount, WindingReport& report,
                                      double weldTolerance)
 {
     report = WindingReport ();
@@ -114,6 +129,10 @@ std::vector<uint32_t> OrientOutward (const double* vertices, size_t vertexCount,
     std::vector<uint32_t> oriented;
     if (vertices == nullptr || triangles == nullptr || faceCount == 0)
         return oriented;
+    // Fewer group ids than faces would be read past their end (#21). Nothing
+    // is proved, so nothing is flipped: the faces come back as they came.
+    if (groups != nullptr && groupCount < faceCount)
+        return std::vector<uint32_t> (triangles, triangles + faceCount * 3);
     if (!(weldTolerance > 0.0))
         weldTolerance = 1e-4;
 

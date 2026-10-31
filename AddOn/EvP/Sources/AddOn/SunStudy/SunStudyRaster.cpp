@@ -269,6 +269,21 @@ double AutoGroundPad (const Vec3& aabbMin, const Vec3& aabbMax, double minPad)
     return std::max (std::max (height, 0.25 * footprint), minPad);
 }
 
+namespace {
+
+// `floor(steps) + 1`, or 0 when that is not a count of at most `max`: a NaN,
+// infinite or negative extent (#21), or more than the cap. Mirrors the Rust
+// twin's `axis_count`.
+size_t AxisCount (double steps, size_t max)
+{
+    const double floored = std::floor (steps);
+    if (!(floored >= 0.0) || floored >= static_cast<double> (max))
+        return 0;
+    return static_cast<size_t> (floored) + 1;
+}
+
+} // namespace
+
 GroundGrid MakeGroundSampleGrid (const Vec3& aabbMin, const Vec3& aabbMax, double spacing, double pad, double zOffset,
                                  size_t maxSamples)
 {
@@ -288,8 +303,8 @@ GroundGrid MakeGroundSampleGrid (const Vec3& aabbMin, const Vec3& aabbMax, doubl
 
     // At least one sample per axis, so a degenerate footprint still produces a
     // point rather than an empty study that reads as "no sun anywhere".
-    const size_t columns = static_cast<size_t> (std::floor ((xHi - xLo) / spacing)) + 1;
-    const size_t rows = static_cast<size_t> (std::floor ((yHi - yLo) / spacing)) + 1;
+    const size_t columns = AxisCount ((xHi - xLo) / spacing, maxSamples);
+    const size_t rows = AxisCount ((yHi - yLo) / spacing, maxSamples);
 
     // Refuse rather than truncate; see the header.
     if (columns == 0 || rows == 0 || columns > maxSamples || rows > maxSamples / columns)

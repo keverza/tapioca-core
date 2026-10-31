@@ -49,7 +49,7 @@ void FlipAll (std::vector<uint32_t>& triangles)
 std::vector<uint32_t> Orient (const Box& box, WindingReport& report, const uint32_t* groups = nullptr)
 {
     return OrientOutward (box.vertices.data (), box.vertices.size () / 3, box.triangles.data (),
-                          box.triangles.size () / 3, groups, report);
+                          box.triangles.size () / 3, groups, groups != nullptr ? box.triangles.size () / 3 : 0, report);
 }
 
 } // namespace
@@ -57,7 +57,7 @@ std::vector<uint32_t> Orient (const Box& box, WindingReport& report, const uint3
 TEST (SunStudyWinding, EmptyInputIsHandled)
 {
     WindingReport report;
-    EXPECT_TRUE (OrientOutward (nullptr, 0, nullptr, 0, nullptr, report).empty ());
+    EXPECT_TRUE (OrientOutward (nullptr, 0, nullptr, 0, nullptr, 0, report).empty ());
     EXPECT_EQ (report.groups, 0u);
 }
 
@@ -122,8 +122,8 @@ TEST (SunStudyWinding, FlippingIsIdempotent)
     const std::vector<uint32_t> once = Orient (box, first);
 
     WindingReport second;
-    const std::vector<uint32_t> twice =
-        OrientOutward (box.vertices.data (), box.vertices.size () / 3, once.data (), once.size () / 3, nullptr, second);
+    const std::vector<uint32_t> twice = OrientOutward (box.vertices.data (), box.vertices.size () / 3, once.data (),
+                                                       once.size () / 3, nullptr, 0, second);
     EXPECT_EQ (once, twice);
     EXPECT_EQ (second.flipped, 0u);
 }
@@ -138,7 +138,8 @@ TEST (SunStudyWinding, AnOpenSurfaceIsNeverFlipped)
     std::vector<uint32_t> triangles = { 0, 2, 1 }; // deliberately "wrong" way up
 
     WindingReport report;
-    const std::vector<uint32_t> oriented = OrientOutward (vertices.data (), 3, triangles.data (), 1, nullptr, report);
+    const std::vector<uint32_t> oriented =
+        OrientOutward (vertices.data (), 3, triangles.data (), 1, nullptr, 0, report);
 
     EXPECT_EQ (oriented, triangles);
     EXPECT_EQ (report.groups, 1u);
@@ -181,8 +182,8 @@ TEST (SunStudyWinding, EachElementIsJudgedSeparately)
         groups[f] = (f < 12) ? 0u : 1u;
 
     WindingReport report;
-    const std::vector<uint32_t> oriented =
-        OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (), 24, groups.data (), report);
+    const std::vector<uint32_t> oriented = OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (), 24,
+                                                          groups.data (), groups.size (), report);
 
     EXPECT_EQ (report.groups, 2u);
     EXPECT_EQ (report.closed, 2u);
@@ -207,7 +208,7 @@ TEST (SunStudyWinding, TwoElementsMergedWithoutGroupsReadAsOpen)
         triangles.push_back (base + index);
 
     WindingReport report;
-    OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (), 24, nullptr, report);
+    OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (), 24, nullptr, 0, report);
 
     // Two disjoint boxes as ONE group: every edge is still shared by exactly
     // two faces, so this one does prove closed -- and the combined volume is
@@ -262,7 +263,8 @@ TEST (SunStudyWinding, AdjacencyIsByPositionNotByIndex)
     }
 
     WindingReport report;
-    OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (), triangles.size () / 3, nullptr, report);
+    OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (), triangles.size () / 3, nullptr, 0,
+                   report);
 
     EXPECT_EQ (report.closed, 1u) << "unshared indices defeated the closed-surface proof";
     EXPECT_EQ (report.flipped, 1u);
@@ -274,7 +276,8 @@ TEST (SunStudyWinding, OutOfRangeIndicesDoNotCrashOrProveClosed)
     std::vector<uint32_t> triangles = { 0, 1, 77 };
 
     WindingReport report;
-    const std::vector<uint32_t> oriented = OrientOutward (vertices.data (), 3, triangles.data (), 1, nullptr, report);
+    const std::vector<uint32_t> oriented =
+        OrientOutward (vertices.data (), 3, triangles.data (), 1, nullptr, 0, report);
 
     EXPECT_EQ (oriented, triangles);
     EXPECT_EQ (report.groups, 0u);

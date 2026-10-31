@@ -275,6 +275,27 @@ TEST (SunStudyRustParity, GroundGridMatchesEveryBit)
     EXPECT_GT (built, 20u);
 }
 
+TEST (SunStudyRustParity, GroundGridRefusesNonFiniteExtentsOnBothSides)
+{
+    // #21: a NaN or infinite extent reached static_cast<size_t> (floor (...)).
+    const double nan = std::numeric_limits<double>::quiet_NaN (), inf = std::numeric_limits<double>::infinity ();
+    const Vec3 lo { 0, 0, 0 }, hi { 10, 10, 3 };
+    struct Case {
+        Vec3 lo, hi;
+        double pad;
+    };
+    for (const Case& c :
+         { Case { { nan, 0, 0 }, hi, 1.0 }, Case { lo, { inf, 10, 3 }, 1.0 }, Case { { -inf, 0, 0 }, hi, 1.0 },
+           Case { lo, hi, nan }, Case { lo, hi, inf }, Case { { -1e300, 0, 0 }, { 1e300, 10, 3 }, 0.0 } }) {
+        const GroundGrid e = evp::sunstudy::MakeGroundSampleGrid (c.lo, c.hi, 1.0, c.pad, 0.1, 200000);
+        GroundGrid a;
+        std::string error;
+        ASSERT_TRUE (rs::MakeGroundSampleGrid (c.lo, c.hi, 1.0, c.pad, 0.1, 200000, a, error)) << error;
+        EXPECT_FALSE (e.valid);
+        EXPECT_EQ (a.valid, e.valid);
+    }
+}
+
 namespace {
 
 struct Soup {
@@ -322,9 +343,9 @@ void AppendBox (Soup& soup, const Vec3& o, double s, bool inward, uint32_t group
 void ExpectWindingParity (const Soup& soup, bool useGroups, double tolerance)
 {
     WindingReport e;
-    const std::vector<uint32_t> expected =
-        OrientOutward (soup.vertices.data (), soup.vertices.size () / 3, soup.triangles.data (),
-                       soup.triangles.size () / 3, useGroups ? soup.groups.data () : nullptr, e, tolerance);
+    const std::vector<uint32_t> expected = OrientOutward (
+        soup.vertices.data (), soup.vertices.size () / 3, soup.triangles.data (), soup.triangles.size () / 3,
+        useGroups ? soup.groups.data () : nullptr, useGroups ? soup.groups.size () : 0, e, tolerance);
     WindingReport a;
     std::vector<uint32_t> actual;
     std::string error;
@@ -379,6 +400,40 @@ TEST (SunStudyRustParity, WindingRefusesWhereTheOracleWouldOverread)
     EXPECT_FALSE (rs::OrientOutward (soup.vertices, soup.triangles, soup.groups, 1e-4, out, report, error));
     EXPECT_NE (error.find ("WindingGroupCount"), std::string::npos) << error;
     EXPECT_EQ (out, std::vector<uint32_t> { 42 }) << "a refusal leaves the output untouched";
+}
+
+TEST (SunStudyRustParity, WindingNeitherOverreadsShortGroupsNorRoundsOutOfRange)
+{
+    // #21: fewer group ids than faces was read past the end in C++; now it
+    // flips nothing, where the Rust twin refuses (asserted above).
+    Soup soup;
+    AppendBox (soup, { 0, 0, 0 }, 2.0, true, 0, true);
+    soup.groups.resize (3);
+    WindingReport report;
+    const std::vector<uint32_t> unchanged =
+        OrientOutward (soup.vertices.data (), soup.vertices.size () / 3, soup.triangles.data (),
+                       soup.triangles.size () / 3, soup.groups.data (), soup.groups.size (), report);
+    EXPECT_EQ (unchanged, soup.triangles);
+    EXPECT_EQ (report.flippedTriangles, 0u);
+
+    // Coordinates whose lattice key is outside int64, and a NaN corner:
+    // llround was unspecified there; both sides now saturate the same way.
+    Soup far;
+    AppendBox (far, { 1e300, -1e300, 0 }, 2.0, true, 0, true);
+    AppendBox (far, { 0, 0, 0 }, 2.0, true, 1, true);
+    far.vertices[0] = std::numeric_limits<double>::quiet_NaN ();
+    WindingReport e;
+    const std::vector<uint32_t> expected =
+        OrientOutward (far.vertices.data (), far.vertices.size () / 3, far.triangles.data (), far.triangles.size () / 3,
+                       far.groups.data (), far.groups.size (), e);
+    WindingReport a;
+    std::vector<uint32_t> actual;
+    std::string error;
+    ASSERT_TRUE (rs::OrientOutward (far.vertices, far.triangles, far.groups, 1e-4, actual, a, error)) << error;
+    EXPECT_EQ (actual, expected);
+    EXPECT_EQ (a.closed, e.closed);
+    EXPECT_EQ (a.flipped, e.flipped);
+    EXPECT_GE (e.flipped, 1u) << "the finite inward box is still found and flipped";
 }
 
 TEST (SunStudyRustParity, AnalysisLimitsMatch)
@@ -1902,8 +1957,7 @@ struct SurfaceCase {
 void ExpectSurfaceParity (const geomsrv::Snapshot& snapshot, const SurfaceCase& c, const StudyRecord* previous,
                           const std::function<bool ()>& isCancelled, const std::string& what)
 {
-    const auto expected =
-        BuildSurfaceSampling (snapshot, c.sampleMask, c.options, previous, isCancelled, c.faceMasks);
+    const auto expected = BuildSurfaceSampling (snapshot, c.sampleMask, c.options, previous, isCancelled, c.faceMasks);
     SurfaceSamplingResult actual;
     std::string error;
     ASSERT_TRUE (
@@ -2018,8 +2072,9 @@ TEST (SunStudyRustParity, SurfaceSamplingRefusalsAndFallbacksMatch)
                                                             [&] { return ++expectedPolls > after; });
                 SurfaceSamplingResult actual;
                 std::string error;
-                ASSERT_TRUE (rs::BuildSurfaceSampling (*base, cold.sampleMask, cold.options, source,
-                                                       [&] { return ++actualPolls > after; }, {}, actual, error))
+                ASSERT_TRUE (rs::BuildSurfaceSampling (
+                    *base, cold.sampleMask, cold.options, source, [&] { return ++actualPolls > after; }, {}, actual,
+                    error))
                     << error;
                 ExpectSameSurface (expected, actual, "cancel after " + std::to_string (after));
                 EXPECT_EQ (actualPolls, expectedPolls) << "cancel after " << after;

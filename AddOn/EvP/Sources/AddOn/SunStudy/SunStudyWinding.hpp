@@ -40,7 +40,8 @@ struct WindingReport {
 };
 
 // Returns a copy of `triangles` with inward-wound groups' winding swapped.
-// `groups` is one element id per face, or empty for "all one element".
+// `groups` is one element id per face (`groupCount` of them), or null for
+// "all one element". Fewer ids than faces flips nothing.
 //
 // ⚠️ ADJACENCY IS A QUESTION ABOUT POSITIONS, NOT INDICES. The snapshot merges
 // elements without sharing vertices, so two triangles meeting along an edge
@@ -48,7 +49,7 @@ struct WindingReport {
 // would find no shared edges at all and every element would read as open --
 // which fails safe, and therefore silently never flips anything.
 std::vector<uint32_t> OrientOutward (const double* vertices, size_t vertexCount, const uint32_t* triangles,
-                                     size_t faceCount, const uint32_t* groups, WindingReport& report,
+                                     size_t faceCount, const uint32_t* groups, size_t groupCount, WindingReport& report,
                                      double weldTolerance = 1e-4);
 
 // The signed volume of a closed triangle soup, by the divergence theorem.

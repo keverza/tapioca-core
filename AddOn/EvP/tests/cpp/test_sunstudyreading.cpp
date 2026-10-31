@@ -118,6 +118,30 @@ TEST (SunStudyReading, EveryTriangleSampleReadsItself)
     }
 }
 
+TEST (SunStudyReading, ANonFiniteHoverPointReadsCellZeroNotUndefinedBehaviour)
+{
+    // #21: std::clamp passed a NaN cell through to a uint32_t cast.
+    const Scene scene;
+    SamplerOptions options;
+    options.spacing = 0.7;
+    options.normalOffset = 0.0;
+    options.wantLayouts = true;
+    const SampleGrid grid = BuildSampleGrid (scene.vertices.data (), scene.vertices.size () / 3,
+                                             scene.triangles.data (), scene.Faces (), scene.groups.data (), options);
+    ASSERT_TRUE (grid.valid);
+    const std::vector<double> hours = Hours (grid.Count ());
+    const double nan = std::numeric_limits<double>::quiet_NaN ();
+    const double oneNaN[3] = { nan, 0.0, 0.0 }, allNaN[3] = { nan, nan, nan };
+    for (const double* point : { oneNaN, allNaN })
+        for (size_t face = 0; face < grid.layouts.size (); ++face) {
+            const SunStudyReading reading = ReadTriangleStudyAt (grid, 0.7, hours, face, point);
+            if (reading.measured) {
+                ASSERT_LT (reading.sample, grid.Count ());
+                EXPECT_EQ (grid.faces[reading.sample], face) << "a NaN reads within its own face";
+            }
+        }
+}
+
 TEST (SunStudyReading, TheReaderAndTheShaderReadTheSameCellAcrossTheSurface)
 {
     // ⚠️ THE DECISIVE ONE. A dense walk of points over the wall, including cell

@@ -9,6 +9,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 #include <cmath>
 
 using namespace evp::sunstudy;
@@ -68,6 +70,21 @@ TEST (SunSeries, DegenerateWindowsAndStepsAreClampedNotCrashed)
     EXPECT_EQ (EnumerateTimesteps (60, -5, 30).size (), 24u) << "clamped to the day";
     EXPECT_EQ (EnumerateTimesteps (0).size (), 1440u) << "a zero step becomes one minute";
     EXPECT_EQ (EnumerateTimesteps (-10).size (), 1440u);
+}
+
+TEST (SunSeries, ExtremeStepsAndWindowsDoNotOverflow)
+{
+    // #21: `hourFrom * 60` and `total += step` overflowed an int here.
+    const auto once = EnumerateTimesteps (std::numeric_limits<int>::max ());
+    ASSERT_EQ (once.size (), 1u) << "a step longer than the day leaves midnight only";
+    EXPECT_EQ (once[0].hour, 0);
+    EXPECT_EQ (once[0].minute, 0);
+    EXPECT_TRUE (EnumerateTimesteps (60, std::numeric_limits<int>::max (), std::numeric_limits<int>::max ()).empty ());
+    EXPECT_EQ (EnumerateTimesteps (60, std::numeric_limits<int>::min (), std::numeric_limits<int>::max ()).size (),
+               24u);
+    const auto late = EnumerateTimesteps (std::numeric_limits<int>::max () - 1, 23, 24);
+    ASSERT_EQ (late.size (), 1u);
+    EXPECT_EQ (late[0].hour, 23);
 }
 
 // ---------------------------------------------------------------------------

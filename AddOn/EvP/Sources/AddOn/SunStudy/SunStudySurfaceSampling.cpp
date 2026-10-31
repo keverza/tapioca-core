@@ -216,7 +216,7 @@ SurfaceSamplingResult BuildFreshScene (const geomsrv::Snapshot& snapshot, const 
         }
     }
     const auto oriented = OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (),
-                                         triangles.size () / 3, groups.data (), result.winding);
+                                         triangles.size () / 3, groups.data (), groups.size (), result.winding);
     if (options.domain == SamplingDomain::SurfacePatch) {
         auto settings = PatchOptions (options);
         settings.sampleGroup = &sampleMask;
@@ -332,7 +332,7 @@ SurfaceSamplingResult BuildSurfaceSampling (const geomsrv::Snapshot& snapshot, c
         }
         if (!copied) {
             const auto oriented = OrientOutward (item.vertices.data (), item.vertices.size () / 3,
-                                                 item.triangles.data (), span.faceCount, nullptr, span.winding);
+                                                 item.triangles.data (), span.faceCount, nullptr, 0, span.winding);
             auto remaining = options;
             remaining.maxSamples -= span.firstSample;
             SurfaceMeshSampling local;

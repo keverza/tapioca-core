@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace evp::sunstudy {
 
@@ -19,9 +20,23 @@ void Mix (uint64_t& hash, uint64_t value)
 // two values a hair either side of a quantum edge in different buckets; rounding
 // puts them in the same one unless they are genuinely a quantum apart, which is
 // the property the key needs.
+// A rounded double as int64, saturating as Rust's `as i64` does: NaN is 0 and
+// anything past the range is the nearest end (#21). llround's result for those
+// is unspecified, and MSVC returns INT64_MIN for both ends.
+int64_t SaturatingRound (double value)
+{
+    if (std::isnan (value))
+        return 0;
+    if (value >= 9223372036854775808.0)
+        return std::numeric_limits<int64_t>::max ();
+    if (value < -9223372036854775808.0)
+        return std::numeric_limits<int64_t>::min ();
+    return static_cast<int64_t> (std::llround (value));
+}
+
 int64_t Quantise (double value)
 {
-    return static_cast<int64_t> (std::llround (value / kPatchKeyQuantumM));
+    return SaturatingRound (value / kPatchKeyQuantumM);
 }
 
 } // namespace
