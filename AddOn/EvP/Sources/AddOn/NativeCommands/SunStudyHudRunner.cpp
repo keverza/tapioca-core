@@ -5,6 +5,7 @@
 
 #include "AddOnCommands.hpp" // ExecuteNativeCommand, CommandNeedsMainThread
 #include "ArchViz/ArchVizLog.hpp"
+#include "Geometry/MeshStore.hpp" // MeshStore::FullPassInFlight
 #include "Python/MainThreadGate.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 
@@ -127,6 +128,24 @@ void Run (Request request)
     SetStage ("snapshot");
     if (const auto paused = Call ("PauseSunStudyFollowing", GS::ObjectState ()); !paused.ok)
         return failed (paused);
+    // ⚠️ WAIT FOR THE VIEWER'S FULL PASS HERE, OFF THE MAIN THREAD. Until it
+    // publishes, BuildSnapshot finds no complete shared snapshot and walks the
+    // whole model itself in ONE main-thread call: 37 s of a blocked Archicad
+    // on an 806k-triangle load, with that load stalled behind it (#97). The
+    // pass is bounded by its own maxSeconds; Cancel still works here.
+    if (MeshStore::Get ().FullPassInFlight ()) {
+        SetStage ("waiting");
+        const auto waitStarted = std::chrono::steady_clock::now ();
+        while (MeshStore::Get ().FullPassInFlight () && !gCancel)
+            std::this_thread::sleep_for (std::chrono::milliseconds (100));
+        if (gCancel)
+            return finish ("cancelled", "");
+        archviz::ArchVizLog (
+            "pipeline: stage=sun-wait-viewer-pass waitedMs=" +
+            std::to_string (int64_t (
+                std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - waitStarted).count ())));
+        SetStage ("snapshot");
+    }
     GS::ObjectState snapshotParams;
     snapshotParams.Add ("scope", GS::UniString ("all"));
     snapshotParams.Add ("reuseShared", true);

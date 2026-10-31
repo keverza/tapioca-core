@@ -65,6 +65,33 @@ class MeshStore {
         return captureActive.load ();
     }
 
+    // The viewer's worker is walking the WHOLE model (not a by-GUID update).
+    // Until it publishes, a whole-model caller waits for it OFF the main thread
+    // rather than walking the model again ON it: a sun study started during an
+    // 806k-triangle load did, and held Archicad for 37 s while the load stalled
+    // (2026-10-31, #97).
+    void SetFullPassInFlight (bool inFlight)
+    {
+        fullPassInFlight.store (inFlight);
+    }
+    bool FullPassInFlight () const
+    {
+        return fullPassInFlight.load ();
+    }
+    // Sets the flag for a full walk and clears it on every return path.
+    struct FullPassScope {
+        explicit FullPassScope (bool full)
+        {
+            Get ().SetFullPassInFlight (full);
+        }
+        ~FullPassScope ()
+        {
+            Get ().SetFullPassInFlight (false);
+        }
+        FullPassScope (const FullPassScope&) = delete;
+        FullPassScope& operator= (const FullPassScope&) = delete;
+    };
+
     // Any thread: get the current snapshot (may be null before first build).
     std::shared_ptr<const Snapshot> Current () const
     {
@@ -98,6 +125,7 @@ class MeshStore {
     uint64_t nextId = 1;
     std::atomic<uint64_t> captureStamp { 1 };
     std::atomic<bool> captureActive { false };
+    std::atomic<bool> fullPassInFlight { false };
 };
 
 } // namespace geomsrv

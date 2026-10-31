@@ -271,6 +271,8 @@ bool RadiusGrip (const HudState& state, const float viewProj[16], uint32_t width
 
 const char* StageText (const sunstudyhud::Status& status)
 {
+    if (status.stage == "waiting")
+        return "Waiting for the viewer to finish loading the model...";
     if (status.stage == "snapshot")
         return "Capturing the model...";
     if (status.stage == "starting")

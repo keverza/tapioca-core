@@ -39,7 +39,8 @@ struct Request {
 
 struct Status {
     bool running = false;
-    std::string stage; // "snapshot", "starting", "calculating", "showing", "done", "cancelled", "failed"
+    std::string stage; // "waiting" (for the viewer's load), "snapshot", "starting", "calculating", "showing", "done",
+                       // "cancelled", "failed"
     size_t resolvedSteps = 0;
     size_t totalSteps = 0;
     std::string studyId;

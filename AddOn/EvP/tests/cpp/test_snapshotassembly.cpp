@@ -124,3 +124,23 @@ TEST (SnapshotAssembly, OriginalSurfaceSidecarAndCatalogSurviveFullAndIncrementa
     EXPECT_FALSE (SnapshotAssembly::CanUpdate (base.get (), 21, base->materialTransparency, materials, replaced));
     EXPECT_FALSE (SnapshotAssembly::CanUpdate (base.get (), 21, base->materialTransparency));
 }
+
+// A whole-model caller waits on this flag instead of walking the model on the
+// main thread (#97), so it must clear on every return path of a full pass.
+TEST (MeshStoreFullPass, AScopeMarksAFullWalkAndClearsOnExit)
+{
+    auto& store = geomsrv::MeshStore::Get ();
+    ASSERT_FALSE (store.FullPassInFlight ());
+    {
+        const geomsrv::MeshStore::FullPassScope pass (true);
+        EXPECT_TRUE (store.FullPassInFlight ());
+    }
+    EXPECT_FALSE (store.FullPassInFlight ());
+    {
+        const geomsrv::MeshStore::FullPassScope update (false);
+        EXPECT_FALSE (store.FullPassInFlight ());
+        store.SetFullPassInFlight (true); // a by-GUID pass that fell back to a full walk
+        EXPECT_TRUE (store.FullPassInFlight ());
+    }
+    EXPECT_FALSE (store.FullPassInFlight ());
+}

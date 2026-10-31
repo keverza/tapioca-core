@@ -251,6 +251,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     const int64_t started = NowMs ();
     bool partial = !filter.empty ();
     std::set<std::string> effectiveFilter = filter;
+    const MeshStore::FullPassScope inFlight (!partial);
     auto baseSnapshot = MeshStore::Get ().Shared ();
 
     const auto fail = [this, started] (const std::string& why) {
@@ -372,6 +373,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         effectiveFilter.clear ();
         partial = false;
         full = true;
+        MeshStore::Get ().SetFullPassInFlight (true);
         ArchVizLog ("pipeline: stage=geometry-shared-full reason=incompatible-incremental-baseline");
     }
     SnapshotAssembly assembly (MeshStore::Get ().NextId (), handle->captureStamp, handle->transparency,
