@@ -3,10 +3,12 @@
 #include "UiAbi.h"
 #include "ArchViz/TapiocaUI/Demo/WidgetGallery.hpp"
 #include "ArchViz/HudFloorProgramme.hpp"
+#include "NativePreview.hpp"
 
 namespace tapioca::playground {
 struct Workspace {
     Value document;
+    NativePreview native;
     av::ui::GalleryState gallery;
     char search[128] = {};
     bool demo = false, styleEditor = false;

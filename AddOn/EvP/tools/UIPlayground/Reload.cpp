@@ -140,6 +140,9 @@ std::map<fs::path, fs::file_time_type> ReloadLoop::Scan () const
     tree (source);
     const auto addon = source.parent_path ().parent_path () / "Sources" / "AddOn";
     tree (addon / "ArchViz" / "TapiocaUI");
+    tree (addon / "Edit");
+    tree (addon / "SunStudy");
+    tree (addon / "Geometry");
     for (const auto* folder : { L"ArchViz", L"Metadata", L"NodeGraph" }) {
         std::error_code ec;
         for (fs::directory_iterator it (addon / folder, ec), end; !ec && it != end; it.increment (ec)) {
@@ -150,7 +153,10 @@ std::map<fs::path, fs::file_time_type> ReloadLoop::Scan () const
                  name.starts_with (L"MassingAreaCalculations") || name.starts_with (L"HudFloorProgramme") ||
                  name.starts_with (L"FloorProgramme") || name.starts_with (L"GraphicsSettings") ||
                  name.starts_with (L"OverlayLayers") || name.starts_with (L"OverlayHitMap") ||
-                 name.starts_with (L"PlanOverlayContent")) &&
+                 name.starts_with (L"PlanOverlayContent") || name.starts_with (L"HudVirtualEditor") ||
+                 name.starts_with (L"DiligentHud") || name.starts_with (L"Analysis") ||
+                 name.starts_with (L"EditLayers") || name.starts_with (L"EditLandscapeLayers") ||
+                 name.starts_with (L"RoofSlopeCanvas")) &&
                 it->is_regular_file (ec))
                 add (it->path ());
         }

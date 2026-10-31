@@ -16,15 +16,21 @@ void Require (bool condition, const char* message)
     if (!condition)
         throw std::runtime_error (message);
 }
-std::string Frame (pg::Module& module, std::string state)
+std::string Frame (pg::Module& module, std::string state, float dpi = 1, std::string* text = nullptr)
 {
     auto& io = ImGui::GetIO ();
     io.DisplaySize = { 1500, 950 };
     io.DeltaTime = 1.0f / 60;
     ImGui::NewFrame ();
-    const TapiocaUiFrame frame { 1500, 950, 1, "headless test" };
+    const TapiocaUiFrame frame { 1500, 950, dpi, "headless test" };
+    if (text)
+        ImGui::LogToBuffer ();
     TapiocaUiResult result {};
     Require (module.Draw (frame, result), "DLL draw failed");
+    if (text) {
+        *text = ImGui::GetCurrentContext ()->LogBuffer.c_str ();
+        ImGui::LogFinish ();
+    }
     if (result.stateJson) {
         state = result.stateJson;
         std::free (result.stateJson);
@@ -67,6 +73,7 @@ int main (int argc, char** argv)
         }
         Require (fixtures.size () == 14, "Expected all seven variants for both panels");
         auto document = pg::Value::Object ({ { "version", pg::Value::Integer (1) },
+                                             { "nativeMode", pg::Value::Bool (false) },
                                              { "fixtures", pg::Value::Array (fixtures) },
                                              { "selected", pg::Value::Integer (0) } });
         IMGUI_CHECKVERSION ();
@@ -157,8 +164,89 @@ int main (int argc, char** argv)
                          "State changed across reload");
                 state = after;
             }
+            document = pg::json::Parse (state).value;
+            pg::Put (document, "nativeMode", pg::Value::Bool (true));
+            for (const auto* workflow : { "@massing", "@analysis", "@editor" }) {
+                pg::Put (document, "nativeRequest", pg::Value::String (workflow));
+                state = pg::json::Write (document, 0);
+                Require (module.Swap (dll, state, error), "Native workflow restore failed");
+                state = Frame (module, state);
+                state = Frame (module, state);
+                const auto* panel = ImGui::FindWindowByName ("###playground.native.hud");
+                Require (panel && std::abs (panel->Size.x - 320) <= 1, "Native width differs from actual 320px shell");
+                const auto before = pg::json::Parse (state).value;
+                Require (module.Swap (dll, state, error), "Native workflow reload failed");
+                state = Frame (module, state);
+                state = Frame (module, state);
+                Require (pg::json::Write (before) == pg::json::Write (pg::json::Parse (state).value),
+                         "Native workflow state lost across reload");
+                document = pg::json::Parse (state).value;
+            }
+            pg::Put (document, "nativeRequest", pg::Value::String ("@analysis"));
+            for (int tab = 0; tab < 4; ++tab) {
+                auto native = pg::Member (document, "native");
+                auto values = pg::Member (native, "values");
+                pg::Put (values, "analysisTab", pg::Value::Integer (tab));
+                pg::Put (native, "values", values);
+                pg::Put (document, "native", native);
+                state = pg::json::Write (document, 0);
+                Require (module.Swap (dll, state, error), "Analysis tab fixture restore failed");
+                state = Frame (module, state);
+                state = Frame (module, state);
+                std::string rendered;
+                state = Frame (module, state, 1, &rendered);
+                const char* expected[] = { "Run sun study", "Run visibility", "Point XYZ (m)", "Show viewpoint" };
+                Require (rendered.find (expected[tab]) != std::string::npos, "Analysis tab body was not rendered");
+                const auto answer = pg::json::Parse (state).value;
+                Require (pg::Number (pg::Member (pg::Member (answer, "native"), "values"), "analysisTab", -1) == tab,
+                         "Real analysis sub-tab did not render");
+            }
+            // Edited production controls and imported-path/profile data survive the ABI snapshot.
+            document = pg::json::Parse (state).value;
+            auto native = pg::Member (document, "native");
+            auto values = pg::Member (native, "values");
+            pg::Put (values, "hud.sunRunGrid", pg::Value::Double (2.75));
+            pg::Put (values, "point.options.radius", pg::Value::Double (42.5));
+            pg::Put (values, "editor.snapEnabled", pg::Value::Bool (false));
+            pg::Put (
+                values, "path",
+                pg::json::Parse (R"({"guid":"fixture-path","points":[[0,0,0],[10,0,0]],"along":[0,10],"closed":false})")
+                    .value);
+            pg::Put (values, "profile", pg::json::Parse ("[[0,1.6,1,0],[10,2.6,1,0]]").value);
+            pg::Put (native, "values", values);
+            pg::Put (document, "native", native);
+            state = pg::json::Write (document, 0);
+            Require (module.Swap (dll, state, error), "Edited native controls rejected");
+            state = Frame (module, state);
+            // Keep an owning JSON value: Member returns references into it.
+            const auto changedDocument = pg::json::Parse (state).value;
+            const auto& changedValues = pg::Member (pg::Member (changedDocument, "native"), "values");
+            Require (pg::Number (changedValues, "hud.sunRunGrid") == 2.75 &&
+                         pg::Number (changedValues, "point.options.radius") == 42.5 &&
+                         !pg::Flag (changedValues, "editor.snapEnabled", true),
+                     "Native edited values were reset");
+            Require (pg::json::Write (pg::Member (changedValues, "profile")) ==
+                         pg::json::Write (pg::Member (values, "profile")),
+                     "Analysis path profile lost across restore");
+            const auto activeGeneration = module.Generation ();
+            auto invalid = changedDocument;
+            native = pg::Member (invalid, "native");
+            values = pg::Member (native, "values");
+            pg::Put (values, "analysisTab", pg::Value::Integer (99));
+            pg::Put (native, "values", values);
+            pg::Put (invalid, "native", native);
+            Require (!module.Swap (dll, pg::json::Write (invalid, 0), error) &&
+                         module.Generation () == activeGeneration,
+                     "Invalid workflow state replaced working module");
+            for (float dpi : { 1.0f, 1.5f, 2.0f }) {
+                state = Frame (module, state, dpi);
+                state = Frame (module, state, dpi);
+                const auto* panel = ImGui::FindWindowByName ("###playground.native.hud");
+                Require (panel && std::abs (panel->Size.x - 320 * dpi) <= 1, "Production native DPI width mismatch");
+            }
             std::cout << "14 fixtures roundtrip; 120 panel/theme/density cases; real Programme input/save; 10 "
-                         "consecutive reloads; candidate "
+                         "consecutive reloads; native workflows, four Analysis bodies, DPI width and edited controls; "
+                         "candidate "
                          "rollback passed.\n";
         }
         ImGui::DestroyContext ();

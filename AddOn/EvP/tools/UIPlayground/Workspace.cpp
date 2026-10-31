@@ -302,6 +302,8 @@ bool Restore (Workspace& w, const Value& document)
         w.numberOpen = true;
     }
     GalleryState (w, false);
+    if (!RestoreNative (w.native, document))
+        return false;
     return true;
 }
 void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& result)
@@ -314,15 +316,16 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
     int fontStep = std::clamp (int (Number (w.document, "fontStep", av::hudshell::kFontStepDefault)), 0,
                                int (av::hudshell::kFontStepCount) - 1);
     bool compact = Flag (w.document, "compact");
-    float width = float (std::clamp (Number (w.document, "previewWidth", 720), 160.0, 2400.0));
+    bool nativeMode = Flag (w.document, "nativeMode", true);
+    float width = float (std::clamp (Number (w.document, "previewWidth", 320), 160.0, 2400.0));
     float height = float (std::clamp (Number (w.document, "previewHeight", 740), 120.0, 2400.0));
     const float scale =
         (dpi > 0 ? dpi : frame.dpiScale) * (selected == -1 ? 1.0f : av::ui::tokens::kDensitySteps[density]);
     av::hudshell::BaseStyle (scale);
-    ImGui::GetStyle ().FontScaleMain = av::hudshell::FontScaleOfStep (uint32_t (fontStep));
-    av::overlaylayers::Panel look;
-    if (!dark)
-        av::overlaylayers::ApplyTheme (look, av::overlaylayers::PanelTheme::Light);
+    ImGui::GetStyle ().FontScaleMain = nativeMode ? 1.0f : av::hudshell::FontScaleOfStep (uint32_t (fontStep));
+    av::overlaylayers::Panel look = nativeMode ? av::hudshell::PlainLook () : av::overlaylayers::Panel {};
+    av::overlaylayers::ApplyTheme (look,
+                                   dark ? av::overlaylayers::PanelTheme::Dark : av::overlaylayers::PanelTheme::Light);
     av::ui::ScopedStyle style;
     style.Adopt (av::hudshell::PushLook (look, scale), av::hudshell::kLookVars);
     style.Font (nullptr, 13.0f * scale);
@@ -343,6 +346,16 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
         ImGui::InputTextWithHint ("##search", "Search panels / fixtures", w.search, sizeof (w.search));
         if (ImGui::Selectable ("Component gallery", selected == -1))
             selected = -1;
+        ImGui::SeparatorText ("Native workflows");
+        for (const auto& entry : { std::pair { "Massing", "@massing" },
+                                   { "Analysis (Sun / View)", "@analysis" },
+                                   { "Virtual editor", "@editor" } })
+            if (ImGui::Selectable (entry.first, w.native.held == entry.second)) {
+                nativeMode = true;
+                if (selected < 0)
+                    selected = 0;
+                Put (w.document, "nativeRequest", Value::String (entry.second));
+            }
         for (const auto* panel : { "hudmassingstats", "hudprogramme" }) {
             ImGui::SeparatorText (std::strcmp (panel, "hudprogramme") == 0 ? "Define Programme" : "Stats");
             for (size_t i = 0; i < fixtures.size (); ++i) {
@@ -352,57 +365,70 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
                 if (w.search[0] && (std::string (panel) + " " + variant).find (w.search) == std::string::npos)
                     continue;
                 ImGui::PushID (int (i));
-                if (ImGui::Selectable (variant.c_str (), selected == int (i)))
+                if (ImGui::Selectable (variant.c_str (), selected == int (i))) {
                     selected = int (i);
+                    Put (w.document, "nativeRequest",
+                         Value::String (std::strcmp (panel, "hudprogramme") == 0 ? "@massing"
+                                                                                 : av::hudshell::kStatsKey));
+                }
                 ImGui::PopID ();
             }
         }
         ImGui::EndChild ();
         ImGui::TableSetColumnIndex (1);
+        const ImVec2 stageMin = ImGui::GetCursorScreenPos ();
+        const ImVec2 stageMax = stageMin + ImGui::GetContentRegionAvail ();
         ImGui::BeginChild ("preview-scroll", { 0, 0 }, ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
-        ImGui::BeginChild ("production-preview", { width * frame.dpiScale, height * frame.dpiScale },
-                           ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX | ImGuiChildFlags_ResizeY);
-        if (selected == -1) {
-            w.gallery.dark = dark;
-            // Gallery already applies its own density; don't multiply it a second time.
-            w.gallery.density = uint32_t (density);
-            const auto previous = json::Write (Member (w.document, "gallery"), 0);
-            av::ui::DrawGallery (w.gallery);
-            dark = w.gallery.dark;
-            density = int (w.gallery.density);
-            GalleryState (w, true);
-            if (previous != json::Write (Member (w.document, "gallery"), 0))
-                for (const auto& entry : w.gallery.log)
-                    if (entry.frame == ImGui::GetFrameCount ())
-                        Event (w.document, "Gallery: " + entry.control + (entry.result.changed ? " changed" : "") +
-                                               (entry.result.committed ? " committed" : "") +
-                                               (entry.result.canceled ? " canceled" : ""));
-        }
-        else {
-            FixtureModel model;
-            std::string error;
-            if (DecodeFixture (fixtures[size_t (selected)], model, error)) {
-                DrawPanel (w, model, look, scale);
-                fixtures[size_t (selected)] = EncodeFixture (model);
+        if (!nativeMode || selected == -1) {
+            ImGui::BeginChild ("production-preview", { width * frame.dpiScale, height * frame.dpiScale },
+                               ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX | ImGuiChildFlags_ResizeY);
+            if (selected == -1) {
+                w.gallery.dark = dark;
+                // Gallery already applies its own density; don't multiply it a second time.
+                w.gallery.density = uint32_t (density);
+                const auto previous = json::Write (Member (w.document, "gallery"), 0);
+                av::ui::DrawGallery (w.gallery);
+                dark = w.gallery.dark;
+                density = int (w.gallery.density);
+                GalleryState (w, true);
+                if (previous != json::Write (Member (w.document, "gallery"), 0))
+                    for (const auto& entry : w.gallery.log)
+                        if (entry.frame == ImGui::GetFrameCount ())
+                            Event (w.document, "Gallery: " + entry.control + (entry.result.changed ? " changed" : "") +
+                                                   (entry.result.committed ? " committed" : "") +
+                                                   (entry.result.canceled ? " canceled" : ""));
             }
-            else
-                ImGui::TextWrapped ("%s", error.c_str ());
+            else if (!nativeMode) {
+                FixtureModel model;
+                std::string error;
+                if (DecodeFixture (fixtures[size_t (selected)], model, error)) {
+                    DrawPanel (w, model, look, scale);
+                    fixtures[size_t (selected)] = EncodeFixture (model);
+                }
+                else
+                    ImGui::TextWrapped ("%s", error.c_str ());
+            }
+            const auto previewSize = ImGui::GetWindowSize ();
+            width = previewSize.x / frame.dpiScale;
+            height = previewSize.y / frame.dpiScale;
+            ImGui::EndChild ();
         }
-        const auto previewSize = ImGui::GetWindowSize ();
-        width = previewSize.x / frame.dpiScale;
-        height = previewSize.y / frame.dpiScale;
-        ImGui::EndChild ();
         ImGui::EndChild ();
         ImGui::TableSetColumnIndex (2);
         ImGui::BeginChild ("inspector", { 0, 0 });
         ImGui::SeparatorText ("Preview controls");
+        ImGui::Checkbox ("Native workflow shell", &nativeMode);
+        if (nativeMode)
+            ImGui::TextWrapped ("Production attached width: 320 logical px x DPI/text scale. Use the dock title for "
+                                "workflows; its arrow collapses the panel.");
         ImGui::Checkbox ("Dark production look", &dark);
         const char* densities[] = { "80%", "100%", "140%", "200%" };
         ImGui::Combo ("Density", &density, densities, 4);
         ImGui::SliderFloat ("DPI override (0=window)", &dpi, 0, 4, "%.2f");
         ImGui::SliderInt ("Production font step", &fontStep, 0, int (av::hudshell::kFontStepCount) - 1);
         ImGui::Checkbox ("Compact spacing", &compact);
-        ImGui::SliderFloat ("Preview width", &width, 160, 2400, "%.0f");
+        if (!nativeMode)
+            ImGui::SliderFloat ("Preview width", &width, 160, 2400, "%.0f");
         ImGui::SliderFloat ("Preview height", &height, 120, 2400, "%.0f");
         if (ImGui::Button ("Recompute (deterministic mock)")) {
             if (selected >= 0) {
@@ -434,6 +460,32 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
             ImGui::TextWrapped ("%s", json::Write (fixtures[size_t (selected)]).c_str ());
         ImGui::EndChild ();
         ImGui::EndTable ();
+        if (nativeMode && selected >= 0) {
+            w.native.fontStep = uint32_t (fontStep);
+            const float dpiScale = dpi > 0 ? dpi : frame.dpiScale;
+            const float ui =
+                dpiScale * av::ui::tokens::kDensitySteps[density] * av::hudshell::FontScaleOfStep (uint32_t (fontStep));
+            DrawNative (w.native, w.document, stageMin, stageMax, { frame.width, frame.height }, look, dpiScale, ui,
+                        [&] (const std::string& key) {
+                            const char* wanted = key == av::hudshell::kStatsKey ? "hudmassingstats" : "hudprogramme";
+                            size_t index = size_t (selected);
+                            if (Text (fixtures[index], "panel") != wanted)
+                                for (size_t i = 0; i < fixtures.size (); ++i)
+                                    if (Text (fixtures[i], "panel") == wanted &&
+                                        Text (fixtures[i], "variant") == "valid-populated") {
+                                        index = i;
+                                        break;
+                                    }
+                            FixtureModel model;
+                            std::string error;
+                            if (DecodeFixture (fixtures[index], model, error)) {
+                                selected = int (index);
+                                DrawPanel (w, model, look, ui);
+                                fixtures[index] = EncodeFixture (model);
+                            }
+                        });
+            fontStep = int (w.native.fontStep);
+        }
     }
     ImGui::End ();
     if (w.demo)
@@ -453,6 +505,7 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
     Put (w.document, "dpi", Value::Double (dpi));
     Put (w.document, "fontStep", Value::Integer (fontStep));
     Put (w.document, "compact", Value::Bool (compact));
+    Put (w.document, "nativeMode", Value::Bool (nativeMode));
     Put (w.document, "previewWidth", Value::Double (width));
     Put (w.document, "previewHeight", Value::Double (height));
     Put (w.document, "demo", Value::Bool (w.demo));

@@ -51,8 +51,10 @@ list (SORT atlHeaders COMPARE NATURAL ORDER DESCENDING)
 list (GET atlHeaders 0 atlHeader)
 get_filename_component (atlInclude "${atlHeader}" DIRECTORY)
 string (APPEND CMAKE_CXX_FLAGS " /I\"${atlInclude}\"")
-add_subdirectory ("${DILIGENT_DIR}/DiligentCore" "${CMAKE_BINARY_DIR}/DiligentCore" EXCLUDE_FROM_ALL)
-add_subdirectory ("${DILIGENT_DIR}/DiligentTools" "${CMAKE_BINARY_DIR}/DiligentTools" EXCLUDE_FROM_ALL)
+# Short binary roots keep MSBuild's D3D11 .lastbuildstate paths below MAX_PATH,
+# including when the playground uses a separately named build directory.
+add_subdirectory ("${DILIGENT_DIR}/DiligentCore" "${CMAKE_BINARY_DIR}/DC" EXCLUDE_FROM_ALL)
+add_subdirectory ("${DILIGENT_DIR}/DiligentTools" "${CMAKE_BINARY_DIR}/DT" EXCLUDE_FROM_ALL)
 # Only the 2D renderer is needed. Upstream's optional Utils/gizmo extensions
 # redeclare ImGui functions without dllimport and cannot join the shared ABI.
 get_target_property (rendererSources Diligent-Imgui SOURCES)
@@ -66,9 +68,11 @@ add_library (PlaygroundModel STATIC Fixture.cpp "${ADDON_DIR}/NodeGraph/Json.cpp
     "${ADDON_DIR}/ArchViz/MassingAreaCalculations.cpp" "${ADDON_DIR}/ArchViz/FloorProgramme.cpp")
 target_include_directories (PlaygroundModel PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" "${ADDON_DIR}")
 target_link_libraries (PlaygroundModel PUBLIC imgui)
-add_library (TapiocaUIPlaygroundUI SHARED UiModule.cpp Workspace.cpp ${PLAYGROUND_PRODUCTION_SOURCES})
+add_library (TapiocaUIPlaygroundUI SHARED UiModule.cpp Workspace.cpp NativePreview.cpp MockServices.cpp WorkflowState.cpp
+    ${PLAYGROUND_PRODUCTION_SOURCES})
 target_link_libraries (TapiocaUIPlaygroundUI PRIVATE PlaygroundModel imgui)
 target_compile_definitions (TapiocaUIPlaygroundUI PRIVATE TAPIOCA_UI_MODULE=1)
+include (WorkflowSources.cmake)
 
 add_executable (TapiocaUIPlayground WIN32 Host.cpp Reload.cpp)
 target_link_libraries (TapiocaUIPlayground PRIVATE PlaygroundModel imgui Diligent-Imgui
