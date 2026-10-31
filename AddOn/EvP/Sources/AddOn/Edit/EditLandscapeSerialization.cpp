@@ -308,7 +308,9 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
                                              { "cut", Value::Object ({ { "unit", Integer (int (v.terrain.cut.unit)) },
                                                                        { "a", Number (v.terrain.cut.a) },
                                                                        { "b", Number (v.terrain.cut.b) } }) },
-                                             { "fillPercent", Number (v.terrain.fillPercent) } }));
+                                             { "fill", Value::Object ({ { "unit", Integer (int (v.terrain.fill.unit)) },
+                                                                        { "a", Number (v.terrain.fill.a) },
+                                                                        { "b", Number (v.terrain.fill.b) } }) } }));
         if (v.surface) {
             const auto& surface = *v.surface;
             object.emplace ("surface", Value::Object ({ { "elevation", Integer (int (surface.elevation)) },

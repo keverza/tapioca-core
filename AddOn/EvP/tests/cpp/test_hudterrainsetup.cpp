@@ -222,6 +222,7 @@ TEST (HudTerrainSetup, RegionCutSlopeUnitAndHeightSliderUseActualWidgetsAndSepar
     const auto object = doc.landscape->objects[0].id;
     auto terrain = doc.landscape->objects[0].terrain;
     terrain.transition = lg::RegionTerrainTransition::Daylight;
+    terrain.fill = { lg::TerrainSlope::Unit::Height, 2.5, 5 };
     ASSERT_TRUE (lg::SetRegionTerrain (doc, object, terrain, error)) << error;
     eh::Session session (doc);
     session.selection.Set ({ { line, edit::Part::Entity, 0 } });
@@ -266,6 +267,7 @@ TEST (HudTerrainSetup, RegionCutSlopeUnitAndHeightSliderUseActualWidgetsAndSepar
     EXPECT_EQ (switched.unit, Unit::Height);
     EXPECT_DOUBLE_EQ (switched.a, 0.5);
     EXPECT_DOUBLE_EQ (switched.b, 1);
+    EXPECT_EQ (session.edits.Doc ().landscape->objects[0].terrain.fill, terrain.fill);
     EXPECT_EQ (session.edits.UndoDepth (), 1u);
     EXPECT_EQ (session.edits.Doc ().entities, doc.entities);
     text = gui.Frame (session, { 850, 1350 }, false, false, 1);
@@ -287,6 +289,7 @@ TEST (HudTerrainSetup, RegionCutSlopeUnitAndHeightSliderUseActualWidgetsAndSepar
     EXPECT_FALSE (session.edits.InGesture ());
     EXPECT_EQ (session.edits.UndoDepth (), 2u);
     EXPECT_NE (session.edits.Doc ().landscape->objects[0].terrain.cut.a, switched.a);
+    EXPECT_EQ (session.edits.Doc ().landscape->objects[0].terrain.fill, terrain.fill);
     ASSERT_TRUE (session.edits.Undo ());
     EXPECT_EQ (session.edits.Doc ().landscape->objects[0].terrain.cut, switched);
     ASSERT_TRUE (session.edits.Undo ());
@@ -299,6 +302,99 @@ TEST (HudTerrainSetup, RegionCutSlopeUnitAndHeightSliderUseActualWidgetsAndSepar
     mixed.selection.Set ({ { line, edit::Part::Entity, 0 }, { other, edit::Part::Entity, 0 } });
     text = gui.Frame (mixed, { 850, 1350 }, false, false, 1);
     EXPECT_EQ (text.find ("Cut face unit"), std::string::npos);
+}
+TEST (HudTerrainSetup, RegionFillUnitAndSliderAreUndoableWithoutChangingTheCutPair)
+{
+    using Unit = lg::TerrainSlope::Unit;
+    auto doc = EmptyLandscape ();
+    const auto line = edit::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, true);
+    std::string error;
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, line, lg::SourceRole::RegionBoundary, error));
+    const auto object = doc.landscape->objects[0].id;
+    auto terrain = doc.landscape->objects[0].terrain;
+    terrain.transition = lg::RegionTerrainTransition::Daylight;
+    terrain.cut = { Unit::RiseRun, 1.5, 3 };
+    ASSERT_TRUE (lg::SetRegionTerrain (doc, object, terrain, error)) << error;
+    eh::Session session (doc);
+    session.selection.Set ({ { line, edit::Part::Entity, 0 } });
+    PanelGui gui;
+    auto text = gui.Frame (session, { 850, 1350 }, false, false, 1);
+    EXPECT_NE (text.find ("Fill face unit"), std::string::npos);
+    EXPECT_NE (text.find ("Cut face unit"), std::string::npos);
+    const auto* window = ImGui::FindWindowByName ("terrain setup");
+    const auto root = ImHashStr ("region-surface", 0, window->ID);
+    const auto owner = ImHashStr (std::to_string (object).c_str (), 0, root);
+    const auto locate = [&] (const char* label) {
+        const auto target = ImHashStr (label, 0, owner);
+        for (float y = 24; y < 1250; y += 2) {
+            gui.Frame (session, { 60, y }, false, false, 1);
+            if (gui.context->HoveredId == target)
+                return ImVec2 { 60, y + 2 };
+        }
+        return ImVec2 { -1, -1 };
+    };
+    const auto combo = locate ("Fill face unit");
+    ASSERT_GT (combo.y, 0);
+    gui.Frame (session, combo, true, false, 1);
+    gui.Frame (session, combo, false, false, 1);
+    gui.Frame (session, combo, false, false, 1);
+    auto* popup = ImGui::FindWindowByName ("##Combo_00");
+    ASSERT_NE (popup, nullptr);
+    const int heightIndex = 3;
+    const auto target = ImHashStr ("Height / run (m)", 0, ImHashData (&heightIndex, sizeof (heightIndex), popup->ID));
+    ImVec2 choice { -1, -1 };
+    for (float y = popup->Pos.y + 4; y < popup->Pos.y + popup->Size.y; y += 2) {
+        const ImVec2 point { popup->Pos.x + 30, y };
+        gui.Frame (session, point, false, false, 1);
+        if (gui.context->HoveredId == target) {
+            choice = point;
+            break;
+        }
+    }
+    ASSERT_GT (choice.y, 0);
+    gui.Frame (session, choice, true, false, 1);
+    gui.Frame (session, choice, false, false, 1);
+    const auto switched = session.edits.Doc ().landscape->objects[0].terrain;
+    EXPECT_EQ (switched.fill.unit, Unit::Height);
+    EXPECT_NEAR (switched.fill.a, 0.33, 1e-12);
+    EXPECT_DOUBLE_EQ (switched.fill.b, 1);
+    EXPECT_EQ (switched.cut, terrain.cut);
+    EXPECT_EQ (session.edits.UndoDepth (), 1u);
+    EXPECT_EQ (session.edits.Doc ().entities, doc.entities);
+    text = gui.Frame (session, { 850, 1350 }, false, false, 1);
+    EXPECT_NE (text.find ("Fill height (m)"), std::string::npos);
+    EXPECT_NE (text.find ("Fill plan run (m)"), std::string::npos);
+    std::string json;
+    ASSERT_TRUE (lg::WriteLandscape (session.edits.Doc (), lg::LandscapeStorage::Virtual, json, error)) << error;
+    edit::Document loaded;
+    ASSERT_TRUE (lg::ReadLandscape (json, loaded, error)) << error;
+    EXPECT_EQ (loaded.landscape, session.edits.Doc ().landscape);
+    const auto slider = locate ("Fill height (m)");
+    ASSERT_GT (slider.y, 0);
+    gui.Frame (session, slider, true, false, 1);
+    ASSERT_TRUE (session.edits.InGesture ());
+    gui.Frame (session, { 160, slider.y }, true, false, 1);
+    gui.Frame (session, { 240, slider.y }, true, false, 1);
+    EXPECT_EQ (session.edits.UndoDepth (), 1u);
+    gui.Frame (session, { 240, slider.y }, false, false, 1);
+    EXPECT_EQ (session.edits.UndoDepth (), 2u);
+    EXPECT_FALSE (session.edits.InGesture ());
+    EXPECT_NE (session.edits.Doc ().landscape->objects[0].terrain.fill.a, switched.fill.a);
+    EXPECT_EQ (session.edits.Doc ().landscape->objects[0].terrain.cut, terrain.cut);
+    ASSERT_TRUE (session.edits.Undo ());
+    EXPECT_EQ (session.edits.Doc ().landscape->objects[0].terrain, switched);
+    ASSERT_TRUE (session.edits.Undo ());
+    EXPECT_EQ (session.edits.Doc ().landscape, doc.landscape);
+    const auto other = edit::AddPolyline (loaded, { { 20, 0, 0 }, { 30, 0, 0 }, { 30, 10, 0 } }, true);
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (loaded, other, lg::SourceRole::RegionBoundary, error));
+    eh::Session mixed (loaded);
+    mixed.selection.Set ({ { line, edit::Part::Entity, 0 }, { other, edit::Part::Entity, 0 } });
+    EXPECT_EQ (gui.Frame (mixed, { 850, 1350 }, false, false, 1).find ("Fill face unit"), std::string::npos);
+    const auto reference = edit::AddPolyline (loaded, { { 40, 0, 0 }, { 50, 0, 0 } }, false);
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (loaded, reference, lg::SourceRole::ReferenceLine, error));
+    eh::Session referenceOnly (loaded);
+    referenceOnly.selection.Set ({ { reference, edit::Part::Entity, 0 } });
+    EXPECT_EQ (gui.Frame (referenceOnly, { 850, 1350 }, false, false, 1).find ("Fill face unit"), std::string::npos);
 }
 #endif
 

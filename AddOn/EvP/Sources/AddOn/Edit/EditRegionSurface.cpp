@@ -9,7 +9,7 @@ namespace tapioca::geometry {
 namespace {
 constexpr const char* s_terrainError =
     "RegionTerrain: finite transition widths/reaches (0.05..100 m) and positive cut/fill grades (<=1000%) "
-    "required; vertical cut faces are not supported by this field";
+    "required; vertical daylight faces are not supported by these fields";
 
 bool ValidateFaceSlope (const TerrainSlope& authored, std::string& error)
 {
@@ -36,12 +36,11 @@ bool ValidateFaceSlope (const TerrainSlope& authored, std::string& error)
 bool ValidateRegionTerrain (const HardscapeObject& object, std::string& error)
 {
     const auto& terrain = object.terrain;
-    if (!ValidateFaceSlope (terrain.cut, error))
+    if (!ValidateFaceSlope (terrain.cut, error) || !ValidateFaceSlope (terrain.fill, error))
         return false;
     if (terrain.effect > RegionTerrainEffect::Subtract || terrain.transition > RegionTerrainTransition::Daylight ||
         !std::isfinite (terrain.falloff) || terrain.falloff < 0.05 || terrain.falloff > 100 ||
-        !std::isfinite (terrain.reach) || terrain.reach < 0.05 || terrain.reach > 100 ||
-        !std::isfinite (terrain.fillPercent) || terrain.fillPercent <= 0 || terrain.fillPercent > 1000) {
+        !std::isfinite (terrain.reach) || terrain.reach < 0.05 || terrain.reach > 100) {
         error = s_terrainError;
         return false;
     }

@@ -102,6 +102,44 @@ TEST (EditRegionTerrain, EquivalentCutSlopeFormsReachTheSameDaylightAndQuantitie
     }
 }
 
+TEST (EditRegionTerrain, EquivalentFillSlopeFormsReachTheSameDaylightWithoutChangingCutOrCapture)
+{
+    Fixture fixture;
+    std::string error;
+    const auto baseline = fixture.Capture ()->points;
+    using Unit = lg::TerrainSlope::Unit;
+    const lg::TerrainSlope cut { Unit::RiseRun, 1.5, 3 };
+    double expectedFill = -1;
+    for (const lg::TerrainSlope fill : { lg::TerrainSlope { Unit::Percent, 100, 0 },
+                                         { Unit::Angle, std::atan (1.0), 0 },
+                                         { Unit::RiseRun, 1.5, 1.5 },
+                                         { Unit::Height, 2.5, 2.5 } }) {
+        SCOPED_TRACE (static_cast<int> (fill.unit));
+        auto settings = fixture.doc.landscape->objects[0].terrain;
+        settings.transition = lg::RegionTerrainTransition::Daylight;
+        settings.reach = 3;
+        settings.cut = cut;
+        settings.fill = fill;
+        ASSERT_TRUE (lg::SetRegionTerrain (fixture.doc, fixture.object, settings, error)) << error;
+        const auto capture = fixture.Capture ();
+        lg::RegionTerrainResult result;
+        ASSERT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, capture, result, error)) << error;
+        EXPECT_NEAR (Height (result, 10, 10), 2, 1e-8);
+        EXPECT_NEAR (Height (result, 4, 10), 1, 1e-8) << "1 m outside at 1:1 falls 1 m";
+        EXPECT_NEAR (Height (result, 1, 10), 0, 1e-8);
+        ASSERT_TRUE (result.evaluation.terrain.volumes);
+        const auto& volume = result.evaluation.terrain.volumes->site;
+        EXPECT_GT (volume.fill, 199);
+        EXPECT_NEAR (volume.cut, 0, 1e-8);
+        if (expectedFill < 0)
+            expectedFill = volume.fill;
+        EXPECT_NEAR (volume.fill, expectedFill, 1e-7);
+        EXPECT_EQ (capture->points, baseline);
+        EXPECT_EQ (fixture.doc.landscape->objects[0].terrain.cut, cut);
+        EXPECT_EQ (fixture.doc.landscape->objects[0].terrain.fill, fill);
+    }
+}
+
 TEST (EditRegionTerrain, OverreachingCutDaylightKeepsItsExistingAtomicRefusal)
 {
     Fixture fixture;
@@ -310,7 +348,7 @@ TEST (EditRegionTerrain, DaylightUsesTheAuthoredSideGrade)
     settings.transition = lg::RegionTerrainTransition::Daylight;
     settings.reach = 3;
     settings.cut = { lg::TerrainSlope::Unit::Percent, 100, 0 };
-    settings.fillPercent = 100;
+    settings.fill = { lg::TerrainSlope::Unit::Percent, 100, 0 };
     ASSERT_TRUE (lg::SetRegionTerrain (fixture.doc, fixture.object, settings, error));
     lg::RegionTerrainResult result;
     ASSERT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, fixture.Capture (), result, error)) << error;

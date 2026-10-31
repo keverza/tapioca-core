@@ -114,7 +114,7 @@ struct RegionTerrain {
     RegionTerrainTransition transition = RegionTerrainTransition::Falloff;
     double falloff = 1, reach = 10;
     TerrainSlope cut { TerrainSlope::Unit::Percent, 50, 0 }; // Authored unit and parts; no percent shadow value.
-    double fillPercent = 33;
+    TerrainSlope fill { TerrainSlope::Unit::Percent, 33, 0 };
     bool operator== (const RegionTerrain&) const = default;
 };
 struct RegionSurface {

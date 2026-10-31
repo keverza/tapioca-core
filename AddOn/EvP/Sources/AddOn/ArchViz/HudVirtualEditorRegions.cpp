@@ -105,6 +105,16 @@ constexpr RegionSlopeLabels s_cutSlopeLabels {
     "Cut plan run (m)",
     "Cut grade: >0 to 1000%; vertical is not supported. Height/run uses model metres."
 };
+constexpr RegionSlopeLabels s_fillSlopeLabels {
+    "Fill face unit",
+    "Fill face (%)",
+    "Fill face (degrees)",
+    "Fill rise",
+    "Fill run",
+    "Fill height (m)",
+    "Fill plan run (m)",
+    "Fill grade: >0 to 1000%; vertical is not supported. Height/run uses model metres."
+};
 
 bool SlopeFields (Session& s, lg::Id object, const RegionSlopeLabels& labels, lg::TerrainSlope& slope, bool& release)
 {
@@ -251,7 +261,7 @@ void RegionPanel (Session& s, bool materialsOnly)
         else {
             terrainChanged |= Slider (s, object->id, "Maximum reach (m)", terrain.reach, 0.05, 100, "%.2f", release);
             terrainChanged |= SlopeFields (s, object->id, s_cutSlopeLabels, terrain.cut, release);
-            terrainChanged |= Slider (s, object->id, "Fill face (%)", terrain.fillPercent, 0.01, 1000, "%.2f", release);
+            terrainChanged |= SlopeFields (s, object->id, s_fillSlopeLabels, terrain.fill, release);
         }
         ImGui::EndDisabled ();
         ImGui::TextWrapped ("Union/Subtract above change the footprint, not vertical cut/fill. "
