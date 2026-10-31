@@ -9,28 +9,41 @@ namespace evp::rayworker::packet {
 
 namespace {
 
+// ⚠️ ARRAYS MOVE AS BLOCKS. The layout is little-endian and so is every
+// target this builds for, so an array's bytes ARE its encoding: one memcpy
+// each way. Encoding a 40,000-sample request byte by byte cost more than the
+// GPU's trace of it (E5, 2026-10-31).
+static_assert (sizeof (double) == 8 && sizeof (uint32_t) == 4 && sizeof (uint64_t) == 8);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+#error "RayWorkerPacket assumes a little-endian target"
+#endif
+
+// One packet, written once: the header's 64 bytes are reserved first and
+// filled by Seal, so the payload is never copied again.
 class Writer {
   public:
+    explicit Writer (size_t payloadBytes)
+    {
+        bytes_.reserve (HeaderBytes + payloadBytes);
+        bytes_.resize (HeaderBytes);
+    }
     void U32 (uint32_t value)
     {
-        for (int shift = 0; shift < 32; shift += 8)
-            bytes_.push_back (static_cast<uint8_t> ((value >> shift) & 0xFFu));
+        Raw (&value, sizeof value);
     }
     void U64 (uint64_t value)
     {
-        for (int shift = 0; shift < 64; shift += 8)
-            bytes_.push_back (static_cast<uint8_t> ((value >> shift) & 0xFFu));
+        Raw (&value, sizeof value);
     }
     void F64 (double value)
     {
-        uint64_t bits = 0;
-        std::memcpy (&bits, &value, sizeof bits);
-        U64 (bits);
+        Raw (&value, sizeof value);
     }
-    template <typename T, typename F> void Array (const std::vector<T>& values, F write)
+    template <typename T> void Array (const std::vector<T>& values)
     {
-        for (const T& value : values)
-            (this->*write) (value);
+        static_assert (sizeof (T) == 1 || sizeof (T) == 4 || sizeof (T) == 8);
+        if (!values.empty ())
+            Raw (values.data (), values.size () * sizeof (T));
     }
     std::vector<uint8_t>& Bytes ()
     {
@@ -38,6 +51,13 @@ class Writer {
     }
 
   private:
+    void Raw (const void* data, size_t size)
+    {
+        const size_t at = bytes_.size ();
+        bytes_.resize (at + size);
+        std::memcpy (bytes_.data () + at, data, size);
+    }
+
     std::vector<uint8_t> bytes_;
 };
 
@@ -49,24 +69,19 @@ class Reader {
     uint32_t U32 ()
     {
         uint32_t value = 0;
-        if (Need (4))
-            for (int i = 0; i < 4; ++i)
-                value |= static_cast<uint32_t> (bytes_[at_++]) << (8 * i);
+        Raw (&value, sizeof value);
         return value;
     }
     uint64_t U64 ()
     {
         uint64_t value = 0;
-        if (Need (8))
-            for (int i = 0; i < 8; ++i)
-                value |= static_cast<uint64_t> (bytes_[at_++]) << (8 * i);
+        Raw (&value, sizeof value);
         return value;
     }
     double F64 ()
     {
-        const uint64_t bits = U64 ();
         double value = 0.0;
-        std::memcpy (&value, &bits, sizeof value);
+        Raw (&value, sizeof value);
         return value;
     }
     // A count of `width`-byte elements, refused before allocation when the
@@ -81,44 +96,23 @@ class Reader {
         }
         return true;
     }
-    template <typename T> bool U32s (uint64_t count, std::vector<T>& out, const char* what)
+    template <typename T> bool Array (uint64_t count, std::vector<T>& out, const char* what)
     {
-        if (!Count (count, 4, what))
+        if (!Count (count, sizeof (T), what))
             return false;
         out.resize (static_cast<size_t> (count));
-        for (T& value : out)
-            value = static_cast<T> (U32 ());
-        return ok_;
-    }
-    bool U64s (uint64_t count, std::vector<uint64_t>& out, const char* what)
-    {
-        if (!Count (count, 8, what))
-            return false;
-        out.resize (static_cast<size_t> (count));
-        for (uint64_t& value : out)
-            value = U64 ();
+        Raw (out.data (), out.size () * sizeof (T));
         return ok_;
     }
     bool F64s (uint64_t count, std::vector<double>& out, const char* what)
     {
-        if (!Count (count, 8, what))
+        if (!Array (count, out, what))
             return false;
-        out.resize (static_cast<size_t> (count));
-        for (double& value : out) {
-            value = F64 ();
+        for (const double value : out)
             if (!std::isfinite (value)) {
                 Fail (std::string (what) + " contains a non-finite value");
                 return false;
             }
-        }
-        return ok_;
-    }
-    bool Bytes (uint64_t count, std::vector<uint8_t>& out, const char* what)
-    {
-        if (!Count (count, 1, what))
-            return false;
-        out.assign (bytes_ + at_, bytes_ + at_ + count);
-        at_ += static_cast<size_t> (count);
         return true;
     }
     bool Finish (const char* what)
@@ -139,15 +133,16 @@ class Reader {
     }
 
   private:
-    bool Need (size_t count)
+    void Raw (void* out, size_t count)
     {
-        if (!ok_)
-            return false;
+        if (!ok_ || count == 0)
+            return;
         if (size_ - at_ < count) {
             Fail ("the segment is short");
-            return false;
+            return;
         }
-        return true;
+        std::memcpy (out, bytes_ + at_, count);
+        at_ += count;
     }
 
     const uint8_t* bytes_;
@@ -157,23 +152,30 @@ class Reader {
     std::string& error_;
 };
 
+void PutU32 (uint8_t* at, uint32_t value)
+{
+    std::memcpy (at, &value, sizeof value);
+}
+
+void PutU64 (uint8_t* at, uint64_t value)
+{
+    std::memcpy (at, &value, sizeof value);
+}
+
 // Header: magic, layout, kind, reserved (4 x u32), epoch, sequence,
 // payloadBytes, checksum (4 x u64), 16 reserved bytes -> 64.
-std::vector<uint8_t> Seal (Kind kind, uint64_t epoch, uint64_t sequence, std::vector<uint8_t> payload)
+std::vector<uint8_t> Seal (Kind kind, uint64_t epoch, uint64_t sequence, Writer& writer)
 {
-    Writer header;
-    header.U32 (Magic);
-    header.U32 (LayoutVersion);
-    header.U32 (static_cast<uint32_t> (kind));
-    header.U32 (0);
-    header.U64 (epoch);
-    header.U64 (sequence);
-    header.U64 (payload.size ());
-    header.U64 (Checksum (payload.data (), payload.size ()));
-    header.U64 (0);
-    header.U64 (0);
-    std::vector<uint8_t> out = std::move (header.Bytes ());
-    out.insert (out.end (), payload.begin (), payload.end ());
+    std::vector<uint8_t> out = std::move (writer.Bytes ());
+    const size_t payload = out.size () - HeaderBytes;
+    std::memset (out.data (), 0, HeaderBytes);
+    PutU32 (out.data (), Magic);
+    PutU32 (out.data () + 4, LayoutVersion);
+    PutU32 (out.data () + 8, static_cast<uint32_t> (kind));
+    PutU64 (out.data () + 16, epoch);
+    PutU64 (out.data () + 24, sequence);
+    PutU64 (out.data () + 32, payload);
+    PutU64 (out.data () + 40, Checksum (out.data () + HeaderBytes, payload));
     return out;
 }
 
@@ -232,11 +234,24 @@ bool Open (const uint8_t* bytes, size_t size, Kind kind, uint64_t epoch, const u
 
 uint64_t Checksum (const uint8_t* bytes, size_t size)
 {
-    uint64_t hash = 1469598103934665603ull;
-    for (size_t i = 0; i < size; ++i) {
-        hash ^= bytes[i];
-        hash *= 1099511628211ull;
-    }
+    // Four independent FNV-1a lanes over 64-bit words, folded with the length
+    // and the tail bytes. A byte-wise FNV-1a is one dependent multiply per
+    // byte; this is one per 8 bytes, four in flight. It detects a stale or
+    // partial segment, which is all it is for -- not an adversary.
+    constexpr uint64_t prime = 1099511628211ull;
+    uint64_t lane[4] = { 1469598103934665603ull, 0x9E3779B97F4A7C15ull, 0xC2B2AE3D27D4EB4Full, 0x165667B19E3779F9ull };
+    size_t at = 0;
+    for (; at + 32 <= size; at += 32)
+        for (int k = 0; k < 4; ++k) {
+            uint64_t word = 0;
+            std::memcpy (&word, bytes + at + 8 * k, 8);
+            lane[k] = (lane[k] ^ word) * prime;
+        }
+    uint64_t hash = 1469598103934665603ull ^ static_cast<uint64_t> (size);
+    for (const uint64_t value : lane)
+        hash = (hash ^ value) * prime;
+    for (; at < size; ++at)
+        hash = (hash ^ bytes[at]) * prime;
     return hash;
 }
 
@@ -257,41 +272,41 @@ Scene SceneFromSnapshot (const geomsrv::Snapshot& snapshot)
 
 std::vector<uint8_t> Write (uint64_t epoch, const Scene& scene)
 {
-    Writer w;
+    Writer w (20 + scene.vertices.size () * 8 + (scene.triangles.size () + scene.triangleMesh.size ()) * 4);
     w.U32 (scene.meshCount);
     w.U64 (scene.vertices.size () / 3);
     w.U64 (scene.triangles.size () / 3);
-    w.Array (scene.vertices, &Writer::F64);
-    w.Array (scene.triangles, &Writer::U32);
-    w.Array (scene.triangleMesh, &Writer::U32);
-    return Seal (Kind::Scene, epoch, 0, std::move (w.Bytes ()));
+    w.Array (scene.vertices);
+    w.Array (scene.triangles);
+    w.Array (scene.triangleMesh);
+    return Seal (Kind::Scene, epoch, 0, w);
 }
 
 std::vector<uint8_t> Write (uint64_t epoch, uint64_t sequence, const Request& request)
 {
-    Writer w;
+    Writer w (44 + (request.positions.size () + request.normals.size () + request.directions.size ()) * 8 +
+              request.steps.size () * 4);
     w.F64 (request.tmin);
     w.F64 (request.tmax);
     w.U64 (request.totalSteps);
     w.U64 (request.positions.size () / 3);
     w.U32 (request.normals.empty () ? 0u : 1u);
     w.U64 (request.steps.size ());
-    w.Array (request.positions, &Writer::F64);
-    w.Array (request.normals, &Writer::F64);
-    w.Array (request.steps, &Writer::U32);
-    w.Array (request.directions, &Writer::F64);
-    return Seal (Kind::Request, epoch, sequence, std::move (w.Bytes ()));
+    w.Array (request.positions);
+    w.Array (request.normals);
+    w.Array (request.steps);
+    w.Array (request.directions);
+    return Seal (Kind::Request, epoch, sequence, w);
 }
 
 std::vector<uint8_t> Write (uint64_t epoch, uint64_t sequence, const Result& result)
 {
-    Writer w;
+    Writer w (16 + result.bits.size () * 8 + result.resolved.size ());
     w.U64 (result.sampleCount);
     w.U64 (result.stepCount);
-    w.Array (result.bits, &Writer::U64);
-    for (const uint8_t flag : result.resolved)
-        w.Bytes ().push_back (flag);
-    return Seal (Kind::Result, epoch, sequence, std::move (w.Bytes ()));
+    w.Array (result.bits);
+    w.Array (result.resolved);
+    return Seal (Kind::Result, epoch, sequence, w);
 }
 
 uint64_t StoredChecksum (const std::vector<uint8_t>& packet)
@@ -299,8 +314,7 @@ uint64_t StoredChecksum (const std::vector<uint8_t>& packet)
     if (packet.size () < HeaderBytes)
         return 0;
     uint64_t value = 0;
-    for (int i = 0; i < 8; ++i)
-        value |= static_cast<uint64_t> (packet[40 + i]) << (8 * i);
+    std::memcpy (&value, packet.data () + 40, sizeof value);
     return value;
 }
 
@@ -318,8 +332,8 @@ bool Read (const uint8_t* bytes, size_t size, uint64_t epoch, uint64_t checksum,
     if (vertexCount > std::numeric_limits<uint32_t>::max () || triangleCount > std::numeric_limits<uint32_t>::max ())
         r.Fail ("the scene is larger than 32-bit indices can address");
     r.F64s (vertexCount * 3, out.vertices, "the vertex array");
-    r.U32s (triangleCount * 3, out.triangles, "the triangle array");
-    r.U32s (triangleCount, out.triangleMesh, "the triangle-mesh array");
+    r.Array (triangleCount * 3, out.triangles, "the triangle array");
+    r.Array (triangleCount, out.triangleMesh, "the triangle-mesh array");
     if (!r.Finish ("the scene"))
         return false;
     for (const uint32_t index : out.triangles)
@@ -357,7 +371,7 @@ bool Read (const uint8_t* bytes, size_t size, uint64_t epoch, uint64_t sequence,
         r.Fail ("the request claims more samples than the segment holds");
     r.F64s (samples * 3, out.positions, "the sample positions");
     r.F64s (hasNormals != 0 ? samples * 3 : 0, out.normals, "the sample normals");
-    r.U32s (steps, out.steps, "the step list");
+    r.Array (steps, out.steps, "the step list");
     r.F64s (steps * 3, out.directions, "the sun directions");
     if (!r.Finish ("the request"))
         return false;
@@ -384,8 +398,8 @@ bool Read (const uint8_t* bytes, size_t size, uint64_t epoch, uint64_t sequence,
     const uint64_t words = (out.stepCount + 63) / 64;
     if (r.Ok () && words != 0 && out.sampleCount > payloadSize / (8 * words))
         r.Fail ("the result claims more samples than the segment holds");
-    r.U64s (out.sampleCount * words, out.bits, "the lit bitset");
-    r.Bytes (out.stepCount, out.resolved, "the resolved-step flags");
+    r.Array (out.sampleCount * words, out.bits, "the lit bitset");
+    r.Array (out.stepCount, out.resolved, "the resolved-step flags");
     if (!r.Finish ("the result"))
         return false;
     result = std::move (out);

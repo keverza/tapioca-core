@@ -288,6 +288,31 @@ TEST (RayWorkerProtocol, ReasonCodesAreTheContractStrings)
 
 // ---- packets ----------------------------------------------------------------------
 
+TEST (RayWorkerPacket, TheChecksumSeesEveryFlippedBitSwappedWordAndTruncation)
+{
+    // 1,003 bytes: whole 32-byte blocks across the four lanes, and a tail.
+    std::vector<uint8_t> bytes (1003);
+    for (size_t i = 0; i < bytes.size (); ++i)
+        bytes[i] = static_cast<uint8_t> (i * 131u + 7u);
+    const uint64_t original = packet::Checksum (bytes.data (), bytes.size ());
+    size_t missed = 0;
+    for (size_t i = 0; i < bytes.size (); ++i)
+        for (int bit = 0; bit < 8; ++bit) {
+            bytes[i] ^= static_cast<uint8_t> (1u << bit);
+            missed += packet::Checksum (bytes.data (), bytes.size ()) == original ? 1 : 0;
+            bytes[i] ^= static_cast<uint8_t> (1u << bit);
+        }
+    EXPECT_EQ (missed, 0u);
+    // A word moved to another lane, or to another block of its own lane.
+    for (const size_t other : { size_t (8), size_t (32), size_t (488) }) {
+        auto swapped = bytes;
+        std::swap_ranges (swapped.begin (), swapped.begin () + 8, swapped.begin () + other);
+        EXPECT_NE (packet::Checksum (swapped.data (), swapped.size ()), original) << "word 0 <-> byte " << other;
+    }
+    EXPECT_NE (packet::Checksum (bytes.data (), bytes.size () - 1), original);
+    EXPECT_NE (packet::Checksum (bytes.data (), 992), original) << "the tail dropped";
+}
+
 TEST (RayWorkerPacket, ScenesRequestsAndResultsRoundTripAndAreValidated)
 {
     const auto scene = packet::SceneFromSnapshot (*City (1, 0));

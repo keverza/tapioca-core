@@ -30,7 +30,9 @@
 namespace evp::rayworker::protocol {
 
 // v1: the first wire.
-constexpr uint32_t Version = 1;
+// v2: packet layout 2 (word-lane checksum); a v1 worker is refused at Hello
+// rather than failing every run on a checksum it computes differently.
+constexpr uint32_t Version = 2;
 
 // 5 x uint32 little-endian: protocolVersion, messageType, requestId,
 // correlationId, payloadBytes.

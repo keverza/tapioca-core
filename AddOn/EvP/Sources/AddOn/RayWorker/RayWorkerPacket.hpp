@@ -28,7 +28,7 @@ struct Snapshot;
 namespace evp::rayworker::packet {
 
 constexpr uint32_t Magic = 0x50575254u; // "TRWP" little-endian
-constexpr uint32_t LayoutVersion = 1;
+constexpr uint32_t LayoutVersion = 2;   // 2: word-lane checksum
 constexpr size_t HeaderBytes = 64;
 
 enum class Kind : uint32_t { Scene = 1, Request = 2, Result = 3 };
@@ -62,7 +62,7 @@ struct Result {
     std::vector<uint8_t> resolved; // one per step: 1 when traced
 };
 
-// FNV-1a 64 over bytes (the payload checksum).
+// The payload checksum: four FNV-1a lanes over 64-bit words (layout 2).
 uint64_t Checksum (const uint8_t* bytes, size_t size);
 
 // Flatten a snapshot (mesh order, local indices rebased).
