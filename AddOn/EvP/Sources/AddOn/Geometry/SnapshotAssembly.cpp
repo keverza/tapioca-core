@@ -2,13 +2,34 @@
 
 namespace geomsrv {
 
+namespace {
+
+// Every entry `base` holds is in `next` with the same value; `next` may hold more.
+//
+// ⚠️ APPEND-ONLY, NOT EQUAL. A kept element's triangles index the pool it was
+// captured against, so an index that changed its meaning must force a full walk
+// -- but one that is merely NEW cannot be referenced by any kept element. Equality
+// sent a single element's new surface (69 -> 70 surfaces) down a 48 s full
+// re-extraction of an 806k-triangle model (2026-10-31 17:02, #97).
+template <typename Value> bool Extends (const std::map<int32_t, Value>& base, const std::map<int32_t, Value>& next)
+{
+    for (const auto& [index, value] : base) {
+        const auto it = next.find (index);
+        if (it == next.end () || !(it->second == value))
+            return false;
+    }
+    return true;
+}
+
+} // namespace
+
 bool SnapshotAssembly::CanUpdate (const Snapshot* base, uint64_t stamp, const std::map<int32_t, double>& transparency,
                                   const std::map<int32_t, CapturedMaterialIdentity>& materialIdentity,
                                   const std::map<int32_t, CapturedSurface>& surfaceAttributes)
 {
     return base != nullptr && base->completeModel && base->scope == "all" && base->captureStamp != 0 &&
-           base->captureStamp + 1 == stamp && base->materialTransparency == transparency &&
-           base->materialIdentity == materialIdentity && base->surfaceAttributes == surfaceAttributes;
+           base->captureStamp + 1 == stamp && Extends (base->materialTransparency, transparency) &&
+           Extends (base->materialIdentity, materialIdentity) && Extends (base->surfaceAttributes, surfaceAttributes);
 }
 
 SnapshotAssembly::SnapshotAssembly (uint64_t id, uint64_t stamp, std::map<int32_t, double> transparency,

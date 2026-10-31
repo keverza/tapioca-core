@@ -10,7 +10,8 @@ namespace geomsrv {
 
 // Pure worker-side assembly. No partial walk ever becomes a whole-model capture.
 // Incremental assembly is allowed only for the immediately preceding capture and
-// identical captured material/catalog identity; otherwise walk the full model.
+// a material/catalog identity that only GREW (every earlier entry unchanged,
+// new ones allowed); otherwise walk the full model.
 class SnapshotAssembly {
   public:
     static bool CanUpdate (const Snapshot* base, uint64_t stamp, const std::map<int32_t, double>& transparency,

@@ -144,3 +144,30 @@ TEST (MeshStoreFullPass, AScopeMarksAFullWalkAndClearsOnExit)
     }
     EXPECT_FALSE (store.FullPassInFlight ());
 }
+
+// One element's new surface grew the pool 69 -> 70 and forced a 48 s full pass
+// (2026-10-31, #97). A pool that only grew keeps every kept element's indices.
+TEST (SnapshotAssembly, APoolThatOnlyGrewStillUpdatesARenumberedOneDoesNot)
+{
+    const auto base = Base ();
+    auto grown = base->materialTransparency;
+    grown[9] = 0.3;
+    EXPECT_TRUE (SnapshotAssembly::CanUpdate (base.get (), 11, grown));
+    auto shifted = base->materialTransparency;
+    shifted.erase (7);
+    shifted[8] = 0.7;
+    EXPECT_FALSE (SnapshotAssembly::CanUpdate (base.get (), 11, shifted)) << "an entry the base held moved";
+
+    const std::map<int32_t, geomsrv::CapturedMaterialIdentity> materials { { 7, { "Pool A", 501 } } };
+    const std::map<int32_t, geomsrv::CapturedSurface> surfaces { { 101, { "Finish A", "surface-guid" } } };
+    SnapshotAssembly full (700, 30, { { 7, 0 } }, nullptr, {}, materials, surfaces);
+    full.Add (evptest::MakeBox ("keep", 0, 0, 0));
+    const auto withPool = full.Finish (true);
+    ASSERT_NE (withPool, nullptr);
+    auto moreMaterials = materials;
+    moreMaterials[8] = { "Pool B", 502 };
+    auto moreSurfaces = surfaces;
+    moreSurfaces[102] = { "Finish B", "surface-guid-b" };
+    EXPECT_TRUE (
+        SnapshotAssembly::CanUpdate (withPool.get (), 31, withPool->materialTransparency, moreMaterials, moreSurfaces));
+}
