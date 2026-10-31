@@ -72,3 +72,50 @@ TEST (SunStudyResultKey, GeometryMovesTheKeyAndMeshOrderDoesNot)
     removed.meshes.pop_back ();
     EXPECT_NE (SunStudyGeometryKey (before, false, 0.4), SunStudyGeometryKey (removed, false, 0.4));
 }
+
+namespace {
+
+// The wall of Quad(), re-emitted as one painted face does it (live 18:42:36):
+// another vertex order, triangles swapped, each starting at another corner.
+geomsrv::Mesh Reemitted (const geomsrv::Mesh& quad)
+{
+    geomsrv::Mesh mesh = quad;
+    mesh.vertices = { quad.vertices[9], quad.vertices[10], quad.vertices[11],  // was 3
+                      quad.vertices[0], quad.vertices[1],  quad.vertices[2],   // was 0
+                      quad.vertices[6], quad.vertices[7],  quad.vertices[8],   // was 2
+                      quad.vertices[3], quad.vertices[4],  quad.vertices[5] }; // was 1
+    // old face 1 (0,2,3) first, from its second corner; then old face 0 (0,1,2).
+    mesh.triangles = { 2, 0, 1, 1, 3, 2 };
+    mesh.triMaterial = { 7, 1 };
+    return mesh;
+}
+
+} // namespace
+
+TEST (SunStudyResultKey, TheSameTrianglesInAnotherOrderKeepTheKey)
+{
+    const auto before = Model ();
+    auto after = before;
+    after.meshes[0] = Reemitted (before.meshes[0]);
+    EXPECT_EQ (SunStudyGeometryKey (before, false, 0.4), SunStudyGeometryKey (after, false, 0.4));
+    const auto keys0 = evp::sunstudy::MeshKeys (before, false, 0.4);
+    const auto keys1 = evp::sunstudy::MeshKeys (after, false, 0.4);
+    EXPECT_EQ (keys0[0].set, keys1[0].set);
+    EXPECT_NE (keys0[0].order, keys1[0].order) << "the log can still say it was reordered";
+}
+
+TEST (SunStudyResultKey, FacesAreMatchedToTheirTwinsAndAChangedShapeIsRefused)
+{
+    const auto quad = Model ().meshes[0];
+    const auto twin = evp::sunstudy::MatchFaces (quad, Reemitted (quad));
+    EXPECT_EQ (twin, (std::vector<uint32_t> { 1, 0 }));
+    auto flipped = Reemitted (quad);
+    std::swap (flipped.triangles[0], flipped.triangles[1]); // the same corners, the other side out
+    EXPECT_TRUE (evp::sunstudy::MatchFaces (quad, flipped).empty ()) << "winding is part of a face";
+    auto moved = Reemitted (quad);
+    moved.vertices[0] += 0.01;
+    EXPECT_TRUE (evp::sunstudy::MatchFaces (quad, moved).empty ());
+    auto fewer = quad;
+    fewer.triangles.resize (3);
+    EXPECT_TRUE (evp::sunstudy::MatchFaces (quad, fewer).empty ());
+}

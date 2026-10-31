@@ -1,6 +1,7 @@
 #include "ArchViz/SunStudyDisplayAssembler.hpp"
 #include "SunStudy/SunStudyDisplayData.hpp"
 #include "SunStudy/SunStudyStore.hpp"
+#include "SunStudy/SunStudyResultKey.hpp" // MatchFaces
 #include "ArchViz/ArchVizLog.hpp"
 
 #include <algorithm>
@@ -99,26 +100,50 @@ SunStudyDisplayAssembler::Prepare (const evp::sunstudy::StudyRecord& record, con
                 return nullptr;
             const auto& mesh = snapshot.meshes[m];
             const auto found = later.find (mesh.guid);
-            if (found == later.end () || found->second->triangles != mesh.triangles) {
-                error = "sun study retint found element " + mesh.guid + " changed in geometry";
+            if (found == later.end ()) {
+                error = "sun study retint found element " + mesh.guid + " missing";
                 return nullptr;
             }
-            const auto& order = found->second->triMaterial;
-            if (base != nullptr && m < base->size () && order == mesh.triMaterial)
+            const Mesh& now = *found->second;
+            const bool same = now.triangles == mesh.triangles && now.vertices == mesh.vertices;
+            if (same && base != nullptr && m < base->size () && now.triMaterial == mesh.triMaterial) {
                 maps->push_back ((*base)[m]);
+                faceBase += static_cast<uint32_t> (mesh.TriangleCount ());
+                continue;
+            }
+            SunStudyElementMap map;
+            map.guid = mesh.guid;
+            bool valid = false;
+            if (roles)
+                valid = BuildSunStudyRoleMap (record.elementRoles[m], now.triangles, now.triMaterial, map);
+            else if (same)
+                valid = BuildSunStudyElementMap (tiles, layouts, record.gridSpacing, now.triangles, now.triMaterial,
+                                                 faceBase, map);
             else {
-                SunStudyElementMap map;
-                map.guid = mesh.guid;
-                const bool valid = roles ? BuildSunStudyRoleMap (record.elementRoles[m], mesh.triangles, order, map)
-                                         : BuildSunStudyElementMap (tiles, layouts, record.gridSpacing, mesh.triangles,
-                                                                    order, faceBase, map);
-                if (!valid) {
-                    error = "sun study retint refused an incomplete element map";
+                // ⚠️ THE SAME TRIANGLES IN ANOTHER ORDER (one painted face re-emits
+                // a wall that way): each new face takes the tile its old twin was
+                // measured into. A face with no twin is a changed shape -- refused,
+                // and the study reruns.
+                const std::vector<uint32_t> twin = evp::sunstudy::MatchFaces (mesh, now);
+                if (twin.empty ()) {
+                    error = "sun study retint found element " + mesh.guid + " changed in geometry";
                     return nullptr;
                 }
-                maps->push_back (std::move (map));
-                ++retinted;
+                std::vector<evp::sunstudy::AtlasTile> ownTiles (twin.size ());
+                std::vector<evp::sunstudy::FaceLayout> ownLayouts (twin.size ());
+                for (size_t face = 0; face < twin.size (); ++face) {
+                    ownTiles[face] = tiles[faceBase + twin[face]];
+                    ownLayouts[face] = layouts[faceBase + twin[face]];
+                }
+                valid = BuildSunStudyElementMap (ownTiles, ownLayouts, record.gridSpacing, now.triangles,
+                                                 now.triMaterial, 0, map);
             }
+            if (!valid) {
+                error = "sun study retint refused an incomplete element map";
+                return nullptr;
+            }
+            maps->push_back (std::move (map));
+            ++retinted;
             faceBase += static_cast<uint32_t> (mesh.TriangleCount ());
         }
         upload->sharedElements = maps; // never cached: the cache is the record's own order

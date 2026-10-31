@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace geomsrv {
@@ -108,25 +109,72 @@ uint64_t SamplingHash (const ActiveSunStudyConfig& config)
 
 // The result key of `snapshot` for this config's preset, computed once per
 // snapshot: BuildCurrentSignature runs every tick, the hash walks every vertex.
+// Which elements moved the key since the previous snapshot, in one line: the
+// ones whose triangle SET changed (with their counts), and how many only
+// re-emitted the same triangles in another order (which the key ignores).
+// ⚠️ THE LINE THAT TELLS A RETINT FROM A RERUN apart in a live log (#97).
+std::string DescribeKeyMove (const std::unordered_map<std::string, evp::sunstudy::MeshResultKey>& before,
+                             const std::vector<evp::sunstudy::MeshResultKey>& after)
+{
+    size_t changed = 0, reordered = 0, added = 0;
+    std::string named;
+    std::unordered_map<std::string, bool> seen;
+    for (const auto& key : after) {
+        seen[key.guid] = true;
+        const auto it = before.find (key.guid);
+        if (it == before.end ()) {
+            ++added;
+            continue;
+        }
+        if (it->second.set != key.set) {
+            if (++changed <= 6)
+                named += " " + key.guid + " (" + std::to_string (it->second.triangles) + "->" +
+                         std::to_string (key.triangles) + " triangles)";
+        }
+        else if (it->second.order != key.order)
+            ++reordered;
+    }
+    size_t gone = 0;
+    for (const auto& entry : before)
+        if (seen.count (entry.first) == 0)
+            ++gone;
+    return std::to_string (changed) + " changed" + named + (changed > 6 ? " ..." : "") + ", " +
+           std::to_string (reordered) + " reordered only, " + std::to_string (added) + " new, " +
+           std::to_string (gone) + " gone";
+}
+
+// The result key of `snapshot` for this config's preset, computed once per
+// snapshot: BuildCurrentSignature runs every tick, the hash walks every triangle.
 uint64_t GeometryKey (const std::shared_ptr<const Snapshot>& snapshot, const ActiveSunStudyConfig& config)
 {
     static uint64_t s_id = 0, s_key = 0;
     static bool s_glass = false;
     static double s_threshold = 0.0;
+    static std::unordered_map<std::string, evp::sunstudy::MeshResultKey> s_meshes;
     if (snapshot == nullptr)
         return 0;
     const bool glass = config.preset == "late";
     if (snapshot->id != s_id || glass != s_glass || config.glassThreshold != s_threshold) {
         const auto started = std::chrono::steady_clock::now ();
-        s_key = evp::sunstudy::SunStudyGeometryKey (*snapshot, glass, config.glassThreshold);
+        const auto keys = evp::sunstudy::MeshKeys (*snapshot, glass, config.glassThreshold);
+        const uint64_t key = evp::sunstudy::CombineMeshKeys (keys, glass, config.glassThreshold);
+        const double wallMs =
+            std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
+        const bool comparable = s_id != 0 && glass == s_glass && config.glassThreshold == s_threshold;
+        std::string move;
+        if (comparable)
+            move = key == s_key ? " unchanged" : " moved: " + DescribeKeyMove (s_meshes, keys);
+        s_meshes.clear ();
+        for (const auto& mesh : keys)
+            s_meshes.emplace (mesh.guid, mesh);
+        s_key = key;
         s_id = snapshot->id;
         s_glass = glass;
         s_threshold = config.glassThreshold;
-        archviz::ArchVizLog (
-            "sun follow: result key snapshot=" + std::to_string (s_id) + " key=" + std::to_string (s_key) +
-            (glass ? " (late: glass mask included)" : " (material excluded)") + " wallMs=" +
-            std::to_string (
-                std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ()));
+        archviz::ArchVizLog ("sun follow: result key snapshot=" + std::to_string (s_id) +
+                             " key=" + std::to_string (s_key) +
+                             (glass ? " (late: glass mask included)" : " (material excluded)") + move +
+                             " wallMs=" + std::to_string (wallMs));
     }
     return s_key;
 }
