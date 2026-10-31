@@ -48,6 +48,17 @@ int main (int argc, char** argv)
             pg::FixtureModel model;
             std::string error;
             Require (parsed.ok && pg::DecodeFixture (parsed.value, model, error), "Fixture decode failed");
+            if (model.panel == "hudprogramme") {
+                if (model.variant == "valid-populated")
+                    Require (model.programme == pg::av::floorprogramme::Default (),
+                             "Default fixture drifted from production");
+                if (model.variant == "invalid" || model.variant == "empty")
+                    Require (!pg::av::floorprogramme::Problem (model.programme).empty (),
+                             "Invalid programme fixture unexpectedly valid");
+                else
+                    Require (pg::av::floorprogramme::Valid (model.programme),
+                             "Valid programme fixture rejected by production");
+            }
             pg::FixtureModel roundtrip;
             Require (pg::DecodeFixture (pg::EncodeFixture (model), roundtrip, error), "Fixture roundtrip failed");
             Require (pg::json::Write (pg::EncodeFixture (model)) == pg::json::Write (pg::EncodeFixture (roundtrip)),
@@ -104,30 +115,40 @@ int main (int argc, char** argv)
             pg::Put (document, "density", pg::Value::Integer (1));
             state = pg::json::Write (document, 0);
             Require (module.Swap (dll, state, error), "Interaction fixture load failed");
-            state = Frame (module, state); state = Frame (module, state);
+            state = Frame (module, state);
+            state = Frame (module, state);
             ImGuiWindow* preview = nullptr;
             for (auto* window : ImGui::GetCurrentContext ()->Windows)
-                if (std::strstr (window->Name, "production-preview")) preview = window;
+                if (std::strstr (window->Name, "production-preview"))
+                    preview = window;
             Require (preview != nullptr, "Production preview window missing");
             const auto* table = ImGui::GetCurrentContext ()->Tables.GetByKey (preview->GetID ("##massing.programme"));
             Require (table != nullptr, "Production Programme table missing");
-            const ImVec2 point { table->Columns[1].WorkMinX + 15, table->OuterRect.Max.y - ImGui::GetFrameHeight () / 2 };
+            const ImVec2 point { table->Columns[1].WorkMinX + 15,
+                                 table->OuterRect.Max.y - ImGui::GetFrameHeight () / 2 };
             auto& io = ImGui::GetIO ();
-            io.AddMousePosEvent (point.x, point.y); state = Frame (module, state);
-            io.AddMouseButtonEvent (0, true); state = Frame (module, state);
-            io.AddMousePosEvent (point.x + 40, point.y); state = Frame (module, state);
-            io.AddMouseButtonEvent (0, false); state = Frame (module, state);
+            io.AddMousePosEvent (point.x, point.y);
+            state = Frame (module, state);
+            io.AddMouseButtonEvent (0, true);
+            state = Frame (module, state);
+            io.AddMousePosEvent (point.x + 40, point.y);
+            state = Frame (module, state);
+            io.AddMouseButtonEvent (0, false);
+            state = Frame (module, state);
             const auto edited = pg::json::Parse (state).value;
             const auto& first = (*pg::Member (edited, "fixtures").AsArray ())[0];
             pg::FixtureModel model;
             Require (pg::DecodeFixture (first, model, error), "Edited fixture unreadable");
-            Require (model.programme.types[0].rooms != 2.5, "Host mouse input did not edit the DLL's production control");
+            Require (model.programme.types[0].rooms != 2.5,
+                     "Host mouse input did not edit the DLL's production control");
             Require (model.programme == model.saved, "Production Save outcome not drained by mock owner");
-            Require (pg::Member (edited, "events").AsArray () && !pg::Member (edited, "events").AsArray ()->empty (), "No edit events logged");
+            Require (pg::Member (edited, "events").AsArray () && !pg::Member (edited, "events").AsArray ()->empty (),
+                     "No edit events logged");
             for (int i = 0; i < 10; ++i) {
                 Require (module.Swap (dll, state, error), "Consecutive reload failed");
                 const auto after = Frame (module, state);
-                if (pg::json::Write (pg::json::Parse (state).value) != pg::json::Write (pg::json::Parse (after).value)) {
+                if (pg::json::Write (pg::json::Parse (state).value) !=
+                    pg::json::Write (pg::json::Parse (after).value)) {
                     std::ofstream ("reload-before.json") << pg::json::Write (pg::json::Parse (state).value);
                     std::ofstream ("reload-after.json") << pg::json::Write (pg::json::Parse (after).value);
                 }
@@ -136,7 +157,8 @@ int main (int argc, char** argv)
                          "State changed across reload");
                 state = after;
             }
-            std::cout << "14 fixtures roundtrip; 120 panel/theme/density cases; real Programme input/save; 10 consecutive reloads; candidate "
+            std::cout << "14 fixtures roundtrip; 120 panel/theme/density cases; real Programme input/save; 10 "
+                         "consecutive reloads; candidate "
                          "rollback passed.\n";
         }
         ImGui::DestroyContext ();

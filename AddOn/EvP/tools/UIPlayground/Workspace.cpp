@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <climits>
 
 namespace tapioca::playground {
 namespace {
@@ -33,6 +34,14 @@ void GalleryState (Workspace& w, bool write)
         g.mixed = Flag (state, "mixed", g.mixed);
         const auto text = Text (state, "typed", g.typed);
         strcpy_s (g.typed, text.substr (0, sizeof (g.typed) - 1).c_str ());
+        if (const auto* entries = Member (state, "log").AsArray ())
+            for (const auto& entry : *entries) {
+                if (g.log.size () >= 200)
+                    break;
+                g.log.push_back ({ Text (entry, "control"),
+                                   { Flag (entry, "changed"), Flag (entry, "committed"), Flag (entry, "canceled") },
+                                   int (std::clamp (Number (entry, "frame"), 0.0, double (INT_MAX))) });
+            }
     }
     else {
         number ("huge", g.huge);
@@ -47,6 +56,14 @@ void GalleryState (Workspace& w, bool write)
         Put (state, "flag", Value::Bool (g.flag));
         Put (state, "mixed", Value::Bool (g.mixed));
         Put (state, "typed", Value::String (g.typed));
+        json::JsonArray log;
+        for (const auto& entry : g.log)
+            log.push_back (Value::Object ({ { "control", Value::String (entry.control) },
+                                            { "changed", Value::Bool (entry.result.changed) },
+                                            { "committed", Value::Bool (entry.result.committed) },
+                                            { "canceled", Value::Bool (entry.result.canceled) },
+                                            { "frame", Value::Integer (entry.frame) } }));
+        Put (state, "log", Value::Array (std::move (log)));
         Put (w.document, "gallery", state);
     }
 }
@@ -121,12 +138,15 @@ void ProgrammeDialogs (Workspace& w, FixtureModel& model)
     Value dialog;
     if (ImGui::IsPopupOpen ("Programme table"))
         dialog = Value::Object ({ { "kind", Value::String ("table") },
-            { "before", EncodeProgramme (w.table.before) }, { "draft", EncodeProgramme (w.tableDraft) } });
+                                  { "before", EncodeProgramme (w.table.before) },
+                                  { "draft", EncodeProgramme (w.tableDraft) } });
     if (ImGui::IsPopupOpen ("Programme colour"))
         dialog = Value::Object ({ { "kind", Value::String ("colour") },
-            { "before", EncodeProgramme (w.colour.before) }, { "type", Value::Integer (int64_t (w.colour.type)) },
-            { "r", Value::Double (w.colourDraft[0]) }, { "g", Value::Double (w.colourDraft[1]) },
-            { "b", Value::Double (w.colourDraft[2]) } });
+                                  { "before", EncodeProgramme (w.colour.before) },
+                                  { "type", Value::Integer (int64_t (w.colour.type)) },
+                                  { "r", Value::Double (w.colourDraft[0]) },
+                                  { "g", Value::Double (w.colourDraft[1]) },
+                                  { "b", Value::Double (w.colourDraft[2]) } });
     Put (w.document, "dialog", std::move (dialog));
 }
 void DrawPanel (Workspace& w, FixtureModel& model, const av::overlaylayers::Panel& look, float scale)
@@ -178,8 +198,9 @@ void DrawPanel (Workspace& w, FixtureModel& model, const av::overlaylayers::Pane
             auto before = model;
             before.coefficients = w.number.before;
             dialog = Value::Object ({ { "kind", Value::String ("number") },
-                { "before", EncodeFixture (before) }, { "key", Value::String (w.number.key) },
-                { "draft", Value::Double (w.numberDraft) } });
+                                      { "before", EncodeFixture (before) },
+                                      { "key", Value::String (w.number.key) },
+                                      { "draft", Value::Double (w.numberDraft) } });
         }
         Put (w.document, "dialog", std::move (dialog));
     }
@@ -254,13 +275,16 @@ bool Restore (Workspace& w, const Value& document)
     const auto kind = Text (dialog, "kind");
     if (kind == "table") {
         if (!DecodeProgramme (Member (dialog, "before"), w.table.before) ||
-            !DecodeProgramme (Member (dialog, "draft"), w.tableDraft)) return false;
+            !DecodeProgramme (Member (dialog, "draft"), w.tableDraft))
+            return false;
         w.tableOpen = true;
     }
     else if (kind == "colour") {
-        if (!DecodeProgramme (Member (dialog, "before"), w.colour.before)) return false;
+        if (!DecodeProgramme (Member (dialog, "before"), w.colour.before))
+            return false;
         const double type = Number (dialog, "type", -1);
-        if (type < 0 || type >= w.colour.before.types.size ()) return false;
+        if (type < 0 || type >= w.colour.before.types.size ())
+            return false;
         w.colour.type = size_t (type);
         w.colourDraft[0] = float (Number (dialog, "r"));
         w.colourDraft[1] = float (Number (dialog, "g"));
@@ -268,8 +292,10 @@ bool Restore (Workspace& w, const Value& document)
         w.colourOpen = true;
     }
     else if (kind == "number") {
-        FixtureModel before; std::string error;
-        if (!DecodeFixture (Member (dialog, "before"), before, error)) return false;
+        FixtureModel before;
+        std::string error;
+        if (!DecodeFixture (Member (dialog, "before"), before, error))
+            return false;
         w.number.before = before.coefficients;
         w.number.key = Text (dialog, "key");
         w.numberDraft = Number (dialog, "draft");
@@ -346,7 +372,11 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
             density = int (w.gallery.density);
             GalleryState (w, true);
             if (previous != json::Write (Member (w.document, "gallery"), 0))
-                Event (w.document, "Gallery: control state changed");
+                for (const auto& entry : w.gallery.log)
+                    if (entry.frame == ImGui::GetFrameCount ())
+                        Event (w.document, "Gallery: " + entry.control + (entry.result.changed ? " changed" : "") +
+                                               (entry.result.committed ? " committed" : "") +
+                                               (entry.result.canceled ? " canceled" : ""));
         }
         else {
             FixtureModel model;

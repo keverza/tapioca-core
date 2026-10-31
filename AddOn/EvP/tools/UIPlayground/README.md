@@ -68,6 +68,11 @@ Closing while a build runs waits for that owned build to finish, rather than
 abandoning a child build process. Another host instance should use a separate
 build directory; concurrent writers to the same CMake output are unsupported.
 
+Upstream Diligent's optional ImGui utility/gizmo sources assume static ImGui
+declarations. This project excludes those unused extension TUs from its local
+`Diligent-Imgui` target; the upstream 2D renderer/platform implementation is reused
+unchanged. No provisioned reference file is patched.
+
 ## Verification
 
 The entry script runs CTest. The headless smoke executable uses the actual shared
@@ -85,5 +90,18 @@ types, open/read back the table and colour picker, edit coefficients, resize/mov
 between DPI monitors, then edit a panel TU. Confirm the generation increases,
 selection/drafts/events remain, and an intentional compiler error keeps the old
 controls responding. Restore the source, save again, and confirm recovery.
+
+The automated equivalent (Python stdlib only) is opt-in:
+
+```powershell
+python AddOn/EvP/tools/UIPlayground/tests/verify_watched_reload.py
+```
+
+It starts its own window, temporarily inserts a compiler error and repeatedly
+adds/removes a text control in **production `HudFloorProgramme.cpp`**, restores
+the original bytes, and closes only its owned window. Do not edit that file or
+run another native build during this test. Concurrent changes are detected and
+never overwritten. JSON timing samples land in the binary directory's
+`watched-reload-report.json`; `--bin` selects another build's binary directory.
 
 Full theme-file/token work, ImRAD and extra panels are not delivered by this slice.

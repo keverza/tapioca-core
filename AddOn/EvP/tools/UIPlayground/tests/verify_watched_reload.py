@@ -7,13 +7,13 @@ No Archicad process is used or controlled. Run after Run-Playground.ps1 -BuildOn
 
 import argparse
 import ctypes
-from ctypes import wintypes
 import json
-from pathlib import Path
 import re
 import statistics
 import subprocess
 import time
+from ctypes import wintypes
+from pathlib import Path
 
 
 def wait_for(predicate, process, timeout=180):
@@ -36,7 +36,7 @@ def main():
     binary = args.bin.resolve()
     source = root.parents[1] / "Sources/AddOn/ArchViz/HudFloorProgramme.cpp"
     original = source.read_bytes()
-    marker = b'    ImGui::TextWrapped ("Min/Max: net m2 inside walls. Share: % of flat count.");'
+    marker = b'    ImGui::TextWrapped ("%s", "Min/Max: net m2 inside walls. Share: % of flat count.");'
     if original.count(marker) != 1:
         raise RuntimeError("Production panel changed; review the structural-test insertion point")
     user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -50,7 +50,8 @@ def main():
 
     def log():
         try:
-            return log_path.read_text(encoding="utf-8", errors="replace")
+            text = log_path.read_text(encoding="utf-8", errors="replace")
+            return text if text.startswith(f"Session PID: {process.pid}\n") else ""
         except OSError:
             return ""
 
@@ -76,7 +77,7 @@ def main():
         last_written = content
 
     def snapshot(generation):
-        path = binary / "verification" / f"generation-{generation}.json"
+        path = binary / "verification" / str(process.pid) / f"generation-{generation}.json"
         try:
             return json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -93,7 +94,10 @@ def main():
         wait_for(lambda: "Build FAILED" in log()[len(start_log):], process)
         failed_log = log()
         before_frames = [int(n) for n in re.findall(r"Frames rendered: (\d+)", failed_log)]
-        wait_for(lambda: max([int(n) for n in re.findall(r"Frames rendered: (\d+)", log())], default=0) > max(before_frames), process)
+        wait_for(
+            lambda: max([int(n) for n in re.findall(r"Frames rendered: (\d+)", log())], default=0) > max(before_frames),
+            process,
+        )
         if "Active UI generation" in log():
             raise AssertionError("A failed compilation replaced the module")
         if "error C" not in failed_log or failure_text.split()[-1] not in failed_log:
@@ -102,11 +106,13 @@ def main():
         for iteration in range(10):
             content = original + f"\n// Watched reload verification {iteration}\n".encode()
             if iteration % 2 == 1:
-                content = content.replace(marker, marker + b'\n    ImGui::TextUnformatted ("Watched structural reload control");')
+                content = content.replace(
+                    marker, marker + b'\n    ImGui::TextUnformatted ("Watched structural reload control");'
+                )
             write_source(content)
             generation = iteration + 2
-            wait_for(lambda: f"Active UI generation {generation};" in log(), process)
-            state = wait_for(lambda: snapshot(generation), process)
+            wait_for(lambda generation=generation: f"Active UI generation {generation};" in log(), process)
+            state = wait_for(lambda generation=generation: snapshot(generation), process)
             if baseline is None:
                 baseline = state
             elif state != baseline:

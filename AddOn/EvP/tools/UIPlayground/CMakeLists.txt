@@ -60,9 +60,10 @@ list (FILTER rendererSources EXCLUDE REGEX "(ImGuiUtils|imGuIZMO)\\.cpp$")
 set_property (TARGET Diligent-Imgui PROPERTY SOURCES "${rendererSources}")
 
 include (ProductionSources.cmake)
-list (REMOVE_ITEM PLAYGROUND_PRODUCTION_SOURCES "${ADDON_DIR}/ArchViz/MassingAreaCalculations.cpp")
+list (REMOVE_ITEM PLAYGROUND_PRODUCTION_SOURCES "${ADDON_DIR}/ArchViz/MassingAreaCalculations.cpp"
+    "${ADDON_DIR}/ArchViz/FloorProgramme.cpp")
 add_library (PlaygroundModel STATIC Fixture.cpp "${ADDON_DIR}/NodeGraph/Json.cpp"
-    "${ADDON_DIR}/ArchViz/MassingAreaCalculations.cpp")
+    "${ADDON_DIR}/ArchViz/MassingAreaCalculations.cpp" "${ADDON_DIR}/ArchViz/FloorProgramme.cpp")
 target_include_directories (PlaygroundModel PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" "${ADDON_DIR}")
 target_link_libraries (PlaygroundModel PUBLIC imgui)
 add_library (TapiocaUIPlaygroundUI SHARED UiModule.cpp Workspace.cpp ${PLAYGROUND_PRODUCTION_SOURCES})

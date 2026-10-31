@@ -10,6 +10,7 @@ set (panelSources
     ArchViz/TapiocaUI/Demo/WidgetGallery.cpp
     Metadata/TapiocaSchema.cpp Metadata/TapiocaMetadata.cpp)
 file (READ "${EVP_ROOT}/tests/cpp/CMakeLists.txt" offlineSources)
+set_property (DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${EVP_ROOT}/tests/cpp/CMakeLists.txt")
 foreach (source IN LISTS panelSources)
     if (NOT EXISTS "${ADDON_DIR}/${source}")
         message (FATAL_ERROR "Missing production source: ${source}")

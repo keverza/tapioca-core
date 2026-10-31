@@ -193,6 +193,7 @@ int Run ()
     bool running = true, requestBuild = false;
     int frames = 0;
     std::ofstream diagnostic (bin / "playground-session.log", std::ios::trunc);
+    diagnostic << "Session PID: " << GetCurrentProcessId () << '\n' << std::flush;
     std::string lastBuildStatus;
     while (running) {
         MSG message;
@@ -223,9 +224,9 @@ int Run ()
                     reloadStatus += "Watcher-to-reload " + std::to_string (reload.LastLatencyMs () + ms) + " ms.\n";
                 diagnostic << reloadStatus << std::flush;
                 if (verification) {
-                    fs::create_directories (bin / "verification");
-                    std::ofstream (bin / "verification" / ("generation-" + std::to_string (module.Generation ()) + ".json"))
-                        << state;
+                    const auto folder = bin / "verification" / std::to_string (GetCurrentProcessId ());
+                    fs::create_directories (folder);
+                    std::ofstream (folder / ("generation-" + std::to_string (module.Generation ()) + ".json")) << state;
                 }
             }
             else {

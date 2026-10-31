@@ -1,5 +1,6 @@
 #include "Reload.hpp"
 #include <algorithm>
+#include <charconv>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
@@ -85,20 +86,21 @@ bool Module::Swap (const fs::path& source, const std::string& state, std::string
     draw = candidateDraw;
     activePath = candidatePath;
     ++generation;
-    std::vector<fs::path> copies;
-    for (fs::directory_iterator it (folder, ec), end; !ec && it != end; it.increment (ec))
-        if (it->path ().extension () == ".dll")
-            copies.push_back (it->path ());
-    std::sort (copies.begin (), copies.end (), [] (const auto& a, const auto& b) {
-        const auto sequence = [] (const auto& path) {
-            const auto name = path.stem ().string ();
-            return std::stoull (name.substr (name.find_last_of ('-') + 1));
-        };
-        return sequence (a) > sequence (b);
-    });
+    std::vector<std::pair<uint64_t, fs::path>> copies;
+    for (fs::directory_iterator it (folder, ec), end; !ec && it != end; it.increment (ec)) {
+        const auto name = it->path ().stem ().string ();
+        const std::string prefix = "TapiocaUIPlaygroundUI-";
+        if (it->path ().extension () != ".dll" || !name.starts_with (prefix))
+            continue;
+        uint64_t sequence = 0;
+        const auto parsed = std::from_chars (name.data () + prefix.size (), name.data () + name.size (), sequence);
+        if (parsed.ec == std::errc {} && parsed.ptr == name.data () + name.size ())
+            copies.emplace_back (sequence, it->path ());
+    }
+    std::sort (copies.begin (), copies.end (), [] (const auto& a, const auto& b) { return a.first > b.first; });
     for (size_t i = 5; i < copies.size (); ++i)
-        if (copies[i] != activePath)
-            fs::remove (copies[i], ec);
+        if (copies[i].second != activePath)
+            fs::remove (copies[i].second, ec);
     return true;
 }
 bool Module::Draw (const TapiocaUiFrame& frame, TapiocaUiResult& result)
@@ -147,7 +149,8 @@ std::map<fs::path, fs::file_time_type> ReloadLoop::Scan () const
                  name.starts_with (L"HudMassingStats") || name.starts_with (L"MassingUsage") ||
                  name.starts_with (L"MassingAreaCalculations") || name.starts_with (L"HudFloorProgramme") ||
                  name.starts_with (L"FloorProgramme") || name.starts_with (L"GraphicsSettings") ||
-                 name.starts_with (L"OverlayLayers") || name.starts_with (L"OverlayHitMap")) &&
+                 name.starts_with (L"OverlayLayers") || name.starts_with (L"OverlayHitMap") ||
+                 name.starts_with (L"PlanOverlayContent")) &&
                 it->is_regular_file (ec))
                 add (it->path ());
         }
