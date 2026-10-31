@@ -149,7 +149,8 @@ stage; a standalone link alone is not native-load or mixed-language PDB evidence
 
 `tapioca_slope_convert` is an additive ABI-v1, fixed-size request over the
 existing `TapiocaTerrainSlope` POD. The C++ `ConvertTerrainSlope` facade is used
-by both region cut/fill-face inspectors; Rust `slope::Slope` owns all grade conversions.
+by region cut/fill-face and contour-plane inspectors; Rust `slope::Slope` owns
+all grade conversions.
 Angles are radians at the ABI (degrees only at the UI boundary); height/run uses
 model metres. Same-form conversion retains the authored pair. New ratio/height
 forms use an explicit positive reference run; vertical uses a 1:0 pair and cannot
@@ -169,6 +170,16 @@ legacy form per face is required. Old fully-percent and typed-cut/percent-fill
 documents both remain readable. No percent shadow value is stored. NoRust keeps
 legacy percent loading and refuses conversion/typed
 non-percent validation explicitly, rather than implementing competing arithmetic.
+
+The region contour plane also retains authored `surface.grade={unit,a,b}` and
+reads exactly one typed `grade` or legacy `gradePercent`. It allows zero through
+1000% (unlike positive-only daylight faces); fall side supplies direction. A
+vertical plane remains unsupported. `PrepareRegionSurface` builds a transient
+`PreparedRegionSurface` before mesh/layer loops, so typed grades introduce neither
+per-vertex FFI nor repeated exact-percent policy on an accepted converted value.
+Private resolved state is not persisted. The authored value, contour datum and
+existing C++ plane geometry remain unchanged; this is not a plane-kernel
+migration or project-unit resolution.
 
 ## Daily gates
 

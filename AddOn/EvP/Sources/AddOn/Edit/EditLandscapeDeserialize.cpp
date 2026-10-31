@@ -20,7 +20,7 @@ template <class T> T Enum (const Reader& reader, T last)
         Fail (reader.path, "unknown enum value");
     return static_cast<T> (value);
 }
-TerrainSlope FaceSlope (const Reader& terrain, const char* field, const char* legacy)
+TerrainSlope AuthoredSlope (const Reader& terrain, const char* field, const char* legacy)
 {
     if (terrain.Has (field) == terrain.Has (legacy))
         Fail (terrain.path, std::string ("exactly one of ") + field + " or legacy " + legacy + " required");
@@ -347,17 +347,17 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
             object.terrain.transition = Enum (terrain.Field ("transition"), RegionTerrainTransition::Daylight);
             object.terrain.falloff = terrain.Field ("falloff").Number ();
             object.terrain.reach = terrain.Field ("reach").Number ();
-            object.terrain.cut = FaceSlope (terrain, "cut", "cutPercent");
-            object.terrain.fill = FaceSlope (terrain, "fill", "fillPercent");
+            object.terrain.cut = AuthoredSlope (terrain, "cut", "cutPercent");
+            object.terrain.fill = AuthoredSlope (terrain, "fill", "fillPercent");
         }
         if (item.Has ("surface")) {
             const auto surface = item.Field ("surface");
-            surface.Fields ({ "elevation", "slope", "first", "second", "gradePercent", "fallsTo" });
+            surface.Fields ({ "elevation", "slope", "first", "second", "fallsTo" }, { "grade", "gradePercent" });
             object.surface = RegionSurface { Enum (surface.Field ("elevation"), RegionElevationMode::Boundary),
                                              Enum (surface.Field ("slope"), RegionSlopeMode::ContourLine),
                                              surface.Field ("first").Point (),
                                              surface.Field ("second").Point (),
-                                             surface.Field ("gradePercent").Number (),
+                                             AuthoredSlope (surface, "grade", "gradePercent"),
                                              Enum (surface.Field ("fallsTo"), RegionFallSide::Right) };
         }
         s.objects.push_back (std::move (object));

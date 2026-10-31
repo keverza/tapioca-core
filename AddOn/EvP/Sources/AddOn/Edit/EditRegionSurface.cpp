@@ -11,7 +11,7 @@ constexpr const char* s_terrainError =
     "RegionTerrain: finite transition widths/reaches (0.05..100 m) and positive cut/fill grades (<=1000%) "
     "required; vertical daylight faces are not supported by these fields";
 
-bool ValidateFaceSlope (const TerrainSlope& authored, std::string& error)
+bool ResolveFiniteGrade (const TerrainSlope& authored, bool allowZero, TerrainSlope& resolved, std::string& error)
 {
     auto percent = authored;
     // Percent needs only policy checks (also keeps legacy documents readable in
@@ -25,10 +25,13 @@ bool ValidateFaceSlope (const TerrainSlope& authored, std::string& error)
     const double limit = authored.unit == TerrainSlope::Unit::Percent
                              ? 1000.0
                              : 1000.0 * (1 + 16 * std::numeric_limits<double>::epsilon ());
-    if (!std::isfinite (percent.a) || percent.a <= 0 || percent.a > limit || percent.b != 0) {
-        error = s_terrainError;
+    if (!std::isfinite (percent.a) || percent.a < 0 || (!allowZero && percent.a == 0) || percent.a > limit ||
+        percent.b != 0) {
+        error = allowZero ? "Region surface grade must be finite and from 0 to 1000 percent; vertical is unsupported."
+                          : s_terrainError;
         return false;
     }
+    resolved = percent;
     return true;
 }
 } // namespace
@@ -36,7 +39,9 @@ bool ValidateFaceSlope (const TerrainSlope& authored, std::string& error)
 bool ValidateRegionTerrain (const HardscapeObject& object, std::string& error)
 {
     const auto& terrain = object.terrain;
-    if (!ValidateFaceSlope (terrain.cut, error) || !ValidateFaceSlope (terrain.fill, error))
+    TerrainSlope percent;
+    if (!ResolveFiniteGrade (terrain.cut, false, percent, error) ||
+        !ResolveFiniteGrade (terrain.fill, false, percent, error))
         return false;
     if (terrain.effect > RegionTerrainEffect::Subtract || terrain.transition > RegionTerrainTransition::Daylight ||
         !std::isfinite (terrain.falloff) || terrain.falloff < 0.05 || terrain.falloff > 100 ||
@@ -51,13 +56,15 @@ bool ValidateRegionTerrain (const HardscapeObject& object, std::string& error)
     }
     return true;
 }
-bool ValidateRegionSurface (const RegionSurface& surface, std::string& error)
+bool PrepareRegionSurface (const RegionSurface& surface, PreparedRegionSurface& prepared, std::string& error)
 {
+    TerrainSlope percent;
+    if (!ResolveFiniteGrade (surface.grade, true, percent, error))
+        return false;
     if (surface.elevation > RegionElevationMode::Boundary || surface.slope > RegionSlopeMode::ContourLine ||
         surface.fallsTo > RegionFallSide::Right || !geomsrv::edit::Finite (surface.first) ||
-        !geomsrv::edit::Finite (surface.second) || !std::isfinite (surface.gradePercent) || surface.gradePercent < 0 ||
-        surface.gradePercent > 1000) {
-        error = "Region surface needs finite points, a valid mode and a grade from 0 to 1000 percent.";
+        !geomsrv::edit::Finite (surface.second)) {
+        error = "Region surface needs finite points and a valid mode.";
         return false;
     }
     if (surface.elevation != RegionElevationMode::Constant && surface.slope != RegionSlopeMode::None) {
@@ -71,22 +78,29 @@ bool ValidateRegionSurface (const RegionSurface& surface, std::string& error)
         error = "A region slope needs two distinct points in plan (at least 1 micrometre apart).";
         return false;
     }
+    PreparedRegionSurface candidate;
+    candidate.surface = surface;
+    candidate.gradePercent = percent.a;
+    prepared = candidate;
     return true;
 }
 
-bool PrepareRegionSurface (const RegionSurface& surface, RegionSurface& prepared, std::string& error)
+bool ValidateRegionSurface (const RegionSurface& surface, std::string& error)
 {
-    if (!ValidateRegionSurface (surface, error))
-        return false;
-    prepared = surface;
-    return true;
+    PreparedRegionSurface prepared;
+    return PrepareRegionSurface (surface, prepared, error);
 }
 
-std::optional<double> RegionSurfaceElevation (const RegionSurface& surface, Vec3 point)
+std::optional<double> RegionSurfaceElevation (const RegionSurface& authored, Vec3 point)
 {
     std::string error;
-    if (!ValidateRegionSurface (surface, error) || surface.elevation != RegionElevationMode::Constant ||
-        !geomsrv::edit::Finite (point))
+    PreparedRegionSurface prepared;
+    return PrepareRegionSurface (authored, prepared, error) ? prepared.Elevation (point) : std::nullopt;
+}
+
+std::optional<double> PreparedRegionSurface::Elevation (Vec3 point) const
+{
+    if (surface.elevation != RegionElevationMode::Constant || !geomsrv::edit::Finite (point))
         return std::nullopt;
     const double dx = surface.second.x - surface.first.x, dy = surface.second.y - surface.first.y;
     const double x = point.x - surface.first.x, y = point.y - surface.first.y;
@@ -95,7 +109,7 @@ std::optional<double> RegionSurfaceElevation (const RegionSurface& surface, Vec3
         z += (x * dx + y * dy) / (dx * dx + dy * dy) * (surface.second.z - surface.first.z);
     else if (surface.slope == RegionSlopeMode::ContourLine) {
         const double left = (-dy * x + dx * y) / std::hypot (dx, dy);
-        z -= left * (surface.fallsTo == RegionFallSide::Left ? 1 : -1) * surface.gradePercent / 100;
+        z -= left * (surface.fallsTo == RegionFallSide::Left ? 1 : -1) * gradePercent / 100;
     }
     return std::isfinite (z) ? std::optional<double> (z) : std::nullopt;
 }
@@ -108,7 +122,7 @@ bool BuildRegionSurfaceMesh (const geomsrv::edit::Document& doc, const Hardscape
         error = "RegionSurface: an authored elevation target is required";
         return false;
     }
-    RegionSurface prepared;
+    PreparedRegionSurface prepared;
     if (!PrepareRegionSurface (*object.surface, prepared, error))
         return false;
     LandscapePreviewMesh target;
@@ -116,7 +130,7 @@ bool BuildRegionSurfaceMesh (const geomsrv::edit::Document& doc, const Hardscape
         return false;
     if (object.surface->elevation == RegionElevationMode::Constant) {
         for (auto& point : target.vertices) {
-            const auto z = RegionSurfaceElevation (prepared, point);
+            const auto z = prepared.Elevation (point);
             if (!z) {
                 error = "RegionSurface: nonfinite target height";
                 return false;

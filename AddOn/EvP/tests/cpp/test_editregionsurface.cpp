@@ -279,7 +279,7 @@ TEST (EditRegionSurface, ContourLineFallsPerpendicularlyOnTheExplicitSide)
     surface.slope = lg::RegionSlopeMode::ContourLine;
     surface.first = { 10, 20, 15 };
     surface.second = { 20, 20, -100 }; // the second point's Z is not a second elevation target
-    surface.gradePercent = 5;
+    surface.grade = { lg::TerrainSlope::Unit::Percent, 5, 0 };
     for (const auto side : { lg::RegionFallSide::Left, lg::RegionFallSide::Right }) {
         surface.fallsTo = side;
         const double sign = side == lg::RegionFallSide::Left ? -1 : 1;
@@ -342,9 +342,9 @@ TEST (EditRegionSurface, SurfaceValidationRefusesContradictoryAndDegenerateDefin
     surface.second = surface.first;
     EXPECT_FALSE (lg::ValidateRegionSurface (surface, error));
     surface.second.x = 1;
-    surface.gradePercent = -1;
+    surface.grade = { lg::TerrainSlope::Unit::Percent, -1, 0 };
     EXPECT_FALSE (lg::ValidateRegionSurface (surface, error));
-    surface.gradePercent = 2;
+    surface.grade = { lg::TerrainSlope::Unit::Percent, 2, 0 };
     surface.first.z = std::numeric_limits<double>::infinity ();
     EXPECT_FALSE (lg::ValidateRegionSurface (surface, error));
     EXPECT_FALSE (lg::RegionSurfaceElevation (surface, {}));
@@ -358,7 +358,7 @@ TEST (EditRegionSurface, PreviewUsesTheTargetPlaneWithoutMovingAuthoredLinework)
     surface.elevation = lg::RegionElevationMode::Constant;
     surface.slope = lg::RegionSlopeMode::ContourLine;
     surface.first.z = 12;
-    surface.gradePercent = 5;
+    surface.grade = { lg::TerrainSlope::Unit::Percent, 5, 0 };
     surface.fallsTo = lg::RegionFallSide::Left;
     std::string error;
     ASSERT_TRUE (lg::SetRegionSurface (doc, doc.landscape->objects[0].id, surface, {}, error));

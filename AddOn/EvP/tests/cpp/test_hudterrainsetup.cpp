@@ -303,6 +303,118 @@ TEST (HudTerrainSetup, RegionCutSlopeUnitAndHeightSliderUseActualWidgetsAndSepar
     text = gui.Frame (mixed, { 850, 1350 }, false, false, 1);
     EXPECT_EQ (text.find ("Cut face unit"), std::string::npos);
 }
+TEST (HudTerrainSetup, RegionContourGradeUnitSliderAndZeroUseActualWidgetsWithIndependentHistory)
+{
+    using Unit = lg::TerrainSlope::Unit;
+    auto doc = EmptyLandscape ();
+    const auto line = edit::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, true);
+    std::string error;
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, line, lg::SourceRole::RegionBoundary, error));
+    const auto object = doc.landscape->objects[0].id;
+    auto surface = *doc.landscape->objects[0].surface;
+    surface.elevation = lg::RegionElevationMode::Constant;
+    surface.slope = lg::RegionSlopeMode::ContourLine;
+    surface.first = { 0, 0, 2 };
+    surface.second = { 10, 0, -100 };
+    surface.grade = { Unit::Percent, 0, 0 };
+    ASSERT_TRUE (lg::SetRegionSurface (doc, object, surface, {}, error)) << error;
+    auto terrain = doc.landscape->objects[0].terrain;
+    terrain.cut = { Unit::RiseRun, 1.5, 3 };
+    terrain.fill = { Unit::Height, 2.5, 5 };
+    ASSERT_TRUE (lg::SetRegionTerrain (doc, object, terrain, error)) << error;
+    eh::Session session (doc);
+    session.selection.Set ({ { line, edit::Part::Entity, 0 } });
+    PanelGui gui;
+    auto text = gui.Frame (session, { 850, 1350 }, false, false, 1);
+    EXPECT_NE (text.find ("Grade unit"), std::string::npos);
+    const auto* window = ImGui::FindWindowByName ("terrain setup");
+    const auto root = ImHashStr ("region-surface", 0, window->ID);
+    const auto owner = ImHashStr (std::to_string (object).c_str (), 0, root);
+    const auto locate = [&] (const char* label) {
+        const auto target = ImHashStr (label, 0, owner);
+        for (float y = 24; y < 1250; y += 2) {
+            gui.Frame (session, { 60, y }, false, false, 1);
+            if (gui.context->HoveredId == target)
+                return ImVec2 { 60, y + 2 };
+        }
+        return ImVec2 { -1, -1 };
+    };
+    const auto combo = locate ("Grade unit");
+    ASSERT_GT (combo.y, 0);
+    gui.Frame (session, combo, true, false, 1);
+    gui.Frame (session, combo, false, false, 1);
+    gui.Frame (session, combo, false, false, 1);
+    auto* popup = ImGui::FindWindowByName ("##Combo_00");
+    ASSERT_NE (popup, nullptr);
+    const int heightIndex = 3;
+    const auto target = ImHashStr ("Height / run (m)", 0, ImHashData (&heightIndex, sizeof (heightIndex), popup->ID));
+    ImVec2 choice { -1, -1 };
+    for (float y = popup->Pos.y + 4; y < popup->Pos.y + popup->Size.y; y += 2) {
+        const ImVec2 point { popup->Pos.x + 30, y };
+        gui.Frame (session, point, false, false, 1);
+        if (gui.context->HoveredId == target) {
+            choice = point;
+            break;
+        }
+    }
+    ASSERT_GT (choice.y, 0);
+    gui.Frame (session, choice, true, false, 1);
+    gui.Frame (session, choice, false, false, 1);
+    const auto switched = *session.edits.Doc ().landscape->objects[0].surface;
+    EXPECT_EQ (switched.grade, (lg::TerrainSlope { Unit::Height, 0, 1 }));
+    EXPECT_EQ (switched.first, surface.first);
+    EXPECT_EQ (switched.second, surface.second);
+    EXPECT_EQ (switched.fallsTo, surface.fallsTo);
+    EXPECT_EQ (session.edits.Doc ().landscape->objects[0].terrain, terrain);
+    EXPECT_DOUBLE_EQ (*lg::RegionSurfaceElevation (switched, { 5, 10, 0 }), 2);
+    EXPECT_EQ (session.edits.UndoDepth (), 1u);
+    std::string json;
+    ASSERT_TRUE (lg::WriteLandscape (session.edits.Doc (), lg::LandscapeStorage::Virtual, json, error)) << error;
+    edit::Document loaded;
+    ASSERT_TRUE (lg::ReadLandscape (json, loaded, error)) << error;
+    EXPECT_EQ (loaded.landscape, session.edits.Doc ().landscape);
+    text = gui.Frame (session, { 850, 1350 }, false, false, 1);
+    EXPECT_NE (text.find ("Grade height (m)"), std::string::npos);
+    EXPECT_NE (text.find ("Grade plan run (m)"), std::string::npos);
+    const auto slider = locate ("Grade height (m)");
+    ASSERT_GT (slider.y, 0);
+    gui.Frame (session, slider, true, false, 1);
+    ASSERT_TRUE (session.edits.InGesture ());
+    gui.Frame (session, { 160, slider.y }, true, false, 1);
+    gui.Frame (session, { 240, slider.y }, true, false, 1);
+    EXPECT_EQ (session.edits.UndoDepth (), 1u);
+    gui.Frame (session, { 240, slider.y }, false, false, 1);
+    const auto edited = *session.edits.Doc ().landscape->objects[0].surface;
+    EXPECT_GT (edited.grade.a, 0);
+    EXPECT_EQ (session.edits.UndoDepth (), 2u);
+    gui.Frame (session, slider, true, false, 1);
+    gui.Frame (session, { 0, slider.y }, true, false, 1);
+    gui.Frame (session, { 0, slider.y }, false, false, 1);
+    EXPECT_FALSE (session.edits.InGesture ());
+    EXPECT_EQ (session.edits.Doc ().landscape->objects[0].surface->grade, switched.grade);
+    EXPECT_EQ (session.edits.UndoDepth (), 3u);
+    EXPECT_EQ (session.edits.Doc ().landscape->objects[0].terrain, terrain);
+    EXPECT_EQ (session.edits.Doc ().entities, doc.entities);
+    ASSERT_TRUE (session.edits.Undo ());
+    EXPECT_EQ (session.edits.Doc ().landscape->objects[0].surface, edited);
+    ASSERT_TRUE (session.edits.Undo ());
+    EXPECT_EQ (session.edits.Doc ().landscape->objects[0].surface, switched);
+    ASSERT_TRUE (session.edits.Undo ());
+    EXPECT_EQ (session.edits.Doc ().landscape, doc.landscape);
+    for (auto mode : { lg::RegionSlopeMode::None, lg::RegionSlopeMode::TwoPoints }) {
+        surface.slope = mode;
+        ASSERT_TRUE (lg::SetRegionSurface (loaded, object, surface, {}, error)) << error;
+        eh::Session otherMode (loaded);
+        otherMode.selection.Set ({ { line, edit::Part::Entity, 0 } });
+        EXPECT_EQ (gui.Frame (otherMode, { 850, 1350 }, false, false, 1).find ("Grade unit"), std::string::npos);
+    }
+    const auto reference = edit::AddPolyline (loaded, { { 20, 0, 0 }, { 30, 0, 0 } }, false);
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (loaded, reference, lg::SourceRole::ReferenceLine, error));
+    eh::Session referenceOnly (loaded);
+    referenceOnly.selection.Set ({ { reference, edit::Part::Entity, 0 } });
+    EXPECT_EQ (gui.Frame (referenceOnly, { 850, 1350 }, false, false, 1).find ("Grade unit"), std::string::npos);
+}
+
 TEST (HudTerrainSetup, RegionFillUnitAndSliderAreUndoableWithoutChangingTheCutPair)
 {
     using Unit = lg::TerrainSlope::Unit;

@@ -94,6 +94,7 @@ bool SelectedSlopePoints (const Session& s, edit::Vec3& first, edit::Vec3& secon
 
 struct RegionSlopeLabels {
     const char *unit, *percent, *angle, *rise, *run, *height, *planRun, *hint;
+    bool allowZero = false;
 };
 constexpr RegionSlopeLabels s_cutSlopeLabels {
     "Cut face unit",
@@ -115,6 +116,17 @@ constexpr RegionSlopeLabels s_fillSlopeLabels {
     "Fill plan run (m)",
     "Fill grade: >0 to 1000%; vertical is not supported. Height/run uses model metres."
 };
+constexpr RegionSlopeLabels s_contourSlopeLabels {
+    "Grade unit",
+    "Grade (%)",
+    "Grade (degrees)",
+    "Grade rise",
+    "Grade run",
+    "Grade height (m)",
+    "Grade plan run (m)",
+    "Contour grade: 0 to 1000%; vertical is not supported. Height/run uses model metres.",
+    true
+};
 
 bool SlopeFields (Session& s, lg::Id object, const RegionSlopeLabels& labels, lg::TerrainSlope& slope, bool& release)
 {
@@ -129,12 +141,12 @@ bool SlopeFields (Session& s, lg::Id object, const RegionSlopeLabels& labels, lg
         }
     }
     if (slope.unit == Unit::Percent)
-        changed |= Slider (s, object, labels.percent, slope.a, 0.01, 1000, "%.2f", release);
+        changed |= Slider (s, object, labels.percent, slope.a, labels.allowZero ? 0 : 0.01, 1000, "%.2f", release);
     else if (slope.unit == Unit::Angle) {
         // UI boundary only: the authored angle and Rust ABI remain radians.
         constexpr double degrees = 180.0 / std::numbers::pi;
         double angle = slope.a * degrees;
-        if (Slider (s, object, labels.angle, angle, 0.01, 90, "%.3f", release)) {
+        if (Slider (s, object, labels.angle, angle, labels.allowZero ? 0 : 0.01, 90, "%.3f", release)) {
             slope.a = angle / degrees;
             changed = true;
         }
@@ -145,8 +157,8 @@ bool SlopeFields (Session& s, lg::Id object, const RegionSlopeLabels& labels, lg
             const double maximum = std::numeric_limits<double>::max ();
             return std::max (10.0, value <= maximum / 2 ? value * 2 : maximum);
         };
-        changed |=
-            Slider (s, object, height ? labels.height : labels.rise, slope.a, 0.0001, upper (slope.a), "%.4f", release);
+        changed |= Slider (s, object, height ? labels.height : labels.rise, slope.a, labels.allowZero ? 0 : 0.0001,
+                           upper (slope.a), "%.4f", release);
         changed |=
             Slider (s, object, height ? labels.planRun : labels.run, slope.b, 0.0001, upper (slope.b), "%.4f", release);
     }
@@ -208,7 +220,7 @@ void RegionPanel (Session& s, bool materialsOnly)
             changed |= PointFields (s, object->id, "Second point", surface.second,
                                     surface.slope == lg::RegionSlopeMode::TwoPoints, release);
             if (surface.slope == lg::RegionSlopeMode::ContourLine) {
-                changed |= Slider (s, object->id, "Grade (%)", surface.gradePercent, 0, 1000, "%.2f", release);
+                changed |= SlopeFields (s, object->id, s_contourSlopeLabels, surface.grade, release);
                 int side = int (surface.fallsTo);
                 if (ImGui::Combo ("Fall side", &side, "Left\0Right\0")) {
                     surface.fallsTo = lg::RegionFallSide (side);
@@ -216,7 +228,7 @@ void RegionPanel (Session& s, bool materialsOnly)
                 }
                 ImGui::TextWrapped (
                     "The contour runs first to second point. Fall is perpendicular, on the chosen side. "
-                    "First point Z is the contour elevation; grade is percent, not degrees.");
+                    "First point Z is the contour elevation; grade uses the selected unit.");
             }
             else {
                 const double length = edit::DistanceXY (surface.first, surface.second);

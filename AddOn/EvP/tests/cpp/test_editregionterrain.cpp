@@ -276,7 +276,7 @@ TEST (EditRegionTerrain, TwoPointAndContourPlanesActuallyGradeTheTerrain)
         surface.slope = mode;
         surface.first = { 5, 5, 2 };
         surface.second = { 15, 5, 3 };
-        surface.gradePercent = 5;
+        surface.grade = { lg::TerrainSlope::Unit::Percent, 5, 0 };
         surface.fallsTo = lg::RegionFallSide::Left;
         std::string error;
         ASSERT_TRUE (lg::SetRegionSurface (fixture.doc, fixture.object, surface, {}, error));
@@ -284,6 +284,51 @@ TEST (EditRegionTerrain, TwoPointAndContourPlanesActuallyGradeTheTerrain)
         ASSERT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, fixture.Capture (), result, error)) << error;
         EXPECT_NEAR (Height (result, 10, 10), *lg::RegionSurfaceElevation (surface, { 10, 10, 0 }), 1e-7);
         EXPECT_NEAR (Height (result, 8, 12), *lg::RegionSurfaceElevation (surface, { 8, 12, 0 }), 1e-7);
+    }
+}
+
+TEST (EditRegionTerrain, EquivalentContourGradeFormsKeepAnalyticHeightsQuantitiesAndCaptureOnBothSides)
+{
+    using Unit = lg::TerrainSlope::Unit;
+    for (auto side : { lg::RegionFallSide::Left, lg::RegionFallSide::Right }) {
+        Fixture fixture;
+        const auto original = fixture.Capture ();
+        const auto baseline = original->points;
+        const auto terrain = fixture.doc.landscape->objects[0].terrain;
+        double expectedFill = -1;
+        for (const lg::TerrainSlope grade : { lg::TerrainSlope { Unit::Percent, 5, 0 },
+                                              { Unit::Angle, std::atan (0.05), 0 },
+                                              { Unit::RiseRun, 1.5, 30 },
+                                              { Unit::Height, 2.5, 50 } }) {
+            auto surface = *fixture.doc.landscape->objects[0].surface;
+            surface.slope = lg::RegionSlopeMode::ContourLine;
+            surface.first = { 5, 5, 2 };
+            surface.second = { 15, 5, -100 };
+            surface.fallsTo = side;
+            surface.grade = grade;
+            const double sign = side == lg::RegionFallSide::Left ? -1 : 1;
+            std::string error;
+            ASSERT_TRUE (lg::SetRegionSurface (fixture.doc, fixture.object, surface, {}, error)) << error;
+            lg::RegionTerrainResult result;
+            EXPECT_FALSE (lg::EvaluateRegionTerrain (fixture.doc, original, result, error));
+            EXPECT_NE (error.find ("ProvenanceStale"), std::string::npos) << error;
+            const auto capture = fixture.Capture ();
+            ASSERT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, capture, result, error)) << error;
+            EXPECT_NEAR (Height (result, 10, 10), 2 + sign * 0.25, 1e-7);
+            EXPECT_NEAR (Height (result, 8, 12), 2 + sign * 0.35, 1e-7);
+            EXPECT_NEAR (Height (result, 1, 10), 0, 1e-8);
+            ASSERT_TRUE (result.evaluation.terrain.volumes);
+            const auto& volume = result.evaluation.terrain.volumes->site;
+            EXPECT_GT (volume.fill, 149);
+            EXPECT_NEAR (volume.cut, 0, 1e-8);
+            if (expectedFill < 0)
+                expectedFill = volume.fill;
+            EXPECT_NEAR (volume.fill, expectedFill, 1e-7);
+            EXPECT_EQ (fixture.doc.landscape->objects[0].surface->grade, grade);
+            EXPECT_EQ (fixture.doc.landscape->objects[0].terrain, terrain);
+            EXPECT_EQ (capture->points, baseline);
+            EXPECT_EQ (original->points, baseline);
+        }
     }
 }
 

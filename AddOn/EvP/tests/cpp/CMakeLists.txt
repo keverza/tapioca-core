@@ -905,6 +905,7 @@ set (EVP_TEST_SOURCES
     test_editplanarrobustfaces.cpp
     test_editlandscape.cpp
     test_editregionsurface.cpp
+    test_editregioncontourslope.cpp
     test_editmaterial.cpp
     test_editregionterrain.cpp
     test_editlandscapepreview.cpp
