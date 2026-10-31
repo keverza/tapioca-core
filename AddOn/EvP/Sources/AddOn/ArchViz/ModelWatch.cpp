@@ -75,6 +75,9 @@ uint64_t gStamp = 0;
 bool gStampKnown = false;
 std::vector<std::string> gSelection; // sorted element GUIDs
 bool gPassLastTick = false;
+int64_t gLastPassEndMs = 0;
+// The stamp moved, other than by selection, since the last poll (DiffWanted).
+bool gStampMovedSincePoll = false;
 // The stamp counters at the last hint, for the deltas its log line reports.
 uint32_t gHintSelectionOnly = 0;
 uint32_t gHintDuringPass = 0;
@@ -217,6 +220,13 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     if (gBaseline == nullptr)
         return;
 
+    if (!DiffWanted (early, gStampKnown && gStampTimer != 0, gStampMovedSincePoll,
+                     int64_t (::GetTickCount64 ()) - gLastPollEndMs)) {
+        ++gStats.quietSkips;
+        ServePending ();
+        return;
+    }
+
     const uint64_t previousPollMs = gLastPollMs;
     gLastPollMs = ::GetTickCount64 ();
     const std::set<std::string> swept = std::move (gSweptSincePoll);
@@ -228,6 +238,7 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     // ⚠️ RE-READ AFTER THE DIFF: generating the 3D model for it may move the
     // project's stamp, and that move must not bring the next poll forward.
     AdoptStamp ();
+    gStampMovedSincePoll = false;
     const bool found = diff.ok && (!diff.created.empty () || !diff.modified.empty () || !diff.deleted.empty ());
     if (found)
         gEarlyMisses = 0;
@@ -419,7 +430,10 @@ void CALLBACK StampTimerProc (HWND, UINT, UINT_PTR, DWORD)
     if (gTimer == 0 || gBaseline == nullptr)
         return;
     const bool pass = ExtractionWorker::Get ().IsRunning ();
-    const bool passNowOrLastTick = pass || gPassLastTick;
+    const int64_t now = int64_t (::GetTickCount64 ());
+    if (gPassLastTick && !pass)
+        gLastPassEndMs = now;
+    const bool ownWork = pass || gPassLastTick || (gLastPassEndMs != 0 && now - gLastPassEndMs < kOwnWorkSettleMs);
     gPassLastTick = pass;
     uint64_t stamp = 0;
     if (!ReadStamp (stamp))
@@ -435,19 +449,21 @@ void CALLBACK StampTimerProc (HWND, UINT, UINT_PTR, DWORD)
     const bool selectionRead = ReadSelection (selection);
     const bool selectionChanged = selectionRead && selection != gSelection;
     const StampVerdict verdict =
-        JudgeStamp (moved, passNowOrLastTick, selectionChanged, selectionChanged && AnyVanished (gSelection));
+        JudgeStamp (moved, ownWork, selectionChanged, selectionChanged && AnyVanished (gSelection));
     gStamp = stamp;
     if (selectionRead)
         gSelection = std::move (selection);
     switch (verdict) {
         case StampVerdict::DuringPass:
             ++gStats.stampDuringPass;
+            gStampMovedSincePoll = true;
             break;
         case StampVerdict::SelectionOnly:
             ++gStats.stampSelectionOnly;
             break;
         case StampVerdict::Hint: {
             ++gStats.stampHints;
+            gStampMovedSincePoll = true;
             // Deltas since the previous hint (OVERLAY-INVARIANTS section 7), so a
             // live log shows what the filter dropped between two edits.
             NoteHint ("project stamp moved (since the last hint: " +
@@ -498,7 +514,8 @@ bool Start (uint32_t floorMs)
     gEarlyPending = false;
     gEarlyMisses = 0;
     gCeilingLogged = false;
-    gPassLastTick = false;
+    gPassLastTick = gStampMovedSincePoll = false;
+    gLastPassEndMs = 0;
     gHintSelectionOnly = gHintDuringPass = 0;
     // The sun's log is deduplicated across reads, and its memory of what it last
     // wrote is session state like the baseline beside it. See the header.
@@ -521,6 +538,7 @@ bool Start (uint32_t floorMs)
     else {
         gStats.lastDiffMs = first.elapsedMs;
         gStats.worstDiffMs = first.elapsedMs;
+        gLastPollEndMs = int64_t (::GetTickCount64 ()); // the baseline is a poll (DiffWanted)
         ArchVizLog ("model watch: armed, polling every " + std::to_string (gIntervalMs) + " ms (baseline took " +
                     std::to_string (first.elapsedMs) +
                     " ms). "
@@ -554,7 +572,8 @@ void Stop ()
     }
     gStampKnown = false;
     gSelection.clear ();
-    gPassLastTick = false;
+    gPassLastTick = gStampMovedSincePoll = false;
+    gLastPassEndMs = 0;
     gBaseline.reset ();
     gIntervalMs = 0;
     gStats.running = false;

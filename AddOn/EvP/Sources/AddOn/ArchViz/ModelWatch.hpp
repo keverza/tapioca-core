@@ -82,6 +82,8 @@ struct Stats {
     uint32_t stampHints = 0;
     uint32_t stampSelectionOnly = 0;
     uint32_t stampDuringPass = 0;
+    // Regular ticks that asked Archicad nothing because the stamp had not moved (DiffWanted).
+    uint32_t quietSkips = 0;
     int64_t lastDiffMs = 0;  // what the last poll cost
     int64_t worstDiffMs = 0; // the worst one, which is what set the interval
     uint32_t intervalMs = 0; // the cadence it has settled on
@@ -146,6 +148,26 @@ constexpr int64_t kEarlyPollDutyFactor = 3;    // ... and at least this many dif
 constexpr uint32_t kEarlyPollMaxBackoff = 3;   // doublings of the spacing after misses
 // How often the stamp timer reads API_ProjectInfo.modiStamp. One read, no write.
 constexpr uint32_t kStampPollMs = 500;
+// A stamp move this soon after the watch's own extraction pass ends is taken as
+// that pass's (3D generation, the sun follower's capture): seen 1-3 s after
+// every update pass on 2026-10-31.
+constexpr int64_t kOwnWorkSettleMs = 4000;
+// However quiet the stamp is, the regular diff still runs this often.
+constexpr int64_t kQuietBackstopMs = 300000;
+
+// Whether a regular tick runs the difference generator -- pure, so tests/cpp
+// pins it.
+//
+// ⚠️ THE DIFF IS WHAT FREEZES ARCHICAD. ~3.1 s of main thread on an
+// 806k-triangle model, and it ran every 30 s whether or not anything had
+// changed; the user saw Archicad stop responding around every update. A tick
+// whose stamp has not moved since the last poll (other than by selection)
+// skips it. A move during the watch's own work still counts as moved, so an
+// edit made then is seen by the next regular tick, never lost.
+inline bool DiffWanted (bool early, bool stampKnown, bool movedSincePoll, int64_t sinceLastPollMs)
+{
+    return early || !stampKnown || movedSincePoll || sinceLastPollMs >= kQuietBackstopMs;
+}
 
 // The spacing between early polls -- pure, so tests/cpp pins it.
 inline int64_t EarlyPollSpacing (int64_t worstDiffMs, uint32_t misses)
@@ -167,20 +189,20 @@ inline int64_t EarlyPollSpacing (int64_t worstDiffMs, uint32_t misses)
 // only when an element that WAS selected no longer exists, which is what a
 // delete of the selection looks like. A creation that also changed the
 // selection is left to the regular cadence. While the watch's own extraction
-// runs (now or at the previous tick) the move is adopted, never a hint.
+// runs, or within kOwnWorkSettleMs of its end (`ownWork`), the move is adopted,
+// never a hint -- but it still makes the next regular tick diff (DiffWanted).
 enum class StampVerdict : uint8_t {
     Unchanged,
-    DuringPass,    // the watch's own extraction may have moved it
+    DuringPass,    // the watch's own work may have moved it
     SelectionOnly, // the selection changed and everything it held still exists
     Hint           // bring the poll forward
 };
 
-inline StampVerdict JudgeStamp (bool stampMoved, bool passNowOrLastTick, bool selectionChanged,
-                                bool previouslySelectedVanished)
+inline StampVerdict JudgeStamp (bool stampMoved, bool ownWork, bool selectionChanged, bool previouslySelectedVanished)
 {
     if (!stampMoved)
         return StampVerdict::Unchanged;
-    if (passNowOrLastTick)
+    if (ownWork)
         return StampVerdict::DuringPass;
     if (selectionChanged && !previouslySelectedVanished)
         return StampVerdict::SelectionOnly;

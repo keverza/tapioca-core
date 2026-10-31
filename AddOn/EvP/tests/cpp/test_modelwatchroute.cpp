@@ -99,3 +99,14 @@ TEST (ModelWatchStamp, OnlyAMoveThatIsNotTheSelectionOrTheWatchItselfIsAHint)
     EXPECT_EQ (JudgeStamp (true, false, false, false), StampVerdict::Hint) << "an edit of what stays selected";
     EXPECT_EQ (JudgeStamp (true, false, true, true), StampVerdict::Hint) << "a delete of the selection";
 }
+
+// The 3 s diff froze Archicad every 30 s with nothing changed (2026-10-31).
+TEST (ModelWatchStamp, AQuietStampSkipsTheDiffUntilTheBackstop)
+{
+    using watch::DiffWanted;
+    EXPECT_FALSE (DiffWanted (false, true, false, 30000));
+    EXPECT_TRUE (DiffWanted (false, true, true, 30000)) << "moved since the last poll";
+    EXPECT_TRUE (DiffWanted (true, true, false, 0)) << "an early poll was asked for";
+    EXPECT_TRUE (DiffWanted (false, false, false, 0)) << "no stamp: the cadence is all there is";
+    EXPECT_TRUE (DiffWanted (false, true, false, watch::kQuietBackstopMs));
+}
