@@ -11,6 +11,39 @@
 namespace fp = geomsrv::archviz::floorprogramme;
 namespace hp = geomsrv::archviz::hudprogramme;
 
+TEST (HudProgramme, ShareCaptionTreatsPercentAsLiteralText)
+{
+    auto* previous = ImGui::GetCurrentContext ();
+    auto* context = ImGui::CreateContext ();
+    const auto cleanup = [previous] (ImGuiContext* value) {
+        ImGui::DestroyContext (value);
+        ImGui::SetCurrentContext (previous);
+    };
+    std::unique_ptr<ImGuiContext, decltype (cleanup)> held (context, cleanup);
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.LogFilename = nullptr;
+    io.DisplaySize = { 900, 1000 };
+    io.DeltaTime = 1.0f / 60;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    auto programme = fp::Default ();
+    const auto saved = programme;
+    std::vector<hp::TableEdit> tables;
+    std::vector<hp::ColourEdit> colours;
+    ImGui::NewFrame ();
+    ImGui::Begin ("programme-caption");
+    ImGui::LogToBuffer ();
+    ImGui::SetNextItemOpen (true, ImGuiCond_Always);
+    hp::Draw (programme, saved, tables, colours);
+    const std::string rendered = context->LogBuffer.c_str ();
+    EXPECT_NE (rendered.find ("Share: % of flat count."), std::string::npos) << rendered;
+    ImGui::LogFinish ();
+    ImGui::End ();
+    ImGui::Render ();
+}
+
 // Expected values come from the private generator reading the same brief (its oracle role):
 // the target is the middle of the range, the frontage 2.4 m + 1.2 m per room, counts by
 // largest remainder and the mix cost of its S6/S7 stages.
