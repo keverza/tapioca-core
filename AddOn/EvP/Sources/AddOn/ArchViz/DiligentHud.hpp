@@ -143,6 +143,14 @@ struct HudState {
     float sunFilterHi = 24.0f;
     bool sunLowBlue = false;
     float sunBlueThreshold = 2.5f;
+    // The hours view's display postprocess (PLAT-RE156): the viewer's current
+    // sun shadows over the analysis colour, and the smooth / stepped gradient.
+    // Stepped starts at kSunBandsDefault (4) bands, evenly split with the open
+    // band at 9 h+; the edges are the legend's grips. None of it re-runs a study.
+    bool sunShadowOverlay = false;
+    bool sunGradientStepped = false;
+    int sunBandCount = 4;
+    float sunBandEdges[11] = { 3.0f, 6.0f, 9.0f };
     float sunTimeFrom = 0.0f;
     float sunTimeTo = 24.0f;
     // The hover INSPECTOR: 0 off, 1 a tooltip at the cursor, 2 a line in the

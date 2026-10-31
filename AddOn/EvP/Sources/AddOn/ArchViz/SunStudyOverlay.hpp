@@ -233,6 +233,14 @@ struct SunStudyViewSettings {
     // kFanWords), and how many there are -- the colour ramp's length.
     uint32_t fanMask[3] = { 0u, 0u, 0u };
     uint32_t fanCount = 0;
+    // ---- the HOURS view's display-only postprocess (PLAT-RE156) -------------
+    // The viewer's current sun shadows over the analysis colour, from the
+    // scene's own PCF map; off, the hours colour ignores them.
+    bool shadowOverlay = false;
+    // 0 = the smooth ramp; otherwise kSunBandsMin..kSunBandsMax flat bands
+    // split at `bandEdges` (ArchViz/SunStudyPreview.hpp).
+    int bandCount = 0;
+    float bandEdges[11] = {};
 };
 
 // Build one element's side car for the ROLE view.

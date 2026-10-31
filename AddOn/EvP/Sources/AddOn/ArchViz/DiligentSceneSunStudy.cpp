@@ -20,6 +20,7 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include <chrono>
 #include "ArchViz/DiligentShaders.hpp"
+#include "ArchViz/SunStudyPreview.hpp"
 
 #include <Sampler.h>
 #include "Utilities/interface/DiligentFXShaderSourceStreamFactory.hpp"
@@ -644,10 +645,18 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     // study step's own sun (EffectiveSun). Only where the study's cells disagree
     // with a neighbour does the shader consult it; everywhere else the cells
     // decide. Off -- cells only, as before -- without a PCF map aimed that way.
+    //
+    // ⚠️ THE SAME LANE IS THE HOURS VIEW'S SHADOW OVERLAY. There the map is the
+    // one this frame cast toward the VIEWER's sun (EffectiveSun again: no single
+    // shadow is shown), and it is bound only when the HUD asks for it. No second
+    // shadow map, no second pass.
     float studySun[3];
+    const bool pcf = impl_->shadowsEnabled && impl_->shadowMap.IsReady () &&
+                     impl_->shadowMap.Settings ().mode == DiligentShadowMode::Pcf;
+    const bool hoursOverlay =
+        impl_->sunShadowOverlay && mode == uint32_t (SunStudyDebugMode::Hours) && impl_->sunAnalysisKind == 0;
     Diligent::ITextureView* edgeShadowView = nullptr;
-    if (impl_->shadowsEnabled && impl_->shadowMap.IsReady () &&
-        impl_->shadowMap.Settings ().mode == DiligentShadowMode::Pcf && impl_->StudyShadowSun (studySun))
+    if (pcf && (impl_->StudyShadowSun (studySun) || hoursOverlay))
         edgeShadowView = impl_->shadowMap.ShaderView ();
     constants.sunStudyShadow[3] = edgeShadowView != nullptr ? 1.0f : 0.0f;
     // ⚠️ THE FAN'S STEP BITS GO IN AS BIT PATTERNS, read with asuint. A float
@@ -662,6 +671,9 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     constants.sunStudyPreview[0] = impl_->sunBlueThreshold;
     constants.sunStudyPreview[1] = float ((std::min) (impl_->sunFirstShadowStep, impl_->sunStepCount));
     constants.sunStudyPreview[2] = float ((std::min) (impl_->sunEndShadowStep, impl_->sunStepCount));
+    const bool stepped = impl_->sunBandCount >= kSunBandsMin && impl_->sunBandCount <= kSunBandsMax;
+    constants.sunStudyPreview[3] = stepped ? float (impl_->sunBandCount) : 0.0f;
+    std::copy (impl_->sunBandEdges, impl_->sunBandEdges + 11, constants.sunStudyBands);
     for (int channel = 0; channel < 3; ++channel) {
         const int shift = 24 - 8 * channel;
         constants.visibilityLowColor[channel] = float ((impl_->visibilityLowRgba >> shift) & 0xffu) / 255.0f;
@@ -760,6 +772,9 @@ void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
     for (int word = 0; word < 3; ++word)
         impl_->sunFanMask[word] = view.fanMask[word];
     impl_->sunFanCount = view.fanCount;
+    impl_->sunShadowOverlay = view.shadowOverlay;
+    impl_->sunBandCount = view.bandCount;
+    std::copy (view.bandEdges, view.bandEdges + 11, impl_->sunBandEdges);
 }
 
 } // namespace archviz

@@ -158,11 +158,137 @@ TEST (CalendarValue, RejectsMalformedAndNormalisedDates)
         EXPECT_FALSE (evp::ParseCalendarValue (value, year, month, day)) << value;
 }
 
+TEST (SunStudyBands, DefaultEdgesSpreadEvenlyWithTheOpenBandAtNinePlus)
+{
+    float edges[kSunBandsMax - 1];
+    SunStudyDefaultBandEdges (4, edges);
+    EXPECT_FLOAT_EQ (edges[0], 3.0f);
+    EXPECT_FLOAT_EQ (edges[1], 6.0f);
+    EXPECT_FLOAT_EQ (edges[2], 9.0f);
+    SunStudyDefaultBandEdges (3, edges);
+    EXPECT_FLOAT_EQ (edges[0], 4.5f);
+    EXPECT_FLOAT_EQ (edges[1], 9.0f);
+    // Ten bands are exactly the smooth ramp's one-hour bins.
+    SunStudyDefaultBandEdges (10, edges);
+    for (int i = 0; i < 9; ++i) {
+        EXPECT_FLOAT_EQ (edges[i], float (i + 1));
+        EXPECT_FLOAT_EQ (SunStudyBandCentre (i, 10, edges), float (i) + 0.5f);
+    }
+    SunStudyDefaultBandEdges (12, edges);
+    for (int i = 1; i < 11; ++i)
+        EXPECT_GT (edges[i], edges[i - 1]);
+    EXPECT_FLOAT_EQ (edges[10], 9.0f);
+}
+
+TEST (SunStudyBands, BoundariesAndTheOpenLastBand)
+{
+    float edges[kSunBandsMax - 1];
+    SunStudyDefaultBandEdges (4, edges);
+    EXPECT_EQ (SunStudyBand (0.0f, 4, edges), 0);
+    EXPECT_EQ (SunStudyBand (2.75f, 4, edges), 0);
+    EXPECT_EQ (SunStudyBand (3.0f, 4, edges), 1);
+    EXPECT_EQ (SunStudyBand (2.9999f, 4, edges), 1) << "a 10-minute study's 3:00 h sits a few ulps under the edge";
+    EXPECT_EQ (SunStudyBand (8.75f, 4, edges), 2);
+    EXPECT_EQ (SunStudyBand (9.0f, 4, edges), 3);
+    EXPECT_EQ (SunStudyBand (14.0f, 4, edges), 3) << "the last band is open-ended";
+    EXPECT_FLOAT_EQ (SunStudyBandCentre (0, 4, edges), 1.5f);
+    EXPECT_FLOAT_EQ (SunStudyBandCentre (3, 4, edges), 9.5f);
+}
+
+TEST (SunStudyBands, ClampKeepsDraggedEdgesOrderedOnTheQuarterHourGrid)
+{
+    float edges[kSunBandsMax - 1] = { 5.1f, 2.0f, 12.0f };
+    SunStudyClampBandEdges (4, edges);
+    EXPECT_FLOAT_EQ (edges[0], 5.0f);
+    EXPECT_FLOAT_EQ (edges[1], 5.25f);
+    EXPECT_FLOAT_EQ (edges[2], 9.75f);
+}
+
+// The legend (SunStudyBand / SunStudyBandCentre) and the tint (SunBand /
+// SunBandCentre) must name the same band and the same colour.
+TEST (SunStudyBands, RealShaderSteppedRampMatchesTheLegendAndTheOverlayIsOpaque)
+{
+    using Microsoft::WRL::ComPtr;
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> context;
+    ASSERT_TRUE (SUCCEEDED (D3D11CreateDevice (nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                               &device, nullptr, &context)));
+    const float probes[8] = { 0.0f, 2.75f, 3.0f, 4.5f, 6.25f, 8.9f, 9.0f, 15.0f };
+    std::string source = std::string (kArchVizCBuffer) + kNoShadowMapEdge + kArchVizSunTintPS +
+                         "RWStructuredBuffer<float4> result : register(u0);\n"
+                         "[numthreads(1,1,1)] void BandTest(uint3 id : SV_DispatchThreadID) {\n";
+    for (int i = 0; i < 8; ++i)
+        source += "    result[" + std::to_string (i) + "] = float4(SunRamp(" + std::to_string (probes[i]) +
+                  ", 0.25), float(SunBand(" + std::to_string (probes[i]) + ", 4)));\n";
+    source += "    result[8] = HoursOverlayColor(float3(0.5, 0.5, 0.5), float3(0,0,0), float3(0,0,1));\n}\n";
+    ComPtr<ID3DBlob> code, error;
+    ASSERT_TRUE (SUCCEEDED (D3DCompile (source.data (), source.size (), "sun-bands", nullptr, nullptr, "BandTest",
+                                        "cs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &code, &error)))
+        << (error ? static_cast<const char*> (error->GetBufferPointer ()) : "compile failed");
+    ComPtr<ID3D11ComputeShader> shader;
+    ASSERT_TRUE (
+        SUCCEEDED (device->CreateComputeShader (code->GetBufferPointer (), code->GetBufferSize (), nullptr, &shader)));
+    DiligentSceneConstants values;
+    float edges[kSunBandsMax - 1];
+    SunStudyDefaultBandEdges (4, edges);
+    values.sunStudyPreview[3] = 4.0f;
+    std::copy (edges, edges + 11, values.sunStudyBands);
+    D3D11_BUFFER_DESC constantsDesc = {};
+    constantsDesc.ByteWidth = sizeof (values);
+    constantsDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    D3D11_SUBRESOURCE_DATA constantsData = { &values, 0, 0 };
+    ComPtr<ID3D11Buffer> constants;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&constantsDesc, &constantsData, &constants)));
+    D3D11_BUFFER_DESC outputDesc = {};
+    outputDesc.ByteWidth = 9 * 4 * sizeof (float);
+    outputDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+    outputDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    outputDesc.StructureByteStride = 4 * sizeof (float);
+    ComPtr<ID3D11Buffer> output, staging;
+    ComPtr<ID3D11UnorderedAccessView> view;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&outputDesc, nullptr, &output)));
+    ASSERT_TRUE (SUCCEEDED (device->CreateUnorderedAccessView (output.Get (), nullptr, &view)));
+    outputDesc.BindFlags = outputDesc.MiscFlags = 0;
+    outputDesc.Usage = D3D11_USAGE_STAGING;
+    outputDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&outputDesc, nullptr, &staging)));
+    context->CSSetShader (shader.Get (), nullptr, 0);
+    context->CSSetConstantBuffers (0, 1, constants.GetAddressOf ());
+    context->CSSetUnorderedAccessViews (0, 1, view.GetAddressOf (), nullptr);
+    context->Dispatch (1, 1, 1);
+    context->CopyResource (staging.Get (), output.Get ());
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    ASSERT_TRUE (SUCCEEDED (context->Map (staging.Get (), 0, D3D11_MAP_READ, 0, &mapped)));
+    const float* rgba = static_cast<const float*> (mapped.pData);
+    // The ramp's own sRGB stops (kSunBins, red channel), decoded: what the
+    // legend's swatch at the band centre shows.
+    const float bins[10] = { 0.420f, 0.541f, 0.612f, 0.690f, 0.753f, 0.812f, 0.863f, 0.906f, 0.941f, 0.969f };
+    const auto linear = [] (float c) { return c <= 0.04045f ? c / 12.92f : std::pow ((c + 0.055f) / 1.055f, 2.4f); };
+    const auto warmRed = [&] (float hours) {
+        const float t = std::clamp (hours - 0.5f, 0.0f, 9.0f);
+        const int lo = int (std::floor (t)), hi = (std::min) (lo + 1, 9);
+        return linear (bins[lo] + (bins[hi] - bins[lo]) * (t - float (lo)));
+    };
+    for (int i = 0; i < 8; ++i) {
+        EXPECT_EQ (int (rgba[4 * i + 3]), SunStudyBand (probes[i], 4, edges)) << probes[i] << " h";
+        // SunRamp classifies the hours AFTER snapping them to the timestep, as
+        // the smooth ramp does: 8.9 h in a 15-minute study is 9:00 h, the open band.
+        const float snapped = std::floor (probes[i] / 0.25f + 0.5f) * 0.25f;
+        const int band = SunStudyBand (snapped, 4, edges);
+        EXPECT_NEAR (rgba[4 * i], warmRed (SunStudyBandCentre (band, 4, edges)), 1e-5) << probes[i] << " h";
+    }
+    EXPECT_FLOAT_EQ (rgba[4 * 2], rgba[4 * 3]) << "one flat colour across a band";
+    EXPECT_FLOAT_EQ (rgba[35], 1.0f) << "the hours view is opaque: no sun shadow shows through";
+    context->Unmap (staging.Get (), 0);
+}
+
 namespace {
 class SunStudyControls : public testing::Test {
   protected:
     ImGuiContext* context = nullptr;
     float from = 8.0f, to = 17.0f, threshold = 2.5f;
+    int bands = 0;
+    float edges[11] = { 3.0f, 6.0f, 9.0f };
     ImVec2 start, size;
     int inspect = 2;
     float inspectBottom = 0.0f;
@@ -193,7 +319,7 @@ class SunStudyControls : public testing::Test {
         start = ImGui::GetCursorScreenPos ();
         size = ImVec2 (ImGui::GetContentRegionAvail ().x, ImGui::GetFrameHeight ());
         if (gradient)
-            DrawSunStudyGradient (true, threshold);
+            DrawSunStudyGradient (true, threshold, bands, bands > 0 ? edges : nullptr);
         else
             DrawSunStudyRange ("range", from, to, 0.0f, 24.0f, false);
         ImGui::End ();
@@ -282,4 +408,20 @@ TEST_F (SunStudyControls, BlueGradientOverlayRetainsTheWarmRampBelowAtSixtyPerce
         for (const auto& vertex : data->CmdLists[list]->VtxBuffer)
             translucentBlue = translucentBlue || vertex.col == IM_COL32 (40, 83, 107, 153);
     EXPECT_TRUE (translucentBlue);
+}
+
+TEST_F (SunStudyControls, SteppedGripDragsAnEdgeBetweenItsNeighbours)
+{
+    bands = 4;
+    Frame (-1, false, true);
+    const auto x = [&] (float hour) { return start.x + size.x * hour / 10.0f; };
+    Frame (x (6.0f), false, true);
+    Frame (x (6.0f), true, true);
+    Frame (x (7.5f), true, true);
+    EXPECT_FLOAT_EQ (edges[1], 7.5f);
+    Frame (x (9.9f), true, true);
+    EXPECT_FLOAT_EQ (edges[1], 8.75f) << "held a quarter hour short of the next edge";
+    EXPECT_FLOAT_EQ (edges[0], 3.0f);
+    EXPECT_FLOAT_EQ (edges[2], 9.0f);
+    EXPECT_FLOAT_EQ (threshold, 2.5f) << "the blue box did not move";
 }

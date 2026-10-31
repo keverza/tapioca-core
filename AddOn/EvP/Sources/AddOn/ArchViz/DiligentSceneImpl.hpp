@@ -432,6 +432,10 @@ struct geomsrv::archviz::DiligentScene::Impl {
     uint32_t sunViewStep = 0;
     uint32_t sunFanMask[3] = { 0u, 0u, 0u };
     uint32_t sunFanCount = 0;
+    // The hours view's display postprocess, HUD-only like the filter above.
+    bool sunShadowOverlay = false;
+    int sunBandCount = 0;
+    float sunBandEdges[11] = {};
     // ---- what the last drawn frame actually did with the overlay ------------
     // ⚠️ LIFETIME COUNTERS, NOT PER-FRAME FLAGS. The question they answer is "did
     // the overlay ever fail to draw something it should have", and a flag that

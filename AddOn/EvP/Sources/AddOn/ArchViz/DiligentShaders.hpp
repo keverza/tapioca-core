@@ -298,12 +298,17 @@ struct DiligentSceneConstants {
     // ---- appended for the SHADOW FAN -----------------------------------------
     // xyz = the chosen steps as BIT PATTERNS (asuint in HLSL), w = how many.
     float sunStudyFan[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    // x = blue cutoff hours (-1 disabled), yz = preview step interval [first,end).
+    // x = blue cutoff hours (-1 disabled), yz = preview step interval [first,end),
+    // w = the hours gradient's band count (0 = smooth; ArchViz/SunStudyPreview.hpp).
     float sunStudyPreview[4] = { -1.0f, 0.0f, 0.0f, 0.0f };
     // ---- appended for the visibility study's HUD colours ---------------------
     // rgb = sRGB of not visible (0) and of visible (1); w unused.
     float visibilityLowColor[4] = { 0.722f, 0.306f, 0.271f, 1.0f };
     float visibilityHighColor[4] = { 0.294f, 0.514f, 0.345f, 1.0f };
+    // ---- appended for the STEPPED hours gradient -----------------------------
+    // The count - 1 band edges in hours, four per float4 (kSunBandsMax - 1 = 11
+    // used); read only while sunStudyPreview[3] holds a count.
+    float sunStudyBands[12] = { 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -344,7 +349,7 @@ enum class DiligentDebugView : int {
 };
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
-                                                      16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16,
+                                                      16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -400,9 +405,11 @@ cbuffer ArchVizConstants
     float4   g_sunStudyShadow;  // x = single-shadow step, y = solar-noon step,
                                 // z = step count
     float4   g_sunStudyFan;     // xyz = chosen steps as bits (asuint), w = count
-    float4   g_sunStudyPreview; // x = blue cutoff, yz = shadow preview interval
+    float4   g_sunStudyPreview; // x = blue cutoff, yz = shadow preview interval,
+                                // w = hours band count (0 = smooth)
     float4   g_visibilityLow;   // rgb = sRGB colour of "not visible"
     float4   g_visibilityHigh;  // rgb = sRGB colour of "visible"
+    float4   g_sunStudyBands[3]; // the stepped gradient's band edges, hours
 };
 )hlsl";
 
@@ -690,14 +697,43 @@ static const float3 kSunBins[10] = {
     float3 (0.969, 0.890, 0.761)
 };
 
+float3 SunWarm (float hours)
+{
+    float t = clamp (hours - 0.5, 0.0, 9.0);
+    int lo = int (floor (t));
+    int hi = min (lo + 1, 9);
+    return SrgbToLinear (lerp (kSunBins[lo], kSunBins[hi], t - float (lo)));
+}
+
+// The STEPPED gradient: ArchViz/SunStudyPreview.hpp's SunStudyBand and
+// SunStudyBandCentre, line for line -- the HUD legend draws the same bands.
+float SunBandEdge (int i)
+{
+    return g_sunStudyBands[i >> 2][i & 3];
+}
+
+int SunBand (float hours, int count)
+{
+    int band = 0;
+    [loop] for (int i = 0; i < count - 1; ++i)
+        if (hours + 1.0e-3 >= SunBandEdge (i))
+            band = i + 1;
+    return band;
+}
+
+float SunBandCentre (int band, int count)
+{
+    float lo = band > 0 ? SunBandEdge (band - 1) : 0.0;
+    float hi = band < count - 1 ? SunBandEdge (band) : 10.0;
+    return 0.5 * (lo + hi);
+}
+
 float3 SunRamp (float hours, float quantum)
 {
     float q = max (quantum, 1e-4);
     float snapped = floor (hours / q + 0.5) * q;
-    float t = clamp (snapped - 0.5, 0.0, 9.0);
-    int lo = int (floor (t));
-    int hi = min (lo + 1, 9);
-    float3 warm = SrgbToLinear (lerp (kSunBins[lo], kSunBins[hi], t - float (lo)));
+    int count = int (g_sunStudyPreview.w + 0.5);
+    float3 warm = count >= 3 ? SunWarm (SunBandCentre (SunBand (snapped, count), count)) : SunWarm (snapped);
     if (g_sunStudyPreview.x >= 0.0 && hours < g_sunStudyPreview.x)
         return lerp (warm, SrgbToLinear (float3 (40.0, 83.0, 107.0) / 255.0), 0.60); // #28536B overlay
     return warm;
@@ -782,6 +818,19 @@ float3 SingleShadowColor (bool lit, float3 normal)
 {
     float3 base = lit ? float3 (0.93, 0.91, 0.86) : float3 (0.28, 0.44, 0.80);
     return SrgbToLinear (base) * ShapeShade (normal);
+}
+
+// The HOURS view's composite. ⚠️ OPAQUE, so the viewer's current sun shadows no
+// longer show through every patch: a neutral normal-based form shade keeps the
+// building's shape readable, and the optional SHADOW OVERLAY (g_sunStudyShadow.w,
+// the scene's PCF map cast by the viewer's sun) is the only shadow in it. It
+// darkens without changing the patch's hue.
+float4 HoursOverlayColor (float3 colour, float3 worldPos, float3 normal)
+{
+    float3 shaded = colour * lerp (1.0, ShapeShade (normal), 0.5);
+    if (g_sunStudyShadow.w > 0.5 && StudyEdgeLight (worldPos, normal) == 0.0)
+        shaded *= 0.55;
+    return float4 (shaded, 1.0);
 }
 
 float3 AmPmDurationColor (float am, float pm)
@@ -916,7 +965,7 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
     if (mode == 0 && (hours < g_sunStudyFilter.x || hours > g_sunStudyFilter.y)) {
         if (g_sunStudyFilter.w > 0.5)
             discard;
-        psOut.color = StudyOverlayColor (SrgbToLinear (float3 (0.80, 0.80, 0.80)));
+        psOut.color = HoursOverlayColor (SrgbToLinear (float3 (0.80, 0.80, 0.80)), psIn.worldPos, psIn.normal);
         return;
     }
 
@@ -965,7 +1014,7 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
         psOut.color = StudyOverlayColor (AmPmDurationColor (am, pm) * shade);
         return;
     }
-    psOut.color = StudyOverlayColor (SunRamp (hours, g_sunStudyFilter.z));
+    psOut.color = HoursOverlayColor (SunRamp (hours, g_sunStudyFilter.z), psIn.worldPos, psIn.normal);
 }
 )hlsl";
 

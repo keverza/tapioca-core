@@ -73,35 +73,117 @@ bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, f
     return changed;
 }
 
-void DrawSunStudyGradient (bool blue, float& threshold)
+void DrawSunStudyRampBar (ImDrawList* draw, ImVec2 start, ImVec2 size, int bands, const float* edges, float blueBelow)
 {
-    constexpr float top = 10.0f;
+    const float top = kSunRampTop;
+    const bool stepped = edges != nullptr && bands >= kSunBandsMin && bands <= kSunBandsMax;
+    const auto position = [&] (float hours) { return start.x + size.x * hours / top; };
+    if (stepped) {
+        for (int band = 0; band < bands; ++band) {
+            const float lo = band > 0 ? edges[band - 1] : 0.0f;
+            const float hi = band < bands - 1 ? edges[band] : top;
+            draw->AddRectFilled (ImVec2 (position (lo), start.y), ImVec2 (position (hi), start.y + size.y),
+                                 SunColour (SunStudyBandCentre (band, bands, edges)));
+        }
+        for (int i = 0; i < bands - 1; ++i)
+            draw->AddLine (ImVec2 (position (edges[i]), start.y), ImVec2 (position (edges[i]), start.y + size.y),
+                           IM_COL32 (40, 40, 40, 200), 1.0f);
+    }
+    else {
+        for (int segment = 0; segment < 40; ++segment) {
+            const ImVec2 lo (start.x + size.x * segment / 40.0f, start.y);
+            const ImVec2 hi (start.x + size.x * (segment + 1) / 40.0f, start.y + size.y);
+            const ImU32 a = SunColour (float (segment) * 0.25f), b = SunColour (float (segment + 1) * 0.25f);
+            draw->AddRectFilledMultiColor (lo, hi, a, b, b, a);
+        }
+    }
+    if (blueBelow >= 0.0f)
+        draw->AddRectFilled (start, ImVec2 (position ((std::min) (blueBelow, top)), start.y + size.y),
+                             IM_COL32 (40, 83, 107, 153));
+}
+
+void DrawSunStudyGradient (bool blue, float& threshold, int bands, float* edges)
+{
+    constexpr float top = kSunRampTop;
+    const bool stepped = edges != nullptr && bands >= kSunBandsMin && bands <= kSunBandsMax;
     threshold = std::clamp (threshold, 0.0f, top);
-    const ImVec2 start = ImGui::GetCursorScreenPos ();
+    // The grips stand ABOVE the bar, the blue box below it, so the two never
+    // sit on the same pixels.
+    const float gripRoom = stepped ? 10.0f : 0.0f;
+    const ImVec2 widget = ImGui::GetCursorScreenPos ();
+    const ImVec2 start (widget.x, widget.y + gripRoom);
     const float width = ImGui::GetContentRegionAvail ().x;
     const float height = ImGui::GetFrameHeight ();
-    ImGui::InvisibleButton ("##sun-gradient", ImVec2 (width, height + (blue ? 12.0f : 0.0f)));
-    if (blue && ImGui::IsItemActive () && ImGui::IsMouseDown (ImGuiMouseButton_Left))
-        threshold =
-            std::clamp (Snapped ((ImGui::GetIO ().MousePos.x - start.x) / std::max (width, 1.0f) * top), 0.0f, top);
-    ImDrawList* draw = ImGui::GetWindowDrawList ();
-    for (int segment = 0; segment < 40; ++segment) {
-        const ImVec2 lo (start.x + width * segment / 40.0f, start.y);
-        const ImVec2 hi (start.x + width * (segment + 1) / 40.0f, start.y + height);
-        const ImU32 a = SunColour (float (segment) * 0.25f), b = SunColour (float (segment + 1) * 0.25f);
-        draw->AddRectFilledMultiColor (lo, hi, a, b, b, a);
+    const auto position = [&] (float hours) { return start.x + width * hours / top; };
+    const auto hoursAt = [&] (float x) {
+        return std::clamp (Snapped ((x - start.x) / std::max (width, 1.0f) * top), 0.0f, top);
+    };
+    ImGui::InvisibleButton ("##sun-gradient", ImVec2 (width, gripRoom + height + (blue ? 12.0f : 0.0f)));
+    // Which handle the press took: -1 the blue box, 0.. an edge, -2 nothing.
+    const ImGuiID handleId = ImGui::GetID ("##sun-gradient-handle");
+    const ImVec2 mouse = ImGui::GetIO ().MousePos;
+    if (ImGui::IsItemActivated ()) {
+        int handle = blue ? -1 : -2;
+        if (stepped && (mouse.y < start.y + height || !blue)) {
+            float best = 1.0e9f;
+            for (int i = 0; i < bands - 1; ++i)
+                if (std::abs (mouse.x - position (edges[i])) < best) {
+                    best = std::abs (mouse.x - position (edges[i]));
+                    handle = i;
+                }
+        }
+        ImGui::GetStateStorage ()->SetInt (handleId, handle);
     }
+    if (ImGui::IsItemActive () && ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
+        const int handle = ImGui::GetStateStorage ()->GetInt (handleId, -2);
+        if (handle == -1)
+            threshold = hoursAt (mouse.x);
+        else if (stepped && handle >= 0 && handle < bands - 1) {
+            // Held between its neighbours, never crossing them.
+            const float lo = handle > 0 ? edges[handle - 1] + kSunBandGap : kSunBandGap;
+            const float hi = handle < bands - 2 ? edges[handle + 1] - kSunBandGap : top - kSunBandGap;
+            edges[handle] = std::clamp (hoursAt (mouse.x), lo, hi);
+        }
+    }
+    ImDrawList* draw = ImGui::GetWindowDrawList ();
+    DrawSunStudyRampBar (draw, start, ImVec2 (width, height), stepped ? bands : 0, edges, blue ? threshold : -1.0f);
+    if (stepped)
+        for (int i = 0; i < bands - 1; ++i) {
+            const float x = position (edges[i]);
+            draw->AddTriangleFilled (ImVec2 (x - 5, widget.y + 1), ImVec2 (x + 5, widget.y + 1),
+                                     ImVec2 (x, start.y - 1), IM_COL32 (226, 226, 226, 255));
+        }
     if (blue) {
-        const float edge = start.x + width * threshold / top;
-        draw->AddRectFilled (start, ImVec2 (edge, start.y + height), IM_COL32 (40, 83, 107, 153));
+        const float edge = position (threshold);
         draw->AddRectFilled (ImVec2 (edge - 5, start.y + height - 3), ImVec2 (edge + 5, start.y + height + 9),
                              Colour (0x28536B), 2.0f);
         draw->AddRect (ImVec2 (edge - 5, start.y + height - 3), ImVec2 (edge + 5, start.y + height + 9), IM_COL32_WHITE,
                        2.0f);
-        hudshell::Tip ("Drag the blue box: direct sun below " + SunStudyClock (threshold, true),
-                       hudshell::TipSide::Above);
     }
-    ImGui::TextDisabled ("0:00h                            9:00h+");
+    if (ImGui::IsItemHovered ()) {
+        std::string tip;
+        if (stepped)
+            tip = "Drag a grip above the bar to move a step's edge";
+        if (blue)
+            tip += std::string (tip.empty () ? "" : "; ") + "drag the blue box: direct sun below " +
+                   SunStudyClock (threshold, true);
+        if (!tip.empty ())
+            hudshell::Tip (tip, hudshell::TipSide::Above);
+    }
+    if (!stepped) {
+        ImGui::TextDisabled ("0:00h                            9:00h+");
+        return;
+    }
+    // The bands' hour ranges, the legend's words for the swatches above.
+    std::string ranges;
+    for (int band = 0; band < bands; ++band) {
+        const float lo = band > 0 ? edges[band - 1] : 0.0f;
+        ranges +=
+            (band > 0 ? "  " : "") + SunStudyClock (lo) + (band < bands - 1 ? "-" + SunStudyClock (edges[band]) : "+");
+    }
+    ImGui::PushStyleColor (ImGuiCol_Text, ImGui::GetStyleColorVec4 (ImGuiCol_TextDisabled));
+    ImGui::TextWrapped ("%s h", ranges.c_str ());
+    ImGui::PopStyleColor ();
 }
 
 void DrawSunStudyInspectControl (int& mode, const char* first, const char* second)

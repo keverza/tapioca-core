@@ -180,6 +180,63 @@ void DrawMachineLimits (const SunStudyOverlayStatus& study)
     }
 }
 
+// ---- the hours view's display postprocess (PLAT-RE156) ------------------------
+//
+// The shadow overlay, the gradient style and its legend. DISPLAY ONLY: every
+// control here changes SunStudyViewOf and nothing else, so no study reruns and
+// the measured hours never change.
+void DrawSunStudyHoursDisplay (HudState& state)
+{
+    // ⚠️ THE OVERLAY IS THE SCENE'S OWN PCF MAP, so it is only offered when that
+    // map exists; a toggle that silently draws nothing reads as a broken one.
+    const bool pcf = state.shadowsEnabled && state.shadowMode == int (DiligentShadowMode::Pcf);
+    ImGui::BeginDisabled (!pcf);
+    bool overlay = state.sunShadowOverlay && pcf;
+    if (ImGui::Checkbox ("Shadow overlay", &overlay))
+        state.sunShadowOverlay = overlay;
+    ImGui::EndDisabled ();
+    ImGui::SetItemTooltip ("%s", pcf ? "Darkens the analysis colour where the viewer's current sun casts shadow. "
+                                       "Display only."
+                                 : !state.shadowsEnabled ? "Shadows are off in the Render tab."
+                                                         : "Needs PCF shadows (Render tab).");
+    if (!pcf) {
+        ImGui::SameLine ();
+        ImGui::TextDisabled (state.shadowsEnabled ? "needs PCF shadows" : "shadows are off");
+    }
+
+    const char* styles[] = { "Smooth", "Stepped" };
+    int style = state.sunGradientStepped ? 1 : 0;
+    if (viewerhud::Choice ("gradient##sungradient", style, styles, 2))
+        state.sunGradientStepped = style == 1;
+    if (!state.sunGradientStepped) {
+        DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold);
+        return;
+    }
+    int count = std::clamp (state.sunBandCount, kSunBandsMin, kSunBandsMax);
+    ImGui::BeginDisabled (count <= kSunBandsMin);
+    if (ImGui::SmallButton ("-##sunbands"))
+        --count;
+    ImGui::EndDisabled ();
+    ImGui::SameLine ();
+    ImGui::Text ("%d steps", count);
+    ImGui::SameLine ();
+    ImGui::BeginDisabled (count >= kSunBandsMax);
+    if (ImGui::SmallButton ("+##sunbands"))
+        ++count;
+    ImGui::EndDisabled ();
+    ImGui::SameLine ();
+    const bool reset = ImGui::SmallButton ("even##sunbands");
+    ImGui::SetItemTooltip ("Spreads the steps evenly again, the last one open at 9:00h+.");
+    // A new count re-spreads the edges: grips tuned for four bands mean nothing
+    // for five.
+    if (count != state.sunBandCount || reset) {
+        state.sunBandCount = count;
+        SunStudyDefaultBandEdges (count, state.sunBandEdges);
+    }
+    SunStudyClampBandEdges (count, state.sunBandEdges);
+    DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, count, state.sunBandEdges);
+}
+
 } // namespace
 
 SunStudyViewSettings SunStudyViewOf (const HudState& state)
@@ -195,6 +252,13 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     view.endShadowStep = interval.second;
     view.viewOverride = ChosenMode (state);
     view.step = state.sunStep > 0 ? uint32_t (state.sunStep) : 0u;
+    view.shadowOverlay =
+        state.sunShadowOverlay && state.shadowsEnabled && state.shadowMode == int (DiligentShadowMode::Pcf);
+    if (state.sunGradientStepped) {
+        view.bandCount = std::clamp (state.sunBandCount, kSunBandsMin, kSunBandsMax);
+        std::copy (state.sunBandEdges, state.sunBandEdges + 11, view.bandEdges);
+        SunStudyClampBandEdges (view.bandCount, view.bandEdges);
+    }
     const int effective = view.viewOverride >= 0 ? view.viewOverride : CommandedMode (state);
     if (effective == 7 && state.sunFanInterval >= 0 && state.sunFanInterval < kFanCount) {
         // The same picking as the web study (SunStudyStepAtlas::FanSteps),
@@ -503,7 +567,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         ImGui::Checkbox ("Low-sun blue", &state.sunLowBlue);
         if (state.sunLowBlue)
             ImGui::TextDisabled ("Below %s", SunStudyClock (state.sunBlueThreshold, true).c_str ());
-        DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold);
+        DrawSunStudyHoursDisplay (state);
     }
 
     if (ImGui::TreeNode ("machine limits")) {
