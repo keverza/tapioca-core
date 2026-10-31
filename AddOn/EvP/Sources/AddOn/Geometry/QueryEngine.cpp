@@ -1,4 +1,5 @@
 #include "QueryEngine.hpp"
+#include "Geometry/BvhBuild.hpp"
 #include "Geometry/QueryAnyHit.hpp"
 
 #include <nanort.h>
@@ -88,7 +89,7 @@ double PointAabbDist (const double p[3], const Aabb& b)
 
 } // namespace
 
-QueryEngine::QueryEngine (std::shared_ptr<const Snapshot> snap) : snapshot (std::move (snap))
+QueryEngine::QueryEngine (std::shared_ptr<const Snapshot> snap, BvhBuilder builder) : snapshot (std::move (snap))
 {
     // Concatenate every mesh's geometry into flat arrays, offsetting each mesh's
     // local vertex indices by its base so the BVH sees one global triangle soup.
@@ -120,13 +121,39 @@ QueryEngine::QueryEngine (std::shared_ptr<const Snapshot> snap) : snapshot (std:
     }
 
     impl = std::make_unique<Impl> ();
-    if (!triToMesh.empty ()) {
+    if (triToMesh.empty ())
+        return;
+    if (builder == BvhBuilder::NanortLegacy) {
         nanort::TriangleMesh<double> tm (verts.data (), faces.data (), sizeof (double) * 3);
         nanort::TriangleSAHPred<double> pred (verts.data (), faces.data (), sizeof (double) * 3);
-        nanort::BVHBuildOptions<double> opts; // defaults are fine
+        nanort::BVHBuildOptions<double> opts;
         impl->accel.Build (static_cast<unsigned int> (triToMesh.size ()), tm, pred, opts);
         bvhDepth = MeasureDepth (impl->accel.GetNodes ());
+        return;
     }
+    // ⚠️ THE TREE IS WRITTEN INTO nanort's OWN VECTORS, through the accessors'
+    // const_cast. `accel` is not a const object, so this is defined, and it
+    // keeps nanort's Traverse -- the closest-hit path -- running unchanged on
+    // the new tree; nanort exposes no other way to install one. Traverse reads
+    // only these two vectors.
+    BvhBuildResult built = BuildBinnedSahBvh (verts.data (), faces.data (), triToMesh.size ());
+    auto& nodes = const_cast<std::vector<nanort::BVHNode<double>>&> (impl->accel.GetNodes ());
+    auto& indices = const_cast<std::vector<unsigned int>&> (impl->accel.GetIndices ());
+    nodes.resize (built.nodes.size ());
+    for (size_t n = 0; n < built.nodes.size (); ++n) {
+        const BvhBuildNode& from = built.nodes[n];
+        nanort::BVHNode<double>& to = nodes[n];
+        for (int k = 0; k < 3; ++k) {
+            to.bmin[k] = from.bmin[k];
+            to.bmax[k] = from.bmax[k];
+        }
+        to.flag = from.flag;
+        to.axis = from.axis;
+        to.data[0] = from.data[0];
+        to.data[1] = from.data[1];
+    }
+    indices.assign (built.indices.begin (), built.indices.end ());
+    bvhDepth = built.depth;
 }
 
 size_t QueryEngine::BvhNodeCount () const

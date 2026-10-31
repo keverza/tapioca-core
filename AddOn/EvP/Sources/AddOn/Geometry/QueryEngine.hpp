@@ -42,11 +42,16 @@ struct TraversalScene {
     std::vector<TraversalTriangle> triangles;
 };
 
+// Which builder makes the triangle BVH. BinnedSah is the index everything
+// uses; NanortLegacy is nanort's own Build, kept only so a test and the
+// sun-trace benchmark can compare the two trees (see Geometry/BvhBuild.hpp).
+enum class BvhBuilder { BinnedSah, NanortLegacy };
+
 class QueryEngine {
   public:
     // Builds the combined vertex/face arrays and the triangle BVH. Heavy; do it
     // once per snapshot (see QueryIndexCache).
-    explicit QueryEngine (std::shared_ptr<const Snapshot> snap);
+    explicit QueryEngine (std::shared_ptr<const Snapshot> snap, BvhBuilder builder = BvhBuilder::BinnedSah);
     ~QueryEngine ();
 
     QueryEngine (const QueryEngine&) = delete;

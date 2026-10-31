@@ -63,6 +63,7 @@ set (EVP_GEOM_SOURCES
     "${GEOM_DIR}/SliceEngine.cpp"
     "${GEOM_DIR}/ClashEngine.cpp"
     "${GEOM_DIR}/QueryEngine.cpp"
+    "${GEOM_DIR}/BvhBuild.cpp"
     "${GEOM_DIR}/MeshSerializer.cpp"
     "${GEOM_DIR}/RenderEngine.cpp"
     "${GEOM_DIR}/SpatialQueries.cpp"
@@ -1086,6 +1087,7 @@ set (EVP_TEST_SOURCES
     test_cloudcompare.cpp
     test_sunstudyraster.cpp
     test_queryoccluded.cpp
+    test_bvhbuild.cpp
     test_cputraversal.cpp
     test_sunseries.cpp
     test_sunstudyocclusion.cpp
@@ -1349,7 +1351,7 @@ endif ()
 option (TAPIOCA_BUILD_SUNTRACE_BENCHMARK "Build the opt-in sun-trace traversal benchmark" OFF)
 if (TAPIOCA_BUILD_SUNTRACE_BENCHMARK)
     add_executable (TapiocaSunTraceBench benchmark_suntrace.cpp
-        "${GEOM_DIR}/QueryEngine.cpp" "${GEOM_DIR}/MeshSerializer.cpp"
+        "${GEOM_DIR}/QueryEngine.cpp" "${GEOM_DIR}/BvhBuild.cpp" "${GEOM_DIR}/MeshSerializer.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/CpuTraversal.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOccluders.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRoles.cpp")
