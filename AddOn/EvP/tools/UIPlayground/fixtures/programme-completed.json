@@ -1,0 +1,6 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudprogramme", "variant": "completed",
+  "status": {"kind": "completed", "message": "Mock owner saved an edited brief. Actual Save outcomes are exercised interactively."},
+  "data": {"types": [{"rooms": 2.5, "minM2": 45, "maxM2": 55, "share": 1}]}
+}

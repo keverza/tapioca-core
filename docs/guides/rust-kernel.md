@@ -145,6 +145,29 @@ No `target-cpu=native`, fast-math, mixed-language LTO, or panic=abort. Release k
 debug information. Actual `.apx` build/load evidence is recorded in the owning
 stage; a standalone link alone is not native-load or mixed-language PDB evidence.
 
+## Inspector slope conversion
+
+`tapioca_slope_convert` is an additive ABI-v1, fixed-size request over the
+existing `TapiocaTerrainSlope` POD. The C++ `ConvertTerrainSlope` facade is used
+by the region cut-face inspector; Rust `slope::Slope` owns all grade conversions.
+Angles are radians at the ABI (degrees only at the UI boundary); height/run uses
+model metres. Same-form conversion retains the authored pair. New ratio/height
+forms use an explicit positive reference run; vertical uses a 1:0 pair and cannot
+be converted to finite percent. Invalid/reserved/non-finite/overflowing values
+refuse. Request, output and error ranges must be disjoint; publication is atomic,
+with no allocation, retained handle or host callback in the Rust conversion.
+
+The region cut-face field preserves its positive, finite <=1000% policy: vertical
+conversion support is not permission to use a vertical region daylight. Other
+slope fields and project-unit formatting are not migrated by this consumer.
+At the upper policy bound only, converted non-percent inputs allow 16 f64
+epsilons relative for transcendental roundoff; exact percent input remains capped
+at 1000 and the authored slope is never clamped.
+The region codec writes `terrain.cut = {unit,a,b}` and reads the legacy
+`cutPercent` form as Percent; both forms together refuse. No percent shadow value
+is stored. NoRust keeps legacy percent loading and refuses conversion/typed
+non-percent validation explicitly, rather than implementing competing arithmetic.
+
 ## Daily gates
 
 ```powershell

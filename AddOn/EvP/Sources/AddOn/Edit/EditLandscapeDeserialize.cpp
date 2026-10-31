@@ -330,13 +330,22 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
             object.boundarySource = item.Field ("boundarySource").Identifier ();
         if (item.Has ("terrain")) {
             const auto terrain = item.Field ("terrain");
-            terrain.Fields ({ "effect", "transition", "falloff", "reach", "cutPercent", "fillPercent" });
-            object.terrain = { Enum (terrain.Field ("effect"), RegionTerrainEffect::Subtract),
-                               Enum (terrain.Field ("transition"), RegionTerrainTransition::Daylight),
-                               terrain.Field ("falloff").Number (),
-                               terrain.Field ("reach").Number (),
-                               terrain.Field ("cutPercent").Number (),
-                               terrain.Field ("fillPercent").Number () };
+            terrain.Fields ({ "effect", "transition", "falloff", "reach", "fillPercent" }, { "cut", "cutPercent" });
+            if (terrain.Has ("cut") == terrain.Has ("cutPercent"))
+                Fail (terrain.path, "exactly one of cut or legacy cutPercent required");
+            object.terrain.effect = Enum (terrain.Field ("effect"), RegionTerrainEffect::Subtract);
+            object.terrain.transition = Enum (terrain.Field ("transition"), RegionTerrainTransition::Daylight);
+            object.terrain.falloff = terrain.Field ("falloff").Number ();
+            object.terrain.reach = terrain.Field ("reach").Number ();
+            object.terrain.fillPercent = terrain.Field ("fillPercent").Number ();
+            if (terrain.Has ("cut")) {
+                const auto cut = terrain.Field ("cut");
+                cut.Fields ({ "unit", "a", "b" });
+                object.terrain.cut = { Enum (cut.Field ("unit"), TerrainSlope::Unit::Height), cut.Field ("a").Number (),
+                                       cut.Field ("b").Number () };
+            }
+            else
+                object.terrain.cut = { TerrainSlope::Unit::Percent, terrain.Field ("cutPercent").Number (), 0 };
         }
         if (item.Has ("surface")) {
             const auto surface = item.Field ("surface");

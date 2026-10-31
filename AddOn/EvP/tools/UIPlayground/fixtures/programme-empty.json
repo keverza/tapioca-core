@@ -1,0 +1,6 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudprogramme", "variant": "empty",
+  "status": {"kind": "ready", "message": "No programme types. Add a type or restore Default."},
+  "data": {"types": []}
+}

@@ -452,13 +452,6 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     }
 }
 
-void ServiceAnalysisInteractions (HudState& state, const DiligentScene& scene, const InputSnapshot& input,
-                                  const float origin[3], const float direction[3])
-{
-    ServiceSunStudyInspector (state, scene, origin, direction);
-    ServiceSunStudyCentrePick (state, input, origin, direction);
-}
-
 bool PointVisibilityGuideOf (const HudState& state, PointVisibilityGuide& guide)
 {
     const auto shared = viewpointstudy::GetSettings ();

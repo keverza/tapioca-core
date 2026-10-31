@@ -1,0 +1,9 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudprogramme", "variant": "invalid",
+  "status": {"kind": "ready", "message": "Deliberately invalid: shares add to 40%, not 100%. Production Problem reports it."},
+  "data": {"types": [
+    {"rooms": 2, "minM2": 40, "maxM2": 45, "share": 0.2},
+    {"rooms": 3, "minM2": 55, "maxM2": 65, "share": 0.2}
+  ]}
+}

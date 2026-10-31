@@ -198,6 +198,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointGumball.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewpointProjection.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudViewpoint.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudViewpointService.cpp"
     # The shared point's Polyline path: the pure curve here, its ACAPI read stubbed
     # as "nothing imported" (AnalysisPathSourceStub.cpp).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisPath.cpp"
@@ -585,6 +586,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingSegmentMap.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCalculation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingMetrics.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingUsage.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingHeadroom.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingBakeGeometry.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingHeadroomDisplay.cpp"

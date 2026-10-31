@@ -308,7 +308,20 @@ struct TerrainSlope { // One slope type everywhere; converted to a gradient in R
     enum class Unit : uint32_t { Angle = 1, Percent = 2, RiseRun = 3, Height = 4 };
     Unit unit = Unit::Percent;
     double a = 0, b = 0; // Angle: a radians. Percent: a. RiseRun: a:b. Height: a m over b m.
+    bool operator== (const TerrainSlope&) const = default;
 };
+// One fixed-size inspector conversion through Rust. Same-form retains both parts;
+// new ratio/height forms use referenceRun (metres for Height). Atomic on refusal.
+#ifdef TAPIOCA_GEOMETRY_RUST
+bool ConvertTerrainSlope (const TerrainSlope& value, TerrainSlope::Unit unit, double referenceRun, TerrainSlope& result,
+                          std::string& error);
+#else
+inline bool ConvertTerrainSlope (const TerrainSlope&, TerrainSlope::Unit, double, TerrainSlope&, std::string& error)
+{
+    error = "SlopeConversionUnavailable: this build has no Rust geometry service";
+    return false;
+}
+#endif
 struct TerrainDaylight {
     TerrainSlope slope;
     std::optional<double> extension; // Metres; beyond it the march stops and is reported.

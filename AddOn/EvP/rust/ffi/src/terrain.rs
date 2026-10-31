@@ -12,6 +12,7 @@ mod locked;
 mod outline;
 mod result;
 mod sample;
+mod slope;
 mod storage;
 mod surface;
 mod volume;
@@ -40,6 +41,7 @@ pub use sample::{
     TerrainFieldSummary, TerrainSample, TerrainSampleOutput, TerrainSampleRequest,
     tapioca_terrain_sample,
 };
+pub use slope::{SlopeRequest, tapioca_slope_convert};
 pub use surface::{TerrainSurfaceRequest, tapioca_terrain_surface};
 pub use volume::{
     TerrainEditVolumes, TerrainVolumeOutput, TerrainVolumeRequest, TerrainVolumes,

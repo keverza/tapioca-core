@@ -1,5 +1,10 @@
 # Rust kernel foundation
 
+The region cut-face inspector additionally consumes `tapioca_slope_convert`:
+one checked, atomic, allocation-free conversion using the existing terrain slope
+POD and safe `slope::Slope` authority. See the guide's inspector-slope contract;
+this is not a migration of every editor field or project-unit formatting.
+
 S3a.2 adds opt-in terrain triangulate/refine and mesh split through
 `tapioca_terrain_triangulate` / `tapioca_terrain_split_mesh` and the existing C++
 `GeometryRustTerrain` services facade. Mandatory schema-v1 input provenance and

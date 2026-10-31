@@ -1,0 +1,8 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudmassingstats", "variant": "invalid",
+  "status": {"kind": "ready", "message": "Zero-area row exercises the production empty mix. Deliberately excessive coverage is clamped by Draw."},
+  "data": {"clipped": true, "hasCoverage": true, "builtArea": 1200, "unbuiltArea": 0, "parcelArea": 1000,
+    "rows": [{"guid": "invalid-zero-floor", "function": "residential", "floorHeight": 3, "rawArea": 0, "allowedArea": 0, "rawVolume": 0, "allowedVolume": 0}]
+  }
+}

@@ -140,46 +140,6 @@ void SelectionPage (Shell& shell, const HudState& state, float ui)
         selectionmetadata::Request (std::move (edits), { picked.guid });
 }
 
-void SunStudyPage (HudState& state, const DiligentSceneStats& scene)
-{
-    // ⚠️ THE TAB BAR ONLY REPORTS AND OBEYS THE FOCUS (AnalysisTabs.hpp). Which
-    // study arrived, and so which tab to select, is decided once a frame by
-    // ApplyAnalysisView, whichever page is open; a clear never selects a tab.
-    auto& focus = state.analysisFocus;
-    const auto flags = [&focus] (int tab) {
-        return focus.selectTab == tab ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
-    };
-    if (!hudshell::BeginSubTabs ("##analysis-study"))
-        return;
-    if (ImGui::BeginTabItem ("Sun study", nullptr, flags (analysistabs::kSunTab))) {
-        analysistabs::Opened (focus, analysistabs::kSunTab);
-        state.viewpointPlacing = false;
-        state.viewpointPlacingTarget = false;
-        state.viewpointPickingContext = false;
-        DrawSunStudyHudSection (state, scene);
-        ImGui::EndTabItem ();
-    }
-    if (ImGui::BeginTabItem ("Surface visibility", nullptr, flags (analysistabs::kSurfaceVisibilityTab))) {
-        analysistabs::Opened (focus, analysistabs::kSurfaceVisibilityTab);
-        state.viewpointPlacing = false;
-        state.viewpointPickingContext = false;
-        DrawVisibilityHudSection (state, scene, 0);
-        ImGui::EndTabItem ();
-    }
-    if (ImGui::BeginTabItem ("Point visibility", nullptr, flags (analysistabs::kPointVisibilityTab))) {
-        analysistabs::Opened (focus, analysistabs::kPointVisibilityTab);
-        state.viewpointPickingContext = false;
-        DrawVisibilityHudSection (state, scene, 1);
-        ImGui::EndTabItem ();
-    }
-    if (ImGui::BeginTabItem ("Viewpoint", nullptr, flags (analysistabs::kViewpointTab))) {
-        analysistabs::Opened (focus, analysistabs::kViewpointTab);
-        DrawViewpointHudSection (state);
-        ImGui::EndTabItem ();
-    }
-    hudshell::EndSubTabs ();
-}
-
 void DebugPage (Shell& shell, HudState& state, const DiligentSceneStats& scene, const Frame& frame, uint32_t width,
                 uint32_t height, float ui)
 {

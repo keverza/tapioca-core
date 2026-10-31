@@ -127,7 +127,7 @@ Outcome Draw (fp::Programme& programme, const fp::Programme& saved, std::vector<
         total += type.share;
     ImGui::TextDisabled ("Total %.1f%%", total * 100);
     ImGui::TextDisabled ("Mean flat %.1f m2 net", fp::MeanArea (wanted));
-    ImGui::TextWrapped ("Min/Max: net m2 inside walls. Share: % of flat count.");
+    ImGui::TextWrapped ("%s", "Min/Max: net m2 inside walls. Share: % of flat count.");
     if (wanted == saved)
         ImGui::TextDisabled ("Saved with the project.");
     else {

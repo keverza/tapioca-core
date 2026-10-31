@@ -75,6 +75,22 @@ ProvenanceRequest Provenance (uint64_t vertices, uint64_t faces)
     return request;
 }
 
+TEST (GeometryRustTerrainField, InspectorSlopeConversionPreservesAliasedInputAndRefusesAtomically)
+{
+    using Unit = TerrainSlope::Unit;
+    TerrainSlope value { Unit::Percent, 50, 0 };
+    std::string error = "old diagnostic";
+    ASSERT_TRUE (ConvertTerrainSlope (value, Unit::RiseRun, 3, value, error)) << error;
+    EXPECT_TRUE (error.empty ());
+    EXPECT_EQ (value, (TerrainSlope { Unit::RiseRun, 1.5, 3 }));
+    const auto before = value;
+    EXPECT_FALSE (ConvertTerrainSlope (value, static_cast<Unit> (0), 1, value, error));
+    EXPECT_EQ (value, before);
+    EXPECT_FALSE (error.empty ());
+    ASSERT_TRUE (ConvertTerrainSlope (value, Unit::RiseRun, 1, value, error)) << error;
+    EXPECT_EQ (value, before) << "Same-form conversion retains the authored pair.";
+}
+
 TEST (GeometryRustTerrainField, SamplesATiltedPlaneExactly)
 {
     const Grid grid = MakeGrid (6, [] (double x, double y) { return 0.5 * x + 0.25 * y; });

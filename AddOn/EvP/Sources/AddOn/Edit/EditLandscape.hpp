@@ -2,6 +2,7 @@
 #define TAPIOCA_EDIT_LANDSCAPE_HPP
 
 #include "Edit/EditPlanar.hpp"
+#include "Geometry/GeometryRustTerrain.hpp"
 #include <array>
 #include <optional>
 #include <string>
@@ -111,7 +112,9 @@ enum class RegionTerrainTransition : uint8_t { Falloff, Daylight };
 struct RegionTerrain {
     RegionTerrainEffect effect = RegionTerrainEffect::None;
     RegionTerrainTransition transition = RegionTerrainTransition::Falloff;
-    double falloff = 1, reach = 10, cutPercent = 50, fillPercent = 33;
+    double falloff = 1, reach = 10;
+    TerrainSlope cut { TerrainSlope::Unit::Percent, 50, 0 }; // Authored unit and parts; no percent shadow value.
+    double fillPercent = 33;
     bool operator== (const RegionTerrain&) const = default;
 };
 struct RegionSurface {

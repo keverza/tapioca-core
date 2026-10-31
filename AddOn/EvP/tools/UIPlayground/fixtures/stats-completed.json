@@ -1,0 +1,8 @@
+{
+  "schema": "tapioca.uiplayground.fixture", "version": 1,
+  "panel": "hudmassingstats", "variant": "completed",
+  "status": {"kind": "completed", "message": "Deterministic mock area computation completed."},
+  "data": {"clipped": true, "hasCoverage": true, "builtArea": 400, "unbuiltArea": 600, "parcelArea": 1000,
+    "rows": [{"guid": "building-a-floor-1", "function": "residential", "rgba": 4072754943, "floorHeight": 3, "rawArea": 900, "allowedArea": 800, "rawVolume": 2700, "allowedVolume": 2400}]
+  }
+}

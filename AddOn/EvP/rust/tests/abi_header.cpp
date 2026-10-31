@@ -25,6 +25,8 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaGradingOutput) == 24, "Grad
 static_assert (sizeof (TapiocaTerrainSample) == 72 && sizeof (TapiocaTerrainFieldSummary) == 64, "Sample ABI mismatch");
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainSampleRequest) == 56, "Sample request ABI mismatch");
 static_assert (sizeof (TapiocaTerrainSlope) == 24 && sizeof (TapiocaTerrainDaylight) == 40, "Slope ABI mismatch");
+static_assert (sizeof (TapiocaSlopeRequest) == 40 && offsetof (TapiocaSlopeRequest, targetKind) == 32,
+               "Inspector slope conversion ABI mismatch");
 static_assert (sizeof (TapiocaTerrainEdit) == 208 && sizeof (TapiocaTerrainRing) == 8, "Edit ABI mismatch");
 static_assert (sizeof (TapiocaTerrainFaceOwner) == 8 && sizeof (TapiocaTerrainEditReport) == 16, "Edit row mismatch");
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainEditRequest) == 400, "Edit request ABI mismatch");
@@ -32,7 +34,9 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainEditOutput) == 72, "
 static_assert (sizeof (TapiocaTerrainVolumes) == 40 && sizeof (TapiocaTerrainEditVolumes) == 40, "Volume ABI mismatch");
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainVolumeRequest) == 176, "Volume request ABI mismatch");
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainVolumeOutput) == 48, "Volume output ABI mismatch");
-static_assert (sizeof (TapiocaTerrainStation) == 152 && sizeof (TapiocaTerrainHybridLine) == 16, "Band ABI mismatch");
+static_assert (sizeof (TapiocaTerrainStation) == 160 && offsetof (TapiocaTerrainStation, rounding) == 152 &&
+                   sizeof (TapiocaTerrainHybridLine) == 16,
+               "Band ABI mismatch");
 static_assert (sizeof (TapiocaTerrainHybridVolumes) == 40 && sizeof (TapiocaTerrainHybridSide) == 24,
                "Band ABI mismatch");
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridRequest) == 360, "Band request ABI mismatch");

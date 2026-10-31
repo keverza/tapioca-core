@@ -5,6 +5,8 @@
 #include "ArchViz/EditLayers.hpp"
 #include <gtest/gtest.h>
 #include <limits>
+#include <cmath>
+#include <numbers>
 
 namespace lg = tapioca::geometry;
 namespace edit = geomsrv::edit;
@@ -19,6 +21,106 @@ edit::Document Region ()
     return doc;
 }
 } // namespace
+
+TEST (EditRegionSurface, LegacyCutPercentLoadsAndAmbiguousOrMalformedTypedCutRefusesAtomically)
+{
+    auto doc = Region ();
+    const auto object = doc.landscape->objects[0].id;
+    auto terrain = doc.landscape->objects[0].terrain;
+    terrain.effect = lg::RegionTerrainEffect::Grade;
+    std::string json, error;
+    ASSERT_TRUE (lg::SetRegionTerrain (doc, object, terrain, error)) << error;
+    ASSERT_TRUE (lg::WriteLandscape (doc, lg::LandscapeStorage::Virtual, json, error)) << error;
+    const auto start = json.find ("\"cut\":");
+    ASSERT_NE (start, std::string::npos);
+    const auto end = json.find ('}', start);
+    ASSERT_NE (end, std::string::npos);
+    const auto replace = [&] (const std::string& field) {
+        auto copy = json;
+        copy.replace (start, end - start + 1, field);
+        return copy;
+    };
+    edit::Document loaded;
+    ASSERT_TRUE (lg::ReadLandscape (replace ("\"cutPercent\":50"), loaded, error)) << error;
+    EXPECT_EQ (loaded.landscape, doc.landscape);
+    for (const auto& cut : { "\"cutPercent\":50,\"cut\":{\"unit\":2,\"a\":50,\"b\":0}",
+                             "\"cut\":{\"unit\":0,\"a\":50,\"b\":0}", "\"cut\":{\"unit\":5,\"a\":50,\"b\":0}",
+                             "\"cut\":{\"unit\":2,\"a\":50,\"b\":1}", "\"cut\":{\"unit\":2,\"a\":-1,\"b\":0}",
+                             "\"cut\":{\"unit\":2,\"a\":1001,\"b\":0}", "\"cut\":{\"unit\":3,\"a\":0,\"b\":0}",
+                             "\"cut\":{\"unit\":2,\"a\":50}", "\"cut\":{\"unit\":2,\"a\":50,\"b\":0,\"extra\":0}" }) {
+        const auto before = loaded;
+        EXPECT_FALSE (lg::ReadLandscape (replace (cut), loaded, error)) << cut;
+        EXPECT_EQ (loaded.landscape, before.landscape);
+        EXPECT_EQ (loaded.entities, before.entities);
+    }
+}
+
+#ifdef TAPIOCA_GEOMETRY_RUST
+TEST (EditRegionSurface, CutSlopeUnitsPreserveAuthoredPairsHistoryAndSurveyGeometry)
+{
+    using Unit = lg::TerrainSlope::Unit;
+    auto doc = Region ();
+    for (auto& entity : doc.entities)
+        for (auto& vertex : entity.vertices) {
+            vertex.p.x += 1000000;
+            vertex.p.y -= 2000000;
+        }
+    const auto object = doc.landscape->objects[0].id;
+    std::string error;
+    for (const lg::TerrainSlope cut : { lg::TerrainSlope { Unit::Percent, 50, 0 },
+                                        { Unit::Angle, std::atan (0.5), 0 },
+                                        { Unit::RiseRun, 1.5, 3 },
+                                        { Unit::Height, 2.5, 5 } }) {
+        auto terrain = doc.landscape->objects[0].terrain;
+        terrain.cut = cut;
+        terrain.effect = lg::RegionTerrainEffect::Grade;
+        edit::Session session (doc);
+        ASSERT_TRUE (session.Apply ([object, terrain] (auto& d, auto& e) {
+            return lg::SetRegionTerrain (d, object, terrain, e);
+        })) << session.Message ();
+        EXPECT_EQ (session.Doc ().landscape->objects[0].terrain.cut, cut);
+        EXPECT_EQ (session.Doc ().entities, doc.entities);
+        std::string json;
+        ASSERT_TRUE (lg::WriteLandscape (session.Doc (), lg::LandscapeStorage::Virtual, json, error)) << error;
+        edit::Document loaded;
+        ASSERT_TRUE (lg::ReadLandscape (json, loaded, error)) << error;
+        EXPECT_EQ (loaded.landscape, session.Doc ().landscape);
+        EXPECT_EQ (session.UndoDepth (), 1u);
+        ASSERT_TRUE (session.Undo ());
+        EXPECT_EQ (session.Doc ().landscape, doc.landscape);
+        ASSERT_TRUE (session.Redo ());
+        EXPECT_EQ (session.Doc ().landscape->objects[0].terrain.cut, cut);
+        lg::TerrainSlope percent;
+        ASSERT_TRUE (lg::ConvertTerrainSlope (cut, Unit::Percent, 1, percent, error)) << error;
+        EXPECT_NEAR (percent.a, 50, 1e-12);
+    }
+}
+
+TEST (EditRegionSurface, CutSlopePolicyRefusesVerticalInvalidAndTooSteepWithoutClamping)
+{
+    using Unit = lg::TerrainSlope::Unit;
+    auto doc = Region ();
+    const auto object = doc.landscape->objects[0].id;
+    const auto before = doc.landscape;
+    std::string error;
+    for (const lg::TerrainSlope cut : { lg::TerrainSlope { Unit::Angle, std::numbers::pi / 2, 0 },
+                                        { Unit::RiseRun, 1, 0 },
+                                        { Unit::Height, 0, 0 },
+                                        { Unit::Percent, std::numeric_limits<double>::infinity (), 0 },
+                                        { Unit::RiseRun, 11, 1 },
+                                        { Unit::Angle, -0.2, 0 } }) {
+        auto terrain = doc.landscape->objects[0].terrain;
+        terrain.cut = cut;
+        EXPECT_FALSE (lg::SetRegionTerrain (doc, object, terrain, error));
+        EXPECT_EQ (doc.landscape, before);
+    }
+    for (auto unit : { Unit::Percent, Unit::Angle, Unit::RiseRun, Unit::Height }) {
+        auto terrain = doc.landscape->objects[0].terrain;
+        ASSERT_TRUE (lg::ConvertTerrainSlope ({ Unit::Percent, 1000, 0 }, unit, 1, terrain.cut, error)) << error;
+        EXPECT_TRUE (lg::SetRegionTerrain (doc, object, terrain, error)) << error;
+    }
+}
+#endif
 
 TEST (EditRegionSurface, ExistingHasNoVerticalTargetAndConstantIsAnAbsoluteLevel)
 {

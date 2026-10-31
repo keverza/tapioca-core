@@ -7,6 +7,19 @@ int TapiocaCppHeaderCheck (void);
 
 int main (void)
 {
+    TapiocaSlopeRequest slope = { { 50.0, 0.0, 2, 0 }, 3.0, 3, 0 };
+    TapiocaTerrainSlope converted = { 99.0, 88.0, 4, 0 };
+    if (sizeof (TapiocaSlopeRequest) != 40 || offsetof (TapiocaSlopeRequest, targetKind) != 32 ||
+        tapioca_slope_convert (&slope, &converted, NULL, 0) != TAPIOCA_OK || converted.kind != 3 ||
+        converted.a != 1.5 || converted.b != 3.0)
+        return 50;
+    slope.targetKind = 0;
+    if (tapioca_slope_convert (&slope, &converted, NULL, 0) != TAPIOCA_ERR_ARG || converted.a != 1.5 ||
+        converted.b != 3.0)
+        return 51;
+    slope.targetKind = 3;
+    if (tapioca_slope_convert (&slope, &slope.value, NULL, 0) != TAPIOCA_ERR_ARG || slope.value.a != 50.0)
+        return 52;
     uint32_t version = 99;
     char error[128] = "not cleared";
     if (sizeof (TapiocaStatus) != 4 || tapioca_version (&version, error, sizeof (error)) != TAPIOCA_OK ||
