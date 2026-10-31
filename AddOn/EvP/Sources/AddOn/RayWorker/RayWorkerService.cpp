@@ -124,6 +124,8 @@ std::vector<std::vector<uint8_t>> RayWorkerService::OnFrame (const std::vector<u
             protocol::RunStudyPayload run;
             std::vector<uint8_t> bytes;
             packet::Request request;
+            // `transfer` is the request's way in: the segment read and every packet check.
+            const auto received = std::chrono::steady_clock::now ();
             if (!protocol::Decode (payload, size, run, error))
                 out.push_back (Fail (id, GpuReason::ProtocolMismatch, error));
             else if (run.sceneEpoch != residentScene_ || residentScene_ == 0)
@@ -137,6 +139,8 @@ std::vector<std::vector<uint8_t>> RayWorkerService::OnFrame (const std::vector<u
                 const auto started = std::chrono::steady_clock::now ();
                 packet::Result result;
                 protocol::RunResultPayload done;
+                const uint32_t transfer = static_cast<uint32_t> (
+                    std::chrono::duration_cast<std::chrono::microseconds> (started - received).count ());
                 const uint64_t generation = run.runGeneration;
                 const GpuReason reason = backend_->Trace (
                     request, result, done.timings, [this, generation] { return cancelledRun_.load () == generation; },
@@ -156,6 +160,7 @@ std::vector<std::vector<uint8_t>> RayWorkerService::OnFrame (const std::vector<u
                 done.checksum = packet::StoredChecksum (written);
                 segments_.Put (run.result.name, std::move (written));
                 done.timings.readback = Microseconds (started) - done.timings.trace;
+                done.timings.transfer = transfer;
                 out.push_back (Reply (protocol::MessageType::RunResult, id, protocol::Encode (done)));
             }
             return out;
