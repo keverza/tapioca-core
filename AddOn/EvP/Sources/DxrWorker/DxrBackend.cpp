@@ -43,7 +43,8 @@ class DxrBackend final : public rayworker::RayBackend {
   public:
     explicit DxrBackend (const DxrBackendOptions& options) : options_ (options)
     {
-        device_ = DxrDevice::Create (capability_);
+        device_ = DxrDevice::Create (capability_,
+                                     options_.warpForDiagnosis ? DxrAdapter::WarpForDiagnosis : DxrAdapter::Hardware);
         if (device_ != nullptr && !CreatePipeline ()) {
             device_.reset ();
             capability_.reason = GpuReason::WorkerFailed;

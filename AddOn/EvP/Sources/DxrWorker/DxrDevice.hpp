@@ -47,11 +47,30 @@ struct DxrCapability {
     uint32_t raytracingTier = 0; // D3D12_RAYTRACING_TIER value
 };
 
+// Which adapter Create may use. The worker only ever asks for Hardware.
+enum class DxrAdapter : uint8_t {
+    Hardware = 0,
+    // WARP, the software adapter, for the differential that documents why it
+    // is refused (#57). Never a product choice.
+    WarpForDiagnosis = 1,
+};
+
+// PCI vendor id DXGI gives Microsoft's own adapters: WARP ("Microsoft Basic
+// Render Driver") and the basic display adapter.
+constexpr uint32_t kMicrosoftVendorId = 0x1414;
+
+// Why an adapter can never run the analysis, or nullptr when it may be tried.
+// ⚠️ THE VENDOR ID, NOT ONLY THE SOFTWARE FLAG. A machine recorded "Microsoft
+// Basic Render Driver" passing a flag-only filter and differing from the CPU
+// reference on 498 bits (#57); a Microsoft adapter is software either way.
+const char* AdapterRefusal (uint32_t vendorId, uint32_t flags);
+
 class DxrDevice final {
   public:
     // The first hardware adapter whose device reports RaytracingTier >= 1.0.
-    // Software adapters are skipped. Null with `capability` explaining why.
-    static std::unique_ptr<DxrDevice> Create (DxrCapability& capability);
+    // Microsoft's software adapters are refused (AdapterRefusal). Null with
+    // `capability` explaining why.
+    static std::unique_ptr<DxrDevice> Create (DxrCapability& capability, DxrAdapter adapter = DxrAdapter::Hardware);
     ~DxrDevice ();
     DxrDevice (const DxrDevice&) = delete;
     DxrDevice& operator= (const DxrDevice&) = delete;

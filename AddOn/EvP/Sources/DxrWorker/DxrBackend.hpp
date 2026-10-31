@@ -33,6 +33,8 @@ struct DxrBackendOptions {
     uint32_t raysPerLaunch = 1u << 22;
     // Fence wait deadline per submission.
     uint32_t submitTimeoutMs = 20000;
+    // Tests only: run on WARP to show why it is refused (#57).
+    bool warpForDiagnosis = false;
 };
 
 // Never null: on a machine without DXR the backend still answers Hello with

@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 namespace evp::dxrworker {
 
@@ -39,7 +40,16 @@ uint32_t DriverVersion (IDXGIAdapter1* adapter, uint32_t vendorId)
 
 } // namespace
 
-std::unique_ptr<DxrDevice> DxrDevice::Create (DxrCapability& capability)
+const char* AdapterRefusal (uint32_t vendorId, uint32_t flags)
+{
+    if ((flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0)
+        return "a software adapter";
+    if (vendorId == kMicrosoftVendorId)
+        return "a Microsoft software or basic adapter";
+    return nullptr;
+}
+
+std::unique_ptr<DxrDevice> DxrDevice::Create (DxrCapability& capability, DxrAdapter which)
 {
     capability = {};
     ComPtr<IDXGIFactory4> factory;
@@ -50,13 +60,26 @@ std::unique_ptr<DxrDevice> DxrDevice::Create (DxrCapability& capability)
     }
 
     std::string seen;
-    ComPtr<IDXGIAdapter1> adapter;
-    for (UINT index = 0; factory->EnumAdapters1 (index, &adapter) != DXGI_ERROR_NOT_FOUND; ++index) {
+    std::vector<ComPtr<IDXGIAdapter1>> candidates;
+    if (which == DxrAdapter::WarpForDiagnosis) {
+        ComPtr<IDXGIAdapter1> warp;
+        if (SUCCEEDED (factory->EnumWarpAdapter (IID_PPV_ARGS (&warp))))
+            candidates.push_back (warp);
+    }
+    else {
+        ComPtr<IDXGIAdapter1> next;
+        for (UINT index = 0; factory->EnumAdapters1 (index, &next) != DXGI_ERROR_NOT_FOUND; ++index)
+            candidates.push_back (std::move (next));
+    }
+    for (const ComPtr<IDXGIAdapter1>& adapter : candidates) {
         DXGI_ADAPTER_DESC1 desc {};
         adapter->GetDesc1 (&desc);
-        if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0)
-            continue; // WARP traces, slowly; it never qualifies a machine
         const std::string name = Utf8 (desc.Description);
+        const char* refusal = AdapterRefusal (desc.VendorId, desc.Flags);
+        if (refusal != nullptr && which == DxrAdapter::Hardware) {
+            seen += (seen.empty () ? "" : "; ") + name + ": refused, " + refusal;
+            continue;
+        }
 
         ComPtr<ID3D12Device5> device;
         hr = D3D12CreateDevice (adapter.Get (), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS (&device));

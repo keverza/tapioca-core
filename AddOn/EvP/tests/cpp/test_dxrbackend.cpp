@@ -11,6 +11,7 @@
 // survey-offset scenes belong to G5's precision record, which reports counts.
 
 #include "DxrWorker/DxrBackend.hpp"
+#include "DxrWorker/DxrDevice.hpp"
 #include "RayWorker/RayWorkerPacket.hpp"
 #include "RayWorker/RayWorkerService.hpp"
 #include "rayworker_scenes.hpp"
@@ -131,5 +132,56 @@ TEST_F (DxrBackendTest, ABlockCityMatchesTheCpuReferenceAtEverySize)
         EXPECT_GT (c.litBits, 0u) << "side " << side;
         EXPECT_EQ (c.differingBits, 0u) << "side " << side << " (" << scene.triangleMesh.size () << " triangles), of "
                                         << c.litBits << " lit bits";
+    }
+}
+
+// ---- the adapter (#57) ------------------------------------------------------
+
+TEST (DxrAdapterQualification, MicrosoftAndSoftwareAdaptersAreRefused)
+{
+    using evp::dxrworker::AdapterRefusal;
+    EXPECT_NE (AdapterRefusal (evp::dxrworker::kMicrosoftVendorId, 0), nullptr)
+        << "Basic Render Driver without the software flag";
+    EXPECT_NE (AdapterRefusal (0x10DE, DXGI_ADAPTER_FLAG_SOFTWARE), nullptr);
+    EXPECT_EQ (AdapterRefusal (0x10DE, 0), nullptr);
+    EXPECT_EQ (AdapterRefusal (0x1002, 0), nullptr);
+    EXPECT_EQ (AdapterRefusal (0x8086, 0), nullptr);
+}
+
+// The evidence for the refusal, rerun on every machine: WARP through the same
+// differentials. It never asserts WARP's bits -- they are what is refused --
+// only that the product backend did not pick a Microsoft adapter.
+TEST (DxrAdapterQualification, WarpIsDiagnosedNotUsed)
+{
+    const protocol::HelloPayload product = evp::dxrworker::MakeDxrBackend ()->Describe ();
+    EXPECT_EQ (product.deviceName.find ("Microsoft"), std::string::npos) << product.deviceName;
+
+    evp::dxrworker::DxrBackendOptions options;
+    options.warpForDiagnosis = true;
+    auto warp = evp::dxrworker::MakeDxrBackend (options);
+    const protocol::HelloPayload hello = warp->Describe ();
+    if (hello.reason != GpuReason::None)
+        GTEST_SKIP () << "WARP has no DXR here (" << GpuReasonCode (hello.reason) << ": " << hello.deviceName << ")";
+    struct Fixture {
+        const char* name;
+        void (*make) (packet::Scene&, packet::Request&);
+    };
+    const Fixture fixtures[] = {
+        { "street", [] (packet::Scene& s, packet::Request& r) { StreetScene (s, r); } },
+        { "bounded range, unitless normals",
+          [] (packet::Scene& s, packet::Request& r) {
+              StreetScene (s, r);
+              r.normals.clear ();
+              r.tmax = 7.5;
+          } },
+        { "block city 22", [] (packet::Scene& s, packet::Request& r) { BlockCity (s, r, 22); } },
+    };
+    for (const Fixture& fixture : fixtures) {
+        packet::Scene scene;
+        packet::Request request;
+        fixture.make (scene, request);
+        const Comparison c = CompareWithCpuReference (*warp, scene, request);
+        std::printf ("[ WARP     ] %s: %zu differing of %zu lit bits on \"%s\"\n", fixture.name, c.differingBits,
+                     c.litBits, hello.deviceName.c_str ());
     }
 }
