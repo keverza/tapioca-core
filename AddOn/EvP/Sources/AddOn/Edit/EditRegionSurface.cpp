@@ -6,28 +6,43 @@
 #include <limits>
 
 namespace tapioca::geometry {
-bool ValidateRegionTerrain (const HardscapeObject& object, std::string& error)
+namespace {
+constexpr const char* s_terrainError =
+    "RegionTerrain: finite transition widths/reaches (0.05..100 m) and positive cut/fill grades (<=1000%) "
+    "required; vertical cut faces are not supported by this field";
+
+bool ValidateFaceSlope (const TerrainSlope& authored, std::string& error)
 {
-    const auto& terrain = object.terrain;
-    auto cut = terrain.cut;
+    auto percent = authored;
     // Percent needs only policy checks (also keeps legacy documents readable in
     // NoRust builds). All other unit conversion belongs to the Rust slope service.
-    if (cut.unit != TerrainSlope::Unit::Percent &&
-        !ConvertTerrainSlope (terrain.cut, TerrainSlope::Unit::Percent, 1, cut, error))
+    if (authored.unit != TerrainSlope::Unit::Percent &&
+        !ConvertTerrainSlope (authored, TerrainSlope::Unit::Percent, 1, percent, error))
         return false;
     // atan(10) -> tan -> percent can cross 1000 by roundoff. Permit only
     // 16 f64 eps relative at this converted-unit policy boundary; never clamp
     // the authored grade or relax the exact percent-input limit.
-    const double cutLimit = terrain.cut.unit == TerrainSlope::Unit::Percent
-                                ? 1000.0
-                                : 1000.0 * (1 + 16 * std::numeric_limits<double>::epsilon ());
+    const double limit = authored.unit == TerrainSlope::Unit::Percent
+                             ? 1000.0
+                             : 1000.0 * (1 + 16 * std::numeric_limits<double>::epsilon ());
+    if (!std::isfinite (percent.a) || percent.a <= 0 || percent.a > limit || percent.b != 0) {
+        error = s_terrainError;
+        return false;
+    }
+    return true;
+}
+} // namespace
+
+bool ValidateRegionTerrain (const HardscapeObject& object, std::string& error)
+{
+    const auto& terrain = object.terrain;
+    if (!ValidateFaceSlope (terrain.cut, error))
+        return false;
     if (terrain.effect > RegionTerrainEffect::Subtract || terrain.transition > RegionTerrainTransition::Daylight ||
         !std::isfinite (terrain.falloff) || terrain.falloff < 0.05 || terrain.falloff > 100 ||
-        !std::isfinite (terrain.reach) || terrain.reach < 0.05 || terrain.reach > 100 || !std::isfinite (cut.a) ||
-        cut.a <= 0 || cut.a > cutLimit || cut.b != 0 || !std::isfinite (terrain.fillPercent) ||
-        terrain.fillPercent <= 0 || terrain.fillPercent > 1000) {
-        error = "RegionTerrain: finite transition widths/reaches (0.05..100 m) and positive cut/fill grades (<=1000%) "
-                "required; vertical cut faces are not supported by this field";
+        !std::isfinite (terrain.reach) || terrain.reach < 0.05 || terrain.reach > 100 ||
+        !std::isfinite (terrain.fillPercent) || terrain.fillPercent <= 0 || terrain.fillPercent > 1000) {
+        error = s_terrainError;
         return false;
     }
     if (terrain.effect != RegionTerrainEffect::None &&
