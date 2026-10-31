@@ -9,6 +9,9 @@ namespace evp::sunstudy::rust {
 class RustSunStudyFollower {};
 } // namespace evp::sunstudy::rust
 #define EVP_FOLLOW(call, inert) (inert)
+#if defined(_MSC_VER)
+#pragma warning(disable : 4100) // the inert policy ignores its arguments
+#endif
 #endif
 
 namespace evp::sunstudy {

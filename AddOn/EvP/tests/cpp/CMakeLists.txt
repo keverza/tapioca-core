@@ -1116,6 +1116,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyreading.cpp
     test_sunstudystepatlas.cpp
     test_sunstudylimits.cpp
+    test_sunstudy_nocore.cpp
     test_cursortotarget.cpp
     test_camera_cursorray.cpp
     test_camera_plan.cpp

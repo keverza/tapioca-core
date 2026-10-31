@@ -223,6 +223,9 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
                 throw std::runtime_error (coreError);
         }
         else
+#else
+        (void) maxSteps;
+        (void) maxParallel;
 #endif
             if (ready)
             throw std::runtime_error (NoStudyCoreError ());
@@ -332,6 +335,8 @@ bool SunStudyStore::SunHours (const std::string& id, std::vector<double>& hours,
         return true;
     }
 #endif
+    (void) hours;
+    (void) positions;
     error = NoStudyCoreError ();
     return false;
 }
@@ -363,6 +368,9 @@ bool SunStudyStore::Results (const std::string& id, std::vector<double>& hours, 
     }
 #endif
     (void) record;
+    (void) hours;
+    (void) positions;
+    (void) normals;
     (void) includePositions;
     (void) stepBits;
     error = NoStudyCoreError ();
