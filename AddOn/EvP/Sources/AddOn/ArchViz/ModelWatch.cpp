@@ -248,7 +248,9 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
                     " changed elements, already updated from the content sweep");
         return;
     }
-    const size_t elements = size_t (std::max<int32_t> (modelcontentwatch::Get ().elements, 0));
+    const auto published = MeshStore::Get ().Current ();
+    const size_t elements =
+        RouteModelSize (modelcontentwatch::Get ().elements, published != nullptr ? published->meshes.size () : 0);
     const Route route = RouteChange (named.size (), elements, gLastFullStartMs, previousPollMs);
     if (route == Route::Update) {
         gPendingElements.insert (named.begin (), named.end ());

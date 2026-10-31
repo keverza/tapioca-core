@@ -38,3 +38,16 @@ TEST (ModelWatchRoute, AnUnknownModelSizeReadsEverything)
     // No model held yet (ModelContentWatch has not taken one): any change is a full pass.
     EXPECT_EQ (watch::RouteChange (1, 0, 0, 0), watch::Route::Full);
 }
+
+// 2026-10-31 12:23:36: with the palette viewer alone the content watch never
+// counts (-1), and one new element re-extracted 3,770 in 56.6 s. The published
+// snapshot's mesh count stands in for the unknown model size.
+TEST (ModelWatchRoute, AnUncountedModelIsSizedByItsPublishedSnapshot)
+{
+    EXPECT_EQ (watch::RouteModelSize (-1, 2085), 2085u);
+    EXPECT_EQ (watch::RouteModelSize (0, 2085), 2085u);
+    EXPECT_EQ (watch::RouteModelSize (3770, 2085), 3770u) << "the content watch's count wins when it has one";
+    EXPECT_EQ (watch::RouteChange (1, watch::RouteModelSize (-1, 2085), 0, 0), watch::Route::Update);
+    EXPECT_EQ (watch::RouteChange (1, watch::RouteModelSize (-1, 0), 0, 0), watch::Route::Full)
+        << "nothing published yet: a full pass";
+}

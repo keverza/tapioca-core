@@ -128,6 +128,20 @@ inline Route RouteChange (size_t changed, size_t elements, uint64_t lastFullStar
     return Route::Full;
 }
 
+// The model size RouteChange compares a change list against. ModelContentWatch
+// counts the held model, but it is ticked ONLY by the injected overlay's runtime,
+// so with the palette viewer alone its count stays at -1 -- and an unknown size
+// read as 0 sent every edit down the full pass: one new element on an
+// 806k-triangle model re-extracted all 3,770 elements in 56.6 s (2026-10-31
+// 12:23:36, #97), the precondition-from-another-component fault of
+// OVERLAY-INVARIANTS.md section 9. Without that count, the published snapshot's
+// mesh count stands in: never more than the elements, so the quarter-of-the-model
+// rule only gets stricter, and nothing published yet still means a full pass.
+inline size_t RouteModelSize (int32_t contentWatchElements, size_t publishedMeshes)
+{
+    return contentWatchElements > 0 ? size_t (contentWatchElements) : publishedMeshes;
+}
+
 // MAIN THREAD. Start what a busy worker had to leave -- a full pass, or the elements to update
 // one by one -- once it is free. ModelContentWatch calls it every tick of the overlay's runtime,
 // so it does not wait for the next poll of the generator (every 30 s on a large project).
