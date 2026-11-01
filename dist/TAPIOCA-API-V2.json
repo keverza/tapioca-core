@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 262,
+      "nativeRegistry": 260,
       "dispatcherLocal": 19,
-      "total": 281
+      "total": 279
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -3391,158 +3391,6 @@
       }
     },
     {
-      "name": "Tapioca.D3D12FeasibilityProbeState",
-      "implementation": "native-registry",
-      "inputScheme": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": false
-      },
-      "outputScheme": {
-        "type": "object",
-        "properties": {
-          "attempted": {
-            "type": "boolean"
-          },
-          "running": {
-            "type": "boolean"
-          },
-          "completed": {
-            "type": "boolean"
-          },
-          "cancelled": {
-            "type": "boolean"
-          },
-          "cleanTeardown": {
-            "type": "boolean"
-          },
-          "stage": {
-            "type": "string"
-          },
-          "failureMessage": {
-            "type": "string"
-          },
-          "deviceAttempted": {
-            "type": "boolean"
-          },
-          "deviceSucceeded": {
-            "type": "boolean"
-          },
-          "deviceFailure": {
-            "type": "string"
-          },
-          "adapter": {
-            "type": "string"
-          },
-          "hardwarePreflightSucceeded": {
-            "type": "boolean"
-          },
-          "hardwareCreateResult": {
-            "type": "integer"
-          },
-          "hardwareFeatureLevel": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "d3d12Runtime": {
-            "type": "string"
-          },
-          "childAttempted": {
-            "type": "boolean"
-          },
-          "childSucceeded": {
-            "type": "boolean"
-          },
-          "childPresents": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "childLastPresentResult": {
-            "type": "integer"
-          },
-          "childFailure": {
-            "type": "string"
-          },
-          "overlayAttempted": {
-            "type": "boolean"
-          },
-          "overlaySucceeded": {
-            "type": "boolean"
-          },
-          "overlayPresents": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "overlayLastPresentResult": {
-            "type": "integer"
-          },
-          "overlayFailure": {
-            "type": "string"
-          },
-          "rayTracingFeature": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "rayTracingCaps": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "rayTracingStandalone": {
-            "type": "boolean"
-          },
-          "rayTracingInline": {
-            "type": "boolean"
-          },
-          "rayTracingIndirect": {
-            "type": "boolean"
-          },
-          "maxRecursionDepth": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "maxRayGenThreads": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "attempted",
-          "running",
-          "completed",
-          "cancelled",
-          "cleanTeardown",
-          "stage",
-          "failureMessage",
-          "deviceAttempted",
-          "deviceSucceeded",
-          "deviceFailure",
-          "adapter",
-          "hardwarePreflightSucceeded",
-          "hardwareCreateResult",
-          "hardwareFeatureLevel",
-          "d3d12Runtime",
-          "childAttempted",
-          "childSucceeded",
-          "childPresents",
-          "childLastPresentResult",
-          "childFailure",
-          "overlayAttempted",
-          "overlaySucceeded",
-          "overlayPresents",
-          "overlayLastPresentResult",
-          "overlayFailure",
-          "rayTracingFeature",
-          "rayTracingCaps",
-          "rayTracingStandalone",
-          "rayTracingInline",
-          "rayTracingIndirect",
-          "maxRecursionDepth",
-          "maxRayGenThreads"
-        ]
-      }
-    },
-    {
       "name": "Tapioca.DecomposePolygon",
       "implementation": "native-registry",
       "inputScheme": {
@@ -4023,6 +3871,12 @@
           "featureLevel": {
             "type": "integer",
             "minimum": 0
+          },
+          "backend": {
+            "type": "string"
+          },
+          "backendReason": {
+            "type": "string"
           },
           "presentCount": {
             "type": "integer",
@@ -4574,6 +4428,9 @@
                 "type": "boolean"
               },
               "current": {
+                "type": "boolean"
+              },
+              "stale": {
                 "type": "boolean"
               },
               "built": {
@@ -22329,7 +22186,81 @@
                       "greys",
                       "sunhours",
                       "slope",
-                      "clearance"
+                      "clearance",
+                      "classic",
+                      "nuanced",
+                      "multicolor",
+                      "blue-magenta-yellow",
+                      "view-study",
+                      "shadow-study",
+                      "glare-study",
+                      "annual-comfort",
+                      "thermal-comfort",
+                      "peak-load-balance",
+                      "heat-sensation",
+                      "cold-sensation",
+                      "benefit-harm",
+                      "harm",
+                      "benefit",
+                      "shade-benefit-harm",
+                      "shade-harm",
+                      "shade-benefit",
+                      "energy-balance",
+                      "energy-balance-storage",
+                      "heat-flux",
+                      "cloud-cover",
+                      "black-white",
+                      "blue-green-red",
+                      "multicolor-2",
+                      "multicolor-3",
+                      "space-types",
+                      "cividis",
+                      "viridis-5",
+                      "parula",
+                      "energy-by-face",
+                      "peak-cooling-by-face",
+                      "peak-heating-by-face",
+                      "green-yellow-red",
+                      "sand",
+                      "sea",
+                      "summer",
+                      "calm-ocean",
+                      "spring-flowers",
+                      "fresh",
+                      "wind-velocity",
+                      "grayscale",
+                      "magma-6",
+                      "red-poppy",
+                      "autumn",
+                      "aspect",
+                      "sunlight-warm",
+                      "sunlight",
+                      "daylight-vsc",
+                      "daylight-vsc-saturated",
+                      "daylight-factor",
+                      "spatial-daylight-autonomy",
+                      "sda-pass-fail",
+                      "lawson-1978",
+                      "lawson-2001",
+                      "lawson-lddc",
+                      "nen-8100",
+                      "sound-pressure",
+                      "view-study-stepped",
+                      "daylight-autonomy",
+                      "annual-sun-exposure",
+                      "glare-stepped",
+                      "shade-benefit-stepped",
+                      "solar-irradiation-low",
+                      "solar-irradiation-high",
+                      "classic-stepped",
+                      "multicolor-stepped",
+                      "nuanced-stepped",
+                      "utci",
+                      "wind-speedup",
+                      "stormwater-depth",
+                      "stormwater-velocity",
+                      "utci-microclimate",
+                      "cut-fill"
                     ]
                   },
                   "stops": {
@@ -28183,7 +28114,81 @@
                         "greys",
                         "sunhours",
                         "slope",
-                        "clearance"
+                        "clearance",
+                        "classic",
+                        "nuanced",
+                        "multicolor",
+                        "blue-magenta-yellow",
+                        "view-study",
+                        "shadow-study",
+                        "glare-study",
+                        "annual-comfort",
+                        "thermal-comfort",
+                        "peak-load-balance",
+                        "heat-sensation",
+                        "cold-sensation",
+                        "benefit-harm",
+                        "harm",
+                        "benefit",
+                        "shade-benefit-harm",
+                        "shade-harm",
+                        "shade-benefit",
+                        "energy-balance",
+                        "energy-balance-storage",
+                        "heat-flux",
+                        "cloud-cover",
+                        "black-white",
+                        "blue-green-red",
+                        "multicolor-2",
+                        "multicolor-3",
+                        "space-types",
+                        "cividis",
+                        "viridis-5",
+                        "parula",
+                        "energy-by-face",
+                        "peak-cooling-by-face",
+                        "peak-heating-by-face",
+                        "green-yellow-red",
+                        "sand",
+                        "sea",
+                        "summer",
+                        "calm-ocean",
+                        "spring-flowers",
+                        "fresh",
+                        "wind-velocity",
+                        "grayscale",
+                        "magma-6",
+                        "red-poppy",
+                        "autumn",
+                        "aspect",
+                        "sunlight-warm",
+                        "sunlight",
+                        "daylight-vsc",
+                        "daylight-vsc-saturated",
+                        "daylight-factor",
+                        "spatial-daylight-autonomy",
+                        "sda-pass-fail",
+                        "lawson-1978",
+                        "lawson-2001",
+                        "lawson-lddc",
+                        "nen-8100",
+                        "sound-pressure",
+                        "view-study-stepped",
+                        "daylight-autonomy",
+                        "annual-sun-exposure",
+                        "glare-stepped",
+                        "shade-benefit-stepped",
+                        "solar-irradiation-low",
+                        "solar-irradiation-high",
+                        "classic-stepped",
+                        "multicolor-stepped",
+                        "nuanced-stepped",
+                        "utci",
+                        "wind-speedup",
+                        "stormwater-depth",
+                        "stormwater-velocity",
+                        "utci-microclimate",
+                        "cut-fill"
                       ]
                     },
                     "stops": {
@@ -28597,7 +28602,81 @@
                         "greys",
                         "sunhours",
                         "slope",
-                        "clearance"
+                        "clearance",
+                        "classic",
+                        "nuanced",
+                        "multicolor",
+                        "blue-magenta-yellow",
+                        "view-study",
+                        "shadow-study",
+                        "glare-study",
+                        "annual-comfort",
+                        "thermal-comfort",
+                        "peak-load-balance",
+                        "heat-sensation",
+                        "cold-sensation",
+                        "benefit-harm",
+                        "harm",
+                        "benefit",
+                        "shade-benefit-harm",
+                        "shade-harm",
+                        "shade-benefit",
+                        "energy-balance",
+                        "energy-balance-storage",
+                        "heat-flux",
+                        "cloud-cover",
+                        "black-white",
+                        "blue-green-red",
+                        "multicolor-2",
+                        "multicolor-3",
+                        "space-types",
+                        "cividis",
+                        "viridis-5",
+                        "parula",
+                        "energy-by-face",
+                        "peak-cooling-by-face",
+                        "peak-heating-by-face",
+                        "green-yellow-red",
+                        "sand",
+                        "sea",
+                        "summer",
+                        "calm-ocean",
+                        "spring-flowers",
+                        "fresh",
+                        "wind-velocity",
+                        "grayscale",
+                        "magma-6",
+                        "red-poppy",
+                        "autumn",
+                        "aspect",
+                        "sunlight-warm",
+                        "sunlight",
+                        "daylight-vsc",
+                        "daylight-vsc-saturated",
+                        "daylight-factor",
+                        "spatial-daylight-autonomy",
+                        "sda-pass-fail",
+                        "lawson-1978",
+                        "lawson-2001",
+                        "lawson-lddc",
+                        "nen-8100",
+                        "sound-pressure",
+                        "view-study-stepped",
+                        "daylight-autonomy",
+                        "annual-sun-exposure",
+                        "glare-stepped",
+                        "shade-benefit-stepped",
+                        "solar-irradiation-low",
+                        "solar-irradiation-high",
+                        "classic-stepped",
+                        "multicolor-stepped",
+                        "nuanced-stepped",
+                        "utci",
+                        "wind-speedup",
+                        "stormwater-depth",
+                        "stormwater-velocity",
+                        "utci-microclimate",
+                        "cut-fill"
                       ]
                     },
                     "stops": {
@@ -29085,7 +29164,81 @@
                               "greys",
                               "sunhours",
                               "slope",
-                              "clearance"
+                              "clearance",
+                              "classic",
+                              "nuanced",
+                              "multicolor",
+                              "blue-magenta-yellow",
+                              "view-study",
+                              "shadow-study",
+                              "glare-study",
+                              "annual-comfort",
+                              "thermal-comfort",
+                              "peak-load-balance",
+                              "heat-sensation",
+                              "cold-sensation",
+                              "benefit-harm",
+                              "harm",
+                              "benefit",
+                              "shade-benefit-harm",
+                              "shade-harm",
+                              "shade-benefit",
+                              "energy-balance",
+                              "energy-balance-storage",
+                              "heat-flux",
+                              "cloud-cover",
+                              "black-white",
+                              "blue-green-red",
+                              "multicolor-2",
+                              "multicolor-3",
+                              "space-types",
+                              "cividis",
+                              "viridis-5",
+                              "parula",
+                              "energy-by-face",
+                              "peak-cooling-by-face",
+                              "peak-heating-by-face",
+                              "green-yellow-red",
+                              "sand",
+                              "sea",
+                              "summer",
+                              "calm-ocean",
+                              "spring-flowers",
+                              "fresh",
+                              "wind-velocity",
+                              "grayscale",
+                              "magma-6",
+                              "red-poppy",
+                              "autumn",
+                              "aspect",
+                              "sunlight-warm",
+                              "sunlight",
+                              "daylight-vsc",
+                              "daylight-vsc-saturated",
+                              "daylight-factor",
+                              "spatial-daylight-autonomy",
+                              "sda-pass-fail",
+                              "lawson-1978",
+                              "lawson-2001",
+                              "lawson-lddc",
+                              "nen-8100",
+                              "sound-pressure",
+                              "view-study-stepped",
+                              "daylight-autonomy",
+                              "annual-sun-exposure",
+                              "glare-stepped",
+                              "shade-benefit-stepped",
+                              "solar-irradiation-low",
+                              "solar-irradiation-high",
+                              "classic-stepped",
+                              "multicolor-stepped",
+                              "nuanced-stepped",
+                              "utci",
+                              "wind-speedup",
+                              "stormwater-depth",
+                              "stormwater-velocity",
+                              "utci-microclimate",
+                              "cut-fill"
                             ]
                           },
                           "stops": {
@@ -29639,6 +29792,46 @@
       }
     },
     {
+      "name": "Tapioca.SetViewerBackend",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "backend": {
+            "type": "string",
+            "enum": [
+              "d3d11",
+              "auto"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "backend"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "backend": {
+            "type": "string",
+            "enum": [
+              "d3d11",
+              "auto"
+            ]
+          },
+          "appliesOnNextStart": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "backend",
+          "appliesOnNextStart"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.SetViewpointStudy",
       "implementation": "native-registry",
       "inputScheme": {
@@ -30060,38 +30253,6 @@
           "loopClosed",
           "loopGuids",
           "loopElemTypes"
-        ]
-      }
-    },
-    {
-      "name": "Tapioca.StartD3D12FeasibilityProbe",
-      "implementation": "native-registry",
-      "inputScheme": {
-        "type": "object",
-        "properties": {
-          "confirm": {
-            "type": "boolean"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "confirm"
-        ]
-      },
-      "outputScheme": {
-        "type": "object",
-        "properties": {
-          "started": {
-            "type": "boolean"
-          },
-          "error": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "started",
-          "error"
         ]
       }
     },
@@ -30706,27 +30867,6 @@
           "sampleCount",
           "converged",
           "empty"
-        ]
-      }
-    },
-    {
-      "name": "Tapioca.StopD3D12FeasibilityProbe",
-      "implementation": "native-registry",
-      "inputScheme": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": false
-      },
-      "outputScheme": {
-        "type": "object",
-        "properties": {
-          "stopped": {
-            "type": "boolean"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "stopped"
         ]
       }
     },
@@ -35693,6 +35833,9 @@
               "current": {
                 "type": "boolean"
               },
+              "stale": {
+                "type": "boolean"
+              },
               "built": {
                 "type": "boolean"
               },
@@ -35765,6 +35908,34 @@
                       "items": {
                         "$ref": "#Point3D"
                       }
+                    },
+                    "ellipse": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "circle",
+                            "ellipse"
+                          ]
+                        },
+                        "center": {
+                          "$ref": "#Point3D"
+                        },
+                        "axisU": {
+                          "$ref": "#Point3D"
+                        },
+                        "axisV": {
+                          "$ref": "#Point3D"
+                        }
+                      },
+                      "required": [
+                        "mode",
+                        "center",
+                        "axisU",
+                        "axisV"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [

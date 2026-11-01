@@ -532,6 +532,8 @@ set (EVP_ARCHVIZ_SOURCES
     # ArchViz/OverlayLayers.cpp is the arbitrary geometry callers put on both overlays,
     # prepared for each; a wrong vertex is a picture in someone else's view.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayLayers.cpp"
+    # ArchViz/GradientLibrary.cpp is the named colour ramps every ramp above resolves (#102).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/GradientLibrary.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffLayer.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffUi.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffBoundaries.cpp"
@@ -1003,6 +1005,7 @@ set (EVP_TEST_SOURCES
     test_overlaytext.cpp
     test_overlayscene.cpp
     test_overlayscenecells.cpp
+    test_gradientlibrary.cpp
     test_overlayhud.cpp
     test_overlayhudcontrols.cpp
     test_overlayhudevents.cpp

@@ -29,6 +29,7 @@
 // THREADS. `Set`/`Clear` and the preparations are MAIN THREAD; the 3D overlay
 // receives what it draws through its own lock-free hand-over, never this store.
 
+#include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/PlanOverlayContent.hpp"
 
 #include <cstdint>
@@ -109,14 +110,7 @@ struct PointSet {
     float sizeMetres = 0.1f;
 };
 
-// A value -> colour ramp: sun hours, shadow, clearance, slope, visibility. Stops are
-// positions 0..1 along [min, max], ascending, at most `kMaxStops`.
-struct ColourStop {
-    float at = 0.0f;
-    uint32_t rgba = 0xFFFFFFFFu;
-};
-constexpr size_t kMaxStops = 16;
-
+// ColourStop and kMaxStops are the gradient library's (ArchViz/GradientLibrary.hpp).
 struct Colormap {
     std::vector<ColourStop> stops;
     double min = 0.0;
@@ -134,8 +128,9 @@ struct Colormap {
     std::string greenControl;
 };
 
-// The named ramps a caller can ask for instead of writing stops. False for a name
-// this does not know; `stops` is untouched then.
+// The named ramps a caller can ask for instead of writing stops -- every id in the
+// gradient library, the ten original names among them. False for a name this does
+// not know; `stops` is untouched then.
 bool PresetStops (const std::string& name, std::vector<ColourStop>& stops);
 
 enum class Shading : uint8_t {
