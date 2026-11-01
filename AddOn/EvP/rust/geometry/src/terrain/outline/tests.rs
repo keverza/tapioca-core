@@ -262,6 +262,39 @@ fn support_preparation_does_not_sanitize_a_malformed_region() -> Result<(), Outl
     Ok(())
 }
 
+#[test]
+fn authored_line_grazing_an_existing_concave_stitch_vertex_still_refuses() {
+    let (points, triangles) = base();
+    let surface = crowned(0.0, 0.02);
+    let region = [
+        -5.0, -10.0, 0.0, 45.0, -10.0, 0.0, 45.0, 10.0, 0.0, 22.0, 10.0, 0.0, 22.0, 0.0, 0.0, 18.0,
+        0.0, 0.0, 18.0, 10.0, 0.0, -5.0, 10.0, 0.0,
+    ];
+    // Both endpoints are strictly inside; the segment only touches (18,0),
+    // an existing stitch vertex also reached by private crown supports.
+    let line = [15.0, 3.0, 0.0, 21.0, -3.0, 0.0];
+    assert_eq!(
+        build(&OutlineRequest {
+            points: &points,
+            triangles: &triangles,
+            region: &region,
+            surface_points: &surface,
+            surface_triangles: &CROWN_TRIANGLES,
+            breaklines: &[&line],
+            spots: &[],
+            grading: Grading {
+                cut: HALF,
+                fill: HALF,
+                limit: 10.0,
+                rounding: 0.0,
+                effect: Effect::Both,
+                tolerance: 1e-6
+            },
+        }),
+        Err(OutlineError::Region(RegionError::BoundaryCrossed))
+    );
+}
+
 /// Check a real (non-vacuous) exterior, base-parent interpolation and shared
 /// stitch incidence. Fixed boundary heights deliberately override the pavement.
 fn check_stitch(built: &Outlined, base: &Field) -> Result<(), OutlineError> {

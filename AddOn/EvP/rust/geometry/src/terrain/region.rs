@@ -355,6 +355,15 @@ fn rebuild(
 
     // Local output vertex -> global vertex, appending new ones.
     let first_line = index(interior.len() + 1)?;
+    let first_support = first_line
+        .checked_add(index(strict)?)
+        .ok_or(RegionError::Terrain(Error::Shape))?;
+    let boundary_vertices: BTreeSet<u32> = tin
+        .constraint_edges
+        .iter()
+        .filter(|row| row.segment.constraint == 0)
+        .flat_map(|row| row.vertices)
+        .collect();
     let support = |constraint: u32, segment: u32| -> Result<Support, RegionError> {
         if constraint == 0 {
             Err(RegionError::BoundaryCrossed)
@@ -444,6 +453,13 @@ fn rebuild(
             return Err(RegionError::BoundaryCrossed);
         }
         if row.segment.constraint >= first_line {
+            // Public lines may not even graze an existing ring vertex. Private
+            // pre-clipped supports alone may terminate on the shared stitch.
+            if row.segment.constraint < first_support
+                && (boundary_vertices.contains(&a) || boundary_vertices.contains(&b))
+            {
+                return Err(RegionError::BoundaryCrossed);
+            }
             // A breakline leaving through existing ring vertices touches rather
             // than crosses the ring; its outside piece is an unkept edge.
             if !row.kept {
