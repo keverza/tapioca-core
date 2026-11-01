@@ -60,6 +60,7 @@ struct HudState {
     uint32_t width = 0;
     uint32_t height = 0;
     std::string adapter;
+    std::string backend; // "d3d11" or "d3d12" (RE51.D2)
     // OFF by default.
     //
     // ⚠️ THIS IS AN EXPERIMENT, NOT A FEATURE, AND THE OVERLAY IS NOT THE PLACE

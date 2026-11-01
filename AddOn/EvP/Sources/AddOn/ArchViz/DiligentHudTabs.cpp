@@ -166,6 +166,9 @@ void DebugPage (Shell& shell, HudState& state, const DiligentSceneStats& scene, 
     cards.push_back (std::move (frameCard));
     Card gpu;
     gpu.title = "GPU";
+    gpu.figures.push_back ({ "API", state.backend == "d3d12" ? std::string ("Direct3D 12")
+                                    : state.backend.empty () ? std::string ("not known yet")
+                                                             : std::string ("Direct3D 11") });
     gpu.figures.push_back ({ "Adapter", state.adapter.empty () ? std::string ("not known yet") : state.adapter });
     gpu.figures.push_back ({ "Draws", Count (scene.drawCalls) });
     gpu.figures.push_back ({ "Materials in pool", Count (scene.materials) });

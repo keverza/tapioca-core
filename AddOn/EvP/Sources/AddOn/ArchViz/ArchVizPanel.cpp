@@ -224,7 +224,7 @@ void ArchVizPanel::OpenDiligentViewport (bool planMode)
         cameraStart = ReadArchicadCamera ();
 
     if (geomsrv::archviz::DiligentViewport::Get ().Start (surface, cameraStart)) {
-        panel.statusText.SetText ("Starting Diligent D3D11 viewport...");
+        panel.statusText.SetText ("Starting Diligent viewport...");
         // The pointer keeps whatever shape it had when it crossed in -- entering
         // over the splitter leaves a resize arrow on the 3D view. See
         // ViewportCursor: nobody answers WM_SETCURSOR for a DG::UserItem.
@@ -624,16 +624,27 @@ void ArchVizPanel::RefreshStatus ()
     // ⚠️ PROBE 1c CREATES A DEVICE AND NOTHING ELSE -- no swap chain, no frame
     // loop -- so it has to be reported separately or a successful probe reads as
     // a failed viewer.
+    // RE51.D2: the API is the device's, read back from the run -- it used to be
+    // written here as "D3D11", which a D3D12 viewport then displayed as fact.
+    const std::string api = viewportStats.backend == "d3d12" ? "D3D12" : "D3D11";
+    const GS::UniString on =
+        FromStd (" on " + api + (viewportStats.adapter.empty () ? "" : " (" + viewportStats.adapter + ")"));
     if (viewportStats.running || viewportStats.initialized || viewportStats.failed) {
         if (viewportStats.failed)
             text = GS::UniString ("Diligent viewport failed: ") + FromStd (viewportStats.error);
         else if (!viewportStats.initialized)
-            text = GS::UniString ("Starting Diligent D3D11 viewport...");
+            text = GS::UniString ("Starting Diligent viewport...");
+        // ⚠️ THE CLEAR A/B NEVER RUNS ON D3D12 (its native arm is a D3D11 call), so
+        // "not checked" there is the normal state, not a smoke test in progress.
+        else if (viewportStats.backend == "d3d12")
+            text = viewportStats.sceneReady
+                       ? GS::UniString ("Diligent viewport") + on + GS::UniString (", drawing.")
+                       : GS::UniString ("Diligent viewport") + on + GS::UniString (", building the scene...");
         else if (!viewportStats.clearChecked)
-            text = GS::UniString ("Diligent D3D11 viewport running (clear/present smoke test).");
+            text = GS::UniString ("Diligent viewport") + on + GS::UniString (" (clear/present smoke test).");
         else if (viewportStats.diligentClearMatched && viewportStats.nativeClearMatched)
             text = viewportStats.sceneReady
-                       ? GS::UniString ("Diligent viewport: clear A/B PASS, drawing.")
+                       ? GS::UniString ("Diligent viewport") + on + GS::UniString (": clear A/B PASS, drawing.")
                        : GS::UniString (
                              "Diligent viewport: clear A/B PASS, but the scene did not build - see archviz.log.");
         else if (viewportStats.nativeClearMatched)

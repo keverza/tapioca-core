@@ -410,7 +410,6 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                     stats_.nativeClearMatched = ab.nativeArm.matched;
                     stats_.diligentClearReport = ab.diligentArm.message;
                     stats_.nativeClearReport = ab.nativeArm.message;
-                    stats_.adapter = ab.device.adapter;
                     stats_.featureLevel = ab.device.featureLevel;
                     stats_.deviceRemovedReason = ab.device.deviceRemovedReason;
                     stats_.presentCount = ab.device.presentCount;
@@ -900,6 +899,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                     std::lock_guard<std::mutex> lock (mutex_);
                     hudState.fps = stats_.fps;
                     hudState.adapter = stats_.adapter;
+                    hudState.backend = stats_.backend;
                 }
                 hudState.frames = frames;
                 hudState.width = width;
