@@ -582,7 +582,6 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/ArchVizPanel.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentFxLink.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentProbe.hpp"),
-    ("NativeCommands/ArchVizCommands.cpp", "ArchViz/D3D12FeasibilityProbe.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentViewport.hpp"),
     # Extracted OUT of ArchVizCommands.cpp (2026-08-24) when that file reached the
     # size cap, and inherits its neighbour's reason unchanged: the capture command

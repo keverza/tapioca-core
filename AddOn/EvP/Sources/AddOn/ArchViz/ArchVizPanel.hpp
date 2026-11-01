@@ -63,8 +63,6 @@ class ArchVizPanel final : public DG::Palette, public DG::PanelObserver, public 
     // storey's plane (ReadPlanViewerCamera) -- instead of from the 3D window's camera.
     static void OpenViewer (bool planMode = false);
     static void OpenDiligentProbe ();
-    static bool OpenD3D12FeasibilityProbe (std::string& error);
-    static void CloseD3D12FeasibilityProbe ();
     static void OpenDiligentViewport (bool planMode = false);
 
     // The OVERLAY (PLAT-RE37): the same Diligent viewport, drawing into a

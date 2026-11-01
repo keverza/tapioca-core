@@ -1,11 +1,9 @@
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/ArchVizLog.hpp"     // ArchVizLog — one log for the whole viewer
 #include "ArchViz/CameraSyncMode.hpp" // the ONE way the camera sync is armed
-#include "ArchViz/D3D12FeasibilityProbe.hpp"
 #include "ArchViz/DiligentProbe.hpp"
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/ExtractionThread.hpp"
-#include "ArchViz/ExperimentGuard.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/ModelWatch.hpp"
@@ -40,10 +38,6 @@ namespace {
 // speculatively (CLAUDE.md).
 constexpr short kMargin = 8;
 constexpr short kStatusHeight = 16;
-
-// Main-thread only. The shared experiment guard must only be disarmed by the
-// mechanism that armed it.
-bool s_d3d12ProbeGuardArmed = false;
 
 GS::UniString FromStd (const std::string& s)
 {
@@ -184,10 +178,6 @@ void ArchVizPanel::OpenDiligentProbe ()
     if (!HasInstance ())
         CreateInstance ();
     ArchVizPanel& panel = GetInstance ();
-    if (s_d3d12ProbeGuardArmed) {
-        panel.statusText.SetText ("RE51.D1 D3D12 probe is running; wait for it to stop.");
-        return;
-    }
     panel.Show ();
     if (geomsrv::archviz::DiligentProbe::Get ().Start (panel.ViewportWindow ()))
         panel.statusText.SetText ("Diligent Probe 1c running; check logs after it completes.");
@@ -195,101 +185,11 @@ void ArchVizPanel::OpenDiligentProbe ()
         panel.statusText.SetText ("Diligent Probe 1c did not start; check logs.");
 }
 
-bool ArchVizPanel::OpenD3D12FeasibilityProbe (std::string& error)
-{
-    namespace av = geomsrv::archviz;
-    namespace vo = geomsrv::archviz::viewportoverlay;
-
-    if (av::DiligentViewport::Get ().IsRunning ()) {
-        error = "the production D3D11 viewport or overlay is running; close it before RE51.D1";
-        av::D3D12FeasibilityProbe::Get ().SetRefusal (error);
-        return false;
-    }
-    if (av::DiligentProbe::Get ().Stats ().running) {
-        error = "the D3D11 device probe is running; wait for it before RE51.D1";
-        av::D3D12FeasibilityProbe::Get ().SetRefusal (error);
-        return false;
-    }
-    if (vo::Stats ().active) {
-        error = "an overlay window is already active; close it before RE51.D1";
-        av::D3D12FeasibilityProbe::Get ().SetRefusal (error);
-        return false;
-    }
-
-    if (!HasInstance ())
-        CreateInstance ();
-    ArchVizPanel& panel = GetInstance ();
-
-    // Find the document target before showing the palette can change which
-    // window Windows considers frontmost.
-    const vo::OverlayTarget target = vo::FindOverlayTarget ();
-    std::string overlayError;
-    HWND overlay = nullptr;
-    if (target.valid)
-        overlay = vo::Create (target, vo::OverlayAttach::Popup, overlayError);
-    else
-        overlayError = target.how.empty () ? "no frontmost document target was found" : target.how;
-
-    panel.Show ();
-    void* child = panel.ViewportWindow ();
-    uint32_t childWidth = 0;
-    uint32_t childHeight = 0;
-    if (child == nullptr || !panel.ViewportPixelSize (childWidth, childHeight)) {
-        vo::Destroy ();
-        error = "the DG child HWND or its physical client size is unavailable";
-        av::D3D12FeasibilityProbe::Get ().SetRefusal (error);
-        return false;
-    }
-
-    uint32_t overlayWidth = 0;
-    uint32_t overlayHeight = 0;
-    if (overlay != nullptr) {
-        const vo::OverlayStats overlayStats = vo::Stats ();
-        overlayWidth = overlayStats.width;
-        overlayHeight = overlayStats.height;
-    }
-
-    if (!av::experimentguard::Arm ("re51-d1-d3d12", error)) {
-        vo::Destroy ();
-        av::D3D12FeasibilityProbe::Get ().SetRefusal (error);
-        return false;
-    }
-    s_d3d12ProbeGuardArmed = true;
-
-    if (!av::D3D12FeasibilityProbe::Get ().Start (child, childWidth, childHeight, overlay, overlayWidth, overlayHeight,
-                                                  overlayError, error)) {
-        vo::Destroy ();
-        av::experimentguard::Disarm ();
-        s_d3d12ProbeGuardArmed = false;
-        return false;
-    }
-
-    panel.statusText.SetText ("RE51.D1 D3D12 feasibility probe running; follow the command instructions.");
-    return true;
-}
-
-void ArchVizPanel::CloseD3D12FeasibilityProbe ()
-{
-    geomsrv::archviz::D3D12FeasibilityProbe::Get ().Stop ();
-    if (s_d3d12ProbeGuardArmed) {
-        geomsrv::archviz::viewportoverlay::Destroy ();
-        geomsrv::archviz::experimentguard::Disarm ();
-        s_d3d12ProbeGuardArmed = false;
-        if (HasInstance ())
-            GetInstance ().statusText.SetText ("RE51.D1 D3D12 feasibility probe stopped.");
-    }
-}
-
 void ArchVizPanel::OpenDiligentViewport (bool planMode)
 {
     if (!HasInstance ())
         CreateInstance ();
     ArchVizPanel& panel = GetInstance ();
-    if (s_d3d12ProbeGuardArmed) {
-        panel.Show ();
-        panel.statusText.SetText ("RE51.D1 D3D12 probe is running; wait for it to stop.");
-        return;
-    }
     geomsrv::archviz::DiligentViewport::Get ().ReleaseRetainedHost ();
     panel.Show ();
 
@@ -404,11 +304,6 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
     if (!HasInstance ())
         CreateInstance ();
     ArchVizPanel& panel = GetInstance ();
-    if (s_d3d12ProbeGuardArmed) {
-        panel.Show ();
-        panel.statusText.SetText ("RE51.D1 D3D12 probe is running; wait for it to stop.");
-        return;
-    }
     geomsrv::archviz::DiligentViewport::Get ().ReleaseRetainedHost ();
     // ⚠️ THE PALETTE IS *NOT* SHOWN IN OVERLAY MODE, and the first live run is
     // why. Showing it puts an EMPTY floating 3D panel next to the overlay --
@@ -573,9 +468,6 @@ void ArchVizPanel::CloseViewer ()
 {
     if (HasInstance ())
         GetInstance ().paletteState.RequestClose ();
-    // Stop D3D12 before camera-sync teardown clears the shared experiment
-    // breadcrumb. A crash during the D3D12 join must survive into safe mode.
-    CloseD3D12FeasibilityProbe ();
     geomsrv::archviz::ShutDownCameraSync ();
     if (!HasInstance ())
         return;
@@ -677,10 +569,6 @@ void ArchVizPanel::StopRenderer ()
     // bug class CLAUDE.md flags for the change observer ("unwatch on teardown,
     // unconditionally"), with the same consequence.
     StopNavLog ();
-
-    // RE51.D1 owns another render thread and may be presenting to both windows.
-    // Join it before either the DG child or overlay HWND can be destroyed.
-    CloseD3D12FeasibilityProbe ();
 
     // ⚠️ THE PRODUCER GOES BEFORE THE CONSUMER, and unconditionally, for the
     // same reason as the timer above. An extraction pass in flight is submitting

@@ -274,7 +274,9 @@ from typing import Any
 # with the six read-only live-test bridge adapters (2026-10-16), 260 -> 262 with
 # CalculateExteriorSurfaceTakeoff / ClearExteriorSurfaceTakeoff in
 # SurfaceTakeoffCommands.cpp, whose lane did not raise the count (2026-10-17).
-EXPECTED_REGISTRY_COMMANDS = 262
+# 262 -> 260 for RE51.D2 (2026-11-01): +1 SetViewerBackend, -3 for the retired
+# RE51.D1 D3D12 feasibility probe (Start/State/Stop).
+EXPECTED_REGISTRY_COMMANDS = 260
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -299,8 +301,8 @@ EXPECTED_LOCAL_COMMANDS = 19
 # 268 -> 271 with GetSnapshotSurfaces / CalculateSurfaceFragments and the same
 # stale registry verb; 271 -> 273 with VirtualEditor and EditorState, 273 -> 279 with
 # the same six live-test adapters, 279 -> 281 with the two exterior-surface takeoff
-# verbs.
-EXPECTED_TOTAL_COMMANDS = 281
+# verbs, 281 -> 279 with RE51.D2's SetViewerBackend and the retired D1 probe's three.
+EXPECTED_TOTAL_COMMANDS = 279
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = r'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'
