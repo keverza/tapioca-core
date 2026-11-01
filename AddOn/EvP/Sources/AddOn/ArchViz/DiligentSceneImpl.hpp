@@ -35,6 +35,7 @@
 #include "ArchViz/DiligentShadowMap.hpp"
 #include "ArchViz/EnvironmentMap.hpp"
 #include "ArchViz/SunShadowMath.hpp"
+#include "ArchViz/SelectionHighlightStyle.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
 
 #include <windows.h>
@@ -167,53 +168,7 @@ inline CullMode InverseCull (CullMode cull)
     return CullMode::Ccw;
 }
 
-// How a selected element reads. ⚠️ THREE THINGS AT ONCE, AND THE LIVE RUN THAT
-// ASKED FOR THEM SAID WHY: a tint alone was reported as "the element turned
-// cyanish", which is exactly as much as a tint can say. It cannot show WHICH
-// element boundary was hit when two abut, and it cannot show anything at all
-// about the element behind it. So:
-//
-//   the SILHOUETTE says where the element ends, unambiguously, even against
-//   another element of the same material;
-//   the TINT says which element it is, at a glance, from any distance;
-//   the TRANSPARENCY lets the user see what the selection is sitting in front
-//   of, which is most of why they selected it.
-constexpr float kSelectionTintMix = 0.35f; // how much of the material survives
-constexpr float kSelectionTintR = 0.10f;
-constexpr float kSelectionTintG = 0.65f;
-constexpr float kSelectionTintB = 0.85f;
-constexpr float kSelectionAlpha = 0.55f; // 1 = the old opaque tint
-constexpr float kSelectionOutlinePixels = 3.0f;
-// Deliberately NOT the tint: the outline has to be readable ON the tinted
-// surface as well as against the background, so it is the same hue taken to full
-// saturation rather than the same colour.
-constexpr float kSelectionOutlineColor[4] = { 0.05f, 0.85f, 1.0f, 1.0f };
-
-// The HOVER silhouette (PLAT-RE136): what a click would take, shown before it is
-// taken.
-//
-// ⚠️ A DIFFERENT HUE FROM THE SELECTION, NOT A DIMMER ONE. The two are on screen
-// at the same time and mean different things -- "this IS selected" against "this
-// WOULD BE" -- and distinguishing them by brightness alone fails against a pale
-// facade, which is most of a building. Amber reads as distinct from the cyan at
-// any exposure and does not collide with the wireframe either.
-//
-// ⚠️ AND IT IS THINNER. The hover follows the mouse, so at the selection's 3 px
-// it flickers a heavy band across the model on every move; thin enough to read as
-// a highlight, thick enough to survive a thin railing.
-constexpr float kHoverOutlineColor[4] = { 1.0f, 0.62f, 0.10f, 1.0f };
-constexpr float kHoverOutlinePixels = 2.0f;
-
-// The visibility ROLE silhouettes (DiligentScene::SetAnalysisHighlight): which
-// element is Focus and which is Analysis, so the gradient can be read against
-// what it was measured from. Hues apart from the selection's cyan, the hover's
-// amber and the gradient's own red and green; the selection's weight.
-constexpr float kFocusOutlineColor[4] = { 0.95f, 0.25f, 0.75f, 1.0f };   // magenta
-constexpr float kAnalysisOutlineColor[4] = { 0.62f, 0.42f, 1.0f, 1.0f }; // violet
-
-// The wireframe's line colour. Alpha below 1 so overlapping edges on a dense
-// mesh build up instead of saturating into a solid mass.
-constexpr float kWireframeColor[4] = { 0.10f, 0.85f, 1.0f, 0.75f };
+// How a selected, hovered or analysed element is marked: SelectionHighlightStyle.hpp.
 
 struct Entry {
     std::string guid; // empty for a static mesh

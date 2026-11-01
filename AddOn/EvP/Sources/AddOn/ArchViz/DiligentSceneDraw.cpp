@@ -16,7 +16,6 @@
 #include "ArchViz/AutoExposure.hpp"
 #include "ArchViz/SurfaceClassifier.hpp"
 
-#include <algorithm> // std::min, for the selection alpha against a glass material
 #include <cstring>
 #include <cmath>
 #include <string>
@@ -468,14 +467,15 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     constants.shadowParams[3] =
         impl_->shadowMap.Resolution () > 0 ? 1.0f / float (impl_->shadowMap.Resolution ()) : 0.0f;
 
-    // The silhouette's offset, in NDC. ⚠️ THE FACTOR OF 2 IS THE WHOLE NDC RANGE:
+    // The selection core's offset, in NDC; DrawLineOverlays re-uploads it per
+    // ring. ⚠️ THE FACTOR OF 2 IS THE WHOLE NDC RANGE:
     // clip x runs -1..1 over `width` pixels, so one pixel is 2/width. Dropping it
     // halves every outline, which looks like a tuning choice rather than an
     // arithmetic slip.
     constants.outlineParams[0] =
-        impl_->viewportWidth > 0 ? kSelectionOutlinePixels * 2.0f / float (impl_->viewportWidth) : 0.0f;
+        impl_->viewportWidth > 0 ? kSelectionCore.pixels * 2.0f / float (impl_->viewportWidth) : 0.0f;
     constants.outlineParams[1] =
-        impl_->viewportHeight > 0 ? kSelectionOutlinePixels * 2.0f / float (impl_->viewportHeight) : 0.0f;
+        impl_->viewportHeight > 0 ? kSelectionCore.pixels * 2.0f / float (impl_->viewportHeight) : 0.0f;
     // The render quality, riding the same float4's spare lane -- see
     // DiligentSceneConstants. The pixel shader branches on it; no second PSO.
     constants.outlineParams[2] = (impl_->renderQuality == RenderQuality::Realistic) ? 1.0f : 0.0f;
@@ -783,49 +783,20 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 if (r.indexCount == 0)
                     continue;
                 const SurfaceMaterial& mat = impl_->materials.Lookup (r.material);
-                // ⚠️ A SELECTED ELEMENT BLENDS EVEN WHEN ITS MATERIAL IS OPAQUE,
-                // and that is what puts it in the SECOND pass. Drawing it
-                // translucent in the opaque pass would blend it against whatever
-                // happened to be behind it in draw order rather than against the
-                // finished scene, so a selected wall would show the elements
-                // drawn before it and hide the ones drawn after -- an
-                // arbitrary-looking half of the room, changing with the
-                // extraction order.
-                const bool selectedBlend = !studyModel && e.selected && kSelectionAlpha < kOpaqueAlpha;
-                const bool blended = !studyModel && (mat.alpha < kOpaqueAlpha || selectedBlend);
+                // ⚠️ A SELECTED ELEMENT DRAWS EXACTLY AS AN UNSELECTED ONE
+                // (issue #118). It used to be tinted cyan and forced into this
+                // pass translucent; the selection is now marked at its edges by
+                // DrawLineOverlays, so its surfaces keep their material, their
+                // pass and their depth.
+                const bool blended = !studyModel && mat.alpha < kOpaqueAlpha;
                 if (blended != transparentPass)
                     continue;
-                // ⚠️ THE HIGHLIGHT IS A TINT, NOT A REPLACEMENT. Painting a
-                // selected element flat cyan hides which surfaces it has and
-                // whether its shading is right -- so a selection would make an
-                // element harder to inspect at exactly the moment the user asked
-                // to look at it. Mixing keeps the shape and the material readable
-                // and stays unmistakable against a building. The silhouette pass
-                // below adds the boundary the tint cannot show, and the alpha
-                // lets whatever the element stands in front of come through.
-                //
-                // ⚠️ AND IT IS DONE HERE, ON THE MATERIAL COLOUR, NOT IN THE
-                // SHADER. A shader-side flag would need a field in
-                // DiligentSceneConstants, whose layout is an ABI with three HLSL
-                // stages; the tint needs no new state at all because the base
-                // colour is already uploaded per range.
                 // ⚠️ NOT NAMED r/g/b -- `r` is the MaterialRange this loop is
                 // over, and shadowing it hands the range's colour to the draw.
-                float tintR = studyModel ? 1.0f : mat.r;
-                float tintG = studyModel ? 1.0f : mat.g;
-                float tintB = studyModel ? 1.0f : mat.b;
-                float alpha = studyModel ? 1.0f : mat.alpha;
-                if (e.selected && !studyModel) {
-                    tintR = mat.r * kSelectionTintMix + kSelectionTintR;
-                    tintG = mat.g * kSelectionTintMix + kSelectionTintG;
-                    tintB = mat.b * kSelectionTintMix + kSelectionTintB;
-                    // Glass that is already more transparent than the selection
-                    // must not become LESS transparent by being selected.
-                    // ⚠️ PARENTHESISED: <windows.h> comes in through DiligentSceneImpl.hpp
-                    // and defines a `min` MACRO, which turns `std::min (` into a
-                    // syntax error on the `::`.
-                    alpha = (std::min) (alpha, kSelectionAlpha);
-                }
+                const float surfaceR = studyModel ? 1.0f : mat.r;
+                const float surfaceG = studyModel ? 1.0f : mat.g;
+                const float surfaceB = studyModel ? 1.0f : mat.b;
+                const float alpha = studyModel ? 1.0f : mat.alpha;
                 // ⚠️ THE WHOLE PBR DESCRIPTION, FROM THE CLASSIFIER, NOT FROM
                 // THE RAW CHANNELS. `PresetFor` runs SurfaceClassifier over the
                 // measured numbers and returns the roughness, the dielectric
@@ -836,7 +807,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 // ⚠️ PER RANGE, NOT PER FRAME. Hoisting the upload out of this
                 // loop paints every range in the last material's colour -- and
                 // now its finish too, in both channels.
-                uploadConstants (tintR, tintG, tintB, alpha, studyModel ? 1.0f : preset.roughness,
+                uploadConstants (surfaceR, surfaceG, surfaceB, alpha, studyModel ? 1.0f : preset.roughness,
                                  studyModel ? 0.5f : preset.reflectance, studyModel ? 0.0f : preset.metallic);
                 drawRange (e, r, blended);
             }
