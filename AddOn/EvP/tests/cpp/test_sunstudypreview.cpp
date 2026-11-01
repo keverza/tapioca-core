@@ -137,7 +137,8 @@ RWStructuredBuffer<float4> result : register(u0);
     EXPECT_NEAR (rgba[2], linear (float (kSunLowSunHex & 0xff) / 255.0f), 1e-6);
     EXPECT_FLOAT_EQ (rgba[3], 0.90f);
     EXPECT_FLOAT_EQ (rgba[7], 0.90f);
-    EXPECT_NEAR (rgba[4], linear (0.612f), 1e-6) << "cutoff equality stays warm";
+    // 2.5 h is the third legacy bin, 0x9C5A23 (kSunLegacyRamp: the scene's default colours).
+    EXPECT_NEAR (rgba[4], linear (float (0x9C) / 255.0f), 1e-6) << "cutoff equality stays warm";
     EXPECT_FLOAT_EQ (rgba[8], SunStudyShadowFraction (lit, 0, 8));
     EXPECT_FLOAT_EQ (rgba[9], SunStudyShadowFraction (lit, 8, 16));
     EXPECT_FLOAT_EQ (rgba[10], SunStudyShadowFraction (lit, 30, 34));
@@ -277,9 +278,11 @@ TEST (SunStudyBands, RealShaderSteppedRampMatchesTheLegendAndTheOverlayIsOpaque)
     D3D11_MAPPED_SUBRESOURCE mapped = {};
     ASSERT_TRUE (SUCCEEDED (context->Map (staging.Get (), 0, D3D11_MAP_READ, 0, &mapped)));
     const float* rgba = static_cast<const float*> (mapped.pData);
-    // The ramp's own sRGB stops (kSunBins, red channel), decoded: what the
-    // legend's swatch at the band centre shows.
-    const float bins[10] = { 0.420f, 0.541f, 0.612f, 0.690f, 0.753f, 0.812f, 0.863f, 0.906f, 0.941f, 0.969f };
+    // The default ramp's own sRGB stops (kSunLegacyRamp, red channel), decoded:
+    // what the legend's swatch at the band centre shows.
+    float bins[10];
+    for (int i = 0; i < 10; ++i)
+        bins[i] = float ((kSunLegacyRamp[i].rgba >> 24) & 0xffu) / 255.0f;
     const auto linear = [] (float c) { return c <= 0.04045f ? c / 12.92f : std::pow ((c + 0.055f) / 1.055f, 2.4f); };
     const auto warmRed = [&] (float hours) {
         const float t = std::clamp (hours - 0.5f, 0.0f, 9.0f);
@@ -296,6 +299,100 @@ TEST (SunStudyBands, RealShaderSteppedRampMatchesTheLegendAndTheOverlayIsOpaque)
     }
     EXPECT_FLOAT_EQ (rgba[4 * 2], rgba[4 * 3]) << "one flat colour across a band";
     EXPECT_FLOAT_EQ (rgba[35], 1.0f) << "the hours view is opaque: no sun shadow shows through";
+    context->Unmap (staging.Get (), 0);
+}
+
+// #102: the hours colours are a gradient preset. An untouched scene keeps the
+// original ten bins, and a chosen preset reaches the real shader exactly as the
+// legend (SunStudyRampColour) paints it.
+TEST (SunStudyColours, TheDefaultConstantsAreTheLegacyHourlyBins)
+{
+    const DiligentSceneConstants values;
+    ASSERT_FLOAT_EQ (values.sunStudyRampInfo[0], 10.0f);
+    for (int i = 0; i < 10; ++i) {
+        float rgba[4];
+        SunStudyRgbaChannels (kSunLegacyRamp[i].rgba, rgba);
+        for (int c = 0; c < 3; ++c)
+            EXPECT_FLOAT_EQ (values.sunStudyRamp[4 * i + c], rgba[c]) << "stop " << i;
+        EXPECT_FLOAT_EQ (values.sunStudyRamp[4 * i + 3], kSunLegacyRamp[i].at) << "stop " << i;
+    }
+    // The legacy contract is the old half-hour-centred bins, hour for hour.
+    EXPECT_EQ (SunStudyRampColour ({}, 0.0f), 0x6B3D18FFu);
+    EXPECT_EQ (SunStudyRampColour ({}, 1.5f), 0x8A4F1FFFu);
+    EXPECT_EQ (SunStudyRampColour ({}, 12.0f), 0xF7E3C2FFu);
+    EXPECT_EQ (SunStudyRampStops ("no-such-ramp").data (), SunStudyRampStops (kSunRampDefaultPreset).data ());
+}
+
+TEST (SunStudyColours, AChosenPresetDrivesTheRealShaderAsTheLegendPaintsIt)
+{
+    using Microsoft::WRL::ComPtr;
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> context;
+    ASSERT_TRUE (SUCCEEDED (D3D11CreateDevice (nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                               &device, nullptr, &context)));
+    const float probes[6] = { 0.0f, 0.5f, 2.25f, 5.0f, 9.5f, 12.0f };
+    std::string source = std::string (kArchVizCBuffer) + kNoShadowMapEdge + kArchVizSunTintPS +
+                         "RWStructuredBuffer<float4> result : register(u0);\n"
+                         "[numthreads(1,1,1)] void RampTest(uint3 id : SV_DispatchThreadID) {\n";
+    for (int i = 0; i < 6; ++i)
+        source += "    result[" + std::to_string (i) + "] = float4(SunRamp(" + std::to_string (probes[i]) +
+                  ", 0.25), 1.0);\n";
+    source += "}\n";
+    ComPtr<ID3DBlob> code, error;
+    ASSERT_TRUE (SUCCEEDED (D3DCompile (source.data (), source.size (), "sun-ramp", nullptr, nullptr, "RampTest",
+                                        "cs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &code, &error)))
+        << (error ? static_cast<const char*> (error->GetBufferPointer ()) : "compile failed");
+    ComPtr<ID3D11ComputeShader> shader;
+    ASSERT_TRUE (
+        SUCCEEDED (device->CreateComputeShader (code->GetBufferPointer (), code->GetBufferSize (), nullptr, &shader)));
+    const auto ramp = SunStudyRampStops ("sunlight-warm");
+    ASSERT_EQ (ramp.size (), 12u);
+    DiligentSceneConstants values;
+    for (size_t i = 0; i < ramp.size (); ++i) {
+        SunStudyRgbaChannels (ramp[i].rgba, values.sunStudyRamp + 4 * i);
+        values.sunStudyRamp[4 * i + 3] = ramp[i].at;
+    }
+    values.sunStudyRampInfo[0] = float (ramp.size ());
+    D3D11_BUFFER_DESC constantsDesc = {};
+    constantsDesc.ByteWidth = sizeof (values);
+    constantsDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    D3D11_SUBRESOURCE_DATA constantsData = { &values, 0, 0 };
+    ComPtr<ID3D11Buffer> constants;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&constantsDesc, &constantsData, &constants)));
+    D3D11_BUFFER_DESC outputDesc = {};
+    outputDesc.ByteWidth = 6 * 4 * sizeof (float);
+    outputDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+    outputDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    outputDesc.StructureByteStride = 4 * sizeof (float);
+    ComPtr<ID3D11Buffer> output, staging;
+    ComPtr<ID3D11UnorderedAccessView> view;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&outputDesc, nullptr, &output)));
+    ASSERT_TRUE (SUCCEEDED (device->CreateUnorderedAccessView (output.Get (), nullptr, &view)));
+    outputDesc.BindFlags = outputDesc.MiscFlags = 0;
+    outputDesc.Usage = D3D11_USAGE_STAGING;
+    outputDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&outputDesc, nullptr, &staging)));
+    context->CSSetShader (shader.Get (), nullptr, 0);
+    context->CSSetConstantBuffers (0, 1, constants.GetAddressOf ());
+    context->CSSetUnorderedAccessViews (0, 1, view.GetAddressOf (), nullptr);
+    context->Dispatch (1, 1, 1);
+    context->CopyResource (staging.Get (), output.Get ());
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    ASSERT_TRUE (SUCCEEDED (context->Map (staging.Get (), 0, D3D11_MAP_READ, 0, &mapped)));
+    const float* rgba = static_cast<const float*> (mapped.pData);
+    const auto linear = [] (float c) { return c <= 0.04045f ? c / 12.92f : std::pow ((c + 0.055f) / 1.055f, 2.4f); };
+    for (int i = 0; i < 6; ++i) {
+        float expected[4];
+        SunStudyRgbaChannels (SunStudyRampColour (ramp, probes[i]), expected);
+        for (int c = 0; c < 3; ++c)
+            EXPECT_NEAR (rgba[4 * i + c], linear (expected[c]), 4e-3) << probes[i] << " h, channel " << c;
+    }
+    // Its ends are the preset's ends: 0.5 h the first stop, 9.5 h the last.
+    float first[4], last[4];
+    SunStudyRgbaChannels (ramp.front ().rgba, first);
+    SunStudyRgbaChannels (ramp.back ().rgba, last);
+    EXPECT_NEAR (rgba[4 * 1], linear (first[0]), 1e-4);
+    EXPECT_NEAR (rgba[4 * 4], linear (last[0]), 1e-4);
     context->Unmap (staging.Get (), 0);
 }
 

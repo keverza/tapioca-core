@@ -676,6 +676,14 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     std::copy (impl_->sunBandEdges, impl_->sunBandEdges + 11, constants.sunStudyBands);
     SunStudyRgbaChannels (impl_->sunLowSunRgba, constants.sunStudyLowSun);
     SunStudyRgbaChannels (impl_->sunShadowRgba, constants.sunStudyShadowTint);
+    if (impl_->sunRampCount >= 2) {
+        // The HUD's preset; otherwise the constants keep the legacy ramp they default to.
+        for (int i = 0; i < impl_->sunRampCount; ++i) {
+            SunStudyRgbaChannels (impl_->sunRamp[i].rgba, constants.sunStudyRamp + 4 * i);
+            constants.sunStudyRamp[4 * i + 3] = impl_->sunRamp[i].at;
+        }
+        constants.sunStudyRampInfo[0] = float (impl_->sunRampCount);
+    }
     for (int channel = 0; channel < 3; ++channel) {
         const int shift = 24 - 8 * channel;
         constants.visibilityLowColor[channel] = float ((impl_->visibilityLowRgba >> shift) & 0xffu) / 255.0f;
@@ -779,6 +787,8 @@ void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
     impl_->sunShadowRgba = view.shadowRgba;
     impl_->sunBandCount = view.bandCount;
     std::copy (view.bandEdges, view.bandEdges + 11, impl_->sunBandEdges);
+    impl_->sunRampCount = std::clamp (view.rampCount, 0, int (overlaylayers::kMaxStops));
+    std::copy (view.ramp, view.ramp + impl_->sunRampCount, impl_->sunRamp);
 }
 
 } // namespace archviz

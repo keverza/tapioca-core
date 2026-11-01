@@ -314,6 +314,20 @@ struct DiligentSceneConstants {
     // rgba = sRGB of the shadow overlay and how far a shadowed patch moves to it.
     float sunStudyLowSun[4] = { 31.0f / 255.0f, 95.0f / 255.0f, 209.0f / 255.0f, 1.0f };
     float sunStudyShadowTint[4] = { 0.0f, 0.0f, 0.0f, 115.0f / 255.0f };
+    // ---- appended for the hours gradient's COLOURS (#102) ----------------------
+    // The chosen preset's stops, one float4 each: rgb = sRGB, w = the position
+    // 0..1 along 0.5 h .. 9.5 h (ArchViz/SunStudyPreview.hpp SunStudyRampColour);
+    // sunStudyRampInfo[0] = how many (2..16). The defaults are kSunLegacyRamp, the
+    // original ten hourly bins, so a scene no HUD has set draws what it always did.
+    float sunStudyRamp[64] = { 107.0f / 255.0f, 61.0f / 255.0f,  24.0f / 255.0f,  0.0f / 9.0f,     138.0f / 255.0f,
+                               79.0f / 255.0f,  31.0f / 255.0f,  1.0f / 9.0f,     156.0f / 255.0f, 90.0f / 255.0f,
+                               35.0f / 255.0f,  2.0f / 9.0f,     176.0f / 255.0f, 106.0f / 255.0f, 40.0f / 255.0f,
+                               3.0f / 9.0f,     192.0f / 255.0f, 125.0f / 255.0f, 51.0f / 255.0f,  4.0f / 9.0f,
+                               207.0f / 255.0f, 143.0f / 255.0f, 68.0f / 255.0f,  5.0f / 9.0f,     220.0f / 255.0f,
+                               161.0f / 255.0f, 87.0f / 255.0f,  6.0f / 9.0f,     231.0f / 255.0f, 182.0f / 255.0f,
+                               116.0f / 255.0f, 7.0f / 9.0f,     240.0f / 255.0f, 203.0f / 255.0f, 150.0f / 255.0f,
+                               8.0f / 9.0f,     247.0f / 255.0f, 227.0f / 255.0f, 194.0f / 255.0f, 9.0f / 9.0f };
+    float sunStudyRampInfo[4] = { 10.0f, 0.0f, 0.0f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -354,7 +368,8 @@ enum class DiligentDebugView : int {
 };
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
-                                                      16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48 + 32,
+                                                      16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48 + 32 + 256 +
+                                                      16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -417,6 +432,8 @@ cbuffer ArchVizConstants
     float4   g_sunStudyBands[3]; // the stepped gradient's band edges, hours
     float4   g_sunStudyLowSun;   // rgb = sRGB of the low-sun category
     float4   g_sunStudyShadowTint; // rgb = sRGB of the shadow overlay, a = its strength
+    float4   g_sunStudyRamp[16];   // the hours colours: rgb = sRGB, w = position 0..1
+    float4   g_sunStudyRampInfo;   // x = how many stops
 };
 )hlsl";
 
@@ -697,19 +714,21 @@ float3 SrgbToLinear (float3 c)
     return c <= 0.04045 ? c / 12.92 : pow (max ((c + 0.055) / 1.055, 0.0), 2.4);
 }
 
-static const float3 kSunBins[10] = {
-    float3 (0.420, 0.239, 0.094), float3 (0.541, 0.310, 0.122), float3 (0.612, 0.353, 0.137),
-    float3 (0.690, 0.416, 0.157), float3 (0.753, 0.490, 0.200), float3 (0.812, 0.561, 0.267),
-    float3 (0.863, 0.631, 0.341), float3 (0.906, 0.714, 0.455), float3 (0.941, 0.796, 0.588),
-    float3 (0.969, 0.890, 0.761)
-};
-
+// The hours colours: the chosen gradient preset's stops (g_sunStudyRamp),
+// ArchViz/SunStudyPreview.hpp's SunStudyRampColour line for line -- the first
+// stop at 0.5 h, the last at 9.5 h (#102).
 float3 SunWarm (float hours)
 {
-    float t = clamp (hours - 0.5, 0.0, 9.0);
-    int lo = int (floor (t));
-    int hi = min (lo + 1, 9);
-    return SrgbToLinear (lerp (kSunBins[lo], kSunBins[hi], t - float (lo)));
+    float t = clamp ((hours - 0.5) / 9.0, 0.0, 1.0);
+    int count = clamp (int (g_sunStudyRampInfo.x + 0.5), 2, 16);
+    float3 colour = g_sunStudyRamp[0].rgb;
+    [loop] for (int i = 1; i < count; ++i) {
+        float a = g_sunStudyRamp[i - 1].w;
+        float b = g_sunStudyRamp[i].w;
+        if (t >= a)
+            colour = lerp (g_sunStudyRamp[i - 1].rgb, g_sunStudyRamp[i].rgb, b > a ? saturate ((t - a) / (b - a)) : 1.0);
+    }
+    return SrgbToLinear (colour);
 }
 
 // The STEPPED gradient: ArchViz/SunStudyPreview.hpp's SunStudyBand and

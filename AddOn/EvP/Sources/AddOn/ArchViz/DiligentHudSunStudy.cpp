@@ -11,6 +11,7 @@
 
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
+#include "ArchViz/GradientPresetChoice.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/HudShell.hpp" // the tips
@@ -246,13 +247,20 @@ void DrawSunStudyHoursDisplay (HudState& state)
         ImGui::TextDisabled (state.shadowsEnabled ? "needs PCF shadows" : "shadows are off");
     }
 
+    // The colours (#102): any gradient preset, the sun ones listed first. Display only.
+    ImGui::TextUnformatted ("Colours");
+    ImGui::SameLine ();
+    gradientchoice::GradientPresetChoice ("##sungradientpreset", state.sunGradientPreset,
+                                          ImGui::GetContentRegionAvail ().x, overlaylayers::GradientCategory::Sun);
+    const auto ramp = SunStudyRampStops (state.sunGradientPreset);
+
     // Stepped first: it is the default (#102).
     const char* styles[] = { "Stepped", "Smooth" };
     int style = state.sunGradientStepped ? 0 : 1;
     if (viewerhud::Choice ("gradient##sungradient", style, styles, 2))
         state.sunGradientStepped = style == 0;
     if (!state.sunGradientStepped) {
-        DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, 0, nullptr, state.sunLowSunRgba >> 8);
+        DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, 0, nullptr, state.sunLowSunRgba >> 8, ramp);
         return;
     }
     int count = std::clamp (state.sunBandCount, kSunBandsMin, kSunBandsMax);
@@ -277,8 +285,8 @@ void DrawSunStudyHoursDisplay (HudState& state)
         SunStudyDefaultBandEdges (count, state.sunBandEdges);
     }
     SunStudyClampBandEdges (count, state.sunBandEdges);
-    DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, count, state.sunBandEdges,
-                          state.sunLowSunRgba >> 8);
+    DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, count, state.sunBandEdges, state.sunLowSunRgba >> 8,
+                          ramp);
 }
 
 // The screenshot row: the size presets, and what the last one did. The frame
@@ -370,7 +378,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStat
         const ImVec2 size (ImGui::GetContentRegionAvail ().x, font);
         // The ticks below carry the hours, so the cells stay unlabelled here.
         DrawSunStudyRampBar (draw, at, size, view.bandCount, view.bandEdges, view.blueThreshold, view.lowSunRgba >> 8,
-                             false);
+                             false, { view.ramp, size_t (view.rampCount) });
         ImGui::Dummy (size);
         std::vector<float> ticks;
         if (view.bandCount > 0)
@@ -438,6 +446,9 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     view.shadowRgba = state.sunShadowRgba;
     view.shadowOverlay =
         state.sunShadowOverlay && state.shadowsEnabled && state.shadowMode == int (DiligentShadowMode::Pcf);
+    const auto ramp = SunStudyRampStops (state.sunGradientPreset);
+    view.rampCount = int (ramp.size ());
+    std::copy (ramp.begin (), ramp.end (), view.ramp);
     if (state.sunGradientStepped) {
         view.bandCount = std::clamp (state.sunBandCount, kSunBandsMin, kSunBandsMax);
         std::copy (state.sunBandEdges, state.sunBandEdges + 11, view.bandEdges);

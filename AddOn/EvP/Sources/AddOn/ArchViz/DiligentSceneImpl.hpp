@@ -438,6 +438,8 @@ struct geomsrv::archviz::DiligentScene::Impl {
     uint32_t sunShadowRgba = 0x00000073u;
     int sunBandCount = 0;
     float sunBandEdges[11] = {};
+    overlaylayers::ColourStop sunRamp[overlaylayers::kMaxStops] = {};
+    int sunRampCount = 0;
     // ---- what the last drawn frame actually did with the overlay ------------
     // ⚠️ LIFETIME COUNTERS, NOT PER-FRAME FLAGS. The question they answer is "did
     // the overlay ever fail to draw something it should have", and a flag that

@@ -156,6 +156,9 @@ struct HudState {
     bool sunGradientStepped = true;
     int sunBandCount = 10;
     float sunBandEdges[11] = { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 10.0f };
+    // The hours colours: a gradient library id (#102), the warm sunlight preset
+    // (kSunRampDefaultPreset) unless the user picks another. Display only.
+    std::string sunGradientPreset = "sunlight-warm";
     // The sun study SCREENSHOT (ArchViz/ViewerScreenshot.cpp): the preset, an
     // index into kViewerScreenshotScales; the request the frame loop takes; and
     // what the last one did, path or reason.
