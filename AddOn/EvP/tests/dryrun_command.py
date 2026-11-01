@@ -2313,6 +2313,15 @@ def _one(command, params):
         # the same offline.
         return _ok({"shown": bool(params.get("text", ""))})
 
+    if command == "EvP.SetViewerBackend":
+        # RE51.D2. The fake has no GPU, so whatever was asked for, a start
+        # reports D3D11 with the reason a real machine without one would give.
+        backend = params.get("backend", "")
+        if backend not in ("d3d11", "auto"):
+            return _err("backend must be d3d11 or auto")
+        _diligent["backendPreference"] = backend
+        return _ok({"backend": backend, "appliesOnNextStart": bool(_diligent["open"])})
+
     if command == "EvP.SetOverlayFrameLatency":
         _diligent["frameLatency"] = int(params.get("frames", 1))
         return _ok({"frames": _diligent["frameLatency"]})
@@ -2336,6 +2345,10 @@ def _one(command, params):
                     # failure path -- so the harness would pass a probe whose
                     # success path had never run.
                     "frameLatency": _diligent.get("frameLatency", 0),
+                    "backend": "d3d11" if up else "",
+                    "backendReason": ("preference d3d11"
+                                      if _diligent.get("backendPreference", "d3d11") == "d3d11"
+                                      else "auto: no qualifying D3D12 adapter (none enumerated)") if up else "",
                     "stalePresents": 0,
                     "presentFailures": 0,
                     "lastPresentResult": 0,

@@ -30,7 +30,7 @@
 // premultiplied compositing it proved correct band-for-band against raw D3D11 is
 // what this depends on. See archive/docs/render-engine-decision.md §6.
 //
-// ⚠️ RENDER THREAD ONLY. It owns Diligent and D3D11 objects and drives the
+// ⚠️ RENDER THREAD ONLY. It owns Diligent and D3D11/D3D12 objects and drives the
 // immediate context. The HWND arrives from the main thread once, by value.
 
 #include <cstdint>
@@ -42,7 +42,6 @@ struct IDXGISwapChain;
 
 namespace Diligent {
 struct IDeviceContext;
-struct IEngineFactoryD3D11;
 struct IRenderDevice;
 struct ISwapChain;
 struct ITextureView;
@@ -70,9 +69,10 @@ class DiligentViewportTarget final {
 
     // `error` carries the reason on false -- an alert cannot, and neither can a
     // black rectangle.
-    bool Create (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-                 Diligent::IEngineFactoryD3D11* factory, SurfaceMode mode, void* hwnd, uint32_t width, uint32_t height,
-                 std::string& error);
+    //
+    // The backend is the device's (RE51.D2): D3D11 or D3D12, every surface mode.
+    bool Create (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, SurfaceMode mode, void* hwnd,
+                 uint32_t width, uint32_t height, std::string& error);
 
     // ⚠️ CALL IT BEFORE THE DEVICE IS RELEASED, and pass the context: the flip
     // model requires the immediate context to have let go of the back buffers

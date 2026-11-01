@@ -1,9 +1,10 @@
 #include "ArchViz/DiligentPickBuffer.hpp"
 
+#include "ArchViz/DiligentNativeInterop.hpp"
 #include "ArchViz/PickVote.hpp"
 
 #include <windows.h>
-#include <d3d11.h>   // Must precede any Diligent D3D11 interop header (Probe 1a).
+#include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
 #include <DeviceContext.h>
 #include <GraphicsTypes.h>
 #include <RefCntAutoPtr.hpp>
@@ -40,17 +41,23 @@ constexpr uint32_t kReadbackSize = 8;
 // one path that is hard to test without a GPU.
 constexpr uint64_t kReadbackDelayFrames = 2;
 
-}   // namespace
+} // namespace
 
-uint32_t PickColorFormat () { return uint32_t (Diligent::TEX_FORMAT_RGBA8_UNORM); }
-uint32_t PickDepthFormat () { return uint32_t (Diligent::TEX_FORMAT_D32_FLOAT); }
+uint32_t PickColorFormat ()
+{
+    return uint32_t (Diligent::TEX_FORMAT_RGBA8_UNORM);
+}
+uint32_t PickDepthFormat ()
+{
+    return uint32_t (Diligent::TEX_FORMAT_D32_FLOAT);
+}
 
 struct DiligentPickBuffer::Impl {
     RefCntAutoPtr<Diligent::ITexture> color;
     RefCntAutoPtr<Diligent::ITexture> depth;
     RefCntAutoPtr<Diligent::ITexture> staging;
-    Diligent::ITextureView* rtv = nullptr;   // owned by `color`
-    Diligent::ITextureView* dsv = nullptr;   // owned by `depth`
+    Diligent::ITextureView* rtv = nullptr; // owned by `color`
+    Diligent::ITextureView* dsv = nullptr; // owned by `depth`
 
     // The id target's current size, which tracks the viewport. 0 until the first
     // EnsureSize -- `ready` says Init succeeded, not that there is a target.
@@ -84,10 +91,18 @@ struct DiligentPickBuffer::Impl {
     }
 };
 
-DiligentPickBuffer::DiligentPickBuffer () : impl_ (std::make_unique<Impl> ()) {}
-DiligentPickBuffer::~DiligentPickBuffer () { Shutdown (); }
+DiligentPickBuffer::DiligentPickBuffer () : impl_ (std::make_unique<Impl> ())
+{
+}
+DiligentPickBuffer::~DiligentPickBuffer ()
+{
+    Shutdown ();
+}
 
-bool DiligentPickBuffer::IsReady () const { return impl_ != nullptr && impl_->ready; }
+bool DiligentPickBuffer::IsReady () const
+{
+    return impl_ != nullptr && impl_->ready;
+}
 bool DiligentPickBuffer::HasPendingRequest () const
 {
     return impl_ != nullptr && impl_->pending;
@@ -143,8 +158,8 @@ void DiligentPickBuffer::Shutdown ()
     impl_->pending = false;
 }
 
-bool DiligentPickBuffer::EnsureSize (Diligent::IRenderDevice* device, uint32_t width,
-                                     uint32_t height, std::string& error)
+bool DiligentPickBuffer::EnsureSize (Diligent::IRenderDevice* device, uint32_t width, uint32_t height,
+                                     std::string& error)
 {
     if (!impl_->ready) {
         error = "DiligentPickBuffer::EnsureSize before a successful Init";
@@ -215,15 +230,13 @@ void DiligentPickBuffer::Begin (Diligent::IDeviceContext* context)
         return;
 
     Diligent::ITextureView* rtv = impl_->rtv;
-    context->SetRenderTargets (1, &rtv, impl_->dsv,
-                               Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->SetRenderTargets (1, &rtv, impl_->dsv, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 
     // ⚠️ CLEARED TO ZERO. Id 0 is "nothing", which is what makes a click on the
     // sky representable rather than resolving to whichever element happened to
     // be numbered 0.
-    const float zero[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-    context->ClearRenderTarget (rtv, zero,
-                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    const float zero[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    context->ClearRenderTarget (rtv, zero, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     context->ClearDepthStencil (impl_->dsv, Diligent::CLEAR_DEPTH_FLAG, 1.0f, 0,
                                 Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 
@@ -256,12 +269,11 @@ void DiligentPickBuffer::End (Diligent::IDeviceContext* context)
     // the first PLAT-RE22 readback fell into, and the reason this is its own call
     // rather than the first line of Request: the caller has to put its own
     // targets back afterwards either way, so the seam is where it can see it.
-    context->SetRenderTargets (0, nullptr, nullptr,
-                               Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 }
 
-bool DiligentPickBuffer::Request (Diligent::IDeviceContext* context, int32_t px, int32_t py,
-                                  uint64_t currentFrame, uint32_t tag)
+bool DiligentPickBuffer::Request (Diligent::IDeviceContext* context, int32_t px, int32_t py, uint64_t currentFrame,
+                                  uint32_t tag)
 {
     if (context == nullptr || !impl_->ready || impl_->color == nullptr || impl_->pending)
         return false;
@@ -276,8 +288,7 @@ bool DiligentPickBuffer::Request (Diligent::IDeviceContext* context, int32_t px,
     // able to tell "no request was made" from "a request is in flight", or a
     // click that landed outside would leave it waiting for a readback that never
     // arrives.
-    const PickReadback plan =
-        PlanPickReadback (px, py, impl_->width, impl_->height, kReadbackSize);
+    const PickReadback plan = PlanPickReadback (px, py, impl_->width, impl_->height, kReadbackSize);
     if (!plan.valid)
         return false;
 
@@ -309,19 +320,20 @@ bool DiligentPickBuffer::Request (Diligent::IDeviceContext* context, int32_t px,
     return true;
 }
 
-bool DiligentPickBuffer::Poll (Diligent::IDeviceContext* context, uint64_t currentFrame,
-                               uint32_t& outId, uint32_t& outTag)
+bool DiligentPickBuffer::Poll (Diligent::IDeviceContext* context, uint64_t currentFrame, uint32_t& outId,
+                               uint32_t& outTag)
 {
-    if (context == nullptr || !impl_->ready || !impl_->pending ||
-        currentFrame < impl_->readyAtFrame)
+    if (context == nullptr || !impl_->ready || !impl_->pending || currentFrame < impl_->readyAtFrame)
         return false;
 
     impl_->pending = false;
     outTag = impl_->tag;
 
+    // D3D11's Map would block here; Diligent's D3D12 map never does, and two
+    // presents are a likelihood there, not a guarantee (RE51.D2).
+    SyncBeforeStagingRead (context);
     Diligent::MappedTextureSubresource mapped;
-    context->MapTextureSubresource (impl_->staging, 0, 0, Diligent::MAP_READ,
-                                    Diligent::MAP_FLAG_NONE, nullptr, mapped);
+    context->MapTextureSubresource (impl_->staging, 0, 0, Diligent::MAP_READ, Diligent::MAP_FLAG_NONE, nullptr, mapped);
     if (mapped.pData == nullptr)
         return false;
 
@@ -336,8 +348,7 @@ bool DiligentPickBuffer::Poll (Diligent::IDeviceContext* context, uint64_t curre
             const uint8_t* p = row + size_t (x) * 4;
             // ⚠️ RGBA, NOT bgfx's BGRA -- the target is ours and is declared
             // RGBA8_UNORM. See the header.
-            ids[y * impl_->boxWidth + x] =
-                (uint32_t (p[0]) << 16) | (uint32_t (p[1]) << 8) | uint32_t (p[2]);
+            ids[y * impl_->boxWidth + x] = (uint32_t (p[0]) << 16) | (uint32_t (p[1]) << 8) | uint32_t (p[2]);
         }
     }
     context->UnmapTextureSubresource (impl_->staging, 0, 0);
@@ -349,10 +360,9 @@ bool DiligentPickBuffer::Poll (Diligent::IDeviceContext* context, uint64_t curre
     //
     // ⚠️ ResolvePickIdAt, NOT ResolvePickId: the cursor is only at the box's
     // middle when the box did not have to be clamped to an edge.
-    outId = ResolvePickIdAt (ids, impl_->boxWidth, impl_->boxHeight, impl_->centreX,
-                             impl_->centreY);
+    outId = ResolvePickIdAt (ids, impl_->boxWidth, impl_->boxHeight, impl_->centreX, impl_->centreY);
     return true;
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

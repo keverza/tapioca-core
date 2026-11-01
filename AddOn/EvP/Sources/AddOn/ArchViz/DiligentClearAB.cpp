@@ -1,13 +1,16 @@
 #include "ArchViz/DiligentClearAB.hpp"
 
 #include <windows.h>
-#include <d3d11.h>   // Must precede any Diligent D3D11 interop header (Probe 1a).
+#include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
+#include <d3d12.h>
 #include <DeviceContextD3D11.h>
 #include <RefCntAutoPtr.hpp>
 #include <RenderDevice.h>
 #include <RenderDeviceD3D11.h>
+#include <RenderDeviceD3D12.h>
 #include <SwapChain.h>
 #include <SwapChainD3D11.h>
+#include <SwapChainD3D12.h>
 #include <TextureViewD3D11.h>
 
 #include <string>
@@ -22,23 +25,24 @@ namespace {
 struct NativeTarget {
     ID3D11DeviceContext* context = nullptr;
     ID3D11RenderTargetView* rtv = nullptr;
-    ID3D11Texture2D* texture = nullptr;   // AddRef'd, release with Release()
+    ID3D11Texture2D* texture = nullptr; // AddRef'd, release with Release()
     uint32_t textureFormat = 0;
     uint32_t viewFormat = 0;
     UINT width = 0;
     UINT height = 0;
     std::string failure;
 
-    bool IsValid () const { return failure.empty (); }
+    bool IsValid () const
+    {
+        return failure.empty ();
+    }
 };
 
 NativeTarget AcquireNativeTarget (Diligent::IDeviceContext* context, Diligent::ITextureView* rtv)
 {
     NativeTarget target;
-    Diligent::RefCntAutoPtr<Diligent::IDeviceContextD3D11> nativeContext {
-        context, Diligent::IID_DeviceContextD3D11};
-    Diligent::RefCntAutoPtr<Diligent::ITextureViewD3D11> nativeView {
-        rtv, Diligent::IID_TextureViewD3D11};
+    Diligent::RefCntAutoPtr<Diligent::IDeviceContextD3D11> nativeContext { context, Diligent::IID_DeviceContextD3D11 };
+    Diligent::RefCntAutoPtr<Diligent::ITextureViewD3D11> nativeView { rtv, Diligent::IID_TextureViewD3D11 };
     if (nativeContext == nullptr || nativeView == nullptr) {
         target.failure = "native D3D11 interfaces unavailable";
         return target;
@@ -53,14 +57,14 @@ NativeTarget AcquireNativeTarget (Diligent::IDeviceContext* context, Diligent::I
     // Borrowed: QueryInterface would AddRef a pointer we do not own the release
     // of, and the RTV outlives every use here.
     ID3D11RenderTargetView* renderTargetView = nullptr;
-    if (SUCCEEDED (view->QueryInterface (__uuidof (ID3D11RenderTargetView),
-                                         reinterpret_cast<void**> (&renderTargetView))) &&
+    if (SUCCEEDED (
+            view->QueryInterface (__uuidof (ID3D11RenderTargetView), reinterpret_cast<void**> (&renderTargetView))) &&
         renderTargetView != nullptr) {
         D3D11_RENDER_TARGET_VIEW_DESC rtvDesc {};
         renderTargetView->GetDesc (&rtvDesc);
         target.viewFormat = (uint32_t) rtvDesc.Format;
         target.rtv = renderTargetView;
-        renderTargetView->Release ();   // the Diligent view keeps it alive
+        renderTargetView->Release (); // the Diligent view keeps it alive
     }
 
     ID3D11Resource* resource = nullptr;
@@ -69,8 +73,8 @@ NativeTarget AcquireNativeTarget (Diligent::IDeviceContext* context, Diligent::I
         target.failure = "back-buffer view returned no resource";
         return target;
     }
-    const HRESULT queryHr = resource->QueryInterface (__uuidof (ID3D11Texture2D),
-                                                      reinterpret_cast<void**> (&target.texture));
+    const HRESULT queryHr =
+        resource->QueryInterface (__uuidof (ID3D11Texture2D), reinterpret_cast<void**> (&target.texture));
     resource->Release ();
     if (FAILED (queryHr) || target.texture == nullptr) {
         target.failure = "back-buffer resource is not ID3D11Texture2D";
@@ -122,14 +126,13 @@ ClearReadback ReadBackCenterPixel (const NativeTarget& target)
     const HRESULT createHr = device->CreateTexture2D (&stagingDesc, nullptr, &staging);
     device->Release ();
     if (FAILED (createHr) || staging == nullptr) {
-        readback.failure = "failed to create 1x1 staging texture, HRESULT=" +
-                           std::to_string ((uint32_t) createHr);
+        readback.failure = "failed to create 1x1 staging texture, HRESULT=" + std::to_string ((uint32_t) createHr);
         return readback;
     }
 
     const UINT x = target.width / 2;
     const UINT y = target.height / 2;
-    const D3D11_BOX box {x, y, 0, x + 1, y + 1, 1};
+    const D3D11_BOX box { x, y, 0, x + 1, y + 1, 1 };
     target.context->CopySubresourceRegion (staging, 0, 0, 0, 0, target.texture, 0, &box);
 
     D3D11_MAPPED_SUBRESOURCE mapped {};
@@ -140,15 +143,15 @@ ClearReadback ReadBackCenterPixel (const NativeTarget& target)
             readback.bytes[i] = bytes[i];
         readback.mapped = true;
         target.context->Unmap (staging, 0);
-    } else {
-        readback.failure = "failed to map the cleared back buffer, HRESULT=" +
-                           std::to_string ((uint32_t) mapHr);
+    }
+    else {
+        readback.failure = "failed to map the cleared back buffer, HRESULT=" + std::to_string ((uint32_t) mapHr);
     }
     staging->Release ();
     return readback;
 }
 
-}   // namespace
+} // namespace
 
 DeviceDiagnostics DescribeDevice (Diligent::IRenderDevice* device, Diligent::ISwapChain* swapChain)
 {
@@ -157,8 +160,7 @@ DeviceDiagnostics DescribeDevice (Diligent::IRenderDevice* device, Diligent::ISw
         diag.adapter = device->GetAdapterInfo ().Description;
         diag.report = "adapter=\"" + diag.adapter + "\"";
 
-        Diligent::RefCntAutoPtr<Diligent::IRenderDeviceD3D11> nativeDevice {
-            device, Diligent::IID_RenderDeviceD3D11};
+        Diligent::RefCntAutoPtr<Diligent::IRenderDeviceD3D11> nativeDevice { device, Diligent::IID_RenderDeviceD3D11 };
         if (nativeDevice != nullptr) {
             ID3D11Device* d3dDevice = nativeDevice->GetD3D11Device ();
             if (d3dDevice != nullptr) {
@@ -168,15 +170,36 @@ DeviceDiagnostics DescribeDevice (Diligent::IRenderDevice* device, Diligent::ISw
                                " deviceRemovedReason=" + std::to_string (diag.deviceRemovedReason);
             }
         }
+        // RE51.D2: the same three facts from a D3D12 device. The feature level
+        // is the highest of the four the device can report.
+        Diligent::RefCntAutoPtr<Diligent::IRenderDeviceD3D12> device12 { device, Diligent::IID_RenderDeviceD3D12 };
+        if (ID3D12Device* d3d12 = device12 != nullptr ? device12->GetD3D12Device () : nullptr) {
+            const D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_12_0,
+                                                 D3D_FEATURE_LEVEL_12_1 };
+            D3D12_FEATURE_DATA_FEATURE_LEVELS query {};
+            query.NumFeatureLevels = 4;
+            query.pFeatureLevelsRequested = levels;
+            if (SUCCEEDED (d3d12->CheckFeatureSupport (D3D12_FEATURE_FEATURE_LEVELS, &query, sizeof (query))))
+                diag.featureLevel = (uint32_t) query.MaxSupportedFeatureLevel;
+            diag.deviceRemovedReason = (uint32_t) d3d12->GetDeviceRemovedReason ();
+            diag.report += " backend=d3d12 featureLevel=" + std::to_string (diag.featureLevel) +
+                           " deviceRemovedReason=" + std::to_string (diag.deviceRemovedReason);
+        }
     }
     if (swapChain != nullptr) {
-        Diligent::RefCntAutoPtr<Diligent::ISwapChainD3D11> nativeSwapChain {
-            swapChain, Diligent::IID_SwapChainD3D11};
-        if (nativeSwapChain != nullptr && nativeSwapChain->GetDXGISwapChain () != nullptr) {
+        IDXGISwapChain* dxgi = nullptr; // borrowed from the Diligent swap chain
+        Diligent::RefCntAutoPtr<Diligent::ISwapChainD3D11> nativeSwapChain { swapChain, Diligent::IID_SwapChainD3D11 };
+        Diligent::RefCntAutoPtr<Diligent::ISwapChainD3D12> nativeSwapChain12 { swapChain,
+                                                                               Diligent::IID_SwapChainD3D12 };
+        if (nativeSwapChain != nullptr)
+            dxgi = nativeSwapChain->GetDXGISwapChain ();
+        else if (nativeSwapChain12 != nullptr)
+            dxgi = nativeSwapChain12->GetDXGISwapChain ();
+        if (dxgi != nullptr) {
             // Not the same number as the frame counter: that one counts calls,
             // this one counts presentations DXGI actually accepted.
             UINT presents = 0;
-            if (SUCCEEDED (nativeSwapChain->GetDXGISwapChain ()->GetLastPresentCount (&presents))) {
+            if (SUCCEEDED (dxgi->GetLastPresentCount (&presents))) {
                 diag.presentCount = presents;
                 diag.report += " lastPresentCount=" + std::to_string (presents);
             }
@@ -197,8 +220,8 @@ DeviceDiagnostics DescribeDevice (Diligent::IRenderDevice* device, Diligent::ISw
 //
 // The caller must have unbound the render target before calling: see
 // ReadBackCenterPixel.
-ClearAB RunClearAB (Diligent::IDeviceContext* context, Diligent::ITextureView* rtv,
-                    Diligent::ISwapChain* swapChain, Diligent::IRenderDevice* device)
+ClearAB RunClearAB (Diligent::IDeviceContext* context, Diligent::ITextureView* rtv, Diligent::ISwapChain* swapChain,
+                    Diligent::IRenderDevice* device)
 {
     ClearAB result;
     result.device = DescribeDevice (device, swapChain);
@@ -206,8 +229,7 @@ ClearAB RunClearAB (Diligent::IDeviceContext* context, Diligent::ITextureView* r
     const NativeTarget target = AcquireNativeTarget (context, rtv);
 
     // Arm A reads back the clear the caller already issued through Diligent.
-    result.diligentArm = EvaluateClear (ReadBackCenterPixel (target), kDiligentClearColor,
-                                        kClearTolerance);
+    result.diligentArm = EvaluateClear (ReadBackCenterPixel (target), kDiligentClearColor, kClearTolerance);
 
     // Arm B goes around Diligent entirely, on the same context and the same
     // view. Nothing else about the frame changes.
@@ -216,9 +238,11 @@ ClearAB RunClearAB (Diligent::IDeviceContext* context, Diligent::ITextureView* r
     nativeReadback.viewFormat = target.viewFormat;
     if (!target.IsValid ()) {
         nativeReadback.failure = target.failure;
-    } else if (target.rtv == nullptr) {
+    }
+    else if (target.rtv == nullptr) {
         nativeReadback.failure = "back-buffer view is not an ID3D11RenderTargetView";
-    } else {
+    }
+    else {
         target.context->ClearRenderTargetView (target.rtv, kNativeClearColor);
         // Diligent caches bindings; a native call it did not see through must be
         // announced or the next Diligent call may restore stale state over it.
@@ -241,5 +265,5 @@ ClearAB RunClearAB (Diligent::IDeviceContext* context, Diligent::ITextureView* r
     return result;
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

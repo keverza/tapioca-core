@@ -71,7 +71,7 @@ OVERSIZED = {
         "area, and the next feature extracts a seam rather than adding to it",
     ),
     "ArchViz/DiligentViewport.cpp": (
-        1090,
+        1078,
         "the single render-thread lifecycle and frame-order authority. Device and "
         "target control, support algorithms, scene storage/draw passes, and offscreen "
         "target ownership already live in separate translation units; splitting the "
@@ -84,7 +84,9 @@ OVERSIZED = {
         "ViewerPlanMode.cpp with the camera's start and navigation, three call sites left. "
         "+7 for the viewer screenshot (2026-10-31): its body is ViewerScreenshot.cpp; left "
         "here are the ordered call sites only -- which target the frame draws into, the "
-        "legend in the HUD's slot, the unpresented frames, the input gate and teardown",
+        "legend in the HUD's slot, the unpresented frames, the input gate and teardown. "
+        "-12 for RE51.D2 (2026-11-01): device creation moved to DiligentDeviceFactory and the "
+        "native teardown to DiligentNativeInterop, leaving the D3D11 fallback call sites",
     ),
     "Palette/ControlPalette.cpp": (
         626,

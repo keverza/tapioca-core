@@ -3,6 +3,7 @@
 
 #include "ArchViz/InstructionBanner.hpp"
 #include "ArchViz/PlanAnchorRibbon.hpp"
+#include "ArchViz/RenderBackend.hpp"
 #include "ArchViz/SceneTextLayer.hpp"
 #include "ArchViz/ViewerHost.hpp"
 #include "ArchViz/ViewerSettings.hpp" // SliceOccludedStyle
@@ -55,6 +56,8 @@ struct DiligentViewportStats {
     std::string diligentClearReport;
     std::string nativeClearReport;
     std::string adapter;       // GraphicsAdapterInfo::Description
+    std::string backend;       // "d3d11" or "d3d12" (RE51.D2); empty before the device exists
+    std::string backendReason; // why that backend, including every D3D12 fallback
     uint32_t featureLevel = 0; // D3D_FEATURE_LEVEL as a raw number
     uint64_t presentCount = 0; // IDXGISwapChain::GetLastPresentCount
     // ---- PLAT-RE99: what the desync measurement cannot see -----------------
@@ -553,6 +556,17 @@ class DiligentViewport final {
         return requestedFrameLatency_.load ();
     }
 
+    // Which API the NEXT start runs on (RE51.D2); a running viewport keeps its
+    // device. Main thread; read once by the render thread at start.
+    void SetBackendPreference (RenderBackendPreference preference)
+    {
+        backendPreference_.store (preference);
+    }
+    RenderBackendPreference BackendPreference () const
+    {
+        return backendPreference_.load ();
+    }
+
   private:
     DiligentViewport () = default;
     ~DiligentViewport ();
@@ -630,6 +644,7 @@ class DiligentViewport final {
     // 1 by default: the 2026-08-14 review's cheapest candidate fix for the
     // lingering afterimage. Set 0 to restore DXGI's default and A/B it.
     std::atomic<uint32_t> requestedFrameLatency_ { 1 };
+    std::atomic<RenderBackendPreference> backendPreference_ { kDefaultRenderBackendPreference };
     std::atomic<uint64_t> activeCaptureId_ { 0 };
     // Copies this run's capture request into the frame loop's HUD-less state.
     // ⚠️ RENDER THREAD, and defined in DiligentViewportSupport.cpp rather than in

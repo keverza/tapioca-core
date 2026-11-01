@@ -16,8 +16,6 @@
 #include "ArchViz/DiligentScene.hpp"
 
 #include <windows.h>
-#include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
-#include <EngineFactoryD3D11.h>
 #include <DeviceContext.h>
 #include <GraphicsTypes.h>
 
@@ -114,8 +112,7 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     auto target = std::make_unique<DiligentViewportTarget> ();
     std::string error;
     if (width == 0 || height == 0 ||
-        !target->Create (device, context, Diligent::GetEngineFactoryD3D11 (), SurfaceMode::Offscreen, nullptr, width,
-                         height, error)) {
+        !target->Create (device, context, SurfaceMode::Offscreen, nullptr, width, height, error)) {
         target->Destroy (context);
         Fail (state, error.empty () ? "the viewer has no size yet" : error);
         return surface;
@@ -139,8 +136,7 @@ static bool RenderLegendStrip (Diligent::IRenderDevice* device, Diligent::IDevic
                                float scale, std::vector<uint8_t>& rgba, std::string& error)
 {
     DiligentViewportTarget strip;
-    if (!strip.Create (device, context, Diligent::GetEngineFactoryD3D11 (), SurfaceMode::Offscreen, nullptr, width,
-                       height, error))
+    if (!strip.Create (device, context, SurfaceMode::Offscreen, nullptr, width, height, error))
         return false;
     Diligent::ITextureView* rtv = nullptr;
     Diligent::ITextureView* dsv = nullptr;

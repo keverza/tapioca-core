@@ -1,20 +1,24 @@
 #include "ArchViz/DiligentViewportTarget.hpp"
 
-#include "ArchViz/ArchVizLog.hpp" // ArchVizLog
-#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
+#include "ArchViz/ArchVizLog.hpp"            // ArchVizLog
+#include "ArchViz/DiligentNativeInterop.hpp" // the D3D12 composition chain, staging sync, end of frame
+#include "ArchViz/HudConsole.hpp"            // the Debug tab's console: what the user checks when something fails
 
 #include <windows.h>
 #include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
+#include <d3d12.h> // and d3d12.h any D3D12 one (SwapChainD3D12.h names D3D12 types)
 #include <dcomp.h>
 #include <dxgi1_3.h> // IDXGISwapChain2::SetMaximumFrameLatency
 
 #include <DeviceContextD3D11.h>
 #include <EngineFactoryD3D11.h>
+#include <EngineFactoryD3D12.h>
 #include <RefCntAutoPtr.hpp>
 #include <RenderDevice.h>
 #include <RenderDeviceD3D11.h>
 #include <SwapChain.h>
 #include <SwapChainD3D11.h>
+#include <SwapChainD3D12.h>
 #include <Texture.h>
 #include <TextureView.h>
 #include <DataBlobImpl.hpp>
@@ -79,7 +83,7 @@ struct DiligentViewportTarget::Impl {
 
     Diligent::IRenderDevice* device = nullptr; // borrowed; the caller owns it
     Diligent::IDeviceContext* context = nullptr;
-    Diligent::IEngineFactoryD3D11* factory = nullptr;
+    RenderBackend backend = RenderBackend::D3D11;
     HWND hwnd = nullptr;
     RefCntAutoPtr<Diligent::IRenderDeviceD3D11> deviceD3D11;
     RefCntAutoPtr<Diligent::ITexture> depthTexture;
@@ -104,7 +108,7 @@ struct DiligentViewportTarget::Impl {
 
     // ⚠️ ONE Diligent ITexture PER NATIVE BACK BUFFER, CACHED BY POINTER. The
     // flip chain rotates its buffers, so GetBuffer(0) returns a different
-    // ID3D11Texture2D after every Present. Wrapping afresh every frame works and
+    // ID3D11Texture2D after every Present (on D3D12, the indexed ID3D12Resource). Wrapping afresh every frame works and
     // allocates a Diligent object per frame; with BufferCount=2 this map holds
     // two entries and then never grows, which is also a cheap check that the
     // rotation is what we think it is. Probe 1b established the pattern.
@@ -112,7 +116,10 @@ struct DiligentViewportTarget::Impl {
         RefCntAutoPtr<Diligent::ITexture> texture;
         Diligent::ITextureView* view = nullptr; // owned by `texture`
     };
-    std::unordered_map<ID3D11Texture2D*, Wrapped> wrapped;
+    std::unordered_map<void*, Wrapped> wrapped;
+    // D3D12 only: the wrapped buffer this frame draws into, moved to PRESENT
+    // before the raw Present. Owned by `wrapped`.
+    Diligent::ITexture* drawnComposition = nullptr;
 
     uint32_t colorFormat = 0;
     uint32_t depthFormat = 0;
@@ -121,6 +128,7 @@ struct DiligentViewportTarget::Impl {
                       std::string& error);
     bool CreatePaletteSwapChain (uint32_t requestedWidth, uint32_t requestedHeight, std::string& error);
     void ReleaseOverlay ();
+    bool CreateCompositionD3D12 (std::string& error);
 };
 
 bool DiligentViewportTarget::Impl::CreatePaletteSwapChain (uint32_t requestedWidth, uint32_t requestedHeight,
@@ -132,9 +140,15 @@ bool DiligentViewportTarget::Impl::CreatePaletteSwapChain (uint32_t requestedWid
     desc.Height = requestedHeight;
     desc.DepthBufferFormat = Diligent::TEX_FORMAT_UNKNOWN;
     const Diligent::Win32NativeWindow window { hwnd };
-    factory->CreateSwapChainD3D11 (device, context, desc, Diligent::FullScreenModeDesc {}, window, &swapChain);
+    if (backend == RenderBackend::D3D12)
+        Diligent::GetEngineFactoryD3D12 ()->CreateSwapChainD3D12 (device, context, desc,
+                                                                  Diligent::FullScreenModeDesc {}, window, &swapChain);
+    else
+        Diligent::GetEngineFactoryD3D11 ()->CreateSwapChainD3D11 (device, context, desc,
+                                                                  Diligent::FullScreenModeDesc {}, window, &swapChain);
     if (swapChain == nullptr) {
-        error = "CreateSwapChainD3D11 returned no swap chain";
+        error = std::string (backend == RenderBackend::D3D12 ? "CreateSwapChainD3D12" : "CreateSwapChainD3D11") +
+                " returned no swap chain";
         return false;
     }
     colorFormat = uint32_t (swapChain->GetDesc ().ColorBufferFormat);
@@ -176,6 +190,7 @@ void DiligentViewportTarget::Impl::ReleaseOverlay ()
         dcompDevice->WaitForCommitCompletion ();
     }
     wrapped.clear ();
+    drawnComposition = nullptr;
     if (dcompVisual != nullptr) {
         dcompVisual->Release ();
         dcompVisual = nullptr;
@@ -194,6 +209,54 @@ void DiligentViewportTarget::Impl::ReleaseOverlay ()
     }
 }
 
+// The D3D12 composition surface. Same chain description, same visual tree, same
+// formats as the D3D11 path below; what differs is that the chain is created on
+// the command queue and the composition device is not tied to a DXGI device.
+// RE51.D1 presented exactly this, transparent through opaque, on 2026-10-31.
+bool DiligentViewportTarget::Impl::CreateCompositionD3D12 (std::string& error)
+{
+    DXGI_SWAP_CHAIN_DESC1 scd = {};
+    scd.Width = width;
+    scd.Height = height;
+    scd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    scd.SampleDesc.Count = 1;
+    scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    scd.BufferCount = 2;
+    scd.Scaling = DXGI_SCALING_STRETCH;
+    scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    scd.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+    scd.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT; // see the D3D11 path
+    if (!CreateCompositionChainD3D12 (context, &scd, compositionSwapChain, error))
+        return false;
+
+    HRESULT hr =
+        DCompositionCreateDevice (nullptr, __uuidof (IDCompositionDevice), reinterpret_cast<void**> (&dcompDevice));
+    if (SUCCEEDED (hr))
+        hr = dcompDevice->CreateTargetForHwnd (hwnd, TRUE, &dcompTarget);
+    if (SUCCEEDED (hr))
+        hr = dcompDevice->CreateVisual (&dcompVisual);
+    if (SUCCEEDED (hr))
+        hr = dcompVisual->SetContent (compositionSwapChain);
+    if (SUCCEEDED (hr))
+        hr = dcompTarget->SetRoot (dcompVisual);
+    if (SUCCEEDED (hr))
+        hr = dcompDevice->Commit ();
+    if (FAILED (hr)) {
+        ReleaseOverlay ();
+        error = "building the D3D12 DirectComposition visual tree failed " + HrText (hr);
+        return false;
+    }
+    colorFormat = uint32_t (Diligent::TEX_FORMAT_BGRA8_UNORM);
+    depthFormat = uint32_t (Diligent::TEX_FORMAT_D32_FLOAT);
+    if (!CreateDepth (width, height, depthTexture, error)) {
+        ReleaseOverlay ();
+        return false;
+    }
+    ArchVizLog ("ArchViz overlay target: D3D12 composition swap chain " + std::to_string (width) + "x" +
+                std::to_string (height) + ", BGRA8_UNORM premultiplied, FLIP_SEQUENTIAL, 2 buffers");
+    return true;
+}
+
 DiligentViewportTarget::DiligentViewportTarget () : impl_ (std::make_unique<Impl> ())
 {
 }
@@ -203,19 +266,18 @@ DiligentViewportTarget::~DiligentViewportTarget ()
 }
 
 bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-                                     Diligent::IEngineFactoryD3D11* factory, SurfaceMode mode, void* hwnd,
-                                     uint32_t width, uint32_t height, std::string& error)
+                                     SurfaceMode mode, void* hwnd, uint32_t width, uint32_t height, std::string& error)
 {
-    if (device == nullptr || context == nullptr || factory == nullptr ||
-        (mode != SurfaceMode::Offscreen && hwnd == nullptr) || width == 0 || height == 0) {
-        error = "DiligentViewportTarget::Create needs a device, a context, a factory, "
+    if (device == nullptr || context == nullptr || (mode != SurfaceMode::Offscreen && hwnd == nullptr) || width == 0 ||
+        height == 0) {
+        error = "DiligentViewportTarget::Create needs a device, a context, "
                 "a non-zero size and a window unless the surface is offscreen";
         return false;
     }
 
     impl_->device = device;
     impl_->context = context;
-    impl_->factory = factory;
+    impl_->backend = BackendOfDevice (device);
     impl_->hwnd = static_cast<HWND> (hwnd);
     impl_->deviceD3D11 = RefCntAutoPtr<Diligent::IRenderDeviceD3D11> (device, Diligent::IID_RenderDeviceD3D11);
     impl_->mode = mode;
@@ -265,6 +327,8 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device, Diligent::
     }
 
     // ---- the overlay: DirectComposition ------------------------------------
+    if (impl_->backend == RenderBackend::D3D12)
+        return impl_->CreateCompositionD3D12 (error);
     if (impl_->deviceD3D11 == nullptr) {
         error = "the Diligent device does not expose IRenderDeviceD3D11, so the composition back "
                 "buffer cannot be wrapped";
@@ -411,6 +475,9 @@ void DiligentViewportTarget::Destroy (Diligent::IDeviceContext* context)
         context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
         context->Flush ();
     }
+    // D3D12: the GPU may still be reading the buffers about to be released.
+    if (impl_->backend == RenderBackend::D3D12 && context != nullptr)
+        IdleBeforeCompositionResizeD3D12 (impl_->device, context);
 
     impl_->ReleaseOverlay ();
     impl_->swapChain.Release ();
@@ -420,7 +487,6 @@ void DiligentViewportTarget::Destroy (Diligent::IDeviceContext* context)
     impl_->deviceD3D11.Release ();
     impl_->device = nullptr;
     impl_->context = nullptr;
-    impl_->factory = nullptr;
     impl_->hwnd = nullptr;
 }
 
@@ -485,6 +551,9 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
                 // the overlay then presents at the old size forever, which looks
                 // like the tracker not working rather than like a failed resize.
                 impl_->wrapped.clear ();
+                impl_->drawnComposition = nullptr;
+                if (impl_->backend == RenderBackend::D3D12)
+                    IdleBeforeCompositionResizeD3D12 (impl_->device, impl_->context);
                 const HRESULT hr = impl_->compositionSwapChain->ResizeBuffers (0, w, h, DXGI_FORMAT_UNKNOWN, 0);
                 if (FAILED (hr)) {
                     resized = false;
@@ -530,10 +599,18 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
     if (impl_->compositionSwapChain == nullptr || impl_->depthTexture == nullptr)
         return false;
 
-    ID3D11Texture2D* back = nullptr;
-    if (FAILED (
-            impl_->compositionSwapChain->GetBuffer (0, __uuidof (ID3D11Texture2D), reinterpret_cast<void**> (&back))) ||
-        back == nullptr)
+    const bool d3d12 = impl_->backend == RenderBackend::D3D12;
+    void* back = nullptr;
+    if (d3d12) {
+        back = AcquireCompositionBufferD3D12 (impl_->compositionSwapChain);
+    }
+    else {
+        ID3D11Texture2D* back11 = nullptr;
+        if (SUCCEEDED (impl_->compositionSwapChain->GetBuffer (0, __uuidof (ID3D11Texture2D),
+                                                               reinterpret_cast<void**> (&back11))))
+            back = back11;
+    }
+    if (back == nullptr)
         return false;
 
     auto it = impl_->wrapped.find (back);
@@ -541,25 +618,26 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
         Impl::Wrapped entry;
         // RESOURCE_STATE_RENDER_TARGET, not UNKNOWN: we know what it is, and
         // telling Diligent lets it skip a transition it would otherwise guess at.
-        impl_->deviceD3D11->CreateTexture2DFromD3DResource (back, Diligent::RESOURCE_STATE_RENDER_TARGET,
-                                                            &entry.texture);
-        if (entry.texture == nullptr) {
-            back->Release ();
-            return false;
-        }
-        entry.view = entry.texture->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET);
+        if (d3d12)
+            WrapCompositionBufferD3D12 (impl_->device, back, &entry.texture);
+        else
+            impl_->deviceD3D11->CreateTexture2DFromD3DResource (static_cast<ID3D11Texture2D*> (back),
+                                                                Diligent::RESOURCE_STATE_RENDER_TARGET, &entry.texture);
+        if (entry.texture != nullptr)
+            entry.view = entry.texture->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET);
         if (entry.view == nullptr) {
-            back->Release ();
+            ReleaseCompositionBuffer (back);
             return false;
         }
         it = impl_->wrapped.emplace (back, std::move (entry)).first;
     }
+    impl_->drawnComposition = it->second.texture;
     // ⚠️ RELEASED, BUT THE MAP IS KEYED ON THE POINTER. GetBuffer adds a
     // reference; the wrapped Diligent texture holds its own, so the buffer stays
     // alive for as long as the entry does and the raw pointer stays a valid KEY.
     // Keeping this reference instead would be the exact fault PLAT-RE39 was: an
     // extra strong reference deferring destruction past teardown.
-    back->Release ();
+    ReleaseCompositionBuffer (back);
 
     rtv = it->second.view;
     dsv = impl_->depthTexture->GetDefaultView (Diligent::TEXTURE_VIEW_DEPTH_STENCIL);
@@ -580,12 +658,17 @@ void DiligentViewportTarget::Present ()
     if (impl_->mode == SurfaceMode::PaletteChild) {
         if (impl_->swapChain != nullptr)
             impl_->swapChain->Present (1);
+        EndNativeFrame (impl_->context);
         return;
     }
-    if (impl_->mode == SurfaceMode::Offscreen)
+    if (impl_->mode == SurfaceMode::Offscreen) {
+        EndNativeFrame (impl_->context);
         return;
+    }
     if (impl_->compositionSwapChain == nullptr)
         return;
+    if (impl_->backend == RenderBackend::D3D12)
+        PrepareCompositionPresentD3D12 (impl_->context, impl_->drawnComposition);
     // ⚠️ SYNC INTERVAL 1, NOT 0, AND A LIVE RUN IS WHY. Present(0) lets DWM pick
     // up a composition buffer mid-update; TransparencyProbe's 2026-08-08 run
     // reported its opaque test bar appearing SPLIT into two offset halves,
@@ -602,6 +685,7 @@ void DiligentViewportTarget::Present ()
         impl_->lastPresentResult.store (uint32_t (hr), std::memory_order_relaxed);
     if (FAILED (hr))
         impl_->presentFailures.fetch_add (1, std::memory_order_relaxed);
+    EndNativeFrame (impl_->context);
 }
 
 bool DiligentViewportTarget::CaptureRgba (Diligent::IDeviceContext* context, std::vector<uint8_t>& rgba,
@@ -621,6 +705,7 @@ bool DiligentViewportTarget::CaptureRgba (Diligent::IDeviceContext* context, std
     copy.DstTextureTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
     context->CopyTexture (copy);
     context->Flush ();
+    SyncBeforeStagingRead (context); // D3D12 maps do not wait for the copy
 
     Diligent::MappedTextureSubresource mapped;
     context->MapTextureSubresource (impl_->offscreenStaging, 0, 0, Diligent::MAP_READ, Diligent::MAP_FLAG_NONE, nullptr,
@@ -675,6 +760,17 @@ bool DiligentViewportTarget::SetFrameLatency (uint32_t frames, std::string& erro
         return false;
     }
     const uint32_t latency = frames < 1 ? 1 : frames;
+    if (impl_->mode == SurfaceMode::PaletteChild && impl_->backend == RenderBackend::D3D12) {
+        // No DXGI device on D3D12: the queue depth belongs to the swap chain,
+        // which Diligent creates with the waitable flag for exactly this.
+        if (impl_->swapChain == nullptr) {
+            error = "no palette swap chain to set the frame latency on";
+            return false;
+        }
+        impl_->swapChain->SetMaximumFrameLatency (latency);
+        impl_->frameLatency.store (latency, std::memory_order_relaxed);
+        return true;
+    }
     if (impl_->mode == SurfaceMode::PaletteChild) {
         if (impl_->deviceD3D11 == nullptr || impl_->deviceD3D11->GetD3D11Device () == nullptr) {
             error = "the palette device does not expose D3D11 frame latency control";
@@ -781,6 +877,10 @@ IDXGISwapChain* DiligentViewportTarget::Dxgi () const
     // stays taken, and every reopen fails E_ACCESSDENIED. `GetDXGISwapChain` is
     // documented as NOT adding a reference, so the pointer it returns is
     // BORROWED and is valid for as long as `swapChain` is.
+    if (impl_->backend == RenderBackend::D3D12) {
+        RefCntAutoPtr<Diligent::ISwapChainD3D12> native12 { impl_->swapChain, Diligent::IID_SwapChainD3D12 };
+        return native12 != nullptr ? native12->GetDXGISwapChain () : nullptr;
+    }
     RefCntAutoPtr<Diligent::ISwapChainD3D11> native { impl_->swapChain, Diligent::IID_SwapChainD3D11 };
     return native != nullptr ? native->GetDXGISwapChain () : nullptr;
 }

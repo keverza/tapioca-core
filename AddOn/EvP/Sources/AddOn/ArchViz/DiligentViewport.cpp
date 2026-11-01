@@ -18,6 +18,8 @@
 #include "ArchViz/DiligentPickBuffer.hpp"
 #include "ArchViz/AxisGnomonMesh.hpp"
 #include "ArchViz/DiligentCameraRays.hpp"
+#include "ArchViz/DiligentDeviceFactory.hpp"
+#include "ArchViz/DiligentNativeInterop.hpp"
 #include "ArchViz/DiligentGpuTimings.hpp"
 #include "ArchViz/PlanAnchorLayer.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
@@ -38,13 +40,9 @@
 #include "Screenshot/ScreenshotStore.hpp"
 
 #include <windows.h>
-#include <d3d11.h> // Must precede Diligent's D3D11 interop header (Probe 1a).
-#include <EngineFactoryD3D11.h>
-#include <DeviceContextD3D11.h>
+#include <DeviceContext.h>
 #include <RefCntAutoPtr.hpp>
-#include <RenderDeviceD3D11.h>
-#include <SwapChainD3D11.h>
-#include <TextureViewD3D11.h>
+#include <RenderDevice.h>
 
 #include <chrono>
 #include <cmath>
@@ -107,24 +105,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         // rest of the Archicad session.
         screenshot.Destroy (context);
         target.Destroy (context);
-        if (context != nullptr) {
-            Diligent::RefCntAutoPtr<Diligent::IDeviceContextD3D11> nativeContext { context,
-                                                                                   Diligent::IID_DeviceContextD3D11 };
-            if (nativeContext != nullptr) {
-                if (ID3D11DeviceContext* d3dContext = nativeContext->GetD3D11DeviceContext ()) {
-                    // InvalidateState does NOT merely drop Diligent's cache: it nulls
-                    // six shader stages and the RTV on the native context, but
-                    // leaves shader resources and samplers BOUND. ClearState is
-                    // the one that releases everything. DILIGENT-BOUNDARY-PLAN.md.
-                    d3dContext->ClearState ();
-                    d3dContext->Flush ();
-                }
-            }
-            else {
-                ArchVizLog ("Diligent viewport: could not reach the native D3D11 context to "
-                            "clear it -- reopening the viewport may fail with 'no swap chain'");
-            }
-        }
+        ReleaseNativeBindings (context); // D3D11 ClearState; D3D12 drains the queue
         context.Release ();
         device.Release ();
     };
@@ -134,21 +115,26 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         // first Diligent call so a device or swap-chain failure explains itself.
         InstallDiligentDebugCallback ();
 
-        Diligent::EngineD3D11CreateInfo engineCI;
-        engineCI.Features.Tessellation = Diligent::DEVICE_FEATURE_STATE_OPTIONAL;
-        engineCI.Features.GeometryShaders = Diligent::DEVICE_FEATURE_STATE_OPTIONAL;
-        Diligent::IEngineFactoryD3D11* factory = Diligent::GetEngineFactoryD3D11 ();
-        factory->CreateDeviceAndContextsD3D11 (engineCI, &device, &context);
-        if (device == nullptr || context == nullptr)
-            throw std::runtime_error ("Diligent returned no D3D11 device or immediate context");
-
+        // RE51.D2: D3D12 only where RenderBackend allows it; any D3D12 failure,
+        // including a surface that will not come up on it, is a D3D11 start.
+        RenderBackendChoice backend;
+        std::string targetError;
+        if (!CreateViewportDevice (backendPreference_.load (),
+                                   ViewportBackendConstraints (surface.mode == SurfaceMode::Overlay), device, context,
+                                   backend, targetError))
+            throw std::runtime_error (targetError);
+        bool surfaceUp =
+            target.Create (device, context, surface.mode, surface.nwh, surface.width, surface.height, targetError);
+        if (!surfaceUp && backend.backend == RenderBackend::D3D12) {
+            target.Destroy (context); // whatever half of the D3D12 surface came up
+            surfaceUp =
+                FallBackToD3D11 ("the surface: " + targetError, device, context, backend, targetError) &&
+                target.Create (device, context, surface.mode, surface.nwh, surface.width, surface.height, targetError);
+        }
+        if (!surfaceUp)
+            throw std::runtime_error (targetError);
         if (gpuTimings.Initialize (device))
             ArchVizLog ("Diligent benchmark GPU timings enabled");
-
-        std::string targetError;
-        if (!target.Create (device, context, factory, surface.mode, surface.nwh, surface.width, surface.height,
-                            targetError))
-            throw std::runtime_error (targetError);
 
         dxgiSwapChain = target.Dxgi ();
         IdentifyOwnSwapChain (dxgiSwapChain);
@@ -162,6 +148,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             std::lock_guard<std::mutex> lock (mutex_);
             stats_.initialized = true;
             stats_.overlay = surface.mode == SurfaceMode::Overlay;
+            stats_.backend = RenderBackendName (backend.backend);
+            stats_.backendReason = backend.reason;
         }
         ArchVizLog (std::string ("Diligent viewport: device, immediate context and ") +
                     (surface.mode == SurfaceMode::Overlay ? "COMPOSITION OVERLAY surface"
@@ -399,8 +387,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // view); against a transparent clear it would report "both clears
             // failed" every time, which is the one verdict that says the fault is
             // below Diligent. A false alarm in that slot is worse than no check.
-            if (target.Mode () != SurfaceMode::PaletteChild)
-                clearVerified = true;
+            if (target.Mode () != SurfaceMode::PaletteChild || !NativeClearABAvailable (context))
+                clearVerified = true; // and the native arm is a D3D11 call
             if (!clearVerified) {
                 // The A/B needs the target unbound before it can copy: D3D11
                 // refuses to copy a resource still bound for output, and the
