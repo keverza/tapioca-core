@@ -131,10 +131,18 @@ def _png_chunk(kind, data):
 
 
 def _fake_capture_png(width, height):
-    row = b"\x00" + bytes((39, 121, 203, 255)) * width
+    # A background with a block in the middle third, standing in for the model:
+    # a real capture always shows something, and the capture probe now fails a
+    # view whose every pixel is the background (2026-11-01, right.png).
+    background = bytes((39, 121, 203, 255))
+    model = bytes((200, 200, 205, 255))
+    left, right = width // 3, (2 * width) // 3
+    plain = b"\x00" + background * width
+    with_model = b"\x00" + background * left + model * (right - left) + background * (width - right)
+    rows = b"".join(with_model if height // 3 <= y < (2 * height) // 3 else plain for y in range(height))
     header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
     return (b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", header) +
-            _png_chunk(b"IDAT", zlib.compress(row * height)) +
+            _png_chunk(b"IDAT", zlib.compress(rows)) +
             _png_chunk(b"IEND", b""))
 
 
