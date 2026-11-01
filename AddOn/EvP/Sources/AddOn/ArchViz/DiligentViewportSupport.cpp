@@ -838,8 +838,8 @@ void PresentAndAccount (DiligentViewportTarget& target, const std::atomic<uint64
     PublishPresentAccounting (target, stalePresents.load (std::memory_order_relaxed), mutex, stats);
     // One viewer render thread at a time; a reopen is a gap the record resets on.
     static ViewerFramePacing pacing;
-    const std::string line = pacing.Note (
-        std::chrono::duration<double> (std::chrono::steady_clock::now ().time_since_epoch ()).count ());
+    const std::string line =
+        pacing.Note (std::chrono::duration<double> (std::chrono::steady_clock::now ().time_since_epoch ()).count ());
     if (!line.empty ())
         ArchVizLog (line);
 }
@@ -870,6 +870,11 @@ void ApplyRequestedFrameLatency (DiligentViewportTarget& target, uint32_t reques
     std::string error;
     if (target.SetFrameLatency (requested, error)) {
         applied = requested;
+        // ⚠️ THE CHAIN MAY BE A NEW OBJECT NOW. On a D3D12 palette child the latency
+        // goes through Diligent's ISwapChain::SetMaximumFrameLatency, which destroys
+        // the waitable DXGI chain and creates another (SwapChainD3DBase::UpdateSwapChain).
+        // Re-label the Present hook so it never names a freed chain.
+        IdentifyOwnSwapChain (target.Dxgi ());
         ArchVizLog ("viewport frame latency set to " + std::to_string (requested) +
                     " (DXGI's default is 3, i.e. up to three finished frames may wait)");
     }

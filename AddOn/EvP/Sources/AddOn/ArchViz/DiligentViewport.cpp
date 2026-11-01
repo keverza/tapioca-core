@@ -72,9 +72,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
     // optional.
     DiligentViewportTarget target;
     ViewerScreenshot screenshot; // a still at 1.5-3x, drawn through this loop (ViewerScreenshot.hpp)
-    // Borrowed from the target once it exists, for the per-frame present count.
-    // Never released -- the target owns it.
-    IDXGISwapChain* dxgiSwapChain = nullptr;
+    // ⚠️ NO CACHED IDXGISwapChain*: Diligent's SetMaximumFrameLatency RECREATES a waitable
+    // chain, and one cached here crashed Archicad on D3D12 (2026-11-01). Ask target.Dxgi ().
     uint32_t appliedLatency = 0;    // last value pushed, so a re-apply is a no-op
     uint64_t adoptedGeneration = 0; // which published camera this frame carries
     DiligentScene scene;
@@ -95,7 +94,6 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         textLayer.Shutdown ();
         hud.Shutdown ();
         pick.Shutdown ();
-        dxgiSwapChain = nullptr;
         IdentifyOwnSwapChain (nullptr); // clears the Present hook's label
         // ⚠️ THE TARGET GOES BEFORE THE CONTEXT AND THE DEVICE, and it is handed
         // the context so it can unbind first. PLAT-RE39 is the standing proof of
@@ -135,8 +133,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         if (gpuTimings.Initialize (device))
             ArchVizLog ("Diligent benchmark GPU timings enabled");
 
-        dxgiSwapChain = target.Dxgi ();
-        IdentifyOwnSwapChain (dxgiSwapChain);
+        IdentifyOwnSwapChain (target.Dxgi ());
 
         // Render thread, because the swap chain only exists here. The why is in
         // DiligentViewportSupport's ApplyRequestedFrameLatency.
@@ -949,8 +946,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 // always 0, and a loop that spins without presenting is exactly
                 // what these two numbers diverging would show.
                 UINT presents = 0;
-                if (dxgiSwapChain != nullptr)
-                    dxgiSwapChain->GetLastPresentCount (&presents);
+                if (IDXGISwapChain* chain = target.Dxgi ()) // fetched, never cached: see the top
+                    chain->GetLastPresentCount (&presents);
 
                 const DiligentSceneStats sceneStats = scene.Stats ();
 
