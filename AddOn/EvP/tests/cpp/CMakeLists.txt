@@ -1145,6 +1145,7 @@ set (EVP_TEST_SOURCES
     test_cursortotarget.cpp
     test_camera_cursorray.cpp
     test_camera_plan.cpp
+    test_camera_orbitpivot.cpp
     test_ghprotocol.cpp
     test_gh2overlayrequest.cpp
     test_ghsessionprotocol.cpp

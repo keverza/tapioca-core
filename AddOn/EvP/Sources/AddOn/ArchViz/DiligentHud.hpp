@@ -504,6 +504,8 @@ struct HudState {
     bool temporalAntiAliasing = false;
     // Sub-pixel smoothing of drag navigation (Camera::SetNavigationSmoothing).
     bool navSmoothing = true;
+    // What the last orbit turned about, an OrbitAnchorSource (OrbitAnchor.hpp): the HUD says it.
+    int orbitAnchor = 0;
     float taaStability = 0.9f;
 
     // 6500 K and tint 0 are the EXACT identity (AutoExposure.hpp), so these

@@ -541,7 +541,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // scene, which puts the panel underneath the building. One frame of
             // latency on "was that click for the combo box" is invisible; the
             // alternative is an orbit every time the user opens the dropdown.
-            if (!offscreen && !screenshot.Active () && NavigateViewer (camera, hudState, input, width, height))
+            if (!offscreen && !screenshot.Active () && NavigateViewer (camera, hudState, scene, input, width, height))
                 userHasNavigated = true;
 
             // ---- the overlay path: Archicad drives ----------------------------

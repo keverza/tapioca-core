@@ -178,6 +178,23 @@ class Camera final {
     // Re-frame whatever FrameBounds was last given. Does nothing if it never was.
     void FrameLastBounds ();
 
+    // ---- what the orbit turns about (issue #9, #88) -----------------------------
+    // ⚠️ A PIVOT, NOT A NEW TARGET. The orbit turns the whole camera -- eye and target together --
+    // about this world point, so the point stays where it is on screen and the picture the user
+    // started from does not jump to it. Without one the orbit turns about the target, which for
+    // Archicad's own starting camera is wherever it happened to be looking: in a large scene that
+    // swings the model out of the window. The viewer sets it every frame (OrbitAnchor.hpp): the
+    // selection's middle, else the scene box's middle.
+    void SetOrbitPivot (const float pivot[3]);
+    void ClearOrbitPivot ()
+    {
+        havePivot_ = false;
+    }
+    bool HasOrbitPivot () const
+    {
+        return havePivot_;
+    }
+
     // Fold one frame's input in. Returns true if the camera actually moved, so
     // the caller can tell a still frame from a moving one.
     //
@@ -252,6 +269,9 @@ class Camera final {
     // Half-height of the focal plane (the plane through the target, normal to
     // the view direction) in metres. Everything screen-to-world scales by it.
     float FocalHalfHeight () const;
+    // Turn the camera to `yaw`/`pitch` about the pivot (SetOrbitPivot): the target swung about it
+    // by the same rotation as the line of sight. About the target when there is none.
+    void OrbitTo (float yaw, float pitch);
 
     float targetX_ = 0.0f, targetY_ = 0.0f, targetZ_ = 0.0f;
     float distance_ = 12.0f; // metres
@@ -263,6 +283,9 @@ class Camera final {
     float boundsMin_[3] = { 0.0f, 0.0f, 0.0f };
     float boundsMax_[3] = { 0.0f, 0.0f, 0.0f };
     bool haveBounds_ = false;
+
+    float pivot_[3] = { 0.0f, 0.0f, 0.0f };
+    bool havePivot_ = false;
 
     // ---- navigation state -------------------------------------------------
     NavMode nav_ = NavMode::None;

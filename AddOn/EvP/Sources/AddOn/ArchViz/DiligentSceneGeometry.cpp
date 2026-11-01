@@ -516,6 +516,25 @@ std::vector<std::string> DiligentScene::SelectedGuids () const
     return impl_ != nullptr ? impl_->selectionGuids : std::vector<std::string> {};
 }
 
+bool DiligentScene::SelectionBounds (float outMin[3], float outMax[3]) const
+{
+    bool any = false;
+    if (impl_ == nullptr || impl_->selectionGuids.empty ())
+        return false;
+    for (const Entry& e : impl_->elements) {
+        if (!e.hasBounds || !e.selected)
+            continue;
+        for (int k = 0; k < 3; ++k) {
+            if (!any || e.boundsMin[k] < outMin[k])
+                outMin[k] = e.boundsMin[k];
+            if (!any || e.boundsMax[k] > outMax[k])
+                outMax[k] = e.boundsMax[k];
+        }
+        any = true;
+    }
+    return any;
+}
+
 bool DiligentScene::SceneBounds (float outMin[3], float outMax[3]) const
 {
     bool any = false;

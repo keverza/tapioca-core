@@ -201,6 +201,44 @@ void Camera::FrameLastBounds ()
         FrameBounds (boundsMin_, boundsMax_);
 }
 
+void Camera::SetOrbitPivot (const float pivot[3])
+{
+    for (int i = 0; i < 3; ++i)
+        pivot_[i] = pivot[i];
+    havePivot_ = true;
+}
+
+void Camera::OrbitTo (float yaw, float pitch)
+{
+    if (!havePivot_) {
+        yaw_ = yaw;
+        pitch_ = pitch;
+        return;
+    }
+    // Rodrigues: v about the unit axis k by `angle`.
+    const auto rotate = [] (float v[3], const float k[3], float angle) {
+        const float c = std::cos (angle);
+        const float s = std::sin (angle);
+        const float dot = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
+        const float cross[3] = { k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0] };
+        for (int i = 0; i < 3; ++i)
+            v[i] = v[i] * c + cross[i] * s + k[i] * dot * (1.0f - c);
+    };
+    float v[3] = { targetX_ - pivot_[0], targetY_ - pivot_[1], targetZ_ - pivot_[2] };
+    // ⚠️ YAW, THEN PITCH ABOUT THE NEW YAW'S RIGHT AXIS: each a rigid turn of eye and target together.
+    // The line of sight's yaw is a turn about world Z; its pitch, a turn about -right = (sy, -cy, 0)
+    // -- d(eye direction)/d(pitch) is the camera's up, and (-right) x direction = up.
+    const float z[3] = { 0.0f, 0.0f, 1.0f };
+    rotate (v, z, yaw - yaw_);
+    const float axis[3] = { std::sin (yaw), -std::cos (yaw), 0.0f };
+    rotate (v, axis, pitch - pitch_);
+    targetX_ = pivot_[0] + v[0];
+    targetY_ = pivot_[1] + v[1];
+    targetZ_ = pivot_[2] + v[2];
+    yaw_ = yaw;
+    pitch_ = pitch;
+}
+
 void Camera::Basis (float right[3], float up[3]) const
 {
     // ⚠️ THE TOP-DOWN POSE'S AXES ARE ITS ROTATION'S, NOT THE ORBIT'S (the user, 2026-10-03: the
@@ -405,16 +443,16 @@ bool Camera::ApplyInput (const InputSnapshot& input, bool imguiWantsMouse, uint3
         // just short of the pole whose screen up is the plan's -- (-cos yaw, -sin yaw) there
         // against (-sin r, cos r), so yaw = r - 90 degrees. Kept, the pose's fixed roll fought
         // the orbit's eye.
+        // Left at the pole itself, so the step down to kPitchLimit below also turns about the pivot.
         if (topDown_) {
             yaw_ = topDownRotation_ - 0.5f * kPi;
-            pitch_ = kPitchLimit;
+            pitch_ = 0.5f * kPi;
             topDown_ = false;
         }
-        yaw_ -= mx * kOrbitPerPixel;
         // Dragging DOWN looks down at the model, which is the convention every
         // CAD orbit uses; inverting it here is the single most complained-about
         // thing a viewer can get wrong.
-        pitch_ = std::clamp (pitch_ + my * kOrbitPerPixel, -kPitchLimit, kPitchLimit);
+        OrbitTo (yaw_ - mx * kOrbitPerPixel, std::clamp (pitch_ + my * kOrbitPerPixel, -kPitchLimit, kPitchLimit));
         moved = true;
     }
     else {

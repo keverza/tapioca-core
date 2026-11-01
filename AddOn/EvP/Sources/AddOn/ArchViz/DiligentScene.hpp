@@ -710,6 +710,8 @@ class DiligentScene final {
     // framing an empty scene points the camera at the origin, which reads as
     // "the model failed to load" even when it simply has not arrived yet.
     bool SceneBounds (float outMin[3], float outMax[3]) const;
+    // The selected elements' AABB, the same way. False when nothing selected has bounds.
+    bool SelectionBounds (float outMin[3], float outMax[3]) const;
 
     DiligentSceneStats Stats () const;
 
