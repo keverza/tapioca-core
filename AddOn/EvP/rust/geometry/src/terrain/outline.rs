@@ -14,7 +14,9 @@
 //!
 //! **Mesh.** The region is rebuilt as in [`super::region`] with the caller's plan
 //! breaklines (the outline and rings offset from it, so a face has vertices to
-//! lie on) and isolated points (the TIN's interior vertices). Every vertex of an
+//! lie on) and isolated points (the TIN's interior vertices). Private constraints
+//! preserve every affine piece of the paved TIN, clipped at a shared subdivided
+//! region stitch. Every vertex of an
 //! outside triangle keeps its base height bit for bit; every other vertex takes
 //! the design height. Volumes are the exact triangle sums against the base.
 //!
@@ -24,11 +26,13 @@ use super::design::{toe, top};
 use super::edit::Effect;
 use super::field::Field;
 use super::plan;
-use super::region::{RegionError, RegionMesh, RegionRequest, retriangulate_region_with_points};
+use super::region::{RegionError, RegionMesh, RegionRequest, retriangulate_with_supports};
 use super::volume::VolumeError;
 use super::volume::exact::{ExactReport, ExactRequest, exact_cut_fill};
 use crate::slope::Slope;
 use std::collections::BTreeMap;
+
+mod supports;
 
 /// How the faces around the area are graded.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -73,8 +77,15 @@ pub struct OutlineRequest<'a> {
 pub struct Outlined {
     /// Flat xyz proposed vertices; the plan positions are `mesh.points`'.
     pub points: Vec<f64>,
-    /// The rebuilt base mesh and its mapping to the request.
+    /// The rebuilt base mesh. Derived support breaklines append after the caller
+    /// breaklines, mapped to source TIN edges by `surface_supports`. The split's
+    /// line origins refer to `stitch` (before the base split adds its crossings).
     pub mesh: RegionMesh,
+    /// Flat xyz region ring subdivided at private support intersections; z=0.
+    pub stitch: Vec<f64>,
+    /// Per appended private breakline, its original surface vertex pair (sorted).
+    /// Several clipped pieces may carry the same source edge.
+    pub surface_supports: Vec<[u32; 2]>,
     /// Per vertex, whether the design changed its height (bitwise).
     pub owners: Vec<bool>,
     /// Exact cut/fill: site inside the region, context outside.
@@ -247,7 +258,8 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
         fill,
         grading: g,
     };
-    let mesh = retriangulate_region_with_points(
+    let supports = supports::prepare(request)?;
+    let mesh = retriangulate_with_supports(
         &RegionRequest {
             points: request.points,
             triangles: request.triangles,
@@ -255,6 +267,8 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
             breaklines: request.breaklines,
         },
         request.spots,
+        &supports.ring,
+        &supports.lines,
     )
     .map_err(OutlineError::Region)?;
     let vertices = plan::vertices(&mesh.points);
@@ -299,6 +313,8 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
     Ok(Outlined {
         points,
         mesh,
+        stitch: supports.ring,
+        surface_supports: supports.sources,
         owners,
         volumes,
         unreached,

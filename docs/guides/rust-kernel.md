@@ -1031,6 +1031,26 @@ C++ (`EditTerrainOutline`) only builds plan geometry: the paved outline of every
 path clipped to the terrain inside the property line, its offsets and the region.
 Enabled fixed heights still fall back to the band.
 
+The Crown interpolation repair also constrains the supplied TIN's canonical
+edges: sampling only its vertices allowed new triangles to bridge affine pieces.
+Private `outline::supports` reuses `triangulate` to clip these supports and obtain
+the subdivided region ring, and `split::ring` validates the original ring before
+preparation (no discarded ragged/nonfinite input). An outline-only region seam
+splits the base on that augmented ring before inserting the pre-clipped pieces;
+boundary endpoints then share real vertices on both sides, not T-junctions.
+Public region breaklines/spots remain strictly interior. Boundary heights shared
+with outside triangles remain fixed to the base, including when paving crosses
+the region; source-height equality is not promised across that transition.
+
+Safe `Outlined::stitch` retains the augmented input ring for split-origin indices;
+`surface_supports` maps derived breaklines (appended after caller lines) back to
+their original source vertex pair. These fields preserve meaningful Rust-side
+mapping rather than mislabel private supports as authored controls. The preview
+ABI remains unchanged and still exports no support rows. Preparation allocates
+one extra plan triangulation plus support arrays; it remains worker-classified,
+with no latency, allocation/peak-memory or native acceptance claim. The existing
+20,000-vertex split-ring limit also applies to the augmented stitch.
+
 **Located conflicts (S4.3).** `terrain::hybrid::conflict` names where a band
 cannot be built as authored, each with station, side, position, magnitude and a
 suggested fix: `DaylightNotReached`, `DaylightBeyondLimit`, `VerticalFace` and

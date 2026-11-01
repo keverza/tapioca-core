@@ -277,7 +277,7 @@ fn ring_area(ring: &[[f64; 2]]) -> f64 {
 /// Validate the line: arcs first (as the editor does), then shape and
 /// simplicity. Returns plan positions.
 fn line(request: &SplitRequest<'_>) -> Result<Vec<[f64; 2]>, Error> {
-    let (points, remainder) = request.line.as_chunks::<3>();
+    let points = request.line.as_chunks::<3>().0;
     let outside = Error::PropertyLineOutside;
     if !request.arc_angles.is_empty() && request.arc_angles.len() != points.len() {
         return Err(outside);
@@ -285,9 +285,16 @@ fn line(request: &SplitRequest<'_>) -> Result<Vec<[f64; 2]>, Error> {
     if request.arc_angles.iter().any(|&angle| angle != 0.0) {
         return Err(Error::PropertyLineArcUnsupported);
     }
+    ring(request.line)
+}
+
+/// Validate the original straight ring before an outline adds stitch vertices.
+pub(super) fn ring(line: &[f64]) -> Result<Vec<[f64; 2]>, Error> {
+    let (points, remainder) = line.as_chunks::<3>();
+    let outside = Error::PropertyLineOutside;
     if !remainder.is_empty()
         || !(3..=MAX_LINE_VERTICES).contains(&points.len())
-        || !request.line.iter().all(|value| value.is_finite())
+        || !line.iter().all(|value| value.is_finite())
     {
         return Err(outside);
     }

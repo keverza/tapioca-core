@@ -454,6 +454,66 @@ TEST (EditTerrainDesign, CrownedPathBuildsACentrelineCrease)
     EXPECT_EQ (result.meshProvenance.counts.vertices, build.points.size () / 3);
 }
 
+TEST (EditTerrainDesign, CrossfallContractKeepsSignedOutlineAndExistingNegativeBandRefusal)
+{
+    for (const auto fall : { edit::Fall::Left, edit::Fall::Right, edit::Fall::Crown })
+        for (double crossfall : { 2.0, -2.0, 0.0 }) {
+            SCOPED_TRACE ("fall=" + std::to_string (static_cast<int> (fall)) +
+                          " crossfall=" + std::to_string (crossfall));
+            DesignFixture fixture;
+            std::string error;
+            ASSERT_TRUE (edit::SetPathCrossfall (fixture.doc, fixture.path, fixture.doc.paths[0].sections[0].id,
+                                                 crossfall, fall, error))
+                << error;
+            ++fixture.doc.revision;
+            fixture.Capture ();
+            const auto baseline = fixture.points;
+            const auto provenance = fixture.provenance;
+            TerrainDesignResult band;
+            band.region = { 123, 456, 789 };
+            const auto original = band;
+            if (crossfall < 0) {
+                EXPECT_FALSE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), fixture.Options (), band, error));
+                EXPECT_NE (error.find ("DesignSlope"), std::string::npos) << error;
+                EXPECT_EQ (band, original) << "negative-band capability is not added by the crossfall unit slice";
+            }
+            else
+                ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), fixture.Options (), band, error))
+                    << error;
+            TerrainDesignResult outline;
+            uint32_t unreached = 0;
+            const auto options = OutlineOptionsFor (fixture.doc, fixture.path, 10);
+            ASSERT_TRUE (EvaluateOutlineDesign (fixture.doc, fixture.Input (), options, outline, unreached, error))
+                << error;
+            // At x=20 the profile is 11 m. One metre left/right drops 2 cm on
+            // the specified side; negative raw Crown is a valley, not a crown.
+            const double left = (fall == edit::Fall::Right ? 1 : -1) * crossfall / 100;
+            const double right = (fall == edit::Fall::Left ? 1 : -1) * crossfall / 100;
+            const auto paved = edit::Pave (fixture.doc.paths);
+            double pavedLeft = 0, pavedRight = 0;
+            ASSERT_TRUE (edit::PavedHeight (paved, { 20, 1, 0 }, pavedLeft));
+            ASSERT_TRUE (edit::PavedHeight (paved, { 20, -1, 0 }, pavedRight));
+            EXPECT_NEAR (pavedLeft, 11 + left, 1e-9);
+            EXPECT_NEAR (pavedRight, 11 + right, 1e-9);
+            const std::array<double, 6> queries { 20, 1, 20, -1, -15, -20 };
+            for (const auto* built : { crossfall < 0 ? &outline.build : &band.build, &outline.build }) {
+                std::vector<TerrainSample> samples;
+                TerrainFieldSummary summary;
+                ASSERT_TRUE (
+                    SampleTerrain ({ built->points, built->triangles }, queries, 0.25, samples, summary, error))
+                    << error;
+                ASSERT_EQ (samples.size (), 3u);
+                EXPECT_NEAR (samples[0].height, 11 + left, 1e-7);
+                EXPECT_NEAR (samples[1].height, 11 + right, 1e-7);
+                EXPECT_NEAR (samples[2].height, 13.25, 1e-7);
+            }
+            EXPECT_EQ (fixture.points, baseline);
+            EXPECT_EQ (fixture.provenance, provenance);
+            EXPECT_EQ (fixture.doc.paths[0].sections[0].crossfall, crossfall);
+            EXPECT_EQ (fixture.doc.paths[0].sections[0].fall, fall);
+        }
+}
+
 TEST (EditTerrainDesign, ARangeChangeIsAShortTaperNotARamp)
 {
     DesignFixture fixture;

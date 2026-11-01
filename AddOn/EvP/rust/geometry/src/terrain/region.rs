@@ -159,15 +159,19 @@ fn sorted(a: u32, b: u32) -> [u32; 2] {
     if a < b { [a, b] } else { [b, a] }
 }
 
-fn validate_breaklines(request: &RegionRequest<'_>) -> Result<(), RegionError> {
+fn validate_breaklines(request: &RegionRequest<'_>, strict: usize) -> Result<(), RegionError> {
     let ring = plan::vertices(request.region);
-    for line in request.breaklines {
+    for (index, line) in request.breaklines.iter().enumerate() {
         if !line.len().is_multiple_of(3) || line.len() < 6 {
             return Err(RegionError::Breakline);
         }
         for &[x, y, z] in plan::vertices(line) {
             if !(x.is_finite() && y.is_finite() && z.is_finite())
-                || plan::inside(ring, x, y) != Some(true)
+                || match plan::inside(ring, x, y) {
+                    Some(true) => false,
+                    None => index < strict,
+                    Some(false) => true,
+                }
             {
                 return Err(RegionError::Breakline);
             }
@@ -200,9 +204,41 @@ pub fn retriangulate_region_with_points(
     request: &RegionRequest<'_>,
     spots: &[f64],
 ) -> Result<RegionMesh, RegionError> {
+    rebuild(request, spots, request.breaklines.len())
+}
+
+/// Outline-only pre-clipped supports. The augmented ring contains every support
+/// endpoint on its boundary, so the base split stitches both sides there. Caller
+/// controls retain the original strict-interior contract. Derived line mappings
+/// append after the caller lines; the outline result retains their source edges.
+pub(super) fn retriangulate_with_supports(
+    request: &RegionRequest<'_>,
+    spots: &[f64],
+    ring: &[f64],
+    supports: &[Vec<f64>],
+) -> Result<RegionMesh, RegionError> {
+    validate_breaklines(request, request.breaklines.len())?;
+    let mut lines = request.breaklines.to_vec();
+    lines.extend(supports.iter().map(Vec::as_slice));
+    rebuild(
+        &RegionRequest {
+            region: ring,
+            breaklines: &lines,
+            ..*request
+        },
+        spots,
+        request.breaklines.len(),
+    )
+}
+
+fn rebuild(
+    request: &RegionRequest<'_>,
+    spots: &[f64],
+    strict: usize,
+) -> Result<RegionMesh, RegionError> {
     let field = Field::new(request.points, request.triangles)
         .map_err(|_| RegionError::Terrain(Error::Shape))?;
-    validate_breaklines(request)?;
+    validate_breaklines(request, strict)?;
     if !spots.len().is_multiple_of(3)
         || spots.iter().any(|value| !value.is_finite())
         || plan::vertices(spots)
@@ -353,6 +389,15 @@ pub fn retriangulate_region_with_points(
         }
     }
     for crossing in &tin.crossings {
+        // A clipped private support can end at an existing ring vertex. Such a
+        // touch has an input origin already; a genuinely new boundary crossing
+        // still refuses below and in the stitch verification.
+        if origin
+            .get(crossing.vertex as usize)
+            .is_some_and(Option::is_some)
+        {
+            continue;
+        }
         let [a, b] = crossing.segments;
         let kind = RegionVertex::Crossing([
             support(a.constraint, a.segment)?,
