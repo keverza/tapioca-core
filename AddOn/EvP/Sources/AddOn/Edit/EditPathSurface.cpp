@@ -107,7 +107,8 @@ void OntoPavedSurface (const PavedArea& area, std::vector<Vec3>& points)
     }
 }
 
-bool BuildLinearSurface (PavedArea& area, const Path& path, const AlignmentGeometry& geometry)
+bool BuildLinearSurface (PavedArea& area, const Path& path, const AlignmentGeometry& geometry,
+                         const PathPreparation& preparation)
 {
     if (geometry.elements.size () != 1 || geometry.elements[0].kind != ElementKind::Line ||
         path.sections.size () != 1 || path.edgeRadius != 0 || area.rings.size () != 1 || area.rings[0].size () != 4)
@@ -119,7 +120,8 @@ bool BuildLinearSurface (PavedArea& area, const Path& path, const AlignmentGeome
         if (k.radius != 0)
             return false;
     StationFrame start, end;
-    if (!Evaluate (path, geometry, 0, start) || !Evaluate (path, geometry, geometry.length, end))
+    if (!Evaluate (path, geometry, preparation, 0, start) ||
+        !Evaluate (path, geometry, preparation, geometry.length, end))
         return false;
     const auto boundary = [&] (Vec3 p) {
         return *std::min_element (area.rings[0].begin (), area.rings[0].end (),
@@ -131,7 +133,7 @@ bool BuildLinearSurface (PavedArea& area, const Path& path, const AlignmentGeome
     area.triangles.clear ();
     for (double station : SampleStations (path, geometry, 0)) {
         StationFrame f;
-        Evaluate (path, geometry, station, f);
+        Evaluate (path, geometry, preparation, station, f);
         Vec3 left = Lerp (sl, el, station / geometry.length), right = Lerp (sr, er, station / geometry.length);
         left.z = f.leftEdge.z;
         right.z = f.rightEdge.z;

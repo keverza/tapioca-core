@@ -538,7 +538,10 @@ bool SetPathWidthFromPoint (Document& doc, Id path, Vec3 point, std::string& err
 bool SetPathCrossfall (Document& doc, Id path, Id range, double percent, Fall fall, std::string& error)
 {
     return EditPath (
-        doc, path, [&] (Path& p, std::string& why) { return SetCrossfall (p.sections, range, percent, fall, why); },
+        doc, path,
+        [&] (Path& p, std::string& why) {
+            return SetCrossfall (p.sections, range, PercentCrossfall (percent), fall, why);
+        },
         error);
 }
 

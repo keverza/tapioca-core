@@ -51,7 +51,7 @@ struct DesignFixture {
             doc, path,
             [] (edit::Path& value, std::string&) {
                 for (auto& section : value.sections) {
-                    section.crossfall = 0;
+                    section.crossfall = edit::PercentCrossfall (0);
                     section.cutSlope = { TerrainSlope::Unit::Percent, 50, 0 }; // 1:2
                     section.fillSlope = { TerrainSlope::Unit::Percent, 50, 0 };
                     section.rounding = 0; // the worked volumes are the sharp ones
@@ -425,7 +425,7 @@ TEST (EditTerrainDesign, CrownedPathBuildsACentrelineCrease)
         fixture.doc, fixture.path,
         [] (edit::Path& value, std::string&) {
             for (auto& section : value.sections) {
-                section.crossfall = 2;
+                section.crossfall = edit::PercentCrossfall (2);
                 section.fall = edit::Fall::Crown;
             }
             return true;
@@ -509,7 +509,7 @@ TEST (EditTerrainDesign, CrossfallContractKeepsSignedOutlineAndExistingNegativeB
             }
             EXPECT_EQ (fixture.points, baseline);
             EXPECT_EQ (fixture.provenance, provenance);
-            EXPECT_EQ (fixture.doc.paths[0].sections[0].crossfall, crossfall);
+            EXPECT_EQ (fixture.doc.paths[0].sections[0].crossfall, edit::PercentCrossfall (crossfall));
             EXPECT_EQ (fixture.doc.paths[0].sections[0].fall, fall);
         }
 }
@@ -1681,7 +1681,7 @@ TEST (HudTerrainDesign, SimpleTwoTriangleMeshIsRebuiltAroundThePathInsteadOfBrid
                 point.z = point.station == 20 ? 13 : 11;
             for (auto& section : path.sections) {
                 section.widthLeft = section.widthRight = 8;
-                section.crossfall = 0;
+                section.crossfall = edit::PercentCrossfall (0);
             }
             return true;
         },
@@ -1835,7 +1835,7 @@ TEST (HudTerrainDesign, TypedCrossSectionApplyRebuildsTheExistingPreviewWithoutA
     ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, section)) << session.message;
     session.terrainSectionDraft->value.widthLeft = 2;
     session.terrainSectionDraft->value.widthRight = 2;
-    session.terrainSectionDraft->value.crossfall = 1;
+    session.terrainSectionDraft->value.crossfall = edit::PercentCrossfall (1);
     session.terrainSectionDraft->value.fall = edit::Fall::Crown;
     session.terrainSectionDraft->value.cutSlope = { TerrainSlope::Unit::Percent, 60, 0 };
     const auto depth = session.edits.UndoDepth ();

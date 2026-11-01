@@ -237,6 +237,20 @@ constexpr SlopeFieldLabels s_pathCutLabels {
     200,
     "%.0f %%"
 };
+constexpr SlopeFieldLabels s_pathCrossfallLabels {
+    "Crossfall unit",
+    "Crossfall",
+    "Crossfall (degrees)",
+    "Crossfall rise",
+    "Crossfall run",
+    "Crossfall height (m)",
+    "Crossfall plan run (m)",
+    "Path crossfall: finite magnitude below 100 percent; vertical is unsupported. Sign and Falls to stay separate.",
+    true,
+    0.01,
+    100,
+    "%.1f %%"
+};
 constexpr SlopeFieldLabels s_pathFillLabels {
     "Fill slope unit",
     "Fill slope",
@@ -342,7 +356,7 @@ void SectionPanel (Session& s, edit::Id path)
         slide ("Right end width", value.endRight, 0.0, 10.0, "%.2f m");
         ImGui::TextWrapped ("End widths apply at the next range's start, or at the path end for the last range.");
     }
-    slide ("Crossfall", value.crossfall, 0.0, 10.0, "%.1f %%");
+    release |= SectionSlopeFields (s, s_pathCrossfallLabels, value.crossfall.slope);
     const char* fall = value.fall == edit::Fall::Left ? "Left" : value.fall == edit::Fall::Right ? "Right" : "Crown";
     if (ImGui::BeginCombo ("Falls to", fall)) {
         for (auto hand : { edit::Fall::Left, edit::Fall::Right, edit::Fall::Crown }) {

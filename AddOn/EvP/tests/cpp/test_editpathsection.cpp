@@ -102,7 +102,7 @@ TEST (EditPathSection, ATaperRunsItsWidthsToTheNextRangeAndTheLastToThePathEnd)
     EXPECT_NEAR (ed::SectionIn (s, 100.0, 70.0).widthLeft, 0.5, 1e-12);
     EXPECT_NEAR (ed::SectionIn (s, 100.0, 100.0).widthRight, 2.5, 1e-12);
     EXPECT_NEAR (ed::SectionIn (s, 100.0, 130.0).widthRight, 2.5, 1e-12); // past the end: clamped
-    EXPECT_TRUE (ed::SectionIn ({}, 100.0, 10.0).id == ed::kNoId);
+    EXPECT_TRUE (ed::SectionIn (std::vector<ed::Section> {}, 100.0, 10.0).id == ed::kNoId);
 }
 
 TEST (EditPathSection, SplittingATaperKeepsItsWidthsEverywhere)

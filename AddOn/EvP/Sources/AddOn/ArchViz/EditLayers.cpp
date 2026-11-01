@@ -351,7 +351,7 @@ void PathMarkLabels (const edit::Document& doc, const edit::Path& path, const ed
             l.side = { 0.0, 1.0, 0.0 };
         l.along = l.side;
         l.at = Lerp (c, edge, 0.55);
-        l.text = Percent (section.crossfall);
+        l.text = Percent (edit::PathCrossfallPercent (section.crossfall));
         l.rgba = style.fall;
         l.dy = 16.0f;
         l.typed = true;

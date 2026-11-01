@@ -718,7 +718,7 @@ TEST (HudTerrainSetup, SectionFieldsApplyTogetherInOneHistoryEntryAndPersistInTh
     auto& value = session.terrainSectionDraft->value;
     value.widthLeft = 2;
     value.widthRight = 3;
-    value.crossfall = 3;
+    value.crossfall = edit::PercentCrossfall (3);
     value.fall = edit::Fall::Right;
     value.shoulder = .25;
     value.cutSlope = { lg::TerrainSlope::Unit::Percent, 60, 0 };
@@ -779,16 +779,16 @@ TEST (HudTerrainSetup, SignedCrossfallDraftsRemainSignedAndPassiveSlidersDoNotNo
         const auto before = edit::FindPath (doc, path)->sections[0];
         eh::Session session (doc);
         ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, before.id));
-        session.terrainSectionDraft->value.crossfall = -3;
+        session.terrainSectionDraft->value.crossfall = edit::PercentCrossfall (-3);
         session.terrainSectionDraft->value.fall = fall;
         PanelGui gui;
         gui.Frame (session);
-        EXPECT_EQ (session.terrainSectionDraft->value.crossfall, -3);
+        EXPECT_EQ (session.terrainSectionDraft->value.crossfall, edit::PercentCrossfall (-3));
         EXPECT_EQ (session.edits.Doc ().paths, doc.paths);
         ASSERT_TRUE (eh::ApplyTerrainSectionEdit (session)) << session.message;
         gui.Frame (session);
         auto after = edit::FindPath (session.edits.Doc (), path)->sections[0];
-        EXPECT_EQ (after.crossfall, -3);
+        EXPECT_EQ (after.crossfall, edit::PercentCrossfall (-3));
         EXPECT_EQ (after.fall, fall);
         after.crossfall = before.crossfall;
         after.fall = before.fall;
@@ -819,7 +819,7 @@ TEST (HudTerrainSetup, InvalidOrIdentityChangingSectionDraftsRefuseAtomicallyAnd
                 value.fillSlope = { lg::TerrainSlope::Unit::Percent, std::numeric_limits<double>::infinity (), 0 };
                 break;
             case 3:
-                value.crossfall = std::numeric_limits<double>::quiet_NaN ();
+                value.crossfall = edit::PercentCrossfall (std::numeric_limits<double>::quiet_NaN ());
                 break;
             case 4:
                 ++value.id;

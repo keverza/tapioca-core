@@ -232,7 +232,7 @@ GS::ObjectState Export (const edit::Document& doc)
             q.Add ("station", r.station);
             q.Add ("widthLeft", r.widthLeft);
             q.Add ("widthRight", r.widthRight);
-            q.Add ("crossfall", r.crossfall);
+            q.Add ("crossfall", edit::PathCrossfallPercent (r.crossfall));
             q.Add ("fall", GS::UniString (r.fall == edit::Fall::Left    ? "left"
                                           : r.fall == edit::Fall::Right ? "right"
                                                                         : "crown"));

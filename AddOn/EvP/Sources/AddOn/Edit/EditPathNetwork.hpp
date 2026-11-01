@@ -99,6 +99,8 @@ bool SetKerbRadius (Document& doc, Id path, const KerbCorner& corner, double rad
 
 // A path's surface at plan point `p`: the centre's elevation with the crossfall carried to
 // the offset. `beyond` includes width and end caps (negative inside).
+bool SurfaceHeight (const Path& path, const AlignmentGeometry& geometry, const PathPreparation& preparation, Vec3 p,
+                    double& z, double& beyond);
 bool SurfaceHeight (const Path& path, const AlignmentGeometry& geometry, Vec3 p, double& z, double& beyond);
 
 } // namespace geomsrv::edit

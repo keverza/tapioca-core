@@ -29,7 +29,8 @@ bool Stations (const edit::Path& path, const TerrainDesignOptions& options, std:
                std::vector<TerrainStation>& result, std::string& error)
 {
     edit::AlignmentGeometry geometry;
-    if (!edit::ValidatePath (path, geometry, error))
+    edit::PathPreparation preparation;
+    if (!edit::PreparePath (path, geometry, preparation, error))
         return false;
     // Each range change happens over `taper` metres ending at its start: the
     // station `taper` before it still evaluates the range in force there.
@@ -44,20 +45,25 @@ bool Stations (const edit::Path& path, const TerrainDesignOptions& options, std:
                    samples.end ());
     for (double station : samples) {
         edit::StationFrame frame;
-        if (!edit::Evaluate (path, geometry, station, frame)) {
+        if (!edit::Evaluate (path, geometry, preparation, station, frame)) {
             error = "TerrainDesignStation: the path cannot be evaluated at a sampled station";
             return false;
         }
         const auto& section = frame.section;
+        double percent = 0;
+        if (!edit::PreparedCrossfall (preparation, section, percent)) {
+            error = "TerrainDesignStation: prepared crossfall does not match its authored range";
+            return false;
+        }
         TerrainStation value;
         value.position = { frame.centre.x, frame.centre.y, frame.centre.z };
         value.halfLeft = section.widthLeft;
         value.halfRight = section.widthRight;
-        if (section.crossfall != 0.0 && section.fall == edit::Fall::Crown)
-            value.crown = TerrainSlope { TerrainSlope::Unit::Percent, section.crossfall, 0 };
-        else if (section.crossfall != 0.0) {
+        if (percent != 0.0 && section.fall == edit::Fall::Crown)
+            value.crown = TerrainSlope { TerrainSlope::Unit::Percent, percent, 0 };
+        else if (percent != 0.0) {
             value.crossfall = TerrainCrossfall {
-                { TerrainSlope::Unit::Percent, section.crossfall, 0 },
+                { TerrainSlope::Unit::Percent, percent, 0 },
                 section.fall == edit::Fall::Left ? TerrainHand::Left : TerrainHand::Right,
             };
         }

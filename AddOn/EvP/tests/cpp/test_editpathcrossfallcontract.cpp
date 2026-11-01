@@ -32,7 +32,7 @@ edit::Document PathDocument (double offset = 0)
             auto& section = p.sections[0];
             section.widthLeft = section.endLeft = 1.5;
             section.widthRight = section.endRight = 2.5;
-            section.crossfall = 1.25;
+            section.crossfall = edit::PercentCrossfall (1.25);
             section.fall = edit::Fall::Right;
             section.cutSlope = { lg::TerrainSlope::Unit::Percent, 65, 0 };
             section.fillSlope = { lg::TerrainSlope::Unit::Percent, 42, 0 };
@@ -61,7 +61,7 @@ TEST (EditPathCrossfallContract, SignedHandsAndCrownMatchAnalyticEdgesFramesAndS
             std::string error;
             ASSERT_TRUE (edit::SetPathCrossfall (doc, path.id, before.id, sample.percent, sample.fall, error)) << error;
             const auto& section = path.sections[0];
-            EXPECT_EQ (section.crossfall, sample.percent);
+            EXPECT_EQ (section.crossfall, edit::PercentCrossfall (sample.percent));
             EXPECT_EQ (section.fall, sample.fall);
             auto unchanged = section;
             unchanged.crossfall = before.crossfall;
@@ -98,8 +98,8 @@ TEST (EditPathCrossfallContract, StrictSignedSurfaceBoundaryAndNonfiniteEditsRef
     for (double valid : { 0.0, -0.0, below, -below }) {
         auto changed = doc;
         ASSERT_TRUE (edit::SetPathCrossfall (changed, path, range, valid, edit::Fall::Crown, error)) << error;
-        EXPECT_EQ (changed.paths[0].sections[0].crossfall, valid);
-        EXPECT_EQ (std::signbit (changed.paths[0].sections[0].crossfall), std::signbit (valid));
+        EXPECT_EQ (changed.paths[0].sections[0].crossfall, edit::PercentCrossfall (valid));
+        EXPECT_EQ (changed.paths[0].sections[0].crossfall.negative, std::signbit (valid));
     }
     for (double invalid : { 100.0, -100.0, std::nextafter (100.0, 200.0), std::nextafter (-100.0, -200.0),
                             std::numeric_limits<double>::infinity (), -std::numeric_limits<double>::infinity (),
@@ -136,7 +136,7 @@ TEST (EditPathCrossfallContract, SignedPercentCodecTrackerHistoryRangeCopiesAndF
         ASSERT_TRUE (edit::SplitSection (ranges, 20, 10, 999, error)) << error;
         edit::RestationSections (ranges, 20, 40);
         for (const auto& copy : ranges) {
-            EXPECT_EQ (copy.crossfall, sample.percent);
+            EXPECT_EQ (copy.crossfall, edit::PercentCrossfall (sample.percent));
             EXPECT_EQ (copy.fall, sample.fall);
             EXPECT_EQ (copy.cutSlope, doc.paths[0].sections[0].cutSlope);
             EXPECT_EQ (copy.fillSlope, doc.paths[0].sections[0].fillSlope);
@@ -149,17 +149,17 @@ TEST (EditPathCrossfallContract, SignedPercentCodecTrackerHistoryRangeCopiesAndF
     }
     edit::Session tracker (doc);
     ASSERT_TRUE (tracker.Apply (edit::WriteDimension (dimension, -3))) << tracker.Message ();
-    EXPECT_EQ (tracker.Doc ().paths[0].sections[0].crossfall, -3);
+    EXPECT_EQ (tracker.Doc ().paths[0].sections[0].crossfall, edit::PercentCrossfall (-3));
     EXPECT_EQ (tracker.Doc ().paths[0].sections[0].fall, edit::Fall::Right)
         << "tracker/raw APIs preserve signed percent, unlike the on-view label's negative-input shortcut";
     auto changed = tracker.Doc ();
     std::string error;
     ASSERT_TRUE (edit::FlipPathFall (changed, path, range, error)) << error;
-    EXPECT_EQ (changed.paths[0].sections[0].crossfall, -3);
+    EXPECT_EQ (changed.paths[0].sections[0].crossfall, edit::PercentCrossfall (-3));
     EXPECT_EQ (changed.paths[0].sections[0].fall, edit::Fall::Left);
     ASSERT_TRUE (edit::SetPathFall (changed, path, range, edit::Fall::Crown, error)) << error;
     const auto before = changed.paths;
     EXPECT_FALSE (edit::FlipPathFall (changed, path, range, error));
     EXPECT_EQ (changed.paths, before);
-    EXPECT_EQ (changed.paths[0].sections[0].crossfall, -3);
+    EXPECT_EQ (changed.paths[0].sections[0].crossfall, edit::PercentCrossfall (-3));
 }

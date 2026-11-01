@@ -2725,7 +2725,7 @@ TEST (HudVirtualEditor, ATypedBendRadiusPreservesFixedProfileElevations)
         EXPECT_EQ (p.sections[i].id, original[0].sections[i].id);
         EXPECT_DOUBLE_EQ (p.sections[i].widthLeft, original[0].sections[i].widthLeft);
         EXPECT_DOUBLE_EQ (p.sections[i].widthRight, original[0].sections[i].widthRight);
-        EXPECT_DOUBLE_EQ (p.sections[i].crossfall, original[0].sections[i].crossfall);
+        EXPECT_EQ (p.sections[i].crossfall, original[0].sections[i].crossfall);
         EXPECT_EQ (p.sections[i].fall, original[0].sections[i].fall);
     }
     ASSERT_EQ (p.profile.size (), original[0].profile.size ());
@@ -3712,7 +3712,7 @@ TEST (HudVirtualEditor, ACrossfallTypedNegativeFallsTheOtherWay)
     d.Key (0x0D);
     const auto& r = ed::FindPath (d.D (), p)->sections[0];
     EXPECT_EQ (r.fall, ed::Fall::Right);
-    EXPECT_NEAR (r.crossfall, 3.0, 1e-9);
+    EXPECT_NEAR (ed::PathCrossfallPercent (r.crossfall), 3.0, 1e-9);
 }
 
 TEST (HudVirtualEditor, NegativeCrossfallLabelsNormalizeRightAndCrownWithoutChangingOtherSectionFields)
@@ -3741,7 +3741,7 @@ TEST (HudVirtualEditor, NegativeCrossfallLabelsNormalizeRightAndCrownWithoutChan
         d.Frame ();
         d.Key (0x0D);
         auto after = ed::FindPath (d.D (), p)->sections[0];
-        EXPECT_EQ (after.crossfall, 3);
+        EXPECT_EQ (after.crossfall, ed::PercentCrossfall (3));
         EXPECT_EQ (after.fall, fall == ed::Fall::Right ? ed::Fall::Left : ed::Fall::Crown);
         after.crossfall = before.crossfall;
         after.fall = before.fall;

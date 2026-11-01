@@ -52,7 +52,7 @@ void Untangle (std::vector<Vec3>& edge)
 // The inner edge stops at that corner -- the samples of either leg that would run past
 // it collapse onto it -- and the outer edge is mitred, or bevelled past the limit by a
 // second sample at the same station.
-void SharpCorners (const Path& path, const AlignmentGeometry& g, PathOutline& o)
+void SharpCorners (const Path& path, const AlignmentGeometry& g, const PathPreparation& preparation, PathOutline& o)
 {
     for (size_t k = 0; k + 1 < g.elements.size (); ++k) {
         const AlignmentElement &e0 = g.elements[k], &e1 = g.elements[k + 1];
@@ -76,10 +76,13 @@ void SharpCorners (const Path& path, const AlignmentGeometry& g, PathOutline& o)
                 break;
             }
         StationFrame f;
-        if (at == o.stations.size () || !Evaluate (path, g, corner, f))
+        if (at == o.stations.size () || !Evaluate (path, g, preparation, corner, f))
+            continue;
+        double percent = 0;
+        if (!PreparedCrossfall (preparation, f.section, percent))
             continue;
         double dropLeft = 0.0, dropRight = 0.0;
-        EdgeDrops (f.section, dropLeft, dropRight);
+        EdgeDrops (f.section, percent, dropLeft, dropRight);
         const Vec3 leftMiter = f.centre + bisector * (f.section.widthLeft * miter) + Vec3 { 0.0, 0.0, dropLeft };
         const Vec3 rightMiter = f.centre - bisector * (f.section.widthRight * miter) + Vec3 { 0.0, 0.0, dropRight };
         auto& inner = leftTurn ? o.left : o.right;
@@ -130,13 +133,41 @@ bool ValidatePath (const Path& path, AlignmentGeometry& geometry, std::string& e
     return ValidateSections (path.sections, geometry.length, error);
 }
 
-bool Evaluate (const Path& path, const AlignmentGeometry& g, double station, StationFrame& out)
+bool PreparePath (const Path& path, AlignmentGeometry& geometry, PathPreparation& preparation, std::string& error)
+{
+    PathPreparation candidate;
+    if (!ValidatePath (path, geometry, error))
+        return false;
+    candidate.sections = path.sections;
+    candidate.crossfallPercent.reserve (candidate.sections.size ());
+    for (const auto& section : candidate.sections) {
+        double percent = 0;
+        if (!PathCrossfallPercent (section.crossfall, percent, error))
+            return false;
+        candidate.crossfallPercent.push_back (percent);
+    }
+    candidate.ready = true;
+    preparation = std::move (candidate);
+    return true;
+}
+
+bool Evaluate (const Path& path, const AlignmentGeometry& g, const PathPreparation& preparation, double station,
+               StationFrame& out)
 {
     Placement at;
     double z = 0.0, grade = 0.0;
-    if (path.sections.empty () || !Locate (g, station, at) || !Elevation (path.profile, station, z, &grade))
+    if (!preparation.ready || path.sections.empty () || path.sections.size () != preparation.sections.size () ||
+        path.sections.size () != preparation.crossfallPercent.size () || !Locate (g, station, at) ||
+        !Elevation (path.profile, station, z, &grade))
         return false;
-    const Section section = SectionIn (path.sections, g.length, station);
+    const Section section = SectionIn (preparation, g.length, station);
+    const auto range = std::find_if (path.sections.begin (), path.sections.end (),
+                                     [&] (const Section& authored) { return authored.id == section.id; });
+    if (range == path.sections.end ())
+        return false;
+    const auto index = static_cast<size_t> (range - path.sections.begin ());
+    if (preparation.sections[index] != *range)
+        return false;
     out.station = station;
     out.centre = { at.point.x, at.point.y, z };
     out.tangent = at.tangent;
@@ -145,17 +176,27 @@ bool Evaluate (const Path& path, const AlignmentGeometry& g, double station, Sta
     out.grade = grade;
     out.section = section;
     double dropLeft = 0.0, dropRight = 0.0;
-    EdgeDrops (section, dropLeft, dropRight);
+    EdgeDrops (section, preparation.crossfallPercent[index], dropLeft, dropRight);
     out.leftEdge = out.centre + at.left * section.widthLeft + Vec3 { 0.0, 0.0, dropLeft };
     out.rightEdge = out.centre - at.left * section.widthRight + Vec3 { 0.0, 0.0, dropRight };
     return true;
+}
+
+bool Evaluate (const Path& path, const AlignmentGeometry& g, double station, StationFrame& out)
+{
+    PathPreparation preparation;
+    AlignmentGeometry checked;
+    std::string error;
+    return ValidatePath (path, checked, error) && PreparePath (path, checked, preparation, error) &&
+           Evaluate (path, g, preparation, station, out);
 }
 
 bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& error)
 {
     out = {};
     AlignmentGeometry g;
-    if (!ValidatePath (path, g, error))
+    PathPreparation preparation;
+    if (!PreparePath (path, g, preparation, error))
         return false;
     std::vector<double> stations = SampleStations (path, g, maxStep);
     // Mesh spacing may grow during a drag; it must not turn an offset arc into a
@@ -187,7 +228,7 @@ bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& e
         stations.end ());
     for (double s : stations) {
         StationFrame f;
-        if (!Evaluate (path, g, s, f))
+        if (!Evaluate (path, g, preparation, s, f))
             continue;
         out.stations.push_back (s);
         out.centre.push_back (f.centre);
@@ -195,18 +236,18 @@ bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& e
         out.right.push_back (f.rightEdge);
         out.range.push_back (f.section.id);
     }
-    SharpCorners (path, g, out);
+    SharpCorners (path, g, preparation, out);
     Untangle (out.left);
     Untangle (out.right);
     // A bend's control point is its corner, where the legs meet, not its arc's middle.
     for (size_t i = 0; i < path.points.size () && i < g.pointStations.size (); ++i) {
         StationFrame f;
-        if (Evaluate (path, g, g.pointStations[i], f))
+        if (Evaluate (path, g, preparation, g.pointStations[i], f))
             out.points.push_back ({ path.points[i].p.x, path.points[i].p.y, f.centre.z });
     }
     for (const auto& b : path.profile) {
         StationFrame f;
-        if (Evaluate (path, g, b.station, f))
+        if (Evaluate (path, g, preparation, b.station, f))
             out.breaks.push_back ({ f.centre.x, f.centre.y, b.z });
     }
     return true;

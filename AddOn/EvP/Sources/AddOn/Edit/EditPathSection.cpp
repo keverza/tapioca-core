@@ -1,6 +1,7 @@
 #include "Edit/EditPath.hpp"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace geomsrv::edit {
 
@@ -36,16 +37,31 @@ bool PercentSlope (const tapioca::geometry::TerrainSlope& authored, tapioca::geo
     return true;
 }
 
+bool ResolveCrossfall (const PathCrossfall& authored, double& percent, std::string& error)
+{
+    auto converted = authored.slope;
+    if (converted.unit != tapioca::geometry::TerrainSlope::Unit::Percent &&
+        !tapioca::geometry::ConvertTerrainSlope (converted, tapioca::geometry::TerrainSlope::Unit::Percent, 1,
+                                                 converted, error))
+        return false;
+    if (converted.unit != tapioca::geometry::TerrainSlope::Unit::Percent || converted.b != 0 ||
+        !(std::abs (converted.a) < kMaxSurfaceSlope)) {
+        error = "a crossfall must be below 100 %";
+        return false;
+    }
+    percent = authored.negative ? -converted.a : converted.a;
+    return true;
+}
+
 bool Fine (const Section& s, std::string& error)
 {
     if (!Wide (s.widthLeft, s.widthRight) || (s.taper && !Wide (s.endLeft, s.endRight))) {
         error = "a path needs a width";
         return false;
     }
-    if (!(std::abs (s.crossfall) < kMaxSurfaceSlope)) {
-        error = "a crossfall must be below 100 %";
+    double crossfall = 0;
+    if (!ResolveCrossfall (s.crossfall, crossfall, error))
         return false;
-    }
     tapioca::geometry::TerrainSlope cut, fill;
     // Preserve legacy positive finite percent policy (including its aggregate
     // overflow check), not the separate region fields' 1000% cap.
@@ -95,6 +111,29 @@ const Section* SectionAt (const std::vector<Section>& sections, double station)
     return found;
 }
 
+Section SectionIn (const PathPreparation& preparation, double length, double station)
+{
+    return preparation.ready ? SectionIn (preparation.sections, length, station) : Section {};
+}
+
+bool PreparedCrossfall (const PathPreparation& preparation, const Section& section, double& percent)
+{
+    if (!preparation.ready)
+        return false;
+    const auto found = std::find_if (preparation.sections.begin (), preparation.sections.end (),
+                                     [&] (const Section& candidate) { return candidate.id == section.id; });
+    if (found == preparation.sections.end ())
+        return false;
+    const auto index = static_cast<size_t> (found - preparation.sections.begin ());
+    // SectionIn may interpolate taper widths; only authored crossfall intent
+    // must match this range's resolved projection.
+    if (found->crossfall != section.crossfall || found->fall != section.fall ||
+        index >= preparation.crossfallPercent.size ())
+        return false;
+    percent = preparation.crossfallPercent[index];
+    return true;
+}
+
 Section SectionIn (const std::vector<Section>& sections, double length, double station)
 {
     const Section* at = SectionAt (sections, station);
@@ -112,9 +151,9 @@ Section SectionIn (const std::vector<Section>& sections, double length, double s
     return out;
 }
 
-void EdgeDrops (const Section& s, double& left, double& right)
+void EdgeDrops (const Section& s, double percent, double& left, double& right)
 {
-    const double c = s.crossfall / 100.0;
+    const double c = percent / 100.0;
     switch (s.fall) {
         case Fall::Crown:
             left = -c * s.widthLeft;
@@ -246,15 +285,48 @@ bool SetWidthFromOffset (std::vector<Section>& sections, Id id, double offset, s
     return offset > 0.0 ? SetWidth (sections, id, offset, -1.0, error) : SetWidth (sections, id, -1.0, -offset, error);
 }
 
+void EdgeDrops (const Section& section, double& left, double& right)
+{
+    // Invalid input remains invalid; this legacy helper has no error channel.
+    // Document edits reject before this direct arithmetic is used.
+    EdgeDrops (section, PathCrossfallPercent (section.crossfall), left, right);
+}
+
+bool PathCrossfallPercent (const PathCrossfall& crossfall, double& percent, std::string& error)
+{
+    return ResolveCrossfall (crossfall, percent, error);
+}
+
+double PathCrossfallPercent (const PathCrossfall& crossfall)
+{
+    double percent = std::numeric_limits<double>::quiet_NaN ();
+    std::string error;
+    ResolveCrossfall (crossfall, percent, error);
+    return percent;
+}
+
+PathCrossfall PercentCrossfall (double percent)
+{
+    return { { tapioca::geometry::TerrainSlope::Unit::Percent, std::abs (percent), 0 }, std::signbit (percent) };
+}
+
 bool SetCrossfall (std::vector<Section>& sections, Id id, double percent, Fall fall, std::string& error)
+{
+    return SetCrossfall (sections, id, PercentCrossfall (percent), fall, error);
+}
+
+bool SetCrossfall (std::vector<Section>& sections, Id id, const PathCrossfall& crossfall, Fall fall, std::string& error)
 {
     const int i = IndexOf (sections, id);
     if (i < 0) {
         error = "the range no longer exists";
         return false;
     }
+    double percent = 0;
+    if (!ResolveCrossfall (crossfall, percent, error))
+        return false;
     Section s = sections[static_cast<size_t> (i)];
-    s.crossfall = percent;
+    s.crossfall = crossfall;
     s.fall = fall;
     if (!Fine (s, error))
         return false;

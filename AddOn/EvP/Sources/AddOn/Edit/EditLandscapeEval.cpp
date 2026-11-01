@@ -626,7 +626,10 @@ void RefreshSources (edit::Document& doc)
                 word (uint64_t (s.taper));
                 number (s.endLeft);
                 number (s.endRight);
-                number (s.crossfall);
+                word (uint64_t (s.crossfall.slope.unit));
+                number (s.crossfall.slope.a);
+                number (s.crossfall.slope.b);
+                word (uint64_t (s.crossfall.negative));
                 word (uint64_t (s.fall));
                 number (s.shoulder);
                 word (uint64_t (s.cutSlope.unit));

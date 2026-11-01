@@ -111,9 +111,17 @@ std::vector<GradeBreak> ProfileFromSamples (const std::vector<std::pair<double, 
 // Which way the surface sheds water across the path.
 enum class Fall : uint8_t { Crown, Left, Right };
 
+// Non-negative authored slope plus the path's independent sign. Percent inputs
+// retain signed zero in `negative`; raw sign is not the same as the fall hand.
+struct PathCrossfall {
+    tapioca::geometry::TerrainSlope slope { tapioca::geometry::TerrainSlope::Unit::Percent, 2, 0 };
+    bool negative = false;
+    bool operator== (const PathCrossfall&) const = default;
+};
+
 // A cross-section template that applies from `station` to the next range's station.
-// Widths are measured from the centreline in plan; crossfall remains a percentage.
-// Cut/Fill retain their authored TerrainSlope forms (50 % is 1:2).
+// Widths are measured from the centreline in plan. Cut/Fill/crossfall retain their
+// authored TerrainSlope forms (50 % is 1:2); crossfall adds the sign above.
 // The shoulder runs out level-with-the-edge before grading.
 // `rounding` is the plan length over which the grading faces ease into the path at their top
 // and into the ground at their toe (0 leaves both creases sharp).
@@ -126,7 +134,7 @@ struct Section {
     double widthLeft = 0.75, widthRight = 0.75;
     bool taper = false;
     double endLeft = 0.75, endRight = 0.75;
-    double crossfall = 2.0;
+    PathCrossfall crossfall;
     Fall fall = Fall::Crown;
     double shoulder = 0.0;
     tapioca::geometry::TerrainSlope cutSlope { tapioca::geometry::TerrainSlope::Unit::Percent, 50, 0 };
@@ -142,8 +150,20 @@ const Section* SectionAt (const std::vector<Section>& sections, double station);
 // The cross-section at a station: the range in force, its widths run to that station when
 // it tapers. `length` is where the last range ends. Empty `sections` give a default range.
 Section SectionIn (const std::vector<Section>& sections, double length, double station);
-// Heights of the left and right edges relative to the centreline.
+// Heights of the left and right edges relative to the centreline. The resolved
+// percent overload is the hot path; the authored form resolves once per call.
+void EdgeDrops (const Section& section, double percent, double& left, double& right);
 void EdgeDrops (const Section& section, double& left, double& right);
+// Checked compatibility projection; failure leaves `percent` unchanged.
+bool PathCrossfallPercent (const PathCrossfall& crossfall, double& percent, std::string& error);
+// Sets typed magnitude plus sign, and changes Fall only through its separate API.
+bool SetCrossfall (std::vector<Section>& sections, Id id, const PathCrossfall& crossfall, Fall fall,
+                   std::string& error);
+bool SetCrossfall (std::vector<Section>& sections, Id id, double percent, Fall fall, std::string& error);
+// Percent compatibility for tracker/native projections; refusal returns NaN.
+double PathCrossfallPercent (const PathCrossfall& crossfall);
+// Compatibility assignment for legacy percent-only producers, including -0.
+PathCrossfall PercentCrossfall (double percent);
 
 // A new range from `station` on, copying the one in force there; a tapering range is cut
 // at its widths there, so the outline does not change.
@@ -208,6 +228,19 @@ struct StationFrame {
     Section section; // the range in force
     Vec3 leftEdge, rightEdge;
 };
+// One validated snapshot resolves crossfall once per authored range. It is
+// transient caller-owned state, never a second document slope model.
+struct PathPreparation {
+    std::vector<Section> sections;
+    std::vector<double> crossfallPercent;
+    bool ready = false;
+};
+Section SectionIn (const PathPreparation& preparation, double length, double station);
+// Convenience for a prepared frame: its section still belongs to the snapshot.
+bool PreparedCrossfall (const PathPreparation& preparation, const Section& section, double& percent);
+bool PreparePath (const Path& path, AlignmentGeometry& geometry, PathPreparation& preparation, std::string& error);
+bool Evaluate (const Path& path, const AlignmentGeometry& geometry, const PathPreparation& preparation, double station,
+               StationFrame& out);
 bool Evaluate (const Path& path, const AlignmentGeometry& geometry, double station, StationFrame& out);
 // A path sampled for drawing, snapping and picking: the centreline and both edges at
 // the same stations, with the range in force at each. A range boundary is sampled on

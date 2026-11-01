@@ -564,7 +564,7 @@ TEST (EditPath, AFallIsSetForEveryRangeAndFlipped)
     ASSERT_TRUE (ed::SplitPathSection (doc, p, 10.0, error)) << error;
     const auto falls = [&] (ed::Fall f) {
         for (const auto& r : ed::FindPath (doc, p)->sections)
-            if (r.fall != f || std::abs (r.crossfall - 2.0) > 1e-12)
+            if (r.fall != f || std::abs (ed::PathCrossfallPercent (r.crossfall) - 2.0) > 1e-12)
                 return false;
         return true;
     };

@@ -22,6 +22,9 @@ class PathOutlineCache {
     // The outline of `path` sampled at most `maxStep` apart, built once per path value and
     // step; null when the path does not build (Outline's error is not kept).
     const PathOutline* Get (const Path& path, double maxStep);
+    // One hit: both values belong to the exact same cached path/step entry.
+    const PathOutline* Get (const Path& path, double maxStep, const PathPreparation*& preparation);
+    // Same entry as Get: crossfall was converted once for the cached path value.
     // Ends a frame: entries no lookup used since the previous Prune are dropped, so the cache
     // holds what the current document still asks for and nothing a deleted path left.
     void Prune ();
@@ -36,6 +39,7 @@ class PathOutlineCache {
         double step = 0.0;
         bool built = false;
         PathOutline outline;
+        PathPreparation preparation;
         uint64_t used = 0;
     };
     std::unordered_map<Id, std::vector<Entry>> entries_;

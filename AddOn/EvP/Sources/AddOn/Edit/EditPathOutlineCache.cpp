@@ -10,11 +10,19 @@ constexpr size_t kStepsPerPath = 4; // the layers', the snap's, the preview's, a
 
 const PathOutline* PathOutlineCache::Get (const Path& path, double maxStep)
 {
+    const PathPreparation* preparation = nullptr;
+    return Get (path, maxStep, preparation);
+}
+
+const PathOutline* PathOutlineCache::Get (const Path& path, double maxStep, const PathPreparation*& preparation)
+{
+    preparation = nullptr;
     auto& list = entries_[path.id];
     for (auto& e : list)
         if (e.step == maxStep && e.input == path) {
             e.used = frame_;
             ++hits;
+            preparation = &e.preparation;
             return e.built ? &e.outline : nullptr;
         }
     // A path that changed replaces its own entry at this step rather than piling up beside it.
@@ -31,8 +39,10 @@ const PathOutline* PathOutlineCache::Get (const Path& path, double maxStep)
     e.step = maxStep;
     e.used = frame_;
     std::string error;
-    e.built = Outline (path, maxStep, e.outline, error);
+    AlignmentGeometry geometry;
+    e.built = PreparePath (path, geometry, e.preparation, error) && Outline (path, maxStep, e.outline, error);
     ++builds;
+    preparation = &e.preparation;
     return e.built ? &e.outline : nullptr;
 }
 

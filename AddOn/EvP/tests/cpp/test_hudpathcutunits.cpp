@@ -78,7 +78,7 @@ void CheckPathSlopeFields (bool fill)
                     value.sections[0].cutSlope = { Unit::RiseRun, 1.5, 3 };
                 else
                     value.sections[0].fillSlope = { Unit::Height, 2.1, 5 };
-                value.sections[0].crossfall = 3;
+                value.sections[0].crossfall = edit::PercentCrossfall (3);
                 value.sections[0].fall = edit::Fall::Right;
                 value.sections[0].shoulder = 0.25;
                 return true;

@@ -326,7 +326,8 @@ bool ReadPath (const Path& p, const Dimension& d, double& value)
                 return true;
             }
             if (d.quantity == Quantity::Slope) {
-                value = r.crossfall;
+                value = PathCrossfallPercent (r.crossfall);
+                return std::isfinite (value);
                 return true;
             }
         }

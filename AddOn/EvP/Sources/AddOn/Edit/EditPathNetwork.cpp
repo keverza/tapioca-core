@@ -41,6 +41,7 @@ struct Source {
     const Path* path = nullptr;
     AlignmentGeometry geometry;
     PathOutline outline;
+    PathPreparation preparation;
     std::vector<std::pair<Vec3, double>> junctions;
     double x0 = 0, y0 = 0, x1 = 0, y1 = 0; // the outline's plan bounds
     double widest = 0;                     // its widest half width anywhere
@@ -113,7 +114,8 @@ double HeightAt (const std::vector<Source>& sources, Vec3 p)
     const auto measure = [&] (size_t i) -> const Probe& {
         Probe& probe = probes[i];
         if (!probe.done) {
-            probe.ok = SurfaceHeight (*sources[i].path, sources[i].geometry, p, probe.h, probe.beyond);
+            probe.ok =
+                SurfaceHeight (*sources[i].path, sources[i].geometry, sources[i].preparation, p, probe.h, probe.beyond);
             probe.done = true;
         }
         return probe;
@@ -445,16 +447,20 @@ bool Round (const cp::PathsD& sharpRings, PavedArea& out, cp::PathsD& rounded)
 
 } // namespace
 
-bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, Vec3 p, double& z, double& beyond)
+bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, const PathPreparation& preparation, Vec3 p, double& z,
+                    double& beyond)
 {
     double station = 0.0, offset = 0.0;
     StationFrame f;
-    if (!StationOf (g, p, station, offset) || !Evaluate (path, g, station, f))
+    if (!StationOf (g, p, station, offset) || !Evaluate (path, g, preparation, station, f))
         return false;
     const bool left = offset >= 0.0;
     const double width = left ? f.section.widthLeft : f.section.widthRight;
+    double percent = 0;
+    if (!PreparedCrossfall (preparation, f.section, percent))
+        return false;
     double dropLeft = 0.0, dropRight = 0.0;
-    EdgeDrops (f.section, dropLeft, dropRight);
+    EdgeDrops (f.section, percent, dropLeft, dropRight);
     const double share = width > 1.0e-9 ? std::abs (offset) / width : 0.0;
     z = f.centre.z + (left ? dropLeft : dropRight) * share;
     beyond = std::abs (offset) - width;
@@ -477,7 +483,7 @@ bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, Vec3 p, double
             !Normalize (b.b - b.a, tb) || Dot (ta, tb) > 1 - 1e-9)
             continue;
         StationFrame corner;
-        if (!Evaluate (path, g, b.start, corner))
+        if (!Evaluate (path, g, preparation, b.start, corner))
             continue;
         const double width = std::max (corner.section.widthLeft, corner.section.widthRight);
         const double t = std::clamp (2 - DistanceXY (p, corner.centre) / (2 * width), 0.0, 1.0);
@@ -488,7 +494,9 @@ bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, Vec3 p, double
         Elevation (path.profile, std::min (g.length, b.start + 1e-7), h1, &grade1);
         const Vec3 d = p - corner.centre;
         double dl = 0, dr = 0;
-        EdgeDrops (corner.section, dl, dr);
+        if (!PreparedCrossfall (preparation, corner.section, percent))
+            continue;
+        EdgeDrops (corner.section, percent, dl, dr);
         const auto plane = [&] (Vec3 tangent, double grade, bool incoming) {
             const double along = Dot (d, tangent), side = d.x * -tangent.y + d.y * tangent.x;
             const double w = side >= 0 ? corner.section.widthLeft : corner.section.widthRight;
@@ -505,6 +513,15 @@ bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, Vec3 p, double
     return true;
 }
 
+bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, Vec3 p, double& z, double& beyond)
+{
+    PathPreparation preparation;
+    AlignmentGeometry checked;
+    std::string error;
+    return ValidatePath (path, checked, error) && PreparePath (path, checked, preparation, error) &&
+           SurfaceHeight (path, g, preparation, p, z, beyond);
+}
+
 namespace {
 PavedArea PaveTogether (const std::vector<Path>& paths, double step, bool surface, PathOutlineCache* outlines)
 {
@@ -519,13 +536,15 @@ PavedArea PaveTogether (const std::vector<Path>& paths, double step, bool surfac
         Source s;
         s.path = &path;
         std::string error;
-        if (!ValidatePath (path, s.geometry, error))
+        if (!PreparePath (path, s.geometry, s.preparation, error))
             continue;
         if (outlines != nullptr) {
-            const PathOutline* cached = outlines->Get (path, outlineStep);
-            if (cached == nullptr)
+            const PathPreparation* prepared = nullptr;
+            const PathOutline* cached = outlines->Get (path, outlineStep, prepared);
+            if (cached == nullptr || prepared == nullptr)
                 continue;
             s.outline = *cached;
+            s.preparation = *prepared;
         }
         else if (!Outline (path, outlineStep, s.outline, error))
             continue;
@@ -595,7 +614,7 @@ PavedArea PaveTogether (const std::vector<Path>& paths, double step, bool surfac
     }
     if (!surface)
         return out;
-    if (sources.size () == 1 && BuildLinearSurface (out, *sources[0].path, sources[0].geometry))
+    if (sources.size () == 1 && BuildLinearSurface (out, *sources[0].path, sources[0].geometry, sources[0].preparation))
         return out;
     // The surface: each outline with its holes triangulated.
     for (const auto& outer : united) {
@@ -636,7 +655,7 @@ PavedArea PaveTogether (const std::vector<Path>& paths, double step, bool surfac
     for (const auto& source : sources) {
         const auto sample = [&] (double station) {
             StationFrame frame;
-            if (Evaluate (*source.path, source.geometry, station, frame))
+            if (Evaluate (*source.path, source.geometry, source.preparation, station, frame))
                 samples.insert (samples.end (), { frame.centre, frame.leftEdge, frame.rightEdge });
         };
         // Insert semantic features, not every collinear drawing sample: inserting

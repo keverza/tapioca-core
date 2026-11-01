@@ -22,6 +22,7 @@ constexpr size_t kChunk = 16;
 
 struct Line {
     AlignmentGeometry g;
+    PathPreparation preparation;
     std::vector<double> stations;
     std::vector<Vec3> points;
     std::vector<Chunk> chunks;
@@ -31,7 +32,7 @@ struct Line {
 bool Sample (const Path& p, Line& out)
 {
     std::string error;
-    if (!ValidatePath (p, out.g, error))
+    if (!PreparePath (p, out.g, out.preparation, error))
         return false;
     for (double s : SampleStations (p, out.g, kSample)) {
         Placement at;
@@ -89,13 +90,16 @@ bool Cross (Vec3 a, Vec3 b, Vec3 c, Vec3 d, double& u, double& v)
 }
 
 // Path b's surface `offset` off its centre at `station`, above the centre: the crossfall's share.
-double Rise (const Path& b, double length, double station, double offset)
+double Rise (const PathPreparation& preparation, double length, double station, double offset)
 {
-    if (b.sections.empty ())
+    if (!preparation.ready || preparation.sections.empty ())
         return 0.0;
-    const Section s = SectionIn (b.sections, length, station);
+    const Section s = SectionIn (preparation, length, station);
+    double percent = 0;
+    if (!PreparedCrossfall (preparation, s, percent))
+        return 0.0;
     double left = 0.0, right = 0.0;
-    EdgeDrops (s, left, right);
+    EdgeDrops (s, percent, left, right);
     const double width = offset >= 0.0 ? s.widthLeft : s.widthRight;
     const double share = width > 1.0e-9 ? std::min (std::abs (offset) / width, 1.0) : 0.0;
     return (offset >= 0.0 ? left : right) * share;
@@ -179,7 +183,7 @@ std::vector<Junction> FindJunctions (const std::vector<Path>& paths)
                 if (known (a, b, p, half + lines[a].reach))
                     continue;
                 out.push_back ({ a, b, end, ToEnd (s, lines[b].g.length, half),
-                                 Rise (paths[b], lines[b].g.length, s, offset), p });
+                                 Rise (lines[b].preparation, lines[b].g.length, s, offset), p });
             }
         }
     // Centrelines crossing, away from the ends already joined.

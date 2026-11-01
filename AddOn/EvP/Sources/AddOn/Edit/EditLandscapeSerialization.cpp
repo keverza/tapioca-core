@@ -95,7 +95,7 @@ Value Entities (const edit::Document& doc, LandscapeStorage mode)
     }
     return Value::Array (std::move (entities));
 }
-Value PathsValue (const edit::Document& doc, LandscapeStorage mode)
+Value PathsValue (const edit::Document& doc, LandscapeStorage mode, std::string& error)
 {
     Array paths;
     for (const auto& path : doc.paths) {
@@ -115,25 +115,35 @@ Value PathsValue (const edit::Document& doc, LandscapeStorage mode)
                                                 { "anchor", IdValue (p.anchor) },
                                                 { "binding", Text (p.binding) },
                                                 { "crossing", IdValue (p.crossing) } }));
-        for (const auto& s : path.sections)
-            sections.push_back (
-                Value::Object ({ { "id", IdValue (s.id) },
-                                 { "station", Number (s.station) },
-                                 { "widthLeft", Number (s.widthLeft) },
-                                 { "widthRight", Number (s.widthRight) },
-                                 { "taper", Flag (s.taper) },
-                                 { "endLeft", Number (s.endLeft) },
-                                 { "endRight", Number (s.endRight) },
-                                 { "crossfall", Number (s.crossfall) },
-                                 { "fall", Integer (int (s.fall)) },
-                                 { "shoulder", Number (s.shoulder) },
-                                 { "cut", Value::Object ({ { "unit", Integer (int (s.cutSlope.unit)) },
-                                                           { "a", Number (s.cutSlope.a) },
-                                                           { "b", Number (s.cutSlope.b) } }) },
-                                 { "fill", Value::Object ({ { "unit", Integer (int (s.fillSlope.unit)) },
-                                                            { "a", Number (s.fillSlope.a) },
-                                                            { "b", Number (s.fillSlope.b) } }) },
-                                 { "rounding", Number (s.rounding) } }));
+        for (const auto& s : path.sections) {
+            double crossfall = edit::PathCrossfallPercent (s.crossfall);
+            if (!std::isfinite (crossfall)) {
+                error = "path section crossfall cannot be projected to percent";
+                return Value {};
+            }
+            sections.push_back (Value::Object (
+                { { "id", IdValue (s.id) },
+                  { "station", Number (s.station) },
+                  { "widthLeft", Number (s.widthLeft) },
+                  { "widthRight", Number (s.widthRight) },
+                  { "taper", Flag (s.taper) },
+                  { "endLeft", Number (s.endLeft) },
+                  { "endRight", Number (s.endRight) },
+                  { "crossfall", Number (crossfall) },
+                  { "crossfallSlope", Value::Object ({ { "unit", Integer (int (s.crossfall.slope.unit)) },
+                                                       { "a", Number (s.crossfall.slope.a) },
+                                                       { "b", Number (s.crossfall.slope.b) } }) },
+                  { "crossfallNegative", Flag (s.crossfall.negative) },
+                  { "fall", Integer (int (s.fall)) },
+                  { "shoulder", Number (s.shoulder) },
+                  { "cut", Value::Object ({ { "unit", Integer (int (s.cutSlope.unit)) },
+                                            { "a", Number (s.cutSlope.a) },
+                                            { "b", Number (s.cutSlope.b) } }) },
+                  { "fill", Value::Object ({ { "unit", Integer (int (s.fillSlope.unit)) },
+                                             { "a", Number (s.fillSlope.a) },
+                                             { "b", Number (s.fillSlope.b) } }) },
+                  { "rounding", Number (s.rounding) } }));
+        }
         for (const auto& k : path.kerbs)
             kerbs.push_back (Value::Object ({ { "point", IdValue (k.point) },
                                               { "other", IdValue (k.other) },
@@ -235,7 +245,7 @@ Value DescriptorValue (const RegionDescriptor& d)
                             { "operations", IdsValue (d.operations) },
                             { "boundaries", Value::Array (std::move (cycles)) } });
 }
-Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
+Value DocumentValue (const edit::Document& doc, LandscapeStorage mode, std::string& error)
 {
     const auto& s = *doc.landscape;
     Array sources, operations, objects, regions, assignments, patches, bindings, controls, entrances, edges;
@@ -368,7 +378,7 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
                   { "nextId", IdValue (doc.nextId) },
                   { "revision", IdValue (doc.revision) },
                   { "entities", Entities (doc, mode) },
-                  { "paths", PathsValue (doc, mode) },
+                  { "paths", PathsValue (doc, mode, error) },
                   { "landscape", Value::Object ({ { "sourceTerrainGuid", Text (s.sourceTerrainGuid) },
                                                   { "propertyLine", IdValue (s.propertyLineSourceId) },
                                                   { "sources", Value::Array (std::move (sources)) },
@@ -434,13 +444,15 @@ std::string WriteLandscapeDebugSnapshot (const geomsrv::edit::Document& doc)
 {
     std::string text;
     if (doc.landscape) {
-        landscape_json::WriteValue (landscape_json::DocumentValue (doc, LandscapeStorage::Virtual), text);
+        std::string error;
+        landscape_json::WriteValue (landscape_json::DocumentValue (doc, LandscapeStorage::Virtual, error), text);
         return text;
     }
     auto copy = doc;
     copy.landscape.emplace ();
     copy.landscape->sessionUuid = { 1 }; // Codec envelope only; the dump records hadLandscape=false.
-    landscape_json::WriteValue (landscape_json::DocumentValue (copy, LandscapeStorage::Virtual), text);
+    std::string error;
+    landscape_json::WriteValue (landscape_json::DocumentValue (copy, LandscapeStorage::Virtual, error), text);
     return text;
 }
 
@@ -480,7 +492,9 @@ bool WriteLandscape (const geomsrv::edit::Document& doc, LandscapeStorage mode, 
         if (!landscape_json::ValidateStoredRegions (doc, error))
             return false;
         std::string candidate;
-        landscape_json::WriteValue (landscape_json::DocumentValue (doc, mode), candidate);
+        landscape_json::WriteValue (landscape_json::DocumentValue (doc, mode, error), candidate);
+        if (!error.empty ())
+            return false;
         if (candidate.size () > 8 * 1024 * 1024) {
             error = "document exceeds the 8 MiB codec budget";
             return false;

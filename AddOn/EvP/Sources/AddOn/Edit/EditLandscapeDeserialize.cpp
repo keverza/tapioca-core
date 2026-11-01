@@ -1,6 +1,8 @@
 #include "Edit/EditLandscapeJsonInternal.hpp"
 #include <algorithm>
+#include <bit>
 #include <charconv>
+#include <cmath>
 #include <limits>
 #include <set>
 
@@ -193,13 +195,32 @@ void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode, i
         });
         Each (item.Field ("sections"), [&] (const Reader& section) {
             section.Fields ({ "id", "station", "widthLeft", "widthRight", "crossfall", "fall", "shoulder" },
-                            { "cut", "cutSlope", "fill", "fillSlope", "rounding", "taper", "endLeft", "endRight" });
+                            { "cut", "cutSlope", "fill", "fillSlope", "rounding", "taper", "endLeft", "endRight",
+                              "crossfallSlope", "crossfallNegative" });
             edit::Section s;
             s.id = section.Field ("id").Identifier ();
             s.station = section.Field ("station").Number ();
             s.widthLeft = section.Field ("widthLeft").Number ();
             s.widthRight = section.Field ("widthRight").Number ();
-            s.crossfall = section.Field ("crossfall").Number ();
+            const double legacyCrossfall = section.Field ("crossfall").Number ();
+            s.crossfall = { { TerrainSlope::Unit::Percent, std::abs (legacyCrossfall), 0 },
+                            std::signbit (legacyCrossfall) };
+            if (section.Has ("crossfallSlope")) {
+                const auto slope = section.Field ("crossfallSlope");
+                slope.Fields ({ "unit", "a", "b" });
+                s.crossfall.slope = { Enum (slope.Field ("unit"), TerrainSlope::Unit::Height),
+                                      slope.Field ("a").Number (), slope.Field ("b").Number () };
+                if (!section.Has ("crossfallNegative"))
+                    Fail (section.path, "typed crossfall requires crossfallNegative");
+                s.crossfall.negative = section.Field ("crossfallNegative").Flag ();
+                std::string projectionError;
+                double projected = 0;
+                if (!edit::PathCrossfallPercent (s.crossfall, projected, projectionError) ||
+                    std::bit_cast<uint64_t> (projected) != std::bit_cast<uint64_t> (legacyCrossfall))
+                    Fail (section.path, "crossfall legacy percent must exactly match typed slope and sign");
+            }
+            else if (section.Has ("crossfallNegative"))
+                Fail (section.path, "crossfallNegative requires crossfallSlope");
             s.fall = Enum (section.Field ("fall"), edit::Fall::Right);
             s.shoulder = section.Field ("shoulder").Number ();
             s.cutSlope = AuthoredSlope (section, "cut", "cutSlope");
