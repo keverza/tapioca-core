@@ -1,10 +1,8 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudVirtualEditorMaterial.hpp"
+#include "ArchViz/HudSlopeFields.hpp"
 #include <algorithm>
-#include <cmath>
-#include <numbers>
-#include <limits>
 
 // OVERLAY-INVARIANTS.md §§8,14: model edits stay in the existing session/history;
 // this inspector changes no input ownership, renderer or native-write lifecycle.
@@ -92,11 +90,7 @@ bool SelectedSlopePoints (const Session& s, edit::Vec3& first, edit::Vec3& secon
     return true;
 }
 
-struct RegionSlopeLabels {
-    const char *unit, *percent, *angle, *rise, *run, *height, *planRun, *hint;
-    bool allowZero = false;
-};
-constexpr RegionSlopeLabels s_cutSlopeLabels {
+constexpr SlopeFieldLabels s_cutSlopeLabels {
     "Cut face unit",
     "Cut face (%)",
     "Cut face (degrees)",
@@ -106,7 +100,7 @@ constexpr RegionSlopeLabels s_cutSlopeLabels {
     "Cut plan run (m)",
     "Cut grade: >0 to 1000%; vertical is not supported. Height/run uses model metres."
 };
-constexpr RegionSlopeLabels s_fillSlopeLabels {
+constexpr SlopeFieldLabels s_fillSlopeLabels {
     "Fill face unit",
     "Fill face (%)",
     "Fill face (degrees)",
@@ -116,7 +110,7 @@ constexpr RegionSlopeLabels s_fillSlopeLabels {
     "Fill plan run (m)",
     "Fill grade: >0 to 1000%; vertical is not supported. Height/run uses model metres."
 };
-constexpr RegionSlopeLabels s_contourSlopeLabels {
+constexpr SlopeFieldLabels s_contourSlopeLabels {
     "Grade unit",
     "Grade (%)",
     "Grade (degrees)",
@@ -128,42 +122,13 @@ constexpr RegionSlopeLabels s_contourSlopeLabels {
     true
 };
 
-bool SlopeFields (Session& s, lg::Id object, const RegionSlopeLabels& labels, lg::TerrainSlope& slope, bool& release)
+bool RegionSlopeFields (Session& s, lg::Id object, const SlopeFieldLabels& labels, lg::TerrainSlope& slope,
+                        bool& release)
 {
-    using Unit = lg::TerrainSlope::Unit;
-    int unit = static_cast<int> (slope.unit) - 1;
-    bool changed = false;
-    if (ImGui::Combo (labels.unit, &unit, "Percent (%)\0Angle (degrees)\0Rise:run\0Height / run (m)\0")) {
-        lg::TerrainSlope converted;
-        if (lg::ConvertTerrainSlope (slope, static_cast<Unit> (unit + 1), 1, converted, s.message)) {
-            slope = converted;
-            changed = true;
-        }
-    }
-    if (slope.unit == Unit::Percent)
-        changed |= Slider (s, object, labels.percent, slope.a, labels.allowZero ? 0 : 0.01, 1000, "%.2f", release);
-    else if (slope.unit == Unit::Angle) {
-        // UI boundary only: the authored angle and Rust ABI remain radians.
-        constexpr double degrees = 180.0 / std::numbers::pi;
-        double angle = slope.a * degrees;
-        if (Slider (s, object, labels.angle, angle, labels.allowZero ? 0 : 0.01, 90, "%.3f", release)) {
-            slope.a = angle / degrees;
-            changed = true;
-        }
-    }
-    else {
-        const bool height = slope.unit == Unit::Height;
-        const auto upper = [] (double value) {
-            const double maximum = std::numeric_limits<double>::max ();
-            return std::max (10.0, value <= maximum / 2 ? value * 2 : maximum);
-        };
-        changed |= Slider (s, object, height ? labels.height : labels.rise, slope.a, labels.allowZero ? 0 : 0.0001,
-                           upper (slope.a), "%.4f", release);
-        changed |=
-            Slider (s, object, height ? labels.planRun : labels.run, slope.b, 0.0001, upper (slope.b), "%.4f", release);
-    }
-    ImGui::TextDisabled ("%s", labels.hint);
-    return changed;
+    return SlopeFields (labels, slope, s.message,
+                        [&] (const char* label, double& value, double lo, double hi, const char* format) {
+                            return Slider (s, object, label, value, lo, hi, format, release);
+                        });
 }
 } // namespace
 
@@ -220,7 +185,7 @@ void RegionPanel (Session& s, bool materialsOnly)
             changed |= PointFields (s, object->id, "Second point", surface.second,
                                     surface.slope == lg::RegionSlopeMode::TwoPoints, release);
             if (surface.slope == lg::RegionSlopeMode::ContourLine) {
-                changed |= SlopeFields (s, object->id, s_contourSlopeLabels, surface.grade, release);
+                changed |= RegionSlopeFields (s, object->id, s_contourSlopeLabels, surface.grade, release);
                 int side = int (surface.fallsTo);
                 if (ImGui::Combo ("Fall side", &side, "Left\0Right\0")) {
                     surface.fallsTo = lg::RegionFallSide (side);
@@ -272,8 +237,8 @@ void RegionPanel (Session& s, bool materialsOnly)
             terrainChanged |= Slider (s, object->id, "Falloff width (m)", terrain.falloff, 0.05, 100, "%.2f", release);
         else {
             terrainChanged |= Slider (s, object->id, "Maximum reach (m)", terrain.reach, 0.05, 100, "%.2f", release);
-            terrainChanged |= SlopeFields (s, object->id, s_cutSlopeLabels, terrain.cut, release);
-            terrainChanged |= SlopeFields (s, object->id, s_fillSlopeLabels, terrain.fill, release);
+            terrainChanged |= RegionSlopeFields (s, object->id, s_cutSlopeLabels, terrain.cut, release);
+            terrainChanged |= RegionSlopeFields (s, object->id, s_fillSlopeLabels, terrain.fill, release);
         }
         ImGui::EndDisabled ();
         ImGui::TextWrapped ("Union/Subtract above change the footprint, not vertical cut/fill. "
