@@ -146,15 +146,16 @@ struct HudState {
     float sunBlueThreshold = 2.5f;
     // The hours view's display postprocess (PLAT-RE156): the viewer's current
     // sun shadows over the analysis colour, and the smooth / stepped gradient.
-    // Stepped starts at kSunBandsDefault (4) bands, evenly split with the open
-    // band at 9 h+; the edges are the legend's grips. None of it re-runs a study.
+    // Stepped is the default (#102), at kSunBandsDefault (10) bands: one per
+    // hour with the open band at 9 h+; the edges are the legend's grips. None
+    // of it re-runs a study.
     bool sunShadowOverlay = false;
     // Their colours, 0xRRGGBBAA sRGB, from the inline swatches beside each toggle.
     uint32_t sunShadowRgba = 0x00000073u; // black at 45%
     uint32_t sunLowSunRgba = 0x1F5FD1FFu;
-    bool sunGradientStepped = false;
-    int sunBandCount = 4;
-    float sunBandEdges[11] = { 3.0f, 6.0f, 9.0f };
+    bool sunGradientStepped = true;
+    int sunBandCount = 10;
+    float sunBandEdges[11] = { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 10.0f };
     // The sun study SCREENSHOT (ArchViz/ViewerScreenshot.cpp): the preset, an
     // index into kViewerScreenshotScales; the request the frame loop takes; and
     // what the last one did, path or reason.

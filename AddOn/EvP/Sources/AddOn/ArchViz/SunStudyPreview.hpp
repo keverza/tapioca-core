@@ -35,9 +35,11 @@ inline std::pair<uint32_t, uint32_t> SunStudyPreviewSteps (const std::vector<uin
 // starts at 0 and the LAST IS OPEN-ENDED. Each band is one flat colour, the
 // smooth ramp's at the band's centre, the open band's centre taken against the
 // legend's 10 h top. Display only: the measured hours never change.
+// The default is ten bands, the smooth ramp's one-hour bins (#102: the owner
+// reads whole hours off the legend, 0:00 to 9:00+).
 constexpr int kSunBandsMin = 3;
 constexpr int kSunBandsMax = 12;
-constexpr int kSunBandsDefault = 4;
+constexpr int kSunBandsDefault = 10;
 constexpr float kSunRampTop = 10.0f; // the legend's right end, read "9:00h+"
 constexpr float kSunBandGap = 0.25f; // the edges' quarter-hour grid, and their least spacing
 // Hours a few ulps under an edge (a 10-minute study's 3:00 h) still reach it.
@@ -97,6 +99,14 @@ inline float SunStudyBandCentre (int band, int count, const float* edges)
     const float lo = band > 0 ? edges[band - 1] : 0.0f;
     const float hi = band < count - 1 ? edges[band] : kSunRampTop;
     return 0.5f * (lo + hi);
+}
+
+// What a band's cell on the legend reads: the hours it starts at, the sum of
+// every band before it, and "+" on the open last one (#102).
+inline std::string SunStudyBandLabel (int band, int count, const float* edges)
+{
+    const float lo = band > 0 ? edges[band - 1] : 0.0f;
+    return SunStudyClock (lo) + (band == count - 1 ? "+" : "");
 }
 
 // Display-only intensity. Short shadows no longer classify a whole half-day.

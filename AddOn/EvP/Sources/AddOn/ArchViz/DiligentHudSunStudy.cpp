@@ -246,10 +246,11 @@ void DrawSunStudyHoursDisplay (HudState& state)
         ImGui::TextDisabled (state.shadowsEnabled ? "needs PCF shadows" : "shadows are off");
     }
 
-    const char* styles[] = { "Smooth", "Stepped" };
-    int style = state.sunGradientStepped ? 1 : 0;
+    // Stepped first: it is the default (#102).
+    const char* styles[] = { "Stepped", "Smooth" };
+    int style = state.sunGradientStepped ? 0 : 1;
     if (viewerhud::Choice ("gradient##sungradient", style, styles, 2))
-        state.sunGradientStepped = style == 1;
+        state.sunGradientStepped = style == 0;
     if (!state.sunGradientStepped) {
         DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, 0, nullptr, state.sunLowSunRgba >> 8);
         return;
@@ -367,7 +368,9 @@ void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStat
         // band edge when stepped, every hour when smooth.
         const ImVec2 at = ImGui::GetCursorScreenPos ();
         const ImVec2 size (ImGui::GetContentRegionAvail ().x, font);
-        DrawSunStudyRampBar (draw, at, size, view.bandCount, view.bandEdges, view.blueThreshold, view.lowSunRgba >> 8);
+        // The ticks below carry the hours, so the cells stay unlabelled here.
+        DrawSunStudyRampBar (draw, at, size, view.bandCount, view.bandEdges, view.blueThreshold, view.lowSunRgba >> 8,
+                             false);
         ImGui::Dummy (size);
         std::vector<float> ticks;
         if (view.bandCount > 0)

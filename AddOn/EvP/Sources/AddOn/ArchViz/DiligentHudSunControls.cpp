@@ -74,7 +74,7 @@ bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, f
 }
 
 void DrawSunStudyRampBar (ImDrawList* draw, ImVec2 start, ImVec2 size, int bands, const float* edges, float blueBelow,
-                          unsigned lowSunHex)
+                          unsigned lowSunHex, bool labels)
 {
     const float top = kSunRampTop;
     const bool stepped = edges != nullptr && bands >= kSunBandsMin && bands <= kSunBandsMax;
@@ -102,6 +102,25 @@ void DrawSunStudyRampBar (ImDrawList* draw, ImVec2 start, ImVec2 size, int bands
     if (blueBelow > 0.0f)
         draw->AddRectFilled (start, ImVec2 (position ((std::min) (blueBelow, top)), start.y + size.y),
                              Colour (lowSunHex));
+    if (!stepped || !labels)
+        return;
+    // Each cell's start hour, centred in it: dark ink on a light cell, white on
+    // a dark one. Text wider than its cell is left out, never clipped.
+    for (int band = 0; band < bands; ++band) {
+        const float lo = band > 0 ? edges[band - 1] : 0.0f;
+        const float hi = band < bands - 1 ? edges[band] : top;
+        const std::string text = SunStudyBandLabel (band, bands, edges);
+        const ImVec2 extent = ImGui::CalcTextSize (text.c_str ());
+        const float left = position (lo), right = position (hi);
+        if (extent.x + 4.0f > right - left || extent.y > size.y + 2.0f)
+            continue;
+        const bool blue = blueBelow > 0.0f && 0.5f * (lo + hi) < blueBelow;
+        const ImVec4 fill = ImGui::ColorConvertU32ToFloat4 (blue ? Colour (lowSunHex)
+                                                                 : SunColour (SunStudyBandCentre (band, bands, edges)));
+        const float luminance = 0.2126f * fill.x + 0.7152f * fill.y + 0.0722f * fill.z;
+        draw->AddText (ImVec2 (0.5f * (left + right - extent.x), start.y + 0.5f * (size.y - extent.y)),
+                       luminance > 0.55f ? IM_COL32 (30, 30, 30, 255) : IM_COL32_WHITE, text.c_str ());
+    }
 }
 
 void DrawSunStudyGradient (bool blue, float& threshold, int bands, float* edges, unsigned lowSunHex)
@@ -165,28 +184,23 @@ void DrawSunStudyGradient (bool blue, float& threshold, int bands, float* edges,
     }
     if (ImGui::IsItemHovered ()) {
         std::string tip;
-        if (stepped)
-            tip = "Drag a grip above the bar to move a step's edge";
+        if (stepped) {
+            // The bands' hour ranges: the words for cells too narrow to label.
+            for (int band = 0; band < bands; ++band) {
+                const float lo = band > 0 ? edges[band - 1] : 0.0f;
+                tip += (band > 0 ? "  " : "") + SunStudyClock (lo) +
+                       (band < bands - 1 ? "-" + SunStudyClock (edges[band]) : "+");
+            }
+            tip += " h\nDrag a grip above the bar to move a step's edge";
+        }
         if (blue)
             tip += std::string (tip.empty () ? "" : "; ") + "drag the blue box: direct sun below " +
                    SunStudyClock (threshold, true);
         if (!tip.empty ())
             hudshell::Tip (tip, hudshell::TipSide::Above);
     }
-    if (!stepped) {
+    if (!stepped)
         ImGui::TextDisabled ("0:00h                            9:00h+");
-        return;
-    }
-    // The bands' hour ranges, the legend's words for the swatches above.
-    std::string ranges;
-    for (int band = 0; band < bands; ++band) {
-        const float lo = band > 0 ? edges[band - 1] : 0.0f;
-        ranges +=
-            (band > 0 ? "  " : "") + SunStudyClock (lo) + (band < bands - 1 ? "-" + SunStudyClock (edges[band]) : "+");
-    }
-    ImGui::PushStyleColor (ImGuiCol_Text, ImGui::GetStyleColorVec4 (ImGuiCol_TextDisabled));
-    ImGui::TextWrapped ("%s h", ranges.c_str ());
-    ImGui::PopStyleColor ();
 }
 
 void DrawSunStudyInspectControl (int& mode, const char* first, const char* second)

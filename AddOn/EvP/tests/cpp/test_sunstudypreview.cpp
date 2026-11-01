@@ -181,6 +181,22 @@ TEST (SunStudyBands, DefaultEdgesSpreadEvenlyWithTheOpenBandAtNinePlus)
     EXPECT_FLOAT_EQ (edges[10], 9.0f);
 }
 
+TEST (SunStudyBands, DefaultIsTenHourlyCellsLabelledByTheirStartHour)
+{
+    // #102: stepped by default at ten bands, each cell reading the hours summed
+    // over every band before it, the open last one "9:00+".
+    ASSERT_EQ (kSunBandsDefault, 10);
+    float edges[kSunBandsMax - 1];
+    SunStudyDefaultBandEdges (kSunBandsDefault, edges);
+    for (int band = 0; band < 9; ++band)
+        EXPECT_EQ (SunStudyBandLabel (band, 10, edges), std::to_string (band) + ":00") << band;
+    EXPECT_EQ (SunStudyBandLabel (9, 10, edges), "9:00+");
+    // A dragged edge moves the label of the cell after it, to the minute.
+    edges[2] = 3.25f;
+    SunStudyClampBandEdges (10, edges);
+    EXPECT_EQ (SunStudyBandLabel (3, 10, edges), "3:15");
+}
+
 TEST (SunStudyBands, BoundariesAndTheOpenLastBand)
 {
     float edges[kSunBandsMax - 1];

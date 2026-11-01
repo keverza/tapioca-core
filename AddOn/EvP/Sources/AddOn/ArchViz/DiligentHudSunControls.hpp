@@ -12,8 +12,10 @@ void DrawSunStudyGradient (bool blue, float& threshold, int bands = 0, float* ed
 // The hours ramp itself, smooth or stepped, and the translucent low-sun box
 // below `blueBelow` hours (< 0: none). ⚠️ THE ONE PAINTER for the panel legend
 // and the screenshot legend, so the two cannot show different colours.
+// `labels` writes each stepped cell's start hour inside it (SunStudyBandLabel),
+// left out of a cell too narrow for its text.
 void DrawSunStudyRampBar (ImDrawList* draw, ImVec2 start, ImVec2 size, int bands, const float* edges, float blueBelow,
-                          unsigned lowSunHex = 0x1F5FD1);
+                          unsigned lowSunHex = 0x1F5FD1, bool labels = true);
 void DrawSunStudyInspectControl (int& mode, const char* first, const char* second);
 } // namespace geomsrv::archviz
 #endif
