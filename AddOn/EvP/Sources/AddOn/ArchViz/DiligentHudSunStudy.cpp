@@ -240,8 +240,9 @@ void DrawSunStudyHoursDisplay (HudState& state)
     ImGui::TextUnformatted ("Colours");
     ImGui::SameLine ();
     gradientchoice::GradientPresetChoice ("##sungradientpreset", state.sunGradientPreset, state.sunGradientCustom,
-                                          ImGui::GetContentRegionAvail ().x, overlaylayers::GradientCategory::Sun);
-    const auto ramp = SunStudyRampStops (state.sunGradientPreset, state.sunGradientCustom);
+                                          state.sunGradientFlipped, ImGui::GetContentRegionAvail ().x,
+                                          overlaylayers::GradientCategory::Sun);
+    const auto ramp = SunStudyRampStops (state.sunGradientPreset, state.sunGradientCustom, state.sunGradientFlipped);
 
     // Stepped first: it is the default (#102).
     const char* styles[] = { "Stepped", "Smooth" };
@@ -435,7 +436,7 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     view.shadowRgba = state.sunShadowRgba;
     view.shadowOverlay =
         state.sunShadowOverlay && state.shadowsEnabled && state.shadowMode == int (DiligentShadowMode::Pcf);
-    const auto ramp = SunStudyRampStops (state.sunGradientPreset, state.sunGradientCustom);
+    const auto ramp = SunStudyRampStops (state.sunGradientPreset, state.sunGradientCustom, state.sunGradientFlipped);
     view.rampCount = int (ramp.size ());
     std::copy (ramp.begin (), ramp.end (), view.ramp);
     if (state.sunGradientStepped) {

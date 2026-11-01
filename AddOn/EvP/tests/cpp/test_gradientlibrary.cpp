@@ -234,3 +234,22 @@ TEST (GradientLibrary, CustomStopsRecolourTheLayerAndSurviveARepublish)
         << "one stop is not a ramp";
     layers::ClearAll ();
 }
+
+TEST (GradientLibrary, AFlippedPresetRecoloursTheLayerEndForEndAndIsRemembered)
+{
+    layers::ClearAll ();
+    layers::Set (Study ("sunhours"));
+    ASSERT_TRUE (layers::SetRampPreset ("gradient-study", "sunhours", "sunhours", {}, true))
+        << "flipping the script's own preset is a change";
+    const layers::Colormap& legend = Stored ("gradient-study").legends[0].colormap;
+    EXPECT_TRUE (legend.flipped);
+    EXPECT_EQ (legend.presetId, "sunhours");
+    EXPECT_EQ (legend.stops.front ().rgba, 0xFEC44FFFu);
+    EXPECT_EQ (legend.stops.back ().rgba, 0x081D58FFu);
+    layers::Set (Study ("sunhours"));
+    EXPECT_TRUE (Stored ("gradient-study").legends[0].colormap.flipped) << "a republish keeps the flip";
+    ASSERT_TRUE (layers::SetRampPreset ("gradient-study", "sunhours", "sunhours", {}, false));
+    layers::Set (Study ("sunhours"));
+    EXPECT_FALSE (Stored ("gradient-study").legends[0].colormap.flipped);
+    layers::ClearAll ();
+}

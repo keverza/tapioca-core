@@ -117,6 +117,7 @@ struct Colormap {
     // travels with the ramp so the HUD picker shows the current choice and a
     // display-only recolour finds every ramp drawn from the same preset (#102).
     std::string presetId;
+    bool flipped = false; // the preset's stops end for end (the HUD picker's Flip)
     double min = 0.0;
     double max = 1.0;
     bool autoRange = true;  // min and max from the values; false when the caller set them
@@ -543,7 +544,7 @@ bool SetRampGreen (const std::string& layer, const std::string& control, double 
 // `to` kCustomGradientId takes `custom`'s 2..16 stops (the picker's stop editor).
 // Display only: no value changes. False when nothing changed or `to` is unknown.
 bool SetRampPreset (const std::string& layer, const std::string& from, const std::string& to,
-                    const std::vector<ColourStop>& custom = {});
+                    const std::vector<ColourStop>& custom = {}, bool flipped = false);
 // Remove one layer; false when there was none of that name.
 bool Clear (const std::string& name);
 // Every caller layer; the reserved ones stay.

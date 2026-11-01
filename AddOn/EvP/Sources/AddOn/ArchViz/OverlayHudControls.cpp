@@ -335,10 +335,12 @@ void Engine::Impl::RampPreset (const layers::Panel& panel, const layers::PanelIt
         custom = item.colormap.stops;
     const layers::GradientPreset* preset = layers::FindGradientPreset (chosen);
     const layers::GradientCategory first = preset != nullptr ? preset->category : layers::GradientCategory::General;
-    if (!gradientchoice::GradientPresetChoice ("##ramp.preset", chosen, custom,
+    bool flipped = item.colormap.flipped;
+    if (!gradientchoice::GradientPresetChoice ("##ramp.preset", chosen, custom, flipped,
                                                (std::max) (width, ImGui::GetContentRegionAvail ().x), first))
         return;
-    Change change { "rampPreset", key, panel.title, item.colormap.presetId, int32_t (index), 0.0, chosen, true };
+    Change change { "rampPreset",        key,    panel.title, item.colormap.presetId, int32_t (index),
+                    flipped ? 1.0 : 0.0, chosen, true };
     if (chosen == layers::kCustomGradientId)
         change.stops = std::move (custom);
     changes.push_back (change);

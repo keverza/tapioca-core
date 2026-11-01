@@ -321,7 +321,17 @@ TEST (SunStudyColours, TheDefaultConstantsAreTheLegacyHourlyBins)
     EXPECT_EQ (SunStudyRampColour ({}, 0.0f), 0x6B3D18FFu);
     EXPECT_EQ (SunStudyRampColour ({}, 1.5f), 0x8A4F1FFFu);
     EXPECT_EQ (SunStudyRampColour ({}, 12.0f), 0xF7E3C2FFu);
-    EXPECT_EQ (SunStudyRampStops ("no-such-ramp").data (), SunStudyRampStops (kSunRampDefaultPreset).data ());
+    const auto fallback = SunStudyRampStops ("no-such-ramp");
+    ASSERT_EQ (fallback.size (), 10u) << "an unknown id falls back to the default, the classic ramp";
+    for (size_t i = 0; i < fallback.size (); ++i)
+        EXPECT_EQ (fallback[i].rgba, kSunLegacyRamp[i].rgba) << i;
+    // Flipped, end for end.
+    const auto flipped = SunStudyRampStops (kSunRampDefaultPreset, {}, true);
+    EXPECT_EQ (flipped.front ().rgba, kSunLegacyRamp[9].rgba);
+    EXPECT_FLOAT_EQ (flipped.front ().at, 0.0f);
+    EXPECT_EQ (flipped.back ().rgba, kSunLegacyRamp[0].rgba);
+    // The HUD opens on the classic ramp (owner, 2026-11-01).
+    EXPECT_STREQ (kSunRampDefaultPreset, "sun-hours-classic");
 }
 
 TEST (SunStudyColours, AChosenPresetDrivesTheRealShaderAsTheLegendPaintsIt)

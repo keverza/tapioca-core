@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <memory>
 #include <string>
@@ -22,6 +23,7 @@ struct Harness {
     ImGuiContext* context = ImGui::CreateContext ();
     std::string preset = "sunhours";
     std::vector<layers::ColourStop> custom;
+    bool flipped = false;
     const char* none = nullptr;
     uint32_t swatch = 0x336699FFu;
     bool swatchMode = false; // draw a ColourChoice instead of the picker
@@ -63,8 +65,8 @@ struct Harness {
         else if (swatchMode)
             changed = choice::ColourChoice ("##swatch", swatch, false, "colour") || changed;
         else
-            changed = choice::GradientPresetChoice ("##ramp", preset, custom, 300.0f, layers::GradientCategory::General,
-                                                    none) ||
+            changed = choice::GradientPresetChoice ("##ramp", preset, custom, flipped, 300.0f,
+                                                    layers::GradientCategory::General, none) ||
                       changed;
         ImGui::End ();
         ImGui::Render ();
@@ -274,11 +276,10 @@ TEST (GradientStops, MovingAColourKeepsItsBlendsInPlaceAndTheEndsStay)
     ASSERT_EQ (choice::AddColourStop (stops, 0.5f), 1);
     ASSERT_TRUE (choice::SetBlendMidpoint (stops, 0, 0.125f)); // a quarter into [0, 0.5]
     ASSERT_TRUE (stops[1].hint);
-    ASSERT_TRUE (choice::MoveColourStop (stops, 2, 0.8f));
+    ASSERT_EQ (choice::MoveColourStop (stops, 2, 0.8f), 2);
     EXPECT_FLOAT_EQ (stops[2].at, 0.8f);
     EXPECT_NEAR (stops[1].at, 0.2f, 1e-6f) << "still a quarter into its segment";
-    EXPECT_FALSE (choice::MoveColourStop (stops, 0, 0.3f)) << "the ends stay at 0 and 1";
-    EXPECT_FALSE (choice::MoveColourStop (stops, 1, 0.3f)) << "a blend is not a colour";
+    EXPECT_EQ (choice::MoveColourStop (stops, 1, 0.3f), -1) << "a blend is not a colour";
     // Back to the middle, a blend is even again and needs no hint.
     ASSERT_TRUE (choice::SetBlendMidpoint (stops, 0, 0.4f));
     EXPECT_EQ (stops.size (), 3u);
@@ -297,8 +298,9 @@ TEST (GradientStops, RemovingAColourTakesItsBlendsAndAnEndHandsOver)
     EXPECT_FALSE (choice::RemoveColourStop (stops, 0)) << "a ramp keeps two colours";
     ASSERT_EQ (choice::AddColourStop (stops, 0.3f), 1);
     ASSERT_TRUE (choice::RemoveColourStop (stops, 0));
-    EXPECT_FLOAT_EQ (stops.front ().at, 0.0f) << "the next colour becomes the end";
-    EXPECT_EQ (stops.front ().rgba, choice::ColourAt (BlackToWhite (), 0.3f));
+    EXPECT_FLOAT_EQ (stops.front ().at, 0.3f) << "the next colour is first, where it stands";
+    EXPECT_EQ (choice::ColourAt (stops, 0.0f), choice::ColourAt (BlackToWhite (), 0.3f))
+        << "before the first colour, the ramp holds it";
 }
 
 TEST (GradientStops, NeverMoreThanSixteen)
@@ -340,4 +342,78 @@ TEST (GradientStopEditor, ClickAColourForItsPickerDragAnArrowForTheBlend)
     EXPECT_FALSE (hud.PopupOpen ());
     hud.Click (bar.At (1.0f, bar.middle));
     EXPECT_TRUE (hud.PopupOpen ()) << "a click on a colour opens its picker";
+}
+
+TEST (GradientStops, AColourMovesAnywhereEvenPastItsNeighbours)
+{
+    std::vector<layers::ColourStop> stops = BlackToWhite ();
+    ASSERT_EQ (choice::AddColourStop (stops, 0.5f), 1);
+    stops[1].rgba = 0xFF0000FFu;
+    ASSERT_TRUE (choice::SetBlendMidpoint (stops, 0, 0.1f)); // a blend black..red
+    // The black end dragged past red: the order changes and the disturbed blend goes.
+    const int landed = choice::MoveColourStop (stops, 0, 0.8f);
+    ASSERT_EQ (landed, 1);
+    ASSERT_EQ (stops.size (), 3u);
+    EXPECT_EQ (stops[0].rgba, 0xFF0000FFu);
+    EXPECT_EQ (stops[1].rgba, 0x000000FFu);
+    EXPECT_FLOAT_EQ (stops[1].at, 0.8f);
+    EXPECT_EQ (stops[2].rgba, 0xFFFFFFFFu);
+    // An end moves too, inward, and the ramp holds its colour beyond it.
+    ASSERT_EQ (choice::MoveColourStop (stops, 2, 0.9f), 2);
+    EXPECT_EQ (choice::ColourAt (stops, 1.0f), 0xFFFFFFFFu);
+}
+
+TEST (GradientStops, FlippingTurnsAGradientEndForEnd)
+{
+    std::vector<layers::ColourStop> stops = BlackToWhite ();
+    ASSERT_EQ (choice::AddColourStop (stops, 0.2f), 1);
+    ASSERT_TRUE (choice::SetBlendMidpoint (stops, 1, 0.3f));
+    const auto flipped = layers::ReversedStops (stops);
+    ASSERT_EQ (flipped.size (), stops.size ());
+    EXPECT_EQ (flipped.front ().rgba, 0xFFFFFFFFu);
+    EXPECT_FLOAT_EQ (flipped[1].at, 0.7f);
+    EXPECT_TRUE (flipped[1].hint) << "a blend midpoint stays one";
+    EXPECT_FLOAT_EQ (flipped[2].at, 0.8f);
+    EXPECT_EQ (layers::ReversedStops (flipped).back ().rgba, stops.back ().rgba);
+}
+
+TEST (GradientStopEditor, ACircleDraggedPastItsNeighbourChangesPlace)
+{
+    Harness hud;
+    hud.editMode = true;
+    hud.custom = BlackToWhite ();
+    ASSERT_EQ (choice::AddColourStop (hud.custom, 0.5f), 1);
+    hud.custom[1].rgba = 0xFF0000FFu;
+    hud.Frame ();
+    const Bar bar;
+    hud.Drag (bar.At (0.0f, bar.middle), bar.At (0.75f, bar.middle));
+    ASSERT_EQ (hud.custom.size (), 3u);
+    EXPECT_EQ (hud.custom[0].rgba, 0xFF0000FFu);
+    EXPECT_EQ (hud.custom[1].rgba, 0x000000FFu) << "black went past red";
+    EXPECT_NEAR (hud.custom[1].at, 0.75f, 0.01f);
+}
+
+TEST (GradientPresetChoice, FlipTurnsAPresetAndCancelTurnsItBack)
+{
+    Harness hud;
+    hud.Frame ();
+    hud.Click (kButton);
+    ASSERT_TRUE (hud.PopupOpen ());
+    hud.Frame ();
+    // The popup's last row is Done, Cancel, Flip, left to right at its bottom padding.
+    const ImGuiContext& g = *ImGui::GetCurrentContext ();
+    ASSERT_FALSE (g.OpenPopupStack.empty ());
+    const ImGuiWindow* popup = g.OpenPopupStack.back ().Window;
+    ASSERT_NE (popup, nullptr);
+    const ImGuiStyle& style = ImGui::GetStyle ();
+    const auto wide = [&] (const char* text) { return ImGui::CalcTextSize (text).x + 2.0f * style.FramePadding.x; };
+    const float y = popup->Pos.y + popup->Size.y - style.WindowPadding.y - 0.5f * ImGui::GetFrameHeight ();
+    const float x = popup->Pos.x + style.WindowPadding.x + wide ("Done") + wide ("Cancel") +
+                    2.0f * style.ItemSpacing.x + 0.5f * wide ("Flip");
+    hud.Frame ({ x, y });
+    hud.Click ({ x, y });
+    EXPECT_TRUE (hud.flipped);
+    EXPECT_EQ (hud.preset, "sunhours") << "flip keeps the preset";
+    hud.Key (ImGuiKey_Escape);
+    EXPECT_FALSE (hud.flipped) << "Escape turns it back";
 }

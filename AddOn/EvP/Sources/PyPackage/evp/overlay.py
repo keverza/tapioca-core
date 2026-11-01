@@ -34,7 +34,8 @@ A colour ramp (`colormap`) is a preset name -- any id in `evp.gradients.IDS`, gr
 there by category with each one's suggested range -- or explicit stops. A panel ramp
 drawn from a preset offers the user a gradient picker; a pick recolours the layer
 natively (display only) and arrives as a "rampPreset" event, `id` the preset it showed
-and `text` the one chosen. The choice holds when the script sends the layer again.
+`text` the one chosen ("custom" for the user's own stops), `value` 1 when it is
+flipped end for end. The choice holds when the script sends the layer again.
 
 Colours are "RRGGBB[AA]" hex, "#" optional, or an (r, g, b[, a]) tuple in 0..1. Numbers
 are sent as REALS: a JSON whole number reaches the add-on as an integer, which the

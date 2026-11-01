@@ -437,8 +437,9 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     if (state.visibilityGradientCustom.size () < 2)
         state.visibilityGradientCustom = { { 0.0f, state.visibilityLowRgba }, { 1.0f, state.visibilityHighRgba } };
     gradientchoice::GradientPresetChoice ("##visibility-preset", state.visibilityGradientPreset,
-                                          state.visibilityGradientCustom, ImGui::GetContentRegionAvail ().x,
-                                          overlaylayers::GradientCategory::View, "Two colours");
+                                          state.visibilityGradientCustom, state.visibilityGradientFlipped,
+                                          ImGui::GetContentRegionAvail ().x, overlaylayers::GradientCategory::View,
+                                          "Two colours");
     if (state.visibilityGradientPreset.empty ()) {
         ColourPicker ("not visible", state.visibilityLowRgba, false);
         ImGui::SameLine ();
@@ -451,6 +452,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
         state.visibilityHighRgba = defaults.visibilityHighRgba;
         state.visibilityGradientPreset.clear ();
         state.visibilityGradientCustom.clear ();
+        state.visibilityGradientFlipped = false;
     }
     ImGui::SetItemTooltip ("Back to the two default colours.");
     if (ownResult) {

@@ -28,6 +28,7 @@ uint64_t g_generation = 0;
 struct PresetChoice {
     std::string to;                // a library id, or kCustomGradientId
     std::vector<ColourStop> stops; // the custom stops
+    bool flipped = false;
 };
 std::map<std::string, std::map<std::string, PresetChoice>> g_presetChoices; // MAIN THREAD
 
@@ -603,25 +604,31 @@ bool SameStops (const std::vector<ColourStop>& a, std::span<const ColourStop> b)
            });
 }
 
-// `to`'s stops: the library's, or the custom ones; empty when they cannot be used.
-std::span<const ColourStop> ChoiceStops (const PresetChoice& choice)
+// `to`'s stops: the library's, or the custom ones, end for end when flipped; empty when
+// they cannot be used.
+std::vector<ColourStop> ChoiceStops (const PresetChoice& choice)
 {
-    if (choice.to == kCustomGradientId)
-        return choice.stops.size () >= 2 && choice.stops.size () <= kMaxStops
-                   ? std::span<const ColourStop> (choice.stops)
-                   : std::span<const ColourStop> ();
-    const GradientPreset* preset = FindGradientPreset (choice.to);
-    return preset != nullptr ? preset->Stops () : std::span<const ColourStop> ();
+    std::span<const ColourStop> stops;
+    if (choice.to == kCustomGradientId) {
+        if (choice.stops.size () >= 2 && choice.stops.size () <= kMaxStops)
+            stops = choice.stops;
+    }
+    else if (const GradientPreset* preset = FindGradientPreset (choice.to))
+        stops = preset->Stops ();
+    if (stops.empty ())
+        return {};
+    return choice.flipped ? ReversedStops (stops) : std::vector<ColourStop> (stops.begin (), stops.end ());
 }
 
 bool Recolour (Colormap& map, const std::string& from, const PresetChoice& to)
 {
     const auto stops = ChoiceStops (to);
     if (stops.empty () || map.presetId.empty () || map.presetId != from ||
-        (map.presetId == to.to && SameStops (map.stops, stops)))
+        (map.presetId == to.to && map.flipped == to.flipped && SameStops (map.stops, stops)))
         return false;
-    map.stops.assign (stops.begin (), stops.end ());
+    map.stops = stops;
     map.presetId = to.to;
+    map.flipped = to.flipped;
     return true;
 }
 
@@ -720,10 +727,10 @@ bool SetRampGreen (const std::string& name, const std::string& control, double v
 }
 
 bool SetRampPreset (const std::string& name, const std::string& from, const std::string& to,
-                    const std::vector<ColourStop>& custom)
+                    const std::vector<ColourStop>& custom, bool flipped)
 {
-    const PresetChoice choice { to, to == kCustomGradientId ? custom : std::vector<ColourStop> () };
-    if (ChoiceStops (choice).empty () || from.empty () || (from == to && to != kCustomGradientId))
+    const PresetChoice choice { to, to == kCustomGradientId ? custom : std::vector<ColourStop> (), flipped };
+    if (ChoiceStops (choice).empty () || from.empty ())
         return false;
     for (const auto& existing : g_layers) {
         if (existing->name != name)
@@ -740,7 +747,7 @@ bool SetRampPreset (const std::string& name, const std::string& from, const std:
         for (auto it = choices.begin (); it != choices.end ();) {
             if (it->second.to == from) {
                 chained = true;
-                if (it->first == to) {
+                if (it->first == to && !flipped && to != kCustomGradientId) {
                     it = choices.erase (it);
                     continue;
                 }

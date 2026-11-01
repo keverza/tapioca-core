@@ -151,7 +151,8 @@ void FollowHudState ()
     }
     for (const auto& change : overlayhud::TakeRampPresets (*state)) {
         const std::string layer = change.key.substr (0, change.key.rfind ('#'));
-        recoloured = overlaylayers::SetRampPreset (layer, change.id, change.text, change.stops) || recoloured;
+        recoloured = overlaylayers::SetRampPreset (layer, change.id, change.text, change.stops, change.value != 0.0) ||
+                     recoloured;
     }
     if (recoloured) {
         PublishLayers ();

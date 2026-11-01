@@ -222,7 +222,8 @@ struct Change {
     // flat picked on the locked view: `text` its floor's slab guids, comma separated, for Archicad to
     // select); "display" (Settings' Displays:
     // `id` and `text` what changed, "slices on", "slices line"); "rampPreset" (a panel ramp's
-    // colours picked, #102: `id` the preset it showed, `text` the one chosen -- display only,
+    // colours picked, #102: `id` the preset it showed, `text` the one chosen, `value` 1 when
+    // flipped -- display only,
     // the layer is recoloured natively); or a control's: "checkbox",
     // "slider", "combo", "tab", "button"
     std::string kind;

@@ -193,6 +193,14 @@ uint32_t Mix (uint32_t a, uint32_t b)
 }
 
 // The hint stop between colour stops `a` and `b`, or -1.
+bool SameStops (const std::vector<layers::ColourStop>& a, const std::vector<layers::ColourStop>& b)
+{
+    return a.size () == b.size () &&
+           std::equal (a.begin (), a.end (), b.begin (), [] (const layers::ColourStop& x, const layers::ColourStop& y) {
+               return x.at == y.at && x.rgba == y.rgba;
+           });
+}
+
 int HintBetween (const std::vector<layers::ColourStop>& stops, int a, int b)
 {
     for (int k = a + 1; k < b; ++k)
@@ -227,6 +235,10 @@ int AddColourStop (std::vector<layers::ColourStop>& stops, float t)
     if (stops.size () < 2)
         return -1;
     t = std::clamp (t, 0.0f, 1.0f);
+    for (const layers::ColourStop& stop : stops)
+        if (!stop.hint && std::abs (stop.at - t) < 0.005f)
+            return -1;                           // on a colour already
+    const uint32_t colour = ColourAt (stops, t); // the colour already shown there
     int a = -1, b = -1;
     for (int i = 0; i < int (stops.size ()); ++i)
         if (!stops[size_t (i)].hint) {
@@ -235,12 +247,10 @@ int AddColourStop (std::vector<layers::ColourStop>& stops, float t)
             else if (b < 0)
                 b = i;
         }
-    if (a < 0 || b < 0 || t <= stops[size_t (a)].at + 0.005f || t >= stops[size_t (b)].at - 0.005f)
-        return -1;
-    const uint32_t colour = ColourAt (stops, t); // the colour already shown there
     // The segment is split: its blend midpoint no longer means anything.
-    if (const int hint = HintBetween (stops, a, b); hint >= 0)
-        stops.erase (stops.begin () + hint);
+    if (a >= 0 && b >= 0)
+        if (const int hint = HintBetween (stops, a, b); hint >= 0)
+            stops.erase (stops.begin () + hint);
     if (stops.size () >= layers::kMaxStops)
         return -1;
     const auto place = std::upper_bound (stops.begin (), stops.end (), t,
@@ -264,31 +274,57 @@ bool RemoveColourStop (std::vector<layers::ColourStop>& stops, int index)
     if (a >= 0)
         if (const int hint = HintBetween (stops, a, index); hint >= 0)
             stops.erase (stops.begin () + hint);
-    // An end removed: the colour next to it becomes the end, so the ramp still spans 0..1.
-    stops.front ().at = 0.0f;
-    stops.back ().at = 1.0f;
     RefreshHints (stops);
     return true;
 }
 
-bool MoveColourStop (std::vector<layers::ColourStop>& stops, int index, float t)
+int MoveColourStop (std::vector<layers::ColourStop>& stops, int index, float t)
 {
+    if (index < 0 || index >= int (stops.size ()) || stops[size_t (index)].hint)
+        return -1;
+    t = std::clamp (t, 0.0f, 1.0f);
     const int a = PreviousColour (stops, index), b = NextColour (stops, index);
-    if (index < 0 || index >= int (stops.size ()) || stops[size_t (index)].hint || a < 0 || b < 0)
-        return false; // the ends stay at 0 and 1
-    const float lo = stops[size_t (a)].at, hi = stops[size_t (b)].at;
-    t = std::clamp (t, lo + 0.01f, (std::max) (lo + 0.01f, hi - 0.01f));
+    const float lo = a >= 0 ? stops[size_t (a)].at : 0.0f, hi = b >= 0 ? stops[size_t (b)].at : 1.0f;
     const float old = stops[size_t (index)].at;
-    if (t == old)
-        return false;
-    // The blends either side keep their place within their segment.
-    const int left = HintBetween (stops, a, index), right = HintBetween (stops, index, b);
-    if (left >= 0)
-        stops[size_t (left)].at = lo + (stops[size_t (left)].at - lo) / (old - lo) * (t - lo);
-    if (right >= 0)
-        stops[size_t (right)].at = t + (stops[size_t (right)].at - old) / (hi - old) * (hi - t);
-    stops[size_t (index)].at = t;
-    return true;
+    if (t >= lo && t <= hi) {
+        // Between the same neighbours: the blends either side keep their place in their segments.
+        const int left = a >= 0 ? HintBetween (stops, a, index) : -1,
+                  right = b >= 0 ? HintBetween (stops, index, b) : -1;
+        if (left >= 0 && old > lo)
+            stops[size_t (left)].at = lo + (stops[size_t (left)].at - lo) / (old - lo) * (t - lo);
+        if (right >= 0 && hi > old)
+            stops[size_t (right)].at = t + (stops[size_t (right)].at - old) / (hi - old) * (hi - t);
+        stops[size_t (index)].at = t;
+        return index;
+    }
+    // Past a neighbour: the colour changes place in the order. Its old blends and the blend
+    // of the segment it lands in no longer mean anything.
+    layers::ColourStop moved = stops[size_t (index)];
+    moved.at = t;
+    if (b >= 0)
+        if (const int hint = HintBetween (stops, index, b); hint >= 0)
+            stops.erase (stops.begin () + hint);
+    stops.erase (stops.begin () + index);
+    if (a >= 0)
+        if (const int hint = HintBetween (stops, a, index); hint >= 0)
+            stops.erase (stops.begin () + hint);
+    int la = -1, lb = -1;
+    for (int i = 0; i < int (stops.size ()); ++i)
+        if (!stops[size_t (i)].hint) {
+            if (stops[size_t (i)].at <= t)
+                la = i;
+            else if (lb < 0)
+                lb = i;
+        }
+    if (la >= 0 && lb >= 0)
+        if (const int hint = HintBetween (stops, la, lb); hint >= 0)
+            stops.erase (stops.begin () + hint);
+    const auto place = std::upper_bound (stops.begin (), stops.end (), t,
+                                         [] (float value, const auto& stop) { return value < stop.at; });
+    const int landed = int (place - stops.begin ());
+    stops.insert (place, moved);
+    RefreshHints (stops);
+    return landed;
 }
 
 bool SetBlendMidpoint (std::vector<layers::ColourStop>& stops, int colour, float t)
@@ -381,8 +417,15 @@ bool EditStops (std::vector<layers::ColourStop>& stops, float width)
         if (std::abs (ImGui::GetIO ().MouseDelta.x) > 0.0f || std::abs (ImGui::GetIO ().MouseDelta.y) > 0.0f)
             if (ImGui::IsMouseDragging (ImGuiMouseButton_Left, 3.0f))
                 storage->SetBool (movedId, true);
-        if (kind == Colour && !removing && storage->GetBool (movedId))
-            changed = MoveColourStop (stops, index, tAt (mouse.x)) || changed;
+        if (kind == Colour && !removing && storage->GetBool (movedId)) {
+            const std::vector<layers::ColourStop> before = stops;
+            const int landed = MoveColourStop (stops, index, tAt (mouse.x));
+            if (landed >= 0 && landed != index) {
+                storage->SetInt (indexId, landed); // it passed a neighbour: follow it
+                selected = landed;
+            }
+            changed = changed || !SameStops (before, stops);
+        }
         else if (kind == Blend)
             changed = SetBlendMidpoint (stops, index, tAt (mouse.x)) || changed;
     }
@@ -454,29 +497,26 @@ namespace {
 struct Opened {
     std::string preset;
     std::vector<layers::ColourStop> custom;
+    bool flipped = false;
 };
 std::map<ImGuiID, Opened> g_opened; // the ImGui thread's
 
-bool SameStops (const std::vector<layers::ColourStop>& a, const std::vector<layers::ColourStop>& b)
+// What the button shows: the preset's or the custom stops, end for end when flipped.
+std::vector<layers::ColourStop> StopsOf (const std::string& presetId, const std::vector<layers::ColourStop>& custom,
+                                         bool flipped)
 {
-    return a.size () == b.size () &&
-           std::equal (a.begin (), a.end (), b.begin (), [] (const layers::ColourStop& x, const layers::ColourStop& y) {
-               return x.at == y.at && x.rgba == y.rgba;
-           });
-}
-
-std::span<const layers::ColourStop> StopsOf (const std::string& presetId, const std::vector<layers::ColourStop>& custom)
-{
+    std::span<const layers::ColourStop> stops;
     if (presetId == layers::kCustomGradientId)
-        return custom;
-    const layers::GradientPreset* preset = layers::FindGradientPreset (presetId);
-    return preset != nullptr ? preset->Stops () : std::span<const layers::ColourStop> ();
+        stops = custom;
+    else if (const layers::GradientPreset* preset = layers::FindGradientPreset (presetId))
+        stops = preset->Stops ();
+    return flipped ? layers::ReversedStops (stops) : std::vector<layers::ColourStop> (stops.begin (), stops.end ());
 }
 
 } // namespace
 
-bool GradientPresetChoice (const char* id, std::string& presetId, std::vector<layers::ColourStop>& custom, float width,
-                           layers::GradientCategory first, const char* none)
+bool GradientPresetChoice (const char* id, std::string& presetId, std::vector<layers::ColourStop>& custom,
+                           bool& flipped, float width, layers::GradientCategory first, const char* none)
 {
     const auto presets = layers::GradientPresets ();
     ImGui::PushID (id);
@@ -495,18 +535,20 @@ bool GradientPresetChoice (const char* id, std::string& presetId, std::vector<la
                          ImGui::GetColorU32 (ImGui::IsItemHovered () ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg),
                          style.FrameRounding);
     const float pad = style.FramePadding.x;
-    const auto shown = StopsOf (presetId, custom);
+    const auto shown = StopsOf (presetId, custom, flipped);
     if (shown.size () >= 2)
         DrawSwatch (draw, ImVec2 (at.x + pad, at.y + 4.0f), ImVec2 (at.x + pad + swatch, at.y + height - 4.0f), shown);
-    const char* label = current >= 0 ? presets[size_t (current)].name : isCustom || none == nullptr ? "Custom" : none;
+    std::string label = current >= 0 ? presets[size_t (current)].name : isCustom || none == nullptr ? "Custom" : none;
+    if (flipped && !presetId.empty ())
+        label += " (flipped)";
     draw->PushClipRect (at, ImVec2 (at.x + width - pad, at.y + height), true);
     draw->AddText (ImVec2 (at.x + 2.0f * pad + swatch, at.y + style.FramePadding.y), ImGui::GetColorU32 (ImGuiCol_Text),
-                   label);
+                   label.c_str ());
     draw->PopClipRect ();
     if (ImGui::IsItemHovered ())
         ImGui::SetTooltip ("Colours: choose a gradient or make your own. Display only; nothing is recalculated.");
     if (pressed) {
-        g_opened[original] = { presetId, custom };
+        g_opened[original] = { presetId, custom, flipped };
         ImGui::OpenPopup ("##presets");
     }
 
@@ -519,9 +561,11 @@ bool GradientPresetChoice (const char* id, std::string& presetId, std::vector<la
         const auto before = g_opened.find (original);
         if (before == g_opened.end ())
             return;
-        if (before->second.preset != presetId || !SameStops (before->second.custom, custom)) {
+        if (before->second.preset != presetId || before->second.flipped != flipped ||
+            !SameStops (before->second.custom, custom)) {
             presetId = before->second.preset;
             custom = before->second.custom;
+            flipped = before->second.flipped;
             changed = true;
         }
     };
@@ -579,9 +623,11 @@ bool GradientPresetChoice (const char* id, std::string& presetId, std::vector<la
     }
     ImGui::PushID ("##custom");
     if (row ("Custom...", custom, isCustom, 0, "edit the stops")) {
-        // Starts from what is shown, so a tweak of a preset is one click away.
-        if (shown.size () >= 2)
+        // Starts from what is shown, flipped or not, so a tweak of a preset is one click away.
+        if (shown.size () >= 2) {
             custom.assign (shown.begin (), shown.end ());
+            flipped = false;
+        }
         if (custom.size () < 2)
             custom = { { 0.0f, 0x000000FFu }, { 1.0f, 0xFFFFFFFFu } };
         presetId = layers::kCustomGradientId;
@@ -627,6 +673,19 @@ bool GradientPresetChoice (const char* id, std::string& presetId, std::vector<la
         close ();
         ImGui::CloseCurrentPopup ();
     }
+    ImGui::SameLine ();
+    // Flip: a preset is drawn end for end; custom stops are reversed where they stand,
+    // so the editor shows what is drawn. Your own two colours are the caller's.
+    ImGui::BeginDisabled (presetId.empty ());
+    if (ImGui::Button ("Flip")) {
+        if (presetId == layers::kCustomGradientId)
+            custom = layers::ReversedStops (custom);
+        else
+            flipped = !flipped;
+        changed = true;
+    }
+    ImGui::EndDisabled ();
+    ImGui::SetItemTooltip ("Turn the gradient end for end.");
     ImGui::SameLine ();
     ImGui::TextDisabled ("Esc cancels");
     ImGui::EndPopup ();

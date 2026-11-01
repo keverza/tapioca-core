@@ -118,7 +118,7 @@ inline std::string SunStudyBandLabel (int band, int count, const float* edges)
 // is SunStudyRampColour line for line. The ramp's first stop is the colour at
 // 0.5 h and its last at 9.5 h -- the ten hourly bins' centres -- whatever preset
 // the user picks; the default is the warm sunlight preset. Display only.
-constexpr const char* kSunRampDefaultPreset = "sunlight-warm";
+constexpr const char* kSunRampDefaultPreset = "sun-hours-classic"; // the owner's default, 2026-11-01
 constexpr size_t kSunRampMaxStops = overlaylayers::kMaxStops;
 // The original ten hourly bins, the colours a scene draws before any HUD chose
 // a preset. DiligentSceneConstants' defaults are these (test_sunstudypreview.cpp).
@@ -160,16 +160,22 @@ inline uint32_t SunStudyRampColour (std::span<const overlaylayers::ColourStop> s
 }
 
 // The stops of the preset the HUD chose: `id`'s, the user's `custom` ones for
-// kCustomGradientId, or the default's for an unknown id. Never empty.
-inline std::span<const overlaylayers::ColourStop>
-SunStudyRampStops (const std::string& id, std::span<const overlaylayers::ColourStop> custom = {})
+// kCustomGradientId, or the default's for an unknown id -- end for end when
+// `flipped`. Never empty.
+inline std::vector<overlaylayers::ColourStop>
+SunStudyRampStops (const std::string& id, std::span<const overlaylayers::ColourStop> custom = {}, bool flipped = false)
 {
+    std::span<const overlaylayers::ColourStop> stops;
     if (id == overlaylayers::kCustomGradientId && custom.size () >= 2 && custom.size () <= kSunRampMaxStops)
-        return custom;
-    const overlaylayers::GradientPreset* preset = overlaylayers::FindGradientPreset (id);
-    if (preset == nullptr)
-        preset = overlaylayers::FindGradientPreset (kSunRampDefaultPreset);
-    return preset != nullptr ? preset->Stops () : std::span<const overlaylayers::ColourStop> (kSunLegacyRamp);
+        stops = custom;
+    else {
+        const overlaylayers::GradientPreset* preset = overlaylayers::FindGradientPreset (id);
+        if (preset == nullptr)
+            preset = overlaylayers::FindGradientPreset (kSunRampDefaultPreset);
+        stops = preset != nullptr ? preset->Stops () : std::span<const overlaylayers::ColourStop> (kSunLegacyRamp);
+    }
+    return flipped ? overlaylayers::ReversedStops (stops)
+                   : std::vector<overlaylayers::ColourStop> (stops.begin (), stops.end ());
 }
 
 // Display-only intensity. Short shadows no longer classify a whole half-day.

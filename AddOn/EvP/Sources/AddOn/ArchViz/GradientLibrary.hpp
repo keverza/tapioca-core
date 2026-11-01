@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace geomsrv {
 namespace archviz {
@@ -67,6 +68,15 @@ struct GradientPreset {
 constexpr const char* kCustomGradientId = "custom";
 
 std::span<const GradientPreset> GradientPresets ();
+// `stops` flipped end for end: position p becomes 1 - p, the order reversed. Every
+// gradient can be flipped (#102); a blend midpoint stays a midpoint.
+inline std::vector<ColourStop> ReversedStops (std::span<const ColourStop> stops)
+{
+    std::vector<ColourStop> out (stops.rbegin (), stops.rend ());
+    for (ColourStop& stop : out)
+        stop.at = 1.0f - stop.at;
+    return out;
+}
 // Nullptr for an id the library does not know.
 const GradientPreset* FindGradientPreset (std::string_view id);
 const char* GradientCategoryLabel (GradientCategory category);
