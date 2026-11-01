@@ -77,7 +77,15 @@ void DrawSwatch (ImDrawList* draw, ImVec2 min, ImVec2 max, std::span<const layer
     }
 }
 
-bool ColourChoice (const char* id, uint32_t& rgba, bool alpha, const char* label)
+void OpenColourPopup (const char* id, uint32_t rgba)
+{
+    ImGui::PushID (id);
+    ImGui::GetStateStorage ()->SetInt (ImGui::GetID ("##original"), int (rgba));
+    ImGui::OpenPopup ("##colour");
+    ImGui::PopID ();
+}
+
+bool ColourPopup (const char* id, uint32_t& rgba, bool alpha)
 {
     ImGui::PushID (id);
     ImGuiStorage* storage = ImGui::GetStateStorage ();
@@ -90,15 +98,6 @@ bool ColourChoice (const char* id, uint32_t& rgba, bool alpha, const char* label
     const ImGuiColorEditFlags flags =
         ImGuiColorEditFlags_NoDragDrop |
         (alpha ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha);
-    const bool pressed = ImGui::ColorButton ("##swatch", vec (rgba), flags);
-    if (label != nullptr && label[0] != 0 && !(label[0] == '#' && label[1] == '#')) {
-        ImGui::SameLine (0.0f, ImGui::GetStyle ().ItemInnerSpacing.x);
-        ImGui::TextUnformatted (label, std::strstr (label, "##")); // nullptr: the whole label
-    }
-    if (pressed) {
-        storage->SetInt (original, int (rgba));
-        ImGui::OpenPopup ("##colour");
-    }
     bool changed = false;
     const auto restore = [&] () {
         const uint32_t before = uint32_t (storage->GetInt (original, int (rgba)));
@@ -147,88 +146,305 @@ bool ColourChoice (const char* id, uint32_t& rgba, bool alpha, const char* label
     return changed;
 }
 
+bool ColourChoice (const char* id, uint32_t& rgba, bool alpha, const char* label)
+{
+    ImGui::PushID (id);
+    const ImVec4 colour (float ((rgba >> 24) & 255) / 255.0f, float ((rgba >> 16) & 255) / 255.0f,
+                         float ((rgba >> 8) & 255) / 255.0f, float (rgba & 255) / 255.0f);
+    const bool pressed = ImGui::ColorButton (
+        "##swatch", colour,
+        ImGuiColorEditFlags_NoDragDrop | (alpha ? ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha));
+    if (label != nullptr && label[0] != 0 && !(label[0] == '#' && label[1] == '#')) {
+        ImGui::SameLine (0.0f, ImGui::GetStyle ().ItemInnerSpacing.x);
+        ImGui::TextUnformatted (label, std::strstr (label, "##")); // nullptr: the whole label
+    }
+    ImGui::PopID ();
+    if (pressed)
+        OpenColourPopup (id, rgba);
+    return ColourPopup (id, rgba, alpha);
+}
+
+// ---- a custom ramp's stops ------------------------------------------------------
+
+namespace {
+
+int PreviousColour (const std::vector<layers::ColourStop>& stops, int i)
+{
+    for (int k = i - 1; k >= 0; --k)
+        if (!stops[size_t (k)].hint)
+            return k;
+    return -1;
+}
+
+int NextColour (const std::vector<layers::ColourStop>& stops, int i)
+{
+    for (int k = i + 1; k < int (stops.size ()); ++k)
+        if (!stops[size_t (k)].hint)
+            return k;
+    return -1;
+}
+
+uint32_t Mix (uint32_t a, uint32_t b)
+{
+    uint32_t out = 0;
+    for (int shift = 0; shift < 32; shift += 8)
+        out |= ((((a >> shift) & 255u) + ((b >> shift) & 255u) + 1u) / 2u) << shift;
+    return out;
+}
+
+// The hint stop between colour stops `a` and `b`, or -1.
+int HintBetween (const std::vector<layers::ColourStop>& stops, int a, int b)
+{
+    for (int k = a + 1; k < b; ++k)
+        if (stops[size_t (k)].hint)
+            return k;
+    return -1;
+}
+
+} // namespace
+
+int ColourStopCount (const std::vector<layers::ColourStop>& stops)
+{
+    return int (std::count_if (stops.begin (), stops.end (), [] (const auto& stop) { return !stop.hint; }));
+}
+
+void RefreshHints (std::vector<layers::ColourStop>& stops)
+{
+    for (int i = 0; i < int (stops.size ()); ++i) {
+        if (!stops[size_t (i)].hint)
+            continue;
+        const int a = PreviousColour (stops, i), b = NextColour (stops, i);
+        if (a < 0 || b < 0) {
+            stops.erase (stops.begin () + i--); // a hint outside two colours means nothing
+            continue;
+        }
+        stops[size_t (i)].rgba = Mix (stops[size_t (a)].rgba, stops[size_t (b)].rgba);
+    }
+}
+
+int AddColourStop (std::vector<layers::ColourStop>& stops, float t)
+{
+    if (stops.size () < 2)
+        return -1;
+    t = std::clamp (t, 0.0f, 1.0f);
+    int a = -1, b = -1;
+    for (int i = 0; i < int (stops.size ()); ++i)
+        if (!stops[size_t (i)].hint) {
+            if (stops[size_t (i)].at <= t)
+                a = i;
+            else if (b < 0)
+                b = i;
+        }
+    if (a < 0 || b < 0 || t <= stops[size_t (a)].at + 0.005f || t >= stops[size_t (b)].at - 0.005f)
+        return -1;
+    const uint32_t colour = ColourAt (stops, t); // the colour already shown there
+    // The segment is split: its blend midpoint no longer means anything.
+    if (const int hint = HintBetween (stops, a, b); hint >= 0)
+        stops.erase (stops.begin () + hint);
+    if (stops.size () >= layers::kMaxStops)
+        return -1;
+    const auto place = std::upper_bound (stops.begin (), stops.end (), t,
+                                         [] (float value, const auto& stop) { return value < stop.at; });
+    const int index = int (place - stops.begin ());
+    stops.insert (place, layers::ColourStop { t, colour, false });
+    RefreshHints (stops);
+    return index;
+}
+
+bool RemoveColourStop (std::vector<layers::ColourStop>& stops, int index)
+{
+    if (index < 0 || index >= int (stops.size ()) || stops[size_t (index)].hint || ColourStopCount (stops) <= 2)
+        return false;
+    const int a = PreviousColour (stops, index), b = NextColour (stops, index);
+    // Its two blends go with it, from the far end first so the indices hold.
+    if (b >= 0)
+        if (const int hint = HintBetween (stops, index, b); hint >= 0)
+            stops.erase (stops.begin () + hint);
+    stops.erase (stops.begin () + index);
+    if (a >= 0)
+        if (const int hint = HintBetween (stops, a, index); hint >= 0)
+            stops.erase (stops.begin () + hint);
+    // An end removed: the colour next to it becomes the end, so the ramp still spans 0..1.
+    stops.front ().at = 0.0f;
+    stops.back ().at = 1.0f;
+    RefreshHints (stops);
+    return true;
+}
+
+bool MoveColourStop (std::vector<layers::ColourStop>& stops, int index, float t)
+{
+    const int a = PreviousColour (stops, index), b = NextColour (stops, index);
+    if (index < 0 || index >= int (stops.size ()) || stops[size_t (index)].hint || a < 0 || b < 0)
+        return false; // the ends stay at 0 and 1
+    const float lo = stops[size_t (a)].at, hi = stops[size_t (b)].at;
+    t = std::clamp (t, lo + 0.01f, (std::max) (lo + 0.01f, hi - 0.01f));
+    const float old = stops[size_t (index)].at;
+    if (t == old)
+        return false;
+    // The blends either side keep their place within their segment.
+    const int left = HintBetween (stops, a, index), right = HintBetween (stops, index, b);
+    if (left >= 0)
+        stops[size_t (left)].at = lo + (stops[size_t (left)].at - lo) / (old - lo) * (t - lo);
+    if (right >= 0)
+        stops[size_t (right)].at = t + (stops[size_t (right)].at - old) / (hi - old) * (hi - t);
+    stops[size_t (index)].at = t;
+    return true;
+}
+
+bool SetBlendMidpoint (std::vector<layers::ColourStop>& stops, int colour, float t)
+{
+    const int b = NextColour (stops, colour);
+    if (colour < 0 || colour >= int (stops.size ()) || stops[size_t (colour)].hint || b < 0)
+        return false;
+    const float lo = stops[size_t (colour)].at, hi = stops[size_t (b)].at;
+    t = std::clamp (t, lo + 0.005f, (std::max) (lo + 0.005f, hi - 0.005f));
+    const bool centred = std::abs (t - 0.5f * (lo + hi)) < 0.02f * (hi - lo);
+    const int hint = HintBetween (stops, colour, b);
+    if (hint >= 0) {
+        if (centred) // back at the middle: an even blend needs no hint
+            stops.erase (stops.begin () + hint);
+        else
+            stops[size_t (hint)].at = t;
+        RefreshHints (stops);
+        return true;
+    }
+    if (centred || stops.size () >= layers::kMaxStops)
+        return false;
+    stops.insert (stops.begin () + b, layers::ColourStop { t, 0u, true });
+    RefreshHints (stops);
+    return true;
+}
+
 bool EditStops (std::vector<layers::ColourStop>& stops, float width)
 {
     if (stops.size () < 2)
         return false;
     ImGuiStorage* storage = ImGui::GetStateStorage ();
     const ImGuiID selectedId = ImGui::GetID ("##stops.selected");
-    const ImGuiID draggingId = ImGui::GetID ("##stops.dragging");
-    int selected = std::clamp (storage->GetInt (selectedId, 0), 0, int (stops.size ()) - 1);
-    const float height = ImGui::GetFrameHeight ();
-    const float grip = 10.0f;
+    const ImGuiID kindId = ImGui::GetID ("##stops.kind");
+    const ImGuiID indexId = ImGui::GetID ("##stops.index");
+    const ImGuiID movedId = ImGui::GetID ("##stops.moved");
+    enum Kind { None, Colour, Blend };
+    const float bar = 1.4f * ImGui::GetFrameHeight ();
+    const float radius = 0.4f * bar;
+    const float arrows = 12.0f;
     const ImVec2 at = ImGui::GetCursorScreenPos ();
-    ImGui::InvisibleButton ("##stops", ImVec2 (width, height + grip));
-    const auto x = [&] (float t) { return at.x + width * t; };
-    const auto tAt = [&] (float px) { return std::clamp ((px - at.x) / (std::max) (width, 1.0f), 0.0f, 1.0f); };
-    bool changed = false;
+    const float left = at.x + radius, span = (std::max) (1.0f, width - 2.0f * radius); // circles stay inside
+    const float middle = at.y + 0.5f * bar;
+    const auto x = [&] (float t) { return left + span * t; };
+    const auto tAt = [&] (float px) { return std::clamp ((px - left) / span, 0.0f, 1.0f); };
+    ImGui::InvisibleButton ("##stops", ImVec2 (width, bar + arrows));
     const ImVec2 mouse = ImGui::GetIO ().MousePos;
+    int selected = storage->GetInt (selectedId, 0);
+    if (selected < 0 || selected >= int (stops.size ()) || stops[size_t (selected)].hint)
+        selected = 0;
+    bool changed = false;
+
     if (ImGui::IsItemActivated ()) {
-        int nearest = -1;
-        float best = 6.0f;
-        for (size_t i = 0; i < stops.size (); ++i)
-            if (std::abs (mouse.x - x (stops[i].at)) <= best) {
-                best = std::abs (mouse.x - x (stops[i].at));
-                nearest = int (i);
+        Kind kind = None;
+        int index = -1;
+        // A colour circle first, then a blend arrow, then the bar itself adds a colour.
+        for (int i = 0; i < int (stops.size ()) && kind == None; ++i)
+            if (!stops[size_t (i)].hint &&
+                std::hypot (mouse.x - x (stops[size_t (i)].at), mouse.y - middle) <= radius + 3)
+                kind = Colour, index = i;
+        if (kind == None && mouse.y > at.y + bar)
+            for (int i = 0; i < int (stops.size ()); ++i) {
+                const int b = NextColour (stops, i);
+                if (stops[size_t (i)].hint || b < 0)
+                    continue;
+                const int hint = HintBetween (stops, i, b);
+                const float arrow =
+                    hint >= 0 ? stops[size_t (hint)].at : 0.5f * (stops[size_t (i)].at + stops[size_t (b)].at);
+                if (std::abs (mouse.x - x (arrow)) <= 7.0f)
+                    kind = Blend, index = i;
             }
-        if (nearest >= 0)
-            selected = nearest;
-        else if (stops.size () < layers::kMaxStops) {
-            // A click on the bar between stops adds one there, in the colour already shown.
-            const float t = tAt (mouse.x);
-            const auto place =
-                std::upper_bound (stops.begin (), stops.end (), t,
-                                  [] (float value, const layers::ColourStop& stop) { return value < stop.at; });
-            const layers::ColourStop added { t, ColourAt (stops, t) };
-            selected = int (stops.insert (place, added) - stops.begin ());
+        if (kind == None && mouse.y <= at.y + bar) {
+            index = AddColourStop (stops, tAt (mouse.x));
+            if (index >= 0) {
+                kind = Colour;
+                changed = true;
+            }
+        }
+        if (kind == Colour)
+            selected = index;
+        storage->SetInt (kindId, kind);
+        storage->SetInt (indexId, index);
+        storage->SetBool (movedId, kind == Colour && changed); // a new colour is not a click on it
+    }
+    const Kind kind = Kind (storage->GetInt (kindId, None));
+    const int index = storage->GetInt (indexId, -1);
+    // Dragged well off the bar, a colour is about to go -- if the ramp keeps two.
+    const bool removing = ImGui::IsItemActive () && kind == Colour && index >= 0 && index < int (stops.size ()) &&
+                          std::abs (mouse.y - middle) > 1.6f * bar && ColourStopCount (stops) > 2;
+    if (ImGui::IsItemActive () && index >= 0 && index < int (stops.size ())) {
+        if (std::abs (ImGui::GetIO ().MouseDelta.x) > 0.0f || std::abs (ImGui::GetIO ().MouseDelta.y) > 0.0f)
+            if (ImGui::IsMouseDragging (ImGuiMouseButton_Left, 3.0f))
+                storage->SetBool (movedId, true);
+        if (kind == Colour && !removing && storage->GetBool (movedId))
+            changed = MoveColourStop (stops, index, tAt (mouse.x)) || changed;
+        else if (kind == Blend)
+            changed = SetBlendMidpoint (stops, index, tAt (mouse.x)) || changed;
+    }
+    if (ImGui::IsItemDeactivated () && kind == Colour && index >= 0 && index < int (stops.size ())) {
+        if (std::abs (mouse.y - middle) > 1.6f * bar && RemoveColourStop (stops, index)) {
+            selected = (std::min) (selected, int (stops.size ()) - 1);
             changed = true;
         }
-        storage->SetBool (draggingId, nearest >= 0);
+        else if (!storage->GetBool (movedId))
+            OpenColourPopup ("##stop.colour", stops[size_t (index)].rgba); // a click: its colour
+        storage->SetInt (kindId, None);
     }
-    // The two ends stay at 0 and 1: a ramp spans its whole range.
-    if (ImGui::IsItemActive () && storage->GetBool (draggingId) && selected > 0 && selected + 1 < int (stops.size ())) {
-        const float lo = stops[size_t (selected) - 1].at + 0.001f, hi = stops[size_t (selected) + 1].at - 0.001f;
-        const float next = std::clamp (tAt (mouse.x), lo, (std::max) (lo, hi));
-        changed = changed || next != stops[size_t (selected)].at;
-        stops[size_t (selected)].at = next;
-    }
-    ImDrawList* draw = ImGui::GetWindowDrawList ();
-    DrawSwatch (draw, at, ImVec2 (at.x + width, at.y + height), stops);
-    draw->AddRect (at, ImVec2 (at.x + width, at.y + height), ImGui::GetColorU32 (ImGuiCol_Border));
-    for (size_t i = 0; i < stops.size (); ++i) {
-        const float px = x (stops[i].at);
-        const bool on = int (i) == selected;
-        draw->AddTriangleFilled (ImVec2 (px, at.y + height), ImVec2 (px - 5.0f, at.y + height + grip),
-                                 ImVec2 (px + 5.0f, at.y + height + grip),
-                                 on ? IM_COL32_WHITE : IM_COL32 (150, 150, 150, 255));
-    }
-    if (ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("Click the bar to add a stop; drag a stop's marker to move it.");
+    if (selected >= int (stops.size ()) || stops[size_t (selected)].hint)
+        selected = 0;
 
-    layers::ColourStop& stop = stops[size_t (selected)];
-    ImGui::PushID (selected);
-    changed = ColourChoice ("##stop.colour", stop.rgba, true, "stop colour") || changed;
-    ImGui::PopID ();
-    const bool end = selected == 0 || selected + 1 == int (stops.size ());
-    ImGui::SameLine ();
-    ImGui::BeginDisabled (end);
-    float position = stop.at * 100.0f;
-    ImGui::SetNextItemWidth ((std::max) (60.0f, width * 0.3f));
-    if (ImGui::SliderFloat ("##stop.at", &position, 0.0f, 100.0f, "%.0f %%") && !end) {
-        const float lo = stops[size_t (selected) - 1].at + 0.001f, hi = stops[size_t (selected) + 1].at - 0.001f;
-        stop.at = std::clamp (position / 100.0f, lo, (std::max) (lo, hi));
+    // The bar, the blend arrows under it, the colour circles on its middle.
+    ImDrawList* draw = ImGui::GetWindowDrawList ();
+    const float inset = 0.25f * bar;
+    DrawSwatch (draw, ImVec2 (left, at.y + inset), ImVec2 (left + span, at.y + bar - inset), stops);
+    draw->AddRect (ImVec2 (left, at.y + inset), ImVec2 (left + span, at.y + bar - inset),
+                   ImGui::GetColorU32 (ImGuiCol_Border));
+    for (int i = 0; i < int (stops.size ()); ++i) {
+        const int b = NextColour (stops, i);
+        if (stops[size_t (i)].hint || b < 0)
+            continue;
+        const int hint = HintBetween (stops, i, b);
+        const float px = x (hint >= 0 ? stops[size_t (hint)].at : 0.5f * (stops[size_t (i)].at + stops[size_t (b)].at));
+        const bool on = kind == Blend && index == i && ImGui::IsItemActive ();
+        draw->AddTriangleFilled (ImVec2 (px, at.y + bar + 1.0f), ImVec2 (px - 5.0f, at.y + bar + arrows - 1.0f),
+                                 ImVec2 (px + 5.0f, at.y + bar + arrows - 1.0f),
+                                 on          ? IM_COL32_WHITE
+                                 : hint >= 0 ? IM_COL32 (210, 210, 210, 255)
+                                             : IM_COL32 (130, 130, 130, 255));
+    }
+    for (int i = 0; i < int (stops.size ()); ++i) {
+        if (stops[size_t (i)].hint)
+            continue;
+        const uint32_t c = stops[size_t (i)].rgba;
+        const ImU32 fill = IM_COL32 ((c >> 24) & 255, (c >> 16) & 255, (c >> 8) & 255, 255);
+        ImVec2 centre (x (stops[size_t (i)].at), middle);
+        const bool going = removing && i == index;
+        if (going)
+            centre = mouse; // follows the pointer off the bar; released there, it is removed
+        draw->AddCircleFilled (centre, radius, fill);
+        draw->AddCircle (centre, radius, going ? IM_COL32 (215, 48, 39, 255) : IM_COL32_WHITE, 0,
+                         i == selected ? 3.0f : 1.5f);
+        if (i == selected && !going)
+            draw->AddCircle (centre, radius + 2.5f, IM_COL32 (30, 30, 30, 200), 0, 1.0f);
+    }
+    if (ImGui::IsItemHovered () && !ImGui::IsItemActive ())
+        ImGui::SetTooltip ("Click a colour to change it, drag it to move it, drag it off the bar to remove it.\n"
+                           "Click the bar to add a colour. Drag an arrow to move where two colours blend.");
+    else if (removing)
+        ImGui::SetTooltip ("Release to remove this colour");
+
+    // The selected colour's own popup: opened by a click on its circle.
+    if (ColourPopup ("##stop.colour", stops[size_t (selected)].rgba, true)) {
+        RefreshHints (stops);
         changed = true;
     }
-    ImGui::EndDisabled ();
-    ImGui::SameLine ();
-    ImGui::BeginDisabled (end || stops.size () <= 2);
-    if (ImGui::SmallButton ("Remove stop")) {
-        stops.erase (stops.begin () + selected);
-        selected = (std::max) (0, selected - 1);
-        changed = true;
-    }
-    ImGui::EndDisabled ();
     storage->SetInt (selectedId, selected);
+    ImGui::TextDisabled ("%d colours -- click a circle for its colour, drag it off to remove", ColourStopCount (stops));
     return changed;
 }
 

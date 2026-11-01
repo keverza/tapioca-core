@@ -32,6 +32,7 @@ GRADIENTS = (
     Gradient('sunhours', 'Sun Hours', 'sun', False, 0.0, 1.0),
     Gradient('slope', 'Slope', 'terrain', False, 0.0, 1.0),
     Gradient('clearance', 'Clearance', 'terrain', False, 0.0, 1.0),
+    Gradient('sun-hours-classic', 'Sun Hours Classic', 'sun', True, 0.0, 10.0),
     Gradient('classic', 'Classic', 'general', False, 0.0, 1.0),
     Gradient('nuanced', 'Nuanced', 'general', False, 0.0, 1.0),
     Gradient('multicolor', 'Multicolor', 'general', False, 0.0, 1.0),

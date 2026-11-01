@@ -6,6 +6,7 @@
 
 #include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/SunStudyPreview.hpp"
 
 #include <gtest/gtest.h>
 
@@ -18,7 +19,8 @@ namespace layers = geomsrv::archviz::overlaylayers;
 TEST (GradientLibrary, EveryPresetIsAValidRamp)
 {
     std::set<std::string> ids;
-    ASSERT_EQ (layers::GradientPresets ().size (), 84u) << "ten originals and seventy-four library presets";
+    ASSERT_EQ (layers::GradientPresets ().size (), 85u)
+        << "ten originals, the classic sun hours and seventy-four library presets";
     for (const layers::GradientPreset& preset : layers::GradientPresets ()) {
         EXPECT_TRUE (ids.insert (preset.id).second) << preset.id << " is listed twice";
         ASSERT_GE (preset.count, 2) << preset.id;
@@ -46,6 +48,18 @@ TEST (GradientLibrary, TheOriginalTenNamesStillResolveUnchanged)
     ASSERT_TRUE (layers::PresetStops ("sunhours", stops));
     EXPECT_EQ (stops.front ().rgba, 0x081D58FFu);
     EXPECT_EQ (stops.back ().rgba, 0xFEC44FFFu);
+}
+
+TEST (GradientLibrary, TheSunStudysOriginalRampIsAPreset)
+{
+    const layers::GradientPreset* classic = layers::FindGradientPreset ("sun-hours-classic");
+    ASSERT_NE (classic, nullptr);
+    EXPECT_EQ (classic->category, layers::GradientCategory::Sun);
+    ASSERT_EQ (classic->count, 10);
+    for (size_t i = 0; i < 10; ++i) {
+        EXPECT_EQ (classic->stops[i].rgba, geomsrv::archviz::kSunLegacyRamp[i].rgba) << i;
+        EXPECT_FLOAT_EQ (classic->stops[i].at, geomsrv::archviz::kSunLegacyRamp[i].at) << i;
+    }
 }
 
 TEST (GradientLibrary, UnknownNamesFailAndLeaveTheStopsAlone)

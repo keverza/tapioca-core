@@ -30,10 +30,36 @@ uint32_t ColourAt (std::span<const overlaylayers::ColourStop> stops, float t);
 // `label` (text before "##") is drawn after the swatch. With `alpha` false the
 // colour's own alpha is kept. True on the frame `rgba` changed.
 bool ColourChoice (const char* id, uint32_t& rgba, bool alpha, const char* label = nullptr);
+// ColourChoice's popup alone, for a caller with its own swatch: open it with the
+// colour to roll back to, and draw it every frame with the same id.
+void OpenColourPopup (const char* id, uint32_t rgba);
+bool ColourPopup (const char* id, uint32_t& rgba, bool alpha);
 
-// A custom ramp's stops edited in place: the bar with a marker per stop -- click the
-// bar to add one, drag a marker to move it -- and the selected stop's colour,
-// position and removal. The ends stay at 0 and 1; 2..16 stops. True when changed.
+// ---- a custom ramp's stops (#102) ------------------------------------------------
+// COLOUR stops are the user's colours. A HINT stop (ColourStop::hint) sits between two
+// of them where their blend is half way, coloured their 50/50 mix -- to everything that
+// draws a ramp it is an ordinary stop, so a moved blend needs no renderer of its own.
+// The ends are colour stops at 0 and 1; at most kMaxStops in all.
+int ColourStopCount (const std::vector<overlaylayers::ColourStop>& stops);
+// Every hint re-coloured from its two colours; a hint without both is dropped.
+void RefreshHints (std::vector<overlaylayers::ColourStop>& stops);
+// A colour at `t`, in the colour already shown there; its segment's hint goes. The
+// new stop's index, or -1 (at an existing stop, or full).
+int AddColourStop (std::vector<overlaylayers::ColourStop>& stops, float t);
+// A colour removed with the hints either side; an end's neighbour becomes the end.
+// False when only two colours would be left.
+bool RemoveColourStop (std::vector<overlaylayers::ColourStop>& stops, int index);
+// An inner colour moved between its neighbours, its hints keeping their place in
+// their segments. The ends do not move.
+bool MoveColourStop (std::vector<overlaylayers::ColourStop>& stops, int index, float t);
+// The blend after colour stop `colour` put at `t`: a hint added, moved, or -- back
+// at the middle -- removed.
+bool SetBlendMidpoint (std::vector<overlaylayers::ColourStop>& stops, int colour, float t);
+
+// The custom ramp editor: a bar with a circle per colour on its middle and an arrow
+// per blend under it. Click a circle to pick its colour (ColourPopup), drag it along
+// to move it or off the bar to remove it; click the bar to add a colour; drag an
+// arrow to move that blend. True when the stops changed.
 bool EditStops (std::vector<overlaylayers::ColourStop>& stops, float width);
 
 // A button showing the current gradient's swatch and name. Pressed, a popup lists

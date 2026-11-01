@@ -24,6 +24,9 @@ namespace overlaylayers {
 struct ColourStop {
     float at = 0.0f;
     uint32_t rgba = 0xFFFFFFFFu;
+    // A custom ramp's blend midpoint rather than a colour of its own (gradientchoice
+    // EditStops): drawn like any stop, shown in the editor as an arrow.
+    bool hint = false;
 };
 constexpr size_t kMaxStops = 16;
 
