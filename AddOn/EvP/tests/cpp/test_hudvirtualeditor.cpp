@@ -3715,6 +3715,43 @@ TEST (HudVirtualEditor, ACrossfallTypedNegativeFallsTheOtherWay)
     EXPECT_NEAR (r.crossfall, 3.0, 1e-9);
 }
 
+TEST (HudVirtualEditor, NegativeCrossfallLabelsNormalizeRightAndCrownWithoutChangingOtherSectionFields)
+{
+    for (const auto fall : { ed::Fall::Right, ed::Fall::Crown }) {
+        ed::Document doc;
+        const ed::Id p = ed::AddPath (doc, { { 0, -10, 0 }, { 0, 12, 0 } }, 6.0);
+        std::string error;
+        ASSERT_TRUE (ed::SetPathFall (doc, p, ed::kNoId, fall, error)) << error;
+        const auto before = ed::FindPath (doc, p)->sections[0];
+        Drive d (std::move (doc));
+        d.input.x = 1000, d.input.y = 100;
+        d.Frame ();
+        ImVec2 at;
+        bool found = false;
+        for (const auto& label : d.S ().placed)
+            if (label.target.value.ref.part == ed::Part::Range && label.target.value.quantity == ed::Quantity::Slope) {
+                at = { (label.box.x0 + label.box.x1) * 0.5f, (label.box.y0 + label.box.y1) * 0.5f };
+                found = true;
+            }
+        ASSERT_TRUE (found);
+        d.Press (at.x, at.y);
+        d.Release (at.x, at.y);
+        ASSERT_TRUE (d.S ().labelOpen);
+        d.input.characters = u"-3";
+        d.Frame ();
+        d.Key (0x0D);
+        auto after = ed::FindPath (d.D (), p)->sections[0];
+        EXPECT_EQ (after.crossfall, 3);
+        EXPECT_EQ (after.fall, fall == ed::Fall::Right ? ed::Fall::Left : ed::Fall::Crown);
+        after.crossfall = before.crossfall;
+        after.fall = before.fall;
+        EXPECT_EQ (after, before);
+        EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+        ASSERT_TRUE (d.S ().edits.Undo ());
+        EXPECT_EQ (ed::FindPath (d.D (), p)->sections[0], before);
+    }
+}
+
 // ---- the profile canvas' own labels: an elevation beside each grade point and a signed grade
 // along each tangent, each bound to the exact dimension a click reads (HudVirtualEditorPanel.cpp)
 

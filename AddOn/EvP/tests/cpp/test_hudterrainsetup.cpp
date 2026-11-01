@@ -771,6 +771,34 @@ TEST (HudTerrainSetup, ASliderDragAppliesLiveAndItsReleaseIsOneUndoStep)
     EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), before) << "one step back to the start";
 }
 
+TEST (HudTerrainSetup, SignedCrossfallDraftsRemainSignedAndPassiveSlidersDoNotNormalizeOrClampThem)
+{
+    for (const auto fall : { edit::Fall::Left, edit::Fall::Right, edit::Fall::Crown }) {
+        auto doc = EmptyLandscape ();
+        const auto path = AddDesignPath (doc);
+        const auto before = edit::FindPath (doc, path)->sections[0];
+        eh::Session session (doc);
+        ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, before.id));
+        session.terrainSectionDraft->value.crossfall = -3;
+        session.terrainSectionDraft->value.fall = fall;
+        PanelGui gui;
+        gui.Frame (session);
+        EXPECT_EQ (session.terrainSectionDraft->value.crossfall, -3);
+        EXPECT_EQ (session.edits.Doc ().paths, doc.paths);
+        ASSERT_TRUE (eh::ApplyTerrainSectionEdit (session)) << session.message;
+        gui.Frame (session);
+        auto after = edit::FindPath (session.edits.Doc (), path)->sections[0];
+        EXPECT_EQ (after.crossfall, -3);
+        EXPECT_EQ (after.fall, fall);
+        after.crossfall = before.crossfall;
+        after.fall = before.fall;
+        EXPECT_EQ (after, before);
+        EXPECT_EQ (session.edits.UndoDepth (), 1u);
+        ASSERT_TRUE (session.edits.Undo ());
+        EXPECT_EQ (session.edits.Doc ().paths, doc.paths);
+    }
+}
+
 TEST (HudTerrainSetup, InvalidOrIdentityChangingSectionDraftsRefuseAtomicallyAndRemainCorrectable)
 {
     auto doc = EmptyLandscape ();
