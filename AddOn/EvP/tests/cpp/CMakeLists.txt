@@ -465,6 +465,9 @@ set (EVP_ARCHVIZ_SOURCES
     # The occluder's per-element store: pure, so an element replaced or removed is pinned here.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/Dxgi/OccluderStore.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentClearCheck.cpp"
+    # RE51.D2: which API the viewport runs on. Pure, so WARP, unknown adapters and
+    # half-capable GPUs are pinned here rather than on a machine that has none.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/RenderBackend.cpp"
     # ArchViz/MatrixMath.cpp is the camera's two bx calls, rewritten bx-free for
     # the Diligent port. It belongs here more than almost anything else in
     # ArchViz: a left-handed view matrix over Archicad's right-handed world
@@ -986,6 +989,7 @@ set (EVP_TEST_SOURCES
     test_substancejoin.cpp
     test_autoexposure.cpp
     test_diligentclear.cpp
+    test_renderbackend.cpp
     test_matrixmath.cpp
     test_debugcubemesh.cpp
     test_axisgnomonmesh.cpp
