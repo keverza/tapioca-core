@@ -126,7 +126,9 @@ Value PathsValue (const edit::Document& doc, LandscapeStorage mode)
                                                  { "crossfall", Number (s.crossfall) },
                                                  { "fall", Integer (int (s.fall)) },
                                                  { "shoulder", Number (s.shoulder) },
-                                                 { "cutSlope", Number (s.cutSlope) },
+                                                 { "cut", Value::Object ({ { "unit", Integer (int (s.cutSlope.unit)) },
+                                                                           { "a", Number (s.cutSlope.a) },
+                                                                           { "b", Number (s.cutSlope.b) } }) },
                                                  { "fillSlope", Number (s.fillSlope) },
                                                  { "rounding", Number (s.rounding) } }));
         for (const auto& k : path.kerbs)

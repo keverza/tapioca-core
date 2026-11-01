@@ -26,7 +26,8 @@ struct Fixture {
             [] (edit::Path& p, std::string&) {
                 for (auto& s : p.sections) {
                     s.crossfall = 0;
-                    s.cutSlope = s.fillSlope = 50;
+                    s.cutSlope = { TerrainSlope::Unit::Percent, 50, 0 };
+                    s.fillSlope = 50;
                 }
                 return true;
             },

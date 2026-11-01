@@ -32,8 +32,15 @@ bool Fine (const Section& s, std::string& error)
         error = "a crossfall must be below 100 %";
         return false;
     }
-    if (!(s.shoulder >= 0.0) || !(s.cutSlope > 0.0) || !(s.fillSlope > 0.0) ||
-        !std::isfinite (s.cutSlope + s.fillSlope + s.shoulder)) {
+    auto cut = s.cutSlope;
+    // Preserve legacy positive finite percent policy (including its aggregate
+    // overflow check), not the separate region fields' 1000% cap. Rust owns all
+    // non-percent conversion; NoRust still validates existing percent paths.
+    using Unit = tapioca::geometry::TerrainSlope::Unit;
+    if (cut.unit != Unit::Percent && !tapioca::geometry::ConvertTerrainSlope (s.cutSlope, Unit::Percent, 1, cut, error))
+        return false;
+    if (!(s.shoulder >= 0.0) || !(cut.a > 0.0) || cut.b != 0 || !(s.fillSlope > 0.0) ||
+        !std::isfinite (cut.a + s.fillSlope + s.shoulder)) {
         error = "shoulders and grading slopes must be positive";
         return false;
     }

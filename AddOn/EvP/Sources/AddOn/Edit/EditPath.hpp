@@ -7,6 +7,7 @@
 // rewrites a height and changing a grade never moves the plan line. Every position
 // along a path is a station: metres of plan length from its start.
 #include "Edit/EditTypes.hpp"
+#include "Geometry/GeometryRustTerrain.hpp"
 #include <string>
 #include <vector>
 
@@ -111,8 +112,9 @@ std::vector<GradeBreak> ProfileFromSamples (const std::vector<std::pair<double, 
 enum class Fall : uint8_t { Crown, Left, Right };
 
 // A cross-section template that applies from `station` to the next range's station.
-// Widths are measured from the centreline in plan; crossfall, cut and fill slopes are
-// percentages (50 % is 1:2). The shoulder runs out level-with-the-edge before grading.
+// Widths are measured from the centreline in plan; crossfall and Fill remain
+// percentages. Cut retains its authored TerrainSlope form (50 % is 1:2).
+// The shoulder runs out level-with-the-edge before grading.
 // `rounding` is the plan length over which the grading faces ease into the path at their top
 // and into the ground at their toe (0 leaves both creases sharp).
 // A tapering range's widths run linearly from widthLeft/Right at its start to endLeft/Right
@@ -127,7 +129,8 @@ struct Section {
     double crossfall = 2.0;
     Fall fall = Fall::Crown;
     double shoulder = 0.0;
-    double cutSlope = 50.0, fillSlope = 33.0;
+    tapioca::geometry::TerrainSlope cutSlope { tapioca::geometry::TerrainSlope::Unit::Percent, 50, 0 };
+    double fillSlope = 33.0;
     double rounding = 1.0;
     bool operator== (const Section&) const = default;
 };

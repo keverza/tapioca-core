@@ -1,6 +1,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "ArchViz/HudSlopeFields.hpp"
 #include <imgui.h>
 #include <algorithm>
 #include <set>
@@ -192,6 +193,7 @@ bool BeginTerrainSectionDrag (Session& s)
         return false;
     }
     s.terrainSectionDrag = true;
+    s.terrainSectionSliderId = 0;
     return true;
 }
 
@@ -213,6 +215,7 @@ void EndTerrainSectionDrag (Session& s)
     if (!s.terrainSectionDrag)
         return;
     s.terrainSectionDrag = false;
+    s.terrainSectionSliderId = 0;
     s.edits.End ();
     if (s.terrainSectionDraft)
         s.terrainSectionDraft->revision = s.edits.Doc ().revision;
@@ -220,8 +223,25 @@ void EndTerrainSectionDrag (Session& s)
 }
 
 namespace {
+constexpr SlopeFieldLabels s_pathCutLabels {
+    "Cut slope unit",
+    "Cut slope",
+    "Cut slope (degrees)",
+    "Cut rise",
+    "Cut run",
+    "Cut height (m)",
+    "Cut plan run (m)",
+    "Path Cut: positive finite grade; vertical is unsupported. Height/run uses model metres.",
+    false,
+    5,
+    200,
+    "%.0f %%"
+};
+
 void SectionPanel (Session& s, edit::Id path)
 {
+    if (!s.edits.InGesture ())
+        s.terrainSectionSliderId = 0;
     const auto* authored = edit::FindPath (s.edits.Doc (), path);
     if (!authored || authored->sections.empty () || !ImGui::TreeNode ("Terrain cross-section"))
         return;
@@ -291,7 +311,32 @@ void SectionPanel (Session& s, edit::Id path)
         ImGui::EndCombo ();
     }
     slide ("Shoulder", value.shoulder, 0.0, 5.0, "%.2f m");
-    slide ("Cut slope", value.cutSlope, 5.0, 200.0, "%.0f %%");
+    bool cutEdited = false, cutReleased = false;
+    const auto previousCutUnit = value.cutSlope.unit;
+    SlopeFields (s_pathCutLabels, value.cutSlope, s.message,
+                 [&] (const char* label, double& field, double lo, double hi, const char* format) {
+                     const auto id = ImGui::GetID (label);
+                     if (s.terrainSectionDrag && s.terrainSectionSliderId == id) {
+                         lo = s.terrainSectionSliderMin;
+                         hi = s.terrainSectionSliderMax;
+                     }
+                     ImGui::SliderScalar (label, ImGuiDataType_Double, &field, &lo, &hi, format);
+                     if (ImGui::IsItemActivated () && BeginTerrainSectionDrag (s)) {
+                         s.terrainSectionSliderId = id;
+                         s.terrainSectionSliderMin = lo;
+                         s.terrainSectionSliderMax = hi;
+                     }
+                     cutEdited |= ImGui::IsItemEdited ();
+                     cutReleased |= ImGui::IsItemDeactivated ();
+                     return ImGui::IsItemEdited ();
+                 });
+    // The shared control first converts displayed degrees back to the authored
+    // radians. Only then may the live section operation capture the draft.
+    if (cutEdited)
+        MoveTerrainSectionDrag (s);
+    if (cutReleased)
+        EndTerrainSectionDrag (s);
+    release |= previousCutUnit != value.cutSlope.unit;
     slide ("Fill slope", value.fillSlope, 5.0, 200.0, "%.0f %%");
     slide ("Rounding", value.rounding, 0.0, 10.0, "%.2f m");
     if (release)

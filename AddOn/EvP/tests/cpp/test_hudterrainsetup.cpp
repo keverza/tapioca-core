@@ -721,7 +721,7 @@ TEST (HudTerrainSetup, SectionFieldsApplyTogetherInOneHistoryEntryAndPersistInTh
     value.crossfall = 3;
     value.fall = edit::Fall::Right;
     value.shoulder = .25;
-    value.cutSlope = 60;
+    value.cutSlope = { lg::TerrainSlope::Unit::Percent, 60, 0 };
     value.fillSlope = 40;
     const auto expected = value;
     EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), before);
@@ -785,7 +785,7 @@ TEST (HudTerrainSetup, InvalidOrIdentityChangingSectionDraftsRefuseAtomicallyAnd
                 value.widthLeft = -1;
                 break;
             case 1:
-                value.cutSlope = 0;
+                value.cutSlope = { lg::TerrainSlope::Unit::Percent, 0, 0 };
                 break;
             case 2:
                 value.fillSlope = std::numeric_limits<double>::infinity ();
@@ -825,9 +825,10 @@ TEST (HudTerrainSetup, InvalidOrIdentityChangingSectionDraftsRefuseAtomicallyAnd
         EXPECT_EQ (session.edits.UndoDepth (), 0U);
     }
     ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, before.id));
-    session.terrainSectionDraft->value.cutSlope = 65;
+    session.terrainSectionDraft->value.cutSlope = { lg::TerrainSlope::Unit::Percent, 65, 0 };
     ASSERT_TRUE (eh::ApplyTerrainSectionEdit (session)) << session.message;
-    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front ().cutSlope, 65);
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front ().cutSlope,
+               (lg::TerrainSlope { lg::TerrainSlope::Unit::Percent, 65, 0 }));
 }
 
 TEST (HudTerrainSetup, DraftsCannotCrossPathsOverwriteNewerEditsOrApplyDuringInput)
@@ -839,7 +840,7 @@ TEST (HudTerrainSetup, DraftsCannotCrossPathsOverwriteNewerEditsOrApplyDuringInp
     eh::Session session (doc);
     ASSERT_TRUE (eh::ChooseTerrainDesignPath (session, first));
     ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, section));
-    session.terrainSectionDraft->value.cutSlope = 65;
+    session.terrainSectionDraft->value.cutSlope = { lg::TerrainSlope::Unit::Percent, 65, 0 };
     ASSERT_TRUE (session.edits.Begin ());
     EXPECT_FALSE (eh::ApplyTerrainSectionEdit (session));
     session.edits.Cancel ();

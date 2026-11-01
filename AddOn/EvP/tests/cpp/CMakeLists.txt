@@ -932,6 +932,7 @@ set (EVP_TEST_SOURCES
     test_editpathalignment.cpp
     test_editpathprofile.cpp
     test_editpathsection.cpp
+    test_editpathcutunits.cpp
     test_editpath.cpp
     test_editprofileview.cpp
     test_hudvirtualeditor.cpp
@@ -939,6 +940,7 @@ set (EVP_TEST_SOURCES
     test_viewereditor.cpp
     test_hudlandscape.cpp
     test_hudterrainsetup.cpp
+    test_hudpathcutunits.cpp
     test_hudvirtualeditorsnap.cpp
     test_hudvirtualeditorsnapcontrols.cpp
     test_hudvirtualeditormap.cpp

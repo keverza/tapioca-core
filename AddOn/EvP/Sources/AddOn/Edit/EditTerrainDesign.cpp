@@ -62,7 +62,7 @@ bool Stations (const edit::Path& path, const TerrainDesignOptions& options, std:
             };
         }
         value.shoulderLeft = value.shoulderRight = section.shoulder;
-        value.cut = { TerrainSlope::Unit::Percent, section.cutSlope, 0 };
+        value.cut = section.cutSlope;
         value.fill = { TerrainSlope::Unit::Percent, section.fillSlope, 0 };
         value.cutLimit = options.cutLimit;
         value.fillLimit = options.fillLimit;

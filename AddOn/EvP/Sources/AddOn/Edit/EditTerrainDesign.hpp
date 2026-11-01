@@ -83,7 +83,7 @@ struct TerrainDesignResult {
 // Worker-only band evaluation for one document path and the session's enabled
 // fixed point/line references. Stations come from the
 // path itself (SampleStations, Evaluate: profile height, range widths, shoulder,
-// crossfall or crown and cut/fill percents as Slope::Percent); nothing is
+// crossfall or crown and Fill as Slope::Percent, Cut in its authored form); nothing is
 // re-solved here and no terrain math is implemented in C++. A crowned range makes
 // the centreline a breakline (the crown's crease). Each station carries the
 // range in force there; a range change is a short explicit taper (`taper`)

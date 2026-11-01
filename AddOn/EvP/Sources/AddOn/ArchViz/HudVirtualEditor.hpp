@@ -118,6 +118,8 @@ struct Session {
     // A cross-section slider is held: its gesture applies every change live (the terrain worker
     // keeps building on it) and its release is the one undo step.
     bool terrainSectionDrag = false;
+    uint32_t terrainSectionSliderId = 0;
+    double terrainSectionSliderMin = 0, terrainSectionSliderMax = 0;
     // Grade along the chosen design path's band only, instead of every path's paved outline.
     bool terrainBand = false;
     bool terrainPaths = true; // False: explicit region-only topography, authored paths stay unchanged.

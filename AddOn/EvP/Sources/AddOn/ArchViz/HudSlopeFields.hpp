@@ -14,6 +14,8 @@ namespace geomsrv::archviz::edithud {
 struct SlopeFieldLabels {
     const char *unit, *percent, *angle, *rise, *run, *height, *planRun, *hint;
     bool allowZero = false;
+    double minimumPercent = 0.01, maximumPercent = 1000;
+    const char* percentFormat = "%.2f";
 };
 
 template <class Slider>
@@ -36,7 +38,8 @@ bool SlopeFields (const SlopeFieldLabels& labels, tapioca::geometry::TerrainSlop
         }
     }
     if (slope.unit == Unit::Percent)
-        changed |= slider (labels.percent, slope.a, labels.allowZero ? 0 : 0.01, 1000, "%.2f");
+        changed |= slider (labels.percent, slope.a, labels.allowZero ? 0 : labels.minimumPercent, labels.maximumPercent,
+                           labels.percentFormat);
     else if (slope.unit == Unit::Angle) {
         // UI boundary only: the authored angle and Rust ABI remain radians.
         constexpr double degrees = 180.0 / std::numbers::pi;

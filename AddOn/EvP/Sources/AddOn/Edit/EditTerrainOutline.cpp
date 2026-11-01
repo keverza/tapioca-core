@@ -76,7 +76,7 @@ OutlineDesignOptions OutlineOptionsFor (const edit::Document& doc, edit::Id path
     options.limit = limit;
     if (const auto* p = edit::FindPath (doc, path); p && !p->sections.empty ()) {
         const auto& s = p->sections.front ();
-        options.cut = { TerrainSlope::Unit::Percent, s.cutSlope, 0 };
+        options.cut = s.cutSlope;
         options.fill = { TerrainSlope::Unit::Percent, s.fillSlope, 0 };
         options.rounding = s.rounding;
     }
