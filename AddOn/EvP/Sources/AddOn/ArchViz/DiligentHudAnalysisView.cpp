@@ -78,8 +78,14 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state)
     view.suppressed = !analysistabs::ShowsTint (state.analysisFocus, shown, kind);
     view.visibilityLowRgba = state.visibilityLowRgba;
     view.visibilityHighRgba = state.visibilityHighRgba;
-    if (const overlaylayers::GradientPreset* preset =
-            overlaylayers::FindGradientPreset (state.visibilityGradientPreset)) {
+    if (state.visibilityGradientPreset == overlaylayers::kCustomGradientId &&
+        state.visibilityGradientCustom.size () >= 2 &&
+        state.visibilityGradientCustom.size () <= overlaylayers::kMaxStops) {
+        view.visibilityRampCount = int (state.visibilityGradientCustom.size ());
+        std::copy (state.visibilityGradientCustom.begin (), state.visibilityGradientCustom.end (), view.visibilityRamp);
+    }
+    else if (const overlaylayers::GradientPreset* preset =
+                 overlaylayers::FindGradientPreset (state.visibilityGradientPreset)) {
         view.visibilityRampCount = int (preset->count);
         std::copy (preset->stops, preset->stops + preset->count, view.visibilityRamp);
     }

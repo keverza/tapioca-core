@@ -188,21 +188,10 @@ void DrawMachineLimits (const SunStudyOverlayStatus& study)
 // without `alpha` the colour is opaque and the alpha byte is left alone.
 bool InlineColour (const char* id, uint32_t& rgba, bool alpha, const char* tip)
 {
-    float channels[4];
-    SunStudyRgbaChannels (rgba, channels);
-    ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel;
-    flags |= alpha ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha;
-    const bool changed = ImGui::ColorEdit4 (id, channels, flags);
+    // Cancel or Escape in its popup puts back the colour it opened on (#102).
+    const bool changed = gradientchoice::ColourChoice (id, rgba, alpha);
     ImGui::SetItemTooltip ("%s", tip);
-    if (!changed)
-        return false;
-    uint32_t next = 0;
-    for (int channel = 0; channel < 4; ++channel) {
-        const float value = channel == 3 && !alpha ? float (rgba & 0xffu) / 255.0f : channels[channel];
-        next |= uint32_t (std::lround (std::clamp (value, 0.0f, 1.0f) * 255.0f)) << (24 - 8 * channel);
-    }
-    rgba = next;
-    return true;
+    return changed;
 }
 
 // What the overlay does to a white surface, for the legend's swatch: white
@@ -250,9 +239,9 @@ void DrawSunStudyHoursDisplay (HudState& state)
     // The colours (#102): any gradient preset, the sun ones listed first. Display only.
     ImGui::TextUnformatted ("Colours");
     ImGui::SameLine ();
-    gradientchoice::GradientPresetChoice ("##sungradientpreset", state.sunGradientPreset,
+    gradientchoice::GradientPresetChoice ("##sungradientpreset", state.sunGradientPreset, state.sunGradientCustom,
                                           ImGui::GetContentRegionAvail ().x, overlaylayers::GradientCategory::Sun);
-    const auto ramp = SunStudyRampStops (state.sunGradientPreset);
+    const auto ramp = SunStudyRampStops (state.sunGradientPreset, state.sunGradientCustom);
 
     // Stepped first: it is the default (#102).
     const char* styles[] = { "Stepped", "Smooth" };
@@ -446,7 +435,7 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     view.shadowRgba = state.sunShadowRgba;
     view.shadowOverlay =
         state.sunShadowOverlay && state.shadowsEnabled && state.shadowMode == int (DiligentShadowMode::Pcf);
-    const auto ramp = SunStudyRampStops (state.sunGradientPreset);
+    const auto ramp = SunStudyRampStops (state.sunGradientPreset, state.sunGradientCustom);
     view.rampCount = int (ramp.size ());
     std::copy (ramp.begin (), ramp.end (), view.ramp);
     if (state.sunGradientStepped) {

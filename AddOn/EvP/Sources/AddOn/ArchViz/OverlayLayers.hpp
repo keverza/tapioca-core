@@ -540,8 +540,10 @@ bool SetRampGreen (const std::string& layer, const std::string& control, double 
 // meshes, legends, panel ramps and bars -- takes preset `to`'s stops; range, bands and
 // cutoff/green anchors stay. The choice is REMEMBERED for the layer until `ClearAll`, so a
 // script that republishes the layer with its own preset keeps the user's colours.
+// `to` kCustomGradientId takes `custom`'s 2..16 stops (the picker's stop editor).
 // Display only: no value changes. False when nothing changed or `to` is unknown.
-bool SetRampPreset (const std::string& layer, const std::string& from, const std::string& to);
+bool SetRampPreset (const std::string& layer, const std::string& from, const std::string& to,
+                    const std::vector<ColourStop>& custom = {});
 // Remove one layer; false when there was none of that name.
 bool Clear (const std::string& name);
 // Every caller layer; the reserved ones stay.

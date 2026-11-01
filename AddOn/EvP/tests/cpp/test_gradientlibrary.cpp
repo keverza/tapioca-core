@@ -190,3 +190,33 @@ TEST (GradientLibrary, AChoiceOutlivesTheScriptRepublishingItsLayerUntilTheSessi
     EXPECT_EQ (Stored ("gradient-study").legends[0].colormap.presetId, "sunhours");
     layers::ClearAll ();
 }
+
+TEST (GradientLibrary, CustomStopsRecolourTheLayerAndSurviveARepublish)
+{
+    layers::ClearAll ();
+    layers::Set (Study ("sunhours"));
+    const std::vector<layers::ColourStop> mine { { 0.0f, 0x112233FFu }, { 0.4f, 0x445566FFu }, { 1.0f, 0x778899FFu } };
+    ASSERT_TRUE (layers::SetRampPreset ("gradient-study", "sunhours", layers::kCustomGradientId, mine));
+    const layers::Colormap& legend = Stored ("gradient-study").legends[0].colormap;
+    EXPECT_EQ (legend.presetId, layers::kCustomGradientId);
+    ASSERT_EQ (legend.stops.size (), 3u);
+    EXPECT_EQ (legend.stops[1].rgba, 0x445566FFu);
+    EXPECT_DOUBLE_EQ (legend.cutoff, 2.5);
+    EXPECT_EQ (layers::Validate (*layers::Layers ().back ()), "") << "a custom colormap is a valid one";
+
+    // Edited again: custom to custom, new stops.
+    std::vector<layers::ColourStop> edited = mine;
+    edited[1].rgba = 0xFF0000FFu;
+    ASSERT_TRUE (
+        layers::SetRampPreset ("gradient-study", layers::kCustomGradientId, layers::kCustomGradientId, edited));
+    EXPECT_FALSE (
+        layers::SetRampPreset ("gradient-study", layers::kCustomGradientId, layers::kCustomGradientId, edited))
+        << "the same stops again change nothing";
+    layers::Set (Study ("sunhours"));
+    EXPECT_EQ (Stored ("gradient-study").legends[0].colormap.stops[1].rgba, 0xFF0000FFu)
+        << "the script's republish keeps the user's own stops";
+    EXPECT_FALSE (layers::SetRampPreset ("gradient-study", layers::kCustomGradientId, layers::kCustomGradientId,
+                                         { { 0.0f, 0x000000FFu } }))
+        << "one stop is not a ramp";
+    layers::ClearAll ();
+}

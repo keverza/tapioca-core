@@ -41,6 +41,8 @@ def load() -> dict:
     seen = set()
     for preset in document["presets"]:
         ident = preset["id"]
+        if ident == "custom":
+            raise SystemExit("'custom' is reserved for the user's own stops (layers::kCustomGradientId)")
         if ident in seen:
             raise SystemExit(f"{ident}: duplicate id")
         seen.add(ident)

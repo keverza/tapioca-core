@@ -59,6 +59,10 @@ struct GradientPreset {
     }
 };
 
+// The id a colormap carries when its stops are the user's own, edited in the
+// picker rather than taken from the library. Reserved: no preset may use it.
+constexpr const char* kCustomGradientId = "custom";
+
 std::span<const GradientPreset> GradientPresets ();
 // Nullptr for an id the library does not know.
 const GradientPreset* FindGradientPreset (std::string_view id);

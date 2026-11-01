@@ -159,10 +159,13 @@ inline uint32_t SunStudyRampColour (std::span<const overlaylayers::ColourStop> s
     return out;
 }
 
-// The stops of the preset the HUD chose: `id`'s, or the default's for an
-// unknown id. Never empty.
-inline std::span<const overlaylayers::ColourStop> SunStudyRampStops (const std::string& id)
+// The stops of the preset the HUD chose: `id`'s, the user's `custom` ones for
+// kCustomGradientId, or the default's for an unknown id. Never empty.
+inline std::span<const overlaylayers::ColourStop>
+SunStudyRampStops (const std::string& id, std::span<const overlaylayers::ColourStop> custom = {})
 {
+    if (id == overlaylayers::kCustomGradientId && custom.size () >= 2 && custom.size () <= kSunRampMaxStops)
+        return custom;
     const overlaylayers::GradientPreset* preset = overlaylayers::FindGradientPreset (id);
     if (preset == nullptr)
         preset = overlaylayers::FindGradientPreset (kSunRampDefaultPreset);

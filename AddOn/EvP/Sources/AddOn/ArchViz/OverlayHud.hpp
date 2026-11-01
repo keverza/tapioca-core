@@ -233,6 +233,8 @@ struct Change {
     double value = 0.0;
     std::string text; // what the value says
     bool final = true;
+    // "rampPreset" to kCustomGradientId: the user's stops.
+    std::vector<overlaylayers::ColourStop> stops;
 };
 
 // A set laid out: one per panel, and what floats over them -- the tooltips -- in view

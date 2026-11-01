@@ -433,9 +433,12 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     // Both visibility tabs share the gradient; the tint redraws with it at once.
     ImGui::SeparatorText ("Display");
     // Two colours, or any gradient preset (#102), the view ones listed first.
+    // A custom gradient starts from the two colours.
+    if (state.visibilityGradientCustom.size () < 2)
+        state.visibilityGradientCustom = { { 0.0f, state.visibilityLowRgba }, { 1.0f, state.visibilityHighRgba } };
     gradientchoice::GradientPresetChoice ("##visibility-preset", state.visibilityGradientPreset,
-                                          ImGui::GetContentRegionAvail ().x, overlaylayers::GradientCategory::View,
-                                          "Two colours");
+                                          state.visibilityGradientCustom, ImGui::GetContentRegionAvail ().x,
+                                          overlaylayers::GradientCategory::View, "Two colours");
     if (state.visibilityGradientPreset.empty ()) {
         ColourPicker ("not visible", state.visibilityLowRgba, false);
         ImGui::SameLine ();
@@ -447,6 +450,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
         state.visibilityLowRgba = defaults.visibilityLowRgba;
         state.visibilityHighRgba = defaults.visibilityHighRgba;
         state.visibilityGradientPreset.clear ();
+        state.visibilityGradientCustom.clear ();
     }
     ImGui::SetItemTooltip ("Back to the two default colours.");
     if (ownResult) {

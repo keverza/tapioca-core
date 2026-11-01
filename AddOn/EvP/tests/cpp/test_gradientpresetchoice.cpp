@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace choice = geomsrv::archviz::gradientchoice;
 namespace layers = geomsrv::archviz::overlaylayers;
@@ -20,6 +21,10 @@ struct Harness {
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGuiContext* context = ImGui::CreateContext ();
     std::string preset = "sunhours";
+    std::vector<layers::ColourStop> custom;
+    const char* none = nullptr;
+    uint32_t swatch = 0x336699FFu;
+    bool swatchMode = false; // draw a ColourChoice instead of the picker
     bool changed = false;
 
     Harness ()
@@ -52,7 +57,12 @@ struct Harness {
         ImGui::SetNextWindowPos ({ 0, 0 });
         ImGui::SetNextWindowSize ({ 400, 200 });
         ImGui::Begin ("picker", nullptr, ImGuiWindowFlags_NoDecoration);
-        changed = choice::GradientPresetChoice ("##ramp", preset, 300.0f) || changed;
+        if (swatchMode)
+            changed = choice::ColourChoice ("##swatch", swatch, false, "colour") || changed;
+        else
+            changed = choice::GradientPresetChoice ("##ramp", preset, custom, 300.0f, layers::GradientCategory::General,
+                                                    none) ||
+                      changed;
         ImGui::End ();
         ImGui::Render ();
         if (key != ImGuiKey_None)
@@ -148,4 +158,62 @@ TEST (GradientPresetChoice, ColourAtInterpolatesBetweenExactStops)
     EXPECT_EQ (choice::ColourAt (stops, 0.5f), 0xFF0000FFu);
     EXPECT_EQ (choice::ColourAt (stops, 0.75f), 0xFF8080FFu);
     EXPECT_EQ (choice::ColourAt (stops, 2.0f), 0xFFFFFFFFu);
+}
+
+TEST (GradientPresetChoice, CustomStartsAsAnEditableRampAndCancelRestoresPresetAndStops)
+{
+    Harness hud;
+    hud.preset.clear ();
+    hud.Frame ();
+    hud.Click (kButton);
+    hud.Frame ();
+    // Nothing selected: down to the first preset, then up to the row above it, Custom...
+    hud.Key (ImGuiKey_DownArrow);
+    hud.Key (ImGuiKey_UpArrow);
+    hud.Key (ImGuiKey_Enter);
+    EXPECT_EQ (hud.preset, layers::kCustomGradientId);
+    ASSERT_EQ (hud.custom.size (), 2u) << "a fresh custom ramp is two stops to edit";
+    EXPECT_FLOAT_EQ (hud.custom.front ().at, 0.0f);
+    EXPECT_FLOAT_EQ (hud.custom.back ().at, 1.0f);
+    hud.Key (ImGuiKey_Escape);
+    EXPECT_TRUE (hud.preset.empty ());
+    EXPECT_TRUE (hud.custom.empty ()) << "Escape puts the stops back too";
+}
+
+TEST (GradientPresetChoice, TheCallersOwnColoursAreARowToGoBackTo)
+{
+    Harness hud;
+    hud.preset.clear ();
+    hud.none = "Two colours";
+    hud.Frame ();
+    hud.Click (kButton);
+    hud.Frame ();
+    hud.Key (ImGuiKey_DownArrow); // Two colours -> Custom...
+    hud.Key (ImGuiKey_DownArrow); // -> the first preset
+    hud.Key (ImGuiKey_Enter);
+    ASSERT_FALSE (hud.preset.empty ());
+    ASSERT_NE (hud.preset, layers::kCustomGradientId);
+    hud.Key (ImGuiKey_UpArrow);
+    hud.Key (ImGuiKey_UpArrow);
+    hud.Key (ImGuiKey_Enter);
+    EXPECT_TRUE (hud.preset.empty ()) << "picked back without Reset, so the caller's colours are kept";
+    EXPECT_TRUE (hud.PopupOpen ());
+}
+
+TEST (GradientPresetChoice, ASwatchCanAlwaysBeRolledBack)
+{
+    Harness hud;
+    hud.swatchMode = true;
+    hud.Frame ();
+    hud.Frame ({ 15, 15 }); // hovered first, as a pointer is
+    hud.Click ({ 15, 15 });
+    ASSERT_TRUE (hud.PopupOpen ());
+    hud.Frame ({ 15, 15 });
+    // Into the picker's saturation/value square, under the popup's corner.
+    hud.Click ({ 60, 70 });
+    ASSERT_TRUE (hud.changed);
+    ASSERT_NE (hud.swatch, 0x336699FFu);
+    hud.Key (ImGuiKey_Escape);
+    EXPECT_FALSE (hud.PopupOpen ());
+    EXPECT_EQ (hud.swatch, 0x336699FFu) << "Escape is the rollback";
 }
