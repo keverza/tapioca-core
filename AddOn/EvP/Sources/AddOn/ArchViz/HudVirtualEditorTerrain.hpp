@@ -25,8 +25,32 @@ struct TerrainCaptureRequest {
 struct TerrainSectionDraft {
     edit::Id path = edit::kNoId, section = edit::kNoId;
     uint64_t revision = 0;
-    edit::Section value; // Only the existing section's dimensional fields are editable here.
+    edit::Section value;            // Shared dimensional values; mixed fields use `mixed` below.
+    std::vector<edit::Id> sections; // Selected range IDs in authored order; one is the old API.
+    // Bit positions in SectionField. A mixed bit means preserve that field unless
+    // the UI explicitly edits it; it is never a synthetic authored NaN value.
+    uint32_t mixed = 0;
 };
+enum class SectionField : uint32_t {
+    WidthLeft = 1u << 0,
+    WidthRight = 1u << 1,
+    Taper = 1u << 2,
+    EndLeft = 1u << 3,
+    EndRight = 1u << 4,
+    Crossfall = 1u << 5,
+    CrossfallUnit = 1u << 6,
+    Fall = 1u << 7,
+    Shoulder = 1u << 8,
+    Cut = 1u << 9,
+    CutUnit = 1u << 10,
+    Fill = 1u << 11,
+    FillUnit = 1u << 12,
+    Rounding = 1u << 13
+};
+uint32_t SectionFieldBit (SectionField field);
+// Shared state and explicit selected ranges. Existing single-range calls wrap this.
+bool BeginTerrainSectionEdit (Session& session, const std::vector<edit::Id>& sections);
+bool BeginTerrainSectionEdit (Session& session, edit::Id section);
 struct TerrainDesignBaseline {
     std::shared_ptr<const Mesh> mesh;
     bool nativeSolid = false; // Compact the upward surface on the worker.

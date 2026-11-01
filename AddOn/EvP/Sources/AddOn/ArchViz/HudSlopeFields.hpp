@@ -20,7 +20,7 @@ struct SlopeFieldLabels {
 
 template <class Slider>
 bool SlopeFields (const SlopeFieldLabels& labels, tapioca::geometry::TerrainSlope& slope, std::string& error,
-                  Slider slider)
+                  Slider slider, bool mixedUnit = false)
 {
     namespace lg = tapioca::geometry;
     using Unit = lg::TerrainSlope::Unit;
@@ -29,7 +29,21 @@ bool SlopeFields (const SlopeFieldLabels& labels, tapioca::geometry::TerrainSlop
     constexpr std::array units { Unit::Percent, Unit::Angle, Unit::RiseRun, Unit::Height };
     int unit = static_cast<int> (std::find (units.begin (), units.end (), slope.unit) - units.begin ());
     bool changed = false;
-    if (ImGui::Combo (labels.unit, &unit, "Percent (%)\0Angle (degrees)\0Rise:run\0Height / run (m)\0")) {
+    bool unitChanged = false;
+    if (mixedUnit) {
+        if (ImGui::BeginCombo (labels.unit, "mixed")) {
+            constexpr std::array names { "Percent (%)", "Angle (degrees)", "Rise:run", "Height / run (m)" };
+            for (size_t i = 0; i < units.size (); ++i)
+                if (ImGui::Selectable (names[i])) {
+                    unit = static_cast<int> (i);
+                    unitChanged = true;
+                }
+            ImGui::EndCombo ();
+        }
+    }
+    else
+        unitChanged = ImGui::Combo (labels.unit, &unit, "Percent (%)\0Angle (degrees)\0Rise:run\0Height / run (m)\0");
+    if (unitChanged) {
         lg::TerrainSlope converted;
         if (unit >= 0 && unit < static_cast<int> (units.size ()) &&
             lg::ConvertTerrainSlope (slope, units[static_cast<size_t> (unit)], 1, converted, error)) {
