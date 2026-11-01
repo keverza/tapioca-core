@@ -21,7 +21,7 @@
 // CYCLE: the viewport HOLDS one, and Support's header already includes the
 // viewport's. Nothing else about it wants to be separate.
 
-#include "ArchViz/DiligentHud.hpp"   // HudState
+#include "ArchViz/DiligentHud.hpp" // HudState
 
 #include <chrono>
 #include <mutex>
@@ -31,20 +31,23 @@ namespace geomsrv {
 namespace archviz {
 
 class InstructionBanner {
-public:
+  public:
     // Any thread. Empty text hides it; a negative `seconds` means no countdown.
     void Set (const std::string& text, double seconds);
     // Render thread, once per frame, before the HUD is drawn.
+    // Also publishes the HUD's view and hints to ArchViz/ViewerStatus.
     void PublishTo (HudState& hud);
 
-private:
+  private:
+    void Publish (HudState& hud);
+
     std::mutex mutex_;
     std::string text_;
     std::chrono::steady_clock::time_point deadline_ {};
     bool hasDeadline_ = false;
 };
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

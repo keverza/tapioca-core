@@ -14,6 +14,7 @@
 #include "ArchViz/ViewportOverlayWindow.hpp"
 #include "ArchViz/ViewerHost.hpp"
 #include "ArchViz/ViewerSettings.hpp" // SceneRenderMode -- the overlay starts in wireframe
+#include "ArchViz/ViewerStatusSources.hpp"
 #include "ResourceIds.hpp"
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
 
@@ -83,6 +84,7 @@ ArchVizPanel::ArchVizPanel ()
     // BEFORE its HWND is asked for and handed to a renderer — a hidden item's
     // window is not a surface anything can present to.
     viewport->Show ();
+    statusBar = std::make_unique<geomsrv::archviz::ViewerStatusBar> (*this, statusText, kStatusHeight);
 
     // Idle is opt-in; without it the status line never updates and an init
     // failure that happens a few hundred ms after Show() is invisible.
@@ -483,7 +485,11 @@ void ArchVizPanel::Layout ()
     const short height = GetHeight ();
 
     const short statusTop = (short) (height - kMargin - kStatusHeight);
-    statusText.SetRect (DG::Rect (kMargin, statusTop, (short) (width - kMargin), (short) (statusTop + kStatusHeight)));
+    if (statusBar != nullptr && statusBar->IsShown ())
+        statusBar->Layout (kMargin, (short) (width - kMargin), statusTop, (short) (statusTop + kStatusHeight));
+    else
+        statusText.SetRect (
+            DG::Rect (kMargin, statusTop, (short) (width - kMargin), (short) (statusTop + kStatusHeight)));
 
     if (viewport != nullptr) {
         // Flush to the panel edges except for the status strip: the viewport is
@@ -611,6 +617,10 @@ void ArchVizPanel::StopRenderer ()
     // polled globally, so a buffer left holding a press outlives the viewer and
     // the NEXT one latches that drag on its first frame.
     geomsrv::archviz::InputRingBuffer::Get ().Reset ();
+    // A hint must not outlive the viewer whose workflow posted it.
+    geomsrv::archviz::viewerstatus::ResetPublished ();
+    if (statusBar != nullptr && statusBar->SetShown (false))
+        Layout ();
     statusText.SetText ("Renderer stopped.");
     lastStatus = GS::UniString ();
 }
@@ -665,6 +675,16 @@ void ArchVizPanel::RefreshStatus ()
     else {
         text = GS::UniString ("Viewer not running.");
     }
+
+    // The four-block bar (issue #96), ONLY while the palette viewer draws: every
+    // other state above is about the renderer itself and keeps the whole line.
+    // Its D3D12/D3D11 detail stays in archviz.log and the HUD badge.
+    const geomsrv::archviz::viewerstatus::Inputs inputs = geomsrv::archviz::viewerstatus::Gather (viewportStats);
+    const bool blocks = inputs.drawing && !viewportStats.overlay;
+    if (statusBar->SetShown (blocks))
+        Layout ();
+    if (blocks)
+        text = FromStd (statusBar->Apply (geomsrv::archviz::viewerstatus::Compose (inputs)));
 
     // ⚠️ NO fps AND NO FRAME COUNT IN THIS STRING, DELIBERATELY, AND IT IS A
     // FIX. They used to be here -- which changes every second, so SetText fired

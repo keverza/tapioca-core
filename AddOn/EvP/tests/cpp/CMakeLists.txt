@@ -249,6 +249,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRoles.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyBounds.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerFramePacing.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerStatus.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReading.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStepAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyLimits.cpp")
@@ -1125,6 +1126,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyroles.cpp
     test_sunstudybounds.cpp
     test_viewerframepacing.cpp
+    test_viewerstatus.cpp
     test_sunstudyreading.cpp
     test_sunstudystepatlas.cpp
     test_sunstudylimits.cpp

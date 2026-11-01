@@ -558,6 +558,11 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # The runner writes one line per run to the existing host log: the requested
     # and resolved sun backend (#54). It controls no renderer.
     ("NativeCommands/SunStudyHudRunner.cpp", "ArchViz/ArchVizLog.hpp"),
+    # The viewer palette's status bar (#96) reads the runner's and the follower's
+    # plain-value status (Current/State) to show study progress and freshness.
+    # Read-only: it submits, cancels and arms nothing.
+    ("ArchViz/ViewerStatusSources.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
+    ("ArchViz/ViewerStatusSources.cpp", "NativeCommands/SunStudyFollowerDriver.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SceneCmdQueue.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SunStudyOverlay.hpp"),
