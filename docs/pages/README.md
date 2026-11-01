@@ -35,6 +35,11 @@ uploads only `docs/pages/dist`. The generated Starlight site is the Pages root.
 It runs on changes to the site or its workflow file and can also be started
 from the **Actions** tab with **Run workflow**.
 
+The API catalog linked from the site is kept honest by
+`.github/workflows/api-docs-freshness.yml`, which regenerates
+`dist/TAPIOCA-API-V2.json` and `dist/TAPIOCA-API-V2.md` from the native
+command schemas and fails when the committed artifacts drift.
+
 ## Preview locally
 
 From `core/docs/pages`, install dependencies once and start Starlight:

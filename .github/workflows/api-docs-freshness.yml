@@ -1,0 +1,49 @@
+name: API catalog freshness
+
+# The generated catalog in dist/ must always match the registered native
+# commands. This job regenerates it from the C++ schemas and fails when the
+# committed artifacts drift, so a command added, removed, or re-schemed
+# without re-running the generator breaks CI instead of publishing stale
+# documentation references.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'AddOn/EvP/Sources/**'
+      - 'AddOn/EvP/tools/generate_tapioca_api_v2.py'
+      - 'dist/TAPIOCA-API-V2.json'
+      - 'dist/TAPIOCA-API-V2.md'
+  pull_request:
+    paths:
+      - 'AddOn/EvP/Sources/**'
+      - 'AddOn/EvP/tools/generate_tapioca_api_v2.py'
+      - 'dist/TAPIOCA-API-V2.json'
+      - 'dist/TAPIOCA-API-V2.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Regenerate the API catalog
+        run: python AddOn/EvP/tools/generate_tapioca_api_v2.py
+
+      - name: Fail when the committed catalog drifted
+        run: |
+          git diff --exit-code -- dist/TAPIOCA-API-V2.json dist/TAPIOCA-API-V2.md || {
+            echo "::error::dist/ API catalog is stale. Run AddOn/EvP/tools/generate_tapioca_api_v2.py and commit the result."
+            exit 1
+          }

@@ -27,6 +27,24 @@ Archicad SDK access, validation, dispatch, and main-thread safety.
 | Build the add-on or contribute | [Development](./development/) |
 | Diagnose a missing command or runtime | [Troubleshooting](./troubleshooting/) |
 
+## What ships today
+
+The add-on registers one **Tapioca** menu in Archicad 29 with these surfaces:
+
+- **Tapioca Panel** — the command palette: scans, lists, and runs Python
+  commands from the managed command directory.
+- **Node Graph** — a node-graph workflow editor palette backed by the same
+  command catalog.
+- **Tapioca 3D Viewer**, **Tapioca 2D Overlay**, and **Tapioca 3D Overlay** —
+  hosted viewer and overlay surfaces driven by native commands.
+- **Grasshopper Editor**, **Run Grasshopper Definition**, and the
+  **rhino.compute** start/stop items — integration entry points that need the
+  matching external applications installed.
+
+Behind the palette, the shipped Python facade and the generated native
+`Tapioca.*` command catalog provide the model access; see the
+[API boundary](./api/).
+
 ## Learn by example
 
 The public repository contains small commands that can be run without the
