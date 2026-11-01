@@ -104,6 +104,22 @@ constexpr TimedOutSlice JudgeTimedOutSlice (bool started, bool completed, int64_
     return waitedMs >= deadlineMs ? TimedOutSlice::Abandon : TimedOutSlice::Wait;
 }
 
+// Why a pass got no model. ⚠️ A STOPPED PASS WAS SUPERSEDED, NOT SLOW, and must
+// not read as the generation message: on 2026-11-01 that message blamed Archicad
+// for 20 s the main thread spent joining the pass that was waiting for it
+// (Python/GateWait.hpp, #114).
+inline std::string AcquireFailure (bool stopped, int timeoutMs, int64_t waitedMs)
+{
+    if (stopped)
+        return "stopped after " + std::to_string (waitedMs) +
+               " ms, before Archicad was asked for the model (a newer pass or a close superseded it)";
+    return "gave up waiting " + std::to_string (timeoutMs / 1000) +
+           "s for the 3D model. Archicad is almost certainly GENERATING it - "
+           "that happens when the 3D window has never been opened, or when an "
+           "edit in a 2D window invalidated it. Open the 3D window once, let it "
+           "finish drawing, then refresh.";
+}
+
 } // namespace extractionslice
 } // namespace archviz
 } // namespace geomsrv

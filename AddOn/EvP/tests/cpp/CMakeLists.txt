@@ -1057,6 +1057,8 @@ set (EVP_TEST_SOURCES
     test_occluderstore.cpp
     test_modelwatchroute.cpp
     test_extractionslicewait.cpp
+    # A stoppable gate wait gives a joining main thread its thread back: header-only.
+    test_gatewait.cpp
     test_modelstampwalk.cpp
     test_sunstudyresultkey.cpp
     test_logclaim.cpp

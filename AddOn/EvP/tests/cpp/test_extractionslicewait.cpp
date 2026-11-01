@@ -34,3 +34,13 @@ TEST (ExtractionSliceWait, ARevokedSliceIsRetriedAfterTheGraceNotTheDeadline)
     EXPECT_EQ (JudgeTimedOutSlice (false, false, kUnstartedGraceMs, kDeadline), TimedOutSlice::Retry);
     EXPECT_LT (kUnstartedGraceMs, kDeadline / 10);
 }
+
+// A pass the main thread stopped while it waited must not blame Archicad (#114).
+TEST (ExtractionSliceWait, AStoppedAcquireIsNotReportedAsGeneration)
+{
+    using geomsrv::archviz::extractionslice::AcquireFailure;
+    const std::string stopped = AcquireFailure (true, 20000, 12);
+    EXPECT_EQ (stopped.find ("GENERATING"), std::string::npos);
+    EXPECT_NE (stopped.find ("superseded"), std::string::npos);
+    EXPECT_NE (AcquireFailure (false, 20000, 20000).find ("gave up waiting 20s"), std::string::npos);
+}

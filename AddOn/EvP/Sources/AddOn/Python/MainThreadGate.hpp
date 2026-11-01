@@ -21,6 +21,9 @@
 #include "ACAPinc.h"
 #include "UniString.hpp"
 
+#include "GateWait.hpp"
+
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -63,6 +66,15 @@ class MainThreadGate {
     // already in flight" purely because the user had not clicked OK yet.)
     // Use Post for those.
     bool Invoke (const std::function<void ()>& fn, int timeoutMs, GS::UniString& error);
+
+    // Invoke for a caller that can be STOPPED, by a main thread that will then
+    // join it. While `stop` is false this is Invoke. Once it reads true and the
+    // job is still queued, the job is revoked and the call returns false at once
+    // (`outcome` Abandoned), instead of holding the joining main thread for the
+    // whole timeout (GateWait.hpp has the measurement). A job already
+    // dispatched is waited for. True only when the job ran and finished.
+    bool InvokeUnlessStopped (const std::function<void ()>& fn, int timeoutMs, const std::atomic<bool>& stop,
+                              GS::UniString& error, gatewait::Outcome* outcome = nullptr);
 
     // Fire-and-forget. For output/telemetry, where a ~3ms round trip per line
     // would be absurd. No completion guarantee, no ordering guarantee against
