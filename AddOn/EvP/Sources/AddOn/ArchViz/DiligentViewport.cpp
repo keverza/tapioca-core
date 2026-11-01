@@ -438,12 +438,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // there would leave "zoom to fit" fitting to a corner of the building
             // for the rest of the session. Refreshing is a bounds read and a
             // couple of stores; the FRAMING below still happens exactly once.
-            if (consumed > 0) {
-                float boundsMin[3];
-                float boundsMax[3];
-                if (scene.SceneBounds (boundsMin, boundsMax))
-                    camera.SetBounds (boundsMin, boundsMax);
-            }
+            if (consumed > 0)
+                AdoptSceneBounds (camera, scene,
+                                  cameraStart.valid && !userHasNavigated && surface.mode == SurfaceMode::PaletteChild);
 
             if (consumed > 0 && !framedRealGeometry) {
                 float sceneMin[3];

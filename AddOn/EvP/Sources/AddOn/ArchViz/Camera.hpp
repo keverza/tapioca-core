@@ -194,6 +194,13 @@ class Camera final {
     {
         return havePivot_;
     }
+    // ⚠️ THE TARGET SLID ALONG THE LINE OF SIGHT TO `point`'s DEPTH, AND THE PICTURE KEPT: same eye,
+    // same direction, a new distance. The wheel zooms by a fraction of the distance and a pan moves
+    // by the focal plane's size, so both are only right when the target is about as far away as
+    // the model -- Archicad's camera arrives with its target wherever it was, and until a fit the
+    // zoom crawled or leapt (the user, 2026-11-01). Perspective only; false, and nothing changed,
+    // for a parallel view or a point less than half a metre in front of the eye.
+    bool FocusAtDepthOf (const float point[3]);
 
     // Fold one frame's input in. Returns true if the camera actually moved, so
     // the caller can tell a still frame from a moving one.

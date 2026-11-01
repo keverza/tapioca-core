@@ -208,6 +208,26 @@ void Camera::SetOrbitPivot (const float pivot[3])
     havePivot_ = true;
 }
 
+bool Camera::FocusAtDepthOf (const float point[3])
+{
+    if (orthographic_ || topDown_ || distance_ <= 0.0f)
+        return false;
+    float eye[3];
+    GetEyePosition (eye);
+    const float forward[3] = { (targetX_ - eye[0]) / distance_, (targetY_ - eye[1]) / distance_,
+                               (targetZ_ - eye[2]) / distance_ };
+    const float depth =
+        (point[0] - eye[0]) * forward[0] + (point[1] - eye[1]) * forward[1] + (point[2] - eye[2]) * forward[2];
+    constexpr float kMinFocusDepth = 0.5f;
+    if (!(depth > kMinFocusDepth) || depth > kMaxDistance)
+        return false;
+    targetX_ = eye[0] + forward[0] * depth;
+    targetY_ = eye[1] + forward[1] * depth;
+    targetZ_ = eye[2] + forward[2] * depth;
+    distance_ = depth;
+    return true;
+}
+
 void Camera::OrbitTo (float yaw, float pitch)
 {
     if (!havePivot_) {

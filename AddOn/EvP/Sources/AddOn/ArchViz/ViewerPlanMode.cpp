@@ -10,6 +10,7 @@
 #include "ArchViz/OrbitAnchor.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
 
+#include <cmath>
 #include <string>
 
 namespace geomsrv {
@@ -82,6 +83,21 @@ bool NavigateViewer (Camera& camera, HudState& hud, const DiligentScene& scene, 
     }
     FollowOrbitAnchor (camera, hud, scene, input);
     return camera.ApplyInput (input, hud.wantsMouse || hud.viewpointOwnsMouse, width, height) || moved;
+}
+
+void AdoptSceneBounds (Camera& camera, const DiligentScene& scene, bool focus)
+{
+    float boundsMin[3], boundsMax[3];
+    if (!scene.SceneBounds (boundsMin, boundsMax))
+        return;
+    camera.SetBounds (boundsMin, boundsMax);
+    const float before = camera.Distance ();
+    const float middle[3] = { 0.5f * (boundsMin[0] + boundsMax[0]), 0.5f * (boundsMin[1] + boundsMax[1]),
+                              0.5f * (boundsMin[2] + boundsMax[2]) };
+    // Logged when it changes the scale, not every batch that lands on the same depth.
+    if (focus && camera.FocusAtDepthOf (middle) && std::abs (camera.Distance () - before) > 0.05f * before)
+        ArchVizLog ("viewer focus at the scene's depth: distance " + std::to_string (before) + " -> " +
+                    std::to_string (camera.Distance ()));
 }
 
 bool FollowProjectionToggle (Camera& camera, const HudState& hud, bool& last)

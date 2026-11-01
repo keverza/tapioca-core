@@ -49,6 +49,12 @@ bool StartViewerCamera (Camera& camera, HudState& hud, const CameraStart& start,
 bool NavigateViewer (Camera& camera, HudState& hud, const DiligentScene& scene, const InputSnapshot& input,
                      uint32_t width, uint32_t height);
 
+// The scene's box as the model streams in, every batch: remembered for "zoom to fit"
+// (Camera::SetBounds), and with `focus` -- the palette's camera from Archicad, not yet navigated --
+// the target slid to the box middle's depth (Camera::FocusAtDepthOf), so the wheel and the pan
+// work at the model's scale without a fit first. The picture does not move either way.
+void AdoptSceneBounds (Camera& camera, const DiligentScene& scene, bool focus);
+
 // The HUD's projection toggle, on the frame it changed (Camera::SwitchProjection): true then,
 // and the frame loop resets its temporal history. `last` is the frame loop's.
 bool FollowProjectionToggle (Camera& camera, const HudState& hud, bool& last);

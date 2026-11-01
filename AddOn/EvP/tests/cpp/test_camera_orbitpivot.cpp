@@ -184,3 +184,51 @@ TEST (OrbitAnchorChoice, TheSelectionWinsThenTheSceneThenNothing)
     EXPECT_EQ (a.source, OrbitAnchorSource::None);
     EXPECT_STREQ (OrbitAnchorName (a.source), "target");
 }
+
+// Archicad's start, its target a metre in front of the eye: the wheel zooms by a fraction of THAT
+// distance, so it crawled until a fit. Focused at the model's depth the picture is the same and a
+// notch moves the eye a fraction of the way to the model.
+TEST (CameraFocusDepth, TheTargetSlidesToTheModelsDepthAndThePictureStays)
+{
+    Camera camera;
+    camera.SetTarget (0.0f, -39.0f, 2.0f);
+    camera.SetDistance (1.0f);
+    camera.SetOrbit (-0.5f * 3.14159265f, 0.0f); // eye 1 m south of the target, looking north
+    float viewBefore[16], eyeBefore[3];
+    camera.GetViewMatrix (viewBefore);
+    camera.GetEyePosition (eyeBefore);
+
+    const float middle[3] = { 3.0f, 0.0f, 6.0f }; // 40 m north, off the line of sight
+    ASSERT_TRUE (camera.FocusAtDepthOf (middle));
+    EXPECT_NEAR (camera.Distance (), 40.0f, 1e-3f);
+
+    float viewAfter[16], eyeAfter[3], target[3];
+    camera.GetViewMatrix (viewAfter);
+    camera.GetEyePosition (eyeAfter);
+    camera.GetTarget (target);
+    for (int i = 0; i < 16; ++i)
+        EXPECT_NEAR (viewBefore[i], viewAfter[i], 1e-3f) << i;
+    for (int i = 0; i < 3; ++i)
+        EXPECT_NEAR (eyeBefore[i], eyeAfter[i], 1e-3f);
+    // On the line of sight, not at the point: the view does not turn to it.
+    EXPECT_NEAR (target[0], 0.0f, 1e-3f);
+    EXPECT_NEAR (target[1], 0.0f, 1e-3f);
+    EXPECT_NEAR (target[2], 2.0f, 1e-3f);
+}
+
+TEST (CameraFocusDepth, BehindTheEyeOrParallelNothingChanges)
+{
+    Camera camera = OffCentre ();
+    float eye[3];
+    camera.GetEyePosition (eye);
+    float target[3];
+    camera.GetTarget (target);
+    const float behind[3] = { 2.0f * eye[0] - target[0], 2.0f * eye[1] - target[1], 2.0f * eye[2] - target[2] };
+    EXPECT_FALSE (camera.FocusAtDepthOf (behind));
+    EXPECT_FLOAT_EQ (camera.Distance (), 25.0f);
+
+    camera.SwitchProjection (true);
+    const float ahead[3] = { 0.0f, 0.0f, 0.0f };
+    EXPECT_FALSE (camera.FocusAtDepthOf (ahead));
+    EXPECT_FLOAT_EQ (camera.Distance (), 25.0f);
+}
