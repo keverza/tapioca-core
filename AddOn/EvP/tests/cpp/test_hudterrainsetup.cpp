@@ -7,6 +7,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <limits>
+#include <cmath>
 
 namespace {
 namespace eh = geomsrv::archviz::edithud;
@@ -213,6 +214,61 @@ TEST (HudTerrainSetup, RegionElevationSliderDragsWithoutTypingAndCreatesOneUndoE
 }
 
 #ifdef TAPIOCA_GEOMETRY_RUST
+TEST (HudTerrainSetup, RegionSlopePercentAngleMenuLabelsMatchTheAuthoredUnits)
+{
+    using Unit = lg::TerrainSlope::Unit;
+    auto doc = EmptyLandscape ();
+    const auto line = edit::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, true);
+    std::string error;
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, line, lg::SourceRole::RegionBoundary, error));
+    const auto object = doc.landscape->objects[0].id;
+    auto terrain = doc.landscape->objects[0].terrain;
+    terrain.transition = lg::RegionTerrainTransition::Daylight;
+    ASSERT_TRUE (lg::SetRegionTerrain (doc, object, terrain, error)) << error;
+    eh::Session session (doc);
+    session.selection.Set ({ { line, edit::Part::Entity, 0 } });
+    PanelGui gui;
+    gui.Frame (session, { 850, 1350 }, false, false, 1);
+    const auto* window = ImGui::FindWindowByName ("terrain setup");
+    const auto root = ImHashStr ("region-surface", 0, window->ID);
+    const auto owner = ImHashStr (std::to_string (object).c_str (), 0, root);
+    for (int index : { 1, 0 }) {
+        const auto comboId = ImHashStr ("Cut face unit", 0, owner);
+        ImVec2 combo { -1, -1 };
+        for (float y = 24; y < 1250; y += 2) {
+            gui.Frame (session, { 60, y }, false, false, 1);
+            if (gui.context->HoveredId == comboId) {
+                combo = { 60, y + 2 };
+                break;
+            }
+        }
+        ASSERT_GT (combo.y, 0);
+        gui.Frame (session, combo, true, false, 1);
+        gui.Frame (session, combo, false, false, 1);
+        gui.Frame (session, combo, false, false, 1);
+        auto* popup = ImGui::FindWindowByName ("##Combo_00");
+        ASSERT_NE (popup, nullptr);
+        const auto target =
+            ImHashStr (index ? "Angle (degrees)" : "Percent (%)", 0, ImHashData (&index, sizeof (index), popup->ID));
+        ImVec2 choice { -1, -1 };
+        for (float y = popup->Pos.y + 4; y < popup->Pos.y + popup->Size.y; y += 2) {
+            gui.Frame (session, { popup->Pos.x + 30, y }, false, false, 1);
+            if (gui.context->HoveredId == target) {
+                choice = { popup->Pos.x + 30, y };
+                break;
+            }
+        }
+        ASSERT_GT (choice.y, 0);
+        gui.Frame (session, choice, true, false, 1);
+        gui.Frame (session, choice, false, false, 1);
+        const auto cut = session.edits.Doc ().landscape->objects[0].terrain.cut;
+        EXPECT_EQ (cut.unit, index ? Unit::Angle : Unit::Percent);
+        EXPECT_NEAR (cut.a, index ? std::atan (0.5) : 50, 1e-12);
+        EXPECT_EQ (session.edits.Doc ().landscape->objects[0].terrain.fill, terrain.fill);
+    }
+    EXPECT_EQ (session.edits.UndoDepth (), 2u);
+}
+
 TEST (HudTerrainSetup, RegionCutSlopeUnitAndHeightSliderUseActualWidgetsAndSeparateUndoSteps)
 {
     auto doc = EmptyLandscape ();

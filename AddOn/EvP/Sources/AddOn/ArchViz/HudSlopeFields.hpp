@@ -4,6 +4,7 @@
 #include "Geometry/GeometryRustTerrain.hpp"
 #include <imgui.h>
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <numbers>
 
@@ -21,11 +22,15 @@ bool SlopeFields (const SlopeFieldLabels& labels, tapioca::geometry::TerrainSlop
 {
     namespace lg = tapioca::geometry;
     using Unit = lg::TerrainSlope::Unit;
-    int unit = static_cast<int> (slope.unit) - 1;
+    // Menu order is presentation, not the persisted enum order (Angle precedes
+    // Percent there). Never derive either mapping from ordinal arithmetic.
+    constexpr std::array units { Unit::Percent, Unit::Angle, Unit::RiseRun, Unit::Height };
+    int unit = static_cast<int> (std::find (units.begin (), units.end (), slope.unit) - units.begin ());
     bool changed = false;
     if (ImGui::Combo (labels.unit, &unit, "Percent (%)\0Angle (degrees)\0Rise:run\0Height / run (m)\0")) {
         lg::TerrainSlope converted;
-        if (lg::ConvertTerrainSlope (slope, static_cast<Unit> (unit + 1), 1, converted, error)) {
+        if (unit >= 0 && unit < static_cast<int> (units.size ()) &&
+            lg::ConvertTerrainSlope (slope, units[static_cast<size_t> (unit)], 1, converted, error)) {
             slope = converted;
             changed = true;
         }
