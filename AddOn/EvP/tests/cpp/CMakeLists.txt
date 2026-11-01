@@ -535,6 +535,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayLayers.cpp"
     # ArchViz/GradientLibrary.cpp is the named colour ramps every ramp above resolves (#102).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/GradientLibrary.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayRampChoices.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffLayer.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffUi.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffBoundaries.cpp"

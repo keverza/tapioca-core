@@ -1,12 +1,12 @@
 // ArchViz/OverlayLayers -- see the header.
 
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/OverlayRampChoices.hpp"
 #include "ArchViz/GraphicsSettings.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <map>
 #include <set>
 
 namespace geomsrv {
@@ -23,14 +23,6 @@ constexpr size_t kMaxTextBytes = 512;
 
 std::vector<std::shared_ptr<const Layer>> g_layers; // MAIN THREAD
 uint64_t g_generation = 0;
-// The HUD picker's choices, per layer: the preset a script authored -> the one the user
-// chose (SetRampPreset). Session state: ClearAll forgets it (OVERLAY-INVARIANTS.md §8).
-struct PresetChoice {
-    std::string to;                // a library id, or kCustomGradientId
-    std::vector<ColourStop> stops; // the custom stops
-    bool flipped = false;
-};
-std::map<std::string, std::map<std::string, PresetChoice>> g_presetChoices; // MAIN THREAD
 
 bool FiniteTriples (const std::vector<double>& points)
 {
@@ -583,72 +575,9 @@ Summary Summarise (const Layer& layer)
     return summary;
 }
 
-namespace {
-
-// Every colormap in a layer, the panel items' included.
-template <typename Visit> void EachColormap (Layer& layer, Visit visit)
-{
-    for (auto& mesh : layer.meshes)
-        visit (mesh.colormap);
-    for (auto& legend : layer.legends)
-        visit (legend.colormap);
-    for (auto& panel : layer.panels)
-        for (auto& item : panel.items)
-            visit (item.colormap);
-}
-
-bool SameStops (const std::vector<ColourStop>& a, std::span<const ColourStop> b)
-{
-    return a.size () == b.size () && std::equal (a.begin (), a.end (), b.begin (), [] (const auto& x, const auto& y) {
-               return x.at == y.at && x.rgba == y.rgba;
-           });
-}
-
-// `to`'s stops: the library's, or the custom ones, end for end when flipped; empty when
-// they cannot be used.
-std::vector<ColourStop> ChoiceStops (const PresetChoice& choice)
-{
-    std::span<const ColourStop> stops;
-    if (choice.to == kCustomGradientId) {
-        if (choice.stops.size () >= 2 && choice.stops.size () <= kMaxStops)
-            stops = choice.stops;
-    }
-    else if (const GradientPreset* preset = FindGradientPreset (choice.to))
-        stops = preset->Stops ();
-    if (stops.empty ())
-        return {};
-    return choice.flipped ? ReversedStops (stops) : std::vector<ColourStop> (stops.begin (), stops.end ());
-}
-
-bool Recolour (Colormap& map, const std::string& from, const PresetChoice& to)
-{
-    const auto stops = ChoiceStops (to);
-    if (stops.empty () || map.presetId.empty () || map.presetId != from ||
-        (map.presetId == to.to && map.flipped == to.flipped && SameStops (map.stops, stops)))
-        return false;
-    map.stops = stops;
-    map.presetId = to.to;
-    map.flipped = to.flipped;
-    return true;
-}
-
-void ApplyPresetChoices (Layer& layer)
-{
-    const auto choices = g_presetChoices.find (layer.name);
-    if (choices == g_presetChoices.end ())
-        return;
-    EachColormap (layer, [&] (Colormap& map) {
-        const auto chosen = choices->second.find (map.presetId);
-        if (chosen != choices->second.end ())
-            Recolour (map, map.presetId, chosen->second);
-    });
-}
-
-} // namespace
-
 uint64_t Set (Layer layer)
 {
-    ApplyPresetChoices (layer);
+    rampchoices::Apply (layer); // the HUD picker's colours outlive a republish
     std::shared_ptr<const Layer> shared = std::make_shared<const Layer> (std::move (layer));
     for (std::shared_ptr<const Layer>& existing : g_layers) {
         if (existing->name == shared->name) {
@@ -729,36 +658,12 @@ bool SetRampGreen (const std::string& name, const std::string& control, double v
 bool SetRampPreset (const std::string& name, const std::string& from, const std::string& to,
                     const std::vector<ColourStop>& custom, bool flipped)
 {
-    const PresetChoice choice { to, to == kCustomGradientId ? custom : std::vector<ColourStop> (), flipped };
-    if (ChoiceStops (choice).empty () || from.empty ())
-        return false;
     for (const auto& existing : g_layers) {
         if (existing->name != name)
             continue;
         Layer layer = *existing;
-        bool changed = false;
-        EachColormap (layer, [&] (Colormap& map) { changed = Recolour (map, from, choice) || changed; });
-        if (!changed)
+        if (!rampchoices::Recolour (layer, from, to, custom, flipped))
             return false;
-        // Remembered against what the SCRIPT wrote: a choice made over an earlier choice
-        // replaces it, and choosing the script's own preset again forgets it.
-        std::map<std::string, PresetChoice>& choices = g_presetChoices[name];
-        bool chained = false;
-        for (auto it = choices.begin (); it != choices.end ();) {
-            if (it->second.to == from) {
-                chained = true;
-                if (it->first == to && !flipped && to != kCustomGradientId) {
-                    it = choices.erase (it);
-                    continue;
-                }
-                it->second = choice;
-            }
-            ++it;
-        }
-        if (!chained)
-            choices[from] = choice;
-        if (choices.empty ())
-            g_presetChoices.erase (name);
         Set (std::move (layer));
         return true;
     }
@@ -779,7 +684,7 @@ bool Clear (const std::string& name)
 
 void ClearAll ()
 {
-    g_presetChoices.clear ();
+    rampchoices::Forget ();
     const auto end =
         std::remove_if (g_layers.begin (), g_layers.end (),
                         [] (const std::shared_ptr<const Layer>& layer) { return !Reserved (layer->name); });
@@ -791,7 +696,7 @@ void ClearAll ()
 
 void ClearEverything ()
 {
-    g_presetChoices.clear ();
+    rampchoices::Forget ();
     if (g_layers.empty ())
         return;
     g_layers.clear ();
