@@ -174,6 +174,33 @@ void ReleaseCompositionBuffer (void* buffer)
         static_cast<IUnknown*> (buffer)->Release ();
 }
 
+void* AcquireCompositionWaitable (IDXGISwapChain1* chain, uint32_t maxLatency)
+{
+    IDXGISwapChain2* chain2 = nullptr;
+    if (chain == nullptr ||
+        FAILED (chain->QueryInterface (__uuidof (IDXGISwapChain2), reinterpret_cast<void**> (&chain2))) ||
+        chain2 == nullptr)
+        return nullptr;
+    // The latency BEFORE the handle: the object's count is set from it.
+    chain2->SetMaximumFrameLatency (maxLatency < 1 ? 1 : maxLatency);
+    HANDLE waitable = chain2->GetFrameLatencyWaitableObject ();
+    chain2->Release ();
+    return waitable;
+}
+
+void WaitForCompositionFrame (void* waitable)
+{
+    if (waitable != nullptr)
+        ::WaitForSingleObjectEx (static_cast<HANDLE> (waitable), 1000, TRUE);
+}
+
+void CloseCompositionWaitable (void*& waitable)
+{
+    if (waitable != nullptr)
+        ::CloseHandle (static_cast<HANDLE> (waitable));
+    waitable = nullptr;
+}
+
 void WrapCompositionBufferD3D12 (Diligent::IRenderDevice* device, void* buffer, Diligent::ITexture** texture)
 {
     *texture = nullptr;

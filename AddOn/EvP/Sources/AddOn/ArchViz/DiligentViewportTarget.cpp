@@ -120,6 +120,9 @@ struct DiligentViewportTarget::Impl {
     // D3D12 only: the wrapped buffer this frame draws into, moved to PRESENT
     // before the raw Present. Owned by `wrapped`.
     Diligent::ITexture* drawnComposition = nullptr;
+    // D3D12 only: the composition chain's frame-latency waitable, waited on at the
+    // top of every frame (DiligentNativeInterop.hpp says why).
+    void* compositionWaitable = nullptr;
 
     uint32_t colorFormat = 0;
     uint32_t depthFormat = 0;
@@ -191,6 +194,7 @@ void DiligentViewportTarget::Impl::ReleaseOverlay ()
     }
     wrapped.clear ();
     drawnComposition = nullptr;
+    CloseCompositionWaitable (compositionWaitable);
     if (dcompVisual != nullptr) {
         dcompVisual->Release ();
         dcompVisual = nullptr;
@@ -228,6 +232,12 @@ bool DiligentViewportTarget::Impl::CreateCompositionD3D12 (std::string& error)
     scd.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT; // see the D3D11 path
     if (!CreateCompositionChainD3D12 (context, &scd, compositionSwapChain, error))
         return false;
+    compositionWaitable = AcquireCompositionWaitable (compositionSwapChain, 1);
+    if (compositionWaitable == nullptr) {
+        ReleaseOverlay ();
+        error = "the D3D12 composition chain gave no frame-latency waitable object; it would run unpaced";
+        return false;
+    }
 
     HRESULT hr =
         DCompositionCreateDevice (nullptr, __uuidof (IDCompositionDevice), reinterpret_cast<void**> (&dcompDevice));
@@ -554,7 +564,11 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
                 impl_->drawnComposition = nullptr;
                 if (impl_->backend == RenderBackend::D3D12)
                     IdleBeforeCompositionResizeD3D12 (impl_->device, impl_->context);
-                const HRESULT hr = impl_->compositionSwapChain->ResizeBuffers (0, w, h, DXGI_FORMAT_UNKNOWN, 0);
+                // The waitable flag must be passed again: ResizeBuffers may not
+                // remove it, and on D3D12 the frame pacing depends on it.
+                const HRESULT hr = impl_->compositionSwapChain->ResizeBuffers (
+                    0, w, h, DXGI_FORMAT_UNKNOWN,
+                    impl_->backend == RenderBackend::D3D12 ? DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT : 0);
                 if (FAILED (hr)) {
                     resized = false;
                     // Logged once per run of failures, not once per frame: a
@@ -600,6 +614,8 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
         return false;
 
     const bool d3d12 = impl_->backend == RenderBackend::D3D12;
+    if (d3d12)
+        WaitForCompositionFrame (impl_->compositionWaitable); // the D3D12 overlay's only pacing
     void* back = nullptr;
     if (d3d12) {
         back = AcquireCompositionBufferD3D12 (impl_->compositionSwapChain);

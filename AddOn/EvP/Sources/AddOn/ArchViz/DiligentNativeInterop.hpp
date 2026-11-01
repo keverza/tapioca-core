@@ -80,6 +80,18 @@ bool CreateCompositionChainD3D12 (Diligent::IDeviceContext* context, const void*
 // target caches its wrapper on). Null on failure.
 void* AcquireCompositionBufferD3D12 (IDXGISwapChain1* chain);
 void ReleaseCompositionBuffer (void* buffer);
+// ⚠️ A WAITABLE CHAIN'S Present DOES NOT BLOCK. The composition chain is created
+// with DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT, so it is the APP that
+// must wait on this object before each frame; D3D11's driver queued at most ~3
+// frames anyway, D3D12 queues without limit. Unpaced, the first D3D12 overlay ran
+// away from the GPU and exhausted the descriptor heap within a second
+// (2026-11-01 11:28:45, the Plan Anchor Probe). Null on failure; close it with
+// CloseCompositionWaitable.
+void* AcquireCompositionWaitable (IDXGISwapChain1* chain, uint32_t maxLatency);
+// Blocks until the chain can take another frame (bounded, so a lost compositor
+// cannot hang the render thread). A null handle returns at once.
+void WaitForCompositionFrame (void* waitable);
+void CloseCompositionWaitable (void*& waitable);
 // Wraps `buffer` into a Diligent texture; null on failure.
 void WrapCompositionBufferD3D12 (Diligent::IRenderDevice* device, void* buffer, Diligent::ITexture** texture);
 // Moves the drawn buffer to PRESENT and submits, so the raw Present that
