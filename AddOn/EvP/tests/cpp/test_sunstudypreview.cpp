@@ -149,6 +149,88 @@ RWStructuredBuffer<float4> result : register(u0);
     context->Unmap (staging.Get (), 0);
 }
 
+TEST (SunStudyColours, TheShadowViewsDefaultToTheirHistoricPalette)
+{
+    // The constants a scene no HUD has set: the colours the shader always drew,
+    // and the HUD's defaults to within a byte.
+    const DiligentSceneConstants values;
+    const uint32_t defaults[5] = { kSingleShadowLitRgba, kSingleShadowShadowedRgba, kAmPmSunlitRgba, kAmPmMorningRgba,
+                                   kAmPmEveningRgba };
+    for (int i = 0; i < 5; ++i) {
+        float channels[4];
+        SunStudyRgbaChannels (defaults[i], channels);
+        for (int c = 0; c < 3; ++c)
+            EXPECT_NEAR (values.sunStudyShadowPalette[4 * i + c], channels[c], 1.0f / 255.0f) << i << "/" << c;
+    }
+}
+
+TEST (SunStudyColours, ShadowPaletteLanesDriveTheRealSingleAndAmPmColours)
+{
+    using Microsoft::WRL::ComPtr;
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> context;
+    ASSERT_TRUE (SUCCEEDED (D3D11CreateDevice (nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                               &device, nullptr, &context)));
+    const std::string source = std::string (kArchVizCBuffer) + kNoShadowMapEdge + kArchVizSunTintPS + R"hlsl(
+RWStructuredBuffer<float4> result : register(u0);
+[numthreads(1,1,1)] void PaletteTest(uint3 id : SV_DispatchThreadID) {
+    float3 n = float3(0.0, 0.0, 1.0);
+    result[0] = float4(SingleShadowColor(true, n) / ShapeShade(n), 1.0);
+    result[1] = float4(SingleShadowColor(false, n) / ShapeShade(n), 1.0);
+    result[2] = float4(AmPmDurationColor(0.0, 0.0), 1.0);
+    result[3] = float4(AmPmDurationColor(1.0, 0.0), 1.0);
+    result[4] = float4(AmPmDurationColor(0.0, 1.0), 1.0);
+}
+)hlsl";
+    ComPtr<ID3DBlob> code, error;
+    ASSERT_TRUE (SUCCEEDED (D3DCompile (source.data (), source.size (), "sun-palette", nullptr, nullptr, "PaletteTest",
+                                        "cs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &code, &error)))
+        << (error ? static_cast<const char*> (error->GetBufferPointer ()) : "compile failed");
+    ComPtr<ID3D11ComputeShader> shader;
+    ASSERT_TRUE (
+        SUCCEEDED (device->CreateComputeShader (code->GetBufferPointer (), code->GetBufferSize (), nullptr, &shader)));
+    // Five colours no default is near, one per lane.
+    const uint32_t chosen[5] = { 0xFF0000FFu, 0x00FF00FFu, 0x0000FFFFu, 0xFFFF00FFu, 0x00FFFFFFu };
+    DiligentSceneConstants values;
+    for (int i = 0; i < 5; ++i)
+        SunStudyRgbaChannels (chosen[i], values.sunStudyShadowPalette + 4 * i);
+    D3D11_BUFFER_DESC constantsDesc = {};
+    constantsDesc.ByteWidth = sizeof (values);
+    constantsDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    D3D11_SUBRESOURCE_DATA constantsData = { &values, 0, 0 };
+    ComPtr<ID3D11Buffer> constants;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&constantsDesc, &constantsData, &constants)));
+    D3D11_BUFFER_DESC outputDesc = {};
+    outputDesc.ByteWidth = 5 * 4 * sizeof (float);
+    outputDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+    outputDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    outputDesc.StructureByteStride = 4 * sizeof (float);
+    ComPtr<ID3D11Buffer> output, staging;
+    ComPtr<ID3D11UnorderedAccessView> view;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&outputDesc, nullptr, &output)));
+    ASSERT_TRUE (SUCCEEDED (device->CreateUnorderedAccessView (output.Get (), nullptr, &view)));
+    outputDesc.BindFlags = outputDesc.MiscFlags = 0;
+    outputDesc.Usage = D3D11_USAGE_STAGING;
+    outputDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&outputDesc, nullptr, &staging)));
+    context->CSSetShader (shader.Get (), nullptr, 0);
+    context->CSSetConstantBuffers (0, 1, constants.GetAddressOf ());
+    context->CSSetUnorderedAccessViews (0, 1, view.GetAddressOf (), nullptr);
+    context->Dispatch (1, 1, 1);
+    context->CopyResource (staging.Get (), output.Get ());
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    ASSERT_TRUE (SUCCEEDED (context->Map (staging.Get (), 0, D3D11_MAP_READ, 0, &mapped)));
+    const float* rgba = static_cast<const float*> (mapped.pData);
+    // Each lane lands where it is named, in linear light: primaries are 0 or 1 either way.
+    for (int i = 0; i < 5; ++i) {
+        float expected[4];
+        SunStudyRgbaChannels (chosen[i], expected);
+        for (int c = 0; c < 3; ++c)
+            EXPECT_NEAR (rgba[4 * i + c], expected[c], 1e-5) << "lane " << i << " channel " << c;
+    }
+    context->Unmap (staging.Get (), 0);
+}
+
 TEST (CalendarValue, RejectsMalformedAndNormalisedDates)
 {
     int year = 0, month = 0, day = 0;

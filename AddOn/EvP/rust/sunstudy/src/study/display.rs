@@ -139,6 +139,23 @@ impl StudyCore {
         })?)
     }
 
+    /// One sample's row of [`Self::step_bits`]: a byte per step, 1 when lit.
+    /// The hover inspector's shadow times, without copying every sample's day.
+    /// Empty past the last sample.
+    ///
+    /// # Errors
+    /// [`StudyError::Poisoned`].
+    pub fn sample_lit_steps(&self, sample: usize) -> Result<Vec<u8>, StudyError> {
+        Ok(self.session.with_accumulator(|a| {
+            if sample >= a.sample_count() {
+                return Vec::new();
+            }
+            (0..a.step_count())
+                .map(|step| u8::from(a.lit(sample, step)))
+                .collect()
+        })?)
+    }
+
     /// Count, min/mean/max hours, fully lit and shaded, recomputed only when
     /// the session's generation or resolved steps moved.
     ///

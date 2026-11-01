@@ -53,38 +53,6 @@ void Swatch (const char* id, const ImVec4& colour, const char* tooltip)
     hudshell::Tip (tooltip, hudshell::TipSide::Above);
 }
 
-// The inspector's reading as text, shared by the tooltip and the panel line so
-// the two can never say different things. Returns false when there is nothing
-// to say.
-bool ReadingLines (const HudState& state, char* first, char* second, size_t size)
-{
-    second[0] = 0;
-    switch (state.sunReadingState) {
-        case 1:
-            std::snprintf (first, size, "%s%.2f h direct sun", state.sunReadingNearest ? "~ " : "",
-                           state.sunReadingHours);
-            if (state.sunReadingDaylight > 0.0)
-                std::snprintf (second, size, "%.2f h shadow of %.2f h daylight",
-                               (std::max) (0.0, state.sunReadingDaylight - state.sunReadingHours),
-                               state.sunReadingDaylight);
-            return true;
-        case 2:
-            std::snprintf (first, size, "%s",
-                           state.sunReadingRole == 1   ? "context: casts shadow, not measured"
-                           : state.sunReadingRole == 2 ? "ignored: not in the study"
-                                                       : "not measured here");
-            return true;
-        case 3:
-            std::snprintf (first, size, "computing...");
-            return true;
-        case 4:
-            std::snprintf (first, size, "cursor ray missed the hovered element");
-            return true;
-        default:
-            return false;
-    }
-}
-
 // The section's view list and the tint mode each one selects. Index 0 follows
 // whatever ShowSunStudy asked for. âš ï¸ AN ABI with SunStudyDebugMode.
 constexpr int kViewModes[] = { -1, 0, 5, 7, 4 };
@@ -121,6 +89,81 @@ int ChosenMode (const HudState& state)
     if (state.sunView <= 0 || state.sunView >= kViewCount)
         return -1;
     return kViewModes[state.sunView];
+}
+
+// A measured reading in a shadow view (#116): WHEN the surface was in shadow,
+// from the sample's lit flags -- a person hovering a blue patch asks "is it
+// shadowed now", not "how many hours of sun".
+bool ShadowReadingLines (const HudState& state, int mode, char* first, char* second, size_t size)
+{
+    const std::vector<uint8_t>& lit = state.sunReadingLit;
+    const std::vector<uint16_t>& minutes = state.sunStepMinutes;
+    if (lit.empty () || minutes.empty ()) {
+        std::snprintf (first, size, "no per-step shadow here");
+        return true;
+    }
+    const char* nearest = state.sunReadingNearest ? "~ " : "";
+    if (mode == 5) {
+        const size_t step = size_t ((std::max) (state.sunStep, 0));
+        if (step >= lit.size () || step >= minutes.size ())
+            return false;
+        std::snprintf (first, size, "%s%s at %s", nearest, lit[step] != 0 ? "Sunlit" : "Shadowed",
+                       SunStudyTimeOfDay (minutes[step]).c_str ());
+        return true;
+    }
+    const SunStudyViewSettings view = SunStudyViewOf (state);
+    const uint32_t steps = uint32_t ((std::min) (lit.size (), minutes.size ()));
+    const uint32_t from = (std::min) (view.firstShadowStep, steps);
+    const uint32_t to = (std::min) (view.endShadowStep, steps);
+    const uint32_t quantum = uint32_t ((std::max) (1L, std::lround (state.sunQuantumHours * 60.0f)));
+    const auto runs = SunStudyShadowRuns (lit, minutes, from, to, quantum);
+    const uint32_t rangeFrom = from < to ? minutes[from] : 0u;
+    const uint32_t rangeTo = from < to ? minutes[to - 1] + quantum : 0u;
+    std::snprintf (first, size, "%s%s", nearest, SunStudyShadowTimes (runs, rangeFrom, rangeTo).c_str ());
+    if (mode == 6 && !runs.empty ()) {
+        const uint32_t split = std::clamp (state.sunNoonStep, from, (std::max) (from, to));
+        std::snprintf (second, size, "morning %s, evening %s",
+                       SunStudyClock (SunStudyShadowedSteps (lit, from, split) * quantum / 60.0, true).c_str (),
+                       SunStudyClock (SunStudyShadowedSteps (lit, split, to) * quantum / 60.0, true).c_str ());
+    }
+    return true;
+}
+
+// The inspector's reading as text, shared by the tooltip and the panel line so
+// the two can never say different things. Returns false when there is nothing
+// to say. ⚠️ IT SAYS WHAT THE VIEW ON SCREEN SHOWS: hours of direct sun in the
+// hours view, shadow times in the shadow views.
+bool ReadingLines (const HudState& state, char* first, char* second, size_t size)
+{
+    second[0] = 0;
+    const int chosen = ChosenMode (state);
+    const int mode = chosen >= 0 ? chosen : CommandedMode (state);
+    switch (state.sunReadingState) {
+        case 1:
+            if (mode == 5 || mode == 6 || mode == 7)
+                return ShadowReadingLines (state, mode, first, second, size);
+            std::snprintf (first, size, "%s%.2f h direct sun", state.sunReadingNearest ? "~ " : "",
+                           state.sunReadingHours);
+            if (state.sunReadingDaylight > 0.0)
+                std::snprintf (second, size, "%.2f h shadow of %.2f h daylight",
+                               (std::max) (0.0, state.sunReadingDaylight - state.sunReadingHours),
+                               state.sunReadingDaylight);
+            return true;
+        case 2:
+            std::snprintf (first, size, "%s",
+                           state.sunReadingRole == 1   ? "context: casts shadow, not measured"
+                           : state.sunReadingRole == 2 ? "ignored: not in the study"
+                                                       : "not measured here");
+            return true;
+        case 3:
+            std::snprintf (first, size, "computing...");
+            return true;
+        case 4:
+            std::snprintf (first, size, "cursor ray missed the hovered element");
+            return true;
+        default:
+            return false;
+    }
 }
 
 void Clock (uint16_t minutes, char* out, size_t size)
@@ -328,6 +371,47 @@ void LegendSwatch (unsigned hex, const char* label)
     ImGui::TextUnformatted (label);
 }
 
+// One editable colour of a shadow view's palette (#116).
+struct ShadowRole {
+    uint32_t* rgba;
+    uint32_t fallback; // the default, for "reset"
+    const char* label;
+    const char* tip;
+};
+
+// A shadow view's legend as pickers: a swatch per role that opens the colour
+// picker, its word, and one "reset" when any differs from its default.
+// DISPLAY ONLY, like the hours colours: no study reruns.
+//
+// ⚠️ EVERY ROLE IS ITS OWN ID SCOPE, under the view's. `##` hides a suffix but
+// leaves the whole label in the ID, so a bare "##sunlit" here and one anywhere
+// else in the window would collide -- as the view selector's "Roles" button
+// and the run form's "Roles" node did.
+void DrawShadowPalette (const char* view, std::initializer_list<ShadowRole> roles)
+{
+    ImGui::PushID (view);
+    bool edited = false;
+    int i = 0;
+    for (const ShadowRole& role : roles) {
+        if (i++ > 0)
+            ImGui::SameLine ();
+        ImGui::PushID (role.label);
+        InlineColour ("##colour", *role.rgba, false, role.tip);
+        ImGui::PopID ();
+        ImGui::SameLine ();
+        ImGui::TextUnformatted (role.label);
+        edited = edited || *role.rgba != role.fallback;
+    }
+    if (edited) {
+        ImGui::SameLine ();
+        if (ImGui::SmallButton ("reset"))
+            for (const ShadowRole& role : roles)
+                *role.rgba = role.fallback;
+        ImGui::SetItemTooltip ("Puts this view's default colours back.");
+    }
+    ImGui::PopID ();
+}
+
 } // namespace
 
 void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStatus& study, uint32_t width,
@@ -401,11 +485,16 @@ void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStat
         if (state.sunStep >= 0 && size_t (state.sunStep) < study.stepMinutes.size ())
             Clock (study.stepMinutes[size_t (state.sunStep)], clock, sizeof (clock));
         const std::string at = std::string ("Shadow at ") + clock;
+        // The person's colours (#116), the same ones the tint draws.
         if (mode == 5)
-            row (at.c_str (), { { 0xede8db, "sunlit" }, { 0x4770cc, "shadowed" } });
+            row (at.c_str (),
+                 { { state.sunSingleLitRgba >> 8, "sunlit" }, { state.sunSingleShadowedRgba >> 8, "shadowed" } });
         else if (mode == 6)
             row ("Shadow duration",
-                 { { 0xe8e8e6, "sunlit" }, { 0x796ab1, "morning" }, { 0xdf9792, "evening" }, { 0xac80a2, "overlap" } });
+                 { { state.sunAmPmSunlitRgba >> 8, "sunlit" },
+                   { state.sunAmPmMorningRgba >> 8, "morning" },
+                   { state.sunAmPmEveningRgba >> 8, "evening" },
+                   { SunStudyAmPmOverlapRgba (state.sunAmPmMorningRgba, state.sunAmPmEveningRgba) >> 8, "overlap" } });
         else if (mode == 7)
             row ("Shadow time fan, colour of the last shadow",
                  { { 0x796ab1, "earliest" }, { 0xdf9792, "latest" }, { 0xd4d6d8, "never shadowed" } });
@@ -434,6 +523,11 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     view.step = state.sunStep > 0 ? uint32_t (state.sunStep) : 0u;
     view.lowSunRgba = state.sunLowSunRgba;
     view.shadowRgba = state.sunShadowRgba;
+    view.singleLitRgba = state.sunSingleLitRgba;
+    view.singleShadowedRgba = state.sunSingleShadowedRgba;
+    view.amPmSunlitRgba = state.sunAmPmSunlitRgba;
+    view.amPmMorningRgba = state.sunAmPmMorningRgba;
+    view.amPmEveningRgba = state.sunAmPmEveningRgba;
     view.shadowOverlay =
         state.sunShadowOverlay && state.shadowsEnabled && state.shadowMode == int (DiligentShadowMode::Pcf);
     const auto ramp = SunStudyRampStops (state.sunGradientPreset, state.sunGradientCustom, state.sunGradientFlipped);
@@ -466,7 +560,24 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
     (void) height;
     if (state.sunInspect != 1 || !input.inside || state.sunReadingState != 1)
         return;
-    hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right, SunStudyClock (state.sunReadingHours, true));
+    const int chosen = ChosenMode (state);
+    const int mode = chosen >= 0 ? chosen : CommandedMode (state);
+    if (mode != 5 && mode != 6 && mode != 7) {
+        // The hours view keeps its exact-hour hover (#102).
+        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
+                         SunStudyClock (state.sunReadingHours, true));
+        return;
+    }
+    // The shadow views say WHEN, never the hours of sun (#116).
+    char first[96] = {}, second[96] = {};
+    if (!ReadingLines (state, first, second, sizeof (first)))
+        return;
+    uint32_t swatch = 0;
+    const size_t step = size_t ((std::max) (state.sunStep, 0));
+    if (mode == 5 && step < state.sunReadingLit.size ())
+        swatch = state.sunReadingLit[step] != 0 ? state.sunSingleLitRgba : state.sunSingleShadowedRgba;
+    hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
+                     second[0] != 0 ? std::string (first) + "\n" + second : std::string (first), swatch);
 }
 
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
@@ -504,19 +615,21 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     }
     state.sunStepCount = study.stepCount;
     state.sunStepMinutes = study.stepMinutes;
+    state.sunNoonStep = study.noonStep;
+    state.sunQuantumHours = study.quantumHours;
     const int current = ChosenMode (state) >= 0 ? ChosenMode (state) : int (study.debugMode);
     const bool shadows = current == 5 || current == 6 || current == 7;
     const bool roles = current == 4;
     const float buttonWidth = (ImGui::GetContentRegionAvail ().x - 2.0f * ImGui::GetStyle ().ItemSpacing.x) / 3.0f;
     ImGui::PushStyleColor (ImGuiCol_Button,
                            ImGui::GetStyleColorVec4 (shadows || roles ? ImGuiCol_FrameBg : ImGuiCol_ButtonActive));
-    if (ImGui::Button ("Sunstudy", ImVec2 (buttonWidth, 0)))
+    if (ImGui::Button ("Sunstudy##sunview", ImVec2 (buttonWidth, 0)))
         state.sunView = 1;
     ImGui::PopStyleColor ();
     ImGui::SameLine ();
     ImGui::PushStyleColor (ImGuiCol_Button,
                            ImGui::GetStyleColorVec4 (shadows ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
-    if (ImGui::Button ("Shadows", ImVec2 (buttonWidth, 0))) {
+    if (ImGui::Button ("Shadows##sunview", ImVec2 (buttonWidth, 0))) {
         state.sunView = kMultipleView;
         state.sunFanInterval = kFanAmPm;
     }
@@ -524,7 +637,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     ImGui::SameLine ();
     ImGui::PushStyleColor (ImGuiCol_Button,
                            ImGui::GetStyleColorVec4 (roles ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
-    if (ImGui::Button ("Roles", ImVec2 (buttonWidth, 0)))
+    if (ImGui::Button ("Roles##sunview", ImVec2 (buttonWidth, 0)))
         state.sunView = 4;
     ImGui::PopStyleColor ();
 
@@ -593,13 +706,10 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         ImGui::SameLine ();
         if (ImGui::SmallButton ("noon"))
             state.sunStep = std::clamp (int (study.noonStep), first, last);
-        Swatch ("##lit", Rgb (0xede8db), "sunlit at this time");
-        ImGui::SameLine ();
-        ImGui::TextUnformatted ("sunlit");
-        ImGui::SameLine ();
-        Swatch ("##shadowed", Rgb (0x4770cc), "shadowed at this time");
-        ImGui::SameLine ();
-        ImGui::TextUnformatted ("shadowed");
+        DrawShadowPalette (
+            "singleshadow",
+            { { &state.sunSingleLitRgba, kSingleShadowLitRgba, "sunlit", "Sunlit at this time" },
+              { &state.sunSingleShadowedRgba, kSingleShadowShadowedRgba, "shadowed", "Shadowed at this time" } });
     }
     else {
         state.sunPlaying = false;
@@ -651,17 +761,17 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         if (study.noonStep < study.stepMinutes.size ())
             Clock (study.stepMinutes[study.noonStep], noon, sizeof (noon));
         ImGui::TextDisabled ("Solar noon %s; colour intensity = shadow duration", noon);
-        const unsigned colours[4] = { 0xe8e8e6, 0x796ab1, 0xdf9792, 0xac80a2 };
-        const char* labels[4] = { "sunlit", "morning", "evening", "overlap" };
-        for (int i = 0; i < 4; ++i) {
-            ImGui::PushID (100 + i);
-            Swatch ("##ampm", Rgb (colours[i]), labels[i]);
-            ImGui::PopID ();
-            ImGui::SameLine ();
-            ImGui::TextUnformatted (labels[i]);
-            if (i % 2 == 0)
-                ImGui::SameLine ();
-        }
+        DrawShadowPalette ("ampm",
+                           { { &state.sunAmPmSunlitRgba, kAmPmSunlitRgba, "sunlit", "Never shadowed" },
+                             { &state.sunAmPmMorningRgba, kAmPmMorningRgba, "morning", "Shadowed before solar noon" },
+                             { &state.sunAmPmEveningRgba, kAmPmEveningRgba, "evening", "Shadowed after solar noon" } });
+        // Not a colour of its own: the tint mixes morning and evening by share.
+        ImGui::PushID ("ampm");
+        Swatch ("##overlap", Rgb (SunStudyAmPmOverlapRgba (state.sunAmPmMorningRgba, state.sunAmPmEveningRgba) >> 8),
+                "Shadowed morning and evening: their mix, by each one's share");
+        ImGui::PopID ();
+        ImGui::SameLine ();
+        ImGui::TextUnformatted ("overlap");
     }
 
     if (!shadowView) {

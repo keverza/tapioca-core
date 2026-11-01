@@ -574,6 +574,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/GraphicsSettings.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/GraphicsSettingsUi.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunControls.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunStudy.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunRun.cpp"
     # A triangle cut to its clip rectangle: the overlays draw ImGui's triangles without a scissor.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudClip.cpp"
     # The Debug tab's console: what to check when something fails, said from any thread.
@@ -1117,6 +1119,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyselectionbinding.cpp
     test_sunstudygputraversal.cpp
     test_sunstudypreview.cpp
+    test_sunstudyhud.cpp
     test_sunstudytextureupdates.cpp
     test_sunstudytaskworker.cpp
     test_sunstudysampler.cpp

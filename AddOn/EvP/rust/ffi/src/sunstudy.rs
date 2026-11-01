@@ -100,8 +100,9 @@ pub use study::{
 };
 pub use study_read::{
     StudyArraysOutput, StudyImageOutput, StudyImageSummary, StudyInfo, StudyReadAtRequest,
-    StudyReadingRecord, StudyStepMaskOutput, StudyStepMaskSummary, tapioca_sunstudy_study_arrays,
-    tapioca_sunstudy_study_image, tapioca_sunstudy_study_info, tapioca_sunstudy_study_read_at,
+    StudyReadingRecord, StudySampleStepsOutput, StudyStepMaskOutput, StudyStepMaskSummary,
+    tapioca_sunstudy_study_arrays, tapioca_sunstudy_study_image, tapioca_sunstudy_study_info,
+    tapioca_sunstudy_study_read_at, tapioca_sunstudy_study_sample_steps,
     tapioca_sunstudy_study_step_masks, tapioca_sunstudy_study_summary,
 };
 pub use surface::{

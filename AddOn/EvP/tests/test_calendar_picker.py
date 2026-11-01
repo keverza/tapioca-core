@@ -69,10 +69,10 @@ def test_hour_maximum_is_validated_even_without_a_default(tmp_path, maximum):
 def test_analysis_controls_and_minimal_tooltip_are_wired():
     root = Path(__file__).parents[1] / "Sources/AddOn"
     shell = (root / "ArchViz/DiligentHudShell.cpp").read_text(encoding="utf-8")
-    assert 'tabs.push_back ({ kSunStudyKey, "Analysis" })' in shell
+    assert 'tabs.push_back ({ kSunStudyKey, "Analysis"' in shell
     hud = (root / "ArchViz/DiligentHudSunStudy.cpp").read_text(encoding="utf-8")
     for label in ("Sunstudy", "Shadows", "Roles"):
-        assert f'ImGui::Button ("{label}"' in hud
+        assert f'ImGui::Button ("{label}##sunview"' in hud
     assert "hide the rest" not in hud
     assert "Diagnostic views" not in hud and "kInspectModes" not in hud
     assert hud.index("DrawSunStudyInspectControl (state.sunInspect") < hud.index("if (shadows)")
@@ -80,11 +80,11 @@ def test_analysis_controls_and_minimal_tooltip_are_wired():
     assert "Off##suninspect" in controls and "Cursor##suninspect" in controls and "Panel##suninspect" in controls
     assert 'ImGui::BeginChild ("##sun-reading"' in controls
     tooltip = hud.split("void DrawSunStudyInspectorTooltip", 1)[1].split("void DrawSunStudyHudSection", 1)[0]
+    # Hours keep the bare H:MMh; the shadow views say when, through the
+    # panel's own lines (#116). The bubble itself is HudShell's.
     assert "SunStudyClock (state.sunReadingHours, true)" in tooltip
-    assert "ReadingLines" not in tooltip and "scaling corrected" not in tooltip
-    assert "ImGuiStyleVar_PopupRounding, 4.0f" in tooltip
-    assert "0.78f, 0.78f, 0.78f, 0.70f" in tooltip
-    assert "ImGuiStyleVar_WindowPadding, ImVec2 (4.0f, 2.0f)" in tooltip
+    assert "ReadingLines (state, first, second" in tooltip
+    assert "hudshell::TipAt" in tooltip and "scaling corrected" not in tooltip
 
 
 def test_study_display_blends_over_white_shaded_geometry_without_changing_materials():

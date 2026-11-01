@@ -339,6 +339,19 @@ struct DiligentSceneConstants {
     // = how many stops, 0 keeping the two colours above.
     float visibilityRamp[64] = { 0.0f };
     float visibilityRampInfo[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    // ---- appended for the SHADOW views' colours (#116) -------------------------
+    // rgb = sRGB, w unused: Single Shadow's sunlit and shadowed, then Morning /
+    // evening's sunlit, morning and evening. The defaults are the palette the
+    // shader always drew, so a scene no HUD has set draws what it did.
+    // clang-format off
+    float sunStudyShadowPalette[20] = {
+        0.93f, 0.91f, 0.86f, 1.0f,
+        0.28f, 0.44f, 0.80f, 1.0f,
+        0.91f, 0.91f, 0.90f, 1.0f,
+        0.475f, 0.416f, 0.694f, 1.0f,
+        0.875f, 0.592f, 0.573f, 1.0f,
+    };
+    // clang-format on
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -380,7 +393,7 @@ enum class DiligentDebugView : int {
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
                                                       16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48 + 32 + 256 +
-                                                      16 + 256 + 16,
+                                                      16 + 256 + 16 + 80,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -447,6 +460,7 @@ cbuffer ArchVizConstants
     float4   g_sunStudyRampInfo;   // x = how many stops
     float4   g_visibilityRamp[16]; // the visibility colours: rgb = sRGB, w = position 0..1
     float4   g_visibilityRampInfo; // x = how many stops; 0 = g_visibilityLow/High
+    float4   g_sunStudyShadowPalette[5]; // sRGB: single lit, shadowed; AM/PM sunlit, morning, evening
 };
 )hlsl";
 
@@ -857,10 +871,11 @@ float ShapeShade (float3 normal)
 
 // Sunlit a warm off-white, SHADOW A CLEAR BLUE -- a shadow sweeping across the
 // model has to separate from the shading underneath it, and a grey shadow over
-// grey shading does not. Shading multiplies both, in linear light.
+// grey shading does not. Shading multiplies both, in linear light. Those are
+// the defaults; the HUD recolours both (g_sunStudyShadowPalette, #116).
 float3 SingleShadowColor (bool lit, float3 normal)
 {
-    float3 base = lit ? float3 (0.93, 0.91, 0.86) : float3 (0.28, 0.44, 0.80);
+    float3 base = lit ? g_sunStudyShadowPalette[0].rgb : g_sunStudyShadowPalette[1].rgb;
     return SrgbToLinear (base) * ShapeShade (normal);
 }
 
@@ -880,8 +895,10 @@ float4 HoursOverlayColor (float3 colour, float3 worldPos, float3 normal)
 float3 AmPmDurationColor (float am, float pm)
 {
     float total = am + pm;
-    float3 neutral = float3 (0.91, 0.91, 0.90);
-    float3 tint = total > 0.0 ? (am * float3 (0.475, 0.416, 0.694) + pm * float3 (0.875, 0.592, 0.573)) / total : neutral;
+    float3 neutral = g_sunStudyShadowPalette[2].rgb;
+    float3 tint = total > 0.0
+                      ? (am * g_sunStudyShadowPalette[3].rgb + pm * g_sunStudyShadowPalette[4].rgb) / total
+                      : neutral;
     return SrgbToLinear (lerp (neutral, tint, saturate (max (am, pm))));
 }
 

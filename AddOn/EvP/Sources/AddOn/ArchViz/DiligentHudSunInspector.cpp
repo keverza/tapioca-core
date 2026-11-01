@@ -75,8 +75,9 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     uint8_t role = 0xff;
     double daylight = 0.0;
     std::string error;
+    // The sample's lit flags too: the shadow views' hover says WHEN (#116).
     if (!evp::sunstudy::SunStudyStore::Get ().ReadAt (id, snapshot->id, hit.tri, hit.meshIndex, hit.point, reading,
-                                                      role, daylight, error)) {
+                                                      role, daylight, error, &state.sunReadingLit)) {
         state.sunReadingState = error == "computing" ? 3 : 0;
         return;
     }

@@ -370,6 +370,52 @@ pub unsafe extern "C" fn tapioca_sunstudy_study_step_masks(
     }
 }
 
+/// One sample's lit steps: when the hovered surface was in shadow.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct StudySampleStepsOutput {
+    /// The sample, from a hover reading.
+    pub sample: usize,
+    /// One byte per step, 1 when lit.
+    pub steps: *mut u8,
+    /// Capacity in bytes; 0 reports the count only.
+    pub steps_capacity: usize,
+}
+
+/// One sample's row of the step bits, shape-then-fill: `count` is the step
+/// count, 0 past the last sample.
+///
+/// # Safety
+/// The handle must be live; the descriptor readable; `steps` writable for its
+/// capacity; `count` writable; all disjoint.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tapioca_sunstudy_study_sample_steps(
+    handle: *const StudyHandle,
+    output: *const StudySampleStepsOutput,
+    count: *mut usize,
+    error: *mut u8,
+    error_capacity: usize,
+) -> i32 {
+    // SAFETY: envelope contains unwinding; every region is checked before use.
+    unsafe {
+        call(error, error_capacity, || {
+            let mut regions = Regions::new(error, error_capacity)?;
+            regions.input(output, 1);
+            regions.output(count, 1);
+            regions.check()?;
+            let t = regions.context().record(output)?;
+            regions.output(t.steps, t.steps_capacity);
+            regions.check()?;
+            let steps = study(handle)?.sample_lit_steps(t.sample).map_err(failure)?;
+            if fits(t.steps_capacity, steps.len())? {
+                publish(&steps, t.steps);
+            }
+            count.write(steps.len());
+            Ok(())
+        })
+    }
+}
+
 /// One hover reading.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
