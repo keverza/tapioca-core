@@ -27,21 +27,21 @@ namespace {
 
 // Raw DXGI_FORMAT values, repeated here on purpose: a test that imported the
 // module's own constants could not catch the module renumbering them.
-constexpr uint32_t kRgba8Unorm     = 28;
+constexpr uint32_t kRgba8Unorm = 28;
 constexpr uint32_t kRgba8UnormSrgb = 29;
-constexpr uint32_t kBgra8Unorm     = 87;
+constexpr uint32_t kBgra8Unorm = 87;
 constexpr uint32_t kBgra8UnormSrgb = 91;
-constexpr uint32_t kRgb10A2Unorm   = 24;
+constexpr uint32_t kRgb10A2Unorm = 24;
 
 // The colour DiligentViewport clears with, and what it must STORE. Both byte
 // sets are worked out from the sRGB transfer function by hand rather than from
 // EncodeSrgbByte, so an error in the encoder cannot hide behind itself:
 //   0.02 -> 1.055*0.02^(1/2.4)-0.055 = 0.15165 -> 38.67 -> 39
 //   0.72 -> 1.055*0.72^(1/2.4)-0.055 = 0.86505 -> 220.59 -> 221
-constexpr float kCyan[4]       = {0.02f, 0.72f, 1.0f, 1.0f};
-constexpr uint8_t kCyanSrgb[4] = {39, 221, 255, 255};
+constexpr float kCyan[4] = { 0.02f, 0.72f, 1.0f, 1.0f };
+constexpr uint8_t kCyanSrgb[4] = { 39, 221, 255, 255 };
 // The same colour if the store were linear: 0.02*255 = 5.1, 0.72*255 = 183.6.
-constexpr uint8_t kCyanLinear[4] = {5, 184, 255, 255};
+constexpr uint8_t kCyanLinear[4] = { 5, 184, 255, 255 };
 
 ClearReadback Mapped (uint32_t textureFormat, uint32_t viewFormat, const uint8_t bytes[4])
 {
@@ -54,7 +54,7 @@ ClearReadback Mapped (uint32_t textureFormat, uint32_t viewFormat, const uint8_t
     return readback;
 }
 
-}   // namespace
+} // namespace
 
 // --- the sRGB trap ----------------------------------------------------------
 
@@ -78,7 +78,7 @@ TEST (DiligentClearCheck, SrgbViewRejectsLinearBytes)
     const ClearVerdict v = EvaluateClear (Mapped (kRgba8Unorm, kRgba8UnormSrgb, kCyanLinear), kCyan, 2);
     ASSERT_TRUE (v.decoded);
     EXPECT_FALSE (v.matched);
-    EXPECT_EQ (v.worstChannel, 1);      // green: 184 stored vs 221 expected
+    EXPECT_EQ (v.worstChannel, 1); // green: 184 stored vs 221 expected
     EXPECT_EQ (v.maxDelta, 37);
 }
 
@@ -94,7 +94,7 @@ TEST (DiligentClearCheck, LinearViewComparesAgainstLinearBytes)
 TEST (DiligentClearCheck, BgraMemoryIsDecodedInChannelOrder)
 {
     // Memory order B,G,R,A for the same cyan.
-    const uint8_t bytes[4] = {kCyanSrgb[2], kCyanSrgb[1], kCyanSrgb[0], kCyanSrgb[3]};
+    const uint8_t bytes[4] = { kCyanSrgb[2], kCyanSrgb[1], kCyanSrgb[0], kCyanSrgb[3] };
     const ClearVerdict v = EvaluateClear (Mapped (kBgra8Unorm, kBgra8UnormSrgb, bytes), kCyan, 2);
     ASSERT_TRUE (v.decoded);
     EXPECT_TRUE (v.matched) << v.message;
@@ -106,7 +106,7 @@ TEST (DiligentClearCheck, BgraMemoryIsDecodedInChannelOrder)
 // must fail on red and blue rather than quietly passing.
 TEST (DiligentClearCheck, RgbaDecodeOfBgraBytesIsCaught)
 {
-    const uint8_t bytes[4] = {kCyanSrgb[2], kCyanSrgb[1], kCyanSrgb[0], kCyanSrgb[3]};
+    const uint8_t bytes[4] = { kCyanSrgb[2], kCyanSrgb[1], kCyanSrgb[0], kCyanSrgb[3] };
     const ClearVerdict v = EvaluateClear (Mapped (kRgba8Unorm, kRgba8UnormSrgb, bytes), kCyan, 2);
     ASSERT_TRUE (v.decoded);
     EXPECT_FALSE (v.matched);
@@ -118,7 +118,7 @@ TEST (DiligentClearCheck, RgbaDecodeOfBgraBytesIsCaught)
 
 TEST (DiligentClearCheck, AllZeroBytesAreNamedAsThePlatRe22Signature)
 {
-    const uint8_t bytes[4] = {0, 0, 0, 0};
+    const uint8_t bytes[4] = { 0, 0, 0, 0 };
     const ClearVerdict v = EvaluateClear (Mapped (kRgba8Unorm, kRgba8UnormSrgb, bytes), kCyan, 2);
     EXPECT_TRUE (v.decoded);
     EXPECT_FALSE (v.matched);
@@ -156,7 +156,7 @@ TEST (DiligentClearCheck, FailedReadbackWithoutAReasonStillSaysSo)
 // invent a colour out of 10-bit or half-float memory.
 TEST (DiligentClearCheck, UndecodableFormatRefusesToGuess)
 {
-    const uint8_t bytes[4] = {1, 2, 3, 4};
+    const uint8_t bytes[4] = { 1, 2, 3, 4 };
     const ClearVerdict v = EvaluateClear (Mapped (kRgb10A2Unorm, kRgb10A2Unorm, bytes), kCyan, 2);
     EXPECT_FALSE (v.decoded);
     EXPECT_FALSE (v.matched);
@@ -177,10 +177,10 @@ TEST (DiligentClearCheck, UnknownViewFormatFallsBackToTheTexture)
 
 TEST (DiligentClearCheck, ToleranceIsInclusiveAndReportsTheWorstChannel)
 {
-    uint8_t within[4] = {kCyanSrgb[0], uint8_t (kCyanSrgb[1] - 2), kCyanSrgb[2], kCyanSrgb[3]};
+    uint8_t within[4] = { kCyanSrgb[0], uint8_t (kCyanSrgb[1] - 2), kCyanSrgb[2], kCyanSrgb[3] };
     EXPECT_TRUE (EvaluateClear (Mapped (kRgba8Unorm, kRgba8UnormSrgb, within), kCyan, 2).matched);
 
-    uint8_t beyond[4] = {kCyanSrgb[0], uint8_t (kCyanSrgb[1] - 3), kCyanSrgb[2], kCyanSrgb[3]};
+    uint8_t beyond[4] = { kCyanSrgb[0], uint8_t (kCyanSrgb[1] - 3), kCyanSrgb[2], kCyanSrgb[3] };
     const ClearVerdict v = EvaluateClear (Mapped (kRgba8Unorm, kRgba8UnormSrgb, beyond), kCyan, 2);
     EXPECT_FALSE (v.matched);
     EXPECT_EQ (v.maxDelta, 3);
@@ -189,7 +189,7 @@ TEST (DiligentClearCheck, ToleranceIsInclusiveAndReportsTheWorstChannel)
 
 TEST (DiligentClearCheck, NegativeToleranceIsTreatedAsExact)
 {
-    uint8_t off[4] = {kCyanSrgb[0], uint8_t (kCyanSrgb[1] - 1), kCyanSrgb[2], kCyanSrgb[3]};
+    uint8_t off[4] = { kCyanSrgb[0], uint8_t (kCyanSrgb[1] - 1), kCyanSrgb[2], kCyanSrgb[3] };
     EXPECT_FALSE (EvaluateClear (Mapped (kRgba8Unorm, kRgba8UnormSrgb, off), kCyan, -5).matched);
     EXPECT_TRUE (EvaluateClear (Mapped (kRgba8Unorm, kRgba8UnormSrgb, kCyanSrgb), kCyan, -5).matched);
 }
@@ -202,7 +202,7 @@ TEST (DiligentClearCheck, EncodersClampAndRound)
     EXPECT_EQ (EncodeUnormByte (0.0f), 0);
     EXPECT_EQ (EncodeUnormByte (1.0f), 255);
     EXPECT_EQ (EncodeUnormByte (2.0f), 255);
-    EXPECT_EQ (EncodeUnormByte (0.5f), 128);      // 127.5 rounds away from zero
+    EXPECT_EQ (EncodeUnormByte (0.5f), 128); // 127.5 rounds away from zero
 
     EXPECT_EQ (EncodeSrgbByte (0.0f), 0);
     EXPECT_EQ (EncodeSrgbByte (1.0f), 255);
@@ -224,4 +224,20 @@ TEST (DiligentClearCheck, FormatTableKnowsOrderAndTransfer)
     EXPECT_FALSE (DescribeDxgiFormat (kRgb10A2Unorm).byteAddressable);
     EXPECT_FALSE (DescribeDxgiFormat (999999).byteAddressable);
     EXPECT_STREQ (DescribeDxgiFormat (999999).name, "UNKNOWN");
+}
+
+// --- the A/B compares against the colour actually cleared -------------------
+
+// 2026-11-01 10:44:05, every D3D11 start: the A/B reported "Diligent arm only
+// failed" while reading back 206,206,208 -- exactly the viewport's neutral grey
+// clear, worked out by hand: 0.62 -> 1.055*0.62^(1/2.4)-0.055 = 0.8095 -> 206,
+// 0.63 -> 0.8153 -> 208. The check was still expecting the retired cyan. These
+// pin both halves: the real clear passes against itself, and fails against cyan.
+TEST (DiligentClearCheck, ViewportGreyClearMatchesItsOwnReadback)
+{
+    constexpr float kViewportGrey[4] = { 0.62f, 0.62f, 0.63f, 1.0f };
+    constexpr uint8_t kObserved[4] = { 206, 206, 208, 255 };
+    const ClearVerdict v = EvaluateClear (Mapped (kRgba8Unorm, kRgba8UnormSrgb, kObserved), kViewportGrey, 2);
+    EXPECT_TRUE (v.matched) << v.message;
+    EXPECT_FALSE (EvaluateClear (Mapped (kRgba8Unorm, kRgba8UnormSrgb, kObserved), kCyan, 2).matched);
 }

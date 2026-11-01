@@ -395,7 +395,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 context->Flush ();
             }
             if (!clearVerified) {
-                const ClearAB ab = RunClearAB (context, rtv, target.DiligentSwapChain (), device);
+                const ClearAB ab = RunClearAB (context, rtv, target.DiligentSwapChain (), device, target.ClearColor ());
                 ArchVizLog ("Diligent viewport device: " + ab.device.report);
                 ArchVizLog ("Diligent viewport clear A (Diligent ClearRenderTarget): " + ab.diligentArm.message);
                 ArchVizLog ("Diligent viewport clear B (native ClearRenderTargetView): " + ab.nativeArm.message);

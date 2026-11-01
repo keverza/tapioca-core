@@ -221,7 +221,7 @@ DeviceDiagnostics DescribeDevice (Diligent::IRenderDevice* device, Diligent::ISw
 // The caller must have unbound the render target before calling: see
 // ReadBackCenterPixel.
 ClearAB RunClearAB (Diligent::IDeviceContext* context, Diligent::ITextureView* rtv, Diligent::ISwapChain* swapChain,
-                    Diligent::IRenderDevice* device)
+                    Diligent::IRenderDevice* device, const float diligentClearLinearRgba[4])
 {
     ClearAB result;
     result.device = DescribeDevice (device, swapChain);
@@ -229,7 +229,7 @@ ClearAB RunClearAB (Diligent::IDeviceContext* context, Diligent::ITextureView* r
     const NativeTarget target = AcquireNativeTarget (context, rtv);
 
     // Arm A reads back the clear the caller already issued through Diligent.
-    result.diligentArm = EvaluateClear (ReadBackCenterPixel (target), kDiligentClearColor, kClearTolerance);
+    result.diligentArm = EvaluateClear (ReadBackCenterPixel (target), diligentClearLinearRgba, kClearTolerance);
 
     // Arm B goes around Diligent entirely, on the same context and the same
     // view. Nothing else about the frame changes.

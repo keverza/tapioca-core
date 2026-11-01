@@ -34,15 +34,21 @@ struct IDeviceContext;
 struct IRenderDevice;
 struct ISwapChain;
 struct ITextureView;
-}   // namespace Diligent
+} // namespace Diligent
 
 namespace geomsrv {
 namespace archviz {
 
-// The clear colours of the A/B. ⚠️ THEY MUST BE FAR APART IN EVERY CHANNEL, so a
+// The native arm's clear colour. ⚠️ IT MUST BE FAR FROM THE DILIGENT ARM'S, so a
 // readback can never be ambiguous about WHICH clear it is looking at.
-constexpr float kDiligentClearColor[4] = {0.02f, 0.72f, 1.0f, 1.0f};   // cyan
-constexpr float kNativeClearColor[4]   = {1.0f, 0.05f, 0.60f, 1.0f};   // magenta
+//
+// ⚠️ THE DILIGENT ARM IS NO LONGER A CONSTANT. It used to be a fixed cyan, the
+// colour the viewport cleared to in the PLAT-RE22 smoke test. The viewport now
+// clears to a neutral grey (DiligentViewportTarget's kOpaqueClear), the constant
+// stayed cyan, and every D3D11 start reported "Diligent arm only failed" while
+// reading back exactly the grey Diligent had been asked for (observed 206,206,208).
+// The caller passes the colour it actually cleared to.
+constexpr float kNativeClearColor[4] = { 1.0f, 0.05f, 0.60f, 1.0f }; // magenta
 // sRGB encoding rounds; 2/255 is the same allowance Probe 1b used.
 constexpr int kClearTolerance = 2;
 
@@ -53,12 +59,11 @@ struct DeviceDiagnostics {
     std::string adapter;
     uint32_t featureLevel = 0;
     uint64_t presentCount = 0;
-    uint32_t deviceRemovedReason = 0;   // 0 == S_OK == alive
+    uint32_t deviceRemovedReason = 0; // 0 == S_OK == alive
     std::string report;
 };
 
-DeviceDiagnostics DescribeDevice (Diligent::IRenderDevice* device,
-                                  Diligent::ISwapChain* swapChain);
+DeviceDiagnostics DescribeDevice (Diligent::IRenderDevice* device, Diligent::ISwapChain* swapChain);
 
 struct ClearAB {
     DeviceDiagnostics device;
@@ -73,10 +78,10 @@ struct ClearAB {
 //
 // ⚠️ IT LEAVES THE MAGENTA ARM ON THE SURFACE. The caller re-clears to whatever
 // the user is meant to be looking at.
-ClearAB RunClearAB (Diligent::IDeviceContext* context, Diligent::ITextureView* rtv,
-                    Diligent::ISwapChain* swapChain, Diligent::IRenderDevice* device);
+ClearAB RunClearAB (Diligent::IDeviceContext* context, Diligent::ITextureView* rtv, Diligent::ISwapChain* swapChain,
+                    Diligent::IRenderDevice* device, const float diligentClearLinearRgba[4]);
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv
 
 #endif
