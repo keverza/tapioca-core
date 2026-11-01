@@ -101,6 +101,7 @@ edit::Operation SectionOperation (const TerrainSectionDraft& request)
                         return false;
                     }
                     for (uint32_t bit = 1; bit <= uint32_t (SectionField::Rounding); bit <<= 1) {
+                        // Clear bits are mixed/preserved; single-range applies all.
                         if (selected.size () != 1 && !(request.mixed & bit))
                             continue;
                         if (!ApplyField (*found, request.value, static_cast<SectionField> (bit), error))
