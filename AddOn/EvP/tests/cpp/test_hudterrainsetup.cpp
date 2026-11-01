@@ -799,6 +799,24 @@ TEST (HudTerrainSetup, SignedCrossfallDraftsRemainSignedAndPassiveSlidersDoNotNo
     }
 }
 
+TEST (HudTerrainSetup, CrossfallDraftAboveOneToOneRefusesWithoutChangingHistoryOrOtherFields)
+{
+    auto doc = EmptyLandscape ();
+    const auto path = AddDesignPath (doc);
+    const auto before = edit::FindPath (doc, path)->sections[0];
+    eh::Session session (doc);
+    ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, before.id));
+    session.terrainSectionDraft->value.crossfall = { { lg::TerrainSlope::Unit::Height, 1, 1 }, true };
+    session.terrainSectionDraft->value.fall = edit::Fall::Crown;
+    const auto depth = session.edits.UndoDepth ();
+    EXPECT_FALSE (eh::ApplyTerrainSectionEdit (session));
+    EXPECT_EQ (session.edits.Doc ().paths, doc.paths);
+    EXPECT_EQ (session.edits.UndoDepth (), depth);
+    EXPECT_EQ (session.terrainSectionDraft->value.crossfall.slope.unit, lg::TerrainSlope::Unit::Height);
+    EXPECT_EQ (session.terrainSectionDraft->value.crossfall.slope.a, 1);
+    EXPECT_TRUE (session.terrainSectionDraft->value.crossfall.negative);
+}
+
 TEST (HudTerrainSetup, InvalidOrIdentityChangingSectionDraftsRefuseAtomicallyAndRemainCorrectable)
 {
     auto doc = EmptyLandscape ();

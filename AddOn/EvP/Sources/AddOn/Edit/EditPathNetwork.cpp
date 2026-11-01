@@ -546,7 +546,7 @@ PavedArea PaveTogether (const std::vector<Path>& paths, double step, bool surfac
             s.outline = *cached;
             s.preparation = *prepared;
         }
-        else if (!Outline (path, outlineStep, s.outline, error))
+        else if (!Outline (path, s.geometry, s.preparation, outlineStep, s.outline, error))
             continue;
         if (s.outline.left.size () < 2)
             continue;

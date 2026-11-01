@@ -40,7 +40,8 @@ const PathOutline* PathOutlineCache::Get (const Path& path, double maxStep, cons
     e.used = frame_;
     std::string error;
     AlignmentGeometry geometry;
-    e.built = PreparePath (path, geometry, e.preparation, error) && Outline (path, maxStep, e.outline, error);
+    e.built = PreparePath (path, geometry, e.preparation, error) &&
+              Outline (path, geometry, e.preparation, maxStep, e.outline, error);
     ++builds;
     preparation = &e.preparation;
     return e.built ? &e.outline : nullptr;

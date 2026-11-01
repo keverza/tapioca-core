@@ -514,6 +514,56 @@ TEST (EditTerrainDesign, CrossfallContractKeepsSignedOutlineAndExistingNegativeB
         }
 }
 
+TEST (EditTerrainDesign, TypedCrossfallProjectsIntoBothAdaptersWithoutEnablingNegativeBands)
+{
+    using Unit = TerrainSlope::Unit;
+    for (const edit::PathCrossfall crossfall : { edit::PathCrossfall { { Unit::Angle, std::atan (.02), 0 }, false },
+                                                 { { Unit::RiseRun, 1, 50 }, false },
+                                                 { { Unit::Height, 1, 50 }, false },
+                                                 { { Unit::RiseRun, 1, 50 }, true } }) {
+        DesignFixture fixture;
+        std::string error;
+        ASSERT_TRUE (edit::SetPathCrossfall (fixture.doc, fixture.path, fixture.doc.paths[0].sections[0].id, crossfall,
+                                             edit::Fall::Crown, error))
+            << error;
+        ++fixture.doc.revision;
+        fixture.Capture ();
+        const double percent = crossfall.negative ? -2 : 2;
+        const auto options = fixture.Options ();
+        if (crossfall.negative) {
+            TerrainDesignResult refused;
+            EXPECT_FALSE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, refused, error));
+            EXPECT_NE (error.find ("DesignSlope"), std::string::npos) << error;
+        }
+        else {
+            TerrainDesignResult band;
+            ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, band, error)) << error;
+            std::vector<TerrainSample> samples;
+            TerrainFieldSummary summary;
+            ASSERT_TRUE (SampleTerrain ({ band.build.points, band.build.triangles },
+                                        std::array<double, 4> { 20, 1, 20, -1 }, .25, samples, summary, error))
+                << error;
+            ASSERT_EQ (samples.size (), 2u);
+            EXPECT_NEAR (samples[0].height, 10.98, 1e-7);
+            EXPECT_NEAR (samples[1].height, 10.98, 1e-7);
+        }
+        TerrainDesignResult outline;
+        uint32_t unreached = 0;
+        ASSERT_TRUE (EvaluateOutlineDesign (fixture.doc, fixture.Input (),
+                                            OutlineOptionsFor (fixture.doc, fixture.path, 10), outline, unreached,
+                                            error))
+            << error;
+        std::vector<TerrainSample> samples;
+        TerrainFieldSummary summary;
+        ASSERT_TRUE (SampleTerrain ({ outline.build.points, outline.build.triangles },
+                                    std::array<double, 4> { 20, 1, 20, -1 }, .25, samples, summary, error))
+            << error;
+        ASSERT_EQ (samples.size (), 2u);
+        EXPECT_NEAR (samples[0].height, 11 - percent * .01, 1e-7);
+        EXPECT_NEAR (samples[1].height, 11 - percent * .01, 1e-7);
+    }
+}
+
 TEST (EditTerrainDesign, ARangeChangeIsAShortTaperNotARamp)
 {
     DesignFixture fixture;

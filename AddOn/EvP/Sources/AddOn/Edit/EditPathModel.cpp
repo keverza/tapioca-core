@@ -191,12 +191,11 @@ bool Evaluate (const Path& path, const AlignmentGeometry& g, double station, Sta
            Evaluate (path, g, preparation, station, out);
 }
 
-bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& error)
+bool Outline (const Path& path, const AlignmentGeometry& g, const PathPreparation& preparation, double maxStep,
+              PathOutline& out, std::string& error)
 {
     out = {};
-    AlignmentGeometry g;
-    PathPreparation preparation;
-    if (!PreparePath (path, g, preparation, error))
+    if (!preparation.ready || path.sections != preparation.sections)
         return false;
     std::vector<double> stations = SampleStations (path, g, maxStep);
     // Mesh spacing may grow during a drag; it must not turn an offset arc into a
@@ -251,6 +250,14 @@ bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& e
             out.breaks.push_back ({ f.centre.x, f.centre.y, b.z });
     }
     return true;
+}
+
+bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& error)
+{
+    AlignmentGeometry geometry;
+    PathPreparation preparation;
+    return PreparePath (path, geometry, preparation, error) &&
+           Outline (path, geometry, preparation, maxStep, out, error);
 }
 
 std::vector<double> SampleStations (const Path& path, const AlignmentGeometry& g, double maxStep)

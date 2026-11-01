@@ -99,7 +99,8 @@ set (EVP_GEOM_SOURCES
     "${GEOM_DIR}/SurfaceAttributeMap.cpp"
     "${GEOM_DIR}/ExteriorSurfaceRegion.cpp"
     "${GEOM_DIR}/SurfaceCriteria.cpp"
-    "${EVP_ROOT}/Sources/AddOn/NativeCommands/PolygonPickState.cpp")
+    "${EVP_ROOT}/Sources/AddOn/NativeCommands/PolygonPickState.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NativeCommands/VirtualEditorProjection.cpp")
 list (APPEND EVP_GEOM_SOURCES "${GEOM_DIR}/WireframeEdges.cpp")
 
 # Not an engine, but it makes the same promise: Palette/CommandFilter.cpp is pure
@@ -935,6 +936,7 @@ set (EVP_TEST_SOURCES
     test_editpathcutunits.cpp
     test_editpathfillunits.cpp
     test_editpathcrossfallcontract.cpp
+    test_editpathcrossfallunits.cpp
     test_editpath.cpp
     test_editprofileview.cpp
     test_hudvirtualeditor.cpp

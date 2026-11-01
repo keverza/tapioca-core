@@ -3,6 +3,7 @@
 #include "NativeCommands/VirtualEditorCommands.hpp"
 #include "NativeCommands/VirtualEditorTerrain.hpp"
 #include "NativeCommands/VirtualEditorImport.hpp"
+#include "NativeCommands/VirtualEditorProjection.hpp"
 #include "NativeCommands/CommandUtils.hpp"
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
@@ -13,6 +14,7 @@
 #include "ArchViz/SurfaceSwitch.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
+#include <stdexcept>
 
 // OVERLAY-INVARIANTS.md: switch only via the deferred main-thread surface owner.
 // Tapioca.VirtualEditor opens, reports and closes the virtual editor; Tapioca.EditorState
@@ -228,11 +230,15 @@ GS::ObjectState Export (const edit::Document& doc)
             profile.Push (q);
         }
         for (const auto& r : p.sections) {
+            double crossfall = 0;
+            std::string projectionError;
+            if (!nativecommands::VirtualEditorCrossfallPercent (r.crossfall, crossfall, projectionError))
+                throw std::runtime_error (projectionError);
             GS::ObjectState q;
             q.Add ("station", r.station);
             q.Add ("widthLeft", r.widthLeft);
             q.Add ("widthRight", r.widthRight);
-            q.Add ("crossfall", edit::PathCrossfallPercent (r.crossfall));
+            q.Add ("crossfall", crossfall);
             q.Add ("fall", GS::UniString (r.fall == edit::Fall::Left    ? "left"
                                           : r.fall == edit::Fall::Right ? "right"
                                                                         : "crown"));

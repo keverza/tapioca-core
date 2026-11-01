@@ -40,6 +40,13 @@ bool PercentSlope (const tapioca::geometry::TerrainSlope& authored, tapioca::geo
 bool ResolveCrossfall (const PathCrossfall& authored, double& percent, std::string& error)
 {
     auto converted = authored.slope;
+    // Rust's same-form percent conversion deliberately preserves signed legacy
+    // grades. PathCrossfall stores that legacy sign separately, so negative
+    // authored parts are malformed, not a second way to express `negative`.
+    if (converted.a < 0 || (converted.unit != tapioca::geometry::TerrainSlope::Unit::Percent && converted.b < 0)) {
+        error = "a crossfall must be below 100 %";
+        return false;
+    }
     if (converted.unit != tapioca::geometry::TerrainSlope::Unit::Percent &&
         !tapioca::geometry::ConvertTerrainSlope (converted, tapioca::geometry::TerrainSlope::Unit::Percent, 1,
                                                  converted, error))

@@ -71,6 +71,8 @@ bool SetPathEdgeRadius (Document& doc, Id path, double radius, std::string& erro
 // in the range in force where the point lies (a taper's nearer end width).
 bool SetPathWidthFromPoint (Document& doc, Id path, Vec3 point, std::string& error);
 bool SetPathCrossfall (Document& doc, Id path, Id range, double percent, Fall fall, std::string& error);
+// Authored magnitude and sign; Fall stays an independent drainage field.
+bool SetPathCrossfall (Document& doc, Id path, Id range, const PathCrossfall& crossfall, Fall fall, std::string& error);
 // Which way a range sheds water -- every range's when `range` is kNoId -- its crossfall kept.
 bool SetPathFall (Document& doc, Id path, Id range, Fall fall, std::string& error);
 // A one-sided fall turned to the other side; a crown stays a crown.

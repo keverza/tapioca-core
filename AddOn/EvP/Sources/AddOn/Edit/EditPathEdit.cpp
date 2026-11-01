@@ -545,6 +545,13 @@ bool SetPathCrossfall (Document& doc, Id path, Id range, double percent, Fall fa
         error);
 }
 
+bool SetPathCrossfall (Document& doc, Id path, Id range, const PathCrossfall& crossfall, Fall fall, std::string& error)
+{
+    return EditPath (
+        doc, path, [&] (Path& p, std::string& why) { return SetCrossfall (p.sections, range, crossfall, fall, why); },
+        error);
+}
+
 bool SetPathFall (Document& doc, Id path, Id range, Fall fall, std::string& error)
 {
     return EditPath (

@@ -255,6 +255,8 @@ struct PathOutline {
     std::vector<Vec3> points; // control points (a bend's corner) at their profile height
     std::vector<Vec3> breaks; // grade breaks on the centreline
 };
+bool Outline (const Path& path, const AlignmentGeometry& geometry, const PathPreparation& preparation, double maxStep,
+              PathOutline& out, std::string& error);
 bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& error);
 
 // Stations to draw or build a surface at: every `maxStep` metres at most, plus every

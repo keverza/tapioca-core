@@ -312,7 +312,9 @@ class Parser {
             return Fail ("expected a number");
 
         const std::string token = text_.substr (start, position_ - start);
-        if (integral) {
+        // Integer zero has no sign bit. Keep JSON -0 on the double path so a
+        // signed numeric field round-trips as negative zero, not a new value.
+        if (integral && token != "-0") {
             errno = 0;
             char* end = nullptr;
             const long long parsed = std::strtoll (token.c_str (), &end, 10);
