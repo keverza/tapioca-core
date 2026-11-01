@@ -35,16 +35,6 @@ Implemented, without reducing resolution or weakening predicates:
    outlines remain. Low-sun blue blends at 60% over the warm ramp instead of
    replacing it, including in the gradient legend. Diagnostic colours stay opaque.
 
-### Why Jifto remains a separate performance target
-
-[Jifto's documentation](https://jifto.com/docs/) identifies NVIDIA OptiX as its
-sunlight/shadow tracer. Our current D3D11 FP64 compute traversal does **not** use
-RTX ray-tracing hardware. An OptiX/RTX backend with conservative acceleration
-bounds and an exact intersection/fallback strategy is the next substantial
-architecture option, not an implemented feature or a promised speed factor.
-Neither the current changes nor that option justify coarser samples, removing
-ambiguous-ray checks, or silently changing manual CPU/GPU or Early/Late choices.
-
 ### Latest validation and acceptance
 
 - 2,071 C++ tests pass; two existing tests remain disabled. New tests cover CPU
