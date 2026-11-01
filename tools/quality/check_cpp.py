@@ -1221,6 +1221,8 @@ def _check_architecture_srb_variables(failures: list[str]) -> None:
         declared.update(match.group(1) for match in declare_pattern.finditer(text))
 
     source = shaders.read_text(encoding="utf-8")
+    # Adjacent raw literals are one stage (check_hlsl.py joins them the same way).
+    source = re.sub(r'\)hlsl"\s*(?://[^\n]*\s*)*R"hlsl\(', "", source)
     blocks = dict(re.findall(r'(\w+)\s*=\s*R"hlsl\((.*?)\)hlsl";', source, re.S))
     # A resource declaration at the top level of a stage: `Texture2D<float> g_x;`,
     # `Texture2D g_x;`, `Buffer<uint> g_x;`. Samplers are excluded -- they are

@@ -28,9 +28,11 @@ uint32_t ColourAt (std::span<const overlaylayers::ColourStop> stops, float t);
 // range. A row picked (click, or arrows and Enter) applies AT ONCE; Cancel or Escape
 // restores the preset the popup opened on; Done or a click outside keep the current one.
 // True on the frame `presetId` changed, the Cancel included. `id` is the widget's
-// stable ImGui id within its window.
+// stable ImGui id within its window. An empty or unknown `presetId` is the caller's
+// own colours, which the button names `none`.
 bool GradientPresetChoice (const char* id, std::string& presetId, float width,
-                           overlaylayers::GradientCategory first = overlaylayers::GradientCategory::General);
+                           overlaylayers::GradientCategory first = overlaylayers::GradientCategory::General,
+                           const char* none = "Custom");
 
 } // namespace geomsrv::archviz::gradientchoice
 

@@ -74,7 +74,8 @@ void DrawSwatch (ImDrawList* draw, ImVec2 min, ImVec2 max, std::span<const layer
     }
 }
 
-bool GradientPresetChoice (const char* id, std::string& presetId, float width, layers::GradientCategory first)
+bool GradientPresetChoice (const char* id, std::string& presetId, float width, layers::GradientCategory first,
+                           const char* none)
 {
     const auto presets = layers::GradientPresets ();
     ImGui::PushID (id);
@@ -95,7 +96,7 @@ bool GradientPresetChoice (const char* id, std::string& presetId, float width, l
     if (current >= 0)
         DrawSwatch (draw, ImVec2 (at.x + pad, at.y + 4.0f), ImVec2 (at.x + pad + swatch, at.y + height - 4.0f),
                     presets[size_t (current)].Stops ());
-    const char* label = current >= 0 ? presets[size_t (current)].name : "Custom";
+    const char* label = current >= 0 ? presets[size_t (current)].name : none;
     draw->PushClipRect (at, ImVec2 (at.x + width - pad, at.y + height), true);
     draw->AddText (ImVec2 (at.x + 2.0f * pad + swatch, at.y + style.FramePadding.y), ImGui::GetColorU32 (ImGuiCol_Text),
                    label);
@@ -113,9 +114,10 @@ bool GradientPresetChoice (const char* id, std::string& presetId, float width, l
     const ImGuiID open = ImGui::GetID ("##open");
     bool changed = false;
     const auto restore = [&] () {
+        // -1: it opened on no preset (the caller's own colours), and goes back to none.
         const int before = storage->GetInt (original, -1);
-        if (before >= 0 && before != IndexOf (presetId)) {
-            presetId = presets[size_t (before)].id;
+        if (before != IndexOf (presetId)) {
+            presetId = before >= 0 ? presets[size_t (before)].id : "";
             changed = true;
         }
     };

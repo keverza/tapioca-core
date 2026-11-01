@@ -180,6 +180,9 @@ def main():
         + STORY_SLICE_LAYER.read_text(encoding="utf-8")
         + SCENE_TEXT_LAYER.read_text(encoding="utf-8")
     )
+    # Adjacent raw literals are one string to the compiler (MSVC caps one literal at
+    # 16 KB): join them, so a long stage is read whole.
+    source = re.sub(r'\)hlsl"\s*(?://[^\n]*\s*)*R"hlsl\(', "", source)
     blocks = dict(re.findall(r'(\w+)\s*=\s*R"hlsl\((.*?)\)hlsl";', source, re.S))
     if "kArchVizCBuffer" not in blocks:
         print("FAIL  the shared cbuffer literal was not found in %s" % HEADER.name)

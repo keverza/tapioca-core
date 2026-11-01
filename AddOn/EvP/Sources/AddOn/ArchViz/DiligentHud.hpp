@@ -254,6 +254,8 @@ struct HudState {
     // The analysis shading's colours, 0xRRGGBBAA, set by the tabs' pickers.
     uint32_t visibilityLowRgba = 0xB84E45FFu;  // not visible
     uint32_t visibilityHighRgba = 0x4B8358FFu; // visible
+    // Or a gradient library preset across not visible .. visible (#102); empty: the two colours.
+    std::string visibilityGradientPreset;
     uint32_t viewpointFillRgba = 0xF5C44F80u;
     uint32_t viewpointEdgeRgba = 0xE1A428E6u;    // where a ray reached the radius; the guide circle
     uint32_t viewpointBlockedRgba = 0xEC6240F0u; // where Context stopped it

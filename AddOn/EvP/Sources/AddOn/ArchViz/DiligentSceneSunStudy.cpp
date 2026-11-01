@@ -684,6 +684,13 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
         }
         constants.sunStudyRampInfo[0] = float (impl_->sunRampCount);
     }
+    if (impl_->visibilityRampCount >= 2) {
+        for (int i = 0; i < impl_->visibilityRampCount; ++i) {
+            SunStudyRgbaChannels (impl_->visibilityRamp[i].rgba, constants.visibilityRamp + 4 * i);
+            constants.visibilityRamp[4 * i + 3] = impl_->visibilityRamp[i].at;
+        }
+        constants.visibilityRampInfo[0] = float (impl_->visibilityRampCount);
+    }
     for (int channel = 0; channel < 3; ++channel) {
         const int shift = 24 - 8 * channel;
         constants.visibilityLowColor[channel] = float ((impl_->visibilityLowRgba >> shift) & 0xffu) / 255.0f;
@@ -774,6 +781,8 @@ void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
     impl_->sunTintSuppressed = view.suppressed;
     impl_->visibilityLowRgba = view.visibilityLowRgba;
     impl_->visibilityHighRgba = view.visibilityHighRgba;
+    impl_->visibilityRampCount = std::clamp (view.visibilityRampCount, 0, int (overlaylayers::kMaxStops));
+    std::copy (view.visibilityRamp, view.visibilityRamp + impl_->visibilityRampCount, impl_->visibilityRamp);
     impl_->sunBlueThreshold = view.blueThreshold;
     impl_->sunFirstShadowStep = view.firstShadowStep;
     impl_->sunEndShadowStep = view.endShadowStep;

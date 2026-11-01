@@ -127,6 +127,20 @@ TEST (GradientPresetChoice, AClickOutsideKeepsThePick)
     EXPECT_EQ (hud.preset, picked);
 }
 
+TEST (GradientPresetChoice, CancelFromTheCallersOwnColoursGoesBackToNone)
+{
+    Harness hud;
+    hud.preset.clear ();
+    hud.Frame ();
+    hud.Click (kButton);
+    hud.Frame ();
+    hud.Key (ImGuiKey_DownArrow);
+    hud.Key (ImGuiKey_Enter);
+    ASSERT_FALSE (hud.preset.empty ()) << "a preset was picked over the two colours";
+    hud.Key (ImGuiKey_Escape);
+    EXPECT_TRUE (hud.preset.empty ()) << "Escape restores the caller's own colours";
+}
+
 TEST (GradientPresetChoice, ColourAtInterpolatesBetweenExactStops)
 {
     const layers::ColourStop stops[] = { { 0.0f, 0x000000FFu }, { 0.5f, 0xFF0000FFu }, { 1.0f, 0xFFFFFFFFu } };

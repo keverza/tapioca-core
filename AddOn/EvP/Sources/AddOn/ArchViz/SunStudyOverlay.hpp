@@ -225,6 +225,9 @@ struct SunStudyViewSettings {
     // The visibility gradient's ends, 0xRRGGBBAA (sRGB): not visible, visible.
     uint32_t visibilityLowRgba = 0xB84E45FFu;
     uint32_t visibilityHighRgba = 0x4B8358FFu;
+    // A gradient preset's stops instead of the two colours (#102); 0 keeps them.
+    overlaylayers::ColourStop visibilityRamp[overlaylayers::kMaxStops] = {};
+    int visibilityRampCount = 0;
     float blueThreshold = -1.0f; // disabled; otherwise hours below this are kSunLowSunHex
     uint32_t firstShadowStep = 0;
     uint32_t endShadowStep = 0xffffffffu;

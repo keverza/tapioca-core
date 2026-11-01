@@ -78,6 +78,11 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state)
     view.suppressed = !analysistabs::ShowsTint (state.analysisFocus, shown, kind);
     view.visibilityLowRgba = state.visibilityLowRgba;
     view.visibilityHighRgba = state.visibilityHighRgba;
+    if (const overlaylayers::GradientPreset* preset =
+            overlaylayers::FindGradientPreset (state.visibilityGradientPreset)) {
+        view.visibilityRampCount = int (preset->count);
+        std::copy (preset->stops, preset->stops + preset->count, view.visibilityRamp);
+    }
     scene.SetSunStudyView (view);
     // Outline what the visibility tab in focus measures: Analysis, which carries
     // the gradient on both, and Focus on the surface tab, where it is looked at.
