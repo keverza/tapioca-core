@@ -663,12 +663,10 @@ TEST (EditRegionTerrain, RegionOnlyHudStartsFromHeldTerrainAndRebuildsAfterUndo)
     EXPECT_GT (eh::GetTerrainDesignStatus (session).fill, 199);
 }
 
-// #112 P0 baseline: terrain-target discovery scans region-boundary ownership only, so a
-// Boolean-derived configured result (owned root, no boundarySource) is invisible to
-// region grading. P1 must flip this: discovery is valid owned-root based. Recorded
-// 2026-11-01 at core e4894d13. (The direct struct edit is deliberate: today's document
-// gates refuse this state through the authoring API, so the baseline probes the query.)
-TEST (EditRegionTerrain, TerrainRegionObjectsSkipsDerivedResultsUntilOwnedRootDiscovery112)
+// #112 P1: terrain-target discovery is valid owned-root based -- a Boolean-derived
+// configured domain (durable owner + live root, no boundarySource) participates in
+// region grading, and a single hole-free derived footprint grades end to end.
+TEST (EditRegionTerrain, TerrainRegionObjectsDiscoversOwnedRootResults112)
 {
     Fixture fixture;
     lg::LandscapeOperation boolean;
@@ -686,7 +684,52 @@ TEST (EditRegionTerrain, TerrainRegionObjectsSkipsDerivedResultsUntilOwnedRootDi
     derived.terrain.effect = lg::RegionTerrainEffect::Grade;
     fixture.doc.landscape->objects.push_back (derived);
     const auto targets = lg::TerrainRegionObjects (fixture.doc);
-    EXPECT_EQ (std::count (targets.begin (), targets.end (), fixture.doc.landscape->objects.back ().id), 0);
+    EXPECT_EQ (std::count (targets.begin (), targets.end (), fixture.doc.landscape->objects.back ().id), 1);
+}
+
+// #112 P1.7: a derived domain that inherits Boundary curve Z keeps the explicit
+// diagnostic -- heights are never invented from the operand; a Constant override
+// authorizes grading instead. The owner itself stays ungraded so the refusal under
+// test is the only terrain failure in the scene.
+TEST (EditRegionTerrain, InheritedBoundarySurfaceRefusesTerrainGradingWithConstantOverride112)
+{
+    Fixture fixture;
+    const auto ownerId = fixture.doc.landscape->objects[0].id;
+    lg::RegionSurface boundary;
+    boundary.elevation = lg::RegionElevationMode::Boundary;
+    std::string error;
+    ASSERT_TRUE (lg::SetRegionSurface (fixture.doc, ownerId, boundary, {}, error)) << error;
+    ASSERT_TRUE (lg::SetRegionTerrain (fixture.doc, ownerId, lg::RegionTerrain {}, error)) << error;
+    const auto ownerRoot = fixture.doc.landscape->objects[0].footprintOperation;
+    const auto ownerBoundary = fixture.doc.landscape->objects[0].boundarySource;
+    const auto ownerSurface = *fixture.doc.landscape->objects[0].surface;
+    lg::LandscapeOperation boolean;
+    boolean.kind = lg::OperationKind::Union;
+    boolean.inputs = { ownerRoot, ownerBoundary };
+    edit::Id booleanId = 0;
+    ASSERT_TRUE (lg::AddLandscapeOperation (fixture.doc, boolean, booleanId, error)) << error;
+    lg::HardscapeObject derived;
+    derived.id = edit::NewId (fixture.doc);
+    derived.footprintOperation = booleanId;
+    derived.surface = ownerSurface; // Boundary curve Z, inherited
+    derived.terrain.effect = lg::RegionTerrainEffect::Grade;
+    fixture.doc.landscape->objects.push_back (derived);
+    lg::RegionTerrainResult result;
+    EXPECT_FALSE (lg::EvaluateRegionTerrain (fixture.doc, fixture.Capture (), result, error));
+    EXPECT_NE (error.find ("RegionSurface"), std::string::npos) << error;
+    lg::RegionSurface constant = *derived.surface;
+    constant.elevation = lg::RegionElevationMode::Constant;
+    constant.first.z = 2;
+    auto copy = fixture.doc;
+    ASSERT_TRUE (lg::SetRegionSurface (copy, derived.id, constant, {}, error)) << error;
+    geomsrv::Mesh mesh;
+    mesh.guid = copy.landscape->sourceTerrainGuid;
+    mesh.vertices = { 0, 0, 0, 20, 0, 0, 20, 20, 0, 0, 20, 0 };
+    mesh.triangles = { 0, 1, 2, 0, 2, 3 };
+    auto capture = std::make_shared<lg::TerrainCapture> ();
+    ASSERT_TRUE (lg::CaptureLandscapeTerrain (copy, mesh, { fixture.object, 2, 1 }, *capture, error)) << error;
+    ASSERT_TRUE (lg::EvaluateRegionTerrain (copy, capture, result, error)) << error;
+    EXPECT_NEAR (Height (result, 10, 10), 2, 1e-7);
 }
 
 // #112 P0 reference: two overlapping configured regions currently compose through the

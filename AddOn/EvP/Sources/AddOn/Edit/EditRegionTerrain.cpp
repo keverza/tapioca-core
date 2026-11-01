@@ -72,14 +72,16 @@ struct Preparation {
 
 std::vector<Id> TerrainRegionObjects (const geomsrv::edit::Document& doc)
 {
+    // #112 P1: valid owned-root discovery. The durable owner object and its root
+    // operation are the identity; boundarySource stays optional lifecycle metadata
+    // so Boolean-derived configured domains participate. P2 replaces this scan
+    // with the compiled field plan.
     std::vector<Id> ids;
     if (doc.landscape)
         for (const auto& object : doc.landscape->objects)
-            if (object.terrain.effect != RegionTerrainEffect::None && object.boundarySource &&
-                std::any_of (doc.landscape->sources.begin (), doc.landscape->sources.end (), [&] (const auto& source) {
-                    return source.id == object.boundarySource && !source.deleted &&
-                           source.role == SourceRole::RegionBoundary;
-                }))
+            if (object.terrain.effect != RegionTerrainEffect::None &&
+                std::any_of (doc.landscape->operations.begin (), doc.landscape->operations.end (),
+                             [&] (const auto& op) { return op.id == object.footprintOperation; }))
                 ids.push_back (object.id);
     return ids;
 }
@@ -130,7 +132,12 @@ bool EvaluateRegionTerrain (const geomsrv::edit::Document& doc, std::shared_ptr<
                 if (!preparation.Split (ring, support, first.footprintOperation, error))
                     return false;
         }
-        std::vector<SourceId> coverSources { first.boundarySource };
+        // A derived domain has no boundary owner to cite: the cover ring's
+        // contributors are the terrain/property sources alone. CatalogSource
+        // validates every listed id, so a zero boundarySource must not appear.
+        std::vector<SourceId> coverSources;
+        if (first.boundarySource)
+            coverSources.push_back (first.boundarySource);
         for (const auto& source : doc.landscape->sources)
             if (!source.deleted && source.role == SourceRole::Terrain)
                 coverSources = { source.id };

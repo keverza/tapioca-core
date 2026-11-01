@@ -398,11 +398,13 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
     for (const auto& v : s.objects) {
         if (!ValidateRegionTerrain (v, error))
             return false;
-        if (v.surface && (!v.boundarySource || !ValidateRegionSurface (*v.surface, error))) {
-            if (error.empty ())
-                error = "Surface metadata needs a region-boundary owner.";
+        // #112 P1: surface metadata belongs to the durable owner, not only to
+        // region-boundary lifecycle. Boundary curve Z still resolves only through a
+        // live boundary owner (SetRegionSurface gates that mode); a derived domain
+        // carries Constant/Existing or refuses at terrain evaluation with the
+        // explicit BuildRegionSurfaceMesh diagnostic.
+        if (v.surface && !ValidateRegionSurface (*v.surface, error))
             return false;
-        }
         if (!claim (v.id) || v.kind > ObjectKind::Edge || !Material (v.baseMaterial) || !std::isfinite (v.thickness) ||
             v.thickness < 0 || !operations.count (v.footprintOperation) ||
             (v.pathId && edit::FindPath (doc, v.pathId) == nullptr) ||
@@ -853,16 +855,25 @@ bool SetRegionSurface (edit::Document& doc, Id object, const RegionSurface& surf
         doc,
         [=] (edit::Document& d, std::string& e) {
             for (auto& region : d.landscape->objects)
-                if (region.id == object && region.boundarySource &&
-                    std::any_of (d.landscape->sources.begin (), d.landscape->sources.end (), [&] (const auto& source) {
-                        return source.id == region.boundarySource && !source.deleted &&
-                               source.role == SourceRole::RegionBoundary;
-                    })) {
+                if (region.id == object) {
+                    // #112 P1: any durable owner carries surface metadata. Boundary
+                    // curve Z is the exception: it resolves through the authored
+                    // boundary source only, never through derived domain ancestry.
+                    if (surface.elevation == RegionElevationMode::Boundary &&
+                        (region.boundarySource == kNoId ||
+                         !std::any_of (d.landscape->sources.begin (), d.landscape->sources.end (),
+                                       [&] (const auto& source) {
+                                           return source.id == region.boundarySource && !source.deleted &&
+                                                  source.role == SourceRole::RegionBoundary;
+                                       }))) {
+                        e = "Boundary curve Z needs a live region-boundary owner; choose Constant for a derived domain.";
+                        return false;
+                    }
                     region.surface = surface;
                     region.baseMaterial = material;
                     return true;
                 }
-            e = "Select a region-boundary object.";
+            e = "Select a region object.";
             return false;
         },
         error);
@@ -873,14 +884,15 @@ bool SetRegionTerrain (edit::Document& doc, Id object, RegionTerrain terrain, st
         doc,
         [=] (edit::Document& d, std::string& e) {
             for (auto& region : d.landscape->objects)
-                if (region.id == object && region.boundarySource &&
-                    std::any_of (d.landscape->sources.begin (), d.landscape->sources.end (), [&] (const auto& source) {
-                        return source.id == region.boundarySource && !source.deleted;
-                    })) {
+                if (region.id == object) {
+                    // The effect/target contract (a non-Existing surface before
+                    // Grade/Add/Subtract) is enforced by ValidateRegionTerrain in
+                    // the rebuild, so a derived domain refuses with the same reason
+                    // as a boundary-owned one.
                     region.terrain = terrain;
                     return true;
                 }
-            e = "Select a live region-boundary object.";
+            e = "Select a region object.";
             return false;
         },
         error);

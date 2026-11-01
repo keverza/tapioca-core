@@ -826,11 +826,11 @@ TEST (HudLandscape, EntrancesArePlacedOnABuildingOutlineAndAPathIsSentToOne)
     EXPECT_DOUBLE_EQ (p.profile.back ().z, 0.3);
 }
 
-// #112 P0 baseline: the canvas Boolean authors a bare output object even when the
-// subject is a fully configured region, and the region gates refuse to configure it
-// afterwards. P1 must flip this: the result inherits A's surface/terrain/material and
-// is editable through the same panel path. Recorded 2026-11-01 at core e4894d13.
-TEST (HudLandscape, ToolbarBooleanOfConfiguredSubjectDropsMetadataUntilDomainCommandsLand112)
+// #112 P1: the canvas Boolean derives its output domain from the subject through the
+// one domain command: A's surface/terrain/material/kind/thickness win, B contributes
+// geometry only, and the result is configurable through the same region gates. The
+// operand region objects stay editable (their sources remain in the DAG).
+TEST (HudLandscape, ToolbarBooleanOfConfiguredSubjectInheritsMetadataAndStaysEditable112)
 {
     for (const auto kind : { lg::OperationKind::Union, lg::OperationKind::Difference }) {
         ed::Document doc;
@@ -839,11 +839,15 @@ TEST (HudLandscape, ToolbarBooleanOfConfiguredSubjectDropsMetadataUntilDomainCom
         const auto a = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, true);
         const auto b = ed::AddPolyline (doc, { { 10, 0, 0 }, { 20, 0, 0 }, { 20, 10, 0 }, { 10, 10, 0 } }, true);
         ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, a, lg::SourceRole::RegionBoundary, error)) << error;
-        ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, b, lg::SourceRole::RegionBoundary, error)) << error;
-        ASSERT_EQ (doc.landscape->objects.size (), 2u);
-        const auto subject = std::find_if (doc.landscape->objects.begin (), doc.landscape->objects.end (),
-                                           [&] (const auto& o) { return o.boundarySource == doc.landscape->sources[0].id; })
-                                 ->id;
+        // The repro (#112): only the subject is a Region boundary; the merged line is
+        // plain closed linework. Its shared edge cites both sources, but only A has an
+        // owning configured region, so the subject metadata source is unambiguous.
+        lg::LandscapeSource guide;
+        guide.entityId = b;
+        ed::Id guideId = 0;
+        ASSERT_TRUE (lg::AddLandscapeSource (doc, guide, guideId, error)) << error;
+        ASSERT_EQ (doc.landscape->objects.size (), 1u);
+        const auto subject = doc.landscape->objects[0].id;
         lg::RegionSurface surface;
         surface.elevation = lg::RegionElevationMode::Constant;
         surface.first.z = 2;
@@ -868,23 +872,65 @@ TEST (HudLandscape, ToolbarBooleanOfConfiguredSubjectDropsMetadataUntilDomainCom
         }
         ASSERT_TRUE (eh::AdvanceLandscapeCommand (s)) << s.message;
         EXPECT_EQ (s.edits.UndoDepth (), depth + 1);
-        ASSERT_EQ (s.edits.Doc ().landscape->objects.size (), 3u);
+        ASSERT_EQ (s.edits.Doc ().landscape->objects.size (), 2u);
         const auto result = s.edits.Doc ().landscape->objects.back ();
         EXPECT_EQ (result.boundarySource, 0u);
-        EXPECT_FALSE (result.surface.has_value ());
-        EXPECT_EQ (result.terrain.effect, lg::RegionTerrainEffect::None);
-        // The bare result cannot be configured through the region gates today.
+        ASSERT_TRUE (result.surface.has_value ());
+        EXPECT_EQ (result.surface->elevation, lg::RegionElevationMode::Constant);
+        EXPECT_DOUBLE_EQ (result.surface->first.z, 2);
+        EXPECT_EQ (result.terrain.effect, lg::RegionTerrainEffect::Grade);
+        // The derived domain is configurable through the same gates as a boundary region.
         auto copy = s.edits.Doc ();
         lg::RegionSurface attempt = surface;
         attempt.first.z = 3;
-        EXPECT_FALSE (lg::SetRegionSurface (copy, result.id, attempt, {}, error));
-        EXPECT_NE (error.find ("region-boundary"), std::string::npos) << error;
-        EXPECT_FALSE (lg::SetRegionTerrain (copy, result.id, terrain, error));
+        EXPECT_TRUE (lg::SetRegionSurface (copy, result.id, attempt, {}, error)) << error;
+        EXPECT_TRUE (lg::SetRegionTerrain (copy, result.id, terrain, error)) << error;
         const auto targets = lg::TerrainRegionObjects (s.edits.Doc ());
-        EXPECT_EQ (std::count (targets.begin (), targets.end (), result.id), 0);
+        EXPECT_EQ (std::count (targets.begin (), targets.end (), result.id), 1);
+        // A face of the derived domain resolves the panel to it (latest root wins),
+        // while the operand region stays reachable through its boundary line.
+        const auto derived = *lg::LandscapeFaceAt (eh::Landscape (s), { 5, 5, 0 });
+        s.selection.Set ({ { ed::kNoId, ed::Part::LandscapeFace, derived.faceId, s.landscapeRevision } });
+        EXPECT_EQ (eh::detail::SelectedRegionObject (s), result.id);
+        s.selection.Set ({ { a, ed::Part::Entity, 0 } });
+        EXPECT_EQ (eh::detail::SelectedRegionObject (s), subject);
+        // One undo step removes the whole command: Boolean, selectors and output.
         ASSERT_TRUE (s.edits.Undo ());
-        EXPECT_EQ (s.edits.Doc ().landscape->objects.size (), 2u);
+        EXPECT_EQ (s.edits.Doc ().landscape->objects.size (), 1u);
+        EXPECT_EQ (s.edits.Doc ().landscape->operations.size (), 1u);
     }
+}
+
+// #112 P1: a face subject that cites two configured regions refuses with a clear
+// reason instead of silently picking one owner's metadata; the document is untouched.
+TEST (HudLandscape, AmbiguousBooleanSubjectRefusesAtomically112)
+{
+    ed::Document doc;
+    std::string error;
+    ASSERT_TRUE (lg::StartLandscape (doc, { 9 }, error)) << error;
+    for (const auto x : { 0.0, 10.0 }) {
+        const auto line =
+            ed::AddPolyline (doc, { { x, 0, 0 }, { x + 10, 0, 0 }, { x + 10, 10, 0 }, { x, 10, 0 } }, true);
+        ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, line, lg::SourceRole::RegionBoundary, error)) << error;
+    }
+    for (auto& object : doc.landscape->objects) {
+        lg::RegionSurface surface;
+        surface.elevation = lg::RegionElevationMode::Constant;
+        surface.first.z = 2;
+        ASSERT_TRUE (lg::SetRegionSurface (doc, object.id, surface, {}, error)) << error;
+    }
+    eh::Session s (doc);
+    const auto faceA = *lg::LandscapeFaceAt (eh::Landscape (s), { 5, 5, 0 });
+    const auto faceB = *lg::LandscapeFaceAt (eh::Landscape (s), { 15, 5, 0 });
+    ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Union));
+    ASSERT_TRUE (eh::PickLandscapeFace (s, faceA.seed, true, true));
+    ASSERT_TRUE (eh::PickLandscapeFace (s, faceB.seed, true, true));
+    const auto before = s.edits.Doc ();
+    EXPECT_FALSE (eh::AdvanceLandscapeCommand (s));
+    EXPECT_NE (s.message.find ("one configured region"), std::string::npos) << s.message;
+    EXPECT_EQ (s.edits.Doc ().landscape, before.landscape);
+    EXPECT_EQ (s.edits.Doc ().nextId, before.nextId);
+    EXPECT_EQ (s.edits.UndoDepth (), 0u);
 }
 
 TEST (HudVirtualEditorSwatches, TheEditorOffersTwentyDistinctColoursThenWhiteAndBlack)

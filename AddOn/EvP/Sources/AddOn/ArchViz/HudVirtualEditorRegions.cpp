@@ -3,39 +3,28 @@
 #include "ArchViz/HudVirtualEditorMaterial.hpp"
 #include "ArchViz/HudSlopeFields.hpp"
 #include <algorithm>
+#include <set>
 
 // OVERLAY-INVARIANTS.md §§8,14: model edits stay in the existing session/history;
 // this inspector changes no input ownership, renderer or native-write lifecycle.
 namespace geomsrv::archviz::edithud {
 namespace lg = tapioca::geometry;
 namespace {
-std::optional<lg::HardscapeObject> ActiveRegion (Session& s)
+// Even-odd containment over all rings; region rings are one outer plus holes, so no
+// orientation is needed. A face seed inside an object's evaluated footprint region
+// counts that object as a candidate owner of the selected face.
+bool FaceInside (edit::Vec3 point, const std::vector<std::vector<edit::Vec3>>& rings)
 {
-    const auto& doc = s.edits.Doc ();
-    if (!doc.landscape)
-        return std::nullopt;
-    if (SelectedSourceRole (s) == lg::SourceRole::ReferenceLine)
-        return std::nullopt;
-    edit::Id selected = 0;
-    for (const auto& ref : s.selection.Items ())
-        for (const auto& object : doc.landscape->objects)
-            for (const auto& source : doc.landscape->sources)
-                if (!source.deleted && source.entityId == ref.entity && object.boundarySource == source.id) {
-                    if (selected && selected != object.id)
-                        return std::nullopt;
-                    selected = object.id;
-                }
-    if (!selected)
-        return std::nullopt;
-    s.landscapeObject = selected;
-    for (const auto& object : doc.landscape->objects)
-        if (object.id == s.landscapeObject && object.boundarySource &&
-            std::any_of (doc.landscape->sources.begin (), doc.landscape->sources.end (), [&] (const auto& source) {
-                return source.id == object.boundarySource && !source.deleted &&
-                       source.role == lg::SourceRole::RegionBoundary;
-            }))
-            return object;
-    return std::nullopt;
+    bool inside = false;
+    for (const auto& ring : rings)
+        for (size_t i = 0, j = ring.size () - 1; i < ring.size (); j = i++) {
+            const auto& a = ring[i];
+            const auto& b = ring[j];
+            if ((a.y > point.y) != (b.y > point.y) &&
+                point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x)
+                inside = !inside;
+        }
+    return inside;
 }
 
 bool Slider (Session& s, lg::Id object, const char* label, double& value, double lo, double hi, const char* format,
@@ -129,6 +118,80 @@ bool RegionSlopeFields (Session& s, lg::Id object, const SlopeFieldLabels& label
                         [&] (const char* label, double& value, double lo, double hi, const char* format) {
                             return Slider (s, object, label, value, lo, hi, format, release);
                         });
+}
+} // namespace
+
+// #112 P1: the panel's durable object is resolved from what is actually selected.
+// A boundary-owner source line resolves its object directly (boundarySource is
+// unique). An evaluated face resolves to the single candidate whose root operation
+// is latest in topological DAG order -- the same default the compiled field plan
+// uses, where a derived result follows its operands and wins in its output domain --
+// so a Boolean output stays selectable while its operand regions remain editable.
+// Anything else (no candidate, two objects sharing a root, disagreeing picks)
+// refuses: the panel names no ambiguous domain.
+edit::Id detail::SelectedRegionObject (Session& s)
+{
+    const auto& doc = s.edits.Doc ();
+    if (!doc.landscape || SelectedSourceRole (s) == lg::SourceRole::ReferenceLine)
+        return edit::kNoId;
+    const auto& evaluated = Landscape (s);
+    std::vector<lg::Id> order;
+    {
+        std::string error;
+        if (!lg::ValidateLandscapeDag (*doc.landscape, order, error))
+            return edit::kNoId;
+    }
+    const auto rank = [&] (edit::Id objectId) {
+        const auto& object = *std::find_if (doc.landscape->objects.begin (), doc.landscape->objects.end (),
+                                            [=] (const auto& o) { return o.id == objectId; });
+        const auto it = std::find (order.begin (), order.end (), object.footprintOperation);
+        return it == order.end () ? -1 : static_cast<int> (std::distance (order.begin (), it));
+    };
+    std::set<edit::Id> resolved;
+    for (const auto& ref : s.selection.Items ())
+        if (ref.part == edit::Part::LandscapeFace && ref.revision == s.landscapeRevision) {
+            const auto face = std::find_if (evaluated.faces.begin (), evaluated.faces.end (),
+                                            [&] (const auto& f) { return f.faceId == ref.item; });
+            if (face == evaluated.faces.end ())
+                continue;
+            std::set<edit::Id> candidates;
+            for (const auto& region : evaluated.regions)
+                if (region.objectId && FaceInside (face->seed, region.rings))
+                    candidates.insert (region.objectId);
+            if (candidates.empty ())
+                continue;
+            const auto winner = std::max_element (candidates.begin (), candidates.end (),
+                                                  [&] (edit::Id a, edit::Id b) { return rank (a) < rank (b); });
+            if (std::any_of (candidates.begin (), candidates.end (),
+                             [&] (edit::Id c) { return c != *winner && rank (c) == rank (*winner); }))
+                return edit::kNoId; // two objects share the winning root: ambiguous
+            resolved.insert (*winner);
+        }
+        else if (ref.entity != edit::kNoId)
+            for (const auto& object : doc.landscape->objects)
+                if (object.boundarySource)
+                    for (const auto& source : doc.landscape->sources)
+                        if (!source.deleted && source.id == object.boundarySource && source.entityId == ref.entity)
+                            resolved.insert (object.id);
+    if (resolved.size () != 1)
+        return edit::kNoId;
+    s.landscapeObject = *resolved.begin ();
+    return *resolved.begin ();
+}
+
+namespace {
+std::optional<lg::HardscapeObject> ActiveRegion (Session& s)
+{
+    const auto& doc = s.edits.Doc ();
+    if (!doc.landscape)
+        return std::nullopt;
+    const auto selected = detail::SelectedRegionObject (s);
+    if (selected == edit::kNoId)
+        return std::nullopt;
+    for (const auto& object : doc.landscape->objects)
+        if (object.id == selected)
+            return object;
+    return std::nullopt;
 }
 } // namespace
 

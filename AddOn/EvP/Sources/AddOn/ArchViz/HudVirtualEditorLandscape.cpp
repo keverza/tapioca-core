@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditLandscapeDomain.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 #include "ArchViz/HudShell.hpp"
 #include <algorithm>
@@ -98,47 +99,52 @@ bool KeepLandscapeFaces (Session& s, bool subtract)
     if (!Ready (s))
         return false;
     const auto& result = Landscape (s);
-    lg::LandscapeOperation operation;
-    operation.kind = lg::OperationKind::RegionSelect;
+    std::vector<lg::RegionDescriptor> faces;
     for (const auto& ref : s.selection.Items ())
         if (ref.part == edit::Part::LandscapeFace && ref.revision == s.landscapeRevision)
             for (const auto& face : result.faces)
                 if (face.faceId == ref.item)
-                    operation.faces.push_back (face.descriptor);
-    if (operation.faces.empty ()) {
+                    faces.push_back (face.descriptor);
+    if (faces.empty ()) {
         s.message = "Select a current face to keep.";
         return false;
     }
-    edit::Id objectId = s.landscapeObject;
+    const edit::Id objectId = s.landscapeObject;
     if (subtract && !objectId) {
         s.message = "Choose a kept object before removing a face.";
         return false;
     }
+    edit::Id output = 0;
+    // #112 P1: the same domain command authors the selector and the Boolean that
+    // folds it into the chosen object (or adopts it as a new output); identity and
+    // metadata of a chosen owner stay stable.
     const bool ok = s.edits.Apply ([&] (edit::Document& doc, std::string& error) {
-        edit::Id op = 0;
-        if (!lg::AddLandscapeOperation (doc, operation, op, error))
-            return false;
+        lg::DomainCommand command;
+        command.kind = subtract ? lg::OperationKind::Difference : lg::OperationKind::Union;
+        command.name = "Hardscape";
         if (objectId) {
-            auto object = std::find_if (doc.landscape->objects.begin (), doc.landscape->objects.end (),
-                                        [=] (const auto& o) { return o.id == objectId; });
-            lg::LandscapeOperation unite;
-            unite.kind = subtract ? lg::OperationKind::Difference : lg::OperationKind::Union;
-            unite.inputs = { object->footprintOperation, op };
-            if (!lg::AddLandscapeOperation (doc, unite, op, error))
+            command.owner = objectId;
+            for (const auto& object : doc.landscape->objects)
+                if (object.id == objectId)
+                    command.subject.input = object.footprintOperation;
+            if (!command.subject.input) {
+                error = "The chosen kept object no longer exists.";
                 return false;
-            object = std::find_if (doc.landscape->objects.begin (), doc.landscape->objects.end (),
-                                   [=] (const auto& o) { return o.id == objectId; });
-            object->footprintOperation = op;
-            return true;
+            }
+            command.operand.faces = std::move (faces);
         }
-        lg::HardscapeObject object;
-        object.name = "Hardscape";
-        object.footprintOperation = op;
-        return lg::AddHardscapeObject (doc, object, objectId, error);
+        else
+            command.subject.faces = std::move (faces);
+        const auto applied = lg::ApplyDomainCommand (doc, command);
+        if (applied.ok)
+            output = applied.objectId;
+        else
+            error = applied.error;
+        return applied.ok;
     });
     s.message = ok ? "Sources remain editable." : s.edits.Message ();
     if (ok)
-        s.landscapeObject = objectId;
+        s.landscapeObject = output;
     Landscape (s);
     return ok;
 }
@@ -157,19 +163,21 @@ bool BooleanLandscape (Session& s, lg::OperationKind kind, edit::Id cutter)
     }
     const edit::Id objectId = s.landscapeObject;
     const bool ok = s.edits.Apply ([=] (edit::Document& doc, std::string& error) {
-        const auto object = std::find_if (doc.landscape->objects.begin (), doc.landscape->objects.end (),
-                                          [=] (const auto& o) { return o.id == objectId; });
-        lg::LandscapeOperation op;
-        op.kind = kind;
-        op.inputs = { object->footprintOperation, cutter };
-        edit::Id id = 0;
-        if (!lg::AddLandscapeOperation (doc, op, id, error))
+        lg::DomainCommand command;
+        command.kind = kind;
+        command.owner = objectId;
+        for (const auto& object : doc.landscape->objects)
+            if (object.id == objectId)
+                command.subject.input = object.footprintOperation;
+        if (!command.subject.input) {
+            error = "The chosen object no longer exists.";
             return false;
-        // AddLandscapeOperation publishes a new document value, invalidating iterators.
-        for (auto& o : doc.landscape->objects)
-            if (o.id == objectId)
-                o.footprintOperation = id;
-        return true;
+        }
+        command.operand.input = cutter;
+        const auto applied = lg::ApplyDomainCommand (doc, command);
+        if (!applied.ok)
+            error = applied.error;
+        return applied.ok;
     });
     s.message = ok ? "Sources remain editable." : s.edits.Message ();
     Landscape (s);
@@ -370,25 +378,20 @@ bool BooleanLandscapeFaceSets (Session& s, lg::OperationKind kind)
     }
     edit::Id objectId = s.landscapeObject;
     const bool ok = s.edits.Apply ([&] (edit::Document& doc, std::string& error) {
-        lg::LandscapeOperation op;
-        op.kind = kind;
-        op.inputs = { a, b };
-        edit::Id id = 0;
-        if (!lg::AddLandscapeOperation (doc, op, id, error))
-            return false;
-        if (!objectId) {
-            lg::HardscapeObject object;
-            object.name = "Face-set result";
-            object.footprintOperation = id;
-            return lg::AddHardscapeObject (doc, object, objectId, error);
-        }
-        for (auto& object : doc.landscape->objects)
-            if (object.id == objectId) {
-                object.footprintOperation = id;
-                return true;
-            }
-        error = "The chosen result no longer exists.";
-        return false;
+        // #112 P1: saved sets A and B are the subject and operand of the same domain
+        // command the canvas and Keep paths call; a chosen result keeps its identity.
+        lg::DomainCommand command;
+        command.kind = kind;
+        command.name = "Face-set result";
+        command.owner = objectId;
+        command.subject.input = a;
+        command.operand.input = b;
+        const auto applied = lg::ApplyDomainCommand (doc, command);
+        if (applied.ok)
+            objectId = applied.objectId;
+        else
+            error = applied.error;
+        return applied.ok;
     });
     if (ok)
         s.landscapeObject = objectId;

@@ -52,6 +52,13 @@ void Line (Session& s, const Map& m, edit::Vec3 a, edit::Vec3 b, ImU32 colour, f
 void Dot (Session& s, const Map& m, edit::Vec3 p, float radius, ImU32 colour, bool filled = true);
 void DashedLine (Session& s, const Map& m, edit::Vec3 a, edit::Vec3 b, ImU32 colour, float width);
 bool LandscapeView (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);
+// #112 P1: one durable region owner resolves from the current selection -- a
+// region-boundary source line, or an evaluated face whose owners are disambiguated
+// by topological root order (Boolean outputs win inside their output domain, so the
+// panel stays selectable while operand regions remain editable). kNoId: no
+// candidate or an ambiguous selection, which the Region panel refuses either way
+// (HudVirtualEditorRegions.cpp).
+edit::Id SelectedRegionObject (Session& s);
 // Every entrance drawn; in the Entrance mode the pointer places one (true: it took the view).
 bool EntrancesView (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);
 void Note (Session& s, const Map& m, edit::Vec3 p, ImVec2 offset, const std::string& text, ImU32 colour);

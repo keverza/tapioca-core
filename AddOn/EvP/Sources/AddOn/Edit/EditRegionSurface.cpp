@@ -49,8 +49,11 @@ bool ValidateRegionTerrain (const HardscapeObject& object, std::string& error)
         error = s_terrainError;
         return false;
     }
+    // #112 P1: the durable owner and its root operation are the identity; a live
+    // boundary source is required only to resolve Boundary curve Z (SetRegionSurface
+    // gates that mode), not to enable a vertical effect on a derived domain.
     if (terrain.effect != RegionTerrainEffect::None &&
-        (!object.boundarySource || !object.surface || object.surface->elevation == RegionElevationMode::Existing)) {
+        (!object.surface || object.surface->elevation == RegionElevationMode::Existing)) {
         error = "RegionTerrain: choose Boundary curve Z or Constant elevation before enabling Grade/Add/Subtract";
         return false;
     }

@@ -849,6 +849,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarFlatten.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarFaces.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscape.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeDomain.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditRegionSurface.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditMaterial.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditRegionTerrain.cpp"
@@ -905,6 +906,7 @@ set (EVP_TEST_SOURCES
     test_editplanarrobustbuild.cpp
     test_editplanarrobustfaces.cpp
     test_editlandscape.cpp
+    test_editlandscapedomain.cpp
     test_editregionsurface.cpp
     test_editregioncontourslope.cpp
     test_editmaterial.cpp

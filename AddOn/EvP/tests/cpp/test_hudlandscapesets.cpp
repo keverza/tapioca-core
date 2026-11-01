@@ -139,6 +139,49 @@ TEST (HudLandscapeSets, GlobalBooleanUsesSavedAAndBNotCurrentPicksAndLeavesBothS
     EXPECT_EQ (Set (s, b), setB);
 }
 
+TEST (HudLandscapeSets, BooleanWithChosenResultPreservesIdentityAndMetadata112)
+{
+    hud::Session s (Demo ());
+    const auto faces = hud::Landscape (s).faces;
+    ASSERT_TRUE (hud::CreateLandscapeFaceSet (s));
+    const auto a = s.landscapeSet;
+    Pick (s, { 0, 1 });
+    ASSERT_TRUE (hud::EditLandscapeFaceSet (s));
+    ASSERT_TRUE (hud::CreateLandscapeFaceSet (s));
+    const auto b = s.landscapeSet;
+    Pick (s, { 1 });
+    ASSERT_TRUE (hud::EditLandscapeFaceSet (s));
+    s.landscapeSet = a;
+    s.landscapeOperandSet = b;
+    ASSERT_TRUE (hud::BooleanLandscapeFaceSets (s, geo::OperationKind::Union)) << s.message;
+    const auto created = s.edits.Doc ().landscape->objects.back ().id;
+    EXPECT_EQ (s.edits.Doc ().landscape->objects.back ().name, "Face-set result");
+    std::string error;
+    ASSERT_TRUE (s.edits.Apply ([&] (edit::Document& doc, std::string& e) {
+        geo::RegionSurface surface;
+        surface.elevation = geo::RegionElevationMode::Constant;
+        surface.first.z = 2;
+        return geo::SetRegionSurface (doc, created, surface, {}, e) &&
+               geo::SetRegionTerrain (doc, created, geo::RegionTerrain { .effect = geo::RegionTerrainEffect::Grade }, e);
+    })) << s.edits.Message ();
+    // #112 P1: with a chosen result the same domain command updates it in place --
+    // identity and metadata stay stable, and it is one undo step.
+    s.landscapeObject = created;
+    const auto depth = s.edits.UndoDepth ();
+    const auto previousRoot = s.edits.Doc ().landscape->objects.back ().footprintOperation;
+    ASSERT_TRUE (hud::BooleanLandscapeFaceSets (s, geo::OperationKind::Difference)) << s.message;
+    EXPECT_EQ (s.edits.UndoDepth (), depth + 1);
+    const auto& object = s.edits.Doc ().landscape->objects.back ();
+    EXPECT_EQ (object.id, created);
+    ASSERT_TRUE (object.surface.has_value ());
+    EXPECT_DOUBLE_EQ (object.surface->first.z, 2);
+    EXPECT_EQ (object.terrain.effect, geo::RegionTerrainEffect::Grade);
+    EXPECT_EQ (object.footprintOperation, s.edits.Doc ().landscape->operations.back ().id);
+    EXPECT_NEAR (Area (s), faces[0].area, 1.0e-5);
+    ASSERT_TRUE (s.edits.Undo ());
+    EXPECT_EQ (s.edits.Doc ().landscape->objects.back ().footprintOperation, previousRoot);
+}
+
 TEST (HudLandscapeSets, InvalidOperandsAndStaleFaceSelectionRefuseWithoutAllocatingOrCreatingOutput)
 {
     hud::Session s (Demo ());

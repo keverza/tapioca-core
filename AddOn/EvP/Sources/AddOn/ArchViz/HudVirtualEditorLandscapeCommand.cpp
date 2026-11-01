@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditLandscapeDomain.hpp"
 #include <algorithm>
 
 namespace geomsrv::archviz::edithud {
@@ -92,26 +93,24 @@ bool AdvanceLandscapeCommand (Session& s)
         return true;
     }
     const auto command = *s.landscapeCommand;
+    // #112 P1: one domain command authors both semantic operands, the Boolean and
+    // its output owner in the existing undo step; the subject's configured owner
+    // (when its faces cite exactly one region) supplies the output metadata.
+    lg::DomainCommand domain;
+    domain.kind = command.kind;
+    domain.name = command.kind == lg::OperationKind::Union        ? "Union"
+                  : command.kind == lg::OperationKind::Difference ? "Subtract"
+                                                                  : "Intersection";
+    domain.subject.faces = command.first;
+    domain.operand.faces = selected;
     edit::Id objectId = 0;
-    // Both semantic operands, the Boolean and its output publish in one existing undo step.
     const bool ok = s.edits.Apply ([&] (edit::Document& doc, std::string& error) {
-        lg::LandscapeOperation a, b, op;
-        a.kind = b.kind = lg::OperationKind::RegionSelect;
-        a.faces = command.first;
-        b.faces = selected;
-        edit::Id aId = 0, bId = 0, id = 0;
-        if (!lg::AddLandscapeOperation (doc, a, aId, error) || !lg::AddLandscapeOperation (doc, b, bId, error))
-            return false;
-        op.kind = command.kind;
-        op.inputs = { aId, bId };
-        if (!lg::AddLandscapeOperation (doc, op, id, error))
-            return false;
-        lg::HardscapeObject object;
-        object.name = command.kind == lg::OperationKind::Union        ? "Union"
-                      : command.kind == lg::OperationKind::Difference ? "Subtract"
-                                                                      : "Intersection";
-        object.footprintOperation = id;
-        return lg::AddHardscapeObject (doc, object, objectId, error);
+        const auto applied = lg::ApplyDomainCommand (doc, domain);
+        if (applied.ok)
+            objectId = applied.objectId;
+        else
+            error = applied.error;
+        return applied.ok;
     });
     if (!ok) {
         s.message = s.edits.Message ();
