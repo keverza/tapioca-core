@@ -63,9 +63,13 @@ CreatedDeviceFacts Created (const RenderAdapterFacts& adapter)
 
 } // namespace
 
-TEST (RenderBackend, DefaultPreferenceIsD3D11UntilTheA5ComparisonPasses)
+// The owner's 2026-11-01 decision: D3D12 by default where it qualifies, D3D11 the
+// fallback. A change back is a deliberate decision, and this test makes it one.
+TEST (RenderBackend, DefaultPreferenceIsAutoWithD3D11AsFallback)
 {
-    EXPECT_EQ (kDefaultRenderBackendPreference, RenderBackendPreference::D3D11);
+    EXPECT_EQ (kDefaultRenderBackendPreference, RenderBackendPreference::Auto);
+    // The default on a machine with no qualifying adapter is still D3D11.
+    EXPECT_EQ (ChooseRenderBackend (kDefaultRenderBackendPreference, {}, {}).backend, RenderBackend::D3D11);
 }
 
 TEST (RenderBackend, D3D11PreferenceNeverLooksAtAdapters)

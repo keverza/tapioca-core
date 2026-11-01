@@ -468,9 +468,9 @@ class SetOverlayFrameLatencyCommand : public MainThreadCommand {
     }
 };
 
-// Which graphics API the viewport's NEXT start uses (RE51.D2). "d3d11" is the
-// default and always available; "auto" allows D3D12 on a hardware adapter with
-// full ray tracing and falls back to D3D11 everywhere else. There is
+// Which graphics API the viewport's NEXT start uses (RE51.D2). "auto" is the
+// default: D3D12 on a hardware adapter with full ray tracing, D3D11 everywhere
+// else. "d3d11" forces the permanent fallback and is always available. There is
 // deliberately no "d3d12": a forced D3D12 on an adapter the rule refuses is
 // exactly the WARP viewport the rule exists to prevent.
 class SetViewerBackendCommand : public MainThreadCommand {

@@ -2313,7 +2313,7 @@ def _one(command, params):
                     "frameLatency": _diligent.get("frameLatency", 0),
                     "backend": "d3d11" if up else "",
                     "backendReason": ("preference d3d11"
-                                      if _diligent.get("backendPreference", "d3d11") == "d3d11"
+                                      if _diligent.get("backendPreference", "auto") == "d3d11"
                                       else "auto: no qualifying D3D12 adapter (none enumerated)") if up else "",
                     "stalePresents": 0,
                     "presentFailures": 0,
