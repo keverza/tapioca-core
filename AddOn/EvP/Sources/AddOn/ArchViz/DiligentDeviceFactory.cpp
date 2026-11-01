@@ -147,7 +147,10 @@ bool CreateViewportDevice (RenderBackendPreference preference, const RenderBacke
         choice.reason = "auto: D3D12 fell back to D3D11 -- " + why;
     }
     ArchVizLog ("[RE51.D2] backend D3D11: " + choice.reason);
-    return CreateD3D11 (device, context, error);
+    if (!CreateD3D11 (device, context, error))
+        return false;
+    choice.adapterName = device->GetAdapterInfo ().Description; // the D3D11 device's own
+    return true;
 }
 
 bool FallBackToD3D11 (const std::string& why, RefCntAutoPtr<Diligent::IRenderDevice>& device,
@@ -159,7 +162,10 @@ bool FallBackToD3D11 (const std::string& why, RefCntAutoPtr<Diligent::IRenderDev
     choice = RenderBackendChoice {};
     choice.reason = "auto: D3D12 fell back to D3D11 -- " + why;
     ArchVizLog ("[RE51.D2] backend D3D11: " + choice.reason);
-    return CreateD3D11 (device, context, error);
+    if (!CreateD3D11 (device, context, error))
+        return false;
+    choice.adapterName = device->GetAdapterInfo ().Description; // the D3D11 device's own
+    return true;
 }
 
 } // namespace geomsrv::archviz

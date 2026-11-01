@@ -38,7 +38,7 @@ namespace geomsrv::archviz {
 RenderBackendConstraints ViewportBackendConstraints (bool overlaySurface);
 
 // On false `error` says why even D3D11 could not be created; `choice` always
-// says which backend was used and why.
+// says which backend was used and why, and names the adapter the device is on.
 bool CreateViewportDevice (RenderBackendPreference preference, const RenderBackendConstraints& constraints,
                            Diligent::RefCntAutoPtr<Diligent::IRenderDevice>& device,
                            Diligent::RefCntAutoPtr<Diligent::IDeviceContext>& context, RenderBackendChoice& choice,

@@ -115,8 +115,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         // first Diligent call so a device or swap-chain failure explains itself.
         InstallDiligentDebugCallback ();
 
-        // RE51.D2: D3D12 only where RenderBackend allows it; any D3D12 failure,
-        // including a surface that will not come up on it, is a D3D11 start.
+        // RE51.D2: D3D12 only where RenderBackend allows; any D3D12 failure is a D3D11 start.
         RenderBackendChoice backend;
         std::string targetError;
         if (!CreateViewportDevice (backendPreference_.load (),
@@ -150,6 +149,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             stats_.overlay = surface.mode == SurfaceMode::Overlay;
             stats_.backend = RenderBackendName (backend.backend);
             stats_.backendReason = backend.reason;
+            stats_.adapter = backend.adapterName; // the clear A/B that also sets it is D3D11-only
         }
         ArchVizLog (std::string ("Diligent viewport: device, immediate context and ") +
                     (surface.mode == SurfaceMode::Overlay ? "COMPOSITION OVERLAY surface"

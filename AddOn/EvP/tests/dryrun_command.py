@@ -2313,7 +2313,9 @@ def _one(command, params):
                     "initialized": up,
                     "failed": False,
                     "failureMessage": "",
-                    "frames": 240 if up else 0,
+                    # Advancing, as a presenting device's counter does; a
+                    # diagnostic that checks frames move must see them move.
+                    "frames": 240 + 30 * _diligent["polls"] if up else 0,
                     "fps": 60.0 if up else 0.0,
                     "width": 1280 if up else 0,
                     "height": 720 if up else 0,
