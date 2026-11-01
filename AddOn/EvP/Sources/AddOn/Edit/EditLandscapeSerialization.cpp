@@ -308,15 +308,20 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
                                              { "cut", Value::Object ({ { "unit", Integer (int (v.terrain.cut.unit)) },
                                                                        { "a", Number (v.terrain.cut.a) },
                                                                        { "b", Number (v.terrain.cut.b) } }) },
-                                             { "fillPercent", Number (v.terrain.fillPercent) } }));
+                                             { "fill", Value::Object ({ { "unit", Integer (int (v.terrain.fill.unit)) },
+                                                                        { "a", Number (v.terrain.fill.a) },
+                                                                        { "b", Number (v.terrain.fill.b) } }) } }));
         if (v.surface) {
             const auto& surface = *v.surface;
-            object.emplace ("surface", Value::Object ({ { "elevation", Integer (int (surface.elevation)) },
-                                                        { "slope", Integer (int (surface.slope)) },
-                                                        { "first", PointValue (surface.first) },
-                                                        { "second", PointValue (surface.second) },
-                                                        { "gradePercent", Number (surface.gradePercent) },
-                                                        { "fallsTo", Integer (int (surface.fallsTo)) } }));
+            object.emplace ("surface",
+                            Value::Object ({ { "elevation", Integer (int (surface.elevation)) },
+                                             { "slope", Integer (int (surface.slope)) },
+                                             { "first", PointValue (surface.first) },
+                                             { "second", PointValue (surface.second) },
+                                             { "grade", Value::Object ({ { "unit", Integer (int (surface.grade.unit)) },
+                                                                         { "a", Number (surface.grade.a) },
+                                                                         { "b", Number (surface.grade.b) } }) },
+                                             { "fallsTo", Integer (int (surface.fallsTo)) } }));
         }
         objects.push_back (Value::Object (std::move (object)));
     }

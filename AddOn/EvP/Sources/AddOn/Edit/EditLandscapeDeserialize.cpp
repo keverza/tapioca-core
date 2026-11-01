@@ -20,6 +20,17 @@ template <class T> T Enum (const Reader& reader, T last)
         Fail (reader.path, "unknown enum value");
     return static_cast<T> (value);
 }
+TerrainSlope AuthoredSlope (const Reader& terrain, const char* field, const char* legacy)
+{
+    if (terrain.Has (field) == terrain.Has (legacy))
+        Fail (terrain.path, std::string ("exactly one of ") + field + " or legacy " + legacy + " required");
+    if (!terrain.Has (field))
+        return { TerrainSlope::Unit::Percent, terrain.Field (legacy).Number (), 0 };
+    const auto slope = terrain.Field (field);
+    slope.Fields ({ "unit", "a", "b" });
+    return { Enum (slope.Field ("unit"), TerrainSlope::Unit::Height), slope.Field ("a").Number (),
+             slope.Field ("b").Number () };
+}
 std::string Guid (const Reader& reader)
 {
     auto text = reader.Text ();
@@ -330,31 +341,23 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
             object.boundarySource = item.Field ("boundarySource").Identifier ();
         if (item.Has ("terrain")) {
             const auto terrain = item.Field ("terrain");
-            terrain.Fields ({ "effect", "transition", "falloff", "reach", "fillPercent" }, { "cut", "cutPercent" });
-            if (terrain.Has ("cut") == terrain.Has ("cutPercent"))
-                Fail (terrain.path, "exactly one of cut or legacy cutPercent required");
+            terrain.Fields ({ "effect", "transition", "falloff", "reach" },
+                            { "cut", "cutPercent", "fill", "fillPercent" });
             object.terrain.effect = Enum (terrain.Field ("effect"), RegionTerrainEffect::Subtract);
             object.terrain.transition = Enum (terrain.Field ("transition"), RegionTerrainTransition::Daylight);
             object.terrain.falloff = terrain.Field ("falloff").Number ();
             object.terrain.reach = terrain.Field ("reach").Number ();
-            object.terrain.fillPercent = terrain.Field ("fillPercent").Number ();
-            if (terrain.Has ("cut")) {
-                const auto cut = terrain.Field ("cut");
-                cut.Fields ({ "unit", "a", "b" });
-                object.terrain.cut = { Enum (cut.Field ("unit"), TerrainSlope::Unit::Height), cut.Field ("a").Number (),
-                                       cut.Field ("b").Number () };
-            }
-            else
-                object.terrain.cut = { TerrainSlope::Unit::Percent, terrain.Field ("cutPercent").Number (), 0 };
+            object.terrain.cut = AuthoredSlope (terrain, "cut", "cutPercent");
+            object.terrain.fill = AuthoredSlope (terrain, "fill", "fillPercent");
         }
         if (item.Has ("surface")) {
             const auto surface = item.Field ("surface");
-            surface.Fields ({ "elevation", "slope", "first", "second", "gradePercent", "fallsTo" });
+            surface.Fields ({ "elevation", "slope", "first", "second", "fallsTo" }, { "grade", "gradePercent" });
             object.surface = RegionSurface { Enum (surface.Field ("elevation"), RegionElevationMode::Boundary),
                                              Enum (surface.Field ("slope"), RegionSlopeMode::ContourLine),
                                              surface.Field ("first").Point (),
                                              surface.Field ("second").Point (),
-                                             surface.Field ("gradePercent").Number (),
+                                             AuthoredSlope (surface, "grade", "gradePercent"),
                                              Enum (surface.Field ("fallsTo"), RegionFallSide::Right) };
         }
         s.objects.push_back (std::move (object));

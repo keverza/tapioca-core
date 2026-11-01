@@ -192,7 +192,7 @@ bool EvaluateRegionTerrain (const geomsrv::edit::Document& doc, std::shared_ptr<
             parameters.blur = settings.falloff;
             parameters.maxDistance = reach;
             parameters.cut = { settings.cut, reach };
-            parameters.fill = { { TerrainSlope::Unit::Percent, settings.fillPercent, 0 }, reach };
+            parameters.fill = { settings.fill, reach };
             if (object.surface->elevation == RegionElevationMode::Boundary ||
                 object.surface->slope != RegionSlopeMode::None) {
                 // The shipped Rust Area target is level-only. Use its existing

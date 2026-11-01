@@ -102,6 +102,44 @@ TEST (EditRegionTerrain, EquivalentCutSlopeFormsReachTheSameDaylightAndQuantitie
     }
 }
 
+TEST (EditRegionTerrain, EquivalentFillSlopeFormsReachTheSameDaylightWithoutChangingCutOrCapture)
+{
+    Fixture fixture;
+    std::string error;
+    const auto baseline = fixture.Capture ()->points;
+    using Unit = lg::TerrainSlope::Unit;
+    const lg::TerrainSlope cut { Unit::RiseRun, 1.5, 3 };
+    double expectedFill = -1;
+    for (const lg::TerrainSlope fill : { lg::TerrainSlope { Unit::Percent, 100, 0 },
+                                         { Unit::Angle, std::atan (1.0), 0 },
+                                         { Unit::RiseRun, 1.5, 1.5 },
+                                         { Unit::Height, 2.5, 2.5 } }) {
+        SCOPED_TRACE (static_cast<int> (fill.unit));
+        auto settings = fixture.doc.landscape->objects[0].terrain;
+        settings.transition = lg::RegionTerrainTransition::Daylight;
+        settings.reach = 3;
+        settings.cut = cut;
+        settings.fill = fill;
+        ASSERT_TRUE (lg::SetRegionTerrain (fixture.doc, fixture.object, settings, error)) << error;
+        const auto capture = fixture.Capture ();
+        lg::RegionTerrainResult result;
+        ASSERT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, capture, result, error)) << error;
+        EXPECT_NEAR (Height (result, 10, 10), 2, 1e-8);
+        EXPECT_NEAR (Height (result, 4, 10), 1, 1e-8) << "1 m outside at 1:1 falls 1 m";
+        EXPECT_NEAR (Height (result, 1, 10), 0, 1e-8);
+        ASSERT_TRUE (result.evaluation.terrain.volumes);
+        const auto& volume = result.evaluation.terrain.volumes->site;
+        EXPECT_GT (volume.fill, 199);
+        EXPECT_NEAR (volume.cut, 0, 1e-8);
+        if (expectedFill < 0)
+            expectedFill = volume.fill;
+        EXPECT_NEAR (volume.fill, expectedFill, 1e-7);
+        EXPECT_EQ (capture->points, baseline);
+        EXPECT_EQ (fixture.doc.landscape->objects[0].terrain.cut, cut);
+        EXPECT_EQ (fixture.doc.landscape->objects[0].terrain.fill, fill);
+    }
+}
+
 TEST (EditRegionTerrain, OverreachingCutDaylightKeepsItsExistingAtomicRefusal)
 {
     Fixture fixture;
@@ -238,7 +276,7 @@ TEST (EditRegionTerrain, TwoPointAndContourPlanesActuallyGradeTheTerrain)
         surface.slope = mode;
         surface.first = { 5, 5, 2 };
         surface.second = { 15, 5, 3 };
-        surface.gradePercent = 5;
+        surface.grade = { lg::TerrainSlope::Unit::Percent, 5, 0 };
         surface.fallsTo = lg::RegionFallSide::Left;
         std::string error;
         ASSERT_TRUE (lg::SetRegionSurface (fixture.doc, fixture.object, surface, {}, error));
@@ -246,6 +284,51 @@ TEST (EditRegionTerrain, TwoPointAndContourPlanesActuallyGradeTheTerrain)
         ASSERT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, fixture.Capture (), result, error)) << error;
         EXPECT_NEAR (Height (result, 10, 10), *lg::RegionSurfaceElevation (surface, { 10, 10, 0 }), 1e-7);
         EXPECT_NEAR (Height (result, 8, 12), *lg::RegionSurfaceElevation (surface, { 8, 12, 0 }), 1e-7);
+    }
+}
+
+TEST (EditRegionTerrain, EquivalentContourGradeFormsKeepAnalyticHeightsQuantitiesAndCaptureOnBothSides)
+{
+    using Unit = lg::TerrainSlope::Unit;
+    for (auto side : { lg::RegionFallSide::Left, lg::RegionFallSide::Right }) {
+        Fixture fixture;
+        const auto original = fixture.Capture ();
+        const auto baseline = original->points;
+        const auto terrain = fixture.doc.landscape->objects[0].terrain;
+        double expectedFill = -1;
+        for (const lg::TerrainSlope grade : { lg::TerrainSlope { Unit::Percent, 5, 0 },
+                                              { Unit::Angle, std::atan (0.05), 0 },
+                                              { Unit::RiseRun, 1.5, 30 },
+                                              { Unit::Height, 2.5, 50 } }) {
+            auto surface = *fixture.doc.landscape->objects[0].surface;
+            surface.slope = lg::RegionSlopeMode::ContourLine;
+            surface.first = { 5, 5, 2 };
+            surface.second = { 15, 5, -100 };
+            surface.fallsTo = side;
+            surface.grade = grade;
+            const double sign = side == lg::RegionFallSide::Left ? -1 : 1;
+            std::string error;
+            ASSERT_TRUE (lg::SetRegionSurface (fixture.doc, fixture.object, surface, {}, error)) << error;
+            lg::RegionTerrainResult result;
+            EXPECT_FALSE (lg::EvaluateRegionTerrain (fixture.doc, original, result, error));
+            EXPECT_NE (error.find ("ProvenanceStale"), std::string::npos) << error;
+            const auto capture = fixture.Capture ();
+            ASSERT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, capture, result, error)) << error;
+            EXPECT_NEAR (Height (result, 10, 10), 2 + sign * 0.25, 1e-7);
+            EXPECT_NEAR (Height (result, 8, 12), 2 + sign * 0.35, 1e-7);
+            EXPECT_NEAR (Height (result, 1, 10), 0, 1e-8);
+            ASSERT_TRUE (result.evaluation.terrain.volumes);
+            const auto& volume = result.evaluation.terrain.volumes->site;
+            EXPECT_GT (volume.fill, 149);
+            EXPECT_NEAR (volume.cut, 0, 1e-8);
+            if (expectedFill < 0)
+                expectedFill = volume.fill;
+            EXPECT_NEAR (volume.fill, expectedFill, 1e-7);
+            EXPECT_EQ (fixture.doc.landscape->objects[0].surface->grade, grade);
+            EXPECT_EQ (fixture.doc.landscape->objects[0].terrain, terrain);
+            EXPECT_EQ (capture->points, baseline);
+            EXPECT_EQ (original->points, baseline);
+        }
     }
 }
 
@@ -310,7 +393,7 @@ TEST (EditRegionTerrain, DaylightUsesTheAuthoredSideGrade)
     settings.transition = lg::RegionTerrainTransition::Daylight;
     settings.reach = 3;
     settings.cut = { lg::TerrainSlope::Unit::Percent, 100, 0 };
-    settings.fillPercent = 100;
+    settings.fill = { lg::TerrainSlope::Unit::Percent, 100, 0 };
     ASSERT_TRUE (lg::SetRegionTerrain (fixture.doc, fixture.object, settings, error));
     lg::RegionTerrainResult result;
     ASSERT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, fixture.Capture (), result, error)) << error;

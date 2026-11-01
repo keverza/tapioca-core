@@ -114,7 +114,7 @@ struct RegionTerrain {
     RegionTerrainTransition transition = RegionTerrainTransition::Falloff;
     double falloff = 1, reach = 10;
     TerrainSlope cut { TerrainSlope::Unit::Percent, 50, 0 }; // Authored unit and parts; no percent shadow value.
-    double fillPercent = 33;
+    TerrainSlope fill { TerrainSlope::Unit::Percent, 33, 0 };
     bool operator== (const RegionTerrain&) const = default;
 };
 struct RegionSurface {
@@ -123,7 +123,7 @@ struct RegionSurface {
     // One authored plane definition, not another boundary curve. first.z is
     // the absolute level, or the first of two absolute point elevations.
     Vec3 first, second { 1, 0, 0 };
-    double gradePercent = 2;
+    TerrainSlope grade { TerrainSlope::Unit::Percent, 2, 0 };
     RegionFallSide fallsTo = RegionFallSide::Right;
     bool operator== (const RegionSurface&) const = default;
 };
@@ -315,6 +315,21 @@ bool SetLandscapeSourceRole (geomsrv::edit::Document& doc, Id entity, SourceRole
 bool SetReferenceLineStyle (geomsrv::edit::Document& doc, Id source, ReferenceLineStyle style, std::string& error);
 bool LandscapeLineVisible (const geomsrv::edit::Document& doc, Id entity);
 bool ValidateRegionSurface (const RegionSurface& surface, std::string& error);
+// Transient evaluator, not document state or a second authored slope model.
+// Private prepared state avoids per-point conversion or reapplying exact-percent
+// policy to an accepted converted grade at the roundoff boundary.
+class PreparedRegionSurface {
+  public:
+    std::optional<double> Elevation (Vec3 point) const;
+
+  private:
+    friend bool PrepareRegionSurface (const RegionSurface&, PreparedRegionSurface&, std::string&);
+    RegionSurface surface;
+    double gradePercent = 2;
+};
+// Resolves the grade once before mesh/layer loops; refusal leaves output intact.
+// Non-percent conversion requires Rust. Default prepared value has no target.
+bool PrepareRegionSurface (const RegionSurface& surface, PreparedRegionSurface& prepared, std::string& error);
 // Existing has no vertical target. Constant/two-point/contour targets are
 // preview metadata only; this function never edits a terrain mesh.
 std::optional<double> RegionSurfaceElevation (const RegionSurface& surface, Vec3 point);

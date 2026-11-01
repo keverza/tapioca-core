@@ -29,6 +29,10 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
             }
         lg::LandscapePreviewMesh preview;
         std::string error;
+        lg::PreparedRegionSurface prepared;
+        if (surface && surface->elevation == lg::RegionElevationMode::Constant)
+            if (!lg::PrepareRegionSurface (*surface, prepared, error))
+                surface = nullptr;
         const bool boundary = surface && surface->elevation == lg::RegionElevationMode::Boundary;
         if (boundary && !lg::BuildRegionSurfaceMesh (doc, *owner, r, preview, error))
             return;
@@ -36,7 +40,7 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
         const auto at = [&] (edit::Vec3 p) {
             if (boundary)
                 return preview.vertices.at (boundaryVertex++);
-            p.z = surface ? lg::RegionSurfaceElevation (*surface, p).value_or (f.landscapeZ) : f.landscapeZ;
+            p.z = prepared.Elevation (p).value_or (f.landscapeZ);
             return p;
         };
         for (auto ring : r.rings) {
