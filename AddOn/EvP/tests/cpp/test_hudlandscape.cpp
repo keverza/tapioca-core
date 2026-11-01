@@ -3,6 +3,7 @@
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditRegionTerrain.hpp"
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -823,6 +824,67 @@ TEST (HudLandscape, EntrancesArePlacedOnABuildingOutlineAndAPathIsSentToOne)
     EXPECT_NEAR (p.points.back ().p.x, 10, 1e-9);
     EXPECT_TRUE (p.profile.back ().fixed);
     EXPECT_DOUBLE_EQ (p.profile.back ().z, 0.3);
+}
+
+// #112 P0 baseline: the canvas Boolean authors a bare output object even when the
+// subject is a fully configured region, and the region gates refuse to configure it
+// afterwards. P1 must flip this: the result inherits A's surface/terrain/material and
+// is editable through the same panel path. Recorded 2026-11-01 at core e4894d13.
+TEST (HudLandscape, ToolbarBooleanOfConfiguredSubjectDropsMetadataUntilDomainCommandsLand112)
+{
+    for (const auto kind : { lg::OperationKind::Union, lg::OperationKind::Difference }) {
+        ed::Document doc;
+        std::string error;
+        ASSERT_TRUE (lg::StartLandscape (doc, { 7 }, error)) << error;
+        const auto a = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, true);
+        const auto b = ed::AddPolyline (doc, { { 10, 0, 0 }, { 20, 0, 0 }, { 20, 10, 0 }, { 10, 10, 0 } }, true);
+        ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, a, lg::SourceRole::RegionBoundary, error)) << error;
+        ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, b, lg::SourceRole::RegionBoundary, error)) << error;
+        ASSERT_EQ (doc.landscape->objects.size (), 2u);
+        const auto subject = std::find_if (doc.landscape->objects.begin (), doc.landscape->objects.end (),
+                                           [&] (const auto& o) { return o.boundarySource == doc.landscape->sources[0].id; })
+                                 ->id;
+        lg::RegionSurface surface;
+        surface.elevation = lg::RegionElevationMode::Constant;
+        surface.first.z = 2;
+        ASSERT_TRUE (lg::SetRegionSurface (doc, subject, surface, {}, error)) << error;
+        lg::RegionTerrain terrain;
+        terrain.effect = lg::RegionTerrainEffect::Grade;
+        ASSERT_TRUE (lg::SetRegionTerrain (doc, subject, terrain, error)) << error;
+
+        eh::Session s (doc);
+        const auto faceA = *lg::LandscapeFaceAt (eh::Landscape (s), { 5, 5, 0 });
+        const auto faceB = *lg::LandscapeFaceAt (eh::Landscape (s), { 15, 5, 0 });
+        const auto depth = s.edits.UndoDepth ();
+        ASSERT_TRUE (eh::BeginLandscapeCommand (s, kind));
+        if (kind == lg::OperationKind::Union) {
+            ASSERT_TRUE (eh::PickLandscapeFace (s, faceA.seed, true, true));
+            ASSERT_TRUE (eh::PickLandscapeFace (s, faceB.seed, true, true));
+        }
+        else {
+            ASSERT_TRUE (eh::PickLandscapeFace (s, faceA.seed, true, true));
+            ASSERT_TRUE (eh::AdvanceLandscapeCommand (s));
+            ASSERT_TRUE (eh::PickLandscapeFace (s, faceB.seed, true));
+        }
+        ASSERT_TRUE (eh::AdvanceLandscapeCommand (s)) << s.message;
+        EXPECT_EQ (s.edits.UndoDepth (), depth + 1);
+        ASSERT_EQ (s.edits.Doc ().landscape->objects.size (), 3u);
+        const auto result = s.edits.Doc ().landscape->objects.back ();
+        EXPECT_EQ (result.boundarySource, 0u);
+        EXPECT_FALSE (result.surface.has_value ());
+        EXPECT_EQ (result.terrain.effect, lg::RegionTerrainEffect::None);
+        // The bare result cannot be configured through the region gates today.
+        auto copy = s.edits.Doc ();
+        lg::RegionSurface attempt = surface;
+        attempt.first.z = 3;
+        EXPECT_FALSE (lg::SetRegionSurface (copy, result.id, attempt, {}, error));
+        EXPECT_NE (error.find ("region-boundary"), std::string::npos) << error;
+        EXPECT_FALSE (lg::SetRegionTerrain (copy, result.id, terrain, error));
+        const auto targets = lg::TerrainRegionObjects (s.edits.Doc ());
+        EXPECT_EQ (std::count (targets.begin (), targets.end (), result.id), 0);
+        ASSERT_TRUE (s.edits.Undo ());
+        EXPECT_EQ (s.edits.Doc ().landscape->objects.size (), 2u);
+    }
 }
 
 TEST (HudVirtualEditorSwatches, TheEditorOffersTwentyDistinctColoursThenWhiteAndBlack)

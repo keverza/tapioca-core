@@ -662,3 +662,58 @@ TEST (EditRegionTerrain, RegionOnlyHudStartsFromHeldTerrainAndRebuildsAfterUndo)
     EXPECT_EQ (session.edits.Doc ().paths.size (), 1u) << "Region-only mode does not delete authored paths.";
     EXPECT_GT (eh::GetTerrainDesignStatus (session).fill, 199);
 }
+
+// #112 P0 baseline: terrain-target discovery scans region-boundary ownership only, so a
+// Boolean-derived configured result (owned root, no boundarySource) is invisible to
+// region grading. P1 must flip this: discovery is valid owned-root based. Recorded
+// 2026-11-01 at core e4894d13. (The direct struct edit is deliberate: today's document
+// gates refuse this state through the authoring API, so the baseline probes the query.)
+TEST (EditRegionTerrain, TerrainRegionObjectsSkipsDerivedResultsUntilOwnedRootDiscovery112)
+{
+    Fixture fixture;
+    lg::LandscapeOperation boolean;
+    boolean.kind = lg::OperationKind::Union;
+    boolean.inputs = { fixture.doc.landscape->objects[0].footprintOperation,
+                       fixture.doc.landscape->objects[0].boundarySource };
+    std::string error;
+    edit::Id booleanId = 0;
+    ASSERT_TRUE (lg::AddLandscapeOperation (fixture.doc, boolean, booleanId, error)) << error;
+    lg::HardscapeObject derived;
+    derived.footprintOperation = booleanId;
+    derived.surface = lg::RegionSurface {};
+    derived.surface->elevation = lg::RegionElevationMode::Constant;
+    derived.surface->first.z = 2;
+    derived.terrain.effect = lg::RegionTerrainEffect::Grade;
+    fixture.doc.landscape->objects.push_back (derived);
+    const auto targets = lg::TerrainRegionObjects (fixture.doc);
+    EXPECT_EQ (std::count (targets.begin (), targets.end (), fixture.doc.landscape->objects.back ().id), 0);
+}
+
+// #112 P0 reference: two overlapping configured regions currently compose through the
+// per-vertex soft edit operator, not an ordered field stack. These heights pin today's
+// behavior so the P2 plan compiler is an explicit, reviewable diff. Recorded 2026-11-01.
+TEST (EditRegionTerrain, OverlappingGradeRegionsComposeByCurrentSoftEditSemantics112)
+{
+    Fixture fixture;
+    const auto line = edit::AddPolyline (fixture.doc, { { 10, 5, 0 }, { 20, 5, 0 }, { 20, 15, 0 }, { 10, 15, 0 } }, true);
+    std::string error;
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (fixture.doc, line, lg::SourceRole::RegionBoundary, error)) << error;
+    const auto second = fixture.doc.landscape->objects.back ().id;
+    lg::RegionSurface surface;
+    surface.elevation = lg::RegionElevationMode::Constant;
+    surface.first.z = 4;
+    ASSERT_TRUE (lg::SetRegionSurface (fixture.doc, second, surface, {}, error)) << error;
+    lg::RegionTerrain terrain;
+    terrain.effect = lg::RegionTerrainEffect::Grade;
+    ASSERT_TRUE (lg::SetRegionTerrain (fixture.doc, second, terrain, error)) << error;
+    lg::RegionTerrainResult result;
+    ASSERT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, fixture.Capture (), result, error)) << error;
+    EXPECT_NEAR (Height (result, 7, 10), 2, 1e-7) << "A-only zone keeps A's target";
+    EXPECT_NEAR (Height (result, 17, 10), 4, 1e-7) << "B-only zone keeps B's target";
+    const double overlap = Height (result, 12, 10);
+    EXPECT_TRUE (std::isfinite (overlap));
+    EXPECT_GT (overlap, 1.9);
+    EXPECT_LT (overlap, 4.1);
+    ASSERT_TRUE (result.evaluation.terrain.volumes);
+    EXPECT_EQ (result.evaluation.terrain.volumes->operations.size (), 2u);
+}
