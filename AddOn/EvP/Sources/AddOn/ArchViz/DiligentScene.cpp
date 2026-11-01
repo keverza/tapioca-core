@@ -1115,6 +1115,7 @@ void DiligentScene::Shutdown ()
     impl_->wireHs.Release ();
     impl_->wireVs.Release ();
     impl_->semanticWireSupported = false;
+    impl_->selectionPipelines = Impl::SelectionPipelines {}; // releases them, and un-latches a failure
     impl_->constants.Release ();
     impl_->outlineVs.Release ();
     impl_->gBufferDebugPs.Release ();

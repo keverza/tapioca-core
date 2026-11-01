@@ -467,15 +467,15 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     constants.shadowParams[3] =
         impl_->shadowMap.Resolution () > 0 ? 1.0f / float (impl_->shadowMap.Resolution ()) : 0.0f;
 
-    // The selection core's offset, in NDC; DrawLineOverlays re-uploads it per
+    // The selection outline's offset, in NDC; DrawLineOverlays re-uploads it per
     // ring. ⚠️ THE FACTOR OF 2 IS THE WHOLE NDC RANGE:
     // clip x runs -1..1 over `width` pixels, so one pixel is 2/width. Dropping it
     // halves every outline, which looks like a tuning choice rather than an
     // arithmetic slip.
     constants.outlineParams[0] =
-        impl_->viewportWidth > 0 ? kSelectionCore.pixels * 2.0f / float (impl_->viewportWidth) : 0.0f;
+        impl_->viewportWidth > 0 ? kSelectionOutline.pixels * 2.0f / float (impl_->viewportWidth) : 0.0f;
     constants.outlineParams[1] =
-        impl_->viewportHeight > 0 ? kSelectionCore.pixels * 2.0f / float (impl_->viewportHeight) : 0.0f;
+        impl_->viewportHeight > 0 ? kSelectionOutline.pixels * 2.0f / float (impl_->viewportHeight) : 0.0f;
     // The render quality, riding the same float4's spare lane -- see
     // DiligentSceneConstants. The pixel shader branches on it; no second PSO.
     constants.outlineParams[2] = (impl_->renderQuality == RenderQuality::Realistic) ? 1.0f : 0.0f;
@@ -946,7 +946,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // which is why they follow the transparent pass and the tint. The pass
     // ORDER is the contract; the passes themselves are one concern and live in
     // their own translation unit.
-    DrawLineOverlays (context, constants, cull, drawWireframe);
+    DrawLineOverlays (context, constants, cull, drawWireframe, nearClip);
 }
 
 } // namespace archviz

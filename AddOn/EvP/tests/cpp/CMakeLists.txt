@@ -1098,7 +1098,7 @@ set (EVP_TEST_SOURCES
     test_camerachoice.cpp
     test_plananchorribbon.cpp
     test_pickvote.cpp
-    # ArchViz/SelectionHighlightStyle.hpp is header-only: how the halo, core, wireframe and hover
+    # ArchViz/SelectionHighlightStyle.hpp is header-only: how the outline, edges and hover
     # relate (issue #118).
     test_selectionhighlightstyle.cpp
     test_occlusionprepass.cpp

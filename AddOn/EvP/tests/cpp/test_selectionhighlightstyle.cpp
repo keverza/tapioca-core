@@ -1,16 +1,17 @@
 // ArchViz/SelectionHighlightStyle -- how a selected element is marked (issue #118).
 //
 // These pin the RELATIONSHIPS between the marks, which are what the look depends on and what a
-// casual retune breaks: a halo that is not fainter than its core is a second hard outline; a core
-// as heavy as the old 3 px is the cartoon outline back; a selection that shares the hover's hue
-// cannot be told from it.
+// casual retune breaks: hidden edges as strong as visible ones flatten the element; an outline
+// back at the old 3 px is the cartoon outline; a selection that shares the hover's hue cannot be
+// told from it.
 //
 // The picture itself has no offline renderer, so it is checked by eye in the standalone viewer
 // (ArchVizPanel::OpenViewer), selecting in turn: a white wall, a dark material,
 // a glazed curtain wall, the same wall in the sun study's white model, the same wall under the
 // Wireframe and Shaded+Wireframe render modes, and a selected wall half hidden behind another
-// one. Each must read as selected, keep its own material and shading, and show no halo over the
-// wall in front of it; hovering a selected element must leave it cyan, hovering an unselected one
+// one. Each must read as selected, keep its own material and shading, show its real edges (not
+// its triangulation) bright where visible and faint where hidden, and on glass show an outline
+// ring rather than a filled hull; hovering a selected element must leave it cyan, hovering an unselected one
 // must draw amber.
 
 #include <gtest/gtest.h>
@@ -34,38 +35,46 @@ float RgbDistance (const float* a, const float* b)
 
 } // namespace
 
-TEST (SelectionHighlightStyle, HaloIsWiderAndFainterThanTheCore)
+TEST (SelectionHighlightStyle, OutlineIsSolidAndNotTheOldCartoonWeight)
 {
-    EXPECT_GT (kSelectionHalo.pixels, kSelectionCore.pixels);
-    EXPECT_LT (kSelectionHalo.color[3], kSelectionCore.color[3]);
-    EXPECT_LE (kSelectionHalo.color[3], 0.25f) << "a halo that is not faint is a second outline";
+    // Rejected live: a faint halo and a 0.70 core read as barely selected on a white model.
+    EXPECT_FLOAT_EQ (kSelectionOutline.color[3], 1.0f);
+    EXPECT_GE (kSelectionOutline.pixels, 1.5f);
+    EXPECT_LT (kSelectionOutline.pixels, 3.0f) << "3 px was the original hard outline";
 }
 
-TEST (SelectionHighlightStyle, CoreIsThinAndNotOpaque)
+TEST (SelectionHighlightStyle, VisibleEdgesAreStrongAndHiddenEdgesFaint)
 {
-    // The old look was a 3 px, fully opaque ring.
-    EXPECT_GE (kSelectionCore.pixels, 1.0f);
-    EXPECT_LE (kSelectionCore.pixels, 1.5f);
-    EXPECT_LT (kSelectionCore.color[3], 1.0f);
+    EXPECT_FLOAT_EQ (kSelectionEdgeColor[3], 1.0f);
+    EXPECT_GT (kSelectionHiddenEdgeColor[3], 0.15f) << "hidden edges must still be seen";
+    EXPECT_LT (kSelectionHiddenEdgeColor[3], 0.5f) << "hidden edges must not read as visible";
+    EXPECT_GT (kSelectionEdgePixels, kSelectionHiddenEdgePixels);
+    EXPECT_GT (kSelectionHiddenEdgePixels, 0.0f);
 }
 
-TEST (SelectionHighlightStyle, HaloAndCoreShareOneHue)
+TEST (SelectionHighlightStyle, EdgesShareTheOutlineHue)
 {
-    EXPECT_FLOAT_EQ (RgbDistance (kSelectionHalo.color, kSelectionCore.color), 0.0f);
+    EXPECT_FLOAT_EQ (RgbDistance (kSelectionEdgeColor, kSelectionOutline.color), 0.0f);
+    EXPECT_FLOAT_EQ (RgbDistance (kSelectionHiddenEdgeColor, kSelectionOutline.color), 0.0f);
 }
 
-TEST (SelectionHighlightStyle, SelectionWireframeIsFainterThanTheGlobalOne)
+TEST (SelectionHighlightStyle, SelectedEdgesOutweighTheGlobalWireframe)
 {
-    EXPECT_LT (kSelectionWireColor[3], kWireframeColor[3]);
-    EXPECT_LE (kSelectionWireColor[3], 0.35f) << "a strong wire on a dense element is a wash again";
-    EXPECT_GT (kSelectionWirePixels, 0.0f);
+    // Under the global wireframe the selection's edges are what tell its lines from the rest.
+    EXPECT_GT (kSelectionEdgeColor[3], kWireframeColor[3]);
+}
+
+TEST (SelectionHighlightStyle, EdgeDepthPullIsASmallFractionOfDistance)
+{
+    EXPECT_GT (kSelectionEdgeDepthPull, 0.0f);
+    EXPECT_LE (kSelectionEdgeDepthPull, 0.01f) << "a larger pull shows edges behind a face as visible";
 }
 
 TEST (SelectionHighlightStyle, HoverIsAnotherHueFromTheSelection)
 {
-    EXPECT_GT (RgbDistance (kHoverOutline.color, kSelectionCore.color), 0.5f);
+    EXPECT_GT (RgbDistance (kHoverOutline.color, kSelectionOutline.color), 0.5f);
     for (const float* role : { kFocusOutlineColor, kAnalysisOutlineColor }) {
-        EXPECT_GT (RgbDistance (role, kSelectionCore.color), 0.3f);
+        EXPECT_GT (RgbDistance (role, kSelectionOutline.color), 0.3f);
         EXPECT_GT (RgbDistance (role, kHoverOutline.color), 0.3f);
     }
 }

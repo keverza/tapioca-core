@@ -817,6 +817,8 @@ class DiligentScene final {
                                  const Diligent::SamplerDesc& envSampler, std::string& error);
     bool CreateSemanticWirePipeline (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
                                      uint32_t depthBufferFormat, std::string& error);
+    bool CreateSelectionPipelines (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
+                                   uint32_t depthBufferFormat, std::string& error);
     // ---- the sun study tint, all of it in DiligentSceneSunStudy.cpp ---------
     //
     // ⚠️ BUILT LAZILY ON THE FIRST STUDY, like the occlusion prepass and for
@@ -842,12 +844,13 @@ class DiligentScene final {
     // The tint pass itself. Drawn over the resolved image with depth EQUAL, so
     // it colours exactly the pixels the shaded pass produced.
     void DrawSunStudyTint (Diligent::IDeviceContext* context, DiligentSceneConstants& constants, CullMode cull);
-    // The wireframe and the two silhouettes, in DiligentSceneOverlayPasses.cpp.
-    // ⚠️ EXTRACTED VERBATIM FROM THE END OF Draw(), and Draw() still decides
-    // WHEN it runs: these are the marks that say where a thing ends, so the pass
-    // order is the contract and it stays where it can be read in one place.
+    // The wireframe, the selection's edges and the silhouettes, in
+    // DiligentSceneOverlayPasses.cpp. ⚠️ Draw() still decides WHEN it runs:
+    // these are the marks that say where a thing ends, so the pass order is the
+    // contract and it stays where it can be read in one place. `nearClip` is the
+    // frame's near plane, which sizes the selection edges' depth pull.
     void DrawLineOverlays (Diligent::IDeviceContext* context, DiligentSceneConstants& constants, CullMode cull,
-                           bool drawWireframe);
+                           bool drawWireframe, float nearClip);
     // Implemented in DiligentSceneOcclusion.cpp beside its one caller. ⚠️ NOT
     // CALLED FROM Init: it is built on first use so a compile failure latches
     // instead of retrying every frame, and so the pass compiles against the

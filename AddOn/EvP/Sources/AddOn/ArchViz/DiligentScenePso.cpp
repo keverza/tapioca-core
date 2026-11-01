@@ -363,5 +363,137 @@ bool DiligentScene::EnsureCoverageTarget ()
     return true;
 }
 
+// The selection's depth prime and its two edge passes (#118). ⚠️ NOT CALLED
+// FROM Init: DrawLineOverlays builds them on the first frame anything is marked,
+// against the formats Init recorded, and latches a failure -- the occlusion
+// prepass's shape, for its reasons.
+bool DiligentScene::CreateSelectionPipelines (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
+                                              uint32_t depthBufferFormat, std::string& error)
+{
+    if (device == nullptr || impl_->vs == nullptr || impl_->flatPs == nullptr) {
+        error = "the selection pipelines need the scene's mesh VS and flat PS, which Init builds first";
+        return false;
+    }
+    Impl::SelectionPipelines& sel = impl_->selectionPipelines;
+    const Diligent::LayoutElement layout[] = {
+        Diligent::LayoutElement { 0, 0, 3, Diligent::VT_FLOAT32, Diligent::False },
+        Diligent::LayoutElement { 1, 0, 3, Diligent::VT_FLOAT32, Diligent::False },
+        Diligent::LayoutElement { 2, 0, 4, Diligent::VT_UINT8, Diligent::True },
+    };
+
+    // Everything both families share: the formats, the mesh layout, and the
+    // "over" blend every line pass uses (see makeFlatPipeline in DiligentScene.cpp
+    // for why the alpha channel has its own equation).
+    auto describe = [&] (Diligent::GraphicsPipelineStateCreateInfo& pci, const char* name) {
+        pci.PSODesc.Name = name;
+        pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
+        Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
+        gp.NumRenderTargets = 1;
+        gp.RTVFormats[0] = static_cast<Diligent::TEXTURE_FORMAT> (colorBufferFormat);
+        gp.DSVFormat = static_cast<Diligent::TEXTURE_FORMAT> (depthBufferFormat);
+        gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        gp.RasterizerDesc.FillMode = Diligent::FILL_MODE_SOLID;
+        gp.RasterizerDesc.FrontCounterClockwise = Diligent::False;
+        gp.DepthStencilDesc.DepthEnable = Diligent::True;
+        gp.InputLayout.LayoutElements = layout;
+        gp.InputLayout.NumElements = _countof (layout);
+        Diligent::RenderTargetBlendDesc& rt = gp.BlendDesc.RenderTargets[0];
+        rt.BlendEnable = Diligent::True;
+        rt.SrcBlend = Diligent::BLEND_FACTOR_SRC_ALPHA;
+        rt.DestBlend = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
+        rt.BlendOp = Diligent::BLEND_OPERATION_ADD;
+        rt.SrcBlendAlpha = Diligent::BLEND_FACTOR_ONE;
+        rt.DestBlendAlpha = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
+        rt.BlendOpAlpha = Diligent::BLEND_OPERATION_ADD;
+    };
+    // ⚠️ ONLY THE STAGES THE PIPELINE HAS. Asking a VS/PS pipeline for a hull
+    // stage's variable is not a harmless null on every backend.
+    auto finish = [&] (Diligent::GraphicsPipelineStateCreateInfo& pci, RefCntAutoPtr<Diligent::IPipelineState>& pso,
+                       RefCntAutoPtr<Diligent::IShaderResourceBinding>& srb, bool tessellated) -> bool {
+        device->CreateGraphicsPipelineState (pci, &pso);
+        if (pso == nullptr) {
+            error = std::string ("Diligent CreateGraphicsPipelineState(") + pci.PSODesc.Name + ") failed";
+            return false;
+        }
+        const Diligent::SHADER_TYPE stages[] = { Diligent::SHADER_TYPE_VERTEX, Diligent::SHADER_TYPE_PIXEL,
+                                                 Diligent::SHADER_TYPE_HULL, Diligent::SHADER_TYPE_DOMAIN,
+                                                 Diligent::SHADER_TYPE_GEOMETRY };
+        for (size_t k = 0; k < (tessellated ? _countof (stages) : 2u); ++k) {
+            if (Diligent::IShaderResourceVariable* variable =
+                    pso->GetStaticVariableByName (stages[k], "ArchVizConstants"))
+                variable->Set (impl_->constants);
+        }
+        pso->CreateShaderResourceBinding (&srb, true);
+        if (srb == nullptr) {
+            error = std::string ("Diligent CreateShaderResourceBinding(") + pci.PSODesc.Name + ") failed";
+            return false;
+        }
+        return true;
+    };
+
+    // ---- the depth prime ----------------------------------------------------
+    // ⚠️ THE SAME VERTEX SHADER AS THE SHADED PASS, AND LESS_EQUAL. Over an
+    // opaque element the depth it writes is bit-identical to what is already
+    // there, so priming one costs a draw and changes nothing; over glass it
+    // supplies the depth the transparent pass never wrote. No colour at all.
+    for (int i = 0; i < kCullModeCount; ++i) {
+        const CullMode cull = i == 0 ? CullMode::Ccw : (i == 1 ? CullMode::Cw : CullMode::None);
+        Diligent::GraphicsPipelineStateCreateInfo pci;
+        describe (pci, "ArchViz selection depth prime PSO");
+        Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
+        gp.RasterizerDesc.CullMode = ToDiligentCull (cull);
+        gp.DepthStencilDesc.DepthWriteEnable = Diligent::True;
+        gp.DepthStencilDesc.DepthFunc = Diligent::COMPARISON_FUNC_LESS_EQUAL;
+        gp.BlendDesc.RenderTargets[0].BlendEnable = Diligent::False;
+        gp.BlendDesc.RenderTargets[0].RenderTargetWriteMask = Diligent::COLOR_MASK_NONE;
+        pci.pVS = impl_->vs;
+        pci.pPS = impl_->flatPs;
+        if (!finish (pci, sel.depthPso[i], sel.depthSrb[i], false))
+            return false;
+    }
+
+    // ---- the edges ----------------------------------------------------------
+    // ⚠️ LESS_EQUAL AND GREATER ARE EXACT COMPLEMENTS, so every edge fragment
+    // lands in exactly one of the two passes -- bright where nothing is in front
+    // of it, faint where something is. The face-aware wire is tessellated and so
+    // not bit-identical to the surface it lies on; its geometry shader pulls it
+    // toward the camera (g_edgeParams) so an edge ON a visible face reads as
+    // visible. The plain wire runs the shaded pass's own VS and needs no pull.
+    sel.semantic = impl_->semanticWirePso != nullptr;
+    const Diligent::COMPARISON_FUNCTION tests[2] = { Diligent::COMPARISON_FUNC_LESS_EQUAL,
+                                                     Diligent::COMPARISON_FUNC_GREATER };
+    const Diligent::ShaderResourceVariableDesc variables[] = {
+        { Diligent::SHADER_TYPE_HULL, "g_wirePatchFlags", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+    };
+    for (int i = 0; i < 2; ++i) {
+        Diligent::GraphicsPipelineStateCreateInfo pci;
+        describe (pci, i == Impl::kVisibleEdges ? "ArchViz selection visible edges PSO"
+                                                : "ArchViz selection hidden edges PSO");
+        Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
+        // Lines have no facing to cull (see wirePso in DiligentSceneImpl.hpp).
+        gp.RasterizerDesc.CullMode = Diligent::CULL_MODE_NONE;
+        gp.DepthStencilDesc.DepthWriteEnable = Diligent::False;
+        gp.DepthStencilDesc.DepthFunc = tests[i];
+        if (sel.semantic) {
+            gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+            pci.pVS = impl_->wireVs;
+            pci.pHS = impl_->wireHs;
+            pci.pDS = impl_->wireDs;
+            pci.pGS = impl_->wireGs;
+            pci.pPS = impl_->wirePs;
+            pci.PSODesc.ResourceLayout.Variables = variables;
+            pci.PSODesc.ResourceLayout.NumVariables = _countof (variables);
+        }
+        else {
+            gp.RasterizerDesc.FillMode = Diligent::FILL_MODE_WIREFRAME;
+            pci.pVS = impl_->vs;
+            pci.pPS = impl_->flatPs;
+        }
+        if (!finish (pci, sel.edgePso[i], sel.edgeSrb[i], sel.semantic))
+            return false;
+    }
+    return true;
+}
+
 } // namespace archviz
 } // namespace geomsrv

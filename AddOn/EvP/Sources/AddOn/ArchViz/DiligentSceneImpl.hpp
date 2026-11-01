@@ -297,6 +297,30 @@ struct geomsrv::archviz::DiligentScene::Impl {
     RefCntAutoPtr<Diligent::IShaderResourceBinding> semanticWireSrb;
     bool semanticWireSupported = false;
 
+    // ---- the selection's own pipelines (#118), DiligentScenePso.cpp ----------
+    // Built on the first frame anything is marked, and once: a failure latches
+    // (`initFailed`) and the marks fall back to the outline rings alone.
+    struct SelectionPipelines {
+        // Depth only, at the visible pass's cull, so a TRANSPARENT marked element
+        // has the depth its outline hull and its hidden edges are measured
+        // against. Glass writes none, and without it the whole expanded hull
+        // shows through the glass as a solid fill.
+        RefCntAutoPtr<Diligent::IPipelineState> depthPso[kCullModeCount];
+        RefCntAutoPtr<Diligent::IShaderResourceBinding> depthSrb[kCullModeCount];
+        // The selection's edges: [kVisibleEdges] tests LESS_EQUAL, [kHiddenEdges]
+        // GREATER -- the two halves of one wire, split by the same depth test.
+        // Neither writes depth. Face-aware (`semantic`) where the device has the
+        // tessellated wire, so only the element's real edges are drawn and not its
+        // triangulation; the plain fill-mode wire otherwise.
+        RefCntAutoPtr<Diligent::IPipelineState> edgePso[2];
+        RefCntAutoPtr<Diligent::IShaderResourceBinding> edgeSrb[2];
+        bool semantic = false;
+        bool initFailed = false;
+    };
+    static constexpr int kVisibleEdges = 0;
+    static constexpr int kHiddenEdges = 1;
+    SelectionPipelines selectionPipelines;
+
     // ---- PLAT-RE151: the occlusion depth prepass ----------------------------
     // ⚠️ BUILT LAZILY, NOT IN Init, so the failure LATCHES rather than retrying
     // the HLSL compiler every frame. See DiligentSceneOcclusion.cpp, which owns
