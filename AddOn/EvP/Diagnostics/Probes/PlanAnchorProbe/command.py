@@ -175,10 +175,15 @@ def run(wait_seconds: evp.Int(minimum=5, maximum=180) = 30,
             _attach_mode = {"popup": 0, "child layered": 1, "child transparent": 2}[attach]
             _say("attach mode: %s (%d)" % (attach, _attach_mode))
             _call("OpenDiligentOverlay", {"attach": _attach_mode})
-            for _ in range(20):
+            # ⚠️ `initialized`, NOT `running`. The viewport sets running the moment
+            # it starts, before its device, shaders and layers exist; a probe that
+            # went on at `running` read a freshly reset all-zero state on the
+            # slower-starting D3D12 backend (2026-11-01 14:14) and reported a
+            # layer that had started as one that never did.
+            for _ in range(40):
                 time.sleep(0.5)
                 state = _call("DiligentViewportState") or {}
-                if state.get("running"):
+                if state.get("failed") or (state.get("running") and state.get("initialized")):
                     break
 
         if not state.get("running"):
@@ -206,8 +211,29 @@ def run(wait_seconds: evp.Int(minimum=5, maximum=180) = 30,
             _say("  (%d of the %d guids were not walls, and were skipped)"
                  % (len(walls) - result["count"], len(walls)))
 
-        time.sleep(1.0)
-        state = _call("DiligentViewportState") or {}
+        # ⚠️ POLLED, NOT ONE READ AFTER A FIXED SLEEP. The renderer publishes these
+        # fields on its own half-second refresh, so one read can land before the
+        # first refresh of this run. Wait until it reports the anchors, and if it
+        # never does, say the reading is INVALID rather than judging the layer.
+        # Counted, not timed: offline, time.sleep is a no-op and a wall-clock
+        # deadline would spin. 20 x 0.5 s is the same 10 s live.
+        expect_vertices = bool(result["vertices"])
+        reading_valid = True
+        for attempt in range(20):
+            state = _call("DiligentViewportState") or {}
+            if state.get("planAnchorLayerReady") and (state.get("planAnchorVertices") or not expect_vertices):
+                break
+            if attempt == 19:
+                reading_valid = False
+                _say("")
+                _say("INVALID: the renderer did not report the anchors within 10 s of the")
+                _say("   hand-over (layer ready %s, vertices %s, initialized %s). The fields"
+                     % (bool(state.get("planAnchorLayerReady")), state.get("planAnchorVertices"),
+                        bool(state.get("initialized"))))
+                _say("   below are not a verdict; logs\\archviz.log says whether the layer")
+                _say("   started ('the plan anchor layer did not start' if it did not).")
+                break
+            time.sleep(0.5)
         _say("")
         _say("what the renderer says it is holding:")
         _say("  layer ready     : %s" % bool(state.get("planAnchorLayerReady")))
@@ -218,12 +244,12 @@ def run(wait_seconds: evp.Int(minimum=5, maximum=180) = 30,
         # ⚠️ THREE FIELDS BECAUSE "I SEE NOTHING" HAS THREE CAUSES, and on screen
         # they are one symptom. Name whichever one this is, here, rather than
         # making the user infer it.
-        if not state.get("planAnchorLayerReady"):
+        if reading_valid and not state.get("planAnchorLayerReady"):
             _say("")
             _say("⚠️ THE ANCHOR LAYER NEVER STARTED. Its shaders or pipeline did")
             _say("   not come up; the reason is in logs\\archviz.log. Nothing")
             _say("   below can be judged.")
-        elif not state.get("planAnchorVertices"):
+        elif reading_valid and not state.get("planAnchorVertices"):
             _say("")
             _say("⚠️ THE LAYER IS LIVE AND HOLDING NOTHING. The read returned no")
             _say("   geometry — check the wall count above, and run Wall Plan")

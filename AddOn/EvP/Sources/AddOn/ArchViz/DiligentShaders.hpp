@@ -314,6 +314,31 @@ struct DiligentSceneConstants {
     // rgba = sRGB of the shadow overlay and how far a shadowed patch moves to it.
     float sunStudyLowSun[4] = { 31.0f / 255.0f, 95.0f / 255.0f, 209.0f / 255.0f, 1.0f };
     float sunStudyShadowTint[4] = { 0.0f, 0.0f, 0.0f, 115.0f / 255.0f };
+    // ---- appended for the hours gradient's COLOURS (#102) ----------------------
+    // The chosen preset's stops, one float4 each: rgb = sRGB, w = the position
+    // 0..1 along 0.5 h .. 9.5 h (ArchViz/SunStudyPreview.hpp SunStudyRampColour);
+    // sunStudyRampInfo[0] = how many (2..16). The defaults are kSunLegacyRamp, the
+    // original ten hourly bins, so a scene no HUD has set draws what it always did.
+    // clang-format off
+    float sunStudyRamp[64] = {
+        107.0f / 255.0f, 61.0f / 255.0f, 24.0f / 255.0f, 0.0f / 9.0f,
+        138.0f / 255.0f, 79.0f / 255.0f, 31.0f / 255.0f, 1.0f / 9.0f,
+        156.0f / 255.0f, 90.0f / 255.0f, 35.0f / 255.0f, 2.0f / 9.0f,
+        176.0f / 255.0f, 106.0f / 255.0f, 40.0f / 255.0f, 3.0f / 9.0f,
+        192.0f / 255.0f, 125.0f / 255.0f, 51.0f / 255.0f, 4.0f / 9.0f,
+        207.0f / 255.0f, 143.0f / 255.0f, 68.0f / 255.0f, 5.0f / 9.0f,
+        220.0f / 255.0f, 161.0f / 255.0f, 87.0f / 255.0f, 6.0f / 9.0f,
+        231.0f / 255.0f, 182.0f / 255.0f, 116.0f / 255.0f, 7.0f / 9.0f,
+        240.0f / 255.0f, 203.0f / 255.0f, 150.0f / 255.0f, 8.0f / 9.0f,
+        247.0f / 255.0f, 227.0f / 255.0f, 194.0f / 255.0f, 9.0f / 9.0f,
+    };
+    // clang-format on
+    float sunStudyRampInfo[4] = { 10.0f, 0.0f, 0.0f, 0.0f };
+    // ---- appended for the visibility study's PRESET colours (#102) -------------
+    // The same layout along 0 (not visible) .. 1 (visible); visibilityRampInfo[0]
+    // = how many stops, 0 keeping the two colours above.
+    float visibilityRamp[64] = { 0.0f };
+    float visibilityRampInfo[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -354,7 +379,8 @@ enum class DiligentDebugView : int {
 };
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
-                                                      16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48 + 32,
+                                                      16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48 + 32 + 256 +
+                                                      16 + 256 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -417,6 +443,10 @@ cbuffer ArchVizConstants
     float4   g_sunStudyBands[3]; // the stepped gradient's band edges, hours
     float4   g_sunStudyLowSun;   // rgb = sRGB of the low-sun category
     float4   g_sunStudyShadowTint; // rgb = sRGB of the shadow overlay, a = its strength
+    float4   g_sunStudyRamp[16];   // the hours colours: rgb = sRGB, w = position 0..1
+    float4   g_sunStudyRampInfo;   // x = how many stops
+    float4   g_visibilityRamp[16]; // the visibility colours: rgb = sRGB, w = position 0..1
+    float4   g_visibilityRampInfo; // x = how many stops; 0 = g_visibilityLow/High
 };
 )hlsl";
 
@@ -697,19 +727,26 @@ float3 SrgbToLinear (float3 c)
     return c <= 0.04045 ? c / 12.92 : pow (max ((c + 0.055) / 1.055, 0.0), 2.4);
 }
 
-static const float3 kSunBins[10] = {
-    float3 (0.420, 0.239, 0.094), float3 (0.541, 0.310, 0.122), float3 (0.612, 0.353, 0.137),
-    float3 (0.690, 0.416, 0.157), float3 (0.753, 0.490, 0.200), float3 (0.812, 0.561, 0.267),
-    float3 (0.863, 0.631, 0.341), float3 (0.906, 0.714, 0.455), float3 (0.941, 0.796, 0.588),
-    float3 (0.969, 0.890, 0.761)
-};
+// The hours colours: the chosen gradient preset's stops (g_sunStudyRamp),
+// ArchViz/SunStudyPreview.hpp's SunStudyRampColour line for line -- the first
+// stop at 0.5 h, the last at 9.5 h (#102).
+// sRGB at `t` along up to sixteen stops (rgb, w = position), linear between them.
+float3 StopsColour (float4 stops[16], float countLane, float t)
+{
+    int count = clamp (int (countLane + 0.5), 2, 16);
+    float3 colour = stops[0].rgb;
+    [loop] for (int i = 1; i < count; ++i) {
+        float a = stops[i - 1].w;
+        float b = stops[i].w;
+        if (t >= a)
+            colour = lerp (stops[i - 1].rgb, stops[i].rgb, b > a ? saturate ((t - a) / (b - a)) : 1.0);
+    }
+    return colour;
+}
 
 float3 SunWarm (float hours)
 {
-    float t = clamp (hours - 0.5, 0.0, 9.0);
-    int lo = int (floor (t));
-    int hi = min (lo + 1, 9);
-    return SrgbToLinear (lerp (kSunBins[lo], kSunBins[hi], t - float (lo)));
+    return SrgbToLinear (StopsColour (g_sunStudyRamp, g_sunStudyRampInfo.x, clamp ((hours - 0.5) / 9.0, 0.0, 1.0)));
 }
 
 // The STEPPED gradient: ArchViz/SunStudyPreview.hpp's SunStudyBand and
@@ -882,6 +919,10 @@ int FanRank (int2 texel)
     return -1;
 }
 
+)hlsl"
+                                          // ⚠️ TWO ADJACENT LITERALS, ONE SHADER: MSVC caps one literal at 16 KB and
+                                          // joins adjacent ones; tools/quality/check_hlsl.py joins them the same way.
+                                          R"hlsl(
 // The ROLE view's three colours. ⚠️ AN ABI with SunStudyOverlay.hpp's
 // ElementRole values (0 analysis, 1 context, 2 ignored), carried in tile.x.
 // sRGB, decoded like the hours ramp -- and the HUD legend shows the same three.
@@ -899,7 +940,11 @@ float3 VisibilityColor (float visible)
     // The two-colour study, blocked -> visible, as the HUD's pickers set them
     // (default danger #B84E45 -> success #4B8358). Decode the sRGB endpoints
     // before the SRGB render target encodes them.
-    return SrgbToLinear (lerp (g_visibilityLow.rgb, g_visibilityHigh.rgb, saturate (visible)));
+    float3 colour = lerp (g_visibilityLow.rgb, g_visibilityHigh.rgb, saturate (visible));
+    // A gradient preset instead, when the tab chose one (#102).
+    if (g_visibilityRampInfo.x >= 2.0)
+        colour = StopsColour (g_visibilityRamp, g_visibilityRampInfo.x, saturate (visible));
+    return SrgbToLinear (colour);
 }
 
 void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput psOut)

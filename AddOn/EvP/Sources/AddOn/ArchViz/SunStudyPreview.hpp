@@ -1,12 +1,15 @@
 #ifndef EVP_ARCHVIZ_SUNSTUDYPREVIEW_HPP
 #define EVP_ARCHVIZ_SUNSTUDYPREVIEW_HPP
 
+#include "ArchViz/GradientLibrary.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <span>
 
 namespace geomsrv::archviz {
 inline std::string SunStudyClock (double hours, bool duration = false)
@@ -35,9 +38,11 @@ inline std::pair<uint32_t, uint32_t> SunStudyPreviewSteps (const std::vector<uin
 // starts at 0 and the LAST IS OPEN-ENDED. Each band is one flat colour, the
 // smooth ramp's at the band's centre, the open band's centre taken against the
 // legend's 10 h top. Display only: the measured hours never change.
+// The default is ten bands, the smooth ramp's one-hour bins (#102: the owner
+// reads whole hours off the legend, 0:00 to 9:00+).
 constexpr int kSunBandsMin = 3;
 constexpr int kSunBandsMax = 12;
-constexpr int kSunBandsDefault = 4;
+constexpr int kSunBandsDefault = 10;
 constexpr float kSunRampTop = 10.0f; // the legend's right end, read "9:00h+"
 constexpr float kSunBandGap = 0.25f; // the edges' quarter-hour grid, and their least spacing
 // Hours a few ulps under an edge (a 10-minute study's 3:00 h) still reach it.
@@ -97,6 +102,80 @@ inline float SunStudyBandCentre (int band, int count, const float* edges)
     const float lo = band > 0 ? edges[band - 1] : 0.0f;
     const float hi = band < count - 1 ? edges[band] : kSunRampTop;
     return 0.5f * (lo + hi);
+}
+
+// What a band's cell on the legend reads: the hours it starts at, the sum of
+// every band before it, and "+" on the open last one (#102).
+inline std::string SunStudyBandLabel (int band, int count, const float* edges)
+{
+    const float lo = band > 0 ? edges[band - 1] : 0.0f;
+    return SunStudyClock (lo) + (band == count - 1 ? "+" : "");
+}
+
+// ---- the hours gradient's COLOURS (#102) --------------------------------------
+//
+// ⚠️ ONE CONTRACT FOR THE LEGEND AND THE TINT, again: kArchVizSunTintPS's SunWarm
+// is SunStudyRampColour line for line. The ramp's first stop is the colour at
+// 0.5 h and its last at 9.5 h -- the ten hourly bins' centres -- whatever preset
+// the user picks; the default is the warm sunlight preset. Display only.
+constexpr const char* kSunRampDefaultPreset = "sun-hours-classic"; // the owner's default, 2026-11-01
+constexpr size_t kSunRampMaxStops = overlaylayers::kMaxStops;
+// The original ten hourly bins, the colours a scene draws before any HUD chose
+// a preset. DiligentSceneConstants' defaults are these (test_sunstudypreview.cpp).
+constexpr overlaylayers::ColourStop kSunLegacyRamp[10] = {
+    { 0.0f / 9.0f, 0x6B3D18FFu }, { 1.0f / 9.0f, 0x8A4F1FFFu }, { 2.0f / 9.0f, 0x9C5A23FFu },
+    { 3.0f / 9.0f, 0xB06A28FFu }, { 4.0f / 9.0f, 0xC07D33FFu }, { 5.0f / 9.0f, 0xCF8F44FFu },
+    { 6.0f / 9.0f, 0xDCA157FFu }, { 7.0f / 9.0f, 0xE7B674FFu }, { 8.0f / 9.0f, 0xF0CB96FFu },
+    { 9.0f / 9.0f, 0xF7E3C2FFu },
+};
+
+// sRGB 0xRRGGBBAA of `hours` along `stops` (2..16, ascending); fewer than two
+// stops reads the legacy ramp.
+inline uint32_t SunStudyRampColour (std::span<const overlaylayers::ColourStop> stops, float hours)
+{
+    if (stops.size () < 2)
+        stops = kSunLegacyRamp;
+    const float t = std::clamp ((hours - 0.5f) / 9.0f, 0.0f, 1.0f);
+    float rgb[3] = {};
+    const auto channels = [] (uint32_t rgba, float out[3]) {
+        for (int c = 0; c < 3; ++c)
+            out[c] = float ((rgba >> (24 - 8 * c)) & 0xffu);
+    };
+    channels (stops[0].rgba, rgb);
+    for (size_t i = 1; i < stops.size (); ++i) {
+        const float a = stops[i - 1].at, b = stops[i].at;
+        if (t < a)
+            continue;
+        float lo[3], hi[3];
+        channels (stops[i - 1].rgba, lo);
+        channels (stops[i].rgba, hi);
+        const float mix = b > a ? std::clamp ((t - a) / (b - a), 0.0f, 1.0f) : 1.0f;
+        for (int c = 0; c < 3; ++c)
+            rgb[c] = lo[c] + (hi[c] - lo[c]) * mix;
+    }
+    uint32_t out = 0xffu;
+    for (int c = 0; c < 3; ++c)
+        out |= uint32_t (std::lround (std::clamp (rgb[c], 0.0f, 255.0f))) << (24 - 8 * c);
+    return out;
+}
+
+// The stops of the preset the HUD chose: `id`'s, the user's `custom` ones for
+// kCustomGradientId, or the default's for an unknown id -- end for end when
+// `flipped`. Never empty.
+inline std::vector<overlaylayers::ColourStop>
+SunStudyRampStops (const std::string& id, std::span<const overlaylayers::ColourStop> custom = {}, bool flipped = false)
+{
+    std::span<const overlaylayers::ColourStop> stops;
+    if (id == overlaylayers::kCustomGradientId && custom.size () >= 2 && custom.size () <= kSunRampMaxStops)
+        stops = custom;
+    else {
+        const overlaylayers::GradientPreset* preset = overlaylayers::FindGradientPreset (id);
+        if (preset == nullptr)
+            preset = overlaylayers::FindGradientPreset (kSunRampDefaultPreset);
+        stops = preset != nullptr ? preset->Stops () : std::span<const overlaylayers::ColourStop> (kSunLegacyRamp);
+    }
+    return flipped ? overlaylayers::ReversedStops (stops)
+                   : std::vector<overlaylayers::ColourStop> (stops.begin (), stops.end ());
 }
 
 // Display-only intensity. Short shadows no longer classify a whole half-day.

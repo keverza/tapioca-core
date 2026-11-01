@@ -250,6 +250,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRoles.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyBounds.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerFramePacing.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerStatus.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReading.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStepAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyLimits.cpp")
@@ -533,6 +534,9 @@ set (EVP_ARCHVIZ_SOURCES
     # ArchViz/OverlayLayers.cpp is the arbitrary geometry callers put on both overlays,
     # prepared for each; a wrong vertex is a picture in someone else's view.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayLayers.cpp"
+    # ArchViz/GradientLibrary.cpp is the named colour ramps every ramp above resolves (#102).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/GradientLibrary.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayRampChoices.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffLayer.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffUi.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffBoundaries.cpp"
@@ -674,6 +678,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudHost.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudOwn.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudDisplays.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/GradientPresetChoice.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudCriteria.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudItems.cpp"
@@ -1010,6 +1015,8 @@ set (EVP_TEST_SOURCES
     test_overlaytext.cpp
     test_overlayscene.cpp
     test_overlayscenecells.cpp
+    test_gradientlibrary.cpp
+    test_gradientpresetchoice.cpp
     test_overlayhud.cpp
     test_overlayhudcontrols.cpp
     test_overlayhudevents.cpp
@@ -1064,6 +1071,8 @@ set (EVP_TEST_SOURCES
     test_occluderstore.cpp
     test_modelwatchroute.cpp
     test_extractionslicewait.cpp
+    # A stoppable gate wait gives a joining main thread its thread back: header-only.
+    test_gatewait.cpp
     test_modelstampwalk.cpp
     test_sunstudyresultkey.cpp
     test_logclaim.cpp
@@ -1125,6 +1134,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyroles.cpp
     test_sunstudybounds.cpp
     test_viewerframepacing.cpp
+    test_viewerstatus.cpp
     test_sunstudyreading.cpp
     test_sunstudystepatlas.cpp
     test_sunstudylimits.cpp

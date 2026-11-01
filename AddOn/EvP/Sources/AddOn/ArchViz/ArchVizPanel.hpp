@@ -30,6 +30,7 @@
 // DiligentViewport.hpp pulls no Diligent headers, only <thread>/<mutex>.
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/ViewerPaletteState.hpp"
+#include "ArchViz/ViewerStatusBar.hpp"
 
 #include <memory>
 #include <string>
@@ -208,6 +209,11 @@ class ArchVizPanel final : public DG::Palette, public DG::PanelObserver, public 
 
     // The status line, refreshed from the render thread's stats on idle. This is
     // where an init failure is visible without opening a log.
+    //
+    // Once the viewer is DRAWING it becomes the four-block bar of issue #96 --
+    // view, inspection, analysis, model (ArchViz/ViewerStatusBar); until then
+    // (starting, failed, a probe) it is one full-width message, as before,
+    // because a renderer that is not up has nothing to put in the blocks.
     void RefreshStatus ();
 
     // The viewport's native window handle, or nullptr — from
@@ -265,7 +271,9 @@ class ArchVizPanel final : public DG::Palette, public DG::PanelObserver, public 
 
     static GS::Ref<ArchVizPanel> instance;
 
+    // The .grc's one status item: the whole line, or the bar's analysis block.
     DG::LeftText statusText;
+    std::unique_ptr<geomsrv::archviz::ViewerStatusBar> statusBar;
     std::unique_ptr<DG::UserItem> viewport;
     // So the idle poll does not rewrite an unchanged status line every tick.
     GS::UniString lastStatus;

@@ -2,6 +2,7 @@
 // checkboxes, sliders, dropdowns, buttons and tab bar, and the values it holds for them.
 // See OverlayHud.hpp's notes on what the add-on holds.
 
+#include "ArchViz/GradientPresetChoice.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayHudItems.hpp"
 
@@ -249,6 +250,13 @@ std::vector<Change> TakeRampGreens (State& state)
     return pending;
 }
 
+std::vector<Change> TakeRampPresets (State& state)
+{
+    std::vector<Change> pending;
+    pending.swap (state.rampPresets);
+    return pending;
+}
+
 void Engine::Impl::HoverTint (const Hover& hover)
 {
     const ImGuiWindow* window = ImGui::GetCurrentContext ()->HoveredWindow;
@@ -285,6 +293,7 @@ void Engine::Impl::Ramp (const layers::Panel& panel, const layers::PanelItem& it
     if (control.empty () && greenControl.empty ()) {
         if (items::Ramp (panel, item, width, scale, band))
             highlight = { true, layer, band[0], band[1] };
+        RampPreset (panel, item, index, width);
         return;
     }
     double* cutoff = control.empty () ? nullptr : &state.values[control].current;
@@ -310,6 +319,32 @@ void Engine::Impl::Ramp (const layers::Panel& panel, const layers::PanelItem& it
         queue ("rampCutoff", control, *cutoff, cutoffReleased, store->rampCutoffs);
     if (green != nullptr && (previousGreen != *green || greenReleased))
         queue ("rampGreen", greenControl, *green, greenReleased, store->rampGreens);
+    RampPreset (panel, item, index, width);
+}
+
+// The ramp's colours, under it (#102). Only a ramp drawn from a preset offers the picker:
+// explicit stops are the script's own colours. The controller recolours the layer.
+void Engine::Impl::RampPreset (const layers::Panel& panel, const layers::PanelItem& item, size_t index, float width)
+{
+    if (item.colormap.presetId.empty ())
+        return;
+    std::string chosen = item.colormap.presetId;
+    // A custom ramp's stops are the colormap's own; edited, they travel with the change.
+    std::vector<layers::ColourStop> custom;
+    if (chosen == layers::kCustomGradientId)
+        custom = item.colormap.stops;
+    const layers::GradientPreset* preset = layers::FindGradientPreset (chosen);
+    const layers::GradientCategory first = preset != nullptr ? preset->category : layers::GradientCategory::General;
+    bool flipped = item.colormap.flipped;
+    if (!gradientchoice::GradientPresetChoice ("##ramp.preset", chosen, custom, flipped,
+                                               (std::max) (width, ImGui::GetContentRegionAvail ().x), first))
+        return;
+    Change change { "rampPreset",        key,    panel.title, item.colormap.presetId, int32_t (index),
+                    flipped ? 1.0 : 0.0, chosen, true };
+    if (chosen == layers::kCustomGradientId)
+        change.stops = std::move (custom);
+    changes.push_back (change);
+    store->rampPresets.push_back (std::move (change));
 }
 
 void Engine::Impl::SitePlan (const layers::Panel& panel, const layers::PanelItem& item, size_t index, PanelState& state,

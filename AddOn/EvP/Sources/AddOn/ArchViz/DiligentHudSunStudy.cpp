@@ -11,6 +11,7 @@
 
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
+#include "ArchViz/GradientPresetChoice.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/HudShell.hpp" // the tips
@@ -187,21 +188,10 @@ void DrawMachineLimits (const SunStudyOverlayStatus& study)
 // without `alpha` the colour is opaque and the alpha byte is left alone.
 bool InlineColour (const char* id, uint32_t& rgba, bool alpha, const char* tip)
 {
-    float channels[4];
-    SunStudyRgbaChannels (rgba, channels);
-    ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel;
-    flags |= alpha ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha;
-    const bool changed = ImGui::ColorEdit4 (id, channels, flags);
+    // Cancel or Escape in its popup puts back the colour it opened on (#102).
+    const bool changed = gradientchoice::ColourChoice (id, rgba, alpha);
     ImGui::SetItemTooltip ("%s", tip);
-    if (!changed)
-        return false;
-    uint32_t next = 0;
-    for (int channel = 0; channel < 4; ++channel) {
-        const float value = channel == 3 && !alpha ? float (rgba & 0xffu) / 255.0f : channels[channel];
-        next |= uint32_t (std::lround (std::clamp (value, 0.0f, 1.0f) * 255.0f)) << (24 - 8 * channel);
-    }
-    rgba = next;
-    return true;
+    return changed;
 }
 
 // What the overlay does to a white surface, for the legend's swatch: white
@@ -246,12 +236,21 @@ void DrawSunStudyHoursDisplay (HudState& state)
         ImGui::TextDisabled (state.shadowsEnabled ? "needs PCF shadows" : "shadows are off");
     }
 
-    const char* styles[] = { "Smooth", "Stepped" };
-    int style = state.sunGradientStepped ? 1 : 0;
+    // The colours (#102): any gradient preset, the sun ones listed first. Display only.
+    ImGui::TextUnformatted ("Colours");
+    ImGui::SameLine ();
+    gradientchoice::GradientPresetChoice ("##sungradientpreset", state.sunGradientPreset, state.sunGradientCustom,
+                                          state.sunGradientFlipped, ImGui::GetContentRegionAvail ().x,
+                                          overlaylayers::GradientCategory::Sun);
+    const auto ramp = SunStudyRampStops (state.sunGradientPreset, state.sunGradientCustom, state.sunGradientFlipped);
+
+    // Stepped first: it is the default (#102).
+    const char* styles[] = { "Stepped", "Smooth" };
+    int style = state.sunGradientStepped ? 0 : 1;
     if (viewerhud::Choice ("gradient##sungradient", style, styles, 2))
-        state.sunGradientStepped = style == 1;
+        state.sunGradientStepped = style == 0;
     if (!state.sunGradientStepped) {
-        DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, 0, nullptr, state.sunLowSunRgba >> 8);
+        DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, 0, nullptr, state.sunLowSunRgba >> 8, ramp);
         return;
     }
     int count = std::clamp (state.sunBandCount, kSunBandsMin, kSunBandsMax);
@@ -276,8 +275,8 @@ void DrawSunStudyHoursDisplay (HudState& state)
         SunStudyDefaultBandEdges (count, state.sunBandEdges);
     }
     SunStudyClampBandEdges (count, state.sunBandEdges);
-    DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, count, state.sunBandEdges,
-                          state.sunLowSunRgba >> 8);
+    DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, count, state.sunBandEdges, state.sunLowSunRgba >> 8,
+                          ramp);
 }
 
 // The screenshot row: the size presets, and what the last one did. The frame
@@ -367,7 +366,9 @@ void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStat
         // band edge when stepped, every hour when smooth.
         const ImVec2 at = ImGui::GetCursorScreenPos ();
         const ImVec2 size (ImGui::GetContentRegionAvail ().x, font);
-        DrawSunStudyRampBar (draw, at, size, view.bandCount, view.bandEdges, view.blueThreshold, view.lowSunRgba >> 8);
+        // The ticks below carry the hours, so the cells stay unlabelled here.
+        DrawSunStudyRampBar (draw, at, size, view.bandCount, view.bandEdges, view.blueThreshold, view.lowSunRgba >> 8,
+                             false, { view.ramp, size_t (view.rampCount) });
         ImGui::Dummy (size);
         std::vector<float> ticks;
         if (view.bandCount > 0)
@@ -435,6 +436,9 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     view.shadowRgba = state.sunShadowRgba;
     view.shadowOverlay =
         state.sunShadowOverlay && state.shadowsEnabled && state.shadowMode == int (DiligentShadowMode::Pcf);
+    const auto ramp = SunStudyRampStops (state.sunGradientPreset, state.sunGradientCustom, state.sunGradientFlipped);
+    view.rampCount = int (ramp.size ());
+    std::copy (ramp.begin (), ramp.end (), view.ramp);
     if (state.sunGradientStepped) {
         view.bandCount = std::clamp (state.sunBandCount, kSunBandsMin, kSunBandsMax);
         std::copy (state.sunBandEdges, state.sunBandEdges + 11, view.bandEdges);

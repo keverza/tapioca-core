@@ -164,6 +164,20 @@ bool IsShuttingDown ()
     return shuttingDown;
 }
 
+// Drops the job that will complete `completion` if it is still queued. False
+// means it has been dispatched: it is running, or has run, on the main thread.
+bool RevokeQueued (const std::shared_ptr<Completion>& completion)
+{
+    std::lock_guard<std::mutex> lock (queueMutex);
+    for (auto it = jobQueue.begin (); it != jobQueue.end (); ++it) {
+        if (it->completion == completion) {
+            jobQueue.erase (it);
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 namespace evp {
@@ -236,17 +250,7 @@ bool MainThreadGate::Invoke (const std::function<void ()>& fn, int timeoutMs, GS
         // run against a caller that has already given up. Losing this race means
         // the job is executing (or has just executed) on the main thread, which
         // is why `fn` must capture by value — see the header's contract.
-        bool revoked = false;
-        {
-            std::lock_guard<std::mutex> lock (queueMutex);
-            for (auto it = jobQueue.begin (); it != jobQueue.end (); ++it) {
-                if (it->completion == completion) {
-                    jobQueue.erase (it);
-                    revoked = true;
-                    break;
-                }
-            }
-        }
+        const bool revoked = RevokeQueued (completion);
         error = GS::UniString::Printf ("MainThreadGate: timed out after %d ms — posted but never dispatched (%s). "
                                        "The main event loop is blocked (a modal dialog, or a live user-input pick).",
                                        timeoutMs, revoked ? "job revoked" : "job already in flight");
@@ -254,6 +258,55 @@ bool MainThreadGate::Invoke (const std::function<void ()>& fn, int timeoutMs, GS
     }
     if (completion->WasCancelled ()) {
         error = "MainThreadGate: the add-on shut down before the job was dispatched.";
+        return false;
+    }
+    return true;
+}
+
+bool MainThreadGate::InvokeUnlessStopped (const std::function<void ()>& fn, int timeoutMs,
+                                          const std::atomic<bool>& stop, GS::UniString& error,
+                                          gatewait::Outcome* outcome)
+{
+    gatewait::Outcome ignored = gatewait::Outcome::TimedOut;
+    gatewait::Outcome& result = outcome != nullptr ? *outcome : ignored;
+    result = gatewait::Outcome::TimedOut;
+    if (IsShuttingDown ()) {
+        error = "MainThreadGate: the add-on is shutting down.";
+        return false;
+    }
+    // On the main thread there is no queue to be stuck in: inline, like Invoke.
+    if (IsMainThread ()) {
+        statInline.fetch_add (1, std::memory_order_relaxed);
+        fn ();
+        result = gatewait::Outcome::Completed;
+        return true;
+    }
+
+    auto completion = std::make_shared<Completion> ();
+    if (!PostJob (Job { fn, completion }, error))
+        return false;
+
+    result = gatewait::Wait (
+        timeoutMs, [&completion] (int ms) { return completion->WaitFor (ms); }, [&stop] { return stop.load (); },
+        [&completion] { return RevokeQueued (completion); });
+
+    if (result == gatewait::Outcome::Abandoned) {
+        // ⚠️ NOT A TIMEOUT, AND NOT COUNTED AS ONE. The gate was not slow: its
+        // caller was told to stop, most likely by the main thread itself.
+        error = "MainThreadGate: the caller was stopped before the job was dispatched (job revoked).";
+        return false;
+    }
+    if (result == gatewait::Outcome::TimedOut) {
+        statTimeouts.fetch_add (1, std::memory_order_relaxed);
+        const bool revoked = RevokeQueued (completion);
+        error = GS::UniString::Printf ("MainThreadGate: timed out after %d ms — posted but never dispatched (%s). "
+                                       "The main event loop is blocked (a modal dialog, or a live user-input pick).",
+                                       timeoutMs, revoked ? "job revoked" : "job already in flight");
+        return false;
+    }
+    if (completion->WasCancelled ()) {
+        error = "MainThreadGate: the add-on shut down before the job was dispatched.";
+        result = gatewait::Outcome::TimedOut;
         return false;
     }
     return true;

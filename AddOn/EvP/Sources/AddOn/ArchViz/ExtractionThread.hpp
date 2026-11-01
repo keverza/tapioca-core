@@ -244,8 +244,13 @@ class ExtractionWorker final {
     // Stops the pass and JOINS. Safe when not running.
     // ⚠️ ONLY WHERE A BOUNDED BLOCK IS ACCEPTABLE — unload, viewer close, a
     // restart. Called from the main thread while the worker is inside an Invoke,
-    // this waits for that Invoke to time out (the worker is waiting for the very
-    // thread now sitting in join()), which is why the slice timeout is short.
+    // the worker is waiting for the very thread now sitting in join(). The
+    // model acquire and the walk's slices wait with InvokeUnlessStopped, so a
+    // job still queued is revoked within ~10 ms and the join returns
+    // (Python/GateWait.hpp). Before that, a pass started and restarted in one
+    // main-thread turn -- the menu's viewer open -- froze Archicad for the whole
+    // 20 s acquire timeout (2026-11-01, #114). The observer arming slices
+    // still use plain Invoke and are bounded by the short slice timeout.
     void Stop ();
 
     // Flag only, no join — for main-thread callers that must never block.

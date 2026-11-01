@@ -29,6 +29,7 @@
 // THREADS. `Set`/`Clear` and the preparations are MAIN THREAD; the 3D overlay
 // receives what it draws through its own lock-free hand-over, never this store.
 
+#include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/PlanOverlayContent.hpp"
 
 #include <cstdint>
@@ -109,16 +110,14 @@ struct PointSet {
     float sizeMetres = 0.1f;
 };
 
-// A value -> colour ramp: sun hours, shadow, clearance, slope, visibility. Stops are
-// positions 0..1 along [min, max], ascending, at most `kMaxStops`.
-struct ColourStop {
-    float at = 0.0f;
-    uint32_t rgba = 0xFFFFFFFFu;
-};
-constexpr size_t kMaxStops = 16;
-
+// ColourStop and kMaxStops are the gradient library's (ArchViz/GradientLibrary.hpp).
 struct Colormap {
     std::vector<ColourStop> stops;
+    // The gradient library id the stops came from; empty for explicit stops. It
+    // travels with the ramp so the HUD picker shows the current choice and a
+    // display-only recolour finds every ramp drawn from the same preset (#102).
+    std::string presetId;
+    bool flipped = false; // the preset's stops end for end (the HUD picker's Flip)
     double min = 0.0;
     double max = 1.0;
     bool autoRange = true;  // min and max from the values; false when the caller set them
@@ -134,8 +133,9 @@ struct Colormap {
     std::string greenControl;
 };
 
-// The named ramps a caller can ask for instead of writing stops. False for a name
-// this does not know; `stops` is untouched then.
+// The named ramps a caller can ask for instead of writing stops -- every id in the
+// gradient library, the ten original names among them. False for a name this does
+// not know; `stops` is untouched then.
 bool PresetStops (const std::string& name, std::vector<ColourStop>& stops);
 
 enum class Shading : uint8_t {
@@ -537,6 +537,14 @@ uint64_t Set (Layer layer);
 // A panel ramp's native drag updates only colour styling; measured geometry/values stay immutable.
 bool SetRampCutoff (const std::string& layer, const std::string& control, double value);
 bool SetRampGreen (const std::string& layer, const std::string& control, double value);
+// The HUD's gradient picker (#102): every colormap of `layer` drawn from preset `from` --
+// meshes, legends, panel ramps and bars -- takes preset `to`'s stops; range, bands and
+// cutoff/green anchors stay. The choice is REMEMBERED for the layer until `ClearAll`, so a
+// script that republishes the layer with its own preset keeps the user's colours.
+// `to` kCustomGradientId takes `custom`'s 2..16 stops (the picker's stop editor).
+// Display only: no value changes. False when nothing changed or `to` is unknown.
+bool SetRampPreset (const std::string& layer, const std::string& from, const std::string& to,
+                    const std::vector<ColourStop>& custom = {}, bool flipped = false);
 // Remove one layer; false when there was none of that name.
 bool Clear (const std::string& name);
 // Every caller layer; the reserved ones stay.

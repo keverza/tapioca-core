@@ -43,6 +43,7 @@
 // re-derived — and `MeshIndexHash` refuses the whole element if the geometry
 // the viewer holds is not the geometry the study measured.
 
+#include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/MeshGroups.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudyTextureDelta.hpp"
@@ -224,6 +225,9 @@ struct SunStudyViewSettings {
     // The visibility gradient's ends, 0xRRGGBBAA (sRGB): not visible, visible.
     uint32_t visibilityLowRgba = 0xB84E45FFu;
     uint32_t visibilityHighRgba = 0x4B8358FFu;
+    // A gradient preset's stops instead of the two colours (#102); 0 keeps them.
+    overlaylayers::ColourStop visibilityRamp[overlaylayers::kMaxStops] = {};
+    int visibilityRampCount = 0;
     float blueThreshold = -1.0f; // disabled; otherwise hours below this are kSunLowSunHex
     uint32_t firstShadowStep = 0;
     uint32_t endShadowStep = 0xffffffffu;
@@ -244,6 +248,10 @@ struct SunStudyViewSettings {
     // split at `bandEdges` (ArchViz/SunStudyPreview.hpp).
     int bandCount = 0;
     float bandEdges[11] = {};
+    // The hours colours: the HUD's gradient preset's stops (#102); fewer than two
+    // keeps the scene's default ramp (ArchViz/SunStudyPreview.hpp kSunLegacyRamp).
+    overlaylayers::ColourStop ramp[overlaylayers::kMaxStops] = {};
+    int rampCount = 0;
 };
 
 // Build one element's side car for the ROLE view.

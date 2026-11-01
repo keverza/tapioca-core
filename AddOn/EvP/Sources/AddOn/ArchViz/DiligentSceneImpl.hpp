@@ -412,6 +412,8 @@ struct geomsrv::archviz::DiligentScene::Impl {
     bool sunFilterHide = false;
     bool sunTintSuppressed = false; // SunStudyViewSettings::suppressed
     uint32_t visibilityLowRgba = 0xB84E45FFu, visibilityHighRgba = 0x4B8358FFu;
+    overlaylayers::ColourStop visibilityRamp[overlaylayers::kMaxStops] = {};
+    int visibilityRampCount = 0;
     float sunBlueThreshold = -1.0f;
     uint32_t sunFirstShadowStep = 0;
     uint32_t sunEndShadowStep = 0xffffffffu;
@@ -438,6 +440,8 @@ struct geomsrv::archviz::DiligentScene::Impl {
     uint32_t sunShadowRgba = 0x00000073u;
     int sunBandCount = 0;
     float sunBandEdges[11] = {};
+    overlaylayers::ColourStop sunRamp[overlaylayers::kMaxStops] = {};
+    int sunRampCount = 0;
     // ---- what the last drawn frame actually did with the overlay ------------
     // ⚠️ LIFETIME COUNTERS, NOT PER-FRAME FLAGS. The question they answer is "did
     // the overlay ever fail to draw something it should have", and a flag that

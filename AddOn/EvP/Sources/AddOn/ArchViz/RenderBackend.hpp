@@ -39,14 +39,16 @@ enum class RenderBackend : uint8_t {
 
 // What the owner asked for. `Auto` is the only route to D3D12.
 //
-// ⚠️ THE DEFAULT IS D3D11 UNTIL THE A5 COMPARISON PASSES (RE51.D2 acceptance:
-// "D3D12 matches D3D11 on the A5 scenes before it becomes the preferred
-// backend"). Changing the default is its own commit, made after that run.
+// ⚠️ THE DEFAULT IS AUTO: D3D12 on a qualified ray-tracing adapter, D3D11 on every
+// other machine and after any D3D12 failure. Flipped on 2026-11-01 by the owner's
+// decision after RE51.D2 passed every live check on the reference machine; the A5
+// pixel comparison that was to gate this was deferred and WAIVED, not run. D3D11
+// stays reachable at any time with Tapioca.SetViewerBackend {"backend":"d3d11"}.
 enum class RenderBackendPreference : uint8_t {
     D3D11 = 0,
     Auto = 1,
 };
-constexpr RenderBackendPreference kDefaultRenderBackendPreference = RenderBackendPreference::D3D11;
+constexpr RenderBackendPreference kDefaultRenderBackendPreference = RenderBackendPreference::Auto;
 
 enum class RenderAdapterKind : uint8_t {
     Unknown = 0,

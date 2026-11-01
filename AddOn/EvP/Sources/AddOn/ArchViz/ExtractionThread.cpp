@@ -254,14 +254,15 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     const MeshStore::FullPassScope inFlight (!partial);
     auto baseSnapshot = MeshStore::Get ().Shared ();
 
-    const auto fail = [this, started] (const std::string& why) {
+    const auto fail = [this, started] (const std::string& why, bool console = true) {
         {
             std::lock_guard<std::mutex> lock (mutex_);
             progress_.phase = why;
             progress_.elapsedMs = NowMs () - started;
         }
         ArchVizLog ("extraction: " + why);
-        hudconsole::Error ("Model", "not read: " + why);
+        if (console)
+            hudconsole::Error ("Model", "not read: " + why);
     };
 
     {
@@ -306,7 +307,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
 
     const int64_t acquireStart = NowMs ();
     GS::UniString gateErr;
-    const bool acquired = evp::MainThreadGate::Get ().Invoke (
+    evp::gatewait::Outcome acquireOutcome = evp::gatewait::Outcome::TimedOut; // Abandoned: superseded, not slow
+    const bool acquired = evp::MainThreadGate::Get ().InvokeUnlessStopped (
         [handle, materials, env, haveEnv, substances, storeys, full, wantStorySlices] {
             const auto started = std::chrono::steady_clock::now ();
             auto model = std::make_unique<ModelerAPI::Model> ();
@@ -335,7 +337,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
             handle->captureMilliseconds =
                 std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
         },
-        AcquireTimeoutMs, gateErr);
+        AcquireTimeoutMs, stopFlag_, gateErr, &acquireOutcome);
     const int64_t acquireMs = NowMs () - acquireStart;
 
     {
@@ -350,11 +352,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         // generating the 3D model right now) and may finish after this line; the
         // flag is what tells it to destroy what it built instead of leaking it.
         handle->abandoned.store (true);
-        fail ("gave up waiting " + std::to_string (AcquireTimeoutMs / 1000) +
-              "s for the 3D model. Archicad is almost certainly GENERATING it - "
-              "that happens when the 3D window has never been opened, or when an "
-              "edit in a 2D window invalidated it. Open the 3D window once, let it "
-              "finish drawing, then refresh.");
+        const bool stopped = acquireOutcome == evp::gatewait::Outcome::Abandoned; // no console error
+        fail (extractionslice::AcquireFailure (stopped, AcquireTimeoutMs, acquireMs), !stopped);
         return false;
     }
     if (handle->model == nullptr) {
@@ -385,12 +384,14 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
 
     // From here on the model MUST be released through the gate, on every exit
     // path. One lambda, called from each of them.
-    const auto releaseModel = [handle] () {
+    const auto releaseModel = [this, handle] () {
         if (handle->model == nullptr)
             return;
         ModelerAPI::Model* doomed = handle->model;
         handle->model = nullptr;
         GS::UniString err;
+        if (stopFlag_.load () && evp::MainThreadGate::Get ().Post ([doomed] { delete doomed; }, err))
+            return; // ⚠️ stopped: a joining main thread would revoke an Invoke, leaking it (GateWait.hpp)
         // ⚠️ BY VALUE, and it deletes whenever it runs — including LATE, after a
         // timeout. That is the correct outcome: the object is only ever touched
         // by whoever runs this job, on the main thread. If the gate is gone
@@ -501,7 +502,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         // read failed or the project has no classifiable materials, and walking
         // every body to record `Unknown` for all of them would be pure cost.
         const bool observeSubstances = full && !substances->byAttribute.empty ();
-        const bool ok = evp::MainThreadGate::Get ().Invoke (
+        const bool ok = evp::MainThreadGate::Get ().InvokeUnlessStopped (
             [model, count, st, wanted, sliceMs, observeSubstances, substances, handle] {
                 st->started.store (true);
                 if (modelwatch::CaptureStamp () != handle->captureStamp) {
@@ -511,7 +512,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                 }
                 extractionslice::Run (*model, count, *st, *wanted, sliceMs, observeSubstances, *substances);
             },
-            SliceTimeoutMs, sliceErr);
+            SliceTimeoutMs, stopFlag_, sliceErr); // unless stopped, as the acquire
         const int64_t sliceElapsed = NowMs () - sliceStart;
 
         // ⚠️ WAIT FOR A TIMED-OUT SLICE THAT STARTED, NEVER RETRY IT - see the

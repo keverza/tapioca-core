@@ -1,6 +1,7 @@
 // ArchViz/OverlayLayers -- see the header.
 
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/OverlayRampChoices.hpp"
 #include "ArchViz/GraphicsSettings.hpp"
 
 #include <algorithm>
@@ -75,6 +76,9 @@ std::string ValidateColormap (const Colormap& colormap)
 {
     if (colormap.stops.size () < 2 || colormap.stops.size () > kMaxStops)
         return "a colour ramp has 2 to 16 stops";
+    if (!colormap.presetId.empty () && colormap.presetId != kCustomGradientId &&
+        FindGradientPreset (colormap.presetId) == nullptr)
+        return "no colour ramp is called \"" + colormap.presetId + "\"";
     for (size_t i = 0; i < colormap.stops.size (); ++i) {
         if (!InRange (colormap.stops[i].at, 0.0f, 1.0f))
             return "a stop's position is 0 to 1";
@@ -103,28 +107,6 @@ std::string ValidateColormap (const Colormap& colormap)
         return "a green control needs a green anchor and an id of at most 64 bytes";
     return std::string ();
 }
-
-// The ramps, as the matplotlib and ColorBrewer originals at nine even stops -- enough
-// that a linear interpolation between them is within a shade of the real curve.
-struct Preset {
-    const char* name;
-    uint32_t rgb[9];
-};
-constexpr Preset kPresets[] = {
-    { "viridis", { 0x440154, 0x472D7B, 0x3B528B, 0x2C728E, 0x21918C, 0x28AE80, 0x5EC962, 0xADDC30, 0xFDE725 } },
-    { "inferno", { 0x000004, 0x1F0C48, 0x550F6D, 0x88226A, 0xBA3655, 0xE35933, 0xF98E09, 0xF8C932, 0xFCFFA4 } },
-    { "magma", { 0x000004, 0x1C1044, 0x4F127B, 0x812581, 0xB5367A, 0xE55064, 0xFB8761, 0xFEC287, 0xFCFDBF } },
-    { "plasma", { 0x0D0887, 0x4C02A1, 0x7E03A8, 0xA92395, 0xCC4778, 0xE56B5D, 0xF89441, 0xFDC328, 0xF0F921 } },
-    { "turbo", { 0x30123B, 0x4662D7, 0x36AAF9, 0x1AE4B6, 0x72FE5E, 0xC8EF34, 0xFABA39, 0xF66B19, 0x7A0403 } },
-    { "coolwarm", { 0x3B4CC0, 0x6282EA, 0x8DB0FE, 0xB8D0F9, 0xDDDDDD, 0xF5C4AD, 0xF49A7B, 0xDE604D, 0xB40426 } },
-    { "greys", { 0x000000, 0x202020, 0x404040, 0x606060, 0x808080, 0x9F9F9F, 0xBFBFBF, 0xDFDFDF, 0xFFFFFF } },
-    // Few hours of sun reads cold and dark, many reads warm and light.
-    { "sunhours", { 0x081D58, 0x253494, 0x225EA8, 0x1D91C0, 0x41B6C4, 0x7FCDBB, 0xC7E9B4, 0xFEE391, 0xFEC44F } },
-    // Flat to steep: ColorBrewer RdYlGn, reversed.
-    { "slope", { 0x1A9850, 0x66BD63, 0xA6D96A, 0xD9EF8B, 0xFFFFBF, 0xFEE08B, 0xFDAE61, 0xF46D43, 0xD73027 } },
-    // Too low to clear: the same ramp the other way -- red is the problem.
-    { "clearance", { 0xD73027, 0xF46D43, 0xFDAE61, 0xFEE08B, 0xFFFFBF, 0xD9EF8B, 0xA6D96A, 0x66BD63, 0x1A9850 } },
-};
 
 // What a HUD panel may hold. Its budgets keep one panel to a size ImGui lays out in
 // well under a frame, on the main thread, whenever the layers change.
@@ -326,15 +308,11 @@ bool DrawnIn (Views views, Views view)
 
 bool PresetStops (const std::string& name, std::vector<ColourStop>& stops)
 {
-    for (const Preset& preset : kPresets) {
-        if (name != preset.name)
-            continue;
-        stops.clear ();
-        for (size_t i = 0; i < 9; ++i)
-            stops.push_back ({ float (i) / 8.0f, (preset.rgb[i] << 8) | 0xFFu });
-        return true;
-    }
-    return false;
+    const GradientPreset* preset = FindGradientPreset (name);
+    if (preset == nullptr)
+        return false;
+    stops.assign (preset->Stops ().begin (), preset->Stops ().end ());
+    return true;
 }
 
 namespace {
@@ -599,6 +577,7 @@ Summary Summarise (const Layer& layer)
 
 uint64_t Set (Layer layer)
 {
+    rampchoices::Apply (layer); // the HUD picker's colours outlive a republish
     std::shared_ptr<const Layer> shared = std::make_shared<const Layer> (std::move (layer));
     for (std::shared_ptr<const Layer>& existing : g_layers) {
         if (existing->name == shared->name) {
@@ -676,6 +655,21 @@ bool SetRampGreen (const std::string& name, const std::string& control, double v
     return false;
 }
 
+bool SetRampPreset (const std::string& name, const std::string& from, const std::string& to,
+                    const std::vector<ColourStop>& custom, bool flipped)
+{
+    for (const auto& existing : g_layers) {
+        if (existing->name != name)
+            continue;
+        Layer layer = *existing;
+        if (!rampchoices::Recolour (layer, from, to, custom, flipped))
+            return false;
+        Set (std::move (layer));
+        return true;
+    }
+    return false;
+}
+
 bool Clear (const std::string& name)
 {
     const auto end =
@@ -690,6 +684,7 @@ bool Clear (const std::string& name)
 
 void ClearAll ()
 {
+    rampchoices::Forget ();
     const auto end =
         std::remove_if (g_layers.begin (), g_layers.end (),
                         [] (const std::shared_ptr<const Layer>& layer) { return !Reserved (layer->name); });
@@ -701,6 +696,7 @@ void ClearAll ()
 
 void ClearEverything ()
 {
+    rampchoices::Forget ();
     if (g_layers.empty ())
         return;
     g_layers.clear ();

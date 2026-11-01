@@ -32,11 +32,13 @@
 #include "ArchViz/AnalysisLiveRerun.hpp"
 #include "ArchViz/AnalysisTabs.hpp"
 #include "ArchViz/DiligentScene.hpp" // ElementInfo, for the hover callout
+#include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/TraceAnnotationLayer.hpp"
 
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace Diligent {
 struct IDeviceContext;
@@ -146,15 +148,22 @@ struct HudState {
     float sunBlueThreshold = 2.5f;
     // The hours view's display postprocess (PLAT-RE156): the viewer's current
     // sun shadows over the analysis colour, and the smooth / stepped gradient.
-    // Stepped starts at kSunBandsDefault (4) bands, evenly split with the open
-    // band at 9 h+; the edges are the legend's grips. None of it re-runs a study.
+    // Stepped is the default (#102), at kSunBandsDefault (10) bands: one per
+    // hour with the open band at 9 h+; the edges are the legend's grips. None
+    // of it re-runs a study.
     bool sunShadowOverlay = false;
     // Their colours, 0xRRGGBBAA sRGB, from the inline swatches beside each toggle.
     uint32_t sunShadowRgba = 0x00000073u; // black at 45%
     uint32_t sunLowSunRgba = 0x1F5FD1FFu;
-    bool sunGradientStepped = false;
-    int sunBandCount = 4;
-    float sunBandEdges[11] = { 3.0f, 6.0f, 9.0f };
+    bool sunGradientStepped = true;
+    int sunBandCount = 10;
+    float sunBandEdges[11] = { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 10.0f };
+    // The hours colours: a gradient library id (#102), the warm sunlight preset
+    // (kSunRampDefaultPreset) unless the user picks another. Display only.
+    std::string sunGradientPreset = "sun-hours-classic";
+    bool sunGradientFlipped = false; // the preset end for end
+    // The user's own stops, when sunGradientPreset is kCustomGradientId.
+    std::vector<overlaylayers::ColourStop> sunGradientCustom;
     // The sun study SCREENSHOT (ArchViz/ViewerScreenshot.cpp): the preset, an
     // index into kViewerScreenshotScales; the request the frame loop takes; and
     // what the last one did, path or reason.
@@ -250,6 +259,10 @@ struct HudState {
     // The analysis shading's colours, 0xRRGGBBAA, set by the tabs' pickers.
     uint32_t visibilityLowRgba = 0xB84E45FFu;  // not visible
     uint32_t visibilityHighRgba = 0x4B8358FFu; // visible
+    // Or a gradient library preset across not visible .. visible (#102); empty: the two colours.
+    std::string visibilityGradientPreset;
+    std::vector<overlaylayers::ColourStop> visibilityGradientCustom; // kCustomGradientId's stops
+    bool visibilityGradientFlipped = false;
     uint32_t viewpointFillRgba = 0xF5C44F80u;
     uint32_t viewpointEdgeRgba = 0xE1A428E6u;    // where a ray reached the radius; the guide circle
     uint32_t viewpointBlockedRgba = 0xEC6240F0u; // where Context stopped it

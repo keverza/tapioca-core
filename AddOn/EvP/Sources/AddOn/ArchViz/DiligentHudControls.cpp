@@ -3,6 +3,7 @@
 // colour swatch with a picker. Declared in DiligentHud.hpp.
 
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/GradientPresetChoice.hpp"
 
 #include <imgui.h>
 
@@ -95,17 +96,8 @@ bool AdaptiveSlider (const char* label, double& value, double& range, bool& held
 
 bool ColourPicker (const char* label, uint32_t& rgba, bool alpha)
 {
-    float colour[4] = { float ((rgba >> 24) & 0xffu) / 255.0f, float ((rgba >> 16) & 0xffu) / 255.0f,
-                        float ((rgba >> 8) & 0xffu) / 255.0f, float (rgba & 0xffu) / 255.0f };
-    const ImGuiColorEditFlags flags =
-        ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoDragDrop |
-        (alpha ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha);
-    if (!ImGui::ColorEdit4 (label, colour, flags))
-        return false;
-    rgba = 0;
-    for (int channel = 0; channel < 4; ++channel)
-        rgba = (rgba << 8) | uint32_t (std::lround ((std::min) (1.0f, (std::max) (0.0f, colour[channel])) * 255.0f));
-    return true;
+    // Cancel or Escape in its popup puts back the colour it opened on (#102).
+    return gradientchoice::ColourChoice (label, rgba, alpha, label);
 }
 
 } // namespace geomsrv::archviz::viewerhud

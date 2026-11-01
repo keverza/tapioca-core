@@ -1,6 +1,7 @@
 #include "ArchViz/DiligentHudShell.hpp"
 
 #include "ArchViz/AnalysisLiveRerun.hpp"
+#include "ArchViz/GradientPresetChoice.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/ViewpointOverlayGeometry.hpp"
@@ -431,15 +432,29 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
 
     // Both visibility tabs share the gradient; the tint redraws with it at once.
     ImGui::SeparatorText ("Display");
-    ColourPicker ("not visible", state.visibilityLowRgba, false);
-    ImGui::SameLine ();
-    ColourPicker ("visible", state.visibilityHighRgba, false);
-    ImGui::SameLine ();
+    // Two colours, or any gradient preset (#102), the view ones listed first.
+    // A custom gradient starts from the two colours.
+    if (state.visibilityGradientCustom.size () < 2)
+        state.visibilityGradientCustom = { { 0.0f, state.visibilityLowRgba }, { 1.0f, state.visibilityHighRgba } };
+    gradientchoice::GradientPresetChoice ("##visibility-preset", state.visibilityGradientPreset,
+                                          state.visibilityGradientCustom, state.visibilityGradientFlipped,
+                                          ImGui::GetContentRegionAvail ().x, overlaylayers::GradientCategory::View,
+                                          "Two colours");
+    if (state.visibilityGradientPreset.empty ()) {
+        ColourPicker ("not visible", state.visibilityLowRgba, false);
+        ImGui::SameLine ();
+        ColourPicker ("visible", state.visibilityHighRgba, false);
+        ImGui::SameLine ();
+    }
     if (ImGui::SmallButton ("Reset##visibility-colours")) {
         const HudState defaults;
         state.visibilityLowRgba = defaults.visibilityLowRgba;
         state.visibilityHighRgba = defaults.visibilityHighRgba;
+        state.visibilityGradientPreset.clear ();
+        state.visibilityGradientCustom.clear ();
+        state.visibilityGradientFlipped = false;
     }
+    ImGui::SetItemTooltip ("Back to the two default colours.");
     if (ownResult) {
         if (ImGui::SmallButton ("Clear visibility")) {
             visibilitystudy::ClearDisplay ();

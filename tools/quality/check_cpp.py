@@ -558,6 +558,11 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # The runner writes one line per run to the existing host log: the requested
     # and resolved sun backend (#54). It controls no renderer.
     ("NativeCommands/SunStudyHudRunner.cpp", "ArchViz/ArchVizLog.hpp"),
+    # The viewer palette's status bar (#96) reads the runner's and the follower's
+    # plain-value status (Current/State) to show study progress and freshness.
+    # Read-only: it submits, cancels and arms nothing.
+    ("ArchViz/ViewerStatusSources.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
+    ("ArchViz/ViewerStatusSources.cpp", "NativeCommands/SunStudyFollowerDriver.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SceneCmdQueue.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SunStudyOverlay.hpp"),
@@ -1221,6 +1226,8 @@ def _check_architecture_srb_variables(failures: list[str]) -> None:
         declared.update(match.group(1) for match in declare_pattern.finditer(text))
 
     source = shaders.read_text(encoding="utf-8")
+    # Adjacent raw literals are one stage (check_hlsl.py joins them the same way).
+    source = re.sub(r'\)hlsl"\s*(?://[^\n]*\s*)*R"hlsl\(', "", source)
     blocks = dict(re.findall(r'(\w+)\s*=\s*R"hlsl\((.*?)\)hlsl";', source, re.S))
     # A resource declaration at the top level of a stage: `Texture2D<float> g_x;`,
     # `Texture2D g_x;`, `Buffer<uint> g_x;`. Samplers are excluded -- they are
