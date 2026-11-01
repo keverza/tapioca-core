@@ -1,5 +1,6 @@
 #include "ArchViz/GhPreviewLayer.hpp"
 
+#include "ArchViz/DiligentNativeInterop.hpp"
 #include "ArchViz/GhPreviewGeometry.hpp"
 
 #include <windows.h>
@@ -298,9 +299,8 @@ bool EnsureCapacity (Diligent::IRenderDevice* device, RefCntAutoPtr<Diligent::IB
     Diligent::BufferDesc desc;
     desc.Name = name;
     desc.Size = Diligent::Uint64 (grown * sizeof (T));
-    desc.Usage = Diligent::USAGE_DYNAMIC;
     desc.BindFlags = bind;
-    desc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+    PreparePersistentGeometryBuffer (device, desc); // uploaded on change, drawn every frame
     device->CreateBuffer (desc, nullptr, &buffer);
     if (buffer == nullptr) {
         capacity = 0;
@@ -317,14 +317,10 @@ bool Fill (Diligent::IDeviceContext* context, Diligent::IBuffer* buffer, const s
 {
     if (data.empty ())
         return true;
-    Diligent::PVoid mapped = nullptr;
-    context->MapBuffer (buffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
-    if (mapped == nullptr) {
-        error = std::string ("Diligent MapBuffer(") + name + ") failed";
+    if (!WritePersistentGeometryBuffer (context, buffer, data.data (), data.size () * sizeof (T))) {
+        error = std::string ("writing ") + name + " failed";
         return false;
     }
-    std::memcpy (mapped, data.data (), data.size () * sizeof (T));
-    context->UnmapBuffer (buffer, Diligent::MAP_WRITE);
     return true;
 }
 

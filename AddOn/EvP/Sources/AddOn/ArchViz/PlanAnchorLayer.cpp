@@ -1,9 +1,10 @@
 #include "ArchViz/PlanAnchorLayer.hpp"
 
+#include "ArchViz/DiligentNativeInterop.hpp"
 #include "ArchViz/PlanAnchorRibbon.hpp"
 
 #include <windows.h>
-#include <d3d11.h>   // Must precede any Diligent D3D11 interop header (Probe 1a).
+#include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
 #include <Buffer.h>
 #include <DeviceContext.h>
 #include <GraphicsTypes.h>
@@ -30,7 +31,7 @@ namespace {
 // worst failure available.
 struct PlanAnchorConstants {
     float viewProj[16];
-    float expand[4];        // xy = half the line width as NDC, zw unused
+    float expand[4]; // xy = half the line width as NDC, zw unused
     float color[4];
 };
 
@@ -108,7 +109,7 @@ void main (in PSInput psIn, out PSOutput psOut)
 }
 )hlsl";
 
-}   // namespace
+} // namespace
 
 struct PlanAnchorLayer::Impl {
     RefCntAutoPtr<Diligent::IPipelineState> pso;
@@ -120,11 +121,22 @@ struct PlanAnchorLayer::Impl {
     bool ready = false;
 };
 
-PlanAnchorLayer::PlanAnchorLayer () : impl_ (new Impl ()) {}
-PlanAnchorLayer::~PlanAnchorLayer () { Shutdown (); }
+PlanAnchorLayer::PlanAnchorLayer () : impl_ (new Impl ())
+{
+}
+PlanAnchorLayer::~PlanAnchorLayer ()
+{
+    Shutdown ();
+}
 
-bool PlanAnchorLayer::IsReady () const { return impl_ != nullptr && impl_->ready; }
-size_t PlanAnchorLayer::VertexCount () const { return impl_ != nullptr ? impl_->vertexCount : 0; }
+bool PlanAnchorLayer::IsReady () const
+{
+    return impl_ != nullptr && impl_->ready;
+}
+size_t PlanAnchorLayer::VertexCount () const
+{
+    return impl_ != nullptr ? impl_->vertexCount : 0;
+}
 
 void PlanAnchorLayer::Shutdown ()
 {
@@ -139,8 +151,8 @@ void PlanAnchorLayer::Shutdown ()
     impl_->ready = false;
 }
 
-bool PlanAnchorLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
-                            uint32_t depthBufferFormat, std::string& error)
+bool PlanAnchorLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                            std::string& error)
 {
     if (device == nullptr) {
         error = "PlanAnchorLayer::Init got no render device";
@@ -186,9 +198,9 @@ bool PlanAnchorLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffe
     }
 
     const Diligent::LayoutElement layout[] = {
-        Diligent::LayoutElement {0, 0, 3, Diligent::VT_FLOAT32, Diligent::False},  // position
-        Diligent::LayoutElement {1, 0, 2, Diligent::VT_FLOAT32, Diligent::False},  // across
-        Diligent::LayoutElement {2, 0, 2, Diligent::VT_FLOAT32, Diligent::False},  // along
+        Diligent::LayoutElement { 0, 0, 3, Diligent::VT_FLOAT32, Diligent::False }, // position
+        Diligent::LayoutElement { 1, 0, 2, Diligent::VT_FLOAT32, Diligent::False }, // across
+        Diligent::LayoutElement { 2, 0, 2, Diligent::VT_FLOAT32, Diligent::False }, // along
     };
 
     Diligent::GraphicsPipelineStateCreateInfo pci;
@@ -218,8 +230,7 @@ bool PlanAnchorLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffe
 
     pci.pVS = vs;
     pci.pPS = ps;
-    pci.PSODesc.ResourceLayout.DefaultVariableType =
-        Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
+    pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
 
     device->CreateGraphicsPipelineState (pci, &impl_->pso);
     if (impl_->pso == nullptr) {
@@ -227,11 +238,9 @@ bool PlanAnchorLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffe
         return false;
     }
 
-    if (auto* v = impl_->pso->GetStaticVariableByName (Diligent::SHADER_TYPE_VERTEX,
-                                                       "PlanAnchorConstants"))
+    if (auto* v = impl_->pso->GetStaticVariableByName (Diligent::SHADER_TYPE_VERTEX, "PlanAnchorConstants"))
         v->Set (impl_->constants);
-    if (auto* v = impl_->pso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL,
-                                                       "PlanAnchorConstants"))
+    if (auto* v = impl_->pso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "PlanAnchorConstants"))
         v->Set (impl_->constants);
 
     impl_->pso->CreateShaderResourceBinding (&impl_->srb, true);
@@ -244,10 +253,8 @@ bool PlanAnchorLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffe
     return true;
 }
 
-bool PlanAnchorLayer::Upload (Diligent::IRenderDevice* device,
-                              Diligent::IDeviceContext* context,
-                              const std::vector<PlanAnchorVertex>& vertices,
-                              std::string& error)
+bool PlanAnchorLayer::Upload (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                              const std::vector<PlanAnchorVertex>& vertices, std::string& error)
 {
     if (!impl_->ready) {
         error = "PlanAnchorLayer::Upload before Init";
@@ -256,7 +263,7 @@ bool PlanAnchorLayer::Upload (Diligent::IRenderDevice* device,
 
     impl_->vertexCount = vertices.size ();
     if (vertices.empty ())
-        return true;                 // an empty anchor set is ordinary: nothing selected
+        return true; // an empty anchor set is ordinary: nothing selected
 
     // Grow only. A storey re-read at the same size costs a map, not an
     // allocation, and the anchors are re-read on every plan change.
@@ -268,9 +275,8 @@ bool PlanAnchorLayer::Upload (Diligent::IRenderDevice* device,
         Diligent::BufferDesc vbd;
         vbd.Name = "Plan anchor vertices";
         vbd.Size = Diligent::Uint64 (capacity * sizeof (PlanAnchorVertex));
-        vbd.Usage = Diligent::USAGE_DYNAMIC;
         vbd.BindFlags = Diligent::BIND_VERTEX_BUFFER;
-        vbd.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+        PreparePersistentGeometryBuffer (device, vbd); // uploaded on change, drawn every frame
         device->CreateBuffer (vbd, nullptr, &impl_->vertices);
         if (impl_->vertices == nullptr) {
             impl_->vertexCapacity = 0;
@@ -281,21 +287,17 @@ bool PlanAnchorLayer::Upload (Diligent::IRenderDevice* device,
         impl_->vertexCapacity = capacity;
     }
 
-    Diligent::PVoid mapped = nullptr;
-    context->MapBuffer (impl_->vertices, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
-    if (mapped == nullptr) {
+    if (!WritePersistentGeometryBuffer (context, impl_->vertices, vertices.data (),
+                                        vertices.size () * sizeof (PlanAnchorVertex))) {
         impl_->vertexCount = 0;
-        error = "Diligent MapBuffer(Plan anchor vertices) failed";
+        error = "writing the plan anchor vertices failed";
         return false;
     }
-    std::memcpy (mapped, vertices.data (), vertices.size () * sizeof (PlanAnchorVertex));
-    context->UnmapBuffer (impl_->vertices, Diligent::MAP_WRITE);
     return true;
 }
 
-void PlanAnchorLayer::Draw (Diligent::IDeviceContext* context, const float viewProj[16],
-                            uint32_t surfaceWidth, uint32_t surfaceHeight,
-                            float widthPixels, uint32_t rgba)
+void PlanAnchorLayer::Draw (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                            uint32_t surfaceHeight, float widthPixels, uint32_t rgba)
 {
     if (!impl_->ready || impl_->vertexCount == 0 || impl_->vertices == nullptr)
         return;
@@ -322,14 +324,12 @@ void PlanAnchorLayer::Draw (Diligent::IDeviceContext* context, const float viewP
     *static_cast<PlanAnchorConstants*> (mapped) = constants;
     context->UnmapBuffer (impl_->constants, Diligent::MAP_WRITE);
 
-    Diligent::IBuffer* vertexBuffers[1] = {impl_->vertices};
-    const Diligent::Uint64 offsets[1] = {0};
-    context->SetVertexBuffers (0, 1, vertexBuffers, offsets,
-                               Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
+    Diligent::IBuffer* vertexBuffers[1] = { impl_->vertices };
+    const Diligent::Uint64 offsets[1] = { 0 };
+    context->SetVertexBuffers (0, 1, vertexBuffers, offsets, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
                                Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
     context->SetPipelineState (impl_->pso);
-    context->CommitShaderResources (impl_->srb,
-                                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->CommitShaderResources (impl_->srb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 
     Diligent::DrawAttribs draw;
     draw.NumVertices = Diligent::Uint32 (impl_->vertexCount);
@@ -337,5 +337,5 @@ void PlanAnchorLayer::Draw (Diligent::IDeviceContext* context, const float viewP
     context->Draw (draw);
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

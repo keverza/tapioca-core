@@ -37,6 +37,8 @@
 struct IDXGISwapChain1;
 
 namespace Diligent {
+struct BufferDesc;
+struct IBuffer;
 struct IDeviceContext;
 struct IRenderDevice;
 struct ITexture;
@@ -67,6 +69,24 @@ void EndNativeFrame (Diligent::IDeviceContext* context);
 // "CBV_SRV_UAV GPU descriptor heap is exhausted" and a null-descriptor write in
 // the driver. D3D11 never showed it because its driver caps queued frames at ~3.
 void EndUnpresentedFrame (Diligent::IDeviceContext* context);
+
+// ---- geometry written when it CHANGES and drawn EVERY frame ------------------
+//
+// ⚠️ A USAGE_DYNAMIC BUFFER DOES NOT KEEP ITS CONTENTS ON D3D12. D3D11 keeps a
+// map-discard's data until the next map; Diligent's D3D12 backend allocates it
+// from a per-frame ring and DISCARDS it at the end of the frame
+// (DeviceContextD3D12Impl: "contents of all dynamic resources is discarded at
+// the end of every frame. A buffer must be mapped before its first use in any
+// frame." -- checked only in Diligent's debug build). A layer that uploads once
+// and draws every frame draws garbage from the second frame on: the 2026-11-01
+// Plan Anchor Probe drew two walls as a wedge across the whole plan.
+//
+// Prepare sets the buffer's usage: USAGE_DYNAMIC + CPU write on D3D11, exactly as
+// before; USAGE_DEFAULT with no CPU access on D3D12, written by UpdateBuffer and
+// kept by the GPU until replaced. Write fills either kind.
+void PreparePersistentGeometryBuffer (Diligent::IRenderDevice* device, Diligent::BufferDesc& desc);
+bool WritePersistentGeometryBuffer (Diligent::IDeviceContext* context, Diligent::IBuffer* buffer, const void* data,
+                                    size_t bytes);
 
 // The clear A/B's native arm and readback are D3D11 calls (DiligentClearAB).
 bool NativeClearABAvailable (Diligent::IDeviceContext* context);

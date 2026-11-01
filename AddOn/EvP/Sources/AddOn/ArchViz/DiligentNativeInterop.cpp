@@ -10,12 +10,14 @@
 #include <CommandQueueD3D12.h>
 #include <DeviceContextD3D11.h>
 #include <DeviceContextD3D12.h>
+#include <Buffer.h>
 #include <RefCntAutoPtr.hpp>
 #include <RenderDevice.h>
 #include <RenderDeviceD3D12.h>
 #include <Texture.h>
 
 #include <cstdio>
+#include <cstring>
 
 namespace geomsrv::archviz {
 namespace {
@@ -110,6 +112,37 @@ void EndUnpresentedFrame (Diligent::IDeviceContext* context)
     context->Flush ();
     context->WaitForIdle ();
     context->FinishFrame ();
+}
+
+void PreparePersistentGeometryBuffer (Diligent::IRenderDevice* device, Diligent::BufferDesc& desc)
+{
+    if (BackendOfDevice (device) == RenderBackend::D3D12) {
+        desc.Usage = Diligent::USAGE_DEFAULT;
+        desc.CPUAccessFlags = Diligent::CPU_ACCESS_NONE;
+    }
+    else {
+        desc.Usage = Diligent::USAGE_DYNAMIC;
+        desc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+    }
+}
+
+bool WritePersistentGeometryBuffer (Diligent::IDeviceContext* context, Diligent::IBuffer* buffer, const void* data,
+                                    size_t bytes)
+{
+    if (context == nullptr || buffer == nullptr || data == nullptr || bytes == 0)
+        return false;
+    if (buffer->GetDesc ().Usage == Diligent::USAGE_DEFAULT) {
+        context->UpdateBuffer (buffer, 0, Diligent::Uint64 (bytes), data,
+                               Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        return true;
+    }
+    Diligent::PVoid mapped = nullptr;
+    context->MapBuffer (buffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
+    if (mapped == nullptr)
+        return false;
+    std::memcpy (mapped, data, bytes);
+    context->UnmapBuffer (buffer, Diligent::MAP_WRITE);
+    return true;
 }
 
 bool NativeClearABAvailable (Diligent::IDeviceContext* context)

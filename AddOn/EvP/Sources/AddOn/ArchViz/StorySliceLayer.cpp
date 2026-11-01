@@ -1,6 +1,7 @@
 #include "ArchViz/StorySliceLayer.hpp"
 // OVERLAY-INVARIANTS.md: indexed geometry only; no camera, composition or depth-policy change.
 
+#include "ArchViz/DiligentNativeInterop.hpp"
 #include "ArchViz/StorySliceGeometry.hpp"
 
 #include <windows.h>
@@ -440,9 +441,8 @@ bool UploadBuffer (Diligent::IRenderDevice* device, Diligent::IDeviceContext* co
         Diligent::BufferDesc vbd;
         vbd.Name = name;
         vbd.Size = Diligent::Uint64 (want * stride);
-        vbd.Usage = Diligent::USAGE_DYNAMIC;
         vbd.BindFlags = bind;
-        vbd.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+        PreparePersistentGeometryBuffer (device, vbd); // uploaded on change, drawn every frame
         device->CreateBuffer (vbd, nullptr, &buffer);
         if (buffer == nullptr) {
             capacity = 0;
@@ -453,15 +453,11 @@ bool UploadBuffer (Diligent::IRenderDevice* device, Diligent::IDeviceContext* co
         capacity = want;
     }
 
-    Diligent::PVoid mapped = nullptr;
-    context->MapBuffer (buffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
-    if (mapped == nullptr) {
+    if (!WritePersistentGeometryBuffer (context, buffer, data, count * stride)) {
         outCount = 0;
-        error = std::string ("Diligent MapBuffer(") + name + ") failed";
+        error = std::string ("writing ") + name + " failed";
         return false;
     }
-    std::memcpy (mapped, data, count * stride);
-    context->UnmapBuffer (buffer, Diligent::MAP_WRITE);
     return true;
 }
 
