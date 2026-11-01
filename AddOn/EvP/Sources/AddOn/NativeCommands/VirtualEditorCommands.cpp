@@ -14,7 +14,6 @@
 #include "ArchViz/SurfaceSwitch.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
-#include <stdexcept>
 
 // OVERLAY-INVARIANTS.md: switch only via the deferred main-thread surface owner.
 // Tapioca.VirtualEditor opens, reports and closes the virtual editor; Tapioca.EditorState
@@ -181,7 +180,7 @@ GS::ObjectState LandscapeSummary (const edit::Document& doc, const std::string& 
     return summary;
 }
 
-GS::ObjectState Export (const edit::Document& doc)
+GS::ObjectState Export (const edit::Document& doc, std::string& error)
 {
     GS::Array<GS::ObjectState> polylines, paths;
     for (const auto& e : doc.entities) {
@@ -232,8 +231,10 @@ GS::ObjectState Export (const edit::Document& doc)
         for (const auto& r : p.sections) {
             double crossfall = 0;
             std::string projectionError;
-            if (!nativecommands::VirtualEditorCrossfallPercent (r.crossfall, crossfall, projectionError))
-                throw std::runtime_error (projectionError);
+            if (!nativecommands::VirtualEditorCrossfallPercent (r.crossfall, crossfall, projectionError)) {
+                error = projectionError;
+                return {};
+            }
             GS::ObjectState q;
             q.Add ("station", r.station);
             q.Add ("widthLeft", r.widthLeft);
@@ -282,8 +283,14 @@ class VirtualEditorCommand : public MainThreadCommand {
         params.Get ("action", action);
         GS::ObjectState result;
         if (const eh::Session* s = hud::VirtualEditor (static_cast<const hud::State&> (*state));
-            s != nullptr && (action == "state" || action == "stop"))
-            result.Add ("document", Export (s->edits.Doc ()));
+            s != nullptr && (action == "state" || action == "stop")) {
+            // A failed typed projection publishes no document payload or NaN.
+            std::string exportError;
+            const auto document = Export (s->edits.Doc (), exportError);
+            if (!exportError.empty ())
+                return NativeCommandResult::Failure (GS::UniString (exportError.c_str (), CC_UTF8));
+            result.Add ("document", document);
+        }
         if (action == "stop")
             Stop (*state, "Tapioca.VirtualEditor stop");
         else if (action == "terrain") {

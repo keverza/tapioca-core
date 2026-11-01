@@ -179,7 +179,6 @@ bool SetWidthEverywhere (std::vector<Section>& sections, double left, double rig
 bool SetTaper (std::vector<Section>& sections, Id id, bool taper, double endLeft, double endRight, std::string& error);
 // A dragged edge: a positive offset is the left edge, a negative one the right.
 bool SetWidthFromOffset (std::vector<Section>& sections, Id id, double offset, std::string& error);
-bool SetCrossfall (std::vector<Section>& sections, Id id, double percent, Fall fall, std::string& error);
 // Ranges keep their share of the length when the plan changes it.
 void RestationSections (std::vector<Section>& sections, double oldLength, double newLength);
 
