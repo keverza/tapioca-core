@@ -75,3 +75,18 @@ def test_the_python_list_matches():
     assert gradients.IDS == tuple(preset["id"] for preset in _presets())
     assert gradients.get("sunlight-warm").stepped is True
     assert gradients.get("cut-fill").min == -2.0
+
+
+def test_the_wrapper_accepts_every_id_and_names_the_unknown():
+    sys.path.insert(0, str(EVP / "Sources" / "PyPackage"))
+    try:
+        from evp import overlay
+    finally:
+        sys.path.pop(0)
+    assert overlay._colormap("sunlight-warm", 0, 11) == {"preset": "sunlight-warm", "min": 0.0, "max": 11.0}
+    try:
+        overlay._colormap("no-such-ramp")
+    except ValueError as error:
+        assert "evp.gradients.IDS" in str(error)
+    else:
+        raise AssertionError("an unknown preset is refused before it is sent")

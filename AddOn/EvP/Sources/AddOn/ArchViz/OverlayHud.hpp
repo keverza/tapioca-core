@@ -221,7 +221,9 @@ struct Change {
     // a building's section on the Floor Plan: `value` the storey Archicad goes to); "selectSlabs" (a
     // flat picked on the locked view: `text` its floor's slab guids, comma separated, for Archicad to
     // select); "display" (Settings' Displays:
-    // `id` and `text` what changed, "slices on", "slices line"); or a control's: "checkbox",
+    // `id` and `text` what changed, "slices on", "slices line"); "rampPreset" (a panel ramp's
+    // colours picked, #102: `id` the preset it showed, `text` the one chosen -- display only,
+    // the layer is recoloured natively); or a control's: "checkbox",
     // "slider", "combo", "tab", "button"
     std::string kind;
     std::string key;   // the panel's; empty for the HUD's own (the text size, Settings)
@@ -345,6 +347,8 @@ bool CriteriaTextActive (const State& state);
 // Live ramp edits drained outside ImGui layout; analysis geometry is never recalculated.
 std::vector<Change> TakeRampCutoffs (State& state);
 std::vector<Change> TakeRampGreens (State& state);
+// The panel ramps' gradient picks since the last take: `id` from, `text` to.
+std::vector<Change> TakeRampPresets (State& state);
 bool MassingDimensions (const State& state);
 std::shared_ptr<State> NewState ();
 // Forgets it all: the project whose layers it named closed (§8).

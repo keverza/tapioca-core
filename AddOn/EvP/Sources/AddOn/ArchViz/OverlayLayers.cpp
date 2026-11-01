@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <map>
 #include <set>
 
 namespace geomsrv {
@@ -22,6 +23,9 @@ constexpr size_t kMaxTextBytes = 512;
 
 std::vector<std::shared_ptr<const Layer>> g_layers; // MAIN THREAD
 uint64_t g_generation = 0;
+// The HUD picker's choices, per layer: the preset a script authored -> the one the user
+// chose (SetRampPreset). Session state: ClearAll forgets it (OVERLAY-INVARIANTS.md §8).
+std::map<std::string, std::map<std::string, std::string>> g_presetChoices; // MAIN THREAD
 
 bool FiniteTriples (const std::vector<double>& points)
 {
@@ -75,6 +79,8 @@ std::string ValidateColormap (const Colormap& colormap)
 {
     if (colormap.stops.size () < 2 || colormap.stops.size () > kMaxStops)
         return "a colour ramp has 2 to 16 stops";
+    if (!colormap.presetId.empty () && FindGradientPreset (colormap.presetId) == nullptr)
+        return "no colour ramp is called \"" + colormap.presetId + "\"";
     for (size_t i = 0; i < colormap.stops.size (); ++i) {
         if (!InRange (colormap.stops[i].at, 0.0f, 1.0f))
             return "a stop's position is 0 to 1";
@@ -571,8 +577,48 @@ Summary Summarise (const Layer& layer)
     return summary;
 }
 
+namespace {
+
+// Every colormap in a layer, the panel items' included.
+template <typename Visit> void EachColormap (Layer& layer, Visit visit)
+{
+    for (auto& mesh : layer.meshes)
+        visit (mesh.colormap);
+    for (auto& legend : layer.legends)
+        visit (legend.colormap);
+    for (auto& panel : layer.panels)
+        for (auto& item : panel.items)
+            visit (item.colormap);
+}
+
+bool Recolour (Colormap& map, const std::string& from, const GradientPreset& to)
+{
+    if (map.presetId.empty () || map.presetId != from || map.presetId == to.id)
+        return false;
+    map.stops.assign (to.Stops ().begin (), to.Stops ().end ());
+    map.presetId = to.id;
+    return true;
+}
+
+void ApplyPresetChoices (Layer& layer)
+{
+    const auto choices = g_presetChoices.find (layer.name);
+    if (choices == g_presetChoices.end ())
+        return;
+    EachColormap (layer, [&] (Colormap& map) {
+        const auto chosen = choices->second.find (map.presetId);
+        if (chosen == choices->second.end ())
+            return;
+        if (const GradientPreset* to = FindGradientPreset (chosen->second))
+            Recolour (map, map.presetId, *to);
+    });
+}
+
+} // namespace
+
 uint64_t Set (Layer layer)
 {
+    ApplyPresetChoices (layer);
     std::shared_ptr<const Layer> shared = std::make_shared<const Layer> (std::move (layer));
     for (std::shared_ptr<const Layer>& existing : g_layers) {
         if (existing->name == shared->name) {
@@ -650,6 +696,44 @@ bool SetRampGreen (const std::string& name, const std::string& control, double v
     return false;
 }
 
+bool SetRampPreset (const std::string& name, const std::string& from, const std::string& to)
+{
+    const GradientPreset* preset = FindGradientPreset (to);
+    if (preset == nullptr || from.empty () || from == to)
+        return false;
+    for (const auto& existing : g_layers) {
+        if (existing->name != name)
+            continue;
+        Layer layer = *existing;
+        bool changed = false;
+        EachColormap (layer, [&] (Colormap& map) { changed = Recolour (map, from, *preset) || changed; });
+        if (!changed)
+            return false;
+        // Remembered against what the SCRIPT wrote: a choice made over an earlier choice
+        // replaces it, and choosing the script's own preset again forgets it.
+        std::map<std::string, std::string>& choices = g_presetChoices[name];
+        bool chained = false;
+        for (auto it = choices.begin (); it != choices.end ();) {
+            if (it->second == from) {
+                chained = true;
+                if (it->first == to) {
+                    it = choices.erase (it);
+                    continue;
+                }
+                it->second = to;
+            }
+            ++it;
+        }
+        if (!chained)
+            choices[from] = to;
+        if (choices.empty ())
+            g_presetChoices.erase (name);
+        Set (std::move (layer));
+        return true;
+    }
+    return false;
+}
+
 bool Clear (const std::string& name)
 {
     const auto end =
@@ -664,6 +748,7 @@ bool Clear (const std::string& name)
 
 void ClearAll ()
 {
+    g_presetChoices.clear ();
     const auto end =
         std::remove_if (g_layers.begin (), g_layers.end (),
                         [] (const std::shared_ptr<const Layer>& layer) { return !Reserved (layer->name); });
@@ -675,6 +760,7 @@ void ClearAll ()
 
 void ClearEverything ()
 {
+    g_presetChoices.clear ();
     if (g_layers.empty ())
         return;
     g_layers.clear ();

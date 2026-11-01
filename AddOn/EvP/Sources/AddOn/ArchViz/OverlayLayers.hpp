@@ -113,6 +113,10 @@ struct PointSet {
 // ColourStop and kMaxStops are the gradient library's (ArchViz/GradientLibrary.hpp).
 struct Colormap {
     std::vector<ColourStop> stops;
+    // The gradient library id the stops came from; empty for explicit stops. It
+    // travels with the ramp so the HUD picker shows the current choice and a
+    // display-only recolour finds every ramp drawn from the same preset (#102).
+    std::string presetId;
     double min = 0.0;
     double max = 1.0;
     bool autoRange = true;  // min and max from the values; false when the caller set them
@@ -532,6 +536,12 @@ uint64_t Set (Layer layer);
 // A panel ramp's native drag updates only colour styling; measured geometry/values stay immutable.
 bool SetRampCutoff (const std::string& layer, const std::string& control, double value);
 bool SetRampGreen (const std::string& layer, const std::string& control, double value);
+// The HUD's gradient picker (#102): every colormap of `layer` drawn from preset `from` --
+// meshes, legends, panel ramps and bars -- takes preset `to`'s stops; range, bands and
+// cutoff/green anchors stay. The choice is REMEMBERED for the layer until `ClearAll`, so a
+// script that republishes the layer with its own preset keeps the user's colours.
+// Display only: no value changes. False when nothing changed or `to` is unknown.
+bool SetRampPreset (const std::string& layer, const std::string& from, const std::string& to);
 // Remove one layer; false when there was none of that name.
 bool Clear (const std::string& name);
 // Every caller layer; the reserved ones stay.

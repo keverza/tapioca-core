@@ -675,6 +675,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudHost.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudOwn.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudDisplays.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/GradientPresetChoice.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudCriteria.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudItems.cpp"
@@ -1006,6 +1007,7 @@ set (EVP_TEST_SOURCES
     test_overlayscene.cpp
     test_overlayscenecells.cpp
     test_gradientlibrary.cpp
+    test_gradientpresetchoice.cpp
     test_overlayhud.cpp
     test_overlayhudcontrols.cpp
     test_overlayhudevents.cpp

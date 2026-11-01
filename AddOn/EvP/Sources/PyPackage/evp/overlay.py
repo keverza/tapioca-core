@@ -30,6 +30,12 @@ a panel's `ramp` is the same bar inside a panel, for a layout of one's own.
             print(event["kind"], event["title"], event["value"])
         seen = got["lastSeq"]
 
+A colour ramp (`colormap`) is a preset name -- any id in `evp.gradients.IDS`, grouped
+there by category with each one's suggested range -- or explicit stops. A panel ramp
+drawn from a preset offers the user a gradient picker; a pick recolours the layer
+natively (display only) and arrives as a "rampPreset" event, `id` the preset it showed
+and `text` the one chosen. The choice holds when the script sends the layer again.
+
 Colours are "RRGGBB[AA]" hex, "#" optional, or an (r, g, b[, a]) tuple in 0..1. Numbers
 are sent as REALS: a JSON whole number reaches the add-on as an integer, which the
 overlay reads either way but most verbs do not (see NativeCommands/CommandUtils.hpp).
@@ -37,6 +43,7 @@ overlay reads either way but most verbs do not (see NativeCommands/CommandUtils.
 
 import time as _time
 
+from . import gradients as _gradients
 from .api import call
 
 __all__ = [
@@ -179,10 +186,12 @@ def _reals(value, key=None):
 
 
 def _colormap(colormap, minimum=None, maximum=None, bands=None, isolines=None):
-    """A preset name, a list of (at, colour) stops, or a ready dict."""
+    """A preset name (evp.gradients.IDS), a list of (at, colour) stops, or a ready dict."""
     if isinstance(colormap, dict):
         out = dict(colormap)
     elif isinstance(colormap, str):
+        if colormap not in _gradients.IDS:
+            raise ValueError(f"no colour ramp is called {colormap!r}; see evp.gradients.IDS")
         out = {"preset": colormap}
     else:
         out = {"stops": [{"at": float(at), "color": colour(c)} for at, c in colormap]}

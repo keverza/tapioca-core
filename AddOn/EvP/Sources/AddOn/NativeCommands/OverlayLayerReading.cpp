@@ -108,6 +108,11 @@ layers::Terminator TerminatorOf (const GS::ObjectState& item, const char* key, l
 
 bool ReadColormap (const GS::ObjectState& item, layers::Colormap& colormap, std::string& error)
 {
+    if (item.Contains ("stops") && item.Contains ("preset")) {
+        error = "a ramp is a preset or stops, not both";
+        return false;
+    }
+    colormap.presetId.clear ();
     if (item.Contains ("stops")) {
         GS::Array<GS::ObjectState> stops;
         item.Get ("stops", stops);
@@ -125,6 +130,7 @@ bool ReadColormap (const GS::ObjectState& item, layers::Colormap& colormap, std:
             error = "no colour ramp is called \"" + preset + "\"";
             return false;
         }
+        colormap.presetId = preset;
     }
     if (item.Contains ("min") != item.Contains ("max")) {
         error = "a ramp's range is min and max together, or neither";
@@ -196,9 +202,12 @@ bool ReadMesh (const GS::ObjectState& item, layers::Mesh& mesh, std::string& err
         if (!ReadColormap (colormap, mesh.colormap, error))
             return false;
     }
-    else if (!mesh.values.empty () && !layers::PresetStops ("viridis", mesh.colormap.stops)) {
-        error = "the default ramp is missing";
-        return false;
+    else if (!mesh.values.empty ()) {
+        if (!layers::PresetStops ("viridis", mesh.colormap.stops)) {
+            error = "the default ramp is missing";
+            return false;
+        }
+        mesh.colormap.presetId = "viridis";
     }
     GS::ObjectState style;
     if (item.Get ("style", style)) {
@@ -561,10 +570,12 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
     GS::ObjectState colormap;
     if (item.Get ("colormap", colormap) && !ReadColormap (colormap, out.colormap, error))
         return false;
-    if (out.kind == layers::ItemKind::Ramp && out.colormap.stops.empty () &&
-        !layers::PresetStops ("viridis", out.colormap.stops)) {
-        error = "the default ramp is missing";
-        return false;
+    if (out.kind == layers::ItemKind::Ramp && out.colormap.stops.empty ()) {
+        if (!layers::PresetStops ("viridis", out.colormap.stops)) {
+            error = "the default ramp is missing";
+            return false;
+        }
+        out.colormap.presetId = "viridis";
     }
     ReadCount (item, "ticks", out.ticks);
     ReadCount (item, "decimals", out.decimals);
