@@ -22,6 +22,20 @@ bool Wide (double left, double right)
     return left >= 0.0 && right >= 0.0 && left + right > 0.0 && std::isfinite (left + right);
 }
 
+bool PercentSlope (const tapioca::geometry::TerrainSlope& authored, tapioca::geometry::TerrainSlope& result,
+                   std::string& error)
+{
+    auto percent = authored;
+    // NoRust still validates legacy percent paths. All other conversion belongs
+    // to the existing Rust slope service, never local trigonometry or ratios.
+    using Unit = tapioca::geometry::TerrainSlope::Unit;
+    if (percent.unit != Unit::Percent &&
+        !tapioca::geometry::ConvertTerrainSlope (authored, Unit::Percent, 1, percent, error))
+        return false;
+    result = percent;
+    return true;
+}
+
 bool Fine (const Section& s, std::string& error)
 {
     if (!Wide (s.widthLeft, s.widthRight) || (s.taper && !Wide (s.endLeft, s.endRight))) {
@@ -32,12 +46,10 @@ bool Fine (const Section& s, std::string& error)
         error = "a crossfall must be below 100 %";
         return false;
     }
-    auto cut = s.cutSlope;
+    tapioca::geometry::TerrainSlope cut;
     // Preserve legacy positive finite percent policy (including its aggregate
-    // overflow check), not the separate region fields' 1000% cap. Rust owns all
-    // non-percent conversion; NoRust still validates existing percent paths.
-    using Unit = tapioca::geometry::TerrainSlope::Unit;
-    if (cut.unit != Unit::Percent && !tapioca::geometry::ConvertTerrainSlope (s.cutSlope, Unit::Percent, 1, cut, error))
+    // overflow check), not the separate region fields' 1000% cap.
+    if (!PercentSlope (s.cutSlope, cut, error))
         return false;
     if (!(s.shoulder >= 0.0) || !(cut.a > 0.0) || cut.b != 0 || !(s.fillSlope > 0.0) ||
         !std::isfinite (cut.a + s.fillSlope + s.shoulder)) {

@@ -238,6 +238,36 @@ constexpr SlopeFieldLabels s_pathCutLabels {
     "%.0f %%"
 };
 
+bool SectionSlopeFields (Session& s, const SlopeFieldLabels& labels, tapioca::geometry::TerrainSlope& slope)
+{
+    bool edited = false, released = false;
+    const auto previousUnit = slope.unit;
+    SlopeFields (labels, slope, s.message,
+                 [&] (const char* label, double& field, double lo, double hi, const char* format) {
+                     const auto id = ImGui::GetID (label);
+                     if (s.terrainSectionDrag && s.terrainSectionSliderId == id) {
+                         lo = s.terrainSectionSliderMin;
+                         hi = s.terrainSectionSliderMax;
+                     }
+                     ImGui::SliderScalar (label, ImGuiDataType_Double, &field, &lo, &hi, format);
+                     if (ImGui::IsItemActivated () && BeginTerrainSectionDrag (s)) {
+                         s.terrainSectionSliderId = id;
+                         s.terrainSectionSliderMin = lo;
+                         s.terrainSectionSliderMax = hi;
+                     }
+                     edited |= ImGui::IsItemEdited ();
+                     released |= ImGui::IsItemDeactivated ();
+                     return ImGui::IsItemEdited ();
+                 });
+    // The shared control first converts displayed degrees back to the authored
+    // radians. Only then may the live section operation capture the draft.
+    if (edited)
+        MoveTerrainSectionDrag (s);
+    if (released)
+        EndTerrainSectionDrag (s);
+    return previousUnit != slope.unit;
+}
+
 void SectionPanel (Session& s, edit::Id path)
 {
     if (!s.edits.InGesture ())
@@ -311,32 +341,7 @@ void SectionPanel (Session& s, edit::Id path)
         ImGui::EndCombo ();
     }
     slide ("Shoulder", value.shoulder, 0.0, 5.0, "%.2f m");
-    bool cutEdited = false, cutReleased = false;
-    const auto previousCutUnit = value.cutSlope.unit;
-    SlopeFields (s_pathCutLabels, value.cutSlope, s.message,
-                 [&] (const char* label, double& field, double lo, double hi, const char* format) {
-                     const auto id = ImGui::GetID (label);
-                     if (s.terrainSectionDrag && s.terrainSectionSliderId == id) {
-                         lo = s.terrainSectionSliderMin;
-                         hi = s.terrainSectionSliderMax;
-                     }
-                     ImGui::SliderScalar (label, ImGuiDataType_Double, &field, &lo, &hi, format);
-                     if (ImGui::IsItemActivated () && BeginTerrainSectionDrag (s)) {
-                         s.terrainSectionSliderId = id;
-                         s.terrainSectionSliderMin = lo;
-                         s.terrainSectionSliderMax = hi;
-                     }
-                     cutEdited |= ImGui::IsItemEdited ();
-                     cutReleased |= ImGui::IsItemDeactivated ();
-                     return ImGui::IsItemEdited ();
-                 });
-    // The shared control first converts displayed degrees back to the authored
-    // radians. Only then may the live section operation capture the draft.
-    if (cutEdited)
-        MoveTerrainSectionDrag (s);
-    if (cutReleased)
-        EndTerrainSectionDrag (s);
-    release |= previousCutUnit != value.cutSlope.unit;
+    release |= SectionSlopeFields (s, s_pathCutLabels, value.cutSlope);
     slide ("Fill slope", value.fillSlope, 5.0, 200.0, "%.0f %%");
     slide ("Rounding", value.rounding, 0.0, 10.0, "%.2f m");
     if (release)
