@@ -28,9 +28,9 @@ bool ApplyField (edit::Section& target, const edit::Section& value, SectionField
             target.widthRight = value.widthRight;
             return true;
         case SectionField::Taper:
+            // The end widths are independent fields. A taper-only choice must
+            // not copy the first selected range's values into every range.
             target.taper = value.taper;
-            target.endLeft = value.endLeft;
-            target.endRight = value.endRight;
             return true;
         case SectionField::EndLeft:
             target.endLeft = value.endLeft;
@@ -236,6 +236,9 @@ bool BeginTerrainSectionEdit (Session& s, const std::vector<edit::Id>& sections)
         candidate.path = path;
         candidate.section = sections.front ();
         candidate.revision = s.edits.Doc ().revision;
+        // Set bits are fields to apply. Start common, then preserve actual
+        // differences; a one-range draft therefore keeps every field editable.
+        candidate.mixed = (SectionFieldBit (SectionField::Rounding) << 1) - 1;
         for (const auto id : sections) {
             const auto found = std::find_if (authored->sections.begin (), authored->sections.end (),
                                              [id] (const edit::Section& value) { return value.id == id; });
@@ -249,7 +252,7 @@ bool BeginTerrainSectionEdit (Session& s, const std::vector<edit::Id>& sections)
                 continue; // A single range has no differing fields to mark.
             const auto note = [&] (SectionField field, bool differs) {
                 if (differs)
-                    candidate.mixed |= SectionFieldBit (field);
+                    candidate.mixed &= ~SectionFieldBit (field);
             };
             note (SectionField::WidthLeft, first.widthLeft != found->widthLeft);
             note (SectionField::WidthRight, first.widthRight != found->widthRight);
@@ -419,9 +422,9 @@ bool SectionSlopeFields (Session& s, const SlopeFieldLabels& labels, tapioca::ge
         mixedUnit);
     const bool unitEdited = previousUnit != slope.unit;
     if (unitEdited)
-        s.terrainSectionDraft->mixed &= ~SectionFieldBit (unitField);
+        s.terrainSectionDraft->mixed |= SectionFieldBit (unitField);
     else if (edited)
-        s.terrainSectionDraft->mixed &= ~SectionFieldBit (valueField);
+        s.terrainSectionDraft->mixed |= SectionFieldBit (valueField);
     // The shared control first converts displayed degrees back to the authored
     // radians. Only then may the live section operation capture the draft.
     if (edited)
@@ -476,8 +479,8 @@ void SectionPanel (Session& s, edit::Id path)
         ImGui::EndCombo ();
     }
     const auto draft = s.terrainSectionDraft;
-    const auto mixed = [&] (SectionField field) { return (draft->mixed & SectionFieldBit (field)) != 0; };
-    const auto common = [&] (SectionField field) { draft->mixed &= ~SectionFieldBit (field); };
+    const auto mixed = [&] (SectionField field) { return (draft->mixed & SectionFieldBit (field)) == 0; };
+    const auto common = [&] (SectionField field) { draft->mixed |= SectionFieldBit (field); };
     const bool stale = draft->revision != s.edits.Doc ().revision && !s.terrainSectionDrag;
     if (stale)
         ImGui::TextWrapped (

@@ -27,8 +27,8 @@ struct TerrainSectionDraft {
     uint64_t revision = 0;
     edit::Section value;            // Shared dimensional values; mixed fields use `mixed` below.
     std::vector<edit::Id> sections; // Selected range IDs in authored order; one is the old API.
-    // Bit positions in SectionField. A mixed bit means preserve that field unless
-    // the UI explicitly edits it; it is never a synthetic authored NaN value.
+    // Bit positions in SectionField: set = apply, clear = mixed/preserve.
+    // The UI sets a bit only when that field is edited; never a synthetic NaN.
     uint32_t mixed = 0;
 };
 enum class SectionField : uint32_t {

@@ -3,6 +3,7 @@
 
 #include "Geometry/GeometryRustTerrain.hpp"
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -29,16 +30,27 @@ bool SlopeFields (const SlopeFieldLabels& labels, tapioca::geometry::TerrainSlop
     constexpr std::array units { Unit::Percent, Unit::Angle, Unit::RiseRun, Unit::Height };
     int unit = static_cast<int> (std::find (units.begin (), units.end (), slope.unit) - units.begin ());
     bool changed = false;
+    // Mixed has no selected item. Only its preview differs; the standard combo
+    // still owns option IDs, keyboard/pointer behavior and conversion.
+    if (mixedUnit)
+        unit = -1;
     bool unitChanged = false;
     if (mixedUnit) {
-        if (ImGui::BeginCombo (labels.unit, "mixed")) {
+        if (ImGui::BeginCombo (labels.unit, nullptr, ImGuiComboFlags_CustomPreview)) {
             constexpr std::array names { "Percent (%)", "Angle (degrees)", "Rise:run", "Height / run (m)" };
-            for (size_t i = 0; i < units.size (); ++i)
-                if (ImGui::Selectable (names[i])) {
-                    unit = static_cast<int> (i);
+            for (int i = 0; i < static_cast<int> (units.size ()); ++i) {
+                ImGui::PushID (i); // Same option-ID scope as ImGui::Combo.
+                if (ImGui::Selectable (names[static_cast<size_t> (i)])) {
+                    unit = i;
                     unitChanged = true;
                 }
+                ImGui::PopID ();
+            }
             ImGui::EndCombo ();
+        }
+        if (ImGui::BeginComboPreview ()) {
+            ImGui::TextUnformatted ("mixed");
+            ImGui::EndComboPreview ();
         }
     }
     else
