@@ -226,6 +226,7 @@ struct StationFrame {
     double curvature = 0.0;
     Section section; // the range in force
     Vec3 leftEdge, rightEdge;
+    bool operator== (const StationFrame&) const = default;
 };
 // One validated snapshot resolves crossfall once per authored range. It is
 // transient caller-owned state, never a second document slope model.
