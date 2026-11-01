@@ -53,7 +53,8 @@ void ReleaseNativeBindings (Diligent::IDeviceContext* context);
 // Call immediately before mapping a staging texture for reading. A no-op on D3D11.
 void SyncBeforeStagingRead (Diligent::IDeviceContext* context);
 
-// After the frame's Present. A no-op on D3D11.
+// At the end of EVERY frame, presented or not (an offscreen capture or a
+// screenshot frame is never presented). Flushes, then FinishFrame. A no-op on D3D11.
 void EndNativeFrame (Diligent::IDeviceContext* context);
 
 // The clear A/B's native arm and readback are D3D11 calls (DiligentClearAB).

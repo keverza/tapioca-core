@@ -87,8 +87,18 @@ void SyncBeforeStagingRead (Diligent::IDeviceContext* context)
 
 void EndNativeFrame (Diligent::IDeviceContext* context)
 {
-    if (context != nullptr && BackendOfContext (context) == RenderBackend::D3D12)
+    // ⚠️ FLUSH, THEN FinishFrame -- NEVER FinishFrame ALONE. Diligent recycles
+    // dynamic descriptors and upload pages only for work it has SUBMITTED; with
+    // commands still recorded it logs "outstanding commands ... when finishing the
+    // frame" and recycles nothing. The palette and the composition chain flushed
+    // by accident (Present, the PRESENT transition); the offscreen capture surface
+    // never presents, so every capture frame leaked until the CBV/SRV/UAV GPU heap
+    // was exhausted and the next draw wrote through a null descriptor in the
+    // driver -- the 2026-11-01 10:56 Archicad crash in the Diligent Capture Probe.
+    if (context != nullptr && BackendOfContext (context) == RenderBackend::D3D12) {
+        context->Flush ();
         context->FinishFrame ();
+    }
 }
 
 bool NativeClearABAvailable (Diligent::IDeviceContext* context)

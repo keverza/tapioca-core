@@ -13,6 +13,7 @@
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/DiligentNativeInterop.hpp"
 #include "ArchViz/DiligentScene.hpp"
 
 #include <windows.h>
@@ -160,6 +161,7 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
 {
     if (target_ == nullptr)
         return false;
+    EndNativeFrame (context); // a screenshot frame is never presented, so it ends here (D3D12)
     if (++frames_ < kViewerScreenshotSettleFrames)
         return true;
 

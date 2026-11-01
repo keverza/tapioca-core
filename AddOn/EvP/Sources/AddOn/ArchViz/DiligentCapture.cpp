@@ -16,6 +16,7 @@
 
 #include "ArchViz/Camera.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/DiligentNativeInterop.hpp"
 #include "ArchViz/DiligentViewportSupport.hpp"
 #include "ArchViz/DiligentViewportTarget.hpp"
 #include "Screenshot/ScreenshotStore.hpp"
@@ -87,6 +88,7 @@ DiligentViewport::CaptureStep DiligentViewport::CaptureOneFrame (DiligentViewpor
     std::string captureError;
     if (!target.CapturePng (context, png, captureError))
         throw std::runtime_error (captureError);
+    EndNativeFrame (context); // a capture frame is never presented, so it ends here (D3D12)
 
     const bool lastFrame = captureIndex + 1 >= captureFrames_.size ();
     if (captureOutputDirectory_.empty ()) {
