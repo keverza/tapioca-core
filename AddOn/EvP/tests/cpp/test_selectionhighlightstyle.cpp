@@ -84,3 +84,10 @@ TEST (SelectionHighlightStyle, AnalysisRolesKeepTheirWeight)
     // The roles did not ask to get lighter with the selection.
     EXPECT_FLOAT_EQ (kAnalysisRoleOutlinePixels, 3.0f);
 }
+
+TEST (SelectionHighlightStyle, CreaseAngleDropsFacetsAndKeepsOctagons)
+{
+    // A 10-sided prism's facets meet at 36 degrees and merge; an octagon's at 45 and stay.
+    EXPECT_GT (kSelectionCreaseDegrees, 36.0f);
+    EXPECT_LT (kSelectionCreaseDegrees, 45.0f);
+}

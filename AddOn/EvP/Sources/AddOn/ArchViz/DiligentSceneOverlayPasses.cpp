@@ -13,6 +13,7 @@
 #include "ArchViz/DiligentSceneImpl.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/SelectionEdges.hpp"
 
 #include <cstring>
 
@@ -152,12 +153,15 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
     // is drawn twice. Selected elements only: hover and the analysis roles are
     // outlines and nothing else.
     //
-    // ⚠️ THE PULL AND THE LINE WIDTH ARE PUT BACK. Both ride the shared
-    // constants; the global wireframe reads them on the next frame and must find
-    // no pull and the HUD's own width.
+    // ⚠️ THE PULL, THE MASK SHIFT AND THE LINE WIDTH ARE PUT BACK. All three
+    // ride the shared constants; the global wireframe reads them on the next
+    // frame and must find no pull, its own edges and the HUD's own width.
     if (selectionReady && anySelected) {
         const float lineWidth = constants.wireParams[1];
         constants.edgeParams[0] = sel.semantic ? kSelectionEdgeDepthPull * nearClip : 0.0f;
+        // Only the shape-defining edges (ArchViz/SelectionEdges.hpp), not every
+        // polygon boundary: a column or a terrain is otherwise all lines.
+        constants.edgeParams[1] = float (kSelectionEdgeShift);
         struct EdgePass {
             int index;
             const float* colour;
@@ -193,6 +197,7 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
         }
         constants.wireParams[1] = lineWidth;
         constants.edgeParams[0] = 0.0f;
+        constants.edgeParams[1] = 0.0f;
     }
 
     // ---- the outlines (PLAT-RE41, PLAT-RE136) -----------------------------------

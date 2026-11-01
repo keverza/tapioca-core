@@ -354,8 +354,10 @@ struct DiligentSceneConstants {
     // clang-format on
     // ---- appended for the selection's EDGES (#118) ---------------------------
     // x = how far the face-aware wire's geometry shader pulls clip-space z toward
-    // the camera; yzw unused. 0 for every pass but the selection's two edge
-    // passes, so the global wireframe draws exactly as it did.
+    // the camera; y = which bits of the per-triangle edge mask the hull shader
+    // reads (0 = the wireframe's, 3 = the selection's); zw unused. Both are 0
+    // for every pass but the selection's two edge passes, so the global
+    // wireframe draws exactly as it did.
     //
     // ⚠️ A CONSTANT IN CLIP z, NOT IN NDC. With z_clip = A*w + B and A ~ 1, a
     // constant pull c moves a fragment by c/near of its OWN distance -- the same
@@ -471,7 +473,7 @@ cbuffer ArchVizConstants
     float4   g_visibilityRamp[16]; // the visibility colours: rgb = sRGB, w = position 0..1
     float4   g_visibilityRampInfo; // x = how many stops; 0 = g_visibilityLow/High
     float4   g_sunStudyShadowPalette[5]; // sRGB: single lit, shadowed; AM/PM sunlit, morning, evening
-    float4   g_edgeParams;      // x = clip z the wire GS pulls toward the camera (#118)
+    float4   g_edgeParams;      // x = clip z the wire GS pulls toward the camera, y = edge-mask bit shift (#118)
 };
 )hlsl";
 
@@ -1143,7 +1145,9 @@ WirePatchConstants PatchConstants (InputPatch<WireControlPoint, 3> patch,
     output.edges[1] = factor;
     output.edges[2] = factor;
     output.inside = factor;
-    output.edgeMask = g_wirePatchFlags[patchId] & 7u;
+    // Bits 0..2 the wireframe's edges, 3..5 the selection's shape-defining ones
+    // (ArchViz/SelectionEdges.hpp); g_edgeParams.y picks which (0 or 3).
+    output.edgeMask = (g_wirePatchFlags[patchId] >> uint (g_edgeParams.y)) & 7u;
     return output;
 }
 

@@ -50,6 +50,12 @@ constexpr float kSelectionEdgePixels = 1.5f;
 constexpr float kSelectionHiddenEdgeColor[4] = { 0.05f, 0.85f, 1.0f, 0.35f };
 constexpr float kSelectionHiddenEdgePixels = 1.0f;
 
+// The crease angle above which two faces' shared edge DEFINES the shape (BuildSelectionEdgeMasks).
+// Above a 10-sided prism's 36 degrees, so a column, a pipe or a handrail keeps its end circles and
+// loses its facets; below an octagon's 45, which reads as eight faces and should. A terrain's
+// gentle slopes merge; its ridges and cuts do not.
+constexpr float kSelectionCreaseDegrees = 40.0f;
+
 // How far an edge is pulled toward the camera before the visible/hidden test, as a fraction of
 // its own distance (DiligentSceneConstants::edgeParams). Large enough that an edge lying ON a
 // visible face never z-fights it into the hidden pass; small enough that an edge genuinely behind

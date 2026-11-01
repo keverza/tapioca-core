@@ -1,5 +1,7 @@
 #include "ArchViz/ElementPacket.hpp"
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/SelectionEdges.hpp"
+#include "ArchViz/SelectionHighlightStyle.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -32,6 +34,13 @@ std::unique_ptr<ElementUpload> MakeElementPacket (const CapturedMeshPacket& pack
                          &up->renderToSourceTriangle);
     if (up->indices.empty ())
         return nullptr;
+    // The selection's shape-defining edges, packed above the wireframe's own
+    // three bits (ArchViz/SelectionEdges.hpp). Here, on the packet's thread, so
+    // the position weld and the neighbour search never run in the frame loop.
+    const std::vector<uint8_t> selectionEdges =
+        BuildSelectionEdgeMasks (up->vertices, up->indices, up->wireEdges, kSelectionCreaseDegrees);
+    for (size_t t = 0; t < up->wireEdges.size () && t < selectionEdges.size (); ++t)
+        up->wireEdges[t] |= uint32_t (selectionEdges[t]) << kSelectionEdgeShift;
     if (mesh.bounds.Valid ()) {
         for (int axis = 0; axis < 3; ++axis) {
             up->boundsMin[axis] = static_cast<float> (mesh.bounds.mn[axis]);
