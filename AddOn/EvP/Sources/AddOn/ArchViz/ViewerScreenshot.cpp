@@ -161,7 +161,7 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
 {
     if (target_ == nullptr)
         return false;
-    EndNativeFrame (context); // a screenshot frame is never presented, so it ends here (D3D12)
+    EndUnpresentedFrame (context); // a screenshot frame is never presented, so it ends (and is paced) here
     if (++frames_ < kViewerScreenshotSettleFrames)
         return true;
 

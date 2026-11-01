@@ -662,7 +662,7 @@ void DiligentViewportTarget::Present ()
         return;
     }
     if (impl_->mode == SurfaceMode::Offscreen) {
-        EndNativeFrame (impl_->context);
+        EndUnpresentedFrame (impl_->context); // nothing presents here, so nothing else paces D3D12
         return;
     }
     if (impl_->compositionSwapChain == nullptr)

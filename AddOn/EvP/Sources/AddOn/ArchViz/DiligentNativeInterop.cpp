@@ -101,6 +101,17 @@ void EndNativeFrame (Diligent::IDeviceContext* context)
     }
 }
 
+void EndUnpresentedFrame (Diligent::IDeviceContext* context)
+{
+    if (context == nullptr || BackendOfContext (context) != RenderBackend::D3D12)
+        return;
+    // Flush and wait FIRST, so the FinishFrame that follows sees this frame
+    // complete and reclaims its descriptors and pages now, not frames later.
+    context->Flush ();
+    context->WaitForIdle ();
+    context->FinishFrame ();
+}
+
 bool NativeClearABAvailable (Diligent::IDeviceContext* context)
 {
     return BackendOfContext (context) == RenderBackend::D3D11;

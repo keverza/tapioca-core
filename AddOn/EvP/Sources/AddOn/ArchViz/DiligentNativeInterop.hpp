@@ -57,6 +57,17 @@ void SyncBeforeStagingRead (Diligent::IDeviceContext* context);
 // screenshot frame is never presented). Flushes, then FinishFrame. A no-op on D3D11.
 void EndNativeFrame (Diligent::IDeviceContext* context);
 
+// The end of a frame NOTHING PRESENTS (the offscreen capture surface, a screenshot
+// frame): EndNativeFrame, and on D3D12 also wait for the GPU. A no-op on D3D11.
+//
+// ⚠️ PRESENT IS WHAT PACES A D3D12 FRAME LOOP. Without a swap chain nothing stops
+// the CPU recording frame after frame ahead of the GPU, and Diligent reclaims a
+// frame's dynamic descriptors and pages only once the GPU has FINISHED it. The
+// 2026-11-01 11:04 capture crash: 33 new 1 MB pages in one second, then
+// "CBV_SRV_UAV GPU descriptor heap is exhausted" and a null-descriptor write in
+// the driver. D3D11 never showed it because its driver caps queued frames at ~3.
+void EndUnpresentedFrame (Diligent::IDeviceContext* context);
+
 // The clear A/B's native arm and readback are D3D11 calls (DiligentClearAB).
 bool NativeClearABAvailable (Diligent::IDeviceContext* context);
 

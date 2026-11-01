@@ -88,7 +88,7 @@ DiligentViewport::CaptureStep DiligentViewport::CaptureOneFrame (DiligentViewpor
     std::string captureError;
     if (!target.CapturePng (context, png, captureError))
         throw std::runtime_error (captureError);
-    EndNativeFrame (context); // a capture frame is never presented, so it ends here (D3D12)
+    EndUnpresentedFrame (context); // a capture frame is never presented, so it ends (and is paced) here
 
     const bool lastFrame = captureIndex + 1 >= captureFrames_.size ();
     if (captureOutputDirectory_.empty ()) {
