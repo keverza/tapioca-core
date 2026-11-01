@@ -933,6 +933,7 @@ set (EVP_TEST_SOURCES
     test_editpathprofile.cpp
     test_editpathsection.cpp
     test_editpathcutunits.cpp
+    test_editpathfillunits.cpp
     test_editpath.cpp
     test_editprofileview.cpp
     test_hudvirtualeditor.cpp

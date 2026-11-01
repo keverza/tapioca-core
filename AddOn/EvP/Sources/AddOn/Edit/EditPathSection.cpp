@@ -46,13 +46,13 @@ bool Fine (const Section& s, std::string& error)
         error = "a crossfall must be below 100 %";
         return false;
     }
-    tapioca::geometry::TerrainSlope cut;
+    tapioca::geometry::TerrainSlope cut, fill;
     // Preserve legacy positive finite percent policy (including its aggregate
     // overflow check), not the separate region fields' 1000% cap.
-    if (!PercentSlope (s.cutSlope, cut, error))
+    if (!PercentSlope (s.cutSlope, cut, error) || !PercentSlope (s.fillSlope, fill, error))
         return false;
-    if (!(s.shoulder >= 0.0) || !(cut.a > 0.0) || cut.b != 0 || !(s.fillSlope > 0.0) ||
-        !std::isfinite (cut.a + s.fillSlope + s.shoulder)) {
+    if (!(s.shoulder >= 0.0) || !(cut.a > 0.0) || cut.b != 0 || !(fill.a > 0.0) || fill.b != 0 ||
+        !std::isfinite (cut.a + fill.a + s.shoulder)) {
         error = "shoulders and grading slopes must be positive";
         return false;
     }

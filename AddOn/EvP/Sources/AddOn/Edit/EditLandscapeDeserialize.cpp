@@ -192,9 +192,8 @@ void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode, i
             path.profile.push_back (p);
         });
         Each (item.Field ("sections"), [&] (const Reader& section) {
-            section.Fields (
-                { "id", "station", "widthLeft", "widthRight", "crossfall", "fall", "shoulder", "fillSlope" },
-                { "cut", "cutSlope", "rounding", "taper", "endLeft", "endRight" });
+            section.Fields ({ "id", "station", "widthLeft", "widthRight", "crossfall", "fall", "shoulder" },
+                            { "cut", "cutSlope", "fill", "fillSlope", "rounding", "taper", "endLeft", "endRight" });
             edit::Section s;
             s.id = section.Field ("id").Identifier ();
             s.station = section.Field ("station").Number ();
@@ -204,7 +203,7 @@ void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode, i
             s.fall = Enum (section.Field ("fall"), edit::Fall::Right);
             s.shoulder = section.Field ("shoulder").Number ();
             s.cutSlope = AuthoredSlope (section, "cut", "cutSlope");
-            s.fillSlope = section.Field ("fillSlope").Number ();
+            s.fillSlope = AuthoredSlope (section, "fill", "fillSlope");
             // Saved before rounding existed: the creases those files were built with.
             s.rounding = section.Has ("rounding") ? section.Field ("rounding").Number () : 0.0;
             // Saved before tapers existed: every range ran parallel.

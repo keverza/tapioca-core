@@ -177,7 +177,7 @@ TEST (EditPathCutUnits, PositiveFinitePolicyAllowsOver1000ButRefusesVerticalInva
         changed, doc.paths[0].id,
         [] (auto& path, auto&) {
             path.sections[0].cutSlope = { Unit::Percent, std::numeric_limits<double>::max (), 0 };
-            path.sections[0].fillSlope = std::numeric_limits<double>::max ();
+            path.sections[0].fillSlope = { Unit::Percent, std::numeric_limits<double>::max (), 0 };
             return true;
         },
         error));

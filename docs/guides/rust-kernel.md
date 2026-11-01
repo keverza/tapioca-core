@@ -181,13 +181,15 @@ Private resolved state is not persisted. The authored value, contour datum and
 existing C++ plane geometry remain unchanged; this is not a plane-kernel
 migration or project-unit resolution.
 
-Path cross-section Cut also uses `TerrainSlope` through the same shared inspector
+Path cross-section Cut/Fill also use `TerrainSlope` through the shared inspector
 presentation, existing revision-bound section draft/history and Rust conversion.
-Section codec writes `cut={unit,a,b}` and reads exactly one typed `cut` or legacy
-numeric `cutSlope`. The source revision hash includes unit and both authored parts.
-Station and outline adapters pass typed Cut directly; Fill/crossfall remain percent
-in this slice. Path policy stays positive finite percent (including the existing
-Cut+Fill+shoulder finite-sum check), **not** the region 1000% cap. Normal percent
+Section codec writes `cut` and `fill` as `{unit,a,b}` and independently reads
+exactly one typed form or legacy numeric `cutSlope`/`fillSlope` for each face.
+Fully legacy and typed-Cut/legacy-Fill documents remain readable. Source revision
+hashes include each face's unit and both parts. Station and outline adapters pass
+both typed slopes directly; crossfall remains percent. Path policy stays positive
+finite percent (including the existing Cut+Fill+shoulder finite-sum check),
+**not** the region 1000% cap. Normal percent
 slider bounds remain 5..200 and are not domain limits. Degree writeback precedes
 live history capture; ratio/height slider bounds freeze for a held gesture.
 

@@ -112,8 +112,8 @@ std::vector<GradeBreak> ProfileFromSamples (const std::vector<std::pair<double, 
 enum class Fall : uint8_t { Crown, Left, Right };
 
 // A cross-section template that applies from `station` to the next range's station.
-// Widths are measured from the centreline in plan; crossfall and Fill remain
-// percentages. Cut retains its authored TerrainSlope form (50 % is 1:2).
+// Widths are measured from the centreline in plan; crossfall remains a percentage.
+// Cut/Fill retain their authored TerrainSlope forms (50 % is 1:2).
 // The shoulder runs out level-with-the-edge before grading.
 // `rounding` is the plan length over which the grading faces ease into the path at their top
 // and into the ground at their toe (0 leaves both creases sharp).
@@ -130,7 +130,7 @@ struct Section {
     Fall fall = Fall::Crown;
     double shoulder = 0.0;
     tapioca::geometry::TerrainSlope cutSlope { tapioca::geometry::TerrainSlope::Unit::Percent, 50, 0 };
-    double fillSlope = 33.0;
+    tapioca::geometry::TerrainSlope fillSlope { tapioca::geometry::TerrainSlope::Unit::Percent, 33, 0 };
     double rounding = 1.0;
     bool operator== (const Section&) const = default;
 };

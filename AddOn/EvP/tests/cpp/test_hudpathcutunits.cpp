@@ -55,9 +55,11 @@ struct PathGui {
 };
 } // namespace
 
-TEST (HudTerrainSetup, PathCutUnitsAndActualAngleOrHeightSliderKeepIndependentHistoryAndStableBounds)
+namespace {
+void CheckPathSlopeFields (bool fill)
 {
     using Unit = lg::TerrainSlope::Unit;
+    const auto member = fill ? &edit::Section::fillSlope : &edit::Section::cutSlope;
     for (int unitIndex : { 1, 3 }) {
         edit::Document doc;
         std::string error;
@@ -71,8 +73,11 @@ TEST (HudTerrainSetup, PathCutUnitsAndActualAngleOrHeightSliderKeepIndependentHi
         ASSERT_TRUE (lg::AddLandscapeSource (doc, source, id, error));
         ASSERT_TRUE (edit::EditPath (
             doc, path,
-            [] (auto& value, auto&) {
-                value.sections[0].fillSlope = 42;
+            [fill] (auto& value, auto&) {
+                if (fill)
+                    value.sections[0].cutSlope = { Unit::RiseRun, 1.5, 3 };
+                else
+                    value.sections[0].fillSlope = { Unit::Height, 2.1, 5 };
                 value.sections[0].crossfall = 3;
                 value.sections[0].fall = edit::Fall::Right;
                 value.sections[0].shoulder = 0.25;
@@ -91,7 +96,7 @@ TEST (HudTerrainSetup, PathCutUnitsAndActualAngleOrHeightSliderKeepIndependentHi
         ASSERT_GT (tree.y, 0);
         gui.Frame (session, tree, true);
         gui.Frame (session, tree, false);
-        const auto combo = gui.Locate (session, ImHashStr ("Cut slope unit", 0, section));
+        const auto combo = gui.Locate (session, ImHashStr (fill ? "Fill slope unit" : "Cut slope unit", 0, section));
         ASSERT_GT (combo.y, 0);
         gui.Frame (session, combo, true);
         gui.Frame (session, combo, false);
@@ -113,23 +118,26 @@ TEST (HudTerrainSetup, PathCutUnitsAndActualAngleOrHeightSliderKeepIndependentHi
         gui.Frame (session, choice, true);
         gui.Frame (session, choice, false);
         const auto switched = edit::FindPath (session.edits.Doc (), path)->sections[0];
-        EXPECT_EQ (switched.cutSlope.unit, unitIndex == 1 ? Unit::Angle : Unit::Height);
-        EXPECT_NEAR (switched.cutSlope.a, unitIndex == 1 ? std::atan (0.5) : 0.5, 1e-12);
-        EXPECT_EQ (switched.cutSlope.b, unitIndex == 1 ? 0 : 1);
+        const auto& switchedSlope = switched.*member;
+        const double grade = fill ? 0.33 : 0.5;
+        EXPECT_EQ (switchedSlope.unit, unitIndex == 1 ? Unit::Angle : Unit::Height);
+        EXPECT_NEAR (switchedSlope.a, unitIndex == 1 ? std::atan (grade) : grade, 1e-12);
+        EXPECT_EQ (switchedSlope.b, unitIndex == 1 ? 0 : 1);
         EXPECT_EQ (session.edits.UndoDepth (), 1u);
         auto unchanged = switched;
-        unchanged.cutSlope = original.cutSlope;
+        unchanged.*member = original.*member;
         EXPECT_EQ (unchanged, original);
-        const auto slider =
-            gui.Locate (session, ImHashStr (unitIndex == 1 ? "Cut slope (degrees)" : "Cut height (m)", 0, section));
+        const char* sliderLabel = fill ? (unitIndex == 1 ? "Fill slope (degrees)" : "Fill height (m)")
+                                       : (unitIndex == 1 ? "Cut slope (degrees)" : "Cut height (m)");
+        const auto slider = gui.Locate (session, ImHashStr (sliderLabel, 0, section));
         ASSERT_GT (slider.y, 0);
         gui.Frame (session, slider, true);
         ASSERT_TRUE (session.edits.InGesture ());
         EXPECT_DOUBLE_EQ (session.terrainSectionSliderMax, unitIndex == 1 ? 90 : 10);
         for (int move = 0; move < 6; ++move) {
             gui.Frame (session, { unitIndex == 1 ? 240.0f : 400.0f, slider.y }, true);
-            EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections[0].cutSlope,
-                       session.terrainSectionDraft->value.cutSlope)
+            EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections[0].*member,
+                       session.terrainSectionDraft->value.*member)
                 << "apply after degree-to-radian writeback";
             EXPECT_DOUBLE_EQ (session.terrainSectionSliderMax, unitIndex == 1 ? 90 : 10);
             EXPECT_EQ (session.edits.UndoDepth (), 1u);
@@ -139,11 +147,11 @@ TEST (HudTerrainSetup, PathCutUnitsAndActualAngleOrHeightSliderKeepIndependentHi
         EXPECT_EQ (session.terrainSectionSliderId, 0u);
         EXPECT_EQ (session.edits.UndoDepth (), 2u);
         const auto edited = edit::FindPath (session.edits.Doc (), path)->sections[0];
-        EXPECT_NE (edited.cutSlope.a, switched.cutSlope.a);
+        EXPECT_NE ((edited.*member).a, switchedSlope.a);
         if (unitIndex == 3)
-            EXPECT_LE (edited.cutSlope.a, 10);
+            EXPECT_LE ((edited.*member).a, 10);
         unchanged = edited;
-        unchanged.cutSlope = original.cutSlope;
+        unchanged.*member = original.*member;
         EXPECT_EQ (unchanged, original);
         EXPECT_EQ (*edit::FindPath (session.edits.Doc (), other), *edit::FindPath (doc, other));
         std::string json;
@@ -156,5 +164,16 @@ TEST (HudTerrainSetup, PathCutUnitsAndActualAngleOrHeightSliderKeepIndependentHi
         ASSERT_TRUE (session.edits.Undo ());
         EXPECT_EQ (session.edits.Doc ().paths, doc.paths);
     }
+}
+} // namespace
+
+TEST (HudTerrainSetup, PathCutUnitsAndActualAngleOrHeightSliderKeepIndependentHistoryAndStableBounds)
+{
+    CheckPathSlopeFields (false);
+}
+
+TEST (HudTerrainSetup, PathFillUnitsAndActualAngleOrHeightSliderKeepTypedCutHistoryAndStableBounds)
+{
+    CheckPathSlopeFields (true);
 }
 #endif

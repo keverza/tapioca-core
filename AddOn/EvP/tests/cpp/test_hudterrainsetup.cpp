@@ -722,7 +722,7 @@ TEST (HudTerrainSetup, SectionFieldsApplyTogetherInOneHistoryEntryAndPersistInTh
     value.fall = edit::Fall::Right;
     value.shoulder = .25;
     value.cutSlope = { lg::TerrainSlope::Unit::Percent, 60, 0 };
-    value.fillSlope = 40;
+    value.fillSlope = { lg::TerrainSlope::Unit::Percent, 40, 0 };
     const auto expected = value;
     EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), before);
     EXPECT_EQ (session.edits.UndoDepth (), 0U);
@@ -788,7 +788,7 @@ TEST (HudTerrainSetup, InvalidOrIdentityChangingSectionDraftsRefuseAtomicallyAnd
                 value.cutSlope = { lg::TerrainSlope::Unit::Percent, 0, 0 };
                 break;
             case 2:
-                value.fillSlope = std::numeric_limits<double>::infinity ();
+                value.fillSlope = { lg::TerrainSlope::Unit::Percent, std::numeric_limits<double>::infinity (), 0 };
                 break;
             case 3:
                 value.crossfall = std::numeric_limits<double>::quiet_NaN ();

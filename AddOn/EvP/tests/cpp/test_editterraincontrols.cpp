@@ -27,7 +27,7 @@ struct Fixture {
                 for (auto& s : p.sections) {
                     s.crossfall = 0;
                     s.cutSlope = { TerrainSlope::Unit::Percent, 50, 0 };
-                    s.fillSlope = 50;
+                    s.fillSlope = { TerrainSlope::Unit::Percent, 50, 0 };
                 }
                 return true;
             },

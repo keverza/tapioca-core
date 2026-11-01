@@ -237,6 +237,20 @@ constexpr SlopeFieldLabels s_pathCutLabels {
     200,
     "%.0f %%"
 };
+constexpr SlopeFieldLabels s_pathFillLabels {
+    "Fill slope unit",
+    "Fill slope",
+    "Fill slope (degrees)",
+    "Fill rise",
+    "Fill run",
+    "Fill height (m)",
+    "Fill plan run (m)",
+    "Path Fill: positive finite grade; vertical is unsupported. Height/run uses model metres.",
+    false,
+    5,
+    200,
+    "%.0f %%"
+};
 
 bool SectionSlopeFields (Session& s, const SlopeFieldLabels& labels, tapioca::geometry::TerrainSlope& slope)
 {
@@ -342,7 +356,7 @@ void SectionPanel (Session& s, edit::Id path)
     }
     slide ("Shoulder", value.shoulder, 0.0, 5.0, "%.2f m");
     release |= SectionSlopeFields (s, s_pathCutLabels, value.cutSlope);
-    slide ("Fill slope", value.fillSlope, 5.0, 200.0, "%.0f %%");
+    release |= SectionSlopeFields (s, s_pathFillLabels, value.fillSlope);
     slide ("Rounding", value.rounding, 0.0, 10.0, "%.2f m");
     if (release)
         ApplyTerrainSectionEdit (s);

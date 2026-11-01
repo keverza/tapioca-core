@@ -53,7 +53,7 @@ struct DesignFixture {
                 for (auto& section : value.sections) {
                     section.crossfall = 0;
                     section.cutSlope = { TerrainSlope::Unit::Percent, 50, 0 }; // 1:2
-                    section.fillSlope = 50;
+                    section.fillSlope = { TerrainSlope::Unit::Percent, 50, 0 };
                     section.rounding = 0; // the worked volumes are the sharp ones
                 }
                 return true;
@@ -279,8 +279,79 @@ TEST (EditTerrainDesign, EquivalentPathCutFormsKeepAnalyticDaylightQuantitiesAnd
             EXPECT_NEAR (samples[2].height, 13.25, 1e-7);
         }
         EXPECT_EQ (fixture.doc.paths[0].sections[0].cutSlope, cut);
-        EXPECT_EQ (fixture.doc.paths[0].sections[0].fillSlope, 50);
+        EXPECT_EQ (fixture.doc.paths[0].sections[0].fillSlope, (TerrainSlope { TerrainSlope::Unit::Percent, 50, 0 }));
         EXPECT_EQ (fixture.points, baseline);
+    }
+}
+
+TEST (EditTerrainDesign, EquivalentPathFillFormsKeepTypedCutAnalyticDaylightQuantitiesAndBothAdapters)
+{
+    DesignFixture fixture;
+    const auto baseline = fixture.points;
+    const TerrainSlope cut { TerrainSlope::Unit::Height, 2.5, 5 };
+    double bandCut = -1, bandFill = -1, outlineCut = -1, outlineFill = -1;
+    for (const TerrainSlope fill : { TerrainSlope { TerrainSlope::Unit::Percent, 50, 0 },
+                                     { TerrainSlope::Unit::Angle, std::atan (0.5), 0 },
+                                     { TerrainSlope::Unit::RiseRun, 1.5, 3 },
+                                     { TerrainSlope::Unit::Height, 2.5, 5 } }) {
+        std::string error;
+        ASSERT_TRUE (edit::EditPath (
+            fixture.doc, fixture.path,
+            [cut, fill] (auto& path, auto&) {
+                path.sections[0].cutSlope = cut;
+                path.sections[0].fillSlope = fill;
+                return true;
+            },
+            error))
+            << error;
+        ++fixture.doc.revision;
+        fixture.Capture ();
+        const auto provenance = fixture.provenance;
+        TerrainDesignResult band;
+        ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), fixture.Options (), band, error)) << error;
+        for (const auto& sides : band.build.sides)
+            for (const auto& side : sides) {
+                EXPECT_EQ (side.roots, 1u);
+                EXPECT_NEAR (side.first, 4.0 / 3.0, 1e-9);
+            }
+        if (bandCut < 0) {
+            bandCut = band.build.site.cut;
+            bandFill = band.build.site.fill;
+        }
+        EXPECT_NEAR (band.build.site.cut, bandCut, 1e-7);
+        EXPECT_NEAR (band.build.site.fill, bandFill, 1e-7);
+        EXPECT_GE (band.build.site.cut, 80.0 / 3.0 - 1e-9);
+        EXPECT_GE (band.build.site.fill, 80.0 / 3.0 - 1e-9);
+        const auto options = OutlineOptionsFor (fixture.doc, fixture.path, 10);
+        EXPECT_EQ (options.cut, cut);
+        EXPECT_EQ (options.fill, fill);
+        TerrainDesignResult outline;
+        uint32_t unreached = 0;
+        ASSERT_TRUE (EvaluateOutlineDesign (fixture.doc, fixture.Input (), options, outline, unreached, error))
+            << error;
+        if (outlineCut < 0) {
+            outlineCut = outline.build.site.cut;
+            outlineFill = outline.build.site.fill;
+        }
+        EXPECT_GT (outline.build.site.cut, 0);
+        EXPECT_GT (outline.build.site.fill, 0);
+        EXPECT_NEAR (outline.build.site.cut, outlineCut, 1e-6);
+        EXPECT_NEAR (outline.build.site.fill, outlineFill, 1e-6);
+        const std::array<double, 6> queries { 5, 0, 20, 0, -15, -20 };
+        for (const auto* built : { &band.build, &outline.build }) {
+            std::vector<TerrainSample> samples;
+            TerrainFieldSummary summary;
+            ASSERT_TRUE (SampleTerrain ({ built->points, built->triangles }, queries, 0.25, samples, summary, error))
+                << error;
+            ASSERT_EQ (samples.size (), 3u);
+            EXPECT_NEAR (samples[0].height, 10.25, 1e-7);
+            EXPECT_NEAR (samples[1].height, 11, 1e-7);
+            EXPECT_NEAR (samples[2].height, 13.25, 1e-7);
+        }
+        EXPECT_EQ (fixture.doc.paths[0].sections[0].cutSlope, cut);
+        EXPECT_EQ (fixture.doc.paths[0].sections[0].fillSlope, fill);
+        EXPECT_EQ (fixture.points, baseline);
+        EXPECT_EQ (fixture.provenance, provenance);
     }
 }
 
@@ -1866,7 +1937,7 @@ TEST (HudTerrainDesign, RefusedDesignDrawsLocatedPlacesAndStartRefusalsAreAtomic
         [] (edit::Path& path, std::string&) {
             for (auto& section : path.sections) {
                 section.cutSlope = { TerrainSlope::Unit::Percent, 0.1, 0 };
-                section.fillSlope = 0.1;
+                section.fillSlope = { TerrainSlope::Unit::Percent, 0.1, 0 };
             }
             return true;
         },

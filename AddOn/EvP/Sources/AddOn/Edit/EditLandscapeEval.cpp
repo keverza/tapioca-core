@@ -632,7 +632,9 @@ void RefreshSources (edit::Document& doc)
                 word (uint64_t (s.cutSlope.unit));
                 number (s.cutSlope.a);
                 number (s.cutSlope.b);
-                number (s.fillSlope);
+                word (uint64_t (s.fillSlope.unit));
+                number (s.fillSlope.a);
+                number (s.fillSlope.b);
                 number (s.rounding);
             }
             number (path->edgeRadius);
