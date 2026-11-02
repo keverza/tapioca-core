@@ -668,8 +668,12 @@ line, mask ring segment or control line), resolved locked vertices, exact
 site/context volumes and the caller's revision/plan hash. Full-capacity alias
 preflight precedes atomic publication; refusals publish nothing. A standalone
 C smoke target (`TapiocaRustUnifiedSmoke`) links the export from a real C
-translation unit. An owned-C++ facade with parity tests against the existing
-region/path lanes is a follow-up slice, as is production dispatch.
+translation unit. The owned-C++ facade `BuildUnifiedTerrain`
+(`GeometryRustUnifiedTerrain.hpp`) converts plans to the POD ingress, runs
+query/fill and retains the input catalog; parity tests against the existing
+region edit and hybrid band lanes live in
+`test_geometry_rust_unified_terrain.cpp`. Production dispatch is a follow-up
+slice.
 
 Additional surface modes beyond Existing/Constant and production dispatch are
 later P3 slices. Hard 2.5D boundaries currently share
