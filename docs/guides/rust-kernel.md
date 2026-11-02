@@ -655,8 +655,24 @@ sampled baseline heights, per-vertex owners, complete `RegionMesh`
 correspondence, per-line plan/path/mask/control origins, resolved locked
 vertices, exact site/context volumes, and the caller's revision/plan hash.
 
-Additional surface modes beyond Existing/Constant, ABI export, C++ wrapper and
-production dispatch are later P3 slices. Hard 2.5D boundaries currently share
+The additive `tapioca_terrain_unified_build` ABI exports this build without
+enabling any production consumer. Plan ingress is fixed-layout POD with offset
+pools only (no nested pointers): baseline mesh, property ring, one shared xyz
+geometry pool with a ring pool and shared part-index/station/source pools,
+ordered entries, path bands, masks and controls. Input provenance is the
+split/hybrid domains=7 catalog in documented vertex/edge order. Output is
+complete query/fill: proposed points, sampled baseline heights, owners,
+triangle correspondence (`RegionMesh` mapping kinds 9, 12..17, control spots
+20/21), one origin row per breakline (entry ring segment, derived path design
+line, mask ring segment or control line), resolved locked vertices, exact
+site/context volumes and the caller's revision/plan hash. Full-capacity alias
+preflight precedes atomic publication; refusals publish nothing. A standalone
+C smoke target (`TapiocaRustUnifiedSmoke`) links the export from a real C
+translation unit. An owned-C++ facade with parity tests against the existing
+region/path lanes is a follow-up slice, as is production dispatch.
+
+Additional surface modes beyond Existing/Constant and production dispatch are
+later P3 slices. Hard 2.5D boundaries currently share
 vertices with the neighbouring surface, so exact volumes include boundary
 interpolation rather than claiming a vertical wall; a conservative hard-step
 policy refuses touching sharp absolute-target domains with no transition or

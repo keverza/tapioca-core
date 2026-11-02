@@ -14,7 +14,10 @@ invariants, C++ parity oracle, and tests. Keep changes independently verifiable.
   reverse. Cargo and `check_rust.py` enforce this crate-level dependency boundary.
   `geometry/src/terrain/unified.rs` owns the #112 P3 pure field-to-terrain build;
   its current slice covers region fields, sampled path bands, grading/protection
-  masks and fixed controls and has no ABI/export or production consumer yet.
+  masks and fixed controls. The additive `tapioca_terrain_unified_build` ABI
+  (`ffi/src/terrain/unified.rs`) exports that build with fixed-layout POD plan
+  ingress, complete query/fill output, per-breakline origins, locked vertices and
+  atomic publication; no production consumer consumes it yet.
 - No Archicad, Diligent, ImGui, Windows, CPython, process, filesystem, network, or
   UI APIs in geometry. No callbacks into the host from algorithms.
 - Do not create the proposed math/topology/terrain directory tree in advance.

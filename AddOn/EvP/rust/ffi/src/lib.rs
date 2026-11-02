@@ -136,11 +136,14 @@ pub use terrain::{
     TerrainOutput, TerrainRefinement, TerrainRequest, TerrainRing, TerrainRowsOutput,
     TerrainSample, TerrainSampleOutput, TerrainSampleRequest, TerrainSlope, TerrainSplitRequest,
     TerrainStation, TerrainSurfaceRequest, TerrainSurfaceView, TerrainVolumeOutput,
-    TerrainVolumeRequest, TerrainVolumes, tapioca_slope_convert, tapioca_terrain_edit,
-    tapioca_terrain_edit_clips, tapioca_terrain_hybrid_build, tapioca_terrain_hybrid_conflicts,
+    TerrainVolumeRequest, TerrainVolumes, UnifiedControl, UnifiedCounts, UnifiedEntry, UnifiedLine,
+    UnifiedLocked, UnifiedMask, UnifiedMeta, UnifiedOutput, UnifiedPart, UnifiedPath,
+    UnifiedRequest, tapioca_slope_convert, tapioca_terrain_edit, tapioca_terrain_edit_clips,
+    tapioca_terrain_hybrid_build, tapioca_terrain_hybrid_conflicts,
     tapioca_terrain_hybrid_locked_assess, tapioca_terrain_hybrid_locked_build,
     tapioca_terrain_outline_build, tapioca_terrain_sample, tapioca_terrain_split_mesh,
-    tapioca_terrain_surface, tapioca_terrain_triangulate, tapioca_terrain_volume,
+    tapioca_terrain_surface, tapioca_terrain_triangulate, tapioca_terrain_unified_build,
+    tapioca_terrain_volume,
 };
 
 #[allow(

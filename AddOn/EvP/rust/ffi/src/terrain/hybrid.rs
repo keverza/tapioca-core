@@ -209,7 +209,7 @@ fn count(value: usize) -> Result<u64, Failure> {
     u64::try_from(value).map_err(|_| Failure::Argument("TerrainCountOverflow"))
 }
 
-fn station(raw: &TerrainStation) -> Result<Station, Failure> {
+pub(super) fn station(raw: &TerrainStation) -> Result<Station, Failure> {
     if raw.reserved != 0 {
         return Err(Failure::Argument("TerrainHybridReserved"));
     }
@@ -251,7 +251,7 @@ fn row(kind: u32, index: u32, values: [u32; 6]) -> TerrainMapping {
     }
 }
 
-const fn support(value: Support) -> [u32; 3] {
+pub(super) const fn support(value: Support) -> [u32; 3] {
     match value {
         Support::BaseEdge([a, b]) => [1, a, b],
         Support::Breakline { line, segment } => [2, line, segment],

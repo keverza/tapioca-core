@@ -104,3 +104,13 @@ add_executable (TapiocaRustMeshPrepFailure tests/mesh_prep_wrapper_failure.cpp
 set_target_properties (TapiocaRustMeshPrepFailure PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
 target_include_directories (TapiocaRustMeshPrepFailure PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn")
 add_test (NAME TapiocaRustMeshPrepFailure COMMAND TapiocaRustMeshPrepFailure)
+
+# #112 P3 unified landscape build: a real C translation unit consumes the new
+# records and the export against the linked Rust archive.
+add_executable (TapiocaRustUnifiedSmoke tests/unified_smoke.c tests/unified_smoke.cpp)
+set_target_properties (TapiocaRustUnifiedSmoke PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES
+    CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES)
+target_include_directories (TapiocaRustUnifiedSmoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn"
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry")
+TapiocaLinkRustCore (TapiocaRustUnifiedSmoke)
+add_test (NAME TapiocaRustUnifiedSmoke COMMAND TapiocaRustUnifiedSmoke)

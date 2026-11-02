@@ -15,6 +15,7 @@ mod sample;
 mod slope;
 mod storage;
 mod surface;
+mod unified;
 mod volume;
 
 pub use conflict::{
@@ -43,6 +44,11 @@ pub use sample::{
 };
 pub use slope::{SlopeRequest, tapioca_slope_convert};
 pub use surface::{TerrainSurfaceRequest, tapioca_terrain_surface};
+pub use unified::{
+    UnifiedControl, UnifiedCounts, UnifiedEntry, UnifiedLine, UnifiedLocked, UnifiedMask,
+    UnifiedMeta, UnifiedOutput, UnifiedPart, UnifiedPath, UnifiedRequest,
+    tapioca_terrain_unified_build,
+};
 pub use volume::{
     TerrainEditVolumes, TerrainVolumeOutput, TerrainVolumeRequest, TerrainVolumes,
     tapioca_terrain_volume,

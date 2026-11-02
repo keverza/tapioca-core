@@ -730,6 +730,143 @@ typedef struct {
 // magnitude=other/proposed minus fixed height. Other fields unused/zero.
 // Assessment builds a TIN; worker-classified, not a cheap per-point query.
 
+// #112 P3 unified landscape build: one immutable baseline, one ordered field
+// plan (region entries, sampled path bands, masks, fixed controls) and one
+// constrained result topology. All plan records are POD with offset ranges
+// into the shared pools; there are no nested pointers, so one preflight pass
+// covers every input. Entry: surface 1 Existing / 2 Constant(level); effect
+// 1 Grade / 2 Add / 3 Subtract; transition 1 Falloff(falloff metres) / 2
+// Daylight(cut, fill, reach metres). Path effect 1 cut / 2 fill / 3 both.
+// Mask kind 1 GradingLimit / 2 ProtectedZone. Control point=1 fixes position;
+// point=0 fixes an open line in the shared geometry pool. Non-constant
+// surface target meshes are a later slice; this export carries Existing and
+// Constant only, matching the kernel.
+// Input provenance domains=7. Vertex order: baseline mesh, property ring,
+// every rings-pool ring (entries then masks, part order, outer then holes),
+// every line control's vertices (control order), then point controls
+// (control order). Edge order: property segments, ring segments (same nested
+// order), control line segments. Faces: baseline triangles. Stations, entry
+// parameters and pool indices carry no entity rows.
+// Output: query/fill like tapioca_terrain_hybrid_build (queryOnly=1 publishes
+// only counts; all capacities must be zero). Mappings reuse kinds 9, 12..17;
+// control spots publish kind 20 (new spot vertex) or 21 (spot remapped to an
+// output vertex). lines[] holds one origin per breakline, in breakline order
+// (entry ring segments, derived path design lines, mask ring segments,
+// control lines): domain 1 entry / 2 path / 3 mask / 4 control; path rows
+// carry the hybrid line kind/side/root (1..8); a control row's segment field
+// is its authored segment count. locked[] names each fixed-height output
+// vertex. meta carries the caller's revision/plan hash unchanged. owners[v]
+// is the last stack position that moved the vertex, else UINT32_MAX.
+// Attribution refusals return STATE; geometry/parameter refusals return ARG
+// with the kernel code (Build*, Region*, Design*, LockedConflict, HardStep).
+// Worker-classified; one build recomputes the whole constrained interior.
+typedef struct {
+    uint32_t firstRing, ringCount; /* First ring is the outer; the rest are holes. */
+} TapiocaUnifiedPart;
+typedef struct {
+    uint64_t object, rootOperation;
+    double level, falloff; /* Constant target; falloff blur (metres). */
+    TapiocaTerrainSlope cut, fill;
+    double reach; /* Daylight reach outside the domain, metres. */
+    uint32_t order, surface, effect, transition;
+    uint32_t firstPart, partCount;   /* Into the shared part-index pool. */
+    uint32_t firstSource, sourceCount; /* Into the shared source pool. */
+} TapiocaUnifiedEntry;
+typedef struct {
+    uint32_t order, effect, reserved;
+    uint32_t firstStation, stationCount; /* Into the shared stations pool, >= 2. */
+    uint64_t source, operation, object;
+    double tolerance; /* At-grade height band, metres. */
+} TapiocaUnifiedPath;
+typedef struct {
+    uint32_t kind, reserved;
+    uint64_t operation;
+    uint32_t firstPart, partCount;
+    uint32_t firstSource, sourceCount;
+} TapiocaUnifiedMask;
+typedef struct {
+    uint32_t point, reserved; /* 1: fixed point; 0: fixed open line. */
+    uint64_t source, vertex;  /* Authored vertex identity for a point. */
+    double position[3];
+    TapiocaTerrainRing line; /* In the shared geometry pool when point=0. */
+} TapiocaUnifiedControl;
+typedef struct {
+    TapiocaDoubleView points;     /* Baseline xyz, world metres. */
+    TapiocaIndexView triangles;   /* Counter-clockwise baseline triples. */
+    TapiocaDoubleView property;   /* Closed property ring; empty: whole baseline. */
+    TapiocaDoubleView geometry;   /* Shared pool of every ring/control line. */
+    struct {
+        const TapiocaTerrainRing* data;
+        size_t count;
+    } rings;
+    struct {
+        const TapiocaUnifiedPart* data;
+        size_t count;
+    } parts;
+    TapiocaIndexView partIndices; /* Entries then masks, in plan order. */
+    struct {
+        const TapiocaTerrainStation* data;
+        size_t count;
+    } stations; /* Paths' stations concatenated, in plan order. */
+    struct {
+        const uint64_t* data;
+        size_t count;
+    } sources; /* Entries then masks source identities. */
+    struct {
+        const TapiocaUnifiedEntry* data;
+        size_t count;
+    } entries;
+    struct {
+        const TapiocaUnifiedPath* data;
+        size_t count;
+    } paths;
+    struct {
+        const TapiocaUnifiedMask* data;
+        size_t count;
+    } masks;
+    struct {
+        const TapiocaUnifiedControl* data;
+        size_t count;
+    } controls;
+    double controlTolerance; /* Absolute grading/fixed compatibility band, metres. */
+    uint64_t revision, planHash;
+    TapiocaProvenanceRequest provenance;
+} TapiocaUnifiedRequest;
+typedef struct {
+    size_t points, triangles, mappings, lines, locked;
+} TapiocaUnifiedCounts;
+typedef struct {
+    uint64_t revision, planHash;
+} TapiocaUnifiedMeta;
+typedef struct {
+    uint32_t domain, index, part, ring, segment, kind, side, root;
+} TapiocaUnifiedLine;
+typedef struct {
+    uint32_t control, vertex;
+    double height; /* Metres. */
+} TapiocaUnifiedLocked;
+typedef struct {
+    TapiocaUnifiedCounts* counts;   /* Required. */
+    TapiocaUnifiedMeta* meta;       /* Required. */
+    TapiocaTerrainHybridVolumes* site;    /* Required. */
+    TapiocaTerrainHybridVolumes* context; /* Required. */
+    double* points;
+    size_t pointCapacity;
+    double* base; /* Baseline height per output vertex. */
+    size_t baseCapacity;
+    uint32_t* owners;
+    size_t ownerCapacity;
+    uint32_t* triangles;
+    size_t triangleCapacity;
+    TapiocaTerrainMapping* mappings;
+    size_t mappingCapacity;
+    TapiocaUnifiedLine* lines;
+    size_t lineCapacity;
+    TapiocaUnifiedLocked* locked;
+    size_t lockedCapacity;
+    uint32_t queryOnly, reserved;
+} TapiocaUnifiedOutput;
+
 // S4.3 located conflicts, additive to the build/edit records and counters.
 // Band conflict code: 1 DaylightNotReached (magnitude: z_cone - z_base where the
 // search stopped), 2 DaylightBeyondLimit (reach needed, metres from the edge),
@@ -1153,6 +1290,15 @@ TapiocaStatus tapioca_terrain_hybrid_locked_build (const TapiocaTerrainHybridLoc
 TapiocaStatus tapioca_terrain_hybrid_locked_assess (const TapiocaTerrainHybridLockedRequest* request,
                                                     const TapiocaTerrainHybridDiagnosticOutput* output, char* error,
                                                     size_t errorCapacity);
+// #112 P3 unified build: query/fill like tapioca_terrain_hybrid_build
+// (queryOnly=1 publishes only counts; all capacities zero). Atomic, unchanged
+// on refusal. Full-capacity alias preflight covers every pool before any
+// borrow; no plan record holds a nested pointer. Attribution refusals return
+// STATE; geometry/parameter refusals ARG with the kernel code. Worker-
+// classified; one build recomputes the whole constrained interior.
+TapiocaStatus tapioca_terrain_unified_build (const TapiocaUnifiedRequest* request,
+                                            const TapiocaUnifiedOutput* output, char* error,
+                                            size_t errorCapacity);
 // S4.3: query/fill row exports with the same request records and contracts.
 TapiocaStatus tapioca_terrain_hybrid_conflicts (const TapiocaTerrainHybridRequest* request,
                                                 const TapiocaTerrainConflictOutput* output, char* error,
