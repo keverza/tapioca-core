@@ -377,6 +377,217 @@ fn adjacent_sharp_domains_with_different_targets_refuse_as_a_hard_step() {
 }
 
 #[test]
+fn nested_sharp_overrides_compose_by_stack_order() -> Result<(), BuildError> {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]);
+    let outer = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
+    let inner = ring(&[[4.0, 4.0], [6.0, 4.0], [6.0, 6.0], [4.0, 6.0]]);
+    let outer_parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let inner_parts = [Part {
+        outer: &inner,
+        holes: &[],
+    }];
+
+    let build_with = |inner_first: bool| {
+        let entries = if inner_first {
+            [
+                constant_entry(0, &inner_parts, 1.0, TerrainEffect::Grade, sharp()),
+                constant_entry(1, &outer_parts, 3.0, TerrainEffect::Grade, sharp()),
+            ]
+        } else {
+            [
+                constant_entry(0, &outer_parts, 3.0, TerrainEffect::Grade, sharp()),
+                constant_entry(1, &inner_parts, 1.0, TerrainEffect::Grade, sharp()),
+            ]
+        };
+        let plan = Plan {
+            revision: 26,
+            hash: 261,
+            entries: &entries,
+            paths: &[],
+            masks: &[],
+            controls: &[],
+            control_tolerance: 1e-3,
+        };
+        build_terrain(
+            &Baseline {
+                points: &points,
+                triangles: &triangles,
+                property: Some(&property),
+            },
+            &plan,
+        )
+    };
+
+    // The nested pair never touches, so no shared boundary vertex claims a
+    // hard step; the inner ring is an exact constraint either way.
+    let normal = build_with(false)?;
+    let reversed = build_with(true)?;
+    assert_mesh_invariants(&normal);
+    assert_mesh_invariants(&reversed);
+    let core = vertex_at(&normal.points, 5.0, 5.0).unwrap_or(u32::MAX);
+    let annulus = vertex_at(&normal.points, 3.0, 3.0).unwrap_or(u32::MAX);
+    let outside = vertex_at(&normal.points, 1.0, 1.0).unwrap_or(u32::MAX);
+    for (built, core_height, core_owner) in [(&normal, 1.0, 1_u32), (&reversed, 3.0, 1_u32)] {
+        assert!(close(
+            built
+                .points
+                .get(core as usize * 3 + 2)
+                .copied()
+                .unwrap_or(f64::NAN),
+            core_height,
+            1e-12
+        ));
+        assert_eq!(built.owners.get(core as usize), Some(&Some(core_owner)));
+        assert!(close(
+            built
+                .points
+                .get(annulus as usize * 3 + 2)
+                .copied()
+                .unwrap_or(f64::NAN),
+            3.0,
+            1e-12
+        ));
+        assert!(close(
+            built
+                .points
+                .get(outside as usize * 3 + 2)
+                .copied()
+                .unwrap_or(f64::NAN),
+            0.0,
+            1e-12
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn nested_sharp_domain_sharing_a_boundary_vertex_builds_as_an_ordered_overlap()
+-> Result<(), BuildError> {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]);
+    let outer = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
+    // One inner corner sits exactly on the outer ring. The bounding boxes
+    // overlap, so the pair is ordered like any overlap: both rings constrain
+    // the shared vertex to one height and the stack order composes.
+    let touching = ring(&[[2.0, 2.0], [6.0, 2.0], [6.0, 6.0], [2.0, 6.0]]);
+    let outer_parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let touching_parts = [Part {
+        outer: &touching,
+        holes: &[],
+    }];
+    let entries = [
+        constant_entry(0, &outer_parts, 3.0, TerrainEffect::Grade, sharp()),
+        constant_entry(1, &touching_parts, 1.0, TerrainEffect::Grade, sharp()),
+    ];
+    let plan = Plan {
+        revision: 27,
+        hash: 271,
+        entries: &entries,
+        paths: &[],
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    assert_mesh_invariants(&built);
+    let core = vertex_at(&built.points, 5.0, 5.0).unwrap_or(u32::MAX);
+    // (6, 7) lies on the outer ring outside the touching domain.
+    let annulus = vertex_at(&built.points, 6.0, 7.0).unwrap_or(u32::MAX);
+    assert!(close(
+        built
+            .points
+            .get(core as usize * 3 + 2)
+            .copied()
+            .unwrap_or(f64::NAN),
+        1.0,
+        1e-12
+    ));
+    assert!(close(
+        built
+            .points
+            .get(annulus as usize * 3 + 2)
+            .copied()
+            .unwrap_or(f64::NAN),
+        3.0,
+        1e-12
+    ));
+    Ok(())
+}
+
+#[test]
+fn entry_ring_coincident_with_the_property_ring_builds() -> Result<(), BuildError> {
+    // A region graded to its own property boundary: the entry ring duplicates
+    // the region ring. This is the common "grade the whole property" case and
+    // must not degenerate the constrained rebuild.
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
+    let parts = [Part {
+        outer: &property,
+        holes: &[],
+    }];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        2.0,
+        TerrainEffect::Grade,
+        sharp(),
+    )];
+    let plan = Plan {
+        revision: 28,
+        hash: 281,
+        entries: &entries,
+        paths: &[],
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    assert_mesh_invariants(&built);
+    let inside = vertex_at(&built.points, 4.0, 4.0).unwrap_or(u32::MAX);
+    let outside = vertex_at(&built.points, 1.0, 1.0).unwrap_or(u32::MAX);
+    assert!(close(
+        built
+            .points
+            .get(inside as usize * 3 + 2)
+            .copied()
+            .unwrap_or(f64::NAN),
+        2.0,
+        1e-12
+    ));
+    assert!(close(
+        built
+            .points
+            .get(outside as usize * 3 + 2)
+            .copied()
+            .unwrap_or(f64::NAN),
+        0.0,
+        1e-12
+    ));
+    Ok(())
+}
+
+#[test]
 fn add_raises_only_and_subtract_lowers_only_on_a_sloped_base() -> Result<(), BuildError> {
     let (points, triangles) = surface(9, 1.0, |x, _| x);
     let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);

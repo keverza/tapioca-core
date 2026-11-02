@@ -671,21 +671,30 @@ C smoke target (`TapiocaRustUnifiedSmoke`) links the export from a real C
 translation unit. The owned-C++ facade `BuildUnifiedTerrain`
 (`GeometryRustUnifiedTerrain.hpp`) converts plans to the POD ingress, runs
 query/fill and retains the input catalog; parity tests against the existing
-region edit and hybrid band lanes live in
+region edit and hybrid band lanes, and against the production
+region-first/path-second orchestrator on the original #82 debug fixture
+(`fixtures/region-boundary-20261029.debug.json`), live in
 `test_geometry_rust_unified_terrain.cpp`. Production dispatch is a follow-up
 slice.
 
 Additional surface modes beyond Existing/Constant and production dispatch are
 later P3 slices. Hard 2.5D boundaries currently share
 vertices with the neighbouring surface, so exact volumes include boundary
-interpolation rather than claiming a vertical wall; a conservative hard-step
-policy refuses touching sharp absolute-target domains with no transition or
-ordered overlap, while nested hard overrides remain an explicit later policy
-extension. Tests cover empty plans, holes/islands/disjoint
+interpolation rather than claiming a vertical wall. The hard-step policy
+refuses side-by-side sharp absolute-target domains that touch with no overlap
+(a shared boundary segment would need two heights at one plan position);
+ordered pairs carry the elevation change deliberately — an overlap blends it
+and a strictly nested override constrains it exactly through its inner rings,
+with the stack order deciding which target wins inside. Entry ring segments
+coinciding with the property ring are dropped (the rebuild already constrains
+the property ring; a duplicate breakline degenerates the triangulation), which
+makes "grade the whole property" the common case. Tests cover empty plans,
+holes/islands/disjoint
 parts, overlap order reversal, Add/Subtract, falloff/daylight distances, a path
 band after regions, a path across a region hole, fixed-control/path conflicts,
 grading limits, protected zones, exact volume reconciliation, fixed point/line
-compatibility and conflicts, adjacent hard-step refusal, malformed
+compatibility and conflicts, adjacent hard-step refusal, nested override
+composition in both stack orders, coincident property/entry rings, malformed
 paths/masks/controls, deterministic repeat, malformed plans, missing property
 rings, out-of-property refusal and input immutability.
 

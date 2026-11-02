@@ -1,4 +1,4 @@
-//! #112 P3 unified terrain build: one immutable baseline, one compiled field
+﻿//! #112 P3 unified terrain build: one immutable baseline, one compiled field
 //! stack and one constrained result topology.
 //!
 //! This module is the pure-Rust landscape mesh authority. It assembles every
@@ -8,10 +8,12 @@
 //! with the reconciled absolute Grade, Add and Subtract rules, sampled path
 //! bands, grading/protection masks and fixed-height point/line controls.
 //! Additional surface modes and host integration
-//! are later slices. A conservative hard-step policy now refuses touching sharp
-//! absolute-target domains when no transition or ordered overlap represents the
-//! elevation change; nested hard overrides remain an explicit later policy
-//! extension.
+//! are later slices. The hard-step policy refuses side-by-side sharp
+//! absolute-target domains that touch with no overlap: a shared boundary
+//! segment would need two heights at one plan position. Ordered pairs carry
+//! the change deliberately â€” an overlap blends it, and a strictly nested
+//! override constrains it exactly through its inner rings, with the stack
+//! order deciding which target wins inside.
 //!
 //! Cohesion review: this file intentionally keeps plan validation, one-graph
 //! constraint assembly, ordered height composition, fixed-control resolution and
@@ -1120,14 +1122,44 @@ fn parts_bounds(parts: &[Part<'_>]) -> Option<[f64; 4]> {
 
 fn domains_overlap_near(a: &[Part<'_>], b: &[Part<'_>], _x: f64, _y: f64) -> bool {
     // A nonzero bounding-box intersection distinguishes ordered overlap from a
-    // shared edge/point. It is a conservative topology classifier: nested hard
-    // overrides remain an explicit later hard-step-policy extension.
+    // shared edge/point. It is a conservative topology classifier; strict
+    // nesting is classified separately in `strictly_nested`.
     let (Some(a), Some(b)) = (parts_bounds(a), parts_bounds(b)) else {
         return false;
     };
     let width = a[2].min(b[2]) - a[0].max(b[0]);
     let height = a[3].min(b[3]) - a[1].max(b[1]);
     width > 1e-9 && height > 1e-9
+}
+
+/// Every ring vertex of `inner` lies strictly inside `outer`'s parts, with no
+/// contact with `outer`'s rings. Strict nesting is one of the two ordered
+/// hard-step shapes (the other a nonzero overlap in `domains_overlap_near`):
+/// the inner rings become exact constraints, so the elevation step between
+/// the two targets is representable and the stack order decides which target
+/// wins inside the inner domain. Strictly nested domains never share boundary
+/// vertices, so this classifier documents the policy where the shared-vertex
+/// refusal below can never fire.
+fn strictly_nested(outer: &[Part<'_>], inner: &[Part<'_>]) -> bool {
+    let strict_inside = |parts: &[Part<'_>], x: f64, y: f64| {
+        parts.iter().any(|part| {
+            plan::inside(plan::vertices(part.outer), x, y) == Some(true)
+                && part
+                    .holes
+                    .iter()
+                    .all(|hole| plan::inside(plan::vertices(hole), x, y) == Some(false))
+        })
+    };
+    !inner.is_empty()
+        && inner.iter().all(|part| {
+            std::iter::once(&part.outer)
+                .chain(part.holes.iter())
+                .all(|ring| {
+                    plan::vertices(ring)
+                        .iter()
+                        .all(|&[x, y, _]| strict_inside(outer, x, y))
+                })
+        })
 }
 
 fn detect_hard_steps(claims: &BTreeMap<u32, Vec<TargetClaim>>) -> Result<(), BuildError> {
@@ -1140,7 +1172,12 @@ fn detect_hard_steps(claims: &BTreeMap<u32, Vec<TargetClaim>>) -> Result<(), Bui
                     || !second.boundary
                     || !first.sharp
                     || !second.sharp
+                    // Ordered pairs carry the elevation change deliberately:
+                    // an overlap blends it (earlier entries already ceded the
+                    // intersection), strict nesting constrains it exactly.
                     || domains_overlap_near(first.parts, second.parts, 0.0, 0.0)
+                    || strictly_nested(first.parts, second.parts)
+                    || strictly_nested(second.parts, first.parts)
                 {
                     continue;
                 }
@@ -1368,6 +1405,35 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
                 push_ring_lines(&mut lines, hole, entry.order, part_index, ring)?;
             }
         }
+    }
+    if let Some(property) = baseline.property {
+        // Entry ring segments coinciding with the property ring are dropped:
+        // the region rebuild already constrains the property ring, and a
+        // duplicate breakline degenerates the triangulation. This is the
+        // common "grade the whole property" case.
+        let mut property_segments = std::collections::BTreeSet::new();
+        let vertices = plan::vertices(property);
+        for index in 0..vertices.len() {
+            let (Some(&a), Some(&b)) = (
+                vertices.get(index),
+                vertices.get((index + 1) % vertices.len()),
+            ) else {
+                break;
+            };
+            let key = |&[x, y, _]: &[f64; 3]| (x.to_bits(), y.to_bits());
+            let (ka, kb) = (key(&a), key(&b));
+            property_segments.insert(if kb < ka { (kb, ka) } else { (ka, kb) });
+        }
+        let coincident = |line: &PlannedLine| {
+            let vertices = plan::vertices(&line.points);
+            let (Some(&a), Some(&b)) = (vertices.first(), vertices.get(1)) else {
+                return false;
+            };
+            let key = |&[x, y, _]: &[f64; 3]| (x.to_bits(), y.to_bits());
+            let (ka, kb) = (key(&a), key(&b));
+            property_segments.contains(&if kb < ka { (kb, ka) } else { (ka, kb) })
+        };
+        lines.retain(|line| !coincident(line));
     }
     let path_field = if plan.paths.is_empty() {
         None
