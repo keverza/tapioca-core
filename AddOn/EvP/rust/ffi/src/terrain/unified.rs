@@ -13,7 +13,9 @@
 //! correspondence and publishes per-breakline origins, resolved locked
 //! vertices, site/context volumes and the caller's revision/plan hash.
 //! Control spots publish kind 20 (new spot vertex) or 21 (spot remapped to an
-//! output vertex) rows. Query/fill recomputes; publication is atomic.
+//! output vertex) rows. Entry ring segments coinciding with the property ring
+//! are dropped before the rebuild (the ring is already constrained there).
+//! Query/fill recomputes; publication is atomic.
 
 use super::edit::{TerrainRing, TerrainSlope, slope};
 use super::hybrid::{TerrainHybridVolumes, copy, station, support};

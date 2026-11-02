@@ -1,4 +1,4 @@
-﻿//! Unified landscape-build export against the safe kernel (#112 P3).
+//! Unified landscape-build export against the safe kernel (#112 P3).
 use super::*;
 
 const PROPERTY: [f64; 12] = [0.0, 0.0, 0.0, 8.0, 0.0, 0.0, 8.0, 8.0, 0.0, 0.0, 8.0, 0.0];
@@ -554,4 +554,79 @@ fn point_control_locks_its_vertex_and_publishes_rows() {
     assert!(storage.mappings.iter().any(|row| row.kind == 21));
     // The control spot is not a breakline; only the four domain lines publish.
     assert_eq!(storage.counts.lines, 4);
+}
+
+#[test]
+fn nested_sharp_entries_compose_and_coincident_property_entry_ring_builds() {
+    let (points, triangles) = base();
+    // Property ring reused as the outer entry domain ("grade the whole
+    // property") with a strictly nested override at a different height.
+    let property_and_outer: [f64; 12] =
+        [2.0, 2.0, 0.0, 7.0, 2.0, 0.0, 7.0, 7.0, 0.0, 2.0, 7.0, 0.0];
+    let inner: [f64; 12] = [4.0, 4.0, 0.0, 6.0, 4.0, 0.0, 6.0, 6.0, 0.0, 4.0, 6.0, 0.0];
+    let mut geometry = property_and_outer.to_vec();
+    geometry.extend_from_slice(&inner);
+    let ring_pool = [
+        TerrainRing {
+            offset: 0,
+            count: 12,
+        },
+        TerrainRing {
+            offset: 12,
+            count: 12,
+        },
+    ];
+    let part_pool = [
+        UnifiedPart {
+            first_ring: 0,
+            ring_count: 1,
+        },
+        UnifiedPart {
+            first_ring: 1,
+            ring_count: 1,
+        },
+    ];
+    let part_indices = [0_u32, 1];
+    let entries = [entry(0, 3.0), entry(1, 1.0)];
+    let sources = [0x1001_u64, 0x1002];
+    // Vertices: 81 mesh + 4 property + 8 entry rings; edges: 4 + 8; faces: 128.
+    let counts = id::EntityCounts {
+        vertices: 81 + 4 + 8,
+        edges: 4 + 8,
+        faces: 128,
+        patches: 0,
+    };
+    let rows = rows(counts);
+    let no_controls: [UnifiedControl; 0] = [];
+    let request = scene(
+        &points,
+        &triangles,
+        &entries,
+        &geometry,
+        &sources,
+        &rows,
+        &no_controls,
+        &ring_pool,
+        &part_pool,
+        &part_indices,
+    );
+    // The request property is the shared 8 m square; replace it with the
+    // coincident outer ring by rebuilding the request field.
+    let mut request = request;
+    request.property = view(&property_and_outer);
+    let mut storage = Storage::new();
+    let built = build(&request, &mut storage);
+    assert!(built.is_ok(), "unified build refused: {:?}", built.err());
+    let height = |x: f64, y: f64| {
+        storage
+            .points
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .find(|&[px, py, _]| px.to_bits() == x.to_bits() && py.to_bits() == y.to_bits())
+            .map_or(f64::NAN, |&[_, _, z]| z)
+    };
+    assert_eq!(height(5.0, 5.0), 1.0, "inner override wins");
+    assert_eq!(height(3.0, 3.0), 3.0, "annulus keeps the outer target");
+    assert_eq!(height(0.0, 0.0), 0.0, "outside stays baseline");
 }
