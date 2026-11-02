@@ -643,7 +643,10 @@ absolute effects: Grade sets the target, Add keeps `max(h, t)`, and Subtract
 keeps `min(h, t)`. Later entries override earlier entries; falloff and daylight
 transitions are entry-local. Sampled path bands then evaluate the existing
 path-design height field on the region-composed surface, so paths contribute
-height targets without a second mesh build. Grading-limit masks restrict where
+height targets without a second mesh build. Hybrid design-line preparation runs
+against a provisional region-composed field, so path edges, shoulders, daylight
+roots, rounded-face samples, cross-sections and crowns join the same constraint
+graph before the one rebuild. Grading-limit masks restrict where
 entries may move the surface; protected zones keep the baseline inside and on
 their rings. Fixed point/line controls are resolved on the same topology, own
 their heights exactly, and grading/control disagreements beyond the caller's
@@ -652,15 +655,14 @@ sampled baseline heights, per-vertex owners, complete `RegionMesh`
 correspondence, per-line plan/path/mask/control origins, resolved locked
 vertices, exact site/context volumes, and the caller's revision/plan hash.
 
-This slice intentionally uses sharp path edges/end/internal cross-sections and
-evaluates rounded/daylight path heights without yet adding hybrid's derived
-daylight-line constraints. Additional surface modes beyond Existing/Constant,
-hard-step duplication/refusal, ABI export, C++ wrapper and production dispatch
+Additional surface modes beyond Existing/Constant, hard-step
+duplication/refusal, ABI export, C++ wrapper and production dispatch
 are later P3 slices. Hard 2.5D domain boundaries currently share vertices with
 the neighbouring surface, so exact volumes include boundary interpolation rather
 than claiming a vertical wall. Tests cover empty plans, holes/islands/disjoint
 parts, overlap order reversal, Add/Subtract, falloff/daylight distances, a path
-band after regions, fixed-control/path conflicts, grading limits, protected
+band after regions, a path across a region hole, fixed-control/path conflicts,
+grading limits, protected
 zones, exact volume reconciliation, fixed point/line compatibility and
 conflicts, malformed paths/masks/controls, deterministic repeat, malformed
 plans, missing property rings, out-of-property refusal and input immutability.

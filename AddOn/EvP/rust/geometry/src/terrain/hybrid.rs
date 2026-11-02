@@ -410,6 +410,18 @@ fn lines(
     Ok((polylines, kinds))
 }
 
+/// Design-line preparation shared by the hybrid build and the unified landscape
+/// build. The returned polylines contain the band's real edges, shoulders,
+/// daylight roots, rounded-face samples, cross-sections and crown without
+/// running a second region rebuild.
+pub(in crate::terrain) fn design_lines(
+    design: &Design<'_>,
+) -> Result<(Vec<Vec<f64>>, Vec<LineKind>), HybridError> {
+    let daylight = design.daylight().map_err(HybridError::Design)?;
+    let offsets = offsets(design, &daylight)?;
+    lines(design, &offsets)
+}
+
 /// Build the band on the base terrain inside `request.region`.
 ///
 /// One daylight search per station side, one region rebuild and one exact

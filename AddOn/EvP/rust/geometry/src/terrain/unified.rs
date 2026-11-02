@@ -1,13 +1,14 @@
 //! #112 P3 unified terrain build: one immutable baseline, one compiled field
 //! stack and one constrained result topology.
 //!
-//! This module is the first pure-Rust slice of the landscape mesh authority. It
-//! assembles every plan domain edge as a constraint of one region rebuild, then
-//! evaluates the ordered field stack on that topology. Region entries currently
-//! support existing/constant targets with the reconciled absolute Grade, Add and
-//! Subtract rules, sampled path bands, grading/protection masks and fixed-height
-//! point/line controls. Rounded/path daylight-line generation, additional surface
-//! modes, hard-step duplication/refusal and host integration are later slices.
+//! This module is the pure-Rust landscape mesh authority. It assembles every
+//! plan domain edge, hybrid-derived path line, mask boundary and fixed control
+//! as constraints of one region rebuild, then evaluates the ordered field stack
+//! on that topology. Region entries currently support existing/constant targets
+//! with the reconciled absolute Grade, Add and Subtract rules, sampled path
+//! bands, grading/protection masks and fixed-height point/line controls.
+//! Additional surface modes, hard-step duplication/refusal and host integration
+//! are later slices.
 //!
 //! Cohesion review: this file intentionally keeps plan validation, one-graph
 //! constraint assembly, ordered height composition, fixed-control resolution and
@@ -24,6 +25,7 @@ use std::collections::BTreeMap;
 use super::design::{self, Design};
 use super::edit::{Effect, smoother_step};
 use super::field::{Field, FieldError};
+use super::hybrid::{self, LineKind};
 use super::plan;
 use super::region::{RegionError, RegionMesh, RegionRequest, retriangulate_region_with_points};
 use super::volume::VolumeError;
@@ -107,28 +109,13 @@ pub struct Path<'a> {
     pub tolerance: f64,
 }
 
-/// What one constrained path polyline represents.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PathLineKind {
-    /// Left band edge, looking along the path.
-    EdgeLeft,
-    /// Right band edge, looking along the path.
-    EdgeRight,
-    /// Cross-section at the first (`false`) or last (`true`) station.
-    End(bool),
-    /// Internal sampled cross-section at this station index.
-    Section(u32),
-    /// Crown crease of a crowned band.
-    Crown,
-}
-
 /// Authored identity of one path line supplied as a region breakline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PathLineOrigin {
     /// Index into `Plan::paths`.
     pub path: u32,
-    /// What the constrained polyline is.
-    pub kind: PathLineKind,
+    /// What the constrained path polyline is.
+    pub kind: LineKind,
 }
 
 /// What a plan mask does to the ordered grading stack.
@@ -720,100 +707,21 @@ fn path_station_normals(
     Ok(normals)
 }
 
-fn station_edges(station: &design::Station, normal: [f64; 2]) -> [[f64; 3]; 2] {
-    let [nx, ny] = normal;
-    let [x, y, _] = station.position;
-    [
-        [x + nx * station.half_left, y + ny * station.half_left, 0.0],
-        [
-            x - nx * station.half_right,
-            y - ny * station.half_right,
-            0.0,
-        ],
-    ]
-}
-
 fn push_path_lines(
     lines: &mut Vec<PlannedPathLine>,
     path_index: u32,
     path: &Path<'_>,
+    field: &Field,
 ) -> Result<(), BuildError> {
     if !path.tolerance.is_finite() {
         return Err(BuildError::PathParameters { path: path_index });
     }
-    let stations = path.band.stations;
-    let normals = path_station_normals(stations, path_index)?;
-    for station in stations {
-        let values = [
-            station.half_left,
-            station.half_right,
-            station.shoulder_left,
-            station.shoulder_right,
-            station.cut_limit,
-            station.fill_limit,
-            station.rounding,
-        ];
-        if values
-            .iter()
-            .any(|value| !value.is_finite() || *value < 0.0)
-        {
-            return Err(BuildError::PathParameters { path: path_index });
-        }
-    }
-    let mut edges: Vec<[[f64; 3]; 2]> = Vec::with_capacity(stations.len());
-    for (station, normal) in stations.iter().zip(&normals) {
-        edges.push(station_edges(station, *normal));
-    }
-    for (side, kind) in [
-        (0_usize, PathLineKind::EdgeLeft),
-        (1, PathLineKind::EdgeRight),
-    ] {
-        let mut points = Vec::with_capacity(stations.len() * 3);
-        for edge in &edges {
-            if let Some(point) = edge.get(side) {
-                points.extend_from_slice(point);
-            }
-        }
-        lines.push(PlannedPathLine {
-            points,
-            origin: PathLineOrigin {
-                path: path_index,
-                kind,
-            },
-        });
-    }
-    let crowned = stations
-        .iter()
-        .any(|station| matches!(station.crossfall, Some(design::Camber::Crown(_))));
-    if crowned {
-        let mut points = Vec::with_capacity(stations.len() * 3);
-        for station in stations {
-            points.extend([station.position[0], station.position[1], 0.0]);
-        }
-        lines.push(PlannedPathLine {
-            points,
-            origin: PathLineOrigin {
-                path: path_index,
-                kind: PathLineKind::Crown,
-            },
-        });
-    }
-    for (index, (edge, station)) in edges.iter().zip(stations.iter()).enumerate() {
-        let mut points = Vec::with_capacity(9);
-        if let Some(left) = edge.first() {
-            points.extend_from_slice(left);
-        }
-        if crowned {
-            points.extend([station.position[0], station.position[1], 0.0]);
-        }
-        if let Some(right) = edge.get(1) {
-            points.extend_from_slice(right);
-        }
-        let kind = match index {
-            0 => PathLineKind::End(false),
-            index if index + 1 == stations.len() => PathLineKind::End(true),
-            index => PathLineKind::Section(u32::try_from(index).unwrap_or(u32::MAX)),
-        };
+    path_station_normals(path.band.stations, path_index)?;
+    let design = Design::new(&path.band, field, path.tolerance)
+        .map_err(|_| BuildError::PathParameters { path: path_index })?;
+    let (polylines, kinds) = hybrid::design_lines(&design)
+        .map_err(|_| BuildError::PathParameters { path: path_index })?;
+    for (points, kind) in polylines.into_iter().zip(kinds) {
         lines.push(PlannedPathLine {
             points,
             origin: PathLineOrigin {
@@ -1229,6 +1137,32 @@ fn apply_entry(
     Ok(())
 }
 
+fn region_height_field(
+    baseline: &Baseline<'_>,
+    prepared: &[PreparedEntry<'_>],
+    masks: &[Mask<'_>],
+) -> Result<Field, BuildError> {
+    let mut heights: Vec<f64> = plan::vertices(baseline.points)
+        .iter()
+        .map(|&[_, _, z]| z)
+        .collect();
+    let mut owners = vec![None; heights.len()];
+    for entry in prepared {
+        apply_entry(entry, masks, baseline.points, &mut heights, &mut owners)?;
+    }
+    let mut points = baseline.points.to_vec();
+    let chunks = points.as_chunks_mut::<3>();
+    for (height, point) in heights.iter().zip(chunks.0) {
+        if let Some(slot) = point.get_mut(2) {
+            *slot = *height;
+        }
+    }
+    Field::new(&points, baseline.triangles).map_err(|_| BuildError::PathCoverage {
+        path: u32::MAX,
+        vertex: u32::MAX,
+    })
+}
+
 fn baseline_mesh(points: &[f64], triangles: &[u32]) -> Result<RegionMesh, BuildError> {
     let count =
         u32::try_from(triangles.len() / 3).map_err(|_| BuildError::Baseline(FieldError::Shape))?;
@@ -1307,11 +1241,20 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             }
         }
     }
+    let path_field = if plan.paths.is_empty() {
+        None
+    } else {
+        Some(region_height_field(baseline, &prepared, plan.masks)?)
+    };
     let mut path_lines = Vec::new();
     for (path_index, path) in plan.paths.iter().enumerate() {
         let path_index =
             u32::try_from(path_index).map_err(|_| BuildError::PathShape { path: u32::MAX })?;
-        push_path_lines(&mut path_lines, path_index, path)?;
+        let field = path_field.as_ref().ok_or(BuildError::PathCoverage {
+            path: path_index,
+            vertex: u32::MAX,
+        })?;
+        push_path_lines(&mut path_lines, path_index, path, field)?;
     }
     let mut mask_lines = Vec::new();
     for (mask_index, mask) in plan.masks.iter().enumerate() {

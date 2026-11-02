@@ -753,10 +753,10 @@ fn design_station(x: f64, y: f64, z: f64, half: f64) -> design::Station {
         crossfall: None,
         shoulder_left: 0.0,
         shoulder_right: 0.0,
-        cut: Slope::Percent(0.0),
-        fill: Slope::Percent(0.0),
-        cut_limit: 0.0,
-        fill_limit: 0.0,
+        cut: Slope::Percent(100.0),
+        fill: Slope::Percent(100.0),
+        cut_limit: 10.0,
+        fill_limit: 10.0,
         rounding: 0.0,
     }
 }
@@ -778,7 +778,7 @@ fn path(order: u32, stations: &[design::Station]) -> Path<'_> {
 #[test]
 fn path_band_follows_regions_on_the_same_constrained_mesh() -> Result<(), BuildError> {
     let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
-    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let property = ring(&[[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]);
     let outer = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
     let parts = [Part {
         outer: &outer,
@@ -813,31 +813,27 @@ fn path_band_follows_regions_on_the_same_constrained_mesh() -> Result<(), BuildE
         },
         &plan,
     )?;
-    assert_eq!(built.path_lines.len(), 4);
+    assert!(built.path_lines.len() >= 6);
+    assert!(built.path_lines.iter().any(|origin| origin.kind
+        == crate::terrain::hybrid::LineKind::Edge(crate::terrain::edit::Hand::Left)));
+    assert!(built.path_lines.iter().any(|origin| origin.kind
+        == crate::terrain::hybrid::LineKind::Edge(crate::terrain::edit::Hand::Right)));
     assert!(
         built
             .path_lines
             .iter()
-            .any(|origin| origin.kind == PathLineKind::EdgeLeft)
+            .any(|origin| origin.kind == crate::terrain::hybrid::LineKind::End(false))
     );
     assert!(
         built
             .path_lines
             .iter()
-            .any(|origin| origin.kind == PathLineKind::EdgeRight)
+            .any(|origin| origin.kind == crate::terrain::hybrid::LineKind::End(true))
     );
-    assert!(
-        built
-            .path_lines
-            .iter()
-            .any(|origin| origin.kind == PathLineKind::End(false))
-    );
-    assert!(
-        built
-            .path_lines
-            .iter()
-            .any(|origin| origin.kind == PathLineKind::End(true))
-    );
+    assert!(built.path_lines.iter().any(|origin| matches!(
+        origin.kind,
+        crate::terrain::hybrid::LineKind::Daylight { .. }
+    )));
 
     let band_vertex = vertex_at(&built.points, 4.0, 4.0).unwrap_or(u32::MAX);
     let region_vertex = vertex_at(&built.points, 3.0, 2.0).unwrap_or(u32::MAX);
@@ -865,9 +861,68 @@ fn path_band_follows_regions_on_the_same_constrained_mesh() -> Result<(), BuildE
 }
 
 #[test]
+fn path_across_a_region_hole_builds_one_coherent_mesh() -> Result<(), BuildError> {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]);
+    let outer = ring(&[[2.0, 2.0], [6.0, 2.0], [6.0, 6.0], [2.0, 6.0]]);
+    let hole = ring(&[[4.0, 4.0], [5.0, 4.0], [5.0, 5.0], [4.0, 5.0]]);
+    let holes: [&[f64]; 1] = [&hole];
+    let parts = [Part {
+        outer: &outer,
+        holes: &holes,
+    }];
+    let stations = [
+        design_station(2.0, 4.0, 2.0, 1.0),
+        design_station(6.0, 4.0, 2.0, 1.0),
+    ];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        1.0,
+        TerrainEffect::Grade,
+        sharp(),
+    )];
+    let paths = [path(1, &stations)];
+    let plan = Plan {
+        revision: 24,
+        hash: 241,
+        entries: &entries,
+        paths: &paths,
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    assert_mesh_invariants(&built);
+    assert!(built.path_lines.iter().any(|origin| matches!(
+        origin.kind,
+        crate::terrain::hybrid::LineKind::Daylight { .. }
+    )));
+    let crossing = vertex_at(&built.points, 4.0, 4.0).unwrap_or(u32::MAX);
+    assert!(close(
+        built
+            .points
+            .get(crossing as usize * 3 + 2)
+            .copied()
+            .unwrap_or(f64::NAN),
+        2.0,
+        1e-12
+    ));
+    assert_eq!(built.owners.get(crossing as usize), Some(&Some(1)));
+    Ok(())
+}
+
+#[test]
 fn fixed_control_conflicting_with_a_later_path_refuses() {
     let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
-    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let property = ring(&[[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]);
     let stations = [
         design_station(2.0, 4.0, 2.0, 1.0),
         design_station(7.0, 4.0, 2.0, 1.0),
