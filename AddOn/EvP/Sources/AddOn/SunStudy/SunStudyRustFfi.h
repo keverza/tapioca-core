@@ -1188,6 +1188,18 @@ TapiocaStatus tapioca_sunstudy_study_read_at (const TapiocaSunStudyStudy* handle
                                               const TapiocaStudyReadAtRequest* request, TapiocaStudyReading* out,
                                               char* error, size_t errorCapacity);
 
+/* One sample's lit steps, a byte per step (1 lit); shape-then-fill, `count`
+ * the step count, 0 past the last sample. */
+typedef struct {
+    size_t sample;
+    uint8_t* steps;
+    size_t stepsCapacity;
+} TapiocaStudySampleStepsOutput;
+
+TapiocaStatus tapioca_sunstudy_study_sample_steps (const TapiocaSunStudyStudy* handle,
+                                                   const TapiocaStudySampleStepsOutput* output, size_t* count,
+                                                   char* error, size_t errorCapacity);
+
 /* ---- follower policy (Rust-owned; one thread at a time) ---------------- */
 
 typedef struct TapiocaSunStudyFollower TapiocaSunStudyFollower;
@@ -1276,7 +1288,7 @@ typedef struct {
 typedef struct {
     double (*perimeter)[3]; /* one per ray: plan rays, sector rays, or sphere rows x columns */
     size_t capacity;
-    size_t (*counts)[2];  /* points, collisions */
+    size_t (*counts)[2];   /* points, collisions */
     double (*measures)[3]; /* area, volume, openFraction */
     int64_t* rayMesh;      /* capacity entries: stopping mesh index, or -1 */
 } TapiocaViewpointOutput;

@@ -189,5 +189,92 @@ inline float SunStudyShadowFraction (const std::vector<uint32_t>& words, uint32_
             ++shadowed;
     return float (shadowed) / float (last - first);
 }
+
+// ---- the shadow views' palettes (#116) ----------------------------------------
+//
+// The person's to recolour, 0xRRGGBBAA sRGB; these defaults are the palette
+// kArchVizSunTintPS always drew. The AM / PM OVERLAP is not a colour of its
+// own: the shader mixes morning and evening by their shares of the shadow.
+constexpr uint32_t kSingleShadowLitRgba = 0xEDE8DBFFu;
+constexpr uint32_t kSingleShadowShadowedRgba = 0x4770CCFFu;
+constexpr uint32_t kAmPmSunlitRgba = 0xE8E8E6FFu;
+constexpr uint32_t kAmPmMorningRgba = 0x796AB1FFu;
+constexpr uint32_t kAmPmEveningRgba = 0xDF9792FFu;
+
+// The legend's overlap swatch: morning and evening in equal shares.
+inline uint32_t SunStudyAmPmOverlapRgba (uint32_t morning, uint32_t evening)
+{
+    uint32_t mixed = 0xffu;
+    for (int shift = 8; shift <= 24; shift += 8)
+        mixed |= ((((morning >> shift) & 0xffu) + ((evening >> shift) & 0xffu) + 1u) / 2u) << shift;
+    return mixed;
+}
+
+// ---- the shadow views' hover (#116) -------------------------------------------
+//
+// WHEN a sample was in shadow, from its lit flags (a byte per step, 1 lit).
+// Step k stands for [minutes[k], minutes[k] + quantum), as the hours count it,
+// so consecutive shadowed steps are one run and a run's length is its share of
+// the shadow hours. Only steps in [first, end) count -- the views' Hours range.
+struct SunStudyShadowRun {
+    uint32_t from = 0; // minutes after midnight
+    uint32_t to = 0;
+};
+
+inline std::vector<SunStudyShadowRun> SunStudyShadowRuns (const std::vector<uint8_t>& lit,
+                                                          const std::vector<uint16_t>& minutes, uint32_t first,
+                                                          uint32_t end, uint32_t quantum)
+{
+    std::vector<SunStudyShadowRun> runs;
+    end = (std::min) ({ end, uint32_t (lit.size ()), uint32_t (minutes.size ()) });
+    bool open = false;
+    for (uint32_t step = first; step < end; ++step) {
+        if (lit[step] != 0) {
+            open = false;
+            continue;
+        }
+        if (!open)
+            runs.push_back ({ minutes[step], minutes[step] });
+        runs.back ().to = minutes[step] + quantum;
+        open = true;
+    }
+    return runs;
+}
+
+inline std::string SunStudyTimeOfDay (uint32_t minutes)
+{
+    char text[16] = {};
+    std::snprintf (text, sizeof (text), "%02u:%02u", (minutes / 60) % 100, minutes % 60);
+    return text;
+}
+
+// The hover's line: "Shadow 08:15-10:30, 14:00-16:45", "No shadow", or the
+// whole range named once. More than `shown` runs end in "+N more".
+inline std::string SunStudyShadowTimes (const std::vector<SunStudyShadowRun>& runs, uint32_t rangeFrom,
+                                        uint32_t rangeTo, size_t shown = 3)
+{
+    if (runs.empty ())
+        return "No shadow";
+    const auto span = [] (const SunStudyShadowRun& run) {
+        return SunStudyTimeOfDay (run.from) + "-" + SunStudyTimeOfDay (run.to);
+    };
+    if (runs.size () == 1 && runs.front ().from <= rangeFrom && runs.front ().to >= rangeTo)
+        return "Shadow all of " + span (runs.front ());
+    std::string text = "Shadow ";
+    for (size_t i = 0; i < runs.size () && i < shown; ++i)
+        text += (i > 0 ? ", " : "") + span (runs[i]);
+    if (runs.size () > shown)
+        text += ", +" + std::to_string (runs.size () - shown) + " more";
+    return text;
+}
+
+// Shadowed steps in [first, end), for the morning / evening split.
+inline uint32_t SunStudyShadowedSteps (const std::vector<uint8_t>& lit, uint32_t first, uint32_t end)
+{
+    uint32_t count = 0;
+    for (uint32_t step = first; step < end && step < lit.size (); ++step)
+        count += lit[step] == 0 ? 1u : 0u;
+    return count;
+}
 } // namespace geomsrv::archviz
 #endif

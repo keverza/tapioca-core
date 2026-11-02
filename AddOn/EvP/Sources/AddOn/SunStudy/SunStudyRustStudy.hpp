@@ -106,6 +106,8 @@ class RustStudyCore final {
     bool StepMasks (StepMaskAtlas& atlas, std::vector<uint16_t>& stepMinutes, uint32_t& noonStep,
                     StudyReadStatus& status, std::string& error) const;
     bool ReadAt (size_t face, const double point[3], SunStudyReading& reading, std::string& error) const;
+    // One sample's lit steps, a byte per step: the hover inspector's shadow times.
+    bool SampleSteps (size_t sample, std::vector<uint8_t>& steps, std::string& error) const;
 
   private:
     explicit RustStudyCore (TapiocaSunStudyStudy* handle);

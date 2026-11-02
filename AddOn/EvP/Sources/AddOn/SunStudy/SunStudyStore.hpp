@@ -346,8 +346,14 @@ class SunStudyStore final {
     // ⚠️ `snapshotId` IS CHECKED. The face came from a raycast through the
     // CURRENT snapshot; against a study of an older one it names a different
     // triangle, and the answer would be another surface's hours.
+    //
+    // `litSteps`, when given, receives the read sample's lit flags, a byte per
+    // step -- WHEN it was in shadow, for the shadow views' hover -- read under
+    // the same lock as the reading, so the two describe one sample. Empty when
+    // nothing was measured.
     bool ReadAt (const std::string& id, uint64_t snapshotId, size_t face, size_t meshIndex, const double point[3],
-                 SunStudyReading& reading, uint8_t& role, double& daylightHours, std::string& error) const;
+                 SunStudyReading& reading, uint8_t& role, double& daylightHours, std::string& error,
+                 std::vector<uint8_t>* litSteps = nullptr) const;
 
     bool Erase (const std::string& id, uint64_t expectedRevision = 0);
     void Clear ();

@@ -244,6 +244,14 @@ struct SunStudyViewSettings {
     // The user's colours, 0xRRGGBBAA sRGB (ArchViz/SunStudyPreview.hpp defaults).
     uint32_t lowSunRgba = 0x1F5FD1FFu;
     uint32_t shadowRgba = 0x00000073u;
+    // ---- the SHADOW views' colours (#116), 0xRRGGBBAA sRGB ------------------
+    // Single Shadow's sunlit / shadowed; Morning / evening's sunlit, morning
+    // and evening (the overlap is their mix). ArchViz/SunStudyPreview.hpp defaults.
+    uint32_t singleLitRgba = 0xEDE8DBFFu;
+    uint32_t singleShadowedRgba = 0x4770CCFFu;
+    uint32_t amPmSunlitRgba = 0xE8E8E6FFu;
+    uint32_t amPmMorningRgba = 0x796AB1FFu;
+    uint32_t amPmEveningRgba = 0xDF9792FFu;
     // 0 = the smooth ramp; otherwise kSunBandsMin..kSunBandsMax flat bands
     // split at `bandEdges` (ArchViz/SunStudyPreview.hpp).
     int bandCount = 0;

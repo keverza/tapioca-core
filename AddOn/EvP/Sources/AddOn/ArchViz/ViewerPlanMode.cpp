@@ -2,11 +2,16 @@
 
 #include "ArchViz/ViewerPlanMode.hpp"
 
+#include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/Camera.hpp"
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentViewportSupport.hpp" // ApplyArchicadCamera
+#include "ArchViz/OrbitAnchor.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
+
+#include <cmath>
+#include <string>
 
 namespace geomsrv {
 namespace archviz {
@@ -33,7 +38,36 @@ bool StartViewerCamera (Camera& camera, HudState& hud, const CameraStart& start,
     return true;
 }
 
-bool NavigateViewer (Camera& camera, HudState& hud, const InputSnapshot& input, uint32_t width, uint32_t height)
+namespace {
+
+// ⚠️ ONLY WHILE THE NAVIGATION BUTTON IS DOWN: two passes over every element are not a per-frame
+// cost for a still view, and only a drag turns about the anchor. A press re-reads it, so a click
+// that changed the selection is the anchor of the next orbit.
+void FollowOrbitAnchor (Camera& camera, HudState& hud, const DiligentScene& scene, const InputSnapshot& input)
+{
+    if (!input.navButton)
+        return;
+    float selMin[3], selMax[3], sceneMin[3], sceneMax[3];
+    const bool haveSelection = scene.SelectionBounds (selMin, selMax);
+    const bool haveScene = scene.SceneBounds (sceneMin, sceneMax);
+    const OrbitAnchor anchor = ChooseOrbitAnchor (haveSelection ? selMin : nullptr, haveSelection ? selMax : nullptr,
+                                                  haveScene ? sceneMin : nullptr, haveScene ? sceneMax : nullptr);
+    if (anchor.source == OrbitAnchorSource::None)
+        camera.ClearOrbitPivot ();
+    else
+        camera.SetOrbitPivot (anchor.point);
+    if (int (anchor.source) == hud.orbitAnchor)
+        return;
+    hud.orbitAnchor = int (anchor.source);
+    ArchVizLog (std::string ("viewer orbit anchor: ") + OrbitAnchorName (anchor.source) + " at " +
+                std::to_string (anchor.point[0]) + "," + std::to_string (anchor.point[1]) + "," +
+                std::to_string (anchor.point[2]));
+}
+
+} // namespace
+
+bool NavigateViewer (Camera& camera, HudState& hud, const DiligentScene& scene, const InputSnapshot& input,
+                     uint32_t width, uint32_t height)
 {
     bool moved = false;
     camera.SetNavigationSmoothing (hud.navSmoothing);
@@ -47,7 +81,23 @@ bool NavigateViewer (Camera& camera, HudState& hud, const InputSnapshot& input, 
             moved = true;
         }
     }
+    FollowOrbitAnchor (camera, hud, scene, input);
     return camera.ApplyInput (input, hud.wantsMouse || hud.viewpointOwnsMouse, width, height) || moved;
+}
+
+void AdoptSceneBounds (Camera& camera, const DiligentScene& scene, bool focus)
+{
+    float boundsMin[3], boundsMax[3];
+    if (!scene.SceneBounds (boundsMin, boundsMax))
+        return;
+    camera.SetBounds (boundsMin, boundsMax);
+    const float before = camera.Distance ();
+    const float middle[3] = { 0.5f * (boundsMin[0] + boundsMax[0]), 0.5f * (boundsMin[1] + boundsMax[1]),
+                              0.5f * (boundsMin[2] + boundsMax[2]) };
+    // Logged when it changes the scale, not every batch that lands on the same depth.
+    if (focus && camera.FocusAtDepthOf (middle) && std::abs (camera.Distance () - before) > 0.05f * before)
+        ArchVizLog ("viewer focus at the scene's depth: distance " + std::to_string (before) + " -> " +
+                    std::to_string (camera.Distance ()));
 }
 
 bool FollowProjectionToggle (Camera& camera, const HudState& hud, bool& last)

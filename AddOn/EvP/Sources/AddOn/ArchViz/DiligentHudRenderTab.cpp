@@ -11,6 +11,7 @@
 #include "ArchViz/DiligentHudNames.hpp"
 #include "ArchViz/DiligentHudSections.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/OrbitAnchor.hpp"
 
 #include <imgui.h>
 
@@ -179,6 +180,8 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
         ImGui::EndDisabled ();
         ImGui::Checkbox ("smooth navigation", &state.navSmoothing);
         hudshell::Tip ("Spreads each drag step over ~25 ms, so orbits and diagonal pans glide instead of stepping");
+        ImGui::TextDisabled ("orbits about: %s", OrbitAnchorName (OrbitAnchorSource (state.orbitAnchor)));
+        hudshell::Tip ("The selection's middle when something is selected, else the middle of the scene's box");
     }
     // ---- 7. visibility ---------------------------------------------------------------------
     if (hudshell::Section ("visibility")) {

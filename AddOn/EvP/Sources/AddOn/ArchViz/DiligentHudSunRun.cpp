@@ -359,7 +359,9 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     ImGui::SetItemTooltip ("FP64 D3D11 compute with exact CPU checks. Without a capable GPU the study finishes on CPU "
                            "and says why.");
 
-    const bool rolesOpen = ImGui::TreeNode ("Roles");
+    // ⚠️ "##sunrunroles": the view selector below the run form has a "Roles"
+    // button in the same window, and the two labels hashed to one ID (#116).
+    const bool rolesOpen = ImGui::TreeNode ("Roles##sunrunroles");
     ImGui::SetItemTooltip ("Analysis: everything not in Context or Ignored. Select elements to assign them a role.");
     if (rolesOpen) {
         RoleRow ("Context", state.sunRunContext, state.sunRunIgnored, state.visibilitySelection);

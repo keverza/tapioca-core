@@ -676,6 +676,8 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     std::copy (impl_->sunBandEdges, impl_->sunBandEdges + 11, constants.sunStudyBands);
     SunStudyRgbaChannels (impl_->sunLowSunRgba, constants.sunStudyLowSun);
     SunStudyRgbaChannels (impl_->sunShadowRgba, constants.sunStudyShadowTint);
+    for (int i = 0; i < 5; ++i)
+        SunStudyRgbaChannels (impl_->sunShadowPalette[i], constants.sunStudyShadowPalette + 4 * i);
     if (impl_->sunRampCount >= 2) {
         // The HUD's preset; otherwise the constants keep the legacy ramp they default to.
         for (int i = 0; i < impl_->sunRampCount; ++i) {
@@ -794,6 +796,9 @@ void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
     impl_->sunShadowOverlay = view.shadowOverlay;
     impl_->sunLowSunRgba = view.lowSunRgba;
     impl_->sunShadowRgba = view.shadowRgba;
+    const uint32_t palette[5] = { view.singleLitRgba, view.singleShadowedRgba, view.amPmSunlitRgba,
+                                  view.amPmMorningRgba, view.amPmEveningRgba };
+    std::copy (palette, palette + 5, impl_->sunShadowPalette);
     impl_->sunBandCount = view.bandCount;
     std::copy (view.bandEdges, view.bandEdges + 11, impl_->sunBandEdges);
     impl_->sunRampCount = std::clamp (view.rampCount, 0, int (overlaylayers::kMaxStops));

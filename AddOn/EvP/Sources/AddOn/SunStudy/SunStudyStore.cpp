@@ -577,9 +577,11 @@ bool SunStudyStore::DisplayData (const std::string& id, std::vector<AtlasTile>& 
 
 bool SunStudyStore::ReadAt (const std::string& id, uint64_t snapshotId, size_t face, size_t meshIndex,
                             const double point[3], SunStudyReading& reading, uint8_t& role, double& daylightHours,
-                            std::string& error) const
+                            std::string& error, std::vector<uint8_t>* litSteps) const
 {
     reading = SunStudyReading ();
+    if (litSteps != nullptr)
+        litSteps->clear ();
     role = 0xff;
     daylightHours = 0.0;
     std::lock_guard<std::mutex> lock (mutex_);
@@ -599,8 +601,12 @@ bool SunStudyStore::ReadAt (const std::string& id, uint64_t snapshotId, size_t f
         role = record.elementRoles[meshIndex];
     daylightHours = record.series.DaylightHours ();
 #if defined(TAPIOCA_GEOMETRY_RUST)
-    if (record.rustCore != nullptr)
-        return record.rustCore->ReadAt (face, point, reading, error);
+    if (record.rustCore != nullptr) {
+        if (!record.rustCore->ReadAt (face, point, reading, error))
+            return false;
+        return litSteps == nullptr || !reading.measured ||
+               record.rustCore->SampleSteps (reading.sample, *litSteps, error);
+    }
 #endif
     (void) face;
     (void) point;

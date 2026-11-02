@@ -71,7 +71,7 @@ OVERSIZED = {
         "area, and the next feature extracts a seam rather than adding to it",
     ),
     "ArchViz/DiligentViewport.cpp": (
-        1075,
+        1072,
         "the single render-thread lifecycle and frame-order authority. Device and "
         "target control, support algorithms, scene storage/draw passes, and offscreen "
         "target ownership already live in separate translation units; splitting the "
@@ -87,7 +87,8 @@ OVERSIZED = {
         "legend in the HUD's slot, the unpresented frames, the input gate and teardown. "
         "-12 for RE51.D2 (2026-11-01): device creation moved to DiligentDeviceFactory and the "
         "native teardown to DiligentNativeInterop, leaving the D3D11 fallback call sites. "
-        "-3 (2026-11-01): the cached IDXGISwapChain* is gone; the chain is fetched from the target",
+        "-3 (2026-11-01): the cached IDXGISwapChain* is gone; the chain is fetched from the target. "
+        "-3 (2026-11-01): the scene-bounds refresh moved to ViewerPlanMode.cpp::AdoptSceneBounds",
     ),
     "Palette/ControlPalette.cpp": (
         626,

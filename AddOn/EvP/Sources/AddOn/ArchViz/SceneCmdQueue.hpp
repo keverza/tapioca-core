@@ -131,8 +131,9 @@ struct ElementUpload {
     // an offline test on the side of the seam the test can reach.
     std::vector<uint32_t> indices;
     std::vector<MaterialRange> ranges;
-    // One 3-bit mask per material-reordered triangle, widened to uint for a
-    // StructuredBuffer<uint> in the hull shader.
+    // One mask per material-reordered triangle, widened to uint for a
+    // StructuredBuffer<uint> in the hull shader: bits 0..2 the wireframe's edges,
+    // bits 3..5 the selection's (ArchViz/SelectionEdges.hpp).
     std::vector<uint32_t> wireEdges;
 
     // ⚠️ RENDER TRIANGLE -> SOURCE TRIANGLE. `renderToSourceTriangle[i]` is the

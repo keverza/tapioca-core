@@ -155,6 +155,14 @@ struct HudState {
     // Their colours, 0xRRGGBBAA sRGB, from the inline swatches beside each toggle.
     uint32_t sunShadowRgba = 0x00000073u; // black at 45%
     uint32_t sunLowSunRgba = 0x1F5FD1FFu;
+    // The shadow views' colours (#116), 0xRRGGBBAA sRGB, defaults
+    // ArchViz/SunStudyPreview.hpp's: Single Shadow's sunlit / shadowed and
+    // Morning / evening's sunlit / morning / evening. Display only.
+    uint32_t sunSingleLitRgba = 0xEDE8DBFFu;
+    uint32_t sunSingleShadowedRgba = 0x4770CCFFu;
+    uint32_t sunAmPmSunlitRgba = 0xE8E8E6FFu;
+    uint32_t sunAmPmMorningRgba = 0x796AB1FFu;
+    uint32_t sunAmPmEveningRgba = 0xDF9792FFu;
     bool sunGradientStepped = true;
     int sunBandCount = 10;
     float sunBandEdges[11] = { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 10.0f };
@@ -187,6 +195,9 @@ struct HudState {
     double sunReadingDaylight = 0.0;
     int sunReadingRole = -1; // ElementRole, or -1 when unknown
     bool sunReadingNearest = false;
+    // The read sample's lit flags, a byte per step (1 lit): WHEN it was in
+    // shadow, for the shadow views' hover (#116). Empty when not measured.
+    std::vector<uint8_t> sunReadingLit;
     // The VIEW the HUD shows over the commanded one: an index into the
     // section's view list, 0 = "as shown" (follow the command). Reset to 0
     // when the COMMANDED mode changes -- the command wins only when it changes.
@@ -203,6 +214,8 @@ struct HudState {
     int sunFanInterval = 5; // duration-weighted morning / evening by default
     int sunStudyTimestepMinutes = 0;
     std::vector<uint16_t> sunStepMinutes; // mirrored from the scene
+    uint32_t sunNoonStep = 0;             // mirrored, the AM / PM split
+    float sunQuantumHours = 0.25f;        // mirrored, the hours one step stands for
 
     // "Run sun study" (DiligentHudSunRun.cpp): the palette command's inputs.
     int sunRunYear = 2026, sunRunMonth = 3, sunRunDay = 21;
@@ -491,6 +504,8 @@ struct HudState {
     bool temporalAntiAliasing = false;
     // Sub-pixel smoothing of drag navigation (Camera::SetNavigationSmoothing).
     bool navSmoothing = true;
+    // What the last orbit turned about, an OrbitAnchorSource (OrbitAnchor.hpp): the HUD says it.
+    int orbitAnchor = 0;
     float taaStability = 0.9f;
 
     // 6500 K and tint 0 are the EXACT identity (AutoExposure.hpp), so these

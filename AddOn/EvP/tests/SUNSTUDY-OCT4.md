@@ -35,16 +35,6 @@ Implemented, without reducing resolution or weakening predicates:
    outlines remain. Low-sun blue blends at 60% over the warm ramp instead of
    replacing it, including in the gradient legend. Diagnostic colours stay opaque.
 
-### Why Jifto remains a separate performance target
-
-[Jifto's documentation](https://jifto.com/docs/) identifies NVIDIA OptiX as its
-sunlight/shadow tracer. Our current D3D11 FP64 compute traversal does **not** use
-RTX ray-tracing hardware. An OptiX/RTX backend with conservative acceleration
-bounds and an exact intersection/fallback strategy is the next substantial
-architecture option, not an implemented feature or a promised speed factor.
-Neither the current changes nor that option justify coarser samples, removing
-ambiguous-ray checks, or silently changing manual CPU/GPU or Early/Late choices.
-
 ### Latest validation and acceptance
 
 - 2,071 C++ tests pass; two existing tests remain disabled. New tests cover CPU
@@ -109,8 +99,16 @@ No deployment or live run is part of this follow-up's offline validation.
   noon. A selectable clock-time range limits that preview and single-time
   playback. Clock ranges use an exclusive end, like the calculation inputs.
   The old last-shadow time fan remains labelled as diagnostic.
-- Measured cursor tooltips contain only `H:MMh`, black on rounded grey. Unmeasured
-  and diagnostic explanations remain available through the panel inspector.
+- In the hours view, measured cursor tooltips contain only `H:MMh`. The shadow
+  views say when instead (#116): Single Shadow reads `Sunlit at 14:00` or
+  `Shadowed at 14:00` for the slider's step; Morning / evening and the time fan
+  read the shadow runs within the Hours range, e.g. `Shadow 08:15-10:30,
+  14:00-16:45` (`No shadow`, `Shadow all of ...`), and Morning / evening adds
+  the morning and evening totals. Unmeasured and diagnostic explanations remain
+  available through the panel inspector, which shows the same lines.
+- The shadow views' colours are editable inline swatches with a reset (#116):
+  Single Shadow's sunlit / shadowed and Morning / evening's sunlit / morning /
+  evening. The overlap swatch is their mix, as the tint draws it. Display only.
 - `Calendar` is the native DG calendar with canonical local `YYYY-MM-DD` readback,
   not a raw GSTime epoch. Supported full years are 1902..2037 (DG Int32 limit).
   Native `Hour(maximum=24)` explicitly supports an end-of-day endpoint; ordinary

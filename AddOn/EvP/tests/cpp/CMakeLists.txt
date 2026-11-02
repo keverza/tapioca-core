@@ -459,6 +459,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudLod.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneCmdQueue.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ElementPacket.cpp"
+    # ElementPacket packs the selection's shape-defining edges (issue #118).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SelectionEdges.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ScenePacketTrace.cpp"
     # SceneCmdQueue feeds ArchViz/Dxgi/HostOccluders at every batch boundary,
     # and that file is Direct3D 11. The stub answers the production "no room"
@@ -574,6 +576,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/GraphicsSettings.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/GraphicsSettingsUi.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunControls.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunStudy.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunRun.cpp"
     # A triangle cut to its clip rectangle: the overlays draw ImGui's triangles without a scissor.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudClip.cpp"
     # The Debug tab's console: what to check when something fails, said from any thread.
@@ -1100,6 +1104,10 @@ set (EVP_TEST_SOURCES
     test_camerachoice.cpp
     test_plananchorribbon.cpp
     test_pickvote.cpp
+    # ArchViz/SelectionHighlightStyle.hpp is header-only: how the outline, edges and hover
+    # relate (issue #118).
+    test_selectionhighlightstyle.cpp
+    test_selectionedges.cpp
     test_occlusionprepass.cpp
     test_pointcloudply.cpp
     test_pointcloudhierarchy.cpp
@@ -1121,6 +1129,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyselectionbinding.cpp
     test_sunstudygputraversal.cpp
     test_sunstudypreview.cpp
+    test_sunstudyhud.cpp
     test_sunstudytextureupdates.cpp
     test_sunstudytaskworker.cpp
     test_sunstudysampler.cpp
@@ -1146,6 +1155,7 @@ set (EVP_TEST_SOURCES
     test_cursortotarget.cpp
     test_camera_cursorray.cpp
     test_camera_plan.cpp
+    test_camera_orbitpivot.cpp
     test_ghprotocol.cpp
     test_gh2overlayrequest.cpp
     test_ghsessionprotocol.cpp

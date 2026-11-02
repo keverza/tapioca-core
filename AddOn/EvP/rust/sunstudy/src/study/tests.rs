@@ -178,6 +178,9 @@ fn ground_studies_measure_but_have_no_atlas() {
     converge(&core);
     assert_eq!(core.sun_hours(), Ok(vec![3.0, 0.0]));
     assert_eq!(core.step_bits(), Ok(vec![1, 1, 1, 0, 0, 0]));
+    assert_eq!(core.sample_lit_steps(0), Ok(vec![1, 1, 1]));
+    assert_eq!(core.sample_lit_steps(1), Ok(vec![0, 0, 0]));
+    assert_eq!(core.sample_lit_steps(2), Ok(Vec::new()));
     assert_eq!(core.footprint(), (2, 0.0));
     assert_eq!(core.atlas_image().err(), Some(StudyError::NoTriangleAtlas));
     assert_eq!(

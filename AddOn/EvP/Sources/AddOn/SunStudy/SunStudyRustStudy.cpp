@@ -418,4 +418,20 @@ bool RustStudyCore::ReadAt (size_t face, const double point[3], SunStudyReading&
     return true;
 }
 
+bool RustStudyCore::SampleSteps (size_t sample, std::vector<uint8_t>& steps, std::string& error) const
+{
+    TapiocaStudySampleStepsOutput output {};
+    output.sample = sample;
+    size_t count = 0;
+    const auto read = [&] (char* m, size_t n) {
+        return tapioca_sunstudy_study_sample_steps (handle_, &output, &count, m, n);
+    };
+    if (!Invoke (read, error)) // shape
+        return false;
+    steps.assign (count, 0);
+    output.steps = steps.data ();
+    output.stepsCapacity = steps.size ();
+    return steps.empty () || Invoke (read, error); // fill
+}
+
 } // namespace evp::sunstudy::rust
