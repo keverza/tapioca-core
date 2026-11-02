@@ -56,8 +56,8 @@ pub use refine::{Refinement, Steiner, SteinerOrigin};
 pub use split::{Host, LineEdge, NewVertex, Origin, SplitMesh, SplitRequest, split_mesh};
 pub use unified::{
     Baseline, BuildError, BuiltTerrain, Control, ControlLineOrigin, Entry, LineOrigin,
-    LockedVertex, Mask, MaskKind, MaskLineOrigin, Part, Plan, Surface, Terrain, TerrainEffect,
-    Transition, build_terrain,
+    LockedVertex, Mask, MaskKind, MaskLineOrigin, Part, Path, PathLineKind, PathLineOrigin, Plan,
+    Surface, Terrain, TerrainEffect, Transition, build_terrain,
 };
 pub use verify::{extract_edges, verify_constraints};
 

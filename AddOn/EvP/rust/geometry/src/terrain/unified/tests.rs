@@ -1,3 +1,6 @@
+// Cohesion review: the shared grid/ring fixtures and the explicit mutation and
+// refusal matrix stay together so every unified-build contract is tested against
+// the same immutable baseline inputs; the >1000-line advisory is intentional.
 use super::*;
 
 fn close(left: f64, right: f64, tolerance: f64) -> bool {
@@ -100,6 +103,7 @@ fn empty_plan_without_property_is_baseline_bit_for_bit() -> Result<(), BuildErro
         revision: 4,
         hash: 44,
         entries: &entries,
+        paths: &[],
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
@@ -147,6 +151,7 @@ fn grade_hole_and_disjoint_parts_keep_membership_and_volumes() -> Result<(), Bui
         revision: 1,
         hash: 11,
         entries: &entries,
+        paths: &[],
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
@@ -214,6 +219,7 @@ fn one_inner_domain_integrates_positive_fill_and_property_exterior_stays_baselin
         revision: 12,
         hash: 121,
         entries: &entries,
+        paths: &[],
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
@@ -272,6 +278,7 @@ fn later_overlapping_entries_override_earlier_ones() -> Result<(), BuildError> {
             revision: 2,
             hash: 22,
             entries: &entries,
+            paths: &[],
             masks: &[],
             controls: &[],
             control_tolerance: 1e-3,
@@ -344,6 +351,7 @@ fn add_raises_only_and_subtract_lowers_only_on_a_sloped_base() -> Result<(), Bui
             revision: 3,
             hash: 33,
             entries: &entries,
+            paths: &[],
             masks: &[],
             controls: &[],
             control_tolerance: 1e-3,
@@ -407,6 +415,7 @@ fn falloff_blends_by_plan_distance_and_stops_at_blur() -> Result<(), BuildError>
         revision: 5,
         hash: 55,
         entries: &entries,
+        paths: &[],
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
@@ -459,6 +468,7 @@ fn daylight_runs_cut_and_fill_faces_to_the_reach() -> Result<(), BuildError> {
         revision: 6,
         hash: 66,
         entries: &entries,
+        paths: &[],
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
@@ -531,6 +541,7 @@ fn fixed_point_matching_the_grade_is_inserted_and_kept_exact() -> Result<(), Bui
         revision: 13,
         hash: 131,
         entries: &entries,
+        paths: &[],
         masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
@@ -583,6 +594,7 @@ fn fixed_point_conflicting_with_the_grade_refuses_atomically() {
         revision: 14,
         hash: 141,
         entries: &entries,
+        paths: &[],
         masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
@@ -629,6 +641,7 @@ fn fixed_line_interpolates_every_split_vertex_and_owns_no_region_entry() -> Resu
         revision: 15,
         hash: 151,
         entries: &entries,
+        paths: &[],
         masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
@@ -676,6 +689,7 @@ fn coincident_fixed_points_with_different_heights_refuse() {
         revision: 16,
         hash: 161,
         entries: &entries,
+        paths: &[],
         masks: &[],
         controls: &controls,
         control_tolerance: 0.0,
@@ -704,6 +718,7 @@ fn zero_length_fixed_line_refuses_before_meshing() {
         revision: 17,
         hash: 171,
         entries: &entries,
+        paths: &[],
         masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
@@ -728,6 +743,190 @@ fn mask<'a>(id: u64, kind: MaskKind, parts: &'a [Part<'a>]) -> Mask<'a> {
         sources: &[],
         parts,
     }
+}
+
+fn design_station(x: f64, y: f64, z: f64, half: f64) -> design::Station {
+    design::Station {
+        position: [x, y, z],
+        half_left: half,
+        half_right: half,
+        crossfall: None,
+        shoulder_left: 0.0,
+        shoulder_right: 0.0,
+        cut: Slope::Percent(0.0),
+        fill: Slope::Percent(0.0),
+        cut_limit: 0.0,
+        fill_limit: 0.0,
+        rounding: 0.0,
+    }
+}
+
+fn path(order: u32, stations: &[design::Station]) -> Path<'_> {
+    Path {
+        order,
+        source: SourceId(920 + u64::from(order)),
+        operation: OperationId(930 + u64::from(order)),
+        object: ObjectId(940 + u64::from(order)),
+        band: design::Band {
+            stations,
+            effect: Effect::Both,
+        },
+        tolerance: 1e-3,
+    }
+}
+
+#[test]
+fn path_band_follows_regions_on_the_same_constrained_mesh() -> Result<(), BuildError> {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let outer = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
+    let parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let stations = [
+        design_station(2.0, 4.0, 2.0, 1.0),
+        design_station(7.0, 4.0, 2.0, 1.0),
+    ];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        1.0,
+        TerrainEffect::Grade,
+        sharp(),
+    )];
+    let paths = [path(1, &stations)];
+    let plan = Plan {
+        revision: 21,
+        hash: 211,
+        entries: &entries,
+        paths: &paths,
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    assert_eq!(built.path_lines.len(), 4);
+    assert!(
+        built
+            .path_lines
+            .iter()
+            .any(|origin| origin.kind == PathLineKind::EdgeLeft)
+    );
+    assert!(
+        built
+            .path_lines
+            .iter()
+            .any(|origin| origin.kind == PathLineKind::EdgeRight)
+    );
+    assert!(
+        built
+            .path_lines
+            .iter()
+            .any(|origin| origin.kind == PathLineKind::End(false))
+    );
+    assert!(
+        built
+            .path_lines
+            .iter()
+            .any(|origin| origin.kind == PathLineKind::End(true))
+    );
+
+    let band_vertex = vertex_at(&built.points, 4.0, 4.0).unwrap_or(u32::MAX);
+    let region_vertex = vertex_at(&built.points, 3.0, 2.0).unwrap_or(u32::MAX);
+    assert!(close(
+        built
+            .points
+            .get(band_vertex as usize * 3 + 2)
+            .copied()
+            .unwrap_or(f64::NAN),
+        2.0,
+        1e-12
+    ));
+    assert!(close(
+        built
+            .points
+            .get(region_vertex as usize * 3 + 2)
+            .copied()
+            .unwrap_or(f64::NAN),
+        1.0,
+        1e-12
+    ));
+    assert_eq!(built.owners.get(band_vertex as usize), Some(&Some(1)));
+    assert_eq!(built.owners.get(region_vertex as usize), Some(&Some(0)));
+    Ok(())
+}
+
+#[test]
+fn fixed_control_conflicting_with_a_later_path_refuses() {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let stations = [
+        design_station(2.0, 4.0, 2.0, 1.0),
+        design_station(7.0, 4.0, 2.0, 1.0),
+    ];
+    let entries: [Entry<'_>; 0] = [];
+    let paths = [path(0, &stations)];
+    let controls = [point_control(921, 4.0, 4.0, 1.0)];
+    let plan = Plan {
+        revision: 22,
+        hash: 221,
+        entries: &entries,
+        paths: &paths,
+        masks: &[],
+        controls: &controls,
+        control_tolerance: 1e-3,
+    };
+    assert!(matches!(
+        build_terrain(
+            &Baseline {
+                points: &points,
+                triangles: &triangles,
+                property: Some(&property),
+            },
+            &plan,
+        ),
+        Err(BuildError::LockedConflict { .. })
+    ));
+}
+
+#[test]
+fn coincident_path_stations_refuse_before_meshing() {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let stations = [
+        design_station(4.0, 4.0, 2.0, 1.0),
+        design_station(4.0, 4.0, 2.0, 1.0),
+    ];
+    let entries: [Entry<'_>; 0] = [];
+    let paths = [path(0, &stations)];
+    let plan = Plan {
+        revision: 23,
+        hash: 231,
+        entries: &entries,
+        paths: &paths,
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+    };
+    assert!(matches!(
+        build_terrain(
+            &Baseline {
+                points: &points,
+                triangles: &triangles,
+                property: Some(&property),
+            },
+            &plan,
+        ),
+        Err(BuildError::PathShape { .. })
+    ));
 }
 
 #[test]
@@ -756,6 +955,7 @@ fn protected_zone_keeps_baseline_inside_and_on_its_ring() -> Result<(), BuildErr
         revision: 18,
         hash: 181,
         entries: &entries,
+        paths: &[],
         masks: &masks,
         controls: &[],
         control_tolerance: 1e-3,
@@ -814,6 +1014,7 @@ fn grading_limit_restricts_the_entry_to_its_mask() -> Result<(), BuildError> {
         revision: 19,
         hash: 191,
         entries: &entries,
+        paths: &[],
         masks: &masks,
         controls: &[],
         control_tolerance: 1e-3,
@@ -854,6 +1055,7 @@ fn zero_length_mask_ring_refuses_before_meshing() {
         revision: 20,
         hash: 201,
         entries: &entries,
+        paths: &[],
         masks: &masks,
         controls: &[],
         control_tolerance: 1e-3,
@@ -893,6 +1095,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 7,
         hash: 77,
         entries: &short_entries,
+        paths: &[],
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
@@ -922,6 +1125,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 8,
         hash: 88,
         entries: &wrong_entries,
+        paths: &[],
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
@@ -952,6 +1156,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 9,
         hash: 99,
         entries: &entries,
+        paths: &[],
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
@@ -984,6 +1189,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 10,
         hash: 110,
         entries: &outside_entries,
+        paths: &[],
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
@@ -1016,6 +1222,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 11,
         hash: 111,
         entries: &zero_entries,
+        paths: &[],
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
