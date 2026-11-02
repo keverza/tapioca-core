@@ -633,26 +633,30 @@ another executable or a test-only production export. Full S2b remains incomplete
 
 ## #112 P3 unified field build (`terrain::build_terrain`, Rust only)
 
-`terrain::build_terrain(baseline, plan)` is the first pure-Rust slice of the
-landscape mesh authority. An explicit closed property ring and every domain
-outer/hole edge are assembled as breaklines of one `region` rebuild, preserving
-the baseline-affine triangles needed for exact volumes. The ordered region stack
-then evaluates Existing/Constant targets with the reconciled absolute effects:
-Grade sets the target, Add keeps `max(h, t)`, and Subtract keeps `min(h, t)`.
-Later entries override earlier entries; falloff and daylight transitions are
-entry-local. The result carries proposed points, sampled baseline heights,
-per-vertex owners, complete `RegionMesh` correspondence, per-line plan origins,
-exact site/context volumes, and the caller's revision/plan hash.
+`terrain::build_terrain(baseline, plan)` is the pure-Rust slice of the
+landscape mesh authority. An explicit closed property ring, every domain
+outer/hole edge and every fixed control line are assembled as constraints of one
+`region` rebuild, preserving the baseline-affine triangles needed for exact
+volumes. The ordered region stack then evaluates Existing/Constant targets with
+the reconciled absolute effects: Grade sets the target, Add keeps `max(h, t)`,
+and Subtract keeps `min(h, t)`. Later entries override earlier entries; falloff
+and daylight transitions are entry-local. Fixed point/line controls are resolved
+on the same topology, own their heights exactly, and grading/control
+disagreements beyond the caller's absolute tolerance refuse atomically. The
+result carries proposed points, sampled baseline heights, per-vertex owners,
+complete `RegionMesh` correspondence, per-line plan/control origins, resolved
+locked vertices, exact site/context volumes, and the caller's revision/plan hash.
 
-This is deliberately a region-only foundation slice. Path bands, grading masks,
-locked controls, surface modes beyond Existing/Constant, hard-step
+This is deliberately a region-plus-controls foundation slice. Path bands,
+grading masks, surface modes beyond Existing/Constant, hard-step
 duplication/refusal, ABI export, C++ wrapper and production dispatch are later
 P3 slices. Hard 2.5D domain boundaries currently share vertices with the
 neighbouring surface, so exact volumes include boundary interpolation rather
 than claiming a vertical wall. Tests cover empty plans, holes/islands/disjoint
 parts, overlap order reversal, Add/Subtract, falloff/daylight distances, exact
-volume reconciliation, deterministic repeat, malformed plans, missing property
-rings, out-of-property refusal and input immutability.
+volume reconciliation, fixed point/line compatibility and conflicts, malformed
+controls, deterministic repeat, malformed plans, missing property rings,
+out-of-property refusal and input immutability.
 
 ## S3a.1 terrain TIN (`geometry::terrain`, Rust only)
 

@@ -100,6 +100,8 @@ fn empty_plan_without_property_is_baseline_bit_for_bit() -> Result<(), BuildErro
         revision: 4,
         hash: 44,
         entries: &entries,
+        controls: &[],
+        control_tolerance: 1e-3,
     };
     let built = build_terrain(
         &Baseline {
@@ -144,6 +146,8 @@ fn grade_hole_and_disjoint_parts_keep_membership_and_volumes() -> Result<(), Bui
         revision: 1,
         hash: 11,
         entries: &entries,
+        controls: &[],
+        control_tolerance: 1e-3,
     };
     let request = Baseline {
         points: &points,
@@ -208,6 +212,8 @@ fn one_inner_domain_integrates_positive_fill_and_property_exterior_stays_baselin
         revision: 12,
         hash: 121,
         entries: &entries,
+        controls: &[],
+        control_tolerance: 1e-3,
     };
     let built = build_terrain(
         &Baseline {
@@ -263,6 +269,8 @@ fn later_overlapping_entries_override_earlier_ones() -> Result<(), BuildError> {
             revision: 2,
             hash: 22,
             entries: &entries,
+            controls: &[],
+            control_tolerance: 1e-3,
         };
         build_terrain(
             &Baseline {
@@ -332,6 +340,8 @@ fn add_raises_only_and_subtract_lowers_only_on_a_sloped_base() -> Result<(), Bui
             revision: 3,
             hash: 33,
             entries: &entries,
+            controls: &[],
+            control_tolerance: 1e-3,
         };
         build_terrain(
             &Baseline {
@@ -392,6 +402,8 @@ fn falloff_blends_by_plan_distance_and_stops_at_blur() -> Result<(), BuildError>
         revision: 5,
         hash: 55,
         entries: &entries,
+        controls: &[],
+        control_tolerance: 1e-3,
     };
     let built = build_terrain(
         &Baseline {
@@ -441,6 +453,8 @@ fn daylight_runs_cut_and_fill_faces_to_the_reach() -> Result<(), BuildError> {
         revision: 6,
         hash: 66,
         entries: &entries,
+        controls: &[],
+        control_tolerance: 1e-3,
     };
     let built = build_terrain(
         &Baseline {
@@ -469,6 +483,232 @@ fn daylight_runs_cut_and_fill_faces_to_the_reach() -> Result<(), BuildError> {
     Ok(())
 }
 
+fn point_control(id: u64, x: f64, y: f64, z: f64) -> Control<'static> {
+    Control {
+        source: SourceId(id),
+        vertex: id,
+        point: true,
+        point_position: [x, y, z],
+        line: &[],
+    }
+}
+
+fn line_control(id: u64, line: &'static [f64]) -> Control<'static> {
+    Control {
+        source: SourceId(id),
+        vertex: 0,
+        point: false,
+        point_position: [0.0; 3],
+        line,
+    }
+}
+
+#[test]
+fn fixed_point_matching_the_grade_is_inserted_and_kept_exact() -> Result<(), BuildError> {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let outer = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
+    let parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        3.0,
+        TerrainEffect::Grade,
+        sharp(),
+    )];
+    let controls = [point_control(900, 4.0, 4.0, 3.0)];
+    let plan = Plan {
+        revision: 13,
+        hash: 131,
+        entries: &entries,
+        controls: &controls,
+        control_tolerance: 1e-3,
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    let vertex = vertex_at(&built.points, 4.0, 4.0).unwrap_or(u32::MAX);
+    assert!(close(
+        built
+            .points
+            .get(vertex as usize * 3 + 2)
+            .copied()
+            .unwrap_or(f64::NAN),
+        3.0,
+        1e-12
+    ));
+    assert_eq!(built.owners.get(vertex as usize), Some(&None));
+    let locked = built
+        .locked
+        .first()
+        .ok_or(BuildError::Region(RegionError::Topology))?;
+    assert_eq!(locked.control, 0);
+    Ok(())
+}
+
+#[test]
+fn fixed_point_conflicting_with_the_grade_refuses_atomically() {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let outer = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
+    let parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        3.0,
+        TerrainEffect::Grade,
+        sharp(),
+    )];
+    let controls = [point_control(901, 4.0, 4.0, 1.0)];
+    let plan = Plan {
+        revision: 14,
+        hash: 141,
+        entries: &entries,
+        controls: &controls,
+        control_tolerance: 1e-3,
+    };
+    assert!(matches!(
+        build_terrain(
+            &Baseline {
+                points: &points,
+                triangles: &triangles,
+                property: Some(&property),
+            },
+            &plan,
+        ),
+        Err(BuildError::LockedConflict { .. })
+    ));
+}
+
+#[test]
+fn fixed_line_interpolates_every_split_vertex_and_owns_no_region_entry() -> Result<(), BuildError> {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let outer = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
+    let parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let line: &[f64] = &[
+        2.0, 3.0, 2.0, //
+        3.0, 3.0, 2.0, //
+        4.0, 3.0, 2.0, //
+        5.0, 3.0, 2.0, //
+        6.0, 3.0, 2.0, //
+        7.0, 3.0, 2.0,
+    ];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        2.0,
+        TerrainEffect::Grade,
+        sharp(),
+    )];
+    let controls = [line_control(902, line)];
+    let plan = Plan {
+        revision: 15,
+        hash: 151,
+        entries: &entries,
+        controls: &controls,
+        control_tolerance: 1e-3,
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    assert_eq!(
+        built.control_lines.first(),
+        Some(&ControlLineOrigin {
+            control: 0,
+            segments: 5,
+        })
+    );
+    assert_eq!(built.locked.len(), 6);
+    for locked in &built.locked {
+        assert_eq!(locked.control, 0);
+        assert!(close(locked.height, 2.0, 1e-12));
+        assert_eq!(built.owners.get(locked.vertex as usize), Some(&None));
+        let z = built
+            .points
+            .get(locked.vertex as usize * 3 + 2)
+            .copied()
+            .unwrap_or(f64::NAN);
+        assert!(close(z, 2.0, 1e-12));
+    }
+    Ok(())
+}
+
+#[test]
+fn coincident_fixed_points_with_different_heights_refuse() {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let entries: [Entry<'_>; 0] = [];
+    let controls = [
+        point_control(903, 4.0, 4.0, 1.0),
+        point_control(904, 4.0, 4.0, 2.0),
+    ];
+    let plan = Plan {
+        revision: 16,
+        hash: 161,
+        entries: &entries,
+        controls: &controls,
+        control_tolerance: 0.0,
+    };
+    assert!(matches!(
+        build_terrain(
+            &Baseline {
+                points: &points,
+                triangles: &triangles,
+                property: Some(&property),
+            },
+            &plan,
+        ),
+        Err(BuildError::LockedConflict { .. })
+    ));
+}
+
+#[test]
+fn zero_length_fixed_line_refuses_before_meshing() {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let entries: [Entry<'_>; 0] = [];
+    let line: &[f64] = &[3.0, 3.0, 1.0, 3.0, 3.0, 1.0];
+    let controls = [line_control(905, line)];
+    let plan = Plan {
+        revision: 17,
+        hash: 171,
+        entries: &entries,
+        controls: &controls,
+        control_tolerance: 1e-3,
+    };
+    assert!(matches!(
+        build_terrain(
+            &Baseline {
+                points: &points,
+                triangles: &triangles,
+                property: Some(&property),
+            },
+            &plan,
+        ),
+        Err(BuildError::ControlZeroLength { .. })
+    ));
+}
+
 #[test]
 fn refusals_are_atomic_and_inputs_unchanged() {
     let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
@@ -491,6 +731,8 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 7,
         hash: 77,
         entries: &short_entries,
+        controls: &[],
+        control_tolerance: 1e-3,
     };
     assert!(matches!(
         build_terrain(
@@ -517,6 +759,8 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 8,
         hash: 88,
         entries: &wrong_entries,
+        controls: &[],
+        control_tolerance: 1e-3,
     };
     assert!(matches!(
         build_terrain(
@@ -544,6 +788,8 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 9,
         hash: 99,
         entries: &entries,
+        controls: &[],
+        control_tolerance: 1e-3,
     };
     assert!(matches!(
         build_terrain(
@@ -573,6 +819,8 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 10,
         hash: 110,
         entries: &outside_entries,
+        controls: &[],
+        control_tolerance: 1e-3,
     };
     assert!(matches!(
         build_terrain(
@@ -602,6 +850,8 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 11,
         hash: 111,
         entries: &zero_entries,
+        controls: &[],
+        control_tolerance: 1e-3,
     };
     assert!(matches!(
         build_terrain(

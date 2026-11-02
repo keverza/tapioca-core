@@ -5,12 +5,14 @@
 //! assembles every plan domain edge as a constraint of one region rebuild, then
 //! evaluates the ordered field stack on that topology. Region entries currently
 //! support existing/constant targets with the reconciled absolute Grade, Add and
-//! Subtract rules; path bands, grading masks and locked controls are subsequent
-//! slices of the same build entry point.
+//! Subtract rules plus fixed-height point/line controls; path bands and grading
+//! masks are subsequent slices of the same build entry point.
 //!
 //! Coordinates are world metres in `f64`; heights are z in metres. The baseline
 //! and plan are borrowed for the call and are never mutated. A refusal returns no
 //! partial surface.
+
+use std::collections::BTreeMap;
 
 use super::edit::{Effect, smoother_step};
 use super::field::{Field, FieldError};
@@ -42,6 +44,10 @@ pub struct Plan<'a> {
     pub hash: u64,
     /// Ordered stack entries. `Entry::order` must be the contiguous index.
     pub entries: &'a [Entry<'a>],
+    /// Fixed-height point/line controls in caller order.
+    pub controls: &'a [Control<'a>],
+    /// Absolute compatibility band for grading versus a fixed height, metres.
+    pub control_tolerance: f64,
 }
 
 /// One ordered region-field entry in the compiled plan.
@@ -70,6 +76,41 @@ pub struct Part<'a> {
     pub outer: &'a [f64],
     /// Implicitly closed hole xyz rings.
     pub holes: &'a [&'a [f64]],
+}
+
+/// One immutable fixed-height point or open straight line control.
+#[derive(Clone, Copy, Debug)]
+pub struct Control<'a> {
+    /// Authored source identity carried for diagnostics/provenance.
+    pub source: SourceId,
+    /// Authored vertex identity for a point control; zero for a line control.
+    pub vertex: u64,
+    /// True for one fixed point; false for one fixed open polyline.
+    pub point: bool,
+    /// Fixed xyz position of a point control, world metres.
+    pub point_position: [f64; 3],
+    /// Fixed open xyz polyline of a line control, world metres.
+    pub line: &'a [f64],
+}
+
+/// Authored identity of one control line supplied as a region breakline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ControlLineOrigin {
+    /// Index into `Plan::controls`.
+    pub control: u32,
+    /// Number of authored segments in the line.
+    pub segments: u32,
+}
+
+/// A resolved fixed-height output vertex.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LockedVertex {
+    /// Index into `Plan::controls`.
+    pub control: u32,
+    /// Output vertex whose height is owned by the control.
+    pub vertex: u32,
+    /// Fixed height, metres.
+    pub height: f64,
 }
 
 /// Surface target supported by this build slice.
@@ -150,6 +191,10 @@ pub struct BuiltTerrain {
     pub mesh: RegionMesh,
     /// Per-line authored origin, indexed like `RegionMesh::line_edges.line`.
     pub lines: Vec<LineOrigin>,
+    /// Per-control-line authored origin, after every domain line.
+    pub control_lines: Vec<ControlLineOrigin>,
+    /// Every fixed-height vertex resolved from `Plan::controls`.
+    pub locked: Vec<LockedVertex>,
     /// Exact cut/fill against `base`, split at the property line.
     pub volumes: ExactReport,
     /// Revision carried from `Plan::revision`.
@@ -214,6 +259,35 @@ pub enum BuildError {
         /// Zero-based segment index in the ring.
         segment: u32,
     },
+    /// A point/line control names malformed geometry.
+    ControlShape {
+        /// Index into `Plan::controls`.
+        control: u32,
+    },
+    /// A control coordinate or tolerance is NaN or infinite.
+    ControlNonFinite {
+        /// Index into `Plan::controls`.
+        control: u32,
+    },
+    /// A line control has a zero-length segment.
+    ControlZeroLength {
+        /// Index into `Plan::controls`.
+        control: u32,
+        /// Zero-based segment index in the control line.
+        segment: u32,
+    },
+    /// Grading moved a locked vertex outside the compatibility band, or two
+    /// fixed controls disagree by more than that band.
+    LockedConflict {
+        /// Index into `Plan::controls`.
+        control: u32,
+        /// Output vertex with the conflict.
+        vertex: u32,
+        /// Fixed height requested by the control, metres.
+        height: f64,
+        /// Composed or canonical height found there, metres.
+        actual: f64,
+    },
 }
 
 impl BuildError {
@@ -238,6 +312,18 @@ impl BuildError {
                 "BuildParameters: falloff, reach and surface levels are outside their contract"
             }
             Self::ZeroLength { .. } => "BuildZeroLength: a plan ring has a zero-length segment",
+            Self::ControlShape { .. } => {
+                "BuildControlShape: point controls need xyz and line controls need two or more xyz vertices"
+            }
+            Self::ControlNonFinite { .. } => {
+                "BuildControlNonFinite: fixed control coordinates and tolerance must be finite"
+            }
+            Self::ControlZeroLength { .. } => {
+                "BuildControlZeroLength: a fixed control line has a zero-length segment"
+            }
+            Self::LockedConflict { .. } => {
+                "BuildLockedConflict: grading or another fixed control disagrees with a locked height"
+            }
         }
     }
 }
@@ -260,6 +346,18 @@ enum PreparedTransition {
 struct PlannedLine {
     points: Vec<f64>,
     origin: LineOrigin,
+}
+
+#[derive(Clone, Debug)]
+struct PlannedControlLine {
+    points: Vec<f64>,
+    control: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FixedHeight {
+    control: u32,
+    height: f64,
 }
 
 fn plan_shape(entry: u32, part: u32, ring: u32) -> BuildError {
@@ -430,6 +528,181 @@ fn push_ring_lines(
     Ok(())
 }
 
+fn validate_control(control: &Control<'_>, index: usize) -> Result<u32, BuildError> {
+    let index = u32::try_from(index).map_err(|_| BuildError::ControlShape { control: u32::MAX })?;
+    if control.point {
+        if control.vertex == 0 || !control.point_position.iter().all(|value| value.is_finite()) {
+            return Err(
+                if control.point_position.iter().all(|value| value.is_finite()) {
+                    BuildError::ControlShape { control: index }
+                } else {
+                    BuildError::ControlNonFinite { control: index }
+                },
+            );
+        }
+        return Ok(index);
+    }
+    let vertices = plan::vertices(control.line);
+    if !control.line.len().is_multiple_of(3) || vertices.len() < 2 {
+        return Err(BuildError::ControlShape { control: index });
+    }
+    if control.line.iter().any(|value| !value.is_finite()) {
+        return Err(BuildError::ControlNonFinite { control: index });
+    }
+    Ok(index)
+}
+
+fn push_control_lines(
+    lines: &mut Vec<PlannedControlLine>,
+    controls: &[Control<'_>],
+) -> Result<Vec<f64>, BuildError> {
+    let mut spots = Vec::new();
+    for (index, control) in controls.iter().enumerate() {
+        let index = validate_control(control, index)?;
+        if control.point {
+            spots.extend_from_slice(&control.point_position);
+            continue;
+        }
+        let vertices = plan::vertices(control.line);
+        for segment in 0..vertices.len().saturating_sub(1) {
+            let (Some(a), Some(b)) = (vertices.get(segment), vertices.get(segment + 1)) else {
+                return Err(BuildError::ControlShape { control: index });
+            };
+            if a[0].to_bits() == b[0].to_bits() && a[1].to_bits() == b[1].to_bits() {
+                return Err(BuildError::ControlZeroLength {
+                    control: index,
+                    segment: u32::try_from(segment).unwrap_or(u32::MAX),
+                });
+            }
+        }
+        lines.push(PlannedControlLine {
+            points: control.line.to_vec(),
+            control: index,
+        });
+    }
+    Ok(spots)
+}
+
+fn control_height(control: &Control<'_>, x: f64, y: f64) -> Option<f64> {
+    if control.point {
+        return control.point_position.get(2).copied();
+    }
+    plan::nearest(plan::vertices(control.line), false, x, y).map(|near| near.z)
+}
+
+fn add_fixed(
+    fixed: &mut BTreeMap<u32, FixedHeight>,
+    vertex: u32,
+    control: u32,
+    height: f64,
+    tolerance: f64,
+) -> Result<(), BuildError> {
+    match fixed.get(&vertex) {
+        Some(existing) if (existing.height - height).abs() > tolerance => {
+            Err(BuildError::LockedConflict {
+                control,
+                vertex,
+                height,
+                actual: existing.height,
+            })
+        }
+        Some(_) => Ok(()),
+        None => {
+            fixed.insert(vertex, FixedHeight { control, height });
+            Ok(())
+        }
+    }
+}
+
+fn resolve_controls(
+    mesh: &RegionMesh,
+    controls: &[Control<'_>],
+    control_lines: &[PlannedControlLine],
+    domain_lines: usize,
+    tolerance: f64,
+) -> Result<BTreeMap<u32, FixedHeight>, BuildError> {
+    let mut fixed = BTreeMap::new();
+    for (point_index, control) in controls.iter().enumerate() {
+        if !control.point {
+            continue;
+        }
+        let index = u32::try_from(point_index)
+            .map_err(|_| BuildError::ControlShape { control: u32::MAX })?;
+        let Some(&vertex) = mesh.point_vertices.get(point_index) else {
+            return Err(BuildError::Region(RegionError::Topology));
+        };
+        let Some(height) = control_height(control, f64::NAN, f64::NAN) else {
+            return Err(BuildError::ControlShape { control: index });
+        };
+        add_fixed(&mut fixed, vertex, index, height, tolerance)?;
+    }
+    for (ordinal, planned) in control_lines.iter().enumerate() {
+        let Some(control) = controls.get(planned.control as usize) else {
+            return Err(BuildError::ControlShape {
+                control: planned.control,
+            });
+        };
+        let line = domain_lines
+            .checked_add(ordinal)
+            .ok_or(BuildError::Region(RegionError::Topology))?;
+        let line = u32::try_from(line).map_err(|_| BuildError::Region(RegionError::Topology))?;
+        let mut touched = false;
+        for edge in mesh.line_edges.iter().filter(|edge| edge.line == line) {
+            touched = true;
+            for &vertex in &edge.vertices {
+                let position = plan::vertices(&mesh.points)
+                    .get(vertex as usize)
+                    .ok_or(BuildError::Region(RegionError::Topology))?;
+                let height = control_height(control, position[0], position[1]).ok_or(
+                    BuildError::ControlShape {
+                        control: planned.control,
+                    },
+                )?;
+                add_fixed(&mut fixed, vertex, planned.control, height, tolerance)?;
+            }
+        }
+        if !touched {
+            return Err(BuildError::Region(RegionError::Topology));
+        }
+    }
+    Ok(fixed)
+}
+
+fn apply_fixed(
+    fixed: &BTreeMap<u32, FixedHeight>,
+    tolerance: f64,
+    heights: &mut [f64],
+    owners: &mut [Option<u32>],
+) -> Result<Vec<LockedVertex>, BuildError> {
+    let mut locked = Vec::with_capacity(fixed.len());
+    for (&vertex, &target) in fixed {
+        let actual = heights
+            .get(vertex as usize)
+            .copied()
+            .ok_or(BuildError::Region(RegionError::Topology))?;
+        if (actual - target.height).abs() > tolerance {
+            return Err(BuildError::LockedConflict {
+                control: target.control,
+                vertex,
+                height: target.height,
+                actual,
+            });
+        }
+        if let Some(slot) = heights.get_mut(vertex as usize) {
+            *slot = target.height;
+        }
+        if let Some(owner) = owners.get_mut(vertex as usize) {
+            *owner = None;
+        }
+        locked.push(LockedVertex {
+            control: target.control,
+            vertex,
+            height: target.height,
+        });
+    }
+    Ok(locked)
+}
+
 fn member_distance(part: &Part<'_>, x: f64, y: f64) -> Option<f64> {
     let outer = plan::vertices(part.outer);
     if plan::inside(outer, x, y) == Some(false) {
@@ -564,6 +837,19 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         }
     }
     let prepared = validate_plan(plan, baseline.property.is_some())?;
+    if !plan.control_tolerance.is_finite() {
+        return Err(BuildError::ControlNonFinite { control: u32::MAX });
+    }
+    if plan.control_tolerance < 0.0 {
+        return Err(BuildError::Parameters {
+            entry: u32::MAX,
+            part: u32::MAX,
+            field: "control tolerance",
+        });
+    }
+    if !plan.controls.is_empty() && baseline.property.is_none() {
+        return Err(BuildError::PropertyRequired);
+    }
     let mut lines = Vec::new();
     for entry in plan.entries {
         for (part_index, part) in entry.parts.iter().enumerate() {
@@ -577,8 +863,12 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             }
         }
     }
+    let mut control_lines = Vec::new();
+    let spots = push_control_lines(&mut control_lines, plan.controls)?;
     let mesh = if let Some(property) = baseline.property {
-        let breaklines: Vec<&[f64]> = lines.iter().map(|line| line.points.as_slice()).collect();
+        let mut breaklines = Vec::with_capacity(lines.len() + control_lines.len());
+        breaklines.extend(lines.iter().map(|line| line.points.as_slice()));
+        breaklines.extend(control_lines.iter().map(|line| line.points.as_slice()));
         retriangulate_region_with_points(
             &RegionRequest {
                 points: baseline.points,
@@ -586,12 +876,19 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
                 region: property,
                 breaklines: &breaklines,
             },
-            &[],
+            &spots,
         )
         .map_err(BuildError::Region)?
     } else {
         baseline_mesh(baseline.points, baseline.triangles)?
     };
+    let fixed = resolve_controls(
+        &mesh,
+        plan.controls,
+        &control_lines,
+        lines.len(),
+        plan.control_tolerance,
+    )?;
     let base: Vec<f64> = plan::vertices(&mesh.points)
         .iter()
         .map(|&[_, _, z]| z)
@@ -601,6 +898,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
     for entry in &prepared {
         apply_entry(entry, &mesh.points, &mut heights, &mut owners)?;
     }
+    let locked = apply_fixed(&fixed, plan.control_tolerance, &mut heights, &mut owners)?;
     let mut points = mesh.points.clone();
     let chunks = points.as_chunks_mut::<3>();
     for (height, xyz) in heights.iter().zip(chunks.0) {
@@ -620,6 +918,15 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         base,
         owners,
         lines: lines.iter().map(|line| line.origin).collect(),
+        control_lines: control_lines
+            .iter()
+            .map(|line| ControlLineOrigin {
+                control: line.control,
+                segments: u32::try_from(plan::vertices(&line.points).len().saturating_sub(1))
+                    .unwrap_or(u32::MAX),
+            })
+            .collect(),
+        locked,
         mesh,
         volumes,
         revision: plan.revision,
