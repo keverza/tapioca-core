@@ -207,7 +207,8 @@ bool BuildProvenance (const edit::Document& doc, const TerrainCapture& capture, 
 }
 
 bool Convert (const edit::Document& doc, const TerrainCapture& capture, const FieldPlan& plan,
-              const UnifiedLandscapeBuildOptions& options, OwnedRequest& owned, std::string& error)
+              const UnifiedLandscapeBuildOptions& options, OwnedRequest& owned, UnifiedLandscapeBuildScope& scope,
+              std::string& error)
 {
     if (!ValidateLandscapeFieldPlanForBuild (plan, error) || !doc.landscape || plan.revision != doc.revision ||
         plan.captureRevision != capture.revision || plan.session != doc.landscape->sessionUuid ||
@@ -233,6 +234,9 @@ bool Convert (const edit::Document& doc, const TerrainCapture& capture, const Fi
             error = "RegionTerrainCoverage: the unified terrain/property intersection is empty";
             return false;
         }
+        // Authored property (or validated cover): the measurement scope for the
+        // displayed site/context totals, independent of the rebuild scope.
+        scope.measurementRegion = owned.property;
     }
     propertySources.erase (kNoId);
     if (needsCoverage && propertySources.empty ()) {
@@ -299,11 +303,15 @@ bool Convert (const edit::Document& doc, const TerrainCapture& capture, const Fi
         design.cover = TerrainDesignArea (doc, capture.Input ().mesh);
         // P3 supports one path. Its production rebuild region is the band reach
         // clipped to property/cover, not the wider region-only coverage ring.
-        // P4 must keep this rebuild scope separate from quantity/property scope.
+        // P4a keeps this rebuild scope separate from the measurement scope the
+        // scope struct already recorded.
         if (!ResolveTerrainDesignRegion (doc, owned.paths.front ().stations, design, owned.property, error))
             return false;
+        scope.rebuildRegion = owned.property;
         propertySources = { path.source };
     }
+    else if (needsCoverage)
+        scope.rebuildRegion = scope.measurementRegion;
     owned.masks.reserve (plan.masks.size ());
     for (const auto& mask : plan.masks) {
         UnifiedMask output;
@@ -346,13 +354,13 @@ bool Convert (const edit::Document& doc, const TerrainCapture& capture, const Fi
 
 bool BuildUnifiedLandscapeTerrain (const edit::Document& doc, const TerrainCapture& capture, const FieldPlan& plan,
                                    const UnifiedLandscapeBuildOptions& options, UnifiedTerrainResult& result,
-                                   std::string& error)
+                                   UnifiedLandscapeBuildScope& scope, std::string& error)
 {
     try {
         OwnedRequest owned;
         // The request carries a reference to owned.provenance; both stay alive and
         // unmoved until the low-level facade has published its owned result.
-        if (!Convert (doc, capture, plan, options, owned, error))
+        if (!Convert (doc, capture, plan, options, owned, scope, error))
             return false;
         UnifiedTerrainResult candidate;
         if (!BuildUnifiedTerrain (*owned.request, candidate, error))

@@ -889,6 +889,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrainSplit.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrainSolve.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeUnifiedBuild.cpp"
+        "${EVP_ROOT}/Sources/AddOn/Edit/EditPublishedTerrain.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainTriangulation.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainDesign.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainControls.cpp"
@@ -914,6 +915,7 @@ set (EVP_TEST_SOURCES
     test_editlandscape.cpp
     test_editlandscapedomain.cpp
     test_editlandscapefieldplan.cpp
+    test_editpublishedterrain.cpp
     test_editregionsurface.cpp
     test_editregioncontourslope.cpp
     test_editmaterial.cpp

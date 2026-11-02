@@ -689,8 +689,34 @@ identity, transports the actual `FieldPlan`, shares production station/region
 preparation, generates complete input provenance and publishes atomically.
 `FieldPlan` v3 hashes all independent station fields including rounding, and
 `ValidateLandscapeFieldPlanForBuild` refuses every current diagnostic because it
-means requested geometry is missing or invalid. Production dispatch remains a
-follow-up slice.
+means requested geometry is missing or invalid. On success the adapter also
+reports `UnifiedLandscapeBuildScope`: the derived rebuild ring actually rebuilt
+(single-path: the band reach clipped to property/cover) separately from the
+authored property/validated cover used as the measurement scope. Production
+dispatch remains a follow-up slice.
+
+P4a adds the neutral `PublishedTerrain` (`EditPublishedTerrain.hpp`), the one
+immutable result both lanes convert to at the publication boundary: geometry,
+sampled baseline, ordered owner identity, support mappings and line origins,
+locked vertices with authored references, the full domains=7 input catalog plus
+a mesh-ready domains=5 projection (native baseline prefix preserved verbatim;
+rebuild-created vertices generated with the catalog contributors; faces resolved
+through their kind-12 correspondence rows), both scopes, identity stamps, and
+three quantity sets. The authoritative earthwork quantities are triangle-exact
+in C++ -- footprint attribution (holes excluded, later stack positions override
+within their footprint, boundary-band pieces attributed to the domain that moved
+their ring vertices, everything else reconciling into a baseline row) with each
+triangle clipped at its zero-height-difference contour so cut and fill separate
+exactly. The legacy 0.25 m measured-grid site/context totals against the
+measurement region are retained as the display convention, and the kernel-exact
+site/context volumes are carried labeled as rebuild-scope; neither silently
+replaces the other. `PublishTerrainDesign` converts the legacy path-lane outcome
+for parity tests only, never as a runtime fallback. Preview/quantities/status
+rewiring is P4b. On the original #82 fixture the unified and legacy surfaces
+agree within the documented daylight-density tolerance (max sampled error
+0.244 m, display fill delta 15.9 m3 on a 0.25 m query grid); per-vertex ring
+ancestry in the mesh projection waits for the kernel to document its
+breakline-ordinal catalog mapping.
 
 A zero-reach absolute target that differs from baseline at its boundary, or from
 another sharp claim at the same position, refuses with `BuildHardStep`. Overlap

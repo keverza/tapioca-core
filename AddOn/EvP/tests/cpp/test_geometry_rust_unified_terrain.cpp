@@ -1,4 +1,4 @@
-#include "Geometry/GeometryRustUnifiedTerrain.hpp"
+﻿#include "Geometry/GeometryRustUnifiedTerrain.hpp"
 
 #include "GeometryRustFfi.h"
 
@@ -471,8 +471,10 @@ TEST (GeometryRustUnifiedTerrain, CompiledPlanBuildsTheOriginalIssue82Scene)
     ASSERT_EQ (plan.paths.size (), 1u);
 
     UnifiedTerrainResult unified;
+    UnifiedLandscapeBuildScope scope;
     std::string error;
-    ASSERT_TRUE (BuildUnifiedLandscapeTerrain (scene.doc, *regionOnly.capture, plan, {}, unified, error)) << error;
+    ASSERT_TRUE (BuildUnifiedLandscapeTerrain (scene.doc, *regionOnly.capture, plan, {}, unified, scope, error))
+        << error;
     EXPECT_EQ (unified.revision, plan.revision);
     EXPECT_EQ (unified.planHash, plan.hash);
     EXPECT_GT (unified.inputProvenance.counts.vertices, regionOnly.capture->provenance.counts.vertices);
@@ -510,8 +512,10 @@ TEST (GeometryRustUnifiedTerrain, CompiledPlanBuildsATwoPointSurface)
     EXPECT_FALSE (plan.entries.front ().surfaceTriangles.empty ());
 
     UnifiedTerrainResult unified;
+    UnifiedLandscapeBuildScope scope;
     std::string error;
-    ASSERT_TRUE (BuildUnifiedLandscapeTerrain (scene.doc, *regionOnly.capture, plan, {}, unified, error)) << error;
+    ASSERT_TRUE (BuildUnifiedLandscapeTerrain (scene.doc, *regionOnly.capture, plan, {}, unified, scope, error))
+        << error;
     const std::array<double, 2> query { 6.5, 6 };
     std::vector<TerrainSample> samples;
     TerrainFieldSummary summary;
@@ -550,8 +554,10 @@ TEST (GeometryRustUnifiedTerrain, CompiledPlanBuildsContourAndBoundaryTargets)
         EXPECT_FALSE (plan.entries.front ().surfaceTriangles.empty ());
 
         UnifiedTerrainResult unified;
+        UnifiedLandscapeBuildScope scope;
         std::string error;
-        ASSERT_TRUE (BuildUnifiedLandscapeTerrain (scene.doc, *regionOnly.capture, plan, {}, unified, error)) << error;
+        ASSERT_TRUE (BuildUnifiedLandscapeTerrain (scene.doc, *regionOnly.capture, plan, {}, unified, scope, error))
+            << error;
         const std::array<double, 4> query { 6.5, 6, 5.0, 5.0 };
         std::vector<TerrainSample> actual, expected;
         TerrainFieldSummary actualSummary, expectedSummary;
@@ -591,8 +597,9 @@ TEST (GeometryRustUnifiedTerrain, IncompleteCompiledPathRefusesWithoutPartialOut
     UnifiedTerrainResult result;
     result.points = { 42 };
     const auto before = result;
+    UnifiedLandscapeBuildScope scope;
     std::string error;
-    EXPECT_FALSE (BuildUnifiedLandscapeTerrain (scene.doc, *regionOnly.capture, plan, {}, result, error));
+    EXPECT_FALSE (BuildUnifiedLandscapeTerrain (scene.doc, *regionOnly.capture, plan, {}, result, scope, error));
     EXPECT_EQ (0U, error.rfind ("FieldPlanIncomplete:", 0)) << error;
     EXPECT_EQ (result, before);
 }
