@@ -655,17 +655,19 @@ sampled baseline heights, per-vertex owners, complete `RegionMesh`
 correspondence, per-line plan/path/mask/control origins, resolved locked
 vertices, exact site/context volumes, and the caller's revision/plan hash.
 
-Additional surface modes beyond Existing/Constant, hard-step
-duplication/refusal, ABI export, C++ wrapper and production dispatch
-are later P3 slices. Hard 2.5D domain boundaries currently share vertices with
-the neighbouring surface, so exact volumes include boundary interpolation rather
-than claiming a vertical wall. Tests cover empty plans, holes/islands/disjoint
+Additional surface modes beyond Existing/Constant, ABI export, C++ wrapper and
+production dispatch are later P3 slices. Hard 2.5D boundaries currently share
+vertices with the neighbouring surface, so exact volumes include boundary
+interpolation rather than claiming a vertical wall; a conservative hard-step
+policy refuses touching sharp absolute-target domains with no transition or
+ordered overlap, while nested hard overrides remain an explicit later policy
+extension. Tests cover empty plans, holes/islands/disjoint
 parts, overlap order reversal, Add/Subtract, falloff/daylight distances, a path
 band after regions, a path across a region hole, fixed-control/path conflicts,
-grading limits, protected
-zones, exact volume reconciliation, fixed point/line compatibility and
-conflicts, malformed paths/masks/controls, deterministic repeat, malformed
-plans, missing property rings, out-of-property refusal and input immutability.
+grading limits, protected zones, exact volume reconciliation, fixed point/line
+compatibility and conflicts, adjacent hard-step refusal, malformed
+paths/masks/controls, deterministic repeat, malformed plans, missing property
+rings, out-of-property refusal and input immutability.
 
 ## S3a.1 terrain TIN (`geometry::terrain`, Rust only)
 

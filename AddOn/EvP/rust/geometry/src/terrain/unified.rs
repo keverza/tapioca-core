@@ -7,8 +7,11 @@
 //! on that topology. Region entries currently support existing/constant targets
 //! with the reconciled absolute Grade, Add and Subtract rules, sampled path
 //! bands, grading/protection masks and fixed-height point/line controls.
-//! Additional surface modes, hard-step duplication/refusal and host integration
-//! are later slices.
+//! Additional surface modes and host integration
+//! are later slices. A conservative hard-step policy now refuses touching sharp
+//! absolute-target domains when no transition or ordered overlap represents the
+//! elevation change; nested hard overrides remain an explicit later policy
+//! extension.
 //!
 //! Cohesion review: this file intentionally keeps plan validation, one-graph
 //! constraint assembly, ordered height composition, fixed-control resolution and
@@ -32,6 +35,16 @@ use super::volume::VolumeError;
 use super::volume::exact::{ExactReport, ExactRequest, exact_cut_fill};
 use crate::identity::{ObjectId, OperationId, SourceId};
 use crate::slope::Slope;
+
+/// One authored constant-height claim an entry makes at an output vertex.
+#[derive(Clone, Copy, Debug)]
+struct TargetClaim<'a> {
+    entry: u32,
+    height: f64,
+    boundary: bool,
+    sharp: bool,
+    parts: &'a [Part<'a>],
+}
 
 /// Immutable terrain baseline consumed by one build.
 #[derive(Clone, Copy, Debug)]
@@ -413,6 +426,20 @@ pub enum BuildError {
         /// Composed or canonical height found there, metres.
         actual: f64,
     },
+    /// Two sharp absolute-target domains touch without an overlap or a transition
+    /// that can represent their elevation change on one 2.5D surface.
+    HardStep {
+        /// Output vertex on the incompatible shared boundary.
+        vertex: u32,
+        /// First ordered entry claiming a height.
+        first: u32,
+        /// Second ordered entry claiming a different height.
+        second: u32,
+        /// First absolute target height, metres.
+        first_height: f64,
+        /// Second absolute target height, metres.
+        second_height: f64,
+    },
 }
 
 impl BuildError {
@@ -464,6 +491,9 @@ impl BuildError {
             }
             Self::LockedConflict { .. } => {
                 "BuildLockedConflict: grading or another fixed control disagrees with a locked height"
+            }
+            Self::HardStep { .. } => {
+                "BuildHardStep: sharp absolute-target domains touch without an overlap or transition"
             }
         }
     }
@@ -1055,6 +1085,78 @@ fn inside_parts(parts: &[Part<'_>], x: f64, y: f64) -> bool {
     })
 }
 
+fn on_entry_boundary(entry: &Entry<'_>, x: f64, y: f64) -> bool {
+    entry.parts.iter().any(|part| {
+        if plan::inside(plan::vertices(part.outer), x, y).is_none() {
+            return true;
+        }
+        part.holes
+            .iter()
+            .any(|hole| plan::inside(plan::vertices(hole), x, y).is_none())
+    })
+}
+
+fn parts_bounds(parts: &[Part<'_>]) -> Option<[f64; 4]> {
+    let mut bounds = [
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    ];
+    let mut any = false;
+    for part in parts {
+        for ring in std::iter::once(&part.outer).chain(part.holes.iter()) {
+            for &[x, y, _] in plan::vertices(ring) {
+                any = true;
+                bounds[0] = bounds[0].min(x);
+                bounds[1] = bounds[1].min(y);
+                bounds[2] = bounds[2].max(x);
+                bounds[3] = bounds[3].max(y);
+            }
+        }
+    }
+    any.then_some(bounds)
+}
+
+fn domains_overlap_near(a: &[Part<'_>], b: &[Part<'_>], _x: f64, _y: f64) -> bool {
+    // A nonzero bounding-box intersection distinguishes ordered overlap from a
+    // shared edge/point. It is a conservative topology classifier: nested hard
+    // overrides remain an explicit later hard-step-policy extension.
+    let (Some(a), Some(b)) = (parts_bounds(a), parts_bounds(b)) else {
+        return false;
+    };
+    let width = a[2].min(b[2]) - a[0].max(b[0]);
+    let height = a[3].min(b[3]) - a[1].max(b[1]);
+    width > 1e-9 && height > 1e-9
+}
+
+fn detect_hard_steps(claims: &BTreeMap<u32, Vec<TargetClaim>>) -> Result<(), BuildError> {
+    for (&vertex, rows) in claims {
+        for (index, first) in rows.iter().enumerate() {
+            for second in rows.iter().skip(index + 1) {
+                if first.entry == second.entry
+                    || (first.height - second.height).abs() <= 1e-9
+                    || !first.boundary
+                    || !second.boundary
+                    || !first.sharp
+                    || !second.sharp
+                    || domains_overlap_near(first.parts, second.parts, 0.0, 0.0)
+                {
+                    continue;
+                }
+                return Err(BuildError::HardStep {
+                    vertex,
+                    first: first.entry,
+                    second: second.entry,
+                    first_height: first.height,
+                    second_height: second.height,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 fn is_protected(masks: &[Mask<'_>], x: f64, y: f64) -> bool {
     masks
         .iter()
@@ -1108,12 +1210,17 @@ fn candidate(prepared: &PreparedEntry<'_>, x: f64, y: f64, current: f64) -> Opti
     Some(next)
 }
 
-fn apply_entry(
-    prepared: &PreparedEntry<'_>,
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one ordered entry evaluation needs the immutable plan, mutable height/owner stacks and target-claim diagnostics together"
+)]
+fn apply_entry<'a>(
+    prepared: &PreparedEntry<'a>,
     masks: &[Mask<'_>],
     mesh_points: &[f64],
     heights: &mut [f64],
     owners: &mut [Option<u32>],
+    claims: &mut BTreeMap<u32, Vec<TargetClaim<'a>>>,
 ) -> Result<(), BuildError> {
     for (vertex, &[x, y, _]) in (0_u32..).zip(plan::vertices(mesh_points)) {
         if is_protected(masks, x, y) || !grading_allowed(masks, x, y) {
@@ -1125,6 +1232,19 @@ fn apply_entry(
         let Some(next) = candidate(prepared, x, y, current) else {
             continue;
         };
+        if let Some(height) = prepared.target {
+            let sharp = matches!(
+                prepared.transition,
+                PreparedTransition::Daylight { reach, .. } if reach <= 0.0
+            );
+            claims.entry(vertex).or_default().push(TargetClaim {
+                entry: prepared.entry.order,
+                height,
+                boundary: on_entry_boundary(prepared.entry, x, y),
+                sharp,
+                parts: prepared.entry.parts,
+            });
+        }
         if let Some(slot) = heights.get_mut(vertex as usize) {
             *slot = next;
         }
@@ -1147,8 +1267,16 @@ fn region_height_field(
         .map(|&[_, _, z]| z)
         .collect();
     let mut owners = vec![None; heights.len()];
+    let mut claims = BTreeMap::new();
     for entry in prepared {
-        apply_entry(entry, masks, baseline.points, &mut heights, &mut owners)?;
+        apply_entry(
+            entry,
+            masks,
+            baseline.points,
+            &mut heights,
+            &mut owners,
+            &mut claims,
+        )?;
     }
     let mut points = baseline.points.to_vec();
     let chunks = points.as_chunks_mut::<3>();
@@ -1316,9 +1444,18 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         .collect();
     let mut heights = base.clone();
     let mut owners = vec![None; base.len()];
+    let mut claims = BTreeMap::new();
     for entry in &prepared {
-        apply_entry(entry, plan.masks, &mesh.points, &mut heights, &mut owners)?;
+        apply_entry(
+            entry,
+            plan.masks,
+            &mesh.points,
+            &mut heights,
+            &mut owners,
+            &mut claims,
+        )?;
     }
+    detect_hard_steps(&claims)?;
     apply_paths(plan.paths, plan.masks, &mesh, &mut heights, &mut owners)?;
     let locked = apply_fixed(&fixed, plan.control_tolerance, &mut heights, &mut owners)?;
     let mut points = mesh.points.clone();

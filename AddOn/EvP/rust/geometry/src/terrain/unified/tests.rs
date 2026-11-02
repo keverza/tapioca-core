@@ -337,6 +337,46 @@ fn later_overlapping_entries_override_earlier_ones() -> Result<(), BuildError> {
 }
 
 #[test]
+fn adjacent_sharp_domains_with_different_targets_refuse_as_a_hard_step() {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]);
+    let left = ring(&[[2.0, 2.0], [4.0, 2.0], [4.0, 6.0], [2.0, 6.0]]);
+    let right = ring(&[[4.0, 2.0], [6.0, 2.0], [6.0, 6.0], [4.0, 6.0]]);
+    let left_parts = [Part {
+        outer: &left,
+        holes: &[],
+    }];
+    let right_parts = [Part {
+        outer: &right,
+        holes: &[],
+    }];
+    let entries = [
+        constant_entry(0, &left_parts, 1.0, TerrainEffect::Grade, sharp()),
+        constant_entry(1, &right_parts, 3.0, TerrainEffect::Grade, sharp()),
+    ];
+    let plan = Plan {
+        revision: 25,
+        hash: 251,
+        entries: &entries,
+        paths: &[],
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+    };
+    assert!(matches!(
+        build_terrain(
+            &Baseline {
+                points: &points,
+                triangles: &triangles,
+                property: Some(&property),
+            },
+            &plan,
+        ),
+        Err(BuildError::HardStep { .. })
+    ));
+}
+
+#[test]
 fn add_raises_only_and_subtract_lowers_only_on_a_sloped_base() -> Result<(), BuildError> {
     let (points, triangles) = surface(9, 1.0, |x, _| x);
     let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
