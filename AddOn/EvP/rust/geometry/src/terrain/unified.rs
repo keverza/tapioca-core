@@ -5,8 +5,8 @@
 //! assembles every plan domain edge as a constraint of one region rebuild, then
 //! evaluates the ordered field stack on that topology. Region entries currently
 //! support existing/constant targets with the reconciled absolute Grade, Add and
-//! Subtract rules plus fixed-height point/line controls; path bands and grading
-//! masks are subsequent slices of the same build entry point.
+//! Subtract rules, grading/protection masks and fixed-height point/line controls;
+//! path bands are the next slice of the same build entry point.
 //!
 //! Coordinates are world metres in `f64`; heights are z in metres. The baseline
 //! and plan are borrowed for the call and are never mutated. A refusal returns no
@@ -44,6 +44,8 @@ pub struct Plan<'a> {
     pub hash: u64,
     /// Ordered stack entries. `Entry::order` must be the contiguous index.
     pub entries: &'a [Entry<'a>],
+    /// Grading limits and protected zones in caller order.
+    pub masks: &'a [Mask<'a>],
     /// Fixed-height point/line controls in caller order.
     pub controls: &'a [Control<'a>],
     /// Absolute compatibility band for grading versus a fixed height, metres.
@@ -76,6 +78,41 @@ pub struct Part<'a> {
     pub outer: &'a [f64],
     /// Implicitly closed hole xyz rings.
     pub holes: &'a [&'a [f64]],
+}
+
+/// What a plan mask does to the ordered grading stack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaskKind {
+    /// Only vertices inside/on at least one grading-limit mask may be graded.
+    GradingLimit,
+    /// Vertices inside/on the mask keep the baseline and are never graded.
+    ProtectedZone,
+}
+
+/// One evaluated grading/protection mask with full domain extents.
+#[derive(Clone, Copy, Debug)]
+pub struct Mask<'a> {
+    /// Durable mask-operation identity carried for diagnostics/provenance.
+    pub operation: OperationId,
+    /// Whether the mask limits grading or protects the baseline.
+    pub kind: MaskKind,
+    /// Evaluated mask ancestry, in caller order.
+    pub sources: &'a [SourceId],
+    /// Mask domain parts; membership is evaluated from these rings.
+    pub parts: &'a [Part<'a>],
+}
+
+/// Authored identity of one mask edge supplied as a region breakline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MaskLineOrigin {
+    /// Index into `Plan::masks`.
+    pub mask: u32,
+    /// Index into `Mask::parts`.
+    pub part: u32,
+    /// Zero for the outer ring; one-based hole index otherwise.
+    pub ring: u32,
+    /// Zero-based ring segment index.
+    pub segment: u32,
 }
 
 /// One immutable fixed-height point or open straight line control.
@@ -191,7 +228,9 @@ pub struct BuiltTerrain {
     pub mesh: RegionMesh,
     /// Per-line authored origin, indexed like `RegionMesh::line_edges.line`.
     pub lines: Vec<LineOrigin>,
-    /// Per-control-line authored origin, after every domain line.
+    /// Per-mask-edge authored origin, after every domain line.
+    pub mask_lines: Vec<MaskLineOrigin>,
+    /// Per-control-line authored origin, after every domain and mask line.
     pub control_lines: Vec<ControlLineOrigin>,
     /// Every fixed-height vertex resolved from `Plan::controls`.
     pub locked: Vec<LockedVertex>,
@@ -259,6 +298,35 @@ pub enum BuildError {
         /// Zero-based segment index in the ring.
         segment: u32,
     },
+    /// A mask ring does not have whole xyz triples or enough vertices.
+    MaskShape {
+        /// Index into `Plan::masks`.
+        mask: u32,
+        /// Index into `Mask::parts`.
+        part: u32,
+        /// Ring index: zero outer, one-based hole.
+        ring: u32,
+    },
+    /// A mask coordinate is NaN or infinite.
+    MaskNonFinite {
+        /// Index into `Plan::masks`.
+        mask: u32,
+        /// Index into `Mask::parts`.
+        part: u32,
+        /// Ring index: zero outer, one-based hole.
+        ring: u32,
+    },
+    /// A mask ring has a zero-length segment.
+    MaskZeroLength {
+        /// Index into `Plan::masks`.
+        mask: u32,
+        /// Index into `Mask::parts`.
+        part: u32,
+        /// Ring index: zero outer, one-based hole.
+        ring: u32,
+        /// Zero-based segment index in the ring.
+        segment: u32,
+    },
     /// A point/line control names malformed geometry.
     ControlShape {
         /// Index into `Plan::controls`.
@@ -312,6 +380,13 @@ impl BuildError {
                 "BuildParameters: falloff, reach and surface levels are outside their contract"
             }
             Self::ZeroLength { .. } => "BuildZeroLength: a plan ring has a zero-length segment",
+            Self::MaskShape { .. } => {
+                "BuildMaskShape: mask rings need whole xyz triples and three or more vertices"
+            }
+            Self::MaskNonFinite { .. } => "BuildMaskNonFinite: mask coordinates must be finite",
+            Self::MaskZeroLength { .. } => {
+                "BuildMaskZeroLength: a mask ring has a zero-length segment"
+            }
             Self::ControlShape { .. } => {
                 "BuildControlShape: point controls need xyz and line controls need two or more xyz vertices"
             }
@@ -346,6 +421,12 @@ enum PreparedTransition {
 struct PlannedLine {
     points: Vec<f64>,
     origin: LineOrigin,
+}
+
+#[derive(Clone, Debug)]
+struct PlannedMaskLine {
+    points: Vec<f64>,
+    origin: MaskLineOrigin,
 }
 
 #[derive(Clone, Debug)]
@@ -528,6 +609,61 @@ fn push_ring_lines(
     Ok(())
 }
 
+fn push_mask_lines(
+    lines: &mut Vec<PlannedMaskLine>,
+    mask: u32,
+    part_index: u32,
+    ring_index: u32,
+    ring: &[f64],
+) -> Result<(), BuildError> {
+    if !ring.len().is_multiple_of(3) || plan::vertices(ring).len() < 3 {
+        return Err(BuildError::MaskShape {
+            mask,
+            part: part_index,
+            ring: ring_index,
+        });
+    }
+    if ring.iter().any(|value| !value.is_finite()) {
+        return Err(BuildError::MaskNonFinite {
+            mask,
+            part: part_index,
+            ring: ring_index,
+        });
+    }
+    let vertices = plan::vertices(ring);
+    for segment in 0..vertices.len() {
+        let next = (segment + 1) % vertices.len();
+        let (Some(a), Some(b)) = (vertices.get(segment), vertices.get(next)) else {
+            return Err(BuildError::MaskShape {
+                mask,
+                part: part_index,
+                ring: ring_index,
+            });
+        };
+        if a[0].to_bits() == b[0].to_bits() && a[1].to_bits() == b[1].to_bits() {
+            return Err(BuildError::MaskZeroLength {
+                mask,
+                part: part_index,
+                ring: ring_index,
+                segment: u32::try_from(segment).unwrap_or(u32::MAX),
+            });
+        }
+        let mut points = Vec::with_capacity(6);
+        points.extend_from_slice(a);
+        points.extend_from_slice(b);
+        lines.push(PlannedMaskLine {
+            points,
+            origin: MaskLineOrigin {
+                mask,
+                part: part_index,
+                ring: ring_index,
+                segment: u32::try_from(segment).unwrap_or(u32::MAX),
+            },
+        });
+    }
+    Ok(())
+}
+
 fn validate_control(control: &Control<'_>, index: usize) -> Result<u32, BuildError> {
     let index = u32::try_from(index).map_err(|_| BuildError::ControlShape { control: u32::MAX })?;
     if control.point {
@@ -618,7 +754,7 @@ fn resolve_controls(
     mesh: &RegionMesh,
     controls: &[Control<'_>],
     control_lines: &[PlannedControlLine],
-    domain_lines: usize,
+    preceding_lines: usize,
     tolerance: f64,
 ) -> Result<BTreeMap<u32, FixedHeight>, BuildError> {
     let mut fixed = BTreeMap::new();
@@ -642,7 +778,7 @@ fn resolve_controls(
                 control: planned.control,
             });
         };
-        let line = domain_lines
+        let line = preceding_lines
             .checked_add(ordinal)
             .ok_or(BuildError::Region(RegionError::Topology))?;
         let line = u32::try_from(line).map_err(|_| BuildError::Region(RegionError::Topology))?;
@@ -723,6 +859,32 @@ fn distance_to_parts(parts: &[Part<'_>], x: f64, y: f64) -> Option<f64> {
         .min_by(f64::total_cmp)
 }
 
+fn inside_parts(parts: &[Part<'_>], x: f64, y: f64) -> bool {
+    parts.iter().any(|part| {
+        let outer = plan::inside(plan::vertices(part.outer), x, y);
+        if outer == Some(false) {
+            return false;
+        }
+        part.holes
+            .iter()
+            .all(|hole| plan::inside(plan::vertices(hole), x, y) != Some(true))
+    })
+}
+
+fn is_protected(masks: &[Mask<'_>], x: f64, y: f64) -> bool {
+    masks
+        .iter()
+        .any(|mask| mask.kind == MaskKind::ProtectedZone && inside_parts(mask.parts, x, y))
+}
+
+fn grading_allowed(masks: &[Mask<'_>], x: f64, y: f64) -> bool {
+    let limited = masks.iter().any(|mask| mask.kind == MaskKind::GradingLimit);
+    !limited
+        || masks
+            .iter()
+            .any(|mask| mask.kind == MaskKind::GradingLimit && inside_parts(mask.parts, x, y))
+}
+
 fn candidate(prepared: &PreparedEntry<'_>, x: f64, y: f64, current: f64) -> Option<f64> {
     if prepared.entry.parts.is_empty() {
         return None;
@@ -764,11 +926,15 @@ fn candidate(prepared: &PreparedEntry<'_>, x: f64, y: f64, current: f64) -> Opti
 
 fn apply_entry(
     prepared: &PreparedEntry<'_>,
+    masks: &[Mask<'_>],
     mesh_points: &[f64],
     heights: &mut [f64],
     owners: &mut [Option<u32>],
 ) -> Result<(), BuildError> {
     for (vertex, &[x, y, _]) in (0_u32..).zip(plan::vertices(mesh_points)) {
+        if is_protected(masks, x, y) || !grading_allowed(masks, x, y) {
+            continue;
+        }
         let Some(current) = heights.get(vertex as usize).copied() else {
             return Err(BuildError::Region(RegionError::Topology));
         };
@@ -847,7 +1013,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             field: "control tolerance",
         });
     }
-    if !plan.controls.is_empty() && baseline.property.is_none() {
+    if (!plan.masks.is_empty() || !plan.controls.is_empty()) && baseline.property.is_none() {
         return Err(BuildError::PropertyRequired);
     }
     let mut lines = Vec::new();
@@ -863,11 +1029,37 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             }
         }
     }
+    let mut mask_lines = Vec::new();
+    for (mask_index, mask) in plan.masks.iter().enumerate() {
+        let mask_index = u32::try_from(mask_index).map_err(|_| BuildError::MaskShape {
+            mask: u32::MAX,
+            part: u32::MAX,
+            ring: u32::MAX,
+        })?;
+        for (part_index, part) in mask.parts.iter().enumerate() {
+            let part_index = u32::try_from(part_index).map_err(|_| BuildError::MaskShape {
+                mask: mask_index,
+                part: u32::MAX,
+                ring: u32::MAX,
+            })?;
+            push_mask_lines(&mut mask_lines, mask_index, part_index, 0, part.outer)?;
+            for (hole_index, hole) in part.holes.iter().enumerate() {
+                let ring = u32::try_from(hole_index + 1).map_err(|_| BuildError::MaskShape {
+                    mask: mask_index,
+                    part: part_index,
+                    ring: u32::MAX,
+                })?;
+                push_mask_lines(&mut mask_lines, mask_index, part_index, ring, hole)?;
+            }
+        }
+    }
     let mut control_lines = Vec::new();
     let spots = push_control_lines(&mut control_lines, plan.controls)?;
     let mesh = if let Some(property) = baseline.property {
-        let mut breaklines = Vec::with_capacity(lines.len() + control_lines.len());
+        let mut breaklines =
+            Vec::with_capacity(lines.len() + mask_lines.len() + control_lines.len());
         breaklines.extend(lines.iter().map(|line| line.points.as_slice()));
+        breaklines.extend(mask_lines.iter().map(|line| line.points.as_slice()));
         breaklines.extend(control_lines.iter().map(|line| line.points.as_slice()));
         retriangulate_region_with_points(
             &RegionRequest {
@@ -886,7 +1078,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         &mesh,
         plan.controls,
         &control_lines,
-        lines.len(),
+        lines.len() + mask_lines.len(),
         plan.control_tolerance,
     )?;
     let base: Vec<f64> = plan::vertices(&mesh.points)
@@ -896,7 +1088,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
     let mut heights = base.clone();
     let mut owners = vec![None; base.len()];
     for entry in &prepared {
-        apply_entry(entry, &mesh.points, &mut heights, &mut owners)?;
+        apply_entry(entry, plan.masks, &mesh.points, &mut heights, &mut owners)?;
     }
     let locked = apply_fixed(&fixed, plan.control_tolerance, &mut heights, &mut owners)?;
     let mut points = mesh.points.clone();
@@ -918,6 +1110,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         base,
         owners,
         lines: lines.iter().map(|line| line.origin).collect(),
+        mask_lines: mask_lines.iter().map(|line| line.origin).collect(),
         control_lines: control_lines
             .iter()
             .map(|line| ControlLineOrigin {

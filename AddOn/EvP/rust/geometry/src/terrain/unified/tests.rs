@@ -100,6 +100,7 @@ fn empty_plan_without_property_is_baseline_bit_for_bit() -> Result<(), BuildErro
         revision: 4,
         hash: 44,
         entries: &entries,
+        masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
     };
@@ -146,6 +147,7 @@ fn grade_hole_and_disjoint_parts_keep_membership_and_volumes() -> Result<(), Bui
         revision: 1,
         hash: 11,
         entries: &entries,
+        masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
     };
@@ -212,6 +214,7 @@ fn one_inner_domain_integrates_positive_fill_and_property_exterior_stays_baselin
         revision: 12,
         hash: 121,
         entries: &entries,
+        masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
     };
@@ -269,6 +272,7 @@ fn later_overlapping_entries_override_earlier_ones() -> Result<(), BuildError> {
             revision: 2,
             hash: 22,
             entries: &entries,
+            masks: &[],
             controls: &[],
             control_tolerance: 1e-3,
         };
@@ -340,6 +344,7 @@ fn add_raises_only_and_subtract_lowers_only_on_a_sloped_base() -> Result<(), Bui
             revision: 3,
             hash: 33,
             entries: &entries,
+            masks: &[],
             controls: &[],
             control_tolerance: 1e-3,
         };
@@ -402,6 +407,7 @@ fn falloff_blends_by_plan_distance_and_stops_at_blur() -> Result<(), BuildError>
         revision: 5,
         hash: 55,
         entries: &entries,
+        masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
     };
@@ -453,6 +459,7 @@ fn daylight_runs_cut_and_fill_faces_to_the_reach() -> Result<(), BuildError> {
         revision: 6,
         hash: 66,
         entries: &entries,
+        masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
     };
@@ -524,6 +531,7 @@ fn fixed_point_matching_the_grade_is_inserted_and_kept_exact() -> Result<(), Bui
         revision: 13,
         hash: 131,
         entries: &entries,
+        masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
     };
@@ -575,6 +583,7 @@ fn fixed_point_conflicting_with_the_grade_refuses_atomically() {
         revision: 14,
         hash: 141,
         entries: &entries,
+        masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
     };
@@ -620,6 +629,7 @@ fn fixed_line_interpolates_every_split_vertex_and_owns_no_region_entry() -> Resu
         revision: 15,
         hash: 151,
         entries: &entries,
+        masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
     };
@@ -666,6 +676,7 @@ fn coincident_fixed_points_with_different_heights_refuse() {
         revision: 16,
         hash: 161,
         entries: &entries,
+        masks: &[],
         controls: &controls,
         control_tolerance: 0.0,
     };
@@ -693,6 +704,7 @@ fn zero_length_fixed_line_refuses_before_meshing() {
         revision: 17,
         hash: 171,
         entries: &entries,
+        masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
     };
@@ -706,6 +718,156 @@ fn zero_length_fixed_line_refuses_before_meshing() {
             &plan,
         ),
         Err(BuildError::ControlZeroLength { .. })
+    ));
+}
+
+fn mask<'a>(id: u64, kind: MaskKind, parts: &'a [Part<'a>]) -> Mask<'a> {
+    Mask {
+        operation: OperationId(id),
+        kind,
+        sources: &[],
+        parts,
+    }
+}
+
+#[test]
+fn protected_zone_keeps_baseline_inside_and_on_its_ring() -> Result<(), BuildError> {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let outer = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
+    let protected = ring(&[[4.0, 4.0], [5.0, 4.0], [5.0, 5.0], [4.0, 5.0]]);
+    let parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let mask_parts = [Part {
+        outer: &protected,
+        holes: &[],
+    }];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        3.0,
+        TerrainEffect::Grade,
+        sharp(),
+    )];
+    let masks = [mask(910, MaskKind::ProtectedZone, &mask_parts)];
+    let plan = Plan {
+        revision: 18,
+        hash: 181,
+        entries: &entries,
+        masks: &masks,
+        controls: &[],
+        control_tolerance: 1e-3,
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    assert_eq!(built.mask_lines.len(), 4);
+    assert!(
+        built
+            .mask_lines
+            .iter()
+            .all(|origin| origin.mask == 0 && origin.ring == 0)
+    );
+    for &[x, y, z] in plan::vertices(&built.points) {
+        let protected_member = (4.0..=5.0).contains(&x) && (4.0..=5.0).contains(&y);
+        if protected_member {
+            assert!(close(z, 0.0, 1e-12), "protected at {x},{y}: {z}");
+        } else if (2.0..=7.0).contains(&x) && (2.0..=7.0).contains(&y) {
+            assert!(close(z, 3.0, 1e-12), "graded at {x},{y}: {z}");
+        }
+    }
+    let corner = vertex_at(&built.points, 4.0, 4.0).unwrap_or(u32::MAX);
+    assert_eq!(built.owners.get(corner as usize), Some(&None));
+    Ok(())
+}
+
+#[test]
+fn grading_limit_restricts_the_entry_to_its_mask() -> Result<(), BuildError> {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let outer = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
+    let limited = ring(&[[4.0, 4.0], [5.0, 4.0], [5.0, 5.0], [4.0, 5.0]]);
+    let parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let mask_parts = [Part {
+        outer: &limited,
+        holes: &[],
+    }];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        3.0,
+        TerrainEffect::Grade,
+        sharp(),
+    )];
+    let masks = [mask(911, MaskKind::GradingLimit, &mask_parts)];
+    let plan = Plan {
+        revision: 19,
+        hash: 191,
+        entries: &entries,
+        masks: &masks,
+        controls: &[],
+        control_tolerance: 1e-3,
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    for &[x, y, z] in plan::vertices(&built.points) {
+        let in_region = (2.0..=7.0).contains(&x) && (2.0..=7.0).contains(&y);
+        let in_limit = (4.0..=5.0).contains(&x) && (4.0..=5.0).contains(&y);
+        if in_region && !in_limit {
+            assert!(close(z, 0.0, 1e-12), "outside limit at {x},{y}: {z}");
+        }
+        if in_limit {
+            assert!(close(z, 3.0, 1e-12), "inside limit at {x},{y}: {z}");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn zero_length_mask_ring_refuses_before_meshing() {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let zero = [3.0, 3.0, 0.0, 3.0, 3.0, 0.0, 4.0, 3.0, 0.0];
+    let mask_parts = [Part {
+        outer: &zero,
+        holes: &[],
+    }];
+    let entries: [Entry<'_>; 0] = [];
+    let masks = [mask(912, MaskKind::ProtectedZone, &mask_parts)];
+    let plan = Plan {
+        revision: 20,
+        hash: 201,
+        entries: &entries,
+        masks: &masks,
+        controls: &[],
+        control_tolerance: 1e-3,
+    };
+    assert!(matches!(
+        build_terrain(
+            &Baseline {
+                points: &points,
+                triangles: &triangles,
+                property: Some(&property),
+            },
+            &plan,
+        ),
+        Err(BuildError::MaskZeroLength { .. })
     ));
 }
 
@@ -731,6 +893,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 7,
         hash: 77,
         entries: &short_entries,
+        masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
     };
@@ -759,6 +922,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 8,
         hash: 88,
         entries: &wrong_entries,
+        masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
     };
@@ -788,6 +952,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 9,
         hash: 99,
         entries: &entries,
+        masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
     };
@@ -819,6 +984,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 10,
         hash: 110,
         entries: &outside_entries,
+        masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
     };
@@ -850,6 +1016,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         revision: 11,
         hash: 111,
         entries: &zero_entries,
+        masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
     };
