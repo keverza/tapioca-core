@@ -108,6 +108,10 @@ struct FieldPlanEntry {
     std::vector<Id> sources; // Evaluated domain ancestry.
     std::vector<FieldPlanPart> parts;
     std::optional<RegionSurface> surface; // Authored surface field, verbatim.
+    // Non-constant arbitrary plane target transported for the unified Rust build:
+    // flat xyz points and triangle triples, empty for Existing/Constant Area targets.
+    std::vector<double> surfacePoints;
+    std::vector<uint32_t> surfaceTriangles;
     RegionTerrain terrain;                // Effect/transition/falloff/reach/cut/fill, verbatim.
     bool operator== (const FieldPlanEntry&) const = default;
 };
@@ -123,6 +127,9 @@ struct FieldPlanPath {
     Id path = kNoId;
     PathDesignRequest design;
     std::vector<geomsrv::edit::StationFrame> stations;
+    // Prepared crossfall percent per station; zero means level. The authored
+    // typed slope and fall hand remain available on each StationFrame::section.
+    std::vector<double> crossfallPercent;
     bool operator== (const FieldPlanPath&) const = default;
 };
 

@@ -361,6 +361,74 @@ TEST (EditLandscapeFieldPlan, PropertyLineIsCompiledAndChangesThePlanHash)
     EXPECT_NE (after.hash, before.hash);
 }
 
+TEST (EditLandscapeFieldPlan, SurfaceTargetsTransportNonConstantPlanesForTheUnifiedBuild)
+{
+    auto doc = Start ();
+    const auto owner = Region (doc, 0);
+    geo::RegionSurface surface;
+    surface.elevation = geo::RegionElevationMode::Constant;
+    surface.slope = geo::RegionSlopeMode::TwoPoints;
+    surface.first = { 0, 0, 2 };
+    surface.second = { 10, 0, 4 };
+    geo::MaterialSpec material;
+    std::string error;
+    ASSERT_TRUE (geo::SetRegionSurface (doc, owner, surface, material, error)) << error;
+    geo::RegionTerrain terrain;
+    terrain.effect = geo::RegionTerrainEffect::Grade;
+    ASSERT_TRUE (geo::SetRegionTerrain (doc, owner, terrain, error)) << error;
+
+    const auto plan = Compile (doc);
+    ASSERT_TRUE (plan.ok) << plan.error;
+    const auto* entry = Entry (plan, owner);
+    ASSERT_NE (entry, nullptr);
+    ASSERT_TRUE (entry->surfacePoints.size () % 3 == 0);
+    ASSERT_FALSE (entry->surfaceTriangles.empty ());
+    ASSERT_TRUE (entry->surfaceTriangles.size () % 3 == 0);
+    for (size_t i = 0; i + 2 < entry->surfacePoints.size (); i += 3) {
+        const double expected = 2.0 + entry->surfacePoints[i] * 0.2;
+        EXPECT_NEAR (entry->surfacePoints[i + 2], expected, 1e-9);
+    }
+}
+
+TEST (EditLandscapeFieldPlan, PathStationsIncludeRangeTaperSamplesAndPreparedCrossfall)
+{
+    auto doc = Start ();
+    const auto pathId = edit::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 1 } }, 4.0);
+    auto* path = edit::FindPath (doc, pathId);
+    ASSERT_NE (path, nullptr);
+    edit::AlignmentGeometry geometry;
+    std::string error;
+    ASSERT_TRUE (edit::ValidatePath (*path, geometry, error)) << error;
+    const auto rangeId = edit::NewId (doc);
+    ASSERT_TRUE (edit::SplitSection (path->sections, geometry.length, 10, rangeId, error)) << error;
+
+    geo::LandscapeSource centreline;
+    centreline.pathId = pathId;
+    centreline.role = geo::SourceRole::PathCenterline;
+    edit::Id source = 0;
+    ASSERT_TRUE (geo::AddLandscapeSource (doc, centreline, source, error)) << error;
+    geo::LandscapeOperation stroke;
+    stroke.kind = geo::OperationKind::Stroke;
+    stroke.inputs = { source };
+    edit::Id operation = 0;
+    ASSERT_TRUE (geo::AddLandscapeOperation (doc, stroke, operation, error)) << error;
+
+    geo::PathDesignRequest request;
+    request.source = source;
+    request.operation = operation;
+    request.maxStep = 5;
+    request.taper = 0.5;
+    const auto plan = Compile (doc, request);
+    ASSERT_TRUE (plan.ok) << plan.error;
+    ASSERT_EQ (plan.paths.size (), 1u);
+    const auto& stations = plan.paths[0].stations;
+    // 0, 5, 9.5, 10, 15, 20: the range boundary and the pre-taper sample are distinct.
+    ASSERT_EQ (stations.size (), 6u);
+    ASSERT_EQ (plan.paths[0].crossfallPercent.size (), stations.size ());
+    EXPECT_NEAR (stations[2].station, 9.5, 1e-12);
+    EXPECT_NEAR (stations[3].station, 10.0, 1e-12);
+}
+
 TEST (EditLandscapeFieldPlan, LockedControlsAndMasksAreCompiledWithCoverage)
 {
     auto doc = Start ();

@@ -52,6 +52,20 @@ void HashPoints (uint64_t& hash, const std::vector<Vec3>& points)
         HashNumber (hash, p.z);
     }
 }
+void HashDoubleVector (uint64_t& hash, const std::vector<double>& values)
+{
+    const uint64_t count = values.size ();
+    HashBytes (hash, &count, sizeof count);
+    for (double value : values)
+        HashNumber (hash, value);
+}
+void HashU32Vector (uint64_t& hash, const std::vector<uint32_t>& values)
+{
+    const uint64_t count = values.size ();
+    HashBytes (hash, &count, sizeof count);
+    for (uint32_t value : values)
+        HashBytes (hash, &value, sizeof value);
+}
 void HashMaterial (uint64_t& hash, const MaterialSpec& material)
 {
     HashBytes (hash, &material.preset, sizeof material.preset);
@@ -137,6 +151,8 @@ uint64_t FieldPlanHash (const FieldPlan& plan)
         HashBytes (hash, &hasSurface, 1);
         if (entry.surface)
             HashSurface (hash, *entry.surface);
+        HashDoubleVector (hash, entry.surfacePoints);
+        HashU32Vector (hash, entry.surfaceTriangles);
         HashTerrain (hash, entry.terrain);
     }
     for (const auto& path : plan.paths) {
@@ -177,6 +193,7 @@ uint64_t FieldPlanHash (const FieldPlan& plan)
             HashSlope (hash, station.section.cutSlope);
             HashSlope (hash, station.section.fillSlope);
         }
+        HashDoubleVector (hash, path.crossfallPercent);
     }
     for (const auto& mask : plan.masks) {
         HashBytes (hash, &mask.operation, sizeof mask.operation);
@@ -313,13 +330,30 @@ void CompilePath (const edit::Document& doc, const PathDesignRequest& request, F
     compiled.object = request.object;
     compiled.path = path->id;
     compiled.design = request;
-    for (const double station : edit::SampleStations (*path, geometry, request.maxStep)) {
+    auto samples = edit::SampleStations (*path, geometry, request.maxStep);
+    for (size_t i = 1; i < path->sections.size (); ++i) {
+        const double before = path->sections[i].station - request.taper;
+        if (before > 0)
+            samples.push_back (before);
+    }
+    std::sort (samples.begin (), samples.end ());
+    samples.erase (std::unique (samples.begin (), samples.end (),
+                                 [] (double a, double b) { return b - a < 1.0e-6; }),
+                   samples.end ());
+    for (const double station : samples) {
         edit::StationFrame frame;
         if (!edit::Evaluate (*path, geometry, preparation, station, frame)) {
             Diagnose (plan, FieldPlanStage::Path, FieldPlanDiagnosticCode::PathUnresolved, request.object,
                       request.operation, request.source, "FieldPlanPath: station preparation failed");
             return;
         }
+        double percent = 0;
+        if (!edit::PreparedCrossfall (preparation, frame.section, percent)) {
+            Diagnose (plan, FieldPlanStage::Path, FieldPlanDiagnosticCode::PathUnresolved, request.object,
+                      request.operation, request.source, "FieldPlanPath: prepared crossfall could not be resolved");
+            return;
+        }
+        compiled.crossfallPercent.push_back (percent);
         compiled.stations.push_back (std::move (frame));
     }
     plan.paths.push_back (std::move (compiled));
@@ -420,6 +454,25 @@ FieldPlan CompileLandscapeFieldPlan (const LandscapeSnapshot& snapshot)
             if (!PrepareRegionSurface (*object.surface, prepared, surfaceError))
                 Diagnose (plan, FieldPlanStage::Surface, FieldPlanDiagnosticCode::SurfacePrepareFailed, object.id,
                           object.footprintOperation, kNoId, "FieldPlanSurface: " + surfaceError);
+            if (object.surface->elevation == RegionElevationMode::Boundary ||
+                object.surface->slope != RegionSlopeMode::None) {
+                for (const auto& region : evaluated.regions) {
+                    if (region.objectId != object.id)
+                        continue;
+                    LandscapePreviewMesh target;
+                    if (!BuildRegionSurfaceMesh (doc, object, region, target, surfaceError)) {
+                        Diagnose (plan, FieldPlanStage::Surface, FieldPlanDiagnosticCode::SurfacePrepareFailed,
+                                  object.id, object.footprintOperation, kNoId,
+                                  "FieldPlanSurfaceTarget: " + surfaceError);
+                        break;
+                    }
+                    const auto offset = uint32_t (entry.surfacePoints.size () / 3);
+                    for (const auto& point : target.vertices)
+                        entry.surfacePoints.insert (entry.surfacePoints.end (), { point.x, point.y, point.z });
+                    for (const auto triangle : target.triangles)
+                        entry.surfaceTriangles.push_back (triangle + offset);
+                }
+            }
         }
         entries.push_back (std::move (entry));
     }
