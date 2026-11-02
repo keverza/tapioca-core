@@ -6,7 +6,7 @@
  * export, not a C++-only header check. Exact x64 layout is also checked
  * independently in the Rust tests. */
 _Static_assert (sizeof (TapiocaUnifiedPart) == 8, "part layout");
-_Static_assert (sizeof (TapiocaUnifiedEntry) == 120, "entry layout");
+_Static_assert (sizeof (TapiocaUnifiedEntry) == 136, "entry layout");
 _Static_assert (sizeof (TapiocaUnifiedPath) == 56, "path layout");
 _Static_assert (sizeof (TapiocaUnifiedMask) == 32, "mask layout");
 _Static_assert (sizeof (TapiocaUnifiedControl) == 56, "control layout");
@@ -14,7 +14,7 @@ _Static_assert (sizeof (TapiocaUnifiedCounts) == 40, "counts layout");
 _Static_assert (sizeof (TapiocaUnifiedMeta) == 16, "meta layout");
 _Static_assert (sizeof (TapiocaUnifiedLine) == 32, "line layout");
 _Static_assert (sizeof (TapiocaUnifiedLocked) == 16, "locked layout");
-_Static_assert (offsetof (TapiocaUnifiedRequest, provenance) == 232, "request padding");
+_Static_assert (offsetof (TapiocaUnifiedRequest, provenance) == 248, "request padding");
 
 int unified_c_smoke (void)
 {
@@ -35,7 +35,9 @@ int unified_c_smoke (void)
         0.0, /* falloff */
         slope,
         slope,
-        0.0, /* reach: sharp daylight target */
+        1.0, /* reach: positive-width daylight transition */
+        { 0, 0 },
+        { 0, 0 },
         0,
         2,
         1,
@@ -97,6 +99,7 @@ int unified_c_smoke (void)
                                             { parts, 1 },
                                             { part_indices, 1 },
                                             { NULL, 0 },
+                                            { NULL, 0 },
                                             { sources, 1 },
                                             { entries, 1 },
                                             { NULL, 0 },
@@ -110,10 +113,11 @@ int unified_c_smoke (void)
     TapiocaUnifiedMeta meta = { 0 };
     TapiocaTerrainHybridVolumes site = { 0 }, context_volumes = { 0 };
     char error[256] = { 0 };
-    const TapiocaUnifiedOutput query = { &counts, &meta, &site, &context_volumes, NULL, 0, NULL, 0, NULL, 0, NULL, 0,
-                                         NULL, 0, NULL, 0, NULL, 0, 1, 0 };
-    if (tapioca_terrain_unified_build (&request, &query, error, sizeof error) != TAPIOCA_OK ||
-        counts.points == 0 || counts.points % 3 != 0 || counts.triangles % 3 != 0 || counts.lines != 4)
+    const TapiocaUnifiedOutput query = {
+        &counts, &meta, &site, &context_volumes, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, 1, 0
+    };
+    if (tapioca_terrain_unified_build (&request, &query, error, sizeof error) != TAPIOCA_OK || counts.points == 0 ||
+        counts.points % 3 != 0 || counts.triangles % 3 != 0 || counts.lines != 4)
         return 1;
     {
         const TapiocaUnifiedCounts expected = counts;
@@ -126,16 +130,32 @@ int unified_c_smoke (void)
         TapiocaUnifiedLocked out_locked[4] = { { 0 } };
         if (counts.points > 96 || counts.points / 3 > 32 || counts.triangles > 64 || counts.mappings > 96)
             return 2;
-        const TapiocaUnifiedOutput fill = { &counts, &meta, &site, &context_volumes,
-                                            out_points, counts.points, base, counts.points / 3, owners,
-                                            counts.points / 3, out_triangles, counts.triangles, out_mappings,
-                                            counts.mappings, out_lines, counts.lines, out_locked, counts.locked, 0, 0 };
+        const TapiocaUnifiedOutput fill = { &counts,
+                                            &meta,
+                                            &site,
+                                            &context_volumes,
+                                            out_points,
+                                            counts.points,
+                                            base,
+                                            counts.points / 3,
+                                            owners,
+                                            counts.points / 3,
+                                            out_triangles,
+                                            counts.triangles,
+                                            out_mappings,
+                                            counts.mappings,
+                                            out_lines,
+                                            counts.lines,
+                                            out_locked,
+                                            counts.locked,
+                                            0,
+                                            0 };
         if (tapioca_terrain_unified_build (&request, &fill, error, sizeof error) != TAPIOCA_OK ||
             counts.points != expected.points || counts.lines != expected.lines)
             return 3;
         if (meta.revision != 7 || meta.planHash != 0xABCD || site.fill <= 0.0)
             return 4;
-        /* The graded ring's corner (1,1) exists at the sharp target height. */
+        /* The graded ring's corner (1,1) exists at the target height. */
         int found = 0;
         for (size_t index = 0; index + 2 < counts.points; index += 3)
             found |= out_points[index] == 1.0 && out_points[index + 1] == 1.0 && out_points[index + 2] == 2.0;
@@ -154,8 +174,7 @@ int unified_c_smoke (void)
         bad.entries.data = broken_entries;
         bad.entries.count = 1;
         counts.points = 99;
-        if (tapioca_terrain_unified_build (&bad, &query, error, sizeof error) != TAPIOCA_ERR_ARG ||
-            counts.points != 99)
+        if (tapioca_terrain_unified_build (&bad, &query, error, sizeof error) != TAPIOCA_ERR_ARG || counts.points != 99)
             return 7;
     }
     return 0;

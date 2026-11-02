@@ -11,22 +11,24 @@ namespace tapioca::geometry {
 // result topology, built in Rust through the additive tapioca_terrain_unified_build
 // ABI. No terrain math in C++; this facade converts to the fixed-layout POD
 // plan ingress (offset pools only), runs query then fill (no retained handle)
-// and publishes the complete owned result only on success. Existing/Constant
-// surface targets only, matching the kernel; non-constant target meshes and
-// production dispatch are later slices. Worker-classified.
-enum class UnifiedSurfaceKind : uint32_t { Existing = 1, Constant = 2 };
+// and publishes the complete owned result only on success. Existing, Constant
+// and triangulated targets share the same kernel. Production dispatch is a
+// later slice. Worker-classified.
+enum class UnifiedSurfaceKind : uint32_t { Existing = 1, Constant = 2, Triangulated = 3 };
 struct UnifiedSurface {
     UnifiedSurfaceKind kind = UnifiedSurfaceKind::Existing;
-    double level = 0; // Constant target height inside the domain, metres.
+    double level = 0;                    // Constant target height inside the domain, metres.
+    std::span<const double> points;      // Triangulated target xyz.
+    std::span<const uint32_t> triangles; // Triangulated target indices.
     bool operator== (const UnifiedSurface&) const = default;
 };
 enum class UnifiedTerrainEffect : uint32_t { Grade = 1, Add = 2, Subtract = 3 };
 enum class UnifiedTransitionKind : uint32_t { Falloff = 1, Daylight = 2 };
 struct UnifiedTransition {
     UnifiedTransitionKind kind = UnifiedTransitionKind::Falloff;
-    double falloff = 0;               // Falloff blur outside the domain, metres.
-    TerrainSlope cut, fill;           // Daylight face grades.
-    double reach = 0;                 // Maximum daylight reach, metres.
+    double falloff = 0;     // Falloff blur outside the domain, metres.
+    TerrainSlope cut, fill; // Daylight face grades.
+    double reach = 0;       // Maximum daylight reach, metres.
     bool operator== (const UnifiedTransition&) const = default;
 };
 // One evaluated domain part: one implicitly closed outer ring (xyz) and holes.
@@ -38,7 +40,7 @@ struct UnifiedDomainPart {
 struct UnifiedEntry {
     uint32_t order = 0; // Contiguous stack index; later entries override earlier ones.
     uint64_t object = 0, rootOperation = 0;
-    std::span<const uint64_t> sources;       // Evaluated domain ancestry.
+    std::span<const uint64_t> sources; // Evaluated domain ancestry.
     std::span<const UnifiedDomainPart> parts;
     UnifiedSurface surface;
     UnifiedTerrainEffect effect = UnifiedTerrainEffect::Grade;
@@ -75,7 +77,7 @@ struct UnifiedPlanRequest {
     std::span<const UnifiedPath> paths;
     std::span<const UnifiedMask> masks;
     std::span<const UnifiedControl> controls;
-    double controlTolerance = 1e-3;   // Absolute grading/fixed compatibility band.
+    double controlTolerance = 1e-3; // Absolute grading/fixed compatibility band.
     uint64_t revision = 0, planHash = 0;
     // Mesh then property, entry rings (part order, outer then holes), mask
     // rings, control line vertices, then point controls; domains=7.
@@ -85,10 +87,10 @@ enum class UnifiedLineDomain : uint32_t { Entry = 1, Path = 2, Mask = 3, Control
 // Authored origin of one constrained breakline, in breakline order.
 struct UnifiedLine {
     UnifiedLineDomain domain = UnifiedLineDomain::Entry;
-    uint32_t index = 0;   // Entry/path/mask/control index.
-    uint32_t part = 0;    // Entry/mask part index.
-    uint32_t ring = 0;    // Entry/mask ring: zero outer, one-based hole.
-    uint32_t segment = 0; // Entry/mask ring segment; control: authored segment count.
+    uint32_t index = 0;                 // Entry/path/mask/control index.
+    uint32_t part = 0;                  // Entry/mask part index.
+    uint32_t ring = 0;                  // Entry/mask ring: zero outer, one-based hole.
+    uint32_t segment = 0;               // Entry/mask ring segment; control: authored segment count.
     std::optional<HybridLineKind> kind; // Path design line only.
     std::optional<TerrainHand> side;    // Path design line only.
     uint32_t root = 0;                  // Path design line only.

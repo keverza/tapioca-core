@@ -4,6 +4,7 @@
 #include "Edit/EditLandscapeInternal.hpp"
 #include "Edit/EditTerrainAdapterInternal.hpp"
 #include "Edit/EditTerrainControls.hpp"
+#include "Edit/EditTerrainStation.hpp"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -55,26 +56,8 @@ bool Stations (const edit::Path& path, const TerrainDesignOptions& options, std:
             error = "TerrainDesignStation: prepared crossfall does not match its authored range";
             return false;
         }
-        TerrainStation value;
-        value.position = { frame.centre.x, frame.centre.y, frame.centre.z };
-        value.halfLeft = section.widthLeft;
-        value.halfRight = section.widthRight;
-        if (percent != 0.0 && section.fall == edit::Fall::Crown)
-            value.crown = TerrainSlope { TerrainSlope::Unit::Percent, percent, 0 };
-        else if (percent != 0.0) {
-            value.crossfall = TerrainCrossfall {
-                { TerrainSlope::Unit::Percent, percent, 0 },
-                section.fall == edit::Fall::Left ? TerrainHand::Left : TerrainHand::Right,
-            };
-        }
-        value.shoulderLeft = value.shoulderRight = section.shoulder;
-        value.cut = section.cutSlope;
-        value.fill = section.fillSlope;
-        value.cutLimit = options.cutLimit;
-        value.fillLimit = options.fillLimit;
-        value.rounding = section.rounding;
         stations.push_back (station);
-        result.push_back (value);
+        result.push_back (CompileTerrainStation (frame, percent, options.cutLimit, options.fillLimit));
     }
     return true;
 }
@@ -162,7 +145,7 @@ bool Prepare (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
 // The band's reach: its stations offset by the widest half width, shoulder and
 // face limit plus `margin` (round joins and ends), clipped to the property line
 // when the landscape has one. Exactly one hole-free ring must remain.
-bool Reach (const geomsrv::edit::Document& doc, const std::vector<TerrainStation>& stations,
+bool Reach (const geomsrv::edit::Document& doc, std::span<const TerrainStation> stations,
             const TerrainDesignOptions& options, std::vector<double>& ring, std::string& error)
 {
     double reach = 0;
@@ -210,7 +193,7 @@ bool Reach (const geomsrv::edit::Document& doc, const std::vector<TerrainStation
 }
 
 // The caller's ring, or the derived reach.
-bool Region (const geomsrv::edit::Document& doc, const std::vector<TerrainStation>& stations,
+bool Region (const geomsrv::edit::Document& doc, std::span<const TerrainStation> stations,
              const TerrainDesignOptions& options, std::vector<double>& ring, std::string& error)
 {
     if (options.region.empty ())
@@ -633,6 +616,12 @@ std::vector<double> TerrainFootprint (const TerrainMeshView& mesh, double inset)
     for (const auto& point : *largest)
         ring.insert (ring.end (), { point.x, point.y, 0.0 });
     return ring;
+}
+
+bool ResolveTerrainDesignRegion (const geomsrv::edit::Document& doc, std::span<const TerrainStation> stations,
+                                 const TerrainDesignOptions& options, std::vector<double>& ring, std::string& error)
+{
+    return Region (doc, stations, options, ring, error);
 }
 
 std::vector<double> TerrainDesignArea (const geomsrv::edit::Document& doc, const TerrainMeshView& mesh)

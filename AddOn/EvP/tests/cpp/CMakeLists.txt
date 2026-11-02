@@ -888,6 +888,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrain.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrainSplit.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrainSolve.cpp"
+        "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeUnifiedBuild.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainTriangulation.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainDesign.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainControls.cpp"

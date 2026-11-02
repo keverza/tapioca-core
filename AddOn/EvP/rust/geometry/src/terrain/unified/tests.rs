@@ -81,7 +81,7 @@ fn constant_entry<'a>(
     }
 }
 
-fn sharp() -> Transition {
+fn daylight(reach: f64) -> Transition {
     Transition::Daylight {
         cut: Slope::RiseRun {
             rise: 1.0,
@@ -91,8 +91,16 @@ fn sharp() -> Transition {
             rise: 1.0,
             run: 1.0,
         },
-        reach: 0.0,
+        reach,
     }
+}
+
+fn transitioned() -> Transition {
+    daylight(0.05)
+}
+
+fn zero_reach() -> Transition {
+    daylight(0.0)
 }
 
 #[test]
@@ -145,7 +153,7 @@ fn grade_hole_and_disjoint_parts_keep_membership_and_volumes() -> Result<(), Bui
             holes: &[],
         },
     ];
-    let entry = constant_entry(0, &parts, 3.0, TerrainEffect::Grade, sharp());
+    let entry = constant_entry(0, &parts, 3.0, TerrainEffect::Grade, transitioned());
     let entries = [entry];
     let plan = Plan {
         revision: 1,
@@ -213,7 +221,7 @@ fn one_inner_domain_integrates_positive_fill_and_property_exterior_stays_baselin
         &parts,
         3.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let plan = Plan {
         revision: 12,
@@ -260,16 +268,16 @@ fn later_overlapping_entries_override_earlier_ones() -> Result<(), BuildError> {
         let (entries, owner) = if first_first {
             (
                 [
-                    constant_entry(0, &first_parts, 3.0, TerrainEffect::Grade, sharp()),
-                    constant_entry(1, &second_parts, 1.0, TerrainEffect::Grade, sharp()),
+                    constant_entry(0, &first_parts, 3.0, TerrainEffect::Grade, transitioned()),
+                    constant_entry(1, &second_parts, 1.0, TerrainEffect::Grade, transitioned()),
                 ],
                 1,
             )
         } else {
             (
                 [
-                    constant_entry(0, &second_parts, 1.0, TerrainEffect::Grade, sharp()),
-                    constant_entry(1, &first_parts, 3.0, TerrainEffect::Grade, sharp()),
+                    constant_entry(0, &second_parts, 1.0, TerrainEffect::Grade, transitioned()),
+                    constant_entry(1, &first_parts, 3.0, TerrainEffect::Grade, transitioned()),
                 ],
                 1,
             )
@@ -351,8 +359,8 @@ fn adjacent_sharp_domains_with_different_targets_refuse_as_a_hard_step() {
         holes: &[],
     }];
     let entries = [
-        constant_entry(0, &left_parts, 1.0, TerrainEffect::Grade, sharp()),
-        constant_entry(1, &right_parts, 3.0, TerrainEffect::Grade, sharp()),
+        constant_entry(0, &left_parts, 1.0, TerrainEffect::Grade, zero_reach()),
+        constant_entry(1, &right_parts, 3.0, TerrainEffect::Grade, zero_reach()),
     ];
     let plan = Plan {
         revision: 25,
@@ -377,7 +385,48 @@ fn adjacent_sharp_domains_with_different_targets_refuse_as_a_hard_step() {
 }
 
 #[test]
-fn nested_sharp_overrides_compose_by_stack_order() -> Result<(), BuildError> {
+fn zero_reach_domain_against_baseline_refuses_instead_of_ramping() {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]);
+    let domain = ring(&[[2.0, 2.0], [6.0, 2.0], [6.0, 6.0], [2.0, 6.0]]);
+    let parts = [Part {
+        outer: &domain,
+        holes: &[],
+    }];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        3.0,
+        TerrainEffect::Grade,
+        zero_reach(),
+    )];
+    let plan = Plan {
+        revision: 251,
+        hash: 2511,
+        entries: &entries,
+        paths: &[],
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+    };
+    assert!(matches!(
+        build_terrain(
+            &Baseline {
+                points: &points,
+                triangles: &triangles,
+                property: Some(&property),
+            },
+            &plan,
+        ),
+        Err(BuildError::HardStep {
+            second: u32::MAX,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn nested_sharp_overrides_refuse_instead_of_interpolating() {
     let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
     let property = ring(&[[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]);
     let outer = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
@@ -394,13 +443,13 @@ fn nested_sharp_overrides_compose_by_stack_order() -> Result<(), BuildError> {
     let build_with = |inner_first: bool| {
         let entries = if inner_first {
             [
-                constant_entry(0, &inner_parts, 1.0, TerrainEffect::Grade, sharp()),
-                constant_entry(1, &outer_parts, 3.0, TerrainEffect::Grade, sharp()),
+                constant_entry(0, &inner_parts, 1.0, TerrainEffect::Grade, zero_reach()),
+                constant_entry(1, &outer_parts, 3.0, TerrainEffect::Grade, zero_reach()),
             ]
         } else {
             [
-                constant_entry(0, &outer_parts, 3.0, TerrainEffect::Grade, sharp()),
-                constant_entry(1, &inner_parts, 1.0, TerrainEffect::Grade, sharp()),
+                constant_entry(0, &outer_parts, 3.0, TerrainEffect::Grade, zero_reach()),
+                constant_entry(1, &inner_parts, 1.0, TerrainEffect::Grade, zero_reach()),
             ]
         };
         let plan = Plan {
@@ -422,57 +471,22 @@ fn nested_sharp_overrides_compose_by_stack_order() -> Result<(), BuildError> {
         )
     };
 
-    // The nested pair never touches, so no shared boundary vertex claims a
-    // hard step; the inner ring is an exact constraint either way.
-    let normal = build_with(false)?;
-    let reversed = build_with(true)?;
-    assert_mesh_invariants(&normal);
-    assert_mesh_invariants(&reversed);
-    let core = vertex_at(&normal.points, 5.0, 5.0).unwrap_or(u32::MAX);
-    let annulus = vertex_at(&normal.points, 3.0, 3.0).unwrap_or(u32::MAX);
-    let outside = vertex_at(&normal.points, 1.0, 1.0).unwrap_or(u32::MAX);
-    for (built, core_height, core_owner) in [(&normal, 1.0, 1_u32), (&reversed, 3.0, 1_u32)] {
-        assert!(close(
-            built
-                .points
-                .get(core as usize * 3 + 2)
-                .copied()
-                .unwrap_or(f64::NAN),
-            core_height,
-            1e-12
-        ));
-        assert_eq!(built.owners.get(core as usize), Some(&Some(core_owner)));
-        assert!(close(
-            built
-                .points
-                .get(annulus as usize * 3 + 2)
-                .copied()
-                .unwrap_or(f64::NAN),
-            3.0,
-            1e-12
-        ));
-        assert!(close(
-            built
-                .points
-                .get(outside as usize * 3 + 2)
-                .copied()
-                .unwrap_or(f64::NAN),
-            0.0,
-            1e-12
-        ));
-    }
-    Ok(())
+    // Neither order may turn the inner or outer zero-reach ring into an
+    // arbitrary-width interpolated ramp into baseline or the other target.
+    assert!(matches!(
+        build_with(false),
+        Err(BuildError::HardStep { .. })
+    ));
+    assert!(matches!(build_with(true), Err(BuildError::HardStep { .. })));
 }
 
 #[test]
-fn nested_sharp_domain_sharing_a_boundary_vertex_builds_as_an_ordered_overlap()
--> Result<(), BuildError> {
+fn nested_sharp_domain_sharing_a_boundary_vertex_refuses() {
     let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
     let property = ring(&[[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]);
     let outer = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
-    // One inner corner sits exactly on the outer ring. The bounding boxes
-    // overlap, so the pair is ordered like any overlap: both rings constrain
-    // the shared vertex to one height and the stack order composes.
+    // One inner corner sits exactly on the outer ring. Overlap or nesting does
+    // not make two zero-reach heights representable at that shared position.
     let touching = ring(&[[2.0, 2.0], [6.0, 2.0], [6.0, 6.0], [2.0, 6.0]]);
     let outer_parts = [Part {
         outer: &outer,
@@ -483,8 +497,8 @@ fn nested_sharp_domain_sharing_a_boundary_vertex_builds_as_an_ordered_overlap()
         holes: &[],
     }];
     let entries = [
-        constant_entry(0, &outer_parts, 3.0, TerrainEffect::Grade, sharp()),
-        constant_entry(1, &touching_parts, 1.0, TerrainEffect::Grade, sharp()),
+        constant_entry(0, &outer_parts, 3.0, TerrainEffect::Grade, zero_reach()),
+        constant_entry(1, &touching_parts, 1.0, TerrainEffect::Grade, zero_reach()),
     ];
     let plan = Plan {
         revision: 27,
@@ -495,37 +509,17 @@ fn nested_sharp_domain_sharing_a_boundary_vertex_builds_as_an_ordered_overlap()
         controls: &[],
         control_tolerance: 1e-3,
     };
-    let built = build_terrain(
-        &Baseline {
-            points: &points,
-            triangles: &triangles,
-            property: Some(&property),
-        },
-        &plan,
-    )?;
-    assert_mesh_invariants(&built);
-    let core = vertex_at(&built.points, 5.0, 5.0).unwrap_or(u32::MAX);
-    // (6, 7) lies on the outer ring outside the touching domain.
-    let annulus = vertex_at(&built.points, 6.0, 7.0).unwrap_or(u32::MAX);
-    assert!(close(
-        built
-            .points
-            .get(core as usize * 3 + 2)
-            .copied()
-            .unwrap_or(f64::NAN),
-        1.0,
-        1e-12
+    assert!(matches!(
+        build_terrain(
+            &Baseline {
+                points: &points,
+                triangles: &triangles,
+                property: Some(&property),
+            },
+            &plan,
+        ),
+        Err(BuildError::HardStep { .. })
     ));
-    assert!(close(
-        built
-            .points
-            .get(annulus as usize * 3 + 2)
-            .copied()
-            .unwrap_or(f64::NAN),
-        3.0,
-        1e-12
-    ));
-    Ok(())
 }
 
 #[test]
@@ -544,7 +538,7 @@ fn entry_ring_coincident_with_the_property_ring_builds() -> Result<(), BuildErro
         &parts,
         2.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let plan = Plan {
         revision: 28,
@@ -597,7 +591,7 @@ fn add_raises_only_and_subtract_lowers_only_on_a_sloped_base() -> Result<(), Bui
         holes: &[],
     }];
     let build_effect = |effect| {
-        let entries = [constant_entry(0, &parts, 4.0, effect, sharp())];
+        let entries = [constant_entry(0, &parts, 4.0, effect, transitioned())];
         let plan = Plan {
             revision: 3,
             hash: 33,
@@ -751,6 +745,66 @@ fn daylight_runs_cut_and_fill_faces_to_the_reach() -> Result<(), BuildError> {
     Ok(())
 }
 
+#[test]
+fn triangulated_surface_target_samples_the_authored_plane() -> Result<(), BuildError> {
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]);
+    let domain = ring(&[[2.0, 2.0], [6.0, 2.0], [6.0, 6.0], [2.0, 6.0]]);
+    let parts = [Part {
+        outer: &domain,
+        holes: &[],
+    }];
+    let target = ring(&[[2.0, 2.0], [6.0, 2.0], [6.0, 6.0], [2.0, 6.0]]);
+    let target: Vec<f64> = plan::vertices(&target)
+        .iter()
+        .flat_map(|&[x, y, _]| [x, y, 2.0 + 0.2 * x])
+        .collect();
+    let target_triangles = [0, 1, 2, 0, 2, 3];
+    let entries = [Entry {
+        order: 0,
+        object: ObjectId(700),
+        root_operation: OperationId(701),
+        sources: &[],
+        parts: &parts,
+        surface: Surface::Triangulated {
+            points: &target,
+            triangles: &target_triangles,
+        },
+        terrain: Terrain {
+            effect: TerrainEffect::Grade,
+            transition: transitioned(),
+        },
+    }];
+    let plan = Plan {
+        revision: 70,
+        hash: 707,
+        entries: &entries,
+        paths: &[],
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    assert!(close(
+        height_at(&built.points, 4.0, 4.0).unwrap_or(f64::NAN),
+        2.8,
+        1e-12
+    ));
+    assert!(close(
+        height_at(&built.points, 2.0, 2.0).unwrap_or(f64::NAN),
+        2.4,
+        1e-12
+    ));
+    Ok(())
+}
+
 fn point_control(id: u64, x: f64, y: f64, z: f64) -> Control<'static> {
     Control {
         source: SourceId(id),
@@ -785,7 +839,7 @@ fn fixed_point_matching_the_grade_is_inserted_and_kept_exact() -> Result<(), Bui
         &parts,
         3.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let controls = [point_control(900, 4.0, 4.0, 3.0)];
     let plan = Plan {
@@ -838,7 +892,7 @@ fn fixed_point_conflicting_with_the_grade_refuses_atomically() {
         &parts,
         3.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let controls = [point_control(901, 4.0, 4.0, 1.0)];
     let plan = Plan {
@@ -885,7 +939,7 @@ fn fixed_line_interpolates_every_split_vertex_and_owns_no_region_entry() -> Resu
         &parts,
         2.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let controls = [line_control(902, line)];
     let plan = Plan {
@@ -1044,7 +1098,7 @@ fn path_band_follows_regions_on_the_same_constrained_mesh() -> Result<(), BuildE
         &parts,
         1.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let paths = [path(1, &stations)];
     let plan = Plan {
@@ -1131,7 +1185,7 @@ fn path_across_a_region_hole_builds_one_coherent_mesh() -> Result<(), BuildError
         &parts,
         1.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let paths = [path(1, &stations)];
     let plan = Plan {
@@ -1254,7 +1308,7 @@ fn protected_zone_keeps_baseline_inside_and_on_its_ring() -> Result<(), BuildErr
         &parts,
         3.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let masks = [mask(910, MaskKind::ProtectedZone, &mask_parts)];
     let plan = Plan {
@@ -1313,7 +1367,7 @@ fn grading_limit_restricts_the_entry_to_its_mask() -> Result<(), BuildError> {
         &parts,
         3.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let masks = [mask(911, MaskKind::GradingLimit, &mask_parts)];
     let plan = Plan {
@@ -1395,7 +1449,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         &short_parts,
         1.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let short_plan = Plan {
         revision: 7,
@@ -1425,7 +1479,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
     }];
     let wrong_entries = [Entry {
         order: 1,
-        ..constant_entry(0, &parts, 1.0, TerrainEffect::Grade, sharp())
+        ..constant_entry(0, &parts, 1.0, TerrainEffect::Grade, transitioned())
     }];
     let wrong_plan = Plan {
         revision: 8,
@@ -1456,7 +1510,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         &parts,
         1.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let no_property_plan = Plan {
         revision: 9,
@@ -1489,7 +1543,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         &outside_parts,
         1.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let outside_plan = Plan {
         revision: 10,
@@ -1522,7 +1576,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         &zero_parts,
         1.0,
         TerrainEffect::Grade,
-        sharp(),
+        transitioned(),
     )];
     let zero_plan = Plan {
         revision: 11,

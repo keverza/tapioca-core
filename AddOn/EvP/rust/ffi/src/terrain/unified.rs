@@ -44,9 +44,11 @@ pub struct UnifiedPart {
 }
 
 /// One ordered region-field entry. `surface`: 1 Existing, 2 Constant at
-/// `level`. `effect`: 1 Grade, 2 Add, 3 Subtract. `transition`: 1 Falloff over
-/// `falloff` metres, 2 Daylight with `cut`/`fill` grades over `reach` metres.
-/// Parts and sources are index ranges into the shared part-index/source pools.
+/// `level`, 3 Triangulated using `surface_points` in the shared xyz pool and
+/// `surface_triangles` in the surface-index pool. `effect`: 1 Grade, 2 Add,
+/// 3 Subtract. `transition`: 1 Falloff over `falloff` metres, 2 Daylight with
+/// `cut`/`fill` grades over `reach` metres. Parts and sources are index ranges
+/// into the shared part-index/source pools; target meshes carry no entity rows.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct UnifiedEntry {
@@ -64,6 +66,10 @@ pub struct UnifiedEntry {
     pub fill: TerrainSlope,
     /// Maximum daylight reach outside the domain, metres; transition 2.
     pub reach: f64,
+    /// Target xyz range in the shared geometry pool when `surface` is 3.
+    pub surface_points: TerrainRing,
+    /// Target triangle range in the shared surface-index pool when `surface` is 3.
+    pub surface_triangles: TerrainRing,
     /// Contiguous stack index; later entries override earlier entries.
     pub order: u32,
     /// Surface target kind, 1 or 2.
@@ -173,6 +179,8 @@ pub struct UnifiedRequest {
     pub part_indices: SliceView<u32>,
     /// Stations of every path concatenated, in plan order.
     pub stations: SliceView<super::TerrainStation>,
+    /// Target-surface triangle indices of every triangulated entry, in plan order.
+    pub surface_indices: SliceView<u32>,
     /// Source identities of every entry then every mask, in plan order.
     pub sources: SliceView<u64>,
     /// Ordered region-field entries.
@@ -355,7 +363,7 @@ fn row(kind: u32, index: u32, values: [u32; 6]) -> TerrainMapping {
     }
 }
 
-fn ring_slice(geometry: &[f64], ring: TerrainRing) -> Result<&[f64], Failure> {
+fn ring_slice<T: Copy>(geometry: &[T], ring: TerrainRing) -> Result<&[T], Failure> {
     let start = ring.offset as usize;
     let end = start
         .checked_add(ring.count as usize)
@@ -462,10 +470,18 @@ fn take<'a, T: Copy>(
     pool.get(start..end).ok_or(Failure::Argument(code))
 }
 
-fn surface(raw: &UnifiedEntry) -> Result<kernel::Surface, Failure> {
+fn surface<'a>(
+    raw: &UnifiedEntry,
+    geometry: &'a [f64],
+    indices: &'a [u32],
+) -> Result<kernel::Surface<'a>, Failure> {
     match raw.surface {
         1 => Ok(kernel::Surface::Existing),
         2 => Ok(kernel::Surface::Constant { level: raw.level }),
+        3 => Ok(kernel::Surface::Triangulated {
+            points: ring_slice(geometry, raw.surface_points)?,
+            triangles: ring_slice(indices, raw.surface_triangles)?,
+        }),
         _ => Err(Failure::Argument("TerrainUnifiedSurface")),
     }
 }
@@ -741,8 +757,10 @@ fn attribution_counts(
             .checked_add(count(ring.count as usize / 3)?)
             .ok_or(Failure::Argument("TerrainCountOverflow"))
     })?;
-    // Closed rings contribute one segment per vertex; control lines one fewer.
-    let ring_segments = ring_vertices;
+    // Entry/mask rings are closed and contribute one segment per vertex.
+    // Control lines are already present in `rings`; subtract them here, then
+    // add each open line once with one fewer segment. Target-surface pools are
+    // parameters and deliberately have no entity rows.
     let mut line_vertices = 0_u64;
     let mut line_segments = 0_u64;
     let mut points = 0_u64;
@@ -764,14 +782,17 @@ fn attribution_counts(
                 .ok_or(Failure::Argument("TerrainCountOverflow"))?;
         }
     }
+    let closed_ring_vertices = ring_vertices
+        .checked_sub(line_vertices)
+        .ok_or(Failure::Argument("TerrainCountOverflow"))?;
     let vertices = count(mesh_vertices)?
         .checked_add(count(property / 3)?)
-        .and_then(|n| n.checked_add(ring_vertices))
+        .and_then(|n| n.checked_add(closed_ring_vertices))
         .and_then(|n| n.checked_add(line_vertices))
         .and_then(|n| n.checked_add(points))
         .ok_or(Failure::Argument("TerrainCountOverflow"))?;
     let edges = count(property / 3)?
-        .checked_add(ring_segments)
+        .checked_add(closed_ring_vertices)
         .and_then(|n| n.checked_add(line_segments))
         .ok_or(Failure::Argument("TerrainCountOverflow"))?;
     Ok(id::EntityCounts {
@@ -805,6 +826,7 @@ unsafe fn compute(
             memory_range(request.parts.data, request.parts.count),
             memory_range(request.part_indices.data, request.part_indices.count),
             memory_range(request.stations.data, request.stations.count),
+            memory_range(request.surface_indices.data, request.surface_indices.count),
             memory_range(request.sources.data, request.sources.count),
             memory_range(request.entries.data, request.entries.count),
             memory_range(request.paths.data, request.paths.count),
@@ -838,6 +860,7 @@ unsafe fn evaluate(
         parts_pool,
         part_indices,
         stations_pool,
+        surface_indices,
         sources_pool,
         raw_entries,
         raw_paths,
@@ -854,6 +877,7 @@ unsafe fn evaluate(
             context.slice(request.parts)?,
             context.slice(request.part_indices)?,
             context.slice(request.stations)?,
+            context.slice(request.surface_indices)?,
             context.slice(request.sources)?,
             context.slice(request.entries)?,
             context.slice(request.paths)?,
@@ -921,7 +945,7 @@ unsafe fn evaluate(
             root_operation: id::OperationId(raw.root_operation),
             sources,
             parts,
-            surface: surface(raw)?,
+            surface: surface(raw, geometry, surface_indices)?,
             terrain: kernel::Terrain {
                 effect: effect(raw)?,
                 transition: transition(raw)?,

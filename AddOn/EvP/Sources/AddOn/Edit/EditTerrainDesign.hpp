@@ -105,6 +105,11 @@ std::vector<double> TerrainFootprint (const TerrainMeshView& mesh, double inset 
 // Where a design may change the terrain: the mesh's footprint, inside the property line when
 // the landscape has one (the largest piece). Empty when nothing is left.
 std::vector<double> TerrainDesignArea (const geomsrv::edit::Document& doc, const TerrainMeshView& mesh);
+// The production path rebuild ring, shared with the unified adapter: the
+// caller's explicit region or the derived band reach clipped to property/cover.
+// No triangulation or document mutation.
+bool ResolveTerrainDesignRegion (const geomsrv::edit::Document& doc, std::span<const TerrainStation> stations,
+                                 const TerrainDesignOptions& options, std::vector<double>& ring, std::string& error);
 
 bool AssessTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
                           const TerrainDesignOptions& options, std::vector<TerrainDesignConflict>& conflicts,

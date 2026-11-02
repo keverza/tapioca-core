@@ -16,9 +16,10 @@ unsupported ABI; explicit CMake OFF is the legacy rollback path. Structural iden
 views, immutable validation round-trips and complete detached value/catalog
 validation are implemented. C++ engines remain the
 production geometry authorities; no algorithm or consumer flag is switched.
-#112 P3 additionally adds the pure `terrain::build_terrain(baseline, plan)` field
-stack over one constrained region topology. It is Rust-only in this slice: no ABI
-export, C++ wrapper or production lane consumes it yet.
+#112 P3/P3.1 additionally adds the pure `terrain::build_terrain(baseline, plan)`
+field stack over one constrained region topology, its additive ABI/C++ facade,
+and the tested `EditLandscapeUnifiedBuild` compiler-to-build adapter. No
+production lane dispatches the unified result yet.
 
 ## G1 mesh-preparation parity services
 
@@ -638,9 +639,11 @@ landscape mesh authority. An explicit closed property ring, every domain
 outer/hole edge, path band edges and sampled cross-sections, every mask boundary
 and every fixed control line are assembled as constraints of one `region`
 rebuild, preserving the baseline-affine triangles needed for exact volumes. The
-ordered region stack evaluates Existing/Constant targets with the reconciled
-absolute effects: Grade sets the target, Add keeps `max(h, t)`, and Subtract
-keeps `min(h, t)`. Later entries override earlier entries; falloff and daylight
+ordered region stack evaluates Existing, Constant and triangulated targets with
+the reconciled absolute effects: Grade sets the target, Add keeps `max(h, t)`,
+and Subtract keeps `min(h, t)`. A triangulated target is sampled through the
+existing upward `Field`, with its nearest boundary height outside coverage.
+Later entries override earlier entries; falloff and daylight
 transitions are entry-local. Sampled path bands then evaluate the existing
 path-design height field on the region-composed surface, so paths contribute
 height targets without a second mesh build. Hybrid design-line preparation runs
@@ -659,7 +662,10 @@ The additive `tapioca_terrain_unified_build` ABI exports this build without
 enabling any production consumer. Plan ingress is fixed-layout POD with offset
 pools only (no nested pointers): baseline mesh, property ring, one shared xyz
 geometry pool with a ring pool and shared part-index/station/source pools,
-ordered entries, path bands, masks and controls. Input provenance is the
+ordered entries, path bands, masks, controls, and target-surface index ranges.
+Target-surface points/triangles are parameters with no entity rows. Fixed open
+lines have a two-vertex minimum and contribute their vertices/segments exactly
+once to input provenance. Input provenance is the
 split/hybrid domains=7 catalog in documented vertex/edge order. Output is
 complete query/fill: proposed points, sampled baseline heights, owners,
 triangle correspondence (`RegionMesh` mapping kinds 9, 12..17, control spots
@@ -677,15 +683,20 @@ region-first/path-second orchestrator on the original #82 debug fixture
 `test_geometry_rust_unified_terrain.cpp`. Production dispatch is a follow-up
 slice.
 
-Additional surface modes beyond Existing/Constant and production dispatch are
-later P3 slices. Hard 2.5D boundaries currently share
-vertices with the neighbouring surface, so exact volumes include boundary
-interpolation rather than claiming a vertical wall. The hard-step policy
-refuses side-by-side sharp absolute-target domains that touch with no overlap
-(a shared boundary segment would need two heights at one plan position);
-ordered pairs carry the elevation change deliberately — an overlap blends it
-and a strictly nested override constrains it exactly through its inner rings,
-with the stack order deciding which target wins inside. Entry ring segments
+P3.1 adds the real `BuildUnifiedLandscapeTerrain` adapter
+(`EditLandscapeUnifiedBuild.hpp`): it validates plan completeness and capture
+identity, transports the actual `FieldPlan`, shares production station/region
+preparation, generates complete input provenance and publishes atomically.
+`FieldPlan` v3 hashes all independent station fields including rounding, and
+`ValidateLandscapeFieldPlanForBuild` refuses every current diagnostic because it
+means requested geometry is missing or invalid. Production dispatch remains a
+follow-up slice.
+
+A zero-reach absolute target that differs from baseline at its boundary, or from
+another sharp claim at the same position, refuses with `BuildHardStep`. Overlap
+and nesting are not exemptions: one shared TIN vertex cannot represent two
+heights. Positive-width transitions remain supported; vertical duplication or
+retaining-wall output is a separate future geometry contract. Entry ring segments
 coinciding with the property ring are dropped (the rebuild already constrains
 the property ring; a duplicate breakline degenerates the triangulation), which
 makes "grade the whole property" the common case. Tests cover empty plans,

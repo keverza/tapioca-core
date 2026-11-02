@@ -189,9 +189,16 @@ uint64_t FieldPlanHash (const FieldPlan& plan)
             HashNumber (hash, station.section.widthRight);
             HashNumber (hash, station.section.endLeft);
             HashNumber (hash, station.section.endRight);
+            const uint8_t taper = station.section.taper ? 1 : 0;
+            HashBytes (hash, &taper, 1);
+            HashSlope (hash, station.section.crossfall.slope);
+            const uint8_t negative = station.section.crossfall.negative ? 1 : 0;
+            HashBytes (hash, &negative, 1);
+            HashBytes (hash, &station.section.fall, sizeof station.section.fall);
             HashNumber (hash, station.section.shoulder);
             HashSlope (hash, station.section.cutSlope);
             HashSlope (hash, station.section.fillSlope);
+            HashNumber (hash, station.section.rounding);
         }
         HashDoubleVector (hash, path.crossfallPercent);
     }
@@ -337,8 +344,7 @@ void CompilePath (const edit::Document& doc, const PathDesignRequest& request, F
             samples.push_back (before);
     }
     std::sort (samples.begin (), samples.end ());
-    samples.erase (std::unique (samples.begin (), samples.end (),
-                                 [] (double a, double b) { return b - a < 1.0e-6; }),
+    samples.erase (std::unique (samples.begin (), samples.end (), [] (double a, double b) { return b - a < 1.0e-6; }),
                    samples.end ());
     for (const double station : samples) {
         edit::StationFrame frame;
@@ -507,5 +513,47 @@ FieldPlan CompileLandscapeFieldPlan (const LandscapeSnapshot& snapshot)
     plan.hash = FieldPlanHash (plan);
     plan.ok = true;
     return plan;
+}
+
+bool ValidateLandscapeFieldPlanForBuild (const FieldPlan& plan, std::string& error)
+{
+    if (!plan.ok || plan.version != kFieldPlanVersion || plan.hash == 0) {
+        error = "FieldPlanIncomplete: a current compiled plan with a content hash is required";
+        return false;
+    }
+    if (!plan.diagnostics.empty ()) {
+        const auto& diagnostic = plan.diagnostics.front ();
+        error = "FieldPlanIncomplete: " + diagnostic.message;
+        return false;
+    }
+    for (const auto& entry : plan.entries) {
+        if (!entry.surface || entry.parts.empty ()) {
+            error = "FieldPlanIncomplete: an active region has no surface target or evaluated domain";
+            return false;
+        }
+        if (std::any_of (entry.parts.begin (), entry.parts.end (), [] (const FieldPlanPart& part) {
+                return part.rings.empty () || part.rings.front ().size () < 3;
+            })) {
+            error = "FieldPlanIncomplete: an active region has an empty evaluated outer ring";
+            return false;
+        }
+        const bool triangulated =
+            entry.surface->elevation == RegionElevationMode::Boundary || entry.surface->slope != RegionSlopeMode::None;
+        if (triangulated && (entry.surfacePoints.empty () || entry.surfaceTriangles.empty ())) {
+            error = "FieldPlanIncomplete: a non-constant region has no triangulated target";
+            return false;
+        }
+        if (!triangulated && (!entry.surfacePoints.empty () || !entry.surfaceTriangles.empty ())) {
+            error = "FieldPlanIncomplete: a constant/existing target unexpectedly carries a target mesh";
+            return false;
+        }
+    }
+    for (const auto& path : plan.paths)
+        if (path.stations.size () < 2 || path.crossfallPercent.size () != path.stations.size ()) {
+            error = "FieldPlanIncomplete: a path has incomplete station preparation";
+            return false;
+        }
+    error.clear ();
+    return true;
 }
 } // namespace tapioca::geometry

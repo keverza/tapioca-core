@@ -60,6 +60,7 @@ struct Input {
     std::vector<TapiocaUnifiedPart> parts;
     std::vector<uint32_t> partIndices;
     std::vector<TapiocaTerrainStation> stations;
+    std::vector<uint32_t> surfaceIndices;
     std::vector<uint64_t> sources;
     std::vector<TapiocaUnifiedEntry> entries;
     std::vector<TapiocaUnifiedPath> paths;
@@ -68,16 +69,35 @@ struct Input {
     TapiocaUnifiedRequest raw {};
 };
 
+bool AppendGeometry (std::span<const double> points, size_t minimumVertices, std::vector<double>& geometry,
+                     TapiocaTerrainRing& range, std::string& error)
+{
+    if (points.size () > UINT32_MAX || geometry.size () > UINT32_MAX - points.size () || points.size () % 3 != 0 ||
+        points.size () < minimumVertices * 3) {
+        error = "TerrainUnifiedGeometry: whole xyz triples and the required vertex count are required";
+        return false;
+    }
+    range = { static_cast<uint32_t> (geometry.size ()), static_cast<uint32_t> (points.size ()) };
+    geometry.insert (geometry.end (), points.begin (), points.end ());
+    return true;
+}
+
 bool AppendRing (const std::vector<double>& ring, std::vector<TapiocaTerrainRing>& rings, std::vector<double>& geometry,
                  std::string& error)
 {
-    if (ring.size () > UINT32_MAX || geometry.size () > UINT32_MAX - ring.size () ||
-        ring.size () % 3 != 0 || ring.size () < 9) {
-        error = "TerrainUnifiedRing: rings need whole xyz triples and three or more vertices";
+    TapiocaTerrainRing range {};
+    if (!AppendGeometry (ring, 3, geometry, range, error))
         return false;
-    }
-    rings.push_back ({ static_cast<uint32_t> (geometry.size ()), static_cast<uint32_t> (ring.size ()) });
-    geometry.insert (geometry.end (), ring.begin (), ring.end ());
+    rings.push_back (range);
+    return true;
+}
+
+bool AppendLine (std::span<const double> line, std::vector<TapiocaTerrainRing>& rings, std::vector<double>& geometry,
+                 TapiocaTerrainRing& range, std::string& error)
+{
+    if (!AppendGeometry (line, 2, geometry, range, error))
+        return false;
+    rings.push_back (range);
     return true;
 }
 
@@ -117,6 +137,23 @@ bool Convert (const UnifiedPlanRequest& request, Input& input, std::string& erro
         raw.cut = Slope (entry.transition.cut);
         raw.fill = Slope (entry.transition.fill);
         raw.reach = entry.transition.reach;
+        if (entry.surface.kind == UnifiedSurfaceKind::Triangulated) {
+            if (!AppendGeometry (entry.surface.points, 3, input.geometry, raw.surfacePoints, error))
+                return false;
+            const auto& triangles = entry.surface.triangles;
+            if (triangles.size () > UINT32_MAX || input.surfaceIndices.size () > UINT32_MAX - triangles.size () ||
+                triangles.size () % 3 != 0 || triangles.empty ()) {
+                error = "TerrainUnifiedSurface: target triangles need whole nonempty triples";
+                return false;
+            }
+            raw.surfaceTriangles = { static_cast<uint32_t> (input.surfaceIndices.size ()),
+                                     static_cast<uint32_t> (triangles.size ()) };
+            input.surfaceIndices.insert (input.surfaceIndices.end (), triangles.begin (), triangles.end ());
+        }
+        else if (!entry.surface.points.empty () || !entry.surface.triangles.empty ()) {
+            error = "TerrainUnifiedSurface: only a triangulated target may carry a target mesh";
+            return false;
+        }
         raw.order = entry.order;
         raw.surface = static_cast<uint32_t> (entry.surface.kind);
         raw.effect = static_cast<uint32_t> (entry.effect);
@@ -182,11 +219,8 @@ bool Convert (const UnifiedPlanRequest& request, Input& input, std::string& erro
         if (control.point) {
             raw.line = { 0, 0 };
         }
-        else if (!AppendRing ({ control.line.begin (), control.line.end () }, input.rings, input.geometry, error)) {
+        else if (!AppendLine (control.line, input.rings, input.geometry, raw.line, error)) {
             return false;
-        }
-        else {
-            raw.line = input.rings.back ();
         }
         input.controls.push_back (raw);
     }
@@ -195,6 +229,7 @@ bool Convert (const UnifiedPlanRequest& request, Input& input, std::string& erro
     input.raw.parts = { input.parts.data (), input.parts.size () };
     input.raw.partIndices = { input.partIndices.data (), input.partIndices.size () };
     input.raw.stations = { input.stations.data (), input.stations.size () };
+    input.raw.surfaceIndices = { input.surfaceIndices.data (), input.surfaceIndices.size () };
     input.raw.sources = { input.sources.data (), input.sources.size () };
     input.raw.entries = { input.entries.data (), input.entries.size () };
     input.raw.paths = { input.paths.data (), input.paths.size () };
@@ -313,8 +348,7 @@ bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResul
         return false;
     }
     for (const auto& mapping : mappings) {
-        if (mapping.kind != 9 && (mapping.kind < 12 || mapping.kind > 17) && mapping.kind != 20 &&
-            mapping.kind != 21) {
+        if (mapping.kind != 9 && (mapping.kind < 12 || mapping.kind > 17) && mapping.kind != 20 && mapping.kind != 21) {
             error = "TerrainOutputShape: unknown unified support kind";
             return false;
         }

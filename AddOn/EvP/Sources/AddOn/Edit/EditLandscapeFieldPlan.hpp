@@ -1,13 +1,13 @@
 #ifndef TAPIOCA_EDIT_LANDSCAPEFIELDPLAN_HPP
 #define TAPIOCA_EDIT_LANDSCAPEFIELDPLAN_HPP
 
-// #112 P2: one immutable, versioned field plan compiled from the validated
+// #112 P2/P3.1: one immutable, versioned field plan compiled from the validated
 // document, evaluated operation values, prepared region surfaces, path/station
 // preparation, masks and locked controls. Pure evaluation only: no document
-// writes, no triangulation, no baseline edits and zero triangles in the plan.
-// The compiled plan is the single input the Rust mesh authority (P3) will
-// consume; production lanes stay unchanged and the compiler runs in tests and
-// inspection until P3 wires it into the worker.
+// writes, terrain triangulation or baseline edits. Non-constant authored targets
+// carry their own target triangles; they are not a terrain result. The tested
+// EditLandscapeUnifiedBuild adapter consumes the plan; production dispatch stays
+// unchanged until P4.
 #include "Edit/EditLandscape.hpp"
 #include "Edit/EditPath.hpp"
 #include <array>
@@ -22,7 +22,7 @@ struct Document;
 
 namespace tapioca::geometry {
 
-inline constexpr uint32_t kFieldPlanVersion = 2;
+inline constexpr uint32_t kFieldPlanVersion = 3;
 
 // Owned equivalent of the path lane's design request (no caller-owned spans):
 // which document path is designed and the band parameters the existing C++
@@ -112,7 +112,7 @@ struct FieldPlanEntry {
     // flat xyz points and triangle triples, empty for Existing/Constant Area targets.
     std::vector<double> surfacePoints;
     std::vector<uint32_t> surfaceTriangles;
-    RegionTerrain terrain;                // Effect/transition/falloff/reach/cut/fill, verbatim.
+    RegionTerrain terrain; // Effect/transition/falloff/reach/cut/fill, verbatim.
     bool operator== (const FieldPlanEntry&) const = default;
 };
 
@@ -193,6 +193,12 @@ double ComposeFieldHeight (RegionTerrainEffect effect, double h, double t);
 // never changes the plan; changing an explicit root-operation priority always
 // changes its hash.
 FieldPlan CompileLandscapeFieldPlan (const LandscapeSnapshot& snapshot);
+
+// Strict mesh-dispatch gate. Current diagnostics all describe omitted or invalid
+// requested geometry, so any diagnostic refuses. A successful validation also
+// requires the current version, a nonzero hash and complete domain/target shapes.
+// Capture/session/revision identity is checked by the high-level build adapter.
+bool ValidateLandscapeFieldPlanForBuild (const FieldPlan& plan, std::string& error);
 
 } // namespace tapioca::geometry
 #endif

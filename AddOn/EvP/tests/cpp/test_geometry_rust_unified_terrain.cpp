@@ -3,6 +3,7 @@
 #include "GeometryRustFfi.h"
 
 #include "Edit/EditPath.hpp"
+#include "Edit/EditLandscapeUnifiedBuild.hpp"
 #include "virtual_editor_debug_replay.hpp"
 
 #include <gtest/gtest.h>
@@ -77,8 +78,7 @@ ProvenanceRequest Provenance (EntityCounts counts, uint32_t domains)
 EntityCounts UnifiedCounts (const Base& base)
 {
     return { uint64_t (base.points.size () / 3 + kProperty.size () / 3 + kDomain.size () / 3),
-             uint64_t (kProperty.size () / 3 + kDomain.size () / 3),
-             uint64_t (base.triangles.size () / 3), 0 };
+             uint64_t (kProperty.size () / 3 + kDomain.size () / 3), uint64_t (base.triangles.size () / 3), 0 };
 }
 
 UnifiedEntry GradeEntry (double level, UnifiedTransitionKind transition, double distance)
@@ -113,12 +113,52 @@ TerrainStation Station (double x, double z)
     return station;
 }
 
+FieldPlan CompiledPlan (const debugreplay::Scene& scene, const TerrainCapture& capture, bool includePath)
+{
+    LandscapeSnapshot snapshot;
+    snapshot.doc = &scene.doc;
+    snapshot.revision = scene.doc.revision;
+    snapshot.captureRevision = capture.revision;
+    snapshot.session = scene.doc.landscape->sessionUuid;
+    snapshot.sourceTerrainGuid = scene.doc.landscape->sourceTerrainGuid;
+    if (includePath) {
+        PathDesignRequest path;
+        path.source = scene.options.source;
+        path.operation = scene.options.operation;
+        path.object = scene.options.object;
+        path.maxStep = scene.options.maxStep;
+        path.taper = scene.options.taper;
+        path.margin = scene.options.margin;
+        path.arcTolerance = scene.options.arcTolerance;
+        path.cutLimit = scene.options.cutLimit;
+        path.fillLimit = scene.options.fillLimit;
+        path.effect = scene.options.effect;
+        path.tolerance = scene.options.tolerance;
+        path.outline = scene.options.outline;
+        snapshot.path = path;
+    }
+    return CompileLandscapeFieldPlan (snapshot);
+}
+
+debugreplay::Scene Issue82Scene ()
+{
+    const auto file = std::filesystem::path (__FILE__).parent_path () / "fixtures/region-boundary-20261029.debug.json";
+    std::ifstream input (file, std::ios::binary);
+    if (!input)
+        throw std::runtime_error ("missing original #82 fixture");
+    const std::string text { std::istreambuf_iterator<char> (input), {} };
+    const auto parsed = evp::nodegraph::json::Parse (text);
+    if (!parsed.ok)
+        throw std::runtime_error (parsed.error);
+    return debugreplay::Read (parsed.value);
+}
+
 } // namespace
 
 TEST (GeometryRustUnifiedTerrain, AbiLayouts)
 {
     static_assert (sizeof (TapiocaUnifiedPart) == 8);
-    static_assert (sizeof (TapiocaUnifiedEntry) == 120);
+    static_assert (sizeof (TapiocaUnifiedEntry) == 136);
     static_assert (sizeof (TapiocaUnifiedPath) == 56);
     static_assert (sizeof (TapiocaUnifiedMask) == 32);
     static_assert (sizeof (TapiocaUnifiedControl) == 56);
@@ -126,7 +166,7 @@ TEST (GeometryRustUnifiedTerrain, AbiLayouts)
     static_assert (sizeof (TapiocaUnifiedMeta) == 16);
     static_assert (sizeof (TapiocaUnifiedLine) == 32);
     static_assert (sizeof (TapiocaUnifiedLocked) == 16);
-    static_assert (sizeof (void*) != 8 || sizeof (TapiocaUnifiedRequest) == 512);
+    static_assert (sizeof (void*) != 8 || sizeof (TapiocaUnifiedRequest) == 528);
     static_assert (sizeof (void*) != 8 || sizeof (TapiocaUnifiedOutput) == 152);
     SUCCEED ();
 }
@@ -135,16 +175,10 @@ TEST (GeometryRustUnifiedTerrain, RegionGradeMatchesTheExistingEditLane)
 {
     const Base base;
     const auto entries = { GradeEntry (2.0, UnifiedTransitionKind::Falloff, 1.0) };
-    const UnifiedPlanRequest plan { { base.points, base.triangles },
-                                    std::span<const double> (kProperty),
-                                    entries,
-                                    {},
-                                    {},
-                                    {},
-                                    1e-3,
-                                    7,
-                                    0xABCD,
-                                    Provenance (UnifiedCounts (base), 7) };
+    const UnifiedPlanRequest plan {
+        { base.points, base.triangles },     std::span<const double> (kProperty), entries, {}, {}, {}, 1e-3, 7, 0xABCD,
+        Provenance (UnifiedCounts (base), 7)
+    };
     UnifiedTerrainResult unified;
     std::string error;
     ASSERT_TRUE (BuildUnifiedTerrain (plan, unified, error)) << error;
@@ -160,15 +194,15 @@ TEST (GeometryRustUnifiedTerrain, RegionGradeMatchesTheExistingEditLane)
     edit.effect = TerrainEditEffect::Both;
     edit.transition = TerrainEditTransition::Falloff;
     edit.blur = 1.0;
-    const TerrainEditRequest editRequest { { base.points, base.triangles },
-                                           { &edit, 1 },
-                                           {},
-                                           {},
-                                           {},
-                                           std::nullopt,
-                                           Provenance ({ uint64_t (base.points.size () / 3), 0,
-                                                         uint64_t (base.triangles.size () / 3), 0 },
-                                                       5) };
+    const TerrainEditRequest editRequest {
+        { base.points, base.triangles },
+        { &edit, 1 },
+        {},
+        {},
+        {},
+        std::nullopt,
+        Provenance ({ uint64_t (base.points.size () / 3), 0, uint64_t (base.triangles.size () / 3), 0 }, 5)
+    };
     TerrainEditResult edited;
     ASSERT_TRUE (EditTerrain (editRequest, edited, error)) << error;
     ASSERT_EQ (edited.heights.size (), base.points.size () / 3);
@@ -183,13 +217,9 @@ TEST (GeometryRustUnifiedTerrain, PathBandMatchesTheExistingHybridLane)
 {
     const Base base;
     const std::array stations { Station (2, 1), Station (6, 1) };
-    const UnifiedPath path { 0,
-                             0x3001,
-                             0x3002,
-                             0x3003,
-                             std::span<const TerrainStation> (stations),
-                             TerrainEditEffect::Both,
-                             1e-3 };
+    const UnifiedPath path {
+        0, 0x3001, 0x3002, 0x3003, std::span<const TerrainStation> (stations), TerrainEditEffect::Both, 1e-3
+    };
     const std::array paths { path };
     const UnifiedPlanRequest plan { { base.points, base.triangles },
                                     std::span<const double> (kProperty),
@@ -237,11 +267,9 @@ TEST (GeometryRustUnifiedTerrain, PathBandMatchesTheExistingHybridLane)
     }
     // The band contributes derived design-line origins after the property ring.
     ASSERT_FALSE (unified.lines.empty ());
-    EXPECT_TRUE (std::any_of (unified.lines.begin (), unified.lines.end (),
-                              [] (const UnifiedLine& line) {
-                                  return line.domain == UnifiedLineDomain::Path && line.kind &&
-                                         *line.kind == HybridLineKind::Edge;
-                              }));
+    EXPECT_TRUE (std::any_of (unified.lines.begin (), unified.lines.end (), [] (const UnifiedLine& line) {
+        return line.domain == UnifiedLineDomain::Path && line.kind && *line.kind == HybridLineKind::Edge;
+    }));
 }
 
 TEST (GeometryRustUnifiedTerrain, AdjacentSharpGradesRefuseWithTheHardStepCode)
@@ -282,7 +310,7 @@ TEST (GeometryRustUnifiedTerrain, AdjacentSharpGradesRefuseWithTheHardStepCode)
 TEST (GeometryRustUnifiedTerrain, FixedPointControlLocksItsVertex)
 {
     const Base base;
-    const auto entries = { GradeEntry (2.0, UnifiedTransitionKind::Daylight, 0.0) };
+    const auto entries = { GradeEntry (2.0, UnifiedTransitionKind::Daylight, 1.0) };
     const UnifiedControl control { 0x4001, 0x4002, true, { 4, 4, 2.0 }, {} };
     const std::array controls { control };
     auto counts = UnifiedCounts (base);
@@ -304,28 +332,86 @@ TEST (GeometryRustUnifiedTerrain, FixedPointControlLocksItsVertex)
     EXPECT_EQ (unified.locked[0].control, 0U);
     ASSERT_LT (size_t (unified.locked[0].vertex) * 3 + 2, unified.points.size ());
     EXPECT_NEAR (unified.points[size_t (unified.locked[0].vertex) * 3 + 2], 2.0, 1e-12);
-    EXPECT_TRUE (std::any_of (unified.mappings.begin (), unified.mappings.end (),
-                              [] (const TerrainMapping& row) {
-                                  return row.kind == TerrainMappingKind::ControlPointVertex;
-                              }));
+    EXPECT_TRUE (std::any_of (unified.mappings.begin (), unified.mappings.end (), [] (const TerrainMapping& row) {
+        return row.kind == TerrainMappingKind::ControlPointVertex;
+    }));
     EXPECT_EQ (unified.inputProvenance, plan.provenance);
+}
+
+TEST (GeometryRustUnifiedTerrain, TwoPointFixedLineBuildsWithSingleCatalogCoverage)
+{
+    const Base base;
+    const auto entries = { GradeEntry (1.0, UnifiedTransitionKind::Daylight, 1.0) };
+    const std::array<double, 6> line { 2, 4, 1, 6, 4, 1 };
+    const UnifiedControl control { 0x4001, 0, false, {}, line };
+    const std::array controls { control };
+    auto counts = UnifiedCounts (base);
+    counts.vertices += 2;
+    counts.edges += 1;
+    const UnifiedPlanRequest plan { { base.points, base.triangles },
+                                    std::span<const double> (kProperty),
+                                    entries,
+                                    {},
+                                    {},
+                                    std::span<const UnifiedControl> (controls),
+                                    1e-3,
+                                    12,
+                                    0xF11E,
+                                    Provenance (counts, 7) };
+    UnifiedTerrainResult unified;
+    std::string error;
+    ASSERT_TRUE (BuildUnifiedTerrain (plan, unified, error)) << error;
+    ASSERT_GE (unified.locked.size (), 2U);
+    for (const auto& locked : unified.locked) {
+        EXPECT_EQ (locked.control, 0U);
+        ASSERT_LT (size_t (locked.vertex) * 3 + 2, unified.points.size ());
+        EXPECT_DOUBLE_EQ (unified.points[size_t (locked.vertex) * 3 + 2], 1.0);
+    }
+    EXPECT_TRUE (std::any_of (unified.lines.begin (), unified.lines.end (), [] (const UnifiedLine& origin) {
+        return origin.domain == UnifiedLineDomain::Control && origin.index == 0 && origin.segment == 1;
+    }));
+}
+
+TEST (GeometryRustUnifiedTerrain, TriangulatedSurfaceTargetSamplesItsPlane)
+{
+    const Base base;
+    auto entry = GradeEntry (0.0, UnifiedTransitionKind::Daylight, 1.0);
+    const std::array<double, 12> target { 2, 2, 2.4, 6, 2, 3.2, 6, 6, 3.2, 2, 6, 2.4 };
+    const std::array<uint32_t, 6> triangles { 0, 1, 2, 0, 2, 3 };
+    entry.surface = { UnifiedSurfaceKind::Triangulated, 0.0, target, triangles };
+    const std::array entries { entry };
+    const UnifiedPlanRequest plan {
+        { base.points, base.triangles },     std::span<const double> (kProperty), entries, {}, {}, {}, 1e-3, 13, 0xF13D,
+        Provenance (UnifiedCounts (base), 7)
+    };
+    UnifiedTerrainResult unified;
+    std::string error;
+    ASSERT_TRUE (BuildUnifiedTerrain (plan, unified, error)) << error;
+    const auto height = [&] (double x, double y) {
+        for (size_t at = 0; at + 2 < unified.points.size (); at += 3)
+            if (unified.points[at] == x && unified.points[at + 1] == y)
+                return unified.points[at + 2];
+        return std::numeric_limits<double>::quiet_NaN ();
+    };
+    EXPECT_DOUBLE_EQ (height (4, 4), 2.8);
+    EXPECT_DOUBLE_EQ (height (2, 2), 2.4);
 }
 
 TEST (GeometryRustUnifiedTerrain, EmptyPlanWithoutPropertyIsBaselineBitForBit)
 {
     const Base base;
-    const UnifiedPlanRequest plan { { base.points, base.triangles },
-                                    {},
-                                    {},
-                                    {},
-                                    {},
-                                    {},
-                                    1e-3,
-                                    0,
-                                    0,
-                                    Provenance ({ uint64_t (base.points.size () / 3), 0,
-                                                  uint64_t (base.triangles.size () / 3), 0 },
-                                                7) };
+    const UnifiedPlanRequest plan {
+        { base.points, base.triangles },
+        {},
+        {},
+        {},
+        {},
+        {},
+        1e-3,
+        0,
+        0,
+        Provenance ({ uint64_t (base.points.size () / 3), 0, uint64_t (base.triangles.size () / 3), 0 }, 7)
+    };
     UnifiedTerrainResult unified;
     std::string error;
     ASSERT_TRUE (BuildUnifiedTerrain (plan, unified, error)) << error;
@@ -337,7 +423,7 @@ TEST (GeometryRustUnifiedTerrain, EmptyPlanWithoutPropertyIsBaselineBitForBit)
     EXPECT_EQ (unified.site.cut, 0.0);
 }
 
-TEST (GeometryRustUnifiedTerrain, NestedSharpOverridesComposeByStackOrder)
+TEST (GeometryRustUnifiedTerrain, NestedSharpOverridesRefuseInsteadOfInterpolating)
 {
     const Base base;
     auto outer = GradeEntry (3.0, UnifiedTransitionKind::Daylight, 0.0);
@@ -365,17 +451,150 @@ TEST (GeometryRustUnifiedTerrain, NestedSharpOverridesComposeByStackOrder)
                                                   uint64_t (base.triangles.size () / 3), 0 },
                                                 7) };
     UnifiedTerrainResult unified;
+    const UnifiedTerrainResult before;
     std::string error;
-    ASSERT_TRUE (BuildUnifiedTerrain (plan, unified, error)) << error;
-    const auto height = [&] (double x, double y) {
-        for (size_t at = 0; at + 2 < unified.points.size (); at += 3)
-            if (unified.points[at] == x && unified.points[at + 1] == y)
-                return unified.points[at + 2];
-        return std::numeric_limits<double>::quiet_NaN ();
-    };
-    EXPECT_EQ (height (5, 5), 1.0) << "the inner override wins inside its ring";
-    EXPECT_EQ (height (3, 3), 3.0) << "the annulus keeps the outer target";
-    EXPECT_EQ (height (0, 0), 0.0) << "outside stays baseline";
+    EXPECT_FALSE (BuildUnifiedTerrain (plan, unified, error));
+    EXPECT_EQ (0U, error.rfind ("BuildHardStep", 0)) << error;
+    EXPECT_EQ (unified, before);
+}
+
+TEST (GeometryRustUnifiedTerrain, CompiledPlanBuildsTheOriginalIssue82Scene)
+{
+    auto scene = Issue82Scene ();
+    scene.options.source = 0;
+    const auto regionOnly = debugreplay::Run (scene);
+    ASSERT_TRUE (regionOnly.built) << regionOnly.error;
+    scene.options.source = 8;
+    const auto plan = CompiledPlan (scene, *regionOnly.capture, true);
+    ASSERT_TRUE (plan.ok) << plan.error;
+    ASSERT_FALSE (plan.entries.empty ());
+    ASSERT_EQ (plan.paths.size (), 1u);
+
+    UnifiedTerrainResult unified;
+    std::string error;
+    ASSERT_TRUE (BuildUnifiedLandscapeTerrain (scene.doc, *regionOnly.capture, plan, {}, unified, error)) << error;
+    EXPECT_EQ (unified.revision, plan.revision);
+    EXPECT_EQ (unified.planHash, plan.hash);
+    EXPECT_GT (unified.inputProvenance.counts.vertices, regionOnly.capture->provenance.counts.vertices);
+    EXPECT_EQ (unified.inputProvenance.domains, 7u);
+    EXPECT_TRUE (unified.locked.empty ());
+
+    const std::array<double, 6> query { 6.5, 6, 10.5921960923966, 14.2999855870725, 14.2999855870725, 0.5 };
+    std::vector<TerrainSample> samples;
+    TerrainFieldSummary summary;
+    ASSERT_TRUE (SampleTerrain ({ unified.points, unified.triangles }, query, 0.25, samples, summary, error)) << error;
+    ASSERT_EQ (samples.size (), 3u);
+    EXPECT_NEAR (samples[0].height, 0, 1e-6);
+    EXPECT_NEAR (samples[1].height, 0.07, 1e-6);
+    EXPECT_NEAR (samples[2].height, -0.2, 1e-12);
+}
+
+TEST (GeometryRustUnifiedTerrain, CompiledPlanBuildsATwoPointSurface)
+{
+    auto scene = Issue82Scene ();
+    scene.options.source = 0;
+    const auto regionIds = TerrainRegionObjects (scene.doc);
+    ASSERT_EQ (regionIds.size (), 1u);
+    auto& object = *std::find_if (scene.doc.landscape->objects.begin (), scene.doc.landscape->objects.end (),
+                                  [&] (const auto& candidate) { return candidate.id == regionIds.front (); });
+    object.surface->elevation = RegionElevationMode::Constant;
+    object.surface->slope = RegionSlopeMode::TwoPoints;
+    object.surface->first = { 0, 0, 0 };
+    object.surface->second = { 10, 0, 2 };
+    const auto regionOnly = debugreplay::Run (scene);
+    ASSERT_TRUE (regionOnly.built) << regionOnly.error;
+    const auto plan = CompiledPlan (scene, *regionOnly.capture, false);
+    ASSERT_TRUE (plan.ok) << plan.error;
+    ASSERT_EQ (plan.entries.size (), 1u);
+    EXPECT_FALSE (plan.entries.front ().surfacePoints.empty ());
+    EXPECT_FALSE (plan.entries.front ().surfaceTriangles.empty ());
+
+    UnifiedTerrainResult unified;
+    std::string error;
+    ASSERT_TRUE (BuildUnifiedLandscapeTerrain (scene.doc, *regionOnly.capture, plan, {}, unified, error)) << error;
+    const std::array<double, 2> query { 6.5, 6 };
+    std::vector<TerrainSample> samples;
+    TerrainFieldSummary summary;
+    ASSERT_TRUE (SampleTerrain ({ unified.points, unified.triangles }, query, 0.25, samples, summary, error)) << error;
+    ASSERT_EQ (samples.size (), 1u);
+    EXPECT_NEAR (samples.front ().height, 1.3, 1e-9);
+}
+
+TEST (GeometryRustUnifiedTerrain, CompiledPlanBuildsContourAndBoundaryTargets)
+{
+    for (const bool boundary : { false, true }) {
+        auto scene = Issue82Scene ();
+        scene.options.source = 0;
+        const auto regionIds = TerrainRegionObjects (scene.doc);
+        ASSERT_EQ (regionIds.size (), 1u);
+        auto& object = *std::find_if (scene.doc.landscape->objects.begin (), scene.doc.landscape->objects.end (),
+                                      [&] (const auto& candidate) { return candidate.id == regionIds.front (); });
+        if (boundary) {
+            object.surface->elevation = RegionElevationMode::Boundary;
+            object.surface->slope = RegionSlopeMode::None;
+        }
+        else {
+            object.surface->elevation = RegionElevationMode::Constant;
+            object.surface->slope = RegionSlopeMode::ContourLine;
+            object.surface->first = { 0, 0, 2 };
+            object.surface->second = { 10, 0, 2 };
+            object.surface->grade = { TerrainSlope::Unit::Percent, 20, 0 };
+            object.surface->fallsTo = RegionFallSide::Right;
+        }
+        const auto regionOnly = debugreplay::Run (scene);
+        ASSERT_TRUE (regionOnly.built) << regionOnly.error;
+        const auto plan = CompiledPlan (scene, *regionOnly.capture, false);
+        ASSERT_TRUE (plan.ok) << plan.error;
+        ASSERT_EQ (plan.entries.size (), 1u);
+        EXPECT_FALSE (plan.entries.front ().surfacePoints.empty ());
+        EXPECT_FALSE (plan.entries.front ().surfaceTriangles.empty ());
+
+        UnifiedTerrainResult unified;
+        std::string error;
+        ASSERT_TRUE (BuildUnifiedLandscapeTerrain (scene.doc, *regionOnly.capture, plan, {}, unified, error)) << error;
+        const std::array<double, 4> query { 6.5, 6, 5.0, 5.0 };
+        std::vector<TerrainSample> actual, expected;
+        TerrainFieldSummary actualSummary, expectedSummary;
+        ASSERT_TRUE (SampleTerrain ({ unified.points, unified.triangles }, query, 0.25, actual, actualSummary, error))
+            << error;
+        ASSERT_TRUE (SampleTerrain ({ regionOnly.result.build.points, regionOnly.result.build.triangles }, query, 0.25,
+                                    expected, expectedSummary, error))
+            << error;
+        ASSERT_EQ (actual.size (), 2u);
+        ASSERT_EQ (expected.size (), 2u);
+        for (size_t index = 0; index < actual.size (); ++index)
+            // Legacy target preparation has ~1e-8 m Clipper quantization noise;
+            // the original #82 acceptance uses this same 1e-6 comparison band.
+            EXPECT_NEAR (actual[index].height, expected[index].height, 1e-6) << "boundary=" << boundary;
+        if (!boundary)
+            EXPECT_NEAR (actual.front ().height, 3.2, 1e-9);
+    }
+}
+
+TEST (GeometryRustUnifiedTerrain, IncompleteCompiledPathRefusesWithoutPartialOutput)
+{
+    auto scene = Issue82Scene ();
+    scene.options.source = 0;
+    const auto regionOnly = debugreplay::Run (scene);
+    ASSERT_TRUE (regionOnly.built) << regionOnly.error;
+    LandscapeSnapshot snapshot;
+    snapshot.doc = &scene.doc;
+    snapshot.revision = scene.doc.revision;
+    snapshot.captureRevision = regionOnly.capture->revision;
+    snapshot.session = scene.doc.landscape->sessionUuid;
+    snapshot.sourceTerrainGuid = scene.doc.landscape->sourceTerrainGuid;
+    snapshot.path = PathDesignRequest {};
+    snapshot.path->source = scene.doc.nextId + 100;
+    const auto plan = CompileLandscapeFieldPlan (snapshot);
+    ASSERT_TRUE (plan.ok);
+    ASSERT_FALSE (plan.diagnostics.empty ());
+    UnifiedTerrainResult result;
+    result.points = { 42 };
+    const auto before = result;
+    std::string error;
+    EXPECT_FALSE (BuildUnifiedLandscapeTerrain (scene.doc, *regionOnly.capture, plan, {}, result, error));
+    EXPECT_EQ (0U, error.rfind ("FieldPlanIncomplete:", 0)) << error;
+    EXPECT_EQ (result, before);
 }
 
 // The original #82 dump: a captured native solid, one region object graded to
@@ -408,8 +627,7 @@ TEST (GeometryRustUnifiedTerrain, MixedRegionPathMatchesProductionOnIssue82Fixtu
     // Region entry translated from the document's region object.
     const auto regionIds = lg::TerrainRegionObjects (scene.doc);
     ASSERT_EQ (regionIds.size (), 1u);
-    const auto& object = *std::find_if (scene.doc.landscape->objects.begin (),
-                                        scene.doc.landscape->objects.end (),
+    const auto& object = *std::find_if (scene.doc.landscape->objects.begin (), scene.doc.landscape->objects.end (),
                                         [&] (const auto& candidate) { return candidate.id == regionIds[0]; });
     ASSERT_TRUE (object.surface);
     const auto& settings = object.terrain;
@@ -419,9 +637,8 @@ TEST (GeometryRustUnifiedTerrain, MixedRegionPathMatchesProductionOnIssue82Fixtu
     entry.rootOperation = object.footprintOperation;
     entry.effect = UnifiedTerrainEffect::Grade;
     entry.surface = { UnifiedSurfaceKind::Constant, object.surface->first.z };
-    entry.transition = { settings.transition == lg::RegionTerrainTransition::Daylight
-                             ? UnifiedTransitionKind::Daylight
-                             : UnifiedTransitionKind::Falloff,
+    entry.transition = { settings.transition == lg::RegionTerrainTransition::Daylight ? UnifiedTransitionKind::Daylight
+                                                                                      : UnifiedTransitionKind::Falloff,
                          settings.falloff,
                          {},
                          {},
@@ -445,19 +662,17 @@ TEST (GeometryRustUnifiedTerrain, MixedRegionPathMatchesProductionOnIssue82Fixtu
         }
     }
     ASSERT_FALSE (ringBuffers.empty ());
-    domainParts.push_back ({ std::span<const double> (ringBuffers.front ()),
-                             std::span<const std::span<const double>> (holeSpans) });
+    domainParts.push_back (
+        { std::span<const double> (ringBuffers.front ()), std::span<const std::span<const double>> (holeSpans) });
     static const std::array<uint64_t, 1> kDomainSources { 0x20000000000001ULL };
     entry.parts = std::span<const UnifiedDomainPart> (domainParts);
     entry.sources = std::span<const uint64_t> (kDomainSources);
     const std::array entries { entry };
 
     // Path band stations through the same public path API the path lane uses.
-    const auto pathSource = std::find_if (scene.doc.landscape->sources.begin (),
-                                          scene.doc.landscape->sources.end (),
-                                          [&] (const auto& source) {
-                                              return source.id == scene.options.source && !source.deleted;
-                                          });
+    const auto pathSource =
+        std::find_if (scene.doc.landscape->sources.begin (), scene.doc.landscape->sources.end (),
+                      [&] (const auto& source) { return source.id == scene.options.source && !source.deleted; });
     ASSERT_NE (pathSource, scene.doc.landscape->sources.end ());
     const auto* path = edit::FindPath (scene.doc, pathSource->pathId);
     ASSERT_NE (path, nullptr);
@@ -466,8 +681,7 @@ TEST (GeometryRustUnifiedTerrain, MixedRegionPathMatchesProductionOnIssue82Fixtu
     ASSERT_TRUE (edit::PreparePath (*path, geometry, preparation, error));
     auto samples = edit::SampleStations (*path, geometry, scene.options.maxStep);
     std::sort (samples.begin (), samples.end ());
-    samples.erase (std::unique (samples.begin (), samples.end (),
-                                [] (double a, double b) { return b - a < 1.0e-6; }),
+    samples.erase (std::unique (samples.begin (), samples.end (), [] (double a, double b) { return b - a < 1.0e-6; }),
                    samples.end ());
     std::vector<TerrainStation> stations;
     for (const double station : samples) {
@@ -506,12 +720,8 @@ TEST (GeometryRustUnifiedTerrain, MixedRegionPathMatchesProductionOnIssue82Fixtu
                                               uint64_t (mesh.triangles.size () / 3), 0 };
     const auto buildPlan = [&] (bool includePath, UnifiedTerrainResult& result) {
         const std::span<const UnifiedPath> noPaths {};
-        const std::array kPaths { UnifiedPath { 1,
-                                                8,
-                                                scene.options.operation,
-                                                object.id,
-                                                std::span<const TerrainStation> (stations),
-                                                scene.options.effect,
+        const std::array kPaths { UnifiedPath { 1, 8, scene.options.operation, object.id,
+                                                std::span<const TerrainStation> (stations), scene.options.effect,
                                                 scene.options.tolerance } };
         const UnifiedPlanRequest plan { mesh,
                                         std::span<const double> (mixed.result.region),
@@ -535,8 +745,7 @@ TEST (GeometryRustUnifiedTerrain, MixedRegionPathMatchesProductionOnIssue82Fixtu
         std::vector<lg::TerrainSample> found;
         lg::TerrainFieldSummary summary;
         std::string message;
-        EXPECT_TRUE (lg::SampleTerrain ({ points, triangles }, query, 0.25, found, summary, message))
-            << message;
+        EXPECT_TRUE (lg::SampleTerrain ({ points, triangles }, query, 0.25, found, summary, message)) << message;
         return found;
     };
 
@@ -571,8 +780,6 @@ TEST (GeometryRustUnifiedTerrain, MixedRegionPathMatchesProductionOnIssue82Fixtu
     EXPECT_TRUE (std::any_of (mixedUnified.owners.begin (), mixedUnified.owners.end (),
                               [] (const std::optional<uint32_t>& owner) { return owner == 1; }));
     EXPECT_TRUE (std::any_of (mixedUnified.lines.begin (), mixedUnified.lines.end (),
-                              [] (const UnifiedLine& line) {
-                                  return line.domain == UnifiedLineDomain::Path;
-                              }));
+                              [] (const UnifiedLine& line) { return line.domain == UnifiedLineDomain::Path; }));
     EXPECT_EQ (mixedUnified.inputProvenance, Provenance (provenanceCounts, 7));
 }

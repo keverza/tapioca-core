@@ -45,7 +45,15 @@ fn entry(order: u32, level: f64) -> UnifiedEntry {
         falloff: 0.0,
         cut: SLOPE,
         fill: SLOPE,
-        reach: 0.0,
+        reach: 1.0,
+        surface_points: TerrainRing {
+            offset: 0,
+            count: 0,
+        },
+        surface_triangles: TerrainRing {
+            offset: 0,
+            count: 0,
+        },
         order,
         surface: 2,
         effect: 1,
@@ -84,6 +92,7 @@ fn scene<'a>(
         parts: view(part_pool),
         part_indices: view(part_indices),
         stations: empty(),
+        surface_indices: empty(),
         sources: view(sources),
         entries: view(entries),
         paths: empty(),
@@ -287,7 +296,7 @@ fn message(buffer: &[u8; 256]) -> String {
 #[test]
 fn layouts_match_the_documented_c_records() {
     assert_eq!(size_of::<UnifiedPart>(), 8);
-    assert_eq!(size_of::<UnifiedEntry>(), 120);
+    assert_eq!(size_of::<UnifiedEntry>(), 136);
     assert_eq!(size_of::<UnifiedPath>(), 56);
     assert_eq!(size_of::<UnifiedMask>(), 32);
     assert_eq!(size_of::<UnifiedControl>(), 56);
@@ -381,7 +390,11 @@ fn adjacent_sharp_entries_refuse_atomically_with_the_hard_step_code() {
     let (points, triangles) = base();
     let mut geometry = left.to_vec();
     geometry.extend_from_slice(&right);
-    let entries = [entry(0, 1.0), entry(1, 3.0)];
+    let mut left_entry = entry(0, 1.0);
+    left_entry.reach = 0.0;
+    let mut right_entry = entry(1, 3.0);
+    right_entry.reach = 0.0;
+    let entries = [left_entry, right_entry];
     let sources = [0x1001_u64, 0x1002];
     let ring_pool = [
         TerrainRing {
@@ -557,7 +570,69 @@ fn point_control_locks_its_vertex_and_publishes_rows() {
 }
 
 #[test]
-fn nested_sharp_entries_compose_and_coincident_property_entry_ring_builds() {
+fn two_point_fixed_line_has_single_provenance_coverage() {
+    let (points, triangles) = base();
+    let entries = [entry(0, 2.0)];
+    let mut geometry = DOMAIN.to_vec();
+    geometry.extend_from_slice(&[2.0, 4.0, 2.0, 6.0, 4.0, 2.0]);
+    let sources = [0x1001_u64];
+    let mut counts = counts_in(4);
+    counts.vertices += 2;
+    counts.edges += 1;
+    let rows = rows(counts);
+    let controls = [UnifiedControl {
+        point: 0,
+        reserved: 0,
+        source: 0x3001,
+        vertex: 0,
+        position: [0.0; 3],
+        line: TerrainRing {
+            offset: 12,
+            count: 6,
+        },
+    }];
+    let ring_pool = [
+        TerrainRing {
+            offset: 0,
+            count: 12,
+        },
+        TerrainRing {
+            offset: 12,
+            count: 6,
+        },
+    ];
+    let part_pool = [UnifiedPart {
+        first_ring: 0,
+        ring_count: 1,
+    }];
+    let part_indices = [0_u32];
+    let request = scene(
+        &points,
+        &triangles,
+        &entries,
+        &geometry,
+        &sources,
+        &rows,
+        &controls,
+        &ring_pool,
+        &part_pool,
+        &part_indices,
+    );
+    let mut storage = Storage::new();
+    let built = build(&request, &mut storage);
+    assert!(built.is_ok(), "fixed line refused: {:?}", built.err());
+    assert!(storage.counts.locked >= 2);
+    assert_eq!(storage.counts.lines, 5);
+    assert!(
+        storage
+            .lines
+            .iter()
+            .any(|line| { line.domain == 4 && line.index == 0 && line.segment == 1 })
+    );
+}
+
+#[test]
+fn nested_transitions_and_coincident_property_entry_ring_builds() {
     let (points, triangles) = base();
     // Property ring reused as the outer entry domain ("grade the whole
     // property") with a strictly nested override at a different height.

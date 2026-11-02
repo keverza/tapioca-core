@@ -194,7 +194,7 @@ TEST (EditLandscapeFieldPlan, ExplicitPriorityChangesOrderAndHash)
     const auto b = Region (doc, 5); // overlaps a
     Configure (doc, a, 2);
     Configure (doc, b, 5);
-    const auto rootA = RootOf (doc, a), rootB = RootOf (doc, b);
+    const auto rootB = RootOf (doc, b);
 
     const auto unordered = Compile (doc);
     ASSERT_TRUE (unordered.ok) << unordered.error;
@@ -427,6 +427,16 @@ TEST (EditLandscapeFieldPlan, PathStationsIncludeRangeTaperSamplesAndPreparedCro
     ASSERT_EQ (plan.paths[0].crossfallPercent.size (), stations.size ());
     EXPECT_NEAR (stations[2].station, 9.5, 1e-12);
     EXPECT_NEAR (stations[3].station, 10.0, 1e-12);
+    // Same-revision content sensitivity: rounding changes the derived mesh even
+    // when a test edits the authored value without publishing another revision.
+    path = edit::FindPath (doc, pathId); // Published document values may have moved since setup.
+    ASSERT_NE (path, nullptr);
+    path->sections.front ().rounding += 0.25;
+    const auto rounded = Compile (doc, request);
+    ASSERT_TRUE (rounded.ok) << rounded.error;
+    EXPECT_NE (rounded.hash, plan.hash);
+    EXPECT_NE (rounded.paths.front ().stations.front ().section.rounding,
+               plan.paths.front ().stations.front ().section.rounding);
 }
 
 TEST (EditLandscapeFieldPlan, LockedControlsAndMasksAreCompiledWithCoverage)
@@ -434,8 +444,7 @@ TEST (EditLandscapeFieldPlan, LockedControlsAndMasksAreCompiledWithCoverage)
     auto doc = Start ();
     std::string error;
     // A property line so terrain masks are bounded, then a configured region.
-    const auto propertySource =
-        Source (doc, { { -10, -10, 0 }, { 30, -10, 0 }, { 30, 30, 0 }, { -10, 30, 0 } });
+    const auto propertySource = Source (doc, { { -10, -10, 0 }, { 30, -10, 0 }, { 30, 30, 0 }, { -10, 30, 0 } });
     ASSERT_TRUE (geo::SetLandscapePropertyLine (doc, propertySource, error)) << error;
     const auto owner = Region (doc, 0);
     Configure (doc, owner, 2);
@@ -535,4 +544,7 @@ TEST (EditLandscapeFieldPlan, MissingSnapshotRefusesAndUnresolvedPathDiagnoses)
     EXPECT_EQ (plan.diagnostics[0].stage, geo::FieldPlanStage::Path);
     EXPECT_EQ (plan.diagnostics[0].code, geo::FieldPlanDiagnosticCode::PathUnresolved);
     EXPECT_EQ (plan.diagnostics[0].source, request.source);
+    std::string buildError;
+    EXPECT_FALSE (geo::ValidateLandscapeFieldPlanForBuild (plan, buildError));
+    EXPECT_NE (buildError.find ("FieldPlanIncomplete"), std::string::npos);
 }

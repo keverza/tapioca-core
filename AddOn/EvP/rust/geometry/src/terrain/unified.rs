@@ -1,19 +1,19 @@
-﻿//! #112 P3 unified terrain build: one immutable baseline, one compiled field
+//! #112 P3 unified terrain build: one immutable baseline, one compiled field
 //! stack and one constrained result topology.
 //!
 //! This module is the pure-Rust landscape mesh authority. It assembles every
 //! plan domain edge, hybrid-derived path line, mask boundary and fixed control
 //! as constraints of one region rebuild, then evaluates the ordered field stack
-//! on that topology. Region entries currently support existing/constant targets
-//! with the reconciled absolute Grade, Add and Subtract rules, sampled path
-//! bands, grading/protection masks and fixed-height point/line controls.
-//! Additional surface modes and host integration
-//! are later slices. The hard-step policy refuses side-by-side sharp
-//! absolute-target domains that touch with no overlap: a shared boundary
-//! segment would need two heights at one plan position. Ordered pairs carry
-//! the change deliberately â€” an overlap blends it, and a strictly nested
-//! override constrains it exactly through its inner rings, with the stack
-//! order deciding which target wins inside.
+//! on that topology. Region entries support existing, constant and triangulated
+//! targets with the absolute Grade, Add and Subtract rules, sampled path bands,
+//! grading/protection masks and fixed-height point/line controls. Production
+//! dispatch remains a later C++ integration phase.
+//!
+//! A zero-reach absolute target that differs from baseline at its boundary, or
+//! from another sharp claim at the same position, refuses with `BuildHardStep`.
+//! Overlap and nesting are not exemptions: one shared TIN vertex cannot represent
+//! two heights. Use a positive-width transition; vertical duplication/retaining
+//! geometry is a separate future output contract.
 //!
 //! Cohesion review: this file intentionally keeps plan validation, one-graph
 //! constraint assembly, ordered height composition, fixed-control resolution and
@@ -29,7 +29,7 @@ use std::collections::BTreeMap;
 
 use super::design::{self, Design};
 use super::edit::{Effect, smoother_step};
-use super::field::{Field, FieldError};
+use super::field::{Field, FieldError, Segment};
 use super::hybrid::{self, LineKind};
 use super::plan;
 use super::region::{RegionError, RegionMesh, RegionRequest, retriangulate_region_with_points};
@@ -40,12 +40,11 @@ use crate::slope::Slope;
 
 /// One authored constant-height claim an entry makes at an output vertex.
 #[derive(Clone, Copy, Debug)]
-struct TargetClaim<'a> {
+struct TargetClaim {
     entry: u32,
     height: f64,
     boundary: bool,
     sharp: bool,
-    parts: &'a [Part<'a>],
 }
 
 /// Immutable terrain baseline consumed by one build.
@@ -93,7 +92,7 @@ pub struct Entry<'a> {
     /// Domain parts owned by this entry.
     pub parts: &'a [Part<'a>],
     /// Authored surface target used inside the domain.
-    pub surface: Surface,
+    pub surface: Surface<'a>,
     /// Vertical terrain effect and its permitted transition.
     pub terrain: Terrain,
 }
@@ -203,16 +202,26 @@ pub struct LockedVertex {
     pub height: f64,
 }
 
-/// Surface target supported by this build slice.
+/// Absolute surface target sampled inside an entry domain and extended from its
+/// nearest boundary through the entry transition.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Surface {
-    /// The current composed surface; a Grade resets to the baseline inside the
-    /// domain, while Add and Subtract are no-ops against the current height.
+pub enum Surface<'a> {
+    /// The current composed surface. Existing has no absolute target and cannot
+    /// introduce a sharp absolute-target step.
     Existing,
     /// Absolute constant target height, metres.
     Constant {
         /// Target height inside the domain, metres.
         level: f64,
+    },
+    /// An upward target triangle mesh, such as a two-point, contour or sampled
+    /// boundary-Z field. Inside its coverage the target is sampled exactly;
+    /// outside it, the nearest target-boundary height is used.
+    Triangulated {
+        /// Flat xyz target vertices, world metres.
+        points: &'a [f64],
+        /// Counter-clockwise target triangle triples.
+        triangles: &'a [u32],
     },
 }
 
@@ -302,6 +311,13 @@ pub struct BuiltTerrain {
 pub enum BuildError {
     /// The baseline is not a valid upward terrain field.
     Baseline(FieldError),
+    /// An entry's triangulated target is not a valid upward height field.
+    Surface {
+        /// Index into `Plan::entries`.
+        entry: u32,
+        /// Target-field validation failure.
+        error: FieldError,
+    },
     /// The one-region constraint assembly or baseline topology refused.
     Region(RegionError),
     /// Exact volume reconciliation refused.
@@ -428,8 +444,9 @@ pub enum BuildError {
         /// Composed or canonical height found there, metres.
         actual: f64,
     },
-    /// Two sharp absolute-target domains touch without an overlap or a transition
-    /// that can represent their elevation change on one 2.5D surface.
+    /// A zero-reach absolute target differs from baseline (`second == u32::MAX`)
+    /// or another sharp claim at one plan position. A shared TIN vertex cannot
+    /// represent both heights without inventing an interpolated transition.
     HardStep {
         /// Output vertex on the incompatible shared boundary.
         vertex: u32,
@@ -450,6 +467,9 @@ impl BuildError {
     pub const fn message(&self) -> &'static str {
         match self {
             Self::Baseline(error) => (*error).message(),
+            Self::Surface { .. } => {
+                "BuildSurface: the target must be an upward triangulated height field"
+            }
             Self::Region(error) => (*error).message(),
             Self::Volume(error) => (*error).message(),
             Self::PlanShape { .. } => {
@@ -495,16 +515,49 @@ impl BuildError {
                 "BuildLockedConflict: grading or another fixed control disagrees with a locked height"
             }
             Self::HardStep { .. } => {
-                "BuildHardStep: sharp absolute-target domains touch without an overlap or transition"
+                "BuildHardStep: a zero-reach target needs two heights at one plan position"
             }
         }
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
+enum PreparedTarget {
+    Existing,
+    Constant(f64),
+    Surface {
+        field: Field,
+        boundary: Vec<Segment>,
+    },
+}
+
+impl PreparedTarget {
+    fn height(&self, x: f64, y: f64, current: f64) -> Option<f64> {
+        match self {
+            Self::Existing => Some(current),
+            Self::Constant(level) => Some(*level),
+            Self::Surface { field, boundary } => {
+                if let Some(sample) = field.height_at(x, y) {
+                    return Some(sample.height);
+                }
+                boundary
+                    .iter()
+                    .filter_map(|segment| plan::nearest(segment, false, x, y))
+                    .min_by(|a, b| a.distance.total_cmp(&b.distance))
+                    .map(|near| near.z)
+            }
+        }
+    }
+
+    const fn is_absolute(&self) -> bool {
+        !matches!(self, Self::Existing)
+    }
+}
+
+#[derive(Clone, Debug)]
 struct PreparedEntry<'a> {
     entry: &'a Entry<'a>,
-    target: Option<f64>,
+    target: PreparedTarget,
     effect: Effect,
     transition: PreparedTransition,
 }
@@ -613,7 +666,7 @@ fn validate_transition(entry: &Entry<'_>, part: u32) -> Result<PreparedTransitio
 
 fn prepare_entry<'a>(entry: &'a Entry<'a>) -> Result<PreparedEntry<'a>, BuildError> {
     let target = match entry.surface {
-        Surface::Existing => None,
+        Surface::Existing => PreparedTarget::Existing,
         Surface::Constant { level } => {
             if !level.is_finite() {
                 return Err(BuildError::NonFinite {
@@ -622,7 +675,15 @@ fn prepare_entry<'a>(entry: &'a Entry<'a>) -> Result<PreparedEntry<'a>, BuildErr
                     ring: u32::MAX,
                 });
             }
-            Some(level)
+            PreparedTarget::Constant(level)
+        }
+        Surface::Triangulated { points, triangles } => {
+            let field = Field::new(points, triangles).map_err(|error| BuildError::Surface {
+                entry: entry.order,
+                error,
+            })?;
+            let boundary = field.boundary();
+            PreparedTarget::Surface { field, boundary }
         }
     };
     let effect = match entry.terrain.effect {
@@ -1098,71 +1159,9 @@ fn on_entry_boundary(entry: &Entry<'_>, x: f64, y: f64) -> bool {
     })
 }
 
-fn parts_bounds(parts: &[Part<'_>]) -> Option<[f64; 4]> {
-    let mut bounds = [
-        f64::INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::NEG_INFINITY,
-    ];
-    let mut any = false;
-    for part in parts {
-        for ring in std::iter::once(&part.outer).chain(part.holes.iter()) {
-            for &[x, y, _] in plan::vertices(ring) {
-                any = true;
-                bounds[0] = bounds[0].min(x);
-                bounds[1] = bounds[1].min(y);
-                bounds[2] = bounds[2].max(x);
-                bounds[3] = bounds[3].max(y);
-            }
-        }
-    }
-    any.then_some(bounds)
-}
-
-fn domains_overlap_near(a: &[Part<'_>], b: &[Part<'_>], _x: f64, _y: f64) -> bool {
-    // A nonzero bounding-box intersection distinguishes ordered overlap from a
-    // shared edge/point. It is a conservative topology classifier; strict
-    // nesting is classified separately in `strictly_nested`.
-    let (Some(a), Some(b)) = (parts_bounds(a), parts_bounds(b)) else {
-        return false;
-    };
-    let width = a[2].min(b[2]) - a[0].max(b[0]);
-    let height = a[3].min(b[3]) - a[1].max(b[1]);
-    width > 1e-9 && height > 1e-9
-}
-
-/// Every ring vertex of `inner` lies strictly inside `outer`'s parts, with no
-/// contact with `outer`'s rings. Strict nesting is one of the two ordered
-/// hard-step shapes (the other a nonzero overlap in `domains_overlap_near`):
-/// the inner rings become exact constraints, so the elevation step between
-/// the two targets is representable and the stack order decides which target
-/// wins inside the inner domain. Strictly nested domains never share boundary
-/// vertices, so this classifier documents the policy where the shared-vertex
-/// refusal below can never fire.
-fn strictly_nested(outer: &[Part<'_>], inner: &[Part<'_>]) -> bool {
-    let strict_inside = |parts: &[Part<'_>], x: f64, y: f64| {
-        parts.iter().any(|part| {
-            plan::inside(plan::vertices(part.outer), x, y) == Some(true)
-                && part
-                    .holes
-                    .iter()
-                    .all(|hole| plan::inside(plan::vertices(hole), x, y) == Some(false))
-        })
-    };
-    !inner.is_empty()
-        && inner.iter().all(|part| {
-            std::iter::once(&part.outer)
-                .chain(part.holes.iter())
-                .all(|ring| {
-                    plan::vertices(ring)
-                        .iter()
-                        .all(|&[x, y, _]| strict_inside(outer, x, y))
-                })
-        })
-}
-
 fn detect_hard_steps(claims: &BTreeMap<u32, Vec<TargetClaim>>) -> Result<(), BuildError> {
+    // No overlap/nesting exemption: those shapes still need two heights on a
+    // shared zero-reach ring. Ordered overlap is valid only with a transition.
     for (&vertex, rows) in claims {
         for (index, first) in rows.iter().enumerate() {
             for second in rows.iter().skip(index + 1) {
@@ -1172,12 +1171,6 @@ fn detect_hard_steps(claims: &BTreeMap<u32, Vec<TargetClaim>>) -> Result<(), Bui
                     || !second.boundary
                     || !first.sharp
                     || !second.sharp
-                    // Ordered pairs carry the elevation change deliberately:
-                    // an overlap blends it (earlier entries already ceded the
-                    // intersection), strict nesting constrains it exactly.
-                    || domains_overlap_near(first.parts, second.parts, 0.0, 0.0)
-                    || strictly_nested(first.parts, second.parts)
-                    || strictly_nested(second.parts, first.parts)
                 {
                     continue;
                 }
@@ -1208,12 +1201,18 @@ fn grading_allowed(masks: &[Mask<'_>], x: f64, y: f64) -> bool {
             .any(|mask| mask.kind == MaskKind::GradingLimit && inside_parts(mask.parts, x, y))
 }
 
-fn candidate(prepared: &PreparedEntry<'_>, x: f64, y: f64, current: f64) -> Option<f64> {
+#[derive(Clone, Copy, Debug)]
+struct Candidate {
+    next: f64,
+    target: Option<f64>,
+}
+
+fn candidate(prepared: &PreparedEntry<'_>, x: f64, y: f64, current: f64) -> Option<Candidate> {
     if prepared.entry.parts.is_empty() {
         return None;
     }
     let distance = distance_to_parts(prepared.entry.parts, x, y)?;
-    let target = prepared.target.unwrap_or(current);
+    let target = prepared.target.height(x, y, current)?;
     let raw = match prepared.transition {
         PreparedTransition::Falloff { blur } => {
             if distance >= blur {
@@ -1244,42 +1243,57 @@ fn candidate(prepared: &PreparedEntry<'_>, x: f64, y: f64, current: f64) -> Opti
         Effect::Fill => current.max(raw),
         Effect::Both => raw,
     };
-    Some(next)
+    Some(Candidate {
+        next,
+        target: prepared.target.is_absolute().then_some(target),
+    })
 }
 
 #[expect(
     clippy::too_many_arguments,
     reason = "one ordered entry evaluation needs the immutable plan, mutable height/owner stacks and target-claim diagnostics together"
 )]
-fn apply_entry<'a>(
-    prepared: &PreparedEntry<'a>,
+fn apply_entry(
+    prepared: &PreparedEntry<'_>,
     masks: &[Mask<'_>],
     mesh_points: &[f64],
     heights: &mut [f64],
     owners: &mut [Option<u32>],
-    claims: &mut BTreeMap<u32, Vec<TargetClaim<'a>>>,
+    claims: &mut BTreeMap<u32, Vec<TargetClaim>>,
 ) -> Result<(), BuildError> {
-    for (vertex, &[x, y, _]) in (0_u32..).zip(plan::vertices(mesh_points)) {
+    for (vertex, &[x, y, base]) in (0_u32..).zip(plan::vertices(mesh_points)) {
         if is_protected(masks, x, y) || !grading_allowed(masks, x, y) {
             continue;
         }
         let Some(current) = heights.get(vertex as usize).copied() else {
             return Err(BuildError::Region(RegionError::Topology));
         };
-        let Some(next) = candidate(prepared, x, y, current) else {
+        let Some(Candidate { next, target }) = candidate(prepared, x, y, current) else {
             continue;
         };
-        if let Some(height) = prepared.target {
+        if let Some(_target) = target {
             let sharp = matches!(
                 prepared.transition,
                 PreparedTransition::Daylight { reach, .. } if reach <= 0.0
             );
+            let boundary = on_entry_boundary(prepared.entry, x, y);
+            if sharp && boundary && (next - base).abs() > 1e-9 {
+                // A zero-reach target that differs from baseline needs two heights
+                // at one plan position. Shared TIN vertices would silently turn it
+                // into an arbitrary-width ramp, so refuse before publication.
+                return Err(BuildError::HardStep {
+                    vertex,
+                    first: prepared.entry.order,
+                    second: u32::MAX,
+                    first_height: next,
+                    second_height: base,
+                });
+            }
             claims.entry(vertex).or_default().push(TargetClaim {
                 entry: prepared.entry.order,
-                height,
-                boundary: on_entry_boundary(prepared.entry, x, y),
+                height: next,
+                boundary,
                 sharp,
-                parts: prepared.entry.parts,
             });
         }
         if let Some(slot) = heights.get_mut(vertex as usize) {
