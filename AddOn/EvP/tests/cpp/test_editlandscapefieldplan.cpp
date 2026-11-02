@@ -1,9 +1,9 @@
 // #112 P2: the pure field-plan compiler. These tests pin the plan contract:
 // deterministic repeat compiles, serialization-equivalent hashes, object-order
 // independence, explicit-priority hash sensitivity, the h' math, configured
-// Boolean composition, hole/island membership, path-after-region ordering and
-// locked/mask coverage — and that compilation mutates nothing and the plan
-// carries rings and stations, never triangles.
+// Boolean composition, hole/island membership, path-after-region ordering,
+// property-line transport and locked/mask coverage — and that compilation mutates
+// nothing and the plan carries rings and stations, never triangles.
 #include "Edit/EditLandscapeFieldPlan.hpp"
 #include "Edit/EditLandscapeDomain.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
@@ -340,14 +340,35 @@ TEST (EditLandscapeFieldPlan, PathBandFollowsEveryRegionEntry)
     EXPECT_TRUE (Compile (doc).paths.empty ());
 }
 
+TEST (EditLandscapeFieldPlan, PropertyLineIsCompiledAndChangesThePlanHash)
+{
+    auto doc = Start ();
+    std::string error;
+    const auto first = Source (doc, { { -10, -10, 0 }, { 30, -10, 0 }, { 30, 30, 0 }, { -10, 30, 0 } });
+    ASSERT_TRUE (geo::SetLandscapePropertyLine (doc, first, error)) << error;
+    const auto before = Compile (doc);
+    ASSERT_TRUE (before.ok) << before.error;
+    ASSERT_EQ (before.propertyLine.size (), 4u);
+    EXPECT_EQ (before.propertyLineSource, first);
+    EXPECT_NE (before.propertyLineRevision, 0u);
+
+    const auto second = Source (doc, { { -20, -20, 0 }, { 40, -20, 0 }, { 40, 40, 0 }, { -20, 40, 0 } });
+    ASSERT_TRUE (geo::SetLandscapePropertyLine (doc, second, error)) << error;
+    const auto after = Compile (doc);
+    ASSERT_TRUE (after.ok) << after.error;
+    EXPECT_EQ (after.propertyLineSource, second);
+    EXPECT_NE (after.propertyLine, before.propertyLine);
+    EXPECT_NE (after.hash, before.hash);
+}
+
 TEST (EditLandscapeFieldPlan, LockedControlsAndMasksAreCompiledWithCoverage)
 {
     auto doc = Start ();
     std::string error;
     // A property line so terrain masks are bounded, then a configured region.
-    ASSERT_TRUE (geo::SetLandscapePropertyLine (
-        doc, Source (doc, { { -10, -10, 0 }, { 30, -10, 0 }, { 30, 30, 0 }, { -10, 30, 0 } }), error))
-        << error;
+    const auto propertySource =
+        Source (doc, { { -10, -10, 0 }, { 30, -10, 0 }, { 30, 30, 0 }, { -10, 30, 0 } });
+    ASSERT_TRUE (geo::SetLandscapePropertyLine (doc, propertySource, error)) << error;
     const auto owner = Region (doc, 0);
     Configure (doc, owner, 2);
     // A grading limit reaching the region: the mask square overlaps the region square.
@@ -374,6 +395,9 @@ TEST (EditLandscapeFieldPlan, LockedControlsAndMasksAreCompiledWithCoverage)
 
     const auto plan = Compile (doc);
     ASSERT_TRUE (plan.ok) << plan.error;
+    ASSERT_EQ (plan.propertyLine.size (), 4u);
+    EXPECT_EQ (plan.propertyLineSource, propertySource);
+    EXPECT_NE (plan.propertyLineRevision, 0u);
     ASSERT_EQ (plan.masks.size (), 1u);
     EXPECT_EQ (plan.masks[0].kind, geo::OperationKind::GradingLimit);
     EXPECT_EQ (plan.masks[0].operation, limitId);

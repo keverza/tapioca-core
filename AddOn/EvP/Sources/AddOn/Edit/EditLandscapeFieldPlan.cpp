@@ -42,6 +42,16 @@ void HashIdVector (uint64_t& hash, const std::vector<Id>& ids)
     for (Id id : ids)
         HashBytes (hash, &id, sizeof id);
 }
+void HashPoints (uint64_t& hash, const std::vector<Vec3>& points)
+{
+    const uint64_t count = points.size ();
+    HashBytes (hash, &count, sizeof count);
+    for (const auto& p : points) {
+        HashNumber (hash, p.x);
+        HashNumber (hash, p.y);
+        HashNumber (hash, p.z);
+    }
+}
 void HashMaterial (uint64_t& hash, const MaterialSpec& material)
 {
     HashBytes (hash, &material.preset, sizeof material.preset);
@@ -109,6 +119,9 @@ uint64_t FieldPlanHash (const FieldPlan& plan)
     HashBytes (hash, &plan.captureRevision, sizeof plan.captureRevision);
     HashBytes (hash, plan.session.data (), plan.session.size ());
     HashText (hash, plan.sourceTerrainGuid);
+    HashPoints (hash, plan.propertyLine);
+    HashBytes (hash, &plan.propertyLineRevision, sizeof plan.propertyLineRevision);
+    HashBytes (hash, &plan.propertyLineSource, sizeof plan.propertyLineSource);
     for (const auto& entry : plan.entries) {
         HashBytes (hash, &entry.order, sizeof entry.order);
         HashBytes (hash, &entry.priority, sizeof entry.priority);
@@ -358,6 +371,9 @@ FieldPlan CompileLandscapeFieldPlan (const LandscapeSnapshot& snapshot)
         return refuse (FieldPlanDiagnosticCode::EvaluationRefused,
                        "FieldPlanDomain: " +
                            (evaluated.error.empty () ? "landscape evaluation refused" : evaluated.error));
+    plan.propertyLine = evaluated.propertyLine;
+    plan.propertyLineRevision = evaluated.propertyLineRevision;
+    plan.propertyLineSource = session.propertyLineSourceId;
     std::map<Id, size_t> topoIndex;
     for (size_t i = 0; i < order.size (); ++i)
         topoIndex.emplace (order[i], i);

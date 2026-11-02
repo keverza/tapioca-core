@@ -22,7 +22,7 @@ struct Document;
 
 namespace tapioca::geometry {
 
-inline constexpr uint32_t kFieldPlanVersion = 1;
+inline constexpr uint32_t kFieldPlanVersion = 2;
 
 // Owned equivalent of the path lane's design request (no caller-owned spans):
 // which document path is designed and the band parameters the existing C++
@@ -158,6 +158,11 @@ struct FieldPlan {
     uint64_t captureRevision = 0; // Capture identity; 0 when none.
     std::array<uint8_t, 16> session {};
     std::string sourceTerrainGuid;
+    // Evaluated property/terrain boundary consumed by the unified mesh build.
+    // Empty means the document has no authored property line yet.
+    std::vector<Vec3> propertyLine;
+    uint64_t propertyLineRevision = 0;
+    Id propertyLineSource = kNoId;
     std::vector<FieldPlanEntry> entries;
     std::vector<FieldPlanPath> paths;
     std::vector<FieldPlanMask> masks;
