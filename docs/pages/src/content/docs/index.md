@@ -35,8 +35,9 @@ The add-on registers one **Tapioca** menu in Archicad 29 with these surfaces:
   commands from the managed command directory.
 - **Node Graph** — a node-graph workflow editor palette backed by the same
   command catalog.
-- **Tapioca 3D Viewer**, **Tapioca 2D Overlay**, and **Tapioca 3D Overlay** —
-  hosted viewer and overlay surfaces driven by native commands.
+- **Tapioca 3D Viewer** — a standalone GPU viewport of the live model; see
+  [3D viewer](#3d-viewer). **Tapioca 2D Overlay** and **Tapioca 3D Overlay**
+  draw analysis layers inside Archicad's own views.
 - **Grasshopper Editor**, **Run Grasshopper Definition**, and the
   **rhino.compute** start/stop items — integration entry points that need the
   matching external applications installed.
@@ -45,6 +46,64 @@ Behind the palette, the shipped Python facade and the generated native
 `Tapioca.*` command catalog provide the model access; see the
 [API boundary](./api/).
 
+## 3D viewer
+
+The **Tapioca 3D Viewer** (Tapioca menu) is a standalone GPU viewport of the
+live Archicad model, rendered by the Diligent engine inside the add-on. It is
+not a baked export: the scene is populated progressively from the model while
+it stays interactive, and the caches it builds are derived working data, never
+a second BIM authority.
+
+What it supports today:
+
+- **Navigation** — orbit, pan, and zoom in the viewer window, with the camera
+  synchronised to Archicad's 3D window (`Tapioca.SetDiligentCameraSync`,
+  `Tapioca.ViewerAutoOrbit`).
+- **Picking and selection** — picking in the viewport maps back to Archicad's
+  selection (`Tapioca.SetDiligentSelectionBridge`).
+- **Rendering** — shaded, wireframe, and debug views (`Tapioca.SetDiligentRenderMode`,
+  `Tapioca.SetDiligentDebugView`), sun and environment lighting
+  (`Tapioca.SetDiligentSun`, `Tapioca.SetDiligentEnvironmentMap`), and
+  model-anchored text labels (`Tapioca.SetDiligentTextLabels`).
+- **Captures** — viewport screenshots (`Tapioca.CaptureScreenshot`) and
+  fixed-size off-screen renders at `fast` or `realistic` quality with optional
+  story-slice overlays (`Tapioca.StartDiligentCapture`).
+- **Sun studies and point clouds** — Archicad sun-study atlases on the model
+  (`Tapioca.StartSunStudy`, `Tapioca.ShowSunStudy`) and tiled point-cloud
+  display (`Tapioca.LoadDiligentPointCloud`).
+
+### Drive it from Python
+
+The `tapioca.diligent` facade wraps the camera, preset, label, and capture
+commands; every wrapper reduces to the native calls listed above:
+
+```python
+import tapioca
+
+# Freeze the current viewer camera as a named, reusable preset.
+tapioca.diligent.save_camera("south-elevation")
+
+# Restore it later and render a fixed-size frame from it.
+tapioca.diligent.apply_camera("south-elevation")
+artifact, png = tapioca.diligent.capture("south-elevation", "south-elevation", 1920, 1080)
+tapioca.ui.text("PNG: %s" % artifact.path)
+```
+
+### Drive it fully natively
+
+Any registered `Tapioca.*` viewer command can be called directly through the
+envelope, without the Python facade:
+
+```python
+tapioca.api.call("Tapioca.SetDiligentSun", {"enabled": True})
+tapioca.api.call("Tapioca.ViewerAutoOrbit", {"enabled": True})
+```
+
+The exact parameters and outputs of every viewer command are listed in the
+generated [API catalog](https://github.com/keverza/tapioca-core/blob/main/dist/TAPIOCA-API-V2.md);
+the rendering contract is specified in the
+[Diligent viewer specification](https://github.com/keverza/tapioca-core/blob/main/docs/architecture/diligent/SPEC.md).
+
 ## Learn by example
 
 The public repository contains small commands that can be run without the
@@ -52,7 +111,7 @@ private development workspace:
 
 - [`HelloCommand`](https://github.com/keverza/tapioca-core/tree/main/Examples/HelloCommand)
   demonstrates a text input and a result.
-- [`SelectionTable`](https://github.com/keverza/tapioca-core/tree/main/Examples/SelectionTable)
+- [`SelectionReport`](https://github.com/keverza/tapioca-core/tree/main/Examples/SelectionReport)
   reads the active selection.
 - [`PropertySummary`](https://github.com/keverza/tapioca-core/tree/main/Examples/PropertySummary)
   resolves and reads a built-in property.
