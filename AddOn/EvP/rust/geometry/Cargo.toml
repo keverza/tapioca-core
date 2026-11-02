@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Platform-independent geometry kernel scaffold; no algorithms yet."
+description = "Platform-independent geometry kernel."
 
 # S3a.0: constrained Delaunay for the terrain TIN (G11). Pinned exactly and vendored;
 # default features only (std). check_rust.py holds the complete transitive allow-list.

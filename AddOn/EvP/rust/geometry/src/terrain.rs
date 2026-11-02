@@ -43,6 +43,7 @@ mod refine;
 pub mod region;
 mod split;
 pub mod surface;
+mod unified;
 mod verify;
 pub mod volume;
 
@@ -53,6 +54,10 @@ mod tests;
 
 pub use refine::{Refinement, Steiner, SteinerOrigin};
 pub use split::{Host, LineEdge, NewVertex, Origin, SplitMesh, SplitRequest, split_mesh};
+pub use unified::{
+    Baseline, BuildError, BuiltTerrain, Entry, LineOrigin, Part, Plan, Surface, Terrain,
+    TerrainEffect, Transition, build_terrain,
+};
 pub use verify::{extract_edges, verify_constraints};
 
 /// What a constraint polyline means for the surface and its domain.

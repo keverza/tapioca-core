@@ -12,6 +12,8 @@ invariants, C++ parity oracle, and tests. Keep changes independently verifiable.
   forbidden); C++ remains its parity oracle. See the guide's sun-study section.
 - `geometry/` owns pure computation; `ffi/` may depend on `geometry/`, never the
   reverse. Cargo and `check_rust.py` enforce this crate-level dependency boundary.
+  `geometry/src/terrain/unified.rs` owns the #112 P3 pure field-to-terrain build;
+  its first slice is region-only and has no ABI/export or production consumer yet.
 - No Archicad, Diligent, ImGui, Windows, CPython, process, filesystem, network, or
   UI APIs in geometry. No callbacks into the host from algorithms.
 - Do not create the proposed math/topology/terrain directory tree in advance.

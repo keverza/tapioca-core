@@ -16,6 +16,9 @@ unsupported ABI; explicit CMake OFF is the legacy rollback path. Structural iden
 views, immutable validation round-trips and complete detached value/catalog
 validation are implemented. C++ engines remain the
 production geometry authorities; no algorithm or consumer flag is switched.
+#112 P3 additionally adds the pure `terrain::build_terrain(baseline, plan)` field
+stack over one constrained region topology. It is Rust-only in this slice: no ABI
+export, C++ wrapper or production lane consumes it yet.
 
 ## G1 mesh-preparation parity services
 
@@ -627,6 +630,29 @@ equality (including >2^53 IDs, ordered DAG parents, native links and exact
 historical predecessors), self-aliasing and atomic refusal. Existing standalone
 C/C++ identity smoke and refusing stubs exercise the new symbol, without adding
 another executable or a test-only production export. Full S2b remains incomplete.
+
+## #112 P3 unified field build (`terrain::build_terrain`, Rust only)
+
+`terrain::build_terrain(baseline, plan)` is the first pure-Rust slice of the
+landscape mesh authority. An explicit closed property ring and every domain
+outer/hole edge are assembled as breaklines of one `region` rebuild, preserving
+the baseline-affine triangles needed for exact volumes. The ordered region stack
+then evaluates Existing/Constant targets with the reconciled absolute effects:
+Grade sets the target, Add keeps `max(h, t)`, and Subtract keeps `min(h, t)`.
+Later entries override earlier entries; falloff and daylight transitions are
+entry-local. The result carries proposed points, sampled baseline heights,
+per-vertex owners, complete `RegionMesh` correspondence, per-line plan origins,
+exact site/context volumes, and the caller's revision/plan hash.
+
+This is deliberately a region-only foundation slice. Path bands, grading masks,
+locked controls, surface modes beyond Existing/Constant, hard-step
+duplication/refusal, ABI export, C++ wrapper and production dispatch are later
+P3 slices. Hard 2.5D domain boundaries currently share vertices with the
+neighbouring surface, so exact volumes include boundary interpolation rather
+than claiming a vertical wall. Tests cover empty plans, holes/islands/disjoint
+parts, overlap order reversal, Add/Subtract, falloff/daylight distances, exact
+volume reconciliation, deterministic repeat, malformed plans, missing property
+rings, out-of-property refusal and input immutability.
 
 ## S3a.1 terrain TIN (`geometry::terrain`, Rust only)
 
