@@ -878,7 +878,8 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathTopology.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathSurface.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathOutlineCache.cpp"
-    "${EVP_ROOT}/Sources/AddOn/Edit/EditProfileView.cpp")
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditProfileView.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPublishedMesh.cpp")
 # The kernel without the Rust terrain bridge, for the editor benchmark.
 set (EVP_EDIT_CORE_SOURCES ${EVP_EDIT_SOURCES})
 
@@ -916,6 +917,7 @@ set (EVP_TEST_SOURCES
     test_editlandscapedomain.cpp
     test_editlandscapefieldplan.cpp
     test_editpublishedterrain.cpp
+    test_editmeshsnapshot.cpp
     test_editregionsurface.cpp
     test_editregioncontourslope.cpp
     test_editmaterial.cpp
