@@ -771,6 +771,24 @@ control movement books to the baseline row (the kernel clears the owner on
 locked vertices), the owner fallback for transition bands is a highest-order
 heuristic, and per-domain site/context splits are not part of the row type.
 
+P5 is the cleanup close-out. In the HUD, `Author` (the one document-mutating
+step of a design start, applied as a single history entry) is now separated
+from `StartTerrainDesignWorker`, the read-only poll-side worker start that
+consumes the immutable document snapshot and never changes revision or object
+counts. The Region panel's winner ranking is aligned with the plan stack:
+candidates rank by (root priority, topological position), later overrides
+earlier, with the shared-root object-id order left a deterministic plan detail
+the panel still refuses as ambiguous. The persisted
+`RegionTerrainEffect::{Add,Subtract}` values are unchanged; presentation reads
+Grade/Raise-only/Lower-only, never signed displacement. Production discovery is
+plan-owned: the unified lane derives the region-stage decision from
+`plan.entries`, and the `TerrainRegionObjects` scan survives only as the
+legacy-lane routing pre-filter, the HUD per-frame poll gates and the region
+stage's own guard. The final DAG → plan → unified build → publication →
+diagnostics contract is recorded in the landscape handoff (§10); the two
+documented routing exceptions (outline grading, targetless requests) are
+unchanged.
+
 A zero-reach absolute target that differs from baseline at its boundary, or from
 another sharp claim at the same position, refuses with `BuildHardStep`. Overlap
 and nesting are not exemptions: one shared TIN vertex cannot represent two

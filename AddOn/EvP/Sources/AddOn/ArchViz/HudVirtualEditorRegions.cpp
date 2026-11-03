@@ -4,6 +4,7 @@
 #include "ArchViz/HudSlopeFields.hpp"
 #include <algorithm>
 #include <set>
+#include <utility>
 
 // OVERLAY-INVARIANTS.md §§8,14: model edits stay in the existing session/history;
 // this inspector changes no input ownership, renderer or native-write lifecycle.
@@ -20,8 +21,7 @@ bool FaceInside (edit::Vec3 point, const std::vector<std::vector<edit::Vec3>>& r
         for (size_t i = 0, j = ring.size () - 1; i < ring.size (); j = i++) {
             const auto& a = ring[i];
             const auto& b = ring[j];
-            if ((a.y > point.y) != (b.y > point.y) &&
-                point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x)
+            if ((a.y > point.y) != (b.y > point.y) && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x)
                 inside = !inside;
         }
     return inside;
@@ -123,12 +123,17 @@ bool RegionSlopeFields (Session& s, lg::Id object, const SlopeFieldLabels& label
 
 // #112 P1: the panel's durable object is resolved from what is actually selected.
 // A boundary-owner source line resolves its object directly (boundarySource is
-// unique). An evaluated face resolves to the single candidate whose root operation
-// is latest in topological DAG order -- the same default the compiled field plan
-// uses, where a derived result follows its operands and wins in its output domain --
-// so a Boolean output stays selectable while its operand regions remain editable.
-// Anything else (no candidate, two objects sharing a root, disagreeing picks)
-// refuses: the panel names no ambiguous domain.
+// unique). An evaluated face resolves to the single candidate the compiled field
+// plan lets win. #112 P5: the plan stacks entries by (root priority, topological
+// position, object id) with later entries overriding earlier ones, so the panel
+// ranks candidates by (priority, topological position) and takes the maximum --
+// a derived result still follows its operands at equal priority, while an
+// explicit priority overrides topological recency exactly as the build does.
+// The plan's object-id tie-break only orders a shared-root stack deterministically;
+// the panel keeps refusing that case as ambiguous rather than silently following
+// object id -- the one intentional selection distinction. Anything else (no
+// candidate, two objects sharing the winning root, disagreeing picks) refuses:
+// the panel names no ambiguous domain.
 edit::Id detail::SelectedRegionObject (Session& s)
 {
     const auto& doc = s.edits.Doc ();
@@ -144,8 +149,11 @@ edit::Id detail::SelectedRegionObject (Session& s)
     const auto rank = [&] (edit::Id objectId) {
         const auto& object = *std::find_if (doc.landscape->objects.begin (), doc.landscape->objects.end (),
                                             [=] (const auto& o) { return o.id == objectId; });
+        const auto root = std::find_if (doc.landscape->operations.begin (), doc.landscape->operations.end (),
+                                        [=] (const auto& op) { return op.id == object.footprintOperation; });
         const auto it = std::find (order.begin (), order.end (), object.footprintOperation);
-        return it == order.end () ? -1 : static_cast<int> (std::distance (order.begin (), it));
+        return std::pair<int, int> (root != doc.landscape->operations.end () ? root->priority : 0,
+                                    it == order.end () ? -1 : static_cast<int> (std::distance (order.begin (), it)));
     };
     std::set<edit::Id> resolved;
     for (const auto& ref : s.selection.Items ())
@@ -285,9 +293,11 @@ void RegionPanel (Session& s, bool materialsOnly)
                                 "Choose Constant to author a flat level or slope.");
         ImGui::BeginDisabled (surface.elevation == lg::RegionElevationMode::Existing);
         int effect = int (terrain.effect);
-        if (ImGui::Combo (
-                "Terrain interaction", &effect,
-                "None (target preview only)\0Grade (cut and fill)\0Add (raise only)\0Subtract (lower only)\0")) {
+        // #112 P5: presentation names only — the persisted RegionTerrainEffect
+        // values stay Grade/Add/Subtract; Add/Subtract are raise-only/lower-only
+        // clamps, never signed displacement.
+        if (ImGui::Combo ("Terrain interaction", &effect,
+                          "None (target preview only)\0Grade (cut and fill)\0Raise-only\0Lower-only\0")) {
             terrain.effect = lg::RegionTerrainEffect (effect);
             terrainChanged = true;
         }

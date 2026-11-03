@@ -94,7 +94,9 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
     // authority — region-only, band path-only and mixed. Two documented
     // exceptions keep the legacy lane: outline grading (no unified equivalent
     // yet) and a request with neither a region target nor a path, where the
-    // legacy refusal text is the established diagnostic.
+    // legacy refusal text is the established diagnostic. #112 P5: this scan is
+    // only the cheap routing pre-filter so the legacy lane pays no plan cost;
+    // inside the unified lane the compiled plan owns region discovery.
     if (job.doc && TerrainRegionObjects (*job.doc).empty () && (!job.options.source || job.options.outline))
         return RunTerrainDesign (job);
     TerrainDesignOutcome outcome;
@@ -116,17 +118,6 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
             baseline = std::move (surface);
         }
         outcome.capture = baseline;
-        const bool hasRegions = !TerrainRegionObjects (*job.doc).empty ();
-        if (hasRegions) {
-            // The attributed area stage stays the region diagnostic/reporting
-            // view; the unified authority rebuilds the domains itself from the
-            // same plan. Path-only scenes skip it (it refuses without region
-            // objects), exactly as the legacy lane never ran it.
-            auto regions = std::make_shared<RegionTerrainResult> ();
-            if (!EvaluateRegionTerrain (*job.doc, baseline, *regions, outcome.error))
-                return outcome;
-            outcome.regions = std::move (regions);
-        }
         // One plan → one unified build over the original immutable baseline →
         // one neutral publication, for all three scene shapes. The removed
         // region-first/path-second composition is never a failure fallback.
@@ -160,6 +151,23 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
             snapshot.path = request;
         }
         const FieldPlan plan = CompileLandscapeFieldPlan (snapshot);
+        // #112 P5: the compiled plan owns region discovery — the region stage
+        // runs exactly when the plan has entries (an active owner is a
+        // configured effect on a live root on both sides). The P1 object scan
+        // survives only as the cheap routing pre-filter above; the HUD keeps it
+        // for per-frame polling gates, where compiling a plan per frame is not
+        // viable.
+        const bool hasRegions = !plan.entries.empty ();
+        if (hasRegions) {
+            // The attributed area stage stays the region diagnostic/reporting
+            // view; the unified authority rebuilds the domains itself from the
+            // same plan. Path-only scenes skip it (the plan has no entries),
+            // exactly as the legacy lane never ran it.
+            auto regions = std::make_shared<RegionTerrainResult> ();
+            if (!EvaluateRegionTerrain (*job.doc, baseline, *regions, outcome.error))
+                return outcome;
+            outcome.regions = std::move (regions);
+        }
         if (!ValidateLandscapeFieldPlanForBuild (plan, outcome.error)) {
             outcome.error = "LandscapeFieldPlan: " + outcome.error;
             return outcome;

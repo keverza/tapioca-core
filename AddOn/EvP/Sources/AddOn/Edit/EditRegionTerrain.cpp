@@ -74,8 +74,10 @@ std::vector<Id> TerrainRegionObjects (const geomsrv::edit::Document& doc)
 {
     // #112 P1: valid owned-root discovery. The durable owner object and its root
     // operation are the identity; boundarySource stays optional lifecycle metadata
-    // so Boolean-derived configured domains participate. P2 replaces this scan
-    // with the compiled field plan.
+    // so Boolean-derived configured domains participate. #112 P5: the compiled
+    // field plan owns production discovery (the unified lane derives the region
+    // stage from plan entries); this scan survives for the legacy-lane routing
+    // pre-filter, the HUD's per-frame poll gates, and this stage's own guard.
     std::vector<Id> ids;
     if (doc.landscape)
         for (const auto& object : doc.landscape->objects)

@@ -207,6 +207,11 @@ bool Idle (const Session& s)
     return (!s.edits.InGesture () || s.terrainSectionDrag) && !GizmoModeLocked (s) && s.drawing.empty ();
 }
 
+// #112 P5: the one authoring step of a design start. It may set the terrain
+// source and add the stroke operation/object, so it always runs on a candidate
+// document and lands as one Session history apply (revision/object counts may
+// change here, by design). The worker start (StartTerrainDesignWorker) is its
+// read-only counterpart and never authors.
 bool Author (edit::Document& doc, const Mesh& mesh, edit::Id path, bool band, lg::TerrainDesignOptions& options,
              std::string& error)
 {
@@ -221,7 +226,7 @@ bool Author (edit::Document& doc, const Mesh& mesh, edit::Id path, bool band, lg
     if (!path) {
         const auto regions = lg::TerrainRegionObjects (doc);
         if (regions.empty ()) {
-            error = "Enable Grade/Add/Subtract on a region or choose a design path.";
+            error = "Enable Grade/Raise-only/Lower-only on a region or choose a design path.";
             return false;
         }
         const auto& objects = doc.landscape->objects;
@@ -268,6 +273,35 @@ bool Author (edit::Document& doc, const Mesh& mesh, edit::Id path, bool band, lg
     options.meshTable = 4;
     lg::TerrainCapture capture;
     return lg::CaptureLandscapeTerrain (doc, mesh, { options.object, 2, 1 }, capture, error);
+}
+
+// #112 P5: the worker-start counterpart of Author, called from PollTerrainDesign
+// once the document revision moves. It consumes the current immutable document
+// snapshot and never authors: no history apply, no added operations or objects,
+// so a worker start leaves the document revision and object counts unchanged.
+void StartTerrainDesignWorker (Session& s, TerrainDesignState& state)
+{
+    const auto& doc = s.edits.Doc ();
+    state.requestedRevision = doc.revision; // Refusals retry only after an edit.
+    state.error.clear ();
+    auto capture = std::make_shared<lg::TerrainCapture> ();
+    lg::TerrainDesignJob job;
+    if (!lg::CaptureLandscapeTerrain (doc, *state.baseline.mesh, { state.options.object, 2, 1 }, *capture,
+                                      state.error) ||
+        !state.publisher.Prepare (doc, capture, state.options, {}, job, state.error)) {
+        LogTerrain (s, "worker prepare refused: " + state.error);
+        return;
+    }
+    job.surfaceTable = state.baseline.nativeSolid ? 5 : 0;
+    try {
+        LogTerrain (s, "worker launch generation=" + std::to_string (job.generation) +
+                           " nativeSurfaceRequired=" + std::to_string (job.surfaceTable != 0));
+        state.worker = lg::LaunchLandscapeTerrainDesign (std::move (job));
+    }
+    catch (const std::exception& exception) {
+        state.error = std::string ("TerrainDesignWorker: ") + exception.what ();
+        LogTerrain (s, "worker launch refused: " + state.error);
+    }
 }
 } // namespace
 
@@ -332,7 +366,7 @@ bool SetTerrainBaseline (Session& s, TerrainDesignBaseline baseline, edit::Id pa
     s.terrainDesign.reset ();
     s.terrainBaseline = std::make_shared<TerrainDesignBaseline> (std::move (baseline));
     s.publishedRevision = UINT64_MAX;
-    s.message = "Terrain set. Enable a region's Grade/Add/Subtract or draw/select a design path.";
+    s.message = "Terrain set. Enable a region's Grade/Raise-only/Lower-only or draw/select a design path.";
     LogTerrain (s, "baseline held guid=" + s.terrainBaseline->mesh->guid);
     return true;
 }
@@ -408,26 +442,9 @@ void PollTerrainDesign (Session& s)
         s.publishedRevision = UINT64_MAX;
         return;
     }
-    state.requestedRevision = doc.revision; // Refusals retry only after an edit.
-    state.error.clear ();
-    auto capture = std::make_shared<lg::TerrainCapture> ();
-    lg::TerrainDesignJob job;
-    if (!lg::CaptureLandscapeTerrain (doc, *state.baseline.mesh, { state.options.object, 2, 1 }, *capture,
-                                      state.error) ||
-        !state.publisher.Prepare (doc, capture, state.options, {}, job, state.error)) {
-        LogTerrain (s, "worker prepare refused: " + state.error);
-        return;
-    }
-    job.surfaceTable = state.baseline.nativeSolid ? 5 : 0;
-    try {
-        LogTerrain (s, "worker launch generation=" + std::to_string (job.generation) +
-                           " nativeSurfaceRequired=" + std::to_string (job.surfaceTable != 0));
-        state.worker = lg::LaunchLandscapeTerrainDesign (std::move (job));
-    }
-    catch (const std::exception& exception) {
-        state.error = std::string ("TerrainDesignWorker: ") + exception.what ();
-        LogTerrain (s, "worker launch refused: " + state.error);
-    }
+    // #112 P5: the worker start is Author's read-only counterpart (see above):
+    // it consumes this immutable snapshot and never changes revision or counts.
+    StartTerrainDesignWorker (s, state);
 }
 
 const lg::TerrainDesignOutcome* CurrentTerrainDesign (const Session& s)
