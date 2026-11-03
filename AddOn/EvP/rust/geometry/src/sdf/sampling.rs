@@ -352,13 +352,29 @@ pub fn sample(
     limits: SamplingLimits,
     cancel: &CancellationToken,
 ) -> Result<SampledGrid, SamplingError> {
+    let poll = || cancel.is_cancelled();
+    sample_with_cancellation(field, grid, strategy, limits, Some(&poll))
+}
+
+/// Callback-driven cancellation variant used by the FFI boundary. The geometry
+/// crate knows only a boolean poll, never a host API or foreign atomic.
+///
+/// # Errors
+/// Same atomic grid/budget/field/cancellation contract as [`sample`].
+pub fn sample_with_cancellation(
+    field: &PreparedField,
+    grid: GridSpec,
+    strategy: SamplingStrategy,
+    limits: SamplingLimits,
+    cancel: Option<&dyn Fn() -> bool>,
+) -> Result<SampledGrid, SamplingError> {
     let total = grid.total_points()?;
     let dense_limit = limits.max_dense_points.min(64_000_000);
     let sparse_limit = limits.max_sparse_stored_points.min(8_000_000);
     if strategy == SamplingStrategy::Dense && total > dense_limit {
         return Err(SamplingError::GridBudget);
     }
-    if cancel.is_cancelled() {
+    if cancel.is_some_and(|poll| poll()) {
         return Err(SamplingError::Cancelled);
     }
     let mut stats = SamplingStats {
@@ -392,7 +408,7 @@ pub fn sample(
 fn sample_dense(
     field: &PreparedField,
     grid: GridSpec,
-    cancel: &CancellationToken,
+    cancel: Option<&dyn Fn() -> bool>,
     stats: &mut SamplingStats,
 ) -> Result<DenseGrid, SamplingError> {
     let total = grid.total_points()?;
@@ -402,7 +418,7 @@ fn sample_dense(
     for z in 0..nz {
         for y in 0..ny {
             for x in 0..nx {
-                if values.len() % 512 == 0 && cancel.is_cancelled() {
+                if values.len() % 512 == 0 && cancel.is_some_and(|poll| poll()) {
                     return Err(SamplingError::Cancelled);
                 }
                 let point = grid.point([x, y, z]).ok_or(SamplingError::InvalidGrid)?;
@@ -425,14 +441,14 @@ struct SparseContext<'a> {
     field: &'a PreparedField,
     grid: GridSpec,
     stored_limit: u64,
-    cancel: &'a CancellationToken,
+    cancel: Option<&'a dyn Fn() -> bool>,
 }
 
 fn sample_sparse(
     field: &PreparedField,
     grid: GridSpec,
     stored_limit: u64,
-    cancel: &CancellationToken,
+    cancel: Option<&dyn Fn() -> bool>,
     stats: &mut SamplingStats,
 ) -> Result<SparseGrid, SamplingError> {
     let context = SparseContext {
@@ -458,7 +474,7 @@ fn sample_region(
     stats: &mut SamplingStats,
     sparse: &mut SparseGrid,
 ) -> Result<(), SamplingError> {
-    if context.cancel.is_cancelled() {
+    if context.cancel.is_some_and(|poll| poll()) {
         return Err(SamplingError::Cancelled);
     }
     stats.regions = stats
@@ -521,7 +537,7 @@ fn evaluate_block(
     for z in 0..dimensions[2] {
         for y in 0..dimensions[1] {
             for x in 0..dimensions[0] {
-                if values.len() % 64 == 0 && context.cancel.is_cancelled() {
+                if values.len() % 64 == 0 && context.cancel.is_some_and(|poll| poll()) {
                     return Err(SamplingError::Cancelled);
                 }
                 let index = [origin[0] + x, origin[1] + y, origin[2] + z];

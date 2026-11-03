@@ -880,6 +880,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathOutlineCache.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditProfileView.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPublishedMesh.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditVolumetricDetail.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditMeshTopology.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditMeshStats.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditMeshClean.cpp")
@@ -923,6 +924,7 @@ set (EVP_TEST_SOURCES
     test_editmeshsnapshot.cpp
     test_editmeshstats.cpp
     test_editmeshclean.cpp
+    test_editvolumetricdetail.cpp
     test_editregionsurface.cpp
     test_editregioncontourslope.cpp
     test_editmaterial.cpp
@@ -1322,6 +1324,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${GEOM_DIR}/GeometryRustArc.cpp"
         "${GEOM_DIR}/GeometryRustPlane.cpp"
         "${GEOM_DIR}/GeometryRustMeshPrep.cpp"
+        "${GEOM_DIR}/GeometryRustSdf.cpp"
         "${GEOM_DIR}/GeometryRustGrading.cpp"
         "${GEOM_DIR}/GeometryRustTerrainField.cpp"
         "${GEOM_DIR}/GeometryRustHybridTerrain.cpp"
@@ -1382,6 +1385,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editsparsesolve.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_grading.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_mesh_prep.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_sdf.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_extraction.cpp")
     TapiocaLinkRustCore (EvPGeomTests)
 endif ()

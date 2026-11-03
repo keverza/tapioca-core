@@ -18,12 +18,13 @@ pub use field::{
     PreparedField, StackEntry, StackOperation, ValueRange,
 };
 pub use meshing::{
-    BuildLimits, MeshResult, MeshingError, MeshingLimits, MeshingStats, build_mesh, marching_cubes,
+    BuildLimits, MeshResult, MeshingError, MeshingLimits, MeshingStats, build_mesh,
+    build_mesh_with_cancellation, marching_cubes, marching_cubes_with_cancellation,
 };
 pub use primitive::{Frame, Primitive};
 pub use sampling::{
     CancellationToken, GridSpec, SampledGrid, SamplingError, SamplingLimits, SamplingStats,
-    SamplingStrategy, sample,
+    SamplingStrategy, sample, sample_with_cancellation,
 };
 
 /// Conservative axis-aligned world-metre bounds.

@@ -13,6 +13,14 @@ publish atomically without retained Rust handles or semantic-ID allocation.
 Both calls are worker-classified. See the guide's S3a.2 contract; no production
 consumer, native terrain acceptance or full-stage performance gate is implied.
 
+#140 SDF-1d adds `tapioca_sdf_build`: fixed-POD ordered field ingress,
+nonthrowing callback cancellation, deterministic query/fill meshing and atomic
+caller-owned output. The owned C++ record/facade produces a provisional
+`PublishedMesh` and verifies the published-mesh content hash. Full-capacity
+alias preflight and refusal tests preserve prior results. This is a worker-
+classified offline capability only: no session persistence, production dispatch,
+terrain write, async publication or native Accept consumer is enabled.
+
 The aggregate `tapioca-core-ffi` staticlib exports `tapioca_version` and shared
 legacy geometry-only mesh/snapshot validators, with status/error handling and
 panic containment. The add-on and offline C++ suite link it by default through a

@@ -114,3 +114,12 @@ target_include_directories (TapiocaRustUnifiedSmoke PRIVATE "${CMAKE_CURRENT_LIS
     "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry")
 TapiocaLinkRustCore (TapiocaRustUnifiedSmoke)
 add_test (NAME TapiocaRustUnifiedSmoke COMMAND TapiocaRustUnifiedSmoke)
+
+# #140 SDF-1d: real C11 POD/query/fill/refusal against the linked Rust archive.
+add_executable (TapiocaRustSdfSmoke tests/sdf_smoke.c tests/sdf_smoke.cpp)
+set_target_properties (TapiocaRustSdfSmoke PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES
+    CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES)
+target_include_directories (TapiocaRustSdfSmoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn"
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry")
+TapiocaLinkRustCore (TapiocaRustSdfSmoke)
+add_test (NAME TapiocaRustSdfSmoke COMMAND TapiocaRustSdfSmoke)

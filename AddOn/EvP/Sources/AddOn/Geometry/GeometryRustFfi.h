@@ -5,7 +5,8 @@
 #include <stdint.h>
 
 /* Aggregate ABI v1. Only implemented exports are declared here. No SDK or
- * Rust/C++ containers, native bool, exceptions, callbacks or retained borrows.
+ * Rust/C++ containers, native bool, exceptions or retained borrows. Explicit
+ * nonthrowing cancellation callbacks are call-scoped where documented.
  * Legacy geometry validation and attributed structural validation are separate
  * gates. No validator proves geometric contributor truth or allocates IDs. */
 #define TAPIOCA_ABI_VERSION UINT32_C (1)
@@ -1306,6 +1307,78 @@ TapiocaStatus tapioca_terrain_hybrid_conflicts (const TapiocaTerrainHybridReques
                                                 size_t errorCapacity);
 TapiocaStatus tapioca_terrain_edit_clips (const TapiocaTerrainEditRequest* request,
                                           const TapiocaTerrainClipOutput* output, char* error, size_t errorCapacity);
+
+/* #140 SDF-1d additive ABI-v1. Fixed tagged entries and call-scoped pool views.
+ * Kind: 1 group, 2 sphere, 3 rounded box, 4 capsule, 5 extrude.
+ * Boolean: 1 Union, 2 Subtract, 3 Intersect; group Boolean is zero.
+ * Profile: 1 Sharp, 2 Round. Strategy: 1 dense, 2 sparse.
+ * Group: isolated/blend apply to its one Union into the parent; material/profile
+ * ranges/geometry are zero. Sphere: a=center, radius. Box: a=frame origin,
+ * axes=local xyz world axes, half=outer half extents, radius=edge radius.
+ * Capsule: a/b=endpoints, radius. Extrude: a/axes=frame, halfHeight and a
+ * scalar range in profilePoints containing local xy pairs. Unused fields zero.
+ * Enabled/isolated are 0 or 1. IDs/materials are positive; soloOperation=0 is
+ * no solo. All lengths are world metres; output positions remain f64. */
+typedef struct {
+    void* context;
+    uint8_t (*isCancelled) (void* context); /* Nonthrowing; NULL means never. */
+} TapiocaSdfCancelCallback;
+typedef struct {
+    uint64_t id;
+    uint32_t kind, operation, profile, enabled, isolated, reserved;
+    double blendRadius;
+    int32_t materialId;
+    uint32_t profileOffset, profileCount, reserved2;
+    double a[3], b[3], axes[9], half[3];
+    double radius, halfHeight;
+} TapiocaSdfEntry;
+typedef struct {
+    const TapiocaSdfEntry* data;
+    size_t count;
+} TapiocaSdfEntryView;
+typedef struct {
+    TapiocaSdfEntryView entries;
+    TapiocaDoubleView profilePoints;
+    TapiocaSdfCancelCallback cancel;
+    double voxelSize;
+    uint64_t soloOperation;
+    uint64_t maxDensePoints, maxSparseStoredPoints, maxTriangles;
+    uint32_t strategy, reserved;
+} TapiocaSdfRequest;
+typedef struct {
+    size_t positions, normals, triangles, materials; /* Scalar counts. */
+} TapiocaSdfCounts;
+typedef struct {
+    uint64_t contentHash;
+    uint64_t totalPoints, evaluatedPoints, storedSparsePoints;
+    uint64_t regions, skippedRegions, cells, activeCells, triangles, degenerateTriangles;
+    double lipschitz, actualSpacing[3];
+    uint32_t strategy, slabCells;
+} TapiocaSdfSummary;
+typedef struct {
+    TapiocaSdfCounts* counts;   /* Required even for query. */
+    TapiocaSdfSummary* summary; /* Required even for query. */
+    double* positions;
+    size_t positionCapacity;
+    float* normals;
+    size_t normalCapacity;
+    uint32_t* triangles;
+    size_t triangleCapacity;
+    int32_t* materials;
+    size_t materialCapacity;
+    uint32_t queryOnly, reserved; /* Query: 1 and all capacities zero. */
+} TapiocaSdfOutput;
+
+/* Query/fill recomputes one deterministic build. Query publishes counts/summary
+ * only. Fill requires complete disjoint capacities and publishes every array,
+ * counts and summary together. Any invalid field, cancellation, budget excess,
+ * overlap or contained unwind leaves ALL outputs unchanged. Callback context
+ * lifetime, nonthrowing behavior and noninterference with operation storage are
+ * caller obligations. No pointer, Rust allocation or handle is retained.
+ * Worker-classified; no production consumer,
+ * terrain authority, undo scope or native Accept path is enabled. */
+TapiocaStatus tapioca_sdf_build (const TapiocaSdfRequest* request, const TapiocaSdfOutput* output,
+                                 char* error, size_t errorCapacity);
 
 #ifdef __cplusplus
 }

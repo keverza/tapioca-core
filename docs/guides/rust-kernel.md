@@ -51,8 +51,22 @@ worker-pool milestone is claimed. Rock, box-minus-capsule cave, grid-aligned
 extrusion and survey fixtures prove finite output, positive signed volume,
 watertight edge incidence, material survival, deterministic repeats and exact
 sparse/dense geometry/hash parity. Cancellation, empty surfaces and triangle
-limits return no mesh. FFI, persistence, publication and production consumers
-are not yet implemented.
+limits return no mesh.
+
+SDF-1d adds the additive `tapioca_sdf_build` fixed-POD ABI and owned C++
+`EditVolumetricDetail` / `GeometryRustSdf` record/facade. The ABI borrows ordered
+entry/profile pools, converts every tag and used field explicitly, and accepts
+a nonthrowing call-scoped cancellation callback rather than reinterpreting a
+foreign atomic. Shared preflight covers descriptors, complete input/output
+capacities and error-storage disjointness. Query/fill recomputes the same
+deterministic build; caller-owned arrays, counts and summary publish only after
+complete success, including capacity and C++/Rust content-hash verification.
+The C++ facade returns a provisional `PublishedMesh` with identity remaps and
+leaves the prior result unchanged on every refusal. Real C11/C++ smoke, Rust ABI
+tests and compiled facade tests cover record hashing, frame conversion,
+dense/sparse parity, cave/extrusion, solo, cancellation, alias/capacity refusal
+and budgets. Persistence, `LandscapeSession` ownership, async publication, terrain
+resolution and native Accept remain SDF-2/later work; no consumer is dispatched.
 
 ## G1 mesh-preparation parity services
 

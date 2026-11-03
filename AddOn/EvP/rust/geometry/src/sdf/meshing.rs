@@ -9,7 +9,7 @@ use std::fmt;
 
 use super::{
     GridSpec, PreparedField, SampledGrid, SamplingError, SamplingLimits, SamplingStats,
-    SamplingStrategy, field, sample,
+    SamplingStrategy, field, sample_with_cancellation,
 };
 use crate::affine::Vec3;
 
@@ -213,7 +213,7 @@ struct MeshBuilder<'a> {
     field: &'a PreparedField,
     sampled: &'a SampledGrid,
     limits: MeshingLimits,
-    cancel: &'a super::CancellationToken,
+    cancel: Option<&'a dyn Fn() -> bool>,
     normal_step: f64,
     vertices: Vec<Vec3>,
     edge_vertices: BTreeMap<GridEdge, u32>,
@@ -238,6 +238,21 @@ pub fn build_mesh(
     limits: BuildLimits,
     cancel: &super::CancellationToken,
 ) -> Result<MeshResult, MeshingError> {
+    let poll = || cancel.is_cancelled();
+    build_mesh_with_cancellation(field, voxel_size, strategy, limits, Some(&poll))
+}
+
+/// Callback-driven variant of [`build_mesh`] for the host-independent FFI seam.
+///
+/// # Errors
+/// Same atomic bounds/sampling/meshing/cancellation contract as [`build_mesh`].
+pub fn build_mesh_with_cancellation(
+    field: &PreparedField,
+    voxel_size: f64,
+    strategy: SamplingStrategy,
+    limits: BuildLimits,
+    cancel: Option<&dyn Fn() -> bool>,
+) -> Result<MeshResult, MeshingError> {
     if !voxel_size.is_finite() || voxel_size <= 0.0 {
         return Err(MeshingError::Sampling(SamplingError::InvalidVoxelSize));
     }
@@ -246,8 +261,8 @@ pub fn build_mesh(
         .inflated(2.0 * voxel_size)
         .ok_or(MeshingError::BoundsRequired)?;
     let grid = GridSpec::new(padded, voxel_size)?;
-    let sampled = sample(field, grid, strategy, limits.sampling, cancel)?;
-    marching_cubes(field, &sampled, limits.meshing, cancel)
+    let sampled = sample_with_cancellation(field, grid, strategy, limits.sampling, cancel)?;
+    marching_cubes_with_cancellation(field, &sampled, limits.meshing, cancel)
 }
 
 /// Mesh a complete sampled field. Cells are visited in fixed 64-cell X slabs,
@@ -262,6 +277,21 @@ pub fn marching_cubes(
     sampled: &SampledGrid,
     limits: MeshingLimits,
     cancel: &super::CancellationToken,
+) -> Result<MeshResult, MeshingError> {
+    let poll = || cancel.is_cancelled();
+    marching_cubes_with_cancellation(field, sampled, limits, Some(&poll))
+}
+
+/// Callback-driven cancellation variant of [`marching_cubes`].
+///
+/// # Errors
+/// Same atomic topology/geometry/budget/cancellation contract as
+/// [`marching_cubes`].
+pub fn marching_cubes_with_cancellation(
+    field: &PreparedField,
+    sampled: &SampledGrid,
+    limits: MeshingLimits,
+    cancel: Option<&dyn Fn() -> bool>,
 ) -> Result<MeshResult, MeshingError> {
     let grid = sampled.grid();
     let cells = grid
@@ -309,7 +339,7 @@ impl MeshBuilder<'_> {
             for z in 0..cells[2] {
                 for y in 0..cells[1] {
                     for x in slab..end {
-                        if self.cancel.is_cancelled() {
+                        if self.cancel.is_some_and(|poll| poll()) {
                             return Err(MeshingError::Cancelled);
                         }
                         self.process_cell([x, y, z])?;
@@ -634,7 +664,7 @@ impl MeshBuilder<'_> {
         let mut positions = Vec::with_capacity(self.vertices.len().saturating_mul(3));
         let mut normals = Vec::with_capacity(self.vertices.len().saturating_mul(3));
         for &vertex in &self.vertices {
-            if self.cancel.is_cancelled() {
+            if self.cancel.is_some_and(|poll| poll()) {
                 return Err(MeshingError::Cancelled);
             }
             let gradient = self.field.gradient(vertex, self.normal_step)?;

@@ -122,9 +122,18 @@ pub use grading::{
 
 #[allow(
     unsafe_code,
+    reason = "SDF fixed-POD ingress, callback cancellation and atomic caller-owned mesh publication"
+)]
+mod sdf;
+#[allow(
+    unsafe_code,
     reason = "Terrain flat POD/pool preflight and atomic caller-owned support mapping publication"
 )]
 mod terrain;
+pub use sdf::{
+    SdfCancelCallback, SdfCounts, SdfEntry, SdfOutput, SdfRequest, SdfSummary, tapioca_sdf_build,
+};
+
 pub use terrain::{
     SlopeRequest, TerrainClip, TerrainClipOutput, TerrainConflict, TerrainConflictOutput,
     TerrainConstraint, TerrainCounts, TerrainDaylight, TerrainEdit, TerrainEditOutput,
