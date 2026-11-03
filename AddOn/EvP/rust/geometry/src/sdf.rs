@@ -9,12 +9,16 @@
 use crate::affine::Vec3;
 
 pub mod field;
+pub mod meshing;
 mod primitive;
 pub mod sampling;
 
 pub use field::{
     BlendProfile, BooleanOperation, Capabilities, CompileOptions, Error, FieldSample, GroupHeader,
     PreparedField, StackEntry, StackOperation, ValueRange,
+};
+pub use meshing::{
+    BuildLimits, MeshResult, MeshingError, MeshingLimits, MeshingStats, build_mesh, marching_cubes,
 };
 pub use primitive::{Frame, Primitive};
 pub use sampling::{

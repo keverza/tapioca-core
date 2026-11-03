@@ -638,7 +638,7 @@ fn region_bounds(grid: GridSpec, region: BlockRegion) -> Result<Bounds, Sampling
 )]
 fn cell_count(extent: f64, voxel_size: f64) -> Result<u32, SamplingError> {
     let count = (extent / voxel_size).ceil();
-    if !count.is_finite() || count < 1.0 || count > f64::from(u32::MAX) {
+    if !count.is_finite() || count < 1.0 || count > f64::from(u32::MAX - 1) {
         return Err(SamplingError::GridBudget);
     }
     Ok(count as u32)

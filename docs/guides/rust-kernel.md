@@ -37,8 +37,22 @@ and observes Rust-owned cooperative cancellation during recursion and leaf
 evaluation. Sample statistics report evaluated/stored/total points, regions,
 bounds/Lipschitz and actual cell sizes. Tests prove dense scalar parity,
 sparse/dense active-value bit parity and sign parity, deterministic repeats,
-fully pruned regions, cancellation and budget refusals. Meshing, FFI,
-persistence, publication and production consumers are not yet implemented.
+fully pruned regions, cancellation and budget refusals.
+
+SDF-1c adds automatic two-cell-padded `build_mesh` and deterministic CPU
+Marching Cubes. The clean-room mesher constructs cube-face crossing loops without
+an imported triangle table, resolves checkerboard faces with the exact field at
+the face center, shares canonical grid-edge/node vertices across fixed 64-cell
+X slabs, emits outward nondegenerate triangles, and evaluates hard per-triangle
+materials with the original field. f64 positions, normalized f32 normals,
+triangle/material arrays and the published-mesh-compatible FNV-1a content hash
+are atomic. The canonical implementation is sequential; no parallel speedup or
+worker-pool milestone is claimed. Rock, box-minus-capsule cave, grid-aligned
+extrusion and survey fixtures prove finite output, positive signed volume,
+watertight edge incidence, material survival, deterministic repeats and exact
+sparse/dense geometry/hash parity. Cancellation, empty surfaces and triangle
+limits return no mesh. FFI, persistence, publication and production consumers
+are not yet implemented.
 
 ## G1 mesh-preparation parity services
 
