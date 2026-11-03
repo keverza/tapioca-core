@@ -10,12 +10,17 @@ use crate::affine::Vec3;
 
 pub mod field;
 mod primitive;
+pub mod sampling;
 
 pub use field::{
     BlendProfile, BooleanOperation, Capabilities, CompileOptions, Error, FieldSample, GroupHeader,
     PreparedField, StackEntry, StackOperation, ValueRange,
 };
 pub use primitive::{Frame, Primitive};
+pub use sampling::{
+    CancellationToken, GridSpec, SampledGrid, SamplingError, SamplingLimits, SamplingStats,
+    SamplingStrategy, sample,
+};
 
 /// Conservative axis-aligned world-metre bounds.
 #[derive(Clone, Copy, Debug, PartialEq)]

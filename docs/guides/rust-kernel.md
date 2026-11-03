@@ -28,8 +28,17 @@ Sharp/Round; explicit group headers/isolation, enable and transient solo cutoff;
 hard per-sample material ownership; rigid frames; f64 world-metre values; and
 conservative bounds/Lipschitz intervals, analytic-or-fallback gradients and
 bit-exact batch/identity-prune baselines. Invalid positive seeds, definitions,
-arithmetic and budgets refuse atomically. Sampling, meshing, FFI, persistence,
-publication and production consumers are not yet implemented.
+arithmetic and budgets refuse atomically.
+
+SDF-1b adds node-grid derivation and deterministic dense/sparse sampling. Sparse
+8-sample block recursion uses conservative expanded-region intervals, stores exact
+active leaves and sign-only skipped blocks, checks dense/stored-sparse budgets,
+and observes Rust-owned cooperative cancellation during recursion and leaf
+evaluation. Sample statistics report evaluated/stored/total points, regions,
+bounds/Lipschitz and actual cell sizes. Tests prove dense scalar parity,
+sparse/dense active-value bit parity and sign parity, deterministic repeats,
+fully pruned regions, cancellation and budget refusals. Meshing, FFI,
+persistence, publication and production consumers are not yet implemented.
 
 ## G1 mesh-preparation parity services
 
