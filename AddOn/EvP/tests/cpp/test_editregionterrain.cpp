@@ -2,6 +2,7 @@
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 #include "Edit/EditSession.hpp"
+#include "Edit/EditPublishedTerrain.hpp"
 #include "Geometry/Mesh.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
@@ -402,7 +403,10 @@ TEST (EditRegionTerrain, DaylightUsesTheAuthoredSideGrade)
     EXPECT_NEAR (Height (result, 19, 10), 0, 1e-12);
 }
 
-TEST (EditRegionTerrain, MixedPreparedSceneRefusesAtomicallyUntilSplitterEndpointGapIsResolved)
+// #112 P4b: the mixed scene no longer composes region-first/path-second; the
+// one unified authority refuses atomically on the same splitter endpoint gap,
+// and the legacy path lane stays available as the parity oracle.
+TEST (EditRegionTerrain, MixedSceneRefusesAtomicallyThroughTheUnifiedLaneUntilSplitterEndpointGapIsResolved)
 {
     Fixture fixture;
     const auto path = edit::AddPath (fixture.doc, { { 2, 2, 0.5 }, { 2, 18, 0.5 } }, 1);
@@ -422,16 +426,84 @@ TEST (EditRegionTerrain, MixedPreparedSceneRefusesAtomicallyUntilSplitterEndpoin
     ASSERT_TRUE (publisher.Prepare (fixture.doc, fixture.Capture (), options, {}, job, error));
     auto result = lg::RunLandscapeTerrainDesign (job);
     ASSERT_FALSE (result.built);
-    EXPECT_NE (result.error.find ("RegionPathComposition (#82)"), std::string::npos) << result.error;
+    EXPECT_NE (result.error.find ("RegionBreakline"), std::string::npos) << result.error;
     EXPECT_TRUE (result.result.build.points.empty ()) << "Never publish a region-only or path-only partial result.";
+    EXPECT_FALSE (result.published) << "A refused unified build publishes no neutral snapshot.";
     ASSERT_TRUE (result.regions);
     EXPECT_EQ (result.regions->input->points[2], 0);
     EXPECT_NEAR (Height (*result.regions, 10, 10), 2, 1e-7);
     EXPECT_TRUE (lg::RunTerrainDesign (job).built) << "The unchanged path lane still works on the original capture.";
+    // The refusal becomes the latest status/diagnostic; nothing drawable publishes.
     ASSERT_TRUE (publisher.Publish (fixture.doc, std::move (result), error));
+    ASSERT_NE (publisher.LatestOutcome (fixture.doc), nullptr);
+    EXPECT_FALSE (publisher.LatestOutcome (fixture.doc)->built);
+    EXPECT_EQ (publisher.Current (fixture.doc), nullptr);
     auto changed = fixture.doc;
     ++changed.revision;
     EXPECT_EQ (publisher.Current (changed), nullptr);
+}
+
+TEST (EditRegionTerrain, MixedSceneBuildsOnceThroughTheUnifiedLaneAndPublishesTheNeutralSnapshot)
+{
+    const auto file = std::filesystem::path (__FILE__).parent_path () / "fixtures/region-boundary-20261029.debug.json";
+    std::ifstream input (file, std::ios::binary);
+    ASSERT_TRUE (input);
+    const std::string text { std::istreambuf_iterator<char> (input), {} };
+    const auto parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok) << parsed.error;
+    auto scene = debugreplay::Read (parsed.value);
+
+    // The mixed scene (region object + path) dispatches once through the unified
+    // authority over the original baseline and publishes the neutral snapshot.
+    scene.options.source = 8;
+    const auto mixed = debugreplay::Run (scene);
+    ASSERT_TRUE (mixed.built) << mixed.error;
+    ASSERT_TRUE (mixed.published) << "the unified lane publishes the neutral snapshot";
+    const auto& published = *mixed.published;
+    EXPECT_EQ (published.revision, mixed.revision);
+    EXPECT_EQ (published.session, mixed.session);
+    EXPECT_EQ (published.sourceTerrainGuid, mixed.sourceTerrainGuid);
+    EXPECT_NE (published.planHash, 0U);
+    // The transitional mirror the legacy consumers read is the published content.
+    EXPECT_EQ (published.points, mixed.result.build.points);
+    EXPECT_EQ (published.triangles, mixed.result.build.triangles);
+    EXPECT_EQ (published.displaySite.cut, mixed.result.build.site.cut);
+    EXPECT_EQ (published.displaySite.fill, mixed.result.build.site.fill);
+    // Displayed totals keep the 0.25 m convention; the kernel-exact authority
+    // coexists without replacing them.
+    EXPECT_NE (published.quantities.fill, 0.0);
+    // Both scopes are carried: the measurement region (authored property or
+    // cover) and the derived rebuild ring, explicitly separate.
+    EXPECT_FALSE (published.rebuildRegion.empty ());
+    EXPECT_FALSE (published.measurementRegion.empty ());
+
+    // Region-only stays on the composition lane until P4c and publishes nothing.
+    scene.options.source = 0;
+    const auto regionOnly = debugreplay::Run (scene);
+    ASSERT_TRUE (regionOnly.built) << regionOnly.error;
+    EXPECT_FALSE (regionOnly.published) << "region-only composition is not the unified publication";
+}
+
+TEST (EditRegionTerrain, MixedUnifiedRefusalPublishesNothingAndKeepsTheRegionDiagnostics)
+{
+    const auto file = std::filesystem::path (__FILE__).parent_path () / "fixtures/region-boundary-20261029.debug.json";
+    std::ifstream input (file, std::ios::binary);
+    ASSERT_TRUE (input);
+    const std::string text { std::istreambuf_iterator<char> (input), {} };
+    const auto parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok) << parsed.error;
+    auto scene = debugreplay::Read (parsed.value);
+
+    // A path request naming no live centerline fails the strict plan gate:
+    // no partial result, no published snapshot, the region stage still reports.
+    scene.options.source = scene.doc.nextId + 100;
+    const auto result = debugreplay::Run (scene);
+    ASSERT_FALSE (result.built);
+    EXPECT_EQ (0U, result.error.rfind ("LandscapeFieldPlan:")) << result.error;
+    EXPECT_TRUE (result.result.build.points.empty ());
+    EXPECT_FALSE (result.published);
+    ASSERT_TRUE (result.regions);
+    EXPECT_FALSE (result.regions->evaluation.terrain.points.empty ());
 }
 
 TEST (EditRegionTerrain, CapturedNativeTerrainWithIndependentBoundaryBuildsBothRegionAndPath)
@@ -607,7 +679,11 @@ TEST (EditRegionTerrain, CapturedRectangleHasCleanContoursAndStillBuildsAfterPat
         for (const auto& sample : samples)
             EXPECT_TRUE (sample.onSurface);
         EXPECT_NEAR (samples[0].height, 0, 1e-6);
-        EXPECT_NEAR (samples[1].height, -0.2, 1e-10);
+        // #112 P4b: the unified daylight transition keeps a documented density
+        // difference from the legacy offset rings; measured on this fixture at
+        // 0.0156 m here (the P4a full-grid measurement pins the same class at
+        // 0.244 m max). The falloff variant stays exact.
+        EXPECT_NEAR (samples[1].height, -0.2, changed ? 0.02 : 1e-10);
         EXPECT_GT (samples[2].height, changed ? 0.1 : 0.039);
     }
 }
@@ -738,7 +814,8 @@ TEST (EditRegionTerrain, InheritedBoundarySurfaceRefusesTerrainGradingWithConsta
 TEST (EditRegionTerrain, OverlappingGradeRegionsComposeByCurrentSoftEditSemantics112)
 {
     Fixture fixture;
-    const auto line = edit::AddPolyline (fixture.doc, { { 10, 5, 0 }, { 20, 5, 0 }, { 20, 15, 0 }, { 10, 15, 0 } }, true);
+    const auto line =
+        edit::AddPolyline (fixture.doc, { { 10, 5, 0 }, { 20, 5, 0 }, { 20, 15, 0 }, { 10, 15, 0 } }, true);
     std::string error;
     ASSERT_TRUE (lg::SetLandscapeSourceRole (fixture.doc, line, lg::SourceRole::RegionBoundary, error)) << error;
     const auto second = fixture.doc.landscape->objects.back ().id;

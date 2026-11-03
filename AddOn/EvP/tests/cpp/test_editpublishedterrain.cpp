@@ -455,6 +455,10 @@ TEST (EditPublishedTerrain, QuantitiesAttributeHolesOverlapsAndSplitCutFillExact
 // The unified build and the legacy region-first/path-second orchestration must
 // be the same surface within the documented region-daylight density tolerance:
 // sampled on a 0.25 m grid over the rebuild region, and in measured volumes.
+// #112 P4b removed the composition from the production lane, so the legacy
+// oracle is reconstructed here exactly as the old orchestration ran it: the
+// region-only outcome's build IS the composed proposed capture the path lane
+// used to consume.
 TEST (EditPublishedTerrain, UnifiedMatchesLegacyOnAQueryGridWithinDocumentedTolerance)
 {
     auto scene = Issue82Scene ();
@@ -476,6 +480,22 @@ TEST (EditPublishedTerrain, UnifiedMatchesLegacyOnAQueryGridWithinDocumentedTole
     ASSERT_TRUE (lg::PublishUnifiedTerrain (unified, plan, *regionOnly.capture, scope, unifiedPublished, error))
         << error;
 
+    // The legacy comparison oracle: the composed region-first capture (the
+    // region-only outcome's build) through the unchanged path lane, exactly
+    // what the removed production composition consumed.
+    lg::TerrainCapture proposed;
+    proposed.points = regionOnly.result.build.points;
+    proposed.triangles = regionOnly.result.build.triangles;
+    proposed.provenance = regionOnly.result.build.inputProvenance;
+    proposed.revision = regionOnly.revision;
+    proposed.sourceTerrainGuid = regionOnly.sourceTerrainGuid;
+    lg::TerrainDesignJob pathJob;
+    pathJob.doc = std::make_shared<const geomsrv::edit::Document> (scene.doc);
+    pathJob.capture = std::make_shared<const lg::TerrainCapture> (proposed);
+    pathJob.options = scene.options;
+    const auto legacy = lg::RunTerrainDesign (pathJob);
+    ASSERT_TRUE (legacy.built) << legacy.error;
+
     // The legacy display convention measures against the authored property
     // line evaluated by the region stage (exactly what production Totals
     // uses), or the validated terrain cover when the document has none.
@@ -487,10 +507,10 @@ TEST (EditPublishedTerrain, UnifiedMatchesLegacyOnAQueryGridWithinDocumentedTole
             measurement.insert (measurement.end (), { point.x, point.y, point.z });
     }
     geo::PublishedTerrain legacyPublished;
-    ASSERT_TRUE (lg::PublishTerrainDesign (mixed, scene.options.operation, scene.options.object, measurement,
+    ASSERT_TRUE (lg::PublishTerrainDesign (legacy, scene.options.operation, scene.options.object, measurement,
                                            legacyPublished, error))
         << error;
-    EXPECT_EQ (legacyPublished.rebuildRegion, mixed.result.region);
+    EXPECT_EQ (legacyPublished.rebuildRegion, legacy.result.region);
     ASSERT_EQ (legacyPublished.ownersIdentity.size (), 1u);
     EXPECT_TRUE (legacyPublished.ownersIdentity[0].path);
 

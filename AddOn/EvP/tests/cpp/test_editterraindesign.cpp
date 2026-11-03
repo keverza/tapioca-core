@@ -5,6 +5,7 @@
 #include "virtual_editor_debug_replay.hpp"
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditTerrainDesignJob.hpp"
+#include "Edit/EditPublishedTerrain.hpp"
 #include "Edit/EditTerrainOutline.hpp"
 #include "Geometry/Mesh.hpp"
 #include "Geometry/ClipperPlanRing.hpp"
@@ -973,6 +974,100 @@ TEST (EditTerrainDesignJob, LaterRequestsSupersedeAndRefusalsCarryTheirPlaces)
     EXPECT_TRUE (current->built);
     // A job without a snapshot is an outcome, not a crash.
     EXPECT_FALSE (RunTerrainDesign (TerrainDesignJob {}).built);
+}
+
+// #112 P4b / R8: the publisher splits latest status/diagnostics from the last
+// good publication. A failed or stale rebuild reports its diagnostic but never
+// replaces the drawable/quantity snapshot.
+TEST (EditTerrainDesignJob, ARefusedRebuildKeepsTheLastGoodPublicationAndReportsItsDiagnostic)
+{
+    DesignFixture fixture;
+    TerrainDesignPublisher publisher;
+    std::string error;
+    TerrainDesignJob good;
+    auto options = fixture.Options ();
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), options, {}, good, error)) << error;
+    auto built = RunTerrainDesign (good);
+    ASSERT_TRUE (built.built) << built.error;
+    const auto goodResult = built.result;
+    ASSERT_TRUE (publisher.Publish (fixture.doc, std::move (built), error)) << error;
+    ASSERT_NE (publisher.Current (fixture.doc), nullptr);
+
+    // An edit moves the path far off the terrain: the rebuild refuses.
+    ASSERT_TRUE (edit::EditPath (
+        fixture.doc, fixture.path,
+        [] (edit::Path& path, std::string&) {
+            for (auto& point : path.points)
+                point.p.x += 500;
+            return true;
+        },
+        error))
+        << error;
+    ++fixture.doc.revision; // The session publishes an accepted edit as a new revision.
+    fixture.Capture ();     // Restamp the capture/provenance for the new revision.
+    TerrainDesignJob refused;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), options, {}, refused, error)) << error;
+    auto failure = RunTerrainDesign (refused);
+    ASSERT_FALSE (failure.built);
+    ASSERT_FALSE (failure.error.empty ());
+    const auto failureError = failure.error;
+    // The refusal is accepted as the latest status/diagnostic...
+    ASSERT_TRUE (publisher.Publish (fixture.doc, std::move (failure), error)) << error;
+    const auto* latest = publisher.LatestOutcome (fixture.doc);
+    ASSERT_NE (latest, nullptr);
+    EXPECT_FALSE (latest->built);
+    EXPECT_EQ (latest->error, failureError);
+    // ...while the last good publication stays the drawable/quantity snapshot.
+    EXPECT_EQ (publisher.Current (fixture.doc), nullptr) << "It describes the old revision.";
+    const auto* last = publisher.LastPublished (fixture.doc);
+    ASSERT_NE (last, nullptr);
+    EXPECT_TRUE (last->built);
+    EXPECT_EQ (last->result, goodResult);
+    // A complete rebuild of the current document replaces the snapshot again.
+    ASSERT_TRUE (edit::EditPath (
+        fixture.doc, fixture.path,
+        [] (edit::Path& path, std::string&) {
+            for (auto& point : path.points)
+                point.p.x -= 500;
+            return true;
+        },
+        error))
+        << error;
+    ++fixture.doc.revision;
+    fixture.Capture ();
+    TerrainDesignJob rebuilt;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), options, {}, rebuilt, error)) << error;
+    auto again = RunTerrainDesign (rebuilt);
+    ASSERT_TRUE (again.built) << again.error;
+    ASSERT_TRUE (publisher.Publish (fixture.doc, std::move (again), error)) << error;
+    ASSERT_NE (publisher.Current (fixture.doc), nullptr);
+    EXPECT_NE (publisher.Current (fixture.doc)->result, goodResult) << "The new build replaces the snapshot.";
+    EXPECT_EQ (publisher.Latest (), 3U);
+}
+
+// #112 P4b: a unified-lane outcome carries the neutral published snapshot; the
+// publisher validates its identity (revision/session/source terrain/plan hash)
+// before accepting it.
+TEST (EditTerrainDesignJob, APublishedSnapshotWithAMismatchedIdentityIsRefused)
+{
+    DesignFixture fixture;
+    TerrainDesignPublisher publisher;
+    std::string error;
+    TerrainDesignJob job;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), fixture.Options (), {}, job, error)) << error;
+    auto outcome = RunTerrainDesign (job);
+    ASSERT_TRUE (outcome.built) << outcome.error;
+    auto published = std::make_shared<PublishedTerrain> ();
+    published->revision = outcome.revision + 1;
+    published->session = outcome.session;
+    published->sourceTerrainGuid = outcome.sourceTerrainGuid;
+    published->planHash = 1;
+    outcome.published = std::move (published);
+    EXPECT_FALSE (publisher.Publish (fixture.doc, std::move (outcome), error));
+    EXPECT_EQ (error.rfind ("ProvenanceStale", 0), 0U) << error;
+    EXPECT_EQ (publisher.LatestOutcome (fixture.doc), nullptr);
+    EXPECT_EQ (publisher.Current (fixture.doc), nullptr);
+    EXPECT_EQ (publisher.LastPublished (fixture.doc), nullptr);
 }
 
 TEST (EditTerrainCapture, ASnapshotMeshBecomesAValidatedCaptureTheWorkerCanBuildOn)
