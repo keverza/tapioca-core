@@ -2172,6 +2172,55 @@ TEST (HudTerrainDesign, EditsCoalesceUntilReleaseAndStaleWorkersNeverDraw)
     EXPECT_TRUE (eh::CurrentTerrainDesign (session)->result.conflicts.empty ());
 }
 
+// #112 P5: Author (inside StartTerrainDesign) is the only document-mutating
+// step of a design. The poll-side worker start consumes the current immutable
+// snapshot and never authors: the document revision, the landscape object and
+// operation counts, nextId and the undo depth are all unchanged by a rebuild
+// launch, and the new build still publishes against the edited revision.
+TEST (HudTerrainDesign, AWorkerStartConsumesTheImmutableSnapshotAndNeverAuthors)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    EXPECT_GT (session.edits.UndoDepth (), 0U) << "Authoring lands as one history step";
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto objects = session.edits.Doc ().landscape->objects.size ();
+    const auto operations = session.edits.Doc ().landscape->operations.size ();
+    const auto nextId = session.edits.Doc ().nextId;
+    const auto generation = eh::CurrentTerrainDesign (session)->generation;
+    // One document edit; the next idle poll coalesces it into one worker start.
+    // The snapshot below is taken after the edit, so every assertion brackets
+    // exactly the poll/worker start.
+    ASSERT_TRUE (session.edits.Apply ([=] (edit::Document& value, std::string&) {
+        edit::FindPath (value, fixture.path)->profile.front ().z += 1;
+        return true;
+    }));
+    const auto revision = session.edits.Doc ().revision;
+    const auto depth = session.edits.UndoDepth ();
+    eh::PollTerrainDesign (session);
+    EXPECT_EQ (session.edits.Doc ().revision, revision) << "a worker start authors nothing";
+    EXPECT_EQ (session.edits.Doc ().landscape->objects.size (), objects);
+    EXPECT_EQ (session.edits.Doc ().landscape->operations.size (), operations);
+    EXPECT_EQ (session.edits.Doc ().nextId, nextId);
+    EXPECT_EQ (session.edits.UndoDepth (), depth);
+    // The launch really happened: the rebuild publishes a new generation for
+    // the edited revision.
+    const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (10);
+    const tapioca::geometry::TerrainDesignOutcome* current = nullptr;
+    while (std::chrono::steady_clock::now () < deadline) {
+        eh::Follow (session, layer);
+        current = eh::CurrentTerrainDesign (session);
+        if (current && current->built && current->generation != generation)
+            break;
+        std::this_thread::sleep_for (std::chrono::milliseconds (1));
+    }
+    ASSERT_NE (current, nullptr);
+    ASSERT_TRUE (current->built) << current->error;
+    EXPECT_NE (current->generation, generation);
+    EXPECT_EQ (current->revision, revision);
+}
+
 TEST (HudTerrainDesign, APathDragKeepsTheLastBuiltSurfaceDrawnUnchangedUntilItsRebuildPublishes)
 {
     TerrainHostFixture fixture;

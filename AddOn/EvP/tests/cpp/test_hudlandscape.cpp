@@ -1,6 +1,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "Edit/EditLandscapeFieldPlan.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditRegionTerrain.hpp"
@@ -931,6 +932,85 @@ TEST (HudLandscape, AmbiguousBooleanSubjectRefusesAtomically112)
     EXPECT_EQ (s.edits.Doc ().landscape, before.landscape);
     EXPECT_EQ (s.edits.Doc ().nextId, before.nextId);
     EXPECT_EQ (s.edits.UndoDepth (), 0u);
+}
+
+// #112 P5: the Region panel's winner ranking is aligned with the compiled field
+// plan stack — entries stack by (root priority, topological position) with later
+// entries overriding earlier ones, so an explicit priority beats topological
+// recency in the panel exactly as it does in the build.
+TEST (HudLandscape, RegionPanelWinnerFollowsExplicitFieldPriority112)
+{
+    ed::Document doc;
+    std::string error;
+    ASSERT_TRUE (lg::StartLandscape (doc, { 7 }, error)) << error;
+    const auto a = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, true);
+    const auto b = ed::AddPolyline (doc, { { 5, 0, 0 }, { 15, 0, 0 }, { 15, 10, 0 }, { 5, 10, 0 } }, true);
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, a, lg::SourceRole::RegionBoundary, error)) << error;
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, b, lg::SourceRole::RegionBoundary, error)) << error;
+    // Map each boundary line to its durable owner object (boundarySource is unique).
+    const auto objectFor = [&] (ed::Id entity) {
+        for (const auto& object : doc.landscape->objects)
+            for (const auto& source : doc.landscape->sources)
+                if (!source.deleted && source.id == object.boundarySource && source.entityId == entity)
+                    return object.id;
+        return ed::kNoId;
+    };
+    const auto objectA = objectFor (a), objectB = objectFor (b);
+    ASSERT_NE (objectA, ed::kNoId);
+    ASSERT_NE (objectB, ed::kNoId);
+    for (const auto object : { objectA, objectB }) {
+        lg::RegionSurface surface;
+        surface.elevation = lg::RegionElevationMode::Constant;
+        surface.first.z = 2;
+        ASSERT_TRUE (lg::SetRegionSurface (doc, object, surface, {}, error)) << error;
+        lg::RegionTerrain terrain;
+        terrain.effect = lg::RegionTerrainEffect::Grade;
+        ASSERT_TRUE (lg::SetRegionTerrain (doc, object, terrain, error)) << error;
+    }
+    eh::Session s (doc);
+    const auto planFor = [&] (const ed::Document& d) {
+        lg::LandscapeSnapshot snapshot;
+        snapshot.doc = &d;
+        snapshot.revision = d.revision;
+        snapshot.captureRevision = d.revision;
+        snapshot.session = d.landscape->sessionUuid;
+        snapshot.sourceTerrainGuid = d.landscape->sourceTerrainGuid;
+        return lg::CompileLandscapeFieldPlan (snapshot);
+    };
+    // The plan's winning entry is the last one in the stack; the panel must
+    // resolve an overlap face to that same owner.
+    const auto winner = [] (const lg::FieldPlan& plan) {
+        return plan.entries.empty () ? ed::kNoId : plan.entries.back ().object;
+    };
+    const auto panelAt = [] (eh::Session& session, double x) {
+        const auto face = *lg::LandscapeFaceAt (eh::Landscape (session), { x, 5, 0 });
+        session.selection.Set ({ { ed::kNoId, ed::Part::LandscapeFace, face.faceId, session.landscapeRevision } });
+        return eh::detail::SelectedRegionObject (session);
+    };
+    const auto first = planFor (s.edits.Doc ());
+    ASSERT_TRUE (first.ok) << first.error;
+    ASSERT_EQ (first.entries.size (), 2u);
+    const auto before = winner (first);
+    ASSERT_TRUE (before == objectA || before == objectB) << "both regions claim the overlap face";
+    EXPECT_EQ (panelAt (s, 7.5), before) << "panel and plan agree before any explicit priority";
+
+    // Give the other root the higher explicit priority: it now stacks last and
+    // wins in the plan, and the panel must follow it despite topological recency.
+    const auto loser = before == objectA ? objectB : objectA;
+    const auto root =
+        std::find_if (doc.landscape->objects.begin (), doc.landscape->objects.end (), [&] (const auto& o) {
+            return o.id == loser;
+        })->footprintOperation;
+    for (auto& operation : doc.landscape->operations)
+        if (operation.id == root)
+            operation.priority = 5;
+    eh::Session reprioritized (doc);
+    const auto second = planFor (reprioritized.edits.Doc ());
+    ASSERT_TRUE (second.ok) << second.error;
+    EXPECT_EQ (winner (second), loser);
+    EXPECT_NE (winner (second), before);
+    EXPECT_EQ (panelAt (reprioritized, 7.5), loser)
+        << "the panel ranks by the same (priority, topology) key as the plan";
 }
 
 TEST (HudVirtualEditorSwatches, TheEditorOffersTwentyDistinctColoursThenWhiteAndBlack)
