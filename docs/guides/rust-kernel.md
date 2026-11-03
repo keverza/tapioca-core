@@ -21,6 +21,16 @@ field stack over one constrained region topology, its additive ABI/C++ facade,
 and the tested `EditLandscapeUnifiedBuild` compiler-to-build adapter. No
 production lane dispatches the unified result yet.
 
+#140 SDF-1a adds the pure `geometry::sdf` ordered-field compiler and evaluator
+under `docs/guides/volumetric-detail-sdf.md`. It supports exact sphere, rounded
+box, capsule and simple-profile extrusion primitives; Union/Subtract/Intersect;
+Sharp/Round; explicit group headers/isolation, enable and transient solo cutoff;
+hard per-sample material ownership; rigid frames; f64 world-metre values; and
+conservative bounds/Lipschitz intervals, analytic-or-fallback gradients and
+bit-exact batch/identity-prune baselines. Invalid positive seeds, definitions,
+arithmetic and budgets refuse atomically. Sampling, meshing, FFI, persistence,
+publication and production consumers are not yet implemented.
+
 ## G1 mesh-preparation parity services
 
 S4 native terrain ingress additionally exposes `tapioca_terrain_surface` through

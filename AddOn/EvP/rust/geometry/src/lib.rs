@@ -28,6 +28,7 @@ pub mod plane;
 pub mod polygon;
 pub mod polyline;
 pub mod ray;
+pub mod sdf;
 pub mod slope;
 pub mod terrain;
 pub mod value;
