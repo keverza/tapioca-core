@@ -340,6 +340,48 @@ TEST (EditLandscapeFieldPlan, PathBandFollowsEveryRegionEntry)
     EXPECT_TRUE (Compile (doc).paths.empty ());
 }
 
+TEST (EditLandscapeFieldPlan, PathOnlyPlanCompilesWithZeroEntriesAndValidatesForBuild)
+{
+    auto doc = Start ();
+    const auto path = edit::AddPath (doc, { { 0, 0, 10 }, { 40, 0, 12 } }, 4.0);
+    geo::LandscapeSource centreline;
+    centreline.pathId = path;
+    centreline.role = geo::SourceRole::PathCenterline;
+    std::string error;
+    edit::Id source = 0;
+    ASSERT_TRUE (geo::AddLandscapeSource (doc, centreline, source, error)) << error;
+    geo::LandscapeOperation stroke;
+    stroke.kind = geo::OperationKind::Stroke;
+    stroke.inputs = { source };
+    stroke.width = 4;
+    edit::Id operation = 0;
+    ASSERT_TRUE (geo::AddLandscapeOperation (doc, stroke, operation, error)) << error;
+
+    geo::PathDesignRequest request;
+    request.source = source;
+    request.operation = operation;
+    const auto plan = Compile (doc, request);
+    ASSERT_TRUE (plan.ok) << plan.error;
+    // #112 P4c: a path-only scene compiles a zero-entry, single-path plan.
+    EXPECT_TRUE (plan.diagnostics.empty ());
+    EXPECT_EQ (plan.entries.size (), 0u);
+    ASSERT_EQ (plan.paths.size (), 1u);
+    EXPECT_EQ (plan.paths.front ().order, 0u);
+    EXPECT_EQ (plan.paths.front ().source, source);
+    EXPECT_EQ (plan.paths.front ().operation, operation);
+    ASSERT_EQ (plan.paths.front ().stations.size (), 21u);
+    std::string buildError;
+    EXPECT_TRUE (geo::ValidateLandscapeFieldPlanForBuild (plan, buildError)) << buildError;
+    // The trim intent the adapter applies at build time is hash-visible.
+    auto trimmed = request;
+    trimmed.trimToCover = true;
+    trimmed.trimMargin = 0.5;
+    EXPECT_NE (Compile (doc, trimmed).hash, plan.hash);
+    auto retuned = request;
+    retuned.trimMargin = 0.25;
+    EXPECT_NE (Compile (doc, retuned).hash, plan.hash);
+}
+
 TEST (EditLandscapeFieldPlan, PropertyLineIsCompiledAndChangesThePlanHash)
 {
     auto doc = Start ();

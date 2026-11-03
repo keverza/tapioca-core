@@ -563,8 +563,12 @@ TEST (GeometryRustUnifiedTerrain, CompiledPlanBuildsContourAndBoundaryTargets)
         TerrainFieldSummary actualSummary, expectedSummary;
         ASSERT_TRUE (SampleTerrain ({ unified.points, unified.triangles }, query, 0.25, actual, actualSummary, error))
             << error;
-        ASSERT_TRUE (SampleTerrain ({ regionOnly.result.build.points, regionOnly.result.build.triangles }, query, 0.25,
-                                    expected, expectedSummary, error))
+        // Legacy comparison surface: the region evaluation the P4c production
+        // lane still runs as its diagnostic stage (identical authority to the
+        // removed composition's input).
+        const auto& evaluation = regionOnly.regions->evaluation.terrain;
+        ASSERT_TRUE (
+            SampleTerrain ({ evaluation.points, evaluation.triangles }, query, 0.25, expected, expectedSummary, error))
             << error;
         ASSERT_EQ (actual.size (), 2u);
         ASSERT_EQ (expected.size (), 2u);

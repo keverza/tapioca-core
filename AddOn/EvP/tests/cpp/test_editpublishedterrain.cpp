@@ -11,6 +11,7 @@
 #include "Edit/EditLandscapeDomain.hpp"
 #include "Edit/EditPolyline.hpp"
 #include "Edit/EditTerrainCapture.hpp"
+#include "legacy_region_composition.hpp"
 #include "virtual_editor_debug_replay.hpp"
 
 #include <gtest/gtest.h>
@@ -452,13 +453,171 @@ TEST (EditPublishedTerrain, QuantitiesAttributeHolesOverlapsAndSplitCutFillExact
     }
 }
 
+// #112 P4c: a multi-part entry keeps its parts separate. The baseline is flat
+// AT the target level, so no vertex moves and no owner is set: attribution is
+// purely geometric. A flattened footprint would treat the second island's ring
+// as a hole of the first and lose its area to the baseline row.
+TEST (EditPublishedTerrain, QuantitiesAttributeIslandsByPartNotByFlattenedPseudoPolygon)
+{
+    const Base base (0.0, 2.0); // z = 2 everywhere: the level-2 target moves nothing.
+    const auto property = Ring ({ { 0, 0 }, { 8, 0 }, { 8, 8 }, { 0, 8 } });
+    const auto islandA = Ring ({ { 1, 1 }, { 3, 1 }, { 3, 3 }, { 1, 3 } });
+    const auto islandB = Ring ({ { 5, 5 }, { 7, 5 }, { 7, 7 }, { 5, 7 } });
+    const std::array parts { lg::UnifiedDomainPart { islandA, std::span<const std::span<const double>> {} },
+                             lg::UnifiedDomainPart { islandB, std::span<const std::span<const double>> {} } };
+    const std::array entries { ConstantEntry (0, 100, 200, 2.0, parts) };
+    geo::EntityCounts counts { uint64_t (base.points.size () / 3 + 12), 12, uint64_t (base.triangles.size () / 3), 0 };
+    const lg::UnifiedPlanRequest request {
+        { base.points, base.triangles }, property, entries, {}, {}, {}, 1e-3, 7, 0x1510, Provenance (counts)
+    };
+    lg::UnifiedTerrainResult unified;
+    std::string error;
+    ASSERT_TRUE (lg::BuildUnifiedTerrain (request, unified, error)) << error;
+
+    geo::FieldPlan plan;
+    plan.version = geo::kFieldPlanVersion;
+    plan.revision = 7;
+    plan.captureRevision = 7;
+    plan.session = { 1 };
+    plan.sourceTerrainGuid = "guid";
+    plan.hash = 0x1510;
+    plan.entries = { PlanEntry (0, 100, 200, { Part ({ islandA }), Part ({ islandB }) }) };
+    geo::UnifiedLandscapeBuildScope scope;
+    scope.rebuildRegion = property;
+    scope.measurementRegion = property;
+    geo::TerrainCapture baseline;
+    baseline.points = base.points;
+    baseline.triangles = base.triangles;
+
+    geo::PublishedTerrain published;
+    ASSERT_TRUE (lg::PublishUnifiedTerrain (unified, plan, baseline, scope, published, error)) << error;
+
+    // Both 2 x 2 m islands are claimed geometrically although nothing moved:
+    // area 8 m2 to the entry, the untouched 56 m2 to the baseline row, and the
+    // partition reconciles exactly.
+    const auto* rowA = Row (published, 0);
+    const auto* rowBase = Row (published, UINT32_MAX);
+    ASSERT_NE (rowA, nullptr);
+    ASSERT_NE (rowBase, nullptr);
+    EXPECT_NEAR (rowA->area, 8.0, 1e-9);
+    EXPECT_NEAR (rowBase->area, 56.0, 1e-9);
+    EXPECT_EQ (rowA->cut, 0.0);
+    EXPECT_EQ (rowA->fill, 0.0);
+    EXPECT_NEAR (Sum (published, &geo::PublishedDomainQuantity::area), published.quantities.area, 1e-9);
+    // The entry row carries its authored identity.
+    ASSERT_EQ (published.ownersIdentity.size (), 1u);
+    EXPECT_EQ (rowA->operation, published.ownersIdentity[0].operation);
+    EXPECT_EQ (rowA->object, published.ownersIdentity[0].object);
+}
+
+// #112 P4c: every stack slot reports a row even when it moved nothing, so the
+// per-domain table is complete; the partition still reconciles exactly.
+TEST (EditPublishedTerrain, QuantitiesEmitAnExplicitZeroRowPerStackSlot)
+{
+    const Base base (0.0, 2.0);
+    const auto property = Ring ({ { 0, 0 }, { 8, 0 }, { 8, 8 }, { 0, 8 } });
+    const auto domainA = Ring ({ { 1, 1 }, { 3, 1 }, { 3, 3 }, { 1, 3 } });
+    const auto domainB = Ring ({ { 5, 5 }, { 7, 5 }, { 7, 7 }, { 5, 7 } });
+    const std::array partsA { lg::UnifiedDomainPart { domainA, std::span<const std::span<const double>> {} } };
+    const std::array partsB { lg::UnifiedDomainPart { domainB, std::span<const std::span<const double>> {} } };
+    const std::array entries { ConstantEntry (0, 100, 200, 2.0, partsA), ConstantEntry (1, 101, 201, 2.0, partsB) };
+    geo::EntityCounts counts { uint64_t (base.points.size () / 3 + 12), 12, uint64_t (base.triangles.size () / 3), 0 };
+    const lg::UnifiedPlanRequest request {
+        { base.points, base.triangles }, property, entries, {}, {}, {}, 1e-3, 7, 0x1511, Provenance (counts)
+    };
+    lg::UnifiedTerrainResult unified;
+    std::string error;
+    ASSERT_TRUE (lg::BuildUnifiedTerrain (request, unified, error)) << error;
+
+    geo::FieldPlan plan;
+    plan.version = geo::kFieldPlanVersion;
+    plan.revision = 7;
+    plan.captureRevision = 7;
+    plan.session = { 1 };
+    plan.sourceTerrainGuid = "guid";
+    plan.hash = 0x1511;
+    plan.entries = { PlanEntry (0, 100, 200, { Part ({ domainA }) }), PlanEntry (1, 101, 201, { Part ({ domainB }) }) };
+    geo::UnifiedLandscapeBuildScope scope;
+    scope.rebuildRegion = property;
+    scope.measurementRegion = property;
+    geo::TerrainCapture baseline;
+    baseline.points = base.points;
+    baseline.triangles = base.triangles;
+
+    geo::PublishedTerrain published;
+    ASSERT_TRUE (lg::PublishUnifiedTerrain (unified, plan, baseline, scope, published, error)) << error;
+
+    // Baseline row first, then one row per stack slot in stack order.
+    ASSERT_EQ (published.domainQuantities.size (), 3u);
+    EXPECT_EQ (published.domainQuantities[0].order, UINT32_MAX);
+    EXPECT_EQ (published.domainQuantities[1].order, 0u);
+    EXPECT_EQ (published.domainQuantities[2].order, 1u);
+    for (const auto& row : published.domainQuantities) {
+        EXPECT_EQ (row.cut, 0.0);
+        EXPECT_EQ (row.fill, 0.0);
+    }
+    EXPECT_NEAR (published.domainQuantities[1].area, 4.0, 1e-9);
+    EXPECT_NEAR (published.domainQuantities[2].area, 4.0, 1e-9);
+    EXPECT_NEAR (Sum (published, &geo::PublishedDomainQuantity::area), published.quantities.area, 1e-9);
+}
+
+// #112 P4c: the C++ exact integration and the kernel's exact volumes integrate
+// the same affine height difference over the same whole published surface, so
+// the authoritative total and the exact site/context pair reconcile.
+TEST (EditPublishedTerrain, ExactQuantitiesReconcileWithTheKernelVolumes)
+{
+    const Base base (1.0, -4.0); // z = x - 4: both cut and fill across domains.
+    const auto property = Ring ({ { 0, 0 }, { 8, 0 }, { 8, 8 }, { 0, 8 } });
+    const auto outerA = Ring ({ { 1, 1 }, { 7, 1 }, { 7, 7 }, { 1, 7 } });
+    const auto holeA = Ring ({ { 3, 3 }, { 5, 3 }, { 5, 5 }, { 3, 5 } });
+    const auto domainB = Ring ({ { 2, 2 }, { 6, 2 }, { 6, 6 }, { 2, 6 } });
+    std::vector<std::span<const double>> holes { holeA };
+    const std::array partsA { lg::UnifiedDomainPart { outerA, holes } };
+    const std::array partsB { lg::UnifiedDomainPart { domainB, std::span<const std::span<const double>> {} } };
+    const std::array entries { ConstantEntry (0, 100, 200, 2.0, partsA), ConstantEntry (1, 101, 201, 4.0, partsB) };
+    geo::EntityCounts counts { uint64_t (base.points.size () / 3 + 16), 16, uint64_t (base.triangles.size () / 3), 0 };
+    const lg::UnifiedPlanRequest request {
+        { base.points, base.triangles }, property, entries, {}, {}, {}, 1e-3, 7, 0x1512, Provenance (counts)
+    };
+    lg::UnifiedTerrainResult unified;
+    std::string error;
+    ASSERT_TRUE (lg::BuildUnifiedTerrain (request, unified, error)) << error;
+
+    geo::FieldPlan plan;
+    plan.version = geo::kFieldPlanVersion;
+    plan.revision = 7;
+    plan.captureRevision = 7;
+    plan.session = { 1 };
+    plan.sourceTerrainGuid = "guid";
+    plan.hash = 0x1512;
+    plan.entries = { PlanEntry (0, 100, 200, { Part ({ outerA, holeA }) }),
+                     PlanEntry (1, 101, 201, { Part ({ domainB }) }) };
+    geo::UnifiedLandscapeBuildScope scope;
+    scope.rebuildRegion = property;
+    scope.measurementRegion = property;
+    geo::TerrainCapture baseline;
+    baseline.points = base.points;
+    baseline.triangles = base.triangles;
+
+    geo::PublishedTerrain published;
+    ASSERT_TRUE (lg::PublishUnifiedTerrain (unified, plan, baseline, scope, published, error)) << error;
+
+    // Two independent exact integrations of the same field over the same mesh:
+    // the C++ zero-contour partition and the kernel's inside/outside split.
+    EXPECT_NEAR (published.quantities.cut, published.exactSite.cut + published.exactContext.cut, 1e-9);
+    EXPECT_NEAR (published.quantities.fill, published.exactSite.fill + published.exactContext.fill, 1e-9);
+    EXPECT_NEAR (published.quantities.area, published.exactSite.area + published.exactContext.area, 1e-9);
+    EXPECT_GT (published.quantities.cut, 0.0);
+    EXPECT_GT (published.quantities.fill, 0.0);
+}
+
 // The unified build and the legacy region-first/path-second orchestration must
 // be the same surface within the documented region-daylight density tolerance:
 // sampled on a 0.25 m grid over the rebuild region, and in measured volumes.
-// #112 P4b removed the composition from the production lane, so the legacy
-// oracle is reconstructed here exactly as the old orchestration ran it: the
-// region-only outcome's build IS the composed proposed capture the path lane
-// used to consume.
+// #112 P4b removed the composition from the production lane and P4c routed
+// region-only through the unified authority, so the legacy oracle is
+// reconstructed here exactly as the old orchestration ran it: the region
+// evaluation composed into the proposed capture the path lane consumed.
 TEST (EditPublishedTerrain, UnifiedMatchesLegacyOnAQueryGridWithinDocumentedTolerance)
 {
     auto scene = Issue82Scene ();
@@ -480,18 +639,15 @@ TEST (EditPublishedTerrain, UnifiedMatchesLegacyOnAQueryGridWithinDocumentedTole
     ASSERT_TRUE (lg::PublishUnifiedTerrain (unified, plan, *regionOnly.capture, scope, unifiedPublished, error))
         << error;
 
-    // The legacy comparison oracle: the composed region-first capture (the
-    // region-only outcome's build) through the unchanged path lane, exactly
-    // what the removed production composition consumed.
-    lg::TerrainCapture proposed;
-    proposed.points = regionOnly.result.build.points;
-    proposed.triangles = regionOnly.result.build.triangles;
-    proposed.provenance = regionOnly.result.build.inputProvenance;
-    proposed.revision = regionOnly.revision;
-    proposed.sourceTerrainGuid = regionOnly.sourceTerrainGuid;
+    // The legacy comparison oracle: the region evaluation (still run as the
+    // diagnostic stage) composed into the proposed capture the removed
+    // production orchestration used to feed the path lane.
+    std::string composeError;
+    const auto proposed = legacycomposition::ComposedCapture (*regionOnly.regions, composeError);
+    ASSERT_TRUE (proposed) << composeError;
     lg::TerrainDesignJob pathJob;
     pathJob.doc = std::make_shared<const geomsrv::edit::Document> (scene.doc);
-    pathJob.capture = std::make_shared<const lg::TerrainCapture> (proposed);
+    pathJob.capture = proposed;
     pathJob.options = scene.options;
     const auto legacy = lg::RunTerrainDesign (pathJob);
     ASSERT_TRUE (legacy.built) << legacy.error;
@@ -544,6 +700,56 @@ TEST (EditPublishedTerrain, UnifiedMatchesLegacyOnAQueryGridWithinDocumentedTole
 // authored height surface cannot compile a complete target: the strict build
 // gate refuses atomically at the adapter boundary, before any Rust call. The
 // derived Boundary-Z refusal is never silently replaced by invented heights.
+// #112 P4c: Boundary-Z acceptance at the publication boundary. A region whose
+// derived footprint stays on its authored boundary surface builds, publishes
+// with the triangulated authored target, and quantifies the domain under its
+// authored identity — the counterpart of the leaving-surface refusal below.
+TEST (EditPublishedTerrain, BoundaryDomainPublishesWithQuantitiesAndAuthoredIdentity)
+{
+    auto scene = Issue82Scene ();
+    scene.options.source = 0;
+    const auto regionIds = lg::TerrainRegionObjects (scene.doc);
+    ASSERT_EQ (regionIds.size (), 1u);
+    auto& object = *std::find_if (scene.doc.landscape->objects.begin (), scene.doc.landscape->objects.end (),
+                                  [&] (const auto& candidate) { return candidate.id == regionIds.front (); });
+    object.surface->elevation = lg::RegionElevationMode::Boundary;
+    object.surface->slope = lg::RegionSlopeMode::None;
+
+    const auto result = debugreplay::Run (scene);
+    ASSERT_TRUE (result.built) << result.error;
+    ASSERT_TRUE (result.published) << "region-only publishes the unified snapshot";
+    const auto& published = *result.published;
+
+    // One entry row under the authored operation/object identity, and the
+    // partition reconciles into the total.
+    const auto* row = Row (published, 0);
+    ASSERT_NE (row, nullptr);
+    ASSERT_EQ (published.ownersIdentity.size (), 1u);
+    EXPECT_FALSE (published.ownersIdentity[0].path);
+    EXPECT_EQ (row->operation, published.ownersIdentity[0].operation);
+    EXPECT_EQ (row->object, published.ownersIdentity[0].object);
+    EXPECT_EQ (row->operation, uint64_t (object.footprintOperation));
+    EXPECT_EQ (row->object, uint64_t (object.id));
+    EXPECT_NEAR (Sum (published, &geo::PublishedDomainQuantity::fill), published.quantities.fill, 1e-9);
+    EXPECT_NEAR (Sum (published, &geo::PublishedDomainQuantity::cut), published.quantities.cut, 1e-9);
+    // The same exactness guard as the synthetic quantity scenes.
+    EXPECT_NEAR (published.quantities.cut, published.exactSite.cut + published.exactContext.cut, 1e-9);
+    EXPECT_NEAR (published.quantities.fill, published.exactSite.fill + published.exactContext.fill, 1e-9);
+
+    // The graded interior still matches the authored boundary target, and the
+    // produced target really is the triangulated authored surface: the plan
+    // transports surface points for this entry (verified again at the facade
+    // in GeometryRustUnifiedTerrain.CompiledPlanBuildsContourAndBoundaryTargets).
+    const std::array<double, 2> query { 6.5, 6 };
+    std::vector<lg::TerrainSample> samples;
+    lg::TerrainFieldSummary summary;
+    std::string error;
+    ASSERT_TRUE (lg::SampleTerrain ({ published.points, published.triangles }, query, 0.25, samples, summary, error))
+        << error;
+    ASSERT_EQ (samples.size (), 1u);
+    EXPECT_NEAR (samples.front ().height, 0, 1e-6) << "The boundary domain grades to its authored surface.";
+}
+
 TEST (EditPublishedTerrain, DerivedBoundarySurfaceRefusesAtTheBuildBoundary)
 {
     edit::Document doc;

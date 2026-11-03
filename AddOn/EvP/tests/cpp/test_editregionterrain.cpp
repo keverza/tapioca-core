@@ -477,11 +477,14 @@ TEST (EditRegionTerrain, MixedSceneBuildsOnceThroughTheUnifiedLaneAndPublishesTh
     EXPECT_FALSE (published.rebuildRegion.empty ());
     EXPECT_FALSE (published.measurementRegion.empty ());
 
-    // Region-only stays on the composition lane until P4c and publishes nothing.
+    // Region-only routes through the unified authority since P4c and publishes
+    // the neutral snapshot like every other scene.
     scene.options.source = 0;
     const auto regionOnly = debugreplay::Run (scene);
     ASSERT_TRUE (regionOnly.built) << regionOnly.error;
-    EXPECT_FALSE (regionOnly.published) << "region-only composition is not the unified publication";
+    ASSERT_TRUE (regionOnly.published) << "region-only publishes the unified snapshot";
+    EXPECT_NE (regionOnly.published->planHash, 0U);
+    EXPECT_EQ (regionOnly.published->points, regionOnly.result.build.points);
 }
 
 TEST (EditRegionTerrain, MixedUnifiedRefusalPublishesNothingAndKeepsTheRegionDiagnostics)
@@ -504,6 +507,64 @@ TEST (EditRegionTerrain, MixedUnifiedRefusalPublishesNothingAndKeepsTheRegionDia
     EXPECT_FALSE (result.published);
     ASSERT_TRUE (result.regions);
     EXPECT_FALSE (result.regions->evaluation.terrain.points.empty ());
+}
+
+TEST (EditRegionTerrain, RegionOnlyUnifiedBuildMatchesTheLegacyRegionEvaluationOnAQueryGrid)
+{
+    const auto file = std::filesystem::path (__FILE__).parent_path () / "fixtures/region-boundary-20261029.debug.json";
+    std::ifstream input (file, std::ios::binary);
+    ASSERT_TRUE (input);
+    const std::string text { std::istreambuf_iterator<char> (input), {} };
+    const auto parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok) << parsed.error;
+    auto scene = debugreplay::Read (parsed.value);
+    scene.options.source = 0;
+    const auto result = debugreplay::Run (scene);
+    ASSERT_TRUE (result.built) << result.error;
+    ASSERT_TRUE (result.published) << "Region-only scenes publish the neutral snapshot since P4c.";
+    ASSERT_TRUE (result.regions);
+    const auto& legacy = result.regions->evaluation.terrain;
+    // Sample both surfaces on one grid over the captured extent.
+    double loX = INFINITY, hiX = -INFINITY, loY = INFINITY, hiY = -INFINITY;
+    for (size_t i = 0; i + 2 < result.capture->points.size (); i += 3) {
+        loX = std::min (loX, result.capture->points[i]);
+        hiX = std::max (hiX, result.capture->points[i]);
+        loY = std::min (loY, result.capture->points[i + 1]);
+        hiY = std::max (hiY, result.capture->points[i + 1]);
+    }
+    std::vector<double> query;
+    for (double x = loX + 0.25; x < hiX; x += 0.5)
+        for (double y = loY + 0.25; y < hiY; y += 0.5)
+            query.insert (query.end (), { x, y });
+    std::vector<lg::TerrainSample> unified, evaluated;
+    lg::TerrainFieldSummary summary;
+    std::string error;
+    ASSERT_TRUE (lg::SampleTerrain ({ result.result.build.points, result.result.build.triangles }, query, 0.25, unified,
+                                    summary, error))
+        << error;
+    ASSERT_TRUE (lg::SampleTerrain ({ legacy.points, legacy.triangles }, query, 0.25, evaluated, summary, error))
+        << error;
+    ASSERT_EQ (unified.size (), evaluated.size ());
+    double maxError = 0;
+    std::array<double, 3> worst {};
+    size_t compared = 0;
+    for (size_t i = 0; i < unified.size (); ++i) {
+        if (!unified[i].onSurface || !evaluated[i].onSurface)
+            continue;
+        ++compared;
+        const double deviation = std::fabs (unified[i].height - evaluated[i].height);
+        if (deviation > maxError) {
+            maxError = deviation;
+            worst = { query[i * 2], query[i * 2 + 1], unified[i].height - evaluated[i].height };
+        }
+    }
+    EXPECT_GT (compared, 1000u);
+    // The unified lane reproduces the legacy region evaluation everywhere except
+    // the daylight lift sliver along the domain boundary: the legacy evaluation
+    // densifies the transition with nine offset rings, which the unified
+    // topology does not reproduce (the documented P4a tolerance class, max
+    // 0.244 m on the mixed grid; measured 0.178 m here, inside a 0.6 m sliver).
+    EXPECT_LE (maxError, 0.19) << "worst at x=" << worst[0] << " y=" << worst[1] << " delta=" << worst[2];
 }
 
 TEST (EditRegionTerrain, CapturedNativeTerrainWithIndependentBoundaryBuildsBothRegionAndPath)
@@ -551,8 +612,16 @@ TEST (EditRegionTerrain, CapturedNativeTerrainWithIndependentBoundaryBuildsBothR
         for (const auto& sample : samples)
             EXPECT_TRUE (sample.onSurface);
         EXPECT_NEAR (samples[0].height, 0, 1e-6) << "The region actually grades the baseline.";
-        EXPECT_NEAR (samples[1].height, includePath ? 0.07 : -0.2, 1e-6);
-        EXPECT_NEAR (samples[2].height, -0.2, 1e-12) << "Remote terrain stays at its captured level.";
+        // #112 P4c: region-only now builds through the unified authority. The
+        // unified topology does not reproduce the legacy evaluation's nine
+        // offset-ring densification, so a query inside the daylight lift
+        // sliver (fill face meets the -0.2 ground within 0.6 m of the domain
+        // boundary) reads slightly raised; measured at most 0.178 m on this
+        // fixture's parity grid, inside the documented 0.244 m class. The
+        // mixed (path) branch is unchanged from P4b.
+        EXPECT_NEAR (samples[1].height, includePath ? 0.07 : -0.2, includePath ? 1e-6 : 0.25);
+        EXPECT_NEAR (samples[2].height, -0.2, includePath ? 1e-12 : 0.25)
+            << "Remote terrain stays at its captured level up to the daylight sliver.";
         const auto repeated = debugreplay::Run (scene);
         ASSERT_TRUE (repeated.built) << repeated.error;
         EXPECT_EQ (repeated.result.build.points, result.result.build.points);

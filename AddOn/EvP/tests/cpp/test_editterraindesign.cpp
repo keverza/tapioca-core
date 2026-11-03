@@ -1070,6 +1070,146 @@ TEST (EditTerrainDesignJob, APublishedSnapshotWithAMismatchedIdentityIsRefused)
     EXPECT_EQ (publisher.LastPublished (fixture.doc), nullptr);
 }
 
+namespace {
+// Samples both build meshes on a regular grid over the ring's bounds and
+// returns the max absolute height difference where both surfaces answer.
+double MaxSampledHeightError (const std::vector<double>& a, const std::vector<uint32_t>& trianglesA,
+                              const std::vector<double>& b, const std::vector<uint32_t>& trianglesB,
+                              std::span<const double> ring, std::string& error)
+{
+    std::array<double, 4> box { 1e300, 1e300, -1e300, -1e300 };
+    for (size_t at = 0; at + 2 < ring.size (); at += 3) {
+        box[0] = std::min (box[0], ring[at]);
+        box[1] = std::min (box[1], ring[at + 1]);
+        box[2] = std::max (box[2], ring[at]);
+        box[3] = std::max (box[3], ring[at + 1]);
+    }
+    std::vector<double> queries;
+    for (double y = box[1] + 0.125; y < box[3]; y += 0.25)
+        for (double x = box[0] + 0.125; x < box[2]; x += 0.25)
+            queries.insert (queries.end (), { x, y });
+    std::vector<TerrainSample> samplesA, samplesB;
+    TerrainFieldSummary summaryA, summaryB;
+    if (!SampleTerrain ({ a, trianglesA }, queries, 0.25, samplesA, summaryA, error) ||
+        !SampleTerrain ({ b, trianglesB }, queries, 0.25, samplesB, summaryB, error))
+        return -1;
+    double maxError = 0;
+    for (size_t index = 0; index < samplesA.size (); ++index)
+        if (samplesA[index].onSurface && samplesB[index].onSurface)
+            maxError = std::max (maxError, std::fabs (samplesA[index].height - samplesB[index].height));
+    return maxError;
+}
+} // namespace
+
+// #112 P4c: a band path-only scene (no region objects) routes through the
+// unified authority and publishes, mirroring the legacy band outcome field for
+// field; the legacy lane stays the parity oracle.
+TEST (EditTerrainDesignJob, BandPathOnlyBuildsThroughTheUnifiedLaneWithLegacyParity)
+{
+    DesignFixture fixture;
+    TerrainDesignPublisher publisher;
+    std::string error;
+    TerrainDesignJob job;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), fixture.Options (), {}, job, error)) << error;
+    ASSERT_TRUE (TerrainRegionObjects (fixture.doc).empty ());
+    const auto unified = RunLandscapeTerrainDesign (job);
+    ASSERT_TRUE (unified.built) << unified.error;
+    ASSERT_TRUE (unified.published) << "band path-only publishes the unified snapshot";
+    EXPECT_FALSE (unified.regions) << "path-only never ran the region stage";
+    const auto legacy = RunTerrainDesign (job);
+    ASSERT_TRUE (legacy.built) << legacy.error;
+    EXPECT_FALSE (legacy.published) << "the legacy lane publishes nothing";
+
+    // Identity, derived scope and the station list match the legacy lane bit for bit.
+    EXPECT_EQ (unified.revision, legacy.revision);
+    EXPECT_EQ (unified.result.region, legacy.result.region);
+    EXPECT_EQ (unified.result.stations, legacy.result.stations);
+    ASSERT_FALSE (unified.result.stations.empty ());
+
+    // The transitional consumer mirror carries the band-lane contract fields.
+    EXPECT_EQ (unified.result.build.inputPointCount, legacy.result.build.inputPointCount);
+    EXPECT_EQ (unified.result.build.owners.size (), unified.result.build.points.size () / 3);
+    ASSERT_EQ (unified.result.vertexOperations.size (), unified.result.build.owners.size ());
+    EXPECT_FALSE (unified.result.build.lines.empty ()) << "band design lines convert into the mirror";
+    EXPECT_EQ (unified.result.meshProvenance.domains, legacy.result.meshProvenance.domains);
+
+    // Surface parity on a 0.25 m grid over the rebuild region: the unified and
+    // hybrid kernels densify the same band stations differently (the documented
+    // transition-density class, 0.244 m on the #82 fixture).
+    const auto maxError =
+        MaxSampledHeightError (unified.result.build.points, unified.result.build.triangles, legacy.result.build.points,
+                               legacy.result.build.triangles, unified.result.region, error);
+    ASSERT_GE (maxError, 0) << error;
+    EXPECT_LE (maxError, 0.25) << "measured sampled error " << maxError;
+
+    // Displayed totals keep the 0.25 m convention on both lanes.
+    EXPECT_NEAR (unified.result.build.site.fill, legacy.result.build.site.fill, 20.0);
+    EXPECT_NEAR (unified.result.build.site.cut, legacy.result.build.site.cut, 20.0);
+    // The published snapshot is the mirror's authority.
+    EXPECT_EQ (unified.published->points, unified.result.build.points);
+    EXPECT_EQ (unified.published->displaySite.fill, unified.result.build.site.fill);
+}
+
+// #112 P4c: cover trimming runs in the unified lane with the legacy contract —
+// a path leaving the terrain keeps only the longest covered station run.
+TEST (EditTerrainDesignJob, BandPathLeavingTheTerrainTrimsIdenticallyToTheLegacyLane)
+{
+    DesignFixture fixture;
+    std::string error;
+    ASSERT_TRUE (
+        edit::MovePathPoint (fixture.doc, fixture.path, fixture.doc.paths[0].points[0].id, { -30, 0, 0 }, error))
+        << error;
+    fixture.Capture ();
+    TerrainDesignJob job;
+    job.doc = std::make_shared<const edit::Document> (fixture.doc);
+    job.capture = Capture (fixture);
+    job.options = fixture.Options ();
+    const auto unified = RunLandscapeTerrainDesign (job);
+    ASSERT_TRUE (unified.built) << unified.error;
+    const auto legacy = RunTerrainDesign (job);
+    ASSERT_TRUE (legacy.built) << legacy.error;
+    // Both lanes trimmed to the same covered run.
+    EXPECT_EQ (unified.result.stations, legacy.result.stations);
+    EXPECT_GT (unified.result.stations.front (), 9.0) << "stations off the terrain are dropped";
+    EXPECT_EQ (unified.result.stations.size (), legacy.result.stations.size ());
+    const auto maxError =
+        MaxSampledHeightError (unified.result.build.points, unified.result.build.triangles, legacy.result.build.points,
+                               legacy.result.build.triangles, unified.result.region, error);
+    ASSERT_GE (maxError, 0) << error;
+    EXPECT_LE (maxError, 0.25) << "measured sampled error " << maxError;
+}
+
+// #112 P4c: the two documented dispatch exceptions keep the legacy lane —
+// outline grading (no unified equivalent yet) and a request naming neither a
+// region target nor a path.
+TEST (EditTerrainDesignJob, OutlineAndTargetlessRequestsKeepTheLegacyLane)
+{
+    DesignFixture fixture;
+    TerrainDesignPublisher publisher;
+    std::string error;
+    TerrainDesignJob job;
+    auto outline = fixture.Options ();
+    outline.outline = true;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), outline, {}, job, error)) << error;
+    const auto outlined = RunLandscapeTerrainDesign (job);
+    const auto legacyOutline = RunTerrainDesign (job);
+    EXPECT_EQ (outlined.built, legacyOutline.built);
+    EXPECT_EQ (outlined.result.build.points, legacyOutline.result.build.points);
+    EXPECT_EQ (outlined.error, legacyOutline.error);
+    EXPECT_FALSE (outlined.published) << "the legacy lane publishes nothing";
+    EXPECT_FALSE (outlined.regions);
+
+    auto none = fixture.Options ();
+    none.source = kNoId;
+    TerrainDesignJob empty;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), none, {}, empty, error)) << error;
+    const auto refused = RunLandscapeTerrainDesign (empty);
+    EXPECT_FALSE (refused.built);
+    EXPECT_EQ (refused.error, RunTerrainDesign (empty).error);
+    EXPECT_TRUE (refused.result.build.points.empty ());
+    EXPECT_FALSE (refused.published);
+}
+
 TEST (EditTerrainCapture, ASnapshotMeshBecomesAValidatedCaptureTheWorkerCanBuildOn)
 {
     DesignFixture fixture;
