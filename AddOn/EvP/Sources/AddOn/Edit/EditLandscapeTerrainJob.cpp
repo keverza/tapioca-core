@@ -1,6 +1,8 @@
 #include "Edit/EditRegionTerrain.hpp"
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditTerrainAdapterInternal.hpp"
+#include "Edit/EditLandscapeFieldPlan.hpp"
+#include "Edit/EditPublishedTerrain.hpp"
 #include <algorithm>
 #include <map>
 #include <set>
@@ -119,38 +121,84 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
             baseline = std::move (surface);
         }
         outcome.capture = baseline;
+        // The attributed area stage stays the region diagnostic/reporting view;
+        // the unified authority rebuilds the domains itself from the same plan.
         auto regions = std::make_shared<RegionTerrainResult> ();
         if (!EvaluateRegionTerrain (*job.doc, baseline, *regions, outcome.error))
             return outcome;
         outcome.regions = regions;
-        const auto proposed = ProposedCapture (*regions, outcome.error);
-        if (!proposed)
-            return outcome;
         if (job.options.source) {
-            if (!regions->evaluation.constraints.empty ()) {
-                outcome.error =
-                    "SceneTerrainScopeUnsupported: mixed region/path mask scopes require the constrained path lane";
+            // #112 P4b: one unified build over the original immutable baseline.
+            // The mixed region-first/path-second ProposedCapture composition is
+            // removed from this lane and is never a failure fallback. Outline
+            // grading is not unified (a documented #112 limit): the compiled
+            // single-path request grades the path band.
+            LandscapeSnapshot snapshot;
+            snapshot.doc = job.doc.get ();
+            snapshot.revision = job.doc->revision;
+            snapshot.captureRevision = baseline->revision;
+            snapshot.session = job.doc->landscape->sessionUuid;
+            snapshot.sourceTerrainGuid = job.doc->landscape->sourceTerrainGuid;
+            PathDesignRequest request;
+            request.source = job.options.source;
+            request.operation = job.options.operation;
+            request.object = job.options.object;
+            request.maxStep = job.options.maxStep;
+            request.taper = job.options.taper;
+            request.margin = job.options.margin;
+            request.arcTolerance = job.options.arcTolerance;
+            request.cutLimit = job.options.cutLimit;
+            request.fillLimit = job.options.fillLimit;
+            request.effect = job.options.effect;
+            request.tolerance = job.options.tolerance;
+            request.outline = job.options.outline;
+            snapshot.path = request;
+            const FieldPlan plan = CompileLandscapeFieldPlan (snapshot);
+            if (!ValidateLandscapeFieldPlanForBuild (plan, outcome.error)) {
+                outcome.error = "LandscapeFieldPlan: " + outcome.error;
                 return outcome;
             }
-            auto pathJob = job;
-            pathJob.surfaceTable = 0;
-            pathJob.capture = proposed;
-            outcome = RunTerrainDesign (pathJob);
-            if (!outcome.built)
-                outcome.error = "RegionPathComposition (#82): prepared terrain could not be rebuilt around the path: " +
-                                outcome.error;
+            UnifiedTerrainResult unified;
+            UnifiedLandscapeBuildScope scope;
+            if (!BuildUnifiedLandscapeTerrain (*job.doc, *baseline, plan, {}, unified, scope, outcome.error))
+                return outcome;
+            auto published = std::make_shared<PublishedTerrain> ();
+            if (!PublishUnifiedTerrain (unified, plan, *baseline, scope, *published, outcome.error))
+                return outcome;
+            outcome.built = true;
+            outcome.published = std::move (published);
+            // Transitional mirror (P4b): legacy consumers read result.build until
+            // P4c consumes the neutral snapshot directly. The published terrain
+            // is the authority; displayed totals keep the 0.25 m convention
+            // against the measurement region, never the kernel-exact authority.
+            const auto& publishedTerrain = *outcome.published;
+            outcome.result.revision = outcome.revision;
+            outcome.result.sourceTerrainGuid = outcome.sourceTerrainGuid;
+            outcome.result.region = publishedTerrain.rebuildRegion;
+            auto& build = outcome.result.build;
+            build.points = publishedTerrain.points;
+            build.base = publishedTerrain.base;
+            build.triangles = publishedTerrain.triangles;
+            build.mappings = publishedTerrain.mappings;
+            build.site = publishedTerrain.displaySite;
+            build.context = publishedTerrain.displayContext;
+            build.inputProvenance = publishedTerrain.inputProvenance;
         }
         else {
+            // Region-only stays on the composition lane until P4c routes it
+            // through the unified authority with full P0 parity.
+            const auto proposed = ProposedCapture (*regions, outcome.error);
+            if (!proposed)
+                return outcome;
             outcome.built = true;
             outcome.result.revision = outcome.revision;
             outcome.result.sourceTerrainGuid = outcome.sourceTerrainGuid;
             outcome.result.build.points = proposed->points;
             outcome.result.build.triangles = proposed->triangles;
             outcome.result.build.inputProvenance = proposed->provenance;
+            if (!Totals (*baseline, outcome, outcome.error))
+                outcome.built = false;
         }
-        outcome.regions = std::move (regions);
-        if (outcome.built && !Totals (*baseline, outcome, outcome.error))
-            outcome.built = false;
     }
     catch (const std::exception& exception) {
         outcome.built = false;

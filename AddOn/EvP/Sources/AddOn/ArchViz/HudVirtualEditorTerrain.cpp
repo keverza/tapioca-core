@@ -155,6 +155,7 @@ void TerrainControlsPanel (Session& s)
 #if defined(TAPIOCA_GEOMETRY_RUST)
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditRegionTerrain.hpp"
+#include "Edit/EditPublishedTerrain.hpp"
 #include <algorithm>
 #include <chrono>
 #include <exception>
@@ -434,25 +435,34 @@ const lg::TerrainDesignOutcome* CurrentTerrainDesign (const Session& s)
     if (!s.terrainDesign || (s.edits.InGesture () && !s.terrainSectionDrag) || s.terrainDesign->invalid ||
         (s.terrainDesign->baseline.current && !s.terrainDesign->baseline.current ()))
         return nullptr;
-    return s.terrainDesign->publisher.Current (s.edits.Doc ());
+    // #112 P4b: the status/diagnostic answer is the newest completed outcome
+    // that still describes the document, whatever it built. A refusal is
+    // reported here; the drawable/quantity snapshot keeps drawing through
+    // LastPublishedTerrainDesign until a valid build replaces it.
+    return s.terrainDesign->publisher.LatestOutcome (s.edits.Doc ());
 }
 
 const lg::TerrainDesignOutcome* LastPublishedTerrainDesign (const Session& s, bool& stale)
 {
+    // The drawable/quantity snapshot is the last GOOD publication (#112): a
+    // newer refusal, an in-flight rebuild or an edit never replace it — they
+    // only mark it stale while their diagnostic stands in CurrentTerrainDesign.
     stale = false;
     if (!s.terrainDesign || s.terrainDesign->invalid ||
         (s.terrainDesign->baseline.current && !s.terrainDesign->baseline.current ()))
         return nullptr;
-    if (const auto* current = CurrentTerrainDesign (s))
-        return current;
     // A rebuild that could not even start (an undone design, a capture refused) will never
     // replace it: the last build would stand for the document indefinitely.
     if (!s.terrainDesign->error.empty ())
         return nullptr;
-    // A stale refusal has nothing to show: its places belong to paths that have moved.
     const auto* last = s.terrainDesign->publisher.LastPublished (s.edits.Doc ());
-    stale = last && last->built;
-    return stale ? last : nullptr;
+    if (!last || !last->built)
+        return nullptr;
+    const auto* current = CurrentTerrainDesign (s);
+    if (current && current->built && current->generation == last->generation)
+        return last; // Fresh: the last good build is this document's outcome.
+    stale = true;
+    return last;
 }
 
 TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
@@ -473,11 +483,19 @@ TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
         status.error = current->error;
         status.conflicts = current->built ? current->result.conflicts.size () : current->conflicts.size ();
         if (current->built) {
-            status.vertices = current->result.build.points.size () / 3;
-            status.triangles = current->result.build.triangles.size () / 3;
-            status.cut = current->result.build.site.cut;
-            status.fill = current->result.build.site.fill;
+            const auto* published = current->published.get ();
+            const auto& points = published ? published->points : current->result.build.points;
+            const auto& triangles = published ? published->triangles : current->result.build.triangles;
+            const auto& site = published ? published->displaySite : current->result.build.site;
+            status.vertices = points.size () / 3;
+            status.triangles = triangles.size () / 3;
+            status.cut = site.cut;
+            status.fill = site.fill;
         }
+        else
+            // A refusal keeps the last valid drawable/quantity snapshot in
+            // place (#112): report it as stale while the diagnostic stands.
+            LastPublishedTerrainDesign (s, status.stale);
     }
     else
         LastPublishedTerrainDesign (s, status.stale);
@@ -487,16 +505,22 @@ TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
 void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
 {
     // Through a path move and until its rebuild publishes, the last built surface stays as the
-    // reference for the move (#71). Drawn as it was (the user, 2026-10-30: a faded surface is
-    // distracting); the panel says it is stale.
+    // reference for the move (#71); a newer refusal never replaces it either (#112 P4b).
+    // Drawn as it was (the user, 2026-10-30: a faded surface is distracting); the panel says
+    // it is stale. The drawable and the quantities are the published snapshot's.
     bool stale = false;
-    const auto* current = LastPublishedTerrainDesign (s, stale);
-    if (!current)
-        return;
-    if (current->built) {
+    const auto* last = LastPublishedTerrainDesign (s, stale);
+    const auto* current = CurrentTerrainDesign (s);
+    if (last && last->built) {
+        // Prefer the neutral published snapshot when the lane produced one; the
+        // legacy result fields mirror it during migration.
+        const auto* published = last->published.get ();
+        const auto& points = published ? published->points : last->result.build.points;
+        const auto& triangles = published ? published->triangles : last->result.build.triangles;
+        const auto& mappings = published ? published->mappings : last->result.build.mappings;
         overlaylayers::Mesh mesh;
-        mesh.points = current->result.build.points;
-        mesh.indices = current->result.build.triangles;
+        mesh.points = points;
+        mesh.indices = triangles;
         // ⚠️ THE PROPOSAL LIES ON THE TERRAIN IT WAS CAPTURED FROM (the user, 2026-10-24: barely
         // visible, and only from below). Unstyled, it took the layer's Fade, so wherever the host
         // surface is coincident or above it -- everywhere outside the cut -- it drew at the faded
@@ -512,20 +536,19 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
             LogTerrain (s, "layer proposed vertices=" + std::to_string (mesh.points.size () / 3) +
                                " triangles=" + std::to_string (mesh.indices.size () / 3) +
                                " guest=" + std::to_string (overlaylayers::DrawnByGuest (mesh, layer)));
-        else if (s.terrainDesign->staleLogged != current->generation) {
-            s.terrainDesign->staleLogged = current->generation;
-            LogTerrain (s, "layer stale generation=" + std::to_string (current->generation) +
-                               " builtRevision=" + std::to_string (current->revision));
+        else if (s.terrainDesign->staleLogged != last->generation) {
+            s.terrainDesign->staleLogged = last->generation;
+            LogTerrain (s, "layer stale generation=" + std::to_string (last->generation) +
+                               " builtRevision=" + std::to_string (last->revision));
         }
         layer.meshes.push_back (std::move (mesh));
         overlaylayers::Polyline ring;
         // The kernel's ordered ring includes every split crossing and its
         // actual terrain height; the input region is plan-only (z ignored).
-        const auto& build = current->result.build;
-        for (const auto& row : build.mappings)
+        for (const auto& row : mappings)
             if (row.kind == lg::TerrainMappingKind::RingVertex) {
                 const size_t at = size_t (row.values[0]) * 3;
-                ring.points.insert (ring.points.end (), build.points.begin () + at, build.points.begin () + at + 3);
+                ring.points.insert (ring.points.end (), points.begin () + at, points.begin () + at + 3);
             }
         ring.closed = true;
         ring.rgba = 0x37523DFFu;
@@ -536,21 +559,21 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         if (s.contours) {
             auto& state = *s.terrainDesign;
             double lo = INFINITY, hi = -INFINITY;
-            for (size_t i = 2; i < build.points.size (); i += 3)
-                lo = std::min (lo, build.points[i]), hi = std::max (hi, build.points[i]);
+            for (size_t i = 2; i < points.size (); i += 3)
+                lo = std::min (lo, points[i]), hi = std::max (hi, points[i]);
             const double interval = s.contourStep > 0.0 ? s.contourStep
                                     : hi > lo           ? std::max (edit::NiceStep (hi - lo, 10), 0.1)
                                                         : 0.0;
             // Publication replaces an optional in place: its address and triangle
             // count can both stay unchanged while every height/contour moves.
-            if (state.contoursGeneration != current->generation || state.contoursInterval != interval) {
+            if (state.contoursGeneration != last->generation || state.contoursInterval != interval) {
                 edit::PavedArea surface;
-                for (size_t i = 0; i + 2 < build.points.size (); i += 3)
-                    surface.vertices.push_back ({ build.points[i], build.points[i + 1], build.points[i + 2] });
-                surface.triangles = build.triangles;
+                for (size_t i = 0; i + 2 < points.size (); i += 3)
+                    surface.vertices.push_back ({ points[i], points[i + 1], points[i + 2] });
+                surface.triangles = triangles;
                 state.contours =
                     interval > 0.0 ? edit::SurfaceContours (surface, interval) : std::vector<edit::Contour> {};
-                state.contoursGeneration = current->generation;
+                state.contoursGeneration = last->generation;
                 state.contoursInterval = interval;
             }
             for (const auto& c : state.contours) {
@@ -565,10 +588,15 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
             }
         }
     }
-    if (stale)
-        return; // Its conflict places were located on paths that have since moved.
+    // Located conflicts and diagnostic places belong to the newest outcome that
+    // describes the document: a refusal's places are current geometry and draw
+    // even while the last good surface holds above them. An in-flight rebuild
+    // (no current outcome yet) draws no new places: the stale ones would belong
+    // to paths that have since moved.
+    if (!current)
+        return;
     const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
-    if (!current->built)
+    if (!last || !last->built)
         LogTerrain (s,
                     "layer no-proposal conflicts=" + std::to_string (conflicts.size ()) + " error=" + current->error);
     for (const auto& conflict : conflicts) {
@@ -650,9 +678,14 @@ void TerrainDesignPanel (Session& s)
     if (!current)
         return;
     if (current->built) {
-        ImGui::Text ("Cut %.3f m3   Fill %.3f m3", current->result.build.site.cut, current->result.build.site.fill);
-        ImGui::Text ("Topography preview: %zu vertices, %zu triangles", current->result.build.points.size () / 3,
-                     current->result.build.triangles.size () / 3);
+        // #112 P4b: quantities come from the published snapshot when the lane
+        // produced one; displayed totals keep the 0.25 m measurement convention.
+        const auto* published = current->published.get ();
+        const auto& site = published ? published->displaySite : current->result.build.site;
+        const auto& points = published ? published->points : current->result.build.points;
+        const auto& triangles = published ? published->triangles : current->result.build.triangles;
+        ImGui::Text ("Cut %.3f m3   Fill %.3f m3", site.cut, site.fill);
+        ImGui::Text ("Topography preview: %zu vertices, %zu triangles", points.size () / 3, triangles.size () / 3);
         if (current->regions) {
             const auto& area = current->regions->evaluation.terrain;
             for (const auto& report : area.reports)

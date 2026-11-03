@@ -8,6 +8,7 @@
 
 namespace tapioca::geometry {
 struct RegionTerrainResult;
+struct PublishedTerrain;
 
 // The widest a side slope's plan reach is widened to when it does not meet the ground, metres.
 constexpr double kMaxSlopeReach = 100.0;
@@ -48,6 +49,11 @@ struct TerrainDesignOutcome {
     std::array<uint8_t, 16> session {};
     std::string sourceTerrainGuid;
     bool built = false;
+    // #112 P4b: the neutral published snapshot the unified lane converted at the
+    // publication boundary; null on the legacy lanes during migration. Preview,
+    // quantities, debug replay and status consume it instead of lane-specific
+    // result fields once present.
+    std::shared_ptr<const PublishedTerrain> published;
     TerrainDesignResult result;                   // When built.
     std::vector<TerrainDesignConflict> conflicts; // Station places and canonical fixed conflicts (if TIN exists).
     std::string error;                            // When refused.
@@ -71,10 +77,12 @@ TerrainDesignOutcome RunTerrainDesign (const TerrainDesignJob& job);
 std::future<TerrainDesignOutcome> LaunchTerrainDesign (TerrainDesignJob job);
 
 // Main-thread side: hands out jobs and publishes their outcomes into a derived
-// cache (never document state, never history). An outcome publishes only when
-// it is the latest generation requested AND the current document still has its
-// session, revision and source terrain; otherwise it is discarded and the cache
-// is left as it was. Not thread-safe by design: one owner, the main thread.
+// cache (never document state, never history). An outcome becomes the latest
+// status/diagnostics only when it is the latest generation requested AND the
+// current document still has its session, revision and source terrain. The
+// drawable/quantity snapshot is the last GOOD publication: a failed, refused,
+// superseded or stale outcome reports its diagnostic but never replaces it.
+// Not thread-safe by design: one owner, the main thread.
 class TerrainDesignPublisher {
   public:
     // Snapshots `doc` and refuses a capture of another session, revision or
@@ -83,9 +91,18 @@ class TerrainDesignPublisher {
     bool Prepare (const geomsrv::edit::Document& doc, std::shared_ptr<const TerrainCapture> capture,
                   const TerrainDesignOptions& options, std::span<const double> region, TerrainDesignJob& job,
                   std::string& error);
+    // Accepts a completed outcome as the latest status/diagnostics. Only a
+    // complete current valid build (built=true) replaces the published snapshot;
+    // failure, stale and cancellation leave the last good publication intact
+    // while the new diagnostic stands in LatestOutcome. A superseded generation
+    // or a document the outcome no longer describes is discarded unchanged.
     bool Publish (const geomsrv::edit::Document& current, TerrainDesignOutcome outcome, std::string& error);
-    // The published outcome while it still describes `current`; null otherwise.
+    // The published (last good) outcome while it still describes `current`; null otherwise.
     const TerrainDesignOutcome* Current (const geomsrv::edit::Document& current) const;
+    // The newest completed outcome while it still describes `current`: the
+    // status/diagnostic answer whatever it built. Null when only a stale or
+    // superseded outcome exists, so a refusal never impersonates the drawable.
+    const TerrainDesignOutcome* LatestOutcome (const geomsrv::edit::Document& current) const;
     // Display only: the published outcome while it still belongs to `current`'s session and
     // terrain, whatever revision it was built for. Never a status or publication answer.
     const TerrainDesignOutcome* LastPublished (const geomsrv::edit::Document& current) const;
@@ -96,6 +113,7 @@ class TerrainDesignPublisher {
 
   private:
     uint64_t latest = 0;
+    std::optional<TerrainDesignOutcome> latestOutcome;
     std::optional<TerrainDesignOutcome> published;
 };
 

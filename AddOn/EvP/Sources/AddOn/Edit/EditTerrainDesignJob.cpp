@@ -1,6 +1,7 @@
 #include "Edit/EditTerrainDesignJob.hpp"
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditTerrainOutline.hpp"
+#include "Edit/EditPublishedTerrain.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <exception>
@@ -215,7 +216,18 @@ bool TerrainDesignPublisher::Publish (const geomsrv::edit::Document& current, Te
         error = "ProvenanceStale: the document changed while the design was evaluated";
         return false;
     }
-    published = std::move (outcome);
+    if (outcome.published &&
+        (outcome.published->revision != outcome.revision || outcome.published->session != outcome.session ||
+         outcome.published->sourceTerrainGuid != outcome.sourceTerrainGuid || outcome.published->planHash == 0)) {
+        error = "ProvenanceStale: the published snapshot does not carry the outcome's identity and plan hash";
+        return false;
+    }
+    // The newest completed outcome always becomes the status/diagnostic answer;
+    // only a complete current valid build replaces the drawable/quantity
+    // snapshot (#112: failure, stale and cancellation retain the last good one).
+    latestOutcome = outcome;
+    if (outcome.built)
+        published = std::move (outcome);
     error.clear ();
     return true;
 }
@@ -223,6 +235,11 @@ bool TerrainDesignPublisher::Publish (const geomsrv::edit::Document& current, Te
 const TerrainDesignOutcome* TerrainDesignPublisher::Current (const geomsrv::edit::Document& current) const
 {
     return published && Describes (current, *published) ? &*published : nullptr;
+}
+
+const TerrainDesignOutcome* TerrainDesignPublisher::LatestOutcome (const geomsrv::edit::Document& current) const
+{
+    return latestOutcome && Describes (current, *latestOutcome) ? &*latestOutcome : nullptr;
 }
 
 const TerrainDesignOutcome* TerrainDesignPublisher::LastPublished (const geomsrv::edit::Document& current) const

@@ -10,7 +10,8 @@
 // property/measurement scope: displayed site/context totals keep the existing
 // 0.25 m measured-grid convention against the measurement region, while the
 // authoritative earthwork quantities are triangle-exact and independent of any
-// sampling resolution. No production dispatch yet (P4b); worker-classified.
+// sampling resolution. #112 P4b: the mixed production lane publishes this
+// snapshot on the outcome; the publisher keeps it as the last-good drawable.
 
 #include "Edit/EditLandscapeFieldPlan.hpp"
 #include "Edit/EditLandscapeUnifiedBuild.hpp"

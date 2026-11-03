@@ -23,11 +23,13 @@ struct UnifiedLandscapeBuildScope {
     std::vector<double> measurementRegion;
 };
 
-// Real compiler-to-build seam for #112 P3.1. Validates the complete plan and
-// immutable capture, converts every domain/path/mask/control and its full input
-// provenance, then calls the one Rust authority. No production dispatch, legacy
-// fallback, document mutation or partial result. `scope` reports both regions
-// on success. Worker-classified.
+// Real compiler-to-build seam for #112 P3.1; #112 P4b: the mixed production lane
+// (RunLandscapeTerrainDesign) compiles the plan on the worker and calls this once
+// over the original immutable capture. Validates the complete plan and
+// capture/session/revision/source-terrain identity, converts every
+// domain/path/mask/control and its full input provenance, then calls the one Rust
+// authority. No legacy fallback, document mutation or partial result. `scope`
+// reports both regions on success. Worker-classified.
 bool BuildUnifiedLandscapeTerrain (const geomsrv::edit::Document& doc, const TerrainCapture& capture,
                                    const FieldPlan& plan, const UnifiedLandscapeBuildOptions& options,
                                    UnifiedTerrainResult& result, UnifiedLandscapeBuildScope& scope, std::string& error);

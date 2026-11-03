@@ -711,12 +711,32 @@ exactly. The legacy 0.25 m measured-grid site/context totals against the
 measurement region are retained as the display convention, and the kernel-exact
 site/context volumes are carried labeled as rebuild-scope; neither silently
 replaces the other. `PublishTerrainDesign` converts the legacy path-lane outcome
-for parity tests only, never as a runtime fallback. Preview/quantities/status
-rewiring is P4b. On the original #82 fixture the unified and legacy surfaces
-agree within the documented daylight-density tolerance (max sampled error
-0.244 m, display fill delta 15.9 m3 on a 0.25 m query grid); per-vertex ring
-ancestry in the mesh projection waits for the kernel to document its
-breakline-ordinal catalog mapping.
+for parity tests only, never as a runtime fallback. On the original #82 fixture
+the unified and legacy surfaces agree within the documented daylight-density
+tolerance (max sampled error 0.244 m, display fill delta 15.9 m3 on a 0.25 m
+query grid); per-vertex ring ancestry in the mesh projection waits for the
+kernel to document its breakline-ordinal catalog mapping.
+
+P4b switches the mixed region+path production lane
+(`RunLandscapeTerrainDesign`, `EditLandscapeTerrainJob.cpp`) to the unified
+authority: the worker compiles `LandscapeSnapshot` from the immutable job
+document/capture, strict-validates the plan, builds once over the original
+baseline and converts the owned result through `PublishUnifiedTerrain`; the
+region-first/path-second `ProposedCapture` composition is gone from that lane
+and is never a failure fallback (region-only scenes keep the composition lane
+until P4c). The outcome carries the neutral snapshot (`published`), mirrored
+into `result.build` as a transitional consumer view; displayed totals keep the
+0.25 m convention. `TerrainDesignPublisher` now splits latest
+status/diagnostics (`LatestOutcome`) from the last-good drawable/quantity
+publication: a failed, refused, superseded or stale outcome reports its
+diagnostic but never replaces the last valid snapshot, and a published
+snapshot whose revision/session/source-terrain/plan-hash identity mismatches
+its outcome is refused. Preview, panel quantities and status read the
+published snapshot when present; located conflict places come from the newest
+outcome describing the document. Outline grading stays non-unified (the
+compiled single-path request grades the path band); a measured unified
+daylight density difference of 0.0156 m at the rectangle fixture's remote
+query sits in the documented 0.244 m tolerance class.
 
 A zero-reach absolute target that differs from baseline at its boundary, or from
 another sharp claim at the same position, refuses with `BuildHardStep`. Overlap

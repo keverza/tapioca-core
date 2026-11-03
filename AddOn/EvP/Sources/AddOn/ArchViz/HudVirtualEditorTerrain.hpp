@@ -83,10 +83,14 @@ TerrainDesignStatus GetTerrainDesignStatus (const Session& session);
 // Main-thread, nonblocking poll. One worker at a time; changed revisions coalesce
 // until input ends. Results never enter document state or its undo history.
 void PollTerrainDesign (Session& session);
+// The status/diagnostic answer: the newest completed outcome that still describes
+// the current document, whatever it built (#112 P4b). A refusal is reported here
+// while the last good publication keeps drawing through LastPublishedTerrainDesign.
 const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Session& session);
-// What the layer draws: the current outcome, else -- through a path move and until its rebuild
-// publishes -- the last built one of the same session and terrain, with `stale` set. Null when
-// there is none or the terrain capture is invalid. Display only; status reads CurrentTerrainDesign.
+// What the layer draws: the last GOOD publication of the same session and terrain
+// (#112 P4b: a newer refusal, an in-flight rebuild or an edit never replace it),
+// with `stale` set when it predates the current request. Null when there is none
+// or the terrain capture is invalid. Display only; status reads CurrentTerrainDesign.
 const tapioca::geometry::TerrainDesignOutcome* LastPublishedTerrainDesign (const Session& session, bool& stale);
 void DrawTerrainDesign (const Session& session, overlaylayers::Layer& layer);
 void TerrainDesignPanel (Session& session);
