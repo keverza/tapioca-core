@@ -738,6 +738,39 @@ compiled single-path request grades the path band); a measured unified
 daylight density difference of 0.0156 m at the rectangle fixture's remote
 query sits in the documented 0.244 m tolerance class.
 
+P4c routes every remaining scene through the one authority. Region-only and
+band path-only scenes compile the same plan pipeline (zero-path or zero-entry
+plans both validate) and publish like mixed scenes; the `ProposedCapture`
+composition and its `Totals` helper are deleted, with the composition
+reconstructed in test helpers (`legacy_region_composition.hpp`) as the parity
+oracle. Two documented exceptions keep the legacy lane: outline grading (no
+unified equivalent yet; the user-approved scope decision) and a request naming
+neither a region target nor a path. `PathDesignRequest` carries the band
+lane's cover-trimming intent (`trimToCover`, `trimMargin`, hash-visible) and
+the build adapter trims the converted stations with the shared
+`TrimTerrainStationsToCover` before the derived rebuild ring resolves —
+`UnifiedLandscapeBuildScope` also reports the effective station list, which
+the transitional mirror exposes as `result.stations`. The mirror is complete
+for band parity: owners, path design lines, locked vertices with authored
+control references, `inputPointCount`/`inputRegionCount`/control catalog
+offsets, `meshProvenance`, `vertexOperations` and refusal conflict places
+(assessed through the legacy band authority). Region-only parity is pinned on
+a 0.25 m query grid against the region evaluation: max sampled error 0.178 m,
+inside the documented 0.244 m daylight-density class (the legacy evaluation's
+nine offset-ring transition densification is not reproduced by the unified
+topology); band path parity pins the same 0.25 m class with bit-identical
+stations, derived rebuild ring and display totals. Per-domain quantities are
+completed: multi-part (island) footprints attribute per part instead of a
+flattened pseudo-polygon, every stack slot reports an explicit row (zero rows
+included, baseline first), rows carry their authored operation/object
+identity, Boundary-Z domains that stay on their authored surface publish with
+quantities under that identity (leaving the surface still refuses at the plan
+gate), and the C++ zero-contour total reconciles with the kernel's exact
+site/context volumes. Known residuals, documented in the handoff: fixed
+control movement books to the baseline row (the kernel clears the owner on
+locked vertices), the owner fallback for transition bands is a highest-order
+heuristic, and per-domain site/context splits are not part of the row type.
+
 A zero-reach absolute target that differs from baseline at its boundary, or from
 another sharp claim at the same position, refuses with `BuildHardStep`. Overlap
 and nesting are not exemptions: one shared TIN vertex cannot represent two

@@ -18,9 +18,13 @@ struct UnifiedLandscapeBuildOptions {
 // cover the displayed site/context totals are conventionally measured against.
 // The kernel's exact site/context volumes are rebuild-scope quantities; they
 // are not yet the final site-total contract.
+// #112 P4c: `stations` carries the single path's effective (cover-trimmed)
+// stations in travel order — the publication mirror reports them exactly as the
+// legacy band lane reports its trimmed station list. Empty without a path.
 struct UnifiedLandscapeBuildScope {
     std::vector<double> rebuildRegion;
     std::vector<double> measurementRegion;
+    std::vector<double> stations;
 };
 
 // Real compiler-to-build seam for #112 P3.1; #112 P4b: the mixed production lane

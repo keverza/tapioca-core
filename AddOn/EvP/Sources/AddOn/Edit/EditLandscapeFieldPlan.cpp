@@ -171,6 +171,9 @@ uint64_t FieldPlanHash (const FieldPlan& plan)
         HashNumber (hash, path.design.tolerance);
         const uint8_t outline = path.design.outline ? 1 : 0;
         HashBytes (hash, &outline, 1);
+        const uint8_t trim = path.design.trimToCover ? 1 : 0;
+        HashBytes (hash, &trim, 1);
+        HashNumber (hash, path.design.trimMargin);
         const uint64_t count = path.stations.size ();
         HashBytes (hash, &count, sizeof count);
         for (const auto& station : path.stations) {

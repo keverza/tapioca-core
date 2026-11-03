@@ -2,6 +2,7 @@
 
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditTerrainAdapterInternal.hpp"
+#include "Edit/EditTerrainDesign.hpp"
 #include "Edit/EditTerrainStation.hpp"
 
 #include <algorithm>
@@ -287,10 +288,27 @@ bool Convert (const edit::Document& doc, const TerrainCapture& capture, const Fi
         for (size_t index = 0; index < path.stations.size (); ++index)
             owned.stations.push_back (CompileTerrainStation (path.stations[index], path.crossfallPercent[index],
                                                              path.design.cutLimit, path.design.fillLimit));
+        std::vector<double> sampled;
+        sampled.reserve (path.stations.size ());
+        for (const auto& frame : path.stations)
+            sampled.push_back (frame.station);
+        if (plan.paths.size () == 1 && path.design.trimToCover) {
+            // #112 P4c: the band lane trims the converted stations to the
+            // capture-derived cover before the rebuild ring derives from them;
+            // the unified lane applies the same contract at the same point.
+            std::vector<TerrainStation> kept (owned.stations.begin () + firstStation, owned.stations.end ());
+            if (!TrimTerrainStationsToCover (TerrainDesignArea (doc, capture.Input ().mesh), path.design.trimMargin,
+                                             sampled, kept, error))
+                return false;
+            owned.stations.resize (firstStation);
+            owned.stations.insert (owned.stations.end (), kept.begin (), kept.end ());
+        }
         owned.paths.push_back (
             { path.order, path.source, path.operation, path.object,
-              std::span<const TerrainStation> (owned.stations).subspan (firstStation, path.stations.size ()),
+              std::span<const TerrainStation> (owned.stations).subspan (firstStation, sampled.size ()),
               path.design.effect, path.design.tolerance });
+        if (plan.paths.size () == 1)
+            scope.stations = std::move (sampled);
     }
     if (owned.paths.size () == 1) {
         const auto& path = plan.paths.front ();

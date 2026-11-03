@@ -118,11 +118,15 @@ bool ProjectMeshProvenance (const UnifiedTerrainResult& unified, ProvenanceReque
 }
 
 // ---- domain footprints -------------------------------------------------------
+// One entry footprint: per evaluated domain part, rings[0] is the outer and
+// rings[1..] its holes — the plan's own PolyTree nesting. Parts are kept
+// separate: flattening every part into one pseudo-polygon would treat a second
+// outer as a hole of the first and lose its island attribution.
 struct DomainFootprint {
     uint32_t order = 0;
     OperationId operation = 0;
     ObjectId object = 0;
-    std::vector<std::vector<double>> rings; // rings[0] outer, rings[1..] holes, flat xyz.
+    std::vector<std::vector<std::vector<double>>> parts; // Per part: flat xyz rings.
 };
 
 bool InsideRing (const std::vector<double>& ring, double x, double y)
@@ -143,12 +147,16 @@ bool InsideRing (const std::vector<double>& ring, double x, double y)
 
 bool InsideFootprint (const DomainFootprint& domain, double x, double y)
 {
-    if (domain.rings.empty () || !InsideRing (domain.rings.front (), x, y))
-        return false;
-    for (size_t ring = 1; ring < domain.rings.size (); ++ring)
-        if (InsideRing (domain.rings[ring], x, y))
-            return false; // A hole never belongs to its surrounding domain.
-    return true;
+    for (const auto& rings : domain.parts) {
+        if (rings.empty () || !InsideRing (rings.front (), x, y))
+            continue;
+        bool hole = false;
+        for (size_t ring = 1; ring < rings.size () && !hole; ++ring)
+            hole = InsideRing (rings[ring], x, y);
+        if (!hole)
+            return true;
+    }
+    return false;
 }
 
 // ---- exact triangle integration with zero-contour cut/fill split -------------
@@ -240,6 +248,11 @@ bool ComputeQuantities (const std::vector<double>& points, const std::vector<dou
     quantities = QuantityRows {};
     constexpr uint32_t kBaseline = UINT32_MAX;
     RowFor (quantities, kBaseline, nullptr);
+    // One row per stack slot up front, in stack order: a domain that moved no
+    // triangle still reports an explicit zero row instead of vanishing from
+    // the partition.
+    for (const auto& owner : identity)
+        RowFor (quantities, owner.order, &owner);
     for (size_t corner = 0; corner < vertexCount; ++corner)
         if (owners[corner] && *owners[corner] >= identity.size ()) {
             error = "PublishedTerrainAttribution: an owner value names no stack identity";
@@ -377,9 +390,11 @@ bool PublishUnifiedTerrain (const UnifiedTerrainResult& unified, const FieldPlan
         std::vector<DomainFootprint> footprints;
         for (const auto& entry : plan.entries) {
             DomainFootprint footprint { entry.order, entry.rootOperation, entry.object, {} };
-            for (const auto& part : entry.parts)
+            for (const auto& part : entry.parts) {
+                footprint.parts.push_back ({});
                 for (const auto& ring : part.rings)
-                    footprint.rings.push_back (Flat (ring));
+                    footprint.parts.back ().push_back (Flat (ring));
+            }
             footprints.push_back (std::move (footprint));
         }
         QuantityRows quantities;

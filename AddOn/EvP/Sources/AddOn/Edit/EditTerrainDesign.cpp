@@ -62,18 +62,23 @@ bool Stations (const edit::Path& path, const TerrainDesignOptions& options, std:
     return true;
 }
 
-// The longest run of stations whose band edges lie on `options.cover` (trimToCover only).
-bool TrimToCover (const TerrainDesignOptions& options, std::vector<double>& sampled,
-                  std::vector<TerrainStation>& stations, std::string& error)
+} // namespace
+
+// The longest run of stations whose band edges lie on `cover` (trimToCover only).
+// #112 P4c: shared by the legacy band lane and the unified build adapter so both
+// trim to the same cover contract; fails DesignCoverage when no run reaches two
+// stations.
+bool TrimTerrainStationsToCover (std::span<const double> cover, double trimMargin, std::vector<double>& sampled,
+                                 std::vector<TerrainStation>& stations, std::string& error)
 {
-    if (!options.trimToCover || options.cover.size () < 9)
+    if (cover.size () < 9)
         return true;
-    cp::PathD cover;
-    for (size_t i = 0; i + 2 < options.cover.size (); i += 3)
-        cover.push_back ({ options.cover[i], options.cover[i + 1] });
-    const auto shrunk = cp::InflatePaths ({ cover }, -options.trimMargin, cp::JoinType::Miter, cp::EndType::Polygon,
-                                          2.0, landscape_detail::kPrecision);
-    const cp::PathD inner = shrunk.empty () ? cover : shrunk.front ();
+    cp::PathD ring;
+    for (size_t i = 0; i + 2 < cover.size (); i += 3)
+        ring.push_back ({ cover[i], cover[i + 1] });
+    const auto shrunk = cp::InflatePaths ({ ring }, -trimMargin, cp::JoinType::Miter, cp::EndType::Polygon, 2.0,
+                                          landscape_detail::kPrecision);
+    const cp::PathD inner = shrunk.empty () ? ring : shrunk.front ();
     const size_t n = stations.size ();
     std::vector<bool> on (n, false);
     for (size_t i = 0; i < n; ++i) {
@@ -107,6 +112,17 @@ bool TrimToCover (const TerrainDesignOptions& options, std::vector<double>& samp
     sampled = std::vector<double> (sampled.begin () + best, sampled.begin () + best + bestLength);
     stations = std::vector<TerrainStation> (stations.begin () + best, stations.begin () + best + bestLength);
     return true;
+}
+
+namespace {
+// The legacy lane's option-driven entry point: no cover (or trimming off) keeps
+// every station.
+bool TrimToCover (const TerrainDesignOptions& options, std::vector<double>& sampled,
+                  std::vector<TerrainStation>& stations, std::string& error)
+{
+    if (!options.trimToCover)
+        return true;
+    return TrimTerrainStationsToCover (options.cover, options.trimMargin, sampled, stations, error);
 }
 
 // Framing, the operation, the owner and the path centreline source.

@@ -40,6 +40,12 @@ struct PathDesignRequest {
     TerrainEditEffect effect = TerrainEditEffect::Both;
     double tolerance = 1e-3; // At-grade height band, metres.
     bool outline = false;    // Grade from the paved outline of every path.
+    // #112 P4c: cover trimming with the band lane's contract — only the longest
+    // run of stations whose band lies on the cover is designed. The build
+    // adapter applies it once the capture-derived cover is known; the compiler
+    // carries the authored intent.
+    bool trimToCover = false;
+    double trimMargin = 0.05; // Metres a kept station's band edges stay inside the cover.
     bool operator== (const PathDesignRequest&) const = default;
 };
 

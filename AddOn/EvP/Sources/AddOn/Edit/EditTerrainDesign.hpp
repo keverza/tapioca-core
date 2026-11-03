@@ -110,6 +110,12 @@ std::vector<double> TerrainDesignArea (const geomsrv::edit::Document& doc, const
 // No triangulation or document mutation.
 bool ResolveTerrainDesignRegion (const geomsrv::edit::Document& doc, std::span<const TerrainStation> stations,
                                  const TerrainDesignOptions& options, std::vector<double>& ring, std::string& error);
+// #112 P4c: cover trimming of sampled band stations, shared by the legacy band
+// lane and the unified build adapter. Keeps the longest run whose band edges
+// stay `trimMargin` inside `cover`; fails DesignCoverage when no run reaches
+// two stations. `sampled` and `stations` are trimmed together.
+bool TrimTerrainStationsToCover (std::span<const double> cover, double trimMargin, std::vector<double>& sampled,
+                                 std::vector<TerrainStation>& stations, std::string& error);
 
 bool AssessTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
                           const TerrainDesignOptions& options, std::vector<TerrainDesignConflict>& conflicts,
