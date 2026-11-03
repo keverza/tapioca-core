@@ -94,8 +94,8 @@ TEST (EditMeshTopology, ThreeFacesOnOneEdgeIsNonManifoldWithUndefinedGenus)
 {
     geomsrv::Mesh mesh;
     mesh.guid = "nonmanifold";
-    mesh.vertices = { 0,0,0,  1,0,0,  0,1,0,  1,1,0,  0.5,-1,0 };
-    mesh.triangles = { 0, 1, 2,  1, 0, 3,  0, 1, 4 }; // edge (0,1) carries all three
+    mesh.vertices = { 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0.5, -1, 0 };
+    mesh.triangles = { 0, 1, 2, 1, 0, 3, 0, 1, 4 }; // edge (0,1) carries all three
     mesh.triMaterial.assign (3, 0);
     evptest::RecomputeBounds (mesh);
 
@@ -111,10 +111,9 @@ TEST (EditMeshStats, DegenerateTrianglesAreCountedAndExcludedFromTopology)
     mesh.guid = "degenerate";
     // Repeated-index triangle and a collinear (roundoff-zero) triangle on the
     // x axis: (0,0,0), (2,0,0), (4,0,0).
-    mesh.vertices.insert (mesh.vertices.end (), { 5,5,5,  5,5,5,  2,0,0,  4,0,0 });
+    mesh.vertices.insert (mesh.vertices.end (), { 5, 5, 5, 5, 5, 5, 2, 0, 0, 4, 0, 0 });
     const uint32_t base = 3;
-    mesh.triangles.insert (mesh.triangles.end (),
-                           { base, base, base + 1, 0, base + 2, base + 3 });
+    mesh.triangles.insert (mesh.triangles.end (), { base, base, base + 1, 0, base + 2, base + 3 });
     mesh.triMaterial.insert (mesh.triMaterial.end (), { 0, 0 });
     evptest::RecomputeBounds (mesh);
 
@@ -129,16 +128,15 @@ TEST (EditMeshStats, DuplicateAndInteriorCoincidenceCounts)
     // A single triangle, then a same-orientation copy (duplicate), then a
     // reversed copy (interior pair member).
     geomsrv::Mesh mesh = evptest::MakeSingleTriangle ("coincident");
-    mesh.triangles.insert (mesh.triangles.end (), { 0, 1, 2,  0, 2, 1 });
+    mesh.triangles.insert (mesh.triangles.end (), { 0, 1, 2, 0, 2, 1 });
     mesh.triMaterial.insert (mesh.triMaterial.end (), { 0, 0 });
     const auto stats = Stats (mesh);
     EXPECT_EQ (stats.duplicateTriangleCount, 1);
-    EXPECT_EQ (stats.interiorTriangleCount, 3)
-        << "The reversed twin makes its whole class interior, copies included.";
+    EXPECT_EQ (stats.interiorTriangleCount, 3) << "The reversed twin makes its whole class interior, copies included.";
 
     // Same-orientation copies never become interior.
     geomsrv::Mesh dupOnly = evptest::MakeSingleTriangle ("duponly");
-    dupOnly.triangles.insert (dupOnly.triangles.end (), { 1, 2, 0,  2, 0, 1 }); // same cyclic class
+    dupOnly.triangles.insert (dupOnly.triangles.end (), { 1, 2, 0, 2, 0, 1 }); // same cyclic class
     dupOnly.triMaterial.insert (dupOnly.triMaterial.end (), { 0, 0 });
     const auto dupStats = Stats (dupOnly);
     EXPECT_EQ (dupStats.duplicateTriangleCount, 2);
@@ -148,7 +146,7 @@ TEST (EditMeshStats, DuplicateAndInteriorCoincidenceCounts)
 TEST (EditMeshStats, UnreferencedVerticesAreCounted)
 {
     geomsrv::Mesh mesh = evptest::MakeSingleTriangle ("loose");
-    mesh.vertices.insert (mesh.vertices.end (), { 9, 9, 9,  8, 8, 8 });
+    mesh.vertices.insert (mesh.vertices.end (), { 9, 9, 9, 8, 8, 8 });
     evptest::RecomputeBounds (mesh);
     EXPECT_EQ (Stats (mesh).unreferencedVertexCount, 2);
 }

@@ -17,9 +17,7 @@ bool HasRepeatedVertex (uint32_t a, uint32_t b, uint32_t c)
 
 } // namespace
 
-bool ComputeMeshStats (std::span<const double> positions,
-                       std::span<const uint32_t> triangles,
-                       MeshStats& out,
+bool ComputeMeshStats (std::span<const double> positions, std::span<const uint32_t> triangles, MeshStats& out,
                        std::string& error)
 {
     if (positions.size () % 3 != 0) {
@@ -65,8 +63,7 @@ bool ComputeMeshStats (std::span<const double> positions,
         auto& slots = classes[key]; // value-initialised to {0, 0}
         // Orientation slot: does (a,b,c) appear in even (+1) or odd (-1) form
         // in the sorted triple?
-        const bool even = (key[0] == a && key[1] == b) || (key[0] == b && key[1] == c) ||
-                          (key[0] == c && key[1] == a);
+        const bool even = (key[0] == a && key[1] == b) || (key[0] == b && key[1] == c) || (key[0] == c && key[1] == a);
         ++(even ? slots[0] : slots[1]);
         referenced[a] = referenced[b] = referenced[c] = 1;
     }

@@ -73,8 +73,8 @@ class EditorMeshStore {
         std::lock_guard<std::mutex> lock (mtx);
         size_t total = 0;
         for (const auto& [key, mesh] : meshes)
-            total += sizeof (std::pair<const std::string, std::shared_ptr<const PublishedMesh>>) +
-                     key.capacity () + (mesh ? mesh->Bytes () : 0);
+            total += sizeof (std::pair<const std::string, std::shared_ptr<const PublishedMesh>>) + key.capacity () +
+                     (mesh ? mesh->Bytes () : 0);
         return total;
     }
 

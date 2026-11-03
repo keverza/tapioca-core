@@ -35,18 +35,18 @@ struct PublishedMesh {
     // space (family prefix + object), NOT a geometric fingerprint.
     std::string object;
     uint64_t family = 0;
-    uint64_t revision = 0;           // Definition revision this snapshot answers to.
-    uint64_t definitionHash = 0;     // Content hash of the definition it was derived from.
+    uint64_t revision = 0;             // Definition revision this snapshot answers to.
+    uint64_t definitionHash = 0;       // Content hash of the definition it was derived from.
     uint64_t sourceAnchorRevision = 0; // Terrain anchor revision; 0 = not terrain-anchored.
 
     // Geometry: world-metre f64 positions, indexed triangles. Normals are
     // per-vertex and either match the vertex cardinality exactly or are empty
     // (consumers fall back to geometric face normals, as QueryEngine does).
-    std::vector<double> positions;   // xyz interleaved
-    std::vector<float> normals;      // per-vertex xyz, or empty
-    std::vector<uint32_t> triangles; // 3 vertex indices per triangle
+    std::vector<double> positions;    // xyz interleaved
+    std::vector<float> normals;       // per-vertex xyz, or empty
+    std::vector<uint32_t> triangles;  // 3 vertex indices per triangle
     std::vector<int32_t> triMaterial; // one material index per triangle
-    geomsrv::Aabb bounds;            // Recomputed at construction, never trusted from input.
+    geomsrv::Aabb bounds;             // Recomputed at construction, never trusted from input.
 
     // Full-resolution provenance/remaps: for every published vertex/triangle
     // the index in the full-resolution mesh this entry derives from. Identity
@@ -60,16 +60,21 @@ struct PublishedMesh {
     bool valid = false;
     std::vector<MeshDiagnostic> diagnostics;
 
-    size_t VertexCount () const { return positions.size () / 3; }
-    size_t TriangleCount () const { return triangles.size () / 3; }
+    size_t VertexCount () const
+    {
+        return positions.size () / 3;
+    }
+    size_t TriangleCount () const
+    {
+        return triangles.size () / 3;
+    }
 
     // Retained heap bytes — so memory held is reportable, not folklore.
     size_t Bytes () const
     {
-        return object.capacity () + positions.capacity () * sizeof (double) +
-               normals.capacity () * sizeof (float) + triangles.capacity () * sizeof (uint32_t) +
-               triMaterial.capacity () * sizeof (int32_t) + vertexSource.capacity () * sizeof (uint32_t) +
-               triangleSource.capacity () * sizeof (uint32_t) +
+        return object.capacity () + positions.capacity () * sizeof (double) + normals.capacity () * sizeof (float) +
+               triangles.capacity () * sizeof (uint32_t) + triMaterial.capacity () * sizeof (int32_t) +
+               vertexSource.capacity () * sizeof (uint32_t) + triangleSource.capacity () * sizeof (uint32_t) +
                diagnostics.capacity () * sizeof (MeshDiagnostic);
     }
     bool operator== (const PublishedMesh&) const = default;

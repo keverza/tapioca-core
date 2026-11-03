@@ -46,21 +46,23 @@ struct MeshStats {
     size_t interiorTriangleCount = 0;   // Coincidence classes with both orientations.
     size_t unreferencedVertexCount = 0; // Vertices no triangle uses at all.
 
-    bool IsManifold () const { return nonManifoldEdgeCount == 0; }
-    bool IsClosed () const { return IsManifold () && boundaryEdgeCount == 0; }
+    bool IsManifold () const
+    {
+        return nonManifoldEdgeCount == 0;
+    }
+    bool IsClosed () const
+    {
+        return IsManifold () && boundaryEdgeCount == 0;
+    }
 };
 
 // Computes the stats report. Fails closed on malformed input (same gate as
 // BuildMeshTopology): `out` is left untouched and `error` carries the reason.
-bool ComputeMeshStats (std::span<const double> positions,
-                       std::span<const uint32_t> triangles,
-                       MeshStats& out,
+bool ComputeMeshStats (std::span<const double> positions, std::span<const uint32_t> triangles, MeshStats& out,
                        std::string& error);
 
-inline bool ComputeMeshStats (const std::vector<double>& positions,
-                              const std::vector<uint32_t>& triangles,
-                              MeshStats& out,
-                              std::string& error)
+inline bool ComputeMeshStats (const std::vector<double>& positions, const std::vector<uint32_t>& triangles,
+                              MeshStats& out, std::string& error)
 {
     return ComputeMeshStats (std::span (positions), std::span (triangles), out, error);
 }

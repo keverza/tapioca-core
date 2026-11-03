@@ -17,9 +17,7 @@ struct HalfEdge {
 
 } // namespace
 
-bool BuildMeshTopology (std::span<const double> positions,
-                        std::span<const uint32_t> triangles,
-                        MeshTopology& out,
+bool BuildMeshTopology (std::span<const double> positions, std::span<const uint32_t> triangles, MeshTopology& out,
                         std::string& error)
 {
     if (positions.size () % 3 != 0) {
@@ -60,9 +58,9 @@ bool BuildMeshTopology (std::span<const double> positions,
             continue;
         }
         ++topo.triangleCount;
-        ++faceCount[{std::min (a, b), std::max (a, b)}];
-        ++faceCount[{std::min (b, c), std::max (b, c)}];
-        ++faceCount[{std::min (c, a), std::max (c, a)}];
+        ++faceCount[{ std::min (a, b), std::max (a, b) }];
+        ++faceCount[{ std::min (b, c), std::max (b, c) }];
+        ++faceCount[{ std::min (c, a), std::max (c, a) }];
     }
     topo.edgeCount = faceCount.size ();
     for (const auto& [edge, count] : faceCount)
@@ -82,14 +80,14 @@ bool BuildMeshTopology (std::span<const double> positions,
             continue;
         for (uint32_t e = 0; e < 3; ++e) {
             const uint32_t from = corner[e], to = corner[(e + 1) % 3];
-            if (faceCount[{std::min (from, to), std::max (from, to)}] == 1)
+            if (faceCount[{ std::min (from, to), std::max (from, to) }] == 1)
                 outgoing.emplace (from, to);
         }
     }
 
     std::map<std::pair<uint32_t, uint32_t>, bool> visited;
     for (const auto& [from, to] : outgoing) {
-        if (visited[{from, to}])
+        if (visited[{ from, to }])
             continue;
         std::vector<uint32_t> loop;
         uint32_t at = from;
@@ -100,9 +98,9 @@ bool BuildMeshTopology (std::span<const double> positions,
             auto next = outgoing.find (at);
             if (next == outgoing.end ())
                 break;
-            if (visited[{next->first, next->second}])
+            if (visited[{ next->first, next->second }])
                 break;
-            visited[{next->first, next->second}] = true;
+            visited[{ next->first, next->second }] = true;
             loop.push_back (next->first);
             at = next->second;
             if (at == from) {
@@ -116,9 +114,8 @@ bool BuildMeshTopology (std::span<const double> positions,
             topo.untracedBoundaryHalfEdges += loop.size ();
     }
 
-    topo.eulerCharacteristic =
-        static_cast<int64_t> (topo.vertexCount) - static_cast<int64_t> (topo.edgeCount) +
-        static_cast<int64_t> (topo.triangleCount);
+    topo.eulerCharacteristic = static_cast<int64_t> (topo.vertexCount) - static_cast<int64_t> (topo.edgeCount) +
+                               static_cast<int64_t> (topo.triangleCount);
     if (topo.IsManifold ()) {
         // For a manifold complex 2 - chi - b is even; integer division is exact.
         topo.genus = static_cast<int32_t> (

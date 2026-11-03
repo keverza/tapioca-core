@@ -7,27 +7,38 @@
 namespace geomsrv {
 
 struct Aabb {
-    double mn[3] = { std::numeric_limits<double>::infinity (),
-                     std::numeric_limits<double>::infinity (),
+    double mn[3] = { std::numeric_limits<double>::infinity (), std::numeric_limits<double>::infinity (),
                      std::numeric_limits<double>::infinity () };
-    double mx[3] = { -std::numeric_limits<double>::infinity (),
-                     -std::numeric_limits<double>::infinity (),
+    double mx[3] = { -std::numeric_limits<double>::infinity (), -std::numeric_limits<double>::infinity (),
                      -std::numeric_limits<double>::infinity () };
 
-    bool Valid () const { return mn[0] <= mx[0]; }
+    bool Valid () const
+    {
+        return mn[0] <= mx[0];
+    }
+
+    bool operator== (const Aabb&) const = default;
 
     void Expand (double x, double y, double z)
     {
-        if (x < mn[0]) mn[0] = x;  if (x > mx[0]) mx[0] = x;
-        if (y < mn[1]) mn[1] = y;  if (y > mx[1]) mx[1] = y;
-        if (z < mn[2]) mn[2] = z;  if (z > mx[2]) mx[2] = z;
+        if (x < mn[0])
+            mn[0] = x;
+        if (x > mx[0])
+            mx[0] = x;
+        if (y < mn[1])
+            mn[1] = y;
+        if (y > mx[1])
+            mx[1] = y;
+        if (z < mn[2])
+            mn[2] = z;
+        if (z > mx[2])
+            mx[2] = z;
     }
 
     bool OverlapsBox (const double bmn[3], const double bmx[3]) const
     {
-        return mn[0] <= bmx[0] && mx[0] >= bmn[0] &&
-               mn[1] <= bmx[1] && mx[1] >= bmn[1] &&
-               mn[2] <= bmx[2] && mx[2] >= bmn[2];
+        return mn[0] <= bmx[0] && mx[0] >= bmn[0] && mn[1] <= bmx[1] && mx[1] >= bmn[1] && mn[2] <= bmx[2] &&
+               mx[2] >= bmn[2];
     }
 
     // Closest-point distance from sphere centre to the box <= radius.

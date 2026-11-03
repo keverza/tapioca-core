@@ -41,22 +41,24 @@ struct MeshTopology {
     int64_t eulerCharacteristic = 0;
     int32_t genus = -1;
 
-    bool IsManifold () const { return nonManifoldEdgeCount == 0; }
-    bool IsClosed () const { return IsManifold () && boundaryEdgeCount == 0; }
+    bool IsManifold () const
+    {
+        return nonManifoldEdgeCount == 0;
+    }
+    bool IsClosed () const
+    {
+        return IsManifold () && boundaryEdgeCount == 0;
+    }
 };
 
 // Builds the topology view. Fails closed on malformed input (position count
 // not a multiple of 3, index count not a multiple of 3, index out of range):
 // `out` is left untouched and `error` carries the reason.
-bool BuildMeshTopology (std::span<const double> positions,
-                        std::span<const uint32_t> triangles,
-                        MeshTopology& out,
+bool BuildMeshTopology (std::span<const double> positions, std::span<const uint32_t> triangles, MeshTopology& out,
                         std::string& error);
 
-inline bool BuildMeshTopology (const std::vector<double>& positions,
-                               const std::vector<uint32_t>& triangles,
-                               MeshTopology& out,
-                               std::string& error)
+inline bool BuildMeshTopology (const std::vector<double>& positions, const std::vector<uint32_t>& triangles,
+                               MeshTopology& out, std::string& error)
 {
     return BuildMeshTopology (std::span (positions), std::span (triangles), out, error);
 }
