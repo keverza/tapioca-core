@@ -368,6 +368,7 @@ struct ContextHookStats {
     bool installed = false;
     bool wanted = false;            // the mode asked for it
     bool pinned = false;            // a patch profile verified at install time
+    bool refused = false;           // the install latched a refusal; `lastError` says why
     uint64_t discoveredContext = 0; // 0 until the present detour has found it
     uint64_t archicadContext = 0;   // 0 until nominated
     uint64_t calls = 0;             // detour entries for the nominated context

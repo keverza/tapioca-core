@@ -98,6 +98,11 @@ struct Health {
     bool running = false;
     bool visible = false;
     bool waitingForContext = false;
+    // ⚠️ THE CONTEXT HOOK REFUSED TO INSTALL -- an unpinned or updated Archicad,
+    // most often. No draw can reach the census after that, and without this the
+    // chain read `NoModelFrames`, which sent the 29.0.0.5101 update (2026-11-04)
+    // looking for a rendering regression.
+    bool contextHookRefused = false;
     CameraState camera = CameraState::Unavailable;
     HostState host = HostState::Idle;
     uint64_t autoSelections = 0;

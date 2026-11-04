@@ -690,6 +690,8 @@ std::string BlockedAt (const Health& health)
         return "NotStarted";
     if (health.waitingForContext)
         return "Hook";
+    if (health.contextHookRefused)
+        return "Hook:Refused";
     if (health.modelFramesSeen == 0)
         return "NoModelFrames";
     // ⚠️ A DRAW THAT NEVER REACHED THE TABLE CANNOT FAIL A GATE.
@@ -739,6 +741,7 @@ Health GetHealth ()
     health.running = g_running;
     health.visible = g_running && g_visible;
     health.waitingForContext = g_armPending;
+    health.contextHookRefused = g_running && dxgi::GetContextHookStats ().refused;
     health.camera = g_running ? ReadCameraState () : CameraState::Unavailable;
     health.host = ReadHostState ();
     health.reacquisitions = g_reacquisitions;

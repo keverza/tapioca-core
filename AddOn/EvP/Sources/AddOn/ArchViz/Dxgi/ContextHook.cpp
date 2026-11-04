@@ -826,6 +826,7 @@ ContextHookStats GetContextHookStats ()
     stats.installed = g_installed.load (std::memory_order_acquire);
     stats.wanted = g_wanted.load (std::memory_order_acquire);
     stats.pinned = g_pinned.load (std::memory_order_acquire);
+    stats.refused = g_installRefused.load (std::memory_order_acquire);
     stats.discoveredContext = g_discoveredContext.load (std::memory_order_acquire);
     stats.archicadContext = g_archicadContext.load (std::memory_order_acquire);
     stats.calls = g_calls.load (std::memory_order_relaxed);
