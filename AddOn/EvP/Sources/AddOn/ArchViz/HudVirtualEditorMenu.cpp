@@ -118,7 +118,7 @@ void DeleteSelection (Session& s)
 }
 
 namespace {
-// Where a paste with no place, or a duplicate, lands: beside the original, never on it, so
+// Where an ordinary paste with no place, or a duplicate, lands: beside the original, never on it, so
 // a copied path does not lie along the one it came from.
 constexpr edit::Vec3 kPasteStep { 1.0, -1.0, 0.0 };
 
@@ -132,14 +132,17 @@ bool ClipboardIdle (Session& s)
     return true;
 }
 
-// Pastes `clip` moved by `offset` as one undo step and selects what it made.
-void PasteObjects (Session& s, const edit::Clipboard& clip, edit::Vec3 offset)
+// Pastes `clip` moved by `offset` as one undo step and selects what it made. In-place copies
+// suppress endpoint joining: joining a coincident copy to its source would double the path back.
+void PasteObjects (Session& s, const edit::Clipboard& clip, edit::Vec3 offset, bool joinPaths)
 {
     const edit::Id since = Doc (s).nextId;
-    if (!s.edits.Apply ([clip, offset] (edit::Document& d, std::string& error) {
-            std::vector<edit::Ref> pasted;
-            return edit::Paste (d, clip, offset, pasted, error);
-        })) {
+    if (!s.edits.Apply (
+            [clip, offset] (edit::Document& d, std::string& error) {
+                std::vector<edit::Ref> pasted;
+                return edit::Paste (d, clip, offset, pasted, error);
+            },
+            joinPaths)) {
         s.message = s.edits.Message ();
         return;
     }
@@ -170,7 +173,7 @@ void CopySelection (Session& s, bool cut)
     }
 }
 
-void PasteClipboard (Session& s, std::optional<edit::Vec3> at)
+void PasteClipboard (Session& s, std::optional<edit::Vec3> at, bool inPlace)
 {
     if (!ClipboardIdle (s))
         return;
@@ -178,10 +181,10 @@ void PasteClipboard (Session& s, std::optional<edit::Vec3> at)
         s.message = "Nothing has been copied.";
         return;
     }
-    edit::Vec3 offset = kPasteStep, centre;
-    if (at && edit::Centre (s.clipboard, centre))
+    edit::Vec3 offset = inPlace ? edit::Vec3 {} : kPasteStep, centre;
+    if (!inPlace && at && edit::Centre (s.clipboard, centre))
         offset = { at->x - centre.x, at->y - centre.y, 0.0 };
-    PasteObjects (s, s.clipboard, offset);
+    PasteObjects (s, s.clipboard, offset, !inPlace);
 }
 
 void DuplicateSelection (Session& s)
@@ -193,7 +196,7 @@ void DuplicateSelection (Session& s)
         s.message = "Select the objects to duplicate.";
         return;
     }
-    PasteObjects (s, clip, kPasteStep);
+    PasteObjects (s, clip, kPasteStep, true);
 }
 
 void MirrorSelection (Session& s, edit::Vec3 point, edit::Vec3 direction, bool copy)
@@ -285,6 +288,7 @@ void AddClipboard (const Session& s, std::vector<MenuItem>& items)
     items.push_back (Item ("copy", "Copy", "Ctrl+C", idle && objects));
     items.push_back (Item ("cut", "Cut", "Ctrl+X", idle && objects));
     items.push_back (Item ("paste", "Paste here", "Ctrl+V", idle && !s.clipboard.Empty ()));
+    items.push_back (Item ("pasteInPlace", "Paste in place", "Ctrl+Shift+V", idle && !s.clipboard.Empty ()));
     items.push_back (Item ("duplicate", "Duplicate", "Ctrl+D", idle && objects));
     if (!objects)
         return;
@@ -542,7 +546,9 @@ void RunMenuItem (Session& s, const std::string& id)
     else if (id == "copy" || id == "cut")
         CopySelection (s, id == "cut");
     else if (id == "paste")
-        PasteClipboard (s, s.menu.at);
+        PasteClipboard (s, s.menu.at, false);
+    else if (id == "pasteInPlace")
+        PasteClipboard (s, std::nullopt, true);
     else if (id == "duplicate")
         DuplicateSelection (s);
     else if (id == "group" || id == "ungroup")

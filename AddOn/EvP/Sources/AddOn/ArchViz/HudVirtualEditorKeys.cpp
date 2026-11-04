@@ -319,11 +319,11 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                                                  : (key.shift ? OrganizeCommand::UnlockAll : OrganizeCommand::Lock));
                 else if (key.ctrl && !key.alt && !typing &&
                          (key.code == 'C' || key.code == 'X' || key.code == 'V' || key.code == 'D')) {
-                    // The editor's own clipboard: a paste lands centred under the pointer.
+                    // Ctrl+V centres under the pointer; Ctrl+Shift+V keeps the copied coordinates.
                     if (key.code == 'V') {
                         edit::Vec3 at;
-                        const bool here = Map { v }.Onto (v.x, v.y, s.plane.origin.z, s.plane.origin, at);
-                        PasteClipboard (s, here ? std::optional<edit::Vec3> (at) : std::nullopt);
+                        const bool here = !key.shift && Map { v }.Onto (v.x, v.y, s.plane.origin.z, s.plane.origin, at);
+                        PasteClipboard (s, here ? std::optional<edit::Vec3> (at) : std::nullopt, key.shift);
                     }
                     else if (key.code == 'D')
                         DuplicateSelection (s);

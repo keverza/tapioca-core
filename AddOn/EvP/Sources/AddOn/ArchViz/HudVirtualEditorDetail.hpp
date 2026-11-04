@@ -232,10 +232,10 @@ void DeleteSelection (Session& s);
 std::vector<edit::Ref> Moving (const Session& s, const edit::Ref& ref);
 void CheckView (Session& s, const overlayhud::Input& v);
 // The clipboard (HudVirtualEditorMenu.cpp), on whole objects: copied, cut (copied, then
-// deleted), pasted with their centre at `at` or a step beside where they were, and
+// deleted), pasted in place, with their centre at `at`, or a step beside where they were, and
 // duplicated a step beside themselves. What is pasted is selected.
 void CopySelection (Session& s, bool cut);
-void PasteClipboard (Session& s, std::optional<edit::Vec3> at);
+void PasteClipboard (Session& s, std::optional<edit::Vec3> at, bool inPlace);
 void DuplicateSelection (Session& s);
 // The selected objects (or a copy of them, selected) mirrored across the vertical plane
 // through `point` along `direction`, as one undo step.

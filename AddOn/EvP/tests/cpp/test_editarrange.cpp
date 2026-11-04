@@ -1,5 +1,7 @@
 #include "Edit/EditArrange.hpp"
 #include "Edit/EditEllipse.hpp"
+#include "Edit/EditLandscape.hpp"
+#include "Edit/EditLandscapeSerialization.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPolyline.hpp"
 #include "Edit/EditPrimitives.hpp"
@@ -164,6 +166,45 @@ TEST (EditArrange, APastedPathKeepsItsOwnReferencesAndDropsOnesToPathsLeftBehind
     EXPECT_EQ (p2.profile.front ().crossing, pasted[1].entity);
     ASSERT_EQ (p2.kerbs.size (), 2u);
     EXPECT_EQ (p2.kerbs[1].other, pasted[1].entity);
+}
+
+TEST (EditArrange, PasteInPlaceKeepsCoordinatesAndDropsLandscapeOwnership)
+{
+    ed::Document doc;
+    std::string error;
+    ASSERT_TRUE (tapioca::geometry::StartLandscape (doc, { 1 }, error)) << error;
+    const ed::Id id = ed::AddPolyline (doc, { { 2, 3, 1 }, { 5, 3, 1 }, { 5, 7, 1 } }, false, "guide");
+    ASSERT_TRUE (tapioca::geometry::SetLandscapeSourceRole (doc, id, tapioca::geometry::SourceRole::Guide, error))
+        << error;
+    const ed::Entity original = *ed::Find (doc, id);
+    std::vector<ed::Ref> pasted;
+    ASSERT_TRUE (ed::Paste (doc, ed::Copy (doc, { { id, ed::Part::Entity, 0 } }), {}, pasted, error)) << error;
+    ASSERT_EQ (pasted.size (), 1u);
+    const ed::Entity& copy = *ed::Find (doc, pasted.front ().entity);
+    ASSERT_EQ (copy.vertices.size (), original.vertices.size ());
+    EXPECT_NE (copy.id, original.id);
+    for (size_t i = 0; i < copy.vertices.size (); ++i) {
+        EXPECT_EQ (copy.vertices[i].p, original.vertices[i].p);
+        EXPECT_EQ (ed::Find (doc, id)->vertices[i].p, original.vertices[i].p);
+        EXPECT_NE (copy.vertices[i].id, original.vertices[i].id);
+    }
+    ASSERT_EQ (doc.landscape->sources.size (), 1u);
+    EXPECT_EQ (doc.landscape->sources.front ().entityId, original.id);
+    EXPECT_NE (doc.landscape->sources.front ().entityId, copy.id);
+    Valid (doc);
+
+    std::string text;
+    ASSERT_TRUE (tapioca::geometry::WriteLandscape (doc, tapioca::geometry::LandscapeStorage::Virtual, text, error))
+        << error;
+    ed::Document loaded;
+    ASSERT_TRUE (tapioca::geometry::ReadLandscape (text, loaded, error)) << error;
+    const ed::Entity& restored = *ed::Find (loaded, copy.id);
+    ASSERT_EQ (restored.vertices.size (), original.vertices.size ());
+    for (size_t i = 0; i < restored.vertices.size (); ++i)
+        EXPECT_EQ (restored.vertices[i].p, original.vertices[i].p);
+    ASSERT_EQ (loaded.landscape->sources.size (), 1u);
+    EXPECT_EQ (loaded.landscape->sources.front ().entityId, original.id);
+    Valid (loaded);
 }
 
 TEST (EditArrange, PasteThroughTheSessionIsOneUndoStep)

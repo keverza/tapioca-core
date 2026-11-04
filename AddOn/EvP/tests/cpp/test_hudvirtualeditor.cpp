@@ -4108,6 +4108,75 @@ TEST (HudVirtualEditor, CopyPasteCutAndDuplicateWorkOnWholeObjects)
     EXPECT_EQ (d.S ().edits.UndoDepth (), 3u);
 }
 
+TEST (HudVirtualEditor, PasteInPlaceUsesTheMenuAndCtrlShiftVWithOneUndoEach)
+{
+    ed::Document doc;
+    const ed::Id a = ed::AddPolyline (doc, { { 2, 3, 1 }, { 5, 3, 1 } }, false, "first");
+    const ed::Id b = ed::AddPolyline (doc, ed::Rectangle ({ 7, 3, 1 }, { 9, 5, 1 }), true, "second");
+    const ed::Id path = ed::AddPath (doc, { { 2, 9, 2 }, { 8, 9, 3 } }, 1.5, "walk");
+    ed::FindPath (doc, path)->profile.front ().anchor = ed::FindPath (doc, path)->points.front ().id;
+    ed::FindPath (doc, path)->profile.back ().anchor = ed::FindPath (doc, path)->points.back ().id;
+    std::string error;
+    const ed::Id group = ed::GroupObjects (
+        doc, { { a, ed::Part::Entity, 0 }, { b, ed::Part::Entity, 0 }, { path, ed::Part::Entity, 0 } }, "copied group",
+        error);
+    ASSERT_NE (group, ed::kNoId) << error;
+    Drive d (std::move (doc));
+    d.S ().menu.target = eh::MenuTarget::View;
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 }, { b, ed::Part::Entity, 0 }, { path, ed::Part::Entity, 0 } });
+    eh::RunMenuItem (d.S (), "copy");
+    ASSERT_TRUE (d.Offers ("pasteInPlace"));
+    const auto expectCopies = [&] {
+        ASSERT_EQ (d.D ().entities.size (), 4u);
+        ASSERT_EQ (d.D ().paths.size (), 2u);
+        ASSERT_EQ (d.D ().groups.size (), 2u);
+        EXPECT_EQ (d.S ().selection.Items ().size (), 3u);
+        EXPECT_NE (d.D ().groups[1].id, group);
+        for (size_t i = 0; i < 2; ++i) {
+            const auto& original = d.D ().entities[i];
+            const auto& copy = d.D ().entities[i + 2];
+            EXPECT_NE (copy.id, original.id);
+            EXPECT_EQ (copy.role, original.role);
+            EXPECT_EQ (copy.member.group, d.D ().groups[1].id);
+            ASSERT_EQ (copy.vertices.size (), original.vertices.size ());
+            for (size_t k = 0; k < copy.vertices.size (); ++k) {
+                EXPECT_EQ (copy.vertices[k].p, original.vertices[k].p);
+                EXPECT_NE (copy.vertices[k].id, original.vertices[k].id);
+            }
+        }
+        const auto& original = d.D ().paths[0];
+        const auto& copy = d.D ().paths[1];
+        EXPECT_NE (copy.id, original.id);
+        EXPECT_EQ (copy.role, original.role);
+        EXPECT_EQ (copy.member.group, d.D ().groups[1].id);
+        ASSERT_EQ (copy.points.size (), original.points.size ());
+        for (size_t k = 0; k < copy.points.size (); ++k) {
+            EXPECT_EQ (copy.points[k].p, original.points[k].p);
+            EXPECT_NE (copy.points[k].id, original.points[k].id);
+        }
+        EXPECT_EQ (copy.profile.front ().anchor, copy.points.front ().id);
+        EXPECT_EQ (copy.profile.back ().anchor, copy.points.back ().id);
+        EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    };
+    d.S ().menu.at = { 100, 100, 0 }; // ignored by the in-place mode
+    eh::RunMenuItem (d.S (), "pasteInPlace");
+    EXPECT_EQ (d.S ().message, "");
+    expectCopies ();
+    eh::RunMenuItem (d.S (), "undo");
+    EXPECT_EQ (d.D ().entities.size (), 2u);
+    EXPECT_EQ (d.D ().paths.size (), 1u);
+    EXPECT_EQ (d.D ().groups.size (), 1u);
+
+    d.input.keys = { { 'V', true, false, true, true } };
+    d.Frame ();
+    EXPECT_EQ (d.S ().message, "");
+    expectCopies ();
+    eh::RunMenuItem (d.S (), "undo");
+    EXPECT_EQ (d.D ().entities.size (), 2u);
+    EXPECT_EQ (d.D ().paths.size (), 1u);
+    EXPECT_EQ (d.D ().groups.size (), 1u);
+}
+
 TEST (HudVirtualEditor, MirrorACopyAcrossTheGumballSelectsTheCopy)
 {
     ed::Document doc;
