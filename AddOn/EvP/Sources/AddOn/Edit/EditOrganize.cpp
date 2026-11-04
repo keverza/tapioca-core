@@ -289,6 +289,11 @@ void PruneGroups (Document& doc)
     }
 }
 
+void PruneIsolatedIds (Document& doc)
+{
+    std::erase_if (doc.isolated, [&] (const Id id) { return MemberOf (doc, id) == nullptr; });
+}
+
 std::vector<Ref> WidenToGroups (const Document& doc, const std::vector<Ref>& refs, Id entered)
 {
     std::vector<Ref> out;
@@ -298,7 +303,8 @@ std::vector<Ref> WidenToGroups (const Document& doc, const std::vector<Ref>& ref
     };
     for (const auto& r : refs) {
         const Membership* m = MemberOf (doc, r.entity);
-        if (r.part != Part::Entity || m == nullptr || m->group == kNoId) {
+        const bool groupPart = r.part == Part::Vertex || r.part == Part::Segment;
+        if ((r.part != Part::Entity && !groupPart) || m == nullptr || m->group == kNoId) {
             add (r);
             continue;
         }

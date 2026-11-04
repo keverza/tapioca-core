@@ -335,7 +335,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         else if (!hits.empty ()) {
             // An object already selected whole is dragged whole from wherever it is pressed --
             // its own corner included, which becomes the base point. A click there without a
-            // drag still picks the corner (at release).
+            // drag re-picks the part where subobject picks are in scope (at release).
             const edit::Ref hit = hits.front ().ref;
             const edit::Ref whole { hit.entity, edit::Part::Entity, 0 };
             s.wholeGrab = !shift && hit.part != edit::Part::Entity && edit::Find (Doc (s), hit.entity) != nullptr &&
@@ -344,8 +344,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             bool grouped = false; // the click picked a whole group: it drags as one, from this object
             if (!s.wholeGrab) {
                 const std::vector<edit::Ref> before = s.selection.Items ();
-                s.selection.Click (hits, mouse.x, mouse.y, shift);
-                grouped = SelectGroups (s, before) && s.selection.Contains (whole);
+                ClickGroups (s, hits, mouse.x, mouse.y, shift);
+                grouped = SelectGroups (s, before, shift) && s.selection.Contains (whole);
             }
             if (!shift && (s.wholeGrab || grouped || s.selection.Items ().size () == 1)) {
                 const edit::Ref pressed = s.wholeGrab || grouped ? whole : s.selection.Items ().front ();
@@ -535,10 +535,10 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
     if (ImGui::IsMouseReleased (0) && !s.dragReleased && !s.navigation.blocked && s.drag == Drag::Part && s.wholeGrab &&
         std::hypot (mouse.x - s.startX, mouse.y - s.startY) < 3.0f) {
-        s.edits.Cancel (); // a click on a selected object's corner picks the corner
+        s.edits.Cancel (); // a click without a drag re-picks at the pressed point
         const std::vector<edit::Ref> before = s.selection.Items ();
-        s.selection.Click (s.pressHits, s.startX, s.startY, false);
-        SelectGroups (s, before);
+        ClickGroups (s, s.pressHits, s.startX, s.startY, false);
+        SelectGroups (s, before, false);
         s.drag = Drag::None;
     }
     if (ImGui::IsMouseReleased (0))

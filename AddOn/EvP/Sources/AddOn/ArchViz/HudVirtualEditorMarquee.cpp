@@ -20,21 +20,38 @@ void BeginMarquee (Session& s, ImVec2 mouse, bool additive, bool ctrl, std::vect
     s.startX = mouse.x, s.startY = mouse.y;
 }
 
+void ClickGroups (Session& s, const std::vector<edit::PickHit>& hits, double x, double y, bool additive)
+{
+    std::vector<edit::PickHit> picks;
+    for (auto hit : hits) {
+        const auto widened = edit::WidenToGroups (Doc (s), { hit.ref }, s.enteredGroup);
+        const bool staysPart = widened.size () == 1 && widened.front () == hit.ref;
+        if (hit.ref.part != edit::Part::Entity && !staysPart)
+            hit.ref = { hit.ref.entity, edit::Part::Entity, edit::kNoId };
+        const auto duplicate = std::find_if (picks.begin (), picks.end (),
+                                             [&] (const edit::PickHit& other) { return other.ref == hit.ref; });
+        if (duplicate == picks.end ())
+            picks.push_back (hit); // one cycle slot per normalized ref, retaining the first hit's metadata
+    }
+    s.selection.Click (picks, x, y, additive);
+}
+
 // A press that never left its point is a click on what it was pressed inside (or nothing);
 // otherwise the lasso's outline or the rectangle selects.
-bool SelectGroups (Session& s, const std::vector<edit::Ref>& before)
+bool SelectGroups (Session& s, const std::vector<edit::Ref>& before, bool additive)
 {
     const auto& doc = Doc (s);
     if (edit::FindGroup (doc, s.enteredGroup) == nullptr)
         s.enteredGroup = edit::kNoId;
     std::vector<edit::Ref> items = s.selection.Items ();
-    for (const auto& r : before)
-        if (r.part == edit::Part::Entity && !s.selection.Contains (r)) {
-            const auto group = edit::WidenToGroups (doc, { r }, s.enteredGroup);
-            std::erase_if (items, [&] (const edit::Ref& x) {
-                return std::find (group.begin (), group.end (), x) != group.end ();
-            });
-        }
+    if (additive)
+        for (const auto& r : before)
+            if (r.part == edit::Part::Entity && !s.selection.Contains (r)) {
+                const auto group = edit::WidenToGroups (doc, { r }, s.enteredGroup);
+                std::erase_if (items, [&] (const edit::Ref& x) {
+                    return std::find (group.begin (), group.end (), x) != group.end ();
+                });
+            }
     const auto widened = edit::WidenToGroups (doc, items, s.enteredGroup);
     const bool grew = widened.size () > items.size ();
     if (widened != s.selection.Items ())
@@ -77,7 +94,7 @@ bool EnterGroup (Session& s, const edit::Ref& ref)
         return false; // already in its own group
     s.enteredGroup = next;
     s.selection.Set ({ { ref.entity, edit::Part::Entity, edit::kNoId } });
-    SelectGroups (s, {});
+    SelectGroups (s, {}, false);
     s.message = "Editing inside " + edit::FindGroup (doc, next)->name + ". Esc with nothing selected leaves it.";
     return true;
 }
@@ -87,7 +104,7 @@ void CommitMarquee (Session& s, const edit::PickView& pick, float x, float y)
     const std::vector<edit::Ref> before = s.selection.Items ();
     if (std::hypot (x - s.startX, y - s.startY) <= kClickPixels) {
         if (!s.pressHits.empty ())
-            s.selection.Click (s.pressHits, s.startX, s.startY, s.marqueeAdditive);
+            ClickGroups (s, s.pressHits, s.startX, s.startY, s.marqueeAdditive);
     }
     else if (s.marqueeLasso) {
         s.lassoPoints.push_back ({ x, y });
@@ -95,7 +112,7 @@ void CommitMarquee (Session& s, const edit::PickView& pick, float x, float y)
     }
     else
         s.selection.Marquee (Doc (s), pick, s.startX, s.startY, x, y, s.filter, s.marqueeAdditive);
-    SelectGroups (s, before);
+    SelectGroups (s, before, s.marqueeAdditive);
     s.pressHits.clear ();
     s.lassoPoints.clear ();
     s.marqueeLasso = false;

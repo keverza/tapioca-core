@@ -53,9 +53,11 @@ Id GroupObjects (Document& doc, const std::vector<Ref>& refs, const std::string&
 bool Ungroup (Document& doc, const std::vector<Ref>& refs, std::string& error, Id within = kNoId);
 // Drops groups left with no object and no group inside them.
 void PruneGroups (Document& doc);
-// Each whole-object reference widened to every object of its outermost group (unless that
-// group is `entered`, or inside it, when the object's own group inside `entered` is used);
-// part references stay as they are.
+// Forgets isolation records whose object no longer exists. Undo restores valid records with it.
+void PruneIsolatedIds (Document& doc);
+// Each whole-object, vertex or segment reference widened to every pickable object of its outermost
+// group (unless that group is `entered`, or inside it, when the object's own group inside `entered`
+// is used). A vertex or segment directly in `entered` stays a subobject reference. Other parts stay unchanged.
 std::vector<Ref> WidenToGroups (const Document& doc, const std::vector<Ref>& refs, Id entered = kNoId);
 
 bool SetHidden (Document& doc, const std::vector<Ref>& refs, bool hidden, std::string& error);

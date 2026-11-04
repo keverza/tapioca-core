@@ -93,7 +93,7 @@ TEST (EditOrganize, GroupsNestAndUngroupOneLevelAtATime)
     EXPECT_FALSE (ed::Ungroup (s.doc, { s.R (s.c) }, s.error));
 }
 
-TEST (EditOrganize, APickedObjectWidensToItsGroupUnlessTheGroupIsEntered)
+TEST (EditOrganize, APickedObjectOrSubobjectWidensToItsGroupUnlessTheGroupIsEntered)
 {
     Scene s;
     const ed::Id inner = ed::GroupObjects (s.doc, { s.R (s.a), s.R (s.b) }, {}, s.error);
@@ -104,11 +104,19 @@ TEST (EditOrganize, APickedObjectWidensToItsGroupUnlessTheGroupIsEntered)
     EXPECT_EQ (Ids (ed::WidenToGroups (s.doc, { s.R (s.a) }, outer)), (std::vector<ed::Id> { s.a, s.b }));
     EXPECT_EQ (Ids (ed::WidenToGroups (s.doc, { s.R (s.c) }, outer)), (std::vector<ed::Id> { s.c }));
     EXPECT_EQ (Ids (ed::WidenToGroups (s.doc, { s.R (s.a) }, inner)), (std::vector<ed::Id> { s.a }));
-    // A part stays a part; a locked member is not taken along.
+    // Vertices and segments are the same group pick until their immediate group is entered.
     const ed::Ref vertex { s.a, ed::Part::Vertex, ed::Find (s.doc, s.a)->vertices[0].id };
-    EXPECT_EQ (ed::WidenToGroups (s.doc, { vertex }), (std::vector<ed::Ref> { vertex }));
+    const ed::Ref segment { s.a, ed::Part::Segment, ed::Find (s.doc, s.a)->segments[0].id };
+    EXPECT_EQ (Ids (ed::WidenToGroups (s.doc, { vertex })), (std::vector<ed::Id> { s.a, s.b, s.c }));
+    EXPECT_EQ (Ids (ed::WidenToGroups (s.doc, { vertex }, outer)), (std::vector<ed::Id> { s.a, s.b }));
+    EXPECT_EQ (ed::WidenToGroups (s.doc, { vertex }, inner), (std::vector<ed::Ref> { vertex }));
+    EXPECT_EQ (Ids (ed::WidenToGroups (s.doc, { segment })), (std::vector<ed::Id> { s.a, s.b, s.c }));
+    EXPECT_EQ (ed::WidenToGroups (s.doc, { segment }, inner), (std::vector<ed::Ref> { segment }));
+    // Hidden and locked members stay put when the pickable members drag.
     ed::MemberOf (s.doc, s.c)->locked = true;
-    EXPECT_EQ (Ids (ed::WidenToGroups (s.doc, { s.R (s.a) })), (std::vector<ed::Id> { s.a, s.b }));
+    EXPECT_EQ (Ids (ed::WidenToGroups (s.doc, { vertex })), (std::vector<ed::Id> { s.a, s.b }));
+    ed::MemberOf (s.doc, s.b)->hidden = true;
+    EXPECT_EQ (Ids (ed::WidenToGroups (s.doc, { vertex })), (std::vector<ed::Id> { s.a }));
 }
 
 TEST (EditOrganize, DeletingAGroupsLastObjectPrunesTheGroup)

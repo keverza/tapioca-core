@@ -108,6 +108,7 @@ void DeleteSelection (Session& s)
             }
         }
         edit::PruneGroups (d); // a group whose last object went goes with it
+        edit::PruneIsolatedIds (d);
         return true;
     });
     if (ok)

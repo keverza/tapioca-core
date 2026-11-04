@@ -147,10 +147,13 @@ bool DragOnto (const Session& s, const Map& m, ImVec2 mouse, double z, edit::Vec
 // which a release without a drag selects. Commit ends it at (x, y); Draw follows and shows it.
 void BeginMarquee (Session& s, ImVec2 mouse, bool additive, bool ctrl, std::vector<edit::PickHit> pressed);
 void CommitMarquee (Session& s, const edit::PickView& pick, float x, float y);
-// After a click, marquee or lasso changed the selection from `before`: each whole object picked
-// brings the rest of its group (EditOrganize WidenToGroups, inside the entered group), and one a
-// Shift-click took out takes its group out with it. True when that widened the selection.
-bool SelectGroups (Session& s, const std::vector<edit::Ref>& before);
+// A vertex or segment click names its object when WidenToGroups puts it in a group pick, so
+// Shift toggles the same selection unit as an entity click. Directly entered subobjects stay parts.
+void ClickGroups (Session& s, const std::vector<edit::PickHit>& hits, double x, double y, bool additive);
+// After a click, marquee or lasso changed the selection from `before`: each object or grouped part
+// picked brings the rest of its group (inside the entered group). Only an additive pick removes the
+// groups its Shift-click took out; plain replacement keeps the newly picked group whole.
+bool SelectGroups (Session& s, const std::vector<edit::Ref>& before, bool additive);
 // Group and ungroup the selection (Ctrl+G, Ctrl+Shift+G), and enter or leave the group of the
 // object `ref` (a double click, Esc), each with its message.
 void GroupSelection (Session& s, bool group);

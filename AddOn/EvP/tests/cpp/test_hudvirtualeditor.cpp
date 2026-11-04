@@ -1,6 +1,7 @@
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/OverlayHitMap.hpp" // overlayinput::Cursor: the cursor claim these tests read
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
@@ -4195,6 +4196,33 @@ TEST (HudVirtualEditor, DeletingAGroupsObjectsTakesTheEmptyGroupToo)
     EXPECT_TRUE (d.D ().groups.empty ());
 }
 
+TEST (HudVirtualEditor, DeletingAnObjectPrunesOnlyItsIsolationRecordUntilUndo)
+{
+    ed::Document doc;
+    const ed::Id a = ed::AddPolyline (doc, { { 0, 0, 0 }, { 1, 0, 0 } }, false);
+    const ed::Id b = ed::AddPolyline (doc, { { 0, 2, 0 }, { 1, 2, 0 } }, false);
+    const ed::Id c = ed::AddPolyline (doc, { { 0, 4, 0 }, { 1, 4, 0 } }, false);
+    std::string error;
+    ASSERT_TRUE (ed::Isolate (doc, { { a, ed::Part::Entity, 0 } }, error)) << error;
+    ASSERT_EQ (doc.isolated, (std::vector<ed::Id> { b, c }));
+    // The palette can show one remembered object independently before it is deleted.
+    ASSERT_TRUE (ed::SetHidden (doc, { { b, ed::Part::Entity, 0 } }, false, error)) << error;
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { b, ed::Part::Entity, 0 } });
+    eh::RunMenuItem (d.S (), "delete");
+    EXPECT_EQ (ed::Find (d.D (), b), nullptr);
+    EXPECT_EQ (d.D ().isolated, (std::vector<ed::Id> { c }));
+    eh::RunMenuItem (d.S (), "undo");
+    ASSERT_NE (ed::Find (d.D (), b), nullptr);
+    EXPECT_EQ (d.D ().isolated, (std::vector<ed::Id> { b, c }));
+    eh::RunMenuItem (d.S (), "redo");
+    EXPECT_EQ (ed::Find (d.D (), b), nullptr);
+    EXPECT_EQ (d.D ().isolated, (std::vector<ed::Id> { c }));
+    eh::RunMenuItem (d.S (), "org.showIsolated");
+    EXPECT_TRUE (ed::Shown (d.D (), c));
+    EXPECT_TRUE (d.D ().isolated.empty ());
+}
+
 TEST (HudVirtualEditor, AClickPicksAWholeGroupWhichDragsAsOne)
 {
     // Shapes large beside the gumball, so a press inside one lands clear of its handles.
@@ -4235,6 +4263,127 @@ TEST (HudVirtualEditor, AClickPicksAWholeGroupWhichDragsAsOne)
     d.input.keys = { { 'G', true, false, true, true } };
     d.Frame ();
     EXPECT_TRUE (d.D ().groups.empty ());
+}
+
+namespace {
+void CheckGroupedPartPick (ed::Part part)
+{
+    ed::Document doc;
+    const ed::Id a = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 } }, false);
+    const ed::Id b = ed::AddPolyline (doc, { { 0, 2, 0 }, { 4, 2, 0 } }, false);
+    const ed::Id c = ed::AddPolyline (doc, { { 0, 4, 0 }, { 4, 4, 0 } }, false);
+    const ed::Id hidden = ed::AddPolyline (doc, { { 0, 6, 0 }, { 4, 6, 0 } }, false);
+    std::string error;
+    const ed::Id group = ed::GroupObjects (doc,
+                                           { { a, ed::Part::Entity, 0 },
+                                             { b, ed::Part::Entity, 0 },
+                                             { c, ed::Part::Entity, 0 },
+                                             { hidden, ed::Part::Entity, 0 } },
+                                           "lines", error);
+    ASSERT_NE (group, ed::kNoId) << error;
+    ed::MemberOf (doc, c)->locked = true;
+    ed::MemberOf (doc, hidden)->hidden = true;
+    Drive d (std::move (doc));
+    d.S ().snapEnabled = false;
+    const float x = part == ed::Part::Vertex ? 600.0f : 620.0f;
+    d.At (x, 500);
+    ASSERT_EQ (d.S ().selection.hover.part, part);
+    d.Press (x, 500); // a's first vertex or along its segment
+    ASSERT_EQ (d.S ().selection.Items ().size (), 2u);
+    for (const auto& ref : d.S ().selection.Items ())
+        EXPECT_EQ (ref.part, ed::Part::Entity);
+    d.At (x + 40, 520);
+    d.Release (x + 40, 520); // (2, -1): a and b move; locked c and the hidden member stay
+    EXPECT_EQ (ed::Find (d.D (), a)->vertices[0].p, (ed::Vec3 { 2, -1, 0 }));
+    EXPECT_EQ (ed::Find (d.D (), b)->vertices[0].p, (ed::Vec3 { 2, 1, 0 }));
+    EXPECT_EQ (ed::Find (d.D (), c)->vertices[0].p, (ed::Vec3 { 0, 4, 0 }));
+    EXPECT_EQ (ed::Find (d.D (), hidden)->vertices[0].p, (ed::Vec3 { 0, 6, 0 }));
+
+    // A stationary repeat click keeps the replacement's whole group selected and edits nothing.
+    const uint64_t undoDepth = d.S ().edits.UndoDepth ();
+    d.Press (x + 40, 520);
+    d.Release (x + 40, 520);
+    EXPECT_EQ (d.S ().selection.Items ().size (), 2u);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), undoDepth);
+
+    // A Shift-click on one of its segments removes the same group, not an extra part.
+    d.input.shift = true;
+    d.Press (680, 520);
+    d.Release (680, 520);
+    d.input.shift = false;
+    EXPECT_TRUE (d.S ().selection.Items ().empty ());
+
+    // Once its immediate group is entered, the same vertex remains a subobject pick.
+    d.S ().enteredGroup = group;
+    d.Press (640, 520);
+    d.Release (640, 520);
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ().front ().entity, a);
+    EXPECT_EQ (d.S ().selection.Items ().front ().part, ed::Part::Vertex);
+    EXPECT_EQ (d.S ().selection.Items ().front ().item, ed::Find (d.D (), a)->vertices[0].id);
+}
+} // namespace
+
+TEST (HudVirtualEditor, AGroupedVertexClickDragsOnlyThePickableGroupMembers)
+{
+    CheckGroupedPartPick (ed::Part::Vertex);
+}
+
+TEST (HudVirtualEditor, AGroupedSegmentClickDragsOnlyThePickableGroupMembers)
+{
+    CheckGroupedPartPick (ed::Part::Segment);
+}
+
+TEST (HudVirtualEditor, GroupedClickNormalizationKeepsStackedCyclesAndEnteredParts)
+{
+    ed::Document doc;
+    const ed::Id a = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 } }, false);
+    const ed::Id b = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 } }, false);
+    const ed::Id c = ed::AddPolyline (doc, { { 0, 2, 0 }, { 4, 2, 0 } }, false);
+    std::string error;
+    const ed::Id group =
+        ed::GroupObjects (doc, { { a, ed::Part::Entity, 0 }, { c, ed::Part::Entity, 0 } }, "pair", error);
+    ASSERT_NE (group, ed::kNoId) << error;
+    Drive d (std::move (doc));
+    const std::vector<ed::PickHit> hits {
+        { { a, ed::Part::Vertex, ed::Find (d.D (), a)->vertices[0].id }, 0.0 },
+        { { a, ed::Part::Segment, ed::Find (d.D (), a)->segments[0].id }, 0.0 },
+        { { a, ed::Part::Entity, ed::kNoId }, 0.0 },
+        { { b, ed::Part::Entity, ed::kNoId }, 0.0 },
+    };
+    const auto click = [&] (double x, double y, bool additive) {
+        const auto before = d.S ().selection.Items ();
+        eh::detail::ClickGroups (d.S (), hits, x, y, additive);
+        eh::detail::SelectGroups (d.S (), before, additive);
+    };
+    const auto selected = [&] (ed::Id id) { return d.S ().selection.Contains ({ id, ed::Part::Entity, ed::kNoId }); };
+    click (100, 100, false);
+    EXPECT_EQ (d.S ().selection.Items ().size (), 2u);
+    EXPECT_TRUE (selected (a) && selected (c));
+    click (100, 100, false);
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_TRUE (selected (b));
+    click (100, 100, false);
+    EXPECT_EQ (d.S ().selection.Items ().size (), 2u);
+    EXPECT_TRUE (selected (a) && selected (c));
+
+    d.S ().selection.Clear ();
+    click (200, 200, true);
+    click (200, 200, true);
+    EXPECT_EQ (d.S ().selection.Items ().size (), 3u);
+    EXPECT_TRUE (selected (a) && selected (b) && selected (c));
+
+    d.S ().enteredGroup = group;
+    d.S ().selection.Clear ();
+    click (300, 300, false);
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ().front ().part, ed::Part::Vertex);
+    click (300, 300, false);
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ().front ().part, ed::Part::Segment);
+    click (300, 300, false);
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ().front ().part, ed::Part::Entity);
 }
 
 TEST (HudVirtualEditor, ADoubleClickEditsInsideAGroupAndEscLeavesIt)
