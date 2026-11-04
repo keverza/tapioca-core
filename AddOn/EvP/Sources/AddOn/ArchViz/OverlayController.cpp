@@ -27,6 +27,7 @@
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudModel.hpp"
 #include "ArchViz/OverlayInput.hpp"
+#include "ArchViz/OverlayInputEvents.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayRelease.hpp"
 #include "ArchViz/OverlayScene.hpp"
@@ -154,11 +155,18 @@ bool PublishHud3D (overlayscene::Scene hud)
 
 // The 3D overlay's publications given back: what it drew, its HUD's engine, and where
 // both were (OverlayRelease.hpp).
+// A 3D redraw held while Archicad navigates (`Redraw3D`), and how many: session state (§8).
+bool g_redrawHeld3D = false;
+uint64_t g_redrawsHeld3D = 0;
+uint64_t g_redrawsHeldSaid3D = 0;
+
 void Forget3D ()
 {
     overlayrelease::ThreeD ();
     g_legends3D.clear ();
     g_hudPrint3D = 0;
+    g_redrawHeld3D = false;
+    g_redrawsHeld3D = g_redrawsHeldSaid3D = 0;
 }
 
 // The input layer's refresh: the HUD laid out again for the pointer.
@@ -181,10 +189,27 @@ bool RefreshHud3D ()
 }
 
 // The input layer's paced redraw: a still 3D view presents nothing by itself.
-void RedrawHud3D ()
+// ⚠️ NO 3D REDRAW WHILE ARCHICAD NAVIGATES (the user, 2026-11-04: with the virtual editor's lock
+// on, an orbit jumped or went back to where it began; the standalone overlay did not). The
+// editor's layer follows the view, so it is published at every heartbeat of an orbit, and each
+// publish asked Archicad to redraw in the middle of its own gesture. While the middle button is
+// held the redraw is held and counted; one is asked for at the first heartbeat after release.
+// Archicad presents through the whole gesture anyway, so nothing published waits for it.
+bool NavigatingNatively ()
 {
-    if (runtime::Running () && CurrentView () == ViewKind::ThreeD)
-        ACAPI_View_Redraw ();
+    return (overlayinput::events::PhysicalButtons () & overlayinput::Bit (overlayinput::Button::Middle)) != 0;
+}
+
+void Redraw3D ()
+{
+    if (!runtime::Running () || CurrentView () != ViewKind::ThreeD)
+        return;
+    if (NavigatingNatively ()) {
+        g_redrawHeld3D = true;
+        ++g_redrawsHeld3D;
+        return;
+    }
+    ACAPI_View_Redraw ();
 }
 
 // ⚠️ THE OWN PAGES MOVE WITHOUT THE POINTER -- the camera locks, the model is read, the
@@ -207,7 +232,7 @@ void HeartbeatHud3D ()
     // spend (OverlayRedrawBudget.hpp), never the HUD's -- the HUD drawn alone shows with the
     // frames Archicad presents anyway (Dxgi/PrelockHud.hpp).
     if (changed && ComposingWithCamera () && overlayhud::SelectedKey (*guesttext::HudState ()) != hudshell::kDebugKey)
-        RedrawHud3D ();
+        Redraw3D ();
 }
 
 // ⚠️ THE 3D HUD'S INPUT FOLLOWS THE CANVAS THE OVERLAY COMPOSES INTO -- the nominated
@@ -238,7 +263,7 @@ void FollowHudInput ()
         overlayinput::HudOwner owner;
         owner.shown = &HudShown3D;
         owner.refresh = &RefreshHud3D;
-        owner.redraw = &RedrawHud3D;
+        owner.redraw = &Redraw3D;
         owner.hovering = &overlayhover3d::Hovering;
         if (!overlayinput::Attach (overlayinput::View::ThreeD, HWND (uintptr_t (chains[i].window)), owner, error) &&
             error != g_inputError) {
@@ -268,9 +293,25 @@ void Relearn3D ()
     Narrate ("CAMERA", "learned again from the HUD: the 3D session restarted, the kept camera forgotten");
 }
 
+// The redraw `Redraw3D` held through a navigation, asked for once it has ended -- and said, as
+// a delta (§7), so a run can tell whether jumps came with held redraws or without them.
+void ReleaseHeldRedraw3D ()
+{
+    if (!g_redrawHeld3D || NavigatingNatively ())
+        return;
+    g_redrawHeld3D = false;
+    Narrate ("NAVREDRAW", "held " + std::to_string (g_redrawsHeld3D - g_redrawsHeldSaid3D) +
+                              " 3D redraw request(s) through a navigation; one asked for after it (session " +
+                              std::to_string (g_redrawsHeld3D) + ")");
+    g_redrawsHeldSaid3D = g_redrawsHeld3D;
+    if (runtime::Running () && CurrentView () == ViewKind::ThreeD)
+        ACAPI_View_Redraw ();
+}
+
 void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
 {
     Relearn3D ();
+    ReleaseHeldRedraw3D ();
     overlaycontrol::FollowView ();
     FollowHudInput ();
     HeartbeatHud3D ();
@@ -939,8 +980,7 @@ void PublishLayers ()
     }
     dxgi::sceneguest::Publish (std::move (scene), scale);
     PublishHud3D (std::move (hud));
-    if (runtime::Running () && CurrentView () == ViewKind::ThreeD)
-        ACAPI_View_Redraw ();
+    Redraw3D ();
 }
 
 Status GetStatus ()
