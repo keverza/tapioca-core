@@ -48,6 +48,9 @@ std::mutex gMutex;
 SunStudyFollowerPolicy gFollower; // the Rust follower policy
 ActiveSunStudyConfig gConfig;
 bool gAutoFollow = false;
+bool s_paused = false;
+bool s_manualActive = false;
+int64_t s_cancelRequestedMs = 0;
 
 UINT_PTR gTimer = 0;
 
@@ -166,16 +169,11 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
     params.Add ("minAltitudeDeg", config.minAltitudeDeg);
     params.Add ("grid", config.grid);
     params.Add ("backend", GS::UniString (config.backend.c_str (), CC_UTF8));
-    // ⚠️ SURFACES, ALWAYS. It is the only mode that builds an atlas, and the
-    // display path refuses a study without one -- so a follower that inherited
-    // `ground` would rerun for ever and never show anything.
+    // Only surface sampling builds the atlas the display requires.
     params.Add ("samples", GS::UniString ("surfaces"));
-    // ⚠️ THE ADOPTED STUDY'S DOMAIN, SENT EXPLICITLY. StartSunStudy defaults to
-    // `triangle`, so leaving this out reran every patch study as a triangle one.
+    // Preserve measurement domain rather than inheriting the command default.
     params.Add ("domain", GS::UniString (config.patchDomain ? "patch" : "triangle"));
-    // ⚠️ THE CYLINDER, SENT ON EVERY RERUN, for the domain's reason: leaving it
-    // out turns the first edit after a bounded study into a whole-model one --
-    // exactly the size the bound exists to refuse.
+    // Dropping the bound would rerun a bounded study on the whole model.
     if (config.clipRadius > 0.0) {
         params.Add ("clipX", config.clipX);
         params.Add ("clipY", config.clipY);
@@ -323,10 +321,7 @@ bool RefreshSnapshot ()
 
 void StartReplacement (const SunStudyDependencySignature& signature, int64_t now)
 {
-    // ⚠️ THE GENERATION IS TAKEN BEFORE THE COMMAND RUNS. StartSunStudy is not
-    // instantaneous, and a generation read afterwards could already belong to an
-    // edit that arrived while it worked -- which would make a superseded run look
-    // current, the one failure this whole mechanism exists to prevent.
+    // Capture generation before host work; edits during capture supersede it.
     gRunGeneration = gFollower.NoteStarted (signature, now);
     ++gStarts;
     gRunSignature = signature;
@@ -494,12 +489,7 @@ void AdvanceOneSlice (int64_t now)
         return;
     }
 
-    // ---- the result is in; may it be shown? --------------------------------
-    //
-    // ⚠️ THE DECISION IS THE FOLLOWER'S AND IT IS MADE BEFORE ANYTHING IS DRAWN.
-    // A study started on snapshot 41 that completes after the model reached 42
-    // completes SUCCESSFULLY, with a plausible result, and painting it would put
-    // the old building's sunlight on the new one.
+    // Reject superseded generations before assembling or publishing a display.
     if (!gFollower.CanPublishResult (gRunGeneration, gRunSignature)) {
         ++gDiscarded;
         Log ("discarded generation=" + std::to_string (gRunGeneration) + " study=" + gRunStudyId +
@@ -657,6 +647,7 @@ void PollRetint ()
 void DisableLocked ()
 {
     gAutoFollow = false;
+    s_paused = false;
     CancelManualSunStudyDisplays ();
     ++s_sessionGeneration; // queued adoption/completion from a closed session is obsolete
     RetireRun ("following disabled");
@@ -684,12 +675,7 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
     Tick ();
 }
 
-// ⚠️ ::SetTimer BINDS THE TIMER TO THE CALLING THREAD'S MESSAGE QUEUE, and only
-// Archicad's main thread has one that is pumped. `ShowSunStudy` declares
-// NeedsMainThread() == false -- deliberately, it touches no ACAPI -- so the
-// in-process dispatcher may run it on a worker, and a timer armed there would
-// never fire once. The follower would then sit in Current for ever and follow
-// nothing, with every diagnostic reporting that it was armed.
+// SetTimer binds to the calling thread's queue. Only the host pumps ours.
 void ArmTimer ()
 {
     if (gTimer != 0)
@@ -735,6 +721,7 @@ void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint
     gConfig = config;
     gConfig.valid = true;
     gAutoFollow = true;
+    s_paused = false;
     s_followDisplayGeneration = archviz::SceneCmdQueue::Get ().AnalysisDisplayGeneration ();
     gSeenGeometryEdits = static_cast<uint32_t> (archviz::modelwatch::CaptureStamp ());
     s_refreshSchedule.Reset (gSeenGeometryEdits);
@@ -784,6 +771,58 @@ void Disable ()
     DisableLocked ();
 }
 
+void CancelActiveRun ()
+{
+    std::lock_guard<std::mutex> lock (gMutex);
+    if (s_paused || s_manualActive || !gConfig.valid)
+        return;
+    archviz::ArchVizLog (
+        "sun-cancel source=follower stage=" + s_stage + " generation=" + std::to_string (gRunGeneration) +
+        " study=" + gRunStudyId + " resolved=" + std::to_string (s_runProgress.resolvedSteps) + "/" +
+        std::to_string (s_runProgress.totalSteps) + " elapsedMs=" + std::to_string (NowMs () - s_phaseStartedMs));
+    gAutoFollow = false;
+    s_paused = true;
+    s_cancelRequestedMs = NowMs ();
+    ++gRunGeneration;
+    RetireRun ("user cancelled; following paused");
+    s_stage = "cancelling";
+}
+
+bool ReserveManualRun (std::string& error)
+{
+    std::lock_guard<std::mutex> lock (gMutex);
+    if (s_manualActive || AdvanceWorker ().Busy () || PreparationWorker ().Busy ()) {
+        error = "cancel the active update and wait for acknowledgement first";
+        return false;
+    }
+    gAutoFollow = false;
+    s_paused = gConfig.valid;
+    RetireRun ("manual run reserved");
+    s_manualActive = true;
+    return true;
+}
+
+void ReleaseManualRun ()
+{
+    std::lock_guard<std::mutex> lock (gMutex);
+    s_manualActive = false;
+}
+
+bool Resume (std::string& error)
+{
+    std::lock_guard<std::mutex> lock (gMutex);
+    if (!s_paused || !gConfig.valid || s_manualActive || AdvanceWorker ().Busy () || PreparationWorker ().Busy ()) {
+        error = "following cannot resume until the active calculation has stopped";
+        return false;
+    }
+    s_paused = false;
+    gAutoFollow = true;
+    s_followDisplayGeneration = archviz::SceneCmdQueue::Get ().AnalysisDisplayGeneration ();
+    s_stage = "waiting";
+    ArmTimer ();
+    return true;
+}
+
 void Shutdown ()
 {
     Disable ();
@@ -795,6 +834,12 @@ void Shutdown ()
 void Tick ()
 {
     std::lock_guard<std::mutex> lock (gMutex);
+    if (s_stage == "cancelling" && !AdvanceWorker ().Busy () && !PreparationWorker ().Busy ()) {
+        archviz::ArchVizLog ("sun-cancel source=follower acknowledgedMs=" +
+                             std::to_string (NowMs () - s_cancelRequestedMs) + " lateCompletionDiscarded=true");
+        s_runProgress = {};
+        s_stage = "cancelled";
+    }
     if (!gAutoFollow || !gConfig.valid)
         return;
     if (archviz::SceneCmdQueue::Get ().AnalysisDisplayKind () != 0) {
@@ -809,15 +854,7 @@ void Tick ()
         return;
     }
 
-    // ---- 0. stop with the watch -------------------------------------------
-    //
-    // ⚠️ THIS IS ALSO THE TEARDOWN RULE, AND IT HAS TO BE. This timer calls ACAPI
-    // through the commands it drives, so it must not outlive the add-on -- the
-    // same reason ModelWatch and the selection bridge are stopped by hand in the
-    // palette's teardown. That teardown stops the watch FIRST, so a driver that
-    // stops with the watch stops before anything it depends on is gone; and
-    // following without a change detector is pointless anyway, because nothing
-    // would ever tell it the model moved.
+    // The watch is the lifetime boundary: its teardown precedes our dependencies.
     if (!archviz::modelwatch::Get ().running) {
         Log ("stopping -- the model watch is not running");
         DisableLocked ();
@@ -863,11 +900,7 @@ void Tick ()
         s_refreshSchedule.Complete ();
     }
 
-    // ---- 2. observe the world, once, through one path ----------------------
-    // ⚠️ EVERY TICK, NOT ONLY THE INTERESTING ONES. An environment-only tick
-    // produces an IDENTICAL signature, so it costs a comparison and changes
-    // nothing -- which is exactly the property that keeps navigation free, and
-    // it is cheaper to guarantee with one path than with a special case.
+    // Observe every tick; an unchanged signature must not schedule more work.
     const SunStudyDependencySignature world = BuildCurrentSignature (gConfig);
     // Geometry has already settled before capture; do not debounce it a second
     // time. Sun/sampling-only changes still use the follower's normal delay.
@@ -877,19 +910,8 @@ void Tick ()
         (gRunGeneration != gFollower.Generation () || gRunSignature != world))
         RetireRun ("inputs superseded");
 
-    // ---- 3. the overlay STAYS UP ------------------------------------------
-    //
-    // ⚠️ THIS USED TO HIDE IT AND THAT WAS THE WRONG SHAPE. One wall moving
-    // does not invalidate the sunlight on the rest of a building, and blanking
-    // the whole analysis to express "part of this is stale" throws away the
-    // correct majority of it at exactly the moment the user is reading it.
-    // Staleness is a property of a REGION and belongs to the region.
-    //
-    // The overlay comes off only when there is genuinely nothing to show -- the
-    // user turned it off, the viewer closed, the configuration went away, or the
-    // cache cannot be mapped to the scene at all. The first two are
-    // `ShowSunStudy show=false` from elsewhere; the last is a refusal the
-    // renderer already reports through elementsAttached.
+    // Keep the complete result visible through replacements. Only a missing
+    // renderable cache clears it; scene mapping refusals remain renderer-owned.
     const bool display = gFollower.HasRenderableCache ();
     if (gLastShouldDisplay && !display) {
         HideOverlay ();
@@ -934,6 +956,8 @@ FollowerStats State ()
     stats.state = gFollower.State ();
     stats.dirtyReason = gFollower.DirtyReason ();
     stats.autoFollow = gAutoFollow;
+    stats.paused = s_paused;
+    stats.cancelling = s_stage == "cancelling";
     stats.dirty = gFollower.IsDirty ();
     stats.generation = gFollower.Generation ();
     stats.studyId = gFollower.StudyId ();

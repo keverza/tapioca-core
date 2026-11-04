@@ -95,6 +95,12 @@ class ShowSunStudyCommand : public MainThreadCommand {
 
 NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const
 {
+    return ShowSunStudyForHud (params, nullptr);
+}
+
+NativeCommandResult ShowSunStudyForHud (const GS::ObjectState& params,
+                                        std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
+{
     bool follow = true;
     params.Get ("follow", follow);
     bool show = true;
@@ -146,6 +152,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     if (snapshot == nullptr || snapshot->id != snapshotId || snapshot->TotalTriangles () != faces)
         return NativeCommandResult::Failure ("the model was rebuilt under the study; start a new one");
     ManualSunStudyDisplayRequest request;
+    request.ticket = std::move (ticket);
     request.studyId = id;
     request.revision = revision;
     request.snapshot = snapshot;
@@ -218,7 +225,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
         config.hoursMax = rampTop;
     }
     if (viewerRunning) {
-        if (follow)
+        if (follow && request.ticket == nullptr)
             sunfollow::Disable (); // stop the old producer, keep its visible overlay
         request.sessionGeneration = sunfollow::SessionGeneration ();
         if (!SubmitManualSunStudyDisplay (std::move (request), error))

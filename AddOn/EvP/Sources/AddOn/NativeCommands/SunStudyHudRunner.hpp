@@ -39,6 +39,10 @@ struct Request {
 
 struct Status {
     bool running = false;
+    bool cancelling = false;
+    bool following = false;
+    bool paused = false;
+    bool stale = false;
     std::string stage; // "waiting" (for the viewer's load), "snapshot", "starting", "calculating", "showing", "done",
                        // "cancelled", "failed"
     size_t resolvedSteps = 0;
@@ -46,6 +50,7 @@ struct Status {
     std::string studyId;
     std::string error;
     double wallMs = 0.0;
+    double cancelRequestedMs = 0.0;
     uint64_t runs = 0;
     // As asked, and as it ran: `resolvedBackend` is empty until the first
     // traced step; `backendFallbackReason` is the GPU's `sun-gpu-fallback`.
@@ -57,6 +62,10 @@ struct Status {
 bool Submit (const Request& request, std::string& error);
 void Cancel ();
 Status Current ();
+// Plain-data boundary for the HUD: exactly one owner of the primary control.
+Status CurrentJob ();
+void CancelActive ();
+bool ResumeFollowing (std::string& error);
 // Quit/unload: cancel and join.
 void Shutdown ();
 

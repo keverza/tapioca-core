@@ -90,6 +90,8 @@ struct FollowerStats {
     evp::sunstudy::SunStudyFollowState state = evp::sunstudy::SunStudyFollowState::NoStudy;
     evp::sunstudy::SunStudyDirtyReason dirtyReason = evp::sunstudy::SunStudyDirtyReason::None;
     bool autoFollow = false;
+    bool paused = false;
+    bool cancelling = false;
     bool dirty = false;
     uint64_t generation = 0;
     std::string studyId;
@@ -131,6 +133,13 @@ bool PublishInSession (uint64_t sessionGeneration, const ActiveSunStudyConfig& c
 // Disarm and cancel only the driver's replacement study, without joining the
 // worker or erasing the manually displayed cache. Advances drain cooperatively.
 void Disable ();
+
+// Explicit user pause retains the completed cache/config and survives model edits.
+// A manual reservation prevents Resume from competing with a HUD calculation.
+void CancelActiveRun ();
+bool ReserveManualRun (std::string& error);
+void ReleaseManualRun ();
+bool Resume (std::string& error);
 
 // Quit/unload only: disarm, then join before the module can be unloaded.
 void Shutdown ();

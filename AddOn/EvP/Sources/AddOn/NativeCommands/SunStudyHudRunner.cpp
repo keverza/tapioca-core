@@ -2,6 +2,10 @@
 #include "ACAPinc.h"
 
 #include "NativeCommands/SunStudyHudRunner.hpp"
+#include "NativeCommands/SunStudyCommands.hpp"
+#include "NativeCommands/SunStudyDisplayCommands.hpp"
+#include "NativeCommands/SunStudyDisplayPreparation.hpp"
+#include "SunStudy/CpuTraversal.hpp"
 
 #include "AddOnCommands.hpp" // ExecuteNativeCommand, CommandNeedsMainThread
 #include "ArchViz/ArchVizLog.hpp"
@@ -20,7 +24,7 @@ namespace geomsrv::sunstudyhud {
 
 namespace {
 
-constexpr int kSliceSteps = 4;
+constexpr int kSliceSteps = 1;
 // StartSunStudy samples and builds the BVH on the main thread; a large model
 // takes seconds, so the gate's 30 s default is the floor, not the budget.
 constexpr int kMainThreadTimeoutMs = 120000;
@@ -28,12 +32,14 @@ constexpr int kMainThreadTimeoutMs = 120000;
 std::mutex gMutex;
 Status gStatus;
 std::thread gThread;
-std::atomic<bool> gCancel { false };
+std::shared_ptr<tapioca::SunStudyRunTicket> s_ticket;
+std::chrono::steady_clock::time_point s_started;
 
 void SetStage (const std::string& stage)
 {
     std::lock_guard<std::mutex> lock (gMutex);
-    gStatus.stage = stage;
+    if (!gStatus.cancelling)
+        gStatus.stage = stage;
 }
 
 std::string Utf8 (const GS::UniString& text)
@@ -44,8 +50,11 @@ std::string Utf8 (const GS::UniString& text)
 // One command, on the thread it declares. ⚠️ THE GATE JOB OWNS ITS STATE: a
 // timed-out Invoke may still run the job later, so nothing it touches lives on
 // this frame.
-NativeCommandResult Call (const char* name, const GS::ObjectState& params)
+NativeCommandResult Call (const char* name, const GS::ObjectState& params,
+                          std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
 {
+    if (ticket->cancelled.load ())
+        return NativeCommandResult::Failure ("sun study cancelled");
     bool needsMainThread = true;
     CommandNeedsMainThread (GS::String (name), needsMainThread);
     if (!needsMainThread)
@@ -54,14 +63,20 @@ NativeCommandResult Call (const char* name, const GS::ObjectState& params)
         GS::String name;
         GS::ObjectState params;
         NativeCommandResult result;
+        std::shared_ptr<tapioca::SunStudyRunTicket> ticket;
     };
     const auto job = std::make_shared<Job> ();
     job->name = GS::String (name);
     job->params = params;
+    job->ticket = std::move (ticket);
     job->result = NativeCommandResult::Failure (GS::UniString ("Tapioca.") + name + " did not run on the main thread");
     GS::UniString error;
-    if (!evp::MainThreadGate::Get ().Invoke ([job] () { job->result = ExecuteNativeCommand (job->name, job->params); },
-                                             kMainThreadTimeoutMs, error))
+    if (!evp::MainThreadGate::Get ().Invoke (
+            [job] () {
+                if (!job->ticket->cancelled.load ())
+                    job->result = ExecuteNativeCommand (job->name, job->params);
+            },
+            kMainThreadTimeoutMs, error))
         return NativeCommandResult::Failure (GS::UniString ("Tapioca.") + name + ": " + error);
     return job->result;
 }
@@ -96,20 +111,35 @@ GS::ObjectState StartParams (const Request& request)
     return params;
 }
 
-void Run (Request request)
+void Run (Request request, std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
 {
+    const auto& gCancel = ticket->cancelled;
     const auto started = std::chrono::steady_clock::now ();
     std::string studyId;
     const auto finish = [&] (const std::string& stage, const std::string& error) {
+        const bool cancelled = gCancel.load ();
+        if (stage == "failed")
+            ticket->Cancel (); // invalidate any timed-out gate job before releasing ownership
+        if ((cancelled || stage == "failed") && !studyId.empty ())
+            evp::sunstudy::SunStudyStore::Get ().Erase (studyId);
+        sunfollow::ReleaseManualRun ();
         std::string line;
         {
             std::lock_guard<std::mutex> lock (gMutex);
             gStatus.running = false;
-            gStatus.stage = stage;
-            gStatus.error = error;
+            gStatus.stage = cancelled ? "cancelled" : stage;
+            gStatus.error = cancelled ? "" : error;
+            gStatus.cancelling = false;
+            if (cancelled)
+                gStatus.resolvedSteps = gStatus.totalSteps = 0;
             gStatus.studyId = studyId;
             gStatus.wallMs =
                 std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
+            if (cancelled)
+                archviz::ArchVizLog ("sun-cancel source=manual generation=" + std::to_string (gStatus.runs) +
+                                     " study=" + studyId +
+                                     " acknowledgedMs=" + std::to_string (gStatus.wallMs - gStatus.cancelRequestedMs) +
+                                     " lateCompletionDiscarded=true");
             // Requested beside resolved: a GPU request that fell back is
             // visible here and in the HUD, never rewritten to `cpu`.
             if (!studyId.empty ())
@@ -126,8 +156,6 @@ void Run (Request request)
     // The previous follower would otherwise see this snapshot and rerun its
     // own study underneath this one.
     SetStage ("snapshot");
-    if (const auto paused = Call ("PauseSunStudyFollowing", GS::ObjectState ()); !paused.ok)
-        return failed (paused);
     // ⚠️ WAIT FOR THE VIEWER'S FULL PASS HERE, OFF THE MAIN THREAD. Until it
     // publishes, BuildSnapshot finds no complete shared snapshot and walks the
     // whole model itself in ONE main-thread call: 37 s of a blocked Archicad
@@ -149,7 +177,7 @@ void Run (Request request)
     GS::ObjectState snapshotParams;
     snapshotParams.Add ("scope", GS::UniString ("all"));
     snapshotParams.Add ("reuseShared", true);
-    if (const auto snapshot = Call ("BuildSnapshot", snapshotParams); !snapshot.ok)
+    if (const auto snapshot = Call ("BuildSnapshot", snapshotParams, ticket); !snapshot.ok)
         return failed (snapshot);
     if (gCancel)
         return finish ("cancelled", "");
@@ -163,12 +191,33 @@ void Run (Request request)
     }
     AddGuids (params, "contextElements", request.contextElements);
     AddGuids (params, "ignoredElements", request.ignoredElements);
-    const NativeCommandResult start = Call ("StartSunStudy", params);
+    // Capture SDK inputs on the host; prepare on this worker with the same token
+    // used by ray batches. Timed-out gate jobs own everything they can touch.
+    struct CaptureJob {
+        std::shared_ptr<const CapturedSunStudyInputs> captured;
+        NativeCommandResult result = NativeCommandResult::Failure ("sun capture did not run");
+    };
+    const auto capture = std::make_shared<CaptureJob> ();
+    GS::UniString gateError;
+    if (!evp::MainThreadGate::Get ().Invoke (
+            [capture, params, ticket] {
+                if (!ticket->cancelled.load ())
+                    capture->result = CaptureSunStudyInputs (params, capture->captured);
+            },
+            kMainThreadTimeoutMs, gateError))
+        return finish ("failed", Utf8 (gateError));
+    if (!capture->result.ok)
+        return failed (capture->result);
+    const NativeCommandResult start = PrepareCapturedSunStudy (capture->captured, gCancel);
     if (!start.ok)
         return failed (start);
     GS::UniString id;
     start.data.Get ("studyId", id);
     studyId = Utf8 (id);
+    {
+        std::lock_guard<std::mutex> lock (gMutex);
+        gStatus.studyId = studyId;
+    }
     bool empty = false;
     start.data.Get ("empty", empty);
     if (empty)
@@ -177,39 +226,34 @@ void Run (Request request)
     SetStage ("calculating");
     for (;;) {
         if (gCancel) {
-            GS::ObjectState cancel;
-            cancel.Add ("studyId", id);
-            Call ("CancelSunStudy", cancel);
             return finish ("cancelled", "");
         }
-        GS::ObjectState advance;
-        advance.Add ("studyId", id);
-        advance.Add ("maxSteps", (GS::Int32) kSliceSteps);
-        advance.Add ("maxParallel", (GS::Int32) 0);
-        const NativeCommandResult state = Call ("AdvanceSunStudy", advance);
-        if (!state.ok)
-            return failed (state);
-        GS::Int32 resolved = 0, total = 0, advanced = 0;
-        bool converged = false;
-        state.data.Get ("resolvedSteps", resolved);
-        state.data.Get ("totalSteps", total);
-        state.data.Get ("advanced", advanced);
-        state.data.Get ("converged", converged);
-        GS::UniString resolvedBackend, fallbackReason;
-        state.data.Get ("resolvedBackend", resolvedBackend);
-        state.data.Get ("backendFallbackReason", fallbackReason);
+        auto& store = evp::sunstudy::SunStudyStore::Get ();
+        size_t advanced = 0;
+        std::string error;
+        if (!store.Advance (studyId, kSliceSteps, evp::sunstudy::BackgroundTraversalThreads (), 0.001, 0.0, advanced,
+                            error, &gCancel))
+            return finish ("failed", error);
+        if (gCancel)
+            return finish ("cancelled", "");
+        evp::sunstudy::StudyProgress progress;
+        evp::sunstudy::SunStudyBackendReport backend;
+        if (!store.Progress (studyId, progress, error))
+            return finish ("failed", error);
+        store.Backend (studyId, backend, error);
         {
             std::lock_guard<std::mutex> lock (gMutex);
-            gStatus.resolvedSteps = size_t (resolved);
-            gStatus.totalSteps = size_t (total);
-            gStatus.resolvedBackend = Utf8 (resolvedBackend);
-            gStatus.backendFallbackReason = Utf8 (fallbackReason);
+            if (!gStatus.cancelling) {
+                gStatus.resolvedSteps = progress.resolvedSteps;
+                gStatus.totalSteps = progress.totalSteps;
+                gStatus.resolvedBackend = backend.resolved;
+                gStatus.backendFallbackReason = backend.fallbackReason;
+            }
         }
-        if (converged)
+        if (progress.converged)
             break;
         if (advanced == 0)
-            return finish ("failed", "the study stopped before converging (" + std::to_string (resolved) + " of " +
-                                         std::to_string (total) + " steps)");
+            return finish ("failed", "the study stopped before converging");
     }
 
     // Shown, the follower adopts it and keeps it current through edits.
@@ -219,8 +263,21 @@ void Run (Request request)
     show.Add ("show", true);
     show.Add ("debug", (GS::Int32) 0);
     show.Add ("depth", (GS::Int32) 0);
-    if (const auto shown = Call ("ShowSunStudy", show); !shown.ok)
+    if (gCancel)
+        return finish ("cancelled", "");
+    if (const auto shown = ShowSunStudyForHud (show, ticket); !shown.ok)
         return failed (shown);
+    while (ManualSunStudyDisplayStatus ().preparing) {
+        if (gCancel) {
+            CancelManualSunStudyDisplays ();
+            while (ManualSunStudyDisplayBusy ())
+                std::this_thread::sleep_for (std::chrono::milliseconds (10));
+            return finish ("cancelled", "");
+        }
+        std::this_thread::sleep_for (std::chrono::milliseconds (10));
+    }
+    if (const auto display = ManualSunStudyDisplayStatus (); !display.error.empty ())
+        return finish ("failed", display.error);
     // The result's fingerprint, so two runs of one model -- the other backend,
     // another build -- can be compared from the log (#97).
     evp::sunstudy::SunStudyResultSummary summary;
@@ -248,20 +305,33 @@ bool Submit (const Request& request, std::string& error)
     }
     if (gThread.joinable ())
         gThread.join (); // finished: its last act was to clear `running`
-    gCancel = false;
+    if (!sunfollow::ReserveManualRun (error))
+        return false;
+    s_ticket = std::make_shared<tapioca::SunStudyRunTicket> ();
+    s_started = std::chrono::steady_clock::now ();
     const uint64_t runs = gStatus.runs + 1;
     gStatus = Status {};
     gStatus.running = true;
     gStatus.stage = "queued";
     gStatus.runs = runs;
     gStatus.requestedBackend = request.backend;
-    gThread = std::thread (Run, request);
+    gThread = std::thread (Run, request, s_ticket);
     return true;
 }
 
 void Cancel ()
 {
-    gCancel = true;
+    std::lock_guard<std::mutex> lock (gMutex);
+    if (!gStatus.running || s_ticket == nullptr || !s_ticket->Cancel ())
+        return;
+    gStatus.cancelRequestedMs =
+        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - s_started).count ();
+    archviz::ArchVizLog (
+        "sun-cancel source=manual stage=" + gStatus.stage + " generation=" + std::to_string (gStatus.runs) +
+        " study=" + gStatus.studyId + " resolved=" + std::to_string (gStatus.resolvedSteps) + "/" +
+        std::to_string (gStatus.totalSteps) + " elapsedMs=" + std::to_string (gStatus.cancelRequestedMs));
+    gStatus.cancelling = true;
+    gStatus.stage = "cancelling";
 }
 
 Status Current ()
@@ -270,9 +340,46 @@ Status Current ()
     return gStatus;
 }
 
+Status CurrentJob ()
+{
+    auto status = Current ();
+    const auto follow = sunfollow::State ();
+    status.paused = follow.paused;
+    status.stale = follow.dirty || follow.paused || (status.running && !follow.studyId.empty ());
+    if (status.running)
+        return status;
+    const bool active = follow.cancelling || follow.workerBusy ||
+                        (follow.autoFollow && (follow.dirty || follow.millisecondsUntilStart >= 0));
+    if (active || follow.stage == "cancelled" || follow.stage == "failed") {
+        status.following = true;
+        status.running = active;
+        status.cancelling = follow.cancelling;
+        status.stage = follow.stage;
+        status.error = follow.lastError;
+        status.studyId = follow.studyId;
+        status.resolvedSteps = follow.resolvedSteps;
+        status.totalSteps = follow.totalSteps;
+    }
+    return status;
+}
+
+void CancelActive ()
+{
+    if (Current ().running)
+        Cancel ();
+    else
+        sunfollow::CancelActiveRun ();
+}
+
+bool ResumeFollowing (std::string& error)
+{
+    error.clear ();
+    return sunfollow::Resume (error);
+}
+
 void Shutdown ()
 {
-    gCancel = true;
+    Cancel ();
     std::thread thread;
     {
         std::lock_guard<std::mutex> lock (gMutex);

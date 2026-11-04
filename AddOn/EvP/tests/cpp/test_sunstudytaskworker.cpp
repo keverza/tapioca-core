@@ -2,6 +2,7 @@
 #include "SunStudy/SunStudyRefreshSchedule.hpp"
 #include "SunStudy/SunStudyFollowerPolicy.hpp"
 #include "SunStudy/SunStudyPreviewPlan.hpp"
+#include "SunStudy/SunStudyRunTicket.hpp"
 
 #include <gtest/gtest.h>
 
@@ -90,6 +91,46 @@ struct PausedTask {
 };
 
 } // namespace
+
+TEST (SunStudyRunTicket, AcceptedCancelRejectsLatePublicationAndIsIdempotent)
+{
+    tapioca::SunStudyRunTicket ticket;
+    EXPECT_TRUE (ticket.Cancel ());
+    EXPECT_FALSE (ticket.Cancel ());
+    EXPECT_TRUE (ticket.cancelled.load ());
+    bool enqueued = false;
+    EXPECT_FALSE (ticket.Publish ([&] {
+        enqueued = true;
+        return true;
+    }));
+    EXPECT_FALSE (enqueued);
+}
+
+TEST (SunStudyRunTicket, AtomicCommitWinsBeforeCancelAndCannotPublishTwice)
+{
+    tapioca::SunStudyRunTicket ticket;
+    EXPECT_TRUE (ticket.Publish ([] { return true; }));
+    EXPECT_FALSE (ticket.Cancel ());
+    EXPECT_FALSE (ticket.cancelled.load ());
+    EXPECT_FALSE (ticket.Publish ([] { return true; }));
+}
+
+TEST (SunStudyRunTicket, FailedEnqueueRemainsCancellable)
+{
+    tapioca::SunStudyRunTicket ticket;
+    EXPECT_FALSE (ticket.Publish ([] { return false; }));
+    EXPECT_TRUE (ticket.Cancel ());
+}
+
+TEST (SunStudyRunTicket, ConcurrentCancelAndCompletionHaveExactlyOneWinner)
+{
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        tapioca::SunStudyRunTicket ticket;
+        auto completion = std::async (std::launch::async, [&] { return ticket.Publish ([] { return true; }); });
+        const bool cancelled = ticket.Cancel ();
+        EXPECT_NE (cancelled, completion.get ());
+    }
+}
 
 TEST (SunStudyTaskWorker, SubmitReturnsBeforeWorkCompletesAndOnlyOneTaskCanRun)
 {

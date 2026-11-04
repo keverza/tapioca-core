@@ -3,6 +3,7 @@
 
 #include "ArchViz/SunStudyDisplayAssembler.hpp"
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
+#include "SunStudy/SunStudyRunTicket.hpp"
 
 #include <atomic>
 
@@ -29,6 +30,7 @@ struct ManualSunStudyDisplayRequest {
     archviz::SunStudyDisplayOptions options;
     sunfollow::ActiveSunStudyConfig config;
     bool follow = true;
+    std::shared_ptr<tapioca::SunStudyRunTicket> ticket;
 };
 
 struct ManualSunStudyDisplayState {
@@ -39,6 +41,7 @@ struct ManualSunStudyDisplayState {
 bool SubmitManualSunStudyDisplay (ManualSunStudyDisplayRequest request, std::string& error);
 ManualSunStudyDisplayState ManualSunStudyDisplayStatus ();
 void CancelManualSunStudyDisplays ();
+bool ManualSunStudyDisplayBusy ();
 void ShutdownManualSunStudyDisplays ();
 
 } // namespace geomsrv

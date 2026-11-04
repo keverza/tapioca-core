@@ -34,7 +34,6 @@ void PublishManualDisplay (uint64_t generation, const ManualSunStudyDisplayReque
         if (generation != s_manualGeneration || !ManualDisplayWorker ().Poll (completion))
             return;
         result = std::move (s_manualResult);
-        s_manualState.preparing = false;
         s_manualState.error = completion.error.empty () ? result->error : completion.error;
     }
     const bool published = sunfollow::PublishInSession (request.sessionGeneration, request.config, [&] {
@@ -47,25 +46,33 @@ void PublishManualDisplay (uint64_t generation, const ManualSunStudyDisplayReque
             archviz::DiligentViewport::Get ().IsRunning ();
         if (!current || !completion.error.empty () || result->upload == nullptr)
             return false;
-        bool enqueued = false;
-        const bool accepted =
-            evp::sunstudy::SunStudyStore::Get ().PublishDisplayRecord (request.studyId, request.revision, [&] {
-                enqueued = archviz::SceneCmdQueue::Get ().PushAnalysisAtlas (request.displayGeneration,
-                                                                             std::move (result->upload));
-            });
-        return accepted && enqueued;
+        const auto enqueue = [&] {
+            bool enqueued = false;
+            const bool accepted =
+                evp::sunstudy::SunStudyStore::Get ().PublishDisplayRecord (request.studyId, request.revision, [&] {
+                    enqueued = archviz::SceneCmdQueue::Get ().PushAnalysisAtlas (request.displayGeneration,
+                                                                                 std::move (result->upload));
+                });
+            return accepted && enqueued;
+        };
+        return request.ticket != nullptr ? request.ticket->Publish (enqueue) : enqueue ();
     });
     if (!published) {
         std::lock_guard<std::mutex> lock (s_manualMutex);
-        if (generation == s_manualGeneration)
+        if (generation == s_manualGeneration) {
+            s_manualState.preparing = false;
             s_manualState.error =
                 !completion.error.empty ()
                     ? completion.error
                     : (!result->error.empty () ? result->error : "sun study display superseded or viewer closed");
+        }
         return; // retain previous overlay; a stale completion never clears it
     }
     if (request.follow)
         sunfollow::Adopt (request.studyId, request.config, request.sessionGeneration);
+    std::lock_guard<std::mutex> lock (s_manualMutex);
+    if (generation == s_manualGeneration)
+        s_manualState.preparing = false;
 }
 } // namespace
 
@@ -148,6 +155,11 @@ void CancelManualSunStudyDisplays ()
     ManualDisplayWorker ().Cancel ();
     s_manualResult.reset ();
     s_manualState = {};
+}
+
+bool ManualSunStudyDisplayBusy ()
+{
+    return ManualDisplayWorker ().Busy ();
 }
 
 void ShutdownManualSunStudyDisplays ()

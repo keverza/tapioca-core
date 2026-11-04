@@ -2,8 +2,13 @@
 #define EVP_NATIVECOMMANDS_SUNSTUDYDISPLAYCOMMANDS_HPP
 
 #include "NativeCommands/CommandRegistration.hpp"
+#include "SunStudy/SunStudyRunTicket.hpp"
+#include <memory>
 
 namespace geomsrv {
+
+NativeCommandResult ShowSunStudyForHud (const GS::ObjectState& params,
+                                        std::shared_ptr<tapioca::SunStudyRunTicket> ticket);
 
 // Tapioca.ShowSunStudy - the one sun study verb that talks to the RENDERER.
 //
