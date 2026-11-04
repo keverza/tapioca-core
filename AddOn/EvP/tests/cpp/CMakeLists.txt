@@ -546,6 +546,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/EditLayers.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/EditLayersPlacement.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/EditLandscapeLayers.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/VolumetricOverlay.cpp"
     # ArchViz/OverlayText.cpp and OverlayScene.cpp are what the Diligent guest draws on
     # the overlays -- labels laid out around their anchors, dimensions, styled meshes,
     # heatmaps and legends -- prepared without a device, so the placement is tested
@@ -928,6 +929,7 @@ set (EVP_TEST_SOURCES
     test_editmeshstats.cpp
     test_editmeshclean.cpp
     test_editvolumetricdetail.cpp
+    test_volumetricoverlay.cpp
     test_editregionsurface.cpp
     test_editregioncontourslope.cpp
     test_editmaterial.cpp
@@ -1392,6 +1394,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_mesh_prep.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_sdf.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_volumetricdetailjob.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_volumetricworkflow.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_extraction.cpp")
     TapiocaLinkRustCore (EvPGeomTests)
 endif ()

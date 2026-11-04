@@ -1,8 +1,9 @@
 # Volumetric detail SDF contract
 
-**Status:** SDF-1e and the SDF-2 persistence, asynchronous-publication and
-terrain-anchor increments are implemented. Material/overlay presentation and
-the remaining workflow diagnostics stay in SDF-2; later stages are not claimed.
+**Status:** SDF-1e and the minimal SDF-2 Rock/Cave authoring and derived-overlay
+workflow are implemented and offline-tested. Live Archicad UI event integration
+is not claimed by these tests. Native Accept and later SDF stages remain future
+gates.
 
 ## 1. Product scope and ownership
 
@@ -159,10 +160,13 @@ arithmetic is checked before allocation.
 - Narrow-band/sparse and dense parity fixtures must produce the same canonical
   mesh, not merely similar pictures.
 
-Every result reports total grid points, evaluated points, stored sparse points,
-visited/skipped regions, sampling strategy, bounds/Lipschitz availability,
-requested and actual cell sizes, vertices, triangles and elapsed worker time.
-Cancellation is checked during subdivision, leaf evaluation and meshing.
+Every successful build reports total grid points, evaluated points, stored
+sparse points, visited/skipped regions, sampling strategy, Lipschitz bound,
+actual cell sizes, total/active cells, triangles and slab size. The diagnostics
+panel combines these with the displayed snapshot's bounds and #139 MeshStats
+health. A refused build has no measured sampling rows: the panel marks them
+unavailable while retaining last-good geometry, bounds, health and the refusal
+reason. Cancellation is checked during subdivision, leaf evaluation and meshing.
 
 ## 7. Marching Cubes, materials and determinism
 
@@ -189,7 +193,19 @@ refuse; this orientation pass changes no positions and is not a repair or
 decimation pipeline.
 
 Material ownership is evaluated with the field, never inferred from vertex
-colour:
+colour or a native surface-pool index. SDF-2 presentation resolves those IDs
+through an explicit `VolumetricMaterial` table containing a name, preview RGBA
+and an optional future shared-Accept surface mapping. Mapping must be total and
+unique: an unmapped ID refuses the overlay rather than selecting a default
+colour. Stable material grouping emits one derived overlay mesh per material,
+preserving every source triangle and its within-material order.
+
+`ShowDetail` keeps all details visible and applies Xray to one; `OnlyDetail`
+isolates one as Ghost and binds the existing editor feedback focus list. Clear
+restores Lit display. These are transient display states, not document fields,
+history entries or SDF group-isolation operations.
+
+The material-owner rules are:
 
 - Union chooses the operand with the smaller unblended distance; an exact tie
   chooses the later stack operand.
