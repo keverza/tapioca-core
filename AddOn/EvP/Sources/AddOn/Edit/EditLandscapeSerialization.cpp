@@ -206,6 +206,70 @@ void WriteValue (const Value& value, std::string& out)
     }
     out += json::Write (value, 0);
 }
+
+Value VolumetricFrameValue (const VolumetricFrame& frame)
+{
+    Array axes;
+    for (const auto& axis : frame.axes)
+        axes.push_back (PointValue (axis));
+    return Value::Object ({ { "origin", PointValue (frame.origin) }, { "axes", Value::Array (std::move (axes)) } });
+}
+
+Value VolumetricPrimitiveValue (const VolumetricPrimitive& primitive)
+{
+    Array profile;
+    for (const auto& point : primitive.profile)
+        profile.push_back (Value::Array ({ Number (point[0]), Number (point[1]) }));
+    return Value::Object ({ { "kind", Integer (int (primitive.kind)) },
+                            { "centerOrA", PointValue (primitive.centerOrA) },
+                            { "b", PointValue (primitive.b) },
+                            { "frame", VolumetricFrameValue (primitive.frame) },
+                            { "half", PointValue (primitive.half) },
+                            { "radius", Number (primitive.radius) },
+                            { "halfHeight", Number (primitive.halfHeight) },
+                            { "profile", Value::Array (std::move (profile)) } });
+}
+
+Value VolumetricDetailValue (const VolumetricDetail& detail)
+{
+    Array entries;
+    for (const auto& entry : detail.entries) {
+        if (const auto* operation = std::get_if<VolumetricOperation> (&entry)) {
+            entries.push_back (Value::Object ({ { "type", Integer (1) },
+                                                { "id", IdValue (operation->id) },
+                                                { "primitive", VolumetricPrimitiveValue (operation->primitive) },
+                                                { "operation", Integer (int (operation->operation)) },
+                                                { "profile", Integer (int (operation->profile)) },
+                                                { "blendRadius", Number (operation->blendRadius) },
+                                                { "materialId", Integer (operation->materialId) },
+                                                { "enabled", Flag (operation->enabled) } }));
+        }
+        else {
+            const auto& group = std::get<VolumetricGroup> (entry);
+            entries.push_back (Value::Object ({ { "type", Integer (2) },
+                                                { "id", IdValue (group.id) },
+                                                { "enabled", Flag (group.enabled) },
+                                                { "isolated", Flag (group.isolated) },
+                                                { "profile", Integer (int (group.profile)) },
+                                                { "blendRadius", Number (group.blendRadius) } }));
+        }
+    }
+    Object value { { "id", IdValue (detail.id) },
+                   { "kind", Integer (int (detail.kind)) },
+                   { "name", Text (detail.name) },
+                   { "entries", Value::Array (std::move (entries)) },
+                   { "voxelSize", Number (detail.voxelSize) },
+                   { "revision", IdValue (detail.revision) } };
+    if (detail.anchor) {
+        const auto& anchor = *detail.anchor;
+        value.emplace ("anchor", Value::Object ({ { "terrainRevision", IdValue (anchor.terrainRevision) },
+                                                  { "terrainHash", IdValue (anchor.terrainHash) },
+                                                  { "x", Number (anchor.x) },
+                                                  { "y", Number (anchor.y) },
+                                                  { "zOffset", Number (anchor.zOffset) } }));
+    }
+    return Value::Object (std::move (value));
+}
 } // namespace
 
 Value IdsValue (const std::vector<Id>& ids)
@@ -249,6 +313,9 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode, std::stri
 {
     const auto& s = *doc.landscape;
     Array sources, operations, objects, regions, assignments, patches, bindings, controls, entrances, edges;
+    Array volumetricDetails;
+    for (const auto& detail : s.volumetricDetails)
+        volumetricDetails.push_back (VolumetricDetailValue (detail));
     for (const auto& e : s.edges)
         edges.push_back (Value::Object ({ { "id", IdValue (e.id) },
                                           { "kind", Integer (int (e.kind)) },
@@ -390,7 +457,8 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode, std::stri
                                                   { "bindings", Value::Array (std::move (bindings)) },
                                                   { "terrainControls", Value::Array (std::move (controls)) },
                                                   { "entrances", Value::Array (std::move (entrances)) },
-                                                  { "edges", Value::Array (std::move (edges)) } }) } };
+                                                  { "edges", Value::Array (std::move (edges)) },
+                                                   { "volumetricDetails", Value::Array (std::move (volumetricDetails)) } }) } };
     // The editor's layers and groups, written only when there are any (AddMember's rule).
     if (!doc.layers.empty () || !doc.groups.empty () || !doc.isolated.empty () ||
         !(doc.layer0 == edit::Layer { 0, "0" })) {

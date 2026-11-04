@@ -243,7 +243,7 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
     }
     if (s.sources.size () > 4096 || s.operations.size () > 4096 || s.objects.size () > 4096 ||
         s.regions.size () > 65536 || s.terrainControls.size () > 4096 || s.entrances.size () > 4096 ||
-        s.edges.size () > 4096) {
+        s.edges.size () > 4096 || s.volumetricDetails.size () > 4096) {
         error = "landscape exceeds its source/operation/object/region budget";
         return false;
     }
@@ -366,6 +366,24 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
             !Material (edge.material) || !Guid (edge.stairGuid) || !Guid (edge.wallGuid)) {
             error = "landscape.edges: invalid ID, kind, baseline, finite parameter, material or GUID";
             return false;
+        }
+    }
+    for (size_t index = 0; index < s.volumetricDetails.size (); ++index) {
+        const auto& detail = s.volumetricDetails[index];
+        std::string detailError;
+        if (!claim (detail.id) || !ValidateVolumetricDetail (detail, detailError)) {
+            error = "landscape.volumetricDetails[" + std::to_string (index) + "]: " +
+                    (detailError.empty () ? "duplicate or out-of-range detail identity" : detailError);
+            return false;
+        }
+        for (const auto& entry : detail.entries) {
+            const Id entryId = std::get_if<VolumetricOperation> (&entry)
+                                   ? std::get<VolumetricOperation> (entry).id
+                                   : std::get<VolumetricGroup> (entry).id;
+            if (!claim (entryId)) {
+                error = "landscape.volumetricDetails: duplicate or out-of-range stack-entry identity";
+                return false;
+            }
         }
     }
     for (const auto& v : s.operations) {

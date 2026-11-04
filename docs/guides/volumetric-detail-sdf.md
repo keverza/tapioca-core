@@ -1,8 +1,8 @@
 # Volumetric detail SDF contract
 
-**Status:** SDF-0 contract, frozen 2026-11-03 for the minimal landscape slice (#140).
-This document governs the first implementation. It does not claim that the later
-stages are implemented.
+**Status:** SDF-1e and the SDF-2 durable-persistence increment are implemented.
+Asynchronous publication, terrain-anchor resolution and overlay/diagnostics work
+remain in SDF-2; later stages are not claimed by this document.
 
 ## 1. Product scope and ownership
 
@@ -15,6 +15,17 @@ The durable record is owned by `LandscapeSession.volumetricDetails`, alongside
 sources, planar operations, hardscape objects and edges. It is not a
 `HardscapeObject` footprint and not a standalone document. Its operation stack
 is the authoring authority; evaluated meshes are disposable derived snapshots.
+
+The session codec preserves the complete ordered record in both virtual and
+native storage, including every primitive field, group header, material ID,
+revision and optional terrain anchor. Missing arrays from older documents read
+as empty; malformed fields, enums, identities and non-finite values refuse
+atomically. Placement and editing allocate detail and stack-entry IDs from the
+document's shared high-water allocator. An edit must match the current detail
+revision; new stack entries use zero and receive fresh IDs, while retained
+entries keep their IDs. No-op edits do not advance revisions. One
+`Session::Apply` gesture produces one existing-session undo entry; no separate
+SDF history exists.
 
 Three geometry authorities remain separate:
 

@@ -1,7 +1,7 @@
 #ifndef TAPIOCA_EDIT_VOLUMETRICDETAIL_HPP
 #define TAPIOCA_EDIT_VOLUMETRICDETAIL_HPP
 
-// #140 SDF-1d: authored volumetric landscape definition. This is not a mesh
+// #140 SDF-1d/SDF-2: authored volumetric landscape definition. This is not a mesh
 // document, evaluated snapshot, terrain field entry or native Accept record.
 // The ordered stack below is the only authority; generated meshes are derived.
 // Units and operation/group semantics are fixed by
@@ -93,6 +93,15 @@ struct VolumetricDetail {
 // not content. The anchor identity/position is included because a job's placed
 // result depends on it. No evaluated mesh or worker schedule enters the hash.
 uint64_t HashVolumetricDetail (const VolumetricDetail& detail);
+
+// SDK-free durable-record validation. The worker compiler remains the field
+// authority; this checks the same primitive/stack preconditions without meshing.
+bool ValidateVolumetricDetail (const VolumetricDetail& detail, std::string& error);
+
+// New presets have zero detail/entry IDs and revision. AddVolumetricDetail
+// allocates every durable identity from the owning document.
+VolumetricDetail MakeVolumetricRockPreset ();
+VolumetricDetail MakeVolumetricCavePreset ();
 
 } // namespace tapioca::geometry
 

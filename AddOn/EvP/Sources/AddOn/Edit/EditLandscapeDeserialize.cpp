@@ -243,6 +243,145 @@ void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode, i
         doc.paths.push_back (std::move (path));
     });
 }
+
+VolumetricDetailKind VolumetricKind (const Reader& reader)
+{
+    switch (reader.Integer ()) {
+    case 0:
+        return VolumetricDetailKind::Custom;
+    case 1:
+        return VolumetricDetailKind::Rock;
+    case 2:
+        return VolumetricDetailKind::Cave;
+    default:
+        Fail (reader.path, "unknown volumetric detail kind");
+    }
+}
+
+VolumetricPrimitiveKind PrimitiveKind (const Reader& reader)
+{
+    switch (reader.Integer ()) {
+    case 2:
+        return VolumetricPrimitiveKind::Sphere;
+    case 3:
+        return VolumetricPrimitiveKind::RoundedBox;
+    case 4:
+        return VolumetricPrimitiveKind::Capsule;
+    case 5:
+        return VolumetricPrimitiveKind::Extrude;
+    default:
+        Fail (reader.path, "unknown volumetric primitive kind");
+    }
+}
+
+VolumetricBoolean BooleanKind (const Reader& reader)
+{
+    switch (reader.Integer ()) {
+    case 1:
+        return VolumetricBoolean::Union;
+    case 2:
+        return VolumetricBoolean::Subtract;
+    case 3:
+        return VolumetricBoolean::Intersect;
+    default:
+        Fail (reader.path, "unknown volumetric Boolean operation");
+    }
+}
+
+VolumetricBlendProfile BlendKind (const Reader& reader)
+{
+    switch (reader.Integer ()) {
+    case 1:
+        return VolumetricBlendProfile::Sharp;
+    case 2:
+        return VolumetricBlendProfile::Round;
+    default:
+        Fail (reader.path, "unknown volumetric blend profile");
+    }
+}
+
+VolumetricFrame ReadVolumetricFrame (const Reader& reader)
+{
+    reader.Fields ({ "origin", "axes" });
+    VolumetricFrame frame;
+    frame.origin = reader.Field ("origin").Point ();
+    const auto axes = reader.Field ("axes");
+    const auto& items = axes.Items ();
+    if (items.size () != frame.axes.size ())
+        Fail (axes.path, "exactly three frame axes required");
+    for (size_t index = 0; index < items.size (); ++index)
+        frame.axes[index] = Reader (items[index], axes.path + "[" + std::to_string (index) + "]").Point ();
+    return frame;
+}
+
+VolumetricPrimitive ReadVolumetricPrimitive (const Reader& reader)
+{
+    reader.Fields ({ "kind", "centerOrA", "b", "frame", "half", "radius", "halfHeight", "profile" });
+    VolumetricPrimitive primitive;
+    primitive.kind = PrimitiveKind (reader.Field ("kind"));
+    primitive.centerOrA = reader.Field ("centerOrA").Point ();
+    primitive.b = reader.Field ("b").Point ();
+    primitive.frame = ReadVolumetricFrame (reader.Field ("frame"));
+    primitive.half = reader.Field ("half").Point ();
+    primitive.radius = reader.Field ("radius").Number ();
+    primitive.halfHeight = reader.Field ("halfHeight").Number ();
+    Each (reader.Field ("profile"), [&] (const Reader& point) {
+        const auto& values = point.Items ();
+        if (values.size () != 2)
+            Fail (point.path, "profile point requires exactly two coordinates");
+        primitive.profile.push_back (
+            { Reader (values[0], point.path + "[0]").Number (), Reader (values[1], point.path + "[1]").Number () });
+    });
+    return primitive;
+}
+
+VolumetricDetail ReadVolumetricDetail (const Reader& reader)
+{
+    reader.Fields ({ "id", "kind", "name", "entries", "voxelSize", "revision" }, { "anchor" });
+    VolumetricDetail detail;
+    detail.id = reader.Field ("id").Identifier ();
+    detail.kind = VolumetricKind (reader.Field ("kind"));
+    detail.name = reader.Field ("name").Text ();
+    detail.voxelSize = reader.Field ("voxelSize").Number ();
+    detail.revision = reader.Field ("revision").Identifier ();
+    Each (reader.Field ("entries"), [&] (const Reader& item) {
+        const int type = item.Field ("type").Integer ();
+        if (type == 1) {
+            item.Fields ({ "type", "id", "primitive", "operation", "profile", "blendRadius", "materialId", "enabled" });
+            VolumetricOperation operation;
+            operation.id = item.Field ("id").Identifier ();
+            operation.primitive = ReadVolumetricPrimitive (item.Field ("primitive"));
+            operation.operation = BooleanKind (item.Field ("operation"));
+            operation.profile = BlendKind (item.Field ("profile"));
+            operation.blendRadius = item.Field ("blendRadius").Number ();
+            operation.materialId = item.Field ("materialId").Integer ();
+            operation.enabled = item.Field ("enabled").Flag ();
+            detail.entries.emplace_back (std::move (operation));
+        }
+        else if (type == 2) {
+            item.Fields ({ "type", "id", "enabled", "isolated", "profile", "blendRadius" });
+            VolumetricGroup group;
+            group.id = item.Field ("id").Identifier ();
+            group.enabled = item.Field ("enabled").Flag ();
+            group.isolated = item.Field ("isolated").Flag ();
+            group.profile = BlendKind (item.Field ("profile"));
+            group.blendRadius = item.Field ("blendRadius").Number ();
+            detail.entries.emplace_back (std::move (group));
+        }
+        else {
+            Fail (item.path + ".type", "unknown volumetric stack-entry type");
+        }
+    });
+    if (reader.Has ("anchor")) {
+        const auto anchor = reader.Field ("anchor");
+        anchor.Fields ({ "terrainRevision", "terrainHash", "x", "y", "zOffset" });
+        detail.anchor = VolumetricTerrainAnchor { anchor.Field ("terrainRevision").Identifier (),
+                                                  anchor.Field ("terrainHash").Identifier (),
+                                                  anchor.Field ("x").Number (), anchor.Field ("y").Number (),
+                                                  anchor.Field ("zOffset").Number () };
+    }
+    return detail;
+}
 } // namespace
 
 void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mode)
@@ -261,9 +400,13 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
     const auto landscape = root.Field ("landscape");
     landscape.Fields ({ "sourceTerrainGuid", "propertyLine", "sources", "operations", "objects", "regions",
                         "assignments", "patches", "bindings" },
-                      { "edges", "terrainControls", "entrances" });
+                      { "edges", "terrainControls", "entrances", "volumetricDetails" });
     s.sourceTerrainGuid = Guid (landscape.Field ("sourceTerrainGuid"));
     s.propertyLineSourceId = landscape.Field ("propertyLine").Identifier ();
+    if (landscape.Has ("volumetricDetails"))
+        Each (landscape.Field ("volumetricDetails"), [&] (const Reader& item) {
+            s.volumetricDetails.push_back (ReadVolumetricDetail (item));
+        });
     if (landscape.Has ("terrainControls"))
         Each (landscape.Field ("terrainControls"), [&] (const Reader& item) {
             item.Fields ({ "source", "vertex", "enabled" });

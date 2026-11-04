@@ -2,6 +2,7 @@
 #define TAPIOCA_EDIT_LANDSCAPE_HPP
 
 #include "Edit/EditPlanar.hpp"
+#include "Edit/EditVolumetricDetail.hpp"
 #include "Geometry/GeometryRustTerrain.hpp"
 #include <array>
 #include <optional>
@@ -225,6 +226,8 @@ struct LandscapeSession {
     std::vector<LandscapeTerrainControl> terrainControls;
     std::vector<LandscapeEntrance> entrances;
     std::vector<EdgeSpec> edges;
+    // Ordered 3D field definitions; derived meshes never enter this document.
+    std::vector<VolumetricDetail> volumetricDetails;
     // Document::nextId/revision are the sole allocator/publication authority.
     bool operator== (const LandscapeSession&) const = default;
 };
@@ -306,6 +309,12 @@ bool DeleteLandscapeSource (geomsrv::edit::Document& doc, Id id, std::string& er
 bool AddLandscapeOperation (geomsrv::edit::Document& doc, LandscapeOperation operation, Id& id, std::string& error);
 bool SetLandscapeOperationEnabled (geomsrv::edit::Document& doc, Id id, bool enabled, std::string& error);
 bool AddHardscapeObject (geomsrv::edit::Document& doc, HardscapeObject object, Id& id, std::string& error);
+// One call is one document mutation; wrap it in Session::Apply for one undo entry.
+bool AddVolumetricDetail (geomsrv::edit::Document& doc, VolumetricDetail detail, Id& id, std::string& error);
+// Set requires the current detail revision. Retained entries keep their IDs;
+// a zero entry ID allocates a new durable identity from the document.
+bool SetVolumetricDetail (geomsrv::edit::Document& doc, VolumetricDetail detail, std::string& error);
+bool RemoveVolumetricDetail (geomsrv::edit::Document& doc, Id id, std::string& error);
 bool SetLandscapePropertyLine (geomsrv::edit::Document& doc, Id source, std::string& error);
 // A virtual line (an entity, not a path) takes `role`: its live source is re-roled, or one is
 // added. PropertyLine makes it the session's property line and returns the previous one to Guide.

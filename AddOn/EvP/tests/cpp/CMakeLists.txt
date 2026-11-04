@@ -883,6 +883,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditProfileView.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPublishedMesh.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditVolumetricDetail.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeVolumetric.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditMeshTopology.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditMeshStats.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditMeshClean.cpp")
