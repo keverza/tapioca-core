@@ -1,8 +1,8 @@
 # Volumetric detail SDF contract
 
-**Status:** SDF-1e and the SDF-2 durable-persistence increment are implemented.
-Asynchronous publication, terrain-anchor resolution and overlay/diagnostics work
-remain in SDF-2; later stages are not claimed by this document.
+**Status:** SDF-1e and the SDF-2 persistence, asynchronous-publication and
+terrain-anchor increments are implemented. Material/overlay presentation and
+the remaining workflow diagnostics stay in SDF-2; later stages are not claimed.
 
 ## 1. Product scope and ownership
 
@@ -245,20 +245,35 @@ SDF-2 worker contract:
 - A worker consumes an immutable detail definition, revision, content hash,
   voxel size and terrain anchor identity.
 - Coarse preview and final mesh use the same compiled field, operator order,
-  material rule and bounds policy. Only voxel size changes.
+  material rule and bounds policy. Preview multiplies the authored final voxel
+  size by two; no other field/build input changes.
 - Only a complete current result can replace the published snapshot in
   `EditorMeshStore`. Cancellation, stale completion, invalid output and capacity
-  refusal publish nothing and retain the last valid snapshot.
+  refusal publish nothing and retain the last valid snapshot. Local generations
+  reject superseded work within one publisher, and a global per-store-key lease
+  prevents a slower independent publisher from overwriting a newer result.
+- Completion rechecks the durable detail revision/definition hash, requested
+  level/voxel size, mesh identity/content hash, complete geometry and recomputed
+  bounds before the derived-store write.
 - Native-capture `MeshStore::current/shared` is never overwritten.
 - Preview/worker completion creates no history. One completed authoring gesture
   or Apply is one existing-session undo entry.
 
 A terrain-placed detail anchors to a specific published terrain revision and
-content hash plus authored XY and Z offset. Terrain edits mark that anchor stale;
-they never silently move the detail or retarget an in-flight job. The detail does
-not enter `FieldPlan`, does not change the TIN and does not implicitly carve or
-union terrain. Any future terrain effect is a separate explicit authoring
-contract.
+content hash plus authored XY and Z offset. The terrain content hash covers the
+published TIN points and triangles, not the field-plan hash. Preparation samples
+that exact immutable TIN at authored XY. Field/primitive coordinates are
+anchor-local for a terrain-placed detail; the complete derived mesh is translated
+by `(anchor.x, anchor.y, sampledHeight + zOffset)` after a successful build.
+Durable coordinates are not rewritten. Translated bounds are recomputed and any
+collapsed/non-finite triangle refuses instead of publishing with stale health
+diagnostics.
+
+Terrain edits mark that anchor stale; they never silently move the detail or
+retarget an in-flight job. Publication checks the current terrain identity again.
+The detail does not enter `FieldPlan`, does not change the TIN and does not
+implicitly carve or union terrain. Any future terrain effect is a separate
+explicit authoring contract.
 
 ## 10. Native Accept boundary
 

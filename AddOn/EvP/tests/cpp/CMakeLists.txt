@@ -1329,6 +1329,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${GEOM_DIR}/GeometryRustPlane.cpp"
         "${GEOM_DIR}/GeometryRustMeshPrep.cpp"
         "${GEOM_DIR}/GeometryRustSdf.cpp"
+        "${EVP_ROOT}/Sources/AddOn/Edit/EditVolumetricDetailJob.cpp"
         "${GEOM_DIR}/GeometryRustGrading.cpp"
         "${GEOM_DIR}/GeometryRustTerrainField.cpp"
         "${GEOM_DIR}/GeometryRustHybridTerrain.cpp"
@@ -1390,6 +1391,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_grading.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_mesh_prep.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_sdf.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_volumetricdetailjob.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_extraction.cpp")
     TapiocaLinkRustCore (EvPGeomTests)
 endif ()
