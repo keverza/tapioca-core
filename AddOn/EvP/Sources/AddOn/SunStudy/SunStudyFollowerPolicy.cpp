@@ -72,6 +72,17 @@ void SunStudyFollowerPolicy::Clear ()
     EVP_FOLLOW (Clear (), void ());
 }
 
+void SunStudyFollowerPolicy::RetireReplacement (int64_t nowMs)
+{
+    const auto id = StudyId ();
+    if (id.empty ())
+        return;
+    const auto study = StudySignature (), world = WorldSignature ();
+    Clear (); // advance identity even when an edit was undone during the run
+    Adopt (id, study, nowMs);
+    Observe (world, nowMs);
+}
+
 void SunStudyFollowerPolicy::SetDebounceMs (int64_t ms)
 {
     EVP_FOLLOW (SetDebounceMs (ms), void ());

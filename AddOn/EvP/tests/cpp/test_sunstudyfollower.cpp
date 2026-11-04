@@ -40,6 +40,41 @@ void Adopt (SunStudyFollower& follower, int64_t now = 1000)
 
 } // namespace
 
+TEST (SunStudyFollower, RetiringAReplacementKeepsItsCacheAndAllowsExplicitResumeOnTheSameTarget)
+{
+    for (bool started : { false, true }) {
+        SunStudyFollower follower;
+        Adopt (follower);
+        follower.Observe (Sig (42), 1100);
+        const auto cancelledGeneration = started ? follower.NoteStarted (Sig (42), 2000) : follower.Generation ();
+        follower.RetireReplacement (2100);
+        EXPECT_EQ (follower.StudyId (), "study-a");
+        EXPECT_EQ (follower.StudySignature (), Sig (41));
+        EXPECT_EQ (follower.WorldSignature (), Sig (42));
+        EXPECT_TRUE (follower.HasRenderableCache ());
+        EXPECT_EQ (follower.State (), SunStudyFollowState::DirtyVisible);
+        EXPECT_GT (follower.Generation (), cancelledGeneration);
+        EXPECT_FALSE (follower.CanPublishResult (cancelledGeneration, Sig (42)));
+        EXPECT_TRUE (follower.ShouldStart (2100 + kSunStudyDebounceMs));
+        const auto resumed = follower.NoteStarted (Sig (42), 2100 + kSunStudyDebounceMs);
+        EXPECT_FALSE (follower.NoteCompleted (cancelledGeneration, "cancelled", Sig (42), 3000));
+        EXPECT_TRUE (follower.NoteCompleted (resumed, "replacement", Sig (42), 3000));
+    }
+}
+
+TEST (SunStudyFollower, RetiringAfterAnUndoneEditDoesNotInventDirtyInputs)
+{
+    SunStudyFollower follower;
+    Adopt (follower);
+    follower.Observe (Sig (42), 1100);
+    const auto cancelled = follower.NoteStarted (Sig (42), 2000);
+    follower.Observe (Sig (41), 2050);
+    follower.RetireReplacement (2100);
+    EXPECT_TRUE (follower.IsFullyCurrent ());
+    EXPECT_FALSE (follower.ShouldStart (10000));
+    EXPECT_FALSE (follower.CanPublishResult (cancelled, Sig (42)));
+}
+
 // ---------------------------------------------------------------------------
 // what must NOT make a study stale
 // ---------------------------------------------------------------------------

@@ -32,6 +32,9 @@ class SunStudyFollowerPolicy final {
     bool NoteCompleted (uint64_t generation, const std::string& studyId, const SunStudyDependencySignature& signature,
                         int64_t nowMs);
     void NoteFailed (uint64_t generation, int64_t nowMs);
+    // Retire a replacement without losing the completed cache or dirty target.
+    // Scheduling pause/resume remains the driver's responsibility.
+    void RetireReplacement (int64_t nowMs);
     void Clear ();
     void SetDebounceMs (int64_t ms);
 

@@ -54,11 +54,7 @@ int64_t s_cancelRequestedMs = 0;
 
 UINT_PTR gTimer = 0;
 
-// How often the world is re-examined. ⚠️ NOT THE DEBOUNCE, AND MUCH SHORTER THAN
-// IT: the quiet period is measured in the follower from real timestamps, so this
-// only decides the granularity with which it is noticed. 200 ms keeps the
-// hide-on-edit within a couple of frames while asking Archicad for its place
-// settings five times a second, which is nothing.
+// Poll granularity, not debounce: the policy measures quiet time from edit timestamps.
 constexpr UINT kTickMs = 200;
 
 // The last genuine geometry edit ModelWatch reported that this driver has acted
@@ -783,7 +779,8 @@ void CancelActiveRun ()
     gAutoFollow = false;
     s_paused = true;
     s_cancelRequestedMs = NowMs ();
-    ++gRunGeneration;
+    gFollower.RetireReplacement (NowMs ());
+    gRunGeneration = gFollower.Generation ();
     RetireRun ("user cancelled; following paused");
     s_stage = "cancelling";
 }
@@ -798,6 +795,7 @@ bool ReserveManualRun (std::string& error)
     gAutoFollow = false;
     s_paused = gConfig.valid;
     RetireRun ("manual run reserved");
+    gFollower.RetireReplacement (NowMs ());
     s_manualActive = true;
     return true;
 }

@@ -38,7 +38,7 @@ def test_explicit_follower_pause_retains_config_and_blocks_all_new_edits_until_r
     cancel = driver.split("void CancelActiveRun ()", 1)[1].split("bool ReserveManualRun", 1)[0]
     assert "gAutoFollow = false" in cancel
     assert "s_paused = true" in cancel
-    assert "++gRunGeneration" in cancel
+    assert "gFollower.RetireReplacement (NowMs ())" in cancel
     assert 'RetireRun ("user cancelled; following paused")' in cancel
     assert "gConfig =" not in cancel and "gFollower.Clear" not in cancel
     assert "HideOverlay" not in cancel
