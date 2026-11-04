@@ -61,12 +61,17 @@ def test_snapshot_success_schemas_declare_and_require_emitted_fields():
         "droppedTriangles",
         "retainedBytes",
         "sharedCapture",
+        "extractionCapture",
     }
     assert set(build["required"]) == set(build["properties"]) - {
         "droppedElements",
         "droppedTriangles",
         "sharedCapture",
+        "extractionCapture",
     }
+    capture = build["properties"]["extractionCapture"]
+    assert capture["additionalProperties"] is False
+    assert set(capture["properties"]) == set(capture["required"]) == {"written", "bytes", "elements", "truncated"}
     assert set(release["properties"]) == {"freedBytes", "retainedBytes"}
     assert set(release["required"]) == set(release["properties"])
     assert set(status["required"]) == set(status["properties"])

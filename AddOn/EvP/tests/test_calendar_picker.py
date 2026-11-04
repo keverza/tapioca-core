@@ -100,4 +100,9 @@ def test_study_display_blends_over_white_shaded_geometry_without_changing_materi
     assert "rt.DestBlend = Diligent::BLEND_FACTOR_INV_SRC_ALPHA" in pipeline
     shader = (root / "DiligentShaders.hpp").read_text(encoding="utf-8")
     assert "float4 (colour, 0.90)" in shader
-    assert "255.0), 0.60)" in shader
+    # The low-sun colour is user-configurable, and uses the same overlay
+    # opacity as the warm ramp instead of a separate hard-coded wash.
+    ramp = shader.split("float3 SunRamp (", 1)[1].split("float4 StudyOverlayColor", 1)[0]
+    assert "hours < g_sunStudyPreview.x" in ramp
+    assert "return SrgbToLinear (g_sunStudyLowSun.rgb);" in ramp
+    assert "return warm;" in ramp

@@ -12,7 +12,11 @@ set (ADDON_LIB  "EvPAddOn")
 set (ADDON_RES  "EvPResources")
 set (PY_BRIDGE  "EvPPy")     # CPython half, built as its own DLL — see Sources/EvPPy/EvPPyApi.h
 
-project (${ADDON_NAME} CXX)
+# State both languages here: enabling C only inside a vendored subdirectory
+# leaves parent C targets (QuickJS) without CMake's MSVC runtime selection and
+# cl.exe defaults them to /MT. Every library in the host uses /MD, even Debug.
+set (CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+project (${ADDON_NAME} C CXX)
 
 # Full Rust quality gate is optional at build time; archive compilation is a
 # prerequisite when the geometry ingress bridge is enabled (the default).
@@ -86,7 +90,6 @@ set (CMAKE_CONFIGURATION_TYPES Debug;Release;RelWithDebInfo)
 
 if (WIN32)
     add_definitions (-DUNICODE -D_UNICODE -D_ITERATOR_DEBUG_LEVEL=0)
-    set (CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
 else ()
     add_definitions (-Dmacintosh=1)
 endif ()
@@ -405,6 +408,10 @@ if (WIN32)
         set (ACAP_STAT_LIB "${AC_API_DEVKIT_DIR}/Support/Lib/ACAP_STAT.lib")
     endif ()
     target_link_libraries (${ADDON_LIB} "${ACAP_STAT_LIB}")
+    # The distributed SDK archive references API_c.pdb, which the DevKit does
+    # not ship. Omit that external debug-info warning only; keep CRT conflicts
+    # (LNK4098) visible rather than masking an incorrectly compiled dependency.
+    target_link_options (${ADDON_LIB} PRIVATE /IGNORE:4099)
     file (GLOB ModuleLibs ${AC_API_DEVKIT_DIR}/Support/Modules/*/*/*.lib)
     target_link_libraries (${ADDON_LIB} ${ModuleLibs})
 endif ()

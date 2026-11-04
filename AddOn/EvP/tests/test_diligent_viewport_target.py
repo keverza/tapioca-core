@@ -1,5 +1,5 @@
+import re
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHVIZ = ROOT / "Sources" / "AddOn" / "ArchViz"
@@ -27,9 +27,9 @@ def test_depth_creation_uses_explicit_dimensions_and_resize_retries_failure() ->
     assert "dd.Width = requestedWidth" in source
     assert "dd.Height = requestedHeight" in source
     assert "CreateDepth (w, h, resizedDepth, depthError)" in source
-    assert source.index("CreateDepth (w, h, resizedDepth, depthError)") < source.index(
-        "ResizeBuffers (0, w, h"
-    )
+    resize = re.search(r"compositionSwapChain->ResizeBuffers\s*\(\s*0,\s*w,\s*h", source)
+    assert resize is not None
+    assert source.index("CreateDepth (w, h, resizedDepth, depthError)") < resize.start()
     assert "impl_->depthTexture = std::move (resizedDepth)" in source
     assert "GetCurrentBackBufferRTV" in source
     assert "resizedDesc->Width == w && resizedDesc->Height == h" in source

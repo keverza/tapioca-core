@@ -135,7 +135,7 @@ std::string ModuleLeafName (const wchar_t* path)
     if (path == nullptr || path[0] == 0)
         return std::string ("an unknown module");
     std::wstring wide (path);
-    const size_t slash = wide.find_last_of (L"\/");
+    const size_t slash = wide.find_last_of (L"\\/");
     if (slash != std::wstring::npos)
         wide = wide.substr (slash + 1);
     std::string narrow;

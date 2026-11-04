@@ -111,9 +111,13 @@ def test_follower_preparation_uses_owned_capture_not_main_thread_start_command()
 
 def test_interactive_calculation_reserves_cpu_and_defers_capture_during_navigation():
     source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
-    assert "request.maxParallel = 1" in source
+    assert "request.maxParallel = evp::sunstudy::BackgroundTraversalThreads ()" in source
     assert "request.maxMilliseconds = 40.0" in source
     assert "s_refreshSchedule.Ready (now, s_navigationDeferred)" in source
+    traversal = (_ADDON / "SunStudy" / "CpuTraversal.cpp").read_text(encoding="utf-8")
+    budget = traversal.split("size_t BackgroundTraversalThreads ()", 1)[1].split("CpuTraversal::CpuTraversal", 1)[0]
+    assert "std::thread::hardware_concurrency ()" in budget
+    assert "std::clamp<size_t> (hardware / 2, 1, 8)" in budget
     task = (_ADDON / "SunStudy" / "SunStudyTaskWorker.cpp").read_text(encoding="utf-8")
     assert "ACAPI_" not in task
     assert "MainThreadGate" not in task
@@ -185,8 +189,10 @@ def test_pipeline_telemetry_covers_capture_conversion_queue_upload_and_each_sun_
     for stage in ("sun-atlas-upload", "sun-steps-upload", "sun-face-upload"):
         assert f"stage={stage}" in upload
     prepare = (_ADDON / "NativeCommands" / "SunStudyPreparation.cpp").read_text(encoding="utf-8")
-    assert "SetStepObserver" in prepare
-    for field in ("step=", "dirty=", "rays=", "rayPacketBytes=", "traceMs=", "compactMs="):
+    assert "record.rustStepObserver = [snapshotId, totals]" in prepare
+    store = (_ADDON / "SunStudy" / "SunStudyStore.cpp").read_text(encoding="utf-8")
+    assert "record->rustStepObserver, advanced, coreError" in store
+    for field in ("stage=sun-step", "core=rust step=", "dirty=", "rays=", "traceMs=", "compactMs=", "wallMs="):
         assert field in prepare
     reuse = (_ADDON / "SunStudy" / "SunStudyReuse.cpp").read_text(encoding="utf-8")
     assert "ACAPI_" not in reuse and "MainThreadGate" not in reuse
@@ -282,9 +288,11 @@ def test_gpu_backend_owns_context_and_has_bounded_cancellable_packets_and_explic
         "stage=sun-gpu-fallback",
     ):
         assert required in source
-    assert "OccludeDirectionalCancellable" in (_ADDON / "SunStudy" / "SunStudyOcclusion.cpp").read_text(
-        encoding="utf-8"
-    )
+    shim = (_ADDON / "SunStudy" / "SunStudyRustOcclusion.cpp").read_text(encoding="utf-8")
+    assert "shim->traversal->OccludeDirectionalCancellable" in shim
+    assert "*shim->isCancelled" in shim
+    cpu = (_ADDON / "SunStudy" / "CpuTraversal.cpp").read_text(encoding="utf-8")
+    assert "bool CpuTraversal::OccludeDirectionalCancellable" in cpu
 
 
 def test_gpu_pipeline_keeps_exact_cpu_guards_and_avoids_duplicate_serial_checks():
@@ -428,16 +436,16 @@ def test_bounded_hud_rerun_uses_current_snapshot_and_guide_visibility_is_display
     assert 'AddGuids (params, "analysisElements"' not in runner
     assert 'AddGuids (params, "contextElements", request.contextElements)' in runner
     assert 'params.Add ("clipRadius", config.clipRadius)' in driver
-    assert 'SplitByCylinder (*snapshot, clip, contextPicked, ignoredPicked, analysisPicked)' in commands
-    assert 'record->contextElements = contextPicked' in commands
-    assert 'record->analysisElements = analysisPicked' in commands
+    assert "SplitByCylinder (*snapshot, clip, contextPicked, ignoredPicked, analysisPicked)" in commands
+    assert "record->contextElements = contextPicked" in commands
+    assert "record->analysisElements = analysisPicked" in commands
     preparation = (_ADDON / "NativeCommands" / "SunStudyPreparation.cpp").read_text(encoding="utf-8")
-    assert 'LogSunStudyCylinderMembership (snapshot->id, boundedAnalysis.size (), entered, left)' in commands
-    assert 'sun cylinder: snapshot=' in preparation
+    assert "LogSunStudyCylinderMembership (snapshot->id, boundedAnalysis.size (), entered, left)" in commands
+    assert "sun cylinder: snapshot=" in preparation
     assert 'ImGui::Checkbox ("Show cylinder", &state.sunRunShowBounds)' in hud
-    assert '!state.sunRunShowBounds' in hud.split('void DrawSunStudyBoundsOverlay', 1)[1]
-    assert '!state.sunRunShowBounds' in hud.split('void ServiceSunStudyBoundsGumball', 1)[1]
-    assert 'request.bounded = state.sunRunBounded' in hud
+    assert "!state.sunRunShowBounds" in hud.split("void DrawSunStudyBoundsOverlay", 1)[1]
+    assert "!state.sunRunShowBounds" in hud.split("void ServiceSunStudyBoundsGumball", 1)[1]
+    assert "request.bounded = state.sunRunBounded" in hud
 
 
 def test_replacements_reuse_allocations_and_renderer_uploads_exact_base_regions_with_full_fallback():
@@ -487,7 +495,12 @@ def test_display_assembly_is_worker_owned_and_publication_is_guarded_after_prepa
         assert "ACAPI_" not in pure and "MainThreadGate" not in pure
     cache = (_ADDON / "SunStudy" / "SunStudyDisplayData.cpp").read_text(encoding="utf-8")
     assert "record.displayCache->resolvedSteps == progress.resolvedSteps" in cache
-    assert "LitStepCount (sample)" in cache  # no repeated full SunHours vector in scatter
+    # The linked core now supplies packed display data; do not reintroduce a
+    # per-sample host read (or transfer the full SunHours vector for scattering).
+    assert "core.DisplayData (data->patchTiles, data->patchLayouts" in cache
+    assert "core.AtlasImage (data->width, data->height, image, status, error)" in cache
+    assert "core.StepMasks (steps, data->stepMinutes, data->noonStep" in cache
+    assert "SunHours (" not in cache
 
 
 def test_compact_result_requests_skip_unrequested_sample_and_atlas_transfers():

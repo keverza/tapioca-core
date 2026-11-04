@@ -226,7 +226,11 @@ def test_scene_text_occlusion_samples_raster_depth_without_writing_it():
     assert 'item.Get ("allowOverlap", allowOverlap)' in commands
     assert '"allowOverlap":{"type":"boolean"}' in commands
     assert '"enum":["always","hide","fade"]' in commands
-    assert "dsv, target.DepthShaderView (), motionViewProj" in renderer
+    assert (
+        "DiligentViewportTarget& drawTo = screenshot.TargetFor (target, device, context, scene, hudState)" in renderer
+    )
+    assert "drawTo.BeginFrame (rtv, dsv)" in renderer
+    assert "dsv, drawTo.DepthShaderView (), motionViewProj" in renderer
     assert "label.occlusion != SceneTextOcclusion::Always" in support
     assert "SetRenderTargets (1, &colorTarget, nullptr" in support
     assert "SetRenderTargets (1, &colorTarget, depthTarget" in support

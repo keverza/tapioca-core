@@ -150,7 +150,12 @@ def test_surface_provenance_is_captured_at_the_one_triangle_emission_site():
     assert "std::max<int32_t> (material.GetExternalReference (), 0)" in extractor
     assert "const int32_t surfaceAttribute = ReadPolygonSurfaceAttribute (polygon);" in extractor
     assert "matIdx.GetOriginalIndex ()" not in extractor
-    assert "mesh.triSurfaceAttribute.push_back (surfaceAttribute);" in extractor
+    assert "AppendExtractedConvex (mesh, welder, bodyPos, corners," in extractor
+    assert "{ iBody, iPoly, material, surfaceAttribute, visibleEdges }, counts)" in extractor
+    emission = (ADDON / "Geometry/MeshExtraction.cpp").read_text(encoding="utf-8")
+    assert emission.count("mesh.triSurfaceAttribute.push_back (face.surfaceAttribute);") == 1
+    for field in ("triangles", "triMaterial", "triSourceBody", "triSourcePgon"):
+        assert f"mesh.{field}.push_back" in emission
     assert "snap->surfaceAttributes = ReadSurfaceAttributes ();" in extractor
     assert "ACAPI_Attribute_GetAttributesByType (API_MaterialID, attributes)" in extractor
     sliced = (ADDON / "ArchViz/ExtractionThread.cpp").read_text(encoding="utf-8")

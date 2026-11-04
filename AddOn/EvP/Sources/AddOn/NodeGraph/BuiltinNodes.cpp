@@ -577,14 +577,14 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
         // std::llround rather than a cast for "nearest", because a cast toward
         // zero is what "truncate" means and having two of the four modes do the
         // same thing would make the choice a lie.
-        double whole = std::llround (value);
+        int64_t whole = std::llround (value);
         if (name == "floor")
-            whole = std::floor (value);
+            whole = static_cast<int64_t> (std::floor (value));
         else if (name == "ceiling")
-            whole = std::ceil (value);
+            whole = static_cast<int64_t> (std::ceil (value));
         else if (name == "truncate")
-            whole = std::trunc (value);
-        outputs.emplace ("value", Value (static_cast<int64_t> (whole)));
+            whole = static_cast<int64_t> (std::trunc (value));
+        outputs.emplace ("value", Value (whole));
     }
     else if (node.nodeType == "flow.if") {
         const bool condition = BoolFrom (inputs, node, "condition", true);

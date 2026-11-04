@@ -6320,6 +6320,34 @@ TEST (NodeGraphCurves, ALoftRefusesMismatchedCurvesRatherThanResamplingOne)
 // Numbers and flow
 // ---------------------------------------------------------------------------
 
+TEST (NodeGraphMath, IntegerConversionKeepsRoundingModesAndIntegerOutput)
+{
+    NodeExecutionContext context;
+    Node integer;
+    integer.id = "integer";
+    integer.nodeType = "math.toInteger";
+    struct Case {
+        const char* mode;
+        double input;
+        int64_t expected;
+    };
+    const Case cases[] = {
+        { "nearest", 2.5, 3 },  { "nearest", -2.5, -3 },  { "floor", 2.5, 2 },
+        { "floor", -2.5, -3 },  { "ceiling", 2.5, 3 },    { "ceiling", -2.5, -2 },
+        { "truncate", 2.5, 2 }, { "truncate", -2.5, -2 }, { "nearest", 9007199254740992.0, INT64_C (9007199254740992) }
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE (test.mode);
+        integer.parameters["mode"] = Value (std::string (test.mode));
+        ValueMap inputs;
+        inputs.emplace ("value", Value (test.input));
+        ValueMap outputs;
+        std::string error;
+        ASSERT_TRUE (ExecuteRuntimeNode (integer, inputs, context, outputs, error)) << error;
+        EXPECT_EQ (test.expected, std::get<int64_t> (outputs.at ("value").DataValue ()));
+    }
+}
+
 TEST (NodeGraphMath, RandomIsRepeatableFromItsSeed)
 {
     // ⚠️ THE SOLUTION RUNS CONTINUOUSLY NOW. A Random that answered differently
