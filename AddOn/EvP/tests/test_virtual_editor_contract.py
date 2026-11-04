@@ -153,6 +153,47 @@ def test_editor_state_names_and_declares_every_tool():
     assert _state_schema()["tool"]["enum"] == expected
 
 
+def test_editor_state_exposes_current_organization_and_clipboard():
+    source = SOURCE.read_text(encoding="utf-8")
+    organization = _state_schema()["organization"]
+    assert organization["additionalProperties"] is False
+    assert set(organization["required"]) == set(organization["properties"])
+    expected = {
+        "layers": {"id", "name", "visible", "locked"},
+        "groups": {"id", "name", "parent"},
+        "objects": {"id", "layer", "group", "hidden", "locked"},
+    }
+    for name, fields in expected.items():
+        item = organization["properties"][name]["items"]
+        assert item["additionalProperties"] is False
+        assert set(item["properties"]) == fields
+        assert set(item["required"]) == fields
+    assert organization["properties"]["isolated"] == {
+        "type": "array",
+        "items": {"type": "integer", "minimum": 0},
+    }
+    assert organization["properties"]["enteredGroup"] == {"type": "integer", "minimum": 0}
+    clipboard = organization["properties"]["clipboard"]
+    assert clipboard["additionalProperties"] is False
+    assert set(clipboard["required"]) == set(clipboard["properties"]) == {"entities", "paths", "groups"}
+    for field in clipboard["properties"].values():
+        assert field == {"type": "integer", "minimum": 0}
+    for snippet in (
+        "doc.layer0",
+        "doc.layers",
+        "doc.groups",
+        "doc.paths",
+        "doc.entities",
+        "doc.isolated",
+        "session.clipboard.entities.size ()",
+        "session.clipboard.paths.size ()",
+        "session.clipboard.groups.size ()",
+        "FindGroup (doc, session.enteredGroup)",
+        'result.Add ("organization", OrganizationState (*s))',
+    ):
+        assert snippet in source
+
+
 def test_landscape_seed_export_and_state_are_strict_and_use_the_versioned_codec():
     source = SOURCE.read_text(encoding="utf-8")
     schemas = [json.loads(text) for text in re.findall(r'R"json\((.*?)\)json"', source, re.S)]

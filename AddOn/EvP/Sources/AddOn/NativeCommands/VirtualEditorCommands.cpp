@@ -13,6 +13,7 @@
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditOrganize.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 
 // OVERLAY-INVARIANTS.md: switch only via the deferred main-thread surface owner.
@@ -475,6 +476,68 @@ const char* KindName (edit::SelectionKind kind)
     return "none";
 }
 
+// Current organisation, not operation totals: memberships and flags come from the live document,
+// and the clipboard counts describe only the objects and groups available to the next paste.
+GS::ObjectState OrganizationState (const eh::Session& session)
+{
+    const edit::Document& doc = session.edits.Doc ();
+    GS::ObjectState state;
+    GS::Array<GS::ObjectState> layers;
+    const auto addLayer = [&] (const edit::Layer& layer) {
+        GS::ObjectState item;
+        item.Add ("id", static_cast<GS::Int64> (layer.id));
+        item.Add ("name", GS::UniString (layer.name.c_str (), CC_UTF8));
+        item.Add ("visible", layer.visible);
+        item.Add ("locked", layer.locked);
+        layers.Push (item);
+    };
+    addLayer (doc.layer0);
+    for (const auto& layer : doc.layers)
+        addLayer (layer);
+    state.Add ("layers", layers);
+
+    GS::Array<GS::ObjectState> groups;
+    for (const auto& group : doc.groups) {
+        GS::ObjectState item;
+        item.Add ("id", static_cast<GS::Int64> (group.id));
+        item.Add ("name", GS::UniString (group.name.c_str (), CC_UTF8));
+        item.Add ("parent", static_cast<GS::Int64> (group.parent));
+        groups.Push (item);
+    }
+    state.Add ("groups", groups);
+
+    GS::Array<GS::ObjectState> objects;
+    const auto addObject = [&] (const edit::Id id, const edit::Membership& member) {
+        GS::ObjectState item;
+        item.Add ("id", static_cast<GS::Int64> (id));
+        item.Add ("layer", static_cast<GS::Int64> (member.layer));
+        item.Add ("group", static_cast<GS::Int64> (member.group));
+        item.Add ("hidden", member.hidden);
+        item.Add ("locked", member.locked);
+        objects.Push (item);
+    };
+    for (const auto& path : doc.paths)
+        addObject (path.id, path.member);
+    for (const auto& entity : doc.entities)
+        addObject (entity.id, entity.member);
+    state.Add ("objects", objects);
+
+    GS::Array<GS::Int64> isolated;
+    for (const edit::Id id : doc.isolated)
+        isolated.Push (static_cast<GS::Int64> (id));
+    state.Add ("isolated", isolated);
+    const edit::Id entered =
+        edit::FindGroup (doc, session.enteredGroup) != nullptr ? session.enteredGroup : edit::kNoId;
+    state.Add ("enteredGroup", static_cast<GS::Int64> (entered));
+
+    GS::ObjectState clipboard;
+    clipboard.Add ("entities", static_cast<GS::Int64> (session.clipboard.entities.size ()));
+    clipboard.Add ("paths", static_cast<GS::Int64> (session.clipboard.paths.size ()));
+    clipboard.Add ("groups", static_cast<GS::Int64> (session.clipboard.groups.size ()));
+    state.Add ("clipboard", clipboard);
+    return state;
+}
+
 // Read-only: what the editor holds and what it is doing, for a live run's log.
 class EditorStateCommand : public MainThreadCommand {
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
@@ -508,6 +571,7 @@ class EditorStateCommand : public MainThreadCommand {
         result.Add ("drawing", static_cast<GS::Int64> (s->drawing.size ()));
         result.Add ("entities", static_cast<GS::Int64> (s->edits.Doc ().entities.size ()));
         result.Add ("paths", static_cast<GS::Int64> (s->edits.Doc ().paths.size ()));
+        result.Add ("organization", OrganizationState (*s));
         result.Add ("snapPoints", static_cast<GS::Int64> (s->context.points.size ()));
         result.Add ("snapSegments", static_cast<GS::Int64> (s->context.segments.size ()));
         result.Add ("planeZ", s->plane.origin.z);
@@ -578,6 +642,14 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
                 "selectionKind":{"type":"string","enum":["none","vertex","segment","face","entity","mixed","pathPoint","break","range","landscapeFace"]},
                 "terrainDesign":{"type":"object","properties":{"active":{"type":"boolean"},"pending":{"type":"boolean"},"current":{"type":"boolean"},"stale":{"type":"boolean"},"built":{"type":"boolean"},"revision":{"type":"integer"},"vertices":{"type":"integer"},"triangles":{"type":"integer"},"conflicts":{"type":"integer"},"cut":{"type":"number"},"fill":{"type":"number"},"error":{"type":"string"}},"required":["active","pending","current","built","revision","vertices","triangles","conflicts","cut","fill","error"],"additionalProperties":false},
                 "landscape":{"type":"object","properties":{"sources":{"type":"integer"},"operations":{"type":"integer"},"objects":{"type":"integer"},"faces":{"type":"integer"},"propertyLine":{"type":"string"},"regions":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"object":{"type":"string"},"area":{"type":"number"}},"required":["id","object","area"],"additionalProperties":false}},"warnings":{"type":"array","items":{"type":"string"}}},"required":["sources","operations","objects","faces","propertyLine","regions","warnings"],"additionalProperties":false},
+                "organization":{"type":"object","properties":{
+                  "layers":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer","minimum":0},"name":{"type":"string"},"visible":{"type":"boolean"},"locked":{"type":"boolean"}},"required":["id","name","visible","locked"],"additionalProperties":false}},
+                  "groups":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer","minimum":0},"name":{"type":"string"},"parent":{"type":"integer","minimum":0}},"required":["id","name","parent"],"additionalProperties":false}},
+                  "objects":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer","minimum":0},"layer":{"type":"integer","minimum":0},"group":{"type":"integer","minimum":0},"hidden":{"type":"boolean"},"locked":{"type":"boolean"}},"required":["id","layer","group","hidden","locked"],"additionalProperties":false}},
+                  "isolated":{"type":"array","items":{"type":"integer","minimum":0}},
+                  "enteredGroup":{"type":"integer","minimum":0},
+                  "clipboard":{"type":"object","properties":{"entities":{"type":"integer","minimum":0},"paths":{"type":"integer","minimum":0},"groups":{"type":"integer","minimum":0}},"required":["entities","paths","groups"],"additionalProperties":false}
+                },"required":["layers","groups","objects","isolated","enteredGroup","clipboard"],"additionalProperties":false},
                 "hovering":{"type":"boolean"},"revision":{"type":"integer"},"publishedRevision":{"type":"integer"},
                 "undoDepth":{"type":"integer"},"tracker":{"type":"string","enum":["hidden","showing","editing"]},
                 "drawing":{"type":"integer"},"entities":{"type":"integer"},"paths":{"type":"integer"},
