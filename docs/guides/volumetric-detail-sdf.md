@@ -127,6 +127,13 @@ two cells on every side. A closed detail must not touch the meshing domain. An
 unbounded field requires an explicit authoritative user box; otherwise it
 refuses with `BoundsRequired`.
 
+Grid count and applicable dense-budget checks run before boundary work. Before
+automatic sampling, and again when a caller supplies a grid directly to the
+mesher, every node on all six boundary faces is evaluated with the exact field.
+Every distance must be strictly positive. Inside or exact-zero contact refuses
+the complete result with `SurfaceTouchesBounds`; padding is not a substitute
+for this check and no capped or partial mesh is returned.
+
 For each axis, `cellCount = ceil(extent / voxelSize)` and the node grid has
 `cellCount + 1` points. The bounds remain exact, so actual axis spacing is
 `extent / cellCount` and is reported in diagnostics. All count and byte-size
@@ -153,6 +160,22 @@ shared-grid-edge vertex cache. It produces indexed f64 world-metre positions,
 per-vertex normals, per-triangle signed material IDs and source remaps suitable
 for `PublishedMesh`/`geomsrv::Mesh`. The mesher does not implement a second
 repair or decimation pipeline; #139 owns Stats/Clean and any later LOD.
+
+For crossing topology, an exact-zero grid node is classified with the interior;
+its edge intersections still land exactly on that node. Consecutive crossings
+that resolve to the same shared vertex are collapsed before loop fanning, rather
+than emitting and deleting degenerate triangles. This preserves sharp
+grid-aligned extrusion edges without leaving non-manifold holes. The prism
+regression checks exact volume and area as well as watertightness, and
+sparse/dense output remains canonical and identical.
+
+After emission, every edge must have exactly two incident triangles. A
+deterministic component traversal propagates consistent winding and reverses a
+whole component only when its area-weighted field-gradient alignment is
+negative. This preserves enclosed cavities: their boundary faces the void and
+has negative signed volume. Open, non-manifold or field-ambiguous candidates
+refuse; this orientation pass changes no positions and is not a repair or
+decimation pipeline.
 
 Material ownership is evaluated with the field, never inferred from vertex
 colour:

@@ -9,7 +9,7 @@ use std::fmt;
 
 use super::{
     GridSpec, PreparedField, SampledGrid, SamplingError, SamplingLimits, SamplingStats,
-    SamplingStrategy, field, sample_with_cancellation,
+    SamplingStrategy, field, sample_with_cancellation, sampling::sampling_preflight,
 };
 use crate::affine::Vec3;
 
@@ -64,6 +64,7 @@ const FACES: [Face; 6] = [
     },
 ];
 const SLAB_CELLS: u32 = 64;
+const CANCEL_POLL_INTERVAL: usize = 256;
 
 #[derive(Clone, Copy)]
 struct Face {
@@ -142,6 +143,8 @@ pub enum MeshingError {
     CellBudget,
     /// Automatic meshing requires finite prepared field bounds.
     BoundsRequired,
+    /// The field is inside or on at least one meshing-domain boundary node.
+    SurfaceTouchesBounds,
     /// Vertex indices exceed the `u32` output contract.
     VertexBudget,
     /// The triangle ceiling was reached; no partial mesh is returned.
@@ -150,7 +153,7 @@ pub enum MeshingError {
     EmptySurface,
     /// A required sampled corner is absent or internally inconsistent.
     MissingValue,
-    /// Face crossings did not form closed degree-two loops.
+    /// Face crossings or emitted mesh edges did not form a closed oriented surface.
     InvalidTopology,
     /// A computed position/normal/centroid is non-finite.
     NonFinite,
@@ -168,11 +171,16 @@ impl MeshingError {
             Self::Cancelled => "Cancelled: meshing was cancelled; no partial mesh is returned",
             Self::CellBudget => "CellBudget: grid cell arithmetic overflowed",
             Self::BoundsRequired => "BoundsRequired: automatic meshing needs finite field bounds",
+            Self::SurfaceTouchesBounds => {
+                "SurfaceTouchesBounds: every meshing-domain boundary node must be outside"
+            }
             Self::VertexBudget => "VertexBudget: mesh vertices exceed the u32 index contract",
             Self::TriangleBudget => "TriangleBudget: mesh triangles exceed their ceiling",
             Self::EmptySurface => "EmptySurface: no nondegenerate zero isosurface was found",
             Self::MissingValue => "MissingValue: a required grid corner has no sampled value",
-            Self::InvalidTopology => "InvalidTopology: cube crossings do not form closed loops",
+            Self::InvalidTopology => {
+                "InvalidTopology: cube crossings or mesh edges do not form a closed oriented surface"
+            }
             Self::NonFinite => "NonFinite: mesh arithmetic produced NaN or infinity",
             Self::NormalUnavailable => "NormalUnavailable: no usable field gradient at the surface",
         }
@@ -261,17 +269,53 @@ pub fn build_mesh_with_cancellation(
         .inflated(2.0 * voxel_size)
         .ok_or(MeshingError::BoundsRequired)?;
     let grid = GridSpec::new(padded, voxel_size)?;
+    sampling_preflight(grid, strategy, limits.sampling)?;
+    preflight_boundary(field, grid, cancel)?;
     let sampled = sample_with_cancellation(field, grid, strategy, limits.sampling, cancel)?;
-    marching_cubes_with_cancellation(field, &sampled, limits.meshing, cancel)
+    march_sampled(field, &sampled, limits.meshing, cancel)
+}
+
+fn preflight_boundary(
+    field: &PreparedField,
+    grid: GridSpec,
+    cancel: Option<&dyn Fn() -> bool>,
+) -> Result<(), MeshingError> {
+    for axis in 0..3 {
+        let first = (axis + 1) % 3;
+        let second = (axis + 2) % 3;
+        let axis_cells = *grid.cells.get(axis).ok_or(MeshingError::MissingValue)?;
+        let first_cells = *grid.cells.get(first).ok_or(MeshingError::MissingValue)?;
+        let second_cells = *grid.cells.get(second).ok_or(MeshingError::MissingValue)?;
+        for side in [0, axis_cells] {
+            for a in 0..=first_cells {
+                for b in 0..=second_cells {
+                    if cancel.is_some_and(|poll| poll()) {
+                        return Err(MeshingError::Cancelled);
+                    }
+                    let mut node = [0_u32; 3];
+                    *node.get_mut(axis).ok_or(MeshingError::MissingValue)? = side;
+                    *node.get_mut(first).ok_or(MeshingError::MissingValue)? = a;
+                    *node.get_mut(second).ok_or(MeshingError::MissingValue)? = b;
+                    let point = grid.point(node).ok_or(MeshingError::MissingValue)?;
+                    if field.evaluate(point)?.distance <= 0.0 {
+                        return Err(MeshingError::SurfaceTouchesBounds);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Mesh a complete sampled field. Cells are visited in fixed 64-cell X slabs,
 /// then z/y/x order inside each slab. Shared grid edges and exact grid-node
 /// crossings use canonical maps, so slab boundaries never duplicate vertices.
+/// Every boundary node must have a strictly positive exact field distance.
 ///
 /// # Errors
-/// Cancellation, missing samples, invalid loops, non-finite output and budget
-/// excess discard the complete candidate. No partial mesh is returned.
+/// Boundary contact, cancellation, missing samples, invalid loops, non-finite
+/// output and budget excess discard the complete candidate. No partial mesh is
+/// returned.
 pub fn marching_cubes(
     field: &PreparedField,
     sampled: &SampledGrid,
@@ -288,6 +332,16 @@ pub fn marching_cubes(
 /// Same atomic topology/geometry/budget/cancellation contract as
 /// [`marching_cubes`].
 pub fn marching_cubes_with_cancellation(
+    field: &PreparedField,
+    sampled: &SampledGrid,
+    limits: MeshingLimits,
+    cancel: Option<&dyn Fn() -> bool>,
+) -> Result<MeshResult, MeshingError> {
+    preflight_boundary(field, sampled.grid(), cancel)?;
+    march_sampled(field, sampled, limits, cancel)
+}
+
+fn march_sampled(
     field: &PreparedField,
     sampled: &SampledGrid,
     limits: MeshingLimits,
@@ -368,7 +422,10 @@ impl MeshBuilder<'_> {
                 return Err(MeshingError::MissingValue);
             }
         }
-        let inside = values.map(|value| value < 0.0);
+        // Exact iso nodes join the interior for crossing topology. Their edge
+        // intersections still land on the node; this avoids chamfering sharp
+        // grid-aligned edges merely because the authored zero is not negative.
+        let inside = values.map(|value| value <= 0.0);
         if inside.iter().all(|value| *value) || inside.iter().all(|value| !*value) {
             return Ok(());
         }
@@ -463,10 +520,32 @@ impl MeshBuilder<'_> {
                 previous = Some(current);
                 current = next;
             }
-            let Some(&anchor) = loop_edges.first() else {
-                return Err(MeshingError::InvalidTopology);
+            // Multiple crossed cube edges can meet at one exact grid node.
+            // Collapse consecutive copies before fanning; emitting and then
+            // deleting degenerate fan triangles would leave nonmanifold holes.
+            let mut canonical_edges = Vec::new();
+            let mut canonical_vertices = Vec::new();
+            for edge in loop_edges {
+                let position = self.edge_position(cell, edge)?;
+                let vertex = self.edge_vertex(position.key)?;
+                if canonical_vertices.last() == Some(&vertex) {
+                    continue;
+                }
+                canonical_edges.push(edge);
+                canonical_vertices.push(vertex);
+            }
+            if canonical_vertices.len() > 1
+                && canonical_vertices.first() == canonical_vertices.last()
+            {
+                canonical_edges.pop();
+                canonical_vertices.pop();
+            }
+            let Some(&anchor) = canonical_edges.first() else {
+                continue;
             };
-            let pairs = loop_edges.get(1..).ok_or(MeshingError::InvalidTopology)?;
+            let pairs = canonical_edges
+                .get(1..)
+                .ok_or(MeshingError::InvalidTopology)?;
             for pair in pairs.windows(2) {
                 let [b, c] = pair else {
                     return Err(MeshingError::InvalidTopology);
@@ -477,10 +556,6 @@ impl MeshBuilder<'_> {
         Ok(())
     }
 
-    #[expect(
-        clippy::float_cmp,
-        reason = "exact zero detects degenerate area and undefined directional orientation"
-    )]
     fn emit_triangle(&mut self, cell: [u32; 3], edges: [usize; 3]) -> Result<(), MeshingError> {
         let mut points = edges
             .map(|edge| self.edge_position(cell, edge))
@@ -522,9 +597,10 @@ impl MeshBuilder<'_> {
                 .distance;
             if plus < minus {
                 points.swap(1, 2);
-            } else if plus == minus {
-                return Err(MeshingError::NormalUnavailable);
             }
+            // At a non-differentiable iso centroid, equal directional samples
+            // have no orientation vote. Keep the canonical crossing-loop
+            // winding rather than introducing a tolerance or an arbitrary flip.
         }
         let mut indices = [0_u32; 3];
         for (target, point) in indices.iter_mut().zip(points) {
@@ -657,10 +733,122 @@ impl MeshBuilder<'_> {
         Ok(index)
     }
 
-    fn finish(self) -> Result<MeshResult, MeshingError> {
+    fn component_alignment(&self, component: &[usize]) -> Result<f64, MeshingError> {
+        let mut alignment = 0.0;
+        for (index, &triangle) in component.iter().enumerate() {
+            if index % CANCEL_POLL_INTERVAL == 0 && self.cancel.is_some_and(|poll| poll()) {
+                return Err(MeshingError::Cancelled);
+            }
+            let start = triangle
+                .checked_mul(3)
+                .ok_or(MeshingError::InvalidTopology)?;
+            let corners = self
+                .triangles
+                .get(start..start + 3)
+                .ok_or(MeshingError::InvalidTopology)?;
+            let [a, b, c] = corners else {
+                return Err(MeshingError::InvalidTopology);
+            };
+            let point = |index| -> Result<Vec3, MeshingError> {
+                self.vertices
+                    .get(usize::try_from(index).map_err(|_| MeshingError::VertexBudget)?)
+                    .copied()
+                    .ok_or(MeshingError::InvalidTopology)
+            };
+            let a = point(*a)?;
+            let b = point(*b)?;
+            let c = point(*c)?;
+            let normal = cross(sub(b, a), sub(c, a));
+            let center = centroid([a, b, c]);
+            alignment += dot(normal, self.field.gradient(center, self.normal_step)?);
+        }
+        if alignment.is_finite() {
+            Ok(alignment)
+        } else {
+            Err(MeshingError::NonFinite)
+        }
+    }
+
+    fn orient(&mut self) -> Result<(), MeshingError> {
+        let triangle_count = self.triangles.len() / 3;
+        let mut incident = BTreeMap::<(u32, u32), Vec<usize>>::new();
+        for triangle in 0..triangle_count {
+            if triangle % CANCEL_POLL_INTERVAL == 0 && self.cancel.is_some_and(|poll| poll()) {
+                return Err(MeshingError::Cancelled);
+            }
+            for edge in triangle_edges(&self.triangles, triangle)? {
+                incident.entry(edge).or_default().push(triangle);
+            }
+        }
+        for (index, triangles) in incident.values().enumerate() {
+            if index % CANCEL_POLL_INTERVAL == 0 && self.cancel.is_some_and(|poll| poll()) {
+                return Err(MeshingError::Cancelled);
+            }
+            if triangles.len() != 2 {
+                return Err(MeshingError::InvalidTopology);
+            }
+        }
+
+        let mut visited = vec![false; triangle_count];
+        for seed in 0..triangle_count {
+            if visited.get(seed).copied().unwrap_or(false) {
+                continue;
+            }
+            if self.cancel.is_some_and(|poll| poll()) {
+                return Err(MeshingError::Cancelled);
+            }
+            *visited.get_mut(seed).ok_or(MeshingError::InvalidTopology)? = true;
+            let mut pending = vec![seed];
+            let mut component = Vec::new();
+            while let Some(current) = pending.pop() {
+                if component.len() % CANCEL_POLL_INTERVAL == 0
+                    && self.cancel.is_some_and(|poll| poll())
+                {
+                    return Err(MeshingError::Cancelled);
+                }
+                component.push(current);
+                for edge in triangle_edges(&self.triangles, current)? {
+                    let pair = incident.get(&edge).ok_or(MeshingError::InvalidTopology)?;
+                    let first = *pair.first().ok_or(MeshingError::InvalidTopology)?;
+                    let second = *pair.get(1).ok_or(MeshingError::InvalidTopology)?;
+                    let neighbor = if first == current { second } else { first };
+                    if visited.get(neighbor).copied().unwrap_or(false) {
+                        continue;
+                    }
+                    if triangle_edge_direction(&self.triangles, current, edge)?
+                        == triangle_edge_direction(&self.triangles, neighbor, edge)?
+                    {
+                        reverse_triangle(&mut self.triangles, neighbor)?;
+                    }
+                    *visited
+                        .get_mut(neighbor)
+                        .ok_or(MeshingError::InvalidTopology)? = true;
+                    pending.push(neighbor);
+                }
+            }
+            // Positive signed volume is not a valid component orientation test:
+            // an enclosed cavity must face the void and has negative volume.
+            // Field alignment points out of the solid for both shells and voids.
+            let alignment = self.component_alignment(&component)?;
+            if alignment < 0.0 {
+                for (index, triangle) in component.into_iter().enumerate() {
+                    if index % CANCEL_POLL_INTERVAL == 0 && self.cancel.is_some_and(|poll| poll()) {
+                        return Err(MeshingError::Cancelled);
+                    }
+                    reverse_triangle(&mut self.triangles, triangle)?;
+                }
+            } else if alignment == 0.0 {
+                return Err(MeshingError::NormalUnavailable);
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<MeshResult, MeshingError> {
         if self.triangles.is_empty() {
             return Err(MeshingError::EmptySurface);
         }
+        self.orient()?;
         let mut positions = Vec::with_capacity(self.vertices.len().saturating_mul(3));
         let mut normals = Vec::with_capacity(self.vertices.len().saturating_mul(3));
         for &vertex in &self.vertices {
@@ -697,6 +885,56 @@ impl<T, E> TryTranspose<T, E> for [Result<T, E>; 3] {
         let [a, b, c] = self;
         Ok([a?, b?, c?])
     }
+}
+
+fn edge_key(a: u32, b: u32) -> (u32, u32) {
+    if a < b { (a, b) } else { (b, a) }
+}
+
+fn triangle_edges(triangles: &[u32], triangle: usize) -> Result<[(u32, u32); 3], MeshingError> {
+    let start = triangle
+        .checked_mul(3)
+        .ok_or(MeshingError::InvalidTopology)?;
+    let corners = triangles
+        .get(start..start + 3)
+        .ok_or(MeshingError::InvalidTopology)?;
+    let [a, b, c] = corners else {
+        return Err(MeshingError::InvalidTopology);
+    };
+    Ok([edge_key(*a, *b), edge_key(*b, *c), edge_key(*c, *a)])
+}
+
+fn triangle_edge_direction(
+    triangles: &[u32],
+    triangle: usize,
+    edge: (u32, u32),
+) -> Result<i32, MeshingError> {
+    let start = triangle
+        .checked_mul(3)
+        .ok_or(MeshingError::InvalidTopology)?;
+    let corners = triangles
+        .get(start..start + 3)
+        .ok_or(MeshingError::InvalidTopology)?;
+    let [a, b, c] = corners else {
+        return Err(MeshingError::InvalidTopology);
+    };
+    for (from, to) in [(*a, *b), (*b, *c), (*c, *a)] {
+        if edge_key(from, to) == edge {
+            return Ok(if from < to { 1 } else { -1 });
+        }
+    }
+    Err(MeshingError::InvalidTopology)
+}
+
+fn reverse_triangle(triangles: &mut [u32], triangle: usize) -> Result<(), MeshingError> {
+    let start = triangle
+        .checked_mul(3)
+        .ok_or(MeshingError::InvalidTopology)?;
+    let corners = triangles
+        .get_mut(start..start + 3)
+        .ok_or(MeshingError::InvalidTopology)?;
+    corners.swap(1, 2);
+    Ok(())
 }
 
 fn edge_crosses(inside: &[bool], edge: usize) -> Result<bool, MeshingError> {

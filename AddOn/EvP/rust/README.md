@@ -21,6 +21,13 @@ alias preflight and refusal tests preserve prior results. This is a worker-
 classified offline capability only: no session persistence, production dispatch,
 terrain write, async publication or native Accept consumer is enabled.
 
+SDF-1e requires strictly positive exact field values at every meshing-boundary
+node and refuses `SurfaceTouchesBounds` atomically on inside/zero contact. Exact
+iso grid nodes join the interior for crossing topology, duplicate node
+crossings collapse before loop fanning, and a final edge-incidence/component
+pass enforces watertight consistent outward winding. The prism fixture proves
+exact volume/area; additional alignments cover directed-edge invariants.
+
 The aggregate `tapioca-core-ffi` staticlib exports `tapioca_version` and shared
 legacy geometry-only mesh/snapshot validators, with status/error handling and
 panic containment. The add-on and offline C++ suite link it by default through a

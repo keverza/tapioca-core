@@ -68,6 +68,17 @@ dense/sparse parity, cave/extrusion, solo, cancellation, alias/capacity refusal
 and budgets. Persistence, `LandscapeSession` ownership, async publication, terrain
 resolution and native Accept remain SDF-2/later work; no consumer is dispatched.
 
+SDF-1e adds an exact-field boundary-outside preflight to automatic and supplied-
+grid meshing. Any inside or exact-zero boundary node refuses the complete result
+with `SurfaceTouchesBounds`; all six faces and both sampling strategies are
+regression-tested. Exact iso nodes join the interior for crossing topology,
+duplicate exact-node crossings collapse before loop fanning, and final
+edge-incidence/component orientation enforces watertight consistent outward
+winding without moving positions. The prism fixture proves exact volume/area;
+additional alignments prove directed-edge and normal invariants. This is a
+scoped correctness correction, not a new mesher, sampling schedule, repair
+pipeline or production consumer.
+
 ## G1 mesh-preparation parity services
 
 S4 native terrain ingress additionally exposes `tapioca_terrain_surface` through

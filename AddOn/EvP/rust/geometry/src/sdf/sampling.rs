@@ -338,6 +338,19 @@ impl From<field::Error> for SamplingError {
     }
 }
 
+pub(crate) fn sampling_preflight(
+    grid: GridSpec,
+    strategy: SamplingStrategy,
+    limits: SamplingLimits,
+) -> Result<u64, SamplingError> {
+    let total = grid.total_points()?;
+    let dense_limit = limits.max_dense_points.min(64_000_000);
+    if strategy == SamplingStrategy::Dense && total > dense_limit {
+        return Err(SamplingError::GridBudget);
+    }
+    Ok(total)
+}
+
 /// Sample one prepared field with checked budgets and cooperative cancellation.
 /// Sparse scheduling subdivides 8-sample blocks along their longest axis and
 /// prunes only when a conservative interval is wholly above or below zero.
@@ -368,12 +381,8 @@ pub fn sample_with_cancellation(
     limits: SamplingLimits,
     cancel: Option<&dyn Fn() -> bool>,
 ) -> Result<SampledGrid, SamplingError> {
-    let total = grid.total_points()?;
-    let dense_limit = limits.max_dense_points.min(64_000_000);
+    let total = sampling_preflight(grid, strategy, limits)?;
     let sparse_limit = limits.max_sparse_stored_points.min(8_000_000);
-    if strategy == SamplingStrategy::Dense && total > dense_limit {
-        return Err(SamplingError::GridBudget);
-    }
     if cancel.is_some_and(|poll| poll()) {
         return Err(SamplingError::Cancelled);
     }

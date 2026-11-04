@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use super::*;
 use crate::sdf::{
     BlendProfile, BooleanOperation, CancellationToken, CompileOptions, GridSpec, Primitive,
@@ -120,17 +122,27 @@ fn assert_mesh_invariants(mesh: &MeshResult) -> Result<(), MeshingError> {
     }
 
     let mut edges = BTreeMap::<(u32, u32), usize>::new();
+    let mut directions = BTreeMap::<(u32, u32), i32>::new();
     for triangle in mesh.triangles.as_chunks::<3>().0 {
         let [a, b, c] = triangle;
         for (from, to) in [(*a, *b), (*b, *c), (*c, *a)] {
             let key = if from < to { (from, to) } else { (to, from) };
             *edges.entry(key).or_default() += 1;
+            *directions.entry(key).or_default() += if from < to { 1 } else { -1 };
         }
     }
     assert!(
         edges.values().all(|incidence| *incidence == 2),
         "open/nonmanifold edges: {:?}",
         edges.values().filter(|incidence| **incidence != 2).count()
+    );
+    assert!(
+        directions.values().all(|direction| *direction == 0),
+        "inconsistently wound edges: {:?}",
+        directions
+            .values()
+            .filter(|direction| **direction != 0)
+            .count()
     );
     assert!(signed_volume(mesh)? > 0.0, "mesh winding is inverted");
     Ok(())
@@ -167,6 +179,22 @@ fn signed_volume(mesh: &MeshResult) -> Result<f64, MeshingError> {
     }
 }
 
+fn surface_area(mesh: &MeshResult) -> Result<f64, MeshingError> {
+    let mut area = 0.0;
+    for triangle in mesh.triangles.as_chunks::<3>().0 {
+        let [a, b, c] = triangle;
+        let a = vertex(mesh, *a)?;
+        let b = vertex(mesh, *b)?;
+        let c = vertex(mesh, *c)?;
+        area += 0.5 * length(cross(sub(b, a), sub(c, a)));
+    }
+    if area.is_finite() {
+        Ok(area)
+    } else {
+        Err(MeshingError::NonFinite)
+    }
+}
+
 #[test]
 fn rock_outcrop_is_watertight_deterministic_and_sparse_dense_identical() -> Result<(), MeshingError>
 {
@@ -197,11 +225,63 @@ fn box_minus_capsule_cave_is_watertight_and_keeps_cut_material() -> Result<(), M
 }
 
 #[test]
+fn enclosed_cavity_keeps_its_inner_boundary_facing_the_void() -> Result<(), MeshingError> {
+    let mut cutter = sphere(2, point(0.0, 0.0, 0.0), 1.0);
+    cutter.operation = BooleanOperation::Subtract;
+    let field = compile(&[
+        StackEntry::Operation(sphere(1, point(0.0, 0.0, 0.0), 2.0)),
+        StackEntry::Operation(cutter),
+    ])?;
+    let mesh = mesh_with_strategy(&field, 0.25, SamplingStrategy::Sparse)?;
+    assert_mesh_invariants(&mesh)?;
+    let mut outer_volume = 0.0;
+    let mut inner_volume = 0.0;
+    for triangle in mesh.triangles.as_chunks::<3>().0 {
+        let [a, b, c] = triangle;
+        let a = vertex(&mesh, *a)?;
+        let b = vertex(&mesh, *b)?;
+        let c = vertex(&mesh, *c)?;
+        let volume = dot(a, cross(b, c)) / 6.0;
+        if length(centroid([a, b, c])) > 1.5 {
+            outer_volume += volume;
+        } else {
+            inner_volume += volume;
+        }
+    }
+    assert!(outer_volume > 0.0, "outer shell is inverted");
+    assert!(inner_volume < 0.0, "cavity boundary must face the void");
+    Ok(())
+}
+
+#[test]
 fn exact_profile_extrusion_handles_grid_aligned_faces() -> Result<(), MeshingError> {
     let field = extrusion()?;
     let mesh = mesh_with_strategy(&field, 0.25, SamplingStrategy::Sparse)?;
     assert_mesh_invariants(&mesh)?;
     assert!(mesh.tri_material.iter().all(|material| *material == 1));
+    assert!((signed_volume(&mesh)? - 9.0).abs() < 1e-12);
+    assert!((surface_area(&mesh)? - 27.0).abs() < 1e-12);
+    Ok(())
+}
+
+#[test]
+fn exact_zero_sharp_vertices_keep_closed_geometry_and_usable_normals() -> Result<(), MeshingError> {
+    let box_primitive = Primitive::RoundedBox {
+        frame: crate::sdf::Frame::IDENTITY,
+        half: point(1.0, 2.0, 0.5),
+        radius: 0.0,
+    };
+    let prism = Primitive::Extrude {
+        frame: crate::sdf::Frame::IDENTITY,
+        profile: vec![[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]],
+        half_height: 0.75,
+    };
+    for primitive in [box_primitive, prism] {
+        let field = compile(&[StackEntry::Operation(operation(1, primitive))])?;
+        let mesh = mesh_with_strategy(&field, 0.2, SamplingStrategy::Sparse)?;
+        assert_mesh_invariants(&mesh)?;
+        assert_eq!(mesh.stats.degenerate_triangles, 0);
+    }
     Ok(())
 }
 
@@ -219,6 +299,124 @@ fn survey_coordinates_stay_finite_f64_and_deterministic() -> Result<(), MeshingE
         &mesh,
         &mesh_with_strategy(&field, 0.2, SamplingStrategy::Dense)?,
     );
+    Ok(())
+}
+
+#[test]
+fn every_boundary_face_and_exact_zero_contact_refuse_atomically() -> Result<(), MeshingError> {
+    let field = compile(&[StackEntry::Operation(sphere(1, point(0.0, 0.0, 0.0), 1.0))])?;
+    for strategy in [SamplingStrategy::Dense, SamplingStrategy::Sparse] {
+        for axis in 0..3 {
+            for side in [0, 1] {
+                let mut min = [-2.0; 3];
+                let mut max = [2.0; 3];
+                if side == 0 {
+                    *min.get_mut(axis).ok_or(MeshingError::MissingValue)? = -1.0;
+                } else {
+                    *max.get_mut(axis).ok_or(MeshingError::MissingValue)? = 1.0;
+                }
+                let grid = GridSpec::new(
+                    crate::sdf::Bounds {
+                        min: point(min[0], min[1], min[2]),
+                        max: point(max[0], max[1], max[2]),
+                    },
+                    0.5,
+                )?;
+                let sampled = sample(
+                    &field,
+                    grid,
+                    strategy,
+                    SamplingLimits::default(),
+                    &CancellationToken::new(),
+                )?;
+                assert!(matches!(
+                    marching_cubes(
+                        &field,
+                        &sampled,
+                        MeshingLimits::default(),
+                        &CancellationToken::new(),
+                    ),
+                    Err(MeshingError::SurfaceTouchesBounds)
+                ));
+            }
+        }
+    }
+
+    let inside = GridSpec::new(
+        crate::sdf::Bounds {
+            min: point(-0.5, -2.0, -2.0),
+            max: point(2.0, 2.0, 2.0),
+        },
+        0.5,
+    )?;
+    let sampled = sample(
+        &field,
+        inside,
+        SamplingStrategy::Sparse,
+        SamplingLimits::default(),
+        &CancellationToken::new(),
+    )?;
+    assert!(matches!(
+        marching_cubes(
+            &field,
+            &sampled,
+            MeshingLimits::default(),
+            &CancellationToken::new(),
+        ),
+        Err(MeshingError::SurfaceTouchesBounds)
+    ));
+    Ok(())
+}
+
+#[test]
+fn dense_budget_refusal_precedes_boundary_evaluation() -> Result<(), MeshingError> {
+    let field = compile(&[StackEntry::Operation(sphere(1, point(0.0, 0.0, 0.0), 1.0))])?;
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    let limits = BuildLimits {
+        sampling: SamplingLimits {
+            max_dense_points: 1,
+            max_sparse_stored_points: 8_000_000,
+        },
+        meshing: MeshingLimits::default(),
+    };
+    assert!(matches!(
+        build_mesh(&field, 0.2, SamplingStrategy::Dense, limits, &cancel),
+        Err(MeshingError::Sampling(SamplingError::GridBudget))
+    ));
+    Ok(())
+}
+
+#[test]
+fn cancellation_is_observed_during_finalization() -> Result<(), MeshingError> {
+    let field = rock()?;
+    let sampled = sample(
+        &field,
+        grid(&field, 0.25)?,
+        SamplingStrategy::Sparse,
+        SamplingLimits::default(),
+        &CancellationToken::new(),
+    )?;
+    let successful_polls = Cell::new(0_usize);
+    let count = || {
+        successful_polls.set(successful_polls.get() + 1);
+        false
+    };
+    let mesh =
+        marching_cubes_with_cancellation(&field, &sampled, MeshingLimits::default(), Some(&count))?;
+    let normal_polls = mesh.positions.len() / 3;
+    let finalization_polls = successful_polls.get().saturating_sub(normal_polls);
+    assert!(finalization_polls > 1);
+
+    let cancelled_polls = Cell::new(0_usize);
+    let cancel = || {
+        cancelled_polls.set(cancelled_polls.get() + 1);
+        cancelled_polls.get() >= finalization_polls
+    };
+    assert!(matches!(
+        marching_cubes_with_cancellation(&field, &sampled, MeshingLimits::default(), Some(&cancel),),
+        Err(MeshingError::Cancelled)
+    ));
     Ok(())
 }
 
