@@ -98,6 +98,9 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     return ShowSunStudyForHud (params, nullptr);
 }
 
+} // namespace
+
+// Declared in the header for SunStudyHudRunner, so it must have external linkage.
 NativeCommandResult ShowSunStudyForHud (const GS::ObjectState& params,
                                         std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
 {
@@ -233,6 +236,8 @@ NativeCommandResult ShowSunStudyForHud (const GS::ObjectState& params,
     }
     return os;
 }
+
+namespace {
 
 // ---------------------------------------------------------------------------
 // Tapioca.SunStudyOverlayState - what the RENDERER did with the study.
