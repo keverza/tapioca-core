@@ -169,6 +169,10 @@ bool TakeLogsRequest (State& state)
 {
     return std::exchange (state.logsRequested, false);
 }
+bool TakeCameraRepairRequest (State& state)
+{
+    return std::exchange (state.cameraRepairRequested, false);
+}
 
 std::string MassingStatsFunction (const State& state)
 {

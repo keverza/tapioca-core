@@ -804,6 +804,27 @@ void RetryContextHookInstall ()
     g_installRefused.store (false, std::memory_order_release);
 }
 
+bool RepinRunningBuild (std::string& error)
+{
+    if (ContextHookInstalled ()) {
+        error = "nothing to re-pin: the context hook is installed, which it does only after the pinned profile "
+                "verified against this build. Re-pin is for when archviz.log says 'context hook: refused'";
+        return false;
+    }
+    // ⚠️ THE TARGETS ARE FINGERPRINTED FIRST. A profile written without them would verify
+    // the executable and check nothing about the slots being patched -- `patchprofile::Pin`
+    // refuses that outright, and this is where the discovery that prevents it happens.
+    if (!FingerprintContextTargets (error))
+        return false;
+    if (!patchprofile::Pin (error))
+        return false;
+    // ⚠️ PINNING IS THE THING THAT CHANGES THE ANSWER, so it clears the install latch.
+    // Without this the camera tick would keep returning the refusal it cached before the
+    // profile existed, which reads as "pinning did not work".
+    RetryContextHookInstall ();
+    return true;
+}
+
 void SetContextSlotEnabled (ContextSlot slot, bool enabled)
 {
     if (slot < ContextSlot::Count)

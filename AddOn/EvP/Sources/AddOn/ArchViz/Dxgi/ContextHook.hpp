@@ -198,6 +198,13 @@ bool FingerprintContextTargets (std::string& error);
 bool InstallContextHook (std::string& error);
 void RetryContextHookInstall ();
 
+// MAIN THREAD. Pin the running Archicad build (`patchprofile::Pin`) from its real context
+// vtable and clear the install latch, so the next camera tick installs: the HUD Debug
+// page's button. The same sequence `Tapioca.ViewerPatchProfile {pin: true}` runs inline
+// (ViewerGpuStateCommands.cpp). Refuses while the hook is installed -- it installs only on
+// a verified build, and the live table would hand the fingerprint our own detours.
+bool RepinRunningBuild (std::string& error);
+
 // MAIN THREAD. Idempotent. Restores every slot and waits for in-flight detour
 // calls to drain before returning.
 void RemoveContextHook ();

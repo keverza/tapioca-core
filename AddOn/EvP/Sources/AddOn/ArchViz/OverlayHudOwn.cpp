@@ -459,6 +459,16 @@ void Engine::Impl::DebugPage (float ui)
         changes.push_back ({ "logs", {}, "Debug", "open folder", -1, 1, {}, true });
     }
     hudshell::Cards (own.debug, *look, ui);
+    // ⚠️ THE BUTTON SETS A REQUEST AND NOTHING ELSE (the user, 2026-11-04): a re-pin and a
+    // fresh camera stop and start the session that is drawing this page.
+    if (!own.cameraRepair.empty ()) {
+        if (ImGui::Button ((own.cameraRepair + "##cameraRepair").c_str ())) {
+            store->cameraRepairRequested = true;
+            changes.push_back ({ "cameraRepair", {}, "Debug", own.cameraRepair, -1, 1, {}, true });
+        }
+        if (!own.cameraRepairNote.empty ())
+            ImGui::TextWrapped ("%s", own.cameraRepairNote.c_str ());
+    }
     // What the HUD itself costs: the owner cannot see it, the engine measures it.
     hudshell::Card hud;
     hud.title = "HUD";

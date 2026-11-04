@@ -95,6 +95,12 @@ Outcome Describe (Overlay which);
 // MAIN THREAD. Turn off both, intents and renderers, for teardown. No ACAPI.
 void StopAll ();
 
+// MAIN THREAD, from the HUD Debug page's camera button. Re-pins the running build when the
+// hooks refused it (`dxgi::RepinRunningBuild`), then restarts the 3D session on the next
+// heartbeat -- never inside the layout that took the press -- so the camera is learned
+// fresh: a menu Off and On, without the menu.
+void RepairCamera3D ();
+
 // MAIN THREAD. The caller's overlay layers changed (ArchViz/OverlayLayers.hpp): hand
 // the 3D overlay its prepared copy, and redraw the 3D window when it is serving it --
 // a still window does not present by itself. The 2D overlay reads the store on its

@@ -323,6 +323,10 @@ struct OwnPages {
     std::vector<buildingplan::Plan> floorPlans; // All defined buildings, independent of viewport selection.
     hudmassing::Page massing;
     std::vector<hudshell::Card> debug;
+    // The Debug page's camera button under its cards: its label, empty for none, and the line
+    // beside it. Pressed, `TakeCameraRepairRequest`.
+    std::string cameraRepair;
+    std::string cameraRepairNote;
     // What the Debug tab's console says (HudConsole.hpp), oldest first: the tab's title counts the
     // errors and warnings the HUD has not shown yet.
     std::vector<hudconsole::Entry> console;
@@ -404,6 +408,10 @@ void SetLayerShown (State& state, const std::string& layer, bool shown);
 // the layout, never inside it -- and the request is gone.
 bool TakeViewerRequest (State& state);
 bool TakeLogsRequest (State& state);
+// The Debug page's camera button (`OwnPages::cameraRepair`) pressed since the last call: the
+// owner re-pins the build if the hooks refused it and learns the camera again -- after the
+// layout, never inside it.
+bool TakeCameraRepairRequest (State& state);
 // What the user changed in the Selection page's metadata since the last call, in order: the
 // owner writes it -- after the layout, never inside it (ArchViz/SelectionMetadata.hpp).
 std::vector<hudmeta::Edit> TakeMetadataEdits (State& state);

@@ -13,6 +13,7 @@
 
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
+#include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/LayerOverlay3D.hpp"
@@ -249,8 +250,27 @@ void FollowHudInput ()
     }
 }
 
+// The HUD's camera button pressed (`RepairCamera3D`), and the restart not run yet.
+bool g_relearn3D = false;
+void StopRenderers (bool teardown);
+void StartRenderer (Overlay which);
+
+void Relearn3D ()
+{
+    if (!std::exchange (g_relearn3D, false))
+        return;
+    if (g_servingView != ViewKind::ThreeD || !runtime::Running ()) {
+        Narrate ("CAMERA", "learn again: not done, the 3D overlay is not serving the 3D window");
+        return;
+    }
+    StopRenderers (true);
+    StartRenderer (Overlay::ThreeD);
+    Narrate ("CAMERA", "learned again from the HUD: the 3D session restarted, the kept camera forgotten");
+}
+
 void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
 {
+    Relearn3D ();
     overlaycontrol::FollowView ();
     FollowHudInput ();
     HeartbeatHud3D ();
@@ -532,6 +552,20 @@ const char* ViewKindName (ViewKind kind)
             return "other window";
     }
     return "Unknown";
+}
+
+void RepairCamera3D ()
+{
+    if (dxgi::GetContextHookStats ().refused) {
+        std::string error;
+        if (!dxgi::RepinRunningBuild (error)) {
+            Narrate ("HOOK", "re-pin from the HUD refused: " + error);
+            hudconsole::Error ("Overlay", "the build could not be pinned: " + error);
+            return;
+        }
+        Narrate ("HOOK", "the running build was pinned from the HUD");
+    }
+    g_relearn3D = true;
 }
 
 ViewKind CurrentView ()

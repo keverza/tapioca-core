@@ -117,6 +117,8 @@ struct State {
     // The viewer's circle pressed, and not yet taken by the owner (TakeViewerRequest).
     bool viewerRequested = false;
     bool logsRequested = false;
+    // The Debug page's camera button pressed, and not yet taken (TakeCameraRepairRequest).
+    bool cameraRepairRequested = false;
     // The Selection page's metadata edits, not yet taken by the owner (TakeMetadataEdits).
     std::vector<hudmeta::Edit> metadataEdits;
     std::vector<hudmassing::Request> massingRequests;

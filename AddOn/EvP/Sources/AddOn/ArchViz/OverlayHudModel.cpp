@@ -10,6 +10,7 @@
 #include "ArchViz/HudDebugCounters.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
 
+#include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/PlanGuest.hpp"
 #include "ArchViz/Dxgi/PrelockHud.hpp"
 #include "ArchViz/Dxgi/SceneGuest.hpp"
@@ -21,6 +22,7 @@
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayRuntimeReport.hpp"
+#include "ArchViz/PatchProfile.hpp"
 #include "ArchViz/PlanOverlayRuntime.hpp"
 #include "ArchViz/SectionModel.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
@@ -133,6 +135,7 @@ struct Rate {
 };
 Rate g_composes3D, g_presentsPlan, g_drawnPlan, g_prelockDrawn;
 huddebug::CounterWindow<5> s_debug3D;
+huddebug::CounterWindow<2> s_sync3D;
 huddebug::CounterWindow<2> s_debugPlan;
 
 std::string Format (const char* format, double value)
@@ -341,6 +344,44 @@ overlayhud::OwnPages ThreeD ()
                   std::to_string (counts[3]) + " failed, " + std::to_string (counts[4]) + " without a target", kRed });
     }
     pages.debug.push_back (std::move (camera));
+
+    // ---- Debug: the build the hooks are pinned to, and whether the camera keeps up ----------
+    // ⚠️ AN ARCHICAD UPDATE REFUSES THE HOOKS (the user, 2026-11-04: 29.0.0.3000 -> 5101 read as
+    // a rendering regression), and a camera kept across a view change can lag. The button is
+    // the one-click answer to both; the Sync figure is how the user sees it worked.
+    // ⚠️ THE BUILD IS READ ONLY ONCE THE HOOK HAS TRIED TO INSTALL: the first `Current` hashes
+    // Archicad.exe, which no layout may wait for. The pin file is read only while refused.
+    const dxgi::ContextHookStats hook = dxgi::GetContextHookStats ();
+    Card build;
+    build.title = "Archicad build";
+    if (hook.installed)
+        build.figures.push_back ({ "Build", patchprofile::Current ().hostVersion + ", pinned" });
+    else if (hook.refused) {
+        const std::string pinned = patchprofile::PinnedSummary ();
+        build.figures.push_back ({ "Running", patchprofile::Current ().hostVersion, kRed });
+        build.figures.push_back (
+            { "Pinned", pinned.empty () ? std::string ("nothing") : pinned.substr (0, pinned.find (' ')) });
+        build.note = "The camera hooks refused this build, so the overlay cannot lock.";
+    }
+    else
+        build.figures.push_back ({ "Build", "not checked yet" });
+    const auto sync = s_sync3D.Observe (huddebug::Now (), { health.age0, health.age1 + health.age2 + health.age3plus });
+    if (sync[0] + sync[1] > 0) {
+        const bool lagging = sync[1] * 100 > (sync[0] + sync[1]); // more than 1% of Presents behind
+        build.figures.push_back ({ "Sync (60 s)",
+                                   std::to_string (sync[0]) + " of " + std::to_string (sync[0] + sync[1]) +
+                                       " Presents on this frame's camera",
+                                   lagging ? kAmber : 0u });
+    }
+    pages.debug.push_back (std::move (build));
+    if (health.running) {
+        pages.cameraRepair = hook.refused ? "Re-pin this Archicad build" : "Learn the camera again";
+        pages.cameraRepairNote =
+            hook.refused ? "Pins the running build and starts the 3D overlay again. Then orbit: Sync should read "
+                           "every Present on this frame's camera."
+                         : "Stops and starts the 3D overlay, forgetting the kept camera. Use it when the overlay "
+                           "lags behind the model; Sync says whether it helped.";
+    }
     return pages;
 }
 

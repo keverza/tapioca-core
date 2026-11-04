@@ -165,6 +165,8 @@ void FollowHudState ()
         surfaceswitch::Request (surfaceswitch::Surface::Viewer);
     if (overlayhud::TakeLogsRequest (*state))
         hudconsole::OpenLogs ();
+    if (overlayhud::TakeCameraRepairRequest (*state))
+        overlaycontrol::RepairCamera3D ();
     overlaylayers::Layer stairs, units, planUnits;
     // The floor plan shows its own storey's units (user, 2026-10-14); its storey is the plan
     // session's, read here on the main thread like the rest of this turn.
