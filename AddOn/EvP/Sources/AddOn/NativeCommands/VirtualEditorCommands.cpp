@@ -442,6 +442,8 @@ const char* ToolName (eh::Tool tool)
             return "polygon";
         case eh::Tool::Ellipse:
             return "ellipse";
+        case eh::Tool::Mirror:
+            return "mirror";
     }
     return "select";
 }
@@ -569,7 +571,7 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
           R"json({"type":"object","properties":{},"additionalProperties":false})json",
           R"json({"type":"object","properties":{
                 "active":{"type":"boolean"},"locked":{"type":"boolean"},"layerShown":{"type":"boolean"},"surface":{"type":"string","enum":["overlay","viewer"]},
-                "tool":{"type":"string","enum":["select","polyline","path","curve","rectangle","polygon","ellipse"]},
+                "tool":{"type":"string","enum":["select","polyline","path","curve","rectangle","polygon","ellipse","mirror"]},
                 "gizmo":{"type":"string","enum":["move","rotate","scale","stretch","extrude","gumball"]},
                 "drag":{"type":"string","enum":["none","part","handle","marquee","profileBreak","profileTangent","corner","kerb","bezier","bend","profileCurve"]},
                 "gesture":{"type":"boolean"},"selection":{"type":"integer"},

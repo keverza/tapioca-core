@@ -142,6 +142,17 @@ def test_editor_state_names_and_declares_kerb_drag():
     assert "kerb" in _state_schema()["drag"]["enum"]
 
 
+def test_editor_state_names_and_declares_every_tool():
+    header = (ROOT / "ArchViz" / "HudVirtualEditor.hpp").read_text(encoding="utf-8")
+    tools = re.search(r"enum class Tool[^\{]*\{([^}]+)\}", header)[1]
+    expected = [tool.strip().lower() for tool in tools.split(",")]
+    source = SOURCE.read_text(encoding="utf-8")
+    tool_name = source[source.index("const char* ToolName") : source.index("const char* KindName")]
+    named = re.findall(r'case eh::Tool::(\w+):\s*return "([a-z]+)";', tool_name)
+    assert [(tool.lower(), name) for tool, name in named] == [(tool, tool) for tool in expected]
+    assert _state_schema()["tool"]["enum"] == expected
+
+
 def test_landscape_seed_export_and_state_are_strict_and_use_the_versioned_codec():
     source = SOURCE.read_text(encoding="utf-8")
     schemas = [json.loads(text) for text in re.findall(r'R"json\((.*?)\)json"', source, re.S)]
