@@ -589,6 +589,8 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     study.drawing = study.drawing && study.analysisKind == 0;
     // The study is asked for here, not only in the palette: open until the
     // first one is on screen, then folded under what it shows.
+    if (DrawSunStudyRunAction (state))
+        ImGui::SetNextItemOpen (true, ImGuiCond_Always);
     if (ImGui::CollapsingHeader ("Run sun study", study.drawing ? 0 : ImGuiTreeNodeFlags_DefaultOpen))
         DrawSunStudyRunControls (state, study);
     // âš ï¸ ONLY WHILE A STUDY IS ON SCREEN. A range slider with nothing to filter

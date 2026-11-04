@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 ADDON = Path(__file__).resolve().parents[1] / "Sources" / "AddOn"
 
 
@@ -13,7 +12,7 @@ def source(name):
 def test_manual_uses_one_owned_token_for_preparation_rays_and_publication():
     runner = source("NativeCommands/SunStudyHudRunner.cpp")
     assert "PrepareCapturedSunStudy (capture->captured, gCancel)" in runner
-    assert "&gCancel))" in runner
+    assert "&gCancel, revision))" in runner
     assert "ShowSunStudyForHud (show, ticket)" in runner
     assert 'Call ("CancelSunStudy"' not in runner
     assert "ticket->cancelled.load ()" in runner
@@ -26,9 +25,7 @@ def test_manual_uses_one_owned_token_for_preparation_rays_and_publication():
 def test_manual_display_completion_and_cancel_share_an_atomic_fence():
     display = source("NativeCommands/SunStudyDisplayPreparation.cpp")
     assert "request.ticket->Publish (enqueue)" in display
-    assert display.index("request.ticket->Publish (enqueue)") < display.index(
-        "s_manualState.preparing = false"
-    )
+    assert display.index("request.ticket->Publish (enqueue)") < display.index("s_manualState.preparing = false")
     assert "return accepted && enqueued" in display
     assert "generation == s_manualGeneration" in display
 
@@ -58,3 +55,19 @@ def test_manual_status_cannot_be_overwritten_by_cancelled_progress():
     assert "gStatus.resolvedSteps = gStatus.totalSteps = 0" in runner
     assert "sun-cancel source=manual" in runner
     assert "sun-cancel source=follower" in source("NativeCommands/SunStudyFollowerDriver.cpp")
+
+
+def test_primary_control_is_persistent_and_shared_by_other_analysis_workflows():
+    section = source("ArchViz/DiligentHudSunStudy.cpp").split("void DrawSunStudyHudSection", 1)[1]
+    assert section.index("DrawSunStudyRunAction (state)") < section.index('CollapsingHeader ("Run sun study"')
+    form = source("ArchViz/DiligentHudSunRun.cpp")
+    assert "sunstudyhud::CurrentJob ()" in form
+    assert "ImGui::BeginDisabled (state.sunRunBusy)" in form
+    assert 'ImGui::SmallButton ("Cancel")' not in form
+    assert "ImGui::ProgressBar" not in form
+    assert "AnalysisRunControl (" in form
+    assert "AnalysisRunControl (" in source("ArchViz/DiligentHudVisibility.cpp")
+    library = source("ArchViz/TapiocaUI/Foundation/AnalysisRunControl.cpp")
+    assert "ImGuiButtonFlags_EnableNav" in library
+    assert "ImGuiKey_Enter" in library and "ImGuiKey_Space" in library
+    assert "ImGuiKey_Escape" not in library

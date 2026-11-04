@@ -796,6 +796,8 @@ bool ReserveManualRun (std::string& error)
     s_paused = gConfig.valid;
     RetireRun ("manual run reserved");
     gFollower.RetireReplacement (NowMs ());
+    s_stage = "paused";
+    gLastError.clear ();
     s_manualActive = true;
     return true;
 }
@@ -834,7 +836,7 @@ void Tick ()
     std::lock_guard<std::mutex> lock (gMutex);
     if (s_stage == "cancelling" && !AdvanceWorker ().Busy () && !PreparationWorker ().Busy ()) {
         archviz::ArchVizLog ("sun-cancel source=follower acknowledgedMs=" +
-                             std::to_string (NowMs () - s_cancelRequestedMs) + " lateCompletionDiscarded=true");
+                             std::to_string (NowMs () - s_cancelRequestedMs) + " publicationRevoked=true");
         s_runProgress = {};
         s_stage = "cancelled";
     }

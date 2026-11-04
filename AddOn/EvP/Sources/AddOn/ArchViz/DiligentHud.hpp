@@ -219,6 +219,9 @@ struct HudState {
 
     // "Run sun study" (DiligentHudSunRun.cpp): the palette command's inputs.
     int sunRunYear = 2026, sunRunMonth = 3, sunRunDay = 21;
+    bool sunRunBusy = false;
+    bool sunRunWasCancelling = false;
+    bool visibilityCancelRequested = false;
     int sunRunTimestep = 2;  // stop index into 5 / 10 / 15 / 20 / 30 minutes
     float sunRunGrid = 1.0f; // cell size, metres
     int sunRunPreset = 0;
@@ -746,6 +749,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStat
 // size, roles and the analysis cylinder; plus the cylinder in the view and the
 // click that places its centre.
 void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& study);
+bool DrawSunStudyRunAction (HudState& state);
 void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, const float origin[3],
                                 const float direction[3]);

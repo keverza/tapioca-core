@@ -1,4 +1,5 @@
 #include "ArchViz/DiligentHudShell.hpp"
+#include "ArchViz/TapiocaUI/Foundation/AnalysisRunControl.hpp"
 
 #include "ArchViz/AnalysisLiveRerun.hpp"
 #include "ArchViz/GradientPresetChoice.hpp"
@@ -297,6 +298,8 @@ bool DrawPointControls (HudState& state, viewpointstudy::Settings& shared, const
 void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene, int origin)
 {
     const auto status = visibilitystudy::GetStatus ();
+    if (!status.running)
+        state.visibilityCancelRequested = false;
     // Switching between the two visibility tabs only hides the other's result
     // (AnalysisTabs.hpp); a change here clears a result only when it is this tab's.
     state.visibilityOrigin = origin;
@@ -397,14 +400,24 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
                     break;
             }
         }
-        ImGui::BeginDisabled (!inputs || status.running);
-        if (ImGui::Button (following ? "Run again" : "Run visibility", ImVec2 (-1.0f, 0.0f))) {
+        tapioca::ui::AnalysisRunView run;
+        run.runLabel = following ? "Run again" : "Run visibility";
+        run.enabled = status.running ? status.origin == origin : inputs;
+        if (status.running)
+            run.stage = state.visibilityCancelRequested ? tapioca::ui::AnalysisRunStage::Cancelling
+                                                        : tapioca::ui::AnalysisRunStage::Calculating;
+        const auto action = tapioca::ui::AnalysisRunControl ("##visibility-run", run);
+        if (action == tapioca::ui::AnalysisRunAction::Run) {
             state.viewpointPlacing = false;
             state.visibilitySubmitError.clear ();
             if (visibilitystudy::Submit (MakeRequest (state, shared, capture), state.visibilitySubmitError))
                 liverun::Submitted (follow, key); // arms the follow
         }
-        ImGui::EndDisabled ();
+        else if (action == tapioca::ui::AnalysisRunAction::Cancel) {
+            visibilitystudy::Cancel ();
+            state.visibilityCancelRequested = true;
+            state.visibilityLiveUpdate = false; // an explicit stop must not immediately rerun
+        }
         ImGui::Checkbox ("Live update", &state.visibilityLiveUpdate);
         ImGui::SetItemTooltip ("After a run, edits in Archicad and changed settings re-run it; the last result stays "
                                "up until the new one replaces it. Off: a change clears the result.");
@@ -416,8 +429,6 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     const bool superseded = (live || following) && status.superseded;
     if (status.running) {
         ImGui::TextUnformatted (live || following ? "Updating visibility..." : "Calculating visibility...");
-        if (!live && ImGui::SmallButton ("Cancel calculation"))
-            visibilitystudy::Cancel ();
     }
     else if (!state.visibilitySubmitError.empty ())
         hudshell::ErrorNotice ("Visibility failed: " + state.visibilitySubmitError);

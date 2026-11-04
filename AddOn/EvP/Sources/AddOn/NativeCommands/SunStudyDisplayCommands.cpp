@@ -479,6 +479,8 @@ class SunStudyFollowerStateCommand : public MainThreadCommand {
         GS::ObjectState os;
         os.Add ("state", Text (StateText (stats.state)));
         os.Add ("autoFollow", stats.autoFollow);
+        os.Add ("paused", stats.paused);
+        os.Add ("cancelling", stats.cancelling);
         os.Add ("dirty", stats.dirty);
         os.Add ("dirtyReason", Text (ReasonText (stats.dirtyReason)));
         os.Add ("generation", (GS::Int32) stats.generation);
@@ -696,6 +698,8 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
             "properties":{
                 "state":{"type":"string"},
                 "autoFollow":{"type":"boolean"},
+                "paused":{"type":"boolean"},
+                "cancelling":{"type":"boolean"},
                 "dirty":{"type":"boolean"},
                 "dirtyReason":{"type":"string"},
                 "generation":{"type":"integer"},

@@ -569,6 +569,7 @@ set (EVP_ARCHVIZ_SOURCES
     # Every translation unit under ArchViz/TapiocaUI is listed here; check_cpp.py fails
     # the build gate when one is not, so a new widget cannot go untested by omission.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Foundation/ScopedStyle.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Foundation/AnalysisRunControl.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Foundation/Units.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Foundation/Icons.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Foundation/Iconoir.gen.cpp"
@@ -578,6 +579,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunStudy.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunRun.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NativeCommands/SunStudyHudStatus.cpp"
     # A triangle cut to its clip rectangle: the overlays draw ImGui's triangles without a scissor.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudClip.cpp"
     # The Debug tab's console: what to check when something fails, said from any thread.
@@ -1142,6 +1144,7 @@ set (EVP_TEST_SOURCES
     test_sunstudygputraversal.cpp
     test_sunstudypreview.cpp
     test_sunstudyhud.cpp
+    test_analysisruncontrol.cpp
     test_sunstudytextureupdates.cpp
     test_sunstudytaskworker.cpp
     test_sunstudysampler.cpp

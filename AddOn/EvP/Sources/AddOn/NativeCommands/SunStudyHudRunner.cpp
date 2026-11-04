@@ -25,8 +25,8 @@ namespace geomsrv::sunstudyhud {
 namespace {
 
 constexpr int kSliceSteps = 1;
-// StartSunStudy samples and builds the BVH on the main thread; a large model
-// takes seconds, so the gate's 30 s default is the floor, not the budget.
+// Host capture may exceed the gate's default budget. Sampling/BVH preparation
+// runs on this worker, never inside the host gate.
 constexpr int kMainThreadTimeoutMs = 120000;
 
 std::mutex gMutex;
@@ -116,16 +116,17 @@ void Run (Request request, std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
     const auto& gCancel = ticket->cancelled;
     const auto started = std::chrono::steady_clock::now ();
     std::string studyId;
+    uint64_t revision = 0;
     const auto finish = [&] (const std::string& stage, const std::string& error) {
         const bool cancelled = gCancel.load ();
         if (stage == "failed")
             ticket->Cancel (); // invalidate any timed-out gate job before releasing ownership
         if ((cancelled || stage == "failed") && !studyId.empty ())
-            evp::sunstudy::SunStudyStore::Get ().Erase (studyId);
-        sunfollow::ReleaseManualRun ();
+            evp::sunstudy::SunStudyStore::Get ().Erase (studyId, revision);
         std::string line;
         {
             std::lock_guard<std::mutex> lock (gMutex);
+            sunfollow::ReleaseManualRun ();
             gStatus.running = false;
             gStatus.stage = cancelled ? "cancelled" : stage;
             gStatus.error = cancelled ? "" : error;
@@ -139,13 +140,13 @@ void Run (Request request, std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
                 archviz::ArchVizLog ("sun-cancel source=manual generation=" + std::to_string (gStatus.runs) +
                                      " study=" + studyId +
                                      " acknowledgedMs=" + std::to_string (gStatus.wallMs - gStatus.cancelRequestedMs) +
-                                     " lateCompletionDiscarded=true");
+                                     " publicationRevoked=true");
             // Requested beside resolved: a GPU request that fell back is
             // visible here and in the HUD, never rewritten to `cpu`.
             if (!studyId.empty ())
                 line = "pipeline: stage=sun-hud-backend study=" + studyId + " requested=" + gStatus.requestedBackend +
                        " resolved=" + (gStatus.resolvedBackend.empty () ? "untried" : gStatus.resolvedBackend) +
-                       " outcome=" + stage +
+                       " outcome=" + (cancelled ? "cancelled" : stage) +
                        (gStatus.backendFallbackReason.empty () ? "" : " reason=" + gStatus.backendFallbackReason);
         }
         if (!line.empty ())
@@ -214,9 +215,15 @@ void Run (Request request, std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
     GS::UniString id;
     start.data.Get ("studyId", id);
     studyId = Utf8 (id);
+    revision = evp::sunstudy::SunStudyStore::Get ().Revision (studyId);
+    evp::sunstudy::StudyProgress initialProgress;
+    std::string progressError;
+    evp::sunstudy::SunStudyStore::Get ().Progress (studyId, initialProgress, progressError);
     {
         std::lock_guard<std::mutex> lock (gMutex);
         gStatus.studyId = studyId;
+        gStatus.totalSteps = initialProgress.totalSteps;
+        gStatus.resolvedSteps = initialProgress.resolvedSteps;
     }
     bool empty = false;
     start.data.Get ("empty", empty);
@@ -232,7 +239,7 @@ void Run (Request request, std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
         size_t advanced = 0;
         std::string error;
         if (!store.Advance (studyId, kSliceSteps, evp::sunstudy::BackgroundTraversalThreads (), 0.001, 0.0, advanced,
-                            error, &gCancel))
+                            error, &gCancel, revision))
             return finish ("failed", error);
         if (gCancel)
             return finish ("cancelled", "");
@@ -342,25 +349,7 @@ Status Current ()
 
 Status CurrentJob ()
 {
-    auto status = Current ();
-    const auto follow = sunfollow::State ();
-    status.paused = follow.paused;
-    status.stale = follow.dirty || follow.paused || (status.running && !follow.studyId.empty ());
-    if (status.running)
-        return status;
-    const bool active = follow.cancelling || follow.workerBusy ||
-                        (follow.autoFollow && (follow.dirty || follow.millisecondsUntilStart >= 0));
-    if (active || follow.stage == "cancelled" || follow.stage == "failed") {
-        status.following = true;
-        status.running = active;
-        status.cancelling = follow.cancelling;
-        status.stage = follow.stage;
-        status.error = follow.lastError;
-        status.studyId = follow.studyId;
-        status.resolvedSteps = follow.resolvedSteps;
-        status.totalSteps = follow.totalSteps;
-    }
-    return status;
+    return JobStatusOf (Current (), sunfollow::State ());
 }
 
 void CancelActive ()

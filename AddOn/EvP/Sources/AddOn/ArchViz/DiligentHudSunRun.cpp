@@ -19,6 +19,7 @@
 #include "ArchViz/PointGumball.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
+#include "ArchViz/TapiocaUI/Foundation/AnalysisRunControl.hpp"
 #include "SunStudy/SunStudyBackend.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
 #include "SunStudy/SunStudyPreset.hpp"
@@ -269,19 +270,6 @@ bool RadiusGrip (const HudState& state, const float viewProj[16], uint32_t width
     return Project (grip, viewProj, width, height, at);
 }
 
-const char* StageText (const sunstudyhud::Status& status)
-{
-    if (status.stage == "waiting")
-        return "Waiting for the viewer to finish loading the model...";
-    if (status.stage == "snapshot")
-        return "Capturing the model...";
-    if (status.stage == "starting")
-        return "Preparing samples...";
-    if (status.stage == "showing")
-        return "Publishing to the viewer...";
-    return "Queued...";
-}
-
 // The form as a Request. Every input comes from `state`, so a rerun after
 // switching the backend changes nothing else.
 void SubmitRun (HudState& state)
@@ -307,6 +295,70 @@ void SubmitRun (HudState& state)
 
 } // namespace
 
+bool DrawSunStudyRunAction (HudState& state)
+{
+    using Stage = tapioca::ui::AnalysisRunStage;
+    const auto status = sunstudyhud::CurrentJob ();
+    const bool active = status.running;
+    const bool cancelling = status.cancelling;
+    const std::string stage = status.stage;
+    tapioca::ui::AnalysisRunView view;
+    view.runLabel = status.stage == "failed" ? "Retry sun study" : "Run sun study";
+    view.resolved = status.resolvedSteps;
+    view.total = status.totalSteps;
+    if (cancelling)
+        view.stage = Stage::Cancelling;
+    else if (active) {
+        if (stage == "calculating")
+            view.stage = Stage::Calculating;
+        else if (stage == "snapshot")
+            view.stage = Stage::Capturing;
+        else if (stage == "starting" || stage == "preparing")
+            view.stage = Stage::Preparing;
+        else if (stage == "showing" || stage == "displaying")
+            view.stage = Stage::Publishing;
+        else
+            view.stage = Stage::Waiting;
+    }
+    state.sunRunBusy = active;
+    const bool reopen = state.sunRunWasCancelling && !active;
+    state.sunRunWasCancelling = cancelling;
+    switch (tapioca::ui::AnalysisRunControl ("##sunrunstart", view)) {
+        case tapioca::ui::AnalysisRunAction::Run:
+            SubmitRun (state);
+            state.sunRunBusy = sunstudyhud::Current ().running;
+            break;
+        case tapioca::ui::AnalysisRunAction::Cancel:
+            sunstudyhud::CancelActive ();
+            state.sunRunWasCancelling = true;
+            break;
+        case tapioca::ui::AnalysisRunAction::None:
+            break;
+    }
+    ImGui::SetItemTooltip (
+        "Stops this run. The last complete study stays visible. Following stays paused until Resume.");
+    if (active && (stage == "snapshot" || (cancelling && view.total == 0)))
+        ImGui::TextDisabled ("Cancellation waits for any in-flight host capture to return.");
+    if (status.paused) {
+        ImGui::TextDisabled ("Following paused - last complete study retained");
+        ImGui::BeginDisabled (active);
+        if (ImGui::SmallButton ("Resume following"))
+            sunstudyhud::ResumeFollowing (state.sunRunSubmitError);
+        ImGui::EndDisabled ();
+    }
+    if (status.stale)
+        ImGui::TextDisabled ("Stale: showing the last complete study");
+    if (!state.sunRunSubmitError.empty ())
+        hudshell::ErrorNotice ("Not started: " + state.sunRunSubmitError);
+    else if (!active && status.stage == "failed")
+        hudshell::ErrorNotice ("Sun study failed: " + status.error);
+    else if (!active && status.stage == "cancelled")
+        ImGui::TextDisabled ("Cancelled");
+    else if (!active && status.stage == "done")
+        ImGui::TextDisabled ("Done in %.1f s", status.wallMs / 1000.0);
+    return reopen;
+}
+
 void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& study)
 {
     (void) study;
@@ -322,7 +374,7 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     }
     const sunstudyhud::Status status = sunstudyhud::Current ();
 
-    ImGui::BeginDisabled (status.running);
+    ImGui::BeginDisabled (state.sunRunBusy);
     DatePicker (state);
     ImGui::SetNextItemWidth (-LabelColumn ());
     state.sunRunTimestep = std::clamp (state.sunRunTimestep, 0, kTimestepCount - 1);
@@ -398,30 +450,6 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
         state.sunRunPickingCentre = false;
     ImGui::EndDisabled ();
 
-    if (!status.running) {
-        if (ImGui::Button ("Run sun study##sunrunstart", ImVec2 (-1.0f, 0.0f)))
-            SubmitRun (state);
-    }
-    else if (status.stage == "calculating" && status.totalSteps > 0) {
-        char overlay[48];
-        std::snprintf (overlay, sizeof (overlay), "%u / %u steps", unsigned (status.resolvedSteps),
-                       unsigned (status.totalSteps));
-        ImGui::ProgressBar (float (status.resolvedSteps) / float (status.totalSteps), ImVec2 (-1.0f, 0.0f), overlay);
-    }
-    else
-        ImGui::TextUnformatted (StageText (status));
-    if (status.running && ImGui::SmallButton ("Cancel"))
-        sunstudyhud::Cancel ();
-
-    if (!state.sunRunSubmitError.empty ())
-        hudshell::ErrorNotice ("Not started: " + state.sunRunSubmitError);
-    else if (!status.running && status.stage == "failed")
-        hudshell::ErrorNotice ("Sun study failed: " + status.error);
-    else if (!status.running && status.stage == "cancelled")
-        ImGui::TextDisabled ("Cancelled");
-    else if (!status.running && status.stage == "done")
-        ImGui::TextDisabled ("Done in %.1f s", status.wallMs / 1000.0);
-
     if (!status.requestedBackend.empty () && (status.running || status.stage == "done")) {
         evp::sunstudy::SunStudyBackendReport report;
         report.requested = status.requestedBackend;
@@ -432,13 +460,7 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
             ImGui::TextDisabled ("%s", backend.c_str ());
         else {
             hudshell::ErrorNotice (backend);
-            if (!status.running) {
-                if (ImGui::SmallButton ("Rerun on CPU##sunrunfallback")) {
-                    state.sunRunBackend = 0;
-                    SubmitRun (state);
-                }
-                ImGui::SetItemTooltip ("Selects CPU and runs again with every other input unchanged.");
-            }
+            ImGui::TextDisabled ("Choose CPU above to rerun without fallback.");
         }
     }
 }
@@ -481,8 +503,8 @@ void ServiceSunStudyBoundsGumball (HudState& state, const InputSnapshot& input, 
                                    uint32_t width, uint32_t height, const float rayOrigin[3],
                                    const float rayDirection[3])
 {
-    if (!state.sunRunBounded || !state.sunRunShowBounds || state.readOnly || viewProj == nullptr || width == 0 ||
-        height == 0) {
+    if (state.sunRunBusy || !state.sunRunBounded || !state.sunRunShowBounds || state.readOnly || viewProj == nullptr ||
+        width == 0 || height == 0) {
         state.sunRunDragging = false;
         return;
     }
@@ -533,8 +555,8 @@ void ServiceSunStudyBoundsGumball (HudState& state, const InputSnapshot& input, 
 void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, const float origin[3],
                                 const float direction[3])
 {
-    if (!state.sunRunBounded || !state.sunRunShowBounds || !state.sunRunPickingCentre || state.wantsMouse ||
-        !input.inside || !LeftReleased (input))
+    if (state.sunRunBusy || !state.sunRunBounded || !state.sunRunShowBounds || !state.sunRunPickingCentre ||
+        state.wantsMouse || !input.inside || !LeftReleased (input))
         return;
     // On the scene's floor plane: the centre is a plan position, and the floor
     // is under every click that looks down at the model.

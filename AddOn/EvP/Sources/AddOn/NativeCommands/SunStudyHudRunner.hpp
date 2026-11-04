@@ -2,8 +2,8 @@
 #define EVP_NATIVECOMMANDS_SUNSTUDYHUDRUNNER_HPP
 
 // The viewer HUD's "Run sun study": the same command sequence the palette's
-// Native sun study runs (pause the follower, snapshot, start, advance in
-// slices, show), driven natively so the study needs no Python command.
+// Native sun study runs (pause the follower, capture, prepare, advance in
+// cancellable slices, show), through the same services without Python.
 //
 // ⚠️ PLAIN TYPES ONLY IN THIS HEADER. The HUD (render thread, ArchViz) includes
 // it; the DevKit and the command registry stay in the .cpp.
@@ -15,6 +15,10 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+
+namespace geomsrv::sunfollow {
+struct FollowerStats;
+}
 
 namespace geomsrv::sunstudyhud {
 
@@ -64,6 +68,7 @@ void Cancel ();
 Status Current ();
 // Plain-data boundary for the HUD: exactly one owner of the primary control.
 Status CurrentJob ();
+Status JobStatusOf (Status manual, const sunfollow::FollowerStats& follower);
 void CancelActive ();
 bool ResumeFollowing (std::string& error);
 // Quit/unload: cancel and join.
