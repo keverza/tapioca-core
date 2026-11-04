@@ -59,6 +59,11 @@ Kept Take ()
     }
     if (kept.camera.cameraIndexCount == 0)
         kept.camera.cameraIndexCount = cen::KeptCameraIndexCount ();
+    // ⚠️ AND THE DRAW THE SNAPSHOTS CAME FROM OUTRANKS BOTH. The group's count is the
+    // last camera-bearing draw at its occurrence, which can be its neighbour
+    // (`census::Stats::snapshotIndexCandidate`, 2026-11-04 13:29:53).
+    if (const cen::Stats census = cen::GetStats (); census.snapshotIndexVotes != 0)
+        kept.camera.cameraIndexCount = census.snapshotIndexCandidate;
     // ⚠️ THE KEPT CAMERA IS ITS GROUP'S CAMERA DRAW. A census group is keyed without the
     // index count, so the fingerprint's -- the group's LAST draw when it was chosen -- can be
     // another draw that took the occurrence (§4). In session the pin never asks; a kept

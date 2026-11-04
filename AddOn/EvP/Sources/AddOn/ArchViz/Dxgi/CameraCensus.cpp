@@ -702,6 +702,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     if (pinned && !cameraDraw)
         ++g_stats.snapshotsOtherDraw;
     else if (pinned) {
+        camerachoice::VoteIndexCount (g_stats.snapshotIndexCandidate, g_stats.snapshotIndexVotes, indexCount);
         contextstate::SceneDrawState draw;
         draw.valid = true;
         draw.modelSceneGeneration = modelGeneration;

@@ -224,6 +224,10 @@ struct Stats {
     uint64_t readbacksBusy = 0;
     uint64_t readbacksOtherDraw = 0; // not a camera, and not this group's camera draw
     uint64_t snapshotsOtherDraw = 0; // the pinned occurrence held another draw
+    // Which draw the accepted snapshots came from, by majority (`camerachoice::VoteIndexCount`):
+    // the kept camera's draw (`OverlayCameraKeep::Take`). `snapshotIndexVotes == 0` is none yet.
+    uint32_t snapshotIndexCandidate = 0;
+    uint32_t snapshotIndexVotes = 0;
     bool enabled = false;
     bool ready = false;
     // Where the tracked b1/b2 disagreed with what the context had bound, at every

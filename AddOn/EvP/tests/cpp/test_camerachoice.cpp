@@ -131,7 +131,8 @@ TEST (CameraChoice, AScreenMapFromAnotherDrawDoesNotSpeakForTheGroup)
     EXPECT_FALSE (cc::CountsForGroup (false, 6, 1512)) << "a UI quad at the 1512-index draw's occurrence";
     EXPECT_TRUE (cc::CountsForGroup (true, 1512, 1512));
     EXPECT_TRUE (cc::CountsForGroup (true, 1530, 1512)) << "a camera sample always counts -- the model after an edit";
-    EXPECT_TRUE (cc::CountsForGroup (false, 1512, 1512)) << "the camera draw itself without a camera: refused, as before";
+    EXPECT_TRUE (cc::CountsForGroup (false, 1512, 1512))
+        << "the camera draw itself without a camera: refused, as before";
 }
 
 TEST (CameraChoice, NothingCountsBeforeTheFirstCameraSample)
@@ -145,4 +146,20 @@ TEST (CameraChoice, TheSnapshotIsTakenOnlyFromTheCameraDraw)
     EXPECT_TRUE (cc::IsCameraDraw (1512, 1512));
     EXPECT_FALSE (cc::IsCameraDraw (6, 1512)) << "a screen-map draw that took the pinned occurrence";
     EXPECT_TRUE (cc::IsCameraDraw (6, 0)) << "no camera sample yet: nothing to refuse on";
+}
+
+// 2026-11-04 13:29:53: g5 locked on idx3612, and its neighbour's idx1134 took occ4 in
+// some generations. The kept camera must name the draw most snapshots came from.
+TEST (CameraChoice, AKeptCameraNamesTheDrawMostSnapshotsCameFrom)
+{
+    uint32_t candidate = 0;
+    uint32_t votes = 0;
+    for (int frame = 0; frame < 40; ++frame) {
+        cc::VoteIndexCount (candidate, votes, 3612);
+        if (frame % 3 == 0)
+            cc::VoteIndexCount (candidate, votes, 1134);
+    }
+    cc::VoteIndexCount (candidate, votes, 1134); // the neighbour took the last draw
+    EXPECT_EQ (candidate, 3612u);
+    EXPECT_GT (votes, 0u);
 }

@@ -107,6 +107,23 @@ inline bool IsCameraDraw (uint32_t indexCount, uint32_t cameraIndexCount)
     return cameraIndexCount == 0 || indexCount == cameraIndexCount;
 }
 
+// ⚠️ A KEPT CAMERA CARRIES THE DRAW ITS SNAPSHOTS CAME FROM, BY MAJORITY. Every model
+// draw carries the camera, so the group's own count follows whichever draw last took
+// its occurrence; a kept `idx1134` -- the neighbour -- for a camera locked on `idx3612`
+// refused every snapshot of the resumed session (2026-11-04 13:29:53). One pass, two
+// words: the count a majority of the votes named survives any minority interleaved.
+inline void VoteIndexCount (uint32_t& candidate, uint32_t& votes, uint32_t indexCount)
+{
+    if (candidate == indexCount)
+        ++votes;
+    else if (votes == 0) {
+        candidate = indexCount;
+        votes = 1;
+    }
+    else
+        --votes;
+}
+
 } // namespace camerachoice
 } // namespace dxgi
 } // namespace archviz
