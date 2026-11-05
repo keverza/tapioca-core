@@ -850,6 +850,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolyline.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineCrossing.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineOffset.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineOffsetCleanup.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineTrim.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineActions.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditArrange.cpp"
@@ -967,6 +968,7 @@ set (EVP_TEST_SOURCES
     test_editorganize.cpp
     test_editpolyline.cpp
     test_editpolylineoffset.cpp
+    test_editpolylineoffsetcleanup.cpp
     test_editpolylinetrim.cpp
     test_editlayers.cpp
     test_editpathalignment.cpp

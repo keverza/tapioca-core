@@ -192,6 +192,8 @@ bool BuildOffset (Document& doc, Id entityId, double distance, const OffsetOptio
     }
     if (source->closed)
         appendSegment (segmentCount - 1);
+    if (!polyline_detail::CleanupOffset (copy, error))
+        return false;
 
     Document candidate = doc;
     Normalize (candidate, copy);
