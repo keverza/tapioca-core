@@ -86,12 +86,7 @@ fn a_straight_edge_in_pieces_grades_as_one_edge() -> Result<(), OutlineError> {
     let heights = |(surface, faces): &(Vec<f64>, Vec<u32>)| -> Result<Vec<f64>, OutlineError> {
         let paved = Field::new(surface, faces).map_err(|_| OutlineError::Surface)?;
         let edges = outline(surface, faces, &[], uniform);
-        let graded = Faces {
-            base: &ground,
-            surface: &paved,
-            outline: &edges,
-            grading,
-        };
+        let graded = Faces::new(&ground, &paved, &edges, grading);
         let mut out = Vec::new();
         for x in [9.7, 10.0, 10.3, 19.9, 20.0, 29.5, 30.0] {
             for y in [-2.5, -3.0, -4.0, -5.0] {

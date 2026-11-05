@@ -195,11 +195,11 @@ fn inside_corner_rounded(px: f64, py: f64, rounding: f64) -> Option<f64> {
         rounding,
     };
     let edges = outline(&surface, &surface_triangles, &[], uniform);
-    let faces = Faces {
-        base: &base,
-        surface: &paved,
-        outline: &edges,
-        grading: Grading {
+    let faces = Faces::new(
+        &base,
+        &paved,
+        &edges,
+        Grading {
             cut: HALF,
             fill: HALF,
             limit: 10.0,
@@ -207,7 +207,7 @@ fn inside_corner_rounded(px: f64, py: f64, rounding: f64) -> Option<f64> {
             effect: Effect::Both,
             tolerance: 1e-6,
         },
-    };
+    );
     faces.height(px, py).map(|(height, _)| height)
 }
 
@@ -700,4 +700,5 @@ fn each_outline_edge_grades_its_face_by_its_own_vertices() -> Result<(), Outline
 }
 
 mod blend;
+mod reach;
 mod refine;

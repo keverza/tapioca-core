@@ -46,6 +46,7 @@ use crate::slope::Slope;
 use std::collections::BTreeMap;
 
 mod blend;
+mod reach;
 mod refine;
 mod supports;
 
@@ -301,6 +302,7 @@ struct Faces<'a> {
     surface: &'a Field,
     outline: &'a [Edge],
     grading: Grading,
+    reach: reach::Reach,
 }
 
 /// How far the faces raise (fill) and lower (cut) the ground at a point, each
@@ -322,7 +324,17 @@ fn cone(edge: f64, distance: f64, rise: f64, rounding: f64) -> f64 {
     }
 }
 
-impl Faces<'_> {
+impl<'a> Faces<'a> {
+    fn new(base: &'a Field, surface: &'a Field, outline: &'a [Edge], grading: Grading) -> Self {
+        Self {
+            base,
+            surface,
+            outline,
+            grading,
+            reach: reach::Reach::new(outline),
+        }
+    }
+
     /// Each edge's face eased onto the ground by its own rounding; the fill
     /// takes the highest, the cut the lowest. For one grade everywhere this is
     /// the ease of the envelope (the ease is monotone in the face). Where two
@@ -338,7 +350,9 @@ impl Faces<'_> {
         };
         let limit = self.grading.limit;
         let (mut fills, mut cuts) = (Vec::new(), Vec::new());
-        for edge in self.outline {
+        let mut near = Vec::new();
+        self.reach.candidates(px, py, base, &mut near);
+        for edge in near.iter().filter_map(|&i| self.outline.get(i as usize)) {
             let SurfaceGrade {
                 cut,
                 fill,
@@ -508,12 +522,7 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
     if edges.is_empty() {
         return Err(OutlineError::Surface);
     }
-    let faces = Faces {
-        base: &base,
-        surface: &surface,
-        outline: &edges,
-        grading: g,
-    };
+    let faces = Faces::new(&base, &surface, &edges, g);
     if request.refine.is_some_and(|refine| !refine.valid()) {
         return Err(OutlineError::Parameters);
     }

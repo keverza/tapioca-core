@@ -55,11 +55,11 @@ fn measure(built: &Outlined, points: &[f64], rounding: f64) -> Result<(f64, f64)
         rounding,
     };
     let edges = outline(&PAVED, &PAVED_TRIANGLES, &[], uniform);
-    let faces = Faces {
-        base: &base,
-        surface: &surface,
-        outline: &edges,
-        grading: Grading {
+    let faces = Faces::new(
+        &base,
+        &surface,
+        &edges,
+        Grading {
             cut: HALF,
             fill: HALF,
             limit: 10.0,
@@ -67,7 +67,7 @@ fn measure(built: &Outlined, points: &[f64], rounding: f64) -> Result<(f64, f64)
             effect: Effect::Both,
             tolerance: 1e-6,
         },
-    };
+    );
     let corners = plan::vertices(&built.points);
     let mut gap = 0.0_f64;
     let mut angles = Vec::new();
