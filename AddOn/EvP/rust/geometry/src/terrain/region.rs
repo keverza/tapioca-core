@@ -204,13 +204,20 @@ pub fn retriangulate_region_with_points(
     request: &RegionRequest<'_>,
     spots: &[f64],
 ) -> Result<RegionMesh, RegionError> {
-    rebuild(request, spots, request.breaklines.len())
+    rebuild(request, spots, request.breaklines.len(), false)
 }
 
 /// Outline-only pre-clipped supports. The augmented ring contains every support
 /// endpoint on its boundary, so the base split stitches both sides there. Caller
 /// controls retain the original strict-interior contract. Derived line mappings
 /// append after the caller lines; the outline result retains their source edges.
+///
+/// An interior base edge between two coplanar inside triangles is not a
+/// constraint here: the base is one plane across it, so a triangle crossing it
+/// stays on the base surface and its volume stays exact, and keeping it only
+/// cuts the graded faces into slivers along it (the 2026-11-05 dump: a flat
+/// two-triangle terrain's diagonal across the faces at a path's start). Such a
+/// triangle's parent is the base triangle under its centroid.
 pub(super) fn retriangulate_with_supports(
     request: &RegionRequest<'_>,
     spots: &[f64],
@@ -228,13 +235,73 @@ pub(super) fn retriangulate_with_supports(
         },
         spots,
         request.breaklines.len(),
+        true,
     )
+}
+
+/// Largest height difference, metres, at which two base triangles count as one
+/// plane across their shared edge.
+const COPLANAR: f64 = 1e-9;
+
+/// Whether the inside triangles on either side of each interior edge lie in
+/// one plane: the far vertex of one is on the other's plane.
+fn coplanar_edges(
+    corners: &[[u32; 3]],
+    inside: &[bool],
+    points: &[[f64; 3]],
+) -> BTreeSet<[u32; 2]> {
+    let mut opposite: BTreeMap<[u32; 2], Vec<([u32; 3], u32)>> = BTreeMap::new();
+    for (&[a, b, c], _) in corners.iter().zip(inside).filter(|(_, inside)| **inside) {
+        for (p, q, r) in [(a, b, c), (b, c, a), (c, a, b)] {
+            opposite
+                .entry(sorted(p, q))
+                .or_default()
+                .push(([a, b, c], r));
+        }
+    }
+    let at = |v: u32| points.get(v as usize).copied();
+    opposite
+        .into_iter()
+        .filter(|(_, sides)| {
+            let [(triangle, _), (_, far)] = sides.as_slice() else {
+                return false;
+            };
+            let ([Some(origin), Some(along), Some(across)], Some(other)) =
+                (triangle.map(at), at(*far))
+            else {
+                return false;
+            };
+            // The plane through the triangle at the other's far vertex.
+            let (u, v, w) = (
+                [
+                    along[0] - origin[0],
+                    along[1] - origin[1],
+                    along[2] - origin[2],
+                ],
+                [
+                    across[0] - origin[0],
+                    across[1] - origin[1],
+                    across[2] - origin[2],
+                ],
+                [other[0] - origin[0], other[1] - origin[1]],
+            );
+            let det = u[0].mul_add(v[1], -u[1] * v[0]);
+            if det == 0.0 {
+                return false;
+            }
+            let first = w[0].mul_add(v[1], -w[1] * v[0]) / det;
+            let second = u[0].mul_add(w[1], -u[1] * w[0]) / det;
+            (first.mul_add(u[2], second * v[2]) - (other[2] - origin[2])).abs() <= COPLANAR
+        })
+        .map(|(edge, _)| edge)
+        .collect()
 }
 
 fn rebuild(
     request: &RegionRequest<'_>,
     spots: &[f64],
     strict: usize,
+    free_coplanar: bool,
 ) -> Result<RegionMesh, RegionError> {
     let field = Field::new(request.points, request.triangles)
         .map_err(|_| RegionError::Terrain(Error::Shape))?;
@@ -288,9 +355,14 @@ fn rebuild(
     if once != ring_edges || uses.values().any(|&count| count > 2) {
         return Err(RegionError::Topology);
     }
+    let coplanar = if free_coplanar {
+        coplanar_edges(corners, &split.inside, plan::vertices(&split.points))
+    } else {
+        BTreeSet::new()
+    };
     let interior: Vec<[u32; 2]> = uses
         .iter()
-        .filter(|&(_, &count)| count == 2)
+        .filter(|&(edge, &count)| count == 2 && !coplanar.contains(edge))
         .map(|(edge, _)| *edge)
         .collect();
 

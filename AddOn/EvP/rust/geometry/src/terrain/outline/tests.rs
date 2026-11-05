@@ -37,12 +37,31 @@ const PAVED: [f64; 12] = [
 ];
 const PAVED_TRIANGLES: [u32; 6] = [0, 1, 2, 0, 2, 3];
 
-/// The rectangle grown by `d` as two open halves (a breakline is an open line).
+/// The rectangle grown by `d` as two open halves (a breakline is an open line),
+/// a vertex every half metre along it as the editor's rings have.
 fn ring(d: f64) -> [Vec<f64>; 2] {
     let (x0, y0, x1, y1) = (-d, -2.0 - d, 40.0 + d, 2.0 + d);
+    let half = |corners: [[f64; 2]; 3]| {
+        let mut line = Vec::new();
+        for pair in corners.windows(2) {
+            let &[[ax, ay], [bx, by]] = pair else {
+                continue;
+            };
+            let pieces = ((bx - ax).hypot(by - ay) / 0.5).ceil().max(1.0);
+            let mut k = 0.0;
+            while k < pieces {
+                let t = k / pieces;
+                line.extend([(bx - ax).mul_add(t, ax), (by - ay).mul_add(t, ay), 0.0]);
+                k += 1.0;
+            }
+        }
+        let [x, y] = corners[2];
+        line.extend([x, y, 0.0]);
+        line
+    };
     [
-        vec![x0, y0, 0.0, x1, y0, 0.0, x1, y1, 0.0],
-        vec![x1, y1, 0.0, x0, y1, 0.0, x0, y0, 0.0],
+        half([[x0, y0], [x1, y0], [x1, y1]]),
+        half([[x1, y1], [x0, y1], [x0, y0]]),
     ]
 }
 
@@ -73,16 +92,12 @@ fn run(rounding: f64, limit: f64) -> Result<Outlined, OutlineError> {
     })
 }
 
-/// The proposed height at the output vertex nearest `(x, y)`.
+/// The proposed surface's height at `(x, y)`.
 fn at(built: &Outlined, x: f64, y: f64) -> f64 {
-    plan::vertices(&built.points)
-        .iter()
-        .min_by(|a, b| {
-            (a[0] - x)
-                .hypot(a[1] - y)
-                .total_cmp(&(b[0] - x).hypot(b[1] - y))
-        })
-        .map_or(f64::NAN, |p| p[2])
+    Field::new(&built.points, &built.mesh.triangles)
+        .ok()
+        .and_then(|surface| surface.height_at(x, y))
+        .map_or(f64::NAN, |sample| sample.height)
 }
 
 #[test]

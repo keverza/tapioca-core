@@ -2565,3 +2565,48 @@ TEST (HudTerrainDesign, NativeSurfacePreparationRefusalIsLoggedWithoutDrawingThe
                line.find (outcome->error) != std::string::npos;
     }));
 }
+
+TEST (EditTerrainOutline, ACoplanarTerrainEdgeLeavesNoSliversAcrossTheFaces)
+{
+    // User export 17:26:24 UTC, 2026-11-05: a level two-triangle terrain whose diagonal runs past
+    // the path's start. Kept as a constraint, the offset rings crossed it at a shallow angle and
+    // left slivers along it; through nearly collinear points on the rounded faces their planes
+    // tilt steeply, a dent in the shading under correct contours.
+    const std::vector<double> points { -3.16, -3.24, -0.2, 25.3, -3.24, -0.2, 25.3, 25.21, -0.2, -3.16, 25.21, -0.2 };
+    const std::vector<uint32_t> triangles { 0, 1, 2, 0, 2, 3 };
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (StartLandscape (doc, { 1 }, error)) << error;
+    edit::AddPath (doc,
+                   { { 2.91, 6.03, 2.178 },
+                     { 5.02, 16.53, 1.7 },
+                     { 12.82, 5.33, 1.0 },
+                     { 16.38, 17.31, 0.5 },
+                     { 22.58, 3.91, 0.0 } },
+                   1.5);
+    TerrainDesignResult result;
+    uint32_t unreached = 0;
+    ASSERT_TRUE (EvaluateOutlineDesign (doc, { { points, triangles }, ProvenanceRequest {}, doc.revision, {} }, {},
+                                        result, unreached, error))
+        << error;
+    const auto& p = result.build.points;
+    const auto& t = result.build.triangles;
+    size_t slivers = 0;
+    for (size_t i = 0; i + 2 < t.size (); i += 3) {
+        const auto at = [&] (size_t k) {
+            return edit::Vec3 { p[t[i + k] * 3], p[t[i + k] * 3 + 1], p[t[i + k] * 3 + 2] };
+        };
+        const edit::Vec3 a = at (0), b = at (1), c = at (2);
+        const edit::Vec3 u = b - a, v = c - a;
+        const double nx = u.y * v.z - u.z * v.y, ny = u.z * v.x - u.x * v.z, nz = u.x * v.y - u.y * v.x;
+        // The faces' own triangles: not the step where they meet the terrain's edge, and not the
+        // paved outline's zero-area triples of points along one straight kerb.
+        const auto inland = [] (edit::Vec3 q) { return q.x > -2.6 && q.x < 24.7 && q.y > -2.7 && q.y < 24.6; };
+        if (std::abs (nz) < 2e-4 || !inland (a) || !inland (b) || !inland (c))
+            continue;
+        const double slope = std::hypot (nx, ny) / std::abs (nz);
+        // No face is steeper than 4/3 of its grade (its rounded top); the cut grade is 1:2.
+        slivers += slope > 0.8;
+    }
+    EXPECT_EQ (slivers, 0u);
+}
