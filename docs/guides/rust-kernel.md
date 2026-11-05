@@ -1264,16 +1264,24 @@ default 1 m; files saved without it load as 0).
 rather than one path's band (the editor's default since the 2026-10-24 live run:
 the band ignored kerb fillets, junctions and every other path, and stopped
 abruptly at path ends). Inside the area the design height is the caller's paved
-TIN; outside, the nearest point of the TIN's boundary gives the edge height and
-plan distance, cut or fill is decided against the base there, and the face runs
-at that grade with the band's rounded top and smoothstep toe, the base past
-`limit` (counted in `unreached` when the face had not met it). The region is
-rebuilt with the caller's plan breaklines (the outline and offset rings, z
-ignored) and isolated points (the TIN's interior vertices); outside vertices keep
-their base bits and volumes are the exact triangle sums. ABI:
-`tapioca_terrain_outline_build` (query/fill), a preview with no support rows.
-C++ (`EditTerrainOutline`) only builds plan geometry: the paved outline of every
-path clipped to the terrain inside the property line, its offsets and the region.
+TIN; outside, every point of the TIN's boundary offers a fill cone `h - fill*d`
+and a cut cone `h + cut*d` (with the band's rounded top). The fill face is the
+highest fill cone and the cut face the lowest cut cone, each edge's steepest point
+in closed form, so the faces stay continuous where two edges' reaches meet (an
+inside bend) and never exceed their grade; the ground is raised to one and
+lowered to the other with the band's toe (#112 T0; it replaced a nearest-point
+face that jumped along a bend's bisector). Cones past `limit` are ignored
+(`unreached` counts vertices where that changed the result); region-ring samples
+where a face had not met the ground are counted in `clipped` (the former reserved
+u32 of `TapiocaTerrainOutlineCounts`) and reported, since only a wall or a steeper
+face can fix them. The region is rebuilt with the caller's plan breaklines (the
+outline and offset rings, z ignored) and isolated points (the TIN's interior
+vertices); outside vertices keep their base bits and volumes are the exact
+triangle sums. ABI: `tapioca_terrain_outline_build` (query/fill), a preview with
+no support rows. C++ (`EditTerrainOutline`) only builds plan geometry: the paved
+outline of every path clipped to the terrain inside the property line, offset
+rings every `max(0.5, limit/20)` m densified along their length and clipped as
+open curves, and the region.
 Enabled fixed heights still fall back to the band.
 
 The Crown interpolation repair also constrains the supplied TIN's canonical
