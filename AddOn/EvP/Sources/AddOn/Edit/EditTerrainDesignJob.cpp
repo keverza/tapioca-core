@@ -28,15 +28,17 @@ void RunOutline (const geomsrv::edit::Document& doc, const EditTerrainInput& inp
             path = source.pathId;
     const double asked = std::max (options.cutLimit, options.fillLimit);
     auto grading = OutlineOptionsFor (doc, path, asked);
-    uint32_t unreached = 0;
-    outcome.built = EvaluateOutlineDesign (doc, input, grading, outcome.result, unreached, outcome.error);
+    uint32_t unreached = 0, clipped = 0;
+    outcome.built = EvaluateOutlineDesign (doc, input, grading, outcome.result, unreached, outcome.error, &clipped);
     while (outcome.built && unreached > 0 && grading.limit < kMaxSlopeReach) {
         grading.limit = std::min (kMaxSlopeReach, std::max (grading.limit * 4, 20.0));
         TerrainDesignResult wider;
         std::string error;
-        if (!EvaluateOutlineDesign (doc, input, grading, wider, unreached, error))
+        uint32_t widerClipped = 0;
+        if (!EvaluateOutlineDesign (doc, input, grading, wider, unreached, error, &widerClipped))
             break;
         outcome.result = std::move (wider);
+        clipped = widerClipped;
     }
     char text[256];
     if (!outcome.built)
@@ -54,6 +56,11 @@ void RunOutline (const geomsrv::edit::Document& doc, const EditTerrainInput& inp
                        asked, grading.limit);
         outcome.unmet.push_back (text);
     }
+    // Faces stopped by the terrain's or property line's edge end there in a step: no wider
+    // limit reaches past it, so it is said rather than retried.
+    if (outcome.built && clipped > 0)
+        outcome.unmet.push_back ("The side slopes reach the edge of the terrain or property line before they meet "
+                                 "the ground and end there in a step: steepen them, move the path or add a wall.");
 }
 } // namespace
 

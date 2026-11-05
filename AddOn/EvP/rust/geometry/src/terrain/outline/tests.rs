@@ -119,7 +119,124 @@ fn rounding_eases_the_top_and_keeps_the_straight_face() -> Result<(), OutlineErr
 fn a_face_cut_short_by_its_limit_is_counted() -> Result<(), OutlineError> {
     let built = run(0.0, 1.0)?;
     assert!(built.unreached > 0);
+    assert_eq!(built.clipped, 0);
     Ok(())
+}
+
+#[test]
+fn a_face_cut_short_by_the_region_is_counted() -> Result<(), OutlineError> {
+    // The fill face needs 4 m beside the pavement; this region leaves 1 m.
+    let (points, triangles) = base();
+    let region = [
+        -10.0, -3.0, 0.0, 50.0, -3.0, 0.0, 50.0, 15.0, 0.0, -10.0, 15.0, 0.0,
+    ];
+    let built = build(&OutlineRequest {
+        points: &points,
+        triangles: &triangles,
+        region: &region,
+        surface_points: &PAVED,
+        surface_triangles: &PAVED_TRIANGLES,
+        breaklines: &[],
+        spots: &[],
+        grading: Grading {
+            cut: HALF,
+            fill: HALF,
+            limit: 10.0,
+            rounding: 0.0,
+            effect: Effect::Both,
+            tolerance: 1e-6,
+        },
+    })?;
+    assert!(built.clipped > 0);
+    assert_eq!(built.unreached, 0);
+    assert_eq!(run(0.0, 10.0)?.clipped, 0);
+    Ok(())
+}
+
+/// An L of two 4-m-wide legs on level ground, the corner leg's far end
+/// higher: the faces' heights over the inside corner.
+fn inside_corner(px: f64, py: f64) -> Option<f64> {
+    // Leg A along x at y in [-2, 2] from x=0 to 20 (12 m), leg B along y at
+    // x in [16, 20] from y=2 to 20 falling from 12 to 11.
+    let surface = [
+        0.0, -2.0, 12.0, 20.0, -2.0, 12.0, 20.0, 2.0, 12.0, 0.0, 2.0, 12.0, 16.0, 2.0, 12.0, 16.0,
+        20.0, 11.0, 20.0, 20.0, 11.0,
+    ];
+    let surface_triangles = [0_u32, 1, 2, 0, 2, 4, 0, 4, 3, 4, 2, 6, 4, 6, 5];
+    let (points, triangles) = base();
+    let base = Field::new(&points, &triangles).ok()?;
+    let paved = Field::new(&surface, &surface_triangles).ok()?;
+    let edges = outline(&surface, &surface_triangles);
+    let faces = Faces {
+        base: &base,
+        surface: &paved,
+        outline: &edges,
+        cut: 0.5,
+        fill: 0.5,
+        grading: Grading {
+            cut: HALF,
+            fill: HALF,
+            limit: 10.0,
+            rounding: 0.0,
+            effect: Effect::Both,
+            tolerance: 1e-6,
+        },
+    };
+    faces.height(px, py).map(|(height, _)| height)
+}
+
+#[test]
+fn faces_meeting_at_an_inside_corner_stay_continuous_and_within_grade() -> Result<(), OutlineError>
+{
+    // Walk the inside corner's bisector region on a fine grid: every step's
+    // height change stays within the 1 in 2 grade, where the nearest-point
+    // faces jumped between the two legs' edge heights.
+    let step = 0.05;
+    for i in 0..120 {
+        for j in 0..120 {
+            let (x, y) = (
+                f64::from(i).mul_add(step, 10.0),
+                f64::from(j).mul_add(step, 2.5),
+            );
+            let here = inside_corner(x, y).ok_or(OutlineError::Coverage)?;
+            for (nx, ny) in [(x + step, y), (x, y + step)] {
+                let next = inside_corner(nx, ny).ok_or(OutlineError::Coverage)?;
+                assert!(
+                    (next - here).abs() <= 0.5f64.mul_add(step, 1e-9),
+                    "({x},{y}) -> ({nx},{ny}): {here} -> {next}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn the_steepest_point_of_an_edge_is_its_cone_extremum() {
+    // A 20 m edge rising 1 in 10 under a 1 in 2 cone, queried 3 m off it.
+    let (from, to) = ([0.0, 0.0, 0.0], [20.0, 0.0, 2.0]);
+    for (px, cut) in [(-5.0, false), (4.0, false), (12.0, true), (25.0, true)] {
+        let (distance, edge) = steepest([from, to], [px, 3.0], 0.5, cut);
+        let best = |t: f64| {
+            let (d, h) = ((t - px).hypot(3.0), 0.1 * t);
+            if cut { h + 0.5 * d } else { h - 0.5 * d }
+        };
+        let found = if cut {
+            edge + 0.5 * distance
+        } else {
+            edge - 0.5 * distance
+        };
+        let mut t = 0.0;
+        while t <= 20.0 {
+            let other = best(t);
+            assert!(if cut {
+                found <= other + 1e-12
+            } else {
+                found >= other - 1e-12
+            });
+            t += 0.01;
+        }
+    }
 }
 
 /// Two affine halves meeting at y=0, with a longitudinal 5% grade.
@@ -473,4 +590,32 @@ fn clipped_touching_and_coincident_supports_share_a_conforming_stitch() -> Resul
         }
     }
     Ok(())
+}
+
+#[test]
+fn the_toe_eases_without_steepening_the_face() {
+    // A 1 in 2 fill face over level ground at 0, meeting it at x = 4, with a
+    // 0.5 m blend: the eased height is continuous and its slope never exceeds
+    // the face's, unlike a smoothstep of the gap.
+    let face = |x: f64| 2.0 - 0.5 * x;
+    let step = 0.001;
+    let mut x = 0.0;
+    while x < 8.0 {
+        for cut in [false, true] {
+            let sign = if cut { -1.0 } else { 1.0 };
+            let here = ease(0.0, sign * face(x), cut, 0.5);
+            let next = ease(0.0, sign * face(x + step), cut, 0.5);
+            assert!((next - here).abs() <= 0.5f64.mul_add(step, 1e-12), "{x}");
+            // A smooth maximum (minimum) never undercuts the sharp one.
+            if cut {
+                assert!(here <= (-face(x)).min(0.0) + 1e-12, "{x}");
+            } else {
+                assert!(here >= face(x).max(0.0) - 1e-12, "{x}");
+            }
+        }
+        x += step;
+    }
+    assert_eq!(ease(0.0, 3.0, false, 0.5).to_bits(), 3.0f64.to_bits());
+    assert_eq!(ease(0.0, -3.0, false, 0.5).to_bits(), 0.0f64.to_bits());
+    assert_eq!(ease(1.0, 3.0, false, 0.0).to_bits(), 3.0f64.to_bits());
 }

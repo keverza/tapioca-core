@@ -60,8 +60,8 @@ pub struct TerrainOutlineCounts {
     pub ring: usize,
     /// Vertices whose face ran out at the limit before meeting the ground.
     pub unreached: u32,
-    /// Zero.
-    pub reserved: u32,
+    /// Region ring samples where a face ended in a step at the region's edge.
+    pub clipped: u32,
 }
 
 /// Caller-owned disjoint result storage; query mode publishes only `counts`
@@ -238,7 +238,7 @@ unsafe fn publish(built: &Outlined, target: TerrainOutlineOutput) -> Result<(), 
         triangles: built.mesh.triangles.len(),
         ring: built.mesh.ring.len(),
         unreached: built.unreached,
-        reserved: 0,
+        clipped: built.clipped,
     };
     if target.query_only == 0
         && (target.point_capacity < counts.points

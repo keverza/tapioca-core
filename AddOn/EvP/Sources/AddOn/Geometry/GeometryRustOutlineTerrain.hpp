@@ -29,6 +29,7 @@ struct OutlineTerrainResult {
     std::vector<uint32_t> ring; // the region ring as output vertices
     HybridVolumes site, context;
     uint32_t unreached = 0; // vertices left at the base although their face had not met it
+    uint32_t clipped = 0;   // region ring samples where a face ends in a step at the region's edge
 };
 // Atomic: the result changes only on success.
 bool BuildOutlineTerrain (const OutlineTerrainRequest& request, OutlineTerrainResult& result, std::string& error);

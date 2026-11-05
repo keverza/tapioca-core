@@ -32,11 +32,13 @@ OutlineDesignOptions OutlineOptionsFor (const geomsrv::edit::Document& doc, geom
 // Worker-only: grades `input`'s terrain from every path of `doc`. `result.build` carries the
 // proposed points, triangles, volumes and the region ring's vertices (mapping rows 17 only:
 // a preview, no support provenance); `result.region` the ring. `unreached` counts vertices
-// whose face ran out at the limit before meeting the ground. Refuses with a code: OutlineNoPaths,
-// OutlineOutside, Outline*/Region* from the kernel. `result` is unchanged on refusal.
+// whose face ran out at the limit before meeting the ground; `clipped`, when given, the region
+// ring samples where a face ends in a step at the region's edge (a wider limit cannot help
+// those). Refuses with a code: OutlineNoPaths, OutlineOutside, Outline*/Region* from the
+// kernel. `result` is unchanged on refusal.
 bool EvaluateOutlineDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
                             const OutlineDesignOptions& options, TerrainDesignResult& result, uint32_t& unreached,
-                            std::string& error);
+                            std::string& error, uint32_t* clipped = nullptr);
 
 } // namespace tapioca::geometry
 #endif

@@ -36,10 +36,31 @@ bool InsideShape (const std::vector<std::pair<ClipperPlanRing, int>>& shape, cp:
     return winding > 0;
 }
 
+// `source` with no side longer than `spacing` (0 keeps it): a face's height is sampled along
+// its ring as well as across the rings, or a long side's two ends span the toe.
+cp::PathD Densify (const cp::PathD& source, bool closed, double spacing)
+{
+    cp::PathD path;
+    const size_t sides = closed ? source.size () : source.size () - 1;
+    for (size_t i = 0; i < sides; ++i) {
+        const auto& a = source[i];
+        const auto& b = source[(i + 1) % source.size ()];
+        path.push_back (a);
+        const double pieces = spacing > 0 ? std::ceil (std::hypot (b.x - a.x, b.y - a.y) / spacing) : 1;
+        for (double k = 1; k < pieces; ++k)
+            path.push_back ({ a.x + (b.x - a.x) * k / pieces, a.y + (b.y - a.y) * k / pieces });
+    }
+    if (!closed && !source.empty ())
+        path.push_back (source.back ());
+    return path;
+}
+
 // A closed ring as the two open halves a breakline must be, kept only when every vertex is
 // strictly inside the region.
-void AddRing (const cp::PathD& ring, const ClipperPlanRing& region, std::vector<std::vector<double>>& lines)
+void AddRing (const cp::PathD& source, const ClipperPlanRing& region, std::vector<std::vector<double>>& lines,
+              double spacing = 0)
 {
+    const auto ring = Densify (source, true, spacing);
     const size_t n = ring.size ();
     if (n < 3)
         return;
@@ -56,6 +77,34 @@ void AddRing (const cp::PathD& ring, const ClipperPlanRing& region, std::vector<
     lines.push_back (std::move (second));
 }
 
+// An open piece of a ring as one breakline, kept only when every vertex is strictly inside
+// the region and it is longer than the area's edge margin.
+void AddLine (const cp::PathD& source, const ClipperPlanRing& region, std::vector<std::vector<double>>& lines,
+              double spacing)
+{
+    if (source.size () < 2)
+        return;
+    double length = 0;
+    for (size_t i = 1; i < source.size (); ++i)
+        length += std::hypot (source[i].x - source[i - 1].x, source[i].y - source[i - 1].y);
+    if (length < 0.05)
+        return;
+    std::vector<double> line;
+    for (const auto& p : Densify (source, false, spacing)) {
+        if (region.Locate (p) != cp::PointInPolygonResult::IsInside)
+            return;
+        line.insert (line.end (), { p.x, p.y, 0.0 });
+    }
+    lines.push_back (std::move (line));
+}
+
+// The rings' spacing beyond the rounding, metres: half a metre up to a 10 m reach, then a
+// twentieth of it. The toe falls between two rings, so this bounds how far it is interpolated.
+double RingStep (const OutlineDesignOptions& o)
+{
+    return std::max (0.5, o.limit / 20);
+}
+
 // The face lines' distances from the outline: four inside the rounding, then evenly to the reach.
 std::vector<double> Distances (const OutlineDesignOptions& o)
 {
@@ -63,7 +112,7 @@ std::vector<double> Distances (const OutlineDesignOptions& o)
     if (o.rounding > 0)
         for (double k = 1; k <= 4; ++k)
             d.push_back (o.rounding * k / 4);
-    const double step = std::max (0.5, o.limit / 12);
+    const double step = RingStep (o);
     for (double at = (d.empty () ? 0.0 : d.back ()) + step; at < o.limit + 1e-9; at += step)
         d.push_back (at);
     return d;
@@ -84,7 +133,7 @@ OutlineDesignOptions OutlineOptionsFor (const edit::Document& doc, edit::Id path
 }
 
 bool EvaluateOutlineDesign (const edit::Document& doc, const EditTerrainInput& input, const OutlineDesignOptions& o,
-                            TerrainDesignResult& result, uint32_t& unreached, std::string& error)
+                            TerrainDesignResult& result, uint32_t& unreached, std::string& error, uint32_t* clipped)
 {
     const auto paved = edit::Pave (doc.paths, o.pavedStep, true);
     if (paved.vertices.empty () || paved.triangles.empty ()) {
@@ -131,11 +180,27 @@ bool EvaluateOutlineDesign (const edit::Document& doc, const EditTerrainInput& i
     std::vector<std::vector<double>> lines;
     for (const auto& ring : graded)
         AddRing (ring, regionLocation, lines);
+    // Each ring is clipped as an open curve: where the area's edge cuts it there is no face to
+    // lie on, and closing it along that edge only fans needle triangles against the region ring.
     for (const double d : Distances (o)) {
-        auto ring = cp::InflatePaths (graded, d, cp::JoinType::Round, cp::EndType::Polygon, 2.0, kPrecision, 0.05);
-        ring = cp::Intersect (ring, inner, cp::FillRule::NonZero, kPrecision);
-        for (const auto& path : ring)
-            AddRing (path, regionLocation, lines);
+        auto rings = cp::InflatePaths (graded, d, cp::JoinType::Round, cp::EndType::Polygon, 2.0, kPrecision, 0.05);
+        for (auto& ring : rings)
+            if (!ring.empty ())
+                ring.push_back (ring.front ());
+        cp::ClipperD clipper (kPrecision);
+        clipper.AddOpenSubject (rings);
+        clipper.AddClip (inner);
+        cp::PathsD closed, open;
+        if (!clipper.Execute (cp::ClipType::Intersection, cp::FillRule::NonZero, closed, open))
+            continue;
+        for (auto& piece : open) {
+            if (piece.size () > 3 && piece.front () == piece.back ()) {
+                piece.pop_back ();
+                AddRing (piece, regionLocation, lines, RingStep (o));
+            }
+            else
+                AddLine (piece, regionLocation, lines, RingStep (o));
+        }
     }
     // The paved surface's own vertices inside it, so its profile and crossfall are kept.
     std::vector<double> spots;
@@ -182,6 +247,8 @@ bool EvaluateOutlineDesign (const edit::Document& doc, const EditTerrainInput& i
     for (size_t i = 0; i < built.ring.size (); ++i)
         build.mappings.push_back ({ TerrainMappingKind::RingVertex, static_cast<uint32_t> (i), { built.ring[i] } });
     unreached = built.unreached;
+    if (clipped)
+        *clipped = built.clipped;
     result = std::move (candidate);
     error.clear ();
     return true;

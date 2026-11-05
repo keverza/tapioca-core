@@ -96,6 +96,7 @@ bool BuildOutlineTerrain (const OutlineTerrainRequest& request, OutlineTerrainRe
     candidate.site = Volumes (site);
     candidate.context = Volumes (context);
     candidate.unreached = counts.unreached;
+    candidate.clipped = counts.clipped;
     result = std::move (candidate);
     error.clear ();
     return true;

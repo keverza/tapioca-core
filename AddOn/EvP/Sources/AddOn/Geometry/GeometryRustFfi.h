@@ -669,7 +669,7 @@ typedef struct {
 } TapiocaTerrainOutlineRequest;
 typedef struct {
     size_t points, triangles, ring;
-    uint32_t unreached, reserved;
+    uint32_t unreached, clipped; // clipped: ring samples where a face ends in a step at the region's edge
 } TapiocaTerrainOutlineCounts;
 typedef struct {
     TapiocaTerrainOutlineCounts* counts;

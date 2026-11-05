@@ -1842,6 +1842,65 @@ TEST (EditTerrainOutline, CapturedPathPlacementsKeepRemoteTerrainAtItsBaseline)
     }
 }
 
+TEST (EditTerrainOutline, ABentFillPathGradesSmoothFacesAndReportsTheStepAtTheTerrainsEdge)
+{
+    // User export 12:41:02 UTC, 2026-11-04: an L path in fill from 1.2 m to 0 over a level
+    // 18 m slab, its start 2 m from the slab's edge. The nearest-point faces jumped where the
+    // two legs' reaches met inside the bend and cliffed silently at the edge.
+    constexpr double side = 17.96522521070513, base = -0.19999999999999996;
+    const std::vector<double> points { 0, 0, base, side, 0, base, side, side, base, 0, side, base };
+    const std::vector<uint32_t> triangles { 0, 1, 2, 0, 2, 3 };
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (StartLandscape (doc, { 1 }, error)) << error;
+    edit::AddPath (doc,
+                   { { 2.755713478079103, 8.275542496185775, 1.1977159969400257 },
+                     { 8.611676648767107, 11.656484409147028, 0 },
+                     { 9.3397481833684, 6.058714464646998, 0 } },
+                   1.5);
+    TerrainDesignResult result;
+    uint32_t unreached = 0, clipped = 0;
+    ASSERT_TRUE (EvaluateOutlineDesign (doc, { { points, triangles }, ProvenanceRequest {}, doc.revision, {} }, {},
+                                        result, unreached, error, &clipped))
+        << error;
+    EXPECT_EQ (unreached, 0u);
+    EXPECT_GT (clipped, 0u) << "the fill face needs ~4 m beside the start and has 2 m";
+    // Inside the bend and away from the slab's edge, a 0.1 m grid never climbs faster than
+    // the steeper (cut, 1 in 2) grade plus the interpolation over the 0.5 m rings.
+    const size_t rows = 51;
+    std::vector<double> queries;
+    for (size_t i = 0; i < 31; ++i)
+        for (size_t j = 0; j < rows; ++j)
+            queries.insert (queries.end (), { 6.0 + 0.1 * double (i), 5.0 + 0.1 * double (j) });
+    std::vector<TerrainSample> samples;
+    TerrainFieldSummary summary;
+    ASSERT_TRUE (
+        SampleTerrain ({ result.build.points, result.build.triangles }, queries, 0.25, samples, summary, error))
+        << error;
+    const auto paved = edit::Pave (doc.paths);
+    const auto onPaved = [&] (double x, double y) {
+        for (const auto& ring : paved.rings) {
+            Clipper2Lib::PathD path;
+            for (const auto& p : ring)
+                path.push_back ({ p.x, p.y });
+            if (Clipper2Lib::PointInPolygon (Clipper2Lib::PointD { x, y }, path) !=
+                Clipper2Lib::PointInPolygonResult::IsOutside)
+                return true;
+        }
+        return false;
+    };
+    double steepest = 0;
+    for (size_t i = 0; i + rows < samples.size (); ++i) {
+        for (const size_t j : { i + 1, i + rows }) {
+            if ((j == i + 1 && (i + 1) % rows == 0) || onPaved (queries[i * 2], queries[i * 2 + 1]) ||
+                onPaved (queries[j * 2], queries[j * 2 + 1]))
+                continue;
+            steepest = std::max (steepest, std::abs (samples[j].height - samples[i].height) / 0.1);
+        }
+    }
+    EXPECT_LT (steepest, 0.6) << "a face inside the bend is steeper than its grade";
+}
+
 TEST (EditTerrainOutline, SubMetreRingLocationSurvivesWindingAndSurveyTranslations)
 {
     namespace cp = Clipper2Lib;

@@ -4,13 +4,21 @@
 //! **Surface.** Inside the paved area the design height is the paved surface's
 //! (a caller TIN over the area: every path, junction and kerb fillet as paved).
 //!
-//! **Faces.** Outside it, a query takes the nearest point of the area's outline
-//! (the TIN's boundary edges), its height `h` there and its plan distance `d`.
-//! The outline point is cut where `h` is below the base there by more than the
-//! tolerance, fill above it, at grade otherwise (the base stays). The face runs
-//! from `h` at the cut or fill grade; its first `rounding` metres are the same
-//! cubic top as the band's ([`super::design`]), and its toe blends onto the
-//! ground by the same smoothstep of the vertical gap. Past `limit` the base stays.
+//! **Faces.** Outside it, every point `q` of the area's outline (the TIN's
+//! boundary edges) at height `h` offers a fill cone `h - fill * d` and a cut
+//! cone `h + cut * d` over the plan distance `d`. The fill face is the highest
+//! fill cone and the cut face the lowest cut cone (each edge's steepest point
+//! is closed form), so the faces are continuous where two edges' reaches meet,
+//! as in an inside corner, and never steeper than their grade. The ground is
+//! raised to the fill face and then lowered to the cut face. A cone's first
+//! `rounding` metres are the same cubic top as the band's ([`super::design`]);
+//! each face's toe rounds onto the ground by a smooth maximum (minimum) over
+//! `grade * rounding` of vertical gap, never steeper than the face. A result within the tolerance of the ground keeps the ground;
+//! a cone past `limit` is ignored.
+//!
+//! **Clipping.** A face that would still differ from the ground on the region
+//! ring ends there in a step: [`Outlined::clipped`] counts the ring samples
+//! where it does.
 //!
 //! **Mesh.** The region is rebuilt as in [`super::region`] with the caller's plan
 //! breaklines (the outline and rings offset from it, so a face has vertices to
@@ -22,7 +30,7 @@
 //!
 //! Plan positions are world metres in `f64`; heights in metres.
 
-use super::design::{toe, top};
+use super::design::top;
 use super::edit::Effect;
 use super::field::Field;
 use super::plan;
@@ -93,7 +101,14 @@ pub struct Outlined {
     /// Vertices past the limit whose face had not yet met the ground: the base
     /// is kept there, so the faces end in a step. Zero when every face meets it.
     pub unreached: u32,
+    /// Region ring samples (every vertex, and every [`CLIP_STEP`] metres along
+    /// it) where a face had not met the ground: the region's edge, not the
+    /// limit, ends it in a step. Zero when every face fits inside the region.
+    pub clipped: u32,
 }
+
+/// Plan spacing of the region ring samples checked for a clipped face, metres.
+pub const CLIP_STEP: f64 = 0.25;
 
 /// Outline grading refusals.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -145,29 +160,55 @@ fn outline(points: &[f64], triangles: &[u32]) -> Vec<[[f64; 3]; 2]> {
         .collect()
 }
 
-/// The outline point nearest `(px, py)` in plan: its distance and the point,
-/// with the height interpolated along its edge.
-fn nearest(outline: &[[[f64; 3]; 2]], px: f64, py: f64) -> (f64, [f64; 3]) {
-    let mut best = (f64::INFINITY, [0.0; 3]);
-    for &[from, to] in outline {
-        let (dx, dy) = (to[0] - from[0], to[1] - from[1]);
-        let length2 = dx.mul_add(dx, dy * dy);
-        let along = if length2 > 0.0 {
-            ((px - from[0]).mul_add(dx, (py - from[1]) * dy) / length2).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        let point = [
-            dx.mul_add(along, from[0]),
-            dy.mul_add(along, from[1]),
-            (to[2] - from[2]).mul_add(along, from[2]),
-        ];
-        let distance = (point[0] - px).hypot(point[1] - py);
-        if distance < best.0 {
-            best = (distance, point);
-        }
+/// The point of the edge `from`-`to` whose cone at `grade` reaches highest
+/// over `(px, py)` (lowest when `cut`): its plan distance and height. Along the
+/// edge the height is affine and the distance convex, so the cone height is
+/// concave and its extremum closed form.
+fn steepest([from, to]: [[f64; 3]; 2], [px, py]: [f64; 2], grade: f64, cut: bool) -> (f64, f64) {
+    let (dx, dy) = (to[0] - from[0], to[1] - from[1]);
+    let length = dx.hypot(dy);
+    let at = |along: f64| {
+        let t = if length > 0.0 { along / length } else { 0.0 };
+        let (x, y) = (dx.mul_add(t, from[0]), dy.mul_add(t, from[1]));
+        (
+            (x - px).hypot(y - py),
+            (to[2] - from[2]).mul_add(t, from[2]),
+        )
+    };
+    if length <= 0.0 {
+        return at(0.0);
     }
-    best
+    let (ux, uy) = (dx / length, dy / length);
+    let (rx, ry) = (px - from[0], py - from[1]);
+    let foot = rx.mul_add(ux, ry * uy);
+    let off = rx.mul_add(uy, -ry * ux).abs();
+    // A fill cone rises along the edge's own rise; a cut cone along its fall.
+    let rise = (to[2] - from[2]) / length * if cut { -1.0 } else { 1.0 };
+    let along = if rise >= grade {
+        length
+    } else if rise <= -grade {
+        0.0
+    } else {
+        let ratio = rise / grade;
+        off.mul_add(ratio / ratio.mul_add(-ratio, 1.0).sqrt(), foot)
+    };
+    at(along.clamp(0.0, length))
+}
+
+/// The face against the ground: a fill keeps the higher, a cut the lower, and
+/// within `blend` metres of height either side of where they meet it rounds
+/// over by the quadratic smooth maximum (minimum). Its slope always lies
+/// between the ground's and the face's, so the toe is never steeper than the
+/// face (the band's smoothstep `toe` steepens it by up to 27/16).
+fn ease(base: f64, face: f64, cut: bool, blend: f64) -> f64 {
+    let gap = if cut { base - face } else { face - base };
+    let eased = if blend > 0.0 && gap.abs() < blend {
+        let h = (blend - gap.abs()) / blend;
+        (blend * 0.25 * h).mul_add(h, gap.max(0.0))
+    } else {
+        gap.max(0.0)
+    };
+    if cut { base - eased } else { base + eased }
 }
 
 /// The validated grading: grades as rise per metre of run.
@@ -180,44 +221,83 @@ struct Faces<'a> {
     grading: Grading,
 }
 
+/// The fill (highest) and cut (lowest) faces over a point: within the limit,
+/// and without it.
+#[derive(Clone, Copy)]
+struct Envelope {
+    fill: f64,
+    cut: f64,
+    fill_any: f64,
+    cut_any: f64,
+}
+
 impl Faces<'_> {
-    /// Design height at `(x, y)` and whether the face there ran out before
-    /// meeting the ground; `None` off the base surface.
+    /// One cone's height `distance` out from an outline point at `edge`.
+    fn cone(&self, edge: f64, distance: f64, rise: f64) -> f64 {
+        let rounding = self.grading.rounding;
+        if rounding > 0.0 && distance < rounding {
+            top(edge, 0.0, rise, rounding, distance)
+        } else {
+            rise.mul_add(distance, edge)
+        }
+    }
+
+    fn envelope(&self, px: f64, py: f64) -> Envelope {
+        let mut faces = Envelope {
+            fill: f64::NEG_INFINITY,
+            cut: f64::INFINITY,
+            fill_any: f64::NEG_INFINITY,
+            cut_any: f64::INFINITY,
+        };
+        let limit = self.grading.limit;
+        for &[from, to] in self.outline {
+            if self.fill.is_finite() {
+                let (distance, edge) = steepest([from, to], [px, py], self.fill, false);
+                let face = self.cone(edge, distance, -self.fill);
+                faces.fill_any = faces.fill_any.max(face);
+                if distance <= limit {
+                    faces.fill = faces.fill.max(face);
+                }
+            }
+            if self.cut.is_finite() {
+                let (distance, edge) = steepest([from, to], [px, py], self.cut, true);
+                let face = self.cone(edge, distance, self.cut);
+                faces.cut_any = faces.cut_any.min(face);
+                if distance <= limit {
+                    faces.cut = faces.cut.min(face);
+                }
+            }
+        }
+        faces
+    }
+
+    /// The ground raised to `fill` and lowered to `cut`, each easing onto it
+    /// on its own; within the tolerance of the ground, the ground bit for bit.
+    /// Where the paved surface is no steeper than the grades, no point is
+    /// below the fill face and above the cut face, so at most one moves it.
+    fn graded(&self, base: f64, fill: f64, cut: f64) -> f64 {
+        let rounding = self.grading.rounding;
+        let raise = ease(base, fill, false, self.fill * rounding) - base;
+        let lower = base - ease(base, cut, true, self.cut * rounding);
+        let design = self.restrict(base, base + raise - lower);
+        if (design - base).abs() <= self.grading.tolerance {
+            base
+        } else {
+            design
+        }
+    }
+
+    /// Design height at `(x, y)` and whether a face there ran out at the limit
+    /// before meeting the ground; `None` off the base surface.
     fn height(&self, px: f64, py: f64) -> Option<(f64, bool)> {
         let base = self.base.height_at(px, py)?.height;
         if let Some(paved) = self.surface.height_at(px, py) {
             return Some((self.restrict(base, paved.height), false));
         }
-        let (distance, [qx, qy, edge]) = nearest(self.outline, px, py);
-        let ground = self
-            .base
-            .height_at(qx, qy)
-            .map_or(base, |sample| sample.height);
-        let delta = edge - ground;
-        if !distance.is_finite() || delta.abs() <= self.grading.tolerance {
-            return Some((base, false));
-        }
-        let cut = delta < 0.0;
-        let grade = if cut { self.cut } else { self.fill };
-        if !grade.is_finite() {
-            return Some((base, false));
-        }
-        let rise = if cut { grade } else { -grade };
-        let rounding = self.grading.rounding;
-        if distance > self.grading.limit {
-            let end = rise.mul_add(self.grading.limit, edge);
-            let short = if cut { end < base } else { end > base };
-            return Some((base, short));
-        }
-        let face = if rounding > 0.0 && distance < rounding {
-            top(edge, 0.0, rise, rounding, distance)
-        } else {
-            rise.mul_add(distance, edge)
-        };
-        Some((
-            self.restrict(base, toe(base, face, cut, grade * rounding)),
-            false,
-        ))
+        let faces = self.envelope(px, py);
+        let design = self.graded(base, faces.fill, faces.cut);
+        let unlimited = self.graded(base, faces.fill_any, faces.cut_any);
+        Some((design, design.to_bits() != unlimited.to_bits()))
     }
 
     fn restrict(&self, base: f64, design: f64) -> f64 {
@@ -227,6 +307,43 @@ impl Faces<'_> {
             Effect::Both => design,
         }
     }
+}
+
+/// Region ring samples, every vertex and every [`CLIP_STEP`] metres between,
+/// where the faces would leave the ground: there the ring ends them in a step.
+fn clipped(
+    faces: &Faces<'_>,
+    base: &Field,
+    vertices: &[[f64; 3]],
+    ring: &[u32],
+) -> Result<u32, OutlineError> {
+    let mut count = 0_u32;
+    for (index, &from) in ring.iter().enumerate() {
+        let to = ring.get((index + 1) % ring.len()).copied();
+        let (Some(start), Some(end)) = (
+            vertices.get(from as usize),
+            to.and_then(|to| vertices.get(to as usize)),
+        ) else {
+            return Err(OutlineError::Coverage);
+        };
+        let samples = ((end[0] - start[0]).hypot(end[1] - start[1]) / CLIP_STEP)
+            .ceil()
+            .max(1.0);
+        let mut sample = 0.0;
+        while sample < samples {
+            let along = sample / samples;
+            sample += 1.0;
+            let x = (end[0] - start[0]).mul_add(along, start[0]);
+            let y = (end[1] - start[1]).mul_add(along, start[1]);
+            let Some(ground) = base.height_at(x, y) else {
+                continue;
+            };
+            if let Some((height, _)) = faces.height(x, y) {
+                count += u32::from(height.to_bits() != ground.height.to_bits());
+            }
+        }
+    }
+    Ok(count)
 }
 
 /// Grade the terrain inside `request.region` from the paved area.
@@ -303,6 +420,7 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
         owners.push(height.to_bits() != z.to_bits());
         based.push(z);
     }
+    let clipped = clipped(&faces, &base, vertices, &mesh.ring)?;
     let volumes = exact_cut_fill(&ExactRequest {
         points: &points,
         base: &based,
@@ -318,6 +436,7 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
         owners,
         volumes,
         unreached,
+        clipped,
     })
 }
 
