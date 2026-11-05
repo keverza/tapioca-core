@@ -76,29 +76,36 @@ edit::PrimitiveInput ShapeInput (const Session& s, edit::Vec3 second, bool unifo
     return in;
 }
 
+void SetTool (Session& s, Tool tool)
+{
+    if (s.tool != tool)
+        s.trimPreview.reset ();
+    s.tool = tool;
+}
+
 bool ToolKey (Session& s, uint32_t code)
 {
     const auto draw = [&s] (Tool tool) {
         if (ShapeTool (tool) || tool != s.tool)
             s.drawing.clear ();
-        s.tool = tool;
+        SetTool (s, tool);
         s.landscapeMode = LandscapeMode::DrawSource;
     };
     switch (code) {
         case 'V':
-            s.tool = Tool::Select, s.drawing.clear ();
+            SetTool (s, Tool::Select), s.drawing.clear ();
             s.landscapeMode = LandscapeMode::Select;
             return true;
         case 'L':
-            s.tool = Tool::Polyline;
+            SetTool (s, Tool::Polyline);
             s.landscapeMode = LandscapeMode::DrawSource;
             return true;
         case 'P':
-            s.tool = Tool::Path;
+            SetTool (s, Tool::Path);
             s.landscapeMode = LandscapeMode::DrawSource;
             return true;
         case 'B':
-            s.tool = Tool::Curve; // the pen: clicks for corners, drags for curves
+            SetTool (s, Tool::Curve); // the pen: clicks for corners, drags for curves
             s.landscapeMode = LandscapeMode::DrawSource;
             return true;
         case 'Q':
@@ -111,10 +118,17 @@ bool ToolKey (Session& s, uint32_t code)
             draw (Tool::Ellipse);
             return true;
         case 'M': // the selection stays: it is what the line mirrors
-            s.tool = Tool::Mirror, s.drawing.clear ();
+            SetTool (s, Tool::Mirror), s.drawing.clear ();
             s.landscapeMode = LandscapeMode::Select;
             if (s.selection.Items ().empty ())
                 s.message = "Select what to mirror, then click the mirror line's two points.";
+            return true;
+        case 'X': // a repeat-use pick tool; the selection is not its target
+            SetTool (s, Tool::Trim), s.drawing.clear (), s.drawHandles.clear ();
+            s.landscapeMode = LandscapeMode::Select;
+            s.selection.hover = {};
+            s.snap = {};
+            s.message = "Hover a segment to highlight its removable span; click to trim, Esc to exit.";
             return true;
         case 0x26: // Up and Down: the polygon's sides, while it is the tool
         case 0x28:
@@ -245,13 +259,13 @@ void FinishMirror (Session& s, edit::Vec3 second, bool copy)
         s.drawing.push_back (first); // refused: the message says why; the first click stays
         return;
     }
-    s.tool = Tool::Select;
+    SetTool (s, Tool::Select);
 }
 
 void FinishDrawing (Session& s)
 {
-    if (ShapeTool (s.tool) || s.tool == Tool::Mirror)
-        return; // a shape or a mirror line ends at its second click, never at Enter or a double click
+    if (ShapeTool (s.tool) || s.tool == Tool::Mirror || s.tool == Tool::Trim)
+        return; // shapes and mirror end at their second click; trim is a one-click pick tool
     if (s.drawing.size () < 2) {
         s.drawing.clear ();
         return;

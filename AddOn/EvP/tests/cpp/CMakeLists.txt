@@ -622,6 +622,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerEditorFrame.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDrawing.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTrim.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscape.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorEntrances.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscapeCommand.cpp"

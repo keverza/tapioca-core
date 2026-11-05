@@ -221,10 +221,10 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // Ctrl over the view picks with Select whatever tool is on, before anything of it is placed;
     // once Ctrl is up and the click (or its drag) is over, the tool comes back.
     if (!s.ctrlReturn && v.ctrl && hovered && s.tool != Tool::Select && s.drawing.empty () && s.drag == Drag::None)
-        s.ctrlReturn = s.tool, s.tool = Tool::Select;
+        s.ctrlReturn = s.tool, SetTool (s, Tool::Select);
     else if (s.ctrlReturn && !v.ctrl && s.drag == Drag::None && !ImGui::IsMouseDown (0)) {
         if (s.tool == Tool::Select)
-            s.tool = *s.ctrlReturn; // unless another tool was chosen meanwhile
+            SetTool (s, *s.ctrlReturn); // unless another tool was chosen meanwhile
         s.ctrlReturn.reset ();
     }
     if (LandscapeView (s, m, mouse, hovered, scale)) {
@@ -240,6 +240,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
     const edit::PickView pick = m.Pick ();
     const double radius = kPickPixels * scale;
+    UpdateTrimPreview (s, m, mouse, hovered, radius);
     const bool gizmo = GizmoShown (s);
     const edit::Frame frame = gizmo ? GizmoFrame (s) : edit::Frame {};
     const auto handles = GizmoHandles (s, s.gizmo);
@@ -270,7 +271,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         s.typedHandle = -1;
     if (!gripTook && hovered && ImGui::IsMouseClicked (0) && s.drag == Drag::None) {
         s.typedHandle = -1;
-        if (s.tool != Tool::Select) {
+        if (s.tool == Tool::Trim)
+            ClickTrim (s);
+        else if (s.tool != Tool::Select) {
             const double z = s.drawing.empty () ? s.plane.origin.z : s.drawing.back ().z;
             Vec3 p;
             std::optional<Vec3> anchor;
@@ -377,7 +380,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             BeginMarquee (s, mouse, shift, v.ctrl, {});
         }
     }
-    if (hovered && ImGui::IsMouseDoubleClicked (0) && s.tool != Tool::Select)
+    if (hovered && ImGui::IsMouseDoubleClicked (0) && s.tool != Tool::Select && s.tool != Tool::Trim)
         FinishDrawing (s);
     else if (hovered && ImGui::IsMouseDoubleClicked (0) && !hits.empty () &&
              (s.drag == Drag::None || (s.drag == Drag::Part && !s.dragStarted)) && EnterGroup (s, hits.front ().ref)) {
@@ -569,8 +572,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     if (s.dragReleased && s.drag != Drag::None && !typing)
         s.message = "Drag paused: Enter finishes this preview; type a value, or Esc cancels the drag.";
 
-    // Drawing tools follow the pointer between clicks.
-    if (s.tool != Tool::Select && (hovered || s.navigation.blocked) && s.drag == Drag::None) {
+    // Drawing tools follow the pointer between clicks; Trim has its own unsnapped span preview.
+    if (s.tool != Tool::Select && s.tool != Tool::Trim && (hovered || s.navigation.blocked) && s.drag == Drag::None) {
         const double z = s.drawing.empty () ? s.plane.origin.z : s.drawing.back ().z;
         Vec3 p;
         std::optional<Vec3> anchor;
@@ -589,6 +592,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         }
     }
 
+    DrawTrimPreview (s, m, scale);
     DrawHover (s, m, scale);
 
     // The live dimensions and path labels, clear of the gizmo and of each other. Nothing that
@@ -611,7 +615,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // Snap marker, its guides and its hint: guides are the quietest thing drawn -- thin,
     // dashed, translucent -- under the geometry they help place, and not while the pen pulls a
     // handle (the handle is the gesture then).
-    if (s.snap.snapped && (s.drag != Drag::None || s.tool != Tool::Select) && !(s.tool == Tool::Curve && s.penDown)) {
+    if (s.snap.snapped && s.tool != Tool::Trim && (s.drag != Drag::None || s.tool != Tool::Select) &&
+        !(s.tool == Tool::Curve && s.penDown)) {
         for (const auto& g : s.snap.guides)
             DashedLine (s, m, g.from, g.to, IM_COL32 (155, 93, 229, 150), 1.0f * scale);
         Dot (s, m, s.snap.point, 5.0f * scale, kSnap);

@@ -221,8 +221,15 @@ void FinishDrawing (Session& s);
 edit::PrimitiveInput ShapeInput (const Session& s, edit::Vec3 second, bool uniform);
 void FinishShape (Session& s, edit::Vec3 second, bool uniform);
 void DrawingPreview (Session& s, const Map& m, bool shift, float scale);
-// A tool's letter (V L P B Q N O), or Up/Down for the polygon's sides: true when it was one.
+// Tool switches invalidate trim's document/pointer-bound preview without changing the selection.
+void SetTool (Session& s, Tool tool);
+// A tool's letter (V L P B Q N O M X), or Up/Down for the polygon's sides: true when it was one.
 bool ToolKey (Session& s, uint32_t code);
+// Trim picks straight polyline segments, caches the exact hover span, draws it, and commits the
+// cached candidate in one session operation. Hover and click use the same unsnapped pointer.
+void UpdateTrimPreview (Session& s, const Map& m, ImVec2 mouse, bool hovered, double radius);
+void DrawTrimPreview (Session& s, const Map& m, float scale);
+void ClickTrim (Session& s);
 bool LandscapeCommandKeys (Session& s, const overlayhud::Input& input);
 void History (Session& s, bool undo);
 void EndHandleDrag (Session& s);

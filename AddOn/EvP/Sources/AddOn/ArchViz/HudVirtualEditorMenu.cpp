@@ -30,6 +30,7 @@ void History (Session& s, bool undo)
         return;
     if (!(undo ? s.edits.Undo () : s.edits.Redo ()))
         s.message = undo ? "Nothing to undo." : "Nothing to redo.";
+    s.trimPreview.reset ();
     s.selection.Prune (Doc (s));
 }
 
@@ -493,6 +494,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
             items.push_back (Item ("tool.polygon", "Draw polygon", "N", true, s.tool == Tool::Polygon));
             items.push_back (Item ("tool.ellipse", "Draw ellipse or circle", "O", true, s.tool == Tool::Ellipse));
             items.push_back (Item ("tool.mirror", "Mirror across a line", "M", true, s.tool == Tool::Mirror));
+            items.push_back (Item ("tool.trim", "Trim between crossings", "X", true, s.tool == Tool::Trim));
             items.push_back (Item ("import.drafting", "Add Archicad selection's lines", {}, !s.draftingImport));
             Rule (items);
             items.push_back (
@@ -581,20 +583,21 @@ void RunMenuItem (Session& s, const std::string& id)
     else if (id == "import.drafting")
         s.draftingImport = true, s.draftingImportAs = "lines";
     else if (id == "tool.select")
-        s.tool = Tool::Select, s.drawing.clear ();
+        SetTool (s, Tool::Select), s.drawing.clear ();
     else if (id == "tool.polyline")
-        s.tool = Tool::Polyline;
+        SetTool (s, Tool::Polyline);
     else if (id == "tool.path")
-        s.tool = Tool::Path;
+        SetTool (s, Tool::Path);
     else if (id == "tool.curve")
-        s.tool = Tool::Curve;
+        SetTool (s, Tool::Curve);
     else if (id == "tool.mirror")
         ToolKey (s, 'M');
-    else if (id == "tool.rectangle" || id == "tool.polygon" || id == "tool.ellipse")
-        s.tool = id == "tool.rectangle" ? Tool::Rectangle
-                 : id == "tool.polygon" ? Tool::Polygon
-                                        : Tool::Ellipse,
+    else if (id == "tool.trim")
+        ToolKey (s, 'X');
+    else if (id == "tool.rectangle" || id == "tool.polygon" || id == "tool.ellipse") {
+        SetTool (s, id == "tool.rectangle" ? Tool::Rectangle : id == "tool.polygon" ? Tool::Polygon : Tool::Ellipse);
         s.drawing.clear ();
+    }
     else if (id == "select.none")
         s.selection.Clear ();
     else if (id == "select.all")

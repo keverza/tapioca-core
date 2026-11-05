@@ -813,7 +813,7 @@ void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& tak
 void DrawHover (Session& s, const Map& m, float scale)
 {
     const auto& hover = s.selection.hover;
-    if (s.drag != Drag::None || hover.entity == edit::kNoId)
+    if (s.tool == Tool::Trim || s.drag != Drag::None || hover.entity == edit::kNoId)
         return;
     const auto run = [&] (const std::vector<Vec3>& p, bool closed, float width) {
         for (size_t k = 0; k + 1 < p.size (); ++k)

@@ -97,32 +97,37 @@ void Panel (Session& s)
         ImGui::TextWrapped ("Debug export failed: %s", s.debugExportError.c_str ());
     ImGui::BeginDisabled (s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s));
     if (ImGui::RadioButton ("Select (V)", s.tool == Tool::Select))
-        s.tool = Tool::Select, s.landscapeMode = LandscapeMode::Select, s.drawing.clear ();
+        SetTool (s, Tool::Select), s.landscapeMode = LandscapeMode::Select, s.drawing.clear ();
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Polyline (L)", s.tool == Tool::Polyline))
-        s.tool = Tool::Polyline, s.landscapeMode = LandscapeMode::DrawSource;
+        SetTool (s, Tool::Polyline), s.landscapeMode = LandscapeMode::DrawSource;
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Path (P)", s.tool == Tool::Path))
-        s.tool = Tool::Path, s.landscapeMode = LandscapeMode::DrawSource;
+        SetTool (s, Tool::Path), s.landscapeMode = LandscapeMode::DrawSource;
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Curve (B)", s.tool == Tool::Curve))
-        s.tool = Tool::Curve, s.landscapeMode = LandscapeMode::DrawSource;
+        SetTool (s, Tool::Curve), s.landscapeMode = LandscapeMode::DrawSource;
     if (ImGui::RadioButton ("Rectangle (Q)", s.tool == Tool::Rectangle))
-        s.tool = Tool::Rectangle, s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
+        SetTool (s, Tool::Rectangle), s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Polygon (N)", s.tool == Tool::Polygon))
-        s.tool = Tool::Polygon, s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
+        SetTool (s, Tool::Polygon), s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Ellipse (O)", s.tool == Tool::Ellipse))
-        s.tool = Tool::Ellipse, s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
+        SetTool (s, Tool::Ellipse), s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Mirror (M)", s.tool == Tool::Mirror))
         ToolKey (s, 'M');
+    ImGui::SameLine ();
+    if (ImGui::RadioButton ("Trim (X)", s.tool == Tool::Trim))
+        ToolKey (s, 'X');
     if (s.tool == Tool::Mirror) {
         ImGui::Checkbox ("Keep original", &s.mirrorKeeps);
         ImGui::SameLine ();
         ImGui::TextDisabled ("Click the mirror line's two points. Ctrl: the other way.");
     }
+    if (s.tool == Tool::Trim)
+        ImGui::TextDisabled ("Hover a straight segment; click the highlighted span. Esc exits Trim.");
     if (s.tool == Tool::Polygon) {
         ImGui::SetNextItemWidth (120);
         ImGui::SliderInt ("Sides (Up/Down)", &s.polygonSides, 3, edit::kMaxPolygonSides);

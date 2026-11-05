@@ -4466,6 +4466,221 @@ TEST (HudVirtualEditor, TheMirrorToolMirrorsTheSelectionAcrossTwoClickedPoints)
     EXPECT_FALSE (d.S ().selection.Items ().empty ());
 }
 
+TEST (HudVirtualEditor, TrimToolPreviewsExactSpanAndCommitsOneUndo)
+{
+    ed::Document doc;
+    const ed::Id source = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 4, 1 }, { 10, 4, 2 } }, false, "edge");
+    const ed::Id first = ed::AddPolyline (doc, { { 2, -1, 0 }, { 2, 5, 0 } }, false);
+    const ed::Id second = ed::AddPolyline (doc, { { 8, -1, 0 }, { 8, 5, 0 } }, false);
+    const ed::Entity original = *ed::Find (doc, source);
+    Drive d (std::move (doc));
+    d.S ().menu.target = eh::MenuTarget::View;
+    ASSERT_TRUE (d.Offers ("tool.trim"));
+    eh::RunMenuItem (d.S (), "tool.trim");
+    ASSERT_EQ (d.S ().tool, eh::Tool::Trim);
+    EXPECT_EQ (d.S ().landscapeMode, eh::LandscapeMode::Select);
+
+    const auto before = d.D ().entities;
+    const uint64_t revision = d.D ().revision;
+    d.At (740, 420); // (7, 4): the span between both cutters, including two original vertices
+    ASSERT_TRUE (d.S ().trimPreview.has_value ());
+    ASSERT_TRUE (d.S ().trimPreview->valid) << d.S ().trimPreview->error;
+    const auto preview = *d.S ().trimPreview;
+    ASSERT_EQ (preview.span.removed.size (), 4u);
+    EXPECT_NEAR (preview.span.removed[0].x, 2.0, 1e-9);
+    EXPECT_NEAR (preview.span.removed[0].y, 0.0, 1e-9);
+    EXPECT_EQ (preview.span.removed[1], original.vertices[1].p);
+    EXPECT_EQ (preview.span.removed[2], original.vertices[2].p);
+    EXPECT_NEAR (preview.span.removed[3].x, 8.0, 1e-9);
+    EXPECT_NEAR (preview.span.removed[3].y, 4.0, 1e-9);
+    EXPECT_NEAR (preview.span.removed[3].z, 5.0 / 3.0, 1e-9);
+    EXPECT_EQ (d.D ().entities, before);
+    EXPECT_EQ (d.D ().revision, revision);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+
+    std::vector<const geomsrv::archviz::roofcanvas::Batch*> lines;
+    for (const auto& batch : d.S ().canvas.batches)
+        if (batch.anchors.size () == 2)
+            lines.push_back (&batch);
+    ASSERT_EQ (lines.size (), preview.span.removed.size () - 1);
+    for (size_t i = 0; i < lines.size (); ++i) {
+        for (int axis = 0; axis < 3; ++axis) {
+            const auto coordinate = [&] (ed::Vec3 p) { return axis == 0 ? p.x : axis == 1 ? p.y : p.z; };
+            EXPECT_DOUBLE_EQ (lines[i]->anchors[0].model[size_t (axis)], coordinate (preview.span.removed[i]));
+            EXPECT_DOUBLE_EQ (lines[i]->anchors[1].model[size_t (axis)], coordinate (preview.span.removed[i + 1]));
+        }
+    }
+
+    // The source object survives; a selected vertex inside the removed span does not.
+    d.S ().selection.Set ({ { source, ed::Part::Entity, 0 }, { source, ed::Part::Vertex, original.vertices[1].id } });
+    d.Press (740, 420);
+    d.Release (740, 420);
+    ASSERT_EQ (d.D ().entities.size (), 4u);
+    ASSERT_EQ (d.S ().edits.UndoDepth (), 1u);
+    EXPECT_EQ (d.S ().tool, eh::Tool::Trim); // repeat-use, with no stale committed preview
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ().front (), (ed::Ref { source, ed::Part::Entity, 0 }));
+    const auto& prefix = *ed::Find (d.D (), source);
+    ASSERT_EQ (prefix.vertices.size (), 2u);
+    EXPECT_NEAR (prefix.vertices.back ().p.x, 2.0, 1e-9);
+    const ed::Entity* suffix = nullptr;
+    for (const auto& entity : d.D ().entities)
+        if (entity.id != source && entity.id != first && entity.id != second)
+            suffix = &entity;
+    ASSERT_NE (suffix, nullptr);
+    ASSERT_EQ (suffix->vertices.size (), 2u);
+    EXPECT_NEAR (suffix->vertices.front ().p.x, 8.0, 1e-9);
+    EXPECT_EQ (suffix->role, "edge");
+
+    eh::RunMenuItem (d.S (), "undo");
+    EXPECT_EQ (d.D ().entities, before);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_FALSE (d.S ().trimPreview.has_value ());
+}
+
+TEST (HudVirtualEditor, TrimRefusalClearsStalePreviewAndEscapeKeepsSelection)
+{
+    ed::Document doc;
+    const ed::Id source = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, false);
+    ed::AddPolyline (doc, { { 2, -1, 0 }, { 2, 1, 0 } }, false);
+    const ed::Id isolated = ed::AddPolyline (doc, { { 0, 5, 0 }, { 5, 5, 0 } }, false);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { source, ed::Part::Entity, 0 } });
+    const auto selected = d.S ().selection.Items ();
+    const auto before = d.D ().entities;
+    d.Key ('X');
+    d.At (620, 500); // (1, 0): a valid start-to-crossing span
+    ASSERT_TRUE (d.S ().trimPreview && d.S ().trimPreview->valid);
+
+    d.At (650, 400); // (2.5, 5): the isolated line has no crossing
+    ASSERT_TRUE (d.S ().trimPreview.has_value ());
+    EXPECT_FALSE (d.S ().trimPreview->valid);
+    EXPECT_EQ (d.S ().trimPreview->span.entity, isolated);
+    EXPECT_TRUE (d.S ().trimPreview->span.removed.empty ());
+    const std::string refusal = d.S ().trimPreview->error;
+    EXPECT_FALSE (refusal.empty ());
+    d.Press (650, 400);
+    d.Release (650, 400);
+    EXPECT_EQ (d.D ().entities, before);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_EQ (d.S ().message, refusal);
+
+    d.At (1000, 100); // no segment: even the failed candidate is gone
+    EXPECT_FALSE (d.S ().trimPreview.has_value ());
+    d.At (620, 500);
+    ASSERT_TRUE (d.S ().trimPreview && d.S ().trimPreview->valid);
+    d.Key (0x1B);
+    EXPECT_EQ (d.S ().tool, eh::Tool::Select);
+    EXPECT_FALSE (d.S ().trimPreview.has_value ());
+    EXPECT_EQ (d.S ().selection.Items (), selected);
+    EXPECT_EQ (d.D ().entities, before);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_FALSE (d.S ().close);
+}
+
+TEST (HudVirtualEditor, TrimHoverSupportsOpenEndAndClosedRingSpans)
+{
+    {
+        ed::Document doc;
+        const ed::Id source = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, false);
+        ed::AddPolyline (doc, { { 2, -1, 0 }, { 2, 1, 0 } }, false);
+        Drive d (std::move (doc));
+        d.Key ('X');
+        d.At (780, 500); // (9, 0): crossing to the open end
+        ASSERT_TRUE (d.S ().trimPreview && d.S ().trimPreview->valid) << d.S ().message;
+        ASSERT_EQ (d.S ().trimPreview->span.entity, source);
+        ASSERT_EQ (d.S ().trimPreview->span.removed.size (), 2u);
+        EXPECT_NEAR (d.S ().trimPreview->span.removed.front ().x, 2.0, 1e-9);
+        EXPECT_NEAR (d.S ().trimPreview->span.removed.back ().x, 10.0, 1e-9);
+        EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    }
+    {
+        ed::Document doc;
+        const ed::Id ring = ed::AddPolyline (doc, ed::Rectangle ({ 0, 0, 0 }, { 10, 10, 0 }), true);
+        ed::AddPolyline (doc, { { 2, -1, 0 }, { 2, 11, 0 } }, false);
+        ed::AddPolyline (doc, { { 8, -1, 0 }, { 8, 11, 0 } }, false);
+        Drive d (std::move (doc));
+        d.Key ('X');
+        d.At (700, 500); // (5, 0): the bottom ring span, not its complementary arc
+        ASSERT_TRUE (d.S ().trimPreview && d.S ().trimPreview->valid) << d.S ().message;
+        ASSERT_EQ (d.S ().trimPreview->span.entity, ring);
+        ASSERT_EQ (d.S ().trimPreview->span.removed.size (), 2u);
+        EXPECT_NEAR (d.S ().trimPreview->span.removed.front ().x, 2.0, 1e-9);
+        EXPECT_NEAR (d.S ().trimPreview->span.removed.front ().y, 0.0, 1e-9);
+        EXPECT_NEAR (d.S ().trimPreview->span.removed.back ().x, 8.0, 1e-9);
+        EXPECT_NEAR (d.S ().trimPreview->span.removed.back ().y, 0.0, 1e-9);
+        EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    }
+}
+
+TEST (HudVirtualEditor, TrimSlopedThreeDHoverUsesThePickedSegmentStation)
+{
+    ed::Document doc;
+    const ed::Id source = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 10 } }, false);
+    ed::AddPolyline (doc, { { 8, -1, 0 }, { 8, 1, 0 } }, false);
+    Drive d (std::move (doc));
+    d.input.planar = false;
+    d.input.project = [] (double x, double y, double z, float& px, float& py) {
+        px = float (600 + 20 * (x + z));
+        py = float (500 - 20 * y);
+        return true;
+    };
+    d.Key ('X');
+    d.At (880, 500); // the actual source point (7, 0, 7), before the crossing at x = 8
+    ASSERT_TRUE (d.S ().trimPreview && d.S ().trimPreview->valid) << d.S ().message;
+    EXPECT_NEAR (d.S ().trimPreview->pointer.x, 7.0, 1e-6);
+    EXPECT_NEAR (d.S ().trimPreview->pointer.z, 7.0, 1e-6);
+    ASSERT_EQ (d.S ().trimPreview->span.removed.size (), 2u);
+    EXPECT_NEAR (d.S ().trimPreview->span.removed.front ().x, 0.0, 1e-9);
+    EXPECT_NEAR (d.S ().trimPreview->span.removed.back ().x, 8.0, 1e-9);
+
+    d.Press (880, 500);
+    d.Release (880, 500);
+    const auto& kept = *ed::Find (d.D (), source);
+    ASSERT_EQ (kept.vertices.size (), 2u);
+    EXPECT_NEAR (kept.vertices.front ().p.x, 8.0, 1e-9);
+    EXPECT_NEAR (kept.vertices.front ().p.z, 8.0, 1e-9);
+    EXPECT_NEAR (kept.vertices.back ().p.x, 10.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, TrimMappingFailureCannotReuseACachedCandidate)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, false);
+    ed::AddPolyline (doc, { { 2, -1, 0 }, { 2, 1, 0 } }, false);
+    Drive d (std::move (doc));
+    const auto before = d.D ().entities;
+    d.Key ('X');
+    d.At (700, 500); // the source midpoint: valid mapping and fallback seed used to coincide here
+    ASSERT_TRUE (d.S ().trimPreview && d.S ().trimPreview->valid);
+    ASSERT_TRUE (d.S ().trimPreview->mapped);
+
+    d.input.planar = false;
+    d.input.project = [] (double, double y, double, float& px, float& py) {
+        px = 700;
+        py = float (500 - 20 * y);
+        return true; // the picked horizontal segment is a single screen point
+    };
+    d.Frame ();
+    ASSERT_TRUE (d.S ().trimPreview.has_value ());
+    EXPECT_FALSE (d.S ().trimPreview->mapped);
+    EXPECT_FALSE (d.S ().trimPreview->valid);
+    const std::string refusal = d.S ().trimPreview->error;
+    d.Press (700, 500);
+    d.Release (700, 500);
+    EXPECT_EQ (d.S ().message, refusal);
+    EXPECT_EQ (d.D ().entities, before);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+
+    d.input.planar = true;
+    d.At (700, 500);
+    ASSERT_TRUE (d.S ().trimPreview.has_value ());
+    EXPECT_TRUE (d.S ().trimPreview->mapped);
+    EXPECT_TRUE (d.S ().trimPreview->valid) << d.S ().trimPreview->error;
+    EXPECT_EQ (d.D ().entities, before);
+}
+
 TEST (HudVirtualEditor, DeletingAGroupsObjectsTakesTheEmptyGroupToo)
 {
     ed::Document doc;

@@ -210,6 +210,7 @@ bool EditTerrainDesignPath (Session& s)
     }
     s.selection.Set ({ { path, edit::Part::Entity, 0 } });
     s.profilePath = path;
+    s.trimPreview.reset ();
     s.tool = Tool::Select;
     s.landscapeMode = LandscapeMode::Select;
     s.publishedRevision = UINT64_MAX;

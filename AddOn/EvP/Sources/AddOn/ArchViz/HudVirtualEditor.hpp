@@ -44,7 +44,8 @@ struct TerrainSectionDraft;
 struct TerrainDesignBaseline;
 
 // Mirror draws nothing: its two clicks are the line the selection is mirrored across.
-enum class Tool : uint8_t { Select, Polyline, Path, Curve, Rectangle, Polygon, Ellipse, Mirror };
+// Trim removes the exact straight-segment span its hover preview shows.
+enum class Tool : uint8_t { Select, Polyline, Path, Curve, Rectangle, Polygon, Ellipse, Mirror, Trim };
 // The tools that place a closed shape from two clicks (edit::Primitive), not a run of points.
 constexpr bool ShapeTool (Tool tool)
 {
@@ -91,6 +92,16 @@ struct ContextMenu {
 };
 
 struct MaterialPickerRequest;
+// The trim candidate is recomputed whenever its document, picked segment or raw pointer
+// changes. A failed lookup is cached too, with no removed points to draw or commit.
+struct TrimPreview {
+    uint64_t revision = 0;
+    edit::Vec3 pointer;
+    edit::TrimSpan span;
+    std::string error;
+    bool mapped = false; // the pointer resolved on the picked segment, not a fallback seed
+    bool valid = false;
+};
 struct Session {
     edit::Session edits;
     std::shared_ptr<TerrainDesignState> terrainDesign; // Derived worker/cache follows this session between hosts.
@@ -129,6 +140,7 @@ struct Session {
     edit::Tracker tracker;
     edit::SnapContext context; // host geometry snapshot, filled by the starting command
     Tool tool = Tool::Select;
+    std::optional<TrimPreview> trimPreview; // transient; click commits this exact pointer and segment
     LandscapeMode landscapeMode = LandscapeMode::Select;
     tapioca::geometry::SourceRole landscapeRole = tapioca::geometry::SourceRole::ReferenceLine;
     tapioca::geometry::LandscapeResult landscape;
