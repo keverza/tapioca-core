@@ -277,6 +277,7 @@ void Panel (Session& s)
         OffsetMiterLimitControl (s);
     }
     DuplicateOffsetControls (s);
+    RectangularArrayControls (s);
     ImGui::EndDisabled ();
     OrganizeControls (s);
     EllipseControls (s);

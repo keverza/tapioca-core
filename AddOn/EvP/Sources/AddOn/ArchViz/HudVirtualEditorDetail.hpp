@@ -79,6 +79,16 @@ void ScreenPointer (const Session& s, const Map& m, ImVec2 mouse, float scale, e
 void ScreenFlush (const Session& s, const Map& m, ImVec2 mouse, float scale, edit::SnapQuery& q);
 void SnapControls (Session& s);
 void DuplicateOffsetControls (Session& s);
+// Rectangular array: a selection/revision/tool-bound draft with an outline-only cached preview.
+// Check closes a stale draft; a kernel refusal keeps it open for correction. Apply is one history
+// entry, except a valid 1x1 no-op. Cancel never changes the selection or document.
+bool BeginRectangularArray (Session& s);
+bool CheckRectangularArrayDraft (Session& s);
+void CancelRectangularArray (Session& s);
+bool ApplyRectangularArray (Session& s);
+void RectangularArrayControls (Session& s);
+void UpdateRectangularArrayPreview (Session& s);
+void DrawRectangularArrayPreview (Session& s, const Map& m, float scale);
 void OffsetJoinControl (Session& s);
 void OffsetMiterLimitControl (Session& s);
 void Acquire (Session& s, const edit::SnapResult& snap);

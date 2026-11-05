@@ -213,6 +213,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     if (!s.gumballRepositionFor.empty () && !GumballRepositioning (s))
         CancelGumballReposition (s);
     CheckView (s, v);
+    CheckRectangularArrayDraft (s);
     UpdatePathDetail (s, m, scale);
     Navigate (s, m, mouse);
     // A resting profile binding (the panel's field) withholds the pointer from the view, as a
@@ -592,6 +593,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         }
     }
 
+    DrawRectangularArrayPreview (s, m, scale);
     DrawTrimPreview (s, m, scale);
     DrawHover (s, m, scale);
 

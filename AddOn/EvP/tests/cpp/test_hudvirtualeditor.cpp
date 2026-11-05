@@ -71,6 +71,83 @@ struct FieldDrive {
     }
 };
 
+struct ArrayFieldDrive {
+    ImGuiContext* previous = ImGui::GetCurrentContext ();
+    ImGuiContext* context = ImGui::CreateContext ();
+    eh::Session session;
+
+    explicit ArrayFieldDrive (ed::Document doc) : session (std::move (doc))
+    {
+        auto& io = ImGui::GetIO ();
+        io.IniFilename = nullptr;
+        io.DisplaySize = { 500, 500 };
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        io.ConfigInputTrickleEventQueue = false;
+        unsigned char* pixels;
+        int width, height;
+        io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    }
+    ~ArrayFieldDrive ()
+    {
+        ImGui::DestroyContext (context);
+        ImGui::SetCurrentContext (previous);
+    }
+    void Frame (const char* typed = nullptr, ImGuiKey key = ImGuiKey_None, ImVec2 pointer = { -1, -1 },
+                bool down = false)
+    {
+        auto& io = ImGui::GetIO ();
+        io.DeltaTime = 1.0f / 60;
+        if (key != ImGuiKey_None)
+            io.AddKeyEvent (key, true);
+        if (typed != nullptr)
+            io.AddInputCharactersUTF8 (typed);
+        if (pointer.x >= 0) {
+            io.AddMousePosEvent (pointer.x, pointer.y);
+            io.AddMouseButtonEvent (0, down);
+        }
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 450, 400 });
+        ImGui::Begin ("rectangular array");
+        eh::detail::RectangularArrayControls (session);
+        ImGui::End ();
+        ImGui::Render ();
+        if (key != ImGuiKey_None)
+            io.AddKeyEvent (key, false);
+    }
+    bool Click (const char* label)
+    {
+        Frame ();
+        auto* window = ImGui::FindWindowByName ("rectangular array");
+        if (window == nullptr)
+            return false;
+        const ImGuiID target = ImHashStr (label, 0, window->ID);
+        for (float y = 20; y < 380; y += 3)
+            for (const float x : { 40.0f, 100.0f, 160.0f, 220.0f, 280.0f, 340.0f }) {
+                const ImVec2 point { x, y };
+                Frame (nullptr, ImGuiKey_None, point);
+                if (context->HoveredId != target)
+                    continue;
+                Frame (nullptr, ImGuiKey_None, point, true);
+                Frame (nullptr, ImGuiKey_None, point, false);
+                return true;
+            }
+        return false;
+    }
+    bool Type (const char* label, const char* text)
+    {
+        if (!Click (label))
+            return false;
+        auto& io = ImGui::GetIO ();
+        io.AddKeyEvent (ImGuiKey_ModCtrl, true);
+        Frame (nullptr, ImGuiKey_A);
+        io.AddKeyEvent (ImGuiKey_ModCtrl, false);
+        Frame (text);
+        Frame (nullptr, ImGuiKey_Enter);
+        return true;
+    }
+};
+
 struct Drive {
     hudtest::Watched view;
     layers::Layer layer;
@@ -4323,6 +4400,293 @@ TEST (HudVirtualEditor, TheDuplicateOffsetPanelAppliesTypedValuesWithEnter)
     ASSERT_EQ (d.session.edits.Doc ().entities.size (), 2u);
     EXPECT_EQ (d.session.edits.Doc ().entities[1].vertices.front ().p, (ed::Vec3 { 4.5, -1, 0 }));
     EXPECT_EQ (d.session.edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, RectangularArrayPanelTypesParametersAppliesCancelsAndEscapes)
+{
+    ed::Document doc;
+    const ed::Id source = ed::AddPolyline (doc, { { 0, 0, 0 }, { 2, 0, 0 } }, false);
+    ArrayFieldDrive d (std::move (doc));
+    d.session.selection.Set ({ { source, ed::Part::Entity, 0 } });
+    ASSERT_TRUE (eh::detail::BeginRectangularArray (d.session)) << d.session.message;
+    const auto before = d.session.edits.Doc ().entities;
+    const ed::Id nextId = d.session.edits.Doc ().nextId;
+    const uint64_t revision = d.session.edits.Doc ().revision;
+
+    ASSERT_TRUE (d.Type ("Array count X (total)", "4"));
+    EXPECT_EQ (d.session.rectangularArray->countX, 4);
+    ASSERT_TRUE (d.Type ("Array count Y (total)", "2"));
+    EXPECT_EQ (d.session.rectangularArray->countY, 2);
+    ASSERT_TRUE (d.Type ("Array spacing X (m)", "4.5"));
+    EXPECT_DOUBLE_EQ (d.session.rectangularArray->spacingX, 4.5);
+    ASSERT_TRUE (d.Type ("Array spacing Y (m)", "-2.5"));
+    EXPECT_DOUBLE_EQ (d.session.rectangularArray->spacingY, -2.5);
+    ASSERT_TRUE (d.session.rectangularArray.has_value ());
+    EXPECT_EQ (d.session.rectangularArray->lines.size (), 7u);
+    EXPECT_EQ (d.session.edits.Doc ().entities, before);
+    EXPECT_EQ (d.session.edits.Doc ().nextId, nextId);
+    EXPECT_EQ (d.session.edits.Doc ().revision, revision);
+    EXPECT_EQ (d.session.edits.UndoDepth (), 0u);
+
+    ASSERT_TRUE (d.Click ("Apply array"));
+    ASSERT_EQ (d.session.edits.Doc ().entities.size (), 8u);
+    EXPECT_EQ (d.session.selection.Items ().size (), 8u);
+    EXPECT_EQ (d.session.edits.UndoDepth (), 1u);
+    EXPECT_FALSE (d.session.rectangularArray.has_value ());
+
+    ASSERT_TRUE (eh::detail::BeginRectangularArray (d.session)) << d.session.message;
+    const auto made = d.session.edits.Doc ().entities;
+    // Cancel makes no copies, selection change or history entry.
+    ASSERT_TRUE (d.Click ("Cancel array"));
+    EXPECT_FALSE (d.session.rectangularArray.has_value ());
+    EXPECT_EQ (d.session.edits.Doc ().entities, made);
+    EXPECT_EQ (d.session.selection.Items ().size (), 8u);
+    EXPECT_EQ (d.session.edits.UndoDepth (), 1u);
+
+    ASSERT_TRUE (eh::detail::BeginRectangularArray (d.session)) << d.session.message;
+    ASSERT_TRUE (d.Click ("Array count X (total)"));
+    ASSERT_TRUE (ImGui::GetIO ().WantTextInput);
+    hud::Input input = hudtest::At (0, 0);
+    input.viewActive = true;
+    input.keys = { { 0x1B, true } };
+    eh::Keys (d.session, input, true); // the host passes true while this InputInt owns the keyboard
+    EXPECT_FALSE (d.session.rectangularArray.has_value ());
+    EXPECT_EQ (d.session.edits.Doc ().entities, made);
+    EXPECT_EQ (d.session.selection.Items ().size (), 8u);
+    EXPECT_EQ (d.session.edits.UndoDepth (), 1u);
+    EXPECT_FALSE (d.session.close);
+}
+
+TEST (HudVirtualEditor, RectangularArrayPreviewMatchesCommittedCellsWithoutDocumentChurn)
+{
+    ed::Document doc;
+    const ed::Id source = ed::AddPolyline (doc, { { 0, 0, 1 }, { 2, 0, 1 } }, false, "edge");
+    const ed::Entity original = *ed::Find (doc, source);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { source, ed::Part::Vertex, original.vertices[0].id } });
+    d.S ().menu.target = eh::MenuTarget::Vertex;
+    ASSERT_TRUE (d.Offers ("array.rectangular"));
+    eh::RunMenuItem (d.S (), "array.rectangular");
+    ASSERT_TRUE (d.S ().rectangularArray.has_value ()) << d.S ().message;
+    d.S ().rectangularArray->countX = 3;
+    d.S ().rectangularArray->countY = 2;
+    d.S ().rectangularArray->spacingX = 4.0;
+    d.S ().rectangularArray->spacingY = -5.0;
+    eh::detail::UpdateRectangularArrayPreview (d.S ());
+    const auto before = d.D ().entities;
+    const ed::Id nextId = d.D ().nextId;
+    const uint64_t revision = d.D ().revision;
+    d.Frame ();
+    ASSERT_TRUE (d.S ().rectangularArray.has_value ());
+    ASSERT_EQ (d.S ().rectangularArray->lines.size (), 5u);
+    const auto preview = d.S ().rectangularArray->lines;
+    for (size_t i = 0; i < preview.size (); ++i) {
+        const size_t cell = i + 1;
+        const ed::Vec3 offset { 4.0 * (cell % 3), -5.0 * (cell / 3), 0.0 };
+        EXPECT_EQ (preview[i].first, original.vertices[0].p + offset) << i;
+        EXPECT_EQ (preview[i].second, original.vertices[1].p + offset) << i;
+        const bool drawn =
+            std::any_of (d.S ().canvas.batches.begin (), d.S ().canvas.batches.end (), [&] (const auto& batch) {
+                if (batch.anchors.size () != 2)
+                    return false;
+                for (int axis = 0; axis < 3; ++axis) {
+                    const auto coordinate = [&] (ed::Vec3 point) {
+                        return axis == 0 ? point.x : axis == 1 ? point.y : point.z;
+                    };
+                    if (batch.anchors[0].model[size_t (axis)] != coordinate (preview[i].first) ||
+                        batch.anchors[1].model[size_t (axis)] != coordinate (preview[i].second))
+                        return false;
+                }
+                return true;
+            });
+        EXPECT_TRUE (drawn) << i;
+    }
+    const uint64_t builds = d.S ().rectangularArray->builds;
+    d.At (40, 30); // pointer/camera-only work reprojects the same model-space cache
+    d.Frame ();
+    EXPECT_EQ (d.S ().rectangularArray->builds, builds);
+    EXPECT_EQ (d.D ().entities, before);
+    EXPECT_EQ (d.D ().nextId, nextId);
+    EXPECT_EQ (d.D ().revision, revision);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+
+    ASSERT_TRUE (eh::detail::ApplyRectangularArray (d.S ())) << d.S ().message;
+    ASSERT_EQ (d.D ().entities.size (), 6u);
+    ASSERT_EQ (d.S ().selection.Items ().size (), 6u);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    EXPECT_FALSE (d.S ().rectangularArray.has_value ());
+    EXPECT_EQ (d.D ().entities.front (), original);
+    for (size_t i = 0; i < preview.size (); ++i) {
+        const auto& copy = d.D ().entities[i + 1];
+        EXPECT_EQ (copy.vertices[0].p, preview[i].first) << i;
+        EXPECT_EQ (copy.vertices[1].p, preview[i].second) << i;
+        EXPECT_EQ (copy.role, "edge");
+        EXPECT_EQ (d.S ().selection.Items ()[i + 1], (ed::Ref { copy.id, ed::Part::Entity, ed::kNoId }));
+    }
+    eh::RunMenuItem (d.S (), "undo");
+    EXPECT_EQ (d.D ().entities, before);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, RectangularArrayDraftCancellationCorrectionAndNoOpAreAtomic)
+{
+    ed::Document doc;
+    const ed::Id source = ed::AddPolyline (doc, { { 0, 0, 0 }, { 2, 0, 0 } }, false);
+    const ed::Id other = ed::AddPolyline (doc, { { 0, 5, 0 }, { 2, 5, 0 } }, false);
+    Drive d (std::move (doc));
+    const ed::Ref whole { source, ed::Part::Entity, 0 };
+    d.S ().selection.Set ({ whole });
+    const auto selected = d.S ().selection.Items ();
+    ASSERT_TRUE (eh::detail::BeginRectangularArray (d.S ()));
+    eh::detail::CancelRectangularArray (d.S ());
+    EXPECT_FALSE (d.S ().rectangularArray.has_value ());
+    EXPECT_EQ (d.S ().selection.Items (), selected);
+
+    ASSERT_TRUE (eh::detail::BeginRectangularArray (d.S ()));
+    d.Key (0x1B); // the ordinary Escape ladder also gives the draft up before the selection
+    EXPECT_FALSE (d.S ().rectangularArray.has_value ());
+    EXPECT_EQ (d.S ().selection.Items (), selected);
+    EXPECT_FALSE (d.S ().close);
+
+    ASSERT_TRUE (eh::detail::BeginRectangularArray (d.S ()));
+    d.S ().selection.Set ({ { other, ed::Part::Entity, 0 } });
+    EXPECT_FALSE (eh::detail::CheckRectangularArrayDraft (d.S ()));
+    EXPECT_FALSE (d.S ().rectangularArray.has_value ());
+    const auto before = d.D ().entities;
+    EXPECT_FALSE (eh::detail::ApplyRectangularArray (d.S ()));
+    EXPECT_EQ (d.D ().entities, before);
+
+    d.S ().selection.Set ({ whole });
+    ASSERT_TRUE (eh::detail::BeginRectangularArray (d.S ()));
+    ed::Transform move;
+    move.translate = { 1, 0, 0 };
+    ASSERT_TRUE (d.S ().edits.Apply (ed::TransformOperation ({ whole }, move)));
+    EXPECT_EQ (d.S ().selection.Items (), selected);
+    EXPECT_FALSE (eh::detail::CheckRectangularArrayDraft (d.S ())); // same refs, new document revision
+    EXPECT_FALSE (d.S ().rectangularArray.has_value ());
+
+    ASSERT_TRUE (eh::detail::BeginRectangularArray (d.S ()));
+    eh::detail::SetTool (d.S (), eh::Tool::Polyline);
+    EXPECT_FALSE (d.S ().rectangularArray.has_value ());
+    eh::detail::SetTool (d.S (), eh::Tool::Select);
+
+    ASSERT_TRUE (eh::detail::BeginRectangularArray (d.S ()));
+    d.S ().rectangularArray->countX = 2;
+    d.S ().rectangularArray->spacingX = 0.0;
+    const auto invalidBefore = d.D ().entities;
+    const ed::Id invalidNextId = d.D ().nextId;
+    const uint64_t invalidRevision = d.D ().revision;
+    const size_t history = d.S ().edits.UndoDepth ();
+    EXPECT_FALSE (eh::detail::ApplyRectangularArray (d.S ()));
+    EXPECT_FALSE (d.S ().message.empty ());
+    EXPECT_TRUE (d.S ().rectangularArray.has_value ()); // correct the refused parameters, not a stale draft
+    EXPECT_EQ (d.D ().entities, invalidBefore);
+    EXPECT_EQ (d.D ().nextId, invalidNextId);
+    EXPECT_EQ (d.D ().revision, invalidRevision);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), history);
+
+    d.S ().rectangularArray->countX = 1;
+    d.S ().rectangularArray->countY = 1;
+    d.S ().rectangularArray->spacingX = 0.0;
+    d.S ().rectangularArray->spacingY = 0.0;
+    EXPECT_TRUE (eh::detail::ApplyRectangularArray (d.S ())) << d.S ().message;
+    EXPECT_FALSE (d.S ().rectangularArray.has_value ());
+    EXPECT_EQ (d.D ().entities, invalidBefore);
+    EXPECT_EQ (d.D ().nextId, invalidNextId);
+    EXPECT_EQ (d.D ().revision, invalidRevision);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), history);
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ().front (), whole);
+}
+
+TEST (HudVirtualEditor, RectangularArrayPathPreviewUsesAlignmentAndProfileWithoutRebuilding)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, 1.5);
+    ed::Path& source = *ed::FindPath (doc, path);
+    source.points[1].radius = 2.0;
+    source.profile[0].z = 3.0;
+    source.profile[1].z = 7.0;
+    eh::Session session (doc);
+    session.selection.Set ({ { path, ed::Part::Entity, 0 } });
+    ASSERT_TRUE (eh::detail::BeginRectangularArray (session)) << session.message;
+    session.rectangularArray->countX = 2;
+    session.rectangularArray->countY = 1;
+    session.rectangularArray->spacingX = 20.0;
+    eh::detail::UpdateRectangularArrayPreview (session);
+    const auto& draft = *session.rectangularArray;
+    ASSERT_GT (draft.outlines.front ().points.size (), 3u); // the fitted corner is sampled, not a chord
+    EXPECT_EQ (draft.lines.size (), draft.outlines.front ().points.size () - 1);
+    EXPECT_DOUBLE_EQ (draft.lines.front ().first.z, draft.outlines.front ().points.front ().z);
+    EXPECT_DOUBLE_EQ (draft.lines.front ().first.x, draft.outlines.front ().points.front ().x + 20.0);
+    EXPECT_DOUBLE_EQ (draft.lines.back ().second.z, draft.outlines.front ().points.back ().z);
+    const uint64_t builds = draft.builds;
+    const auto paths = session.edits.Doc ().paths;
+    const ed::Id nextId = session.edits.Doc ().nextId;
+    eh::detail::UpdateRectangularArrayPreview (session);
+    EXPECT_EQ (draft.builds, builds);
+    EXPECT_EQ (session.edits.Doc ().paths, paths);
+    EXPECT_EQ (session.edits.Doc ().nextId, nextId);
+    EXPECT_EQ (session.edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, RectangularArrayPathPreviewSamplesGradeBreaksAndVerticalCurves)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 1.5);
+    std::string error;
+    ASSERT_TRUE (ed::InsertBreak (ed::FindPath (doc, path)->profile, 5.0, ed::NewId (doc), error)) << error;
+    ed::FindPath (doc, path)->profile[1].z = 10.0;
+    ed::FindPath (doc, path)->profile[1].curve = 2.0;
+    const auto originalProfile = ed::FindPath (doc, path)->profile;
+    eh::Session session (doc);
+    session.selection.Set ({ { path, ed::Part::Entity, 0 } });
+    ASSERT_TRUE (eh::detail::BeginRectangularArray (session)) << session.message;
+    session.rectangularArray->countX = 2;
+    session.rectangularArray->countY = 1;
+    session.rectangularArray->spacingX = 20.0;
+    eh::detail::UpdateRectangularArrayPreview (session);
+    const auto& draft = *session.rectangularArray;
+    const auto& outline = draft.outlines.front ();
+    const auto at = [&] (double x) {
+        return std::find_if (outline.points.begin (), outline.points.end (),
+                             [&] (const ed::Vec3 point) { return std::abs (point.x - x) < 1.0e-9; });
+    };
+    const auto breakPoint = at (5.0);
+    ASSERT_NE (breakPoint, outline.points.end ());
+    double expectedBreakZ = 0.0;
+    ASSERT_TRUE (ed::Elevation (originalProfile, 5.0, expectedBreakZ));
+    EXPECT_DOUBLE_EQ (breakPoint->z, expectedBreakZ);
+    const auto curvePoint = at (4.5);
+    ASSERT_NE (curvePoint, outline.points.end ());
+    double expectedCurveZ = 0.0;
+    ASSERT_TRUE (ed::Elevation (originalProfile, 4.5, expectedCurveZ));
+    EXPECT_DOUBLE_EQ (curvePoint->z, expectedCurveZ);
+    EXPECT_LT (curvePoint->z, 9.0); // not the chord's linear elevation at this station
+    const double previewCurveZ = curvePoint->z;
+    const bool copiedBreak = std::any_of (draft.lines.begin (), draft.lines.end (), [&] (const auto& line) {
+        return (std::abs (line.first.x - 25.0) < 1.0e-9 && line.first.z == expectedBreakZ) ||
+               (std::abs (line.second.x - 25.0) < 1.0e-9 && line.second.z == expectedBreakZ);
+    });
+    EXPECT_TRUE (copiedBreak);
+    const ed::Id nextId = session.edits.Doc ().nextId;
+    EXPECT_EQ (session.edits.Doc ().paths, doc.paths);
+    EXPECT_EQ (session.edits.Doc ().nextId, nextId);
+    EXPECT_EQ (session.edits.UndoDepth (), 0u);
+
+    ASSERT_TRUE (eh::detail::ApplyRectangularArray (session)) << session.message;
+    ASSERT_EQ (session.edits.Doc ().paths.size (), 2u);
+    const auto& committed = session.edits.Doc ().paths[1];
+    ASSERT_EQ (committed.profile.size (), originalProfile.size ());
+    for (size_t i = 0; i < committed.profile.size (); ++i) {
+        EXPECT_DOUBLE_EQ (committed.profile[i].station, originalProfile[i].station);
+        EXPECT_DOUBLE_EQ (committed.profile[i].z, originalProfile[i].z);
+        EXPECT_DOUBLE_EQ (committed.profile[i].curve, originalProfile[i].curve);
+    }
+    double committedZ = 0.0;
+    ASSERT_TRUE (ed::Elevation (committed.profile, 4.5, committedZ));
+    EXPECT_DOUBLE_EQ (committedZ, previewCurveZ);
+    EXPECT_EQ (session.edits.UndoDepth (), 1u);
 }
 
 TEST (HudVirtualEditor, PasteInPlaceUsesTheMenuAndCtrlShiftVWithOneUndoEach)

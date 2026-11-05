@@ -46,6 +46,8 @@ void Escape (Session& s)
     }
     else if (!s.drawing.empty ())
         s.drawing.clear (), s.references.clear ();
+    else if (s.rectangularArray)
+        CancelRectangularArray (s);
     else if (s.tool == Tool::Mirror || s.tool == Tool::Trim)
         SetTool (s, Tool::Select); // the selection stays; only the pending tool is cancelled
     else if (!s.selection.Items ().empty ())
@@ -208,6 +210,16 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
     if (!v.viewActive)
         return;
     CheckView (s, v); // stale numeric input cannot commit before the next view layout
+    if (textInput && s.rectangularArray) {
+        bool cancel = std::any_of (v.editActions.begin (), v.editActions.end (),
+                                   [] (const auto action) { return action == overlayhud::Input::EditAction::Cancel; });
+        cancel = cancel || std::any_of (v.keys.begin (), v.keys.end (),
+                                        [] (const auto& key) { return key.down && !key.repeat && key.code == 0x1B; });
+        if (cancel) {
+            CancelRectangularArray (s); // an array field owns text, but Esc still owns the draft
+            return;
+        }
+    }
     if (textInput || LabelKeys (s, v))
         return; // an ImGui text field, or a label open for typing, has the keyboard
     if (LandscapeCommandKeys (s, v))

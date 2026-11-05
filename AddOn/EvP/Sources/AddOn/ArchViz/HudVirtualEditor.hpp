@@ -102,6 +102,27 @@ struct TrimPreview {
     bool mapped = false; // the pointer resolved on the picked segment, not a fallback seed
     bool valid = false;
 };
+// Uncommitted rectangular-array parameters and lightweight source outlines. The preview cache is
+// rebuilt only for a parameter change, never for a pointer/camera change, and never edits the document.
+struct RectangularArrayDraft {
+    struct Outline {
+        std::vector<edit::Vec3> points;
+        bool closed = false;
+    };
+    int countX = 3, countY = 1; // totals, including the source cell
+    double spacingX = 1.0, spacingY = 1.0;
+    std::vector<edit::Ref> refs;
+    uint64_t revision = 0;
+    Tool tool = Tool::Select;
+    LandscapeMode landscapeMode = LandscapeMode::Select;
+    std::vector<Outline> outlines;
+    std::vector<std::pair<edit::Vec3, edit::Vec3>> lines;
+    int builtX = 0, builtY = 0;
+    double builtSpacingX = 0.0, builtSpacingY = 0.0;
+    std::string previewError;
+    bool truncated = false;
+    uint64_t builds = 0;
+};
 struct Session {
     edit::Session edits;
     std::shared_ptr<TerrainDesignState> terrainDesign; // Derived worker/cache follows this session between hosts.
@@ -140,7 +161,8 @@ struct Session {
     edit::Tracker tracker;
     edit::SnapContext context; // host geometry snapshot, filled by the starting command
     Tool tool = Tool::Select;
-    std::optional<TrimPreview> trimPreview; // transient; click commits this exact pointer and segment
+    std::optional<TrimPreview> trimPreview;                // transient; click commits this exact pointer and segment
+    std::optional<RectangularArrayDraft> rectangularArray; // transient parameters and outline-only copies
     LandscapeMode landscapeMode = LandscapeMode::Select;
     tapioca::geometry::SourceRole landscapeRole = tapioca::geometry::SourceRole::ReferenceLine;
     tapioca::geometry::LandscapeResult landscape;

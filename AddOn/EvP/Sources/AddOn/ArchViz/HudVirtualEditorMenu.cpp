@@ -294,6 +294,9 @@ void AddClipboard (const Session& s, std::vector<MenuItem>& items)
     items.push_back (Item ("paste", "Paste here", "Ctrl+V", idle && !s.clipboard.Empty ()));
     items.push_back (Item ("pasteInPlace", "Paste in place", "Ctrl+Shift+V", idle && !s.clipboard.Empty ()));
     items.push_back (Item ("duplicate", "Duplicate", "Ctrl+D", idle && objects));
+    items.push_back (Item ("array.rectangular", "Rectangular array...", {},
+                           idle && objects && s.tool == Tool::Select && s.landscapeMode == LandscapeMode::Select &&
+                               s.drawing.empty () && !GizmoModeLocked (s)));
     if (!objects)
         return;
     Rule (items);
@@ -556,6 +559,8 @@ void RunMenuItem (Session& s, const std::string& id)
         PasteClipboard (s, std::nullopt, true);
     else if (id == "duplicate")
         DuplicateSelection (s);
+    else if (id == "array.rectangular")
+        BeginRectangularArray (s);
     else if (id == "group" || id == "ungroup")
         GroupSelection (s, id == "group");
     else if (id == "mirror.x" || id == "mirror.y" || id == "mirror.copyX" || id == "mirror.copyY") {

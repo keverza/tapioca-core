@@ -78,8 +78,10 @@ edit::PrimitiveInput ShapeInput (const Session& s, edit::Vec3 second, bool unifo
 
 void SetTool (Session& s, Tool tool)
 {
-    if (s.tool != tool)
+    if (s.tool != tool) {
         s.trimPreview.reset ();
+        s.rectangularArray.reset ();
+    }
     s.tool = tool;
 }
 
