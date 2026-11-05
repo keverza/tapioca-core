@@ -18,6 +18,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <memory>
@@ -151,10 +152,38 @@ TEST (DxrAdapterQualification, MicrosoftAndSoftwareAdaptersAreRefused)
 // The evidence for the refusal, rerun on every machine: WARP through the same
 // differentials. It never asserts WARP's bits -- they are what is refused --
 // only that the product backend did not pick a Microsoft adapter.
+//
+// ⚠️ INSPECT THE SELECTED ADAPTER, NOT Describe's deviceName. Without a DXR
+// adapter that field carries the scan's diagnostic, which names every adapter
+// refused -- "Microsoft Basic Render Driver: refused, ..." is the refusal
+// working, not failing (#146).
 TEST (DxrAdapterQualification, WarpIsDiagnosedNotUsed)
 {
+    {
+        evp::dxrworker::DxrCapability selected;
+        const auto device = evp::dxrworker::DxrDevice::Create (selected);
+        if (device != nullptr) {
+            EXPECT_NE (selected.vendorId, evp::dxrworker::kMicrosoftVendorId) << selected.deviceName;
+            EXPECT_EQ (selected.deviceName.find ("Microsoft"), std::string::npos) << selected.deviceName;
+        }
+        else {
+            EXPECT_NE (selected.reason, GpuReason::None);
+            EXPECT_EQ (selected.vendorId, 0u) << "nothing selected, yet a vendor id: " << selected.message;
+            EXPECT_TRUE (selected.deviceName.empty ()) << selected.deviceName;
+            // A Microsoft adapter in the diagnostic must have been refused by
+            // AdapterRefusal, never tried and found wanting.
+            for (size_t begin = 0; begin < selected.message.size ();) {
+                const size_t end = std::min (selected.message.find ("; ", begin), selected.message.size ());
+                const std::string entry = selected.message.substr (begin, end - begin);
+                if (entry.find ("Microsoft") != std::string::npos)
+                    EXPECT_NE (entry.find (": refused, "), std::string::npos) << entry;
+                begin = end + 2;
+            }
+        }
+    }
     const protocol::HelloPayload product = evp::dxrworker::MakeDxrBackend ()->Describe ();
-    EXPECT_EQ (product.deviceName.find ("Microsoft"), std::string::npos) << product.deviceName;
+    if (product.reason == GpuReason::None)
+        EXPECT_EQ (product.deviceName.find ("Microsoft"), std::string::npos) << product.deviceName;
 
     evp::dxrworker::DxrBackendOptions options;
     options.warpForDiagnosis = true;
