@@ -32,6 +32,15 @@ ImDrawFlags Corners (ImDrawFlags ends, bool open, DockEdge side)
     ends &= outside;
     return ends != 0 ? ends : ImDrawFlags_RoundCornersNone;
 }
+// Tips point into the view, away from the dock's edge, so they never cover the dock's
+// own buttons or the workflow choices laid out beside it.
+TipSide AwayFrom (DockEdge side)
+{
+    return side == DockEdge::Top      ? TipSide::Below
+           : side == DockEdge::Bottom ? TipSide::Above
+           : side == DockEdge::Left   ? TipSide::Right
+                                      : TipSide::Left;
+}
 } // namespace
 
 // One dock with surface circles, a workflow-list title and a separate panel arrow.
@@ -49,6 +58,7 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
     const uint32_t ink = open ? graphicssettings::Colour ("ui.dock.activeText", 0xFFFFFFFFu)
                               : graphicssettings::Colour ("ui.dock.text", panel.textRgba);
     const double seconds = ImGui::GetTime ();
+    const TipSide away = AwayFrom (panelSide);
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     const ImDrawFlags firstCorners =
         Corners (horizontal ? ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersBottomLeft
@@ -95,8 +105,7 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
                 draw->PathStroke (Packed (graphicssettings::Colour ("ui.dock.busy", kBusyRgba)), 0, stroke);
             }
         }
-        // Beside the circle, out over the view: the dock is at the view's right edge.
-        Tip (c.tip, TipSide::Left);
+        Tip (c.tip, away);
         return pressed;
     };
     ImGui::PushID (id);
@@ -127,7 +136,7 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
                        "Press to give the view back to Archicad."
                      : "Lock the view to edit the floor plan on it: clicks are the HUD's, the wheel and the middle "
                        "button still navigate.",
-             TipSide::Left);
+             away);
     }
     if (horizontal && locked != nullptr)
         ImGui::SameLine (0, 0);
@@ -143,7 +152,7 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
         press.delta = ImGui::GetIO ().MouseDelta;
     if (ImGui::GetCurrentContext ()->IO.MouseDragMaxDistanceSqr[0] > 36.0f)
         press.title = false;
-    Tip ("Choose a workflow. Drag to move; right-click for dock location.");
+    Tip ("Choose a workflow. Drag to move; right-click for dock location.", away);
     if (horizontal)
         ImGui::SameLine (0, 0);
     press.collapse = ImGui::InvisibleButton ("##collapse", ImVec2 (across, across));
@@ -180,7 +189,7 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
         arrowC = { centre.x - half, centre.y };
     }
     draw->AddTriangleFilled (arrowA, arrowB, arrowC, Packed (ink));
-    Tip (open ? "Collapse panel" : "Expand panel");
+    Tip (open ? "Collapse panel" : "Expand panel", away);
     if (bottom != nullptr) {
         if (horizontal)
             ImGui::SameLine (0, 0);
@@ -489,9 +498,9 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
                         ImGui::CloseCurrentPopup ();
                     }
                     if (tab.key == held)
-                        Tip ("Current workflow");
+                        Tip ("Current workflow", AwayFrom (side));
                     else if (!tab.purpose.empty ())
-                        Tip (tab.purpose);
+                        Tip (tab.purpose, AwayFrom (side));
                     ImGui::PopID ();
                 }
                 ImGui::PopStyleVar (2);
