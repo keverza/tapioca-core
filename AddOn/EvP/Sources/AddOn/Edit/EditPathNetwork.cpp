@@ -473,6 +473,36 @@ bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, const PathPrep
     // plateau that packs all of the contour change into one narrow band.
     if (station <= 1e-8 || station >= g.length - 1e-8)
         z += f.grade * Dot (delta, f.tangent);
+    // Inside a sharp bend, past both legs' inner edges, is the bay its kerb fills. The nearest
+    // leg changes at the bay's bisector, and the two legs' edges there are the grade times twice
+    // the distance back to the bend apart: a step down the bay's middle. Interpolate across the
+    // bay instead, between the two edges' heights by the distance to each, so the bay meets
+    // each leg at its edge and spreads their difference over its whole width.
+    for (size_t i = 1; i < g.elements.size (); ++i) {
+        const auto& a = g.elements[i - 1];
+        const auto& b = g.elements[i];
+        Vec3 ta, tb;
+        if (a.kind != ElementKind::Line || b.kind != ElementKind::Line || !Normalize (a.b - a.a, ta) ||
+            !Normalize (b.b - b.a, tb) || Dot (ta, tb) > 1 - 1e-9)
+            continue;
+        const double turn = ta.x * tb.y - ta.y * tb.x, sign = turn > 0 ? 1.0 : -1.0;
+        const Vec3 d = p - b.a;
+        const double alongA = Dot (d, ta), alongB = Dot (d, tb);
+        const double sideA = sign * (d.x * -ta.y + d.y * ta.x), sideB = sign * (d.x * -tb.y + d.y * tb.x);
+        if (alongA > 0 || alongA < -a.length || alongB < 0 || alongB > b.length || sideA <= 0 || sideB <= 0)
+            continue;
+        StationFrame fa, fb;
+        if (!Evaluate (path, g, preparation, b.start + alongA, fa) ||
+            !Evaluate (path, g, preparation, b.start + alongB, fb))
+            continue;
+        const double ea = sideA - (turn > 0 ? fa.section.widthLeft : fa.section.widthRight);
+        const double eb = sideB - (turn > 0 ? fb.section.widthLeft : fb.section.widthRight);
+        if (ea <= 0 || eb <= 0)
+            continue;
+        const double za = turn > 0 ? fa.leftEdge.z : fa.rightEdge.z, zb = turn > 0 ? fb.leftEdge.z : fb.rightEdge.z;
+        z = (za * eb + zb * ea) / (ea + eb);
+        break;
+    }
     // A joined sharp bend is one path but still has two tangent planes. Blend
     // those locally too, instead of reintroducing a nearest-leg cliff inside it.
     for (size_t i = 1; i < g.elements.size (); ++i) {
@@ -486,7 +516,11 @@ bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, const PathPrep
         if (!Evaluate (path, g, preparation, b.start, corner))
             continue;
         const double width = std::max (corner.section.widthLeft, corner.section.widthRight);
-        const double t = std::clamp (2 - DistanceXY (p, corner.centre) / (2 * width), 0.0, 1.0);
+        // Full out to the edges' inner corner, where the bay's interpolation above takes over,
+        // then fading over two widths: a sharp bend's legs overlap that far.
+        const double sine = std::sin (0.5 * std::acos (std::clamp (-Dot (ta, tb), -1.0, 1.0)));
+        const double reach = std::max (2 * width, sine > 1e-3 ? width / sine : 0.0);
+        const double t = std::clamp (1 + (reach - DistanceXY (p, corner.centre)) / (2 * width), 0.0, 1.0);
         if (t <= 0)
             continue;
         double h0 = 0, h1 = 0, grade0 = 0, grade1 = 0;

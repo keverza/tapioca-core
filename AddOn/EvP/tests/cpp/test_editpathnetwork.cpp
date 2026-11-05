@@ -856,3 +856,48 @@ TEST (EditPathNetwork, RoughPavingKeepsItsBoundaryButStillCoarsensTheInterior)
     EXPECT_LT (rough.triangles.size (), resting.triangles.size ());
     ExpectMeshFillsItsOutline (rough);
 }
+
+TEST (EditPathNetwork, AFilledBendBayHasNoNearestLegSeam)
+{
+    // The 2026-11-05 dump's zig-zag: each sharp bend's inside kerb fills a bay reaching far
+    // past the bend. Across the bay's bisector the two legs' stations differ by twice the
+    // distance back to the bend, so a nearest-leg height stepped there (0.88 m at 15 m). Joining
+    // two legs that far apart in height keeps a fold across a narrow bay, at most about 30 %
+    // with these grades near the bend; a step is ten times that.
+    ed::Document doc;
+    const ed::Id id = ed::AddPath (doc,
+                                   { { -1.289, 17.270, 2.0 },
+                                     { 2.232, 1.397, 1.4 },
+                                     { 9.449, 19.176, .8 },
+                                     { 15.498, .215, .2 },
+                                     { 23.541, 19.005, -.4 } },
+                                   1.5);
+    const auto sharp = ed::Pave (doc.paths, .5, false);
+    std::string error;
+    for (const auto& [index, radius] : { std::pair { 1, 3.95 }, std::pair { 3, 8.37 } })
+        for (const auto& c : sharp.corners)
+            if (c.key.point == ed::FindPath (doc, id)->points[index].id && !c.convex)
+                ASSERT_TRUE (ed::SetKerbRadius (doc, id, c.key, radius, error)) << error;
+    const auto mesh = ed::Pave (doc.paths, .25);
+    for (const int index : { 1, 3 }) {
+        const auto& pts = ed::FindPath (doc, id)->points;
+        const ed::Vec3 at = pts[index].p, in = pts[index - 1].p - at, out = pts[index + 1].p - at;
+        const double li = std::hypot (in.x, in.y), lo = std::hypot (out.x, out.y);
+        ed::Vec3 bisector { in.x / li + out.x / lo, in.y / li + out.y / lo, 0 };
+        const double lb = std::hypot (bisector.x, bisector.y);
+        bisector = { bisector.x / lb, bisector.y / lb, 0 };
+        const ed::Vec3 across { -bisector.y * .05, bisector.x * .05, 0 };
+        size_t tested = 0;
+        for (double d = 1.0; d < 40.0; d += .25) {
+            const ed::Vec3 p { at.x + bisector.x * d, at.y + bisector.y * d, 0 };
+            double a = 0, b = 0;
+            if (!ed::PavedHeight (mesh, { p.x - across.x, p.y - across.y, 0 }, a) ||
+                !ed::PavedHeight (mesh, { p.x + across.x, p.y + across.y, 0 }, b))
+                continue;
+            ++tested;
+            EXPECT_LT (std::abs (a - b), .035) << "bend " << index << " at " << d << " m";
+        }
+        EXPECT_GT (tested, 20u) << "bend " << index;
+    }
+    ExpectMeshFillsItsOutline (mesh);
+}
