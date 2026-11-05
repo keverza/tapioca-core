@@ -118,8 +118,8 @@ void DeleteSelection (Session& s)
 }
 
 namespace {
-// Where an ordinary paste with no place, or a duplicate, lands: beside the original, never on it, so
-// a copied path does not lie along the one it came from.
+// Where an ordinary paste with no place lands: beside the original, never on it, so a copied path
+// does not lie along the one it came from. Duplicate has its own configurable session offset.
 constexpr edit::Vec3 kPasteStep { 1.0, -1.0, 0.0 };
 
 bool ClipboardIdle (Session& s)
@@ -132,8 +132,9 @@ bool ClipboardIdle (Session& s)
     return true;
 }
 
-// Pastes `clip` moved by `offset` as one undo step and selects what it made. In-place copies
-// suppress endpoint joining: joining a coincident copy to its source would double the path back.
+// Pastes `clip` moved by `offset` as one undo step and selects what it made. Paste in place and
+// XY-coincident Duplicate suppress endpoint joining: joining a coincident copy to its source would
+// double the path back. Path Z stays in its profile, so a Z-only duplicate is XY-coincident too.
 void PasteObjects (Session& s, const edit::Clipboard& clip, edit::Vec3 offset, bool joinPaths)
 {
     const edit::Id since = Doc (s).nextId;
@@ -196,7 +197,9 @@ void DuplicateSelection (Session& s)
         s.message = "Select the objects to duplicate.";
         return;
     }
-    PasteObjects (s, clip, kPasteStep, true);
+    const edit::Vec3 offset = s.duplicateOffset;
+    const bool xyCoincident = offset.x == 0.0 && offset.y == 0.0;
+    PasteObjects (s, clip, offset, !xyCoincident);
 }
 
 void MirrorSelection (Session& s, edit::Vec3 point, edit::Vec3 direction, bool copy)

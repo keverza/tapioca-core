@@ -161,8 +161,9 @@ struct Session {
     double pathWidth = 1.5;
     // The context actions' settings: an offset copy's distance.
     edit::ActionDefaults actionDefaults;
-    edit::Clipboard clipboard; // whole objects copied or cut, for Paste
-    bool mirrorKeeps = false;  // the mirror tool keeps the original (mirrors a copy); Ctrl flips it
+    edit::Vec3 duplicateOffset { 1.0, -1.0, 0.0 }; // metres; Duplicate and Ctrl+D, not pointer Paste
+    edit::Clipboard clipboard;                     // whole objects copied or cut, for Paste
+    bool mirrorKeeps = false;                      // the mirror tool keeps the original (mirrors a copy); Ctrl flips it
     // The group being edited inside (double click): its own objects and groups pick apart.
     edit::Id enteredGroup = edit::kNoId;
     edit::Id publishedGroup = edit::kNoId; // the entered group the published layer was faded for

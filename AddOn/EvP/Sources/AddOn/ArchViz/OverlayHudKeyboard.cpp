@@ -49,8 +49,11 @@ ImGuiKey Key (uint32_t code)
 void Engine::Impl::KeyboardInput (const Input& input)
 {
     auto& io = ImGui::GetIO ();
+    // The virtual editor's panel fields need the same queued keys as its canvas shortcuts;
+    // VirtualEditActions keeps those shortcuts out while ImGui owns a text field.
     const bool active =
         (store->roofEditor && store->editLocked && store->shown && LayerShown (*store, roofslope::kLayer)) ||
+        (store->virtualEditor && store->editLocked && store->shown && LayerShown (*store, editlayers::kLayer)) ||
         CriteriaTextActive (*store);
     if (roofKeysActive && !active)
         io.ClearInputKeys ();

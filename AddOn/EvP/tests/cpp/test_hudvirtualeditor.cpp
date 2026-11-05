@@ -7,6 +7,8 @@
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayScene.hpp"
 #include "Edit/EditEllipse.hpp"
+#include "Edit/EditLandscape.hpp"
+#include "Edit/EditLandscapeSerialization.hpp"
 #include "Edit/EditOrganize.hpp"
 #include "Edit/EditPrimitives.hpp"
 #include "Edit/EditPathEdit.hpp"
@@ -27,6 +29,47 @@ namespace oi = geomsrv::archviz::overlayinput;
 
 namespace {
 // The locked plan view: model (x, y) shows at (600 + 20 x, 500 - 20 y).
+struct FieldDrive {
+    ImGuiContext* previous = ImGui::GetCurrentContext ();
+    ImGuiContext* context = ImGui::CreateContext ();
+    eh::Session session;
+
+    FieldDrive ()
+    {
+        auto& io = ImGui::GetIO ();
+        io.IniFilename = nullptr;
+        io.DisplaySize = { 500, 500 };
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        io.ConfigInputTrickleEventQueue = false;
+        unsigned char* pixels;
+        int width, height;
+        io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    }
+    ~FieldDrive ()
+    {
+        ImGui::DestroyContext (context);
+        ImGui::SetCurrentContext (previous);
+    }
+    void Frame (const char* typed = nullptr, ImGuiKey key = ImGuiKey_None, bool focus = false)
+    {
+        auto& io = ImGui::GetIO ();
+        io.DeltaTime = 1.0f / 60;
+        if (key != ImGuiKey_None)
+            io.AddKeyEvent (key, true);
+        if (typed != nullptr)
+            io.AddInputCharactersUTF8 (typed);
+        ImGui::NewFrame ();
+        ImGui::Begin ("duplicate offset");
+        if (focus)
+            ImGui::SetKeyboardFocusHere ();
+        eh::detail::DuplicateOffsetControls (session);
+        ImGui::End ();
+        ImGui::Render ();
+        if (key != ImGuiKey_None)
+            io.AddKeyEvent (key, false);
+    }
+};
+
 struct Drive {
     hudtest::Watched view;
     layers::Layer layer;
@@ -4094,7 +4137,8 @@ TEST (HudVirtualEditor, CopyPasteCutAndDuplicateWorkOnWholeObjects)
     ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
     EXPECT_EQ (d.S ().selection.Items ()[0].entity, d.D ().entities[1].id);
     EXPECT_EQ (d.S ().selection.Items ()[0].part, ed::Part::Entity);
-    // Ctrl+D: a copy a step beside the selected one.
+    // Ctrl+D: the default remains one step beside the selected one.
+    EXPECT_EQ (d.S ().duplicateOffset, (ed::Vec3 { 1, -1, 0 }));
     d.input.keys = { { 'D', true, false, true } };
     d.Frame ();
     d.input.keys.clear ();
@@ -4106,6 +4150,27 @@ TEST (HudVirtualEditor, CopyPasteCutAndDuplicateWorkOnWholeObjects)
     eh::RunMenuItem (d.S (), "cut");
     EXPECT_EQ (ed::Find (d.D (), e), nullptr);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 3u);
+}
+
+TEST (HudVirtualEditor, TheDuplicateOffsetPanelAppliesTypedValuesWithEnter)
+{
+    FieldDrive d;
+    ed::Document doc;
+    const ed::Id id = ed::AddPolyline (doc, { { 0, 0, 0 }, { 2, 0, 0 } }, false);
+    d.session.edits = ed::Session (doc);
+    d.session.selection.Set ({ { id, ed::Part::Entity, 0 } });
+    d.Frame (nullptr, ImGuiKey_None, true);
+    d.Frame (); // keyboard focus resolves after the request
+    d.Frame ("4.5");
+    EXPECT_EQ (d.session.duplicateOffset, (ed::Vec3 { 1, -1, 0 })); // not before Enter
+    d.Frame (nullptr, ImGuiKey_Enter);
+    EXPECT_EQ (d.session.duplicateOffset, (ed::Vec3 { 4.5, -1, 0 }));
+    EXPECT_EQ (d.session.edits.UndoDepth (), 0u); // a session setting, not a document edit
+
+    eh::detail::DuplicateSelection (d.session);
+    ASSERT_EQ (d.session.edits.Doc ().entities.size (), 2u);
+    EXPECT_EQ (d.session.edits.Doc ().entities[1].vertices.front ().p, (ed::Vec3 { 4.5, -1, 0 }));
+    EXPECT_EQ (d.session.edits.UndoDepth (), 1u);
 }
 
 TEST (HudVirtualEditor, PasteInPlaceUsesTheMenuAndCtrlShiftVWithOneUndoEach)
@@ -4175,6 +4240,157 @@ TEST (HudVirtualEditor, PasteInPlaceUsesTheMenuAndCtrlShiftVWithOneUndoEach)
     EXPECT_EQ (d.D ().entities.size (), 2u);
     EXPECT_EQ (d.D ().paths.size (), 1u);
     EXPECT_EQ (d.D ().groups.size (), 1u);
+}
+
+TEST (HudVirtualEditor, DuplicateUsesTheConfiguredOffsetFromTheMenuAndCtrlD)
+{
+    ed::Document doc;
+    std::string error;
+    ASSERT_TRUE (tapioca::geometry::StartLandscape (doc, { 1 }, error)) << error;
+    const ed::Id a = ed::AddPolyline (doc, { { 2, 3, 1 }, { 5, 3, 1 } }, false, "guide");
+    ASSERT_TRUE (tapioca::geometry::SetLandscapeSourceRole (doc, a, tapioca::geometry::SourceRole::Guide, error))
+        << error;
+    const ed::Id b = ed::AddPolyline (doc, ed::Rectangle ({ 7, 3, 1 }, { 9, 5, 1 }), true, "second");
+    const ed::Id path = ed::AddPath (doc, { { 2, 9, 2 }, { 8, 9, 3 } }, 1.5, "walk");
+    ed::FindPath (doc, path)->profile.front ().anchor = ed::FindPath (doc, path)->points.front ().id;
+    ed::FindPath (doc, path)->profile.back ().anchor = ed::FindPath (doc, path)->points.back ().id;
+    const ed::Id group = ed::GroupObjects (
+        doc, { { a, ed::Part::Entity, 0 }, { b, ed::Part::Entity, 0 }, { path, ed::Part::Entity, 0 } },
+        "duplicated group", error);
+    ASSERT_NE (group, ed::kNoId) << error;
+    const std::vector<ed::Ref> originals = { { a, ed::Part::Entity, 0 },
+                                             { b, ed::Part::Entity, 0 },
+                                             { path, ed::Part::Entity, 0 } };
+    Drive d (std::move (doc));
+    d.S ().menu.target = eh::MenuTarget::View;
+    d.S ().duplicateOffset = { 3.5, -2.25, 0.75 };
+    const ed::Vec3 offset = d.S ().duplicateOffset;
+
+    const auto expectCopy = [&] {
+        ASSERT_EQ (d.D ().entities.size (), 4u);
+        ASSERT_EQ (d.D ().paths.size (), 2u);
+        ASSERT_EQ (d.D ().groups.size (), 2u);
+        ASSERT_EQ (d.S ().selection.Items ().size (), 3u);
+        const auto selected = d.S ().selection.Items ();
+        const auto selects = [&selected] (ed::Id id) {
+            return std::any_of (selected.begin (), selected.end (),
+                                [id] (const ed::Ref& ref) { return ref.entity == id && ref.part == ed::Part::Entity; });
+        };
+        EXPECT_NE (d.D ().groups[1].id, group);
+        for (size_t i = 0; i < 2; ++i) {
+            const auto& original = d.D ().entities[i];
+            const auto& copy = d.D ().entities[i + 2];
+            EXPECT_NE (copy.id, original.id);
+            EXPECT_EQ (copy.role, original.role);
+            EXPECT_EQ (copy.member.layer, original.member.layer);
+            EXPECT_EQ (copy.member.hidden, original.member.hidden);
+            EXPECT_EQ (copy.member.locked, original.member.locked);
+            EXPECT_EQ (copy.member.group, d.D ().groups[1].id);
+            EXPECT_TRUE (selects (copy.id));
+            ASSERT_EQ (copy.vertices.size (), original.vertices.size ());
+            for (size_t k = 0; k < copy.vertices.size (); ++k) {
+                EXPECT_EQ (copy.vertices[k].p,
+                           (ed::Vec3 { original.vertices[k].p.x + offset.x, original.vertices[k].p.y + offset.y,
+                                       original.vertices[k].p.z + offset.z }));
+                EXPECT_NE (copy.vertices[k].id, original.vertices[k].id);
+            }
+        }
+        const auto& original = d.D ().paths[0];
+        const auto& copy = d.D ().paths[1];
+        EXPECT_NE (copy.id, original.id);
+        EXPECT_EQ (copy.role, original.role);
+        EXPECT_EQ (copy.member.layer, original.member.layer);
+        EXPECT_EQ (copy.member.hidden, original.member.hidden);
+        EXPECT_EQ (copy.member.locked, original.member.locked);
+        EXPECT_EQ (copy.member.group, d.D ().groups[1].id);
+        EXPECT_TRUE (selects (copy.id));
+        ASSERT_EQ (copy.points.size (), original.points.size ());
+        for (size_t k = 0; k < copy.points.size (); ++k) {
+            EXPECT_EQ (copy.points[k].p, (ed::Vec3 { original.points[k].p.x + offset.x,
+                                                     original.points[k].p.y + offset.y, original.points[k].p.z }));
+            EXPECT_NE (copy.points[k].id, original.points[k].id);
+        }
+        EXPECT_EQ (copy.profile.front ().anchor, copy.points.front ().id);
+        EXPECT_EQ (copy.profile.back ().anchor, copy.points.back ().id);
+        EXPECT_NE (copy.profile.front ().id, original.profile.front ().id);
+        EXPECT_NE (copy.profile.back ().id, original.profile.back ().id);
+        EXPECT_EQ (copy.sections.front ().widthLeft, original.sections.front ().widthLeft);
+        EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+        ASSERT_EQ (d.D ().landscape->sources.size (), 1u);
+        EXPECT_EQ (d.D ().landscape->sources.front ().entityId, a);
+    };
+
+    d.S ().selection.Set (originals);
+    ASSERT_TRUE (d.Offers ("duplicate"));
+    eh::RunMenuItem (d.S (), "duplicate");
+    EXPECT_EQ (d.S ().message, "");
+    expectCopy ();
+
+    std::string text;
+    ASSERT_TRUE (tapioca::geometry::WriteLandscape (d.D (), tapioca::geometry::LandscapeStorage::Virtual, text, error))
+        << error;
+    ed::Document loaded;
+    ASSERT_TRUE (tapioca::geometry::ReadLandscape (text, loaded, error)) << error;
+    EXPECT_EQ (loaded.entities.size (), 4u);
+    EXPECT_EQ (loaded.paths.size (), 2u);
+    EXPECT_EQ (loaded.groups.size (), 2u);
+    EXPECT_EQ (loaded.entities[2].vertices.front ().p, d.D ().entities[2].vertices.front ().p);
+    EXPECT_EQ (loaded.paths[1].profile.front ().anchor, loaded.paths[1].points.front ().id);
+    ASSERT_EQ (loaded.landscape->sources.size (), 1u);
+    EXPECT_EQ (loaded.landscape->sources.front ().entityId, a);
+
+    eh::RunMenuItem (d.S (), "undo");
+    ASSERT_EQ (d.D ().entities.size (), 2u);
+    ASSERT_EQ (d.D ().paths.size (), 1u);
+    ASSERT_EQ (d.D ().groups.size (), 1u);
+    d.S ().selection.Set (originals);
+    d.input.keys = { { 'D', true, false, true } };
+    d.Frame ();
+    EXPECT_EQ (d.S ().message, "");
+    expectCopy ();
+
+    // Pointer paste still centres the clipboard and does not use Duplicate's configured offset.
+    eh::RunMenuItem (d.S (), "copy");
+    ed::Vec3 centre;
+    ASSERT_TRUE (ed::Centre (d.S ().clipboard, centre));
+    d.S ().menu.at = { 20, 20, 0 };
+    eh::RunMenuItem (d.S (), "paste");
+    EXPECT_EQ (d.S ().message, "");
+    ASSERT_EQ (d.D ().entities.size (), 6u);
+    EXPECT_EQ (d.D ().paths.size (), 3u);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+    const auto& pasted = d.D ().entities[4];
+    const auto& source = d.D ().entities[2];
+    EXPECT_DOUBLE_EQ (pasted.vertices.front ().p.x, source.vertices.front ().p.x + 20.0 - centre.x);
+    EXPECT_DOUBLE_EQ (pasted.vertices.front ().p.y, source.vertices.front ().p.y + 20.0 - centre.y);
+}
+
+TEST (HudVirtualEditor, XYCoincidentDuplicateKeepsPathsWithoutJoiningThem)
+{
+    for (const ed::Vec3 offset : { ed::Vec3 {}, ed::Vec3 { 0, 0, 1 } }) {
+        SCOPED_TRACE (offset.z);
+        ed::Document doc;
+        const ed::Id entity = ed::AddPolyline (doc, { { 2, 3, 1 }, { 5, 3, 1 } }, false);
+        const ed::Id path = ed::AddPath (doc, { { 2, 9, 2 }, { 8, 9, 3 } }, 1.5);
+        std::string error;
+        ASSERT_NE (
+            ed::GroupObjects (doc, { { entity, ed::Part::Entity, 0 }, { path, ed::Part::Entity, 0 } }, {}, error),
+            ed::kNoId)
+            << error;
+        Drive d (std::move (doc));
+        d.S ().menu.target = eh::MenuTarget::View;
+        d.S ().selection.Set ({ { entity, ed::Part::Entity, 0 }, { path, ed::Part::Entity, 0 } });
+        d.S ().duplicateOffset = offset;
+        eh::RunMenuItem (d.S (), "duplicate");
+        EXPECT_EQ (d.S ().message, "");
+        ASSERT_EQ (d.D ().entities.size (), 2u);
+        ASSERT_EQ (d.D ().paths.size (), 2u);
+        ASSERT_EQ (d.D ().groups.size (), 2u);
+        EXPECT_EQ (d.D ().entities[1].vertices.front ().p, (ed::Vec3 { 2 + offset.x, 3 + offset.y, 1 + offset.z }));
+        EXPECT_EQ (d.D ().paths[1].points.front ().p, d.D ().paths[0].points.front ().p);
+        EXPECT_EQ (d.D ().paths[1].points.back ().p, d.D ().paths[0].points.back ().p);
+        EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    }
 }
 
 TEST (HudVirtualEditor, MirrorACopyAcrossTheGumballSelectsTheCopy)

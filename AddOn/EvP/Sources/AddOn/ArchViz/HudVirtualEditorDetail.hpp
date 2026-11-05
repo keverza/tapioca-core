@@ -78,6 +78,7 @@ edit::Vec3 SnappedTranslation (const Session& s, edit::Vec3 at);
 void ScreenPointer (const Session& s, const Map& m, ImVec2 mouse, float scale, edit::SnapQuery& q);
 void ScreenFlush (const Session& s, const Map& m, ImVec2 mouse, float scale, edit::SnapQuery& q);
 void SnapControls (Session& s);
+void DuplicateOffsetControls (Session& s);
 void Acquire (Session& s, const edit::SnapResult& snap);
 edit::Vec3 GrabPoint (const Session& s, const Map& m, ImVec2 mouse, const edit::Ref& pressed, edit::Vec3 onPlane,
                       float scale);
@@ -233,7 +234,7 @@ std::vector<edit::Ref> Moving (const Session& s, const edit::Ref& ref);
 void CheckView (Session& s, const overlayhud::Input& v);
 // The clipboard (HudVirtualEditorMenu.cpp), on whole objects: copied, cut (copied, then
 // deleted), pasted in place, with their centre at `at`, or a step beside where they were, and
-// duplicated a step beside themselves. What is pasted is selected.
+// duplicated by the session's configured offset. What is pasted is selected.
 void CopySelection (Session& s, bool cut);
 void PasteClipboard (Session& s, std::optional<edit::Vec3> at, bool inPlace);
 void DuplicateSelection (Session& s);

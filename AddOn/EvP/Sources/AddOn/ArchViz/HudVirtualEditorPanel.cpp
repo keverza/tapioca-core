@@ -64,6 +64,18 @@ void SlopeArrow (ImDrawList* list, ImVec2 from, ImVec2 to, ImU32 colour, float s
 constexpr double kNubPixels = 16.0;
 } // namespace
 
+void detail::DuplicateOffsetControls (Session& s)
+{
+    double offset[] = { s.duplicateOffset.x, s.duplicateOffset.y, s.duplicateOffset.z };
+    ImGui::SetNextItemWidth (240.0f);
+    if (ImGui::InputScalarN ("Duplicate offset XYZ (m)", ImGuiDataType_Double, offset, 3, nullptr, nullptr, "%.3f",
+                             ImGuiInputTextFlags_EnterReturnsTrue)) {
+        s.duplicateOffset = { offset[0], offset[1], offset[2] };
+    }
+    hudshell::Tip ("Enter applies. Menu Duplicate and Ctrl+D use this offset; path elevations stay in their profiles.",
+                   hudshell::TipSide::Above);
+}
+
 void Panel (Session& s)
 {
     const auto& doc = Doc (s);
@@ -234,6 +246,7 @@ void Panel (Session& s)
         hudshell::Tip ("Positive: outside a closed outline or left of a line. Negative: inside or right.",
                        hudshell::TipSide::Above);
     }
+    DuplicateOffsetControls (s);
     ImGui::EndDisabled ();
     OrganizeControls (s);
     EllipseControls (s);
