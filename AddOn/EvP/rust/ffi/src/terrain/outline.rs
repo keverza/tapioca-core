@@ -116,7 +116,7 @@ unsafe fn compute(
     input: *const TerrainOutlineRequest,
     output: *const TerrainOutlineOutput,
     error: Range,
-) -> Result<(Outlined, TerrainOutlineOutput), Failure> {
+) -> Result<(Outlined, TerrainOutlineOutput, Inputs), Failure> {
     // SAFETY: descriptors validates both POD shapes before copying them.
     let (request, target, context): (_, _, BorrowContext) =
         unsafe { pools::descriptors(input, output, error)? };
@@ -220,6 +220,25 @@ unsafe fn compute(
         3 => Effect::Both,
         _ => return Err(Failure::Argument("TerrainOutlineEffect")),
     };
+    // The query pass's result serves the fill pass that follows it with the
+    // same request, so a caller sizing its buffers does not grade twice.
+    let key = Inputs::new(
+        request,
+        [
+            points,
+            region,
+            surface_points,
+            line_points,
+            spots,
+            surface_grades,
+        ],
+        [triangles, surface_triangles, line_counts],
+    );
+    if let Some(built) =
+        LAST.with_borrow_mut(|last| last.take().filter(|(k, _)| *k == key).map(|(_, b)| b))
+    {
+        return Ok((built, target, key));
+    }
     let built = build(&OutlineRequest {
         points,
         triangles,
@@ -242,7 +261,44 @@ unsafe fn compute(
         },
     })
     .map_err(|error| Failure::Argument(error.message()))?;
-    Ok((built, target))
+    Ok((built, target, key))
+}
+
+/// Every input of one request, as bytes: equal only for an identical request.
+#[derive(PartialEq, Eq)]
+struct Inputs(Vec<u8>);
+
+impl Inputs {
+    fn new(request: TerrainOutlineRequest, reals: [&[f64]; 6], counts: [&[u32]; 3]) -> Self {
+        let mut bytes = Vec::with_capacity(
+            reals.iter().map(|r| r.len() * 8 + 8).sum::<usize>()
+                + counts.iter().map(|c| c.len() * 4 + 8).sum::<usize>()
+                + 64,
+        );
+        for pool in reals {
+            bytes.extend(pool.len().to_ne_bytes());
+            bytes.extend(pool.iter().flat_map(|v| v.to_ne_bytes()));
+        }
+        for pool in counts {
+            bytes.extend(pool.len().to_ne_bytes());
+            bytes.extend(pool.iter().flat_map(|v| v.to_ne_bytes()));
+        }
+        for slope in [request.cut, request.fill] {
+            bytes.extend(slope.a.to_ne_bytes());
+            bytes.extend(slope.b.to_ne_bytes());
+            bytes.extend(slope.kind.to_ne_bytes());
+        }
+        for v in [request.limit, request.rounding, request.tolerance] {
+            bytes.extend(v.to_ne_bytes());
+        }
+        bytes.extend(request.effect.to_ne_bytes());
+        Self(bytes)
+    }
+}
+
+thread_local! {
+    /// The last query pass's request and result, until a fill pass takes it.
+    static LAST: std::cell::RefCell<Option<(Inputs, Outlined)>> = const { std::cell::RefCell::new(None) };
 }
 
 // SAFETY: target ranges were preflighted disjoint from every input, the error
@@ -287,7 +343,10 @@ unsafe fn publish(built: &Outlined, target: TerrainOutlineOutput) -> Result<(), 
 }
 
 /// Grade a base mesh inside a region ring from a paved area's TIN.
-/// Query mode computes the same result and publishes only counts.
+/// Query mode computes the same result and publishes only counts; it keeps
+/// that result on the calling thread for the next call, and a fill call with
+/// an identical request (every input compared byte for byte) publishes it
+/// instead of grading again.
 ///
 /// # Safety
 /// Same live/aligned/disjoint/unchanged-on-refusal contract as
@@ -303,9 +362,13 @@ pub unsafe extern "C" fn tapioca_terrain_outline_build(
     // precedes computation and capacity checks precede every write.
     unsafe {
         call(error, capacity, || {
-            let (built, target) =
+            let (built, target, key) =
                 compute(input, output, memory_range(error.cast_const(), capacity)?)?;
-            publish(&built, target)
+            publish(&built, target)?;
+            if target.query_only == 1 {
+                LAST.with_borrow_mut(|last| *last = Some((key, built)));
+            }
+            Ok(())
         })
     }
 }
