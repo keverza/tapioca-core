@@ -3,6 +3,7 @@
 // stands in for Archicad's canvas; the owner counts what it is asked.
 
 #include "ArchViz/OverlayInput.hpp"
+#include "ArchViz/OverlayInputKeyboard.hpp"
 
 #include <gtest/gtest.h>
 
@@ -485,4 +486,26 @@ TEST (OverlayInput, LockedRoofConsumesParentDeleteBeforeNativeAcceleratorsAndFor
     ::DestroyAcceleratorTable (accelerators);
     ::DestroyWindow (parent);
     ::DestroyWindow (other);
+}
+
+// 2026-11-05 13:46-13:48: Shift+middle orbits, and Shift held auto-repeats ~30 times a second;
+// over the locked view every repeat asked a ~9 ms layout while Archicad navigated.
+TEST (OverlayInput, AModifiersAutoRepeatAsksForNoLayout)
+{
+    geomsrv::archviz::overlayhud::Input::Key key;
+    key.down = true;
+    key.repeat = true;
+    for (uint32_t code : { uint32_t (VK_SHIFT), uint32_t (VK_LSHIFT), uint32_t (VK_CONTROL), uint32_t (VK_MENU) }) {
+        key.code = code;
+        EXPECT_TRUE (input::keyboard::IsModifierRepeat (key)) << code;
+    }
+    key.code = VK_SHIFT;
+    key.repeat = false;
+    EXPECT_FALSE (input::keyboard::IsModifierRepeat (key)) << "the press itself is laid out";
+    key.down = false;
+    EXPECT_FALSE (input::keyboard::IsModifierRepeat (key)) << "so is the release";
+    key.code = 'A';
+    key.down = true;
+    key.repeat = true;
+    EXPECT_FALSE (input::keyboard::IsModifierRepeat (key)) << "a typed key's repeat types";
 }
