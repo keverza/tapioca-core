@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <set>
 #include <array>
 #include <limits>
 
@@ -149,7 +150,7 @@ bool BuildLinearSurface (PavedArea& area, const Path& path, const AlignmentGeome
 }
 
 void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, double step,
-                         const std::function<double (Vec3)>& height)
+                         const std::function<double (Vec3)>& height, double tolerance)
 {
     if (!std::isfinite (step) || step <= 0 || area.triangles.empty ())
         return;
@@ -238,6 +239,8 @@ void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, doub
                               [] (const std::pair<Edge, uint32_t>& m, const Edge& k) { return m.first < k; });
         return at != mid.end () && at->first == key ? at : mid.end ();
     };
+    std::set<Edge> flat;
+    std::set<std::array<uint32_t, 3>> smooth;
     for (int pass = 0; pass < 24; ++pass) {
         mid.clear ();
         for (size_t i = 0; i < area.triangles.size (); i += 3)
@@ -248,11 +251,75 @@ void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, doub
             }
         std::sort (mid.begin (), mid.end ());
         mid.erase (std::unique (mid.begin (), mid.end ()), mid.end ());
+        // With a tolerance, a long edge stays whole where the surface lies on its triangles'
+        // planes within it: at its midpoint, and inside each triangle (its centroid and the
+        // centroids of its corner thirds), where a blend can bulge between true midpoints. A
+        // triangle that bulges splits its longest edge. The outline is always split by `step`:
+        // what is graded from it (each edge's faces take its two vertices' sections) needs it dense.
+        std::vector<double> heights;
+        if (tolerance > 0) {
+            std::vector<Edge> sides;
+            sides.reserve (area.triangles.size ());
+            for (size_t i = 0; i < area.triangles.size (); i += 3)
+                for (int k = 0; k < 3; ++k)
+                    sides.push_back (Key (area.triangles[i + k], area.triangles[i + (k + 1) % 3]));
+            std::sort (sides.begin (), sides.end ());
+            const auto outline = [&] (const Edge& edge) {
+                const auto [first, last] = std::equal_range (sides.begin (), sides.end (), edge);
+                return last - first == 1;
+            };
+            std::set<Edge> bulging;
+            for (size_t i = 0; i < area.triangles.size (); i += 3) {
+                const std::array<uint32_t, 3> t { area.triangles[i], area.triangles[i + 1], area.triangles[i + 2] };
+                std::array<uint32_t, 3> id = t;
+                std::sort (id.begin (), id.end ());
+                if (smooth.contains (id))
+                    continue;
+                const Vec3 &a = area.vertices[t[0]], &b = area.vertices[t[1]], &c = area.vertices[t[2]];
+                const double ab = DistanceXY (a, b), bc = DistanceXY (b, c), ca = DistanceXY (c, a);
+                if (std::max ({ ab, bc, ca }) <= step * (1 + 1e-9))
+                    continue;
+                bool bulges = false;
+                for (const auto& w :
+                     { std::array { 1 / 3.0, 1 / 3.0, 1 / 3.0 }, std::array { 2 / 3.0, 1 / 6.0, 1 / 6.0 },
+                       std::array { 1 / 6.0, 2 / 3.0, 1 / 6.0 }, std::array { 1 / 6.0, 1 / 6.0, 2 / 3.0 } }) {
+                    const Vec3 p { w[0] * a.x + w[1] * b.x + w[2] * c.x, w[0] * a.y + w[1] * b.y + w[2] * c.y,
+                                   w[0] * a.z + w[1] * b.z + w[2] * c.z };
+                    if (std::abs (height (p) - p.z) > tolerance) {
+                        bulges = true;
+                        break;
+                    }
+                }
+                if (!bulges) {
+                    smooth.insert (id);
+                    continue;
+                }
+                bulging.insert (ab >= bc && ab >= ca ? Key (t[0], t[1])
+                                : bc >= ca           ? Key (t[1], t[2])
+                                                     : Key (t[2], t[0]));
+            }
+            std::vector<std::pair<Edge, uint32_t>> kept;
+            for (const auto& entry : mid) {
+                const bool forced = bulging.contains (entry.first) || outline (entry.first);
+                if (!forced && flat.contains (entry.first))
+                    continue;
+                Vec3 p = Lerp (area.vertices[entry.first.first], area.vertices[entry.first.second], 0.5);
+                const double z = height (p);
+                if (forced || std::abs (z - p.z) > tolerance) {
+                    kept.push_back (entry);
+                    heights.push_back (z);
+                }
+                else
+                    flat.insert (entry.first);
+            }
+            mid = std::move (kept);
+        }
         if (mid.empty () || area.triangles.size () / 3 + 2 * mid.size () > kMaxTriangles)
             break;
-        for (auto& [edge, index] : mid) {
+        for (size_t m = 0; m < mid.size (); ++m) {
+            auto& [edge, index] = mid[m];
             Vec3 p = Lerp (area.vertices[edge.first], area.vertices[edge.second], 0.5);
-            p.z = height (p);
+            p.z = tolerance > 0 ? heights[m] : height (p);
             index = uint32_t (area.vertices.size ());
             area.vertices.push_back (p);
         }

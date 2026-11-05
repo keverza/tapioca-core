@@ -18,6 +18,11 @@ namespace {
 namespace edit = geomsrv::edit;
 namespace cp = Clipper2Lib;
 constexpr int kPrecision = landscape_detail::kPrecision;
+// How far the paved surface the terrain is graded from may stray from the paths' heights, metres:
+// its triangles split only where they do (Pave), so a long level or evenly graded path is a few
+// long triangles rather than one every half metre, and the faces, supports and region rebuilt from
+// them scale with the shape, not the length.
+constexpr double kPavedTolerance = 0.002;
 
 cp::PathD Path (const std::vector<double>& ring)
 {
@@ -197,7 +202,7 @@ OutlineDesignOptions OutlineOptionsFor (const edit::Document& doc, edit::Id path
 bool EvaluateOutlineDesign (const edit::Document& doc, const EditTerrainInput& input, const OutlineDesignOptions& o,
                             TerrainDesignResult& result, uint32_t& unreached, std::string& error, uint32_t* clipped)
 {
-    const auto paved = edit::Pave (doc.paths, o.pavedStep, true);
+    const auto paved = edit::Pave (doc.paths, o.pavedStep, true, nullptr, kPavedTolerance);
     if (paved.vertices.empty () || paved.triangles.empty ()) {
         error = "OutlineNoPaths: draw a path to grade the terrain";
         return false;

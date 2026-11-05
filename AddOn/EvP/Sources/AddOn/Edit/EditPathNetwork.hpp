@@ -62,8 +62,12 @@ struct PavedArea {
 // Without `surface`, only the outline and its corners (what grips need). `outlines` (optional)
 // spares the paths' tessellation when another call of the frame already did it; the result is
 // identical with or without it.
+// `tolerance` (metres; 0 splits by `step` alone): a triangle longer than `step` is split only where
+// the paths' surface strays from it by more than this, at an edge's midpoint or inside it, so a
+// level or evenly graded run stays a few long triangles. The outline and the authored features are
+// the same either way.
 PavedArea Pave (const std::vector<Path>& paths, double step = 0.5, bool surface = true,
-                PathOutlineCache* outlines = nullptr);
+                PathOutlineCache* outlines = nullptr, double tolerance = 0.0);
 
 // The step a preview of `paths` is paved at while a gesture edits them: the coarsest that keeps
 // the surface near `triangles` triangles, never finer than `finest` nor coarser than `coarsest`.

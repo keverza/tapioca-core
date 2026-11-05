@@ -10,6 +10,6 @@ bool BuildLinearSurface (PavedArea& area, const Path& path, const AlignmentGeome
 // Shared-edge refinement of the united footprint; authored samples retain profile
 // features that an outline-only triangulation cannot describe.
 void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, double step,
-                         const std::function<double (Vec3)>& height);
+                         const std::function<double (Vec3)>& height, double tolerance = 0.0);
 } // namespace geomsrv::edit
 #endif

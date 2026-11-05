@@ -557,7 +557,8 @@ bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, Vec3 p, double
 }
 
 namespace {
-PavedArea PaveTogether (const std::vector<Path>& paths, double step, bool surface, PathOutlineCache* outlines)
+PavedArea PaveTogether (const std::vector<Path>& paths, double step, bool surface, PathOutlineCache* outlines,
+                        double tolerance)
 {
     PavedArea out;
     // A gesture may coarsen the interior mesh, never the footprint it fills.
@@ -706,12 +707,12 @@ PavedArea PaveTogether (const std::vector<Path>& paths, double step, bool surfac
         for (double station : source.geometry.pointStations)
             sample (station);
     }
-    RefinePavedSurface (out, samples, step, [&] (Vec3 p) { return HeightAt (sources, p); });
+    RefinePavedSurface (out, samples, step, [&] (Vec3 p) { return HeightAt (sources, p); }, tolerance);
     return out;
 }
 } // namespace
 
-PavedArea Pave (const std::vector<Path>& paths, double step, bool surface, PathOutlineCache* outlines)
+PavedArea Pave (const std::vector<Path>& paths, double step, bool surface, PathOutlineCache* outlines, double tolerance)
 {
     // Each editor layer is paved on its own: paths on different layers are not united, and
     // their surfaces overlap where they cross rather than merge.
@@ -719,10 +720,10 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface, PathO
     for (const auto& p : paths)
         layers[p.member.layer].push_back (p);
     if (layers.size () <= 1)
-        return PaveTogether (paths, step, surface, outlines);
+        return PaveTogether (paths, step, surface, outlines, tolerance);
     PavedArea out;
     for (const auto& [layer, group] : layers) {
-        PavedArea one = PaveTogether (group, step, surface, outlines);
+        PavedArea one = PaveTogether (group, step, surface, outlines, tolerance);
         const auto base = static_cast<uint32_t> (out.vertices.size ());
         out.vertices.insert (out.vertices.end (), one.vertices.begin (), one.vertices.end ());
         for (const uint32_t i : one.triangles)
