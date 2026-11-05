@@ -194,27 +194,28 @@ std::vector<Action> PolylineActions (const ActionDefaults& d)
              return each (doc, refs, [] (const Entity& e) { return e.kind == Kind::Polyline; }, &ReverseDirection);
          } });
     // A parallel copy of each selected outline; the copy is what the edit adds.
-    table.push_back ({ "offset", "Offset copy", entity, 0xFu, 1, 0, [d] (const Document& doc, const Refs& refs) {
-                          std::vector<Id> ids;
-                          for (const auto& r : refs)
-                              if (Find (doc, r.entity) != nullptr && r.part == Part::Entity)
-                                  ids.push_back (r.entity);
-                          if (ids.empty () || d.offsetDistance == 0.0)
-                              return Operation {};
-                          return Operation ([ids, d] (Document& x, std::string& error) {
-                              for (const Id id : ids) {
-                                  const Entity& e = *Find (x, id);
-                                  // OffsetEntity runs to the left, and an extrusion's profile
-                                  // outward; a ring of either winding goes outside.
-                                  const bool outside = e.closed && e.kind == Kind::Polyline;
-                                  const double left =
-                                      outside && SignedAreaXY (e.vertices) > 0.0 ? -d.offsetDistance : d.offsetDistance;
-                                  if (!OffsetEntity (x, id, left, error))
-                                      return false;
-                              }
-                              return true;
-                          });
-                      } });
+    table.push_back (
+        { "offset", "Offset copy", entity, 0xFu, 1, 0, [d] (const Document& doc, const Refs& refs) {
+             std::vector<Id> ids;
+             for (const auto& r : refs)
+                 if (Find (doc, r.entity) != nullptr && r.part == Part::Entity)
+                     ids.push_back (r.entity);
+             if (ids.empty () || d.offsetDistance == 0.0)
+                 return Operation {};
+             return Operation ([ids, d] (Document& x, std::string& error) {
+                 for (const Id id : ids) {
+                     const Entity& e = *Find (x, id);
+                     // OffsetEntity runs to the left, and an extrusion's profile
+                     // outward; a ring of either winding goes outside.
+                     const bool outside = e.closed && e.kind == Kind::Polyline;
+                     const double left =
+                         outside && SignedAreaXY (e.vertices) > 0.0 ? -d.offsetDistance : d.offsetDistance;
+                     if (!OffsetEntity (x, id, left, OffsetOptions { d.offsetJoinStyle, d.offsetMiterLimit }, error))
+                         return false;
+                 }
+                 return true;
+             });
+         } });
     // The first selected polyline is cut back to, or lengthened to meet, the second. Of its
     // two ends, a trim takes the one that leaves the longer polyline and an extension the
     // one that reaches the other sooner.

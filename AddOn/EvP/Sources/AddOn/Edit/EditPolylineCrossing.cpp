@@ -3,6 +3,18 @@
 
 namespace geomsrv::edit::polyline_detail {
 
+// Plan direction and length of a -> b.
+bool PlanDirection (Vec3 a, Vec3 b, Vec3& dir, double& length)
+{
+    length = DistanceXY (a, b);
+    return Normalize (Vec3 { b.x - a.x, b.y - a.y, 0.0 }, dir);
+}
+
+Vec3 LeftNormal (Vec3 dir)
+{
+    return { -dir.y, dir.x, 0.0 };
+}
+
 // Plan crossing of lines a + t (b - a) and c + s (d - c).
 bool CrossPlan (Vec3 a, Vec3 b, Vec3 c, Vec3 d, double& t, double& s)
 {

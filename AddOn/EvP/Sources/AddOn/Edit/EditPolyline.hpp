@@ -23,8 +23,18 @@ bool MergeVertices (Document& doc, Id entity, double tolerance, std::string& err
 // Moves a segment parallel to itself by `distance` (positive to its left in plan);
 // its neighbours keep their directions and stretch to meet it.
 bool OffsetSegment (Document& doc, Id entity, Id segment, double distance, std::string& error);
-// A parallel copy of the whole outline at `distance` (positive to the left in plan).
+enum class OffsetJoinStyle : uint8_t { Miter, Bevel, Round };
+struct OffsetOptions {
+    OffsetJoinStyle join = OffsetJoinStyle::Miter;
+    double miterLimit = 10.0; // dimensionless corner-to-intersection distance / abs(offset)
+};
+// Legacy parallel copy: positive left (or outward for an extrusion), strict miter limit 10.
 bool OffsetEntity (Document& doc, Id entity, double distance, std::string& error, Id* created = nullptr);
+// Straight-segment styled copy. Inner corners intersect; outer miters within the limit, bevels,
+// or a deterministic round arc (up to 8 pieces per quarter-turn). Styled miter falls back to
+// bevel past its limit. Curves and live-corner radii refuse until their own offset slice.
+bool OffsetEntity (Document& doc, Id entity, double distance, const OffsetOptions& options, std::string& error,
+                   Id* created = nullptr);
 // Lengthens an open polyline's start or end along its last segment to the first
 // edge of `target` it meets.
 bool ExtendToEntity (Document& doc, Id entity, bool atStart, Id target, std::string& error);
@@ -71,6 +81,8 @@ struct ActionDefaults {
     double pathWidth = 1.5; // a path made along a polyline
     // An offset copy's distance: positive outside a closed outline, to the left of an open line.
     double offsetDistance = 0.5;
+    OffsetJoinStyle offsetJoinStyle = OffsetJoinStyle::Miter;
+    double offsetMiterLimit = 10.0;
     bool operator== (const ActionDefaults&) const = default;
 };
 // The shape editor's context actions, ready for `Applicable`.

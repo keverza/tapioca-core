@@ -13,6 +13,8 @@ namespace {
 
 using polyline_detail::CrossPlan;
 using polyline_detail::EdgesOf;
+using polyline_detail::LeftNormal;
+using polyline_detail::PlanDirection;
 
 constexpr double kPi = 3.14159265358979323846;
 
@@ -38,18 +40,6 @@ int SegmentAt (const Entity& e, Id segment, std::string& error)
     if (i < 0)
         error = "the segment no longer exists";
     return i;
-}
-
-// Plan direction and length of a -> b.
-bool PlanDirection (Vec3 a, Vec3 b, Vec3& dir, double& length)
-{
-    length = DistanceXY (a, b);
-    return Normalize (Vec3 { b.x - a.x, b.y - a.y, 0.0 }, dir);
-}
-
-Vec3 LeftNormal (Vec3 dir)
-{
-    return { -dir.y, dir.x, 0.0 };
 }
 
 bool EllipseEditable (const Entity& e, std::string& error)
@@ -265,77 +255,6 @@ bool OffsetSegment (Document& doc, Id entity, Id segment, double distance, std::
     }
     a.p = newA;
     b.p = newB;
-    return true;
-}
-
-bool OffsetEntity (Document& doc, Id entity, double distance, std::string& error, Id* created)
-{
-    const Entity* found = Find (doc, entity);
-    if (found == nullptr) {
-        error = "the entity no longer exists";
-        return false;
-    }
-    if (!EllipseEditable (*found, error))
-        return false;
-    Entity copy = *found;
-    const size_t n = copy.vertices.size (), segs = SegmentCount (copy);
-    std::vector<Vec3> dirs (segs);
-    for (size_t i = 0; i < segs; ++i) {
-        size_t from = 0, to = 0;
-        SegmentEnds (copy, i, from, to);
-        double length = 0.0;
-        if (!PlanDirection (copy.vertices[from].p, copy.vertices[to].p, dirs[i], length)) {
-            error = "a vertical segment has no plan offset";
-            return false;
-        }
-    }
-    // An extrusion profile is counter-clockwise: positive grows it outward.
-    const double d = copy.kind == Kind::Extrusion ? -distance : distance;
-    std::vector<Vec3> moved (n);
-    for (size_t i = 0; i < n; ++i) {
-        const bool hasIn = copy.closed || i > 0, hasOut = copy.closed || i + 1 < n;
-        const Vec3 p = copy.vertices[i].p;
-        if (!hasIn || !hasOut) {
-            moved[i] = p + LeftNormal (dirs[hasOut ? i : i - 1]) * d;
-            continue;
-        }
-        const Vec3 din = dirs[(i + segs - 1) % segs], dout = dirs[i % segs];
-        const Vec3 nin = LeftNormal (din), nout = LeftNormal (dout);
-        double t = 0.0, s = 0.0;
-        const Vec3 a = p + nin * d, b = p + nout * d;
-        if (!CrossPlan (a - din, a, b, b + dout, t, s)) {
-            moved[i] = b; // collinear: both offsets agree
-            continue;
-        }
-        const Vec3 corner = Lerp (a - din, a, t);
-        if (DistanceXY (corner, p) > 10.0 * std::abs (d) + kMinSegment) {
-            error = "a corner is too sharp to offset";
-            return false;
-        }
-        moved[i] = { corner.x, corner.y, p.z };
-    }
-    for (size_t i = 0; i < segs; ++i) {
-        size_t from = 0, to = 0;
-        SegmentEnds (copy, i, from, to);
-        Vec3 dir;
-        double length = 0.0;
-        if (!PlanDirection (moved[from], moved[to], dir, length) || Dot (dir, dirs[i]) <= 0.0) {
-            error = "the offset is larger than the outline allows";
-            return false;
-        }
-    }
-    copy.id = kNoId;
-    for (size_t i = 0; i < n; ++i) {
-        copy.vertices[i].id = kNoId;
-        copy.vertices[i].p = moved[i];
-        copy.vertices[i].lockXY = copy.vertices[i].lockZ = false;
-    }
-    for (auto& s : copy.segments)
-        s.id = kNoId;
-    Normalize (doc, copy);
-    doc.entities.push_back (copy);
-    if (created != nullptr)
-        *created = copy.id;
     return true;
 }
 
