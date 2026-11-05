@@ -1602,3 +1602,48 @@ fn refusals_are_atomic_and_inputs_unchanged() {
     assert_eq!(points, points_before);
     assert_eq!(triangles, triangles_before);
 }
+
+#[test]
+fn surface_target_daylight_stays_continuous_at_an_inside_corner() -> Result<(), FieldError> {
+    // An L-shaped triangulated target 2 m above level ground at 10, its corner
+    // leg falling from 12 to 11: the daylight faces over the inside corner are
+    // the boundary's slope-cone envelope. The nearest boundary height jumped
+    // between the two legs along the bisector.
+    let surface = [
+        0.0, -2.0, 12.0, 20.0, -2.0, 12.0, 20.0, 2.0, 12.0, 0.0, 2.0, 12.0, 16.0, 2.0, 12.0, 16.0,
+        20.0, 11.0, 20.0, 20.0, 11.0,
+    ];
+    let triangles = [0_u32, 1, 2, 0, 2, 4, 0, 4, 3, 4, 2, 6, 4, 6, 5];
+    let field = Field::new(&surface, &triangles)?;
+    let boundary = field.boundary();
+    let target = PreparedTarget::Surface { field, boundary };
+    let height = |x: f64, y: f64| {
+        let nearest = target.height(x, y, 10.0).unwrap_or(f64::NAN);
+        let (fill, cut) = target.faces([x, y], 1.0, nearest, [0.5, 0.5]);
+        10.0_f64.max(fill).min(cut)
+    };
+    let step = 0.05;
+    for i in 0..120 {
+        for j in 0..120 {
+            let (x, y) = (
+                f64::from(i).mul_add(step, 10.0),
+                f64::from(j).mul_add(step, 2.5),
+            );
+            let here = height(x, y);
+            for (nx, ny) in [(x + step, y), (x, y + step)] {
+                let next = height(nx, ny);
+                assert!(
+                    (next - here).abs() <= 0.5f64.mul_add(step, 1e-9),
+                    "({x},{y}) -> ({nx},{ny}): {here} -> {next}"
+                );
+            }
+        }
+    }
+    // A level target keeps its own cone: the former above/below-target rule.
+    let level = PreparedTarget::Constant(12.0);
+    assert_eq!(
+        level.faces([0.0, 0.0], 2.0, 12.0, [0.5, 0.25]),
+        (11.5, 13.0)
+    );
+    Ok(())
+}

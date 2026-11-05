@@ -31,6 +31,7 @@ use super::design::{self, Design};
 use super::edit::{Effect, smoother_step};
 use super::field::{Field, FieldError, Segment};
 use super::hybrid::{self, LineKind};
+use super::outline::steepest;
 use super::plan;
 use super::region::{RegionError, RegionMesh, RegionRequest, retriangulate_region_with_points};
 use super::volume::VolumeError;
@@ -551,6 +552,41 @@ impl PreparedTarget {
 
     const fn is_absolute(&self) -> bool {
         !matches!(self, Self::Existing)
+    }
+
+    /// The fill (highest) and cut (lowest) daylight faces over `(x, y)`,
+    /// `distance` outside the domain whose nearest target height is `target`.
+    /// A surface target's faces are the slope-cone envelope of its boundary
+    /// (as outline grading's): each boundary point at height `h` offers
+    /// `h - fill * d` and `h + cut * d`, so the faces stay continuous where two
+    /// boundary edges' reaches meet. The nearest boundary height alone jumps
+    /// there. A constant or existing target's boundary is level, where the
+    /// envelope is the target's own cone.
+    fn faces(
+        &self,
+        [x, y]: [f64; 2],
+        distance: f64,
+        target: f64,
+        [cut, fill]: [f64; 2],
+    ) -> (f64, f64) {
+        let Self::Surface { boundary, .. } = self else {
+            return (target - distance * fill, target + distance * cut);
+        };
+        if boundary.is_empty() {
+            return (target - distance * fill, target + distance * cut);
+        }
+        let mut faces = (f64::NEG_INFINITY, f64::INFINITY);
+        for &segment in boundary {
+            if fill.is_finite() {
+                let (run, height) = steepest(segment, [x, y], fill, false);
+                faces.0 = faces.0.max(height - run * fill);
+            }
+            if cut.is_finite() {
+                let (run, height) = steepest(segment, [x, y], cut, true);
+                faces.1 = faces.1.min(height + run * cut);
+            }
+        }
+        faces
     }
 }
 
@@ -1231,10 +1267,12 @@ fn candidate(prepared: &PreparedEntry<'_>, x: f64, y: f64, current: f64) -> Opti
             }
             if distance <= 0.0 {
                 target
-            } else if current > target {
-                current.min(target + distance * cut)
             } else {
-                current.max(target - distance * fill)
+                // Raised to the fill face, then lowered to the cut face: for a
+                // level target exactly the former above/below-target choice.
+                let (fill_face, cut_face) =
+                    prepared.target.faces([x, y], distance, target, [cut, fill]);
+                current.max(fill_face).min(cut_face)
             }
         }
     };

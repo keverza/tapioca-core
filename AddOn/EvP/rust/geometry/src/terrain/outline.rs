@@ -222,7 +222,12 @@ fn outline(
 /// over `(px, py)` (lowest when `cut`): its plan distance and height. Along the
 /// edge the height is affine and the distance convex, so the cone height is
 /// concave and its extremum closed form.
-fn steepest([from, to]: [[f64; 3]; 2], [px, py]: [f64; 2], grade: f64, cut: bool) -> (f64, f64) {
+pub(super) fn steepest(
+    [from, to]: [[f64; 3]; 2],
+    [px, py]: [f64; 2],
+    grade: f64,
+    cut: bool,
+) -> (f64, f64) {
     let (dx, dy) = (to[0] - from[0], to[1] - from[1]);
     let length = dx.hypot(dy);
     let at = |along: f64| {
