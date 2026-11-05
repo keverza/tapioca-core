@@ -56,7 +56,7 @@ void NoteHudRefresh (uint32_t micros);
 // ⚠️ (2026-11-05 13:46-13:48) Shift+middle orbits the view, and over the locked view the HUD
 // takes every key -- Shift and its ~30 auto-repeats a second included -- each asking for a
 // layout of ~9 ms: 94 layouts in 5 s while the middle button was held.
-void NoteKeyTaken (uint32_t code, bool repeat);
+void NoteKeyTaken (uint32_t code, bool down, bool repeat);
 
 // A middle-button double-click passed to Archicad, which fits the view to the window: one
 // line each, with when and where, so a jump the user noted can be matched to it.
@@ -88,6 +88,10 @@ void Reset ();
 // ~50 ms; inside a gesture's motion the largest step was ~25 deg. So a NAVJUMP is a step of
 // kJumpDegrees anywhere, or kStillJumpDegrees where nothing of the user's was moving it, and it
 // names the last 3D redraw we asked for. Every gesture writes a NAVGESTURE line.
+// ⚠️ (15:51-15:54) Ten jumps landed 300-400 ms after a release, every one BEFORE our redraw
+// (16-375 ms after the decode): ours follow the jump, they do not make it. So a NAVJUMP also
+// says how far the new view is from the view before the gesture's press -- about 0 is Archicad
+// undoing the navigation -- and whether the HUD took a Shift key-up from Archicad just before.
 struct CameraStep {
     double degrees = 0.0; // the rotation between the two views
     double travel = 0.0;  // the eye's displacement, in model units

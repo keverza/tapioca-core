@@ -82,6 +82,8 @@ struct Gesture {
     uint64_t releaseMs = 0;
     bool shiftAtPress = false;
     double pressPixels = -1.0; // from Archicad's last move; -1: no move passed yet
+    bool haveStartView = false;
+    float startView[16] = {}; // the last decode before the press
     uint32_t movesPassed = 0;
     uint32_t movesEaten = 0;
     uint64_t lastPassedMs = 0;
@@ -103,6 +105,7 @@ constexpr double kStillJumpDegrees = 10.0; // where nothing of the user's was tu
 constexpr uint64_t kPressSettleMs = 60;    // a press's first ms: no motion of its own yet
 bool g_haveLast = false;
 uint64_t g_lastRedrawMs = 0;
+uint64_t g_lastShiftUpTakenMs = 0;
 RedrawSource g_lastRedrawSource = RedrawSource::Gate;
 dxgi::injection::freshness::CameraSample g_last;
 
@@ -177,9 +180,22 @@ const char* NameOf (RedrawSource source)
                                                    : "layer or HUD change";
 }
 
-void SayJump (const CameraStep& step, uint64_t ms, uint64_t dt)
+void SayJump (const CameraStep& step, const float* view, uint64_t ms, uint64_t dt)
 {
     const Gesture* g = GestureAt (ms);
+    // The gesture last begun before this decode: is the new view the one it started from?
+    const Gesture* begun = g;
+    for (const Gesture* candidate : { &g_current, &g_previous })
+        if (begun == nullptr && candidate->used && candidate->pressMs <= ms)
+            begun = candidate;
+    char undo[96] = "no gesture's starting view";
+    if (begun != nullptr && begun->haveStartView)
+        _snprintf_s (undo, sizeof (undo), _TRUNCATE, "%.1f deg from the view before that gesture's press",
+                     Step (begun->startView, view).degrees);
+    char shift[64] = "no Shift key-up taken";
+    if (g_lastShiftUpTakenMs != 0 && g_lastShiftUpTakenMs <= ms && ms - g_lastShiftUpTakenMs <= 2000)
+        _snprintf_s (shift, sizeof (shift), _TRUNCATE, "a Shift key-up taken by the HUD %llu ms before",
+                     (unsigned long long) (ms - g_lastShiftUpTakenMs));
     char where[256] = {};
     if (g == nullptr)
         _snprintf_s (where, sizeof (where), _TRUNCATE, "outside any gesture");
@@ -206,9 +222,9 @@ void SayJump (const CameraStep& step, uint64_t ms, uint64_t dt)
     char line[512] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "%-12s %s: the camera turned %.1f deg and moved %.2f between two decodes %llu ms apart | %s%s | "
-                 "%s",
+                 "%s | %s | %s",
                  "NAVJUMP", Clock (ms).c_str (), step.degrees, step.travel, (unsigned long long) dt, where, wheel,
-                 redraw);
+                 redraw, undo, shift);
     ArchVizLog (line);
 }
 
@@ -244,7 +260,7 @@ void AnalyseCamera ()
             g->jumps += jump ? 1 : 0;
         }
         if (jump)
-            SayJump (step, sample.ms, dt);
+            SayJump (step, sample.view, sample.ms, dt);
     }
     if (dropped != 0)
         ArchVizLog ("NAVJUMP      " + std::to_string (dropped) + " camera samples dropped: the ring was full");
@@ -324,6 +340,10 @@ void NoteNavigationStart (long x, long y, bool locked)
     g_current.used = g_current.open = true;
     g_current.pressMs = Now ();
     g_current.shiftAtPress = ::GetAsyncKeyState (VK_SHIFT) < 0;
+    if (g_haveLast) { // the camera at rest before the press: the gesture's starting view
+        g_current.haveStartView = true;
+        std::copy (g_last.view, g_last.view + 16, g_current.startView);
+    }
     if (!g_havePassedMove)
         return;
     const double pixels = std::hypot (double (x - g_passedX), double (y - g_passedY));
@@ -364,8 +384,10 @@ void NoteHudRefresh (uint32_t micros)
     (Navigating () ? g_window.refreshNavigating : g_window.refresh).Add (micros);
 }
 
-void NoteKeyTaken (uint32_t code, bool repeat)
+void NoteKeyTaken (uint32_t code, bool down, bool repeat)
 {
+    if (!down && (code == VK_SHIFT || code == VK_LSHIFT || code == VK_RSHIFT))
+        g_lastShiftUpTakenMs = Now ();
     ++g_window.keysTaken;
     g_current.keysTaken += g_current.open ? 1 : 0;
     const bool modifier = code == VK_SHIFT || code == VK_LSHIFT || code == VK_RSHIFT || code == VK_CONTROL ||
@@ -422,6 +444,7 @@ void Reset ()
     g_current = g_previous = Gesture {};
     g_haveLast = false;
     g_lastRedrawMs = 0;
+    g_lastShiftUpTakenMs = 0;
 }
 
 CameraStep Step (const float* a, const float* b)

@@ -417,7 +417,7 @@ bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16str
                 target->keys.push_back (key);
             if (target->characters.size () + text.size () < 256)
                 target->characters += text;
-            navwatch::NoteKeyTaken (key.code, key.repeat);
+            navwatch::NoteKeyTaken (key.code, key.down, key.repeat);
             if (!keyboard::IsModifierRepeat (key))
                 RequestRefresh (*target);
         }
@@ -455,7 +455,7 @@ bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16str
             target->keys.push_back (key);
         if (target->characters.size () + text.size () < 256)
             target->characters += text;
-        navwatch::NoteKeyTaken (key.code, key.repeat);
+        navwatch::NoteKeyTaken (key.code, key.down, key.repeat);
         if (!keyboard::IsModifierRepeat (key))
             RequestRefresh (*target);
     }
