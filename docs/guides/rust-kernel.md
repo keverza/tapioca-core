@@ -1243,11 +1243,20 @@ discontinuous; its end faces need corner fans, which belong to composition.
 `TapiocaTerrainStation` after `reserved`; the struct grows from 152 to 160 bytes)
 eases each face into the band at its top and into the ground at its toe. The top
 is a cubic Hermite over the first `rounding` metres from the edge's own outward
-grade to the face's; the toe blends as `base +/- gap * smoothstep(gap / (grade *
-rounding))`, so the daylight height and position are the sharp ones and both ends
-are tangent. A side that rounds carries eight additive line kind 8 (`side` set,
-`root` counting outward): four evenly over each end's rounding, clamped to 6-45 %
-of the face, so the curve has vertices to lie on. `rounding = 0` builds exactly
+grade to the face's (it still reaches 4/3 of the face grade near two thirds of
+the rounding). The toe (#150) is the quadratic smooth maximum (fill) or minimum
+(cut) of face and ground over `blend = grade * rounding` of vertical gap either
+side of their intersection, a vertical curve centred on it: its slope always lies
+between the ground's and the face's, where the former smoothstep reached 27/16 of
+the face grade. It meets the ground where the face is `blend` past it
+(`eased_daylight_roots`, about one rounding beyond the sharp daylight on level
+ground), so rounding adds earthwork at the toe. `limit` bounds the straight face
+and the rounded toe may run one rounding further; where the ground or that reach
+ends inside the rounded toe, the station's daylight is the straight face's own. A
+side that rounds carries eight additive line kind 8 (`side` set, `root` counting
+outward): four evenly over the top's rounding and four over twice it back from the
+first daylight, each clamped to 6-45 % of the face, so the curves have vertices to
+lie on. `rounding = 0` builds exactly
 what it did before. The editor's path cross-section carries it (`Section::rounding`,
 default 1 m; files saved without it load as 0).
 

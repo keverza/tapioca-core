@@ -34,7 +34,7 @@
 //!
 //! Plan positions are world metres in `f64`; heights in metres.
 
-use super::daylight::{DaylightError, Locus, Ray, Sense, daylight_roots};
+use super::daylight::{DaylightError, Locus, Ray, Sense, daylight_roots, eased_daylight_roots};
 use super::edit::{Crossfall, Daylight, Effect, Hand};
 use super::field::Field;
 use super::plan;
@@ -231,18 +231,20 @@ pub(crate) fn top(edge: f64, leaving: f64, rise: f64, length: f64, run: f64) -> 
     h00 * edge + h10 * leaving * length + h01 * (edge + rise * length) + h11 * rise * length
 }
 
-/// The face against the ground: a cut keeps the lower, a fill the higher; within
-/// `blend` metres of height of the ground the face eases onto it (0 is sharp).
+/// The face against the ground: a cut keeps the lower, a fill the higher, and
+/// within `blend` metres of height either side of where they meet it rounds
+/// over by the quadratic smooth maximum (minimum); 0 is sharp. The rounding is
+/// centred on the daylight, as a vertical curve on its intersection: it leaves
+/// the ground before the straight face would reach it, and its slope always
+/// lies between the ground's and the face's, never steeper than the face.
 pub(crate) fn toe(base: f64, face: f64, cut: bool, blend: f64) -> f64 {
     let gap = if cut { base - face } else { face - base };
-    if gap <= 0.0 {
-        return base;
-    }
-    if blend <= 0.0 || blend.is_nan() || gap >= blend {
-        return face;
-    }
-    let s = gap / blend;
-    let eased = gap * s * s * 2.0f64.mul_add(-s, 3.0);
+    let eased = if blend > 0.0 && gap.abs() < blend {
+        let h = (blend - gap.abs()) / blend;
+        (blend * 0.25 * h).mul_add(h, gap.max(0.0))
+    } else {
+        gap.max(0.0)
+    };
     if cut { base - eased } else { base + eased }
 }
 
@@ -439,11 +441,33 @@ impl<'a> Design<'a> {
                     outward,
                     shoulder,
                 };
+                // The toe's rounding, as `height` applies it: the limit bounds
+                // the straight face, and its rounded toe may run one rounding on.
+                let blend = slope
+                    .gradient()
+                    .ok()
+                    .filter(|g| g.is_finite())
+                    .map_or(0.0, |g| g * station.rounding);
                 let face = Daylight {
+                    slope,
+                    extension: Some(if blend > 0.0 {
+                        limit + station.rounding
+                    } else {
+                        limit
+                    }),
+                };
+                let eased = eased_daylight_roots(&ray, sense, face, self.field, blend)
+                    .map_err(DesignError::Daylight)?;
+                if blend <= 0.0 || matches!(eased, Locus::Met { .. }) {
+                    return Ok(Some(eased));
+                }
+                // The ground (or the reach) ends inside the rounded toe: the
+                // straight face's own meeting is the daylight there.
+                let sharp = Daylight {
                     slope,
                     extension: Some(limit),
                 };
-                daylight_roots(&ray, sense, face, self.field)
+                daylight_roots(&ray, sense, sharp, self.field)
                     .map(Some)
                     .map_err(DesignError::Daylight)
             };
@@ -558,7 +582,14 @@ impl<'a> Design<'a> {
             Classification::Cut => (0, section.grades[0], section.limits[0]),
             Classification::Fill => (1, section.grades[1], section.limits[1]),
         };
-        if grade.is_infinite() || distance > limit {
+        // The limit bounds the straight face; its rounded toe may run one
+        // rounding on, as the daylight search allows.
+        let reach = if section.rounding > 0.0 {
+            limit + section.rounding
+        } else {
+            limit
+        };
+        if grade.is_infinite() || distance > reach {
             return Ok(Some(untouched));
         }
         let run = (distance - shoulder).max(0.0);

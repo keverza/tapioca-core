@@ -59,10 +59,22 @@ fn a_rounded_face_leaves_the_edge_level_meets_the_ground_level_and_is_straight_b
     // Sharp: level band, then -1/2 at once. Rounded: still level just past the edge.
     assert!(close(slope(&sharp, step * 2.0)?, -0.5, 1e-6));
     assert!(slope(&rounded, step * 2.0)?.abs() < 1e-3);
-    // At the toe the sharp face still falls at 1/2; the rounded one has eased level.
+    // At the toe the sharp face still falls at 1/2. The rounded toe is centred
+    // on that intersection: there it is a quarter of the 0.5 m blend above the
+    // ground and falls at half the grade, and it meets the ground level a
+    // rounding beyond it.
     assert!(close(slope(&sharp, 4.0 - step * 2.0)?, -0.5, 1e-6));
-    assert!(slope(&rounded, 4.0 - step * 2.0)?.abs() < 1e-3);
-    assert!(close(across(&rounded, 4.0)?, 10.0, 1e-12));
+    assert!(close(across(&rounded, 4.0)?, 10.125, 1e-12));
+    assert!(close(slope(&rounded, 4.0)?, -0.25, 1e-6));
+    assert!(close(across(&rounded, 5.0)?, 10.0, 1e-12));
+    assert!(slope(&rounded, 5.0 - step * 2.0)?.abs() < 1e-3);
+    // The toe is nowhere steeper than the face: its smoothstep once fell at up
+    // to 27/16 of it. (The top's Hermite still reaches 4/3 of it near 0.67 m.)
+    let mut d = 2.0;
+    while d < 6.0 {
+        assert!(slope(&rounded, d)?.abs() <= 0.5 + 1e-6, "{d}");
+        d += 0.01;
+    }
     Ok(())
 }
 
@@ -153,9 +165,12 @@ fn a_rounded_build_lines_its_faces_and_softens_their_creases() -> Result<(), Hyb
     // face lines diagonally (at the base grid's crossings) keep the worst of them.
     assert!(sharpest(&sharp) > 26.0);
     assert!(sharpest(&rounded) < 20.0, "{}", sharpest(&rounded));
-    // The daylight stays on the ground, so the volume is still bounded by it.
+    // Both roundings add fill on an embankment: the top's Hermite lies L^2/24
+    // above the sharp face per metre, and the toe's fillet blend*L/6 -- 1/8 m^2
+    // a side, 10 m^3 over both sides of the 40 m. The mesh samples them.
     let ([sharp_fill, _], [round_fill, _]) =
         (between(&sharp, 0.0, 40.0), between(&rounded, 0.0, 40.0));
-    assert!(round_fill > 0.0 && round_fill < sharp_fill);
+    let added = round_fill - sharp_fill;
+    assert!(added > 5.0 && added < 15.0, "{added}");
     Ok(())
 }

@@ -418,3 +418,31 @@ fn a_crown_falls_both_ways_from_the_centreline() -> Result<(), DesignError> {
     assert!(!Design::new(&flat, &field, 1e-6)?.crowned());
     Ok(())
 }
+
+#[test]
+fn the_toe_eases_without_steepening_the_face() {
+    // A 1 in 2 fill face over level ground at 0, meeting it at x = 4, with a
+    // 0.5 m blend: the eased height is continuous and its slope never exceeds
+    // the face's, unlike a smoothstep of the gap.
+    let face = |x: f64| 2.0 - 0.5 * x;
+    let step = 0.001;
+    let mut x = 0.0;
+    while x < 8.0 {
+        for cut in [false, true] {
+            let sign = if cut { -1.0 } else { 1.0 };
+            let here = toe(0.0, sign * face(x), cut, 0.5);
+            let next = toe(0.0, sign * face(x + step), cut, 0.5);
+            assert!((next - here).abs() <= 0.5f64.mul_add(step, 1e-12), "{x}");
+            // A smooth maximum (minimum) never undercuts the sharp one.
+            if cut {
+                assert!(here <= (-face(x)).min(0.0) + 1e-12, "{x}");
+            } else {
+                assert!(here >= face(x).max(0.0) - 1e-12, "{x}");
+            }
+        }
+        x += step;
+    }
+    assert_eq!(toe(0.0, 3.0, false, 0.5).to_bits(), 3.0f64.to_bits());
+    assert_eq!(toe(0.0, -3.0, false, 0.5).to_bits(), 0.0f64.to_bits());
+    assert_eq!(toe(1.0, 3.0, false, 0.0).to_bits(), 3.0f64.to_bits());
+}

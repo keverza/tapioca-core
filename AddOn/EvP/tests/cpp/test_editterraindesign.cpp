@@ -775,10 +775,13 @@ TEST (EditTerrainDesign, ARoundedSectionLinesItsFacesAndEasesTheirVolume)
     };
     EXPECT_EQ (faces (sharp), 0);
     EXPECT_EQ (faces (rounded), 16) << "eight lines across each side's face";
-    // Rounding takes the corners off both the cut and the fill.
-    EXPECT_LT (rounded.build.site.fill, sharp.build.site.fill);
-    EXPECT_LT (rounded.build.site.cut, sharp.build.site.cut);
-    EXPECT_GT (rounded.build.site.fill, 0.8 * sharp.build.site.fill);
+    // #150: the toe rounds across the daylight as a fillet, never steeper than the face, so
+    // it adds earthwork where the face meets the ground: a fill's toe rides above both and a
+    // cut's below both. Measured on this fixture: fill 27.94 -> 35.13 m3, cut 27.78 -> 35.05 m3.
+    EXPECT_GT (rounded.build.site.fill, sharp.build.site.fill);
+    EXPECT_GT (rounded.build.site.cut, sharp.build.site.cut);
+    EXPECT_LT (rounded.build.site.fill, 1.4 * sharp.build.site.fill);
+    EXPECT_LT (rounded.build.site.cut, 1.4 * sharp.build.site.cut);
 }
 
 TEST (EditTerrainDesign, ACoverClipsTheDerivedRegionToTheTerrainsFootprint)

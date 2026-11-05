@@ -258,7 +258,8 @@ struct Outward {
 impl Outward {
     /// One station's outward offsets from the edge: the shoulder's end, the face
     /// lines -- [`FACE_LINES_PER_END`] evenly over its `rounding` from the face's
-    /// start and as many back from its first daylight -- then the daylight roots.
+    /// start and as many over twice it back from its first daylight, where the
+    /// toe rounds across the straight face's intersection -- then the roots.
     fn offsets(&self, shoulder: f64, roots: &[f64], rounding: f64) -> Vec<f64> {
         let mut offsets = Vec::with_capacity(roots.len() + FACE_LINES + 1);
         if self.shoulder {
@@ -270,14 +271,15 @@ impl Outward {
             let span = first - shoulder;
             let (least, most) = FACE_END_SHARE;
             let end = rounding.clamp(span * least, span * most);
+            let toe = (2.0 * rounding).clamp(span * least, span * most);
             let mut ends = [0.0; FACE_LINES_PER_END];
             let mut share = 0.0;
             for slot in &mut ends {
                 share += 1.0 / 4.0;
-                *slot = end * share;
+                *slot = share;
             }
-            offsets.extend(ends.iter().map(|d| shoulder + d));
-            offsets.extend(ends.iter().rev().map(|d| first - d));
+            offsets.extend(ends.iter().map(|d| shoulder + end * d));
+            offsets.extend(ends.iter().rev().map(|d| first - toe * d));
         }
         offsets.extend_from_slice(roots);
         offsets

@@ -30,7 +30,7 @@
 //!
 //! Plan positions are world metres in `f64`; heights in metres.
 
-use super::design::top;
+use super::design::{toe, top};
 use super::edit::Effect;
 use super::field::Field;
 use super::plan;
@@ -195,22 +195,6 @@ fn steepest([from, to]: [[f64; 3]; 2], [px, py]: [f64; 2], grade: f64, cut: bool
     at(along.clamp(0.0, length))
 }
 
-/// The face against the ground: a fill keeps the higher, a cut the lower, and
-/// within `blend` metres of height either side of where they meet it rounds
-/// over by the quadratic smooth maximum (minimum). Its slope always lies
-/// between the ground's and the face's, so the toe is never steeper than the
-/// face (the band's smoothstep `toe` steepens it by up to 27/16).
-fn ease(base: f64, face: f64, cut: bool, blend: f64) -> f64 {
-    let gap = if cut { base - face } else { face - base };
-    let eased = if blend > 0.0 && gap.abs() < blend {
-        let h = (blend - gap.abs()) / blend;
-        (blend * 0.25 * h).mul_add(h, gap.max(0.0))
-    } else {
-        gap.max(0.0)
-    };
-    if cut { base - eased } else { base + eased }
-}
-
 /// The validated grading: grades as rise per metre of run.
 struct Faces<'a> {
     base: &'a Field,
@@ -277,8 +261,8 @@ impl Faces<'_> {
     /// below the fill face and above the cut face, so at most one moves it.
     fn graded(&self, base: f64, fill: f64, cut: f64) -> f64 {
         let rounding = self.grading.rounding;
-        let raise = ease(base, fill, false, self.fill * rounding) - base;
-        let lower = base - ease(base, cut, true, self.cut * rounding);
+        let raise = toe(base, fill, false, self.fill * rounding) - base;
+        let lower = base - toe(base, cut, true, self.cut * rounding);
         let design = self.restrict(base, base + raise - lower);
         if (design - base).abs() <= self.grading.tolerance {
             base

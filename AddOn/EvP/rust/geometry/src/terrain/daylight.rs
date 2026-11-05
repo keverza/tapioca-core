@@ -100,6 +100,27 @@ pub fn daylight_roots(
     face: Daylight,
     field: &Field,
 ) -> Result<Locus, DaylightError> {
+    eased_daylight_roots(ray, sense, face, field, 0.0)
+}
+
+/// As [`daylight_roots`], for a toe rounded over `blend` metres of height
+/// either side of the face's intersection with the ground (the band's toe):
+/// the roots are where the rounded toe meets the ground, `blend` beyond the
+/// straight face's -- still one closed-form root per affine piece.
+///
+/// # Errors
+/// See [`DaylightError`]; a negative or non-finite `blend` is
+/// [`DaylightError::Parameters`].
+pub fn eased_daylight_roots(
+    ray: &Ray,
+    sense: Sense,
+    face: Daylight,
+    field: &Field,
+    blend: f64,
+) -> Result<Locus, DaylightError> {
+    if !(blend.is_finite() && blend >= 0.0) {
+        return Err(DaylightError::Parameters);
+    }
     let [ex, ey, ez] = ray.edge;
     let [ux, uy] = ray.outward;
     let norm = ux.hypot(uy);
@@ -120,14 +141,19 @@ pub fn daylight_roots(
         return Ok(Locus::Vertical);
     }
     let direction = [ux / norm, uy / norm];
-    let sign = match sense {
+    let sign: f64 = match sense {
         Sense::Cut => 1.0,
         Sense::Fill => -1.0,
     };
+    // A fill's rounded toe meets the ground where the face is `blend` below
+    // it, a cut's where it is `blend` above.
     let residual = |d: f64| {
         field
             .height_at(ex + direction[0] * d, ey + direction[1] * d)
-            .map(|sample| ez + sign * gradient * (d - ray.shoulder).max(0.0) - sample.height)
+            .map(|sample| {
+                sign.mul_add(-blend, ez + sign * gradient * (d - ray.shoulder).max(0.0))
+                    - sample.height
+            })
     };
     // Search to where the ray leaves the field's bounds, and past the limit.
     let bounds = field.bounds();

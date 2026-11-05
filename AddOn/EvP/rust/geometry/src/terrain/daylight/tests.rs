@@ -302,3 +302,40 @@ fn seeded_planar_bases_match_the_closed_form() -> Result<(), DaylightError> {
     }
     Ok(())
 }
+
+#[test]
+fn a_rounded_toe_meets_the_ground_beyond_the_straight_face() -> Result<(), DaylightError> {
+    // Level ground at 10; a 1 in 2 face from an edge 2 m above (fill) or below
+    // (cut) meets it 4 m out; a 0.5 m blend rounds it onto the ground 1 m on.
+    let field = plane([-20.0, -20.0, 20.0, 20.0], |_, _| 10.0)?;
+    for (sense, edge) in [(Sense::Fill, 12.0), (Sense::Cut, 8.0)] {
+        let ray = Ray {
+            edge: [0.0, 0.0, edge],
+            outward: [1.0, 0.0],
+            shoulder: 0.0,
+        };
+        let sharp = daylight_roots(&ray, sense, face(HALF, 15.0), &field)?;
+        let eased = eased_daylight_roots(&ray, sense, face(HALF, 15.0), &field, 0.5)?;
+        assert_eq!(roots(&sharp), &[4.0]);
+        assert!(
+            matches!(roots(&eased), [d] if close(*d, 5.0, 1e-12)),
+            "{eased:?}"
+        );
+        assert_eq!(
+            eased_daylight_roots(&ray, sense, face(HALF, 15.0), &field, 0.0)?,
+            sharp
+        );
+    }
+    let ray = Ray {
+        edge: [0.0, 0.0, 12.0],
+        outward: [1.0, 0.0],
+        shoulder: 0.0,
+    };
+    for blend in [-0.1, f64::NAN, f64::INFINITY] {
+        assert_eq!(
+            eased_daylight_roots(&ray, Sense::Fill, face(HALF, 15.0), &field, blend),
+            Err(DaylightError::Parameters)
+        );
+    }
+    Ok(())
+}
