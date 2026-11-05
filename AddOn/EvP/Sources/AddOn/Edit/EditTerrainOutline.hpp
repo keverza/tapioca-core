@@ -26,7 +26,9 @@ struct OutlineDesignOptions {
 };
 
 // The grading options a document's path asks for: its first cross-section range's cut and
-// fill slopes and rounding, and the reach given.
+// fill slopes and rounding, and the reach given. These grade only a paved vertex no path can
+// be found for: every other face takes the slopes and rounding of the path section it was
+// paved from (#151).
 OutlineDesignOptions OutlineOptionsFor (const geomsrv::edit::Document& doc, geomsrv::edit::Id path, double limit);
 
 // Worker-only: grades `input`'s terrain from every path of `doc`. `result.build` carries the

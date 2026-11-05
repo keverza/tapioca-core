@@ -666,6 +666,7 @@ typedef struct {
     TapiocaTerrainSlope cut, fill;
     double limit, rounding, tolerance;
     uint32_t effect, reserved;
+    TapiocaDoubleView surfaceGrades; // per surface vertex: cut, fill gradient, rounding; empty: uniform
 } TapiocaTerrainOutlineRequest;
 typedef struct {
     size_t points, triangles, ring;

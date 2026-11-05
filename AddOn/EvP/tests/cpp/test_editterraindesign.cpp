@@ -1904,6 +1904,61 @@ TEST (EditTerrainOutline, ABentFillPathGradesSmoothFacesAndReportsTheStepAtTheTe
     EXPECT_LT (steepest, 0.6) << "a face inside the bend is steeper than its grade";
 }
 
+TEST (EditTerrainOutline, EachPathAndRangeGradesItsFacesByItsOwnSlopes)
+{
+    // #151: two parallel paths 2 m above a level 40 x 20 m slab. A's first range leaves at
+    // 50 %, its second (from station 18) at 25 %; B leaves at 25 %. Every face keeps its own
+    // section's grade, whichever path is the design path.
+    const std::vector<double> points { 0, 0, 0, 40, 0, 0, 40, 20, 0, 0, 20, 0 };
+    const std::vector<uint32_t> triangles { 0, 1, 2, 0, 2, 3 };
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (StartLandscape (doc, { 1 }, error)) << error;
+    const auto a = edit::AddPath (doc, { { 2, 5, 2 }, { 38, 5, 2 } }, 1.5);
+    const auto b = edit::AddPath (doc, { { 2, 15, 2 }, { 38, 15, 2 } }, 1.5);
+    const auto slopes = [&] (edit::Id id, double first, double second) {
+        return edit::EditPath (
+            doc, id,
+            [first, second] (edit::Path& path, std::string&) {
+                auto& range = path.sections.front ();
+                range.rounding = 0;
+                range.fillSlope = { TerrainSlope::Unit::Percent, first, 0 };
+                if (second > 0) {
+                    auto next = range;
+                    next.id = range.id + 1000;
+                    next.station = 18;
+                    next.fillSlope = { TerrainSlope::Unit::Percent, second, 0 };
+                    path.sections.push_back (next);
+                }
+                return true;
+            },
+            error);
+    };
+    ASSERT_TRUE (slopes (a, 50, 25)) << error;
+    ASSERT_TRUE (slopes (b, 25, 0)) << error;
+    // Per side, the fall from 1 m to 2 m beyond the paved edge (half width 0.75 m).
+    const auto fall = [&] (const TerrainDesignResult& result, double x, double edgeY, double outward) {
+        const std::vector<double> queries { x, edgeY + outward, x, edgeY + 2 * outward };
+        std::vector<TerrainSample> samples;
+        TerrainFieldSummary summary;
+        EXPECT_TRUE (
+            SampleTerrain ({ result.build.points, result.build.triangles }, queries, 0.25, samples, summary, error))
+            << error;
+        return samples.size () == 2 ? samples[0].height - samples[1].height : NAN;
+    };
+    for (const auto design : { a, b }) {
+        TerrainDesignResult result;
+        uint32_t unreached = 0;
+        const auto options = OutlineOptionsFor (doc, design, 10);
+        ASSERT_TRUE (EvaluateOutlineDesign (doc, { { points, triangles }, ProvenanceRequest {}, doc.revision, {} },
+                                            options, result, unreached, error))
+            << error;
+        EXPECT_NEAR (fall (result, 10, 4.25, -1), 0.5, 1e-6) << "A's first range, design path " << design;
+        EXPECT_NEAR (fall (result, 30, 4.25, -1), 0.25, 1e-6) << "A's second range, design path " << design;
+        EXPECT_NEAR (fall (result, 20, 15.75, 1), 0.25, 1e-6) << "B, design path " << design;
+    }
+}
+
 TEST (EditTerrainOutline, SubMetreRingLocationSurvivesWindingAndSurveyTranslations)
 {
     namespace cp = Clipper2Lib;

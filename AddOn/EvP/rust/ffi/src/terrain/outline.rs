@@ -7,7 +7,7 @@ use super::hybrid::TerrainHybridVolumes;
 use super::{BorrowContext, Failure, SliceView, call, memory_range};
 use crate::pools::{self, Range};
 use tapioca_geometry::terrain::edit::Effect;
-use tapioca_geometry::terrain::outline::{Grading, OutlineRequest, Outlined, build};
+use tapioca_geometry::terrain::outline::{Grading, OutlineRequest, Outlined, SurfaceGrade, build};
 use tapioca_geometry::terrain::volume::exact::TriangleVolumes;
 
 /// The base mesh, the region, the paved surface, the plan breaklines and
@@ -46,6 +46,9 @@ pub struct TerrainOutlineRequest {
     pub effect: u32,
     /// Zero.
     pub reserved: u32,
+    /// Per paved surface vertex, its faces' cut gradient, fill gradient and
+    /// rounding (flat triples); empty grades every face by `cut`/`fill`/`rounding`.
+    pub surface_grades: SliceView<f64>,
 }
 
 /// Scalar element counts of a complete outline result.
@@ -128,6 +131,7 @@ unsafe fn compute(
             memory_range(r.line_points.data, r.line_points.count),
             memory_range(r.line_counts.data, r.line_counts.count),
             memory_range(r.spots.data, r.spots.count),
+            memory_range(r.surface_grades.data, r.surface_grades.count),
         ]);
     }
     let outputs = target.map_or_else(Vec::new, |t| {
@@ -166,6 +170,7 @@ unsafe fn compute(
         line_points,
         line_counts,
         spots,
+        surface_grades,
     ) = unsafe {
         (
             context.slice(request.points)?,
@@ -176,6 +181,7 @@ unsafe fn compute(
             context.slice(request.line_points)?,
             context.slice(request.line_counts)?,
             context.slice(request.spots)?,
+            context.slice(request.surface_grades)?,
         )
     };
     let mut lines = Vec::with_capacity(line_counts.len());
@@ -195,6 +201,19 @@ unsafe fn compute(
     if at != line_points.len() {
         return Err(Failure::Argument("TerrainOutlineLines"));
     }
+    if surface_grades.len() % 3 != 0 {
+        return Err(Failure::Argument("TerrainOutlineGrades"));
+    }
+    let grades: Vec<SurfaceGrade> = surface_grades
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|&[cut, fill, rounding]| SurfaceGrade {
+            cut,
+            fill,
+            rounding,
+        })
+        .collect();
     let effect = match request.effect {
         1 => Effect::Cut,
         2 => Effect::Fill,
@@ -209,6 +228,7 @@ unsafe fn compute(
         surface_triangles,
         breaklines: &lines,
         spots,
+        surface_grades: &grades,
         grading: Grading {
             cut: slope(request.cut)?,
             fill: slope(request.fill)?,

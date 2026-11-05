@@ -56,6 +56,7 @@ bool BuildOutlineTerrain (const OutlineTerrainRequest& request, OutlineTerrainRe
     raw.rounding = request.rounding;
     raw.tolerance = request.tolerance;
     raw.effect = static_cast<uint32_t> (request.effect);
+    raw.surfaceGrades = { request.surfaceGrades.data (), request.surfaceGrades.size () };
     std::array<char, 256> buffer {};
     TapiocaTerrainOutlineCounts counts {};
     TapiocaTerrainHybridVolumes site {}, context {};

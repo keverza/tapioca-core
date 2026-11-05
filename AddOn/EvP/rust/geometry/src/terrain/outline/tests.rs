@@ -61,6 +61,7 @@ fn run(rounding: f64, limit: f64) -> Result<Outlined, OutlineError> {
         surface_triangles: &PAVED_TRIANGLES,
         breaklines: &lines,
         spots: &[],
+        surface_grades: &[],
         grading: Grading {
             cut: HALF,
             fill: HALF,
@@ -138,6 +139,7 @@ fn a_face_cut_short_by_the_region_is_counted() -> Result<(), OutlineError> {
         surface_triangles: &PAVED_TRIANGLES,
         breaklines: &[],
         spots: &[],
+        surface_grades: &[],
         grading: Grading {
             cut: HALF,
             fill: HALF,
@@ -166,13 +168,16 @@ fn inside_corner(px: f64, py: f64) -> Option<f64> {
     let (points, triangles) = base();
     let base = Field::new(&points, &triangles).ok()?;
     let paved = Field::new(&surface, &surface_triangles).ok()?;
-    let edges = outline(&surface, &surface_triangles);
+    let uniform = SurfaceGrade {
+        cut: 0.5,
+        fill: 0.5,
+        rounding: 0.0,
+    };
+    let edges = outline(&surface, &surface_triangles, &[], uniform);
     let faces = Faces {
         base: &base,
         surface: &paved,
         outline: &edges,
-        cut: 0.5,
-        fill: 0.5,
         grading: Grading {
             cut: HALF,
             fill: HALF,
@@ -300,6 +305,7 @@ fn crown_and_valley_preserve_affine_pieces_between_samples() -> Result<(), Outli
                 surface_triangles: &CROWN_TRIANGLES,
                 breaklines: &lines,
                 spots: &surface,
+                surface_grades: &[],
                 grading: Grading {
                     cut: HALF,
                     fill: HALF,
@@ -341,6 +347,7 @@ fn support_preparation_does_not_sanitize_a_malformed_region() -> Result<(), Outl
         surface_triangles: &CROWN_TRIANGLES,
         breaklines: &[],
         spots: &[],
+        surface_grades: &[],
         grading: Grading {
             cut: HALF,
             fill: HALF,
@@ -399,6 +406,7 @@ fn authored_line_grazing_an_existing_concave_stitch_vertex_still_refuses() {
             surface_triangles: &CROWN_TRIANGLES,
             breaklines: &[&line],
             spots: &[],
+            surface_grades: &[],
             grading: Grading {
                 cut: HALF,
                 fill: HALF,
@@ -526,6 +534,7 @@ fn clipped_touching_and_coincident_supports_share_a_conforming_stitch() -> Resul
                     surface_triangles: &CROWN_TRIANGLES,
                     breaklines: &[],
                     spots: &[],
+                    surface_grades: &[],
                     grading: Grading {
                         cut: HALF,
                         fill: HALF,
@@ -589,5 +598,75 @@ fn clipped_touching_and_coincident_supports_share_a_conforming_stitch() -> Resul
             }
         }
     }
+    Ok(())
+}
+
+#[test]
+fn each_outline_edge_grades_its_face_by_its_own_vertices() -> Result<(), OutlineError> {
+    // The pavement's south side leaves at 1 in 2, its north side at 1 in 4
+    // (two paths, or two cross-section ranges): each face keeps its own grade.
+    let (points, triangles) = base();
+    let steep = SurfaceGrade {
+        cut: 0.5,
+        fill: 0.5,
+        rounding: 0.0,
+    };
+    let gentle = SurfaceGrade {
+        fill: 0.25,
+        ..steep
+    };
+    let grades = [steep, steep, gentle, gentle];
+    let rings: Vec<Vec<f64>> = [0.0, 0.5, 1.0, 2.0, 4.0, 8.0]
+        .into_iter()
+        .flat_map(ring)
+        .collect();
+    let lines: Vec<&[f64]> = rings.iter().map(Vec::as_slice).collect();
+    let request = OutlineRequest {
+        points: &points,
+        triangles: &triangles,
+        region: &REGION,
+        surface_points: &PAVED,
+        surface_triangles: &PAVED_TRIANGLES,
+        breaklines: &lines,
+        spots: &[],
+        surface_grades: &grades,
+        grading: Grading {
+            cut: HALF,
+            fill: HALF,
+            limit: 10.0,
+            rounding: 0.0,
+            effect: Effect::Both,
+            tolerance: 1e-6,
+        },
+    };
+    let built = build(&request)?;
+    assert!((at(&built, 20.0, -2.5) - 11.75).abs() < 1e-9);
+    assert!((at(&built, 20.0, -4.0) - 11.0).abs() < 1e-9);
+    assert!((at(&built, 20.0, 4.0) - 11.5).abs() < 1e-9);
+    assert!((at(&built, 20.0, 10.0) - 10.0).abs() < 1e-9);
+    // A wrong count, or an invalid grade, refuses rather than guessing.
+    assert_eq!(
+        build(&OutlineRequest {
+            surface_grades: &grades[..3],
+            ..request
+        }),
+        Err(OutlineError::Parameters)
+    );
+    let negative = [
+        steep,
+        steep,
+        gentle,
+        SurfaceGrade {
+            fill: -0.1,
+            ..gentle
+        },
+    ];
+    assert_eq!(
+        build(&OutlineRequest {
+            surface_grades: &negative,
+            ..request
+        }),
+        Err(OutlineError::Parameters)
+    );
     Ok(())
 }

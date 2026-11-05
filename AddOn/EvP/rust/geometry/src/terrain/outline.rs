@@ -78,6 +78,45 @@ pub struct OutlineRequest<'a> {
     pub spots: &'a [f64],
     /// The faces.
     pub grading: Grading,
+    /// Per paved surface vertex, the faces leaving it (its path's section
+    /// there); empty grades every face by `grading`. An outline edge takes the
+    /// mean of its two vertices'.
+    pub surface_grades: &'a [SurfaceGrade],
+}
+
+/// The faces leaving one paved vertex, as rise per metre of run.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SurfaceGrade {
+    /// Cut face gradient, non-negative; infinite for a vertical face (none).
+    pub cut: f64,
+    /// Fill face gradient, non-negative; infinite for a vertical face (none).
+    pub fill: f64,
+    /// Plan length the face rounds over at its top and toe, metres.
+    pub rounding: f64,
+}
+
+impl SurfaceGrade {
+    fn valid(self) -> bool {
+        [self.cut, self.fill].iter().all(|g| *g >= 0.0)
+            && self.rounding.is_finite()
+            && self.rounding >= 0.0
+    }
+
+    /// The mean of two vertices' faces; a vertical one stays vertical.
+    fn mean(self, other: Self) -> Self {
+        let mid = |a: f64, b: f64| {
+            if a.is_finite() && b.is_finite() {
+                a.midpoint(b)
+            } else {
+                f64::INFINITY
+            }
+        };
+        Self {
+            cut: mid(self.cut, other.cut),
+            fill: mid(self.fill, other.fill),
+            rounding: self.rounding.midpoint(other.rounding),
+        }
+    }
 }
 
 /// The graded mesh.
@@ -144,8 +183,21 @@ impl OutlineError {
     }
 }
 
-/// The paved area's outline: its TIN's boundary edges, as xyz segments.
-fn outline(points: &[f64], triangles: &[u32]) -> Vec<[[f64; 3]; 2]> {
+/// One outline edge and the faces leaving it.
+#[derive(Clone, Copy, Debug)]
+struct Edge {
+    segment: [[f64; 3]; 2],
+    grade: SurfaceGrade,
+}
+
+/// The paved area's outline: its TIN's boundary edges, as xyz segments, each
+/// with its vertices' mean faces (`uniform` where `grades` is empty).
+fn outline(
+    points: &[f64],
+    triangles: &[u32],
+    grades: &[SurfaceGrade],
+    uniform: SurfaceGrade,
+) -> Vec<Edge> {
     let vertices = plan::vertices(points);
     let mut edges = BTreeMap::<(u32, u32), u32>::new();
     for &[a, b, c] in triangles.as_chunks::<3>().0 {
@@ -153,10 +205,16 @@ fn outline(points: &[f64], triangles: &[u32]) -> Vec<[[f64; 3]; 2]> {
             *edges.entry((from.min(to), from.max(to))).or_default() += 1;
         }
     }
+    let grade = |v: u32| grades.get(v as usize).copied().unwrap_or(uniform);
     edges
         .into_iter()
         .filter(|&(_, count)| count == 1)
-        .filter_map(|((a, b), _)| Some([*vertices.get(a as usize)?, *vertices.get(b as usize)?]))
+        .filter_map(|((a, b), _)| {
+            Some(Edge {
+                segment: [*vertices.get(a as usize)?, *vertices.get(b as usize)?],
+                grade: grade(a).mean(grade(b)),
+            })
+        })
         .collect()
 }
 
@@ -199,70 +257,74 @@ fn steepest([from, to]: [[f64; 3]; 2], [px, py]: [f64; 2], grade: f64, cut: bool
 struct Faces<'a> {
     base: &'a Field,
     surface: &'a Field,
-    outline: &'a [[[f64; 3]; 2]],
-    cut: f64,
-    fill: f64,
+    outline: &'a [Edge],
     grading: Grading,
 }
 
-/// The fill (highest) and cut (lowest) faces over a point: within the limit,
-/// and without it.
+/// How far the faces raise (fill) and lower (cut) the ground at a point, each
+/// eased onto it: within the limit, and without it.
 #[derive(Clone, Copy)]
-struct Envelope {
-    fill: f64,
-    cut: f64,
-    fill_any: f64,
-    cut_any: f64,
+struct Moves {
+    raise: f64,
+    lower: f64,
+    raise_any: f64,
+    lower_any: f64,
+}
+
+/// One cone's height `distance` out from an outline point at `edge`.
+fn cone(edge: f64, distance: f64, rise: f64, rounding: f64) -> f64 {
+    if rounding > 0.0 && distance < rounding {
+        top(edge, 0.0, rise, rounding, distance)
+    } else {
+        rise.mul_add(distance, edge)
+    }
 }
 
 impl Faces<'_> {
-    /// One cone's height `distance` out from an outline point at `edge`.
-    fn cone(&self, edge: f64, distance: f64, rise: f64) -> f64 {
-        let rounding = self.grading.rounding;
-        if rounding > 0.0 && distance < rounding {
-            top(edge, 0.0, rise, rounding, distance)
-        } else {
-            rise.mul_add(distance, edge)
-        }
-    }
-
-    fn envelope(&self, px: f64, py: f64) -> Envelope {
-        let mut faces = Envelope {
-            fill: f64::NEG_INFINITY,
-            cut: f64::INFINITY,
-            fill_any: f64::NEG_INFINITY,
-            cut_any: f64::INFINITY,
+    /// Each edge's face eased onto the ground by its own rounding; the fill
+    /// takes the highest, the cut the lowest. For one grade everywhere this is
+    /// the ease of the envelope (the ease is monotone in the face).
+    fn moves(&self, base: f64, px: f64, py: f64) -> Moves {
+        let mut moves = Moves {
+            raise: 0.0,
+            lower: 0.0,
+            raise_any: 0.0,
+            lower_any: 0.0,
         };
         let limit = self.grading.limit;
-        for &[from, to] in self.outline {
-            if self.fill.is_finite() {
-                let (distance, edge) = steepest([from, to], [px, py], self.fill, false);
-                let face = self.cone(edge, distance, -self.fill);
-                faces.fill_any = faces.fill_any.max(face);
+        for edge in self.outline {
+            let SurfaceGrade {
+                cut,
+                fill,
+                rounding,
+            } = edge.grade;
+            if fill.is_finite() {
+                let (distance, height) = steepest(edge.segment, [px, py], fill, false);
+                let face = cone(height, distance, -fill, rounding);
+                let raise = toe(base, face, false, fill * rounding) - base;
+                moves.raise_any = moves.raise_any.max(raise);
                 if distance <= limit {
-                    faces.fill = faces.fill.max(face);
+                    moves.raise = moves.raise.max(raise);
                 }
             }
-            if self.cut.is_finite() {
-                let (distance, edge) = steepest([from, to], [px, py], self.cut, true);
-                let face = self.cone(edge, distance, self.cut);
-                faces.cut_any = faces.cut_any.min(face);
+            if cut.is_finite() {
+                let (distance, height) = steepest(edge.segment, [px, py], cut, true);
+                let face = cone(height, distance, cut, rounding);
+                let lower = base - toe(base, face, true, cut * rounding);
+                moves.lower_any = moves.lower_any.max(lower);
                 if distance <= limit {
-                    faces.cut = faces.cut.min(face);
+                    moves.lower = moves.lower.max(lower);
                 }
             }
         }
-        faces
+        moves
     }
 
-    /// The ground raised to `fill` and lowered to `cut`, each easing onto it
-    /// on its own; within the tolerance of the ground, the ground bit for bit.
-    /// Where the paved surface is no steeper than the grades, no point is
-    /// below the fill face and above the cut face, so at most one moves it.
-    fn graded(&self, base: f64, fill: f64, cut: f64) -> f64 {
-        let rounding = self.grading.rounding;
-        let raise = toe(base, fill, false, self.fill * rounding) - base;
-        let lower = base - toe(base, cut, true, self.cut * rounding);
+    /// The ground raised and lowered; within the tolerance of the ground, the
+    /// ground bit for bit. Where the paved surface is no steeper than the
+    /// grades, no point is below a fill face and above a cut face, so at most
+    /// one moves it.
+    fn graded(&self, base: f64, raise: f64, lower: f64) -> f64 {
         let design = self.restrict(base, base + raise - lower);
         if (design - base).abs() <= self.grading.tolerance {
             base
@@ -278,9 +340,9 @@ impl Faces<'_> {
         if let Some(paved) = self.surface.height_at(px, py) {
             return Some((self.restrict(base, paved.height), false));
         }
-        let faces = self.envelope(px, py);
-        let design = self.graded(base, faces.fill, faces.cut);
-        let unlimited = self.graded(base, faces.fill_any, faces.cut_any);
+        let moves = self.moves(base, px, py);
+        let design = self.graded(base, moves.raise, moves.lower);
+        let unlimited = self.graded(base, moves.raise_any, moves.lower_any);
         Some((design, design.to_bits() != unlimited.to_bits()))
     }
 
@@ -342,12 +404,26 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
     {
         return Err(OutlineError::Parameters);
     }
-    let cut = g.cut.gradient().map_err(|_| OutlineError::Parameters)?;
-    let fill = g.fill.gradient().map_err(|_| OutlineError::Parameters)?;
+    let uniform = SurfaceGrade {
+        cut: g.cut.gradient().map_err(|_| OutlineError::Parameters)?,
+        fill: g.fill.gradient().map_err(|_| OutlineError::Parameters)?,
+        rounding: g.rounding,
+    };
+    if !(request.surface_grades.is_empty()
+        || request.surface_grades.len() == request.surface_points.len() / 3)
+        || !request.surface_grades.iter().all(|grade| grade.valid())
+    {
+        return Err(OutlineError::Parameters);
+    }
     let base = Field::new(request.points, request.triangles).map_err(|_| OutlineError::Field)?;
     let surface = Field::new(request.surface_points, request.surface_triangles)
         .map_err(|_| OutlineError::Surface)?;
-    let edges = outline(request.surface_points, request.surface_triangles);
+    let edges = outline(
+        request.surface_points,
+        request.surface_triangles,
+        request.surface_grades,
+        uniform,
+    );
     if edges.is_empty() {
         return Err(OutlineError::Surface);
     }
@@ -355,8 +431,6 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
         base: &base,
         surface: &surface,
         outline: &edges,
-        cut,
-        fill,
         grading: g,
     };
     let supports = supports::prepare(request)?;

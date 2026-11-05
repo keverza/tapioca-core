@@ -19,6 +19,9 @@ struct OutlineTerrainRequest {
     TerrainMeshView surface;                    // the paved area's TIN, xyz
     std::span<const std::vector<double>> lines; // open plan polylines strictly inside the region
     std::span<const double> spots;              // plan points strictly inside the region
+    // Per surface vertex, its faces' cut gradient, fill gradient and rounding (flat triples):
+    // an outline edge grades by its vertices' mean. Empty grades every face by cut/fill/rounding.
+    std::span<const double> surfaceGrades;
     TerrainSlope cut, fill;
     double limit = 10, rounding = 0, tolerance = 1e-3; // metres
     TerrainEditEffect effect = TerrainEditEffect::Both;

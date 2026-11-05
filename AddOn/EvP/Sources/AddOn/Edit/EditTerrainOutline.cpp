@@ -1,12 +1,17 @@
 #include "Edit/EditTerrainOutline.hpp"
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditPathNetwork.hpp"
+#include "Edit/EditPath.hpp"
+#include "Geometry/GeometryRustTerrain.hpp"
 #include "Edit/EditLandscapeInternal.hpp"
 #include "Geometry/GeometryRustOutlineTerrain.hpp"
 #include "Geometry/ClipperPlanRing.hpp"
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
+#include <limits>
+#include <map>
 
 namespace tapioca::geometry {
 namespace {
@@ -103,6 +108,63 @@ void AddLine (const cp::PathD& source, const ClipperPlanRing& region, std::vecto
 double RingStep (const OutlineDesignOptions& o)
 {
     return std::max (0.5, o.limit / 20);
+}
+
+// Per paved vertex, the faces of the path section it was paved from: the path whose centreline
+// is nearest in plan, its range in force at the station there (#151). A junction or a kerb
+// fillet takes its nearest path's. Slopes become gradients through the kernel's own conversion;
+// one that does not convert grades no face. Empty when no path has an alignment.
+std::vector<double> SurfaceGrades (const edit::Document& doc, const std::vector<edit::Vec3>& vertices)
+{
+    struct Aligned {
+        const edit::Path* path;
+        edit::AlignmentGeometry geometry;
+    };
+    std::vector<Aligned> aligned;
+    for (const auto& path : doc.paths) {
+        Aligned entry { &path, {} };
+        std::string ignored;
+        if (!path.sections.empty () && edit::BuildAlignment (path.points, entry.geometry, ignored))
+            aligned.push_back (std::move (entry));
+    }
+    if (aligned.empty ())
+        return {};
+    const auto gradient = [] (const TerrainSlope& slope) {
+        TerrainSlope percent;
+        std::string ignored;
+        return ConvertTerrainSlope (slope, TerrainSlope::Unit::Percent, 1.0, percent, ignored) &&
+                       std::isfinite (percent.a) && percent.a >= 0
+                   ? percent.a / 100
+                   : std::numeric_limits<double>::infinity ();
+    };
+    std::map<const edit::Section*, std::array<double, 3>> converted;
+    std::vector<double> grades;
+    grades.reserve (vertices.size () * 3);
+    for (const auto& v : vertices) {
+        const edit::Section* best = nullptr;
+        double nearest = std::numeric_limits<double>::infinity ();
+        for (const auto& [path, geometry] : aligned) {
+            double station = 0, offset = 0;
+            edit::Placement at;
+            if (!edit::StationOf (geometry, { v.x, v.y, 0 }, station, offset) || !edit::Locate (geometry, station, at))
+                continue;
+            const double distance = std::hypot (at.point.x - v.x, at.point.y - v.y);
+            if (const auto* section = edit::SectionAt (path->sections, station); section && distance < nearest) {
+                nearest = distance;
+                best = section;
+            }
+        }
+        if (!best)
+            best = &aligned.front ().path->sections.front ();
+        auto found = converted.find (best);
+        if (found == converted.end ())
+            found = converted
+                        .emplace (best, std::array { gradient (best->cutSlope), gradient (best->fillSlope),
+                                                     std::max (0.0, best->rounding) })
+                        .first;
+        grades.insert (grades.end (), found->second.begin (), found->second.end ());
+    }
+    return grades;
 }
 
 // The face lines' distances from the outline: four inside the rounding, then evenly to the reach.
@@ -211,6 +273,7 @@ bool EvaluateOutlineDesign (const edit::Document& doc, const EditTerrainInput& i
     std::vector<double> surface;
     for (const auto& v : paved.vertices)
         surface.insert (surface.end (), { v.x, v.y, v.z });
+    const auto grades = SurfaceGrades (doc, paved.vertices);
     std::vector<double> regionRing;
     for (const auto& p : region)
         regionRing.insert (regionRing.end (), { p.x, p.y, 0.0 });
@@ -220,6 +283,7 @@ bool EvaluateOutlineDesign (const edit::Document& doc, const EditTerrainInput& i
     request.surface = { surface, paved.triangles };
     request.lines = lines;
     request.spots = spots;
+    request.surfaceGrades = grades;
     request.cut = o.cut;
     request.fill = o.fill;
     request.limit = o.limit;
