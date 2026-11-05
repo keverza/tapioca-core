@@ -21,8 +21,13 @@
 //! where it does.
 //!
 //! **Mesh.** The region is rebuilt as in [`super::region`] with the caller's plan
-//! breaklines (the outline and rings offset from it, so a face has vertices to
-//! lie on) and isolated points (the TIN's interior vertices). Private constraints
+//! breaklines (the outline, and any lines the caller wants kept) and isolated
+//! points (the TIN's interior vertices). With a [`Refine`] bound the faces then
+//! get their vertices from the error they leave, not from offset rings: every
+//! inside triangle is sampled, and where the faces there are further than the
+//! bound from the triangle's plane its longest side is bisected, round after
+//! round, until none is ([`Refined`]). A base edge between coplanar triangles
+//! is not kept: it carries nothing and only cuts the faces into slivers. Private constraints
 //! preserve every affine piece of the paved TIN, clipped at a shared subdivided
 //! region stitch. Every vertex of an
 //! outside triangle keeps its base height bit for bit; every other vertex takes
@@ -40,7 +45,11 @@ use super::volume::exact::{ExactReport, ExactRequest, exact_cut_fill};
 use crate::slope::Slope;
 use std::collections::BTreeMap;
 
+mod refine;
 mod supports;
+
+use refine::Graded;
+pub use refine::{Refine, Refined};
 
 /// How the faces around the area are graded.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -82,6 +91,8 @@ pub struct OutlineRequest<'a> {
     /// there); empty grades every face by `grading`. An outline edge takes the
     /// mean of its two vertices'.
     pub surface_grades: &'a [SurfaceGrade],
+    /// Error-driven refinement; `None` keeps the caller's vertices only.
+    pub refine: Option<Refine>,
 }
 
 /// The faces leaving one paved vertex, as rise per metre of run.
@@ -125,7 +136,8 @@ pub struct Outlined {
     /// Flat xyz proposed vertices; the plan positions are `mesh.points`'.
     pub points: Vec<f64>,
     /// The rebuilt base mesh. Derived support breaklines append after the caller
-    /// breaklines, mapped to source TIN edges by `surface_supports`. The split's
+    /// breaklines, mapped to source TIN edges by `surface_supports`; the
+    /// refinement's crossing lines append after those and have no source. The split's
     /// line origins refer to `stitch` (before the base split adds its crossings).
     pub mesh: RegionMesh,
     /// Flat xyz region ring subdivided at private support intersections; z=0.
@@ -144,6 +156,8 @@ pub struct Outlined {
     /// it) where a face had not met the ground: the region's edge, not the
     /// limit, ends it in a step. Zero when every face fits inside the region.
     pub clipped: u32,
+    /// The refinement's report; default without one.
+    pub refined: Refined,
 }
 
 /// Plan spacing of the region ring samples checked for a clipped face, metres.
@@ -438,51 +452,52 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
         outline: &edges,
         grading: g,
     };
+    if request.refine.is_some_and(|refine| !refine.valid()) {
+        return Err(OutlineError::Parameters);
+    }
     let supports = supports::prepare(request)?;
-    let mesh = retriangulate_with_supports(
-        &RegionRequest {
-            points: request.points,
-            triangles: request.triangles,
-            region: request.region,
-            breaklines: request.breaklines,
-        },
-        request.spots,
-        &supports.ring,
-        &supports.lines,
-    )
-    .map_err(OutlineError::Region)?;
+    let rebuild = |spots: &[f64], lines: &[Vec<f64>]| {
+        retriangulate_with_supports(
+            &RegionRequest {
+                points: request.points,
+                triangles: request.triangles,
+                region: request.region,
+                breaklines: request.breaklines,
+            },
+            spots,
+            &supports.ring,
+            lines,
+        )
+        .map_err(OutlineError::Region)
+    };
+    let bound = request.refine.map(|refine| refine::Bound {
+        refine,
+        steepest: edges
+            .iter()
+            .flat_map(|edge| [edge.grade.cut, edge.grade.fill])
+            .filter(|grade| grade.is_finite())
+            .fold(
+                refine::steepest(request.points, request.triangles).max(refine::steepest(
+                    request.surface_points,
+                    request.surface_triangles,
+                )),
+                f64::max,
+            ),
+    });
+    let (mesh, graded, refined) = refine::refined(
+        &faces,
+        rebuild,
+        request.spots.to_vec(),
+        supports.lines.clone(),
+        bound,
+    )?;
+    let Graded {
+        points,
+        owners,
+        based,
+        unreached,
+    } = graded;
     let vertices = plan::vertices(&mesh.points);
-    let mut fixed = vec![false; vertices.len()];
-    for (&[a, b, c], _) in mesh
-        .triangles
-        .as_chunks::<3>()
-        .0
-        .iter()
-        .zip(&mesh.inside)
-        .filter(|(_, inside)| !**inside)
-    {
-        for vertex in [a, b, c] {
-            if let Some(flag) = fixed.get_mut(vertex as usize) {
-                *flag = true;
-            }
-        }
-    }
-    let mut points = Vec::with_capacity(mesh.points.len());
-    let mut owners = Vec::with_capacity(vertices.len());
-    let mut based = Vec::with_capacity(vertices.len());
-    let mut unreached = 0_u32;
-    for (&[x, y, z], &keep) in vertices.iter().zip(&fixed) {
-        let height = if keep {
-            z
-        } else {
-            let (height, short) = faces.height(x, y).ok_or(OutlineError::Coverage)?;
-            unreached += u32::from(short);
-            height
-        };
-        points.extend([x, y, height]);
-        owners.push(height.to_bits() != z.to_bits());
-        based.push(z);
-    }
     let clipped = clipped(&faces, &base, vertices, &mesh.ring)?;
     let volumes = exact_cut_fill(&ExactRequest {
         points: &points,
@@ -500,6 +515,7 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
         volumes,
         unreached,
         clipped,
+        refined,
     })
 }
 

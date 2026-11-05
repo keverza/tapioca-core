@@ -229,6 +229,9 @@ unsafe fn compute(
         breaklines: &lines,
         spots,
         surface_grades: &grades,
+        // The offset rings the caller supplies stay the faces' vertices until
+        // the refinement is fast enough for the editor (#149 T3, T4).
+        refine: None,
         grading: Grading {
             cut: slope(request.cut)?,
             fill: slope(request.fill)?,

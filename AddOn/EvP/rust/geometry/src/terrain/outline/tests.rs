@@ -81,6 +81,7 @@ fn run(rounding: f64, limit: f64) -> Result<Outlined, OutlineError> {
         breaklines: &lines,
         spots: &[],
         surface_grades: &[],
+        refine: None,
         grading: Grading {
             cut: HALF,
             fill: HALF,
@@ -155,6 +156,7 @@ fn a_face_cut_short_by_the_region_is_counted() -> Result<(), OutlineError> {
         breaklines: &[],
         spots: &[],
         surface_grades: &[],
+        refine: None,
         grading: Grading {
             cut: HALF,
             fill: HALF,
@@ -321,6 +323,7 @@ fn crown_and_valley_preserve_affine_pieces_between_samples() -> Result<(), Outli
                 breaklines: &lines,
                 spots: &surface,
                 surface_grades: &[],
+                refine: None,
                 grading: Grading {
                     cut: HALF,
                     fill: HALF,
@@ -363,6 +366,7 @@ fn support_preparation_does_not_sanitize_a_malformed_region() -> Result<(), Outl
         breaklines: &[],
         spots: &[],
         surface_grades: &[],
+        refine: None,
         grading: Grading {
             cut: HALF,
             fill: HALF,
@@ -422,6 +426,7 @@ fn authored_line_grazing_an_existing_concave_stitch_vertex_still_refuses() {
             breaklines: &[&line],
             spots: &[],
             surface_grades: &[],
+            refine: None,
             grading: Grading {
                 cut: HALF,
                 fill: HALF,
@@ -550,6 +555,7 @@ fn clipped_touching_and_coincident_supports_share_a_conforming_stitch() -> Resul
                     breaklines: &[],
                     spots: &[],
                     surface_grades: &[],
+                    refine: None,
                     grading: Grading {
                         cut: HALF,
                         fill: HALF,
@@ -645,6 +651,7 @@ fn each_outline_edge_grades_its_face_by_its_own_vertices() -> Result<(), Outline
         breaklines: &lines,
         spots: &[],
         surface_grades: &grades,
+        refine: None,
         grading: Grading {
             cut: HALF,
             fill: HALF,
@@ -663,6 +670,7 @@ fn each_outline_edge_grades_its_face_by_its_own_vertices() -> Result<(), Outline
     assert_eq!(
         build(&OutlineRequest {
             surface_grades: &grades[..3],
+            refine: None,
             ..request
         }),
         Err(OutlineError::Parameters)
@@ -679,9 +687,12 @@ fn each_outline_edge_grades_its_face_by_its_own_vertices() -> Result<(), Outline
     assert_eq!(
         build(&OutlineRequest {
             surface_grades: &negative,
+            refine: None,
             ..request
         }),
         Err(OutlineError::Parameters)
     );
     Ok(())
 }
+
+mod refine;
