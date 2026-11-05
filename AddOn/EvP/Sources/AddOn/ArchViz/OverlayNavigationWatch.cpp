@@ -53,6 +53,10 @@ struct Window {
     Span heartbeatNavigating;
     Span refresh;
     Span refreshNavigating;
+    uint32_t keysTaken = 0;
+    uint32_t modifierRepeatsTaken = 0;
+    uint32_t keysTakenNavigating = 0;
+    uint32_t middleDoubleClicks = 0;
 };
 
 Window g_window;
@@ -62,6 +66,8 @@ long g_passedX = 0;
 long g_passedY = 0;
 uint64_t g_passedAt = 0;
 uint64_t g_lastWheel = 0;
+uint64_t g_lastNavigationStart = 0;
+uint64_t g_pressGapMs = 0; // between the last two navigations begun
 
 uint64_t Now ()
 {
@@ -97,19 +103,21 @@ void ReportIfDue ()
     // Nothing navigated, nothing laid out: a still view is not reported (§7, heartbeat lines
     // already say the overlay is alive).
     if (w.presses == 0 && w.wheels == 0 && w.movesEatenFromHost == 0 && w.refresh.count == 0 &&
-        w.heartbeatNavigating.count == 0)
+        w.heartbeatNavigating.count == 0 && w.keysTaken == 0)
         return;
-    char line[512] = {};
+    char line[768] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "%-12s ~5 s: navigations +%u (locked +%u; Archicad's last move >%.0f px away +%u, worst %.0f px "
                  "%llu ms old) | moves passed +%u eaten +%u (in Archicad's gesture after release +%u) | wheel +%u, "
                  "3D redraws +%u (within %llu ms of a wheel +%u) | main thread: heartbeat %s, navigating %s; HUD "
-                 "layout %s, navigating %s",
+                 "layout %s, navigating %s | keys the HUD took +%u (modifier auto-repeats +%u, middle held +%u), "
+                 "middle double-clicks passed +%u",
                  "NAVWATCH", w.presses, w.pressesOnLocked, kFarPixels, w.pressesFar, w.worstPixels,
                  (unsigned long long) w.worstAgeMs, w.movesPassed, w.movesEaten, w.movesEatenFromHost, w.wheels,
                  w.redraws, (unsigned long long) kWheelWindowMs, w.redrawsAfterWheel, Describe (w.heartbeat).c_str (),
                  Describe (w.heartbeatNavigating).c_str (), Describe (w.refresh).c_str (),
-                 Describe (w.refreshNavigating).c_str ());
+                 Describe (w.refreshNavigating).c_str (), w.keysTaken, w.modifierRepeatsTaken, w.keysTakenNavigating,
+                 w.middleDoubleClicks);
     ArchVizLog (line);
 }
 
@@ -133,6 +141,8 @@ void NoteNavigationStart (long x, long y, bool locked)
 {
     ++g_window.presses;
     g_window.pressesOnLocked += locked ? 1 : 0;
+    g_pressGapMs = g_lastNavigationStart != 0 ? Now () - g_lastNavigationStart : 0;
+    g_lastNavigationStart = Now ();
     if (!g_havePassedMove)
         return;
     const double pixels = std::hypot (double (x - g_passedX), double (y - g_passedY));
@@ -160,6 +170,28 @@ void NoteRedraw ()
 void NoteHudRefresh (uint32_t micros)
 {
     (Navigating () ? g_window.refreshNavigating : g_window.refresh).Add (micros);
+}
+
+void NoteKeyTaken (uint32_t code, bool repeat)
+{
+    ++g_window.keysTaken;
+    const bool modifier = code == VK_SHIFT || code == VK_LSHIFT || code == VK_RSHIFT || code == VK_CONTROL ||
+                          code == VK_LCONTROL || code == VK_RCONTROL || code == VK_MENU || code == VK_LMENU ||
+                          code == VK_RMENU;
+    g_window.modifierRepeatsTaken += modifier && repeat ? 1 : 0;
+    g_window.keysTakenNavigating += Navigating () ? 1 : 0;
+}
+
+void NoteMiddleDoubleClick (long x, long y)
+{
+    ++g_window.middleDoubleClicks;
+    char line[256] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "%-12s a middle double-click passed to Archicad at (%ld, %ld), Shift %s, %llu ms after the "
+                 "press before it (Archicad's fit-in-window gesture)",
+                 "NAVDBLCLK", x, y, ::GetAsyncKeyState (VK_SHIFT) < 0 ? "held" : "not held",
+                 (unsigned long long) g_pressGapMs);
+    ArchVizLog (line);
 }
 
 Heartbeat::Heartbeat () : navigating_ (Navigating ())
@@ -191,6 +223,8 @@ void Reset ()
     g_passedX = g_passedY = 0;
     g_passedAt = 0;
     g_lastWheel = 0;
+    g_lastNavigationStart = 0;
+    g_pressGapMs = 0;
 }
 
 } // namespace navwatch

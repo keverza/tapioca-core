@@ -366,6 +366,8 @@ LRESULT CALLBACK MouseProc (int code, WPARAM wParam, LPARAM lParam)
                 Activate (*target);
             return 1;
         }
+        if (message.message == WM_MBUTTONDBLCLK && target != nullptr)
+            navwatch::NoteMiddleDoubleClick (info->pt.x, info->pt.y);
         g_passed.valid = true;
         g_passed.message = message.message;
         g_passed.pt = info->pt;
@@ -413,6 +415,7 @@ bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16str
                 target->keys.push_back (key);
             if (target->characters.size () + text.size () < 256)
                 target->characters += text;
+            navwatch::NoteKeyTaken (key.code, key.repeat);
             RequestRefresh (*target);
         }
         return true;
@@ -449,6 +452,7 @@ bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16str
             target->keys.push_back (key);
         if (target->characters.size () + text.size () < 256)
             target->characters += text;
+        navwatch::NoteKeyTaken (key.code, key.repeat);
         RequestRefresh (*target);
     }
     return true;

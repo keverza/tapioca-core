@@ -46,6 +46,16 @@ void NoteRedraw ();
 // The HUD laid out for the pointer, in microseconds.
 void NoteHudRefresh (uint32_t micros);
 
+// A key the HUD took from Archicad (`QueueKey`), by virtual-key code, auto-repeat or not.
+// ⚠️ (2026-11-05 13:46-13:48) Shift+middle orbits the view, and over the locked view the HUD
+// takes every key -- Shift and its ~30 auto-repeats a second included -- each asking for a
+// layout of ~9 ms: 94 layouts in 5 s while the middle button was held.
+void NoteKeyTaken (uint32_t code, bool repeat);
+
+// A middle-button double-click passed to Archicad, which fits the view to the window: one
+// line each, with when and where, so a jump the user noted can be matched to it.
+void NoteMiddleDoubleClick (long x, long y);
+
 // One heartbeat of the overlay's timer, start to end; the report is written from its end.
 class Heartbeat {
   public:
