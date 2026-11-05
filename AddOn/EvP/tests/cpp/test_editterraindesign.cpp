@@ -1577,6 +1577,28 @@ TEST (VirtualEditorDebug, ReplayDumpFromEnvironment)
               << " error=" << outcome.error << '\n';
     for (const auto& condition : outcome.unmet)
         std::cout << "Unmet: " << condition << '\n';
+    // Optional: the replayed mesh as flat JSON arrays, for plotting it against the saved one.
+#ifdef _WIN32
+    const auto* out = _wgetenv (L"TAPIOCA_VIRTUAL_EDITOR_REPLAY_OUT");
+#else
+    const auto* out = std::getenv ("TAPIOCA_VIRTUAL_EDITOR_REPLAY_OUT");
+#endif
+    if (out && *out) {
+        std::ofstream file { std::filesystem::path (out), std::ios::binary };
+        ASSERT_TRUE (file);
+        file.precision (17);
+        const auto write = [&file] (const char* name, const auto& values, bool last) {
+            file << '"' << name << "\":[";
+            for (size_t i = 0; i < values.size (); ++i)
+                file << (i ? "," : "") << values[i];
+            file << (last ? "]" : "],");
+        };
+        file << '{';
+        write ("points", outcome.result.build.points, false);
+        write ("base", outcome.result.build.base, false);
+        write ("triangles", outcome.result.build.triangles, false);
+        file << "\"unmet\":" << outcome.unmet.size () << '}';
+    }
     const auto* saved = parsed.value.Find ("outcome");
     if (!saved || saved->IsNull ())
         return; // Pending exports have inputs, not an invented expected output.
