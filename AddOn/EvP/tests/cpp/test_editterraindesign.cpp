@@ -2311,6 +2311,50 @@ TEST (HudTerrainDesign, EditsCoalesceUntilReleaseAndStaleWorkersNeverDraw)
     EXPECT_TRUE (eh::CurrentTerrainDesign (session)->result.conflicts.empty ());
 }
 
+TEST (HudTerrainDesign, PathsOnlyNeitherRebuildsNorDrawsTheTerrainUntilTurnedBackOn)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    ASSERT_NE (TerrainMesh (layer), nullptr);
+    eh::SetTerrainLive (session, false);
+    layer = {};
+    eh::Follow (session, layer);
+    EXPECT_EQ (TerrainMesh (layer), nullptr) << "paths only: the terrain is not drawn";
+    // A path edit while paused starts no rebuild.
+    ASSERT_TRUE (session.edits.Apply (
+        [&] (edit::Document& doc, std::string& error) {
+            return edit::EditPath (
+                doc, fixture.path,
+                [] (edit::Path& path, std::string&) {
+                    for (auto& point : path.profile)
+                        point.z += 0.1;
+                    return true;
+                },
+                error);
+        },
+        true));
+    for (int i = 0; i < 20; ++i) {
+        layer = {};
+        eh::Follow (session, layer);
+        EXPECT_FALSE (eh::GetTerrainDesignStatus (session).pending) << "no rebuild runs while paused";
+        EXPECT_EQ (TerrainMesh (layer), nullptr);
+    }
+    // Back on: it rebuilds from the paths as they are now.
+    eh::SetTerrainLive (session, true);
+    const auto revision = session.edits.Doc ().revision;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (10);
+    while (eh::CurrentTerrainDesign (session)->revision != revision && std::chrono::steady_clock::now () < deadline) {
+        eh::Follow (session, layer);
+        std::this_thread::sleep_for (std::chrono::milliseconds (1));
+    }
+    EXPECT_EQ (eh::CurrentTerrainDesign (session)->revision, revision);
+    EXPECT_NE (TerrainMesh (layer), nullptr);
+}
+
 // #112 P5: Author (inside StartTerrainDesign) is the only document-mutating
 // step of a design. The poll-side worker start consumes the current immutable
 // snapshot and never authors: the document revision, the landscape object and

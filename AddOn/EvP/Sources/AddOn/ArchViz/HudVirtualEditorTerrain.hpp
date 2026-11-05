@@ -98,6 +98,8 @@ void TerrainDesignPanel (Session& session);
 // default); a running design rebuilds the other way on the next idle poll.
 void SetTerrainBand (Session& session, bool band);
 bool SetTerrainPaths (Session& session, bool enabled);
+// Rebuild and draw the terrain, or leave the paths alone to draw and edit (Session::terrainLive).
+void SetTerrainLive (Session& session, bool live);
 // Setup uses only live authored centreline paths, never native/model GUIDs as
 // virtual path IDs. Initial choice follows one selected path or the sole eligible
 // path; an unavailable explicit choice is not silently retargeted.

@@ -380,6 +380,9 @@ std::string TerrainGuid (const Session& s)
 
 void PollTerrainDesign (Session& s)
 {
+    // Paths only: nothing starts, and a build already running is collected when turned back on.
+    if (!s.terrainLive)
+        return;
     // A terrain set first starts its design when a path appears, once input is idle.
     if (s.terrainBaseline && !s.terrainDesign && Idle (s) && !s.terrainCapture) {
         const auto path = s.terrainPaths ? ResolveTerrainDesignPath (s) : 0;
@@ -521,6 +524,8 @@ TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
 
 void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
 {
+    if (!s.terrainLive)
+        return;
     // Through a path move and until its rebuild publishes, the last built surface stays as the
     // reference for the move (#71); a newer refusal never replaces it either (#112 P4b).
     // Drawn as it was (the user, 2026-10-30: a faded surface is distracting); the panel says
@@ -635,6 +640,12 @@ void SetTerrainBand (Session& s, bool band)
     s.publishedRevision = UINT64_MAX;
 }
 
+void SetTerrainLive (Session& s, bool live)
+{
+    s.terrainLive = live;
+    s.publishedRevision = UINT64_MAX;
+}
+
 bool SetTerrainPaths (Session& s, bool enabled)
 {
     if (!s.terrainDesign || s.terrainDesign->worker.valid () || !Idle (s))
@@ -653,6 +664,16 @@ bool SetTerrainPaths (Session& s, bool enabled)
 
 void TerrainDesignPanel (Session& s)
 {
+    bool live = s.terrainLive;
+    if (ImGui::Checkbox ("Rebuild terrain (3D)", &live))
+        SetTerrainLive (s, live);
+    if (ImGui::IsItemHovered ())
+        ImGui::SetTooltip ("Off: only the paths are drawn and edited, and no terrain is rebuilt. "
+                           "On: the terrain is rebuilt from the paths as they are.");
+    if (!s.terrainLive) {
+        ImGui::TextWrapped ("Paths only: the terrain is not rebuilt or shown. Turn it on to rebuild it.");
+        return;
+    }
     TerrainSetupPanel (s);
     TerrainControlsPanel (s);
     if (!s.terrainDesign)
@@ -787,6 +808,10 @@ void DrawTerrainDesign (const Session&, overlaylayers::Layer&)
 void SetTerrainBand (Session& s, bool band)
 {
     s.terrainBand = band;
+}
+void SetTerrainLive (Session& s, bool live)
+{
+    s.terrainLive = live;
 }
 bool SetTerrainPaths (Session& s, bool enabled)
 {

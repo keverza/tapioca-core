@@ -112,6 +112,7 @@ bool EncodeDebugScene (const Session& s, std::string& text, std::string& error)
             << ",\"document\":" << tapioca::geometry::WriteLandscapeDebugSnapshot (s.edits.Doc ())
             << ",\"terrainPath\":" << js::Write (Id (s.terrainPath), 0)
             << ",\"terrainBand\":" << (s.terrainBand ? "true" : "false")
+            << ",\"terrainLive\":" << (s.terrainLive ? "true" : "false")
             << ",\"contours\":" << (s.contours ? "true" : "false") << ",\"contourStep\":" << s.contourStep
             << ",\"baselineFresh\":" << (source.fresh ? "true" : "false")
             << ",\"nativeSolid\":" << (source.nativeSolid ? "true" : "false")

@@ -155,6 +155,9 @@ struct Session {
     // Grade along the chosen design path's band only, instead of every path's paved outline.
     bool terrainBand = false;
     bool terrainPaths = true; // False: explicit region-only topography, authored paths stay unchanged.
+    // False: paths only. No terrain is rebuilt or drawn while the paths are drawn and edited; turned
+    // back on, the next idle poll rebuilds it from the paths as they are then.
+    bool terrainLive = true;
     edit::Selection selection;
     // Model-space outlines only; bounded to this session and reprojected for every pick.
     edit::PickGeometryCache pickCache;
