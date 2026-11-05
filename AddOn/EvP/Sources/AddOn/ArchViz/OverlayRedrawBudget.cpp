@@ -5,6 +5,7 @@
 #include "ACAPinc.h"
 
 #include "ArchViz/OverlayRedrawBudget.hpp"
+#include "ArchViz/OverlayNavigationWatch.hpp"
 
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/ContextHook.hpp"
@@ -88,6 +89,7 @@ void Consider (uint64_t modelFramesSeen)
             g_ticksSinceCold = 0;
             ++g_coldStarts;
             ++g_requests;
+            navwatch::NoteRedraw (navwatch::RedrawSource::Budget);
             ACAPI_View_Redraw ();
         }
     }
@@ -122,6 +124,7 @@ void Consider (uint64_t modelFramesSeen)
             ++g_requests;
             // The render hook only set an atomic; this is the main thread, where
             // ACAPI may be called.
+            navwatch::NoteRedraw (navwatch::RedrawSource::Budget);
             ACAPI_View_Redraw ();
         }
         else {

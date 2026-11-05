@@ -98,16 +98,12 @@ Gesture g_current;  // the newest gesture, open or closed
 Gesture g_previous; // the one before it, until said
 
 // The rates of recent moving steps: the median a jump is measured against.
-constexpr size_t kHistory = 32;
-constexpr size_t kHistoryNeeded = 6;
-constexpr double kJumpFactor = 5.0;
-constexpr double kJumpMinDegrees = 3.0;
-constexpr double kJumpMinTravel = 0.1;
-double g_turnRates[kHistory] = {};
-double g_travelRates[kHistory] = {};
-size_t g_historyCount = 0;
-size_t g_historyNext = 0;
+constexpr double kJumpDegrees = 30.0;      // anywhere: above every in-motion step measured
+constexpr double kStillJumpDegrees = 10.0; // where nothing of the user's was turning the camera
+constexpr uint64_t kPressSettleMs = 60;    // a press's first ms: no motion of its own yet
 bool g_haveLast = false;
+uint64_t g_lastRedrawMs = 0;
+RedrawSource g_lastRedrawSource = RedrawSource::Gate;
 dxgi::injection::freshness::CameraSample g_last;
 
 uint64_t Now ()
@@ -146,14 +142,6 @@ std::string Clock (uint64_t ms)
     return text;
 }
 
-double Median (const double* values, size_t count)
-{
-    double sorted[kHistory] = {};
-    std::copy (values, values + count, sorted);
-    std::sort (sorted, sorted + count);
-    return count == 0 ? 0.0 : sorted[count / 2];
-}
-
 Gesture* GestureAt (uint64_t ms)
 {
     for (Gesture* g : { &g_current, &g_previous })
@@ -182,7 +170,14 @@ void SayGesture (Gesture& g)
     ArchVizLog (line);
 }
 
-void SayJump (const CameraStep& step, uint64_t ms, uint64_t dt, double turnMedian, double travelMedian)
+const char* NameOf (RedrawSource source)
+{
+    return source == RedrawSource::AfterNavigation ? "after a navigation"
+           : source == RedrawSource::Budget        ? "cold-start budget"
+                                                   : "layer or HUD change";
+}
+
+void SayJump (const CameraStep& step, uint64_t ms, uint64_t dt)
 {
     const Gesture* g = GestureAt (ms);
     char where[256] = {};
@@ -201,13 +196,19 @@ void SayJump (const CameraStep& step, uint64_t ms, uint64_t dt, double turnMedia
     if (g_lastWheel != 0 && g_lastWheel <= ms && ms - g_lastWheel <= 1000)
         _snprintf_s (wheel, sizeof (wheel), _TRUNCATE, ", a wheel step %llu ms before",
                      (unsigned long long) (ms - g_lastWheel));
+    char redraw[96] = "no 3D redraw of ours yet";
+    if (g_lastRedrawMs != 0 && g_lastRedrawMs <= ms)
+        _snprintf_s (redraw, sizeof (redraw), _TRUNCATE, "our last 3D redraw %llu ms before (%s)",
+                     (unsigned long long) (ms - g_lastRedrawMs), NameOf (g_lastRedrawSource));
+    else if (g_lastRedrawMs != 0)
+        _snprintf_s (redraw, sizeof (redraw), _TRUNCATE, "our last 3D redraw %llu ms AFTER the decode (%s)",
+                     (unsigned long long) (g_lastRedrawMs - ms), NameOf (g_lastRedrawSource));
     char line[512] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
-                 "%-12s %s: the camera turned %.1f deg and moved %.2f in %llu ms -- %.0f deg/s against a recent "
-                 "median of %.0f, %.2f/s against %.2f | %s%s",
-                 "NAVJUMP", Clock (ms).c_str (), step.degrees, step.travel, (unsigned long long) dt,
-                 step.degrees * 1000.0 / double (dt), turnMedian, step.travel * 1000.0 / double (dt), travelMedian,
-                 where, wheel);
+                 "%-12s %s: the camera turned %.1f deg and moved %.2f between two decodes %llu ms apart | %s%s | "
+                 "%s",
+                 "NAVJUMP", Clock (ms).c_str (), step.degrees, step.travel, (unsigned long long) dt, where, wheel,
+                 redraw);
     ArchVizLog (line);
 }
 
@@ -229,14 +230,12 @@ void AnalyseCamera ()
         g_last = sample;
         if (step.degrees < 1e-4 && step.travel < 1e-6)
             continue; // the same camera again
-        const double turnRate = step.degrees * 1000.0 / double (dt);
-        const double travelRate = step.travel * 1000.0 / double (dt);
-        const double turnMedian = Median (g_turnRates, g_historyCount);
-        const double travelMedian = Median (g_travelRates, g_historyCount);
-        const bool jump = g_historyCount >= kHistoryNeeded &&
-                          ((step.degrees > kJumpMinDegrees && turnRate > kJumpFactor * turnMedian) ||
-                           (step.travel > kJumpMinTravel && travelRate > kJumpFactor * travelMedian));
-        if (Gesture* g = GestureAt (sample.ms)) {
+        Gesture* const at = GestureAt (sample.ms);
+        const bool moving =
+            at != nullptr && sample.ms >= at->pressMs + kPressSettleMs && (at->open || sample.ms <= at->releaseMs);
+        const bool wheeling = g_lastWheel != 0 && g_lastWheel <= sample.ms && sample.ms - g_lastWheel <= 300;
+        const bool jump = step.degrees >= kJumpDegrees || (!moving && !wheeling && step.degrees >= kStillJumpDegrees);
+        if (Gesture* g = at) {
             ++g->steps;
             g->turned += step.degrees;
             g->maxTurn = (std::max) (g->maxTurn, step.degrees);
@@ -245,11 +244,7 @@ void AnalyseCamera ()
             g->jumps += jump ? 1 : 0;
         }
         if (jump)
-            SayJump (step, sample.ms, dt, turnMedian, travelMedian);
-        g_turnRates[g_historyNext] = turnRate;
-        g_travelRates[g_historyNext] = travelRate;
-        g_historyNext = (g_historyNext + 1) % kHistory;
-        g_historyCount = (std::min) (g_historyCount + 1, kHistory);
+            SayJump (step, sample.ms, dt);
     }
     if (dropped != 0)
         ArchVizLog ("NAVJUMP      " + std::to_string (dropped) + " camera samples dropped: the ring was full");
@@ -356,8 +351,10 @@ void NoteWheel ()
     g_lastWheel = Now ();
 }
 
-void NoteRedraw ()
+void NoteRedraw (RedrawSource source)
 {
+    g_lastRedrawMs = Now ();
+    g_lastRedrawSource = source;
     ++g_window.redraws;
     g_window.redrawsAfterWheel += g_lastWheel != 0 && Now () - g_lastWheel <= kWheelWindowMs ? 1 : 0;
 }
@@ -423,8 +420,8 @@ void Reset ()
     g_lastNavigationStart = 0;
     g_pressGapMs = 0;
     g_current = g_previous = Gesture {};
-    g_historyCount = g_historyNext = 0;
     g_haveLast = false;
+    g_lastRedrawMs = 0;
 }
 
 CameraStep Step (const float* a, const float* b)

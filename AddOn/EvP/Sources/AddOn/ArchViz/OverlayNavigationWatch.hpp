@@ -43,8 +43,11 @@ void NoteNavigationEnd ();
 // A wheel step passed to Archicad.
 void NoteWheel ();
 
-// A 3D redraw asked of Archicad (`ACAPI_View_Redraw`), outside a held navigation.
-void NoteRedraw ();
+// A 3D redraw asked of Archicad (`ACAPI_View_Redraw`), and which of ours asked it: the gate
+// every layer and HUD change goes through (`Redraw3D`), the one held through a navigation and
+// asked after its release (`ReleaseHeldRedraw3D`), or the cold start's budget.
+enum class RedrawSource { Gate, AfterNavigation, Budget };
+void NoteRedraw (RedrawSource source);
 
 // The HUD laid out for the pointer, in microseconds.
 void NoteHudRefresh (uint32_t micros);
@@ -77,10 +80,14 @@ void Reset ();
 
 // ⚠️ THE JUMP IS READ FROM THE CAMERA (2026-11-05 14:35-14:37): the user's pauses placed each
 // jump within 5-15 s, and no counter told a jumping gesture from a smooth one. Every decode of
-// the selected camera (`freshness::TakeCameraSamples`) is a step from the one before; a step
-// turning or moving at five times the recent median rate, and by more than 3 deg or 0.1, writes
-// a NAVJUMP line -- when, how far, and the gesture it fell in -- and every gesture writes a
-// NAVGESTURE line once its samples are in, so the two can be compared.
+// the selected camera (`freshness::TakeCameraSamples`) is a step from the one before.
+// ⚠️ BY SIZE AND PLACE, NOT BY RATE (15:21-15:24): a step at five times the recent median rate
+// fired 161 times in 58 gestures -- the ticks are 16 ms apart and the median trails a fast
+// orbit's acceleration. The jumps the user paused after were single steps of 55-120 deg where
+// no gesture was moving the camera: after a release, between gestures, or in a press's first
+// ~50 ms; inside a gesture's motion the largest step was ~25 deg. So a NAVJUMP is a step of
+// kJumpDegrees anywhere, or kStillJumpDegrees where nothing of the user's was moving it, and it
+// names the last 3D redraw we asked for. Every gesture writes a NAVGESTURE line.
 struct CameraStep {
     double degrees = 0.0; // the rotation between the two views
     double travel = 0.0;  // the eye's displacement, in model units

@@ -210,7 +210,7 @@ void Redraw3D ()
         ++g_redrawsHeld3D;
         return;
     }
-    navwatch::NoteRedraw ();
+    navwatch::NoteRedraw (navwatch::RedrawSource::Gate);
     ACAPI_View_Redraw ();
 }
 
@@ -306,8 +306,10 @@ void ReleaseHeldRedraw3D ()
                               " 3D redraw request(s) through a navigation; one asked for after it (session " +
                               std::to_string (g_redrawsHeld3D) + ")");
     g_redrawsHeldSaid3D = g_redrawsHeld3D;
-    if (runtime::Running () && CurrentView () == ViewKind::ThreeD)
+    if (runtime::Running () && CurrentView () == ViewKind::ThreeD) {
+        navwatch::NoteRedraw (navwatch::RedrawSource::AfterNavigation);
         ACAPI_View_Redraw ();
+    }
 }
 
 void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
