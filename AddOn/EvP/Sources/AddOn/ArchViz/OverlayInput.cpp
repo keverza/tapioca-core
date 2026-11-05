@@ -206,10 +206,12 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
         ++self->navigationRevision;
         if (middle)
             self->navigating = event.kind == EventKind::Press;
-        if (middle && event.kind == EventKind::Press)
-            navwatch::NoteNavigationStart (screen.x, screen.y, self->map.locked);
-        else if (!middle)
+        if (!middle)
             navwatch::NoteWheel ();
+        else if (event.kind == EventKind::Press)
+            navwatch::NoteNavigationStart (screen.x, screen.y, self->map.locked);
+        else
+            navwatch::NoteNavigationEnd ();
     }
     if (event.kind == EventKind::Move)
         self->navigating = (event.held & Bit (Button::Middle)) != 0;

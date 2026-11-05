@@ -37,6 +37,9 @@ void NoteMove (long x, long y, bool passed, bool eatenFromHostGesture);
 // A middle press passed to Archicad: a navigation begins at (x, y), on a locked view or not.
 void NoteNavigationStart (long x, long y, bool locked);
 
+// The middle release Archicad was given: its gesture ends.
+void NoteNavigationEnd ();
+
 // A wheel step passed to Archicad.
 void NoteWheel ();
 
@@ -71,6 +74,19 @@ class Heartbeat {
 
 // Session state (§8): every count and mark forgotten.
 void Reset ();
+
+// ⚠️ THE JUMP IS READ FROM THE CAMERA (2026-11-05 14:35-14:37): the user's pauses placed each
+// jump within 5-15 s, and no counter told a jumping gesture from a smooth one. Every decode of
+// the selected camera (`freshness::TakeCameraSamples`) is a step from the one before; a step
+// turning or moving at five times the recent median rate, and by more than 3 deg or 0.1, writes
+// a NAVJUMP line -- when, how far, and the gesture it fell in -- and every gesture writes a
+// NAVGESTURE line once its samples are in, so the two can be compared.
+struct CameraStep {
+    double degrees = 0.0; // the rotation between the two views
+    double travel = 0.0;  // the eye's displacement, in model units
+};
+// Pure: two row-vector rigid views of 16 floats.
+CameraStep Step (const float* a, const float* b);
 
 } // namespace navwatch
 } // namespace archviz

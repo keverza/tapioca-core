@@ -4,6 +4,7 @@
 
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayInputKeyboard.hpp"
+#include "ArchViz/OverlayNavigationWatch.hpp"
 
 #include <gtest/gtest.h>
 
@@ -508,4 +509,22 @@ TEST (OverlayInput, AModifiersAutoRepeatAsksForNoLayout)
     key.down = true;
     key.repeat = true;
     EXPECT_FALSE (input::keyboard::IsModifierRepeat (key)) << "a typed key's repeat types";
+}
+
+// The navigation watch reads a jump from the camera: a row-vector rigid view's turn and the
+// eye's travel between two decodes (OVERLAY-INVARIANTS.md finding 1: the eye at -t * R^T).
+TEST (OverlayInput, ACameraStepIsTheTurnAndTheEyesTravel)
+{
+    namespace nav = geomsrv::archviz::navwatch;
+    const float still[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    const float moved[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -3, -4, 0, 1 };
+    const float turned[16] = { 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    const nav::CameraStep move = nav::Step (still, moved);
+    EXPECT_NEAR (move.degrees, 0.0, 1e-6);
+    EXPECT_NEAR (move.travel, 5.0, 1e-6);
+    const nav::CameraStep turn = nav::Step (still, turned);
+    EXPECT_NEAR (turn.degrees, 90.0, 1e-4);
+    EXPECT_NEAR (turn.travel, 0.0, 1e-6) << "turning about the eye moves it nowhere";
+    const nav::CameraStep same = nav::Step (turned, turned);
+    EXPECT_NEAR (same.degrees, 0.0, 1e-3);
 }

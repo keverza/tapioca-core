@@ -55,6 +55,12 @@ std::atomic<uint64_t> g_contentChanges { 0 }; // ... of those, that differed
 std::atomic<uint64_t> g_contentChangedMs { 0 };
 std::atomic<uint64_t> g_contentDecodedMs { 0 };
 
+// `TakeCameraSamples`: written by `NoteCameraContent` alone, taken by the main thread alone.
+CameraSample g_sampleRing[kCameraSampleRing];
+std::atomic<uint64_t> g_sampleHead { 0 }; // written slots, the writer's
+std::atomic<uint64_t> g_sampleTail { 0 }; // taken slots, the reader's
+std::atomic<uint64_t> g_sampleDropped { 0 };
+
 // A decoded camera as the main thread reads it: 36 words -- view, projection, viewport --
 // under a sequence that is odd while they are written. One writer, the render thread;
 // atomics only (§11). Static storage: zero, "nothing decoded", before the first write.
@@ -312,6 +318,29 @@ void NoteCameraContent (const float* view16, const float* projection16, float vp
     // The copy the 3D pick reads: odd while written, so a reader never takes half of it.
     const float viewport[4] = { vpX, vpY, vpW, vpH };
     WriteCamera (g_selectedCamera, view16, projection16, viewport);
+
+    // And the navigation watch's, in order (`TakeCameraSamples`).
+    const uint64_t head = g_sampleHead.load (std::memory_order_relaxed);
+    if (head - g_sampleTail.load (std::memory_order_acquire) >= kCameraSampleRing) {
+        g_sampleDropped.fetch_add (1, std::memory_order_relaxed);
+        return;
+    }
+    CameraSample& slot = g_sampleRing[head % kCameraSampleRing];
+    slot.ms = now;
+    std::memcpy (slot.view, view16, sizeof (slot.view));
+    g_sampleHead.store (head + 1, std::memory_order_release);
+}
+
+size_t TakeCameraSamples (CameraSample* out, size_t max, uint64_t& dropped)
+{
+    const uint64_t head = g_sampleHead.load (std::memory_order_acquire);
+    uint64_t tail = g_sampleTail.load (std::memory_order_relaxed);
+    size_t taken = 0;
+    for (; tail != head && taken < max; ++tail, ++taken)
+        out[taken] = g_sampleRing[tail % kCameraSampleRing];
+    g_sampleTail.store (tail, std::memory_order_release);
+    dropped = g_sampleDropped.exchange (0, std::memory_order_relaxed);
+    return taken;
 }
 
 uint64_t ContentSignature ()
@@ -443,6 +472,9 @@ std::atomic<bool> g_gateEnabled { false };
 void Reset ()
 {
     g_ledgerUsed = 0;
+    // Nor the navigation watch (§8).
+    g_sampleTail.store (g_sampleHead.load (std::memory_order_acquire), std::memory_order_release);
+    g_sampleDropped.store (0, std::memory_order_relaxed);
     // The 3D pick reads no camera of a previous session (§8).
     g_selectedCamera.sequence.store (0, std::memory_order_release);
     // Nor does the census's anchor.

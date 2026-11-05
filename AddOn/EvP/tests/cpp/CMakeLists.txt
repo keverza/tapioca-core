@@ -703,6 +703,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputKeyboard.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputResidue.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayNavigationWatch.cpp"
+    # Its camera samples (NAVJUMP): atomics and two Win32 calls, no device.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/Dxgi/CameraFreshness.cpp"
     # Independent sun-analysis compute device; no renderer, window or ACAPI.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyGpuTraversal.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/ArchVizLogStub.cpp"

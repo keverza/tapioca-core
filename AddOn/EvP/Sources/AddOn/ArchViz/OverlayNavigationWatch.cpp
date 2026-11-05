@@ -6,6 +6,7 @@
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/OverlayInputEvents.hpp" // windows.h, NOMINMAX first
+#include "ArchViz/Dxgi/CameraFreshness.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -69,6 +70,46 @@ uint64_t g_lastWheel = 0;
 uint64_t g_lastNavigationStart = 0;
 uint64_t g_pressGapMs = 0; // between the last two navigations begun
 
+// ---- one gesture of Archicad's, and what the camera did in it ------------------------------
+// A gesture runs from a middle press Archicad was given to its release; the camera samples
+// arrive up to a heartbeat later, so a closed gesture stays open to them for kTailMs.
+constexpr uint64_t kTailMs = 400;
+struct Gesture {
+    bool used = false;
+    bool open = false;
+    bool reported = false;
+    uint64_t pressMs = 0;
+    uint64_t releaseMs = 0;
+    bool shiftAtPress = false;
+    double pressPixels = -1.0; // from Archicad's last move; -1: no move passed yet
+    uint32_t movesPassed = 0;
+    uint32_t movesEaten = 0;
+    uint64_t lastPassedMs = 0;
+    uint64_t worstStallMs = 0;
+    uint32_t keysTaken = 0;
+    uint32_t steps = 0;
+    double turned = 0.0;
+    double maxTurn = 0.0;
+    double travel = 0.0;
+    double maxTravel = 0.0;
+    uint32_t jumps = 0;
+};
+Gesture g_current;  // the newest gesture, open or closed
+Gesture g_previous; // the one before it, until said
+
+// The rates of recent moving steps: the median a jump is measured against.
+constexpr size_t kHistory = 32;
+constexpr size_t kHistoryNeeded = 6;
+constexpr double kJumpFactor = 5.0;
+constexpr double kJumpMinDegrees = 3.0;
+constexpr double kJumpMinTravel = 0.1;
+double g_turnRates[kHistory] = {};
+double g_travelRates[kHistory] = {};
+size_t g_historyCount = 0;
+size_t g_historyNext = 0;
+bool g_haveLast = false;
+dxgi::injection::freshness::CameraSample g_last;
+
 uint64_t Now ()
 {
     return ::GetTickCount64 ();
@@ -88,6 +129,134 @@ std::string Describe (const Span& span)
         _snprintf_s (text, sizeof (text), _TRUNCATE, "n=%u mean %.1f max %.1f ms", span.count,
                      double (span.sumMicros) / span.count / 1000.0, span.maxMicros / 1000.0);
     return text;
+}
+
+// Local wall-clock time of a GetTickCount64 reading, for lines a user's notes can be matched to.
+std::string Clock (uint64_t ms)
+{
+    SYSTEMTIME local = {};
+    ::GetLocalTime (&local);
+    const int64_t today =
+        ((int64_t (local.wHour) * 60 + local.wMinute) * 60 + local.wSecond) * 1000 + local.wMilliseconds;
+    int64_t at = today - int64_t (Now () - ms);
+    at = ((at % 86400000) + 86400000) % 86400000;
+    char text[16] = {};
+    _snprintf_s (text, sizeof (text), _TRUNCATE, "%02d:%02d:%02d.%03d", int (at / 3600000), int (at / 60000 % 60),
+                 int (at / 1000 % 60), int (at % 1000));
+    return text;
+}
+
+double Median (const double* values, size_t count)
+{
+    double sorted[kHistory] = {};
+    std::copy (values, values + count, sorted);
+    std::sort (sorted, sorted + count);
+    return count == 0 ? 0.0 : sorted[count / 2];
+}
+
+Gesture* GestureAt (uint64_t ms)
+{
+    for (Gesture* g : { &g_current, &g_previous })
+        if (g->used && ms >= g->pressMs && (g->open || ms <= g->releaseMs + kTailMs))
+            return g;
+    return nullptr;
+}
+
+void SayGesture (Gesture& g)
+{
+    if (!g.used || g.reported || g.open)
+        return;
+    g.reported = true;
+    char pixels[32] = "no move yet";
+    if (g.pressPixels >= 0.0)
+        _snprintf_s (pixels, sizeof (pixels), _TRUNCATE, "%.0f px", g.pressPixels);
+    char line[512] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "%-12s %s-%s (%llu ms), Shift %s at press, press %s from Archicad's last move | moves passed %u "
+                 "eaten %u, longest gap between passed moves %llu ms | keys the HUD took %u | camera: %u steps, "
+                 "turned %.1f deg (largest step %.1f), moved %.2f (largest step %.2f) | jumps %u",
+                 "NAVGESTURE", Clock (g.pressMs).c_str (), Clock (g.releaseMs).c_str (),
+                 (unsigned long long) (g.releaseMs - g.pressMs), g.shiftAtPress ? "held" : "not held", pixels,
+                 g.movesPassed, g.movesEaten, (unsigned long long) g.worstStallMs, g.keysTaken, g.steps, g.turned,
+                 g.maxTurn, g.travel, g.maxTravel, g.jumps);
+    ArchVizLog (line);
+}
+
+void SayJump (const CameraStep& step, uint64_t ms, uint64_t dt, double turnMedian, double travelMedian)
+{
+    const Gesture* g = GestureAt (ms);
+    char where[256] = {};
+    if (g == nullptr)
+        _snprintf_s (where, sizeof (where), _TRUNCATE, "outside any gesture");
+    else if (g->open || ms <= g->releaseMs)
+        _snprintf_s (where, sizeof (where), _TRUNCATE,
+                     "in a gesture, %llu ms after its press (Shift %s at press, %u moves passed, %u keys taken, "
+                     "longest gap between passed moves %llu ms)",
+                     (unsigned long long) (ms - g->pressMs), g->shiftAtPress ? "held" : "not held", g->movesPassed,
+                     g->keysTaken, (unsigned long long) g->worstStallMs);
+    else
+        _snprintf_s (where, sizeof (where), _TRUNCATE, "%llu ms after a gesture's release",
+                     (unsigned long long) (ms - g->releaseMs));
+    char wheel[48] = {};
+    if (g_lastWheel != 0 && g_lastWheel <= ms && ms - g_lastWheel <= 1000)
+        _snprintf_s (wheel, sizeof (wheel), _TRUNCATE, ", a wheel step %llu ms before",
+                     (unsigned long long) (ms - g_lastWheel));
+    char line[512] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "%-12s %s: the camera turned %.1f deg and moved %.2f in %llu ms -- %.0f deg/s against a recent "
+                 "median of %.0f, %.2f/s against %.2f | %s%s",
+                 "NAVJUMP", Clock (ms).c_str (), step.degrees, step.travel, (unsigned long long) dt,
+                 step.degrees * 1000.0 / double (dt), turnMedian, step.travel * 1000.0 / double (dt), travelMedian,
+                 where, wheel);
+    ArchVizLog (line);
+}
+
+// Every camera decode since the last heartbeat, step by step.
+void AnalyseCamera ()
+{
+    namespace fresh = dxgi::injection::freshness;
+    static fresh::CameraSample samples[fresh::kCameraSampleRing];
+    uint64_t dropped = 0;
+    const size_t count = fresh::TakeCameraSamples (samples, fresh::kCameraSampleRing, dropped);
+    for (size_t i = 0; i < count; ++i) {
+        const fresh::CameraSample& sample = samples[i];
+        if (!g_haveLast || sample.ms < g_last.ms) {
+            g_last = sample, g_haveLast = true;
+            continue;
+        }
+        const CameraStep step = Step (g_last.view, sample.view);
+        const uint64_t dt = (std::max) (sample.ms - g_last.ms, uint64_t (16)); // the tick's resolution
+        g_last = sample;
+        if (step.degrees < 1e-4 && step.travel < 1e-6)
+            continue; // the same camera again
+        const double turnRate = step.degrees * 1000.0 / double (dt);
+        const double travelRate = step.travel * 1000.0 / double (dt);
+        const double turnMedian = Median (g_turnRates, g_historyCount);
+        const double travelMedian = Median (g_travelRates, g_historyCount);
+        const bool jump = g_historyCount >= kHistoryNeeded &&
+                          ((step.degrees > kJumpMinDegrees && turnRate > kJumpFactor * turnMedian) ||
+                           (step.travel > kJumpMinTravel && travelRate > kJumpFactor * travelMedian));
+        if (Gesture* g = GestureAt (sample.ms)) {
+            ++g->steps;
+            g->turned += step.degrees;
+            g->maxTurn = (std::max) (g->maxTurn, step.degrees);
+            g->travel += step.travel;
+            g->maxTravel = (std::max) (g->maxTravel, step.travel);
+            g->jumps += jump ? 1 : 0;
+        }
+        if (jump)
+            SayJump (step, sample.ms, dt, turnMedian, travelMedian);
+        g_turnRates[g_historyNext] = turnRate;
+        g_travelRates[g_historyNext] = travelRate;
+        g_historyNext = (g_historyNext + 1) % kHistory;
+        g_historyCount = (std::min) (g_historyCount + 1, kHistory);
+    }
+    if (dropped != 0)
+        ArchVizLog ("NAVJUMP      " + std::to_string (dropped) + " camera samples dropped: the ring was full");
+    // A closed gesture is said once its camera samples are in.
+    for (Gesture* g : { &g_previous, &g_current })
+        if (g->used && !g->open && Now () > g->releaseMs + kTailMs)
+            SayGesture (*g);
 }
 
 void ReportIfDue ()
@@ -125,6 +294,13 @@ void ReportIfDue ()
 
 void NoteMove (long x, long y, bool passed, bool eatenFromHostGesture)
 {
+    if (g_current.open) {
+        const uint64_t now = Now ();
+        if (passed && g_current.lastPassedMs != 0)
+            g_current.worstStallMs = (std::max) (g_current.worstStallMs, now - g_current.lastPassedMs);
+        (passed ? g_current.movesPassed : g_current.movesEaten) += 1;
+        g_current.lastPassedMs = passed ? now : g_current.lastPassedMs;
+    }
     if (passed) {
         ++g_window.movesPassed;
         g_havePassedMove = true;
@@ -143,9 +319,20 @@ void NoteNavigationStart (long x, long y, bool locked)
     g_window.pressesOnLocked += locked ? 1 : 0;
     g_pressGapMs = g_lastNavigationStart != 0 ? Now () - g_lastNavigationStart : 0;
     g_lastNavigationStart = Now ();
+    if (g_current.open) { // a press with the last release unseen: closed here
+        g_current.open = false;
+        g_current.releaseMs = Now ();
+    }
+    SayGesture (g_previous); // a third gesture before its samples were in: said as it stands
+    g_previous = g_current;
+    g_current = Gesture {};
+    g_current.used = g_current.open = true;
+    g_current.pressMs = Now ();
+    g_current.shiftAtPress = ::GetAsyncKeyState (VK_SHIFT) < 0;
     if (!g_havePassedMove)
         return;
     const double pixels = std::hypot (double (x - g_passedX), double (y - g_passedY));
+    g_current.pressPixels = pixels;
     if (pixels <= kFarPixels)
         return;
     ++g_window.pressesFar;
@@ -153,6 +340,14 @@ void NoteNavigationStart (long x, long y, bool locked)
         g_window.worstPixels = pixels;
         g_window.worstAgeMs = Now () - g_passedAt;
     }
+}
+
+void NoteNavigationEnd ()
+{
+    if (!g_current.open)
+        return;
+    g_current.open = false;
+    g_current.releaseMs = Now ();
 }
 
 void NoteWheel ()
@@ -175,6 +370,7 @@ void NoteHudRefresh (uint32_t micros)
 void NoteKeyTaken (uint32_t code, bool repeat)
 {
     ++g_window.keysTaken;
+    g_current.keysTaken += g_current.open ? 1 : 0;
     const bool modifier = code == VK_SHIFT || code == VK_LSHIFT || code == VK_RSHIFT || code == VK_CONTROL ||
                           code == VK_LCONTROL || code == VK_RCONTROL || code == VK_MENU || code == VK_LMENU ||
                           code == VK_RMENU;
@@ -210,6 +406,7 @@ Heartbeat::~Heartbeat ()
     const uint64_t micros = frequency.QuadPart > 0
                                 ? (uint64_t (counter.QuadPart) - started_) * 1000000u / uint64_t (frequency.QuadPart)
                                 : 0;
+    AnalyseCamera ();
     (navigating_ ? g_window.heartbeatNavigating : g_window.heartbeat)
         .Add (uint32_t ((std::min) (micros, uint64_t (UINT32_MAX))));
     ReportIfDue ();
@@ -225,6 +422,34 @@ void Reset ()
     g_lastWheel = 0;
     g_lastNavigationStart = 0;
     g_pressGapMs = 0;
+    g_current = g_previous = Gesture {};
+    g_historyCount = g_historyNext = 0;
+    g_haveLast = false;
+}
+
+CameraStep Step (const float* a, const float* b)
+{
+    // Row-vector rigid views, p * R + t (OVERLAY-INVARIANTS.md finding 1): R in the upper 3x3,
+    // t in the last row, the eye at -t * R^T.
+    CameraStep step;
+    double trace = 0.0;
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            trace += double (a[i * 4 + j]) * double (b[i * 4 + j]);
+    const double cosine = (std::max) (-1.0, (std::min) (1.0, (trace - 1.0) / 2.0));
+    step.degrees = std::acos (cosine) * 180.0 / 3.14159265358979323846;
+    double travel = 0.0;
+    for (int j = 0; j < 3; ++j) {
+        double eyeA = 0.0;
+        double eyeB = 0.0;
+        for (int k = 0; k < 3; ++k) {
+            eyeA -= double (a[12 + k]) * double (a[j * 4 + k]);
+            eyeB -= double (b[12 + k]) * double (b[j * 4 + k]);
+        }
+        travel += (eyeB - eyeA) * (eyeB - eyeA);
+    }
+    step.travel = std::sqrt (travel);
+    return step;
 }
 
 } // namespace navwatch

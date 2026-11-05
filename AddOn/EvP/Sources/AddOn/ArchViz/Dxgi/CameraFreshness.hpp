@@ -418,6 +418,21 @@ struct Report {
 };
 Report Snapshot ();
 
+// ⚠️ EVERY DECODE, IN ORDER, FOR THE NAVIGATION WATCH (#145, 2026-11-05): the user's pauses
+// placed a jump within 5-15 s, and no counter told a jumping gesture from a smooth one. The
+// camera itself says when it jumped: `NoteCameraContent` puts each decode's `b1` and the
+// time on a single-producer ring -- atomics, static storage, no lock (§11) -- and the main
+// thread takes them. A full ring drops the newest and counts it.
+struct CameraSample {
+    uint64_t ms = 0;
+    float view[16] = {};
+};
+constexpr size_t kCameraSampleRing = 128;
+
+// MAIN THREAD. Copies out up to `max` samples written since the last call, oldest first;
+// `dropped` is how many the full ring refused since then.
+size_t TakeCameraSamples (CameraSample* out, size_t max, uint64_t& dropped);
+
 // MAIN THREAD, at the start of an overlay session.
 void Reset ();
 
