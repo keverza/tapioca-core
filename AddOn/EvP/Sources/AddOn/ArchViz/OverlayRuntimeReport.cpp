@@ -79,6 +79,7 @@ struct HookMark {
     dxgi::contextstate::BindingAudit binds;
     uint64_t otherReadbacks = 0;
     uint64_t otherSnapshots = 0;
+    uint64_t renamed = 0;
 };
 HookMark g_hookMark;
 uint32_t g_hookTicks = 0;
@@ -175,18 +176,25 @@ void Hooks ()
     // not scored, and snapshots refused at the pinned occurrence. Either one rising
     // while the camera is locked is a frame the overlay kept its previous camera.
     const cen::Stats census = cen::GetStats ();
+    // The pinned group's camera draw renamed by another camera-bearing draw says WHICH
+    // refusals those are: a second model draw taking the occurrence, not a screen map.
     if (census.readbacksOtherDraw != g_hookMark.otherReadbacks ||
-        census.snapshotsOtherDraw != g_hookMark.otherSnapshots) {
-        char line[240] = {};
+        census.snapshotsOtherDraw != g_hookMark.otherSnapshots || census.cameraDrawRenamed != g_hookMark.renamed) {
+        char line[320] = {};
         _snprintf_s (line, sizeof (line), _TRUNCATE,
                      "~5 s: another draw at a group's occurrence -- readbacks not scored +%llu, snapshots "
-                     "refused at the pinned occurrence +%llu | session: %llu, %llu",
+                     "refused at the pinned occurrence +%llu, camera draw renamed +%llu (last idx%u->idx%u) | "
+                     "session: %llu, %llu, %llu",
                      (unsigned long long) Since (census.readbacksOtherDraw, g_hookMark.otherReadbacks),
                      (unsigned long long) Since (census.snapshotsOtherDraw, g_hookMark.otherSnapshots),
-                     (unsigned long long) census.readbacksOtherDraw, (unsigned long long) census.snapshotsOtherDraw);
+                     (unsigned long long) Since (census.cameraDrawRenamed, g_hookMark.renamed),
+                     census.cameraDrawRenamedFrom, census.cameraDrawRenamedTo,
+                     (unsigned long long) census.readbacksOtherDraw, (unsigned long long) census.snapshotsOtherDraw,
+                     (unsigned long long) census.cameraDrawRenamed);
         Say ("OTHERDRAW", line);
         g_hookMark.otherReadbacks = census.readbacksOtherDraw;
         g_hookMark.otherSnapshots = census.snapshotsOtherDraw;
+        g_hookMark.renamed = census.cameraDrawRenamed;
     }
 }
 

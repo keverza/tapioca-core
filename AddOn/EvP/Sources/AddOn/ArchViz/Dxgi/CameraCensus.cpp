@@ -388,6 +388,13 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
         return;
     }
     if (camera) {
+        if (slot.group.cameraIndexCount != 0 && slot.group.cameraIndexCount != slot.pendingIndexCount &&
+            injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
+            slot.group.groupId == GetSelection ().groupId) {
+            ++g_stats.cameraDrawRenamed;
+            g_stats.cameraDrawRenamedFrom = slot.group.cameraIndexCount;
+            g_stats.cameraDrawRenamedTo = slot.pendingIndexCount;
+        }
         slot.group.cameraIndexCount = slot.pendingIndexCount;
         // ⚠️ AND THE ANCHOR STANDS ON IT WHILE THE CENSUS LEARNS (Dxgi/CameraAnchor.hpp):
         // a point on screen by construction, not the model's middle or Archicad's stored

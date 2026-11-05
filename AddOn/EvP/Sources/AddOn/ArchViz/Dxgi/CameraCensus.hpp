@@ -224,6 +224,13 @@ struct Stats {
     uint64_t readbacksBusy = 0;
     uint64_t readbacksOtherDraw = 0; // not a camera, and not this group's camera draw
     uint64_t snapshotsOtherDraw = 0; // the pinned occurrence held another draw
+    // The selected group's camera draw named again by a readback of a DIFFERENT draw that
+    // also decoded as the camera, and the last pair (2026-11-05 12:50:57): culling shifts
+    // the occurrences, two model draws take the pinned one in turn, and every rename makes
+    // the other refuse its snapshots until the next.
+    uint64_t cameraDrawRenamed = 0;
+    uint32_t cameraDrawRenamedFrom = 0;
+    uint32_t cameraDrawRenamedTo = 0;
     // Which draw the accepted snapshots came from, by majority (`camerachoice::VoteIndexCount`):
     // the kept camera's draw (`OverlayCameraKeep::Take`). `snapshotIndexVotes == 0` is none yet.
     uint32_t snapshotIndexCandidate = 0;
