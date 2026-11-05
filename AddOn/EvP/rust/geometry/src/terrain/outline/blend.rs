@@ -21,16 +21,19 @@
 /// face negated).
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Face {
+    /// The edge's index in the outline: the higher wins a tie, as a scan in
+    /// outline order keeps the last of equal maxima.
+    pub index: u32,
     /// Height, negated for a cut face.
     pub height: f64,
     /// Plan unit vector from the edge's steepest point to the point: the way
     /// the face falls (zero on the edge itself).
     pub toward: [f64; 2],
-    /// The edge's end the face falls from, bitwise in plan; `None` when it
-    /// falls from a point inside the edge.
-    pub from: Option<[u64; 2]>,
-    /// The edge's two ends, bitwise in plan.
-    pub ends: [[u64; 2]; 2],
+    /// The edge, and whether the face falls from a point inside it (else
+    /// from its end nearer `foot`, the steepest point).
+    pub segment: [[f64; 3]; 2],
+    pub inside: bool,
+    pub foot: [f64; 2],
     /// Plan distance from that steepest point.
     pub distance: f64,
     /// The face's gradient.
@@ -44,35 +47,21 @@ const FLAT: f64 = std::f64::consts::PI / 18.0;
 /// Directions this far apart, radians, make a full crease.
 const CREASE: f64 = std::f64::consts::FRAC_PI_4;
 
-/// An edge's two ends, bitwise in plan.
-pub(super) fn ends([from, to]: [[f64; 3]; 2]) -> [[u64; 2]; 2] {
-    [
-        [from[0].to_bits(), from[1].to_bits()],
-        [to[0].to_bits(), to[1].to_bits()],
-    ]
-}
-
-/// The end of `segment` a face falls from to `(px, py)`: the end at its
-/// steepest point, found back along `toward` over `distance`; `None` when that
-/// point is inside the edge.
-pub(super) fn joint(
-    segment: [[f64; 3]; 2],
-    inside: bool,
-    toward: &[f64; 2],
-    distance: f64,
-    [px, py]: [f64; 2],
-) -> Option<[u64; 2]> {
-    if inside {
-        return None;
+/// Whether `a` falls from an end of its edge that `b`'s edge also ends at.
+fn joint(a: &Face, b: &Face) -> bool {
+    if a.inside {
+        return false;
     }
-    let (x, y) = (px - toward[0] * distance, py - toward[1] * distance);
-    let [from, to] = segment;
-    let nearer = if (from[0] - x).hypot(from[1] - y) <= (to[0] - x).hypot(to[1] - y) {
+    let [from, to] = a.segment;
+    let [x, y] = a.foot;
+    let end = if (from[0] - x).hypot(from[1] - y) <= (to[0] - x).hypot(to[1] - y) {
         from
     } else {
         to
     };
-    Some([nearer[0].to_bits(), nearer[1].to_bits()])
+    let same =
+        |p: [f64; 3]| p[0].to_bits() == end[0].to_bits() && p[1].to_bits() == end[1].to_bits();
+    b.segment.iter().any(|&p| same(p))
 }
 
 fn smoothstep(t: f64) -> f64 {
@@ -83,8 +72,13 @@ fn smoothstep(t: f64) -> f64 {
 /// How far the winning face is lifted towards `rival`.
 fn lift(winner: &Face, rival: &Face) -> f64 {
     let rounding = winner.rounding.min(rival.rounding);
-    let joint = |a: &Face, b: &Face| a.from.is_some_and(|end| b.ends.contains(&end));
-    if rounding <= 0.0 || joint(winner, rival) || joint(rival, winner) {
+    let gap = winner.height - rival.height;
+    // The knee is never more than the two grades together times the
+    // rounding: a rival further below lends nothing, whatever its angle.
+    if rounding <= 0.0 || gap >= (winner.grade + rival.grade) * rounding {
+        return 0.0;
+    }
+    if joint(winner, rival) || joint(rival, winner) {
         return 0.0;
     }
     let along = winner.toward[0].mul_add(rival.toward[0], winner.toward[1] * rival.toward[1]);
@@ -104,7 +98,6 @@ fn lift(winner: &Face, rival: &Face) -> f64 {
                 .mul_add(winner.toward[1], -rival.grade * rival.toward[1]),
         );
     let knee = difference * rounding * crease * fade;
-    let gap = winner.height - rival.height;
     if knee <= 0.0 || gap >= knee {
         return 0.0;
     }
@@ -117,7 +110,7 @@ pub(super) fn envelope(faces: &[Face], keep: impl Fn(&Face) -> bool) -> Option<(
     let winner = faces
         .iter()
         .filter(|face| keep(face))
-        .max_by(|a, b| a.height.total_cmp(&b.height))?;
+        .max_by(|a, b| a.height.total_cmp(&b.height).then(a.index.cmp(&b.index)))?;
     let lifted = faces
         .iter()
         .filter(|face| keep(face))

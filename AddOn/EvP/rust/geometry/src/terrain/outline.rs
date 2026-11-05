@@ -349,54 +349,70 @@ impl<'a> Faces<'a> {
             lower_any: 0.0,
         };
         let limit = self.grading.limit;
-        let (mut fills, mut cuts) = (Vec::new(), Vec::new());
-        let mut near = Vec::new();
-        self.reach.candidates(px, py, base, &mut near);
-        for edge in near.iter().filter_map(|&i| self.outline.get(i as usize)) {
-            let SurfaceGrade {
-                cut,
-                fill,
-                rounding,
-            } = edge.grade;
-            if fill.is_finite() {
-                let (distance, height, toward, planar) =
-                    steepest_point(edge.segment, [px, py], fill, false);
-                let face = cone(height, distance, -fill, rounding);
-                let raise = toe(base, face, false, fill * rounding) - base;
-                moves.raise_any = moves.raise_any.max(raise);
-                if distance <= limit {
-                    moves.raise = moves.raise.max(raise);
-                }
-                fills.push(blend::Face {
-                    height: face,
-                    toward,
-                    from: blend::joint(edge.segment, planar, &toward, distance, [px, py]),
-                    ends: blend::ends(edge.segment),
-                    distance,
-                    grade: fill,
+        let (mut fills, mut cuts) = (Vec::with_capacity(64), Vec::with_capacity(64));
+        self.reach
+            .search(px, py, base, |index, [fill_side, cut_side]| {
+                let mut reached = [None, None];
+                let Some(edge) = self.outline.get(index as usize) else {
+                    return reached;
+                };
+                let SurfaceGrade {
+                    cut,
+                    fill,
                     rounding,
-                });
-            }
-            if cut.is_finite() {
-                let (distance, height, toward, planar) =
-                    steepest_point(edge.segment, [px, py], cut, true);
-                let face = cone(height, distance, cut, rounding);
-                let lower = base - toe(base, face, true, cut * rounding);
-                moves.lower_any = moves.lower_any.max(lower);
-                if distance <= limit {
-                    moves.lower = moves.lower.max(lower);
+                } = edge.grade;
+                if fill_side && fill.is_finite() {
+                    let (distance, height, toward, planar) =
+                        steepest_point(edge.segment, [px, py], fill, false);
+                    let face = cone(height, distance, -fill, rounding);
+                    let raise = toe(base, face, false, fill * rounding) - base;
+                    moves.raise_any = moves.raise_any.max(raise);
+                    if distance <= limit {
+                        moves.raise = moves.raise.max(raise);
+                        reached[0] = Some(face);
+                    }
+                    fills.push(blend::Face {
+                        index,
+                        height: face,
+                        toward,
+                        segment: edge.segment,
+                        inside: planar,
+                        foot: [
+                            toward[0].mul_add(-distance, px),
+                            toward[1].mul_add(-distance, py),
+                        ],
+                        distance,
+                        grade: fill,
+                        rounding,
+                    });
                 }
-                cuts.push(blend::Face {
-                    height: -face,
-                    toward,
-                    from: blend::joint(edge.segment, planar, &toward, distance, [px, py]),
-                    ends: blend::ends(edge.segment),
-                    distance,
-                    grade: cut,
-                    rounding,
-                });
-            }
-        }
+                if cut_side && cut.is_finite() {
+                    let (distance, height, toward, planar) =
+                        steepest_point(edge.segment, [px, py], cut, true);
+                    let face = cone(height, distance, cut, rounding);
+                    let lower = base - toe(base, face, true, cut * rounding);
+                    moves.lower_any = moves.lower_any.max(lower);
+                    if distance <= limit {
+                        moves.lower = moves.lower.max(lower);
+                        reached[1] = Some(-face);
+                    }
+                    cuts.push(blend::Face {
+                        index,
+                        height: -face,
+                        toward,
+                        segment: edge.segment,
+                        inside: planar,
+                        foot: [
+                            toward[0].mul_add(-distance, px),
+                            toward[1].mul_add(-distance, py),
+                        ],
+                        distance,
+                        grade: cut,
+                        rounding,
+                    });
+                }
+                reached
+            });
         let within = |face: &blend::Face| face.distance <= limit;
         let raised = |keep: &dyn Fn(&blend::Face) -> bool| {
             blend::envelope(&fills, keep).map_or(0.0, |(face, lifted)| {
@@ -408,10 +424,21 @@ impl<'a> Faces<'a> {
                 base - toe(base, -lifted, true, face.grade * face.rounding)
             })
         };
-        moves.raise = moves.raise.max(raised(&within));
-        moves.raise_any = moves.raise_any.max(raised(&|_| true));
-        moves.lower = moves.lower.max(lowered(&within));
-        moves.lower_any = moves.lower_any.max(lowered(&|_| true));
+        // Every face within the limit: the two envelopes are one.
+        let (raise, lower) = (raised(&within), lowered(&within));
+        let everywhere = |faces: &[blend::Face]| faces.iter().all(within);
+        moves.raise = moves.raise.max(raise);
+        moves.raise_any = moves.raise_any.max(if everywhere(&fills) {
+            raise
+        } else {
+            raised(&|_| true)
+        });
+        moves.lower = moves.lower.max(lower);
+        moves.lower_any = moves.lower_any.max(if everywhere(&cuts) {
+            lower
+        } else {
+            lowered(&|_| true)
+        });
         moves
     }
 
