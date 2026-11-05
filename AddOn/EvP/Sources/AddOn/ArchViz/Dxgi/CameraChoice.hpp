@@ -107,6 +107,71 @@ inline bool IsCameraDraw (uint32_t indexCount, uint32_t cameraIndexCount)
     return cameraIndexCount == 0 || indexCount == cameraIndexCount;
 }
 
+// ⚠️ BUT THE CAMERA DRAWS AT ONE OCCURRENCE ARE PLURAL (2026-11-05 12:50:57). Archicad
+// culls draws by viewpoint, so the occurrences shift: idx1134 held occ4 in some
+// generations and idx3612 -- the next model draw, same view -- in others. One count,
+// renamed by every readback, refused whichever draw the last readback had not seen:
+// snapshots refused 19-38 per 5 s, LATE+17, the overlay up to 11 frames behind.
+// So a group keeps every draw whose readback DECODED AS THE CAMERA at its occurrence,
+// and drops one the moment a readback of it does not: a screen map is still refused
+// (`IsCameraDraw` above), one readback late as before. The 24-index helper, if it ever
+// reaches the occurrence, hands over the previous image's camera -- the camera a
+// refusal leaves the overlay drawing with anyway.
+struct CameraDraws {
+    static constexpr uint32_t kCapacity = 4;
+    uint32_t counts[kCapacity] = {};
+    uint32_t next = 0; // replaced when all are taken: the oldest admission
+};
+
+inline bool Holds (const CameraDraws& draws, uint32_t indexCount)
+{
+    for (uint32_t count : draws.counts) {
+        if (count != 0 && count == indexCount)
+            return true;
+    }
+    return false;
+}
+
+inline bool Empty (const CameraDraws& draws)
+{
+    for (uint32_t count : draws.counts) {
+        if (count != 0)
+            return false;
+    }
+    return true;
+}
+
+// A readback of this draw decoded as the camera.
+inline void Admit (CameraDraws& draws, uint32_t indexCount)
+{
+    if (indexCount == 0 || Holds (draws, indexCount))
+        return;
+    for (uint32_t& count : draws.counts) {
+        if (count == 0) {
+            count = indexCount;
+            return;
+        }
+    }
+    draws.counts[draws.next] = indexCount;
+    draws.next = (draws.next + 1) % CameraDraws::kCapacity;
+}
+
+// A readback of this draw did not.
+inline void Forget (CameraDraws& draws, uint32_t indexCount)
+{
+    for (uint32_t& count : draws.counts) {
+        if (count == indexCount)
+            count = 0;
+    }
+}
+
+// The snapshot gate. With no draw admitted yet it is the single count above: the
+// group's own, or a kept camera's until its group has named one.
+inline bool IsCameraDraw (uint32_t indexCount, const CameraDraws& draws, uint32_t cameraIndexCount)
+{
+    return Empty (draws) ? IsCameraDraw (indexCount, cameraIndexCount) : Holds (draws, indexCount);
+}
+
 // ⚠️ A KEPT CAMERA CARRIES THE DRAW ITS SNAPSHOTS CAME FROM, BY MAJORITY. Every model
 // draw carries the camera, so the group's own count follows whichever draw last took
 // its occurrence; a kept `idx1134` -- the neighbour -- for a camera locked on `idx3612`

@@ -231,6 +231,9 @@ struct Stats {
     uint64_t cameraDrawRenamed = 0;
     uint32_t cameraDrawRenamedFrom = 0;
     uint32_t cameraDrawRenamedTo = 0;
+    // Snapshots taken from a camera draw other than the one last named -- each one the
+    // single-count gate refused (`camerachoice::CameraDraws`).
+    uint64_t snapshotsSecondCameraDraw = 0;
     // Which draw the accepted snapshots came from, by majority (`camerachoice::VoteIndexCount`):
     // the kept camera's draw (`OverlayCameraKeep::Take`). `snapshotIndexVotes == 0` is none yet.
     uint32_t snapshotIndexCandidate = 0;

@@ -148,6 +148,58 @@ TEST (CameraChoice, TheSnapshotIsTakenOnlyFromTheCameraDraw)
     EXPECT_TRUE (cc::IsCameraDraw (6, 0)) << "no camera sample yet: nothing to refuse on";
 }
 
+// 2026-11-05 12:50:57: culling shifted the occurrences, idx1134 and idx3612 took g5's
+// occ4 in turn, and the one count -- renamed by each readback -- refused the other's
+// snapshots. Both decode as the camera, so both are the group's camera draws.
+TEST (CameraChoice, TwoModelDrawsTakingThePinnedOccurrenceAreBothCameraDraws)
+{
+    cc::CameraDraws draws;
+    uint32_t lastNamed = 0;
+    for (uint32_t readback : { 1134u, 3612u, 1134u, 3612u }) {
+        cc::Admit (draws, readback);
+        lastNamed = readback;
+    }
+    EXPECT_EQ (lastNamed, 3612u);
+    EXPECT_FALSE (cc::IsCameraDraw (1134, lastNamed)) << "the single count refused the neighbour";
+    EXPECT_TRUE (cc::IsCameraDraw (1134, draws, lastNamed));
+    EXPECT_TRUE (cc::IsCameraDraw (3612, draws, lastNamed));
+    EXPECT_FALSE (cc::IsCameraDraw (6, draws, lastNamed)) << "a screen map at the occurrence is still refused";
+}
+
+TEST (CameraChoice, ADrawWhoseReadbackIsNotACameraIsForgotten)
+{
+    cc::CameraDraws draws;
+    cc::Admit (draws, 1134);
+    cc::Admit (draws, 6);  // a small model draw, once
+    cc::Forget (draws, 6); // then a screen map with the same count
+    EXPECT_FALSE (cc::IsCameraDraw (6, draws, 1134));
+    EXPECT_TRUE (cc::IsCameraDraw (1134, draws, 1134));
+}
+
+TEST (CameraChoice, WithNoCameraDrawAdmittedTheGateIsTheSingleCount)
+{
+    const cc::CameraDraws none;
+    EXPECT_TRUE (cc::IsCameraDraw (3612, none, 3612)) << "a kept camera before its group has named one";
+    EXPECT_FALSE (cc::IsCameraDraw (1134, none, 3612));
+    EXPECT_TRUE (cc::IsCameraDraw (6, none, 0)) << "no camera sample yet: nothing to refuse on";
+    cc::CameraDraws emptied;
+    cc::Admit (emptied, 1134);
+    cc::Forget (emptied, 1134);
+    EXPECT_TRUE (cc::IsCameraDraw (1134, emptied, 1134)) << "every admission forgotten: as before";
+}
+
+TEST (CameraChoice, AFullSetReplacesTheOldestAdmission)
+{
+    cc::CameraDraws draws;
+    for (uint32_t count : { 10u, 20u, 30u, 40u, 50u })
+        cc::Admit (draws, count);
+    EXPECT_FALSE (cc::Holds (draws, 10));
+    for (uint32_t count : { 20u, 30u, 40u, 50u })
+        EXPECT_TRUE (cc::Holds (draws, count));
+    cc::Admit (draws, 0);
+    EXPECT_FALSE (cc::Holds (draws, 0)) << "an index count of zero is never a draw";
+}
+
 // 2026-11-04 13:29:53: g5 locked on idx3612, and its neighbour's idx1134 took occ4 in
 // some generations. The kept camera must name the draw most snapshots came from.
 TEST (CameraChoice, AKeptCameraNamesTheDrawMostSnapshotsCameFrom)

@@ -49,8 +49,9 @@ struct Slot {
     ID3D11Buffer* stagingView = nullptr;
     ID3D11Buffer* stagingProjection = nullptr;
     bool copyPending = false;
-    uint32_t pendingIndexCount = 0; // of the draw the pending copy came from
-    uint64_t pendingGeneration = 0; // and the model frame it was taken in
+    uint32_t pendingIndexCount = 0;        // of the draw the pending copy came from
+    uint64_t pendingGeneration = 0;        // and the model frame it was taken in
+    camerachoice::CameraDraws cameraDraws; // every draw here that decoded as the camera
 
     double spreadSum = 0.0;
     uint32_t spreadCount = 0;
@@ -382,20 +383,23 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
     float decoded[16];
     const cameralayout::Layout layout = cameralayout::Decode (view, projection, decoded);
     const bool camera = layout != cameralayout::Layout::Neither;
+    if (!camera)
+        camerachoice::Forget (slot.cameraDraws, slot.pendingIndexCount);
     if (!camerachoice::CountsForGroup (camera, slot.pendingIndexCount, slot.group.cameraIndexCount)) {
         ++slot.group.samplesSkipped;
         ++g_stats.readbacksOtherDraw;
         return;
     }
+    const bool selected = injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
+                          slot.group.groupId == GetSelection ().groupId;
     if (camera) {
-        if (slot.group.cameraIndexCount != 0 && slot.group.cameraIndexCount != slot.pendingIndexCount &&
-            injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
-            slot.group.groupId == GetSelection ().groupId) {
+        if (selected && slot.group.cameraIndexCount != 0 && slot.group.cameraIndexCount != slot.pendingIndexCount) {
             ++g_stats.cameraDrawRenamed;
             g_stats.cameraDrawRenamedFrom = slot.group.cameraIndexCount;
             g_stats.cameraDrawRenamedTo = slot.pendingIndexCount;
         }
         slot.group.cameraIndexCount = slot.pendingIndexCount;
+        camerachoice::Admit (slot.cameraDraws, slot.pendingIndexCount);
         // ⚠️ AND THE ANCHOR STANDS ON IT WHILE THE CENSUS LEARNS (Dxgi/CameraAnchor.hpp):
         // a point on screen by construction, not the model's middle or Archicad's stored
         // target, which a large site orbited leaves off screen for good.
@@ -411,19 +415,22 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
     injection::oracle::VariantScore scores[kVariantCount];
     injection::oracle::ScoreVariants (view, decoded, viewport, scores);
     RecordSample (slot, scores);
-    if (injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
-        slot.group.groupId == GetSelection ().groupId)
+    if (selected)
         injection::freshness::NoteCameraContent (view, projection, viewport.x, viewport.y, viewport.width,
                                                  viewport.height);
 }
 
-// The draw the selected group's camera samples came from (`camerachoice::IsCameraDraw`);
-// for a kept camera (`Resume`), the one it brought until its group here has named one.
-uint32_t SelectedCameraIndexCount ()
+// The pinned draw is a camera draw of the group? Counts those its single count refused.
+bool IsSelectedCameraDraw (uint32_t indexCount)
 {
     const uint32_t id = GetSelection ().groupId;
-    const uint32_t own = id >= 1 && id <= kGroupCapacity ? g_slots[id - 1].group.cameraIndexCount : 0u;
-    return own != 0 ? own : KeptCameraIndexCount ();
+    const Slot* slot = id >= 1 && id <= kGroupCapacity ? &g_slots[id - 1] : nullptr;
+    const uint32_t named =
+        slot != nullptr && slot->group.cameraIndexCount != 0 ? slot->group.cameraIndexCount : KeptCameraIndexCount ();
+    const bool single = camerachoice::IsCameraDraw (indexCount, named);
+    const bool taken = slot != nullptr ? camerachoice::IsCameraDraw (indexCount, slot->cameraDraws, named) : single;
+    g_stats.snapshotsSecondCameraDraw += taken && !single ? 1 : 0;
+    return taken;
 }
 
 void ResolveSome (ID3D11DeviceContext* context)
@@ -705,7 +712,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     // and only its camera draw, not another draw that took its occurrence this frame.
     const bool pinned = injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
                         MatchesSelection (live, occurrence);
-    const bool cameraDraw = camerachoice::IsCameraDraw (indexCount, SelectedCameraIndexCount ());
+    const bool cameraDraw = pinned && IsSelectedCameraDraw (indexCount);
     if (pinned && !cameraDraw)
         ++g_stats.snapshotsOtherDraw;
     else if (pinned) {
