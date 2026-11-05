@@ -166,6 +166,124 @@ bool Paste (Document& doc, const Clipboard& clip, Vec3 offset, std::vector<Ref>&
 }
 
 namespace {
+constexpr size_t kMaxArrayCells = 10000;
+constexpr size_t kMaxArrayObjects = 100000;
+constexpr size_t kMaxArrayIds = 1000000;
+
+std::vector<Ref> WholeObjects (const Clipboard& clip)
+{
+    std::vector<Ref> refs;
+    for (const auto& path : clip.paths)
+        refs.push_back ({ path.id, Part::Entity, kNoId });
+    for (const auto& entity : clip.entities)
+        refs.push_back ({ entity.id, Part::Entity, kNoId });
+    return refs;
+}
+
+bool AddIds (size_t amount, size_t& total)
+{
+    if (amount > std::numeric_limits<size_t>::max () - total)
+        return false;
+    total += amount;
+    return true;
+}
+
+bool PasteIdCount (const Clipboard& clip, size_t& count)
+{
+    count = clip.groups.size ();
+    for (const auto& path : clip.paths) {
+        if (!AddIds (1, count) || !AddIds (path.points.size (), count) || !AddIds (path.profile.size (), count) ||
+            !AddIds (path.sections.size (), count))
+            return false;
+    }
+    for (const auto& entity : clip.entities)
+        if (!AddIds (1, count) || !AddIds (entity.vertices.size (), count) || !AddIds (entity.segments.size (), count))
+            return false;
+    return true;
+}
+
+bool FinitePlacement (const Clipboard& clip, Vec3 offset)
+{
+    const auto moved = [&] (Vec3 point) {
+        return std::isfinite (point.x + offset.x) && std::isfinite (point.y + offset.y) &&
+               std::isfinite (point.z + offset.z);
+    };
+    for (const auto& path : clip.paths)
+        for (const auto& point : path.points)
+            if (!moved (point.p))
+                return false;
+    for (const auto& entity : clip.entities) {
+        for (const auto& vertex : entity.vertices)
+            if (!moved (vertex.p))
+                return false;
+        if (entity.ellipse && !moved (entity.ellipse->center))
+            return false;
+    }
+    return true;
+}
+} // namespace
+
+bool RectangularArray (Document& doc, const std::vector<Ref>& refs, size_t countX, size_t countY, double spacingX,
+                       double spacingY, std::vector<Ref>& placed, std::string& error)
+{
+    const Clipboard clip = Copy (doc, refs);
+    if (clip.Empty ()) {
+        error = "select the objects to array";
+        return false;
+    }
+    if (countX == 0 || countY == 0 || countX > kMaxArrayCells || countY > kMaxArrayCells / countX) {
+        error = "rectangular array counts must be positive and contain at most 10000 cells";
+        return false;
+    }
+    const size_t cells = countX * countY;
+    const size_t sourceObjects = clip.paths.size () + clip.entities.size ();
+    if (sourceObjects > kMaxArrayObjects / cells) {
+        error = "rectangular array exceeds the 100000 object-placement budget";
+        return false;
+    }
+    if (!std::isfinite (spacingX) || !std::isfinite (spacingY) || (countX > 1 && spacingX == 0.0) ||
+        (countY > 1 && spacingY == 0.0)) {
+        error = "rectangular array spacing must be finite and nonzero on each repeated axis";
+        return false;
+    }
+    const Vec3 last { static_cast<double> (countX - 1) * spacingX, static_cast<double> (countY - 1) * spacingY, 0.0 };
+    if (!Finite (last) || !FinitePlacement (clip, {}) || !FinitePlacement (clip, last)) {
+        error = "rectangular array placement exceeds finite coordinates";
+        return false;
+    }
+    size_t idsPerCopy = 0;
+    if (!PasteIdCount (clip, idsPerCopy) || (cells > 1 && idsPerCopy > kMaxArrayIds / (cells - 1))) {
+        error = "rectangular array exceeds the one-million-fresh-id budget";
+        return false;
+    }
+    const size_t requiredIds = (cells - 1) * idsPerCopy;
+    if (doc.nextId == kNoId || requiredIds > std::numeric_limits<Id>::max () - doc.nextId) {
+        error = "rectangular array exceeds the document's id capacity";
+        return false;
+    }
+
+    Document candidate = doc;
+    std::vector<Ref> result = WholeObjects (clip);
+    for (size_t y = 0; y < countY; ++y)
+        for (size_t x = 0; x < countX; ++x) {
+            if (x == 0 && y == 0)
+                continue;
+            std::vector<Ref> copies;
+            const Vec3 offset { static_cast<double> (x) * spacingX, static_cast<double> (y) * spacingY, 0.0 };
+            if (!Paste (candidate, clip, offset, copies, error))
+                return false;
+            result.insert (result.end (), copies.begin (), copies.end ());
+        }
+    if (!Validate (candidate, error)) {
+        error = "rectangular array produced an invalid document: " + error;
+        return false;
+    }
+    doc = std::move (candidate);
+    placed = std::move (result);
+    return true;
+}
+
+namespace {
 KerbSide Opposite (KerbSide side)
 {
     return side == KerbSide::Left ? KerbSide::Right : side == KerbSide::Right ? KerbSide::Left : side;

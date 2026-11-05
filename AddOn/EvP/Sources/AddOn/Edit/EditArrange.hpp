@@ -34,6 +34,15 @@ bool Centre (const Clipboard& clip, Vec3& centre);
 // still exists, in fresh copies of the groups that came with them.
 bool Paste (Document& doc, const Clipboard& clip, Vec3 offset, std::vector<Ref>& pasted, std::string& error);
 
+// Repeats the whole objects `refs` reach in a rectangular grid. Counts include the source cell;
+// signed spacings are centre-to-centre metres and choose the grid directions, and an active axis
+// needs nonzero spacing. `placed` receives source objects first, then row-major cells (X varies
+// first), with paths before entities within each cell. One by one is a valid no-op. The operation
+// is bounded to 10000 cells, 100000 object placements and one million fresh ids; all failures are
+// atomic and leave `placed` unchanged. Copies have the same free-object semantics as Paste.
+bool RectangularArray (Document& doc, const std::vector<Ref>& refs, size_t countX, size_t countY, double spacingX,
+                       double spacingY, std::vector<Ref>& placed, std::string& error);
+
 // Reflects the whole objects `refs` reach across the vertical plane through `point` along
 // the plan direction `axis`; heights stay. A closed outline keeps its winding (its order
 // reverses with the reflection) and an open line its direction; Bezier handles and live
