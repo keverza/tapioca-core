@@ -702,6 +702,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputCursor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputKeyboard.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputResidue.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayNavigationWatch.cpp"
     # Independent sun-analysis compute device; no renderer, window or ACAPI.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyGpuTraversal.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/ArchVizLogStub.cpp"
@@ -846,6 +847,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSelection.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolyline.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineCrossing.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineOffset.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineTrim.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineActions.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditArrange.cpp"
@@ -962,6 +964,7 @@ set (EVP_TEST_SOURCES
     test_editarrange.cpp
     test_editorganize.cpp
     test_editpolyline.cpp
+    test_editpolylineoffset.cpp
     test_editpolylinetrim.cpp
     test_editlayers.cpp
     test_editpathalignment.cpp

@@ -7,6 +7,7 @@
 #include "ArchViz/OverlayInputEvents.hpp"
 #include "ArchViz/OverlayInputKeyboard.hpp"
 #include "ArchViz/OverlayInputState.hpp"
+#include "ArchViz/OverlayNavigationWatch.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
@@ -205,6 +206,10 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
         ++self->navigationRevision;
         if (middle)
             self->navigating = event.kind == EventKind::Press;
+        if (middle && event.kind == EventKind::Press)
+            navwatch::NoteNavigationStart (screen.x, screen.y, self->map.locked);
+        else if (!middle)
+            navwatch::NoteWheel ();
     }
     if (event.kind == EventKind::Move)
         self->navigating = (event.held & Bit (Button::Middle)) != 0;
@@ -271,7 +276,10 @@ void Consider (MSG& message, bool removing)
     }
     // MSG::pt is where the pointer was when the message was posted, in screen pixels;
     // the wheel's lParam is in screen pixels too, so every message is read from it.
-    if (Weigh (*target, event, message.pt, removing) == Route::Take) {
+    const bool taken = Weigh (*target, event, message.pt, removing) == Route::Take;
+    if (removing && event.kind == EventKind::Move) // what Archicad was last told of the pointer
+        navwatch::NoteMove (message.pt.x, message.pt.y, !taken, false);
+    if (taken) {
         message.message = WM_NULL;
         if (removing && event.kind == EventKind::Move && target->subclassed)
             ShowCursor (*target); // Archicad's pre-dispatch cursor must not flash through a locked hover
@@ -319,10 +327,12 @@ LRESULT CALLBACK MouseProc (int code, WPARAM wParam, LPARAM lParam)
         Event move;
         move.kind = EventKind::Move;
         move.held = PhysicalButtons ();
+        const bool hostGesture = g_router.GetOwner () == Owner::Host;
         if (target != nullptr && target->map.locked && (move.held & Bit (Button::Middle)) == 0 &&
             Weigh (*target, move, info->pt, false) == Route::Take) {
             Weigh (*target, move, info->pt, true);
             ShowCursor (*target);
+            navwatch::NoteMove (info->pt.x, info->pt.y, false, hostGesture);
             return 1; // stop host hover feedback before its sent notifications, not after dispatch
         }
     }
@@ -606,6 +616,7 @@ LRESULT CALLBACK WindowProc (HWND window, UINT message, WPARAM wParam, LPARAM lP
         const auto started = std::chrono::steady_clock::now ();
         const bool changed = target.owner.refresh ();
         const uint32_t took = Since (started);
+        navwatch::NoteHudRefresh (took);
         if (g_timing)
             g_meter.Layout (took, Micros ());
         ++g_stats.refreshes;
@@ -844,6 +855,7 @@ void Shutdown ()
     for (Target& target : g_targets)
         Clear (target);
     g_router.Reset ();
+    navwatch::Reset ();
     Uninstall ();
 }
 

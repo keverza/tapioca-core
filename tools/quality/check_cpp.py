@@ -37,6 +37,15 @@ SOFT_CAP = 1000
 # path relative to Sources/AddOn -> (max lines allowed, why it is allowed)
 # A file here may NOT grow. Shrink the number when you shrink the file.
 OVERSIZED = {
+    "ArchViz/OverlayController.cpp": (
+        1003,
+        "the file sat exactly at the cap when #145 needed the 3D heartbeat timed and the redraws "
+        "Redraw3D lets through counted (OverlayNavigationWatch: an include, the heartbeat's scope, "
+        "one note). The seam for the split is the 3D heartbeat and its redraw gate -- TickProc, "
+        "HeartbeatHud3D, RefreshHud3D, Redraw3D, ReleaseHeldRedraw3D and their session state -- "
+        "against the view-following controller; that split is its own structural commit "
+        "(OVERLAY-INVARIANTS.md section 13) and deletes this entry",
+    ),
     "NativeCommands/SunStudyCommands.cpp": (
         1001,
         "the file sat exactly at the cap when the C++ study core was deleted (P7a), and "
@@ -1352,6 +1361,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/OverlayInput.cpp",
     "ArchViz/OverlayInputCursor.cpp",
     "ArchViz/OverlayInputResidue.cpp",
+    "ArchViz/OverlayNavigationWatch.cpp",
     "ArchViz/HudVirtualEditorNavigation.cpp",
     "ArchViz/HudVirtualEditorPlane.cpp",
     "ArchViz/HudVirtualEditorMap.cpp",

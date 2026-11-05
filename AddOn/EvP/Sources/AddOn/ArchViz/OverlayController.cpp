@@ -29,6 +29,7 @@
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayInputEvents.hpp"
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/OverlayNavigationWatch.hpp"
 #include "ArchViz/OverlayRelease.hpp"
 #include "ArchViz/OverlayScene.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
@@ -209,6 +210,7 @@ void Redraw3D ()
         ++g_redrawsHeld3D;
         return;
     }
+    navwatch::NoteRedraw ();
     ACAPI_View_Redraw ();
 }
 
@@ -310,6 +312,7 @@ void ReleaseHeldRedraw3D ()
 
 void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
 {
+    const navwatch::Heartbeat heartbeat; // timed, and the NAVWATCH line written at its end
     Relearn3D ();
     ReleaseHeldRedraw3D ();
     overlaycontrol::FollowView ();
