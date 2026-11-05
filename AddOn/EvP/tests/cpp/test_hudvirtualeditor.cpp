@@ -15,6 +15,7 @@
 #include "Edit/EditShape.hpp"
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
+#include <imgui_internal.h> // Last-item flags for the offset miter-limit disabled-state check
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -159,6 +160,91 @@ struct Drive {
         Frame ();
         input.keys = { { code, false } };
         Frame ();
+    }
+};
+
+enum class OffsetField { Join, MiterLimit };
+struct OffsetFieldDrive {
+    ImGuiContext* previous = ImGui::GetCurrentContext ();
+    ImGuiContext* context = ImGui::CreateContext ();
+    eh::Session session;
+    OffsetField field;
+    ImVec2 itemMin {}, itemMax {};
+    bool itemEnabled = false;
+
+    OffsetFieldDrive (ed::Document doc, OffsetField field) : session (std::move (doc)), field (field)
+    {
+        auto& io = ImGui::GetIO ();
+        io.IniFilename = nullptr;
+        io.DisplaySize = { 400, 200 };
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        io.ConfigInputTrickleEventQueue = false;
+        unsigned char* pixels;
+        int width, height;
+        io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    }
+    ~OffsetFieldDrive ()
+    {
+        ImGui::DestroyContext (context);
+        ImGui::SetCurrentContext (previous);
+    }
+    void Frame (const char* typed = nullptr, ImGuiKey key = ImGuiKey_None, bool focus = false)
+    {
+        auto& io = ImGui::GetIO ();
+        io.DeltaTime = 1.0f / 60;
+        if (key != ImGuiKey_None)
+            io.AddKeyEvent (key, true);
+        if (typed != nullptr)
+            io.AddInputCharactersUTF8 (typed);
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 350, 120 });
+        ImGui::Begin (field == OffsetField::Join ? "offset join" : "offset miter limit");
+        if (focus)
+            ImGui::SetKeyboardFocusHere ();
+        if (field == OffsetField::Join)
+            eh::detail::OffsetJoinControl (session);
+        else
+            eh::detail::OffsetMiterLimitControl (session);
+        itemMin = ImGui::GetItemRectMin ();
+        itemMax = ImGui::GetItemRectMax ();
+        itemEnabled = (ImGui::GetItemFlags () & ImGuiItemFlags_Disabled) == 0;
+        ImGui::End ();
+        ImGui::Render ();
+        if (key != ImGuiKey_None)
+            io.AddKeyEvent (key, false);
+    }
+    void Key (ImGuiKey key)
+    {
+        Frame (nullptr, key);
+        Frame ();
+    }
+    void Click (ImVec2 at)
+    {
+        auto& io = ImGui::GetIO ();
+        io.AddMousePosEvent (at.x, at.y);
+        io.AddMouseButtonEvent (0, false);
+        Frame (); // hover is present before the press, as the input layer delivers it
+        for (const bool down : { true, false }) {
+            io.AddMousePosEvent (at.x, at.y);
+            io.AddMouseButtonEvent (0, down);
+            Frame ();
+        }
+    }
+    void ClickItem ()
+    {
+        Click ({ (itemMin.x + itemMax.x) * 0.5f, (itemMin.y + itemMax.y) * 0.5f });
+    }
+    bool PopupOpen () const
+    {
+        return ImGui::IsPopupOpen ("", ImGuiPopupFlags_AnyPopupId);
+    }
+    void RunOffset (ed::Id source)
+    {
+        session.selection.Set ({ { source, ed::Part::Entity, 0 } });
+        session.menu.target = eh::MenuTarget::Object;
+        session.menu.ref = { source, ed::Part::Entity, 0 };
+        eh::RunMenuItem (session, "action.offset");
     }
 };
 
@@ -4113,6 +4199,72 @@ TEST (HudVirtualEditor, AnOffsetCopyUsesThePanelsDistance)
     ASSERT_EQ (d.D ().entities.size (), 3u);
     EXPECT_NEAR (std::abs (ed::SignedAreaXY (d.D ().entities[2].vertices)), 16.0, 1e-9);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+}
+
+TEST (HudVirtualEditor, OffsetJoinPanelDrivesBevelAndRoundActions)
+{
+    ed::Document doc;
+    const ed::Id source = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 4, 0 } }, false);
+    OffsetFieldDrive d (std::move (doc), OffsetField::Join);
+    d.session.actionDefaults.offsetDistance = -1.0; // the outer corner of this open L
+    d.Frame ();
+    d.ClickItem ();
+    ASSERT_TRUE (d.PopupOpen ());
+    d.Key (ImGuiKey_DownArrow);
+    d.Key (ImGuiKey_Enter);
+    EXPECT_EQ (d.session.actionDefaults.offsetJoinStyle, ed::OffsetJoinStyle::Bevel);
+    d.RunOffset (source);
+    ASSERT_EQ (d.session.edits.Doc ().entities.size (), 2u);
+    EXPECT_EQ (d.session.edits.Doc ().entities[1].vertices.size (), 4u);
+    EXPECT_EQ (d.session.edits.UndoDepth (), 1u);
+
+    d.ClickItem ();
+    ASSERT_TRUE (d.PopupOpen ());
+    d.Key (ImGuiKey_DownArrow); // Bevel -> Round
+    d.Key (ImGuiKey_Enter);
+    EXPECT_EQ (d.session.actionDefaults.offsetJoinStyle, ed::OffsetJoinStyle::Round);
+    d.RunOffset (source);
+    ASSERT_EQ (d.session.edits.Doc ().entities.size (), 3u);
+    EXPECT_EQ (d.session.edits.Doc ().entities[2].vertices.size (), 11u);
+    EXPECT_EQ (d.session.edits.UndoDepth (), 2u);
+}
+
+TEST (HudVirtualEditor, OffsetMiterLimitPanelValidatesInputAndDrivesFallback)
+{
+    ed::Document doc;
+    const ed::Id source = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 4, 0 } }, false);
+    OffsetFieldDrive d (std::move (doc), OffsetField::MiterLimit);
+    d.session.actionDefaults.offsetDistance = -1.0;
+    d.Frame (nullptr, ImGuiKey_None, true);
+    d.Frame ();
+    d.Frame ("1.2");
+    d.Frame (nullptr, ImGuiKey_Enter);
+    EXPECT_DOUBLE_EQ (d.session.actionDefaults.offsetMiterLimit, 1.2);
+    d.RunOffset (source);
+    ASSERT_EQ (d.session.edits.Doc ().entities.size (), 2u);
+    EXPECT_EQ (d.session.edits.Doc ().entities[1].vertices.size (), 4u); // below sqrt(2): bevel fallback
+
+    d.Frame (nullptr, ImGuiKey_None, true);
+    d.Frame ();
+    d.Frame ("2");
+    d.Frame (nullptr, ImGuiKey_Enter);
+    EXPECT_DOUBLE_EQ (d.session.actionDefaults.offsetMiterLimit, 2.0);
+    d.RunOffset (source);
+    ASSERT_EQ (d.session.edits.Doc ().entities.size (), 3u);
+    EXPECT_EQ (d.session.edits.Doc ().entities[2].vertices.size (), 3u); // above sqrt(2): miter
+    EXPECT_EQ (d.session.edits.UndoDepth (), 2u);
+
+    d.Frame (nullptr, ImGuiKey_None, true);
+    d.Frame ();
+    d.Frame ("0.5");
+    d.Frame (nullptr, ImGuiKey_Enter);
+    EXPECT_DOUBLE_EQ (d.session.actionDefaults.offsetMiterLimit, 2.0); // below the valid minimum: unchanged
+    EXPECT_EQ (d.session.edits.Doc ().entities.size (), 3u);
+    EXPECT_EQ (d.session.edits.UndoDepth (), 2u);
+
+    d.session.actionDefaults.offsetJoinStyle = ed::OffsetJoinStyle::Bevel;
+    d.Frame ();
+    EXPECT_FALSE (d.itemEnabled); // the limit has no meaning for Bevel or Round
 }
 
 TEST (HudVirtualEditor, CopyPasteCutAndDuplicateWorkOnWholeObjects)

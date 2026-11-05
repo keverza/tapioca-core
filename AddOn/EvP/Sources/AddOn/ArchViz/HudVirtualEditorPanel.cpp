@@ -76,6 +76,29 @@ void detail::DuplicateOffsetControls (Session& s)
                    hudshell::TipSide::Above);
 }
 
+void detail::OffsetJoinControl (Session& s)
+{
+    int join = static_cast<int> (s.actionDefaults.offsetJoinStyle);
+    const char* names[] = { "Miter", "Bevel", "Round" };
+    ImGui::SetNextItemWidth (130.0f);
+    if (ImGui::Combo ("Offset join", &join, names, IM_ARRAYSIZE (names)))
+        s.actionDefaults.offsetJoinStyle = static_cast<edit::OffsetJoinStyle> (join);
+    hudshell::Tip ("Miter follows the limit, then bevels. Bevel cuts the corner; Round samples its arc.",
+                   hudshell::TipSide::Above);
+}
+
+void detail::OffsetMiterLimitControl (Session& s)
+{
+    double limit = s.actionDefaults.offsetMiterLimit;
+    ImGui::BeginDisabled (s.actionDefaults.offsetJoinStyle != edit::OffsetJoinStyle::Miter);
+    ImGui::SetNextItemWidth (130.0f);
+    if (ImGui::InputDouble ("Offset miter limit", &limit, 0.1, 1.0, "%.2f", ImGuiInputTextFlags_EnterReturnsTrue) &&
+        limit >= 1.0 && std::isfinite (limit))
+        s.actionDefaults.offsetMiterLimit = limit;
+    ImGui::EndDisabled ();
+    hudshell::Tip ("Dimensionless, 1 or greater. Enter applies; used only by Miter.", hudshell::TipSide::Above);
+}
+
 void Panel (Session& s)
 {
     const auto& doc = Doc (s);
@@ -250,6 +273,8 @@ void Panel (Session& s)
             s.actionDefaults.offsetDistance = double (distance);
         hudshell::Tip ("Positive: outside a closed outline or left of a line. Negative: inside or right.",
                        hudshell::TipSide::Above);
+        OffsetJoinControl (s);
+        OffsetMiterLimitControl (s);
     }
     DuplicateOffsetControls (s);
     ImGui::EndDisabled ();

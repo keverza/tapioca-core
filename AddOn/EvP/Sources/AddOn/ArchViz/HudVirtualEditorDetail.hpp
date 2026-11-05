@@ -79,6 +79,8 @@ void ScreenPointer (const Session& s, const Map& m, ImVec2 mouse, float scale, e
 void ScreenFlush (const Session& s, const Map& m, ImVec2 mouse, float scale, edit::SnapQuery& q);
 void SnapControls (Session& s);
 void DuplicateOffsetControls (Session& s);
+void OffsetJoinControl (Session& s);
+void OffsetMiterLimitControl (Session& s);
 void Acquire (Session& s, const edit::SnapResult& snap);
 edit::Vec3 GrabPoint (const Session& s, const Map& m, ImVec2 mouse, const edit::Ref& pressed, edit::Vec3 onPlane,
                       float scale);
