@@ -18,8 +18,11 @@
 //! **Steps.** Inside a triangle a field no steeper than the grades, the ground
 //! and the pavement strays from the corners' plane by at most twice that slope
 //! times the triangle's size. A larger gap is a step, where a face ends at its
-//! limit or at the ring: it is reported ([`super::Outlined::unreached`],
-//! [`super::Outlined::clipped`]) and not refined.
+//! limit: it is reported ([`super::Outlined::unreached`]) and not refined. A
+//! face cut off by the region's edge is a step at a ring vertex, which keeps
+//! the ground while the faces there are off it ([`super::Outlined::clipped`]):
+//! a triangle touching one is not refined either, as a sliver along the ring
+//! the slope bound would not catch.
 //!
 //! **Toe band.** A triangle whose vertices are all unmoved is the ground's own
 //! surface (the base edges are constraints), so the ground stays exact except
@@ -378,6 +381,11 @@ impl<'a> Topology<'a> {
         }
     }
 
+    /// Whether a plan position is a ring vertex.
+    fn ringed(&self, x: f64, y: f64) -> bool {
+        self.ring.contains(&[x.to_bits(), y.to_bits()])
+    }
+
     fn corner(&self, vertex: u32) -> Option<[f64; 3]> {
         self.corners.get(vertex as usize).copied()
     }
@@ -494,6 +502,16 @@ fn splits(
             continue;
         };
         if plan_length(start, end) < refine.shortest {
+            continue;
+        }
+        // A ring vertex keeps the ground; where the faces there are off it
+        // they end at the ring in a step (clipped), which no split resolves.
+        if [pa, pb, pc].iter().any(|&[x, y, z]| {
+            topology.ringed(x, y)
+                && memo
+                    .height(faces, x, y)
+                    .is_some_and(|(height, _)| (height - z).abs() > refine.tolerance)
+        }) {
             continue;
         }
         let error = memo.error(faces, [pa, pb, pc]);
