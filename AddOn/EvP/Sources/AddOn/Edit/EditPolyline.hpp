@@ -30,6 +30,16 @@ bool OffsetEntity (Document& doc, Id entity, double distance, std::string& error
 bool ExtendToEntity (Document& doc, Id entity, bool atStart, Id target, std::string& error);
 // Cuts an open polyline back from its start or end to the first edge of `target`.
 bool TrimAtEntity (Document& doc, Id entity, bool atStart, Id target, std::string& error);
+// The straight-chord span that hover-pick trim removes from `entity` beside `pointer` on
+// `segment`. Open lines include their ends as boundaries; rings use cyclic adjacent crossings.
+struct TrimSpan {
+    Id entity = kNoId, segment = kNoId;
+    std::vector<Vec3> removed;
+};
+bool FindTrimSpan (const Document& doc, Id entity, Id segment, Vec3 pointer, TrimSpan& span, std::string& error);
+// Removes the same span as FindTrimSpan. Straight source/cutters only; open middle trims can
+// leave a suffix entity, and the original entity id stays with a surviving piece. Atomic on refusal.
+bool TrimBetweenCrossings (Document& doc, Id entity, Id segment, Vec3 pointer, std::string& error);
 // An open polyline splits in two at an interior vertex; a closed one opens there.
 bool SplitAtVertex (Document& doc, Id entity, Id vertex, std::string& error, Id* created = nullptr);
 // Joins two open polylines whose ends meet within `tolerance`; meeting at both ends closes it.

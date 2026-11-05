@@ -844,6 +844,8 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditGizmoContext.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSelection.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolyline.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineCrossing.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineTrim.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolylineActions.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditArrange.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditOrganize.cpp"
@@ -959,6 +961,7 @@ set (EVP_TEST_SOURCES
     test_editarrange.cpp
     test_editorganize.cpp
     test_editpolyline.cpp
+    test_editpolylinetrim.cpp
     test_editlayers.cpp
     test_editpathalignment.cpp
     test_editpathprofile.cpp

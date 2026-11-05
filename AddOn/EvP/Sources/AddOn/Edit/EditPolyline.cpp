@@ -1,4 +1,5 @@
 #include "Edit/EditPolyline.hpp"
+#include "Edit/EditPolylineDetail.hpp"
 #include "Edit/EditEllipse.hpp"
 #include "Edit/EditShape.hpp"
 #include <algorithm>
@@ -9,6 +10,9 @@
 namespace geomsrv::edit {
 
 namespace {
+
+using polyline_detail::CrossPlan;
+using polyline_detail::EdgesOf;
 
 constexpr double kPi = 3.14159265358979323846;
 
@@ -48,19 +52,6 @@ Vec3 LeftNormal (Vec3 dir)
     return { -dir.y, dir.x, 0.0 };
 }
 
-// Plan crossing of lines a + t (b - a) and c + s (d - c).
-bool CrossPlan (Vec3 a, Vec3 b, Vec3 c, Vec3 d, double& t, double& s)
-{
-    const double rx = b.x - a.x, ry = b.y - a.y, qx = d.x - c.x, qy = d.y - c.y;
-    const double den = rx * qy - ry * qx;
-    const double scale = std::hypot (rx, ry) * std::hypot (qx, qy);
-    if (!(scale > 0.0) || std::abs (den) < 1.0e-9 * scale)
-        return false;
-    t = ((c.x - a.x) * qy - (c.y - a.y) * qx) / den;
-    s = ((c.x - a.x) * ry - (c.y - a.y) * rx) / den;
-    return true;
-}
-
 bool EllipseEditable (const Entity& e, std::string& error)
 {
     if (e.ellipse) {
@@ -86,18 +77,6 @@ Segment CopyAttributes (const Segment& from, Document& doc)
     Segment s = from;
     s.id = NewId (doc);
     return s;
-}
-
-// All edges of `target`, in plan.
-std::vector<std::pair<Vec3, Vec3>> EdgesOf (const Entity& target)
-{
-    std::vector<std::pair<Vec3, Vec3>> out;
-    for (size_t i = 0; i < SegmentCount (target); ++i) {
-        size_t from = 0, to = 0;
-        SegmentEnds (target, i, from, to);
-        out.push_back ({ target.vertices[from].p, target.vertices[to].p });
-    }
-    return out;
 }
 
 } // namespace
