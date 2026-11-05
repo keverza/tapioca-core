@@ -175,6 +175,10 @@ fn a_face_cut_short_by_the_region_is_counted() -> Result<(), OutlineError> {
 /// An L of two 4-m-wide legs on level ground, the corner leg's far end
 /// higher: the faces' heights over the inside corner.
 fn inside_corner(px: f64, py: f64) -> Option<f64> {
+    inside_corner_rounded(px, py, 0.0)
+}
+
+fn inside_corner_rounded(px: f64, py: f64, rounding: f64) -> Option<f64> {
     // Leg A along x at y in [-2, 2] from x=0 to 20 (12 m), leg B along y at
     // x in [16, 20] from y=2 to 20 falling from 12 to 11.
     let surface = [
@@ -188,7 +192,7 @@ fn inside_corner(px: f64, py: f64) -> Option<f64> {
     let uniform = SurfaceGrade {
         cut: 0.5,
         fill: 0.5,
-        rounding: 0.0,
+        rounding,
     };
     let edges = outline(&surface, &surface_triangles, &[], uniform);
     let faces = Faces {
@@ -199,7 +203,7 @@ fn inside_corner(px: f64, py: f64) -> Option<f64> {
             cut: HALF,
             fill: HALF,
             limit: 10.0,
-            rounding: 0.0,
+            rounding,
             effect: Effect::Both,
             tolerance: 1e-6,
         },
@@ -695,4 +699,5 @@ fn each_outline_edge_grades_its_face_by_its_own_vertices() -> Result<(), Outline
     Ok(())
 }
 
+mod blend;
 mod refine;

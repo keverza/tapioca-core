@@ -45,6 +45,7 @@ use super::volume::exact::{ExactReport, ExactRequest, exact_cut_fill};
 use crate::slope::Slope;
 use std::collections::BTreeMap;
 
+mod blend;
 mod refine;
 mod supports;
 
@@ -237,19 +238,41 @@ fn outline(
 /// edge the height is affine and the distance convex, so the cone height is
 /// concave and its extremum closed form.
 pub(super) fn steepest(
+    segment: [[f64; 3]; 2],
+    point: [f64; 2],
+    grade: f64,
+    cut: bool,
+) -> (f64, f64) {
+    let (distance, height, _, _) = steepest_point(segment, point, grade, cut);
+    (distance, height)
+}
+
+/// [`steepest`], with the plan unit vector from that point to `(px, py)` (the
+/// way its cone falls; zero on the edge) and whether the point is inside the
+/// edge (its face is planar there) rather than at an end (a round cone).
+fn steepest_point(
     [from, to]: [[f64; 3]; 2],
     [px, py]: [f64; 2],
     grade: f64,
     cut: bool,
-) -> (f64, f64) {
+) -> (f64, f64, [f64; 2], bool) {
     let (dx, dy) = (to[0] - from[0], to[1] - from[1]);
     let length = dx.hypot(dy);
     let at = |along: f64| {
         let t = if length > 0.0 { along / length } else { 0.0 };
         let (x, y) = (dx.mul_add(t, from[0]), dy.mul_add(t, from[1]));
+        let distance = (x - px).hypot(y - py);
+        let toward = if distance > 0.0 {
+            [(px - x) / distance, (py - y) / distance]
+        } else {
+            [0.0, 0.0]
+        };
+        let inside = along > 0.0 && along < length;
         (
-            (x - px).hypot(y - py),
+            distance,
             (to[2] - from[2]).mul_add(t, from[2]),
+            toward,
+            inside,
         )
     };
     if length <= 0.0 {
@@ -302,7 +325,10 @@ fn cone(edge: f64, distance: f64, rise: f64, rounding: f64) -> f64 {
 impl Faces<'_> {
     /// Each edge's face eased onto the ground by its own rounding; the fill
     /// takes the highest, the cut the lowest. For one grade everywhere this is
-    /// the ease of the envelope (the ease is monotone in the face).
+    /// the ease of the envelope (the ease is monotone in the face). Where two
+    /// faces meet at a crease the winner is lifted towards its rival
+    /// ([`blend`]) and eased by its own rounding; the move is never less than
+    /// without the lift, and is the same bit for bit away from creases.
     fn moves(&self, base: f64, px: f64, py: f64) -> Moves {
         let mut moves = Moves {
             raise: 0.0,
@@ -311,6 +337,7 @@ impl Faces<'_> {
             lower_any: 0.0,
         };
         let limit = self.grading.limit;
+        let (mut fills, mut cuts) = (Vec::new(), Vec::new());
         for edge in self.outline {
             let SurfaceGrade {
                 cut,
@@ -318,24 +345,59 @@ impl Faces<'_> {
                 rounding,
             } = edge.grade;
             if fill.is_finite() {
-                let (distance, height) = steepest(edge.segment, [px, py], fill, false);
+                let (distance, height, toward, planar) =
+                    steepest_point(edge.segment, [px, py], fill, false);
                 let face = cone(height, distance, -fill, rounding);
                 let raise = toe(base, face, false, fill * rounding) - base;
                 moves.raise_any = moves.raise_any.max(raise);
                 if distance <= limit {
                     moves.raise = moves.raise.max(raise);
                 }
+                fills.push(blend::Face {
+                    height: face,
+                    toward,
+                    from: blend::joint(edge.segment, planar, &toward, distance, [px, py]),
+                    ends: blend::ends(edge.segment),
+                    distance,
+                    grade: fill,
+                    rounding,
+                });
             }
             if cut.is_finite() {
-                let (distance, height) = steepest(edge.segment, [px, py], cut, true);
+                let (distance, height, toward, planar) =
+                    steepest_point(edge.segment, [px, py], cut, true);
                 let face = cone(height, distance, cut, rounding);
                 let lower = base - toe(base, face, true, cut * rounding);
                 moves.lower_any = moves.lower_any.max(lower);
                 if distance <= limit {
                     moves.lower = moves.lower.max(lower);
                 }
+                cuts.push(blend::Face {
+                    height: -face,
+                    toward,
+                    from: blend::joint(edge.segment, planar, &toward, distance, [px, py]),
+                    ends: blend::ends(edge.segment),
+                    distance,
+                    grade: cut,
+                    rounding,
+                });
             }
         }
+        let within = |face: &blend::Face| face.distance <= limit;
+        let raised = |keep: &dyn Fn(&blend::Face) -> bool| {
+            blend::envelope(&fills, keep).map_or(0.0, |(face, lifted)| {
+                toe(base, lifted, false, face.grade * face.rounding) - base
+            })
+        };
+        let lowered = |keep: &dyn Fn(&blend::Face) -> bool| {
+            blend::envelope(&cuts, keep).map_or(0.0, |(face, lifted)| {
+                base - toe(base, -lifted, true, face.grade * face.rounding)
+            })
+        };
+        moves.raise = moves.raise.max(raised(&within));
+        moves.raise_any = moves.raise_any.max(raised(&|_| true));
+        moves.lower = moves.lower.max(lowered(&within));
+        moves.lower_any = moves.lower_any.max(lowered(&|_| true));
         moves
     }
 
