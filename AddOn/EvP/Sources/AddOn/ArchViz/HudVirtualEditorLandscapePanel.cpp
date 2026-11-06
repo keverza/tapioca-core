@@ -1,5 +1,6 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/HudVirtualEditorDraft.hpp"
+#include "ArchViz/HudVirtualEditorRecipe.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudShellTabs.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
@@ -146,24 +147,33 @@ void LandscapePanel (Session& s)
             ImGui::EndTabItem ();
         }
         if (ImGui::BeginTabItem ("Operations")) {
-            const auto operations = s.edits.Doc ().landscape->operations;
-            if (operations.empty ())
+            RecipePanel (s); // #105: the compiled terrain recipe, read-only
+            auto operations = s.edits.Doc ().landscape->operations;
+            // The authored footprint steps in storage order. Their checkbox is a footprint bypass
+            // (a disabled step passes its first input through), not the object's terrain effect.
+            if (!ImGui::CollapsingHeader ("Footprint steps (authored order)"))
+                operations.clear ();
+            else if (operations.empty ())
                 ImGui::TextDisabled ("No authored operations.");
             for (const auto& operation : operations) {
                 if (IsLandscapeFaceSet (operation))
                     continue;
                 ImGui::PushID (std::to_string (operation.id).c_str ());
                 bool enabled = operation.enabled;
-                if (ImGui::Checkbox ("Enabled", &enabled)) {
+                if (ImGui::Checkbox ("Footprint on", &enabled)) {
                     const auto id = operation.id;
                     if (!s.edits.Apply ([id, enabled] (edit::Document& doc, std::string& error) {
                             return lg::SetLandscapeOperationEnabled (doc, id, enabled, error);
                         }))
                         s.message = s.edits.Message ();
                 }
+                if (ImGui::IsItemHovered ())
+                    ImGui::SetTooltip ("Off bypasses this step: its first input passes through. The owner's "
+                                       "terrain effect is unchanged; set Effect to None to remove it from the "
+                                       "terrain recipe.");
                 ImGui::SameLine ();
-                ImGui::Text ("%llu   kind %u   %zu inputs", static_cast<unsigned long long> (operation.id),
-                             unsigned (operation.kind), operation.inputs.size ());
+                ImGui::Text ("%s %llu   %zu inputs", lg::RecipeOperationName (operation.kind),
+                             static_cast<unsigned long long> (operation.id), operation.inputs.size ());
                 ImGui::PopID ();
             }
             ImGui::EndTabItem ();

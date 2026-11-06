@@ -2,6 +2,7 @@
 #define TAPIOCA_EDIT_REGION_TERRAIN_HPP
 #include "Edit/EditTerrainDesignJob.hpp"
 #include "Edit/EditLandscapeTerrain.hpp"
+#include "Edit/EditLandscapeFieldPlan.hpp"
 
 namespace tapioca::geometry {
 struct RegionTerrainResult {
@@ -14,6 +15,16 @@ std::vector<Id> TerrainRegionObjects (const geomsrv::edit::Document& doc);
 // with Rust, then applies Rust area/surface edits. No path authoring or SDK calls.
 bool EvaluateRegionTerrain (const geomsrv::edit::Document& doc, std::shared_ptr<const TerrainCapture> input,
                             RegionTerrainResult& result, std::string& error);
+// Which lane a landscape design request runs on (#112 P4c). The legacy lane grades every path
+// from its paved outline and runs only when there is no region terrain target and the request
+// is an outline (or names no path); everything else is one unified build over a compiled plan.
+// RunLandscapeTerrainDesign dispatches on this, and the recipe view (EditLandscapeRecipe.hpp)
+// reports it, so the two can never disagree.
+enum class TerrainRoute : uint8_t { Legacy, Unified };
+TerrainRoute LandscapeTerrainRoute (const geomsrv::edit::Document& doc, bool hasPath, bool outline);
+// The unified plan's path request for a design's options, exactly as the unified lane builds it.
+// `namedRegion`: the caller passed an explicit rebuild region (the landscape lane never does).
+PathDesignRequest PathRequestFor (const TerrainDesignOptions& options, bool namedRegion);
 TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job);
 std::future<TerrainDesignOutcome> LaunchLandscapeTerrainDesign (TerrainDesignJob job);
 } // namespace tapioca::geometry

@@ -88,6 +88,33 @@ void MirrorPublished (const UnifiedTerrainResult& unified, const FieldPlan& plan
 
 } // namespace
 
+TerrainRoute LandscapeTerrainRoute (const geomsrv::edit::Document& doc, bool hasPath, bool outline)
+{
+    return TerrainRegionObjects (doc).empty () && (!hasPath || outline) ? TerrainRoute::Legacy : TerrainRoute::Unified;
+}
+
+PathDesignRequest PathRequestFor (const TerrainDesignOptions& options, bool namedRegion)
+{
+    PathDesignRequest request;
+    request.source = options.source;
+    request.operation = options.operation;
+    request.object = options.object;
+    request.maxStep = options.maxStep;
+    request.taper = options.taper;
+    request.margin = options.margin;
+    request.arcTolerance = options.arcTolerance;
+    request.cutLimit = options.cutLimit;
+    request.fillLimit = options.fillLimit;
+    request.effect = options.effect;
+    request.tolerance = options.tolerance;
+    request.outline = options.outline;
+    // The band lane trims stations to the cover whenever the caller named no explicit
+    // region; the landscape lane never carries one.
+    request.trimToCover = options.trimToCover || !namedRegion;
+    request.trimMargin = options.trimMargin;
+    return request;
+}
+
 TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
 {
     // #112 P4c: every scene with a unified equivalent routes through the one
@@ -97,7 +124,8 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
     // legacy refusal text is the established diagnostic. #112 P5: this scan is
     // only the cheap routing pre-filter so the legacy lane pays no plan cost;
     // inside the unified lane the compiled plan owns region discovery.
-    if (job.doc && TerrainRegionObjects (*job.doc).empty () && (!job.options.source || job.options.outline))
+    if (job.doc &&
+        LandscapeTerrainRoute (*job.doc, job.options.source != kNoId, job.options.outline) == TerrainRoute::Legacy)
         return RunTerrainDesign (job);
     TerrainDesignOutcome outcome;
     outcome.generation = job.generation;
@@ -130,26 +158,8 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
         snapshot.captureRevision = baseline->revision;
         snapshot.session = job.doc->landscape->sessionUuid;
         snapshot.sourceTerrainGuid = job.doc->landscape->sourceTerrainGuid;
-        if (job.options.source) {
-            PathDesignRequest request;
-            request.source = job.options.source;
-            request.operation = job.options.operation;
-            request.object = job.options.object;
-            request.maxStep = job.options.maxStep;
-            request.taper = job.options.taper;
-            request.margin = job.options.margin;
-            request.arcTolerance = job.options.arcTolerance;
-            request.cutLimit = job.options.cutLimit;
-            request.fillLimit = job.options.fillLimit;
-            request.effect = job.options.effect;
-            request.tolerance = job.options.tolerance;
-            request.outline = job.options.outline;
-            // The band lane trims stations to the cover whenever the caller
-            // named no explicit region; the landscape lane never carries one.
-            request.trimToCover = job.options.trimToCover || job.region.empty ();
-            request.trimMargin = job.options.trimMargin;
-            snapshot.path = request;
-        }
+        if (job.options.source)
+            snapshot.path = PathRequestFor (job.options, !job.region.empty ());
         const FieldPlan plan = CompileLandscapeFieldPlan (snapshot);
         // #112 P5: the compiled plan owns region discovery — the region stage
         // runs exactly when the plan has entries (an active owner is a

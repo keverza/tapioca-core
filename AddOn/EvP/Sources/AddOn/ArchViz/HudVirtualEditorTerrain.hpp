@@ -1,6 +1,8 @@
 #ifndef TAPIOCA_HUD_VIRTUAL_EDITOR_TERRAIN_HPP
 #define TAPIOCA_HUD_VIRTUAL_EDITOR_TERRAIN_HPP
 
+#include "Edit/EditLandscapeFieldPlan.hpp"
+#include <optional>
 #include "Edit/EditDocument.hpp"
 #include <memory>
 #include <functional>
@@ -80,6 +82,9 @@ bool SetTerrainBaseline (Session& session, TerrainDesignBaseline baseline, edit:
 // The GUID of the terrain set, whether a design owns it yet or not; empty when none is.
 std::string TerrainGuid (const Session& session);
 TerrainDesignStatus GetTerrainDesignStatus (const Session& session);
+// The design's current path request, as the terrain job will compile it (#105 recipe view);
+// absent when no design exists, it grades regions only, or the build has no Rust kernel.
+std::optional<tapioca::geometry::PathDesignRequest> TerrainRecipeRequest (const Session& session);
 // Main-thread, nonblocking poll. One worker at a time; changed revisions coalesce
 // until input ends. Results never enter document state or its undo history.
 void PollTerrainDesign (Session& session);

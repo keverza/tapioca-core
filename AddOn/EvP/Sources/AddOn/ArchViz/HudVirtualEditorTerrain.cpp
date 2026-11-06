@@ -5,6 +5,7 @@
 #include "Geometry/Mesh.hpp"
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathNetwork.hpp"
+#include "Edit/EditRegionTerrain.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include <cmath>
 #include <imgui.h>
@@ -485,6 +486,13 @@ const lg::TerrainDesignOutcome* LastPublishedTerrainDesign (const Session& s, bo
     return last;
 }
 
+std::optional<lg::PathDesignRequest> TerrainRecipeRequest (const Session& s)
+{
+    if (!s.terrainDesign || s.terrainDesign->options.source == edit::kNoId)
+        return std::nullopt;
+    return lg::PathRequestFor (s.terrainDesign->options, false); // the landscape lane names no region
+}
+
 TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
 {
     TerrainDesignStatus status;
@@ -780,6 +788,10 @@ bool StartTerrainDesign (Session& s, TerrainDesignBaseline, edit::Id path)
 TerrainDesignStatus GetTerrainDesignStatus (const Session&)
 {
     return {};
+}
+std::optional<lg::PathDesignRequest> TerrainRecipeRequest (const Session&)
+{
+    return std::nullopt;
 }
 void PollTerrainDesign (Session&)
 {

@@ -12,6 +12,7 @@
 // here reads the model or a camera: the plan arrives as the view's transform and 3D as
 // the projection the input layer hands over (§12, §14), and a session's state dies with
 // its session (§8).
+#include "Edit/EditLandscapeRecipe.hpp"
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/RoofSlopeCanvas.hpp"
@@ -213,6 +214,11 @@ struct Session {
     std::vector<std::string> draftFiles;      // the drafts folder as the last List found it
     bool draftFilesListed = false;
     bool closePrompt = false; // close asked with unsaved work: Save / Discard / Cancel
+    // The Operations tab's compiled recipe (#105, HudVirtualEditorRecipe.cpp): recompiled only
+    // when the document revision or the design request changes, never every frame.
+    std::shared_ptr<const tapioca::geometry::LandscapeRecipe> recipe;
+    uint64_t recipeRevision = UINT64_MAX;
+    std::optional<tapioca::geometry::PathDesignRequest> recipeRequest;
     std::optional<LandscapeCommand> landscapeCommand;
     edit::GizmoMode gizmo = edit::GizmoMode::Gumball; // all applicable transform handles
     bool localAxes = true; // the gumball along the shape (EditGizmo SelectionFrame), else the world's
