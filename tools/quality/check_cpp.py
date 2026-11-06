@@ -565,6 +565,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # The HUD's "Run sun study" hands a plain-value request to the runner that
     # owns the command sequence; the header carries no DevKit or command types.
     ("ArchViz/DiligentHudSunRun.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
+    # The finished period's view (#152) is the run panel's sibling, split out for
+    # the size cap: it asks the same runner, by plain value, to present another
+    # quantity/month or trace the hovered point, and draws what comes back.
+    ("ArchViz/DiligentHudSunPeriod.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
     # The runner writes one line per run to the existing host log: the requested
     # and resolved sun backend (#54). It controls no renderer.
     ("NativeCommands/SunStudyHudRunner.cpp", "ArchViz/ArchVizLog.hpp"),

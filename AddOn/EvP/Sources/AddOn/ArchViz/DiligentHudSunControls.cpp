@@ -1,4 +1,7 @@
 #include "ArchViz/DiligentHudSunControls.hpp"
+#include "ArchViz/DiligentHud.hpp"
+
+#include <iterator>
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 
@@ -58,7 +61,7 @@ bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, f
     for (const float x : { left, right })
         draw->AddRectFilled (ImVec2 (x - 3, start.y + 3), ImVec2 (x + 3, start.y + height - 3),
                              IM_COL32 (226, 226, 226, 255), 3.0f);
-    const std::string text = SunStudyClock (from, duration) + " to " + SunStudyClock (to, duration);
+    const std::string text = SunStudyValueText (from, duration) + " to " + SunStudyValueText (to, duration);
     const ImVec2 size = ImGui::CalcTextSize (text.c_str ());
     draw->AddText (ImVec2 (start.x + (width - size.x) * 0.5f, start.y + (height - size.y) * 0.5f),
                    IM_COL32 (255, 216, 158, 255), text.c_str ());
@@ -182,10 +185,11 @@ void DrawSunStudyGradient (bool blue, float& threshold, int bands, float* edges,
             // The bands' hour ranges: the words for cells too narrow to label.
             for (int band = 0; band < bands; ++band) {
                 const float lo = band > 0 ? edges[band - 1] : 0.0f;
-                tip += (band > 0 ? "  " : "") + SunStudyClock (lo) +
-                       (band < bands - 1 ? "-" + SunStudyClock (edges[band]) : "+");
+                tip += (band > 0 ? "  " : "") + SunStudyValueText (lo) +
+                       (band < bands - 1 ? "-" + SunStudyValueText (edges[band]) : "+");
             }
-            tip += " h\nDrag a grip above the bar to move a step's edge";
+            tip += std::string (SunLegendUnit () == SunValueUnit::Hours ? " h" : "") +
+                   "\nDrag a grip above the bar to move a step's edge";
         }
         if (blue)
             tip += std::string (tip.empty () ? "" : "; ") + "drag the blue box: direct sun below " +
@@ -194,7 +198,9 @@ void DrawSunStudyGradient (bool blue, float& threshold, int bands, float* edges,
             hudshell::Tip (tip, hudshell::TipSide::Above);
     }
     if (!stepped)
-        ImGui::TextDisabled ("0:00h                            9:00h+");
+        ImGui::TextDisabled ("%s", SunLegendUnit () == SunValueUnit::Hours
+                                       ? "0:00h                            9:00h+"
+                                       : "0%                                   100%");
 }
 
 void DrawSunStudyInspectControl (int& mode, const char* first, const char* second)
@@ -224,4 +230,72 @@ void DrawSunStudyInspectControl (int& mode, const char* first, const char* secon
     }
     ImGui::EndChild ();
 }
+// The speeds a timeline offers, as multiples of its base step.
+constexpr float kTimelineSpeeds[] = { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f };
+constexpr const char* kTimelineSpeedNames[] = { "0.25x", "0.5x", "1x", "2x", "4x" };
+
+bool DrawSunStudyTimeline (const char* id, int& index, int first, int last, HudTimeline& play, double stepSeconds,
+                           const char* label, bool hold)
+{
+    ImGui::PushID (id);
+    const int before = index;
+    index = std::clamp (index, first, last);
+    // Playing: one step every stepSeconds / speed. `hold` (the previous frame
+    // is still being prepared) pauses the clock, so a slow display drops no
+    // frame and the player never runs ahead of what is on screen.
+    const double now = ImGui::GetTime ();
+    if (play.playing && hold)
+        play.playedAt = now;
+    else if (play.playing && now - play.playedAt > stepSeconds / double ((std::max) (play.speed, 0.05f))) {
+        play.playedAt = now;
+        if (index < last)
+            ++index;
+        else if (play.loop)
+            index = first;
+        else
+            play.playing = false;
+    }
+    if (ImGui::ArrowButton ("##first", ImGuiDir_Left)) {
+        index = first;
+        play.playing = false;
+    }
+    ImGui::SetItemTooltip ("First");
+    ImGui::SameLine (0.0f, 2.0f);
+    if (ImGui::SmallButton ("<") && index > first)
+        --index;
+    ImGui::SetItemTooltip ("Step back");
+    ImGui::SameLine (0.0f, 2.0f);
+    if (ImGui::SmallButton (play.playing ? "pause" : "play")) {
+        play.playing = !play.playing;
+        play.playedAt = now;
+        if (play.playing && index >= last && !play.loop)
+            index = first;
+    }
+    ImGui::SameLine (0.0f, 2.0f);
+    if (ImGui::SmallButton (">") && index < last)
+        ++index;
+    ImGui::SetItemTooltip ("Step forward");
+    ImGui::SameLine (0.0f, 2.0f);
+    if (ImGui::ArrowButton ("##last", ImGuiDir_Right)) {
+        index = last;
+        play.playing = false;
+    }
+    ImGui::SetItemTooltip ("Last");
+    ImGui::SameLine ();
+    int speed = 2;
+    for (int i = 0; i < int (std::size (kTimelineSpeeds)); ++i)
+        if (std::abs (kTimelineSpeeds[i] - play.speed) < 1e-3f)
+            speed = i;
+    ImGui::SetNextItemWidth (ImGui::CalcTextSize ("0.25x").x + ImGui::GetFrameHeight () * 1.6f);
+    if (ImGui::Combo ("##speed", &speed, kTimelineSpeedNames, int (std::size (kTimelineSpeedNames))))
+        play.speed = kTimelineSpeeds[speed];
+    ImGui::SetItemTooltip ("Playback speed");
+    ImGui::SameLine ();
+    ImGui::Checkbox ("loop", &play.loop);
+    ImGui::SetNextItemWidth (-1.0f);
+    ImGui::SliderInt ("##timeline", &index, first, last, label);
+    ImGui::PopID ();
+    return index != before;
+}
+
 } // namespace geomsrv::archviz

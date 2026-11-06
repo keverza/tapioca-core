@@ -145,7 +145,7 @@ bool RustAnnualSun::Values (AnnualQuantity quantity, int month, bool perDay, std
 }
 
 bool RustAnnualSun::Present (const RustStudyCore& carrier, AnnualQuantity quantity, int month, bool perDay,
-                             std::string& error, int threshold) const
+                             std::string& error, int threshold, double scale) const
 {
     uint8_t selected = 0;
     if (!Month (month, true, selected, error))
@@ -153,7 +153,7 @@ bool RustAnnualSun::Present (const RustStudyCore& carrier, AnnualQuantity quanti
     return Invoke (
         [&] (char* m, size_t n) {
             return tapioca_sunstudy_annual_present (handle_, carrier.handle_, static_cast<uint8_t> (quantity), selected,
-                                                    perDay ? 1 : 0, Threshold (threshold), m, n);
+                                                    perDay ? 1 : 0, Threshold (threshold), scale, m, n);
         },
         error);
 }

@@ -353,7 +353,9 @@ pub unsafe extern "C" fn tapioca_sunstudy_annual_values(
 }
 
 /// Draw a selection of the period through `study`'s samples and atlas
-/// (`StudyCore::present`), as totals or (`per_day` 1) means a represented day. The study must carry the receptors the days were
+/// (`StudyCore::present`), as totals or (`per_day` 1) means a represented day,
+/// every value and the ceiling multiplied by `scale` (a ratio drawn on an
+/// hours ramp: 100 % at the ramp's top). The study must carry the receptors the days were
 /// traced on.
 ///
 /// # Safety
@@ -366,6 +368,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_annual_present(
     month: u8,
     per_day: u8,
     threshold: u8,
+    scale: f64,
     error: *mut u8,
     error_capacity: usize,
 ) -> i32 {
@@ -383,9 +386,15 @@ pub unsafe extern "C" fn tapioca_sunstudy_annual_present(
                 per_day: crate::sunstudy::flag(per_day, "AnnualPresent: per_day")?,
                 threshold,
             };
-            let top = ceiling_of(accumulator, sel)?;
-            core.present(values_of(accumulator, sel)?, top)
-                .map_err(failure)
+            if !scale.is_finite() || scale <= 0.0 {
+                return Err(Failure::Argument("AnnualPresent: scale"));
+            }
+            let top = ceiling_of(accumulator, sel)? * scale;
+            let mut values = values_of(accumulator, sel)?;
+            for value in &mut values {
+                *value *= scale;
+            }
+            core.present(values, top).map_err(failure)
         })
     }
 }

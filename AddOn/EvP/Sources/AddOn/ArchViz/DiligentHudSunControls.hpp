@@ -23,5 +23,13 @@ void DrawSunStudyRampBar (ImDrawList* draw, ImVec2 start, ImVec2 size, int bands
                           unsigned lowSunHex = 0x1F5FD1, bool labels = true,
                           std::span<const overlaylayers::ColourStop> ramp = {});
 void DrawSunStudyInspectControl (int& mode, const char* first, const char* second);
+
+struct HudTimeline;
+// A player over the steps first..last: to start/back/play/forward/end, a speed
+// (0.25x-4x of one step per `stepSeconds`), loop, and a slider reading `label`.
+// `hold` stops the clock while the previous step is still being drawn. True
+// when `index` moved. Shared by the shadow views' day and the period's months.
+bool DrawSunStudyTimeline (const char* id, int& index, int first, int last, HudTimeline& play, double stepSeconds,
+                           const char* label, bool hold = false);
 } // namespace geomsrv::archviz
 #endif

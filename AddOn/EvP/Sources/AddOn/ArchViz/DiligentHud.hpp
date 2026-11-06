@@ -55,6 +55,15 @@ struct SunStudyAtlasUpload;
 
 // What the HUD shows, and what the user can change from it. The viewport owns
 // one of these and reads it back after Draw.
+// A timeline's playback (DrawSunStudyTimeline): one step every base interval
+// divided by `speed`, wrapping when `loop`.
+struct HudTimeline {
+    bool playing = false;
+    float speed = 1.0f;
+    double playedAt = 0.0;
+    bool loop = true;
+};
+
 struct HudState {
     // Set by the viewport before Draw.
     double fps = 0.0;
@@ -193,11 +202,27 @@ struct HudState {
     int sunReadingState = 0;
     double sunReadingHours = 0.0;
     double sunReadingDaylight = 0.0;
+    size_t sunReadingSample = SIZE_MAX; // the sample the reading came from
     // The shown study is a period (#152): its hours are a mean a day over
     // sunPeriodDays represented days, and the shadow views scrub one traced day.
     // The run panel publishes the runner's finished period (sunPeriodStudyId,
     // empty otherwise); the study panel compares it with the study on screen.
     std::string sunPeriodStudyId;
+    // The period's view (#152): 0 direct sun, 1 possible, 2 lost to
+    // obstruction, 3 sun access, 4 days at or above a threshold; the month on
+    // screen (0 the whole period) and its player; the threshold's edge index.
+    int sunPeriodQuantity = 0;
+    int sunPeriodMonth = 0;
+    int sunPeriodThreshold = 3; // 2:00 h
+    HudTimeline sunPeriodPlay;
+    // Each quantity keeps its own colours, so switching tells them apart; the
+    // person's choice for one is remembered when they come back to it.
+    std::string sunPeriodPresets[5] = { "sun-hours-classic", "annual-sun-exposure", "harm", "cividis", "benefit" };
+    int sunPeriodPresetsFor = 0; // which quantity sunGradientPreset currently belongs to
+    // The point the period graph shows: the last hovered sample, unless pinned.
+    size_t sunPeriodPointSample = SIZE_MAX;
+    bool sunPeriodPointPinned = false;
+    bool sunPeriodProfile = false; // re-trace the point for its month x hour grid
     bool sunShowsPeriod = false;
     double sunPeriodDays = 0.0;
     std::string sunPeriodLabel, sunPeriodCarrierDate;
@@ -216,6 +241,8 @@ struct HudState {
     int sunStep = -1;
     bool sunPlaying = false;
     double sunPlayedAt = 0.0;
+    float sunPlaySpeed = 1.0f;
+    bool sunPlayLoop = true;
     uint32_t sunStepCount = 0; // mirrored from the scene, for SunStudyViewOf
     // The multiple-shadows interval: an index into the section's list, 0 = every
     // step (the study's own timestep), the last = AM / PM. 1 hour by default, as
@@ -767,6 +794,10 @@ void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStat
 // click that places its centre.
 void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& study);
 bool DrawSunStudyRunAction (HudState& state);
+// The finished period's view, in DiligentHudSunPeriod.cpp (#152): quantity
+// toggles with their own colours, the month timeline, the threshold, and the
+// hovered point's year. Draws nothing unless the shown study is a period.
+void DrawSunStudyPeriodView (HudState& state);
 void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, const float origin[3],
                                 const float direction[3]);

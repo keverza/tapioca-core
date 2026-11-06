@@ -46,6 +46,36 @@ bool ResumeFollowing (std::string&)
 void Shutdown ()
 {
 }
+// The retained period (#152): a test sets what CurrentPeriod reports and reads
+// what the panel asked to show.
+static PeriodInfo s_period;
+static PeriodView s_shownView;
+static int s_viewRequests = 0;
+PeriodInfo CurrentPeriod ()
+{
+    return s_period;
+}
+bool ShowPeriodView (const PeriodView& view, std::string&)
+{
+    s_shownView = view;
+    ++s_viewRequests;
+    return true;
+}
+bool ReadPeriodPoint (size_t, PeriodPoint& point)
+{
+    for (int m = 0; m < 12; ++m) {
+        point.unoccluded[m] = 31.0 * 2.0;
+        point.facing[m] = 31.0 * 4.0;
+    }
+    return true;
+}
+void RequestPeriodProfile (size_t)
+{
+}
+PeriodProfile LatestPeriodProfile ()
+{
+    return {};
+}
 } // namespace geomsrv::sunstudyhud
 
 using namespace geomsrv::archviz;
@@ -62,6 +92,9 @@ struct SectionGui {
     {
         geomsrv::sunstudyhud::s_status = {};
         geomsrv::sunstudyhud::s_cancels = geomsrv::sunstudyhud::s_submissions = 0;
+        geomsrv::sunstudyhud::s_period = {};
+        geomsrv::sunstudyhud::s_shownView = {};
+        geomsrv::sunstudyhud::s_viewRequests = 0;
         auto& io = ImGui::GetIO ();
         io.IniFilename = nullptr;
         io.DisplaySize = { 500, 1400 };
@@ -240,4 +273,52 @@ TEST (SunStudyHud, TheOverlapSwatchIsMorningAndEveningInEqualShares)
     // Rounded halves of 0x796AB1 and 0xDF9792: the legend's old 0xAC80A2 to a step.
     EXPECT_EQ (SunStudyAmPmOverlapRgba (kAmPmMorningRgba, kAmPmEveningRgba), 0xAC81A2FFu);
     EXPECT_EQ (SunStudyAmPmOverlapRgba (0xFF000080u, 0x00FF0010u) & 0xffu, 0xffu) << "opaque";
+}
+
+// #152: a finished period on screen offers its views; each quantity asks the
+// runner once, shares are stretched over the ramp and read as percentages,
+// and the colours follow the quantity and come back with it.
+TEST (SunStudyHud, APeriodViewAsksOnceAndSharesReadAsPercent)
+{
+    SectionGui gui;
+    auto& status = geomsrv::sunstudyhud::s_status;
+    status.stage = "done";
+    status.period = true;
+    status.studyId = "sun-1";
+    auto& period = geomsrv::sunstudyhud::s_period;
+    period.available = true;
+    period.studyId = "sun-1";
+    period.representedDays = 365.0;
+    for (int m = 0; m < 12; ++m) {
+        period.monthDays[m] = 30.0;
+        period.siteDaylight[m] = 30.0 * 12.0;
+    }
+    period.edges[3] = 2.0;
+    gui.Frame ();
+    gui.Frame ();
+    EXPECT_TRUE (gui.state.sunShowsPeriod);
+    EXPECT_EQ (geomsrv::sunstudyhud::s_viewRequests, 0); // the applied view is the default
+    const std::string direct = gui.state.sunGradientPreset;
+
+    gui.state.sunPeriodQuantity = 3; // as the Access button does
+    gui.state.sunPeriodPresetsFor = 0;
+    gui.state.sunGradientPreset = gui.state.sunPeriodPresets[3];
+    gui.state.sunPeriodPresetsFor = 3;
+    gui.Frame ();
+    gui.Frame ();
+    EXPECT_EQ (geomsrv::sunstudyhud::s_viewRequests, 1);
+    EXPECT_EQ (geomsrv::sunstudyhud::s_shownView.quantity, 3);
+    EXPECT_DOUBLE_EQ (geomsrv::sunstudyhud::s_shownView.scale, double (kSunRampTop));
+    EXPECT_EQ (SunLegendUnit (), SunValueUnit::Share);
+    EXPECT_EQ (SunStudyValueText (5.0), "50%");
+
+    // Leaving the period: hours again, and the direct-sun colours back.
+    status.period = false;
+    status.studyId = "sun-2";
+    period.available = false;
+    gui.Frame ();
+    gui.Frame ();
+    EXPECT_FALSE (gui.state.sunShowsPeriod);
+    EXPECT_EQ (SunLegendUnit (), SunValueUnit::Hours);
+    EXPECT_EQ (gui.state.sunGradientPreset, direct);
 }

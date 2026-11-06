@@ -1256,7 +1256,7 @@ TapiocaStatus tapioca_sunstudy_annual_values (const TapiocaSunStudyAnnual* handl
  * it; its step masks stay the traced day's. */
 TapiocaStatus tapioca_sunstudy_annual_present (const TapiocaSunStudyAnnual* handle, const TapiocaSunStudyStudy* study,
                                                uint8_t quantity, uint8_t month, uint8_t perDay, uint8_t threshold,
-                                               char* error, size_t errorCapacity);
+                                               double scale, char* error, size_t errorCapacity);
 
 /* One sample's row: monthly hours, its daily-hours bins and their edges
  * (bin 0 below edges[0], bin i from edges[i-1], the last from edges[12]). */

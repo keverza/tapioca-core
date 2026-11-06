@@ -2,6 +2,7 @@
 #include "ACAPinc.h"
 
 #include "NativeCommands/SunStudyHudRunner.hpp"
+#include "NativeCommands/SunStudyHudPeriod.hpp"
 #include "NativeCommands/SunStudyCommands.hpp"
 #include "NativeCommands/SunStudyDisplayCommands.hpp"
 #include "NativeCommands/SunStudyDisplayPreparation.hpp"
@@ -21,6 +22,7 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
+#include <optional>
 #include <chrono>
 #include <cstdio>
 #include <memory>
@@ -313,6 +315,7 @@ std::string RunPeriod (const Request& request, const std::shared_ptr<tapioca::Su
         return cancel ? "" : Utf8 (captured.error);
 
     PeriodRecords records;
+    std::vector<evp::sunstudy::ProfileDay> profileDays; // every day's sun, for a point's profile later
     std::unique_ptr<rs::RustAnnualSun> annual;
     std::vector<std::pair<int, double>> sunless; // seen before the first traced day
     std::shared_ptr<const evp::sunstudy::StudyRecord> carrier;
@@ -339,6 +342,13 @@ std::string RunPeriod (const Request& request, const std::shared_ptr<tapioca::Su
             return cancel ? "" : Utf8 (recaptured.error);
         if (cancel)
             return "";
+        evp::sunstudy::ProfileDay traced;
+        traced.month = day.month;
+        traced.day = day.day;
+        traced.weightDays = day.weightDays;
+        traced.hoursPerStep = double (request.timestep) / 60.0;
+        traced.steps = captured->series.Steps ();
+        profileDays.push_back (std::move (traced));
         if (captured->series.Empty ()) {
             // No sun above the floor in the slice: the days count, at zero.
             if (annual == nullptr)
@@ -418,6 +428,8 @@ std::string RunPeriod (const Request& request, const std::shared_ptr<tapioca::Su
     records.Keep (carrierId);
     studyId = carrierId;
     revision = carrierRevision;
+    period::Retain (std::move (annual), carrier, carrierId, carrierRevision, std::move (profileDays), info, label,
+                    !request.dailyResolved);
     return "";
 #else
     (void) request;
@@ -614,6 +626,12 @@ bool Submit (const Request& request, std::string& error)
         error = "the time slice must run forward within 0-24 h";
         return false;
     }
+    // A new run supersedes the finished period; never while its view or a
+    // point profile is still being prepared through the carrier.
+    if (period::WorkerBusy ()) {
+        error = "the period view is updating; try again in a moment";
+        return false;
+    }
     std::lock_guard<std::mutex> lock (gMutex);
     if (gStatus.running) {
         error = "a sun study is already running";
@@ -623,6 +641,7 @@ bool Submit (const Request& request, std::string& error)
         gThread.join (); // finished: its last act was to clear `running`
     if (!sunfollow::ReserveManualRun (error))
         return false;
+    period::Release (); // lock order: the runner's, then the period's -- never the reverse
     s_ticket = std::make_shared<tapioca::SunStudyRunTicket> ();
     s_started = std::chrono::steady_clock::now ();
     const uint64_t runs = gStatus.runs + 1;
@@ -690,6 +709,7 @@ void Shutdown ()
     }
     if (thread.joinable ())
         thread.join ();
+    period::Shutdown ();
 }
 
 } // namespace geomsrv::sunstudyhud

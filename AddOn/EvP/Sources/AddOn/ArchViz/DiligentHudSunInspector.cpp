@@ -84,6 +84,7 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     state.sunReadingRole = role == 0xff ? -1 : int (role);
     state.sunReadingDaylight = daylight;
     state.sunReadingHours = reading.hours;
+    state.sunReadingSample = reading.measured ? reading.sample : SIZE_MAX;
     state.sunReadingNearest = reading.nearest;
     state.sunReadingState = reading.measured ? 1 : 2;
 }

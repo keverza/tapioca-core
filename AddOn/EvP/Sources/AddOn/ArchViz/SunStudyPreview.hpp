@@ -20,6 +20,19 @@ inline std::string SunStudyClock (double hours, bool duration = false)
     return text;
 }
 
+// What the hours channel carries (#152). A period can show a share (sun access,
+// share of days) drawn over the same 0..kSunRampTop ramp, 100 % at its top, so
+// the bands, the filter and the legend need no second pipeline -- only their
+// words change. ⚠️ RENDER THREAD ONLY: the panel sets it each frame before any
+// legend is drawn, from the view on screen.
+enum class SunValueUnit { Hours, Share };
+inline constexpr double kSunRampTopValue = 10.0; // = kSunRampTop, below; asserted there
+inline SunValueUnit& SunLegendUnit ()
+{
+    static SunValueUnit unit = SunValueUnit::Hours;
+    return unit;
+}
+
 // Clock-time selection is [from,to), like the study's hourFrom/hourTo inputs.
 // It is a view of the measured steps, not a recalculation.
 inline std::pair<uint32_t, uint32_t> SunStudyPreviewSteps (const std::vector<uint16_t>& minutes, float from, float to)
@@ -27,6 +40,17 @@ inline std::pair<uint32_t, uint32_t> SunStudyPreviewSteps (const std::vector<uin
     const auto first = std::lower_bound (minutes.begin (), minutes.end (), std::lround (from * 60.0f));
     const auto last = std::lower_bound (minutes.begin (), minutes.end (), std::lround (to * 60.0f));
     return { uint32_t (first - minutes.begin ()), uint32_t (last - minutes.begin ()) };
+}
+
+// A ramp value in the unit on screen: a clock duration, or a percentage of the
+// ramp's top for a share.
+inline std::string SunStudyValueText (double value, bool duration = false)
+{
+    if (SunLegendUnit () == SunValueUnit::Hours)
+        return SunStudyClock (value, duration);
+    char text[16] = {};
+    std::snprintf (text, sizeof (text), "%d%%", int (std::round ((std::max) (0.0, value) / kSunRampTopValue * 100.0)));
+    return text;
 }
 
 // ---- the hours gradient's STEPPED style ---------------------------------------
@@ -44,6 +68,7 @@ constexpr int kSunBandsMin = 3;
 constexpr int kSunBandsMax = 12;
 constexpr int kSunBandsDefault = 10;
 constexpr float kSunRampTop = 10.0f; // the legend's right end, read "9:00h+"
+static_assert (double (kSunRampTop) == kSunRampTopValue);
 constexpr float kSunBandGap = 0.25f; // the edges' quarter-hour grid, and their least spacing
 // Hours a few ulps under an edge (a 10-minute study's 3:00 h) still reach it.
 constexpr float kSunBandSlack = 1.0e-3f;
@@ -109,7 +134,7 @@ inline float SunStudyBandCentre (int band, int count, const float* edges)
 inline std::string SunStudyBandLabel (int band, int count, const float* edges)
 {
     const float lo = band > 0 ? edges[band - 1] : 0.0f;
-    return SunStudyClock (lo) + (band == count - 1 ? "+" : "");
+    return SunStudyValueText (lo) + (band == count - 1 ? "+" : "");
 }
 
 // ---- the hours gradient's COLOURS (#102) --------------------------------------

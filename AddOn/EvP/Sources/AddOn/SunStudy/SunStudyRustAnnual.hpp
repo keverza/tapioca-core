@@ -95,8 +95,10 @@ class RustAnnualSun final {
     // `perDay` gives the share of represented days.
     bool Values (AnnualQuantity quantity, int month, bool perDay, std::vector<double>& values, double& ceiling,
                  std::string& error, int threshold = 0) const;
+    // `scale` multiplies every value and the ceiling: 10 draws a 0-1 ratio on
+    // the 0-10 h ramp the colour bands use.
     bool Present (const RustStudyCore& carrier, AnnualQuantity quantity, int month, bool perDay, std::string& error,
-                  int threshold = 0) const;
+                  int threshold = 0, double scale = 1.0) const;
     // False with an empty error past the last sample.
     bool Sample (size_t sample, AnnualSampleRow& row, std::string& error) const;
 

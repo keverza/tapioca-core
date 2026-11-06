@@ -107,6 +107,72 @@ inline double PeriodProgress (const Status& status)
     return fraction < 0.0 ? 0.0 : (fraction > 1.0 ? 1.0 : fraction);
 }
 
+// ---- the finished period (#152) -----------------------------------------
+//
+// The last successful period run is retained: its totals, its carrier day and
+// the sun of every traced day. The map can then show another quantity, month
+// or threshold, and the hovered point can be read or re-traced, without a new
+// run. A new run (day or period) releases it.
+
+// What the map shows. All views are a represented day's mean, except the two
+// shares, which `scale` stretches over the colour ramp (100 % at its top).
+struct PeriodView {
+    int quantity = 0;  // 0 direct sun, 1 possible (sun in front), 2 lost to obstruction, 3 sun access share,
+                       // 4 share of days with at least edges[threshold] hours
+    int month = 0;     // 0 the whole period, 1-12 one month (quantity 4: whole period only)
+    int threshold = 3; // index into PeriodInfo::edges, quantity 4
+    double scale = 1.0;
+    bool operator== (const PeriodView& other) const
+    {
+        return quantity == other.quantity && month == other.month && threshold == other.threshold &&
+               scale == other.scale;
+    }
+    bool operator!= (const PeriodView& other) const
+    {
+        return !(*this == other);
+    }
+};
+
+struct PeriodInfo {
+    bool available = false;
+    std::string studyId; // the carrier the map is drawn through
+    std::string label;   // "2026-01-01 to 2026-12-31"
+    bool estimate = false;
+    double representedDays = 0.0;
+    double monthDays[12] = {};    // represented days per month (0: not in the period)
+    double siteDaylight[12] = {}; // hours per month
+    double edges[13] = {};        // daily-hours thresholds
+    PeriodView applied;           // what is on screen
+    bool busy = false;            // a view or a profile is being prepared
+    std::string error;            // the last view's refusal
+};
+
+// One sample's whole period, from the stored totals (no tracing).
+struct PeriodPoint {
+    double unoccluded[12] = {}, facing[12] = {}; // hours per month
+    float daily[14] = {};                        // represented days per daily-hours bin (PeriodInfo::edges)
+};
+
+// One sample re-traced against every traced day's sun: when it is lit.
+struct PeriodProfile {
+    size_t sample = SIZE_MAX;
+    bool ready = false;
+    std::string error;
+    double up[12][24] = {}, facing[12][24] = {}, lit[12][24] = {}; // weighted hours, month x clock hour
+    std::vector<int> dayMonth, dayOfMonth;
+    std::vector<double> dayUp, dayFacing, dayLit; // hours, one per traced day
+    size_t rays = 0;
+    double milliseconds = 0.0;
+};
+
+PeriodInfo CurrentPeriod ();
+// Latest wins: a request replaces any not yet applied.
+bool ShowPeriodView (const PeriodView& view, std::string& error);
+bool ReadPeriodPoint (size_t sample, PeriodPoint& point);
+// Asks for `sample`'s profile; LatestPeriodProfile returns it once ready.
+void RequestPeriodProfile (size_t sample);
+PeriodProfile LatestPeriodProfile ();
+
 bool Submit (const Request& request, std::string& error);
 void Cancel ();
 Status Current ();

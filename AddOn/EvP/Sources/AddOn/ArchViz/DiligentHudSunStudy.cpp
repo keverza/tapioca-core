@@ -143,12 +143,32 @@ bool ReadingLines (const HudState& state, char* first, char* second, size_t size
             if (mode == 5 || mode == 6 || mode == 7)
                 return ShadowReadingLines (state, mode, first, second, size);
             if (state.sunShowsPeriod) {
-                // A mean a day: "shadow" would count back-facing time as shade.
-                std::snprintf (first, size, "%s%.2f h a day direct sun (period mean)",
-                               state.sunReadingNearest ? "~ " : "", state.sunReadingHours);
-                std::snprintf (second, size, "%.0f h over %.0f days, of %.0f h sun up",
-                               state.sunReadingHours * state.sunPeriodDays, state.sunPeriodDays,
-                               state.sunReadingDaylight * state.sunPeriodDays);
+                // What the view on screen measures. A mean a day, never "shadow":
+                // that would count back-facing time as shade.
+                const char* near = state.sunReadingNearest ? "~ " : "";
+                const int share = int (state.sunReadingHours / double (kSunRampTop) * 100.0 + 0.5);
+                switch (state.sunPeriodQuantity) {
+                    case 1:
+                        std::snprintf (first, size, "%s%s a day the sun is in front", near,
+                                       SunStudyClock (state.sunReadingHours, true).c_str ());
+                        break;
+                    case 2:
+                        std::snprintf (first, size, "%s%s a day lost to obstruction", near,
+                                       SunStudyClock (state.sunReadingHours, true).c_str ());
+                        break;
+                    case 3:
+                        std::snprintf (first, size, "%s%d%% of its possible sun", near, share);
+                        break;
+                    case 4:
+                        std::snprintf (first, size, "%s%d%% of days at or above the threshold", near, share);
+                        break;
+                    default:
+                        std::snprintf (first, size, "%s%s a day direct sun", near,
+                                       SunStudyClock (state.sunReadingHours, true).c_str ());
+                        break;
+                }
+                std::snprintf (second, size, "%s; its year is in the panel",
+                               state.sunPeriodMonth == 0 ? "mean of the period" : "mean of the month shown");
                 return true;
             }
             std::snprintf (first, size, "%s%.2f h direct sun", state.sunReadingNearest ? "~ " : "",
@@ -474,7 +494,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStat
         const float labelY = at.y + size.y + 0.25f * font;
         for (size_t k = 0; k < ticks.size (); ++k) {
             const float x = at.x + size.x * ticks[k] / kSunRampTop;
-            const std::string label = SunStudyClock (ticks[k], true) + (k + 1 == ticks.size () ? "+" : "");
+            const std::string label = SunStudyValueText (ticks[k], true) + (k + 1 == ticks.size () ? "+" : "");
             const float wide = ImGui::CalcTextSize (label.c_str ()).x;
             // Centred on its tick, held inside the bar's span at the two ends.
             const float left = std::clamp (x - 0.5f * wide, at.x, at.x + size.x - wide);
@@ -573,8 +593,13 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
     const int mode = chosen >= 0 ? chosen : CommandedMode (state);
     if (mode != 5 && mode != 6 && mode != 7) {
         // The hours view keeps its exact-hour hover (#102).
-        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
-                         SunStudyClock (state.sunReadingHours, true));
+        // A period says what the number is: a mean a day, a share.
+        char first[96] = {}, second[96] = {};
+        if (state.sunShowsPeriod && ReadingLines (state, first, second, sizeof (first)))
+            hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right, first);
+        else
+            hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
+                             SunStudyClock (state.sunReadingHours, true));
         return;
     }
     // The shadow views say WHEN, never the hours of sun (#116).
@@ -614,8 +639,9 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     state.sunShowsPeriod = !state.sunPeriodStudyId.empty () && state.sunPeriodStudyId == study.studyId;
     ImGui::TextDisabled ("%s, %u element(s)", study.studyId.c_str (), unsigned (study.elementsAttached));
     if (state.sunShowsPeriod)
-        ImGui::TextWrapped ("Period %s: mean hours of direct sun a day%s. Shadows: %s.", state.sunPeriodLabel.c_str (),
+        ImGui::TextWrapped ("Period %s%s. Shadows: %s.", state.sunPeriodLabel.c_str (),
                             state.sunPeriodEstimate ? " (preview estimate)" : "", state.sunPeriodCarrierDate.c_str ());
+    DrawSunStudyPeriodView (state);
     if (study.preview)
         ImGui::TextUnformatted ("Coarse preview: complete day, not final grid");
     DrawSunStudyScreenshotControls (state);
@@ -708,21 +734,16 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         const int last = int ((std::min) (preview.endShadowStep, study.stepCount)) - 1;
         if (state.sunStep < first || state.sunStep > last)
             state.sunStep = std::clamp (int (study.noonStep), first, last);
-        // Play the day: one step every 0.4 s, wrapping -- the web page's button.
-        if (state.sunPlaying && ImGui::GetTime () - state.sunPlayedAt > 0.4) {
-            state.sunStep = state.sunStep >= last ? first : state.sunStep + 1;
-            state.sunPlayedAt = ImGui::GetTime ();
-        }
+        // Play the day: the shared timeline -- one step every 0.4 s at 1x.
         char clock[16] = "--:--";
         if (size_t (state.sunStep) < study.stepMinutes.size ())
             Clock (study.stepMinutes[size_t (state.sunStep)], clock, sizeof (clock));
-        ImGui::SetNextItemWidth (-60.0f);
-        ImGui::SliderInt ("time##sunstep", &state.sunStep, first, last, clock);
-        if (ImGui::SmallButton (state.sunPlaying ? "pause" : "play the day")) {
-            state.sunPlaying = !state.sunPlaying;
-            state.sunPlayedAt = ImGui::GetTime ();
-        }
-        ImGui::SameLine ();
+        HudTimeline play { state.sunPlaying, state.sunPlaySpeed, state.sunPlayedAt, state.sunPlayLoop };
+        DrawSunStudyTimeline ("sunstep", state.sunStep, first, last, play, 0.4, clock);
+        state.sunPlaying = play.playing;
+        state.sunPlaySpeed = play.speed;
+        state.sunPlayedAt = play.playedAt;
+        state.sunPlayLoop = play.loop;
         if (ImGui::SmallButton ("noon"))
             state.sunStep = std::clamp (int (study.noonStep), first, last);
         DrawShadowPalette (
@@ -794,7 +815,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     }
 
     if (!shadowView) {
-        ImGui::TextUnformatted ("Direct sunlight range");
+        ImGui::TextUnformatted (SunLegendUnit () == SunValueUnit::Hours ? "Direct sunlight range" : "Range shown");
         // Full daylight range, rather than a 9+ endpoint pretending to be a clock.
         DrawSunStudyRange ("##sun-hours", state.sunFilterLo, state.sunFilterHi, 0.0f, kSunHoursFilterOpenTop, true);
         if (ImGui::SmallButton ("All hours")) {
