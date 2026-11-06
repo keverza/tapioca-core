@@ -195,6 +195,33 @@ bool ReadPeriodPoints (const std::vector<size_t>& samples, PeriodPoint& mean);
 void RequestPeriodProfile (const std::vector<size_t>& samples);
 PeriodProfile LatestPeriodProfile ();
 
+// ---- the sun path (#152, an optional preview) ---------------------------
+//
+// Archicad's sun positions for the project's location and north: day arcs
+// (kind 0 winter solstice, 1 equinox, 2 summer solstice, 3 the chosen date;
+// a point every ten minutes) and hour analemmas (kind 4, every seventh day),
+// above the horizon only. Captured on the main thread by one worker; a
+// request for the same date is not repeated.
+struct SunPathPoint {
+    float direction[3] = { 0.0f, 0.0f, 1.0f }; // unit, toward the sun, model space
+    int minute = 0;                            // clock minute (day arcs)
+};
+struct SunPathArc {
+    int kind = 0;
+    int month = 0, day = 0, hour = 0;
+    std::vector<SunPathPoint> points;
+};
+struct SunPath {
+    bool ready = false;
+    std::string error;
+    int year = 0, month = 0, day = 0;
+    double northRadians = 0.0; // model angle of north, CCW from +X
+    double latitude = 0.0, longitude = 0.0;
+    std::vector<SunPathArc> arcs;
+};
+void RequestSunPath (int year, int month, int day);
+std::shared_ptr<const SunPath> LatestSunPath ();
+
 bool Submit (const Request& request, std::string& error);
 void Cancel ();
 Status Current ();

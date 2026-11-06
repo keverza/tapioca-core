@@ -388,6 +388,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     state.graphInteractionActive = ImGui::IsAnyItemActive ();
     DrawSunStudyInspectorTooltip (state, input, width, height);
     DrawSunStudyBoundsOverlay (state, viewProj, width, height);
+    DrawSunStudySunPath (state, viewProj, width, height);
     DrawSunStudyPointOverlay (state, viewProj, width, height);
     DrawSunStudyPointMenu (state);
     viewerhud::DrawViewpointOverlay (state, viewProj, width, height);

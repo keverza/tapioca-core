@@ -569,6 +569,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # the size cap: it asks the same runner, by plain value, to present another
     # quantity/month or trace the hovered point, and draws what comes back.
     ("ArchViz/DiligentHudSunPeriod.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
+    # The sun path preview (#152) asks the same runner, by plain value, for
+    # Archicad's sun positions it captured on the main thread, and draws them.
+    ("ArchViz/DiligentHudSunPath.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
     # The runner writes one line per run to the existing host log: the requested
     # and resolved sun backend (#54). It controls no renderer.
     ("NativeCommands/SunStudyHudRunner.cpp", "ArchViz/ArchVizLog.hpp"),

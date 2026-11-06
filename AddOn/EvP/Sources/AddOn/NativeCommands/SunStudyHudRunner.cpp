@@ -712,6 +712,7 @@ void Shutdown ()
     if (thread.joinable ())
         thread.join ();
     period::Shutdown ();
+    sunpath::Shutdown ();
 }
 
 } // namespace geomsrv::sunstudyhud

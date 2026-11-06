@@ -692,6 +692,11 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     char first[96] = {}, second[96] = {};
     ReadingLines (state, first, second, sizeof (first));
     DrawSunStudyInspectControl (state.sunInspect, first, second);
+    ImGui::Checkbox ("Sun path##sunpath", &state.sunPathShown);
+    ImGui::SetItemTooltip ("Draws the sun's path over the model from Archicad's location and north: the winter "
+                           "(blue) and summer (orange) solstices, the equinox (grey), the run form's date (yellow), "
+                           "the hours across the year, and the sun at the shadow view's time. Centred on the study "
+                           "point when one is placed.");
     if (ChosenMode (state) == 4 || (ChosenMode (state) < 0 && study.debugMode == 4)) {
         Swatch ("##roleA", Rgb (0xf59e24), "analysis: measured");
         ImGui::SameLine ();

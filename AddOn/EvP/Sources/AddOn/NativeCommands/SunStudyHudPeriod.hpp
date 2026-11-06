@@ -33,4 +33,9 @@ void Shutdown ();
 
 } // namespace geomsrv::sunstudyhud::period
 
+namespace geomsrv::sunstudyhud::sunpath {
+// Quit/unload: stop the capture worker and join it (SunStudySunPath.cpp).
+void Shutdown ();
+} // namespace geomsrv::sunstudyhud::sunpath
+
 #endif

@@ -243,6 +243,9 @@ struct HudState {
     // Hover readings of a measured surface also carry the hit point.
     bool sunReadingPointValid = false;
     double sunReadingPoint[3] = {};
+    // The sun path preview (#152): Archicad's sun arcs over the model for the
+    // run form's date, the solstices and the equinox, and the hour analemmas.
+    bool sunPathShown = false;
     bool sunShowsPeriod = false;
     double sunPeriodDays = 0.0;
     std::string sunPeriodLabel, sunPeriodCarrierDate;
@@ -830,6 +833,8 @@ void DrawSunStudyPointOverlay (const HudState& state, const float viewProj[16], 
 bool RefreshSunStudyPointSamples (HudState& state, const std::string& studyId);
 bool DrawSunStudyPointHeader (HudState& state, const std::string& studyId);
 void DrawSunStudyPointDay (HudState& state, const std::string& studyId);
+// The sun path over the model (DiligentHudSunPath.cpp), when sunPathShown.
+void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, const float origin[3],
                                 const float direction[3]);
