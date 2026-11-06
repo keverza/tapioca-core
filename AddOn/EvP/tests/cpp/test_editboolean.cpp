@@ -4,7 +4,9 @@
 #include "Edit/EditLandscape.hpp"
 #include "Edit/EditOrganize.hpp"
 #include "Edit/EditSession.hpp"
+#include "Edit/EditLandscapeSerialization.hpp"
 #include <gtest/gtest.h>
+#include <array>
 #include <cmath>
 
 namespace ed = geomsrv::edit;
@@ -250,4 +252,169 @@ TEST (EditBoolean, OneUndoRestoresEveryOperand)
     EXPECT_EQ (session.Doc ().entities, before);
     ASSERT_TRUE (session.Redo ());
     EXPECT_TRUE (ed::IsCompound (*ed::Find (session.Doc (), a)));
+}
+
+// #158: the editor's default drawing role is Reference line, so a boolean of what was just drawn
+// takes editor-owned reference lines and keeps their source records coherent in the same edit.
+namespace {
+
+const std::array<uint8_t, 16> kSession { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+
+struct ReferenceScene {
+    ed::Document doc;
+    ed::Id a = ed::kNoId, b = ed::kNoId;
+    std::string error;
+
+    ReferenceScene (double bx0, double by0, double bx1, double by1)
+    {
+        EXPECT_TRUE (geo::StartLandscape (doc, kSession, error));
+        a = Box (doc, 0, 0, 10, 10);
+        b = Box (doc, bx0, by0, bx1, by1);
+        EXPECT_TRUE (geo::SetLandscapeSourceRole (doc, a, geo::SourceRole::ReferenceLine, error)) << error;
+        EXPECT_TRUE (geo::SetLandscapeSourceRole (doc, b, geo::SourceRole::ReferenceLine, error)) << error;
+    }
+};
+
+const geo::LandscapeSource* SourceById (const ed::Document& doc, ed::Id id)
+{
+    for (const auto& s : doc.landscape->sources)
+        if (s.id == id)
+            return &s;
+    return nullptr;
+}
+
+const geo::LandscapeSource* LiveSource (const ed::Document& doc, ed::Id entity)
+{
+    for (const auto& s : doc.landscape->sources)
+        if (!s.deleted && s.entityId == entity)
+            return &s;
+    return nullptr;
+}
+
+} // namespace
+
+TEST (EditBoolean, EditorOwnedReferenceLinesSubtractIntoAHoleAndKeepCoherentSources)
+{
+    ReferenceScene scene (3, 3, 7, 7);
+    const auto& doc = scene.doc;
+    geo::ReferenceLineStyle style;
+    style.rgba = 0x11223344;
+    style.widthPixels = 2.5;
+    const ed::Id keptSource = LiveSource (doc, scene.a)->id, goneSource = LiveSource (doc, scene.b)->id;
+    ASSERT_TRUE (geo::SetReferenceLineStyle (scene.doc, keptSource, style, scene.error)) << scene.error;
+    ed::Session session (doc);
+    ASSERT_TRUE (session.Apply ([&] (ed::Document& d, std::string& error) {
+        return ed::BooleanEntities (d, { scene.a, scene.b }, ed::BooleanKind::Subtract, error);
+    })) << session.Message ();
+    const ed::Document after = session.Doc ();
+    ASSERT_EQ (after.entities.size (), 1u);
+    EXPECT_TRUE (ed::IsCompound (*ed::Find (after, scene.a)));
+    // The kept outline's source is the same record, still a reference line of its style.
+    const auto* kept = SourceById (after, keptSource);
+    const auto* gone = SourceById (after, goneSource);
+    ASSERT_NE (kept, nullptr);
+    ASSERT_NE (gone, nullptr);
+    EXPECT_FALSE (kept->deleted);
+    EXPECT_EQ (kept->entityId, scene.a);
+    EXPECT_EQ (kept->role, geo::SourceRole::ReferenceLine);
+    EXPECT_EQ (kept->lineStyle, style);
+    EXPECT_TRUE (gone->deleted) << "a removed operand's source must be a tombstone, not a dangling record";
+    std::string error;
+    EXPECT_TRUE (ed::Validate (after, error)) << error;
+    // Linework only: nothing in the landscape evaluates it.
+    EXPECT_TRUE (after.landscape->operations.empty ());
+    EXPECT_TRUE (after.landscape->objects.empty ());
+    // The virtual codec round-trips the compound reference line and the tombstone.
+    std::string json;
+    ASSERT_TRUE (geo::WriteLandscape (after, geo::LandscapeStorage::Virtual, json, error)) << error;
+    ed::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (json, loaded, error)) << error;
+    EXPECT_EQ (loaded.entities, after.entities);
+    EXPECT_EQ (loaded.landscape, after.landscape);
+    // One undo restores both lines and both live sources; redo is the same result.
+    EXPECT_EQ (session.UndoDepth (), 1u);
+    ASSERT_TRUE (session.Undo ());
+    EXPECT_EQ (session.Doc ().entities, doc.entities);
+    EXPECT_EQ (session.Doc ().landscape->sources, doc.landscape->sources);
+    ASSERT_TRUE (session.Redo ());
+    EXPECT_EQ (session.Doc ().entities, after.entities);
+}
+
+TEST (EditBoolean, FurtherPiecesBecomeReferenceLinesOfTheKeptStyle)
+{
+    ReferenceScene scene (20, 0, 24, 4); // apart: a union of two pieces
+    geo::ReferenceLineStyle style;
+    style.rgba = 0xCC3300FF;
+    ASSERT_TRUE (geo::SetReferenceLineStyle (scene.doc, LiveSource (scene.doc, scene.a)->id, style, scene.error))
+        << scene.error;
+    std::vector<ed::Id> made;
+    ASSERT_TRUE (Apply (scene.doc, { scene.a, scene.b }, ed::BooleanKind::Union, made, scene.error)) << scene.error;
+    ASSERT_EQ (made.size (), 2u);
+    EXPECT_EQ (made[0], scene.a);
+    for (const ed::Id id : made) {
+        const auto* source = LiveSource (scene.doc, id);
+        ASSERT_NE (source, nullptr) << "every piece stays a reference line";
+        EXPECT_EQ (source->role, geo::SourceRole::ReferenceLine);
+        EXPECT_EQ (source->lineStyle, style);
+    }
+    EXPECT_EQ (LiveSource (scene.doc, scene.b), nullptr);
+    EXPECT_TRUE (ed::Validate (scene.doc, scene.error)) << scene.error;
+}
+
+TEST (EditBoolean, ProtectedLandscapeOperandsRefuseWithTheirReason)
+{
+    const auto refused = [] (ReferenceScene& scene, const char* reason) {
+        const auto entities = scene.doc.entities;
+        const auto landscape = scene.doc.landscape;
+        const ed::Id nextId = scene.doc.nextId;
+        std::vector<ed::Id> made;
+        std::string error;
+        EXPECT_FALSE (Apply (scene.doc, { scene.a, scene.b }, ed::BooleanKind::Union, made, error));
+        EXPECT_NE (error.find (reason), std::string::npos) << error;
+        EXPECT_EQ (ed::BooleanOwnershipRefusal (scene.doc, scene.b), error);
+        EXPECT_EQ (scene.doc.entities, entities);
+        EXPECT_EQ (scene.doc.landscape, landscape);
+        EXPECT_EQ (scene.doc.nextId, nextId);
+    };
+    {
+        ReferenceScene scene (2, 2, 6, 6);
+        geo::ReferenceLineStyle locked;
+        locked.locked = true;
+        ASSERT_TRUE (geo::SetReferenceLineStyle (scene.doc, LiveSource (scene.doc, scene.b)->id, locked, scene.error));
+        refused (scene, "locked");
+    }
+    for (const auto role : { geo::SourceRole::RegionBoundary, geo::SourceRole::Guide }) {
+        ReferenceScene scene (2, 2, 6, 6);
+        ASSERT_TRUE (geo::SetLandscapeSourceRole (scene.doc, scene.b, role, scene.error)) << scene.error;
+        refused (scene, "landscape panel");
+    }
+    {
+        // Archicad's own line, imported by reference.
+        ed::Document doc;
+        std::string error;
+        ASSERT_TRUE (geo::StartLandscape (doc, kSession, error));
+        const ed::Id a = Box (doc, 0, 0, 10, 10);
+        geo::LandscapeSource imported;
+        imported.entityId = Box (doc, 2, 2, 6, 6);
+        imported.reference = true;
+        imported.archicadGuid = "00112233-4455-6677-8899-AABBCCDDEEFF";
+        ed::Id id = ed::kNoId;
+        ASSERT_TRUE (geo::AddLandscapeSource (doc, imported, id, error)) << error;
+        const auto before = doc.entities;
+        std::vector<ed::Id> made;
+        EXPECT_FALSE (Apply (doc, { a, imported.entityId }, ed::BooleanKind::Union, made, error));
+        EXPECT_NE (error.find ("Archicad"), std::string::npos) << error;
+        EXPECT_EQ (doc.entities, before);
+    }
+}
+
+TEST (EditBoolean, ACompoundReferenceLineCannotSilentlyBecomeARegion)
+{
+    ReferenceScene scene (3, 3, 7, 7);
+    std::vector<ed::Id> made;
+    ASSERT_TRUE (Apply (scene.doc, { scene.a, scene.b }, ed::BooleanKind::Subtract, made, scene.error)) << scene.error;
+    const auto before = scene.doc.landscape;
+    EXPECT_FALSE (geo::SetLandscapeSourceRole (scene.doc, scene.a, geo::SourceRole::RegionBoundary, scene.error));
+    EXPECT_NE (scene.error.find ("holes"), std::string::npos) << scene.error;
+    EXPECT_EQ (scene.doc.landscape, before);
 }

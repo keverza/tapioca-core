@@ -1,4 +1,5 @@
 #include "ArchViz/EditLayers.hpp"
+#include "Edit/EditShape.hpp"
 
 // OVERLAY-INVARIANTS.md: command-scoped model geometry only. No camera, GPU state,
 // native reads or cursor ownership changes. The two renderers keep their own transforms.
@@ -89,21 +90,34 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
     for (const auto& source : doc.landscape->sources) {
         if (source.deleted || (source.role == lg::SourceRole::ReferenceLine && !source.lineStyle.visible))
             continue;
-        std::vector<edit::Vec3> points;
+        // A compound reference line (a boolean left it a hole, #158) is drawn contour by contour;
+        // every other source is the one ring the landscape reads.
+        std::vector<std::vector<edit::Vec3>> rings;
         bool closed = false;
-        std::string error;
-        if (!lg::LandscapeSourcePreview (doc, source, points, closed, error))
-            continue;
-        const bool property = source.id == doc.landscape->propertyLineSourceId;
-        auto stroke = line (points, closed, property ? style.propertyLine : style.landscapeSource,
-                            property ? style.selectedWidth : style.lineWidth, false);
-        if (source.role == lg::SourceRole::ReferenceLine) {
-            stroke.rgba = source.lineStyle.rgba;
-            stroke.widthPixels = static_cast<float> (source.lineStyle.widthPixels);
+        const edit::Entity* entity = source.entityId ? edit::Find (doc, source.entityId) : nullptr;
+        if (source.role == lg::SourceRole::ReferenceLine && entity != nullptr && edit::IsCompound (*entity)) {
+            rings = edit::ShapeRings (*entity);
+            closed = true;
         }
-        stroke.dashMetres =
-            property ? std::vector<float> { 0.8f, 0.15f, 0.15f, 0.15f } : std::vector<float> { 0.4f, 0.25f };
-        layer.polylines.push_back (std::move (stroke));
+        else {
+            std::vector<edit::Vec3> points;
+            std::string error;
+            if (!lg::LandscapeSourcePreview (doc, source, points, closed, error))
+                continue;
+            rings.push_back (std::move (points));
+        }
+        const bool property = source.id == doc.landscape->propertyLineSourceId;
+        for (const auto& points : rings) {
+            auto stroke = line (points, closed, property ? style.propertyLine : style.landscapeSource,
+                                property ? style.selectedWidth : style.lineWidth, false);
+            if (source.role == lg::SourceRole::ReferenceLine) {
+                stroke.rgba = source.lineStyle.rgba;
+                stroke.widthPixels = static_cast<float> (source.lineStyle.widthPixels);
+            }
+            stroke.dashMetres =
+                property ? std::vector<float> { 0.8f, 0.15f, 0.15f, 0.15f } : std::vector<float> { 0.4f, 0.25f };
+            layer.polylines.push_back (std::move (stroke));
+        }
     }
 }
 } // namespace geomsrv::archviz::editlayers

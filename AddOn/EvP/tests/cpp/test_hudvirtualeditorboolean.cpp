@@ -160,3 +160,138 @@ TEST (HudVirtualEditorBoolean, ARefusalIsShownAndAStaleDraftCloses)
     EXPECT_FALSE (eh::detail::CheckBooleanDraft (d.S ()));
     EXPECT_FALSE (d.S ().booleanDraft.has_value ());
 }
+
+namespace {
+// The editor as the user opens it (#158): OpenVirtualEditorWorkflow seeds a landscape, and
+// shapes drawn with the default role are registered as Reference-line sources by the drawing
+// code itself, not seeded as bare entities.
+struct WorkflowDrive {
+    hudtest::Watched view;
+    layers::Layer layer;
+    hud::Input input = hudtest::At (0, 0);
+
+    WorkflowDrive ()
+    {
+        EXPECT_TRUE (hud::OpenVirtualEditorWorkflow (*view.state));
+        view.state->host.dock.edge = geomsrv::archviz::hudshell::DockEdge::Left;
+        view.state->host.dock.along = 0;
+        input.planar = true;
+        input.plan[0] = 20, input.plan[2] = 600, input.plan[4] = -20, input.plan[5] = 500;
+        // Opening already published the layer into the store; this drive keeps its own copy.
+        S ().publishedRevision = UINT64_MAX;
+        EXPECT_TRUE (eh::Follow (S (), layer));
+        layers::Set (layer);
+    }
+    ~WorkflowDrive ()
+    {
+        hud::StopVirtualEditor (*view.state);
+        layers::Clear (el::kLayer);
+    }
+    eh::Session& S ()
+    {
+        return *view.state->virtualEditor;
+    }
+    const ed::Document& D ()
+    {
+        return S ().edits.Doc ();
+    }
+    void Frame ()
+    {
+        hud::Layout out;
+        std::string error;
+        EXPECT_TRUE (
+            view.engine.Build ({ &layer.panels[0] }, { std::string (el::kLayer) + "#0" }, 1, input, {}, out, error))
+            << error;
+        input.keys.clear (), input.characters.clear (), input.buttons.clear ();
+        bool clear = false;
+        if (hud::FollowVirtualEditor (*view.state, layer, clear) && !clear)
+            layers::Set (layer);
+    }
+    void Key (uint32_t code)
+    {
+        input.keys = { { code, true } };
+        Frame ();
+        input.keys = { { code, false } };
+        Frame ();
+    }
+    // A click at model (x, y): the plan view shows it at (600 + 20 x, 500 - 20 y).
+    void Click (double x, double y)
+    {
+        input.x = 600 + 20 * float (x), input.y = 500 - 20 * float (y);
+        Frame ();
+        input.buttons = { { 0, true } };
+        Frame ();
+        input.buttons = { { 0, false } };
+        Frame ();
+    }
+    ed::Id Rectangle (double x0, double y0, double x1, double y1)
+    {
+        Click (x0, y0);
+        Click (x1, y1);
+        return D ().entities.empty () ? ed::kNoId : D ().entities.back ().id;
+    }
+    const tapioca::geometry::LandscapeSource* Source (ed::Id entity)
+    {
+        for (const auto& s : D ().landscape->sources)
+            if (!s.deleted && s.entityId == entity)
+                return &s;
+        return nullptr;
+    }
+};
+} // namespace
+
+TEST (HudVirtualEditorBoolean, DefaultReferenceLinesDrawnInTheNormalWorkflowSubtractIntoAHole)
+{
+    WorkflowDrive d;
+    ASSERT_TRUE (d.D ().landscape.has_value ());
+    ASSERT_EQ (d.S ().landscapeRole, tapioca::geometry::SourceRole::ReferenceLine);
+    d.S ().snapEnabled = false;
+    d.Key ('Q');
+    ASSERT_EQ (d.S ().tool, eh::Tool::Rectangle);
+    const ed::Id outer = d.Rectangle (0, 0, 10, 10);
+    const ed::Id inner = d.Rectangle (3, 3, 7, 7);
+    ASSERT_EQ (d.D ().entities.size (), 2u) << d.S ().message;
+    ASSERT_NE (d.Source (outer), nullptr);
+    ASSERT_NE (d.Source (inner), nullptr);
+    EXPECT_EQ (d.Source (outer)->role, tapioca::geometry::SourceRole::ReferenceLine);
+    const ed::Id innerSource = d.Source (inner)->id;
+    ASSERT_EQ (d.S ().edits.UndoDepth (), 2u);
+
+    d.Key ('V');
+    d.S ().selection.Set ({ { outer, ed::Part::Entity, 0 }, { inner, ed::Part::Entity, 0 } });
+    const ed::Document drawn = d.D ();
+    eh::RunMenuItem (d.S (), "boolean.subtract");
+    ASSERT_TRUE (d.S ().booleanDraft.has_value ()) << d.S ().message;
+    EXPECT_TRUE (d.S ().booleanDraft->error.empty ()) << d.S ().booleanDraft->error;
+    EXPECT_EQ (d.S ().booleanDraft->rings.size (), 2u);
+    d.Key (0x1B); // the preview cancels with no document, allocator or history change
+    EXPECT_FALSE (d.S ().booleanDraft.has_value ());
+    EXPECT_EQ (d.D ().entities, drawn.entities);
+    EXPECT_EQ (d.D ().landscape, drawn.landscape);
+    EXPECT_EQ (d.D ().nextId, drawn.nextId);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+
+    eh::RunMenuItem (d.S (), "boolean.subtract");
+    ASSERT_TRUE (d.S ().booleanDraft.has_value ());
+    d.Key (0x0D);
+    EXPECT_FALSE (d.S ().booleanDraft.has_value ()) << d.S ().message;
+    ASSERT_EQ (d.D ().entities.size (), 1u);
+    EXPECT_EQ (d.D ().entities.front ().id, outer);
+    EXPECT_TRUE (ed::IsCompound (d.D ().entities.front ()));
+    ASSERT_NE (d.Source (outer), nullptr);
+    EXPECT_EQ (d.Source (outer)->role, tapioca::geometry::SourceRole::ReferenceLine);
+    bool tombstoned = false;
+    for (const auto& s : d.D ().landscape->sources)
+        tombstoned |= s.id == innerSource && s.deleted;
+    EXPECT_TRUE (tombstoned);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 3u);
+    d.Frame (); // the published layer draws the compound reference line
+    std::string error;
+    EXPECT_TRUE (ed::Validate (d.D (), error)) << error;
+
+    ASSERT_TRUE (d.S ().edits.Undo ());
+    EXPECT_EQ (d.D ().entities, drawn.entities);
+    EXPECT_EQ (d.D ().landscape->sources, drawn.landscape->sources);
+    ASSERT_TRUE (d.S ().edits.Redo ());
+    EXPECT_TRUE (ed::IsCompound (d.D ().entities.front ()));
+}

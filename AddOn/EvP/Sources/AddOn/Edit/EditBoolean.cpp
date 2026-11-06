@@ -5,6 +5,7 @@
 #include <clipper2/clipper.h>
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <set>
 
 namespace geomsrv::edit {
@@ -57,14 +58,16 @@ double OutlineArea (const BooleanPiece& piece)
     return std::abs (twice) * 0.5;
 }
 
-bool LandscapeOwned (const Document& doc, Id entity)
+namespace lg = tapioca::geometry;
+
+// The live landscape source on `entity`, if any.
+const lg::LandscapeSource* SourceOn (const Document& doc, Id entity)
 {
-    if (!doc.landscape)
-        return false;
-    for (const auto& source : doc.landscape->sources)
-        if (!source.deleted && source.entityId == entity)
-            return true;
-    return false;
+    if (doc.landscape)
+        for (const auto& source : doc.landscape->sources)
+            if (!source.deleted && source.entityId == entity)
+                return &source;
+    return nullptr;
 }
 
 // Every anchor's Z, for a polyline; the base for an extrusion (Validate keeps it flat).
@@ -73,6 +76,43 @@ bool Flat (const Entity& e, double z)
     for (const auto& v : e.vertices)
         if (std::abs (v.p.z - z) > kBooleanPlaneTolerance)
             return false;
+    return true;
+}
+
+// Editor-owned reference lines (the only landscape sources a boolean takes) keep their records
+// coherent in the same edit: a removed operand's source becomes a tombstone, the kept outline's
+// source loses arc angles its new straight segments no longer carry, and every further piece is
+// a reference line of the kept one's style. Terrain controls on the touched lines (disabled ones:
+// reference lines never constrain terrain) are dropped with the vertices they named.
+bool ReconcileReferenceLines (Document& doc, Id kept, const std::set<Id>& gone, const std::vector<Id>& made,
+                              std::string& error)
+{
+    auto& s = *doc.landscape;
+    std::set<Id> touched;
+    std::optional<lg::ReferenceLineStyle> style;
+    for (auto& source : s.sources) {
+        if (source.deleted || source.entityId == kNoId)
+            continue;
+        if (source.entityId == kept) {
+            source.arcAngles.clear ();
+            style = source.lineStyle;
+            touched.insert (source.id);
+        }
+        else if (gone.count (source.entityId) != 0) {
+            source.deleted = true;
+            touched.insert (source.id);
+        }
+    }
+    std::erase_if (s.terrainControls, [&] (const auto& c) { return touched.count (c.source) != 0; });
+    if (!style)
+        return true; // the kept outline is plain drafting: so are its pieces
+    for (size_t i = 1; i < made.size (); ++i) {
+        if (!lg::SetLandscapeSourceRole (doc, made[i], lg::SourceRole::ReferenceLine, error))
+            return false;
+        for (auto& source : doc.landscape->sources)
+            if (!source.deleted && source.entityId == made[i])
+                source.lineStyle = *style;
+    }
     return true;
 }
 
@@ -91,6 +131,33 @@ const char* BooleanName (BooleanKind kind)
             return "exclude";
     }
     return "boolean";
+}
+
+std::string BooleanOwnershipRefusal (const Document& doc, Id entity)
+{
+    const lg::LandscapeSource* source = SourceOn (doc, entity);
+    if (source == nullptr)
+        return {};
+    if (source->reference)
+        return "that line is referenced from Archicad and locked here: edit it in Archicad";
+    if (source->role != lg::SourceRole::ReferenceLine)
+        return "that outline is a landscape source; combine landscape regions in the landscape panel";
+    if (source->lineStyle.locked)
+        return "that reference line is locked; unlock it in Sources before combining it";
+    const auto& s = *doc.landscape;
+    const auto cites = [&] (const std::vector<Id>& ids) {
+        return std::find (ids.begin (), ids.end (), source->id) != ids.end ();
+    };
+    bool used = s.propertyLineSourceId == source->id;
+    for (const auto& op : s.operations)
+        used = used || cites (op.inputs);
+    for (const auto& region : s.regions)
+        used = used || cites (region.descriptor.sources);
+    for (const auto& entrance : s.entrances)
+        used = used || entrance.source == source->id;
+    if (used)
+        return "the landscape uses that reference line; remove what uses it first";
+    return {};
 }
 
 bool BooleanRings (const std::vector<std::vector<std::vector<Vec3>>>& operands, BooleanKind kind, double z,
@@ -187,8 +254,8 @@ bool BooleanEntities (Document& doc, const std::vector<Id>& operands, BooleanKin
             error = "a hidden or locked outline cannot take part in a boolean";
             return false;
         }
-        if (LandscapeOwned (doc, id)) {
-            error = "that outline is a landscape source; combine landscape regions in the landscape panel";
+        if (const std::string refusal = BooleanOwnershipRefusal (doc, id); !refusal.empty ()) {
+            error = refusal;
             return false;
         }
         if (e->kind != first->kind) {
@@ -235,6 +302,10 @@ bool BooleanEntities (Document& doc, const std::vector<Id>& operands, BooleanKin
     candidate.isolated.erase (std::remove_if (candidate.isolated.begin (), candidate.isolated.end (),
                                               [&] (Id id) { return gone.count (id) != 0; }),
                               candidate.isolated.end ());
+    if (candidate.landscape && !ReconcileReferenceLines (candidate, keep.id, gone, made, error)) {
+        error = std::string ("the ") + BooleanName (kind) + " cannot keep its reference lines: " + error;
+        return false;
+    }
     if (!Validate (candidate, error))
         return false;
     candidate.revision = doc.revision + 1;

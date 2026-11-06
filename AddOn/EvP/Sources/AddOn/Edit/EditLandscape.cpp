@@ -323,8 +323,11 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
             }
         }
         // A landscape source is one ring: regions carry their own holes. A compound entity
-        // (EditDocument.hpp) is refused rather than read as one ring bridging its contours.
-        if (const auto* entity = edit::Find (doc, v.entityId); entity && !v.deleted && edit::IsCompound (*entity)) {
+        // (EditDocument.hpp) is refused rather than read as one ring bridging its contours. A
+        // reference line is display linework that nothing evaluates (#158): a boolean with a hole
+        // may leave it compound, and it is drawn contour by contour.
+        if (const auto* entity = edit::Find (doc, v.entityId);
+            entity && !v.deleted && v.role != SourceRole::ReferenceLine && edit::IsCompound (*entity)) {
             error = "landscape.sources: an outline with holes cannot be a landscape source";
             return false;
         }

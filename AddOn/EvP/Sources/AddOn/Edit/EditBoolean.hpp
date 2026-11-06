@@ -28,8 +28,16 @@
 //
 // Refused inputs: fewer than two operands, a repeated or missing one, an open entity, a hidden or
 // locked one, operands of different kinds, operands not in one horizontal plane (an extrusion's base, every vertex of a
-// polyline), and any entity that is a live landscape source: the landscape owns that line, and its regions their own
-// booleans.
+// polyline), and any entity whose landscape ownership forbids it (BooleanOwnershipRefusal).
+//
+// Landscape ownership (#158). A boolean is destructive drafting; the landscape's own domain
+// booleans keep their dependencies. So the only landscape sources it takes are editor-owned
+// Reference lines -- what the editor's default drawing role makes -- that are unlocked, not
+// imported from Archicad and used by nothing else in the landscape (operation input, region
+// descriptor, property line, entrance). Their records are reconciled in the same edit: a removed
+// operand's source becomes a tombstone, further pieces become reference lines of the kept
+// outline's style, and the result stays linework with no terrain contribution. Every other
+// source role, and every imported, locked or used reference line, is refused with its reason.
 #include "Edit/EditDocument.hpp"
 #include <cstdint>
 #include <string>
@@ -55,6 +63,10 @@ bool BooleanRings (const std::vector<std::vector<std::vector<Vec3>>>& operands, 
 // result entities, the first operand's id first.
 bool BooleanEntities (Document& doc, const std::vector<Id>& operands, BooleanKind kind, std::string& error,
                       std::vector<Id>* results = nullptr);
+
+// Why the landscape forbids `entity` as a boolean operand; empty when it may take part (a plain
+// entity, or an editor-owned reference line nothing else uses). Preview and commit both apply it.
+std::string BooleanOwnershipRefusal (const Document& doc, Id entity);
 
 // "union", "subtract", "intersect", "exclude".
 const char* BooleanName (BooleanKind kind);
