@@ -500,3 +500,58 @@ TEST (EditCompound, CapsCoverEvenOddWithIslandsAndWallsFaceOut)
         EXPECT_FALSE (ed::InsideXY (*ed::Find (doc, id), mid));
     }
 }
+
+TEST (EditCompound, DeletingAHoleKeepsTheOuterAndTakesItsIslands)
+{
+    ed::Document doc;
+    const ed::Id id = ed::AddCompound (
+        doc, { Square (0, 0, 20, 10), Square (2, 2, 8, 8), Square (4, 4, 6, 6), Square (12, 2, 18, 8) },
+        ed::Kind::Polyline, 0);
+    ASSERT_NE (id, ed::kNoId);
+    const ed::Entity before = *ed::Find (doc, id);
+    std::string error;
+    // The outer contour is the object: it is never removed on its own.
+    auto attempt = doc;
+    EXPECT_FALSE (ed::DeleteContour (attempt, id, before.contours[0].id, error));
+    EXPECT_EQ (attempt.entities, doc.entities);
+
+    // The first hole goes with the island inside it; the other hole stays, ids intact.
+    ASSERT_TRUE (ed::DeleteContour (doc, id, before.contours[1].id, error)) << error;
+    const ed::Entity& one = *ed::Find (doc, id);
+    ASSERT_EQ (one.contours.size (), 2u);
+    EXPECT_EQ (one.contours[0], before.contours[0]);
+    EXPECT_EQ (one.contours[1], before.contours[3]);
+    EXPECT_NEAR (ed::SignedAreaXY (one), 200.0 - 36.0, 1e-9);
+    ASSERT_TRUE (ed::Validate (doc, error)) << error;
+
+    // The last hole: a simple entity again, with the outer's vertices and segments unchanged.
+    ASSERT_TRUE (ed::DeleteContour (doc, id, before.contours[3].id, error)) << error;
+    const ed::Entity& simple = *ed::Find (doc, id);
+    EXPECT_TRUE (simple.contours.empty ());
+    EXPECT_EQ (simple.vertices, std::vector<ed::Vertex> (before.vertices.begin (), before.vertices.begin () + 4));
+    EXPECT_TRUE (ed::Validate (doc, error)) << error;
+}
+
+TEST (EditCompound, DeleteHoleActionIsOfferedOnHolePartsOnly)
+{
+    ed::Document doc;
+    const ed::Id id = Donut (doc);
+    const ed::Entity& e = *ed::Find (doc, id);
+    const auto table = ed::PolylineActions ();
+    const ed::Action* action = nullptr;
+    for (const auto& a : table)
+        if (a.id == "delete-hole")
+            action = &a;
+    ASSERT_NE (action, nullptr);
+    EXPECT_FALSE (action->make (doc, { { id, ed::Part::Vertex, e.vertices[0].id } })); // the outer
+    EXPECT_FALSE (action->make (doc, { { id, ed::Part::Segment, e.segments[2].id } }));
+    const auto remove =
+        action->make (doc, { { id, ed::Part::Segment, e.segments[5].id }, { id, ed::Part::Vertex, e.vertices[6].id } });
+    ASSERT_TRUE (remove);
+    ed::Session session (doc);
+    ASSERT_TRUE (session.Apply (remove)) << session.Message ();
+    EXPECT_FALSE (ed::IsCompound (*ed::Find (session.Doc (), id)));
+    EXPECT_EQ (session.UndoDepth (), 1u);
+    ASSERT_TRUE (session.Undo ());
+    EXPECT_TRUE (ed::IsCompound (*ed::Find (session.Doc (), id)));
+}

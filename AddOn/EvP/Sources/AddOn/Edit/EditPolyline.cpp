@@ -486,6 +486,66 @@ bool ReverseDirection (Document& doc, Id entity, std::string& error)
     return true;
 }
 
+Id ContourOfPart (const Document& doc, const Ref& ref)
+{
+    const Entity* e = Find (doc, ref.entity);
+    if (e == nullptr || !IsCompound (*e))
+        return kNoId;
+    const int index = ref.part == Part::Vertex    ? VertexIndex (*e, ref.item)
+                      : ref.part == Part::Segment ? SegmentIndex (*e, ref.item)
+                                                  : -1;
+    return index < 0 ? kNoId : e->contours[ContourOf (*e, size_t (index))].id;
+}
+
+bool DeleteContour (Document& doc, Id entity, Id contour, std::string& error)
+{
+    Entity* e = Get (doc, entity, error);
+    if (e == nullptr)
+        return false;
+    const int found = ContourIndex (*e, contour);
+    if (found < 0) {
+        error = "that hole no longer exists";
+        return false;
+    }
+    if (found == 0) {
+        error = "the outer outline cannot be removed on its own; delete the whole object instead";
+        return false;
+    }
+    const auto ring = ContourPoints (*e, size_t (found));
+    // The contour, and every contour inside it (islands, their holes...): no crossings, so one
+    // point decides containment.
+    std::vector<bool> drop (e->contours.size (), false);
+    drop[size_t (found)] = true;
+    for (size_t c = 1; c < e->contours.size (); ++c) {
+        if (c == size_t (found))
+            continue;
+        Entity probe;
+        probe.closed = true;
+        for (const auto& p : ring)
+            probe.vertices.push_back (Vertex { kNoId, p });
+        drop[c] = InsideXY (probe, ContourPoints (*e, c).front ());
+    }
+    Entity kept = *e;
+    kept.vertices.clear ();
+    kept.segments.clear ();
+    kept.contours.clear ();
+    for (size_t c = 0; c < e->contours.size (); ++c) {
+        if (drop[c])
+            continue;
+        size_t begin = 0, end = 0;
+        ContourRange (*e, c, begin, end);
+        kept.vertices.insert (kept.vertices.end (), e->vertices.begin () + std::ptrdiff_t (begin),
+                              e->vertices.begin () + std::ptrdiff_t (end));
+        kept.segments.insert (kept.segments.end (), e->segments.begin () + std::ptrdiff_t (begin),
+                              e->segments.begin () + std::ptrdiff_t (end));
+        kept.contours.push_back (e->contours[c]);
+    }
+    if (kept.contours.size () == 1)
+        kept.contours.clear (); // the last hole gone: a simple entity again
+    *e = std::move (kept);
+    return true;
+}
+
 bool Close (Document& doc, Id entity, std::string& error)
 {
     Entity* e = Get (doc, entity, error);

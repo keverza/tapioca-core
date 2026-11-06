@@ -54,6 +54,13 @@ bool TrimBetweenCrossings (Document& doc, Id entity, Id segment, Vec3 pointer, s
 bool SplitAtVertex (Document& doc, Id entity, Id vertex, std::string& error, Id* created = nullptr);
 // Joins two open polylines whose ends meet within `tolerance`; meeting at both ends closes it.
 bool Join (Document& doc, Id first, Id second, double tolerance, std::string& error);
+// Removes a hole (any contour but the outer one) of a compound entity, with every contour nested
+// inside it, so the islands it held do not turn into holes. The outer contour is never removed --
+// delete the entity for that. Removing the last hole leaves a simple entity (no contour table).
+bool DeleteContour (Document& doc, Id entity, Id contour, std::string& error);
+// The contour id a vertex or segment of a compound entity lies on; kNoId on a simple entity or
+// for a part that is not there.
+Id ContourOfPart (const Document& doc, const Ref& ref);
 // Runs a polyline the other way: vertices, segments and Bezier handles reversed, so the
 // drawn shape is unchanged and every id stays on its own item.
 bool ReverseDirection (Document& doc, Id entity, std::string& error);

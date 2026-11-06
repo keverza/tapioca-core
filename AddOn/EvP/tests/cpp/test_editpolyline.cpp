@@ -269,8 +269,9 @@ TEST (EditPolyline, ActionTableRunsThroughTheSession)
     std::vector<std::string> ids;
     for (const auto* a : ed::Applicable (table, sel, ed::ViewKind::Plan))
         ids.push_back (a->id);
-    EXPECT_EQ (ids, (std::vector<std::string> { "delete-vertex", "fillet", "sharpen", "smooth", "corner", "chamfer",
-                                                "split" }));
+    // "delete-hole" is listed for any vertex; it builds nothing off a hole and the menu leaves it out.
+    EXPECT_EQ (ids, (std::vector<std::string> { "delete-vertex", "delete-hole", "fillet", "sharpen", "smooth", "corner",
+                                                "chamfer", "split" }));
     ASSERT_TRUE (s.Undo ());
     EXPECT_EQ (ed::Find (s.Doc (), e)->vertices.size (), 3u);
 }

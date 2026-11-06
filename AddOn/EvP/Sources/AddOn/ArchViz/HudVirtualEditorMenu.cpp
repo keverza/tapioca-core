@@ -276,11 +276,15 @@ void AddActions (const Session& s, std::vector<MenuItem>& items, std::initialize
     for (const edit::Action* a : edit::Applicable (Actions (s), s.selection, edit::ViewKind::Plan)) {
         if (std::any_of (skip.begin (), skip.end (), [&] (const char* id) { return a->id == id; }))
             continue;
+        const bool enabled = bool (a->make (Doc (s), s.selection.Items ()));
+        // Most outlines have no holes: a hole action off a hole is left out, not shown greyed.
+        if (!enabled && a->id == "delete-hole")
+            continue;
         if (!any)
             Rule (items);
         any = true;
         // An action with nothing to do here (a sharp corner made sharp) is shown, greyed.
-        items.push_back (Item ("action." + a->id, a->label, {}, bool (a->make (Doc (s), s.selection.Items ()))));
+        items.push_back (Item ("action." + a->id, a->label, {}, enabled));
     }
 }
 

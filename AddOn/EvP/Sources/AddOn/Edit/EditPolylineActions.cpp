@@ -3,6 +3,7 @@
 #include "Edit/EditPolyline.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
+#include <algorithm>
 #include <cmath>
 
 namespace geomsrv::edit {
@@ -30,6 +31,30 @@ std::vector<Action> PolylineActions (const ActionDefaults& d)
                               return true;
                           });
                       } });
+    // A hole of a compound outline, named by any of its vertices or segments; the outer outline is
+    // the object itself and is deleted as one.
+    table.push_back (
+        { "delete-hole", "Delete this hole", vertex | segment, 0xFu, 1, 0, [] (const Document& doc, const Refs& refs) {
+             std::vector<std::pair<Id, Id>> holes;
+             for (const auto& r : refs) {
+                 const Id contour = ContourOfPart (doc, r);
+                 const Entity* e = Find (doc, r.entity);
+                 if (contour == kNoId || e == nullptr || ContourIndex (*e, contour) <= 0)
+                     return Operation {};
+                 if (std::find (holes.begin (), holes.end (), std::pair { r.entity, contour }) == holes.end ())
+                     holes.push_back ({ r.entity, contour });
+             }
+             return Operation ([holes] (Document& x, std::string& error) {
+                 for (const auto& [entity, contour] : holes) {
+                     const Entity* e = Find (x, entity);
+                     if (e != nullptr && ContourIndex (*e, contour) < 0)
+                         continue; // went with a hole it was nested in
+                     if (!DeleteContour (x, entity, contour, error))
+                         return false;
+                 }
+                 return true;
+             });
+         } });
     // A fillet is a live corner: it keeps its radius, editable by its grip or by a typed
     // value, until it is baked into points.
     table.push_back ({ "fillet", "Round corner", vertex, 0xFu, 1, 0, [d] (const Document&, const Refs& refs) {
