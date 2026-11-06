@@ -996,6 +996,7 @@ set (EVP_TEST_SOURCES
     test_hudlandscape.cpp
     test_hudterrainsetup.cpp
     test_hudpathcutunits.cpp
+    test_hudpathwidgetgesture.cpp
     test_hudmixedpathsections.cpp
     test_hudvirtualeditorsnap.cpp
     test_hudvirtualeditorsnapcontrols.cpp

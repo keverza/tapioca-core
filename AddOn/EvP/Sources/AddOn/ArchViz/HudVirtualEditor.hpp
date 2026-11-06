@@ -151,6 +151,11 @@ struct Session {
     tapioca::geometry::Id regionSliderObject = 0; // Owns one undoable property-slider gesture.
     uint32_t regionSliderId = 0;
     double regionSliderMin = 0, regionSliderMax = 0;
+    // The panel widget (ImGui id) whose drag or typed value owns the current edit gesture, and
+    // whether that gesture was already given up (Esc, a view change) before the widget let go:
+    // its remaining edits change nothing until it is released (detail::WidgetGesture).
+    uint32_t widgetGesture = 0;
+    bool widgetGestureDone = false;
     std::shared_ptr<const tapioca::geometry::MaterialCatalog> materialCatalog;
     uint64_t materialCatalogRevision = UINT64_MAX;
     std::string materialCatalogError;

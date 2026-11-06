@@ -18,7 +18,8 @@ using Vec3 = edit::Vec3;
 
 void Escape (Session& s)
 {
-    if (CancelLandscapeCommand (s) || CancelGumballReposition (s))
+    // A panel widget's drag is the innermost gesture: Esc gives it up and nothing else.
+    if (CancelWidgetGesture (s) || CancelLandscapeCommand (s) || CancelGumballReposition (s))
         return;
     if (s.tracker.State () == edit::TrackerState::Editing) {
         s.tracker.Key ({ edit::TrackerKey::Kind::Escape });

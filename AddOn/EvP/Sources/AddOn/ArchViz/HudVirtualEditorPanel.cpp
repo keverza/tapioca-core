@@ -8,6 +8,7 @@
 #include "Edit/EditOrganize.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include <imgui.h>
+#include <imgui_internal.h> // ImGui::GetActiveID
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -99,10 +100,109 @@ void detail::OffsetMiterLimitControl (Session& s)
     hudshell::Tip ("Dimensionless, 1 or greater. Enter applies; used only by Miter.", hudshell::TipSide::Above);
 }
 
+bool detail::WidgetGesture (Session& s, const edit::Operation& operation)
+{
+    const ImGuiID id = ImGui::GetItemID ();
+    if (ImGui::IsItemActivated () && s.widgetGesture == 0) {
+        // A canvas drag or another command already owns the edit: this widget watches it.
+        s.widgetGesture = id;
+        s.widgetGestureDone = s.drag != Drag::None || s.edits.InGesture () || !s.edits.Begin ();
+    }
+    const bool owned = s.widgetGesture == id;
+    // Cancelled from outside (a view change, the surface replaced): nothing more is applied.
+    if (owned && !s.edits.InGesture ())
+        s.widgetGestureDone = true;
+    bool applied = false;
+    if (ImGui::IsItemEdited ()) {
+        bool tried = false;
+        if (owned && !s.widgetGestureDone)
+            tried = true, applied = s.edits.Move (operation);
+        else if (!owned && s.widgetGesture == 0 && s.drag == Drag::None && !s.edits.InGesture ())
+            tried = true, applied = s.edits.Apply (operation);
+        if (tried && !applied)
+            s.message = s.edits.Message ();
+    }
+    if (owned && ImGui::IsItemDeactivated ()) {
+        if (!s.widgetGestureDone && s.edits.InGesture ()) {
+            s.edits.End ();
+            if (!s.edits.Message ().empty ())
+                s.message = s.edits.Message ();
+        }
+        s.widgetGesture = 0;
+        s.widgetGestureDone = false;
+    }
+    return applied;
+}
+
+bool detail::CancelWidgetGesture (Session& s)
+{
+    if (s.widgetGesture == 0 || s.widgetGestureDone)
+        return false;
+    s.edits.Cancel ();
+    s.widgetGestureDone = true;
+    s.message.clear ();
+    return true;
+}
+
+void detail::SettleWidgetGesture (Session& s)
+{
+    if (s.widgetGesture == 0 || ImGui::GetActiveID () == s.widgetGesture)
+        return;
+    // Its widget was not drawn last frame, so ImGui let go of it without a release to see.
+    if (!s.widgetGestureDone && s.edits.InGesture ())
+        s.edits.Cancel ();
+    s.widgetGesture = 0;
+    s.widgetGestureDone = false;
+}
+
+void detail::PathRadiusControls (Session& s, const edit::Path& path)
+{
+    // Its kerb radius: its outside corners and its junctions with other paths rounded.
+    float kerb = float (path.edgeRadius);
+    ImGui::SetNextItemWidth (140.0f);
+    ImGui::DragFloat ("Kerb radius", &kerb, 0.05f, 0.0f, 20.0f, "%.2f m");
+    {
+        const edit::Id id = path.id;
+        const double r = double (kerb);
+        WidgetGesture (s,
+                       [id, r] (edit::Document& d, std::string& e) { return edit::SetPathEdgeRadius (d, id, r, e); });
+    }
+    // A kerb corner picked on the view: its own radius, apart from the path's.
+    if (const edit::PavedCorner* k = PickedKerb (s)) {
+        float r = float (k->requestedRadius);
+        ImGui::SetNextItemWidth (140.0f);
+        ImGui::DragFloat (k->key.other != edit::kNoId ? "Junction corner" : "Corner radius", &r, 0.05f, 0.0f, 0.0f,
+                          "%.2f m");
+        const edit::PavedCorner c = *k;
+        const double v = double (r);
+        WidgetGesture (
+            s, [c, v] (edit::Document& d, std::string& e) { return edit::SetKerbRadius (d, c.path, c.key, v, e); });
+        if (const edit::PavedCorner* now = PickedKerb (s); now != nullptr && now->Limited ())
+            ImGui::Text ("Fitted radius %.2f m. Requested %.2f m.", now->key.radius, now->requestedRadius);
+    }
+}
+
+void detail::BreakSmoothingControl (Session& s, const edit::Path& path, size_t index)
+{
+    // Its smoothing: the vertical curve's length, as its nubs on the canvas set it.
+    if (index >= path.profile.size ())
+        return;
+    const auto& b = path.profile[index];
+    const double room = edit::MaxCurve (path, index);
+    if (room <= 0.0)
+        return;
+    float length = float (b.curve);
+    ImGui::SetNextItemWidth (140.0f);
+    ImGui::SliderFloat ("Smoothing", &length, 0.0f, float (room), "%.2f m");
+    WidgetGesture (s, edit::DragCurve (path.id, b.id, double (length)));
+    ImGui::SameLine ();
+}
+
 void Panel (Session& s)
 {
     const auto& doc = Doc (s);
     s.profilePlaced.clear (); // the canvas republishes its labels every frame
+    SettleWidgetGesture (s);
     LandscapePanel (s);
     ImGui::Text ("%zu objects   %zu paths   %zu selected", doc.entities.size (), doc.paths.size (),
                  s.selection.Items ().size ());
@@ -305,55 +405,22 @@ void Panel (Session& s)
         ImGui::Separator ();
         ImGui::Text ("Path profile  (%zu breaks, %zu ranges)", path->profile.size (), path->sections.size ());
         ImGui::BeginDisabled (s.profileTyping);
-        // Its kerb radius: its outside corners and its junctions with other paths rounded.
-        float kerb = float (path->edgeRadius);
-        ImGui::SetNextItemWidth (140.0f);
-        if (ImGui::DragFloat ("Kerb radius", &kerb, 0.05f, 0.0f, 20.0f, "%.2f m") && s.drag == Drag::None) {
-            const edit::Id id = path->id;
-            const double r = double (kerb);
-            if (!s.edits.Apply (
-                    [id, r] (edit::Document& d, std::string& e) { return edit::SetPathEdgeRadius (d, id, r, e); }))
-                s.message = s.edits.Message ();
-        }
-        // A kerb corner picked on the view: its own radius, apart from the path's.
-        if (const edit::PavedCorner* k = PickedKerb (s)) {
-            float r = float (k->requestedRadius);
-            ImGui::SetNextItemWidth (140.0f);
-            if (ImGui::DragFloat (k->key.other != edit::kNoId ? "Junction corner" : "Corner radius", &r, 0.05f, 0.0f,
-                                  0.0f, "%.2f m") &&
-                s.drag == Drag::None) {
-                const edit::PavedCorner c = *k;
-                const double v = double (r);
-                if (!s.edits.Apply ([c, v] (edit::Document& d, std::string& e) {
-                        return edit::SetKerbRadius (d, c.path, c.key, v, e);
-                    }))
-                    s.message = s.edits.Message ();
-            }
-            if (k->Limited ())
-                ImGui::Text ("Fitted radius %.2f m. Requested %.2f m.", k->key.radius, k->requestedRadius);
-        }
+        PathRadiusControls (s, *path);
+        // A radius edit replaced the document the pointer was into; it never removes the path.
+        if (const edit::Path* now = edit::FindPath (Doc (s), s.profilePath))
+            path = now;
         // Path actions on the selected part.
         const auto& items = s.selection.Items ();
         const edit::Ref* part = items.size () == 1 && items[0].entity == path->id ? &items[0] : nullptr;
         if (part != nullptr && part->part == edit::Part::Break)
-            for (const auto& b : path->profile)
-                if (b.id == part->item) {
-                    // Its smoothing: the vertical curve's length, as its nubs on the canvas set it.
-                    size_t index = 0;
-                    while (index < path->profile.size () && path->profile[index].id != b.id)
-                        ++index;
-                    const double room = edit::MaxCurve (*path, index);
-                    if (room > 0.0) {
-                        float length = float (b.curve);
-                        ImGui::SetNextItemWidth (140.0f);
-                        if (ImGui::SliderFloat ("Smoothing", &length, 0.0f, float (room), "%.2f m") &&
-                            s.drag == Drag::None) {
-                            const auto op = edit::DragCurve (path->id, b.id, double (length));
-                            if (!s.edits.Apply (op))
-                                s.message = s.edits.Message ();
-                        }
-                        ImGui::SameLine ();
-                    }
+            for (size_t index = 0; index < path->profile.size (); ++index)
+                if (path->profile[index].id == part->item) {
+                    BreakSmoothingControl (s, *path, index);
+                    if (const edit::Path* now = edit::FindPath (Doc (s), s.profilePath))
+                        path = now; // the smoothing edit replaced the document
+                    if (index >= path->profile.size ())
+                        break;
+                    const auto& b = path->profile[index];
                     if (ImGui::SmallButton (b.fixed ? "Unfix elevation" : "Fix elevation")) {
                         const edit::Id id = path->id, bid = b.id;
                         const double station = b.station, z = b.z;
@@ -365,6 +432,8 @@ void Panel (Session& s)
                     }
                     break;
                 }
+        if (const edit::Path* now = edit::FindPath (Doc (s), s.profilePath))
+            path = now; // after Fix elevation
         // How it sheds water: a picked range's fall, or every range's of the path selected whole
         // (none of the three shown chosen while they differ); and the side flipped.
         const bool whole = part != nullptr && part->part == edit::Part::Entity;
@@ -398,6 +467,8 @@ void Panel (Session& s)
         }
 
         ImGui::EndDisabled ();
+        if (const edit::Path* now = edit::FindPath (Doc (s), s.profilePath))
+            path = now; // after a fall change
         // The profile canvas: stations right, elevations up, exaggerated to fit, with a gutter
         // on the left for its grid's heights.
         const float width = std::max (200.0f, ImGui::GetContentRegionAvail ().x);

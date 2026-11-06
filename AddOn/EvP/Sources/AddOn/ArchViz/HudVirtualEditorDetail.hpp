@@ -141,6 +141,23 @@ bool LabelContains (const editlayers::Box& box, ImVec2 mouse);
 
 // The kerb corner a click picked, as it is now; null when none is.
 const edit::PavedCorner* PickedKerb (Session& s);
+
+// A panel widget's drag or typed value as one undoable gesture, called right after the widget:
+// it begins when the widget activates, every edited frame replaces the preview from the
+// gesture's start, and the release ends it with one undo entry (none when nothing changed).
+// A refused value keeps the last valid preview and reports why. An edit with no activation
+// (no gesture of its own) is one whole step. True when this frame's value was applied.
+bool WidgetGesture (Session& s, const edit::Operation& operation);
+// Esc: an unfinished widget gesture restores the state before it; true when there was one.
+// The widget's remaining edits are ignored until it is released.
+bool CancelWidgetGesture (Session& s);
+// Once a frame before the panel's widgets: a widget that stopped being drawn mid-gesture
+// (its selection changed, the panel closed) cancels the gesture it owned.
+void SettleWidgetGesture (Session& s);
+// The selected path's kerb radius and the picked kerb corner's own radius.
+void PathRadiusControls (Session& s, const edit::Path& path);
+// The selected grade break's vertical-curve length (`index` into the path's profile).
+void BreakSmoothingControl (Session& s, const edit::Path& path, size_t index);
 // The picked kerb corner's radius, for the tracker to offer for typing; false when none is.
 bool KerbField (const Session& s, double& radius);
 // A typed requested radius for the picked kerb corner; paving fits it without losing intent.
