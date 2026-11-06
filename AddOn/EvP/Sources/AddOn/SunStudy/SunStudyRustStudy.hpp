@@ -110,6 +110,10 @@ class RustStudyCore final {
     bool SampleSteps (size_t sample, std::vector<uint8_t>& steps, std::string& error) const;
 
   private:
+    // The annual accumulator reads a finished day straight from the handle
+    // and presents a period through it (SunStudyRustAnnual).
+    friend class RustAnnualSun;
+
     explicit RustStudyCore (TapiocaSunStudyStudy* handle);
     bool Image (uint8_t kind, std::vector<AtlasTile>* tiles, std::vector<FaceLayout>* layouts, uint32_t& width,
                 uint32_t& height, std::vector<float>& image, StudyReadStatus& status, std::string& error) const;

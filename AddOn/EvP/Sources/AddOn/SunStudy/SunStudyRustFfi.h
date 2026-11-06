@@ -1200,6 +1200,82 @@ TapiocaStatus tapioca_sunstudy_study_sample_steps (const TapiocaSunStudyStudy* h
                                                    const TapiocaStudySampleStepsOutput* output, size_t* count,
                                                    char* error, size_t errorCapacity);
 
+/* ---- annual accumulator (#152; Rust-owned; one thread at a time) ------- */
+
+/* Per-sample monthly unoccluded and surface-facing hours of a period, added
+ * one converged day study at a time; no step mask is kept. A refused day
+ * changes nothing. Refusal names: AnnualInvalidMonth, AnnualInvalidWeight,
+ * AnnualInvalidHours, AnnualReceptorsChanged, AnnualInconsistentDay,
+ * AnnualDayNotConverged, AnnualDayPresented, AnnualOutOfMemory. */
+typedef struct TapiocaSunStudyAnnual TapiocaSunStudyAnnual;
+
+TapiocaStatus tapioca_sunstudy_annual_create (size_t sampleCount, TapiocaSunStudyAnnual** out, char* error,
+                                              size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_annual_destroy (TapiocaSunStudyAnnual* handle, char* error, size_t errorCapacity);
+
+typedef struct {
+    double weightDays; /* calendar days the traced day represents */
+    uint8_t month;     /* 1-12 */
+} TapiocaAnnualDayRequest;
+
+/* `study` null adds a sunless day: its days are represented at zero hours. */
+TapiocaStatus tapioca_sunstudy_annual_add_day (TapiocaSunStudyAnnual* handle, const TapiocaSunStudyStudy* study,
+                                               const TapiocaAnnualDayRequest* request, char* error,
+                                               size_t errorCapacity);
+
+typedef struct {
+    size_t sampleCount;
+    size_t sampledDays;
+    double representedDays;
+    double siteDaylight[12];         /* hours per month */
+    double monthDays[12];            /* represented days per month */
+    TapiocaResultSummary unoccluded; /* whole period, against its site daylight */
+} TapiocaAnnualInfo;
+
+TapiocaStatus tapioca_sunstudy_annual_info (const TapiocaSunStudyAnnual* handle, TapiocaAnnualInfo* out, char* error,
+                                            size_t errorCapacity);
+
+typedef struct {
+    double* values; /* one per sample; capacity 0 reports the count only */
+    size_t capacity;
+    uint8_t quantity; /* 0 unoccluded, 1 surface facing, 2 obstruction loss */
+    uint8_t month;    /* 0 the whole period, 1-12 one month */
+    uint8_t perDay;   /* 1 the mean a represented day, 0 the total */
+} TapiocaAnnualValuesRequest;
+
+/* Shape-then-fill; `ceiling` is the site daylight of the same selection (a day
+ * when `perDay`). */
+TapiocaStatus tapioca_sunstudy_annual_values (const TapiocaSunStudyAnnual* handle,
+                                              const TapiocaAnnualValuesRequest* request, size_t* count, double* ceiling,
+                                              char* error, size_t errorCapacity);
+
+/* Draw a selection through `study`'s samples and atlas, as totals or (`perDay`
+ * 1) means a represented day: every hours reader of that study then returns
+ * it; its step masks stay the traced day's. */
+TapiocaStatus tapioca_sunstudy_annual_present (const TapiocaSunStudyAnnual* handle, const TapiocaSunStudyStudy* study,
+                                               uint8_t quantity, uint8_t month, uint8_t perDay, char* error,
+                                               size_t errorCapacity);
+
+typedef struct {
+    int32_t year;     /* of both ends */
+    uint8_t from[2];  /* month, day */
+    uint8_t to[2];    /* month, day; included */
+    uint8_t sampling; /* 0 preview (one middle day per covered month), 1 every day */
+} TapiocaAnnualScheduleRequest;
+
+typedef struct {
+    double weightDays; /* calendar days it represents, all in its own month */
+    int32_t year;
+    uint8_t month;
+    uint8_t day;
+} TapiocaAnnualScheduledDay;
+
+/* The days a period traces, in date order; shape-then-fill. `represented` is
+ * the period's calendar-day count. AnnualInvalidDate / AnnualInvalidRange. */
+TapiocaStatus tapioca_sunstudy_annual_schedule (const TapiocaAnnualScheduleRequest* request,
+                                                TapiocaAnnualScheduledDay* days, size_t capacity, size_t* count,
+                                                uint32_t* represented, char* error, size_t errorCapacity);
+
 /* ---- follower policy (Rust-owned; one thread at a time) ---------------- */
 
 typedef struct TapiocaSunStudyFollower TapiocaSunStudyFollower;

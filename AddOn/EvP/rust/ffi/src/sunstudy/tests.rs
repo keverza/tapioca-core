@@ -266,3 +266,204 @@ fn limits_refuse_a_non_boolean_flag() {
     assert_eq!(status, ERR_ARG);
     assert_eq!(out, LimitsOutput::default());
 }
+
+fn annual_handle(samples: usize) -> *mut AnnualHandle {
+    let mut handle = std::ptr::null_mut();
+    let mut error = [0; 64];
+    // SAFETY: exclusive local outputs of the declared sizes.
+    let status = unsafe {
+        tapioca_sunstudy_annual_create(samples, &raw mut handle, error.as_mut_ptr(), error.len())
+    };
+    assert_eq!(status, OK, "{}", message(&error));
+    handle
+}
+
+#[test]
+fn annual_sunless_days_represent_their_days_at_zero_hours() {
+    let handle = annual_handle(3);
+    let mut error = [0; 96];
+    let june = AnnualDayRequest {
+        weight_days: 30.0,
+        month: 6,
+    };
+    // SAFETY: live handle; null study = sunless day; local request.
+    let status = unsafe {
+        tapioca_sunstudy_annual_add_day(
+            handle,
+            std::ptr::null(),
+            &raw const june,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, OK, "{}", message(&error));
+    let bad = AnnualDayRequest {
+        weight_days: 1.0,
+        month: 13,
+    };
+    // SAFETY: as above.
+    let status = unsafe {
+        tapioca_sunstudy_annual_add_day(
+            handle,
+            std::ptr::null(),
+            &raw const bad,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, ERR_ARG);
+    assert_eq!(message(&error), "AnnualInvalidMonth");
+    let mut info = AnnualInfo::default();
+    // SAFETY: live handle; exclusive local output.
+    let status = unsafe {
+        tapioca_sunstudy_annual_info(handle, &raw mut info, error.as_mut_ptr(), error.len())
+    };
+    assert_eq!(status, OK, "{}", message(&error));
+    assert_eq!((info.sample_count, info.sampled_days), (3, 1));
+    assert!((info.represented_days - 30.0).abs() < f64::EPSILON);
+    assert_eq!(info.month_days.get(5).copied(), Some(30.0));
+    assert_eq!(info.unoccluded.count, 3);
+
+    // Shape, then fill.
+    let mut values = [7.0_f64; 3];
+    let mut request = AnnualValuesRequest {
+        values: std::ptr::null_mut(),
+        capacity: 0,
+        quantity: 0,
+        month: 0,
+        per_day: 0,
+    };
+    let (mut count, mut ceiling) = (0_usize, -1.0_f64);
+    // SAFETY: live handle; local request and outputs, disjoint.
+    let status = unsafe {
+        tapioca_sunstudy_annual_values(
+            handle,
+            &raw const request,
+            &raw mut count,
+            &raw mut ceiling,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, OK, "{}", message(&error));
+    assert_eq!(count, 3);
+    assert!(ceiling.abs() < f64::EPSILON);
+    request.values = values.as_mut_ptr();
+    request.capacity = values.len();
+    request.quantity = 2;
+    // SAFETY: as above; `values` is writable for its capacity.
+    let status = unsafe {
+        tapioca_sunstudy_annual_values(
+            handle,
+            &raw const request,
+            &raw mut count,
+            &raw mut ceiling,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, OK, "{}", message(&error));
+    assert_eq!(values, [0.0; 3]);
+    request.quantity = 9;
+    // SAFETY: as above.
+    let status = unsafe {
+        tapioca_sunstudy_annual_values(
+            handle,
+            &raw const request,
+            &raw mut count,
+            &raw mut ceiling,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, ERR_ARG);
+    // SAFETY: the live handle is released once and not used again.
+    let status =
+        unsafe { tapioca_sunstudy_annual_destroy(handle, error.as_mut_ptr(), error.len()) };
+    assert_eq!(status, OK);
+}
+
+#[test]
+fn annual_null_handles_are_refused() {
+    let mut error = [0; 64];
+    let request = AnnualDayRequest {
+        weight_days: 1.0,
+        month: 1,
+    };
+    // SAFETY: the null handle is rejected before any use.
+    let status = unsafe {
+        tapioca_sunstudy_annual_add_day(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            &raw const request,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_ne!(status, OK);
+    // SAFETY: null is accepted by destroy.
+    let status = unsafe {
+        tapioca_sunstudy_annual_destroy(std::ptr::null_mut(), error.as_mut_ptr(), error.len())
+    };
+    assert_eq!(status, OK);
+}
+
+#[test]
+fn annual_schedule_is_shape_then_fill_and_validated() {
+    let mut error = [0; 64];
+    let request = AnnualScheduleRequest {
+        year: 2024,
+        from: [2, 10],
+        to: [3, 31],
+        sampling: 0,
+    };
+    let (mut count, mut represented) = (0_usize, 0_u32);
+    // SAFETY: local request and outputs; zero capacity writes no day.
+    let status = unsafe {
+        tapioca_sunstudy_annual_schedule(
+            &raw const request,
+            std::ptr::null_mut(),
+            0,
+            &raw mut count,
+            &raw mut represented,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, OK, "{}", message(&error));
+    assert_eq!((count, represented), (2, 20 + 31));
+    let mut days = [AnnualScheduledDay::default(); 2];
+    // SAFETY: as above; `days` writable for its capacity.
+    let status = unsafe {
+        tapioca_sunstudy_annual_schedule(
+            &raw const request,
+            days.as_mut_ptr(),
+            days.len(),
+            &raw mut count,
+            &raw mut represented,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, OK, "{}", message(&error));
+    let got: Vec<(u8, u8)> = days.iter().map(|d| (d.month, d.day)).collect();
+    assert_eq!(got, vec![(2, 19), (3, 16)]);
+    let bad = AnnualScheduleRequest {
+        from: [2, 30],
+        ..request
+    };
+    // SAFETY: as above.
+    let status = unsafe {
+        tapioca_sunstudy_annual_schedule(
+            &raw const bad,
+            std::ptr::null_mut(),
+            0,
+            &raw mut count,
+            &raw mut represented,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, ERR_ARG);
+    assert_eq!(message(&error), "AnnualInvalidDate");
+}

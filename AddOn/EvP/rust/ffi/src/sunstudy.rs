@@ -9,6 +9,7 @@
 use crate::borrow::{BorrowContext, SliceView};
 use crate::boundary::{Failure, call, memory_range, overlaps};
 
+mod annual;
 mod atlas;
 mod camera;
 mod follower;
@@ -30,6 +31,12 @@ mod views;
 mod visibility;
 mod winding;
 
+pub use annual::{
+    AnnualDayRequest, AnnualHandle, AnnualInfo, AnnualScheduleRequest, AnnualScheduledDay,
+    AnnualValuesRequest, tapioca_sunstudy_annual_add_day, tapioca_sunstudy_annual_create,
+    tapioca_sunstudy_annual_destroy, tapioca_sunstudy_annual_info, tapioca_sunstudy_annual_present,
+    tapioca_sunstudy_annual_schedule, tapioca_sunstudy_annual_values,
+};
 pub use atlas::{
     AtlasOutput, AtlasSamplesView, AtlasSummary, AtlasTileRecord, TriangleAtlasRequest,
     tapioca_sunstudy_triangle_atlas,

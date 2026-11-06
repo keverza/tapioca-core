@@ -513,6 +513,51 @@ impl AnnualAccumulator {
         Ok(self.site_daylight.get(bins).map_or(0.0, |b| b.iter().sum()))
     }
 
+    /// Calendar days represented in `month` (1-12) or the whole period (0).
+    ///
+    /// # Errors
+    /// [`AnnualError::InvalidMonth`].
+    pub fn represented_in(&self, month: u8) -> Result<f64, AnnualError> {
+        let bins = Self::months(month)?;
+        Ok(self.represented.get(bins).map_or(0.0, |b| b.iter().sum()))
+    }
+
+    /// [`Self::values`] divided by the represented days of the selection: the
+    /// mean hours a day, comparable with a one-day study and with periods of
+    /// other lengths. All zero when the selection represents no day.
+    ///
+    /// # Errors
+    /// [`AnnualError::InvalidMonth`] or [`AnnualError::OutOfMemory`].
+    pub fn daily_means(
+        &self,
+        quantity: AnnualQuantity,
+        month: u8,
+    ) -> Result<Vec<f64>, AnnualError> {
+        let days = self.represented_in(month)?;
+        let mut values = self.values(quantity, month)?;
+        if days > 0.0 {
+            for v in &mut values {
+                *v /= days;
+            }
+        } else {
+            values.fill(0.0);
+        }
+        Ok(values)
+    }
+
+    /// [`Self::ceiling`] a day: the mean site daylight of the selection.
+    ///
+    /// # Errors
+    /// [`AnnualError::InvalidMonth`].
+    pub fn daily_ceiling(&self, month: u8) -> Result<f64, AnnualError> {
+        let days = self.represented_in(month)?;
+        Ok(if days > 0.0 {
+            self.ceiling(month)? / days
+        } else {
+            0.0
+        })
+    }
+
     /// Sampled and represented days, and the whole period's unoccluded
     /// statistics against its site daylight.
     ///
@@ -525,6 +570,15 @@ impl AnnualAccumulator {
             represented_days: self.represented.iter().sum(),
             unoccluded: summarize_sun_hours(&self.values(AnnualQuantity::Unoccluded, 0)?, ceiling),
         })
+    }
+
+    /// True when `samples` are the receptors the days were traced on (always
+    /// true before the first traced day): the precondition for drawing these
+    /// totals through another study's samples.
+    #[must_use]
+    pub fn same_receptors(&self, samples: &SampleSet<'_>) -> bool {
+        samples.count == self.sample_count
+            && (self.fingerprint == 0 || receptor_fingerprint(samples) == self.fingerprint)
     }
 
     /// The raw sample-major arrays: unoccluded, then surface facing.

@@ -1364,6 +1364,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustReuse.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustSurface.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustStudy.cpp"
+        "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustAnnual.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustFollower.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustViews.cpp"
         # The ray workers' CPU oracle runs the production (Rust) accumulator,
@@ -1372,6 +1373,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_rayworker.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_parity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_study.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_annual.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_views.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_flip.cpp"
         # A study runs only on the Rust core (P7a): every test that files one in

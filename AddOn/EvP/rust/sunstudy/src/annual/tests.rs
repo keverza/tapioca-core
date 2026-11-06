@@ -183,6 +183,19 @@ fn the_period_is_the_sum_of_its_days() -> Result<(), AnnualError> {
     assert_eq!(summary.unoccluded.max_hours, 1.5);
     assert_eq!(summary.unoccluded.daylight_hours, 4.0);
     assert_eq!(acc.represented_days().get(11), Some(&31.0));
+    // Means a day: the period represents 35 days, two of them in January.
+    assert_eq!(acc.represented_in(1), Ok(2.0));
+    assert_eq!(
+        acc.daily_means(AnnualQuantity::Unoccluded, 1),
+        Ok(vec![0.25, 0.5])
+    );
+    assert_eq!(acc.daily_ceiling(1), Ok(1.0));
+    assert_eq!(acc.daily_ceiling(0), Ok(4.0 / 35.0));
+    assert_eq!(
+        acc.daily_means(AnnualQuantity::Unoccluded, 5),
+        Ok(vec![0.0, 0.0])
+    );
+    assert_eq!(acc.daily_ceiling(5), Ok(0.0));
     Ok(())
 }
 
@@ -247,6 +260,8 @@ fn other_receptors_are_refused() -> Result<(), AnnualError> {
         ..day(1, 1.0, &steps, &[0.5, 0.0])
     };
     assert_eq!(acc.add_day(&other), Err(AnnualError::ReceptorsChanged));
+    assert!(!acc.same_receptors(&other.samples));
+    assert!(acc.same_receptors(&samples()));
     let unnormalled = DayContribution {
         samples: SampleSet {
             positions: &POSITIONS,

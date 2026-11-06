@@ -13,6 +13,23 @@ namespace evp::sunstudy {
 
 namespace {
 
+// The hours a reading is out of: the day's daylight, or the period a finished
+// day study presents instead (#152). The core's info carries whichever holds.
+double ReadCeiling (const StudyRecord& record)
+{
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    TapiocaStudyInfo info {};
+    std::string ignored;
+    if (record.rustCore != nullptr && record.rustCore->Info (info, ignored))
+        return info.daylightHours;
+#endif
+    return record.series.DaylightHours ();
+}
+
+} // namespace
+
+namespace {
+
 SunStudyResultSummary SummarizeRecord (const StudyRecord& record)
 {
 #if defined(TAPIOCA_GEOMETRY_RUST)
@@ -444,7 +461,7 @@ bool SunStudyStore::DisplayInfo (const std::string& id, uint32_t& width, uint32_
     width = record.IsPatchDomain () ? record.patchAtlas.Width () : record.atlas.width;
     height = record.IsPatchDomain () ? record.patchAtlas.Height () : record.atlas.height;
     faces = record.IsPatchDomain () ? record.patchGrid.patchOfTriangle.size () : record.atlas.tiles.size ();
-    daylightHours = record.series.DaylightHours ();
+    daylightHours = ReadCeiling (record);
     revision = record.storeRevision;
     snapshotId = record.snapshotId;
     if (width == 0 || height == 0 || (!record.IsPatchDomain () && !record.atlas.valid)) {
@@ -554,7 +571,7 @@ bool SunStudyStore::DisplayData (const std::string& id, std::vector<AtlasTile>& 
             return false;
         }
         spacing = record.gridSpacing;
-        daylightHours = record.series.DaylightHours ();
+        daylightHours = ReadCeiling (record);
         const StudyProgress progress = progress_.at (id);
         converged = progress.converged;
         generation = progress.generation;
@@ -599,7 +616,7 @@ bool SunStudyStore::ReadAt (const std::string& id, uint64_t snapshotId, size_t f
     }
     if (meshIndex < record.elementRoles.size ())
         role = record.elementRoles[meshIndex];
-    daylightHours = record.series.DaylightHours ();
+    daylightHours = ReadCeiling (record);
 #if defined(TAPIOCA_GEOMETRY_RUST)
     if (record.rustCore != nullptr) {
         if (!record.rustCore->ReadAt (face, point, reading, error))

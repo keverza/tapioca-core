@@ -83,7 +83,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_study_info(
                 sample_mesh_count: core.sample_meshes().len(),
                 reuse: [reuse.reused_samples, reuse.reused_sample_steps],
                 spacing: core.spacing(),
-                daylight_hours: core.series().daylight_hours(),
+                daylight_hours: core.daylight_ceiling().map_err(failure)?,
                 analysed_area,
                 domain: match core.domain() {
                     StudyDomain::Ground { .. } => 0,
