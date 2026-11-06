@@ -36,6 +36,42 @@ Analysis does not:
 - own Diligent rendering, USD serialization, evaluator provider configuration, or WebUI policy; or
 - change the Archicad model as a side effect of computing a result.
 
+## Direct-Sun Period Result
+
+A period study measures direct sun over a date range within one calendar year (or the whole
+year) on **one** scene: the snapshot, element roles, analysis cylinder and place settings are
+captured once, and each traced day recaptures only its sun positions. A day that differs in its
+samples from the first is refused, never mixed. A failed host sun-position call refuses the
+period; a gap is never read as shade.
+
+Schedules (`rust/sunstudy/src/annual.rs`):
+
+- **Preview** traces one representative day per covered month, the middle covered day, weighted
+  by the covered days it stands for. Partial months weigh only their covered days. It is labelled
+  an estimate wherever it is shown.
+- **Every day** traces each covered day at weight one. It is the reference, still limited by the
+  timestep, the time slice and the sample grid; it is not called exact.
+
+Quantities, per sample and month, from one schedule:
+
+`0 <= unoccluded <= surface facing <= site daylight`
+
+Site daylight is the sun above the altitude floor inside the daily time slice (one scalar per
+month). Surface facing uses the day study's own incidence cull. Obstruction loss is
+`surface facing - unoccluded`; back-facing time is never reported as shade. Sunless days count
+at zero hours. Totals are `f64`, summed in day order, stored sample-major `[sample][month]` for
+unoccluded and facing only (192 bytes a sample whatever the period); no step mask is retained.
+
+Presentation: the viewer shows the **mean unoccluded hours a represented day** over the period,
+drawn through the last traced day's samples and atlas, so the day study's hour bands apply. That
+day's step masks remain the shadow views' source and are labelled with their date. A period is
+never re-run by the edit follower. Cancellation or failure publishes nothing and erases every
+day record it created; the previously shown study stays shown.
+
+Not yet in this contract: per-element/area-weighted summaries, named regulatory evaluation,
+historical time-zone/DST schedules (times are the project clock as the host gives it), date
+queries against a retained period scene, sky-component studies, and exports.
+
 ## Consumer Handoffs
 
 - Diligent consumes the shared result for overlays and visual inspection.
