@@ -183,4 +183,41 @@ TEST (SunStudyRustAnnual, OtherSamplesAreNeverMixedIntoAPeriod)
     EXPECT_EQ (error, "AnnualInvalidWeight");
 }
 
+// Playback (#152): a run that keeps its days can draw any one of them -- one
+// step lit or not, or the day's hours -- through the carrier.
+TEST (SunStudyRustAnnual, KeptDaysPlayBackOneStepOrOneDay)
+{
+    const auto day = Ground ({ 1.0, 0.0, 0.0, 5.0, 0.0, 0.0 });
+    ASSERT_NE (day, nullptr);
+    Converge (*day);
+    std::string error;
+    auto annual = rs::RustAnnualSun::Create (2, error, true);
+    ASSERT_NE (annual, nullptr) << error;
+    ASSERT_TRUE (annual->AddSunless (12, 1.0, error, 21)) << error;
+    ASSERT_TRUE (annual->Add (*day, 6, 1.0, error, 21)) << error;
+    std::vector<rs::ArchivedDay> days;
+    size_t bytes = 0;
+    ASSERT_TRUE (annual->ArchivedDays (days, bytes, error)) << error;
+    ASSERT_EQ (days.size (), 2u);
+    EXPECT_EQ (days[1].month, 6);
+    EXPECT_EQ (days[1].day, 21);
+    EXPECT_EQ (days[1].minutes, (std::vector<uint16_t> { 600, 660, 720 }));
+    EXPECT_GT (bytes, 0u);
+
+    ASSERT_TRUE (annual->PresentDay (*day, 1, 2, rs::AnnualQuantity::Unoccluded, 10.0, error)) << error;
+    std::vector<double> hours;
+    ASSERT_TRUE (day->SunHours (hours, error)) << error;
+    EXPECT_EQ (hours, (std::vector<double> { 10.0, 0.0 }));
+    ASSERT_TRUE (annual->PresentDay (*day, 1, -1, rs::AnnualQuantity::Unoccluded, 1.0, error)) << error;
+    ASSERT_TRUE (day->SunHours (hours, error)) << error;
+    EXPECT_EQ (hours, (std::vector<double> { 3.0, 0.0 }));
+    EXPECT_FALSE (annual->PresentDay (*day, 5, 0, rs::AnnualQuantity::Unoccluded, 1.0, error));
+
+    // Without keepDays there is nothing to play.
+    auto plain = rs::RustAnnualSun::Create (2, error);
+    ASSERT_NE (plain, nullptr) << error;
+    EXPECT_FALSE (plain->ArchivedDays (days, bytes, error));
+    EXPECT_EQ (error, "AnnualNoDayArchive");
+}
+
 } // namespace

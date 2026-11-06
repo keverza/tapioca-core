@@ -272,7 +272,7 @@ fn annual_handle(samples: usize) -> *mut AnnualHandle {
     let mut error = [0; 64];
     // SAFETY: exclusive local outputs of the declared sizes.
     let status = unsafe {
-        tapioca_sunstudy_annual_create(samples, &raw mut handle, error.as_mut_ptr(), error.len())
+        tapioca_sunstudy_annual_create(samples, 1, &raw mut handle, error.as_mut_ptr(), error.len())
     };
     assert_eq!(status, OK, "{}", message(&error));
     handle
@@ -285,6 +285,7 @@ fn annual_sunless_days_represent_their_days_at_zero_hours() {
     let june = AnnualDayRequest {
         weight_days: 30.0,
         month: 6,
+        day: 15,
     };
     // SAFETY: live handle; null study = sunless day; local request.
     let status = unsafe {
@@ -300,6 +301,7 @@ fn annual_sunless_days_represent_their_days_at_zero_hours() {
     let bad = AnnualDayRequest {
         weight_days: 1.0,
         month: 13,
+        day: 1,
     };
     // SAFETY: as above.
     let status = unsafe {
@@ -378,6 +380,29 @@ fn annual_sunless_days_represent_their_days_at_zero_hours() {
         )
     };
     assert_eq!(status, ERR_ARG);
+    let mut kept = [AnnualArchivedDay::default(); 2];
+    let (mut days, mut minutes, mut bytes) = (0_usize, 0_usize, 0_usize);
+    // SAFETY: live handle; exclusive local outputs of the declared sizes.
+    let status = unsafe {
+        tapioca_sunstudy_annual_archive_days(
+            handle,
+            kept.as_mut_ptr(),
+            kept.len(),
+            std::ptr::null_mut(),
+            0,
+            &raw mut days,
+            &raw mut minutes,
+            &raw mut bytes,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, OK, "{}", message(&error));
+    assert_eq!((days, minutes), (1, 0));
+    assert_eq!(
+        kept.first().map(|d| (d.month, d.day, d.step_count)),
+        Some((6, 15, 0))
+    );
     // SAFETY: the live handle is released once and not used again.
     let status =
         unsafe { tapioca_sunstudy_annual_destroy(handle, error.as_mut_ptr(), error.len()) };
@@ -390,6 +415,7 @@ fn annual_null_handles_are_refused() {
     let request = AnnualDayRequest {
         weight_days: 1.0,
         month: 1,
+        day: 1,
     };
     // SAFETY: the null handle is rejected before any use.
     let status = unsafe {

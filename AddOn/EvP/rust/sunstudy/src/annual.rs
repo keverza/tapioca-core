@@ -3,8 +3,9 @@
 //!
 //! The host traces each scheduled day with the ordinary one-day study and hands
 //! the finished day here; nothing in this module traces or computes a solar
-//! position. A year of step masks is never kept: a day contributes its hours
-//! and is dropped.
+//! position. A year of step masks is not kept by default: a day contributes
+//! its hours and is dropped. A run that asks for playback keeps each day's
+//! lit bits in a separate [`archive::DayArchive`].
 //!
 //! Quantities, per sample and month, from one integration schedule:
 //!
@@ -25,6 +26,7 @@
 //! weight one; it still depends on the timestep and the sample grid, so it is
 //! not called exact.
 
+pub mod archive;
 pub mod threshold;
 
 use crate::occlusion::SampleSet;

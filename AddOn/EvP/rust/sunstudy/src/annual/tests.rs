@@ -368,3 +368,62 @@ fn threshold_days_access_ratio_and_rows() -> Result<(), AnnualError> {
     assert!(acc.sample_row(2).is_none());
     Ok(())
 }
+
+#[test]
+fn the_archive_keeps_each_days_steps_and_hours() -> Result<(), AnnualError> {
+    use super::archive::{DayArchive, KeptDay};
+    // Two steps: the roof faces both, the north facade only the northern sun.
+    let steps = [sun(SOUTH), sun(NORTH)];
+    // Roof lit at both; facade shaded at its one facing step.
+    let lit = [1_u8, 1, 0, 0];
+    let set = samples();
+    let mut archive = DayArchive::new(2);
+    archive.push(&KeptDay {
+        month: 3,
+        day: 21,
+        weight_days: 1.0,
+        steps: &steps,
+        hours_per_step: 0.5,
+        samples: &set,
+        lit: &lit,
+    })?;
+    archive.push_sunless(12, 21, 1.0);
+    assert_eq!(archive.days().len(), 2);
+    assert_eq!(archive.instant(0, 0)?, vec![1.0, 0.0]);
+    assert_eq!(archive.instant(0, 5)?, vec![0.0, 0.0]); // past the day
+    assert_eq!(archive.day(0, AnnualQuantity::Unoccluded)?, vec![1.0, 0.0]);
+    assert_eq!(
+        archive.day(0, AnnualQuantity::SurfaceFacing)?,
+        vec![1.0, 0.5]
+    );
+    assert_eq!(
+        archive.day(0, AnnualQuantity::ObstructionLoss)?,
+        vec![0.0, 0.5]
+    );
+    assert_eq!(archive.day(0, AnnualQuantity::AccessRatio)?, vec![1.0, 0.0]);
+    assert_eq!(archive.day(1, AnnualQuantity::Unoccluded)?, vec![0.0, 0.0]);
+    assert_eq!(archive.sample_steps(0, 0), vec![1, 1]);
+    assert_eq!(
+        archive
+            .days()
+            .first()
+            .map(super::archive::ArchivedDay::daylight),
+        Some(1.0)
+    );
+    assert_eq!(archive.instant(2, 0), Err(AnnualError::InvalidRange));
+    // A wrong shape is refused and keeps nothing.
+    assert_eq!(
+        archive.push(&KeptDay {
+            month: 3,
+            day: 22,
+            weight_days: 1.0,
+            steps: &steps,
+            hours_per_step: 0.5,
+            samples: &set,
+            lit: &[1, 0, 1]
+        }),
+        Err(AnnualError::InvalidHours)
+    );
+    assert_eq!(archive.days().len(), 2);
+    Ok(())
+}

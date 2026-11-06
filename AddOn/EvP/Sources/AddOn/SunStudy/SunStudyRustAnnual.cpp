@@ -14,6 +14,7 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaAnnualInfo) == 272);
 static_assert (sizeof (TapiocaAnnualScheduleRequest) == 12);
 static_assert (sizeof (TapiocaAnnualScheduledDay) == 16);
 static_assert (sizeof (TapiocaAnnualSampleRecord) == 360);
+static_assert (sizeof (TapiocaAnnualArchivedDay) == 32);
 
 namespace {
 
@@ -73,19 +74,23 @@ RustAnnualSun::~RustAnnualSun ()
     Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_annual_destroy (handle_, m, n); }, ignored);
 }
 
-std::unique_ptr<RustAnnualSun> RustAnnualSun::Create (size_t sampleCount, std::string& error)
+std::unique_ptr<RustAnnualSun> RustAnnualSun::Create (size_t sampleCount, std::string& error, bool keepDays)
 {
     TapiocaSunStudyAnnual* handle = nullptr;
-    if (!Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_annual_create (sampleCount, &handle, m, n); },
-                 error))
+    if (!Invoke (
+            [&] (char* m, size_t n) {
+                return tapioca_sunstudy_annual_create (sampleCount, keepDays ? 1 : 0, &handle, m, n);
+            },
+            error))
         return nullptr;
     return std::unique_ptr<RustAnnualSun> (new RustAnnualSun (handle));
 }
 
-bool RustAnnualSun::Add (const RustStudyCore& day, int month, double weightDays, std::string& error)
+bool RustAnnualSun::Add (const RustStudyCore& day, int month, double weightDays, std::string& error, int dayOfMonth)
 {
     TapiocaAnnualDayRequest request {};
     request.weightDays = weightDays;
+    request.day = static_cast<uint8_t> (std::clamp (dayOfMonth, 0, 31));
     if (!Month (month, false, request.month, error))
         return false;
     return Invoke (
@@ -93,10 +98,11 @@ bool RustAnnualSun::Add (const RustStudyCore& day, int month, double weightDays,
         error);
 }
 
-bool RustAnnualSun::AddSunless (int month, double weightDays, std::string& error)
+bool RustAnnualSun::AddSunless (int month, double weightDays, std::string& error, int dayOfMonth)
 {
     TapiocaAnnualDayRequest request {};
     request.weightDays = weightDays;
+    request.day = static_cast<uint8_t> (std::clamp (dayOfMonth, 0, 31));
     if (!Month (month, false, request.month, error))
         return false;
     return Invoke (
@@ -171,6 +177,47 @@ bool RustAnnualSun::Sample (size_t sample, AnnualSampleRow& row, std::string& er
     std::copy (out.edges, out.edges + 13, row.edges.begin ());
     std::copy (out.daily, out.daily + 14, row.daily.begin ());
     return true;
+}
+
+bool RustAnnualSun::ArchivedDays (std::vector<ArchivedDay>& days, size_t& bytes, std::string& error) const
+{
+    days.clear ();
+    std::vector<TapiocaAnnualArchivedDay> records;
+    std::vector<uint16_t> minutes;
+    size_t dayCount = 0, minuteCount = 0;
+    const auto read = [&] (char* m, size_t n) {
+        return tapioca_sunstudy_annual_archive_days (handle_, records.data (), records.size (), minutes.data (),
+                                                     minutes.size (), &dayCount, &minuteCount, &bytes, m, n);
+    };
+    if (!Invoke (read, error)) // shape
+        return false;
+    records.assign (dayCount, TapiocaAnnualArchivedDay {});
+    minutes.assign (minuteCount, 0);
+    if ((dayCount > 0 || minuteCount > 0) && !Invoke (read, error)) // fill
+        return false;
+    for (const auto& record : records) {
+        ArchivedDay day;
+        day.month = record.month;
+        day.day = record.day;
+        day.weightDays = record.weightDays;
+        day.hoursPerStep = record.hoursPerStep;
+        const size_t first = (std::min) (size_t (record.firstStep), minutes.size ());
+        const size_t last = (std::min) (first + size_t (record.stepCount), minutes.size ());
+        day.minutes.assign (minutes.begin () + std::ptrdiff_t (first), minutes.begin () + std::ptrdiff_t (last));
+        days.push_back (std::move (day));
+    }
+    return true;
+}
+
+bool RustAnnualSun::PresentDay (const RustStudyCore& carrier, size_t day, int step, AnnualQuantity quantity,
+                                double scale, std::string& error) const
+{
+    return Invoke (
+        [&] (char* m, size_t n) {
+            return tapioca_sunstudy_annual_present_day (handle_, carrier.handle_, day, int32_t (step < 0 ? -1 : step),
+                                                        static_cast<uint8_t> (quantity), scale, m, n);
+        },
+        error);
 }
 
 } // namespace evp::sunstudy::rust

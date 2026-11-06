@@ -10,6 +10,7 @@ use super::Regions;
 use super::atlas::publish;
 use super::study::{StudyHandle, failure, study};
 use crate::boundary::{Failure, call, memory_range};
+use tapioca_sunstudy::annual::archive::{DayArchive, KeptDay};
 use tapioca_sunstudy::annual::threshold::{DAILY_BINS, DAILY_EDGES};
 use tapioca_sunstudy::annual::{
     AnnualAccumulator, AnnualError, AnnualQuantity, AnnualSampling, CalendarDate, DateRange,
@@ -20,6 +21,8 @@ use tapioca_sunstudy::summary::SunStudyResultSummary;
 /// Opaque accumulator handle.
 pub struct AnnualHandle {
     accumulator: AnnualAccumulator,
+    /// Every traced day's lit bits, when the run asked for playback.
+    archive: Option<DayArchive>,
 }
 
 fn refused(error: AnnualError) -> Failure {
@@ -117,16 +120,26 @@ unsafe fn annual<'a>(handle: *const AnnualHandle) -> Result<&'a AnnualAccumulato
 }
 
 /// SAFETY: as [`annual`], and no other thread may use the handle.
-unsafe fn annual_mut<'a>(handle: *mut AnnualHandle) -> Result<&'a mut AnnualAccumulator, Failure> {
+unsafe fn annual_mut<'a>(handle: *mut AnnualHandle) -> Result<&'a mut AnnualHandle, Failure> {
     memory_range(handle.cast_const(), 1)?;
     // SAFETY: non-null and aligned (checked); exclusivity is the caller's
     // contract.
-    unsafe { handle.as_mut() }
-        .map(|h| &mut h.accumulator)
-        .ok_or(Failure::Argument("AnnualHandle: null"))
+    unsafe { handle.as_mut() }.ok_or(Failure::Argument("AnnualHandle: null"))
 }
 
-/// Zeroed totals for `sample_count` samples.
+/// SAFETY: as [`annual`].
+unsafe fn archive_of<'a>(handle: *const AnnualHandle) -> Result<&'a DayArchive, Failure> {
+    memory_range(handle, 1)?;
+    // SAFETY: non-null and aligned (checked); liveness is the caller's contract.
+    unsafe { handle.as_ref() }
+        .ok_or(Failure::Argument("AnnualHandle: null"))?
+        .archive
+        .as_ref()
+        .ok_or(Failure::State("AnnualNoDayArchive"))
+}
+
+/// Zeroed totals for `sample_count` samples; `keep_days` 1 also keeps every
+/// traced day's lit bits for playback (`DayArchive`).
 ///
 /// # Safety
 /// `out` must be one writable pointer slot, disjoint from the error buffer.
@@ -134,6 +147,7 @@ unsafe fn annual_mut<'a>(handle: *mut AnnualHandle) -> Result<&'a mut AnnualAccu
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tapioca_sunstudy_annual_create(
     sample_count: usize,
+    keep_days: u8,
     out: *mut *mut AnnualHandle,
     error: *mut u8,
     error_capacity: usize,
@@ -144,8 +158,13 @@ pub unsafe extern "C" fn tapioca_sunstudy_annual_create(
             let mut regions = Regions::new(error, error_capacity)?;
             regions.output(out, 1);
             regions.check()?;
+            let keep = crate::sunstudy::flag(keep_days, "AnnualCreate: keep_days")?;
             let accumulator = AnnualAccumulator::new(sample_count).map_err(refused)?;
-            out.write(Box::into_raw(Box::new(AnnualHandle { accumulator })));
+            let archive = keep.then(|| DayArchive::new(sample_count));
+            out.write(Box::into_raw(Box::new(AnnualHandle {
+                accumulator,
+                archive,
+            })));
             Ok(())
         })
     }
@@ -182,6 +201,8 @@ pub struct AnnualDayRequest {
     pub weight_days: f64,
     /// Month bin, 1-12.
     pub month: u8,
+    /// Day of the month (kept with the day when the handle archives).
+    pub day: u8,
 }
 
 /// Add a converged day study's hours. `study` null adds a sunless day (no sun
@@ -205,11 +226,18 @@ pub unsafe extern "C" fn tapioca_sunstudy_annual_add_day(
             regions.input(request, 1);
             regions.check()?;
             let request = regions.context().record(request)?;
-            let accumulator = annual_mut(handle)?;
+            let AnnualHandle {
+                accumulator,
+                archive,
+            } = annual_mut(handle)?;
             if study_handle.is_null() {
-                return accumulator
+                accumulator
                     .add_sunless_day(request.month, request.weight_days)
-                    .map_err(refused);
+                    .map_err(refused)?;
+                if let Some(archive) = archive {
+                    archive.push_sunless(request.month, request.day, request.weight_days);
+                }
+                return Ok(());
             }
             let core = study(study_handle)?;
             let progress = core.session().progress().map_err(|e| failure(e.into()))?;
@@ -221,16 +249,36 @@ pub unsafe extern "C" fn tapioca_sunstudy_annual_add_day(
                 return Err(Failure::State("AnnualDayPresented"));
             }
             let lit = core.sun_hours().map_err(failure)?;
-            accumulator
-                .add_day(&DayContribution {
-                    month: request.month,
-                    weight_days: request.weight_days,
-                    steps: core.series().steps(),
-                    hours_per_step: core.series().hours_per_step(),
-                    samples: core.samples(),
-                    lit_hours: &lit,
-                })
-                .map_err(refused)
+            // Kept first and dropped again if the totals refuse the day, so
+            // the archive and the totals always hold the same days.
+            if let Some(archive) = archive.as_mut() {
+                let bits = core.step_bits().map_err(failure)?;
+                archive
+                    .push(&KeptDay {
+                        month: request.month,
+                        day: request.day,
+                        weight_days: request.weight_days,
+                        steps: core.series().steps(),
+                        hours_per_step: core.series().hours_per_step(),
+                        samples: &core.samples(),
+                        lit: &bits,
+                    })
+                    .map_err(refused)?;
+            }
+            let added = accumulator.add_day(&DayContribution {
+                month: request.month,
+                weight_days: request.weight_days,
+                steps: core.series().steps(),
+                hours_per_step: core.series().hours_per_step(),
+                samples: core.samples(),
+                lit_hours: &lit,
+            });
+            if added.is_err()
+                && let Some(archive) = archive.as_mut()
+            {
+                archive.discard_last();
+            }
+            added.map_err(refused)
         })
     }
 }
@@ -534,6 +582,143 @@ pub unsafe extern "C" fn tapioca_sunstudy_annual_sample(
             }
             out.write(record);
             Ok(())
+        })
+    }
+}
+
+/// One kept day of a playback archive.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AnnualArchivedDay {
+    /// Calendar days it represents.
+    pub weight_days: f64,
+    /// Hours per step (0 for a sunless day).
+    pub hours_per_step: f64,
+    /// Index of its first step in the minutes array.
+    pub first_step: u32,
+    /// Kept steps that day.
+    pub step_count: u32,
+    /// Month, 1-12.
+    pub month: u8,
+    /// Day of the month.
+    pub day: u8,
+}
+
+/// The kept days and every step's clock minute, flattened; shape-then-fill
+/// for both arrays (a zero capacity only counts). `bytes` is what the archive
+/// holds. Refused when the run kept no days.
+///
+/// # Safety
+/// `handle` live; `days` writable for `day_capacity`, `minutes` for
+/// `minute_capacity`; the counts writable; all disjoint.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tapioca_sunstudy_annual_archive_days(
+    handle: *const AnnualHandle,
+    days: *mut AnnualArchivedDay,
+    day_capacity: usize,
+    minutes: *mut u16,
+    minute_capacity: usize,
+    day_count: *mut usize,
+    minute_count: *mut usize,
+    bytes: *mut usize,
+    error: *mut u8,
+    error_capacity: usize,
+) -> i32 {
+    // SAFETY: envelope contains unwinding; every region is checked before use.
+    unsafe {
+        call(error, error_capacity, || {
+            let mut regions = Regions::new(error, error_capacity)?;
+            regions.output(days, day_capacity);
+            regions.output(minutes, minute_capacity);
+            regions.output(day_count, 1);
+            regions.output(minute_count, 1);
+            regions.output(bytes, 1);
+            regions.check()?;
+            let archive = archive_of(handle)?;
+            let mut records = Vec::with_capacity(archive.days().len());
+            let mut flat: Vec<u16> = Vec::new();
+            for kept in archive.days() {
+                records.push(AnnualArchivedDay {
+                    weight_days: kept.weight_days,
+                    hours_per_step: kept.hours_per_step,
+                    first_step: u32::try_from(flat.len())
+                        .map_err(|_| Failure::State("AnnualArchiveTooLarge"))?,
+                    step_count: u32::try_from(kept.minutes.len())
+                        .map_err(|_| Failure::State("AnnualArchiveTooLarge"))?,
+                    month: kept.month,
+                    day: kept.day,
+                });
+                flat.extend_from_slice(&kept.minutes);
+            }
+            if day_capacity != 0 {
+                if day_capacity < records.len() {
+                    return Err(Failure::Argument("AnnualArchiveDaysTooSmall"));
+                }
+                publish(&records, days);
+            }
+            if minute_capacity != 0 {
+                if minute_capacity < flat.len() {
+                    return Err(Failure::Argument("AnnualArchiveMinutesTooSmall"));
+                }
+                publish(&flat, minutes);
+            }
+            day_count.write(records.len());
+            minute_count.write(flat.len());
+            bytes.write(archive.bytes());
+            Ok(())
+        })
+    }
+}
+
+/// Draw one kept day through `study`: `step` >= 0 shows that step lit (1) or
+/// not (0) against a ceiling of 1; `step` -1 shows the day's `quantity_code`
+/// (0-3) against its daylight (1 for the ratio). Values and ceiling are
+/// multiplied by `scale`, as in `tapioca_sunstudy_annual_present`.
+///
+/// # Safety
+/// Both handles live; `study` not being destroyed during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tapioca_sunstudy_annual_present_day(
+    handle: *const AnnualHandle,
+    study_handle: *const StudyHandle,
+    day: usize,
+    step: i32,
+    quantity_code: u8,
+    scale: f64,
+    error: *mut u8,
+    error_capacity: usize,
+) -> i32 {
+    // SAFETY: envelope contains unwinding; both handles are checked.
+    unsafe {
+        call(error, error_capacity, || {
+            let accumulator = annual(handle)?;
+            let archive = archive_of(handle)?;
+            let core = study(study_handle)?;
+            if !accumulator.same_receptors(&core.samples()) {
+                return Err(refused(AnnualError::ReceptorsChanged));
+            }
+            if !scale.is_finite() || scale <= 0.0 {
+                return Err(Failure::Argument("AnnualPresentDay: scale"));
+            }
+            let kept = archive
+                .days()
+                .get(day)
+                .ok_or(Failure::Argument("AnnualPresentDay: day"))?;
+            let (mut values, top) = if let Ok(step) = usize::try_from(step) {
+                (archive.instant(day, step).map_err(refused)?, 1.0)
+            } else {
+                let which = hours_quantity(quantity_code)?;
+                let top = if which == AnnualQuantity::AccessRatio {
+                    1.0
+                } else {
+                    kept.daylight()
+                };
+                (archive.day(day, which).map_err(refused)?, top)
+            };
+            for value in &mut values {
+                *value *= scale;
+            }
+            core.present(values, top * scale).map_err(failure)
         })
     }
 }

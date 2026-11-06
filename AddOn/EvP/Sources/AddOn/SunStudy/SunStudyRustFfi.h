@@ -16,7 +16,7 @@
 
 #include "Geometry/GeometryRustFfi.h"
 
-#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (2)
+#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (3)
 
 #ifdef __cplusplus
 extern "C" {
@@ -1203,19 +1203,21 @@ TapiocaStatus tapioca_sunstudy_study_sample_steps (const TapiocaSunStudyStudy* h
 /* ---- annual accumulator (#152; Rust-owned; one thread at a time) ------- */
 
 /* Per-sample monthly unoccluded and surface-facing hours of a period, added
- * one converged day study at a time; no step mask is kept. A refused day
+ * one converged day study at a time; no step mask is kept unless `keepDays`
+ * (playback: every day's lit bits, see annual_archive_days). A refused day
  * changes nothing. Refusal names: AnnualInvalidMonth, AnnualInvalidWeight,
  * AnnualInvalidHours, AnnualReceptorsChanged, AnnualInconsistentDay,
  * AnnualDayNotConverged, AnnualDayPresented, AnnualOutOfMemory. */
 typedef struct TapiocaSunStudyAnnual TapiocaSunStudyAnnual;
 
-TapiocaStatus tapioca_sunstudy_annual_create (size_t sampleCount, TapiocaSunStudyAnnual** out, char* error,
-                                              size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_annual_create (size_t sampleCount, uint8_t keepDays, TapiocaSunStudyAnnual** out,
+                                              char* error, size_t errorCapacity);
 TapiocaStatus tapioca_sunstudy_annual_destroy (TapiocaSunStudyAnnual* handle, char* error, size_t errorCapacity);
 
 typedef struct {
     double weightDays; /* calendar days the traced day represents */
     uint8_t month;     /* 1-12 */
+    uint8_t day;       /* day of the month, kept with an archived day */
 } TapiocaAnnualDayRequest;
 
 /* `study` null adds a sunless day: its days are represented at zero hours. */
@@ -1290,6 +1292,30 @@ typedef struct {
 TapiocaStatus tapioca_sunstudy_annual_schedule (const TapiocaAnnualScheduleRequest* request,
                                                 TapiocaAnnualScheduledDay* days, size_t capacity, size_t* count,
                                                 uint32_t* represented, char* error, size_t errorCapacity);
+
+/* Playback archive (created with keepDays 1; else AnnualNoDayArchive). */
+typedef struct {
+    double weightDays;
+    double hoursPerStep; /* 0 for a sunless day */
+    uint32_t firstStep;  /* into the minutes array */
+    uint32_t stepCount;
+    uint8_t month;
+    uint8_t day;
+} TapiocaAnnualArchivedDay;
+
+/* Kept days and each step's clock minute, flattened; shape-then-fill for both
+ * (a zero capacity only counts). `bytes`: what the archive holds. */
+TapiocaStatus tapioca_sunstudy_annual_archive_days (const TapiocaSunStudyAnnual* handle, TapiocaAnnualArchivedDay* days,
+                                                    size_t dayCapacity, uint16_t* minutes, size_t minuteCapacity,
+                                                    size_t* dayCount, size_t* minuteCount, size_t* bytes, char* error,
+                                                    size_t errorCapacity);
+
+/* Draw one kept day through `study`: `step` >= 0 that step lit (1) or not (0)
+ * against 1; `step` -1 the day's `quantity` (0-3) against its daylight (1 for
+ * the ratio). Values and ceiling times `scale`. */
+TapiocaStatus tapioca_sunstudy_annual_present_day (const TapiocaSunStudyAnnual* handle,
+                                                   const TapiocaSunStudyStudy* study, size_t day, int32_t step,
+                                                   uint8_t quantity, double scale, char* error, size_t errorCapacity);
 
 /* ---- follower policy (Rust-owned; one thread at a time) ---------------- */
 
