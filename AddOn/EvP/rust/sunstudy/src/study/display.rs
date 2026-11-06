@@ -121,7 +121,68 @@ impl StudyCore {
     /// # Errors
     /// [`StudyError::Poisoned`].
     pub fn sun_hours(&self) -> Result<Vec<f64>, StudyError> {
+        if let Some(presented) = self
+            .presented
+            .lock()
+            .map_err(|_| StudyError::Poisoned)?
+            .as_ref()
+        {
+            return Ok(presented.values.clone());
+        }
         Ok(self.session.sun_hours()?)
+    }
+
+    /// Show `values` (one per sample, finite, non-negative) instead of the
+    /// study's own day, against `ceiling` hours: a period's totals drawn
+    /// through this study's samples and atlas (#152). Every hours reader --
+    /// images, the summary, the hover reading -- reads them from then on; the
+    /// step masks stay the traced day's.
+    ///
+    /// # Errors
+    /// [`StudyError::BadSamples`] for a wrong count, a negative or non-finite
+    /// value or ceiling; [`StudyError::Poisoned`].
+    pub fn present(&self, values: Vec<f64>, ceiling: f64) -> Result<(), StudyError> {
+        if values.len() != self.samples().count
+            || values.iter().any(|v| !v.is_finite() || *v < 0.0)
+            || !ceiling.is_finite()
+            || ceiling < 0.0
+        {
+            return Err(StudyError::BadSamples);
+        }
+        // One lock at a time: `summary` takes the cache and then (through
+        // `sun_hours`) this one, so holding both here could invert the order.
+        // The cache is cleared after the values are in, so a summary computed
+        // in between is discarded.
+        *self.presented.lock().map_err(|_| StudyError::Poisoned)? =
+            Some(super::Presented { values, ceiling });
+        *self.summary.lock().map_err(|_| StudyError::Poisoned)? = None;
+        Ok(())
+    }
+
+    /// True once [`Self::present`] replaced the day's hours.
+    ///
+    /// # Errors
+    /// [`StudyError::Poisoned`].
+    pub fn is_presented(&self) -> Result<bool, StudyError> {
+        Ok(self
+            .presented
+            .lock()
+            .map_err(|_| StudyError::Poisoned)?
+            .is_some())
+    }
+
+    /// The ceiling the hours are read against: the presented period's, or
+    /// the day's possible daylight.
+    ///
+    /// # Errors
+    /// [`StudyError::Poisoned`].
+    pub fn daylight_ceiling(&self) -> Result<f64, StudyError> {
+        Ok(self
+            .presented
+            .lock()
+            .map_err(|_| StudyError::Poisoned)?
+            .as_ref()
+            .map_or_else(|| self.series.daylight_hours(), |p| p.ceiling))
     }
 
     /// One byte per (sample, step), sample-major: 1 when lit.
@@ -169,7 +230,7 @@ impl StudyCore {
         }) {
             return Ok(c.summary);
         }
-        let summary = summarize_sun_hours(&self.sun_hours()?, self.series.daylight_hours());
+        let summary = summarize_sun_hours(&self.sun_hours()?, self.daylight_ceiling()?);
         *cache = Some(super::CachedSummary {
             generation: progress.generation,
             resolved_steps: progress.resolved_steps,

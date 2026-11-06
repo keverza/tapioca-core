@@ -188,6 +188,14 @@ pub struct DisplayInfo {
     pub faces: usize,
 }
 
+/// Values a finished study shows instead of its own day (#152): a period's
+/// per-sample totals drawn through this study's atlas and samples.
+#[derive(Clone, Debug)]
+struct Presented {
+    values: Vec<f64>,
+    ceiling: f64,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct CachedSummary {
     generation: u64,
@@ -205,6 +213,7 @@ pub struct StudyCore {
     reuse: ReuseOutcome,
     session: SunStudySession,
     summary: Mutex<Option<CachedSummary>>,
+    presented: Mutex<Option<Presented>>,
 }
 
 /// Mirrors the C++ `source.gridSpacing == target.gridSpacing`.
@@ -226,6 +235,7 @@ impl StudyCore {
             reuse: ReuseOutcome::default(),
             session: SunStudySession::default(),
             summary: Mutex::new(None),
+            presented: Mutex::new(None),
         }
     }
 

@@ -509,3 +509,54 @@ fn patch_sample_meshes_follow_the_span_elements() {
     core.set_sample_meshes(meshes.split_at(1).0);
     assert_eq!(core.sample_meshes(), []);
 }
+
+#[test]
+fn presented_period_totals_replace_the_days_hours_but_not_its_steps() {
+    let positions = vec![1.0, 0.0, 0.0, 5.0, 0.0, 0.0];
+    let Ok(core) = StudyCore::ground(day(3), 1.0, positions, Vec::new()) else {
+        unreachable!("a valid ground grid was refused");
+    };
+    converge(&core);
+    assert_eq!(core.is_presented(), Ok(false));
+    assert_eq!(core.daylight_ceiling(), Ok(3.0));
+    let before = core.summary();
+    assert_eq!(before.map(|s| s.max_hours), Ok(3.0));
+    // The period, accumulated from this very day at a 30-day weight.
+    let Ok(mut period) = crate::annual::AnnualAccumulator::new(2) else {
+        unreachable!("allocates");
+    };
+    let Ok(lit) = core.sun_hours() else {
+        unreachable!("reads");
+    };
+    let added = period.add_day(&crate::annual::DayContribution {
+        month: 6,
+        weight_days: 30.0,
+        steps: core.series().steps(),
+        hours_per_step: core.series().hours_per_step(),
+        samples: core.samples(),
+        lit_hours: &lit,
+    });
+    assert_eq!(added, Ok(()));
+    let values = period.values(crate::annual::AnnualQuantity::Unoccluded, 0);
+    assert_eq!(values, Ok(vec![90.0, 0.0]));
+    assert_eq!(core.present(vec![1.0], 90.0), Err(StudyError::BadSamples));
+    assert_eq!(
+        core.present(vec![f64::NAN, 0.0], 90.0),
+        Err(StudyError::BadSamples)
+    );
+    assert_eq!(
+        core.present(vec![90.0, 0.0], f64::INFINITY),
+        Err(StudyError::BadSamples)
+    );
+    assert_eq!(core.present(values.unwrap_or_default(), 90.0), Ok(()));
+    assert_eq!(core.is_presented(), Ok(true));
+    assert_eq!(core.sun_hours(), Ok(vec![90.0, 0.0]));
+    assert_eq!(core.daylight_ceiling(), Ok(90.0));
+    let after = core.summary();
+    assert_eq!(
+        after.map(|s| (s.max_hours, s.daylight_hours, s.fully_lit)),
+        Ok((90.0, 90.0, 1))
+    );
+    // The traced day's steps stay the day's: the shadow views still read it.
+    assert_eq!(core.step_bits(), Ok(vec![1, 1, 1, 0, 0, 0]));
+}

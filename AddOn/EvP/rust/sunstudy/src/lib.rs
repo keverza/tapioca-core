@@ -9,6 +9,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod annual;
 pub mod atlas;
 pub mod follower;
 pub mod limits;
