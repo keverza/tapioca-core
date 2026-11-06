@@ -52,8 +52,26 @@ struct EllipseDefinition {
     Vec3 center, axisU, axisV;
     bool operator== (const EllipseDefinition&) const = default;
 };
+// One closed ring of a compound entity: the next `count` vertices of the flat vertex list,
+// after the rings before it. Its id is stable across edits that keep the ring, so a hole can
+// be named again after a vertex in it moves; it is never a vertex or segment id.
+struct EntityContour {
+    Id id = kNoId;
+    uint32_t count = 0;
+    bool operator== (const EntityContour&) const = default;
+};
 // An Extrusion is a closed, horizontal profile lifted by `height`. Its faces are
 // 0 bottom, 1 top and 2 + i the side over segment i.
+//
+// A compound entity is closed and carries a contour table (`contours`, two or more rows) that
+// splits `vertices` and `segments` -- which keep their flat, id-stable storage -- into rings.
+// Contour 0 is the outer boundary; every other contour lies strictly inside it, and no two
+// contours touch or cross. Fill is even-odd: a point is solid when it is inside an odd number of
+// contours, so a contour's depth (how many others contain it) makes it a hole when odd and an
+// island when even. Windings follow depth -- even counter-clockwise, odd clockwise -- so the
+// solid is always on the left of every segment and the net shoelace area is the solid area.
+// Segment i joins vertex i to the next vertex of the same contour, wrapping within it. An
+// empty table is one contour of every vertex: every entity written before contours existed.
 struct Entity {
     Id id = kNoId;
     Kind kind = Kind::Polyline;
@@ -64,6 +82,7 @@ struct Entity {
     std::string role; // the owning tool's word for it ("centerline", "platform", ...)
     Membership member;
     std::optional<EllipseDefinition> ellipse; // authoritative definition; vertices are its Bezier quarters
+    std::vector<EntityContour> contours;      // empty: a single contour (the legacy, simple entity)
     bool operator== (const Entity&) const = default;
 };
 // The editor's own layers and groups, never Archicad's: nothing here creates an Archicad
@@ -118,9 +137,55 @@ size_t SegmentCount (const Entity& entity);
 size_t MinVertices (const Entity& entity);
 // Vertex indices at the start and end of segment `index`.
 void SegmentEnds (const Entity& entity, size_t index, size_t& from, size_t& to);
+
+// ---- contours ----------------------------------------------------------------------------
+// Every caller that walks from a vertex to its neighbour goes through these, so a compound
+// entity's rings wrap within themselves and a simple entity behaves exactly as before.
+
+// A compound entity: two or more contours.
+bool IsCompound (const Entity& entity);
+// 1 for a simple entity (0 when it has no vertices).
+size_t ContourCount (const Entity& entity);
+// Vertex (and segment) indices [begin, end) of contour `contour`.
+void ContourRange (const Entity& entity, size_t contour, size_t& begin, size_t& end);
+// The contour holding vertex `index`.
+size_t ContourOf (const Entity& entity, size_t index);
+// The contour with this id, or -1. A simple entity has none.
+int ContourIndex (const Entity& entity, Id contour);
+// The next and previous vertex in the same contour, wrapping on a closed entity. On an open
+// one the ends have no neighbour past them; the caller checks that, as before.
+size_t NextVertex (const Entity& entity, size_t index);
+size_t PrevVertex (const Entity& entity, size_t index);
+// Vertex `index` is the first or last of an open entity: it has only one neighbour.
+bool OpenEnd (const Entity& entity, size_t index);
+// How many other contours contain contour `contour` (0 outer, 1 hole, 2 island in a hole...).
+size_t ContourDepth (const Entity& entity, size_t contour);
+// The plan points of one contour's anchors, in storage order.
+std::vector<Vec3> ContourPoints (const Entity& entity, size_t contour);
+// The net plan area of a closed entity: every contour's signed shoelace area summed, so holes
+// subtract. Positive for a valid extrusion or compound profile.
+double SignedAreaXY (const Entity& entity);
+// Even-odd: inside an odd number of contours (anchors joined straight).
+bool InsideXY (const Entity& entity, Vec3 point);
+// A compound entity built from rings: the first is the outer boundary, the rest lie inside it.
+// Each ring is re-wound to its depth's direction. Ids are new; heights are kept as given.
+Id AddCompound (Document& doc, const std::vector<std::vector<Vec3>>& rings, Kind kind, double height,
+                const std::string& role = {});
+// Replaces an entity's geometry by `rings` (same contract as AddCompound), keeping the entity's
+// id, kind, role, membership and height, and giving every vertex, segment and contour a new id.
+// One ring makes it simple. Refuses (unchanged) when the rings do not form a valid profile.
+bool SetRings (Document& doc, Id entity, const std::vector<std::vector<Vec3>>& rings, std::string& error);
+// Checks the contour table of one entity: counts, ids, closed, at least three anchors each,
+// contours 1.. strictly inside contour 0, no two crossing or touching, windings by depth.
+bool ValidateContours (const Entity& entity, std::string& error);
+
 size_t FaceCount (const Entity& entity);
-// Corner points of a face, counter-clockwise seen from outside.
+// Corner points of a face, counter-clockwise seen from outside. A compound cap is its outer
+// contour only; FaceRings gives every ring.
 std::vector<Vec3> FacePolygon (const Entity& entity, size_t face);
+// Every ring of a face: one for a side or a simple cap, one per contour for a compound cap
+// (the first the outer), each oriented as the face is seen from outside. Even-odd fill.
+std::vector<std::vector<Vec3>> FaceRings (const Entity& entity, size_t face);
 // Outward unit normal of a face (Z for top, -Z for bottom, horizontal for sides).
 bool FaceNormal (const Entity& entity, size_t face, Vec3& normal);
 
@@ -140,6 +205,7 @@ bool PointOf (const Document& doc, const Ref& ref, Vec3& point);
 // zero-length segment, flat profiles and positive heights for extrusions, and paths
 // whose alignment, profile and ranges agree.
 bool Validate (const Document& doc, std::string& error);
+// One ring's shoelace area. For a whole entity use SignedAreaXY (const Entity&).
 double SignedAreaXY (const std::vector<Vertex>& vertices);
 
 } // namespace geomsrv::edit

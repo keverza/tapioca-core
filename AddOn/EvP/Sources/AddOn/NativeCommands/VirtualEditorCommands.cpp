@@ -46,6 +46,23 @@ bool ReadPoints (const GS::ObjectState& item, const GS::String& key, std::vector
     return true;
 }
 
+// Optional `holes`: rings inside the outline, making a compound entity (even-odd fill).
+bool ReadHoles (const GS::ObjectState& item, std::vector<std::vector<edit::Vec3>>& rings, std::string& error)
+{
+    GS::Array<GS::ObjectState> holes;
+    if (!item.Get ("holes", holes))
+        return true;
+    for (const auto& hole : holes) {
+        std::vector<edit::Vec3> ring;
+        if (!ReadPoints (hole, "points", ring)) {
+            error = "Hole points must be finite.";
+            return false;
+        }
+        rings.push_back (std::move (ring));
+    }
+    return true;
+}
+
 std::string Role (const GS::ObjectState& item, const std::string& fallback)
 {
     GS::UniString role;
@@ -85,7 +102,16 @@ bool Seed (const GS::ObjectState& params, const std::string& role, edit::Documen
                 error = "Polyline points must be finite.";
                 return false;
             }
-            edit::AddPolyline (doc, points, closed, Role (item, role));
+            std::vector<std::vector<edit::Vec3>> rings { points };
+            if (!ReadHoles (item, rings, error))
+                return false;
+            if (rings.size () == 1)
+                edit::AddPolyline (doc, points, closed, Role (item, role));
+            else if (!closed ||
+                     edit::AddCompound (doc, rings, edit::Kind::Polyline, 0.0, Role (item, role)) == edit::kNoId) {
+                error = "Polyline holes need a closed outline that contains them without touching.";
+                return false;
+            }
         }
     list.Clear ();
     if (params.Get ("boxes", list))
@@ -96,7 +122,15 @@ bool Seed (const GS::ObjectState& params, const std::string& role, edit::Documen
                 error = "Box outlines and heights must be finite.";
                 return false;
             }
-            edit::AddExtrusion (doc, outline, height, Role (item, role));
+            std::vector<std::vector<edit::Vec3>> rings { outline };
+            if (!ReadHoles (item, rings, error))
+                return false;
+            if (rings.size () == 1)
+                edit::AddExtrusion (doc, outline, height, Role (item, role));
+            else if (edit::AddCompound (doc, rings, edit::Kind::Extrusion, height, Role (item, role)) == edit::kNoId) {
+                error = "Box holes must lie inside the outline without touching it or each other.";
+                return false;
+            }
         }
     list.Clear ();
     if (params.Get ("paths", list))
@@ -195,6 +229,16 @@ GS::ObjectState Export (const edit::Document& doc, std::string& error)
         for (const auto& v : e.vertices)
             points.Push (Point (v.p));
         os.Add ("points", points);
+        if (!e.contours.empty ()) { // `points` holds the contours one after another, outer first
+            GS::Array<GS::ObjectState> contours;
+            for (const auto& c : e.contours) {
+                GS::ObjectState item;
+                item.Add ("id", static_cast<GS::Int64> (c.id));
+                item.Add ("count", static_cast<GS::Int64> (c.count));
+                contours.Push (item);
+            }
+            os.Add ("contours", contours);
+        }
         if (e.ellipse) {
             GS::ObjectState ellipse;
             ellipse.Add ("mode", GS::UniString (e.ellipse->mode == edit::EllipseMode::Circle ? "circle" : "ellipse"));
@@ -615,8 +659,8 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
                 "tool":{"type":"string","enum":["select","polyline","path","curve","rectangle","polygon","ellipse"]},
                 "planeZ":{"type":"number"},"planeLocked":{"type":"boolean"},
                 "landscape":{"type":"object","properties":{"demo":{"type":"boolean"},"definition":{"type":"string","maxLength":8388608}},"additionalProperties":false},
-                "polylines":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"points":{"type":"array","minItems":2,"maxItems":20000,"items":{"$ref":"#Point3D"}},"closed":{"type":"boolean"},"role":{"type":"string"}},"required":["points"],"additionalProperties":false}},
-                "boxes":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"outline":{"type":"array","minItems":3,"maxItems":20000,"items":{"$ref":"#Point3D"}},"height":{"type":"number","exclusiveMinimum":0},"role":{"type":"string"}},"required":["outline","height"],"additionalProperties":false}},
+                "polylines":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"points":{"type":"array","minItems":2,"maxItems":20000,"items":{"$ref":"#Point3D"}},"closed":{"type":"boolean"},"holes":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"points":{"type":"array","minItems":3,"maxItems":20000,"items":{"$ref":"#Point3D"}}},"required":["points"],"additionalProperties":false}},"role":{"type":"string"}},"required":["points"],"additionalProperties":false}},
+                "boxes":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"outline":{"type":"array","minItems":3,"maxItems":20000,"items":{"$ref":"#Point3D"}},"height":{"type":"number","exclusiveMinimum":0},"holes":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"points":{"type":"array","minItems":3,"maxItems":20000,"items":{"$ref":"#Point3D"}}},"required":["points"],"additionalProperties":false}},"role":{"type":"string"}},"required":["outline","height"],"additionalProperties":false}},
                 "paths":{"type":"array","maxItems":200,"items":{"type":"object","properties":{"points":{"type":"array","minItems":2,"maxItems":2000,"items":{"$ref":"#Point3D"}},"width":{"type":"number","exclusiveMinimum":0,"maximum":100},"role":{"type":"string"}},"required":["points"],"additionalProperties":false}},
                 "snapPoints":{"type":"array","maxItems":100000,"items":{"$ref":"#Point3D"}},
                 "snapSegments":{"type":"array","maxItems":100000,"items":{"type":"array","minItems":2,"maxItems":2,"items":{"$ref":"#Point3D"}}}
@@ -625,7 +669,7 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
                 "active":{"type":"boolean"},"locked":{"type":"boolean"},"surface":{"type":"string","enum":["overlay","viewer"]},"revision":{"type":"integer"},"undoDepth":{"type":"integer"},"message":{"type":"string"},
                 "terrainDesign":{"type":"object","properties":{"active":{"type":"boolean"},"pending":{"type":"boolean"},"current":{"type":"boolean"},"stale":{"type":"boolean"},"built":{"type":"boolean"},"revision":{"type":"integer"},"vertices":{"type":"integer"},"triangles":{"type":"integer"},"conflicts":{"type":"integer"},"cut":{"type":"number"},"fill":{"type":"number"},"error":{"type":"string"}},"required":["active","pending","current","built","revision","vertices","triangles","conflicts","cut","fill","error"],"additionalProperties":false},
                 "document":{"type":"object","properties":{
-                  "polylines":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"kind":{"type":"string","enum":["polyline","extrusion"]},"role":{"type":"string"},"closed":{"type":"boolean"},"height":{"type":"number"},"points":{"type":"array","items":{"$ref":"#Point3D"}},"ellipse":{"type":"object","properties":{"mode":{"type":"string","enum":["circle","ellipse"]},"center":{"$ref":"#Point3D"},"axisU":{"$ref":"#Point3D"},"axisV":{"$ref":"#Point3D"}},"required":["mode","center","axisU","axisV"],"additionalProperties":false}},"required":["id","kind","role","closed","height","points"],"additionalProperties":false}},
+                  "polylines":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"kind":{"type":"string","enum":["polyline","extrusion"]},"role":{"type":"string"},"closed":{"type":"boolean"},"height":{"type":"number"},"points":{"type":"array","items":{"$ref":"#Point3D"}},"contours":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"count":{"type":"integer","minimum":3}},"required":["id","count"],"additionalProperties":false}},"ellipse":{"type":"object","properties":{"mode":{"type":"string","enum":["circle","ellipse"]},"center":{"$ref":"#Point3D"},"axisU":{"$ref":"#Point3D"},"axisV":{"$ref":"#Point3D"}},"required":["mode","center","axisU","axisV"],"additionalProperties":false}},"required":["id","kind","role","closed","height","points"],"additionalProperties":false}},
                   "paths":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"role":{"type":"string"},"length":{"type":"number"},"points":{"type":"array","items":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"}},"required":["x","y","radius"],"additionalProperties":false}},"profile":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"z":{"type":"number"},"curve":{"type":"number"},"fixed":{"type":"boolean"},"binding":{"type":"string"}},"required":["station","z","curve","fixed","binding"],"additionalProperties":false}},"sections":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"widthLeft":{"type":"number"},"widthRight":{"type":"number"},"crossfall":{"type":"number"},"fall":{"type":"string","enum":["crown","left","right"]}},"required":["station","widthLeft","widthRight","crossfall","fall"],"additionalProperties":false}}},"required":["id","role","length","points","profile","sections"],"additionalProperties":false}},
                   "landscape":{"type":"string","maxLength":8388608},
                   "landscapeSummary":{"type":"object","properties":{"sources":{"type":"integer"},"operations":{"type":"integer"},"objects":{"type":"integer"},"faces":{"type":"integer"},"propertyLine":{"type":"string"},"regions":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"object":{"type":"string"},"area":{"type":"number"}},"required":["id","object","area"],"additionalProperties":false}},"warnings":{"type":"array","items":{"type":"string"}}},"required":["sources","operations","objects","faces","propertyLine","regions","warnings"],"additionalProperties":false}

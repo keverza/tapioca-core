@@ -692,7 +692,7 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
                             set.insert (i);
                     else {
                         set.insert (ref.item - 2);
-                        set.insert ((ref.item - 1) % n);
+                        set.insert (NextVertex (*e, ref.item - 2));
                     }
                     break;
                 case Part::PathPoint:
@@ -885,7 +885,7 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
                 else {
                     Vec3 normal;
                     FaceNormal (e, face, normal);
-                    for (size_t i : { face - 2, (face - 1) % n }) {
+                    for (size_t i : { face - 2, NextVertex (e, face - 2) }) {
                         if (e.vertices[i].lockXY) {
                             error = "a locked edge cannot be pushed";
                             return false;

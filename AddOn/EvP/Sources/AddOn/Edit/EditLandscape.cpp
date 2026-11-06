@@ -322,6 +322,12 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
                 return false;
             }
         }
+        // A landscape source is one ring: regions carry their own holes. A compound entity
+        // (EditDocument.hpp) is refused rather than read as one ring bridging its contours.
+        if (const auto* entity = edit::Find (doc, v.entityId); entity && !v.deleted && edit::IsCompound (*entity)) {
+            error = "landscape.sources: an outline with holes cannot be a landscape source";
+            return false;
+        }
         if (const auto* entity = edit::Find (doc, v.entityId))
             for (const auto& vertex : entity->vertices)
                 if (!std::isfinite (vertex.radius) || vertex.radius < 0 || !edit::Finite (vertex.in) ||
@@ -372,14 +378,13 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
         const auto& detail = s.volumetricDetails[index];
         std::string detailError;
         if (!claim (detail.id) || !ValidateVolumetricDetail (detail, detailError)) {
-            error = "landscape.volumetricDetails[" + std::to_string (index) + "]: " +
-                    (detailError.empty () ? "duplicate or out-of-range detail identity" : detailError);
+            error = "landscape.volumetricDetails[" + std::to_string (index) +
+                    "]: " + (detailError.empty () ? "duplicate or out-of-range detail identity" : detailError);
             return false;
         }
         for (const auto& entry : detail.entries) {
-            const Id entryId = std::get_if<VolumetricOperation> (&entry)
-                                   ? std::get<VolumetricOperation> (entry).id
-                                   : std::get<VolumetricGroup> (entry).id;
+            const Id entryId = std::get_if<VolumetricOperation> (&entry) ? std::get<VolumetricOperation> (entry).id
+                                                                         : std::get<VolumetricGroup> (entry).id;
             if (!claim (entryId)) {
                 error = "landscape.volumetricDetails: duplicate or out-of-range stack-entry identity";
                 return false;
@@ -884,7 +889,8 @@ bool SetRegionSurface (edit::Document& doc, Id object, const RegionSurface& surf
                                            return source.id == region.boundarySource && !source.deleted &&
                                                   source.role == SourceRole::RegionBoundary;
                                        }))) {
-                        e = "Boundary curve Z needs a live region-boundary owner; choose Constant for a derived domain.";
+                        e = "Boundary curve Z needs a live region-boundary owner; choose Constant for a derived "
+                            "domain.";
                         return false;
                     }
                     region.surface = surface;

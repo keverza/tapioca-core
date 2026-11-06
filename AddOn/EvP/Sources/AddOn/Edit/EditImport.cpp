@@ -1,4 +1,7 @@
 #include "Edit/EditImport.hpp"
+#include "Edit/EditPolyline.hpp"
+#include "Edit/EditShape.hpp"
+#include <algorithm>
 #include <cmath>
 
 namespace geomsrv::edit {
@@ -140,6 +143,99 @@ Id AddImportedEllipse (Document& doc, const ImportedEllipse& ellipse, const std:
             run.in.back () = tangent * -handle;
     }
     return Publish (doc, run, ellipse.whole, role, error);
+}
+
+namespace {
+
+double DrawnArea (const std::vector<Vec3>& ring)
+{
+    double twice = 0.0;
+    for (size_t i = 0; i < ring.size (); ++i) {
+        const Vec3 a = ring[i], b = ring[(i + 1) % ring.size ()];
+        twice += a.x * b.y - b.x * a.y;
+    }
+    return twice * 0.5;
+}
+
+bool InsideDrawn (const std::vector<Vec3>& ring, Vec3 p)
+{
+    bool in = false;
+    for (size_t i = 0, j = ring.size () - 1; i < ring.size (); j = i++) {
+        const Vec3 a = ring[i], b = ring[j];
+        if ((a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
+            in = !in;
+    }
+    return in;
+}
+
+} // namespace
+
+Id AddImportedFill (Document& doc, const std::vector<ImportedCurve>& contours, const std::string& role,
+                    std::string& error)
+{
+    if (contours.empty ()) {
+        error = "A fill needs an outline.";
+        return kNoId;
+    }
+    if (contours.size () == 1) {
+        auto closed = contours.front ();
+        closed.closed = true;
+        return AddImportedCurve (doc, closed, role, error);
+    }
+    // Each contour as an outline of its own first, in a scratch document, so its arcs and
+    // handles are exactly what a single imported outline gets.
+    Document scratch;
+    std::vector<Entity> rings;
+    std::vector<std::vector<Vec3>> drawn;
+    for (auto curve : contours) {
+        curve.closed = true;
+        const Id id = AddImportedCurve (scratch, curve, role, error);
+        if (id == kNoId)
+            return kNoId;
+        rings.push_back (*Find (scratch, id));
+        drawn.push_back (Shape (rings.back ()));
+        if (drawn.back ().size () < 3 || !(std::abs (DrawnArea (drawn.back ())) > 0.0)) {
+            error = "A contour of the fill has no area.";
+            return kNoId;
+        }
+    }
+    size_t outer = 0;
+    for (size_t c = 1; c < drawn.size (); ++c)
+        if (std::abs (DrawnArea (drawn[c])) > std::abs (DrawnArea (drawn[outer])))
+            outer = c;
+    std::vector<size_t> order { outer };
+    for (size_t c = 0; c < drawn.size (); ++c)
+        if (c != outer)
+            order.push_back (c);
+    Entity e;
+    e.kind = Kind::Polyline;
+    e.closed = true;
+    e.role = role;
+    for (size_t c : order) {
+        size_t depth = 0;
+        for (size_t o = 0; o < drawn.size (); ++o)
+            depth += o != c && InsideDrawn (drawn[o], drawn[c].front ()) ? 1 : 0;
+        Entity ring = rings[c];
+        if ((depth % 2 == 1) == (DrawnArea (drawn[c]) > 0.0))
+            ReverseOrder (ring); // a hole runs clockwise, an outline or island counter-clockwise
+        for (auto v : ring.vertices) {
+            v.id = kNoId;
+            e.vertices.push_back (v);
+        }
+        for (auto s : ring.segments) {
+            s.id = kNoId;
+            e.segments.push_back (s);
+        }
+        e.contours.push_back ({ kNoId, static_cast<uint32_t> (ring.vertices.size ()) });
+    }
+    if (!ValidateContours (e, error)) {
+        error = "The fill's contours do not nest inside its outline: " + error;
+        return kNoId;
+    }
+    Normalize (doc, e);
+    doc.entities.push_back (e);
+    ++doc.revision;
+    return e.id;
 }
 
 } // namespace geomsrv::edit

@@ -16,10 +16,12 @@ namespace geomsrv {
 namespace {
 namespace eh = archviz::edithud;
 using Curve = std::variant<edit::ImportedCurve, edit::ImportedEllipse>;
-// A shape read from one element, and the element's canonical GUID.
+// A shape read from one element, and the element's canonical GUID. A fill with holes keeps all
+// its contours together in `fill` (outline and holes); `curve` is then its first contour.
 struct Shape {
     Curve curve;
     std::string guid;
+    std::vector<edit::ImportedCurve> fill;
 };
 
 struct Counts {
@@ -79,7 +81,7 @@ bool Contours (const API_Guid& guid, bool closedOnly, double z, std::vector<Curv
     return ok;
 }
 
-void ReadCurves (const API_Neig& neig, double z, std::vector<Curve>& out, Counts& counts)
+void ReadCurves (const API_Neig& neig, double z, std::vector<Curve>& out, Counts& counts, bool& fill)
 {
     API_Element element {};
     element.header.guid = neig.guid;
@@ -98,7 +100,8 @@ void ReadCurves (const API_Neig& neig, double z, std::vector<Curve>& out, Counts
         case API_PolyLineID:
         case API_HatchID:
             // A fill's contours are its outline and its holes, each closed.
-            if (!Contours (element.header.guid, element.header.type.typeID == API_HatchID, z, out))
+            fill = element.header.type.typeID == API_HatchID;
+            if (!Contours (element.header.guid, fill, z, out))
                 ++counts.unreadable;
             return;
         case API_ArcID:
@@ -128,10 +131,18 @@ void ReadCurves (const API_Neig& neig, double z, std::vector<Curve>& out, Counts
 void Read (const API_Neig& neig, double z, std::vector<Shape>& out, Counts& counts)
 {
     std::vector<Curve> curves;
-    ReadCurves (neig, z, curves, counts);
+    bool fill = false;
+    ReadCurves (neig, z, curves, counts, fill);
     const auto guid = Canonical (neig.guid);
+    if (fill && curves.size () > 1) { // one element, one compound entity: Contours reads only curves
+        Shape shape { curves.front (), guid, {} };
+        for (const auto& curve : curves)
+            shape.fill.push_back (std::get<edit::ImportedCurve> (curve));
+        out.push_back (std::move (shape));
+        return;
+    }
     for (auto& curve : curves)
-        out.push_back ({ std::move (curve), guid });
+        out.push_back ({ std::move (curve), guid, {} });
 }
 
 // The storey's elevation, metres; 0 when the settings cannot be read.
@@ -266,6 +277,21 @@ bool ImportSelectedDrafting (eh::Session& s, DraftingImport as, std::string& mes
     Counts counts;
     for (const API_Neig& neig : neigs)
         Read (neig, z, shapes, counts);
+    // A fill with holes becomes one compound entity only as plain lines outside a landscape: a
+    // landscape source is one ring (its regions carry their own holes), and a property line or a
+    // building is one outline. There each contour stays an outline of its own, as before.
+    if (as != DraftingImport::Lines || s.edits.Doc ().landscape) {
+        std::vector<Shape> split;
+        for (auto& shape : shapes) {
+            if (shape.fill.empty ()) {
+                split.push_back (std::move (shape));
+                continue;
+            }
+            for (auto& contour : shape.fill)
+                split.push_back ({ std::move (contour), shape.guid, {} });
+        }
+        shapes = std::move (split);
+    }
     // A property line or a building is a closed outline; a property line is exactly one.
     if (as != DraftingImport::Lines) {
         const auto open =
@@ -291,7 +317,8 @@ bool ImportSelectedDrafting (eh::Session& s, DraftingImport as, std::string& mes
         for (const auto& shape : shapes) {
             std::string why;
             const edit::Id id =
-                std::holds_alternative<edit::ImportedCurve> (shape.curve)
+                !shape.fill.empty () ? edit::AddImportedFill (d, shape.fill, "imported", why)
+                : std::holds_alternative<edit::ImportedCurve> (shape.curve)
                     ? edit::AddImportedCurve (d, std::get<edit::ImportedCurve> (shape.curve), "imported", why)
                     : edit::AddImportedEllipse (d, std::get<edit::ImportedEllipse> (shape.curve), "imported", why);
             if (id == edit::kNoId) {

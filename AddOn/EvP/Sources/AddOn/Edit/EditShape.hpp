@@ -60,7 +60,11 @@ double DrawnRadius (const Entity& entity, size_t i);
 
 // The outline as drawn: anchors, with every live corner replaced by its arc, at most
 // `maxAngle` radians a step. Closed when the entity is (the first point is not repeated).
+// A compound entity's Shape is its outer contour; ShapeRings draws every contour (even-odd
+// fill, the outer first) and ShapeRing one of them.
 std::vector<Vec3> Shape (const Entity& entity, double maxAngle = 0.15);
+std::vector<std::vector<Vec3>> ShapeRings (const Entity& entity, double maxAngle = 0.15);
+std::vector<Vec3> ShapeRing (const Entity& entity, size_t contour, double maxAngle = 0.15);
 
 // The outline as snapping and guides see it: straight pieces (with the segment they are
 // part of), the pieces of each arc or curve (`run` names which, the same for all of one

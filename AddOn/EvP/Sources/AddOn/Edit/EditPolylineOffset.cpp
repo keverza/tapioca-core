@@ -16,6 +16,10 @@ bool StraightInput (const Entity& entity, std::string& error)
         error = "a parametric ellipse is edited by its parameters; convert it to a curve for node edits";
         return false;
     }
+    if (IsCompound (entity)) {
+        error = "offset of an outline with holes is not supported yet";
+        return false;
+    }
     for (const auto& vertex : entity.vertices)
         if (vertex.radius > 0.0) {
             error = "offset joins currently require sharp corners, not live-corner radii";

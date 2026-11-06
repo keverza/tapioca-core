@@ -102,6 +102,20 @@ std::vector<Edge> Edges (const Entity& e)
     return out;
 }
 
+// Even-odd over projected rings: a pointer over a hole is not over the solid.
+bool InsideRings (const PickView& view, const std::vector<std::vector<Vec3>>& rings, S2 p)
+{
+    bool in = false;
+    std::vector<S2> outline;
+    for (const auto& ring : rings) {
+        if (!ProjectAll (view, ring, outline))
+            return false;
+        if (Inside (outline, p))
+            in = !in;
+    }
+    return in;
+}
+
 bool Facing (const Entity& e, size_t face, const PickView& view)
 {
     Vec3 n;
@@ -185,7 +199,7 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
         std::vector<S2> outline;
         if (e.kind == Kind::Extrusion) {
             for (size_t f = 0; f < FaceCount (e); ++f) {
-                if (!Facing (e, f, view) || !ProjectAll (view, FacePolygon (e, f), outline) || !Inside (outline, p))
+                if (!Facing (e, f, view) || !InsideRings (view, FaceRings (e, f), p))
                     continue;
                 inside = true;
                 if (filter & kPickFace)
@@ -193,11 +207,13 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
             }
         }
         else if (e.closed) {
-            std::vector<Vec3> ring = analyticOutline;
-            if (ring.empty ())
-                for (const auto& v : e.vertices)
-                    ring.push_back (v.p);
-            if (ProjectAll (view, ring, outline) && Inside (outline, p))
+            std::vector<std::vector<Vec3>> rings;
+            if (!analyticOutline.empty ())
+                rings.push_back (analyticOutline);
+            else
+                for (size_t c = 0; c < ContourCount (e); ++c)
+                    rings.push_back (ContourPoints (e, c));
+            if (InsideRings (view, rings, p))
                 inside = true;
         }
         if ((filter & kPickEntity) && entityBest >= 0.0)

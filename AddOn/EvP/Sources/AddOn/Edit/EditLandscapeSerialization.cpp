@@ -90,6 +90,14 @@ Value Entities (const edit::Document& doc, LandscapeStorage mode)
                                                       { "center", PointValue (entity.ellipse->center) },
                                                       { "axisU", PointValue (entity.ellipse->axisU) },
                                                       { "axisV", PointValue (entity.ellipse->axisV) } }));
+        // A compound entity's rings (schema 3); a simple one writes none, so its bytes are unchanged.
+        if (!entity.contours.empty ()) {
+            Array contours;
+            for (const auto& c : entity.contours)
+                contours.push_back (
+                    Value::Object ({ { "id", IdValue (c.id) }, { "count", IdValue (uint64_t (c.count)) } }));
+            item.emplace ("contours", Value::Array (std::move (contours)));
+        }
         AddMember (item, entity.member);
         entities.push_back (Value::Object (std::move (item)));
     }
@@ -439,26 +447,32 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode, std::stri
                                              { "role", Text (v.role) },
                                              { "revision", IdValue (v.revision) } }));
     }
-    Object root { { "version", Integer (2) },
+    // The lowest schema that holds the document: 3 only once an entity has contours, so a
+    // document without holes stays readable by a build that predates them.
+    bool compound = false;
+    for (const auto& e : doc.entities)
+        compound = compound || !e.contours.empty ();
+    Object root { { "version", Integer (compound ? 3 : 2) },
                   { "mode", Text (mode == LandscapeStorage::Virtual ? "virtual" : "native") },
                   { "sessionUuid", Text (UuidText (s.sessionUuid)) },
                   { "nextId", IdValue (doc.nextId) },
                   { "revision", IdValue (doc.revision) },
                   { "entities", Entities (doc, mode) },
                   { "paths", PathsValue (doc, mode, error) },
-                  { "landscape", Value::Object ({ { "sourceTerrainGuid", Text (s.sourceTerrainGuid) },
-                                                  { "propertyLine", IdValue (s.propertyLineSourceId) },
-                                                  { "sources", Value::Array (std::move (sources)) },
-                                                  { "operations", Value::Array (std::move (operations)) },
-                                                  { "objects", Value::Array (std::move (objects)) },
-                                                  { "regions", Value::Array (std::move (regions)) },
-                                                  { "assignments", Value::Array (std::move (assignments)) },
-                                                  { "patches", Value::Array (std::move (patches)) },
-                                                  { "bindings", Value::Array (std::move (bindings)) },
-                                                  { "terrainControls", Value::Array (std::move (controls)) },
-                                                  { "entrances", Value::Array (std::move (entrances)) },
-                                                  { "edges", Value::Array (std::move (edges)) },
-                                                   { "volumetricDetails", Value::Array (std::move (volumetricDetails)) } }) } };
+                  { "landscape",
+                    Value::Object ({ { "sourceTerrainGuid", Text (s.sourceTerrainGuid) },
+                                     { "propertyLine", IdValue (s.propertyLineSourceId) },
+                                     { "sources", Value::Array (std::move (sources)) },
+                                     { "operations", Value::Array (std::move (operations)) },
+                                     { "objects", Value::Array (std::move (objects)) },
+                                     { "regions", Value::Array (std::move (regions)) },
+                                     { "assignments", Value::Array (std::move (assignments)) },
+                                     { "patches", Value::Array (std::move (patches)) },
+                                     { "bindings", Value::Array (std::move (bindings)) },
+                                     { "terrainControls", Value::Array (std::move (controls)) },
+                                     { "entrances", Value::Array (std::move (entrances)) },
+                                     { "edges", Value::Array (std::move (edges)) },
+                                     { "volumetricDetails", Value::Array (std::move (volumetricDetails)) } }) } };
     // The editor's layers and groups, written only when there are any (AddMember's rule).
     if (!doc.layers.empty () || !doc.groups.empty () || !doc.isolated.empty () ||
         !(doc.layer0 == edit::Layer { 0, "0" })) {

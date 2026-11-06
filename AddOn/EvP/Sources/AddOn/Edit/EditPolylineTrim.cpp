@@ -148,6 +148,10 @@ bool Plan (const Document& doc, Id entity, Id segment, Vec3 pointer, TrimPlan& p
         error = "pick a polyline to trim";
         return false;
     }
+    if (IsCompound (*e)) {
+        error = "trimming an outline with holes is not supported; its holes would be left unbounded";
+        return false;
+    }
     if (!Straight (*e)) {
         error = "trim between crossings currently requires a straight-segment polyline";
         return false;

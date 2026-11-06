@@ -855,11 +855,13 @@ void DrawHover (Session& s, const Map& m, float scale)
             if (const int i = edit::SegmentIndex (*e, hover.item); i >= 0) // as drawn: a curve along its curve
                 run (edit::SegmentPoints (*e, size_t (i)), false, 4.0f);
             return;
-        case edit::Part::Entity:
-            run (edit::Shape (*e), e->closed, 3.0f);
+        case edit::Part::Entity: // every contour of a compound
+            for (const auto& ring : edit::ShapeRings (*e))
+                run (ring, e->closed, 3.0f);
             return;
         case edit::Part::Face:
-            run (edit::FacePolygon (*e, hover.item), true, 3.0f);
+            for (const auto& ring : edit::FaceRings (*e, hover.item))
+                run (ring, true, 3.0f);
             return;
         default: {
             Vec3 p;

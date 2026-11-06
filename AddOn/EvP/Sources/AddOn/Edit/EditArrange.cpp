@@ -157,6 +157,8 @@ bool Paste (Document& doc, const Clipboard& clip, Vec3 offset, std::vector<Ref>&
             e.ellipse->center = e.ellipse->center + offset;
         for (auto& s : e.segments)
             s.id = kNoId;
+        for (auto& c : e.contours)
+            c.id = kNoId;
         place (e.member);
         Normalize (doc, e);
         pasted.push_back ({ e.id, Part::Entity, kNoId });

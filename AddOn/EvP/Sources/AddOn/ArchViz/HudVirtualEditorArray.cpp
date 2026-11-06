@@ -147,16 +147,17 @@ bool BeginRectangularArray (Session& s)
         }
         draft.outlines.push_back (std::move (outline));
     }
-    for (const auto& entity : clip.entities) {
-        RectangularArrayDraft::Outline outline;
-        outline.points = edit::Shape (entity, kPreviewMaxAngle);
-        outline.closed = entity.closed;
-        if (outline.points.size () < 2) {
-            s.message = "Rectangular array preview needs an outline for every selected object.";
-            return false;
+    for (const auto& entity : clip.entities)
+        for (auto& ring : edit::ShapeRings (entity, kPreviewMaxAngle)) { // a compound: each contour
+            RectangularArrayDraft::Outline outline;
+            outline.points = std::move (ring);
+            outline.closed = entity.closed;
+            if (outline.points.size () < 2) {
+                s.message = "Rectangular array preview needs an outline for every selected object.";
+                return false;
+            }
+            draft.outlines.push_back (std::move (outline));
         }
-        draft.outlines.push_back (std::move (outline));
-    }
     s.rectangularArray = std::move (draft);
     s.message.clear ();
     UpdateRectangularArrayPreview (s);

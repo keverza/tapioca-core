@@ -354,7 +354,7 @@ TEST (EditLandscapeSerialization, MalformedUnknownDuplicateAndMissingFieldsNever
     const auto original = Full ();
     const auto valid = Write (original);
     for (const auto& text :
-         { std::string { "{" }, Replace (valid, "\"version\":2", "\"version\":3"),
+         { std::string { "{" }, Replace (valid, "\"version\":2", "\"version\":4"),
            Replace (valid, "\"mode\":\"virtual\",", ""), Replace (valid, "\"nextId\":", "\"extra\":0,\"nextId\":"),
            Replace (valid, "\"revision\":\"0\"", "\"revision\":0"),
            Replace (valid, "\"revision\":\"0\"", "\"revision\":\"00\""),

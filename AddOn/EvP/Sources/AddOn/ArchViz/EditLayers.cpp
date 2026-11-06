@@ -1,4 +1,5 @@
 #include "ArchViz/EditLayers.hpp"
+#include "Edit/EditCompound.hpp"
 #include "Edit/EditOrganize.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditShape.hpp"
@@ -180,8 +181,31 @@ std::vector<Vec3> Ring (const edit::Entity& e, double lift)
     return out;
 }
 
+// A compound extrusion (EditCompound.hpp): caps that keep their holes and a wall up every
+// contour. A cap that cannot be covered with every hole kept draws only the outlines.
+void AddCompoundSolid (const edit::Entity& e, uint32_t rgba, layers::Layer& layer)
+{
+    std::vector<Vec3> points;
+    std::vector<uint32_t> triangles;
+    std::string error;
+    if (!edit::SolidTriangles (e, points, triangles, error))
+        return;
+    layers::Mesh mesh;
+    for (const auto& p : points)
+        Push (mesh.points, p);
+    mesh.indices = std::move (triangles);
+    mesh.rgba = rgba;
+    mesh.style.shading = layers::Shading::Ghost;
+    mesh.styled = true;
+    layer.meshes.push_back (std::move (mesh));
+}
+
 void AddSolid (const edit::Entity& e, uint32_t rgba, layers::Layer& layer)
 {
+    if (edit::IsCompound (e)) {
+        AddCompoundSolid (e, rgba, layer);
+        return;
+    }
     layers::Mesh mesh;
     const auto bottom = Ring (e, 0.0);
     const auto tris = TriangulateXY (bottom);
@@ -206,10 +230,23 @@ void AddSolid (const edit::Entity& e, uint32_t rgba, layers::Layer& layer)
 
 void AddEntity (const edit::Entity& e, uint32_t rgba, float width, layers::Layer& layer)
 {
-    layer.polylines.push_back (Line (Ring (e, 0.0), e.closed, rgba, width));
+    if (edit::IsCompound (e)) { // every contour, at the base and, for a solid, the top
+        for (const auto& ring : edit::ShapeRings (e)) {
+            layer.polylines.push_back (Line (ring, true, rgba, width));
+            if (e.kind == edit::Kind::Extrusion) {
+                auto top = ring;
+                for (auto& p : top)
+                    p = p + Vec3 { 0.0, 0.0, e.height };
+                layer.polylines.push_back (Line (top, true, rgba, width));
+            }
+        }
+    }
+    else
+        layer.polylines.push_back (Line (Ring (e, 0.0), e.closed, rgba, width));
     if (e.kind != edit::Kind::Extrusion)
         return;
-    layer.polylines.push_back (Line (Ring (e, e.height), true, rgba, width));
+    if (!edit::IsCompound (e))
+        layer.polylines.push_back (Line (Ring (e, e.height), true, rgba, width));
     for (size_t i = 0; i < e.vertices.size (); ++i) // a rounded corner has no edge up its side
         if (!(edit::DrawnRadius (e, i) > 0.0))
             layer.polylines.push_back (

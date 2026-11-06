@@ -859,6 +859,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPrimitives.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditEllipse.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditImport.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditCompound.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditShape.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanar.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarBuild.cpp"
@@ -922,6 +923,7 @@ set (EVP_TEST_SOURCES
     test_extractioncapture.cpp
     test_mesh_extraction.cpp
     test_editdocument.cpp
+    test_editcompound.cpp
     test_editsession.cpp
     test_editsnap.cpp
     test_editworkingplane.cpp

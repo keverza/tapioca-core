@@ -143,8 +143,8 @@ bool SetSmooth (Document& doc, Id entity, Id vertex, bool smooth, std::string& e
     }
     const size_t n = e->vertices.size (), i = size_t (VertexIndex (*e, vertex));
     const bool hasPrev = e->closed || i > 0, hasNext = e->closed || i + 1 < n;
-    const Vec3 prev = hasPrev ? e->vertices[(i + n - 1) % n].p : v->p;
-    const Vec3 next = hasNext ? e->vertices[(i + 1) % n].p : v->p;
+    const Vec3 prev = hasPrev ? e->vertices[PrevVertex (*e, i)].p : v->p;
+    const Vec3 next = hasNext ? e->vertices[NextVertex (*e, i)].p : v->p;
     Vec3 dir;
     if (!Normalize (Plan (next - prev), dir)) {
         error = "a smooth point needs neighbours on either side";
@@ -235,13 +235,15 @@ bool CornerOf (const Entity& e, size_t i, CornerGeometry& c)
     const size_t n = e.vertices.size ();
     if (n < 3 || i >= n || (!e.closed && (i == 0 || i + 1 >= n)))
         return false;
+    const size_t prev = PrevVertex (e, i), next = NextVertex (e, i);
+    if (prev == i || next == i || prev == next)
+        return false; // a contour too short to have a corner
     // Only between straight legs: a curve ends a rounding.
-    if (Set (e.vertices[i].in) || Set (e.vertices[i].out) || Set (e.vertices[(i + n - 1) % n].out) ||
-        Set (e.vertices[(i + 1) % n].in))
+    if (Set (e.vertices[i].in) || Set (e.vertices[i].out) || Set (e.vertices[prev].out) || Set (e.vertices[next].in))
         return false;
     c.at = i;
-    c.prev = (i + n - 1) % n;
-    c.next = (i + 1) % n;
+    c.prev = prev;
+    c.next = next;
     c.corner = e.vertices[i].p;
     const Vec3 a = e.vertices[c.prev].p - c.corner, b = e.vertices[c.next].p - c.corner;
     c.legPrev = std::hypot (a.x, a.y);
@@ -309,8 +311,22 @@ double DrawnRadius (const Entity& e, size_t i)
 
 std::vector<Vec3> Shape (const Entity& e, double maxAngle)
 {
+    return ShapeRing (e, 0, maxAngle);
+}
+
+std::vector<std::vector<Vec3>> ShapeRings (const Entity& e, double maxAngle)
+{
+    std::vector<std::vector<Vec3>> out;
+    for (size_t c = 0; c < ContourCount (e); ++c)
+        out.push_back (ShapeRing (e, c, maxAngle));
+    return out;
+}
+
+std::vector<Vec3> ShapeRing (const Entity& e, size_t contour, double maxAngle)
+{
     std::vector<Vec3> out;
-    const size_t n = e.vertices.size ();
+    size_t first = 0, n = 0;
+    ContourRange (e, contour, first, n);
     if (!(maxAngle > 0.0))
         maxAngle = 0.15;
     const auto curve = [&] (size_t i) {
@@ -320,7 +336,7 @@ std::vector<Vec3> Shape (const Entity& e, double maxAngle)
             out.insert (out.end (), points.begin () + 1, points.end () - 1);
         }
     };
-    for (size_t i = 0; i < n; ++i) {
+    for (size_t i = first; i < n; ++i) {
         const double r = DrawnRadius (e, i);
         CornerGeometry c;
         if (!(r > 0.0) || !CornerOf (e, i, c)) {

@@ -111,8 +111,11 @@ void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode, i
     Each (root.Field ("entities"), [&] (const Reader& item) {
         if (version == 1)
             item.Fields ({ "id", "kind", "closed", "height", "role", "vertices", "segments" }, { "member" });
-        else
+        else if (version == 2)
             item.Fields ({ "id", "kind", "closed", "height", "role", "vertices", "segments" }, { "member", "ellipse" });
+        else
+            item.Fields ({ "id", "kind", "closed", "height", "role", "vertices", "segments" },
+                         { "member", "ellipse", "contours" });
         edit::Entity e;
         e.id = item.Field ("id").Identifier ();
         e.kind = Enum (item.Field ("kind"), edit::Kind::Extrusion);
@@ -156,6 +159,17 @@ void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode, i
             e.segments.push_back (
                 { segment.Field ("id").Identifier (), segment.Field ("width").Number (), static_cast<uint32_t> (tag) });
         });
+        if (version >= 3 && item.Has ("contours")) {
+            Each (item.Field ("contours"), [&] (const Reader& contour) {
+                contour.Fields ({ "id", "count" });
+                const auto count = contour.Field ("count").Identifier ();
+                if (count < 3 || count > std::numeric_limits<uint32_t>::max ())
+                    Fail (contour.path + ".count", "a contour needs at least three vertices");
+                e.contours.push_back ({ contour.Field ("id").Identifier (), static_cast<uint32_t> (count) });
+            });
+            if (e.contours.size () < 2)
+                Fail (item.path + ".contours", "a contour table needs at least two contours");
+        }
         doc.entities.push_back (std::move (e));
     });
     Each (root.Field ("paths"), [&] (const Reader& item) {
@@ -247,56 +261,56 @@ void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode, i
 VolumetricDetailKind VolumetricKind (const Reader& reader)
 {
     switch (reader.Integer ()) {
-    case 0:
-        return VolumetricDetailKind::Custom;
-    case 1:
-        return VolumetricDetailKind::Rock;
-    case 2:
-        return VolumetricDetailKind::Cave;
-    default:
-        Fail (reader.path, "unknown volumetric detail kind");
+        case 0:
+            return VolumetricDetailKind::Custom;
+        case 1:
+            return VolumetricDetailKind::Rock;
+        case 2:
+            return VolumetricDetailKind::Cave;
+        default:
+            Fail (reader.path, "unknown volumetric detail kind");
     }
 }
 
 VolumetricPrimitiveKind PrimitiveKind (const Reader& reader)
 {
     switch (reader.Integer ()) {
-    case 2:
-        return VolumetricPrimitiveKind::Sphere;
-    case 3:
-        return VolumetricPrimitiveKind::RoundedBox;
-    case 4:
-        return VolumetricPrimitiveKind::Capsule;
-    case 5:
-        return VolumetricPrimitiveKind::Extrude;
-    default:
-        Fail (reader.path, "unknown volumetric primitive kind");
+        case 2:
+            return VolumetricPrimitiveKind::Sphere;
+        case 3:
+            return VolumetricPrimitiveKind::RoundedBox;
+        case 4:
+            return VolumetricPrimitiveKind::Capsule;
+        case 5:
+            return VolumetricPrimitiveKind::Extrude;
+        default:
+            Fail (reader.path, "unknown volumetric primitive kind");
     }
 }
 
 VolumetricBoolean BooleanKind (const Reader& reader)
 {
     switch (reader.Integer ()) {
-    case 1:
-        return VolumetricBoolean::Union;
-    case 2:
-        return VolumetricBoolean::Subtract;
-    case 3:
-        return VolumetricBoolean::Intersect;
-    default:
-        Fail (reader.path, "unknown volumetric Boolean operation");
+        case 1:
+            return VolumetricBoolean::Union;
+        case 2:
+            return VolumetricBoolean::Subtract;
+        case 3:
+            return VolumetricBoolean::Intersect;
+        default:
+            Fail (reader.path, "unknown volumetric Boolean operation");
     }
 }
 
 VolumetricBlendProfile BlendKind (const Reader& reader)
 {
     switch (reader.Integer ()) {
-    case 1:
-        return VolumetricBlendProfile::Sharp;
-    case 2:
-        return VolumetricBlendProfile::Round;
-    default:
-        Fail (reader.path, "unknown volumetric blend profile");
+        case 1:
+            return VolumetricBlendProfile::Sharp;
+        case 2:
+            return VolumetricBlendProfile::Round;
+        default:
+            Fail (reader.path, "unknown volumetric blend profile");
     }
 }
 
@@ -375,10 +389,10 @@ VolumetricDetail ReadVolumetricDetail (const Reader& reader)
     if (reader.Has ("anchor")) {
         const auto anchor = reader.Field ("anchor");
         anchor.Fields ({ "terrainRevision", "terrainHash", "x", "y", "zOffset" });
-        detail.anchor = VolumetricTerrainAnchor { anchor.Field ("terrainRevision").Identifier (),
-                                                  anchor.Field ("terrainHash").Identifier (),
-                                                  anchor.Field ("x").Number (), anchor.Field ("y").Number (),
-                                                  anchor.Field ("zOffset").Number () };
+        detail.anchor =
+            VolumetricTerrainAnchor { anchor.Field ("terrainRevision").Identifier (),
+                                      anchor.Field ("terrainHash").Identifier (), anchor.Field ("x").Number (),
+                                      anchor.Field ("y").Number (), anchor.Field ("zOffset").Number () };
     }
     return detail;
 }
@@ -404,9 +418,8 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
     s.sourceTerrainGuid = Guid (landscape.Field ("sourceTerrainGuid"));
     s.propertyLineSourceId = landscape.Field ("propertyLine").Identifier ();
     if (landscape.Has ("volumetricDetails"))
-        Each (landscape.Field ("volumetricDetails"), [&] (const Reader& item) {
-            s.volumetricDetails.push_back (ReadVolumetricDetail (item));
-        });
+        Each (landscape.Field ("volumetricDetails"),
+              [&] (const Reader& item) { s.volumetricDetails.push_back (ReadVolumetricDetail (item)); });
     if (landscape.Has ("terrainControls"))
         Each (landscape.Field ("terrainControls"), [&] (const Reader& item) {
             item.Fields ({ "source", "vertex", "enabled" });
@@ -580,7 +593,7 @@ bool ReadLandscape (const std::string& text, geomsrv::edit::Document& doc, std::
         }
         lj::Reader root (parsed.value, "document");
         const int version = root.Field ("version").Integer ();
-        if (version != 1 && version != 2)
+        if (version < 1 || version > 3)
             lj::Fail ("document.version", "unsupported landscape schema version");
         const auto modeText = root.Field ("mode").Text ();
         if (modeText != "native" && modeText != "virtual")

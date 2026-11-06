@@ -3,8 +3,9 @@
 
 // Host 2D drafting brought into the editor: lines, polylines, arcs and circles, and the contours
 // of fills, as the native reader hands them over in plan. Each becomes one ordinary polyline --
-// arcs as cubic pieces of at most a quarter turn -- edited as any line drawn here; nothing stays
-// bound to the element it came from.
+// arcs as cubic pieces of at most a quarter turn -- edited as any line drawn here, except a fill
+// with holes, whose contours stay together as one compound entity; nothing stays bound to the
+// element it came from.
 #include "Edit/EditDocument.hpp"
 #include <string>
 #include <vector>
@@ -35,6 +36,13 @@ constexpr double kImportArcError = 3.0e-4;
 // (fewer than two distinct points, an arc with no chord, a non-finite value), the document unchanged.
 Id AddImportedCurve (Document& doc, const ImportedCurve& curve, const std::string& role, std::string& error);
 Id AddImportedEllipse (Document& doc, const ImportedEllipse& ellipse, const std::string& role, std::string& error);
+// A fill's contours -- its outline and its holes -- as ONE compound entity (even-odd), not as
+// unrelated outlines: the largest becomes the outer contour and each ring is wound by its depth.
+// Every contour is treated as closed. One contour adds an ordinary closed outline. kNoId and a
+// reason, the document unchanged, when a contour is degenerate or the contours cross, touch or
+// do not all lie inside the largest.
+Id AddImportedFill (Document& doc, const std::vector<ImportedCurve>& contours, const std::string& role,
+                    std::string& error);
 
 } // namespace geomsrv::edit
 #endif

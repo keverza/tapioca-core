@@ -62,6 +62,25 @@ bool Editable (const Entity& e, std::string& error)
     return true;
 }
 
+// A compound entity's contour holding vertex `index` gains or loses `delta` vertices.
+void ResizeContour (Entity& e, size_t index, int delta)
+{
+    if (e.contours.empty ())
+        return;
+    auto& c = e.contours[ContourOf (e, index)];
+    c.count = static_cast<uint32_t> (static_cast<int64_t> (c.count) + delta);
+}
+
+// A contour (or a simple ring) that is already at three vertices cannot lose one.
+bool CanLoseVertex (const Entity& e, size_t index)
+{
+    if (!IsCompound (e))
+        return e.vertices.size () > MinVertices (e);
+    size_t begin = 0, end = 0;
+    ContourRange (e, ContourOf (e, index), begin, end);
+    return end - begin > 3;
+}
+
 Segment CopyAttributes (const Segment& from, Document& doc)
 {
     Segment s = from;
@@ -131,6 +150,7 @@ bool InsertVertex (Document& doc, Id entity, Id segment, Vec3 at, std::string& e
         v.smooth = true;
     }
     const Segment second = CopyAttributes (e->segments[static_cast<size_t> (k)], doc);
+    ResizeContour (*e, static_cast<size_t> (k), +1); // the new vertex joins segment k's contour
     e->vertices.insert (e->vertices.begin () + static_cast<std::ptrdiff_t> (at1), v);
     e->segments.insert (e->segments.begin () + static_cast<std::ptrdiff_t> (at1), second);
     if (created != nullptr)
@@ -147,8 +167,10 @@ bool DeleteVertex (Document& doc, Id entity, Id vertex, std::string& error)
     if (found < 0)
         return false;
     const size_t i = static_cast<size_t> (found), n = e->vertices.size ();
-    if (n <= MinVertices (*e)) {
+    if (n <= MinVertices (*e) || !CanLoseVertex (*e, i)) {
         error = e->closed ? "a closed outline needs three vertices" : "a polyline needs two vertices";
+        if (IsCompound (*e))
+            error = "each outline and hole needs three vertices; delete the hole instead";
         return false;
     }
     if (e->vertices[i].lockXY || e->vertices[i].lockZ) {
@@ -158,6 +180,7 @@ bool DeleteVertex (Document& doc, Id entity, Id vertex, std::string& error)
     // The segment leaving the vertex goes; the one arriving stretches to the next vertex.
     // An open polyline's last vertex has no leaving segment, so its arriving one goes.
     const size_t drop = (!e->closed && i == n - 1) ? i - 1 : i;
+    ResizeContour (*e, i, -1);
     e->vertices.erase (e->vertices.begin () + static_cast<std::ptrdiff_t> (i));
     e->segments.erase (e->segments.begin () + static_cast<std::ptrdiff_t> (drop));
     return true;
@@ -178,21 +201,23 @@ bool MergeVertices (Document& doc, Id entity, double tolerance, std::string& err
             ++i;
             continue;
         }
-        if (e->vertices.size () <= MinVertices (*e)) {
+        if (e->vertices.size () <= MinVertices (*e) || !CanLoseVertex (*e, from)) {
             error = "merging would leave too few vertices";
             return false;
         }
         // Dropping the short segment i with either of its ends leaves the neighbouring
-        // segments joined correctly, except dropping vertex 0 (the closing wrap), which
-        // would shift every later segment. Keep a locked end where one is locked.
-        size_t gone = from;
+        // segments joined correctly, except dropping a contour's first vertex (the closing
+        // wrap), which would shift every later segment. Keep a locked end where one is locked.
+        size_t gone = from, first = 0, last = 0;
+        ContourRange (*e, ContourOf (*e, from), first, last);
         if (locked (e->vertices[from])) {
-            if (to == 0 || locked (e->vertices[to])) {
+            if (to == first || locked (e->vertices[to])) {
                 error = "merging would move a locked vertex";
                 return false;
             }
             gone = to;
         }
+        ResizeContour (*e, gone, -1);
         e->vertices.erase (e->vertices.begin () + static_cast<std::ptrdiff_t> (gone));
         e->segments.erase (e->segments.begin () + static_cast<std::ptrdiff_t> (i));
     }
@@ -234,8 +259,8 @@ bool OffsetSegment (Document& doc, Id entity, Id segment, double distance, std::
         return out;
     };
     const bool hasPrev = e->closed || from > 0, hasNext = e->closed || to + 1 < n;
-    const Vec3 newA = hasPrev ? slide (from, (from + n - 1) % n, a1) : a1;
-    const Vec3 newB = hasNext ? slide (to, (to + 1) % n, b1) : b1;
+    const Vec3 newA = hasPrev ? slide (from, PrevVertex (*e, from), a1) : a1;
+    const Vec3 newB = hasNext ? slide (to, NextVertex (*e, to), b1) : b1;
     Vec3 check;
     double newLength = 0.0;
     if (!PlanDirection (newA, newB, check, newLength) || Dot (check, dir) <= 0.0) {
@@ -248,7 +273,7 @@ bool OffsetSegment (Document& doc, Id entity, Id segment, double distance, std::
         double l0 = 0.0, l1 = 0.0;
         return PlanDirection (from0, to0, d0, l0) && PlanDirection (from1, to1, d1, l1) && Dot (d0, d1) > 0.0;
     };
-    const Vec3 prev = e->vertices[(from + n - 1) % n].p, next = e->vertices[(to + 1) % n].p;
+    const Vec3 prev = e->vertices[PrevVertex (*e, from)].p, next = e->vertices[NextVertex (*e, to)].p;
     if ((hasPrev && !keeps (prev, a.p, prev, newA)) || (hasNext && !keeps (b.p, next, newB, next))) {
         error = "the offset runs past a neighbouring vertex";
         return false;
@@ -343,6 +368,10 @@ bool SplitAtVertex (Document& doc, Id entity, Id vertex, std::string& error, Id*
     if (found < 0 || !Editable (*e, error))
         return false;
     const size_t i = static_cast<size_t> (found), n = e->vertices.size ();
+    if (IsCompound (*e)) {
+        error = "an outline with holes cannot be split open; delete its holes first";
+        return false;
+    }
     if (e->closed) {
         // Open the ring at the vertex: it becomes both ends.
         std::rotate (e->vertices.begin (), e->vertices.begin () + static_cast<std::ptrdiff_t> (i), e->vertices.end ());
@@ -421,15 +450,27 @@ void ReverseOrder (Entity& e)
         e.ellipse->axisU = e.ellipse->axisV * -1.0;
         e.ellipse->axisV = axisU * -1.0;
     }
-    std::reverse (e.vertices.begin (), e.vertices.end ());
     // A handle that shaped the segment leaving a vertex now shapes the one arriving at it.
     for (auto& v : e.vertices)
         std::swap (v.in, v.out);
-    // Segment j now joins old vertices n-1-j and n-2-j: old segment n-2-j, which on a ring
-    // wraps, so the closing segment comes round to the end again.
-    std::reverse (e.segments.begin (), e.segments.end ());
-    if (e.closed && !e.segments.empty ())
-        std::rotate (e.segments.begin (), e.segments.begin () + 1, e.segments.end ());
+    // Each contour reverses in place, so a compound keeps its outer contour first and each
+    // ring's vertices and segments stay in their own range. Segment j now joins old vertices
+    // n-1-j and n-2-j: old segment n-2-j, which on a ring wraps, so the closing segment comes
+    // round to the end again.
+    const bool ranged = e.segments.size () == e.vertices.size ();
+    for (size_t c = 0; c < std::max<size_t> (1, ContourCount (e)); ++c) {
+        size_t begin = 0, end = 0;
+        ContourRange (e, c, begin, end);
+        const auto at = [] (auto& list, size_t i) { return list.begin () + static_cast<std::ptrdiff_t> (i); };
+        std::reverse (at (e.vertices, begin), at (e.vertices, end));
+        if (!ranged) { // an open polyline: one fewer segment than vertices, never compound
+            std::reverse (e.segments.begin (), e.segments.end ());
+            continue;
+        }
+        std::reverse (at (e.segments, begin), at (e.segments, end));
+        if (e.closed && end > begin)
+            std::rotate (at (e.segments, begin), at (e.segments, begin + 1), at (e.segments, end));
+    }
 }
 
 bool ReverseDirection (Document& doc, Id entity, std::string& error)
@@ -437,6 +478,10 @@ bool ReverseDirection (Document& doc, Id entity, std::string& error)
     Entity* e = Get (doc, entity, error);
     if (e == nullptr || !Editable (*e, error))
         return false;
+    if (IsCompound (*e)) {
+        error = "an outline with holes runs one way: its holes say which side is solid";
+        return false;
+    }
     ReverseOrder (*e);
     return true;
 }
@@ -476,6 +521,10 @@ bool Open (Document& doc, Id entity, std::string& error)
         error = "the polyline is already open";
         return false;
     }
+    if (IsCompound (*e)) {
+        error = "an outline with holes stays closed; delete its holes first";
+        return false;
+    }
     e->closed = false;
     e->segments.pop_back ();
     return true;
@@ -501,8 +550,8 @@ bool CornerAt (const Entity& e, size_t i, Corner& c, std::string& error)
         return false;
     }
     c.at = i;
-    c.prev = (i + n - 1) % n;
-    c.next = (i + 1) % n;
+    c.prev = PrevVertex (e, i);
+    c.next = NextVertex (e, i);
     const Vec3 p = e.vertices[i].p;
     if (!PlanDirection (p, e.vertices[c.prev].p, c.u, c.toPrev) ||
         !PlanDirection (p, e.vertices[c.next].p, c.w, c.toNext)) {
@@ -523,7 +572,7 @@ bool CornerAt (const Entity& e, size_t i, Corner& c, std::string& error)
 void ReplaceCorner (Document& doc, Entity& e, const Corner& c, const std::vector<Vec3>& points)
 {
     const size_t i = c.at;
-    const Segment arriving = e.segments[(i + e.segments.size () - 1) % e.segments.size ()];
+    const Segment arriving = e.segments[e.closed ? PrevVertex (e, i) : i - 1];
     std::vector<Vertex> verts;
     std::vector<Segment> pieces;
     for (size_t k = 0; k < points.size (); ++k) {
@@ -535,6 +584,7 @@ void ReplaceCorner (Document& doc, Entity& e, const Corner& c, const std::vector
         if (k + 1 < points.size ())
             pieces.push_back (CopyAttributes (arriving, doc));
     }
+    ResizeContour (e, i, static_cast<int> (points.size ()) - 1);
     e.vertices.erase (e.vertices.begin () + static_cast<std::ptrdiff_t> (i));
     e.vertices.insert (e.vertices.begin () + static_cast<std::ptrdiff_t> (i), verts.begin (), verts.end ());
     // Segment i (leaving) is pushed after the new pieces.
