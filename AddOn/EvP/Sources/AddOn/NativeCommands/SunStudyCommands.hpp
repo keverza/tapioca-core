@@ -29,6 +29,11 @@ struct CapturedSunStudyInputs {
 // Main-thread capture only; no BVH, winding proof, sampling or atlas assembly.
 NativeCommandResult CaptureSunStudyInputs (const GS::ObjectState& params,
                                            std::shared_ptr<const CapturedSunStudyInputs>& captured);
+// Main thread. `base` with `params`' date and only the sun recaptured: the same
+// snapshot, place settings, roles and materials, so a period's days measure one
+// scene (#152). A failed SDK sun call refuses the day instead of reading as shade.
+NativeCommandResult RecaptureSunStudyDay (const CapturedSunStudyInputs& base, const GS::ObjectState& params,
+                                          std::shared_ptr<const CapturedSunStudyInputs>& captured);
 // Owned immutable capture; no ACAPI or gate. Same preparation as StartSunStudy.
 NativeCommandResult PrepareCapturedSunStudy (const std::shared_ptr<const CapturedSunStudyInputs>& captured,
                                              const std::atomic<bool>& cancelled,

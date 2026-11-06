@@ -142,6 +142,15 @@ bool ReadingLines (const HudState& state, char* first, char* second, size_t size
         case 1:
             if (mode == 5 || mode == 6 || mode == 7)
                 return ShadowReadingLines (state, mode, first, second, size);
+            if (state.sunShowsPeriod) {
+                // A mean a day: "shadow" would count back-facing time as shade.
+                std::snprintf (first, size, "%s%.2f h a day direct sun (period mean)",
+                               state.sunReadingNearest ? "~ " : "", state.sunReadingHours);
+                std::snprintf (second, size, "%.0f h over %.0f days, of %.0f h sun up",
+                               state.sunReadingHours * state.sunPeriodDays, state.sunPeriodDays,
+                               state.sunReadingDaylight * state.sunPeriodDays);
+                return true;
+            }
             std::snprintf (first, size, "%s%.2f h direct sun", state.sunReadingNearest ? "~ " : "",
                            state.sunReadingHours);
             if (state.sunReadingDaylight > 0.0)
@@ -601,7 +610,12 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
             DrawMachineLimits (study);
         return;
     }
+    // Whether the shown study is the runner's finished period, by id.
+    state.sunShowsPeriod = !state.sunPeriodStudyId.empty () && state.sunPeriodStudyId == study.studyId;
     ImGui::TextDisabled ("%s, %u element(s)", study.studyId.c_str (), unsigned (study.elementsAttached));
+    if (state.sunShowsPeriod)
+        ImGui::TextWrapped ("Period %s: mean hours of direct sun a day%s. Shadows: %s.", state.sunPeriodLabel.c_str (),
+                            state.sunPeriodEstimate ? " (preview estimate)" : "", state.sunPeriodCarrierDate.c_str ());
     if (study.preview)
         ImGui::TextUnformatted ("Coarse preview: complete day, not final grid");
     DrawSunStudyScreenshotControls (state);

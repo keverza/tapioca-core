@@ -24,6 +24,17 @@ namespace geomsrv::sunstudyhud {
 
 struct Request {
     int year = 2026, month = 3, day = 21;
+    // What is traced (#152): "day" the one date above; "period" from that
+    // date to toMonth/toDay of the same year; "year" January 1 to December 31.
+    // A period is traced day by day on ONE pinned scene and shown as the mean
+    // direct-sun hours a day; it is never followed through edits.
+    std::string period = "day";
+    int toMonth = 6, toDay = 21;
+    // Period sampling: false = Preview (one middle day per covered month,
+    // weighted by its days: an estimate), true = every day.
+    bool dailyResolved = false;
+    // The time slice, every mode: whole hours, `hourTo` exclusive.
+    int hourFrom = 0, hourTo = 24;
     int timestep = 15; // minutes: 15, 30 or 60
     double grid = 1.0; // cell size, metres
     std::string preset = "early";
@@ -61,6 +72,20 @@ struct Status {
     std::string requestedBackend;
     std::string resolvedBackend;
     std::string backendFallbackReason;
+    // A period run (#152): the schedule and where it is, then its result.
+    // `resolvedSteps/totalSteps` stay the current day's.
+    bool period = false;
+    bool estimate = false;     // Preview sampling
+    size_t periodDays = 0;     // days traced in all
+    size_t periodDaysDone = 0; // days traced so far, sunless ones included
+    uint32_t representedDays = 0;
+    std::string periodLabel; // "2026-01-01 to 2026-12-31"
+    std::string currentDate; // the day being traced
+    std::string carrierDate; // the traced day whose atlas shows the period and whose steps the shadow views scrub
+    // The shown result, over the whole period: hours a day (mean of represented
+    // days) and in total, unoccluded, with the site daylight as the ceiling.
+    double meanDailyHours = 0.0, maxDailyHours = 0.0, daylightDailyHours = 0.0;
+    double meanTotalHours = 0.0, daylightTotalHours = 0.0;
 };
 
 bool Submit (const Request& request, std::string& error);

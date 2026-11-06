@@ -193,6 +193,15 @@ struct HudState {
     int sunReadingState = 0;
     double sunReadingHours = 0.0;
     double sunReadingDaylight = 0.0;
+    // The shown study is a period (#152): its hours are a mean a day over
+    // sunPeriodDays represented days, and the shadow views scrub one traced day.
+    // The run panel publishes the runner's finished period (sunPeriodStudyId,
+    // empty otherwise); the study panel compares it with the study on screen.
+    std::string sunPeriodStudyId;
+    bool sunShowsPeriod = false;
+    double sunPeriodDays = 0.0;
+    std::string sunPeriodLabel, sunPeriodCarrierDate;
+    bool sunPeriodEstimate = false;
     int sunReadingRole = -1; // ElementRole, or -1 when unknown
     bool sunReadingNearest = false;
     // The read sample's lit flags, a byte per step (1 lit): WHEN it was in
@@ -219,6 +228,14 @@ struct HudState {
 
     // "Run sun study" (DiligentHudSunRun.cpp): the palette command's inputs.
     int sunRunYear = 2026, sunRunMonth = 3, sunRunDay = 21;
+    // What is traced (#152): 0 the single day above, 1 a period from it to
+    // sunRunToMonth/Day of the same year, 2 the whole year. Periods are Preview
+    // (a middle day per month, weighted) unless sunRunDailyResolved.
+    int sunRunPeriod = 0;
+    int sunRunToMonth = 9, sunRunToDay = 23;
+    bool sunRunDailyResolved = false;
+    // The time slice, every mode: whole hours, the end exclusive.
+    int sunRunHourFrom = 0, sunRunHourTo = 24;
     bool sunRunBusy = false;
     bool sunRunWasCancelling = false;
     bool visibilityCancelRequested = false;

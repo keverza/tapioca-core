@@ -75,59 +75,64 @@ void NoteWrapped (const char* text)
 float LabelColumn ()
 {
     float widest = 0.0f;
-    for (const char* label : { "date", "timestep", "cell size", "centre", "radius" })
+    for (const char* label : { "date", "from", "to", "year", "hours", "timestep", "cell size", "centre", "radius" })
         widest = (std::max) (widest, ImGui::CalcTextSize (label).x);
     return widest + ImGui::GetStyle ().ItemInnerSpacing.x + 2.0f;
 }
 
 // A button showing the date; the popup is a month calendar with the solstices
 // and the equinox a click away -- the dates a study is usually asked for.
-void DatePicker (HudState& state)
+// `lockYear` keeps the year: a period's end shares its start's year.
+void DatePicker (const char* id, const char* label, int& year, int& month, int& day, bool lockYear)
 {
-    char label[32];
-    std::snprintf (label, sizeof (label), "%04d-%02d-%02d##sunrundate", state.sunRunYear, state.sunRunMonth,
-                   state.sunRunDay);
-    if (ImGui::Button (label, ImVec2 (-LabelColumn (), 0.0f)))
-        ImGui::OpenPopup ("sunrun-calendar");
+    ImGui::PushID (id);
+    char text[32];
+    std::snprintf (text, sizeof (text), "%04d-%02d-%02d##date", year, month, day);
+    if (ImGui::Button (text, ImVec2 (-LabelColumn (), 0.0f)))
+        ImGui::OpenPopup ("calendar");
     ImGui::SameLine ();
-    ImGui::TextUnformatted ("date");
-    if (!ImGui::BeginPopup ("sunrun-calendar"))
+    ImGui::TextUnformatted (label);
+    if (!ImGui::BeginPopup ("calendar")) {
+        ImGui::PopID ();
         return;
-    if (ImGui::ArrowButton ("##prev", ImGuiDir_Left) && --state.sunRunMonth < 1) {
-        state.sunRunMonth = 12;
-        --state.sunRunYear;
+    }
+    if (ImGui::ArrowButton ("##prev", ImGuiDir_Left) && --month < 1) {
+        month = lockYear ? 1 : 12;
+        if (!lockYear)
+            --year;
     }
     ImGui::SameLine ();
-    ImGui::Text ("%-9s %d", kMonths[state.sunRunMonth - 1], state.sunRunYear);
+    ImGui::Text ("%-9s %d", kMonths[month - 1], year);
     ImGui::SameLine ();
-    if (ImGui::ArrowButton ("##next", ImGuiDir_Right) && ++state.sunRunMonth > 12) {
-        state.sunRunMonth = 1;
-        ++state.sunRunYear;
+    if (ImGui::ArrowButton ("##next", ImGuiDir_Right) && ++month > 12) {
+        month = lockYear ? 12 : 1;
+        if (!lockYear)
+            ++year;
     }
-    state.sunRunDay = (std::min) (state.sunRunDay, DaysIn (state.sunRunYear, state.sunRunMonth));
+    day = (std::min) (day, DaysIn (year, month));
     constexpr const char* kDays[] = { "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su" };
     if (ImGui::BeginTable ("##days", 7, ImGuiTableFlags_SizingFixedSame)) {
         for (const char* name : kDays) {
             ImGui::TableNextColumn ();
             ImGui::TextDisabled ("%s", name);
         }
-        for (int blank = Weekday (state.sunRunYear, state.sunRunMonth, 1); blank > 0; --blank)
+        for (int blank = Weekday (year, month, 1); blank > 0; --blank)
             ImGui::TableNextColumn ();
-        for (int day = 1; day <= DaysIn (state.sunRunYear, state.sunRunMonth); ++day) {
+        for (int d = 1; d <= DaysIn (year, month); ++d) {
             ImGui::TableNextColumn ();
-            char text[8];
-            std::snprintf (text, sizeof (text), "%d", day);
-            if (ImGui::Selectable (text, day == state.sunRunDay)) {
-                state.sunRunDay = day;
+            char number[8];
+            std::snprintf (number, sizeof (number), "%d", d);
+            if (ImGui::Selectable (number, d == day)) {
+                day = d;
                 ImGui::CloseCurrentPopup ();
             }
         }
         ImGui::EndTable ();
     }
-    const auto preset = [&state] (const char* name, int month, int day) {
+    const auto preset = [&] (const char* name, int presetMonth, int presetDay) {
         if (ImGui::SmallButton (name)) {
-            state.sunRunMonth = month;
-            state.sunRunDay = day;
+            month = presetMonth;
+            day = presetDay;
             ImGui::CloseCurrentPopup ();
         }
     };
@@ -139,6 +144,77 @@ void DatePicker (HudState& state)
     ImGui::SameLine ();
     preset ("Dec 21", 12, 21);
     ImGui::EndPopup ();
+    ImGui::PopID ();
+}
+
+// Days a period covers, for the sampling choice's label.
+int PeriodDays (const HudState& state)
+{
+    if (state.sunRunPeriod == 2)
+        return Leap (state.sunRunYear) ? 366 : 365;
+    const auto ordinal = [&state] (int month, int day) {
+        int total = day;
+        for (int m = 1; m < month; ++m)
+            total += DaysIn (state.sunRunYear, m);
+        return total;
+    };
+    return ordinal (state.sunRunToMonth, state.sunRunToDay) - ordinal (state.sunRunMonth, state.sunRunDay) + 1;
+}
+
+// Single day / Period / Year, the date(s) each needs, and a period's sampling.
+void PeriodControls (HudState& state)
+{
+    ImGui::RadioButton ("Single day##sunrunperiod", &state.sunRunPeriod, 0);
+    ImGui::SetItemTooltip ("One date: hours of direct sun that day, with every step's shadows.");
+    ImGui::SameLine ();
+    ImGui::RadioButton ("Period##sunrunperiod", &state.sunRunPeriod, 1);
+    ImGui::SetItemTooltip ("A date range within one year, traced day by day on the same model.");
+    ImGui::SameLine ();
+    ImGui::RadioButton ("Year##sunrunperiod", &state.sunRunPeriod, 2);
+    ImGui::SetItemTooltip ("January 1 to December 31, traced day by day on the same model.");
+    if (state.sunRunPeriod == 0) {
+        DatePicker ("sunrundate", "date", state.sunRunYear, state.sunRunMonth, state.sunRunDay, false);
+        return;
+    }
+    if (state.sunRunPeriod == 1) {
+        DatePicker ("sunrunfrom", "from", state.sunRunYear, state.sunRunMonth, state.sunRunDay, false);
+        DatePicker ("sunrunto", "to", state.sunRunYear, state.sunRunToMonth, state.sunRunToDay, true);
+        state.sunRunToDay = (std::min) (state.sunRunToDay, DaysIn (state.sunRunYear, state.sunRunToMonth));
+        if (PeriodDays (state) < 1)
+            hudshell::ErrorNotice ("The period ends before it starts");
+    }
+    else {
+        ImGui::SetNextItemWidth (-LabelColumn ());
+        ImGui::InputInt ("year##sunrunyear", &state.sunRunYear, 1, 10);
+        state.sunRunYear = std::clamp (state.sunRunYear, 1, 9999);
+    }
+    const int days = (std::max) (0, PeriodDays (state));
+    int sampling = state.sunRunDailyResolved ? 1 : 0;
+    ImGui::RadioButton ("Preview##sunrunsampling", &sampling, 0);
+    ImGui::SetItemTooltip ("One middle day per month, weighted by the days it stands for. Fast, and an estimate: a "
+                           "shadow that comes and goes within a month can be missed.");
+    ImGui::SameLine ();
+    char every[48];
+    std::snprintf (every, sizeof (every), "Every day (%d)##sunrunsampling", days);
+    ImGui::RadioButton (every, &sampling, 1);
+    ImGui::SetItemTooltip ("Every day of the period traced: the reference. Still limited by the timestep and the "
+                           "cell size, and about %d times the preview's work.",
+                           (std::max) (1, days / (std::max) (1, (std::min) (12, days))));
+    state.sunRunDailyResolved = sampling == 1;
+    NoteWrapped ("Shown as the mean hours of direct sun a day over the period. Edits do not rerun it.");
+}
+
+// The time slice: the hours of each day that count, whole hours, end exclusive.
+void HourSlice (HudState& state)
+{
+    ImGui::SetNextItemWidth (-LabelColumn ());
+    ImGui::DragIntRange2 ("hours##sunrunhours", &state.sunRunHourFrom, &state.sunRunHourTo, 0.1f, 0, 24, "from %02d:00",
+                          "to %02d:00", ImGuiSliderFlags_AlwaysClamp);
+    state.sunRunHourFrom = std::clamp (state.sunRunHourFrom, 0, 23);
+    if (state.sunRunHourTo <= state.sunRunHourFrom)
+        state.sunRunHourTo = (std::min) (24, state.sunRunHourFrom + 1);
+    ImGui::SetItemTooltip ("Only sun in this slice of each day counts; 00:00 to 24:00 is the whole day. Times are "
+                           "the project's clock as Archicad gives it.");
 }
 
 // One role per element, as the palette command's exclusive sets: putting an
@@ -278,6 +354,12 @@ void SubmitRun (HudState& state)
     request.year = state.sunRunYear;
     request.month = state.sunRunMonth;
     request.day = state.sunRunDay;
+    request.period = state.sunRunPeriod == 2 ? "year" : state.sunRunPeriod == 1 ? "period" : "day";
+    request.toMonth = state.sunRunToMonth;
+    request.toDay = state.sunRunToDay;
+    request.dailyResolved = state.sunRunDailyResolved;
+    request.hourFrom = state.sunRunHourFrom;
+    request.hourTo = state.sunRunHourTo;
     request.timestep = kTimesteps[std::clamp (state.sunRunTimestep, 0, kTimestepCount - 1)];
     request.grid = state.sunRunGrid;
     request.preset = state.sunRunPreset == 1 ? "late" : "early";
@@ -303,7 +385,10 @@ bool DrawSunStudyRunAction (HudState& state)
     const bool cancelling = status.cancelling;
     const std::string stage = status.stage;
     tapioca::ui::AnalysisRunView view;
-    view.runLabel = status.stage == "failed" ? "Retry sun study" : "Run sun study";
+    view.runLabel = status.stage == "failed"  ? "Retry sun study"
+                    : state.sunRunPeriod == 2 ? "Run year study"
+                    : state.sunRunPeriod == 1 ? "Run period study"
+                                              : "Run sun study";
     view.resolved = status.resolvedSteps;
     view.total = status.totalSteps;
     if (cancelling)
@@ -321,6 +406,16 @@ bool DrawSunStudyRunAction (HudState& state)
             view.stage = Stage::Waiting;
     }
     state.sunRunBusy = active;
+    // The finished period, for the study panel's readings (#152).
+    if (!active && status.stage == "done" && status.period) {
+        state.sunPeriodStudyId = status.studyId;
+        state.sunPeriodDays = double (status.representedDays);
+        state.sunPeriodLabel = status.periodLabel;
+        state.sunPeriodCarrierDate = status.carrierDate;
+        state.sunPeriodEstimate = status.estimate;
+    }
+    else if (!active && status.stage == "done")
+        state.sunPeriodStudyId.clear ();
     const bool reopen = state.sunRunWasCancelling && !active;
     state.sunRunWasCancelling = cancelling;
     switch (tapioca::ui::AnalysisRunControl ("##sunrunstart", view)) {
@@ -337,6 +432,9 @@ bool DrawSunStudyRunAction (HudState& state)
     }
     ImGui::SetItemTooltip (
         "Stops this run. The last complete study stays visible. Following stays paused until Resume.");
+    if (active && status.period && status.periodDays > 0)
+        ImGui::TextDisabled ("Day %zu of %zu: %s", (std::min) (status.periodDaysDone + 1, status.periodDays),
+                             status.periodDays, status.currentDate.c_str ());
     if (active && (stage == "snapshot" || (cancelling && view.total == 0)))
         ImGui::TextDisabled ("Cancellation waits for any in-flight host capture to return.");
     if (status.paused) {
@@ -356,6 +454,19 @@ bool DrawSunStudyRunAction (HudState& state)
         ImGui::TextDisabled ("Cancelled");
     else if (!active && status.stage == "done")
         ImGui::TextDisabled ("Done in %.1f s", status.wallMs / 1000.0);
+    if (!active && status.stage == "done" && status.period) {
+        // What the colours mean, and how they were made.
+        ImGui::TextWrapped ("%s: %.2f h a day of direct sun on average (%.0f h in total), of %.2f h a day (%.0f h) "
+                            "with the sun up in the time slice.",
+                            status.periodLabel.c_str (), status.meanDailyHours, status.meanTotalHours,
+                            status.daylightDailyHours, status.daylightTotalHours);
+        const std::string how =
+            (status.estimate ? "Preview estimate: " + std::to_string (status.periodDays) + " traced days weighted to " +
+                                   std::to_string (status.representedDays) + "."
+                             : "Every day traced (" + std::to_string (status.periodDays) + ").") +
+            " Shadow views show " + status.carrierDate + ".";
+        NoteWrapped (how.c_str ());
+    }
     return reopen;
 }
 
@@ -375,7 +486,8 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     const sunstudyhud::Status status = sunstudyhud::Current ();
 
     ImGui::BeginDisabled (state.sunRunBusy);
-    DatePicker (state);
+    PeriodControls (state);
+    HourSlice (state);
     ImGui::SetNextItemWidth (-LabelColumn ());
     state.sunRunTimestep = std::clamp (state.sunRunTimestep, 0, kTimestepCount - 1);
     char minutes[16];
