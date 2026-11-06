@@ -14,7 +14,48 @@ bool Faces (const double* normal, const double sun[3])
     return !(incidence <= 0.0); // the day engine's cull: NaN is traced, not culled
 }
 
+double Distance2 (const double* a, const double* b)
+{
+    const double x = a[0] - b[0], y = a[1] - b[1], z = a[2] - b[2];
+    return x * x + y * y + z * z;
+}
+
 } // namespace
+
+bool FacesSun (const double* normal, const double sun[3])
+{
+    return Faces (normal, sun);
+}
+
+std::vector<size_t> SamplesInSphere (const std::vector<double>& positions, const double centre[3], double radius,
+                                     size_t cap, double snapped[3])
+{
+    const size_t count = positions.size () / 3;
+    if (count == 0 || cap == 0)
+        return {};
+    size_t nearest = 0;
+    double best = Distance2 (&positions[0], centre);
+    for (size_t s = 1; s < count; ++s)
+        if (const double d = Distance2 (&positions[3 * s], centre); d < best) {
+            best = d;
+            nearest = s;
+        }
+    std::copy (&positions[3 * nearest], &positions[3 * nearest] + 3, snapped);
+    std::vector<std::pair<double, size_t>> within;
+    const double limit = radius > 0.0 ? radius * radius : 0.0;
+    for (size_t s = 0; s < count; ++s)
+        if (s != nearest)
+            if (const double d = Distance2 (&positions[3 * s], snapped); d <= limit)
+                within.emplace_back (d, s);
+    std::sort (within.begin (), within.end ());
+    std::vector<size_t> samples { nearest };
+    for (const auto& [distance, sample] : within) {
+        if (samples.size () >= cap)
+            break;
+        samples.push_back (sample);
+    }
+    return samples;
+}
 
 bool ComputePointProfile (const double position[3], const double* normal, const std::vector<ProfileDay>& days,
                           const ITraversal& traversal, double tmin, PointProfile& profile,

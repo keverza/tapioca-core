@@ -31,6 +31,7 @@
 #include "SunStudy/SunStudyBackend.hpp"
 #include "SunStudy/SunStudyPatchAtlas.hpp"
 #include "SunStudy/SunStudyPatchSampler.hpp"
+#include "SunStudy/SunStudyPointProfile.hpp"
 #include "SunStudy/SunStudyReading.hpp"
 #include "SunStudy/SunStudyStepAtlas.hpp"
 #include "SunStudy/SunSeries.hpp"
@@ -354,6 +355,15 @@ class SunStudyStore final {
     bool ReadAt (const std::string& id, uint64_t snapshotId, size_t face, size_t meshIndex, const double point[3],
                  SunStudyReading& reading, uint8_t& role, double& daylightHours, std::string& error,
                  std::vector<uint8_t>* litSteps = nullptr) const;
+
+    // A study point (#152): the samples within `radius` of the sample nearest
+    // `centre` (SamplesInSphere), and that sample's position.
+    bool PointSamples (const std::string& id, const double centre[3], double radius, size_t cap,
+                       std::vector<size_t>& samples, double snapped[3], std::string& error) const;
+    // Those samples' day, step by step (PointDay): the single-day diagram.
+    // Refused while the study advances, as ReadAt is.
+    bool PointDayOf (const std::string& id, const std::vector<size_t>& samples, PointDay& day,
+                     std::string& error) const;
 
     bool Erase (const std::string& id, uint64_t expectedRevision = 0);
     void Clear ();

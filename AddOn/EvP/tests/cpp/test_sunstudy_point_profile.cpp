@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <vector>
 
 namespace {
 
@@ -88,6 +89,20 @@ TEST (SunStudyPointProfile, GroundSamplesFaceEverythingAndCancellationStops)
     EXPECT_DOUBLE_EQ (profile.dayLit[0], 3.0);
     EXPECT_FALSE (
         ComputePointProfile (position, nullptr, { Day (1, 1.0) }, traversal, 0.001, profile, [] { return true; }));
+}
+
+// A study point snaps to the nearest sample and takes in the samples within
+// its radius of THAT sample, nearest first, up to the cap.
+TEST (SunStudyPointProfile, ASphereSnapsToTheNearestSampleAndTakesItsNeighbours)
+{
+    const std::vector<double> positions = { 0, 0, 0, 1, 0, 0, 2, 0, 0, 5, 0, 0 };
+    const double clicked[3] = { 1.2, 0.1, 0.0 };
+    double snapped[3] = {};
+    EXPECT_EQ (SamplesInSphere (positions, clicked, 0.0, 10, snapped), (std::vector<size_t> { 1 }));
+    EXPECT_DOUBLE_EQ (snapped[0], 1.0);
+    EXPECT_EQ (SamplesInSphere (positions, clicked, 1.0, 10, snapped), (std::vector<size_t> { 1, 0, 2 }));
+    EXPECT_EQ (SamplesInSphere (positions, clicked, 1.0, 2, snapped).size (), 2u);
+    EXPECT_TRUE (SamplesInSphere ({}, clicked, 1.0, 10, snapped).empty ());
 }
 
 } // namespace

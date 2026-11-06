@@ -631,6 +631,78 @@ bool SunStudyStore::ReadAt (const std::string& id, uint64_t snapshotId, size_t f
     return false;
 }
 
+bool SunStudyStore::PointSamples (const std::string& id, const double centre[3], double radius, size_t cap,
+                                  std::vector<size_t>& samples, double snapped[3], std::string& error) const
+{
+    samples.clear ();
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end ()) {
+        error = "no sun study with id '" + id + "'";
+        return false;
+    }
+    samples = SamplesInSphere (found->second->positions, centre, radius, cap, snapped);
+    if (samples.empty ())
+        error = "the study has no samples";
+    return !samples.empty ();
+}
+
+bool SunStudyStore::PointDayOf (const std::string& id, const std::vector<size_t>& samples, PointDay& day,
+                                std::string& error) const
+{
+    day = PointDay ();
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end ()) {
+        error = "no sun study with id '" + id + "'";
+        return false;
+    }
+    if (!SessionReadable (id, error))
+        return false;
+    const StudyRecord& record = *found->second;
+    const auto& steps = record.series.Steps ();
+    day.hoursPerStep = double (record.timestepMinutes) / 60.0;
+    for (const SunStep& step : steps)
+        day.minutes.push_back (uint16_t (step.time.hour * 60 + step.time.minute));
+    day.lit.assign (steps.size (), 0.0);
+    day.facing.assign (steps.size (), 0.0);
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    if (record.rustCore == nullptr) {
+        error = NoStudyCoreError ();
+        return false;
+    }
+    std::vector<uint8_t> lit;
+    for (const size_t sample : samples) {
+        if (sample >= record.positions.size () / 3)
+            continue;
+        if (!record.rustCore->SampleSteps (sample, lit, error))
+            return false;
+        const double* normal =
+            record.normals.size () == record.positions.size () ? &record.normals[3 * sample] : nullptr;
+        for (size_t s = 0; s < steps.size (); ++s) {
+            if (s < lit.size () && lit[s] != 0)
+                day.lit[s] += 1.0;
+            if (FacesSun (normal, steps[s].direction))
+                day.facing[s] += 1.0;
+        }
+        ++day.samples;
+    }
+    if (day.samples == 0) {
+        error = "the study point has no measured sample";
+        return false;
+    }
+    for (size_t s = 0; s < steps.size (); ++s) {
+        day.lit[s] /= double (day.samples);
+        day.facing[s] /= double (day.samples);
+    }
+    return true;
+#else
+    (void) samples;
+    error = NoStudyCoreError ();
+    return false;
+#endif
+}
+
 bool SunStudyStore::StepMasks (const std::string& id, StepMaskAtlas& atlas, std::vector<uint16_t>& stepMinutes,
                                uint32_t& noonStep, std::string& error) const
 {

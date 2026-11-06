@@ -40,6 +40,25 @@ struct PointProfile {
     size_t rays = 0;
 };
 
+// The day engine's cull: incidence > 0, NaN traced; `normal` null faces all.
+bool FacesSun (const double* normal, const double sun[3]);
+
+// A study point (#152): the sample nearest `centre` -- the point snapped to
+// the grid, its position in `snapped` -- then every other sample within
+// `radius` of THAT position, nearest first, at most `cap` in all. Empty when
+// there are no samples.
+std::vector<size_t> SamplesInSphere (const std::vector<double>& positions, const double centre[3], double radius,
+                                     size_t cap, double snapped[3]);
+
+// One day at a study point, averaged over its samples: per kept step, the
+// share of the samples lit and the share the sun is in front of.
+struct PointDay {
+    std::vector<uint16_t> minutes; // clock minute of each step
+    std::vector<double> lit, facing;
+    double hoursPerStep = 0.25;
+    size_t samples = 0;
+};
+
 // `normal` null means always facing (a ground sample). False when cancelled.
 // The cull is the day engine's: incidence > 0, NaN traced.
 bool ComputePointProfile (const double position[3], const double* normal, const std::vector<ProfileDay>& days,
