@@ -59,6 +59,26 @@ TEST (ViewerStatus, ARunningStudyReportsQuantisedProgress)
     EXPECT_EQ (vs::Compose (in).analysis, "Sun study: drawing results");
 }
 
+TEST (ViewerStatus, APeriodReportsOneOverallPercentageThroughEveryDay)
+{
+    vs::Inputs in = Drawing ();
+    in.runRunning = true;
+    in.runPeriod = true;
+    in.runWholeYear = true;
+    in.runStage = "calculating";
+    in.runResolved = 50;
+    in.runTotal = 50; // the current day is complete: not 100% of the year
+    in.runPeriodProgress = 37.0 / 365.0;
+    EXPECT_EQ (vs::Compose (in).analysis, "Year study 10%");
+    in.runStage = "snapshot"; // the next day's capture keeps the same number
+    EXPECT_EQ (vs::Compose (in).analysis, "Year study 10%");
+    in.runWholeYear = false;
+    in.runPeriodProgress = 1.0;
+    EXPECT_EQ (vs::Compose (in).analysis, "Period study 100%");
+    in.runStage = "showing";
+    EXPECT_EQ (vs::Compose (in).analysis, "Sun study: drawing results");
+}
+
 TEST (ViewerStatus, PercentagesStepSoTheBarDoesNotRepaintEveryStep)
 {
     EXPECT_EQ (vs::QuantisedPercent (0, 0), 0);

@@ -377,6 +377,40 @@ void SubmitRun (HudState& state)
 
 } // namespace
 
+// What the finished run put on screen, in words: what a colour means, over
+// which days and hours, how it was sampled, and what the shadow views show.
+static void DrawRunResult (const sunstudyhud::Status& status)
+{
+    if (!status.period) {
+        // A follower rerun reports through the same status without a date.
+        if (status.dayDate.empty ())
+            ImGui::TextWrapped ("Result: hours of direct sun on the study's day.");
+        else
+            ImGui::TextWrapped ("Result: hours of direct sun on %s, %s.", status.dayDate.c_str (),
+                                status.sliceLabel.c_str ());
+        NoteWrapped ("Sunstudy view: each surface coloured by how long it had an unobstructed view of the sun that "
+                     "day. Shadows view: where and when it was in shadow, step by step.");
+        return;
+    }
+    ImGui::TextWrapped ("Result: average hours of direct sun per day, %s, %s (%u days).", status.periodLabel.c_str (),
+                        status.sliceLabel.c_str (), status.representedDays);
+    ImGui::TextWrapped ("Mean %.2f h a day (%.0f h in total); the sun is up %.2f h a day (%.0f h).",
+                        status.meanDailyHours, status.meanTotalHours, status.daylightDailyHours,
+                        status.daylightTotalHours);
+    const std::string sampling =
+        status.estimate ? "Preview estimate: " + std::to_string (status.periodDays) +
+                              " traced days (the middle of each month), each weighted by the days it stands for."
+                        : "Every day traced (" + std::to_string (status.periodDays) + " days).";
+    NoteWrapped (sampling.c_str ());
+    NoteWrapped (("Sunstudy view: a surface at 4 h received 4 h of unobstructed sun on an average day of the "
+                  "period; times " +
+                  std::to_string (status.representedDays) +
+                  " for the total. Time facing away from the sun counts as no sun, not as shade. Shadows view: "
+                  "the single traced day " +
+                  status.carrierDate + ", not the period.")
+                     .c_str ());
+}
+
 bool DrawSunStudyRunAction (HudState& state)
 {
     using Stage = tapioca::ui::AnalysisRunStage;
@@ -405,6 +439,21 @@ bool DrawSunStudyRunAction (HudState& state)
         else
             view.stage = Stage::Waiting;
     }
+    // ⚠️ A PERIOD IS ONE RUN ON THE BUTTON: each day passes through capture,
+    // preparation and its own steps, and showing those per day made the label
+    // flicker and the bar fill hundreds of times. Days done and the overall
+    // share instead, until the final publication.
+    char periodProgress[48];
+    if (active && !cancelling && status.period && status.periodDays > 0 && stage != "showing") {
+        const double overall = sunstudyhud::PeriodProgress (status);
+        view.stage = Stage::Calculating;
+        view.resolved = size_t (overall * 1000.0 + 0.5);
+        view.total = 1000;
+        std::snprintf (periodProgress, sizeof (periodProgress), "Day %zu / %zu  (%d%%)",
+                       (std::min) (status.periodDaysDone + 1, status.periodDays), status.periodDays,
+                       int (overall * 100.0));
+        view.progressText = periodProgress;
+    }
     state.sunRunBusy = active;
     // The finished period, for the study panel's readings (#152).
     if (!active && status.stage == "done" && status.period) {
@@ -432,11 +481,20 @@ bool DrawSunStudyRunAction (HudState& state)
     }
     ImGui::SetItemTooltip (
         "Stops this run. The last complete study stays visible. Following stays paused until Resume.");
-    if (active && status.period && status.periodDays > 0)
-        ImGui::TextDisabled ("Day %zu of %zu: %s", (std::min) (status.periodDaysDone + 1, status.periodDays),
-                             status.periodDays, status.currentDate.c_str ());
-    if (active && (stage == "snapshot" || (cancelling && view.total == 0)))
-        ImGui::TextDisabled ("Cancellation waits for any in-flight host capture to return.");
+    // ⚠️ FIXED HEIGHT WHILE RUNNING: these lines are reserved for the whole
+    // run, written or blank, so the panel below never jumps. A note that came
+    // and went with every day's capture read as a glitch on a year study.
+    if (active) {
+        if (status.period)
+            ImGui::TextDisabled ("Tracing %s", status.currentDate.empty () ? "..." : status.currentDate.c_str ());
+        const bool capturing = stage == "snapshot" || (cancelling && view.total == 0);
+        if (status.period)
+            ImGui::TextDisabled ("Cancel stops after the current capture or step.");
+        else if (capturing)
+            ImGui::TextDisabled ("Cancellation waits for any in-flight host capture to return.");
+        else
+            ImGui::Dummy (ImVec2 (0.0f, ImGui::GetTextLineHeight ()));
+    }
     if (status.paused) {
         ImGui::TextDisabled ("Following paused - last complete study retained");
         ImGui::BeginDisabled (active);
@@ -454,19 +512,8 @@ bool DrawSunStudyRunAction (HudState& state)
         ImGui::TextDisabled ("Cancelled");
     else if (!active && status.stage == "done")
         ImGui::TextDisabled ("Done in %.1f s", status.wallMs / 1000.0);
-    if (!active && status.stage == "done" && status.period) {
-        // What the colours mean, and how they were made.
-        ImGui::TextWrapped ("%s: %.2f h a day of direct sun on average (%.0f h in total), of %.2f h a day (%.0f h) "
-                            "with the sun up in the time slice.",
-                            status.periodLabel.c_str (), status.meanDailyHours, status.meanTotalHours,
-                            status.daylightDailyHours, status.daylightTotalHours);
-        const std::string how =
-            (status.estimate ? "Preview estimate: " + std::to_string (status.periodDays) + " traced days weighted to " +
-                                   std::to_string (status.representedDays) + "."
-                             : "Every day traced (" + std::to_string (status.periodDays) + ").") +
-            " Shadow views show " + status.carrierDate + ".";
-        NoteWrapped (how.c_str ());
-    }
+    if (!active && status.stage == "done")
+        DrawRunResult (status);
     return reopen;
 }
 

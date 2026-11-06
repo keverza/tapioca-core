@@ -74,7 +74,12 @@ struct Status {
     std::string backendFallbackReason;
     // A period run (#152): the schedule and where it is, then its result.
     // `resolvedSteps/totalSteps` stay the current day's.
+    // As asked, for the result's explanation: the single day's date (empty for
+    // a period) and the time slice, "00:00-24:00".
+    std::string dayDate;
+    std::string sliceLabel;
     bool period = false;
+    bool wholeYear = false;    // January 1 to December 31
     bool estimate = false;     // Preview sampling
     size_t periodDays = 0;     // days traced in all
     size_t periodDaysDone = 0; // days traced so far, sunless ones included
@@ -87,6 +92,20 @@ struct Status {
     double meanDailyHours = 0.0, maxDailyHours = 0.0, daylightDailyHours = 0.0;
     double meanTotalHours = 0.0, daylightTotalHours = 0.0;
 };
+
+// A period's overall progress, 0..1: finished days plus the current day's
+// resolved fraction, over all days. ⚠️ ONE NUMBER FOR THE WHOLE RUN: the
+// per-day steps restart at 0 every day, and a bar that fills hundreds of times
+// reads as a glitch.
+inline double PeriodProgress (const Status& status)
+{
+    if (status.periodDays == 0)
+        return 0.0;
+    const double day = status.totalSteps > 0 ? double (status.resolvedSteps) / double (status.totalSteps) : 0.0;
+    const double done = double (status.periodDaysDone) + (status.periodDaysDone < status.periodDays ? day : 0.0);
+    const double fraction = done / double (status.periodDays);
+    return fraction < 0.0 ? 0.0 : (fraction > 1.0 ? 1.0 : fraction);
+}
 
 bool Submit (const Request& request, std::string& error);
 void Cancel ();

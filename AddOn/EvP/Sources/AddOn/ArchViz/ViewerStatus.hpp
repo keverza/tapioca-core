@@ -65,6 +65,11 @@ struct Inputs {
     size_t runResolved = 0;
     size_t runTotal = 0;
     std::string runError;
+    // A period run (#152): its overall progress, 0..1, replaces the current
+    // day's steps, which restart every day.
+    bool runPeriod = false;
+    bool runWholeYear = false;
+    double runPeriodProgress = 0.0;
     // ---- analysis: the follower that keeps an adopted study current ----
     FollowState follow = FollowState::NoStudy;
     std::string followDirtyReason; // "geometry", "sun", "sampling" or empty

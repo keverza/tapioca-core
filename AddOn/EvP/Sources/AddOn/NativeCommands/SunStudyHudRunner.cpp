@@ -289,6 +289,7 @@ std::string RunPeriod (const Request& request, const std::shared_ptr<tapioca::Su
     {
         std::lock_guard<std::mutex> lock (gMutex);
         gStatus.period = true;
+        gStatus.wholeYear = year;
         gStatus.estimate = !request.dailyResolved;
         gStatus.periodDays = days.size ();
         gStatus.representedDays = represented;
@@ -630,6 +631,11 @@ bool Submit (const Request& request, std::string& error)
     gStatus.stage = "queued";
     gStatus.runs = runs;
     gStatus.requestedBackend = request.backend;
+    if (request.period == "day")
+        gStatus.dayDate = DateText (request.year, request.month, request.day);
+    char slice[24];
+    std::snprintf (slice, sizeof (slice), "%02d:00-%02d:00", request.hourFrom, request.hourTo);
+    gStatus.sliceLabel = slice;
     gThread = std::thread (Run, request, s_ticket);
     return true;
 }

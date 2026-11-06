@@ -56,7 +56,9 @@ AnalysisRunAction AnalysisRunControl (const char* id, const AnalysisRunView& vie
             label = "Cancelling...";
             break;
         case Stage::Calculating:
-            if (view.total > 0) {
+            if (view.progressText != nullptr)
+                label = view.progressText;
+            else if (view.total > 0) {
                 std::snprintf (progress, sizeof (progress), "%zu / %zu steps", view.resolved, view.total);
                 label = progress;
             }

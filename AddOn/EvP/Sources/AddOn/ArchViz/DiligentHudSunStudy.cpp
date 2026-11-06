@@ -672,6 +672,9 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         ImGui::TextUnformatted ("Ignored");
         return;
     }
+    if (shadows && state.sunShowsPeriod)
+        ImGui::TextWrapped ("Shadows of one traced day, %s - not the period. Run Single day for another date.",
+                            state.sunPeriodCarrierDate.c_str ());
     if (shadows) {
         const char* styles[] = { "Single", "Morning / evening", "Time fan (diagnostic)" };
         int style = current == 5 ? 0 : current == 6 ? 1 : 2;

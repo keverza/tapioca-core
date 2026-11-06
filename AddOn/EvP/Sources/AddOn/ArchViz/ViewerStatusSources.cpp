@@ -58,6 +58,9 @@ Inputs Gather (const DiligentViewportStats& viewport)
     in.runResolved = run.resolvedSteps;
     in.runTotal = run.totalSteps;
     in.runError = run.error;
+    in.runPeriod = run.period;
+    in.runWholeYear = run.wholeYear;
+    in.runPeriodProgress = sunstudyhud::PeriodProgress (run);
 
     const sunfollow::FollowerStats follow = sunfollow::State ();
     in.follow = FollowState (follow.state);

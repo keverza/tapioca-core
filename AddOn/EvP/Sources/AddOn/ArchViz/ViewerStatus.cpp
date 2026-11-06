@@ -39,6 +39,11 @@ std::string AnalysisState (const Inputs& in, bool& alert)
     if (in.runRunning) {
         if (in.runStage == "waiting")
             return "Sun study: waiting for the model";
+        // ⚠️ ONE PERCENTAGE FOR THE WHOLE PERIOD, through every day's capture,
+        // preparation and steps: per-day steps would reach 100% once a day.
+        if (in.runPeriod && in.runStage != "showing")
+            return std::string (in.runWholeYear ? "Year study " : "Period study ") +
+                   Percent (size_t (in.runPeriodProgress * 1000.0 + 0.5), 1000);
         if (in.runStage == "calculating")
             return "Sun study " + Percent (in.runResolved, in.runTotal);
         if (in.runStage == "showing")

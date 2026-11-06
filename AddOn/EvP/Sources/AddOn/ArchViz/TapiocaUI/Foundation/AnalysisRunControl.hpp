@@ -13,6 +13,9 @@ struct AnalysisRunView {
     AnalysisRunStage stage = AnalysisRunStage::Idle;
     const char* runLabel = "Run analysis";
     size_t resolved = 0, total = 0;
+    // Replaces "resolved / total steps" while calculating: a run made of many
+    // inner studies (a sun period's days) reports its own overall unit.
+    const char* progressText = nullptr;
     bool enabled = true;
     bool cancellable = true; // false after an atomic publication has begun
 };
