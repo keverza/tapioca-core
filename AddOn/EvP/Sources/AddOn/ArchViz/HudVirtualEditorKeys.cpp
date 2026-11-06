@@ -46,6 +46,8 @@ void Escape (Session& s)
     }
     else if (!s.drawing.empty ())
         s.drawing.clear (), s.references.clear ();
+    else if (s.booleanDraft)
+        CancelBoolean (s);
     else if (s.rectangularArray)
         CancelRectangularArray (s);
     else if (s.tool == Tool::Mirror || s.tool == Tool::Trim)
@@ -298,6 +300,8 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                     EndDrag (s);
                 else if (!s.drawing.empty ())
                     FinishDrawing (s);
+                else if (s.booleanDraft)
+                    ApplyBoolean (s);
                 break;
             case 0x09:
                 trackerKey ({ key.shift ? K::BackTab : K::Tab });

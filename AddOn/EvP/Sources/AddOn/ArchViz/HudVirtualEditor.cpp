@@ -594,6 +594,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
 
     DrawRectangularArrayPreview (s, m, scale);
+    DrawBooleanPreview (s, m, scale);
     DrawTrimPreview (s, m, scale);
     DrawHover (s, m, scale);
 

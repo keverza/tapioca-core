@@ -81,6 +81,7 @@ void SetTool (Session& s, Tool tool)
     if (s.tool != tool) {
         s.trimPreview.reset ();
         s.rectangularArray.reset ();
+        s.booleanDraft.reset ();
     }
     s.tool = tool;
 }

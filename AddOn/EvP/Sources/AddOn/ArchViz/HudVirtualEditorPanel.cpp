@@ -278,6 +278,7 @@ void Panel (Session& s)
     }
     DuplicateOffsetControls (s);
     RectangularArrayControls (s);
+    BooleanControls (s);
     ImGui::EndDisabled ();
     OrganizeControls (s);
     EllipseControls (s);

@@ -16,6 +16,7 @@
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/RoofSlopeCanvas.hpp"
 #include "Edit/EditArrange.hpp"
+#include "Edit/EditBoolean.hpp"
 #include "Edit/EditGizmo.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditPolyline.hpp"
@@ -123,6 +124,20 @@ struct RectangularArrayDraft {
     bool truncated = false;
     uint64_t builds = 0;
 };
+// A boolean of the selected closed outlines, shown before it is applied. The result is computed on
+// a copy of the document (edit::BooleanEntities), so the preview allocates no id, writes no history
+// and shows any refusal as it would be at Apply; Esc drops it with the document untouched (the id
+// counter included), Enter or Apply commits the same edit as one undo step. A draft whose
+// selection, document revision or tool changed is closed, never applied to what it did not show.
+struct BooleanDraft {
+    edit::BooleanKind kind = edit::BooleanKind::Union;
+    std::vector<edit::Ref> refs; // the selection it was made from, operands in its order
+    std::vector<edit::Id> operands;
+    uint64_t revision = 0;
+    Tool tool = Tool::Select;
+    std::vector<std::vector<edit::Vec3>> rings; // the result's drawn contours, every piece
+    std::string error;                          // why Apply would refuse; empty when it would apply
+};
 struct Session {
     edit::Session edits;
     std::shared_ptr<TerrainDesignState> terrainDesign; // Derived worker/cache follows this session between hosts.
@@ -166,6 +181,7 @@ struct Session {
     Tool tool = Tool::Select;
     std::optional<TrimPreview> trimPreview;                // transient; click commits this exact pointer and segment
     std::optional<RectangularArrayDraft> rectangularArray; // transient parameters and outline-only copies
+    std::optional<BooleanDraft> booleanDraft;              // transient; a preview computed on a copy
     LandscapeMode landscapeMode = LandscapeMode::Select;
     tapioca::geometry::SourceRole landscapeRole = tapioca::geometry::SourceRole::ReferenceLine;
     tapioca::geometry::LandscapeResult landscape;

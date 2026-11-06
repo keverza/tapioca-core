@@ -89,6 +89,15 @@ bool ApplyRectangularArray (Session& s);
 void RectangularArrayControls (Session& s);
 void UpdateRectangularArrayPreview (Session& s);
 void DrawRectangularArrayPreview (Session& s, const Map& m, float scale);
+// Boolean of the selected closed outlines (BooleanDraft): Begin previews on a copy, Check closes a
+// stale draft, Apply is one history entry and selects the result, Cancel changes nothing.
+std::vector<edit::Id> BooleanOperands (const edit::Document& doc, const std::vector<edit::Ref>& refs);
+bool BeginBoolean (Session& s, edit::BooleanKind kind);
+bool CheckBooleanDraft (Session& s);
+void CancelBoolean (Session& s);
+bool ApplyBoolean (Session& s);
+void BooleanControls (Session& s);
+void DrawBooleanPreview (Session& s, const Map& m, float scale);
 void OffsetJoinControl (Session& s);
 void OffsetMiterLimitControl (Session& s);
 void Acquire (Session& s, const edit::SnapResult& snap);

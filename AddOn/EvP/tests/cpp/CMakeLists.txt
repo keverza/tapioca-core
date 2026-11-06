@@ -622,6 +622,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerEditorFrame.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorArray.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorBoolean.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDrawing.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTrim.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscape.cpp"
@@ -926,6 +927,7 @@ set (EVP_TEST_SOURCES
     test_editdocument.cpp
     test_editcompound.cpp
     test_editboolean.cpp
+    test_hudvirtualeditorboolean.cpp
     test_editsession.cpp
     test_editsnap.cpp
     test_editworkingplane.cpp

@@ -299,6 +299,16 @@ void AddClipboard (const Session& s, std::vector<MenuItem>& items)
                                s.drawing.empty () && !GizmoModeLocked (s)));
     if (!objects)
         return;
+    // Booleans of closed outlines, the first selected kept (HudVirtualEditorBoolean.cpp).
+    if (!BooleanOperands (Doc (s), s.selection.Items ()).empty ()) {
+        Rule (items);
+        const bool ready = idle && s.tool == Tool::Select && s.landscapeMode == LandscapeMode::Select &&
+                           s.drawing.empty () && !GizmoModeLocked (s) && !s.rectangularArray;
+        items.push_back (Item ("boolean.union", "Union", {}, ready));
+        items.push_back (Item ("boolean.subtract", "Subtract from first", {}, ready));
+        items.push_back (Item ("boolean.intersect", "Intersect", {}, ready));
+        items.push_back (Item ("boolean.exclude", "Exclude overlap", {}, ready));
+    }
     Rule (items);
     const auto refs = s.selection.Items ();
     const bool grouped = std::any_of (refs.begin (), refs.end (), [&] (const edit::Ref& r) {
@@ -561,6 +571,11 @@ void RunMenuItem (Session& s, const std::string& id)
         DuplicateSelection (s);
     else if (id == "array.rectangular")
         BeginRectangularArray (s);
+    else if (id == "boolean.union" || id == "boolean.subtract" || id == "boolean.intersect" || id == "boolean.exclude")
+        BeginBoolean (s, id == "boolean.union"       ? edit::BooleanKind::Union
+                         : id == "boolean.subtract"  ? edit::BooleanKind::Subtract
+                         : id == "boolean.intersect" ? edit::BooleanKind::Intersect
+                                                     : edit::BooleanKind::Exclude);
     else if (id == "group" || id == "ungroup")
         GroupSelection (s, id == "group");
     else if (id == "mirror.x" || id == "mirror.y" || id == "mirror.copyX" || id == "mirror.copyY") {
