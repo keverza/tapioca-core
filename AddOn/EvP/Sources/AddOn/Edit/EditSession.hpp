@@ -20,6 +20,10 @@ using Operation = std::function<bool (Document&, std::string&)>;
 // restores the start exactly and screen deltas never accumulate. A refused Move keeps
 // the last valid state and says why in `message`. End records one undo entry for the
 // whole gesture, and only if it changed something.
+// Whether two documents hold the same authored content: every entity, path, landscape record,
+// layer, group and isolation, ignoring bookkeeping (revision, id counter).
+bool SameAuthoredContent (const Document& a, const Document& b);
+
 class Session {
   public:
     explicit Session (Document start = {}, size_t undoCap = 128);

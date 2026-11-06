@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/HudVirtualEditorDraft.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudShellTabs.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
@@ -56,14 +57,16 @@ void LandscapePanel (Session& s)
     ImGui::Text ("%zu faces   %zu regions   XY preview at %.2f m", s.landscape.faces.size (),
                  s.landscape.regions.size (), s.plane.origin.z);
     ImGui::BeginDisabled (GizmoModeLocked (s) || !s.drawing.empty ());
-    if (ImGui::SmallButton ("Save virtual definition"))
+    // In memory only, for comparing two states within this session; Save draft is durable.
+    if (ImGui::SmallButton ("Session snapshot"))
         lg::WriteLandscape (s.edits.Doc (), lg::LandscapeStorage::Virtual, s.landscapeSaved, s.message);
     ImGui::SameLine ();
     ImGui::BeginDisabled (s.landscapeSaved.empty ());
-    if (ImGui::SmallButton ("Reload"))
+    if (ImGui::SmallButton ("Restore snapshot"))
         ReloadLandscape (s, s.landscapeSaved);
     ImGui::EndDisabled ();
     ImGui::EndDisabled ();
+    DraftControls (s);
     ImGui::BeginDisabled (GizmoModeLocked (s) || !s.drawing.empty ());
     if (ImGui::Button ("Union"))
         BeginLandscapeCommand (s, lg::OperationKind::Union);

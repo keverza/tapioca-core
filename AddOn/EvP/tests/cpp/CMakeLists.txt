@@ -636,6 +636,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorMaterial.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTerrain.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDebug.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDraft.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTerrainSetup.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorNavigation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorPlane.cpp"
@@ -865,6 +866,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditImport.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditCompound.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditBoolean.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditDraft.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditShape.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanar.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarBuild.cpp"
@@ -997,6 +999,8 @@ set (EVP_TEST_SOURCES
     test_hudterrainsetup.cpp
     test_hudpathcutunits.cpp
     test_hudpathwidgetgesture.cpp
+    test_hudvirtualeditordraft.cpp
+    test_editdraft.cpp
     test_hudmixedpathsections.cpp
     test_hudvirtualeditorsnap.cpp
     test_hudvirtualeditorsnapcontrols.cpp

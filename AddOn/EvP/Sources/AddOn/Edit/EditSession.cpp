@@ -8,7 +8,7 @@ namespace geomsrv::edit {
 // What a gesture changed, ignoring the bookkeeping (revision, id counter): every field
 // of every entity and path, through their defaulted comparisons, so a field added to the
 // model is compared without this function knowing it.
-static bool SameContent (const Document& a, const Document& b)
+bool SameAuthoredContent (const Document& a, const Document& b)
 {
     return a.paths == b.paths && a.entities == b.entities && a.landscape == b.landscape && a.layer0 == b.layer0 &&
            a.layers == b.layers && a.groups == b.groups && a.isolated == b.isolated;
@@ -104,7 +104,7 @@ bool Session::Accept (Document candidate, const std::string& refusal)
     // invalidate, so the revision stays put and every revision-keyed cache holds. The id
     // counter still moves forward, and `changed` is left alone: a gesture that never
     // changed content ends with no undo entry and cancels without restoring.
-    if (SameContent (candidate, doc)) {
+    if (SameAuthoredContent (candidate, doc)) {
         doc.nextId = std::max (doc.nextId, candidate.nextId);
         message.clear ();
         return true;
@@ -142,7 +142,7 @@ bool Session::End (bool joinPathEnds)
             message = error;
             return false;
         }
-        if (!SameContent (joined, doc) && !Accept (std::move (joined), {})) {
+        if (!SameAuthoredContent (joined, doc) && !Accept (std::move (joined), {})) {
             const auto reason = message;
             Cancel ();
             message = reason;
@@ -151,7 +151,7 @@ bool Session::End (bool joinPathEnds)
     }
     gesture = false;
     target = {};
-    if (!changed || SameContent (doc, before))
+    if (!changed || SameAuthoredContent (doc, before))
         return false;
     undo.push_back (before);
     if (undo.size () > cap)

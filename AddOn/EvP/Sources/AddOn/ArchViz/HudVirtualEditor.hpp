@@ -194,7 +194,25 @@ struct Session {
     double publishedLandscapeZ = 0.0;
     edit::Id landscapeObject = edit::kNoId;
     edit::Id landscapeSet = edit::kNoId, landscapeOperandSet = edit::kNoId;
-    std::string landscapeSaved;
+    std::string landscapeSaved; // the in-memory session snapshot ("Session snapshot"), not a durable save
+    // Durable drafts (#159, HudVirtualEditorDraft.cpp). `draftClean` is the authored content at
+    // the session's start or its last durable save/open: unsaved work is a difference from it.
+    struct DraftRequest {
+        enum class Kind : uint8_t { Save, Open, List };
+        Kind kind = Kind::List;
+        std::string file;        // the file name in the drafts folder (Save, Open)
+        bool closeAfter = false; // Save from the unsaved-work prompt: close once it is on disk
+    };
+    std::string draftName = "Untitled";
+    std::string draftFile;    // what this session last saved to or opened from; empty before either
+    std::string draftSavedAt; // UTC of that save, or the opened draft's own
+    std::shared_ptr<const edit::Document> draftClean;
+    uint64_t draftDirtyRevision = UINT64_MAX;
+    bool draftDirty = false;
+    std::optional<DraftRequest> draftRequest; // drained on the message loop, never in layout or Present
+    std::vector<std::string> draftFiles;      // the drafts folder as the last List found it
+    bool draftFilesListed = false;
+    bool closePrompt = false; // close asked with unsaved work: Save / Discard / Cancel
     std::optional<LandscapeCommand> landscapeCommand;
     edit::GizmoMode gizmo = edit::GizmoMode::Gumball; // all applicable transform handles
     bool localAxes = true; // the gumball along the shape (EditGizmo SelectionFrame), else the world's
@@ -390,6 +408,7 @@ struct Session {
 
     explicit Session (edit::Document doc = {}) : edits (std::move (doc))
     {
+        draftClean = std::make_shared<const edit::Document> (edits.Doc ());
     }
 };
 

@@ -33,6 +33,7 @@
 #include "ArchViz/VirtualEditorTerrainCapture.hpp"
 #include "ArchViz/VirtualEditorMaterialPicker.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorDraft.hpp"
 #include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "Palette/ProgrammeDialog.hpp"
 
@@ -100,6 +101,12 @@ void FollowHudState ()
     FollowMaterialPicker (state);
     if (state->virtualEditor && state->virtualEditor->debugExportRequested) {
         edithud::SaveDebugExport (*state->virtualEditor);
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    }
+    // Draft save / open / list (#159): file IO on the message loop, never in layout or Present.
+    if (state->virtualEditor && state->virtualEditor->draftRequest) {
+        edithud::FollowDraftFiles (*state->virtualEditor);
         overlayinput::RequestLayout (overlayinput::View::ThreeD);
         overlayinput::RequestLayout (overlayinput::View::Plan);
     }

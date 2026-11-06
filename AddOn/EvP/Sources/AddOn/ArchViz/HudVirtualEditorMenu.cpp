@@ -1,4 +1,5 @@
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/HudVirtualEditorDraft.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "Edit/EditArrange.hpp"
@@ -588,7 +589,7 @@ void RunMenuItem (Session& s, const std::string& id)
                          id.rfind ("mirror.copy", 0) == 0);
     }
     else if (id == "close")
-        s.close = true;
+        RequestClose (s);
     else if (id == "plane.face")
         UseFacePlane (s, s.menu.ref);
     else if (id == "plane.pathPart")

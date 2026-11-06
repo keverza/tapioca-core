@@ -8,6 +8,7 @@
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorDraft.hpp"
 #include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "ArchViz/VirtualEditorTerrainCapture.hpp"
 #include "ArchViz/VirtualEditorMaterialPicker.hpp"
@@ -133,6 +134,8 @@ bool Refresh ()
     // here on the main thread, after layout, never on the renderer's Present.
     if (state->virtualEditor && state->virtualEditor->debugExportRequested)
         edithud::SaveDebugExport (*state->virtualEditor);
+    if (state->virtualEditor && state->virtualEditor->draftRequest)
+        edithud::FollowDraftFiles (*state->virtualEditor); // #159 drafts, same rule
     FollowTerrainCapture (state);
     FollowDraftingImport (state);
     FollowMaterialPicker (state);

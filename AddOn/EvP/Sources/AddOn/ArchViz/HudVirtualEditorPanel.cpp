@@ -4,6 +4,7 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudVirtualEditorDebug.hpp"
+#include "ArchViz/HudVirtualEditorDraft.hpp"
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditOrganize.hpp"
 #include "Edit/EditPathEdit.hpp"
@@ -203,6 +204,7 @@ void Panel (Session& s)
     const auto& doc = Doc (s);
     s.profilePlaced.clear (); // the canvas republishes its labels every frame
     SettleWidgetGesture (s);
+    ClosePrompt (s);
     LandscapePanel (s);
     ImGui::Text ("%zu objects   %zu paths   %zu selected", doc.entities.size (), doc.paths.size (),
                  s.selection.Items ().size ());
@@ -346,7 +348,7 @@ void Panel (Session& s)
         DeleteSelection (s);
     ImGui::SameLine ();
     if (ImGui::SmallButton ("Done"))
-        s.close = true;
+        RequestClose (s);
     // Context actions for what is selected.
     // An action with nothing to do here is shown greyed, as the menu shows it.
     bool offers = false, offset = false;

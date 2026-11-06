@@ -1,5 +1,6 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/HudVirtualEditorDraft.hpp"
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include <imgui.h>
@@ -21,6 +22,10 @@ void Escape (Session& s)
     // A panel widget's drag is the innermost gesture: Esc gives it up and nothing else.
     if (CancelWidgetGesture (s) || CancelLandscapeCommand (s) || CancelGumballReposition (s))
         return;
+    if (s.closePrompt) { // the unsaved-work question: Esc is its Cancel
+        s.closePrompt = false, s.message.clear ();
+        return;
+    }
     if (s.tracker.State () == edit::TrackerState::Editing) {
         s.tracker.Key ({ edit::TrackerKey::Kind::Escape });
         if (s.planeTyping || s.profileTyping)
@@ -58,7 +63,7 @@ void Escape (Session& s)
     else if (s.enteredGroup != edit::kNoId)
         s.enteredGroup = edit::kNoId, s.message = "Out of the group: a click picks it whole again.";
     else
-        s.close = true;
+        RequestClose (s); // asks first when the draft has unsaved changes
 }
 
 void TrackerEvent (Session& s, const edit::Tracker::Event& event)
