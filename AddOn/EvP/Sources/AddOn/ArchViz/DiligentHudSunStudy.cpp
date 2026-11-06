@@ -638,10 +638,16 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     // Whether the shown study is the runner's finished period, by id.
     state.sunShowsPeriod = !state.sunPeriodStudyId.empty () && state.sunPeriodStudyId == study.studyId;
     ImGui::TextDisabled ("%s, %u element(s)", study.studyId.c_str (), unsigned (study.elementsAttached));
-    if (state.sunShowsPeriod)
-        ImGui::TextWrapped ("Period %s%s. Shadows: %s.", state.sunPeriodLabel.c_str (),
-                            state.sunPeriodEstimate ? " (preview estimate)" : "", state.sunPeriodCarrierDate.c_str ());
+    if (state.sunShowsPeriod) {
+        char line[160];
+        std::snprintf (line, sizeof (line), "Period %s%s; shadows of %s", state.sunPeriodLabel.c_str (),
+                       state.sunPeriodEstimate ? " (estimate)" : "", state.sunPeriodCarrierDate.c_str ());
+        SunStudyNote (line, "The map shows the period's totals. The Shadows view scrubs one traced day -- the last "
+                            "one -- not the period.");
+    }
     DrawSunStudyPeriodView (state);
+    if (!state.sunShowsPeriod)
+        DrawSunStudyPointDay (state, study.studyId);
     if (study.preview)
         ImGui::TextUnformatted ("Coarse preview: complete day, not final grid");
     DrawSunStudyScreenshotControls (state);
@@ -698,9 +704,13 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         ImGui::TextUnformatted ("Ignored");
         return;
     }
-    if (shadows && state.sunShowsPeriod)
-        ImGui::TextWrapped ("Shadows of one traced day, %s - not the period. Run Single day for another date.",
-                            state.sunPeriodCarrierDate.c_str ());
+    if (shadows && state.sunShowsPeriod) {
+        char line[120];
+        std::snprintf (line, sizeof (line), "Shadows of one traced day, %s - not the period",
+                       state.sunPeriodCarrierDate.c_str ());
+        SunStudyNote (line, "Run Single day for another date, or a period with \"Keep each day for playback\" to "
+                            "play its shadows day by day.");
+    }
     if (shadows) {
         const char* styles[] = { "Single", "Morning / evening", "Time fan (diagnostic)" };
         int style = current == 5 ? 0 : current == 6 ? 1 : 2;

@@ -61,7 +61,11 @@ bool ShowPeriodView (const PeriodView& view, std::string&)
     ++s_viewRequests;
     return true;
 }
-bool ReadPeriodPoint (size_t, PeriodPoint& point)
+std::shared_ptr<const std::vector<KeptDay>> KeptPeriodDays ()
+{
+    return nullptr;
+}
+bool ReadPeriodPoints (const std::vector<size_t>&, PeriodPoint& point)
 {
     for (int m = 0; m < 12; ++m) {
         point.unoccluded[m] = 31.0 * 2.0;
@@ -69,7 +73,7 @@ bool ReadPeriodPoint (size_t, PeriodPoint& point)
     }
     return true;
 }
-void RequestPeriodProfile (size_t)
+void RequestPeriodProfile (const std::vector<size_t>&)
 {
 }
 PeriodProfile LatestPeriodProfile ()

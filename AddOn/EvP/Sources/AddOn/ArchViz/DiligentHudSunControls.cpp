@@ -2,6 +2,7 @@
 #include "ArchViz/DiligentHud.hpp"
 
 #include <iterator>
+#include <string>
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 
@@ -230,6 +231,30 @@ void DrawSunStudyInspectControl (int& mode, const char* first, const char* secon
     }
     ImGui::EndChild ();
 }
+void SunStudyNote (const char* line, const char* detail)
+{
+    const float width = ImGui::GetContentRegionAvail ().x;
+    std::string shown = line != nullptr ? line : "";
+    const bool cut = ImGui::CalcTextSize (shown.c_str ()).x > width;
+    if (cut) {
+        while (!shown.empty () && ImGui::CalcTextSize ((shown + "...").c_str ()).x > width)
+            shown.pop_back ();
+        shown += "...";
+    }
+    const bool more = detail != nullptr && detail[0] != 0;
+    ImGui::TextDisabled ("%s", shown.c_str ());
+    if ((cut || more) && ImGui::BeginItemTooltip ()) {
+        ImGui::PushTextWrapPos (ImGui::GetFontSize () * 30.0f);
+        ImGui::TextUnformatted (line);
+        if (more) {
+            ImGui::Spacing ();
+            ImGui::TextUnformatted (detail);
+        }
+        ImGui::PopTextWrapPos ();
+        ImGui::EndTooltip ();
+    }
+}
+
 // The speeds a timeline offers, as multiples of its base step.
 constexpr float kTimelineSpeeds[] = { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f };
 constexpr const char* kTimelineSpeedNames[] = { "0.25x", "0.5x", "1x", "2x", "4x" };

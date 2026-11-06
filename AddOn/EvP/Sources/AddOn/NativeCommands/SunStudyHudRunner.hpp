@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,9 @@ struct Request {
     // Period sampling: false = Preview (one middle day per covered month,
     // weighted by its days: an estimate), true = every day.
     bool dailyResolved = false;
+    // Keep every traced day's lit bits for playback (continuous, fixed hour,
+    // day by day). Off by default: about 11 bytes a sample and day.
+    bool keepDays = false;
     // The time slice, every mode: whole hours, `hourTo` exclusive.
     int hourFrom = 0, hourTo = 24;
     int timestep = 15; // minutes: 15, 30 or 60
@@ -122,10 +126,15 @@ struct PeriodView {
     int month = 0;     // 0 the whole period, 1-12 one month (quantity 4: whole period only)
     int threshold = 3; // index into PeriodInfo::edges, quantity 4
     double scale = 1.0;
+    // Playback of a run that kept its days (PeriodInfo::daysKept): 0 the
+    // totals of `month`; 1 one step of one kept day, lit or not (`scale` at
+    // lit); 2 one kept day's `quantity` (0-3) against its daylight.
+    int frame = 0;
+    int day = 0, step = 0; // index into KeptPeriodDays, and into its minutes
     bool operator== (const PeriodView& other) const
     {
         return quantity == other.quantity && month == other.month && threshold == other.threshold &&
-               scale == other.scale;
+               scale == other.scale && frame == other.frame && day == other.day && step == other.step;
     }
     bool operator!= (const PeriodView& other) const
     {
@@ -145,6 +154,15 @@ struct PeriodInfo {
     PeriodView applied;           // what is on screen
     bool busy = false;            // a view or a profile is being prepared
     std::string error;            // the last view's refusal
+    bool daysKept = false;        // the run kept its days: playback frames 1 and 2
+    size_t keptBytes = 0;
+};
+
+// A day the run kept for playback: its date and each step's clock minute.
+struct KeptDay {
+    int month = 0, day = 0;
+    double hoursPerStep = 0.0; // 0: no sun above the floor that day
+    std::vector<uint16_t> minutes;
 };
 
 // One sample's whole period, from the stored totals (no tracing).
@@ -153,9 +171,10 @@ struct PeriodPoint {
     float daily[14] = {};                        // represented days per daily-hours bin (PeriodInfo::edges)
 };
 
-// One sample re-traced against every traced day's sun: when it is lit.
+// A study point's samples re-traced against every traced day's sun, averaged:
+// when it is lit.
 struct PeriodProfile {
-    size_t sample = SIZE_MAX;
+    std::vector<size_t> samples;
     bool ready = false;
     std::string error;
     double up[12][24] = {}, facing[12][24] = {}, lit[12][24] = {}; // weighted hours, month x clock hour
@@ -168,9 +187,12 @@ struct PeriodProfile {
 PeriodInfo CurrentPeriod ();
 // Latest wins: a request replaces any not yet applied.
 bool ShowPeriodView (const PeriodView& view, std::string& error);
-bool ReadPeriodPoint (size_t sample, PeriodPoint& point);
-// Asks for `sample`'s profile; LatestPeriodProfile returns it once ready.
-void RequestPeriodProfile (size_t sample);
+// The kept days, or null when the run kept none.
+std::shared_ptr<const std::vector<KeptDay>> KeptPeriodDays ();
+// A study point's period: the mean of its samples' stored totals.
+bool ReadPeriodPoints (const std::vector<size_t>& samples, PeriodPoint& mean);
+// Asks for the samples' profile; LatestPeriodProfile returns it once ready.
+void RequestPeriodProfile (const std::vector<size_t>& samples);
 PeriodProfile LatestPeriodProfile ();
 
 bool Submit (const Request& request, std::string& error);

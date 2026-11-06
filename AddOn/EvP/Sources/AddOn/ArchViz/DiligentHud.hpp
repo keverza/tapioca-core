@@ -219,10 +219,30 @@ struct HudState {
     // person's choice for one is remembered when they come back to it.
     std::string sunPeriodPresets[5] = { "sun-hours-classic", "annual-sun-exposure", "harm", "cividis", "benefit" };
     int sunPeriodPresetsFor = 0; // which quantity sunGradientPreset currently belongs to
-    // The point the period graph shows: the last hovered sample, unless pinned.
-    size_t sunPeriodPointSample = SIZE_MAX;
-    bool sunPeriodPointPinned = false;
-    bool sunPeriodProfile = false; // re-trace the point for its month x hour grid
+    // How the player steps (#152): 0 every step of every kept day, 1 one clock
+    // time through the kept days, 2 day by day, 3 month by month. 0-2 need a
+    // run that kept its days. sunPeriodDay/Step index the kept days and their
+    // steps; sunPeriodClock is the fixed hour, minutes after midnight.
+    int sunPeriodPlayMode = 3;
+    int sunPeriodDay = 0, sunPeriodStep = 0;
+    int sunPeriodClock = 12 * 60;
+    bool sunPeriodProfile = false; // re-trace the study point for its month x hour grid
+    // The STUDY POINT (#152): placed from the view's right-click menu on a
+    // measured surface, snapped to the nearest sample, a sphere whose radius
+    // takes in the cells around it; the panel's diagrams are their mean.
+    // `sunPointSamples` are recomputed when the study or the radius changes.
+    bool sunPointPlaced = false;
+    double sunPointAt[3] = {};     // as clicked
+    double sunPointCentre[3] = {}; // snapped to the nearest sample
+    float sunPointRadius = 0.0f;   // metres; 0 the one snapped cell
+    std::vector<size_t> sunPointSamples;
+    std::string sunPointSamplesFor; // "<study>|<radius>" they were found for
+    // The right-click menu's target: the measured point under the cursor.
+    bool sunPointMenuValid = false;
+    double sunPointMenuAt[3] = {};
+    // Hover readings of a measured surface also carry the hit point.
+    bool sunReadingPointValid = false;
+    double sunReadingPoint[3] = {};
     bool sunShowsPeriod = false;
     double sunPeriodDays = 0.0;
     std::string sunPeriodLabel, sunPeriodCarrierDate;
@@ -261,6 +281,8 @@ struct HudState {
     int sunRunPeriod = 0;
     int sunRunToMonth = 9, sunRunToDay = 23;
     bool sunRunDailyResolved = false;
+    // Keep every traced day for playback (continuous, fixed hour, day by day).
+    bool sunRunKeepDays = false;
     // The time slice, every mode: whole hours, the end exclusive.
     int sunRunHourFrom = 0, sunRunHourTo = 24;
     bool sunRunBusy = false;
@@ -798,6 +820,16 @@ bool DrawSunStudyRunAction (HudState& state);
 // toggles with their own colours, the month timeline, the threshold, and the
 // hovered point's year. Draws nothing unless the shown study is a period.
 void DrawSunStudyPeriodView (HudState& state);
+// The study point (DiligentHudSunPoint.cpp, #152): the view's right-click
+// menu that places it, its sphere over the model, its samples in `studyId`
+// (refreshed when the study or the radius changes), the panel's radius row
+// (false with a one-line hint when there is no point), and a single day's
+// diagram of when its cells were lit.
+void DrawSunStudyPointMenu (HudState& state);
+void DrawSunStudyPointOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
+bool RefreshSunStudyPointSamples (HudState& state, const std::string& studyId);
+bool DrawSunStudyPointHeader (HudState& state, const std::string& studyId);
+void DrawSunStudyPointDay (HudState& state, const std::string& studyId);
 void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, const float origin[3],
                                 const float direction[3]);

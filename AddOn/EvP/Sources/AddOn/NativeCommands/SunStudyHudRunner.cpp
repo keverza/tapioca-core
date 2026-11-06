@@ -239,8 +239,8 @@ namespace rs = evp::sunstudy::rust;
 
 // Folds one traced day into the period, creating the totals on the first one
 // (the sample count is known only then) with any sunless days seen before it.
-std::string AddPeriodDay (std::unique_ptr<rs::RustAnnualSun>& annual, std::vector<std::pair<int, double>>& sunless,
-                          const evp::sunstudy::StudyRecord& record, const rs::AnnualDay& day)
+std::string AddPeriodDay (std::unique_ptr<rs::RustAnnualSun>& annual, std::vector<rs::AnnualDay>& sunless,
+                          const evp::sunstudy::StudyRecord& record, const rs::AnnualDay& day, bool keepDays)
 {
     std::string error;
     if (record.rustCore == nullptr)
@@ -249,15 +249,15 @@ std::string AddPeriodDay (std::unique_ptr<rs::RustAnnualSun>& annual, std::vecto
         TapiocaStudyInfo info {};
         if (!record.rustCore->Info (info, error))
             return error;
-        annual = rs::RustAnnualSun::Create (info.sampleCount, error);
+        annual = rs::RustAnnualSun::Create (info.sampleCount, error, keepDays);
         if (annual == nullptr)
             return "the period's totals could not be allocated (" + error + ")";
-        for (const auto& [month, weight] : sunless)
-            if (!annual->AddSunless (month, weight, error))
+        for (const rs::AnnualDay& dark : sunless)
+            if (!annual->AddSunless (dark.month, dark.weightDays, error, dark.day))
                 return error;
         sunless.clear ();
     }
-    if (!annual->Add (*record.rustCore, day.month, day.weightDays, error))
+    if (!annual->Add (*record.rustCore, day.month, day.weightDays, error, day.day))
         return error == "AnnualReceptorsChanged" ? "the samples changed between days of the period; nothing was mixed"
                                                  : error;
     return "";
@@ -301,7 +301,8 @@ std::string RunPeriod (const Request& request, const std::shared_ptr<tapioca::Su
                          " sampling=" + (request.dailyResolved ? "daily" : "preview") +
                          " days=" + std::to_string (days.size ()) + " represented=" + std::to_string (represented) +
                          " hours=" + std::to_string (request.hourFrom) + "-" + std::to_string (request.hourTo) +
-                         " timestep=" + std::to_string (request.timestep));
+                         " timestep=" + std::to_string (request.timestep) +
+                         " keepDays=" + (request.keepDays ? "1" : "0"));
 
     std::shared_ptr<const CapturedSunStudyInputs> base;
     const GS::ObjectState baseParams =
@@ -317,7 +318,7 @@ std::string RunPeriod (const Request& request, const std::shared_ptr<tapioca::Su
     PeriodRecords records;
     std::vector<evp::sunstudy::ProfileDay> profileDays; // every day's sun, for a point's profile later
     std::unique_ptr<rs::RustAnnualSun> annual;
-    std::vector<std::pair<int, double>> sunless; // seen before the first traced day
+    std::vector<rs::AnnualDay> sunless; // seen before the first traced day
     std::shared_ptr<const evp::sunstudy::StudyRecord> carrier;
     std::string carrierId;
     uint64_t carrierRevision = 0;
@@ -352,8 +353,8 @@ std::string RunPeriod (const Request& request, const std::shared_ptr<tapioca::Su
         if (captured->series.Empty ()) {
             // No sun above the floor in the slice: the days count, at zero.
             if (annual == nullptr)
-                sunless.emplace_back (day.month, day.weightDays);
-            else if (!annual->AddSunless (day.month, day.weightDays, error))
+                sunless.push_back (day);
+            else if (!annual->AddSunless (day.month, day.weightDays, error, day.day))
                 return error;
         }
         else {
@@ -378,7 +379,8 @@ std::string RunPeriod (const Request& request, const std::shared_ptr<tapioca::Su
             const auto record = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (id);
             if (record == nullptr)
                 return "a period day was not complete after converging";
-            if (const std::string failed = AddPeriodDay (annual, sunless, *record, day); !failed.empty ())
+            if (const std::string failed = AddPeriodDay (annual, sunless, *record, day, request.keepDays);
+                !failed.empty ())
                 return failed;
             if (!carrierId.empty ())
                 records.Drop (carrierId);

@@ -23,6 +23,11 @@ void DrawSunStudyRampBar (ImDrawList* draw, ImVec2 start, ImVec2 size, int bands
                           unsigned lowSunHex = 0x1F5FD1, bool labels = true,
                           std::span<const overlaylayers::ColourStop> ramp = {});
 void DrawSunStudyInspectControl (int& mode, const char* first, const char* second);
+// ONE LINE, NEVER WRAPPED: `line` in the disabled colour, cut with "..." at
+// the panel edge, and on hover the whole line followed by `detail`. Every
+// explanation in the sun panels goes through it, so a long sentence never
+// pushes the panel down by a line when the panel narrows or the text changes.
+void SunStudyNote (const char* line, const char* detail = nullptr);
 
 struct HudTimeline;
 // A player over the steps first..last: to start/back/play/forward/end, a speed

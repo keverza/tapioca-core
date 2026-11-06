@@ -12,6 +12,7 @@
 // host call.
 
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/HudGumball.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
@@ -60,14 +61,6 @@ int Weekday (int year, int month, int day)
         --year;
     const int sunday0 = (year + year / 4 - year / 100 + year / 400 + offsets[month - 1] + day) % 7;
     return (sunday0 + 6) % 7;
-}
-
-// A disabled-colour note that wraps at the panel edge instead of running past it.
-void NoteWrapped (const char* text)
-{
-    ImGui::PushStyleColor (ImGuiCol_Text, ImGui::GetStyleColorVec4 (ImGuiCol_TextDisabled));
-    ImGui::TextWrapped ("%s", text);
-    ImGui::PopStyleColor ();
 }
 
 // The widest label beside a field, so every field leaves room for its label
@@ -201,7 +194,14 @@ void PeriodControls (HudState& state)
                            "cell size, and about %d times the preview's work.",
                            (std::max) (1, days / (std::max) (1, (std::min) (12, days))));
     state.sunRunDailyResolved = sampling == 1;
-    NoteWrapped ("Shown as the mean hours of direct sun a day over the period. Edits do not rerun it.");
+    ImGui::Checkbox ("Keep each day for playback##sunrunkeep", &state.sunRunKeepDays);
+    ImGui::SetItemTooltip (
+        "Keeps every traced day's lit/shaded steps after the run, so the period can be played step by step, at a "
+        "fixed hour through the days, or day by day. Off: only the monthly totals are kept and the player steps "
+        "month by month.\n\nMemory: about 11 bytes per cell per traced day at 15-minute steps (100 000 cells over "
+        "365 days is about 400 MB).");
+    SunStudyNote ("Shown as mean hours of direct sun a day. Edits do not rerun it.",
+                  "A period is traced on one pinned copy of the model; later edits do not update it.");
 }
 
 // The time slice: the hours of each day that count, whole hours, end exclusive.
@@ -358,6 +358,7 @@ void SubmitRun (HudState& state)
     request.toMonth = state.sunRunToMonth;
     request.toDay = state.sunRunToDay;
     request.dailyResolved = state.sunRunDailyResolved;
+    request.keepDays = state.sunRunPeriod != 0 && state.sunRunKeepDays;
     request.hourFrom = state.sunRunHourFrom;
     request.hourTo = state.sunRunHourTo;
     request.timestep = kTimesteps[std::clamp (state.sunRunTimestep, 0, kTimestepCount - 1)];
@@ -381,34 +382,40 @@ void SubmitRun (HudState& state)
 // which days and hours, how it was sampled, and what the shadow views show.
 static void DrawRunResult (const sunstudyhud::Status& status)
 {
+    // ⚠️ ONE LINE EACH, the explanation on hover (SunStudyNote): wrapped
+    // sentences changed the panel's height with its width and pushed
+    // everything below down.
+    char line[160];
     if (!status.period) {
         // A follower rerun reports through the same status without a date.
         if (status.dayDate.empty ())
-            ImGui::TextWrapped ("Result: hours of direct sun on the study's day.");
+            std::snprintf (line, sizeof (line), "Result: hours of direct sun on the study's day");
         else
-            ImGui::TextWrapped ("Result: hours of direct sun on %s, %s.", status.dayDate.c_str (),
-                                status.sliceLabel.c_str ());
-        NoteWrapped ("Sunstudy view: each surface coloured by how long it had an unobstructed view of the sun that "
-                     "day. Shadows view: where and when it was in shadow, step by step.");
+            std::snprintf (line, sizeof (line), "Result: hours of direct sun on %s, %s", status.dayDate.c_str (),
+                           status.sliceLabel.c_str ());
+        SunStudyNote (line, "Sunstudy view: each surface coloured by how long it had an unobstructed view of the sun "
+                            "that day. Shadows view: where and when it was in shadow, step by step.");
         return;
     }
-    ImGui::TextWrapped ("Result: average hours of direct sun per day, %s, %s (%u days).", status.periodLabel.c_str (),
-                        status.sliceLabel.c_str (), status.representedDays);
-    ImGui::TextWrapped ("Mean %.2f h a day (%.0f h in total); the sun is up %.2f h a day (%.0f h).",
-                        status.meanDailyHours, status.meanTotalHours, status.daylightDailyHours,
-                        status.daylightTotalHours);
+    std::snprintf (line, sizeof (line), "Result: mean h a day of direct sun, %s, %s (%u days)",
+                   status.periodLabel.c_str (), status.sliceLabel.c_str (), status.representedDays);
     const std::string sampling =
         status.estimate ? "Preview estimate: " + std::to_string (status.periodDays) +
                               " traced days (the middle of each month), each weighted by the days it stands for."
                         : "Every day traced (" + std::to_string (status.periodDays) + " days).";
-    NoteWrapped (sampling.c_str ());
-    NoteWrapped (("Sunstudy view: a surface at 4 h received 4 h of unobstructed sun on an average day of the "
-                  "period; times " +
-                  std::to_string (status.representedDays) +
-                  " for the total. Time facing away from the sun counts as no sun, not as shade. Shadows view: "
-                  "the single traced day " +
-                  status.carrierDate + ", not the period.")
-                     .c_str ());
+    const std::string meaning =
+        sampling +
+        "\n\nSunstudy view: a surface at 4 h received 4 h of unobstructed sun on an average day of the "
+        "period; times " +
+        std::to_string (status.representedDays) +
+        " for the total. Time facing away from the sun counts as no sun, not as shade.\n\nShadows view: the single "
+        "traced day " +
+        status.carrierDate + ", not the period.";
+    SunStudyNote (line, meaning.c_str ());
+    std::snprintf (line, sizeof (line), "Mean %.2f h a day (%.0f h total); sun up %.2f h a day (%.0f h)%s",
+                   status.meanDailyHours, status.meanTotalHours, status.daylightDailyHours, status.daylightTotalHours,
+                   status.estimate ? ", estimate" : "");
+    SunStudyNote (line, meaning.c_str ());
 }
 
 bool DrawSunStudyRunAction (HudState& state)
@@ -561,7 +568,7 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     const std::string advice =
         evp::sunstudy::SunStudyPresetAdvice (triangleCount, state.sunRunPreset == 1 ? "late" : "early");
     if (!advice.empty ())
-        NoteWrapped (advice.c_str ());
+        SunStudyNote (advice.c_str ());
 
     ImGui::RadioButton ("CPU##sunrunbackend", &state.sunRunBackend, 0);
     ImGui::SetItemTooltip ("The exact CPU tracer, on every machine. Edits rerun on CPU too.");

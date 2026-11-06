@@ -44,6 +44,7 @@ struct RetainedPeriod {
     std::string carrierId;
     uint64_t carrierRevision = 0;
     std::vector<evp::sunstudy::ProfileDay> days;
+    std::shared_ptr<const std::vector<KeptDay>> kept; // playback, when the run kept its days
     std::mutex annualMutex;
 };
 
@@ -51,7 +52,7 @@ std::mutex gPeriodMutex; // guards everything below
 std::shared_ptr<RetainedPeriod> gRetained;
 PeriodInfo gPeriodInfo;
 std::optional<PeriodView> gWantView;
-size_t gWantProfile = SIZE_MAX;
+std::optional<std::vector<size_t>> gWantProfile;
 PeriodProfile gProfile;
 std::thread gPeriodWorker;
 bool gPeriodWorkerRunning = false;
@@ -61,7 +62,7 @@ void ReleaseLocked ()
     gRetained.reset ();
     gPeriodInfo = PeriodInfo ();
     gWantView.reset ();
-    gWantProfile = SIZE_MAX;
+    gWantProfile.reset ();
     gProfile = PeriodProfile ();
 }
 
@@ -88,6 +89,16 @@ void RetainImpl (std::unique_ptr<rs::RustAnnualSun> annual, std::shared_ptr<cons
     std::string ignored;
     if (retained->annual->Sample (0, row, ignored))
         std::copy (row.edges.begin (), row.edges.end (), period.edges);
+    std::vector<rs::ArchivedDay> archived;
+    size_t bytes = 0;
+    if (retained->annual->ArchivedDays (archived, bytes, ignored)) {
+        auto kept = std::make_shared<std::vector<KeptDay>> ();
+        for (rs::ArchivedDay& day : archived)
+            kept->push_back ({ day.month, day.day, day.hoursPerStep, std::move (day.minutes) });
+        retained->kept = std::move (kept);
+        period.daysKept = true;
+        period.keptBytes = bytes;
+    }
     std::lock_guard<std::mutex> lock (gPeriodMutex);
     gRetained = std::move (retained);
     gPeriodInfo = period;
@@ -110,12 +121,19 @@ rs::AnnualQuantity QuantityOf (int quantity)
 }
 #endif
 
-// The colour ramp's top for a view: the scale for a share, else the mean
-// daylight a day of the chosen months.
-double RampTopOf (const PeriodInfo& info, const PeriodView& view)
+// The colour ramp's top for a view: the scale for a share or an instant, the
+// day's daylight for one kept day, else the mean daylight a day of the
+// chosen months.
+double RampTopOf (const RetainedPeriod& retained, const PeriodInfo& info, const PeriodView& view)
 {
-    if (view.quantity == 3 || view.quantity == 4)
+    if (view.quantity == 3 || view.quantity == 4 || view.frame == 1)
         return view.scale;
+    if (view.frame == 2) {
+        if (retained.kept == nullptr || view.day < 0 || size_t (view.day) >= retained.kept->size ())
+            return 0.0;
+        const KeptDay& day = (*retained.kept)[size_t (view.day)];
+        return double (day.minutes.size ()) * day.hoursPerStep;
+    }
     double hours = 0.0, days = 0.0;
     for (int month = 1; month <= 12; ++month)
         if (view.month == 0 || view.month == month) {
@@ -132,8 +150,13 @@ std::string ApplyPeriodView (RetainedPeriod& retained, const PeriodInfo& info, c
     std::string error;
     const auto present = [&retained, &view] (const evp::sunstudy::StudyRecord& record, std::string& presentError) {
         std::lock_guard<std::mutex> lock (retained.annualMutex);
-        return record.rustCore != nullptr &&
-               retained.annual->Present (*record.rustCore, QuantityOf (view.quantity), view.month, view.quantity != 3,
+        if (record.rustCore == nullptr)
+            return false;
+        if (view.frame != 0)
+            return retained.annual->PresentDay (*record.rustCore, size_t ((std::max) (view.day, 0)),
+                                                view.frame == 1 ? (std::max) (view.step, 0) : -1,
+                                                QuantityOf (view.quantity), view.scale, presentError);
+        return retained.annual->Present (*record.rustCore, QuantityOf (view.quantity), view.month, view.quantity != 3,
                                          presentError, view.threshold, view.scale);
     };
     if (!evp::sunstudy::SunStudyStore::Get ().Represent (retained.carrierId, retained.carrierRevision, present, error))
@@ -144,7 +167,7 @@ std::string ApplyPeriodView (RetainedPeriod& retained, const PeriodInfo& info, c
     show.Add ("follow", false);
     show.Add ("debug", (GS::Int32) 0);
     show.Add ("depth", (GS::Int32) 0);
-    const double top = RampTopOf (info, view);
+    const double top = RampTopOf (retained, info, view);
     if (top > 0.0)
         show.Add ("hoursMax", top);
     // The display worker takes one preparation at a time: a frame of the month
@@ -169,42 +192,71 @@ std::string ApplyPeriodView (RetainedPeriod& retained, const PeriodInfo& info, c
 #endif
 }
 
-void ComputePeriodProfile (RetainedPeriod& retained, size_t sample)
+void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& samples)
 {
     PeriodProfile result;
-    result.sample = sample;
+    result.samples = samples;
     const auto started = std::chrono::steady_clock::now ();
     const auto& carrier = *retained.carrier;
     // ⚠️ CPU ONLY: the GPU traversal's device is not shared with a second
     // caller thread; the CPU tracer is const and thread-safe.
     if (carrier.backend != "cpu")
         result.error = "the point profile re-traces on the CPU; run the period on CPU to use it";
-    else if (carrier.traversal == nullptr || sample >= carrier.positions.size () / 3)
-        result.error = "the hovered sample is not in the period";
+    else if (carrier.traversal == nullptr || samples.empty ())
+        result.error = "the study point is not in the period";
     else {
-        const double* normal =
-            carrier.normals.size () == carrier.positions.size () ? &carrier.normals[3 * sample] : nullptr;
-        evp::sunstudy::PointProfile profile;
-        evp::sunstudy::ComputePointProfile (&carrier.positions[3 * sample], normal, retained.days, *carrier.traversal,
-                                            0.001, profile);
-        for (int month = 0; month < 12; ++month)
-            for (int hour = 0; hour < 24; ++hour) {
-                result.up[month][hour] = profile.up[month][hour];
-                result.facing[month][hour] = profile.facing[month][hour];
-                result.lit[month][hour] = profile.lit[month][hour];
+        // The mean of the point's samples: sun up is the site's, the same for
+        // every sample; in front and lit are averaged.
+        size_t traced = 0;
+        for (const size_t sample : samples) {
+            if (sample >= carrier.positions.size () / 3)
+                continue;
+            const double* normal =
+                carrier.normals.size () == carrier.positions.size () ? &carrier.normals[3 * sample] : nullptr;
+            evp::sunstudy::PointProfile profile;
+            evp::sunstudy::ComputePointProfile (&carrier.positions[3 * sample], normal, retained.days,
+                                                *carrier.traversal, 0.001, profile);
+            for (int month = 0; month < 12; ++month)
+                for (int hour = 0; hour < 24; ++hour) {
+                    result.up[month][hour] = profile.up[month][hour];
+                    result.facing[month][hour] += profile.facing[month][hour];
+                    result.lit[month][hour] += profile.lit[month][hour];
+                }
+            if (traced == 0) {
+                result.dayMonth = std::move (profile.dayMonth);
+                result.dayOfMonth = std::move (profile.dayOfMonth);
+                result.dayUp = std::move (profile.dayUp);
+                result.dayFacing = std::move (profile.dayFacing);
+                result.dayLit = std::move (profile.dayLit);
             }
-        result.dayMonth = std::move (profile.dayMonth);
-        result.dayOfMonth = std::move (profile.dayOfMonth);
-        result.dayUp = std::move (profile.dayUp);
-        result.dayFacing = std::move (profile.dayFacing);
-        result.dayLit = std::move (profile.dayLit);
-        result.rays = profile.rays;
+            else
+                for (size_t d = 0; d < result.dayLit.size () && d < profile.dayLit.size (); ++d) {
+                    result.dayFacing[d] += profile.dayFacing[d];
+                    result.dayLit[d] += profile.dayLit[d];
+                }
+            result.rays += profile.rays;
+            ++traced;
+        }
+        if (traced == 0)
+            result.error = "the study point is not in the period";
+        else {
+            const double n = double (traced);
+            for (int month = 0; month < 12; ++month)
+                for (int hour = 0; hour < 24; ++hour) {
+                    result.facing[month][hour] /= n;
+                    result.lit[month][hour] /= n;
+                }
+            for (size_t d = 0; d < result.dayLit.size (); ++d) {
+                result.dayFacing[d] /= n;
+                result.dayLit[d] /= n;
+            }
+        }
     }
     result.milliseconds =
         std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
     result.ready = true;
     std::lock_guard<std::mutex> lock (gPeriodMutex);
-    if (gProfile.sample == sample)
+    if (gProfile.samples == samples)
         gProfile = std::move (result);
 }
 
@@ -214,17 +266,17 @@ void PeriodWorker ()
     for (;;) {
         std::shared_ptr<RetainedPeriod> retained;
         std::optional<PeriodView> view;
-        size_t profile = SIZE_MAX;
+        std::optional<std::vector<size_t>> profile;
         PeriodInfo info;
         {
             std::lock_guard<std::mutex> lock (gPeriodMutex);
             retained = gRetained;
             view = gWantView;
             gWantView.reset ();
-            profile = gWantProfile;
-            gWantProfile = SIZE_MAX;
+            profile = std::move (gWantProfile);
+            gWantProfile.reset ();
             info = gPeriodInfo;
-            if (retained == nullptr || (!view && profile == SIZE_MAX)) {
+            if (retained == nullptr || (!view && !profile)) {
                 gPeriodWorkerRunning = false;
                 gPeriodInfo.busy = false;
                 return;
@@ -239,8 +291,8 @@ void PeriodWorker ()
                     gPeriodInfo.applied = *view;
             }
         }
-        if (profile != SIZE_MAX)
-            ComputePeriodProfile (*retained, profile);
+        if (profile)
+            ComputePeriodProfile (*retained, *profile);
     }
 }
 
@@ -288,7 +340,7 @@ void Shutdown ()
     {
         std::lock_guard<std::mutex> lock (gPeriodMutex);
         gWantView.reset ();
-        gWantProfile = SIZE_MAX;
+        gWantProfile.reset ();
         worker = std::move (gPeriodWorker);
     }
     if (worker.joinable ())
@@ -320,8 +372,15 @@ bool ShowPeriodView (const PeriodView& view, std::string& error)
     return true;
 }
 
-bool ReadPeriodPoint (size_t sample, PeriodPoint& point)
+std::shared_ptr<const std::vector<KeptDay>> KeptPeriodDays ()
 {
+    std::lock_guard<std::mutex> lock (gPeriodMutex);
+    return gRetained != nullptr ? gRetained->kept : nullptr;
+}
+
+bool ReadPeriodPoints (const std::vector<size_t>& samples, PeriodPoint& mean)
+{
+    mean = PeriodPoint ();
 #if defined(TAPIOCA_GEOMETRY_RUST)
     std::shared_ptr<RetainedPeriod> retained;
     {
@@ -330,32 +389,44 @@ bool ReadPeriodPoint (size_t sample, PeriodPoint& point)
     }
     if (retained == nullptr)
         return false;
-    rs::AnnualSampleRow row;
-    std::string error;
-    {
-        std::lock_guard<std::mutex> lock (retained->annualMutex);
+    size_t read = 0;
+    std::lock_guard<std::mutex> lock (retained->annualMutex);
+    for (const size_t sample : samples) {
+        rs::AnnualSampleRow row;
+        std::string error;
         if (!retained->annual->Sample (sample, row, error))
-            return false;
+            continue;
+        for (int m = 0; m < 12; ++m) {
+            mean.unoccluded[m] += row.unoccluded[size_t (m)];
+            mean.facing[m] += row.facing[size_t (m)];
+        }
+        for (int b = 0; b < 14; ++b)
+            mean.daily[b] += row.daily[size_t (b)];
+        ++read;
     }
-    std::copy (row.unoccluded.begin (), row.unoccluded.end (), point.unoccluded);
-    std::copy (row.facing.begin (), row.facing.end (), point.facing);
-    std::copy (row.daily.begin (), row.daily.end (), point.daily);
+    if (read == 0)
+        return false;
+    for (int m = 0; m < 12; ++m) {
+        mean.unoccluded[m] /= double (read);
+        mean.facing[m] /= double (read);
+    }
+    for (int b = 0; b < 14; ++b)
+        mean.daily[b] /= float (read);
     return true;
 #else
-    (void) sample;
-    (void) point;
+    (void) samples;
     return false;
 #endif
 }
 
-void RequestPeriodProfile (size_t sample)
+void RequestPeriodProfile (const std::vector<size_t>& samples)
 {
     std::lock_guard<std::mutex> lock (gPeriodMutex);
-    if (gRetained == nullptr || gProfile.sample == sample)
+    if (gRetained == nullptr || gProfile.samples == samples)
         return; // ready, or already asked for
     gProfile = PeriodProfile ();
-    gProfile.sample = sample;
-    gWantProfile = sample;
+    gProfile.samples = samples;
+    gWantProfile = samples;
     WakePeriodWorkerLocked ();
 }
 

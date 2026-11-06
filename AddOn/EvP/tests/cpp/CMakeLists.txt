@@ -582,6 +582,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunStudy.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunRun.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPeriod.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPoint.cpp"
     "${EVP_ROOT}/Sources/AddOn/NativeCommands/SunStudyHudStatus.cpp"
     # A triangle cut to its clip rectangle: the overlays draw ImGui's triangles without a scissor.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudClip.cpp"

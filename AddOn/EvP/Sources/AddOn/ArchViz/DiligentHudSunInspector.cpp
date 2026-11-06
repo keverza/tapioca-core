@@ -23,6 +23,7 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     static std::chrono::steady_clock::time_point lastAsked;
     if (state.sunInspect == 0 || !state.hover.valid) {
         state.sunReadingState = 0;
+        state.sunReadingPointValid = false;
         return;
     }
     const std::string id = scene.ShownSunStudyId ();
@@ -46,6 +47,7 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     lastAsked = now;
 
     state.sunReadingState = 0;
+    state.sunReadingPointValid = false;
 
     // THE GPU PICK DECIDES WHICH ELEMENT IS UNDER THE CURSOR, NOT THE RAY.
     // The snapshot's BVH holds elements the viewer never draws (zone volumes,
@@ -87,6 +89,9 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     state.sunReadingSample = reading.measured ? reading.sample : SIZE_MAX;
     state.sunReadingNearest = reading.nearest;
     state.sunReadingState = reading.measured ? 1 : 2;
+    // Where, for the study point's right-click menu (#152).
+    state.sunReadingPointValid = reading.measured;
+    std::copy (hit.point, hit.point + 3, state.sunReadingPoint);
 }
 } // namespace geomsrv::archviz
 
