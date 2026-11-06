@@ -332,6 +332,7 @@ fn annual_sunless_days_represent_their_days_at_zero_hours() {
         quantity: 0,
         month: 0,
         per_day: 0,
+        threshold: 0,
     };
     let (mut count, mut ceiling) = (0_usize, -1.0_f64);
     // SAFETY: live handle; local request and outputs, disjoint.

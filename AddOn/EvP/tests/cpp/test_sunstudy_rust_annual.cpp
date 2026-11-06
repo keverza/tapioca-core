@@ -130,6 +130,26 @@ TEST (SunStudyRustAnnual, ADayFoldsInAtItsWeightAndIsPresentedThroughItsOwnCore)
     EXPECT_DOUBLE_EQ (info.maxHours, 90.0);
     EXPECT_DOUBLE_EQ (info.ceilingHours, 90.0);
 
+    // Access ratio: the clear sample got all the sun it faced, the shaded none.
+    ASSERT_TRUE (annual->Values (rs::AnnualQuantity::AccessRatio, 0, false, values, ceiling, error)) << error;
+    EXPECT_EQ (values, (std::vector<double> { 1.0, 0.0 }));
+    EXPECT_DOUBLE_EQ (ceiling, 1.0);
+    // Days with at least 2 h (edge 3): the 30 June days; as a share of 61.
+    ASSERT_TRUE (annual->Values (rs::AnnualQuantity::DaysAtLeast, 0, false, values, ceiling, error, 3)) << error;
+    EXPECT_EQ (values, (std::vector<double> { 30.0, 0.0 }));
+    EXPECT_DOUBLE_EQ (ceiling, 61.0);
+    ASSERT_TRUE (annual->Values (rs::AnnualQuantity::DaysAtLeast, 0, true, values, ceiling, error, 3)) << error;
+    EXPECT_DOUBLE_EQ (values[0], 30.0 / 61.0);
+    EXPECT_FALSE (annual->Values (rs::AnnualQuantity::DaysAtLeast, 6, false, values, ceiling, error, 3));
+    rs::AnnualSampleRow row;
+    ASSERT_TRUE (annual->Sample (0, row, error)) << error;
+    EXPECT_DOUBLE_EQ (row.unoccluded[5], 90.0);
+    EXPECT_DOUBLE_EQ (row.facing[5], 90.0);
+    EXPECT_DOUBLE_EQ (row.edges[3], 2.0);
+    EXPECT_FLOAT_EQ (row.daily[0], 31.0f); // the sunless December days
+    EXPECT_FLOAT_EQ (row.daily[6], 30.0f); // 3 h days: [3, 3.5)
+    EXPECT_FALSE (annual->Sample (2, row, error));
+
     ASSERT_TRUE (annual->Present (*day, rs::AnnualQuantity::Unoccluded, 6, true, error)) << error;
     std::vector<double> hours;
     ASSERT_TRUE (day->SunHours (hours, error)) << error;

@@ -13,8 +13,14 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaAnnualValuesRequest) == 24)
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaAnnualInfo) == 272);
 static_assert (sizeof (TapiocaAnnualScheduleRequest) == 12);
 static_assert (sizeof (TapiocaAnnualScheduledDay) == 16);
+static_assert (sizeof (TapiocaAnnualSampleRecord) == 360);
 
 namespace {
+
+uint8_t Threshold (int threshold)
+{
+    return static_cast<uint8_t> (threshold < 0 || threshold > 255 ? 255 : threshold); // 255: refused by Rust
+}
 
 bool Month (int month, bool allowWhole, uint8_t& out, std::string& error)
 {
@@ -118,11 +124,12 @@ bool RustAnnualSun::Info (AnnualInfo& info, std::string& error) const
 }
 
 bool RustAnnualSun::Values (AnnualQuantity quantity, int month, bool perDay, std::vector<double>& values,
-                            double& ceiling, std::string& error) const
+                            double& ceiling, std::string& error, int threshold) const
 {
     TapiocaAnnualValuesRequest request {};
     request.quantity = static_cast<uint8_t> (quantity);
     request.perDay = perDay ? 1 : 0;
+    request.threshold = Threshold (threshold);
     if (!Month (month, true, request.month, error))
         return false;
     size_t count = 0;
@@ -138,7 +145,7 @@ bool RustAnnualSun::Values (AnnualQuantity quantity, int month, bool perDay, std
 }
 
 bool RustAnnualSun::Present (const RustStudyCore& carrier, AnnualQuantity quantity, int month, bool perDay,
-                             std::string& error) const
+                             std::string& error, int threshold) const
 {
     uint8_t selected = 0;
     if (!Month (month, true, selected, error))
@@ -146,9 +153,24 @@ bool RustAnnualSun::Present (const RustStudyCore& carrier, AnnualQuantity quanti
     return Invoke (
         [&] (char* m, size_t n) {
             return tapioca_sunstudy_annual_present (handle_, carrier.handle_, static_cast<uint8_t> (quantity), selected,
-                                                    perDay ? 1 : 0, m, n);
+                                                    perDay ? 1 : 0, Threshold (threshold), m, n);
         },
         error);
+}
+
+bool RustAnnualSun::Sample (size_t sample, AnnualSampleRow& row, std::string& error) const
+{
+    TapiocaAnnualSampleRecord out {};
+    if (!Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_annual_sample (handle_, sample, &out, m, n); },
+                 error))
+        return false;
+    if (out.found == 0)
+        return false;
+    std::copy (out.unoccluded, out.unoccluded + 12, row.unoccluded.begin ());
+    std::copy (out.facing, out.facing + 12, row.facing.begin ());
+    std::copy (out.edges, out.edges + 13, row.edges.begin ());
+    std::copy (out.daily, out.daily + 14, row.daily.begin ());
+    return true;
 }
 
 } // namespace evp::sunstudy::rust

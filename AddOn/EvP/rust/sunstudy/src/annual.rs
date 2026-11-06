@@ -25,6 +25,8 @@
 //! weight one; it still depends on the timestep and the sample grid, so it is
 //! not called exact.
 
+pub mod threshold;
+
 use crate::occlusion::SampleSet;
 use crate::series::SunStep;
 use crate::summary::{SunStudyResultSummary, summarize_sun_hours};
@@ -259,6 +261,21 @@ pub enum AnnualQuantity {
     SurfaceFacing,
     /// Facing hours lost to an obstruction.
     ObstructionLoss,
+    /// Unoccluded over surface facing, 0-1: how much of the sun a surface
+    /// could have it actually gets. Independent of orientation, so facades
+    /// and roofs compare; 0 where the surface never faces the sun.
+    AccessRatio,
+}
+
+/// One sample's whole row, for a tooltip or a graph.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SampleRow {
+    /// Unoccluded hours per month.
+    pub unoccluded: [f64; MONTHS],
+    /// Surface-facing hours per month.
+    pub facing: [f64; MONTHS],
+    /// Represented days by daily-hours bin ([`threshold::DAILY_EDGES`]).
+    pub daily: [f32; threshold::DAILY_BINS],
 }
 
 /// The totals so far.
@@ -307,6 +324,14 @@ fn faces(normal: Option<&[f64]>, sun: &[f64; 3]) -> bool {
     }
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a day weight is a count of calendar days, far inside f32's exact integers"
+)]
+fn weight_as_f32(weight: f64) -> f32 {
+    weight as f32
+}
+
 fn zeroed(len: usize) -> Result<Vec<f64>, AnnualError> {
     let mut values = Vec::new();
     values
@@ -330,6 +355,7 @@ pub struct AnnualAccumulator {
     site_daylight: [f64; MONTHS],
     represented: [f64; MONTHS],
     sampled_days: usize,
+    daily: Vec<f32>,
 }
 
 impl AnnualAccumulator {
@@ -349,6 +375,16 @@ impl AnnualAccumulator {
             site_daylight: [0.0; MONTHS],
             represented: [0.0; MONTHS],
             sampled_days: 0,
+            daily: {
+                let len = sample_count
+                    .checked_mul(threshold::DAILY_BINS)
+                    .ok_or(AnnualError::OutOfMemory)?;
+                let mut bins = Vec::new();
+                bins.try_reserve_exact(len)
+                    .map_err(|_| AnnualError::OutOfMemory)?;
+                bins.resize(len, 0.0_f32);
+                bins
+            },
         })
     }
 
@@ -395,6 +431,13 @@ impl AnnualAccumulator {
         let bin = Self::check_weight(month, weight_days)?;
         if let Some(days) = self.represented.get_mut(bin) {
             *days += weight_days;
+        }
+        // Every sample had a day of zero hours.
+        let weight = weight_as_f32(weight_days);
+        for row in self.daily.as_chunks_mut::<{ threshold::DAILY_BINS }>().0 {
+            if let Some(days) = row.first_mut() {
+                *days += weight;
+            }
         }
         self.sampled_days += 1;
         Ok(())
@@ -454,6 +497,10 @@ impl AnnualAccumulator {
             if let Some(total) = self.facing.get_mut(slot) {
                 *total += weight * face;
             }
+            let day_bin = sample * threshold::DAILY_BINS + threshold::daily_bin(*lit);
+            if let Some(days) = self.daily.get_mut(day_bin) {
+                *days += weight_as_f32(weight);
+            }
         }
         if let Some(total) = self.site_daylight.get_mut(bin) {
             *total += weight * crate::series::count_to_f64(day.steps.len()) * day.hours_per_step;
@@ -498,6 +545,14 @@ impl AnnualAccumulator {
                 AnnualQuantity::Unoccluded => sum(lit),
                 AnnualQuantity::SurfaceFacing => sum(facing),
                 AnnualQuantity::ObstructionLoss => (sum(facing) - sum(lit)).max(0.0),
+                AnnualQuantity::AccessRatio => {
+                    let possible = sum(facing);
+                    if possible > 0.0 {
+                        (sum(lit) / possible).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    }
+                }
             });
         }
         Ok(out)
@@ -535,6 +590,9 @@ impl AnnualAccumulator {
     ) -> Result<Vec<f64>, AnnualError> {
         let days = self.represented_in(month)?;
         let mut values = self.values(quantity, month)?;
+        if quantity == AnnualQuantity::AccessRatio {
+            return Ok(values); // already per unit, not per day
+        }
         if days > 0.0 {
             for v in &mut values {
                 *v /= days;
@@ -556,6 +614,43 @@ impl AnnualAccumulator {
         } else {
             0.0
         })
+    }
+
+    /// Days with at least `DAILY_EDGES[edge]` hours of direct sun, per sample,
+    /// over the whole period (weighted as the days were).
+    ///
+    /// # Errors
+    /// [`AnnualError::InvalidHours`] for an edge past the table;
+    /// [`AnnualError::OutOfMemory`].
+    pub fn days_at_least(&self, edge: usize) -> Result<Vec<f64>, AnnualError> {
+        if edge >= threshold::DAILY_EDGES.len() {
+            return Err(AnnualError::InvalidHours);
+        }
+        let mut out = Vec::new();
+        out.try_reserve_exact(self.sample_count)
+            .map_err(|_| AnnualError::OutOfMemory)?;
+        out.extend(
+            self.daily
+                .as_chunks::<{ threshold::DAILY_BINS }>()
+                .0
+                .iter()
+                .map(|bins| threshold::days_from(bins, edge)),
+        );
+        Ok(out)
+    }
+
+    /// One sample's monthly totals and daily-hours bins; `None` past the end.
+    #[must_use]
+    pub fn sample_row(&self, sample: usize) -> Option<SampleRow> {
+        let months = sample.checked_mul(MONTHS)?..sample.checked_add(1)?.checked_mul(MONTHS)?;
+        let bins = sample.checked_mul(threshold::DAILY_BINS)?
+            ..sample.checked_add(1)?.checked_mul(threshold::DAILY_BINS)?;
+        let mut row = SampleRow::default();
+        row.unoccluded
+            .copy_from_slice(self.unoccluded.get(months.clone())?);
+        row.facing.copy_from_slice(self.facing.get(months)?);
+        row.daily.copy_from_slice(self.daily.get(bins)?);
+        Some(row)
     }
 
     /// Sampled and represented days, and the whole period's unoccluded

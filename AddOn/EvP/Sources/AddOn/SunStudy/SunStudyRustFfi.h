@@ -1238,9 +1238,11 @@ TapiocaStatus tapioca_sunstudy_annual_info (const TapiocaSunStudyAnnual* handle,
 typedef struct {
     double* values; /* one per sample; capacity 0 reports the count only */
     size_t capacity;
-    uint8_t quantity; /* 0 unoccluded, 1 surface facing, 2 obstruction loss */
-    uint8_t month;    /* 0 the whole period, 1-12 one month */
-    uint8_t perDay;   /* 1 the mean a represented day, 0 the total */
+    uint8_t quantity;  /* 0 unoccluded, 1 surface facing, 2 obstruction loss, 3 access ratio (0-1),
+                          4 days with at least edges[threshold] hours */
+    uint8_t month;     /* 0 the whole period, 1-12 one month (quantity 4: 0 only) */
+    uint8_t perDay;    /* 1 the mean a represented day (quantity 4: share of days), 0 the total */
+    uint8_t threshold; /* quantity 4: index into the daily-hours edges */
 } TapiocaAnnualValuesRequest;
 
 /* Shape-then-fill; `ceiling` is the site daylight of the same selection (a day
@@ -1253,8 +1255,21 @@ TapiocaStatus tapioca_sunstudy_annual_values (const TapiocaSunStudyAnnual* handl
  * 1) means a represented day: every hours reader of that study then returns
  * it; its step masks stay the traced day's. */
 TapiocaStatus tapioca_sunstudy_annual_present (const TapiocaSunStudyAnnual* handle, const TapiocaSunStudyStudy* study,
-                                               uint8_t quantity, uint8_t month, uint8_t perDay, char* error,
-                                               size_t errorCapacity);
+                                               uint8_t quantity, uint8_t month, uint8_t perDay, uint8_t threshold,
+                                               char* error, size_t errorCapacity);
+
+/* One sample's row: monthly hours, its daily-hours bins and their edges
+ * (bin 0 below edges[0], bin i from edges[i-1], the last from edges[12]). */
+typedef struct {
+    double unoccluded[12];
+    double facing[12];
+    double edges[13];
+    float daily[14]; /* represented days per bin */
+    uint8_t found;
+} TapiocaAnnualSampleRecord;
+
+TapiocaStatus tapioca_sunstudy_annual_sample (const TapiocaSunStudyAnnual* handle, size_t sample,
+                                              TapiocaAnnualSampleRecord* out, char* error, size_t errorCapacity);
 
 typedef struct {
     int32_t year;     /* of both ends */

@@ -180,9 +180,10 @@ pub use sunstudy::{
     tapioca_sunstudy_series, tapioca_sunstudy_shadow_camera, tapioca_sunstudy_version,
 };
 pub use sunstudy::{
-    AnnualDayRequest, AnnualHandle, AnnualInfo, AnnualScheduleRequest, AnnualScheduledDay,
-    AnnualValuesRequest, tapioca_sunstudy_annual_add_day, tapioca_sunstudy_annual_create,
-    tapioca_sunstudy_annual_destroy, tapioca_sunstudy_annual_info, tapioca_sunstudy_annual_present,
+    AnnualDayRequest, AnnualHandle, AnnualInfo, AnnualSampleRecord, AnnualScheduleRequest,
+    AnnualScheduledDay, AnnualValuesRequest, tapioca_sunstudy_annual_add_day,
+    tapioca_sunstudy_annual_create, tapioca_sunstudy_annual_destroy, tapioca_sunstudy_annual_info,
+    tapioca_sunstudy_annual_present, tapioca_sunstudy_annual_sample,
     tapioca_sunstudy_annual_schedule, tapioca_sunstudy_annual_values,
 };
 pub use sunstudy::{

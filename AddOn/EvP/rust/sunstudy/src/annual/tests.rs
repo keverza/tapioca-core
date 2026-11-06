@@ -322,3 +322,49 @@ fn equal_days_in_equal_order_give_equal_bits() {
         b.map(|v| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>())
     );
 }
+
+#[test]
+fn daily_bins_hold_their_lower_edge() {
+    assert_eq!(threshold::daily_bin(0.0), 0);
+    assert_eq!(threshold::daily_bin(0.49), 0);
+    assert_eq!(threshold::daily_bin(0.5), 1);
+    // Eight 15-minute steps, with the float error a sum can carry.
+    assert_eq!(threshold::daily_bin(2.0 - 1e-9), 4);
+    assert_eq!(threshold::daily_bin(4.75), 8);
+    assert_eq!(threshold::daily_bin(30.0), threshold::DAILY_BINS - 1);
+    assert_eq!(threshold::DAILY_EDGES.get(3), Some(&2.0));
+}
+
+#[test]
+fn threshold_days_access_ratio_and_rows() -> Result<(), AnnualError> {
+    let mut acc = AnnualAccumulator::new(2)?;
+    let steps = [sun(UP), sun(SOUTH)];
+    // The roof: 1 h on 10 days, 0.5 h on 20; the facade never faces.
+    acc.add_day(&day(3, 10.0, &steps, &[1.0, 0.0]))?;
+    acc.add_day(&day(4, 20.0, &steps, &[0.5, 0.0]))?;
+    acc.add_sunless_day(12, 5.0)?;
+    // >= 1 h: 10 days; >= 0.5 h: 30; >= 2 h: none. Sunless days are 0 h days.
+    assert_eq!(acc.days_at_least(1), Ok(vec![10.0, 0.0]));
+    assert_eq!(acc.days_at_least(0), Ok(vec![30.0, 0.0]));
+    assert_eq!(acc.days_at_least(3), Ok(vec![0.0, 0.0]));
+    assert_eq!(acc.days_at_least(13), Err(AnnualError::InvalidHours));
+    // Access: lit 20 of 30 facing hours; the facade faced nothing -> 0.
+    assert_eq!(
+        acc.values(AnnualQuantity::AccessRatio, 0),
+        Ok(vec![20.0 / 30.0, 0.0])
+    );
+    assert_eq!(
+        acc.daily_means(AnnualQuantity::AccessRatio, 3),
+        Ok(vec![1.0, 0.0])
+    );
+    let Some(row) = acc.sample_row(0) else {
+        return Err(AnnualError::InvalidHours);
+    };
+    assert_eq!(row.unoccluded.get(2), Some(&10.0));
+    assert_eq!(row.facing.get(3), Some(&20.0));
+    assert_eq!(row.daily.first(), Some(&5.0));
+    assert_eq!(row.daily.get(1), Some(&20.0));
+    assert_eq!(row.daily.get(2), Some(&10.0));
+    assert!(acc.sample_row(2).is_none());
+    Ok(())
+}

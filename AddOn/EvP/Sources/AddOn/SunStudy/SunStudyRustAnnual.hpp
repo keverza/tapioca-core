@@ -34,6 +34,15 @@ enum class AnnualQuantity : uint8_t {
     Unoccluded = 0,
     SurfaceFacing = 1,
     ObstructionLoss = 2,
+    AccessRatio = 3, // unoccluded / facing, 0-1
+    DaysAtLeast = 4, // days with at least AnnualSampleRow::edges[threshold] hours; whole period only
+};
+
+// One sample's row for a tooltip or a graph.
+struct AnnualSampleRow {
+    std::array<double, 12> unoccluded {}, facing {}; // hours per month
+    std::array<double, 13> edges {};                 // daily-hours bin edges
+    std::array<float, 14> daily {};                  // represented days per bin
 };
 
 struct AnnualInfo {
@@ -82,10 +91,14 @@ class RustAnnualSun final {
     // by the selection's represented days: the mean hours a day, which the
     // day study's colour bands (hours of one day) can show. `ceiling` is the
     // site daylight of the same selection, on the same scale.
+    // AccessRatio ignores `perDay`; DaysAtLeast reads `threshold` and with
+    // `perDay` gives the share of represented days.
     bool Values (AnnualQuantity quantity, int month, bool perDay, std::vector<double>& values, double& ceiling,
-                 std::string& error) const;
-    bool Present (const RustStudyCore& carrier, AnnualQuantity quantity, int month, bool perDay,
-                  std::string& error) const;
+                 std::string& error, int threshold = 0) const;
+    bool Present (const RustStudyCore& carrier, AnnualQuantity quantity, int month, bool perDay, std::string& error,
+                  int threshold = 0) const;
+    // False with an empty error past the last sample.
+    bool Sample (size_t sample, AnnualSampleRow& row, std::string& error) const;
 
   private:
     explicit RustAnnualSun (TapiocaSunStudyAnnual* handle);
