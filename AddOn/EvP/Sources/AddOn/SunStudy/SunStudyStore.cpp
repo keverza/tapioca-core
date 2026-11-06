@@ -761,6 +761,29 @@ bool SunStudyStore::Erase (const std::string& id, uint64_t expectedRevision)
     return studies_.erase (id) > 0;
 }
 
+bool SunStudyStore::Represent (const std::string& id, uint64_t expectedRevision,
+                               const std::function<bool (const StudyRecord&, std::string&)>& present,
+                               std::string& error)
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end () || (expectedRevision != 0 && found->second->storeRevision != expectedRevision)) {
+        error = "no sun study with id '" + id + "' at that revision";
+        return false;
+    }
+    if (advancing_.at (id) || !progress_.at (id).converged) {
+        error = "sun study '" + id + "' is not a converged, idle study";
+        return false;
+    }
+    const StudyRecord& record = *found->second;
+    if (!present (record, error))
+        return false;
+    record.summaryGeneration = UINT64_MAX;
+    record.summaryResolvedSteps = SIZE_MAX;
+    record.displayCache.reset ();
+    return true;
+}
+
 void SunStudyStore::Clear ()
 {
     std::lock_guard<std::mutex> lock (mutex_);

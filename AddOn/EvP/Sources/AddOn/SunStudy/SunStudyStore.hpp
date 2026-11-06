@@ -358,6 +358,14 @@ class SunStudyStore final {
     bool Erase (const std::string& id, uint64_t expectedRevision = 0);
     void Clear ();
 
+    // Replace a converged study's hours with other per-sample values (a period
+    // presented through it, #152) under the store lock, and drop the record's
+    // summary and display caches: both are keyed on the session's progress,
+    // which presenting does not move, so they would keep serving the day.
+    // Refused while the study advances or for another revision.
+    bool Represent (const std::string& id, uint64_t expectedRevision,
+                    const std::function<bool (const StudyRecord&, std::string&)>& present, std::string& error);
+
     std::vector<std::string> Ids () const;
     size_t Count () const;
 

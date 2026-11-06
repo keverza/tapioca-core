@@ -10,6 +10,8 @@
 
 #include "SunStudy/SunStudyRaster.hpp"
 #include "SunStudy/SunStudyStore.hpp"
+#include "SunStudy/SunStudyRustAnnual.hpp"
+#include "SunStudy/SunStudyRustStudy.hpp"
 #include "sunstudy_core_fixture.hpp"
 
 #include <gtest/gtest.h>
@@ -449,4 +451,37 @@ TEST (SunStudyStore, StepBitsAreOmittedWhenNotAsked)
     ASSERT_TRUE (SunStudyStore::Get ().Results (id, hours, positions, normals, nullptr, error));
     EXPECT_EQ (bits.size (), 3u) << "the caller's buffer was written despite passing nullptr";
     SunStudyStore::Get ().Clear ();
+}
+
+// #152: a period presented through a converged day must reach the store's own
+// summary cache, which Advance filled at convergence and keys on progress that
+// presenting does not move. Live, the log reported the carrier day instead.
+TEST (SunStudyStore, RepresentReplacesTheCachedSummaryOfAConvergedDay)
+{
+    StoreFixture fixture;
+    const std::string id = SunStudyStore::Get ().Insert (MakeRecord (4));
+    const uint64_t revision = SunStudyStore::Get ().Revision (id);
+    size_t advanced = 0;
+    std::string error;
+    while (SunStudyStore::Get ().Advance (id, 4, 1, 0.001, 0.0, advanced, error) && advanced > 0) {
+    }
+    SunStudyResultSummary day;
+    ASSERT_TRUE (SunStudyStore::Get ().Summary (id, day, error)) << error;
+    const auto record = SunStudyStore::Get ().CompletedRecord (id);
+    ASSERT_NE (record, nullptr);
+    auto annual = evp::sunstudy::rust::RustAnnualSun::Create (2, error);
+    ASSERT_NE (annual, nullptr) << error;
+    ASSERT_TRUE (annual->Add (*record->rustCore, 6, 10.0, error)) << error;
+    ASSERT_TRUE (annual->AddSunless (12, 10.0, error)) << error; // halves every mean a day
+
+    const auto present = [&annual] (const StudyRecord& carrier, std::string& presentError) {
+        return annual->Present (*carrier.rustCore, evp::sunstudy::rust::AnnualQuantity::Unoccluded, 0, true,
+                                presentError);
+    };
+    EXPECT_FALSE (SunStudyStore::Get ().Represent (id, revision + 1, present, error));
+    ASSERT_TRUE (SunStudyStore::Get ().Represent (id, revision, present, error)) << error;
+    SunStudyResultSummary period;
+    ASSERT_TRUE (SunStudyStore::Get ().Summary (id, period, error)) << error;
+    EXPECT_DOUBLE_EQ (period.maxHours, day.maxHours / 2.0);
+    EXPECT_DOUBLE_EQ (period.daylightHours, day.daylightHours / 2.0);
 }

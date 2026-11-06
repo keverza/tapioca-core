@@ -385,7 +385,14 @@ std::string RunPeriod (const Request& request, const std::shared_ptr<tapioca::Su
     rs::AnnualInfo info;
     std::vector<double> daily;
     double dailyCeiling = 0.0;
-    if (!annual->Present (*carrier->rustCore, rs::AnnualQuantity::Unoccluded, 0, true, error) ||
+    // ⚠️ THROUGH THE STORE: its summary and display caches are keyed on the
+    // carrier's progress, which presenting does not move. Presenting on the
+    // core alone left the log (and any cached display) reporting the day.
+    const auto present = [&annual] (const evp::sunstudy::StudyRecord& record, std::string& presentError) {
+        return record.rustCore != nullptr &&
+               annual->Present (*record.rustCore, rs::AnnualQuantity::Unoccluded, 0, true, presentError);
+    };
+    if (!evp::sunstudy::SunStudyStore::Get ().Represent (carrierId, carrierRevision, present, error) ||
         !annual->Info (info, error) ||
         !annual->Values (rs::AnnualQuantity::Unoccluded, 0, true, daily, dailyCeiling, error))
         return error;
