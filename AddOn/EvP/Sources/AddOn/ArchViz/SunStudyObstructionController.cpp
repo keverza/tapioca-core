@@ -9,6 +9,7 @@
 #include "SunStudy/SunStudySolarCut.hpp"
 #include "SunStudy/SunStudyTaskWorker.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 #include <set>
@@ -41,9 +42,13 @@ struct PendingRequest {
 } // namespace
 
 // The solar cut for one request, on the worker: the point, the slice's suns,
-// which elements may block, then the two removals and their preview.
-static std::shared_ptr<SunObstructionFrame> SolarCutFrame (const PendingRequest& job,
-                                                           const std::atomic<bool>& cancelled)
+// which elements may block, then the cut and its preview. Moving the point
+// must answer at once, so the frame is published as it grows: the cutting
+// surface (a few rays), then the cut (every blocker clipped), then the shadows
+// re-traced against what remains (the scene's occluders rebuilt).
+static std::shared_ptr<SunObstructionFrame>
+SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
+               const std::function<void (const SunObstructionFrame&)>& publish)
 {
     const auto& record = *job.record;
     auto frame = std::make_shared<SunObstructionFrame> ();
@@ -98,21 +103,56 @@ static std::shared_ptr<SunObstructionFrame> SolarCutFrame (const PendingRequest&
                 return false;
         return true;
     };
-    evp::sunstudy::SolarCutResult cut;
-    if (!evp::sunstudy::ComputeSolarCut (snapshot, input, cut, lit, [&] { return cancelled.load (); })) {
-        if (cancelled.load ())
-            return nullptr;
-        frame->error = cut.error;
-        return frame;
-    }
-    frame->removedVolume = cut.removedVolume;
-    frame->facingHours = cut.facingHours;
-    frame->litHours = cut.litHours;
     frame->attributedSteps = input.steps.size ();
     if (!input.steps.empty ()) {
         frame->firstMinute = input.steps.front ().time.hour * 60 + input.steps.front ().time.minute;
         frame->lastMinute = input.steps.back ().time.hour * 60 + input.steps.back ().time.minute;
     }
+    // Stage one: the cutting surface, as far as the farthest blocker the
+    // slice's rays meet now (the full cut later trims it to what it cuts).
+    {
+        double reach = 0.0;
+        if (record.occluders != nullptr)
+            for (const auto& step : input.steps) {
+                double direction[3] = { step.direction[0], step.direction[1], step.direction[2] };
+                const double length =
+                    std::sqrt (direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2]);
+                if (!(length > 0.0) || direction[2] <= 0.0)
+                    continue;
+                for (double& c : direction)
+                    c /= length;
+                for (const auto& engine : { record.occluders->analysis, record.occluders->context })
+                    if (engine != nullptr) {
+                        const auto hit = engine->Raycast (input.point, direction, 0.0);
+                        if (hit.hit)
+                            reach = (std::max) (reach, hit.t);
+                    }
+            }
+        evp::sunstudy::SolarCutResult surface;
+        if (evp::sunstudy::ComputeSolarCutSurface (input, surface, lit, reach > 0.0 ? reach * 1.05 + 1.0 : 20.0) &&
+            !surface.envelope.empty () && publish) {
+            if (cancelled.load ())
+                return nullptr;
+            frame->facingHours = surface.facingHours;
+            frame->litHours = surface.litHours;
+            frame->sectors = surface.envelope.size ();
+            frame->cutStage = SunSolarCutStage::Surface;
+            BuildSolarCutGeometry (surface, input.point, frame->drawables);
+            publish (*frame);
+            frame->drawables = GhPreviewDrawables ();
+        }
+    }
+    evp::sunstudy::SolarCutResult cut;
+    if (!evp::sunstudy::ComputeSolarCut (snapshot, input, cut, lit, [&] { return cancelled.load (); })) {
+        if (cancelled.load ())
+            return nullptr;
+        frame->error = cut.error;
+        frame->cutStage = SunSolarCutStage::Done;
+        return frame;
+    }
+    frame->removedVolume = cut.removedVolume;
+    frame->facingHours = cut.facingHours;
+    frame->litHours = cut.litHours;
     frame->sectors = cut.envelope.size ();
     std::set<std::string> cutGuids;
     for (const auto& object : cut.objects) {
@@ -122,8 +162,15 @@ static std::shared_ptr<SunObstructionFrame> SolarCutFrame (const PendingRequest&
     }
     frame->blockerObjects = cut.objects.size ();
     BuildSolarCutGeometry (cut, input.point, frame->drawables);
+    frame->cutStage = SunSolarCutStage::Done;
     if (cut.kept.empty ())
         return frame;
+    // Stage two: the cut, while its shadows are re-traced.
+    if (publish) {
+        frame->cutStage = SunSolarCutStage::Cut;
+        publish (*frame);
+        frame->cutStage = SunSolarCutStage::Done;
+    }
 
     // The shadows the cut removes: the scene again with the cut elements as they
     // would remain, and every study cell whose ray toward a slice sun stopped on
@@ -248,7 +295,13 @@ struct SunObstructionController::Impl {
         task.runGeneration = job->generation;
         task.execute = [this, job] (const std::atomic<bool>& cancelled) {
             if (job->key.mode == SunObstructionMode::SolarCut) {
-                auto frame = SolarCutFrame (*job, cancelled);
+                const auto publish = [this, job, &cancelled] (const SunObstructionFrame& stage) {
+                    auto shown = std::make_shared<SunObstructionFrame> (stage);
+                    std::lock_guard<std::mutex> lock (mutex);
+                    if (!cancelled.load () && current == job->key && generation == job->generation)
+                        latest = std::move (shown);
+                };
+                auto frame = SolarCutFrame (*job, cancelled, publish);
                 std::lock_guard<std::mutex> lock (mutex);
                 if (frame != nullptr && !cancelled.load () && current == job->key && generation == job->generation)
                     latest = std::move (frame);

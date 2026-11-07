@@ -83,6 +83,11 @@ struct SolarCutResult {
     std::string error;
 };
 
+// The cutting surface alone (facing suns, hours, the envelope `reach` long),
+// with no blocker clipped: cheap, so a moved point shows its surface at once.
+bool ComputeSolarCutSurface (const SolarCutInput& input, SolarCutResult& result,
+                             const std::function<bool (const double direction[3])>& lit, double reach);
+
 // The cut. `lit` answers whether a sun direction is already clear from the
 // point (the study's occluders); null counts nothing as lit. `reach` is how
 // far the drawn envelope extends when nothing is cut.

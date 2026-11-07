@@ -239,13 +239,11 @@ bool Cap (const geomsrv::Mesh& mesh, const HalfSpace& plane, const Point& e1, co
     return closed;
 }
 
-} // namespace
-
-bool ComputeSolarCut (const geomsrv::Snapshot& snapshot, const SolarCutInput& input, SolarCutResult& result,
-                      const std::function<bool (const double direction[3])>& lit,
-                      const std::function<bool ()>& cancelled, double reach)
+// The slice's facing suns and hours, and its sectors: one per pair of
+// consecutive facing suns. False only on a non-finite sun.
+bool Sectors (const SolarCutInput& input, SolarCutResult& result,
+              const std::function<bool (const double direction[3])>& lit, std::vector<Sector>& sectors)
 {
-    result = SolarCutResult ();
     const Point origin { input.point[0], input.point[1], input.point[2] };
     for (const SunStep& step : input.steps) {
         Point direction { step.direction[0], step.direction[1], step.direction[2] };
@@ -262,8 +260,6 @@ bool ComputeSolarCut (const geomsrv::Snapshot& snapshot, const SolarCutInput& in
         std::copy (direction.begin (), direction.end (), facing.direction);
         result.facingSteps.push_back (facing);
     }
-    // The sectors: one per pair of consecutive facing suns.
-    std::vector<Sector> sectors;
     for (size_t s = 0; s + 1 < result.facingSteps.size (); ++s) {
         Sector sector;
         for (int k = 0; k < 3; ++k) {
@@ -305,6 +301,45 @@ bool ComputeSolarCut (const geomsrv::Snapshot& snapshot, const SolarCutInput& in
         Normalise (sector.e2);
         sectors.push_back (sector);
     }
+    return true;
+}
+
+// The merged cutting surface: one fan triangle per sector, `length` long.
+void Envelope (const std::vector<Sector>& sectors, const SolarCutInput& input, double length, SolarCutResult& result)
+{
+    for (const Sector& sector : sectors) {
+        SolarCutTriangle fan;
+        for (int k = 0; k < 3; ++k) {
+            fan.v[0][k] = input.point[k];
+            fan.v[1][k] = input.point[k] + length * sector.sunFrom[size_t (k)];
+            fan.v[2][k] = input.point[k] + length * sector.sunTo[size_t (k)];
+        }
+        result.envelope.push_back (fan);
+    }
+}
+
+} // namespace
+
+bool ComputeSolarCutSurface (const SolarCutInput& input, SolarCutResult& result,
+                             const std::function<bool (const double direction[3])>& lit, double reach)
+{
+    result = SolarCutResult ();
+    std::vector<Sector> sectors;
+    if (!Sectors (input, result, lit, sectors))
+        return false;
+    Envelope (sectors, input, reach, result);
+    return true;
+}
+
+bool ComputeSolarCut (const geomsrv::Snapshot& snapshot, const SolarCutInput& input, SolarCutResult& result,
+                      const std::function<bool (const double direction[3])>& lit,
+                      const std::function<bool ()>& cancelled, double reach)
+{
+    result = SolarCutResult ();
+    const Point origin { input.point[0], input.point[1], input.point[2] };
+    std::vector<Sector> sectors;
+    if (!Sectors (input, result, lit, sectors))
+        return false;
     if (sectors.empty ())
         return true; // fewer than two facing suns: a line, nothing to cut
 
@@ -432,16 +467,7 @@ bool ComputeSolarCut (const geomsrv::Snapshot& snapshot, const SolarCutInput& in
         result.objects.push_back (std::move (object));
     }
     // The merged cutting surface, to just past the farthest cut.
-    const double length = farthest > 0.0 ? farthest * 1.05 + 1.0 : reach;
-    for (const Sector& sector : sectors) {
-        SolarCutTriangle fan;
-        for (int k = 0; k < 3; ++k) {
-            fan.v[0][k] = origin[size_t (k)];
-            fan.v[1][k] = origin[size_t (k)] + length * sector.sunFrom[size_t (k)];
-            fan.v[2][k] = origin[size_t (k)] + length * sector.sunTo[size_t (k)];
-        }
-        result.envelope.push_back (fan);
-    }
+    Envelope (sectors, input, farthest > 0.0 ? farthest * 1.05 + 1.0 : reach, result);
     std::stable_sort (result.objects.begin (), result.objects.end (),
                       [] (const SolarCutObject& a, const SolarCutObject& b) { return a.removed > b.removed; });
     return true;

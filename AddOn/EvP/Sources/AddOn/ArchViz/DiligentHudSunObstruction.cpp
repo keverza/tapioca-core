@@ -45,9 +45,11 @@ namespace {
 void DrawSolarCutSummary (const HudState& state, const SunObstructionFrame& frame)
 {
     char line[200];
+    const bool retraced = frame.cutStage == SunSolarCutStage::Done;
+    const std::string after = retraced ? SunStudyClock (frame.litAfterHours, true) : std::string ("...");
     std::snprintf (line, sizeof (line), "%s-%s: %s direct now, %s after the cut (of %s in front)",
                    MinuteText (state.sunCutFrom).c_str (), MinuteText (state.sunCutTo).c_str (),
-                   SunStudyClock (frame.litHours, true).c_str (), SunStudyClock (frame.litAfterHours, true).c_str (),
+                   SunStudyClock (frame.litHours, true).c_str (), after.c_str (),
                    SunStudyClock (frame.facingHours, true).c_str ());
     SunStudyNote (line, "Hours of the slice with the sun in front of the point; lit now; and lit with the cut "
                         "elements as they would remain -- traced again, not assumed. Steps with the sun behind the "
@@ -61,18 +63,29 @@ void DrawSolarCutSummary (const HudState& state, const SunObstructionFrame& fram
                       "The cutting surface is spanned by the rays to consecutive suns; one sun is a line.");
         return;
     }
+    if (frame.cutStage == SunSolarCutStage::Surface) {
+        SunStudyNote ("Cutting the blockers...", "The cutting surface is shown first; what goes follows, then the "
+                                                 "shadows re-traced without it.");
+        return;
+    }
     if (frame.cutObjects.empty ()) {
         SunStudyNote (frame.litHours < frame.facingHours ? "Nothing analysed or context blocks it above the surface"
                                                          : "Nothing to remove: the slice is already lit");
         return;
     }
-    std::snprintf (line, sizeof (line), "Remove %.1f m3 from %zu element%s; %zu cell%s gain sun", frame.removedVolume,
-                   frame.cutObjects.size (), frame.cutObjects.size () == 1 ? "" : "s", frame.wonCells,
-                   frame.wonCells == 1 ? "" : "s");
-    SunStudyNote (line, "The rays from the point to the slice's suns are merged into one cutting surface (pink sheet); "
-                        "everything of the blockers above it goes, extruded up (pink, with the cut faces solid). The "
-                        "existing elements keep their outline and edges. Yellow cells: study cells whose shadow in the "
-                        "slice was cast by a cut element and is gone after the cut.");
+    if (retraced)
+        std::snprintf (line, sizeof (line), "Remove %.1f m3 from %zu element%s; %zu cell%s gain sun",
+                       frame.removedVolume, frame.cutObjects.size (), frame.cutObjects.size () == 1 ? "" : "s",
+                       frame.wonCells, frame.wonCells == 1 ? "" : "s");
+    else
+        std::snprintf (line, sizeof (line), "Remove %.1f m3 from %zu element%s; re-tracing the shadows...",
+                       frame.removedVolume, frame.cutObjects.size (), frame.cutObjects.size () == 1 ? "" : "s");
+    SunStudyNote (
+        line,
+        "The rays from the point to the slice's suns are merged into one cutting surface (pink sheet); "
+        "everything of the blockers above it goes, extruded up (a see-through pink cut-out, the cut faces darker). The "
+        "existing elements keep their outline and edges. Yellow area: study cells whose shadow in the "
+        "slice was cast by a cut element and is gone after the cut, merged into one shape.");
     constexpr size_t kRows = 8;
     if (ImGui::BeginTable ("##suncutobjects", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn ("Element", ImGuiTableColumnFlags_WidthStretch, 1.0f);
@@ -94,8 +107,8 @@ void DrawSolarCutSummary (const HudState& state, const SunObstructionFrame& fram
                                                        : "The element is not a closed solid: its surfaces above the "
                                                          "cut are shown, but no cut face or volume is invented.");
             ImGui::TableNextColumn ();
-            ImGui::Text ("%d%%", object.closed && object.total > 0.0 ? int (100.0 * object.removed / object.total + 0.5)
-                                                                      : 0);
+            ImGui::Text ("%d%%",
+                         object.closed && object.total > 0.0 ? int (100.0 * object.removed / object.total + 0.5) : 0);
         }
         ImGui::EndTable ();
     }

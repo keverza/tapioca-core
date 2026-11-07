@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -36,6 +37,14 @@ struct SunObstructionRequest {
     // SolarCut: a lifted point is cut for in the air; otherwise the snapped cell.
     bool lifted = false;
     double liftedPoint[3] = {};
+};
+
+// The solar cut arrives in stages, each a complete frame: the cutting surface
+// at once, then what goes, then the shadows re-traced without it.
+enum class SunSolarCutStage : uint8_t {
+    Surface, // the envelope and the hours now; nothing clipped yet
+    Cut,     // removed parts, volumes; the re-trace still running
+    Done,
 };
 
 // One element's share of the solar cut, cubic metres.
@@ -73,6 +82,7 @@ struct SunObstructionFrame {
     double facingHours = 0.0, litHours = 0.0, litAfterHours = 0.0;
     std::vector<SunSolarCutObject> cutObjects;
     size_t sectors = 0, wonCells = 0;
+    SunSolarCutStage cutStage = SunSolarCutStage::Done;
     std::string error;
 };
 

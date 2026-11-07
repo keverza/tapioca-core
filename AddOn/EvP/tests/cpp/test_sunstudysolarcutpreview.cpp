@@ -68,5 +68,5 @@ TEST (SunStudySolarCutPreview, OutlineSkipsDiagonalsAndTJunctions)
     BuildSolarCutGeometry (cut, point, drawables);
     EXPECT_EQ (drawables.depthTested.lineVertices.size () / 6, 4u); // the square's four sides
     EXPECT_FALSE (drawables.xray.meshIndices.empty ());             // the cut face, seen through
-    EXPECT_FALSE (drawables.xray.lineVertices.empty ());            // and hatched
+    EXPECT_TRUE (drawables.xray.lineVertices.empty ());             // a plain darker pink, no hatch
 }

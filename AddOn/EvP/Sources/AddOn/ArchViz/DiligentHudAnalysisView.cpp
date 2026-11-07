@@ -233,7 +233,9 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
         return;
     }
     scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, &frame->drawables,
-                                  frame->generation, modelIsDrawn);
+                                  frame->generation * 4 +
+                                      uint64_t (frame->cutStage), // each stage of a staged cut re-uploads
+                                  modelIsDrawn);
 }
 
 } // namespace geomsrv::archviz

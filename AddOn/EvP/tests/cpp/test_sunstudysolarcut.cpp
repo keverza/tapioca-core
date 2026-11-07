@@ -130,3 +130,29 @@ TEST (SunStudySolarCut, SunBehindTheSurfaceOrASingleSunCutsNothing)
     EXPECT_TRUE (result.objects.empty ());
     EXPECT_DOUBLE_EQ (result.litHours, result.facingHours);
 }
+
+TEST (SunStudySolarCut, SurfaceStageMatchesTheCutsSurfaceAndClipsNothing)
+{
+    // The first, cheap stage: the same facing suns, hours and sectors as the
+    // full cut, the envelope as long as asked, and nothing removed.
+    geomsrv::Snapshot snapshot;
+    snapshot.meshes = { evptest::MakeBox ("tower", 5, -1, 0, 2, 2, 10) };
+    SolarCutInput input;
+    input.steps = { Sun (-15, 45, 10), Sun (0, 45, 11), Sun (15, 45, 12) };
+    input.hoursPerStep = 1.0;
+    input.blocks = { 1 };
+    SolarCutResult surface, cut;
+    ASSERT_TRUE (ComputeSolarCutSurface (input, surface, [] (const double*) { return false; }, 12.0));
+    ASSERT_TRUE (ComputeSolarCut (snapshot, input, cut, [] (const double*) { return false; }));
+    EXPECT_DOUBLE_EQ (surface.facingHours, cut.facingHours);
+    EXPECT_DOUBLE_EQ (surface.litHours, cut.litHours);
+    ASSERT_EQ (surface.envelope.size (), 2u);
+    EXPECT_EQ (surface.envelope.size (), cut.envelope.size ());
+    EXPECT_TRUE (surface.removed.empty ());
+    EXPECT_TRUE (surface.objects.empty ());
+    const auto& fan = surface.envelope[0];
+    const double reach = std::sqrt ((fan.v[1][0] - fan.v[0][0]) * (fan.v[1][0] - fan.v[0][0]) +
+                                    (fan.v[1][1] - fan.v[0][1]) * (fan.v[1][1] - fan.v[0][1]) +
+                                    (fan.v[1][2] - fan.v[0][2]) * (fan.v[1][2] - fan.v[0][2]));
+    EXPECT_NEAR (reach, 12.0, 1.0e-9);
+}

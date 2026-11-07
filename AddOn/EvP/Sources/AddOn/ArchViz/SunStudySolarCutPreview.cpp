@@ -1,6 +1,6 @@
 // The solar cut's preview: the removed part drawn as a transparent cut-out
 // (faint surfaces, its outline edges, the cut faces seen through the building
-// and hatched) and the sun the cut wins as one region per surface with its
+// in a darker pink) and the sun the cut wins as one region per surface with its
 // perimeter, not one square per cell.
 
 #include "ArchViz/SunStudyObstructionGeometry.hpp"
@@ -159,41 +159,6 @@ void OutlineEdges (const std::vector<const evp::sunstudy::SolarCutTriangle*>& tr
     }
 }
 
-// Section hatching on a cut face: 45-degree lines, `spacing` apart and laid on
-// a grid fixed in space, so neighbouring triangles of one face continue them.
-size_t HatchTriangle (const evp::sunstudy::SolarCutTriangle& triangle, double spacing, uint32_t rgba,
-                      GhPreviewBucket& bucket)
-{
-    const V3 p[3] = { Corner (triangle, 0), Corner (triangle, 1), Corner (triangle, 2) };
-    V3 n = Cross (Sub (p[1], p[0]), Sub (p[2], p[0]));
-    if (!Normalize (n))
-        return 0;
-    V3 u, v;
-    PlaneBasis (n, u, v);
-    V3 across = Sub (u, v);
-    Normalize (across);
-    const double w[3] = { Dot (p[0], across), Dot (p[1], across), Dot (p[2], across) };
-    const double low = (std::min) ({ w[0], w[1], w[2] }), high = (std::max) ({ w[0], w[1], w[2] });
-    size_t drawn = 0;
-    for (double k = std::ceil (low / spacing); k * spacing <= high; k += 1.0) {
-        const double at = k * spacing;
-        V3 ends[2];
-        int found = 0;
-        for (int e = 0; e < 3 && found < 2; ++e) {
-            const int f = (e + 1) % 3;
-            if ((w[e] - at) * (w[f] - at) > 0.0 || w[e] == w[f])
-                continue;
-            const double t = (at - w[e]) / (w[f] - w[e]);
-            ends[found++] = Add (p[e], Scale (Sub (p[f], p[e]), t));
-        }
-        if (found == 2) {
-            Segment (ends[0], ends[1], rgba, bucket);
-            ++drawn;
-        }
-    }
-    return drawn;
-}
-
 } // namespace
 
 void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3],
@@ -220,19 +185,11 @@ void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const doub
         Segment (a, b, kSunObstructionPink, drawables.depthTested);
     }
     // What goes, as a transparent cut-out: its outer surfaces faint where the
-    // building shows them, the cut faces through the building (x-ray) faint and
-    // hatched in a darker pink, and the outline of the removed solid; its hidden
+    // building shows them, the cut faces through the building (x-ray) in a darker
+    // pink, and the outline of the removed solid; its hidden
     // edges are drawn dashed by the depth-tested line pass.
     fill (cut.removed, kSolarCutRemovedRgba, drawables.depthTested);
     fill (cut.caps, kSolarCutCapRgba, drawables.xray);
-    constexpr double kHatchSpacing = 0.3;
-    constexpr size_t kHatchBudget = 20000;
-    size_t hatched = 0;
-    for (const auto& triangle : cut.caps) {
-        if (hatched >= kHatchBudget)
-            break;
-        hatched += HatchTriangle (triangle, kHatchSpacing, kSolarCutHatchRgba, drawables.xray);
-    }
     std::vector<const evp::sunstudy::SolarCutTriangle*> solid;
     solid.reserve (cut.removed.size () + cut.caps.size ());
     for (const auto& triangle : cut.removed)
