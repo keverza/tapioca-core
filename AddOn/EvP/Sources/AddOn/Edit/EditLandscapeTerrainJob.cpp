@@ -143,10 +143,13 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
     outcome.generation = job.generation;
     // The refusal assessment below needs the (possibly surface-prepared) capture.
     std::shared_ptr<const TerrainCapture> baseline = job.capture;
-    try {
+    // Every refusal below returns from this body and then reaches the refusal block after it:
+    // an early `return outcome` from the try block used to skip it, so a unified build refusal
+    // carried neither its condition text nor its located conflicts.
+    const auto run = [&] () {
         if (!job.doc || !job.doc->landscape || !job.capture) {
             outcome.error = "SceneTerrain: missing immutable document/capture";
-            return outcome;
+            return;
         }
         // As the legacy lane: the outcome names the capture it was attempted against, also when
         // the surface preparation below refuses.
@@ -157,7 +160,7 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
         if (job.surfaceTable) {
             auto surface = std::make_shared<TerrainCapture> ();
             if (!PrepareTerrainSurface (baseline, job.surfaceTable, *surface, outcome.error))
-                return outcome;
+                return;
             baseline = std::move (surface);
         }
         outcome.capture = baseline;
@@ -189,18 +192,18 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
             // exactly as the legacy lane never ran it.
             auto regions = std::make_shared<RegionTerrainResult> ();
             if (!EvaluateRegionTerrain (*job.doc, baseline, *regions, outcome.error))
-                return outcome;
+                return;
             outcome.regions = std::move (regions);
         }
         if (!ValidateLandscapeFieldPlanForBuild (plan, outcome.error)) {
             outcome.error = "LandscapeFieldPlan: " + outcome.error;
-            return outcome;
+            return;
         }
         UnifiedTerrainResult unified;
         UnifiedLandscapeBuildScope scope;
         UnifiedLandscapeBuildOptions build;
         if (!BuildUnifiedLandscapeTerrain (*job.doc, *baseline, plan, build, unified, scope, outcome.error))
-            return outcome;
+            return;
         // #149 T1: the outline lane's reach policy, unchanged -- a face that runs out before
         // it meets the ground gets a wider reach, 4x at a time, at least 20 m, at most
         // kMaxSlopeReach; the widest build that succeeded is kept.
@@ -222,7 +225,7 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
         }
         auto published = std::make_shared<PublishedTerrain> ();
         if (!PublishUnifiedTerrain (unified, plan, *baseline, scope, *published, outcome.error))
-            return outcome;
+            return;
         outcome.built = true;
         outcome.published = std::move (published);
         MirrorPublished (unified, plan, scope, *outcome.published, outcome);
@@ -260,6 +263,9 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
             outcome.unmet.push_back (std::to_string (job.doc->paths.size () - plan.paths.size ()) + " of " +
                                      std::to_string (job.doc->paths.size ()) +
                                      " paths are not graded: band grading grades one selected path.");
+    };
+    try {
+        run ();
     }
     catch (const std::exception& exception) {
         outcome.built = false;
@@ -271,7 +277,7 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
         // Located refusal places keep the legacy band-lane contract: assessed
         // through the same authority the band lane uses. A refusal without a
         // location keeps none.
-        if (job.options.source && job.doc->landscape) {
+        if (job.options.source && job.doc && job.doc->landscape && baseline) {
             auto options = job.options;
             options.region = {};
             options.cover = TerrainDesignArea (*job.doc, baseline->Input ().mesh);
