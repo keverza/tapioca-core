@@ -18,12 +18,14 @@
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/PointGumball.hpp"
+#include "ArchViz/SunPathPick.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "ArchViz/TapiocaUI/Foundation/AnalysisRunControl.hpp"
 #include "SunStudy/SunStudyBackend.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
 #include "SunStudy/SunStudyPreset.hpp"
+#include "SunStudy/SunStudyStore.hpp"
 
 #include <imgui.h>
 
@@ -379,6 +381,80 @@ void SubmitRun (HudState& state)
 
 } // namespace
 
+void RunSunStudyDay (HudState& state, int month, int day)
+{
+    // The form's own settings, for one day: the same grid, hours, step, roles
+    // and bounds, so the result belongs to the same scene. The form keeps the
+    // period and date it had, so running it again restores them.
+    const int period = state.sunRunPeriod, formMonth = state.sunRunMonth, formDay = state.sunRunDay;
+    state.sunRunPeriod = 0;
+    state.sunRunMonth = month;
+    state.sunRunDay = day;
+    SubmitRun (state);
+    state.sunRunPeriod = period;
+    state.sunRunMonth = formMonth;
+    state.sunRunDay = formDay;
+}
+
+void DrawSunStudySunPathStatus (HudState& state, const std::string& studyId)
+{
+    // The shown study's date, read once per study.
+    if (state.sunShownDateFor != studyId) {
+        state.sunShownDateFor = studyId;
+        state.sunShownDate = 0;
+        if (const auto record = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (studyId); record != nullptr)
+            state.sunShownDate = record->year * 10000 + record->month * 100 + record->day;
+        else
+            state.sunShownDateFor.clear (); // still computing: ask again next frame
+    }
+    if (!state.sunPathShown && state.sunPathOwnsSun) {
+        // Hiding the sun path hands the viewer's sun back.
+        state.sunPathOwnsSun = false;
+        state.sunOverride = false;
+        state.sunPathStudyInvalid = false;
+    }
+    if (!state.sunPathShown)
+        return;
+    if (!state.sunPathOwnsSun) {
+        SunStudyNote ("Drag the sun on the path to set date and time",
+                      "The sun disc on the path can be dragged: it lands on Archicad's sun positions for the project's "
+                      "location (every day, every 10 minutes), snaps to the solstices, the equinoxes and solar noon, "
+                      "sets the run form's date, and moves the viewer's sun and shadows live.");
+        return;
+    }
+    int month = 0, day = 0;
+    SunPathDateOf (state.sunPathOrdinal, month, day);
+    char line[128];
+    if (state.sunPathStudyInvalid)
+        std::snprintf (line, sizeof (line), "Sun %s %d %02d:%02d - the study is for %02d-%02d", kMonths[month - 1], day,
+                       state.sunPathMinute / 60, state.sunPathMinute % 60, state.sunShownDate / 100 % 100,
+                       state.sunShownDate % 100);
+    else
+        std::snprintf (line, sizeof (line), "Sun %s %d %02d:%02d (dragged)", kMonths[month - 1], day,
+                       state.sunPathMinute / 60, state.sunPathMinute % 60);
+    SunStudyNote (line, state.sunPathStudyInvalid
+                            ? "The day study was run for another date, so its tint is withheld: it would show the "
+                              "wrong day. The viewer's shadows follow the dragged sun. Run this day to measure it."
+                            : "The viewer's sun and shadows follow the dragged sun. On the study's own date the "
+                              "shadow time slider and the dragged sun move together.");
+    ImGui::BeginDisabled (state.sunRunBusy);
+    if (ImGui::SmallButton ("Run this day##sunpath"))
+        RunSunStudyDay (state, month, day);
+    ImGui::EndDisabled ();
+    ImGui::SetItemTooltip ("A single-day study on the dragged date, with the run form's other settings.");
+    ImGui::SameLine ();
+    if (ImGui::SmallButton ("Study sun##sunpath")) {
+        state.sunPathOwnsSun = false;
+        state.sunOverride = false;
+        state.sunPathStudyInvalid = false;
+        if (state.sunShownDate != 0 && state.sunRunPeriod == 0) {
+            state.sunRunMonth = state.sunShownDate / 100 % 100;
+            state.sunRunDay = state.sunShownDate % 100;
+        }
+    }
+    ImGui::SetItemTooltip ("Hand the viewer's sun back and show the study's own day again.");
+}
+
 // The Shadows view of a period (#152 follow-up): which day's shadows. A kept
 // day plays straight from the archive through the period player; any other
 // date of the period is traced as a single day with the period's own settings.
@@ -438,19 +514,8 @@ void DrawSunStudyShadowDate (HudState& state)
     std::snprintf (text, sizeof (text), "Trace shadows for %s %d##shadowtrace", kMonths[state.sunShadowMonth - 1],
                    state.sunShadowDay);
     ImGui::BeginDisabled (state.sunRunBusy);
-    if (ImGui::Button (text, ImVec2 (-1.0f, 0.0f))) {
-        // The period's own settings, for one day: the same grid, hours, step,
-        // roles and bounds, so the shadows belong to the same scene.
-        const int period = state.sunRunPeriod, month = state.sunRunMonth, day = state.sunRunDay;
-        state.sunRunPeriod = 0;
-        state.sunRunMonth = state.sunShadowMonth;
-        state.sunRunDay = state.sunShadowDay;
-        SubmitRun (state);
-        // The form keeps the period it had, so running it again restores the year.
-        state.sunRunPeriod = period;
-        state.sunRunMonth = month;
-        state.sunRunDay = day;
-    }
+    if (ImGui::Button (text, ImVec2 (-1.0f, 0.0f)))
+        RunSunStudyDay (state, state.sunShadowMonth, state.sunShadowDay);
     ImGui::EndDisabled ();
     ImGui::SetItemTooltip ("Traces that one day with the period's settings and shows its shadows, steps and study "
                            "point clock. It replaces the period result on screen; run the period again from the run "

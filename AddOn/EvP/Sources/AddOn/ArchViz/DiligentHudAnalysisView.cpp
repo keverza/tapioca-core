@@ -81,7 +81,8 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state)
         }
     }
     SunStudyViewSettings view = SunStudyViewOf (state);
-    view.suppressed = !analysistabs::ShowsTint (state.analysisFocus, shown, kind);
+    view.suppressed = !analysistabs::ShowsTint (state.analysisFocus, shown, kind) ||
+                      (kind == 0 && state.sunPathStudyInvalid); // the dragged sun left the study's day
     view.visibilityLowRgba = state.visibilityLowRgba;
     view.visibilityHighRgba = state.visibilityHighRgba;
     {

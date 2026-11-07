@@ -23,7 +23,7 @@ void DrawSunStudySeasonalClocks (HudState& state, const sunstudyhud::PeriodProfi
                                  season.representedDays);
             const std::string id = "##season" + season.label;
             DrawSunStudyDayClock (state, season.day.minutes.empty () ? nullptr : &season.day, id.c_str (), -1,
-                                  "no measured sun");
+                                  "no measured sun", nullptr, 220.0f, nullptr, SunChart::Season);
         }
         ImGui::EndTable ();
     }

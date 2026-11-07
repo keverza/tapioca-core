@@ -391,7 +391,7 @@ void LegendSwatch (ImU32 colour, const char* text)
 
 void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, const char* id, int highlightedStep,
                            const char* emptyNote, SunStudyClockSelection* selection, float sizeCap,
-                           const SunStudyClockShown* shown)
+                           const SunStudyClockShown* shown, SunChart chart)
 {
     // #169: a semicircle from the first to the last measured sun, time running
     // left to right over the top. One measured step is one radial bar: lit
@@ -407,7 +407,8 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
     const float height = outerMost + line * 2.6f;
     const ImVec2 start = ImGui::GetCursorScreenPos ();
     ImGui::InvisibleButton (id, ImVec2 (width, height));
-    const bool hovered = ImGui::IsItemHovered ();
+    const bool info = SunStudyChartInfo (start, width, chart);
+    const bool hovered = ImGui::IsItemHovered () && !info;
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     const ImVec2 centre (start.x + width * 0.5f, start.y + outerMost + line * 0.9f);
     const float inner = size * 0.17f, outer = size * 0.36f;
@@ -710,7 +711,8 @@ void DrawSunStudyPointDay (HudState& state, const std::string& studyId, uint64_t
         SunStudyClockSelection selection;
         const SunStudyClockShown shown { double (state.sunTimeFrom) * 60.0, double (state.sunTimeTo) * 60.0 };
         DrawSunStudyDayClock (state, lifted ? &state.sunPointLiftedDay : nullptr, "##sunpointday", current,
-                              lifted ? "no sun in this day's slice" : "tracing...", &selection, 352.0f, &shown);
+                              lifted ? "no sun in this day's slice" : "tracing...", &selection, 352.0f, &shown,
+                              SunChart::LiftedDay);
         ApplySunStudyDaySelection (state, selection);
         return;
     }

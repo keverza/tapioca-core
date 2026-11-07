@@ -347,9 +347,9 @@ ImVec2 ChartFrame (const char* id, float height, bool& hovered, const char* note
     const float width = ImGui::GetContentRegionAvail ().x;
     const ImVec2 start = ImGui::GetCursorScreenPos ();
     ImGui::InvisibleButton (id, ImVec2 (width, height));
-    hovered = ImGui::IsItemHovered ();
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     draw->AddRectFilled (start, ImVec2 (start.x + width, start.y + height), ImGui::GetColorU32 (ImGuiCol_FrameBg));
+    hovered = ImGui::IsItemHovered () && !SunStudyChartInfo (start, width, SunStudyChartOf (id));
     if (note != nullptr && note[0] != 0) {
         const ImVec2 size = ImGui::CalcTextSize (note);
         draw->AddText (ImVec2 (start.x + (width - size.x) * 0.5f, start.y + (height - size.y) * 0.5f),
@@ -806,7 +806,7 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
     SunStudyClockSelection selection;
     const SunStudyClockShown shown { state.sunPointPlayFrom, state.sunPointPlayTo };
     DrawSunStudyDayClock (state, &day, "##pointperioddayclock", state.sunPointPlayStep, empty, &selection, 220.0f,
-                          &shown);
+                          &shown, SunChart::PeriodDay);
     if (selection.step >= 0) {
         state.sunPointPlayMode = kEveryStep;
         state.sunPointPlayStep = selection.step;

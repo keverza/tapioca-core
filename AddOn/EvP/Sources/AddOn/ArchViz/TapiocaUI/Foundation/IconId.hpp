@@ -49,6 +49,9 @@ enum class IconId : uint16_t {
     ReportColumns = 21, // report-columns.svg: Stats
     Glasses = 22,       // glasses.svg: the viewer's Analysis
     HomeSimple = 23,    // home-simple.svg: massing feasibility
+
+    // The sun study's diagrams: what each one shows, on hover
+    InfoCircle = 24, // info-circle.svg
 };
 
 } // namespace ui

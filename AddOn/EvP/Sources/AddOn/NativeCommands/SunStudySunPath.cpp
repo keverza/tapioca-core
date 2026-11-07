@@ -14,6 +14,7 @@
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "Python/MainThreadGate.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <mutex>
@@ -42,6 +43,9 @@ std::optional<Wanted> gAsked; // the last request taken or done
 std::thread gWorker;
 bool gRunning = false;
 std::atomic<bool> gStop { false };
+// The year's lattice, kept across date changes (the worker's alone).
+int gGridYear = 0;
+std::shared_ptr<const std::vector<SunPathGridPoint>> gGrid;
 
 bool DaysValid (int year, int month, int day)
 {
@@ -131,6 +135,45 @@ void Capture (const Wanted& wanted, SunPath& path)
     path.ready = true;
 }
 
+// One month of the lattice: chunked so no single main-thread call is long.
+bool CaptureGridMonth (int year, int month, int firstOrdinal, std::vector<SunPathGridPoint>& grid)
+{
+    API_PlaceInfo place {};
+    if (ACAPI_GeoLocation_GetPlaceSets (&place) != NoError)
+        return false;
+    static constexpr int kDays[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    for (int day = 1; day <= kDays[month - 1]; ++day)
+        for (int minute = 0; minute < 24 * 60; minute += kSunPathGridMinutes) {
+            SunPathPoint point;
+            if (!SunAt (place, year, month, day, minute, point) || point.direction[2] < 0.0f)
+                continue;
+            SunPathGridPoint out;
+            std::copy (point.direction, point.direction + 3, out.direction);
+            out.ordinal = uint16_t (firstOrdinal + day - 1);
+            out.minute = uint16_t (minute);
+            grid.push_back (out);
+        }
+    return true;
+}
+
+std::shared_ptr<const std::vector<SunPathGridPoint>> CaptureGrid (int year)
+{
+    static constexpr int kDays[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    auto grid = std::make_shared<std::vector<SunPathGridPoint>> ();
+    grid->reserve (365 * 80);
+    int first = 1;
+    for (int month = 1; month <= 12; ++month) {
+        bool ok = false;
+        GS::UniString error;
+        if (!evp::MainThreadGate::Get ().InvokeUnlessStopped (
+                [&] { ok = CaptureGridMonth (year, month, first, *grid); }, kTimeoutMs, gStop, error) ||
+            !ok)
+            return nullptr;
+        first += kDays[month - 1];
+    }
+    return grid;
+}
+
 void Worker ()
 {
     for (;;) {
@@ -153,6 +196,11 @@ void Worker ()
                                                               error) &&
             path->error.empty ())
             path->error = std::string (error.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+        if (path->error.empty () && gGridYear != wanted.year) {
+            gGrid = CaptureGrid (wanted.year);
+            gGridYear = gGrid != nullptr ? wanted.year : 0;
+        }
+        path->grid = gGridYear == wanted.year ? gGrid : nullptr;
         path->ready = true;
         std::lock_guard<std::mutex> lock (gMutex);
         gPath = std::move (path);

@@ -20,6 +20,7 @@ void ServiceViewpointInput (const Camera& camera, HudState& hud, const InputSnap
     viewerhud::ServiceViewpointInteractions (hud, input, viewProj, width, height, origin, direction);
     ServiceSunStudyBoundsGumball (hud, input, viewProj, width, height, origin, direction);
     ServiceSunStudyPointGrip (hud, input, width, height, origin, direction);
+    ServiceSunStudySunPathDrag (hud, input, width, height);
 }
 
 void ServiceCursorAnalysis (const Camera& camera, HudState& hud, const DiligentScene& scene, const InputSnapshot& input,

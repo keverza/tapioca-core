@@ -56,13 +56,23 @@ struct SunStudyClockShown {
 // last one. False when the day has no measured step.
 bool SunStudyDayDomain (const evp::sunstudy::PointDay& day, double& from, double& to);
 
+// The sun study's diagrams, for their info-circle (DiligentHudSunChartInfo).
+enum class SunChart { Day, LiftedDay, PeriodDay, Season, MonthBars, DaysHistogram, ProfileGrid, DayStrip };
+// The chart a period frame id names ("##periodbars", ...); Day otherwise.
+SunChart SunStudyChartOf (const char* id);
+// The info-circle in the top-right corner of a chart `width` wide at
+// `topLeft`; on hover, the chart's name, what it shows at the analysis point,
+// its data and its calculation. True while hovered: the chart's own tooltip
+// then stands down.
+bool SunStudyChartInfo (ImVec2 topLeft, float width, SunChart chart);
+
 // A point's day as a sunrise-to-sunset semicircle of radial bars, with a
 // lit/shadowed state row and a morning/day/evening time row outside it. Null
 // reserves the same space with emptyNote; highlightedStep is a step index, or
 // -1 for none; `shown` keeps the committed slice drawn.
 void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, const char* id, int highlightedStep,
                            const char* emptyNote, SunStudyClockSelection* selection = nullptr, float sizeCap = 220.0f,
-                           const SunStudyClockShown* shown = nullptr);
+                           const SunStudyClockShown* shown = nullptr, SunChart chart = SunChart::Day);
 // Apply a clock gesture without changing the current Sunstudy/Shadows view.
 void ApplySunStudyDaySelection (HudState& state, const SunStudyClockSelection& selection);
 bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, float maximum, bool duration);

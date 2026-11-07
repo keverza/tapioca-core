@@ -709,6 +709,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
                            "(blue) and summer (orange) solstices, the equinox (grey), the run form's date (yellow), "
                            "the hours across the year, and the sun at the shadow view's time. Centred on the study "
                            "point when one is placed.");
+    DrawSunStudySunPathStatus (state, study.studyId);
     if (ChosenMode (state) == 4 || (ChosenMode (state) < 0 && study.debugMode == 4)) {
         Swatch ("##roleA", Rgb (0xf59e24), "analysis: measured");
         ImGui::SameLine ();

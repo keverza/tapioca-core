@@ -1,7 +1,9 @@
 // The sun path over the model (#152): an optional preview of the solar
 // geometry the study uses -- the horizon ring with the compass points from the
 // project's north, the solstice and equinox arcs, the chosen date's arc, the
-// hour analemmas, and the sun at the shadow view's time.
+// hour analemmas, and the sun at the shadow view's time -- which can be
+// dragged to any date and time of the year (SunPathPick), driving the viewer's
+// sun and the run form's date.
 //
 // ⚠️ ITS OWN TRANSLATION UNIT, reading the runner (an architecture exception
 // in tools/quality/check_cpp.py): the positions are Archicad's, captured on
@@ -11,7 +13,10 @@
 // RENDER THREAD.
 
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/DiligentHudSunControls.hpp"
+#include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/MatrixMath.hpp"
+#include "ArchViz/SunPathPick.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
@@ -28,6 +33,8 @@ namespace geomsrv::archviz {
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
+constexpr const char* kMonthShort[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
 bool Project (const double point[3], const float viewProj[16], uint32_t width, uint32_t height, ImVec2& screen)
 {
@@ -88,13 +95,72 @@ ImU32 ArcColour (int kind)
     }
 }
 
+// The sun disc's pixels around it that take a press.
+constexpr float kSunGripRadius = 11.0f;
+// How far from the cursor a lattice sun may be and still be picked.
+constexpr float kSunPickRadius = 48.0f;
+
+// Applies a picked date/time: the viewer's sun, the calendar, the study's
+// validity and, on the study's own date, the shadow slider.
+void AdoptPick (HudState& state, const SunPathPick& pick)
+{
+    state.sunPathOrdinal = pick.ordinal;
+    state.sunPathMinute = pick.minute;
+    std::copy (pick.direction, pick.direction + 3, state.sunPathDirection);
+    state.sunPathSnap = pick.snappedDate;
+    state.sunPathNoon = pick.snappedNoon;
+    state.sunPathOwnsSun = true;
+    state.sunOverride = true;
+    SunPathAngles (pick.direction, state.sunAzimuthDegrees, state.sunAltitudeDegrees);
+    // The calendar follows: the single-day form's date, or a period's shadow date.
+    if (state.sunRunPeriod == 0) {
+        state.sunRunMonth = pick.month;
+        state.sunRunDay = pick.day;
+    }
+    state.sunShadowMonth = pick.month;
+    state.sunShadowDay = pick.day;
+}
+
 } // namespace
+
+void ServiceSunStudySunPathDrag (HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height)
+{
+    if (!state.sunPathShown || state.readOnly || width == 0 || height == 0) {
+        state.sunPathDragging = false;
+        return;
+    }
+    bool pressed = false, released = false;
+    for (int i = 0; i < input.transitionCount; ++i)
+        if (input.transitions[i].button == kMouseLeft) {
+            pressed = pressed || input.transitions[i].down;
+            released = released || !input.transitions[i].down;
+        }
+    const float x = float (CursorTargetX (input, width)), y = float (CursorTargetY (input, height));
+    const bool overSun = input.inside && state.sunPathMarkerValid &&
+                         std::hypot (x - state.sunPathMarker[0], y - state.sunPathMarker[1]) <= kSunGripRadius;
+    if (!state.sunPathDragging && !state.wantsMouse && overSun && pressed)
+        state.sunPathDragging = true;
+    // Navigation must not take the same press (the viewpoint gumball's flag).
+    if (state.sunPathDragging || (!state.wantsMouse && overSun && (input.buttons & kMouseLeft)))
+        state.viewpointOwnsMouse = true;
+    if (!state.sunPathDragging)
+        return;
+    state.sunPathCursor[0] = x;
+    state.sunPathCursor[1] = y;
+    if (released || !(input.buttons & kMouseLeft))
+        state.sunPathDragging = false;
+}
 
 void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
 {
+    state.sunPathMarkerValid = false;
     if (!state.sunPathShown || viewProj == nullptr || width == 0 || height == 0)
         return;
-    sunstudyhud::RequestSunPath (state.sunRunYear, state.sunRunMonth, state.sunRunDay);
+    // The chosen date's arc is the dragged date while the dragged sun leads.
+    int month = state.sunRunMonth, day = state.sunRunDay;
+    if (state.sunPathOwnsSun && state.sunPathOrdinal > 0)
+        SunPathDateOf (state.sunPathOrdinal, month, day);
+    sunstudyhud::RequestSunPath (state.sunRunYear, month, day);
     const auto path = sunstudyhud::LatestSunPath ();
     double centre[3] = {}, radius = 0.0;
     if (path == nullptr || !path->ready || !path->error.empty () || !Dome (state, centre, radius))
@@ -157,23 +223,106 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
                         draw->AddText (ImVec2 (s.x + 3.0f, s.y - 14.0f), IM_COL32 (230, 230, 230, 200), text);
                     }
                 }
-    // The sun at the single shadow's time, on the chosen date's arc.
-    if (state.sunStep >= 0 && size_t (state.sunStep) < state.sunStepMinutes.size ()) {
+    // ---- the sun: the shadow view's time, or the dragged date and time -------
+    const auto* grid = path->grid != nullptr ? path->grid.get () : nullptr;
+    const int studyDate = state.sunShownDate;
+    const auto draggedDate = [&] {
+        int m = 0, d = 0;
+        SunPathDateOf (state.sunPathOrdinal, m, d);
+        return state.sunRunYear * 10000 + m * 100 + d;
+    };
+    if (state.sunPathDragging && grid != nullptr) {
+        // The lattice sun nearest the cursor, then the key-position snaps.
+        const sunstudyhud::SunPathGridPoint* nearest = nullptr;
+        float best = kSunPickRadius * kSunPickRadius;
+        for (const auto& point : *grid) {
+            ImVec2 s;
+            if (!at (point.direction, s))
+                continue;
+            const float dx = s.x - state.sunPathCursor[0], dy = s.y - state.sunPathCursor[1];
+            if (const float d2 = dx * dx + dy * dy; d2 < best) {
+                best = d2;
+                nearest = &point;
+            }
+        }
+        if (nearest != nullptr)
+            if (const SunPathPick pick = SnapSunPathPick (*grid, nearest->ordinal, nearest->minute); pick.valid)
+                AdoptPick (state, pick);
+    }
+    else if (state.sunPathOwnsSun && grid != nullptr && state.sunStep != state.sunPathLastStep && state.sunStep >= 0 &&
+             size_t (state.sunStep) < state.sunStepMinutes.size () && draggedDate () == studyDate) {
+        // On the study's own date the shadow slider moves the dragged sun too.
         const int minute = state.sunStepMinutes[size_t (state.sunStep)];
+        if (const auto* point = SunPathGridAt (*grid, state.sunPathOrdinal, minute); point != nullptr) {
+            state.sunPathMinute = point->minute;
+            std::copy (point->direction, point->direction + 3, state.sunPathDirection);
+            SunPathAngles (point->direction, state.sunAzimuthDegrees, state.sunAltitudeDegrees);
+            state.sunPathSnap = nullptr;
+            state.sunPathNoon = false;
+        }
+    }
+    if (state.sunPathOwnsSun) {
+        // The day study is valid only for its own date; on it, the slider follows
+        // the dragged time.
+        state.sunPathStudyInvalid = !state.sunShowsPeriod && studyDate != 0 && draggedDate () != studyDate;
+        if (!state.sunPathStudyInvalid && state.sunPathDragging && !state.sunStepMinutes.empty ()) {
+            int nearestStep = -1, gap = 1 << 30;
+            for (size_t s = 0; s < state.sunStepMinutes.size (); ++s)
+                if (const int g = std::abs (int (state.sunStepMinutes[s]) - state.sunPathMinute); g < gap) {
+                    gap = g;
+                    nearestStep = int (s);
+                }
+            if (nearestStep >= 0 && gap <= 30)
+                state.sunStep = nearestStep;
+        }
+        state.sunPathLastStep = state.sunStep;
+    }
+    const float* sunDirection = nullptr;
+    if (state.sunPathOwnsSun)
+        sunDirection = state.sunPathDirection;
+    else {
+        // The single shadow's time on the chosen date's arc; without a step,
+        // the arc's highest sun, so there is always a disc to pick up.
+        const int minute = state.sunStep >= 0 && size_t (state.sunStep) < state.sunStepMinutes.size ()
+                               ? int (state.sunStepMinutes[size_t (state.sunStep)])
+                               : -1;
         int bestGap = 1 << 30;
-        const sunstudyhud::SunPathPoint* sun = nullptr;
         for (const auto& arc : path->arcs)
             if (arc.kind == 3)
-                for (const auto& point : arc.points)
-                    if (const int gap = std::abs (point.minute - minute); gap < bestGap) {
+                for (const auto& point : arc.points) {
+                    const int gap =
+                        minute >= 0 ? std::abs (point.minute - minute) : int ((1.0f - point.direction[2]) * 10000.0f);
+                    if (gap < bestGap) {
                         bestGap = gap;
-                        sun = &point;
+                        sunDirection = point.direction;
                     }
-        ImVec2 s;
-        if (sun != nullptr && bestGap <= 10 && at (sun->direction, s)) {
-            draw->AddCircleFilled (s, 7.0f, IM_COL32 (255, 220, 60, 255));
-            draw->AddCircle (s, 7.0f, IM_COL32 (60, 40, 0, 255), 0, 1.5f);
+                }
+        if (minute >= 0 && bestGap > 10)
+            sunDirection = nullptr;
+    }
+    ImVec2 s;
+    if (sunDirection == nullptr || !at (sunDirection, s))
+        return;
+    const ImVec2 mouse = ImGui::GetIO ().MousePos;
+    const bool hot = state.sunPathDragging || std::hypot (mouse.x - s.x, mouse.y - s.y) <= kSunGripRadius;
+    ImDrawList* front = ImGui::GetForegroundDrawList ();
+    front->AddCircleFilled (s, hot ? 9.0f : 7.0f, IM_COL32 (255, 220, 60, 255));
+    front->AddCircle (s, hot ? 9.0f : 7.0f, hot ? IM_COL32 (255, 255, 255, 255) : IM_COL32 (60, 40, 0, 255), 0, 1.5f);
+    state.sunPathMarkerValid = true;
+    state.sunPathMarker[0] = s.x;
+    state.sunPathMarker[1] = s.y;
+    if (state.sunPathOwnsSun || hot) {
+        char label[96];
+        if (state.sunPathOwnsSun) {
+            int m = 0, d = 0;
+            SunPathDateOf (state.sunPathOrdinal, m, d);
+            std::snprintf (label, sizeof (label), "%s %d  %02d:%02d%s%s%s", kMonthShort[m - 1], d,
+                           state.sunPathMinute / 60, state.sunPathMinute % 60, state.sunPathSnap != nullptr ? "  " : "",
+                           state.sunPathSnap != nullptr ? state.sunPathSnap : "", state.sunPathNoon ? "  noon" : "");
         }
+        else
+            std::snprintf (label, sizeof (label), "drag: date and time");
+        front->AddText (ImVec2 (s.x + 12.0f, s.y - 7.0f), IM_COL32 (255, 240, 200, 255), label);
     }
 }
 

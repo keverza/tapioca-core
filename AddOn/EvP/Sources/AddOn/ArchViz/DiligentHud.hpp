@@ -292,6 +292,24 @@ struct HudState {
     // The sun path preview (#152): Archicad's sun arcs over the model for the
     // run form's date, the solstices and the equinox, and the hour analemmas.
     bool sunPathShown = false;
+    // The draggable sun (#152 follow-up): a date and time picked on the sun
+    // path, which then drives the viewer's sun (sunOverride) and the run
+    // form's date. Location and elevation stay Archicad's.
+    bool sunPathDragging = false;
+    bool sunPathOwnsSun = false; // the dragged sun is the viewer's sun
+    bool sunPathMarkerValid = false;
+    float sunPathMarker[2] = {}; // the sun disc, projected last frame
+    float sunPathCursor[2] = {}; // the cursor in the same pixels, while dragging
+    int sunPathOrdinal = 0, sunPathMinute = -1;
+    float sunPathDirection[3] = { 0.0f, 0.0f, 1.0f };
+    const char* sunPathSnap = nullptr; // the key date it snapped to, or null
+    bool sunPathNoon = false;
+    int sunPathLastStep = -1; // the shadow slider, followed on the study's own date
+    // The shown single-day study's date (yyyymmdd), and whether the dragged sun
+    // left it: then its tint is withheld rather than shown for the wrong day.
+    std::string sunShownDateFor;
+    int sunShownDate = 0;
+    bool sunPathStudyInvalid = false;
     bool sunShowsPeriod = false;
     double sunPeriodDays = 0.0;
     std::string sunPeriodLabel, sunPeriodCarrierDate;
@@ -895,6 +913,14 @@ void DrawSunStudyPointDay (HudState& state, const std::string& studyId, uint64_t
 void DrawSunStudyObstructionControls (HudState& state, const std::string& studyId);
 // The sun path over the model (DiligentHudSunPath.cpp), when sunPathShown.
 void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
+// Press on the sun path's sun disc and drag: before navigation, which it holds off.
+void ServiceSunStudySunPathDrag (HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height);
+// The sun path's row in the panel: the dragged date and time, and whether the
+// shown day study still matches it (run that day, or return to the study).
+void DrawSunStudySunPathStatus (HudState& state, const std::string& studyId);
+// Run a single day at `month`/`day` with the run form's other settings; the
+// form keeps its own period and date.
+void RunSunStudyDay (HudState& state, int month, int day);
 void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, const float origin[3],
                                 const float direction[3]);

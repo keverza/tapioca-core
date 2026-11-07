@@ -574,6 +574,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # The sun path preview (#152) asks the same runner, by plain value, for
     # Archicad's sun positions it captured on the main thread, and draws them.
     ("ArchViz/DiligentHudSunPath.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
+    # The draggable sun's pure pick/snap reads the same plain-value lattice
+    # (SunPathGridPoint) the runner captured; no DevKit or command types.
+    ("ArchViz/SunPathPick.hpp", "NativeCommands/SunStudyHudRunner.hpp"),
     # The runner writes one line per run to the existing host log: the requested
     # and resolved sun backend (#54). It controls no renderer.
     ("NativeCommands/SunStudyHudRunner.cpp", "ArchViz/ArchVizLog.hpp"),

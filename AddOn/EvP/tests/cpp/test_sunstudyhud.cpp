@@ -4,6 +4,7 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/SunPathPick.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 #include "MeshFixtures.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
@@ -219,6 +220,55 @@ TEST (SunStudyHud, DayArcRunsFromFirstSunOnTheLeftOverTheTopToLastSunOnTheRight)
     EXPECT_DOUBLE_EQ (from, 375.0); // non-hour first sun
     EXPECT_DOUBLE_EQ (to, 1080.0);
     EXPECT_FALSE (SunStudyDayDomain (evp::sunstudy::PointDay (), from, to));
+}
+
+TEST (SunStudyHud, DraggedSunSnapsToKeyDatesAndSolarNoonOnTheLattice)
+{
+    // A synthetic lattice: every day, 06:00-18:00 every 10 minutes, highest at 12:00.
+    std::vector<geomsrv::sunstudyhud::SunPathGridPoint> grid;
+    for (int ordinal = 1; ordinal <= 365; ++ordinal)
+        for (int minute = 360; minute <= 1080; minute += 10) {
+            geomsrv::sunstudyhud::SunPathGridPoint point;
+            point.ordinal = uint16_t (ordinal);
+            point.minute = uint16_t (minute);
+            const float t = float (minute - 720) / 360.0f;
+            point.direction[0] = t;
+            point.direction[1] = 0.0f;
+            point.direction[2] = 1.0f - t * t;
+            grid.push_back (point);
+        }
+    int month = 0, day = 0;
+    SunPathDateOf (SunPathOrdinalOf (6, 21), month, day);
+    EXPECT_EQ (month, 6);
+    EXPECT_EQ (day, 21);
+    EXPECT_EQ (SunPathOrdinalOf (1, 1), 1);
+    EXPECT_EQ (SunPathOrdinalOf (12, 31), 365);
+
+    auto pick = SnapSunPathPick (grid, SunPathOrdinalOf (6, 18), 900); // 3 days off, mid-afternoon
+    ASSERT_TRUE (pick.valid);
+    EXPECT_EQ (pick.month, 6);
+    EXPECT_EQ (pick.day, 21);
+    ASSERT_NE (pick.snappedDate, nullptr);
+    EXPECT_STREQ (pick.snappedDate, "June solstice");
+    EXPECT_FALSE (pick.snappedNoon);
+    EXPECT_EQ (pick.minute, 900);
+
+    pick = SnapSunPathPick (grid, SunPathOrdinalOf (5, 1), 700); // no key date near; 20 min from noon
+    ASSERT_TRUE (pick.valid);
+    EXPECT_EQ (pick.snappedDate, nullptr);
+    EXPECT_TRUE (pick.snappedNoon);
+    EXPECT_EQ (pick.minute, 720);
+    EXPECT_EQ (pick.month, 5);
+
+    EXPECT_FALSE (SnapSunPathPick (grid, 100, 1300).valid); // the sun is down then
+    EXPECT_NE (SunPathGridAt (grid, 100, 543), nullptr);    // the slider's time on the lattice
+    EXPECT_EQ (SunPathGridAt (grid, 100, 300), nullptr);
+
+    float azimuth = 0.0f, altitude = 0.0f;
+    const float east[3] = { 0.0f, 0.7071068f, 0.7071068f };
+    SunPathAngles (east, azimuth, altitude);
+    EXPECT_NEAR (azimuth, 90.0f, 1.0e-3f); // model angle, CCW from +X
+    EXPECT_NEAR (altitude, 45.0f, 1.0e-3f);
 }
 
 TEST (SunStudyHud, TimeOfDayGradientRunsMorningDayEvening)
