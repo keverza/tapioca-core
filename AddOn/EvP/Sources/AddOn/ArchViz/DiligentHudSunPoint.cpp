@@ -185,6 +185,146 @@ bool DrawSunStudyPointHeader (HudState& state, const std::string& studyId)
     return true;
 }
 
+namespace {
+
+void ClockSector (ImDrawList* draw, ImVec2 centre, float inner, float outer, double from, double to, ImU32 colour)
+{
+    if (outer <= inner || to <= from)
+        return;
+    draw->PathClear ();
+    draw->PathArcTo (centre, outer, float (from), float (to));
+    draw->PathArcTo (centre, inner, float (to), float (from));
+    draw->PathFillConvex (colour);
+}
+
+ImVec2 ClockPoint (ImVec2 centre, float radius, double angle)
+{
+    return ImVec2 (centre.x + radius * float (std::cos (angle)), centre.y + radius * float (std::sin (angle)));
+}
+
+void ClockLabel (ImDrawList* draw, ImVec2 centre, float radius, double angle, const char* text)
+{
+    const ImVec2 at = ClockPoint (centre, radius, angle);
+    const ImVec2 size = ImGui::CalcTextSize (text);
+    draw->AddText (ImVec2 (at.x - size.x * 0.5f, at.y - size.y * 0.5f), ImGui::GetColorU32 (ImGuiCol_TextDisabled),
+                   text);
+}
+
+} // namespace
+
+void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, const char* id, int highlightedStep,
+                           const char* emptyNote)
+{
+    // One measured step is one radial bar. Within it, radius shows the share
+    // of the point's cells: lit inside, obstruction next, back-facing outside.
+    // Angle remains clock time, never a re-spacing of only the daylight steps.
+    const float width = ImGui::GetContentRegionAvail ().x;
+    const float size = (std::min) (220.0f, width);
+    if (size <= 0.0f)
+        return;
+    const ImVec2 start = ImGui::GetCursorScreenPos ();
+    ImGui::InvisibleButton (id, ImVec2 (width, size));
+    const bool hovered = ImGui::IsItemHovered ();
+    ImDrawList* draw = ImGui::GetWindowDrawList ();
+    const ImVec2 centre (start.x + width * 0.5f, start.y + size * 0.5f);
+    const float inner = size * 0.20f, outer = size * 0.34f;
+    draw->AddCircle (centre, (inner + outer) * 0.5f, IM_COL32 (100, 106, 116, 70), 96, outer - inner);
+    for (int hour = 0; hour < 24; ++hour) {
+        const double angle = SunStudyClockAngle (hour * 60.0);
+        const float tick = hour % 3 == 0 ? size * 0.025f : size * 0.012f;
+        draw->AddLine (ClockPoint (centre, outer + 1.0f, angle), ClockPoint (centre, outer + tick, angle),
+                       IM_COL32 (130, 136, 146, 130), 1.0f);
+    }
+    const float labels = size * 0.44f;
+    ClockLabel (draw, centre, labels, SunStudyClockAngle (0), "0 / 24");
+    ClockLabel (draw, centre, labels, SunStudyClockAngle (6 * 60), "6");
+    ClockLabel (draw, centre, labels, SunStudyClockAngle (12 * 60), "12");
+    ClockLabel (draw, centre, labels, SunStudyClockAngle (18 * 60), "18");
+
+    const size_t steps =
+        day != nullptr ? (std::min) ({ day->minutes.size (), day->lit.size (), day->facing.size () }) : 0;
+    const auto colour = [] (uint32_t rgba) {
+        return IM_COL32 ((rgba >> 24) & 255, (rgba >> 16) & 255, (rgba >> 8) & 255, 255);
+    };
+    const ImU32 lit = colour (state.sunSingleLitRgba), shaded = colour (state.sunSingleShadowedRgba);
+    const ImU32 behind = IM_COL32 (90, 94, 102, 255);
+    double litHours = 0.0, facingHours = 0.0;
+    for (size_t s = 0; s < steps; ++s) {
+        const double quantum = (std::max) (0.0, day->hoursPerStep * 60.0);
+        const double begin = SunStudyClockAngle (day->minutes[s]);
+        const double end = SunStudyClockAngle (double (day->minutes[s]) + quantum);
+        const double gap = (std::min) (0.006, (end - begin) * 0.12);
+        const double from = begin + gap * 0.5, to = end - gap * 0.5;
+        const double litShare = std::clamp (day->lit[s], 0.0, 1.0);
+        const double facingShare = std::clamp ((std::max) (litShare, day->facing[s]), 0.0, 1.0);
+        const float litEdge = inner + (outer - inner) * float (litShare);
+        const float facingEdge = inner + (outer - inner) * float (facingShare);
+        ClockSector (draw, centre, facingEdge, outer, from, to, behind);
+        ClockSector (draw, centre, litEdge, facingEdge, from, to, shaded);
+        ClockSector (draw, centre, inner, litEdge, from, to, lit);
+        litHours += day->lit[s] * day->hoursPerStep;
+        facingHours += day->facing[s] * day->hoursPerStep;
+        if (int (s) == highlightedStep) {
+            const ImU32 ink = ImGui::GetColorU32 (ImGuiCol_Text);
+            for (const double angle : { begin, end })
+                draw->AddLine (ClockPoint (centre, inner - 2.0f, angle), ClockPoint (centre, outer + 2.0f, angle), ink,
+                               1.5f);
+            draw->PathClear ();
+            draw->PathArcTo (centre, outer + 2.0f, float (begin), float (end));
+            draw->PathStroke (ink, 0, 1.5f);
+        }
+    }
+
+    const auto centreText = [&] (const char* text, float y, ImU32 ink) {
+        const ImVec2 extent = ImGui::CalcTextSize (text);
+        draw->AddText (ImVec2 (centre.x - extent.x * 0.5f, centre.y + y - extent.y * 0.5f), ink, text);
+    };
+    if (steps == 0) {
+        centreText (emptyNote != nullptr ? emptyNote : "", 0.0f, ImGui::GetColorU32 (ImGuiCol_TextDisabled));
+        SunStudyNote (" ");
+        return;
+    }
+    const std::string total = SunStudyClock (litHours, true);
+    centreText (total.c_str (), -ImGui::GetTextLineHeight () * 0.45f, ImGui::GetColorU32 (ImGuiCol_Text));
+    centreText ("direct", ImGui::GetTextLineHeight () * 0.65f, ImGui::GetColorU32 (ImGuiCol_TextDisabled));
+
+    if (hovered) {
+        const ImVec2 delta (ImGui::GetIO ().MousePos.x - centre.x, ImGui::GetIO ().MousePos.y - centre.y);
+        const float radius = std::hypot (delta.x, delta.y);
+        if (radius >= inner - 2.0f && radius <= outer + 3.0f) {
+            double angle = std::atan2 (double (delta.y), double (delta.x)) + 1.57079632679489661923;
+            if (angle < 0.0)
+                angle += 6.28318530717958647692;
+            const double clock = angle * (1440.0 / 6.28318530717958647692);
+            size_t nearest = 0;
+            double distance = 1440.0;
+            for (size_t s = 0; s < steps; ++s) {
+                const double middle = double (day->minutes[s]) + day->hoursPerStep * 30.0;
+                double d = std::abs (clock - middle);
+                d = (std::min) (d, 1440.0 - d);
+                if (d < distance) {
+                    distance = d;
+                    nearest = s;
+                }
+            }
+            const int minutes = day->minutes[nearest];
+            ImGui::SetTooltip ("%02d:%02d  lit %d%%, shaded %d%%, sun behind %d%% of the %zu cell(s)\n\n"
+                               "Light: a clear line to the sun. Shaded: the sun is in front of the surface but the "
+                               "model blocks it. Behind: the sun is on the other side of the surface.",
+                               minutes / 60, minutes % 60, int (100.0 * day->lit[nearest] + 0.5),
+                               int (100.0 * (day->facing[nearest] - day->lit[nearest]) + 0.5),
+                               int (100.0 * (1.0 - day->facing[nearest]) + 0.5), day->samples);
+        }
+    }
+    char line[128];
+    std::snprintf (line, sizeof (line), "%s direct of %s in front; sun up %s", SunStudyClock (litHours, true).c_str (),
+                   SunStudyClock (facingHours, true).c_str (),
+                   SunStudyClock (double (steps) * day->hoursPerStep, true).c_str ());
+    SunStudyNote (line, "24-hour clock: 0/24 is at the top and time runs clockwise. Each measured step is a radial "
+                        "bar: lit inside, shaded in the middle, sun behind outside. The centre is total direct sun. "
+                        "Direct and in front are means of the point's cells; sun up is the site's total in the slice.");
+}
+
 void DrawSunStudyPointDay (HudState& state, const std::string& studyId)
 {
     if (!ImGui::CollapsingHeader ("Study point", ImGuiTreeNodeFlags_DefaultOpen))
@@ -194,74 +334,9 @@ void DrawSunStudyPointDay (HudState& state, const std::string& studyId)
     std::string error;
     const bool read =
         placed && evp::sunstudy::SunStudyStore::Get ().PointDayOf (studyId, state.sunPointSamples, day, error);
-    // ⚠️ RESERVED: the strip and its line are drawn at their size with or
-    // without data, grey when there is none.
-    const float width = ImGui::GetContentRegionAvail ().x;
-    const float height = ImGui::GetTextLineHeight () * 2.2f;
-    const ImVec2 start = ImGui::GetCursorScreenPos ();
-    ImGui::InvisibleButton ("##sunpointday", ImVec2 (width, height + ImGui::GetTextLineHeight ()));
-    const bool hovered = ImGui::IsItemHovered ();
-    ImDrawList* draw = ImGui::GetWindowDrawList ();
-    const ImU32 empty = ImGui::GetColorU32 (ImGuiCol_FrameBg);
-    draw->AddRectFilled (start, ImVec2 (start.x + width, start.y + height), empty);
-    const size_t steps = read ? day.minutes.size () : 0;
-    if (steps == 0) {
-        const char* why = !placed ? "" : !read ? "computing..." : "no sun in this day's slice";
-        const ImVec2 size = ImGui::CalcTextSize (why);
-        draw->AddText (ImVec2 (start.x + (width - size.x) * 0.5f, start.y + (height - size.y) * 0.5f),
-                       ImGui::GetColorU32 (ImGuiCol_TextDisabled), why);
-        SunStudyNote (" ");
-        return;
-    }
-    // Each step a column: lit (the shadow view's sunlit colour) up to its
-    // share of the cells, shaded below it, grey where the sun is behind them.
-    const auto colour = [] (uint32_t rgba) {
-        return IM_COL32 ((rgba >> 24) & 255, (rgba >> 16) & 255, (rgba >> 8) & 255, 255);
-    };
-    const ImU32 lit = colour (state.sunSingleLitRgba), shaded = colour (state.sunSingleShadowedRgba);
-    const ImU32 behind = IM_COL32 (90, 94, 102, 255);
-    const float column = width / float (steps);
-    double litHours = 0.0, facingHours = 0.0;
-    for (size_t s = 0; s < steps; ++s) {
-        const float x0 = start.x + column * float (s), x1 = x0 + (std::max) (1.0f, column - 1.0f);
-        const float facingTop = start.y + height * float (1.0 - day.facing[s]);
-        const float litTop = start.y + height * float (1.0 - day.lit[s]);
-        draw->AddRectFilled (ImVec2 (x0, start.y), ImVec2 (x1, facingTop), behind);
-        draw->AddRectFilled (ImVec2 (x0, facingTop), ImVec2 (x1, litTop), shaded);
-        draw->AddRectFilled (ImVec2 (x0, litTop), ImVec2 (x1, start.y + height), lit);
-        litHours += day.lit[s] * day.hoursPerStep;
-        facingHours += day.facing[s] * day.hoursPerStep;
-    }
-    // Hour ticks under the strip.
-    int lastHour = -1;
-    for (size_t s = 0; s < steps; ++s) {
-        const int hour = day.minutes[s] / 60;
-        if (hour == lastHour || day.minutes[s] % 60 != 0 || hour % 3 != 0)
-            continue;
-        lastHour = hour;
-        char text[8];
-        std::snprintf (text, sizeof (text), "%d", hour);
-        draw->AddText (ImVec2 (start.x + column * float (s), start.y + height),
-                       ImGui::GetColorU32 (ImGuiCol_TextDisabled), text);
-    }
-    if (hovered) {
-        const size_t s = (std::min) (steps - 1, size_t ((std::max) (0.0f, ImGui::GetIO ().MousePos.x - start.x) /
-                                                        (std::max) (column, 1.0f)));
-        const int minutes = day.minutes[s];
-        ImGui::SetTooltip ("%02d:%02d  lit %d%%, shaded %d%%, sun behind %d%% of the %zu cell(s)\n\n"
-                           "Light: a clear line to the sun. Shaded: the sun is in front of the surface but the model "
-                           "blocks it. Behind: the sun is on the other side of the surface.",
-                           minutes / 60, minutes % 60, int (100.0 * day.lit[s] + 0.5),
-                           int (100.0 * (day.facing[s] - day.lit[s]) + 0.5), int (100.0 * (1.0 - day.facing[s]) + 0.5),
-                           day.samples);
-    }
-    char line[128];
-    std::snprintf (line, sizeof (line), "%s direct of %s in front; sun up %s", SunStudyClock (litHours, true).c_str (),
-                   SunStudyClock (facingHours, true).c_str (),
-                   SunStudyClock (double (steps) * day.hoursPerStep, true).c_str ());
-    SunStudyNote (line, "Direct: hours with a clear line to the sun, the mean of the point's cells. In front: hours "
-                        "the sun is on the surface's side -- the most it could get. Sun up: hours the sun is above "
-                        "the horizon in the study's time slice, the same everywhere.");
+    const char* why = !placed ? "" : !read ? "computing..." : "no sun in this day's slice";
+    const int current = state.sunStep >= 0 && size_t (state.sunStep) < day.minutes.size () ? state.sunStep : -1;
+    DrawSunStudyDayClock (state, read ? &day : nullptr, "##sunpointday", current, why);
 }
 
 } // namespace geomsrv::archviz

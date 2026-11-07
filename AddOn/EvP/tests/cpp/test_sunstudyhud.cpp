@@ -2,6 +2,7 @@
 // and the run form, DiligentHudSunRun.cpp): its widget IDs and the shadow
 // views' hover text (#116).
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
@@ -138,6 +139,16 @@ struct SectionGui {
     }
 };
 } // namespace
+
+TEST (SunStudyHud, DayClockPutsBothMidnightsAtTheTopAndRunsClockwise)
+{
+    constexpr double pi = 3.14159265358979323846;
+    EXPECT_NEAR (SunStudyClockAngle (0), -pi / 2.0, 1.0e-12);
+    EXPECT_NEAR (SunStudyClockAngle (6 * 60), 0.0, 1.0e-12);
+    EXPECT_NEAR (SunStudyClockAngle (12 * 60), pi / 2.0, 1.0e-12);
+    EXPECT_NEAR (SunStudyClockAngle (18 * 60), pi, 1.0e-12);
+    EXPECT_NEAR (SunStudyClockAngle (24 * 60), 3.0 * pi / 2.0, 1.0e-12);
+}
 
 TEST (SunStudyHud, CollapsedSetupStillOffersCancelForManualAndFollowerStages)
 {

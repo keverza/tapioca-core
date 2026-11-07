@@ -7,7 +7,23 @@
 
 #include <span>
 
+namespace evp::sunstudy {
+struct PointDay;
+}
+
 namespace geomsrv::archviz {
+struct HudState;
+
+// Radians on the 24-hour study clock: 00:00/24:00 at the top, then clockwise.
+inline double SunStudyClockAngle (double minute)
+{
+    return minute * (6.28318530717958647692 / 1440.0) - 1.57079632679489661923;
+}
+
+// A placed point's day as a 24-hour radial bar chart. Null reserves the same
+// space with emptyNote; highlightedStep is a step index, or -1 for none.
+void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, const char* id, int highlightedStep,
+                           const char* emptyNote);
 bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, float maximum, bool duration);
 // `bands` 0 draws the smooth ramp; kSunBandsMin..kSunBandsMax draws that many
 // flat bands split at `edges`, each with a grip above the bar to drag.
