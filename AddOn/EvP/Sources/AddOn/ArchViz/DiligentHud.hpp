@@ -171,7 +171,7 @@ struct HudState {
     // The shadow views' colours (#116), 0xRRGGBBAA sRGB, defaults
     // ArchViz/SunStudyPreview.hpp's: Single Shadow's sunlit / shadowed and
     // Morning / evening's sunlit / morning / evening. Display only.
-    uint32_t sunSingleLitRgba = 0xF4D35EFFu;
+    uint32_t sunSingleLitRgba = 0xEDE8DBFFu;
     uint32_t sunSingleShadowedRgba = 0x4770CCFFu;
     uint32_t sunAmPmSunlitRgba = 0xE8E8E6FFu;
     uint32_t sunAmPmMorningRgba = 0x796AB1FFu;
@@ -283,13 +283,10 @@ struct HudState {
     // Single-day exact obstruction: 0 off, 1 selected time step (pink),
     // 2 whole day (timed parts coloured by their shadow hour).
     int sunObstructionMode = 0; // 1 time step, 2 whole day, 3 solar cut
-    // The solar cut's slice (minutes; to <= from: not yet chosen), the grip
-    // being dragged on the diagram's pink arc (0 none, 1 from, 2 to), and the
-    // preview: the envelope cut, or only the voxels a sun ray crosses.
+    // The solar cut's slice (minutes; to <= from: not yet chosen) and the grip
+    // being dragged on the diagram's pink arc (0 none, 1 from, 2 to).
     double sunCutFrom = 0.0, sunCutTo = 0.0;
     int sunCutGrip = 0;
-    bool sunCutRayOnly = false;
-    float sunCutVoxel = 0.5f;
     // The right-click menu's target: the measured point under the cursor.
     bool sunPointMenuValid = false;
     double sunPointMenuAt[3] = {};

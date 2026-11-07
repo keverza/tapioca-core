@@ -247,7 +247,7 @@ struct SunStudyViewSettings {
     // ---- the SHADOW views' colours (#116), 0xRRGGBBAA sRGB ------------------
     // Single Shadow's sunlit / shadowed; Morning / evening's sunlit, morning
     // and evening (the overlap is their mix). ArchViz/SunStudyPreview.hpp defaults.
-    uint32_t singleLitRgba = 0xF4D35EFFu;
+    uint32_t singleLitRgba = 0xEDE8DBFFu;
     uint32_t singleShadowedRgba = 0x4770CCFFu;
     uint32_t amPmSunlitRgba = 0xE8E8E6FFu;
     uint32_t amPmMorningRgba = 0x796AB1FFu;

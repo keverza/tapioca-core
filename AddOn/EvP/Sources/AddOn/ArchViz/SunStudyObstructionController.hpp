@@ -36,15 +36,14 @@ struct SunObstructionRequest {
     // SolarCut: a lifted point is cut for in the air; otherwise the snapped cell.
     bool lifted = false;
     double liftedPoint[3] = {};
-    bool rayOnly = false; // preview the ray voxels alone
-    double voxel = 0.5;   // metres
 };
 
 // One element's share of the solar cut, cubic metres.
 struct SunSolarCutObject {
     std::string guid;
     int32_t elemType = 0;
-    double envelope = 0.0, ray = 0.0, total = 0.0;
+    double removed = 0.0, total = 0.0; // cubic metres
+    bool closed = true;                // false: an open mesh, no cap or volume
 };
 
 struct SunObstructionFrame {
@@ -67,15 +66,13 @@ struct SunObstructionFrame {
     int timestepMinutes = 0;
     int year = 0, month = 0, day = 0;
     int footprintDivisions = 0;
-    // SolarCut: the two removals' volumes, the slice's hours at the point, and
-    // the elements cut. `cutFaces` 0 with cut objects means the preview was
-    // past its face cap (the numbers still hold).
-    double envelopeVolume = 0.0, rayVolume = 0.0;
-    double facingHours = 0.0, litHours = 0.0;
+    // SolarCut: the removed volume, the slice's hours at the point before and
+    // after the cut (re-traced, not assumed), the elements cut, and how many
+    // study cells the cut brings sun to in the slice.
+    double removedVolume = 0.0;
+    double facingHours = 0.0, litHours = 0.0, litAfterHours = 0.0;
     std::vector<SunSolarCutObject> cutObjects;
-    double voxel = 0.0;
-    size_t cutFaces = 0;
-    bool previewCapped = false;
+    size_t sectors = 0, wonCells = 0;
     std::string error;
 };
 

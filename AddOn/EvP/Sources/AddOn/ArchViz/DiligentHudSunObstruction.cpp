@@ -39,38 +39,44 @@ ImU32 Opaque (uint32_t rgba)
 
 namespace {
 
-// The solar cut in numbers: the hours it buys, the two removals' volumes and
-// each element's share.
+// The solar cut in numbers: the hours it buys at the point (re-traced after
+// the cut), the volume that goes, each element's share, and the cells whose
+// shadow it removes.
 void DrawSolarCutSummary (const HudState& state, const SunObstructionFrame& frame)
 {
     char line[200];
-    const double gain = (std::max) (0.0, frame.facingHours - frame.litHours);
-    std::snprintf (line, sizeof (line), "%s-%s: +%s direct (now %s of %s in front)",
+    std::snprintf (line, sizeof (line), "%s-%s: %s direct now, %s after the cut (of %s in front)",
                    MinuteText (state.sunCutFrom).c_str (), MinuteText (state.sunCutTo).c_str (),
-                   SunStudyClock (gain, true).c_str (), SunStudyClock (frame.litHours, true).c_str (),
+                   SunStudyClock (frame.litHours, true).c_str (), SunStudyClock (frame.litAfterHours, true).c_str (),
                    SunStudyClock (frame.facingHours, true).c_str ());
-    SunStudyNote (line, "Hours of the slice with the sun in front of the point; of those, already lit now; the cut "
-                        "lights the rest. Steps with the sun behind the surface cannot be won by removing anything.");
+    SunStudyNote (line, "Hours of the slice with the sun in front of the point; lit now; and lit with the cut "
+                        "elements as they would remain -- traced again, not assumed. Steps with the sun behind the "
+                        "surface cannot be won by removing anything.");
     if (frame.facingHours <= 0.0) {
         SunStudyNote ("The sun is never in front of the point in this slice");
         return;
     }
-    if (frame.cutObjects.empty ()) {
-        SunStudyNote (gain > 0.0 ? "Nothing voxelised blocks it: the blocker may be an ignored element"
-                                 : "Nothing to remove: the slice is already lit");
+    if (frame.sectors == 0) {
+        SunStudyNote ("Widen the slice to two measured steps or more",
+                      "The cutting surface is spanned by the rays to consecutive suns; one sun is a line.");
         return;
     }
-    std::snprintf (line, sizeof (line), "Envelope cut %.1f m3 | ray voxels %.1f m3 | voxel %.2f m%s",
-                   frame.envelopeVolume, frame.rayVolume, frame.voxel, frame.previewCapped ? " (preview capped)" : "");
-    SunStudyNote (
-        line, "Envelope cut: the blockers sliced along the surface the sun rays sweep from the point and everything "
-              "above it removed -- the form a solid building must take. Ray voxels: only what a ray crosses, the "
-              "least that clears the sun. Voxels a ray may touch count, so both clear the sun at the voxel size. "
-              "The existing elements keep their outline and edges.");
+    if (frame.cutObjects.empty ()) {
+        SunStudyNote (frame.litHours < frame.facingHours ? "Nothing analysed or context blocks it above the surface"
+                                                         : "Nothing to remove: the slice is already lit");
+        return;
+    }
+    std::snprintf (line, sizeof (line), "Remove %.1f m3 from %zu element%s; %zu cell%s gain sun", frame.removedVolume,
+                   frame.cutObjects.size (), frame.cutObjects.size () == 1 ? "" : "s", frame.wonCells,
+                   frame.wonCells == 1 ? "" : "s");
+    SunStudyNote (line, "The rays from the point to the slice's suns are merged into one cutting surface (pink sheet); "
+                        "everything of the blockers above it goes, extruded up (pink, with the cut faces solid). The "
+                        "existing elements keep their outline and edges. Yellow cells: study cells whose shadow in the "
+                        "slice was cast by a cut element and is gone after the cut.");
     constexpr size_t kRows = 8;
     if (ImGui::BeginTable ("##suncutobjects", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn ("Element", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn ("Cut m3", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn ("Removed", ImGuiTableColumnFlags_WidthStretch, 0.8f);
         ImGui::TableSetupColumn ("Share", ImGuiTableColumnFlags_WidthStretch, 0.6f);
         ImGui::TableHeadersRow ();
         for (size_t row = 0; row < frame.cutObjects.size () && row < kRows; ++row) {
@@ -80,11 +86,16 @@ void DrawSolarCutSummary (const HudState& state, const SunObstructionFrame& fram
             ImGui::TextUnformatted (object.guid.substr (0, 9).c_str ());
             ImGui::SetItemTooltip ("%s\ntype %d", object.guid.c_str (), int (object.elemType));
             ImGui::TableNextColumn ();
-            ImGui::Text ("%.1f (%.1f)", object.envelope, object.ray);
-            ImGui::SetItemTooltip ("Envelope cut %.2f m3; ray voxels alone %.2f m3; element %.1f m3 (voxelised)",
-                                   object.envelope, object.ray, object.total);
+            if (object.closed)
+                ImGui::Text ("%.1f m3", object.removed);
+            else
+                ImGui::TextDisabled ("open mesh");
+            ImGui::SetItemTooltip ("%s", object.closed ? "Volume above the cutting surface, from its closed boundary."
+                                                       : "The element is not a closed solid: its surfaces above the "
+                                                         "cut are shown, but no cut face or volume is invented.");
             ImGui::TableNextColumn ();
-            ImGui::Text ("%d%%", object.total > 0.0 ? int (100.0 * object.envelope / object.total + 0.5) : 0);
+            ImGui::Text ("%d%%", object.closed && object.total > 0.0 ? int (100.0 * object.removed / object.total + 0.5)
+                                                                      : 0);
         }
         ImGui::EndTable ();
     }
@@ -126,15 +137,6 @@ void DrawSunStudyObstructionControls (HudState& state, const std::string& studyI
                       "Obstruction footprints belong to measured surface cells; the lifted receiver's diagram is "
                       "traced separately in the Study point section.");
     if (state.sunObstructionMode == 3) {
-        ImGui::Checkbox ("Ray voxels only##suncut", &state.sunCutRayOnly);
-        ImGui::SetItemTooltip ("Off: the envelope cut -- the blockers sliced along the sun-ray surface and everything "
-                               "above it removed, the buildable form. On: only the voxels a sun ray crosses, the least "
-                               "that clears the sun (a slot).");
-        ImGui::SameLine ();
-        ImGui::SetNextItemWidth (-1.0f);
-        ImGui::SliderFloat ("##suncutvoxel", &state.sunCutVoxel, 0.25f, 2.0f, "voxel %.2f m");
-        ImGui::SetItemTooltip ("Voxel size. Smaller is closer to the true cut and slower; a large element is coarsened "
-                               "so it stays under a quarter of a million voxels.");
         if (!(state.sunCutTo > state.sunCutFrom))
             SunStudyNote ("Set the cut slice with the pink grips on the day diagram");
     }
@@ -147,7 +149,7 @@ void DrawSunStudyObstructionControls (HudState& state, const std::string& studyI
     }
     if (state.sunObstructionMode == 3 && (frame == nullptr || frame->mode != SunObstructionMode::SolarCut) &&
         (frame == nullptr || frame->error.empty ())) {
-        SunStudyNote (tasks.Busy () ? "Voxelising the blockers..." : "Waiting for the cut slice...");
+        SunStudyNote (tasks.Busy () ? "Cutting the blockers..." : "Waiting for the cut slice...");
         return;
     }
     if (frame == nullptr || frame->studyId != studyId) {

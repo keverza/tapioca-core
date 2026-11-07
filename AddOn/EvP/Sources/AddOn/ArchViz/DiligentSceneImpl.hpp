@@ -418,7 +418,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     uint32_t sunLowSunRgba = 0x1F5FD1FFu;
     uint32_t sunShadowRgba = 0x00000073u;
     // The shadow views' colours (#116): SunStudyViewSettings' five, in order.
-    uint32_t sunShadowPalette[5] = { 0xF4D35EFFu, 0x4770CCFFu, 0xE8E8E6FFu, 0x796AB1FFu, 0xDF9792FFu };
+    uint32_t sunShadowPalette[5] = { 0xEDE8DBFFu, 0x4770CCFFu, 0xE8E8E6FFu, 0x796AB1FFu, 0xDF9792FFu };
     int sunBandCount = 0;
     float sunBandEdges[11] = {};
     overlaylayers::ColourStop sunRamp[overlaylayers::kMaxStops] = {};

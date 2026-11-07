@@ -3,342 +3,447 @@
 #include "SunStudy/SunStudyPointProfile.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace evp::sunstudy {
 
 namespace {
 
-constexpr double kPi = 3.14159265358979323846;
+// ⚠️ THE CUT CLEARS THE SLICE'S RAYS, IT DOES NOT TOUCH THEM. The envelope is
+// spanned by the rays themselves, so an exact cut leaves what remains grazing
+// every edge ray -- and a re-trace finds the point still blocked. The cutting
+// surface is lowered by kSolarCutClearance and the first and last sectors are
+// widened by kSolarCutAzimuthMargin, so the sun passes with room to spare.
+constexpr double kSolarCutClearance = 0.05;       // metres, vertically
+constexpr double kSolarCutAzimuthMargin = 0.0175; // radians, about one degree
 
-double Wrap (double angle)
-{
-    while (angle <= -kPi)
-        angle += 2.0 * kPi;
-    while (angle > kPi)
-        angle -= 2.0 * kPi;
-    return angle;
-}
+using Point = std::array<double, 3>;
+using Poly = std::vector<Point>;
 
-struct SunAngle {
-    double azimuth, tan;
-};
-
-SunAngle AngleOf (const SunStep& step)
-{
-    const double h = std::hypot (step.direction[0], step.direction[1]);
-    return { std::atan2 (step.direction[1], step.direction[0]), h > 1.0e-9 ? step.direction[2] / h : 1.0e9 };
-}
-
-// A voxel grid over one element's bounds; `inside` per voxel.
-struct Grid {
-    double origin[3] = {};
-    double size = 0.0;
-    int n[3] = {};
-    std::vector<uint8_t> inside;
-    size_t Index (int i, int j, int k) const
+struct HalfSpace {
+    double n[3] = {};
+    double d = 0.0;
+    double Eval (const Point& x) const
     {
-        return (size_t (k) * size_t (n[1]) + size_t (j)) * size_t (n[0]) + size_t (i);
+        return n[0] * x[0] + n[1] * x[1] + n[2] * x[2] + d;
+    }
+    HalfSpace Negated () const
+    {
+        return { { -n[0], -n[1], -n[2] }, -d };
     }
 };
 
-bool Bounds (const geomsrv::Mesh& mesh, double lo[3], double hi[3])
+// One azimuth sector of the envelope: between two vertical half-planes
+// through the point, and the plane of the two sun rays that bound it.
+struct Sector {
+    HalfSpace left, right, above;
+    Point sunFrom, sunTo;   // unit, toward the sun
+    Point sideFrom, sideTo; // the vertical half-planes' horizontal directions
+    Point e1, e2;           // an orthonormal basis of the envelope plane
+};
+
+Point Sub (const Point& a, const Point& b)
 {
-    if (mesh.vertices.size () < 9)
-        return false;
-    for (int axis = 0; axis < 3; ++axis) {
-        lo[axis] = 1.0e300;
-        hi[axis] = -1.0e300;
-    }
-    for (size_t v = 0; v + 2 < mesh.vertices.size (); v += 3)
-        for (int axis = 0; axis < 3; ++axis) {
-            lo[axis] = (std::min) (lo[axis], mesh.vertices[v + size_t (axis)]);
-            hi[axis] = (std::max) (hi[axis], mesh.vertices[v + size_t (axis)]);
-        }
-    return std::isfinite (lo[0]) && std::isfinite (hi[0]);
+    return { a[0] - b[0], a[1] - b[1], a[2] - b[2] };
 }
 
-bool Corner (const geomsrv::Mesh& mesh, uint32_t index, double out[3])
+Point Cross (const Point& a, const Point& b)
 {
-    if (3ull * index + 2 >= mesh.vertices.size ())
+    return { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
+}
+
+double Dot (const Point& a, const Point& b)
+{
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+bool Normalise (Point& v)
+{
+    const double length = std::sqrt (Dot (v, v));
+    if (!(length > 1.0e-12) || !std::isfinite (length))
         return false;
-    for (int axis = 0; axis < 3; ++axis)
-        out[axis] = mesh.vertices[3ull * index + size_t (axis)];
+    for (double& c : v)
+        c /= length;
     return true;
 }
 
-// Surface voxels: those a triangle's plane passes within half a diagonal of,
-// inside the triangle's bounds. Conservative, so a wall or slab thinner than
-// a voxel is never lost between voxel centres.
-void MarkSurface (const geomsrv::Mesh& mesh, Grid& grid, const std::function<bool ()>& cancelled)
+// Sutherland-Hodgman against one half-space, keeping f >= 0. A convex input
+// stays convex and keeps its winding.
+Poly Clip (const Poly& in, const HalfSpace& h)
 {
-    const double half = grid.size * 0.8660254;
-    for (size_t t = 0; t < mesh.TriangleCount (); ++t) {
-        if ((t & 1023) == 0 && cancelled && cancelled ())
-            return;
-        double a[3], b[3], c[3];
-        if (!Corner (mesh, mesh.triangles[3 * t], a) || !Corner (mesh, mesh.triangles[3 * t + 1], b) ||
-            !Corner (mesh, mesh.triangles[3 * t + 2], c))
-            continue;
-        const double u[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] };
-        const double v[3] = { c[0] - a[0], c[1] - a[1], c[2] - a[2] };
-        double normal[3] = { u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
-        const double length = std::sqrt (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
-        if (!(length > 0.0))
-            continue;
-        for (double& component : normal)
-            component /= length;
-        int from[3], to[3];
-        for (int axis = 0; axis < 3; ++axis) {
-            const double lo = (std::min) ({ a[axis], b[axis], c[axis] }) - grid.origin[axis];
-            const double hi = (std::max) ({ a[axis], b[axis], c[axis] }) - grid.origin[axis];
-            from[axis] = std::clamp (int (std::floor (lo / grid.size)), 0, grid.n[axis] - 1);
-            to[axis] = std::clamp (int (std::floor (hi / grid.size)), 0, grid.n[axis] - 1);
+    Poly out;
+    const size_t n = in.size ();
+    if (n < 3)
+        return out;
+    out.reserve (n + 2);
+    for (size_t i = 0; i < n; ++i) {
+        const Point& a = in[i];
+        const Point& b = in[(i + 1) % n];
+        const double fa = h.Eval (a), fb = h.Eval (b);
+        if (fa >= 0.0)
+            out.push_back (a);
+        if ((fa >= 0.0) != (fb >= 0.0)) {
+            const double t = fa / (fa - fb);
+            out.push_back ({ a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), a[2] + t * (b[2] - a[2]) });
         }
-        for (int k = from[2]; k <= to[2]; ++k)
-            for (int j = from[1]; j <= to[1]; ++j)
-                for (int i = from[0]; i <= to[0]; ++i) {
-                    const double p[3] = { grid.origin[0] + (i + 0.5) * grid.size - a[0],
-                                          grid.origin[1] + (j + 0.5) * grid.size - a[1],
-                                          grid.origin[2] + (k + 0.5) * grid.size - a[2] };
-                    if (std::abs (p[0] * normal[0] + p[1] * normal[1] + p[2] * normal[2]) <= half)
-                        grid.inside[grid.Index (i, j, k)] = 1;
-                }
+    }
+    return out;
+}
+
+double Area2 (const Poly& poly)
+{
+    Point sum { 0.0, 0.0, 0.0 };
+    for (size_t i = 1; i + 1 < poly.size (); ++i) {
+        const Point c = Cross (Sub (poly[i], poly[0]), Sub (poly[i + 1], poly[0]));
+        for (int k = 0; k < 3; ++k)
+            sum[size_t (k)] += c[size_t (k)];
+    }
+    return std::sqrt (Dot (sum, sum));
+}
+
+// The polygon's normal from every corner, never from its first three: a band
+// that narrows to a point repeats a corner, and three corners then span nothing.
+Point FaceNormal (const Poly& poly)
+{
+    Point sum { 0.0, 0.0, 0.0 };
+    for (size_t i = 1; i + 1 < poly.size (); ++i) {
+        const Point c = Cross (Sub (poly[i], poly[0]), Sub (poly[i + 1], poly[0]));
+        for (int k = 0; k < 3; ++k)
+            sum[size_t (k)] += c[size_t (k)];
+    }
+    return sum;
+}
+
+bool Valid (const Poly& poly)
+{
+    return poly.size () >= 3 && Area2 (poly) > 1.0e-10;
+}
+
+// Fan triangles of a convex polygon, optionally reversed.
+void Emit (const Poly& poly, uint32_t mesh, bool reverse, std::vector<SolarCutTriangle>& out)
+{
+    for (size_t i = 1; i + 1 < poly.size (); ++i) {
+        SolarCutTriangle triangle;
+        triangle.mesh = mesh;
+        const Point* corners[3] = { &poly[0], &poly[reverse ? i + 1 : i], &poly[reverse ? i : i + 1] };
+        for (int c = 0; c < 3; ++c)
+            for (int k = 0; k < 3; ++k)
+                triangle.v[c][k] = (*corners[c])[size_t (k)];
+        out.push_back (triangle);
     }
 }
 
-// Interior voxels: one ray along +x per voxel row, inside between hit pairs.
-// A row with an odd count (an open mesh) adds nothing beyond its surface.
-void FillInterior (const geomsrv::Mesh& mesh, Grid& grid, const std::function<bool ()>& cancelled)
+double SignedVolume (const SolarCutTriangle& t, const double origin[3])
 {
-    // Bin each triangle to the rows its y-z bounds cover.
-    std::vector<std::vector<uint32_t>> rows (size_t (grid.n[1]) * size_t (grid.n[2]));
+    const Point a { t.v[0][0] - origin[0], t.v[0][1] - origin[1], t.v[0][2] - origin[2] };
+    const Point b { t.v[1][0] - origin[0], t.v[1][1] - origin[1], t.v[1][2] - origin[2] };
+    const Point c { t.v[2][0] - origin[0], t.v[2][1] - origin[1], t.v[2][2] - origin[2] };
+    return Dot (a, Cross (b, c)) / 6.0;
+}
+
+bool Corners (const geomsrv::Mesh& mesh, size_t t, Poly& poly)
+{
+    poly.assign (3, Point {});
+    for (int c = 0; c < 3; ++c) {
+        const size_t index = 3ull * mesh.triangles[3 * t + size_t (c)];
+        if (index + 2 >= mesh.vertices.size ())
+            return false;
+        for (int k = 0; k < 3; ++k)
+            poly[size_t (c)][size_t (k)] = mesh.vertices[index + size_t (k)];
+    }
+    return true;
+}
+
+// The envelope plane's section through a closed mesh, filled: the mesh's
+// crossing segments in the plane's 2D frame, cut into horizontal bands at
+// every segment end, paired inside each band (even-odd), and each trapezoid
+// clipped to the sector. False when a band has an odd crossing count (an open
+// mesh): no cap is invented for it.
+bool Cap (const geomsrv::Mesh& mesh, const HalfSpace& plane, const Point& e1, const Point& e2,
+          const std::vector<HalfSpace>& clips, const Point& origin, Poly& scratch, std::vector<Poly>& caps)
+{
+    struct Segment {
+        double u0, v0, u1, v1;
+    };
+    std::vector<Segment> segments;
+    std::vector<double> breaks;
     for (size_t t = 0; t < mesh.TriangleCount (); ++t) {
-        double corner[3][3];
-        bool valid = true;
-        for (int c = 0; c < 3; ++c)
-            valid = valid && Corner (mesh, mesh.triangles[3 * t + size_t (c)], corner[c]);
-        if (!valid)
+        if (!Corners (mesh, t, scratch))
             continue;
-        int from[2], to[2];
-        for (int axis = 1; axis <= 2; ++axis) {
-            const double lo = (std::min) ({ corner[0][axis], corner[1][axis], corner[2][axis] }) - grid.origin[axis];
-            const double hi = (std::max) ({ corner[0][axis], corner[1][axis], corner[2][axis] }) - grid.origin[axis];
-            from[axis - 1] = std::clamp (int (std::floor (lo / grid.size - 0.5)), 0, grid.n[axis] - 1);
-            to[axis - 1] = std::clamp (int (std::ceil (hi / grid.size - 0.5)), 0, grid.n[axis] - 1);
-        }
-        for (int k = from[1]; k <= to[1]; ++k)
-            for (int j = from[0]; j <= to[0]; ++j)
-                rows[size_t (k) * size_t (grid.n[1]) + size_t (j)].push_back (uint32_t (t));
-    }
-    std::vector<double> hits;
-    for (int k = 0; k < grid.n[2]; ++k) {
-        if (cancelled && cancelled ())
-            return;
-        for (int j = 0; j < grid.n[1]; ++j) {
-            const auto& candidates = rows[size_t (k) * size_t (grid.n[1]) + size_t (j)];
-            if (candidates.size () < 2)
-                continue;
-            // Off the exact centre, so a row never runs along a shared edge.
-            const double y = grid.origin[1] + (j + 0.5) * grid.size + 1.3e-7 * grid.size;
-            const double z = grid.origin[2] + (k + 0.5) * grid.size + 0.7e-7 * grid.size;
-            hits.clear ();
-            for (const uint32_t t : candidates) {
-                double a[3], b[3], c[3];
-                Corner (mesh, mesh.triangles[3 * t], a);
-                Corner (mesh, mesh.triangles[3 * t + 1], b);
-                Corner (mesh, mesh.triangles[3 * t + 2], c);
-                // Barycentrics of (y, z) in the triangle's y-z projection.
-                const double d = (b[1] - a[1]) * (c[2] - a[2]) - (c[1] - a[1]) * (b[2] - a[2]);
-                if (std::abs (d) < 1.0e-14)
-                    continue;
-                const double s = ((y - a[1]) * (c[2] - a[2]) - (c[1] - a[1]) * (z - a[2])) / d;
-                const double r = ((b[1] - a[1]) * (z - a[2]) - (y - a[1]) * (b[2] - a[2])) / d;
-                if (s < 0.0 || r < 0.0 || s + r > 1.0)
-                    continue;
-                hits.push_back (a[0] + s * (b[0] - a[0]) + r * (c[0] - a[0]));
-            }
-            if (hits.size () < 2 || (hits.size () & 1) != 0)
-                continue;
-            std::sort (hits.begin (), hits.end ());
-            for (size_t h = 0; h + 1 < hits.size (); h += 2) {
-                const int i0 = (std::max) (0, int (std::ceil ((hits[h] - grid.origin[0]) / grid.size - 0.5)));
-                const int i1 =
-                    (std::min) (grid.n[0] - 1, int (std::floor ((hits[h + 1] - grid.origin[0]) / grid.size - 0.5)));
-                for (int i = i0; i <= i1; ++i)
-                    grid.inside[grid.Index (i, j, k)] = 1;
+        double f[3];
+        for (int c = 0; c < 3; ++c)
+            f[c] = plane.Eval (scratch[size_t (c)]);
+        Point hits[2];
+        int count = 0;
+        for (int c = 0; c < 3 && count < 2; ++c) {
+            const Point& a = scratch[size_t (c)];
+            const Point& b = scratch[size_t ((c + 1) % 3)];
+            const double fa = f[c], fb = f[(c + 1) % 3];
+            if ((fa >= 0.0) != (fb >= 0.0)) {
+                const double s = fa / (fa - fb);
+                hits[count++] = { a[0] + s * (b[0] - a[0]), a[1] + s * (b[1] - a[1]), a[2] + s * (b[2] - a[2]) };
             }
         }
+        if (count != 2)
+            continue;
+        const Point r0 = Sub (hits[0], origin), r1 = Sub (hits[1], origin);
+        Segment segment { Dot (r0, e1), Dot (r0, e2), Dot (r1, e1), Dot (r1, e2) };
+        if (std::abs (segment.v1 - segment.v0) < 1.0e-12)
+            continue; // parallel to the bands: it bounds none of them
+        segments.push_back (segment);
+        breaks.push_back (segment.v0);
+        breaks.push_back (segment.v1);
     }
+    if (segments.empty ())
+        return true;
+    std::sort (breaks.begin (), breaks.end ());
+    breaks.erase (
+        std::unique (breaks.begin (), breaks.end (), [] (double a, double b) { return std::abs (a - b) < 1.0e-9; }),
+        breaks.end ());
+    const auto at = [&] (double u, double v) {
+        return Point { origin[0] + u * e1[0] + v * e2[0], origin[1] + u * e1[1] + v * e2[1],
+                       origin[2] + u * e1[2] + v * e2[2] };
+    };
+    bool closed = true;
+    struct Active {
+        double atMid, at0, at1;
+    };
+    std::vector<Active> active;
+    for (size_t b = 0; b + 1 < breaks.size (); ++b) {
+        const double v0 = breaks[b], v1 = breaks[b + 1], vm = 0.5 * (v0 + v1);
+        active.clear ();
+        for (const Segment& s : segments) {
+            const double lo = (std::min) (s.v0, s.v1), hi = (std::max) (s.v0, s.v1);
+            if (vm < lo || vm > hi)
+                continue;
+            const auto uAt = [&s] (double v) { return s.u0 + (s.u1 - s.u0) * (v - s.v0) / (s.v1 - s.v0); };
+            active.push_back ({ uAt (vm), uAt (v0), uAt (v1) });
+        }
+        if (active.empty ())
+            continue;
+        if ((active.size () & 1) != 0) {
+            closed = false;
+            continue;
+        }
+        std::sort (active.begin (), active.end (), [] (const Active& a, const Active& c) { return a.atMid < c.atMid; });
+        for (size_t i = 0; i + 1 < active.size (); i += 2) {
+            Poly quad { at (active[i].at0, v0), at (active[i + 1].at0, v0), at (active[i + 1].at1, v1),
+                        at (active[i].at1, v1) };
+            for (const HalfSpace& clip : clips)
+                quad = Clip (quad, clip);
+            if (Valid (quad))
+                caps.push_back (std::move (quad));
+        }
+    }
+    return closed;
 }
 
 } // namespace
 
-bool SolarEnvelopeTan (const std::vector<SunStep>& steps, double a0, double a1, double& tanMin, double& tanMax)
-{
-    tanMin = 1.0e300;
-    tanMax = -1.0e300;
-    bool covered = false;
-    const double centre = 0.5 * (a0 + a1), half = 0.5 * (a1 - a0);
-    const auto take = [&] (double tan) {
-        tanMin = (std::min) (tanMin, tan);
-        tanMax = (std::max) (tanMax, tan);
-        covered = true;
-    };
-    if (steps.size () == 1) {
-        const SunAngle sun = AngleOf (steps[0]);
-        if (half >= kPi || std::abs (Wrap (sun.azimuth - centre)) <= half)
-            take (sun.tan);
-        return covered;
-    }
-    for (size_t s = 0; s + 1 < steps.size (); ++s) {
-        const SunAngle from = AngleOf (steps[s]), to = AngleOf (steps[s + 1]);
-        const double span = Wrap (to.azimuth - from.azimuth);
-        const double lo = (std::min) (0.0, span), hi = (std::max) (0.0, span);
-        // The query relative to the segment's start, unwrapped near it.
-        const double q = Wrap (centre - from.azimuth);
-        const double qLo = half >= kPi ? lo : (std::max) (lo, q - half);
-        const double qHi = half >= kPi ? hi : (std::min) (hi, q + half);
-        if (qLo > qHi)
-            continue;
-        const auto tanAt = [&] (double x) {
-            return std::abs (span) < 1.0e-12 ? (std::min) (from.tan, to.tan)
-                                             : from.tan + (to.tan - from.tan) * (x / span);
-        };
-        take (tanAt (qLo));
-        take (tanAt (qHi));
-    }
-    return covered;
-}
-
 bool ComputeSolarCut (const geomsrv::Snapshot& snapshot, const SolarCutInput& input, SolarCutResult& result,
                       const std::function<bool (const double direction[3])>& lit,
-                      const std::function<bool ()>& cancelled)
+                      const std::function<bool ()>& cancelled, double reach)
 {
     result = SolarCutResult ();
-    const double* p = input.point;
+    const Point origin { input.point[0], input.point[1], input.point[2] };
     for (const SunStep& step : input.steps) {
-        double direction[3] = { step.direction[0], step.direction[1], step.direction[2] };
-        const double length =
-            std::sqrt (direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2]);
-        if (!(length > 0.0) || !std::isfinite (length)) {
+        Point direction { step.direction[0], step.direction[1], step.direction[2] };
+        if (!Normalise (direction)) {
             result.error = "a sun direction in the slice is not finite";
             return false;
         }
-        for (double& component : direction)
-            component /= length;
-        if (direction[2] <= 0.0 || !FacesSun (input.normal, direction))
+        if (direction[2] <= 0.0 || !FacesSun (input.normal, direction.data ()))
             continue;
         result.facingHours += input.hoursPerStep;
-        if (lit && lit (direction))
+        if (lit && lit (direction.data ()))
             result.litHours += input.hoursPerStep;
         SunStep facing = step;
-        std::copy (direction, direction + 3, facing.direction);
+        std::copy (direction.begin (), direction.end (), facing.direction);
         result.facingSteps.push_back (facing);
     }
-    const auto& suns = result.facingSteps;
-    if (suns.empty ())
-        return true; // the sun is never in front of the point in this slice: nothing to remove helps
+    // The sectors: one per pair of consecutive facing suns.
+    std::vector<Sector> sectors;
+    for (size_t s = 0; s + 1 < result.facingSteps.size (); ++s) {
+        Sector sector;
+        for (int k = 0; k < 3; ++k) {
+            sector.sunFrom[size_t (k)] = result.facingSteps[s].direction[k];
+            sector.sunTo[size_t (k)] = result.facingSteps[s + 1].direction[k];
+        }
+        Point ui { sector.sunFrom[0], sector.sunFrom[1], 0.0 }, uj { sector.sunTo[0], sector.sunTo[1], 0.0 };
+        if (!Normalise (ui) || !Normalise (uj))
+            continue;
+        const double turnCross = ui[0] * uj[1] - ui[1] * uj[0];
+        if (std::abs (turnCross) < 1.0e-9)
+            continue; // the same azimuth: a line, not a sector
+        const double turn = turnCross > 0.0 ? 1.0 : -1.0;
+        // The slice's outer edges, widened: the first sun turned back, the last on.
+        const auto rotate = [] (const Point& u, double angle) {
+            return Point { u[0] * std::cos (angle) - u[1] * std::sin (angle),
+                           u[0] * std::sin (angle) + u[1] * std::cos (angle), 0.0 };
+        };
+        if (s == 0)
+            ui = rotate (ui, -turn * kSolarCutAzimuthMargin);
+        if (s + 2 == result.facingSteps.size ())
+            uj = rotate (uj, turn * kSolarCutAzimuthMargin);
+        sector.sideFrom = ui;
+        sector.sideTo = uj;
+        Point n = Cross (sector.sunFrom, sector.sunTo);
+        if (!Normalise (n))
+            continue;
+        if (n[2] < 0.0)
+            n = { -n[0], -n[1], -n[2] };
+        const auto through = [&origin] (const Point& normal) {
+            return HalfSpace { { normal[0], normal[1], normal[2] }, -Dot (normal, origin) };
+        };
+        sector.above = through (n);
+        sector.above.d += kSolarCutClearance * n[2]; // lowered: f >= 0 a little under the rays
+        sector.left = through ({ -turn * ui[1], turn * ui[0], 0.0 });
+        sector.right = through ({ turn * uj[1], -turn * uj[0], 0.0 });
+        sector.e1 = sector.sunFrom;
+        sector.e2 = Cross (n, sector.e1);
+        Normalise (sector.e2);
+        sectors.push_back (sector);
+    }
+    if (sectors.empty ())
+        return true; // fewer than two facing suns: a line, nothing to cut
 
+    double farthest = 0.0;
+    Poly scratch;
     for (size_t m = 0; m < snapshot.meshes.size (); ++m) {
         if (cancelled && cancelled ())
             return false;
         if (m == input.ownMesh || m >= input.blocks.size () || input.blocks[m] == 0)
             continue;
         const geomsrv::Mesh& mesh = snapshot.meshes[m];
-        double lo[3], hi[3];
-        if (mesh.TriangleCount () == 0 || !Bounds (mesh, lo, hi) || hi[2] <= p[2])
-            continue;
-        // Quick rejects: outside the slice's azimuths, or wholly under the envelope.
-        const double nearX = std::clamp (p[0], lo[0], hi[0]), nearY = std::clamp (p[1], lo[1], hi[1]);
-        const double nearest = std::hypot (nearX - p[0], nearY - p[1]);
-        double a0 = -kPi, a1 = kPi;
-        if (nearest > 1.0e-9) {
-            const double corners[4][2] = { { lo[0], lo[1] }, { hi[0], lo[1] }, { hi[0], hi[1] }, { lo[0], hi[1] } };
-            const double reference = std::atan2 (0.5 * (lo[1] + hi[1]) - p[1], 0.5 * (lo[0] + hi[0]) - p[0]);
-            double minRel = 0.0, maxRel = 0.0;
-            for (const auto& corner : corners) {
-                const double rel = Wrap (std::atan2 (corner[1] - p[1], corner[0] - p[0]) - reference);
-                minRel = (std::min) (minRel, rel);
-                maxRel = (std::max) (maxRel, rel);
+        std::vector<SolarCutTriangle> removed;
+        std::vector<Poly> kept;
+        double total = 0.0;
+        for (size_t t = 0; t < mesh.TriangleCount (); ++t) {
+            if (!Corners (mesh, t, scratch))
+                continue;
+            SolarCutTriangle whole;
+            for (int c = 0; c < 3; ++c)
+                for (int k = 0; k < 3; ++k)
+                    whole.v[c][k] = scratch[size_t (c)][size_t (k)];
+            total += SignedVolume (whole, input.point);
+            std::vector<Poly> remaining { scratch }, next;
+            for (const Sector& sector : sectors) {
+                next.clear ();
+                for (const Poly& poly : remaining) {
+                    Poly outside = Clip (poly, sector.left.Negated ());
+                    if (Valid (outside))
+                        next.push_back (std::move (outside));
+                    const Poly inLeft = Clip (poly, sector.left);
+                    Poly beyond = Clip (inLeft, sector.right.Negated ());
+                    if (Valid (beyond))
+                        next.push_back (std::move (beyond));
+                    const Poly inside = Clip (inLeft, sector.right);
+                    if (!Valid (inside))
+                        continue;
+                    const Poly up = Clip (inside, sector.above);
+                    if (Valid (up))
+                        Emit (up, uint32_t (m), false, removed);
+                    Poly down = Clip (inside, sector.above.Negated ());
+                    if (Valid (down))
+                        kept.push_back (std::move (down));
+                }
+                remaining.swap (next);
             }
-            a0 = reference + minRel;
-            a1 = reference + maxRel;
+            for (Poly& poly : remaining)
+                kept.push_back (std::move (poly));
         }
-        double tanMin = 0.0, tanMax = 0.0;
-        if (!SolarEnvelopeTan (suns, a0, a1, tanMin, tanMax) || hi[2] - p[2] <= nearest * tanMin)
+        if (removed.empty ())
             continue;
-
-        Grid grid;
-        const double extent[3] = { hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] };
-        grid.size = (std::max) (input.voxel, 0.01);
-        const double volume = (extent[0] + grid.size) * (extent[1] + grid.size) * (extent[2] + grid.size);
-        if (volume / (grid.size * grid.size * grid.size) > double (input.voxelCapPerMesh))
-            grid.size = std::cbrt (volume / double (input.voxelCapPerMesh));
-        for (int axis = 0; axis < 3; ++axis) {
-            grid.n[axis] = (std::max) (1, int (std::ceil (extent[axis] / grid.size)) + 1);
-            grid.origin[axis] = 0.5 * (lo[axis] + hi[axis]) - 0.5 * grid.n[axis] * grid.size;
-        }
-        grid.inside.assign (size_t (grid.n[0]) * size_t (grid.n[1]) * size_t (grid.n[2]), 0);
-        MarkSurface (mesh, grid, cancelled);
-        FillInterior (mesh, grid, cancelled);
-        if (cancelled && cancelled ())
-            return false;
-
+        // Section loops: the cut faces, outward (downward) for the removed part.
         SolarCutObject object;
         object.mesh = m;
         object.guid = mesh.guid;
         object.elemType = mesh.elemType;
-        object.voxel = grid.size;
-        const double r = grid.size * 0.70710678;
-        const double cube = grid.size * grid.size * grid.size;
-        for (int k = 0; k < grid.n[2]; ++k)
-            for (int j = 0; j < grid.n[1]; ++j)
-                for (int i = 0; i < grid.n[0]; ++i) {
-                    if (grid.inside[grid.Index (i, j, k)] == 0)
-                        continue;
-                    ++object.voxels;
-                    const double c[3] = { grid.origin[0] + (i + 0.5) * grid.size,
-                                          grid.origin[1] + (j + 0.5) * grid.size,
-                                          grid.origin[2] + (k + 0.5) * grid.size };
-                    const double top = c[2] + 0.5 * grid.size - p[2], bottom = top - grid.size;
-                    if (top <= 0.0)
-                        continue;
-                    const double d = std::hypot (c[0] - p[0], c[1] - p[1]);
-                    const double halfAngle = d > r ? std::asin (r / d) : kPi;
-                    const double azimuth = std::atan2 (c[1] - p[1], c[0] - p[0]);
-                    double lowTan = 0.0, highTan = 0.0;
-                    if (!SolarEnvelopeTan (suns, azimuth - halfAngle, azimuth + halfAngle, lowTan, highTan))
-                        continue;
-                    const double lowest = (std::max) (0.0, d - r) * lowTan;
-                    if (top <= lowest)
-                        continue; // wholly under every ray: it stays
-                    SolarCutVoxel voxel;
-                    voxel.centre[0] = float (c[0]);
-                    voxel.centre[1] = float (c[1]);
-                    voxel.centre[2] = float (c[2]);
-                    voxel.size = float (grid.size);
-                    voxel.mesh = uint32_t (m);
-                    voxel.index[0] = i;
-                    voxel.index[1] = j;
-                    voxel.index[2] = k;
-                    voxel.ray = bottom <= (d + r) * highTan; // a ray may pass through it
-                    ++object.envelopeVoxels;
-                    result.envelopeVolume += cube;
-                    if (voxel.ray) {
-                        ++object.rayVoxels;
-                        result.rayVolume += cube;
-                    }
-                    result.removed.push_back (voxel);
-                }
-        if (object.envelopeVoxels > 0)
-            result.objects.push_back (std::move (object));
+        object.total = std::abs (total);
+        std::vector<SolarCutTriangle> caps;
+        // Each face wound so its normal is `outward`: out of the removed part.
+        const auto faces = [&] (const HalfSpace& plane, const Point& e1, const Point& e2,
+                                const std::vector<HalfSpace>& clips, const Point& outward) {
+            // The section plane through a point on it: the origin moved onto a lowered plane.
+            const double offset = plane.Eval (origin);
+            const Point at { origin[0] - offset * plane.n[0], origin[1] - offset * plane.n[1],
+                             origin[2] - offset * plane.n[2] };
+            std::vector<Poly> found;
+            object.closed = Cap (mesh, plane, e1, e2, clips, at, scratch, found) && object.closed;
+            for (const Poly& face : found)
+                Emit (face, uint32_t (m), Dot (FaceNormal (face), outward) < 0.0, caps);
+        };
+        const Point up { 0.0, 0.0, 1.0 };
+        for (size_t k = 0; k < sectors.size (); ++k) {
+            const Sector& sector = sectors[k];
+            const Point n { sector.above.n[0], sector.above.n[1], sector.above.n[2] };
+            faces (sector.above, sector.e1, sector.e2, { sector.left, sector.right }, { -n[0], -n[1], -n[2] });
+            // The outer sides: where the slice's wedge ends, the removed part is
+            // closed by a vertical face (inner sides between sectors cancel).
+            const auto forward = [&origin] (const Point& u) {
+                return HalfSpace { { u[0], u[1], 0.0 }, -(u[0] * origin[0] + u[1] * origin[1]) };
+            };
+            if (k == 0)
+                faces (sector.left, sector.sideFrom, up, { sector.above, forward (sector.sideFrom) },
+                       { -sector.left.n[0], -sector.left.n[1], -sector.left.n[2] });
+            if (k + 1 == sectors.size ())
+                faces (sector.right, sector.sideTo, up, { sector.above, forward (sector.sideTo) },
+                       { -sector.right.n[0], -sector.right.n[1], -sector.right.n[2] });
+        }
+        // The removed part's volume, its boundary oriented as the mesh is: a
+        // mesh wound inward has a negative total, and its pieces flip with it.
+        const double orientation = total < 0.0 ? -1.0 : 1.0;
+        double volume = 0.0;
+        for (const auto& piece : removed)
+            volume += orientation * SignedVolume (piece, input.point);
+        for (const auto& cap : caps)
+            volume += SignedVolume (cap, input.point);
+        object.removed = object.closed ? (std::max) (0.0, volume) : 0.0;
+        result.removedVolume += object.removed;
+        for (const auto* list : { &removed, &caps })
+            for (const auto& triangle : *list)
+                for (const auto& corner : triangle.v)
+                    farthest =
+                        (std::max) (farthest, std::sqrt (Dot (Sub ({ corner[0], corner[1], corner[2] }, origin),
+                                                              Sub ({ corner[0], corner[1], corner[2] }, origin))));
+        // As it would remain: the kept surfaces and the caps facing up into the
+        // cut, so its shadows can be re-traced.
+        geomsrv::Mesh remains;
+        remains.guid = mesh.guid;
+        remains.elemType = mesh.elemType;
+        std::vector<SolarCutTriangle> keptTriangles;
+        for (const Poly& poly : kept)
+            Emit (poly, uint32_t (m), false, keptTriangles);
+        for (const auto& cap : caps) {
+            SolarCutTriangle flipped = cap;
+            std::swap (flipped.v[1], flipped.v[2]);
+            keptTriangles.push_back (flipped);
+        }
+        for (const auto& triangle : keptTriangles) {
+            const uint32_t first = uint32_t (remains.vertices.size () / 3);
+            for (const auto& corner : triangle.v)
+                remains.vertices.insert (remains.vertices.end (), { corner[0], corner[1], corner[2] });
+            remains.triangles.insert (remains.triangles.end (), { first, first + 1, first + 2 });
+        }
+        result.kept.emplace_back (m, std::move (remains));
+        result.removed.insert (result.removed.end (), removed.begin (), removed.end ());
+        result.caps.insert (result.caps.end (), caps.begin (), caps.end ());
+        result.objects.push_back (std::move (object));
+    }
+    // The merged cutting surface, to just past the farthest cut.
+    const double length = farthest > 0.0 ? farthest * 1.05 + 1.0 : reach;
+    for (const Sector& sector : sectors) {
+        SolarCutTriangle fan;
+        for (int k = 0; k < 3; ++k) {
+            fan.v[0][k] = origin[size_t (k)];
+            fan.v[1][k] = origin[size_t (k)] + length * sector.sunFrom[size_t (k)];
+            fan.v[2][k] = origin[size_t (k)] + length * sector.sunTo[size_t (k)];
+        }
+        result.envelope.push_back (fan);
     }
     std::stable_sort (result.objects.begin (), result.objects.end (),
-                      [] (const SolarCutObject& a, const SolarCutObject& b) {
-                          return double (a.envelopeVoxels) * a.voxel * a.voxel * a.voxel >
-                                 double (b.envelopeVoxels) * b.voxel * b.voxel * b.voxel;
-                      });
+                      [] (const SolarCutObject& a, const SolarCutObject& b) { return a.removed > b.removed; });
     return true;
 }
 

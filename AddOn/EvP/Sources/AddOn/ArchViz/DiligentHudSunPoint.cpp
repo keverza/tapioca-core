@@ -338,14 +338,22 @@ bool DrawSunStudyPointHeader (HudState& state, const std::string& studyId)
 
 namespace {
 
+// A ring section, filled as small quads. ⚠️ NEVER ONE CONVEX FILL: a ring
+// section is not convex, and ImGui's convex fill fans it from its first
+// vertex -- the stray wedges and triangles across the diagram's centre.
 void ArcSector (ImDrawList* draw, ImVec2 centre, float inner, float outer, double from, double to, ImU32 colour)
 {
     if (outer <= inner || to <= from)
         return;
-    draw->PathClear ();
-    draw->PathArcTo (centre, outer, float (from), float (to));
-    draw->PathArcTo (centre, inner, float (to), float (from));
-    draw->PathFillConvex (colour);
+    constexpr double kPiece = 0.035; // radians: about two degrees a quad
+    const int pieces = (std::max) (1, int (std::ceil ((to - from) / kPiece)));
+    const auto at = [&] (float radius, double angle) {
+        return ImVec2 (centre.x + radius * float (std::cos (angle)), centre.y + radius * float (std::sin (angle)));
+    };
+    for (int i = 0; i < pieces; ++i) {
+        const double a = from + (to - from) * double (i) / pieces, b = from + (to - from) * double (i + 1) / pieces;
+        draw->AddQuadFilled (at (inner, a), at (outer, a), at (outer, b), at (inner, b), colour);
+    }
 }
 
 ImVec2 ArcPoint (ImVec2 centre, float radius, double angle)
@@ -534,7 +542,8 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
     if (hovered && onBars && steps > 0)
         hoveredStep = int (NearestDayStep (*day, steps, SunStudyArcMinute (pointer.x, pointer.y, from, to)));
 
-    const ImU32 lit = Opaque (state.sunSingleLitRgba), shaded = Opaque (state.sunSingleShadowedRgba);
+    // Direct sun is the diagram's yellow; the map keeps its own sunlit grey.
+    const ImU32 lit = Opaque (kSunDiagramDirectRgba), shaded = Opaque (state.sunSingleShadowedRgba);
     const ImU32 behind = IM_COL32 (128, 132, 140, 255);
     double litHours = 0.0, facingHours = 0.0;
     for (size_t s = 0; s < steps; ++s) {
@@ -595,8 +604,7 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
         for (int grip = 1; grip <= 2; ++grip) {
             const ImVec2 at = ArcPoint (centre, cutR, angleOf (grip == 1 ? state.sunCutFrom : state.sunCutTo));
             const bool hot = state.sunCutGrip == grip;
-            draw->AddCircleFilled (at, hot ? 6.5f : 5.0f, kPink);
-            draw->AddCircle (at, hot ? 6.5f : 5.0f, IM_COL32 (255, 255, 255, 230), 0, 1.5f);
+            draw->AddCircle (at, hot ? 6.5f : 5.0f, kPink, 0, hot ? 3.0f : 2.0f); // a ring: no fill
         }
         if (onGrip || state.sunCutGrip != 0)
             ImGui::SetTooltip ("Cut slice %s-%s\ndrag the pink grips", MinuteText (state.sunCutFrom).c_str (),

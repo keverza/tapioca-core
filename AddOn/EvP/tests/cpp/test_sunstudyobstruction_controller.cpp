@@ -8,6 +8,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 #include <chrono>
 #include <thread>
 
@@ -80,6 +82,47 @@ void WaitForIdle (SunObstructionController& controller, const SunObstructionRequ
     }
 }
 
+// A roof over the point and two near-overhead suns either side of +x: the cut
+// takes the roof's wedge above their plane and the point is lit after it.
+std::string InsertCutDay ()
+{
+    auto snapshot = std::make_shared<geomsrv::Snapshot> ();
+    snapshot->id = 56;
+    snapshot->captureStamp = 18;
+    snapshot->meshes = { evptest::MakeBox ("roof", 0, 0, 5) };
+    auto record = std::make_unique<evp::sunstudy::StudyRecord> ();
+    record->snapshot = snapshot;
+    record->snapshotId = snapshot->id;
+    record->positions = { 0.5, 0.5, 0.0 };
+    record->gridSpacing = 0.5;
+    record->timestepMinutes = 60;
+    record->occluders =
+        evp::sunstudy::BuildSunStudyOccluders (*snapshot, evp::sunstudy::ResolveElementRoles (*snapshot, {}, {}, {}));
+    std::vector<evp::sunstudy::SunStep> steps (2);
+    for (size_t index = 0; index < steps.size (); ++index) {
+        steps[index].time = evp::sunstudy::TimeOfDay { 8 + int (index), 0 };
+        const double length = std::sqrt (0.005 + 1.0);
+        steps[index].direction[0] = 0.05 / length;
+        steps[index].direction[1] = (index == 0 ? -0.05 : 0.05) / length;
+        steps[index].direction[2] = 1.0 / length;
+        steps[index].altitudeDegrees = 80.0;
+    }
+    record->series = evp::sunstudy::SunSeries::FromSteps (steps, 60);
+    record->traversal = std::make_shared<evp::sunstudy::CpuTraversal> (record->occluders->analysis);
+    evp::sunstudy::StudyInputs inputs;
+    inputs.geometryVersion = snapshot->id;
+    inputs.sunVersion = record->series.Version ();
+    inputs.gridVersion = 1;
+    evp::sunstudy::fixture::AttachTestCore (*record, inputs);
+    auto& store = evp::sunstudy::SunStudyStore::Get ();
+    const std::string id = store.Insert (std::move (record));
+    size_t advanced = 0;
+    std::string error;
+    if (!store.Advance (id, 2, 1, 0.001, 0.0, advanced, error))
+        return "";
+    return id;
+}
+
 SunObstructionRequest Request (const std::string& id)
 {
     SunObstructionRequest request;
@@ -141,6 +184,34 @@ TEST (SunStudyObstructionController, SingleDayStepAndWholeDayPublishOnlyTheLates
     EXPECT_EQ (frame->blockerObjects, 0u);
     controller.Request ({});
     EXPECT_EQ (controller.Latest (), nullptr);
+}
+
+TEST (SunStudyObstructionController, SolarCutRemovesTheWedgeAndTheRetracedPointIsLit)
+{
+    StoreReset reset;
+    const std::string id = InsertCutDay ();
+    ASSERT_FALSE (id.empty ());
+    SunObstructionController controller;
+    SunObstructionRequest request;
+    request.studyId = id;
+    request.samples = { 0 };
+    request.mode = SunObstructionMode::SolarCut;
+    request.fromMinute = 480;
+    request.toMinute = 600;
+    const auto frame = WaitForFrame (controller, request);
+    ASSERT_NE (frame, nullptr);
+    ASSERT_TRUE (frame->error.empty ()) << frame->error;
+    EXPECT_EQ (frame->mode, SunObstructionMode::SolarCut);
+    EXPECT_EQ (frame->sectors, 1u);
+    EXPECT_DOUBLE_EQ (frame->facingHours, 2.0);
+    EXPECT_DOUBLE_EQ (frame->litHours, 0.0);
+    EXPECT_DOUBLE_EQ (frame->litAfterHours, 2.0); // traced again against what remains
+    ASSERT_EQ (frame->cutObjects.size (), 1u);
+    EXPECT_GT (frame->removedVolume, 0.0);
+    EXPECT_LT (frame->removedVolume, 1.0); // a wedge of the 1 m3 roof, not all of it
+    EXPECT_EQ (frame->wonCells, 1u);       // the study's one cell gains sun
+    EXPECT_FALSE (frame->drawables.depthTested.meshVertices.empty ());
+    controller.Request ({});
 }
 
 TEST (SunStudyObstructionController, TimeStepRefusalPublishesOnceInsteadOfRetrying)

@@ -221,7 +221,9 @@ inline float SunStudyShadowFraction (const std::vector<uint32_t>& words, uint32_
 // The person's to recolour, 0xRRGGBBAA sRGB; these defaults are the palette
 // kArchVizSunTintPS always drew. The AM / PM OVERLAP is not a colour of its
 // own: the shader mixes morning and evening by their shares of the shadow.
-constexpr uint32_t kSingleShadowLitRgba = 0xF4D35EFFu; // direct sun: yellow (#169)
+constexpr uint32_t kSingleShadowLitRgba = 0xEDE8DBFFu; // the map's sunlit: the buildings stay grey
+// The day diagram's direct sun (#169): yellow, apart from the map's grey.
+constexpr uint32_t kSunDiagramDirectRgba = 0xF4D35EFFu;
 constexpr uint32_t kSingleShadowShadowedRgba = 0x4770CCFFu;
 constexpr uint32_t kAmPmSunlitRgba = 0xE8E8E6FFu;
 constexpr uint32_t kAmPmMorningRgba = 0x796AB1FFu;
@@ -239,8 +241,12 @@ inline uint32_t SunStudyTimeOfDayRgba (double minute)
         double minute;
         uint32_t rgba;
     };
-    constexpr Stop stops[] = { { 0.0, 0x2C3A78FFu },   { 360.0, 0x796AB1FFu },  { 600.0, 0xF4D35EFFu },
-                               { 840.0, 0xF4D35EFFu }, { 1080.0, 0xDF7F72FFu }, { 1440.0, 0x2C3A78FFu } };
+    constexpr Stop stops[] = { { 0.0, 0x2C3A78FFu },
+                               { 360.0, 0x796AB1FFu },
+                               { 600.0, kSunDiagramDirectRgba },
+                               { 840.0, kSunDiagramDirectRgba },
+                               { 1080.0, 0xDF7F72FFu },
+                               { 1440.0, 0x2C3A78FFu } };
     const double at = std::clamp (minute, 0.0, 1440.0);
     for (size_t index = 1; index < std::size (stops); ++index)
         if (at <= stops[index].minute) {

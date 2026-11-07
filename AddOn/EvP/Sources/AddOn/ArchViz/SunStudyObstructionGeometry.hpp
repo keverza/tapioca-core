@@ -59,14 +59,22 @@ bool BuildSunObstructionGeometry (const geomsrv::Snapshot& snapshot,
                                   const std::vector<evp::sunstudy::SunObstructionResult>& steps, int timestepMinutes,
                                   SunObstructionGeometry& result);
 
-// The solar cut's preview: the removed voxels as one shell (faces shared by
-// two removed voxels are left out) -- ray voxels strong, the rest of the
-// envelope cut faint, or the ray voxels alone -- and the envelope's sun rays
-// from the point with their rim. At most `faceCap` faces; false past it.
-constexpr uint32_t kSolarCutRayRgba = 0xF240BFC8u;
-constexpr uint32_t kSolarCutEnvelopeRgba = 0xF7A8DC66u;
-bool BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3], bool rayOnly,
-                            GhPreviewDrawables& drawables, size_t& faces, size_t faceCap = 120000);
+// The solar cut's preview: the merged cutting surface (faint), the blockers'
+// surfaces above it (what goes) and the cut faces (strong), and the envelope's
+// edge rays from the point. Cells whose shadow the cut removes are drawn by
+// AppendSolarCutWonCells, in their own colour.
+constexpr uint32_t kSolarCutEnvelopeRgba = 0xF240BF38u;
+constexpr uint32_t kSolarCutRemovedRgba = 0xF240BF90u;
+constexpr uint32_t kSolarCutCapRgba = 0xF240BFD8u;
+constexpr uint32_t kSolarCutWonRgba = 0xFFE27AC0u; // sun the cut wins: a warm yellow, apart from the map's colours
+void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3],
+                            GhPreviewDrawables& drawables);
+// One square per won cell, `size` across, lifted off its surface along its normal.
+struct SolarCutWonCell {
+    double position[3] = {};
+    double normal[3] = { 0.0, 0.0, 1.0 };
+};
+void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables);
 
 } // namespace geomsrv::archviz
 

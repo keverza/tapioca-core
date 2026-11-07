@@ -345,7 +345,7 @@ struct DiligentSceneConstants {
     // shader always drew, so a scene no HUD has set draws what it did.
     // clang-format off
     float sunStudyShadowPalette[20] = {
-        0.957f, 0.827f, 0.369f, 1.0f, // direct sun: yellow (#169)
+        0.93f, 0.91f, 0.86f, 1.0f,
         0.28f, 0.44f, 0.80f, 1.0f,
         0.91f, 0.91f, 0.90f, 1.0f,
         0.475f, 0.416f, 0.694f, 1.0f,

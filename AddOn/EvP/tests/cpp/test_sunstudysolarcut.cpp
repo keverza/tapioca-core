@@ -10,9 +10,10 @@ using namespace evp::sunstudy;
 
 namespace {
 
+constexpr double kRadians = 3.14159265358979323846 / 180.0;
+
 SunStep Sun (double azimuthDegrees, double altitudeDegrees, int hour)
 {
-    constexpr double kRadians = 3.14159265358979323846 / 180.0;
     SunStep step;
     step.time = TimeOfDay { hour, 0 };
     const double a = azimuthDegrees * kRadians, h = altitudeDegrees * kRadians;
@@ -23,69 +24,109 @@ SunStep Sun (double azimuthDegrees, double altitudeDegrees, int hour)
     return step;
 }
 
-} // namespace
-
-TEST (SunStudySolarCut, EnvelopeTanCoversOnlyTheSlicesAzimuths)
+// A single open quad: a free-standing screen with no thickness.
+geomsrv::Mesh Screen (const std::string& guid, double x, double height)
 {
-    const std::vector<SunStep> steps = { Sun (-10, 30, 10), Sun (10, 50, 11) };
-    double low = 0.0, high = 0.0;
-    ASSERT_TRUE (SolarEnvelopeTan (steps, -0.01, 0.01, low, high));
-    // Linear in tan(altitude) between the steps: halfway is the tangents' mean.
-    const double mean = 0.5 * (std::tan (30.0 * 3.14159265358979 / 180.0) + std::tan (50.0 * 3.14159265358979 / 180.0));
-    EXPECT_NEAR (low, mean, 0.03);
-    EXPECT_NEAR (high, mean, 0.03);
-    EXPECT_FALSE (SolarEnvelopeTan (steps, 1.0, 1.2, low, high)); // behind the slice: no ray there
-    ASSERT_TRUE (SolarEnvelopeTan (steps, -3.2, 3.2, low, high)); // a full turn sees both
-    EXPECT_LT (low, high);
+    geomsrv::Mesh mesh;
+    mesh.guid = guid;
+    mesh.vertices = { x, -1, 0, x, 1, 0, x, 1, height, x, -1, height };
+    mesh.triangles = { 0, 1, 2, 0, 2, 3 };
+    return mesh;
 }
 
-TEST (SunStudySolarCut, TowerSouthOfThePointLosesItsTopAboveTheEnvelope)
+} // namespace
+
+TEST (SunStudySolarCut, TowerLosesExactlyWhatLiesAboveTheCuttingPlane)
 {
-    // A 2 x 2 x 10 m tower 5-7 m along +x; the sun from +x at 45 degrees for
-    // two hours. Its rays are at height d there, so the tower must come down
-    // to about 5-7 m; the slot alone is a far smaller volume.
+    // A 2 x 2 x 10 m tower 5-7 m along +x; two suns at 45 degrees, +-15 degrees
+    // of azimuth. Their rays span the plane z = x / cos(15); the cut runs 5 cm
+    // under it so the rays clear what remains, so the removed volume is
+    // 2 * integral over x in [5,7] of (10 - (x / cos 15 - 0.05)).
     geomsrv::Snapshot snapshot;
     snapshot.meshes = { evptest::MakeBox ("tower", 5, -1, 0, 2, 2, 10), evptest::MakeBox ("ignored", 5, 3, 0, 2, 2, 10),
                         evptest::MakeBox ("ground", -10, -10, -1, 20, 20, 1) };
     SolarCutInput input;
-    input.steps = { Sun (-15, 45, 10), Sun (15, 45, 11) }; // the wedge spans the whole tower
+    input.steps = { Sun (-15, 45, 10), Sun (15, 45, 11) };
     input.hoursPerStep = 1.0;
     input.blocks = { 1, 0, 1 };
     input.ownMesh = 2; // the ground the point stands on
-    input.voxel = 0.25;
     SolarCutResult result;
     ASSERT_TRUE (ComputeSolarCut (snapshot, input, result, [] (const double*) { return false; })) << result.error;
     EXPECT_DOUBLE_EQ (result.facingHours, 2.0);
     EXPECT_DOUBLE_EQ (result.litHours, 0.0);
     ASSERT_EQ (result.objects.size (), 1u); // the ignored tower and the ground are not cut
     EXPECT_EQ (result.objects[0].guid, "tower");
-    // Analytic envelope cut of the tower: above z = x for x in [5,7], 2 m wide.
-    const double analytic = 2.0 * (10.0 * 2.0 - 0.5 * (7.0 * 7.0 - 5.0 * 5.0)); // 2 * (20 - 12) = 16 m3
-    EXPECT_GT (result.envelopeVolume, analytic * 0.9);
-    EXPECT_LT (result.envelopeVolume, analytic * 1.6); // conservative at the voxel size, not wildly so
-    EXPECT_GT (result.rayVolume, 0.0);
-    EXPECT_LT (result.rayVolume, result.envelopeVolume * 0.6);
-    for (const auto& voxel : result.removed) {
-        EXPECT_GT (voxel.centre[2] + voxel.size * 0.5f, 4.5f); // nothing under the lowest ray is cut
-        EXPECT_EQ (voxel.mesh, 0u);
+    EXPECT_TRUE (result.objects[0].closed);
+    const double slope = 1.0 / std::cos (15.0 * kRadians);
+    const double exact = 2.0 * (10.0 * 2.0 - 0.5 * slope * (7.0 * 7.0 - 5.0 * 5.0)) + 2.0 * 2.0 * 0.05;
+    const auto volumeOf = [] (const std::vector<SolarCutTriangle>& list) {
+        double v = 0.0;
+        for (const auto& t : list)
+            v += (t.v[0][0] * (t.v[1][1] * t.v[2][2] - t.v[1][2] * t.v[2][1]) -
+                  t.v[0][1] * (t.v[1][0] * t.v[2][2] - t.v[1][2] * t.v[2][0]) +
+                  t.v[0][2] * (t.v[1][0] * t.v[2][1] - t.v[1][1] * t.v[2][0])) /
+                 6.0;
+        return v;
+    };
+    EXPECT_NEAR (result.removedVolume, exact, 1.0e-6)
+        << "surfaces " << volumeOf (result.removed) << " caps " << volumeOf (result.caps) << " cap triangles "
+        << result.caps.size (); // exact, not sampled
+    EXPECT_NEAR (result.objects[0].total, 40.0, 1.0e-9);
+    EXPECT_FALSE (result.caps.empty ());
+    EXPECT_EQ (result.envelope.size (), 1u); // two suns: one sector, one cutting triangle
+    for (const auto& piece : result.removed)
+        for (const auto& corner : piece.v)
+            EXPECT_GE (corner[2], corner[0] * slope - 0.05 - 1.0e-6); // nothing below the lowered plane is taken
+    // What remains: the tower's lower part with its cut face, for the shadows.
+    ASSERT_EQ (result.kept.size (), 1u);
+    EXPECT_EQ (result.kept[0].first, 0u);
+    EXPECT_GT (result.kept[0].second.TriangleCount (), 0u);
+    double remains = 0.0;
+    const auto& mesh = result.kept[0].second;
+    for (size_t t = 0; t < mesh.TriangleCount (); ++t) {
+        const double* a = &mesh.vertices[3ull * mesh.triangles[3 * t]];
+        const double* b = &mesh.vertices[3ull * mesh.triangles[3 * t + 1]];
+        const double* c = &mesh.vertices[3ull * mesh.triangles[3 * t + 2]];
+        remains += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) +
+                    a[2] * (b[0] * c[1] - b[1] * c[0])) /
+                   6.0;
     }
+    EXPECT_NEAR (std::abs (remains), 40.0 - exact, 1.0e-6); // removed + kept = the tower
 }
 
-TEST (SunStudySolarCut, SunBehindTheSurfaceCannotBeWonAndLitStepsCount)
+TEST (SunStudySolarCut, OpenMeshShowsItsSurfacesButNoInventedVolume)
+{
+    geomsrv::Snapshot snapshot;
+    snapshot.meshes = { Screen ("screen", 4.0, 10.0) };
+    SolarCutInput input;
+    input.steps = { Sun (-15, 45, 10), Sun (15, 45, 11) };
+    input.blocks = { 1 };
+    SolarCutResult result;
+    ASSERT_TRUE (ComputeSolarCut (snapshot, input, result));
+    ASSERT_EQ (result.objects.size (), 1u);
+    EXPECT_FALSE (result.objects[0].closed);
+    EXPECT_DOUBLE_EQ (result.objects[0].removed, 0.0);
+    EXPECT_FALSE (result.removed.empty ());
+}
+
+TEST (SunStudySolarCut, SunBehindTheSurfaceOrASingleSunCutsNothing)
 {
     geomsrv::Snapshot snapshot;
     snapshot.meshes = { evptest::MakeBox ("tower", 5, -1, 0, 2, 2, 10) };
     SolarCutInput input;
     const double west[3] = { -1.0, 0.0, 0.0 }; // a facade facing -x: the sun from +x is behind it
     input.normal = west;
-    input.steps = { Sun (0, 45, 10) };
+    input.steps = { Sun (-15, 45, 10), Sun (15, 45, 11) };
     input.blocks = { 1 };
     SolarCutResult result;
     ASSERT_TRUE (ComputeSolarCut (snapshot, input, result));
     EXPECT_DOUBLE_EQ (result.facingHours, 0.0);
-    EXPECT_TRUE (result.removed.empty ());
+    EXPECT_TRUE (result.objects.empty ());
 
     input.normal = nullptr;
+    input.steps = { Sun (0, 45, 10) }; // one sun: a line, not a surface
     ASSERT_TRUE (ComputeSolarCut (snapshot, input, result, [] (const double*) { return true; }));
+    EXPECT_TRUE (result.envelope.empty ());
+    EXPECT_TRUE (result.objects.empty ());
     EXPECT_DOUBLE_EQ (result.litHours, result.facingHours);
 }

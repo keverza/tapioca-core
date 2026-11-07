@@ -4,7 +4,6 @@
 #include "SunStudy/SunStudyRoles.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <map>
 #include <set>
@@ -156,62 +155,59 @@ bool BuildSunObstructionGeometry (const geomsrv::Snapshot& snapshot,
     return true;
 }
 
-bool BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3], bool rayOnly,
-                            GhPreviewDrawables& drawables, size_t& faces, size_t faceCap)
+void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3],
+                            GhPreviewDrawables& drawables)
 {
-    faces = 0;
-    std::set<std::array<int32_t, 4>> shown;
-    for (const auto& voxel : cut.removed)
-        if (!rayOnly || voxel.ray)
-            shown.insert ({ int32_t (voxel.mesh), voxel.index[0], voxel.index[1], voxel.index[2] });
-    double reach = 0.0;
-    static constexpr int kSides[6][3] = { { 1, 0, 0 },  { -1, 0, 0 }, { 0, 1, 0 },
-                                          { 0, -1, 0 }, { 0, 0, 1 },  { 0, 0, -1 } };
-    for (const auto& voxel : cut.removed) {
-        if (rayOnly && !voxel.ray)
-            continue;
-        reach = (std::max) (reach, std::hypot (double (voxel.centre[0]) - point[0], double (voxel.centre[1]) - point[1],
-                                               double (voxel.centre[2]) - point[2]) +
-                                       double (voxel.size));
-        const uint32_t colour = voxel.ray ? kSolarCutRayRgba : kSolarCutEnvelopeRgba;
-        const double h = 0.5 * double (voxel.size);
-        for (const auto& side : kSides) {
-            if (shown.count ({ int32_t (voxel.mesh), voxel.index[0] + side[0], voxel.index[1] + side[1],
-                               voxel.index[2] + side[2] }) != 0)
-                continue;
-            if (++faces > faceCap)
-                return false;
-            // The face's four corners, wound outward.
-            const int axis = side[0] != 0 ? 0 : side[1] != 0 ? 1 : 2;
-            const int u = (axis + 1) % 3, v = (axis + 2) % 3;
-            const double sign = double (side[0] + side[1] + side[2]);
+    const auto triangles = [&drawables] (const std::vector<evp::sunstudy::SolarCutTriangle>& list, uint32_t rgba) {
+        for (const auto& triangle : list) {
             double corners[4][3];
-            const double offsets[4][2] = { { -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 } };
-            for (int c = 0; c < 4; ++c) {
-                const int k = sign > 0.0 ? c : 3 - c;
-                corners[c][axis] = double (voxel.centre[axis]) + sign * h;
-                corners[c][u] = double (voxel.centre[u]) + offsets[k][0] * h;
-                corners[c][v] = double (voxel.centre[v]) + offsets[k][1] * h;
-            }
-            AppendQuad (corners, colour, drawables.depthTested);
+            for (int c = 0; c < 3; ++c)
+                std::copy (triangle.v[c], triangle.v[c] + 3, corners[c]);
+            std::copy (triangle.v[2], triangle.v[2] + 3, corners[3]); // a degenerate quad: one triangle
+            AppendQuad (corners, rgba, drawables.depthTested);
         }
-    }
-    // The envelope: one ray per slice sun from the point, and their rim.
-    const double length = reach > 0.0 ? reach : 20.0;
+    };
+    triangles (cut.envelope, kSolarCutEnvelopeRgba);
+    triangles (cut.removed, kSolarCutRemovedRgba);
+    triangles (cut.caps, kSolarCutCapRgba);
+    // The envelope's rays and rim: the surface's edges, so it reads as one sheet.
     const float from[3] = { float (point[0]), float (point[1]), float (point[2]) };
-    float previous[3] = {};
-    bool had = false;
-    for (const auto& sun : cut.facingSteps) {
-        const float to[3] = { float (point[0] + length * sun.direction[0]),
-                              float (point[1] + length * sun.direction[1]),
-                              float (point[2] + length * sun.direction[2]) };
-        AppendPreviewSegment (from, to, kSunObstructionPink, drawables.depthTested);
-        if (had)
-            AppendPreviewSegment (previous, to, kSunObstructionPink, drawables.depthTested);
-        std::copy (to, to + 3, previous);
-        had = true;
+    for (size_t i = 0; i < cut.envelope.size (); ++i) {
+        const auto& fan = cut.envelope[i];
+        const float a[3] = { float (fan.v[1][0]), float (fan.v[1][1]), float (fan.v[1][2]) };
+        const float b[3] = { float (fan.v[2][0]), float (fan.v[2][1]), float (fan.v[2][2]) };
+        if (i == 0)
+            AppendPreviewSegment (from, a, kSunObstructionPink, drawables.depthTested);
+        if (i + 1 == cut.envelope.size ())
+            AppendPreviewSegment (from, b, kSunObstructionPink, drawables.depthTested);
+        AppendPreviewSegment (a, b, kSunObstructionPink, drawables.depthTested);
     }
-    return true;
+}
+
+void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables)
+{
+    const double half = 0.5 * (size > 0.0 ? size : 0.5);
+    for (const auto& cell : cells) {
+        double n[3] = { cell.normal[0], cell.normal[1], cell.normal[2] };
+        const double length = std::sqrt (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (!(length > 0.0))
+            continue;
+        for (double& c : n)
+            c /= length;
+        const double axis[3] = { std::abs (n[2]) < 0.9 ? 0.0 : 1.0, 0.0, std::abs (n[2]) < 0.9 ? 1.0 : 0.0 };
+        double u[3] = { axis[1] * n[2] - axis[2] * n[1], axis[2] * n[0] - axis[0] * n[2],
+                        axis[0] * n[1] - axis[1] * n[0] };
+        const double ul = std::sqrt (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+        for (double& c : u)
+            c /= ul;
+        const double v[3] = { n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0] };
+        double corners[4][3];
+        const double signs[4][2] = { { -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 } };
+        for (int c = 0; c < 4; ++c)
+            for (int k = 0; k < 3; ++k)
+                corners[c][k] = cell.position[k] + 0.03 * n[k] + half * (signs[c][0] * u[k] + signs[c][1] * v[k]);
+        AppendQuad (corners, kSolarCutWonRgba, drawables.depthTested);
+    }
 }
 
 } // namespace geomsrv::archviz

@@ -1,26 +1,33 @@
 #ifndef EVP_SUNSTUDY_SUNSTUDYSOLARCUT_HPP
 #define EVP_SUNSTUDY_SUNSTUDYSOLARCUT_HPP
 
-// SunStudy/SunStudySolarCut -- how much of what blocks a study point must go
-// for it to have direct sun through a chosen time slice (#152 follow-up).
+// SunStudy/SunStudySolarCut -- what of the blockers must go for a study point
+// to have direct sun through a chosen time slice (#152 follow-up).
 //
-// The point's rays toward the sun across the slice sweep a ruled surface, the
-// SOLAR ENVELOPE: at horizontal distance d and azimuth a from the point, the
-// sun ray of that azimuth is at height p.z + d * tan(altitude(a)). Material on
-// that surface blocks. Two removals answer "how much must go":
+// THE CUTTER IS ONE SURFACE. The point's rays toward consecutive suns of the
+// slice span a flat triangle through the point; the slice's triangles, side
+// by side, are the solar envelope -- a fan of planes, one per azimuth sector.
+// The cut is that surface extruded upward: inside each sector, everything
+// above its plane goes. Because each sector is bounded by planes (two
+// vertical, through the point, and the envelope's), every blocker triangle is
+// clipped EXACTLY (Sutherland-Hodgman against linear half-spaces): no voxels,
+// no sampling, and the result does not depend on a grid.
 //
-//   RAY VOXELS    -- only the voxels a slice ray passes through: the least that
-//                    clears the sun, a slot through the blocker. The lower
-//                    bound, rarely buildable.
-//   ENVELOPE CUT  -- every voxel above the envelope: the blocker sliced along
-//                    the surface and its top removed, the form a solid
-//                    building has to take. The buildable answer.
-//
-// Both come from one voxelisation of each blocking element (scanline parity
-// per voxel row; an open mesh keeps only its surface voxels), so the two
-// volumes can be compared directly. Voxels are tested conservatively: a voxel
-// any slice ray may touch counts, so the result clears the sun at the voxel's
-// resolution, never short of it.
+// What comes back:
+//   removed   -- the blockers' surfaces above the envelope (what goes);
+//   caps      -- the cut faces where the envelope passes through a blocker,
+//                from the blocker's own section loops (trapezoid fill), so
+//                the removed part reads as a closed solid;
+//   envelope  -- the merged cutting surface, for the preview;
+//   kept      -- each cut blocker as it would remain (its surfaces below the
+//                envelope plus the caps), for re-tracing the shadows it casts.
+// The cut clears the rays rather than touching them: 5 cm under the surface,
+// one degree beyond the first and last sun (an exact cut leaves what remains
+// grazing every edge ray). Where the slice's wedge ends, the removed part is
+// closed by vertical side faces.
+// Volumes come from the removed part's closed boundary (divergence theorem).
+// An open mesh has no closed section loops, so its cap -- and its volume --
+// is skipped rather than invented.
 //
 // Pure CPU geometry on an immutable snapshot; cancellable; no host, no store.
 
@@ -31,6 +38,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace evp::sunstudy {
@@ -46,32 +54,28 @@ struct SolarCutInput {
     // ignored), and the mesh the point stands on, which never blocks itself.
     std::vector<uint8_t> blocks;
     size_t ownMesh = SIZE_MAX;
-    double voxel = 0.5;              // metres; raised per element to stay under the cap
-    size_t voxelCapPerMesh = 250000; // inside voxels one element may have
 };
 
-struct SolarCutVoxel {
-    float centre[3] = {};
-    float size = 0.0f;
+struct SolarCutTriangle {
+    double v[3][3] = {};
     uint32_t mesh = 0;
-    int32_t index[3] = {}; // in its element's grid, for face sharing between neighbours
-    bool ray = false;      // a ray voxel; every voxel listed is in the envelope cut
 };
 
 struct SolarCutObject {
     size_t mesh = 0;
     std::string guid;
     int32_t elemType = 0;
-    double voxel = 0.0;
-    size_t voxels = 0;         // the element's voxels in all
-    size_t envelopeVoxels = 0; // above the envelope
-    size_t rayVoxels = 0;      // on a slice ray
+    double removed = 0.0; // cubic metres above the envelope
+    double total = 0.0;   // the element's own volume
+    bool closed = true;   // its section loops closed: cap and volume are exact
 };
 
 struct SolarCutResult {
-    std::vector<SolarCutVoxel> removed;           // envelope cut; `ray` marks the subset
-    std::vector<SolarCutObject> objects;          // elements with something to remove, most first
-    double envelopeVolume = 0.0, rayVolume = 0.0; // cubic metres
+    std::vector<SolarCutTriangle> removed, caps, envelope;
+    // The cut elements as they would remain, by snapshot mesh index.
+    std::vector<std::pair<size_t, geomsrv::Mesh>> kept;
+    std::vector<SolarCutObject> objects; // most removed first
+    double removedVolume = 0.0;
     // The slice at the point: hours the sun is in front of it, and of those,
     // hours already lit (a clear ray now). The cut lights the rest.
     double facingHours = 0.0, litHours = 0.0;
@@ -79,16 +83,12 @@ struct SolarCutResult {
     std::string error;
 };
 
-// Envelope height limit (relative to the point) at horizontal distance `d` for
-// the slice's suns within azimuth range [a0, a1] radians: d * min tan(alt).
-// False when no slice sun covers that azimuth range.
-bool SolarEnvelopeTan (const std::vector<SunStep>& steps, double a0, double a1, double& tanMin, double& tanMax);
-
-// The two removals. `lit` answers whether a sun direction is already clear
-// from the point (the study's occluders); null counts nothing as lit.
+// The cut. `lit` answers whether a sun direction is already clear from the
+// point (the study's occluders); null counts nothing as lit. `reach` is how
+// far the drawn envelope extends when nothing is cut.
 bool ComputeSolarCut (const geomsrv::Snapshot& snapshot, const SolarCutInput& input, SolarCutResult& result,
                       const std::function<bool (const double direction[3])>& lit = {},
-                      const std::function<bool ()>& cancelled = {});
+                      const std::function<bool ()>& cancelled = {}, double reach = 20.0);
 
 } // namespace evp::sunstudy
 

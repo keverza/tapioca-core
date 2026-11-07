@@ -275,7 +275,7 @@ TEST (SunStudyHud, TimeOfDayGradientRunsMorningDayEvening)
 {
     EXPECT_EQ (SunStudyTimeOfDayRgba (0), SunStudyTimeOfDayRgba (1440));
     EXPECT_EQ (SunStudyTimeOfDayRgba (360), kAmPmMorningRgba);
-    EXPECT_EQ (SunStudyTimeOfDayRgba (720), kSingleShadowLitRgba);
+    EXPECT_EQ (SunStudyTimeOfDayRgba (720), kSunDiagramDirectRgba);
     EXPECT_NE (SunStudyTimeOfDayRgba (480), SunStudyTimeOfDayRgba (1020));
     EXPECT_STREQ (SunStudyDayPhase (420), "morning");
     EXPECT_STREQ (SunStudyDayPhase (720), "day");
