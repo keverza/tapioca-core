@@ -379,6 +379,84 @@ void SubmitRun (HudState& state)
 
 } // namespace
 
+// The Shadows view of a period (#152 follow-up): which day's shadows. A kept
+// day plays straight from the archive through the period player; any other
+// date of the period is traced as a single day with the period's own settings.
+void DrawSunStudyShadowDate (HudState& state)
+{
+    // Default and sync: the point player's traced day, else the carrier date.
+    const auto profile = sunstudyhud::LatestPeriodProfile ();
+    const bool playerDay = profile != nullptr && profile->ready && state.sunPointPlayDay >= 0 &&
+                           size_t (state.sunPointPlayDay) < profile->dayMonth.size ();
+    if (state.sunShadowMonth == 0) {
+        int year = 0, month = 0, day = 0;
+        if (std::sscanf (state.sunPeriodCarrierDate.c_str (), "%d-%d-%d", &year, &month, &day) == 3) {
+            state.sunShadowMonth = std::clamp (month, 1, 12);
+            state.sunShadowDay = std::clamp (day, 1, 31);
+        }
+        else {
+            state.sunShadowMonth = state.sunRunMonth;
+            state.sunShadowDay = state.sunRunDay;
+        }
+    }
+    int year = state.sunRunYear;
+    DatePicker ("##shadowdate", "shadows on", year, state.sunShadowMonth, state.sunShadowDay, true);
+    if (playerDay) {
+        const int month = profile->dayMonth[size_t (state.sunPointPlayDay)];
+        const int day = profile->dayOfMonth[size_t (state.sunPointPlayDay)];
+        if (month != state.sunShadowMonth || day != state.sunShadowDay) {
+            char label[48];
+            std::snprintf (label, sizeof (label), "Use player day %s %d##shadowsync", kMonths[month - 1], day);
+            if (ImGui::SmallButton (label)) {
+                state.sunShadowMonth = month;
+                state.sunShadowDay = day;
+            }
+            ImGui::SetItemTooltip ("The study point's detailed playback is on this day.");
+        }
+    }
+    // A kept day needs no trace: show it through the period player.
+    int kept = -1;
+    if (const auto days = sunstudyhud::KeptPeriodDays (); days != nullptr)
+        for (size_t d = 0; d < days->size (); ++d)
+            if ((*days)[d].month == state.sunShadowMonth && (*days)[d].day == state.sunShadowDay)
+                kept = int (d);
+    char text[64];
+    if (kept >= 0) {
+        std::snprintf (text, sizeof (text), "Show kept %s %d##shadowkept", kMonths[state.sunShadowMonth - 1],
+                       state.sunShadowDay);
+        if (ImGui::Button (text, ImVec2 (-1.0f, 0.0f))) {
+            state.sunPeriodPlayMode = 1; // fixed hour: that day at the shadow clock
+            state.sunPeriodDay = kept;
+            if (size_t (state.sunStep) < state.sunStepMinutes.size ())
+                state.sunPeriodClock = state.sunStepMinutes[size_t (state.sunStep)];
+            state.sunPeriodPlay.playing = false;
+        }
+        ImGui::SetItemTooltip ("The run kept this day's whole-map steps: the period player shows it at the fixed "
+                               "hour, lit or shadowed, without a new trace.");
+        return;
+    }
+    std::snprintf (text, sizeof (text), "Trace shadows for %s %d##shadowtrace", kMonths[state.sunShadowMonth - 1],
+                   state.sunShadowDay);
+    ImGui::BeginDisabled (state.sunRunBusy);
+    if (ImGui::Button (text, ImVec2 (-1.0f, 0.0f))) {
+        // The period's own settings, for one day: the same grid, hours, step,
+        // roles and bounds, so the shadows belong to the same scene.
+        const int period = state.sunRunPeriod, month = state.sunRunMonth, day = state.sunRunDay;
+        state.sunRunPeriod = 0;
+        state.sunRunMonth = state.sunShadowMonth;
+        state.sunRunDay = state.sunShadowDay;
+        SubmitRun (state);
+        // The form keeps the period it had, so running it again restores the year.
+        state.sunRunPeriod = period;
+        state.sunRunMonth = month;
+        state.sunRunDay = day;
+    }
+    ImGui::EndDisabled ();
+    ImGui::SetItemTooltip ("Traces that one day with the period's settings and shows its shadows, steps and study "
+                           "point clock. It replaces the period result on screen; run the period again from the run "
+                           "form to return. Keep whole-map days for playback to switch days without a trace.");
+}
+
 // What the finished run put on screen, in words: what a colour means, over
 // which days and hours, how it was sampled, and what the shadow views show.
 static void DrawRunResult (const sunstudyhud::Status& status)

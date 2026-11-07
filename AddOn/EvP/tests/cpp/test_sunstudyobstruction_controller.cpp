@@ -102,8 +102,12 @@ TEST (SunStudyObstructionController, SingleDayStepAndWholeDayPublishOnlyTheLates
     EXPECT_TRUE (frame->error.empty ()) << frame->error;
     EXPECT_EQ (frame->minute, 480);
     EXPECT_EQ (frame->captureStamp, 17u);
-    EXPECT_EQ (frame->timedParts, 1u);
     EXPECT_EQ (frame->blockerObjects, 1u);
+    ASSERT_EQ (frame->blockers.size (), 1u);
+    EXPECT_EQ (frame->blockerGuids, (std::vector<std::string> { "roof" }));
+    EXPECT_EQ (frame->blockers[0].intervals, (std::vector<std::pair<int, int>> { { 480, 540 } }));
+    EXPECT_GT (frame->footprints, 0u); // the cell's footprint, not the roof's whole triangle
+    EXPECT_EQ (frame->blocked, 1u);
 
     // A clock change retires the old frame immediately and owns the next result.
     request.step = 1;
@@ -113,7 +117,9 @@ TEST (SunStudyObstructionController, SingleDayStepAndWholeDayPublishOnlyTheLates
     frame = WaitForFrame (controller, request);
     ASSERT_NE (frame, nullptr);
     EXPECT_EQ (frame->minute, 540);
-    EXPECT_EQ (frame->timedParts, 0u);
+    EXPECT_EQ (frame->blockerObjects, 0u);
+    EXPECT_EQ (frame->footprints, 0u);
+    EXPECT_EQ (frame->lit, 1u);
 
     request.mode = SunObstructionMode::WholeDay;
     request.step = -1;
@@ -121,7 +127,18 @@ TEST (SunStudyObstructionController, SingleDayStepAndWholeDayPublishOnlyTheLates
     ASSERT_NE (frame, nullptr);
     EXPECT_EQ (frame->mode, SunObstructionMode::WholeDay);
     EXPECT_EQ (frame->minute, -1);
-    EXPECT_EQ (frame->timedParts, 1u);
+    EXPECT_EQ (frame->blockerObjects, 1u);
+    EXPECT_EQ (frame->attributedSteps, 2u);
+    EXPECT_DOUBLE_EQ (frame->blockers[0].hours, 1.0);
+
+    // Whole day attributes only the selected slice, and says so.
+    request.fromMinute = 500;
+    request.toMinute = 1440;
+    frame = WaitForFrame (controller, request);
+    ASSERT_NE (frame, nullptr);
+    EXPECT_EQ (frame->attributedSteps, 1u);
+    EXPECT_EQ (frame->firstMinute, 540);
+    EXPECT_EQ (frame->blockerObjects, 0u);
     controller.Request ({});
     EXPECT_EQ (controller.Latest (), nullptr);
 }

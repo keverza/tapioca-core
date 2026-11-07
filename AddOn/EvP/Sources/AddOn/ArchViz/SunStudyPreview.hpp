@@ -10,6 +10,7 @@
 #include <vector>
 #include <cstdint>
 #include <span>
+#include <iterator>
 
 namespace geomsrv::archviz {
 inline std::string SunStudyClock (double hours, bool duration = false)
@@ -220,11 +221,47 @@ inline float SunStudyShadowFraction (const std::vector<uint32_t>& words, uint32_
 // The person's to recolour, 0xRRGGBBAA sRGB; these defaults are the palette
 // kArchVizSunTintPS always drew. The AM / PM OVERLAP is not a colour of its
 // own: the shader mixes morning and evening by their shares of the shadow.
-constexpr uint32_t kSingleShadowLitRgba = 0xEDE8DBFFu;
+constexpr uint32_t kSingleShadowLitRgba = 0xF4D35EFFu; // direct sun: yellow (#169)
 constexpr uint32_t kSingleShadowShadowedRgba = 0x4770CCFFu;
 constexpr uint32_t kAmPmSunlitRgba = 0xE8E8E6FFu;
 constexpr uint32_t kAmPmMorningRgba = 0x796AB1FFu;
 constexpr uint32_t kAmPmEveningRgba = 0xDF9792FFu;
+
+// ---- the time of day (#167, #169) ---------------------------------------------
+//
+// ONE GRADIENT for "when": the day diagram's time row and the obstruction
+// highlight's fills both use it, so a blocker's colour reads straight off the
+// diagram. Night blue, morning violet (the AM/PM view's morning), day yellow,
+// evening salmon-red (its evening), night blue again. 0xRRGGBBAA.
+inline uint32_t SunStudyTimeOfDayRgba (double minute)
+{
+    struct Stop {
+        double minute;
+        uint32_t rgba;
+    };
+    constexpr Stop stops[] = { { 0.0, 0x2C3A78FFu },   { 360.0, 0x796AB1FFu },  { 600.0, 0xF4D35EFFu },
+                               { 840.0, 0xF4D35EFFu }, { 1080.0, 0xDF7F72FFu }, { 1440.0, 0x2C3A78FFu } };
+    const double at = std::clamp (minute, 0.0, 1440.0);
+    for (size_t index = 1; index < std::size (stops); ++index)
+        if (at <= stops[index].minute) {
+            const double span = stops[index].minute - stops[index - 1].minute;
+            const double t = span > 0.0 ? (at - stops[index - 1].minute) / span : 0.0;
+            uint32_t out = 0;
+            for (int shift = 0; shift < 32; shift += 8) {
+                const double channel = double ((stops[index - 1].rgba >> shift) & 255u) * (1.0 - t) +
+                                       double ((stops[index].rgba >> shift) & 255u) * t;
+                out |= uint32_t (std::clamp (channel, 0.0, 255.0) + 0.5) << shift;
+            }
+            return out;
+        }
+    return stops[std::size (stops) - 1].rgba;
+}
+// The phase a minute belongs to, for labels: morning before 10:00, day to
+// 14:00, evening after -- the gradient's plateaus.
+inline const char* SunStudyDayPhase (double minute)
+{
+    return minute < 600.0 ? "morning" : minute < 840.0 ? "day" : "evening";
+}
 
 // The legend's overlap swatch: morning and evening in equal shares.
 inline uint32_t SunStudyAmPmOverlapRgba (uint32_t morning, uint32_t evening)

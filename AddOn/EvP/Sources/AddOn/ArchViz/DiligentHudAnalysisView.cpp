@@ -14,6 +14,11 @@
 #include "ArchViz/VisibilityStudyController.hpp"
 #include "Geometry/MeshStore.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <string>
+#include <vector>
+
 namespace geomsrv::archviz {
 
 namespace {
@@ -197,11 +202,21 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
         request.samples = state.sunPointSamples;
         request.mode = state.sunObstructionMode == 2 ? SunObstructionMode::WholeDay : SunObstructionMode::TimeStep;
         request.step = state.sunStep;
+        // Whole day attributes the diagram's selected slice (#167).
+        request.fromMinute = std::clamp (int (std::lround (state.sunTimeFrom * 60.0f)), 0, 1440);
+        request.toMinute = std::clamp (int (std::lround (state.sunTimeTo * 60.0f)), 0, 1440);
+        if (request.toMinute <= request.fromMinute)
+            request.fromMinute = 0, request.toMinute = 1440;
     }
     auto& tasks = SunObstructionTasks ();
     tasks.Request (request);
     const auto frame = tasks.Latest ();
-    if (!SunObstructionFrameCurrent (frame, shown) || !frame->error.empty ()) {
+    static const std::vector<std::string> kNoBlockers;
+    const bool current =
+        request.mode != SunObstructionMode::Off && SunObstructionFrameCurrent (frame, shown) && frame->error.empty ();
+    // The blockers are highlighted as a selection is, in the obstruction colour.
+    scene.SetObstructionHighlight (current ? frame->blockerGuids : kNoBlockers);
+    if (!current) {
         scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, nullptr, 0,
                                       modelIsDrawn);
         return;

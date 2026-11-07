@@ -687,6 +687,10 @@ class DiligentScene final {
     // colour. WHOLE SETS, like the selection; equal sets cost a compare, so the
     // HUD may call it every frame. Outline only -- no tint, no selection.
     void SetAnalysisHighlight (const std::vector<std::string>& focus, const std::vector<std::string>& analysis);
+    // The sun study's blocking elements (#167), drawn as a selection is --
+    // outline and edges -- in the obstruction colour. Whole set; equal sets
+    // cost a compare. Focus and Analysis roles win over it.
+    void SetObstructionHighlight (const std::vector<std::string>& blockers);
 
     // Which element the cursor is over, as a PICK ID rather than a GUID, and 0
     // for none. It gets its own silhouette so the user can see what a click

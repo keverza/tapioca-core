@@ -98,7 +98,9 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
     // -- and nothing built: the selection's pipelines wait for the first mark.
     const uint32_t hoverId = impl_->hoverId;
     const bool anySelected = !impl_->selectionGuids.empty ();
-    if (!anySelected && hoverId == kNoPickId && impl_->focusGuids.empty () && impl_->analysisGuids.empty ())
+    const bool anyObstruction = !impl_->obstructionGuids.empty ();
+    if (!anySelected && hoverId == kNoPickId && impl_->focusGuids.empty () && impl_->analysisGuids.empty () &&
+        !anyObstruction)
         return;
     auto marked = [&] (const Entry& e) {
         return e.selected || e.analysisRole != 0 || (hoverId != kNoPickId && e.pickId == hoverId);
@@ -156,7 +158,7 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
     // ⚠️ THE PULL, THE MASK SHIFT AND THE LINE WIDTH ARE PUT BACK. All three
     // ride the shared constants; the global wireframe reads them on the next
     // frame and must find no pull, its own edges and the HUD's own width.
-    if (selectionReady && anySelected) {
+    if (selectionReady && (anySelected || anyObstruction)) {
         const float lineWidth = constants.wireParams[1];
         constants.edgeParams[0] = sel.semantic ? kSelectionEdgeDepthPull * nearClip : 0.0f;
         // Only the shape-defining edges (ArchViz/SelectionEdges.hpp), not every
@@ -167,11 +169,19 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
             const float* colour;
             float pixels;
         };
-        const EdgePass passes[2] = {
+        // The selection's cyan, then the obstruction's pink (#167): the same two
+        // passes, one group of elements each. A selected blocker stays cyan.
+        const EdgePass passes[4] = {
             { Impl::kHiddenEdges, kSelectionHiddenEdgeColor, kSelectionHiddenEdgePixels },
             { Impl::kVisibleEdges, kSelectionEdgeColor, kSelectionEdgePixels },
+            { Impl::kHiddenEdges, kObstructionHiddenEdgeColor, kSelectionHiddenEdgePixels },
+            { Impl::kVisibleEdges, kObstructionEdgeColor, kSelectionEdgePixels },
         };
-        for (const EdgePass& pass : passes) {
+        for (int passIndex = 0; passIndex < 4; ++passIndex) {
+            const EdgePass& pass = passes[passIndex];
+            const bool obstructionPass = passIndex >= 2;
+            if (obstructionPass ? !anyObstruction : !anySelected)
+                continue;
             constants.wireParams[1] = pass.pixels;
             uploadConstants (pass.colour[0], pass.colour[1], pass.colour[2], pass.colour[3]);
             Diligent::IShaderResourceVariable* edgeVariable =
@@ -180,7 +190,8 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
                     : nullptr;
             context->SetPipelineState (sel.edgePso[pass.index]);
             for (const Entry& e : impl_->elements) {
-                if (!e.selected || !drawable (e))
+                const bool member = obstructionPass ? (e.analysisRole == 3 && !e.selected) : e.selected;
+                if (!member || !drawable (e))
                     continue;
                 // ⚠️ A FACE-AWARE PASS CANNOT DRAW AN ELEMENT WITHOUT ITS EDGE
                 // FLAGS -- the hull stage would read an unbound buffer. Such an
@@ -229,14 +240,16 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
 
     // The visibility roles, at their own weight. A selected element keeps its
     // cyan: the selection is what the user is doing right now.
-    for (const uint8_t role : { uint8_t (1), uint8_t (2) }) {
-        const float* colour = role == 1 ? kFocusOutlineColor : kAnalysisOutlineColor;
+    for (const uint8_t role : { uint8_t (1), uint8_t (2), uint8_t (3) }) {
+        const float* colour = role == 1   ? kFocusOutlineColor
+                              : role == 2 ? kAnalysisOutlineColor
+                                          : kObstructionOutline.color;
         bool uploaded = false;
         for (const Entry& e : impl_->elements) {
             if (e.analysisRole != role || e.selected || !drawable (e))
                 continue;
             if (!uploaded) {
-                setOutlinePixels (kAnalysisRoleOutlinePixels);
+                setOutlinePixels (role == 3 ? kObstructionOutline.pixels : kAnalysisRoleOutlinePixels);
                 uploadConstants (colour[0], colour[1], colour[2], colour[3]);
                 uploaded = true;
             }

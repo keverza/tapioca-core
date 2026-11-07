@@ -1,11 +1,13 @@
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/DiligentHud.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <iterator>
 #include <string>
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
+#include "SunStudy/SunStudyPointProfile.hpp"
 
 #include <imgui.h>
 
@@ -27,12 +29,28 @@ float Snapped (float value)
 }
 } // namespace
 
-double SunStudyClockMinute (double x, double y)
+double SunStudyArcMinute (double x, double y, double from, double to)
 {
-    double angle = std::atan2 (y, x) + 1.57079632679489661923;
-    if (angle < 0.0)
-        angle += 6.28318530717958647692;
-    return angle * (1440.0 / 6.28318530717958647692);
+    constexpr double pi = 3.14159265358979323846;
+    if (!(to > from))
+        return from;
+    if (y > 0.0) // below the diameter: the nearer end
+        return x < 0.0 ? from : to;
+    double angle = std::atan2 (y, x); // (-pi, 0] over the top
+    if (angle > 0.0)
+        angle = x < 0.0 ? -pi : 0.0;
+    const double t = (angle + pi) / pi;
+    return from + (to - from) * std::clamp (t, 0.0, 1.0);
+}
+
+bool SunStudyDayDomain (const evp::sunstudy::PointDay& day, double& from, double& to)
+{
+    if (day.minutes.empty ())
+        return false;
+    const auto [low, high] = std::minmax_element (day.minutes.begin (), day.minutes.end ());
+    from = double (*low);
+    to = double (*high) + (std::max) (day.hoursPerStep * 60.0, 1.0);
+    return to > from;
 }
 
 bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, float maximum, bool duration)

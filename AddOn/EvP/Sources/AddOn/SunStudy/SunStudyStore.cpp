@@ -662,6 +662,8 @@ bool SunStudyStore::PointDayOf (const std::string& id, const std::vector<size_t>
     const StudyRecord& record = *found->second;
     const auto& steps = record.series.Steps ();
     day.hoursPerStep = double (record.timestepMinutes) / 60.0;
+    day.windowFrom = std::clamp (record.hourFrom, 0, 24) * 60;
+    day.windowTo = std::clamp (record.hourTo, 0, 24) * 60;
     for (const SunStep& step : steps)
         day.minutes.push_back (uint16_t (step.time.hour * 60 + step.time.minute));
     day.lit.assign (steps.size (), 0.0);

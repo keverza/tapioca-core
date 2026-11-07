@@ -74,6 +74,9 @@ struct PointDay {
     // weighted daily totals (including empty days), not an integral of those rings.
     bool hasTotalHours = false;
     double directHours = 0.0, facingHours = 0.0, sunUpHours = 0.0;
+    // The run's measured clock window, minutes. A window narrower than the day
+    // means the diagram's ends are the window's, not sunrise or sunset.
+    int windowFrom = 0, windowTo = 1440;
 };
 
 // `normal` null means always facing (a ground sample). False when cancelled.

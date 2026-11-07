@@ -199,18 +199,37 @@ std::string InsertPointDayStudy (bool advance = true, evp::sunstudy::StudyRecord
 }
 } // namespace
 
-TEST (SunStudyHud, DayClockPutsBothMidnightsAtTheTopAndRunsClockwise)
+TEST (SunStudyHud, DayArcRunsFromFirstSunOnTheLeftOverTheTopToLastSunOnTheRight)
 {
     constexpr double pi = 3.14159265358979323846;
-    EXPECT_NEAR (SunStudyClockAngle (0), -pi / 2.0, 1.0e-12);
-    EXPECT_NEAR (SunStudyClockAngle (6 * 60), 0.0, 1.0e-12);
-    EXPECT_NEAR (SunStudyClockAngle (12 * 60), pi / 2.0, 1.0e-12);
-    EXPECT_NEAR (SunStudyClockAngle (18 * 60), pi, 1.0e-12);
-    EXPECT_NEAR (SunStudyClockAngle (24 * 60), 3.0 * pi / 2.0, 1.0e-12);
-    EXPECT_NEAR (SunStudyClockMinute (0.0, -1.0), 0.0, 1.0e-12);
-    EXPECT_NEAR (SunStudyClockMinute (1.0, 0.0), 360.0, 1.0e-12);
-    EXPECT_NEAR (SunStudyClockMinute (0.0, 1.0), 720.0, 1.0e-12);
-    EXPECT_NEAR (SunStudyClockMinute (-1.0, 0.0), 1080.0, 1.0e-12);
+    EXPECT_NEAR (SunStudyArcAngle (360, 360, 1080), pi, 1.0e-12);
+    EXPECT_NEAR (SunStudyArcAngle (720, 360, 1080), 1.5 * pi, 1.0e-12);
+    EXPECT_NEAR (SunStudyArcAngle (1080, 360, 1080), 2.0 * pi, 1.0e-12);
+    EXPECT_NEAR (SunStudyArcAngle (0, 360, 1080), pi, 1.0e-12); // clamped, never wrapped
+    EXPECT_NEAR (SunStudyArcMinute (-1.0, 0.0, 360, 1080), 360.0, 1.0e-9);
+    EXPECT_NEAR (SunStudyArcMinute (0.0, -1.0, 360, 1080), 720.0, 1.0e-9);
+    EXPECT_NEAR (SunStudyArcMinute (1.0, 0.0, 360, 1080), 1080.0, 1.0e-9);
+    EXPECT_NEAR (SunStudyArcMinute (-1.0, 0.5, 360, 1080), 360.0, 1.0e-9); // below: the nearer end
+    EXPECT_NEAR (SunStudyArcMinute (1.0, 0.5, 360, 1080), 1080.0, 1.0e-9);
+    evp::sunstudy::PointDay day;
+    day.minutes = { 375, 390, 1065 };
+    day.hoursPerStep = 0.25;
+    double from = 0.0, to = 0.0;
+    ASSERT_TRUE (SunStudyDayDomain (day, from, to));
+    EXPECT_DOUBLE_EQ (from, 375.0); // non-hour first sun
+    EXPECT_DOUBLE_EQ (to, 1080.0);
+    EXPECT_FALSE (SunStudyDayDomain (evp::sunstudy::PointDay (), from, to));
+}
+
+TEST (SunStudyHud, TimeOfDayGradientRunsMorningDayEvening)
+{
+    EXPECT_EQ (SunStudyTimeOfDayRgba (0), SunStudyTimeOfDayRgba (1440));
+    EXPECT_EQ (SunStudyTimeOfDayRgba (360), kAmPmMorningRgba);
+    EXPECT_EQ (SunStudyTimeOfDayRgba (720), kSingleShadowLitRgba);
+    EXPECT_NE (SunStudyTimeOfDayRgba (480), SunStudyTimeOfDayRgba (1020));
+    EXPECT_STREQ (SunStudyDayPhase (420), "morning");
+    EXPECT_STREQ (SunStudyDayPhase (720), "day");
+    EXPECT_STREQ (SunStudyDayPhase (1000), "evening");
 }
 
 TEST (SunStudyHud, HoverDayLatchesForPanelAndStationaryPointReadsOnlyOnResultChanges)
@@ -370,7 +389,7 @@ TEST (SunStudyHud, DisplayOnlyClockDoesNotMutateAnotherClocksBrush)
     ImGui::Render ();
 }
 
-TEST (SunStudyHud, ClockClickSelectsAStepAndClockwiseDragSelectsASlice)
+TEST (SunStudyHud, ArcClickSelectsAStepDragSelectsASliceAndOffBarsClears)
 {
     SectionGui gui;
     evp::sunstudy::PointDay day;
@@ -378,9 +397,11 @@ TEST (SunStudyHud, ClockClickSelectsAStepAndClockwiseDragSelectsASlice)
     day.lit = { 1.0, 0.0 };
     day.facing = { 1.0, 1.0 };
     day.samples = 1;
-    day.hoursPerStep = 1.0;
-    ImVec2 itemMin {}, itemMax {};
+    day.hoursPerStep = 1.0; // domain 08:00-10:00
+    ImVec2 origin {};
+    float width = 0.0f, line = 0.0f;
     int vertices = 0;
+    SunStudyClockShown shown { 0.0, 1440.0 };
     const auto frame = [&] (ImVec2 pointer, bool down, SunStudyClockSelection& selection) {
         auto& io = ImGui::GetIO ();
         io.AddMousePosEvent (pointer.x, pointer.y);
@@ -389,51 +410,87 @@ TEST (SunStudyHud, ClockClickSelectsAStepAndClockwiseDragSelectsASlice)
         ImGui::SetNextWindowPos ({ 0, 0 });
         ImGui::SetNextWindowSize ({ 400, 400 });
         ImGui::Begin ("clock", nullptr, ImGuiWindowFlags_NoSavedSettings);
-        DrawSunStudyDayClock (gui.state, &day, "##testclock", -1, "", &selection);
+        origin = ImGui::GetCursorScreenPos ();
+        width = ImGui::GetContentRegionAvail ().x;
+        line = ImGui::GetTextLineHeight ();
+        DrawSunStudyDayClock (gui.state, &day, "##testclock", -1, "", &selection, 220.0f, &shown);
         vertices = ImGui::GetWindowDrawList ()->VtxBuffer.Size;
         ImGui::End ();
-        const ImGuiWindow* window = ImGui::FindWindowByName ("clock");
-        itemMin = window->ContentRegionRect.Min;
-        itemMax = ImVec2 (window->ContentRegionRect.Max.x, itemMin.y + 220.0f);
         ImGui::Render ();
     };
-    const auto atMinute = [&] (double minute) {
-        const double angle = SunStudyClockAngle (minute);
-        const float radius = (itemMax.y - itemMin.y) * 0.27f;
-        return ImVec2 ((itemMin.x + itemMax.x) * 0.5f + radius * float (std::cos (angle)),
-                       itemMin.y + (itemMax.y - itemMin.y) * 0.5f + radius * float (std::sin (angle)));
+    const auto atMinute = [&] (double minute, float radiusShare = 0.265f) {
+        const float size = (std::min) (220.0f, width);
+        const ImVec2 centre (origin.x + width * 0.5f, origin.y + size * 0.46f + line * 0.9f);
+        const double angle = SunStudyArcAngle (minute, 480.0, 600.0);
+        return ImVec2 (centre.x + size * radiusShare * float (std::cos (angle)),
+                       centre.y + size * radiusShare * float (std::sin (angle)));
     };
     SunStudyClockSelection selection;
     frame ({ -100, -100 }, false, selection); // establish the chart rectangle
     const int unhoveredVertices = vertices;
-    const ImVec2 step = atMinute (540);
+    const ImVec2 step = atMinute (570);
     frame (step, false, selection);
-    EXPECT_GT (vertices, unhoveredVertices); // the hovered slice is outlined immediately
+    EXPECT_GT (vertices, unhoveredVertices); // the hovered step is outlined immediately
     frame (step, true, selection);
     frame (step, false, selection);
     EXPECT_EQ (selection.step, 1);
     EXPECT_FALSE (selection.slice);
     EXPECT_FALSE (gui.state.sunClockBrushActive);
 
-    const ImVec2 from = atMinute (480), to = atMinute (540);
+    // Right to left is a slice too: the arc never wraps.
+    const ImVec2 from = atMinute (585), to = atMinute (495);
     frame (from, false, selection);
     frame (from, true, selection);
     frame (to, true, selection);
     frame (to, false, selection);
     EXPECT_EQ (selection.step, -1);
     EXPECT_TRUE (selection.slice);
-    EXPECT_NEAR (selection.fromMinute, 480.0, 2.0);
-    EXPECT_NEAR (selection.toMinute, 540.0, 2.0);
+    EXPECT_NEAR (selection.fromMinute, 495.0, 2.0);
+    EXPECT_NEAR (selection.toMinute, 585.0, 2.0);
     EXPECT_FALSE (gui.state.sunClockBrushActive);
 
-    const ImVec2 late = atMinute (1380), early = atMinute (60);
-    frame (late, false, selection);
-    frame (late, true, selection);
-    frame (early, true, selection);
-    frame (early, false, selection);
-    EXPECT_TRUE (selection.slice);
-    EXPECT_NEAR (selection.fromMinute, 1380.0, 2.0);
-    EXPECT_EQ (selection.toMinute, 1440.0); // explicitly constrained, not wrapped into another range
+    // The committed slice stays drawn without a gesture.
+    frame ({ -100, -100 }, false, selection);
+    const int plain = vertices;
+    shown = { 495.0, 585.0 };
+    frame ({ -100, -100 }, false, selection);
+    EXPECT_GT (vertices, plain);
+
+    // A click inside the diagram, off the bars, clears it.
+    const ImVec2 off = atMinute (540, 0.05f);
+    frame (off, false, selection);
+    frame (off, true, selection);
+    EXPECT_TRUE (selection.clear);
+    frame (off, false, selection);
+    EXPECT_FALSE (gui.state.sunClockBrushActive);
+}
+
+TEST (SunStudyHud, DaySelectionSyncsTheSliderAndClearRestoresTheDay)
+{
+    SectionGui gui;
+    gui.state.sunStepMinutes = { 480, 540, 600, 660 };
+    gui.state.sunStep = 0;
+    SunStudyClockSelection slice;
+    slice.slice = true;
+    slice.fromMinute = 530.0;
+    slice.toMinute = 650.0;
+    ApplySunStudyDaySelection (gui.state, slice);
+    EXPECT_EQ (gui.state.sunStep, 1); // the slider moves into the slice
+    SunStudyClockSelection inside;
+    inside.step = 2;
+    ApplySunStudyDaySelection (gui.state, inside);
+    EXPECT_FLOAT_EQ (gui.state.sunTimeTo, float (650.0 / 60.0)); // a step inside keeps the slice
+    SunStudyClockSelection outside;
+    outside.step = 3;
+    ApplySunStudyDaySelection (gui.state, outside);
+    EXPECT_FLOAT_EQ (gui.state.sunTimeFrom, 0.0f);
+    EXPECT_FLOAT_EQ (gui.state.sunTimeTo, 24.0f);
+    ApplySunStudyDaySelection (gui.state, slice);
+    SunStudyClockSelection clear;
+    clear.clear = true;
+    ApplySunStudyDaySelection (gui.state, clear);
+    EXPECT_FLOAT_EQ (gui.state.sunTimeFrom, 0.0f);
+    EXPECT_FLOAT_EQ (gui.state.sunTimeTo, 24.0f);
 }
 
 TEST (SunStudyHud, ClockGesturesNeverChangeTheCurrentView)

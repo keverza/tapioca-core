@@ -83,6 +83,13 @@ constexpr float kAnalysisRoleOutlinePixels = 3.0f;
 constexpr float kFocusOutlineColor[4] = { 0.95f, 0.25f, 0.75f, 1.0f };   // magenta
 constexpr float kAnalysisOutlineColor[4] = { 0.62f, 0.42f, 1.0f, 1.0f }; // violet
 
+// The sun study's OBSTRUCTION highlight (#167): the elements that block the study point's sun, drawn
+// exactly as a selection is -- outline, visible edges, faint hidden edges -- in the obstruction pink
+// instead of the selection cyan, so "this blocks the sun" reads with the modeller's own convention.
+constexpr OutlineLayer kObstructionOutline { 2.0f, { 0.95f, 0.25f, 0.75f, 1.0f } };
+constexpr float kObstructionEdgeColor[4] = { 0.95f, 0.25f, 0.75f, 1.0f };
+constexpr float kObstructionHiddenEdgeColor[4] = { 0.95f, 0.25f, 0.75f, 0.35f };
+
 // The global wireframe's line colour. Alpha below 1 so overlapping edges on a dense mesh build up
 // instead of saturating into a solid mass.
 constexpr float kWireframeColor[4] = { 0.10f, 0.85f, 1.0f, 0.75f };

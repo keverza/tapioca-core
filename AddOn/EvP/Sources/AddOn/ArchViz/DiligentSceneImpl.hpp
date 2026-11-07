@@ -196,7 +196,7 @@ struct Entry {
     // then resolve to whichever element took its place.
     uint32_t pickId = kNoPickId;
     bool selected = false;
-    uint8_t analysisRole = 0; // 0 none, 1 Focus, 2 Analysis (SetAnalysisHighlight)
+    uint8_t analysisRole = 0; // 0 none, 1 Focus, 2 Analysis (SetAnalysisHighlight), 3 Obstruction
     bool seenThisBatch = false;
     bool hasBounds = false;
     float boundsMin[3] = { 0.0f, 0.0f, 0.0f };
@@ -418,7 +418,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     uint32_t sunLowSunRgba = 0x1F5FD1FFu;
     uint32_t sunShadowRgba = 0x00000073u;
     // The shadow views' colours (#116): SunStudyViewSettings' five, in order.
-    uint32_t sunShadowPalette[5] = { 0xEDE8DBFFu, 0x4770CCFFu, 0xE8E8E6FFu, 0x796AB1FFu, 0xDF9792FFu };
+    uint32_t sunShadowPalette[5] = { 0xF4D35EFFu, 0x4770CCFFu, 0xE8E8E6FFu, 0x796AB1FFu, 0xDF9792FFu };
     int sunBandCount = 0;
     float sunBandEdges[11] = {};
     overlaylayers::ColourStop sunRamp[overlaylayers::kMaxStops] = {};
@@ -689,6 +689,8 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // The visibility roles outlined, KEPT for the same reason as the selection:
     // an element extracted after the roles were set must still be outlined.
     std::vector<std::string> focusGuids, analysisGuids;
+    // The sun study's blockers (#167): role 3, drawn as a selection in pink.
+    std::vector<std::string> obstructionGuids;
 
     uint8_t AnalysisRoleOf (const std::string& guid) const
     {
@@ -698,6 +700,9 @@ struct geomsrv::archviz::DiligentScene::Impl {
         for (const std::string& g : analysisGuids)
             if (g == guid)
                 return 2;
+        for (const std::string& g : obstructionGuids)
+            if (g == guid)
+                return 3;
         return 0;
     }
 

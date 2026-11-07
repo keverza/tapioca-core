@@ -6,6 +6,7 @@
 // the study task worker, while the returned immutable frame is render-ready.
 
 #include "ArchViz/GhPreviewGeometry.hpp"
+#include "ArchViz/SunStudyObstructionGeometry.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -29,7 +30,8 @@ struct SunObstructionRequest {
     std::string studyId;
     std::vector<size_t> samples; // ordered study-point cells
     SunObstructionMode mode = SunObstructionMode::Off;
-    int step = -1; // TimeStep only; WholeDay traces every measured step
+    int step = -1;                       // TimeStep only; WholeDay traces every measured step in the slice
+    int fromMinute = 0, toMinute = 1440; // WholeDay: the day diagram's selected slice
 };
 
 struct SunObstructionFrame {
@@ -40,7 +42,18 @@ struct SunObstructionFrame {
     SunObstructionMode mode = SunObstructionMode::Off;
     int minute = -1; // WholeDay: -1; TimeStep: the measured clock minute
     GhPreviewDrawables drawables;
-    size_t blockerObjects = 0, timedParts = 0;
+    size_t blockerObjects = 0, footprints = 0;
+    std::vector<SunObstructionBlocker> blockers;                  // most hours first
+    std::vector<std::string> blockerGuids;                        // for the scene's obstruction highlight
+    size_t lit = 0, blocked = 0, backFacing = 0, unavailable = 0; // cell-steps
+    // What was actually covered, said rather than implied (#167).
+    size_t cells = 0, attributedSteps = 0;
+    int fromMinute = 0, toMinute = 1440;   // the slice asked for
+    int windowFrom = 0, windowTo = 1440;   // the run's measured hours
+    int firstMinute = -1, lastMinute = -1; // first and last attributed step
+    int timestepMinutes = 0;
+    int year = 0, month = 0, day = 0;
+    int footprintDivisions = 0;
     std::string error;
 };
 

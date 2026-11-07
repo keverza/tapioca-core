@@ -171,7 +171,7 @@ struct HudState {
     // The shadow views' colours (#116), 0xRRGGBBAA sRGB, defaults
     // ArchViz/SunStudyPreview.hpp's: Single Shadow's sunlit / shadowed and
     // Morning / evening's sunlit / morning / evening. Display only.
-    uint32_t sunSingleLitRgba = 0xEDE8DBFFu;
+    uint32_t sunSingleLitRgba = 0xF4D35EFFu;
     uint32_t sunSingleShadowedRgba = 0x4770CCFFu;
     uint32_t sunAmPmSunlitRgba = 0xE8E8E6FFu;
     uint32_t sunAmPmMorningRgba = 0x796AB1FFu;
@@ -231,8 +231,9 @@ struct HudState {
     int sunPeriodPlayMode = 3;
     int sunPeriodDay = 0, sunPeriodStep = 0;
     int sunPeriodClock = 12 * 60;
-    bool sunPeriodProfile = false; // re-trace the study point for its grid and detailed playback
-    bool sunPeriodSeasons = false; // display-only DJF/MAM/JJA/SON small clocks from that profile
+    int sunShadowMonth = 0, sunShadowDay = 0; // the period Shadows view's day; 0 until first shown
+    bool sunPeriodProfile = false;            // re-trace the study point for its grid and detailed playback
+    bool sunPeriodSeasons = false;            // display-only DJF/MAM/JJA/SON small clocks from that profile
     // Independent of the whole-map player: 0 every step, 1 fixed clock time,
     // 2 day by day. These index the re-traced point profile, not kept map days.
     HudTimeline sunPointPlay;
@@ -248,12 +249,29 @@ struct HudState {
     double sunPointAt[3] = {};     // as clicked
     double sunPointCentre[3] = {}; // snapped to the nearest sample
     float sunPointRadius = 0.0f;   // metres; 0 the one snapped cell
+    // Lifted above the surface (a person's eye, 1.8 m): traced as a point in
+    // the air instead of the surface cells; clamped below anything overhead.
+    float sunPointHeight = 0.0f;
+    std::string sunPointStudy; // the study the point was last resolved against, for the grip
+    bool sunPointDragging = false;
+    bool sunPointScreenValid = false; // the 2D grip, projected last frame
+    float sunPointScreen[2] = {};
+    std::string sunPointLiftedFor; // "<study>|<version>|<at>|<height>"
+    evp::sunstudy::PointDay sunPointLiftedDay;
+    bool sunPointLiftedReady = false;
+    double sunPointLifted[3] = {};
+    double sunPointLiftedHeight = 0.0; // as used
+    bool sunPointLiftedClamped = false;
     std::vector<size_t> sunPointSamples;
     std::string sunPointSamplesFor; // "<study>|<radius>" they were found for
     // Without a placed point, the last measured hover remains available while
     // the pointer crosses into the panel to use its clock.
     std::string sunHoverDayStudy;
     size_t sunHoverDaySample = SIZE_MAX;
+    // Where that latched cell was hovered, so the Obstruction view can pin it
+    // with one click instead of a right-click on the model (#167).
+    bool sunHoverDayPointValid = false;
+    double sunHoverDayPoint[3] = {};
     // The radial day is immutable for one displayed result + ordered cell set.
     // Cache it instead of re-reading every cell through FFI on every frame.
     std::string sunPointDayStudy;
@@ -856,14 +874,22 @@ bool DrawSunStudyRunAction (HudState& state);
 // toggles with their own colours, the month timeline, the threshold, and the
 // hovered point's year. Draws nothing unless the shown study is a period.
 void DrawSunStudyPeriodView (HudState& state);
+// The Shadows view of a period: pick the day whose shadows are shown.
+void DrawSunStudyShadowDate (HudState& state);
 // The study point (DiligentHudSunPoint.cpp, #152): the view's right-click
 // menu that places it, its sphere over the model, its samples in `studyId`
 // (refreshed when the study or the radius changes), the panel's radius row
 // (false with a one-line hint when there is no point), and a single day's
 // diagram of when its cells were lit.
 void DrawSunStudyPointMenu (HudState& state);
-void DrawSunStudyPointOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
+void DrawSunStudyPointOverlay (HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
+// The study point's 2D grip: press on it and drag; the point follows the
+// cursor over the scene's surfaces. Before navigation, which it holds off.
+void ServiceSunStudyPointGrip (HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height,
+                               const float rayOrigin[3], const float rayDirection[3]);
 bool RefreshSunStudyPointSamples (HudState& state, const std::string& studyId);
+// The lifted point's day (sunPointHeight > 0), traced once per position, height and result.
+bool RefreshSunStudyLiftedPoint (HudState& state, const std::string& studyId, uint64_t resultVersion);
 bool DrawSunStudyPointHeader (HudState& state, const std::string& studyId);
 void DrawSunStudyPointDay (HudState& state, const std::string& studyId, uint64_t resultVersion);
 void DrawSunStudyObstructionControls (HudState& state, const std::string& studyId);

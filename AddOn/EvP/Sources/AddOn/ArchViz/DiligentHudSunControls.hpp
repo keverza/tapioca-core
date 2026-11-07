@@ -20,26 +20,49 @@ struct PeriodProfile;
 namespace geomsrv::archviz {
 struct HudState;
 
-// Radians on the 24-hour study clock: 00:00/24:00 at the top, then clockwise.
-inline double SunStudyClockAngle (double minute)
+// The day diagram is a SEMICIRCLE from the first to the last measured sun
+// (#169): the domain's start on the left, its end on the right, time running
+// over the top. Radians in ImGui's y-down frame: pi at the left, 3pi/2 at the
+// top, 2pi at the right. A degenerate domain maps everything to the top.
+inline double SunStudyArcAngle (double minute, double from, double to)
 {
-    return minute * (6.28318530717958647692 / 1440.0) - 1.57079632679489661923;
+    constexpr double pi = 3.14159265358979323846;
+    if (!(to > from))
+        return 1.5 * pi;
+    const double t = (minute - from) / (to - from);
+    return pi + pi * (t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t));
 }
-// Inverse, from a pointer's x/y offset from the clock centre: [0, 1440).
-double SunStudyClockMinute (double x, double y);
+// Inverse, from a pointer's x/y offset from the arc's centre, clamped to
+// [from, to]: below the diameter the nearer end wins.
+double SunStudyArcMinute (double x, double y, double from, double to);
 
-// A click selects one measured step; a clockwise drag selects a half-open
-// minute range. No selection has step -1 and slice false.
+// A click selects one measured step; a drag either way selects a half-open
+// minute range; a click inside the diagram but off its bars clears the slice.
+// No selection has step -1, slice false and clear false.
 struct SunStudyClockSelection {
     int step = -1;
     bool slice = false;
+    bool clear = false;
     double fromMinute = 0.0, toMinute = 0.0;
 };
 
-// A placed point's day as a 24-hour radial bar chart. Null reserves the same
-// space with emptyNote; highlightedStep is a step index, or -1 for none.
+// The committed selection the diagram keeps drawn between gestures: the time
+// slice (minutes, full day = none) the shadow range or point player holds.
+struct SunStudyClockShown {
+    double sliceFrom = 0.0, sliceTo = 1440.0;
+};
+
+// The day's sampled daylight domain: first measured step to the end of the
+// last one. False when the day has no measured step.
+bool SunStudyDayDomain (const evp::sunstudy::PointDay& day, double& from, double& to);
+
+// A point's day as a sunrise-to-sunset semicircle of radial bars, with a
+// lit/shadowed state row and a morning/day/evening time row outside it. Null
+// reserves the same space with emptyNote; highlightedStep is a step index, or
+// -1 for none; `shown` keeps the committed slice drawn.
 void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, const char* id, int highlightedStep,
-                           const char* emptyNote, SunStudyClockSelection* selection = nullptr, float sizeCap = 220.0f);
+                           const char* emptyNote, SunStudyClockSelection* selection = nullptr, float sizeCap = 220.0f,
+                           const SunStudyClockShown* shown = nullptr);
 // Apply a clock gesture without changing the current Sunstudy/Shadows view.
 void ApplySunStudyDaySelection (HudState& state, const SunStudyClockSelection& selection);
 bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, float maximum, bool duration);

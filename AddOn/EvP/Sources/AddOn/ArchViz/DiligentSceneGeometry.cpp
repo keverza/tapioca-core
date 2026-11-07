@@ -470,6 +470,15 @@ void DiligentScene::SetAnalysisHighlight (const std::vector<std::string>& focus,
         e.analysisRole = impl_->AnalysisRoleOf (e.guid);
 }
 
+void DiligentScene::SetObstructionHighlight (const std::vector<std::string>& blockers)
+{
+    if (impl_ == nullptr || impl_->obstructionGuids == blockers)
+        return;
+    impl_->obstructionGuids = blockers;
+    for (Entry& e : impl_->elements)
+        e.analysisRole = impl_->AnalysisRoleOf (e.guid);
+}
+
 // ⚠️ NO LOOP OVER THE ELEMENTS, unlike SetSelection above. The hover is stored
 // as the id itself and matched at draw time, so a mouse move costs a single
 // store rather than a pass over every element in the project several times a

@@ -19,6 +19,7 @@ struct RequestKey {
     std::vector<size_t> samples;
     SunObstructionMode mode = SunObstructionMode::Off;
     int step = -1;
+    int fromMinute = 0, toMinute = 1440;
 
     bool operator== (const RequestKey& other) const = default;
 };
@@ -81,13 +82,16 @@ struct SunObstructionController::Impl {
         task.execute = [this, job] (const std::atomic<bool>& cancelled) {
             evp::sunstudy::SunObstructionDayResult day;
             bool success = true;
+            const int divisions = evp::sunstudy::SunObstructionFootprintDivisions (job->key.samples.size ());
             if (job->key.mode == SunObstructionMode::WholeDay)
-                success = evp::sunstudy::AttributeSunObstructionDay (*job->record, job->key.samples, day,
-                                                                     [&] { return cancelled.load (); });
+                success = evp::sunstudy::AttributeSunObstructionDay (
+                    *job->record, job->key.samples, day, [&] { return cancelled.load (); }, divisions,
+                    job->key.fromMinute, job->key.toMinute);
             else {
                 day.steps.emplace_back ();
-                success = evp::sunstudy::AttributeSunObstruction (
-                    *job->record, job->key.samples, job->record->series.Steps ()[size_t (job->key.step)], day.steps[0]);
+                success = evp::sunstudy::AttributeSunObstruction (*job->record, job->key.samples,
+                                                                  job->record->series.Steps ()[size_t (job->key.step)],
+                                                                  day.steps[0], divisions);
             }
             if (cancelled.load ())
                 return;
@@ -102,15 +106,37 @@ struct SunObstructionController::Impl {
             frame->captureStamp = job->key.captureStamp;
             frame->mode = job->key.mode;
             frame->error = day.error;
+            const auto& record = *job->record;
+            frame->cells = job->key.samples.size ();
+            frame->fromMinute = job->key.fromMinute;
+            frame->toMinute = job->key.toMinute;
+            frame->windowFrom = record.hourFrom * 60;
+            frame->windowTo = record.hourTo * 60;
+            frame->timestepMinutes = record.timestepMinutes;
+            frame->year = record.year;
+            frame->month = record.month;
+            frame->day = record.day;
+            frame->footprintDivisions = divisions;
+            frame->attributedSteps = day.steps.size ();
+            if (!day.steps.empty ()) {
+                frame->firstMinute = day.steps.front ().minute;
+                frame->lastMinute = day.steps.back ().minute;
+            }
             if (success) {
                 SunObstructionGeometry geometry;
-                success = BuildSunObstructionGeometry (*job->record->snapshot, day.steps,
-                                                       job->key.mode == SunObstructionMode::WholeDay, geometry);
+                success = BuildSunObstructionGeometry (*record.snapshot, day.steps, record.timestepMinutes, geometry);
                 frame->error = geometry.error;
                 if (success) {
                     frame->drawables = std::move (geometry.drawables);
                     frame->blockerObjects = geometry.blockerObjects;
-                    frame->timedParts = geometry.timedParts;
+                    frame->footprints = geometry.footprints;
+                    frame->lit = geometry.lit;
+                    frame->blocked = geometry.blocked;
+                    frame->backFacing = geometry.backFacing;
+                    frame->unavailable = geometry.unavailable;
+                    for (const auto& blocker : geometry.blockers)
+                        frame->blockerGuids.push_back (blocker.guid);
+                    frame->blockers = std::move (geometry.blockers);
                     if (job->key.mode == SunObstructionMode::TimeStep && !day.steps.empty ())
                         frame->minute = day.steps[0].minute;
                 }
@@ -163,7 +189,9 @@ void SunObstructionController::Request (const SunObstructionRequest& request)
                      record->snapshot->captureStamp,
                      request.samples,
                      request.mode,
-                     request.mode == SunObstructionMode::TimeStep ? request.step : -1 };
+                     request.mode == SunObstructionMode::TimeStep ? request.step : -1,
+                     request.mode == SunObstructionMode::WholeDay ? request.fromMinute : 0,
+                     request.mode == SunObstructionMode::WholeDay ? request.toMinute : 1440 };
     {
         std::lock_guard<std::mutex> lock (impl_->mutex);
         if (impl_->stopping || (impl_->current == key && (impl_->pending || impl_->latest || impl_->worker.Busy ())))

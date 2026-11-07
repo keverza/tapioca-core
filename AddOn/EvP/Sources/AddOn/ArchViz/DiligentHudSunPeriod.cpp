@@ -804,12 +804,15 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
     evp::sunstudy::PointDay day = sunstudyhud::PeriodPointDay (*profile, selected);
     const char* empty = day.minutes.empty () ? "no sun this day" : "";
     SunStudyClockSelection selection;
-    DrawSunStudyDayClock (state, &day, "##pointperioddayclock", state.sunPointPlayStep, empty, &selection);
+    const SunStudyClockShown shown { state.sunPointPlayFrom, state.sunPointPlayTo };
+    DrawSunStudyDayClock (state, &day, "##pointperioddayclock", state.sunPointPlayStep, empty, &selection, 220.0f,
+                          &shown);
     if (selection.step >= 0) {
         state.sunPointPlayMode = kEveryStep;
         state.sunPointPlayStep = selection.step;
-        state.sunPointPlayFrom = 0.0;
-        state.sunPointPlayTo = 1440.0;
+        const double at = day.minutes[size_t (selection.step)]; // outside the kept slice: widen to the day
+        if (at < state.sunPointPlayFrom || at >= state.sunPointPlayTo)
+            state.sunPointPlayFrom = 0.0, state.sunPointPlayTo = 1440.0;
         state.sunPointPlay.playing = false;
     }
     else if (selection.slice) {
@@ -823,6 +826,11 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
                 state.sunPointPlayStep = int (s);
                 break;
             }
+    }
+    else if (selection.clear) {
+        state.sunPointPlayFrom = 0.0;
+        state.sunPointPlayTo = 1440.0;
+        state.sunPointPlay.playing = false;
     }
 }
 
