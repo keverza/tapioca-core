@@ -50,6 +50,7 @@ mod reach;
 mod refine;
 pub(super) mod supports;
 pub(in crate::terrain) mod toe;
+mod trace;
 
 use refine::Graded;
 pub use refine::{Refine, Refined};
