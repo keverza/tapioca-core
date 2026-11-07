@@ -86,7 +86,7 @@ void LandscapePanel (Session& s)
     }
     ImGui::TextWrapped ("%s", LandscapeCommandPrompt (s));
     if (s.landscapeCommand) {
-        ImGui::Text ("%zu faces selected", s.selection.Items ().size ());
+        ImGui::Text ("%zu shapes picked", s.landscapeCommand->picks.size ());
         if (ImGui::SmallButton ("Cancel (Esc)"))
             CancelLandscapeCommand (s);
     }

@@ -432,57 +432,53 @@ TEST (HudLandscape, PreviewDatumChangeRepublishesWithoutReevaluatingGeometry)
 }
 
 // The user, 2026-10-24: a union is one selection of two or more faces, not two sets.
-TEST (HudLandscape, AUnionMergesOneSelectionOfTwoOrMoreFacesInOneUndoStep)
+TEST (HudLandscape, AUnionMergesTwoOrMoreWholeShapesInOneUndoStep)
 {
     eh::Session s (Demo ());
-    eh::Landscape (s);
-    const auto a = *lg::LandscapeFaceAt (s.landscape, { 2, 1, 0 });
-    const auto b = *lg::LandscapeFaceAt (s.landscape, { 2, -1, 0 });
     const auto before = s.edits.Doc ();
     ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Union));
-    ASSERT_TRUE (eh::PickLandscapeFace (s, a.seed, true, true));
-    EXPECT_FALSE (eh::AdvanceLandscapeCommand (s)) << "one face merges nothing";
+    ASSERT_TRUE (eh::PickLandscapeShape (s, { -6, 2, 0 }, true));
+    EXPECT_FALSE (eh::AdvanceLandscapeCommand (s)) << "one shape merges nothing";
     EXPECT_TRUE (s.landscapeCommand);
     EXPECT_EQ (s.edits.UndoDepth (), 0u);
-    ASSERT_TRUE (eh::PickLandscapeFace (s, b.seed, true, true));
+    ASSERT_TRUE (eh::PickLandscapeShape (s, { 8, 1, 0 }, true));
     ASSERT_TRUE (eh::AdvanceLandscapeCommand (s)) << s.message;
     EXPECT_FALSE (s.landscapeCommand);
     EXPECT_EQ (s.edits.UndoDepth (), 1u);
     EXPECT_EQ (s.edits.Doc ().landscape->sources, before.landscape->sources);
-    ASSERT_EQ (s.edits.Doc ().landscape->operations.size (), 3u);
-    EXPECT_NEAR (Area (s), a.area + b.area, 1e-5);
+    ASSERT_EQ (s.edits.Doc ().landscape->operations.size (), 1u) << "whole sources need no face selector";
+    EXPECT_NEAR (Area (s), 96 + 24, 1e-5);
     ASSERT_TRUE (s.edits.Undo ());
     EXPECT_EQ (s.edits.Doc ().landscape, before.landscape);
 }
 
-TEST (HudLandscape, CanvasCommandsCollectTwoOperandsAndPublishOneUndoStep)
+TEST (HudLandscape, CanvasCommandsTakeSubjectThenOperandShapesAndPublishOneUndoStep)
 {
+    double areas[2] = {};
+    int n = 0;
     for (const auto kind : { lg::OperationKind::Difference, lg::OperationKind::Intersection }) {
         eh::Session s (Demo ());
-        const auto faces = eh::Landscape (s).faces;
-        const auto a = *lg::LandscapeFaceAt (s.landscape, { 2, 1, 0 });
-        const auto b = *lg::LandscapeFaceAt (s.landscape, { 2, -1, 0 });
         const auto before = s.edits.Doc ();
         ASSERT_TRUE (eh::BeginLandscapeCommand (s, kind));
         EXPECT_FALSE (eh::AdvanceLandscapeCommand (s));
-        EXPECT_FALSE (s.landscapeCommand->second);
-        ASSERT_TRUE (eh::PickLandscapeFace (s, a.seed, true, true));
-        ASSERT_TRUE (eh::PickLandscapeFace (s, b.seed, true, true));
-        ASSERT_TRUE (eh::AdvanceLandscapeCommand (s));
-        EXPECT_TRUE (s.selection.Items ().empty ());
+        ASSERT_TRUE (eh::PickLandscapeShape (s, { -6, 2, 0 }, true)); // the rectangle: the subject
+        EXPECT_FALSE (eh::AdvanceLandscapeCommand (s));
+        EXPECT_EQ (s.edits.UndoDepth (), 0u);
+        ASSERT_TRUE (eh::PickLandscapeShape (s, { 2, 1, 0 }, true)); // inside both: the smaller circle
+        ASSERT_EQ (s.landscapeCommand->picks.size (), 2u);
+        EXPECT_NE (s.landscapeCommand->picks[0], s.landscapeCommand->picks[1]);
         EXPECT_EQ (s.edits.Doc ().revision, before.revision);
         EXPECT_EQ (s.edits.Doc ().nextId, before.nextId);
-        EXPECT_EQ (s.edits.UndoDepth (), 0u);
-        EXPECT_FALSE (eh::AdvanceLandscapeCommand (s));
-        ASSERT_TRUE (eh::PickLandscapeFace (s, b.seed, true));
         ASSERT_TRUE (eh::AdvanceLandscapeCommand (s)) << s.message;
         EXPECT_FALSE (s.landscapeCommand);
         EXPECT_EQ (s.edits.UndoDepth (), 1u);
         EXPECT_EQ (s.edits.Doc ().landscape->sources, before.landscape->sources);
         EXPECT_EQ (s.edits.Doc ().entities, before.entities);
-        ASSERT_EQ (s.edits.Doc ().landscape->operations.size (), 3u);
-        const double area = kind == lg::OperationKind::Difference ? a.area : b.area;
-        EXPECT_NEAR (Area (s), area, 1e-5);
+        ASSERT_EQ (s.edits.Doc ().landscape->operations.size (), 1u);
+        const double area = Area (s);
+        EXPECT_GT (area, 0);
+        EXPECT_LT (area, 96);
+        areas[n++] = area;
         std::string definition, error;
         ASSERT_TRUE (lg::WriteLandscape (s.edits.Doc (), lg::LandscapeStorage::Virtual, definition, error));
         ASSERT_TRUE (s.edits.Undo ());
@@ -493,24 +489,24 @@ TEST (HudLandscape, CanvasCommandsCollectTwoOperandsAndPublishOneUndoStep)
         ASSERT_TRUE (eh::ReloadLandscape (s, definition)) << s.message;
         EXPECT_NEAR (Area (s), area, 1e-5);
     }
+    EXPECT_NEAR (areas[0] + areas[1], 96, 1e-4) << "A - B and A & B partition A";
 }
 
 TEST (HudLandscape, CommandKeysToggleCanvasPicksAdvanceAndCancelWithoutPublication)
 {
     Drive d;
     ASSERT_TRUE (eh::BeginLandscapeCommand (d.S (), lg::OperationKind::Difference));
-    d.Click ({ 2, 1, 0 });
-    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
-    d.Click ({ 2, 1, 0 });
-    EXPECT_TRUE (d.S ().selection.Items ().empty ());
-    d.Click ({ 2, 1, 0 });
-    d.Click ({ 2, -1, 0 });
-    ASSERT_EQ (d.S ().selection.Items ().size (), 2u);
+    d.Click ({ -6, 2, 0 });
+    ASSERT_EQ (d.S ().landscapeCommand->picks.size (), 1u);
+    d.Click ({ -6, 2, 0 });
+    EXPECT_TRUE (d.S ().landscapeCommand->picks.empty ());
+    d.Click ({ -6, 2, 0 });
     d.input.keys = { { 0x0D, true } };
     d.Frame ();
-    ASSERT_TRUE (d.S ().landscapeCommand);
-    EXPECT_TRUE (d.S ().landscapeCommand->second);
+    ASSERT_TRUE (d.S ().landscapeCommand) << "one pick does not apply";
     EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.Click ({ 2, 1, 0 });
+    ASSERT_EQ (d.S ().landscapeCommand->picks.size (), 2u);
     d.input.keys = { { 'P', true } };
     d.Frame ();
     EXPECT_EQ (d.S ().tool, eh::Tool::Select);
@@ -527,8 +523,8 @@ TEST (HudLandscape, ChangedDocumentAndViewCancelPendingCommandOperands)
 {
     eh::Session s (Demo ());
     ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Difference));
-    ASSERT_TRUE (eh::PickLandscapeFace (s, { 2, 1, 0 }, true));
-    ASSERT_TRUE (eh::AdvanceLandscapeCommand (s));
+    ASSERT_TRUE (eh::PickLandscapeShape (s, { 2, 1, 0 }, true));
+    EXPECT_FALSE (eh::AdvanceLandscapeCommand (s));
     ed::Transform t;
     t.translate = { 1, 0, 0 };
     ASSERT_TRUE (s.edits.Apply (ed::TransformOperation ({ { s.edits.Doc ().entities[0].id, ed::Part::Entity } }, t)));
@@ -547,23 +543,29 @@ TEST (HudLandscape, BackgroundViewLayoutCannotCancelOrAdvanceTheFrontViewsComman
     d.At ({ 2, 1, 0 });
     ASSERT_TRUE (eh::BeginLandscapeCommand (d.S (), lg::OperationKind::Union));
     d.Click ({ 2, 1, 0 });
+    ASSERT_EQ (d.S ().landscapeCommand->picks.size (), 1u);
     d.input.viewActive = false;
     d.input.planar = false;
     d.input.pointer = false;
     d.input.keys = { { 0x1B, true } };
     d.Frame ();
     ASSERT_TRUE (d.S ().landscapeCommand);
-    EXPECT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().landscapeCommand->picks.size (), 1u);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
     d.input.viewActive = true;
     d.input.planar = true;
     d.input.pointer = true;
-    d.Click ({ 2, -1, 0 });
+    d.Click ({ 8, 1, 0 });
+    double picked = 0;
+    for (const auto& shape : eh::LandscapeCommandShapes (d.S ()))
+        if (std::find (d.S ().landscapeCommand->picks.begin (), d.S ().landscapeCommand->picks.end (), shape.pick) !=
+            d.S ().landscapeCommand->picks.end ())
+            picked += shape.area;
     d.input.keys = { { 0x0D, true } };
     d.Frame ();
     EXPECT_FALSE (d.S ().landscapeCommand) << d.S ().message;
     EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
-    EXPECT_NEAR (Area (d.S ()), 25.168001133, 1e-5);
+    EXPECT_NEAR (Area (d.S ()), picked, 1e-3) << "the circle and the small rectangle are disjoint";
     ASSERT_TRUE (eh::BeginLandscapeCommand (d.S (), lg::OperationKind::Union));
     d.input.planar = false; // A real front-view change still cancels pending input.
     d.input.pointer = false;
@@ -858,19 +860,12 @@ TEST (HudLandscape, ToolbarBooleanOfConfiguredSubjectInheritsMetadataAndStaysEdi
         ASSERT_TRUE (lg::SetRegionTerrain (doc, subject, terrain, error)) << error;
 
         eh::Session s (doc);
-        const auto faceA = *lg::LandscapeFaceAt (eh::Landscape (s), { 5, 5, 0 });
-        const auto faceB = *lg::LandscapeFaceAt (eh::Landscape (s), { 15, 5, 0 });
         const auto depth = s.edits.UndoDepth ();
         ASSERT_TRUE (eh::BeginLandscapeCommand (s, kind));
-        if (kind == lg::OperationKind::Union) {
-            ASSERT_TRUE (eh::PickLandscapeFace (s, faceA.seed, true, true));
-            ASSERT_TRUE (eh::PickLandscapeFace (s, faceB.seed, true, true));
-        }
-        else {
-            ASSERT_TRUE (eh::PickLandscapeFace (s, faceA.seed, true, true));
-            ASSERT_TRUE (eh::AdvanceLandscapeCommand (s));
-            ASSERT_TRUE (eh::PickLandscapeFace (s, faceB.seed, true));
-        }
+        ASSERT_TRUE (eh::PickLandscapeShape (s, { 5, 5, 0 }, true));  // region A, whole
+        ASSERT_TRUE (eh::PickLandscapeShape (s, { 15, 5, 0 }, true)); // plain closed line B
+        EXPECT_EQ (s.landscapeCommand->picks[0].object, subject);
+        EXPECT_EQ (s.landscapeCommand->picks[1].source, guideId);
         ASSERT_TRUE (eh::AdvanceLandscapeCommand (s)) << s.message;
         EXPECT_EQ (s.edits.UndoDepth (), depth + 1);
         ASSERT_EQ (s.edits.Doc ().landscape->objects.size (), 2u);
@@ -895,7 +890,8 @@ TEST (HudLandscape, ToolbarBooleanOfConfiguredSubjectInheritsMetadataAndStaysEdi
         EXPECT_EQ (eh::detail::SelectedRegionObject (s), result.id);
         s.selection.Set ({ { a, ed::Part::Entity, 0 } });
         EXPECT_EQ (eh::detail::SelectedRegionObject (s), subject);
-        // One undo step removes the whole command: Boolean, selectors and output.
+        // One undo step removes the whole command: Boolean and output.
+        EXPECT_EQ (s.edits.Doc ().landscape->operations.size (), 2u);
         ASSERT_TRUE (s.edits.Undo ());
         EXPECT_EQ (s.edits.Doc ().landscape->objects.size (), 1u);
         EXPECT_EQ (s.edits.Doc ().landscape->operations.size (), 1u);
@@ -904,7 +900,7 @@ TEST (HudLandscape, ToolbarBooleanOfConfiguredSubjectInheritsMetadataAndStaysEdi
 
 // #112 P1: a face subject that cites two configured regions refuses with a clear
 // reason instead of silently picking one owner's metadata; the document is untouched.
-TEST (HudLandscape, AmbiguousBooleanSubjectRefusesAtomically112)
+TEST (HudLandscape, TwoConfiguredRegionsCombineWholeWithTheFirstPickAsSubject160)
 {
     ed::Document doc;
     std::string error;
@@ -914,24 +910,37 @@ TEST (HudLandscape, AmbiguousBooleanSubjectRefusesAtomically112)
             ed::AddPolyline (doc, { { x, 0, 0 }, { x + 10, 0, 0 }, { x + 10, 10, 0 }, { x, 10, 0 } }, true);
         ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, line, lg::SourceRole::RegionBoundary, error)) << error;
     }
-    for (auto& object : doc.landscape->objects) {
+    for (size_t i = 0; i < doc.landscape->objects.size (); ++i) {
         lg::RegionSurface surface;
         surface.elevation = lg::RegionElevationMode::Constant;
-        surface.first.z = 2;
-        ASSERT_TRUE (lg::SetRegionSurface (doc, object.id, surface, {}, error)) << error;
+        surface.first.z = 2.0 + double (i);
+        ASSERT_TRUE (lg::SetRegionSurface (doc, doc.landscape->objects[i].id, surface, {}, error)) << error;
     }
     eh::Session s (doc);
-    const auto faceA = *lg::LandscapeFaceAt (eh::Landscape (s), { 5, 5, 0 });
-    const auto faceB = *lg::LandscapeFaceAt (eh::Landscape (s), { 15, 5, 0 });
     ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Union));
-    ASSERT_TRUE (eh::PickLandscapeFace (s, faceA.seed, true, true));
-    ASSERT_TRUE (eh::PickLandscapeFace (s, faceB.seed, true, true));
-    const auto before = s.edits.Doc ();
-    EXPECT_FALSE (eh::AdvanceLandscapeCommand (s));
-    EXPECT_NE (s.message.find ("one configured region"), std::string::npos) << s.message;
-    EXPECT_EQ (s.edits.Doc ().landscape, before.landscape);
-    EXPECT_EQ (s.edits.Doc ().nextId, before.nextId);
-    EXPECT_EQ (s.edits.UndoDepth (), 0u);
+    ASSERT_TRUE (eh::PickLandscapeShape (s, { 15, 5, 0 }, true)); // the second region is the subject
+    ASSERT_TRUE (eh::PickLandscapeShape (s, { 5, 5, 0 }, true));
+    ASSERT_TRUE (eh::AdvanceLandscapeCommand (s)) << s.message;
+    ASSERT_EQ (s.edits.Doc ().landscape->objects.size (), 3u);
+    const auto& result = s.edits.Doc ().landscape->objects.back ();
+    ASSERT_TRUE (result.surface.has_value ());
+    EXPECT_DOUBLE_EQ (result.surface->first.z, 3.0);
+    EXPECT_EQ (s.edits.UndoDepth (), 1u);
+}
+
+// #160: picking empty canvas names the problem and changes nothing.
+TEST (HudLandscape, PickingNoShapeRefusesWithAReason160)
+{
+    eh::Session s (Demo ());
+    ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Union));
+    EXPECT_FALSE (eh::PickLandscapeShape (s, { 11, 7, 0 }, true));
+    EXPECT_NE (s.message.find ("No shape"), std::string::npos) << s.message;
+    EXPECT_TRUE (s.landscapeCommand->picks.empty ());
+    EXPECT_FALSE (eh::PickLandscapeShape (s, { 11, 7, 0 }, false));
+    EXPECT_FALSE (s.landscapeCommand->hover.has_value ());
+    ASSERT_TRUE (eh::PickLandscapeShape (s, { -6, 2, 0 }, false));
+    EXPECT_TRUE (s.landscapeCommand->hover.has_value ());
+    EXPECT_TRUE (s.landscapeCommand->picks.empty ()) << "hover does not pick";
 }
 
 // #112 P5: the Region panel's winner ranking is aligned with the compiled field

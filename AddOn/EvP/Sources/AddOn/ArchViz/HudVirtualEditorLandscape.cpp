@@ -410,12 +410,40 @@ bool detail::LandscapeView (Session& s, const Map& m, ImVec2 mouse, bool hovered
     if (s.landscapeMode != LandscapeMode::Face && s.landscapeMode != LandscapeMode::Boolean)
         return false;
     edit::Vec3 point;
+    const bool shapes = s.landscapeCommand.has_value ();
     if (hovered && m.Onto (mouse.x, mouse.y, s.plane.origin.z, {}, point)) {
         const bool click = ImGui::IsMouseClicked (0);
-        PickLandscapeFace (s, point, click, s.landscapeCommand.has_value () || ImGui::GetIO ().KeyShift);
+        if (shapes)
+            PickLandscapeShape (s, point, click);
+        else
+            PickLandscapeFace (s, point, click, ImGui::GetIO ().KeyShift);
     }
+    else if (shapes)
+        s.landscapeCommand->hover.reset ();
     else
         s.selection.hover = {};
+    // #160: a command highlights whole picked shapes, its subject drawn first and thickest.
+    if (s.landscapeCommand && !LandscapeCommandShapes (s).empty () && s.landscapeCommand) {
+        const editlayers::Style style;
+        const auto outline = [&] (const LandscapeShape& shape, uint32_t rgba, float width) {
+            const auto colour = IM_COL32 (rgba >> 24, (rgba >> 16) & 255, (rgba >> 8) & 255, 255);
+            for (const auto& ring : shape.rings)
+                for (size_t i = 0; i < ring.size (); ++i) {
+                    auto a = ring[i], b = ring[(i + 1) % ring.size ()];
+                    a.z = b.z = s.plane.origin.z;
+                    Line (s, m, a, b, colour, width * scale);
+                }
+        };
+        const auto& all = LandscapeCommandShapes (s);
+        const auto& command = *s.landscapeCommand;
+        for (const auto& shape : all) {
+            const auto picked = std::find (command.picks.begin (), command.picks.end (), shape.pick);
+            if (picked != command.picks.end ())
+                outline (shape, style.landscapeSelected, picked == command.picks.begin () ? 4.5f : 3.5f);
+            else if (command.hover && *command.hover == shape.pick)
+                outline (shape, style.landscapeHover, 3.0f);
+        }
+    }
     for (const auto& face : result.faces)
         if (s.selection.hover.part == edit::Part::LandscapeFace && s.selection.hover.item == face.faceId) {
             const auto rgba = editlayers::Style {}.landscapeHover;

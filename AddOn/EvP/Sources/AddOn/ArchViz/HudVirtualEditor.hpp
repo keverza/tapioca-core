@@ -54,11 +54,28 @@ constexpr bool ShapeTool (Tool tool)
     return tool == Tool::Rectangle || tool == Tool::Polygon || tool == Tool::Ellipse;
 }
 enum class LandscapeMode : uint8_t { Select, DrawSource, Face, Boolean, Entrance };
+// #160: a panel Boolean picks whole shapes -- a configured region (its current footprint root)
+// or an unowned closed source line -- never arrangement faces, which an overlap has already
+// split. Exactly one of `object` / `source` is set.
+struct LandscapePick {
+    tapioca::geometry::Id object = 0, source = 0;
+    bool operator== (const LandscapePick&) const = default;
+};
+struct LandscapeShape {
+    LandscapePick pick;
+    std::vector<std::vector<edit::Vec3>> rings; // Even-odd outline used to hit-test and highlight.
+    double area = 0.0;
+};
 struct LandscapeCommand {
     tapioca::geometry::OperationKind kind;
     uint64_t revision = 0;
-    bool second = false;
-    std::vector<tapioca::geometry::RegionDescriptor> first;
+    // Ordered: the first pick is the subject (its region metadata seeds the result), the rest
+    // are operands applied in pick order. A click on a picked shape removes it.
+    std::vector<LandscapePick> picks;
+    std::optional<LandscapePick> hover;
+    // Pickable shapes at `revision`, built on first use; the command dies with the revision.
+    std::vector<LandscapeShape> shapes;
+    bool shapesReady = false;
 };
 enum class Drag : uint8_t {
     None,
@@ -451,6 +468,10 @@ bool EditLandscapeFaceSet (Session& session, bool remove = false);
 bool SelectLandscapeFaceSet (Session& session);
 bool BooleanLandscapeFaceSets (Session& session, tapioca::geometry::OperationKind kind);
 bool BeginLandscapeCommand (Session& session, tapioca::geometry::OperationKind kind);
+// Picks or un-picks the whole shape under `point` (smallest containing shape wins); hover only
+// unless `click`. False when no pickable shape is there.
+bool PickLandscapeShape (Session& session, edit::Vec3 point, bool click);
+const std::vector<LandscapeShape>& LandscapeCommandShapes (Session& session);
 bool AdvanceLandscapeCommand (Session& session);
 bool CancelLandscapeCommand (Session& session);
 const char* LandscapeCommandPrompt (const Session& session);

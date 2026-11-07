@@ -295,3 +295,124 @@ TEST (HudVirtualEditorBoolean, DefaultReferenceLinesDrawnInTheNormalWorkflowSubt
     ASSERT_TRUE (d.S ().edits.Redo ());
     EXPECT_TRUE (ed::IsCompound (d.D ().entities.front ()));
 }
+
+namespace {
+double ObjectArea (eh::Session& s, ed::Id object)
+{
+    double area = 0;
+    for (const auto& r : eh::Landscape (s).regions)
+        if (r.objectId == object)
+            area += r.area;
+    return area;
+}
+} // namespace
+
+// #160: the panel's Union / Subtract / Intersection pick whole shapes. Two overlapping rectangles
+// drawn in the normal workflow and given the Region role arrange into three faces; picking the
+// rectangles themselves (not faces) combines them with no "more than one region" refusal, one undo
+// step, the first pick's metadata and both sources still editable.
+TEST (HudVirtualEditorBoolean, PanelBooleansPickWholeRegionsDrawnInTheNormalWorkflow160)
+{
+    namespace lg = tapioca::geometry;
+    WorkflowDrive d;
+    d.S ().snapEnabled = false;
+    d.Key ('Q');
+    const ed::Id a = d.Rectangle (0, 0, 10, 10);
+    const ed::Id b = d.Rectangle (5, 2, 15, 8);
+    ASSERT_NE (a, b);
+    d.Key ('V');
+
+    // Still reference lines: they have no planar area, so a pick names the fix.
+    ASSERT_TRUE (eh::BeginLandscapeCommand (d.S (), lg::OperationKind::Union));
+    EXPECT_FALSE (eh::PickLandscapeShape (d.S (), { 2, 5, 0 }, true));
+    EXPECT_NE (d.S ().message.find ("reference line"), std::string::npos) << d.S ().message;
+    ASSERT_TRUE (eh::CancelLandscapeCommand (d.S ()));
+
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 }, { b, ed::Part::Entity, 0 } });
+    ASSERT_TRUE (eh::SetSelectedSourceRole (d.S (), lg::SourceRole::RegionBoundary)) << d.S ().message;
+    ASSERT_EQ (d.D ().landscape->objects.size (), 2u);
+    ASSERT_GE (eh::Landscape (d.S ()).faces.size (), 3u) << "the overlap splits the arrangement";
+    ed::Id regionA = 0;
+    for (const auto& o : d.D ().landscape->objects)
+        if (o.boundarySource == d.Source (a)->id)
+            regionA = o.id;
+    ASSERT_NE (regionA, 0u);
+    lg::RegionSurface surface;
+    surface.elevation = lg::RegionElevationMode::Constant;
+    surface.first.z = 2;
+    ASSERT_TRUE (d.S ().edits.Apply ([&] (ed::Document& doc, std::string& error) {
+        return lg::SetRegionSurface (doc, regionA, surface, {}, error);
+    }));
+
+    struct Case {
+        lg::OperationKind kind;
+        double area;
+    };
+    for (const auto c : { Case { lg::OperationKind::Union, 130 }, Case { lg::OperationKind::Difference, 70 },
+                          Case { lg::OperationKind::Intersection, 30 } }) {
+        const ed::Document before = d.D ();
+        const auto depth = d.S ().edits.UndoDepth ();
+        ASSERT_TRUE (eh::BeginLandscapeCommand (d.S (), c.kind));
+        d.Click (2, 5); // inside A only
+        ASSERT_EQ (d.S ().landscapeCommand->picks.size (), 1u);
+        d.Key (0x0D); // one pick applies nothing
+        ASSERT_TRUE (d.S ().landscapeCommand.has_value ());
+        EXPECT_EQ (d.S ().edits.UndoDepth (), depth);
+        d.Click (12, 5); // inside B only
+        d.Click (12, 5); // toggles B off
+        ASSERT_EQ (d.S ().landscapeCommand->picks.size (), 1u);
+        d.Click (7, 5); // the overlap: the smaller shape, B
+        ASSERT_EQ (d.S ().landscapeCommand->picks.size (), 2u);
+        d.Key (0x0D);
+        ASSERT_FALSE (d.S ().landscapeCommand.has_value ()) << d.S ().message;
+        EXPECT_EQ (d.S ().message.find ("more than one"), std::string::npos) << d.S ().message;
+        EXPECT_EQ (d.S ().edits.UndoDepth (), depth + 1);
+        ASSERT_EQ (d.D ().landscape->objects.size (), 3u);
+        const auto result = d.D ().landscape->objects.back ();
+        EXPECT_EQ (d.S ().landscapeObject, result.id);
+        ASSERT_TRUE (result.surface.has_value ());
+        EXPECT_EQ (result.surface->elevation, lg::RegionElevationMode::Constant) << "subject metadata";
+        EXPECT_NEAR (ObjectArea (d.S (), result.id), c.area, 1e-4);
+        EXPECT_EQ (d.D ().entities, before.entities);
+        EXPECT_EQ (d.D ().landscape->sources, before.landscape->sources);
+
+        // The sources stay editable: moving B re-evaluates the result from it.
+        ed::Transform t;
+        t.translate = { 0, 10, 0 }; // B no longer overlaps A
+        ASSERT_TRUE (d.S ().edits.Apply (ed::TransformOperation ({ { b, ed::Part::Entity } }, t)));
+        const double moved = c.kind == lg::OperationKind::Union        ? 160
+                             : c.kind == lg::OperationKind::Difference ? 100
+                                                                       : 0;
+        EXPECT_NEAR (ObjectArea (d.S (), result.id), moved, 1e-4);
+        ASSERT_TRUE (d.S ().edits.Undo ());
+        ASSERT_TRUE (d.S ().edits.Undo ());
+        EXPECT_EQ (d.D ().landscape, before.landscape);
+        EXPECT_EQ (d.S ().edits.UndoDepth (), depth);
+    }
+}
+
+// Esc cancels a part-picked command with no document, allocator or history change.
+TEST (HudVirtualEditorBoolean, PanelBooleanEscapeLeavesTheDocumentUntouched160)
+{
+    namespace lg = tapioca::geometry;
+    WorkflowDrive d;
+    d.S ().snapEnabled = false;
+    d.Key ('Q');
+    const ed::Id a = d.Rectangle (0, 0, 10, 10);
+    const ed::Id b = d.Rectangle (5, 2, 15, 8);
+    d.Key ('V');
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 }, { b, ed::Part::Entity, 0 } });
+    ASSERT_TRUE (eh::SetSelectedSourceRole (d.S (), lg::SourceRole::RegionBoundary)) << d.S ().message;
+    const ed::Document before = d.D ();
+    const auto depth = d.S ().edits.UndoDepth ();
+    ASSERT_TRUE (eh::BeginLandscapeCommand (d.S (), lg::OperationKind::Difference));
+    d.Click (2, 5);
+    d.Click (12, 5);
+    ASSERT_EQ (d.S ().landscapeCommand->picks.size (), 2u);
+    d.Key (0x1B);
+    EXPECT_FALSE (d.S ().landscapeCommand.has_value ());
+    EXPECT_FALSE (d.S ().close);
+    EXPECT_EQ (d.D ().landscape, before.landscape);
+    EXPECT_EQ (d.D ().nextId, before.nextId);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), depth);
+}
