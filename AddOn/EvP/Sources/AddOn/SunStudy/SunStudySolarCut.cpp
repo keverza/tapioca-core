@@ -41,6 +41,9 @@ struct Sector {
     Point sunFrom, sunTo;   // unit, toward the sun
     Point sideFrom, sideTo; // the vertical half-planes' horizontal directions
     Point e1, e2;           // an orthonormal basis of the envelope plane
+    // Where the drawn fan moves for the point's radius: the plane's drop, and
+    // the outer sides' widening (first sector's left, last sector's right).
+    Point shift {}, shiftFrom {}, shiftTo {};
 };
 
 Point Sub (const Point& a, const Point& b)
@@ -299,6 +302,31 @@ bool Sectors (const SolarCutInput& input, SolarCutResult& result,
         sector.e1 = sector.sunFrom;
         sector.e2 = Cross (n, sector.e1);
         Normalise (sector.e2);
+        if (input.radius > 0.0) {
+            // A half-space f = n.x + d >= 0 swept over the disc grows by the
+            // disc's reach along n: radius times n's part within the disc.
+            Point m { 0.0, 0.0, 1.0 };
+            if (input.normal != nullptr) {
+                Point given { input.normal[0], input.normal[1], input.normal[2] };
+                if (Normalise (given))
+                    m = given;
+            }
+            const auto reach = [&] (const Point& normal) {
+                const double along = Dot (normal, m);
+                const Point within { normal[0] - along * m[0], normal[1] - along * m[1], normal[2] - along * m[2] };
+                return input.radius * std::sqrt (Dot (within, within));
+            };
+            const auto grow = [&] (HalfSpace& h, Point& shift) {
+                const double by = reach ({ h.n[0], h.n[1], h.n[2] });
+                h.d += by;
+                shift = { -by * h.n[0], -by * h.n[1], -by * h.n[2] };
+            };
+            grow (sector.above, sector.shift);
+            if (s == 0)
+                grow (sector.left, sector.shiftFrom);
+            if (s + 2 == result.facingSteps.size ())
+                grow (sector.right, sector.shiftTo);
+        }
         sectors.push_back (sector);
     }
     return true;
@@ -310,9 +338,11 @@ void Envelope (const std::vector<Sector>& sectors, const SolarCutInput& input, d
     for (const Sector& sector : sectors) {
         SolarCutTriangle fan;
         for (int k = 0; k < 3; ++k) {
-            fan.v[0][k] = input.point[k];
-            fan.v[1][k] = input.point[k] + length * sector.sunFrom[size_t (k)];
-            fan.v[2][k] = input.point[k] + length * sector.sunTo[size_t (k)];
+            const size_t K = size_t (k);
+            const double base = input.point[k] + sector.shift[K];
+            fan.v[0][k] = base + sector.shiftFrom[K] + sector.shiftTo[K];
+            fan.v[1][k] = base + sector.shiftFrom[K] + length * sector.sunFrom[K];
+            fan.v[2][k] = base + sector.shiftTo[K] + length * sector.sunTo[K];
         }
         result.envelope.push_back (fan);
     }

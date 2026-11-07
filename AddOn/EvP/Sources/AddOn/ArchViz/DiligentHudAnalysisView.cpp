@@ -215,6 +215,7 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
             request.toMinute = int (std::lround (state.sunCutTo));
             request.lifted = state.sunPointHeight > 0.0f && state.sunPointLiftedReady;
             std::copy (state.sunPointLifted, state.sunPointLifted + 3, request.liftedPoint);
+            request.radius = double (state.sunPointRadius);
         }
         else if (state.sunObstructionMode == 3)
             request.mode = SunObstructionMode::Off;

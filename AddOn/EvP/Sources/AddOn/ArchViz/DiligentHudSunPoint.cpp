@@ -467,15 +467,20 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
         const ImVec2 mouse = ImGui::GetIO ().MousePos;
         const float toFrom = std::hypot (mouse.x - gripFrom.x, mouse.y - gripFrom.y);
         const float toTo = std::hypot (mouse.x - gripTo.x, mouse.y - gripTo.y);
-        const int near = (std::min) (toFrom, toTo) > 9.0f ? 0 : (toFrom <= toTo ? 1 : 2);
+        int near = (std::min) (toFrom, toTo) > 9.0f ? 0 : (toFrom <= toTo ? 1 : 2);
+        // The arc's body between the grips: grabbed there, it moves whole.
+        const double pointerMinute = SunStudyArcMinute (pointer.x, pointer.y, from, to);
+        if (near == 0 && onCutBand && pointerMinute > state.sunCutFrom && pointerMinute < state.sunCutTo)
+            near = 3;
         onGrip = hovered && near != 0;
-        if (onGrip && ImGui::IsItemActivated ())
+        if (onGrip && ImGui::IsItemActivated ()) {
             state.sunCutGrip = near;
+            state.sunCutGrabOffset = pointerMinute - state.sunCutFrom;
+        }
         if (state.sunCutGrip != 0 && !ImGui::IsMouseDown (ImGuiMouseButton_Left))
             state.sunCutGrip = 0;
-        if (state.sunCutGrip != 0 && steps > 0) {
-            // Snap to the measured steps' edges: a slice is whole steps.
-            const double raw = SunStudyArcMinute (pointer.x, pointer.y, from, to);
+        // Snap to the measured steps' edges: a slice is whole steps.
+        const auto snap = [&] (double raw) {
             double snapped = raw, gap = 1.0e9;
             for (size_t s = 0; s < steps; ++s)
                 for (const double edge :
@@ -484,7 +489,17 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
                         gap = std::abs (edge - raw);
                         snapped = edge;
                     }
-            (state.sunCutGrip == 1 ? state.sunCutFrom : state.sunCutTo) = snapped;
+            return snapped;
+        };
+        if (state.sunCutGrip == 3 && steps > 0) {
+            // Moved whole: the same length, its start snapped, kept on the day.
+            const double length = state.sunCutTo - state.sunCutFrom;
+            const double start = std::clamp (snap (pointerMinute - state.sunCutGrabOffset), from, to - length);
+            state.sunCutFrom = start;
+            state.sunCutTo = start + length;
+        }
+        else if (state.sunCutGrip != 0 && steps > 0) {
+            (state.sunCutGrip == 1 ? state.sunCutFrom : state.sunCutTo) = snap (pointerMinute);
             if (state.sunCutFrom > state.sunCutTo) { // crossing over: the grips trade places
                 std::swap (state.sunCutFrom, state.sunCutTo);
                 state.sunCutGrip = 3 - state.sunCutGrip;
@@ -600,14 +615,15 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
         // at each end.
         constexpr ImU32 kPink = IM_COL32 (242, 64, 191, 255);
         ArcSector (draw, centre, cutR - 1.0f, cutR + 1.0f, kLeft, kRight, IM_COL32 (242, 64, 191, 60));
-        ArcSector (draw, centre, cutR - 2.5f, cutR + 2.5f, angleOf (state.sunCutFrom), angleOf (state.sunCutTo), kPink);
+        const float body = state.sunCutGrip == 3 ? 3.5f : 2.5f;
+        ArcSector (draw, centre, cutR - body, cutR + body, angleOf (state.sunCutFrom), angleOf (state.sunCutTo), kPink);
         for (int grip = 1; grip <= 2; ++grip) {
             const ImVec2 at = ArcPoint (centre, cutR, angleOf (grip == 1 ? state.sunCutFrom : state.sunCutTo));
             const bool hot = state.sunCutGrip == grip;
             draw->AddCircle (at, hot ? 6.5f : 5.0f, kPink, 0, hot ? 3.0f : 2.0f); // a ring: no fill
         }
         if (onGrip || state.sunCutGrip != 0)
-            ImGui::SetTooltip ("Cut slice %s-%s\ndrag the pink grips", MinuteText (state.sunCutFrom).c_str (),
+            ImGui::SetTooltip ("Cut slice %s-%s\ngrips: resize; arc: move", MinuteText (state.sunCutFrom).c_str (),
                                MinuteText (state.sunCutTo).c_str ());
     }
     const ImU32 ink = ImGui::GetColorU32 (ImGuiCol_Text);

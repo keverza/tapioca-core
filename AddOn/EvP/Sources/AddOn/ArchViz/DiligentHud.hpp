@@ -284,9 +284,11 @@ struct HudState {
     // 2 whole day (timed parts coloured by their shadow hour).
     int sunObstructionMode = 0; // 1 time step, 2 whole day, 3 solar cut
     // The solar cut's slice (minutes; to <= from: not yet chosen) and the grip
-    // being dragged on the diagram's pink arc (0 none, 1 from, 2 to).
+    // being dragged on the diagram's pink arc (0 none, 1 from, 2 to, 3 the arc
+    // itself, moved whole: sunCutGrabOffset minutes ahead of its start).
     double sunCutFrom = 0.0, sunCutTo = 0.0;
     int sunCutGrip = 0;
+    double sunCutGrabOffset = 0.0;
     // The right-click menu's target: the measured point under the cursor.
     bool sunPointMenuValid = false;
     double sunPointMenuAt[3] = {};

@@ -29,6 +29,7 @@ struct RequestKey {
     int fromMinute = 0, toMinute = 1440;
     bool lifted = false;
     double liftedPoint[3] = {};
+    double radius = 0.0;
 
     bool operator== (const RequestKey& other) const = default;
 };
@@ -87,6 +88,7 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
             input.steps.push_back (step);
     }
     input.hoursPerStep = double (record.timestepMinutes) / 60.0;
+    input.radius = job.key.radius;
     const auto& snapshot = *record.snapshot;
     input.blocks.assign (snapshot.meshes.size (), 1);
     if (record.elementRoles.size () == snapshot.meshes.size ())
@@ -422,6 +424,7 @@ void SunObstructionController::Request (const SunObstructionRequest& request)
         request.mode != SunObstructionMode::TimeStep ? request.toMinute : 1440,
         request.mode == SunObstructionMode::SolarCut && request.lifted,
         { request.liftedPoint[0], request.liftedPoint[1], request.liftedPoint[2] },
+        request.mode == SunObstructionMode::SolarCut ? (std::max) (0.0, request.radius) : 0.0,
     };
     {
         std::lock_guard<std::mutex> lock (impl_->mutex);

@@ -37,6 +37,7 @@ struct SunObstructionRequest {
     // SolarCut: a lifted point is cut for in the air; otherwise the snapped cell.
     bool lifted = false;
     double liftedPoint[3] = {};
+    double radius = 0.0; // SolarCut: the study point's radius; the cut clears the whole disc
 };
 
 // The solar cut arrives in stages, each a complete frame: the cutting surface

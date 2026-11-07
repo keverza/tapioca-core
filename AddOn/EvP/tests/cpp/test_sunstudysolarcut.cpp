@@ -156,3 +156,27 @@ TEST (SunStudySolarCut, SurfaceStageMatchesTheCutsSurfaceAndClipsNothing)
                                     (fan.v[1][2] - fan.v[0][2]) * (fan.v[1][2] - fan.v[0][2]));
     EXPECT_NEAR (reach, 12.0, 1.0e-9);
 }
+
+TEST (SunStudySolarCut, RadiusLowersTheCutterToClearTheWholeDisc)
+{
+    // The tower of the first test, cut for a 1 m disc about the point: every
+    // plane drops by the disc's reach along it, so z = slope * (x - r) - 0.05,
+    // and the removed volume is 2 * integral over [5,7] of (10 - z).
+    geomsrv::Snapshot snapshot;
+    snapshot.meshes = { evptest::MakeBox ("tower", 5, -1, 0, 2, 2, 10) };
+    SolarCutInput input;
+    input.steps = { Sun (-15, 45, 10), Sun (15, 45, 11) };
+    input.hoursPerStep = 1.0;
+    input.blocks = { 1 };
+    SolarCutResult point, disc;
+    ASSERT_TRUE (ComputeSolarCut (snapshot, input, point));
+    input.radius = 1.0;
+    ASSERT_TRUE (ComputeSolarCut (snapshot, input, disc)) << disc.error;
+    const double slope = 1.0 / std::cos (15.0 * kRadians);
+    EXPECT_NEAR (disc.removedVolume, 2.0 * (20.1 - slope * (12.0 - 2.0)), 1.0e-6);
+    EXPECT_GT (disc.removedVolume, point.removedVolume);
+    // The drawn cutter moves with it: its apex dropped along the plane normal
+    // by r * sin(tilt), about 0.5 m down here.
+    ASSERT_FALSE (disc.envelope.empty ());
+    EXPECT_LT (disc.envelope[0].v[0][2], -0.4);
+}
