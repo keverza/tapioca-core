@@ -1071,15 +1071,21 @@ fn resolve_controls(
     tolerance: f64,
 ) -> Result<BTreeMap<u32, FixedHeight>, BuildError> {
     let mut fixed = BTreeMap::new();
-    for (point_index, control) in controls.iter().enumerate() {
+    // Spots are pushed for point controls only, in control order (push_control_lines): the n-th
+    // point control's vertex is point_vertices[n], not point_vertices[its control index]. A line
+    // control before a point used to shift the lookup past the end (#149: refused as a topology
+    // error when a line and its own vertex were both fixed).
+    let mut spot = 0_usize;
+    for (control_index, control) in controls.iter().enumerate() {
         if !control.point {
             continue;
         }
-        let index = u32::try_from(point_index)
+        let index = u32::try_from(control_index)
             .map_err(|_| BuildError::ControlShape { control: u32::MAX })?;
-        let Some(&vertex) = mesh.point_vertices.get(point_index) else {
+        let Some(&vertex) = mesh.point_vertices.get(spot) else {
             return Err(BuildError::Region(RegionError::Topology));
         };
+        spot += 1;
         let Some(height) = control_height(control, f64::NAN, f64::NAN) else {
             return Err(BuildError::ControlShape { control: index });
         };

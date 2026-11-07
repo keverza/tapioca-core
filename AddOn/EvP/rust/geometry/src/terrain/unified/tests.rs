@@ -1677,3 +1677,63 @@ fn surface_target_daylight_stays_continuous_at_an_inside_corner() -> Result<(), 
     );
     Ok(())
 }
+
+/// #149: a line control listed before point controls. Each point control's vertex is its own
+/// spot's (spots are pushed for point controls only), so the lookup no longer runs past the end
+/// and the points lock where they are -- also one sitting on the line's own vertex.
+#[test]
+fn point_controls_after_a_line_control_resolve_their_own_spots() -> Result<(), BuildError> {
+    static LINE: [f64; 6] = [3.0, 3.0, 3.0, 6.0, 5.0, 3.0];
+    let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
+    let outer = ring(&[[2.0, 2.0], [7.0, 2.0], [7.0, 7.0], [2.0, 7.0]]);
+    let parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        3.0,
+        TerrainEffect::Grade,
+        transitioned(),
+    )];
+    let controls = [
+        line_control(900, &LINE),
+        point_control(901, 3.0, 3.0, 3.0), // the line's own first vertex
+        point_control(902, 5.5, 2.5, 3.0),
+    ];
+    let plan = Plan {
+        revision: 13,
+        hash: 131,
+        entries: &entries,
+        paths: &[],
+        masks: &[],
+        controls: &controls,
+        control_tolerance: 1e-3,
+        outlines: &[],
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    for (x, y) in [(3.0, 3.0), (5.5, 2.5), (6.0, 5.0)] {
+        let vertex = vertex_at(&built.points, x, y).unwrap_or(u32::MAX);
+        assert!(
+            built.locked.iter().any(|locked| locked.vertex == vertex),
+            "({x}, {y}) is locked"
+        );
+    }
+    let point = vertex_at(&built.points, 5.5, 2.5).unwrap_or(u32::MAX);
+    assert!(
+        built
+            .locked
+            .iter()
+            .any(|locked| locked.vertex == point && locked.control == 2)
+    );
+    Ok(())
+}

@@ -318,3 +318,48 @@ fn breaklines_leaving_the_region_and_base_holes_refuse() {
             .starts_with("RegionTopology:")
     );
 }
+
+#[test]
+fn a_point_on_a_breakline_vertex_shares_that_vertex() -> Result<(), RegionError> {
+    // A fixed line and a fixed point at the line's own end (#149: the editor's line control
+    // plus its vertex control): one output vertex, mapped by both.
+    let (points, triangles) = grid(9);
+    let region = ring(&[[1.5, 1.5], [6.5, 1.5], [6.5, 6.5], [1.5, 6.5]]);
+    let line = [2.2, 3.3, 0.0, 5.7, 3.7, 0.0];
+    let spots = [2.2, 3.3, 0.0];
+    let request = RegionRequest {
+        points: &points,
+        triangles: &triangles,
+        region: &region,
+        breaklines: &[&line],
+    };
+    let mesh = retriangulate_region_with_points(&request, &spots)?;
+    assert_eq!(
+        mesh.point_vertices.first(),
+        mesh.breakline_vertices.first().and_then(|l| l.first())
+    );
+    Ok(())
+}
+
+#[test]
+fn a_point_where_one_breakline_ends_on_another_shares_that_vertex() -> Result<(), RegionError> {
+    // The band's section line crosses the path; a fixed line starts on it; a fixed point sits at
+    // that start (#149: line control, vertex control and a band section line, all at one spot).
+    let (points, triangles) = grid(9);
+    let region = ring(&[[1.5, 1.5], [6.5, 1.5], [6.5, 6.5], [1.5, 6.5]]);
+    let section = [2.2, 3.3, 0.0, 5.7, 3.3, 0.0];
+    let control = [3.4, 3.3, 0.0, 4.6, 5.1, 0.0];
+    let spots = [3.4, 3.3, 0.0];
+    let request = RegionRequest {
+        points: &points,
+        triangles: &triangles,
+        region: &region,
+        breaklines: &[&section, &control],
+    };
+    let mesh = retriangulate_region_with_points(&request, &spots)?;
+    assert_eq!(
+        mesh.point_vertices.first(),
+        mesh.breakline_vertices.get(1).and_then(|l| l.first())
+    );
+    Ok(())
+}
