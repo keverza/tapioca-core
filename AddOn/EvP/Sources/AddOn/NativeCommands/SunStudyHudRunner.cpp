@@ -452,8 +452,12 @@ void Run (Request request, std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
         const bool cancelled = gCancel.load ();
         if (stage == "failed")
             ticket->Cancel (); // invalidate any timed-out gate job before releasing ownership
-        if ((cancelled || stage == "failed") && !studyId.empty ())
+        if ((cancelled || stage == "failed") && !studyId.empty ()) {
+            // RunPeriod retains its totals before the outer display publication.
+            // A late failure must retire that cache as well as erasing the carrier.
+            period::Release ();
             evp::sunstudy::SunStudyStore::Get ().Erase (studyId, revision);
+        }
         std::string line;
         {
             std::lock_guard<std::mutex> lock (gMutex);
@@ -658,6 +662,23 @@ bool Submit (const Request& request, std::string& error)
     std::snprintf (slice, sizeof (slice), "%02d:00-%02d:00", request.hourFrom, request.hourTo);
     gStatus.sliceLabel = slice;
     gThread = std::thread (Run, request, s_ticket);
+    return true;
+}
+
+bool ClearPeriodCache (std::string& error)
+{
+    error.clear ();
+    // The same runner -> period order as Submit. In particular, do not call
+    // Current() while holding the period lock: a finishing run publishes there.
+    std::lock_guard<std::mutex> lock (gMutex);
+    if (gStatus.running) {
+        error = "a sun study is running";
+        return false;
+    }
+    if (!period::ReleaseIfIdle ()) {
+        error = "the period view is updating; try again in a moment";
+        return false;
+    }
     return true;
 }
 

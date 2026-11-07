@@ -935,14 +935,15 @@ void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int q
 void DrawSunStudyPeriodView (HudState& state)
 {
     const sunstudyhud::PeriodInfo period = sunstudyhud::CurrentPeriod ();
-    if (!state.sunShowsPeriod || !period.available || period.studyId != state.sunPeriodStudyId) {
+    // A freed cache leaves the frame's quantity, month, colours and legend intact.
+    if (state.sunShowsPeriod && !period.available)
+        return;
+    if (!state.sunShowsPeriod || period.studyId != state.sunPeriodStudyId) {
         // Back on a day study: its words and its colours.
         SunLegendUnit () = SunValueUnit::Hours;
         if (state.sunPeriodPresetsFor != 0)
             SwitchColours (state, 0);
-        state.sunPeriodQuantity = 0;
-        state.sunPeriodMonth = 0;
-        state.sunPeriodDay = state.sunPeriodStep = 0;
+        state.sunPeriodQuantity = state.sunPeriodMonth = state.sunPeriodDay = state.sunPeriodStep = 0;
         state.sunPeriodPlay.playing = false;
         return;
     }
@@ -956,7 +957,6 @@ void DrawSunStudyPeriodView (HudState& state)
     const int quantity = std::clamp (state.sunPeriodQuantity, 0, kQuantityCount - 1);
     SunLegendUnit () = IsShare (quantity) && !Instant (mode) ? SunValueUnit::Share : SunValueUnit::Hours;
     PlayModeRow (state, period);
-
     sunstudyhud::PeriodView want;
     want.quantity = Instant (mode) ? 0 : quantity;
     want.threshold = state.sunPeriodThreshold;

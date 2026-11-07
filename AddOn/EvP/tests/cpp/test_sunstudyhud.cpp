@@ -54,6 +54,7 @@ void Shutdown ()
 static PeriodInfo s_period;
 static PeriodView s_shownView;
 static int s_viewRequests = 0;
+static int s_cacheClears = 0;
 PeriodInfo CurrentPeriod ()
 {
     return s_period;
@@ -84,6 +85,12 @@ PeriodProfile LatestPeriodProfile ()
 {
     return s_profile;
 }
+bool ClearPeriodCache (std::string&)
+{
+    ++s_cacheClears;
+    s_period = {};
+    return true;
+}
 } // namespace geomsrv::sunstudyhud
 
 using namespace geomsrv::archviz;
@@ -104,6 +111,7 @@ struct SectionGui {
         geomsrv::sunstudyhud::s_profile = {};
         geomsrv::sunstudyhud::s_shownView = {};
         geomsrv::sunstudyhud::s_viewRequests = 0;
+        geomsrv::sunstudyhud::s_cacheClears = 0;
         auto& io = ImGui::GetIO ();
         io.IniFilename = nullptr;
         io.DisplaySize = { 500, 1400 };
@@ -322,6 +330,59 @@ TEST (SunStudyHud, DetailedPointPlaybackNeedsNoWholeMapDayArchive)
     EXPECT_EQ (gui.state.sunPointPlayStep, 1);
     EXPECT_FALSE (period.daysKept);
     EXPECT_EQ (geomsrv::sunstudyhud::s_shownView.frame, 0); // the map stayed on its totals
+}
+
+TEST (SunStudyHud, FreePeriodCacheKeepsTheFrameButRetiresBrowsingAndPlayback)
+{
+    SectionGui gui;
+    auto& status = geomsrv::sunstudyhud::s_status;
+    status.stage = "done";
+    status.period = true;
+    status.studyId = "sun-cache";
+    gui.scene.sunStudy.studyId = "sun-cache";
+    auto& period = geomsrv::sunstudyhud::s_period;
+    period.available = true;
+    period.studyId = "sun-cache";
+    period.monthDays[3] = 30.0;
+    period.siteDaylight[3] = 360.0;
+    gui.state.sunPeriodProfile = true;
+    gui.state.sunPeriodQuantity = 3;
+    gui.state.sunPeriodMonth = 4;
+    gui.state.sunPeriodPresetsFor = 3;
+    gui.state.sunGradientPreset = "cividis";
+    gui.state.sunPeriodPlay.playing = true;
+    gui.state.sunPointPlay.playing = true;
+    gui.state.sunClockBrushActive = gui.state.sunClockBrushDragged = true;
+    gui.state.sunClockBrushId = 42;
+    gui.state.sunClockBrushFrame = 10;
+    gui.Frame ();
+    gui.Frame ();
+
+    // Activate the real SmallButton, wherever the fixed run-result lines put it.
+    for (float y = 20; y < 500 && geomsrv::sunstudyhud::s_cacheClears == 0; y += 6)
+        for (float x = 20; x < 390 && geomsrv::sunstudyhud::s_cacheClears == 0; x += 12) {
+            gui.Frame ({ x, y });
+            gui.Frame ({ x, y }, true);
+            gui.Frame ({ x, y }, false);
+        }
+    ASSERT_EQ (geomsrv::sunstudyhud::s_cacheClears, 1);
+    EXPECT_EQ (gui.state.sunPeriodStudyId, "sun-cache"); // displayed-period identity survives
+    EXPECT_TRUE (gui.state.sunShowsPeriod);
+    EXPECT_FALSE (gui.state.sunPeriodProfile);
+    EXPECT_FALSE (gui.state.sunPeriodPlay.playing);
+    EXPECT_FALSE (gui.state.sunPointPlay.playing);
+    EXPECT_FALSE (gui.state.sunClockBrushActive);
+    EXPECT_FALSE (gui.state.sunClockBrushDragged);
+    EXPECT_EQ (gui.state.sunClockBrushId, 0u);
+    EXPECT_EQ (gui.state.sunClockBrushFrame, -1);
+    EXPECT_EQ (gui.state.sunPeriodQuantity, 3);
+    EXPECT_EQ (gui.state.sunPeriodMonth, 4);
+    EXPECT_EQ (gui.state.sunGradientPreset, "cividis");
+    EXPECT_EQ (SunLegendUnit (), SunValueUnit::Share);
+    gui.Frame ();
+    EXPECT_TRUE (gui.state.sunShowsPeriod); // retired frame is not reclassified as a day study
+    EXPECT_EQ (gui.state.sunPeriodQuantity, 3);
+    EXPECT_EQ (SunLegendUnit (), SunValueUnit::Share);
 }
 
 TEST (SunStudyHud, CollapsedSetupStillOffersCancelForManualAndFollowerStages)

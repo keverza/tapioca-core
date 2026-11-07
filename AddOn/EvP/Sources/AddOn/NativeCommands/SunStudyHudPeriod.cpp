@@ -322,6 +322,31 @@ void PeriodWorker ()
     }
 }
 
+bool ReleaseRetained (bool onlyIfIdle)
+{
+    std::shared_ptr<RetainedPeriod> retired;
+    std::string carrierId;
+    uint64_t carrierRevision = 0;
+    {
+        std::lock_guard<std::mutex> lock (gPeriodMutex);
+        if (onlyIfIdle && gPeriodWorkerRunning)
+            return false;
+        if (gRetained != nullptr) {
+            carrierId = gRetained->carrierId;
+            carrierRevision = gRetained->carrierRevision;
+        }
+        retired = std::move (gRetained);
+        ReleaseLocked ();
+    }
+    // PeriodRecords::Keep removed this carrier from run-scoped cleanup. Release
+    // its remaining store owner too, but never clear unrelated studies or hide
+    // the renderer's last published frame. The shared handle keeps the record
+    // alive for any frame-local reader until that reader finishes.
+    if (!carrierId.empty ())
+        evp::sunstudy::SunStudyStore::Get ().Erase (carrierId, carrierRevision);
+    return true;
+}
+
 // Caller holds gPeriodMutex.
 void WakePeriodWorkerLocked ()
 {
@@ -356,8 +381,14 @@ bool WorkerBusy ()
 
 void Release ()
 {
-    std::lock_guard<std::mutex> lock (gPeriodMutex);
-    ReleaseLocked ();
+    (void) ReleaseRetained (false);
+}
+
+bool ReleaseIfIdle ()
+{
+    // Busy refusal and retirement are one period-lock transaction: a profile or
+    // view request cannot start between checking the worker and clearing it.
+    return ReleaseRetained (true);
 }
 
 void Shutdown ()

@@ -522,6 +522,43 @@ bool DrawSunStudyRunAction (HudState& state)
         ImGui::TextDisabled ("Done in %.1f s", status.wallMs / 1000.0);
     if (!active && status.stage == "done")
         DrawRunResult (status);
+    if (!active && status.stage == "done" && status.period) {
+        const sunstudyhud::PeriodInfo period = sunstudyhud::CurrentPeriod ();
+        if (period.available && period.studyId == status.studyId) {
+            ImGui::BeginDisabled (period.busy);
+            const bool clear = ImGui::SmallButton ("Free period cache");
+            ImGui::EndDisabled ();
+            std::string explanation =
+                "Releases the period totals, carrier, point profile and optional whole-map playback archive. The "
+                "current frame stays on screen; browsing and point reads need a new run.";
+            if (period.daysKept) {
+                char bytes[96];
+                std::snprintf (bytes, sizeof (bytes), "\nWhole-map playback archive reported by the core: %.2f MiB.",
+                               period.keptBytes / (1024.0 * 1024.0));
+                explanation += bytes;
+                explanation += " This is not the total memory used by the period or renderer.";
+            }
+            ImGui::SetItemTooltip ("%s", explanation.c_str ());
+            if (clear) {
+                std::string error;
+                if (!sunstudyhud::ClearPeriodCache (error))
+                    hudshell::ErrorNotice ("Period cache not freed: " + error);
+                else {
+                    state.sunPeriodPlay.playing = false;
+                    state.sunPointPlay.playing = false;
+                    state.sunPeriodProfile = false;
+                    state.sunClockBrushActive = state.sunClockBrushDragged = false;
+                    state.sunClockBrushId = 0;
+                    state.sunClockBrushFrame = -1;
+                }
+            }
+        }
+        else if (state.sunShowsPeriod)
+            SunStudyNote (
+                "Period frame kept; run again to browse it or read a study point.",
+                "Free period cache released the totals, carrier, point profile and optional playback archive. "
+                "The renderer still owns the published frame and its GPU textures.");
+    }
     return reopen;
 }
 

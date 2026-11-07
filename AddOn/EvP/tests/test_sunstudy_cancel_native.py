@@ -11,8 +11,8 @@ def source(name):
 
 def test_manual_uses_one_owned_token_for_preparation_rays_and_publication():
     runner = source("NativeCommands/SunStudyHudRunner.cpp")
-    assert "PrepareCapturedSunStudy (capture->captured, gCancel)" in runner
-    assert "&gCancel, revision))" in runner
+    assert "PrepareCapturedSunStudy (captured, gCancel)" in runner
+    assert "&cancel, revision))" in runner
     assert "ShowSunStudyForHud (show, ticket)" in runner
     assert 'Call ("CancelSunStudy"' not in runner
     assert "ticket->cancelled.load ()" in runner
@@ -55,6 +55,24 @@ def test_manual_status_cannot_be_overwritten_by_cancelled_progress():
     assert "gStatus.resolvedSteps = gStatus.totalSteps = 0" in runner
     assert "sun-cancel source=manual" in runner
     assert "sun-cancel source=follower" in source("NativeCommands/SunStudyFollowerDriver.cpp")
+
+
+def test_period_release_erases_only_its_carrier_and_late_failure_uses_the_same_cleanup():
+    runner = source("NativeCommands/SunStudyHudRunner.cpp")
+    period = source("NativeCommands/SunStudyHudPeriod.cpp")
+    release = period.split("bool ReleaseRetained", 1)[1].split("void WakePeriodWorkerLocked", 1)[0]
+    assert "onlyIfIdle && gPeriodWorkerRunning" in release
+    assert "retired = std::move (gRetained)" in release
+    assert "Erase (carrierId, carrierRevision)" in release
+    assert "Clear ()" not in release and "ShowSunStudyForHud" not in release
+    finish = runner.split("const auto finish =", 1)[1].split("const auto failed =", 1)[0]
+    assert finish.index("period::Release ()") < finish.index("Erase (studyId, revision)")
+    clear = runner.split("bool ClearPeriodCache", 1)[1].split("void Cancel ()", 1)[0]
+    assert "gStatus.running" in clear and "period::ReleaseIfIdle ()" in clear
+    hud = source("ArchViz/DiligentHudSunRun.cpp")
+    assert 'SmallButton ("Free period cache")' in hud
+    assert "ClearPeriodCache (error)" in hud
+    assert "ShowSunStudyForHud" not in hud
 
 
 def test_primary_control_is_persistent_and_shared_by_other_analysis_workflows():

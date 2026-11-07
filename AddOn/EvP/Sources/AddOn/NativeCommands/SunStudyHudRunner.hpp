@@ -200,6 +200,10 @@ bool ReadPeriodPoints (const std::vector<size_t>& samples, PeriodPoint& mean);
 // Asks for the samples' profile; LatestPeriodProfile returns it once ready.
 void RequestPeriodProfile (const std::vector<size_t>& samples);
 PeriodProfile LatestPeriodProfile ();
+// Release the retained totals, carrier, profile and optional playback archive.
+// The renderer keeps its last frame; period browsing needs another run.
+// Refuses while a manual run or the period worker is active; repeated calls are safe.
+bool ClearPeriodCache (std::string& error);
 
 // ---- the sun path (#152, an optional preview) ---------------------------
 //

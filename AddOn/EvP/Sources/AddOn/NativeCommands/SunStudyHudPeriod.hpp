@@ -28,6 +28,8 @@ void Retain (std::unique_ptr<evp::sunstudy::rust::RustAnnualSun> annual,
 // A view or a profile is being prepared through the carrier.
 bool WorkerBusy ();
 void Release ();
+// Atomically refuse an active worker or release the period and its carrier.
+bool ReleaseIfIdle ();
 // Quit/unload: drop pending requests, join the worker, release.
 void Shutdown ();
 

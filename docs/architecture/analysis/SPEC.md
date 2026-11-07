@@ -60,8 +60,9 @@ Site daylight is the sun above the altitude floor inside the daily time slice (o
 month). Surface facing uses the day study's own incidence cull. Obstruction loss is
 `surface facing - unoccluded`; back-facing time is never reported as shade. Sunless days count
 at zero hours. Totals are `f64`, summed in day order, stored sample-major `[sample][month]` for
-unoccluded and facing only (192 bytes a sample whatever the period); no step mask is retained by
-default.
+unoccluded and facing, plus the 14 daily-hours histogram bins: 24 `f64` and 14 `f32` values,
+**248 bytes a sample** before allocator overhead, whatever the period. No step mask is retained by
+default; the optional whole-map playback archive is additional.
 
 Playback has two explicitly different scopes. **Keep whole-map days for playback** opts into a whole-map,
 in-memory archive of each traced day's lit/facing bits; it is not a file and is released with the
@@ -71,6 +72,13 @@ retained period's sun directions and CPU traversal, then retain the averaged per
 that point. It can play every step, a fixed clock time, or day by day without archiving the whole
 map. It cannot provide whole-map historical frames, and a Preview profile still represents only
 the days actually traced.
+
+**Free period cache** releases the retained totals, carrier record, point profile and optional
+whole-map archive when no run or period worker is active. Releasing a period also erases its exact
+carrier revision from `SunStudyStore`; it never clears unrelated studies or hides the overlay. The
+renderer keeps its published frame and GPU textures, while period browsing, playback and point reads
+become unavailable until another run. Repeated clears are idempotent, and cancellation or display
+failure after retention uses the same cleanup.
 
 The single-day and point-playback clocks are interactive: clicking a radial bar selects that measured
 step; dragging clockwise selects a half-open time slice. A single-day brush drives the single-shadow
