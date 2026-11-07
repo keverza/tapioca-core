@@ -1,0 +1,366 @@
+// The solar cut's preview: the removed part drawn as a transparent cut-out
+// (faint surfaces, its outline edges, the cut faces seen through the building
+// and hatched) and the sun the cut wins as one region per surface with its
+// perimeter, not one square per cell.
+
+#include "ArchViz/SunStudyObstructionGeometry.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <map>
+#include <tuple>
+#include <vector>
+
+namespace geomsrv::archviz {
+
+namespace {
+
+using V3 = std::array<double, 3>;
+
+V3 Sub (const V3& a, const V3& b)
+{
+    return { a[0] - b[0], a[1] - b[1], a[2] - b[2] };
+}
+V3 Add (const V3& a, const V3& b)
+{
+    return { a[0] + b[0], a[1] + b[1], a[2] + b[2] };
+}
+V3 Scale (const V3& a, double s)
+{
+    return { a[0] * s, a[1] * s, a[2] * s };
+}
+double Dot (const V3& a, const V3& b)
+{
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+V3 Cross (const V3& a, const V3& b)
+{
+    return { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
+}
+bool Normalize (V3& a)
+{
+    const double length = std::sqrt (Dot (a, a));
+    if (!(length > 1.0e-12) || !std::isfinite (length))
+        return false;
+    a = Scale (a, 1.0 / length);
+    return true;
+}
+V3 Corner (const evp::sunstudy::SolarCutTriangle& triangle, int c)
+{
+    return { triangle.v[c][0], triangle.v[c][1], triangle.v[c][2] };
+}
+
+void Triangle (const V3& a, const V3& b, const V3& c, const V3& normal, uint32_t rgba, GhPreviewBucket& bucket)
+{
+    const uint32_t base = uint32_t (bucket.meshVertices.size ());
+    for (const V3* p : { &a, &b, &c }) {
+        GhPreviewMeshVertex vertex;
+        vertex.x = float ((*p)[0]);
+        vertex.y = float ((*p)[1]);
+        vertex.z = float ((*p)[2]);
+        vertex.nx = float (normal[0]);
+        vertex.ny = float (normal[1]);
+        vertex.nz = float (normal[2]);
+        vertex.rgba = rgba;
+        bucket.meshVertices.push_back (vertex);
+    }
+    bucket.meshIndices.insert (bucket.meshIndices.end (), { base, base + 1, base + 2 });
+}
+
+void Segment (const V3& a, const V3& b, uint32_t rgba, GhPreviewBucket& bucket)
+{
+    const float from[3] = { float (a[0]), float (a[1]), float (a[2]) };
+    const float to[3] = { float (b[0]), float (b[1]), float (b[2]) };
+    AppendPreviewSegment (from, to, rgba, bucket);
+}
+
+// Two unit vectors spanning the plane of `n`: the first horizontal on a wall,
+// world X-ish on a floor.
+void PlaneBasis (const V3& n, V3& u, V3& v)
+{
+    const V3 axis = std::abs (n[2]) < 0.9 ? V3 { 0.0, 0.0, 1.0 } : V3 { 1.0, 0.0, 0.0 };
+    u = Cross (axis, n);
+    Normalize (u);
+    v = Cross (n, u);
+}
+
+// The removed part's outline: per group of near-coplanar triangles (sector
+// planes a few degrees apart count as one face), every triangle edge is laid
+// on its line with its direction; where the two directions cover a stretch
+// equally it is inside the face, otherwise it is the face's outline. This is
+// immune to the T-junctions clipping and the trapezoid caps leave.
+void OutlineEdges (const std::vector<const evp::sunstudy::SolarCutTriangle*>& triangles, uint32_t rgba,
+                   GhPreviewBucket& bucket)
+{
+    constexpr double kSameFace = 0.985; // ~10 degrees
+    std::vector<V3> faces;
+    using Key = std::tuple<size_t, long long, long long, long long, long long, long long, long long>;
+    std::map<Key, std::vector<std::pair<double, int>>> lines;
+    std::map<Key, std::pair<V3, V3>> frames; // foot, direction
+    const auto q = [] (double x) { return (long long) std::llround (x * 1000.0); };
+    for (const auto* triangle : triangles) {
+        const V3 a = Corner (*triangle, 0), b = Corner (*triangle, 1), c = Corner (*triangle, 2);
+        V3 n = Cross (Sub (b, a), Sub (c, a));
+        if (!Normalize (n))
+            continue;
+        size_t face = faces.size ();
+        for (size_t f = 0; f < faces.size (); ++f)
+            if (Dot (faces[f], n) > kSameFace) {
+                face = f;
+                break;
+            }
+        if (face == faces.size ())
+            faces.push_back (n);
+        const V3 corners[3] = { a, b, c };
+        for (int e = 0; e < 3; ++e) {
+            const V3& from = corners[e];
+            const V3& to = corners[(e + 1) % 3];
+            V3 dir = Sub (to, from);
+            if (!Normalize (dir))
+                continue;
+            int sign = 1;
+            const int major = std::abs (dir[0]) >= std::abs (dir[1]) ? (std::abs (dir[0]) >= std::abs (dir[2]) ? 0 : 2)
+                                                                     : (std::abs (dir[1]) >= std::abs (dir[2]) ? 1 : 2);
+            if (dir[major] < 0.0) {
+                dir = Scale (dir, -1.0);
+                sign = -1;
+            }
+            const V3 foot = Sub (from, Scale (dir, Dot (from, dir)));
+            const Key key { face, q (dir[0]), q (dir[1]), q (dir[2]), q (foot[0]), q (foot[1]), q (foot[2]) };
+            const double t0 = Dot (from, dir), t1 = Dot (to, dir);
+            auto& events = lines[key];
+            events.emplace_back ((std::min) (t0, t1), sign);
+            events.emplace_back ((std::max) (t0, t1), -sign);
+            frames.emplace (key, std::make_pair (foot, dir));
+        }
+    }
+    for (auto& [key, events] : lines) {
+        std::sort (events.begin (), events.end ());
+        const auto& [foot, dir] = frames[key];
+        int cover = 0;
+        double runFrom = 0.0;
+        bool open = false;
+        for (size_t i = 0; i < events.size (); ++i) {
+            cover += events[i].second;
+            const bool lastAtT = i + 1 == events.size () || events[i + 1].first > events[i].first + 1.0e-6;
+            if (!lastAtT)
+                continue;
+            if (cover != 0 && !open) {
+                runFrom = events[i].first;
+                open = true;
+            }
+            else if (cover == 0 && open) {
+                if (events[i].first - runFrom > 1.0e-4)
+                    Segment (Add (foot, Scale (dir, runFrom)), Add (foot, Scale (dir, events[i].first)), rgba, bucket);
+                open = false;
+            }
+        }
+    }
+}
+
+// Section hatching on a cut face: 45-degree lines, `spacing` apart and laid on
+// a grid fixed in space, so neighbouring triangles of one face continue them.
+size_t HatchTriangle (const evp::sunstudy::SolarCutTriangle& triangle, double spacing, uint32_t rgba,
+                      GhPreviewBucket& bucket)
+{
+    const V3 p[3] = { Corner (triangle, 0), Corner (triangle, 1), Corner (triangle, 2) };
+    V3 n = Cross (Sub (p[1], p[0]), Sub (p[2], p[0]));
+    if (!Normalize (n))
+        return 0;
+    V3 u, v;
+    PlaneBasis (n, u, v);
+    V3 across = Sub (u, v);
+    Normalize (across);
+    const double w[3] = { Dot (p[0], across), Dot (p[1], across), Dot (p[2], across) };
+    const double low = (std::min) ({ w[0], w[1], w[2] }), high = (std::max) ({ w[0], w[1], w[2] });
+    size_t drawn = 0;
+    for (double k = std::ceil (low / spacing); k * spacing <= high; k += 1.0) {
+        const double at = k * spacing;
+        V3 ends[2];
+        int found = 0;
+        for (int e = 0; e < 3 && found < 2; ++e) {
+            const int f = (e + 1) % 3;
+            if ((w[e] - at) * (w[f] - at) > 0.0 || w[e] == w[f])
+                continue;
+            const double t = (at - w[e]) / (w[f] - w[e]);
+            ends[found++] = Add (p[e], Scale (Sub (p[f], p[e]), t));
+        }
+        if (found == 2) {
+            Segment (ends[0], ends[1], rgba, bucket);
+            ++drawn;
+        }
+    }
+    return drawn;
+}
+
+} // namespace
+
+void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3],
+                            GhPreviewDrawables& drawables)
+{
+    const auto fill = [] (const std::vector<evp::sunstudy::SolarCutTriangle>& list, uint32_t rgba,
+                          GhPreviewBucket& bucket) {
+        for (const auto& triangle : list) {
+            const V3 a = Corner (triangle, 0), b = Corner (triangle, 1), c = Corner (triangle, 2);
+            V3 n = Cross (Sub (b, a), Sub (c, a));
+            if (Normalize (n))
+                Triangle (a, b, c, n, rgba, bucket);
+        }
+    };
+    // The cutting surface: a faint sheet with its edge rays and rim.
+    fill (cut.envelope, kSolarCutEnvelopeRgba, drawables.depthTested);
+    const V3 from { point[0], point[1], point[2] };
+    for (size_t i = 0; i < cut.envelope.size (); ++i) {
+        const V3 a = Corner (cut.envelope[i], 1), b = Corner (cut.envelope[i], 2);
+        if (i == 0)
+            Segment (from, a, kSunObstructionPink, drawables.depthTested);
+        if (i + 1 == cut.envelope.size ())
+            Segment (from, b, kSunObstructionPink, drawables.depthTested);
+        Segment (a, b, kSunObstructionPink, drawables.depthTested);
+    }
+    // What goes, as a transparent cut-out: its outer surfaces faint where the
+    // building shows them, the cut faces through the building (x-ray) faint and
+    // hatched in a darker pink, and the outline of the removed solid; its hidden
+    // edges are drawn dashed by the depth-tested line pass.
+    fill (cut.removed, kSolarCutRemovedRgba, drawables.depthTested);
+    fill (cut.caps, kSolarCutCapRgba, drawables.xray);
+    constexpr double kHatchSpacing = 0.3;
+    constexpr size_t kHatchBudget = 20000;
+    size_t hatched = 0;
+    for (const auto& triangle : cut.caps) {
+        if (hatched >= kHatchBudget)
+            break;
+        hatched += HatchTriangle (triangle, kHatchSpacing, kSolarCutHatchRgba, drawables.xray);
+    }
+    std::vector<const evp::sunstudy::SolarCutTriangle*> solid;
+    solid.reserve (cut.removed.size () + cut.caps.size ());
+    for (const auto& triangle : cut.removed)
+        solid.push_back (&triangle);
+    for (const auto& triangle : cut.caps)
+        solid.push_back (&triangle);
+    OutlineEdges (solid, kSolarCutEdgeRgba, drawables.depthTested);
+}
+
+void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables)
+{
+    // One region per surface: cells are grouped by face direction and plane,
+    // laid on a raster of the study's grid, small gaps closed and holes filled,
+    // and the raster's boundary traced by marching squares into one filled
+    // shape with its perimeter.
+    const double step = size > 0.0 ? size : 0.5;
+    using GroupKey = std::tuple<long long, long long, long long, long long>;
+    struct Group {
+        V3 n;
+        double offset = 0.0;
+        std::map<std::pair<int, int>, int> cells;
+    };
+    std::map<GroupKey, Group> groups;
+    for (const auto& cell : cells) {
+        V3 n { cell.normal[0], cell.normal[1], cell.normal[2] };
+        if (!Normalize (n))
+            continue;
+        V3 rounded { std::round (n[0] * 4.0), std::round (n[1] * 4.0), std::round (n[2] * 4.0) };
+        if (!Normalize (rounded))
+            continue;
+        const V3 p { cell.position[0], cell.position[1], cell.position[2] };
+        const double offset = Dot (rounded, p);
+        const GroupKey key { std::llround (rounded[0] * 4.0), std::llround (rounded[1] * 4.0),
+                             std::llround (rounded[2] * 4.0), std::llround (offset) };
+        Group& group = groups[key];
+        group.n = rounded;
+        V3 u, v;
+        PlaneBasis (rounded, u, v);
+        const int i = int (std::lround (Dot (p, u) / step)), j = int (std::lround (Dot (p, v) / step));
+        if (group.cells.emplace (std::make_pair (i, j), 1).second)
+            group.offset += offset;
+    }
+    for (auto& [key, group] : groups) {
+        if (group.cells.empty ())
+            continue;
+        const double height = group.offset / double (group.cells.size ()) + 0.03;
+        V3 u, v;
+        PlaneBasis (group.n, u, v);
+        int minI = INT32_MAX, minJ = INT32_MAX, maxI = INT32_MIN, maxJ = INT32_MIN;
+        for (const auto& [ij, unused] : group.cells) {
+            minI = (std::min) (minI, ij.first), maxI = (std::max) (maxI, ij.first);
+            minJ = (std::min) (minJ, ij.second), maxJ = (std::max) (maxJ, ij.second);
+        }
+        constexpr int kPad = 2;
+        const int w = maxI - minI + 1 + 2 * kPad, h = maxJ - minJ + 1 + 2 * kPad;
+        if (size_t (w) * size_t (h) > 4000000u)
+            continue; // a raster that large is not a preview
+        std::vector<uint8_t> in (size_t (w) * h, 0), grown (in.size (), 0);
+        const auto at = [w] (int x, int y) { return size_t (y) * w + x; };
+        for (const auto& [ij, unused] : group.cells)
+            in[at (ij.first - minI + kPad, ij.second - minJ + kPad)] = 1;
+        // Closing: grow by one cell, then shrink by one -- joins cells one gap apart.
+        for (int y = 1; y + 1 < h; ++y)
+            for (int x = 1; x + 1 < w; ++x)
+                for (int dy = -1; dy <= 1 && !grown[at (x, y)]; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx)
+                        if (in[at (x + dx, y + dy)]) {
+                            grown[at (x, y)] = 1;
+                            break;
+                        }
+        std::fill (in.begin (), in.end (), uint8_t (0));
+        for (int y = 1; y + 1 < h; ++y)
+            for (int x = 1; x + 1 < w; ++x) {
+                bool all = true;
+                for (int dy = -1; dy <= 1 && all; ++dy)
+                    for (int dx = -1; dx <= 1 && all; ++dx)
+                        all = grown[at (x + dx, y + dy)] != 0;
+                in[at (x, y)] = all ? 1 : 0;
+            }
+        // Holes: whatever empty cell the outside cannot reach is inside.
+        std::vector<uint8_t> outside (in.size (), 0);
+        std::vector<std::pair<int, int>> stack { { 0, 0 } };
+        outside[0] = 1;
+        while (!stack.empty ()) {
+            const auto [x, y] = stack.back ();
+            stack.pop_back ();
+            const int nx[4] = { x + 1, x - 1, x, x }, ny[4] = { y, y, y + 1, y - 1 };
+            for (int k = 0; k < 4; ++k)
+                if (nx[k] >= 0 && ny[k] >= 0 && nx[k] < w && ny[k] < h && !in[at (nx[k], ny[k])] &&
+                    !outside[at (nx[k], ny[k])]) {
+                    outside[at (nx[k], ny[k])] = 1;
+                    stack.emplace_back (nx[k], ny[k]);
+                }
+        }
+        for (size_t c = 0; c < in.size (); ++c)
+            in[c] = outside[c] ? 0 : 1;
+        const auto world = [&] (double x, double y) {
+            return Add (Scale (group.n, height),
+                        Add (Scale (u, (x + minI - kPad) * step), Scale (v, (y + minJ - kPad) * step)));
+        };
+        // Marching squares between cell centres: inside corners and edge
+        // midpoints in order make the fill; the midpoints pair into the outline.
+        for (int y = 0; y + 1 < h; ++y)
+            for (int x = 0; x + 1 < w; ++x) {
+                const int cx[4] = { x, x + 1, x + 1, x }, cy[4] = { y, y, y + 1, y + 1 };
+                bool inside[4];
+                int count = 0;
+                for (int k = 0; k < 4; ++k)
+                    count += (inside[k] = in[at (cx[k], cy[k])] != 0) ? 1 : 0;
+                if (count == 0)
+                    continue;
+                std::vector<V3> polygon, mids;
+                for (int k = 0; k < 4; ++k) {
+                    const int l = (k + 1) % 4;
+                    if (inside[k])
+                        polygon.push_back (world (cx[k], cy[k]));
+                    if (inside[k] != inside[l]) {
+                        const V3 mid = world (0.5 * (cx[k] + cx[l]), 0.5 * (cy[k] + cy[l]));
+                        polygon.push_back (mid);
+                        mids.push_back (mid);
+                    }
+                }
+                for (size_t k = 1; k + 1 < polygon.size (); ++k)
+                    Triangle (polygon[0], polygon[k], polygon[k + 1], group.n, kSolarCutWonRgba, drawables.depthTested);
+                for (size_t k = 0; k + 1 < mids.size (); k += 2)
+                    Segment (mids[k], mids[k + 1], kSolarCutWonEdgeRgba, drawables.depthTested);
+            }
+    }
+}
+
+} // namespace geomsrv::archviz

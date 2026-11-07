@@ -59,17 +59,22 @@ bool BuildSunObstructionGeometry (const geomsrv::Snapshot& snapshot,
                                   const std::vector<evp::sunstudy::SunObstructionResult>& steps, int timestepMinutes,
                                   SunObstructionGeometry& result);
 
-// The solar cut's preview: the merged cutting surface (faint), the blockers'
-// surfaces above it (what goes) and the cut faces (strong), and the envelope's
-// edge rays from the point. Cells whose shadow the cut removes are drawn by
-// AppendSolarCutWonCells, in their own colour.
-constexpr uint32_t kSolarCutEnvelopeRgba = 0xF240BF38u;
-constexpr uint32_t kSolarCutRemovedRgba = 0xF240BF90u;
-constexpr uint32_t kSolarCutCapRgba = 0xF240BFD8u;
-constexpr uint32_t kSolarCutWonRgba = 0xFFE27AC0u; // sun the cut wins: a warm yellow, apart from the map's colours
+// The solar cut's preview (SunStudySolarCutPreview.cpp): the merged cutting
+// surface (faint) with its edge rays from the point, and what goes as a
+// transparent cut-out -- its surfaces faint, the cut faces seen through the
+// building and hatched in a darker pink, the removed solid's outline. Cells
+// whose shadow the cut removes are drawn by AppendSolarCutWonCells.
+constexpr uint32_t kSolarCutEnvelopeRgba = 0xF240BF30u;
+constexpr uint32_t kSolarCutRemovedRgba = 0xF240BF40u;
+constexpr uint32_t kSolarCutCapRgba = 0xC8329650u;
+constexpr uint32_t kSolarCutHatchRgba = 0xA01E78C8u;
+constexpr uint32_t kSolarCutEdgeRgba = 0x9E1E73FFu;
+constexpr uint32_t kSolarCutWonRgba = 0xFFE27AB0u;     // sun the cut wins: a warm yellow, apart from the map's colours
+constexpr uint32_t kSolarCutWonEdgeRgba = 0xD08A10FFu; // its perimeter
 void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3],
                             GhPreviewDrawables& drawables);
-// One square per won cell, `size` across, lifted off its surface along its normal.
+// The won cells as one region per surface (cells `size` apart, gaps of one
+// cell closed, holes filled), lifted off the surface, with its perimeter.
 struct SolarCutWonCell {
     double position[3] = {};
     double normal[3] = { 0.0, 0.0, 1.0 };

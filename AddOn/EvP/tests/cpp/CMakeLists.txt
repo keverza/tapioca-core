@@ -215,6 +215,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewpointOverlayGeometry.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyObstructionGeometry.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudySolarCutPreview.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyObstructionController.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudGumball.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
@@ -1185,6 +1186,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyoccluders.cpp
     test_sunstudyobstruction.cpp
     test_sunstudysolarcut.cpp
+    test_sunstudysolarcutpreview.cpp
     test_sunstudyobstruction_geometry.cpp
     test_sunstudyobstruction_controller.cpp
     test_sunstudyseasonal.cpp
