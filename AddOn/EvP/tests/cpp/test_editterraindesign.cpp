@@ -2782,3 +2782,44 @@ TEST (EditTerrainDesignJob, TwoPathsKeepTheirOutlineGradingWhenARegionIsAddedAwa
     ASSERT_TRUE (inside.has_value ());
     EXPECT_NEAR (*inside, 8, 1e-9);
 }
+
+// #149: a fixed line and a fixed point at the line's own vertex, with the band or the outline.
+// The unified build used to look a point control's spot up by its control index, so a line control
+// before it ran past the end and refused as "RegionTopology"; and a unified refusal returned
+// before its conditions and located conflicts were filled in. Both requests now lock both controls,
+// and raising the line refuses with the conflicts located on it.
+TEST (HudTerrainDesign, ALineAndItsOwnVertexFixedBuildOrRefuseLocatedForBandAndOutline149)
+{
+    for (const bool band : { true, false })
+        for (const double z : { 10.0, 11.0 }) {
+            SCOPED_TRACE (std::string (band ? "band " : "outline ") + std::to_string (z));
+            TerrainHostFixture fixture;
+            LandscapeSource guide;
+            guide.entityId = edit::AddPolyline (fixture.doc, { { 10, -1, z }, { 20, 1, z } }, false);
+            Id source = 0;
+            std::string error;
+            ASSERT_TRUE (AddLandscapeSource (fixture.doc, guide, source, error)) << error;
+            const auto vertex = edit::Find (fixture.doc, guide.entityId)->vertices.front ().id;
+            ASSERT_TRUE (SetLandscapeTerrainControl (fixture.doc, source, 0, true, error)) << error;
+            ASSERT_TRUE (SetLandscapeTerrainControl (fixture.doc, source, vertex, true, error)) << error;
+            eh::Session session (fixture.doc);
+            session.terrainBand = band;
+            ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+            layers::Layer layer;
+            const bool raised = z > 10;
+            ASSERT_TRUE (AwaitTerrain (session, layer, raised));
+            const auto* current = eh::CurrentTerrainDesign (session);
+            ASSERT_NE (current, nullptr);
+            if (!raised) {
+                EXPECT_EQ (current->error, "");
+                EXPECT_GE (current->result.locked.size (), 2u) << "the line's vertices and the point";
+                continue;
+            }
+            EXPECT_EQ (current->error.rfind ("BuildLockedConflict", 0), 0u) << current->error;
+            ASSERT_FALSE (current->unmet.empty ()) << "the refusal says what was not met";
+            ASSERT_FALSE (current->conflicts.empty ()) << "and where";
+            EXPECT_EQ (current->conflicts.front ().code, HybridConflictCode::LockedConflict);
+            ASSERT_TRUE (current->conflicts.front ().control);
+            EXPECT_EQ (current->conflicts.front ().control->source, source);
+        }
+}

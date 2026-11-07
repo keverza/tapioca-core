@@ -376,12 +376,9 @@ void CompileOutline (const edit::Document& doc, const PathDesignRequest& request
 
 void CompilePath (const edit::Document& doc, const PathDesignRequest& request, FieldPlan& plan)
 {
-    // Fixed heights are honoured by the band alone so far (the outline lane's documented rule,
-    // kept): with any enabled, an outline request grades the chosen path's band, and the job
-    // and the recipe say so.
-    const auto& controls = doc.landscape->terrainControls;
-    const bool fixed = std::any_of (controls.begin (), controls.end (), [] (const auto& c) { return c.enabled; });
-    if (request.outline && !fixed) {
+    // Fixed heights lock on the outline's surface like on any other stage (#149: the outline
+    // lane's band-only rule is gone with that lane's exception).
+    if (request.outline) {
         CompileOutline (doc, request, plan);
         return;
     }

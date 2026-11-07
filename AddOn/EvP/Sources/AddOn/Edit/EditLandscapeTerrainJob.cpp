@@ -93,17 +93,11 @@ void MirrorPublished (const UnifiedTerrainResult& unified, const FieldPlan& plan
 TerrainRoute LandscapeTerrainRoute (const geomsrv::edit::Document& doc, bool hasPath, bool outline)
 {
     // #149 T1 (owner decision 2026-11-07): the P4c "outline stays legacy" exception is dropped.
-    // An outline request is one unified-build stage like any other; the legacy outline lane
-    // remains only as the parity oracle its tests compare against. Two cases keep the legacy
-    // lane: a request with neither a region target nor a path (its refusal text), and an outline
-    // request with fixed heights and no region, which grades the chosen path's band there
-    // (the documented rule) -- the unified band with fixed controls still refuses that scene.
-    if (!TerrainRegionObjects (doc).empty ())
-        return TerrainRoute::Unified;
-    const auto& controls =
-        doc.landscape ? doc.landscape->terrainControls : decltype (doc.landscape->terrainControls) {};
-    const bool fixed = std::any_of (controls.begin (), controls.end (), [] (const auto& c) { return c.enabled; });
-    return !hasPath || (outline && fixed) ? TerrainRoute::Legacy : TerrainRoute::Unified;
+    // An outline request is one unified-build stage like any other, fixed heights included; the
+    // legacy outline lane remains only as the parity oracle its tests compare against. A request
+    // with neither a region target nor a path keeps the legacy refusal text.
+    (void) outline;
+    return TerrainRegionObjects (doc).empty () && !hasPath ? TerrainRoute::Legacy : TerrainRoute::Unified;
 }
 
 PathDesignRequest PathRequestFor (const TerrainDesignOptions& options, bool namedRegion)
@@ -229,9 +223,6 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
         outcome.built = true;
         outcome.published = std::move (published);
         MirrorPublished (unified, plan, scope, *outcome.published, outcome);
-        if (job.options.outline && plan.outlines.empty () && !plan.paths.empty ())
-            outcome.unmet.push_back ("Fixed heights grade along the chosen path only, not yet from every path's "
-                                     "outline.");
         if (!plan.outlines.empty ()) {
             // The outline lane's located shortfalls, in its words.
             char text[256];

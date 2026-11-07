@@ -213,15 +213,9 @@ LandscapeRecipe ProjectLandscapeRecipe (const geomsrv::edit::Document& doc,
     const bool outline = path && path->outline;
     if (LandscapeTerrainRoute (doc, path.has_value (), outline) == TerrainRoute::Legacy) {
         recipe.ok = true;
-        // #149 T1: an outline is unified. Legacy remains for "nothing to grade" and for an outline
-        // request with fixed heights and no region (the band, as that lane documents).
-        recipe.route = path ? RecipeRoute::Legacy : RecipeRoute::Nothing;
-        recipe.routeText = path ? "Legacy lane: fixed heights grade along the chosen path's band, not yet from "
-                                  "every path's outline."
-                                : "Nothing to grade: no region has a terrain effect and no path is designed.";
-        if (path)
-            recipe.limitations.push_back ("Fixed heights are honoured by band grading only; other paths are not "
-                                          "graded (#149).");
+        // #149 T1: every designed path is unified; only "nothing to grade" stays here.
+        recipe.route = RecipeRoute::Nothing;
+        recipe.routeText = "Nothing to grade: no region has a terrain effect and no path is designed.";
         return recipe;
     }
     LandscapeSnapshot snapshot;
@@ -285,9 +279,6 @@ LandscapeRecipe ProjectLandscapeRecipe (const geomsrv::edit::Document& doc,
         row.effect = PathEffect (planned.design.effect);
         row.target = "Path profile and cross-sections";
         row.notes.push_back ("Always after every region: a path is not reordered among them.");
-        if (planned.design.outline)
-            row.notes.push_back ("Outline grading was asked for, but fixed heights grade along the chosen path's "
-                                 "band only.");
         inStack.insert (planned.object);
         recipe.rows.push_back (std::move (row));
     }
