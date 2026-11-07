@@ -181,6 +181,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOccluders.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunSeries.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPointProfile.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyObstruction.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySampler.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySurfaceSampling.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/VisibilityStudy.cpp"
@@ -1174,6 +1175,7 @@ set (EVP_TEST_SOURCES
     test_analysisprofile.cpp
     test_viewpointoverlay.cpp
     test_sunstudyoccluders.cpp
+    test_sunstudyobstruction.cpp
     test_sunstudyselectionbinding.cpp
     test_sunstudygputraversal.cpp
     test_sunstudypreview.cpp
