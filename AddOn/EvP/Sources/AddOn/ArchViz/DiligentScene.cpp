@@ -1036,6 +1036,7 @@ void DiligentScene::Shutdown ()
     impl_->ShutdownStorySlices ();
     impl_->ShutdownGhPreview ();
     impl_->ShutdownAnalysisOverlay ();
+    impl_->ShutdownObstructionOverlay ();
     // PLAT-RE151. ⚠️ THE FAILURE LATCH IS CLEARED WITH THEM: the next device may
     // be a different adapter, and a pipeline the last one could not compile is
     // not a verdict on this one.

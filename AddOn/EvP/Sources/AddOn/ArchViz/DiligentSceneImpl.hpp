@@ -643,6 +643,17 @@ struct geomsrv::archviz::DiligentScene::Impl {
         analysisOverlayKey = 0;
         analysisOverlayInitFailed = false;
     }
+
+    // Exact sun obstructions have their own content slot and GPU resources.
+    GhPreviewLayer obstructionOverlay;
+    uint64_t obstructionOverlayKey = 0;
+    bool obstructionOverlayInitFailed = false;
+    void ShutdownObstructionOverlay ()
+    {
+        obstructionOverlay.Shutdown ();
+        obstructionOverlayKey = 0;
+        obstructionOverlayInitFailed = false;
+    }
     Diligent::ITextureView* taaView = nullptr;
     bool taaEnabled = false;
     float taaStability = 0.9f;

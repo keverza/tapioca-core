@@ -244,6 +244,9 @@ struct HudState {
     float sunPointRadius = 0.0f;   // metres; 0 the one snapped cell
     std::vector<size_t> sunPointSamples;
     std::string sunPointSamplesFor; // "<study>|<radius>" they were found for
+    // Single-day exact obstruction: 0 off, 1 selected time step (pink),
+    // 2 whole day (timed parts coloured by their shadow hour).
+    int sunObstructionMode = 0;
     // The right-click menu's target: the measured point under the cursor.
     bool sunPointMenuValid = false;
     double sunPointMenuAt[3] = {};
@@ -871,6 +874,10 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state);
 void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContext* context, const HudState& state,
                                    const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
                                    uint32_t depthFormat, bool modelIsDrawn);
+// After analysis: single-day exact obstruction parts and whole-object wires.
+void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& state,
+                                      const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
+                                      uint32_t depthFormat, bool modelIsDrawn);
 void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
                                const float direction[3]);
 void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height);

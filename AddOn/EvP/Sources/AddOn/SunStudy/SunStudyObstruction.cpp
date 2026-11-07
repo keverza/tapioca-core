@@ -41,6 +41,7 @@ bool AttributeSunObstruction (const StudyRecord& record, const std::vector<size_
                               SunObstructionResult& result)
 {
     result = SunObstructionResult ();
+    result.minute = std::clamp (sun.time.hour * 60 + sun.time.minute, 0, 1439);
     if (!record.defaultRayBounds) {
         result.error = "exact obstruction attribution needs the study's original custom ray bounds";
         return false;
@@ -109,6 +110,32 @@ bool AttributeSunObstruction (const StudyRecord& record, const std::vector<size_
         out.sourceTriangle = nearest.tri - firstTriangle;
         out.context = context;
         out.distance = kAttributionTMin + nearest.t;
+    }
+    return true;
+}
+
+bool AttributeSunObstructionDay (const StudyRecord& record, const std::vector<size_t>& samples,
+                                 SunObstructionDayResult& result, const std::function<bool ()>& cancelled)
+{
+    result = SunObstructionDayResult ();
+    const auto& steps = record.series.Steps ();
+    result.steps.reserve (steps.size ());
+    for (const SunStep& step : steps) {
+        if (cancelled && cancelled ()) {
+            result.steps.clear ();
+            return false;
+        }
+        SunObstructionResult attributed;
+        if (!AttributeSunObstruction (record, samples, step, attributed)) {
+            result.steps.clear ();
+            result.error = attributed.error;
+            return false;
+        }
+        result.steps.push_back (std::move (attributed));
+    }
+    if (cancelled && cancelled ()) {
+        result.steps.clear ();
+        return false;
     }
     return true;
 }

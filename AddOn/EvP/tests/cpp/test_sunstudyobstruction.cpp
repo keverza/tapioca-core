@@ -74,6 +74,36 @@ TEST (SunStudyObstruction, NearerContextWinsAndMeshPrefixBecomesALocalTriangle)
     EXPECT_FALSE (result.cells[0].context);
 }
 
+TEST (SunStudyObstruction, WholeDayKeepsEachTimedHitAndDropsCancelledPartialResults)
+{
+    auto snapshot = std::make_shared<geomsrv::Snapshot> ();
+    snapshot->id = 43;
+    snapshot->meshes = { evptest::MakeBox ("roof", 0, 0, 5) };
+    StudyRecord record;
+    record.occluders = BuildSunStudyOccluders (*snapshot, ResolveElementRoles (*snapshot, {}, {}, {}));
+    record.positions = { 0.25, 0.25, 0.0 }; // null normal: a ground sample faces every direction
+    std::vector<SunStep> steps (2, Noon ());
+    steps[0].time = TimeOfDay { 8, 0 };
+    steps[1].time = TimeOfDay { 9, 0 };
+    steps[1].direction[2] = -1.0;
+    record.series = SunSeries::FromSteps (steps, 60);
+
+    SunObstructionDayResult result;
+    ASSERT_TRUE (AttributeSunObstructionDay (record, { 0 }, result)) << result.error;
+    ASSERT_EQ (result.steps.size (), 2u);
+    EXPECT_EQ (result.steps[0].minute, 480);
+    ASSERT_EQ (result.steps[0].cells.size (), 1u);
+    EXPECT_EQ (result.steps[0].cells[0].state, SunObstructionState::Blocked);
+    EXPECT_EQ (result.steps[0].cells[0].blockerGuid, "roof");
+    EXPECT_EQ (result.steps[1].minute, 540);
+    EXPECT_EQ (result.steps[1].cells[0].state, SunObstructionState::Lit);
+
+    int calls = 0;
+    EXPECT_FALSE (AttributeSunObstructionDay (record, { 0 }, result, [&] { return ++calls > 1; }));
+    EXPECT_TRUE (result.steps.empty ());
+    EXPECT_TRUE (result.error.empty ());
+}
+
 TEST (SunStudyObstruction, CustomBoundsAndInvalidSamplesAreNotInvented)
 {
     StudyRecord record;

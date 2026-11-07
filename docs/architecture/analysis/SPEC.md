@@ -86,6 +86,20 @@ view or time fan, while a period-point brush filters only the independent point 
 shadow-hours range is non-wrapping, so a drag that reaches the top from the left is explicitly
 constrained at 24:00 rather than silently wrapping into a second interval.
 
+A single-day study point also offers **exact obstruction attribution**, off by default. **Time step**
+re-traces the selected cells at the clock's selected measured step; **Whole day** re-traces every measured
+step. Face culling happens before the ray query. Analysis and context `QueryEngine`s are queried separately
+and the nearer hit wins; the result identifies the source object and mesh-local triangle rather than merely
+tinting a whole object. Custom ray bounds are refused until their numeric values are retained. Requests are
+revision/snapshot/sample/mode/step keyed, cancellable and latest-wins; an edited scene cannot display a
+historical result.
+
+Every blocking object is drawn once as a source/CAD-boundary wireframe (all triangle edges are the fallback
+when that metadata is absent). Only exact hit triangles are filled: pink for Time step, and a 00:00–24:00
+colour ramp for Whole day. Whole-day fills retain distinct timed hits, deduplicated across selected cells;
+multiple times on one part are drawn chronologically with the latest foremost. This is nearest-first
+attribution, not a claim to enumerate every downstream blocker.
+
 Presentation: the viewer shows the **mean unoccluded hours a represented day** over the period,
 drawn through the last traced day's samples and atlas, so the day study's hour bands apply. That
 day's step masks remain the shadow views' source and are labelled with their date. A period is

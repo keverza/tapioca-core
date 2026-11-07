@@ -15,6 +15,7 @@
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/MatrixMath.hpp"
+#include "ArchViz/SunStudyObstructionController.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 
@@ -416,6 +417,46 @@ void DrawSunStudyPointDay (HudState& state, const std::string& studyId)
         state.sunPlaying = false;
         state.sunTimeFrom = float (selection.fromMinute / 60.0);
         state.sunTimeTo = float (selection.toMinute / 60.0);
+    }
+
+    ImGui::SeparatorText ("Obstruction");
+    ImGui::RadioButton ("Off##sunobstruction", &state.sunObstructionMode, 0);
+    ImGui::SameLine ();
+    ImGui::RadioButton ("Time step##sunobstruction", &state.sunObstructionMode, 1);
+    ImGui::SameLine ();
+    ImGui::RadioButton ("Whole day##sunobstruction", &state.sunObstructionMode, 2);
+    ImGui::SetItemTooltip (
+        "Time step: exact nearest blockers at the clock's selected step, filled pink. Whole day: "
+        "every measured step, with exact parts coloured by shadow time. Both wire the whole object.");
+    if (!placed) {
+        SunStudyNote ("Place a study point to attribute its obstructions.");
+        return;
+    }
+    if (state.sunObstructionMode == 0)
+        return;
+    auto& tasks = SunObstructionTasks ();
+    const auto frame = tasks.Latest ();
+    if (frame == nullptr || frame->studyId != studyId) {
+        SunStudyNote (tasks.Busy () ? "Finding exact obstructing parts..." : "Waiting for the current study...");
+    }
+    else if (!frame->error.empty ())
+        hudshell::ErrorNotice ("Obstruction not shown: " + frame->error);
+    else if (!SunObstructionFrameCurrent (frame, studyId))
+        SunStudyNote ("Obstruction hidden: the scene changed; run the day again.");
+    else if (frame->timedParts == 0)
+        SunStudyNote (frame->mode == SunObstructionMode::WholeDay ? "No obstruction found on any measured step."
+                                                                  : "No obstruction at this time step.");
+    else {
+        char line[160];
+        if (frame->mode == SunObstructionMode::WholeDay)
+            std::snprintf (line, sizeof (line), "%zu timed part(s) on %zu blocking object(s); colour = shadow time",
+                           frame->timedParts, frame->blockerObjects);
+        else
+            std::snprintf (line, sizeof (line), "%02d:%02d: %zu exact part(s) on %zu blocking object(s), pink",
+                           frame->minute / 60, frame->minute % 60, frame->timedParts, frame->blockerObjects);
+        SunStudyNote (line, "Whole-day gradient: midnight blue, dawn orange, noon yellow, dusk red, midnight blue. "
+                            "A part that blocks at several steps has one timed fill per step, drawn chronologically "
+                            "with the latest foremost. Wireframes use source/CAD boundaries where available.");
     }
 }
 

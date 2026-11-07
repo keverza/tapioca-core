@@ -7,6 +7,7 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
+#include "ArchViz/SunStudyObstructionController.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "ArchViz/ViewpointOverlayGeometry.hpp"
 #include "ArchViz/ViewpointStudyController.hpp"
@@ -180,6 +181,32 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
         AppendPolyline (state.analysisPath->points, kAnalysisPathRgba, drawables.depthTested);
     scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, &drawables, key,
                                modelIsDrawn);
+}
+
+void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& state,
+                                      const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
+                                      uint32_t depthFormat, bool modelIsDrawn)
+{
+    const std::string shown = scene.ShownSunStudyId ();
+    SunObstructionRequest request;
+    const bool sunTab = state.analysisFocus.tab == analysistabs::kSunTab && scene.ShownAnalysisKind () == 0;
+    if (!state.readOnly && sunTab && !state.sunShowsPeriod && state.sunPointPlaced && state.sunObstructionMode != 0 &&
+        !shown.empty () && RefreshSunStudyPointSamples (state, shown)) {
+        request.studyId = shown;
+        request.samples = state.sunPointSamples;
+        request.mode = state.sunObstructionMode == 2 ? SunObstructionMode::WholeDay : SunObstructionMode::TimeStep;
+        request.step = state.sunStep;
+    }
+    auto& tasks = SunObstructionTasks ();
+    tasks.Request (request);
+    const auto frame = tasks.Latest ();
+    if (!SunObstructionFrameCurrent (frame, shown) || !frame->error.empty ()) {
+        scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, nullptr, 0,
+                                      modelIsDrawn);
+        return;
+    }
+    scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, &frame->drawables,
+                                  frame->generation, modelIsDrawn);
 }
 
 } // namespace geomsrv::archviz

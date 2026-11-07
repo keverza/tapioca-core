@@ -617,6 +617,11 @@ class DiligentScene final {
                               uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                               const GhPreviewDrawables* replacement, uint64_t key, bool modelIsDrawn);
 
+    // Dedicated exact-obstruction channel; key 0 hides without touching analysis.
+    void DrawObstructionOverlay (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                                 uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                                 const GhPreviewDrawables* replacement, uint64_t key, bool modelIsDrawn);
+
     // ---- picking (PLAT-RE34) -----------------------------------------------
     // The same geometry, drawn as FLAT ID COLOURS into DiligentPickBuffer's id
     // target.

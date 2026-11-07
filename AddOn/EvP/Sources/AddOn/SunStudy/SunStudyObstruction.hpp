@@ -8,6 +8,7 @@
 #include "SunStudy/SunSeries.hpp"
 
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -32,7 +33,13 @@ struct SunObstructionCell {
 };
 
 struct SunObstructionResult {
+    int minute = 0;                        // clock minute of the measured sun step
     std::vector<SunObstructionCell> cells; // aligned with the requested sample order
+    std::string error;
+};
+
+struct SunObstructionDayResult {
+    std::vector<SunObstructionResult> steps; // every measured step, with its own exact timed hits
     std::string error;
 };
 
@@ -41,6 +48,12 @@ struct SunObstructionResult {
 // cell. Custom ray bounds are refused because StudyRecord does not retain them.
 bool AttributeSunObstruction (const StudyRecord& record, const std::vector<size_t>& samples, const SunStep& sun,
                               SunObstructionResult& result);
+
+// Whole-day attribution retains every timed hit rather than averaging away a
+// part's multiple shadow times. Cancellation returns false with an empty error
+// and no partial result, matching the point-profile worker convention.
+bool AttributeSunObstructionDay (const StudyRecord& record, const std::vector<size_t>& samples,
+                                 SunObstructionDayResult& result, const std::function<bool ()>& cancelled = {});
 
 } // namespace evp::sunstudy
 

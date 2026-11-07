@@ -45,6 +45,7 @@
 #include "NativeCommands/GraphCaptureService.hpp"
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
 #include "NativeCommands/SurfaceInspectorCommands.hpp"
+#include "ArchViz/SunStudyObstructionController.hpp"
 #include "ArchViz/VisibilityStudyController.hpp"
 #include "ArchViz/ViewpointStudyController.hpp"
 #include "NodeGraph/ArchicadHostImpl.hpp"   // the graph runtime's one ACAPI seam
@@ -184,6 +185,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             // its Close did not already (a no-op then).
             geomsrv::archviz::overlaycontrol::OnProjectClosed ();
             geomsrv::archviz::planframes::Shutdown ();
+            geomsrv::archviz::ResetSunObstructionTasks ();
             geomsrv::ServerState::Get ().modelOpen.store (true);
             // E25: a different document is the largest change there is, and every
             // element observer just went with the old one. Bump the token (so a
@@ -216,6 +218,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             geomsrv::archviz::overlaycontrol::OnProjectClosed ();
             // The plan frame record subclasses the plan's canvas; it ends with it.
             geomsrv::archviz::planframes::Shutdown ();
+            geomsrv::archviz::ResetSunObstructionTasks ();
             geomsrv::ServerState::Get ().modelOpen.store (false);
             geomsrv::ChangeTracker::Get ().OnProjectEvent ();
             geomsrv::ArmWorker::Get ().RequestStop ();
@@ -263,6 +266,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             evp::MainThreadGate::Get ().BeginShutdown ();
             // After the gate: a run waiting on a main-thread job is woken, not deadlocked.
             geomsrv::sunstudyhud::Shutdown ();
+            geomsrv::archviz::ShutdownSunObstructionTasks ();
             geomsrv::archviz::massinghybrid::Shutdown ();
             geomsrv::archviz::massingbake::Shutdown ();
             geomsrv::archviz::massingslicesmodel::Shutdown ();
@@ -691,6 +695,7 @@ GSErrCode FreeData (void)
     evp::nodegraph::ShutDownWorkerPool ();
     evp::MainThreadGate::Get ().BeginShutdown ();
     geomsrv::sunstudyhud::Shutdown ();
+    geomsrv::archviz::ShutdownSunObstructionTasks ();
     geomsrv::archviz::massinghybrid::Shutdown ();
     geomsrv::archviz::massingbake::Shutdown ();
     geomsrv::archviz::massingslicesmodel::Shutdown ();
