@@ -49,6 +49,7 @@ mod blend;
 mod reach;
 mod refine;
 pub(super) mod supports;
+pub(in crate::terrain) mod toe;
 
 use refine::Graded;
 pub use refine::{Refine, Refined};
@@ -138,7 +139,8 @@ pub struct Outlined {
     /// Flat xyz proposed vertices; the plan positions are `mesh.points`'.
     pub points: Vec<f64>,
     /// The rebuilt base mesh. Derived support breaklines append after the caller
-    /// breaklines, mapped to source TIN edges by `surface_supports`; the
+    /// breaklines and the `toe` lines (#149 T2), mapped to source TIN edges by
+    /// `surface_supports`; the
     /// refinement's crossing lines append after those and have no source. The split's
     /// line origins refer to `stitch` (before the base split adds its crossings).
     pub mesh: RegionMesh,
@@ -160,6 +162,9 @@ pub struct Outlined {
     pub clipped: u32,
     /// The refinement's report; default without one.
     pub refined: Refined,
+    /// Toe breaklines in the mesh (#149 T2), after the caller lines; zero when
+    /// there is no toe or the triangulation could not take it.
+    pub toe: u32,
 }
 
 /// Plan spacing of the region ring samples checked for a clipped face, metres.
@@ -580,6 +585,26 @@ impl Operator {
         })
     }
 
+    /// The vertical height a fill and a cut toe round over: the largest grade times the largest
+    /// rounding of any outline edge (#149 T2 traces the rounded toe across it).
+    pub(super) fn toe_rounding(&self) -> [f64; 2] {
+        let mut out = [0.0_f64; 2];
+        for edge in &self.edges {
+            let SurfaceGrade {
+                cut,
+                fill,
+                rounding,
+            } = edge.grade;
+            if fill.is_finite() {
+                out[0] = out[0].max(fill * rounding);
+            }
+            if cut.is_finite() {
+                out[1] = out[1].max(cut * rounding);
+            }
+        }
+        out
+    }
+
     /// The faces over these inputs; builds the reach index once.
     pub(super) fn faces(&self) -> Faces<'_> {
         Faces::new(&self.base, &self.surface, &self.edges, self.grading)
@@ -591,6 +616,14 @@ impl Operator {
 /// # Errors
 /// See [`OutlineError`].
 pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
+    build_with(request, Some(toe::Toe::DEFAULT))
+}
+
+/// [`build`] with the toe traced as `toe` asks, or not at all (the T2 measurements' "before").
+pub(in crate::terrain) fn build_with(
+    request: &OutlineRequest<'_>,
+    toe_options: Option<toe::Toe>,
+) -> Result<Outlined, OutlineError> {
     let operator = Operator::new(
         request.points,
         request.triangles,
@@ -609,13 +642,35 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
         request.surface_points,
         request.surface_triangles,
     )?;
-    let rebuild = |spots: &[f64], lines: &[Vec<f64>]| {
+    // #149 T2: the toe as breaklines, traced from these faces over the base, clear of every
+    // caller line, support, spot and the stitched ring.
+    let ground = |x: f64, y: f64| base.height_at(x, y).map(|sample| sample.height);
+    let mut obstacles: Vec<&[f64]> = request.breaklines.to_vec();
+    obstacles.extend(supports.lines.iter().map(Vec::as_slice));
+    let toe_lines = toe_options.map_or_else(Vec::new, |options| {
+        toe::lines(
+            &faces,
+            &ground,
+            &supports.ring,
+            &obstacles,
+            request.spots,
+            operator.toe_rounding(),
+            options,
+        )
+    });
+    let with_toe: Vec<&[f64]> = request
+        .breaklines
+        .iter()
+        .copied()
+        .chain(toe_lines.iter().map(Vec::as_slice))
+        .collect();
+    let rebuild_with = |breaklines: &[&[f64]], spots: &[f64], lines: &[Vec<f64>]| {
         retriangulate_with_supports(
             &RegionRequest {
                 points: request.points,
                 triangles: request.triangles,
                 region: request.region,
-                breaklines: request.breaklines,
+                breaklines,
             },
             spots,
             &supports.ring,
@@ -637,13 +692,33 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
                 f64::max,
             ),
     });
-    let (mesh, graded, refined) = refine::refined(
+    // A toe the triangulation cannot take is left out, not a refusal: the toe lines refine the
+    // mesh, they carry no height of their own. `toe` says how many lines the result has.
+    let (mesh, graded, refined, toe) = match refine::refined(
         &faces,
-        rebuild,
+        |spots: &[f64], lines: &[Vec<f64>]| rebuild_with(&with_toe, spots, lines),
         request.spots.to_vec(),
         supports.lines.clone(),
         bound,
-    )?;
+    ) {
+        Ok((mesh, graded, refined)) => (
+            mesh,
+            graded,
+            refined,
+            u32::try_from(toe_lines.len()).unwrap_or(u32::MAX),
+        ),
+        Err(_) if !toe_lines.is_empty() => {
+            let (mesh, graded, refined) = refine::refined(
+                &faces,
+                |spots: &[f64], lines: &[Vec<f64>]| rebuild_with(request.breaklines, spots, lines),
+                request.spots.to_vec(),
+                supports.lines.clone(),
+                bound,
+            )?;
+            (mesh, graded, refined, 0)
+        }
+        Err(error) => return Err(error),
+    };
     let Graded {
         points,
         owners,
@@ -669,6 +744,7 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
         unreached,
         clipped,
         refined,
+        toe,
     })
 }
 

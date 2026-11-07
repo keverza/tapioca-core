@@ -21,25 +21,29 @@ fn refined_with(
     }
     let outline: Vec<Vec<f64>> = rings.iter().flat_map(|&d| ring(d)).collect();
     let lines: Vec<&[f64]> = outline.iter().map(Vec::as_slice).collect();
-    let built = build(&OutlineRequest {
-        points: &points,
-        triangles: &triangles,
-        region: &REGION,
-        surface_points: &PAVED,
-        surface_triangles: &PAVED_TRIANGLES,
-        breaklines: &lines,
-        spots: &[],
-        surface_grades: &[],
-        refine,
-        grading: Grading {
-            cut: HALF,
-            fill: HALF,
-            limit: 10.0,
-            rounding,
-            effect: Effect::Both,
-            tolerance: 1e-6,
+    // Refinement alone, as T3 measured it: without the toe lines (#149 T2 measures those).
+    let built = build_with(
+        &OutlineRequest {
+            points: &points,
+            triangles: &triangles,
+            region: &REGION,
+            surface_points: &PAVED,
+            surface_triangles: &PAVED_TRIANGLES,
+            breaklines: &lines,
+            spots: &[],
+            surface_grades: &[],
+            refine,
+            grading: Grading {
+                cut: HALF,
+                fill: HALF,
+                limit: 10.0,
+                rounding,
+                effect: Effect::Both,
+                tolerance: 1e-6,
+            },
         },
-    })?;
+        None,
+    )?;
     Ok((built, points))
 }
 

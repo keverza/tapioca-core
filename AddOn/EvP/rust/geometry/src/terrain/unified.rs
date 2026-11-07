@@ -118,8 +118,10 @@ pub struct OutlineLineOrigin {
     /// Index into `Plan::outlines`.
     pub outline: u32,
     /// The paved-TIN edge (sorted vertex pair) a support line was clipped from;
-    /// `None` for a caller face line.
+    /// `None` for a caller face line or a toe line.
     pub support: Option<[u32; 2]>,
+    /// A traced toe line (#149 T2), after the caller face lines.
+    pub toe: bool,
 }
 
 /// One ordered region-field entry in the compiled plan.
@@ -1636,35 +1638,95 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             region: property,
             breaklines,
         };
-        if let Some((planned, _)) = &paved {
+        if let Some((planned, operator)) = &paved {
             // The outline lane's rebuild: its face lines and the paved surface's
             // interior vertices as caller constraints (control spots first, so
-            // their indices are unchanged), its paved TIN edges as private
-            // supports stitched into the ring. Coplanar base edges are freed
-            // there as in that lane.
+            // their indices are unchanged), its toe lines (#149 T2), and its
+            // paved TIN edges as private supports stitched into the ring.
+            // Coplanar base edges are freed there as in that lane.
             breaklines.extend(planned.lines.iter().copied());
-            outline_lines.extend(planned.lines.iter().map(|_| OutlineLineOrigin {
-                outline: 0,
-                support: None,
-            }));
             let supports = outline::supports::prepare(
                 property,
                 planned.surface_points,
                 planned.surface_triangles,
             )
             .map_err(BuildError::Outline)?;
-            outline_lines.extend(supports.sources.iter().map(|&source| OutlineLineOrigin {
-                outline: 0,
-                support: Some(source),
-            }));
             let all_spots = [spots.as_slice(), planned.spots].concat();
-            retriangulate_with_supports(
-                &request(&breaklines),
+            // The toe is traced over the ground the outline grades: the baseline, or the
+            // region-composed surface when region entries come first.
+            let composed = if prepared.is_empty() {
+                None
+            } else {
+                Some(region_height_field(baseline, &prepared, plan.masks)?)
+            };
+            let base_field =
+                Field::new(baseline.points, baseline.triangles).map_err(BuildError::Baseline)?;
+            let ground = |x: f64, y: f64| {
+                composed
+                    .as_ref()
+                    .unwrap_or(&base_field)
+                    .height_at(x, y)
+                    .map(|sample| sample.height)
+            };
+            let faces = operator.faces();
+            let mut obstacles = breaklines.clone();
+            obstacles.extend(supports.lines.iter().map(Vec::as_slice));
+            let toe = outline::toe::lines(
+                &faces,
+                &ground,
+                &supports.ring,
+                &obstacles,
+                &all_spots,
+                operator.toe_rounding(),
+                outline::toe::Toe::DEFAULT,
+            );
+            let mut with_toe = breaklines.clone();
+            with_toe.extend(toe.iter().map(Vec::as_slice));
+            let caller = |toe_count: usize| {
+                let mut origins: Vec<OutlineLineOrigin> = planned
+                    .lines
+                    .iter()
+                    .map(|_| OutlineLineOrigin {
+                        outline: 0,
+                        support: None,
+                        toe: false,
+                    })
+                    .collect();
+                origins.extend((0..toe_count).map(|_| OutlineLineOrigin {
+                    outline: 0,
+                    support: None,
+                    toe: true,
+                }));
+                origins.extend(supports.sources.iter().map(|&source| OutlineLineOrigin {
+                    outline: 0,
+                    support: Some(source),
+                    toe: false,
+                }));
+                origins
+            };
+            // As in the outline lane: a toe the triangulation cannot take is left out.
+            match retriangulate_with_supports(
+                &request(&with_toe),
                 &all_spots,
                 &supports.ring,
                 &supports.lines,
-            )
-            .map_err(BuildError::Region)?
+            ) {
+                Ok(mesh) => {
+                    outline_lines = caller(toe.len());
+                    mesh
+                }
+                Err(_) if !toe.is_empty() => {
+                    outline_lines = caller(0);
+                    retriangulate_with_supports(
+                        &request(&breaklines),
+                        &all_spots,
+                        &supports.ring,
+                        &supports.lines,
+                    )
+                    .map_err(BuildError::Region)?
+                }
+                Err(error) => return Err(BuildError::Region(error)),
+            }
         } else {
             retriangulate_region_with_points(&request(&breaklines), &spots)
                 .map_err(BuildError::Region)?

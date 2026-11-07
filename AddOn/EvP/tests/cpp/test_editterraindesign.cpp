@@ -2232,14 +2232,22 @@ TEST (HudTerrainDesign, ANewMeshGenerationRetracesContoursEvenWhenTheTriangleCou
     const auto* previous = eh::CurrentTerrainDesign (session);
     const auto triangles = previous->result.build.triangles.size ();
     const auto generation = previous->generation;
-    ASSERT_TRUE (session.edits.Apply ([&] (edit::Document& doc, std::string&) {
-        for (auto& grade : edit::FindPath (doc, fixture.path)->profile)
-            grade.z += 0.02;
-        return true;
-    }));
-    ASSERT_TRUE (AwaitTerrain (session, layer));
-    const auto* current = eh::CurrentTerrainDesign (session);
-    ASSERT_EQ (current, previous) << "publisher reuses its optional storage";
+    // The case under test needs an edit that keeps the triangle count. The toe lines (#149 T2)
+    // follow the heights, so a lift may add or drop a toe vertex: take the first small one that
+    // keeps the count.
+    const TerrainDesignOutcome* current = nullptr;
+    for (const double lift : { 0.0005, 0.001, 0.002, 0.005, 0.02 }) {
+        ASSERT_TRUE (session.edits.Apply ([&] (edit::Document& doc, std::string&) {
+            for (auto& grade : edit::FindPath (doc, fixture.path)->profile)
+                grade.z += lift;
+            return true;
+        }));
+        ASSERT_TRUE (AwaitTerrain (session, layer));
+        current = eh::CurrentTerrainDesign (session);
+        ASSERT_EQ (current, previous) << "publisher reuses its optional storage";
+        if (current->result.build.triangles.size () == triangles)
+            break;
+    }
     ASSERT_EQ (current->result.build.triangles.size (), triangles);
     ASSERT_GT (current->generation, generation);
     edit::PavedArea surface;

@@ -572,9 +572,11 @@ fn clipped_touching_and_coincident_supports_share_a_conforming_stitch() -> Resul
                 let built = build(&request)?;
                 assert_eq!(built, build(&request)?);
                 check_stitch(&built, &base)?;
+                // The toe lines (#149 T2) come first, then the supports.
+                let toe = built.toe as usize;
                 assert_eq!(
                     built.mesh.breakline_vertices.len(),
-                    built.surface_supports.len()
+                    toe + built.surface_supports.len()
                 );
                 assert!(
                     built.surface_supports.contains(&[2, 3]),
@@ -592,7 +594,7 @@ fn clipped_touching_and_coincident_supports_share_a_conforming_stitch() -> Resul
                         .mesh
                         .line_edges
                         .iter()
-                        .filter(|row| row.line as usize == line)
+                        .filter(|row| row.line as usize == toe + line)
                         .collect();
                     assert_ne!(rows.len(), 0);
                     for row in rows {
@@ -702,6 +704,7 @@ fn each_outline_edge_grades_its_face_by_its_own_vertices() -> Result<(), Outline
 mod blend;
 mod reach;
 mod refine;
+mod toe;
 
 /// #149 T1: the same paved area through the unified build, with region entries
 /// `entries` composed first.

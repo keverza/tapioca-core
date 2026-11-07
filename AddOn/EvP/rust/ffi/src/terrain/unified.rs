@@ -280,7 +280,7 @@ pub struct UnifiedMeta {
 /// segment, every control line, then every outline line. `domain`: 1 entry,
 /// 2 path, 3 mask, 4 control, 5 outline (#149 T1: `part` 0 for a caller face
 /// line, 1 for a private paved support whose paved vertex pair is
-/// `ring`/`segment`). For paths, `kind`/`side`/`root` reuse the hybrid line encoding
+/// `ring`/`segment`, 2 for a traced toe line, #149 T2). For paths, `kind`/`side`/`root` reuse the hybrid line encoding
 /// (kinds 1..8); for a control line, `segment` is its authored segment count.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -775,7 +775,11 @@ pub(super) fn encode(built: kernel::BuiltTerrain) -> Result<Encoded, Failure> {
         rows.push(UnifiedLine {
             domain: 5,
             index: origin.outline,
-            part: u32::from(origin.support.is_some()),
+            part: if origin.toe {
+                2
+            } else {
+                u32::from(origin.support.is_some())
+            },
             ring: a,
             segment: b,
             kind: 0,
