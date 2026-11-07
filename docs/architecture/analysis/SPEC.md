@@ -90,6 +90,12 @@ Single-day ranges come from each cell's measured steps; period playback computes
 re-traced daily total before averaging. Back-facing time contributes no direct hours, and averaged step shares
 are never used to infer this range.
 
+A completed period point profile can additionally show display-only **Seasonal clocks**: fixed 2×2 DJF/MAM/JJA/SON
+small multiples, including empty-season placeholders. Centres are weighted mean direct hours per traced day;
+Preview retains its representative-day weights and is labelled an estimate. Each clock step is averaged only over
+days that measured that sun time. Weights do not create extra frames, and seasonal aggregates make no per-day cell-range
+claim. They use no whole-map archive and have no independent brush/selection state.
+
 A single-day study point also offers **exact obstruction attribution**, off by default. **Time step**
 re-traces the selected cells at the clock's selected measured step; **Whole day** re-traces every measured
 step. Face culling happens before the ray query. Analysis and context `QueryEngine`s are queried separately

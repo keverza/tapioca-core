@@ -184,6 +184,25 @@ TEST (SunStudyHud, PeriodPointClockKeepsMeanStepsAndExactCellRange)
     EXPECT_DOUBLE_EQ (day.maxDirectHours, 0.25);
 }
 
+TEST (SunStudyHud, DisplayOnlyClockDoesNotMutateAnotherClocksBrush)
+{
+    SectionGui gui;
+    evp::sunstudy::PointDay day;
+    day.minutes = { 480 };
+    day.lit = day.facing = { 1.0 };
+    day.samples = 1;
+    ImGui::NewFrame ();
+    ImGui::Begin ("season", nullptr, ImGuiWindowFlags_NoSavedSettings);
+    gui.state.sunClockBrushActive = true;
+    gui.state.sunClockBrushId = 123;
+    gui.state.sunClockBrushFrame = ImGui::GetFrameCount () - 1;
+    DrawSunStudyDayClock (gui.state, &day, "##displayonly", -1, "", nullptr);
+    EXPECT_TRUE (gui.state.sunClockBrushActive);
+    EXPECT_EQ (gui.state.sunClockBrushId, 123u);
+    ImGui::End ();
+    ImGui::Render ();
+}
+
 TEST (SunStudyHud, ClockClickSelectsAStepAndClockwiseDragSelectsASlice)
 {
     SectionGui gui;
@@ -348,6 +367,11 @@ TEST (SunStudyHud, DetailedPointPlaybackNeedsNoWholeMapDayArchive)
     EXPECT_EQ (gui.state.sunPointPlayStep, 1);
     EXPECT_FALSE (period.daysKept);
     EXPECT_EQ (geomsrv::sunstudyhud::s_shownView.frame, 0); // the map stayed on its totals
+    gui.state.sunPeriodSeasons = true; // display-only small multiples do not alter the map or point selection
+    gui.Frame ();
+    EXPECT_EQ (geomsrv::sunstudyhud::s_shownView.frame, 0);
+    EXPECT_EQ (gui.state.sunPointPlayDay, 1);
+    EXPECT_EQ (gui.state.sunPointPlayStep, 1);
 }
 
 TEST (SunStudyHud, FreePeriodCacheKeepsTheFrameButRetiresBrowsingAndPlayback)

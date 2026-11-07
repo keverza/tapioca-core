@@ -704,6 +704,7 @@ bool SunStudyStore::PointDayOf (const std::string& id, const std::vector<size_t>
         day.lit[s] /= double (day.samples);
         day.facing[s] /= double (day.samples);
     }
+    day.hasCellRange = true;
     return true;
 #else
     (void) samples;

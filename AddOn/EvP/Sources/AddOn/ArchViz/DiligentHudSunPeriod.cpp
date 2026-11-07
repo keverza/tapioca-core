@@ -919,6 +919,7 @@ void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int q
     }
     else
         SunStudyNote (" ");
+    DrawSunStudySeasonalClocks (state, shown, period.estimate);
 }
 
 } // namespace

@@ -209,6 +209,7 @@ void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& 
         // every sample; in front and lit are averaged. The per-step series is
         // only for this point, never an archive of every cell on the map.
         for (const auto& day : retained.days) {
+            result.dayWeights.push_back (day.weightDays);
             result.dayHoursPerStep.push_back (day.hoursPerStep);
             std::vector<uint16_t> minutes;
             minutes.reserve (day.steps.size ());

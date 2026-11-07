@@ -13,6 +13,10 @@ namespace evp::sunstudy {
 struct PointDay;
 }
 
+namespace geomsrv::sunstudyhud {
+struct PeriodProfile;
+}
+
 namespace geomsrv::archviz {
 struct HudState;
 
@@ -37,6 +41,7 @@ struct SunStudyClockSelection {
 void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, const char* id, int highlightedStep,
                            const char* emptyNote, SunStudyClockSelection* selection = nullptr);
 bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, float maximum, bool duration);
+void DrawSunStudySeasonalClocks (HudState& state, const geomsrv::sunstudyhud::PeriodProfile* profile, bool estimate);
 // `bands` 0 draws the smooth ramp; kSunBandsMin..kSunBandsMax draws that many
 // flat bands split at `edges`, each with a grip above the bar to drag.
 // `ramp` is the hours colours' stops (SunStudyRampStops); empty, the legacy bins.

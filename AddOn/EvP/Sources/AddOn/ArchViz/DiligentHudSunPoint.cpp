@@ -277,10 +277,10 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
     };
     // A brush belongs to one continuously visible clock. A hidden/replaced
     // clock must never consume a later, unrelated mouse release.
-    if (state.sunClockBrushActive &&
+    if (selection != nullptr && state.sunClockBrushActive &&
         (state.sunClockBrushId != clockId || steps == 0 || ImGui::GetFrameCount () != state.sunClockBrushFrame + 1))
         cancelBrush ();
-    if (state.sunClockBrushActive && !ImGui::IsMouseDown (ImGuiMouseButton_Left) &&
+    if (selection != nullptr && state.sunClockBrushActive && !ImGui::IsMouseDown (ImGuiMouseButton_Left) &&
         !ImGui::IsMouseReleased (ImGuiMouseButton_Left))
         cancelBrush ();
     if (selection != nullptr && steps > 0) {
@@ -343,7 +343,11 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
             draw->PathStroke (ink, 0, 1.5f);
         }
     }
-    if (state.sunClockBrushActive && state.sunClockBrushDragged) {
+    if (day != nullptr && day->hasTotalHours) {
+        litHours = day->directHours;
+        facingHours = day->facingHours;
+    }
+    if (selection != nullptr && state.sunClockBrushActive && state.sunClockBrushDragged) {
         const double to = state.sunClockBrushTo > state.sunClockBrushFrom ? state.sunClockBrushTo : 1440.0;
         for (double minute = state.sunClockBrushFrom; minute < to; minute += 30.0)
             ClockSector (draw, centre, inner - 2.0f, outer + 2.0f, SunStudyClockAngle (minute),
@@ -368,24 +372,29 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
             const double clock = SunStudyClockMinute (pointer.x, pointer.y);
             const size_t nearest = NearestClockStep (*day, steps, clock);
             const int minutes = day->minutes[nearest];
-            ImGui::SetTooltip ("%02d:%02d  lit %d%%, shaded %d%%, sun behind %d%% of the %zu cell(s)\n\n"
-                               "Click: select this step. Drag clockwise (up to 24:00): select a time slice.\n"
+            ImGui::SetTooltip ("%02d:%02d  lit %d%%, shaded %d%%, sun behind %d%% of the %zu cell(s)\n\n%s\n\n"
                                "Light: a clear line to the sun. Shaded: the sun is in front of the surface but the "
                                "model blocks it. Behind: the sun is on the other side of the surface.",
                                minutes / 60, minutes % 60, int (100.0 * day->lit[nearest] + 0.5),
                                int (100.0 * (day->facing[nearest] - day->lit[nearest]) + 0.5),
-                               int (100.0 * (1.0 - day->facing[nearest]) + 0.5), day->samples);
+                               int (100.0 * (1.0 - day->facing[nearest]) + 0.5), day->samples,
+                               selection != nullptr ? "Click: select this step. Drag clockwise (up to 24:00): select a "
+                                                      "time slice."
+                                                    : "Display-only seasonal aggregate; no independent selection.");
         }
     }
     char line[192];
     std::string range;
-    if (day->samples > 1)
+    if (day->samples > 1 && day->hasCellRange)
         range =
             "; cells " + SunStudyClock (day->minDirectHours, true) + "-" + SunStudyClock (day->maxDirectHours, true);
-    std::snprintf (line, sizeof (line), "%s direct of %s in front; sun up %s%s",
-                   SunStudyClock (litHours, true).c_str (), SunStudyClock (facingHours, true).c_str (),
-                   SunStudyClock (double (steps) * day->hoursPerStep, true).c_str (), range.c_str ());
-    if (state.sunClockBrushActive && state.sunClockBrushDragged && state.sunClockBrushTo <= state.sunClockBrushFrom)
+    std::snprintf (
+        line, sizeof (line), "%s direct of %s in front; sun up %s%s", SunStudyClock (litHours, true).c_str (),
+        SunStudyClock (facingHours, true).c_str (),
+        SunStudyClock (day->hasTotalHours ? day->sunUpHours : double (steps) * day->hoursPerStep, true).c_str (),
+        range.c_str ());
+    if (selection != nullptr && state.sunClockBrushActive && state.sunClockBrushDragged &&
+        state.sunClockBrushTo <= state.sunClockBrushFrom)
         SunStudyNote ("Clock slice stops at 24:00", "The shadow-hours range cannot wrap through midnight. Drag "
                                                     "from midnight into the morning to select that part instead.");
     else

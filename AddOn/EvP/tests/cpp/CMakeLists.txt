@@ -182,6 +182,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunSeries.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPointProfile.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyObstruction.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NativeCommands/SunStudySeasonal.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySampler.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySurfaceSampling.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/VisibilityStudy.cpp"
@@ -586,6 +587,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunRun.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPeriod.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPoint.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunSeasons.cpp"
     "${EVP_ROOT}/Sources/AddOn/NativeCommands/SunStudyHudStatus.cpp"
     # A triangle cut to its clip rectangle: the overlays draw ImGui's triangles without a scissor.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudClip.cpp"
@@ -1180,6 +1182,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyobstruction.cpp
     test_sunstudyobstruction_geometry.cpp
     test_sunstudyobstruction_controller.cpp
+    test_sunstudyseasonal.cpp
     test_sunstudyselectionbinding.cpp
     test_sunstudygputraversal.cpp
     test_sunstudypreview.cpp

@@ -182,6 +182,7 @@ struct PeriodProfile {
     std::string error;
     double up[12][24] = {}, facing[12][24] = {}, lit[12][24] = {}; // weighted hours, month x clock hour
     std::vector<int> dayMonth, dayOfMonth;
+    std::vector<double> dayWeights;               // represented days per traced day, aligned with the arrays below
     std::vector<double> dayUp, dayFacing, dayLit; // mean hours, one per traced day
     std::vector<double> dayMinLit, dayMaxLit;     // exact per-cell range on that day
     // Point-only playback: each day's clock minutes and averaged cell shares,
@@ -209,6 +210,7 @@ inline evp::sunstudy::PointDay PeriodPointDay (const PeriodProfile& profile, siz
     if (selected < profile.dayMinLit.size () && selected < profile.dayMaxLit.size ()) {
         day.minDirectHours = profile.dayMinLit[selected];
         day.maxDirectHours = profile.dayMaxLit[selected];
+        day.hasCellRange = true;
     }
     return day;
 }

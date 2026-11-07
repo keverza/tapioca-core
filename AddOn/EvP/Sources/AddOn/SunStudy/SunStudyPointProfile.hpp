@@ -69,6 +69,11 @@ struct PointDay {
     // Per-cell total direct hours: centre/line remain the mean; these expose
     // variation inside the sphere instead of inferring it from averaged steps.
     double minDirectHours = 0.0, maxDirectHours = 0.0;
+    bool hasCellRange = false; // false for seasonal aggregates across different days
+    // Seasonal rings use conditional per-minute means, but their centres must use
+    // weighted daily totals (including empty days), not an integral of those rings.
+    bool hasTotalHours = false;
+    double directHours = 0.0, facingHours = 0.0, sunUpHours = 0.0;
 };
 
 // `normal` null means always facing (a ground sample). False when cancelled.
