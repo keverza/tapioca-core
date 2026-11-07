@@ -5,7 +5,9 @@
 
 #include <imgui.h>
 
+#include <functional>
 #include <span>
+#include <string>
 
 namespace evp::sunstudy {
 struct PointDay;
@@ -52,5 +54,9 @@ struct HudTimeline;
 // when `index` moved. Shared by the shadow views' day and the period's months.
 bool DrawSunStudyTimeline (const char* id, int& index, int first, int last, HudTimeline& play, double stepSeconds,
                            const char* label, bool hold = false);
+// The callback runs after buttons, playback and slider input, so its text names
+// the frame actually selected, not the previous one. It is never stored.
+bool DrawSunStudyTimeline (const char* id, int& index, int first, int last, HudTimeline& play, double stepSeconds,
+                           const std::function<std::string ()>& label, bool hold = false);
 } // namespace geomsrv::archviz
 #endif

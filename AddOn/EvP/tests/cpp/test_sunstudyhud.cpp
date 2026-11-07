@@ -152,14 +152,46 @@ TEST (SunStudyHud, DayClockPutsBothMidnightsAtTheTopAndRunsClockwise)
     EXPECT_NEAR (SunStudyClockAngle (24 * 60), 3.0 * pi / 2.0, 1.0e-12);
 }
 
+TEST (SunStudyHud, TimelineLabelsObserveAutomaticAdvanceAndLoopInTheSameFrame)
+{
+    SectionGui gui;
+    int index = 0, observed = -1;
+    HudTimeline play;
+    play.playing = true;
+    play.playedAt = -10.0;
+    play.loop = false;
+    const auto frame = [&] {
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 400, 200 });
+        ImGui::Begin ("timeline", nullptr, ImGuiWindowFlags_NoSavedSettings);
+        DrawSunStudyTimeline ("test", index, 0, 2, play, 0.1, [&] {
+            observed = index;
+            return std::to_string (index);
+        });
+        ImGui::End ();
+        ImGui::Render ();
+    };
+    frame ();
+    EXPECT_EQ (index, 1);
+    EXPECT_EQ (observed, 1);
+    index = 2;
+    play.playing = true;
+    play.playedAt = -10.0;
+    play.loop = true;
+    frame ();
+    EXPECT_EQ (index, 0);
+    EXPECT_EQ (observed, 0);
+}
+
 TEST (SunStudyHud, DetailedPointPlaybackNeedsNoWholeMapDayArchive)
 {
     SectionGui gui;
     auto& period = geomsrv::sunstudyhud::s_period;
     period.available = true;
     period.studyId = "sun-1";
-    period.representedDays = 2.0;
-    period.monthDays[2] = period.monthDays[3] = 1.0;
+    period.representedDays = 3.0;
+    period.monthDays[2] = period.monthDays[3] = period.monthDays[4] = 1.0;
     period.siteDaylight[2] = period.siteDaylight[3] = 2.0;
     gui.state.sunPeriodStudyId = "sun-1";
     gui.state.sunPeriodProfile = true;
@@ -170,28 +202,44 @@ TEST (SunStudyHud, DetailedPointPlaybackNeedsNoWholeMapDayArchive)
     auto& profile = geomsrv::sunstudyhud::s_profile;
     profile.samples = { 0 };
     profile.ready = true;
-    profile.dayMonth = { 3, 4 };
-    profile.dayOfMonth = { 15, 15 };
-    profile.dayUp = { 2.0, 2.0 };
-    profile.dayFacing = { 2.0, 2.0 };
-    profile.dayLit = { 1.0, 1.0 };
-    profile.dayHoursPerStep = { 1.0, 1.0 };
-    profile.dayMinutes = { { 480, 540 }, { 480, 540 } };
-    profile.dayStepFacing = { { 1.0, 1.0 }, { 1.0, 1.0 } };
-    profile.dayStepLit = { { 1.0, 0.0 }, { 0.0, 1.0 } };
+    profile.dayMonth = { 3, 4, 5 };
+    profile.dayOfMonth = { 15, 15, 15 };
+    profile.dayUp = { 2.0, 2.0, 0.0 };
+    profile.dayFacing = { 2.0, 2.0, 0.0 };
+    profile.dayLit = { 1.0, 1.0, 0.0 };
+    profile.dayHoursPerStep = { 1.0, 1.0, 1.0 };
+    profile.dayMinutes = { { 480, 540 }, { 480, 540 }, {} };
+    profile.dayStepFacing = { { 1.0, 1.0 }, { 1.0, 1.0 }, {} };
+    profile.dayStepLit = { { 1.0, 0.0 }, { 0.0, 1.0 }, {} };
 
     gui.Frame ();
     EXPECT_EQ (gui.state.sunPointPlayDay, 0);
     EXPECT_EQ (gui.state.sunPointPlayStep, 0);
+    gui.state.sunPointPlay.playing = true;
+    gui.state.sunPointPlay.playedAt = -10.0;
+    gui.state.sunPointPlay.loop = false;
+    gui.Frame ();
+    EXPECT_EQ (gui.state.sunPointPlayDay, 0);
+    EXPECT_EQ (gui.state.sunPointPlayStep, 1);
+    gui.state.sunPointPlay.playing = false;
     gui.state.sunPointPlayMode = 1; // fixed hour
     gui.state.sunPointPlayClock = 540;
     gui.Frame ();
     EXPECT_EQ (gui.state.sunPointPlayStep, 1);
+    gui.state.sunPointPlayClock = 720; // after this two-step day's measured sun
+    gui.Frame ();
+    EXPECT_EQ (gui.state.sunPointPlayStep, -1);
     gui.state.sunPointPlayMode = 2; // day by day
     gui.state.sunPointPlayDay = 1;
     gui.Frame ();
     EXPECT_EQ (gui.state.sunPointPlayDay, 1);
     EXPECT_EQ (gui.state.sunPointPlayStep, -1);
+    gui.state.sunPointPlayMode = 0;
+    gui.state.sunPointPlayDay = 2; // a trailing sunless day has no step frame
+    gui.state.sunPointPlayStep = 0;
+    gui.Frame ();
+    EXPECT_EQ (gui.state.sunPointPlayDay, 1);
+    EXPECT_EQ (gui.state.sunPointPlayStep, 1);
     EXPECT_FALSE (period.daysKept);
     EXPECT_EQ (geomsrv::sunstudyhud::s_shownView.frame, 0); // the map stayed on its totals
 }

@@ -260,7 +260,7 @@ constexpr float kTimelineSpeeds[] = { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f };
 constexpr const char* kTimelineSpeedNames[] = { "0.25x", "0.5x", "1x", "2x", "4x" };
 
 bool DrawSunStudyTimeline (const char* id, int& index, int first, int last, HudTimeline& play, double stepSeconds,
-                           const char* label, bool hold)
+                           const std::function<std::string ()>& label, bool hold)
 {
     ImGui::PushID (id);
     const int before = index;
@@ -318,9 +318,28 @@ bool DrawSunStudyTimeline (const char* id, int& index, int first, int last, HudT
     ImGui::SameLine ();
     ImGui::Checkbox ("loop", &play.loop);
     ImGui::SetNextItemWidth (-1.0f);
-    ImGui::SliderInt ("##timeline", &index, first, last, label);
+    // Suppress SliderInt's own pre-input format. Drawing the label afterwards
+    // covers automatic steps, buttons and a slider drag in the same frame.
+    ImGui::SliderInt ("##timeline", &index, first, last, "", ImGuiSliderFlags_NoInput);
+    const std::string text = label != nullptr ? label () : std::string ();
+    if (!text.empty ()) {
+        const ImVec2 min = ImGui::GetItemRectMin (), max = ImGui::GetItemRectMax ();
+        const ImVec2 extent = ImGui::CalcTextSize (text.c_str ());
+        const ImVec2 at (min.x + (max.x - min.x - extent.x) * 0.5f, min.y + (max.y - min.y - extent.y) * 0.5f);
+        ImDrawList* draw = ImGui::GetWindowDrawList ();
+        draw->PushClipRect (min, max, true);
+        draw->AddText (at, ImGui::GetColorU32 (ImGuiCol_Text), text.c_str ());
+        draw->PopClipRect ();
+    }
     ImGui::PopID ();
     return index != before;
+}
+
+bool DrawSunStudyTimeline (const char* id, int& index, int first, int last, HudTimeline& play, double stepSeconds,
+                           const char* label, bool hold)
+{
+    const std::string text = label != nullptr ? label : "";
+    return DrawSunStudyTimeline (id, index, first, last, play, stepSeconds, [text] { return text; }, hold);
 }
 
 } // namespace geomsrv::archviz

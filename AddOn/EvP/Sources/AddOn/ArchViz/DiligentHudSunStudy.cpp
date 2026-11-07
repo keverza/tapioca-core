@@ -749,18 +749,24 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         const int last = int ((std::min) (preview.endShadowStep, study.stepCount)) - 1;
         if (state.sunStep < first || state.sunStep > last)
             state.sunStep = std::clamp (int (study.noonStep), first, last);
+        const bool noon = ImGui::SmallButton ("noon");
+        if (noon)
+            state.sunStep = std::clamp (int (study.noonStep), first, last);
         // Play the day: the shared timeline -- one step every 0.4 s at 1x.
-        char clock[16] = "--:--";
-        if (size_t (state.sunStep) < study.stepMinutes.size ())
-            Clock (study.stepMinutes[size_t (state.sunStep)], clock, sizeof (clock));
         HudTimeline play { state.sunPlaying, state.sunPlaySpeed, state.sunPlayedAt, state.sunPlayLoop };
+        if (noon)
+            play.playedAt = ImGui::GetTime (); // do not immediately advance past the requested noon
+        const auto clock = [&] {
+            char text[16] = "--:--";
+            if (size_t (state.sunStep) < study.stepMinutes.size ())
+                Clock (study.stepMinutes[size_t (state.sunStep)], text, sizeof (text));
+            return std::string (text);
+        };
         DrawSunStudyTimeline ("sunstep", state.sunStep, first, last, play, 0.4, clock);
         state.sunPlaying = play.playing;
         state.sunPlaySpeed = play.speed;
         state.sunPlayedAt = play.playedAt;
         state.sunPlayLoop = play.loop;
-        if (ImGui::SmallButton ("noon"))
-            state.sunStep = std::clamp (int (study.noonStep), first, last);
         DrawShadowPalette (
             "singleshadow",
             { { &state.sunSingleLitRgba, kSingleShadowLitRgba, "sunlit", "Sunlit at this time" },

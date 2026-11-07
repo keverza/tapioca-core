@@ -205,17 +205,20 @@ void MonthTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, suns
     for (int i = 0; i < int (months.size ()); ++i)
         if (months[i] == state.sunPeriodMonth)
             index = i;
-    char label[64];
-    if (months[index] == 0)
-        std::snprintf (label, sizeof (label), "Whole period (%.0f days)", period.representedDays);
-    else
-        std::snprintf (label, sizeof (label), "%s (%.0f days)", kMonthNames[months[index] - 1],
-                       period.monthDays[months[index] - 1]);
-    // The player runs through the months only, not back to the whole period.
+    const auto label = [&] {
+        // Once playing, the whole-period summary is not a playback frame.
+        if (state.sunPeriodPlay.playing && index == 0 && months.size () > 1)
+            index = 1;
+        char text[64];
+        if (months[index] == 0)
+            std::snprintf (text, sizeof (text), "Whole period (%.0f days)", period.representedDays);
+        else
+            std::snprintf (text, sizeof (text), "%s (%.0f days)", kMonthNames[months[index] - 1],
+                           period.monthDays[months[index] - 1]);
+        return std::string (text);
+    };
     DrawSunStudyTimeline ("periodmonths", index, 0, int (months.size ()) - 1, state.sunPeriodPlay, kMonthStepSeconds,
                           label, period.busy);
-    if (state.sunPeriodPlay.playing && index == 0 && months.size () > 1)
-        index = 1;
     state.sunPeriodMonth = months[index];
     want.frame = 0;
     want.month = state.sunPeriodMonth;
@@ -244,7 +247,6 @@ void DayTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, const 
                   sunstudyhud::PeriodView& want)
 {
     const int last = int (kept.size ()) - 1;
-    char label[64];
     if (state.sunPeriodPlayMode == kEveryStep) {
         // Every step of every day, flattened; a sunless day has none.
         std::vector<int> first (kept.size () + 1, 0);
@@ -263,10 +265,15 @@ void DayTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, const 
             step = at - first[size_t (day)];
         };
         int day = 0, step = 0;
-        locate (index, day, step);
-        std::snprintf (label, sizeof (label), "%s %d  %s",
-                       kMonthShort[std::clamp (kept[size_t (day)].month, 1, 12) - 1], kept[size_t (day)].day,
-                       ClockText (kept[size_t (day)].minutes[size_t (step)]).c_str ());
+        const auto label = [&] {
+            int labelDay = 0, labelStep = 0;
+            locate (index, labelDay, labelStep);
+            char text[64];
+            std::snprintf (
+                text, sizeof (text), "%s %d  %s", kMonthShort[std::clamp (kept[size_t (labelDay)].month, 1, 12) - 1],
+                kept[size_t (labelDay)].day, ClockText (kept[size_t (labelDay)].minutes[size_t (labelStep)]).c_str ());
+            return std::string (text);
+        };
         DrawSunStudyTimeline ("periodsteps", index, 0, total - 1, state.sunPeriodPlay, kStepSeconds, label,
                               period.busy);
         locate (index, day, step);
@@ -278,13 +285,17 @@ void DayTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, const 
         return;
     }
     int day = std::clamp (state.sunPeriodDay, 0, last);
-    const sunstudyhud::KeptDay& shown = kept[size_t (day)];
-    if (state.sunPeriodPlayMode == kFixedHour)
-        std::snprintf (label, sizeof (label), "%s %d  %s", kMonthShort[std::clamp (shown.month, 1, 12) - 1], shown.day,
-                       ClockText (state.sunPeriodClock).c_str ());
-    else
-        std::snprintf (label, sizeof (label), "%s %d  (%d / %d)", kMonthShort[std::clamp (shown.month, 1, 12) - 1],
-                       shown.day, day + 1, last + 1);
+    const auto label = [&] {
+        const sunstudyhud::KeptDay& shown = kept[size_t (day)];
+        char text[64];
+        if (state.sunPeriodPlayMode == kFixedHour)
+            std::snprintf (text, sizeof (text), "%s %d  %s", kMonthShort[std::clamp (shown.month, 1, 12) - 1],
+                           shown.day, ClockText (state.sunPeriodClock).c_str ());
+        else
+            std::snprintf (text, sizeof (text), "%s %d  (%d / %d)", kMonthShort[std::clamp (shown.month, 1, 12) - 1],
+                           shown.day, day + 1, last + 1);
+        return std::string (text);
+    };
     DrawSunStudyTimeline ("perioddays", day, 0, last, state.sunPeriodPlay, kDayStepSeconds, label, period.busy);
     state.sunPeriodDay = day;
     want.day = day;
@@ -703,7 +714,6 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
     }
 
     const int last = int (profile->dayLit.size ()) - 1;
-    char label[80];
     if (mode == kEveryStep) {
         std::vector<int> first (profile->dayLit.size () + 1, 0);
         for (size_t d = 0; d < profile->dayLit.size (); ++d)
@@ -723,11 +733,17 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
                 step = at - first[size_t (locatedDay)];
             };
             int locatedDay = 0, step = 0;
-            locate (index, locatedDay, step);
-            const auto& minutes = profile->dayMinutes[size_t (locatedDay)];
-            std::snprintf (label, sizeof (label), "%s %d  %s",
-                           kMonthShort[std::clamp (profile->dayMonth[size_t (locatedDay)], 1, 12) - 1],
-                           profile->dayOfMonth[size_t (locatedDay)], ClockText (minutes[size_t (step)]).c_str ());
+            const auto label = [&] {
+                int labelDay = 0, labelStep = 0;
+                locate (index, labelDay, labelStep);
+                const auto& minutes = profile->dayMinutes[size_t (labelDay)];
+                char text[80];
+                std::snprintf (text, sizeof (text), "%s %d  %s",
+                               kMonthShort[std::clamp (profile->dayMonth[size_t (labelDay)], 1, 12) - 1],
+                               profile->dayOfMonth[size_t (labelDay)],
+                               ClockText (minutes[size_t (labelStep)]).c_str ());
+                return std::string (text);
+            };
             DrawSunStudyTimeline ("pointperiodsteps", index, 0, total - 1, state.sunPointPlay, kStepSeconds, label);
             locate (index, locatedDay, step);
             state.sunPointPlayDay = locatedDay;
@@ -736,14 +752,18 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
     }
     else {
         int day = std::clamp (state.sunPointPlayDay, 0, last);
-        if (mode == kFixedHour)
-            std::snprintf (label, sizeof (label), "%s %d  %s",
-                           kMonthShort[std::clamp (profile->dayMonth[size_t (day)], 1, 12) - 1],
-                           profile->dayOfMonth[size_t (day)], ClockText (state.sunPointPlayClock).c_str ());
-        else
-            std::snprintf (label, sizeof (label), "%s %d  (%d / %d)",
-                           kMonthShort[std::clamp (profile->dayMonth[size_t (day)], 1, 12) - 1],
-                           profile->dayOfMonth[size_t (day)], day + 1, last + 1);
+        const auto label = [&] {
+            char text[80];
+            if (mode == kFixedHour)
+                std::snprintf (text, sizeof (text), "%s %d  %s",
+                               kMonthShort[std::clamp (profile->dayMonth[size_t (day)], 1, 12) - 1],
+                               profile->dayOfMonth[size_t (day)], ClockText (state.sunPointPlayClock).c_str ());
+            else
+                std::snprintf (text, sizeof (text), "%s %d  (%d / %d)",
+                               kMonthShort[std::clamp (profile->dayMonth[size_t (day)], 1, 12) - 1],
+                               profile->dayOfMonth[size_t (day)], day + 1, last + 1);
+            return std::string (text);
+        };
         DrawSunStudyTimeline ("pointperioddays", day, 0, last, state.sunPointPlay, kDayStepSeconds, label);
         state.sunPointPlayDay = day;
         if (mode == kFixedHour && size_t (day) < profile->dayMinutes.size () &&
