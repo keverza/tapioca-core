@@ -77,9 +77,10 @@ bool ReadPeriodPoints (const std::vector<size_t>&, PeriodPoint& point)
 void RequestPeriodProfile (const std::vector<size_t>&)
 {
 }
+static PeriodProfile s_profile;
 PeriodProfile LatestPeriodProfile ()
 {
-    return {};
+    return s_profile;
 }
 } // namespace geomsrv::sunstudyhud
 
@@ -98,6 +99,7 @@ struct SectionGui {
         geomsrv::sunstudyhud::s_status = {};
         geomsrv::sunstudyhud::s_cancels = geomsrv::sunstudyhud::s_submissions = 0;
         geomsrv::sunstudyhud::s_period = {};
+        geomsrv::sunstudyhud::s_profile = {};
         geomsrv::sunstudyhud::s_shownView = {};
         geomsrv::sunstudyhud::s_viewRequests = 0;
         auto& io = ImGui::GetIO ();
@@ -148,6 +150,50 @@ TEST (SunStudyHud, DayClockPutsBothMidnightsAtTheTopAndRunsClockwise)
     EXPECT_NEAR (SunStudyClockAngle (12 * 60), pi / 2.0, 1.0e-12);
     EXPECT_NEAR (SunStudyClockAngle (18 * 60), pi, 1.0e-12);
     EXPECT_NEAR (SunStudyClockAngle (24 * 60), 3.0 * pi / 2.0, 1.0e-12);
+}
+
+TEST (SunStudyHud, DetailedPointPlaybackNeedsNoWholeMapDayArchive)
+{
+    SectionGui gui;
+    auto& period = geomsrv::sunstudyhud::s_period;
+    period.available = true;
+    period.studyId = "sun-1";
+    period.representedDays = 2.0;
+    period.monthDays[2] = period.monthDays[3] = 1.0;
+    period.siteDaylight[2] = period.siteDaylight[3] = 2.0;
+    gui.state.sunPeriodStudyId = "sun-1";
+    gui.state.sunPeriodProfile = true;
+    gui.state.sunPointPlaced = true;
+    gui.state.sunPointSamples = { 0 };
+    gui.state.sunPointSamplesFor = "sun-1|0.000";
+
+    auto& profile = geomsrv::sunstudyhud::s_profile;
+    profile.samples = { 0 };
+    profile.ready = true;
+    profile.dayMonth = { 3, 4 };
+    profile.dayOfMonth = { 15, 15 };
+    profile.dayUp = { 2.0, 2.0 };
+    profile.dayFacing = { 2.0, 2.0 };
+    profile.dayLit = { 1.0, 1.0 };
+    profile.dayHoursPerStep = { 1.0, 1.0 };
+    profile.dayMinutes = { { 480, 540 }, { 480, 540 } };
+    profile.dayStepFacing = { { 1.0, 1.0 }, { 1.0, 1.0 } };
+    profile.dayStepLit = { { 1.0, 0.0 }, { 0.0, 1.0 } };
+
+    gui.Frame ();
+    EXPECT_EQ (gui.state.sunPointPlayDay, 0);
+    EXPECT_EQ (gui.state.sunPointPlayStep, 0);
+    gui.state.sunPointPlayMode = 1; // fixed hour
+    gui.state.sunPointPlayClock = 540;
+    gui.Frame ();
+    EXPECT_EQ (gui.state.sunPointPlayStep, 1);
+    gui.state.sunPointPlayMode = 2; // day by day
+    gui.state.sunPointPlayDay = 1;
+    gui.Frame ();
+    EXPECT_EQ (gui.state.sunPointPlayDay, 1);
+    EXPECT_EQ (gui.state.sunPointPlayStep, -1);
+    EXPECT_FALSE (period.daysKept);
+    EXPECT_EQ (geomsrv::sunstudyhud::s_shownView.frame, 0); // the map stayed on its totals
 }
 
 TEST (SunStudyHud, CollapsedSetupStillOffersCancelForManualAndFollowerStages)

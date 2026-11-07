@@ -60,7 +60,17 @@ Site daylight is the sun above the altitude floor inside the daily time slice (o
 month). Surface facing uses the day study's own incidence cull. Obstruction loss is
 `surface facing - unoccluded`; back-facing time is never reported as shade. Sunless days count
 at zero hours. Totals are `f64`, summed in day order, stored sample-major `[sample][month]` for
-unoccluded and facing only (192 bytes a sample whatever the period); no step mask is retained.
+unoccluded and facing only (192 bytes a sample whatever the period); no step mask is retained by
+default.
+
+Playback has two explicitly different scopes. **Keep whole-map days for playback** opts into a whole-map,
+in-memory archive of each traced day's lit/facing bits; it is not a file and is released with the
+retained period. Its bytes must be included in the run's memory estimate. The low-memory alternative
+is **Detailed point playback**: on demand, re-trace only the placed study point's cells against the
+retained period's sun directions and CPU traversal, then retain the averaged per-step series for
+that point. It can play every step, a fixed clock time, or day by day without archiving the whole
+map. It cannot provide whole-map historical frames, and a Preview profile still represents only
+the days actually traced.
 
 Presentation: the viewer shows the **mean unoccluded hours a represented day** over the period,
 drawn through the last traced day's samples and atlas, so the day study's hour bands apply. That

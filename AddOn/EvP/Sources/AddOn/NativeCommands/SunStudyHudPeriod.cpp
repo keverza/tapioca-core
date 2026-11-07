@@ -206,7 +206,16 @@ void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& 
         result.error = "the study point is not in the period";
     else {
         // The mean of the point's samples: sun up is the site's, the same for
-        // every sample; in front and lit are averaged.
+        // every sample; in front and lit are averaged. The per-step series is
+        // only for this point, never an archive of every cell on the map.
+        for (const auto& day : retained.days) {
+            result.dayHoursPerStep.push_back (day.hoursPerStep);
+            std::vector<uint16_t> minutes;
+            minutes.reserve (day.steps.size ());
+            for (const auto& step : day.steps)
+                minutes.push_back (uint16_t (std::clamp (step.time.hour * 60 + step.time.minute, 0, 1439)));
+            result.dayMinutes.push_back (std::move (minutes));
+        }
         size_t traced = 0;
         for (const size_t sample : samples) {
             if (sample >= carrier.positions.size () / 3)
@@ -228,11 +237,24 @@ void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& 
                 result.dayUp = std::move (profile.dayUp);
                 result.dayFacing = std::move (profile.dayFacing);
                 result.dayLit = std::move (profile.dayLit);
+                result.dayStepFacing.resize (profile.dayStepFacing.size ());
+                result.dayStepLit.resize (profile.dayStepLit.size ());
+                for (size_t d = 0; d < profile.dayStepLit.size (); ++d) {
+                    for (const uint8_t value : profile.dayStepFacing[d])
+                        result.dayStepFacing[d].push_back (double (value));
+                    for (const uint8_t value : profile.dayStepLit[d])
+                        result.dayStepLit[d].push_back (double (value));
+                }
             }
             else
                 for (size_t d = 0; d < result.dayLit.size () && d < profile.dayLit.size (); ++d) {
                     result.dayFacing[d] += profile.dayFacing[d];
                     result.dayLit[d] += profile.dayLit[d];
+                    for (size_t s = 0; s < result.dayStepFacing[d].size () && s < profile.dayStepFacing[d].size ();
+                         ++s) {
+                        result.dayStepFacing[d][s] += profile.dayStepFacing[d][s];
+                        result.dayStepLit[d][s] += profile.dayStepLit[d][s];
+                    }
                 }
             result.rays += profile.rays;
             ++traced;
@@ -249,6 +271,10 @@ void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& 
             for (size_t d = 0; d < result.dayLit.size (); ++d) {
                 result.dayFacing[d] /= n;
                 result.dayLit[d] /= n;
+                for (size_t s = 0; s < result.dayStepLit[d].size (); ++s) {
+                    result.dayStepFacing[d][s] /= n;
+                    result.dayStepLit[d][s] /= n;
+                }
             }
         }
     }

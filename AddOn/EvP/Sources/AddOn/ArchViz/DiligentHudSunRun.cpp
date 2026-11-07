@@ -194,12 +194,13 @@ void PeriodControls (HudState& state)
                            "cell size, and about %d times the preview's work.",
                            (std::max) (1, days / (std::max) (1, (std::min) (12, days))));
     state.sunRunDailyResolved = sampling == 1;
-    ImGui::Checkbox ("Keep each day for playback##sunrunkeep", &state.sunRunKeepDays);
+    ImGui::Checkbox ("Keep whole-map days for playback (RAM)##sunrunkeep", &state.sunRunKeepDays);
     ImGui::SetItemTooltip (
-        "Keeps every traced day's lit/shaded steps after the run, so the period can be played step by step, at a "
-        "fixed hour through the days, or day by day. Off: only the monthly totals are kept and the player steps "
-        "month by month.\n\nMemory: about 11 bytes per cell per traced day at 15-minute steps (100 000 cells over "
-        "365 days is about 400 MB).");
+        "Keeps every traced day's lit/shaded steps for the WHOLE MAP in memory, so it can be played step by step, at "
+        "a fixed hour through the days, or day by day. No file is saved; the archive is released with the period. "
+        "Off: only monthly totals are kept and the map player steps month by month.\n\nMemory: about 11 bytes per "
+        "cell per traced day at 15-minute steps (100 000 cells over 365 days is about 400 MB). For one cell or study "
+        "point, leave this off and use Detailed point playback after the run: it re-traces only that point.");
     SunStudyNote ("Shown as mean hours of direct sun a day. Edits do not rerun it.",
                   "A period is traced on one pinned copy of the model; later edits do not update it.");
 }

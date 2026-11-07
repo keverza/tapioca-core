@@ -23,6 +23,7 @@
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
+#include "SunStudy/SunStudyPointProfile.hpp"
 
 #include <imgui.h>
 
@@ -173,15 +174,15 @@ void PlayModeRow (HudState& state, const sunstudyhud::PeriodInfo& period)
             if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip ("%s%s", kPlayModeTips[m],
                                    enabled ? ""
-                                           : "\n\nThis run kept only monthly totals. Rerun the period with \"Keep "
-                                             "each day for playback\" on.");
+                                           : "\n\nWhole-map frames need \"Keep whole-map days for playback\". For "
+                                             "one point, use Detailed point playback below; no day archive is needed.");
         }
         ImGui::EndCombo ();
     }
     ImGui::SetItemTooltip ("How the player steps through the period.%s",
                            period.daysKept ? ""
-                                           : "\n\nEvery step, Fixed hour and Day by day need a run with \"Keep each "
-                                             "day for playback\" on.");
+                                           : "\n\nWhole-map steps need \"Keep whole-map days for playback\". The "
+                                             "study point below can instead re-trace and play only its own cells.");
     ImGui::SameLine ();
     ImGui::SetNextItemWidth (-1.0f);
     ImGui::BeginDisabled (state.sunPeriodPlayMode != kFixedHour);
@@ -220,19 +221,23 @@ void MonthTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, suns
     want.month = state.sunPeriodMonth;
 }
 
-// The step of `day` nearest `clock`, or past its last step when the sun is
-// down then (every sample unlit).
-int StepAt (const sunstudyhud::KeptDay& day, int clock)
+// The step nearest `clock`, or one past the last when the sun is down then.
+int StepAt (const std::vector<uint16_t>& minutes, double hoursPerStep, int clock)
 {
-    int best = int (day.minutes.size ());
+    int best = int (minutes.size ());
     int distance = 1 << 30;
-    for (size_t s = 0; s < day.minutes.size (); ++s)
-        if (const int d = std::abs (int (day.minutes[s]) - clock); d < distance) {
+    for (size_t s = 0; s < minutes.size (); ++s)
+        if (const int d = std::abs (int (minutes[s]) - clock); d < distance) {
             distance = d;
             best = int (s);
         }
-    const int step = day.hoursPerStep > 0.0 ? int (day.hoursPerStep * 60.0) : 60;
-    return distance <= step / 2 ? best : int (day.minutes.size ());
+    const int step = hoursPerStep > 0.0 ? int (hoursPerStep * 60.0) : 60;
+    return distance <= step / 2 ? best : int (minutes.size ());
+}
+
+int StepAt (const sunstudyhud::KeptDay& day, int clock)
+{
+    return StepAt (day.minutes, day.hoursPerStep, clock);
 }
 
 void DayTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, const std::vector<sunstudyhud::KeptDay>& kept,
@@ -660,6 +665,112 @@ void DayStrip (int quantity, const sunstudyhud::PeriodProfile* profile, int show
     }
 }
 
+// Detailed playback of only the placed point's re-traced cells. This has its
+// own timeline and never changes the whole-map PeriodView.
+void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, const char* note)
+{
+    const float half = (ImGui::GetContentRegionAvail ().x - ImGui::GetStyle ().ItemSpacing.x) * 0.5f;
+    ImGui::SetNextItemWidth (half);
+    const int mode = std::clamp (state.sunPointPlayMode, 0, 2);
+    if (ImGui::BeginCombo ("##pointplaymode", kPlayModes[mode])) {
+        for (int m = 0; m < 3; ++m)
+            if (ImGui::Selectable (kPlayModes[m], m == mode)) {
+                state.sunPointPlayMode = m;
+                state.sunPointPlay.playing = false;
+                state.sunPointPlayStep = -1;
+            }
+        ImGui::EndCombo ();
+    }
+    ImGui::SetItemTooltip ("Detailed playback of the study point only. It uses the on-demand re-trace and needs no "
+                           "whole-map day archive.");
+    ImGui::SameLine ();
+    ImGui::SetNextItemWidth (-1.0f);
+    ImGui::BeginDisabled (mode != kFixedHour);
+    int quarter = std::clamp (state.sunPointPlayClock / 15, 0, 95);
+    if (ImGui::SliderInt ("##pointplayclock", &quarter, 0, 95, ClockText (quarter * 15).c_str ()))
+        state.sunPointPlayClock = quarter * 15;
+    ImGui::EndDisabled ();
+    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip ("Fixed hour: the nearest measured step at this clock time on each traced day.");
+
+    if (profile == nullptr || profile->dayLit.empty ()) {
+        state.sunPointPlay.playing = false;
+        state.sunPointPlayStep = -1;
+        int empty = 0;
+        DrawSunStudyTimeline ("pointperiodempty", empty, 0, 0, state.sunPointPlay, kStepSeconds, note, true);
+        DrawSunStudyDayClock (state, nullptr, "##pointperioddayclock", -1, note);
+        return;
+    }
+
+    const int last = int (profile->dayLit.size ()) - 1;
+    char label[80];
+    if (mode == kEveryStep) {
+        std::vector<int> first (profile->dayLit.size () + 1, 0);
+        for (size_t d = 0; d < profile->dayLit.size (); ++d)
+            first[d + 1] = first[d] + int (d < profile->dayMinutes.size () ? profile->dayMinutes[d].size () : 0);
+        const int total = first.back ();
+        if (total == 0) {
+            state.sunPointPlay.playing = false;
+            state.sunPointPlayStep = -1;
+            DrawSunStudyTimeline ("pointperiodsteps", state.sunPointPlayDay, 0, 0, state.sunPointPlay, kStepSeconds,
+                                  "no sun on any traced day", true);
+        }
+        else {
+            const int day = std::clamp (state.sunPointPlayDay, 0, last);
+            int index = std::clamp (first[size_t (day)] + (std::max) (state.sunPointPlayStep, 0), 0, total - 1);
+            const auto locate = [&] (int at, int& locatedDay, int& step) {
+                locatedDay = int (std::upper_bound (first.begin (), first.end (), at) - first.begin ()) - 1;
+                step = at - first[size_t (locatedDay)];
+            };
+            int locatedDay = 0, step = 0;
+            locate (index, locatedDay, step);
+            const auto& minutes = profile->dayMinutes[size_t (locatedDay)];
+            std::snprintf (label, sizeof (label), "%s %d  %s",
+                           kMonthShort[std::clamp (profile->dayMonth[size_t (locatedDay)], 1, 12) - 1],
+                           profile->dayOfMonth[size_t (locatedDay)], ClockText (minutes[size_t (step)]).c_str ());
+            DrawSunStudyTimeline ("pointperiodsteps", index, 0, total - 1, state.sunPointPlay, kStepSeconds, label);
+            locate (index, locatedDay, step);
+            state.sunPointPlayDay = locatedDay;
+            state.sunPointPlayStep = step;
+        }
+    }
+    else {
+        int day = std::clamp (state.sunPointPlayDay, 0, last);
+        if (mode == kFixedHour)
+            std::snprintf (label, sizeof (label), "%s %d  %s",
+                           kMonthShort[std::clamp (profile->dayMonth[size_t (day)], 1, 12) - 1],
+                           profile->dayOfMonth[size_t (day)], ClockText (state.sunPointPlayClock).c_str ());
+        else
+            std::snprintf (label, sizeof (label), "%s %d  (%d / %d)",
+                           kMonthShort[std::clamp (profile->dayMonth[size_t (day)], 1, 12) - 1],
+                           profile->dayOfMonth[size_t (day)], day + 1, last + 1);
+        DrawSunStudyTimeline ("pointperioddays", day, 0, last, state.sunPointPlay, kDayStepSeconds, label);
+        state.sunPointPlayDay = day;
+        if (mode == kFixedHour && size_t (day) < profile->dayMinutes.size () &&
+            size_t (day) < profile->dayHoursPerStep.size ()) {
+            const int step = StepAt (profile->dayMinutes[size_t (day)], profile->dayHoursPerStep[size_t (day)],
+                                     state.sunPointPlayClock);
+            state.sunPointPlayStep = step < int (profile->dayMinutes[size_t (day)].size ()) ? step : -1;
+        }
+        else
+            state.sunPointPlayStep = -1;
+    }
+
+    evp::sunstudy::PointDay day;
+    const size_t selected = size_t (std::clamp (state.sunPointPlayDay, 0, last));
+    day.samples = profile->samples.size ();
+    if (selected < profile->dayHoursPerStep.size ())
+        day.hoursPerStep = profile->dayHoursPerStep[selected];
+    if (selected < profile->dayMinutes.size ())
+        day.minutes = profile->dayMinutes[selected];
+    if (selected < profile->dayStepLit.size ())
+        day.lit = profile->dayStepLit[selected];
+    if (selected < profile->dayStepFacing.size ())
+        day.facing = profile->dayStepFacing[selected];
+    const char* empty = day.minutes.empty () ? "no sun this day" : "";
+    DrawSunStudyDayClock (state, &day, "##pointperioddayclock", state.sunPointPlayStep, empty);
+}
+
 void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int quantity,
                    const std::vector<sunstudyhud::KeptDay>* kept)
 {
@@ -711,11 +822,14 @@ void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int q
     else
         SunStudyNote (" ");
 
-    ImGui::Checkbox ("When is it lit? (re-trace)", &state.sunPeriodProfile);
-    ImGui::SetItemTooltip ("Re-traces the study point's cells against every traced sun position of the period: a "
-                           "month x hour map of when they are lit, and their hours day by day. Runs on the CPU.");
-    if (!state.sunPeriodProfile)
+    ImGui::Checkbox ("Detailed point playback (re-trace)", &state.sunPeriodProfile);
+    ImGui::SetItemTooltip ("Re-traces only the study point's cells against every traced sun position: a month x hour "
+                           "map, a 24-hour clock, and every-step / fixed-hour / day-by-day playback. Runs on the CPU "
+                           "and does not keep a whole-map day archive.");
+    if (!state.sunPeriodProfile) {
+        state.sunPointPlay.playing = false;
         return;
+    }
     const sunstudyhud::PeriodProfile* shown = nullptr;
     sunstudyhud::PeriodProfile profile;
     const char* note = "no study point";
@@ -731,21 +845,22 @@ void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int q
             note = nullptr;
         }
     }
-    ProfileGrid (quantity == 4 ? 0 : quantity, shown, note, shownMonth, ramp);
+    PointPlayback (state, shown, note);
+    int pointMonth = shownMonth;
+    if (shown != nullptr && state.sunPointPlayDay >= 0 && size_t (state.sunPointPlayDay) < shown->dayMonth.size ())
+        pointMonth = shown->dayMonth[size_t (state.sunPointPlayDay)];
+    ProfileGrid (quantity == 4 ? 0 : quantity, shown, note, pointMonth, ramp);
     if (!profile.error.empty () && ImGui::IsItemHovered ())
         ImGui::SetTooltip ("%s", profile.error.c_str ());
-    int shownDay = -1;
-    if (shown != nullptr && period.applied.frame != 0 && kept != nullptr && period.applied.day >= 0 &&
-        size_t (period.applied.day) < kept->size ()) {
-        // The kept days and the profile's days are the same traced days.
-        shownDay = period.applied.day;
-    }
+    const int shownDay = shown != nullptr ? state.sunPointPlayDay : -1;
     DayStrip (quantity == 4 ? 0 : quantity, shown, shownDay, ramp);
     if (shown != nullptr) {
         std::snprintf (line, sizeof (line), "%zu cell(s), %zu traced days, %zu rays, %.0f ms%s", shown->samples.size (),
                        shown->dayLit.size (), shown->rays, shown->milliseconds, period.estimate ? "; preview" : "");
-        SunStudyNote (line, "Grid: month by clock hour, coloured by the share of the sun-up time the quantity holds. "
-                            "Strip: one column a traced day.");
+        SunStudyNote (
+            line, "Clock and player: the selected traced day at the study's original timestep. Grid: month by clock "
+                  "hour, coloured by the share of sun-up time. Strip: one column a traced day. Preview plays "
+                  "only its representative days; their weights do not create extra frames.");
     }
     else
         SunStudyNote (" ");

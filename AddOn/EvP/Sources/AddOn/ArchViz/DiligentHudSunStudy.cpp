@@ -713,7 +713,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         char line[120];
         std::snprintf (line, sizeof (line), "Shadows of one traced day, %s - not the period",
                        state.sunPeriodCarrierDate.c_str ());
-        SunStudyNote (line, "Run Single day for another date, or a period with \"Keep each day for playback\" to "
+        SunStudyNote (line, "Run Single day for another date, or a period with \"Keep whole-map days for playback\" to "
                             "play its shadows day by day.");
     }
     if (shadows) {

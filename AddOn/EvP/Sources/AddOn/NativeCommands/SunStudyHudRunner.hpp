@@ -34,8 +34,9 @@ struct Request {
     // Period sampling: false = Preview (one middle day per covered month,
     // weighted by its days: an estimate), true = every day.
     bool dailyResolved = false;
-    // Keep every traced day's lit bits for playback (continuous, fixed hour,
-    // day by day). Off by default: about 11 bytes a sample and day.
+    // Keep every traced day's whole-map lit bits IN RAM for playback
+    // (continuous, fixed hour, day by day). No file is written. Off by default:
+    // about 11 bytes a sample and day; point playback re-traces on demand.
     bool keepDays = false;
     // The time slice, every mode: whole hours, `hourTo` exclusive.
     int hourFrom = 0, hourTo = 24;
@@ -180,6 +181,11 @@ struct PeriodProfile {
     double up[12][24] = {}, facing[12][24] = {}, lit[12][24] = {}; // weighted hours, month x clock hour
     std::vector<int> dayMonth, dayOfMonth;
     std::vector<double> dayUp, dayFacing, dayLit; // hours, one per traced day
+    // Point-only playback: each day's clock minutes and averaged cell shares,
+    // aligned by day and step. This is the no-whole-map-archive alternative.
+    std::vector<double> dayHoursPerStep;
+    std::vector<std::vector<uint16_t>> dayMinutes;
+    std::vector<std::vector<double>> dayStepFacing, dayStepLit;
     size_t rays = 0;
     double milliseconds = 0.0;
 };

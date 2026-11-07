@@ -16,6 +16,7 @@
 #include "SunStudy/SunSeries.hpp"
 
 #include <array>
+#include <cstdint>
 #include <functional>
 #include <vector>
 
@@ -37,6 +38,9 @@ struct PointProfile {
     // One entry per traced day, in the period's order: hours that day.
     std::vector<int> dayMonth, dayOfMonth;
     std::vector<double> dayUp, dayFacing, dayLit;
+    // The same days at full measured resolution, aligned to ProfileDay::steps.
+    // Zero/one for this one sample; the caller averages a study point's cells.
+    std::vector<std::vector<uint8_t>> dayStepFacing, dayStepLit;
     size_t rays = 0;
 };
 

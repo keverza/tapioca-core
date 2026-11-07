@@ -86,20 +86,29 @@ bool ComputePointProfile (const double position[3], const double* normal, const 
     for (const ProfileDay& day : days) {
         const int month = std::clamp (day.month, 1, 12) - 1;
         double up = 0.0, facing = 0.0, lit = 0.0;
+        auto& stepFacing = profile.dayStepFacing.emplace_back ();
+        auto& stepLit = profile.dayStepLit.emplace_back ();
+        stepFacing.reserve (day.steps.size ());
+        stepLit.reserve (day.steps.size ());
         for (const SunStep& step : day.steps) {
             const int hour = std::clamp (step.time.hour, 0, 23);
             const double weighted = day.weightDays * day.hoursPerStep;
             profile.up[month][hour] += weighted;
             up += day.hoursPerStep;
-            if (!Faces (normal, step.direction))
-                continue;
-            profile.facing[month][hour] += weighted;
-            facing += day.hoursPerStep;
-            if (next < occluded.size () && occluded[next] == 0) {
-                profile.lit[month][hour] += weighted;
-                lit += day.hoursPerStep;
+            const bool faces = Faces (normal, step.direction);
+            stepFacing.push_back (faces ? 1u : 0u);
+            bool visible = false;
+            if (faces) {
+                profile.facing[month][hour] += weighted;
+                facing += day.hoursPerStep;
+                visible = next < occluded.size () && occluded[next] == 0;
+                if (visible) {
+                    profile.lit[month][hour] += weighted;
+                    lit += day.hoursPerStep;
+                }
+                ++next;
             }
-            ++next;
+            stepLit.push_back (visible ? 1u : 0u);
         }
         profile.dayMonth.push_back (day.month);
         profile.dayOfMonth.push_back (day.day);

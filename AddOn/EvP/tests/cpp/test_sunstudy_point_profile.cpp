@@ -77,6 +77,11 @@ TEST (SunStudyPointProfile, GridsAreWeightedAndOrderedUpFacingLit)
     EXPECT_DOUBLE_EQ (profile.dayFacing[0], 3.0);
     EXPECT_DOUBLE_EQ (profile.dayLit[0], 2.0);
     EXPECT_EQ (profile.dayMonth[1], 6);
+    ASSERT_EQ (profile.dayStepLit.size (), 2u);
+    ASSERT_EQ (profile.dayStepFacing.size (), 2u);
+    EXPECT_EQ (profile.dayStepFacing[0], (std::vector<uint8_t> { 1, 1, 1, 0 }));
+    EXPECT_EQ (profile.dayStepLit[0], (std::vector<uint8_t> { 0, 1, 1, 0 }));
+    EXPECT_EQ (profile.dayStepLit[1], (std::vector<uint8_t> { 0, 1, 1, 0 }));
 }
 
 TEST (SunStudyPointProfile, GroundSamplesFaceEverythingAndCancellationStops)
@@ -87,6 +92,8 @@ TEST (SunStudyPointProfile, GroundSamplesFaceEverythingAndCancellationStops)
     ASSERT_TRUE (ComputePointProfile (position, nullptr, { Day (1, 1.0) }, traversal, 0.001, profile));
     EXPECT_EQ (profile.rays, 4u);
     EXPECT_DOUBLE_EQ (profile.dayLit[0], 3.0);
+    EXPECT_EQ (profile.dayStepFacing[0], (std::vector<uint8_t> { 1, 1, 1, 1 }));
+    EXPECT_EQ (profile.dayStepLit[0], (std::vector<uint8_t> { 0, 1, 1, 1 }));
     EXPECT_FALSE (
         ComputePointProfile (position, nullptr, { Day (1, 1.0) }, traversal, 0.001, profile, [] { return true; }));
 }

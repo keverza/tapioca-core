@@ -226,7 +226,13 @@ struct HudState {
     int sunPeriodPlayMode = 3;
     int sunPeriodDay = 0, sunPeriodStep = 0;
     int sunPeriodClock = 12 * 60;
-    bool sunPeriodProfile = false; // re-trace the study point for its month x hour grid
+    bool sunPeriodProfile = false; // re-trace the study point for its grid and detailed playback
+    // Independent of the whole-map player: 0 every step, 1 fixed clock time,
+    // 2 day by day. These index the re-traced point profile, not kept map days.
+    HudTimeline sunPointPlay;
+    int sunPointPlayMode = 0;
+    int sunPointPlayDay = 0, sunPointPlayStep = -1;
+    int sunPointPlayClock = 12 * 60;
     // The STUDY POINT (#152): placed from the view's right-click menu on a
     // measured surface, snapped to the nearest sample, a sphere whose radius
     // takes in the cells around it; the panel's diagrams are their mean.
@@ -284,7 +290,7 @@ struct HudState {
     int sunRunPeriod = 0;
     int sunRunToMonth = 9, sunRunToDay = 23;
     bool sunRunDailyResolved = false;
-    // Keep every traced day for playback (continuous, fixed hour, day by day).
+    // Keep every traced day's whole-map bits in RAM for playback (not a file).
     bool sunRunKeepDays = false;
     // The time slice, every mode: whole hours, the end exclusive.
     int sunRunHourFrom = 0, sunRunHourTo = 24;
