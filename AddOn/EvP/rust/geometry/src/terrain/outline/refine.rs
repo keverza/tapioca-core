@@ -73,6 +73,10 @@ pub struct Refined {
     pub exhausted: bool,
 }
 
+/// A design height at a plan point and whether a face ran out there (as
+/// [`Faces::height`]); `None` off the base surface.
+pub(in crate::terrain) type Design<'a> = dyn Fn(f64, f64) -> Option<(f64, bool)> + 'a;
+
 /// The faces' heights on a rebuilt mesh.
 pub(super) struct Graded {
     pub points: Vec<f64>,
@@ -90,22 +94,22 @@ pub(super) struct Memo {
 }
 
 impl Memo {
-    pub(super) fn height(&mut self, faces: &Faces<'_>, x: f64, y: f64) -> Option<(f64, bool)> {
+    pub(super) fn height(&mut self, design: &Design<'_>, x: f64, y: f64) -> Option<(f64, bool)> {
         *self
             .heights
             .entry([x.to_bits(), y.to_bits()])
-            .or_insert_with(|| faces.height(x, y))
+            .or_insert_with(|| design(x, y))
     }
 
     /// [`sampled_error`] of the triangle, by its corners' plan positions (its
     /// corners' heights follow from them).
-    pub(super) fn error(&mut self, faces: &Faces<'_>, corners: [[f64; 3]; 3]) -> f64 {
+    pub(super) fn error(&mut self, design: &Design<'_>, corners: [[f64; 3]; 3]) -> f64 {
         let mut id = corners.map(|[x, y, _]| [x.to_bits(), y.to_bits()]);
         id.sort_unstable();
         *self
             .errors
             .entry(id)
-            .or_insert_with(|| sampled_error(faces, corners))
+            .or_insert_with(|| sampled_error(design, corners))
     }
 }
 
@@ -142,7 +146,9 @@ pub(super) fn grade(
         let height = if keep {
             z
         } else {
-            let (height, short) = memo.height(faces, x, y).ok_or(OutlineError::Coverage)?;
+            let (height, short) = memo
+                .height(&|x, y| faces.height(x, y), x, y)
+                .ok_or(OutlineError::Coverage)?;
             graded.unreached += u32::from(short);
             height
         };
@@ -194,6 +200,9 @@ pub(super) fn steepest(points: &[f64], triangles: &[u32]) -> f64 {
 pub(super) struct Bound {
     pub refine: Refine,
     pub steepest: f64,
+    /// The rebuilt region's traced toe and crease lines (#149 T2), as a range of its line
+    /// indices: a vertex on one is at the toe.
+    pub traced: [u32; 2],
 }
 
 /// The region rebuilt from `spots` and `lines`, graded, and refined to
@@ -219,7 +228,20 @@ pub(super) fn refined(
             },
         ));
     };
-    let (mesh, report) = mesher::refine(faces, &mut memo, &mesh, bound).unwrap_or((
+    let design = |x: f64, y: f64| faces.height(x, y);
+    let ground = |x: f64, y: f64| faces.base.height_at(x, y).map(|sample| sample.height);
+    let near = faces.near();
+    let footprint = faces.footprint();
+    let lane = mesher::Lane {
+        design: &design,
+        ground: &ground,
+        base: faces.base,
+        snap: faces.grading.tolerance,
+        near: &near,
+        traced: bound.traced,
+        paved: &|x, y| footprint.contains(x, y),
+    };
+    let (mesh, report) = mesher::refine(&lane, &mut memo, &mesh, bound).unwrap_or((
         mesh,
         Refined {
             rounds: 1,
@@ -265,11 +287,9 @@ pub(super) fn mix(w: [f64; 3], corners: [[f64; 3]; 3]) -> [f64; 3] {
 }
 
 /// The largest gap between the faces and the triangle's plane at its samples.
-fn sampled_error(faces: &Faces<'_>, corners: [[f64; 3]; 3]) -> f64 {
+fn sampled_error(design: &Design<'_>, corners: [[f64; 3]; 3]) -> f64 {
     ERROR_SAMPLES.iter().fold(0.0_f64, |worst, &weights| {
         let [x, y, z] = mix(weights, corners);
-        faces
-            .height(x, y)
-            .map_or(worst, |(height, _)| worst.max((height - z).abs()))
+        design(x, y).map_or(worst, |(height, _)| worst.max((height - z).abs()))
     })
 }

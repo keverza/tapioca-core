@@ -314,6 +314,16 @@ impl<'a, T: Copy + Send + Sync> Grid<'a, T> {
         edge: Edge,
         same: &dyn Fn(T, Option<T>) -> bool,
     ) -> Option<[f64; 2]> {
+        self.bracket(edge, same)
+            .map(|[lo, hi]| [lo[0].midpoint(hi[0]), lo[1].midpoint(hi[1])])
+    }
+
+    /// [`Self::bisect`]'s last bracket: the end where `same` still holds, and the other.
+    pub(super) fn bracket(
+        &self,
+        edge: Edge,
+        same: &dyn Fn(T, Option<T>) -> bool,
+    ) -> Option<[[f64; 2]; 2]> {
         let ((ia, ja), (ib, jb)) = edge.ends();
         let start = self.at(ia, ja)?;
         let (mut lo, mut hi) = (self.position(ia, ja), self.position(ib, jb));
@@ -325,7 +335,7 @@ impl<'a, T: Copy + Send + Sync> Grid<'a, T> {
                 hi = mid;
             }
         }
-        Some([lo[0].midpoint(hi[0]), lo[1].midpoint(hi[1])])
+        Some([lo, hi])
     }
 }
 

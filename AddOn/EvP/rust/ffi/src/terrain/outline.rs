@@ -7,7 +7,9 @@ use super::hybrid::TerrainHybridVolumes;
 use super::{BorrowContext, Failure, SliceView, call, memory_range};
 use crate::pools::{self, Range};
 use tapioca_geometry::terrain::edit::Effect;
-use tapioca_geometry::terrain::outline::{Grading, OutlineRequest, Outlined, SurfaceGrade, build};
+use tapioca_geometry::terrain::outline::{
+    Grading, OutlineRequest, Outlined, Refine, SurfaceGrade, build,
+};
 use tapioca_geometry::terrain::volume::exact::TriangleVolumes;
 
 /// The base mesh, the region, the paved surface, the plan breaklines and
@@ -248,9 +250,9 @@ unsafe fn compute(
         breaklines: &lines,
         spots,
         surface_grades: &grades,
-        // The offset rings the caller supplies stay the faces' vertices until
-        // the refinement is fast enough for the editor (#149 T3, T4).
-        refine: None,
+        // #149 T3: the faces get their vertices from the mesher, not offset rings; the
+        // unified build meshes its outline stage the same way, so the two stay in parity.
+        refine: Some(Refine::DEFAULT),
         grading: Grading {
             cut: slope(request.cut)?,
             fill: slope(request.fill)?,

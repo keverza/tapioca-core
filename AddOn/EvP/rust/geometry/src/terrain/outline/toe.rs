@@ -216,9 +216,16 @@ fn crossing(grid: &Grid<'_, Sample>, levels: Levels, k: usize, edge: Edge) -> Op
         ]);
     }
     let at_a = levels.exceeds(k, sa);
-    grid.bisect(edge, &|_, mid| {
+    let [inner, outer] = grid.bracket(edge, &|_, mid| {
         mid.map(|s| levels.exceeds(k, s)) == Some(at_a)
-    })
+    })?;
+    if k == 0 {
+        // The foot's vertex is the bracket's end where the design keeps the ground: its height
+        // is the ground's bit for bit, so a triangle from it out to the remote ground stays the
+        // ground (#65). The midpoint lifted it a few hundredths of a millimetre at the grade.
+        return Some(if at_a { outer } else { inner });
+    }
+    Some([inner[0].midpoint(outer[0]), inner[1].midpoint(outer[1])])
 }
 
 /// Marching squares for level `k` over `cells`, joined into polylines.

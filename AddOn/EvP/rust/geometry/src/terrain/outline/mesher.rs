@@ -21,7 +21,10 @@
 //! constraint in f64 (the bisection lane's failure). The ring is never split; a
 //! triangle whose point would encroach it takes its centroid when its error is
 //! the reason, and is left when only its angle is. A triangle touching a ring
-//! vertex where the faces end in a step is left too.
+//! vertex where the faces end in a step is refined whatever its step, down to
+//! the shortest side, so the step narrows to a strip along the ring. A thin
+//! triangle whose smallest angle lies between two constrained sides, and one of
+//! collinear corners, are left.
 //!
 //! Nothing is rebuilt between rounds: the triangulation is kept and only the
 //! new vertices' heights are evaluated. The result is assembled straight into a
@@ -29,7 +32,7 @@
 //! triangulation, each added vertex a [`RegionVertex::Refined`], and every line
 //! edge still a path along its segment.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use spade::handles::FixedVertexHandle;
 use spade::{
@@ -37,11 +40,46 @@ use spade::{
     PositionInTriangulation, Triangulation,
 };
 
+use super::plan;
 use super::refine::{Bound, Memo, Refined};
-use super::{Faces, plan};
+use crate::terrain::field::Field;
 use crate::terrain::region::{RegionLineEdge, RegionMesh, RegionVertex};
 
+/// What the mesher meshes for: the design and the ground it is graded over, at a plan point;
+/// the base surface the region mesh's points lie on; and the grading's at-grade snap. The
+/// outline lane grades over the base surface; the unified build (#149 T1) over the ground its
+/// region entries composed first.
+pub(in crate::terrain) struct Lane<'a> {
+    /// The design height at a plan point and whether a face ran out at its limit there
+    /// ([`super::Faces::height`]); `None` off the base surface.
+    pub design: &'a (dyn Fn(f64, f64) -> Option<(f64, bool)> + 'a),
+    /// The ground the design is graded over.
+    pub ground: &'a (dyn Fn(f64, f64) -> Option<f64> + 'a),
+    /// The base surface: the region mesh's own heights, and its base edges.
+    pub base: &'a Field,
+    /// Within this of the ground the design is the ground, metres.
+    pub snap: f64,
+    /// Where the faces can move the ground at all: a triangle elsewhere is not evaluated.
+    pub near: &'a super::Near,
+    /// The region mesh's lines `traced[0]..traced[1]` are the faces' own traced lines (#149 T2:
+    /// the toe and creases). A vertex on one is at the toe, not beyond it. The lines from
+    /// `traced[1]` on are the pavement's private supports (its TIN edges): one beside a kerb's
+    /// face is not split -- a kerb is two of them a few centimetres apart in plan, and a split
+    /// of one leaves slivers tilting across the kerb.
+    pub traced: [u32; 2],
+    /// Whether a plan point is on the pavement (its footprint, a kerb's face included): its own
+    /// TIN, which the rebuild carries exactly (its vertices as spots, its edges as supports), so
+    /// a triangle there is not refined.
+    pub paved: &'a (dyn Fn(f64, f64) -> bool + 'a),
+}
+
 type Cdt = ConstrainedDelaunayTriangulation<Point2<f64>>;
+
+/// How many of a triangle's lengths its new point may lie from it.
+const REACH: f64 = 4.0;
+
+/// Most edges a walk from a triangle to its circumcentre may cross.
+const WALK: u32 = 4096;
 
 /// Rounds before the mesher reports itself exhausted.
 const MAX_ROUNDS: u32 = 64;
@@ -91,7 +129,7 @@ fn smallest_angle(first: Point2<f64>, second: Point2<f64>, third: Point2<f64>) -
 }
 
 struct Mesher<'a, 'f> {
-    faces: &'a Faces<'f>,
+    lane: &'a Lane<'f>,
     memo: &'a mut Memo,
     bound: Bound,
     cdt: Cdt,
@@ -105,6 +143,11 @@ struct Mesher<'a, 'f> {
     inside: usize,
     kinds: BTreeMap<[usize; 2], Vec<Kind>>,
     ring_plan: Vec<[f64; 3]>,
+    /// The ring's sides, which are never split.
+    ring_sides: HashSet<[usize; 2]>,
+    /// Each triangle's assessment, by its sorted vertices: a triangle that survives a round
+    /// is not assessed again (its corners, their heights and their lines are unchanged).
+    assessed: HashMap<[usize; 3], (Option<Why>, bool)>,
 }
 
 impl Mesher<'_, '_> {
@@ -123,16 +166,17 @@ impl Mesher<'_, '_> {
         let p = self.position(v)?;
         Some(
             self.memo
-                .height(self.faces, p.x, p.y)
+                .height(self.lane.design, p.x, p.y)
                 .map_or(base, |(height, _)| height),
         )
     }
 
-    /// Whether the toe crosses the triangle between its samples: they disagree on whether the
-    /// design moves the ground. A corner on a traced toe line is neither side, so corners are
-    /// not asked; the traced line strays up to its 5 mm tolerance from the exact toe, so one
-    /// sample keeping the ground beside it is not a crossing either.
-    fn straddles(&mut self, [pa, pb, pc]: [Point2<f64>; 3]) -> bool {
+    /// At the triangle's inside samples, whether the design keeps the ground at some and moves
+    /// it at others: `[kept, moved]`. The toe crosses a triangle between its samples where both
+    /// are seen. A corner on a traced toe line is neither side, so corners are not asked; the
+    /// traced line strays up to its 5 mm tolerance from the exact toe, so one sample keeping
+    /// the ground beside it is not a crossing either.
+    fn moves(&mut self, [pa, pb, pc]: [Point2<f64>; 3]) -> [bool; 2] {
         let mut seen = [false, false];
         for [wa, wb, wc] in super::refine::SAMPLES {
             let (x, y) = (
@@ -140,17 +184,65 @@ impl Mesher<'_, '_> {
                 wa.mul_add(pa.y, wb.mul_add(pb.y, wc * pc.y)),
             );
             let (Some(ground), Some((height, _))) = (
-                self.faces.base.height_at(x, y),
-                self.memo.height(self.faces, x, y),
+                (self.lane.ground)(x, y),
+                self.memo.height(self.lane.design, x, y),
             ) else {
                 continue;
             };
-            let moved = height.to_bits() != ground.height.to_bits();
+            let moved = height.to_bits() != ground.to_bits();
             if let Some(flag) = seen.get_mut(usize::from(moved)) {
                 *flag = true;
             }
         }
-        seen == [true, true]
+        seen
+    }
+
+    /// Whether the design moves the ground at vertex `v`.
+    fn moved_at(&mut self, v: usize) -> bool {
+        let (Some(p), Some(height)) = (self.position(v), self.height(v)) else {
+            return false;
+        };
+        (self.lane.ground)(p.x, p.y).is_some_and(|ground| ground.to_bits() != height.to_bits())
+    }
+
+    /// Whether the triangle's smallest angle lies between two constrained sides.
+    fn input_angle(&self, [a, b, c]: [usize; 3], [pa, pb, pc]: [Point2<f64>; 3]) -> bool {
+        let angle = |apex: Point2<f64>, left: Point2<f64>, right: Point2<f64>| {
+            let along = [left.x - apex.x, left.y - apex.y];
+            let across = [right.x - apex.x, right.y - apex.y];
+            along[0]
+                .mul_add(across[1], -along[1] * across[0])
+                .abs()
+                .atan2(along[0].mul_add(across[0], along[1] * across[1]))
+        };
+        let corners = [
+            (angle(pa, pb, pc), a, b, c),
+            (angle(pb, pc, pa), b, c, a),
+            (angle(pc, pa, pb), c, a, b),
+        ];
+        corners
+            .iter()
+            .min_by(|x, y| x.0.total_cmp(&y.0))
+            .is_some_and(|&(_, apex, left, right)| {
+                self.is_constraint(apex, left) && self.is_constraint(apex, right)
+            })
+    }
+
+    /// Whether vertex `v` lies on one of the faces' traced lines.
+    fn on_traced(&self, v: usize) -> bool {
+        let [first, last] = self.lane.traced;
+        self.cdt
+            .get_vertex(FixedVertexHandle::from_index(v))
+            .is_some_and(|vertex| {
+                vertex.out_edges().any(|edge| {
+                    let other = edge.to().fix().index();
+                    self.kinds.get(&key(v, other)).is_some_and(|kinds| {
+                        kinds.iter().any(|kind| {
+                            matches!(kind, Kind::Line { line, .. } if (first..last).contains(line))
+                        })
+                    })
+                })
+            })
     }
 
     /// A ring vertex where the faces are off the ground: the faces end there in a step.
@@ -162,43 +254,88 @@ impl Mesher<'_, '_> {
             return false;
         };
         self.memo
-            .height(self.faces, p.x, p.y)
+            .height(self.lane.design, p.x, p.y)
             .is_some_and(|(height, _)| (height - base).abs() > self.bound.refine.tolerance)
     }
 
-    /// Why the triangle `[a, b, c]` needs a vertex; `None` when it does not or must not get one.
-    fn assess(&mut self, [a, b, c]: [usize; 3]) -> Option<Why> {
+    /// Why the triangle `[a, b, c]` needs a vertex (`None` when it does not or must not get
+    /// one; [`Why::Angle`] for any thin triangle, the caller keeps it near the design), and
+    /// whether the design moves the ground at one of its samples.
+    fn assess(&mut self, triangle: [usize; 3]) -> (Option<Why>, bool) {
+        let mut sorted = triangle;
+        sorted.sort_unstable();
+        if let Some(&known) = self.assessed.get(&sorted) {
+            return known;
+        }
+        let found = self.judge(triangle).unwrap_or((None, false));
+        self.assessed.insert(sorted, found);
+        found
+    }
+
+    fn judge(&mut self, [a, b, c]: [usize; 3]) -> Option<(Option<Why>, bool)> {
         let refine = self.bound.refine;
         let (pa, pb, pc) = (self.position(a)?, self.position(b)?, self.position(c)?);
         let longest = distance(pa, pb).max(distance(pb, pc)).max(distance(pc, pa));
         if longest < refine.shortest {
             return None;
         }
-        if [a, b, c].iter().any(|&v| self.clipped(v)) {
+        if (self.lane.paved)((pa.x + pb.x + pc.x) / 3.0, (pa.y + pb.y + pc.y) / 3.0) {
             return None;
+        }
+        let lo = [pa.x.min(pb.x).min(pc.x), pa.y.min(pb.y).min(pc.y)];
+        let hi = [pa.x.max(pb.x).max(pc.x), pa.y.max(pb.y).max(pc.y)];
+        if !self.lane.near.touches(lo, hi) {
+            return None;
+        }
+        // At a ring vertex where the faces are off the ground they end in a step (the ring keeps
+        // the ground for the stitch). Such a triangle is refined whatever its step, down to the
+        // shortest side: the step narrows to a strip along the ring instead of tilting a large
+        // triangle across the faces (#151's slab edge, which the offset rings used to densify).
+        let clipped = [a, b, c].iter().any(|&v| self.clipped(v));
+        let [kept, moved] = self.moves([pa, pb, pc]);
+        let corner_moved = [a, b, c].map(|v| (self.moved_at(v), v));
+        // A thin triangle whose smallest angle lies between two constrained sides is an input
+        // angle (two lines meeting): no vertex mends it, and Ruppert's cascade around it does not
+        // end. It is left.
+        // A thin triangle under twice the shortest side is left too: Ruppert's minimum size, so
+        // the angle refinement ends instead of running to the round cap. A long sliver with one
+        // short side is refined.
+        let thin = smallest_angle(pa, pb, pc) < refine.angle.to_radians()
+            && longest >= 2.0 * refine.shortest
+            && !self.input_angle([a, b, c], [pa, pb, pc]);
+        if !moved && !corner_moved.iter().any(|&(m, _)| m) {
+            // The design keeps the ground here: the mesh is the ground's own (the base's, or the
+            // surface the unified build's region entries compose at its vertices), not the
+            // faces' to refine. Only its angle is asked, beside a triangle the design moves.
+            return Some((thin.then_some(Why::Angle), false));
         }
         let corners = [
             [pa.x, pa.y, self.height(a)?],
             [pb.x, pb.y, self.height(b)?],
             [pc.x, pc.y, self.height(c)?],
         ];
-        let error = self.memo.error(self.faces, corners);
+        let error = self.memo.error(self.lane.design, corners);
         // Within a triangle a field no steeper than `steepest` strays from its corners' plane by
         // at most twice `steepest` times its size: more is a step, where a face ends.
-        let step = 2.0f64.mul_add(
-            self.bound.steepest * longest,
-            2.0 * self.faces.grading.tolerance,
-        );
-        if error > step {
+        let step = 2.0f64.mul_add(self.bound.steepest * longest, 2.0 * self.lane.snap);
+        if error > step && !clipped {
             return None;
         }
-        if error > refine.tolerance {
-            return Some(Why::Error(error));
+        // Across the toe: the samples disagree, or a moved corner shares the triangle with one
+        // that keeps the ground and is not on a traced toe line (the ground beyond the toe, which
+        // a long triangle would lift by a fraction of the tolerance: #65 wants it exact).
+        let across = longest > refine.toe
+            && ((kept && moved)
+                || (corner_moved.iter().any(|&(m, _)| m)
+                    && corner_moved.iter().any(|&(m, v)| {
+                        // A ring vertex keeps the ground for the stitch, not because it lies
+                        // beyond the toe; the ring is never split, so it cannot be refined away.
+                        !m && !self.on_traced(v) && !self.ring.get(v).copied().unwrap_or(false)
+                    })));
+        if error > refine.tolerance || across {
+            return Some((Some(Why::Error(error)), moved));
         }
-        if longest > refine.toe && self.straddles([pa, pb, pc]) {
-            return Some(Why::Error(error));
-        }
-        (smallest_angle(pa, pb, pc) < refine.angle.to_radians()).then_some(Why::Angle)
+        Some((thin.then_some(Why::Angle), moved))
     }
 
     /// The inside faces, by a walk from a face inside the ring that never crosses it.
@@ -211,7 +348,10 @@ impl Mesher<'_, '_> {
         let Some(seed) = seed else {
             return Vec::new();
         };
-        let mut visited = BTreeSet::from([seed.fix()]);
+        let mut visited = vec![false; self.cdt.num_all_faces()];
+        if let Some(flag) = visited.get_mut(seed.fix().index()) {
+            *flag = true;
+        }
         let mut queue = VecDeque::from([seed.fix()]);
         let mut out = Vec::new();
         while let Some(fixed) = queue.pop_front() {
@@ -219,16 +359,14 @@ impl Mesher<'_, '_> {
             out.push(face.vertices().map(|v| v.fix().index()));
             for edge in face.adjacent_edges() {
                 let [from, to] = edge.vertices().map(|v| v.fix().index());
-                if self
-                    .kinds
-                    .get(&key(from, to))
-                    .is_some_and(|kinds| kinds.contains(&Kind::Ring))
-                {
+                if self.ring_sides.contains(&key(from, to)) {
                     continue;
                 }
                 if let Some(next) = edge.rev().face().as_inner()
-                    && visited.insert(next.fix())
+                    && let Some(flag) = visited.get_mut(next.fix().index())
+                    && !*flag
                 {
+                    *flag = true;
                     queue.push_back(next.fix());
                 }
             }
@@ -257,7 +395,7 @@ impl Mesher<'_, '_> {
             return Err(Stop::Leave);
         }
         let base = self
-            .faces
+            .lane
             .base
             .height_at(p.x, p.y)
             .ok_or(Stop::Broken)?
@@ -286,7 +424,14 @@ impl Mesher<'_, '_> {
             self.position(b).ok_or(Stop::Broken)?,
         );
         let kinds = self.kinds.get(&key(a, b)).cloned().ok_or(Stop::Leave)?;
-        if kinds.contains(&Kind::Ring) || distance(pa, pb) < 2.0 * self.bound.refine.shortest {
+        let supports = self.lane.traced[1];
+        let support = kinds
+            .iter()
+            .any(|kind| matches!(kind, Kind::Line { line, .. } if *line >= supports));
+        if kinds.contains(&Kind::Ring)
+            || distance(pa, pb) < 2.0 * self.bound.refine.shortest
+            || (support && self.kerb([a, b]))
+        {
             return Err(Stop::Leave);
         }
         let (ha, hb) = (
@@ -325,6 +470,41 @@ impl Mesher<'_, '_> {
             }
         }
         Ok(())
+    }
+
+    /// Whether a paved triangle beside the side `[a, b]` is narrower from it than twice the
+    /// shortest side: a kerb's face, which a split of the side would cut into slivers tilting
+    /// across the kerb. The pavement's other triangles take a split of its edge as it comes.
+    fn kerb(&self, [a, b]: [usize; 2]) -> bool {
+        let (Some(pa), Some(pb)) = (self.position(a), self.position(b)) else {
+            return true;
+        };
+        let length = distance(pa, pb);
+        let Some(edge) = self.cdt.get_edge_from_neighbors(
+            FixedVertexHandle::from_index(a),
+            FixedVertexHandle::from_index(b),
+        ) else {
+            return true;
+        };
+        [edge, edge.rev()].iter().any(|side| {
+            let Some(face) = side.face().as_inner() else {
+                return false;
+            };
+            let corners = face.positions();
+            let centroid = [
+                corners.iter().map(|corner| corner.x).sum::<f64>() / 3.0,
+                corners.iter().map(|corner| corner.y).sum::<f64>() / 3.0,
+            ];
+            if !(self.lane.paved)(centroid[0], centroid[1]) {
+                return false;
+            }
+            let apex = side.next().to().position();
+            let height = (pb.x - pa.x)
+                .mul_add(apex.y - pa.y, -(pb.y - pa.y) * (apex.x - pa.x))
+                .abs()
+                / length.max(f64::MIN_POSITIVE);
+            height < 2.0 * self.bound.refine.shortest
+        })
     }
 
     /// Remove the newest vertex, `handle`, and its records: `spade` removes a vertex by moving
@@ -374,7 +554,14 @@ impl Mesher<'_, '_> {
         from: Point2<f64>,
         target: Point2<f64>,
     ) -> Result<Option<[usize; 2]>, Stop> {
+        // A walk that does not end within this many edges is left: on near-degenerate input the
+        // iterator can cycle (the 2026-11-07 TwoPaths fixture hung in it).
+        let mut walked = 0_u32;
         for intersection in LineIntersectionIterator::new(&self.cdt, from, target) {
+            walked += 1;
+            if walked > WALK {
+                return Err(Stop::Leave);
+            }
             match intersection {
                 Intersection::EdgeIntersection(edge) | Intersection::EdgeOverlap(edge) => {
                     let [p, q] = edge.vertices().map(|v| v.fix().index());
@@ -430,23 +617,94 @@ impl Mesher<'_, '_> {
             .face()
             .as_inner()
             .ok_or(Stop::Leave)?;
-        let centre = face.circumcenter();
         let corners = face.positions();
         let centroid = Point2::new(
             corners.iter().map(|c| c.x).sum::<f64>() / 3.0,
             corners.iter().map(|c| c.y).sum::<f64>() / 3.0,
         );
+        let [p, q, r] = corners;
+        let longest = distance(p, q).max(distance(q, r)).max(distance(r, p));
+        let doubled = (q.x - p.x).mul_add(r.y - p.y, -(q.y - p.y) * (r.x - p.x));
+        // A triangle of collinear corners has its circumcentre at infinity, where the walk
+        // towards it never ends (the 2026-11-07 TwoPaths fixture hung there): it is left.
+        let centre = face.circumcenter();
+        if doubled.abs() <= 1e-12 * longest * longest
+            || !(centre.x.is_finite() && centre.y.is_finite())
+        {
+            return Err(Stop::Leave);
+        }
+        // A sliver's circumcentre is far off: the point goes no further than a few of its
+        // lengths that way, which is where its refinement acts.
+        let reach = REACH * longest;
+        let off = distance(centroid, centre);
+        let centre = if off > reach {
+            Point2::new(
+                (centre.x - centroid.x).mul_add(reach / off, centroid.x),
+                (centre.y - centroid.y).mul_add(reach / off, centroid.y),
+            )
+        } else {
+            centre
+        };
+        // A point closer than half the shortest side to the triangle's corners would only chase
+        // one spot ever closer (a refinement that does not converge): the triangle is left.
+        let crowded = |point: Point2<f64>| {
+            corners
+                .iter()
+                .any(|&corner| distance(corner, point) < self.bound.refine.shortest / 2.0)
+        };
+        let vertices = face.vertices().map(|v| v.fix().index());
+        let (centre_crowded, centroid_crowded) = (crowded(centre), crowded(centroid));
         match self.encroached(centroid, centre) {
+            Ok(None) if centre_crowded => Err(Stop::Leave),
             Ok(None) => self.insert(centre),
             Ok(Some(side)) => match self.split(side) {
-                Err(Stop::Leave) if matches!(why, Why::Error(_)) => self.insert(centroid),
+                Err(Stop::Leave) if matches!(why, Why::Error(_)) => {
+                    self.fall_back(vertices, centroid, centroid_crowded)
+                }
                 other => other,
             },
             Err(stop) => match why {
-                Why::Error(_) => self.insert(centroid),
+                Why::Error(_) => self.fall_back(vertices, centroid, centroid_crowded),
                 Why::Angle => Err(stop),
             },
         }
+    }
+
+    /// A triangle refined for its error whose circumcentre will not do: its centroid, or, where
+    /// that crowds a corner (a long thin triangle, whose centroids would chase one spot), its
+    /// longest side bisected -- split if constrained, its midpoint inserted if free.
+    fn fall_back(
+        &mut self,
+        [a, b, c]: [usize; 3],
+        centroid: Point2<f64>,
+        crowded: bool,
+    ) -> Result<(), Stop> {
+        if !crowded {
+            return self.insert(centroid);
+        }
+        let (Some(pa), Some(pb), Some(pc)) = (self.position(a), self.position(b), self.position(c))
+        else {
+            return Err(Stop::Leave);
+        };
+        let [(length, from, to, start, end), ..] = {
+            let mut sides = [
+                (distance(pa, pb), a, b, pa, pb),
+                (distance(pb, pc), b, c, pb, pc),
+                (distance(pc, pa), c, a, pc, pa),
+            ];
+            sides.sort_by(|left, right| right.0.total_cmp(&left.0));
+            sides
+        };
+        if length < 2.0 * self.bound.refine.shortest {
+            return Err(Stop::Leave);
+        }
+        if self.is_constraint(from, to) {
+            return self.split([from, to]);
+        }
+        self.insert(Point2::new(
+            start.x.midpoint(end.x),
+            start.y.midpoint(end.y),
+        ))
     }
 }
 
@@ -488,8 +746,8 @@ fn kinked(ground: &crate::terrain::field::Field, p: [f64; 3], q: [f64; 3]) -> bo
 
 /// `mesh` refined to `bound` on one triangulation, and what that did; `None` when the
 /// triangulation could not be built from it or a split broke it (the caller keeps `mesh`).
-pub(super) fn refine(
-    faces: &Faces<'_>,
+pub(in crate::terrain) fn refine(
+    lane: &Lane<'_>,
     memo: &mut Memo,
     mesh: &RegionMesh,
     bound: Bound,
@@ -497,7 +755,7 @@ pub(super) fn refine(
     let corners = plan::vertices(&mesh.points);
     let triangles = mesh.triangles.as_chunks::<3>().0;
     let mut mesher = Mesher {
-        faces,
+        lane,
         memo,
         bound,
         cdt: Cdt::new(),
@@ -507,6 +765,8 @@ pub(super) fn refine(
         original: u32::try_from(corners.len()).ok()?,
         inside: 0,
         kinds: BTreeMap::new(),
+        ring_sides: HashSet::new(),
+        assessed: HashMap::new(),
         ring_plan: mesh
             .ring
             .iter()
@@ -567,7 +827,7 @@ pub(super) fn refine(
             users.as_slice(),
             corners.get(p as usize),
             corners.get(q as usize),
-        ) && kinked(faces.base, a, b)
+        ) && kinked(lane.base, a, b)
         {
             constraints.push(([local_of(p)?, local_of(q)?], Kind::Base));
         }
@@ -599,6 +859,12 @@ pub(super) fn refine(
         }
     }
 
+    mesher.ring_sides = mesher
+        .kinds
+        .iter()
+        .filter(|(_, kinds)| kinds.contains(&Kind::Ring))
+        .map(|(side, _)| *side)
+        .collect();
     let mut report = Refined::default();
     let mut left: BTreeSet<[usize; 3]> = BTreeSet::new();
     let budget = usize::try_from(bound.refine.budget).unwrap_or(usize::MAX);
@@ -606,23 +872,39 @@ pub(super) fn refine(
     loop {
         report.rounds += 1;
         let mut bad: Vec<([usize; 3], Why)> = Vec::new();
+        let mut thin: Vec<[usize; 3]> = Vec::new();
+        // The sides of the triangles where the design moves the ground: a thin triangle is
+        // refined there and beside them (the toe line's other side), not across the rest of
+        // the region, which is the ground's own mesh (the unified build's is the property).
+        let mut graded: BTreeSet<[usize; 2]> = BTreeSet::new();
         report.residual = 0.0;
         for triangle in mesher.inside() {
             let mut sorted = triangle;
             sorted.sort_unstable();
-            if left.contains(&sorted) {
-                if let Some(Why::Error(error)) = mesher.assess(triangle) {
-                    report.residual = report.residual.max(error);
-                }
-                continue;
+            let (why, moved) = mesher.assess(triangle);
+            if moved {
+                let [a, b, c] = triangle;
+                graded.extend([key(a, b), key(b, c), key(c, a)]);
             }
-            if let Some(why) = mesher.assess(triangle) {
-                if let Why::Error(error) = why {
-                    report.residual = report.residual.max(error);
-                }
-                bad.push((triangle, why));
+            if let Some(Why::Error(error)) = why {
+                report.residual = report.residual.max(error);
+            }
+            match why {
+                _ if left.contains(&sorted) => {}
+                Some(Why::Angle) if !moved => thin.push(triangle),
+                Some(why) => bad.push((triangle, why)),
+                None => {}
             }
         }
+        bad.extend(
+            thin.into_iter()
+                .filter(|&[a, b, c]| {
+                    [key(a, b), key(b, c), key(c, a)]
+                        .iter()
+                        .any(|side| graded.contains(side))
+                })
+                .map(|triangle| (triangle, Why::Angle)),
+        );
         if bad.is_empty() {
             break;
         }
@@ -701,7 +983,7 @@ fn assemble(mesh: &RegionMesh, mesher: &Mesher<'_, '_>) -> Option<RegionMesh> {
             mesher.position(c)?,
         );
         let parent = mesher
-            .faces
+            .lane
             .base
             .height_at((pa.x + pb.x + pc.x) / 3.0, (pa.y + pb.y + pc.y) / 3.0)?
             .face;

@@ -313,6 +313,177 @@ pub(super) struct Winner {
     pub toward: [f64; 2],
 }
 
+/// The pavement's plan footprint: inside an odd number of its outline's rings. Every paved
+/// triangle counts, a kerb's near-vertical face too (the surface field keeps only upward
+/// ones). Edges are bucketed by plan rows so a point asks only its row's edges (#149 T3).
+pub(super) struct Footprint {
+    origin: f64,
+    row: f64,
+    rows: Vec<Vec<[[f64; 2]; 2]>>,
+}
+
+impl Footprint {
+    fn new(edges: &[Edge]) -> Self {
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for edge in edges {
+            for p in edge.segment {
+                (lo, hi) = (lo.min(p[1]), hi.max(p[1]));
+            }
+        }
+        let mut footprint = Self {
+            origin: lo,
+            row: 1.0,
+            rows: Vec::new(),
+        };
+        if lo
+            .partial_cmp(&hi)
+            .is_none_or(|order| order == std::cmp::Ordering::Greater)
+        {
+            return footprint;
+        }
+        footprint.row = ((hi - lo) / 4096.0).max(0.5);
+        let count = plan::clamp_index(((hi - lo) / footprint.row).floor(), 4096) as usize + 1;
+        footprint.rows = vec![Vec::new(); count];
+        for edge in edges {
+            let [a, b] = edge.segment;
+            let (r0, r1) = (
+                footprint.index(a[1].min(b[1])),
+                footprint.index(a[1].max(b[1])),
+            );
+            for row in r0..=r1 {
+                if let Some(bucket) = footprint.rows.get_mut(row) {
+                    bucket.push([[a[0], a[1]], [b[0], b[1]]]);
+                }
+            }
+        }
+        footprint
+    }
+
+    fn index(&self, y: f64) -> usize {
+        plan::clamp_index(
+            ((y - self.origin) / self.row).floor().max(0.0),
+            u32::try_from(self.rows.len().saturating_sub(1)).unwrap_or(u32::MAX),
+        ) as usize
+    }
+
+    /// Whether `(x, y)` lies inside the footprint (even-odd over its outline edges).
+    pub(super) fn contains(&self, x: f64, y: f64) -> bool {
+        let Some(bucket) = self.rows.get(self.index(y)) else {
+            return false;
+        };
+        let mut inside = false;
+        for &[a, b] in bucket {
+            if (a[1] > y) != (b[1] > y) {
+                let t = (y - a[1]) / (b[1] - a[1]);
+                if (b[0] - a[0]).mul_add(t, a[0]) > x {
+                    inside = !inside;
+                }
+            }
+        }
+        inside
+    }
+}
+
+/// Where the faces can move the ground: plan cells within the limit of an outline edge
+/// (#149 T3). A face reaches no further than the limit from the edge it falls from, so a
+/// triangle touching no marked cell keeps the ground (the pavement inside is its own TIN, whose
+/// vertices and edges the rebuild already carries). The mesher asks this before evaluating
+/// anything: the unified build meshes the whole property.
+pub(super) struct Near {
+    origin: [f64; 2],
+    cell: f64,
+    columns: usize,
+    rows: usize,
+    marked: Vec<bool>,
+}
+
+impl Near {
+    /// Cells at least a metre and a half the limit wide, at most 1024 a side.
+    fn new(edges: &[Edge], limit: f64) -> Self {
+        let reach = limit.max(0.0);
+        let (mut lo, mut hi) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+        for edge in edges {
+            for p in edge.segment {
+                lo = [lo[0].min(p[0] - reach), lo[1].min(p[1] - reach)];
+                hi = [hi[0].max(p[0] + reach), hi[1].max(p[1] + reach)];
+            }
+        }
+        let mut near = Self {
+            origin: lo,
+            cell: 1.0,
+            columns: 0,
+            rows: 0,
+            marked: Vec::new(),
+        };
+        if !(lo[0] <= hi[0] && lo[1] <= hi[1]) {
+            return near;
+        }
+        let span = (hi[0] - lo[0]).max(hi[1] - lo[1]);
+        near.cell = (reach / 2.0).max(1.0).max(span / 1024.0);
+        let count =
+            |extent: f64| plan::clamp_index((extent / near.cell).floor(), 1024) as usize + 1;
+        (near.columns, near.rows) = (count(hi[0] - lo[0]), count(hi[1] - lo[1]));
+        near.marked = vec![false; near.columns * near.rows];
+        for edge in edges {
+            let [a, b] = edge.segment;
+            let (from, to) = (
+                [a[0].min(b[0]) - reach, a[1].min(b[1]) - reach],
+                [a[0].max(b[0]) + reach, a[1].max(b[1]) + reach],
+            );
+            let ([c0, r0], [c1, r1]) = (near.index(from), near.index(to));
+            for row in r0..=r1 {
+                for column in c0..=c1 {
+                    if let Some(flag) = near.marked.get_mut(row * near.columns + column) {
+                        *flag = true;
+                    }
+                }
+            }
+        }
+        near
+    }
+
+    /// The cell holding `p`, clamped into the grid.
+    fn index(&self, p: [f64; 2]) -> [usize; 2] {
+        let at = |value: f64, origin: f64, count: usize| {
+            plan::clamp_index(
+                ((value - origin) / self.cell).floor().max(0.0),
+                u32::try_from(count.saturating_sub(1)).unwrap_or(u32::MAX),
+            ) as usize
+        };
+        [
+            at(p[0], self.origin[0], self.columns),
+            at(p[1], self.origin[1], self.rows),
+        ]
+    }
+
+    /// Whether the box `lo`-`hi` touches a marked cell.
+    pub(super) fn touches(&self, lo: [f64; 2], hi: [f64; 2]) -> bool {
+        if self.marked.is_empty() {
+            return false;
+        }
+        let count = |n: usize| f64::from(u32::try_from(n).unwrap_or(u32::MAX));
+        let far = [
+            self.cell.mul_add(count(self.columns), self.origin[0]),
+            self.cell.mul_add(count(self.rows), self.origin[1]),
+        ];
+        if hi[0] < self.origin[0] || hi[1] < self.origin[1] || lo[0] > far[0] || lo[1] > far[1] {
+            return false;
+        }
+        let ([c0, r0], [c1, r1]) = (self.index(lo), self.index(hi));
+        (r0..=r1).any(|row| {
+            (c0..=c1).any(|column| {
+                self.marked
+                    .get(row * self.columns + column)
+                    .copied()
+                    .unwrap_or(false)
+            })
+        })
+    }
+}
+
+/// A flat xyz point pool and its vertex triples.
+type Flat<'a> = (&'a [f64], &'a [u32]);
+
 /// The validated grading: grades as rise per metre of run.
 pub(super) struct Faces<'a> {
     base: &'a Field,
@@ -568,6 +739,16 @@ impl<'a> Faces<'a> {
         Some(self.over(base, px, py))
     }
 
+    /// Where these faces can move the ground at all (#149 T3).
+    pub(super) fn near(&self) -> Near {
+        Near::new(self.outline, self.grading.limit)
+    }
+
+    /// The pavement's plan footprint (#149 T3).
+    pub(super) fn footprint(&self) -> Footprint {
+        Footprint::new(self.outline)
+    }
+
     /// [`Self::height`] over a given current ground height rather than the
     /// base surface's: the unified build (#149 T1) grades the outline over the
     /// ground its region entries have already composed there.
@@ -710,6 +891,64 @@ impl Operator {
     pub(super) fn faces(&self) -> Faces<'_> {
         Faces::new(&self.base, &self.surface, &self.edges, self.grading)
     }
+
+    /// `refine` with the steepest gradient the faces have wherever they are continuous: the
+    /// grades, the base's and the pavement's (each as flat points and triangles, in that order).
+    fn bound(
+        &self,
+        refine: Refine,
+        [base, surface]: [Flat<'_>; 2],
+        traced: [u32; 2],
+    ) -> refine::Bound {
+        let ((base_points, base_triangles), (surface_points, surface_triangles)) = (base, surface);
+        refine::Bound {
+            refine,
+            steepest: self
+                .edges
+                .iter()
+                .flat_map(|edge| [edge.grade.cut, edge.grade.fill])
+                .filter(|grade| grade.is_finite())
+                .fold(
+                    refine::steepest(base_points, base_triangles)
+                        .max(refine::steepest(surface_points, surface_triangles)),
+                    f64::max,
+                ),
+            traced,
+        }
+    }
+
+    /// #149 T3 in the unified build: `mesh` (its region rebuilt with the outline's lines)
+    /// meshed to `refine` for these faces graded over `ground`, the surface the build's region
+    /// entries composed (or the base); `None` when the mesher cannot take it (the caller keeps
+    /// it). `rebuilt` is that mesh and the range of its line indices that are the traced toe and
+    /// creases; `meshes` are the base and the pavement, as for the bound.
+    pub(super) fn meshed(
+        &self,
+        ground: &(dyn Fn(f64, f64) -> Option<f64> + Sync),
+        (mesh, traced): (&RegionMesh, [u32; 2]),
+        refine: Refine,
+        meshes: [Flat<'_>; 2],
+    ) -> Option<(RegionMesh, Refined)> {
+        let faces = self.faces();
+        let design = |x: f64, y: f64| ground(x, y).map(|base| faces.over(base, x, y));
+        let near = faces.near();
+        let footprint = faces.footprint();
+        let lane = mesher::Lane {
+            design: &design,
+            ground,
+            base: &self.base,
+            snap: self.grading.tolerance,
+            near: &near,
+            traced,
+            paved: &|x, y| footprint.contains(x, y),
+        };
+        mesher::refine(
+            &lane,
+            &mut refine::Memo::default(),
+            mesh,
+            self.bound(refine, meshes, traced),
+        )
+    }
 }
 
 /// Grade the terrain inside `request.region` from the paved area.
@@ -733,7 +972,7 @@ pub(in crate::terrain) fn build_with(
         request.surface_grades,
         request.grading,
     )?;
-    let (base, edges) = (&operator.base, &operator.edges);
+    let base = &operator.base;
     let faces = operator.faces();
     if request.refine.is_some_and(|refine| !refine.valid()) {
         return Err(OutlineError::Parameters);
@@ -779,28 +1018,35 @@ pub(in crate::terrain) fn build_with(
         )
         .map_err(OutlineError::Region)
     };
-    let bound = request.refine.map(|refine| refine::Bound {
-        refine,
-        steepest: edges
-            .iter()
-            .flat_map(|edge| [edge.grade.cut, edge.grade.fill])
-            .filter(|grade| grade.is_finite())
-            .fold(
-                refine::steepest(request.points, request.triangles).max(refine::steepest(
-                    request.surface_points,
-                    request.surface_triangles,
-                )),
-                f64::max,
-            ),
+    let bound = request.refine.map(|refine| {
+        operator.bound(
+            refine,
+            [
+                (request.points, request.triangles),
+                (request.surface_points, request.surface_triangles),
+            ],
+            [0, 0],
+        )
     });
     // A toe the triangulation cannot take is left out, not a refusal: the toe lines refine the
     // mesh, they carry no height of their own. `toe` says how many lines the result has.
+    // The toe and creases follow the caller's lines in the rebuild: a vertex on one is at the toe.
+    let traced = |count: usize| {
+        let first = u32::try_from(request.breaklines.len()).unwrap_or(u32::MAX);
+        [
+            first,
+            first.saturating_add(u32::try_from(count).unwrap_or(u32::MAX)),
+        ]
+    };
     let (mesh, graded, refined, toe) = match refine::refined(
         &faces,
         |spots: &[f64], lines: &[Vec<f64>]| rebuild_with(&with_toe, spots, lines),
         request.spots,
         &supports.lines,
-        bound,
+        bound.map(|bound| refine::Bound {
+            traced: traced(toe_lines.len()),
+            ..bound
+        }),
     ) {
         Ok((mesh, graded, refined)) => (
             mesh,
@@ -814,7 +1060,10 @@ pub(in crate::terrain) fn build_with(
                 |spots: &[f64], lines: &[Vec<f64>]| rebuild_with(request.breaklines, spots, lines),
                 request.spots,
                 &supports.lines,
-                bound,
+                bound.map(|bound| refine::Bound {
+                    traced: traced(0),
+                    ..bound
+                }),
             )?;
             (mesh, graded, refined, 0)
         }

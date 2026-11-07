@@ -395,7 +395,8 @@ bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResul
         return false;
     }
     for (const auto& mapping : mappings) {
-        if (mapping.kind != 9 && (mapping.kind < 12 || mapping.kind > 17) && mapping.kind != 20 && mapping.kind != 21) {
+        if (mapping.kind != 9 && (mapping.kind < 12 || mapping.kind > 17) && mapping.kind != 20 && mapping.kind != 21 &&
+            mapping.kind != 23) {
             error = "TerrainOutputShape: unknown unified support kind";
             return false;
         }

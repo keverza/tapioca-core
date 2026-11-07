@@ -693,9 +693,9 @@ pub(super) fn encode(built: kernel::BuiltTerrain) -> Result<Encoded, Failure> {
                 }
             }
             RegionVertex::Refined => {
-                // The outline mesher (#149 T3) is not reached through this ABI yet; never
-                // publish a vertex without its ancestry row.
-                return Err(Failure::Argument("TerrainRefinedVertexUnsupported"));
+                // #149 T3: a vertex the outline mesher added, inside a triangle or on a line or
+                // base edge it split. No caller input names it; its row says only that.
+                mappings.push(row(23, at, [0, 0, 0, 0, 0, 0]));
             }
         }
     }

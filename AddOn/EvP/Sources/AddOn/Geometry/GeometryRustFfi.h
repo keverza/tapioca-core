@@ -752,7 +752,9 @@ typedef struct {
 // Output: query/fill like tapioca_terrain_hybrid_build (queryOnly=1 publishes
 // only counts; all capacities must be zero). Mappings reuse kinds 9, 12..17;
 // control spots publish kind 20 (new spot vertex) or 21 (spot remapped to an
-// output vertex). lines[] holds one origin per breakline, in breakline order
+// output vertex); kind 23 (values all 0) names a vertex the outline mesher added
+// (#149 T3: inside a triangle, or on a line or base edge it split), which no
+// caller input names. lines[] holds one origin per breakline, in breakline order
 // (entry ring segments, derived path design lines, mask ring segments,
 // control lines, outline lines): domain 1 entry / 2 path / 3 mask / 4 control /
 // 5 outline (#149 T1: part 0 a caller face line, 1 a private paved support whose

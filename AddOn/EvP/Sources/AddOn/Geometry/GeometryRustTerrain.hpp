@@ -193,7 +193,8 @@ enum class TerrainMappingKind : uint32_t {
     SurfaceFace = 19,   // Output face -> native input face.
     RegionPoint = 20,
     ControlPointVertex = 21,
-    LockedVertex = 22
+    LockedVertex = 22,
+    RegionRefinedVertex = 23 // #149 T3: a vertex the unified outline mesher added; no input names it.
 };
 // Lossless support records; indices/values have the documented ABI v1 row
 // meanings (GeometryRustFfi.h), not semantic IDs. Source IDs, operation DAG,

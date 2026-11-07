@@ -66,6 +66,11 @@ fn ring(d: f64) -> [Vec<f64>; 2] {
 }
 
 fn run(rounding: f64, limit: f64) -> Result<Outlined, OutlineError> {
+    run_with(rounding, limit, None)
+}
+
+/// [`run`], refined to `refine` (#149 T3: the editor meshes the faces with [`Refine::DEFAULT`]).
+fn run_with(rounding: f64, limit: f64, refine: Option<Refine>) -> Result<Outlined, OutlineError> {
     let (points, triangles) = base();
     let rings: Vec<Vec<f64>> = [0.0, 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0]
         .into_iter()
@@ -81,7 +86,7 @@ fn run(rounding: f64, limit: f64) -> Result<Outlined, OutlineError> {
         breaklines: &lines,
         spots: &[],
         surface_grades: &[],
-        refine: None,
+        refine,
         grading: Grading {
             cut: HALF,
             fill: HALF,
@@ -758,7 +763,9 @@ fn unified(
 #[test]
 fn the_unified_build_grades_an_outline_exactly_as_this_lane() -> Result<(), String> {
     for (rounding, limit) in [(0.0, 10.0), (1.0, 10.0), (1.0, 3.0)] {
-        let lane = run(rounding, limit).map_err(|e| format!("lane {e:?}"))?;
+        // Both refine: the unified build's outline stage always meshes (#149 T3).
+        let lane =
+            run_with(rounding, limit, Some(Refine::DEFAULT)).map_err(|e| format!("lane {e:?}"))?;
         let built = unified(rounding, limit, &[]).map_err(|e| format!("unified {e:?}"))?;
         assert_eq!(
             built.mesh.triangles, lane.mesh.triangles,

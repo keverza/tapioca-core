@@ -1680,6 +1680,8 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
                 operator.toe_rounding(),
                 outline::toe::Toe::DEFAULT,
             );
+            // The toe and creases follow every other line in the rebuild.
+            let first_traced = u32::try_from(breaklines.len()).unwrap_or(u32::MAX);
             let mut with_toe = breaklines.clone();
             with_toe.extend(toe.iter().map(Vec::as_slice));
             let caller = |toe_count: usize| {
@@ -1705,7 +1707,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
                 origins
             };
             // As in the outline lane: a toe the triangulation cannot take is left out.
-            match retriangulate_with_supports(
+            let (rebuilt, traced) = match retriangulate_with_supports(
                 &request(&with_toe),
                 &all_spots,
                 &supports.ring,
@@ -1713,7 +1715,8 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             ) {
                 Ok(mesh) => {
                     outline_lines = caller(toe.len());
-                    mesh
+                    let count = u32::try_from(toe.len()).unwrap_or(u32::MAX);
+                    (mesh, [first_traced, first_traced.saturating_add(count)])
                 }
                 Err(_) if !toe.is_empty() => {
                     outline_lines = caller(0);
@@ -1723,10 +1726,25 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
                         &supports.ring,
                         &supports.lines,
                     )
-                    .map_err(BuildError::Region)?
+                    .map_err(BuildError::Region)
+                    .map(|mesh| (mesh, [first_traced, first_traced]))?
                 }
                 Err(error) => return Err(BuildError::Region(error)),
-            }
+            };
+            // #149 T3: the outline's faces get their vertices from the error and the angles
+            // they leave (the mesher), over the same ground the toe was traced over. A mesh
+            // the mesher cannot take stays as rebuilt.
+            operator
+                .meshed(
+                    &ground,
+                    (&rebuilt, traced),
+                    outline::Refine::DEFAULT,
+                    [
+                        (baseline.points, baseline.triangles),
+                        (planned.surface_points, planned.surface_triangles),
+                    ],
+                )
+                .map_or(rebuilt, |(meshed, _)| meshed)
         } else {
             retriangulate_region_with_points(&request(&breaklines), &spots)
                 .map_err(BuildError::Region)?
