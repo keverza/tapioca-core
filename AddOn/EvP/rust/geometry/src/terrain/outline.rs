@@ -486,6 +486,44 @@ impl<'a> Faces<'a> {
         })
     }
 
+    /// Edge `a`'s face height less edge `b`'s on one side at `(px, py)` (a cut's negated, so
+    /// positive where `a` wins) and the knee their blend rounds over there; `None` unless one
+    /// of the two moves the ground there on that side (as [`Self::winner`] finds it) and both
+    /// reach it. One resolve of the faces.
+    pub(super) fn tie(
+        &self,
+        base: f64,
+        [px, py]: [f64; 2],
+        cut: bool,
+        [a, b]: [u32; 2],
+    ) -> Option<(f64, f64)> {
+        if self.surface.height_at(px, py).is_some() {
+            return None;
+        }
+        let (moves, fills, cuts) = self.resolve(base, px, py);
+        let design = self.graded(base, moves.raise, moves.lower);
+        if design.to_bits() == base.to_bits() || (design < base) != cut {
+            return None;
+        }
+        let faces = if cut { &cuts } else { &fills };
+        let limit = self.grading.limit;
+        let (won, _) = blend::envelope(faces, |face| face.distance <= limit)?;
+        if won.index != a && won.index != b {
+            return None;
+        }
+        let find = |index: u32| faces.iter().find(|face| face.index == index);
+        let (first, second) = (find(a)?, find(b)?);
+        Some((first.height - second.height, blend::knee(first, second)))
+    }
+
+    /// The largest rounding of any outline edge, metres: how far a rounded crease spreads.
+    pub(super) fn widest_rounding(&self) -> f64 {
+        self.outline
+            .iter()
+            .map(|edge| edge.grade.rounding)
+            .fold(0.0, f64::max)
+    }
+
     /// Whether edge `a`'s and edge `b`'s faces on one side meet in a crease at `(px, py)`:
     /// both reach it, neither falls from a vertex the other's edge ends at (a round cone meets
     /// the plane smoothly there), and they fall at least [`blend::FLAT`] apart.

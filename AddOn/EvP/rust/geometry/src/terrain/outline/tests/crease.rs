@@ -69,8 +69,10 @@ fn graded(
 }
 
 /// Over the inside corner's quadrant: the largest gap between the mesh and the exact faces
-/// within half a metre of the crease, and how many inside triangles the crease passes through
-/// (their samples are won by two creased faces).
+/// within half a metre of the crease and more than a metre (the rounding) from the pavement,
+/// and how many inside triangles the crease passes through (their samples are won by two
+/// creased faces). Within a rounding of the pavement the faces' rounded tops curve whatever the
+/// crease does; the editor's offset rings at 0 to 1 m follow them, and this scene sends none.
 fn measure(built: &Outlined, faces: &Faces<'_>, base: &Field) -> (f64, usize) {
     let mesh = Field::new(&built.points, &built.mesh.triangles).ok();
     let winner = |x: f64, y: f64| {
@@ -96,7 +98,7 @@ fn measure(built: &Outlined, faces: &Faces<'_>, base: &Field) -> (f64, usize) {
             let near = [[0.5, 0.0], [-0.5, 0.0], [0.0, 0.5], [0.0, -0.5]]
                 .iter()
                 .any(|d| creased([x, y], [x + d[0], y + d[1]]));
-            if !near {
+            if !near || (y - 2.0).min(16.0 - x) <= 1.0 {
                 continue;
             }
             if let (Some(exact), Some(sample)) = (
@@ -158,12 +160,10 @@ fn an_inside_corner_crease_is_a_breakline_and_the_mesh_folds_along_it() -> Resul
         assert!(after.toe > before.toe, "the crease went into the mesh");
         assert!(crossed1 * 4 <= crossed0, "{crossed1} vs {crossed0}");
         assert!(gap1 < gap0, "{gap1} vs {gap0}");
-        // The T2 gate for a sharp crease: within half a metre the mesh is within 1 cm of the
-        // faces. A rounded one is a curvature about a rounding wide, which one line down its
-        // middle does not follow across (measured 8 cm at a 1 m rounding).
-        if rounding <= 0.0 {
-            assert!(gap1 <= 0.01, "crease error {gap1}");
-        }
+        // The T2 gate: within half a metre of the crease the mesh is within 1 cm of the faces.
+        // A sharp crease is a kink on its line; a rounded one is followed across its width
+        // (one line down its middle left 8 cm at this 1 m rounding).
+        assert!(gap1 <= 0.01, "crease error {gap1}");
     }
     Ok(())
 }

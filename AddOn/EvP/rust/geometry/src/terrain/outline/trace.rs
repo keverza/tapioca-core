@@ -409,15 +409,7 @@ impl Clearance {
             bins: BTreeMap::new(),
         };
         for line in obstacles {
-            let points = plan::vertices(line);
-            for pair in points.windows(2) {
-                if let [a, b] = pair {
-                    this.segment([a[0], a[1]], [b[0], b[1]]);
-                }
-            }
-            for p in points {
-                this.vertex([p[0], p[1]]);
-            }
+            this.add(line);
         }
         for (k, a) in ring.iter().enumerate() {
             let b = ring.get((k + 1) % ring.len()).copied().unwrap_or(*a);
@@ -428,6 +420,19 @@ impl Clearance {
             this.vertex([p[0], p[1]]);
         }
         this
+    }
+
+    /// Index one more open xyz polyline, its segments and vertices.
+    pub(super) fn add(&mut self, line: &[f64]) {
+        let points = plan::vertices(line);
+        for pair in points.windows(2) {
+            if let [a, b] = pair {
+                self.segment([a[0], a[1]], [b[0], b[1]]);
+            }
+        }
+        for p in points {
+            self.vertex([p[0], p[1]]);
+        }
     }
 
     #[expect(

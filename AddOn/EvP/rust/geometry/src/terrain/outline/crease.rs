@@ -21,10 +21,17 @@
 //! meet) joins each to the mean of its crossings. A crease ends a cell short of
 //! the toe or the outline, and where it stops being one.
 //!
+//! **A rounded crease** is a band about a rounding wide where the blend lifts the
+//! winner (`|gap| < knee`), and across it the surface is a parabola in the gap. One
+//! line down the middle leaves it about a sixth of the knee off; lines where the
+//! gap crosses quarters of the knee either side ([`ACROSS`]), found along each
+//! crease vertex's normal, keep it within the T2 centimetre.
+//!
 //! Plan metres; the lines' z is zero (a breakline's height is the design's).
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::toe::Toe;
 use super::trace::{Clearance, Edge, Grid, chains, parallel, push_piece, simplify};
 use super::{Faces, Winner};
 use crate::terrain::plan;
@@ -73,8 +80,8 @@ enum Key {
 
 /// The creases of `faces` over `ground` inside `region` (closed xyz ring), clear of
 /// `obstacles` (open xyz polylines, the toe among them), `spots` (xyz) and the ring;
-/// sampled every `step` metres, `clear` metres off what exists, simplified to `tolerance`.
-/// `kept` says, where it knows, whether the design keeps the ground at a node.
+/// sampled, cleared and simplified as `toe` says. `kept` says, where it knows, whether the
+/// design keeps the ground at a node.
 #[expect(
     clippy::too_many_arguments,
     reason = "the faces, their ground, the ring, everything to keep clear of and the tracing settings are one input"
@@ -86,10 +93,16 @@ pub(super) fn lines(
     obstacles: &[&[f64]],
     spots: &[f64],
     kept: &(dyn Fn(f64, f64) -> Option<bool> + Sync),
-    step: f64,
-    clear: f64,
-    tolerance: f64,
+    toe: Toe,
 ) -> Vec<Vec<f64>> {
+    let Toe {
+        step,
+        clear,
+        level_clear,
+        tolerance,
+        ..
+    } = toe;
+    let level_clear = level_clear.max(clear);
     let ring = plan::vertices(region);
     if ring.len() < 3 || step.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return Vec::new();
@@ -180,18 +193,204 @@ pub(super) fn lines(
     // the later ones stop short of the junction rather than share its vertex.
     let mut out: Vec<Vec<f64>> = Vec::new();
     let existing = Clearance::new(obstacles, spots, ring, clear, clear);
-    for mut line in chains(&points, &links) {
+    let existing_wide = Clearance::new(obstacles, spots, ring, clear, level_clear);
+    let reach = faces.widest_rounding();
+    // What this tracer has kept so far, indexed as it grows: a crease keeps `clear` of it, a
+    // line across a rounded crease the inner lines' margin.
+    let (mut kept, mut kept_wide) = (
+        Clearance::new(&[], &[], &[], clear, clear),
+        Clearance::new(&[], &[], &[], clear, level_clear),
+    );
+    let mut traced = chains(&points, &links);
+    for line in &mut traced {
         // The crease runs on to the toe or the pavement: a cell short of it, the last
         // triangle would bridge the fold.
-        extend(&mut line, &evaluate, step, clear);
-        // The creases kept so far are few: their own small index, rebuilt per crease.
-        let kept: Vec<&[f64]> = out.iter().map(Vec::as_slice).collect();
-        let creases = Clearance::new(&kept, &[], &[], clear, clear);
+        extend(line, &evaluate, step, clear);
+    }
+    let widths = across(&traced, faces, ground, reach, step);
+    for (line, widths) in traced.iter().zip(widths) {
         let mut found = Vec::new();
-        for piece in existing.split(&line) {
-            for piece in creases.split(&piece) {
+        for piece in existing.split(line) {
+            for piece in kept.split(&piece) {
                 push_piece(&simplify(&piece, tolerance), clear, &mut found);
             }
+        }
+        for piece in &found {
+            kept.add(piece);
+            kept_wide.add(piece);
+        }
+        // A rounded crease's lines across its width.
+        let mut inner = Vec::new();
+        for width in widths {
+            for piece in existing_wide.split(&width) {
+                for piece in kept_wide.split(&piece) {
+                    push_piece(&simplify(&piece, tolerance), clear, &mut inner);
+                }
+            }
+        }
+        for piece in &inner {
+            kept.add(piece);
+            kept_wide.add(piece);
+        }
+        out.extend(found);
+        out.extend(inner);
+    }
+    out
+}
+
+/// Where the gap between a rounded crease's two faces crosses these fractions of their knee,
+/// either side of the tie. Across the blend the surface is a parabola in the gap, so a chord
+/// over a fraction `d` of the knee strays `d^2 / 16` of it: eight intervals of a quarter leave
+/// 0.4 % of the knee. Measured (#149 T2) on 1 in 2 faces at right angles and a 1 m rounding:
+/// thirds left 1.35 cm where the crease's rounding meets the toe's, quarters 0.96 cm.
+const ACROSS: [f64; 4] = [0.25, 0.5, 0.75, 1.0];
+/// Bisection steps on a march step: an eighth of a metre over 2^6, two millimetres.
+const ACROSS_BISECT: u32 = 6;
+
+/// Each rounded crease's lines across its width: through each vertex of a line of `lines`,
+/// along its normal either side, where the faces' gap crosses each of [`ACROSS`] of the knee,
+/// within `reach` (the widest rounding) and while the two faces still move the ground. A line
+/// breaks where a vertex finds no crossing. Every vertex of every crease is one job on all
+/// cores: a crease alone has a handful.
+fn across(
+    lines: &[Vec<[f64; 2]>],
+    faces: &Faces<'_>,
+    ground: &(dyn Fn(f64, f64) -> Option<f64> + Sync),
+    reach: f64,
+    step: f64,
+) -> Vec<Vec<Vec<[f64; 2]>>> {
+    let levels = 2 * ACROSS.len();
+    if reach <= 0.0 {
+        return vec![Vec::new(); lines.len()];
+    }
+    let jobs: Vec<(usize, usize)> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.len() >= 2)
+        .flat_map(|(n, line)| (0..line.len()).map(move |k| (n, k)))
+        .collect();
+    let found = parallel(&jobs, &|&(n, k)| {
+        let Some(line) = lines.get(n) else {
+            return Vec::new();
+        };
+        let (Some(&point), Some(&before), Some(&after)) = (
+            line.get(k),
+            line.get(k.saturating_sub(1)),
+            line.get(k + 1).or_else(|| line.get(k)),
+        ) else {
+            return Vec::new();
+        };
+        let (dx, dy) = (after[0] - before[0], after[1] - before[1]);
+        let length = dx.hypot(dy);
+        if length <= 0.0 {
+            return Vec::new();
+        }
+        offsets(
+            [point, [-dy / length, dx / length]],
+            faces,
+            ground,
+            reach,
+            step,
+        )
+    });
+    let mut out: Vec<Vec<Vec<[f64; 2]>>> = vec![Vec::new(); lines.len()];
+    let mut open: Vec<Vec<[f64; 2]>> = vec![Vec::new(); levels];
+    let mut current = None;
+    let close = |open: &mut Vec<Vec<[f64; 2]>>, widths: Option<&mut Vec<Vec<[f64; 2]>>>| {
+        let finished = open
+            .iter_mut()
+            .map(std::mem::take)
+            .filter(|slot| slot.len() >= 2);
+        if let Some(widths) = widths {
+            widths.extend(finished);
+        }
+    };
+    for (&(n, _), points) in jobs.iter().zip(found) {
+        if current != Some(n) {
+            close(&mut open, current.and_then(|c| out.get_mut(c)));
+            current = Some(n);
+        }
+        let Some(widths) = out.get_mut(n) else {
+            continue;
+        };
+        for (level, slot) in open.iter_mut().enumerate() {
+            match points.get(level).copied().flatten() {
+                Some(point) => slot.push(point),
+                None if slot.len() >= 2 => widths.push(std::mem::take(slot)),
+                None => slot.clear(),
+            }
+        }
+    }
+    close(&mut open, current.and_then(|c| out.get_mut(c)));
+    out
+}
+
+/// The points along `ray`'s normal from its point (on a crease) where the faces' gap crosses each
+/// fraction of [`ACROSS`] of the knee: the normal's side first, then the other.
+fn offsets(
+    [point, normal]: [[f64; 2]; 2],
+    faces: &Faces<'_>,
+    ground: &(dyn Fn(f64, f64) -> Option<f64> + Sync),
+    reach: f64,
+    step: f64,
+) -> Vec<Option<[f64; 2]>> {
+    let at = |s: f64| {
+        [
+            normal[0].mul_add(s, point[0]),
+            normal[1].mul_add(s, point[1]),
+        ]
+    };
+    let winner = |q: [f64; 2]| {
+        let base = ground(q[0], q[1])?;
+        faces.winner(base, q[0], q[1])
+    };
+    let none = vec![None; 2 * ACROSS.len()];
+    let nudge = step / 8.0;
+    let (Some(first), Some(second)) = (winner(at(nudge)), winner(at(-nudge))) else {
+        return none;
+    };
+    if first.cut != second.cut || first.index == second.index {
+        return none;
+    }
+    let pair = [first.index, second.index];
+    // The gap over the knee, positive on the first face's side; `None` where neither of the
+    // two moves the ground or they no longer blend.
+    let ratio = |s: f64| -> Option<f64> {
+        let q = at(s);
+        let base = ground(q[0], q[1])?;
+        let (gap, knee) = faces.tie(base, q, first.cut, pair)?;
+        (knee > 0.0).then(|| gap / knee)
+    };
+    let march = step / 2.0;
+    let mut out = Vec::with_capacity(2 * ACROSS.len());
+    for side in [1.0, -1.0] {
+        let mut level = 0;
+        let mut found = [None; 4];
+        let mut s = 0.0_f64;
+        while level < ACROSS.len() && s < 1.5 * reach {
+            let next = s + march;
+            let Some(value) = ratio(side * next).map(|r| side * r) else {
+                break;
+            };
+            while let Some(&target) = ACROSS.get(level)
+                && value >= target
+            {
+                // Below the target at `s`, at or above it at `next`.
+                let (mut lo, mut hi) = (s, next);
+                for _ in 0..ACROSS_BISECT {
+                    let mid = lo.midpoint(hi);
+                    if ratio(side * mid).is_some_and(|r| side * r >= target) {
+                        hi = mid;
+                    } else {
+                        lo = mid;
+                    }
+                }
+                if let Some(slot) = found.get_mut(level) {
+                    *slot = Some(at(side * lo.midpoint(hi)));
+                }
+                level += 1;
+            }
+            s = next;
         }
         out.extend(found);
     }

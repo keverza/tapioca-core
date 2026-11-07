@@ -191,17 +191,7 @@ pub(in crate::terrain) fn lines(
                 Node::Off => Some(true),
                 Node::Unknown => None,
             };
-            super::crease::lines(
-                faces,
-                ground,
-                region,
-                &all,
-                spots,
-                &kept,
-                toe.step,
-                toe.clear,
-                toe.tolerance,
-            )
+            super::crease::lines(faces, ground, region, &all, spots, &kept, toe)
         };
         out.extend(creases);
     }
