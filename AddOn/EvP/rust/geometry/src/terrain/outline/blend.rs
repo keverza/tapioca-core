@@ -78,7 +78,20 @@ fn lift(winner: &Face, rival: &Face) -> f64 {
     if rounding <= 0.0 || gap >= (winner.grade + rival.grade) * rounding {
         return 0.0;
     }
-    if joint(winner, rival) || joint(rival, winner) {
+    let knee = knee(winner, rival);
+    if knee <= 0.0 || gap >= knee {
+        return 0.0;
+    }
+    (knee - gap).powi(2) / (4.0 * knee)
+}
+
+/// The height difference below which `winner` is lifted towards `rival`: zero at a joint,
+/// without a rounding, and where the two fall within [`FLAT`] of one way. It is symmetric in
+/// the two faces, so the blend is `|gap| < knee` either side of their tie, and across it the
+/// surface is a parabola in the gap (#149 T2 traces lines across it).
+pub(super) fn knee(winner: &Face, rival: &Face) -> f64 {
+    let rounding = winner.rounding.min(rival.rounding);
+    if rounding <= 0.0 || joint(winner, rival) || joint(rival, winner) {
         return 0.0;
     }
     let along = winner.toward[0].mul_add(rival.toward[0], winner.toward[1] * rival.toward[1]);
@@ -97,11 +110,7 @@ fn lift(winner: &Face, rival: &Face) -> f64 {
                 .grade
                 .mul_add(winner.toward[1], -rival.grade * rival.toward[1]),
         );
-    let knee = difference * rounding * crease * fade;
-    if knee <= 0.0 || gap >= knee {
-        return 0.0;
-    }
-    (knee - gap).powi(2) / (4.0 * knee)
+    difference * rounding * crease * fade
 }
 
 /// The highest face among `faces` that `keep`, lifted at its creases: the
