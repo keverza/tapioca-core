@@ -210,10 +210,30 @@ void ClockLabel (ImDrawList* draw, ImVec2 centre, float radius, double angle, co
                    text);
 }
 
+size_t NearestClockStep (const evp::sunstudy::PointDay& day, size_t steps, double minute)
+{
+    // A bar's start belongs to that bar, not the preceding step's centre.
+    for (size_t s = 0; s < steps; ++s)
+        if (minute >= double (day.minutes[s]) && minute < double (day.minutes[s]) + day.hoursPerStep * 60.0)
+            return s;
+    size_t nearest = 0;
+    double distance = 1440.0;
+    for (size_t s = 0; s < steps; ++s) {
+        const double middle = double (day.minutes[s]) + day.hoursPerStep * 30.0;
+        double d = std::abs (minute - middle);
+        d = (std::min) (d, 1440.0 - d);
+        if (d < distance) {
+            distance = d;
+            nearest = s;
+        }
+    }
+    return nearest;
+}
+
 } // namespace
 
 void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, const char* id, int highlightedStep,
-                           const char* emptyNote)
+                           const char* emptyNote, SunStudyClockSelection* selection)
 {
     // One measured step is one radial bar. Within it, radius shows the share
     // of the point's cells: lit inside, obstruction next, back-facing outside.
@@ -243,6 +263,54 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
 
     const size_t steps =
         day != nullptr ? (std::min) ({ day->minutes.size (), day->lit.size (), day->facing.size () }) : 0;
+    if (selection != nullptr)
+        *selection = SunStudyClockSelection ();
+    const ImVec2 pointer (ImGui::GetIO ().MousePos.x - centre.x, ImGui::GetIO ().MousePos.y - centre.y);
+    const float pointerRadius = std::hypot (pointer.x, pointer.y);
+    const bool inRing = pointerRadius >= inner - 2.0f && pointerRadius <= outer + 3.0f;
+    const uint32_t clockId = ImGui::GetID (id);
+    const auto cancelBrush = [&state] {
+        state.sunClockBrushActive = state.sunClockBrushDragged = false;
+        state.sunClockBrushId = 0;
+        state.sunClockBrushFrame = -1;
+    };
+    // A brush belongs to one continuously visible clock. A hidden/replaced
+    // clock must never consume a later, unrelated mouse release.
+    if (state.sunClockBrushActive &&
+        (state.sunClockBrushId != clockId || steps == 0 || ImGui::GetFrameCount () != state.sunClockBrushFrame + 1))
+        cancelBrush ();
+    if (state.sunClockBrushActive && !ImGui::IsMouseDown (ImGuiMouseButton_Left) &&
+        !ImGui::IsMouseReleased (ImGuiMouseButton_Left))
+        cancelBrush ();
+    if (selection != nullptr && steps > 0) {
+        if (hovered && inRing && ImGui::IsItemActivated ()) {
+            state.sunClockBrushActive = true;
+            state.sunClockBrushDragged = false;
+            state.sunClockBrushId = clockId;
+            state.sunClockBrushFrom = state.sunClockBrushTo = SunStudyClockMinute (pointer.x, pointer.y);
+        }
+        if (state.sunClockBrushActive) {
+            state.sunClockBrushFrame = ImGui::GetFrameCount ();
+            state.sunClockBrushTo = SunStudyClockMinute (pointer.x, pointer.y);
+            state.sunClockBrushDragged =
+                state.sunClockBrushDragged || ImGui::IsMouseDragging (ImGuiMouseButton_Left, 2.0f);
+            if (ImGui::IsMouseReleased (ImGuiMouseButton_Left)) {
+                if (state.sunClockBrushDragged) {
+                    selection->slice = true;
+                    selection->fromMinute = state.sunClockBrushFrom;
+                    // The shared shadow range is non-wrapping: constrain the
+                    // gesture at midnight instead of silently losing its tail.
+                    selection->toMinute =
+                        state.sunClockBrushTo > state.sunClockBrushFrom ? state.sunClockBrushTo : 1440.0;
+                }
+                else
+                    selection->step = int (NearestClockStep (*day, steps, state.sunClockBrushFrom));
+                cancelBrush ();
+            }
+        }
+        if (selection->step >= 0)
+            highlightedStep = selection->step;
+    }
     const auto colour = [] (uint32_t rgba) {
         return IM_COL32 ((rgba >> 24) & 255, (rgba >> 16) & 255, (rgba >> 8) & 255, 255);
     };
@@ -274,6 +342,12 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
             draw->PathStroke (ink, 0, 1.5f);
         }
     }
+    if (state.sunClockBrushActive && state.sunClockBrushDragged) {
+        const double to = state.sunClockBrushTo > state.sunClockBrushFrom ? state.sunClockBrushTo : 1440.0;
+        for (double minute = state.sunClockBrushFrom; minute < to; minute += 30.0)
+            ClockSector (draw, centre, inner - 2.0f, outer + 2.0f, SunStudyClockAngle (minute),
+                         SunStudyClockAngle ((std::min) (minute + 30.0, to)), IM_COL32 (255, 255, 255, 54));
+    }
 
     const auto centreText = [&] (const char* text, float y, ImU32 ink) {
         const ImVec2 extent = ImGui::CalcTextSize (text);
@@ -289,26 +363,12 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
     centreText ("direct", ImGui::GetTextLineHeight () * 0.65f, ImGui::GetColorU32 (ImGuiCol_TextDisabled));
 
     if (hovered) {
-        const ImVec2 delta (ImGui::GetIO ().MousePos.x - centre.x, ImGui::GetIO ().MousePos.y - centre.y);
-        const float radius = std::hypot (delta.x, delta.y);
-        if (radius >= inner - 2.0f && radius <= outer + 3.0f) {
-            double angle = std::atan2 (double (delta.y), double (delta.x)) + 1.57079632679489661923;
-            if (angle < 0.0)
-                angle += 6.28318530717958647692;
-            const double clock = angle * (1440.0 / 6.28318530717958647692);
-            size_t nearest = 0;
-            double distance = 1440.0;
-            for (size_t s = 0; s < steps; ++s) {
-                const double middle = double (day->minutes[s]) + day->hoursPerStep * 30.0;
-                double d = std::abs (clock - middle);
-                d = (std::min) (d, 1440.0 - d);
-                if (d < distance) {
-                    distance = d;
-                    nearest = s;
-                }
-            }
+        if (inRing) {
+            const double clock = SunStudyClockMinute (pointer.x, pointer.y);
+            const size_t nearest = NearestClockStep (*day, steps, clock);
             const int minutes = day->minutes[nearest];
             ImGui::SetTooltip ("%02d:%02d  lit %d%%, shaded %d%%, sun behind %d%% of the %zu cell(s)\n\n"
+                               "Click: select this step. Drag clockwise (up to 24:00): select a time slice.\n"
                                "Light: a clear line to the sun. Shaded: the sun is in front of the surface but the "
                                "model blocks it. Behind: the sun is on the other side of the surface.",
                                minutes / 60, minutes % 60, int (100.0 * day->lit[nearest] + 0.5),
@@ -320,9 +380,14 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
     std::snprintf (line, sizeof (line), "%s direct of %s in front; sun up %s", SunStudyClock (litHours, true).c_str (),
                    SunStudyClock (facingHours, true).c_str (),
                    SunStudyClock (double (steps) * day->hoursPerStep, true).c_str ());
-    SunStudyNote (line, "24-hour clock: 0/24 is at the top and time runs clockwise. Each measured step is a radial "
-                        "bar: lit inside, shaded in the middle, sun behind outside. The centre is total direct sun. "
-                        "Direct and in front are means of the point's cells; sun up is the site's total in the slice.");
+    if (state.sunClockBrushActive && state.sunClockBrushDragged && state.sunClockBrushTo <= state.sunClockBrushFrom)
+        SunStudyNote ("Clock slice stops at 24:00", "The shadow-hours range cannot wrap through midnight. Drag "
+                                                    "from midnight into the morning to select that part instead.");
+    else
+        SunStudyNote (line,
+                      "24-hour clock: 0/24 is at the top and time runs clockwise. Each measured step is a radial "
+                      "bar: lit inside, shaded in the middle, sun behind outside. The centre is total direct sun. "
+                      "Direct and in front are means of the point's cells; sun up is the site's total in the slice.");
 }
 
 void DrawSunStudyPointDay (HudState& state, const std::string& studyId)
@@ -336,7 +401,22 @@ void DrawSunStudyPointDay (HudState& state, const std::string& studyId)
         placed && evp::sunstudy::SunStudyStore::Get ().PointDayOf (studyId, state.sunPointSamples, day, error);
     const char* why = !placed ? "" : !read ? "computing..." : "no sun in this day's slice";
     const int current = state.sunStep >= 0 && size_t (state.sunStep) < day.minutes.size () ? state.sunStep : -1;
-    DrawSunStudyDayClock (state, read ? &day : nullptr, "##sunpointday", current, why);
+    SunStudyClockSelection selection;
+    DrawSunStudyDayClock (state, read ? &day : nullptr, "##sunpointday", current, why, &selection);
+    if (selection.step >= 0) {
+        state.sunView = 2; // Shadows / Single
+        state.sunPlaying = false;
+        state.sunStep = selection.step;
+        state.sunTimeFrom = 0.0f;
+        state.sunTimeTo = 24.0f;
+    }
+    else if (selection.slice) {
+        state.sunView = 3; // Shadows / Time fan, restricted by the shared shadow-hours range
+        state.sunFanInterval = 0;
+        state.sunPlaying = false;
+        state.sunTimeFrom = float (selection.fromMinute / 60.0);
+        state.sunTimeTo = float (selection.toMinute / 60.0);
+    }
 }
 
 } // namespace geomsrv::archviz

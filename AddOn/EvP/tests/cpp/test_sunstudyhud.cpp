@@ -7,11 +7,13 @@
 #include "ArchViz/SunStudyPreview.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
+#include "SunStudy/SunStudyPointProfile.hpp"
 
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -150,6 +152,72 @@ TEST (SunStudyHud, DayClockPutsBothMidnightsAtTheTopAndRunsClockwise)
     EXPECT_NEAR (SunStudyClockAngle (12 * 60), pi / 2.0, 1.0e-12);
     EXPECT_NEAR (SunStudyClockAngle (18 * 60), pi, 1.0e-12);
     EXPECT_NEAR (SunStudyClockAngle (24 * 60), 3.0 * pi / 2.0, 1.0e-12);
+    EXPECT_NEAR (SunStudyClockMinute (0.0, -1.0), 0.0, 1.0e-12);
+    EXPECT_NEAR (SunStudyClockMinute (1.0, 0.0), 360.0, 1.0e-12);
+    EXPECT_NEAR (SunStudyClockMinute (0.0, 1.0), 720.0, 1.0e-12);
+    EXPECT_NEAR (SunStudyClockMinute (-1.0, 0.0), 1080.0, 1.0e-12);
+}
+
+TEST (SunStudyHud, ClockClickSelectsAStepAndClockwiseDragSelectsASlice)
+{
+    SectionGui gui;
+    evp::sunstudy::PointDay day;
+    day.minutes = { 480, 540 };
+    day.lit = { 1.0, 0.0 };
+    day.facing = { 1.0, 1.0 };
+    day.samples = 1;
+    day.hoursPerStep = 1.0;
+    ImVec2 itemMin {}, itemMax {};
+    const auto frame = [&] (ImVec2 pointer, bool down, SunStudyClockSelection& selection) {
+        auto& io = ImGui::GetIO ();
+        io.AddMousePosEvent (pointer.x, pointer.y);
+        io.AddMouseButtonEvent (0, down);
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 400, 400 });
+        ImGui::Begin ("clock", nullptr, ImGuiWindowFlags_NoSavedSettings);
+        DrawSunStudyDayClock (gui.state, &day, "##testclock", -1, "", &selection);
+        ImGui::End ();
+        const ImGuiWindow* window = ImGui::FindWindowByName ("clock");
+        itemMin = window->ContentRegionRect.Min;
+        itemMax = ImVec2 (window->ContentRegionRect.Max.x, itemMin.y + 220.0f);
+        ImGui::Render ();
+    };
+    const auto atMinute = [&] (double minute) {
+        const double angle = SunStudyClockAngle (minute);
+        const float radius = (itemMax.y - itemMin.y) * 0.27f;
+        return ImVec2 ((itemMin.x + itemMax.x) * 0.5f + radius * float (std::cos (angle)),
+                       itemMin.y + (itemMax.y - itemMin.y) * 0.5f + radius * float (std::sin (angle)));
+    };
+    SunStudyClockSelection selection;
+    frame ({ -100, -100 }, false, selection); // establish the chart rectangle
+    const ImVec2 step = atMinute (540);
+    frame (step, false, selection);
+    frame (step, true, selection);
+    frame (step, false, selection);
+    EXPECT_EQ (selection.step, 1);
+    EXPECT_FALSE (selection.slice);
+    EXPECT_FALSE (gui.state.sunClockBrushActive);
+
+    const ImVec2 from = atMinute (480), to = atMinute (540);
+    frame (from, false, selection);
+    frame (from, true, selection);
+    frame (to, true, selection);
+    frame (to, false, selection);
+    EXPECT_EQ (selection.step, -1);
+    EXPECT_TRUE (selection.slice);
+    EXPECT_NEAR (selection.fromMinute, 480.0, 2.0);
+    EXPECT_NEAR (selection.toMinute, 540.0, 2.0);
+    EXPECT_FALSE (gui.state.sunClockBrushActive);
+
+    const ImVec2 late = atMinute (1380), early = atMinute (60);
+    frame (late, false, selection);
+    frame (late, true, selection);
+    frame (early, true, selection);
+    frame (early, false, selection);
+    EXPECT_TRUE (selection.slice);
+    EXPECT_NEAR (selection.fromMinute, 1380.0, 2.0);
+    EXPECT_EQ (selection.toMinute, 1440.0); // explicitly constrained, not wrapped into another range
 }
 
 TEST (SunStudyHud, TimelineLabelsObserveAutomaticAdvanceAndLoopInTheSameFrame)
@@ -237,6 +305,18 @@ TEST (SunStudyHud, DetailedPointPlaybackNeedsNoWholeMapDayArchive)
     gui.state.sunPointPlayMode = 0;
     gui.state.sunPointPlayDay = 2; // a trailing sunless day has no step frame
     gui.state.sunPointPlayStep = 0;
+    gui.Frame ();
+    EXPECT_EQ (gui.state.sunPointPlayDay, 1);
+    EXPECT_EQ (gui.state.sunPointPlayStep, 1);
+    gui.state.sunPointPlayFrom = 500.0; // a clock-brushed slice excludes 08:00, keeps 09:00
+    gui.state.sunPointPlayTo = 600.0;
+    gui.state.sunPointPlayDay = 0;
+    gui.state.sunPointPlayStep = -1;
+    gui.Frame ();
+    EXPECT_EQ (gui.state.sunPointPlayDay, 0);
+    EXPECT_EQ (gui.state.sunPointPlayStep, 1);
+    gui.state.sunPointPlay.playing = true;
+    gui.state.sunPointPlay.playedAt = -10.0;
     gui.Frame ();
     EXPECT_EQ (gui.state.sunPointPlayDay, 1);
     EXPECT_EQ (gui.state.sunPointPlayStep, 1);

@@ -72,6 +72,12 @@ that point. It can play every step, a fixed clock time, or day by day without ar
 map. It cannot provide whole-map historical frames, and a Preview profile still represents only
 the days actually traced.
 
+The single-day and point-playback clocks are interactive: clicking a radial bar selects that measured
+step; dragging clockwise selects a half-open time slice. A single-day brush drives the single-shadow
+view or time fan, while a period-point brush filters only the independent point player. The shared
+shadow-hours range is non-wrapping, so a drag that reaches the top from the left is explicitly
+constrained at 24:00 rather than silently wrapping into a second interval.
+
 Presentation: the viewer shows the **mean unoccluded hours a represented day** over the period,
 drawn through the last traced day's samples and atlas, so the day study's hour bands apply. That
 day's step masks remain the shadow views' source and are labelled with their date. A period is

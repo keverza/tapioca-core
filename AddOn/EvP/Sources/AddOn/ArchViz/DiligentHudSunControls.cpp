@@ -1,6 +1,7 @@
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/DiligentHud.hpp"
 
+#include <cmath>
 #include <iterator>
 #include <string>
 #include "ArchViz/HudShell.hpp"
@@ -25,6 +26,14 @@ float Snapped (float value)
     return std::round (value * 4.0f) / 4.0f;
 }
 } // namespace
+
+double SunStudyClockMinute (double x, double y)
+{
+    double angle = std::atan2 (y, x) + 1.57079632679489661923;
+    if (angle < 0.0)
+        angle += 6.28318530717958647692;
+    return angle * (1440.0 / 6.28318530717958647692);
+}
 
 bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, float maximum, bool duration)
 {

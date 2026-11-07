@@ -233,6 +233,7 @@ struct HudState {
     int sunPointPlayMode = 0;
     int sunPointPlayDay = 0, sunPointPlayStep = -1;
     int sunPointPlayClock = 12 * 60;
+    double sunPointPlayFrom = 0.0, sunPointPlayTo = 1440.0; // clock-brushed every-step slice
     // The STUDY POINT (#152): placed from the view's right-click menu on a
     // measured surface, snapped to the nearest sample, a sphere whose radius
     // takes in the cells around it; the panel's diagrams are their mean.
@@ -268,6 +269,11 @@ struct HudState {
     uint32_t sunSeenCommandedMode = 0xffffffffu;
     // The single shadow's step; -1 until a study arrives, then solar noon.
     int sunStep = -1;
+    // Active radial-clock drag, in clock minutes. Only one clock is shown.
+    bool sunClockBrushActive = false, sunClockBrushDragged = false;
+    double sunClockBrushFrom = 0.0, sunClockBrushTo = 0.0;
+    uint32_t sunClockBrushId = 0;
+    int sunClockBrushFrame = -1;
     bool sunPlaying = false;
     double sunPlayedAt = 0.0;
     float sunPlaySpeed = 1.0f;

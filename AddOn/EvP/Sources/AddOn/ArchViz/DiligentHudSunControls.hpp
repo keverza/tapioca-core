@@ -21,11 +21,21 @@ inline double SunStudyClockAngle (double minute)
 {
     return minute * (6.28318530717958647692 / 1440.0) - 1.57079632679489661923;
 }
+// Inverse, from a pointer's x/y offset from the clock centre: [0, 1440).
+double SunStudyClockMinute (double x, double y);
+
+// A click selects one measured step; a clockwise drag selects a half-open
+// minute range. No selection has step -1 and slice false.
+struct SunStudyClockSelection {
+    int step = -1;
+    bool slice = false;
+    double fromMinute = 0.0, toMinute = 0.0;
+};
 
 // A placed point's day as a 24-hour radial bar chart. Null reserves the same
 // space with emptyNote; highlightedStep is a step index, or -1 for none.
 void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, const char* id, int highlightedStep,
-                           const char* emptyNote);
+                           const char* emptyNote, SunStudyClockSelection* selection = nullptr);
 bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, float maximum, bool duration);
 // `bands` 0 draws the smooth ramp; kSunBandsMin..kSunBandsMax draws that many
 // flat bands split at `edges`, each with a grip above the bar to drag.

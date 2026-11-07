@@ -715,22 +715,46 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
 
     const int last = int (profile->dayLit.size ()) - 1;
     if (mode == kEveryStep) {
+        const auto inSlice = [&state] (uint16_t minute) {
+            return double (minute) >= state.sunPointPlayFrom && double (minute) < state.sunPointPlayTo;
+        };
         std::vector<int> first (profile->dayLit.size () + 1, 0);
-        for (size_t d = 0; d < profile->dayLit.size (); ++d)
-            first[d + 1] = first[d] + int (d < profile->dayMinutes.size () ? profile->dayMinutes[d].size () : 0);
+        for (size_t d = 0; d < profile->dayLit.size (); ++d) {
+            int count = 0;
+            if (d < profile->dayMinutes.size ())
+                for (const uint16_t minute : profile->dayMinutes[d])
+                    count += inSlice (minute) ? 1 : 0;
+            first[d + 1] = first[d] + count;
+        }
         const int total = first.back ();
         if (total == 0) {
             state.sunPointPlay.playing = false;
             state.sunPointPlayStep = -1;
             DrawSunStudyTimeline ("pointperiodsteps", state.sunPointPlayDay, 0, 0, state.sunPointPlay, kStepSeconds,
-                                  "no sun on any traced day", true);
+                                  "no measured step in this slice", true);
         }
         else {
             const int day = std::clamp (state.sunPointPlayDay, 0, last);
-            int index = std::clamp (first[size_t (day)] + (std::max) (state.sunPointPlayStep, 0), 0, total - 1);
+            int withinDay = 0;
+            if (state.sunPointPlayStep >= 0 && size_t (day) < profile->dayMinutes.size ())
+                for (size_t s = 0; s < profile->dayMinutes[size_t (day)].size (); ++s) {
+                    if (int (s) == state.sunPointPlayStep)
+                        break;
+                    withinDay += inSlice (profile->dayMinutes[size_t (day)][s]) ? 1 : 0;
+                }
+            int index = std::clamp (first[size_t (day)] + withinDay, 0, total - 1);
             const auto locate = [&] (int at, int& locatedDay, int& step) {
                 locatedDay = int (std::upper_bound (first.begin (), first.end (), at) - first.begin ()) - 1;
-                step = at - first[size_t (locatedDay)];
+                int remaining = at - first[size_t (locatedDay)];
+                step = -1;
+                for (size_t s = 0; s < profile->dayMinutes[size_t (locatedDay)].size (); ++s)
+                    if (inSlice (profile->dayMinutes[size_t (locatedDay)][s])) {
+                        if (remaining == 0) {
+                            step = int (s);
+                            break;
+                        }
+                        --remaining;
+                    }
             };
             int locatedDay = 0, step = 0;
             const auto label = [&] {
@@ -788,7 +812,27 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
     if (selected < profile->dayStepFacing.size ())
         day.facing = profile->dayStepFacing[selected];
     const char* empty = day.minutes.empty () ? "no sun this day" : "";
-    DrawSunStudyDayClock (state, &day, "##pointperioddayclock", state.sunPointPlayStep, empty);
+    SunStudyClockSelection selection;
+    DrawSunStudyDayClock (state, &day, "##pointperioddayclock", state.sunPointPlayStep, empty, &selection);
+    if (selection.step >= 0) {
+        state.sunPointPlayMode = kEveryStep;
+        state.sunPointPlayStep = selection.step;
+        state.sunPointPlayFrom = 0.0;
+        state.sunPointPlayTo = 1440.0;
+        state.sunPointPlay.playing = false;
+    }
+    else if (selection.slice) {
+        state.sunPointPlayMode = kEveryStep;
+        state.sunPointPlayFrom = selection.fromMinute;
+        state.sunPointPlayTo = selection.toMinute;
+        state.sunPointPlayStep = -1;
+        state.sunPointPlay.playing = false;
+        for (size_t s = 0; s < day.minutes.size (); ++s)
+            if (double (day.minutes[s]) >= selection.fromMinute && double (day.minutes[s]) < selection.toMinute) {
+                state.sunPointPlayStep = int (s);
+                break;
+            }
+    }
 }
 
 void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int quantity,
