@@ -709,7 +709,7 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
         state.sunPointPlayStep = -1;
         int empty = 0;
         DrawSunStudyTimeline ("pointperiodempty", empty, 0, 0, state.sunPointPlay, kStepSeconds, note, true);
-        DrawSunStudyDayClock (state, nullptr, "##pointperioddayclock", -1, note);
+        DrawSunStudyDayClock (state, nullptr, "##pointperioddayclock", -1, note, nullptr, 440.0f);
         return;
     }
 
@@ -805,7 +805,7 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
     const char* empty = day.minutes.empty () ? "no sun this day" : "";
     SunStudyClockSelection selection;
     const SunStudyClockShown shown { state.sunPointPlayFrom, state.sunPointPlayTo };
-    DrawSunStudyDayClock (state, &day, "##pointperioddayclock", state.sunPointPlayStep, empty, &selection, 220.0f,
+    DrawSunStudyDayClock (state, &day, "##pointperioddayclock", state.sunPointPlayStep, empty, &selection, 440.0f,
                           &shown, SunChart::PeriodDay);
     if (selection.step >= 0) {
         state.sunPointPlayMode = kEveryStep;

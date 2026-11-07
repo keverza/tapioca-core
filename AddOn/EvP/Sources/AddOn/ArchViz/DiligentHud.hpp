@@ -233,7 +233,7 @@ struct HudState {
     int sunPeriodClock = 12 * 60;
     int sunShadowMonth = 0, sunShadowDay = 0; // the period Shadows view's day; 0 until first shown
     bool sunPeriodProfile = false;            // re-trace the study point for its grid and detailed playback
-    bool sunPeriodSeasons = false;            // display-only DJF/MAM/JJA/SON small clocks from that profile
+    bool sunPeriodSeasons = false;            // display-only winter/spring/summer/autumn clocks from that profile
     // Independent of the whole-map player: 0 every step, 1 fixed clock time,
     // 2 day by day. These index the re-traced point profile, not kept map days.
     HudTimeline sunPointPlay;

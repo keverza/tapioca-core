@@ -20,6 +20,7 @@ TEST (SunStudySeasonal, ClocksWeightOnlyTracedDaysAndMeasuredSteps)
 
     const auto seasons = SeasonalPointDays (profile);
     EXPECT_EQ (seasons[0].label, "DJF");
+    EXPECT_EQ (seasons[0].months, "Dec-Feb");
     EXPECT_EQ (seasons[0].tracedDays, 1u);
     EXPECT_DOUBLE_EQ (seasons[0].representedDays, 3.0);
     EXPECT_EQ (seasons[0].day.minutes, (std::vector<uint16_t> { 600 }));
@@ -43,4 +44,31 @@ TEST (SunStudySeasonal, ClocksWeightOnlyTracedDaysAndMeasuredSteps)
     EXPECT_TRUE (seasons[2].day.minutes.empty ());
     EXPECT_EQ (seasons[3].tracedDays, 0u);
     EXPECT_TRUE (seasons[3].day.minutes.empty ());
+}
+
+TEST (SunStudySeasonal, SouthernHemisphereIsReadFromTheMeasuredSun)
+{
+    PeriodProfile profile;
+    profile.dayMonth = { 1, 7 };
+    profile.dayWeights = { 1.0, 1.0 };
+    profile.dayUp = { 14.0, 10.0 }; // January has the longer days
+    const auto seasons = SeasonalPointDays (profile);
+    EXPECT_EQ (seasons[0].name, "Summer");
+    EXPECT_EQ (seasons[1].name, "Autumn");
+    EXPECT_EQ (seasons[2].name, "Winter");
+    EXPECT_EQ (seasons[3].name, "Spring");
+}
+
+TEST (SunStudySeasonal, NorthernHemisphereIsTheDefault)
+{
+    PeriodProfile profile;
+    profile.dayMonth = { 1, 7 };
+    profile.dayWeights = { 1.0, 1.0 };
+    profile.dayUp = { 8.0, 16.0 };
+    auto seasons = SeasonalPointDays (profile);
+    EXPECT_EQ (seasons[0].name, "Winter");
+    EXPECT_EQ (seasons[2].name, "Summer");
+    profile.dayMonth = { 1 }; // no traced summer day to compare: stay north
+    seasons = SeasonalPointDays (profile);
+    EXPECT_EQ (seasons[0].name, "Winter");
 }

@@ -10,26 +10,29 @@ void DrawSunStudySeasonalClocks (HudState& state, const sunstudyhud::PeriodProfi
 {
     if (profile == nullptr)
         return;
-    ImGui::Checkbox ("Seasonal clocks##sunpoint", &state.sunPeriodSeasons);
-    ImGui::SetItemTooltip ("Display-only DJF/MAM/JJA/SON small clocks from the retained point profile. No whole-map "
-                           "archive and no independent selection state.");
+    ImGui::Checkbox ("Seasons##sunpoint", &state.sunPeriodSeasons);
+    ImGui::SetItemTooltip ("Winter, spring, summer and autumn clocks from the retained point profile (meteorological seasons, "
+                           "named for the project's hemisphere). Display only.");
     if (!state.sunPeriodSeasons)
         return;
     const auto seasons = sunstudyhud::SeasonalPointDays (*profile);
     if (ImGui::BeginTable ("##sunpointseasons", 2, ImGuiTableFlags_SizingStretchSame)) {
         for (const auto& season : seasons) {
             ImGui::TableNextColumn ();
-            ImGui::TextDisabled ("%s: %zu traced day(s), %.0f represented", season.label.c_str (), season.tracedDays,
-                                 season.representedDays);
+            ImGui::TextUnformatted (season.name.c_str ());
+            ImGui::SameLine ();
+            ImGui::TextDisabled ("%s, %zu traced day(s)", season.months.c_str (), season.tracedDays);
+            ImGui::SetItemTooltip ("%.0f represented day(s)", season.representedDays);
             const std::string id = "##season" + season.label;
             DrawSunStudyDayClock (state, season.day.minutes.empty () ? nullptr : &season.day, id.c_str (), -1,
-                                  "no measured sun", nullptr, 220.0f, nullptr, SunChart::Season);
+                                  "no measured sun", nullptr, 440.0f, nullptr, SunChart::Season);
         }
         ImGui::EndTable ();
     }
-    SunStudyNote (estimate ? "Seasonal clocks: Preview estimate over representative traced days"
-                           : "Seasonal clocks: every traced day at weight 1",
-                  "Meteorological seasons DJF/MAM/JJA/SON. Each clock's centre is its weighted mean direct hours on a "
+    SunStudyNote (estimate ? "Seasons: Preview estimate over representative traced days"
+                           : "Seasons: every traced day at weight 1",
+                  "Meteorological seasons (Dec-Feb, Mar-May, Jun-Aug, Sep-Nov), named winter to autumn for the "
+                  "hemisphere the measured sun shows. Each clock's centre is its weighted mean direct hours on a "
                   "traced day. Clock steps average only days that measured that sun time. Weights never create extra "
                   "frames. These clocks are display-only and have no separate cell-range claim.");
 }

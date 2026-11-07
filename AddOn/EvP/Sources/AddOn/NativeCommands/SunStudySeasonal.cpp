@@ -45,7 +45,17 @@ std::array<SeasonalPointDay, 4> SeasonalPointDays (const PeriodProfile& profile)
             total.weight += weight;
         }
     }
+    // Southern hemisphere when the traced DJF days had more sun up than JJA.
+    const auto meanUp = [&] (size_t season) {
+        return seasons[season].representedDays > 0.0 ? up[season] / seasons[season].representedDays : 0.0;
+    };
+    const bool southern = seasons[0].representedDays > 0.0 && seasons[2].representedDays > 0.0 && meanUp (0) > meanUp (2);
+    const char* northNames[] = { "Winter", "Spring", "Summer", "Autumn" };
+    const char* southNames[] = { "Summer", "Autumn", "Winter", "Spring" };
+    const char* months[] = { "Dec-Feb", "Mar-May", "Jun-Aug", "Sep-Nov" };
     for (size_t season = 0; season < seasons.size (); ++season) {
+        seasons[season].name = southern ? southNames[season] : northNames[season];
+        seasons[season].months = months[season];
         auto& day = seasons[season].day;
         const double represented = seasons[season].representedDays;
         day.hasTotalHours = true;

@@ -45,7 +45,7 @@ ChartText TextOf (SunChart chart)
                      "cells' mean; the centre is the mean direct hours that day." };
         case SunChart::Season:
             return { "Seasonal sun diagram",
-                     "At the analysis point it shows a typical day of one meteorological season (DJF, MAM, JJA, SON): "
+                     "At the analysis point it shows a typical day of one season (winter, spring, summer, autumn: Dec-Feb, Mar-May, Jun-Aug, Sep-Nov; swapped south of the equator): "
                      "when in the day the point's cells are lit.",
                      "The re-traced point profile of the period's traced days in that season.",
                      "Each step averages only the days that measured that sun time; the centre is the season's "
