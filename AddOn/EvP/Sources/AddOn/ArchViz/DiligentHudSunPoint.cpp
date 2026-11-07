@@ -377,10 +377,14 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
                                int (100.0 * (1.0 - day->facing[nearest]) + 0.5), day->samples);
         }
     }
-    char line[128];
-    std::snprintf (line, sizeof (line), "%s direct of %s in front; sun up %s", SunStudyClock (litHours, true).c_str (),
-                   SunStudyClock (facingHours, true).c_str (),
-                   SunStudyClock (double (steps) * day->hoursPerStep, true).c_str ());
+    char line[192];
+    std::string range;
+    if (day->samples > 1)
+        range =
+            "; cells " + SunStudyClock (day->minDirectHours, true) + "-" + SunStudyClock (day->maxDirectHours, true);
+    std::snprintf (line, sizeof (line), "%s direct of %s in front; sun up %s%s",
+                   SunStudyClock (litHours, true).c_str (), SunStudyClock (facingHours, true).c_str (),
+                   SunStudyClock (double (steps) * day->hoursPerStep, true).c_str (), range.c_str ());
     if (state.sunClockBrushActive && state.sunClockBrushDragged && state.sunClockBrushTo <= state.sunClockBrushFrom)
         SunStudyNote ("Clock slice stops at 24:00", "The shadow-hours range cannot wrap through midnight. Drag "
                                                     "from midnight into the morning to select that part instead.");
@@ -388,7 +392,9 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
         SunStudyNote (line,
                       "24-hour clock: 0/24 is at the top and time runs clockwise. Each measured step is a radial "
                       "bar: lit inside, shaded in the middle, sun behind outside. The centre is total direct sun. "
-                      "Direct and in front are means of the point's cells; sun up is the site's total in the slice.");
+                      "Direct and in front are means of the point's cells; sun up is the site's total in the slice. "
+                      "For multiple cells, the summary's cell range is their exact minimum-maximum direct hours; "
+                      "the centre remains the mean.");
 }
 
 void DrawSunStudyPointDay (HudState& state, const std::string& studyId)

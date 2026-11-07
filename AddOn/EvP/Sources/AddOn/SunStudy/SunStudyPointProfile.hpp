@@ -47,6 +47,11 @@ struct PointProfile {
 // The day engine's cull: incidence > 0, NaN traced; `normal` null faces all.
 bool FacesSun (const double* normal, const double sun[3]);
 
+// Accumulate one cell's direct-hour total per traced day before sphere averaging.
+// The first cell initialises both bounds; later cells preserve day alignment.
+void AccumulateDayCellRange (const std::vector<double>& cellDayHours, bool firstCell, std::vector<double>& minimum,
+                             std::vector<double>& maximum);
+
 // A study point (#152): the sample nearest `centre` -- the point snapped to
 // the grid, its position in `snapped` -- then every other sample within
 // `radius` of THAT position, nearest first, at most `cap` in all. Empty when
@@ -61,6 +66,9 @@ struct PointDay {
     std::vector<double> lit, facing;
     double hoursPerStep = 0.25;
     size_t samples = 0;
+    // Per-cell total direct hours: centre/line remain the mean; these expose
+    // variation inside the sphere instead of inferring it from averaged steps.
+    double minDirectHours = 0.0, maxDirectHours = 0.0;
 };
 
 // `normal` null means always facing (a ground sample). False when cancelled.

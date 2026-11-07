@@ -11,6 +11,8 @@
 // Submit/Cancel/Current are safe from any thread. The run itself is on its own
 // thread; commands that need the host main thread go through MainThreadGate.
 
+#include "SunStudy/SunStudyPointProfile.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -180,7 +182,8 @@ struct PeriodProfile {
     std::string error;
     double up[12][24] = {}, facing[12][24] = {}, lit[12][24] = {}; // weighted hours, month x clock hour
     std::vector<int> dayMonth, dayOfMonth;
-    std::vector<double> dayUp, dayFacing, dayLit; // hours, one per traced day
+    std::vector<double> dayUp, dayFacing, dayLit; // mean hours, one per traced day
+    std::vector<double> dayMinLit, dayMaxLit;     // exact per-cell range on that day
     // Point-only playback: each day's clock minutes and averaged cell shares,
     // aligned by day and step. This is the no-whole-map-archive alternative.
     std::vector<double> dayHoursPerStep;
@@ -190,6 +193,25 @@ struct PeriodProfile {
     double milliseconds = 0.0;
 };
 
+// The selected traced day as the shared clock's mean steps + exact cell range.
+inline evp::sunstudy::PointDay PeriodPointDay (const PeriodProfile& profile, size_t selected)
+{
+    evp::sunstudy::PointDay day;
+    day.samples = profile.samples.size ();
+    if (selected < profile.dayHoursPerStep.size ())
+        day.hoursPerStep = profile.dayHoursPerStep[selected];
+    if (selected < profile.dayMinutes.size ())
+        day.minutes = profile.dayMinutes[selected];
+    if (selected < profile.dayStepLit.size ())
+        day.lit = profile.dayStepLit[selected];
+    if (selected < profile.dayStepFacing.size ())
+        day.facing = profile.dayStepFacing[selected];
+    if (selected < profile.dayMinLit.size () && selected < profile.dayMaxLit.size ()) {
+        day.minDirectHours = profile.dayMinLit[selected];
+        day.maxDirectHours = profile.dayMaxLit[selected];
+    }
+    return day;
+}
 PeriodInfo CurrentPeriod ();
 // Latest wins: a request replaces any not yet applied.
 bool ShowPeriodView (const PeriodView& view, std::string& error);

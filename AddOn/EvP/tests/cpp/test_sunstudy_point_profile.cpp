@@ -112,4 +112,18 @@ TEST (SunStudyPointProfile, ASphereSnapsToTheNearestSampleAndTakesItsNeighbours)
     EXPECT_TRUE (SamplesInSphere ({}, clicked, 1.0, 10, snapped).empty ());
 }
 
+TEST (SunStudyPointProfile, CellRangesKeepEveryDayIncludingEmptyAndShadowedDays)
+{
+    std::vector<double> minimum, maximum;
+    AccumulateDayCellRange ({ 2.0, 0.0, 0.0 }, true, minimum, maximum);
+    EXPECT_EQ (minimum, (std::vector<double> { 2.0, 0.0, 0.0 }));
+    EXPECT_EQ (maximum, minimum);
+    AccumulateDayCellRange ({ 1.0, 0.0, 0.0 }, false, minimum, maximum);
+    EXPECT_EQ (minimum, (std::vector<double> { 1.0, 0.0, 0.0 }));
+    EXPECT_EQ (maximum, (std::vector<double> { 2.0, 0.0, 0.0 }));
+    AccumulateDayCellRange ({ 3.0, 0.0, 0.0 }, false, minimum, maximum);
+    EXPECT_EQ (minimum, (std::vector<double> { 1.0, 0.0, 0.0 }));
+    EXPECT_EQ (maximum, (std::vector<double> { 3.0, 0.0, 0.0 }));
+}
+
 } // namespace

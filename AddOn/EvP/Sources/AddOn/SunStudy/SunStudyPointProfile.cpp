@@ -27,6 +27,19 @@ bool FacesSun (const double* normal, const double sun[3])
     return Faces (normal, sun);
 }
 
+void AccumulateDayCellRange (const std::vector<double>& cellDayHours, bool firstCell, std::vector<double>& minimum,
+                             std::vector<double>& maximum)
+{
+    if (firstCell) {
+        minimum = maximum = cellDayHours;
+        return;
+    }
+    for (size_t day = 0; day < minimum.size () && day < cellDayHours.size (); ++day) {
+        minimum[day] = (std::min) (minimum[day], cellDayHours[day]);
+        maximum[day] = (std::max) (maximum[day], cellDayHours[day]);
+    }
+}
+
 std::vector<size_t> SamplesInSphere (const std::vector<double>& positions, const double centre[3], double radius,
                                      size_t cap, double snapped[3])
 {

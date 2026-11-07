@@ -84,7 +84,11 @@ The single-day and point-playback clocks are interactive: clicking a radial bar 
 step; dragging clockwise selects a half-open time slice. A single-day brush drives the single-shadow
 view or time fan, while a period-point brush filters only the independent point player. The shared
 shadow-hours range is non-wrapping, so a drag that reaches the top from the left is explicitly
-constrained at 24:00 rather than silently wrapping into a second interval.
+constrained at 24:00 rather than silently wrapping into a second interval. For a multi-cell study point,
+the centre remains mean direct hours and the summary reports the exact per-cell minimum–maximum total.
+Single-day ranges come from each cell's measured steps; period playback computes the range from each cell's
+re-traced daily total before averaging. Back-facing time contributes no direct hours, and averaged step shares
+are never used to infer this range.
 
 A single-day study point also offers **exact obstruction attribution**, off by default. **Time step**
 re-traces the selected cells at the clock's selected measured step; **Whole day** re-traces every measured

@@ -56,7 +56,7 @@ SunSeries MakeDay (int steps)
 // Builds a record whose sample arrays are LOCAL to this function, so a store
 // that borrowed rather than copied would be left with dangling pointers the
 // moment it returns.
-std::unique_ptr<StudyRecord> MakeRecord (int steps = 4, uint64_t snapshotId = 31)
+std::unique_ptr<StudyRecord> MakeRecord (int steps = 4, uint64_t snapshotId = 31, bool backFacing = false)
 {
     auto engine = std::make_shared<QueryEngine> (MakeRoofSnapshot (snapshotId));
 
@@ -66,7 +66,8 @@ std::unique_ptr<StudyRecord> MakeRecord (int steps = 4, uint64_t snapshotId = 31
     record->timestepMinutes = 60;
 
     const std::vector<double> localPositions { 0.0, 0.0, 0.0, 10.0, 0.0, 0.0 };
-    const std::vector<double> localNormals { 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 };
+    const double normalZ = backFacing ? -1.0 : 1.0;
+    const std::vector<double> localNormals { 0.0, 0.0, normalZ, 0.0, 0.0, normalZ };
     record->positions = localPositions;
     record->normals = localNormals;
 
@@ -117,6 +118,62 @@ TEST (SunStudyStore, AStudySurvivesTheCallThatStartedIt)
     EXPECT_NEAR (hours[0], 0.0, 1e-12) << "under the roof";
     EXPECT_NEAR (hours[1], 4.0, 1e-12) << "in the open";
     EXPECT_EQ (positions.size (), 6u);
+}
+
+TEST (SunStudyStore, PointDayReportsCellRangeWithoutChangingTheMean)
+{
+    StoreFixture fixture;
+    const std::string id = SunStudyStore::Get ().Insert (MakeRecord ());
+    size_t advanced = 0;
+    std::string error;
+    ASSERT_TRUE (SunStudyStore::Get ().Advance (id, 10, 1, 0.001, 0.0, advanced, error)) << error;
+    PointDay day;
+    ASSERT_TRUE (SunStudyStore::Get ().PointDayOf (id, { 0 }, day, error)) << error;
+    EXPECT_DOUBLE_EQ (day.minDirectHours, 0.0);
+    EXPECT_DOUBLE_EQ (day.maxDirectHours, 0.0);
+    ASSERT_TRUE (SunStudyStore::Get ().PointDayOf (id, { 1 }, day, error)) << error;
+    EXPECT_DOUBLE_EQ (day.minDirectHours, 4.0);
+    EXPECT_DOUBLE_EQ (day.maxDirectHours, 4.0);
+    ASSERT_TRUE (SunStudyStore::Get ().PointDayOf (id, { 0, 1 }, day, error)) << error;
+    EXPECT_DOUBLE_EQ (day.minDirectHours, 0.0);
+    EXPECT_DOUBLE_EQ (day.maxDirectHours, 4.0);
+    ASSERT_EQ (day.lit.size (), 4u);
+    for (const double share : day.lit)
+        EXPECT_DOUBLE_EQ (share, 0.5); // existing sphere mean is unchanged
+}
+
+TEST (SunStudyStore, PointDayNeverCountsBackFacingTimeAsCellVariationOrObstruction)
+{
+    StoreFixture fixture;
+    auto record = MakeRecord (4, 31, true);
+    const std::string id = SunStudyStore::Get ().Insert (std::move (record));
+    size_t advanced = 0;
+    std::string error;
+    ASSERT_TRUE (SunStudyStore::Get ().Advance (id, 10, 1, 0.001, 0.0, advanced, error)) << error;
+    PointDay day;
+    ASSERT_TRUE (SunStudyStore::Get ().PointDayOf (id, { 0, 1 }, day, error)) << error;
+    EXPECT_DOUBLE_EQ (day.minDirectHours, 0.0);
+    EXPECT_DOUBLE_EQ (day.maxDirectHours, 0.0);
+    for (const double share : day.lit)
+        EXPECT_DOUBLE_EQ (share, 0.0);
+}
+
+TEST (SunStudyStore, PointDayEmptyAndInvalidSelectionsResetTheirRanges)
+{
+    StoreFixture fixture;
+    const std::string id = SunStudyStore::Get ().Insert (MakeRecord (0));
+    PointDay day;
+    std::string error;
+    ASSERT_TRUE (SunStudyStore::Get ().PointDayOf (id, { 0 }, day, error)) << error;
+    EXPECT_EQ (day.samples, 1u);
+    EXPECT_TRUE (day.lit.empty ());
+    EXPECT_DOUBLE_EQ (day.minDirectHours, 0.0);
+    EXPECT_DOUBLE_EQ (day.maxDirectHours, 0.0);
+    day.minDirectHours = day.maxDirectHours = 99.0;
+    EXPECT_FALSE (SunStudyStore::Get ().PointDayOf (id, { 99 }, day, error));
+    EXPECT_EQ (day.samples, 0u);
+    EXPECT_DOUBLE_EQ (day.minDirectHours, 0.0);
+    EXPECT_DOUBLE_EQ (day.maxDirectHours, 0.0);
 }
 
 TEST (SunStudyStore, PartlyReusedDaysRequireTheOriginalRayBounds)

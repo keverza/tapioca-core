@@ -679,11 +679,20 @@ bool SunStudyStore::PointDayOf (const std::string& id, const std::vector<size_t>
             return false;
         const double* normal =
             record.normals.size () == record.positions.size () ? &record.normals[3 * sample] : nullptr;
+        double cellHours = 0.0;
         for (size_t s = 0; s < steps.size (); ++s) {
-            if (s < lit.size () && lit[s] != 0)
+            if (s < lit.size () && lit[s] != 0) {
                 day.lit[s] += 1.0;
+                cellHours += day.hoursPerStep;
+            }
             if (FacesSun (normal, steps[s].direction))
                 day.facing[s] += 1.0;
+        }
+        if (day.samples == 0)
+            day.minDirectHours = day.maxDirectHours = cellHours;
+        else {
+            day.minDirectHours = (std::min) (day.minDirectHours, cellHours);
+            day.maxDirectHours = (std::max) (day.maxDirectHours, cellHours);
         }
         ++day.samples;
     }

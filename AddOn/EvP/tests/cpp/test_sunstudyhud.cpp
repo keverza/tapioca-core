@@ -166,6 +166,24 @@ TEST (SunStudyHud, DayClockPutsBothMidnightsAtTheTopAndRunsClockwise)
     EXPECT_NEAR (SunStudyClockMinute (-1.0, 0.0), 1080.0, 1.0e-12);
 }
 
+TEST (SunStudyHud, PeriodPointClockKeepsMeanStepsAndExactCellRange)
+{
+    geomsrv::sunstudyhud::PeriodProfile profile;
+    profile.samples = { 0, 1 };
+    profile.dayHoursPerStep = { 0.25 };
+    profile.dayMinutes = { { 480, 495 } };
+    profile.dayStepLit = { { 0.5, 1.0 } };
+    profile.dayStepFacing = { { 1.0, 1.0 } };
+    profile.dayMinLit = { 0.0 };
+    profile.dayMaxLit = { 0.25 };
+    const auto day = geomsrv::sunstudyhud::PeriodPointDay (profile, 0);
+    EXPECT_EQ (day.samples, 2u);
+    EXPECT_EQ (day.lit, (std::vector<double> { 0.5, 1.0 }));
+    EXPECT_EQ (day.facing, (std::vector<double> { 1.0, 1.0 }));
+    EXPECT_DOUBLE_EQ (day.minDirectHours, 0.0);
+    EXPECT_DOUBLE_EQ (day.maxDirectHours, 0.25);
+}
+
 TEST (SunStudyHud, ClockClickSelectsAStepAndClockwiseDragSelectsASlice)
 {
     SectionGui gui;

@@ -800,17 +800,8 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
             state.sunPointPlayStep = -1;
     }
 
-    evp::sunstudy::PointDay day;
     const size_t selected = size_t (std::clamp (state.sunPointPlayDay, 0, last));
-    day.samples = profile->samples.size ();
-    if (selected < profile->dayHoursPerStep.size ())
-        day.hoursPerStep = profile->dayHoursPerStep[selected];
-    if (selected < profile->dayMinutes.size ())
-        day.minutes = profile->dayMinutes[selected];
-    if (selected < profile->dayStepLit.size ())
-        day.lit = profile->dayStepLit[selected];
-    if (selected < profile->dayStepFacing.size ())
-        day.facing = profile->dayStepFacing[selected];
+    evp::sunstudy::PointDay day = sunstudyhud::PeriodPointDay (*profile, selected);
     const char* empty = day.minutes.empty () ? "no sun this day" : "";
     SunStudyClockSelection selection;
     DrawSunStudyDayClock (state, &day, "##pointperioddayclock", state.sunPointPlayStep, empty, &selection);

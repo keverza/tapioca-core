@@ -236,6 +236,7 @@ void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& 
                 result.dayOfMonth = std::move (profile.dayOfMonth);
                 result.dayUp = std::move (profile.dayUp);
                 result.dayFacing = std::move (profile.dayFacing);
+                evp::sunstudy::AccumulateDayCellRange (profile.dayLit, true, result.dayMinLit, result.dayMaxLit);
                 result.dayLit = std::move (profile.dayLit);
                 result.dayStepFacing.resize (profile.dayStepFacing.size ());
                 result.dayStepLit.resize (profile.dayStepLit.size ());
@@ -246,7 +247,8 @@ void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& 
                         result.dayStepLit[d].push_back (double (value));
                 }
             }
-            else
+            else {
+                evp::sunstudy::AccumulateDayCellRange (profile.dayLit, false, result.dayMinLit, result.dayMaxLit);
                 for (size_t d = 0; d < result.dayLit.size () && d < profile.dayLit.size (); ++d) {
                     result.dayFacing[d] += profile.dayFacing[d];
                     result.dayLit[d] += profile.dayLit[d];
@@ -256,6 +258,7 @@ void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& 
                         result.dayStepLit[d][s] += profile.dayStepLit[d][s];
                     }
                 }
+            }
             result.rays += profile.rays;
             ++traced;
         }
