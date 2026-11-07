@@ -192,6 +192,15 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
         outcome.built = true;
         outcome.published = std::move (published);
         MirrorPublished (unified, plan, scope, *outcome.published, outcome);
+        // #149 / #157 G2: the unified build has no outline grading yet. A built result must not
+        // pass a band off as the outline that was asked for, nor leave paths out unannounced.
+        if (job.options.outline && !plan.paths.empty ())
+            outcome.unmet.push_back ("Outline grading was asked for, but with regions present the selected path is "
+                                     "graded as its band, not its paved outline (#149).");
+        if (job.doc->paths.size () > plan.paths.size ())
+            outcome.unmet.push_back (std::to_string (job.doc->paths.size () - plan.paths.size ()) + " of " +
+                                     std::to_string (job.doc->paths.size ()) +
+                                     " paths are not graded: the unified build grades one selected path.");
     }
     catch (const std::exception& exception) {
         outcome.built = false;
