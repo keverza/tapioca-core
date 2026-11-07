@@ -4,6 +4,7 @@
 #include "SunStudy/SunStudyRoles.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
 #include <set>
@@ -152,6 +153,64 @@ bool BuildSunObstructionGeometry (const geomsrv::Snapshot& snapshot,
         result.blockers.begin (), result.blockers.end (),
         [] (const SunObstructionBlocker& a, const SunObstructionBlocker& b) { return a.hours > b.hours; });
     result.blockerObjects = result.blockers.size ();
+    return true;
+}
+
+bool BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3], bool rayOnly,
+                            GhPreviewDrawables& drawables, size_t& faces, size_t faceCap)
+{
+    faces = 0;
+    std::set<std::array<int32_t, 4>> shown;
+    for (const auto& voxel : cut.removed)
+        if (!rayOnly || voxel.ray)
+            shown.insert ({ int32_t (voxel.mesh), voxel.index[0], voxel.index[1], voxel.index[2] });
+    double reach = 0.0;
+    static constexpr int kSides[6][3] = { { 1, 0, 0 },  { -1, 0, 0 }, { 0, 1, 0 },
+                                          { 0, -1, 0 }, { 0, 0, 1 },  { 0, 0, -1 } };
+    for (const auto& voxel : cut.removed) {
+        if (rayOnly && !voxel.ray)
+            continue;
+        reach = (std::max) (reach, std::hypot (double (voxel.centre[0]) - point[0], double (voxel.centre[1]) - point[1],
+                                               double (voxel.centre[2]) - point[2]) +
+                                       double (voxel.size));
+        const uint32_t colour = voxel.ray ? kSolarCutRayRgba : kSolarCutEnvelopeRgba;
+        const double h = 0.5 * double (voxel.size);
+        for (const auto& side : kSides) {
+            if (shown.count ({ int32_t (voxel.mesh), voxel.index[0] + side[0], voxel.index[1] + side[1],
+                               voxel.index[2] + side[2] }) != 0)
+                continue;
+            if (++faces > faceCap)
+                return false;
+            // The face's four corners, wound outward.
+            const int axis = side[0] != 0 ? 0 : side[1] != 0 ? 1 : 2;
+            const int u = (axis + 1) % 3, v = (axis + 2) % 3;
+            const double sign = double (side[0] + side[1] + side[2]);
+            double corners[4][3];
+            const double offsets[4][2] = { { -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 } };
+            for (int c = 0; c < 4; ++c) {
+                const int k = sign > 0.0 ? c : 3 - c;
+                corners[c][axis] = double (voxel.centre[axis]) + sign * h;
+                corners[c][u] = double (voxel.centre[u]) + offsets[k][0] * h;
+                corners[c][v] = double (voxel.centre[v]) + offsets[k][1] * h;
+            }
+            AppendQuad (corners, colour, drawables.depthTested);
+        }
+    }
+    // The envelope: one ray per slice sun from the point, and their rim.
+    const double length = reach > 0.0 ? reach : 20.0;
+    const float from[3] = { float (point[0]), float (point[1]), float (point[2]) };
+    float previous[3] = {};
+    bool had = false;
+    for (const auto& sun : cut.facingSteps) {
+        const float to[3] = { float (point[0] + length * sun.direction[0]),
+                              float (point[1] + length * sun.direction[1]),
+                              float (point[2] + length * sun.direction[2]) };
+        AppendPreviewSegment (from, to, kSunObstructionPink, drawables.depthTested);
+        if (had)
+            AppendPreviewSegment (previous, to, kSunObstructionPink, drawables.depthTested);
+        std::copy (to, to + 3, previous);
+        had = true;
+    }
     return true;
 }
 

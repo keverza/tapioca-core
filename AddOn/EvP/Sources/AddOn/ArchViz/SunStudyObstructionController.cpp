@@ -3,6 +3,9 @@
 #include "ArchViz/SunStudyObstructionGeometry.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "SunStudy/SunStudyStore.hpp"
+#include "SunStudy/SunStudyOccluders.hpp"
+#include "SunStudy/SunStudyRoles.hpp"
+#include "SunStudy/SunStudySolarCut.hpp"
 #include "SunStudy/SunStudyTaskWorker.hpp"
 
 #include <optional>
@@ -20,6 +23,10 @@ struct RequestKey {
     SunObstructionMode mode = SunObstructionMode::Off;
     int step = -1;
     int fromMinute = 0, toMinute = 1440;
+    bool lifted = false;
+    double liftedPoint[3] = {};
+    bool rayOnly = false;
+    double voxel = 0.5;
 
     bool operator== (const RequestKey& other) const = default;
 };
@@ -31,6 +38,97 @@ struct PendingRequest {
 };
 
 } // namespace
+
+// The solar cut for one request, on the worker: the point, the slice's suns,
+// which elements may block, then the two removals and their preview.
+static std::shared_ptr<SunObstructionFrame> SolarCutFrame (const PendingRequest& job,
+                                                           const std::atomic<bool>& cancelled)
+{
+    const auto& record = *job.record;
+    auto frame = std::make_shared<SunObstructionFrame> ();
+    frame->generation = job.generation;
+    frame->studyId = job.key.studyId;
+    frame->snapshotId = job.key.snapshotId;
+    frame->captureStamp = job.key.captureStamp;
+    frame->mode = SunObstructionMode::SolarCut;
+    frame->fromMinute = job.key.fromMinute;
+    frame->toMinute = job.key.toMinute;
+    frame->windowFrom = record.hourFrom * 60;
+    frame->windowTo = record.hourTo * 60;
+    frame->timestepMinutes = record.timestepMinutes;
+    frame->year = record.year;
+    frame->month = record.month;
+    frame->day = record.day;
+    frame->cells = job.key.samples.size ();
+    const size_t sample = job.key.samples.front ();
+    if (!job.key.lifted && sample >= record.positions.size () / 3) {
+        frame->error = "the study point's cell is outside the study";
+        return frame;
+    }
+    evp::sunstudy::SolarCutInput input;
+    if (job.key.lifted)
+        std::copy (job.key.liftedPoint, job.key.liftedPoint + 3, input.point);
+    else {
+        std::copy (&record.positions[3 * sample], &record.positions[3 * sample] + 3, input.point);
+        if (record.normals.size () == record.positions.size ())
+            input.normal = &record.normals[3 * sample];
+        if (sample < record.sampleMeshes.size ())
+            input.ownMesh = record.sampleMeshes[sample];
+    }
+    for (const auto& step : record.series.Steps ()) {
+        const int minute = step.time.hour * 60 + step.time.minute;
+        if (minute >= job.key.fromMinute && minute < job.key.toMinute)
+            input.steps.push_back (step);
+    }
+    input.hoursPerStep = double (record.timestepMinutes) / 60.0;
+    input.voxel = job.key.voxel;
+    const auto& snapshot = *record.snapshot;
+    input.blocks.assign (snapshot.meshes.size (), 1);
+    if (record.elementRoles.size () == snapshot.meshes.size ())
+        for (size_t m = 0; m < snapshot.meshes.size (); ++m)
+            input.blocks[m] = record.elementRoles[m] != uint8_t (evp::sunstudy::ElementRole::Ignored) ? 1 : 0;
+    // Already lit: a clear ray to that sun now, through the study's occluders.
+    const auto lit = [&record, &input] (const double direction[3]) {
+        if (record.occluders == nullptr)
+            return true;
+        const double origin[3] = { input.point[0] + 0.001 * direction[0], input.point[1] + 0.001 * direction[1],
+                                   input.point[2] + 0.001 * direction[2] };
+        for (const auto& engine : { record.occluders->analysis, record.occluders->context })
+            if (engine != nullptr && engine->Raycast (origin, direction, 0.0).hit)
+                return false;
+        return true;
+    };
+    evp::sunstudy::SolarCutResult cut;
+    if (!evp::sunstudy::ComputeSolarCut (snapshot, input, cut, lit, [&] { return cancelled.load (); })) {
+        if (cancelled.load ())
+            return nullptr;
+        frame->error = cut.error;
+        return frame;
+    }
+    frame->envelopeVolume = cut.envelopeVolume;
+    frame->rayVolume = cut.rayVolume;
+    frame->facingHours = cut.facingHours;
+    frame->litHours = cut.litHours;
+    frame->attributedSteps = input.steps.size ();
+    if (!input.steps.empty ()) {
+        frame->firstMinute = input.steps.front ().time.hour * 60 + input.steps.front ().time.minute;
+        frame->lastMinute = input.steps.back ().time.hour * 60 + input.steps.back ().time.minute;
+    }
+    for (const auto& object : cut.objects) {
+        const double cube = object.voxel * object.voxel * object.voxel;
+        frame->cutObjects.push_back ({ object.guid, object.elemType, double (object.envelopeVoxels) * cube,
+                                       double (object.rayVoxels) * cube, double (object.voxels) * cube });
+        frame->blockerGuids.push_back (object.guid);
+        frame->voxel = (std::max) (frame->voxel, object.voxel);
+    }
+    frame->blockerObjects = cut.objects.size ();
+    size_t faces = 0;
+    frame->previewCapped = !BuildSolarCutGeometry (cut, input.point, job.key.rayOnly, frame->drawables, faces);
+    if (frame->previewCapped)
+        frame->drawables = GhPreviewDrawables (); // numbers, no partial shell
+    frame->cutFaces = faces;
+    return frame;
+}
 
 struct SunObstructionController::Impl {
     mutable std::mutex mutex;
@@ -80,6 +178,13 @@ struct SunObstructionController::Impl {
         evp::sunstudy::StudyTaskRequest task;
         task.runGeneration = job->generation;
         task.execute = [this, job] (const std::atomic<bool>& cancelled) {
+            if (job->key.mode == SunObstructionMode::SolarCut) {
+                auto frame = SolarCutFrame (*job, cancelled);
+                std::lock_guard<std::mutex> lock (mutex);
+                if (frame != nullptr && !cancelled.load () && current == job->key && generation == job->generation)
+                    latest = std::move (frame);
+                return;
+            }
             evp::sunstudy::SunObstructionDayResult day;
             bool success = true;
             const int divisions = evp::sunstudy::SunObstructionFootprintDivisions (job->key.samples.size ());
@@ -190,8 +295,12 @@ void SunObstructionController::Request (const SunObstructionRequest& request)
                      request.samples,
                      request.mode,
                      request.mode == SunObstructionMode::TimeStep ? request.step : -1,
-                     request.mode == SunObstructionMode::WholeDay ? request.fromMinute : 0,
-                     request.mode == SunObstructionMode::WholeDay ? request.toMinute : 1440 };
+                     request.mode != SunObstructionMode::TimeStep ? request.fromMinute : 0,
+                     request.mode != SunObstructionMode::TimeStep ? request.toMinute : 1440,
+                     request.mode == SunObstructionMode::SolarCut && request.lifted,
+                     { request.liftedPoint[0], request.liftedPoint[1], request.liftedPoint[2] },
+                     request.mode == SunObstructionMode::SolarCut && request.rayOnly,
+                     request.mode == SunObstructionMode::SolarCut ? request.voxel : 0.5 };
     {
         std::lock_guard<std::mutex> lock (impl_->mutex);
         if (impl_->stopping || (impl_->current == key && (impl_->pending || impl_->latest || impl_->worker.Busy ())))

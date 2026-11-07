@@ -282,7 +282,14 @@ struct HudState {
     uint64_t sunPointDayReads = 0; // observable proof that a still clock does no retrace/read
     // Single-day exact obstruction: 0 off, 1 selected time step (pink),
     // 2 whole day (timed parts coloured by their shadow hour).
-    int sunObstructionMode = 0;
+    int sunObstructionMode = 0; // 1 time step, 2 whole day, 3 solar cut
+    // The solar cut's slice (minutes; to <= from: not yet chosen), the grip
+    // being dragged on the diagram's pink arc (0 none, 1 from, 2 to), and the
+    // preview: the envelope cut, or only the voxels a sun ray crosses.
+    double sunCutFrom = 0.0, sunCutTo = 0.0;
+    int sunCutGrip = 0;
+    bool sunCutRayOnly = false;
+    float sunCutVoxel = 0.5f;
     // The right-click menu's target: the measured point under the cursor.
     bool sunPointMenuValid = false;
     double sunPointMenuAt[3] = {};
@@ -911,6 +918,8 @@ bool RefreshSunStudyLiftedPoint (HudState& state, const std::string& studyId, ui
 bool DrawSunStudyPointHeader (HudState& state, const std::string& studyId);
 void DrawSunStudyPointDay (HudState& state, const std::string& studyId, uint64_t resultVersion);
 void DrawSunStudyObstructionControls (HudState& state, const std::string& studyId);
+// Place (or move) the study point at a measured surface point.
+void PlaceSunStudyPoint (HudState& state, const double at[3]);
 // The sun path over the model (DiligentHudSunPath.cpp), when sunPathShown.
 void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 // Press on the sun path's sun disc and drag: before navigation, which it holds off.

@@ -15,6 +15,7 @@
 #include "ArchViz/GhPreviewGeometry.hpp"
 #include "Geometry/Mesh.hpp"
 #include "SunStudy/SunStudyObstruction.hpp"
+#include "SunStudy/SunStudySolarCut.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -23,6 +24,8 @@
 #include <vector>
 
 namespace geomsrv::archviz {
+
+constexpr uint32_t kSunObstructionPink = 0xF240BFFFu;
 
 uint32_t SunObstructionTimeColour (int minute);
 
@@ -55,6 +58,15 @@ struct SunObstructionGeometry {
 bool BuildSunObstructionGeometry (const geomsrv::Snapshot& snapshot,
                                   const std::vector<evp::sunstudy::SunObstructionResult>& steps, int timestepMinutes,
                                   SunObstructionGeometry& result);
+
+// The solar cut's preview: the removed voxels as one shell (faces shared by
+// two removed voxels are left out) -- ray voxels strong, the rest of the
+// envelope cut faint, or the ray voxels alone -- and the envelope's sun rays
+// from the point with their rim. At most `faceCap` faces; false past it.
+constexpr uint32_t kSolarCutRayRgba = 0xF240BFC8u;
+constexpr uint32_t kSolarCutEnvelopeRgba = 0xF7A8DC66u;
+bool BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3], bool rayOnly,
+                            GhPreviewDrawables& drawables, size_t& faces, size_t faceCap = 120000);
 
 } // namespace geomsrv::archviz
 

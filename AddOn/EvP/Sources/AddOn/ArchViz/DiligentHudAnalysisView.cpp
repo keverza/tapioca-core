@@ -208,6 +208,18 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
         request.toMinute = std::clamp (int (std::lround (state.sunTimeTo * 60.0f)), 0, 1440);
         if (request.toMinute <= request.fromMinute)
             request.fromMinute = 0, request.toMinute = 1440;
+        // The solar cut: the pink slice on the day diagram, for the point as placed.
+        if (state.sunObstructionMode == 3 && state.sunCutTo > state.sunCutFrom) {
+            request.mode = SunObstructionMode::SolarCut;
+            request.fromMinute = int (std::lround (state.sunCutFrom));
+            request.toMinute = int (std::lround (state.sunCutTo));
+            request.lifted = state.sunPointHeight > 0.0f && state.sunPointLiftedReady;
+            std::copy (state.sunPointLifted, state.sunPointLifted + 3, request.liftedPoint);
+            request.rayOnly = state.sunCutRayOnly;
+            request.voxel = double (state.sunCutVoxel);
+        }
+        else if (state.sunObstructionMode == 3)
+            request.mode = SunObstructionMode::Off;
     }
     auto& tasks = SunObstructionTasks ();
     tasks.Request (request);

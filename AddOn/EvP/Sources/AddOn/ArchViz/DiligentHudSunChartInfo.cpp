@@ -81,7 +81,8 @@ ChartText TextOf (SunChart chart)
             return { "Sun day diagram",
                      "At the analysis point it shows each measured time step from first to last sun: the share of the "
                      "point's cells in direct sun (yellow), shadowed by the model (blue) and with the sun behind the "
-                     "surface (grey). The outer rows are each step's main state and the time of day.",
+                     "surface (grey). The outer rows are each step's main state and the time of day. In the "
+                     "Obstruction view's Solar cut, a pink arc with two grips picks the slice to win sun for.",
                      "The single-day study's stored per-step lit bits for the point's cells (or the hovered cell) and "
                      "the sun directions Archicad gave for the project's location and date.",
                      "One ray per cell and step toward the sun, against the analysis and context geometry; a cell "

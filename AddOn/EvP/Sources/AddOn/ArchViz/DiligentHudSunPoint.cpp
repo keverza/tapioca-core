@@ -62,6 +62,15 @@ void Place (HudState& state, const double at[3])
     state.sunPointLiftedFor.clear ();
 }
 
+} // namespace
+
+void PlaceSunStudyPoint (HudState& state, const double at[3])
+{
+    Place (state, at);
+}
+
+namespace {
+
 std::string RadiusText (float radius)
 {
     if (radius <= 0.0f)
@@ -403,7 +412,10 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
     if (size <= 0.0f)
         return;
     const float line = ImGui::GetTextLineHeight ();
-    const float outerMost = size * 0.46f;
+    // The solar cut's pink arc, outside the time row, on the point's own day.
+    const bool cutArc = selection != nullptr && state.sunObstructionMode == 3 && state.sunView == kSunObstructionView &&
+                        (chart == SunChart::Day || chart == SunChart::LiftedDay);
+    const float outerMost = size * 0.46f + (cutArc ? 12.0f : 0.0f);
     const float height = outerMost + line * 2.6f;
     const ImVec2 start = ImGui::GetCursorScreenPos ();
     ImGui::InvisibleButton (id, ImVec2 (width, height));
@@ -431,6 +443,46 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
     const ImVec2 pointer (ImGui::GetIO ().MousePos.x - centre.x, ImGui::GetIO ().MousePos.y - centre.y);
     const float pointerRadius = std::hypot (pointer.x, pointer.y);
     const bool onBars = domain && pointer.y <= 4.0f && pointerRadius >= inner - 2.0f && pointerRadius <= timeTo + 3.0f;
+    const float cutR = timeTo + 7.0f;
+    const bool onCutBand = cutArc && pointer.y <= 4.0f && pointerRadius > timeTo + 3.0f && pointerRadius <= cutR + 7.0f;
+    bool onGrip = false;
+    if (cutArc && domain) {
+        if (!(state.sunCutTo > state.sunCutFrom)) { // first shown: two hours about the middle of the day
+            const double middle = 0.5 * (from + to);
+            state.sunCutFrom = (std::max) (from, middle - 60.0);
+            state.sunCutTo = (std::min) (to, middle + 60.0);
+        }
+        state.sunCutFrom = std::clamp (state.sunCutFrom, from, to);
+        state.sunCutTo = std::clamp (state.sunCutTo, from, to);
+        const ImVec2 gripFrom = ArcPoint (centre, cutR, angleOf (state.sunCutFrom));
+        const ImVec2 gripTo = ArcPoint (centre, cutR, angleOf (state.sunCutTo));
+        const ImVec2 mouse = ImGui::GetIO ().MousePos;
+        const float toFrom = std::hypot (mouse.x - gripFrom.x, mouse.y - gripFrom.y);
+        const float toTo = std::hypot (mouse.x - gripTo.x, mouse.y - gripTo.y);
+        const int near = (std::min) (toFrom, toTo) > 9.0f ? 0 : (toFrom <= toTo ? 1 : 2);
+        onGrip = hovered && near != 0;
+        if (onGrip && ImGui::IsItemActivated ())
+            state.sunCutGrip = near;
+        if (state.sunCutGrip != 0 && !ImGui::IsMouseDown (ImGuiMouseButton_Left))
+            state.sunCutGrip = 0;
+        if (state.sunCutGrip != 0 && steps > 0) {
+            // Snap to the measured steps' edges: a slice is whole steps.
+            const double raw = SunStudyArcMinute (pointer.x, pointer.y, from, to);
+            double snapped = raw, gap = 1.0e9;
+            for (size_t s = 0; s < steps; ++s)
+                for (const double edge :
+                     { double (day->minutes[s]), double (day->minutes[s]) + day->hoursPerStep * 60.0 })
+                    if (std::abs (edge - raw) < gap) {
+                        gap = std::abs (edge - raw);
+                        snapped = edge;
+                    }
+            (state.sunCutGrip == 1 ? state.sunCutFrom : state.sunCutTo) = snapped;
+            if (state.sunCutFrom > state.sunCutTo) { // crossing over: the grips trade places
+                std::swap (state.sunCutFrom, state.sunCutTo);
+                state.sunCutGrip = 3 - state.sunCutGrip;
+            }
+        }
+    }
     const uint32_t clockId = ImGui::GetID (id);
     const auto cancelBrush = [&state] {
         state.sunClockBrushActive = state.sunClockBrushDragged = false;
@@ -446,7 +498,7 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
         !ImGui::IsMouseReleased (ImGuiMouseButton_Left))
         cancelBrush ();
     if (selection != nullptr && domain) {
-        if (hovered && ImGui::IsItemActivated ()) {
+        if (hovered && ImGui::IsItemActivated () && !onGrip && state.sunCutGrip == 0 && !onCutBand) {
             if (onBars) {
                 state.sunClockBrushActive = true;
                 state.sunClockBrushDragged = false;
@@ -527,12 +579,28 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
             if (major && double (hour * 60) - from > 40.0 && to - double (hour * 60) > 40.0) {
                 char text[4];
                 std::snprintf (text, sizeof (text), "%d", hour);
-                const ImVec2 at = ArcPoint (centre, timeTo + line * 0.75f, angle);
+                const ImVec2 at = ArcPoint (centre, timeTo + line * 0.75f + (cutArc ? 11.0f : 0.0f), angle);
                 const ImVec2 extent = ImGui::CalcTextSize (text);
                 draw->AddText (ImVec2 (at.x - extent.x * 0.5f, at.y - extent.y * 0.5f),
                                ImGui::GetColorU32 (ImGuiCol_TextDisabled), text);
             }
         }
+    }
+    if (cutArc && domain) {
+        // The cut slice: a faint track over the day, the slice strong, a grip
+        // at each end.
+        constexpr ImU32 kPink = IM_COL32 (242, 64, 191, 255);
+        ArcSector (draw, centre, cutR - 1.0f, cutR + 1.0f, kLeft, kRight, IM_COL32 (242, 64, 191, 60));
+        ArcSector (draw, centre, cutR - 2.5f, cutR + 2.5f, angleOf (state.sunCutFrom), angleOf (state.sunCutTo), kPink);
+        for (int grip = 1; grip <= 2; ++grip) {
+            const ImVec2 at = ArcPoint (centre, cutR, angleOf (grip == 1 ? state.sunCutFrom : state.sunCutTo));
+            const bool hot = state.sunCutGrip == grip;
+            draw->AddCircleFilled (at, hot ? 6.5f : 5.0f, kPink);
+            draw->AddCircle (at, hot ? 6.5f : 5.0f, IM_COL32 (255, 255, 255, 230), 0, 1.5f);
+        }
+        if (onGrip || state.sunCutGrip != 0)
+            ImGui::SetTooltip ("Cut slice %s-%s\ndrag the pink grips", MinuteText (state.sunCutFrom).c_str (),
+                               MinuteText (state.sunCutTo).c_str ());
     }
     const ImU32 ink = ImGui::GetColorU32 (ImGuiCol_Text);
     const auto outlineStep = [&] (int step, ImU32 colour, float thickness) {
@@ -612,7 +680,7 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
     if (!picked.empty ())
         centreText (picked.c_str (), line * 1.0f, ink);
 
-    if (hovered && hoveredStep >= 0) {
+    if (hovered && hoveredStep >= 0 && !onGrip && state.sunCutGrip == 0) {
         const size_t s = size_t (hoveredStep);
         const double minute = day->minutes[s];
         ImGui::BeginTooltip ();
@@ -756,147 +824,6 @@ void DrawSunStudyPointDay (HudState& state, const std::string& studyId, uint64_t
     const SunStudyClockShown shown { double (state.sunTimeFrom) * 60.0, double (state.sunTimeTo) * 60.0 };
     DrawSunStudyDayClock (state, day, "##sunpointday", current, why, &selection, 352.0f, &shown);
     ApplySunStudyDaySelection (state, selection); // selection never changes the current view tab
-}
-
-void DrawSunStudyObstructionControls (HudState& state, const std::string& studyId)
-{
-    ImGui::RadioButton ("Time step##sunobstruction", &state.sunObstructionMode, 1);
-    ImGui::SameLine ();
-    ImGui::RadioButton ("Whole day##sunobstruction", &state.sunObstructionMode, 2);
-    ImGui::SetItemTooltip ("Time step: what blocks the study point's sun at the diagram's selected step.\n"
-                           "Whole day: every measured step in the selected slice (all of it when none is "
-                           "selected).");
-    // The prerequisite, made actionable (#167): a hovered cell is one click
-    // from being the pinned point the attribution needs.
-    if (!state.sunPointPlaced) {
-        const bool hovered =
-            state.sunHoverDayStudy == studyId && state.sunHoverDaySample != SIZE_MAX && state.sunHoverDayPointValid;
-        ImGui::BeginDisabled (!hovered);
-        if (ImGui::SmallButton ("Pin hovered cell##sunobstruction"))
-            Place (state, state.sunHoverDayPoint);
-        ImGui::EndDisabled ();
-        ImGui::SameLine ();
-        SunStudyNote (hovered ? "Pin the hovered cell to find what blocks it"
-                              : "Hover a measured surface (Inspect on), then pin it",
-                      "Obstruction is attributed for a placed study point: its snapped cell, or every cell in its "
-                      "radius. Pin the hovered cell here, or right-click a measured surface and place the point.");
-        return;
-    }
-    if (state.sunPointHeight > 0.0f)
-        SunStudyNote ("Attributed for the surface cells under the lifted point",
-                      "Obstruction footprints belong to measured surface cells; the lifted receiver's diagram is "
-                      "traced separately in the Study point section.");
-    auto& tasks = SunObstructionTasks ();
-    const auto frame = tasks.Latest ();
-    if (frame == nullptr || frame->studyId != studyId) {
-        SunStudyNote (tasks.Busy () ? "Finding what blocks the point..." : "Waiting for the current study...");
-        return;
-    }
-    if (!frame->error.empty ()) {
-        hudshell::ErrorNotice ("Obstruction not shown: " + frame->error);
-        return;
-    }
-    if (!SunObstructionFrameCurrent (frame, studyId)) {
-        SunStudyNote ("Obstruction hidden: the scene changed; run the day again.");
-        return;
-    }
-    // What was covered, said rather than implied.
-    const bool window = frame->windowFrom > 0 || frame->windowTo < 1440;
-    const bool sliced =
-        frame->mode == SunObstructionMode::WholeDay && (frame->fromMinute > 0 || frame->toMinute < 1440);
-    std::string covered;
-    if (frame->mode == SunObstructionMode::TimeStep)
-        covered = MinuteText (frame->minute) + " step";
-    else if (frame->attributedSteps == 0)
-        covered = "no measured step";
-    else
-        covered = MinuteText (frame->firstMinute) + "-" + MinuteText (frame->lastMinute + frame->timestepMinutes) +
-                  (sliced ? " slice" : "") + (window ? " (window)" : "");
-    char coverage[200];
-    std::snprintf (coverage, sizeof (coverage), "%04d-%02d-%02d, %zu cell%s, r %.1f m; %s", frame->year, frame->month,
-                   frame->day, frame->cells, frame->cells == 1 ? "" : "s", double (state.sunPointRadius),
-                   covered.c_str ());
-    char detail[420];
-    std::snprintf (detail, sizeof (detail),
-                   "Cell-steps: %zu blocked, %zu lit, %zu sun behind the surface, %zu unavailable. Footprints: each "
-                   "cell split %d x %d, every sub-cell cast along the sun onto the face it hits.%s%s",
-                   frame->blocked, frame->lit, frame->backFacing, frame->unavailable, frame->footprintDivisions,
-                   frame->footprintDivisions,
-                   window ? " The run measured only its hour window; hours outside it were not checked." : "",
-                   frame->cells >= 256 ? " The point's cells were capped at 256, nearest first." : "");
-    SunStudyNote (coverage, detail);
-    if (frame->blockers.empty ()) {
-        SunStudyNote (frame->mode == SunObstructionMode::WholeDay ? "Nothing blocks the point on these steps."
-                                                                  : "Nothing blocks the point at this step.");
-        return;
-    }
-    // One row per blocking element: its intervals, elapsed time, cell share.
-    constexpr size_t kRows = 8;
-    if (ImGui::BeginTable ("##sunblockers", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
-        ImGui::TableSetupColumn ("Blocker", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn ("When", ImGuiTableColumnFlags_WidthStretch, 1.8f);
-        ImGui::TableSetupColumn ("h, cells", ImGuiTableColumnFlags_WidthStretch, 0.8f);
-        ImGui::TableHeadersRow ();
-        for (size_t row = 0; row < frame->blockers.size () && row < kRows; ++row) {
-            const SunObstructionBlocker& blocker = frame->blockers[row];
-            ImGui::TableNextRow ();
-            ImGui::TableNextColumn ();
-            const std::string shortGuid = blocker.guid.size () > 9 ? blocker.guid.substr (0, 9) : blocker.guid;
-            ImGui::TextUnformatted (shortGuid.c_str ());
-            ImGui::SetItemTooltip ("%s\n%s element, type %d", blocker.guid.c_str (),
-                                   blocker.context ? "Context" : "Analysis", int (blocker.elemType));
-            ImGui::TableNextColumn ();
-            // The first two intervals, each with a swatch in its time colour.
-            std::string when;
-            for (size_t i = 0; i < blocker.intervals.size (); ++i) {
-                const std::string text =
-                    MinuteText (blocker.intervals[i].first) + "-" + MinuteText (blocker.intervals[i].second);
-                when += (when.empty () ? "" : "\n") + text;
-                if (i >= 2)
-                    continue;
-                if (i > 0)
-                    ImGui::SameLine (0.0f, 4.0f);
-                const float side = ImGui::GetTextLineHeight () * 0.6f;
-                const ImVec2 at = ImGui::GetCursorScreenPos ();
-                const float y = at.y + (ImGui::GetTextLineHeight () - side) * 0.5f;
-                const double middle = 0.5 * double (blocker.intervals[i].first + blocker.intervals[i].second);
-                ImGui::GetWindowDrawList ()->AddRectFilled (ImVec2 (at.x, y), ImVec2 (at.x + side, y + side),
-                                                            Opaque (SunStudyTimeOfDayRgba (middle)), 2.0f);
-                ImGui::Dummy (ImVec2 (side, ImGui::GetTextLineHeight ()));
-                ImGui::SameLine (0.0f, 2.0f);
-                ImGui::TextUnformatted (text.c_str ());
-            }
-            if (blocker.intervals.size () > 2) {
-                ImGui::SameLine (0.0f, 4.0f);
-                ImGui::TextDisabled ("+%zu", blocker.intervals.size () - 2);
-            }
-            ImGui::SetItemTooltip ("%s", when.c_str ());
-            ImGui::TableNextColumn ();
-            ImGui::Text ("%s %d%%", SunStudyClock (blocker.hours, true).c_str (),
-                         int (100.0 * blocker.meanCellShare + 0.5));
-        }
-        ImGui::EndTable ();
-    }
-    if (frame->blockers.size () > kRows)
-        ImGui::TextDisabled ("+%zu more blocking elements", frame->blockers.size () - kRows);
-    // The time legend: the fills and rays use the diagram's time row.
-    const float width = ImGui::GetContentRegionAvail ().x;
-    const ImVec2 at = ImGui::GetCursorScreenPos ();
-    const float barHeight = ImGui::GetTextLineHeight () * 0.5f;
-    ImDrawList* draw = ImGui::GetWindowDrawList ();
-    constexpr int kSlices = 48;
-    for (int i = 0; i < kSlices; ++i) {
-        const float x0 = at.x + width * float (i) / kSlices, x1 = at.x + width * float (i + 1) / kSlices;
-        const double minute = 240.0 + (1200.0 - 240.0) * (double (i) + 0.5) / kSlices;
-        draw->AddRectFilled (ImVec2 (x0, at.y), ImVec2 (x1 + 0.5f, at.y + barHeight),
-                             Opaque (SunStudyTimeOfDayRgba (minute)));
-    }
-    ImGui::Dummy (ImVec2 (width, barHeight));
-    SunStudyNote ("04:00 morning - day - evening 20:00: fill and ray colour = time",
-                  "Each blocked cell's shadow footprint is filled on its blocker in the colour of its step's time of "
-                  "day, with the ray from the cell to where it is blocked. The blocking elements are outlined like a "
-                  "selection, in pink. Elapsed hours count a step once however many cells it blocks; the share is "
-                  "the mean share of the point's cells it blocks on those steps.");
 }
 
 } // namespace geomsrv::archviz

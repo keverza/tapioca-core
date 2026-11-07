@@ -24,6 +24,7 @@ enum class SunObstructionMode {
     Off,
     TimeStep,
     WholeDay,
+    SolarCut, // what of the blockers must go for sun through the slice
 };
 
 struct SunObstructionRequest {
@@ -31,7 +32,19 @@ struct SunObstructionRequest {
     std::vector<size_t> samples; // ordered study-point cells
     SunObstructionMode mode = SunObstructionMode::Off;
     int step = -1;                       // TimeStep only; WholeDay traces every measured step in the slice
-    int fromMinute = 0, toMinute = 1440; // WholeDay: the day diagram's selected slice
+    int fromMinute = 0, toMinute = 1440; // WholeDay: the diagram's slice; SolarCut: the pink cut slice
+    // SolarCut: a lifted point is cut for in the air; otherwise the snapped cell.
+    bool lifted = false;
+    double liftedPoint[3] = {};
+    bool rayOnly = false; // preview the ray voxels alone
+    double voxel = 0.5;   // metres
+};
+
+// One element's share of the solar cut, cubic metres.
+struct SunSolarCutObject {
+    std::string guid;
+    int32_t elemType = 0;
+    double envelope = 0.0, ray = 0.0, total = 0.0;
 };
 
 struct SunObstructionFrame {
@@ -54,6 +67,15 @@ struct SunObstructionFrame {
     int timestepMinutes = 0;
     int year = 0, month = 0, day = 0;
     int footprintDivisions = 0;
+    // SolarCut: the two removals' volumes, the slice's hours at the point, and
+    // the elements cut. `cutFaces` 0 with cut objects means the preview was
+    // past its face cap (the numbers still hold).
+    double envelopeVolume = 0.0, rayVolume = 0.0;
+    double facingHours = 0.0, litHours = 0.0;
+    std::vector<SunSolarCutObject> cutObjects;
+    double voxel = 0.0;
+    size_t cutFaces = 0;
+    bool previewCapped = false;
     std::string error;
 };
 
