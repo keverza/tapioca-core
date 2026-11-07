@@ -47,6 +47,7 @@ use std::collections::BTreeMap;
 
 mod blend;
 mod crease;
+mod mesher;
 mod reach;
 mod refine;
 pub(super) mod supports;
@@ -797,8 +798,8 @@ pub(in crate::terrain) fn build_with(
     let (mesh, graded, refined, toe) = match refine::refined(
         &faces,
         |spots: &[f64], lines: &[Vec<f64>]| rebuild_with(&with_toe, spots, lines),
-        request.spots.to_vec(),
-        supports.lines.clone(),
+        request.spots,
+        &supports.lines,
         bound,
     ) {
         Ok((mesh, graded, refined)) => (
@@ -811,8 +812,8 @@ pub(in crate::terrain) fn build_with(
             let (mesh, graded, refined) = refine::refined(
                 &faces,
                 |spots: &[f64], lines: &[Vec<f64>]| rebuild_with(request.breaklines, spots, lines),
-                request.spots.to_vec(),
-                supports.lines.clone(),
+                request.spots,
+                &supports.lines,
                 bound,
             )?;
             (mesh, graded, refined, 0)

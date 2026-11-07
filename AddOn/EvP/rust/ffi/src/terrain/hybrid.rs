@@ -359,6 +359,11 @@ pub(super) fn encode_build(built: Built, controls: bool) -> Result<Encoded, Fail
                     mappings.push(row(14, at, [kind, a, b, 0, 0, 0]));
                 }
             }
+            RegionVertex::Refined => {
+                // The outline mesher (#149 T3) is not reached through this ABI yet; never
+                // publish a vertex without its ancestry row.
+                return Err(Failure::Argument("TerrainRefinedVertexUnsupported"));
+            }
         }
     }
     for (line, vertices) in mesh.breakline_vertices.iter().enumerate() {

@@ -70,6 +70,9 @@ pub enum RegionVertex {
     },
     /// Where two constraints cross.
     Crossing([Support; 2]),
+    /// A vertex the outline mesher added (#149 T3): inside a triangle, or on a breakline or
+    /// base edge it split (that line's edges list it). No caller input names it.
+    Refined,
 }
 
 /// One output edge carrying a caller breakline segment.
