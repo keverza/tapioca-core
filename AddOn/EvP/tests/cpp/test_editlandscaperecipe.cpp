@@ -7,6 +7,7 @@
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditRegionTerrain.hpp"
+#include "Edit/EditLandscapeSerialization.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
 
@@ -236,4 +237,89 @@ TEST (EditLandscapeRecipe, FootprintConstructionShowsTheDagAndBypassIsNotNoEffec
     EXPECT_TRUE (Mentions ((*bypassed)->notes, "bypassed"));
     EXPECT_TRUE (std::any_of ((*bypassed)->construction.begin (), (*bypassed)->construction.end (),
                               [] (const geo::RecipeNode& n) { return n.bypassed; }));
+}
+
+namespace {
+std::vector<edit::Id> Stack (const edit::Document& doc)
+{
+    std::vector<edit::Id> out;
+    const auto recipe = geo::ProjectLandscapeRecipe (doc, std::nullopt);
+    for (const auto* row : Rows (recipe, geo::RecipeStage::Region))
+        out.push_back (row->object);
+    return out;
+}
+} // namespace
+
+// #105 slice 2: move up/down is the one supported reorder. It changes only the region stage's
+// order, as one document edit, and refuses unsupported moves with the document untouched.
+TEST (EditLandscapeRecipe, MoveUpDownReordersRegionsAndRefusesUnsupportedMoves105)
+{
+    auto doc = Start ();
+    const auto a = Region (doc, 0);
+    const auto b = Region (doc, 5);
+    const auto c = Region (doc, 8);
+    const auto none = Region (doc, 40);
+    for (const auto id : { a, b, c })
+        Configure (doc, id, 2);
+    ASSERT_EQ (Stack (doc), (std::vector<edit::Id> { a, b, c }));
+    std::string error;
+
+    const auto revision = doc.revision;
+    ASSERT_TRUE (geo::MoveRecipeRegion (doc, c, -1, error)) << error;
+    EXPECT_EQ (Stack (doc), (std::vector<edit::Id> { a, c, b }));
+    EXPECT_EQ (doc.revision, revision + 1) << "one document edit";
+    ASSERT_TRUE (geo::MoveRecipeRegion (doc, a, 1, error)) << error;
+    EXPECT_EQ (Stack (doc), (std::vector<edit::Id> { c, a, b }));
+
+    const edit::Document before = doc;
+    const auto refuses = [&] (edit::Id object, int step, const char* reason) {
+        std::string why;
+        EXPECT_FALSE (geo::MoveRecipeRegion (doc, object, step, why));
+        EXPECT_NE (why.find (reason), std::string::npos) << why;
+        EXPECT_EQ (doc.landscape, before.landscape);
+        EXPECT_EQ (doc.revision, before.revision);
+    };
+    refuses (c, -1, "Already the first");
+    refuses (b, 1, "Paths always compose after every region");
+    refuses (none, 1, "no terrain effect");
+    refuses (999999, 1, "no longer exists");
+    refuses (a, 2, "one place");
+
+    // The order survives a save and reload exactly.
+    std::string text;
+    ASSERT_TRUE (geo::WriteLandscape (doc, geo::LandscapeStorage::Virtual, text, error)) << error;
+    edit::Document reloaded;
+    ASSERT_TRUE (geo::ReadLandscape (text, reloaded, error)) << error;
+    EXPECT_EQ (Stack (reloaded), Stack (doc));
+
+    // A region added after a move still stacks on top, as before any move.
+    const auto d = Region (doc, 12);
+    Configure (doc, d, 3);
+    EXPECT_EQ (Stack (doc).back (), d);
+}
+
+TEST (EditLandscapeRecipe, ARegionSharingItsRootCannotMoveButANeighbourMovesPastTheGroup105)
+{
+    auto doc = Start ();
+    const auto a = Region (doc, 0);
+    const auto b = Region (doc, 5);
+    Configure (doc, a, 2);
+    Configure (doc, b, 2);
+    // A second owner of a's footprint root.
+    geo::HardscapeObject twin;
+    twin.name = "Twin";
+    twin.footprintOperation = RootOf (doc, a);
+    twin.surface.emplace ();
+    twin.surface->elevation = geo::RegionElevationMode::Constant;
+    twin.terrain.effect = geo::RegionTerrainEffect::Grade;
+    edit::Id twinId = 0;
+    std::string error;
+    ASSERT_TRUE (geo::AddHardscapeObject (doc, twin, twinId, error)) << error;
+    ASSERT_EQ (Stack (doc), (std::vector<edit::Id> { a, twinId, b }));
+    const edit::Document before = doc;
+    EXPECT_FALSE (geo::MoveRecipeRegion (doc, a, 1, error));
+    EXPECT_NE (error.find ("shares its footprint"), std::string::npos) << error;
+    EXPECT_EQ (doc.landscape, before.landscape);
+    ASSERT_TRUE (geo::MoveRecipeRegion (doc, b, -1, error)) << error;
+    EXPECT_EQ (Stack (doc), (std::vector<edit::Id> { b, a, twinId }));
 }

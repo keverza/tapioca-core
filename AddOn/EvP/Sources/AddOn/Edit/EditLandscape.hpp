@@ -7,6 +7,7 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace geomsrv::edit {
@@ -308,6 +309,10 @@ bool AddLandscapeSource (geomsrv::edit::Document& doc, LandscapeSource source, I
 bool DeleteLandscapeSource (geomsrv::edit::Document& doc, Id id, std::string& error);
 bool AddLandscapeOperation (geomsrv::edit::Document& doc, LandscapeOperation operation, Id& id, std::string& error);
 bool SetLandscapeOperationEnabled (geomsrv::edit::Document& doc, Id id, bool enabled, std::string& error);
+// One document edit setting each listed operation's explicit priority (the terrain stack's first
+// sort key, EditLandscapeFieldPlan.hpp). Unknown ids refuse the whole edit.
+bool SetLandscapeOperationPriorities (geomsrv::edit::Document& doc, const std::vector<std::pair<Id, int>>& priorities,
+                                      std::string& error);
 bool AddHardscapeObject (geomsrv::edit::Document& doc, HardscapeObject object, Id& id, std::string& error);
 // One call is one document mutation; wrap it in Session::Apply for one undo entry.
 bool AddVolumetricDetail (geomsrv::edit::Document& doc, VolumetricDetail detail, Id& id, std::string& error);

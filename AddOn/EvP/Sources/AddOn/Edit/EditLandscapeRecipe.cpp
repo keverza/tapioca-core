@@ -344,4 +344,103 @@ LandscapeRecipe ProjectLandscapeRecipe (const geomsrv::edit::Document& doc,
     return recipe;
 }
 
+namespace {
+FieldPlan RegionPlan (const geomsrv::edit::Document& doc)
+{
+    LandscapeSnapshot snapshot;
+    snapshot.doc = &doc;
+    snapshot.revision = doc.revision;
+    snapshot.session = doc.landscape->sessionUuid;
+    snapshot.sourceTerrainGuid = doc.landscape->sourceTerrainGuid;
+    return CompileLandscapeFieldPlan (snapshot); // Region order does not depend on the path request.
+}
+std::vector<Id> StackObjects (const FieldPlan& plan)
+{
+    std::vector<Id> objects;
+    for (const auto& entry : plan.entries)
+        objects.push_back (entry.object);
+    return objects;
+}
+} // namespace
+
+bool MoveRecipeRegion (geomsrv::edit::Document& doc, Id object, int step, std::string& error)
+{
+    error.clear ();
+    if (!doc.landscape || (step != -1 && step != 1)) {
+        error = "Move a region one place up or down.";
+        return false;
+    }
+    const auto& session = *doc.landscape;
+    const auto owner = std::find_if (session.objects.begin (), session.objects.end (),
+                                     [=] (const HardscapeObject& o) { return o.id == object; });
+    if (owner == session.objects.end ()) {
+        error = "That region no longer exists.";
+        return false;
+    }
+    if (owner->pathId) {
+        error = "Paths always compose after every region; a path cannot be moved among them.";
+        return false;
+    }
+    const FieldPlan plan = RegionPlan (doc);
+    if (!plan.ok) {
+        error = "The terrain recipe cannot be compiled: " + plan.error;
+        return false;
+    }
+    // Stack units: consecutive entries sharing one root sort together (same priority and
+    // topological position), so the root, not the object, is what can move.
+    std::vector<Id> roots;
+    std::map<Id, size_t> members;
+    for (const auto& entry : plan.entries) {
+        if (roots.empty () || roots.back () != entry.rootOperation)
+            roots.push_back (entry.rootOperation);
+        ++members[entry.rootOperation];
+    }
+    const auto entry = std::find_if (plan.entries.begin (), plan.entries.end (),
+                                     [=] (const FieldPlanEntry& e) { return e.object == object; });
+    if (entry == plan.entries.end ()) {
+        error = owner->terrain.effect == RegionTerrainEffect::None
+                    ? "This region has no terrain effect, so it is not in the stack. Set an effect first."
+                    : "This region is not in the terrain stack (its footprint has no live root).";
+        return false;
+    }
+    if (members[entry->rootOperation] > 1) {
+        error = "This region shares its footprint with another region; their order follows object id and "
+                "cannot be changed.";
+        return false;
+    }
+    const size_t at = size_t (std::find (roots.begin (), roots.end (), entry->rootOperation) - roots.begin ());
+    if (step < 0 && at == 0) {
+        error = "Already the first region in the stack.";
+        return false;
+    }
+    if (step > 0 && at + 1 == roots.size ()) {
+        error = "Already the last region. Paths always compose after every region.";
+        return false;
+    }
+    std::vector<Id> expected;
+    {
+        auto moved = roots;
+        std::swap (moved[at], moved[at + step]);
+        roots = std::move (moved);
+        std::map<Id, std::vector<Id>> byRoot;
+        for (const auto& e : plan.entries)
+            byRoot[e.rootOperation].push_back (e.object);
+        for (Id root : roots)
+            expected.insert (expected.end (), byRoot[root].begin (), byRoot[root].end ());
+    }
+    std::vector<std::pair<Id, int>> priorities;
+    for (size_t i = 0; i < roots.size (); ++i)
+        priorities.emplace_back (roots[i], int (i) - int (roots.size () - 1));
+    geomsrv::edit::Document candidate = doc;
+    if (!SetLandscapeOperationPriorities (candidate, priorities, error))
+        return false;
+    const FieldPlan after = RegionPlan (candidate);
+    if (!after.ok || StackObjects (after) != expected) {
+        error = "The stack order could not be changed.";
+        return false;
+    }
+    doc = std::move (candidate);
+    return true;
+}
+
 } // namespace tapioca::geometry

@@ -71,6 +71,16 @@ struct LandscapeRecipe {
 LandscapeRecipe ProjectLandscapeRecipe (const geomsrv::edit::Document& doc,
                                         const std::optional<PathDesignRequest>& path);
 
+// #105 slice 2: the one supported recipe reorder. Moves a region one place earlier (step -1,
+// toward order 1, composed under) or later (+1, composed over) in the compiled terrain stack by
+// renumbering the stack roots' explicit priorities to the new order (the top root gets 0, so a
+// newly added region still stacks above by topological position). One document edit.
+// Refuses, with a user-facing reason and the document untouched: a region not in the stack
+// (no terrain effect, or no live root), a path (paths always compose after every region), a
+// region already at that end, and a region whose footprint root another region shares (their
+// relative order is fixed by object id).
+bool MoveRecipeRegion (geomsrv::edit::Document& doc, Id object, int step, std::string& error);
+
 const char* RecipeEffectName (RegionTerrainEffect effect);
 const char* RecipeOperationName (OperationKind kind);
 

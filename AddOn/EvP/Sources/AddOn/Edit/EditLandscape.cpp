@@ -752,6 +752,26 @@ bool SetLandscapeOperationEnabled (edit::Document& doc, Id id, bool enabled, std
         error);
 }
 
+bool SetLandscapeOperationPriorities (edit::Document& doc, const std::vector<std::pair<Id, int>>& priorities,
+                                      std::string& error)
+{
+    return Mutate (
+        doc,
+        [&] (edit::Document& d, std::string& e) {
+            for (const auto& [id, priority] : priorities) {
+                const auto op = std::find_if (d.landscape->operations.begin (), d.landscape->operations.end (),
+                                              [id = id] (const auto& o) { return o.id == id; });
+                if (op == d.landscape->operations.end ()) {
+                    e = "operation does not exist";
+                    return false;
+                }
+                op->priority = priority;
+            }
+            return true;
+        },
+        error);
+}
+
 bool AddHardscapeObject (edit::Document& doc, HardscapeObject object, Id& id, std::string& error)
 {
     Id allocated = 0;

@@ -1,8 +1,9 @@
-// The Operations tab's terrain recipe (#105 slice 1, #157 G2): read-only. It shows what the
+// The Operations tab's terrain recipe (#105 slices 1-2, #157 G2/G3). It shows what the
 // terrain build will actually do -- route, effective order, targets, footprint construction,
 // constraints, owners left out and their reasons, limitations -- from the one compiled plan
-// (Edit/EditLandscapeRecipe.hpp). It edits nothing: a row click only selects the row's source
-// in the view. OVERLAY-INVARIANTS.md §8: its cache lives on the editor Session.
+// (Edit/EditLandscapeRecipe.hpp). A row click only selects the row's source in the view; the
+// row's own controls (slice 2) are the supported edits, each one undo step.
+// OVERLAY-INVARIANTS.md §8: its cache lives on the editor Session.
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorRecipe.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
@@ -32,6 +33,78 @@ edit::Id RowEntity (const Session& s, const lg::RecipeRow& row)
     return edit::kNoId;
 }
 
+// #105 slice 2: the recipe's supported edits, each one undo step. Order moves only regions within
+// the region stage; "Footprint on" bypasses the root step; Effect is the terrain participation.
+// A refused edit changes nothing and says why.
+void Controls (Session& s, const lg::RecipeRow& row)
+{
+    const auto& doc = s.edits.Doc ();
+    if (!doc.landscape || !row.object)
+        return;
+    const auto object = std::find_if (doc.landscape->objects.begin (), doc.landscape->objects.end (),
+                                      [&] (const lg::HardscapeObject& o) { return o.id == row.object; });
+    if (object == doc.landscape->objects.end () || object->pathId)
+        return;
+    const edit::Id id = object->id;
+    const auto terrain = object->terrain;
+    const edit::Id rootId = object->footprintOperation;
+    const auto root = std::find_if (doc.landscape->operations.begin (), doc.landscape->operations.end (),
+                                    [&] (const lg::LandscapeOperation& o) { return o.id == rootId; });
+    const auto apply = [&] (auto&& edit) {
+        if (!s.edits.Apply (edit))
+            s.message = s.edits.Message ();
+    };
+    if (row.stage == lg::RecipeStage::Region) {
+        const auto move = [&] (int step) {
+            apply ([id, step] (edit::Document& d, std::string& error) {
+                return lg::MoveRecipeRegion (d, id, step, error);
+            });
+        };
+        if (ImGui::ArrowButton ("##up", ImGuiDir_Up))
+            move (-1);
+        if (ImGui::IsItemHovered ())
+            ImGui::SetTooltip ("Move up: compose earlier, under the rows below it.");
+        ImGui::SameLine ();
+        if (ImGui::ArrowButton ("##down", ImGuiDir_Down))
+            move (1);
+        if (ImGui::IsItemHovered ())
+            ImGui::SetTooltip ("Move down: compose later, over the rows above it. Paths always stay after regions.");
+        ImGui::SameLine ();
+    }
+    // A plain region's root selects its one boundary: bypassing it would pass the same shape through,
+    // so the switch is offered only where it changes the footprint.
+    if (root != doc.landscape->operations.end () &&
+        !(root->kind == lg::OperationKind::RegionSelect && root->faces.empty () && root->inputs.size () == 1)) {
+        bool on = root->enabled;
+        if (ImGui::Checkbox ("Footprint on", &on))
+            apply ([rootId, on] (edit::Document& d, std::string& error) {
+                return lg::SetLandscapeOperationEnabled (d, rootId, on, error);
+            });
+        if (ImGui::IsItemHovered ())
+            ImGui::SetTooltip ("Off bypasses the footprint's last step (its first input passes through). "
+                               "The terrain effect is a separate setting.");
+        ImGui::SameLine ();
+    }
+    constexpr lg::RegionTerrainEffect effects[] = { lg::RegionTerrainEffect::None, lg::RegionTerrainEffect::Grade,
+                                                    lg::RegionTerrainEffect::Add, lg::RegionTerrainEffect::Subtract };
+    ImGui::SetNextItemWidth (130.0f);
+    if (ImGui::BeginCombo ("Effect", lg::RecipeEffectName (terrain.effect))) {
+        for (const auto effect : effects)
+            if (ImGui::Selectable (lg::RecipeEffectName (effect), effect == terrain.effect) &&
+                effect != terrain.effect) {
+                auto changed = terrain;
+                changed.effect = effect;
+                apply ([id, changed] (edit::Document& d, std::string& error) {
+                    return lg::SetRegionTerrain (d, id, changed, error);
+                });
+            }
+        ImGui::EndCombo ();
+    }
+    if (ImGui::IsItemHovered ())
+        ImGui::SetTooltip ("None leaves the terrain recipe; the footprint stays. Grade, Raise only and Lower only "
+                           "need a target other than Existing.");
+}
+
 void Row (Session& s, const lg::RecipeRow& row)
 {
     ImGui::PushID (row.object ? int (row.object) : int (row.operation ? row.operation : row.source));
@@ -49,6 +122,7 @@ void Row (Session& s, const lg::RecipeRow& row)
     if (!row.effect.empty ())
         ImGui::Text ("Effect: %s%s%s", row.effect.c_str (),
                      row.target.empty () ? "" : "   Target: ", row.target.c_str ());
+    Controls (s, row);
     if (row.stage == lg::RecipeStage::Region && row.priority != 0)
         ImGui::Text ("Priority %d", row.priority);
     for (const auto& note : row.notes) {
@@ -95,7 +169,11 @@ const lg::LandscapeRecipe& CurrentRecipe (Session& s)
 
 void RecipePanel (Session& s)
 {
-    const auto& recipe = CurrentRecipe (s);
+    CurrentRecipe (s);
+    // Held for the whole frame: a row's edit publishes a revision, and the next CurrentRecipe call
+    // replaces the cache this loop is still reading.
+    const auto keep = s.recipe;
+    const auto& recipe = *keep;
     ImGui::TextWrapped ("%s", recipe.routeText.c_str ());
     if (!recipe.ok) {
         ImGui::PushStyleColor (ImGuiCol_Text, kLimit);

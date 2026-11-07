@@ -4,6 +4,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorRecipe.hpp"
 #include "Edit/EditLandscape.hpp"
+#include "Edit/EditLandscapeSerialization.hpp"
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -117,4 +118,47 @@ TEST (HudVirtualEditorRecipe, DrawsReadOnlyCachesPerRevisionAndARowSelectsItsLin
     d.Frame ();
     EXPECT_NE (d.session.recipe.get (), compiled);
     EXPECT_EQ (d.session.recipe->revision, d.session.edits.Doc ().revision);
+}
+
+// #105 slice 2: the row's arrows move a region in the stack as one undo step; a refused move
+// (the first row up) says why and records nothing; undo and reload restore the exact order.
+TEST (HudVirtualEditorRecipe, RowArrowsMoveARegionAsOneUndoAndRefuseWithAReason105)
+{
+    ed::Document doc;
+    std::string error;
+    ASSERT_TRUE (geo::StartLandscape (doc, { 1, 2, 3, 4 }, error)) << error;
+    ed::Id lineA = 0, lineB = 0;
+    const auto a = Region (doc, 0, lineA);
+    const auto b = Region (doc, 5, lineB);
+    RecipeDrive d (std::move (doc));
+    const auto order = [&] {
+        std::vector<ed::Id> out;
+        for (const auto& row : eh::CurrentRecipe (d.session).rows)
+            if (row.stage == geo::RecipeStage::Region)
+                out.push_back (row.object);
+        return out;
+    };
+    ASSERT_EQ (order (), (std::vector<ed::Id> { a, b }));
+    // Press each control in reading order until one publishes an edit: the first row's up arrow
+    // (refused), then its down arrow. Below the title bar, whose collapse arrow would fold the panel.
+    bool moved = false;
+    for (float y = 30; y < 770 && !moved; y += 4)
+        for (float x = 12; x < 120 && !moved; x += 6) {
+            d.Frame ({ x, y });
+            if (d.context->HoveredId == 0)
+                continue;
+            d.Frame ({ x, y }, true);
+            d.Frame ({ x, y }, false);
+            moved = d.session.edits.UndoDepth () > 0;
+        }
+    ASSERT_TRUE (moved) << d.session.message;
+    EXPECT_NE (d.session.message.find ("Already the first"), std::string::npos) << d.session.message;
+    EXPECT_EQ (d.session.edits.UndoDepth (), 1u);
+    EXPECT_EQ (order (), (std::vector<ed::Id> { b, a }));
+    std::string text;
+    ASSERT_TRUE (geo::WriteLandscape (d.session.edits.Doc (), geo::LandscapeStorage::Virtual, text, error));
+    ASSERT_TRUE (d.session.edits.Undo ());
+    EXPECT_EQ (order (), (std::vector<ed::Id> { a, b }));
+    ASSERT_TRUE (eh::ReloadLandscape (d.session, text)) << d.session.message;
+    EXPECT_EQ (order (), (std::vector<ed::Id> { b, a }));
 }
