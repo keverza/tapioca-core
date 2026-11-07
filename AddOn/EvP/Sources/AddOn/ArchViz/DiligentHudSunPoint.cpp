@@ -4,9 +4,9 @@
 // those cells: for a period through the period view (DiligentHudSunPeriod),
 // for a single day here -- which steps of the day it was lit.
 //
-// ⚠️ A PLACED POINT, NOT THE HOVERED ONE: diagrams that followed the cursor
-// changed under it on the way to the panel, and the re-traced profile was
-// thrown away and restarted on every move.
+// A placed point pins the diagram. Without one, the exact measured hover sample
+// is previewed and latched while the pointer crosses into the panel; no new
+// trace is launched. Both paths reuse the cached stored day.
 //
 // RENDER THREAD. Store reads are the inspector's kind: short, under the
 // store's lock, refused while a study advances.
@@ -25,6 +25,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <utility>
 
 namespace geomsrv::archviz {
 
@@ -160,10 +161,12 @@ bool DrawSunStudyPointHeader (HudState& state, const std::string& studyId)
 {
     // One fixed row either way, so the diagrams below never move.
     if (!RefreshSunStudyPointSamples (state, studyId)) {
-        SunStudyNote ("No study point: right-click a measured surface, Place study point",
-                      "The diagrams describe one placed point -- or the mean of the cells within its radius -- so "
-                      "they stay put while the cursor moves. Right-click a measured surface in the view and choose "
-                      "Place study point; the radius is in the same menu and here.");
+        const bool hover =
+            !state.sunPointPlaced && state.sunHoverDayStudy == studyId && state.sunHoverDaySample != SIZE_MAX;
+        SunStudyNote (hover ? "Hover: one cell; right-click to place and pin a study point"
+                            : "Hover a measured surface, or right-click to place a study point",
+                      "Hover previews that exact measured cell and remains available when the pointer enters this "
+                      "panel. A placed point pins the diagram and can average the cells within its radius.");
         return false;
     }
     const float spacing = ImGui::GetStyle ().ItemSpacing.x;
@@ -234,13 +237,13 @@ size_t NearestClockStep (const evp::sunstudy::PointDay& day, size_t steps, doubl
 } // namespace
 
 void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, const char* id, int highlightedStep,
-                           const char* emptyNote, SunStudyClockSelection* selection)
+                           const char* emptyNote, SunStudyClockSelection* selection, float sizeCap)
 {
     // One measured step is one radial bar. Within it, radius shows the share
     // of the point's cells: lit inside, obstruction next, back-facing outside.
     // Angle remains clock time, never a re-spacing of only the daylight steps.
     const float width = ImGui::GetContentRegionAvail ().x;
-    const float size = (std::min) (220.0f, width);
+    const float size = (std::min) (sizeCap, width);
     if (size <= 0.0f)
         return;
     const ImVec2 start = ImGui::GetCursorScreenPos ();
@@ -312,6 +315,10 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
         if (selection->step >= 0)
             highlightedStep = selection->step;
     }
+    // Hover is an immediate preview of the exact slice; release still commits
+    // the click/drag so a brush cannot be mistaken for a single-step click.
+    if (hovered && inRing && steps > 0)
+        highlightedStep = int (NearestClockStep (*day, steps, SunStudyClockMinute (pointer.x, pointer.y)));
     const auto colour = [] (uint32_t rgba) {
         return IM_COL32 ((rgba >> 24) & 255, (rgba >> 16) & 255, (rgba >> 8) & 255, 255);
     };
@@ -406,54 +413,88 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
                       "the centre remains the mean.");
 }
 
-void DrawSunStudyPointDay (HudState& state, const std::string& studyId)
+void ApplySunStudyDaySelection (HudState& state, const SunStudyClockSelection& selection)
 {
-    if (!ImGui::CollapsingHeader ("Study point", ImGuiTreeNodeFlags_DefaultOpen))
-        return;
-    const bool placed = DrawSunStudyPointHeader (state, studyId);
-    evp::sunstudy::PointDay day;
-    std::string error;
-    const bool read =
-        placed && evp::sunstudy::SunStudyStore::Get ().PointDayOf (studyId, state.sunPointSamples, day, error);
-    const char* why = !placed ? "" : !read ? "computing..." : "no sun in this day's slice";
-    const int current = state.sunStep >= 0 && size_t (state.sunStep) < day.minutes.size () ? state.sunStep : -1;
-    SunStudyClockSelection selection;
-    DrawSunStudyDayClock (state, read ? &day : nullptr, "##sunpointday", current, why, &selection);
     if (selection.step >= 0) {
-        state.sunView = 2; // Shadows / Single
         state.sunPlaying = false;
         state.sunStep = selection.step;
         state.sunTimeFrom = 0.0f;
         state.sunTimeTo = 24.0f;
     }
     else if (selection.slice) {
-        state.sunView = 3; // Shadows / Time fan, restricted by the shared shadow-hours range
-        state.sunFanInterval = 0;
         state.sunPlaying = false;
         state.sunTimeFrom = float (selection.fromMinute / 60.0);
         state.sunTimeTo = float (selection.toMinute / 60.0);
     }
+}
 
-    ImGui::SeparatorText ("Obstruction");
-    ImGui::RadioButton ("Off##sunobstruction", &state.sunObstructionMode, 0);
-    ImGui::SameLine ();
+void DrawSunStudyPointDay (HudState& state, const std::string& studyId, uint64_t resultVersion)
+{
+    if (state.sunReadingState == 1 && state.sunReadingSample != SIZE_MAX && state.sunReadingStudy == studyId) {
+        state.sunHoverDayStudy = studyId;
+        state.sunHoverDaySample = state.sunReadingSample;
+    }
+    if (!ImGui::CollapsingHeader ("Study point", ImGuiTreeNodeFlags_DefaultOpen))
+        return;
+    const bool pointReady = DrawSunStudyPointHeader (state, studyId);
+    const bool pinned = state.sunPointPlaced;
+    std::vector<size_t> hoverSample;
+    const std::vector<size_t>* samples = nullptr;
+    if (pinned) {
+        if (pointReady)
+            samples = &state.sunPointSamples;
+    }
+    else if (state.sunHoverDayStudy == studyId && state.sunHoverDaySample != SIZE_MAX) {
+        hoverSample = { state.sunHoverDaySample };
+        samples = &hoverSample;
+    }
+
+    bool read = false;
+    if (samples != nullptr) {
+        if (state.sunPointDayStudy != studyId || state.sunPointDayVersion != resultVersion ||
+            state.sunPointDaySamples != *samples) {
+            evp::sunstudy::PointDay fresh;
+            std::string error;
+            ++state.sunPointDayReads;
+            state.sunPointDayReady = evp::sunstudy::SunStudyStore::Get ().PointDayOf (studyId, *samples, fresh, error);
+            state.sunPointDay = std::move (fresh);
+            if (state.sunPointDayReady) {
+                state.sunPointDayStudy = studyId;
+                state.sunPointDayVersion = resultVersion;
+                state.sunPointDaySamples = *samples;
+            }
+            else
+                state.sunPointDayStudy.clear (); // "computing" is transient: retry the same selection next frame
+        }
+        read = state.sunPointDayReady;
+    }
+    const evp::sunstudy::PointDay* day = read ? &state.sunPointDay : nullptr;
+    const size_t steps = day != nullptr ? day->minutes.size () : 0;
+    const char* why = samples == nullptr ? "hover a measured cell"
+                      : !read            ? "computing..."
+                                         : "no sun in this day's slice";
+    const int current = state.sunStep >= 0 && size_t (state.sunStep) < steps ? state.sunStep : -1;
+    SunStudyClockSelection selection;
+    DrawSunStudyDayClock (state, day, "##sunpointday", current, why, &selection, 352.0f);
+    ApplySunStudyDaySelection (state, selection); // selection never changes the current view tab
+}
+
+void DrawSunStudyObstructionControls (HudState& state, const std::string& studyId)
+{
     ImGui::RadioButton ("Time step##sunobstruction", &state.sunObstructionMode, 1);
     ImGui::SameLine ();
     ImGui::RadioButton ("Whole day##sunobstruction", &state.sunObstructionMode, 2);
     ImGui::SetItemTooltip (
         "Time step: exact nearest blockers at the clock's selected step, filled pink. Whole day: "
         "every measured step, with exact parts coloured by shadow time. Both wire the whole object.");
-    if (!placed) {
+    if (!state.sunPointPlaced) {
         SunStudyNote ("Place a study point to attribute its obstructions.");
         return;
     }
-    if (state.sunObstructionMode == 0)
-        return;
     auto& tasks = SunObstructionTasks ();
     const auto frame = tasks.Latest ();
-    if (frame == nullptr || frame->studyId != studyId) {
+    if (frame == nullptr || frame->studyId != studyId)
         SunStudyNote (tasks.Busy () ? "Finding exact obstructing parts..." : "Waiting for the current study...");
-    }
     else if (!frame->error.empty ())
         hudshell::ErrorNotice ("Obstruction not shown: " + frame->error);
     else if (!SunObstructionFrameCurrent (frame, studyId))

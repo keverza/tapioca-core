@@ -221,9 +221,9 @@ bool ShowPeriodView (const PeriodView& view, std::string& error);
 std::shared_ptr<const std::vector<KeptDay>> KeptPeriodDays ();
 // A study point's period: the mean of its samples' stored totals.
 bool ReadPeriodPoints (const std::vector<size_t>& samples, PeriodPoint& mean);
-// Asks for the samples' profile; LatestPeriodProfile returns it once ready.
+// Asks for the samples' profile; LatestPeriodProfile shares its immutable publication.
 void RequestPeriodProfile (const std::vector<size_t>& samples);
-PeriodProfile LatestPeriodProfile ();
+std::shared_ptr<const PeriodProfile> LatestPeriodProfile ();
 // Release the retained totals, carrier, profile and optional playback archive.
 // The renderer keeps its last frame; period browsing needs another run.
 // Refuses while a manual run or the period worker is active; repeated calls are safe.

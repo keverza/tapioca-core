@@ -42,6 +42,11 @@ struct SunObstructionController::Impl {
 
     void Clear ()
     {
+        {
+            std::lock_guard<std::mutex> lock (mutex);
+            if (!current && !pending && !latest && !worker.Busy ())
+                return; // the viewport calls Off every frame; an empty clear is free
+        }
         worker.Cancel ();
         std::lock_guard<std::mutex> lock (mutex);
         current.reset ();

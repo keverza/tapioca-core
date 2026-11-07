@@ -53,7 +53,7 @@ std::shared_ptr<RetainedPeriod> gRetained;
 PeriodInfo gPeriodInfo;
 std::optional<PeriodView> gWantView;
 std::optional<std::vector<size_t>> gWantProfile;
-PeriodProfile gProfile;
+std::shared_ptr<PeriodProfile> gProfile = std::make_shared<PeriodProfile> ();
 std::thread gPeriodWorker;
 bool gPeriodWorkerRunning = false;
 
@@ -63,7 +63,7 @@ void ReleaseLocked ()
     gPeriodInfo = PeriodInfo ();
     gWantView.reset ();
     gWantProfile.reset ();
-    gProfile = PeriodProfile ();
+    gProfile = std::make_shared<PeriodProfile> ();
 }
 
 #if defined(TAPIOCA_GEOMETRY_RUST)
@@ -286,8 +286,8 @@ void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& 
         std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
     result.ready = true;
     std::lock_guard<std::mutex> lock (gPeriodMutex);
-    if (gProfile.samples == samples)
-        gProfile = std::move (result);
+    if (gProfile->samples == samples)
+        gProfile = std::make_shared<PeriodProfile> (std::move (result));
 }
 
 // Latest wins for both: a view the user has already moved past is skipped.
@@ -483,18 +483,18 @@ bool ReadPeriodPoints (const std::vector<size_t>& samples, PeriodPoint& mean)
 void RequestPeriodProfile (const std::vector<size_t>& samples)
 {
     std::lock_guard<std::mutex> lock (gPeriodMutex);
-    if (gRetained == nullptr || gProfile.samples == samples)
+    if (gRetained == nullptr || gProfile->samples == samples)
         return; // ready, or already asked for
-    gProfile = PeriodProfile ();
-    gProfile.samples = samples;
+    gProfile = std::make_shared<PeriodProfile> ();
+    gProfile->samples = samples;
     gWantProfile = samples;
     WakePeriodWorkerLocked ();
 }
 
-PeriodProfile LatestPeriodProfile ()
+std::shared_ptr<const PeriodProfile> LatestPeriodProfile ()
 {
     std::lock_guard<std::mutex> lock (gPeriodMutex);
-    return gProfile;
+    return gProfile; // no per-frame deep copy of every traced day and step
 }
 
 } // namespace geomsrv::sunstudyhud

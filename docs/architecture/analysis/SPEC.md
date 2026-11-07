@@ -80,11 +80,16 @@ renderer keeps its published frame and GPU textures, while period browsing, play
 become unavailable until another run. Repeated clears are idempotent, and cancellation or display
 failure after retention uses the same cleanup.
 
-The single-day and point-playback clocks are interactive: clicking a radial bar selects that measured
-step; dragging clockwise selects a half-open time slice. A single-day brush drives the single-shadow
-view or time fan, while a period-point brush filters only the independent point player. The shared
-shadow-hours range is non-wrapping, so a drag that reaches the top from the left is explicitly
-constrained at 24:00 rather than silently wrapping into a second interval. For a multi-cell study point,
+The single-day and point-playback clocks are interactive: hovering outlines a radial bar, clicking selects
+that measured step, and dragging clockwise selects a half-open time slice. A single-day gesture updates the
+step/range **without changing the current Sunstudy/Shadows/Obstruction/Roles view**; a period-point brush filters
+only the independent point player. The main single-day clock has a 352 px cap (1.6× the original 220 px), while
+period and seasonal clocks retain their compact size. With no placed point, the exact measured hover cell supplies
+the single-day clock and remains latched while the pointer enters the panel; a placed point pins its cell sphere
+and takes precedence. The day is cached by displayed-result version and ordered samples, with transient read
+failures retried rather than negatively cached. The shared shadow-hours range is non-wrapping, so a drag that
+reaches the top from the left is explicitly constrained at 24:00 rather than silently wrapping into a second
+interval. For a multi-cell study point,
 the centre remains mean direct hours and the summary reports the exact per-cell minimum–maximum total.
 Single-day ranges come from each cell's measured steps; period playback computes the range from each cell's
 re-traced daily total before averaging. Back-facing time contributes no direct hours, and averaged step shares
@@ -96,8 +101,8 @@ Preview retains its representative-day weights and is labelled an estimate. Each
 days that measured that sun time. Weights do not create extra frames, and seasonal aggregates make no per-day cell-range
 claim. They use no whole-map archive and have no independent brush/selection state.
 
-A single-day study point also offers **exact obstruction attribution**, off by default. **Time step**
-re-traces the selected cells at the clock's selected measured step; **Whole day** re-traces every measured
+A single-day placed study point also offers **exact obstruction attribution** through the dedicated
+**Obstruction** view beside Sunstudy/Shadows/Roles. **Time step** re-traces the selected cells at the clock's selected measured step; **Whole day** re-traces every measured
 step. Face culling happens before the ray query. Analysis and context `QueryEngine`s are queried separately
 and the nearer hit wins; the result identifies the source object and mesh-local triangle rather than merely
 tinting a whole object. Custom ray bounds are refused until their numeric values are retained. Requests are

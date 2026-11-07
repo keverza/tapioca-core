@@ -34,6 +34,7 @@
 #include "ArchViz/DiligentScene.hpp" // ElementInfo, for the hover callout
 #include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/TraceAnnotationLayer.hpp"
+#include "SunStudy/SunStudyPointProfile.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -57,6 +58,9 @@ struct SunStudyAtlasUpload;
 // one of these and reads it back after Draw.
 // A timeline's playback (DrawSunStudyTimeline): one step every base interval
 // divided by `speed`, wrapping when `loop`.
+// Inner Sunstudy view index: single-shadow tint plus exact obstruction parts.
+constexpr int kSunObstructionView = 5;
+
 struct HudTimeline {
     bool playing = false;
     float speed = 1.0f;
@@ -203,6 +207,7 @@ struct HudState {
     double sunReadingHours = 0.0;
     double sunReadingDaylight = 0.0;
     size_t sunReadingSample = SIZE_MAX; // the sample the reading came from
+    std::string sunReadingStudy;        // provenance: do not relabel it under a newly shown study
     // The shown study is a period (#152): its hours are a mean a day over
     // sunPeriodDays represented days, and the shadow views scrub one traced day.
     // The run panel publishes the runner's finished period (sunPeriodStudyId,
@@ -245,6 +250,18 @@ struct HudState {
     float sunPointRadius = 0.0f;   // metres; 0 the one snapped cell
     std::vector<size_t> sunPointSamples;
     std::string sunPointSamplesFor; // "<study>|<radius>" they were found for
+    // Without a placed point, the last measured hover remains available while
+    // the pointer crosses into the panel to use its clock.
+    std::string sunHoverDayStudy;
+    size_t sunHoverDaySample = SIZE_MAX;
+    // The radial day is immutable for one displayed result + ordered cell set.
+    // Cache it instead of re-reading every cell through FFI on every frame.
+    std::string sunPointDayStudy;
+    std::vector<size_t> sunPointDaySamples;
+    uint64_t sunPointDayVersion = 0;
+    evp::sunstudy::PointDay sunPointDay;
+    bool sunPointDayReady = false;
+    uint64_t sunPointDayReads = 0; // observable proof that a still clock does no retrace/read
     // Single-day exact obstruction: 0 off, 1 selected time step (pink),
     // 2 whole day (timed parts coloured by their shadow hour).
     int sunObstructionMode = 0;
@@ -848,7 +865,8 @@ void DrawSunStudyPointMenu (HudState& state);
 void DrawSunStudyPointOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 bool RefreshSunStudyPointSamples (HudState& state, const std::string& studyId);
 bool DrawSunStudyPointHeader (HudState& state, const std::string& studyId);
-void DrawSunStudyPointDay (HudState& state, const std::string& studyId);
+void DrawSunStudyPointDay (HudState& state, const std::string& studyId, uint64_t resultVersion);
+void DrawSunStudyObstructionControls (HudState& state, const std::string& studyId);
 // The sun path over the model (DiligentHudSunPath.cpp), when sunPathShown.
 void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);

@@ -15,5 +15,9 @@ def test_inspector_queries_only_the_gpu_picked_mesh_without_building_a_bvh():
     assert "picked == lastPicked" in inspector
     assert "snapshot->id == lastSnapshot" in inspector
     assert "state.sunInspect == 0 || !state.hover.valid" in inspector
+    assert "resultVersion == lastResultVersion" in inspector
+    assert "milliseconds (250)" not in inspector
+    assert "lastStudy.clear ()" in inspector
+    assert "state.sunReadingStudy = reading.measured ? id" in inspector
     # The shadow views' hover reads the same sample's lit steps (#116).
     assert "&state.sunReadingLit" in inspector

@@ -886,17 +886,17 @@ void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int q
         return;
     }
     const sunstudyhud::PeriodProfile* shown = nullptr;
-    sunstudyhud::PeriodProfile profile;
+    std::shared_ptr<const sunstudyhud::PeriodProfile> profile;
     const char* note = "no study point";
     if (read) {
         sunstudyhud::RequestPeriodProfile (state.sunPointSamples);
         profile = sunstudyhud::LatestPeriodProfile ();
-        if (profile.samples != state.sunPointSamples || !profile.ready)
+        if (profile == nullptr || profile->samples != state.sunPointSamples || !profile->ready)
             note = "tracing...";
-        else if (!profile.error.empty ())
+        else if (!profile->error.empty ())
             note = "not traced (hover)";
         else {
-            shown = &profile;
+            shown = profile.get ();
             note = nullptr;
         }
     }
@@ -905,8 +905,8 @@ void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int q
     if (shown != nullptr && state.sunPointPlayDay >= 0 && size_t (state.sunPointPlayDay) < shown->dayMonth.size ())
         pointMonth = shown->dayMonth[size_t (state.sunPointPlayDay)];
     ProfileGrid (quantity == 4 ? 0 : quantity, shown, note, pointMonth, ramp);
-    if (!profile.error.empty () && ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("%s", profile.error.c_str ());
+    if (profile != nullptr && !profile->error.empty () && ImGui::IsItemHovered ())
+        ImGui::SetTooltip ("%s", profile->error.c_str ());
     const int shownDay = shown != nullptr ? state.sunPointPlayDay : -1;
     DayStrip (quantity == 4 ? 0 : quantity, shown, shownDay, ramp);
     if (shown != nullptr) {

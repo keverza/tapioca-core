@@ -1,29 +1,30 @@
 // Native inspector service, separated from the shared sun-study presentation.
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/SunStudyOverlay.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include <algorithm>
-#include <chrono>
 
 namespace geomsrv::archviz {
 void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
                                const float direction[3])
 {
-    // THROTTLED TO THE CURSOR. A still cursor over a converged study asks the
-    // same question every frame; the ray is compared, and re-asked at most four
-    // times a second otherwise, so a study still converging updates under a
-    // cursor that is not moving.
+    // Re-ask only when the ray, picked object, snapshot or DISPLAYED RESULT
+    // changes. A stationary cursor over a converged study used to raycast again
+    // every 250 ms forever; a converging study still updates when its new atlas
+    // version arrives, without polling the CPU between publications.
     static float lastRay[6] = { 0, 0, 0, 0, 0, 0 };
     static std::string lastStudy;
     static std::string lastPicked;
     static uint64_t lastSnapshot = 0;
-    static std::chrono::steady_clock::time_point lastAsked;
+    static uint64_t lastResultVersion = 0;
     if (state.sunInspect == 0 || !state.hover.valid) {
         state.sunReadingState = 0;
         state.sunReadingPointValid = false;
+        lastStudy.clear (); // re-enabling/re-entering the identical ray must restore the reading
         return;
     }
     const std::string id = scene.ShownSunStudyId ();
@@ -32,19 +33,21 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     if (id.empty () || snapshot == nullptr ||
         !analysistabs::ShowsTint (state.analysisFocus, id, scene.ShownAnalysisKind ())) {
         state.sunReadingState = 0;
+        lastStudy.clear ();
         return;
     }
     const std::string picked = evp::sunstudy::CanonicalGuid (state.hover.guid);
-    const auto now = std::chrono::steady_clock::now ();
+    const auto payload = scene.ShownAnalysisPayload ();
+    const uint64_t resultVersion = payload != nullptr ? payload->version : 0;
     const float ray[6] = { origin[0], origin[1], origin[2], direction[0], direction[1], direction[2] };
-    if (id == lastStudy && picked == lastPicked && snapshot->id == lastSnapshot && std::equal (ray, ray + 6, lastRay) &&
-        now - lastAsked < std::chrono::milliseconds (250))
+    if (id == lastStudy && picked == lastPicked && snapshot->id == lastSnapshot && resultVersion == lastResultVersion &&
+        std::equal (ray, ray + 6, lastRay))
         return;
     std::copy (ray, ray + 6, lastRay);
     lastStudy = id;
     lastPicked = picked;
     lastSnapshot = snapshot->id;
-    lastAsked = now;
+    lastResultVersion = resultVersion;
 
     state.sunReadingState = 0;
     state.sunReadingPointValid = false;
@@ -81,12 +84,14 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     if (!evp::sunstudy::SunStudyStore::Get ().ReadAt (id, snapshot->id, hit.tri, hit.meshIndex, hit.point, reading,
                                                       role, daylight, error, &state.sunReadingLit)) {
         state.sunReadingState = error == "computing" ? 3 : 0;
+        lastStudy.clear (); // a transient store refusal must be retried after Advance/cancellation ends
         return;
     }
     state.sunReadingRole = role == 0xff ? -1 : int (role);
     state.sunReadingDaylight = daylight;
     state.sunReadingHours = reading.hours;
     state.sunReadingSample = reading.measured ? reading.sample : SIZE_MAX;
+    state.sunReadingStudy = reading.measured ? id : "";
     state.sunReadingNearest = reading.nearest;
     state.sunReadingState = reading.measured ? 1 : 2;
     // Where, for the study point's right-click menu (#152).

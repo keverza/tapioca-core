@@ -14,10 +14,24 @@ def test_single_day_scope_refreshes_samples_even_when_the_header_is_collapsed():
     assert "analysistabs::kSunTab" in view
     assert "scene.ShownAnalysisKind () == 0" in view
     assert "!state.sunShowsPeriod" in view
+    assert "state.sunView == kSunObstructionView" in view
     assert "RefreshSunStudyPointSamples (state, shown)" in view
     request = view.split("SunObstructionRequest request;", 1)[1].split("tasks.Request", 1)[0]
     assert "request.samples = state.sunPointSamples" in request
     assert request.index("RefreshSunStudyPointSamples") < request.index("request.samples")
+
+
+def test_obstruction_is_a_view_not_a_study_point_footer():
+    panel = source("ArchViz/DiligentHudSunStudy.cpp")
+    assert 'Button ("Obstruction##sunview"' in panel
+    assert "DrawSunStudyObstructionControls (state, study.studyId)" in panel
+    point = source("ArchViz/DiligentHudSunPoint.cpp")
+    day = point.split("void DrawSunStudyPointDay", 1)[1].split("void DrawSunStudyObstructionControls", 1)[0]
+    assert 'RadioButton ("Off##sunobstruction"' not in point
+    assert "sunView =" not in day
+    controls = point.split("void DrawSunStudyObstructionControls", 1)[1]
+    assert 'RadioButton ("Time step##sunobstruction"' in controls
+    assert 'RadioButton ("Whole day##sunobstruction"' in controls
 
 
 def test_time_step_refusal_and_shared_capture_freshness_are_not_dropped():

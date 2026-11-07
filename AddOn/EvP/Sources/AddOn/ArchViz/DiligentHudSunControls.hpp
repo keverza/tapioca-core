@@ -39,7 +39,9 @@ struct SunStudyClockSelection {
 // A placed point's day as a 24-hour radial bar chart. Null reserves the same
 // space with emptyNote; highlightedStep is a step index, or -1 for none.
 void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, const char* id, int highlightedStep,
-                           const char* emptyNote, SunStudyClockSelection* selection = nullptr);
+                           const char* emptyNote, SunStudyClockSelection* selection = nullptr, float sizeCap = 220.0f);
+// Apply a clock gesture without changing the current Sunstudy/Shadows view.
+void ApplySunStudyDaySelection (HudState& state, const SunStudyClockSelection& selection);
 bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, float maximum, bool duration);
 void DrawSunStudySeasonalClocks (HudState& state, const geomsrv::sunstudyhud::PeriodProfile* profile, bool estimate);
 // `bands` 0 draws the smooth ramp; kSunBandsMin..kSunBandsMax draws that many

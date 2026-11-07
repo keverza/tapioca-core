@@ -55,9 +55,10 @@ void Swatch (const char* id, const ImVec4& colour, const char* tooltip)
 
 // The section's view list and the tint mode each one selects. Index 0 follows
 // whatever ShowSunStudy asked for. âš ï¸ AN ABI with SunStudyDebugMode.
-constexpr int kViewModes[] = { -1, 0, 5, 7, 4 };
-constexpr int kViewCount = 5;
+constexpr int kViewModes[] = { -1, 0, 5, 7, 4, 5 };
+constexpr int kViewCount = 6;
 constexpr int kMultipleView = 3;
+constexpr int kObstructionView = kSunObstructionView;
 
 // The multiple-shadows intervals, the web page's list plus EVERY STEP -- the
 // finest the study measured. AM / PM is the last and switches to its own mode.
@@ -647,7 +648,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     }
     DrawSunStudyPeriodView (state);
     if (!state.sunShowsPeriod)
-        DrawSunStudyPointDay (state, study.studyId);
+        DrawSunStudyPointDay (state, study.studyId, study.version);
     if (study.preview)
         ImGui::TextUnformatted ("Coarse preview: complete day, not final grid");
     DrawSunStudyScreenshotControls (state);
@@ -666,11 +667,13 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     state.sunNoonStep = study.noonStep;
     state.sunQuantumHours = study.quantumHours;
     const int current = ChosenMode (state) >= 0 ? ChosenMode (state) : int (study.debugMode);
-    const bool shadows = current == 5 || current == 6 || current == 7;
+    const bool obstruction = state.sunView == kObstructionView;
+    const bool shadows = !obstruction && (current == 5 || current == 6 || current == 7);
     const bool roles = current == 4;
-    const float buttonWidth = (ImGui::GetContentRegionAvail ().x - 2.0f * ImGui::GetStyle ().ItemSpacing.x) / 3.0f;
-    ImGui::PushStyleColor (ImGuiCol_Button,
-                           ImGui::GetStyleColorVec4 (shadows || roles ? ImGuiCol_FrameBg : ImGuiCol_ButtonActive));
+    const float buttonWidth = (ImGui::GetContentRegionAvail ().x - 3.0f * ImGui::GetStyle ().ItemSpacing.x) / 4.0f;
+    ImGui::PushStyleColor (
+        ImGuiCol_Button,
+        ImGui::GetStyleColorVec4 (shadows || obstruction || roles ? ImGuiCol_FrameBg : ImGuiCol_ButtonActive));
     if (ImGui::Button ("Sunstudy##sunview", ImVec2 (buttonWidth, 0)))
         state.sunView = 1;
     ImGui::PopStyleColor ();
@@ -680,6 +683,15 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     if (ImGui::Button ("Shadows##sunview", ImVec2 (buttonWidth, 0))) {
         state.sunView = kMultipleView;
         state.sunFanInterval = kFanAmPm;
+    }
+    ImGui::PopStyleColor ();
+    ImGui::SameLine ();
+    ImGui::PushStyleColor (ImGuiCol_Button,
+                           ImGui::GetStyleColorVec4 (obstruction ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
+    if (ImGui::Button ("Obstruction##sunview", ImVec2 (buttonWidth, 0))) {
+        state.sunView = kObstructionView;
+        if (state.sunObstructionMode == 0)
+            state.sunObstructionMode = 1;
     }
     ImGui::PopStyleColor ();
     ImGui::SameLine ();
@@ -707,6 +719,13 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         Swatch ("##roleI", Rgb (0xd65cb8), "ignored: absent from the study");
         ImGui::SameLine ();
         ImGui::TextUnformatted ("Ignored");
+        return;
+    }
+    if (obstruction) {
+        if (state.sunShowsPeriod)
+            SunStudyNote ("Obstruction attribution is available for a single-day study.");
+        else
+            DrawSunStudyObstructionControls (state, study.studyId);
         return;
     }
     if (shadows && state.sunShowsPeriod) {
