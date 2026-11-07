@@ -161,7 +161,10 @@ bool StationOf (const AlignmentGeometry& g, Vec3 point, double& station, double&
 {
     double best = std::numeric_limits<double>::infinity ();
     const Vec3 p = Flat (point);
-    for (const auto& e : g.elements) {
+    size_t winner = 0;
+    double winnerAlong = 0.0;
+    for (size_t i = 0; i < g.elements.size (); ++i) {
+        const auto& e = g.elements[i];
         double along = 0.0;
         if (e.kind == ElementKind::Line) {
             Vec3 d;
@@ -188,6 +191,29 @@ bool StationOf (const AlignmentGeometry& g, Vec3 point, double& station, double&
             best = d;
             station = e.start + along;
             offset = Dot (p - at.point, at.left);
+            winner = i, winnerAlong = along;
+        }
+    }
+    // #154: outside a kink between two elements the nearest point is the joint itself, for a
+    // whole wedge. The first element wins that tie, and its normal gives only the lateral part
+    // of the distance, so at the wedge's far edge the offset (and every height and reach built
+    // on it) stepped to the second element's full distance: a 1.8 slope 6 m out from the
+    // 2026-11-05 dump's bend, carried into a junction blend. In the wedge the offset is the true
+    // distance, on the side the two normals at the joint agree on.
+    if (std::isfinite (best) && best > 1.0e-12) {
+        const auto& e = g.elements[winner];
+        const bool atStart = winnerAlong <= 0.0 && winner > 0;
+        const bool atEnd = winnerAlong >= e.length && winner + 1 < g.elements.size ();
+        if (atStart || atEnd) {
+            const auto& before = g.elements[atStart ? winner - 1 : winner];
+            const auto& after = g.elements[atStart ? winner : winner + 1];
+            Placement a, b;
+            Place (before, before.length, a);
+            Place (after, 0.0, b);
+            if (Dot (a.tangent, b.tangent) < 1.0 - 1.0e-9) {
+                const double side = Dot (p - a.point, a.left + b.left);
+                offset = std::copysign (best, side != 0.0 ? side : offset);
+            }
         }
     }
     return std::isfinite (best);

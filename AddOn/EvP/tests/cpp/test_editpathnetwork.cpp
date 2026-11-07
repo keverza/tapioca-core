@@ -901,3 +901,41 @@ TEST (EditPathNetwork, AFilledBendBayHasNoNearestLegSeam)
     }
     ExpectMeshFillsItsOutline (mesh);
 }
+
+TEST (EditPathNetwork, OutsideASharpBendTheOffsetIsTheDistanceAndTheSurfaceIsContinuous154)
+{
+    // The 2026-11-05 19:38 dump's path 85 around its bend at (78.8, 39.3): a left turn of about
+    // 108 degrees, 0.75 m half widths, 2 % crossfall, graded. Its outside is a wedge whose nearest
+    // point is the bend itself. There the offset was one leg's lateral component, picked by a
+    // rounding tie, so a junction blending this path's surface 6 m out stepped by centimetres.
+    ed::Document doc;
+    const ed::Id id =
+        ed::AddPath (doc, { { 62.178, 72.613, 1.2 }, { 78.832, 39.266, .4 }, { 102.912, 63.346, 1.0 } }, 1.5);
+    const auto& path = *ed::FindPath (doc, id);
+    ed::AlignmentGeometry g;
+    std::string error;
+    ASSERT_TRUE (ed::ValidatePath (path, g, error)) << error;
+    const ed::Vec3 v { 78.832, 39.266, 0 };
+    double previous = 0, previousZ = 0;
+    bool first = true;
+    size_t inWedge = 0;
+    // Round the bend at 6.6 m, through the whole outside wedge and past both of its edges.
+    for (double deg = -175; deg <= -20; deg += .05) {
+        const double r = 6.6, a = deg * 3.14159265358979323846 / 180;
+        const ed::Vec3 p { v.x + r * std::cos (a), v.y + r * std::sin (a), 0 };
+        double station = 0, offset = 0, z = 0, beyond = 0;
+        ASSERT_TRUE (ed::StationOf (g, p, station, offset));
+        ASSERT_TRUE (ed::SurfaceHeight (path, g, p, z, beyond));
+        if (std::abs (station - g.elements[0].length) < 1e-9) {
+            ++inWedge;
+            EXPECT_NEAR (std::abs (offset), r, 1e-9) << "at " << deg << " degrees";
+            EXPECT_LT (offset, 0) << "the outside of a left turn is on the right";
+        }
+        if (!first) {
+            EXPECT_LT (std::abs (offset - previous), .02) << "offset step at " << deg << " degrees";
+            EXPECT_LT (std::abs (z - previousZ), .005) << "height step at " << deg << " degrees";
+        }
+        previous = offset, previousZ = z, first = false;
+    }
+    EXPECT_GT (inWedge, 1000u);
+}
