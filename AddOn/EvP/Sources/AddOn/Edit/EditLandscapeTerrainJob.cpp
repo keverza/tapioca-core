@@ -5,6 +5,7 @@
 #include "Edit/EditLandscapeFieldPlan.hpp"
 #include "Edit/EditPublishedTerrain.hpp"
 #include <algorithm>
+#include <cstdio>
 #include <exception>
 
 namespace tapioca::geometry {
@@ -56,13 +57,14 @@ void MirrorPublished (const UnifiedTerrainResult& unified, const FieldPlan& plan
     for (const auto& line : unified.lines)
         if (line.domain == UnifiedLineDomain::Path && line.kind)
             build.lines.push_back ({ *line.kind, line.side, line.root });
-    if (!plan.paths.empty ()) {
+    if (!plan.paths.empty () || !plan.outlines.empty ()) {
         // Band-moved heights carry the designed path's operation, exactly the
-        // legacy band contract.
+        // legacy band contract; outline-moved heights the requested path's (#149 T1).
+        const OperationId operation =
+            plan.paths.empty () ? plan.outlines.front ().operation : plan.paths.front ().operation;
         outcome.result.vertexOperations.reserve (unified.owners.size ());
         for (const auto& owned : unified.owners)
-            outcome.result.vertexOperations.push_back (
-                owned ? std::optional<OperationId> (plan.paths.front ().operation) : std::nullopt);
+            outcome.result.vertexOperations.push_back (owned ? std::optional<OperationId> (operation) : std::nullopt);
     }
     for (const auto& fixed : unified.locked) {
         if (fixed.control >= plan.controls.size ())
@@ -90,7 +92,18 @@ void MirrorPublished (const UnifiedTerrainResult& unified, const FieldPlan& plan
 
 TerrainRoute LandscapeTerrainRoute (const geomsrv::edit::Document& doc, bool hasPath, bool outline)
 {
-    return TerrainRegionObjects (doc).empty () && (!hasPath || outline) ? TerrainRoute::Legacy : TerrainRoute::Unified;
+    // #149 T1 (owner decision 2026-11-07): the P4c "outline stays legacy" exception is dropped.
+    // An outline request is one unified-build stage like any other; the legacy outline lane
+    // remains only as the parity oracle its tests compare against. Two cases keep the legacy
+    // lane: a request with neither a region target nor a path (its refusal text), and an outline
+    // request with fixed heights and no region, which grades the chosen path's band there
+    // (the documented rule) -- the unified band with fixed controls still refuses that scene.
+    if (!TerrainRegionObjects (doc).empty ())
+        return TerrainRoute::Unified;
+    const auto& controls =
+        doc.landscape ? doc.landscape->terrainControls : decltype (doc.landscape->terrainControls) {};
+    const bool fixed = std::any_of (controls.begin (), controls.end (), [] (const auto& c) { return c.enabled; });
+    return !hasPath || (outline && fixed) ? TerrainRoute::Legacy : TerrainRoute::Unified;
 }
 
 PathDesignRequest PathRequestFor (const TerrainDesignOptions& options, bool namedRegion)
@@ -117,11 +130,10 @@ PathDesignRequest PathRequestFor (const TerrainDesignOptions& options, bool name
 
 TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
 {
-    // #112 P4c: every scene with a unified equivalent routes through the one
-    // authority — region-only, band path-only and mixed. Two documented
-    // exceptions keep the legacy lane: outline grading (no unified equivalent
-    // yet) and a request with neither a region target nor a path, where the
-    // legacy refusal text is the established diagnostic. #112 P5: this scan is
+    // #112 P4c: every scene routes through the one authority — region-only,
+    // band or outline path, and mixed (#149 T1 dropped the outline exception).
+    // A request with neither a region target nor a path keeps the legacy lane,
+    // where the legacy refusal text is the established diagnostic. #112 P5: this scan is
     // only the cheap routing pre-filter so the legacy lane pays no plan cost;
     // inside the unified lane the compiled plan owns region discovery.
     if (job.doc &&
@@ -136,6 +148,9 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
             outcome.error = "SceneTerrain: missing immutable document/capture";
             return outcome;
         }
+        // As the legacy lane: the outcome names the capture it was attempted against, also when
+        // the surface preparation below refuses.
+        outcome.capture = job.capture;
         outcome.revision = job.doc->revision;
         outcome.session = job.doc->landscape->sessionUuid;
         outcome.sourceTerrainGuid = job.doc->landscape->sourceTerrainGuid;
@@ -147,11 +162,10 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
         }
         outcome.capture = baseline;
         // One plan → one unified build over the original immutable baseline →
-        // one neutral publication, for all three scene shapes. The removed
+        // one neutral publication, for every scene shape. The removed
         // region-first/path-second composition is never a failure fallback.
-        // Outline grading is not unified (a documented #112 limit): an outline
-        // request with region objects present still grades the path band, as
-        // the mixed lane has done since P4b.
+        // An outline request compiles to one outline stage after the regions
+        // (#149 T1), never to the selected path's band.
         LandscapeSnapshot snapshot;
         snapshot.doc = job.doc.get ();
         snapshot.revision = job.doc->revision;
@@ -184,23 +198,68 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
         }
         UnifiedTerrainResult unified;
         UnifiedLandscapeBuildScope scope;
-        if (!BuildUnifiedLandscapeTerrain (*job.doc, *baseline, plan, {}, unified, scope, outcome.error))
+        UnifiedLandscapeBuildOptions build;
+        if (!BuildUnifiedLandscapeTerrain (*job.doc, *baseline, plan, build, unified, scope, outcome.error))
             return outcome;
+        // #149 T1: the outline lane's reach policy, unchanged -- a face that runs out before
+        // it meets the ground gets a wider reach, 4x at a time, at least 20 m, at most
+        // kMaxSlopeReach; the widest build that succeeded is kept.
+        const double asked = std::max (job.options.cutLimit, job.options.fillLimit);
+        double reached = asked;
+        if (!plan.outlines.empty ()) {
+            build.outlineLimit = asked;
+            while (unified.outlineUnreached > 0 && build.outlineLimit < kMaxSlopeReach) {
+                build.outlineLimit = std::min (kMaxSlopeReach, std::max (build.outlineLimit * 4, 20.0));
+                UnifiedTerrainResult wider;
+                UnifiedLandscapeBuildScope widerScope;
+                std::string ignored;
+                if (!BuildUnifiedLandscapeTerrain (*job.doc, *baseline, plan, build, wider, widerScope, ignored))
+                    break;
+                unified = std::move (wider);
+                scope = std::move (widerScope);
+                reached = build.outlineLimit;
+            }
+        }
         auto published = std::make_shared<PublishedTerrain> ();
         if (!PublishUnifiedTerrain (unified, plan, *baseline, scope, *published, outcome.error))
             return outcome;
         outcome.built = true;
         outcome.published = std::move (published);
         MirrorPublished (unified, plan, scope, *outcome.published, outcome);
-        // #149 / #157 G2: the unified build has no outline grading yet. A built result must not
-        // pass a band off as the outline that was asked for, nor leave paths out unannounced.
-        if (job.options.outline && !plan.paths.empty ())
-            outcome.unmet.push_back ("Outline grading was asked for, but with regions present the selected path is "
-                                     "graded as its band, not its paved outline (#149).");
-        if (job.doc->paths.size () > plan.paths.size ())
+        if (job.options.outline && plan.outlines.empty () && !plan.paths.empty ())
+            outcome.unmet.push_back ("Fixed heights grade along the chosen path only, not yet from every path's "
+                                     "outline.");
+        if (!plan.outlines.empty ()) {
+            // The outline lane's located shortfalls, in its words.
+            char text[256];
+            if (unified.outlineUnreached > 0) {
+                std::snprintf (text, sizeof text,
+                               "The side slopes do not meet the ground even %.0f m out: steepen them or add a wall.",
+                               reached);
+                outcome.unmet.push_back (text);
+            }
+            else if (reached > asked) {
+                std::snprintf (text, sizeof text,
+                               "The side slopes do not meet the ground within %.1f m: built reaching up to %.1f m. "
+                               "Steepen them or add a wall to keep them shorter.",
+                               asked, reached);
+                outcome.unmet.push_back (text);
+            }
+            if (unified.outlineClipped > 0)
+                outcome.unmet.push_back (
+                    "The side slopes reach the edge of the terrain or property line before they meet the ground and "
+                    "end there in a step: steepen them, move the path or add a wall.");
+            const size_t graded = plan.outlines.front ().paths.size ();
+            if (job.doc->paths.size () > graded)
+                outcome.unmet.push_back (std::to_string (job.doc->paths.size () - graded) + " of " +
+                                         std::to_string (job.doc->paths.size ()) +
+                                         " paths are not graded: they do not validate.");
+        }
+        else if (job.doc->paths.size () > plan.paths.size ())
+            // The band lane grades one selected path; the others are said, not silently left out.
             outcome.unmet.push_back (std::to_string (job.doc->paths.size () - plan.paths.size ()) + " of " +
                                      std::to_string (job.doc->paths.size ()) +
-                                     " paths are not graded: the unified build grades one selected path.");
+                                     " paths are not graded: band grading grades one selected path.");
     }
     catch (const std::exception& exception) {
         outcome.built = false;

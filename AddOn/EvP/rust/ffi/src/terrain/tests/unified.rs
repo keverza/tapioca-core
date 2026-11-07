@@ -102,6 +102,9 @@ fn scene<'a>(
         revision: 7,
         plan_hash: 0xABCD,
         provenance: provenance(rows, rows_counts(rows), 7),
+        outlines: empty(),
+        outline_lines: empty(),
+        outline_grades: empty(),
     }
 }
 
@@ -301,7 +304,9 @@ fn layouts_match_the_documented_c_records() {
     assert_eq!(size_of::<UnifiedMask>(), 32);
     assert_eq!(size_of::<UnifiedControl>(), 56);
     assert_eq!(size_of::<UnifiedCounts>(), 40);
-    assert_eq!(size_of::<UnifiedMeta>(), 16);
+    assert_eq!(size_of::<UnifiedMeta>(), 24);
+    assert_eq!(size_of::<UnifiedOutline>(), 120);
+    assert_eq!(size_of::<UnifiedRequest>(), 576);
     assert_eq!(size_of::<UnifiedLine>(), 32);
     assert_eq!(size_of::<UnifiedLocked>(), 16);
 }

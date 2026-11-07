@@ -139,6 +139,22 @@ struct FieldPlanPath {
     bool operator== (const FieldPlanPath&) const = default;
 };
 
+// #149 T1: every path's paved area graded from its outline, one stage after every region
+// entry (it replaces the requested path's band). The plan carries the request and the paths
+// it grades; their paved surface, face lines and region are assembled with the capture at
+// build time (EditTerrainOutline.hpp), where the terrain's area is known.
+struct FieldPlanOutline {
+    uint32_t order = 0; // After every region entry.
+    Id source = kNoId;  // The requested path's centreline: the stage's identity.
+    OperationId operation = 0;
+    ObjectId object = 0;
+    std::vector<Id> paths;                   // Every document path it grades, by id.
+    std::vector<Id> pathSources;             // Their live centreline sources.
+    std::vector<OperationId> pathOperations; // Enabled operations consuming those sources.
+    PathDesignRequest design;
+    bool operator== (const FieldPlanOutline&) const = default;
+};
+
 // A grading limit or protected zone mask, with full evaluated extents; clipping
 // to a footprint is the mesh stage's job. Protection pins baseline heights; a
 // grading limit bounds influence.
@@ -178,6 +194,7 @@ struct FieldPlan {
     Id propertyLineSource = kNoId;
     std::vector<FieldPlanEntry> entries;
     std::vector<FieldPlanPath> paths;
+    std::vector<FieldPlanOutline> outlines; // #149 T1: at most one.
     std::vector<FieldPlanMask> masks;
     std::vector<FieldPlanControl> controls;
     std::vector<FieldPlanDiagnostic> diagnostics;

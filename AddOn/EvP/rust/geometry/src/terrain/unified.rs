@@ -31,9 +31,12 @@ use super::design::{self, Design};
 use super::edit::{Effect, smoother_step};
 use super::field::{Field, FieldError, Segment};
 use super::hybrid::{self, LineKind};
-use super::outline::steepest;
+use super::outline::{self, Grading, OutlineError, SurfaceGrade, steepest};
 use super::plan;
-use super::region::{RegionError, RegionMesh, RegionRequest, retriangulate_region_with_points};
+use super::region::{
+    RegionError, RegionMesh, RegionRequest, retriangulate_region_with_points,
+    retriangulate_with_supports,
+};
 use super::volume::VolumeError;
 use super::volume::exact::{ExactReport, ExactRequest, exact_cut_fill};
 use crate::identity::{ObjectId, OperationId, SourceId};
@@ -77,6 +80,46 @@ pub struct Plan<'a> {
     pub controls: &'a [Control<'a>],
     /// Absolute compatibility band for grading versus a fixed height, metres.
     pub control_tolerance: f64,
+    /// Paved areas graded from their outline (#149 T1), at most one. Evaluated
+    /// after every region entry and before the path bands.
+    pub outlines: &'a [Outline<'a>],
+}
+
+/// One paved area graded from its outline (#149 T1): inside it the ground is
+/// the paved surface, outside it the outline's slope-cone faces round onto the
+/// ground composed by the region entries before it, exactly as the outline
+/// lane grades them over the baseline ([`outline`]). Its private paved-TIN
+/// supports, its caller face lines and spots join the one constrained rebuild.
+#[derive(Clone, Copy, Debug)]
+pub struct Outline<'a> {
+    /// Stack position: after every region entry.
+    pub order: u32,
+    /// Flat xyz paved surface vertices.
+    pub surface_points: &'a [f64],
+    /// Counter-clockwise paved surface triples.
+    pub surface_triangles: &'a [u32],
+    /// Per paved vertex, the faces leaving it; empty grades every face by
+    /// `grading`.
+    pub surface_grades: &'a [SurfaceGrade],
+    /// The faces' slopes, reach limit, rounding, effect and tolerance.
+    pub grading: Grading,
+    /// Open plan lines the faces lie on, every vertex strictly inside the
+    /// rebuild ring.
+    pub lines: &'a [&'a [f64]],
+    /// Isolated plan points (the paved surface's interior vertices), strictly
+    /// inside the rebuild ring.
+    pub spots: &'a [f64],
+}
+
+/// Authored origin of one outline breakline: a caller face line, or a private
+/// support carrying its paved-surface vertex pair.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutlineLineOrigin {
+    /// Index into `Plan::outlines`.
+    pub outline: u32,
+    /// The paved-TIN edge (sorted vertex pair) a support line was clipped from;
+    /// `None` for a caller face line.
+    pub support: Option<[u32; 2]>,
 }
 
 /// One ordered region-field entry in the compiled plan.
@@ -297,6 +340,15 @@ pub struct BuiltTerrain {
     pub mask_lines: Vec<MaskLineOrigin>,
     /// Per-control-line authored origin, after every domain and mask line.
     pub control_lines: Vec<ControlLineOrigin>,
+    /// Per-outline-line origin, after every control line: the caller face
+    /// lines, then the private paved supports.
+    pub outline_lines: Vec<OutlineLineOrigin>,
+    /// Outline vertices whose face ran out at its limit before meeting the
+    /// ground (the composed ground is kept there: a step).
+    pub outline_unreached: u32,
+    /// Rebuild-ring samples where an outline face had not met the ground: the
+    /// ring, not the limit, ends it in a step.
+    pub outline_clipped: u32,
     /// Every fixed-height vertex resolved from `Plan::controls`.
     pub locked: Vec<LockedVertex>,
     /// Exact cut/fill against `base`, split at the property line.
@@ -445,6 +497,10 @@ pub enum BuildError {
         /// Composed or canonical height found there, metres.
         actual: f64,
     },
+    /// The outline grading refused (#149 T1).
+    Outline(OutlineError),
+    /// More than one outline, or one placed before a region entry.
+    OutlineOrder,
     /// A zero-reach absolute target differs from baseline (`second == u32::MAX`)
     /// or another sharp claim at one plan position. A shared TIN vertex cannot
     /// represent both heights without inventing an interpolated transition.
@@ -514,6 +570,10 @@ impl BuildError {
             }
             Self::LockedConflict { .. } => {
                 "BuildLockedConflict: grading or another fixed control disagrees with a locked height"
+            }
+            Self::Outline(error) => (*error).message(),
+            Self::OutlineOrder => {
+                "BuildOutlineOrder: one paved outline per build, after every region entry"
             }
             Self::HardStep { .. } => {
                 "BuildHardStep: a zero-reach target needs two heights at one plan position"
@@ -1440,11 +1500,38 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             field: "control tolerance",
         });
     }
-    if (!plan.paths.is_empty() || !plan.masks.is_empty() || !plan.controls.is_empty())
+    if (!plan.paths.is_empty()
+        || !plan.masks.is_empty()
+        || !plan.controls.is_empty()
+        || !plan.outlines.is_empty())
         && baseline.property.is_none()
     {
         return Err(BuildError::PropertyRequired);
     }
+    if plan.outlines.len() > 1
+        || plan
+            .outlines
+            .iter()
+            .any(|o| (o.order as usize) < plan.entries.len())
+    {
+        return Err(BuildError::OutlineOrder);
+    }
+    let paved = plan
+        .outlines
+        .first()
+        .map(|o| {
+            outline::Operator::new(
+                baseline.points,
+                baseline.triangles,
+                o.surface_points,
+                o.surface_triangles,
+                o.surface_grades,
+                o.grading,
+            )
+            .map(|operator| (o, operator))
+        })
+        .transpose()
+        .map_err(BuildError::Outline)?;
     let mut lines = Vec::new();
     for entry in plan.entries {
         for (part_index, part) in entry.parts.iter().enumerate() {
@@ -1528,6 +1615,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
     }
     let mut control_lines = Vec::new();
     let spots = push_control_lines(&mut control_lines, plan.controls)?;
+    let mut outline_lines = Vec::new();
     let mesh = if let Some(property) = baseline.property {
         let mut breaklines = Vec::with_capacity(
             lines.len() + path_lines.len() + mask_lines.len() + control_lines.len(),
@@ -1536,16 +1624,45 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         breaklines.extend(path_lines.iter().map(|line| line.points.as_slice()));
         breaklines.extend(mask_lines.iter().map(|line| line.points.as_slice()));
         breaklines.extend(control_lines.iter().map(|line| line.points.as_slice()));
-        retriangulate_region_with_points(
-            &RegionRequest {
-                points: baseline.points,
-                triangles: baseline.triangles,
-                region: property,
-                breaklines: &breaklines,
-            },
-            &spots,
-        )
-        .map_err(BuildError::Region)?
+        let request = |breaklines| RegionRequest {
+            points: baseline.points,
+            triangles: baseline.triangles,
+            region: property,
+            breaklines,
+        };
+        if let Some((planned, _)) = &paved {
+            // The outline lane's rebuild: its face lines and the paved surface's
+            // interior vertices as caller constraints (control spots first, so
+            // their indices are unchanged), its paved TIN edges as private
+            // supports stitched into the ring. Coplanar base edges are freed
+            // there as in that lane.
+            breaklines.extend(planned.lines.iter().copied());
+            outline_lines.extend(planned.lines.iter().map(|_| OutlineLineOrigin {
+                outline: 0,
+                support: None,
+            }));
+            let supports = outline::supports::prepare(
+                property,
+                planned.surface_points,
+                planned.surface_triangles,
+            )
+            .map_err(BuildError::Outline)?;
+            outline_lines.extend(supports.sources.iter().map(|&source| OutlineLineOrigin {
+                outline: 0,
+                support: Some(source),
+            }));
+            let all_spots = [spots.as_slice(), planned.spots].concat();
+            retriangulate_with_supports(
+                &request(&breaklines),
+                &all_spots,
+                &supports.ring,
+                &supports.lines,
+            )
+            .map_err(BuildError::Region)?
+        } else {
+            retriangulate_region_with_points(&request(&breaklines), &spots)
+                .map_err(BuildError::Region)?
+        }
     } else {
         baseline_mesh(baseline.points, baseline.triangles)?
     };
@@ -1574,6 +1691,17 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         )?;
     }
     detect_hard_steps(&claims)?;
+    let (outline_unreached, outline_clipped) = match &paved {
+        Some((planned, operator)) => apply_outline(
+            planned,
+            operator,
+            plan.masks,
+            &mesh,
+            &mut heights,
+            &mut owners,
+        )?,
+        None => (0, 0),
+    };
     apply_paths(plan.paths, plan.masks, &mesh, &mut heights, &mut owners)?;
     let locked = apply_fixed(&fixed, plan.control_tolerance, &mut heights, &mut owners)?;
     let mut points = mesh.points.clone();
@@ -1605,12 +1733,69 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
                     .unwrap_or(u32::MAX),
             })
             .collect(),
+        outline_lines,
+        outline_unreached,
+        outline_clipped,
         locked,
         mesh,
         volumes,
         revision: plan.revision,
         plan_hash: plan.hash,
     })
+}
+
+/// Grade the paved outline over the composed heights (#149 T1): as the outline
+/// lane, a vertex of an outside triangle keeps its height and every other
+/// vertex takes the outline design over the ground composed there, except
+/// where a mask forbids grading. Returns the unreached vertex count and the
+/// clipped ring sample count.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one outline stage needs the plan stage, its operator, the masks, the mesh and the mutable height/owner stacks together"
+)]
+fn apply_outline(
+    planned: &Outline<'_>,
+    operator: &outline::Operator,
+    masks: &[Mask<'_>],
+    mesh: &RegionMesh,
+    heights: &mut [f64],
+    owners: &mut [Option<u32>],
+) -> Result<(u32, u32), BuildError> {
+    let faces = operator.faces();
+    let vertices = plan::vertices(&mesh.points);
+    let mut fixed = vec![false; vertices.len()];
+    for (corners, _) in mesh
+        .triangles
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(&mesh.inside)
+        .filter(|(_, inside)| !**inside)
+    {
+        for &vertex in corners {
+            if let Some(flag) = fixed.get_mut(vertex as usize) {
+                *flag = true;
+            }
+        }
+    }
+    let mut unreached = 0_u32;
+    for (vertex, (&[x, y, _], &keep)) in vertices.iter().zip(&fixed).enumerate() {
+        if keep || is_protected(masks, x, y) || !grading_allowed(masks, x, y) {
+            continue;
+        }
+        let (Some(current), Some(owner)) = (heights.get_mut(vertex), owners.get_mut(vertex)) else {
+            return Err(BuildError::Region(RegionError::Topology));
+        };
+        let (design, short) = faces.over(*current, x, y);
+        unreached += u32::from(short);
+        if design.to_bits() != current.to_bits() {
+            *current = design;
+            *owner = Some(planned.order);
+        }
+    }
+    let clipped = outline::clipped(&faces, &operator.base, vertices, &mesh.ring)
+        .map_err(BuildError::Outline)?;
+    Ok((unreached, clipped))
 }
 
 #[cfg(test)]

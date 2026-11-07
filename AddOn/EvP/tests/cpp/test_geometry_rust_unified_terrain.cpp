@@ -150,7 +150,12 @@ debugreplay::Scene Issue82Scene ()
     const auto parsed = evp::nodegraph::json::Parse (text);
     if (!parsed.ok)
         throw std::runtime_error (parsed.error);
-    return debugreplay::Read (parsed.value);
+    auto scene = debugreplay::Read (parsed.value);
+    // The 2026-10-29 capture asked for outline grading, which the mixed lane graded as the
+    // selected path's band until #149 T1. These tests pin that band contract, so they ask for
+    // the band; the outline over the same capture has its own tests.
+    scene.options.outline = false;
+    return scene;
 }
 
 } // namespace
@@ -163,10 +168,11 @@ TEST (GeometryRustUnifiedTerrain, AbiLayouts)
     static_assert (sizeof (TapiocaUnifiedMask) == 32);
     static_assert (sizeof (TapiocaUnifiedControl) == 56);
     static_assert (sizeof (TapiocaUnifiedCounts) == 40);
-    static_assert (sizeof (TapiocaUnifiedMeta) == 16);
+    static_assert (sizeof (TapiocaUnifiedMeta) == 24);
+    static_assert (sizeof (TapiocaUnifiedOutline) == 120);
     static_assert (sizeof (TapiocaUnifiedLine) == 32);
     static_assert (sizeof (TapiocaUnifiedLocked) == 16);
-    static_assert (sizeof (void*) != 8 || sizeof (TapiocaUnifiedRequest) == 528);
+    static_assert (sizeof (void*) != 8 || sizeof (TapiocaUnifiedRequest) == 576);
     static_assert (sizeof (void*) != 8 || sizeof (TapiocaUnifiedOutput) == 152);
     SUCCEED ();
 }
@@ -621,6 +627,9 @@ TEST (GeometryRustUnifiedTerrain, MixedRegionPathMatchesProductionOnIssue82Fixtu
     const auto parsed = evp::nodegraph::json::Parse (text);
     ASSERT_TRUE (parsed.ok) << parsed.error;
     auto scene = debugreplay::Read (parsed.value);
+    // The band contract this test pins by hand (the capture asked for an outline, its own stage
+    // since #149 T1).
+    scene.options.outline = false;
 
     scene.options.source = 0;
     const auto regionOnly = debugreplay::Run (scene);

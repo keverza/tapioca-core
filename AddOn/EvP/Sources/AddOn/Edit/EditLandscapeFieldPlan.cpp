@@ -155,6 +155,22 @@ uint64_t FieldPlanHash (const FieldPlan& plan)
         HashU32Vector (hash, entry.surfaceTriangles);
         HashTerrain (hash, entry.terrain);
     }
+    for (const auto& outline : plan.outlines) {
+        HashText (hash, "outline");
+        HashBytes (hash, &outline.order, sizeof outline.order);
+        HashBytes (hash, &outline.source, sizeof outline.source);
+        HashBytes (hash, &outline.operation, sizeof outline.operation);
+        HashBytes (hash, &outline.object, sizeof outline.object);
+        HashIdVector (hash, outline.paths);
+        HashIdVector (hash, outline.pathSources);
+        for (const auto operation : outline.pathOperations)
+            HashBytes (hash, &operation, sizeof operation);
+        HashNumber (hash, outline.design.cutLimit);
+        HashNumber (hash, outline.design.fillLimit);
+        HashNumber (hash, outline.design.margin);
+        HashBytes (hash, &outline.design.effect, sizeof outline.design.effect);
+        HashNumber (hash, outline.design.tolerance);
+    }
     for (const auto& path : plan.paths) {
         HashBytes (hash, &path.order, sizeof path.order);
         HashBytes (hash, &path.source, sizeof path.source);
@@ -313,8 +329,62 @@ void CompileControls (const edit::Document& doc, FieldPlan& plan)
     }
 }
 
+// #149 T1: an outline request grades every path's paved area, not the requested path's band.
+void CompileOutline (const edit::Document& doc, const PathDesignRequest& request, FieldPlan& plan)
+{
+    // The stage's identity is the requested centreline, as a band's is: a request naming none refuses.
+    const auto named =
+        std::find_if (doc.landscape->sources.begin (), doc.landscape->sources.end (), [&] (const auto& s) {
+            return s.id == request.source && !s.deleted && s.role == SourceRole::PathCenterline &&
+                   edit::FindPath (doc, s.pathId);
+        });
+    if (named == doc.landscape->sources.end ()) {
+        Diagnose (plan, FieldPlanStage::Path, FieldPlanDiagnosticCode::PathUnresolved, request.object,
+                  request.operation, request.source, "FieldPlanPath: the design request names no live path centerline");
+        return;
+    }
+    FieldPlanOutline compiled;
+    compiled.order = uint32_t (plan.entries.size ());
+    compiled.source = request.source;
+    compiled.operation = request.operation;
+    compiled.object = request.object;
+    compiled.design = request;
+    for (const auto& path : doc.paths) {
+        edit::AlignmentGeometry geometry;
+        std::string ignored;
+        if (!edit::ValidatePath (path, geometry, ignored))
+            continue; // Pave leaves a path that does not validate out, so does the outline.
+        compiled.paths.push_back (path.id);
+        for (const auto& source : doc.landscape->sources)
+            if (!source.deleted && source.role == SourceRole::PathCenterline && source.pathId == path.id) {
+                compiled.pathSources.push_back (source.id);
+                for (const auto& op : doc.landscape->operations)
+                    if (op.enabled && std::find (op.inputs.begin (), op.inputs.end (), source.id) != op.inputs.end ())
+                        compiled.pathOperations.push_back (op.id);
+            }
+    }
+    if (compiled.paths.empty ()) {
+        Diagnose (plan, FieldPlanStage::Path, FieldPlanDiagnosticCode::PathUnresolved, request.object,
+                  request.operation, request.source, "FieldPlanOutline: no path validates; draw a path to grade");
+        return;
+    }
+    std::sort (compiled.pathOperations.begin (), compiled.pathOperations.end ());
+    compiled.pathOperations.erase (std::unique (compiled.pathOperations.begin (), compiled.pathOperations.end ()),
+                                   compiled.pathOperations.end ());
+    plan.outlines.push_back (std::move (compiled));
+}
+
 void CompilePath (const edit::Document& doc, const PathDesignRequest& request, FieldPlan& plan)
 {
+    // Fixed heights are honoured by the band alone so far (the outline lane's documented rule,
+    // kept): with any enabled, an outline request grades the chosen path's band, and the job
+    // and the recipe say so.
+    const auto& controls = doc.landscape->terrainControls;
+    const bool fixed = std::any_of (controls.begin (), controls.end (), [] (const auto& c) { return c.enabled; });
+    if (request.outline && !fixed) {
+        CompileOutline (doc, request, plan);
+        return;
+    }
     const auto source = std::find_if (doc.landscape->sources.begin (), doc.landscape->sources.end (),
                                       [&] (const auto& s) { return s.id == request.source && !s.deleted; });
     const auto* path = source == doc.landscape->sources.end () || source->role != SourceRole::PathCenterline

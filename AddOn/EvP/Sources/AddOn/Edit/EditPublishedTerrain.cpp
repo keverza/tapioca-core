@@ -341,9 +341,11 @@ bool MeasureDisplayTotals (const TerrainCapture& baseline, std::span<const doubl
 std::vector<PublishedOwner> StackIdentity (const FieldPlan& plan, std::string& error)
 {
     std::vector<PublishedOwner> identity;
-    identity.reserve (plan.entries.size () + plan.paths.size ());
+    identity.reserve (plan.entries.size () + plan.paths.size () + plan.outlines.size ());
     for (const auto& entry : plan.entries)
         identity.push_back ({ entry.order, entry.rootOperation, entry.object, false });
+    for (const auto& outline : plan.outlines)
+        identity.push_back ({ outline.order, outline.operation, outline.object, true });
     for (const auto& path : plan.paths)
         identity.push_back ({ path.order, path.operation, path.object, true });
     std::sort (identity.begin (), identity.end (),

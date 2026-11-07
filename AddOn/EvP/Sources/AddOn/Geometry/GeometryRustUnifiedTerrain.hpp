@@ -70,6 +70,20 @@ struct UnifiedControl {
     std::span<const double> line; // Open xyz polyline when point is false.
     bool operator== (const UnifiedControl&) const = default;
 };
+// #149 T1: one paved area graded from its outline, after every region entry. The
+// faces are the outline lane's (EditTerrainOutline.hpp); these are its inputs.
+struct UnifiedOutline {
+    uint32_t order = 0;
+    std::span<const double> surfacePoints; // Paved xyz.
+    std::span<const uint32_t> surfaceTriangles;
+    std::span<const double> surfaceGrades; // (cut, fill, rounding) gradients per paved vertex; empty: uniform.
+    TerrainSlope cut, fill;
+    double limit = 10.0, rounding = 1.0, tolerance = 1e-3;
+    TerrainEditEffect effect = TerrainEditEffect::Both;
+    std::span<const std::vector<double>> lines; // Open face lines, strictly inside the rebuild ring.
+    std::span<const double> spots;              // Paved interior vertices, strictly inside it.
+    bool operator== (const UnifiedOutline&) const = default;
+};
 struct UnifiedPlanRequest {
     TerrainMeshView mesh;
     std::span<const double> property; // Closed ring; empty selects the whole baseline.
@@ -82,8 +96,10 @@ struct UnifiedPlanRequest {
     // Mesh then property, entry rings (part order, outer then holes), mask
     // rings, control line vertices, then point controls; domains=7.
     const ProvenanceRequest& provenance;
+    std::span<const UnifiedOutline> outlines = {}; // At most one; carries no entity rows.
 };
-enum class UnifiedLineDomain : uint32_t { Entry = 1, Path = 2, Mask = 3, Control = 4 };
+// Outline (#149 T1): part 0 a caller face line, 1 a paved support (ring/segment: its paved vertex pair).
+enum class UnifiedLineDomain : uint32_t { Entry = 1, Path = 2, Mask = 3, Control = 4, Outline = 5 };
 // Authored origin of one constrained breakline, in breakline order.
 struct UnifiedLine {
     UnifiedLineDomain domain = UnifiedLineDomain::Entry;
@@ -111,6 +127,9 @@ struct UnifiedTerrainResult {
     std::vector<UnifiedLocked> locked;
     HybridVolumes site, context; // Exact volumes inside/outside the property.
     uint64_t revision = 0, planHash = 0;
+    // #149 T1: outline vertices whose face ran out at its limit before the ground, and
+    // rebuild-ring samples where a face had not yet met it (a step at the ring).
+    uint32_t outlineUnreached = 0, outlineClipped = 0;
     ProvenanceRequest inputProvenance; // Retained unchanged input catalog.
     size_t inputPointCount = 0;        // Property vertex i has input provenance index inputPointCount+i.
     size_t inputPropertyCount = 0;

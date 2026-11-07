@@ -3,6 +3,7 @@
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditTerrainAdapterInternal.hpp"
 #include "Edit/EditTerrainDesign.hpp"
+#include "Edit/EditTerrainOutline.hpp"
 #include "Edit/EditTerrainStation.hpp"
 
 #include <algorithm>
@@ -32,6 +33,8 @@ struct OwnedRequest {
     std::vector<UnifiedMask> masks;
     std::vector<std::vector<double>> controlLines;
     std::vector<UnifiedControl> controls;
+    OutlineGeometry outlineGeometry;
+    std::vector<UnifiedOutline> outlines;
     ProvenanceRequest provenance;
     std::optional<UnifiedPlanRequest> request;
 };
@@ -125,6 +128,10 @@ bool BuildProvenance (const edit::Document& doc, const TerrainCapture& capture, 
     for (const auto& path : plan.paths) {
         catalogSources.insert (path.source);
         catalogOperations.insert (path.operation);
+    }
+    for (const auto& outline : plan.outlines) {
+        catalogSources.insert (outline.pathSources.begin (), outline.pathSources.end ());
+        catalogOperations.insert (outline.pathOperations.begin (), outline.pathOperations.end ());
     }
     for (const auto& mask : plan.masks) {
         catalogSources.insert (mask.sources.begin (), mask.sources.end ());
@@ -221,8 +228,8 @@ bool Convert (const edit::Document& doc, const TerrainCapture& capture, const Fi
     if (!terrain_detail::ValidateInput (doc, capture.Input (), error) || !ValidateLandscape (doc, error))
         return false;
 
-    const bool needsCoverage =
-        !plan.entries.empty () || !plan.paths.empty () || !plan.masks.empty () || !plan.controls.empty ();
+    const bool needsCoverage = !plan.entries.empty () || !plan.paths.empty () || !plan.outlines.empty () ||
+                               !plan.masks.empty () || !plan.controls.empty ();
     std::set<SourceId> propertySources { plan.propertyLineSource };
     if (needsCoverage) {
         if (!plan.propertyLine.empty ())
@@ -330,6 +337,31 @@ bool Convert (const edit::Document& doc, const TerrainCapture& capture, const Fi
     }
     else if (needsCoverage)
         scope.rebuildRegion = scope.measurementRegion;
+    // #149 T1: the paved outline, assembled exactly as the outline lane assembles it (one shared
+    // builder) once the capture's area is known. With no region entry the rebuild ring is that
+    // lane's own region -- the faces' reach and margin around the paved area -- so a path-only
+    // outline design rebuilds what it always did; with regions it is the whole coverage ring,
+    // inside which the face lines and spots already lie.
+    for (const auto& outline : plan.outlines) {
+        Id pathId = kNoId;
+        for (const auto& source : doc.landscape->sources)
+            if (source.id == outline.source)
+                pathId = source.pathId;
+        auto grading = OutlineOptionsFor (doc, pathId, std::max (outline.design.cutLimit, outline.design.fillLimit));
+        if (options.outlineLimit > 0)
+            grading.limit = options.outlineLimit;
+        if (!BuildOutlineGeometry (doc, capture.Input ().mesh, grading, owned.outlineGeometry, error))
+            return false;
+        if (plan.entries.empty ()) {
+            owned.property = owned.outlineGeometry.region;
+            scope.rebuildRegion = owned.property;
+            propertySources = { outline.pathSources.begin (), outline.pathSources.end () };
+        }
+        const auto& g = owned.outlineGeometry;
+        owned.outlines.push_back ({ outline.order, g.surfacePoints, g.surfaceTriangles, g.surfaceGrades, grading.cut,
+                                    grading.fill, grading.limit, grading.rounding, grading.tolerance, grading.effect,
+                                    g.lines, g.spots });
+    }
     owned.masks.reserve (plan.masks.size ());
     for (const auto& mask : plan.masks) {
         UnifiedMask output;
@@ -364,7 +396,8 @@ bool Convert (const edit::Document& doc, const TerrainCapture& capture, const Fi
                                                 options.controlTolerance,
                                                 plan.revision,
                                                 plan.hash,
-                                                owned.provenance });
+                                                owned.provenance,
+                                                owned.outlines });
     return true;
 }
 

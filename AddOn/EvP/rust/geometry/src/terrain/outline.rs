@@ -48,7 +48,7 @@ use std::collections::BTreeMap;
 mod blend;
 mod reach;
 mod refine;
-mod supports;
+pub(super) mod supports;
 
 use refine::Graded;
 pub use refine::{Refine, Refined};
@@ -201,7 +201,7 @@ impl OutlineError {
 
 /// One outline edge and the faces leaving it.
 #[derive(Clone, Copy, Debug)]
-struct Edge {
+pub(super) struct Edge {
     segment: [[f64; 3]; 2],
     grade: SurfaceGrade,
 }
@@ -297,7 +297,7 @@ fn steepest_point(
 }
 
 /// The validated grading: grades as rise per metre of run.
-struct Faces<'a> {
+pub(super) struct Faces<'a> {
     base: &'a Field,
     surface: &'a Field,
     outline: &'a [Edge],
@@ -459,13 +459,20 @@ impl<'a> Faces<'a> {
     /// before meeting the ground; `None` off the base surface.
     fn height(&self, px: f64, py: f64) -> Option<(f64, bool)> {
         let base = self.base.height_at(px, py)?.height;
+        Some(self.over(base, px, py))
+    }
+
+    /// [`Self::height`] over a given current ground height rather than the
+    /// base surface's: the unified build (#149 T1) grades the outline over the
+    /// ground its region entries have already composed there.
+    pub(super) fn over(&self, base: f64, px: f64, py: f64) -> (f64, bool) {
         if let Some(paved) = self.surface.height_at(px, py) {
-            return Some((self.restrict(base, paved.height), false));
+            return (self.restrict(base, paved.height), false);
         }
         let moves = self.moves(base, px, py);
         let design = self.graded(base, moves.raise, moves.lower);
         let unlimited = self.graded(base, moves.raise_any, moves.lower_any);
-        Some((design, design.to_bits() != unlimited.to_bits()))
+        (design, design.to_bits() != unlimited.to_bits())
     }
 
     fn restrict(&self, base: f64, design: f64) -> f64 {
@@ -479,7 +486,7 @@ impl<'a> Faces<'a> {
 
 /// Region ring samples, every vertex and every [`CLIP_STEP`] metres between,
 /// where the faces would leave the ground: there the ring ends them in a step.
-fn clipped(
+pub(super) fn clipped(
     faces: &Faces<'_>,
     base: &Field,
     vertices: &[[f64; 3]],
@@ -514,46 +521,94 @@ fn clipped(
     Ok(count)
 }
 
+/// The validated outline grading inputs, owned: the base and paved fields,
+/// the outline's edges with their faces, and the grading. The T0 lane
+/// ([`build`]) and the unified build (#149 T1) both grade through it.
+pub(super) struct Operator {
+    pub(super) base: Field,
+    surface: Field,
+    pub(super) edges: Vec<Edge>,
+    grading: Grading,
+}
+
+impl Operator {
+    /// # Errors
+    /// [`OutlineError::Parameters`] for a bad limit, rounding, tolerance, slope
+    /// or grade table; [`OutlineError::Field`] / [`OutlineError::Surface`] for
+    /// a base or paved surface that is not a field (or has no outline).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the base and paved meshes, their grade table and the grading are one validated input set"
+    )]
+    pub(super) fn new(
+        points: &[f64],
+        triangles: &[u32],
+        surface_points: &[f64],
+        surface_triangles: &[u32],
+        surface_grades: &[SurfaceGrade],
+        grading: Grading,
+    ) -> Result<Self, OutlineError> {
+        let g = grading;
+        if [g.limit, g.rounding, g.tolerance]
+            .iter()
+            .any(|v| !(v.is_finite() && *v >= 0.0))
+        {
+            return Err(OutlineError::Parameters);
+        }
+        let uniform = SurfaceGrade {
+            cut: g.cut.gradient().map_err(|_| OutlineError::Parameters)?,
+            fill: g.fill.gradient().map_err(|_| OutlineError::Parameters)?,
+            rounding: g.rounding,
+        };
+        if !(surface_grades.is_empty() || surface_grades.len() == surface_points.len() / 3)
+            || !surface_grades.iter().all(|grade| grade.valid())
+        {
+            return Err(OutlineError::Parameters);
+        }
+        let base = Field::new(points, triangles).map_err(|_| OutlineError::Field)?;
+        let surface =
+            Field::new(surface_points, surface_triangles).map_err(|_| OutlineError::Surface)?;
+        let edges = outline(surface_points, surface_triangles, surface_grades, uniform);
+        if edges.is_empty() {
+            return Err(OutlineError::Surface);
+        }
+        Ok(Self {
+            base,
+            surface,
+            edges,
+            grading,
+        })
+    }
+
+    /// The faces over these inputs; builds the reach index once.
+    pub(super) fn faces(&self) -> Faces<'_> {
+        Faces::new(&self.base, &self.surface, &self.edges, self.grading)
+    }
+}
+
 /// Grade the terrain inside `request.region` from the paved area.
 ///
 /// # Errors
 /// See [`OutlineError`].
 pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
-    let g = request.grading;
-    if [g.limit, g.rounding, g.tolerance]
-        .iter()
-        .any(|v| !(v.is_finite() && *v >= 0.0))
-    {
-        return Err(OutlineError::Parameters);
-    }
-    let uniform = SurfaceGrade {
-        cut: g.cut.gradient().map_err(|_| OutlineError::Parameters)?,
-        fill: g.fill.gradient().map_err(|_| OutlineError::Parameters)?,
-        rounding: g.rounding,
-    };
-    if !(request.surface_grades.is_empty()
-        || request.surface_grades.len() == request.surface_points.len() / 3)
-        || !request.surface_grades.iter().all(|grade| grade.valid())
-    {
-        return Err(OutlineError::Parameters);
-    }
-    let base = Field::new(request.points, request.triangles).map_err(|_| OutlineError::Field)?;
-    let surface = Field::new(request.surface_points, request.surface_triangles)
-        .map_err(|_| OutlineError::Surface)?;
-    let edges = outline(
+    let operator = Operator::new(
+        request.points,
+        request.triangles,
         request.surface_points,
         request.surface_triangles,
         request.surface_grades,
-        uniform,
-    );
-    if edges.is_empty() {
-        return Err(OutlineError::Surface);
-    }
-    let faces = Faces::new(&base, &surface, &edges, g);
+        request.grading,
+    )?;
+    let (base, edges) = (&operator.base, &operator.edges);
+    let faces = operator.faces();
     if request.refine.is_some_and(|refine| !refine.valid()) {
         return Err(OutlineError::Parameters);
     }
-    let supports = supports::prepare(request)?;
+    let supports = supports::prepare(
+        request.region,
+        request.surface_points,
+        request.surface_triangles,
+    )?;
     let rebuild = |spots: &[f64], lines: &[Vec<f64>]| {
         retriangulate_with_supports(
             &RegionRequest {
@@ -596,7 +651,7 @@ pub fn build(request: &OutlineRequest<'_>) -> Result<Outlined, OutlineError> {
         unreached,
     } = graded;
     let vertices = plan::vertices(&mesh.points);
-    let clipped = clipped(&faces, &base, vertices, &mesh.ring)?;
+    let clipped = clipped(&faces, base, vertices, &mesh.ring)?;
     let volumes = exact_cut_fill(&ExactRequest {
         points: &points,
         base: &based,

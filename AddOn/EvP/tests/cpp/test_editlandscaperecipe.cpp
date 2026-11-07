@@ -157,26 +157,39 @@ TEST (EditLandscapeRecipe, AnExplicitPriorityChangeIsTheOrderShown)
     EXPECT_TRUE (Mentions (recipe.limitations, "regions only"));
 }
 
-TEST (EditLandscapeRecipe, TheRouteIsTheJobsAndTheOutlineToBandSwitchIsStated)
+// #149 T1: an outline request is one unified stage grading every path's paved area, with or
+// without regions; adding a region no longer changes what the request means.
+TEST (EditLandscapeRecipe, TheRouteIsTheJobsAndAnOutlineIsOneStageWithOrWithoutRegions149)
 {
     auto doc = Start ();
     auto request = Path (doc, 3);
+    Path (doc, 8);
     request.outline = true;
-    // No region terrain target: the legacy outline lane, as the job dispatches.
+    ASSERT_EQ (geo::LandscapeTerrainRoute (doc, true, true), geo::TerrainRoute::Unified);
     auto recipe = geo::ProjectLandscapeRecipe (doc, request);
-    ASSERT_EQ (geo::LandscapeTerrainRoute (doc, true, true), geo::TerrainRoute::Legacy);
-    EXPECT_EQ (recipe.route, geo::RecipeRoute::Legacy);
-    EXPECT_TRUE (recipe.rows.empty ());
-    EXPECT_TRUE (Mentions (recipe.limitations, "#149"));
-    // Add one graded region: the same outline request becomes the selected path's band.
+    ASSERT_TRUE (recipe.ok) << recipe.error;
+    EXPECT_EQ (recipe.route, geo::RecipeRoute::Unified);
+    auto paths = Rows (recipe, geo::RecipeStage::Path);
+    ASSERT_EQ (paths.size (), 1u);
+    EXPECT_EQ (paths[0]->name, "Paved outline");
+    EXPECT_EQ (paths[0]->kind, "Paths (2)") << "both drawn paths are graded";
+    EXPECT_EQ (paths[0]->order, 1u);
+    EXPECT_FALSE (Mentions (recipe.limitations, "paths are not in this recipe"));
+    // Add one graded region: the same request is the same stage, now after the region.
     const auto a = Region (doc, 0);
     Configure (doc, a, 2);
-    ASSERT_EQ (geo::LandscapeTerrainRoute (doc, true, true), geo::TerrainRoute::Unified);
     recipe = geo::ProjectLandscapeRecipe (doc, request);
     EXPECT_EQ (recipe.route, geo::RecipeRoute::Unified);
-    const auto paths = Rows (recipe, geo::RecipeStage::Path);
+    paths = Rows (recipe, geo::RecipeStage::Path);
     ASSERT_EQ (paths.size (), 1u);
-    EXPECT_TRUE (Mentions (paths[0]->notes, "graded as its band"));
+    EXPECT_EQ (paths[0]->name, "Paved outline");
+    EXPECT_EQ (paths[0]->kind, "Paths (2)");
+    EXPECT_EQ (paths[0]->order, 2u) << "after the region";
+    EXPECT_FALSE (Mentions (paths[0]->notes, "band"));
+    // The band request still grades one selected path and says so.
+    request.outline = false;
+    recipe = geo::ProjectLandscapeRecipe (doc, request);
+    EXPECT_TRUE (Mentions (recipe.limitations, "1 of 2 paths"));
     // Nothing designed and nothing graded.
     auto empty = Start ();
     recipe = geo::ProjectLandscapeRecipe (empty, std::nullopt);

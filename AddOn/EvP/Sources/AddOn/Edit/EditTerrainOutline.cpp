@@ -199,15 +199,15 @@ OutlineDesignOptions OutlineOptionsFor (const edit::Document& doc, edit::Id path
     return options;
 }
 
-bool EvaluateOutlineDesign (const edit::Document& doc, const EditTerrainInput& input, const OutlineDesignOptions& o,
-                            TerrainDesignResult& result, uint32_t& unreached, std::string& error, uint32_t* clipped)
+bool BuildOutlineGeometry (const edit::Document& doc, const TerrainMeshView& mesh, const OutlineDesignOptions& o,
+                           OutlineGeometry& out, std::string& error)
 {
     const auto paved = edit::Pave (doc.paths, o.pavedStep, true, nullptr, kPavedTolerance);
     if (paved.vertices.empty () || paved.triangles.empty ()) {
         error = "OutlineNoPaths: draw a path to grade the terrain";
         return false;
     }
-    const auto areaRing = TerrainDesignArea (doc, input.mesh);
+    const auto areaRing = TerrainDesignArea (doc, mesh);
     if (areaRing.size () < 9) {
         error = "OutlineOutside: the terrain has no area inside the property line";
         return false;
@@ -282,13 +282,32 @@ bool EvaluateOutlineDesign (const edit::Document& doc, const EditTerrainInput& i
     std::vector<double> regionRing;
     for (const auto& p : region)
         regionRing.insert (regionRing.end (), { p.x, p.y, 0.0 });
+    OutlineGeometry geometry;
+    geometry.surfacePoints = std::move (surface);
+    geometry.surfaceTriangles = paved.triangles;
+    geometry.surfaceGrades = grades;
+    geometry.lines = std::move (lines);
+    geometry.spots = std::move (spots);
+    geometry.region = std::move (regionRing);
+    out = std::move (geometry);
+    error.clear ();
+    return true;
+}
+
+bool EvaluateOutlineDesign (const edit::Document& doc, const EditTerrainInput& input, const OutlineDesignOptions& o,
+                            TerrainDesignResult& result, uint32_t& unreached, std::string& error, uint32_t* clipped)
+{
+    OutlineGeometry geometry;
+    if (!BuildOutlineGeometry (doc, input.mesh, o, geometry, error))
+        return false;
+    const auto& regionRing = geometry.region;
     OutlineTerrainRequest request;
     request.mesh = input.mesh;
     request.region = regionRing;
-    request.surface = { surface, paved.triangles };
-    request.lines = lines;
-    request.spots = spots;
-    request.surfaceGrades = grades;
+    request.surface = { geometry.surfacePoints, geometry.surfaceTriangles };
+    request.lines = geometry.lines;
+    request.spots = geometry.spots;
+    request.surfaceGrades = geometry.surfaceGrades;
     request.cut = o.cut;
     request.fill = o.fill;
     request.limit = o.limit;

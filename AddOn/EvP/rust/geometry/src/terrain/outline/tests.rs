@@ -702,3 +702,139 @@ fn each_outline_edge_grades_its_face_by_its_own_vertices() -> Result<(), Outline
 mod blend;
 mod reach;
 mod refine;
+
+/// #149 T1: the same paved area through the unified build, with region entries
+/// `entries` composed first.
+fn unified(
+    rounding: f64,
+    limit: f64,
+    entries: &[crate::terrain::Entry<'_>],
+) -> Result<crate::terrain::BuiltTerrain, crate::terrain::BuildError> {
+    let (points, triangles) = base();
+    let rings: Vec<Vec<f64>> = [0.0, 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0]
+        .into_iter()
+        .flat_map(ring)
+        .collect();
+    let lines: Vec<&[f64]> = rings.iter().map(Vec::as_slice).collect();
+    let outlines = [crate::terrain::Outline {
+        order: u32::try_from(entries.len()).unwrap_or(u32::MAX),
+        surface_points: &PAVED,
+        surface_triangles: &PAVED_TRIANGLES,
+        surface_grades: &[],
+        grading: Grading {
+            cut: HALF,
+            fill: HALF,
+            limit,
+            rounding,
+            effect: Effect::Both,
+            tolerance: 1e-6,
+        },
+        lines: &lines,
+        spots: &[],
+    }];
+    crate::terrain::build_terrain(
+        &crate::terrain::Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&REGION),
+        },
+        &crate::terrain::Plan {
+            revision: 1,
+            hash: 2,
+            entries,
+            paths: &[],
+            masks: &[],
+            controls: &[],
+            control_tolerance: 1e-3,
+            outlines: &outlines,
+        },
+    )
+}
+
+#[test]
+fn the_unified_build_grades_an_outline_exactly_as_this_lane() -> Result<(), String> {
+    for (rounding, limit) in [(0.0, 10.0), (1.0, 10.0), (1.0, 3.0)] {
+        let lane = run(rounding, limit).map_err(|e| format!("lane {e:?}"))?;
+        let built = unified(rounding, limit, &[]).map_err(|e| format!("unified {e:?}"))?;
+        assert_eq!(
+            built.mesh.triangles, lane.mesh.triangles,
+            "{rounding} {limit}"
+        );
+        assert_eq!(built.points.len(), lane.points.len());
+        for (a, b) in plan::vertices(&built.points)
+            .iter()
+            .zip(plan::vertices(&lane.points))
+        {
+            assert_eq!(a[0].to_bits(), b[0].to_bits());
+            assert_eq!(a[1].to_bits(), b[1].to_bits());
+            assert!((a[2] - b[2]).abs() <= 1e-9, "{a:?} vs {b:?}");
+        }
+        assert_eq!(
+            built.outline_unreached, lane.unreached,
+            "{rounding} {limit}"
+        );
+        assert_eq!(built.outline_clipped, lane.clipped);
+        assert!((built.volumes.site.fill - lane.volumes.site.fill).abs() < 1e-6);
+        assert!((built.volumes.site.cut - lane.volumes.site.cut).abs() < 1e-6);
+        // Every face line and every paved support is accounted for.
+        assert_eq!(
+            built.outline_lines.len(),
+            built.mesh.breakline_vertices.len() - built.lines.len()
+        );
+        assert!(built.outline_lines.iter().any(|o| o.support.is_some()));
+    }
+    Ok(())
+}
+
+#[test]
+fn an_outline_grades_over_the_ground_a_region_entry_composed_first() -> Result<(), String> {
+    // A level 9 m pad north of the pavement, under its fill face (the ground is 10 m).
+    let pad = [
+        10.0, 3.0, 0.0, 30.0, 3.0, 0.0, 30.0, 10.0, 0.0, 10.0, 10.0, 0.0,
+    ];
+    let parts = [crate::terrain::Part {
+        outer: &pad,
+        holes: &[],
+    }];
+    let entries = [crate::terrain::Entry {
+        order: 0,
+        object: crate::identity::ObjectId(7),
+        root_operation: crate::identity::OperationId(8),
+        sources: &[],
+        parts: &parts,
+        surface: crate::terrain::Surface::Constant { level: 9.0 },
+        terrain: crate::terrain::Terrain {
+            effect: crate::terrain::TerrainEffect::Grade,
+            transition: crate::terrain::Transition::Falloff { blur: 0.5 },
+        },
+    }];
+    let built = unified(0.0, 10.0, &entries).map_err(|e| format!("unified {e:?}"))?;
+    let lane = run(0.0, 10.0).map_err(|e| format!("lane {e:?}"))?;
+    let height = |points: &[f64], triangles: &[u32], x: f64, y: f64| {
+        Field::new(points, triangles)
+            .ok()
+            .and_then(|f| f.height_at(x, y))
+            .map_or(f64::NAN, |s| s.height)
+    };
+    let h = |x, y| height(&built.points, &built.mesh.triangles, x, y);
+    // The pavement and its face where the pad is not: as the lane.
+    assert!((h(20.0, 2.0) - 12.0).abs() < 1e-9);
+    assert!((h(20.0, -3.0) - 11.5).abs() < 1e-9);
+    assert!((h(45.0, 8.0) - height(&lane.points, &lane.mesh.triangles, 45.0, 8.0)).abs() < 1e-9);
+    // Over the pad: the face falls 1 in 2 from 12 m until it meets the pad at 9 m (6 m out,
+    // y = 8), where the lane met the old ground at 10 m (4 m out); beyond, the pad (here at a
+    // base vertex: the toe is not a mesh line yet, #149 T2).
+    assert!((h(20.0, 7.0) - 9.5).abs() < 1e-9, "{}", h(20.0, 7.0));
+    assert!((h(19.5, 9.5) - 9.0).abs() < 1e-9, "{}", h(19.5, 9.5));
+    assert!((height(&lane.points, &lane.mesh.triangles, 20.0, 7.0) - 10.0).abs() < 1e-9);
+    // The face vertex is the outline's, the pad's own vertex the entry's.
+    let owner = |x: f64, y: f64| {
+        plan::vertices(&built.points)
+            .iter()
+            .position(|&[px, py, _]| (px - x).abs() < 1e-9 && (py - y).abs() < 1e-9)
+            .and_then(|v| built.owners.get(v).copied().flatten())
+    };
+    assert_eq!(owner(20.0, 7.0), Some(1));
+    assert_eq!(owner(10.0, 10.0), Some(0));
+    Ok(())
+}

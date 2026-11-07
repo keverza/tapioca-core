@@ -156,6 +156,43 @@ pub struct UnifiedControl {
     pub line: TerrainRing,
 }
 
+/// One paved area graded from its outline (#149 T1). `effect`: 1 cut, 2 fill,
+/// 3 both. The paved surface and spots are ranges in the shared geometry pool,
+/// its triangles a range in the surface-index pool, its per-vertex grades a
+/// range of (cut, fill, rounding) triples in `outline_grades` (empty: every
+/// face takes `cut`/`fill`/`rounding`), and its face lines `line_count` ranges
+/// from `first_line` in `outline_lines`. None of them carries entity rows.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct UnifiedOutline {
+    /// Face grade where the outline is below the ground.
+    pub cut: TerrainSlope,
+    /// Face grade where the outline is above the ground.
+    pub fill: TerrainSlope,
+    /// Plan reach of a face from the outline, metres.
+    pub limit: f64,
+    /// Plan length each face rounds over at its top and toe, metres.
+    pub rounding: f64,
+    /// At-grade height band, metres.
+    pub tolerance: f64,
+    /// Paved xyz vertices in the shared geometry pool.
+    pub surface_points: TerrainRing,
+    /// Paved triangle indices in the shared surface-index pool.
+    pub surface_triangles: TerrainRing,
+    /// Per paved vertex grade triples in `outline_grades`; empty for uniform.
+    pub grades: TerrainRing,
+    /// Isolated plan points in the shared geometry pool.
+    pub spots: TerrainRing,
+    /// Stack position, after every region entry.
+    pub order: u32,
+    /// Grading effect, 1..3.
+    pub effect: u32,
+    /// First face line in `outline_lines`.
+    pub first_line: u32,
+    /// Number of face lines.
+    pub line_count: u32,
+}
+
 /// The immutable baseline, the ordered plan, shared geometry pools and the
 /// input provenance. All plan records are POD with offset ranges into the
 /// shared pools; empty property/entries/paths/masks/controls are valid, and a
@@ -199,6 +236,12 @@ pub struct UnifiedRequest {
     pub plan_hash: u64,
     /// Domains exactly vertex+edge+face (7) in the documented input order.
     pub provenance: ProvenanceRequest,
+    /// At most one paved outline (#149 T1); empty for none.
+    pub outlines: SliceView<UnifiedOutline>,
+    /// Outline face-line ranges into `geometry`.
+    pub outline_lines: SliceView<TerrainRing>,
+    /// Outline per-vertex (cut, fill, rounding) gradient triples.
+    pub outline_grades: SliceView<f64>,
 }
 
 /// Scalar element counts of a complete unified result.
@@ -217,7 +260,8 @@ pub struct UnifiedCounts {
     pub locked: usize,
 }
 
-/// The caller's revision and plan hash, carried through unchanged.
+/// The caller's revision and plan hash, carried through unchanged, and the
+/// outline's located shortfalls (#149 T1).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UnifiedMeta {
@@ -225,12 +269,18 @@ pub struct UnifiedMeta {
     pub revision: u64,
     /// Deterministic plan content hash.
     pub plan_hash: u64,
+    /// Outline vertices whose face ran out at its limit before the ground.
+    pub outline_unreached: u32,
+    /// Rebuild-ring samples where an outline face had not met the ground.
+    pub outline_clipped: u32,
 }
 
 /// Authored origin of one constrained breakline, in breakline order: every
 /// entry ring segment, every derived path design line, every mask ring
-/// segment, then every control line. `domain`: 1 entry, 2 path, 3 mask,
-/// 4 control. For paths, `kind`/`side`/`root` reuse the hybrid line encoding
+/// segment, every control line, then every outline line. `domain`: 1 entry,
+/// 2 path, 3 mask, 4 control, 5 outline (#149 T1: `part` 0 for a caller face
+/// line, 1 for a private paved support whose paved vertex pair is
+/// `ring`/`segment`). For paths, `kind`/`side`/`root` reuse the hybrid line encoding
 /// (kinds 1..8); for a control line, `segment` is its authored segment count.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -583,6 +633,9 @@ pub(super) fn encode(built: kernel::BuiltTerrain) -> Result<Encoded, Failure> {
         path_lines,
         mask_lines,
         control_lines,
+        outline_lines,
+        outline_unreached,
+        outline_clipped,
         locked,
         volumes: report,
         revision,
@@ -665,6 +718,7 @@ pub(super) fn encode(built: kernel::BuiltTerrain) -> Result<Encoded, Failure> {
             .checked_add(path_lines.len())
             .and_then(|n| n.checked_add(mask_lines.len()))
             .and_then(|n| n.checked_add(control_lines.len()))
+            .and_then(|n| n.checked_add(outline_lines.len()))
             .ok_or(Failure::Argument("TerrainCountOverflow"))?,
     );
     for origin in &lines {
@@ -716,6 +770,19 @@ pub(super) fn encode(built: kernel::BuiltTerrain) -> Result<Encoded, Failure> {
             root: 0,
         });
     }
+    for origin in &outline_lines {
+        let [a, b] = origin.support.unwrap_or([0, 0]);
+        rows.push(UnifiedLine {
+            domain: 5,
+            index: origin.outline,
+            part: u32::from(origin.support.is_some()),
+            ring: a,
+            segment: b,
+            kind: 0,
+            side: 0,
+            root: 0,
+        });
+    }
     let locked = locked
         .into_iter()
         .map(|vertex| UnifiedLocked {
@@ -730,6 +797,8 @@ pub(super) fn encode(built: kernel::BuiltTerrain) -> Result<Encoded, Failure> {
         meta: UnifiedMeta {
             revision,
             plan_hash,
+            outline_unreached,
+            outline_clipped,
         },
         points,
         base,
@@ -832,6 +901,9 @@ unsafe fn compute(
             memory_range(request.paths.data, request.paths.count),
             memory_range(request.masks.data, request.masks.count),
             memory_range(request.controls.data, request.controls.count),
+            memory_range(request.outlines.data, request.outlines.count),
+            memory_range(request.outline_lines.data, request.outline_lines.count),
+            memory_range(request.outline_grades.data, request.outline_grades.count),
         ]);
     }
     let outputs = target.map_or_else(Vec::new, writable);
@@ -867,6 +939,9 @@ unsafe fn evaluate(
         raw_masks,
         raw_controls,
         provenance,
+        raw_outlines,
+        outline_line_pool,
+        outline_grade_pool,
     ) = unsafe {
         (
             context.slice(request.points)?,
@@ -884,6 +959,9 @@ unsafe fn evaluate(
             context.slice(request.masks)?,
             context.slice(request.controls)?,
             context.provenance(&request.provenance)?,
+            context.slice(request.outlines)?,
+            context.slice(request.outline_lines)?,
+            context.slice(request.outline_grades)?,
         )
     };
     let expected = attribution_counts(
@@ -1050,6 +1128,61 @@ unsafe fn evaluate(
             Some(property)
         },
     };
+    // #149 T1: the paved outline's pools; none carries entity rows.
+    let mut outline_grades = Vec::with_capacity(raw_outlines.len());
+    let mut outline_lines = Vec::with_capacity(raw_outlines.len());
+    for raw in raw_outlines {
+        let triples = ring_slice(outline_grade_pool, raw.grades)?;
+        if !triples.len().is_multiple_of(3) {
+            return Err(Failure::Argument("TerrainUnifiedOutline"));
+        }
+        outline_grades.push(
+            triples
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|&[cut, fill, rounding]| kernel::outline::SurfaceGrade {
+                    cut,
+                    fill,
+                    rounding,
+                })
+                .collect::<Vec<_>>(),
+        );
+        let ranges = take(
+            outline_line_pool,
+            raw.first_line,
+            raw.line_count,
+            "TerrainUnifiedOutlineLine",
+        )?;
+        outline_lines.push(
+            ranges
+                .iter()
+                .map(|&range| ring_slice(geometry, range))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+    }
+    let mut outlines = Vec::with_capacity(raw_outlines.len());
+    for (at, raw) in raw_outlines.iter().enumerate() {
+        let (Some(grades), Some(lines)) = (outline_grades.get(at), outline_lines.get(at)) else {
+            return Err(Failure::Argument("TerrainUnifiedOutline"));
+        };
+        outlines.push(kernel::Outline {
+            order: raw.order,
+            surface_points: ring_slice(geometry, raw.surface_points)?,
+            surface_triangles: ring_slice(surface_indices, raw.surface_triangles)?,
+            surface_grades: grades,
+            grading: kernel::outline::Grading {
+                cut: slope(raw.cut)?,
+                fill: slope(raw.fill)?,
+                limit: raw.limit,
+                rounding: raw.rounding,
+                effect: band_effect(raw.effect)?,
+                tolerance: raw.tolerance,
+            },
+            lines,
+            spots: ring_slice(geometry, raw.spots)?,
+        });
+    }
     let plan = kernel::Plan {
         revision: request.revision,
         hash: request.plan_hash,
@@ -1058,6 +1191,7 @@ unsafe fn evaluate(
         masks: &masks,
         controls: &controls,
         control_tolerance: request.control_tolerance,
+        outlines: &outlines,
     };
     kernel::build_terrain(&baseline, &plan).map_err(|error| Failure::Argument(error.message()))
 }

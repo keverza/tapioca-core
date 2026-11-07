@@ -31,6 +31,23 @@ struct OutlineDesignOptions {
 // paved from (#151).
 OutlineDesignOptions OutlineOptionsFor (const geomsrv::edit::Document& doc, geomsrv::edit::Id path, double limit);
 
+// The plan geometry one outline grading is built from (#149 T1: shared by this lane and the
+// unified build, so both grade exactly the same inputs): the paved surface of every path and
+// its per-vertex faces, the open face lines inside the region, the paved interior vertices as
+// spots, and the region ring -- the faces' reach and margin around the paved area, on the
+// terrain inside the property line, one piece. All plan metres; xyz triples.
+struct OutlineGeometry {
+    std::vector<double> surfacePoints;
+    std::vector<uint32_t> surfaceTriangles;
+    std::vector<double> surfaceGrades; // (cut, fill, rounding) per paved vertex; empty: uniform.
+    std::vector<std::vector<double>> lines;
+    std::vector<double> spots;
+    std::vector<double> region;
+};
+// Refuses OutlineNoPaths / OutlineOutside as EvaluateOutlineDesign does; `out` unchanged then.
+bool BuildOutlineGeometry (const geomsrv::edit::Document& doc, const TerrainMeshView& mesh,
+                           const OutlineDesignOptions& options, OutlineGeometry& out, std::string& error);
+
 // Worker-only: grades `input`'s terrain from every path of `doc`. `result.build` carries the
 // proposed points, triangles, volumes and the region ring's vertices (mapping rows 17 only:
 // a preview, no support provenance); `result.region` the ring. `unreached` counts vertices

@@ -17,8 +17,8 @@
 //   - each entry's footprint construction as a dependency tree: an operand used by more than
 //     one parent is shown as a reference, not copied; a disabled node is a footprint bypass
 //     (its first input passes through), which is not the same as "no terrain effect";
-//   - located compiler diagnostics and the current limitations (one path per build; an
-//     outline request with regions present is graded as the selected path's band).
+//   - located compiler diagnostics and the current limitations (band grading grades one
+//     selected path; an outline request grades every path's paved area, #149 T1).
 #include "Edit/EditLandscapeFieldPlan.hpp"
 #include <optional>
 #include <string>

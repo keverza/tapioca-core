@@ -136,7 +136,12 @@ debugreplay::Scene Issue82Scene ()
     const auto parsed = evp::nodegraph::json::Parse (text);
     if (!parsed.ok)
         throw std::runtime_error (parsed.error);
-    return debugreplay::Read (parsed.value);
+    auto scene = debugreplay::Read (parsed.value);
+    // The 2026-10-29 capture asked for outline grading, which the mixed lane graded as the
+    // selected path's band until #149 T1. These tests pin that band contract, so they ask for
+    // the band; the outline over the same capture has its own tests.
+    scene.options.outline = false;
+    return scene;
 }
 
 geo::FieldPlan CompiledPlan (const debugreplay::Scene& scene, const geo::TerrainCapture& capture, bool includePath)
@@ -621,6 +626,9 @@ TEST (EditPublishedTerrain, ExactQuantitiesReconcileWithTheKernelVolumes)
 TEST (EditPublishedTerrain, UnifiedMatchesLegacyOnAQueryGridWithinDocumentedTolerance)
 {
     auto scene = Issue82Scene ();
+    // As captured: an outline request. Since #149 T1 the unified build grades it as its own stage
+    // over the ground the region composed -- what the legacy oracle below does in two passes.
+    scene.options.outline = true;
     scene.options.source = 0;
     const auto regionOnly = debugreplay::Run (scene);
     ASSERT_TRUE (regionOnly.built) << regionOnly.error;

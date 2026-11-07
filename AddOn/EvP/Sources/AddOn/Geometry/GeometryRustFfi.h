@@ -754,7 +754,9 @@ typedef struct {
 // control spots publish kind 20 (new spot vertex) or 21 (spot remapped to an
 // output vertex). lines[] holds one origin per breakline, in breakline order
 // (entry ring segments, derived path design lines, mask ring segments,
-// control lines): domain 1 entry / 2 path / 3 mask / 4 control; path rows
+// control lines, outline lines): domain 1 entry / 2 path / 3 mask / 4 control /
+// 5 outline (#149 T1: part 0 a caller face line, 1 a private paved support whose
+// paved vertex pair is ring/segment); path rows
 // carry the hybrid line kind/side/root (1..8); a control row's segment field
 // is its authored segment count. locked[] names each fixed-height output
 // vertex. meta carries the caller's revision/plan hash unchanged. owners[v]
@@ -793,6 +795,16 @@ typedef struct {
     double position[3];
     TapiocaTerrainRing line; /* In the shared geometry pool when point=0. */
 } TapiocaUnifiedControl;
+// #149 T1: one paved area graded from its outline. effect 1 cut / 2 fill / 3 both.
+// surfacePoints/spots: geometry pool; surfaceTriangles: surfaceIndices pool; grades:
+// (cut, fill, rounding) gradient triples in outlineGrades (empty: uniform); face lines:
+// lineCount ranges from firstLine in outlineLines. None carries entity rows.
+typedef struct {
+    TapiocaTerrainSlope cut, fill;
+    double limit, rounding, tolerance;
+    TapiocaTerrainRing surfacePoints, surfaceTriangles, grades, spots;
+    uint32_t order, effect, firstLine, lineCount;
+} TapiocaUnifiedOutline;
 typedef struct {
     TapiocaDoubleView points;   /* Baseline xyz, world metres. */
     TapiocaIndexView triangles; /* Counter-clockwise baseline triples. */
@@ -835,12 +847,22 @@ typedef struct {
     double controlTolerance; /* Absolute grading/fixed compatibility band, metres. */
     uint64_t revision, planHash;
     TapiocaProvenanceRequest provenance;
+    struct {
+        const TapiocaUnifiedOutline* data;
+        size_t count;
+    } outlines; /* At most one (#149 T1). */
+    struct {
+        const TapiocaTerrainRing* data;
+        size_t count;
+    } outlineLines; /* Face-line ranges into geometry. */
+    TapiocaDoubleView outlineGrades;
 } TapiocaUnifiedRequest;
 typedef struct {
     size_t points, triangles, mappings, lines, locked;
 } TapiocaUnifiedCounts;
 typedef struct {
     uint64_t revision, planHash;
+    uint32_t outlineUnreached, outlineClipped; /* #149 T1 located shortfalls. */
 } TapiocaUnifiedMeta;
 typedef struct {
     uint32_t domain, index, part, ring, segment, kind, side, root;
@@ -1378,8 +1400,8 @@ typedef struct {
  * caller obligations. No pointer, Rust allocation or handle is retained.
  * Worker-classified; no production consumer,
  * terrain authority, undo scope or native Accept path is enabled. */
-TapiocaStatus tapioca_sdf_build (const TapiocaSdfRequest* request, const TapiocaSdfOutput* output,
-                                 char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sdf_build (const TapiocaSdfRequest* request, const TapiocaSdfOutput* output, char* error,
+                                 size_t errorCapacity);
 
 #ifdef __cplusplus
 }

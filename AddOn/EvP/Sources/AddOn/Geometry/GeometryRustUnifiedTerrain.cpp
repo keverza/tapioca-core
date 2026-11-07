@@ -66,6 +66,9 @@ struct Input {
     std::vector<TapiocaUnifiedPath> paths;
     std::vector<TapiocaUnifiedMask> masks;
     std::vector<TapiocaUnifiedControl> controls;
+    std::vector<TapiocaUnifiedOutline> outlines;
+    std::vector<TapiocaTerrainRing> outlineLines;
+    std::vector<double> outlineGrades;
     TapiocaUnifiedRequest raw {};
 };
 
@@ -224,6 +227,50 @@ bool Convert (const UnifiedPlanRequest& request, Input& input, std::string& erro
         }
         input.controls.push_back (raw);
     }
+    // #149 T1: the paved outline's pools carry no entity rows (they follow every ring).
+    if (request.outlines.size () > 1) {
+        error = "BuildOutlineOrder: one paved outline per build, after every region entry";
+        return false;
+    }
+    for (const auto& outline : request.outlines) {
+        TapiocaUnifiedOutline raw {};
+        raw.cut = Slope (outline.cut);
+        raw.fill = Slope (outline.fill);
+        raw.limit = outline.limit;
+        raw.rounding = outline.rounding;
+        raw.tolerance = outline.tolerance;
+        raw.order = outline.order;
+        raw.effect = static_cast<uint32_t> (outline.effect);
+        if (!AppendGeometry (outline.surfacePoints, 3, input.geometry, raw.surfacePoints, error) ||
+            !AppendGeometry (outline.spots, 0, input.geometry, raw.spots, error))
+            return false;
+        const auto& triangles = outline.surfaceTriangles;
+        if (triangles.empty () || triangles.size () % 3 != 0 ||
+            input.surfaceIndices.size () > UINT32_MAX - triangles.size () || outline.surfaceGrades.size () % 3 != 0 ||
+            outline.surfaceGrades.size () > UINT32_MAX) {
+            error = "TerrainUnifiedOutline: the paved surface needs whole triples";
+            return false;
+        }
+        raw.surfaceTriangles = { static_cast<uint32_t> (input.surfaceIndices.size ()),
+                                 static_cast<uint32_t> (triangles.size ()) };
+        input.surfaceIndices.insert (input.surfaceIndices.end (), triangles.begin (), triangles.end ());
+        raw.grades = { static_cast<uint32_t> (input.outlineGrades.size ()),
+                       static_cast<uint32_t> (outline.surfaceGrades.size ()) };
+        input.outlineGrades.insert (input.outlineGrades.end (), outline.surfaceGrades.begin (),
+                                    outline.surfaceGrades.end ());
+        raw.firstLine = static_cast<uint32_t> (input.outlineLines.size ());
+        raw.lineCount = static_cast<uint32_t> (outline.lines.size ());
+        for (const auto& line : outline.lines) {
+            TapiocaTerrainRing range {};
+            if (!AppendGeometry (line, 2, input.geometry, range, error))
+                return false;
+            input.outlineLines.push_back (range);
+        }
+        input.outlines.push_back (raw);
+    }
+    input.raw.outlines = { input.outlines.data (), input.outlines.size () };
+    input.raw.outlineLines = { input.outlineLines.data (), input.outlineLines.size () };
+    input.raw.outlineGrades = { input.outlineGrades.data (), input.outlineGrades.size () };
     input.raw.geometry = { input.geometry.data (), input.geometry.size () };
     input.raw.rings = { input.rings.data (), input.rings.size () };
     input.raw.parts = { input.parts.data (), input.parts.size () };
@@ -250,7 +297,7 @@ bool DecodeLines (const std::vector<TapiocaUnifiedLine>& rows, std::vector<Unifi
 {
     lines.reserve (rows.size ());
     for (const auto& row : rows) {
-        if (row.domain < 1 || row.domain > 4) {
+        if (row.domain < 1 || row.domain > 5) {
             error = "TerrainOutputShape: unknown unified line domain";
             return false;
         }
@@ -368,6 +415,8 @@ bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResul
     candidate.context = Volumes (context);
     candidate.revision = meta.revision;
     candidate.planHash = meta.planHash;
+    candidate.outlineUnreached = meta.outlineUnreached;
+    candidate.outlineClipped = meta.outlineClipped;
     candidate.inputProvenance = request.provenance;
     candidate.inputPointCount = request.mesh.points.size () / 3;
     candidate.inputPropertyCount = request.property.size () / 3;

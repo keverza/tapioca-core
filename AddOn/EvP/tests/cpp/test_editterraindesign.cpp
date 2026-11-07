@@ -1185,7 +1185,11 @@ TEST (EditTerrainDesignJob, BandPathLeavingTheTerrainTrimsIdenticallyToTheLegacy
 // #112 P4c: the two documented dispatch exceptions keep the legacy lane —
 // outline grading (no unified equivalent yet) and a request naming neither a
 // region target nor a path.
-TEST (EditTerrainDesignJob, OutlineAndTargetlessRequestsKeepTheLegacyLane)
+// #149 T1 (owner decision 2026-11-07): an outline request runs on the unified build; the
+// legacy outline lane is its parity oracle. With no region the unified build rebuilds the
+// lane's own region with its own face lines, spots and paved supports, so the two meshes are
+// the same and every height agrees. Only a request with no target keeps the legacy lane.
+TEST (EditTerrainDesignJob, AnOutlineRunsOnTheUnifiedBuildAndMatchesTheLegacyOracle149)
 {
     DesignFixture fixture;
     TerrainDesignPublisher publisher;
@@ -1196,11 +1200,19 @@ TEST (EditTerrainDesignJob, OutlineAndTargetlessRequestsKeepTheLegacyLane)
     ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), outline, {}, job, error)) << error;
     const auto outlined = RunLandscapeTerrainDesign (job);
     const auto legacyOutline = RunTerrainDesign (job);
-    EXPECT_EQ (outlined.built, legacyOutline.built);
-    EXPECT_EQ (outlined.result.build.points, legacyOutline.result.build.points);
-    EXPECT_EQ (outlined.error, legacyOutline.error);
-    EXPECT_FALSE (outlined.published) << "the legacy lane publishes nothing";
+    ASSERT_TRUE (legacyOutline.built) << legacyOutline.error;
+    ASSERT_TRUE (outlined.built) << outlined.error;
+    EXPECT_TRUE (outlined.published) << "one unified publication";
     EXPECT_FALSE (outlined.regions);
+    const auto& a = outlined.result.build;
+    const auto& b = legacyOutline.result.build;
+    EXPECT_EQ (a.triangles, b.triangles);
+    ASSERT_EQ (a.points.size (), b.points.size ());
+    double worst = 0;
+    for (size_t i = 0; i < a.points.size (); ++i)
+        worst = std::max (worst, std::abs (a.points[i] - b.points[i]));
+    EXPECT_LT (worst, 1e-9);
+    EXPECT_EQ (outlined.unmet, legacyOutline.unmet);
 
     auto none = fixture.Options ();
     none.source = kNoId;
@@ -2653,4 +2665,120 @@ TEST (EditTerrainOutline, ACoplanarTerrainEdgeLeavesNoSliversAcrossTheFaces)
         slivers += slope > 0.8;
     }
     EXPECT_EQ (slivers, 0u);
+}
+
+// #149 T1 acceptance (the mandatory fixture): two joining paths with different section grades and
+// an outline request, built before and after a graded region is added away from them. Both paths
+// keep their outline grading -- every face line vertex has the same height -- the region grades its
+// own domain, and nothing is said about a band or about paths left out.
+TEST (EditTerrainDesignJob, TwoPathsKeepTheirOutlineGradingWhenARegionIsAddedAwayFromThem149)
+{
+    DesignFixture fixture;
+    std::string error;
+    // Path B joins A at its middle and runs north, with its own steeper faces.
+    const Id b = edit::AddPath (fixture.doc, { { 20, 0, 11 }, { 20, 20, 13.5 } }, 3.0);
+    ASSERT_TRUE (edit::EditPath (
+        fixture.doc, b,
+        [] (edit::Path& value, std::string&) {
+            for (auto& section : value.sections) {
+                section.crossfall = edit::PercentCrossfall (0);
+                section.cutSlope = { TerrainSlope::Unit::Percent, 100, 0 }; // 1:1
+                section.fillSlope = { TerrainSlope::Unit::Percent, 100, 0 };
+                section.rounding = 0;
+            }
+            return true;
+        },
+        error))
+        << error;
+    LandscapeSource centreline;
+    centreline.pathId = b;
+    centreline.role = SourceRole::PathCenterline;
+    Id sourceB = 0, strokeB = 0;
+    ASSERT_TRUE (AddLandscapeSource (fixture.doc, centreline, sourceB, error)) << error;
+    LandscapeOperation stroke;
+    stroke.kind = OperationKind::Stroke;
+    stroke.inputs = { sourceB };
+    stroke.width = 3;
+    ASSERT_TRUE (AddLandscapeOperation (fixture.doc, stroke, strokeB, error)) << error;
+    // An authored property line inside the terrain: the region build's coverage ring names it.
+    LandscapeSource property;
+    property.entityId =
+        edit::AddPolyline (fixture.doc, { { -20, -30, 0 }, { 59, -30, 0 }, { 59, 29, 0 }, { -20, 29, 0 } }, true);
+    Id propertyId = 0;
+    ASSERT_TRUE (AddLandscapeSource (fixture.doc, property, propertyId, error)) << error;
+    ASSERT_TRUE (SetLandscapePropertyLine (fixture.doc, propertyId, error)) << error;
+    // As a production capture does, its catalog names every operation of the document.
+    const auto capture = [&] () {
+        fixture.Capture ();
+        for (const auto& op : fixture.doc.landscape->operations)
+            if (std::none_of (fixture.provenance.table.operations.begin (), fixture.provenance.table.operations.end (),
+                              [&] (const auto& row) { return row.id == op.id; }))
+                fixture.provenance.table.operations.push_back ({ op.id, {} });
+    };
+    capture ();
+    auto options = fixture.Options ();
+    options.outline = true;
+    const auto run = [&] () {
+        TerrainDesignPublisher publisher;
+        TerrainDesignJob job;
+        EXPECT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), options, {}, job, error)) << error;
+        return RunLandscapeTerrainDesign (job);
+    };
+    const auto before = run ();
+    ASSERT_TRUE (before.built) << before.error;
+    ASSERT_TRUE (before.published);
+    const auto beforeDoc = fixture.doc;
+
+    // A graded region well away from both paths' faces.
+    const auto line =
+        edit::AddPolyline (fixture.doc, { { -15, -25, 0 }, { -5, -25, 0 }, { -5, -15, 0 }, { -15, -15, 0 } }, true);
+    ASSERT_TRUE (SetLandscapeSourceRole (fixture.doc, line, SourceRole::RegionBoundary, error)) << error;
+    const Id region = fixture.doc.landscape->objects.back ().id;
+    RegionSurface surface;
+    surface.elevation = RegionElevationMode::Constant;
+    surface.first.z = 8;
+    ASSERT_TRUE (SetRegionSurface (fixture.doc, region, surface, {}, error)) << error;
+    RegionTerrain terrain;
+    terrain.effect = RegionTerrainEffect::Grade;
+    ASSERT_TRUE (SetRegionTerrain (fixture.doc, region, terrain, error)) << error;
+    capture ();
+    const auto after = run ();
+    ASSERT_TRUE (after.built) << after.error;
+    ASSERT_TRUE (after.published);
+
+    for (const auto* outcome : { &before, &after })
+        for (const auto& note : outcome->unmet) {
+            EXPECT_EQ (note.find ("band"), std::string::npos) << note;
+            EXPECT_EQ (note.find ("not graded"), std::string::npos) << note;
+        }
+    // Every face line vertex: the same height with and without the region.
+    OutlineGeometry geometry;
+    const auto grading = OutlineOptionsFor (beforeDoc, fixture.path, std::max (options.cutLimit, options.fillLimit));
+    ASSERT_TRUE (BuildOutlineGeometry (beforeDoc, { fixture.points, fixture.triangles }, grading, geometry, error))
+        << error;
+    const auto height = [] (const TerrainDesignOutcome& outcome, double x, double y) -> std::optional<double> {
+        const auto& p = outcome.result.build.points;
+        for (size_t i = 0; i + 2 < p.size (); i += 3)
+            if (p[i] == x && p[i + 1] == y)
+                return p[i + 2];
+        return std::nullopt;
+    };
+    size_t compared = 0, nearB = 0;
+    for (const auto& faceLine : geometry.lines)
+        for (size_t i = 0; i + 2 < faceLine.size (); i += 3) {
+            const auto a = height (before, faceLine[i], faceLine[i + 1]);
+            const auto c = height (after, faceLine[i], faceLine[i + 1]);
+            if (!a || !c)
+                continue;
+            ++compared;
+            EXPECT_NEAR (*a, *c, 1e-9) << faceLine[i] << ", " << faceLine[i + 1];
+            const double ground = 10 + .05 * faceLine[i] - .2 * faceLine[i + 1];
+            nearB += std::abs (faceLine[i] - 20) < 4 && faceLine[i + 1] > 8 && std::abs (*c - ground) > 0.05;
+        }
+    EXPECT_GT (compared, 200u);
+    EXPECT_GT (nearB, 10u) << "path B is graded from its own outline too";
+    // The region grades its own domain to its level.
+    const auto inside = height (after, -15, -25);
+    ASSERT_TRUE (inside.has_value ());
+    EXPECT_NEAR (*inside, 8, 1e-9);
 }

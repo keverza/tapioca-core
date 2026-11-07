@@ -213,13 +213,15 @@ LandscapeRecipe ProjectLandscapeRecipe (const geomsrv::edit::Document& doc,
     const bool outline = path && path->outline;
     if (LandscapeTerrainRoute (doc, path.has_value (), outline) == TerrainRoute::Legacy) {
         recipe.ok = true;
+        // #149 T1: an outline is unified. Legacy remains for "nothing to grade" and for an outline
+        // request with fixed heights and no region (the band, as that lane documents).
         recipe.route = path ? RecipeRoute::Legacy : RecipeRoute::Nothing;
-        recipe.routeText = path ? "Legacy outline lane: every path is graded from its paved outline. No region "
-                                  "has a terrain effect, so there is no region stage."
+        recipe.routeText = path ? "Legacy lane: fixed heights grade along the chosen path's band, not yet from "
+                                  "every path's outline."
                                 : "Nothing to grade: no region has a terrain effect and no path is designed.";
         if (path)
-            recipe.limitations.push_back ("Adding a region with a terrain effect switches this to the unified build, "
-                                          "which grades only the selected path's band (#149).");
+            recipe.limitations.push_back ("Fixed heights are honoured by band grading only; other paths are not "
+                                          "graded (#149).");
         return recipe;
     }
     LandscapeSnapshot snapshot;
@@ -284,8 +286,25 @@ LandscapeRecipe ProjectLandscapeRecipe (const geomsrv::edit::Document& doc,
         row.target = "Path profile and cross-sections";
         row.notes.push_back ("Always after every region: a path is not reordered among them.");
         if (planned.design.outline)
-            row.notes.push_back ("Outline grading was asked for, but with regions present this path is graded as "
-                                 "its band, not its paved outline (#149).");
+            row.notes.push_back ("Outline grading was asked for, but fixed heights grade along the chosen path's "
+                                 "band only.");
+        inStack.insert (planned.object);
+        recipe.rows.push_back (std::move (row));
+    }
+    // #149 T1: an outline request is one stage grading every path's paved area.
+    for (const auto& planned : plan.outlines) {
+        RecipeRow row;
+        row.stage = RecipeStage::Path;
+        row.order = ++order;
+        row.object = planned.object;
+        row.operation = planned.operation;
+        row.source = planned.source;
+        row.name = "Paved outline";
+        row.kind = "Paths (" + std::to_string (planned.paths.size ()) + ")";
+        row.effect = PathEffect (planned.design.effect);
+        row.target = "Paved surface of every path; side slopes from its outline";
+        row.sources = planned.pathSources;
+        row.notes.push_back ("Always after every region: the side slopes meet the ground the regions composed.");
         inStack.insert (planned.object);
         recipe.rows.push_back (std::move (row));
     }
@@ -330,11 +349,12 @@ LandscapeRecipe ProjectLandscapeRecipe (const geomsrv::edit::Document& doc,
                                  : "Not in the terrain recipe: it has no live footprint root.");
         recipe.rows.push_back (std::move (row));
     }
-    const size_t designed = plan.paths.size ();
+    const size_t designed = plan.outlines.empty () ? plan.paths.size () : plan.outlines.front ().paths.size ();
     const size_t drawn = doc.paths.size ();
     if (drawn > designed)
-        recipe.limitations.push_back (std::to_string (drawn - designed) + " of " + std::to_string (drawn) +
-                                      " paths are not in this recipe: the unified build grades one selected path.");
+        recipe.limitations.push_back (
+            std::to_string (drawn - designed) + " of " + std::to_string (drawn) + " paths are not in this recipe: " +
+            (plan.outlines.empty () ? "band grading grades one selected path." : "they do not validate."));
     else if (otherPaths > 0)
         recipe.limitations.push_back ("Other path objects are not in this recipe: one path per build.");
     if (!path)

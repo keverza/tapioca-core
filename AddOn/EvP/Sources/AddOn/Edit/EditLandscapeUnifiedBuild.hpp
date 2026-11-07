@@ -9,6 +9,9 @@ namespace tapioca::geometry {
 
 struct UnifiedLandscapeBuildOptions {
     double controlTolerance = 1e-3; // Absolute grading/fixed compatibility band, metres.
+    // #149 T1: the outline faces' plan reach, metres; 0 takes the request's. The job widens
+    // it, as the outline lane did, while faces run out before they meet the ground.
+    double outlineLimit = 0.0;
 };
 
 // #112 P4a: the two scopes one build answers to, kept explicitly separate.

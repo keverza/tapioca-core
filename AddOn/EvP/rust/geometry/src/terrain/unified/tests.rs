@@ -115,6 +115,7 @@ fn empty_plan_without_property_is_baseline_bit_for_bit() -> Result<(), BuildErro
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let built = build_terrain(
         &Baseline {
@@ -163,6 +164,7 @@ fn grade_hole_and_disjoint_parts_keep_membership_and_volumes() -> Result<(), Bui
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let request = Baseline {
         points: &points,
@@ -231,6 +233,7 @@ fn one_inner_domain_integrates_positive_fill_and_property_exterior_stays_baselin
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let built = build_terrain(
         &Baseline {
@@ -290,6 +293,7 @@ fn later_overlapping_entries_override_earlier_ones() -> Result<(), BuildError> {
             masks: &[],
             controls: &[],
             control_tolerance: 1e-3,
+            outlines: &[],
         };
         build_terrain(
             &Baseline {
@@ -370,6 +374,7 @@ fn adjacent_sharp_domains_with_different_targets_refuse_as_a_hard_step() {
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -408,6 +413,7 @@ fn zero_reach_domain_against_baseline_refuses_instead_of_ramping() {
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -460,6 +466,7 @@ fn nested_sharp_overrides_refuse_instead_of_interpolating() {
             masks: &[],
             controls: &[],
             control_tolerance: 1e-3,
+            outlines: &[],
         };
         build_terrain(
             &Baseline {
@@ -508,6 +515,7 @@ fn nested_sharp_domain_sharing_a_boundary_vertex_refuses() {
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -548,6 +556,7 @@ fn entry_ring_coincident_with_the_property_ring_builds() -> Result<(), BuildErro
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let built = build_terrain(
         &Baseline {
@@ -600,6 +609,7 @@ fn add_raises_only_and_subtract_lowers_only_on_a_sloped_base() -> Result<(), Bui
             masks: &[],
             controls: &[],
             control_tolerance: 1e-3,
+            outlines: &[],
         };
         build_terrain(
             &Baseline {
@@ -664,6 +674,7 @@ fn falloff_blends_by_plan_distance_and_stops_at_blur() -> Result<(), BuildError>
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let built = build_terrain(
         &Baseline {
@@ -717,6 +728,7 @@ fn daylight_runs_cut_and_fill_faces_to_the_reach() -> Result<(), BuildError> {
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let built = build_terrain(
         &Baseline {
@@ -783,6 +795,7 @@ fn triangulated_surface_target_samples_the_authored_plane() -> Result<(), BuildE
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let built = build_terrain(
         &Baseline {
@@ -850,6 +863,7 @@ fn fixed_point_matching_the_grade_is_inserted_and_kept_exact() -> Result<(), Bui
         masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let built = build_terrain(
         &Baseline {
@@ -903,6 +917,7 @@ fn fixed_point_conflicting_with_the_grade_refuses_atomically() {
         masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -950,6 +965,7 @@ fn fixed_line_interpolates_every_split_vertex_and_owns_no_region_entry() -> Resu
         masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let built = build_terrain(
         &Baseline {
@@ -998,6 +1014,7 @@ fn coincident_fixed_points_with_different_heights_refuse() {
         masks: &[],
         controls: &controls,
         control_tolerance: 0.0,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -1027,6 +1044,7 @@ fn zero_length_fixed_line_refuses_before_meshing() {
         masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -1109,6 +1127,7 @@ fn path_band_follows_regions_on_the_same_constrained_mesh() -> Result<(), BuildE
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let built = build_terrain(
         &Baseline {
@@ -1196,6 +1215,7 @@ fn path_across_a_region_hole_builds_one_coherent_mesh() -> Result<(), BuildError
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let built = build_terrain(
         &Baseline {
@@ -1243,6 +1263,7 @@ fn fixed_control_conflicting_with_a_later_path_refuses() {
         masks: &[],
         controls: &controls,
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -1275,6 +1296,7 @@ fn coincident_path_stations_refuse_before_meshing() {
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -1319,6 +1341,7 @@ fn protected_zone_keeps_baseline_inside_and_on_its_ring() -> Result<(), BuildErr
         masks: &masks,
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let built = build_terrain(
         &Baseline {
@@ -1378,6 +1401,7 @@ fn grading_limit_restricts_the_entry_to_its_mask() -> Result<(), BuildError> {
         masks: &masks,
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     let built = build_terrain(
         &Baseline {
@@ -1419,6 +1443,7 @@ fn zero_length_mask_ring_refuses_before_meshing() {
         masks: &masks,
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -1459,6 +1484,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -1489,6 +1515,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -1520,6 +1547,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -1553,6 +1581,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(
@@ -1586,6 +1615,7 @@ fn refusals_are_atomic_and_inputs_unchanged() {
         masks: &[],
         controls: &[],
         control_tolerance: 1e-3,
+        outlines: &[],
     };
     assert!(matches!(
         build_terrain(

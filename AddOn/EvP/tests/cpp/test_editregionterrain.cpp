@@ -420,11 +420,24 @@ TEST (EditRegionTerrain, MixedSceneRefusesAtomicallyThroughTheUnifiedLaneUntilSp
     options.source = id;
     options.object = fixture.object;
     options.operation = fixture.doc.landscape->objects[0].footprintOperation;
-    options.outline = true;
+    // The band: its stations end at the splitter gap. (An outline request is its own stage
+    // since #149 T1 and grades the paved area instead; see below.)
+    options.outline = false;
     lg::TerrainDesignPublisher publisher;
     lg::TerrainDesignJob job;
     ASSERT_TRUE (publisher.Prepare (fixture.doc, fixture.Capture (), options, {}, job, error));
     auto result = lg::RunLandscapeTerrainDesign (job);
+    {
+        auto outlined = options;
+        outlined.outline = true;
+        lg::TerrainDesignPublisher own; // the band job below stays its publisher's current one
+        lg::TerrainDesignJob outlineJob;
+        ASSERT_TRUE (own.Prepare (fixture.doc, fixture.Capture (), outlined, {}, outlineJob, error));
+        const auto graded = lg::RunLandscapeTerrainDesign (outlineJob);
+        EXPECT_TRUE (graded.built) << graded.error;
+        EXPECT_TRUE (graded.published) << "the outline is one stage of the same unified build";
+        EXPECT_TRUE (lg::RunTerrainDesign (outlineJob).built) << "the legacy outline lane, its oracle, still works";
+    }
     ASSERT_FALSE (result.built);
     EXPECT_NE (result.error.find ("RegionBreakline"), std::string::npos) << result.error;
     EXPECT_TRUE (result.result.build.points.empty ()) << "Never publish a region-only or path-only partial result.";
@@ -432,7 +445,6 @@ TEST (EditRegionTerrain, MixedSceneRefusesAtomicallyThroughTheUnifiedLaneUntilSp
     ASSERT_TRUE (result.regions);
     EXPECT_EQ (result.regions->input->points[2], 0);
     EXPECT_NEAR (Height (*result.regions, 10, 10), 2, 1e-7);
-    EXPECT_TRUE (lg::RunTerrainDesign (job).built) << "The unchanged path lane still works on the original capture.";
     // The refusal becomes the latest status/diagnostic; nothing drawable publishes.
     ASSERT_TRUE (publisher.Publish (fixture.doc, std::move (result), error));
     ASSERT_NE (publisher.LatestOutcome (fixture.doc), nullptr);

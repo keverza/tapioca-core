@@ -4,20 +4,26 @@
 
 use std::collections::BTreeSet;
 
-use super::{OutlineError, OutlineRequest, plan};
+use super::{OutlineError, plan};
 use crate::terrain::{Constraint, Request, Role, triangulate};
 
-pub(super) struct Supports {
+pub(in crate::terrain) struct Supports {
     pub ring: Vec<f64>,
     pub lines: Vec<Vec<f64>>,
     pub sources: Vec<[u32; 2]>,
 }
 
-pub(super) fn prepare(request: &OutlineRequest<'_>) -> Result<Supports, OutlineError> {
-    let ring = crate::terrain::split::ring(request.region)
+/// The paved TIN's edges clipped to `region` as private support lines, and the
+/// region ring subdivided where they meet it.
+pub(in crate::terrain) fn prepare(
+    region: &[f64],
+    surface_points: &[f64],
+    surface_triangles: &[u32],
+) -> Result<Supports, OutlineError> {
+    let ring = crate::terrain::split::ring(region)
         .map_err(|e| OutlineError::Region(super::RegionError::Terrain(e)))?;
     let mut edges = BTreeSet::new();
-    for &[a, b, c] in request.surface_triangles.as_chunks::<3>().0 {
+    for &[a, b, c] in surface_triangles.as_chunks::<3>().0 {
         for (a, b) in [(a, b), (b, c), (c, a)] {
             edges.insert([a.min(b), a.max(b)]);
         }
@@ -29,11 +35,11 @@ pub(super) fn prepare(request: &OutlineRequest<'_>) -> Result<Supports, OutlineE
         .iter()
         .map(|&[a, b]| Ok([index(count + a as usize)?, index(count + b as usize)?]))
         .collect::<Result<Vec<_>, OutlineError>>()?;
-    let mut points = Vec::with_capacity(request.region.len() + request.surface_points.len());
+    let mut points = Vec::with_capacity(region.len() + surface_points.len());
     // Heights must not participate in planar intersection validation.
-    for &[x, y, _] in plan::vertices(request.region)
+    for &[x, y, _] in plan::vertices(region)
         .iter()
-        .chain(plan::vertices(request.surface_points))
+        .chain(plan::vertices(surface_points))
     {
         points.extend([x, y, 0.0]);
     }
