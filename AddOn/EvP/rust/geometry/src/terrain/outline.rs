@@ -46,6 +46,7 @@ use crate::slope::Slope;
 use std::collections::BTreeMap;
 
 mod blend;
+mod crease;
 mod reach;
 mod refine;
 pub(super) mod supports;
@@ -302,6 +303,15 @@ fn steepest_point(
     at(along.clamp(0.0, length))
 }
 
+/// The edge whose face moves the ground at a point, whether it cuts, and the plan unit
+/// vector it falls along there.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Winner {
+    pub cut: bool,
+    pub index: u32,
+    pub toward: [f64; 2],
+}
+
 /// The validated grading: grades as rise per metre of run.
 pub(super) struct Faces<'a> {
     base: &'a Field,
@@ -348,6 +358,11 @@ impl<'a> Faces<'a> {
     /// ([`blend`]) and eased by its own rounding; the move is never less than
     /// without the lift, and is the same bit for bit away from creases.
     fn moves(&self, base: f64, px: f64, py: f64) -> Moves {
+        self.resolve(base, px, py).0
+    }
+
+    /// [`Self::moves`], with every fill and cut face reaching the point.
+    fn resolve(&self, base: f64, px: f64, py: f64) -> (Moves, Vec<blend::Face>, Vec<blend::Face>) {
         let mut moves = Moves {
             raise: 0.0,
             lower: 0.0,
@@ -445,7 +460,53 @@ impl<'a> Faces<'a> {
         } else {
             lowered(&|_| true)
         });
-        moves
+        (moves, fills, cuts)
+    }
+
+    /// Which edge's face moves the ground at `(px, py)` over `base`, and on which side;
+    /// `None` on the pavement and where the design keeps the ground (#149 T2 creases).
+    pub(super) fn winner(&self, base: f64, px: f64, py: f64) -> Option<Winner> {
+        if self.surface.height_at(px, py).is_some() {
+            return None;
+        }
+        let (moves, fills, cuts) = self.resolve(base, px, py);
+        let design = self.graded(base, moves.raise, moves.lower);
+        if design.to_bits() == base.to_bits() {
+            return None;
+        }
+        let cut = design < base;
+        let limit = self.grading.limit;
+        let (face, _) = blend::envelope(if cut { &cuts } else { &fills }, |face| {
+            face.distance <= limit
+        })?;
+        Some(Winner {
+            cut,
+            index: face.index,
+            toward: face.toward,
+        })
+    }
+
+    /// Whether edge `a`'s and edge `b`'s faces on one side meet in a crease at `(px, py)`:
+    /// both reach it, neither falls from a vertex the other's edge ends at (a round cone meets
+    /// the plane smoothly there), and they fall at least [`blend::FLAT`] apart.
+    pub(super) fn creased(
+        &self,
+        base: f64,
+        [px, py]: [f64; 2],
+        cut: bool,
+        [a, b]: [u32; 2],
+    ) -> bool {
+        let (_, fills, cuts) = self.resolve(base, px, py);
+        let faces = if cut { &cuts } else { &fills };
+        let find = |index: u32| faces.iter().find(|face| face.index == index);
+        let (Some(first), Some(second)) = (find(a), find(b)) else {
+            return false;
+        };
+        if blend::joint(first, second) || blend::joint(second, first) {
+            return false;
+        }
+        let along = first.toward[0].mul_add(second.toward[0], first.toward[1] * second.toward[1]);
+        along.clamp(-1.0, 1.0).acos() >= blend::FLAT
     }
 
     /// The ground raised and lowered; within the tolerance of the ground, the

@@ -122,7 +122,7 @@ impl Edge {
 
 /// A cached grid node: not evaluated yet, evaluated off the ring or the ground, or sampled.
 #[derive(Clone, Copy, Debug, Default)]
-enum Node<T> {
+pub(super) enum Node<T> {
     #[default]
     Unknown,
     Off,
@@ -212,6 +212,33 @@ impl<'a, T: Copy + Send + Sync> Grid<'a, T> {
 
     fn index(&self, i: u32, j: u32) -> usize {
         (j * (self.nx + 1) + i) as usize
+    }
+
+    /// The cached node at plan point `(x, y)`; [`Node::Unknown`] unless it is exactly a node
+    /// of this grid and was evaluated. A grid over the same ring and step
+    /// has the same nodes, so a second tracer reads the first's samples here.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "rounded, checked non-negative and within the grid, then confirmed bit for bit"
+    )]
+    pub(super) fn cached(&self, x: f64, y: f64) -> Node<T> {
+        let (fi, fj) = (
+            ((x - self.x0) / self.step).round(),
+            ((y - self.y0) / self.step).round(),
+        );
+        if !(fi >= 0.0 && fj >= 0.0 && fi <= f64::from(self.nx) && fj <= f64::from(self.ny)) {
+            return Node::Unknown;
+        }
+        let (i, j) = (fi as u32, fj as u32);
+        let [px, py] = self.position(i, j);
+        if px.to_bits() != x.to_bits() || py.to_bits() != y.to_bits() {
+            return Node::Unknown;
+        }
+        self.nodes
+            .get(self.index(i, j))
+            .copied()
+            .unwrap_or_default()
     }
 
     /// A node's sample: cached, or evaluated now.

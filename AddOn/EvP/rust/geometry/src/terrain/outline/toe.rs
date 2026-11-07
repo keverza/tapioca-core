@@ -28,10 +28,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::Faces;
-use super::trace::{Clearance, Edge, Grid, chains, parallel, push_piece, simplify};
+use super::trace::{Clearance, Edge, Grid, Node, chains, parallel, push_piece, simplify};
 use crate::terrain::plan;
 
-/// How the toe is traced.
+/// How the toe (and the creases) are traced.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(in crate::terrain) struct Toe {
     /// Fine grid spacing the faces are sampled at, metres.
@@ -44,6 +44,9 @@ pub(in crate::terrain) struct Toe {
     pub level_clear: f64,
     /// Largest plan distance a simplified line strays from its traced points, metres.
     pub tolerance: f64,
+    /// Whether the faces' creases (ridges and valleys, [`super::crease`]) are traced too,
+    /// after the toe and clear of it.
+    pub creases: bool,
 }
 
 impl Toe {
@@ -56,6 +59,7 @@ impl Toe {
         clear: 0.02,
         level_clear: 0.08,
         tolerance: 0.005,
+        creases: true,
     };
 }
 
@@ -175,6 +179,31 @@ pub(in crate::terrain) fn lines(
             }
         }
         out.extend(found);
+    }
+    if toe.creases {
+        let creases = {
+            let mut all: Vec<&[f64]> = obstacles.to_vec();
+            all.extend(out.iter().map(Vec::as_slice));
+            // The toe's nodes are the creases' nodes: where it found the ground kept (most of a
+            // parcel), no face wins and the creases need not ask.
+            let kept = |x: f64, y: f64| match grid.cached(x, y) {
+                Node::On(sample) => Some(!sample.moved),
+                Node::Off => Some(true),
+                Node::Unknown => None,
+            };
+            super::crease::lines(
+                faces,
+                ground,
+                region,
+                &all,
+                spots,
+                &kept,
+                toe.step,
+                toe.clear,
+                toe.tolerance,
+            )
+        };
+        out.extend(creases);
     }
     out
 }

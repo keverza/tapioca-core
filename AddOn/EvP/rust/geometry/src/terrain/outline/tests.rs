@@ -702,6 +702,7 @@ fn each_outline_edge_grades_its_face_by_its_own_vertices() -> Result<(), Outline
 }
 
 mod blend;
+mod crease;
 mod reach;
 mod refine;
 mod toe;

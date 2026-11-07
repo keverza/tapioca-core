@@ -43,12 +43,12 @@ pub(super) struct Face {
 }
 
 /// Directions this far apart, radians, make no crease.
-const FLAT: f64 = std::f64::consts::PI / 18.0;
+pub(super) const FLAT: f64 = std::f64::consts::PI / 18.0;
 /// Directions this far apart, radians, make a full crease.
 const CREASE: f64 = std::f64::consts::FRAC_PI_4;
 
 /// Whether `a` falls from an end of its edge that `b`'s edge also ends at.
-fn joint(a: &Face, b: &Face) -> bool {
+pub(super) fn joint(a: &Face, b: &Face) -> bool {
     if a.inside {
         return false;
     }
