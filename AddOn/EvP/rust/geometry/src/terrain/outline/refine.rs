@@ -119,10 +119,12 @@ impl Memo {
     pub(super) fn error(&mut self, design: &Design<'_>, corners: [[f64; 3]; 3]) -> f64 {
         let mut id = corners.map(|[x, y, _]| [x.to_bits(), y.to_bits()]);
         id.sort_unstable();
-        *self
-            .errors
-            .entry(id)
-            .or_insert_with(|| sampled_error(design, corners))
+        if let Some(&error) = self.errors.get(&id) {
+            return error;
+        }
+        let error = sampled_error(self, design, corners);
+        self.errors.insert(id, error);
+        error
     }
 }
 
@@ -299,10 +301,12 @@ pub(super) fn mix(w: [f64; 3], corners: [[f64; 3]; 3]) -> [f64; 3] {
     ]
 }
 
-/// The largest gap between the faces and the triangle's plane at its samples.
-fn sampled_error(design: &Design<'_>, corners: [[f64; 3]; 3]) -> f64 {
+/// The largest gap between the faces and the triangle's plane at its samples. Interior samples
+/// share the height memo with the mesher's moved/kept assessment; only the side midpoints are new.
+fn sampled_error(memo: &mut Memo, design: &Design<'_>, corners: [[f64; 3]; 3]) -> f64 {
     ERROR_SAMPLES.iter().fold(0.0_f64, |worst, &weights| {
         let [x, y, z] = mix(weights, corners);
-        design(x, y).map_or(worst, |(height, _)| worst.max((height - z).abs()))
+        memo.height(design, x, y)
+            .map_or(worst, |(height, _)| worst.max((height - z).abs()))
     })
 }

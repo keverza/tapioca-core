@@ -1,7 +1,7 @@
 //! #149 T3: the faces' vertical error bounded by refinement, not offset rings.
 
 use super::*;
-use crate::terrain::outline::refine::mix;
+use crate::terrain::outline::refine::{Memo, SAMPLES, mix};
 
 /// The ground tilted 5 % along x, so the toe wanders across the base triangles;
 /// the pavement only (no offset rings) as the caller's line, with the T2 toe and
@@ -142,6 +142,30 @@ fn measure(built: &Outlined, points: &[f64], rounding: f64) -> Result<(f64, f64)
     }
     angles.sort_by(f64::total_cmp);
     Ok((gap, angles.get(angles.len() / 20).copied().unwrap_or(0.0)))
+}
+
+#[test]
+fn error_sampling_reuses_move_samples_and_cached_triangle_errors() {
+    let calls = std::cell::Cell::new(0_usize);
+    let design = |x: f64, y: f64| {
+        calls.set(calls.get() + 1);
+        Some((0.25f64.mul_add(x, 0.5 * y) + 0.2, false))
+    };
+    let corners = [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 2.0, 0.0]];
+    let mut memo = Memo::default();
+
+    // Mesher::moves evaluates these four samples before asking for the triangle's error.
+    for weights in SAMPLES {
+        let [x, y, _] = mix(weights, corners);
+        assert!(memo.height(&design, x, y).is_some());
+    }
+    assert_eq!(calls.get(), 4);
+
+    let first = memo.error(&design, corners);
+    assert!(first > 0.0);
+    assert_eq!(calls.get(), 7, "only the three side midpoints are new");
+    assert_eq!(memo.error(&design, corners), first);
+    assert_eq!(calls.get(), 7, "a repeated error request evaluates nothing");
 }
 
 #[test]
