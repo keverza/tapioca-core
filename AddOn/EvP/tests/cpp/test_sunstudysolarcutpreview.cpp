@@ -84,6 +84,63 @@ TEST (SunStudySolarCutPreview, CuttingSheetOmitsSectorCreasesAndTriangulationDia
     EXPECT_EQ (drawables.depthTested.lineVertices.size () / 6, 4u);
 }
 
+TEST (SunStudySolarCutPreview, WonRegionUsesTheSingleShadowTriangleLatticeAndRealBoundary)
+{
+    geomsrv::Snapshot snapshot;
+    geomsrv::Mesh mesh;
+    mesh.vertices = { 0, 0, 0, 4, 0, 0, 0, 4, 0 };
+    mesh.triangles = { 0, 1, 2 };
+    snapshot.meshes = { mesh };
+    evp::sunstudy::SamplerOptions options;
+    options.spacing = 1.0;
+    options.normalOffset = 0.0;
+    options.wantLayouts = true;
+    const auto grid = evp::sunstudy::BuildSampleGrid (mesh.vertices.data (), mesh.VertexCount (),
+                                                      mesh.triangles.data (), mesh.TriangleCount (), nullptr, options);
+    ASSERT_TRUE (grid.valid);
+    ASSERT_GT (grid.Count (), 8u);
+    std::vector<SolarCutWonCell> surface (grid.Count ());
+    for (size_t sample = 0; sample < surface.size (); ++sample)
+        surface[sample].sample = sample;
+    const auto& won = surface;
+
+    GhPreviewDrawables drawables;
+    const SolarCutWonStudy study { &snapshot, &grid, nullptr, false };
+    AppendSolarCutWonCells (won, 1.0, drawables, &surface, &study);
+    EXPECT_NEAR (FillArea (drawables.depthTested), 8.0, 1.0e-5); // the real triangle, not its raster overhang
+    EXPECT_EQ (drawables.depthTested.lineVertices.size () / 6, 3u);
+    for (const auto& vertex : drawables.depthTested.meshVertices)
+        EXPECT_DOUBLE_EQ (vertex.z, 0.0); // no invented plane lift; the renderer applies its depth pull
+}
+
+TEST (SunStudySolarCutPreview, WonPatchRegionClipsToItsSquareWithoutInternalEdges)
+{
+    geomsrv::Snapshot snapshot;
+    geomsrv::Mesh mesh;
+    mesh.vertices = { 0, 0, 0, 4, 0, 0, 4, 4, 0, 0, 4, 0 };
+    mesh.triangles = { 0, 1, 2, 0, 2, 3 };
+    snapshot.meshes = { mesh };
+    evp::sunstudy::PatchSamplerOptions options;
+    options.spacing = 1.0;
+    options.normalOffset = 0.0;
+    const auto grid =
+        evp::sunstudy::BuildPatchSampleGrid (mesh.vertices.data (), mesh.VertexCount (), mesh.triangles.data (),
+                                             mesh.TriangleCount (), nullptr, { "floor" }, options);
+    ASSERT_TRUE (grid.valid);
+    ASSERT_GT (grid.Count (), 3u);
+    std::vector<SolarCutWonCell> surface (grid.Count ());
+    for (size_t sample = 0; sample < surface.size (); ++sample)
+        surface[sample].sample = sample;
+    auto won = surface;
+    won.erase (won.begin () + grid.Count () / 2);
+
+    GhPreviewDrawables drawables;
+    const SolarCutWonStudy study { &snapshot, nullptr, &grid, true };
+    AppendSolarCutWonCells (won, 1.0, drawables, &surface, &study);
+    EXPECT_NEAR (FillArea (drawables.depthTested), 16.0, 1.0e-5);
+    EXPECT_EQ (drawables.depthTested.lineVertices.size () / 6, 4u);
+}
+
 TEST (SunStudySolarCutPreview, WonRegionIsTrimmedToItsSurface)
 {
     // Two 3 x 3 blocks of won cells one empty column apart. Alone, closing

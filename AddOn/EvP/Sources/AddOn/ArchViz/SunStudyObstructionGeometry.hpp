@@ -15,6 +15,8 @@
 #include "ArchViz/GhPreviewGeometry.hpp"
 #include "Geometry/Mesh.hpp"
 #include "SunStudy/SunStudyObstruction.hpp"
+#include "SunStudy/SunStudyPatchSampler.hpp"
+#include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudySolarCut.hpp"
 
 #include <cstddef>
@@ -72,16 +74,27 @@ constexpr uint32_t kSolarCutWonRgba = 0xFFE27AB0u;     // sun the cut wins: a wa
 constexpr uint32_t kSolarCutWonEdgeRgba = 0xD08A10FFu; // its perimeter
 void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3],
                             GhPreviewDrawables& drawables);
-// The won cells as one region per surface (cells `size` apart, gaps of one
-// cell closed, holes filled), lifted off the surface, with its perimeter.
+// The won cells as one region per measured surface (cells `size` apart, gaps
+// of one cell closed and holes filled), with only its outside perimeter.
 struct SolarCutWonCell {
     double position[3] = {};
     double normal[3] = { 0.0, 0.0, 1.0 };
+    size_t sample = SIZE_MAX; // its index in the study's sample arrays
 };
-// `surface`, when given, is every study cell: the region is trimmed to the
-// places its surface has cells, so closing never hangs it over an edge.
+// The exact display mapping shared with Single shadow. With `study`, each won
+// region uses its own face/patch lattice and is clipped to the source triangles
+// of `snapshot`; no averaged plane or world-space lift is invented.
+struct SolarCutWonStudy {
+    const geomsrv::Snapshot* snapshot = nullptr;
+    const evp::sunstudy::SampleGrid* triangles = nullptr;
+    const evp::sunstudy::PatchSampleGrid* patches = nullptr;
+    bool patchDomain = false;
+};
+// `surface`, when given, is every study cell: closing and hole filling never
+// extend the region beyond cells that belong to the measured surface.
 void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables,
-                             const std::vector<SolarCutWonCell>* surface = nullptr);
+                             const std::vector<SolarCutWonCell>* surface = nullptr,
+                             const SolarCutWonStudy* study = nullptr);
 
 } // namespace geomsrv::archviz
 

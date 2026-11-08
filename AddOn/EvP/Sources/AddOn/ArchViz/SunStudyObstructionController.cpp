@@ -236,6 +236,7 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
             if (nearest < 0.0 || cutGuids.count (evp::sunstudy::CanonicalGuid (by)) == 0 || !clear (origin, direction))
                 continue;
             SolarCutWonCell cell;
+            cell.sample = s;
             std::copy (position, position + 3, cell.position);
             if (normal != nullptr)
                 std::copy (normal, normal + 3, cell.normal);
@@ -246,11 +247,14 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
     frame->wonCells = won.size ();
     std::vector<SolarCutWonCell> studied (samples);
     for (size_t s = 0; s < samples; ++s) {
+        studied[s].sample = s;
         std::copy (&record.positions[3 * s], &record.positions[3 * s] + 3, studied[s].position);
         if (record.normals.size () == record.positions.size ())
             std::copy (&record.normals[3 * s], &record.normals[3 * s] + 3, studied[s].normal);
     }
-    AppendSolarCutWonCells (won, record.gridSpacing, frame->drawables, &studied);
+    const SolarCutWonStudy study { record.snapshot.get (), &record.sampleGrid, &record.patchGrid,
+                                   record.IsPatchDomain () };
+    AppendSolarCutWonCells (won, record.gridSpacing, frame->drawables, &studied, &study);
     return frame;
 }
 

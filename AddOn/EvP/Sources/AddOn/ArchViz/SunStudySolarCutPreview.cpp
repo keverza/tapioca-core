@@ -163,6 +163,284 @@ void OutlineEdges (const std::vector<const evp::sunstudy::SolarCutTriangle*>& tr
     }
 }
 
+using V2 = std::array<double, 2>;
+
+double Side (const V2& a, const V2& b, const V2& p)
+{
+    return (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+}
+
+// A lattice square clipped by one source triangle, in that surface's own 2D
+// frame. The source triangles partition the surface, so the emitted pieces
+// neither overlap nor continue past its real edge.
+std::vector<V2> ClipCell (const std::array<V2, 4>& cell, std::array<V2, 3> triangle)
+{
+    if (Side (triangle[0], triangle[1], triangle[2]) < 0.0)
+        std::swap (triangle[1], triangle[2]);
+    std::vector<V2> input (cell.begin (), cell.end ());
+    for (int edge = 0; edge < 3 && !input.empty (); ++edge) {
+        const V2 a = triangle[size_t (edge)], b = triangle[size_t ((edge + 1) % 3)];
+        std::vector<V2> output;
+        for (size_t i = 0; i < input.size (); ++i) {
+            const V2 from = input[i], to = input[(i + 1) % input.size ()];
+            const double df = Side (a, b, from), dt = Side (a, b, to);
+            const bool insideFrom = df >= 0.0, insideTo = dt >= 0.0;
+            if (insideFrom != insideTo && std::abs (df - dt) > 1.0e-15) {
+                const double t = df / (df - dt);
+                output.push_back ({ from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t });
+            }
+            if (insideTo)
+                output.push_back (to);
+        }
+        input = std::move (output);
+    }
+    return input;
+}
+
+struct WonGroup {
+    std::vector<uint32_t> faces; // global source-triangle indices
+    V3 origin {}, u {}, v {};
+    long uStart = 0, vStart = 0;
+    bool gridded = true;
+    std::set<std::pair<int, int>> cells, surface;
+};
+
+uint32_t WonGroupKey (size_t sample, const SolarCutWonStudy& study)
+{
+    if (sample == SIZE_MAX)
+        return UINT32_MAX;
+    if (study.patchDomain) {
+        if (study.patches == nullptr || sample >= study.patches->spanOf.size ())
+            return UINT32_MAX;
+        return study.patches->spanOf[sample];
+    }
+    if (study.triangles == nullptr || sample >= study.triangles->faces.size ())
+        return UINT32_MAX;
+    return study.triangles->faces[sample];
+}
+
+bool InitialiseWonGroup (WonGroup& group, uint32_t key, const SolarCutWonStudy& study)
+{
+    const auto copy = [] (const double* from, V3& to) { std::copy (from, from + 3, to.begin ()); };
+    if (study.patchDomain) {
+        if (study.patches == nullptr || key >= study.patches->spans.size ())
+            return false;
+        const auto& span = study.patches->spans[key];
+        copy (span.origin, group.origin);
+        copy (span.uAxis, group.u);
+        copy (span.vAxis, group.v);
+        for (size_t face = 0; face < study.patches->patchOfTriangle.size (); ++face)
+            if (study.patches->patchOfTriangle[face] == key)
+                group.faces.push_back (uint32_t (face));
+    }
+    else {
+        if (study.triangles == nullptr || key >= study.triangles->layouts.size ())
+            return false;
+        const auto& layout = study.triangles->layouts[key];
+        copy (layout.origin, group.origin);
+        copy (layout.uAxis, group.u);
+        copy (layout.vAxis, group.v);
+        group.uStart = layout.uStart;
+        group.vStart = layout.vStart;
+        group.gridded = layout.gridded;
+        group.faces = { key };
+    }
+    return !group.faces.empty ();
+}
+
+std::pair<int, int> WonCellIndex (size_t sample, const SolarCutWonStudy& study)
+{
+    const auto& columns = study.patchDomain ? study.patches->cellColumns : study.triangles->cellColumns;
+    const auto& rows = study.patchDomain ? study.patches->cellRows : study.triangles->cellRows;
+    if (sample >= columns.size () || sample >= rows.size () || columns[sample] > uint32_t (INT32_MAX) ||
+        rows[sample] > uint32_t (INT32_MAX))
+        return { 0, 0 };
+    return { int (columns[sample]), int (rows[sample]) };
+}
+
+// Production display path: exactly the lattices Single shadow resolves per
+// pixel. A won raster is closed and its holes filled within each face/patch,
+// then every covered cell is clipped to the actual mesh. There is no average
+// height to drift off a triangle and no boundary drawn around empty space.
+void AppendExactWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables,
+                          const std::vector<SolarCutWonCell>& surface, const SolarCutWonStudy& study)
+{
+    if (study.snapshot == nullptr || (!study.patchDomain && study.triangles == nullptr) ||
+        (study.patchDomain && study.patches == nullptr))
+        return;
+    const double step = size > 0.0 ? size : 0.5;
+    std::vector<uint32_t> faceMeshes, firstFaces;
+    for (size_t mesh = 0; mesh < study.snapshot->meshes.size (); ++mesh) {
+        firstFaces.push_back (uint32_t (faceMeshes.size ()));
+        faceMeshes.insert (faceMeshes.end (), study.snapshot->meshes[mesh].TriangleCount (), uint32_t (mesh));
+    }
+
+    std::map<uint32_t, WonGroup> groups;
+    const auto add = [&] (const SolarCutWonCell& cell, bool won) {
+        const uint32_t key = WonGroupKey (cell.sample, study);
+        if (key == UINT32_MAX)
+            return;
+        auto found = groups.find (key);
+        if (found == groups.end ()) {
+            if (!won)
+                return;
+            WonGroup group;
+            if (!InitialiseWonGroup (group, key, study))
+                return;
+            found = groups.emplace (key, std::move (group)).first;
+        }
+        const auto ij = found->second.gridded ? WonCellIndex (cell.sample, study) : std::pair<int, int> { 0, 0 };
+        (won ? found->second.cells : found->second.surface).insert (ij);
+    };
+    for (const auto& cell : cells)
+        add (cell, true);
+    for (const auto& cell : surface)
+        add (cell, false);
+
+    std::vector<evp::sunstudy::SolarCutTriangle> exact;
+    const auto emit = [&] (const WonGroup& group, uint32_t face, const std::vector<V2>* clipped) {
+        if (face >= faceMeshes.size ())
+            return;
+        const uint32_t meshIndex = faceMeshes[face];
+        const auto& mesh = study.snapshot->meshes[meshIndex];
+        const size_t local = size_t (face - firstFaces[meshIndex]);
+        if (local >= mesh.TriangleCount ())
+            return;
+        V3 corners[3];
+        for (int corner = 0; corner < 3; ++corner) {
+            const uint32_t vertex = mesh.triangles[3 * local + size_t (corner)];
+            if (3ull * vertex + 2 >= mesh.vertices.size ())
+                return;
+            for (int axis = 0; axis < 3; ++axis)
+                corners[corner][axis] = mesh.vertices[3ull * vertex + size_t (axis)];
+        }
+        V3 normal = Cross (Sub (corners[1], corners[0]), Sub (corners[2], corners[0]));
+        if (!Normalize (normal))
+            return;
+        std::vector<V2> polygon;
+        if (clipped != nullptr)
+            polygon = *clipped;
+        else
+            for (const V3& corner : corners) {
+                const V3 relative = Sub (corner, group.origin);
+                polygon.push_back ({ Dot (relative, group.u) / step, Dot (relative, group.v) / step });
+            }
+        if (polygon.size () < 3)
+            return;
+        std::vector<V3> world;
+        for (const V2& p : polygon)
+            world.push_back (Add (group.origin, Add (Scale (group.u, p[0] * step), Scale (group.v, p[1] * step))));
+        for (size_t k = 1; k + 1 < world.size (); ++k) {
+            Triangle (world[0], world[k], world[k + 1], normal, kSolarCutWonRgba, drawables.depthTested);
+            evp::sunstudy::SolarCutTriangle triangle;
+            triangle.mesh = meshIndex;
+            for (int corner = 0; corner < 3; ++corner) {
+                const V3* points[3] = { &world[0], &world[k], &world[k + 1] };
+                std::copy (points[corner]->begin (), points[corner]->end (), triangle.v[corner]);
+            }
+            exact.push_back (triangle);
+        }
+    };
+
+    for (auto& [key, group] : groups) {
+        if (group.cells.empty ())
+            continue;
+        if (!group.gridded) {
+            // A sub-grid face has one centroid sample and no cell lattice. Its
+            // measured answer covers the whole triangle, as Single shadow does.
+            for (const uint32_t face : group.faces)
+                emit (group, face, nullptr);
+            continue;
+        }
+        int minI = INT32_MAX, minJ = INT32_MAX, maxI = INT32_MIN, maxJ = INT32_MIN;
+        for (const auto& ij : group.cells) {
+            minI = (std::min) (minI, ij.first), maxI = (std::max) (maxI, ij.first);
+            minJ = (std::min) (minJ, ij.second), maxJ = (std::max) (maxJ, ij.second);
+        }
+        constexpr int kPad = 2;
+        const int w = maxI - minI + 1 + 2 * kPad, h = maxJ - minJ + 1 + 2 * kPad;
+        if (w <= 0 || h <= 0 || size_t (w) * size_t (h) > 4000000u)
+            continue;
+        std::vector<uint8_t> in (size_t (w) * h, 0), grown (in.size (), 0);
+        const auto at = [w] (int x, int y) { return size_t (y) * w + x; };
+        for (const auto& ij : group.cells)
+            in[at (ij.first - minI + kPad, ij.second - minJ + kPad)] = 1;
+        for (int y = 1; y + 1 < h; ++y)
+            for (int x = 1; x + 1 < w; ++x)
+                for (int dy = -1; dy <= 1 && !grown[at (x, y)]; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx)
+                        if (in[at (x + dx, y + dy)]) {
+                            grown[at (x, y)] = 1;
+                            break;
+                        }
+        std::fill (in.begin (), in.end (), uint8_t (0));
+        for (int y = 1; y + 1 < h; ++y)
+            for (int x = 1; x + 1 < w; ++x) {
+                bool all = true;
+                for (int dy = -1; dy <= 1 && all; ++dy)
+                    for (int dx = -1; dx <= 1 && all; ++dx)
+                        all = grown[at (x + dx, y + dy)] != 0;
+                in[at (x, y)] = all ? 1 : 0;
+            }
+        std::vector<uint8_t> outside (in.size (), 0);
+        std::vector<std::pair<int, int>> stack { { 0, 0 } };
+        outside[0] = 1;
+        while (!stack.empty ()) {
+            const auto [x, y] = stack.back ();
+            stack.pop_back ();
+            const int nx[4] = { x + 1, x - 1, x, x }, ny[4] = { y, y, y + 1, y - 1 };
+            for (int k = 0; k < 4; ++k)
+                if (nx[k] >= 0 && ny[k] >= 0 && nx[k] < w && ny[k] < h && !in[at (nx[k], ny[k])] &&
+                    !outside[at (nx[k], ny[k])]) {
+                    outside[at (nx[k], ny[k])] = 1;
+                    stack.emplace_back (nx[k], ny[k]);
+                }
+        }
+        for (size_t c = 0; c < in.size (); ++c)
+            in[c] = outside[c] ? 0 : 1;
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                const std::pair<int, int> ij { x + minI - kPad, y + minJ - kPad };
+                if (!in[at (x, y)] || group.surface.count (ij) == 0)
+                    continue;
+                const double u0 = double (group.uStart + ij.first), v0 = double (group.vStart + ij.second);
+                const std::array<V2, 4> cell { V2 { u0, v0 }, V2 { u0 + 1.0, v0 }, V2 { u0 + 1.0, v0 + 1.0 },
+                                               V2 { u0, v0 + 1.0 } };
+                for (const uint32_t face : group.faces) {
+                    if (face >= faceMeshes.size ())
+                        continue;
+                    const auto& mesh = study.snapshot->meshes[faceMeshes[face]];
+                    const size_t local = size_t (face - firstFaces[faceMeshes[face]]);
+                    if (local >= mesh.TriangleCount ())
+                        continue;
+                    std::array<V2, 3> triangle {};
+                    bool valid = true;
+                    for (int corner = 0; corner < 3; ++corner) {
+                        const uint32_t vertex = mesh.triangles[3 * local + size_t (corner)];
+                        if (3ull * vertex + 2 >= mesh.vertices.size ()) {
+                            valid = false;
+                            break;
+                        }
+                        V3 p;
+                        for (int axis = 0; axis < 3; ++axis)
+                            p[axis] = mesh.vertices[3ull * vertex + size_t (axis)];
+                        const V3 relative = Sub (p, group.origin);
+                        triangle[size_t (corner)] = { Dot (relative, group.u) / step, Dot (relative, group.v) / step };
+                    }
+                    if (valid) {
+                        const std::vector<V2> clipped = ClipCell (cell, triangle);
+                        emit (group, face, &clipped);
+                    }
+                }
+            }
+    }
+    std::vector<const evp::sunstudy::SolarCutTriangle*> outline;
+    outline.reserve (exact.size ());
+    for (const auto& triangle : exact)
+        outline.push_back (&triangle);
+    OutlineEdges (outline, kSolarCutWonEdgeRgba, drawables.depthTested, false);
+}
+
 } // namespace
 
 void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3],
@@ -203,8 +481,12 @@ void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const doub
 }
 
 void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables,
-                             const std::vector<SolarCutWonCell>* surface)
+                             const std::vector<SolarCutWonCell>* surface, const SolarCutWonStudy* study)
 {
+    if (study != nullptr && surface != nullptr) {
+        AppendExactWonCells (cells, size, drawables, *surface, *study);
+        return;
+    }
     // One region per surface: cells are grouped by face direction and plane,
     // laid on a raster of the study's grid, small gaps closed and holes filled,
     // and the raster's boundary traced by marching squares into one filled
