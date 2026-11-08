@@ -292,6 +292,11 @@ impl Reach {
         reach
     }
 
+    /// The largest crease knee, also the cutoff for the toe-span weights (#170).
+    pub(super) fn knee(&self) -> f64 {
+        self.knee
+    }
+
     /// Visit, once each, every edge whose faces may move the ground at height
     /// `base` at `(x, y)`, with which of its sides (fill, cut) may. `visit`
     /// grades those and returns its fill face's height and its cut face's

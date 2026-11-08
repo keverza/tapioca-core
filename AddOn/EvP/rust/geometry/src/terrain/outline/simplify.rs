@@ -83,10 +83,7 @@ fn merge(edges: &[Edge], tolerance: f64) -> Vec<Edge> {
         // Forward from `from` along `edge`, merging runs.
         let mut run: Vec<[f64; 3]> = vec![from];
         let mut grade = None;
-        loop {
-            let Some(current) = edges.get(edge) else {
-                break;
-            };
+        while let Some(current) = edges.get(edge) {
             if used.get(edge).copied().unwrap_or(true) {
                 break;
             }

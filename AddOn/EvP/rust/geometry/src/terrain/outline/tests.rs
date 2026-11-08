@@ -945,6 +945,78 @@ fn the_field_preview_matches_the_unified_mesh() -> Result<(), String> {
 
 /// #175: the preview reports what the build reports when the faces run out at their limit, and
 /// widens the reach as the editor's job widens the build's.
+/// #170: a face only 20 cm above level ground, less than its 33 cm vertical toe rounding, still
+/// never exceeds the rounded top's 4/3 of its 33 % grade. Sample the exact field around the low
+/// pavement's end, rather than judging it through triangles the mesher happened to leave.
+#[test]
+fn a_face_lower_than_its_rounding_keeps_the_grade() -> Result<(), OutlineError> {
+    let (mut points, triangles) = base();
+    for [_, _, z] in points.as_chunks_mut::<3>().0 {
+        *z = -0.2;
+    }
+    let paved = [
+        0.0, -2.0, 0.0, 40.0, -2.0, 0.0, 40.0, 2.0, 0.0, 0.0, 2.0, 0.0,
+    ];
+    let operator = Operator::new(
+        &points,
+        &triangles,
+        &paved,
+        &PAVED_TRIANGLES,
+        &[],
+        Grading {
+            cut: HALF,
+            fill: Slope::Percent(33.0),
+            limit: 10.0,
+            rounding: 1.0,
+            effect: Effect::Both,
+            tolerance: 1e-6,
+        },
+    )?;
+    let faces = operator.faces();
+    let step = 0.001;
+    for i in 0..100 {
+        for j in 0..200 {
+            let (x, y) = (-0.5 + 0.01 * f64::from(i), 0.01 * f64::from(j));
+            let dx = (faces.over(-0.2, x + step, y).0 - faces.over(-0.2, x - step, y).0).abs()
+                / (2.0 * step);
+            let dy = (faces.over(-0.2, x, y + step).0 - faces.over(-0.2, x, y - step).0).abs()
+                / (2.0 * step);
+            assert!(
+                dx.hypot(dy) <= 0.33 * 4.0 / 3.0 + 1e-6,
+                "({x},{y}): gradient {}",
+                dx.hypot(dy)
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The low-face toe cap is continuous when the highest face changes at a tie. The two collinear
+/// edges have different heights but the same eased face height here; neither may bring its own
+/// cap to the envelope, or their tied design would jump (#170).
+#[test]
+fn a_low_face_toe_span_does_not_depend_on_the_winning_edge() {
+    let face = |index, height, edge| super::blend::Face {
+        index,
+        height,
+        edge,
+        toward: [1.0, 0.0],
+        segment: [[0.0, 0.0, edge], [1.0, 0.0, edge]],
+        inside: false,
+        foot: [0.0, 0.0],
+        distance: 1.0,
+        grade: 0.5,
+        rounding: 1.0,
+    };
+    let keep = &|_: &super::blend::Face| true;
+    let below = [face(0, 0.05, 0.1), face(1, 0.05, 0.2)];
+    let above = [face(2, 0.05, 0.1), face(1, 0.05, 0.2)];
+    let a = envelope_toe(0.0, &below, keep, false, 1.0);
+    let b = envelope_toe(0.0, &above, keep, false, 1.0);
+    assert!((a.unwrap_or(f64::NAN) - toe(0.0, 0.05, false, 0.15)).abs() < 1e-15);
+    assert!((a.unwrap_or(f64::NAN) - b.unwrap_or(f64::NAN)).abs() < 1e-12);
+}
+
 #[test]
 fn the_field_preview_counts_and_widens_a_short_reach() -> Result<(), String> {
     let built = unified(1.0, 3.0, &[]).map_err(|e| format!("unified {e:?}"))?;

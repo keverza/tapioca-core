@@ -514,6 +514,46 @@ fn cone(edge: f64, distance: f64, rise: f64, rounding: f64) -> f64 {
     }
 }
 
+/// A toe rounds over the face's vertical span at most. The usual `grade * rounding` span starts
+/// easing before the daylight; where the whole edge is closer to the ground than that, an
+/// uncapped span lifts the design above (or below) the pavement at the outline itself (#170).
+fn toe_span(base: f64, edge: f64, grade: f64, rounding: f64) -> f64 {
+    (grade * rounding).min((edge - base).abs())
+}
+
+/// The local face envelope eased onto the ground. The toe span is a smooth height-weighted mean,
+/// not just the winner's: tied faces with different edge heights meet continuously (#170). Weights
+/// reach zero at `fade`, the reach index's knee, so a pruned face cannot change the span.
+fn envelope_toe(
+    base: f64,
+    faces: &[blend::Face],
+    keep: &dyn Fn(&blend::Face) -> bool,
+    cut: bool,
+    fade: f64,
+) -> Option<f64> {
+    let (winner, lifted) = blend::envelope(faces, keep)?;
+    let mut weighted = 0.0;
+    let mut weights = 0.0;
+    for face in faces.iter().filter(|face| keep(face)) {
+        let t = if fade > 0.0 {
+            (1.0 - (winner.height - face.height).max(0.0) / fade).clamp(0.0, 1.0)
+        } else if face.index == winner.index {
+            1.0
+        } else {
+            0.0
+        };
+        let weight = t * t * 2.0f64.mul_add(-t, 3.0);
+        weighted += weight * toe_span(base, face.edge, face.grade, face.rounding);
+        weights += weight;
+    }
+    let span = if weights > 0.0 {
+        weighted / weights
+    } else {
+        toe_span(base, winner.edge, winner.grade, winner.rounding)
+    };
+    Some(toe(base, if cut { -lifted } else { lifted }, cut, span))
+}
+
 impl<'a> Faces<'a> {
     fn new(base: &'a Field, surface: &'a Field, outline: &'a [Edge], grading: Grading) -> Self {
         Self {
@@ -560,7 +600,8 @@ impl<'a> Faces<'a> {
                     let (distance, height, toward, planar) =
                         steepest_point(edge.segment, [px, py], fill, false);
                     let face = cone(height, distance, -fill, rounding);
-                    let raise = toe(base, face, false, fill * rounding) - base;
+                    let raise =
+                        toe(base, face, false, toe_span(base, height, fill, rounding)) - base;
                     moves.raise_any = moves.raise_any.max(raise);
                     if distance <= limit {
                         moves.raise = moves.raise.max(raise);
@@ -569,6 +610,7 @@ impl<'a> Faces<'a> {
                     fills.push(blend::Face {
                         index,
                         height: face,
+                        edge: height,
                         toward,
                         segment: edge.segment,
                         inside: planar,
@@ -585,7 +627,7 @@ impl<'a> Faces<'a> {
                     let (distance, height, toward, planar) =
                         steepest_point(edge.segment, [px, py], cut, true);
                     let face = cone(height, distance, cut, rounding);
-                    let lower = base - toe(base, face, true, cut * rounding);
+                    let lower = base - toe(base, face, true, toe_span(base, height, cut, rounding));
                     moves.lower_any = moves.lower_any.max(lower);
                     if distance <= limit {
                         moves.lower = moves.lower.max(lower);
@@ -594,6 +636,7 @@ impl<'a> Faces<'a> {
                     cuts.push(blend::Face {
                         index,
                         height: -face,
+                        edge: height,
                         toward,
                         segment: edge.segment,
                         inside: planar,
@@ -610,14 +653,12 @@ impl<'a> Faces<'a> {
             });
         let within = |face: &blend::Face| face.distance <= limit;
         let raised = |keep: &dyn Fn(&blend::Face) -> bool| {
-            blend::envelope(&fills, keep).map_or(0.0, |(face, lifted)| {
-                toe(base, lifted, false, face.grade * face.rounding) - base
-            })
+            envelope_toe(base, &fills, keep, false, self.reach.knee())
+                .map_or(0.0, |height| height - base)
         };
         let lowered = |keep: &dyn Fn(&blend::Face) -> bool| {
-            blend::envelope(&cuts, keep).map_or(0.0, |(face, lifted)| {
-                base - toe(base, -lifted, true, face.grade * face.rounding)
-            })
+            envelope_toe(base, &cuts, keep, true, self.reach.knee())
+                .map_or(0.0, |height| base - height)
         };
         // Every face within the limit: the two envelopes are one.
         let (raise, lower) = (raised(&within), lowered(&within));

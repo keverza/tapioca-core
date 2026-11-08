@@ -441,7 +441,10 @@ impl Mesher<'_, '_> {
     }
 
     /// Split the constrained side `[a, b]` at its midpoint, keeping both halves constrained.
-    fn split(&mut self, [a, b]: [usize; 2]) -> Result<(), Stop> {
+    /// Angle-only work keeps a kerb's support whole and twice the shortest side is its limit;
+    /// height-error work may split the kerb and continues to the shortest side, since leaving the
+    /// adjacent triangle unrefined makes steeper slivers beside the kerb (#149/#170).
+    fn split(&mut self, [a, b]: [usize; 2], error: bool) -> Result<(), Stop> {
         let (pa, pb) = (
             self.position(a).ok_or(Stop::Broken)?,
             self.position(b).ok_or(Stop::Broken)?,
@@ -451,9 +454,10 @@ impl Mesher<'_, '_> {
         let support = kinds
             .iter()
             .any(|kind| matches!(kind, Kind::Line { line, .. } if *line >= supports));
+        let shortest = self.bound.refine.shortest * if error { 1.0 } else { 2.0 };
         if kinds.contains(&Kind::Ring)
-            || distance(pa, pb) < 2.0 * self.bound.refine.shortest
-            || (support && self.kerb([a, b]))
+            || distance(pa, pb) < shortest
+            || (support && !error && self.kerb([a, b]))
         {
             return Err(Stop::Leave);
         }
@@ -680,7 +684,7 @@ impl Mesher<'_, '_> {
         match self.encroached(centroid, centre) {
             Ok(None) if centre_crowded => Err(Stop::Leave),
             Ok(None) => self.insert(centre),
-            Ok(Some(side)) => match self.split(side) {
+            Ok(Some(side)) => match self.split(side, matches!(why, Why::Error(_))) {
                 Err(Stop::Leave) if matches!(why, Why::Error(_)) => {
                     self.fall_back(vertices, centroid, centroid_crowded)
                 }
@@ -722,7 +726,7 @@ impl Mesher<'_, '_> {
             return Err(Stop::Leave);
         }
         if self.is_constraint(from, to) {
-            return self.split([from, to]);
+            return self.split([from, to], true);
         }
         self.insert(Point2::new(
             start.x.midpoint(end.x),

@@ -27,6 +27,9 @@ pub(super) struct Face {
     pub index: u32,
     /// Height, negated for a cut face.
     pub height: f64,
+    /// The outline edge's height at the steepest point, before the top rounding; not negated.
+    /// This caps the toe's vertical blend where the whole face is lower than its rounding (#170).
+    pub edge: f64,
     /// Plan unit vector from the edge's steepest point to the point: the way
     /// the face falls (zero on the edge itself).
     pub toward: [f64; 2],

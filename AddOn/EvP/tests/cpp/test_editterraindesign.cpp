@@ -3014,17 +3014,14 @@ TEST (EditTerrainOutline, ACoplanarTerrainEdgeLeavesNoSliversAcrossTheFaces)
         const double slope = std::hypot (nx, ny) / std::abs (nz);
         // No sliver across the faces tilts past 4/3 of their grade (the rounded top); the cut
         // grade is 1:2. The dent this guards against was long slivers through the rounded faces
-        // along the terrain's diagonal. Since the kernel's mesher (#149 T3) meshes the faces to a
-        // centimetre, triangles under twice its 5 cm shortest side read the design's own
-        // gradient, and where a face is lower than its rounding (this path's low end) its eased
-        // drop between the outline and the toe line, a few centimetres apart, is steeper than
-        // the grade: a design property recorded on #149, not a sliver.
+        // along the terrain's diagonal. The kernel's mesher (#149 T3) meshes the faces to a
+        // centimetre, so its shortest triangles also check the design's own gradient (#170).
         const auto side = [] (edit::Vec3 p, edit::Vec3 q) { return std::hypot (q.x - p.x, q.y - p.y); };
         const double ab = side (a, b), bc = side (b, c), ca = side (c, a);
         const double longest = std::max ({ ab, bc, ca });
         const double middle = std::max ({ std::min (ab, bc), std::min (bc, ca), std::min (ca, ab) });
         const double smallest = std::asin (std::min (1.0, std::abs (u.x * v.y - u.y * v.x) / (longest * middle)));
-        slivers += slope > 0.8 && smallest < 10.0 * 3.14159265358979 / 180 && longest >= 0.1;
+        slivers += slope > 0.8 && smallest < 10.0 * 3.14159265358979 / 180;
     }
     EXPECT_EQ (slivers, 0u);
 }
