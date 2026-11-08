@@ -9,6 +9,7 @@
 #include <array>
 #include <cmath>
 #include <map>
+#include <set>
 #include <tuple>
 #include <vector>
 
@@ -173,17 +174,14 @@ void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const doub
                 Triangle (a, b, c, n, rgba, bucket);
         }
     };
-    // The cutting surface: a faint sheet with its edge rays and rim.
+    // The cutting surface: a faint sheet with its outline -- the edge rays, the
+    // rim, and with a radius the line AB it starts from.
+    (void) point;
     fill (cut.envelope, kSolarCutEnvelopeRgba, drawables.depthTested);
-    const V3 from { point[0], point[1], point[2] };
-    for (size_t i = 0; i < cut.envelope.size (); ++i) {
-        const V3 a = Corner (cut.envelope[i], 1), b = Corner (cut.envelope[i], 2);
-        if (i == 0)
-            Segment (from, a, kSunObstructionPink, drawables.depthTested);
-        if (i + 1 == cut.envelope.size ())
-            Segment (from, b, kSunObstructionPink, drawables.depthTested);
-        Segment (a, b, kSunObstructionPink, drawables.depthTested);
-    }
+    std::vector<const evp::sunstudy::SolarCutTriangle*> sheet;
+    for (const auto& triangle : cut.envelope)
+        sheet.push_back (&triangle);
+    OutlineEdges (sheet, kSunObstructionPink, drawables.depthTested);
     // What goes, as a transparent cut-out: its outer surfaces faint where the
     // building shows them, the cut faces through the building (x-ray) in a darker
     // pink, and the outline of the removed solid; its hidden
@@ -199,7 +197,8 @@ void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const doub
     OutlineEdges (solid, kSolarCutEdgeRgba, drawables.depthTested);
 }
 
-void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables)
+void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables,
+                             const std::vector<SolarCutWonCell>* surface)
 {
     // One region per surface: cells are grouped by face direction and plane,
     // laid on a raster of the study's grid, small gaps closed and holes filled,
@@ -211,27 +210,51 @@ void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double s
         V3 n;
         double offset = 0.0;
         std::map<std::pair<int, int>, int> cells;
+        std::set<std::pair<int, int>> surface; // every study cell of this surface, won or not
     };
     std::map<GroupKey, Group> groups;
-    for (const auto& cell : cells) {
+    // A cell's surface group and its raster place on it.
+    const auto place = [step] (const SolarCutWonCell& cell, GroupKey& key, V3& rounded, double& offset,
+                               std::pair<int, int>& ij) {
         V3 n { cell.normal[0], cell.normal[1], cell.normal[2] };
         if (!Normalize (n))
-            continue;
-        V3 rounded { std::round (n[0] * 4.0), std::round (n[1] * 4.0), std::round (n[2] * 4.0) };
+            return false;
+        rounded = { std::round (n[0] * 4.0), std::round (n[1] * 4.0), std::round (n[2] * 4.0) };
         if (!Normalize (rounded))
-            continue;
+            return false;
         const V3 p { cell.position[0], cell.position[1], cell.position[2] };
-        const double offset = Dot (rounded, p);
-        const GroupKey key { std::llround (rounded[0] * 4.0), std::llround (rounded[1] * 4.0),
-                             std::llround (rounded[2] * 4.0), std::llround (offset) };
-        Group& group = groups[key];
-        group.n = rounded;
+        offset = Dot (rounded, p);
+        key = { std::llround (rounded[0] * 4.0), std::llround (rounded[1] * 4.0), std::llround (rounded[2] * 4.0),
+                std::llround (offset) };
         V3 u, v;
         PlaneBasis (rounded, u, v);
-        const int i = int (std::lround (Dot (p, u) / step)), j = int (std::lround (Dot (p, v) / step));
-        if (group.cells.emplace (std::make_pair (i, j), 1).second)
+        ij = { int (std::lround (Dot (p, u) / step)), int (std::lround (Dot (p, v) / step)) };
+        return true;
+    };
+    for (const auto& cell : cells) {
+        GroupKey key;
+        V3 rounded;
+        double offset = 0.0;
+        std::pair<int, int> ij;
+        if (!place (cell, key, rounded, offset, ij))
+            continue;
+        Group& group = groups[key];
+        group.n = rounded;
+        if (group.cells.emplace (ij, 1).second)
             group.offset += offset;
     }
+    if (surface != nullptr)
+        for (const auto& cell : *surface) {
+            GroupKey key;
+            V3 rounded;
+            double offset = 0.0;
+            std::pair<int, int> ij;
+            if (!place (cell, key, rounded, offset, ij))
+                continue;
+            const auto group = groups.find (key);
+            if (group != groups.end ())
+                group->second.surface.insert (ij);
+        }
     for (auto& [key, group] : groups) {
         if (group.cells.empty ())
             continue;
@@ -286,6 +309,13 @@ void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double s
         }
         for (size_t c = 0; c < in.size (); ++c)
             in[c] = outside[c] ? 0 : 1;
+        // Cleanup: closing and hole filling never reach past the surface --
+        // only places where the study has a cell of this surface stay.
+        if (surface != nullptr)
+            for (int y = 0; y < h; ++y)
+                for (int x = 0; x < w; ++x)
+                    if (in[at (x, y)] && group.surface.count ({ x + minI - kPad, y + minJ - kPad }) == 0)
+                        in[at (x, y)] = 0;
         const auto world = [&] (double x, double y) {
             return Add (Scale (group.n, height),
                         Add (Scale (u, (x + minI - kPad) * step), Scale (v, (y + minJ - kPad) * step)));

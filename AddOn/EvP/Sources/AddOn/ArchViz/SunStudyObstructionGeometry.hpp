@@ -78,7 +78,10 @@ struct SolarCutWonCell {
     double position[3] = {};
     double normal[3] = { 0.0, 0.0, 1.0 };
 };
-void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables);
+// `surface`, when given, is every study cell: the region is trimmed to the
+// places its surface has cells, so closing never hangs it over an edge.
+void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables,
+                             const std::vector<SolarCutWonCell>* surface = nullptr);
 
 } // namespace geomsrv::archviz
 

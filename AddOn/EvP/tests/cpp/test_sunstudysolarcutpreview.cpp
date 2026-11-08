@@ -70,3 +70,25 @@ TEST (SunStudySolarCutPreview, OutlineSkipsDiagonalsAndTJunctions)
     EXPECT_FALSE (drawables.xray.meshIndices.empty ());             // the cut face, seen through
     EXPECT_TRUE (drawables.xray.lineVertices.empty ());             // a plain darker pink, no hatch
 }
+
+TEST (SunStudySolarCutPreview, WonRegionIsTrimmedToItsSurface)
+{
+    // Two 3 x 3 blocks of won cells one empty column apart. Alone, closing
+    // joins them across the gap; given the study's cells -- no cell in that
+    // column, the surface has an edge there -- they stay two regions.
+    std::vector<SolarCutWonCell> cells;
+    for (int i = 0; i < 7; ++i)
+        for (int j = 0; j < 3; ++j) {
+            if (i == 3)
+                continue;
+            SolarCutWonCell cell;
+            cell.position[0] = 0.5 * i;
+            cell.position[1] = 0.5 * j;
+            cells.push_back (cell);
+        }
+    GhPreviewDrawables joined, trimmed;
+    AppendSolarCutWonCells (cells, 0.5, joined);
+    AppendSolarCutWonCells (cells, 0.5, trimmed, &cells);
+    EXPECT_GT (FillArea (joined.depthTested), FillArea (trimmed.depthTested) + 0.2);
+    EXPECT_NEAR (FillArea (trimmed.depthTested), 2.0 * 8.5 * 0.25, 1.0e-4); // each block, corners chamfered
+}

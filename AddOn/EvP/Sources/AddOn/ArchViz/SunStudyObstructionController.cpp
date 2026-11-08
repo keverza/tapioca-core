@@ -137,7 +137,7 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
                 return nullptr;
             frame->facingHours = surface.facingHours;
             frame->litHours = surface.litHours;
-            frame->sectors = surface.envelope.size ();
+            frame->sectors = surface.sectors;
             frame->cutStage = SunSolarCutStage::Surface;
             BuildSolarCutGeometry (surface, input.point, frame->drawables);
             publish (*frame);
@@ -155,7 +155,7 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
     frame->removedVolume = cut.removedVolume;
     frame->facingHours = cut.facingHours;
     frame->litHours = cut.litHours;
-    frame->sectors = cut.envelope.size ();
+    frame->sectors = cut.sectors;
     std::set<std::string> cutGuids;
     for (const auto& object : cut.objects) {
         frame->cutObjects.push_back ({ object.guid, object.elemType, object.removed, object.total, object.closed });
@@ -244,7 +244,13 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
         }
     }
     frame->wonCells = won.size ();
-    AppendSolarCutWonCells (won, record.gridSpacing, frame->drawables);
+    std::vector<SolarCutWonCell> studied (samples);
+    for (size_t s = 0; s < samples; ++s) {
+        std::copy (&record.positions[3 * s], &record.positions[3 * s] + 3, studied[s].position);
+        if (record.normals.size () == record.positions.size ())
+            std::copy (&record.normals[3 * s], &record.normals[3 * s] + 3, studied[s].normal);
+    }
+    AppendSolarCutWonCells (won, record.gridSpacing, frame->drawables, &studied);
     return frame;
 }
 

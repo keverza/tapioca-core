@@ -11,23 +11,22 @@ void DrawSunStudySeasonalClocks (HudState& state, const sunstudyhud::PeriodProfi
     if (profile == nullptr)
         return;
     ImGui::Checkbox ("Seasons##sunpoint", &state.sunPeriodSeasons);
-    ImGui::SetItemTooltip ("Winter, spring, summer and autumn clocks from the retained point profile (meteorological seasons, "
-                           "named for the project's hemisphere). Display only.");
+    ImGui::SetItemTooltip (
+        "Winter, spring, summer and autumn clocks from the retained point profile (meteorological seasons, "
+        "named for the project's hemisphere). Display only.");
     if (!state.sunPeriodSeasons)
         return;
     const auto seasons = sunstudyhud::SeasonalPointDays (*profile);
-    if (ImGui::BeginTable ("##sunpointseasons", 2, ImGuiTableFlags_SizingStretchSame)) {
-        for (const auto& season : seasons) {
-            ImGui::TableNextColumn ();
-            ImGui::TextUnformatted (season.name.c_str ());
-            ImGui::SameLine ();
-            ImGui::TextDisabled ("%s, %zu traced day(s)", season.months.c_str (), season.tracedDays);
-            ImGui::SetItemTooltip ("%.0f represented day(s)", season.representedDays);
-            const std::string id = "##season" + season.label;
-            DrawSunStudyDayClock (state, season.day.minutes.empty () ? nullptr : &season.day, id.c_str (), -1,
-                                  "no measured sun", nullptr, 440.0f, nullptr, SunChart::Season);
-        }
-        ImGui::EndTable ();
+    // One column, each clock the panel's full width.
+    for (const auto& season : seasons) {
+        ImGui::Spacing ();
+        ImGui::TextUnformatted (season.name.c_str ());
+        ImGui::SameLine ();
+        ImGui::TextDisabled ("%s, %zu traced day(s)", season.months.c_str (), season.tracedDays);
+        ImGui::SetItemTooltip ("%.0f represented day(s)", season.representedDays);
+        const std::string id = "##season" + season.label;
+        DrawSunStudyDayClock (state, season.day.minutes.empty () ? nullptr : &season.day, id.c_str (), -1,
+                              "no measured sun", nullptr, 4096.0f, nullptr, SunChart::Season);
     }
     SunStudyNote (estimate ? "Seasons: Preview estimate over representative traced days"
                            : "Seasons: every traced day at weight 1",

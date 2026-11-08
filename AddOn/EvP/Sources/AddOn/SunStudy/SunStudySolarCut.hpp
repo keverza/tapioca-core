@@ -54,10 +54,11 @@ struct SolarCutInput {
     // ignored), and the mesh the point stands on, which never blocks itself.
     std::vector<uint8_t> blocks;
     size_t ownMesh = SIZE_MAX;
-    // The study point's radius, metres: the point is a disc on its surface
-    // (across `normal`, or horizontal), and the cut clears every point of it --
-    // each plane lowered by the disc's reach along its normal, the slice's
-    // outer sides moved out by it. 0: the point alone.
+    // The study point's radius, metres. The cut is swept along a horizontal
+    // line through the point, `radius` each way across the slice's middle
+    // direction: each plane drops by the line's reach along its normal, the
+    // outer sides stand at the line's ends, and nothing behind the line is
+    // cut. 0: the point alone.
     double radius = 0.0;
 };
 
@@ -77,6 +78,7 @@ struct SolarCutObject {
 
 struct SolarCutResult {
     std::vector<SolarCutTriangle> removed, caps, envelope;
+    size_t sectors = 0; // the envelope's sectors; a radius makes the outer two quads
     // The cut elements as they would remain, by snapshot mesh index.
     std::vector<std::pair<size_t, geomsrv::Mesh>> kept;
     std::vector<SolarCutObject> objects; // most removed first

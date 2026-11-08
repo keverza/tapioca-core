@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include <set>
+
 #include <cmath>
 
 using namespace evp::sunstudy;
@@ -157,26 +159,55 @@ TEST (SunStudySolarCut, SurfaceStageMatchesTheCutsSurfaceAndClipsNothing)
     EXPECT_NEAR (reach, 12.0, 1.0e-9);
 }
 
-TEST (SunStudySolarCut, RadiusLowersTheCutterToClearTheWholeDisc)
+TEST (SunStudySolarCut, RadiusSweepsAlongALineAndNeverCutsBehindIt)
 {
-    // The tower of the first test, cut for a 1 m disc about the point: every
-    // plane drops by the disc's reach along it, so z = slope * (x - r) - 0.05,
-    // and the removed volume is 2 * integral over [5,7] of (10 - z).
+    // Suns at +-15 degrees about +x: the radius' line AB runs along y through
+    // the point, A = (0, +-1). A tall box behind the point is never cut; a box
+    // beside the slice, outside the point's own wedge, is reached from A; a
+    // box straddling the line is cut only ahead of it, and what goes plus what
+    // remains is the whole box (the cut faces close it, the line's face too).
+    const auto volume = [] (const geomsrv::Mesh& mesh) {
+        double v = 0.0;
+        for (size_t t = 0; t + 2 < mesh.triangles.size (); t += 3) {
+            const double* a = &mesh.vertices[3 * mesh.triangles[t]];
+            const double* b = &mesh.vertices[3 * mesh.triangles[t + 1]];
+            const double* c = &mesh.vertices[3 * mesh.triangles[t + 2]];
+            v += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) +
+                  a[2] * (b[0] * c[1] - b[1] * c[0])) /
+                 6.0;
+        }
+        return v;
+    };
     geomsrv::Snapshot snapshot;
-    snapshot.meshes = { evptest::MakeBox ("tower", 5, -1, 0, 2, 2, 10) };
+    snapshot.meshes = { evptest::MakeBox ("behind", -4, -1, 0, 2, 2, 10),
+                        evptest::MakeBox ("beside", 5, 2.2, 0, 2, 1, 10),
+                        evptest::MakeBox ("straddling", -1, 0.7, 0, 3, 1, 10) };
     SolarCutInput input;
     input.steps = { Sun (-15, 45, 10), Sun (15, 45, 11) };
     input.hoursPerStep = 1.0;
-    input.blocks = { 1 };
-    SolarCutResult point, disc;
+    input.blocks = { 1, 1, 1 };
+    SolarCutResult point, line;
     ASSERT_TRUE (ComputeSolarCut (snapshot, input, point));
+    EXPECT_TRUE (point.objects.empty ()); // all three lie outside the point's own wedge
     input.radius = 1.0;
-    ASSERT_TRUE (ComputeSolarCut (snapshot, input, disc)) << disc.error;
-    const double slope = 1.0 / std::cos (15.0 * kRadians);
-    EXPECT_NEAR (disc.removedVolume, 2.0 * (20.1 - slope * (12.0 - 2.0)), 1.0e-6);
-    EXPECT_GT (disc.removedVolume, point.removedVolume);
-    // The drawn cutter moves with it: its apex dropped along the plane normal
-    // by r * sin(tilt), about 0.5 m down here.
-    ASSERT_FALSE (disc.envelope.empty ());
-    EXPECT_LT (disc.envelope[0].v[0][2], -0.4);
+    ASSERT_TRUE (ComputeSolarCut (snapshot, input, line)) << line.error;
+    std::set<std::string> cut;
+    for (const auto& object : line.objects)
+        cut.insert (object.guid);
+    EXPECT_EQ (cut, (std::set<std::string> { "beside", "straddling" }));
+    for (const auto& [mesh, kept] : line.kept)
+        for (const auto& object : line.objects)
+            if (object.mesh == mesh) {
+                EXPECT_TRUE (object.closed) << object.guid;
+                EXPECT_NEAR (object.removed + volume (kept), object.total, 1.0e-6) << object.guid;
+                EXPECT_GT (object.removed, 0.0) << object.guid;
+            }
+    for (const auto& piece : line.removed)
+        for (const auto& corner : piece.v)
+            EXPECT_GE (corner[0], -1.0e-9); // nothing behind the line
+    // The sheet starts at A: one sector, drawn as a quad from the line.
+    EXPECT_EQ (line.sectors, 1u);
+    ASSERT_EQ (line.envelope.size (), 2u);
+    EXPECT_NEAR (std::abs (line.envelope[0].v[0][1]), 1.0, 1.0e-3);
+    EXPECT_NEAR (line.envelope[0].v[0][0], 0.0, 0.05); // lowered 5 cm along the tilted plane
 }

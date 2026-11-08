@@ -41,9 +41,11 @@ struct Sector {
     Point sunFrom, sunTo;   // unit, toward the sun
     Point sideFrom, sideTo; // the vertical half-planes' horizontal directions
     Point e1, e2;           // an orthonormal basis of the envelope plane
-    // Where the drawn fan moves for the point's radius: the plane's drop, and
-    // the outer sides' widening (first sector's left, last sector's right).
-    Point shift {}, shiftFrom {}, shiftTo {};
+    // With a radius: the cut is swept along the line AB through the point,
+    // across the slice's middle direction, and nothing behind that line goes.
+    bool hasFront = false;
+    HalfSpace front;          // f >= 0: in front of the line AB
+    Point fromAt {}, toAt {}; // where the drawn sheet's two edges start, on the lowered plane
 };
 
 Point Sub (const Point& a, const Point& b)
@@ -263,6 +265,28 @@ bool Sectors (const SolarCutInput& input, SolarCutResult& result,
         std::copy (direction.begin (), direction.end (), facing.direction);
         result.facingSteps.push_back (facing);
     }
+    // The radius' line: horizontal, across the slice's middle direction c,
+    // A = p + r w on the first sun's side, B = p - r w on the last's.
+    Point c {}, w {};
+    bool line = false;
+    if (input.radius > 0.0 && result.facingSteps.size () >= 2) {
+        Point first { result.facingSteps.front ().direction[0], result.facingSteps.front ().direction[1], 0.0 };
+        Point last { result.facingSteps.back ().direction[0], result.facingSteps.back ().direction[1], 0.0 };
+        if (Normalise (first) && Normalise (last)) {
+            c = { first[0] + last[0], first[1] + last[1], 0.0 };
+            if (!Normalise (c)) // a half-turn slice: across its middle sun
+                c = { result.facingSteps[result.facingSteps.size () / 2].direction[0],
+                      result.facingSteps[result.facingSteps.size () / 2].direction[1], 0.0 };
+            if (Normalise (c)) {
+                w = { -c[1], c[0], 0.0 };
+                if (Dot (w, first) < 0.0)
+                    w = { -w[0], -w[1], 0.0 };
+                line = true;
+            }
+        }
+    }
+    const Point a { origin[0] + input.radius * w[0], origin[1] + input.radius * w[1], origin[2] };
+    const Point b { origin[0] - input.radius * w[0], origin[1] - input.radius * w[1], origin[2] };
     for (size_t s = 0; s + 1 < result.facingSteps.size (); ++s) {
         Sector sector;
         for (int k = 0; k < 3; ++k) {
@@ -302,50 +326,58 @@ bool Sectors (const SolarCutInput& input, SolarCutResult& result,
         sector.e1 = sector.sunFrom;
         sector.e2 = Cross (n, sector.e1);
         Normalise (sector.e2);
-        if (input.radius > 0.0) {
-            // A half-space f = n.x + d >= 0 swept over the disc grows by the
-            // disc's reach along n: radius times n's part within the disc.
-            Point m { 0.0, 0.0, 1.0 };
-            if (input.normal != nullptr) {
-                Point given { input.normal[0], input.normal[1], input.normal[2] };
-                if (Normalise (given))
-                    m = given;
-            }
-            const auto reach = [&] (const Point& normal) {
-                const double along = Dot (normal, m);
-                const Point within { normal[0] - along * m[0], normal[1] - along * m[1], normal[2] - along * m[2] };
-                return input.radius * std::sqrt (Dot (within, within));
-            };
-            const auto grow = [&] (HalfSpace& h, Point& shift) {
-                const double by = reach ({ h.n[0], h.n[1], h.n[2] });
-                h.d += by;
-                shift = { -by * h.n[0], -by * h.n[1], -by * h.n[2] };
-            };
-            grow (sector.above, sector.shift);
+        // The sheet's edges start on the lowered plane: under the point, or
+        // with a radius at A and B for the outer sectors.
+        const auto onPlane = [&sector] (const Point& q) {
+            const double f = sector.above.Eval (q);
+            return Point { q[0] - f * sector.above.n[0], q[1] - f * sector.above.n[1], q[2] - f * sector.above.n[2] };
+        };
+        if (line) {
+            // Swept along AB, a half-space f = n.x + d >= 0 grows by r |n.w|:
+            // the plane drops where the sector tilts across the line, the
+            // slice's outer sides move out to A and B. The front half-space
+            // keeps the cut ahead of the line.
+            const auto grow = [&] (HalfSpace& h) { h.d += input.radius * std::abs (h.n[0] * w[0] + h.n[1] * w[1]); };
+            grow (sector.above);
             if (s == 0)
-                grow (sector.left, sector.shiftFrom);
+                grow (sector.left);
             if (s + 2 == result.facingSteps.size ())
-                grow (sector.right, sector.shiftTo);
+                grow (sector.right);
+            sector.hasFront = true;
+            sector.front = HalfSpace { { c[0], c[1], 0.0 }, -(c[0] * origin[0] + c[1] * origin[1]) };
+            sector.fromAt = onPlane (s == 0 ? a : origin);
+            sector.toAt = onPlane (s + 2 == result.facingSteps.size () ? b : origin);
         }
+        else
+            sector.fromAt = sector.toAt = origin;
         sectors.push_back (sector);
     }
     return true;
 }
 
-// The merged cutting surface: one fan triangle per sector, `length` long.
-void Envelope (const std::vector<Sector>& sectors, const SolarCutInput& input, double length, SolarCutResult& result)
+// The merged cutting surface, `length` long: one fan triangle per sector from
+// the point; with a radius the outer sectors start at A or B instead, a quad
+// (two triangles, the first one's corner 0 on the from-side edge).
+void Envelope (const std::vector<Sector>& sectors, double length, SolarCutResult& result)
 {
     for (const Sector& sector : sectors) {
-        SolarCutTriangle fan;
+        SolarCutTriangle fan, rest;
+        bool quad = false;
         for (int k = 0; k < 3; ++k) {
             const size_t K = size_t (k);
-            const double base = input.point[k] + sector.shift[K];
-            fan.v[0][k] = base + sector.shiftFrom[K] + sector.shiftTo[K];
-            fan.v[1][k] = base + sector.shiftFrom[K] + length * sector.sunFrom[K];
-            fan.v[2][k] = base + sector.shiftTo[K] + length * sector.sunTo[K];
+            fan.v[0][k] = sector.fromAt[K];
+            fan.v[1][k] = sector.fromAt[K] + length * sector.sunFrom[K];
+            fan.v[2][k] = sector.toAt[K] + length * sector.sunTo[K];
+            rest.v[0][k] = sector.fromAt[K];
+            rest.v[1][k] = fan.v[2][k];
+            rest.v[2][k] = sector.toAt[K];
+            quad = quad || std::abs (sector.fromAt[K] - sector.toAt[K]) > 1.0e-9;
         }
         result.envelope.push_back (fan);
+        if (quad)
+            result.envelope.push_back (rest);
     }
+    result.sectors = sectors.size ();
 }
 
 } // namespace
@@ -357,7 +389,7 @@ bool ComputeSolarCutSurface (const SolarCutInput& input, SolarCutResult& result,
     std::vector<Sector> sectors;
     if (!Sectors (input, result, lit, sectors))
         return false;
-    Envelope (sectors, input, reach, result);
+    Envelope (sectors, reach, result);
     return true;
 }
 
@@ -403,7 +435,13 @@ bool ComputeSolarCut (const geomsrv::Snapshot& snapshot, const SolarCutInput& in
                     Poly beyond = Clip (inLeft, sector.right.Negated ());
                     if (Valid (beyond))
                         next.push_back (std::move (beyond));
-                    const Poly inside = Clip (inLeft, sector.right);
+                    Poly inside = Clip (inLeft, sector.right);
+                    if (sector.hasFront && Valid (inside)) { // behind the radius' line: never cut
+                        Poly behind = Clip (inside, sector.front.Negated ());
+                        if (Valid (behind))
+                            kept.push_back (std::move (behind));
+                        inside = Clip (inside, sector.front);
+                    }
                     if (!Valid (inside))
                         continue;
                     const Poly up = Clip (inside, sector.above);
@@ -443,17 +481,33 @@ bool ComputeSolarCut (const geomsrv::Snapshot& snapshot, const SolarCutInput& in
         for (size_t k = 0; k < sectors.size (); ++k) {
             const Sector& sector = sectors[k];
             const Point n { sector.above.n[0], sector.above.n[1], sector.above.n[2] };
-            faces (sector.above, sector.e1, sector.e2, { sector.left, sector.right }, { -n[0], -n[1], -n[2] });
+            if (sector.hasFront) {
+                faces (sector.above, sector.e1, sector.e2, { sector.left, sector.right, sector.front },
+                       { -n[0], -n[1], -n[2] });
+                // The line's own face: where the cut stops behind, the removed
+                // part is closed by the vertical plane through AB.
+                const Point across { -sector.front.n[1], sector.front.n[0], 0.0 };
+                faces (sector.front, across, up, { sector.above, sector.left, sector.right },
+                       { -sector.front.n[0], -sector.front.n[1], 0.0 });
+            }
+            else
+                faces (sector.above, sector.e1, sector.e2, { sector.left, sector.right }, { -n[0], -n[1], -n[2] });
             // The outer sides: where the slice's wedge ends, the removed part is
             // closed by a vertical face (inner sides between sectors cancel).
             const auto forward = [&origin] (const Point& u) {
                 return HalfSpace { { u[0], u[1], 0.0 }, -(u[0] * origin[0] + u[1] * origin[1]) };
             };
+            // With a radius the outer sides stand at A and B: bounded by the
+            // sector's other side and the line, as the removed pieces are.
             if (k == 0)
-                faces (sector.left, sector.sideFrom, up, { sector.above, forward (sector.sideFrom) },
+                faces (sector.left, sector.sideFrom, up,
+                       sector.hasFront ? std::vector<HalfSpace> { sector.above, sector.right, sector.front }
+                                       : std::vector<HalfSpace> { sector.above, forward (sector.sideFrom) },
                        { -sector.left.n[0], -sector.left.n[1], -sector.left.n[2] });
             if (k + 1 == sectors.size ())
-                faces (sector.right, sector.sideTo, up, { sector.above, forward (sector.sideTo) },
+                faces (sector.right, sector.sideTo, up,
+                       sector.hasFront ? std::vector<HalfSpace> { sector.above, sector.left, sector.front }
+                                       : std::vector<HalfSpace> { sector.above, forward (sector.sideTo) },
                        { -sector.right.n[0], -sector.right.n[1], -sector.right.n[2] });
         }
         // The removed part's volume, its boundary oriented as the mesh is: a
@@ -497,7 +551,7 @@ bool ComputeSolarCut (const geomsrv::Snapshot& snapshot, const SolarCutInput& in
         result.objects.push_back (std::move (object));
     }
     // The merged cutting surface, to just past the farthest cut.
-    Envelope (sectors, input, farthest > 0.0 ? farthest * 1.05 + 1.0 : reach, result);
+    Envelope (sectors, farthest > 0.0 ? farthest * 1.05 + 1.0 : reach, result);
     std::stable_sort (result.objects.begin (), result.objects.end (),
                       [] (const SolarCutObject& a, const SolarCutObject& b) { return a.removed > b.removed; });
     return true;
