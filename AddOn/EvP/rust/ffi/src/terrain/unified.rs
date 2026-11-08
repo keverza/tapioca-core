@@ -884,6 +884,33 @@ fn attribution_counts(
 // SAFETY: every top-level pool is preflighted disjoint from all of `output`'s
 // writable ranges and the error buffer before any foreign borrow; all records
 // are POD with offset ranges, so there are no nested pointer pools.
+/// Every pool the request names, for the preflight against the outputs: shared by the build
+/// and the field preview (#175).
+pub(super) fn request_pools(request: &UnifiedRequest) -> Vec<Checked> {
+    let mut inputs = Vec::new();
+    inputs.extend(pools::provenance(&request.provenance));
+    inputs.extend([
+        memory_range(request.points.data, request.points.count),
+        memory_range(request.triangles.data, request.triangles.count),
+        memory_range(request.property.data, request.property.count),
+        memory_range(request.geometry.data, request.geometry.count),
+        memory_range(request.rings.data, request.rings.count),
+        memory_range(request.parts.data, request.parts.count),
+        memory_range(request.part_indices.data, request.part_indices.count),
+        memory_range(request.stations.data, request.stations.count),
+        memory_range(request.surface_indices.data, request.surface_indices.count),
+        memory_range(request.sources.data, request.sources.count),
+        memory_range(request.entries.data, request.entries.count),
+        memory_range(request.paths.data, request.paths.count),
+        memory_range(request.masks.data, request.masks.count),
+        memory_range(request.controls.data, request.controls.count),
+        memory_range(request.outlines.data, request.outlines.count),
+        memory_range(request.outline_lines.data, request.outline_lines.count),
+        memory_range(request.outline_grades.data, request.outline_grades.count),
+    ]);
+    inputs
+}
+
 unsafe fn compute(
     input: *const UnifiedRequest,
     output: *const UnifiedOutput,
@@ -894,26 +921,7 @@ unsafe fn compute(
         unsafe { pools::descriptors(input, output, error)? };
     let mut inputs = vec![memory_range(input, 1), memory_range(output, 1)];
     if let Some(request) = &request {
-        inputs.extend(pools::provenance(&request.provenance));
-        inputs.extend([
-            memory_range(request.points.data, request.points.count),
-            memory_range(request.triangles.data, request.triangles.count),
-            memory_range(request.property.data, request.property.count),
-            memory_range(request.geometry.data, request.geometry.count),
-            memory_range(request.rings.data, request.rings.count),
-            memory_range(request.parts.data, request.parts.count),
-            memory_range(request.part_indices.data, request.part_indices.count),
-            memory_range(request.stations.data, request.stations.count),
-            memory_range(request.surface_indices.data, request.surface_indices.count),
-            memory_range(request.sources.data, request.sources.count),
-            memory_range(request.entries.data, request.entries.count),
-            memory_range(request.paths.data, request.paths.count),
-            memory_range(request.masks.data, request.masks.count),
-            memory_range(request.controls.data, request.controls.count),
-            memory_range(request.outlines.data, request.outlines.count),
-            memory_range(request.outline_lines.data, request.outline_lines.count),
-            memory_range(request.outline_grades.data, request.outline_grades.count),
-        ]);
+        inputs.extend(request_pools(request));
     }
     let outputs = target.map_or_else(Vec::new, writable);
     pools::preflight(&inputs, &outputs, error)?;
@@ -921,16 +929,18 @@ unsafe fn compute(
     let target = target.ok_or(Failure::Argument("TerrainOutputDescriptor"))?;
     mode(&target)?;
     // SAFETY: all pools were preflighted above; no borrow escapes this call.
-    let built = unsafe { evaluate(&context, &request) }?;
+    let built = unsafe { evaluate(&context, &request, kernel::build_terrain) }?;
     Ok((encode(built)?, target))
 }
 
 // SAFETY: all request pools were preflighted against outputs and the error
-// buffer; every returned borrow lives only for this call.
-unsafe fn evaluate(
+// buffer; every returned borrow lives only for this call. `run` is given the
+// decoded baseline and plan: the build, or the field preview (#175).
+pub(super) unsafe fn evaluate<R>(
     context: &BorrowContext,
     request: &UnifiedRequest,
-) -> Result<kernel::BuiltTerrain, Failure> {
+    run: impl FnOnce(&kernel::Baseline<'_>, &kernel::Plan<'_>) -> Result<R, kernel::BuildError>,
+) -> Result<R, Failure> {
     // SAFETY: no borrow escapes; computation owns all output before publication.
     let (
         points,
@@ -1202,7 +1212,7 @@ unsafe fn evaluate(
         control_tolerance: request.control_tolerance,
         outlines: &outlines,
     };
-    kernel::build_terrain(&baseline, &plan).map_err(|error| Failure::Argument(error.message()))
+    run(&baseline, &plan).map_err(|error| Failure::Argument(error.message()))
 }
 
 // SAFETY: target ranges were preflighted disjoint from every input, the error
