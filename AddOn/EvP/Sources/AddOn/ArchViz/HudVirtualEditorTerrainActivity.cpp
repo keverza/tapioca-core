@@ -3,9 +3,8 @@
 #include <imgui.h>
 #include <string>
 
-// #175: the terrain being regenerated, said where the user looks. Read-only over the design's
-// status; OVERLAY-INVARIANTS.md §15: drawn on the foreground list, no window, so it takes no
-// hover and no part in the cursor claim.
+// #175: the terrain being regenerated, said in the main editor panel. Read-only over the
+// design's status; no separate viewport badge.
 namespace geomsrv::archviz::edithud {
 
 #if defined(TAPIOCA_GEOMETRY_RUST)
@@ -27,17 +26,6 @@ void TerrainActivityBadge (const Session& s)
     ImGui::PushStyleColor (ImGuiCol_Text, amber);
     ImGui::TextUnformatted (words.c_str ());
     ImGui::PopStyleColor ();
-    // The view's badge: top centre of the main viewport, on the foreground list.
-    const ImGuiViewport* view = ImGui::GetMainViewport ();
-    ImDrawList* draw = ImGui::GetForegroundDrawList ();
-    if (!view || !draw)
-        return;
-    const ImVec2 size = ImGui::CalcTextSize (words.c_str ());
-    const float pad = 6.0f;
-    const ImVec2 at (view->WorkPos.x + (view->WorkSize.x - size.x) * 0.5f, view->WorkPos.y + 8.0f);
-    draw->AddRectFilled (ImVec2 (at.x - pad, at.y - pad * 0.5f),
-                         ImVec2 (at.x + size.x + pad, at.y + size.y + pad * 0.5f), IM_COL32 (30, 30, 30, 200), 6.0f);
-    draw->AddText (at, amber, words.c_str ());
 }
 
 void TerrainBuildSection (Session& s)
