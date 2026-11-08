@@ -202,6 +202,7 @@ fn an_exhausted_vertical_error_budget_refuses_instead_of_publishing_the_unrefine
     let ground = |x, y| operator.base.height_at(x, y).map(|sample| sample.height);
     let result = operator.meshed(
         &ground,
+        &|_, _| true,
         (&unrefined.mesh, [0, unrefined.toe]),
         Refine {
             budget: 0,
@@ -210,6 +211,106 @@ fn an_exhausted_vertical_error_budget_refuses_instead_of_publishing_the_unrefine
         [(&points, &triangles), (&PAVED, &PAVED_TRIANGLES)],
     );
     assert_eq!(result.err(), Some(OutlineError::Refinement));
+    Ok(())
+}
+
+#[test]
+fn boundary_step_strips_retain_local_mismatch_witnesses() -> Result<(), OutlineError> {
+    let (points, triangles) = base();
+    // One metre below the pavement is not enough for its fill face: refinement may classify the
+    // resulting ring-adjacent residual as step work only with a local stitch mismatch.
+    let region = [
+        -10.0, -3.0, 0.0, 50.0, -3.0, 0.0, 50.0, 15.0, 0.0, -10.0, 15.0, 0.0,
+    ];
+    let request = OutlineRequest {
+        points: &points,
+        triangles: &triangles,
+        region: &region,
+        surface_points: &PAVED,
+        surface_triangles: &PAVED_TRIANGLES,
+        breaklines: &[],
+        spots: &[],
+        surface_grades: &[],
+        refine: Some(Refine::DEFAULT),
+        grading: Grading {
+            cut: HALF,
+            fill: HALF,
+            limit: 10.0,
+            rounding: 0.0,
+            effect: Effect::Both,
+            tolerance: 1e-6,
+        },
+    };
+    let built = build(&request)?;
+    assert_eq!(build(&request)?.steps, built.steps, "deterministic");
+    let strips: Vec<_> = built
+        .steps
+        .iter()
+        .filter_map(|step| match *step {
+            StepWitness::StepStrip {
+                position,
+                design,
+                residual,
+            } => Some((position, design, residual)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !strips.is_empty(),
+        "the capture-boundary step was classified"
+    );
+    assert_eq!(strips.len(), STEP_WITNESS_LIMIT);
+    assert!(
+        strips.iter().all(|(position, _, _)| {
+            position[1].to_bits() == (-3.0_f64).to_bits() && position[0] <= 43.4
+        }),
+        "the unfiltered cap is filled before the allowed right-end strips"
+    );
+    assert!(built.clipped > 0);
+    for ([x, y, retained], design, residual) in strips {
+        assert!(residual > Refine::DEFAULT.tolerance);
+        assert!((design - retained).abs() > Refine::DEFAULT.tolerance);
+        let on_ring = built.mesh.ring.iter().enumerate().any(|(index, &from)| {
+            let Some(to) = built.mesh.ring.get((index + 1) % built.mesh.ring.len()) else {
+                return false;
+            };
+            let vertices = plan::vertices(&built.mesh.points);
+            let (Some(a), Some(b)) = (vertices.get(from as usize), vertices.get(*to as usize))
+            else {
+                return false;
+            };
+            let cross = (x - a[0]).mul_add(b[1] - a[1], -(y - a[1]) * (b[0] - a[0]));
+            cross.abs() <= 1e-9 * (b[0] - a[0]).hypot(b[1] - a[1]).max(1.0)
+        });
+        assert!(on_ring, "witness at {x},{y} is not on the stitch");
+    }
+
+    // Filtering after retention would publish nothing here: the first 32 bottom-ring events are
+    // all at x <= 43.4. The mesher instead applies this diagnostic-only predicate before its cap.
+    let coarse = build(&OutlineRequest {
+        refine: None,
+        ..request
+    })?;
+    let operator = Operator::new(
+        &points,
+        &triangles,
+        &PAVED,
+        &PAVED_TRIANGLES,
+        &[],
+        request.grading,
+    )?;
+    let ground = |x, y| operator.base.height_at(x, y).map(|sample| sample.height);
+    let (_, _, late) = operator.meshed(
+        &ground,
+        &|x, _| x > 43.4,
+        (&coarse.mesh, [0, coarse.toe]),
+        Refine::DEFAULT,
+        [(&points, &triangles), (&PAVED, &PAVED_TRIANGLES)],
+    )?;
+    assert!(!late.is_empty(), "later allowed events survive the cap");
+    assert!(late.iter().all(|step| {
+        matches!(step, StepWitness::StepStrip { position, .. } if position[0] > 43.4)
+    }));
     Ok(())
 }
 

@@ -1441,11 +1441,48 @@ fn outline_step_diagnostics_honour_the_applied_mask() -> Result<(), BuildError> 
         )
         .map(|counts| (counts, heights))
     };
-    let ((_, unmasked), _) = apply(&[])?;
+    let ((_, unmasked, unmasked_steps), _) = apply(&[])?;
     assert!(unmasked > 0);
-    let ((unreached, clipped), heights) = apply(&masks)?;
+    assert!(!unmasked_steps.is_empty(), "unmasked steps are located");
+    let ((unreached, clipped, masked_steps), heights) = apply(&masks)?;
     assert_eq!((unreached, clipped), (0, 0));
+    assert_eq!(masked_steps, Vec::new());
     assert_eq!(heights, baseline.base);
+
+    // The complete build also filters the mesher's internal step-strip classifications, which
+    // happen before `apply_outline`, not just the final reach/ring observations.
+    let outlines = [planned];
+    let input = Baseline {
+        points: &points,
+        triangles: &triangles,
+        property: Some(&property),
+    };
+    let build = |masks: &[Mask<'_>]| {
+        build_terrain(
+            &input,
+            &Plan {
+                revision: 20,
+                hash: 192,
+                entries: &entries,
+                paths: &[],
+                masks,
+                controls: &[],
+                control_tolerance: 1e-3,
+                outlines: &outlines,
+            },
+        )
+    };
+    let unmasked = build(&[])?;
+    assert!(!unmasked.outline_steps.is_empty(), "control has steps");
+    let limited = ring(&[[1.5, 1.5], [2.5, 1.5], [2.5, 2.5], [1.5, 2.5]]);
+    let limit_parts = [Part {
+        outer: &limited,
+        holes: &[],
+    }];
+    let limits = [mask(912, MaskKind::GradingLimit, &limit_parts)];
+    let limited = build(&limits)?;
+    assert_eq!((limited.outline_unreached, limited.outline_clipped), (0, 0));
+    assert_eq!(limited.outline_steps, Vec::new());
     Ok(())
 }
 

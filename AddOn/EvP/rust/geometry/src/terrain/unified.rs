@@ -351,6 +351,9 @@ pub struct BuiltTerrain {
     /// Rebuild-ring samples where an outline face had not met the ground: the
     /// ring, not the limit, ends it in a step.
     pub outline_clipped: u32,
+    /// Bounded located outline-step observations. Mesher strips precede reach-limit vertices and
+    /// ring samples; counts above still include observations whose witnesses were not retained.
+    pub outline_steps: Vec<outline::StepWitness>,
     /// Every fixed-height vertex resolved from `Plan::controls`.
     pub locked: Vec<LockedVertex>,
     /// Exact cut/fill against `base`, split at the property line.
@@ -1625,6 +1628,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
     let spots = push_control_lines(&mut control_lines, plan.controls)?;
     let mut outline_lines = Vec::new();
     let mut outline_ground = None;
+    let mut outline_steps = Vec::new();
     let mesh = if let Some(property) = baseline.property {
         let mut breaklines = Vec::with_capacity(
             lines.len() + path_lines.len() + mask_lines.len() + control_lines.len(),
@@ -1732,9 +1736,12 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             // #149 T3: the outline's faces get their vertices from the error and the angles
             // they leave (the mesher), over the same ground the toe was traced over. An
             // uncertified vertical-error bound refuses the build rather than publishing `rebuilt`.
-            operator
+            let allowed =
+                |x, y| !is_protected(plan.masks, x, y) && grading_allowed(plan.masks, x, y);
+            let (meshed, _, steps) = operator
                 .meshed(
                     &ground,
+                    &allowed,
                     (&rebuilt, traced),
                     outline::Refine::DEFAULT,
                     [
@@ -1742,8 +1749,9 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
                         (planned.surface_points, planned.surface_triangles),
                     ],
                 )
-                .map(|(meshed, _)| meshed)
-                .map_err(BuildError::Outline)?
+                .map_err(BuildError::Outline)?;
+            outline_steps = steps;
+            meshed
         } else {
             retriangulate_region_with_points(&request(&breaklines), &spots)
                 .map_err(BuildError::Region)?
@@ -1776,7 +1784,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         )?;
     }
     detect_hard_steps(&claims)?;
-    let (outline_unreached, outline_clipped) = match &paved {
+    let (outline_unreached, outline_clipped, observed_steps) = match &paved {
         Some((planned, operator)) => apply_outline(
             planned,
             operator,
@@ -1788,8 +1796,9 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             &mut heights,
             &mut owners,
         )?,
-        None => (0, 0),
+        None => (0, 0, Vec::new()),
     };
+    outline_steps.extend(observed_steps);
     apply_paths(plan.paths, plan.masks, &mesh, &mut heights, &mut owners)?;
     let locked = apply_fixed(&fixed, plan.control_tolerance, &mut heights, &mut owners)?;
     let mut points = mesh.points.clone();
@@ -1824,6 +1833,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         outline_lines,
         outline_unreached,
         outline_clipped,
+        outline_steps,
         locked,
         mesh,
         volumes,
@@ -1835,8 +1845,8 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
 /// Grade the paved outline over the composed heights (#149 T1): as the outline
 /// lane, a vertex of an outside triangle keeps its height and every other
 /// vertex takes the outline design over the ground composed there, except
-/// where a mask forbids grading. Returns the unreached vertex count and the
-/// clipped ring sample count.
+/// where a mask forbids grading. Returns the unreached vertex count, clipped ring sample count and
+/// their bounded located witnesses.
 #[expect(
     clippy::too_many_arguments,
     reason = "one outline stage needs the plan stage, its operator, the masks, the mesh and the mutable height/owner stacks together"
@@ -1849,7 +1859,7 @@ fn apply_outline(
     mesh: &RegionMesh,
     heights: &mut [f64],
     owners: &mut [Option<u32>],
-) -> Result<(u32, u32), BuildError> {
+) -> Result<(u32, u32, Vec<outline::StepWitness>), BuildError> {
     let faces = operator.faces();
     let vertices = plan::vertices(&mesh.points);
     let mut fixed = vec![false; vertices.len()];
@@ -1871,6 +1881,7 @@ fn apply_outline(
     // field filtered by the steepness of the output triangles.
     let ground = |x, y| ground.height_at(x, y).map(|sample| sample.height);
     let mut unreached = 0_u32;
+    let mut steps = Vec::new();
     for (vertex, (&[x, y, _], &keep)) in vertices.iter().zip(&fixed).enumerate() {
         if keep || is_protected(masks, x, y) || !grading_allowed(masks, x, y) {
             continue;
@@ -1880,6 +1891,15 @@ fn apply_outline(
         };
         let (design, short) = faces.over(*current, x, y);
         unreached += u32::from(short);
+        if short {
+            outline::push_step_witness(
+                &mut steps,
+                outline::StepWitness::ReachLimit {
+                    vertex: u32::try_from(vertex).unwrap_or(u32::MAX),
+                    position: [x, y, design],
+                },
+            );
+        }
         if design.to_bits() != current.to_bits() {
             *current = design;
             *owner = Some(planned.order);
@@ -1888,7 +1908,8 @@ fn apply_outline(
     let allowed = |x, y| !is_protected(masks, x, y) && grading_allowed(masks, x, y);
     let clipped = outline::clipped(&faces, &ground, &allowed, vertices, &mesh.ring)
         .map_err(BuildError::Outline)?;
-    Ok((unreached, clipped))
+    steps.extend(clipped.witnesses);
+    Ok((unreached, clipped.count, steps))
 }
 
 mod field_preview;

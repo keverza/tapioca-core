@@ -32,7 +32,7 @@
 //! triangulation, each added vertex a [`RegionVertex::Refined`], and every line
 //! edge still a path along its segment.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use spade::handles::FixedVertexHandle;
 use spade::{
@@ -42,6 +42,7 @@ use spade::{
 
 use super::plan;
 use super::refine::{Bound, Memo, Refined};
+use super::{StepWitness, push_step_witness};
 use crate::terrain::field::Field;
 use crate::terrain::region::{RegionLineEdge, RegionMesh, RegionVertex};
 
@@ -71,6 +72,9 @@ pub(in crate::terrain) struct Lane<'a> {
     /// TIN, which the rebuild carries exactly (its vertices as spots, its edges as supports), so
     /// a triangle there is not refined.
     pub paved: &'a (dyn Fn(f64, f64) -> bool + 'a),
+    /// Whether a located diagnostic may be retained. Applied before the witness cap, never to
+    /// classification or refinement itself.
+    pub allowed: &'a (dyn Fn(f64, f64) -> bool + 'a),
 }
 
 type Cdt = ConstrainedDelaunayTriangulation<Point2<f64>>;
@@ -156,8 +160,11 @@ struct Mesher<'a, 'f> {
     inside: usize,
     kinds: BTreeMap<[usize; 2], Vec<Kind>>,
     ring_plan: Vec<[f64; 3]>,
-    /// The ring's sides, which are never split.
-    ring_sides: HashSet<[usize; 2]>,
+    /// The ring's sides, which are never split. Ordered so a located witness never depends on hash
+    /// iteration when more than one local segment could demonstrate the mismatch.
+    ring_sides: BTreeSet<[usize; 2]>,
+    /// Bounded located evidence for triangles classified as boundary-step work.
+    steps: Vec<StepWitness>,
     /// Each triangle's assessment, by its sorted vertices: a triangle that survives a round
     /// is not assessed again (its corners, their heights and their lines are unchanged).
     assessed: HashMap<[usize; 3], (Option<Why>, bool)>,
@@ -271,14 +278,14 @@ impl Mesher<'_, '_> {
             .is_some_and(|(height, _)| (height - base).abs() > self.bound.refine.tolerance)
     }
 
-    /// Whether this above-tolerance triangle is in a bounded strip beside a demonstrated stitch
-    /// mismatch. The ring is never split, so such a step cannot be interpolated away. Every corner
+    /// The located mismatch when this above-tolerance triangle is in a bounded strip beside the
+    /// stitch. The ring is never split, so such a step cannot be interpolated away. Every corner
     /// must be within the toe band of the same finite ring segment; merely being near the ring,
     /// or having a large ordinary error there without a demonstrated mismatch, is not enough.
-    fn boundary_step(&mut self, positions: [Point2<f64>; 3], error: f64) -> bool {
+    fn boundary_step(&mut self, positions: [Point2<f64>; 3], error: f64) -> Option<StepWitness> {
         let tolerance = self.bound.refine.tolerance;
         if error <= tolerance {
-            return false;
+            return None;
         }
         // Borrow the ring only while collecting the few geometrically qualifying segments; the
         // mismatch probes then mutate the height memo without copying the whole ring per triangle.
@@ -325,16 +332,18 @@ impl Mesher<'_, '_> {
                 let x = (1.0 - t).mul_add(ra.x, t * rb.x);
                 let y = (1.0 - t).mul_add(ra.y, t * rb.y);
                 let retained = (1.0 - t).mul_add(za, t * zb);
-                if self
-                    .memo
-                    .height(self.lane.design, x, y)
-                    .is_some_and(|(design, _)| (design - retained).abs() > tolerance)
+                if let Some((design, _)) = self.memo.height(self.lane.design, x, y)
+                    && (design - retained).abs() > tolerance
                 {
-                    return true;
+                    return Some(StepWitness::StepStrip {
+                        position: [x, y, retained],
+                        design,
+                        residual: error,
+                    });
                 }
             }
         }
-        false
+        None
     }
 
     /// Why the triangle `[a, b, c]` needs a vertex (`None` when it does not or must not get
@@ -394,7 +403,13 @@ impl Mesher<'_, '_> {
             [pc.x, pc.y, self.height(c)?],
         ];
         let error = self.memo.error(self.lane.design, corners);
-        if error > refine.tolerance && self.boundary_step([pa, pb, pc], error) {
+        if error > refine.tolerance
+            && let Some(witness) = self.boundary_step([pa, pb, pc], error)
+        {
+            let position = witness.position();
+            if (self.lane.allowed)(position[0], position[1]) {
+                push_step_witness(&mut self.steps, witness);
+            }
             return Some((Some(Why::Step(error)), moved));
         }
         // Within a triangle a field no steeper than `steepest` strays from its corners' plane by
@@ -862,7 +877,7 @@ pub(in crate::terrain) fn refine(
     memo: &mut Memo,
     mesh: &RegionMesh,
     bound: Bound,
-) -> Option<(RegionMesh, Refined)> {
+) -> Option<(RegionMesh, Refined, Vec<StepWitness>)> {
     let corners = plan::vertices(&mesh.points);
     let triangles = mesh.triangles.as_chunks::<3>().0;
     let mut mesher = Mesher {
@@ -876,7 +891,8 @@ pub(in crate::terrain) fn refine(
         original: u32::try_from(corners.len()).ok()?,
         inside: 0,
         kinds: BTreeMap::new(),
-        ring_sides: HashSet::new(),
+        ring_sides: BTreeSet::new(),
+        steps: Vec::new(),
         assessed: HashMap::new(),
         ring_plan: mesh
             .ring
@@ -1062,7 +1078,8 @@ pub(in crate::terrain) fn refine(
         }
     }
     report.added = u32::try_from(mesher.base.len() - initial).ok()?;
-    assemble(mesh, &mesher).map(|built| (built, report))
+    let built = assemble(mesh, &mesher)?;
+    Some((built, report, mesher.steps))
 }
 
 /// The region mesh: the outside as it was, the inside from the triangulation.

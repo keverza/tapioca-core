@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use super::{Faces, OutlineError, mesher, plan};
+use super::{Faces, OutlineError, StepWitness, mesher, plan, push_step_witness};
 use crate::terrain::region::RegionMesh;
 
 /// The vertical error the faces may leave between the mesh's vertices.
@@ -96,6 +96,7 @@ pub(super) struct Graded {
     pub owners: Vec<bool>,
     pub based: Vec<f64>,
     pub unreached: u32,
+    pub steps: Vec<StepWitness>,
 }
 
 /// The faces evaluated once per plan point. Each round rebuilds the mesh, but
@@ -134,6 +135,7 @@ pub(super) fn grade(
     faces: &Faces<'_>,
     memo: &mut Memo,
     mesh: &RegionMesh,
+    steps: Vec<StepWitness>,
 ) -> Result<Graded, OutlineError> {
     let vertices = plan::vertices(&mesh.points);
     let mut fixed = vec![false; vertices.len()];
@@ -156,8 +158,9 @@ pub(super) fn grade(
         owners: Vec::with_capacity(vertices.len()),
         based: Vec::with_capacity(vertices.len()),
         unreached: 0,
+        steps,
     };
-    for (&[x, y, z], &keep) in vertices.iter().zip(&fixed) {
+    for (vertex, (&[x, y, z], &keep)) in (0_u32..).zip(vertices.iter().zip(&fixed)) {
         let height = if keep {
             z
         } else {
@@ -165,6 +168,15 @@ pub(super) fn grade(
                 .height(&|x, y| faces.height(x, y), x, y)
                 .ok_or(OutlineError::Coverage)?;
             graded.unreached += u32::from(short);
+            if short {
+                push_step_witness(
+                    &mut graded.steps,
+                    StepWitness::ReachLimit {
+                        vertex,
+                        position: [x, y, height],
+                    },
+                );
+            }
             height
         };
         graded.points.extend([x, y, height]);
@@ -233,7 +245,7 @@ pub(super) fn refined(
     let mesh = rebuild(spots, lines)?;
     let mut memo = Memo::default();
     let Some(bound) = bound else {
-        let graded = grade(faces, &mut memo, &mesh)?;
+        let graded = grade(faces, &mut memo, &mesh, Vec::new())?;
         return Ok((
             mesh,
             graded,
@@ -255,16 +267,18 @@ pub(super) fn refined(
         near: &near,
         traced: bound.traced,
         paved: &|x, y| footprint.contains(x, y),
+        allowed: &|_, _| true,
     };
-    let (mesh, report) = mesher::refine(&lane, &mut memo, &mesh, bound).unwrap_or((
+    let (mesh, report, steps) = mesher::refine(&lane, &mut memo, &mesh, bound).unwrap_or((
         mesh,
         Refined {
             rounds: 1,
             exhausted: true,
             ..Refined::default()
         },
+        Vec::new(),
     ));
-    let graded = grade(faces, &mut memo, &mesh)?;
+    let graded = grade(faces, &mut memo, &mesh, steps)?;
     Ok((mesh, graded, report))
 }
 

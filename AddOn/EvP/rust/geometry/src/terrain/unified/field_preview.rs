@@ -157,7 +157,8 @@ pub fn field_preview(
                 let indices: Vec<u32> = (0..u32::try_from(ring.len()).unwrap_or(0)).collect();
                 let ground = |x, y| operator.base.height_at(x, y).map(|sample| sample.height);
                 previewed.clipped = outline::clipped(faces, &ground, &|_, _| true, ring, &indices)
-                    .map_err(BuildError::Outline)?;
+                    .map_err(BuildError::Outline)?
+                    .count;
             }
             return Ok(previewed);
         }

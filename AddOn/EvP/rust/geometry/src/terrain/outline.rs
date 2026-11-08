@@ -138,6 +138,64 @@ impl SurfaceGrade {
     }
 }
 
+/// Most located witnesses retained for each [`StepWitness`] kind. Counts still cover every
+/// observation; the bound only limits diagnostic storage.
+pub const STEP_WITNESS_LIMIT: usize = 32;
+
+/// One located outline step observation. The variants keep reach-limit observations, stitch-ring
+/// mismatches and the mesher's bounded step-strip classifications distinct.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum StepWitness {
+    /// A graded vertex whose face ran out at its reach limit. `position` is the output vertex.
+    ReachLimit {
+        /// Output vertex index.
+        vertex: u32,
+        /// Graded xyz position at the outline stage, world metres.
+        position: [f64; 3],
+    },
+    /// A stitch-ring sample where the retained ground and outline design differ.
+    RingMismatch {
+        /// Zero-based segment index in the result's region ring.
+        segment: u32,
+        /// Sample xyz on the retained ground, world metres.
+        position: [f64; 3],
+        /// Outline design height at the sample, metres.
+        design: f64,
+    },
+    /// The local stitch mismatch that let the mesher classify an above-tolerance triangle as a
+    /// bounded step strip rather than actionable residual. This is a classification event, not a
+    /// final-triangle index: later refinement may replace the triangle.
+    StepStrip {
+        /// Sample xyz on the stitch; z is the classifier's retained height, world metres.
+        position: [f64; 3],
+        /// Outline design height at the sample, metres.
+        design: f64,
+        /// The classified triangle's sampled vertical residual, metres.
+        residual: f64,
+    },
+}
+
+impl StepWitness {
+    /// Plan position of any observation, for masking and location consumers.
+    pub(in crate::terrain) const fn position(&self) -> [f64; 3] {
+        match *self {
+            Self::ReachLimit { position, .. }
+            | Self::RingMismatch { position, .. }
+            | Self::StepStrip { position, .. } => position,
+        }
+    }
+}
+
+/// Retain a witness without letting diagnostics grow with the mesh. Each kind has its own bound so
+/// numerous reach-limit observations cannot hide every ring or step-strip witness.
+pub(in crate::terrain) fn push_step_witness(steps: &mut Vec<StepWitness>, witness: StepWitness) {
+    let same =
+        |other: &StepWitness| std::mem::discriminant(other) == std::mem::discriminant(&witness);
+    if steps.iter().filter(|other| same(other)).count() < STEP_WITNESS_LIMIT {
+        steps.push(witness);
+    }
+}
+
 /// The graded mesh.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Outlined {
@@ -165,6 +223,9 @@ pub struct Outlined {
     /// it) where a face had not met the ground: the region's edge, not the
     /// limit, ends it in a step. Zero when every face fits inside the region.
     pub clipped: u32,
+    /// Located step observations, bounded per kind by [`STEP_WITNESS_LIMIT`]. The mesher's strips
+    /// precede reach-limit vertices and ring samples; each group retains its observation order.
+    pub steps: Vec<StepWitness>,
     /// The refinement's report; default without one.
     pub refined: Refined,
     /// Toe breaklines in the mesh (#149 T2), after the caller lines; zero when
@@ -819,6 +880,12 @@ impl<'a> Faces<'a> {
     }
 }
 
+/// Ring-step count and its bounded located witnesses.
+pub(super) struct Clipped {
+    pub count: u32,
+    pub witnesses: Vec<StepWitness>,
+}
+
 /// Region ring samples, every vertex and every [`CLIP_STEP`] metres between, where the faces
 /// would leave the supplied ground: there the ring ends them in a step. The caller's `allowed`
 /// predicate excludes samples where masks do not apply the outline at all.
@@ -828,8 +895,11 @@ pub(super) fn clipped(
     allowed: &dyn Fn(f64, f64) -> bool,
     vertices: &[[f64; 3]],
     ring: &[u32],
-) -> Result<u32, OutlineError> {
-    let mut count = 0_u32;
+) -> Result<Clipped, OutlineError> {
+    let mut clipped = Clipped {
+        count: 0,
+        witnesses: Vec::new(),
+    };
     for (index, &from) in ring.iter().enumerate() {
         let to = ring.get((index + 1) % ring.len()).copied();
         let (Some(start), Some(end)) = (
@@ -851,12 +921,22 @@ pub(super) fn clipped(
                 continue;
             }
             if let Some(ground) = ground(x, y) {
-                let (height, _) = faces.over(ground, x, y);
-                count += u32::from(height.to_bits() != ground.to_bits());
+                let (design, _) = faces.over(ground, x, y);
+                if design.to_bits() != ground.to_bits() {
+                    clipped.count += 1;
+                    push_step_witness(
+                        &mut clipped.witnesses,
+                        StepWitness::RingMismatch {
+                            segment: u32::try_from(index).unwrap_or(u32::MAX),
+                            position: [x, y, ground],
+                            design,
+                        },
+                    );
+                }
             }
         }
     }
-    Ok(count)
+    Ok(clipped)
 }
 
 /// The validated outline grading inputs, owned: the base and paved fields,
@@ -972,14 +1052,20 @@ impl Operator {
     /// meshed to `refine` for these faces graded over `ground`, the surface the build's region
     /// entries composed (or the base). The mesher must certify the vertical-error tolerance.
     /// `rebuilt` is that mesh and the range of its line indices that are the traced toe and
-    /// creases; `meshes` are the base and the pavement, as for the bound.
+    /// creases; `meshes` are the base and the pavement, as for the bound. `allowed` limits retained
+    /// diagnostic witnesses before their cap; it does not change meshing or classification.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "ground, diagnostic mask, rebuilt topology, refinement bound and parity meshes form one mesher request"
+    )]
     pub(super) fn meshed(
         &self,
         ground: &(dyn Fn(f64, f64) -> Option<f64> + Sync),
+        allowed: &(dyn Fn(f64, f64) -> bool + Sync),
         (mesh, traced): (&RegionMesh, [u32; 2]),
         refine: Refine,
         meshes: [Flat<'_>; 2],
-    ) -> Result<(RegionMesh, Refined), OutlineError> {
+    ) -> Result<(RegionMesh, Refined, Vec<StepWitness>), OutlineError> {
         let faces = self.faces();
         let design = |x: f64, y: f64| ground(x, y).map(|base| faces.over(base, x, y));
         let near = faces.near();
@@ -992,8 +1078,9 @@ impl Operator {
             near: &near,
             traced,
             paved: &|x, y| footprint.contains(x, y),
+            allowed,
         };
-        let (mesh, report) = mesher::refine(
+        let (mesh, report, steps) = mesher::refine(
             &lane,
             &mut refine::Memo::default(),
             mesh,
@@ -1001,7 +1088,7 @@ impl Operator {
         )
         .ok_or(OutlineError::Refinement)?;
         refine::certify_vertical(&report, &refine)?;
-        Ok((mesh, report))
+        Ok((mesh, report, steps))
     }
 }
 
@@ -1128,10 +1215,12 @@ pub(in crate::terrain) fn build_with(
         owners,
         based,
         unreached,
+        mut steps,
     } = graded;
     let vertices = plan::vertices(&mesh.points);
     let ground = |x, y| base.height_at(x, y).map(|sample| sample.height);
     let clipped = clipped(&faces, &ground, &|_, _| true, vertices, &mesh.ring)?;
+    steps.extend(clipped.witnesses);
     let volumes = exact_cut_fill(&ExactRequest {
         points: &points,
         base: &based,
@@ -1147,7 +1236,8 @@ pub(in crate::terrain) fn build_with(
         owners,
         volumes,
         unreached,
-        clipped,
+        clipped: clipped.count,
+        steps,
         refined,
         toe,
     })

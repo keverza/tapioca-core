@@ -142,6 +142,23 @@ fn a_face_cut_short_by_its_limit_is_counted() -> Result<(), OutlineError> {
     let built = run(0.0, 1.0)?;
     assert!(built.unreached > 0);
     assert_eq!(built.clipped, 0);
+    let located: Vec<_> = built
+        .steps
+        .iter()
+        .filter_map(|step| match *step {
+            StepWitness::ReachLimit { vertex, position } => Some((vertex, position)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(built.steps.len(), located.len());
+    assert_eq!(
+        located.len(),
+        (built.unreached as usize).min(STEP_WITNESS_LIMIT)
+    );
+    let vertices = plan::vertices(&built.points);
+    for (vertex, position) in located {
+        assert_eq!(vertices.get(vertex as usize), Some(&position));
+    }
     Ok(())
 }
 
@@ -174,6 +191,109 @@ fn a_face_cut_short_by_the_region_is_counted() -> Result<(), OutlineError> {
     assert!(built.clipped > 0);
     assert_eq!(built.unreached, 0);
     assert_eq!(run(0.0, 10.0)?.clipped, 0);
+    let located: Vec<_> = built
+        .steps
+        .iter()
+        .filter_map(|step| match *step {
+            StepWitness::RingMismatch {
+                segment,
+                position,
+                design,
+            } => Some((segment, position, design)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(built.steps.len(), located.len());
+    assert_eq!(
+        located.len(),
+        (built.clipped as usize).min(STEP_WITNESS_LIMIT)
+    );
+    for (segment, [x, y, retained], design) in located {
+        let from = built
+            .mesh
+            .ring
+            .get(segment as usize)
+            .and_then(|&v| plan::vertices(&built.mesh.points).get(v as usize));
+        let to = built
+            .mesh
+            .ring
+            .get((segment as usize + 1) % built.mesh.ring.len())
+            .and_then(|&v| plan::vertices(&built.mesh.points).get(v as usize));
+        let (Some(a), Some(b)) = (from, to) else {
+            return Err(OutlineError::Coverage);
+        };
+        let length = (b[0] - a[0]).hypot(b[1] - a[1]);
+        let cross = (x - a[0]).mul_add(b[1] - a[1], -(y - a[1]) * (b[0] - a[0]));
+        assert!(cross.abs() <= 1e-9 * length.max(1.0));
+        assert_ne!(design.to_bits(), retained.to_bits());
+    }
+    Ok(())
+}
+
+#[test]
+fn ring_step_witnesses_keep_survey_coordinates_and_order() -> Result<(), OutlineError> {
+    let build_at = |offset: [f64; 2]| {
+        let translate = |values: &[f64]| {
+            values
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .flat_map(|&[x, y, z]| [x + offset[0], y + offset[1], z])
+                .collect::<Vec<_>>()
+        };
+        let (points, triangles) = base();
+        let points = translate(&points);
+        let region = translate(&[
+            -10.0, -3.0, 0.0, 50.0, -3.0, 0.0, 50.0, 15.0, 0.0, -10.0, 15.0, 0.0,
+        ]);
+        let paved = translate(&PAVED);
+        build(&OutlineRequest {
+            points: &points,
+            triangles: &triangles,
+            region: &region,
+            surface_points: &paved,
+            surface_triangles: &PAVED_TRIANGLES,
+            breaklines: &[],
+            spots: &[],
+            surface_grades: &[],
+            refine: None,
+            grading: Grading {
+                cut: HALF,
+                fill: HALF,
+                limit: 10.0,
+                rounding: 0.0,
+                effect: Effect::Both,
+                tolerance: 1e-6,
+            },
+        })
+    };
+    let local = build_at([0.0, 0.0])?;
+    let survey = build_at([1_000_000.0, -1_000_000.0])?;
+    assert_eq!(survey.clipped, local.clipped);
+    assert_eq!(survey.unreached, local.unreached);
+    assert_eq!(survey.steps.len(), local.steps.len());
+    for (before, after) in local.steps.iter().zip(&survey.steps) {
+        let (
+            StepWitness::RingMismatch {
+                segment: a,
+                position: pa,
+                design: da,
+            },
+            StepWitness::RingMismatch {
+                segment: b,
+                position: pb,
+                design: db,
+            },
+        ) = (*before, *after)
+        else {
+            return Err(OutlineError::Coverage);
+        };
+        assert_eq!(a, b);
+        assert!((pb[0] - pa[0] - 1_000_000.0).abs() <= 1e-9);
+        assert!((pb[1] - pa[1] + 1_000_000.0).abs() <= 1e-9);
+        assert_eq!(pb[2].to_bits(), pa[2].to_bits());
+        assert_eq!(db.to_bits(), da.to_bits());
+    }
     Ok(())
 }
 
@@ -800,6 +920,7 @@ fn the_unified_build_grades_an_outline_exactly_as_this_lane() -> Result<(), Stri
             "{rounding} {limit}"
         );
         assert_eq!(built.outline_clipped, lane.clipped);
+        assert_eq!(built.outline_steps, lane.steps, "{rounding} {limit}");
         assert!((built.volumes.site.fill - lane.volumes.site.fill).abs() < 1e-6);
         assert!((built.volumes.site.cut - lane.volumes.site.cut).abs() < 1e-6);
         // Every face line and every paved support is accounted for.
@@ -867,15 +988,16 @@ fn an_outline_grades_over_the_ground_a_region_entry_composed_first() -> Result<(
 
 #[test]
 fn ring_step_counts_use_composed_ground() -> Result<(), String> {
+    // Start at the right ring so its composed-ground sample is inside the bounded witness window.
     let property = [
-        -10.0, -15.0, 0.0, 43.0, -15.0, 0.0, 43.0, 15.0, 0.0, -10.0, 15.0, 0.0,
+        43.0, -15.0, 0.0, 43.0, 15.0, 0.0, -10.0, 15.0, 0.0, -10.0, -15.0, 0.0,
     ];
     let baseline = unified_on(&property, [0.0, 10.0], &[], &[], false)
         .map_err(|e| format!("baseline {e:?}"))?;
     assert!(baseline.outline_clipped > 0);
-    // At the right property ring the pavement's fill face is at 10.5 m. A composed surface at
-    // that level removes the mismatch there; evaluating against the immutable 10 m base would
-    // invent a step. The whole-property ring uses the established coincident-boundary contract.
+    // At this right-ring sample the pavement's fill face is at 10.5 m. The whole-property composed
+    // falloff raises the retained ground from 10 to 10.15 m; evaluating the immutable base would
+    // report the wrong gap. The ring uses the established coincident-boundary contract.
     let band = property;
     let parts = [crate::terrain::Part {
         outer: &band,
@@ -896,11 +1018,38 @@ fn ring_step_counts_use_composed_ground() -> Result<(), String> {
     let composed = unified_on(&property, [0.0, 10.0], &entries, &[], false)
         .map_err(|e| format!("composed {e:?}"))?;
     assert!(composed.outline_clipped < baseline.outline_clipped);
+    let at_composed_sample = |step: &StepWitness| match *step {
+        StepWitness::RingMismatch {
+            position, design, ..
+        } if position[0].to_bits() == 43.0_f64.to_bits()
+            && position[1].to_bits() == 1.25_f64.to_bits() =>
+        {
+            Some((position[2], design))
+        }
+        _ => None,
+    };
+    assert!(
+        baseline
+            .outline_steps
+            .iter()
+            .filter_map(at_composed_sample)
+            .any(|(retained, design)| (retained - 10.0).abs() <= 1e-9 && design > retained)
+    );
+    assert!(
+        composed
+            .outline_steps
+            .iter()
+            .filter_map(at_composed_sample)
+            .any(|(retained, design)| {
+                (retained - 10.15).abs() <= 1e-9 && (design - 10.5).abs() <= 1e-9
+            }),
+        "the witness uses the composed ground, not the immutable 10 m base"
+    );
     let field = Field::new(&composed.points, &composed.mesh.triangles)
         .map_err(|e| format!("composed field {e:?}"))?;
     assert_eq!(
         field
-            .height_at(43.0, 7.5)
+            .height_at(43.0, 1.25)
             .map(|sample| sample.height.to_bits()),
         Some(10.5_f64.to_bits())
     );

@@ -636,6 +636,7 @@ pub(super) fn encode(built: kernel::BuiltTerrain) -> Result<Encoded, Failure> {
         outline_lines,
         outline_unreached,
         outline_clipped,
+        outline_steps: _,
         locked,
         volumes: report,
         revision,
