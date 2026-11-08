@@ -10,6 +10,7 @@ mod edit;
 mod hybrid;
 mod locked;
 mod outline;
+mod preview;
 mod result;
 mod sample;
 mod slope;
@@ -37,6 +38,9 @@ pub use locked::{
 pub use outline::{
     TerrainOutlineCounts, TerrainOutlineOutput, TerrainOutlineRequest,
     tapioca_terrain_outline_build,
+};
+pub use preview::{
+    PreviewCounts, PreviewLine, PreviewOutput, PreviewSummary, tapioca_terrain_unified_preview,
 };
 pub use sample::{
     TerrainFieldSummary, TerrainSample, TerrainSampleOutput, TerrainSampleRequest,

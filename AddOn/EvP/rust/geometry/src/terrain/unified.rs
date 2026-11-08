@@ -1830,6 +1830,88 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
     })
 }
 
+/// #175: the design previewed from its field on a plan grid every `step` metres -- its surface,
+/// its contours at `interval` (see [`super::contour::trace`]) and its cut and fill -- in
+/// milliseconds where [`build_terrain`] takes seconds, and with no mesh. Inside the property the
+/// field is the ground the region entries compose, with the outline's faces graded over it as
+/// [`build_terrain`] grades a vertex (masks included); outside it, and with no property, the
+/// baseline. Path bands and controls are not in it yet.
+///
+/// # Errors
+/// As [`build_terrain`] for the baseline, the plan's regions and the outline's inputs.
+pub fn field_preview(
+    baseline: &Baseline<'_>,
+    plan: &Plan<'_>,
+    step: f64,
+    interval: f64,
+) -> Result<super::preview::Preview, BuildError> {
+    let base = Field::new(baseline.points, baseline.triangles).map_err(BuildError::Baseline)?;
+    let prepared = validate_plan(plan, baseline.property.is_some())?;
+    let composed = if prepared.is_empty() {
+        None
+    } else {
+        Some(region_height_field(baseline, &prepared, plan.masks)?)
+    };
+    let operator = plan
+        .outlines
+        .first()
+        .map(|o| {
+            outline::Operator::new(
+                baseline.points,
+                baseline.triangles,
+                o.surface_points,
+                o.surface_triangles,
+                o.surface_grades,
+                o.grading,
+            )
+        })
+        .transpose()
+        .map_err(BuildError::Outline)?;
+    let faces = operator.as_ref().map(outline::Operator::faces);
+    let property = baseline.property.map(plan::vertices);
+    let inside = |x: f64, y: f64| {
+        property.as_ref().is_none_or(|ring| {
+            let mut inside = false;
+            for (index, a) in ring.iter().enumerate() {
+                let Some(b) = ring.get((index + 1) % ring.len()) else {
+                    break;
+                };
+                if (a[1] > y) != (b[1] > y) {
+                    let t = (y - a[1]) / (b[1] - a[1]);
+                    if (b[0] - a[0]).mul_add(t, a[0]) > x {
+                        inside = !inside;
+                    }
+                }
+            }
+            inside
+        })
+    };
+    let height = |x: f64, y: f64| -> Option<[f64; 2]> {
+        let ground = base.height_at(x, y)?.height;
+        if !inside(x, y) {
+            return Some([ground, ground]);
+        }
+        let composed = composed.as_ref().map_or(Some(ground), |field| {
+            field.height_at(x, y).map(|s| s.height)
+        })?;
+        let design = match &faces {
+            Some(faces) if !is_protected(plan.masks, x, y) && grading_allowed(plan.masks, x, y) => {
+                faces.over(composed, x, y).0
+            }
+            _ => composed,
+        };
+        Some([design, ground])
+    };
+    let bounds = base.bounds();
+    Ok(super::preview::preview(
+        [bounds.min[0], bounds.min[1]],
+        [bounds.max[0], bounds.max[1]],
+        step,
+        interval,
+        &height,
+    ))
+}
+
 /// Grade the paved outline over the composed heights (#149 T1): as the outline
 /// lane, a vertex of an outside triangle keeps its height and every other
 /// vertex takes the outline design over the ground composed there, except

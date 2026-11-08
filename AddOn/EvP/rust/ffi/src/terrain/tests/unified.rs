@@ -309,6 +309,10 @@ fn layouts_match_the_documented_c_records() {
     assert_eq!(size_of::<UnifiedRequest>(), 576);
     assert_eq!(size_of::<UnifiedLine>(), 32);
     assert_eq!(size_of::<UnifiedLocked>(), 16);
+    assert_eq!(size_of::<PreviewCounts>(), 40);
+    assert_eq!(size_of::<PreviewSummary>(), 56);
+    assert_eq!(size_of::<PreviewLine>(), 32);
+    assert_eq!(size_of::<PreviewOutput>(), 96);
 }
 
 #[test]
@@ -709,4 +713,116 @@ fn nested_transitions_and_coincident_property_entry_ring_builds() {
     assert_eq!(height(5.0, 5.0), 1.0, "inner override wins");
     assert_eq!(height(3.0, 3.0), 3.0, "annulus keeps the outer target");
     assert_eq!(height(0.0, 0.0), 0.0, "outside stays baseline");
+}
+
+/// #175: the field preview of the graded entry, through the C ABI: too-small capacities return
+/// the counts and write nothing else, a second call with them writes everything, and its fill
+/// is the build's to within the grid's resolution.
+#[test]
+fn the_field_preview_answers_in_one_call_once_its_capacities_fit() {
+    let (points, triangles) = base();
+    let entries = [entry(0, 2.0)];
+    let geometry = DOMAIN.to_vec();
+    let sources = [0x1001_u64];
+    let rows = rows(counts_in(4));
+    let no_controls: [UnifiedControl; 0] = [];
+    let ring_pool = [TerrainRing {
+        offset: 0,
+        count: 12,
+    }];
+    let part_pool = [UnifiedPart {
+        first_ring: 0,
+        ring_count: 1,
+    }];
+    let part_indices = [0_u32, 1];
+    let request = scene(
+        &points,
+        &triangles,
+        &entries,
+        &geometry,
+        &sources,
+        &rows,
+        &no_controls,
+        &ring_pool,
+        &part_pool,
+        &part_indices,
+    );
+    let mut storage = Storage::new();
+    assert!(build(&request, &mut storage).is_ok());
+    let mut counts = PreviewCounts::default();
+    let mut summary = PreviewSummary::default();
+    let mut buffer = [0_u8; 256];
+    let mut output = PreviewOutput {
+        step: 0.05,
+        interval: 1.0,
+        counts: &raw mut counts,
+        summary: &raw mut summary,
+        points: std::ptr::null_mut(),
+        point_capacity: 0,
+        triangles: std::ptr::null_mut(),
+        triangle_capacity: 0,
+        lines: std::ptr::null_mut(),
+        line_capacity: 0,
+        line_points: std::ptr::null_mut(),
+        line_point_capacity: 0,
+    };
+    // SAFETY: every pointer is live for the call and the buffers are disjoint.
+    let status = unsafe {
+        tapioca_terrain_unified_preview(
+            &raw const request,
+            &raw const output,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+        )
+    };
+    assert_eq!(status, 0, "{}", message(&buffer));
+    assert_eq!(counts.complete, 0);
+    assert!(counts.points > 0 && counts.triangles > 0 && counts.lines > 0);
+    assert_eq!(
+        summary,
+        PreviewSummary::default(),
+        "nothing but the counts is written"
+    );
+    let mut surface = vec![0.0; counts.points];
+    let mut indices = vec![0_u32; counts.triangles];
+    let mut lines = vec![PreviewLine::default(); counts.lines];
+    let mut line_points = vec![0.0; counts.line_points];
+    output.points = surface.as_mut_ptr();
+    output.point_capacity = surface.len();
+    output.triangles = indices.as_mut_ptr();
+    output.triangle_capacity = indices.len();
+    output.lines = lines.as_mut_ptr();
+    output.line_capacity = lines.len();
+    output.line_points = line_points.as_mut_ptr();
+    output.line_point_capacity = line_points.len();
+    // SAFETY: as above, with every capacity the first call reported.
+    let status = unsafe {
+        tapioca_terrain_unified_preview(
+            &raw const request,
+            &raw const output,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+        )
+    };
+    assert_eq!(status, 0, "{}", message(&buffer));
+    assert_eq!(counts.complete, 1);
+    assert_eq!(summary.interval, 1.0);
+    // Levels 0 (bounding the raised square) and 1 (on its transition).
+    let levels: Vec<f64> = lines.iter().map(|line| line.level).collect();
+    assert!(levels.contains(&0.0) && levels.contains(&1.0), "{levels:?}");
+    let last = lines.last().copied().unwrap_or_default();
+    assert_eq!(
+        usize::try_from(last.first + last.count)
+            .ok()
+            .map(|points| points * 3),
+        Some(line_points.len())
+    );
+    assert!(
+        (summary.fill - storage.site.fill).abs() <= 0.03 * storage.site.fill,
+        "preview fill {} vs build {}",
+        summary.fill,
+        storage.site.fill
+    );
+    assert!(summary.cut.abs() < 1e-9);
+    assert!(indices.iter().all(|&v| (v as usize) < surface.len() / 3));
 }

@@ -30,6 +30,7 @@
 
 mod classify;
 mod constrain;
+pub mod contour;
 pub mod daylight;
 pub mod design;
 pub mod edit;
@@ -39,6 +40,7 @@ mod input;
 pub mod outline;
 mod plan;
 mod presplit;
+pub mod preview;
 mod refine;
 pub mod region;
 mod split;
@@ -58,6 +60,7 @@ pub use unified::{
     Baseline, BuildError, BuiltTerrain, Control, ControlLineOrigin, Entry, LineOrigin,
     LockedVertex, Mask, MaskKind, MaskLineOrigin, Outline, OutlineLineOrigin, Part, Path,
     PathLineOrigin, Plan, Surface, Terrain, TerrainEffect, Transition, build_terrain,
+    field_preview,
 };
 pub use verify::{extract_edges, verify_constraints};
 

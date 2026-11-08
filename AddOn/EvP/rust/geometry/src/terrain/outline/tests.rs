@@ -849,3 +849,95 @@ fn an_outline_grades_over_the_ground_a_region_entry_composed_first() -> Result<(
     assert_eq!(owner(10.0, 10.0), Some(0));
     Ok(())
 }
+
+/// #175: the field preview's contours lie on the mesh the unified build makes from the same
+/// plan, to within its refinement tolerance and the grid's interpolation, and its volumes are
+/// the build's to within the grid's resolution.
+#[test]
+fn the_field_preview_matches_the_unified_mesh() -> Result<(), String> {
+    let built = unified(1.0, 10.0, &[]).map_err(|e| format!("unified {e:?}"))?;
+    let mesh = Field::new(&built.points, &built.mesh.triangles).map_err(|e| format!("{e:?}"))?;
+    let (points, triangles) = base();
+    let outlines = [crate::terrain::Outline {
+        order: 0,
+        surface_points: &PAVED,
+        surface_triangles: &PAVED_TRIANGLES,
+        surface_grades: &[],
+        grading: Grading {
+            cut: HALF,
+            fill: HALF,
+            limit: 10.0,
+            rounding: 1.0,
+            effect: Effect::Both,
+            tolerance: 1e-6,
+        },
+        lines: &[],
+        spots: &[],
+    }];
+    let started = std::time::Instant::now();
+    let previewed = crate::terrain::field_preview(
+        &crate::terrain::Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&REGION),
+        },
+        &crate::terrain::Plan {
+            revision: 1,
+            hash: 2,
+            entries: &[],
+            paths: &[],
+            masks: &[],
+            controls: &[],
+            control_tolerance: 1e-3,
+            outlines: &outlines,
+        },
+        0.1,
+        0.5,
+    )
+    .map_err(|e| format!("preview {e:?}"))?;
+    let elapsed = started.elapsed();
+    let traced = &previewed.contours;
+    // 10 at the toe (the ground is level at 10, so that level bounds what rises above it), 10.5,
+    // 11 and 11.5 around the pavement (level at 12, nothing above it).
+    let levels: std::collections::BTreeSet<u64> = traced
+        .lines
+        .iter()
+        .map(|line| line.level.to_bits())
+        .collect();
+    assert_eq!(
+        levels.len(),
+        4,
+        "{:?}",
+        traced.lines.iter().map(|l| l.level).collect::<Vec<_>>()
+    );
+    assert_eq!(traced.lines.len(), 4);
+    let mut worst = 0.0_f64;
+    for line in &traced.lines {
+        assert!(line.closed, "level {}", line.level);
+        for p in &line.points {
+            let on = mesh.height_at(p[0], p[1]).ok_or("off the mesh")?.height;
+            worst = worst.max((on - p[2]).abs());
+        }
+    }
+    assert!(worst < 0.03, "worst {worst}");
+    let site = built.volumes.site;
+    assert!(
+        (previewed.fill - site.fill).abs() <= 0.02 * site.fill.max(1.0),
+        "fill {} vs {}",
+        previewed.fill,
+        site.fill
+    );
+    assert!(
+        previewed.cut <= 0.02 * site.fill.max(1.0),
+        "cut {}",
+        previewed.cut
+    );
+    println!(
+        "field preview: {} lines, {} surface triangles, fill {:.2} vs {:.2}, worst {worst:.4} m, {elapsed:?}",
+        traced.lines.len(),
+        previewed.triangles.len() / 3,
+        previewed.fill,
+        site.fill
+    );
+    Ok(())
+}
