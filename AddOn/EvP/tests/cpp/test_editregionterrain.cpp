@@ -789,6 +789,7 @@ TEST (EditRegionTerrain, RegionOnlyHudStartsFromHeldTerrainAndRebuildsAfterUndo)
     mesh->vertices = captured->points;
     mesh->triangles = captured->triangles;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::SetTerrainBaseline (session, { mesh, false, {} }, 0));
     ASSERT_TRUE (await (session)) << eh::GetTerrainDesignStatus (session).error;
     EXPECT_TRUE (eh::GetTerrainDesignStatus (session).built);

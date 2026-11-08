@@ -441,6 +441,7 @@ bool PreviewUnifiedTerrain (const UnifiedPlanRequest& request, const UnifiedPrev
     TapiocaPreviewOutput output {};
     output.step = ask.step;
     output.interval = ask.interval;
+    output.maxReach = ask.maxReach;
     output.counts = &counts;
     output.summary = &summary;
     size_t want[4] = { ask.points, ask.triangles, ask.lines, ask.linePoints };
@@ -500,6 +501,9 @@ bool PreviewUnifiedTerrain (const UnifiedPlanRequest& request, const UnifiedPrev
     candidate.fill = summary.fill;
     candidate.low = summary.range[0];
     candidate.high = summary.range[1];
+    candidate.reach = summary.reach;
+    candidate.unreached = summary.unreached;
+    candidate.clipped = summary.clipped;
     result = std::move (candidate);
     error.clear ();
     return true;

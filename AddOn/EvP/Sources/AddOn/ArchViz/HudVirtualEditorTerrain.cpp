@@ -15,14 +15,12 @@
 // OVERLAY-INVARIANTS.md §§8,12,14: session-owned derived geometry only;
 // both hosts consume the same layer, with no camera or renderer changes.
 namespace geomsrv::archviz::edithud {
-namespace {
 // Lifecycle transitions only, never status polling or per-frame rendering.
 void LogTerrain (const Session& s, const std::string& event)
 {
     ArchVizLog ("TERRAIN " + event + " revision=" + std::to_string (s.edits.Doc ().revision) +
                 " path=" + std::to_string (s.terrainPath));
 }
-} // namespace
 
 bool RequestTerrainCapture (Session& s, bool fromSelection)
 {
@@ -157,35 +155,13 @@ void TerrainControlsPanel (Session& s)
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditRegionTerrain.hpp"
 #include "Edit/EditPublishedTerrain.hpp"
+#include "ArchViz/HudVirtualEditorTerrainState.hpp"
 #include <algorithm>
 #include <chrono>
 #include <exception>
 
 namespace geomsrv::archviz::edithud {
 namespace lg = tapioca::geometry;
-
-struct TerrainDesignState {
-    TerrainDesignBaseline baseline;
-    bool invalid = false;
-    lg::TerrainDesignOptions options;
-    lg::TerrainDesignPublisher publisher;
-    std::future<lg::TerrainDesignOutcome> worker;
-    uint64_t requestedRevision = UINT64_MAX;
-    std::string error;
-    // The built surface's contour lines, traced once per outcome and interval (DrawTerrainDesign):
-    // a selection change republishes the layer and must not trace a large mesh again.
-    uint64_t contoursGeneration = UINT64_MAX;
-    double contoursInterval = 0.0;
-    std::vector<edit::Contour> contours;
-    uint64_t staleLogged = UINT64_MAX; // The generation last logged as drawn stale: once, not per move.
-    // #175: the design previewed from its field (surface, contours, cut/fill) in milliseconds,
-    // asked for every revision -- through a gesture too -- and drawn while the build above has
-    // not caught up. One in flight; the newest that landed is kept.
-    std::future<lg::TerrainPreviewOutcome> previewWorker;
-    uint64_t previewRequested = UINT64_MAX;
-    lg::TerrainPreviewOutcome preview;
-    lg::UnifiedPreviewAsk previewAsk;
-};
 
 TerrainDebugSource GetTerrainDebugSource (const Session& s)
 {
@@ -310,84 +286,6 @@ void StartTerrainDesignWorker (Session& s, TerrainDesignState& state)
         state.error = std::string ("TerrainDesignWorker: ") + exception.what ();
         LogTerrain (s, "worker launch refused: " + state.error);
     }
-}
-} // namespace
-
-namespace {
-// #175: one field preview of this revision, on its own worker: the build's inputs (a fresh
-// capture, the surface a native solid prepares), compiled and sampled on a grid, no mesh.
-void StartTerrainPreview (Session& s, TerrainDesignState& state)
-{
-    const auto& doc = s.edits.Doc ();
-    state.previewRequested = doc.revision;
-    if (!state.options.source && lg::TerrainRegionObjects (doc).empty ()) {
-        state.preview = {};
-        state.preview.revision = doc.revision;
-        state.preview.error = "TerrainPreviewNothing: no design path or region target yet";
-        return;
-    }
-    if (state.options.source && !state.options.outline) {
-        // The path band is sampled stations, not a field the preview evaluates: its build
-        // stands alone (the panel says it is building).
-        state.preview = {};
-        state.preview.revision = doc.revision;
-        state.preview.error = "TerrainPreviewBand: a path band has no field preview";
-        return;
-    }
-    auto capture = std::make_shared<lg::TerrainCapture> ();
-    std::string error;
-    if (!lg::CaptureLandscapeTerrain (doc, *state.baseline.mesh, { state.options.object, 2, 1 }, *capture, error)) {
-        state.preview = {};
-        state.preview.revision = doc.revision;
-        state.preview.error = error;
-        return;
-    }
-    lg::TerrainDesignJob job;
-    job.doc = std::make_shared<const edit::Document> (doc);
-    job.capture = std::move (capture);
-    job.options = state.options;
-    job.surfaceTable = state.baseline.nativeSolid ? 5 : 0;
-    auto ask = state.previewAsk;
-    ask.interval = s.contourStep > 0.0 ? s.contourStep : 0.0;
-    try {
-        state.previewWorker = lg::LaunchLandscapeTerrainPreview (std::move (job), ask);
-    }
-    catch (const std::exception& exception) {
-        state.preview = {};
-        state.preview.revision = doc.revision;
-        state.preview.error = std::string ("TerrainPreviewWorker: ") + exception.what ();
-    }
-}
-
-// Collect a landed preview, then ask for the current revision's if it is not the one asked.
-// Unlike the build it runs through gestures: it is what the user sees move.
-void PollTerrainPreview (Session& s, TerrainDesignState& state)
-{
-    if (state.previewWorker.valid ()) {
-        if (state.previewWorker.wait_for (std::chrono::seconds (0)) != std::future_status::ready)
-            return;
-        auto outcome = state.previewWorker.get ();
-        if (outcome.built) {
-            // The next call tries these sizes first: one Rust call while the preview keeps its size.
-            auto& ask = state.previewAsk;
-            ask.points = outcome.preview.points.size () + outcome.preview.points.size () / 4;
-            ask.triangles = outcome.preview.triangles.size () + outcome.preview.triangles.size () / 4;
-            ask.lines = outcome.preview.lines.size () + outcome.preview.lines.size () / 4 + 16;
-            size_t linePoints = 0;
-            for (const auto& line : outcome.preview.lines)
-                linePoints += line.points.size ();
-            ask.linePoints = linePoints + linePoints / 4 + 48;
-        }
-        if (outcome.built || state.preview.revision != outcome.revision)
-            LogTerrain (s, "preview revision=" + std::to_string (outcome.revision) + " built=" +
-                               std::to_string (outcome.built) + " ms=" + std::to_string (int (outcome.milliseconds)) +
-                               " triangles=" + std::to_string (outcome.preview.triangles.size () / 3) +
-                               " lines=" + std::to_string (outcome.preview.lines.size ()) + " error=" + outcome.error);
-        state.preview = std::move (outcome);
-        s.publishedRevision = UINT64_MAX;
-    }
-    if (!state.invalid && state.previewRequested != s.edits.Doc ().revision)
-        StartTerrainPreview (s, state);
 }
 } // namespace
 
@@ -532,6 +430,11 @@ void PollTerrainDesign (Session& s)
         s.publishedRevision = UINT64_MAX;
         return;
     }
+    // #175: the editor previews from the field; the mesh builds when asked, or on every idle
+    // revision when the session asks for that.
+    if (!s.terrainAutoBuild && !state.buildRequested)
+        return;
+    state.buildRequested = false;
     // #112 P5: the worker start is Author's read-only counterpart (see above):
     // it consumes this immutable snapshot and never changes revision or counts.
     StartTerrainDesignWorker (s, state);
@@ -581,25 +484,6 @@ std::optional<lg::PathDesignRequest> TerrainRecipeRequest (const Session& s)
 
 // #175: whether the layer shows the field preview: one landed, and the build has not caught up
 // with it (none yet, a refusal standing, or the last good build older than the preview).
-namespace {
-bool PreviewStandsIn (const Session& s)
-{
-    if (!s.terrainDesign)
-        return false;
-    const auto& state = *s.terrainDesign;
-    // Whatever hides the last build hides the preview too: a stale capture, a design that
-    // could not start.
-    if (!state.preview.built || state.invalid || !state.error.empty () ||
-        (state.baseline.current && !state.baseline.current ()))
-        return false;
-    // A build of this revision or a later one answers for it, a refusal included.
-    if (const auto* current = CurrentTerrainDesign (s); current && current->revision >= state.preview.revision)
-        return false;
-    bool stale = false;
-    const auto* last = LastPublishedTerrainDesign (s, stale);
-    return !last || !last->built || state.preview.revision > last->revision;
-}
-} // namespace
 
 TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
 {
@@ -638,7 +522,36 @@ TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
     else
         LastPublishedTerrainDesign (s, status.stale);
     status.previewed = PreviewStandsIn (s);
+    status.buildRequested = state.buildRequested;
+    if (state.preview.built) {
+        status.previewCut = state.preview.preview.cut;
+        status.previewFill = state.preview.preview.fill;
+        status.previewUnmet = state.preview.unmet;
+        if (status.previewed) {
+            status.cut = status.previewCut;
+            status.fill = status.previewFill;
+        }
+    }
     return status;
+}
+
+bool RequestTerrainBuild (Session& s)
+{
+    if (!s.terrainDesign || s.terrainDesign->invalid) {
+        s.message = "Set the terrain and a design path or region before building its mesh.";
+        return false;
+    }
+    auto& state = *s.terrainDesign;
+    if (state.worker.valid () || state.buildRequested)
+        return true; // Already on its way.
+    if (const auto* current = CurrentTerrainDesign (s); current && current->built) {
+        s.message = "The mesh is built for the terrain as it is.";
+        return false;
+    }
+    state.buildRequested = true;
+    state.requestedRevision = UINT64_MAX; // The next idle poll starts it, also on this revision.
+    LogTerrain (s, "build requested");
+    return true;
 }
 
 void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
@@ -844,8 +757,7 @@ void TerrainDesignPanel (Session& s)
     if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip ("Off: the terrain follows every path's paved outline, junctions and kerbs included. "
                            "On: only the chosen path's band, as sampled stations.");
-    if (state.worker.valid ())
-        ImGui::TextUnformatted ("Building terrain...");
+    TerrainBuildSection (s);
     const auto status = GetTerrainDesignStatus (s);
     const auto* current = CurrentTerrainDesign (s);
     // The worker always tries to build; what it could not satisfy is listed, not thrown at the
@@ -858,7 +770,7 @@ void TerrainDesignPanel (Session& s)
     }
     else if (!status.error.empty ())
         ImGui::TextWrapped ("%s", lg::TerrainConditionText (status.error).c_str ());
-    if (status.stale)
+    if (status.stale && !status.previewed)
         ImGui::TextWrapped ("Updating: the terrain shown is the last build and does not follow the paths yet. "
                             "It is replaced when the rebuild finishes.");
     if (!current)

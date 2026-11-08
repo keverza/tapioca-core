@@ -904,6 +904,8 @@ typedef struct {
 } TapiocaPreviewCounts;
 typedef struct {
     double interval, step, surfaceStep, cut, fill, range[2];
+    double reach;                /* Outline reach used, metres; zero without an outline. */
+    uint32_t unreached, clipped; /* Grid nodes short of the ground; property-ring steps. */
 } TapiocaPreviewSummary;
 typedef struct {
     double level;
@@ -913,6 +915,7 @@ typedef struct {
 typedef struct {
     double step;                    /* Grid spacing asked, metres; finite and positive. */
     double interval;                /* Contour interval asked; <= 0 picks about ten levels. */
+    double maxReach;                /* Widest outline reach to widen to; at or below its limit, none. */
     TapiocaPreviewCounts* counts;   /* Required. */
     TapiocaPreviewSummary* summary; /* Required. */
     double* points;

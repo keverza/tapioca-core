@@ -331,8 +331,16 @@ TerrainPreviewOutcome RunLandscapeTerrainPreview (const TerrainDesignJob& job, c
             outcome.error = "LandscapeFieldPlan: " + outcome.error;
             return;
         }
+        // A short reach widens as the build's does (kMaxSlopeReach), inside the one Rust call.
+        auto widened = ask;
+        if (!plan.outlines.empty ())
+            widened.maxReach = kMaxSlopeReach;
         outcome.built =
-            PreviewUnifiedLandscapeTerrain (*job.doc, *baseline, plan, {}, ask, outcome.preview, outcome.error);
+            PreviewUnifiedLandscapeTerrain (*job.doc, *baseline, plan, {}, widened, outcome.preview, outcome.error);
+        if (outcome.built && !plan.outlines.empty ())
+            OutlineUnmet (outcome.preview.unreached, outcome.preview.clipped,
+                          std::max (job.options.cutLimit, job.options.fillLimit), outcome.preview.reach,
+                          plan.outlines.front ().paths.size (), job.doc->paths.size (), outcome.unmet);
     };
     try {
         run ();

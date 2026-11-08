@@ -196,6 +196,9 @@ struct Session {
     // False: paths only. No terrain is rebuilt or drawn while the paths are drawn and edited; turned
     // back on, the next idle poll rebuilds it from the paths as they are then.
     bool terrainLive = true;
+    // #175: the editor shows the terrain from its field as it is edited; the mesh is built when
+    // asked (Build mesh). True: also on every idle revision, as before the field preview.
+    bool terrainAutoBuild = false;
     edit::Selection selection;
     // Model-space outlines only; bounded to this session and reprojected for every pick.
     edit::PickGeometryCache pickCache;

@@ -1477,6 +1477,7 @@ TEST (VirtualEditorDebug, ExportedTerrainReplaysTheSameMeshOffline)
             mesh->triSurfaceAttribute.assign (12, 4);
         }
         eh::Session session (fixture.doc);
+        session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
         ASSERT_TRUE (eh::StartTerrainDesign (session, { mesh, nativeSolid, {} }, fixture.path));
         layers::Layer layer;
         ASSERT_TRUE (AwaitTerrain (session, layer));
@@ -1516,6 +1517,7 @@ TEST (VirtualEditorDebug, EditedSceneNeverExportsAnOlderOutcomeAndRetainsStaleBa
     TerrainHostFixture fixture;
     bool fresh = true;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::StartTerrainDesign (session, { fixture.mesh, false, [&] { return fresh; } }, fixture.path));
     layers::Layer layer;
     ASSERT_TRUE (AwaitTerrain (session, layer));
@@ -1552,6 +1554,7 @@ TEST (VirtualEditorDebug, TerrainCanBeDumpedBeforeAnyPathExists)
     auto doc = fixture.doc;
     doc.paths.clear ();
     eh::Session session (doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::SetTerrainBaseline (session, { fixture.mesh, false, {} }, 0));
     std::string text, error;
     ASSERT_TRUE (eh::EncodeDebugScene (session, text, error)) << error;
@@ -1565,6 +1568,7 @@ TEST (VirtualEditorDebug, ChangingGradingModeDoesNotPairNewOptionsWithThePreviou
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path));
     layers::Layer layer;
     ASSERT_TRUE (AwaitTerrain (session, layer));
@@ -1583,6 +1587,7 @@ TEST (VirtualEditorDebug, RefusedDesignStillExportsItsInputsAndReplaysItsError)
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path));
     ASSERT_TRUE (session.edits.Apply ([&] (edit::Document& doc, std::string& error) {
         return edit::EditPath (
@@ -1715,6 +1720,7 @@ TEST (HudTerrainDesign, LifecycleLogsDistinguishCaptureBuildPublicationAndLayerW
     geomsrv::archviz::test::LogCapture log;
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     session.terrainPath = fixture.path;
     ASSERT_TRUE (eh::RequestTerrainCapture (session, true));
     session.terrainCapture.reset (); // Native bridge is exercised only by the SDK host.
@@ -1746,6 +1752,7 @@ TEST (HudTerrainDesign, CaptureUIRequestIsExplicitRevisionBoundAndDoesNotAuthorH
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     session.terrainPath = fixture.path;
     const auto doc = session.edits.Doc ();
     ASSERT_TRUE (eh::RequestTerrainCapture (session, true)) << session.message;
@@ -1779,6 +1786,7 @@ TEST (HudTerrainDesign, CaptureUIRequiresIdleInputButNeitherAPathNorAPropertyLin
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     // A stale explicit path is not retargeted: the terrain is set alone.
     session.terrainPath = fixture.doc.nextId;
     ASSERT_TRUE (eh::RequestTerrainCapture (session, true)) << session.message;
@@ -1804,6 +1812,7 @@ TEST (HudTerrainDesign, CaptureUIRequiresIdleInputButNeitherAPathNorAPropertyLin
     auto bare = fixture.doc;
     bare.landscape->propertyLineSourceId = 0;
     eh::Session other (bare);
+    other.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::RequestTerrainCapture (other, true)) << other.message;
     EXPECT_TRUE (other.terrainCapture);
 }
@@ -1813,6 +1822,7 @@ TEST (HudTerrainDesign, ATerrainSetBeforeItsPathWaitsAndTheDesignStartsWhenOneIs
     TerrainHostFixture fixture;
     fixture.doc.landscape->propertyLineSourceId = 0;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true;          // the mesh build lane (#175: the editor previews)
     session.terrainPath = fixture.doc.nextId; // unresolvable: nothing to grade yet
     ASSERT_TRUE (eh::SetTerrainBaseline (session, eh::TerrainDesignBaseline { fixture.mesh, false, {} }, 0))
         << session.message;
@@ -2079,6 +2089,7 @@ TEST (HudTerrainDesign, FixedControlSelectionSharesHistoryWorkerAndConflictLayer
     ASSERT_TRUE (AddLandscapeSource (fixture.doc, guide, source, error)) << error;
     const auto vertex = edit::Find (fixture.doc, guide.entityId)->vertices.front ().id;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
     const auto initialDepth = session.edits.UndoDepth ();
     session.selection.Set (
@@ -2140,6 +2151,7 @@ TEST (HudTerrainDesign, TheProposedTerrainReadsThroughItsHostAndCarriesContours)
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
     layers::Layer layer;
     ASSERT_TRUE (AwaitTerrain (session, layer));
@@ -2199,7 +2211,8 @@ TEST (HudTerrainDesign, SimpleTwoTriangleMeshIsRebuiltAroundThePathInsteadOfBrid
         error))
         << error;
     eh::Session session (fixture.doc);
-    session.terrainBand = true; // the band's own lines and provenance
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
+    session.terrainBand = true;      // the band's own lines and provenance
     ASSERT_TRUE (eh::StartTerrainDesign (session, mesh, fixture.path)) << session.message;
     const auto depth = session.edits.UndoDepth ();
     layers::Layer layer;
@@ -2234,6 +2247,7 @@ TEST (HudTerrainDesign, TheOutlineGradesByDefaultAndTheBandIsOneSwitchAway)
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
     layers::Layer layer;
     ASSERT_TRUE (AwaitTerrain (session, layer));
@@ -2255,6 +2269,7 @@ TEST (HudTerrainDesign, OneHistoryOwnsTheDesignAndItsDerivedWorkerLayer)
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     session.selection.Set ({ { fixture.path, edit::Part::Entity, 0 } });
     const auto selection = session.selection.Items ();
     ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
@@ -2291,6 +2306,7 @@ TEST (HudTerrainDesign, ANewMeshGenerationRetracesContoursEvenWhenTheTriangleCou
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     session.contourStep = 0.5;
     ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path));
     layers::Layer layer;
@@ -2347,6 +2363,7 @@ TEST (HudTerrainDesign, TypedCrossSectionApplyRebuildsTheExistingPreviewWithoutA
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
     layers::Layer layer;
     ASSERT_TRUE (AwaitTerrain (session, layer));
@@ -2375,10 +2392,66 @@ TEST (HudTerrainDesign, TypedCrossSectionApplyRebuildsTheExistingPreviewWithoutA
     EXPECT_EQ (eh::CurrentTerrainDesign (session)->result.build.points, original);
 }
 
+// #175 phase B: the editor shows the terrain from its field as it is edited and builds the mesh
+// only when asked. Edits never start the mesher; Build mesh builds this revision once; the next
+// edit is previewed again, without a build.
+TEST (HudTerrainDesign, TheEditorPreviewsFromTheFieldAndMeshesOnlyWhenAsked175)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    ASSERT_FALSE (session.terrainAutoBuild) << "the editor's default";
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    layers::Layer layer;
+    const auto previewed = [&] {
+        const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (10);
+        while (std::chrono::steady_clock::now () < deadline) {
+            eh::Follow (session, layer);
+            const auto status = eh::GetTerrainDesignStatus (session);
+            if (status.previewed && !status.previewPending)
+                return true;
+            std::this_thread::sleep_for (std::chrono::milliseconds (1));
+        }
+        return false;
+    };
+    ASSERT_TRUE (previewed ());
+    auto status = eh::GetTerrainDesignStatus (session);
+    EXPECT_FALSE (status.pending) << "no mesh build without Build mesh";
+    EXPECT_EQ (eh::CurrentTerrainDesign (session), nullptr);
+    ASSERT_NE (TerrainMesh (layer), nullptr) << "the field preview is drawn";
+    EXPECT_GT (status.cut + status.fill, 0.0) << "quantities from the field";
+    EXPECT_EQ (status.cut, status.previewCut);
+    // An edit is previewed again; still no build.
+    const auto raise = [&] (edit::Document& doc, std::string& error) {
+        return edit::EditPath (
+            doc, fixture.path,
+            [] (edit::Path& path, std::string&) {
+                for (auto& point : path.profile)
+                    point.z += 0.1;
+                return true;
+            },
+            error);
+    };
+    ASSERT_TRUE (session.edits.Apply (raise));
+    ASSERT_TRUE (previewed ());
+    EXPECT_FALSE (eh::GetTerrainDesignStatus (session).pending);
+    // Build mesh: this revision's mesh, once.
+    ASSERT_TRUE (eh::RequestTerrainBuild (session));
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    status = eh::GetTerrainDesignStatus (session);
+    EXPECT_TRUE (status.built);
+    EXPECT_FALSE (status.previewed) << "the built mesh is drawn";
+    EXPECT_FALSE (eh::RequestTerrainBuild (session)) << "already built: " << session.message;
+    // The next edit returns to the preview, without a build.
+    ASSERT_TRUE (session.edits.Apply (raise));
+    ASSERT_TRUE (previewed ());
+    EXPECT_FALSE (eh::GetTerrainDesignStatus (session).pending);
+}
+
 TEST (HudTerrainDesign, EditsCoalesceUntilReleaseAndStaleWorkersNeverDraw)
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path));
     layers::Layer layer;
     eh::Follow (session, layer); // launch the original revision
@@ -2415,6 +2488,7 @@ TEST (HudTerrainDesign, PathsOnlyNeitherRebuildsNorDrawsTheTerrainUntilTurnedBac
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
     layers::Layer layer;
     ASSERT_TRUE (AwaitTerrain (session, layer));
@@ -2464,6 +2538,7 @@ TEST (HudTerrainDesign, AWorkerStartConsumesTheImmutableSnapshotAndNeverAuthors)
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
     EXPECT_GT (session.edits.UndoDepth (), 0U) << "Authoring lands as one history step";
     layers::Layer layer;
@@ -2508,6 +2583,7 @@ TEST (HudTerrainDesign, APathDragKeepsTheLastBuiltSurfaceDrawnUnchangedUntilItsR
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     session.contourStep = 0.5;
     auto valid = std::make_shared<bool> (true);
     eh::TerrainDesignBaseline baseline { fixture.mesh, false, [valid] { return *valid; } };
@@ -2604,6 +2680,7 @@ TEST (HudTerrainDesign, RefusedDesignDrawsLocatedPlacesAndStartRefusalsAreAtomic
     geomsrv::archviz::test::LogCapture log;
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     auto bad = std::make_shared<geomsrv::Mesh> (*fixture.mesh);
     bad->triangles[0] = UINT32_MAX;
     const auto before = session.edits.Doc ().landscape;
@@ -2623,7 +2700,8 @@ TEST (HudTerrainDesign, RefusedDesignDrawsLocatedPlacesAndStartRefusalsAreAtomic
         },
         error));
     eh::Session refused (fixture.doc);
-    refused.terrainBand = true; // located refusals are the band's
+    refused.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
+    refused.terrainBand = true;      // located refusals are the band's
     ASSERT_TRUE (eh::StartTerrainDesign (refused, fixture.mesh, fixture.path));
     layers::Layer layer;
     ASSERT_TRUE (AwaitTerrain (refused, layer, true));
@@ -2649,6 +2727,7 @@ TEST (HudTerrainDesign, NativeSurfaceBuildsOnWorkerAndNativeChangeHidesItWithout
     geomsrv::archviz::test::LogCapture log;
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     auto valid = std::make_shared<bool> (true);
     eh::TerrainDesignBaseline baseline { fixture.mesh, true, [valid] { return *valid; } };
     ASSERT_TRUE (eh::StartTerrainDesign (session, baseline, fixture.path)) << session.message;
@@ -2695,6 +2774,7 @@ TEST (HudTerrainDesign, NativeSurfacePreparationRefusalIsLoggedWithoutDrawingThe
     for (size_t i = 0; i < mesh->triangles.size (); i += 3)
         std::swap (mesh->triangles[i + 1], mesh->triangles[i + 2]); // No upward surface.
     eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     ASSERT_TRUE (eh::StartTerrainDesign (session, eh::TerrainDesignBaseline { mesh, true, {} }, fixture.path));
     const auto depth = session.edits.UndoDepth ();
     layers::Layer layer;
@@ -2910,6 +2990,7 @@ TEST (HudTerrainDesign, ALineAndItsOwnVertexFixedBuildOrRefuseLocatedForBandAndO
             ASSERT_TRUE (SetLandscapeTerrainControl (fixture.doc, source, 0, true, error)) << error;
             ASSERT_TRUE (SetLandscapeTerrainControl (fixture.doc, source, vertex, true, error)) << error;
             eh::Session session (fixture.doc);
+            session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
             session.terrainBand = band;
             ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
             layers::Layer layer;

@@ -71,6 +71,11 @@ struct TerrainDesignStatus {
     // shows it (the build has not caught up); `previewMs`: the last one's time on its worker.
     bool previewPending = false, previewed = false;
     double previewMs = 0;
+    // The newest preview's cut/fill and shortfalls, in the build's words; whether a mesh build
+    // was asked and has not started.
+    double previewCut = 0, previewFill = 0;
+    std::vector<std::string> previewUnmet;
+    bool buildRequested = false;
 };
 
 // Detached plan-view terrain, captured by the host on the main thread. Starts
@@ -107,6 +112,12 @@ void TerrainDesignPanel (Session& session);
 // panel and a small badge at the top of the view (the foreground draw list: no window, so it
 // takes no hover and no cursor claim). Nothing while it is current.
 void TerrainActivityBadge (const Session& session);
+// #175: build the mesh of the current revision (what an Archicad Mesh is built from) on the
+// worker, once input is idle. False, and a message, when it is built or cannot be.
+bool RequestTerrainBuild (Session& session);
+// #175: the panel's Build mesh button and, while the preview stands in, its quantities and
+// shortfalls.
+void TerrainBuildSection (Session& session);
 // Grade along the chosen path's band only (true), or from every path's paved outline (false, the
 // default); a running design rebuilds the other way on the next idle poll.
 void SetTerrainBand (Session& session, bool band);

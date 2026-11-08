@@ -650,6 +650,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorRecipe.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTerrainSetup.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTerrainActivity.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTerrainPreview.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorNavigation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorPlane.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorPanel.cpp"

@@ -39,8 +39,36 @@ void TerrainActivityBadge (const Session& s)
                          ImVec2 (at.x + size.x + pad, at.y + size.y + pad * 0.5f), IM_COL32 (30, 30, 30, 200), 6.0f);
     draw->AddText (at, amber, words.c_str ());
 }
+
+void TerrainBuildSection (Session& s)
+{
+    const auto status = GetTerrainDesignStatus (s);
+    ImGui::BeginDisabled (status.pending || status.buildRequested || s.edits.InGesture ());
+    if (ImGui::Button (status.pending || status.buildRequested ? "Building mesh..." : "Build mesh"))
+        RequestTerrainBuild (s);
+    ImGui::EndDisabled ();
+    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip ("The terrain shown follows the paths as you edit, from its slopes directly. Build mesh "
+                           "triangulates it as an Archicad Mesh is built from it: seconds on a large site.");
+    if (!status.previewed)
+        return;
+    ImGui::Text ("Preview: cut %.1f m3   fill %.1f m3", status.previewCut, status.previewFill);
+    if (!status.previewUnmet.empty ()) {
+        ImGui::TextUnformatted ("Not everything asked for is met:");
+        for (const auto& line : status.previewUnmet)
+            ImGui::BulletText ("%s", line.c_str ());
+    }
+}
 #else
 void TerrainActivityBadge (const Session&)
+{
+}
+bool RequestTerrainBuild (Session& s)
+{
+    s.message = "Terrain design requires the Rust geometry build.";
+    return false;
+}
+void TerrainBuildSection (Session&)
 {
 }
 #endif

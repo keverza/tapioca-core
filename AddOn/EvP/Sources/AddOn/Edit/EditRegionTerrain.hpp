@@ -35,9 +35,10 @@ std::future<TerrainDesignOutcome> LaunchLandscapeTerrainDesign (TerrainDesignJob
 struct TerrainPreviewOutcome {
     uint64_t revision = 0;
     bool built = false;
-    UnifiedPreviewResult preview; // When built.
-    std::string error;            // When not.
-    double milliseconds = 0.0;    // Wall time on the worker.
+    UnifiedPreviewResult preview;   // When built.
+    std::vector<std::string> unmet; // What it could not satisfy, in the build's words.
+    std::string error;              // When not.
+    double milliseconds = 0.0;      // Wall time on the worker.
 };
 TerrainPreviewOutcome RunLandscapeTerrainPreview (const TerrainDesignJob& job, const UnifiedPreviewAsk& ask);
 std::future<TerrainPreviewOutcome> LaunchLandscapeTerrainPreview (TerrainDesignJob job, UnifiedPreviewAsk ask);

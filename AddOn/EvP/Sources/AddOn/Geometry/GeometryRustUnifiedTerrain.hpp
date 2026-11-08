@@ -157,11 +157,16 @@ struct UnifiedPreviewResult {
     std::vector<UnifiedPreviewLine> lines;
     double interval = 0.0, step = 0.0, surfaceStep = 0.0, cut = 0.0, fill = 0.0;
     double low = 0.0, high = 0.0; // Design heights sampled.
+    // The outline's faces: the reach used, grid nodes where they ran out before the ground, and
+    // property-ring samples where they end in a step (the build's outlineUnreached/Clipped).
+    double reach = 0.0;
+    uint32_t unreached = 0, clipped = 0;
     bool operator== (const UnifiedPreviewResult&) const = default;
 };
 struct UnifiedPreviewAsk {
     double step = 0.25;    // Grid spacing, metres (coarsened on a large area).
     double interval = 0.0; // Contour interval; zero picks about ten levels.
+    double maxReach = 0.0; // Widen a short outline reach up to this, metres (0: no widening).
     // Capacities to try first (the previous preview's sizes, say): one call when they fit.
     size_t points = 0, triangles = 0, lines = 0, linePoints = 0;
 };
