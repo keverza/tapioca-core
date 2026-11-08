@@ -2447,6 +2447,28 @@ TEST (HudTerrainDesign, TheEditorPreviewsFromTheFieldAndMeshesOnlyWhenAsked175)
     EXPECT_FALSE (eh::GetTerrainDesignStatus (session).pending);
 }
 
+// #175: a path-band design previews from the field as an outline does (the band over the
+// composed ground), without a mesh build.
+TEST (HudTerrainDesign, ABandDesignPreviewsFromTheFieldToo175)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    session.terrainBand = true;
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    layers::Layer layer;
+    const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (10);
+    auto status = eh::GetTerrainDesignStatus (session);
+    while (std::chrono::steady_clock::now () < deadline && !(status.previewed && !status.previewPending)) {
+        eh::Follow (session, layer);
+        status = eh::GetTerrainDesignStatus (session);
+        std::this_thread::sleep_for (std::chrono::milliseconds (1));
+    }
+    ASSERT_TRUE (status.previewed) << status.error;
+    EXPECT_FALSE (status.pending) << "no mesh build without Build mesh";
+    ASSERT_NE (TerrainMesh (layer), nullptr);
+    EXPECT_GT (status.cut + status.fill, 0.0) << "the band moves the ground";
+}
+
 TEST (HudTerrainDesign, EditsCoalesceUntilReleaseAndStaleWorkersNeverDraw)
 {
     TerrainHostFixture fixture;

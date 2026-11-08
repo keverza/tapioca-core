@@ -29,14 +29,6 @@ void StartTerrainPreview (Session& s, TerrainDesignState& state)
         state.preview.error = "TerrainPreviewNothing: no design path or region target yet";
         return;
     }
-    if (state.options.source && !state.options.outline) {
-        // The path band is sampled stations, not a field the preview evaluates: its build
-        // stands alone (the panel says it is building).
-        state.preview = {};
-        state.preview.revision = doc.revision;
-        state.preview.error = "TerrainPreviewBand: a path band has no field preview";
-        return;
-    }
     auto capture = std::make_shared<lg::TerrainCapture> ();
     std::string error;
     if (!lg::CaptureLandscapeTerrain (doc, *state.baseline.mesh, { state.options.object, 2, 1 }, *capture, error)) {
