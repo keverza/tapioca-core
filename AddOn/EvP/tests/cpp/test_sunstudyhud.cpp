@@ -4,6 +4,7 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/SunPathCompass.hpp"
 #include "ArchViz/SunPathPick.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 #include "MeshFixtures.hpp"
@@ -220,6 +221,18 @@ TEST (SunStudyHud, DayArcRunsFromFirstSunOnTheLeftOverTheTopToLastSunOnTheRight)
     EXPECT_DOUBLE_EQ (from, 375.0); // non-hour first sun
     EXPECT_DOUBLE_EQ (to, 1080.0);
     EXPECT_FALSE (SunStudyDayDomain (evp::sunstudy::PointDay (), from, to));
+}
+
+TEST (SunStudyHud, GroundCompassCaptionNamesTheDisplayedAnalysis)
+{
+    EXPECT_EQ (SunPathAnalysisCaption (true, "2026-03-21 to 2026-09-23", 20260621, 2027, 1, 1),
+               "Analysis period: 2026-03-21 to 2026-09-23");
+    EXPECT_EQ (SunPathAnalysisCaption (false, "", 20260621, 2027, 1, 1), "Analysis date: 2026-06-21");
+    // Before a result is shown, the preview identifies the run form's date.
+    EXPECT_EQ (SunPathAnalysisCaption (false, "", 0, 2027, 1, 2), "Analysis date: 2027-01-02");
+    // An empty period label must not hide a valid displayed day.
+    EXPECT_EQ (SunPathAnalysisCaption (true, "", 20261221, 2027, 1, 1), "Analysis date: 2026-12-21");
+    EXPECT_TRUE (SunPathAnalysisCaption (false, "", 0, 0, 0, 0).empty ());
 }
 
 TEST (SunStudyHud, DraggedSunSnapsToKeyDatesAndSolarNoonOnTheLattice)

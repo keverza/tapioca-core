@@ -16,6 +16,7 @@
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/MatrixMath.hpp"
+#include "ArchViz/SunPathCompass.hpp"
 #include "ArchViz/SunPathPick.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
@@ -52,7 +53,7 @@ bool Project (const double point[3], const float viewProj[16], uint32_t width, u
 // Where the dome stands and how big it is: on the study point if one is
 // placed, else on the scene's plan centre at its floor; a radius a little past
 // the scene's half diagonal.
-bool Dome (const HudState& state, double centre[3], double& radius)
+bool Dome (const HudState& state, double centre[3], double& radius, double& groundZ)
 {
     static const void* seen = nullptr;
     static uint64_t seenId = 0;
@@ -76,6 +77,9 @@ bool Dome (const HudState& state, double centre[3], double& radius)
         centre[1] = 0.5 * (lo[1] + hi[1]);
         centre[2] = lo[2];
     }
+    // A placed study point can be above the floor. The dome stays on that point;
+    // only the compass drops to the scene's ground plane.
+    groundZ = valid ? lo[2] : centre[2];
     return true;
 }
 
@@ -121,6 +125,88 @@ void AdoptPick (HudState& state, const SunPathPick& pick)
     state.sunShadowDay = pick.day;
 }
 
+void CompassLabel (ImDrawList* draw, ImVec2 centre, ImVec2 radial, const char* text, ImU32 colour)
+{
+    const ImVec2 size = ImGui::CalcTextSize (text);
+    const int firstVertex = draw->VtxBuffer.Size;
+    draw->AddText (ImVec2 (centre.x - size.x * 0.5f, centre.y - size.y * 0.5f), colour, text);
+    float angle = 0.0f;
+    if (std::hypot (radial.x, radial.y) > 1.0e-4f)
+        angle = float (std::atan2 (double (radial.y), double (radial.x)) + kPi * 0.5);
+    // Tangential labels follow the reference without turning upside down on the
+    // lower half of the compass. Rotate the vertices ImGui just emitted.
+    if (angle > kPi * 0.5)
+        angle -= float (kPi);
+    else if (angle < -kPi * 0.5)
+        angle += float (kPi);
+    const float c = std::cos (angle), s = std::sin (angle);
+    for (int i = firstVertex; i < draw->VtxBuffer.Size; ++i) {
+        ImDrawVert& vertex = draw->VtxBuffer[i];
+        const float x = vertex.pos.x - centre.x, y = vertex.pos.y - centre.y;
+        vertex.pos = ImVec2 (centre.x + c * x - s * y, centre.y + s * x + c * y);
+    }
+}
+
+// A projected ground overlay, like the dome's line work: no depth occlusion is
+// implied. Its Z is the scene floor rather than a raised study point's Z.
+void DrawGroundCompass (const HudState& state, const sunstudyhud::SunPath& path, const double centre[3], double radius,
+                        double groundZ, const float viewProj[16], uint32_t width, uint32_t height, ImDrawList* draw)
+{
+    const auto at = [&] (double angle, double ring, ImVec2& screen) {
+        const double point[3] = { centre[0] + radius * ring * std::cos (angle),
+                                  centre[1] + radius * ring * std::sin (angle), groundZ };
+        return Project (point, viewProj, width, height, screen);
+    };
+    constexpr int kSegments = 128;
+    constexpr double kRings[] = { 1.0, 1.035, 1.07 };
+    bool haveRightEdge = false;
+    ImVec2 rightEdge;
+    for (int ring = 0; ring < 3; ++ring) {
+        ImVec2 previous;
+        bool had = false;
+        for (int i = 0; i <= kSegments; ++i) {
+            const double angle = 2.0 * kPi * double (i) / double (kSegments);
+            ImVec2 screen;
+            const bool ok = at (angle, kRings[ring], screen);
+            if (ok && had)
+                draw->AddLine (previous, screen, IM_COL32 (225, 225, 225, ring == 0 ? 150 : 105), 1.0f);
+            if (ok && ring == 2 && (!haveRightEdge || screen.x > rightEdge.x)) {
+                rightEdge = screen;
+                haveRightEdge = true;
+            }
+            previous = screen;
+            had = ok;
+        }
+    }
+    // Thirty-two ticks, with the eight principal directions reaching the inner
+    // ring. Sixteen labels use compass bearings clockwise from project north.
+    for (int i = 0; i < 32; ++i) {
+        const double angle = path.northRadians - double (i) * 2.0 * kPi / 32.0;
+        ImVec2 from, to;
+        if (at (angle, i % 4 == 0 ? 1.0 : 1.035, from) && at (angle, 1.07, to))
+            draw->AddLine (from, to, IM_COL32 (225, 225, 225, i % 4 == 0 ? 180 : 120), 1.0f);
+    }
+    constexpr const char* kCompass[] = { "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                                         "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW" };
+    for (int i = 0; i < 16; ++i) {
+        const double angle = path.northRadians - double (i) * 2.0 * kPi / 16.0;
+        ImVec2 inner, screen;
+        if (at (angle, 1.0, inner) && at (angle, 1.14, screen))
+            CompassLabel (draw, screen, ImVec2 (screen.x - inner.x, screen.y - inner.y), kCompass[i],
+                          i == 0 ? IM_COL32 (255, 100, 100, 255) : IM_COL32 (230, 230, 230, 225));
+    }
+    const std::string caption = SunPathAnalysisCaption (state.sunShowsPeriod, state.sunPeriodLabel, state.sunShownDate,
+                                                        state.sunRunYear, state.sunRunMonth, state.sunRunDay);
+    if (haveRightEdge && !caption.empty ()) {
+        const ImVec2 size = ImGui::CalcTextSize (caption.c_str ());
+        const ImVec2 textAt (rightEdge.x + 16.0f, rightEdge.y - size.y * 0.5f);
+        draw->AddRectFilled (ImVec2 (textAt.x - 5.0f, textAt.y - 4.0f),
+                             ImVec2 (textAt.x + size.x + 5.0f, textAt.y + size.y + 4.0f), IM_COL32 (20, 24, 28, 205),
+                             3.0f);
+        draw->AddText (textAt, IM_COL32 (240, 240, 240, 255), caption.c_str ());
+    }
+}
+
 } // namespace
 
 void ServiceSunStudySunPathDrag (HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height)
@@ -162,8 +248,8 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
         SunPathDateOf (state.sunPathOrdinal, month, day);
     sunstudyhud::RequestSunPath (state.sunRunYear, month, day);
     const auto path = sunstudyhud::LatestSunPath ();
-    double centre[3] = {}, radius = 0.0;
-    if (path == nullptr || !path->ready || !path->error.empty () || !Dome (state, centre, radius))
+    double centre[3] = {}, radius = 0.0, groundZ = 0.0;
+    if (path == nullptr || !path->ready || !path->error.empty () || !Dome (state, centre, radius, groundZ))
         return;
     ImDrawList* draw = ImGui::GetBackgroundDrawList ();
     const auto at = [&] (const float direction[3], ImVec2& screen) {
@@ -171,30 +257,10 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
                               centre[2] + radius * direction[2] };
         return Project (p, viewProj, width, height, screen);
     };
-    // The horizon and the compass points, from the project's north.
-    constexpr int kSegments = 96;
+    DrawGroundCompass (state, *path, centre, radius, groundZ, viewProj, width, height, draw);
+    // The arcs, the analemmas faint underneath.
     ImVec2 previous;
     bool had = false;
-    for (int i = 0; i <= kSegments; ++i) {
-        const double a = 2.0 * kPi * double (i) / double (kSegments);
-        const float d[3] = { float (std::cos (a)), float (std::sin (a)), 0.0f };
-        ImVec2 s;
-        const bool ok = at (d, s);
-        if (ok && had)
-            draw->AddLine (previous, s, IM_COL32 (230, 230, 230, 120), 1.0f);
-        previous = s;
-        had = ok;
-    }
-    constexpr const char* kCompass[] = { "N", "W", "S", "E" }; // CCW from north
-    for (int i = 0; i < 4; ++i) {
-        const double a = path->northRadians + double (i) * kPi * 0.5;
-        const float d[3] = { float (std::cos (a)), float (std::sin (a)), 0.0f };
-        ImVec2 s;
-        if (at (d, s))
-            draw->AddText (ImVec2 (s.x - 4.0f, s.y - 7.0f),
-                           i == 0 ? IM_COL32 (255, 90, 90, 255) : IM_COL32 (230, 230, 230, 220), kCompass[i]);
-    }
-    // The arcs, the analemmas faint underneath.
     for (int pass = 0; pass < 2; ++pass)
         for (const auto& arc : path->arcs) {
             if ((arc.kind == 4) != (pass == 0))
