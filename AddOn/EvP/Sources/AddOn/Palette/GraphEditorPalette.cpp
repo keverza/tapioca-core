@@ -174,6 +174,10 @@ void GraphEditorPalette::Open ()
 void GraphEditorPalette::Show ()
 {
     GraphEditorLog ("show: entered");
+    paletteState.RequestOpen ();
+    SyncMenuCheck ();
+    if (!paletteState.CanShow ())
+        return;
     DG::Palette::Show ();
     GraphEditorLog ("show: palette shown");
     if (webView != nullptr) {
@@ -185,9 +189,25 @@ void GraphEditorPalette::Show ()
 
 void GraphEditorPalette::Hide ()
 {
+    paletteState.RequestClose ();
     if (webView != nullptr)
         webView->SetVisible (false);
     DG::Palette::Hide ();
+    SyncMenuCheck ();
+}
+
+void GraphEditorPalette::SyncMenuCheck () const
+{
+    // Main-thread DG lifecycle only; temporary host hides do not change open intent.
+    API_MenuItemRef item = {};
+    item.menuResID = GraphEditorMenuResId;
+    item.itemIndex = GraphEditorMenuItemIndex;
+    GSFlags flags = 0;
+    if (ACAPI_MenuItem_GetMenuItemFlags (&item, &flags) != NoError)
+        return;
+    GSFlags wanted = paletteState.IsOpen () ? (flags | API_MenuItemChecked) : (flags & ~GSFlags (API_MenuItemChecked));
+    if (wanted != flags)
+        ACAPI_MenuItem_SetMenuItemFlags (&item, &wanted);
 }
 
 void GraphEditorPalette::LoadGraphEditorPage ()
@@ -248,12 +268,21 @@ GSErrCode GraphEditorPalette::PaletteControlCallBack (Int32, API_PaletteMessageI
                 GetInstance ().Hide ();
             break;
         case APIPalMsg_HidePalette_Begin:
-            if (HasInstance () && GetInstance ().IsVisible ())
-                GetInstance ().Hide ();
+            if (HasInstance ()) {
+                auto& panel = GetInstance ();
+                panel.paletteState.BeginHostHide (panel.IsVisible ());
+                if (panel.webView != nullptr)
+                    panel.webView->SetVisible (false);
+                panel.DG::Palette::Hide ();
+            }
             break;
         case APIPalMsg_HidePalette_End:
-            if (HasInstance () && !GetInstance ().IsVisible ())
-                GetInstance ().Show ();
+            if (HasInstance () && GetInstance ().paletteState.EndHostHide ()) {
+                auto& panel = GetInstance ();
+                panel.DG::Palette::Show ();
+                if (panel.webView != nullptr)
+                    panel.webView->SetVisible (true);
+            }
             break;
         case APIPalMsg_DisableItems_Begin:
             if (HasInstance () && GetInstance ().IsVisible ())

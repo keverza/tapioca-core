@@ -48,6 +48,10 @@ Opening Vision Window disables both overlays; enabling an overlay closes the
 window. Temporary host hides (such as modal dialogs) do not clear the window's
 check.
 
+**Tapioca Panel** and **Node Graph** also show a check while open, including
+temporary host hides. Their menu actions open or focus the palette; closing the
+palette clears its check.
+
 Behind the palette, the shipped Python facade and the generated native
 `Tapioca.*` command catalog provide the model access; see the
 [API boundary](./api/).

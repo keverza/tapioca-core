@@ -5,6 +5,7 @@
 #include "ACAPinc.h"
 #include "DGModule.hpp"
 #include "DGUserItem.hpp"
+#include "ArchViz/ViewerPaletteState.hpp" // shared explicit-open/host-hide policy
 
 #include <memory>
 
@@ -29,6 +30,7 @@ class GraphEditorPalette final : public DG::Palette, public DG::PanelObserver {
 
     void Show ();
     void Hide ();
+    void SyncMenuCheck () const;
     void LoadGraphEditorPage ();
     void ResizeWebView ();
 
@@ -43,6 +45,7 @@ class GraphEditorPalette final : public DG::Palette, public DG::PanelObserver {
 
     std::unique_ptr<DG::UserItem> surface;
     std::unique_ptr<WebView2GraphHost> webView;
+    geomsrv::archviz::ViewerPaletteState paletteState;
 };
 
 #endif

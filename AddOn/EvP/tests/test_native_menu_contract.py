@@ -35,17 +35,17 @@ def test_registration_order_and_group_separators():
 
 
 def test_each_menu_resource_has_one_item_and_keeps_view_enable_codes():
-    ids = dict(re.findall(
-        r"constexpr short (\w+) = (\d+);",
-        (ADDON / "ResourceIds.hpp").read_text(encoding="utf-8"),
-    ))
+    ids = dict(
+        re.findall(
+            r"constexpr short (\w+) = (\d+);",
+            (ADDON / "ResourceIds.hpp").read_text(encoding="utf-8"),
+        )
+    )
     grc = (SOURCES / "AddOnResources/RINT/AddOn.grc").read_text(encoding="utf-8")
     grc = re.sub(r"/\*.*?\*/", "", grc, flags=re.DOTALL)
     resources = dict(re.findall(r"'STR#'\s+(\d+)\s+\"[^\"]*\"\s*\{(.*?)\}", grc, re.DOTALL))
     for resource, label, _ in EXPECTED:
-        assert re.findall(r'"([^\"]*)"', resources[ids[resource]]) == [
-            "Tapioca", label + "^E3^ES^EE^EI^ED^EW^EL"
-        ]
+        assert re.findall(r'"([^\"]*)"', resources[ids[resource]]) == ["Tapioca", label + "^E3^ES^EE^EI^ED^EW^EL"]
     assert re.search(r"'GDLG'\s+32540[^\n]*\"Vision Window\"", grc)
 
 

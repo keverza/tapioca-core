@@ -11,6 +11,7 @@
 
 #include "ControlPalette.hpp"
 #include "Python/PathUtils.hpp"
+#include "ResourceIds.hpp"
 
 #include "ACAPinc.h"
 
@@ -18,9 +19,28 @@
 // Declared there, defined there; ACAPI keys the modeless window on its hash.
 extern const GS::Guid paletteGuid;
 
+namespace {
+
+// DG lifecycle callbacks run on the main thread. Preserve the host's other flags.
+void SyncPanelMenuCheck (bool checked)
+{
+    API_MenuItemRef item = {};
+    item.menuResID = GeometryServerMenuResId;
+    item.itemIndex = GeometryServerMenuItemIndex;
+    GSFlags flags = 0;
+    if (ACAPI_MenuItem_GetMenuItemFlags (&item, &flags) != NoError)
+        return;
+    GSFlags wanted = checked ? (flags | API_MenuItemChecked) : (flags & ~GSFlags (API_MenuItemChecked));
+    if (wanted != flags)
+        ACAPI_MenuItem_SetMenuItemFlags (&item, &wanted);
+}
+
+} // namespace
+
 void ControlPalette::Show (bool focusSearch)
 {
     paletteState.RequestOpen ();
+    SyncPanelMenuCheck (paletteState.IsOpen ());
     if (!paletteState.CanShow ())
         return;
     preview.SetPaletteVisible (true);
@@ -35,6 +55,7 @@ void ControlPalette::Hide ()
     CancelAutomaticPreview (true);
     preview.SetPaletteVisible (false);
     DG::Palette::Hide ();
+    SyncPanelMenuCheck (paletteState.IsOpen ());
 }
 
 GSErrCode ControlPalette::PaletteControlCallBack (Int32, API_PaletteMessageID messageID, GS::IntPtr param)
