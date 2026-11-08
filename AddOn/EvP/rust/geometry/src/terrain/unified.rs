@@ -1732,8 +1732,8 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
                 Err(error) => return Err(BuildError::Region(error)),
             };
             // #149 T3: the outline's faces get their vertices from the error and the angles
-            // they leave (the mesher), over the same ground the toe was traced over. A mesh
-            // the mesher cannot take stays as rebuilt.
+            // they leave (the mesher), over the same ground the toe was traced over. An
+            // uncertified vertical-error bound refuses the build rather than publishing `rebuilt`.
             operator
                 .meshed(
                     &ground,
@@ -1744,7 +1744,8 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
                         (planned.surface_points, planned.surface_triangles),
                     ],
                 )
-                .map_or(rebuilt, |(meshed, _)| meshed)
+                .map(|(meshed, _)| meshed)
+                .map_err(BuildError::Outline)?
         } else {
             retriangulate_region_with_points(&request(&breaklines), &spots)
                 .map_err(BuildError::Region)?

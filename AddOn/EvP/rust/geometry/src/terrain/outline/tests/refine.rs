@@ -145,6 +145,51 @@ fn measure(built: &Outlined, points: &[f64], rounding: f64) -> Result<(f64, f64)
 }
 
 #[test]
+fn an_exhausted_vertical_error_budget_refuses_instead_of_publishing_the_unrefined_mesh()
+-> Result<(), OutlineError> {
+    let (mut points, triangles) = base();
+    for p in points.as_chunks_mut::<3>().0 {
+        p[2] = 0.05f64.mul_add(p[0], 9.0);
+    }
+    let grading = Grading {
+        cut: HALF,
+        fill: HALF,
+        limit: 10.0,
+        rounding: 0.0,
+        effect: Effect::Both,
+        tolerance: 1e-6,
+    };
+    let operator = Operator::new(&points, &triangles, &PAVED, &PAVED_TRIANGLES, &[], grading)?;
+    let unrefined = build_with(
+        &OutlineRequest {
+            points: &points,
+            triangles: &triangles,
+            region: &REGION,
+            surface_points: &PAVED,
+            surface_triangles: &PAVED_TRIANGLES,
+            breaklines: &[],
+            spots: &[],
+            surface_grades: &[],
+            refine: None,
+            grading,
+        },
+        Some(crate::terrain::outline::toe::Toe::DEFAULT),
+    )?;
+    let ground = |x, y| operator.base.height_at(x, y).map(|sample| sample.height);
+    let result = operator.meshed(
+        &ground,
+        (&unrefined.mesh, [0, unrefined.toe]),
+        Refine {
+            budget: 0,
+            ..Refine::DEFAULT
+        },
+        [(&points, &triangles), (&PAVED, &PAVED_TRIANGLES)],
+    );
+    assert_eq!(result.err(), Some(OutlineError::Refinement));
+    Ok(())
+}
+
+#[test]
 fn refinement_bounds_the_faces_vertical_error_without_offset_rings() -> Result<(), OutlineError> {
     for rounding in [0.0, 1.0] {
         let (coarse, points) = refined(rounding, None)?;

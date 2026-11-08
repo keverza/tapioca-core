@@ -190,6 +190,8 @@ pub enum OutlineError {
     Region(RegionError),
     /// The exact volume refused.
     Volume(VolumeError),
+    /// The mesher could not certify the requested vertical-error bound.
+    Refinement,
 }
 
 impl OutlineError {
@@ -205,6 +207,9 @@ impl OutlineError {
             Self::Coverage => "OutlineCoverage: a rebuilt vertex is off the base surface",
             Self::Region(error) => error.message(),
             Self::Volume(error) => error.message(),
+            Self::Refinement => {
+                "OutlineRefinement: the mesh cannot meet the vertical-error tolerance within its budget"
+            }
         }
     }
 }
@@ -962,8 +967,8 @@ impl Operator {
 
     /// #149 T3 in the unified build: `mesh` (its region rebuilt with the outline's lines)
     /// meshed to `refine` for these faces graded over `ground`, the surface the build's region
-    /// entries composed (or the base); `None` when the mesher cannot take it (the caller keeps
-    /// it). `rebuilt` is that mesh and the range of its line indices that are the traced toe and
+    /// entries composed (or the base). The mesher must certify the vertical-error tolerance.
+    /// `rebuilt` is that mesh and the range of its line indices that are the traced toe and
     /// creases; `meshes` are the base and the pavement, as for the bound.
     pub(super) fn meshed(
         &self,
@@ -971,7 +976,7 @@ impl Operator {
         (mesh, traced): (&RegionMesh, [u32; 2]),
         refine: Refine,
         meshes: [Flat<'_>; 2],
-    ) -> Option<(RegionMesh, Refined)> {
+    ) -> Result<(RegionMesh, Refined), OutlineError> {
         let faces = self.faces();
         let design = |x: f64, y: f64| ground(x, y).map(|base| faces.over(base, x, y));
         let near = faces.near();
@@ -985,12 +990,15 @@ impl Operator {
             traced,
             paved: &|x, y| footprint.contains(x, y),
         };
-        mesher::refine(
+        let (mesh, report) = mesher::refine(
             &lane,
             &mut refine::Memo::default(),
             mesh,
             self.bound(refine, meshes, traced),
         )
+        .ok_or(OutlineError::Refinement)?;
+        refine::certify_vertical(&report, &refine)?;
+        Ok((mesh, report))
     }
 }
 

@@ -26,7 +26,8 @@ pub struct Refine {
     /// is split, whatever its error, until its longest side is no longer,
     /// metres. A triangle whose vertices are all unmoved is the ground's own
     /// surface, so the ground is kept exactly everywhere but in this band
-    /// beyond the toe (#65).
+    /// beyond the toe (#65). Also the width of a demonstrated boundary-step
+    /// strip whose error is reported separately from actionable residual.
     pub toe: f64,
     /// Most vertices the refinement may add; past it the mesh is kept as it is
     /// and [`Refined::residual`] says how far it still is.
@@ -66,11 +67,23 @@ pub struct Refined {
     pub added: u32,
     /// Rebuilds it took (the first build included).
     pub rounds: u32,
-    /// Largest sampled error left, metres, over triangles still large enough to split.
+    /// Largest actionable sampled error left, metres, over triangles still large enough to split;
+    /// demonstrated, bounded boundary-step strips are excluded.
     pub residual: f64,
     /// Whether it stopped at its budget, its round cap or a refused rebuild
     /// rather than at the tolerance.
     pub exhausted: bool,
+}
+
+/// Certify the eligible sampled vertical-error target. Angle-only exhaustion is allowed where
+/// constrained input angles cannot be improved; demonstrated boundary-step strips are reported
+/// separately. An above-tolerance actionable residual is never publishable.
+pub(super) fn certify_vertical(report: &Refined, request: &Refine) -> Result<(), OutlineError> {
+    if report.residual <= request.tolerance {
+        Ok(())
+    } else {
+        Err(OutlineError::Refinement)
+    }
 }
 
 /// A design height at a plan point and whether a face ran out there (as

@@ -436,6 +436,9 @@ TEST (EditRegionTerrain, MixedSceneRefusesAtomicallyThroughTheUnifiedLaneUntilSp
         const auto graded = lg::RunLandscapeTerrainDesign (outlineJob);
         EXPECT_TRUE (graded.built) << graded.error;
         EXPECT_TRUE (graded.published) << "the outline is one stage of the same unified build";
+        EXPECT_TRUE (std::any_of (graded.unmet.begin (), graded.unmet.end (), [] (const std::string& condition) {
+            return condition.find ("end there in a step") != std::string::npos;
+        })) << "the boundary-step exception remains an explicit shortfall";
         EXPECT_TRUE (lg::RunTerrainDesign (outlineJob).built) << "the legacy outline lane, its oracle, still works";
     }
     ASSERT_FALSE (result.built);

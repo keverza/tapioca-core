@@ -92,10 +92,12 @@ enum Kind {
     Base,
 }
 
-/// Why a triangle is refined: its error (this much), or only its angle.
+/// Why a triangle is refined: its actionable error, a demonstrated boundary-step error, or only
+/// its angle. Boundary steps remain error work but are not actionable residual.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Why {
     Error(f64),
+    Step(f64),
     Angle,
 }
 
@@ -111,6 +113,17 @@ fn key(a: usize, b: usize) -> [usize; 2] {
 
 fn distance(p: Point2<f64>, q: Point2<f64>) -> f64 {
     (q.x - p.x).hypot(q.y - p.y)
+}
+
+/// Plan distance from `p` to the finite segment `a`-`b`, metres.
+fn segment_distance(p: Point2<f64>, a: Point2<f64>, b: Point2<f64>) -> f64 {
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    let squared = dx.mul_add(dx, dy * dy);
+    if squared <= 0.0 {
+        return distance(p, a);
+    }
+    let t = ((p.x - a.x).mul_add(dx, (p.y - a.y) * dy) / squared).clamp(0.0, 1.0);
+    distance(p, Point2::new(dx.mul_add(t, a.x), dy.mul_add(t, a.y)))
 }
 
 /// The smallest angle, radians, of the triangle `p`, `q`, `r`.
@@ -258,6 +271,72 @@ impl Mesher<'_, '_> {
             .is_some_and(|(height, _)| (height - base).abs() > self.bound.refine.tolerance)
     }
 
+    /// Whether this above-tolerance triangle is in a bounded strip beside a demonstrated stitch
+    /// mismatch. The ring is never split, so such a step cannot be interpolated away. Every corner
+    /// must be within the toe band of the same finite ring segment; merely being near the ring,
+    /// or having a large ordinary error there without a demonstrated mismatch, is not enough.
+    fn boundary_step(&mut self, positions: [Point2<f64>; 3], error: f64) -> bool {
+        let tolerance = self.bound.refine.tolerance;
+        if error <= tolerance {
+            return false;
+        }
+        // Borrow the ring only while collecting the few geometrically qualifying segments; the
+        // mismatch probes then mutate the height memo without copying the whole ring per triangle.
+        let candidates: Vec<_> = self
+            .ring_sides
+            .iter()
+            .filter_map(|&[a, b]| {
+                let (Some(ra), Some(rb), Some(&za), Some(&zb)) = (
+                    self.position(a),
+                    self.position(b),
+                    self.base.get(a),
+                    self.base.get(b),
+                ) else {
+                    return None;
+                };
+                let (dx, dy) = (rb.x - ra.x, rb.y - ra.y);
+                let squared = dx.mul_add(dx, dy * dy);
+                if squared <= 0.0
+                    || !positions
+                        .iter()
+                        .all(|&p| segment_distance(p, ra, rb) <= self.bound.refine.toe)
+                {
+                    return None;
+                }
+                Some((ra, rb, za, zb, squared))
+            })
+            .collect();
+        for (ra, rb, za, zb, squared) in candidates {
+            let (dx, dy) = (rb.x - ra.x, rb.y - ra.y);
+            let projections = positions
+                .map(|p| ((p.x - ra.x).mul_add(dx, (p.y - ra.y) * dy) / squared).clamp(0.0, 1.0));
+            let lo = projections.iter().copied().fold(1.0_f64, f64::min);
+            let hi = projections.iter().copied().fold(0.0_f64, f64::max);
+            // Witnesses belong to this triangle's projected interval, not a remote part of a long
+            // ring segment. Endpoints include every corner projection; the interior samples cover
+            // a mismatch between them without making that claim exhaustive.
+            for t in [
+                lo,
+                lo + (hi - lo) / 3.0,
+                lo.midpoint(hi),
+                lo + 2.0 * (hi - lo) / 3.0,
+                hi,
+            ] {
+                let x = (1.0 - t).mul_add(ra.x, t * rb.x);
+                let y = (1.0 - t).mul_add(ra.y, t * rb.y);
+                let retained = (1.0 - t).mul_add(za, t * zb);
+                if self
+                    .memo
+                    .height(self.lane.design, x, y)
+                    .is_some_and(|(design, _)| (design - retained).abs() > tolerance)
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Why the triangle `[a, b, c]` needs a vertex (`None` when it does not or must not get
     /// one; [`Why::Angle`] for any thin triangle, the caller keeps it near the design), and
     /// whether the design moves the ground at one of its samples.
@@ -315,6 +394,9 @@ impl Mesher<'_, '_> {
             [pc.x, pc.y, self.height(c)?],
         ];
         let error = self.memo.error(self.lane.design, corners);
+        if error > refine.tolerance && self.boundary_step([pa, pb, pc], error) {
+            return Some((Some(Why::Step(error)), moved));
+        }
         // Within a triangle a field no steeper than `steepest` strays from its corners' plane by
         // at most twice `steepest` times its size: more is a step, where a face ends.
         let step = 2.0f64.mul_add(self.bound.steepest * longest, 2.0 * self.lane.snap);
@@ -684,14 +766,16 @@ impl Mesher<'_, '_> {
         match self.encroached(centroid, centre) {
             Ok(None) if centre_crowded => Err(Stop::Leave),
             Ok(None) => self.insert(centre),
-            Ok(Some(side)) => match self.split(side, matches!(why, Why::Error(_))) {
-                Err(Stop::Leave) if matches!(why, Why::Error(_)) => {
+            Ok(Some(side)) => match self.split(side, matches!(why, Why::Error(_) | Why::Step(_))) {
+                Err(Stop::Leave) if matches!(why, Why::Error(_) | Why::Step(_)) => {
                     self.fall_back(vertices, centroid, centroid_crowded)
                 }
                 other => other,
             },
             Err(stop) => match why {
-                Why::Error(_) => self.fall_back(vertices, centroid, centroid_crowded),
+                Why::Error(_) | Why::Step(_) => {
+                    self.fall_back(vertices, centroid, centroid_crowded)
+                }
                 Why::Angle => Err(stop),
             },
         }
@@ -904,6 +988,7 @@ pub(in crate::terrain) fn refine(
         // refined there and beside them (the toe line's other side), not across the rest of
         // the region, which is the ground's own mesh (the unified build's is the property).
         let mut graded: BTreeSet<[usize; 2]> = BTreeSet::new();
+        let mut step_remaining = false;
         report.residual = 0.0;
         for triangle in mesher.inside() {
             let mut sorted = triangle;
@@ -916,6 +1001,7 @@ pub(in crate::terrain) fn refine(
             if let Some(Why::Error(error)) = why {
                 report.residual = report.residual.max(error);
             }
+            step_remaining |= matches!(why, Some(Why::Step(_)));
             match why {
                 _ if left.contains(&sorted) => {}
                 Some(Why::Angle) if !moved => thin.push(triangle),
@@ -933,17 +1019,23 @@ pub(in crate::terrain) fn refine(
                 .map(|triangle| (triangle, Why::Angle)),
         );
         if bad.is_empty() {
+            // A refused triangle stays in `left` while unrelated work settles. Its residual is
+            // still unresolved; do not report a successful exhaustion state just because no
+            // actionable triangles remain.
+            report.exhausted = step_remaining || report.residual > bound.refine.tolerance;
             break;
         }
         if report.rounds > MAX_ROUNDS || mesher.base.len() - initial >= budget {
             report.exhausted = true;
             break;
         }
-        // The worst errors first, then the angles.
+        // Actionable errors first, then boundary steps, then angles.
         bad.sort_by(|(_, x), (_, y)| match (x, y) {
-            (Why::Error(p), Why::Error(q)) => q.total_cmp(p),
-            (Why::Error(_), Why::Angle) => std::cmp::Ordering::Less,
-            (Why::Angle, Why::Error(_)) => std::cmp::Ordering::Greater,
+            (Why::Error(p), Why::Error(q)) | (Why::Step(p), Why::Step(q)) => q.total_cmp(p),
+            (Why::Error(_), _) | (Why::Step(_), Why::Angle) => std::cmp::Ordering::Less,
+            (Why::Step(_), Why::Error(_)) | (Why::Angle, Why::Error(_) | Why::Step(_)) => {
+                std::cmp::Ordering::Greater
+            }
             (Why::Angle, Why::Angle) => std::cmp::Ordering::Equal,
         });
         let before = mesher.base.len();
@@ -965,7 +1057,7 @@ pub(in crate::terrain) fn refine(
             }
         }
         if mesher.base.len() == before {
-            report.exhausted = report.residual > bound.refine.tolerance;
+            report.exhausted = step_remaining || report.residual > bound.refine.tolerance;
             break;
         }
     }
