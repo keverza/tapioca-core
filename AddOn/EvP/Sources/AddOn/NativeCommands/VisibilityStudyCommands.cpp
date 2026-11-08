@@ -164,7 +164,7 @@ class SetViewpointStudyCommand : public MainThreadCommand {
         settings.contextAll = false; // the command's Context is always explicit
         if (show) {
             if (!archviz::DiligentViewport::Get ().IsRunning ())
-                return NativeCommandResult::Failure ("open the Tapioca 3D Viewer before setting a viewpoint");
+                return NativeCommandResult::Failure ("open Vision Window before setting a viewpoint");
             if (!ReadTriple (params, "point", settings.options.point.data ()) || !params.Contains ("contextElements"))
                 return NativeCommandResult::Failure (
                     "viewpoint needs point xyz and explicit contextElements (may be empty)");

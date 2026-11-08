@@ -40,9 +40,9 @@
 /* 32503, not 32502: 32502 is already the 'GICN' product logo in RFIX. Resource
    TYPES have separate id spaces so it would in fact be legal, but a menu and an
    icon sharing a number is a thing to trip over for no gain. */
-'STR#' 32503 "Menu strings - 3D viewer" {
+'STR#' 32503 "Menu strings - Vision Window" {
 /* [   ] */	"Tapioca"
-/* [  1] */	"Tapioca 3D Viewer^E3^ES^EE^EI^ED^EW^EL"
+/* [  1] */	"Vision Window^E3^ES^EE^EI^ED^EW^EL"
 }
 
 /* ⚠️ ITS OWN 'STR#', NOT A SECOND STRING IN 32503. Every menu resource here is
@@ -53,14 +53,14 @@
    first live look, from one added line. One resource per item, always. */
 'STR#' 32512 "Menu strings - 3D overlay" {
 /* [   ] */	"Tapioca"
-/* [  1] */	"Tapioca 3D Overlay^E3^ES^EE^EI^ED^EW^EL"
+/* [  1] */	"3D Vision Overlay^E3^ES^EE^EI^ED^EW^EL"
 }
 
 /* The floor plan's overlay, drawn at the plan's own Present. Its own item and its
    own intent: turning it on in another view arms it for the floor plan. */
 'STR#' 32515 "Menu strings - 2D overlay" {
 /* [   ] */	"Tapioca"
-/* [  1] */	"Tapioca 2D Overlay^E3^ES^EE^EI^ED^EW^EL"
+/* [  1] */	"2D Vision Overlay^E3^ES^EE^EI^ED^EW^EL"
 }
 
 'STR#' 32511 "Menu strings - node graph" {
@@ -302,7 +302,7 @@
    what it is doing and, more to the point, what went wrong -- a bgfx that fails
    to init must not present as a blank rectangle.
    `grow` is the both-axes form; ResConv rejects `grow | vGrow | hGrow`. */
-'GDLG'  32540  Palette | topCaption | close | grow   0   0  720  520  "Tapioca 3D Viewer" {
+'GDLG'  32540  Palette | topCaption | close | grow   0   0  720  520  "Vision Window" {
 /* [  1] */ LeftText       10  494  700   16   SmallPlain  ""
 }
 

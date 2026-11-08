@@ -419,13 +419,19 @@ GSErrCode RegisterInterface (void)
                    ACAPI_MenuItem_RegisterMenu (GeometryServerMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    GeometryServerMenuResId, "palette item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
-                   ACAPI_MenuItem_RegisterMenu (ArchVizMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
-                   ArchVizMenuResId, "3D viewer item");
-    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (GraphEditorMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    GraphEditorMenuResId, "Node Graph item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
-                   ACAPI_MenuItem_RegisterMenu (GrasshopperMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
+                   ACAPI_MenuItem_RegisterMenu (ArchVizMenuResId, 0, MenuCode_UserDef, MenuFlag_SeparatorBefore),
+                   ArchVizMenuResId, "Vision Window item");
+    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
+                   ACAPI_MenuItem_RegisterMenu (Overlay2DMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
+                   Overlay2DMenuResId, "2D Vision Overlay item");
+    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
+                   ACAPI_MenuItem_RegisterMenu (ArchVizOverlayMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
+                   ArchVizOverlayMenuResId, "3D Vision Overlay item");
+    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
+                   ACAPI_MenuItem_RegisterMenu (GrasshopperMenuResId, 0, MenuCode_UserDef, MenuFlag_SeparatorBefore),
                    GrasshopperMenuResId, "Close Grasshopper item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (GrasshopperEditorMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
@@ -439,12 +445,6 @@ GSErrCode RegisterInterface (void)
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (GrasshopperRunMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    GrasshopperRunMenuResId, "Run Grasshopper Definition item");
-    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
-                   ACAPI_MenuItem_RegisterMenu (ArchVizOverlayMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
-                   ArchVizOverlayMenuResId, "3D overlay item");
-    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
-                   ACAPI_MenuItem_RegisterMenu (Overlay2DMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
-                   Overlay2DMenuResId, "2D overlay item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (AboutMenuResId, 0, MenuCode_UserDef, MenuFlag_SeparatorBefore),
                    AboutMenuResId, "About item");
@@ -538,20 +538,20 @@ GSErrCode Initialize (void)
                    ACAPI_MenuItem_InstallMenuHandler (GeometryServerMenuResId, MenuCommandHandler),
                    GeometryServerMenuResId, "palette item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
+                   ACAPI_MenuItem_InstallMenuHandler (GraphEditorMenuResId, MenuCommandHandler), GraphEditorMenuResId,
+                   "Node Graph item");
+    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (ArchVizMenuResId, MenuCommandHandler), ArchVizMenuResId,
-                   "3D viewer item");
+                   "Vision Window item");
     // ⚠️ REGISTERING A MENU IS NOT INSTALLING ITS HANDLER. A registered item with
     // no handler APPEARS and does NOTHING when clicked, which reads as the
     // feature being broken rather than as a missing line here.
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
-                   ACAPI_MenuItem_InstallMenuHandler (ArchVizOverlayMenuResId, MenuCommandHandler),
-                   ArchVizOverlayMenuResId, "3D overlay item");
-    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (Overlay2DMenuResId, MenuCommandHandler), Overlay2DMenuResId,
-                   "2D overlay item");
+                   "2D Vision Overlay item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
-                   ACAPI_MenuItem_InstallMenuHandler (GraphEditorMenuResId, MenuCommandHandler), GraphEditorMenuResId,
-                   "Node Graph item");
+                   ACAPI_MenuItem_InstallMenuHandler (ArchVizOverlayMenuResId, MenuCommandHandler),
+                   ArchVizOverlayMenuResId, "3D Vision Overlay item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (GrasshopperMenuResId, MenuCommandHandler), GrasshopperMenuResId,
                    "Close Grasshopper item");

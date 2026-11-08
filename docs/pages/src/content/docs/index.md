@@ -35,8 +35,8 @@ The add-on registers one **Tapioca** menu in Archicad 29 with these surfaces:
   commands from the managed command directory.
 - **Node Graph** — a node-graph workflow editor palette backed by the same
   command catalog.
-- **Tapioca 3D Viewer** — a standalone GPU viewport of the live model; see
-  [3D viewer](#3d-viewer). **Tapioca 2D Overlay** and **Tapioca 3D Overlay**
+- **Vision Window** — a standalone GPU viewport of the live model; see
+  [3D viewer](#3d-viewer). **2D Vision Overlay** and **3D Vision Overlay**
   draw analysis layers inside Archicad's own views.
 - **Grasshopper Editor**, **Run Grasshopper Definition**, and the
   **rhino.compute** start/stop items — integration entry points that need the
@@ -48,7 +48,7 @@ Behind the palette, the shipped Python facade and the generated native
 
 ## 3D viewer
 
-The **Tapioca 3D Viewer** (Tapioca menu) is a standalone GPU viewport of the
+The **Vision Window** (Tapioca menu) is a standalone GPU viewport of the
 live Archicad model, rendered by the Diligent engine inside the add-on. It is
 not a baked export: the scene is populated progressively from the model while
 it stays interactive, and the caches it builds are derived working data, never

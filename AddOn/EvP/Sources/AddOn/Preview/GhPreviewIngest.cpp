@@ -302,7 +302,7 @@ GhPreviewReply GhPreviewIngest::OnMessage (MessageType type, const uint8_t* byte
                     acceptedSinceDrop = true;
                     reply.log = "preview accepted: " + std::to_string (cache.Count ()) +
                                 " primitive(s) held for epoch " + std::to_string (batchEpoch) +
-                                ". Open Tapioca > Tapioca 3D Viewer to see them.";
+                                ". Open Tapioca > Vision Window to see them.";
                 }
             }
             else {

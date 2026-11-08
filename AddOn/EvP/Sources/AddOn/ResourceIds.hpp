@@ -22,7 +22,7 @@ constexpr short GeometryServerMenuResId = 32500; // "Tapioca Panel"
 constexpr short GeometryServerMenuItemIndex = 1;
 constexpr short AboutMenuResId = 32501; // "About Tapioca..."
 constexpr short AboutMenuItemIndex = 1;
-constexpr short ArchVizMenuResId = 32503; // "Tapioca 3D Viewer"
+constexpr short ArchVizMenuResId = 32503; // "Vision Window"
 constexpr short ArchVizMenuItemIndex = 1;
 // ⚠️ THE SAME VIEWPORT, PRESENTED SOMEWHERE ELSE -- not a second viewer. The
 // palette draws into its own child window; the overlay draws into a transparent
@@ -33,13 +33,13 @@ constexpr short ArchVizMenuItemIndex = 1;
 // whenever the 3D window happened to be frontmost would make what the user sees
 // depend on where they last clicked, which is the hidden state the preview
 // surface rules exist to keep off this path.
-constexpr short ArchVizOverlayMenuResId = 32512; // "Tapioca 3D Overlay"
+constexpr short ArchVizOverlayMenuResId = 32512; // "3D Vision Overlay"
 constexpr short ArchVizOverlayMenuItemIndex = 1;
 // ⚠️ THE 2D OVERLAY HAS ITS OWN ITEM (2026-09-28). One item that served whichever
 // view happened to be in front made the user's intent a function of where they
 // last clicked; each overlay now has its own item, intent and Tapioca verb
 // (ArchViz/OverlayController.hpp). The 2D overlay serves the floor plan.
-constexpr short Overlay2DMenuResId = 32515; // "Tapioca 2D Overlay"
+constexpr short Overlay2DMenuResId = 32515; // "2D Vision Overlay"
 constexpr short Overlay2DMenuItemIndex = 1;
 // "Close Grasshopper" — the user-facing half of supervision. Grasshopper solves
 // in Tapioca.GhWorker.exe, which the add-on can kill unconditionally, and this is
