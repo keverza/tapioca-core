@@ -719,11 +719,26 @@ fn unified(
     limit: f64,
     entries: &[crate::terrain::Entry<'_>],
 ) -> Result<crate::terrain::BuiltTerrain, crate::terrain::BuildError> {
+    unified_on(&REGION, [rounding, limit], entries, &[], true)
+}
+
+fn unified_on(
+    property: &[f64],
+    shape: [f64; 2],
+    entries: &[crate::terrain::Entry<'_>],
+    masks: &[crate::terrain::Mask<'_>],
+    offset_rings: bool,
+) -> Result<crate::terrain::BuiltTerrain, crate::terrain::BuildError> {
+    let [rounding, limit] = shape;
     let (points, triangles) = base();
-    let rings: Vec<Vec<f64>> = [0.0, 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0]
-        .into_iter()
-        .flat_map(ring)
-        .collect();
+    let rings: Vec<Vec<f64>> = if offset_rings {
+        [0.0, 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0]
+            .into_iter()
+            .flat_map(ring)
+            .collect()
+    } else {
+        Vec::new()
+    };
     let lines: Vec<&[f64]> = rings.iter().map(Vec::as_slice).collect();
     let outlines = [crate::terrain::Outline {
         order: u32::try_from(entries.len()).unwrap_or(u32::MAX),
@@ -745,14 +760,14 @@ fn unified(
         &crate::terrain::Baseline {
             points: &points,
             triangles: &triangles,
-            property: Some(&REGION),
+            property: Some(property),
         },
         &crate::terrain::Plan {
             revision: 1,
             hash: 2,
             entries,
             paths: &[],
-            masks: &[],
+            masks,
             controls: &[],
             control_tolerance: 1e-3,
             outlines: &outlines,
@@ -847,6 +862,49 @@ fn an_outline_grades_over_the_ground_a_region_entry_composed_first() -> Result<(
     };
     assert_eq!(owner(20.0, 7.0), Some(1));
     assert_eq!(owner(10.0, 10.0), Some(0));
+    Ok(())
+}
+
+#[test]
+fn ring_step_counts_use_composed_ground() -> Result<(), String> {
+    let property = [
+        -10.0, -15.0, 0.0, 43.0, -15.0, 0.0, 43.0, 15.0, 0.0, -10.0, 15.0, 0.0,
+    ];
+    let baseline = unified_on(&property, [0.0, 10.0], &[], &[], false)
+        .map_err(|e| format!("baseline {e:?}"))?;
+    assert!(baseline.outline_clipped > 0);
+    // At the right property ring the pavement's fill face is at 10.5 m. A composed surface at
+    // that level removes the mismatch there; evaluating against the immutable 10 m base would
+    // invent a step. The whole-property ring uses the established coincident-boundary contract.
+    let band = property;
+    let parts = [crate::terrain::Part {
+        outer: &band,
+        holes: &[],
+    }];
+    let entries = [crate::terrain::Entry {
+        order: 0,
+        object: crate::identity::ObjectId(70),
+        root_operation: crate::identity::OperationId(80),
+        sources: &[],
+        parts: &parts,
+        surface: crate::terrain::Surface::Constant { level: 10.5 },
+        terrain: crate::terrain::Terrain {
+            effect: crate::terrain::TerrainEffect::Grade,
+            transition: crate::terrain::Transition::Falloff { blur: 0.5 },
+        },
+    }];
+    let composed = unified_on(&property, [0.0, 10.0], &entries, &[], false)
+        .map_err(|e| format!("composed {e:?}"))?;
+    assert!(composed.outline_clipped < baseline.outline_clipped);
+    let field = Field::new(&composed.points, &composed.mesh.triangles)
+        .map_err(|e| format!("composed field {e:?}"))?;
+    assert_eq!(
+        field
+            .height_at(43.0, 7.5)
+            .map(|sample| sample.height.to_bits()),
+        Some(10.5_f64.to_bits())
+    );
+
     Ok(())
 }
 

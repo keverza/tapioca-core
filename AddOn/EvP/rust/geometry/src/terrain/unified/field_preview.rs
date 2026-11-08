@@ -155,7 +155,8 @@ pub fn field_preview(
             previewed.reach = reach;
             if let Some(ring) = &property {
                 let indices: Vec<u32> = (0..u32::try_from(ring.len()).unwrap_or(0)).collect();
-                previewed.clipped = outline::clipped(faces, &operator.base, ring, &indices)
+                let ground = |x, y| operator.base.height_at(x, y).map(|sample| sample.height);
+                previewed.clipped = outline::clipped(faces, &ground, &|_, _| true, ring, &indices)
                     .map_err(BuildError::Outline)?;
             }
             return Ok(previewed);

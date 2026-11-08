@@ -1624,6 +1624,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
     let mut control_lines = Vec::new();
     let spots = push_control_lines(&mut control_lines, plan.controls)?;
     let mut outline_lines = Vec::new();
+    let mut outline_ground = None;
     let mesh = if let Some(property) = baseline.property {
         let mut breaklines = Vec::with_capacity(
             lines.len() + path_lines.len() + mask_lines.len() + control_lines.len(),
@@ -1654,17 +1655,14 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             let all_spots = [spots.as_slice(), planned.spots].concat();
             // The toe is traced over the ground the outline grades: the baseline, or the
             // region-composed surface when region entries come first.
-            let composed = if prepared.is_empty() {
-                None
+            outline_ground = Some(if prepared.is_empty() {
+                Field::new(baseline.points, baseline.triangles).map_err(BuildError::Baseline)?
             } else {
-                Some(region_height_field(baseline, &prepared, plan.masks)?)
-            };
-            let base_field =
-                Field::new(baseline.points, baseline.triangles).map_err(BuildError::Baseline)?;
+                region_height_field(baseline, &prepared, plan.masks)?
+            });
             let ground = |x: f64, y: f64| {
-                composed
-                    .as_ref()
-                    .unwrap_or(&base_field)
+                outline_ground
+                    .as_ref()?
                     .height_at(x, y)
                     .map(|sample| sample.height)
             };
@@ -1782,6 +1780,9 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         Some((planned, operator)) => apply_outline(
             planned,
             operator,
+            outline_ground
+                .as_ref()
+                .ok_or(BuildError::Outline(outline::OutlineError::Field))?,
             plan.masks,
             &mesh,
             &mut heights,
@@ -1843,6 +1844,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
 fn apply_outline(
     planned: &Outline<'_>,
     operator: &outline::Operator,
+    ground: &Field,
     masks: &[Mask<'_>],
     mesh: &RegionMesh,
     heights: &mut [f64],
@@ -1865,6 +1867,9 @@ fn apply_outline(
             }
         }
     }
+    // Ring diagnostics query the same composed field as this stage's grading, never a new height
+    // field filtered by the steepness of the output triangles.
+    let ground = |x, y| ground.height_at(x, y).map(|sample| sample.height);
     let mut unreached = 0_u32;
     for (vertex, (&[x, y, _], &keep)) in vertices.iter().zip(&fixed).enumerate() {
         if keep || is_protected(masks, x, y) || !grading_allowed(masks, x, y) {
@@ -1880,7 +1885,8 @@ fn apply_outline(
             *owner = Some(planned.order);
         }
     }
-    let clipped = outline::clipped(&faces, &operator.base, vertices, &mesh.ring)
+    let allowed = |x, y| !is_protected(masks, x, y) && grading_allowed(masks, x, y);
+    let clipped = outline::clipped(&faces, &ground, &allowed, vertices, &mesh.ring)
         .map_err(BuildError::Outline)?;
     Ok((unreached, clipped))
 }

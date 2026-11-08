@@ -819,11 +819,13 @@ impl<'a> Faces<'a> {
     }
 }
 
-/// Region ring samples, every vertex and every [`CLIP_STEP`] metres between,
-/// where the faces would leave the ground: there the ring ends them in a step.
+/// Region ring samples, every vertex and every [`CLIP_STEP`] metres between, where the faces
+/// would leave the supplied ground: there the ring ends them in a step. The caller's `allowed`
+/// predicate excludes samples where masks do not apply the outline at all.
 pub(super) fn clipped(
     faces: &Faces<'_>,
-    base: &Field,
+    ground: &dyn Fn(f64, f64) -> Option<f64>,
+    allowed: &dyn Fn(f64, f64) -> bool,
     vertices: &[[f64; 3]],
     ring: &[u32],
 ) -> Result<u32, OutlineError> {
@@ -845,11 +847,12 @@ pub(super) fn clipped(
             sample += 1.0;
             let x = (end[0] - start[0]).mul_add(along, start[0]);
             let y = (end[1] - start[1]).mul_add(along, start[1]);
-            let Some(ground) = base.height_at(x, y) else {
+            if !allowed(x, y) {
                 continue;
-            };
-            if let Some((height, _)) = faces.height(x, y) {
-                count += u32::from(height.to_bits() != ground.height.to_bits());
+            }
+            if let Some(ground) = ground(x, y) {
+                let (height, _) = faces.over(ground, x, y);
+                count += u32::from(height.to_bits() != ground.to_bits());
             }
         }
     }
@@ -1127,7 +1130,8 @@ pub(in crate::terrain) fn build_with(
         unreached,
     } = graded;
     let vertices = plan::vertices(&mesh.points);
-    let clipped = clipped(&faces, base, vertices, &mesh.ring)?;
+    let ground = |x, y| base.height_at(x, y).map(|sample| sample.height);
+    let clipped = clipped(&faces, &ground, &|_, _| true, vertices, &mesh.ring)?;
     let volumes = exact_cut_fill(&ExactRequest {
         points: &points,
         base: &based,

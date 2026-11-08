@@ -1372,6 +1372,84 @@ fn protected_zone_keeps_baseline_inside_and_on_its_ring() -> Result<(), BuildErr
 }
 
 #[test]
+fn outline_step_diagnostics_honour_the_applied_mask() -> Result<(), BuildError> {
+    let (points, triangles) = surface(5, 1.0, |_, _| 0.0);
+    let property = ring(&[[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]]);
+    let entries: [Entry<'_>; 0] = [];
+    let baseline = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &Plan {
+            revision: 19,
+            hash: 191,
+            entries: &entries,
+            paths: &[],
+            masks: &[],
+            controls: &[],
+            control_tolerance: 1e-3,
+            outlines: &[],
+        },
+    )?;
+    let paved = [1.0, 1.0, 1.0, 3.0, 1.0, 1.0, 3.0, 3.0, 1.0, 1.0, 3.0, 1.0];
+    let paved_triangles = [0, 1, 2, 0, 2, 3];
+    let grading = outline::Grading {
+        cut: Slope::RiseRun {
+            rise: 1.0,
+            run: 2.0,
+        },
+        fill: Slope::RiseRun {
+            rise: 1.0,
+            run: 2.0,
+        },
+        limit: 1.0,
+        rounding: 0.0,
+        effect: Effect::Both,
+        tolerance: 1e-6,
+    };
+    let operator =
+        outline::Operator::new(&points, &triangles, &paved, &paved_triangles, &[], grading)
+            .map_err(BuildError::Outline)?;
+    let planned = Outline {
+        order: 0,
+        surface_points: &paved,
+        surface_triangles: &paved_triangles,
+        surface_grades: &[],
+        grading,
+        lines: &[],
+        spots: &[],
+    };
+    let ground = Field::new(&points, &triangles).map_err(BuildError::Baseline)?;
+    let parts = [Part {
+        outer: &property,
+        holes: &[],
+    }];
+    let masks = [mask(911, MaskKind::ProtectedZone, &parts)];
+    let apply = |masks: &[Mask<'_>]| {
+        let mut heights = baseline.base.clone();
+        let mut owners = vec![None; heights.len()];
+        apply_outline(
+            &planned,
+            &operator,
+            &ground,
+            masks,
+            &baseline.mesh,
+            &mut heights,
+            &mut owners,
+        )
+        .map(|counts| (counts, heights))
+    };
+    let ((_, unmasked), _) = apply(&[])?;
+    assert!(unmasked > 0);
+    let ((unreached, clipped), heights) = apply(&masks)?;
+    assert_eq!((unreached, clipped), (0, 0));
+    assert_eq!(heights, baseline.base);
+    Ok(())
+}
+
+#[test]
 fn grading_limit_restricts_the_entry_to_its_mask() -> Result<(), BuildError> {
     let (points, triangles) = surface(9, 1.0, |_, _| 0.0);
     let property = ring(&[[1.0, 1.0], [8.0, 1.0], [8.0, 8.0], [1.0, 8.0]]);
