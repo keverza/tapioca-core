@@ -63,6 +63,9 @@ class ArchVizPanel final : public DG::Palette, public DG::PanelObserver, public 
     // `planMode`: opened in the floor plan's place -- its own top-down view, cut at the current
     // storey's plane (ReadPlanViewerCamera) -- instead of from the 3D window's camera.
     static void OpenViewer (bool planMode = false);
+    static void ToggleViewer ();
+    // User-open palette, including temporary host hides and renderer startup/errors.
+    static bool IsViewerOpen ();
     static void OpenDiligentProbe ();
     static void OpenDiligentViewport (bool planMode = false);
 
@@ -197,6 +200,7 @@ class ArchVizPanel final : public DG::Palette, public DG::PanelObserver, public 
     ArchVizPanel ();
 
     void Layout ();
+    void SyncMenuCheck () const;
     // ⚠️ Called before the viewport window can go away, and it JOINS. Presenting
     // to a destroyed HWND is a crash blamed on Archicad.
     //

@@ -25,6 +25,12 @@ class ViewerPaletteState final {
         return requestedOpen_ && hostHideDepth_ == 0;
     }
 
+    // Menu state follows user intent, not a temporary hide by the host.
+    bool IsOpen () const
+    {
+        return requestedOpen_;
+    }
+
     void BeginHostHide (bool visible)
     {
         if (hostHideDepth_++ == 0)

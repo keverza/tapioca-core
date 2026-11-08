@@ -134,7 +134,8 @@ bool ViewerOpen ()
 
 void BeforeOverlayStarts ()
 {
-    if (!ViewerOpen ())
+    // A visible startup/error palette is still an open window even without a renderer.
+    if (!ViewerOpen () && !ArchVizPanel::IsViewerOpen ())
         return;
     ArchVizLog ("SURFACE      an overlay starts: the viewer closes");
     vieweredit::Stop (true);

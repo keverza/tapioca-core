@@ -147,6 +147,7 @@ void ArchVizPanel::Show ()
         return;
     }
     paletteState.RequestOpen ();
+    SyncMenuCheck ();
     if (!paletteState.CanShow ())
         return;
     DG::Palette::Show ();
@@ -156,6 +157,34 @@ void ArchVizPanel::Hide ()
 {
     paletteState.RequestClose ();
     DG::Palette::Hide ();
+    SyncMenuCheck ();
+}
+
+void ArchVizPanel::SyncMenuCheck () const
+{
+    // Main-thread DG lifecycle only; keep disabled and any other host flags intact.
+    API_MenuItemRef item = {};
+    item.menuResID = ArchVizMenuResId;
+    item.itemIndex = ArchVizMenuItemIndex;
+    GSFlags flags = 0;
+    if (ACAPI_MenuItem_GetMenuItemFlags (&item, &flags) != NoError)
+        return;
+    GSFlags wanted = paletteState.IsOpen () ? (flags | API_MenuItemChecked) : (flags & ~GSFlags (API_MenuItemChecked));
+    if (wanted != flags)
+        ACAPI_MenuItem_SetMenuItemFlags (&item, &wanted);
+}
+
+bool ArchVizPanel::IsViewerOpen ()
+{
+    return HasInstance () && GetInstance ().paletteState.IsOpen ();
+}
+
+void ArchVizPanel::ToggleViewer ()
+{
+    if (IsViewerOpen ())
+        CloseViewer ();
+    else
+        OpenViewer ();
 }
 
 // ---------------------------------------------------------------------------

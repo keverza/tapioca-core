@@ -304,7 +304,7 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
             break;
         case ArchVizMenuResId:
             if (menuParams->menuItemRef.itemIndex == ArchVizMenuItemIndex)
-                ArchVizPanel::OpenViewer ();
+                ArchVizPanel::ToggleViewer ();
             break;
         // ⚠️ THE OVERLAY MUST BE OPENED WITH THE 3D WINDOW IN FRONT. There is no
         // DevKit call that hands back the 3D view's HWND, so the target is the

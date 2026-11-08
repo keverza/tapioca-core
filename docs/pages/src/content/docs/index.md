@@ -42,6 +42,12 @@ The add-on registers one **Tapioca** menu in Archicad 29 with these surfaces:
   **rhino.compute** start/stop items — integration entry points that need the
   matching external applications installed.
 
+The three Vision items toggle their surface on or off and show a check while
+enabled. An overlay stays checked while waiting for its matching 2D or 3D view.
+Opening Vision Window disables both overlays; enabling an overlay closes the
+window. Temporary host hides (such as modal dialogs) do not clear the window's
+check.
+
 Behind the palette, the shipped Python facade and the generated native
 `Tapioca.*` command catalog provide the model access; see the
 [API boundary](./api/).

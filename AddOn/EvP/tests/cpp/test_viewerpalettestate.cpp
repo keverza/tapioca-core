@@ -4,6 +4,39 @@
 
 using geomsrv::archviz::ViewerPaletteState;
 
+TEST (ViewerPaletteState, MenuCheckFollowsExplicitOpenAndClose)
+{
+    ViewerPaletteState state;
+    EXPECT_FALSE (state.IsOpen ());
+    state.RequestOpen ();
+    EXPECT_TRUE (state.IsOpen ());
+    state.RequestOpen ();
+    EXPECT_TRUE (state.IsOpen ());
+    state.RequestClose ();
+    EXPECT_FALSE (state.IsOpen ());
+    state.RequestClose ();
+    EXPECT_FALSE (state.IsOpen ());
+}
+
+TEST (ViewerPaletteState, MenuCheckSurvivesNestedHostHidesButNotExplicitClose)
+{
+    ViewerPaletteState state;
+    state.RequestOpen ();
+    state.BeginHostHide (true);
+    state.BeginHostHide (false);
+    EXPECT_TRUE (state.IsOpen ());
+    EXPECT_FALSE (state.CanShow ());
+    EXPECT_FALSE (state.EndHostHide ());
+    EXPECT_TRUE (state.IsOpen ());
+    EXPECT_TRUE (state.EndHostHide ());
+    EXPECT_TRUE (state.IsOpen ());
+    state.BeginHostHide (true);
+    state.RequestClose ();
+    EXPECT_FALSE (state.IsOpen ());
+    EXPECT_FALSE (state.EndHostHide ());
+    EXPECT_FALSE (state.IsOpen ());
+}
+
 TEST (ViewerPaletteState, ANewSessionCannotRestoreSavedWorkspaceVisibility)
 {
     ViewerPaletteState previousSession;
