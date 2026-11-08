@@ -7,6 +7,7 @@
 #include "Edit/EditTerrainDesignJob.hpp"
 #include "Edit/EditPublishedTerrain.hpp"
 #include "Edit/EditTerrainOutline.hpp"
+#include "Geometry/GeometryRustOutlineTerrain.hpp"
 #include "Geometry/Mesh.hpp"
 #include "Geometry/ClipperPlanRing.hpp"
 #include "Edit/EditDocument.hpp"
@@ -2880,6 +2881,96 @@ TEST (HudTerrainDesign, NativeSurfacePreparationRefusalIsLoggedWithoutDrawingThe
                line.find ("built=0 surfacePrepared=0") != std::string::npos &&
                line.find (outcome->error) != std::string::npos;
     }));
+}
+
+// #175: paving a straight path every half metre must not change its built terrain. A split edge
+// used to lift its own collinear neighbours as though they met at a crease; compare the complete
+// Rust build through its C++ facade with the same pavement as four whole edges.
+TEST (EditTerrainOutline, HalfMetreSplitPavementBuildsLikeTheSameFourWholeEdges)
+{
+    std::vector<double> points;
+    std::vector<uint32_t> triangles;
+    for (uint32_t row = 0; row < 13; ++row)
+        for (uint32_t column = 0; column < 17; ++column)
+            points.insert (points.end (), { -20.5 + 5.0 * column, -30.5 + 5.0 * row, 10.0 });
+    for (uint32_t row = 0; row < 12; ++row)
+        for (uint32_t column = 0; column < 16; ++column) {
+            const uint32_t a = row * 17 + column;
+            triangles.insert (triangles.end (), { a, a + 1, a + 18, a, a + 18, a + 17 });
+        }
+    const auto height = [] (double x) { return 12.0 + 0.02 * x; };
+    constexpr uint32_t count = 81;
+    std::vector<double> split;
+    for (const double side : { -2.0, 2.0 })
+        for (uint32_t i = 0; i < count; ++i) {
+            const double x = 0.5 * i;
+            split.insert (split.end (), { x, side, height (x) });
+        }
+    std::vector<uint32_t> splitTriangles;
+    for (uint32_t i = 0; i + 1 < count; ++i)
+        splitTriangles.insert (splitTriangles.end (), { i, i + 1, count + i + 1, i, count + i + 1, count + i });
+    const std::vector<double> whole { 0, -2, height (0), 40, -2, height (40), 40, 2, height (40), 0, 2, height (0) };
+    const std::vector<uint32_t> wholeTriangles { 0, 1, 2, 0, 2, 3 };
+
+    // The editor's two open outline halves, identically sampled in both requests. The surface
+    // triangulation is the only difference; the sampled spots make their output heights comparable.
+    std::vector<std::vector<double>> lines (2);
+    const std::array<std::array<double, 2>, 3> first { { { 0, -2 }, { 40, -2 }, { 40, 2 } } };
+    const std::array<std::array<double, 2>, 3> second { { { 40, 2 }, { 0, 2 }, { 0, -2 } } };
+    for (const auto [half, corners] : { std::pair { 0U, &first }, { 1U, &second } })
+        for (size_t edge = 0; edge + 1 < corners->size (); ++edge) {
+            const auto& a = corners->at (edge);
+            const auto& b = corners->at (edge + 1);
+            const auto pieces = static_cast<uint32_t> (std::ceil (std::hypot (b[0] - a[0], b[1] - a[1]) / 0.5));
+            for (uint32_t i = 0; i <= pieces; ++i) {
+                if (edge > 0 && i == 0)
+                    continue;
+                const double t = static_cast<double> (i) / pieces;
+                lines[half].insert (lines[half].end (), { a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), 0 });
+            }
+        }
+    std::vector<double> spots;
+    for (const double x : { 3.0, 9.7, 10.0, 10.3, 19.9, 20.0, 29.5, 30.0, 37.0 })
+        for (const double y : { -5.0, -4.0, -3.0, -2.5, 2.5, 3.0, 4.0, 5.0 })
+            spots.insert (spots.end (), { x, y, 0.0 });
+    const auto run = [&] (const std::vector<double>& surface, const std::vector<uint32_t>& surfaceTriangles) {
+        OutlineTerrainRequest request;
+        request.mesh = { points, triangles };
+        request.region = kRegion;
+        request.surface = { surface, surfaceTriangles };
+        request.lines = lines;
+        request.spots = spots;
+        request.cut = { TerrainSlope::Unit::Percent, 50, 0 };
+        request.fill = request.cut;
+        request.limit = 10;
+        request.rounding = 1;
+        request.tolerance = 1e-6;
+        OutlineTerrainResult built;
+        std::string error;
+        EXPECT_TRUE (BuildOutlineTerrain (request, built, error)) << error;
+        return built;
+    };
+    const auto dense = run (split, splitTriangles);
+    const auto sparse = run (whole, wholeTriangles);
+    ASSERT_FALSE (dense.points.empty ());
+    ASSERT_FALSE (sparse.points.empty ());
+    const auto heights = [] (const OutlineTerrainResult& built) {
+        std::map<std::pair<double, double>, double> at;
+        for (size_t i = 0; i + 2 < built.points.size (); i += 3)
+            at[{ built.points[i], built.points[i + 1] }] = built.points[i + 2];
+        return at;
+    };
+    const auto denseHeights = heights (dense), sparseHeights = heights (sparse);
+    size_t compared = 0;
+    for (size_t i = 0; i + 2 < spots.size (); i += 3) {
+        const std::pair at { spots[i], spots[i + 1] };
+        const auto a = denseHeights.find (at), b = sparseHeights.find (at);
+        ASSERT_NE (a, denseHeights.end ());
+        ASSERT_NE (b, sparseHeights.end ());
+        EXPECT_NEAR (a->second, b->second, 1e-9) << at.first << ", " << at.second;
+        ++compared;
+    }
+    EXPECT_EQ (compared, spots.size () / 3);
 }
 
 TEST (EditTerrainOutline, ACoplanarTerrainEdgeLeavesNoSliversAcrossTheFaces)
