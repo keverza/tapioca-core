@@ -426,4 +426,21 @@ bool BuildUnifiedLandscapeTerrain (const edit::Document& doc, const TerrainCaptu
     }
 }
 
+bool PreviewUnifiedLandscapeTerrain (const edit::Document& doc, const TerrainCapture& capture, const FieldPlan& plan,
+                                     const UnifiedLandscapeBuildOptions& options, const UnifiedPreviewAsk& ask,
+                                     UnifiedPreviewResult& result, std::string& error)
+{
+    try {
+        OwnedRequest owned;
+        UnifiedLandscapeBuildScope scope;
+        if (!Convert (doc, capture, plan, options, owned, scope, error))
+            return false;
+        return PreviewUnifiedTerrain (*owned.request, ask, result, error);
+    }
+    catch (const std::exception& exception) {
+        error = std::string ("UnifiedLandscapePreview: ") + exception.what ();
+        return false;
+    }
+}
+
 } // namespace tapioca::geometry

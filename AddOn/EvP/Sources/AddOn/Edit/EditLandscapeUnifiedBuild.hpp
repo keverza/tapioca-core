@@ -41,5 +41,11 @@ bool BuildUnifiedLandscapeTerrain (const geomsrv::edit::Document& doc, const Ter
                                    const FieldPlan& plan, const UnifiedLandscapeBuildOptions& options,
                                    UnifiedTerrainResult& result, UnifiedLandscapeBuildScope& scope, std::string& error);
 
+// #175: the same compiled request previewed from its field (PreviewUnifiedTerrain): a grid
+// surface, contours and cut/fill in milliseconds, with no mesh.
+bool PreviewUnifiedLandscapeTerrain (const geomsrv::edit::Document& doc, const TerrainCapture& capture,
+                                     const FieldPlan& plan, const UnifiedLandscapeBuildOptions& options,
+                                     const UnifiedPreviewAsk& ask, UnifiedPreviewResult& result, std::string& error);
+
 } // namespace tapioca::geometry
 #endif

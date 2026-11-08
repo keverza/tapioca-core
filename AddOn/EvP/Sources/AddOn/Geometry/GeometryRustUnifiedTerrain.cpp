@@ -426,4 +426,83 @@ bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResul
     return true;
 }
 
+bool PreviewUnifiedTerrain (const UnifiedPlanRequest& request, const UnifiedPreviewAsk& ask,
+                            UnifiedPreviewResult& result, std::string& error)
+{
+    Input converted;
+    if (!Convert (request, converted, error))
+        return false;
+    std::array<char, 256> buffer {};
+    TapiocaPreviewCounts counts {};
+    TapiocaPreviewSummary summary {};
+    std::vector<double> points, linePoints;
+    std::vector<uint32_t> triangles;
+    std::vector<TapiocaPreviewLine> lines;
+    TapiocaPreviewOutput output {};
+    output.step = ask.step;
+    output.interval = ask.interval;
+    output.counts = &counts;
+    output.summary = &summary;
+    size_t want[4] = { ask.points, ask.triangles, ask.lines, ask.linePoints };
+    // The first call tries the capacities asked; a second, only when one was too small, the
+    // exact counts the first reported.
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        points.resize (want[0]);
+        triangles.resize (want[1]);
+        lines.resize (want[2]);
+        linePoints.resize (want[3]);
+        output.points = points.data ();
+        output.pointCapacity = points.size ();
+        output.triangles = triangles.data ();
+        output.triangleCapacity = triangles.size ();
+        output.lines = lines.data ();
+        output.lineCapacity = lines.size ();
+        output.linePoints = linePoints.data ();
+        output.linePointCapacity = linePoints.size ();
+        const auto status = tapioca_terrain_unified_preview (&converted.raw, &output, buffer.data (), buffer.size ());
+        if (status != TAPIOCA_OK) {
+            error = Failure (status, buffer);
+            return false;
+        }
+        if (counts.complete == 1)
+            break;
+        want[0] = counts.points;
+        want[1] = counts.triangles;
+        want[2] = counts.lines;
+        want[3] = counts.linePoints;
+    }
+    if (counts.complete != 1 || counts.points % 3 != 0 || counts.triangles % 3 != 0 || counts.linePoints % 3 != 0) {
+        error = "TerrainOutputShape: invalid field preview counts";
+        return false;
+    }
+    UnifiedPreviewResult candidate;
+    points.resize (counts.points);
+    triangles.resize (counts.triangles);
+    candidate.points = std::move (points);
+    candidate.triangles = std::move (triangles);
+    for (size_t i = 0; i < counts.lines; ++i) {
+        const auto& row = lines[i];
+        if (row.first > counts.linePoints / 3 || row.count > counts.linePoints / 3 - row.first) {
+            error = "TerrainOutputShape: field preview line outside its pool";
+            return false;
+        }
+        UnifiedPreviewLine line;
+        line.level = row.level;
+        line.closed = row.closed != 0;
+        line.points.assign (linePoints.begin () + ptrdiff_t (row.first * 3),
+                            linePoints.begin () + ptrdiff_t ((row.first + row.count) * 3));
+        candidate.lines.push_back (std::move (line));
+    }
+    candidate.interval = summary.interval;
+    candidate.step = summary.step;
+    candidate.surfaceStep = summary.surfaceStep;
+    candidate.cut = summary.cut;
+    candidate.fill = summary.fill;
+    candidate.low = summary.range[0];
+    candidate.high = summary.range[1];
+    result = std::move (candidate);
+    error.clear ();
+    return true;
+}
+
 } // namespace tapioca::geometry

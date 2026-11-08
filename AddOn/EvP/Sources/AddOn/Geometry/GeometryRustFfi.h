@@ -895,6 +895,36 @@ typedef struct {
     uint32_t queryOnly, reserved;
 } TapiocaUnifiedOutput;
 
+// #175 field preview of the same request: a grid surface, contour lines and cut/fill, no mesh.
+// complete is 1 when every array was written; 0 when a capacity was too small (the counts are
+// still written: retry with them). Contour line points are xyz at the line's level.
+typedef struct {
+    size_t points, triangles, lines, linePoints;
+    uint32_t complete, reserved;
+} TapiocaPreviewCounts;
+typedef struct {
+    double interval, step, surfaceStep, cut, fill, range[2];
+} TapiocaPreviewSummary;
+typedef struct {
+    double level;
+    uint64_t first, count; /* xyz triples in linePoints. */
+    uint32_t closed, reserved;
+} TapiocaPreviewLine;
+typedef struct {
+    double step;                    /* Grid spacing asked, metres; finite and positive. */
+    double interval;                /* Contour interval asked; <= 0 picks about ten levels. */
+    TapiocaPreviewCounts* counts;   /* Required. */
+    TapiocaPreviewSummary* summary; /* Required. */
+    double* points;
+    size_t pointCapacity;
+    uint32_t* triangles;
+    size_t triangleCapacity;
+    TapiocaPreviewLine* lines;
+    size_t lineCapacity;
+    double* linePoints;
+    size_t linePointCapacity;
+} TapiocaPreviewOutput;
+
 // S4.3 located conflicts, additive to the build/edit records and counters.
 // Band conflict code: 1 DaylightNotReached (magnitude: z_cone - z_base where the
 // search stopped), 2 DaylightBeyondLimit (reach needed, metres from the edge),
@@ -1326,6 +1356,10 @@ TapiocaStatus tapioca_terrain_hybrid_locked_assess (const TapiocaTerrainHybridLo
 // classified; one build recomputes the whole constrained interior.
 TapiocaStatus tapioca_terrain_unified_build (const TapiocaUnifiedRequest* request, const TapiocaUnifiedOutput* output,
                                              char* error, size_t errorCapacity);
+// #175 field preview: the unified request sampled on a plan grid, in one call when the
+// capacities fit (see TapiocaPreviewCounts). Unchanged on refusal; nothing is retained.
+TapiocaStatus tapioca_terrain_unified_preview (const TapiocaUnifiedRequest* request, const TapiocaPreviewOutput* output,
+                                               char* error, size_t errorCapacity);
 // S4.3: query/fill row exports with the same request records and contracts.
 TapiocaStatus tapioca_terrain_hybrid_conflicts (const TapiocaTerrainHybridRequest* request,
                                                 const TapiocaTerrainConflictOutput* output, char* error,

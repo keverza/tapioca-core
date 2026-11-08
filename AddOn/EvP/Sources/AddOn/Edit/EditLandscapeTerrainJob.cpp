@@ -4,7 +4,9 @@
 #include "Edit/EditTerrainDesign.hpp"
 #include "Edit/EditLandscapeFieldPlan.hpp"
 #include "Edit/EditPublishedTerrain.hpp"
+#include "Edit/EditLandscapeUnifiedBuild.hpp"
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <exception>
 
@@ -284,5 +286,63 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
 std::future<TerrainDesignOutcome> LaunchLandscapeTerrainDesign (TerrainDesignJob job)
 {
     return std::async (std::launch::async, [job = std::move (job)] { return RunLandscapeTerrainDesign (job); });
+}
+
+TerrainPreviewOutcome RunLandscapeTerrainPreview (const TerrainDesignJob& job, const UnifiedPreviewAsk& ask)
+{
+    const auto started = std::chrono::steady_clock::now ();
+    TerrainPreviewOutcome outcome;
+    const auto run = [&] () {
+        if (!job.doc || !job.doc->landscape || !job.capture) {
+            outcome.error = "SceneTerrain: missing immutable document/capture";
+            return;
+        }
+        outcome.revision = job.doc->revision;
+        if (LandscapeTerrainRoute (*job.doc, job.options.source != kNoId, job.options.outline) ==
+            TerrainRoute::Legacy) {
+            outcome.error = "TerrainPreviewLegacy: this design builds on the legacy lane, which has no preview";
+            return;
+        }
+        // As the build (RunLandscapeTerrainDesign): the surface a native solid prepares, then one
+        // compiled plan over it.
+        std::shared_ptr<const TerrainCapture> baseline = job.capture;
+        if (job.surfaceTable) {
+            auto surface = std::make_shared<TerrainCapture> ();
+            if (!PrepareTerrainSurface (baseline, job.surfaceTable, *surface, outcome.error))
+                return;
+            baseline = std::move (surface);
+        }
+        LandscapeSnapshot snapshot;
+        snapshot.doc = job.doc.get ();
+        snapshot.revision = job.doc->revision;
+        snapshot.captureRevision = baseline->revision;
+        snapshot.session = job.doc->landscape->sessionUuid;
+        snapshot.sourceTerrainGuid = job.doc->landscape->sourceTerrainGuid;
+        if (job.options.source)
+            snapshot.path = PathRequestFor (job.options, !job.region.empty ());
+        const FieldPlan plan = CompileLandscapeFieldPlan (snapshot);
+        if (!ValidateLandscapeFieldPlanForBuild (plan, outcome.error)) {
+            outcome.error = "LandscapeFieldPlan: " + outcome.error;
+            return;
+        }
+        outcome.built =
+            PreviewUnifiedLandscapeTerrain (*job.doc, *baseline, plan, {}, ask, outcome.preview, outcome.error);
+    };
+    try {
+        run ();
+    }
+    catch (const std::exception& exception) {
+        outcome.built = false;
+        outcome.error = std::string ("TerrainPreview: ") + exception.what ();
+    }
+    outcome.milliseconds =
+        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
+    return outcome;
+}
+
+std::future<TerrainPreviewOutcome> LaunchLandscapeTerrainPreview (TerrainDesignJob job, UnifiedPreviewAsk ask)
+{
+    return std::async (std::launch::async,
+                       [job = std::move (job), ask] { return RunLandscapeTerrainPreview (job, ask); });
 }
 } // namespace tapioca::geometry

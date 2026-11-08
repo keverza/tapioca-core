@@ -205,6 +205,7 @@ void Panel (Session& s)
     s.profilePlaced.clear (); // the canvas republishes its labels every frame
     SettleWidgetGesture (s);
     ClosePrompt (s);
+    TerrainActivityBadge (s);
     LandscapePanel (s);
     ImGui::Text ("%zu objects   %zu paths   %zu selected", doc.entities.size (), doc.paths.size (),
                  s.selection.Items ().size ());

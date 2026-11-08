@@ -178,6 +178,13 @@ struct TerrainDesignState {
     double contoursInterval = 0.0;
     std::vector<edit::Contour> contours;
     uint64_t staleLogged = UINT64_MAX; // The generation last logged as drawn stale: once, not per move.
+    // #175: the design previewed from its field (surface, contours, cut/fill) in milliseconds,
+    // asked for every revision -- through a gesture too -- and drawn while the build above has
+    // not caught up. One in flight; the newest that landed is kept.
+    std::future<lg::TerrainPreviewOutcome> previewWorker;
+    uint64_t previewRequested = UINT64_MAX;
+    lg::TerrainPreviewOutcome preview;
+    lg::UnifiedPreviewAsk previewAsk;
 };
 
 TerrainDebugSource GetTerrainDebugSource (const Session& s)
@@ -306,6 +313,84 @@ void StartTerrainDesignWorker (Session& s, TerrainDesignState& state)
 }
 } // namespace
 
+namespace {
+// #175: one field preview of this revision, on its own worker: the build's inputs (a fresh
+// capture, the surface a native solid prepares), compiled and sampled on a grid, no mesh.
+void StartTerrainPreview (Session& s, TerrainDesignState& state)
+{
+    const auto& doc = s.edits.Doc ();
+    state.previewRequested = doc.revision;
+    if (!state.options.source && lg::TerrainRegionObjects (doc).empty ()) {
+        state.preview = {};
+        state.preview.revision = doc.revision;
+        state.preview.error = "TerrainPreviewNothing: no design path or region target yet";
+        return;
+    }
+    if (state.options.source && !state.options.outline) {
+        // The path band is sampled stations, not a field the preview evaluates: its build
+        // stands alone (the panel says it is building).
+        state.preview = {};
+        state.preview.revision = doc.revision;
+        state.preview.error = "TerrainPreviewBand: a path band has no field preview";
+        return;
+    }
+    auto capture = std::make_shared<lg::TerrainCapture> ();
+    std::string error;
+    if (!lg::CaptureLandscapeTerrain (doc, *state.baseline.mesh, { state.options.object, 2, 1 }, *capture, error)) {
+        state.preview = {};
+        state.preview.revision = doc.revision;
+        state.preview.error = error;
+        return;
+    }
+    lg::TerrainDesignJob job;
+    job.doc = std::make_shared<const edit::Document> (doc);
+    job.capture = std::move (capture);
+    job.options = state.options;
+    job.surfaceTable = state.baseline.nativeSolid ? 5 : 0;
+    auto ask = state.previewAsk;
+    ask.interval = s.contourStep > 0.0 ? s.contourStep : 0.0;
+    try {
+        state.previewWorker = lg::LaunchLandscapeTerrainPreview (std::move (job), ask);
+    }
+    catch (const std::exception& exception) {
+        state.preview = {};
+        state.preview.revision = doc.revision;
+        state.preview.error = std::string ("TerrainPreviewWorker: ") + exception.what ();
+    }
+}
+
+// Collect a landed preview, then ask for the current revision's if it is not the one asked.
+// Unlike the build it runs through gestures: it is what the user sees move.
+void PollTerrainPreview (Session& s, TerrainDesignState& state)
+{
+    if (state.previewWorker.valid ()) {
+        if (state.previewWorker.wait_for (std::chrono::seconds (0)) != std::future_status::ready)
+            return;
+        auto outcome = state.previewWorker.get ();
+        if (outcome.built) {
+            // The next call tries these sizes first: one Rust call while the preview keeps its size.
+            auto& ask = state.previewAsk;
+            ask.points = outcome.preview.points.size () + outcome.preview.points.size () / 4;
+            ask.triangles = outcome.preview.triangles.size () + outcome.preview.triangles.size () / 4;
+            ask.lines = outcome.preview.lines.size () + outcome.preview.lines.size () / 4 + 16;
+            size_t linePoints = 0;
+            for (const auto& line : outcome.preview.lines)
+                linePoints += line.points.size ();
+            ask.linePoints = linePoints + linePoints / 4 + 48;
+        }
+        if (outcome.built || state.preview.revision != outcome.revision)
+            LogTerrain (s, "preview revision=" + std::to_string (outcome.revision) + " built=" +
+                               std::to_string (outcome.built) + " ms=" + std::to_string (int (outcome.milliseconds)) +
+                               " triangles=" + std::to_string (outcome.preview.triangles.size () / 3) +
+                               " lines=" + std::to_string (outcome.preview.lines.size ()) + " error=" + outcome.error);
+        state.preview = std::move (outcome);
+        s.publishedRevision = UINT64_MAX;
+    }
+    if (!state.invalid && state.previewRequested != s.edits.Doc ().revision)
+        StartTerrainPreview (s, state);
+}
+} // namespace
+
 bool StartTerrainDesign (Session& s, std::shared_ptr<const Mesh> mesh, edit::Id path)
 {
     return StartTerrainDesign (s, TerrainDesignBaseline { std::move (mesh), false, {} }, path);
@@ -403,6 +488,7 @@ void PollTerrainDesign (Session& s)
         LogTerrain (s, "baseline invalidated: " + state.error);
         s.publishedRevision = UINT64_MAX;
     }
+    PollTerrainPreview (s, state);
     if (state.worker.valid ()) {
         if (state.worker.wait_for (std::chrono::seconds (0)) != std::future_status::ready)
             return;
@@ -493,6 +579,28 @@ std::optional<lg::PathDesignRequest> TerrainRecipeRequest (const Session& s)
     return lg::PathRequestFor (s.terrainDesign->options, false); // the landscape lane names no region
 }
 
+// #175: whether the layer shows the field preview: one landed, and the build has not caught up
+// with it (none yet, a refusal standing, or the last good build older than the preview).
+namespace {
+bool PreviewStandsIn (const Session& s)
+{
+    if (!s.terrainDesign)
+        return false;
+    const auto& state = *s.terrainDesign;
+    // Whatever hides the last build hides the preview too: a stale capture, a design that
+    // could not start.
+    if (!state.preview.built || state.invalid || !state.error.empty () ||
+        (state.baseline.current && !state.baseline.current ()))
+        return false;
+    // A build of this revision or a later one answers for it, a refusal included.
+    if (const auto* current = CurrentTerrainDesign (s); current && current->revision >= state.preview.revision)
+        return false;
+    bool stale = false;
+    const auto* last = LastPublishedTerrainDesign (s, stale);
+    return !last || !last->built || state.preview.revision > last->revision;
+}
+} // namespace
+
 TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
 {
     TerrainDesignStatus status;
@@ -501,6 +609,8 @@ TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
     const auto& state = *s.terrainDesign;
     status.active = true;
     status.pending = state.worker.valid ();
+    status.previewPending = state.previewWorker.valid ();
+    status.previewMs = state.preview.milliseconds;
     status.error = state.error;
     if (state.baseline.current && !state.baseline.current ())
         status.error = "TerrainCaptureStale: native terrain changed; capture it again.";
@@ -527,6 +637,7 @@ TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
     }
     else
         LastPublishedTerrainDesign (s, status.stale);
+    status.previewed = PreviewStandsIn (s);
     return status;
 }
 
@@ -541,7 +652,36 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
     bool stale = false;
     const auto* last = LastPublishedTerrainDesign (s, stale);
     const auto* current = CurrentTerrainDesign (s);
-    if (last && last->built) {
+    // #175: while the build has not caught up with the document (an edit in progress, a build
+    // running, none yet), the field preview of the newest revision stands in for it: its grid
+    // surface and contours, the same colours.
+    const auto* preview = s.terrainDesign && s.terrainDesign->preview.built ? &s.terrainDesign->preview : nullptr;
+    if (PreviewStandsIn (s)) {
+        overlaylayers::Mesh mesh;
+        mesh.points = preview->preview.points;
+        mesh.indices = preview->preview.triangles;
+        mesh.rgba = 0x6E9A72FFu;
+        mesh.styled = true;
+        mesh.style.shading = overlaylayers::Shading::Lit;
+        mesh.style.opacity = 0.9f;
+        mesh.style.behind = overlaylayers::Behind::Fade;
+        mesh.style.occludedOpacity = 0.75f;
+        layer.meshes.push_back (std::move (mesh));
+        if (s.contours) {
+            const double interval = preview->preview.interval;
+            for (const auto& c : preview->preview.lines) {
+                overlaylayers::Polyline line;
+                line.points = c.points;
+                line.closed = c.closed;
+                const bool index = interval > 0.0 && std::fmod (std::abs (std::round (c.level / interval)), 5.0) == 0.0;
+                line.rgba = index ? 0x2F4A35E6u : 0x37523D99u;
+                line.widthPixels = index ? 1.75f : 1.0f;
+                line.behind = overlaylayers::Behind::Show;
+                layer.polylines.push_back (std::move (line));
+            }
+        }
+    }
+    else if (last && last->built) {
         // Prefer the neutral published snapshot when the lane produced one; the
         // legacy result fields mirror it during migration.
         const auto* published = last->published.get ();

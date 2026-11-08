@@ -67,6 +67,10 @@ struct TerrainDesignStatus {
     size_t vertices = 0, triangles = 0, conflicts = 0;
     double cut = 0, fill = 0;
     std::string error;
+    // #175: the field preview. `previewPending`: one is being computed; `previewed`: the layer
+    // shows it (the build has not caught up); `previewMs`: the last one's time on its worker.
+    bool previewPending = false, previewed = false;
+    double previewMs = 0;
 };
 
 // Detached plan-view terrain, captured by the host on the main thread. Starts
@@ -99,6 +103,10 @@ const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Sessi
 const tapioca::geometry::TerrainDesignOutcome* LastPublishedTerrainDesign (const Session& session, bool& stale);
 void DrawTerrainDesign (const Session& session, overlaylayers::Layer& layer);
 void TerrainDesignPanel (Session& session);
+// #175: while the terrain is being regenerated, a line saying so at the top of the editor's
+// panel and a small badge at the top of the view (the foreground draw list: no window, so it
+// takes no hover and no cursor claim). Nothing while it is current.
+void TerrainActivityBadge (const Session& session);
 // Grade along the chosen path's band only (true), or from every path's paved outline (false, the
 // default); a running design rebuilds the other way on the next idle poll.
 void SetTerrainBand (Session& session, bool band);

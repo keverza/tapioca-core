@@ -1226,6 +1226,58 @@ TEST (EditTerrainDesignJob, AnOutlineRunsOnTheUnifiedBuildAndMatchesTheLegacyOra
     EXPECT_FALSE (refused.published);
 }
 
+// #175: the field preview of an outline design, beside its build: its contours lie on the
+// built mesh, its fill is the build's to within the grid, and it answers in a fraction of the
+// build's time with no mesh.
+TEST (EditTerrainDesignJob, TheFieldPreviewOfAnOutlineLiesOnItsBuild175)
+{
+    DesignFixture fixture;
+    TerrainDesignPublisher publisher;
+    std::string error;
+    TerrainDesignJob job;
+    auto outline = fixture.Options ();
+    outline.outline = true;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), outline, {}, job, error)) << error;
+    const auto started = std::chrono::steady_clock::now ();
+    const auto built = RunLandscapeTerrainDesign (job);
+    const double buildMs =
+        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
+    ASSERT_TRUE (built.built) << built.error;
+    UnifiedPreviewAsk ask;
+    ask.step = 0.1;
+    ask.interval = 0.5;
+    const auto previewed = RunLandscapeTerrainPreview (job, ask);
+    ASSERT_TRUE (previewed.built) << previewed.error;
+    EXPECT_EQ (previewed.revision, fixture.doc.revision);
+    const auto& preview = previewed.preview;
+    ASSERT_FALSE (preview.lines.empty ());
+    EXPECT_FALSE (preview.triangles.empty ());
+    EXPECT_EQ (preview.interval, 0.5);
+    // Every contour point against the built mesh: nearly all within the mesher's tolerance and
+    // the grid's interpolation (the rest at the build region's edge, where its faces step).
+    std::vector<double> queries;
+    for (const auto& line : preview.lines)
+        for (size_t i = 0; i + 2 < line.points.size (); i += 3)
+            queries.insert (queries.end (), { line.points[i], line.points[i + 1] });
+    std::vector<TerrainSample> samples;
+    TerrainFieldSummary summary;
+    const auto& build = built.result.build;
+    ASSERT_TRUE (SampleTerrain ({ build.points, build.triangles }, queries, .25, samples, summary, error)) << error;
+    size_t close = 0, sampled = 0, at = 0;
+    for (const auto& line : preview.lines)
+        for (size_t i = 0; i + 2 < line.points.size (); i += 3, ++at)
+            if (at < samples.size () && samples[at].onSurface) {
+                ++sampled;
+                close += std::abs (samples[at].height - line.level) < 0.03;
+            }
+    ASSERT_GT (sampled, 0U);
+    EXPECT_GE (double (close) / double (sampled), 0.95) << close << " of " << sampled;
+    EXPECT_NEAR (preview.fill, build.site.fill, 0.05 * build.site.fill + 1.0);
+    std::cout << "Field preview " << previewed.milliseconds << " ms (build " << buildMs << " ms), "
+              << preview.lines.size () << " lines, " << close << "/" << sampled << " within 3 cm, fill " << preview.fill
+              << " vs " << build.site.fill << std::endl;
+}
+
 TEST (EditTerrainCapture, ASnapshotMeshBecomesAValidatedCaptureTheWorkerCanBuildOn)
 {
     DesignFixture fixture;
@@ -1588,7 +1640,29 @@ TEST (VirtualEditorDebug, ReplayDumpFromEnvironment)
     ASSERT_TRUE (parsed.value.Find ("designActive")->AsBool (active));
     if (!active)
         return; // A path-only/terrain-first dump is still useful for fillet diagnosis.
+    {
+        // #175: the same scene's field preview, timed beside the build.
+        auto capture = std::make_shared<TerrainCapture> ();
+        std::string captureError;
+        if (CaptureLandscapeTerrain (scene.doc, scene.baseline, { scene.options.object, 2, 1 }, *capture,
+                                     captureError)) {
+            TerrainDesignJob job;
+            job.doc = std::make_shared<const geomsrv::edit::Document> (scene.doc);
+            job.capture = capture;
+            job.options = scene.options;
+            job.surfaceTable = scene.nativeSolid ? 5 : 0;
+            const auto previewed = RunLandscapeTerrainPreview (job, {});
+            std::cout << "Replay preview built=" << previewed.built << " ms=" << previewed.milliseconds
+                      << " triangles=" << previewed.preview.triangles.size () / 3
+                      << " lines=" << previewed.preview.lines.size () << " fill=" << previewed.preview.fill
+                      << " cut=" << previewed.preview.cut << " error=" << previewed.error << std::endl;
+        }
+    }
+    const auto replayStarted = std::chrono::steady_clock::now ();
     const auto outcome = debugreplay::Run (scene);
+    std::cout << "Replay build ms="
+              << std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - replayStarted).count ()
+              << std::endl;
     std::cout << "Replay built=" << outcome.built << " triangles=" << outcome.result.build.triangles.size () / 3
               << " error=" << outcome.error << '\n';
     for (const auto& condition : outcome.unmet)
@@ -2321,9 +2395,12 @@ TEST (HudTerrainDesign, EditsCoalesceUntilReleaseAndStaleWorkersNeverDraw)
     };
     ASSERT_TRUE (session.edits.Move (raise));
     const auto depth = session.edits.UndoDepth ();
+    // No build runs through the gesture, so no stale build ever draws; what may draw is the
+    // field preview (#175), which follows the document through it.
     for (int i = 0; i < 20; ++i) {
         eh::Follow (session, layer);
-        EXPECT_EQ (TerrainMesh (layer), nullptr);
+        if (TerrainMesh (layer))
+            EXPECT_TRUE (eh::GetTerrainDesignStatus (session).previewed) << "only the field preview draws";
         std::this_thread::sleep_for (std::chrono::milliseconds (1));
     }
     EXPECT_EQ (session.edits.UndoDepth (), depth);
@@ -2449,18 +2526,21 @@ TEST (HudTerrainDesign, APathDragKeepsTheLastBuiltSurfaceDrawnUnchangedUntilItsR
             ring += line.rgba == 0x37523DFFu, contours += line.rgba == 0x2F4A35E6u || line.rgba == 0x37523D99u;
         return std::pair { ring, contours };
     };
-    // Drawn exactly as it was (the user, 2026-10-30: fading it is distracting); only the
-    // status, and the panel reading it, say it is stale.
+    // Never a blank frame and never faded (the user, 2026-10-30: fading it is distracting):
+    // the last built surface as it was until the field preview of a newer revision lands
+    // (#175), then that preview -- the same look, its own contours, no rebuild ring. Only the
+    // status, and the panel reading it, say the build is behind.
     const auto stale = [&] {
         const auto* mesh = TerrainMesh (layer);
         ASSERT_NE (mesh, nullptr) << "no blank frame";
-        EXPECT_EQ (mesh->points, built) << "the last built surface, not a prediction";
+        const auto status = eh::GetTerrainDesignStatus (session);
+        if (!status.previewed)
+            EXPECT_EQ (mesh->points, built) << "the last built surface until a preview lands";
         EXPECT_EQ (mesh->style.opacity, style.opacity);
         EXPECT_EQ (mesh->style.occludedOpacity, style.occludedOpacity);
         const auto [ring, contours] = lines (layer);
-        EXPECT_EQ (ring, rings);
+        EXPECT_EQ (ring, status.previewed ? rings - 1 : rings) << "the preview has no rebuild ring";
         EXPECT_GT (contours, 0u);
-        const auto status = eh::GetTerrainDesignStatus (session);
         EXPECT_FALSE (status.current);
         EXPECT_TRUE (status.stale);
         EXPECT_EQ (eh::CurrentTerrainDesign (session), nullptr);

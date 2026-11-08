@@ -140,5 +140,34 @@ struct UnifiedTerrainResult {
 // Design*, LockedConflict, HardStep, or a Provenance* attribution refusal.
 bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResult& result, std::string& error);
 
+// ---- #175 field preview ----------------------------------------------------
+// The same request previewed from its field on a plan grid: a drawable surface, contour lines
+// and cut/fill, in milliseconds and with no mesh (the mesh is what an Archicad Mesh is built
+// from). Inside the property: the region entries composed over the baseline, the outline's faces
+// graded over that; outside it the baseline. Path bands and controls are not in it yet.
+struct UnifiedPreviewLine {
+    double level = 0.0;
+    bool closed = false;
+    std::vector<double> points; // xyz at `level`.
+    bool operator== (const UnifiedPreviewLine&) const = default;
+};
+struct UnifiedPreviewResult {
+    std::vector<double> points; // Surface xyz.
+    std::vector<uint32_t> triangles;
+    std::vector<UnifiedPreviewLine> lines;
+    double interval = 0.0, step = 0.0, surfaceStep = 0.0, cut = 0.0, fill = 0.0;
+    double low = 0.0, high = 0.0; // Design heights sampled.
+    bool operator== (const UnifiedPreviewResult&) const = default;
+};
+struct UnifiedPreviewAsk {
+    double step = 0.25;    // Grid spacing, metres (coarsened on a large area).
+    double interval = 0.0; // Contour interval; zero picks about ten levels.
+    // Capacities to try first (the previous preview's sizes, say): one call when they fit.
+    size_t points = 0, triangles = 0, lines = 0, linePoints = 0;
+};
+// One call when `ask`'s capacities fit, two otherwise; publishes only on success.
+bool PreviewUnifiedTerrain (const UnifiedPlanRequest& request, const UnifiedPreviewAsk& ask,
+                            UnifiedPreviewResult& result, std::string& error);
+
 } // namespace tapioca::geometry
 #endif

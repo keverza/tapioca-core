@@ -3,6 +3,7 @@
 #include "Edit/EditTerrainDesignJob.hpp"
 #include "Edit/EditLandscapeTerrain.hpp"
 #include "Edit/EditLandscapeFieldPlan.hpp"
+#include "Geometry/GeometryRustUnifiedTerrain.hpp"
 
 namespace tapioca::geometry {
 struct RegionTerrainResult {
@@ -27,5 +28,18 @@ TerrainRoute LandscapeTerrainRoute (const geomsrv::edit::Document& doc, bool has
 PathDesignRequest PathRequestFor (const TerrainDesignOptions& options, bool namedRegion);
 TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job);
 std::future<TerrainDesignOutcome> LaunchLandscapeTerrainDesign (TerrainDesignJob job);
+
+// #175: what the design looks like, from its field: the job's compiled plan previewed on a grid
+// (PreviewUnifiedLandscapeTerrain) -- surface, contours, cut/fill -- in milliseconds, for every
+// edit, while the build (above) meshes it in seconds. The legacy lane has no preview.
+struct TerrainPreviewOutcome {
+    uint64_t revision = 0;
+    bool built = false;
+    UnifiedPreviewResult preview; // When built.
+    std::string error;            // When not.
+    double milliseconds = 0.0;    // Wall time on the worker.
+};
+TerrainPreviewOutcome RunLandscapeTerrainPreview (const TerrainDesignJob& job, const UnifiedPreviewAsk& ask);
+std::future<TerrainPreviewOutcome> LaunchLandscapeTerrainPreview (TerrainDesignJob job, UnifiedPreviewAsk ask);
 } // namespace tapioca::geometry
 #endif
