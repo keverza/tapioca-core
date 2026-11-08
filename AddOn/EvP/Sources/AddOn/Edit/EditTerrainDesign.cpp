@@ -5,6 +5,7 @@
 #include "Edit/EditTerrainAdapterInternal.hpp"
 #include "Edit/EditTerrainControls.hpp"
 #include "Edit/EditTerrainStation.hpp"
+#include "Geometry/ClipperPlanRing.hpp"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -79,6 +80,7 @@ bool TrimTerrainStationsToCover (std::span<const double> cover, double trimMargi
     const auto shrunk = cp::InflatePaths ({ ring }, -trimMargin, cp::JoinType::Miter, cp::EndType::Polygon, 2.0,
                                           landscape_detail::kPrecision);
     const cp::PathD inner = shrunk.empty () ? ring : shrunk.front ();
+    const ClipperPlanRing innerLocation (inner);
     const size_t n = stations.size ();
     std::vector<bool> on (n, false);
     for (size_t i = 0; i < n; ++i) {
@@ -91,7 +93,7 @@ bool TrimTerrainStationsToCover (std::span<const double> cover, double trimMargi
         const auto& c = stations[i].position;
         // Strictly inside, by trimMargin: every band line must be strictly inside the region.
         const auto inside = [&] (double d) {
-            return cp::PointInPolygon (cp::PointD { c[0] + nx * d, c[1] + ny * d }, inner) ==
+            return innerLocation.Locate (cp::PointD { c[0] + nx * d, c[1] + ny * d }) ==
                    cp::PointInPolygonResult::IsInside;
         };
         on[i] = inside (stations[i].halfLeft) && inside (-stations[i].halfRight);

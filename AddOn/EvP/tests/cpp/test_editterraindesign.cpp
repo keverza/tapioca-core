@@ -822,6 +822,63 @@ TEST (EditTerrainDesign, ACoverClipsTheDerivedRegionToTheTerrainsFootprint)
     EXPECT_GT (result.stations.front (), 9.0) << "stations off the terrain are dropped";
 }
 
+TEST (EditTerrainDesign, TrimToCoverRetainsTheSameSubMetreRunAcrossWindingAndSurveyTranslations)
+{
+    namespace cp = Clipper2Lib;
+    const std::array<double, 8> xOffsets { 0.1, 0.30, 0.35, 0.45, 0.55, 0.65, 0.70, 0.9 };
+    for (double offset : { 0.0, 1000000.0, -1000000.0 })
+        for (bool reverse : { false, true }) {
+            cp::PathD path { { offset + 0.25, offset + 0.25 },
+                             { offset + 0.75, offset + 0.25 },
+                             { offset + 0.75, offset + 0.75 },
+                             { offset + 0.25, offset + 0.75 } };
+            if (reverse)
+                std::reverse (path.begin (), path.end ());
+            std::vector<double> cover;
+            for (const auto& point : path)
+                cover.insert (cover.end (), { point.x, point.y, 0.0 });
+
+            std::vector<double> sampled;
+            std::vector<TerrainStation> stations;
+            for (size_t i = 0; i < xOffsets.size (); ++i) {
+                sampled.push_back (100.0 + i);
+                TerrainStation station;
+                station.position = { offset + xOffsets[i], offset + 0.5, 10.0 + i };
+                station.halfLeft = station.halfRight = 0.02;
+                stations.push_back (station);
+            }
+
+            std::string error;
+            ASSERT_TRUE (TrimTerrainStationsToCover (cover, 0.05, sampled, stations, error)) << error;
+            ASSERT_EQ (sampled, (std::vector<double> { 102, 103, 104, 105 }));
+            ASSERT_EQ (stations.size (), 4U);
+            for (size_t i = 0; i < stations.size (); ++i) {
+                EXPECT_DOUBLE_EQ (stations[i].position[0], offset + xOffsets[i + 2]);
+                EXPECT_DOUBLE_EQ (stations[i].position[1], offset + 0.5);
+                EXPECT_DOUBLE_EQ (stations[i].position[2], 12.0 + i);
+            }
+        }
+}
+
+TEST (EditTerrainDesign, TrimToCoverRefusesWhenFewerThanTwoStationsRemain)
+{
+    const std::vector<double> cover { 0.25, 0.25, 0, 0.75, 0.25, 0, 0.75, 0.75, 0, 0.25, 0.75, 0 };
+    std::vector<double> sampled { 11, 12 };
+    std::vector<TerrainStation> stations (2);
+    stations[0].position = { 0.5, 0.5, 1 };
+    stations[1].position = { 0.9, 0.5, 2 };
+    stations[0].halfLeft = stations[0].halfRight = 0.02;
+    stations[1].halfLeft = stations[1].halfRight = 0.02;
+
+    std::string error;
+    EXPECT_FALSE (TrimTerrainStationsToCover (cover, 0.05, sampled, stations, error));
+    EXPECT_EQ (error.rfind ("DesignCoverage", 0), 0U) << error;
+    EXPECT_EQ (sampled, (std::vector<double> { 11, 12 }));
+    ASSERT_EQ (stations.size (), 2U);
+    EXPECT_DOUBLE_EQ (stations[0].position[0], 0.5);
+    EXPECT_DOUBLE_EQ (stations[1].position[0], 0.9);
+}
+
 namespace {
 std::shared_ptr<const TerrainCapture> Capture (const DesignFixture& fixture)
 {
