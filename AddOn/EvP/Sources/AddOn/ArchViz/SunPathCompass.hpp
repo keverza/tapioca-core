@@ -1,14 +1,23 @@
 #ifndef EVP_ARCHVIZ_SUNPATHCOMPASS_HPP
 #define EVP_ARCHVIZ_SUNPATHCOMPASS_HPP
 
-// ArchViz/SunPathCompass -- the ground compass's analysis caption (#179).
-// Pure formatting: the renderer supplies the displayed result, never a pending
-// period request, so the caption describes the same analysis as the overlay.
+// ArchViz/SunPathCompass -- ground-compass caption and preview scale (#179).
+// Pure display helpers: the renderer supplies the displayed result, never a
+// pending period request, and scaling never enters the analysis request.
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <string>
 
 namespace geomsrv::archviz {
+
+inline float ClampSunPathScale (float scale)
+{
+    if (!std::isfinite (scale))
+        return 1.0f;
+    return std::clamp (scale, 0.25f, 4.0f);
+}
 
 inline std::string SunPathAnalysisCaption (bool showsPeriod, const std::string& periodLabel, int shownDate, int runYear,
                                            int runMonth, int runDay)

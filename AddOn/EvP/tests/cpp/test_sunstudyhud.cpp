@@ -21,6 +21,7 @@
 #include <imgui_internal.h>
 
 #include <cmath>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -233,6 +234,17 @@ TEST (SunStudyHud, GroundCompassCaptionNamesTheDisplayedAnalysis)
     // An empty period label must not hide a valid displayed day.
     EXPECT_EQ (SunPathAnalysisCaption (true, "", 20261221, 2027, 1, 1), "Analysis date: 2026-12-21");
     EXPECT_TRUE (SunPathAnalysisCaption (false, "", 0, 0, 0, 0).empty ());
+}
+
+TEST (SunStudyHud, SunPathPreviewScaleIsBoundedAndFinite)
+{
+    EXPECT_FLOAT_EQ (ClampSunPathScale (0.0f), 0.25f);
+    EXPECT_FLOAT_EQ (ClampSunPathScale (0.25f), 0.25f);
+    EXPECT_FLOAT_EQ (ClampSunPathScale (2.0f), 2.0f);
+    EXPECT_FLOAT_EQ (ClampSunPathScale (4.0f), 4.0f);
+    EXPECT_FLOAT_EQ (ClampSunPathScale (8.0f), 4.0f);
+    EXPECT_FLOAT_EQ (ClampSunPathScale (std::numeric_limits<float>::quiet_NaN ()), 1.0f);
+    EXPECT_FLOAT_EQ (ClampSunPathScale (std::numeric_limits<float>::infinity ()), 1.0f);
 }
 
 TEST (SunStudyHud, DraggedSunSnapsToKeyDatesAndSolarNoonOnTheLattice)

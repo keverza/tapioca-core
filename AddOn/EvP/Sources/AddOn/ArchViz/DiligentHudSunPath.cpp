@@ -70,6 +70,7 @@ bool Dome (const HudState& state, double centre[3], double& radius, double& grou
     if (!valid && !state.sunPointPlaced)
         return false;
     radius = valid ? (std::max) (10.0, 0.6 * std::hypot (hi[0] - lo[0], hi[1] - lo[1])) : 20.0;
+    radius *= ClampSunPathScale (state.sunPathScale);
     if (state.sunPointPlaced)
         std::copy (state.sunPointCentre, state.sunPointCentre + 3, centre);
     else {
@@ -373,7 +374,8 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
     const bool hot = state.sunPathDragging || std::hypot (mouse.x - s.x, mouse.y - s.y) <= kSunGripRadius;
     ImDrawList* front = ImGui::GetForegroundDrawList ();
     front->AddCircleFilled (s, hot ? 9.0f : 7.0f, IM_COL32 (255, 220, 60, 255));
-    front->AddCircle (s, hot ? 9.0f : 7.0f, hot ? IM_COL32 (255, 255, 255, 255) : IM_COL32 (60, 40, 0, 255), 0, 1.5f);
+    if (hot)
+        front->AddCircle (s, 9.0f, IM_COL32 (60, 40, 0, 130), 0, 1.0f);
     state.sunPathMarkerValid = true;
     state.sunPathMarker[0] = s.x;
     state.sunPathMarker[1] = s.y;
@@ -388,7 +390,12 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
         }
         else
             std::snprintf (label, sizeof (label), "drag: date and time");
-        front->AddText (ImVec2 (s.x + 12.0f, s.y - 7.0f), IM_COL32 (255, 240, 200, 255), label);
+        const ImVec2 textAt (s.x + 12.0f, s.y - 7.0f);
+        const ImVec2 size = ImGui::CalcTextSize (label);
+        front->AddRectFilled (ImVec2 (textAt.x - 5.0f, textAt.y - 4.0f),
+                              ImVec2 (textAt.x + size.x + 5.0f, textAt.y + size.y + 4.0f),
+                              IM_COL32 (245, 245, 235, 240), 3.0f);
+        front->AddText (textAt, IM_COL32 (20, 20, 20, 255), label);
     }
 }
 

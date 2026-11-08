@@ -298,6 +298,7 @@ struct HudState {
     // The sun path preview (#152): Archicad's sun arcs over the model for the
     // run form's date, the solstices and the equinox, and the hour analemmas.
     bool sunPathShown = false;
+    float sunPathScale = 1.0f; // display-only dome and ground-compass scale, 0.25x to 4x
     // The draggable sun (#152 follow-up): a date and time picked on the sun
     // path, which then drives the viewer's sun (sunOverride) and the run
     // form's date. Location and elevation stay Archicad's.

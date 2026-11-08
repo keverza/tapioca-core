@@ -709,6 +709,12 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
                            "(blue) and summer (orange) solstices, the equinox (grey), the run form's date (yellow), "
                            "the hours across the year, and the sun at the shadow view's time. Centred on the study "
                            "point when one is placed.");
+    ImGui::SameLine ();
+    ImGui::BeginDisabled (!state.sunPathShown);
+    ImGui::SetNextItemWidth (140.0f);
+    ImGui::SliderFloat ("scale##sunpath", &state.sunPathScale, 0.25f, 4.0f, "%.2fx");
+    ImGui::EndDisabled ();
+    ImGui::SetItemTooltip ("Scales only the sun-path preview and ground compass, not the analysis or measured hours.");
     DrawSunStudySunPathStatus (state, study.studyId);
     if (ChosenMode (state) == 4 || (ChosenMode (state) < 0 && study.debugMode == 4)) {
         Swatch ("##roleA", Rgb (0xf59e24), "analysis: measured");
