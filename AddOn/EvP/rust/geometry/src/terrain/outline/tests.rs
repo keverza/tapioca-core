@@ -1004,3 +1004,64 @@ fn the_field_preview_counts_and_widens_a_short_reach() -> Result<(), String> {
     assert_eq!(widened.clipped, 0);
     Ok(())
 }
+
+/// #175: the preview's merged outline grades as the dense one does. A 40 x 4 m pavement split
+/// every half metre, rising 2 % along its length and dipping 0.5 mm off a straight grade at its
+/// middle, merges to a handful of edges. Along its sides the faces over them are the dense
+/// faces' to within the merge tolerance; at its corners the crease between a side and an end
+/// lifts a little differently from many pieces than from one edge, by a couple of centimetres.
+#[test]
+fn the_merged_outline_grades_as_the_dense_one() -> Result<(), OutlineError> {
+    let (points, triangles) = base();
+    let height = |x: f64| 0.02f64.mul_add(x, 12.0) + 0.0005 * (x - 20.0).abs().min(10.0) / 10.0;
+    let mut paved = Vec::new();
+    let count = 81_u32;
+    for side in [-2.0, 2.0] {
+        for i in 0..count {
+            let x = 0.5 * f64::from(i);
+            paved.extend([x, side, height(x)]);
+        }
+    }
+    let mut paved_triangles = Vec::new();
+    for i in 0..count - 1 {
+        let (a, b, c, d) = (i, i + 1, count + i + 1, count + i);
+        paved_triangles.extend([a, b, c, a, c, d]);
+    }
+    let operator = Operator::new(
+        &points,
+        &triangles,
+        &paved,
+        &paved_triangles,
+        &[],
+        Grading {
+            cut: HALF,
+            fill: HALF,
+            limit: 10.0,
+            rounding: 1.0,
+            effect: Effect::Both,
+            tolerance: 1e-6,
+        },
+    )?;
+    let merged = operator.merged_edges(PREVIEW_MERGE);
+    assert!(operator.edges.len() >= 160, "{}", operator.edges.len());
+    assert!(merged.len() <= 12, "merged to {} edges", merged.len());
+    let (dense, sparse) = (operator.faces(), operator.faces_over(&merged));
+    let (mut sides, mut corners) = (0.0_f64, 0.0_f64);
+    for row in 0..80 {
+        for column in 0..180 {
+            let (x, y) = (
+                0.37f64.mul_add(f64::from(column), -12.0),
+                0.37f64.mul_add(f64::from(row), -14.0),
+            );
+            let gap = (dense.over(10.0, x, y).0 - sparse.over(10.0, x, y).0).abs();
+            if (3.0..=37.0).contains(&x) {
+                sides = sides.max(gap);
+            } else {
+                corners = corners.max(gap);
+            }
+        }
+    }
+    assert!(sides <= 2.0 * PREVIEW_MERGE, "sides {sides}");
+    assert!(corners <= 0.03, "corners {corners}");
+    Ok(())
+}

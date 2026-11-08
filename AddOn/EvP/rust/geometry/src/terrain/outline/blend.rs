@@ -7,7 +7,8 @@
 //! mix of the two gradients, stays within the grade. Head on, at 1 in 3 and a
 //! 1 m rounding, the lift is at most about 16 cm.
 //!
-//! The lift acts only at a crease. Where one face falls from a vertex the
+//! The lift acts only at a crease. Between pieces of one straight edge there is none, however
+//! far apart (see [`collinear`]). Where one face falls from a vertex the
 //! other's edge also ends at (a joint of two pieces of the outline), that
 //! round cone meets the other's plane smoothly though its direction differs;
 //! a lift there would raise a bump at every outline vertex, so there is none.
@@ -46,6 +47,29 @@ pub(super) struct Face {
 pub(super) const FLAT: f64 = std::f64::consts::PI / 18.0;
 /// Directions this far apart, radians, make a full crease.
 const CREASE: f64 = std::f64::consts::FRAC_PI_4;
+
+/// Whether the two faces fall from pieces of one straight edge: both edges on one plan line,
+/// with the same grade and rounding. A piece further along it falls from its end, a direction
+/// that differs from the winner's by more than [`FLAT`] seen from beside the edge, yet its face
+/// is the same line's: there is no crease between them, and a lift there would raise every
+/// finely split straight edge by how finely it was split (#175).
+fn collinear(a: &Face, b: &Face) -> bool {
+    if a.grade.to_bits() != b.grade.to_bits() || a.rounding.to_bits() != b.rounding.to_bits() {
+        return false;
+    }
+    let [p, q] = a.segment;
+    let (dx, dy) = (q[0] - p[0], q[1] - p[1]);
+    let length = dx.hypot(dy);
+    if length <= 0.0 {
+        return false;
+    }
+    b.segment
+        .iter()
+        .all(|r| (dx.mul_add(r[1] - p[1], -dy * (r[0] - p[0]))).abs() / length <= ON_LINE)
+}
+
+/// A vertex within this of a line lies on it, metres.
+const ON_LINE: f64 = 1e-6;
 
 /// Whether `a` falls from an end of its edge that `b`'s edge also ends at.
 pub(super) fn joint(a: &Face, b: &Face) -> bool {
@@ -91,7 +115,7 @@ fn lift(winner: &Face, rival: &Face) -> f64 {
 /// surface is a parabola in the gap (#149 T2 traces lines across it).
 pub(super) fn knee(winner: &Face, rival: &Face) -> f64 {
     let rounding = winner.rounding.min(rival.rounding);
-    if rounding <= 0.0 || joint(winner, rival) || joint(rival, winner) {
+    if rounding <= 0.0 || joint(winner, rival) || joint(rival, winner) || collinear(winner, rival) {
         return 0.0;
     }
     let along = winner.toward[0].mul_add(rival.toward[0], winner.toward[1] * rival.toward[1]);

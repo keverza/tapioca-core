@@ -50,7 +50,9 @@ mod crease;
 mod mesher;
 mod reach;
 mod refine;
+mod simplify;
 pub(super) mod supports;
+pub(super) use simplify::PREVIEW_MERGE;
 pub(in crate::terrain) mod toe;
 mod trace;
 

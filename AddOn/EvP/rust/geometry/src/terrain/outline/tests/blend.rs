@@ -101,3 +101,73 @@ fn a_straight_edge_in_pieces_grades_as_one_edge() -> Result<(), OutlineError> {
     }
     Ok(())
 }
+
+/// #175: a straight edge split into pieces grades as the whole edge does. Before, a piece a few
+/// steps along fell from its own end at a direction more than FLAT from the winner's, and lifted
+/// it as a crease would: every finely split straight edge stood about 2 cm proud, by how finely
+/// it happened to be split.
+#[test]
+fn a_split_straight_edge_grades_as_the_whole_edge() -> Result<(), OutlineError> {
+    let (points, triangles) = super::base();
+    let grading = Grading {
+        cut: super::HALF,
+        fill: super::HALF,
+        limit: 10.0,
+        rounding: 1.0,
+        effect: Effect::Both,
+        tolerance: 1e-6,
+    };
+    let height = |x: f64| 0.02f64.mul_add(x, 12.0);
+    let count = 81_u32;
+    let mut split = Vec::new();
+    for side in [-2.0, 2.0] {
+        for i in 0..count {
+            let x = 0.5 * f64::from(i);
+            split.extend([x, side, height(x)]);
+        }
+    }
+    let mut split_triangles = Vec::new();
+    for i in 0..count - 1 {
+        let (a, b, c, d) = (i, i + 1, count + i + 1, count + i);
+        split_triangles.extend([a, b, c, a, c, d]);
+    }
+    let whole = [
+        0.0,
+        -2.0,
+        height(0.0),
+        40.0,
+        -2.0,
+        height(40.0),
+        40.0,
+        2.0,
+        height(40.0),
+        0.0,
+        2.0,
+        height(0.0),
+    ];
+    let pieces = Operator::new(&points, &triangles, &split, &split_triangles, &[], grading)?;
+    let one = Operator::new(
+        &points,
+        &triangles,
+        &whole,
+        &[0, 1, 2, 0, 2, 3],
+        &[],
+        grading,
+    )?;
+    let (pieces, one) = (pieces.faces(), one.faces());
+    let mut worst = 0.0_f64;
+    for row in 0..30 {
+        for column in 0..90 {
+            let (x, y) = (
+                0.37f64.mul_add(f64::from(column), 3.0),
+                0.37f64.mul_add(f64::from(row), -14.0),
+            );
+            if y.abs() <= 2.0 {
+                continue;
+            }
+            worst = worst.max((pieces.over(10.0, x, y).0 - one.over(10.0, x, y).0).abs());
+        }
+    }
+    assert!(worst <= 1e-9, "worst {worst}");
+    Ok(())
+}

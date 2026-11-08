@@ -97,7 +97,14 @@ pub fn field_preview(
             })
             .transpose()
             .map_err(BuildError::Outline)?;
-        let faces = operator.as_ref().map(outline::Operator::faces);
+        // The outline's collinear runs merged: the same faces, a fraction of the edges (#175).
+        let merged = operator
+            .as_ref()
+            .map(|operator| operator.merged_edges(outline::PREVIEW_MERGE));
+        let faces = operator
+            .as_ref()
+            .zip(merged.as_deref())
+            .map(|(operator, edges)| operator.faces_over(edges));
         // Where the faces cannot reach the design is the ground composed there: those samples
         // skip the faces altogether (the bulk of a large site).
         let near = faces.as_ref().map(outline::Faces::near);
