@@ -864,6 +864,59 @@ TEST (EditTerrainDesignJob, APathMayLeaveTheTerrainAndThePropertyLineAndIsGraded
     EXPECT_GT (outcome.result.stations.front (), 9.0);
 }
 
+// #176: the outline-geometry cache returns the last build's geometry while the document's
+// authored content, the terrain and the options are the same, and builds again when any of
+// them changes; what it returns is what a fresh build makes.
+TEST (EditTerrainDesignJob, TheOutlineGeometryCacheReusesOnlyUnchangedInputs176)
+{
+    DesignFixture fixture;
+    std::string error;
+    const TerrainMeshView mesh { fixture.points, fixture.triangles };
+    const auto options = OutlineOptionsFor (fixture.doc, fixture.path, 10.0);
+    OutlineGeometryCache cache;
+    OutlineGeometry first, again, fresh;
+    ASSERT_TRUE (cache.Build (fixture.doc, mesh, options, first, error)) << error;
+    ASSERT_TRUE (BuildOutlineGeometry (fixture.doc, mesh, options, fresh, error)) << error;
+    EXPECT_EQ (first.surfacePoints, fresh.surfacePoints);
+    EXPECT_EQ (first.lines, fresh.lines);
+    EXPECT_EQ (first.region, fresh.region);
+    // The same inputs, another revision number: reused.
+    auto bumped = fixture.doc;
+    ++bumped.revision;
+    ASSERT_TRUE (cache.Build (bumped, mesh, options, again, error)) << error;
+    EXPECT_EQ (cache.Hits (), 1U);
+    EXPECT_EQ (cache.Builds (), 1U);
+    EXPECT_EQ (again.surfacePoints, first.surfacePoints);
+    // A path moved: built again, as a fresh build makes it.
+    auto moved = fixture.doc;
+    ASSERT_TRUE (edit::EditPath (
+        moved, fixture.path,
+        [] (edit::Path& path, std::string&) {
+            for (auto& point : path.points)
+                point.p.y += 0.5;
+            return true;
+        },
+        error))
+        << error;
+    OutlineGeometry shifted, shiftedFresh;
+    ASSERT_TRUE (cache.Build (moved, mesh, options, shifted, error)) << error;
+    ASSERT_TRUE (BuildOutlineGeometry (moved, mesh, options, shiftedFresh, error)) << error;
+    EXPECT_EQ (cache.Builds (), 2U);
+    EXPECT_EQ (shifted.surfacePoints, shiftedFresh.surfacePoints);
+    EXPECT_NE (shifted.surfacePoints, first.surfacePoints);
+    // Other options, another terrain: built again.
+    auto coarser = options;
+    coarser.pavedTolerance = 0.01;
+    ASSERT_TRUE (cache.Build (moved, mesh, coarser, shifted, error)) << error;
+    EXPECT_EQ (cache.Builds (), 3U);
+    auto raised = fixture.points;
+    for (size_t i = 2; i < raised.size (); i += 3)
+        raised[i] += 0.1;
+    ASSERT_TRUE (cache.Build (moved, { raised, fixture.triangles }, coarser, shifted, error)) << error;
+    EXPECT_EQ (cache.Builds (), 4U);
+    EXPECT_EQ (cache.Hits (), 1U);
+}
+
 TEST (EditTerrainDesignJob, OutlineGradingShapesTheTerrainFromEveryPath)
 {
     DesignFixture fixture;
@@ -1656,11 +1709,25 @@ TEST (VirtualEditorDebug, ReplayDumpFromEnvironment)
             job.capture = capture;
             job.options = scene.options;
             job.surfaceTable = scene.nativeSolid ? 5 : 0;
-            const auto previewed = RunLandscapeTerrainPreview (job, {});
-            std::cout << "Replay preview built=" << previewed.built << " ms=" << previewed.milliseconds
-                      << " triangles=" << previewed.preview.triangles.size () / 3
-                      << " lines=" << previewed.preview.lines.size () << " fill=" << previewed.preview.fill
-                      << " cut=" << previewed.preview.cut << " error=" << previewed.error << std::endl;
+            // Twice through one outline cache, as the editor asks at rest after a drag (#176):
+            // the first builds the outline geometry, the second reuses it; the second also
+            // passes the first's sizes, so it calls Rust once.
+            OutlineGeometryCache outlines;
+            UnifiedPreviewAsk ask;
+            for (const char* pass : { "first", "again" }) {
+                const auto previewed = RunLandscapeTerrainPreview (job, ask, &outlines);
+                std::cout << "Replay preview " << pass << " built=" << previewed.built
+                          << " ms=" << previewed.milliseconds
+                          << " triangles=" << previewed.preview.triangles.size () / 3
+                          << " lines=" << previewed.preview.lines.size () << " fill=" << previewed.preview.fill
+                          << " cut=" << previewed.preview.cut << " error=" << previewed.error << std::endl;
+                ask.points = previewed.preview.points.size ();
+                ask.triangles = previewed.preview.triangles.size ();
+                ask.lines = previewed.preview.lines.size ();
+                ask.linePoints = 0;
+                for (const auto& line : previewed.preview.lines)
+                    ask.linePoints += line.points.size ();
+            }
         }
     }
     const auto replayStarted = std::chrono::steady_clock::now ();

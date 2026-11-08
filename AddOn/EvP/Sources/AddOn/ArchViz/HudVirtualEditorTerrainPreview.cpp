@@ -59,7 +59,7 @@ void StartTerrainPreview (Session& s, TerrainDesignState& state)
     }
     state.previewStep = ask.step;
     try {
-        state.previewWorker = lg::LaunchLandscapeTerrainPreview (std::move (job), ask);
+        state.previewWorker = lg::LaunchLandscapeTerrainPreview (std::move (job), ask, state.outlineCache);
     }
     catch (const std::exception& exception) {
         state.preview = {};

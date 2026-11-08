@@ -1,3 +1,4 @@
+#include "Edit/EditSession.hpp"
 #include "Edit/EditTerrainOutline.hpp"
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditPathNetwork.hpp"
@@ -18,12 +19,6 @@ namespace {
 namespace edit = geomsrv::edit;
 namespace cp = Clipper2Lib;
 constexpr int kPrecision = landscape_detail::kPrecision;
-// How far the paved surface the terrain is graded from may stray from the paths' heights, metres:
-// its triangles split only where they do (Pave), so a long level or evenly graded path is a few
-// long triangles rather than one every half metre, and the faces, supports and region rebuilt from
-// them scale with the shape, not the length.
-constexpr double kPavedTolerance = 0.002;
-
 cp::PathD Path (const std::vector<double>& ring)
 {
     cp::PathD path;
@@ -141,7 +136,7 @@ OutlineDesignOptions OutlineOptionsFor (const edit::Document& doc, edit::Id path
 bool BuildOutlineGeometry (const edit::Document& doc, const TerrainMeshView& mesh, const OutlineDesignOptions& o,
                            OutlineGeometry& out, std::string& error)
 {
-    const auto paved = edit::Pave (doc.paths, o.pavedStep, true, nullptr, kPavedTolerance);
+    const auto paved = edit::Pave (doc.paths, o.pavedStep, true, nullptr, o.pavedTolerance);
     if (paved.vertices.empty () || paved.triangles.empty ()) {
         error = "OutlineNoPaths: draw a path to grade the terrain";
         return false;
@@ -210,6 +205,46 @@ bool BuildOutlineGeometry (const edit::Document& doc, const TerrainMeshView& mes
     out = std::move (geometry);
     error.clear ();
     return true;
+}
+
+bool OutlineGeometryCache::Build (const edit::Document& doc, const TerrainMeshView& mesh, const OutlineDesignOptions& o,
+                                  OutlineGeometry& out, std::string& error)
+{
+    {
+        std::lock_guard lock (mutex);
+        if (valid && options == o && std::ranges::equal (points, mesh.points) &&
+            std::ranges::equal (triangles, mesh.triangles) && edit::SameAuthoredContent (*this->doc, doc)) {
+            ++hits;
+            out = geometry;
+            error.clear ();
+            return true;
+        }
+    }
+    OutlineGeometry built;
+    if (!BuildOutlineGeometry (doc, mesh, o, built, error))
+        return false;
+    std::lock_guard lock (mutex);
+    ++builds;
+    valid = true;
+    this->doc = std::make_shared<const edit::Document> (doc);
+    points.assign (mesh.points.begin (), mesh.points.end ());
+    triangles.assign (mesh.triangles.begin (), mesh.triangles.end ());
+    options = o;
+    geometry = built;
+    out = std::move (built);
+    return true;
+}
+
+uint64_t OutlineGeometryCache::Hits () const
+{
+    std::lock_guard lock (mutex);
+    return hits;
+}
+
+uint64_t OutlineGeometryCache::Builds () const
+{
+    std::lock_guard lock (mutex);
+    return builds;
 }
 
 bool EvaluateOutlineDesign (const edit::Document& doc, const EditTerrainInput& input, const OutlineDesignOptions& o,

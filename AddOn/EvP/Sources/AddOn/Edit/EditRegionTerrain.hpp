@@ -6,6 +6,7 @@
 #include "Geometry/GeometryRustUnifiedTerrain.hpp"
 
 namespace tapioca::geometry {
+class OutlineGeometryCache;
 struct RegionTerrainResult {
     std::shared_ptr<const TerrainCapture> input;
     std::vector<EditTerrainSplitResult> preparation; // Retain every split's exact support catalogs.
@@ -40,7 +41,10 @@ struct TerrainPreviewOutcome {
     std::string error;              // When not.
     double milliseconds = 0.0;      // Wall time on the worker.
 };
-TerrainPreviewOutcome RunLandscapeTerrainPreview (const TerrainDesignJob& job, const UnifiedPreviewAsk& ask);
-std::future<TerrainPreviewOutcome> LaunchLandscapeTerrainPreview (TerrainDesignJob job, UnifiedPreviewAsk ask);
+// `outlines`: the session's outline-geometry cache (#176), or null to build it every time.
+TerrainPreviewOutcome RunLandscapeTerrainPreview (const TerrainDesignJob& job, const UnifiedPreviewAsk& ask,
+                                                  OutlineGeometryCache* outlines = nullptr);
+std::future<TerrainPreviewOutcome> LaunchLandscapeTerrainPreview (TerrainDesignJob job, UnifiedPreviewAsk ask,
+                                                                  std::shared_ptr<OutlineGeometryCache> outlines = {});
 } // namespace tapioca::geometry
 #endif

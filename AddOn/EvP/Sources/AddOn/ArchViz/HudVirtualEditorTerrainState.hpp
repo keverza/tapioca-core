@@ -7,6 +7,7 @@
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditRegionTerrain.hpp"
+#include "Edit/EditTerrainOutline.hpp"
 #include <future>
 #include <string>
 #include <vector>
@@ -37,6 +38,8 @@ struct TerrainDesignState {
     uint64_t previewRequested = UINT64_MAX;
     lg::TerrainPreviewOutcome preview;
     lg::UnifiedPreviewAsk previewAsk;
+    // #176: the outline geometry of the last preview, reused while its inputs are unchanged.
+    std::shared_ptr<lg::OutlineGeometryCache> outlineCache = std::make_shared<lg::OutlineGeometryCache> ();
 };
 
 // Lifecycle transitions only, never status polling or per-frame rendering.

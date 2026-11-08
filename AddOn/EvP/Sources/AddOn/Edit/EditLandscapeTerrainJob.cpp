@@ -5,6 +5,7 @@
 #include "Edit/EditLandscapeFieldPlan.hpp"
 #include "Edit/EditPublishedTerrain.hpp"
 #include "Edit/EditLandscapeUnifiedBuild.hpp"
+#include "Edit/EditTerrainOutline.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -89,6 +90,9 @@ void MirrorPublished (const UnifiedTerrainResult& unified, const FieldPlan& plan
         outcome.result.locked.push_back (std::move (value));
     }
 }
+
+// #176: the field preview paves at a centimetre; the build keeps OutlineDesignOptions' 2 mm.
+constexpr double kPreviewPavedTolerance = 0.01;
 
 // The outline's shortfalls in the user's words, the build's and the preview's alike: faces
 // that never meet the ground, a reach widened past the one asked, faces stepping at the ring,
@@ -294,7 +298,8 @@ std::future<TerrainDesignOutcome> LaunchLandscapeTerrainDesign (TerrainDesignJob
     return std::async (std::launch::async, [job = std::move (job)] { return RunLandscapeTerrainDesign (job); });
 }
 
-TerrainPreviewOutcome RunLandscapeTerrainPreview (const TerrainDesignJob& job, const UnifiedPreviewAsk& ask)
+TerrainPreviewOutcome RunLandscapeTerrainPreview (const TerrainDesignJob& job, const UnifiedPreviewAsk& ask,
+                                                  OutlineGeometryCache* outlines)
 {
     const auto started = std::chrono::steady_clock::now ();
     TerrainPreviewOutcome outcome;
@@ -335,8 +340,13 @@ TerrainPreviewOutcome RunLandscapeTerrainPreview (const TerrainDesignJob& job, c
         auto widened = ask;
         if (!plan.outlines.empty ())
             widened.maxReach = kMaxSlopeReach;
+        // The pavement at a centimetre (the grid interpolates at that already) and the
+        // session's outline geometry when its inputs are unchanged (#176).
+        UnifiedLandscapeBuildOptions build;
+        build.pavedTolerance = kPreviewPavedTolerance;
+        build.outlineCache = outlines;
         outcome.built =
-            PreviewUnifiedLandscapeTerrain (*job.doc, *baseline, plan, {}, widened, outcome.preview, outcome.error);
+            PreviewUnifiedLandscapeTerrain (*job.doc, *baseline, plan, build, widened, outcome.preview, outcome.error);
         if (outcome.built && !plan.outlines.empty ())
             OutlineUnmet (outcome.preview.unreached, outcome.preview.clipped,
                           std::max (job.options.cutLimit, job.options.fillLimit), outcome.preview.reach,
@@ -354,9 +364,11 @@ TerrainPreviewOutcome RunLandscapeTerrainPreview (const TerrainDesignJob& job, c
     return outcome;
 }
 
-std::future<TerrainPreviewOutcome> LaunchLandscapeTerrainPreview (TerrainDesignJob job, UnifiedPreviewAsk ask)
+std::future<TerrainPreviewOutcome> LaunchLandscapeTerrainPreview (TerrainDesignJob job, UnifiedPreviewAsk ask,
+                                                                  std::shared_ptr<OutlineGeometryCache> outlines)
 {
-    return std::async (std::launch::async,
-                       [job = std::move (job), ask] { return RunLandscapeTerrainPreview (job, ask); });
+    return std::async (std::launch::async, [job = std::move (job), ask, outlines = std::move (outlines)] {
+        return RunLandscapeTerrainPreview (job, ask, outlines.get ());
+    });
 }
 } // namespace tapioca::geometry

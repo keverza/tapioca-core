@@ -350,7 +350,11 @@ bool Convert (const edit::Document& doc, const TerrainCapture& capture, const Fi
         auto grading = OutlineOptionsFor (doc, pathId, std::max (outline.design.cutLimit, outline.design.fillLimit));
         if (options.outlineLimit > 0)
             grading.limit = options.outlineLimit;
-        if (!BuildOutlineGeometry (doc, capture.Input ().mesh, grading, owned.outlineGeometry, error))
+        if (options.pavedTolerance > 0)
+            grading.pavedTolerance = options.pavedTolerance;
+        if (!(options.outlineCache
+                  ? options.outlineCache->Build (doc, capture.Input ().mesh, grading, owned.outlineGeometry, error)
+                  : BuildOutlineGeometry (doc, capture.Input ().mesh, grading, owned.outlineGeometry, error)))
             return false;
         if (plan.entries.empty ()) {
             owned.property = owned.outlineGeometry.region;

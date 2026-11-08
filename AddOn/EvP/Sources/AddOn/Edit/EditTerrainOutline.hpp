@@ -12,17 +12,26 @@
 // paved surface to the Rust kernel (BuildOutlineTerrain), which owns every height and volume.
 #include "Edit/EditTerrainDesign.hpp"
 
+#include <mutex>
+#include <memory>
 namespace tapioca::geometry {
 
 struct OutlineDesignOptions {
     TerrainSlope cut { TerrainSlope::Unit::Percent, 50, 0 };
     TerrainSlope fill { TerrainSlope::Unit::Percent, 33, 0 };
-    double limit = 10.0;     // Plan reach of a face from the outline, metres.
-    double rounding = 1.0;   // Plan metres each face rounds over at its top and toe.
-    double margin = 1.0;     // Beyond the reach, metres, before the region's edge.
-    double pavedStep = 0.5;  // The paved surface's sampling, metres.
+    double limit = 10.0;    // Plan reach of a face from the outline, metres.
+    double rounding = 1.0;  // Plan metres each face rounds over at its top and toe.
+    double margin = 1.0;    // Beyond the reach, metres, before the region's edge.
+    double pavedStep = 0.5; // The paved surface's sampling, metres.
+    // How far the paved surface the terrain is graded from may stray from the paths' heights,
+    // metres: its triangles split only where they do (Pave), so a long level or evenly graded path
+    // is a few long triangles, and what is rebuilt from them scales with the shape, not the
+    // length. The build's; the field preview (#176) paves at a centimetre, where its own grid
+    // already interpolates, in half the time.
+    double pavedTolerance = 0.002;
     double tolerance = 1e-3; // At-grade height band, metres.
     TerrainEditEffect effect = TerrainEditEffect::Both;
+    bool operator== (const OutlineDesignOptions&) const = default;
 };
 
 // The grading options a document's path asks for: its first cross-section range's cut and
@@ -47,6 +56,30 @@ struct OutlineGeometry {
 // Refuses OutlineNoPaths / OutlineOutside as EvaluateOutlineDesign does; `out` unchanged then.
 bool BuildOutlineGeometry (const geomsrv::edit::Document& doc, const TerrainMeshView& mesh,
                            const OutlineDesignOptions& options, OutlineGeometry& out, std::string& error);
+
+// #176: the last outline geometry built, reused while its inputs are the same -- the document's
+// authored content (SameAuthoredContent: the paths, the property line and what it is drawn
+// from), the terrain's points and triangles, and the options. Paving is most of a field
+// preview's preparation; a revision that leaves them alone (a preview at rest after a drag's
+// coarse ones, an edit of something else) skips it. One per editing session; thread-safe.
+class OutlineGeometryCache {
+  public:
+    // As BuildOutlineGeometry, from the cache when the inputs are the last ones built.
+    bool Build (const geomsrv::edit::Document& doc, const TerrainMeshView& mesh, const OutlineDesignOptions& options,
+                OutlineGeometry& out, std::string& error);
+    uint64_t Hits () const;
+    uint64_t Builds () const;
+
+  private:
+    mutable std::mutex mutex;
+    bool valid = false;
+    std::shared_ptr<const geomsrv::edit::Document> doc;
+    std::vector<double> points;
+    std::vector<uint32_t> triangles;
+    OutlineDesignOptions options;
+    OutlineGeometry geometry;
+    uint64_t hits = 0, builds = 0;
+};
 
 // Worker-only: grades `input`'s terrain from every path of `doc`. `result.build` carries the
 // proposed points, triangles, volumes and the region ring's vertices (mapping rows 17 only:

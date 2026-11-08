@@ -6,12 +6,17 @@
 #include "Geometry/GeometryRustUnifiedTerrain.hpp"
 
 namespace tapioca::geometry {
+class OutlineGeometryCache;
 
 struct UnifiedLandscapeBuildOptions {
     double controlTolerance = 1e-3; // Absolute grading/fixed compatibility band, metres.
     // #149 T1: the outline faces' plan reach, metres; 0 takes the request's. The job widens
     // it, as the outline lane did, while faces run out before they meet the ground.
     double outlineLimit = 0.0;
+    // #176: the paved surface's tolerance for the outline, metres; 0 keeps the build's. And the
+    // session's outline-geometry cache, when the caller keeps one (the field preview does).
+    double pavedTolerance = 0.0;
+    OutlineGeometryCache* outlineCache = nullptr;
 };
 
 // #112 P4a: the two scopes one build answers to, kept explicitly separate.
