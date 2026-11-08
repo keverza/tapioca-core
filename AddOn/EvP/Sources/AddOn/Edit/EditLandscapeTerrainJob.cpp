@@ -90,6 +90,33 @@ void MirrorPublished (const UnifiedTerrainResult& unified, const FieldPlan& plan
     }
 }
 
+// The outline's shortfalls in the user's words, the build's and the preview's alike: faces
+// that never meet the ground, a reach widened past the one asked, faces stepping at the ring,
+// and paths that do not validate.
+void OutlineUnmet (uint32_t unreached, uint32_t clipped, double asked, double reached, size_t graded, size_t paths,
+                   std::vector<std::string>& unmet)
+{
+    char text[256];
+    if (unreached > 0) {
+        std::snprintf (text, sizeof text,
+                       "The side slopes do not meet the ground even %.0f m out: steepen them or add a wall.", reached);
+        unmet.push_back (text);
+    }
+    else if (reached > asked) {
+        std::snprintf (text, sizeof text,
+                       "The side slopes do not meet the ground within %.1f m: built reaching up to %.1f m. "
+                       "Steepen them or add a wall to keep them shorter.",
+                       asked, reached);
+        unmet.push_back (text);
+    }
+    if (clipped > 0)
+        unmet.push_back ("The side slopes reach the edge of the terrain or property line before they meet the ground "
+                         "and end there in a step: steepen them, move the path or add a wall.");
+    if (paths > graded)
+        unmet.push_back (std::to_string (paths - graded) + " of " + std::to_string (paths) +
+                         " paths are not graded: they do not validate.");
+}
+
 } // namespace
 
 TerrainRoute LandscapeTerrainRoute (const geomsrv::edit::Document& doc, bool hasPath, bool outline)
@@ -227,29 +254,8 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
         MirrorPublished (unified, plan, scope, *outcome.published, outcome);
         if (!plan.outlines.empty ()) {
             // The outline lane's located shortfalls, in its words.
-            char text[256];
-            if (unified.outlineUnreached > 0) {
-                std::snprintf (text, sizeof text,
-                               "The side slopes do not meet the ground even %.0f m out: steepen them or add a wall.",
-                               reached);
-                outcome.unmet.push_back (text);
-            }
-            else if (reached > asked) {
-                std::snprintf (text, sizeof text,
-                               "The side slopes do not meet the ground within %.1f m: built reaching up to %.1f m. "
-                               "Steepen them or add a wall to keep them shorter.",
-                               asked, reached);
-                outcome.unmet.push_back (text);
-            }
-            if (unified.outlineClipped > 0)
-                outcome.unmet.push_back (
-                    "The side slopes reach the edge of the terrain or property line before they meet the ground and "
-                    "end there in a step: steepen them, move the path or add a wall.");
-            const size_t graded = plan.outlines.front ().paths.size ();
-            if (job.doc->paths.size () > graded)
-                outcome.unmet.push_back (std::to_string (job.doc->paths.size () - graded) + " of " +
-                                         std::to_string (job.doc->paths.size ()) +
-                                         " paths are not graded: they do not validate.");
+            OutlineUnmet (unified.outlineUnreached, unified.outlineClipped, asked, reached,
+                          plan.outlines.front ().paths.size (), job.doc->paths.size (), outcome.unmet);
         }
         else if (job.doc->paths.size () > plan.paths.size ())
             // The band lane grades one selected path; the others are said, not silently left out.
