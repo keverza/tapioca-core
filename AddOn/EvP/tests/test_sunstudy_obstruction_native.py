@@ -29,7 +29,7 @@ def test_obstruction_is_a_view_not_a_study_point_footer():
     day = point.split("void DrawSunStudyPointDay", 1)[1].split("void DrawSunStudyObstructionControls", 1)[0]
     assert 'RadioButton ("Off##sunobstruction"' not in point
     assert "sunView =" not in day
-    controls = point.split("void DrawSunStudyObstructionControls", 1)[1]
+    controls = source("ArchViz/DiligentHudSunObstruction.cpp")
     assert 'RadioButton ("Time step##sunobstruction"' in controls
     assert 'RadioButton ("Whole day##sunobstruction"' in controls
 
@@ -44,6 +44,19 @@ def test_time_step_refusal_and_shared_capture_freshness_are_not_dropped():
     assert "shared->captureStamp == frame.captureStamp" in snapshot
     assert "captureStamp == frame.captureStamp" in snapshot
     assert "shared->id == frame.snapshotId" in snapshot
+
+
+def test_lifted_point_keeps_its_suncut_radius_editable_and_resettable():
+    point = source("ArchViz/DiligentHudSunPoint.cpp")
+    header = point.split("bool DrawSunStudyPointHeader", 1)[1].split("void ArcSector", 1)[0]
+    assert "BeginDisabled (state.sunPointHeight" not in header
+    assert 'SliderFloat ("##sunpointradius", &state.sunPointRadius, 0.0f, 10.0f' in header
+    assert "Suncut's half-width" in header
+
+    view = source("ArchViz/DiligentHudAnalysisView.cpp")
+    solar_cut = view.split("if (state.sunObstructionMode == 3 && state.sunCutTo > state.sunCutFrom)", 1)[1]
+    solar_cut = solar_cut.split("else if (state.sunObstructionMode == 3)", 1)[0]
+    assert "request.radius = double (state.sunPointRadius)" in solar_cut
 
 
 def test_project_transitions_reset_without_permanently_stopping_the_worker():

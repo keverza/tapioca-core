@@ -303,17 +303,20 @@ bool DrawSunStudyPointHeader (HudState& state, const std::string& studyId)
     const float spacing = ImGui::GetStyle ().ItemSpacing.x;
     const float remove = ImGui::CalcTextSize ("Remove").x + ImGui::GetStyle ().FramePadding.x * 2.0f;
     const float slider = (std::max) (60.0f, (ImGui::GetContentRegionAvail ().x - remove - 2.0f * spacing) * 0.5f);
-    ImGui::BeginDisabled (state.sunPointHeight > 0.0f);
     ImGui::SetNextItemWidth (slider);
     char format[48];
-    std::snprintf (format, sizeof (format), "r %%.1f m, %zu cell%s", state.sunPointSamples.size (),
-                   state.sunPointSamples.size () == 1 ? "" : "s");
+    if (state.sunPointHeight > 0.0f)
+        std::snprintf (format, sizeof (format), "r %%.1f m, Suncut");
+    else
+        std::snprintf (format, sizeof (format), "r %%.1f m, %zu cell%s", state.sunPointSamples.size (),
+                       state.sunPointSamples.size () == 1 ? "" : "s");
+    // A lifted point has no cell sphere, but Suncut still sweeps this radius.
+    // Disabling the control here made that cut width impossible to change or reset.
     ImGui::SliderFloat ("##sunpointradius", &state.sunPointRadius, 0.0f, 10.0f, format);
-    ImGui::EndDisabled ();
-    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip ("The study point's sphere: every measured cell within this distance of the snapped point "
-                           "is averaged (at most %zu, nearest first). 0 is the one cell.%s",
-                           kPointSampleCap, state.sunPointHeight > 0.0f ? "\nA lifted point is one receiver." : "");
+    ImGui::SetItemTooltip ("On a surface, every measured cell within this radius of the snapped point is averaged "
+                           "(at most %zu, nearest first); 0 is one cell. For a lifted point, this instead sets "
+                           "Suncut's half-width across the slice; 0 resets it to the point alone.",
+                           kPointSampleCap);
     ImGui::SameLine ();
     ImGui::SetNextItemWidth (slider);
     ImGui::SliderFloat ("##sunpointheight", &state.sunPointHeight, 0.0f, 5.0f,
