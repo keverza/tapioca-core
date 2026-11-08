@@ -355,27 +355,47 @@ bool Sectors (const SolarCutInput& input, SolarCutResult& result,
     return true;
 }
 
-// The merged cutting surface, `length` long: one fan triangle per sector from
-// the point; with a radius the outer sectors start at A or B instead, a quad
-// (two triangles, the first one's corner 0 on the from-side edge).
+// The merged cutting surface, `length` long. Its rim is a subdivided circular
+// arc from each sun ray to the next, not a visibly straight chord. With a
+// radius the outer sectors start at A or B; their base follows the line AB.
+// This is preview geometry only: the cut itself still uses the exact sectors.
 void Envelope (const std::vector<Sector>& sectors, double length, SolarCutResult& result)
 {
+    constexpr double kArcStep = 2.0 * 3.14159265358979323846 / 180.0;
     for (const Sector& sector : sectors) {
-        SolarCutTriangle fan, rest;
-        bool quad = false;
-        for (int k = 0; k < 3; ++k) {
-            const size_t K = size_t (k);
-            fan.v[0][k] = sector.fromAt[K];
-            fan.v[1][k] = sector.fromAt[K] + length * sector.sunFrom[K];
-            fan.v[2][k] = sector.toAt[K] + length * sector.sunTo[K];
-            rest.v[0][k] = sector.fromAt[K];
-            rest.v[1][k] = fan.v[2][k];
-            rest.v[2][k] = sector.toAt[K];
-            quad = quad || std::abs (sector.fromAt[K] - sector.toAt[K]) > 1.0e-9;
+        const double angle = std::acos (std::clamp (Dot (sector.sunFrom, sector.sunTo), -1.0, 1.0));
+        const int pieces = std::clamp (int (std::ceil (angle / kArcStep)), 1, 32);
+        const auto at = [&] (double t, Point& base, Point& rim) {
+            Point direction {};
+            for (int k = 0; k < 3; ++k) {
+                const size_t K = size_t (k);
+                base[K] = sector.fromAt[K] * (1.0 - t) + sector.toAt[K] * t;
+                direction[K] = sector.sunFrom[K] * (1.0 - t) + sector.sunTo[K] * t;
+            }
+            Normalise (direction);
+            for (int k = 0; k < 3; ++k)
+                rim[size_t (k)] = base[size_t (k)] + length * direction[size_t (k)];
+        };
+        for (int piece = 0; piece < pieces; ++piece) {
+            Point base0, base1, rim0, rim1;
+            at (double (piece) / pieces, base0, rim0);
+            at (double (piece + 1) / pieces, base1, rim1);
+            SolarCutTriangle fan, rest;
+            bool quad = false;
+            for (int k = 0; k < 3; ++k) {
+                const size_t K = size_t (k);
+                fan.v[0][k] = base0[K];
+                fan.v[1][k] = rim0[K];
+                fan.v[2][k] = rim1[K];
+                rest.v[0][k] = base0[K];
+                rest.v[1][k] = rim1[K];
+                rest.v[2][k] = base1[K];
+                quad = quad || std::abs (base0[K] - base1[K]) > 1.0e-9;
+            }
+            result.envelope.push_back (fan);
+            if (quad)
+                result.envelope.push_back (rest);
         }
-        result.envelope.push_back (fan);
-        if (quad)
-            result.envelope.push_back (rest);
     }
     result.sectors = sectors.size ();
 }

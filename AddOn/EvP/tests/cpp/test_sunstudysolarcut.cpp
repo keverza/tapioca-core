@@ -75,7 +75,8 @@ TEST (SunStudySolarCut, TowerLosesExactlyWhatLiesAboveTheCuttingPlane)
         << result.caps.size (); // exact, not sampled
     EXPECT_NEAR (result.objects[0].total, 40.0, 1.0e-9);
     EXPECT_FALSE (result.caps.empty ());
-    EXPECT_EQ (result.envelope.size (), 1u); // two suns: one sector, one cutting triangle
+    EXPECT_EQ (result.sectors, 1u);          // two suns: one cutting sector
+    EXPECT_GT (result.envelope.size (), 1u); // its preview rim is a smooth arc
     for (const auto& piece : result.removed)
         for (const auto& corner : piece.v)
             EXPECT_GE (corner[2], corner[0] * slope - 0.05 - 1.0e-6); // nothing below the lowered plane is taken
@@ -148,15 +149,17 @@ TEST (SunStudySolarCut, SurfaceStageMatchesTheCutsSurfaceAndClipsNothing)
     ASSERT_TRUE (ComputeSolarCut (snapshot, input, cut, [] (const double*) { return false; }));
     EXPECT_DOUBLE_EQ (surface.facingHours, cut.facingHours);
     EXPECT_DOUBLE_EQ (surface.litHours, cut.litHours);
-    ASSERT_EQ (surface.envelope.size (), 2u);
+    EXPECT_GT (surface.envelope.size (), 2u); // each sector's rim is an arc, not one chord
     EXPECT_EQ (surface.envelope.size (), cut.envelope.size ());
     EXPECT_TRUE (surface.removed.empty ());
     EXPECT_TRUE (surface.objects.empty ());
-    const auto& fan = surface.envelope[0];
-    const double reach = std::sqrt ((fan.v[1][0] - fan.v[0][0]) * (fan.v[1][0] - fan.v[0][0]) +
-                                    (fan.v[1][1] - fan.v[0][1]) * (fan.v[1][1] - fan.v[0][1]) +
-                                    (fan.v[1][2] - fan.v[0][2]) * (fan.v[1][2] - fan.v[0][2]));
-    EXPECT_NEAR (reach, 12.0, 1.0e-9);
+    for (const auto& fan : surface.envelope)
+        for (int corner = 1; corner < 3; ++corner) {
+            const double reach = std::sqrt ((fan.v[corner][0] - fan.v[0][0]) * (fan.v[corner][0] - fan.v[0][0]) +
+                                            (fan.v[corner][1] - fan.v[0][1]) * (fan.v[corner][1] - fan.v[0][1]) +
+                                            (fan.v[corner][2] - fan.v[0][2]) * (fan.v[corner][2] - fan.v[0][2]));
+            EXPECT_NEAR (reach, 12.0, 1.0e-9);
+        }
 }
 
 TEST (SunStudySolarCut, RadiusSweepsAlongALineAndNeverCutsBehindIt)
@@ -205,9 +208,9 @@ TEST (SunStudySolarCut, RadiusSweepsAlongALineAndNeverCutsBehindIt)
     for (const auto& piece : line.removed)
         for (const auto& corner : piece.v)
             EXPECT_GE (corner[0], -1.0e-9); // nothing behind the line
-    // The sheet starts at A: one sector, drawn as a quad from the line.
+    // The sheet starts at A: one sector, drawn as an arc-ended strip from the line.
     EXPECT_EQ (line.sectors, 1u);
-    ASSERT_EQ (line.envelope.size (), 2u);
+    ASSERT_GT (line.envelope.size (), 2u);
     EXPECT_NEAR (std::abs (line.envelope[0].v[0][1]), 1.0, 1.0e-3);
     EXPECT_NEAR (line.envelope[0].v[0][0], 0.0, 0.05); // lowered 5 cm along the tilted plane
 }
