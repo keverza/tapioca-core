@@ -413,8 +413,31 @@ impl Mesher<'_, '_> {
 
     /// Insert a free point inside the region.
     fn insert(&mut self, p: Point2<f64>) -> Result<(), Stop> {
+        if self.crowds(p) {
+            return Err(Stop::Leave);
+        }
         let handle = self.cdt.insert(p).map_err(|_| Stop::Leave)?;
         self.added(handle, p).map(|_| ())
+    }
+
+    /// Whether `p` is closer than half the shortest side to a vertex already there: one of the
+    /// corners of the triangle (or side) it falls in, or one of their neighbours.
+    fn crowds(&self, p: Point2<f64>) -> bool {
+        let near = self.bound.refine.shortest / 2.0;
+        let corners: Vec<_> = match self.cdt.locate(p) {
+            PositionInTriangulation::OnVertex(_) => return true,
+            PositionInTriangulation::OnFace(face) => self.cdt.face(face).vertices().to_vec(),
+            PositionInTriangulation::OnEdge(edge) => {
+                self.cdt.directed_edge(edge).vertices().to_vec()
+            }
+            _ => return false,
+        };
+        corners.iter().any(|vertex| {
+            distance(vertex.position(), p) < near
+                || vertex
+                    .out_edges()
+                    .any(|edge| distance(edge.to().position(), p) < near)
+        })
     }
 
     /// Split the constrained side `[a, b]` at its midpoint, keeping both halves constrained.
