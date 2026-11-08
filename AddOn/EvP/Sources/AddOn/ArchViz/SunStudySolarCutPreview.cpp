@@ -92,7 +92,7 @@ void PlaneBasis (const V3& n, V3& u, V3& v)
 // equally it is inside the face, otherwise it is the face's outline. This is
 // immune to the T-junctions clipping and the trapezoid caps leave.
 void OutlineEdges (const std::vector<const evp::sunstudy::SolarCutTriangle*>& triangles, uint32_t rgba,
-                   GhPreviewBucket& bucket)
+                   GhPreviewBucket& bucket, bool separateFaces = true)
 {
     constexpr double kSameFace = 0.985; // ~10 degrees
     std::vector<V3> faces;
@@ -105,14 +105,17 @@ void OutlineEdges (const std::vector<const evp::sunstudy::SolarCutTriangle*>& tr
         V3 n = Cross (Sub (b, a), Sub (c, a));
         if (!Normalize (n))
             continue;
-        size_t face = faces.size ();
-        for (size_t f = 0; f < faces.size (); ++f)
-            if (Dot (faces[f], n) > kSameFace) {
-                face = f;
-                break;
-            }
-        if (face == faces.size ())
-            faces.push_back (n);
+        size_t face = 0;
+        if (separateFaces) {
+            face = faces.size ();
+            for (size_t f = 0; f < faces.size (); ++f)
+                if (Dot (faces[f], n) > kSameFace) {
+                    face = f;
+                    break;
+                }
+            if (face == faces.size ())
+                faces.push_back (n);
+        }
         const V3 corners[3] = { a, b, c };
         for (int e = 0; e < 3; ++e) {
             const V3& from = corners[e];
@@ -181,7 +184,9 @@ void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const doub
     std::vector<const evp::sunstudy::SolarCutTriangle*> sheet;
     for (const auto& triangle : cut.envelope)
         sheet.push_back (&triangle);
-    OutlineEdges (sheet, kSunObstructionPink, drawables.depthTested);
+    // One cutting sheet, however many sector planes it crosses: shared radial
+    // edges and triangulation diagonals are interior, not extra cut outlines.
+    OutlineEdges (sheet, kSunObstructionPink, drawables.depthTested, false);
     // What goes, as a transparent cut-out: its outer surfaces faint where the
     // building shows them, the cut faces through the building (x-ray) in a darker
     // pink, and the outline of the removed solid; its hidden

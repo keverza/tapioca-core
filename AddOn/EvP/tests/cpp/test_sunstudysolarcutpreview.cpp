@@ -71,6 +71,19 @@ TEST (SunStudySolarCutPreview, OutlineSkipsDiagonalsAndTJunctions)
     EXPECT_TRUE (drawables.xray.lineVertices.empty ());             // a plain darker pink, no hatch
 }
 
+TEST (SunStudySolarCutPreview, CuttingSheetOmitsSectorCreasesAndTriangulationDiagonals)
+{
+    // Two non-coplanar triangles share the fan's diagonal. It is a sector
+    // crease, not another edge of the cutting sheet, and must not be outlined.
+    evp::sunstudy::SolarCutResult cut;
+    cut.envelope = { Tri (0, 0, 2, 0, 2, 2), Tri (0, 0, 2, 2, 0, 2) };
+    cut.envelope[1].v[2][2] = 1.0;
+    const double point[3] = { 0.0, 0.0, 0.0 };
+    GhPreviewDrawables drawables;
+    BuildSolarCutGeometry (cut, point, drawables);
+    EXPECT_EQ (drawables.depthTested.lineVertices.size () / 6, 4u);
+}
+
 TEST (SunStudySolarCutPreview, WonRegionIsTrimmedToItsSurface)
 {
     // Two 3 x 3 blocks of won cells one empty column apart. Alone, closing
