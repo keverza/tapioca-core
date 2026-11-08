@@ -33,7 +33,7 @@ fn no_ground_no_surface() {
 /// A fine grid is drawn every few nodes, its last row and column kept.
 #[test]
 fn a_fine_grid_is_drawn_coarser() {
-    let previewed = preview([0.0, 0.0], [100.0, 100.0], 0.1, 0.0, &|x, _| Some([x, x]));
+    let previewed = preview([0.0, 0.0], [100.0, 100.0], 0.1, 0.0, &|x, _| Some([x, 0.0]));
     assert!(previewed.points.len() / 3 <= MAX_SURFACE);
     assert!(previewed.surface_step > 0.1);
     assert!(
@@ -41,5 +41,35 @@ fn a_fine_grid_is_drawn_coarser() {
             .points
             .chunks(3)
             .any(|p| p.first().is_some_and(|&x| (x - 100.0).abs() < 1e-9))
+    );
+}
+
+/// Only where the design moves the base is drawn, with a cell around it.
+#[test]
+fn only_the_moved_cells_are_drawn() {
+    // Raised over x in [4, 6] of a 10 x 4 box at 0.5 m: the cells touching that strip and one
+    // more each way.
+    let previewed = preview([0.0, 0.0], [10.0, 4.0], 0.5, 0.0, &|x, _| {
+        Some([if (4.0..=6.0).contains(&x) { 1.0 } else { 0.0 }, 0.0])
+    });
+    let xs: Vec<f64> = previewed
+        .points
+        .chunks(3)
+        .filter_map(|p| p.first().copied())
+        .collect();
+    let lo = xs.iter().copied().fold(f64::INFINITY, f64::min);
+    let hi = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    assert_eq!(
+        (lo, hi),
+        (3.0, 7.0),
+        "the strip's cells [3.5, 6.5] and one more each way"
+    );
+    assert_eq!(previewed.triangles.len() / 3, 2 * 8 * 8);
+    // Nothing moved: nothing drawn.
+    assert_eq!(
+        preview([0.0, 0.0], [10.0, 4.0], 0.5, 0.0, &|_, _| Some([0.0, 0.0]))
+            .triangles
+            .len(),
+        0
     );
 }

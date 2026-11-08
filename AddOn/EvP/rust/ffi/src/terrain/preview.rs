@@ -48,6 +48,12 @@ pub struct PreviewSummary {
     pub fill: f64,
     /// Lowest and highest design heights sampled (`[inf, -inf]` when none).
     pub range: [f64; 2],
+    /// The outline faces' reach used, metres (zero without an outline).
+    pub reach: f64,
+    /// Grid nodes where the outline's faces ran out before the ground, at `reach`.
+    pub unreached: u32,
+    /// Property-ring samples where the outline's faces end in a step.
+    pub clipped: u32,
 }
 
 /// One contour line.
@@ -75,6 +81,9 @@ pub struct PreviewOutput {
     pub step: f64,
     /// Contour interval asked, metres; zero or less picks one.
     pub interval: f64,
+    /// Widest outline reach to widen to while faces run out before the ground, metres; at or
+    /// below the outline's own limit, no widening.
+    pub max_reach: f64,
     /// Required counts record.
     pub counts: *mut PreviewCounts,
     /// Required scalars record.
@@ -142,6 +151,9 @@ fn encode(preview: kernel::preview::Preview) -> Result<Encoded, Failure> {
             cut: preview.cut,
             fill: preview.fill,
             range: preview.contours.range,
+            reach: preview.reach,
+            unreached: preview.unreached,
+            clipped: preview.clipped,
         },
         points: preview.points,
         triangles: preview.triangles,
@@ -168,14 +180,18 @@ unsafe fn compute(
     pools::preflight(&inputs, &outputs, error)?;
     let request = request.ok_or(Failure::Argument("TerrainInputDescriptor"))?;
     let target = target.ok_or(Failure::Argument("TerrainOutputDescriptor"))?;
-    if !target.step.is_finite() || target.step <= 0.0 || !target.interval.is_finite() {
+    if !target.step.is_finite()
+        || target.step <= 0.0
+        || !target.interval.is_finite()
+        || !target.max_reach.is_finite()
+    {
         return Err(Failure::Argument("TerrainPreviewParameters"));
     }
-    let (step, interval) = (target.step, target.interval);
+    let (step, interval, max_reach) = (target.step, target.interval, target.max_reach);
     // SAFETY: all pools were preflighted above; no borrow escapes this call.
     let preview = unsafe {
         evaluate(&context, &request, |baseline, plan| {
-            kernel::field_preview(baseline, plan, step, interval)
+            kernel::field_preview(baseline, plan, step, interval, max_reach)
         })
     }?;
     Ok((encode(preview)?, target))

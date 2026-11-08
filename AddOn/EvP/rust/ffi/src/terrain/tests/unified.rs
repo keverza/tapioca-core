@@ -310,9 +310,9 @@ fn layouts_match_the_documented_c_records() {
     assert_eq!(size_of::<UnifiedLine>(), 32);
     assert_eq!(size_of::<UnifiedLocked>(), 16);
     assert_eq!(size_of::<PreviewCounts>(), 40);
-    assert_eq!(size_of::<PreviewSummary>(), 56);
+    assert_eq!(size_of::<PreviewSummary>(), 72);
     assert_eq!(size_of::<PreviewLine>(), 32);
-    assert_eq!(size_of::<PreviewOutput>(), 96);
+    assert_eq!(size_of::<PreviewOutput>(), 104);
 }
 
 #[test]
@@ -755,6 +755,7 @@ fn the_field_preview_answers_in_one_call_once_its_capacities_fit() {
     let mut output = PreviewOutput {
         step: 0.05,
         interval: 1.0,
+        max_reach: 0.0,
         counts: &raw mut counts,
         summary: &raw mut summary,
         points: std::ptr::null_mut(),

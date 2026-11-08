@@ -85,3 +85,30 @@ fn a_large_box_is_sampled_coarser() {
     assert!(traced.step > 4.0 && traced.step < 6.0, "{}", traced.step);
     assert_eq!(traced.lines.len(), 10);
 }
+
+type Exact<'a> = &'a (dyn Fn(f64, f64) -> f64 + Sync);
+
+/// Every node is the field at that node, on a crease (a toe) and on a cone alike.
+#[test]
+fn every_node_is_the_field_there() -> Result<(), String> {
+    let fields: [(&str, Exact<'_>); 3] = [
+        ("plane", &|x, y| 0.1f64.mul_add(x, 0.05 * y)),
+        ("crease", &|x, y| 0.5 * (x - 13.37 - 0.3 * y).abs()),
+        ("cone", &|x, y| x.hypot(y) * 0.5),
+    ];
+    for (name, field) in fields {
+        let grid = Grid::sample([-20.0, -15.0], [20.0, 15.0], 0.25, &|x, y| {
+            Some([field(x, y), 0.0])
+        })
+        .ok_or_else(|| format!("{name}: no grid"))?;
+        let mut worst = 0.0_f64;
+        for row in 0..grid.rows {
+            for column in 0..grid.columns {
+                let [x, y] = grid.node(column, row);
+                worst = worst.max((grid.value(column, row) - field(x, y)).abs());
+            }
+        }
+        assert!(worst <= 5e-3, "{name}: worst {worst}");
+    }
+    Ok(())
+}

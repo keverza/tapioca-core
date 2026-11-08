@@ -893,6 +893,7 @@ fn the_field_preview_matches_the_unified_mesh() -> Result<(), String> {
         },
         0.1,
         0.5,
+        0.0,
     )
     .map_err(|e| format!("preview {e:?}"))?;
     let elapsed = started.elapsed();
@@ -939,5 +940,67 @@ fn the_field_preview_matches_the_unified_mesh() -> Result<(), String> {
         previewed.fill,
         site.fill
     );
+    Ok(())
+}
+
+/// #175: the preview reports what the build reports when the faces run out at their limit, and
+/// widens the reach as the editor's job widens the build's.
+#[test]
+fn the_field_preview_counts_and_widens_a_short_reach() -> Result<(), String> {
+    let built = unified(1.0, 3.0, &[]).map_err(|e| format!("unified {e:?}"))?;
+    assert!(
+        built.outline_unreached > 0,
+        "the fixture's faces are short at 3 m"
+    );
+    let (points, triangles) = base();
+    let outlines = [crate::terrain::Outline {
+        order: 0,
+        surface_points: &PAVED,
+        surface_triangles: &PAVED_TRIANGLES,
+        surface_grades: &[],
+        grading: Grading {
+            cut: HALF,
+            fill: HALF,
+            limit: 3.0,
+            rounding: 1.0,
+            effect: Effect::Both,
+            tolerance: 1e-6,
+        },
+        lines: &[],
+        spots: &[],
+    }];
+    let previewed = |max_reach: f64| {
+        crate::terrain::field_preview(
+            &crate::terrain::Baseline {
+                points: &points,
+                triangles: &triangles,
+                property: Some(&REGION),
+            },
+            &crate::terrain::Plan {
+                revision: 1,
+                hash: 2,
+                entries: &[],
+                paths: &[],
+                masks: &[],
+                controls: &[],
+                control_tolerance: 1e-3,
+                outlines: &outlines,
+            },
+            0.25,
+            0.0,
+            max_reach,
+        )
+        .map_err(|e| format!("preview {e:?}"))
+    };
+    let short = previewed(0.0)?;
+    assert!(short.unreached > 0);
+    assert_eq!(short.reach, 3.0);
+    let widened = previewed(100.0)?;
+    assert_eq!(widened.unreached, 0);
+    assert_eq!(
+        widened.reach, 20.0,
+        "four times, at least 20 m, as the job widens"
+    );
+    assert_eq!(widened.clipped, 0);
     Ok(())
 }
