@@ -3,6 +3,7 @@
 #include "Geometry/MeshStore.hpp"
 #include "MeshFixtures.hpp"
 #include "SunStudyHudTestServices.hpp"
+#include "SunStudyHudTestWidgets.hpp"
 
 #include <gtest/gtest.h>
 #include <imgui_internal.h>
@@ -163,6 +164,17 @@ struct SunPathCharts : testing::Test {
         ImGui::End ();
         DrawSunStudySunPath (state, matrix, 800, 1800);
         ImGui::Render ();
+    }
+
+    void Click (ImVec2 pointer)
+    {
+        Frame (pointer, true);
+        Frame (pointer, false);
+    }
+
+    std::vector<ImVec2> StepForwardButtons () const
+    {
+        return SunStudyTestTimelineForwardButtons (chartDraw);
     }
 
     // Locate the actual full-width ChartFrame background, not a guessed widget
@@ -351,6 +363,61 @@ TEST_F (SunPathCharts, PendingPlayerRequestCannotMoveTheDiscBeforeItsAppliedEnve
     Frame ();
     EXPECT_EQ (state.sunPathMinute, 600);
     EXPECT_EQ (state.sunPathPeriod->geometry, geometry);
+}
+
+TEST_F (SunPathCharts, RealMapPlayerStepWaitsForItsAppliedEnvelope)
+{
+    const auto forward = StepForwardButtons ();
+    ASSERT_EQ (forward.size (), 2u) << "whole-map and point step-forward buttons";
+    const int requests = SunStudyTestViewRequests ();
+    const int shadowStep = state.sunStep;
+    Click (forward[0]);
+    EXPECT_EQ (state.sunPeriodDay, 1);
+    EXPECT_EQ (state.sunPeriodStep, 0);
+    EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::MapPlayer);
+    EXPECT_EQ (SunStudyTestViewRequests (), requests + 1);
+    EXPECT_EQ (state.sunPathMinute, 675) << "the previous applied instant is still on screen";
+    SetApplied ({ 1, 0, 1, 0 });
+    Frame ();
+    EXPECT_EQ (state.sunPathMinute, 600);
+    EXPECT_EQ (state.sunPathDay.month, 2);
+    EXPECT_EQ (state.sunPathDay.day, 15) << "the fixed arc still follows the shown carrier, not the player request";
+    EXPECT_EQ (state.sunStep, shadowStep);
+    EXPECT_EQ (SunStudyTestSubmissions (), 0);
+    EXPECT_FALSE (state.sunOverride);
+}
+
+TEST_F (SunPathCharts, RealPointPlayerOwnsStepsAndAutomaticMapTicksDoNotStealIt)
+{
+    state.sunPointPlayMode = 0; // Every step; the shared fixture starts in Fixed hour mode.
+    state.sunPointPlayStep = 0;
+    Frame ();
+    const auto forward = StepForwardButtons ();
+    ASSERT_EQ (forward.size (), 2u) << "whole-map and point step-forward buttons";
+    const int requests = SunStudyTestViewRequests ();
+    const int shadowStep = state.sunStep;
+    Click (forward[1]);
+    EXPECT_EQ (state.sunPointPlayDay, 0);
+    EXPECT_EQ (state.sunPointPlayStep, 1);
+    EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::PointPlayer);
+    EXPECT_EQ (state.sunPathMinute, 675);
+    Click (forward[1]);
+    EXPECT_EQ (state.sunPointPlayDay, 1);
+    EXPECT_EQ (state.sunPointPlayStep, 0);
+    EXPECT_EQ (state.sunPathMinute, 600);
+    EXPECT_EQ (SunStudyTestViewRequests (), requests) << "point playback never requests a whole-map frame";
+
+    state.sunPeriodPlay.playing = true;
+    state.sunPeriodPlay.playedAt = ImGui::GetTime () - 1.0;
+    Frame ();
+    EXPECT_GT (SunStudyTestViewRequests (), requests);
+    EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::PointPlayer);
+    EXPECT_EQ (state.sunPathMinute, 600);
+    EXPECT_EQ (state.sunPointPlayDay, 1);
+    EXPECT_EQ (state.sunPointPlayStep, 0);
+    EXPECT_EQ (state.sunStep, shadowStep);
+    EXPECT_EQ (SunStudyTestSubmissions (), 0);
+    EXPECT_FALSE (state.sunOverride);
 }
 
 TEST_F (SunPathCharts, RemovingThePointSuppressesDiagramHoverInsteadOfUsingStaleCells)
