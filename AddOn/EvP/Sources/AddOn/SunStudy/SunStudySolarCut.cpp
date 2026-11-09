@@ -366,6 +366,18 @@ void Envelope (const std::vector<Sector>& sectors, double length, SolarCutResult
         if (Dot (Sub (a, b), Sub (a, b)) > 1.0e-16)
             result.envelopeEdges.push_back ({ a[0], a[1], a[2], b[0], b[1], b[2] });
     };
+    const auto hiddenEdge = [&] (const Sector& sector, const HalfSpace& side, const Point& direction) {
+        // A cap seam is the exact lowered plane intersected with the vertical
+        // sector side. The drawn sheet's projected base need not lie on both.
+        const double determinant = sector.above.n[0] * side.n[1] - sector.above.n[1] * side.n[0];
+        if (std::abs (determinant) < 1.0e-12)
+            return;
+        Point base {};
+        base[0] = (sector.above.n[1] * side.d - sector.above.d * side.n[1]) / determinant;
+        base[1] = (sector.above.d * side.n[0] - sector.above.n[0] * side.d) / determinant;
+        result.envelopeHiddenEdges.push_back ({ base[0], base[1], base[2], base[0] + length * direction[0],
+                                                base[1] + length * direction[1], base[2] + length * direction[2] });
+    };
     Point previousBase {}, previousRim {};
     for (size_t s = 0; s < sectors.size (); ++s) {
         const Sector& sector = sectors[s];
@@ -391,6 +403,8 @@ void Envelope (const std::vector<Sector>& sectors, double length, SolarCutResult
             const Poly seam { previousBase, previousRim, firstRim, firstBase };
             if (Valid (seam))
                 Emit (seam, 0, false, result.envelope);
+            hiddenEdge (sectors[s - 1], sectors[s - 1].right, sectors[s - 1].sunTo);
+            hiddenEdge (sector, sector.left, sector.sunFrom);
             edge (previousRim, firstRim);
             edge (firstBase, previousBase);
         }

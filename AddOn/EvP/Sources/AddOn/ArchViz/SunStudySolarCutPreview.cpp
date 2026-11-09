@@ -52,6 +52,20 @@ V3 Corner (const evp::sunstudy::SolarCutTriangle& triangle, int c)
     return { triangle.v[c][0], triangle.v[c][1], triangle.v[c][2] };
 }
 
+bool OnLine (const V3& a, const V3& b, const std::array<double, 6>& line)
+{
+    const V3 origin { line[0], line[1], line[2] };
+    V3 direction { line[3] - line[0], line[4] - line[1], line[5] - line[2] };
+    V3 edge = Sub (b, a);
+    if (!Normalize (direction) || !Normalize (edge))
+        return false;
+    const V3 parallel = Cross (direction, edge);
+    if (Dot (parallel, parallel) > 1.0e-16)
+        return false;
+    const V3 offset = Cross (Sub (a, origin), direction);
+    return Dot (offset, offset) <= 1.0e-8;
+}
+
 void Triangle (const V3& a, const V3& b, const V3& c, const V3& normal, uint32_t rgba, GhPreviewBucket& bucket)
 {
     const uint32_t base = uint32_t (bucket.meshVertices.size ());
@@ -92,7 +106,9 @@ void PlaneBasis (const V3& n, V3& u, V3& v)
 // equally it is inside the face, otherwise it is the face's outline. This is
 // immune to the T-junctions clipping and the trapezoid caps leave.
 void OutlineEdges (const std::vector<const evp::sunstudy::SolarCutTriangle*>& triangles, uint32_t rgba,
-                   GhPreviewBucket& bucket, bool separateFaces = true)
+                   GhPreviewBucket& bucket, bool separateFaces = true,
+                   const std::set<const evp::sunstudy::SolarCutTriangle*>& hiddenEdgeFaces = {},
+                   const std::vector<std::array<double, 6>>& hiddenEdges = {})
 {
     constexpr double kSameFace = 0.985; // ~10 degrees
     std::vector<V3> faces;
@@ -120,6 +136,10 @@ void OutlineEdges (const std::vector<const evp::sunstudy::SolarCutTriangle*>& tr
         for (int e = 0; e < 3; ++e) {
             const V3& from = corners[e];
             const V3& to = corners[(e + 1) % 3];
+            if (!hiddenEdges.empty () && hiddenEdgeFaces.count (triangle) != 0 &&
+                std::any_of (hiddenEdges.begin (), hiddenEdges.end (),
+                             [&] (const std::array<double, 6>& line) { return OnLine (from, to, line); }))
+                continue;
             V3 dir = Sub (to, from);
             if (!Normalize (dir))
                 continue;
@@ -497,12 +517,17 @@ void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const doub
     }
     fill (cut.caps, kSolarCutCapRgba, drawables.xray);
     std::vector<const evp::sunstudy::SolarCutTriangle*> solid;
+    std::set<const evp::sunstudy::SolarCutTriangle*> capFaces;
     solid.reserve (cut.removed.size () + cut.caps.size ());
     for (const auto& triangle : cut.removed)
         solid.push_back (&triangle);
-    for (const auto& triangle : cut.caps)
+    for (const auto& triangle : cut.caps) {
         solid.push_back (&triangle);
-    OutlineEdges (solid, kSolarCutEdgeRgba, drawables.xray);
+        capFaces.insert (&triangle);
+    }
+    // Sector joins are interior to the cutter, not new edges of the object it
+    // cuts. Suppress them on caps only: an original solid edge stays visible.
+    OutlineEdges (solid, kSolarCutEdgeRgba, drawables.xray, true, capFaces, cut.envelopeHiddenEdges);
 }
 
 void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, GhPreviewDrawables& drawables)

@@ -82,6 +82,9 @@ struct SolarCutResult {
     // Preview boundary emitted by the sheet generator, never inferred from
     // sector seams (swept sector planes do not share bit-identical vertices).
     std::vector<std::array<double, 6>> envelopeEdges;
+    // Internal sector rays omitted from that boundary. The cap preview uses
+    // the same lines so clipping cannot make the hidden seams visible again.
+    std::vector<std::array<double, 6>> envelopeHiddenEdges;
     size_t sectors = 0; // the envelope's sectors; a radius makes the outer two quads
     // The cut elements as they would remain, by snapshot mesh index.
     std::vector<std::pair<size_t, geomsrv::Mesh>> kept;

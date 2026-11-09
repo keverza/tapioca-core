@@ -1,7 +1,10 @@
 #include "ArchViz/SunStudyObstructionGeometry.hpp"
 
+#include "MeshFixtures.hpp"
+
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <map>
 #include <tuple>
@@ -34,6 +37,30 @@ evp::sunstudy::SolarCutTriangle Tri (double ax, double ay, double bx, double by,
         t.v[c][2] = 0.0;
     }
     return t;
+}
+
+bool OnLine (const std::array<double, 3>& a, const std::array<double, 3>& b, const std::array<double, 6>& line,
+             double tolerance)
+{
+    const auto subtract = [] (const std::array<double, 3>& u, const std::array<double, 3>& v) {
+        return std::array<double, 3> { u[0] - v[0], u[1] - v[1], u[2] - v[2] };
+    };
+    const auto cross = [] (const std::array<double, 3>& u, const std::array<double, 3>& v) {
+        return std::array<double, 3> { u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2],
+                                       u[0] * v[1] - u[1] * v[0] };
+    };
+    const auto length = [] (const std::array<double, 3>& u) {
+        return std::sqrt (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+    };
+    const std::array<double, 3> origin { line[0], line[1], line[2] }, end { line[3], line[4], line[5] };
+    const auto direction = subtract (end, origin), edge = subtract (b, a);
+    const double directionLength = length (direction), edgeLength = length (edge);
+    if (directionLength < 1.0e-12 || edgeLength < 1.0e-12)
+        return false;
+    const auto parallel = cross (direction, edge);
+    if (length (parallel) > 1.0e-8 * directionLength * edgeLength)
+        return false;
+    return length (cross (subtract (a, origin), direction)) <= tolerance * directionLength;
 }
 
 } // namespace
@@ -123,6 +150,61 @@ TEST (SunStudySolarCutPreview, EnlargingTheSweptSheetKeepsOneClosedExteriorBound
         EXPECT_TRUE (drawables.depthTested.meshIndices.empty ());
         for (const auto& vertex : drawables.xray.meshVertices)
             EXPECT_LE (vertex.rgba & 255u, 20u); // the sheet is less than 8% opaque
+    }
+}
+
+TEST (SunStudySolarCutPreview, CutFacesDoNotRestoreHiddenCutterSeams)
+{
+    geomsrv::Snapshot snapshot;
+    snapshot.meshes = { evptest::MakeBox ("tower", 103, -48, 12, 4, 16, 30) };
+    evp::sunstudy::SolarCutInput input;
+    input.point[0] = 100.0;
+    input.point[1] = -40.0;
+    input.point[2] = 12.0;
+    for (int i = 0; i < 5; ++i) {
+        evp::sunstudy::SunStep sun;
+        const double a = (-40.0 + i * 20.0) * 3.14159265358979323846 / 180.0;
+        const double altitude = (25.0 + (2 - std::abs (2 - i)) * 10.0) * 3.14159265358979323846 / 180.0;
+        sun.direction[0] = std::cos (altitude) * std::cos (a);
+        sun.direction[1] = std::cos (altitude) * std::sin (a);
+        sun.direction[2] = std::sin (altitude);
+        input.steps.push_back (sun);
+    }
+    input.blocks = { 1 };
+    for (const double radius : { 0.0, 1.0, 4.0 }) {
+        input.radius = radius;
+        evp::sunstudy::SolarCutResult cut;
+        ASSERT_TRUE (evp::sunstudy::ComputeSolarCut (snapshot, input, cut)) << cut.error;
+        ASSERT_EQ (cut.envelopeHiddenEdges.size (), 2 * (cut.sectors - 1)) << radius;
+        size_t capSeams = 0;
+        for (const auto& triangle : cut.caps)
+            for (int edge = 0; edge < 3; ++edge) {
+                const auto& a = triangle.v[edge];
+                const auto& b = triangle.v[(edge + 1) % 3];
+                for (const auto& hidden : cut.envelopeHiddenEdges)
+                    if (OnLine ({ a[0], a[1], a[2] }, { b[0], b[1], b[2] }, hidden, 1.0e-6)) {
+                        ++capSeams;
+                        break;
+                    }
+            }
+        ASSERT_GT (capSeams, 0u) << radius; // the fixture really transfers cutter seams to its caps
+        GhPreviewDrawables drawables;
+        BuildSolarCutGeometry (cut, input.point, drawables);
+        size_t solidEdges = 0, transferred = 0;
+        for (size_t i = 0; i < drawables.xray.lineVertices.size (); i += 6) {
+            const auto& line = drawables.xray.lineVertices[i];
+            if (line.rgba != kSolarCutEdgeRgba)
+                continue;
+            ++solidEdges;
+            const std::array<double, 3> a { line.x, line.y, line.z }, b { line.ox, line.oy, line.oz };
+            for (const auto& hidden : cut.envelopeHiddenEdges)
+                if (OnLine (a, b, hidden, 1.0e-4)) {
+                    ++transferred;
+                    break;
+                }
+        }
+        EXPECT_GT (solidEdges, 0u) << radius; // real cut boundaries stay
+        EXPECT_EQ (transferred, 0u) << radius;
     }
 }
 
