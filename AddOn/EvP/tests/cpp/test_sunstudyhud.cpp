@@ -760,12 +760,21 @@ TEST (SunStudyHud, RealShadowTimelineDrivesExactSunPathAndAutomaticLoop)
     ShadowPathGui gui;
     ASSERT_EQ (gui.state.sunStep, 0);
     ASSERT_EQ (gui.state.sunPathMinute, 600);
+    const auto expectDirection = [&gui] (const evp::sunstudy::SunStep& expected) {
+        ASSERT_TRUE (gui.state.sunPathMarkerValid);
+        for (int axis = 0; axis < 3; ++axis)
+            EXPECT_FLOAT_EQ (gui.state.sunPathDirection[axis], float (expected.direction[axis]));
+    };
+    expectDirection (gui.pathDay.steps[0]);
+    const std::array<float, 2> earlyMarker { gui.state.sunPathMarker[0], gui.state.sunPathMarker[1] };
     const auto forward = gui.StepForwardButtons ();
     ASSERT_EQ (forward.size (), 1u);
     gui.Click (forward[0]);
     EXPECT_EQ (gui.state.sunStep, 1);
     EXPECT_EQ (gui.state.sunPathSyncSource, SunPathSyncSource::Shadow);
     EXPECT_EQ (gui.state.sunPathMinute, 615);
+    expectDirection (gui.pathDay.steps[1]);
+    EXPECT_NE ((std::array<float, 2> { gui.state.sunPathMarker[0], gui.state.sunPathMarker[1] }), earlyMarker);
     EXPECT_EQ (gui.state.sunPathDay.year, 2028);
     EXPECT_EQ (gui.state.sunPathDay.month, 2);
     EXPECT_EQ (gui.state.sunPathDay.day, 29);
@@ -780,10 +789,13 @@ TEST (SunStudyHud, RealShadowTimelineDrivesExactSunPathAndAutomaticLoop)
     EXPECT_TRUE (gui.state.sunPlaying);
     EXPECT_EQ (gui.state.sunStep, 1);
     EXPECT_EQ (gui.state.sunPathMinute, 615);
+    expectDirection (gui.pathDay.steps[1]);
     gui.state.sunPlayedAt = ImGui::GetTime () - 1.0;
     gui.Frame ();
     EXPECT_EQ (gui.state.sunStep, 0) << "the real player loops from the last step";
     EXPECT_EQ (gui.state.sunPathMinute, 600);
+    expectDirection (gui.pathDay.steps[0]);
+    EXPECT_EQ ((std::array<float, 2> { gui.state.sunPathMarker[0], gui.state.sunPathMarker[1] }), earlyMarker);
     EXPECT_EQ (gui.state.sunPathSyncSource, SunPathSyncSource::Shadow);
     EXPECT_EQ (tapioca::test::SunStudyTestSubmissions (), 0);
     EXPECT_FALSE (gui.state.sunOverride);

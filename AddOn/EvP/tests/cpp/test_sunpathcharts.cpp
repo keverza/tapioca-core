@@ -20,7 +20,13 @@ evp::sunstudy::SunStep ChartSun (int minute)
     evp::sunstudy::SunStep result;
     result.time = { minute / 60, minute % 60 };
     result.direction[0] = 0.6;
+    result.direction[1] = double (minute - 660) / 1000.0;
     result.direction[2] = 0.8;
+    const double length =
+        std::sqrt (result.direction[0] * result.direction[0] + result.direction[1] * result.direction[1] +
+                   result.direction[2] * result.direction[2]);
+    for (auto& axis : result.direction)
+        axis /= length;
     return result;
 }
 
@@ -175,6 +181,18 @@ struct SunPathCharts : testing::Test {
     std::vector<ImVec2> StepForwardButtons () const
     {
         return SunStudyTestTimelineForwardButtons (chartDraw);
+    }
+
+    void ExpectDirection (const evp::sunstudy::SunStep& expected) const
+    {
+        ASSERT_TRUE (state.sunPathMarkerValid);
+        for (int axis = 0; axis < 3; ++axis)
+            EXPECT_FLOAT_EQ (state.sunPathDirection[axis], float (expected.direction[axis]));
+    }
+
+    std::array<float, 2> Marker () const
+    {
+        return { state.sunPathMarker[0], state.sunPathMarker[1] };
     }
 
     // Locate the actual full-width ChartFrame background, not a guessed widget
@@ -373,6 +391,8 @@ TEST_F (SunPathCharts, RealMapPlayerStepWaitsForItsAppliedEnvelope)
     Frame ();
     const auto forward = StepForwardButtons ();
     ASSERT_EQ (forward.size (), 2u) << "whole-map and point step-forward buttons";
+    ExpectDirection (geometry->days[0].steps[1]);
+    const auto appliedMarker = Marker ();
     const int requests = SunStudyTestViewRequests ();
     const int shadowStep = state.sunStep;
     Click (forward[0]);
@@ -384,9 +404,13 @@ TEST_F (SunPathCharts, RealMapPlayerStepWaitsForItsAppliedEnvelope)
     EXPECT_EQ (SunStudyTestRequestedView ().day, 1);
     EXPECT_EQ (SunStudyTestRequestedView ().step, 0);
     EXPECT_EQ (state.sunPathMinute, 675) << "the previous applied instant is still on screen";
+    ExpectDirection (geometry->days[0].steps[1]);
+    EXPECT_EQ (Marker (), appliedMarker);
     SetApplied ({ 1, 0, 1, 0 });
     Frame ();
     EXPECT_EQ (state.sunPathMinute, 600);
+    ExpectDirection (geometry->days[1].steps[0]);
+    EXPECT_NE (Marker (), appliedMarker);
     EXPECT_EQ (state.sunPathDay.month, 2);
     EXPECT_EQ (state.sunPathDay.day, 15) << "the fixed arc still follows the shown carrier, not the player request";
     EXPECT_EQ (state.sunStep, shadowStep);
@@ -398,6 +422,7 @@ TEST_F (SunPathCharts, RealFixedHourAndDayPlayersDoNotInventSelectedSuns)
 {
     const auto forward = StepForwardButtons ();
     ASSERT_EQ (forward.size (), 2u);
+    ExpectDirection (geometry->days[0].steps[1]);
     const int requests = SunStudyTestViewRequests ();
     Click (forward[0]); // Fixed hour 11:15 on Feb 29 has no traced step within its 15-minute quantum.
     EXPECT_EQ (state.sunPeriodDay, 1);
@@ -406,6 +431,7 @@ TEST_F (SunPathCharts, RealFixedHourAndDayPlayersDoNotInventSelectedSuns)
     EXPECT_EQ (SunStudyTestRequestedView ().day, 1);
     EXPECT_EQ (SunStudyTestRequestedView ().step, 2);
     EXPECT_EQ (state.sunPathMinute, 675) << "pending sunless request leaves the applied instant alone";
+    ExpectDirection (geometry->days[0].steps[1]);
     SetApplied ({ 1, 0, 1, -1 });
     Frame ();
     EXPECT_FALSE (state.sunPathMarkerValid);
@@ -438,6 +464,7 @@ TEST_F (SunPathCharts, RealPointPlayerOwnsStepsAndAutomaticMapTicksDoNotStealIt)
     Frame ();
     const auto forward = StepForwardButtons ();
     ASSERT_EQ (forward.size (), 2u) << "whole-map and point step-forward buttons";
+    ExpectDirection (geometry->days[0].steps[1]);
     const int requests = SunStudyTestViewRequests ();
     const int shadowStep = state.sunStep;
     Click (forward[1]);
@@ -445,10 +472,14 @@ TEST_F (SunPathCharts, RealPointPlayerOwnsStepsAndAutomaticMapTicksDoNotStealIt)
     EXPECT_EQ (state.sunPointPlayStep, 1);
     EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::PointPlayer);
     EXPECT_EQ (state.sunPathMinute, 675);
+    ExpectDirection (geometry->days[0].steps[1]);
+    const auto appliedMarker = Marker ();
     Click (forward[1]);
     EXPECT_EQ (state.sunPointPlayDay, 1);
     EXPECT_EQ (state.sunPointPlayStep, 0);
     EXPECT_EQ (state.sunPathMinute, 600);
+    ExpectDirection (geometry->days[1].steps[0]);
+    EXPECT_NE (Marker (), appliedMarker);
     EXPECT_EQ (SunStudyTestViewRequests (), requests) << "point playback never requests a whole-map frame";
 
     state.sunPeriodPlay.playing = true;
@@ -457,6 +488,7 @@ TEST_F (SunPathCharts, RealPointPlayerOwnsStepsAndAutomaticMapTicksDoNotStealIt)
     EXPECT_GT (SunStudyTestViewRequests (), requests);
     EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::PointPlayer);
     EXPECT_EQ (state.sunPathMinute, 600);
+    ExpectDirection (geometry->days[1].steps[0]);
     EXPECT_EQ (state.sunPointPlayDay, 1);
     EXPECT_EQ (state.sunPointPlayStep, 0);
     EXPECT_EQ (state.sunStep, shadowStep);
