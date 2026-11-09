@@ -1206,6 +1206,7 @@ set (EVP_TEST_SOURCES
     test_sunpathstudydata.cpp
     test_sunpathrender.cpp
     test_sunpathband.cpp
+    test_sunpathcharts.cpp
     test_analysisruncontrol.cpp
     test_sunstudytextureupdates.cpp
     test_sunstudytaskworker.cpp

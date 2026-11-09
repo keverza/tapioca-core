@@ -4,6 +4,7 @@
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "MeshFixtures.hpp"
+#include "SunStudyHudTestServices.hpp"
 
 #include <gtest/gtest.h>
 #include <imgui.h>
@@ -13,9 +14,11 @@ namespace geomsrv::sunstudyhud {
 static std::shared_ptr<SunPath> s_path;
 static std::shared_ptr<const SunPathPeriodData> s_pathPeriod;
 static int s_pathRequests = 0;
-void RequestSunPath (int, int, int)
+static std::vector<std::array<int, 3>> s_pathRequestDates;
+void RequestSunPath (int year, int month, int day)
 {
     ++s_pathRequests;
+    s_pathRequestDates.push_back ({ year, month, day });
 }
 std::shared_ptr<const SunPath> LatestSunPath ()
 {
@@ -26,6 +29,24 @@ std::shared_ptr<const SunPathPeriodData> LatestSunPathPeriod ()
     return s_pathPeriod;
 }
 } // namespace geomsrv::sunstudyhud
+
+namespace tapioca::test {
+void SetSunPathTestCapture (std::shared_ptr<geomsrv::sunstudyhud::SunPath> path)
+{
+    geomsrv::sunstudyhud::s_path = std::move (path);
+    geomsrv::sunstudyhud::s_pathRequestDates.clear ();
+}
+
+void SetSunPathTestPeriod (std::shared_ptr<const geomsrv::sunstudyhud::SunPathPeriodData> period)
+{
+    geomsrv::sunstudyhud::s_pathPeriod = std::move (period);
+}
+
+const std::vector<std::array<int, 3>>& SunPathTestCaptureDates ()
+{
+    return geomsrv::sunstudyhud::s_pathRequestDates;
+}
+} // namespace tapioca::test
 
 using namespace geomsrv::archviz;
 using namespace geomsrv::sunstudyhud;

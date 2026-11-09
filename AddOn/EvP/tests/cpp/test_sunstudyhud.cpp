@@ -15,6 +15,7 @@
 #include "SunStudy/SunStudyRustStudy.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include "sunstudy_core_fixture.hpp"
+#include "SunStudyHudTestServices.hpp"
 
 #include <gtest/gtest.h>
 #include <imgui.h>
@@ -65,6 +66,7 @@ static PeriodInfo s_period;
 static PeriodView s_shownView;
 static int s_viewRequests = 0;
 static int s_cacheClears = 0;
+static std::shared_ptr<const std::vector<KeptDay>> s_kept;
 PeriodInfo CurrentPeriod ()
 {
     return s_period;
@@ -77,7 +79,7 @@ bool ShowPeriodView (const PeriodView& view, std::string&)
 }
 std::shared_ptr<const std::vector<KeptDay>> KeptPeriodDays ()
 {
-    return nullptr;
+    return s_kept;
 }
 bool ReadPeriodPoints (const std::vector<size_t>&, PeriodPoint& point)
 {
@@ -103,6 +105,45 @@ bool ClearPeriodCache (std::string&)
 }
 } // namespace geomsrv::sunstudyhud
 
+namespace tapioca::test {
+void ResetSunStudyHudServices ()
+{
+    using namespace geomsrv::sunstudyhud;
+    s_status = {};
+    s_cancels = s_submissions = 0;
+    s_period = {};
+    s_profile = std::make_shared<PeriodProfile> ();
+    s_shownView = {};
+    s_viewRequests = s_cacheClears = 0;
+    s_kept.reset ();
+}
+
+geomsrv::sunstudyhud::PeriodInfo& SunStudyTestPeriod ()
+{
+    return geomsrv::sunstudyhud::s_period;
+}
+
+geomsrv::sunstudyhud::PeriodProfile& SunStudyTestProfile ()
+{
+    return *geomsrv::sunstudyhud::s_profile;
+}
+
+void SetSunStudyTestKeptDays (std::shared_ptr<const std::vector<geomsrv::sunstudyhud::KeptDay>> days)
+{
+    geomsrv::sunstudyhud::s_kept = std::move (days);
+}
+
+int SunStudyTestViewRequests ()
+{
+    return geomsrv::sunstudyhud::s_viewRequests;
+}
+
+int SunStudyTestSubmissions ()
+{
+    return geomsrv::sunstudyhud::s_submissions;
+}
+} // namespace tapioca::test
+
 using namespace geomsrv::archviz;
 
 TEST (SunStudyHud, SolarCutTooltipsNameDurationClockRangeAndActualWonTime)
@@ -126,13 +167,7 @@ struct SectionGui {
     int pointOpen = -1;
     SectionGui ()
     {
-        geomsrv::sunstudyhud::s_status = {};
-        geomsrv::sunstudyhud::s_cancels = geomsrv::sunstudyhud::s_submissions = 0;
-        geomsrv::sunstudyhud::s_period = {};
-        geomsrv::sunstudyhud::s_profile = std::make_shared<geomsrv::sunstudyhud::PeriodProfile> ();
-        geomsrv::sunstudyhud::s_shownView = {};
-        geomsrv::sunstudyhud::s_viewRequests = 0;
-        geomsrv::sunstudyhud::s_cacheClears = 0;
+        tapioca::test::ResetSunStudyHudServices ();
         auto& io = ImGui::GetIO ();
         io.IniFilename = nullptr;
         io.DisplaySize = { 500, 1400 };
