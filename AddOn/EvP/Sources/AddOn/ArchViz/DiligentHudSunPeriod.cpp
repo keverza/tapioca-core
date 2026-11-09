@@ -20,6 +20,7 @@
 
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
+#include "ArchViz/DiligentHudSunPeriodLegend.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
@@ -496,56 +497,6 @@ void DaysHistogram (const sunstudyhud::PeriodInfo& period, const sunstudyhud::Pe
     }
 }
 
-// One legend entry: its swatch and word, its meaning on hover.
-void LegendItem (ImU32 colour, const char* text, const char* meaning)
-{
-    const ImVec2 at = ImGui::GetCursorScreenPos ();
-    const float size = ImGui::GetTextLineHeight () * 0.7f;
-    ImGui::GetWindowDrawList ()->AddRectFilled (ImVec2 (at.x, at.y + size * 0.2f),
-                                                ImVec2 (at.x + size, at.y + size * 1.2f), colour);
-    ImGui::Dummy (ImVec2 (size, size));
-    ImGui::SameLine (0.0f, 4.0f);
-    ImGui::TextDisabled ("%s", text);
-    if (meaning != nullptr && ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("%s", meaning);
-    ImGui::SameLine ();
-}
-
-constexpr const char* kMeanDirect = "Direct sun: hours with a clear line to the sun.";
-constexpr const char* kMeanFront = "In front: hours the sun is on the surface's side -- the most it could get with "
-                                   "nothing in the way. Depends only on orientation.";
-constexpr const char* kMeanUp = "Sun up: hours the sun is above the horizon in the study's time slice. The same for "
-                                "every surface, so it is the ceiling, not a property of the point.";
-constexpr const char* kMeanLost = "Lost: hours the sun was in front of the surface but the model blocked it.";
-constexpr const char* kMeanAccess = "Access: direct sun as a share of the sun in front -- how much of what it could "
-                                    "get it actually gets.";
-
-void BarsLegend (int quantity, const Ramp& ramp)
-{
-    switch (quantity) {
-        case 1:
-            LegendItem (ramp.At (0.7), "in front", kMeanFront);
-            LegendItem (kGhost, "sun up", kMeanUp);
-            break;
-        case 2:
-            LegendItem (ramp.At (0.7), "lost", kMeanLost);
-            LegendItem (kGhost, "in front", kMeanFront);
-            break;
-        case 3:
-            LegendItem (ramp.At (0.7), "access %", kMeanAccess);
-            break;
-        case 4:
-            LegendItem (ramp.At (0.7), "days at or above", "Days whose direct sun reached the threshold (line).");
-            LegendItem (kGhost, "below", "Days below the threshold.");
-            break;
-        default:
-            LegendItem (ramp.At (0.7), "direct", kMeanDirect);
-            LegendItem (kGhost, "in front", kMeanFront);
-            break;
-    }
-    ImGui::NewLine ();
-}
-
 // The profile's cell value for a quantity, as a 0-1 share; < 0 when the sun
 // is behind the surface for an access view (no possible sun to share).
 double CellShare (int quantity, double up, double facing, double lit)
@@ -848,7 +799,7 @@ void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int q
         DaysHistogram (period, read ? &point : nullptr, std::clamp (state.sunPeriodThreshold, 0, 12), ramp);
     else
         MonthBars (quantity, period, read ? &point : nullptr, shownMonth, ramp);
-    BarsLegend (quantity, ramp);
+    DrawSunStudyPeriodLegend (quantity, ramp.At (0.7), kGhost);
 
     // The period in a line: totals, best and worst month, threshold days.
     char line[200] = "";

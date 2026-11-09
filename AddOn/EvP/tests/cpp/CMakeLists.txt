@@ -593,6 +593,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunRun.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPath.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPeriod.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPeriodLegend.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPoint.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunObstruction.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunSeasons.cpp"
