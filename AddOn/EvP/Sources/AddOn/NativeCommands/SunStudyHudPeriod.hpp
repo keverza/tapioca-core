@@ -30,6 +30,9 @@ bool WorkerBusy ();
 void Release ();
 // Atomically refuse an active worker or release the period and its carrier.
 bool ReleaseIfIdle ();
+// An accepted owning-run cancellation invalidates display publication at once;
+// the worker's ordinary finish path still retires the retained analysis safely.
+void InvalidateSunPath ();
 // Quit/unload: drop pending requests, join the worker, release.
 void Shutdown ();
 

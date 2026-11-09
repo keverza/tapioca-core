@@ -687,6 +687,7 @@ void Cancel ()
     std::lock_guard<std::mutex> lock (gMutex);
     if (!gStatus.running || s_ticket == nullptr || !s_ticket->Cancel ())
         return;
+    period::InvalidateSunPath ();
     gStatus.cancelRequestedMs =
         std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - s_started).count ();
     archviz::ArchVizLog (

@@ -11,6 +11,8 @@
 #include "NativeCommands/SunStudyDisplayCommands.hpp"
 #include "NativeCommands/SunStudyDisplayPreparation.hpp"
 #include "SunStudy/SunStudyStore.hpp"
+#include "SunStudy/SunPathStudyData.hpp"
+#include "SunStudy/SunPathPeriodPublication.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -43,7 +45,7 @@ struct RetainedPeriod {
     std::shared_ptr<const evp::sunstudy::StudyRecord> carrier;
     std::string carrierId;
     uint64_t carrierRevision = 0;
-    std::vector<evp::sunstudy::ProfileDay> days;
+    std::shared_ptr<const SunPathPeriodGeometry> geometry;
     std::shared_ptr<const std::vector<KeptDay>> kept; // playback, when the run kept its days
     std::mutex annualMutex;
 };
@@ -51,6 +53,7 @@ struct RetainedPeriod {
 std::mutex gPeriodMutex; // guards everything below
 std::shared_ptr<RetainedPeriod> gRetained;
 PeriodInfo gPeriodInfo;
+SunPathPeriodPublication s_sunPathPeriod;
 std::optional<PeriodView> gWantView;
 std::optional<std::vector<size_t>> gWantProfile;
 std::shared_ptr<PeriodProfile> gProfile = std::make_shared<PeriodProfile> ();
@@ -60,6 +63,7 @@ bool gPeriodWorkerRunning = false;
 void ReleaseLocked ()
 {
     gRetained.reset ();
+    s_sunPathPeriod.Reset ();
     gPeriodInfo = PeriodInfo ();
     gWantView.reset ();
     gWantProfile.reset ();
@@ -76,7 +80,13 @@ void RetainImpl (std::unique_ptr<rs::RustAnnualSun> annual, std::shared_ptr<cons
     retained->carrier = std::move (carrier);
     retained->carrierId = carrierId;
     retained->carrierRevision = carrierRevision;
-    retained->days = std::move (days);
+    auto geometry = std::make_shared<SunPathPeriodGeometry> ();
+    geometry->studyId = carrierId;
+    geometry->revision = carrierRevision;
+    geometry->year = retained->carrier->year;
+    geometry->estimate = estimate;
+    geometry->days = std::move (days);
+    retained->geometry = std::move (geometry);
     PeriodInfo period;
     period.available = true;
     period.studyId = carrierId;
@@ -102,6 +112,7 @@ void RetainImpl (std::unique_ptr<rs::RustAnnualSun> annual, std::shared_ptr<cons
     std::lock_guard<std::mutex> lock (gPeriodMutex);
     gRetained = std::move (retained);
     gPeriodInfo = period;
+    s_sunPathPeriod.Retain (gRetained->geometry);
 }
 
 rs::AnnualQuantity QuantityOf (int quantity)
@@ -208,7 +219,7 @@ void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& 
         // The mean of the point's samples: sun up is the site's, the same for
         // every sample; in front and lit are averaged. The per-step series is
         // only for this point, never an archive of every cell on the map.
-        for (const auto& day : retained.days) {
+        for (const auto& day : retained.geometry->days) {
             result.dayWeights.push_back (day.weightDays);
             result.dayHoursPerStep.push_back (day.hoursPerStep);
             std::vector<uint16_t> minutes;
@@ -224,7 +235,7 @@ void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& 
             const double* normal =
                 carrier.normals.size () == carrier.positions.size () ? &carrier.normals[3 * sample] : nullptr;
             evp::sunstudy::PointProfile profile;
-            evp::sunstudy::ComputePointProfile (&carrier.positions[3 * sample], normal, retained.days,
+            evp::sunstudy::ComputePointProfile (&carrier.positions[3 * sample], normal, retained.geometry->days,
                                                 *carrier.traversal, 0.001, profile);
             for (int month = 0; month < 12; ++month)
                 for (int hour = 0; hour < 24; ++hour) {
@@ -317,8 +328,22 @@ void PeriodWorker ()
             std::lock_guard<std::mutex> lock (gPeriodMutex);
             if (gRetained == retained) {
                 gPeriodInfo.error = error;
-                if (error.empty ())
+                if (error.empty ()) {
                     gPeriodInfo.applied = *view;
+                    SunPathAppliedFrame applied { view->frame, view->month, -1, -1 };
+                    // Kept-day indices need not equal geometry indices (sunless
+                    // days can have no archive frame). Match calendar and clock.
+                    if (view->frame != 0 && retained->kept != nullptr && view->day >= 0 &&
+                        size_t (view->day) < retained->kept->size ()) {
+                        const auto& kept = (*retained->kept)[size_t (view->day)];
+                        const int minute = view->step >= 0 && size_t (view->step) < kept.minutes.size ()
+                                               ? kept.minutes[size_t (view->step)]
+                                               : -1;
+                        applied = SunPathAppliedFrameFor (*retained->geometry, view->frame, view->month, kept.month,
+                                                          kept.day, minute);
+                    }
+                    s_sunPathPeriod.Apply (retained->geometry, applied);
+                }
             }
         }
         if (profile)
@@ -395,6 +420,12 @@ bool ReleaseIfIdle ()
     return ReleaseRetained (true);
 }
 
+void InvalidateSunPath ()
+{
+    std::lock_guard<std::mutex> lock (gPeriodMutex);
+    s_sunPathPeriod.Reset ();
+}
+
 void Shutdown ()
 {
     std::thread worker;
@@ -415,6 +446,12 @@ PeriodInfo CurrentPeriod ()
 {
     std::lock_guard<std::mutex> lock (gPeriodMutex);
     return gPeriodInfo;
+}
+
+std::shared_ptr<const SunPathPeriodData> LatestSunPathPeriod ()
+{
+    std::lock_guard<std::mutex> lock (gPeriodMutex);
+    return s_sunPathPeriod.Latest ();
 }
 
 bool ShowPeriodView (const PeriodView& view, std::string& error)
