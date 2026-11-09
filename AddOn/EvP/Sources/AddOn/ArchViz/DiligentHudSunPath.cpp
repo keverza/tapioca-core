@@ -15,6 +15,7 @@
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/SunPathCompass.hpp"
 #include "ArchViz/SunPathMoment.hpp"
+#include "ArchViz/SunPathBandDraw.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
@@ -174,6 +175,8 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
 {
     state.sunPathMarkerValid = false;
     state.sunPathMinute = -1;
+    state.sunPathBand.Update (state.sunPathDay, state.sunPathPeriod, state.sunShowsPeriod);
+    state.sunPathBandNote.clear ();
     if (!state.sunPathShown || viewProj == nullptr || width == 0 || height == 0)
         return;
     // Fixed arcs follow the shown study/run date, never transient chart hover.
@@ -186,6 +189,9 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
     if (path == nullptr || !path->ready || !path->error.empty () || !Dome (state, centre, radius, groundZ))
         return;
     ImDrawList* draw = ImGui::GetBackgroundDrawList ();
+    ImDrawListSplitter layers;
+    layers.Split (draw, 2);
+    layers.SetCurrentChannel (draw, 1); // fixed arcs/compass above the analysis band
     const auto at = [&] (const float direction[3], ImVec2& screen) {
         const double p[3] = { centre[0] + radius * direction[0], centre[1] + radius * direction[1],
                               centre[2] + radius * direction[2] };
@@ -280,12 +286,36 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
                     }
     }
     state.sunPathMinute = sun.valid ? sun.minute : -1;
+    int highlightMonth = sun.valid ? sun.month : 0, highlightDay = sun.valid ? sun.day : 0;
+    if (!sun.valid && state.sunPathPeriod != nullptr) {
+        const auto& applied = state.sunPathPeriod->applied;
+        highlightMonth = applied.month;
+        if (applied.frame == 2 && applied.day >= 0 &&
+            size_t (applied.day) < state.sunPathPeriod->geometry->days.size ()) {
+            const auto& day = state.sunPathPeriod->geometry->days[size_t (applied.day)];
+            highlightMonth = day.month;
+            highlightDay = day.day;
+        }
+    }
+    layers.SetCurrentChannel (draw, 0);
+    const bool pointSlice = selection.source == SunPathSyncSource::PointPlayer && selection.pointActive;
+    const auto band = DrawSunPathBand (draw, state.sunPathBand.Data (), sun, highlightMonth, highlightDay,
+                                       state.sunPathBandHoverFrame == frame,
+                                       pointSlice ? state.sunPointPlayFrom : double (state.sunTimeFrom) * 60.0,
+                                       pointSlice ? state.sunPointPlayTo : double (state.sunTimeTo) * 60.0, at);
+    layers.Merge (draw);
+    const bool estimate = state.sunPathPeriod != nullptr && state.sunPathPeriod->geometry->estimate;
+    state.sunPathBandNote = SunPathBandCaption (band, estimate);
+    const bool overUi = ImGui::IsWindowHovered (ImGuiHoveredFlags_AnyWindow) || ImGui::IsAnyItemActive ();
     ImVec2 s;
-    if (!sun.valid || !at (sun.direction, s))
+    if (!sun.valid || !at (sun.direction, s)) {
+        if (band.hot && !overUi)
+            ImGui::SetTooltip ("%s", state.sunPathBandNote.c_str ());
         return;
+    }
     std::copy (sun.direction, sun.direction + 3, state.sunPathDirection);
     const ImVec2 mouse = ImGui::GetIO ().MousePos;
-    const bool hot = std::hypot (mouse.x - s.x, mouse.y - s.y) <= kSunHoverRadius;
+    const bool hot = !overUi && std::hypot (mouse.x - s.x, mouse.y - s.y) <= kSunHoverRadius;
     ImDrawList* front = ImGui::GetForegroundDrawList ();
     front->AddCircleFilled (s, hot ? 9.0f : 7.0f, IM_COL32 (255, 220, 60, 255));
     if (hot)
@@ -300,6 +330,8 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
                                     state.sunRunMonth, state.sunRunDay);
         if (!analysis.empty ())
             label += (label.empty () ? "" : "\n") + analysis;
+        if (band.total > 0)
+            label += "\n" + state.sunPathBandNote;
         const ImVec2 textAt (s.x + 12.0f, s.y - 7.0f);
         const ImVec2 size = ImGui::CalcTextSize (label.c_str ());
         front->AddRectFilled (ImVec2 (textAt.x - 5.0f, textAt.y - 4.0f),

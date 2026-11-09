@@ -34,6 +34,7 @@
 #include "ArchViz/DiligentScene.hpp" // ElementInfo, for the hover callout
 #include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/SunPathMoment.hpp"
+#include "ArchViz/SunPathBand.hpp"
 #include "ArchViz/TraceAnnotationLayer.hpp"
 #include "SunStudy/SunStudyPointProfile.hpp"
 
@@ -307,6 +308,8 @@ struct HudState {
     SunPathMoment sunPathHover, sunPathPointMoment;
     int sunPathHoverFrame = -1, sunPathMapFrame = -1, sunPathShadowFrame = -1, sunPathPointFrame = -1;
     int sunPathBandHoverFrame = -1;
+    SunPathBandCache sunPathBand;
+    std::string sunPathBandNote;
     bool sunPathMarkerValid = false;
     float sunPathMarker[2] = {}; // the sun disc, projected last frame
     int sunPathMinute = -1;

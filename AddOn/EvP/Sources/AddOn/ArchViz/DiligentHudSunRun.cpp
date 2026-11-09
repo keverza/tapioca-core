@@ -404,8 +404,10 @@ void DrawSunStudySunPathStatus (HudState& state, const std::string& studyId)
     state.sunShownDate = day.available ? day.year * 10000 + day.month * 100 + day.day : 0;
     if (state.sunPathShown)
         SunStudyNote ("Sun path is display-only",
-                      "Use the existing clocks, shadow slider and players to select time. Hovering the sun shows "
-                      "its date/time and analysis period; the path never changes the viewer's sun or study inputs.");
+                      ("Use the existing clocks, shadow slider and players to select time. Hovering the sun shows "
+                       "its date/time and analysis period; the path never changes the viewer's sun or study inputs.\n" +
+                       state.sunPathBandNote)
+                          .c_str ());
 }
 
 // The Shadows view of a period (#152 follow-up): which day's shadows. A kept

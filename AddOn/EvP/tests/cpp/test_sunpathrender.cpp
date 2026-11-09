@@ -1,5 +1,6 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/SunPathSync.hpp"
+#include "ArchViz/SunPathBandDraw.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "MeshFixtures.hpp"
@@ -249,4 +250,59 @@ TEST_F (SunPathGui, ActiveShadowControlWinsOverPausedPointAndPendingPeriodIntent
     Draw ();
     EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::None); // hidden controls cannot retain ownership
     EXPECT_EQ (state.sunPathMinute, 605);
+}
+
+TEST_F (SunPathGui, BandUsesImmutableAnalysisWindowWhileSliceScaleAndPointOnlyAffectDisplay)
+{
+    state.sunPathDay.hourFrom = 10;
+    state.sunPathDay.hourTo = 12;
+    state.sunPathDay.timestepMinutes = 60;
+    Draw ();
+    EXPECT_EQ (state.sunPathBand.Data ().steps, 2u);
+    EXPECT_NE (state.sunPathBandNote.find ("All 2"), std::string::npos);
+    const auto builds = state.sunPathBand.Builds ();
+    const auto markerX = state.sunPathMarker[0], markerY = state.sunPathMarker[1];
+    state.sunTimeFrom = 11.0f;
+    state.sunTimeTo = 12.0f;
+    state.sunPointPlaced = true;
+    state.sunPointCentre[0] = 300.0;
+    state.sunPointCentre[2] = 80.0;
+    Draw ();
+    EXPECT_EQ (state.sunPathBand.Builds (), builds);
+    EXPECT_EQ (state.sunPathBand.Data ().steps, 2u);
+    EXPECT_FLOAT_EQ (state.sunPathMarker[0], markerX);
+    EXPECT_FLOAT_EQ (state.sunPathMarker[1], markerY);
+    state.sunPathScale = 2.0f;
+    Draw ();
+    EXPECT_EQ (state.sunPathBand.Builds (), builds);
+    EXPECT_EQ (state.sunPathDay.steps.size (), 2u);
+}
+
+TEST_F (SunPathGui, DrawingLodDisclosesOmissionsAndStillBreaksAtClippedSkippedSamples)
+{
+    SunPathBand band;
+    SunPathBandDay day;
+    day.runs.emplace_back ();
+    for (int i = 0; i < 300; ++i) {
+        SunPathMoment moment;
+        moment.valid = true;
+        moment.minute = i;
+        moment.direction[0] = float (i);
+        day.runs[0].push_back (moment);
+    }
+    band.days.push_back (day);
+    band.steps = 300;
+    SunPathBandDrawing result;
+    Draw ({ 15, 100 }, false, [&] {
+        result = DrawSunPathBand (ImGui::GetBackgroundDrawList (), band, {}, 0, 0, false, 0, 1440,
+                                  [] (const float direction[3], ImVec2& screen) {
+                                      screen = { direction[0] * 10.0f, 100.0f };
+                                      return direction[0] != 1.0f; // skipped by LOD but must still split the ribbon
+                                  });
+    });
+    EXPECT_TRUE (result.decimated);
+    EXPECT_LT (result.shown, result.total);
+    EXPECT_FALSE (result.hot); // no bridge from x=0 to x=30 through the clipped sample
+    EXPECT_NE (SunPathBandCaption (result, true).find ("LOD preview:"), std::string::npos);
+    EXPECT_NE (SunPathBandCaption (result, true).find ("calendar weights"), std::string::npos);
 }
