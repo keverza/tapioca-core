@@ -184,6 +184,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyObstruction.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyLiftedPoint.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySolarCut.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySolarExposure.cpp"
     "${EVP_ROOT}/Sources/AddOn/NativeCommands/SunStudySeasonal.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySampler.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySurfaceSampling.cpp"
@@ -1188,6 +1189,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyoccluders.cpp
     test_sunstudyobstruction.cpp
     test_sunstudysolarcut.cpp
+    test_sunstudysolarexposure.cpp
     test_sunstudysolarcutpreview.cpp
     test_sunstudyobstruction_geometry.cpp
     test_sunstudyobstruction_controller.cpp
