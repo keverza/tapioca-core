@@ -306,3 +306,38 @@ TEST_F (SunPathGui, DrawingLodDisclosesOmissionsAndStillBreaksAtClippedSkippedSa
     EXPECT_NE (SunPathBandCaption (result, true).find ("LOD preview:"), std::string::npos);
     EXPECT_NE (SunPathBandCaption (result, true).find ("calendar weights"), std::string::npos);
 }
+
+TEST_F (SunPathGui, AutomaticPlayerTicksCannotStealAnotherControlsExplicitOwnership)
+{
+    auto geometry = std::make_shared<SunPathPeriodGeometry> ();
+    geometry->year = 2028;
+    geometry->studyId = "shown";
+    geometry->revision = 17;
+    geometry->days = { { 2, 29, 1.0, 0.25, state.sunPathDay.steps } };
+    state.sunShowsPeriod = true;
+    state.sunPathPeriod = std::make_shared<SunPathPeriodData> (SunPathPeriodData { geometry, { 1, 0, 0, 0 } });
+    state.sunStepMinutes = { 605, 665 };
+    state.sunStep = 1;
+    state.sunPointPlayStep = 0;
+    PeriodProfile profile;
+    profile.studyId = "shown";
+    profile.revision = 17;
+    profile.ready = true;
+    profile.dayMonth = { 2 };
+    profile.dayOfMonth = { 29 };
+    profile.dayMinutes = { { 605, 665 } };
+    Draw ({ -100, -100 }, false, [&] {
+        state.sunPathShadowFrame = ImGui::GetFrameCount ();
+        state.sunPathSyncSource = SunPathSyncSource::Shadow;
+        PublishSunPathMapPlayback (state, true, false, false); // a tick, not input in its own controls
+        auto before = SunPathPointControlOf (state);
+        before.step = 1;
+        PublishSunPathPointPlayback (state, profile, -1, before, false);
+        EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::Shadow);
+    });
+    EXPECT_EQ (state.sunPathMinute, 665);
+    Draw ({ -100, -100 }, false, [&] {
+        PublishSunPathMapPlayback (state, true, false, true); // an explicit edit in the map controls
+    });
+    EXPECT_EQ (state.sunPathMinute, 605);
+}

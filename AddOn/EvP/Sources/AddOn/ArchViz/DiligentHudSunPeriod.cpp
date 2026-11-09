@@ -640,6 +640,7 @@ void DayStrip (HudState& state, int quantity, const sunstudyhud::PeriodProfile* 
 void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, const char* note)
 {
     const auto before = SunPathPointControlOf (state);
+    const ImVec2 controlStart = ImGui::GetCursorScreenPos ();
     const float half = (ImGui::GetContentRegionAvail ().x - ImGui::GetStyle ().ItemSpacing.x) * 0.5f;
     ImGui::SetNextItemWidth (half);
     const int mode = std::clamp (state.sunPointPlayMode, 0, 2);
@@ -793,7 +794,12 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
         state.sunPointPlayTo = 1440.0;
         state.sunPointPlay.playing = false;
     }
-    PublishSunPathPointPlayback (state, *profile, hover, before);
+    const bool input =
+        ImGui::IsMouseHoveringRect (controlStart, ImVec2 (controlStart.x + ImGui::GetContentRegionAvail ().x,
+                                                          ImGui::GetCursorScreenPos ().y)) &&
+        (ImGui::IsAnyItemActive () || ImGui::IsMouseReleased (0));
+    PublishSunPathPointPlayback (state, *profile, hover, before,
+                                 input || selection.step >= 0 || selection.slice || selection.clear);
 }
 
 void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int quantity,
@@ -916,6 +922,7 @@ void DrawSunStudyPeriodView (HudState& state)
         state.sunPeriodPlayMode = kMonthByMonth;
     const int mode = std::clamp (state.sunPeriodPlayMode, 0, 3);
     const bool wasPlaying = state.sunPeriodPlay.playing;
+    const ImVec2 controlStart = ImGui::GetCursorScreenPos ();
     QuantityButtons (state, mode);
     const int quantity = std::clamp (state.sunPeriodQuantity, 0, kQuantityCount - 1);
     SunLegendUnit () = IsShare (quantity) && !Instant (mode) ? SunValueUnit::Share : SunValueUnit::Hours;
@@ -948,7 +955,11 @@ void DrawSunStudyPeriodView (HudState& state)
         asked = period.applied;
         askedFor = period.studyId;
     }
-    PublishSunPathMapPlayback (state, want != asked, wasPlaying);
+    const bool input =
+        ImGui::IsMouseHoveringRect (controlStart, ImVec2 (controlStart.x + ImGui::GetContentRegionAvail ().x,
+                                                          ImGui::GetCursorScreenPos ().y)) &&
+        (ImGui::IsAnyItemActive () || ImGui::IsMouseReleased (0));
+    PublishSunPathMapPlayback (state, want != asked, wasPlaying, input);
     if (want != asked) {
         std::string error;
         if (sunstudyhud::ShowPeriodView (want, error))

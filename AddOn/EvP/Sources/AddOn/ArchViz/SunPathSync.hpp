@@ -66,7 +66,8 @@ template <class Profile> bool SunPathProfileMatches (const HudState& state, cons
 }
 
 template <class Profile>
-void PublishSunPathPointPlayback (HudState& state, const Profile& profile, int hover, SunPathPointControl before)
+void PublishSunPathPointPlayback (HudState& state, const Profile& profile, int hover, SunPathPointControl before,
+                                  bool interacted = false)
 {
     if (!SunPathProfileMatches (state, profile))
         return;
@@ -86,15 +87,15 @@ void PublishSunPathPointPlayback (HudState& state, const Profile& profile, int h
     const bool changed = before.day != d || before.step != s || before.mode != state.sunPointPlayMode ||
                          before.clock != state.sunPointPlayClock;
     if (before.playing != state.sunPointPlay.playing ||
-        (changed && (ImGui::IsAnyItemActive () || ImGui::IsMouseReleased (0))))
+        (interacted && (changed || ImGui::IsMouseDown (0) || ImGui::IsMouseReleased (0))))
         state.sunPathSyncSource = SunPathSyncSource::PointPlayer;
 }
 
-inline void PublishSunPathMapPlayback (HudState& state, bool changed, bool wasPlaying)
+inline void PublishSunPathMapPlayback (HudState& state, bool changed, bool wasPlaying, bool interacted = false)
 {
     state.sunPathMapFrame = ImGui::GetFrameCount ();
     if (wasPlaying != state.sunPeriodPlay.playing ||
-        (changed && (ImGui::IsAnyItemActive () || ImGui::IsMouseReleased (0))))
+        (interacted && (changed || ImGui::IsMouseDown (0) || ImGui::IsMouseReleased (0))))
         state.sunPathSyncSource = SunPathSyncSource::MapPlayer;
 }
 
