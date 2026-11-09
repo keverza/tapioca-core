@@ -685,6 +685,14 @@ TEST (SunStudyHud, DetailedPointPlaybackNeedsNoWholeMapDayArchive)
     gui.state.sunPointSamplesFor = "sun-1|0.000";
 
     auto& profile = *geomsrv::sunstudyhud::s_profile;
+    profile.studyId = period.studyId;
+    profile.revision = 1;
+    auto geometry = std::make_shared<geomsrv::sunstudyhud::SunPathPeriodGeometry> ();
+    geometry->studyId = period.studyId;
+    geometry->revision = profile.revision;
+    geometry->year = 2028;
+    gui.state.sunPathPeriod = std::make_shared<geomsrv::sunstudyhud::SunPathPeriodData> (
+        geomsrv::sunstudyhud::SunPathPeriodData { geometry, {} });
     profile.samples = { 0 };
     profile.ready = true;
     profile.dayMonth = { 3, 4, 5 };

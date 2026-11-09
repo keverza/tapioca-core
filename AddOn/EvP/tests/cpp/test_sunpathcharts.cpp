@@ -31,6 +31,8 @@ struct SunPathCharts : testing::Test {
     ImDrawList* chartDraw = nullptr;
     float chartWidth = 0.0f;
     int pointOpen = 1;
+    bool logText = false;
+    std::string text;
     float matrix[16] = { 0.01f, 0, 0, 0, 0, 0.01f, 0, 0, 0, 0, 0.01f, 0, 0, 0, 0.3f, 1 };
 
     void SetUp () override
@@ -150,7 +152,13 @@ struct SunPathCharts : testing::Test {
         ImGui::Begin ("period chart integration", nullptr, ImGuiWindowFlags_NoSavedSettings);
         ImGui::GetStateStorage ()->SetInt (ImGui::GetID ("Study point"), pointOpen);
         chartWidth = ImGui::GetContentRegionAvail ().x;
+        if (logText)
+            ImGui::LogToBuffer (0);
         DrawSunStudyPeriodView (state);
+        if (logText) {
+            text = ImGui::GetCurrentContext ()->LogBuffer.c_str ();
+            ImGui::LogFinish ();
+        }
         chartDraw = ImGui::GetWindowDrawList ();
         ImGui::End ();
         DrawSunStudySunPath (state, matrix, 800, 1800);
@@ -176,6 +184,17 @@ struct SunPathCharts : testing::Test {
         ADD_FAILURE () << "No actual chart background of height " << height;
         return {};
     }
+
+    ImRect Clock ()
+    {
+        const ImU32 colour = IM_COL32 (100, 106, 116, 60);
+        ImRect result;
+        for (const auto& vertex : chartDraw->VtxBuffer)
+            if (vertex.col == colour)
+                result.Add (vertex.pos);
+        EXPECT_FALSE (result.IsInverted ()) << "No real day-clock base sectors";
+        return result;
+    }
 };
 } // namespace
 
@@ -186,12 +205,14 @@ TEST_F (SunPathCharts, MonthBarHoverMovesTheDiscAndLeavingRestoresTheAppliedInst
     const auto bars = Chart (ImGui::GetTextLineHeight () * 7.0f);
     const ImVec2 february (bars.Min.x + bars.GetWidth () * 1.5f / 12.0f, bars.GetCenter ().y);
     const auto requests = SunStudyTestViewRequests ();
+    logText = true;
     Frame (february);
     EXPECT_EQ (state.sunPathHoverFrame, ImGui::GetFrameCount ());
     EXPECT_TRUE (state.sunPathHover.valid);
     EXPECT_EQ (state.sunPathHover.year, 2028);
     EXPECT_EQ (state.sunPathHover.day, 29);
     EXPECT_EQ (state.sunPathMinute, 600);
+    EXPECT_NE (text.find ("Representative Sun: 2028-02-29  10:00"), std::string::npos);
     EXPECT_EQ (SunStudyTestViewRequests (), requests);
     EXPECT_EQ (SunStudyTestSubmissions (), 0);
     EXPECT_FALSE (state.sunOverride);
@@ -249,4 +270,97 @@ TEST_F (SunPathCharts, HistogramOnlyHighlightsTheBandAndCollapsedChartsReleaseHo
     Frame (pointer);
     EXPECT_NE (state.sunPathBandHoverFrame, ImGui::GetFrameCount ());
     EXPECT_FALSE (state.sunPathMarkerValid);
+}
+
+TEST_F (SunPathCharts, ProfileMonthLabelIsNotAnHourCell)
+{
+    const float line = ImGui::GetTextLineHeight ();
+    const auto grid = Chart (line * 0.8f * 12.0f + line);
+    Frame ({ grid.Min.x + 2.0f, grid.Min.y + line * 0.8f * 1.5f });
+    EXPECT_NE (state.sunPathHoverFrame, ImGui::GetFrameCount ());
+    EXPECT_EQ (state.sunPathMinute, 675);
+}
+
+TEST_F (SunPathCharts, StaleProfileIdentityCannotSupplyGridOrDayStripHover)
+{
+    for (const bool wrongStudy : { false, true }) {
+        SCOPED_TRACE (wrongStudy ? "another study" : "another revision");
+        auto& profile = SunStudyTestProfile ();
+        profile.studyId = geometry->studyId;
+        profile.revision = geometry->revision;
+        Frame ();
+        const float line = ImGui::GetTextLineHeight ();
+        const auto grid = Chart (line * 0.8f * 12.0f + line);
+        const auto strip = Chart (line * 3.0f);
+        const float label = ImGui::CalcTextSize ("M").x + 6.0f;
+        const ImVec2 cell (grid.Min.x + label + (grid.GetWidth () - label) * 0.125f, grid.Min.y + line * 0.8f * 1.5f);
+        if (wrongStudy)
+            profile.studyId = "retired period";
+        else
+            ++profile.revision;
+        Frame (cell);
+        EXPECT_NE (state.sunPathHoverFrame, ImGui::GetFrameCount ());
+        EXPECT_EQ (state.sunPathMinute, 675);
+        Frame ({ strip.Min.x + strip.GetWidth () * 1.5f / 4.0f, strip.GetCenter ().y });
+        EXPECT_NE (state.sunPathHoverFrame, ImGui::GetFrameCount ());
+        EXPECT_EQ (state.sunPathMinute, 675);
+    }
+}
+
+TEST_F (SunPathCharts, RealPointClockHoverAndClickHaveIndependentReadOnlyOwnership)
+{
+    state.sunPointPlayDay = 1;
+    Frame ();
+    const auto clock = Clock ();
+    const float radius = clock.GetWidth () * 0.5f * 0.65f;
+    const float diagonal = radius * std::sqrt (0.5f);
+    const ImVec2 pointer (clock.GetCenter ().x - diagonal, clock.Max.y - diagonal);
+    const auto requests = SunStudyTestViewRequests ();
+    Frame (pointer);
+    EXPECT_TRUE (state.sunPathHover.valid);
+    EXPECT_EQ (state.sunPathHover.day, 29);
+    EXPECT_EQ (state.sunPathMinute, 600);
+    EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::None);
+    const int shadowStep = state.sunStep;
+    Frame ();
+    EXPECT_EQ (state.sunPathMinute, 675);
+    Frame (pointer, true);
+    Frame (pointer);
+    EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::PointPlayer);
+    Frame ();
+    EXPECT_EQ (state.sunPathMinute, 600);
+    EXPECT_EQ (state.sunStep, shadowStep);
+    EXPECT_EQ (SunStudyTestViewRequests (), requests);
+    EXPECT_EQ (SunStudyTestSubmissions (), 0);
+    EXPECT_FALSE (state.sunOverride);
+    pointOpen = 0;
+    Frame ();
+    EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::None);
+    EXPECT_EQ (state.sunPathMinute, 675);
+}
+
+TEST_F (SunPathCharts, PendingPlayerRequestCannotMoveTheDiscBeforeItsAppliedEnvelope)
+{
+    const auto requests = SunStudyTestViewRequests ();
+    state.sunPeriodDay = 1;
+    state.sunPeriodClock = 600;
+    Frame ();
+    EXPECT_GT (SunStudyTestViewRequests (), requests);
+    EXPECT_EQ (state.sunPathMinute, 675);
+    SetApplied ({ 1, 0, 1, 0 });
+    Frame ();
+    EXPECT_EQ (state.sunPathMinute, 600);
+    EXPECT_EQ (state.sunPathPeriod->geometry, geometry);
+}
+
+TEST_F (SunPathCharts, RemovingThePointSuppressesDiagramHoverInsteadOfUsingStaleCells)
+{
+    const auto bars = Chart (ImGui::GetTextLineHeight () * 7.0f);
+    const ImVec2 february (bars.Min.x + bars.GetWidth () * 1.5f / 12.0f, bars.GetCenter ().y);
+    Frame (february);
+    ASSERT_EQ (state.sunPathHoverFrame, ImGui::GetFrameCount ());
+    state.sunPointPlaced = false;
+    Frame (february);
+    EXPECT_NE (state.sunPathHoverFrame, ImGui::GetFrameCount ());
+    EXPECT_EQ (state.sunPathMinute, 675);
 }

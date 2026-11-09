@@ -58,11 +58,16 @@ inline SunPathPointControl SunPathPointControlOf (const HudState& state)
              state.sunPointPlay.playing };
 }
 
+template <class Profile> bool SunPathProfileIdentityMatches (const HudState& state, const Profile& profile)
+{
+    return state.sunPathPeriod != nullptr && state.sunPathPeriod->geometry != nullptr &&
+           profile.studyId == state.sunPathPeriod->geometry->studyId &&
+           profile.revision == state.sunPathPeriod->geometry->revision && profile.samples == state.sunPointSamples;
+}
+
 template <class Profile> bool SunPathProfileMatches (const HudState& state, const Profile& profile)
 {
-    return profile.ready && profile.error.empty () && state.sunPathPeriod != nullptr &&
-           state.sunPathPeriod->geometry != nullptr && profile.studyId == state.sunPathPeriod->geometry->studyId &&
-           profile.revision == state.sunPathPeriod->geometry->revision && profile.samples == state.sunPointSamples;
+    return profile.ready && profile.error.empty () && SunPathProfileIdentityMatches (state, profile);
 }
 
 template <class Profile>

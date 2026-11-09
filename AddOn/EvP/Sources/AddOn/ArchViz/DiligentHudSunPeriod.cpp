@@ -565,7 +565,8 @@ void ProfileGrid (HudState& state, int quantity, const sunstudyhud::PeriodProfil
     if (hovered) {
         const ImVec2 mouse = ImGui::GetIO ().MousePos;
         const int m = int ((mouse.y - start.y) / row), h = firstHour + int ((mouse.x - start.x - label) / cell);
-        if (m >= 0 && m < 12 && h >= firstHour && h <= lastHour && profile->up[m][h] > 0.0) {
+        if (mouse.x >= start.x + label && mouse.x < start.x + label + width && m >= 0 && m < 12 && h >= firstHour &&
+            h <= lastHour && profile->up[m][h] > 0.0) {
             const auto sun = SunPathHoverMonth (state, m + 1, h * 60 + 30, h * 60, (h + 1) * 60);
             const double up = profile->up[m][h], facing = profile->facing[m][h], lit = profile->lit[m][h];
             ImGui::SetTooltip ("%s, %02d:00-%02d:00, of the time the sun is up:\n  lit          %d%%\n  shaded       "
@@ -867,7 +868,8 @@ void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int q
     if (read) {
         sunstudyhud::RequestPeriodProfile (state.sunPointSamples);
         profile = sunstudyhud::LatestPeriodProfile ();
-        if (profile == nullptr || profile->samples != state.sunPointSamples || !profile->ready)
+        if (profile == nullptr || !profile->ready || profile->studyId != period.studyId ||
+            !SunPathProfileIdentityMatches (state, *profile))
             note = "tracing...";
         else if (!profile->error.empty ())
             note = "not traced (hover)";
