@@ -766,6 +766,8 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     const int chosen = ChosenMode (state);
     const int mode = chosen >= 0 ? chosen : int (study.debugMode);
     const bool shadowView = mode == 5 || mode == 6 || mode == 7;
+    if (shadowView)
+        state.sunPathShadowFrame = ImGui::GetFrameCount ();
     if (shadowView && study.stepCount > 0 && !study.stepMinutes.empty ()) {
         ImGui::TextUnformatted ("Hours");
         DrawSunStudyRange ("##shadow-hours", state.sunTimeFrom, state.sunTimeTo,

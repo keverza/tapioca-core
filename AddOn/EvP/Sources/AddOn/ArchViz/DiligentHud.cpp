@@ -329,6 +329,8 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
         ImGui::End ();
     }
 
+    RefreshSunStudySunPathData (
+        state, scene.sunStudy.drawing && scene.sunStudy.analysisKind == 0 ? scene.sunStudy.studyId : std::string ());
     // ⚠️ THE READ-ONLY OVERLAY SURFACE KEEPS ITS FLAT READOUT (HANDOFF-HudTabs.md caveat 4):
     // `WS_EX_TRANSPARENT` is all-or-nothing per window (PLAT-RE55), so there every widget
     // would DRAW and none could be clicked. Everywhere else the HUD is the overlays' design.

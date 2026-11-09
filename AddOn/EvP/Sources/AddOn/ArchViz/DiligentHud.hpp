@@ -33,6 +33,7 @@
 #include "ArchViz/AnalysisTabs.hpp"
 #include "ArchViz/DiligentScene.hpp" // ElementInfo, for the hover callout
 #include "ArchViz/GradientLibrary.hpp"
+#include "ArchViz/SunPathMoment.hpp"
 #include "ArchViz/TraceAnnotationLayer.hpp"
 #include "SunStudy/SunStudyPointProfile.hpp"
 
@@ -299,24 +300,19 @@ struct HudState {
     // run form's date, the solstices and the equinox, and the hour analemmas.
     bool sunPathShown = false;
     float sunPathScale = 1.0f; // display-only dome and ground-compass scale, 0.25x to 4x
-    // The draggable sun (#152 follow-up): a date and time picked on the sun
-    // path, which then drives the viewer's sun (sunOverride) and the run
-    // form's date. Location and elevation stay Archicad's.
-    bool sunPathDragging = false;
-    bool sunPathOwnsSun = false; // the dragged sun is the viewer's sun
+    // Read-only exact-analysis display. Never owns a slider, run form or sun override.
+    sunstudyhud::SunPathStudyDay sunPathDay;
+    std::shared_ptr<const sunstudyhud::SunPathPeriodData> sunPathPeriod;
+    SunPathSyncSource sunPathSyncSource = SunPathSyncSource::None;
+    SunPathMoment sunPathHover, sunPathPointMoment;
+    int sunPathHoverFrame = -1, sunPathMapFrame = -1, sunPathShadowFrame = -1, sunPathPointFrame = -1;
     bool sunPathMarkerValid = false;
     float sunPathMarker[2] = {}; // the sun disc, projected last frame
-    float sunPathCursor[2] = {}; // the cursor in the same pixels, while dragging
-    int sunPathOrdinal = 0, sunPathMinute = -1;
+    int sunPathMinute = -1;
     float sunPathDirection[3] = { 0.0f, 0.0f, 1.0f };
-    const char* sunPathSnap = nullptr; // the key date it snapped to, or null
-    bool sunPathNoon = false;
-    int sunPathLastStep = -1; // the shadow slider, followed on the study's own date
-    // The shown single-day study's date (yyyymmdd), and whether the dragged sun
-    // left it: then its tint is withheld rather than shown for the wrong day.
+    // The shown single-day study's date (yyyymmdd), never a pending picker date.
     std::string sunShownDateFor;
     int sunShownDate = 0;
-    bool sunPathStudyInvalid = false;
     bool sunShowsPeriod = false;
     double sunPeriodDays = 0.0;
     std::string sunPeriodLabel, sunPeriodCarrierDate;
@@ -923,10 +919,9 @@ void DrawSunStudyObstructionControls (HudState& state, const std::string& studyI
 void PlaceSunStudyPoint (HudState& state, const double at[3]);
 // The sun path over the model (DiligentHudSunPath.cpp), when sunPathShown.
 void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
-// Press on the sun path's sun disc and drag: before navigation, which it holds off.
-void ServiceSunStudySunPathDrag (HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height);
-// The sun path's row in the panel: the dragged date and time, and whether the
-// shown day study still matches it (run that day, or return to the study).
+// Refresh against the actual displayed result before drawing any chart/panel.
+void RefreshSunStudySunPathData (HudState& state, const std::string& shownStudyId);
+// Display-only status/help; never a sun/date manipulation control.
 void DrawSunStudySunPathStatus (HudState& state, const std::string& studyId);
 // Run a single day at `month`/`day` with the run form's other settings; the
 // form keeps its own period and date.
