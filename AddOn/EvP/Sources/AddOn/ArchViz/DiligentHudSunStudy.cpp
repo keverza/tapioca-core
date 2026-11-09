@@ -17,6 +17,7 @@
 #include "ArchViz/HudShell.hpp" // the tips
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
+#include "ArchViz/SunStudyObstructionGeometry.hpp"
 #include "ArchViz/ViewerScreenshot.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp"
@@ -588,7 +589,14 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
 {
     (void) width;
     (void) height;
-    if (state.sunInspect != 1 || !input.inside || state.sunReadingState != 1)
+    if (state.sunInspect != 1 || !input.inside)
+        return;
+    if (state.sunView == kObstructionView && state.sunObstructionMode == 3 && state.sunCutReadingMinute >= 0) {
+        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
+                         SunStudyCutSurfaceTooltip (state.sunCutReadingMinute), kSolarCutWonRgba);
+        return;
+    }
+    if (state.sunReadingState != 1)
         return;
     const int chosen = ChosenMode (state);
     const int mode = chosen >= 0 ? chosen : CommandedMode (state);

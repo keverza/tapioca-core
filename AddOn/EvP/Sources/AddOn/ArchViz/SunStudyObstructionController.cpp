@@ -67,6 +67,10 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
     frame->month = record.month;
     frame->day = record.day;
     frame->cells = job.key.samples.size ();
+    if (!record.defaultRayBounds) {
+        frame->error = "Solar cut cannot reproduce this study's custom ray bounds; run with default ray bounds";
+        return frame;
+    }
     const size_t sample = job.key.samples.front ();
     if (!job.key.lifted && sample >= record.positions.size () / 3) {
         frame->error = "the study point's cell is outside the study";
@@ -178,9 +182,9 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
     // would remain, and every study cell whose ray toward a slice sun stopped on
     // a cut element and now runs clear.
     geomsrv::Snapshot remains = snapshot;
-    for (auto& [mesh, kept] : cut.kept)
+    for (const auto& [mesh, kept] : cut.kept)
         if (mesh < remains.meshes.size ())
-            remains.meshes[mesh] = std::move (kept);
+            remains.meshes[mesh] = kept;
     const auto roles = evp::sunstudy::ResolveElementRoles (remains, record.analysisElements, record.contextElements,
                                                            record.ignoredElements);
     const auto after =
@@ -202,7 +206,6 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
         if (clear (origin, sun.direction))
             frame->litAfterHours += input.hoursPerStep;
     }
-    std::vector<SolarCutWonCell> won;
     const size_t samples = record.positions.size () / 3;
     for (size_t s = 0; s < samples; ++s) {
         if ((s & 255) == 0 && cancelled.load ())
@@ -235,26 +238,26 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
             }
             if (nearest < 0.0 || cutGuids.count (evp::sunstudy::CanonicalGuid (by)) == 0 || !clear (origin, direction))
                 continue;
-            SolarCutWonCell cell;
-            cell.sample = s;
-            std::copy (position, position + 3, cell.position);
-            if (normal != nullptr)
-                std::copy (normal, normal + 3, cell.normal);
-            won.push_back (cell);
+            ++frame->wonCells; // measured-cell count only; never drives the spatial preview boundary
             break;
         }
     }
-    frame->wonCells = won.size ();
-    std::vector<SolarCutWonCell> studied (samples);
-    for (size_t s = 0; s < samples; ++s) {
-        studied[s].sample = s;
-        std::copy (&record.positions[3 * s], &record.positions[3 * s] + 3, studied[s].position);
-        if (record.normals.size () == record.positions.size ())
-            std::copy (&record.normals[3 * s], &record.normals[3 * s] + 3, studied[s].normal);
+    std::vector<uint32_t> receivers;
+    if (record.IsPatchDomain ()) {
+        const std::set<uint32_t> measured (record.patchGrid.spanOf.begin (), record.patchGrid.spanOf.end ());
+        for (size_t face = 0; face < record.patchGrid.patchOfTriangle.size (); ++face)
+            if (measured.count (record.patchGrid.patchOfTriangle[face]) != 0)
+                receivers.push_back (uint32_t (face));
     }
-    const SolarCutWonStudy study { record.snapshot.get (), &record.sampleGrid, &record.patchGrid,
-                                   record.IsPatchDomain () };
-    AppendSolarCutWonCells (won, record.gridSpacing, frame->drawables, &studied, &study);
+    else
+        receivers = record.sampleGrid.faces;
+    if (receivers.empty ())
+        frame->exposure.error = "Won-lit surfaces need retained triangle/patch receiver geometry";
+    else if (evp::sunstudy::ComputeSolarExposure (snapshot, cut, input.blocks, receivers, input.steps, frame->exposure,
+                                                  [&] { return cancelled.load (); }))
+        AppendSolarExposure (frame->exposure, frame->drawables);
+    if (cancelled.load ())
+        return nullptr;
     return frame;
 }
 

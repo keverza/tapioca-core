@@ -84,8 +84,12 @@ void DrawSolarCutSummary (const HudState& state, const SunObstructionFrame& fram
         line,
         "The rays from the point to the slice's suns are merged into one cutting surface (pink sheet); "
         "everything of the blockers above it goes, extruded up (a see-through pink cut-out, the cut faces darker). The "
-        "existing elements keep their outline and edges. Yellow area: study cells whose shadow in the "
-        "slice was cast by a cut element and is gone after the cut, merged into one shape.");
+        "existing elements keep their outline and edges. Yellow area: projected removed shadows minus all "
+        "remaining shadows, clipped to surviving measured surfaces and united over the measured suns. "
+        "It is independent of cell spacing; real openings and remaining shadows stay unlit. "
+        "Time precision is still the study timestep, not continuous sun motion.");
+    if (!frame.exposure.error.empty ())
+        SunStudyNote ("Won-lit surface unavailable", frame.exposure.error.c_str ());
     constexpr size_t kRows = 8;
     if (ImGui::BeginTable ("##suncutobjects", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn ("Element", ImGuiTableColumnFlags_WidthStretch, 1.0f);

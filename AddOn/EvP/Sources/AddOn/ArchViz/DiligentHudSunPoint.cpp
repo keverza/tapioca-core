@@ -626,8 +626,7 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
             draw->AddCircle (at, hot ? 6.5f : 5.0f, kPink, 0, hot ? 3.0f : 2.0f); // a ring: no fill
         }
         if (onGrip || state.sunCutGrip != 0)
-            ImGui::SetTooltip ("Cut slice %s-%s\ngrips: resize; arc: move", MinuteText (state.sunCutFrom).c_str (),
-                               MinuteText (state.sunCutTo).c_str ());
+            ImGui::SetTooltip ("%s", SunStudyCutSliceTooltip (state.sunCutFrom, state.sunCutTo).c_str ());
     }
     const ImU32 ink = ImGui::GetColorU32 (ImGuiCol_Text);
     const auto outlineStep = [&] (int step, ImU32 colour, float thickness) {

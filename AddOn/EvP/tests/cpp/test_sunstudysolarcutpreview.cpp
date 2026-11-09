@@ -3,6 +3,8 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <map>
+#include <tuple>
 
 using namespace geomsrv::archviz;
 
@@ -66,9 +68,9 @@ TEST (SunStudySolarCutPreview, OutlineSkipsDiagonalsAndTJunctions)
     const double point[3] = { 0.0, 0.0, 0.0 };
     GhPreviewDrawables drawables;
     BuildSolarCutGeometry (cut, point, drawables);
-    EXPECT_EQ (drawables.depthTested.lineVertices.size () / 6, 4u); // the square's four sides
-    EXPECT_FALSE (drawables.xray.meshIndices.empty ());             // the cut face, seen through
-    EXPECT_TRUE (drawables.xray.lineVertices.empty ());             // a plain darker pink, no hatch
+    EXPECT_EQ (drawables.xray.lineVertices.size () / 6, 4u);  // the square's four sides
+    EXPECT_FALSE (drawables.xray.meshIndices.empty ());       // the cut face, seen through
+    EXPECT_TRUE (drawables.depthTested.meshIndices.empty ()); // no sheet/solid can occlude the won overlay
 }
 
 TEST (SunStudySolarCutPreview, CuttingSheetOmitsSectorCreasesAndTriangulationDiagonals)
@@ -81,7 +83,68 @@ TEST (SunStudySolarCutPreview, CuttingSheetOmitsSectorCreasesAndTriangulationDia
     const double point[3] = { 0.0, 0.0, 0.0 };
     GhPreviewDrawables drawables;
     BuildSolarCutGeometry (cut, point, drawables);
-    EXPECT_EQ (drawables.depthTested.lineVertices.size () / 6, 4u);
+    EXPECT_EQ (drawables.xray.lineVertices.size () / 6, 4u);
+}
+
+TEST (SunStudySolarCutPreview, EnlargingTheSweptSheetKeepsOneClosedExteriorBoundary)
+{
+    evp::sunstudy::SolarCutInput input;
+    for (int i = 0; i < 5; ++i) {
+        evp::sunstudy::SunStep sun;
+        const double a = (-30.0 + i * 15.0) * 3.14159265358979323846 / 180.0;
+        const double altitude = (30.0 + i * 4.0) * 3.14159265358979323846 / 180.0;
+        sun.direction[0] = std::cos (altitude) * std::cos (a);
+        sun.direction[1] = std::cos (altitude) * std::sin (a);
+        sun.direction[2] = std::sin (altitude);
+        input.steps.push_back (sun);
+    }
+    for (const double radius : { 0.0, 1.0, 4.0, 10.0 }) {
+        input.radius = radius;
+        evp::sunstudy::SolarCutResult cut;
+        ASSERT_TRUE (evp::sunstudy::ComputeSolarCutSurface (input, cut, {}, 100.0));
+        ASSERT_FALSE (cut.envelopeEdges.empty ());
+        std::map<std::tuple<long long, long long, long long>, int> degree;
+        size_t longEdges = 0;
+        for (const auto& edge : cut.envelopeEdges) {
+            double length2 = 0.0;
+            for (int k = 0; k < 3; ++k)
+                length2 += (edge[k] - edge[k + 3]) * (edge[k] - edge[k + 3]);
+            longEdges += length2 > 2500.0 ? 1 : 0;
+            for (const int at : { 0, 3 })
+                ++degree[{ std::llround (edge[at] * 1e6), std::llround (edge[at + 1] * 1e6),
+                           std::llround (edge[at + 2] * 1e6) }];
+        }
+        EXPECT_EQ (longEdges, 2u) << radius; // only the two outer rays, never an interior radial seam
+        for (const auto& [point, count] : degree)
+            EXPECT_EQ (count, 2) << radius;
+        GhPreviewDrawables drawables;
+        BuildSolarCutGeometry (cut, input.point, drawables);
+        EXPECT_EQ (drawables.xray.lineVertices.size () / 6, cut.envelopeEdges.size ());
+        EXPECT_TRUE (drawables.depthTested.meshIndices.empty ());
+        for (const auto& vertex : drawables.xray.meshVertices)
+            EXPECT_LE (vertex.rgba & 255u, 20u); // the sheet is less than 8% opaque
+    }
+}
+
+TEST (SunStudySolarCutPreview, WonExposureDrawsLastAsAnXrayWithNoDepthWritingGeometry)
+{
+    evp::sunstudy::SolarCutResult cut;
+    cut.envelope = { Tri (0, 0, 2, 0, 0, 2) };
+    cut.removed = cut.envelope;
+    cut.caps = cut.envelope;
+    GhPreviewDrawables drawables;
+    const double point[3] = {};
+    BuildSolarCutGeometry (cut, point, drawables);
+    evp::sunstudy::SolarExposureResult exposure;
+    exposure.triangles = { Tri (0, 0, 2, 0, 0, 2) };
+    exposure.boundary = { { 0, 0, 0, 2, 0, 0 } };
+    AppendSolarExposure (exposure, drawables);
+    ASSERT_FALSE (drawables.xray.meshVertices.empty ());
+    EXPECT_EQ (drawables.xray.meshVertices.back ().rgba, kSolarCutWonRgba);
+    EXPECT_EQ (drawables.xray.lineVertices.back ().rgba, kSolarCutWonEdgeRgba);
+    EXPECT_TRUE (drawables.depthTested.meshIndices.empty ());
+    EXPECT_LT (kSolarCutRemovedRgba & 255u, 0x40u);
+    EXPECT_LT (kSolarCutCapRgba >> 24, kSolarCutRemovedRgba >> 24);
 }
 
 TEST (SunStudySolarCutPreview, WonRegionUsesTheSingleShadowTriangleLatticeAndRealBoundary)

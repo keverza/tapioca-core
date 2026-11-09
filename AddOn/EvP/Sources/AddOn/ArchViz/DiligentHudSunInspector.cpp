@@ -2,6 +2,7 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
+#include "ArchViz/SunStudyObstructionController.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
@@ -9,9 +10,39 @@
 #include <algorithm>
 
 namespace geomsrv::archviz {
+namespace {
+void ServiceSolarCutReading (HudState& state, const DiligentScene& scene, const float origin[3],
+                             const float direction[3])
+{
+    static uint64_t generation = 0;
+    static float lastRay[6] = {};
+    if (state.sunInspect == 0 || state.analysisFocus.tab != analysistabs::kSunTab ||
+        state.sunView != kSunObstructionView || state.sunObstructionMode != 3 || state.sunShowsPeriod) {
+        state.sunCutReadingMinute = -1;
+        generation = 0;
+        return;
+    }
+    const auto frame = SunObstructionTasks ().Latest ();
+    if (!SunObstructionFrameCurrent (frame, scene.ShownSunStudyId ()) || frame->mode != SunObstructionMode::SolarCut ||
+        frame->cutStage != SunSolarCutStage::Done || !frame->error.empty () || !frame->exposure.error.empty ()) {
+        state.sunCutReadingMinute = -1;
+        generation = 0;
+        return;
+    }
+    const float ray[6] = { origin[0], origin[1], origin[2], direction[0], direction[1], direction[2] };
+    if (generation == frame->generation && std::equal (ray, ray + 6, lastRay))
+        return;
+    generation = frame->generation;
+    std::copy_n (ray, 6, lastRay);
+    const double o[3] = { origin[0], origin[1], origin[2] }, d[3] = { direction[0], direction[1], direction[2] };
+    state.sunCutReadingMinute = evp::sunstudy::ReadSolarExposure (frame->exposure, o, d);
+}
+} // namespace
+
 void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
                                const float direction[3])
 {
+    ServiceSolarCutReading (state, scene, origin, direction);
     // Re-ask only when the ray, picked object, snapshot or DISPLAYED RESULT
     // changes. A stationary cursor over a converged study used to raycast again
     // every 250 ms forever; a converging study still updates when its new atlas

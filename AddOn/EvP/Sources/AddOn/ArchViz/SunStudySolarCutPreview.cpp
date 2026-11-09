@@ -458,18 +458,43 @@ void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const doub
     // The cutting surface: a faint sheet with its outline -- the edge rays, the
     // rim, and with a radius the line AB it starts from.
     (void) point;
-    fill (cut.envelope, kSolarCutEnvelopeRgba, drawables.depthTested);
+    fill (cut.envelope, kSolarCutEnvelopeRgba, drawables.xray);
     std::vector<const evp::sunstudy::SolarCutTriangle*> sheet;
     for (const auto& triangle : cut.envelope)
         sheet.push_back (&triangle);
     // One cutting sheet, however many sector planes it crosses: shared radial
     // edges and triangulation diagonals are interior, not extra cut outlines.
-    OutlineEdges (sheet, kSunObstructionPink, drawables.depthTested, false);
-    // What goes, as a transparent cut-out: its outer surfaces faint where the
-    // building shows them, the cut faces through the building (x-ray) in a darker
-    // pink, and the outline of the removed solid; its hidden
-    // edges are drawn dashed by the depth-tested line pass.
-    fill (cut.removed, kSolarCutRemovedRgba, drawables.depthTested);
+    if (!cut.envelopeEdges.empty ())
+        for (const auto& edge : cut.envelopeEdges)
+            Segment ({ edge[0], edge[1], edge[2] }, { edge[3], edge[4], edge[5] }, kSunObstructionPink, drawables.xray);
+    else
+        OutlineEdges (sheet, kSunObstructionPink, drawables.xray, false);
+    // What goes, as a faint x-ray cut-out with darker section faces and its own
+    // outline. No original-model or preview depth may cover this what-if layer.
+    fill (cut.removed, kSolarCutRemovedRgba, drawables.xray);
+    // The original model is a reference, not a second occluder of this
+    // what-if preview. All solar-cut annotations are non-depth-writing x-rays;
+    // generic obstruction footprints keep their usual model-depth behavior.
+    for (const auto& [meshIndex, mesh] : cut.kept) {
+        (void) meshIndex;
+        for (size_t t = 0; t < mesh.TriangleCount (); ++t) {
+            V3 corners[3];
+            bool valid = true;
+            for (size_t c = 0; c < 3; ++c) {
+                const size_t v = 3ull * mesh.triangles[3 * t + c];
+                if (v + 2 >= mesh.vertices.size ()) {
+                    valid = false;
+                    break;
+                }
+                std::copy_n (&mesh.vertices[v], 3, corners[c].begin ());
+            }
+            if (!valid)
+                continue;
+            V3 normal = Cross (Sub (corners[1], corners[0]), Sub (corners[2], corners[0]));
+            if (Normalize (normal))
+                Triangle (corners[0], corners[1], corners[2], normal, kSolarCutKeptRgba, drawables.xray);
+        }
+    }
     fill (cut.caps, kSolarCutCapRgba, drawables.xray);
     std::vector<const evp::sunstudy::SolarCutTriangle*> solid;
     solid.reserve (cut.removed.size () + cut.caps.size ());
@@ -477,7 +502,21 @@ void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const doub
         solid.push_back (&triangle);
     for (const auto& triangle : cut.caps)
         solid.push_back (&triangle);
-    OutlineEdges (solid, kSolarCutEdgeRgba, drawables.depthTested);
+    OutlineEdges (solid, kSolarCutEdgeRgba, drawables.xray);
+}
+
+void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, GhPreviewDrawables& drawables)
+{
+    // A semantic x-ray layer, drawn after the cut sheet and cut solids. Neither
+    // model depth nor the transparent sheet may hide newly lit receivers.
+    for (const auto& triangle : exposure.triangles) {
+        const V3 a = Corner (triangle, 0), b = Corner (triangle, 1), c = Corner (triangle, 2);
+        V3 normal = Cross (Sub (b, a), Sub (c, a));
+        if (Normalize (normal))
+            Triangle (a, b, c, normal, kSolarCutWonRgba, drawables.xray);
+    }
+    for (const auto& edge : exposure.boundary)
+        Segment ({ edge[0], edge[1], edge[2] }, { edge[3], edge[4], edge[5] }, kSolarCutWonEdgeRgba, drawables.xray);
 }
 
 void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables,

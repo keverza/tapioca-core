@@ -105,6 +105,16 @@ bool ClearPeriodCache (std::string&)
 
 using namespace geomsrv::archviz;
 
+TEST (SunStudyHud, SolarCutTooltipsNameDurationClockRangeAndActualWonTime)
+{
+    EXPECT_EQ (SunStudyCutSliceTooltip (705, 825), "Cut Slice 2 hours\nfrom 11:45 to 13:45");
+    EXPECT_EQ (SunStudyCutSliceTooltip (705, 765), "Cut Slice 1 hour\nfrom 11:45 to 12:45");
+    EXPECT_EQ (SunStudyCutSliceTooltip (705, 840), "Cut Slice 2.25 hours\nfrom 11:45 to 14:00");
+    EXPECT_EQ (SunStudyCutSliceTooltip (1380, 1440), "Cut Slice 1 hour\nfrom 23:00 to 24:00");
+    EXPECT_EQ (SunStudyCutSurfaceTooltip (750), "Shadowed at 12:30\nAfter Suncut Lit");
+    EXPECT_TRUE (SunStudyCutSurfaceTooltip (-1).empty ());
+}
+
 namespace {
 struct SectionGui {
     ImGuiContext* previous = ImGui::GetCurrentContext ();

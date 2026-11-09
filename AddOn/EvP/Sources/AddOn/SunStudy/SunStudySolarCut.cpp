@@ -362,7 +362,13 @@ bool Sectors (const SolarCutInput& input, SolarCutResult& result,
 void Envelope (const std::vector<Sector>& sectors, double length, SolarCutResult& result)
 {
     constexpr double kArcStep = 2.0 * 3.14159265358979323846 / 180.0;
-    for (const Sector& sector : sectors) {
+    const auto edge = [&] (const Point& a, const Point& b) {
+        if (Dot (Sub (a, b), Sub (a, b)) > 1.0e-16)
+            result.envelopeEdges.push_back ({ a[0], a[1], a[2], b[0], b[1], b[2] });
+    };
+    Point previousBase {}, previousRim {};
+    for (size_t s = 0; s < sectors.size (); ++s) {
+        const Sector& sector = sectors[s];
         const double angle = std::acos (std::clamp (Dot (sector.sunFrom, sector.sunTo), -1.0, 1.0));
         const int pieces = std::clamp (int (std::ceil (angle / kArcStep)), 1, 32);
         const auto at = [&] (double t, Point& base, Point& rim) {
@@ -376,10 +382,28 @@ void Envelope (const std::vector<Sector>& sectors, double length, SolarCutResult
             for (int k = 0; k < 3; ++k)
                 rim[size_t (k)] = base[size_t (k)] + length * direction[size_t (k)];
         };
+        Point firstBase, firstRim;
+        at (0.0, firstBase, firstRim);
+        if (s != 0) {
+            // Swept planes can meet at different heights. Stitch that step,
+            // without averaging/moving either exact sector plane, and outline
+            // only the rim/base connectors -- never its inner radial crease.
+            const Poly seam { previousBase, previousRim, firstRim, firstBase };
+            if (Valid (seam))
+                Emit (seam, 0, false, result.envelope);
+            edge (previousRim, firstRim);
+            edge (firstBase, previousBase);
+        }
         for (int piece = 0; piece < pieces; ++piece) {
             Point base0, base1, rim0, rim1;
             at (double (piece) / pieces, base0, rim0);
             at (double (piece + 1) / pieces, base1, rim1);
+            edge (rim0, rim1);
+            edge (base1, base0);
+            if (s == 0 && piece == 0)
+                edge (base0, rim0);
+            if (s + 1 == sectors.size () && piece + 1 == pieces)
+                edge (rim1, base1);
             SolarCutTriangle fan, rest;
             bool quad = false;
             for (int k = 0; k < 3; ++k) {
@@ -396,6 +420,7 @@ void Envelope (const std::vector<Sector>& sectors, double length, SolarCutResult
             if (quad)
                 result.envelope.push_back (rest);
         }
+        at (1.0, previousBase, previousRim);
     }
     result.sectors = sectors.size ();
 }

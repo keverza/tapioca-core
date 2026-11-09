@@ -18,6 +18,7 @@
 #include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudySolarCut.hpp"
+#include "SunStudy/SunStudySolarExposure.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -63,19 +64,21 @@ bool BuildSunObstructionGeometry (const geomsrv::Snapshot& snapshot,
 
 // The solar cut's preview (SunStudySolarCutPreview.cpp): the merged cutting
 // surface (faint) with its edge rays from the point, and what goes as a
-// transparent cut-out -- its surfaces faint, the cut faces seen through the
-// building in a darker pink, the removed solid's outline. Cells
-// whose shadow the cut removes are drawn by AppendSolarCutWonCells.
-constexpr uint32_t kSolarCutEnvelopeRgba = 0xF240BF30u;
-constexpr uint32_t kSolarCutRemovedRgba = 0xF240BF40u;
-constexpr uint32_t kSolarCutCapRgba = 0xB4287A8Cu; // a darker pink, seen through the building
+// transparent cut-out -- faint removed surfaces, dark retained walls and
+// section faces, and the removed solid's outline. The won shadow geometry is
+// appended last by AppendSolarExposure, independently of the study-cell grid.
+constexpr uint32_t kSolarCutEnvelopeRgba = 0xF240BF14u;
+constexpr uint32_t kSolarCutRemovedRgba = 0xF240BF18u;
+constexpr uint32_t kSolarCutCapRgba = 0x67204A60u;  // darker section faces, distinct from the removed ghost
+constexpr uint32_t kSolarCutKeptRgba = 0x30273590u; // retained walls, not another pink removed face
 constexpr uint32_t kSolarCutEdgeRgba = 0x9E1E73FFu;
 constexpr uint32_t kSolarCutWonRgba = 0xFFE27AB0u;     // sun the cut wins: a warm yellow, apart from the map's colours
 constexpr uint32_t kSolarCutWonEdgeRgba = 0xD08A10FFu; // its perimeter
 void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3],
                             GhPreviewDrawables& drawables);
-// The won cells as one region per measured surface (cells `size` apart, gaps
-// of one cell closed and holes filled), with only its outside perimeter.
+void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, GhPreviewDrawables& drawables);
+// Cell-layout preview helper, not the production solar-cut exposure path:
+// cells `size` apart, gaps of one cell closed and holes filled, perimeter only.
 struct SolarCutWonCell {
     double position[3] = {};
     double normal[3] = { 0.0, 0.0, 1.0 };

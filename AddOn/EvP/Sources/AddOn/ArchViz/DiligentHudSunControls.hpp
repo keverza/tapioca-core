@@ -18,6 +18,8 @@ struct PeriodProfile;
 }
 
 namespace geomsrv::archviz {
+std::string SunStudyCutSliceTooltip (double fromMinute, double toMinute);
+std::string SunStudyCutSurfaceTooltip (int minute);
 struct HudState;
 
 // The day diagram is a SEMICIRCLE from the first to the last measured sun

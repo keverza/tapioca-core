@@ -227,7 +227,10 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
     const bool current =
         request.mode != SunObstructionMode::Off && SunObstructionFrameCurrent (frame, shown) && frame->error.empty ();
     // The blockers are highlighted as a selection is, in the obstruction colour.
-    scene.SetObstructionHighlight (current ? frame->blockerGuids : kNoBlockers);
+    // Solar cut has its own removed/kept boundary. A second whole-object pink
+    // wire paints the uncut interior edges back over that sheet.
+    scene.SetObstructionHighlight (current && frame->mode != SunObstructionMode::SolarCut ? frame->blockerGuids
+                                                                                          : kNoBlockers);
     if (!current) {
         scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, nullptr, 0,
                                       modelIsDrawn);

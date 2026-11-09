@@ -115,6 +115,41 @@ colour ramp for Whole day. Whole-day fills retain distinct timed hits, deduplica
 multiple times on one part are drawn chronologically with the latest foremost. This is nearest-first
 attribution, not a claim to enumerate every downstream blocker.
 
+### Solar-cut preview
+
+For a single day, the pink cut slice defines a what-if removal above the solar
+envelope, optionally swept across the point's radius. It does not edit the BIM
+model or replace the day study. Its numeric point result is re-traced against
+the retained parts of the cut blockers plus unchanged role-filtered occluders.
+Unretained custom ray bounds refuse rather than imply reproduction.
+
+The **won-lit surface** is a separate geometric result at the requested measured
+sun times: project removed triangles onto each measured receiver plane, subtract
+the shadows of *all* remaining occluders, clip to surviving receiver geometry,
+and union over those times. It is not a cell-centre raster or a gap/hole-filling
+operation. Real receiver openings and remaining shadows are preserved. The
+reported count of cells that gain sun remains a measured-cell statistic, not
+the source of the preview boundary. Spatial clipping uses a plane-local binary
+grid (2^-24 m); this is numerical precision, not certified geometric accuracy.
+Time precision remains the original study timestep, not continuous sun motion.
+Work/polygon budgets refuse the won layer atomically with an explanatory note;
+the cut preview and its point result remain available.
+
+Solar-cut annotations are non-depth-writing x-rays: a faint sheet, a more
+transparent removed ghost, dark retained walls/section faces, then yellow won
+regions with only their perimeter. The original model remains the reference
+image; this is not an opaque replacement render or a model Boolean. Generic
+Time step/Whole day obstruction footprints keep their ordinary depth behavior.
+The cutting sheet's outline is generated from its exterior ribbon boundary,
+not inferred from swept-sector seams or source triangulation.
+
+Hover intersects the timed won geometry independently of the original model's
+GPU pick, allowing hidden won surfaces to be inspected. It reports the nearest
+won surface and the earliest measured time at that location, for example
+`Shadowed at 12:30 / After Suncut Lit`. Stale captures and other analysis views
+cannot reuse this reading. The slice grip names its elapsed duration and clock
+range, for example `Cut Slice 2 hours / from 11:45 to 13:45`.
+
 Presentation: the viewer shows the **mean unoccluded hours a represented day** over the period,
 drawn through the last traced day's samples and atlas, so the day study's hour bands apply. That
 day's step masks remain the shadow views' source and are labelled with their date. A period is

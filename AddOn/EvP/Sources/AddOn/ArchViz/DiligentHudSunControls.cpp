@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <iterator>
 #include <string>
 #include "ArchViz/HudShell.hpp"
@@ -28,6 +29,25 @@ float Snapped (float value)
     return std::round (value * 4.0f) / 4.0f;
 }
 } // namespace
+
+std::string SunStudyCutSliceTooltip (double fromMinute, double toMinute)
+{
+    const int from = std::clamp (int (std::lround (fromMinute)), 0, 1440);
+    const int to = std::clamp (int (std::lround (toMinute)), from, 1440);
+    char text[128];
+    std::snprintf (text, sizeof (text), "Cut Slice %.4g %s\nfrom %02d:%02d to %02d:%02d", double (to - from) / 60.0,
+                   to - from == 60 ? "hour" : "hours", from / 60, from % 60, to / 60, to % 60);
+    return text;
+}
+
+std::string SunStudyCutSurfaceTooltip (int minute)
+{
+    if (minute < 0 || minute >= 1440)
+        return {};
+    char text[96];
+    std::snprintf (text, sizeof (text), "Shadowed at %02d:%02d\nAfter Suncut Lit", minute / 60, minute % 60);
+    return text;
+}
 
 double SunStudyArcMinute (double x, double y, double from, double to)
 {

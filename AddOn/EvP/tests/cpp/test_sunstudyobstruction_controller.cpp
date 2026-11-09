@@ -84,17 +84,36 @@ void WaitForIdle (SunObstructionController& controller, const SunObstructionRequ
 
 // A roof over the point and two near-overhead suns either side of +x: the cut
 // takes the roof's wedge above their plane and the point is lit after it.
-std::string InsertCutDay ()
+std::string InsertCutDay (bool defaultRayBounds = true, bool surfaceReceiver = true)
 {
     auto snapshot = std::make_shared<geomsrv::Snapshot> ();
     snapshot->id = 56;
     snapshot->captureStamp = 18;
     snapshot->meshes = { evptest::MakeBox ("roof", 0, 0, 5) };
+    geomsrv::Mesh floor;
+    floor.guid = "floor";
+    floor.vertices = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+    floor.triangles = { 0, 1, 2 };
+    snapshot->meshes.push_back (floor);
     auto record = std::make_unique<evp::sunstudy::StudyRecord> ();
     record->snapshot = snapshot;
     record->snapshotId = snapshot->id;
-    record->positions = { 0.5, 0.5, 0.0 };
-    record->gridSpacing = 0.5;
+    record->defaultRayBounds = defaultRayBounds;
+    evp::sunstudy::SamplerOptions options;
+    options.spacing = 2.0;
+    options.normalOffset = 0.0;
+    options.wantLayouts = true;
+    record->sampleGrid =
+        evp::sunstudy::BuildSampleGrid (floor.vertices.data (), floor.VertexCount (), floor.triangles.data (),
+                                        floor.TriangleCount (), nullptr, options);
+    record->positions = record->sampleGrid.positions;
+    record->normals = record->sampleGrid.normals;
+    record->sampleMeshes = { 1 };
+    record->sampleGrid.faces = { 12 }; // the measured floor, not the roof's twelve source triangles
+    const auto layout = record->sampleGrid.layouts.front ();
+    record->sampleGrid.layouts.assign (13, {});
+    record->sampleGrid.layouts[12] = layout;
+    record->gridSpacing = 2.0;
     record->timestepMinutes = 60;
     record->occluders =
         evp::sunstudy::BuildSunStudyOccluders (*snapshot, evp::sunstudy::ResolveElementRoles (*snapshot, {}, {}, {}));
@@ -113,7 +132,10 @@ std::string InsertCutDay ()
     inputs.geometryVersion = snapshot->id;
     inputs.sunVersion = record->series.Version ();
     inputs.gridVersion = 1;
-    evp::sunstudy::fixture::AttachTestCore (*record, inputs);
+    if (!surfaceReceiver)
+        record->sampleGrid = {}; // legitimate explicit-point study, without a surface display mapping
+    evp::sunstudy::fixture::BuildTestAtlas (*record);
+    evp::sunstudy::fixture::AttachTestCore (*record, inputs, snapshot.get ());
     auto& store = evp::sunstudy::SunStudyStore::Get ();
     const std::string id = store.Insert (std::move (record));
     size_t advanced = 0;
@@ -198,7 +220,10 @@ TEST (SunStudyObstructionController, SolarCutRemovesTheWedgeAndTheRetracedPointI
     request.mode = SunObstructionMode::SolarCut;
     request.fromMinute = 480;
     request.toMinute = 600;
-    const auto frame = WaitForFrame (controller, request);
+    auto frame = WaitForFrame (controller, request);
+    ASSERT_NE (frame, nullptr);
+    WaitForIdle (controller, request);
+    frame = controller.Latest ();
     ASSERT_NE (frame, nullptr);
     ASSERT_TRUE (frame->error.empty ()) << frame->error;
     EXPECT_EQ (frame->mode, SunObstructionMode::SolarCut);
@@ -210,7 +235,11 @@ TEST (SunStudyObstructionController, SolarCutRemovesTheWedgeAndTheRetracedPointI
     EXPECT_GT (frame->removedVolume, 0.0);
     EXPECT_LT (frame->removedVolume, 1.0); // a wedge of the 1 m3 roof, not all of it
     EXPECT_EQ (frame->wonCells, 1u);       // the study's one cell gains sun
-    EXPECT_FALSE (frame->drawables.depthTested.meshVertices.empty ());
+    EXPECT_FALSE (frame->drawables.xray.meshVertices.empty ());
+    EXPECT_TRUE (frame->exposure.error.empty ()) << frame->exposure.error;
+    EXPECT_FALSE (frame->exposure.triangles.empty ());
+    EXPECT_FALSE (frame->exposure.steps.empty ());
+    EXPECT_EQ (frame->cutStage, SunSolarCutStage::Done);
     controller.Request ({});
 }
 
@@ -230,6 +259,39 @@ TEST (SunStudyObstructionController, TimeStepRefusalPublishesOnceInsteadOfRetryi
         controller.Request (request);
         EXPECT_EQ (controller.Latest (), frame);
     }
+}
+
+TEST (SunStudyObstructionController, SolarCutRefusesUnretainedCustomRayBounds)
+{
+    StoreReset reset;
+    const std::string id = InsertCutDay (false);
+    ASSERT_FALSE (id.empty ());
+    SunObstructionController controller;
+    auto request = Request (id);
+    request.mode = SunObstructionMode::SolarCut;
+    const auto frame = WaitForFrame (controller, request);
+    ASSERT_NE (frame, nullptr);
+    EXPECT_NE (frame->error.find ("custom ray bounds"), std::string::npos);
+    EXPECT_TRUE (frame->drawables.xray.meshIndices.empty ());
+}
+
+TEST (SunStudyObstructionController, UnmappedReceiversKeepTheCutButExplicitlyRefuseTheWonSurface)
+{
+    StoreReset reset;
+    const std::string id = InsertCutDay (true, false);
+    ASSERT_FALSE (id.empty ());
+    SunObstructionController controller;
+    auto request = Request (id);
+    request.mode = SunObstructionMode::SolarCut;
+    ASSERT_NE (WaitForFrame (controller, request), nullptr);
+    WaitForIdle (controller, request);
+    const auto frame = controller.Latest ();
+    ASSERT_NE (frame, nullptr);
+    EXPECT_TRUE (frame->error.empty ());
+    EXPECT_FALSE (frame->exposure.error.empty ());
+    EXPECT_TRUE (frame->exposure.triangles.empty ());
+    EXPECT_FALSE (frame->drawables.xray.meshIndices.empty ());
+    EXPECT_DOUBLE_EQ (frame->litAfterHours, 2.0);
 }
 
 TEST (SunStudyObstructionController, FreshnessNeedsTheSharedSnapshotAndItsCaptureStamp)

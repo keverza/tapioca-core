@@ -35,6 +35,7 @@
 #include "SunStudy/SunSeries.hpp"
 
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -78,6 +79,9 @@ struct SolarCutObject {
 
 struct SolarCutResult {
     std::vector<SolarCutTriangle> removed, caps, envelope;
+    // Preview boundary emitted by the sheet generator, never inferred from
+    // sector seams (swept sector planes do not share bit-identical vertices).
+    std::vector<std::array<double, 6>> envelopeEdges;
     size_t sectors = 0; // the envelope's sectors; a radius makes the outer two quads
     // The cut elements as they would remain, by snapshot mesh index.
     std::vector<std::pair<size_t, geomsrv::Mesh>> kept;

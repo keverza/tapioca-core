@@ -326,6 +326,7 @@ struct HudState {
     // The read sample's lit flags, a byte per step (1 lit): WHEN it was in
     // shadow, for the shadow views' hover (#116). Empty when not measured.
     std::vector<uint8_t> sunReadingLit;
+    int sunCutReadingMinute = -1; // exact won-surface hover, independent of the model's GPU pick
     // The VIEW the HUD shows over the commanded one: an index into the
     // section's view list, 0 = "as shown" (follow the command). Reset to 0
     // when the COMMANDED mode changes -- the command wins only when it changes.

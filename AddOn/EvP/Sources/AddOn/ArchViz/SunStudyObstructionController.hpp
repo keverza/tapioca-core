@@ -7,6 +7,7 @@
 
 #include "ArchViz/GhPreviewGeometry.hpp"
 #include "ArchViz/SunStudyObstructionGeometry.hpp"
+#include "SunStudy/SunStudySolarExposure.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -84,6 +85,7 @@ struct SunObstructionFrame {
     std::vector<SunSolarCutObject> cutObjects;
     size_t sectors = 0, wonCells = 0;
     SunSolarCutStage cutStage = SunSolarCutStage::Done;
+    evp::sunstudy::SolarExposureResult exposure;
     std::string error;
 };
 
