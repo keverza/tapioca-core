@@ -1198,6 +1198,7 @@ set (EVP_TEST_SOURCES
     test_sunstudygputraversal.cpp
     test_sunstudypreview.cpp
     test_sunstudyhud.cpp
+    test_sunpath.cpp
     test_analysisruncontrol.cpp
     test_sunstudytextureupdates.cpp
     test_sunstudytaskworker.cpp

@@ -715,8 +715,8 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     ImGui::Checkbox ("Sun path##sunpath", &state.sunPathShown);
     ImGui::SetItemTooltip ("Draws the sun's path over the model from Archicad's location and north: the winter "
                            "(blue) and summer (orange) solstices, the equinox (grey), the run form's date (yellow), "
-                           "the hours across the year, and the sun at the shadow view's time. Centred on the study "
-                           "point when one is placed.");
+                           "the hours across the year, and the sun at the shadow view's time. Fixed at the scene "
+                           "centre and floor, independently of the study point.");
     ImGui::SameLine ();
     ImGui::BeginDisabled (!state.sunPathShown);
     ImGui::SetNextItemWidth (140.0f);
