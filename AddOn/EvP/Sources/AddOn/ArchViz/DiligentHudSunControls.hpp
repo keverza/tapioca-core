@@ -74,7 +74,8 @@ bool SunStudyChartInfo (ImVec2 topLeft, float width, SunChart chart);
 // -1 for none; `shown` keeps the committed slice drawn.
 void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, const char* id, int highlightedStep,
                            const char* emptyNote, SunStudyClockSelection* selection = nullptr, float sizeCap = 220.0f,
-                           const SunStudyClockShown* shown = nullptr, SunChart chart = SunChart::Day);
+                           const SunStudyClockShown* shown = nullptr, SunChart chart = SunChart::Day,
+                           int* hoverStep = nullptr);
 // Apply a clock gesture without changing the current Sunstudy/Shadows view.
 void ApplySunStudyDaySelection (HudState& state, const SunStudyClockSelection& selection);
 bool DrawSunStudyRange (const char* id, float& from, float& to, float minimum, float maximum, bool duration);

@@ -206,6 +206,8 @@ std::string ApplyPeriodView (RetainedPeriod& retained, const PeriodInfo& info, c
 void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& samples)
 {
     PeriodProfile result;
+    result.studyId = retained.carrierId;
+    result.revision = retained.carrierRevision;
     result.samples = samples;
     const auto started = std::chrono::steady_clock::now ();
     const auto& carrier = *retained.carrier;
@@ -297,7 +299,7 @@ void ComputePeriodProfile (RetainedPeriod& retained, const std::vector<size_t>& 
         std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
     result.ready = true;
     std::lock_guard<std::mutex> lock (gPeriodMutex);
-    if (gProfile->samples == samples)
+    if (gRetained.get () == &retained && gProfile->samples == samples)
         gProfile = std::make_shared<PeriodProfile> (std::move (result));
 }
 
@@ -524,6 +526,8 @@ void RequestPeriodProfile (const std::vector<size_t>& samples)
         return; // ready, or already asked for
     gProfile = std::make_shared<PeriodProfile> ();
     gProfile->samples = samples;
+    gProfile->studyId = gRetained->carrierId;
+    gProfile->revision = gRetained->carrierRevision;
     gWantProfile = samples;
     WakePeriodWorkerLocked ();
 }

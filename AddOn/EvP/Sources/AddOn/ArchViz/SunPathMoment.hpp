@@ -100,7 +100,7 @@ struct SunPathSelection {
 
 inline SunPathMoment ResolveSunPathMoment (const SunPathSelection& selection)
 {
-    if (selection.hoverCurrent && selection.hover.valid)
+    if (selection.hoverCurrent)
         return selection.hover;
     if (selection.source == SunPathSyncSource::PointPlayer && selection.pointActive)
         return selection.point;

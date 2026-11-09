@@ -23,6 +23,7 @@
 #include "ArchViz/DiligentHudSunPeriodLegend.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
+#include "ArchViz/SunPathSync.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "SunStudy/SunStudyPointProfile.hpp"
 
@@ -402,8 +403,8 @@ int ShownMonth (const sunstudyhud::PeriodInfo& period, const std::vector<sunstud
 }
 
 // Twelve columns: the quantity's bar in the map's colours over its ghost.
-void MonthBars (int quantity, const sunstudyhud::PeriodInfo& period, const sunstudyhud::PeriodPoint* point,
-                int shownMonth, const Ramp& ramp)
+void MonthBars (HudState& state, int quantity, const sunstudyhud::PeriodInfo& period,
+                const sunstudyhud::PeriodPoint* point, int shownMonth, const Ramp& ramp)
 {
     bool hovered = false;
     const float height = BarsHeight ();
@@ -444,22 +445,23 @@ void MonthBars (int quantity, const sunstudyhud::PeriodInfo& period, const sunst
                        ImGui::GetColorU32 (ImGuiCol_TextDisabled), kMonthLetters[m]);
     }
     if (hoveredMonth >= 0 && period.monthDays[hoveredMonth] > 0.0) {
+        const auto sun = SunPathHoverMonth (state, hoveredMonth + 1, state.sunPeriodClock);
         const double d = period.monthDays[hoveredMonth];
         const double direct = point->unoccluded[hoveredMonth] / d, facing = point->facing[hoveredMonth] / d;
         ImGui::SetTooltip (
             "%s, a day on average:\n  direct sun   %s\n  in front     %s\n  lost         %s\n  sun up       "
-            "%s\n  access       %d%%",
+            "%s\n  access       %d%%%s",
             kMonthNames[hoveredMonth], HoursText (direct).c_str (), HoursText (facing).c_str (),
             HoursText ((std::max) (0.0, facing - direct)).c_str (),
             HoursText (period.siteDaylight[hoveredMonth] / d).c_str (),
-            facing > 0.0 ? int (100.0 * direct / facing + 0.5) : 0);
+            facing > 0.0 ? int (100.0 * direct / facing + 0.5) : 0, sun.c_str ());
     }
 }
 
 // The point's days by their hours of direct sun (the threshold bins), the
 // bins at or above the threshold in the map's colour.
-void DaysHistogram (const sunstudyhud::PeriodInfo& period, const sunstudyhud::PeriodPoint* point, int threshold,
-                    const Ramp& ramp)
+void DaysHistogram (HudState& state, const sunstudyhud::PeriodInfo& period, const sunstudyhud::PeriodPoint* point,
+                    int threshold, const Ramp& ramp)
 {
     bool hovered = false;
     const float height = BarsHeight ();
@@ -489,6 +491,7 @@ void DaysHistogram (const sunstudyhud::PeriodInfo& period, const sunstudyhud::Pe
     const float tx = start.x + column * float (threshold + 1);
     draw->AddLine (ImVec2 (tx, start.y), ImVec2 (tx, base), ImGui::GetColorU32 (ImGuiCol_Text), 1.0f);
     if (hovered) {
+        state.sunPathBandHoverFrame = ImGui::GetFrameCount ();
         const int b = std::clamp (int ((ImGui::GetIO ().MousePos.x - start.x) / column), 0, 13);
         const std::string from = b == 0 ? "0:00" : SunStudyClock (period.edges[b - 1], false);
         const std::string to = b == 13 ? "" : SunStudyClock (period.edges[b], false);
@@ -515,8 +518,8 @@ double CellShare (int quantity, double up, double facing, double lit)
 
 // Month x clock hour in the map's colours: the share of the sun-up time the
 // cell had the quantity. Empty where the sun is down.
-void ProfileGrid (int quantity, const sunstudyhud::PeriodProfile* profile, const char* note, int shownMonth,
-                  const Ramp& ramp)
+void ProfileGrid (HudState& state, int quantity, const sunstudyhud::PeriodProfile* profile, const char* note,
+                  int shownMonth, const Ramp& ramp)
 {
     const float row = ImGui::GetTextLineHeight () * 0.8f;
     bool hovered = false;
@@ -563,19 +566,20 @@ void ProfileGrid (int quantity, const sunstudyhud::PeriodProfile* profile, const
         const ImVec2 mouse = ImGui::GetIO ().MousePos;
         const int m = int ((mouse.y - start.y) / row), h = firstHour + int ((mouse.x - start.x - label) / cell);
         if (m >= 0 && m < 12 && h >= firstHour && h <= lastHour && profile->up[m][h] > 0.0) {
+            const auto sun = SunPathHoverMonth (state, m + 1, h * 60 + 30, h * 60, (h + 1) * 60);
             const double up = profile->up[m][h], facing = profile->facing[m][h], lit = profile->lit[m][h];
             ImGui::SetTooltip ("%s, %02d:00-%02d:00, of the time the sun is up:\n  lit          %d%%\n  shaded       "
-                               "%d%%\n  sun behind   %d%%",
+                               "%d%%\n  sun behind   %d%%%s",
                                kMonthNames[m], h, h + 1, int (100.0 * lit / up + 0.5),
                                int (100.0 * (std::max) (0.0, facing - lit) / up + 0.5),
-                               int (100.0 * (std::max) (0.0, up - facing) / up + 0.5));
+                               int (100.0 * (std::max) (0.0, up - facing) / up + 0.5), sun.c_str ());
         }
     }
 }
 
 // One column per traced day: the quantity's hours that day (or share) in the
 // map's colours, over the sun-up hours.
-void DayStrip (int quantity, const sunstudyhud::PeriodProfile* profile, int shownDay, const Ramp& ramp)
+void DayStrip (HudState& state, int quantity, const sunstudyhud::PeriodProfile* profile, int shownDay, const Ramp& ramp)
 {
     bool hovered = false;
     const float height = ImGui::GetTextLineHeight () * 3.0f;
@@ -620,10 +624,14 @@ void DayStrip (int quantity, const sunstudyhud::PeriodProfile* profile, int show
     if (hovered) {
         const size_t d = (std::min) (days - 1, size_t ((std::max) (0.0f, ImGui::GetIO ().MousePos.x - start.x) /
                                                        (std::max) (column, 0.001f)));
-        ImGui::SetTooltip ("%s %d: %s direct, %s in front, %s sun up",
+        SunPathHoverPeriodDay (state, profile->dayMonth[d], profile->dayOfMonth[d], state.sunPointPlayClock);
+        ImGui::SetTooltip ("%s %d: %s direct, %s in front, %s sun up\n%s",
                            kMonthNames[std::clamp (profile->dayMonth[d], 1, 12) - 1], profile->dayOfMonth[d],
                            HoursText (profile->dayLit[d]).c_str (), HoursText (profile->dayFacing[d]).c_str (),
-                           HoursText (profile->dayUp[d]).c_str ());
+                           HoursText (profile->dayUp[d]).c_str (),
+                           SunPathMomentCaption (state.sunPathHover.year, state.sunPathHover.month,
+                                                 state.sunPathHover.day, state.sunPathHover.minute)
+                               .c_str ());
     }
 }
 
@@ -631,6 +639,7 @@ void DayStrip (int quantity, const sunstudyhud::PeriodProfile* profile, int show
 // own timeline and never changes the whole-map PeriodView.
 void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, const char* note)
 {
+    const auto before = SunPathPointControlOf (state);
     const float half = (ImGui::GetContentRegionAvail ().x - ImGui::GetStyle ().ItemSpacing.x) * 0.5f;
     ImGui::SetNextItemWidth (half);
     const int mode = std::clamp (state.sunPointPlayMode, 0, 2);
@@ -756,8 +765,9 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
     const char* empty = day.minutes.empty () ? "no sun this day" : "";
     SunStudyClockSelection selection;
     const SunStudyClockShown shown { state.sunPointPlayFrom, state.sunPointPlayTo };
+    int hover = -1;
     DrawSunStudyDayClock (state, &day, "##pointperioddayclock", state.sunPointPlayStep, empty, &selection, 440.0f,
-                          &shown, SunChart::PeriodDay);
+                          &shown, SunChart::PeriodDay, &hover);
     if (selection.step >= 0) {
         state.sunPointPlayMode = kEveryStep;
         state.sunPointPlayStep = selection.step;
@@ -783,6 +793,7 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
         state.sunPointPlayTo = 1440.0;
         state.sunPointPlay.playing = false;
     }
+    PublishSunPathPointPlayback (state, *profile, hover, before);
 }
 
 void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int quantity,
@@ -796,9 +807,9 @@ void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int q
     Ramp ramp { SunStudyRampStops (state.sunGradientPreset, state.sunGradientCustom, state.sunGradientFlipped) };
     const int shownMonth = ShownMonth (period, kept);
     if (quantity == 4)
-        DaysHistogram (period, read ? &point : nullptr, std::clamp (state.sunPeriodThreshold, 0, 12), ramp);
+        DaysHistogram (state, period, read ? &point : nullptr, std::clamp (state.sunPeriodThreshold, 0, 12), ramp);
     else
-        MonthBars (quantity, period, read ? &point : nullptr, shownMonth, ramp);
+        MonthBars (state, quantity, period, read ? &point : nullptr, shownMonth, ramp);
     DrawSunStudyPeriodLegend (quantity, ramp.At (0.7), kGhost);
 
     // The period in a line: totals, best and worst month, threshold days.
@@ -863,11 +874,11 @@ void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int q
     int pointMonth = shownMonth;
     if (shown != nullptr && state.sunPointPlayDay >= 0 && size_t (state.sunPointPlayDay) < shown->dayMonth.size ())
         pointMonth = shown->dayMonth[size_t (state.sunPointPlayDay)];
-    ProfileGrid (quantity == 4 ? 0 : quantity, shown, note, pointMonth, ramp);
+    ProfileGrid (state, quantity == 4 ? 0 : quantity, shown, note, pointMonth, ramp);
     if (profile != nullptr && !profile->error.empty () && ImGui::IsItemHovered ())
         ImGui::SetTooltip ("%s", profile->error.c_str ());
     const int shownDay = shown != nullptr ? state.sunPointPlayDay : -1;
-    DayStrip (quantity == 4 ? 0 : quantity, shown, shownDay, ramp);
+    DayStrip (state, quantity == 4 ? 0 : quantity, shown, shownDay, ramp);
     if (shown != nullptr) {
         std::snprintf (line, sizeof (line), "%zu cell(s), %zu traced days, %zu rays, %.0f ms%s", shown->samples.size (),
                        shown->dayLit.size (), shown->rays, shown->milliseconds, period.estimate ? "; preview" : "");
@@ -904,6 +915,7 @@ void DrawSunStudyPeriodView (HudState& state)
     if (kept == nullptr)
         state.sunPeriodPlayMode = kMonthByMonth;
     const int mode = std::clamp (state.sunPeriodPlayMode, 0, 3);
+    const bool wasPlaying = state.sunPeriodPlay.playing;
     QuantityButtons (state, mode);
     const int quantity = std::clamp (state.sunPeriodQuantity, 0, kQuantityCount - 1);
     SunLegendUnit () = IsShare (quantity) && !Instant (mode) ? SunValueUnit::Share : SunValueUnit::Hours;
@@ -936,6 +948,7 @@ void DrawSunStudyPeriodView (HudState& state)
         asked = period.applied;
         askedFor = period.studyId;
     }
+    PublishSunPathMapPlayback (state, want != asked, wasPlaying);
     if (want != asked) {
         std::string error;
         if (sunstudyhud::ShowPeriodView (want, error))

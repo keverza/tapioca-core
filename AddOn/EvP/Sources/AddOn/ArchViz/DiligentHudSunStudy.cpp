@@ -799,7 +799,8 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
                 Clock (study.stepMinutes[size_t (state.sunStep)], text, sizeof (text));
             return std::string (text);
         };
-        DrawSunStudyTimeline ("sunstep", state.sunStep, first, last, play, 0.4, clock);
+        if (DrawSunStudyTimeline ("sunstep", state.sunStep, first, last, play, 0.4, clock) || noon)
+            state.sunPathSyncSource = SunPathSyncSource::Shadow;
         state.sunPlaying = play.playing;
         state.sunPlaySpeed = play.speed;
         state.sunPlayedAt = play.playedAt;

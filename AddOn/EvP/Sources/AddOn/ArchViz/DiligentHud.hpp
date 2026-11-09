@@ -306,6 +306,7 @@ struct HudState {
     SunPathSyncSource sunPathSyncSource = SunPathSyncSource::None;
     SunPathMoment sunPathHover, sunPathPointMoment;
     int sunPathHoverFrame = -1, sunPathMapFrame = -1, sunPathShadowFrame = -1, sunPathPointFrame = -1;
+    int sunPathBandHoverFrame = -1;
     bool sunPathMarkerValid = false;
     float sunPathMarker[2] = {}; // the sun disc, projected last frame
     int sunPathMinute = -1;

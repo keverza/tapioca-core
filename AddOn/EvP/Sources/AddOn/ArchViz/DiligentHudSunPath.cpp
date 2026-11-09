@@ -252,8 +252,17 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
         selection.map = SunPathAppliedMoment (*state.sunPathPeriod);
         // A committed kept-day instant is already exact. Pending shadow date
         // fields deliberately never enter the resolver.
-        if (state.sunPathPeriod->applied.frame == 1)
+        if (state.sunPathPeriod->applied.frame == 1) {
             selection.shadow = selection.map;
+            if (selection.source == SunPathSyncSource::Shadow && state.sunStep >= 0 &&
+                size_t (state.sunStep) < state.sunStepMinutes.size () && state.sunPathPeriod->applied.day >= 0 &&
+                size_t (state.sunPathPeriod->applied.day) < state.sunPathPeriod->geometry->days.size ()) {
+                const auto& day = state.sunPathPeriod->geometry->days[size_t (state.sunPathPeriod->applied.day)];
+                const int minute = state.sunStepMinutes[size_t (state.sunStep)];
+                selection.shadow = SunPathNearestMoment (state.sunPathPeriod->geometry->year, day.month, day.day,
+                                                         day.steps, minute, minute, minute + 1);
+            }
+        }
     }
     SunPathMoment sun = ResolveSunPathMoment (selection);
     if (!dayData.available && !state.sunShowsPeriod) {

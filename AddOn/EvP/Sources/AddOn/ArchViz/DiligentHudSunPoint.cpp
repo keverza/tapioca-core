@@ -18,6 +18,7 @@
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/SunStudyObstructionController.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
+#include "ArchViz/SunPathSync.hpp"
 #include "SunStudy/SunStudyLiftedPoint.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 
@@ -411,8 +412,10 @@ void LegendSwatch (ImU32 colour, const char* text)
 
 void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, const char* id, int highlightedStep,
                            const char* emptyNote, SunStudyClockSelection* selection, float sizeCap,
-                           const SunStudyClockShown* shown, SunChart chart)
+                           const SunStudyClockShown* shown, SunChart chart, int* hoverStep)
 {
+    if (hoverStep != nullptr)
+        *hoverStep = -1;
     // #169: a semicircle from the first to the last measured sun, time running
     // left to right over the top. One measured step is one radial bar: lit
     // inside, shadowed next, sun behind outside. Outside the bars, two rows:
@@ -707,6 +710,8 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
         centreText (picked.c_str (), line * 1.0f, ink);
 
     if (hovered && hoveredStep >= 0 && !onGrip && state.sunCutGrip == 0) {
+        if (hoverStep != nullptr)
+            *hoverStep = hoveredStep;
         const size_t s = size_t (hoveredStep);
         const double minute = day->minutes[s];
         ImGui::BeginTooltip ();
@@ -748,6 +753,8 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
 
 void ApplySunStudyDaySelection (HudState& state, const SunStudyClockSelection& selection)
 {
+    if (selection.step >= 0 || selection.slice || selection.clear)
+        state.sunPathSyncSource = SunPathSyncSource::Shadow;
     if (selection.step >= 0) {
         state.sunPlaying = false;
         state.sunStep = selection.step;
@@ -804,9 +811,11 @@ void DrawSunStudyPointDay (HudState& state, const std::string& studyId, uint64_t
             state.sunStep >= 0 && size_t (state.sunStep) < state.sunPointLiftedDay.minutes.size () ? state.sunStep : -1;
         SunStudyClockSelection selection;
         const SunStudyClockShown shown { double (state.sunTimeFrom) * 60.0, double (state.sunTimeTo) * 60.0 };
+        int hover = -1;
         DrawSunStudyDayClock (state, lifted ? &state.sunPointLiftedDay : nullptr, "##sunpointday", current,
                               lifted ? "no sun in this day's slice" : "tracing...", &selection, 352.0f, &shown,
-                              SunChart::LiftedDay);
+                              SunChart::LiftedDay, &hover);
+        PublishSunPathDayHover (state, lifted ? &state.sunPointLiftedDay : nullptr, hover);
         ApplySunStudyDaySelection (state, selection);
         return;
     }
@@ -848,7 +857,9 @@ void DrawSunStudyPointDay (HudState& state, const std::string& studyId, uint64_t
     const int current = state.sunStep >= 0 && size_t (state.sunStep) < steps ? state.sunStep : -1;
     SunStudyClockSelection selection;
     const SunStudyClockShown shown { double (state.sunTimeFrom) * 60.0, double (state.sunTimeTo) * 60.0 };
-    DrawSunStudyDayClock (state, day, "##sunpointday", current, why, &selection, 352.0f, &shown);
+    int hover = -1;
+    DrawSunStudyDayClock (state, day, "##sunpointday", current, why, &selection, 352.0f, &shown, SunChart::Day, &hover);
+    PublishSunPathDayHover (state, day, hover);
     ApplySunStudyDaySelection (state, selection); // selection never changes the current view tab
 }
 

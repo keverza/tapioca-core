@@ -1,10 +1,12 @@
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/SunPathSync.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "MeshFixtures.hpp"
 
 #include <gtest/gtest.h>
 #include <imgui.h>
+#include <functional>
 
 namespace geomsrv::sunstudyhud {
 static std::shared_ptr<SunPath> s_path;
@@ -84,12 +86,14 @@ struct SunPathGui : testing::Test {
         ImGui::SetCurrentContext (previous);
     }
 
-    void Draw (ImVec2 mouse = { -100, -100 }, bool down = false)
+    void Draw (ImVec2 mouse = { -100, -100 }, bool down = false, const std::function<void ()>& chart = {})
     {
         auto& io = ImGui::GetIO ();
         io.AddMousePosEvent (mouse.x, mouse.y);
         io.AddMouseButtonEvent (0, down);
         ImGui::NewFrame ();
+        if (chart)
+            chart ();
         DrawSunStudySunPath (state, matrix, 800, 600);
         ImGui::Render ();
     }
@@ -157,4 +161,92 @@ TEST_F (SunPathGui, StaleStudyIdentityAndMissingSceneCannotDisplayTheOldDisc)
     EXPECT_EQ (state.sunPathPeriod, nullptr);
     Draw ();
     EXPECT_FALSE (state.sunPathMarkerValid);
+}
+
+TEST_F (SunPathGui, CurrentChartHoverIsTransientAndNeverChangesCommittedSelection)
+{
+    auto geometry = std::make_shared<SunPathPeriodGeometry> ();
+    geometry->year = 2028;
+    geometry->days = { { 2, 15, 28.0, 0.25, { state.sunPathDay.steps[1] } },
+                       { 2, 29, 1.0, 0.25, state.sunPathDay.steps } };
+    state.sunShowsPeriod = true;
+    state.sunPathPeriod = std::make_shared<SunPathPeriodData> (SunPathPeriodData { geometry, { 1, 0, 1, 1 } });
+    std::string tooltip;
+    Draw ({ -100, -100 }, false, [&] { tooltip = SunPathHoverMonth (state, 2, 605, 600, 660); });
+    EXPECT_EQ (state.sunPathMinute, 605);
+    EXPECT_EQ (state.sunPathHover.day, 29); // the first traced day has no step in that hour bin
+    EXPECT_NE (tooltip.find ("2028-02-29"), std::string::npos);
+    EXPECT_EQ (state.sunPathPeriod->applied.step, 1);
+    EXPECT_EQ (state.sunStep, 0);
+    EXPECT_FALSE (state.sunOverride);
+    Draw ();
+    EXPECT_EQ (state.sunPathMinute, 665); // leaving the chart restores the committed instant
+    Draw ({ -100, -100 }, false, [&] { SunPathHoverMonth (state, 2, 300, 300, 360); });
+    EXPECT_FALSE (state.sunPathMarkerValid); // an empty hovered bin never invents noon
+    Draw ();
+    EXPECT_EQ (state.sunPathMinute, 665);
+}
+
+TEST_F (SunPathGui, PointPlayerRequiresReadyMatchingRevisionAndCurrentSamples)
+{
+    auto geometry = std::make_shared<SunPathPeriodGeometry> ();
+    geometry->year = 2028;
+    geometry->studyId = "shown";
+    geometry->revision = 17;
+    geometry->days = { { 2, 29, 1.0, 0.25, state.sunPathDay.steps } };
+    state.sunPathPeriod = std::make_shared<SunPathPeriodData> (SunPathPeriodData { geometry, {} });
+    state.sunShowsPeriod = true;
+    state.sunPointSamples = { 3, 7 };
+    PeriodProfile profile;
+    profile.ready = true;
+    profile.studyId = "shown";
+    profile.revision = 17;
+    profile.samples = { 3, 7 };
+    profile.dayMonth = { 2 };
+    profile.dayOfMonth = { 29 };
+    profile.dayMinutes = { { 605, 665 } };
+    state.sunPointPlayDay = 0;
+    state.sunPointPlayStep = 1;
+    Draw ({ -100, -100 }, false, [&] {
+        auto before = SunPathPointControlOf (state);
+        before.playing = false;
+        state.sunPointPlay.playing = true; // explicit play transition owns selection
+        PublishSunPathPointPlayback (state, profile, -1, before);
+    });
+    EXPECT_EQ (state.sunPathMinute, 665);
+    EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::PointPlayer);
+    profile.revision = 18;
+    Draw ({ -100, -100 }, false,
+          [&] { PublishSunPathPointPlayback (state, profile, 0, SunPathPointControlOf (state)); });
+    EXPECT_FALSE (state.sunPathMarkerValid);
+    EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::None);
+    profile.revision = 17;
+    profile.samples = { 7, 3 }; // ordered sample identity matters
+    EXPECT_FALSE (SunPathProfileMatches (state, profile));
+    profile.samples = { 3, 7 };
+    profile.ready = false;
+    EXPECT_FALSE (SunPathProfileMatches (state, profile));
+}
+
+TEST_F (SunPathGui, ActiveShadowControlWinsOverPausedPointAndPendingPeriodIntent)
+{
+    auto geometry = std::make_shared<SunPathPeriodGeometry> ();
+    geometry->year = 2028;
+    geometry->days = { { 2, 29, 1.0, 0.25, state.sunPathDay.steps } };
+    state.sunShowsPeriod = true;
+    state.sunPathPeriod = std::make_shared<SunPathPeriodData> (SunPathPeriodData { geometry, { 1, 0, 0, 0 } });
+    state.sunStepMinutes = { 605, 665 };
+    state.sunStep = 1;
+    state.sunPeriodStep = 0;
+    Draw ({ -100, -100 }, false, [&] {
+        state.sunPathShadowFrame = ImGui::GetFrameCount ();
+        state.sunPathPointFrame = ImGui::GetFrameCount ();
+        state.sunPathPointMoment = SunPathStepMoment (2028, 2, 29, state.sunPathDay.steps, 0);
+        state.sunPathSyncSource = SunPathSyncSource::Shadow;
+    });
+    EXPECT_EQ (state.sunPathMinute, 665);
+    EXPECT_EQ (state.sunPathPeriod->applied.step, 0);
+    Draw ();
+    EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::None); // hidden controls cannot retain ownership
+    EXPECT_EQ (state.sunPathMinute, 605);
 }

@@ -177,6 +177,8 @@ struct PeriodPoint {
 // A study point's samples re-traced against every traced day's sun, averaged:
 // when it is lit.
 struct PeriodProfile {
+    std::string studyId;
+    uint64_t revision = 0;
     std::vector<size_t> samples;
     bool ready = false;
     std::string error;
