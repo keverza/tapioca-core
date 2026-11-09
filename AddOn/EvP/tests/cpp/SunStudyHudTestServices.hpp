@@ -15,6 +15,7 @@ geomsrv::sunstudyhud::PeriodInfo& SunStudyTestPeriod ();
 geomsrv::sunstudyhud::PeriodProfile& SunStudyTestProfile ();
 void SetSunStudyTestKeptDays (std::shared_ptr<const std::vector<geomsrv::sunstudyhud::KeptDay>> days);
 int SunStudyTestViewRequests ();
+const geomsrv::sunstudyhud::PeriodView& SunStudyTestRequestedView ();
 int SunStudyTestSubmissions ();
 
 void SetSunPathTestCapture (std::shared_ptr<geomsrv::sunstudyhud::SunPath> path);

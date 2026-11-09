@@ -7,6 +7,7 @@
 #include "ArchViz/SunPathCompass.hpp"
 #include "ArchViz/SunPathPick.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
+#include "Geometry/MeshStore.hpp"
 #include "MeshFixtures.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
@@ -16,6 +17,7 @@
 #include "SunStudy/SunStudyStore.hpp"
 #include "sunstudy_core_fixture.hpp"
 #include "SunStudyHudTestServices.hpp"
+#include "SunStudyHudTestWidgets.hpp"
 
 #include <gtest/gtest.h>
 #include <imgui.h>
@@ -138,6 +140,11 @@ int SunStudyTestViewRequests ()
     return geomsrv::sunstudyhud::s_viewRequests;
 }
 
+const geomsrv::sunstudyhud::PeriodView& SunStudyTestRequestedView ()
+{
+    return geomsrv::sunstudyhud::s_shownView;
+}
+
 int SunStudyTestSubmissions ()
 {
     return geomsrv::sunstudyhud::s_submissions;
@@ -165,6 +172,10 @@ struct SectionGui {
     bool collapsed = false;
     bool runOpen = false;
     int pointOpen = -1;
+    bool drawSunPath = false;
+    geomsrv::sunstudyhud::SunPathStudyDay pathDay;
+    ImDrawList* windowDraw = nullptr;
+    float pathMatrix[16] = { 0.01f, 0, 0, 0, 0, 0.01f, 0, 0, 0, 0, 0.01f, 0, 0, 0, 0.3f, 1 };
     SectionGui ()
     {
         tapioca::test::ResetSunStudyHudServices ();
@@ -204,8 +215,83 @@ struct SectionGui {
             ImGui::GetStateStorage ()->SetInt (ImGui::GetID ("Study point"), pointOpen);
         DrawSunStudyHudSection (state, scene);
         runOpen = ImGui::GetStateStorage ()->GetInt (ImGui::GetID ("Run sun study")) != 0;
+        windowDraw = ImGui::GetWindowDrawList ();
         ImGui::End ();
+        if (drawSunPath) {
+            state.sunPathDay = pathDay; // replace only the native day-publication boundary
+            DrawSunStudySunPath (state, pathMatrix, 500, 1400);
+        }
         ImGui::Render ();
+    }
+
+    void Click (ImVec2 pointer)
+    {
+        Frame (pointer, true);
+        Frame (pointer, false);
+    }
+};
+
+struct ShadowPathGui : SectionGui {
+    std::shared_ptr<const geomsrv::Snapshot> previousMesh;
+
+    ShadowPathGui ()
+    {
+        collapsed = true;
+        pointOpen = 0;
+        drawSunPath = true;
+        state.sunView = 2; // Single shadow.
+        state.sunPathShown = true;
+        state.sunRunYear = 2030; // pending form values must not replace the shown study
+        state.sunRunMonth = 12;
+        state.sunRunDay = 31;
+        auto& study = scene.sunStudy;
+        study.debugMode = 5;
+        study.stepCount = 2;
+        study.noonStep = 0;
+        study.stepMinutes = { 600, 615 };
+        study.quantumHours = 0.25f;
+        pathDay.available = true;
+        pathDay.studyId = study.studyId;
+        pathDay.revision = 23;
+        pathDay.year = 2028;
+        pathDay.month = 2;
+        pathDay.day = 29;
+        pathDay.hourFrom = 10;
+        pathDay.hourTo = 11;
+        pathDay.timestepMinutes = 15;
+        evp::sunstudy::SunStep early, late;
+        early.time = { 10, 0 };
+        early.direction[0] = 0.6f;
+        early.direction[2] = 0.8f;
+        late.time = { 10, 15 };
+        late.direction[1] = 0.8f;
+        late.direction[2] = 0.6f;
+        pathDay.steps = { early, late };
+        auto path = std::make_shared<geomsrv::sunstudyhud::SunPath> ();
+        path->ready = true;
+        path->year = 2028;
+        path->month = 2;
+        path->day = 29;
+        tapioca::test::SetSunPathTestCapture (path);
+        tapioca::test::SetSunPathTestPeriod (nullptr);
+        previousMesh = geomsrv::MeshStore::Get ().Current ();
+        auto mesh = std::make_shared<geomsrv::Snapshot> ();
+        mesh->id = geomsrv::MeshStore::Get ().NextId ();
+        mesh->meshes = { evptest::MakeBox ("scene", 0, 0, 0) };
+        geomsrv::MeshStore::Get ().Publish (mesh);
+        Frame ();
+        Frame ();
+    }
+
+    ~ShadowPathGui ()
+    {
+        tapioca::test::SetSunPathTestCapture (nullptr);
+        geomsrv::MeshStore::Get ().Publish (previousMesh);
+    }
+
+    std::vector<ImVec2> StepForwardButtons () const
+    {
+        return tapioca::test::SunStudyTestTimelineForwardButtons (windowDraw);
     }
 };
 
@@ -667,6 +753,42 @@ TEST (SunStudyHud, TimelineLabelsObserveAutomaticAdvanceAndLoopInTheSameFrame)
     frame ();
     EXPECT_EQ (index, 0);
     EXPECT_EQ (observed, 0);
+}
+
+TEST (SunStudyHud, RealShadowTimelineDrivesExactSunPathAndAutomaticLoop)
+{
+    ShadowPathGui gui;
+    ASSERT_EQ (gui.state.sunStep, 0);
+    ASSERT_EQ (gui.state.sunPathMinute, 600);
+    const auto forward = gui.StepForwardButtons ();
+    ASSERT_EQ (forward.size (), 1u);
+    gui.Click (forward[0]);
+    EXPECT_EQ (gui.state.sunStep, 1);
+    EXPECT_EQ (gui.state.sunPathSyncSource, SunPathSyncSource::Shadow);
+    EXPECT_EQ (gui.state.sunPathMinute, 615);
+    EXPECT_EQ (gui.state.sunPathDay.year, 2028);
+    EXPECT_EQ (gui.state.sunPathDay.month, 2);
+    EXPECT_EQ (gui.state.sunPathDay.day, 29);
+
+    const auto playCandidates = tapioca::test::SunStudyTestSmallButtons (gui.windowDraw, "play");
+    std::vector<ImVec2> play;
+    for (const auto& candidate : playCandidates)
+        if (std::abs (candidate.y - forward[0].y) < 0.1f && candidate.x < forward[0].x)
+            play.push_back (candidate); // exclude the same-sized 'noon' button above the timeline
+    ASSERT_EQ (play.size (), 1u);
+    gui.Click (play[0]);
+    EXPECT_TRUE (gui.state.sunPlaying);
+    EXPECT_EQ (gui.state.sunStep, 1);
+    EXPECT_EQ (gui.state.sunPathMinute, 615);
+    gui.state.sunPlayedAt = ImGui::GetTime () - 1.0;
+    gui.Frame ();
+    EXPECT_EQ (gui.state.sunStep, 0) << "the real player loops from the last step";
+    EXPECT_EQ (gui.state.sunPathMinute, 600);
+    EXPECT_EQ (gui.state.sunPathSyncSource, SunPathSyncSource::Shadow);
+    EXPECT_EQ (tapioca::test::SunStudyTestSubmissions (), 0);
+    EXPECT_FALSE (gui.state.sunOverride);
+    for (const auto& date : tapioca::test::SunPathTestCaptureDates ())
+        EXPECT_EQ (date, (std::array<int, 3> { 2028, 2, 29 }));
 }
 
 TEST (SunStudyHud, DetailedPointPlaybackNeedsNoWholeMapDayArchive)

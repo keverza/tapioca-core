@@ -367,6 +367,10 @@ TEST_F (SunPathCharts, PendingPlayerRequestCannotMoveTheDiscBeforeItsAppliedEnve
 
 TEST_F (SunPathCharts, RealMapPlayerStepWaitsForItsAppliedEnvelope)
 {
+    state.sunPeriodPlayMode = 0; // Every step; start at the applied second step of the first day.
+    state.sunPeriodDay = 0;
+    state.sunPeriodStep = 1;
+    Frame ();
     const auto forward = StepForwardButtons ();
     ASSERT_EQ (forward.size (), 2u) << "whole-map and point step-forward buttons";
     const int requests = SunStudyTestViewRequests ();
@@ -376,6 +380,9 @@ TEST_F (SunPathCharts, RealMapPlayerStepWaitsForItsAppliedEnvelope)
     EXPECT_EQ (state.sunPeriodStep, 0);
     EXPECT_EQ (state.sunPathSyncSource, SunPathSyncSource::MapPlayer);
     EXPECT_EQ (SunStudyTestViewRequests (), requests + 1);
+    EXPECT_EQ (SunStudyTestRequestedView ().frame, 1);
+    EXPECT_EQ (SunStudyTestRequestedView ().day, 1);
+    EXPECT_EQ (SunStudyTestRequestedView ().step, 0);
     EXPECT_EQ (state.sunPathMinute, 675) << "the previous applied instant is still on screen";
     SetApplied ({ 1, 0, 1, 0 });
     Frame ();
@@ -387,9 +394,46 @@ TEST_F (SunPathCharts, RealMapPlayerStepWaitsForItsAppliedEnvelope)
     EXPECT_FALSE (state.sunOverride);
 }
 
+TEST_F (SunPathCharts, RealFixedHourAndDayPlayersDoNotInventSelectedSuns)
+{
+    const auto forward = StepForwardButtons ();
+    ASSERT_EQ (forward.size (), 2u);
+    const int requests = SunStudyTestViewRequests ();
+    Click (forward[0]); // Fixed hour 11:15 on Feb 29 has no traced step within its 15-minute quantum.
+    EXPECT_EQ (state.sunPeriodDay, 1);
+    EXPECT_EQ (SunStudyTestViewRequests (), requests + 1);
+    EXPECT_EQ (SunStudyTestRequestedView ().frame, 1);
+    EXPECT_EQ (SunStudyTestRequestedView ().day, 1);
+    EXPECT_EQ (SunStudyTestRequestedView ().step, 2);
+    EXPECT_EQ (state.sunPathMinute, 675) << "pending sunless request leaves the applied instant alone";
+    SetApplied ({ 1, 0, 1, -1 });
+    Frame ();
+    EXPECT_FALSE (state.sunPathMarkerValid);
+
+    state.sunPeriodPlayMode = 2; // Day by day is an aggregate, even when its archive offset names step zero.
+    state.sunPeriodDay = 0;
+    SetApplied ({ 2, 0, 0, -1 });
+    Frame ();
+    const auto dayForward = StepForwardButtons ();
+    ASSERT_EQ (dayForward.size (), 2u);
+    Click (dayForward[0]);
+    EXPECT_EQ (state.sunPeriodDay, 1);
+    EXPECT_EQ (SunStudyTestRequestedView ().frame, 2);
+    EXPECT_EQ (SunStudyTestRequestedView ().day, 1);
+    EXPECT_FALSE (state.sunPathMarkerValid);
+    SetApplied ({ 2, 0, 1, 0 });
+    Frame ();
+    EXPECT_FALSE (state.sunPathMarkerValid);
+    EXPECT_EQ (SunStudyTestSubmissions (), 0);
+    EXPECT_FALSE (state.sunOverride);
+}
+
 TEST_F (SunPathCharts, RealPointPlayerOwnsStepsAndAutomaticMapTicksDoNotStealIt)
 {
-    state.sunPointPlayMode = 0; // Every step; the shared fixture starts in Fixed hour mode.
+    state.sunPeriodPlayMode = 0; // Every step, matching the applied map instant.
+    state.sunPeriodDay = 0;
+    state.sunPeriodStep = 1;
+    state.sunPointPlayMode = 0; // The shared fixture starts in Fixed hour mode.
     state.sunPointPlayStep = 0;
     Frame ();
     const auto forward = StepForwardButtons ();
