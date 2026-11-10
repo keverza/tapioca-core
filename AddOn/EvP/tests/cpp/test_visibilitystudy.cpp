@@ -518,3 +518,23 @@ TEST (VisibilityStudy, TheSelectedSphereViewHasNoFacing)
     ASSERT_TRUE (selected.valid) << selected.error;
     EXPECT_GT (selected.visibleSamples, 0u) << "measured as a sphere, not as a cone facing away";
 }
+
+TEST (VisibilityStudy, SelectedPointSphereHonoursWholeSceneOcclusion)
+{
+    auto options = Options ();
+    options.domain = SamplingDomain::SurfacePatch; // the viewer's sampling domain
+    options.origin = VisibilityOrigin::Point;
+    options.view = VisibilityView::Sphere;
+    options.point[0] = 1.5;
+    options.point[1] = 1.0;
+    options.point[2] = 1.0;
+    options.explicitContext = false; // "Whole scene as Context"
+
+    const auto clear = RunSelectedVisibilityStudy (Scene (false), {}, { "to" }, options);
+    ASSERT_TRUE (clear.valid) << clear.error;
+    ASSERT_GT (clear.meanVisibility, 0.0);
+    const auto blocked = RunSelectedVisibilityStudy (Scene (true), {}, { "to" }, options);
+    ASSERT_TRUE (blocked.valid) << blocked.error;
+    EXPECT_LT (blocked.meanVisibility, clear.meanVisibility)
+        << "the blocker between the point and Analysis must reduce spherical visibility";
+}

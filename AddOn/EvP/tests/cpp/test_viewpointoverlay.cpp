@@ -1,4 +1,5 @@
 #include "ArchViz/ViewpointOverlayGeometry.hpp"
+#include "ArchViz/AnalysisOverlayParams.hpp"
 
 #include <gtest/gtest.h>
 
@@ -19,6 +20,14 @@ evp::sunstudy::ViewpointStudyResult Square (bool blocked)
 }
 
 } // namespace
+
+TEST (AnalysisOverlayDepth, MeshesAreNeverPulledThroughModelOccluders)
+{
+    const auto params = AnalysisOverlayDrawParams ();
+    EXPECT_FALSE (params.pullMeshes)
+        << "depth bias must not carry an isovist or seen-surface patch in front of the model";
+    EXPECT_GT (params.hiddenDashPixels, 0.0f) << "only guides have the intentional hidden dashed pass";
+}
 
 TEST (ViewpointOverlay, WithoutAResultOnlyTheRadiusGuideIsBuilt)
 {

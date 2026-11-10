@@ -9,6 +9,7 @@
 
 #include "ArchViz/DiligentSceneImpl.hpp"
 
+#include "ArchViz/AnalysisOverlayParams.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/GhPreviewGeometry.hpp"
 
@@ -57,11 +58,7 @@ void DiligentScene::DrawAnalysisOverlay (Diligent::IDeviceContext* context, cons
         return;
     // The model's depth, where the shaded pass has not already left it.
     DrawOcclusionDepth (context, viewProj, true, modelIsDrawn, colorBufferFormat, depthBufferFormat);
-    GhPreviewLayer::DrawParams params;
-    params.lineWidthPixels = 2.0f;
-    params.ambient = 1.0f;           // flat: the isovist is a measurement, not a lit surface
-    params.hiddenDashPixels = 10.0f; // guides behind the model stay, dashed
-    params.pullMeshes = true;        // the seen surfaces lie on the model's
+    const auto params = AnalysisOverlayDrawParams ();
     impl_->analysisOverlay.Draw (context, viewProj, surfaceWidth, surfaceHeight, params);
 }
 

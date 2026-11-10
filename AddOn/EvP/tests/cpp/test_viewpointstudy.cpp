@@ -9,6 +9,7 @@
 #include "ArchViz/MatrixMath.hpp"
 #include "Geometry/MeshStore.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cmath>
 #include <chrono>
 #include <thread>
@@ -465,6 +466,30 @@ TEST (ViewpointStudy, TheSelectedFieldOfViewIsASector)
     const auto result = RunSelectedViewpointStudy (Scene (), {}, options);
     ASSERT_TRUE (result.valid) << result.error;
     EXPECT_LT (result.perimeter.size (), options.rays) << "a sector, not the full plan circle";
+}
+
+TEST (ViewpointStudy, SelectedWholeSceneContextStopsRaysInEveryViewpointMode)
+{
+    const auto scene = Scene ();
+    std::vector<std::string> everything;
+    for (const auto& mesh : scene->meshes)
+        everything.push_back (mesh.guid);
+    for (const auto mode : { ViewpointMode::Plan, ViewpointMode::FieldOfView, ViewpointMode::Sphere }) {
+        ViewpointOptions options;
+        options.mode = mode;
+        options.surfaceCellMetres = 1.0;
+        const auto result = RunSelectedViewpointStudy (scene, everything, options);
+        ASSERT_TRUE (result.valid) << result.error;
+        EXPECT_GT (result.collisionCount, 0u) << "mode " << int (mode) << " ignored the wall";
+        EXPECT_EQ (size_t (std::count_if (result.rayMesh.begin (), result.rayMesh.end (),
+                                          [] (int64_t mesh) { return mesh >= 0; })),
+                   result.collisionCount)
+            << "mode " << int (mode);
+        if (mode != ViewpointMode::Sphere)
+            EXPECT_NEAR (result.perimeter.front ()[0], 2.0, 1e-9) << "mode " << int (mode);
+        else
+            EXPECT_LT (result.openFraction, 1.0);
+    }
 }
 
 TEST (ViewpointGumballInteraction, TheConeTargetHasItsOwnGumballAndStopsFollowingFocusWhenDragged)
