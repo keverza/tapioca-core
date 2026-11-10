@@ -28,7 +28,7 @@ inline bool IsGh2OverlayLayer (std::string_view name, uint32_t generation)
 inline bool IsGh2OverlayRequest (std::string_view command, std::string_view parameters, uint32_t generation)
 {
     if (command == "Tapioca.Overlay2D" || command == "Tapioca.Overlay3D")
-        return parameters == "{\"action\":\"on\"}";
+        return false; // start is part of epoch-admitted layer publication
     if (command != "Tapioca.SetOverlayLayer" && command != "Tapioca.ClearOverlayLayer")
         return false;
     constexpr std::string_view start = "{\"layer\":\"";
@@ -40,7 +40,7 @@ inline bool IsGh2OverlayRequest (std::string_view command, std::string_view para
         return false;
     const std::string_view tail = parameters.substr (end);
     if (command == "Tapioca.ClearOverlayLayer")
-        return tail == "\"}"; // never all:true or somebody else's layer
+        return tail.rfind ("\",\"projectEpoch\":", 0) == 0 && parameters.back () == '}';
     return (tail.rfind ("\",\"views\":\"2d\",", 0) == 0 || tail.rfind ("\",\"views\":\"3d\",", 0) == 0) &&
            parameters.back () == '}';
 }

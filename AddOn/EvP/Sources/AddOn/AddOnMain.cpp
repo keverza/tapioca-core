@@ -7,6 +7,7 @@
 // ============================================================================
 
 #include "APIEnvir.h"
+#include "Preview/PublicationAdmission.hpp"
 #include "ACAPinc.h"
 
 #include "ResourceIds.hpp"
@@ -173,6 +174,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
         case APINotify_New:
         case APINotify_NewAndReset:
         case APINotify_Open:
+            tapioca::preview::PublicationState ().ProjectChanged ();
             geomsrv::ResetTestJobs ();
             geomsrv::ResetSurfaceInspectorState ();
             if (ControlPalette::HasInstance ()) {
@@ -203,6 +205,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             geomsrv::archviz::ExtractionWorker::Get ().RequestStop ();
             break;
         case APINotify_Close:
+            tapioca::preview::PublicationState ().ProjectChanged ();
             geomsrv::ResetTestJobs ();
             geomsrv::ResetSurfaceInspectorState ();
             if (ControlPalette::HasInstance ()) {
@@ -225,6 +228,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             geomsrv::archviz::ExtractionWorker::Get ().RequestStop ();
             break;
         case APINotify_Quit:
+            tapioca::preview::PublicationState ().ProjectChanged ();
             geomsrv::ShutdownTestJobs ();
             geomsrv::ResetSurfaceInspectorState ();
             geomsrv::sunfollow::Shutdown ();

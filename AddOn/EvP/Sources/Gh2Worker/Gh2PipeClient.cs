@@ -32,7 +32,47 @@ internal sealed class Gh2PipeClient : IDisposable
     private readonly object writes = new();
     private readonly Timer heartbeat;
     private readonly Timer monitorTimer;
-    private readonly SemaphoreSlim projectReads = new(1, 1);
+    private readonly RequestLane projectReads = new();
+    private readonly CancellationTokenSource stopped = new();
+    private int disposed;
+
+    // One on-wire request; bounded waiters. Clear goes ahead of queued reads,
+    // but cannot interrupt an SDK operation already executing on the host.
+    private sealed class RequestLane
+    {
+        private readonly object sync = new();
+        private readonly LinkedList<TaskCompletionSource> normal = new(), priority = new();
+        private bool active;
+        internal async Task EnterAsync(bool urgent, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            LinkedListNode<TaskCompletionSource> node;
+            lock (sync)
+            {
+                if (!active) { active = true; return; }
+                var queue = urgent ? priority : normal;
+                if (queue.Count >= (urgent ? 4 : 16)) throw new InvalidOperationException("Bridge request queue is full; retry after pending actions complete.");
+                node = queue.AddLast(new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+            }
+            try { await node.Value.Task.WaitAsync(token); }
+            catch
+            {
+                lock (sync)
+                {
+                    if (node.List is not null) node.List.Remove(node);
+                    else ReleaseLocked(); // a grant raced cancellation; pass it onward
+                }
+                throw;
+            }
+        }
+        private void ReleaseLocked()
+        {
+            var queue = priority.Count != 0 ? priority : normal;
+            if (queue.First is { } node) { queue.RemoveFirst(); node.Value.TrySetResult(); }
+            else active = false;
+        }
+        internal void Release() { lock (sync) ReleaseLocked(); }
+    }
     private readonly object requests = new();
     private TaskCompletionSource<string>? pendingReply;
     private uint pendingId;
@@ -58,6 +98,7 @@ internal sealed class Gh2PipeClient : IDisposable
             }
             catch (IOException) { Interlocked.Exchange(ref heartbeatFailed, 1); }
             catch (ObjectDisposedException) { Interlocked.Exchange(ref heartbeatFailed, 1); }
+            catch (OperationCanceledException) { Interlocked.Exchange(ref heartbeatFailed, 1); }
         }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         monitorTimer = new Timer(_ => RequestMonitor(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
@@ -96,9 +137,7 @@ internal sealed class Gh2PipeClient : IDisposable
                 if (header.Type != Gh2Wire.Message.HelloAck || header.RequestId != 0)
                     throw new InvalidDataException("The bridge did not answer GH2's hello.");
                 Gh2Wire.VerifyHelloAck(body);
-                // Read replies are flushed by the bridge IO thread on the next
-                // message. 250 ms bounds each catalog read without an API pipe
-                // write on Archicad's main thread.
+                // Liveness only. Native reply publication wakes IO independently.
                 client.heartbeat.Change(TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
                 return client;
             }
@@ -199,23 +238,22 @@ internal sealed class Gh2PipeClient : IDisposable
         try { Log("GH2 project options refresh failed: " + message); }
         catch (IOException) { }
         catch (ObjectDisposedException) { }
+        catch (OperationCanceledException) { }
     }
 
     internal Task<string> ReadProjectInfoAsync() => ReadProjectAsync("Tapioca.GetGhConnectionInfo", "{}");
     internal Task<string> ReadStoriesAsync() => ReadProjectAsync("Tapioca.GetStories", "{}");
     internal Task<string> ReadSelectionAsync() => ReadProjectAsync("Tapioca.GetSelection", "{}");
-    internal Task<string> EnableOverlayAsync(bool plan) =>
-        ReadProjectAsync(plan ? "Tapioca.Overlay2D" : "Tapioca.Overlay3D", "{\"action\":\"on\"}");
-    internal Task<string> SetOverlayAsync(string parameters)
+    internal Task<string> SetOverlayAsync(string parameters, Func<bool>? current = null)
     {
         if (Encoding.UTF8.GetByteCount(parameters) > Gh2OverlayPayload.MaxBytes)
             throw new ArgumentException("Overlay exceeds the transfer budget.", nameof(parameters));
-        return ReadProjectAsync("Tapioca.SetOverlayLayer", parameters);
+        return ReadProjectAsync("Tapioca.SetOverlayLayer", parameters, current: current);
     }
-    internal Task<string> ClearOverlayAsync(uint generation, Guid producer) =>
+    internal Task<string> ClearOverlayAsync(uint generation, Guid producer, long projectEpoch, Guid document, long revision) =>
         ReadProjectAsync("Tapioca.ClearOverlayLayer", JsonSerializer.Serialize(new
         {
-            layer = Gh2OverlayPayload.Layer(generation, producer)
+            layer = Gh2OverlayPayload.Layer(generation, producer), projectEpoch, documentSession = document.ToString("N"), revision
         }));
     internal Task<string> ReadElementHeadersAsync(IReadOnlyList<Guid> ids)
     {
@@ -271,17 +309,29 @@ internal sealed class Gh2PipeClient : IDisposable
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
-    private async Task<string> ReadProjectAsync(string command, string parameters)
+    private async Task<string> ReadProjectAsync(string command, string parameters, CancellationToken cancellation = default,
+        Func<bool>? current = null)
     {
-        await projectReads.WaitAsync();
-        try { return await RequestProjectAsync(command, parameters).WaitAsync(
-            TimeSpan.FromSeconds(command == "Tapioca.CreateMesh" ? 120 : 30)); }
-        catch (TimeoutException)
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopped.Token, cancellation);
+        deadline.CancelAfter(TimeSpan.FromSeconds(command == "Tapioca.CreateMesh" ? 120 : 30));
+        await projectReads.EnterAsync(command == "Tapioca.ClearOverlayLayer", deadline.Token);
+        bool sent = false;
+        try
+        {
+            deadline.Token.ThrowIfCancellationRequested();
+            // A Show can become obsolete while waiting behind another request.
+            // Refuse before sending; native admission remains the final authority.
+            if (current is not null && !current())
+                throw new OperationCanceledException("Queued overlay is no longer current; solve and Show again.");
+            sent = true;
+            return await Task.Run(() => RequestProjectAsync(command, parameters), deadline.Token).WaitAsync(deadline.Token);
+        }
+        catch (OperationCanceledException)
         {
             // A late reply cannot safely be mistaken for the next request.
             // Tear down this pipe rather than leave its reader and refresh latch stuck.
-            Dispose();
-            if (command == "Tapioca.CreateMesh")
+            if (sent) Dispose();
+            if (sent && command == "Tapioca.CreateMesh")
                 throw new TimeoutException("Mesh creation outcome is unknown. Inspect Archicad before retrying; the write may have committed.");
             throw;
         }
@@ -294,6 +344,7 @@ internal sealed class Gh2PipeClient : IDisposable
         uint id;
         lock (requests)
         {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
             if (pendingReply is not null)
                 throw new InvalidOperationException("Another GH2 project read is in flight.");
             id = ++nextRequestId;
@@ -379,6 +430,8 @@ internal sealed class Gh2PipeClient : IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        stopped.Cancel();
         CompletePending(new ObjectDisposedException(nameof(Gh2PipeClient)));
         heartbeat.Dispose();
         monitorTimer.Dispose();

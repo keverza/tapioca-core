@@ -1,4 +1,5 @@
 #include "APIEnvir.h"
+#include "Preview/PublicationAdmission.hpp"
 #include "ACAPinc.h"
 
 #include "NativeCommands/ProjectCommands.hpp"
@@ -165,6 +166,7 @@ class GetGhConnectionInfoCommand : public MainThreadCommand {
         // Revision hint, not project identity. It may change for edits unrelated
         // to GH2's three catalogs; peers check the catalogs only on request.
         result.Add ("modelStamp", static_cast<GS::Int64> (project.modiStamp));
+        result.Add ("projectEpoch", static_cast<GS::Int64> (tapioca::preview::PublicationState ().Epoch ()));
         // The project stamp also advances for UI selection changes. Record a
         // bounded, order-independent selection fingerprint so GH2 can rebase
         // those changes instead of claiming the model snapshot is stale.
@@ -206,7 +208,10 @@ class GetGhConnectionInfoCommand : public MainThreadCommand {
 // input position, so callers cannot attach one element's fields to another.
 class GetGhElementHeadersCommand : public MainThreadCommand {
   public:
-    GS::String GetName () const override { return "GetGhElementHeaders"; }
+    GS::String GetName () const override
+    {
+        return "GetGhElementHeaders";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -553,14 +558,15 @@ const NativeCommandRegistration ProjectCommandRegistrations[] = {
                 "projectPath":{"type":"string"},
                 "untitled":{"type":"boolean"},
                 "modelStamp":{"type":"integer"},
+                "projectEpoch":{"type":"integer","minimum":1},
                 "selectionStamp":{"type":"integer"}
             },
             "additionalProperties":false,
-            "required":["archicadVersion","archicadBuild","projectName","projectPath","untitled","modelStamp"]
+            "required":["archicadVersion","archicadBuild","projectName","projectPath","untitled","modelStamp","projectEpoch"]
         })json" },
     { "GetGhElementHeaders", &MakeRegisteredNativeCommand<GetGhElementHeadersCommand>, false,
       R"json({"type":"object","properties":{"guids":{"type":"array","maxItems":64,"items":{"type":"string","minLength":1,"maxLength":64}}},"additionalProperties":false,"required":["guids"]})json",
-       R"json({"type":"object","properties":{"elements":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"guid":{"type":"string"},"found":{"type":"boolean"},"type":{"type":"string"},"typeId":{"type":"integer"},"variationId":{"type":"integer"},"elementId":{"type":"string"},"story":{"type":"integer"},"layer":{"type":"string"}},"additionalProperties":false,"required":["guid","found","type","typeId","variationId","elementId","story","layer"]}}},"additionalProperties":false,"required":["elements"]})json" },
+      R"json({"type":"object","properties":{"elements":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"guid":{"type":"string"},"found":{"type":"boolean"},"type":{"type":"string"},"typeId":{"type":"integer"},"variationId":{"type":"integer"},"elementId":{"type":"string"},"story":{"type":"integer"},"layer":{"type":"string"}},"additionalProperties":false,"required":["guid","found","type","typeId","variationId","elementId","story","layer"]}}},"additionalProperties":false,"required":["elements"]})json" },
     { "GetPlaceInfo", &MakeRegisteredNativeCommand<GetPlaceInfoCommand>, false,
       R"json({
             "type":"object",

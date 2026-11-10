@@ -16,7 +16,7 @@ internal static class Gh2OverlayActionChecks
 {
     private const BindingFlags HiddenStatic = BindingFlags.NonPublic | BindingFlags.Static;
     private const BindingFlags HiddenInstance = BindingFlags.NonPublic | BindingFlags.Instance;
-    private const string Info = "{\"ok\":true,\"data\":{\"projectName\":\"Overlay test\",\"projectPath\":\"C:/overlay.pln\",\"untitled\":false}}";
+    private const string Info = "{\"ok\":true,\"data\":{\"projectName\":\"Overlay test\",\"projectPath\":\"C:/overlay.pln\",\"untitled\":false,\"projectEpoch\":1}}";
 
     internal static void Run(Document document, Component[] components)
     {
@@ -29,6 +29,7 @@ internal static class Gh2OverlayActionChecks
         using var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         int solves = 0;
         using var removedLayerCleared = new ManualResetEventSlim();
+        using var layerCleared = new AutoResetEvent(false);
         Task host = Task.Run(() =>
         {
             try
@@ -40,37 +41,40 @@ internal static class Gh2OverlayActionChecks
                 Send(server, 2, 0, granted);
                 for (int i = 0; i < components.Length; i++)
                 {
-                    Expect(server, "Tapioca.GetGhConnectionInfo", Info, json =>
-                    {
-                        if (Volatile.Read(ref solves) != i + 1 || json != "{}")
-                            throw new InvalidOperationException("Overlay made a live query during Process.");
-                    });
-                    Expect(server, i == 0 ? "Tapioca.Overlay2D" : "Tapioca.Overlay3D",
-                        "{\"ok\":true,\"data\":{\"running\":true,\"refused\":false,\"message\":\"on\"}}",
-                        json => { if (json != "{\"action\":\"on\"}") throw new InvalidOperationException("Overlay changed global intent unexpectedly."); });
-                    Expect(server, "Tapioca.GetGhConnectionInfo", Info);
                     string? layer = null;
+                    string? session = null;
+                    long revision = 0;
                     Expect(server, "Tapioca.SetOverlayLayer", "{\"ok\":true,\"data\":{\"generation\":\"1\"}}", json =>
                     {
                         using JsonDocument payload = JsonDocument.Parse(json);
                         JsonElement data = payload.RootElement;
                         layer = data.GetProperty("layer").GetString();
+                        session = data.GetProperty("documentSession").GetString();
+                        revision = data.GetProperty("revision").GetInt64();
+                        if (Volatile.Read(ref solves) != i + 1 || data.GetProperty("projectEpoch").GetInt64() != 1 ||
+                            session?.Length != 32 || revision < 1)
+                            throw new InvalidOperationException("Overlay published before Show or without admission identity.");
                         if (layer is null || !layer.StartsWith("gh2.42.", StringComparison.Ordinal) ||
                             data.GetProperty("views").GetString() != (i == 0 ? "2d" : "3d") ||
                             data.GetProperty("polylines").GetArrayLength() != 1)
                             throw new InvalidOperationException("Component published wrong surface/identity/geometry.");
                     });
-                    Expect(server, "Tapioca.GetGhConnectionInfo", Info);
                     Expect(server, "Tapioca.ClearOverlayLayer", "{\"ok\":true,\"data\":{\"cleared\":1}}", json =>
                     {
-                        if (json != "{\"layer\":\"" + layer + "\"}")
+                        using var clear = JsonDocument.Parse(json);
+                        if (clear.RootElement.GetProperty("layer").GetString() != layer ||
+                            clear.RootElement.GetProperty("documentSession").GetString() != session ||
+                            clear.RootElement.GetProperty("revision").GetInt64() <= revision)
                             throw new InvalidOperationException("Component Clear did not address its own layer.");
                     });
+                    layerCleared.Set();
                     if (i == components.Length - 1)
                     {
                         Expect(server, "Tapioca.ClearOverlayLayer", "{\"ok\":true,\"data\":{\"cleared\":0}}", json =>
                         {
-                            if (json != "{\"layer\":\"" + layer + "\"}")
+                            using var clear = JsonDocument.Parse(json);
+                            if (clear.RootElement.GetProperty("layer").GetString() != layer ||
+                                clear.RootElement.GetProperty("revision").GetInt64() != long.MaxValue)
                                 throw new InvalidOperationException("Removal cleanup targeted a new component lifetime.");
                         });
                         removedLayerCleared.Set();
@@ -116,7 +120,8 @@ internal static class Gh2OverlayActionChecks
                 }
                 WaitIdle(component, host);
                 componentBase.GetMethod("Clear", HiddenInstance)!.Invoke(component, null);
-                WaitIdle(component, host);
+                if (!layerCleared.WaitOne(TimeSpan.FromSeconds(30)))
+                    throw new TimeoutException("Clear did not reach the priority lane.");
                 if (i == components.Length - 1)
                 {
                     FieldInfo producer = componentBase.GetField("producer", HiddenInstance)!;

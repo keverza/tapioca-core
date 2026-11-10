@@ -24,6 +24,7 @@
 #include "NativeCommands/CommandRegistration.hpp"
 #include "NativeCommands/OverlayLayerReading.hpp"
 #include "Grasshopper/Gh2OverlayRequest.hpp"
+#include "Preview/PublicationAdmission.hpp"
 
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayLayers.hpp"
@@ -50,6 +51,21 @@ GS::UniString Text (uint64_t value)
 
 using overlayreading::ReadLayer;
 using overlayreading::StringOf;
+
+// BOUND BY OVERLAY-INVARIANTS.md: admission is checked again after any renderer
+// startup, immediately before mutating the layer store. No camera state is shared.
+bool PublicationToken (const GS::ObjectState& params, const std::string& name,
+                       tapioca::preview::PublicationAdmission::Token& token)
+{
+    GS::Int64 epoch = 0, revision = 0;
+    token.producer = name;
+    token.document = StringOf (params, "documentSession");
+    if (!params.Get ("projectEpoch", epoch) || !params.Get ("revision", revision) || epoch <= 0 || revision <= 0)
+        return false;
+    token.epoch = uint64_t (epoch);
+    token.revision = uint64_t (revision);
+    return tapioca::preview::PublicationState ().Current (token);
+}
 
 const char* ViewsName (layers::Views views)
 {
@@ -95,6 +111,20 @@ class SetOverlayLayerCommand : public MainThreadCommand {
         std::string error;
         if (!ReadLayer (params, layer, error))
             return NativeCommandResult::Failure (EVP_FAIL (Utf8 (error), "setting an overlay layer"));
+        const bool admittedLayer = layer.name.rfind ("gh2.", 0) == 0;
+        tapioca::preview::PublicationAdmission::Token token;
+        if (admittedLayer) {
+            if (!PublicationToken (params, layer.name, token))
+                return NativeCommandResult::Failure (
+                    "Stale project/document/revision or publication capacity exceeded.");
+            const auto outcome = control::SetWanted (layer.views == layers::Views::TwoD ? control::Overlay::TwoD
+                                                                                        : control::Overlay::ThreeD,
+                                                     true, "preview");
+            if (!outcome.ok)
+                return NativeCommandResult::Failure (Utf8 (outcome.message));
+            if (!tapioca::preview::PublicationState ().Adopt (token))
+                return NativeCommandResult::Failure ("Publication invalidated during overlay startup.");
+        }
         const layers::Summary summary = layers::Summarise (layer);
         const uint64_t generation = layers::Set (std::move (layer));
         control::PublishLayers ();
@@ -124,6 +154,11 @@ class ClearOverlayLayerCommand : public MainThreadCommand {
         }
         else if (params.Contains ("layer")) {
             const std::string name = StringOf (params, "layer");
+            if (name.rfind ("gh2.", 0) == 0) {
+                tapioca::preview::PublicationAdmission::Token token;
+                if (!PublicationToken (params, name, token) || !tapioca::preview::PublicationState ().Adopt (token))
+                    return NativeCommandResult::Failure ("Stale project/document/revision for layer clear.");
+            }
             if (layers::Reserved (name))
                 return NativeCommandResult::Failure (
                     EVP_FAIL ("the add-on's own layers are switched by their own verbs", "clearing an overlay layer"));
@@ -182,6 +217,8 @@ class ClearGhOverlaySessionCommand : public MainThreadCommand {
     {
         GS::Int64 generation = 0;
         params.Get ("generation", generation);
+        tapioca::preview::PublicationState ().ReleasePrefix (
+            evp::grasshopper::Gh2OverlayPrefix (uint32_t (generation)));
         GS::Int32 cleared = 0;
         for (const auto& layer : layers::Layers ())
             if (evp::grasshopper::IsGh2OverlayLayer (layer->name, uint32_t (generation)))
@@ -260,6 +297,8 @@ class OverlayLayersCommand : public MainThreadCommand {
 // preset or stops, with an optional range, bands and isolines -- written out twice
 // below, for meshes and for legends, because a schema constant is one literal.
 constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properties":{
+    "projectEpoch":{"type":"integer","minimum":1},"revision":{"type":"integer","minimum":1},
+    "documentSession":{"type":"string","minLength":32,"maxLength":32},
     "layer":{"type":"string","minLength":1,"maxLength":64},
     "views":{"type":"string","enum":["2d","3d","both"]},
     "lifetime":{"type":"string","enum":["project","command"],"description":"Command previews are cleared before the next palette run; all layers end with the project."},
@@ -500,6 +539,8 @@ constexpr const char kSetOverlayLayerOutput[] = R"json({"type":"object","propert
               "dimensions","legends","panels","generation"]})json";
 
 constexpr const char kClearOverlayLayerInput[] = R"json({"type":"object","properties":{
+    "projectEpoch":{"type":"integer","minimum":1},"revision":{"type":"integer","minimum":1},
+    "documentSession":{"type":"string","minLength":32,"maxLength":32},
     "layer":{"type":"string","minLength":1,"maxLength":64},"all":{"type":"boolean"}},
   "additionalProperties":false})json";
 

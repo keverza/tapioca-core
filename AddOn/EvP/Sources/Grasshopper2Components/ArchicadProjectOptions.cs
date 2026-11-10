@@ -96,10 +96,10 @@ internal static class ArchicadProjectOptions
             !data.TryGetProperty("untitled", out JsonElement untitled) ||
             (untitled.ValueKind != JsonValueKind.True && untitled.ValueKind != JsonValueKind.False))
             throw new InvalidDataException("Archicad project identity fields are missing.");
-        // A comparison key, NOT a project GUID. Identical untitled projects
-        // cannot be distinguished until Tapioca has a project-bound identity.
+        if (!data.TryGetProperty("projectEpoch", out JsonElement projectEpoch) || !projectEpoch.TryGetInt64(out long nativeEpoch) || nativeEpoch <= 0)
+            throw new InvalidDataException("A matched native build with project-epoch admission is required.");
         return JsonSerializer.Serialize(new { Path = path.GetString(), Name = name.GetString(),
-            Untitled = untitled.GetBoolean() });
+            Untitled = untitled.GetBoolean(), Epoch = nativeEpoch });
     }
 
     internal static long? ParseStamp(string json) => ParseStampField(json, "modelStamp");

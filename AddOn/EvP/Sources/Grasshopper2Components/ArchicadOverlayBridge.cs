@@ -1,4 +1,5 @@
 using Tapioca.Gh2Worker;
+using System.Text.Json;
 
 namespace TapiocaGH2;
 
@@ -7,6 +8,7 @@ internal static class ArchicadOverlayBridge
 {
     internal sealed record Lease(Gh2PipeClient Client, uint Generation, string Project)
     {
+        internal long Epoch { get { using var json = JsonDocument.Parse(Project); return json.RootElement.GetProperty("Epoch").GetInt64(); } }
         internal bool Current => ReferenceEquals(Client, Gh2ConnectionStatus.OverlayClient()) &&
             Project == ArchicadProjectOptions.CurrentIdentity();
     }
@@ -23,41 +25,17 @@ internal static class ArchicadOverlayBridge
 
     internal static async Task<string> ShowAsync(Lease lease, string payload, Guid producer, bool plan, Func<bool> alive)
     {
-        await VerifyProjectAsync(lease);
+        if (!lease.Current) throw new InvalidOperationException("Archicad project changed; solve again.");
         if (!alive()) throw new OperationCanceledException("Overlay solution changed or its component/document closed. Solve and Show again.");
-        var outcome = ArchicadSelectionInput.ValidateReply(await lease.Client.EnableOverlayAsync(plan), "overlay start");
-        if (outcome.GetProperty("refused").GetBoolean())
-            throw new InvalidOperationException("Archicad refused the overlay: " + outcome.GetProperty("message").GetString());
-        await VerifyProjectAsync(lease);
-        if (!alive()) throw new OperationCanceledException("Overlay solution changed or its component/document closed. Solve and Show again.");
-        ArchicadSelectionInput.ValidateReply(await lease.Client.SetOverlayAsync(payload), "overlay content");
-        try
-        {
-            await VerifyProjectAsync(lease);
-            if (!alive()) throw new OperationCanceledException("Overlay solution changed or its component/document closed. Solve and Show again.");
-        }
-        catch
-        {
-            // This exact old connection only; never clear a reconnected peer.
-            try { await lease.Client.ClearOverlayAsync(lease.Generation, producer); }
-            catch (Exception) { } // bridge teardown also removes this generation's layers
-            throw;
-        }
-        return outcome.GetProperty("running").GetBoolean()
-            ? "Layer published. Camera readiness and visibility are reported by Archicad's overlay HUD."
-            : "Layer published; waiting for its Archicad view to come forward.";
+        ArchicadSelectionInput.ValidateReply(await lease.Client.SetOverlayAsync(payload, () => lease.Current && alive()), "overlay content");
+        return "Layer published. Camera readiness and visibility are reported by Archicad's overlay HUD.";
     }
 
-    internal static async Task ClearAsync(Lease lease, Guid producer)
+    internal static async Task ClearAsync(Lease lease, Guid producer, Guid document, long revision)
     {
         if (!ReferenceEquals(lease.Client, Gh2ConnectionStatus.OverlayClient()))
             throw new InvalidOperationException("The peer detached; its overlay layers have been released.");
-        ArchicadSelectionInput.ValidateReply(await lease.Client.ClearOverlayAsync(lease.Generation, producer), "overlay clear");
+        ArchicadSelectionInput.ValidateReply(await lease.Client.ClearOverlayAsync(lease.Generation, producer, lease.Epoch, document, revision), "overlay clear");
     }
 
-    private static async Task VerifyProjectAsync(Lease lease)
-    {
-        if (!lease.Current || ArchicadProjectOptions.ParseIdentity(await lease.Client.ReadProjectInfoAsync()) != lease.Project)
-            throw new InvalidOperationException("Archicad connection/project changed; solve again before showing geometry.");
-    }
 }

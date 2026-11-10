@@ -18,11 +18,13 @@ internal static class Gh2OverlayPayload
         return $"gh2.{generation}.{producer:N}";
     }
 
-    internal static string Encode(uint generation, Guid producer, bool plan, Line[] lines, PointSet[] points, Mesh[] meshes)
+    internal static string Encode(uint generation, Guid producer, bool plan, Line[] lines, PointSet[] points, Mesh[] meshes,
+        long projectEpoch, Guid document, long revision)
     {
         string json = JsonSerializer.Serialize(new
         {
             layer = Layer(generation, producer), views = plan ? "2d" : "3d",
+            projectEpoch, documentSession = document.ToString("N"), revision,
             occlusion = plan ? "always" : "hide", polylines = lines, points, meshes
         });
         if (Encoding.UTF8.GetByteCount(json) > MaxBytes)

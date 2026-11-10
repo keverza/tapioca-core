@@ -71,7 +71,7 @@ internal static class Gh2WireCheck
             var (shutdown, answer) = ReceiveControl(server);
             Require(shutdown.type == 9 && answer.Length >= 4 && Read(answer, 0) == 0,
                 "The worker did not acknowledge shutdown.");
-            Require(server.ReadByte() == -1, "The worker did not disconnect after shutdown.");
+            ExpectDisconnect(server);
         });
         using (var client = Gh2PipeClient.Connect(name))
         {
@@ -111,7 +111,7 @@ internal static class Gh2WireCheck
             Require(shutdown.type == 9 && answer.Length >= 4 && Read(answer, 0) == 0 &&
                     Encoding.UTF8.GetString(answer, 4, answer.Length - 4).Contains("shutting down", StringComparison.Ordinal),
                 "Worker did not acknowledge shutdown.");
-            Require(server.ReadByte() == -1, "Worker did not disconnect after shutdown.");
+            ExpectDisconnect(server);
         });
 
         using (var client = Gh2PipeClient.Connect(name))
@@ -142,7 +142,7 @@ internal static class Gh2WireCheck
             Require(failure.type == 9 && body.Length >= 4 && Read(body, 0) == 1 &&
                     Encoding.UTF8.GetString(body, 4, body.Length - 4).Contains(expectedReason, StringComparison.Ordinal),
                 "The worker did not send one actionable failed startup ack.");
-            Require(server.ReadByte() == -1, "The worker sent another startup ack after failure.");
+            ExpectDisconnect(server);
         });
         using (var client = Gh2PipeClient.Connect(name))
         {
@@ -235,7 +235,7 @@ internal static class Gh2WireCheck
     {
         string name = $"Tapioca.Gh2.v5.{Environment.ProcessId}.{Random.Shared.Next(100000, int.MaxValue)}";
         string identity = "{\"ok\":true,\"data\":{\"archicadVersion\":29,\"archicadBuild\":3000," +
-            "\"projectName\":\"Refresh test\",\"projectPath\":\"C:/sample.pln\",\"untitled\":false," +
+            "\"projectName\":\"Refresh test\",\"projectPath\":\"C:/sample.pln\",\"untitled\":false,\"projectEpoch\":1," +
             "\"modelStamp\":100,\"selectionStamp\":10}}";
         string selectionOnly = identity.Replace("\"modelStamp\":100,\"selectionStamp\":10",
             "\"modelStamp\":101,\"selectionStamp\":11", StringComparison.Ordinal);
@@ -324,7 +324,7 @@ internal static class Gh2WireCheck
                     ArchicadProjectOptions.ReadStatus().Issue.Contains("changed while refreshing", StringComparison.Ordinal),
                 "A mixed-project choice list was exposed.");
             Send(server, 8, 0, 0, []);
-            Require(server.ReadByte() == -1, "Peer did not detach after project refresh.");
+            ExpectDisconnect(server);
         });
         Gh2Peer.AttachSelected(new Gh2Peer.Candidate(name, uint.Parse(name.Split('.')[^1])), message =>
         {
@@ -425,16 +425,17 @@ internal static class Gh2WireCheck
     {
         Guid producer = Guid.NewGuid();
         string layer = Gh2OverlayPayload.Layer(12, producer);
+        Guid document = Guid.NewGuid();
         string[] payloads = new[] { true, false }.Select(plan => Gh2OverlayPayload.Encode(12, producer, plan,
             [new([1, 2, plan ? 0 : 3, 4, 5, plan ? 0 : 6], false, "6495ED80", 2, plan ? "always" : "hide")],
-            [], [])).ToArray();
+            [], [], 1, document, plan ? 1 : 2)).ToArray();
         Require(payloads[0].Contains("\"views\":\"2d\"", StringComparison.Ordinal) &&
             payloads[1].Contains("\"views\":\"3d\"", StringComparison.Ordinal) &&
             layer != Gh2OverlayPayload.Layer(13, producer), "Overlay lost view/generation identity.");
         try
         {
             Gh2OverlayPayload.Encode(12, producer, false,
-                [new(new double[600000], false, "6495ED80", 2, "hide")], [], []);
+                [new(new double[600000], false, "6495ED80", 2, "hide")], [], [], 1, document, 3);
             throw new InvalidOperationException("Overlay accepted an oversized payload.");
         }
         catch (ArgumentException) { }
@@ -447,11 +448,9 @@ internal static class Gh2WireCheck
             Send(server, 2, 0, 0, Word(Gh2Wire.CapabilityGh2));
             for (int i = 0; i < 2; i++)
             {
-                ExpectRead(server, i == 0 ? "Tapioca.Overlay2D" : "Tapioca.Overlay3D", "{\"action\":\"on\"}",
-                    "{\"ok\":true,\"data\":{\"running\":true,\"refused\":false}}");
                 ExpectRead(server, "Tapioca.SetOverlayLayer", payloads[i], "{\"ok\":true,\"data\":{\"generation\":\"1\"}}");
             }
-            ExpectRead(server, "Tapioca.ClearOverlayLayer", "{\"layer\":\"" + layer + "\"}",
+            ExpectRead(server, "Tapioca.ClearOverlayLayer", "{\"layer\":\"" + layer + "\",\"projectEpoch\":1,\"documentSession\":\"" + document.ToString("N") + "\",\"revision\":3}",
                 "{\"ok\":true,\"data\":{\"cleared\":1}}");
             Send(server, 8, 0, 0, []);
         });
@@ -459,10 +458,9 @@ internal static class Gh2WireCheck
         Task reader = Task.Run(() => client.WaitForShutdown(false));
         for (int i = 0; i < 2; i++)
         {
-            client.EnableOverlayAsync(i == 0).GetAwaiter().GetResult();
             client.SetOverlayAsync(payloads[i]).GetAwaiter().GetResult();
         }
-        client.ClearOverlayAsync(12, producer).GetAwaiter().GetResult();
+        client.ClearOverlayAsync(12, producer, 1, document, 3).GetAwaiter().GetResult();
         reader.GetAwaiter().GetResult(); host.GetAwaiter().GetResult();
     }
 
@@ -475,6 +473,33 @@ internal static class Gh2WireCheck
             if (message.header.type != 3)
                 return message;
             Require(message.body.Length == 0, "Heartbeat carried data.");
+        }
+    }
+
+    private static void ExpectDisconnect(Stream stream)
+    {
+        // A heartbeat already buffered before Shutdown is valid. Still reject a
+        // second Ack, any other message, or failure to close within the deadline.
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        byte[] header = new byte[Gh2Wire.HeaderSize];
+        byte[] heartbeat = Gh2Wire.EncodeHeader(Gh2Wire.Message.Heartbeat, 0, 0, 0);
+        while (true)
+        {
+            int offset = 0;
+            while (offset < header.Length)
+            {
+                int count = stream.ReadAsync(header.AsMemory(offset), deadline.Token).AsTask().GetAwaiter().GetResult();
+                if (count == 0)
+                {
+                    Require(header.AsSpan(0, offset).SequenceEqual(heartbeat.AsSpan(0, offset)),
+                        "Disconnect interrupted a message other than a heartbeat.");
+                    return;
+                }
+                offset += count;
+            }
+            var frame = Gh2Wire.DecodeHeader(header);
+            Require(frame.Type == Gh2Wire.Message.Heartbeat && frame.PayloadBytes == 0,
+                $"Unexpected message {frame.Type} while awaiting disconnect.");
         }
     }
 
@@ -564,7 +589,7 @@ internal static class Gh2WireCheck
             uint id = ExpectPing(server);
             RequireNoStartupBeforeReply(server);
             Send(server, 5, 0, id,
-                Encoding.UTF8.GetBytes("{\"ok\":true,\"data\":{\"archicadVersion\":29,\"archicadBuild\":3000,\"projectName\":\"Peer test\",\"projectPath\":\"C:/sample.pln\",\"untitled\":false}}"));
+                Encoding.UTF8.GetBytes("{\"ok\":true,\"data\":{\"archicadVersion\":29,\"archicadBuild\":3000,\"projectName\":\"Peer test\",\"projectPath\":\"C:/sample.pln\",\"untitled\":false,\"projectEpoch\":1}}"));
             var (ack, startup) = ReceiveControl(server);
             Require(ack.type == 9 && Read(startup, 0) == 0 &&
                     Encoding.UTF8.GetString(startup, 4, startup.Length - 4).Contains("Attached Rhino", StringComparison.Ordinal),
@@ -576,7 +601,7 @@ internal static class Gh2WireCheck
             ExpectProjectOptions(server);
             Send(server, 8, 0, 0, []);
             // A peer sends no second Ack when Archicad detaches.
-            Require(server.ReadByte() == -1, "Peer did not release the pipe after Shutdown.");
+            ExpectDisconnect(server);
         });
         var messages = new List<string>();
         Gh2Peer.AttachSelected(new Gh2Peer.Candidate(name, generation), message =>
@@ -619,7 +644,7 @@ internal static class Gh2WireCheck
             Require(ack.type == 9 && Read(payload, 0) == 1 &&
                     Encoding.UTF8.GetString(payload, 4, payload.Length - 4).Contains("Open a project.", StringComparison.Ordinal),
                 "Peer did not send the native rejection as a failed startup Ack.");
-            Require(server.ReadByte() == -1, "Peer sent more than one startup Ack on Ping refusal.");
+            ExpectDisconnect(server);
         });
         try
         {
@@ -642,7 +667,7 @@ internal static class Gh2WireCheck
             Send(server, 2, 0, 0, Word(Gh2Wire.CapabilityGh2));
             uint id = ExpectPing(server);
             Send(server, 5, 0, id,
-                Encoding.UTF8.GetBytes("{\"ok\":true,\"data\":{\"archicadVersion\":29,\"archicadBuild\":3000,\"projectName\":\"Peer test\",\"projectPath\":\"C:/sample.pln\",\"untitled\":false}}"));
+                Encoding.UTF8.GetBytes("{\"ok\":true,\"data\":{\"archicadVersion\":29,\"archicadBuild\":3000,\"projectName\":\"Peer test\",\"projectPath\":\"C:/sample.pln\",\"untitled\":false,\"projectEpoch\":1}}"));
             Require(ReceiveControl(server).header.type == 9, "Peer never acknowledged startup.");
             Require(ReceiveControl(server).header.type == 10, "Peer never logged project info.");
             ExpectPingDiagnostic(server);

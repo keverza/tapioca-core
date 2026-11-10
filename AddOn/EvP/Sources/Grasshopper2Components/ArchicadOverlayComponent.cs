@@ -19,12 +19,17 @@ public abstract class ArchicadOverlayComponent : Component
     private sealed record Batch(ArchicadOverlayGeometry.Prepared Geometry, ArchicadOverlayBridge.Lease Lease,
         SolutionId Solution, Guid Producer, string Payload);
     private Guid producer = Guid.NewGuid(); // runtime only: copies/reopens never share a layer
+    private sealed class DocumentSession { internal readonly Guid Id = Guid.NewGuid(); }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Document, DocumentSession> documents = new();
+    private Guid documentSession;
+    private long revision;
     private Batch? prepared;
     private ArchicadOverlayBridge.Lease? shownLease;
     private Document? boundDocument;
     private string message = "Solve to prepare geometry, then press Show.";
     private int busy;
     private long lifetime;
+    private long producerLifetime;
 
     protected abstract bool Plan { get; }
     protected ArchicadOverlayComponent(Nomen nomen) : base(nomen) => DocumentChanged += OnDocumentChanged;
@@ -70,7 +75,8 @@ public abstract class ArchicadOverlayComponent : Component
                 meshes?.Select(pear => pear.Item).ToArray() ?? [], points?.Select(pear => pear.Item).ToArray() ?? [],
                 Plan, RhinoMath.UnitScale(RhinoDoc.ActiveDoc?.ModelUnitSystem ?? UnitSystem.Meters, UnitSystem.Meters), rgba, width);
             Guid batchProducer = producer;
-            string payload = Gh2OverlayPayload.Encode(lease.Generation, batchProducer, Plan, geometry.Lines, geometry.Points, geometry.Meshes);
+            string payload = Gh2OverlayPayload.Encode(lease.Generation, batchProducer, Plan, geometry.Lines, geometry.Points, geometry.Meshes,
+                lease.Epoch, documentSession, Interlocked.Increment(ref revision));
             Volatile.Write(ref prepared, new(geometry, lease, access.Solution.Id, batchProducer, payload));
             access.SetItem(0, message + (geometry.Empty ? " No geometry; Clear removes the last layer." :
                 " Current solution prepared; Show publishes it. Solving alone leaves the last layer unchanged."));
@@ -102,6 +108,8 @@ public abstract class ArchicadOverlayComponent : Component
         if (Interlocked.CompareExchange(ref busy, 1, 0) != 0) return;
         shownLease = batch.Lease; // retain even after an uncertain response, so Clear remains available
         long ticket = Interlocked.Read(ref lifetime);
+        long producerTicket = Interlocked.Read(ref producerLifetime);
+        Guid actionDocument = documentSession;
         _ = Task.Run(async () =>
         {
             string result;
@@ -113,8 +121,8 @@ public abstract class ArchicadOverlayComponent : Component
             catch (Exception error) { result = error.Message; }
             finally
             {
-                if (ticket != Interlocked.Read(ref lifetime))
-                    await ReleaseAsync(batch.Lease, batch.Producer);
+                if (producerTicket != Interlocked.Read(ref producerLifetime))
+                    await ReleaseAsync(batch.Lease, batch.Producer, actionDocument);
                 Interlocked.Exchange(ref busy, 0);
             }
             PostResult(result, ticket);
@@ -129,23 +137,20 @@ public abstract class ArchicadOverlayComponent : Component
             PostResult("No published layer belongs to this component.", Interlocked.Read(ref lifetime));
             return;
         }
-        if (Interlocked.CompareExchange(ref busy, 1, 0) != 0)
-        {
-            RhinoApp.WriteLine("Tapioca overlay: another display action is pending.");
-            return;
-        }
-        long ticket = Interlocked.Read(ref lifetime);
+        long ticket = Interlocked.Increment(ref lifetime); // invalidate an outstanding Show
+        Volatile.Write(ref prepared, null);
+        long clearRevision = Interlocked.Increment(ref revision);
+        Guid actionDocument = documentSession;
         Guid actionProducer = producer;
         _ = Task.Run(async () =>
         {
             string result;
             try
             {
-                await ArchicadOverlayBridge.ClearAsync(lease, actionProducer);
+                await ArchicadOverlayBridge.ClearAsync(lease, actionProducer, actionDocument, clearRevision);
                 result = "This component's layer was cleared; other layers and overlay switches are unchanged.";
             }
             catch (Exception error) { result = error.Message; }
-            finally { Interlocked.Exchange(ref busy, 0); }
             PostResult(result, ticket);
         });
     }
@@ -170,6 +175,7 @@ public abstract class ArchicadOverlayComponent : Component
         if (boundDocument is not null) boundDocument.StateChanged -= OnDocumentStateChanged;
         Release();
         boundDocument = Document;
+        documentSession = boundDocument is null ? Guid.Empty : documents.GetOrCreateValue(boundDocument).Id;
         if (boundDocument is not null) boundDocument.StateChanged += OnDocumentStateChanged;
     }
 
@@ -180,18 +186,20 @@ public abstract class ArchicadOverlayComponent : Component
 
     private void Release()
     {
+        Interlocked.Increment(ref producerLifetime);
         Interlocked.Increment(ref lifetime);
         Volatile.Write(ref prepared, null);
         ArchicadOverlayBridge.Lease? lease = shownLease;
         shownLease = null;
         Guid previousProducer = producer;
+        Guid previousDocument = documentSession;
         producer = Guid.NewGuid(); // late cleanup must not clear an undone/re-added instance's new layer
-        if (lease is not null) _ = Task.Run(() => ReleaseAsync(lease, previousProducer));
+        if (lease is not null) _ = Task.Run(() => ReleaseAsync(lease, previousProducer, previousDocument));
     }
 
-    private static async Task ReleaseAsync(ArchicadOverlayBridge.Lease lease, Guid producer)
+    private static async Task ReleaseAsync(ArchicadOverlayBridge.Lease lease, Guid producer, Guid document)
     {
-        try { await ArchicadOverlayBridge.ClearAsync(lease, producer); }
+        try { await ArchicadOverlayBridge.ClearAsync(lease, producer, document, long.MaxValue); }
         // Cleanup can finish after RhinoCore teardown. Never call Rhino UI/native
         // APIs from this continuation; the native bridge also releases the session.
         catch (Exception error) { System.Diagnostics.Trace.WriteLine("Tapioca overlay cleanup: " + error.Message); }
