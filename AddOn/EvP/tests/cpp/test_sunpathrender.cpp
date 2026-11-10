@@ -149,6 +149,40 @@ TEST_F (SunPathGui, ExactStepFollowsSliderWithoutLatticeOrSunOwnership)
     EXPECT_FLOAT_EQ (state.sunPathDirection[1], 0.8f);
 }
 
+TEST_F (SunPathGui, ActualSunHoverExcludesBandDiagnosticsButPanelStatusRetainsThem)
+{
+    state.sunShownDate = 20280229;
+    Draw ();
+    ASSERT_TRUE (state.sunPathMarkerValid);
+    const ImVec2 marker (state.sunPathMarker[0], state.sunPathMarker[1]);
+    Draw (marker);
+    EXPECT_EQ (state.sunPathHoverText, "Sun: 2028-02-29  10:05\nAnalysis date: 2028-02-29");
+    EXPECT_EQ (state.sunPathHoverText.find ("analysis steps"), std::string::npos);
+    EXPECT_EQ (state.sunPathHoverText.find ("before clipping"), std::string::npos);
+    EXPECT_NE (state.sunPathBandNote.find ("All 2 analysis steps"), std::string::npos);
+}
+
+TEST_F (SunPathGui, ActualBandFallbackHoverContainsOnlyAnalysisPeriod)
+{
+    auto geometry = std::make_shared<SunPathPeriodGeometry> ();
+    geometry->year = 2028;
+    geometry->days = { { 2, 29, 1.0, 1.0, state.sunPathDay.steps } };
+    state.sunShowsPeriod = true;
+    state.sunPeriodLabel = "2028 leap-day study";
+    state.sunPathPeriod = std::make_shared<SunPathPeriodData> (SunPathPeriodData { geometry, {} });
+    Draw ();
+    ASSERT_FALSE (state.sunPathMarkerValid);
+    ASSERT_EQ (state.sunPathBandScreens.runs.size (), 1u);
+    ASSERT_EQ (state.sunPathBandScreens.runs[0].samples.size (), 2u);
+    const auto& point = state.sunPathBandScreens.runs[0].samples[0];
+    ASSERT_TRUE (point.visible);
+    Draw ({ point.x, point.y });
+    EXPECT_EQ (state.sunPathHoverText, "Analysis period: 2028 leap-day study");
+    EXPECT_EQ (state.sunPathHoverText.find ("analysis steps"), std::string::npos);
+    EXPECT_EQ (state.sunPathHoverText.find ("before clipping"), std::string::npos);
+    EXPECT_NE (state.sunPathBandNote.find ("All 2 analysis steps"), std::string::npos);
+}
+
 TEST_F (SunPathGui, PeriodDiscUsesOnlyAppliedEnvelopeAndAggregateDoesNotInventNoon)
 {
     auto geometry = std::make_shared<SunPathPeriodGeometry> ();
@@ -293,9 +327,11 @@ TEST_F (SunPathGui, BandUsesImmutableAnalysisWindowWhileSliceScaleAndPointOnlyAf
     EXPECT_EQ (state.sunPathBand.Data ().steps, 2u);
     EXPECT_FLOAT_EQ (state.sunPathMarker[0], markerX);
     EXPECT_FLOAT_EQ (state.sunPathMarker[1], markerY);
+    const auto projections = state.sunPathBandScreens.rebuilds;
     state.sunPathScale = 2.0f;
     Draw ();
     EXPECT_EQ (state.sunPathBand.Builds (), builds);
+    EXPECT_EQ (state.sunPathBandScreens.rebuilds, projections + 1); // display scale changes projection only
     EXPECT_EQ (state.sunPathDay.steps.size (), 2u);
 }
 
@@ -326,6 +362,251 @@ TEST_F (SunPathGui, DrawingLodDisclosesOmissionsAndStillBreaksAtClippedSkippedSa
     EXPECT_FALSE (result.hot); // no bridge from x=0 to x=30 through the clipped sample
     EXPECT_NE (SunPathBandCaption (result, true).find ("LOD preview:"), std::string::npos);
     EXPECT_NE (SunPathBandCaption (result, true).find ("calendar weights"), std::string::npos);
+}
+
+TEST_F (SunPathGui, SelectedDayPaintsAfterLaterOverlappingInactiveDay)
+{
+    SunPathBand band;
+    for (int d = 0; d < 2; ++d) {
+        SunPathBandDay traced;
+        traced.year = 2028;
+        traced.month = 1;
+        traced.day = d + 1;
+        traced.runs.emplace_back (2);
+        for (int i = 0; i < 2; ++i) {
+            auto& moment = traced.runs[0][size_t (i)];
+            moment.valid = true;
+            moment.minute = i * 60;
+            moment.step = i;
+            moment.direction[0] = float (i * 100);
+        }
+        band.steps += 2;
+        band.days.push_back (std::move (traced));
+    }
+    SunPathMoment selected = band.days[0].runs[0][0];
+    selected.year = 2028;
+    selected.month = 1;
+    selected.day = 1;
+    for (const bool discrete : { false, true }) {
+        SCOPED_TRACE (discrete ? "discrete discs" : "continuous segments");
+        band.days[0].discrete = band.days[1].discrete = discrete;
+        std::vector<int> paintOrder;
+        Draw ({ -100, -100 }, false, [&] {
+            auto* draw = ImGui::GetBackgroundDrawList ();
+            DrawSunPathBand (draw, band, selected, 1, 1, false, 0, 1440,
+                             [] (const float direction[3], ImVec2& screen) {
+                                 screen = { 10.0f + direction[0], 100.0f };
+                                 return true;
+                             });
+            const int inactive = SunPathBandInactiveAlpha (band.days.size ());
+            const int active = SunPathBandActiveAlphaFor (1);
+            for (const auto& vertex : draw->VtxBuffer) {
+                const int alpha = int ((vertex.col & IM_COL32_A_MASK) >> IM_COL32_A_SHIFT);
+                if (alpha == inactive || alpha == active)
+                    paintOrder.push_back (alpha);
+                else
+                    EXPECT_EQ (alpha, 0); // ignore only the antialiased line fringe
+            }
+        });
+        ASSERT_GE (paintOrder.size (), 2u);
+        EXPECT_EQ (paintOrder.front (), SunPathBandInactiveAlpha (band.days.size ()));
+        EXPECT_EQ (paintOrder.back (), SunPathBandActiveAlphaFor (1));
+    }
+}
+
+TEST_F (SunPathGui, HiddenSunPathDoesNoBandOrProjectionWork)
+{
+    state.sunPathShown = false;
+    Draw ();
+    EXPECT_EQ (state.sunPathBand.Builds (), 0u);
+    EXPECT_FALSE (state.sunPathBandScreens.valid);
+    state.sunPathShown = true;
+    Draw ();
+    EXPECT_EQ (state.sunPathBand.Builds (), 1u);
+    EXPECT_TRUE (state.sunPathBandScreens.valid);
+    const auto builds = state.sunPathBand.Builds ();
+    const auto projections = state.sunPathBandScreens.rebuilds;
+    Draw ();
+    EXPECT_EQ (state.sunPathBand.Builds (), builds);
+    EXPECT_EQ (state.sunPathBandScreens.rebuilds, projections); // still camera
+}
+
+TEST_F (SunPathGui, HidingReleasesScreenStorageAndShowRebuildsChangedStudyAndView)
+{
+    state.sunPathDay.steps.clear ();
+    state.sunPathDay.timestepMinutes = 1;
+    for (int minute = 0; minute < 300; ++minute) {
+        evp::sunstudy::SunStep step;
+        step.time = { minute / 60, minute % 60 };
+        step.direction[0] = 0.6;
+        step.direction[2] = 0.8;
+        state.sunPathDay.steps.push_back (step);
+    }
+    Draw ();
+    ASSERT_TRUE (state.sunPathBandScreens.valid);
+    ASSERT_EQ (state.sunPathBandScreens.runs.size (), 1u);
+    EXPECT_EQ (state.sunPathBandScreens.runs[0].samples.size (), 300u);
+    const auto bandBuilds = state.sunPathBand.Builds ();
+
+    state.sunPathShown = false;
+    Draw ();
+    EXPECT_FALSE (state.sunPathBandScreens.valid);
+    EXPECT_EQ (state.sunPathBandScreens.bandIdentity, nullptr);
+    EXPECT_EQ (state.sunPathBandScreens.runs.capacity (), 0u);
+    EXPECT_EQ (state.sunPathBandScreens.displayIndices.capacity (), 0u);
+    matrix[12] += 2.0f;
+    ++state.sunPathDay.revision;
+    evp::sunstudy::SunStep extra;
+    extra.time = { 5, 0 };
+    extra.direction[0] = 0.6;
+    extra.direction[2] = 0.8;
+    state.sunPathDay.steps.push_back (extra);
+    Draw (); // changing study/view while hidden still does no band work
+    EXPECT_EQ (state.sunPathBand.Builds (), bandBuilds);
+    EXPECT_EQ (state.sunPathBandScreens.runs.capacity (), 0u);
+
+    state.sunPathShown = true;
+    Draw ();
+    EXPECT_EQ (state.sunPathBand.Builds (), bandBuilds + 1);
+    EXPECT_TRUE (state.sunPathBandScreens.valid);
+    EXPECT_EQ (state.sunPathBandScreens.rebuilds, 1u);
+    EXPECT_EQ (state.sunPathBandScreens.projectedSamples, 301u);
+}
+
+TEST_F (SunPathGui, ScreenCacheProjectsAllSamplesOnlyWhenTheViewChanges)
+{
+    SunPathBand band;
+    for (int d = 0; d < 2; ++d) {
+        SunPathBandDay day;
+        day.month = 2;
+        day.day = 15 + d;
+        day.runs.emplace_back ();
+        for (int i = 0; i < 100; ++i) {
+            SunPathMoment moment;
+            moment.valid = true;
+            moment.minute = i;
+            moment.step = i;
+            moment.direction[0] = float (i) / 100.0f;
+            day.runs[0].push_back (moment);
+        }
+        band.steps += 100;
+        band.days.push_back (std::move (day));
+    }
+    int calls = 0;
+    const auto at = [&] (const float direction[3], ImVec2& screen) {
+        ++calls;
+        screen = { direction[0] * 100.0f, 100.0f };
+        return true;
+    };
+    const double centre[3] = { 0.0, 0.0, 0.0 };
+    SunPathBandScreenCache cache;
+    UpdateSunPathBandScreenCache (cache, band, 7, matrix, centre, 10.0, 800, 600, at);
+    EXPECT_EQ (cache.projectedSamples, 200u);
+    EXPECT_EQ (cache.rebuilds, 1u);
+    EXPECT_EQ (calls, 200);
+    UpdateSunPathBandScreenCache (cache, band, 7, matrix, centre, 10.0, 800, 600, at);
+    EXPECT_EQ (cache.rebuilds, 1u);
+    EXPECT_EQ (calls, 200); // same view: no projection work
+    matrix[12] += 1.0f;
+    UpdateSunPathBandScreenCache (cache, band, 7, matrix, centre, 10.0, 800, 600, at);
+    EXPECT_EQ (cache.rebuilds, 2u);
+    EXPECT_EQ (calls, 400);
+    double movedCentre[3] = { 1.0, 0.0, 0.0 };
+    UpdateSunPathBandScreenCache (cache, band, 7, matrix, movedCentre, 10.0, 800, 600, at);
+    EXPECT_EQ (cache.rebuilds, 3u);
+    UpdateSunPathBandScreenCache (cache, band, 7, matrix, movedCentre, 20.0, 800, 600, at);
+    EXPECT_EQ (cache.rebuilds, 4u); // radius, including the HUD's display scale
+    UpdateSunPathBandScreenCache (cache, band, 7, matrix, movedCentre, 20.0, 1024, 600, at);
+    EXPECT_EQ (cache.rebuilds, 5u);
+    UpdateSunPathBandScreenCache (cache, band, 7, matrix, movedCentre, 20.0, 1024, 768, at);
+    EXPECT_EQ (cache.rebuilds, 6u);
+    UpdateSunPathBandScreenCache (cache, band, 8, matrix, movedCentre, 20.0, 1024, 768, at);
+    EXPECT_EQ (cache.rebuilds, 7u); // normalized study/band generation
+    SunPathBand other = band; // same generation and shape, different owner/content
+    other.days[0].runs[0][0].direction[0] = 0.75f;
+    UpdateSunPathBandScreenCache (cache, other, 8, matrix, movedCentre, 20.0, 1024, 768, at);
+    EXPECT_EQ (cache.rebuilds, 8u);
+    EXPECT_EQ (cache.bandIdentity, &other);
+    EXPECT_EQ (calls, 1600);
+}
+
+TEST_F (SunPathGui, StaleScreenCacheWithSameTotalsButDifferentRunLengthsIsRebuilt)
+{
+    SunPathBand band;
+    SunPathBandDay traced;
+    traced.year = 2028;
+    traced.month = 2;
+    traced.day = 29;
+    traced.runs.resize (2);
+    for (size_t i = 0; i < 100; ++i) {
+        SunPathMoment moment;
+        moment.valid = true;
+        moment.minute = int (i);
+        moment.step = int (i);
+        moment.direction[0] = float (i);
+        traced.runs[i / 50].push_back (moment);
+    }
+    band.steps = 100;
+    band.days.push_back (traced);
+    int calls = 0;
+    const auto at = [&] (const float direction[3], ImVec2& screen) {
+        ++calls;
+        screen = { direction[0], 100.0f };
+        return true;
+    };
+    const double centre[3] = {};
+    SunPathBandScreenCache cache;
+    UpdateSunPathBandScreenCache (cache, band, 11, matrix, centre, 10.0, 800, 600, at);
+    ASSERT_EQ (cache.rebuilds, 1u);
+
+    // Deliberately stale: same band address, generation, total and run count.
+    band.days[0].runs[0].resize (1);
+    band.days[0].runs[1].clear ();
+    for (size_t i = 1; i < 100; ++i)
+        band.days[0].runs[1].push_back (traced.runs[i / 50][i % 50]);
+    SunPathBandDrawing result;
+    Draw ({ -100, -100 }, false, [&] {
+        result = DrawSunPathBand (ImGui::GetBackgroundDrawList (), band, {}, 0, 0, false, 0, 1440, at, &cache, 11);
+    });
+    EXPECT_EQ (result.total, 100u);
+    EXPECT_EQ (cache.rebuilds, 2u);
+    EXPECT_EQ (calls, 200);
+    ASSERT_EQ (cache.runs.size (), 2u);
+    EXPECT_EQ (cache.runs[0].samples.size (), 1u);
+    EXPECT_EQ (cache.runs[1].samples.size (), 99u);
+}
+
+TEST_F (SunPathGui, ManyRunPeriodDrawIsGloballyBoundedAndKeepsRunEndpoints)
+{
+    SunPathBand band;
+    for (int d = 0; d < 300; ++d) {
+        SunPathBandDay day;
+        day.month = 1;
+        day.day = d % 28 + 1;
+        day.runs.emplace_back ();
+        for (int i = 0; i < 200; ++i) {
+            SunPathMoment moment;
+            moment.valid = true;
+            moment.minute = i;
+            moment.step = i;
+            moment.direction[0] = float (i) / 200.0f;
+            day.runs[0].push_back (moment);
+        }
+        band.steps += 200;
+        band.days.push_back (std::move (day));
+    }
+    SunPathBandDrawing result;
+    Draw ({ -100, -100 }, false, [&] {
+        result = DrawSunPathBand (ImGui::GetBackgroundDrawList (), band, {}, 0, 0, false, 0, 1440,
+                                  [] (const float direction[3], ImVec2& screen) {
+                                      screen = { direction[0] * 200.0f, 100.0f };
+                                      return true;
+                                  });
+    });
+    EXPECT_TRUE (result.decimated);
+    EXPECT_LT (result.shown, result.total);
+    EXPECT_GT (result.shown, 300u); // both endpoints of every run survive
+    EXPECT_LE (result.shown, kSunPathBandSampleBudget + 2 * 300);
 }
 
 TEST_F (SunPathGui, AutomaticPlayerTicksCannotStealAnotherControlsExplicitOwnership)

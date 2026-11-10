@@ -1,4 +1,5 @@
 #include "ArchViz/SunPathBand.hpp"
+#include "ArchViz/SunPathBandDraw.hpp"
 
 #include <gtest/gtest.h>
 
@@ -107,4 +108,98 @@ TEST (SunPathBand, LodAlsoPreservesBothInteractiveSliceTransitions)
     const auto indices = SunPathRunDisplayIndices (run, 501, 603, 679);
     for (const size_t index : { 0u, 501u, 602u, 603u, 678u, 679u, 999u })
         EXPECT_TRUE (std::binary_search (indices.begin (), indices.end (), index));
+}
+
+TEST (SunPathBand, SelectedLookupUsesSortedMinuteAndExactStepWithDuplicatesAndFiltering)
+{
+    std::vector<SunPathMoment> run (5);
+    for (size_t i = 0; i < run.size (); ++i)
+        run[i].valid = true;
+    run[0].minute = 99;
+    run[0].step = 4;
+    run[1].minute = 100;
+    run[1].step = 6;
+    run[2].minute = 100;
+    run[2].step = 7;
+    run[3].minute = 100;
+    run[3].step = 9;
+    run[4].minute = 200;
+    run[4].step = 7;
+    SunPathMoment selected;
+    selected.valid = true;
+    selected.minute = 100;
+    selected.step = 7;
+    EXPECT_EQ (SunPathSelectedRunIndex (run, selected), 2u);
+    selected.step = 8; // same clock, but no such source step
+    EXPECT_EQ (SunPathSelectedRunIndex (run, selected), run.size ());
+    selected.minute = 101;
+    selected.step = 7; // same source step occurs later, outside this clock
+    EXPECT_EQ (SunPathSelectedRunIndex (run, selected), run.size ());
+
+    const auto filtered = BuildSunPathBandDay (2028, 2, 29, 1.0, 15, { At (50), At (100) }, 60, 120);
+    ASSERT_EQ (filtered.runs.size (), 1u);
+    selected = SunPathStepMoment (2028, 2, 29, { At (50), At (100) }, 0);
+    EXPECT_EQ (SunPathSelectedRunIndex (filtered.runs[0], selected), filtered.runs[0].size ());
+}
+
+TEST (SunPathBand, SmallGlobalRunLimitStillPreservesCurrentAndSliceTransitions)
+{
+    std::vector<SunPathMoment> run (1000);
+    for (size_t i = 0; i < run.size (); ++i) {
+        run[i].valid = true;
+        run[i].minute = int (i);
+        run[i].step = int (i);
+    }
+    SunPathMoment selected = run[1];
+    const size_t selectedIndex = SunPathSelectedRunIndex (run, selected);
+    ASSERT_EQ (selectedIndex, 1u);
+    std::vector<size_t> indices;
+    AppendSunPathRunDisplayIndices (run, selectedIndex, 603, 679, SunPathBandRunLimit (2400), indices);
+    for (const size_t index : { 0u, 1u, 602u, 603u, 678u, 679u, 999u })
+        EXPECT_TRUE (std::binary_search (indices.begin (), indices.end (), index));
+    EXPECT_LE (indices.size (), 8u); // two-stride LOD sample plus all required preservation points
+}
+
+TEST (SunPathBand, InactiveAlphaStaysWarmAndLegibleForWholeYearStudies)
+{
+    EXPECT_EQ (SunPathBandInactiveAlpha (1), 55);
+    EXPECT_EQ (SunPathBandInactiveAlpha (365), kSunPathBandInactiveAlphaFloor);
+    EXPECT_EQ (SunPathBandInactiveAlpha (100000), kSunPathBandInactiveAlphaFloor);
+    for (const size_t days : { 1u, 2u, 10u, 55u, 100u, 365u, 1000u }) {
+        const int inactive = SunPathBandInactiveAlpha (days);
+        EXPECT_GE (inactive, kSunPathBandInactiveAlphaFloor);
+        EXPECT_LE (inactive, 55);
+        EXPECT_GT (SunPathBandActiveAlphaFor (days), inactive + 100)
+            << "the current/highlighted ribbon must read clearly above the field";
+    }
+    EXPECT_EQ (SunPathBandColour (kSunPathBandInactiveAlphaFloor),
+               IM_COL32 (255, 225, 90, kSunPathBandInactiveAlphaFloor));
+}
+
+TEST (SunPathBand, GlobalBudgetBoundsManyRunStudiesAndKeepsRunEndpoints)
+{
+    EXPECT_EQ (SunPathBandRunLimit (1), kSunPathBandMaxRunSamples);
+    EXPECT_EQ (SunPathBandRunLimit (365), 6u);
+    EXPECT_EQ (SunPathBandRunLimit (1000), kSunPathBandMinRunSamples);
+
+    // 300 runs of 200 samples: one global budget, not 300 separate LODs.
+    std::vector<SunPathMoment> run;
+    for (int minute = 0; minute < 200; ++minute) {
+        SunPathMoment moment;
+        moment.minute = minute;
+        moment.step = minute;
+        run.push_back (moment);
+    }
+    const size_t limit = SunPathBandRunLimit (300);
+    size_t shown = 0;
+    std::vector<size_t> indices;
+    for (int day = 0; day < 300; ++day) {
+        AppendSunPathRunDisplayIndices (run, run.size (), 0, 1440, limit, indices);
+        ASSERT_GE (indices.size (), 2u);
+        EXPECT_EQ (indices.front (), 0u);
+        EXPECT_EQ (indices.back (), run.size () - 1);
+        EXPECT_LT (indices.size (), run.size ());
+        shown += indices.size ();
+    }
+    EXPECT_LE (shown, kSunPathBandSampleBudget + 2 * 300);
 }

@@ -3,6 +3,8 @@
 
 #include "ArchViz/SunPathMoment.hpp"
 
+#include <algorithm>
+#include <cstdint>
 #include <numeric>
 
 namespace geomsrv::archviz {
@@ -83,41 +85,99 @@ inline SunPathBand BuildSunPathBand (const sunstudyhud::SunPathPeriodGeometry& p
 }
 
 // Screen-space LOD bounds work per continuous run, not across day/horizon
-// breaks. Source data remains exact. The tooltip must disclose any decimation.
+// breaks. Source data remains exact. A period of many traced days shares one
+// global sample budget: per-run decimation must not add up to tens of
+// thousands of immediate-mode lines.
+constexpr size_t kSunPathBandSampleBudget = 2400;
+constexpr size_t kSunPathBandMaxRunSamples = 144;
+constexpr size_t kSunPathBandMinRunSamples = 2; // both endpoints of the run
+
+inline size_t SunPathBandRunLimit (size_t runCount)
+{
+    if (runCount == 0)
+        return kSunPathBandMaxRunSamples;
+    return std::clamp (kSunPathBandSampleBudget / runCount, kSunPathBandMinRunSamples, kSunPathBandMaxRunSamples);
+}
+
+// Fills the caller's vector so a frame with many runs reuses one allocation
+// instead of allocating one vector per run.
+inline void AppendSunPathDisplayIndices (size_t count, size_t selected, size_t limit, std::vector<size_t>& out)
+{
+    out.clear ();
+    if (count == 0)
+        return;
+    const size_t bounded = (std::max) (size_t (2), limit);
+    const size_t stride = (std::max) (size_t (1), (count + bounded - 1) / bounded);
+    for (size_t i = 0; i < count; i += stride)
+        out.push_back (i);
+    out.push_back (count - 1);
+    if (selected < count)
+        out.push_back (selected);
+    std::sort (out.begin (), out.end ());
+    out.erase (std::unique (out.begin (), out.end ()), out.end ());
+}
+
 inline std::vector<size_t> SunPathDisplayIndices (size_t count, size_t selected, size_t limit = 144)
 {
     std::vector<size_t> result;
-    if (count == 0)
-        return result;
-    const size_t stride =
-        (std::max) (size_t (1), (count + (std::max) (limit, size_t (2)) - 1) / (std::max) (limit, size_t (2)));
-    for (size_t i = 0; i < count; i += stride)
-        result.push_back (i);
-    result.push_back (count - 1);
-    if (selected < count)
-        result.push_back (selected);
-    std::sort (result.begin (), result.end ());
-    result.erase (std::unique (result.begin (), result.end ()), result.end ());
+    AppendSunPathDisplayIndices (count, selected, limit, result);
     return result;
 }
 
-inline std::vector<size_t> SunPathRunDisplayIndices (const std::vector<SunPathMoment>& run, size_t selected,
-                                                     double from, double to)
+inline void AppendSunPathRunDisplayIndices (const std::vector<SunPathMoment>& run, size_t selected, double from,
+                                            double to, size_t limit, std::vector<size_t>& out)
 {
-    auto indices = SunPathDisplayIndices (run.size (), selected);
+    AppendSunPathDisplayIndices (run.size (), selected, limit, out);
     for (const double edge : { from, to }) {
         const auto next =
             std::lower_bound (run.begin (), run.end (), edge,
                               [] (const SunPathMoment& point, double minute) { return point.minute < minute; });
         if (next != run.end ())
-            indices.push_back (size_t (next - run.begin ()));
+            out.push_back (size_t (next - run.begin ()));
         if (next != run.begin ())
-            indices.push_back (size_t (next - run.begin () - 1));
+            out.push_back (size_t (next - run.begin () - 1));
     }
-    std::sort (indices.begin (), indices.end ());
-    indices.erase (std::unique (indices.begin (), indices.end ()), indices.end ());
+    std::sort (out.begin (), out.end ());
+    out.erase (std::unique (out.begin (), out.end ()), out.end ());
+}
+
+inline std::vector<size_t> SunPathRunDisplayIndices (const std::vector<SunPathMoment>& run, size_t selected,
+                                                     double from, double to)
+{
+    std::vector<size_t> indices;
+    AppendSunPathRunDisplayIndices (run, selected, from, to, kSunPathBandMaxRunSamples, indices);
     return indices;
 }
+
+// Screen-space samples for one view. Building this is O(all samples); the
+// renderer prepares it once per camera/band change and then only draws and
+// hit-tests the decimated indices. Without the cached prefix, a decimated
+// segment would either reproject every skipped sample (the old O(total) frame
+// cost) or bridge across a clipped one.
+struct SunPathBandSampleScreen {
+    float x = 0.0f, y = 0.0f;
+    bool visible = false;
+};
+
+struct SunPathBandRunScreen {
+    std::vector<SunPathBandSampleScreen> samples;
+    std::vector<uint32_t> clippedBefore; // count of clipped samples in [0, i)
+};
+
+struct SunPathBandScreenCache {
+    bool valid = false;
+    const SunPathBand* bandIdentity = nullptr;
+    uint64_t bandBuilds = 0;
+    float viewProj[16] = {};
+    double centre[3] = {};
+    double radius = 0.0;
+    uint32_t width = 0, height = 0;
+    size_t sampleCount = 0;
+    std::vector<SunPathBandRunScreen> runs;
+    std::vector<size_t> displayIndices; // per-frame scratch, never part of the key
+    uint64_t rebuilds = 0;
+    uint64_t projectedSamples = 0; // observable: samples projected by the last rebuild
+};
 
 // Cache only normalized exact directions. Camera, centre, radius and preview
 // scale affect projection, never this cache. Applied envelopes share geometry.
@@ -127,13 +187,21 @@ class SunPathBandCache {
                  const std::shared_ptr<const sunstudyhud::SunPathPeriodData>& period, bool showsPeriod)
     {
         const auto geometry = showsPeriod && period != nullptr ? period->geometry : nullptr;
-        const std::string id = !showsPeriod && day.available ? day.studyId : std::string ();
-        const uint64_t revision = !showsPeriod && day.available ? day.revision : 0;
-        if (initialized && geometry == source && id == dayId && revision == dayRevision && showsPeriod == isPeriod)
+        const bool usesDay = !showsPeriod && day.available;
+        const std::string* id = usesDay ? &day.studyId : nullptr;
+        const uint64_t revision = usesDay ? day.revision : 0;
+        // Compare before copying: this runs every rendered frame, and a period
+        // study's id is unchanged almost every time.
+        const bool sameId = id == nullptr ? !hasDayId : (hasDayId && *id == dayId);
+        if (initialized && geometry == source && sameId && revision == dayRevision && showsPeriod == isPeriod)
             return;
         initialized = true;
         source = geometry;
-        dayId = id;
+        hasDayId = id != nullptr;
+        if (id != nullptr)
+            dayId = *id;
+        else
+            dayId.clear ();
         dayRevision = revision;
         isPeriod = showsPeriod;
         band = geometry != nullptr ? BuildSunPathBand (*geometry)
@@ -152,7 +220,7 @@ class SunPathBandCache {
     }
 
   private:
-    bool initialized = false, isPeriod = false;
+    bool initialized = false, isPeriod = false, hasDayId = false;
     std::shared_ptr<const sunstudyhud::SunPathPeriodGeometry> source;
     std::string dayId;
     uint64_t dayRevision = 0, builds = 0;

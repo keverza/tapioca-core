@@ -3,12 +3,12 @@
 
 // ArchViz/SunPathPick -- the draggable sun's date and time (#152 follow-up).
 //
-// The sun path's lattice (sunstudyhud::SunPath::grid) holds Archicad's own sun
-// positions at every day and every few minutes of the year. A drag picks the
-// lattice point nearest the cursor on screen; this file turns that pick into a
-// date and a clock time and snaps it to the sun's key positions -- the
-// solstices and equinoxes by date, solar noon by time -- so they are easy to
-// land on. Pure: no ImGui, no host, no projection.
+// These retained pure helpers operate on a caller-supplied lattice of sun
+// positions. The HUD no longer captures or stores a year lattice on SunPath;
+// the study's exact steps are its production source of truth. The helpers turn
+// a lattice pick into a date and clock time and snap it to key positions -- the
+// solstices and equinoxes by date, solar noon by time. No ImGui, host, or
+// projection is required here.
 
 #include "NativeCommands/SunStudyHudRunner.hpp"
 

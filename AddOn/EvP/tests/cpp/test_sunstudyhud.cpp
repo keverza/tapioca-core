@@ -28,7 +28,22 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
+
+namespace {
+template <class T, class = void>
+struct HasGridMember : std::false_type {
+};
+template <class T>
+struct HasGridMember<T, std::void_t<decltype(std::declval<T&> ().grid)>> : std::true_type {
+};
+// Regression: a year-wide 10-minute lattice cost tens of thousands of host
+// calls on a year change and had no production reader.
+static_assert (!HasGridMember<geomsrv::sunstudyhud::SunPath>::value,
+               "SunPath must not carry the removed year lattice");
+} // namespace
 
 // The run service is the add-on's; the section only asks it for a status.
 namespace geomsrv::sunstudyhud {

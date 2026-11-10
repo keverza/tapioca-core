@@ -47,6 +47,16 @@ inline std::string SunPathMomentCaption (int year, int month, int day, int minut
     return text;
 }
 
+// The sun's hover tooltip is deliberately only the sun's time and the shown
+// analysis date/period. Band/LOD diagnostics belong to the panel status, not
+// to the object the user is pointing at.
+inline std::string SunPathHoverCaption (const std::string& moment, const std::string& analysis)
+{
+    if (moment.empty ())
+        return analysis;
+    return analysis.empty () ? moment : moment + "\n" + analysis;
+}
+
 inline std::string SunPathAnalysisCaption (bool showsPeriod, const std::string& periodLabel, int shownDate, int runYear,
                                            int runMonth, int runDay)
 {

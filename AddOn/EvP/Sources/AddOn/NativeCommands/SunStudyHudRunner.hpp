@@ -247,10 +247,10 @@ struct SunPathArc {
     int month = 0, day = 0, hour = 0;
     std::vector<SunPathPoint> points;
 };
-// The draggable sun's lattice: every day of a 365-day year at every
-// kSunPathGridMinutes, above the horizon only, from the same host call. The
-// HUD picks the point nearest the cursor, so a drag lands on a position
-// Archicad gave -- no solar formula on this side.
+// Lattice-point shape retained by the pure pick/snap helpers. Production no
+// longer captures a 365-day x kSunPathGridMinutes year lattice: that was tens
+// of thousands of host calls on every year change for a drag path the viewer
+// no longer uses. The study's exact steps are the source of truth.
 constexpr int kSunPathGridMinutes = 10;
 struct SunPathGridPoint {
     float direction[3] = { 0.0f, 0.0f, 1.0f };
@@ -264,9 +264,6 @@ struct SunPath {
     double northRadians = 0.0; // model angle of north, CCW from +X
     double latitude = 0.0, longitude = 0.0;
     std::vector<SunPathArc> arcs;
-    // Shared between paths of the same year: a date change re-captures the
-    // arcs only. Null until captured (or when it failed).
-    std::shared_ptr<const std::vector<SunPathGridPoint>> grid;
 };
 void RequestSunPath (int year, int month, int day);
 std::shared_ptr<const SunPath> LatestSunPath ();

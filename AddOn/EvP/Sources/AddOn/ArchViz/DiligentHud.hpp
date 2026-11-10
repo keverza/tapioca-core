@@ -309,7 +309,9 @@ struct HudState {
     int sunPathHoverFrame = -1, sunPathMapFrame = -1, sunPathShadowFrame = -1, sunPathPointFrame = -1;
     int sunPathBandHoverFrame = -1;
     SunPathBandCache sunPathBand;
+    SunPathBandScreenCache sunPathBandScreens; // per-view projection cache, rebuilt only when the view moves
     std::string sunPathBandNote;
+    std::string sunPathHoverText; // the exact text sent to the sun or band-fallback hover
     bool sunPathMarkerValid = false;
     float sunPathMarker[2] = {}; // the sun disc, projected last frame
     int sunPathMinute = -1;

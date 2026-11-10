@@ -45,3 +45,16 @@ TEST (SunPath, HoverCaptionNamesActualSunTimeAndDisplayedAnalysis)
     EXPECT_TRUE (SunPathMomentCaption (2026, 1, 1, -1).empty ());
     EXPECT_EQ (SunPathAnalysisCaption (true, "2026 year", 20260621, 2027, 1, 1), "Analysis period: 2026 year");
 }
+
+TEST (SunPath, HoverCaptionCarriesOnlyTheSunAndAnalysisNotBandDiagnostics)
+{
+    const auto moment = SunPathMomentCaption (2028, 2, 29, 725);
+    const auto analysis = SunPathAnalysisCaption (true, "2026-03-21 to 2026-09-23", 20280229, 2027, 1, 1);
+    const auto caption = SunPathHoverCaption (moment, analysis);
+    EXPECT_EQ (caption, "Sun: 2028-02-29  12:05\nAnalysis period: 2026-03-21 to 2026-09-23");
+    EXPECT_EQ (caption.find ("analysis steps"), std::string::npos);
+    EXPECT_EQ (caption.find ("before clipping"), std::string::npos);
+    EXPECT_EQ (SunPathHoverCaption ("", analysis), analysis);
+    EXPECT_EQ (SunPathHoverCaption (moment, ""), moment);
+    EXPECT_TRUE (SunPathHoverCaption ("", "").empty ());
+}
