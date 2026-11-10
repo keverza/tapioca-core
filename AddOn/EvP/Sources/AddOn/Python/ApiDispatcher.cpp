@@ -6,6 +6,7 @@
 #include "DispatcherError.hpp"
 #include "DispatcherVerbs.hpp"
 #include "MainThreadGate.hpp"
+#include "OwnedGateCall.hpp"
 #include "PathUtils.hpp"
 #include "Diagnostics/ApiError.hpp" // DescribeErr, CallScope, LogEnvelopeFailure
 #include "AddOnCommands.hpp"
@@ -588,12 +589,21 @@ GS::UniString DispatchApiCall (const GS::UniString& command, const GS::UniString
         params.Get ("name", txName);
         params.Get ("steps", steps);
 
-        ReplayOutcome outcome;
         const auto mainStarted = std::chrono::steady_clock::now ();
 
         GS::UniString gateError;
-        const bool gated = MainThreadGate::Get ().Invoke ([&] () { ReplayBatch (txName, steps, outcome); },
-                                                          MainThreadGate::DefaultTimeoutMs, gateError);
+        const auto owned = tapioca::InvokeOwnedGateCall<ReplayOutcome> (
+            [&gateError] (auto job) {
+                return MainThreadGate::Get ().Invoke (job, MainThreadGate::DefaultTimeoutMs, gateError);
+            },
+            [txName, steps] (ReplayOutcome& outcome) {
+                ReplayBatch (txName, steps, outcome);
+                // An in-flight write may commit after the caller times out.
+                if (outcome.allOk)
+                    geomsrv::ChangeTracker::Get ().RecordSelfWrite ();
+            });
+        const bool gated = owned != nullptr;
+        const ReplayOutcome outcome = gated ? *owned : ReplayOutcome {};
 
         mainThreadMs = MillisSince (mainStarted);
 
@@ -601,8 +611,6 @@ GS::UniString DispatchApiCall (const GS::UniString& command, const GS::UniString
         // us about our own writes. Bumped once for the whole transaction, not
         // per step: the batch is one undo step to the user, so it is one change.
         // A rolled-back batch changed nothing and must NOT bump.
-        if (gated && outcome.allOk)
-            geomsrv::ChangeTracker::Get ().RecordSelfWrite ();
 
         if (!gated) {
             error = MakeError ("GateTimeout", gateError, command);
@@ -655,16 +663,16 @@ GS::UniString DispatchApiCall (const GS::UniString& command, const GS::UniString
     else if (backend == "EvP") {
         backendName = "native";
 
-        // Native commands are main-thread-only, so hop the gate. Everything the
-        // lambda touches is captured by reference and Invoke blocks until it has
-        // run — see the gate's contract; on timeout it revokes, and the error
-        // path below never reads these.
-        geomsrv::NativeCommandResult execution;
+        // Timeout can return while the SDK is executing. The job owns both its
+        // request and result; the caller reads a result only after completion.
         const auto mainStarted = std::chrono::steady_clock::now ();
 
         GS::UniString gateError;
-        const bool gated = MainThreadGate::Get ().Invoke (
-            [&] () {
+        const auto owned = tapioca::InvokeOwnedGateCall<geomsrv::NativeCommandResult> (
+            [&gateError] (auto job) {
+                return MainThreadGate::Get ().Invoke (job, MainThreadGate::DefaultTimeoutMs, gateError);
+            },
+            [name, params, callId, command, paramsJson] (geomsrv::NativeCommandResult& execution) {
                 const GS::String commandName (name.ToCStr ().Get ());
 
                 // The outer CallScope belongs to the CALLER's thread; this lambda
@@ -711,8 +719,9 @@ GS::UniString DispatchApiCall (const GS::UniString& command, const GS::UniString
                 else {
                     execution = geomsrv::ExecuteNativeCommand (commandName, params);
                 }
-            },
-            MainThreadGate::DefaultTimeoutMs, gateError);
+            });
+        const bool gated = owned != nullptr;
+        const geomsrv::NativeCommandResult execution = gated ? *owned : geomsrv::NativeCommandResult {};
 
         mainThreadMs = MillisSince (mainStarted);
 
@@ -738,14 +747,18 @@ GS::UniString DispatchApiCall (const GS::UniString& command, const GS::UniString
         request.Add ("command", command);
         request.Add ("parameters", params);
 
-        GS::ObjectState jsonResult;
-        GSErrCode jsonErr = NoError;
         const auto mainStarted = std::chrono::steady_clock::now ();
 
         GS::UniString gateError;
-        const bool gated =
-            MainThreadGate::Get ().Invoke ([&] () { jsonErr = ACAPI_Command_ExecuteJSONRequest (request, jsonResult); },
-                                           MainThreadGate::DefaultTimeoutMs, gateError);
+        using JsonReply = std::pair<GSErrCode, GS::ObjectState>;
+        const auto owned = tapioca::InvokeOwnedGateCall<JsonReply> (
+            [&gateError] (auto job) {
+                return MainThreadGate::Get ().Invoke (job, MainThreadGate::DefaultTimeoutMs, gateError);
+            },
+            [request] (JsonReply& reply) { reply.first = ACAPI_Command_ExecuteJSONRequest (request, reply.second); });
+        const bool gated = owned != nullptr;
+        const GSErrCode jsonErr = gated ? owned->first : NoError;
+        const GS::ObjectState jsonResult = gated ? owned->second : GS::ObjectState {};
 
         mainThreadMs = MillisSince (mainStarted);
 
@@ -791,11 +804,8 @@ GS::UniString DispatchApiCall (const GS::UniString& command, const GS::UniString
     else if (backend == "Tapir") {
         // E1 — route to an INSTALLED Tapir through the official JSON interface.
         //
-        // This is a PROXY, deliberately, and it does not retire the absorb-Tapir
-        // decision: it unblocks the ports that need Tapir commands today, and each
-        // command gets reimplemented natively later where it earns it. The
-        // namespace still states the backend honestly, so a trace shows exactly
-        // which calls still depend on an add-on we do not ship.
+        // Reuse the installed provider's BIM semantics. Native preview/capture
+        // owns only its specialized data path, not a duplicate general BIM API.
         //
         // Schema is from the local `archicad` pypi package (the only trustworthy
         // source for API.* shapes — see the reference folder), NOT from Tapir docs:
@@ -818,14 +828,17 @@ GS::UniString DispatchApiCall (const GS::UniString& command, const GS::UniString
         request.Add ("command", GS::UniString ("API.ExecuteAddOnCommand"));
         request.Add ("parameters", inner);
 
-        GS::ObjectState jsonResult;
         GS::UniString gateError;
         const auto mainStarted = std::chrono::steady_clock::now ();
-        GSErrCode execErr = NoError;
-
-        const bool gated =
-            MainThreadGate::Get ().Invoke ([&] () { execErr = ACAPI_Command_ExecuteJSONRequest (request, jsonResult); },
-                                           MainThreadGate::DefaultTimeoutMs, gateError);
+        using JsonReply = std::pair<GSErrCode, GS::ObjectState>;
+        const auto owned = tapioca::InvokeOwnedGateCall<JsonReply> (
+            [&gateError] (auto job) {
+                return MainThreadGate::Get ().Invoke (job, MainThreadGate::DefaultTimeoutMs, gateError);
+            },
+            [request] (JsonReply& reply) { reply.first = ACAPI_Command_ExecuteJSONRequest (request, reply.second); });
+        const bool gated = owned != nullptr;
+        const GSErrCode execErr = gated ? owned->first : NoError;
+        const GS::ObjectState jsonResult = gated ? owned->second : GS::ObjectState {};
         mainThreadMs =
             std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - mainStarted).count ();
 

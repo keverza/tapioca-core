@@ -6,6 +6,7 @@
 // never serves the queue, it only sets the stop flag and joins.
 
 #include "Python/GateWait.hpp"
+#include "Python/OwnedGateCall.hpp"
 
 #include <gtest/gtest.h>
 
@@ -16,6 +17,65 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <future>
+
+TEST (OwnedGateCall, TimeoutAfterDispatchRetainsRequestAndResult)
+{
+    std::promise<void> entered, resume;
+    auto released = resume.get_future ().share ();
+    auto started = entered.get_future ();
+    std::thread dispatch;
+    auto request = std::make_shared<int> (42);
+    std::weak_ptr<int> lifetime = request;
+    auto result = tapioca::InvokeOwnedGateCall<int> (
+        [&] (auto job) {
+            dispatch = std::thread (std::move (job));
+            started.wait ();
+            return false; // deterministic timeout AFTER dispatch, before SDK completion
+        },
+        [request, released, &entered] (int& output) {
+            entered.set_value ();
+            released.wait ();
+            output = *request;
+        });
+    request.reset ();
+    EXPECT_EQ (result, nullptr);
+    EXPECT_FALSE (lifetime.expired ());
+    resume.set_value ();
+    dispatch.join ();
+    EXPECT_TRUE (lifetime.expired ());
+}
+
+TEST (OwnedGateCall, RevokedOrShutdownJobCannotRunAfterCallerLeaves)
+{
+    std::function<void ()> queued;
+    int calls = 0;
+    auto result = tapioca::InvokeOwnedGateCall<int> (
+        [&] (auto job) {
+            queued = std::move (job);
+            return false;
+        },
+        [&calls] (int&) { ++calls; });
+    queued (); // a dispatch that lost the revoke race is still abandoned
+    EXPECT_EQ (result, nullptr);
+    EXPECT_EQ (calls, 0);
+    queued = {};
+    result = tapioca::InvokeOwnedGateCall<int> ([] (auto) { return false; }, [&calls] (int&) { ++calls; });
+    EXPECT_EQ (result, nullptr);
+    EXPECT_EQ (calls, 0);
+}
+
+TEST (OwnedGateCall, CompletedResultIsPublished)
+{
+    auto result = tapioca::InvokeOwnedGateCall<int> (
+        [] (auto job) {
+            job ();
+            return true;
+        },
+        [] (int& value) { value = 42; });
+    ASSERT_NE (result, nullptr);
+    EXPECT_EQ (*result, 42);
+}
 
 using evp::gatewait::Outcome;
 using evp::gatewait::Wait;
