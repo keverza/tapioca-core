@@ -3,6 +3,7 @@
 #include "GhBridge.hpp"
 #include "GhLog.hpp"
 #include "Gh2OverlayRequest.hpp"
+#include "PipeTransfer.hpp"
 
 #include "AddOnCommands.hpp"
 #include "Preview/GhPreviewCache.hpp"
@@ -49,56 +50,7 @@ constexpr size_t MaxGh2ReplyBytes = 1024 * 1024;
 // Long enough that no heartbeat has ever plausibly arrived.
 constexpr uint64_t NeverHeardFrom = 0xFFFFFFFFFFFFull;
 
-bool TransferExact (HANDLE pipe, void* buffer, DWORD size, bool write, const std::atomic<bool>& stopping,
-                    ULONGLONG timeoutMs)
-{
-    auto* bytes = (uint8_t*) buffer;
-    DWORD offset = 0;
-    const ULONGLONG deadline = timeoutMs == 0 ? 0 : GetTickCount64 () + timeoutMs;
-    HANDLE event = CreateEventW (nullptr, TRUE, FALSE, nullptr);
-    if (event == nullptr)
-        return false;
-
-    while (offset < size) {
-        ResetEvent (event);
-        OVERLAPPED operation {};
-        operation.hEvent = event;
-        DWORD count = 0;
-        const BOOL started = write ? WriteFile (pipe, bytes + offset, size - offset, &count, &operation)
-                                   : ReadFile (pipe, bytes + offset, size - offset, &count, &operation);
-        if (started == 0) {
-            if (GetLastError () != ERROR_IO_PENDING) {
-                CloseHandle (event);
-                return false;
-            }
-            while (true) {
-                // ⚠️ CancelIoEx TAKES THE OVERLAPPED, NOT JUST THE HANDLE. Reads
-                // and writes are in flight on this pipe from two different
-                // threads at once; cancelling by handle alone would cancel the
-                // other one too.
-                if (stopping.load () || (deadline != 0 && GetTickCount64 () >= deadline)) {
-                    CancelIoEx (pipe, &operation);
-                    WaitForSingleObject (event, INFINITE);
-                    CloseHandle (event);
-                    return false;
-                }
-                if (WaitForSingleObject (event, 50) == WAIT_OBJECT_0)
-                    break;
-            }
-            if (GetOverlappedResult (pipe, &operation, &count, FALSE) == 0) {
-                CloseHandle (event);
-                return false;
-            }
-        }
-        if (count == 0) {
-            CloseHandle (event);
-            return false;
-        }
-        offset += count;
-    }
-    CloseHandle (event);
-    return true;
-}
+using tapioca::transport::TransferExact;
 
 bool ReadExact (HANDLE pipe, void* destination, DWORD size, const std::atomic<bool>& stopping)
 {
@@ -192,11 +144,20 @@ bool GhBridge::Start (uint32_t startGeneration, GS::UniString& error, bool expec
         return false;
     }
     pipe = (void*) server;
+    replyWake = CreateEventW (nullptr, FALSE, FALSE, nullptr);
+    if (replyWake == nullptr) {
+        CloseHandle (server);
+        pipe = nullptr;
+        error = "Could not create the bridge reply event.";
+        return false;
+    }
 
     try {
         io = std::thread ([this] { Run (); });
     }
     catch (...) {
+        CloseHandle ((HANDLE) replyWake);
+        replyWake = nullptr;
         CloseHandle (server);
         pipe = nullptr;
         pipeName.Clear ();
@@ -225,6 +186,11 @@ void GhBridge::Stop ()
             CloseHandle ((HANDLE) pipe);
             pipe = nullptr;
         }
+        std::lock_guard<std::mutex> requestLock (gh2RequestMutex);
+        if (replyWake != nullptr) {
+            CloseHandle ((HANDLE) replyWake);
+            replyWake = nullptr;
+        }
         return;
     }
 
@@ -234,6 +200,13 @@ void GhBridge::Stop ()
     // closing under it is the difference between a cancelled write and a write
     // into a recycled handle.
     io.join ();
+    {
+        std::lock_guard<std::mutex> requestLock (gh2RequestMutex);
+        if (replyWake != nullptr) {
+            CloseHandle ((HANDLE) replyWake);
+            replyWake = nullptr;
+        }
+    }
 
     std::lock_guard<std::mutex> lock (writeMutex);
     if (pipe != nullptr) {
@@ -281,14 +254,13 @@ void GhBridge::QueueGh2Reply (const std::shared_ptr<Gh2PendingRequest>& request,
     request->reply.swap (envelope);
     request->queuedTick = (uint64_t) GetTickCount64 ();
     request->replyReady = true;
+    SetEvent ((HANDLE) replyWake);
 }
 
 void GhBridge::FlushGh2Reply (void* server, uint32_t currentGeneration)
 {
-    // Called ONLY on bridge IO after a complete worker message. The worker's
-    // independent 3-second heartbeat wakes an otherwise idle read, so a reply
-    // queued just after one heartbeat waits up to the next. A stopped heartbeat
-    // leaves startup pending until the supervisor or an explicit Stop intervenes.
+    // Called only by bridge IO, including while an overlapped read is pending.
+    // Publication signals replyWake; heartbeat cadence does not clock replies.
     std::shared_ptr<Gh2PendingRequest> request;
     std::string envelope;
     {
@@ -318,12 +290,14 @@ void GhBridge::FlushGh2Reply (void* server, uint32_t currentGeneration)
     }
     if (!stopping.load ())
         LogLine (currentGeneration, workerProcessId.load (),
-                 GS::UniString::Printf ("GH2 read response: bridge IO thread %u, request %u, dispatch %llu ms, "
-                                        "queued %llu ms, total %llu ms",
-                                        (unsigned int) GetCurrentThreadId (), (unsigned int) request->requestId,
-                                        (unsigned long long) (request->queuedTick - request->receivedTick),
-                                        (unsigned long long) ((uint64_t) GetTickCount64 () - request->queuedTick),
-                                        (unsigned long long) ((uint64_t) GetTickCount64 () - request->receivedTick)));
+                 GS::UniString::Printf (
+                     "GH2 read response: bridge IO thread %u, request %u, gate-wait %llu ms, execute %llu ms, "
+                     "queued %llu ms, total %llu ms",
+                     (unsigned int) GetCurrentThreadId (), (unsigned int) request->requestId,
+                     (unsigned long long) (request->dispatchTick - request->receivedTick),
+                     (unsigned long long) (request->queuedTick - request->dispatchTick),
+                     (unsigned long long) ((uint64_t) GetTickCount64 () - request->queuedTick),
+                     (unsigned long long) ((uint64_t) GetTickCount64 () - request->receivedTick)));
     std::lock_guard<std::mutex> requestLock (gh2RequestMutex);
     if (gh2PendingRequest == request)
         gh2PendingRequest.reset ();
@@ -572,8 +546,12 @@ void GhBridge::Run ()
     NotifyConnected ();
 
     // ---- Serve ------------------------------------------------------------
+    const auto read = [this, server, gen] (void* data, DWORD size) {
+        return TransferExact (server, data, size, false, stopping, 0, expectedGh2 ? (HANDLE) replyWake : nullptr,
+                              [this, server, gen] { FlushGh2Reply (server, gen); });
+    };
     while (!stopping.load ()) {
-        if (!ReadExact (server, headerBytes.data (), (DWORD) headerBytes.size (), stopping))
+        if (!read (headerBytes.data (), (DWORD) headerBytes.size ()))
             break;
         if (!protocol::DecodeHeader (headerBytes.data (), headerBytes.size (), header, protocolError)) {
             // A framing error is unrecoverable by construction: the stream
@@ -584,7 +562,7 @@ void GhBridge::Run ()
         }
 
         payload.assign ((size_t) header.payloadBytes, 0);
-        if (header.payloadBytes > 0 && !ReadExact (server, payload.data (), header.payloadBytes, stopping))
+        if (header.payloadBytes > 0 && !read (payload.data (), header.payloadBytes))
             break;
 
         // ⚠️ REFUSED FROM THE MOMENT A STOP BEGINS, not when it finishes. The
@@ -668,8 +646,8 @@ void GhBridge::Run ()
                     envelope = ErrorEnvelope (FromUtf8 (protocolError));
                 }
                 else if (expectedGh2) {
-                    // GH2 admits bounded project/selection reads and the
-                    // explicit reselect UI action, never model writes.
+                    // Bounded reads and explicit UI/display actions; CreateMesh
+                    // is a deliberate legacy bake, never an automatic preview solve.
                     // Post (never Invoke): Stop runs on the same main thread that
                     // would service an Invoke, so IO must remain free to exit.
                     // The gate owns the lambda only until dispatch or
@@ -740,6 +718,7 @@ void GhBridge::Run ()
                                     const auto job = weak.lock ();
                                     if (job == nullptr || !GhBridge::Get ().IsGh2RequestCurrent (job))
                                         return;
+                                    job->dispatchTick = (uint64_t) GetTickCount64 ();
                                     LogLine (
                                         job->generation, GhBridge::Get ().WorkerProcessId (),
                                         GS::UniString::Printf (
@@ -788,7 +767,7 @@ void GhBridge::Run ()
                             envelope = ErrorEnvelope (postError);
                         }
                         else {
-                            break; // IO sends the reply on a subsequent worker heartbeat
+                            break; // reply publication wakes IO independently of input
                         }
                     }
                     else {
@@ -970,6 +949,7 @@ void GhBridge::Run ()
 
     connected.store (false);
     if (expectedGh2) {
+        BeginGh2Shutdown (); // revoke queued jobs before posting generation cleanup
         GS::UniString cleanupError;
         MainThreadGate::Get ().Post ([gen] () { ClearGh2Overlays (gen); }, cleanupError);
     }

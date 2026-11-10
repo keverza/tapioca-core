@@ -152,6 +152,7 @@ class GhBridge {
         bool replyReady = false;
         uint64_t receivedTick = 0;
         uint64_t queuedTick = 0;
+        uint64_t dispatchTick = 0;
     };
     void QueueGh2Reply (const std::shared_ptr<Gh2PendingRequest>& request, std::string envelope);
     void FlushGh2Reply (void* server, uint32_t currentGeneration);
@@ -166,7 +167,8 @@ class GhBridge {
     // Written before the IO thread starts; read only by that thread.
     bool expectedGh2 = false;
     std::thread io;
-    void* pipe = nullptr; // HANDLE, kept opaque so <windows.h> stays out of this header
+    void* pipe = nullptr;      // HANDLE, kept opaque so <windows.h> stays out of this header
+    void* replyWake = nullptr; // auto-reset event; closed only after IO joins
     mutable std::mutex writeMutex;
     mutable std::mutex messageMutex;
     mutable std::mutex gh2RequestMutex;
