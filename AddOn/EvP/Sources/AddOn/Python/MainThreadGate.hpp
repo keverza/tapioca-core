@@ -46,10 +46,10 @@ class MainThreadGate {
     // worker threads. Must run on the main thread while the module is still live.
     void BeginShutdown ();
 
-    // ⚠️ CONTRACT for `fn` in both calls below: it MUST be self-contained —
+    // ⚠️ CONTRACT for `fn` in every call below: it MUST be self-contained —
     // capture by VALUE, never by reference to a caller local. On timeout Invoke
-    // returns while the job may still be queued, and Post never waits at all, so
-    // the gate can run `fn` after the caller's frame is gone. A by-reference
+    // returns while the job may still be queued, and Post/PostDeferred never wait
+    // at all, so the gate can run `fn` after the caller's frame is gone. A by-reference
     // capture is a use-after-free that only fires when the gate is slow.
     // Invoke makes a best-effort revoke on timeout, but it is a race, not a
     // guarantee.
@@ -78,8 +78,13 @@ class MainThreadGate {
 
     // Fire-and-forget. For output/telemetry, where a ~3ms round trip per line
     // would be absurd. No completion guarantee, no ordering guarantee against
-    // Invoke.
+    // Invoke. Called ON the main thread, this runs `fn` inline.
     bool Post (const std::function<void ()>& fn, GS::UniString& error);
+
+    // Fire-and-forget through Archicad's event loop EVEN WHEN ALREADY ON THE MAIN
+    // THREAD. Use this when the caller is a timer or notification callback and the
+    // current host command must return before `fn` reads the database.
+    bool PostDeferred (const std::function<void ()>& fn, GS::UniString& error);
 
     static constexpr int DefaultTimeoutMs = 30000;
 

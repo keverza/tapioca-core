@@ -12,13 +12,12 @@
 // puts the following back on a mechanism that writes nothing: Archicad's own
 // difference generator, polled (Notify/ModelDiff).
 //
-// WHY IT IS A MAIN-THREAD WM_TIMER, like SelectionBridge and the camera sync.
-// Both generator calls are ACAPI, so they may not run on the extraction thread
-// or the render thread; a WM_TIMER runs on the thread that pumps the queue,
-// where ACAPI is legal directly with no gate hop. It is also LOW PRIORITY —
-// Windows delivers it only when the message queue is otherwise empty — so during
-// a heavy edit or drag it simply does not fire, which for a refresh is exactly
-// right.
+// WHY WM_TIMER ONLY MARKS WORK DUE. Both generator calls are ACAPI, so they may
+// not run on the extraction thread or the render thread. Main-thread delivery is
+// not sufficient, though: a nested message pump can deliver WM_TIMER while another
+// host command is modifying the database. The timer therefore posts one coalesced
+// job to Archicad's main event loop, and that job checks the host-input gate again
+// before reading. See issue #181.
 //
 // ⚠️ THE INTERVAL ADAPTS, AND IT MUST. `EvP.GetModelDiff`'s own header says the
 // cost is UNMEASURED and warns against wiring it into a fixed fast loop. Rather
@@ -95,6 +94,114 @@ struct Stats {
     std::string lastError;   // last generator failure, empty when healthy
 };
 
+// Work deferred from the raw timers. `early` is sticky across coalesced watch
+// requests; `pending` starts geometry left behind by a busy or blocked pass.
+struct PollWork {
+    bool baseline = false;
+    bool watch = false;
+    bool stamp = false;
+    bool pending = false;
+    bool early = false;
+
+    bool Any () const
+    {
+        return baseline || watch || stamp || pending;
+    }
+};
+
+// MAIN THREAD. Timer requests and the event-loop callback share this state. A
+// true return from Request*/SetHostInputActive means the caller must post one job.
+// Take is called by that job with its captured generation: blocked work stays
+// pending, and a job cancelled by Stop cannot consume a later session's work.
+class PollDispatch {
+  public:
+    bool RequestBaseline ()
+    {
+        pending_.baseline = true;
+        return Schedule ();
+    }
+    bool RequestWatch (bool early)
+    {
+        pending_.watch = true;
+        pending_.early = pending_.early || early;
+        return Schedule ();
+    }
+    bool RequestStamp ()
+    {
+        pending_.stamp = true;
+        return Schedule ();
+    }
+    bool RequestPending ()
+    {
+        pending_.pending = true;
+        return Schedule ();
+    }
+    bool SetHostInputActive (bool active)
+    {
+        hostInputActive_ = active;
+        return Schedule ();
+    }
+
+    PollWork Take (uint64_t generation)
+    {
+        if (generation != generation_)
+            return {};
+        posted_ = false;
+        if (hostInputActive_)
+            return {};
+        const PollWork result = pending_;
+        pending_ = {};
+        return result;
+    }
+
+    // A failed post leaves the work due so a later tick or host-input end retries.
+    void PostFailed (uint64_t generation)
+    {
+        if (generation == generation_)
+            posted_ = false;
+    }
+
+    // Deliberately preserves the host flag: a session can close during host input.
+    void Cancel ()
+    {
+        ++generation_;
+        pending_ = {};
+        posted_ = false;
+    }
+
+    uint64_t Generation () const
+    {
+        return generation_;
+    }
+    bool HostInputActive () const
+    {
+        return hostInputActive_;
+    }
+    bool HasPending () const
+    {
+        return pending_.Any ();
+    }
+
+  private:
+    bool Schedule ()
+    {
+        if (posted_ || hostInputActive_ || !pending_.Any ())
+            return false;
+        posted_ = true;
+        return true;
+    }
+
+    PollWork pending_;
+    bool posted_ = false;
+    bool hostInputActive_ = false;
+    uint64_t generation_ = 0;
+};
+
+// Archicad's palette disable events bound every model-watch host read and the
+// extraction passes it starts. End posts one catch-up job when work arrived during input.
+void SetHostInputActive (bool active);
+bool HostInputActive ();
+
 // Arm the watch (idempotent). `floorMs` is the FASTEST it will ever poll; the
 // timer may choose to go slower on its own but never faster. Returns whether the
 // timer is armed.
@@ -120,7 +227,8 @@ void SetKeepAlive (bool keepAlive);
 // Re-extract the model NOW, whatever the diff says. This is the manual Refresh:
 // it exists because a poll can only report what Archicad's generator considers a
 // change, and "the picture looks wrong, rebuild it" is a request no change
-// detector can be asked to infer. Returns false when a pass is already running.
+// detector can be asked to infer. Returns false when a pass is already running or
+// host input has deferred the refresh; the latter remains pending until input ends.
 bool RefreshNow ();
 
 // MAIN THREAD, from the add-on's project-event handler: Archicad says its project

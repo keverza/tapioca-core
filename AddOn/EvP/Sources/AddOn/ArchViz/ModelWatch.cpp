@@ -15,6 +15,7 @@
 #include "ArchViz/Dxgi/HostOccluders.hpp"    // hostocclusion::SetModelRevision
 #include "Notify/ModelDiff.hpp"
 #include "Geometry/MeshStore.hpp"
+#include "Python/MainThreadGate.hpp"
 
 #include <windows.h>
 
@@ -48,6 +49,52 @@ uint32_t gIntervalMs = 0;
 bool gCeilingLogged = false;
 
 Stats gStats;
+
+PollDispatch s_dispatch;
+std::string s_lastPostError;
+
+void DispatchDeferred (uint64_t generation);
+
+void QueueDeferred ()
+{
+    const uint64_t generation = s_dispatch.Generation ();
+    GS::UniString error;
+    if (evp::MainThreadGate::Get ().PostDeferred ([generation] () { DispatchDeferred (generation); }, error)) {
+        s_lastPostError.clear ();
+        return;
+    }
+
+    s_dispatch.PostFailed (generation);
+    const std::string message = error.ToCStr ().Get ();
+    if (message != s_lastPostError) {
+        s_lastPostError = message;
+        ArchVizLog ("model watch: could not defer a poll; a later tick will retry -- " + message);
+    }
+}
+
+void RequestBaseline ()
+{
+    if (s_dispatch.RequestBaseline ())
+        QueueDeferred ();
+}
+
+void RequestWatch (bool early)
+{
+    if (s_dispatch.RequestWatch (early))
+        QueueDeferred ();
+}
+
+void RequestStamp ()
+{
+    if (s_dispatch.RequestStamp ())
+        QueueDeferred ();
+}
+
+void RequestPending ()
+{
+    if (s_dispatch.RequestPending ())
+        QueueDeferred ();
+}
 
 // ⚠️ THE WATCH'S OWN BASELINE, never shared with the bus. Polling ADOPTS the
 // current state as the next comparison point, so if the viewer and a script
@@ -148,7 +195,7 @@ void NoteHint (const std::string& what);
 
 // Start a fresh single pass. ⚠️ NOT StartLive: with observers off, the live loop
 // runs one pass and exits anyway (ExtractionThread's PLAT-RE68 branch), so the
-// honest call is the one that says "one pass" — this timer IS the liveness now.
+// honest call is the one that says "one pass" — this watch IS the liveness now.
 // See `SetKeepAlive`. Main thread, like everything in this file.
 bool gKeepAlive = false;
 // A change was seen while the worker was busy and still needs extracting.
@@ -164,6 +211,11 @@ std::set<std::string> gSweptSincePoll;
 
 bool StartPass ()
 {
+    if (HostInputActive ()) {
+        gPendingRefresh = true;
+        RequestPending ();
+        return false;
+    }
     if (ExtractionWorker::Get ().IsRunning ())
         return false;
     ExtractionWorker::Get ().Start (/*full*/ true);
@@ -174,28 +226,19 @@ bool StartPass ()
 
 bool StartUpdate (const std::set<std::string>& guids)
 {
+    if (HostInputActive ()) {
+        gPendingElements.insert (guids.begin (), guids.end ());
+        RequestPending ();
+        return false;
+    }
     if (ExtractionWorker::Get ().IsRunning ())
         return false;
     ExtractionWorker::Get ().StartUpdate (guids);
     return true;
 }
 
-void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
+void PollWatch (bool early)
 {
-    // ⚠️ AN EARLY ARM IS ONE SHOT. SetTimer repeats, so the regular period goes
-    // back FIRST, before any return below could leave the watch polling at the
-    // early delay.
-    const bool early = gEarlyPending;
-    if (early) {
-        gEarlyPending = false;
-        Rearm (gRegularMs);
-    }
-    // ⚠️ SETTIMER REPEATS WITHOUT REARM, SO THE NEXT DUE TIME MOVES HERE. Set
-    // only by Rearm, it went stale after the first period, every hint computed
-    // "due now, not now" and left the timer alone: on 2026-10-31 each hint was
-    // logged and every edit still waited for the 30 s tick.
-    else
-        gNextDueMs = int64_t (::GetTickCount64 ()) + gIntervalMs;
     // ⚠️ A PASS IN FLIGHT DEFERS THE RE-EXTRACTION, NOT THE
     // POLL. Skipping the whole tick was wrong in a way that took three runs to
     // see. The reasoning behind it was sound about GEOMETRY -- the pass already
@@ -364,8 +407,8 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     //
     // The environment is four floats and a direction. Reading it here and
     // pushing it is the whole correct response, and it costs no GPU resource at
-    // all. ⚠️ MAIN THREAD, WHICH IS WHERE THIS TIMER ALREADY RUNS -- that is what
-    // makes calling ACAPI from here legal (see ExtractionEnvironment.hpp).
+    // all. ⚠️ MAIN THREAD, IN THE DEFERRED EVENT-LOOP JOB -- that is what makes
+    // calling ACAPI from here legal after the host-input check (ExtractionEnvironment.hpp).
     if (diff.created.empty () && diff.modified.empty () && diff.deleted.empty () && diff.environmentChanged) {
         EnvironmentUpload environment;
         if (ReadEnvironment (environment))
@@ -492,6 +535,27 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     }
 }
 
+void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
+{
+    // ⚠️ AN EARLY ARM IS ONE SHOT. SetTimer repeats, so the regular period goes
+    // back FIRST, before a deferred or blocked poll could leave the watch polling
+    // at the early delay.
+    const bool early = gEarlyPending;
+    if (early) {
+        gEarlyPending = false;
+        Rearm (gRegularMs);
+    }
+    // ⚠️ SETTIMER REPEATS WITHOUT REARM, SO THE NEXT DUE TIME MOVES HERE. Set
+    // only by Rearm, it went stale after the first period, every hint computed
+    // "due now, not now" and left the timer alone: on 2026-10-31 each hint was
+    // logged and every edit still waited for the 30 s tick.
+    else
+        gNextDueMs = int64_t (::GetTickCount64 ()) + gIntervalMs;
+
+    // No ACAPI here: a nested host command can pump this timer mid-modification.
+    RequestWatch (early);
+}
+
 void Rearm (uint32_t intervalMs, bool early)
 {
     if (gTimer != 0)
@@ -514,7 +578,7 @@ void Rearm (uint32_t intervalMs, bool early)
     gStats.running = true;
 }
 
-void CALLBACK StampTimerProc (HWND, UINT, UINT_PTR, DWORD)
+void PollStamp ()
 {
     if (gTimer == 0 || gBaseline == nullptr)
         return;
@@ -568,6 +632,13 @@ void CALLBACK StampTimerProc (HWND, UINT, UINT_PTR, DWORD)
     }
 }
 
+void CALLBACK StampTimerProc (HWND, UINT, UINT_PTR, DWORD)
+{
+    if (gTimer == 0 || gBaseline == nullptr)
+        return;
+    RequestStamp ();
+}
+
 // Bring the next poll forward for a hint (`what`, logged once per burst).
 void NoteHint (const std::string& what)
 {
@@ -587,40 +658,10 @@ void NoteHint (const std::string& what)
     Rearm (uint32_t ((std::max<int64_t>) (1, due - now)), /*early*/ true);
 }
 
-} // namespace
-
-bool Start (uint32_t floorMs)
+void EstablishBaseline ()
 {
-    MeshStore::Get ().SetCaptureActive (true);
-    gFloorMs = std::max<uint32_t> (floorMs, 100);
-
-    // ⚠️ A FRESH BASELINE ON EVERY ARM. A baseline left over from a previous
-    // session would make the first tick report every edit made while the viewer
-    // was closed as if it had just happened -- a full re-extraction of a scene
-    // that was correct when it was built.
-    gBaseline = std::make_unique<modeldiff::Baseline> (modeldiff::Scope::Model);
-    gStats = Stats {};
-    gBurstStartMs = gLastPollEndMs = 0;
-    gEarlyPending = false;
-    gEarlyMisses = 0;
-    gCeilingLogged = false;
-    gPassLastTick = gStampMovedSincePoll = gMovedSince3D = false;
-    gLastPassEndMs = gLastStampMoveMs = 0;
-    gHintSelectionOnly = gHintDuringPass = 0;
-    gWalker.Clear ();
-    gWalkedSince3D.clear ();
-    // The sun's log is deduplicated across reads, and its memory of what it last
-    // wrote is session state like the baseline beside it. See the header.
-    ForgetEnvironmentLog ();
-
-    Rearm (gFloorMs);
-    if (!gStats.running) {
-        MeshStore::Get ().SetCaptureActive (false);
-        return false;
-    }
-
-    // Establish the baseline immediately rather than on the first tick, so the
-    // interval between opening the viewer and the first poll is not a blind spot.
+    // Establish the baseline before the first regular tick, so opening the viewer
+    // is not a blind spot. This runs deferred like every other host read.
     const modeldiff::Result first = gBaseline->Poll ();
     if (!first.ok) {
         gStats.lastError = first.error;
@@ -660,6 +701,101 @@ bool Start (uint32_t floorMs)
     gStampTimer = ::SetTimer (nullptr, 0, kStampPollMs, StampTimerProc);
     if (gStampTimer == 0)
         ArchVizLog ("model watch: the stamp timer could not be set; edits follow the regular cadence only.");
+}
+
+void DispatchDeferred (uint64_t generation)
+{
+    const PollWork work = s_dispatch.Take (generation);
+    if (!work.Any ())
+        return;
+
+    // The baseline already includes a stamp adoption and an element walk. A timer
+    // coalesced into it would only read the same unchanged state a second time.
+    if (work.baseline) {
+        EstablishBaseline ();
+        if (generation != s_dispatch.Generation ())
+            return;
+    }
+    if (!work.baseline && work.stamp) {
+        if (HostInputActive ())
+            RequestStamp ();
+        else
+            PollStamp ();
+    }
+    if (generation != s_dispatch.Generation ())
+        return;
+    if (!work.baseline && work.watch) {
+        if (HostInputActive ())
+            RequestWatch (work.early);
+        else
+            PollWatch (work.early);
+    }
+    if (generation != s_dispatch.Generation ())
+        return;
+    if (work.pending) {
+        if (HostInputActive ())
+            RequestPending ();
+        else
+            ServePending ();
+    }
+}
+
+} // namespace
+
+void SetHostInputActive (bool active)
+{
+    const bool changed = s_dispatch.HostInputActive () != active;
+    const bool hadPending = s_dispatch.HasPending ();
+    const bool post = s_dispatch.SetHostInputActive (active);
+    if (changed && (gTimer != 0 || hadPending)) {
+        ArchVizLog (active       ? "model watch: host input began; host reads and extraction starts are suspended"
+                    : hadPending ? "model watch: host input ended; running one coalesced catch-up"
+                                 : "model watch: host input ended; no poll is due");
+    }
+    if (post)
+        QueueDeferred ();
+}
+
+bool HostInputActive ()
+{
+    return s_dispatch.HostInputActive ();
+}
+
+bool Start (uint32_t floorMs)
+{
+    // Invalidate a job left by a previous arm before replacing its baseline.
+    s_dispatch.Cancel ();
+    MeshStore::Get ().SetCaptureActive (true);
+    gFloorMs = std::max<uint32_t> (floorMs, 100);
+
+    // ⚠️ A FRESH BASELINE ON EVERY ARM. A baseline left over from a previous
+    // session would make the first tick report every edit made while the viewer
+    // was closed as if it had just happened -- a full re-extraction of a scene
+    // that was correct when it was built.
+    gBaseline = std::make_unique<modeldiff::Baseline> (modeldiff::Scope::Model);
+    gStats = Stats {};
+    gBurstStartMs = gLastPollEndMs = 0;
+    gEarlyPending = false;
+    gEarlyMisses = 0;
+    gCeilingLogged = false;
+    gPassLastTick = gStampMovedSincePoll = gMovedSince3D = false;
+    gLastPassEndMs = gLastStampMoveMs = 0;
+    gHintSelectionOnly = gHintDuringPass = 0;
+    gWalker.Clear ();
+    gWalkedSince3D.clear ();
+    // The sun's log is deduplicated across reads, and its memory of what it last
+    // wrote is session state like the baseline beside it. See the header.
+    ForgetEnvironmentLog ();
+
+    Rearm (gFloorMs);
+    if (!gStats.running) {
+        MeshStore::Get ().SetCaptureActive (false);
+        return false;
+    }
+
+    // Even the initial reads wait for the current host callback to return. If
+    // host input is active, the dispatcher holds this baseline until input ends.
+    RequestBaseline ();
     return true;
 }
 
@@ -670,6 +806,8 @@ void SetKeepAlive (bool keepAlive)
 
 void Stop ()
 {
+    // The event-loop command may already be queued; its generation now fails.
+    s_dispatch.Cancel ();
     MeshStore::Get ().SetCaptureActive (false);
     if (gTimer != 0) {
         ::KillTimer (nullptr, gTimer);
@@ -720,6 +858,11 @@ void NoteProjectChanged (int32_t cause)
 
 void ServePending ()
 {
+    if (HostInputActive ()) {
+        if (gPendingRefresh || !gPendingElements.empty ())
+            RequestPending ();
+        return;
+    }
     if (ExtractionWorker::Get ().IsRunning ())
         return;
     if (gPendingRefresh) {

@@ -115,3 +115,78 @@ TEST (ModelWatchStamp, AQuietStampSkipsTheDiffUntilTheBackstop)
     EXPECT_TRUE (DiffWanted (false, false, false, 0)) << "no stamp: the cadence is all there is";
     EXPECT_TRUE (DiffWanted (false, true, false, watch::kQuietBackstopMs));
 }
+
+// Issue #181: a raw timer can be pumped inside Quick Layers' modification scope.
+TEST (ModelWatchDispatch, AnAlreadyQueuedJobRechecksHostInputAndKeepsItsPoll)
+{
+    watch::PollDispatch dispatch;
+    ASSERT_TRUE (dispatch.RequestWatch (false));
+    const uint64_t generation = dispatch.Generation ();
+
+    EXPECT_FALSE (dispatch.SetHostInputActive (true));
+    const watch::PollWork blocked = dispatch.Take (generation);
+    EXPECT_FALSE (blocked.Any ()) << "the deferred callback must not reach ACAPI";
+    EXPECT_TRUE (dispatch.HasPending ());
+
+    EXPECT_TRUE (dispatch.SetHostInputActive (false));
+    const watch::PollWork caughtUp = dispatch.Take (generation);
+    EXPECT_TRUE (caughtUp.watch);
+    EXPECT_FALSE (caughtUp.early);
+    EXPECT_FALSE (dispatch.HasPending ());
+}
+
+TEST (ModelWatchDispatch, InputBeginManyTicksAndEndProduceOneCoalescedJob)
+{
+    watch::PollDispatch dispatch;
+    uint32_t posts = 0;
+    posts += dispatch.SetHostInputActive (true) ? 1 : 0;
+    posts += dispatch.RequestBaseline () ? 1 : 0;
+    posts += dispatch.RequestWatch (true) ? 1 : 0;
+    posts += dispatch.RequestWatch (false) ? 1 : 0;
+    posts += dispatch.RequestStamp () ? 1 : 0;
+    posts += dispatch.RequestPending () ? 1 : 0;
+    EXPECT_EQ (posts, 0u);
+
+    posts += dispatch.SetHostInputActive (false) ? 1 : 0;
+    EXPECT_EQ (posts, 1u);
+    const watch::PollWork work = dispatch.Take (dispatch.Generation ());
+    EXPECT_TRUE (work.baseline);
+    EXPECT_TRUE (work.watch);
+    EXPECT_TRUE (work.stamp);
+    EXPECT_TRUE (work.pending);
+    EXPECT_TRUE (work.early) << "coalescing must not turn an early poll into a regular one";
+    EXPECT_FALSE (dispatch.Take (dispatch.Generation ()).Any ());
+}
+
+TEST (ModelWatchDispatch, StopCancelsQueuedWorkAndAStaleJobCannotConsumeANewSession)
+{
+    watch::PollDispatch dispatch;
+    ASSERT_TRUE (dispatch.RequestWatch (true));
+    const uint64_t stopped = dispatch.Generation ();
+    dispatch.Cancel ();
+
+    EXPECT_FALSE (dispatch.Take (stopped).Any ());
+    EXPECT_FALSE (dispatch.HasPending ());
+    ASSERT_TRUE (dispatch.RequestStamp ());
+    const uint64_t started = dispatch.Generation ();
+    EXPECT_NE (started, stopped);
+    EXPECT_FALSE (dispatch.Take (stopped).Any ());
+    EXPECT_TRUE (dispatch.HasPending ()) << "the old job must not clear the new session's queue flag";
+
+    const watch::PollWork current = dispatch.Take (started);
+    EXPECT_TRUE (current.stamp);
+    EXPECT_FALSE (current.watch);
+}
+
+TEST (ModelWatchDispatch, AFailedPostCanBeRetriedWithoutLosingWork)
+{
+    watch::PollDispatch dispatch;
+    ASSERT_TRUE (dispatch.RequestWatch (false));
+    const uint64_t generation = dispatch.Generation ();
+    dispatch.PostFailed (generation);
+
+    EXPECT_TRUE (dispatch.RequestStamp ());
+    const watch::PollWork work = dispatch.Take (generation);
+    EXPECT_TRUE (work.watch);
+    EXPECT_TRUE (work.stamp);
+}

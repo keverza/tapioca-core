@@ -325,6 +325,15 @@ bool MainThreadGate::Post (const std::function<void ()>& fn, GS::UniString& erro
     return PostJob (Job { fn, nullptr }, error);
 }
 
+bool MainThreadGate::PostDeferred (const std::function<void ()>& fn, GS::UniString& error)
+{
+    if (IsShuttingDown ()) {
+        error = "MainThreadGate: the add-on is shutting down.";
+        return false;
+    }
+    return PostJob (Job { fn, nullptr }, error);
+}
+
 MainThreadGate::Stats MainThreadGate::Snapshot () const
 {
     Stats stats;

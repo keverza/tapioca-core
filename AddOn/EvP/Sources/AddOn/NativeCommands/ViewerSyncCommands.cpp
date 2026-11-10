@@ -75,9 +75,9 @@ class RefreshDiligentModelCommand : public MainThreadCommand {
     {
         const bool started = av::modelwatch::RefreshNow ();
         GS::ObjectState os;
-        // ⚠️ FALSE IS NOT A FAILURE, it is "a pass is already running" -- which is
-        // the answer the caller wanted anyway (the model IS being rebuilt), and
-        // reporting it as an error would make a harmless double-click look broken.
+        // ⚠️ FALSE IS NOT A FAILURE: a pass is already running, or host input has
+        // deferred the refresh until it ends. Reporting either as an error would
+        // make a harmless double-click or an in-progress host operation look broken.
         os.Add ("started", started);
         return os;
     }

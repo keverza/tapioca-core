@@ -920,6 +920,14 @@ GSErrCode ArchVizPanel::PaletteControlCallBack (Int32, API_PaletteMessageID mess
             if (HasInstance () && GetInstance ().paletteState.EndHostHide () && !OverlayRunning ())
                 GetInstance ().DG::Palette::Show ();
             break;
+        case APIPalMsg_DisableItems_Begin:
+            // A nested message pump may still deliver Vision's timers during the
+            // host input. Hold every model-watch read until Archicad leaves it.
+            geomsrv::archviz::modelwatch::SetHostInputActive (true);
+            break;
+        case APIPalMsg_DisableItems_End:
+            geomsrv::archviz::modelwatch::SetHostInputActive (false);
+            break;
         case APIPalMsg_IsPaletteVisible:
             *(reinterpret_cast<bool*> (param)) = HasInstance () && GetInstance ().IsVisible ();
             break;

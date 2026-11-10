@@ -167,6 +167,10 @@ void Release ()
 
 void Tick (bool threeDInFront)
 {
+    // The runtime itself is reached from host callbacks and nested message pumps.
+    // Do not touch even an already-held ModelerAPI model during host input (#181).
+    if (modelwatch::HostInputActive ())
+        return;
     if (!threeDInFront) {
         Release ();
         return;
