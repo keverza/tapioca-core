@@ -94,10 +94,11 @@ struct GhPreviewLabel {
     std::string text;
 };
 
-// One depth behaviour's worth of drawables. Two of these exist because the x-ray
-// flag is a different PIPELINE, not a different colour: a primitive marked x-ray
-// must be visible INSIDE the wall it is being compared against, and that is a
-// depth-test-off variant rather than anything the geometry can express.
+// One depth behaviour's worth of drawables. The x-ray flag is a different
+// PIPELINE, not a different colour: a primitive marked x-ray must be visible
+// INSIDE the wall it is being compared against. Surface decals are separate too:
+// they test against the model but take a small depth-only offset, never a
+// world-space displacement or the ordinary mesh pipeline's depth policy.
 struct GhPreviewBucket {
     std::vector<GhPreviewMeshVertex> meshVertices;
     std::vector<uint32_t> meshIndices;
@@ -113,6 +114,8 @@ struct GhPreviewBucket {
 
 struct GhPreviewDrawables {
     GhPreviewBucket depthTested;
+    // Coplanar analysis patches only. Drawn after ordinary meshes, before lines.
+    GhPreviewBucket surfaceDecals;
     GhPreviewBucket xray;
     std::vector<GhPreviewLabel> labels;
 

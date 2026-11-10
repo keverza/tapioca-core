@@ -26,8 +26,8 @@ using Diligent::RefCntAutoPtr;
 
 namespace {
 
-// ⚠️ THIS STRUCT AND THE cbuffer IN BOTH SHADERS ARE ONE DECLARATION WRITTEN
-// TWICE. HLSL packs into 16-byte rows; every member here is already a multiple of
+// ⚠️ THIS STRUCT AND EVERY HLSL cbuffer ARE ONE DECLARATION WRITTEN OUT IN
+// EACH PLACE. HLSL packs into 16-byte rows; every member here is already a multiple of
 // one, which is why there is no padding and must not silently become some.
 struct GhPreviewConstants {
     float viewProj[16];
@@ -40,6 +40,8 @@ struct GhPreviewConstants {
     float params[4];
     // xyz = the world direction the legibility light comes from, w = ambient.
     float light[4];
+    // x = near clip, y = far clip, z = decal cap in metres, w = perspective.
+    float decal[4];
 };
 
 // ⚠️ A LEGIBILITY LIGHT, NOT A SUN, AND DELIBERATELY FIXED IN WORLD SPACE. The
@@ -55,6 +57,7 @@ cbuffer GhPreviewConstants
     float4   g_pixelToNdc;
     float4   g_params;
     float4   g_light;
+    float4   g_decal;
 };
 
 struct VSInput
@@ -112,6 +115,48 @@ void main (in PSInput psIn, out PSOutput psOut)
 }
 )hlsl";
 
+// Coplanar analysis decals write depth per fragment. SV_Position.w is the
+// reciprocal of clip.w, so the cap uses this fragment's own view depth rather
+// than interpolating a vertex bias along a long, slanted source triangle.
+constexpr const char* kMeshSurfaceDecalPS = R"hlsl(
+#ifndef GH_PREVIEW_SURFACE_DECAL_DEPTH_NDC
+#define GH_PREVIEW_SURFACE_DECAL_DEPTH_NDC 0.0
+#endif
+
+cbuffer GhPreviewConstants
+{
+    float4x4 g_viewProj;
+    float4   g_pixelToNdc;
+    float4   g_params;
+    float4   g_light;
+    float4   g_decal;
+};
+
+struct PSInput
+{
+    float4 position : SV_POSITION;
+    float4 color    : COLOR0;
+};
+
+struct PSOutput
+{
+    float4 color : SV_TARGET;
+    float  depth : SV_DEPTH;
+};
+
+void main (in PSInput psIn, out PSOutput psOut)
+{
+    float viewDepth = 1.0 / max (psIn.position.w, 1e-6);
+    float range = max (g_decal.y - g_decal.x, 1e-6);
+    float cap = g_decal.z / range;
+    if (g_decal.w > 0.5)
+        cap = g_decal.z * g_decal.x * (g_decal.y / range) / (viewDepth * viewDepth);
+    float decalBias = min (GH_PREVIEW_SURFACE_DECAL_DEPTH_NDC, cap);
+    psOut.color = psIn.color;
+    psOut.depth = psIn.position.z - decalBias;
+}
+)hlsl";
+
 // The screen-width ribbon. Everything view-dependent happens here, at the camera
 // the viewport actually has -- see the header on why the layer holds no camera of
 // its own.
@@ -122,6 +167,7 @@ cbuffer GhPreviewConstants
     float4   g_pixelToNdc;
     float4   g_params;
     float4   g_light;
+    float4   g_decal;
 };
 
 struct VSInput
@@ -194,6 +240,7 @@ cbuffer GhPreviewConstants
     float4   g_pixelToNdc;
     float4   g_params;
     float4   g_light;
+    float4   g_decal;
 };
 
 struct PSInput
@@ -235,6 +282,7 @@ cbuffer GhPreviewConstants
     float4   g_pixelToNdc;
     float4   g_params;
     float4   g_light;
+    float4   g_decal;
 };
 
 struct PSInput
@@ -330,17 +378,20 @@ struct GhPreviewLayer::Impl {
     RefCntAutoPtr<Diligent::IPipelineState> meshPso;
     RefCntAutoPtr<Diligent::IPipelineState> meshXRayPso;
     RefCntAutoPtr<Diligent::IPipelineState> meshPulledPso;
+    RefCntAutoPtr<Diligent::IPipelineState> meshSurfaceDecalPso;
     RefCntAutoPtr<Diligent::IPipelineState> linePso;
     RefCntAutoPtr<Diligent::IPipelineState> lineXRayPso;
     RefCntAutoPtr<Diligent::IPipelineState> lineHiddenPso;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> meshSrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> meshXRaySrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> meshPulledSrb;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> meshSurfaceDecalSrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> lineSrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> lineXRaySrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> lineHiddenSrb;
     RefCntAutoPtr<Diligent::IBuffer> constants;
     Bucket depthTested;
+    Bucket surfaceDecals;
     Bucket xray;
     size_t labelCount = 0;
     bool ready = false;
@@ -362,12 +413,16 @@ bool GhPreviewLayer::IsReady () const
 
 size_t GhPreviewLayer::MeshIndexCount () const
 {
-    return impl_ == nullptr ? 0 : impl_->depthTested.meshIndexCount + impl_->xray.meshIndexCount;
+    return impl_ == nullptr
+               ? 0
+               : impl_->depthTested.meshIndexCount + impl_->surfaceDecals.meshIndexCount + impl_->xray.meshIndexCount;
 }
 
 size_t GhPreviewLayer::LineVertexCount () const
 {
-    return impl_ == nullptr ? 0 : impl_->depthTested.lineVertexCount + impl_->xray.lineVertexCount;
+    return impl_ == nullptr ? 0
+                            : impl_->depthTested.lineVertexCount + impl_->surfaceDecals.lineVertexCount +
+                                  impl_->xray.lineVertexCount;
 }
 
 size_t GhPreviewLayer::LabelCount () const
@@ -380,17 +435,20 @@ void GhPreviewLayer::Shutdown ()
     if (impl_ == nullptr)
         return;
     impl_->depthTested.Release ();
+    impl_->surfaceDecals.Release ();
     impl_->xray.Release ();
     impl_->constants.Release ();
     impl_->meshSrb.Release ();
     impl_->meshXRaySrb.Release ();
     impl_->meshPulledSrb.Release ();
+    impl_->meshSurfaceDecalSrb.Release ();
     impl_->lineSrb.Release ();
     impl_->lineXRaySrb.Release ();
     impl_->lineHiddenSrb.Release ();
     impl_->meshPso.Release ();
     impl_->meshXRayPso.Release ();
     impl_->meshPulledPso.Release ();
+    impl_->meshSurfaceDecalPso.Release ();
     impl_->linePso.Release ();
     impl_->lineXRayPso.Release ();
     impl_->lineHiddenPso.Release ();
@@ -409,7 +467,8 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         return true;
 
     auto compile = [&] (Diligent::SHADER_TYPE type, const char* name, const char* body,
-                        RefCntAutoPtr<Diligent::IShader>& out) -> bool {
+                        RefCntAutoPtr<Diligent::IShader>& out,
+                        const Diligent::ShaderMacroArray& macros = Diligent::ShaderMacroArray {}) -> bool {
         Diligent::ShaderCreateInfo sci;
         sci.Desc.Name = name;
         sci.Desc.ShaderType = type;
@@ -417,6 +476,7 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         sci.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_HLSL;
         sci.Source = body;
         sci.SourceLength = std::strlen (body);
+        sci.Macros = macros;
         device->CreateShader (sci, &out, nullptr);
         if (out == nullptr) {
             error = std::string ("Diligent CreateShader(") + name +
@@ -426,10 +486,20 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         return true;
     };
 
-    RefCntAutoPtr<Diligent::IShader> meshVs, meshPs, lineVs, linePs, lineHiddenPs;
+    RefCntAutoPtr<Diligent::IShader> meshVs, meshPs, meshSurfaceDecalPs, lineVs, linePs, lineHiddenPs;
     if (!compile (Diligent::SHADER_TYPE_VERTEX, "Gh preview mesh VS", kMeshVS, meshVs))
         return false;
     if (!compile (Diligent::SHADER_TYPE_PIXEL, "Gh preview mesh PS", kMeshPS, meshPs))
+        return false;
+    char surfaceDecalDepth[32];
+    _snprintf_s (surfaceDecalDepth, sizeof (surfaceDecalDepth), _TRUNCATE, "%.9g",
+                 double (kGhPreviewSurfaceDecalDepthBiasNdc));
+    const Diligent::ShaderMacro surfaceDecalMacro[] = {
+        { "GH_PREVIEW_SURFACE_DECAL_DEPTH_NDC", surfaceDecalDepth },
+    };
+    const Diligent::ShaderMacroArray surfaceDecalMacros { surfaceDecalMacro, _countof (surfaceDecalMacro) };
+    if (!compile (Diligent::SHADER_TYPE_PIXEL, "Gh preview surface decal PS", kMeshSurfaceDecalPS, meshSurfaceDecalPs,
+                  surfaceDecalMacros))
         return false;
     if (!compile (Diligent::SHADER_TYPE_VERTEX, "Gh preview line VS", kLineVS, lineVs))
         return false;
@@ -558,6 +628,10 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
     if (!buildPso ("Gh preview mesh PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), true, true, impl_->meshPso,
                    impl_->meshSrb))
         return false;
+    // A bounded per-fragment depth offset, with no rasterizer or slope-scaled bias.
+    if (!buildPso ("Gh preview surface decal PSO", meshVs, meshSurfaceDecalPs, meshLayout, _countof (meshLayout), true,
+                   true, impl_->meshSurfaceDecalPso, impl_->meshSurfaceDecalSrb))
+        return false;
     if (!buildPso ("Gh preview mesh x-ray PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), false, false,
                    impl_->meshXRayPso, impl_->meshXRaySrb))
         return false;
@@ -642,6 +716,8 @@ bool GhPreviewLayer::Upload (Diligent::IRenderDevice* device, Diligent::IDeviceC
     std::string firstError;
     if (!upload (drawables.depthTested, impl_->depthTested, "depth-tested"))
         firstError = error;
+    if (!upload (drawables.surfaceDecals, impl_->surfaceDecals, "surface decals") && firstError.empty ())
+        firstError = error;
     if (!upload (drawables.xray, impl_->xray, "x-ray") && firstError.empty ())
         firstError = error;
 
@@ -682,6 +758,11 @@ void GhPreviewLayer::Draw (Diligent::IDeviceContext* context, const float viewPr
     constants.light[1] = 0.42f;
     constants.light[2] = 0.85f;
     constants.light[3] = (std::min) ((std::max) (params.ambient, 0.0f), 1.0f);
+    const float nearClip = (std::max) (params.nearClipMetres, 1.0e-6f);
+    constants.decal[0] = nearClip;
+    constants.decal[1] = (std::max) (params.farClipMetres, nearClip + 1.0e-6f);
+    constants.decal[2] = (std::max) (params.surfaceDecalMaxMetres, 0.0f);
+    constants.decal[3] = params.perspective ? 1.0f : 0.0f;
 
     Diligent::PVoid mapped = nullptr;
     context->MapBuffer (impl_->constants, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
@@ -690,48 +771,57 @@ void GhPreviewLayer::Draw (Diligent::IDeviceContext* context, const float viewPr
     *static_cast<GhPreviewConstants*> (mapped) = constants;
     context->UnmapBuffer (impl_->constants, Diligent::MAP_WRITE);
 
-    // ⚠️ MESHES FIRST, THEN LINES, WITHIN EACH BUCKET. The edges of a surface lie
-    // exactly ON it, and the ribbon does not write depth: drawn first they would
-    // be overwritten by the very surface they describe.
+    auto drawMesh = [&] (Bucket& bucket, Diligent::IPipelineState* pso, Diligent::IShaderResourceBinding* srb) {
+        if (bucket.meshIndexCount == 0 || bucket.meshVertices == nullptr || bucket.meshIndices == nullptr)
+            return;
+        Diligent::IBuffer* buffers[1] = { bucket.meshVertices };
+        const Diligent::Uint64 offsets[1] = { 0 };
+        context->SetVertexBuffers (0, 1, buffers, offsets, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
+                                   Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
+        context->SetIndexBuffer (bucket.meshIndices, 0, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        context->SetPipelineState (pso);
+        context->CommitShaderResources (srb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+
+        Diligent::DrawIndexedAttribs draw;
+        draw.NumIndices = Diligent::Uint32 (bucket.meshIndexCount);
+        draw.IndexType = Diligent::VT_UINT32;
+        draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+        context->DrawIndexed (draw);
+    };
+    auto drawLines = [&] (Bucket& bucket, Diligent::IPipelineState* pso, Diligent::IShaderResourceBinding* srb) {
+        if (bucket.lineVertexCount == 0 || bucket.lineVertices == nullptr)
+            return;
+        Diligent::IBuffer* buffers[1] = { bucket.lineVertices };
+        const Diligent::Uint64 offsets[1] = { 0 };
+        context->SetVertexBuffers (0, 1, buffers, offsets, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
+                                   Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
+        context->SetPipelineState (pso);
+        context->CommitShaderResources (srb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+
+        Diligent::DrawAttribs draw;
+        draw.NumVertices = Diligent::Uint32 (bucket.lineVertexCount);
+        draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+        context->Draw (draw);
+    };
     auto drawBucket = [&] (Bucket& bucket, Diligent::IPipelineState* meshPso, Diligent::IShaderResourceBinding* meshSrb,
                            Diligent::IPipelineState* linePso, Diligent::IShaderResourceBinding* lineSrb) {
-        if (bucket.meshIndexCount > 0 && bucket.meshVertices != nullptr && bucket.meshIndices != nullptr) {
-            Diligent::IBuffer* buffers[1] = { bucket.meshVertices };
-            const Diligent::Uint64 offsets[1] = { 0 };
-            context->SetVertexBuffers (0, 1, buffers, offsets, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
-                                       Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
-            context->SetIndexBuffer (bucket.meshIndices, 0, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-            context->SetPipelineState (meshPso);
-            context->CommitShaderResources (meshSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-
-            Diligent::DrawIndexedAttribs draw;
-            draw.NumIndices = Diligent::Uint32 (bucket.meshIndexCount);
-            draw.IndexType = Diligent::VT_UINT32;
-            draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
-            context->DrawIndexed (draw);
-        }
-
-        if (bucket.lineVertexCount > 0 && bucket.lineVertices != nullptr) {
-            Diligent::IBuffer* buffers[1] = { bucket.lineVertices };
-            const Diligent::Uint64 offsets[1] = { 0 };
-            context->SetVertexBuffers (0, 1, buffers, offsets, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
-                                       Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
-            context->SetPipelineState (linePso);
-            context->CommitShaderResources (lineSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-
-            Diligent::DrawAttribs draw;
-            draw.NumVertices = Diligent::Uint32 (bucket.lineVertexCount);
-            draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
-            context->Draw (draw);
-        }
+        // The edges of a surface lie exactly ON it, so every mesh precedes its
+        // lines; the non-depth-writing ribbon must not be covered by that surface.
+        drawMesh (bucket, meshPso, meshSrb);
+        drawLines (bucket, linePso, lineSrb);
     };
 
+    // Ordinary and decal meshes first, then their guides. Surface decals never
+    // select the pulled-mesh PSO, even when a caller enables it for other meshes.
+    drawMesh (impl_->depthTested, params.pullMeshes ? impl_->meshPulledPso : impl_->meshPso,
+              params.pullMeshes ? impl_->meshPulledSrb : impl_->meshSrb);
+    drawBucket (impl_->surfaceDecals, impl_->meshSurfaceDecalPso, impl_->meshSurfaceDecalSrb, impl_->linePso,
+                impl_->lineSrb);
+    drawLines (impl_->depthTested, impl_->linePso, impl_->lineSrb);
     // ⚠️ DEPTH-TESTED FIRST, X-RAY SECOND. The x-ray pass is the one that must
     // end up on top: it exists to be seen through the building, and drawing it
     // before the depth-tested geometry would let an ordinary preview mesh blend
     // over the very thing the x-ray flag was set to reveal.
-    drawBucket (impl_->depthTested, params.pullMeshes ? impl_->meshPulledPso : impl_->meshPso,
-                params.pullMeshes ? impl_->meshPulledSrb : impl_->meshSrb, impl_->linePso, impl_->lineSrb);
     if (params.hiddenDashPixels > 0.0f && impl_->depthTested.lineVertexCount > 0 &&
         impl_->depthTested.lineVertices != nullptr) {
         // The depth-tested lines again, where they failed the test: dashed.

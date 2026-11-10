@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <string>
 
 using namespace geomsrv::archviz;
 
@@ -23,10 +24,64 @@ evp::sunstudy::ViewpointStudyResult Square (bool blocked)
 
 TEST (AnalysisOverlayDepth, MeshesAreNeverPulledThroughModelOccluders)
 {
-    const auto params = AnalysisOverlayDrawParams ();
-    EXPECT_FALSE (params.pullMeshes)
-        << "depth bias must not carry an isovist or seen-surface patch in front of the model";
+    const auto params = AnalysisOverlayDrawParams (0.05f, 20000.0f, true);
+    EXPECT_FALSE (params.pullMeshes) << "rasterizer bias must not carry an isovist in front of the model";
     EXPECT_GT (params.hiddenDashPixels, 0.0f) << "only guides have the intentional hidden dashed pass";
+    EXPECT_FLOAT_EQ (params.surfaceDecalMaxMetres, 0.05f);
+    EXPECT_GT (kGhPreviewSurfaceDecalDepthBiasNdc, 0.0f);
+    EXPECT_LE (kGhPreviewSurfaceDecalDepthBiasNdc, 1.0f / 4194304.0f)
+        << "surface decals get four D32 ULPs, never the old unbounded slope-scaled pull";
+}
+
+TEST (AnalysisOverlayDepth, DecalsPassCoplanarDepthButStayBehindForegroundWalls)
+{
+    constexpr float nearClip = 0.05f;
+    constexpr float maxMetres = 0.05f;
+    for (const bool perspective : { true, false }) {
+        for (const float distance : { 50.0f, 200.0f, 500.0f }) {
+            SCOPED_TRACE (std::string (perspective ? "perspective at " : "orthographic at ") +
+                          std::to_string (distance) + " m");
+            const float farClip = perspective ? 20000.0f : 2.0f * distance;
+            const double projectionScale = double (farClip) / (double (farClip) - nearClip);
+            // Double evaluates the cap itself; the float checks below separately
+            // document where D32 can no longer resolve a 10 cm foreground wall.
+            const auto depth = [&] (float viewDepth) -> double {
+                return perspective ? projectionScale - nearClip * projectionScale / viewDepth
+                                   : (viewDepth - nearClip) / (double (farClip) - nearClip);
+            };
+            const float clipW = perspective ? distance : 1.0f;
+            const float bias = GhPreviewSurfaceDecalBiasNdc (clipW, nearClip, farClip, perspective, maxMetres);
+            ASSERT_GT (bias, 0.0f);
+            EXPECT_LE (bias, kGhPreviewSurfaceDecalDepthBiasNdc);
+            const double decalDepth = depth (distance) - bias;
+            EXPECT_LT (decalDepth, depth (distance)) << "the coplanar decal must win its own surface";
+            EXPECT_GT (decalDepth, depth (distance - 0.1f)) << "a wall 10 cm in front must still occlude the decal";
+            if (perspective && distance >= 200.0f)
+                EXPECT_LT (bias, kGhPreviewSurfaceDecalDepthBiasNdc) << "the 5 cm cap must engage at distance";
+            if (distance <= 200.0f) {
+                const float decal32 = float (decalDepth);
+                EXPECT_LT (decal32, float (depth (distance))) << "the offset must survive binary32 rounding";
+                EXPECT_GT (decal32, float (depth (distance - 0.1f)));
+            }
+        }
+    }
+}
+
+TEST (AnalysisOverlayDepth, PerspectiveCapUsesTheFragmentsOwnViewDepth)
+{
+    constexpr float nearClip = 0.05f;
+    constexpr float farClip = 20000.0f;
+    constexpr float maxMetres = 0.05f;
+    // A long source triangle can span 100..2000 m. At an interior fragment at
+    // 300 m the decal PS must use 300 m, not an interpolated vertex bias.
+    const float bias = GhPreviewSurfaceDecalBiasNdc (300.0f, nearClip, farClip, true, maxMetres);
+    const float expected = maxMetres * nearClip * (farClip / (farClip - nearClip)) / (300.0f * 300.0f);
+    EXPECT_NEAR (bias, expected, 1.0e-12f);
+    const double depth =
+        double (farClip) / (farClip - nearClip) - nearClip * double (farClip) / (farClip - nearClip) / 300.0;
+    const double wallDepth =
+        double (farClip) / (farClip - nearClip) - nearClip * double (farClip) / (farClip - nearClip) / 299.9;
+    EXPECT_GT (depth - bias, wallDepth) << "a wall 10 cm ahead still occludes at the interior fragment";
 }
 
 TEST (ViewpointOverlay, WithoutAResultOnlyTheRadiusGuideIsBuilt)
@@ -35,6 +90,7 @@ TEST (ViewpointOverlay, WithoutAResultOnlyTheRadiusGuideIsBuilt)
     options.radius = 10.0;
     const GhPreviewDrawables drawables = BuildViewpointOverlay (options, nullptr, {});
     EXPECT_TRUE (drawables.depthTested.meshIndices.empty ());
+    EXPECT_TRUE (drawables.surfaceDecals.Empty ());
     EXPECT_EQ (drawables.depthTested.lineVertices.size (), 180u * 6u);
     EXPECT_TRUE (drawables.xray.Empty ()) << "the isovist is occluded by the model, never x-ray";
 }
@@ -48,6 +104,7 @@ TEST (ViewpointOverlay, TheFillIsAFanAboutTheResultPointAndBlockedEdgesTakeTheir
     const GhPreviewDrawables drawables = BuildViewpointOverlay (moved, &result, style);
     const auto& bucket = drawables.depthTested;
     ASSERT_EQ (bucket.meshVertices.size (), 5u);
+    EXPECT_TRUE (drawables.surfaceDecals.Empty ()) << "plan and FOV fills keep the unbiased mesh pipeline";
     EXPECT_FLOAT_EQ (bucket.meshVertices[0].x, 0.0f) << "drawn where it was computed, not at the moved point";
     EXPECT_FLOAT_EQ (bucket.meshVertices[0].z, 1.5f);
     EXPECT_EQ (bucket.meshIndices.size (), 4u * 3u);
@@ -85,7 +142,7 @@ TEST (ViewpointOverlay, AFieldOfViewFanStopsAtItsLastRayAndDrawsItsTwoEdges)
     EXPECT_EQ (drawables.depthTested.lineVertices.size () - bare.depthTested.lineVertices.size (), 4u * 6u);
 }
 
-TEST (ViewpointOverlay, ASphereDrawsNoShellOnlyTheSurfacesItSeesLiftedTowardThePoint)
+TEST (ViewpointOverlay, ASphereDrawsOnlyUnmovedSeenSurfaceDecals)
 {
     ViewpointOverlayStyle style;
     evp::sunstudy::ViewpointStudyResult result;
@@ -99,17 +156,23 @@ TEST (ViewpointOverlay, ASphereDrawsNoShellOnlyTheSurfacesItSeesLiftedTowardTheP
     result.rayMesh = { -1, -1, -1, -1, 0, -1, -1, -1 };
     const GhPreviewDrawables bare = BuildViewpointOverlay (result.options, &result, style);
     EXPECT_TRUE (bare.depthTested.meshIndices.empty ()) << "no hull over the ray ends";
+    EXPECT_TRUE (bare.surfaceDecals.Empty ());
 
     // One seen triangle in the plane x = 2, wound so its normal points away.
     result.seenSurface = { { 2, 0, 0 }, { 2, 0, 1 }, { 2, 1, 0 } };
     const GhPreviewDrawables drawables = BuildViewpointOverlay (result.options, &result, style);
-    const auto& bucket = drawables.depthTested;
+    EXPECT_TRUE (drawables.depthTested.meshIndices.empty ())
+        << "seen patches never inherit the ordinary analysis mesh's depth policy";
+    const auto& bucket = drawables.surfaceDecals;
     ASSERT_EQ (bucket.meshVertices.size (), 3u);
     EXPECT_EQ (bucket.meshIndices.size (), 3u);
-    for (const auto& vertex : bucket.meshVertices) {
+    for (size_t i = 0; i < bucket.meshVertices.size (); ++i) {
+        const auto& vertex = bucket.meshVertices[i];
         EXPECT_EQ (vertex.rgba, style.fillRgba);
-        EXPECT_NEAR (vertex.x, 2.0f - 0.015f, 1e-6f) << "lifted off the wall toward the point";
-        EXPECT_LT (vertex.nx, -0.99f) << "facing the point";
+        EXPECT_FLOAT_EQ (vertex.x, float (result.seenSurface[i][0]));
+        EXPECT_FLOAT_EQ (vertex.y, float (result.seenSurface[i][1]));
+        EXPECT_FLOAT_EQ (vertex.z, float (result.seenSurface[i][2]));
+        EXPECT_LT (vertex.nx, -0.99f) << "facing the point without moving the surface silhouette";
     }
 }
 

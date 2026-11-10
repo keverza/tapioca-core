@@ -4,6 +4,7 @@
 // open, so a study a command runs is followed even while the Analysis page is shut.
 
 #include "ArchViz/AnalysisTabs.hpp"
+#include "ArchViz/Camera.hpp"
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
@@ -110,7 +111,7 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state)
 
 void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContext* context, const HudState& state,
                                    const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
-                                   uint32_t depthFormat, bool modelIsDrawn)
+                                   uint32_t depthFormat, bool modelIsDrawn, const Camera& camera)
 {
     PointVisibilityGuide guide;
     if (viewerhud::PointVisibilityGuideOf (state, guide)) {
@@ -128,21 +129,21 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
         key |= 1u;
         if (key == scene.AnalysisOverlayKey ()) {
             scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, nullptr, key,
-                                       modelIsDrawn);
+                                       modelIsDrawn, camera);
             return;
         }
         GhPreviewDrawables drawables = BuildPointVisibilityGuides (guide);
         if (state.analysisPath != nullptr)
             AppendPolyline (state.analysisPath->points, kAnalysisPathRgba, drawables.depthTested);
         scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, &drawables, key,
-                                   modelIsDrawn);
+                                   modelIsDrawn, camera);
         return;
     }
     const auto settings = viewpointstudy::GetSettings ();
     if (state.readOnly || !settings->enabled || !settings->pointValid ||
         state.analysisFocus.tab != analysistabs::kViewpointTab) {
-        scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, nullptr, 0,
-                                   modelIsDrawn);
+        scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, nullptr, 0, modelIsDrawn,
+                                   camera);
         return;
     }
     const auto status = viewpointstudy::GetStatus ();
@@ -174,7 +175,7 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
     key |= 1u; // never the "hidden" key
     if (key == scene.AnalysisOverlayKey ()) {
         scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, nullptr, key,
-                                   modelIsDrawn);
+                                   modelIsDrawn, camera);
         return;
     }
     GhPreviewDrawables drawables = BuildViewpointOverlay (settings->options, status.result.get (), style);
@@ -185,7 +186,7 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
     if (state.analysisPath != nullptr)
         AppendPolyline (state.analysisPath->points, kAnalysisPathRgba, drawables.depthTested);
     scene.DrawAnalysisOverlay (context, viewProj, width, height, colorFormat, depthFormat, &drawables, key,
-                               modelIsDrawn);
+                               modelIsDrawn, camera);
 }
 
 void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& state,

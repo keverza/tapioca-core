@@ -3,8 +3,8 @@
 
 // ArchViz/GhPreviewLayer — the GPU half of the Grasshopper preview overlay.
 //
-// It owns ONLY resources: three vertex buffers, one index buffer, one constant
-// buffer, five pipeline states and the draws. The geometry comes from
+// It owns ONLY resources: per-bucket geometry buffers, one constant buffer,
+// the mesh/line pipeline variants and the draws. The geometry comes from
 // GhPreviewGeometry, which is pure and tested offline. Same split as
 // PlanAnchorLayer and StorySliceLayer, for the same reason.
 //
@@ -17,8 +17,8 @@
 //
 // ⚠️ IT KNOWS NOTHING ABOUT THE CAMERA, AND THAT IS THE DIVISION OF LABOUR.
 // Orbit, zoom, pan and the view matrix belong to the viewport; this layer is
-// handed the same `viewProj` and surface size every other layer gets, and does
-// its screen-space work in clip space from those. It has no camera member, no
+// handed the same `viewProj`, clip planes and surface size, and does its
+// screen-space work in clip space from those. It has no camera member, no
 // navigation state and nothing to invalidate when the view moves — a moved
 // camera is simply the next frame's `viewProj`, which is why panning a preview
 // costs nothing but the draw.
@@ -31,12 +31,10 @@
 // preview would make "close the viewer" silently mean "lose your preview until
 // you re-solve".
 //
-// ⚠️ FOUR PSOs, BECAUSE X-RAY IS A PIPELINE. A primitive flagged x-ray must be
-// visible INSIDE the wall it is being compared against, which is a
-// depth-test-off variant rather than a colour. Mesh and line each get a
-// depth-tested and an x-ray PSO. NONE of the four writes depth: preview is an
-// annotation, and letting it occlude the building it annotates would hide the
-// very wall being measured.
+// ⚠️ DEPTH BEHAVIOUR IS A PIPELINE, NOT A COLOUR. A primitive flagged x-ray
+// must be visible INSIDE the wall it is being compared against; an analysis
+// decal instead tests against that wall with a bounded depth-only offset.
+// Meshes write depth to occlude themselves; lines and x-ray geometry do not.
 //
 // ⚠️ TEXT IS NOT DRAWN HERE. GhPreviewGeometry collects labels; this renderer
 // has no text capability yet, and inventing a private one inside the preview
@@ -61,6 +59,29 @@ struct IShaderResourceBinding;
 namespace geomsrv {
 namespace archviz {
 
+// Four binary32 ULPs at depth 1.0. Applied per fragment only by the dedicated
+// surface-decal pixel shader; the projected silhouette does not move. Unlike
+// the old pulled-mesh PSO there is no slope-scaled term.
+constexpr float kGhPreviewSurfaceDecalDepthBiasNdc = 1.0f / 4194304.0f;
+
+// A constant NDC pull grows quadratically in world metres with view distance.
+// Bound it by maxMetres as well as by depth precision. This is the shader's
+// policy in testable form; perspective clip.w is positive view depth.
+constexpr float GhPreviewSurfaceDecalBiasNdc (float clipW, float nearClip, float farClip, bool perspective,
+                                              float maxMetres)
+{
+    const float range = farClip - nearClip;
+    if (maxMetres <= 0.0f || nearClip <= 0.0f || range <= 0.0f)
+        return 0.0f;
+    float cap = maxMetres / range;
+    if (perspective) {
+        const float viewDepth = clipW < 0.0f ? -clipW : clipW;
+        const float safeDepth = viewDepth > 1.0e-6f ? viewDepth : 1.0e-6f;
+        cap = maxMetres * nearClip * (farClip / range) / (safeDepth * safeDepth);
+    }
+    return kGhPreviewSurfaceDecalDepthBiasNdc < cap ? kGhPreviewSurfaceDecalDepthBiasNdc : cap;
+}
+
 struct GhPreviewDrawables;
 // Forward-declared rather than included: DiligentScene.hpp takes one by const
 // reference and has no business pulling the preview cache into every translation
@@ -74,8 +95,8 @@ class GhPreviewLayer final {
     GhPreviewLayer (const GhPreviewLayer&) = delete;
     GhPreviewLayer& operator= (const GhPreviewLayer&) = delete;
 
-    // Compiles both shader pairs and builds the four PSOs. The formats come from
-    // the target for the usual reason: a PSO records what it renders into, so a
+    // Compiles the mesh/line shaders and their pipeline variants. The formats
+    // come from the target: a PSO records what it renders into, so a
     // mismatch fails here rather than at draw time.
     bool Init (Diligent::IRenderDevice* device, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                std::string& error);
@@ -101,11 +122,17 @@ class GhPreviewLayer final {
         // their alpha. 0 (the preview's default) leaves hidden lines undrawn.
         float hiddenDashPixels = 0.0f;
         float hiddenAlpha = 0.55f;
-        // true: depth-tested meshes take the lines' pull toward the camera. For
-        // surfaces laid over the model's own (the spherical isovist's seen
-        // cells), where a fixed lift loses to depth precision at a distance and
-        // at grazing angles.
+        // true: depth-tested meshes take the lines' constant and slope-scaled
+        // pull toward the camera. Reserved for exact solar-obstruction hits.
+        // Spherical isovist patches use surfaceDecals instead, whose bounded
+        // depth-only offset cannot acquire the slope-scaled term.
         bool pullMeshes = false;
+        // Per-frame projection data, used only to cap surface-decal depth in
+        // world metres. Defaults cover generic previews, which have no decals.
+        float nearClipMetres = 0.05f;
+        float farClipMetres = 20000.0f;
+        bool perspective = true;
+        float surfaceDecalMaxMetres = 0.05f;
     };
 
     void Draw (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,

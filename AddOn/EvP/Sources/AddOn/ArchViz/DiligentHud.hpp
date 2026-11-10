@@ -941,6 +941,7 @@ void ServiceSunStudyBoundsGumball (HudState& state, const InputSnapshot& input, 
 // The inspector's two halves. SERVICE runs in the frame loop with the cursor's
 // world ray (CPU raycast through the snapshot's cached BVH, then the study
 // store); the TOOLTIP draws at the cursor when the inspector is in that mode.
+class Camera;
 class DiligentScene;
 struct SunStudyViewSettings;
 // The HUD state the frame loop hands to DiligentScene::SetSunStudyView.
@@ -953,7 +954,7 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state);
 // model. Shown only on the Viewpoint tab while the viewpoint is.
 void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContext* context, const HudState& state,
                                    const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
-                                   uint32_t depthFormat, bool modelIsDrawn);
+                                   uint32_t depthFormat, bool modelIsDrawn, const Camera& camera);
 // After analysis: single-day exact obstruction parts and whole-object wires.
 void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& state,
                                       const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,

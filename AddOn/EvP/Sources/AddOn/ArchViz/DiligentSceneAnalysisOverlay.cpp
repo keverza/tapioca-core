@@ -11,6 +11,7 @@
 
 #include "ArchViz/AnalysisOverlayParams.hpp"
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/Camera.hpp"
 #include "ArchViz/GhPreviewGeometry.hpp"
 
 #include <string>
@@ -26,7 +27,7 @@ uint64_t DiligentScene::AnalysisOverlayKey () const
 void DiligentScene::DrawAnalysisOverlay (Diligent::IDeviceContext* context, const float viewProj[16],
                                          uint32_t surfaceWidth, uint32_t surfaceHeight, uint32_t colorBufferFormat,
                                          uint32_t depthBufferFormat, const GhPreviewDrawables* replacement,
-                                         uint64_t key, bool modelIsDrawn)
+                                         uint64_t key, bool modelIsDrawn, const Camera& camera)
 {
     if (impl_ == nullptr || context == nullptr || impl_->device == nullptr || impl_->analysisOverlayInitFailed)
         return;
@@ -58,7 +59,7 @@ void DiligentScene::DrawAnalysisOverlay (Diligent::IDeviceContext* context, cons
         return;
     // The model's depth, where the shaded pass has not already left it.
     DrawOcclusionDepth (context, viewProj, true, modelIsDrawn, colorBufferFormat, depthBufferFormat);
-    const auto params = AnalysisOverlayDrawParams ();
+    const auto params = AnalysisOverlayDrawParams (Camera::NearClip (), camera.FarClip (), camera.IsPerspective ());
     impl_->analysisOverlay.Draw (context, viewProj, surfaceWidth, surfaceHeight, params);
 }
 

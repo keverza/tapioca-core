@@ -13,8 +13,8 @@ constexpr double kPi = 3.14159265358979323846;
 // ⚠️ THE SPHERE IS NOT DRAWN; THE SURFACES IT SEES ARE. A hull over the ray
 // ends lay in the plane of every wall a ray stopped on and z-fought it (an inset
 // only moved the fight), and a see-through shell hid the model it measured.
-// The seen cells are lifted off their surface along its normal, toward the point.
-constexpr double kSurfaceLiftMetres = 0.015;
+// Seen cells stay exactly on their source plane. Their separate decal pipeline
+// resolves depth precision without moving a silhouette at a corner or crease.
 
 void Segment (const std::array<double, 3>& a, const std::array<double, 3>& b, uint32_t rgba, GhPreviewBucket& bucket)
 {
@@ -120,12 +120,8 @@ void Sphere (const evp::sunstudy::ViewpointStudyResult& result, const ViewpointO
         for (double& n : normal)
             n *= (toPoint < 0.0 ? -1.0 : 1.0) / length;
         const auto base = uint32_t (bucket.meshVertices.size ());
-        for (const auto* corner : { &a, &b, &c }) {
-            const std::array<double, 3> at = { (*corner)[0] + normal[0] * kSurfaceLiftMetres,
-                                               (*corner)[1] + normal[1] * kSurfaceLiftMetres,
-                                               (*corner)[2] + normal[2] * kSurfaceLiftMetres };
-            bucket.meshVertices.push_back (Vertex (at, normal, style.fillRgba));
-        }
+        for (const auto* corner : { &a, &b, &c })
+            bucket.meshVertices.push_back (Vertex (*corner, normal, style.fillRgba));
         for (uint32_t k = 0; k < 3; ++k)
             bucket.meshIndices.push_back (base + k);
     }
@@ -147,7 +143,7 @@ GhPreviewDrawables BuildViewpointOverlay (const evp::sunstudy::ViewpointOptions&
     if (result == nullptr || !result->valid)
         return drawables;
     if (result->options.mode == ViewpointMode::Sphere) {
-        Sphere (*result, style, bucket);
+        Sphere (*result, style, drawables.surfaceDecals);
         return drawables;
     }
     if (result->perimeter.size () < (result->Closed () ? 3u : 2u))

@@ -59,6 +59,8 @@ struct SamplerDesc;
 namespace geomsrv {
 namespace archviz {
 
+class Camera;
+
 // Defined in DiligentShaders.hpp, which this header deliberately does not pull
 // in: it carries every shader source string in the renderer.
 struct DiligentSceneConstants;
@@ -615,7 +617,8 @@ class DiligentScene final {
     uint64_t AnalysisOverlayKey () const;
     void DrawAnalysisOverlay (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
                               uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
-                              const GhPreviewDrawables* replacement, uint64_t key, bool modelIsDrawn);
+                              const GhPreviewDrawables* replacement, uint64_t key, bool modelIsDrawn,
+                              const Camera& camera);
 
     // Dedicated exact-obstruction channel; key 0 hides without touching analysis.
     void DrawObstructionOverlay (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,

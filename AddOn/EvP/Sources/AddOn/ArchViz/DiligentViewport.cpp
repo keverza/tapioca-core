@@ -854,7 +854,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 UpdateAndDrawGhPreview (scene, context, hudState, viewProj, width, height, drawTo.ColorFormat (),
                                         drawTo.DepthFormat (), modelIsDrawn);
                 UpdateAndDrawAnalysisOverlay (scene, context, hudState, viewProj, width, height, drawTo.ColorFormat (),
-                                              drawTo.DepthFormat (), modelIsDrawn);
+                                              drawTo.DepthFormat (), modelIsDrawn, camera);
                 UpdateAndDrawObstructionOverlay (scene, context, hudState, viewProj, width, height,
                                                  drawTo.ColorFormat (), drawTo.DepthFormat (), modelIsDrawn);
             }
