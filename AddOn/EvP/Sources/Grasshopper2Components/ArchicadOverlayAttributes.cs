@@ -1,6 +1,7 @@
 using Eto.Drawing;
 using Eto.Forms;
 using Grasshopper2.Doc.Attributes;
+using Grasshopper2.Eto.Drawing;
 using Grasshopper2.Extensions;
 using Grasshopper2.UI.Flex;
 using Grasshopper2.UI.Primitives;
@@ -19,7 +20,7 @@ public sealed class ArchicadOverlayAttributes : ComponentAttributes
         Responder.MouseDownHook += MouseDown;
         Responder.MouseUpHook += MouseUp;
     }
-    protected override void LayoutCentralBox(FontDescription font)
+    protected override void LayoutCentralBox(Font font)
     {
         CentralBox = RectangleF.FromCenter(Pivot.ToPoint(), new SizeF(200, 44));
         ContentBox = CentralBox.AdjustSides(-8f);
@@ -32,7 +33,7 @@ public sealed class ArchicadOverlayAttributes : ComponentAttributes
         {
             context.Graphics.FillRectangle(pressed == index ? shade.Apex : shade.Apex.Lighten(0.2f), Button(index));
             context.Graphics.DrawRectangle(new Pen(shade.Edge, 1), Button(index));
-            context.Graphics.DrawTextInFrame(skin.Shape.FontWord.ToEtoFont(), shade.Text,
+            context.Graphics.DrawTextInFrame(skin.Shape.FontWord, shade.Text,
                 index == 0 ? "Show" : "Clear", Button(index), TextAlignment.Center);
         }
     }

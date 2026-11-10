@@ -32,7 +32,7 @@ internal sealed class Gh2Backend : IDisposable
             ["/nosplash", "/notemplate"], Rhino.Runtime.InProcess.WindowStyle.NoWindow);
         try
         {
-            if (typeof(Document).Assembly.GetName().Version != new Version(9, 0, 26258, 12303))
+            if (typeof(Document).Assembly.GetName().Version != new Version(9, 0, 26300, 9401))
                 throw new InvalidOperationException("The installed GH2 build differs from this worker's pinned SDK.");
 
             // The Player does not open the Rhino GH2 editor: doing so can load a

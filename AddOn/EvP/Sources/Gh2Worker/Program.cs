@@ -39,7 +39,8 @@ internal static class Program
         }
 
         string? systemDirectory = Environment.GetEnvironmentVariable("TAPIOCA_RHINO9_SYSTEM");
-        systemDirectory ??= @"C:\Program Files\Rhino 9 WIP\System";
+        systemDirectory ??= Directory.Exists(@"C:\Program Files\Rhino 9\System")
+            ? @"C:\Program Files\Rhino 9\System" : @"C:\Program Files\Rhino 9 WIP\System";
         if (!Directory.Exists(systemDirectory) || !File.Exists(pluginPath))
         {
             Note(bootLog, "Rhino 9 system directory or GH2 plugin is missing.");

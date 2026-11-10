@@ -1,6 +1,7 @@
 using Eto.Drawing;
 using Eto.Forms;
 using Grasshopper2.Doc.Attributes;
+using Grasshopper2.Eto.Drawing;
 using Grasshopper2.Extensions;
 using Grasshopper2.UI.Flex;
 using Grasshopper2.UI.Primitives;
@@ -22,7 +23,7 @@ public sealed class ArchicadSelectionAttributes : ComponentAttributes
         Responder.MouseUpHook += MouseUp;
     }
 
-    protected override void LayoutCentralBox(FontDescription font)
+    protected override void LayoutCentralBox(Font font)
     {
         CentralBox = RectangleF.FromCenter(Pivot.ToPoint(), new SizeF(320, 92));
         ContentBox = CentralBox.AdjustSides(-8f);
@@ -45,7 +46,7 @@ public sealed class ArchicadSelectionAttributes : ComponentAttributes
 
     protected override void DrawContent(Context context, Skin skin, Capsule capsule, Shade shade)
     {
-        Font font = skin.Shape.FontWord.ToEtoFont();
+        Font font = skin.Shape.FontWord;
         for (int i = 0; i < Labels.Length; i++)
         {
             RectangleF bounds = Button(i);

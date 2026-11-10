@@ -1,6 +1,7 @@
 using Eto.Drawing;
 using Eto.Forms;
 using Grasshopper2.Doc.Attributes;
+using Grasshopper2.Eto.Drawing;
 using Grasshopper2.Extensions;
 using Grasshopper2.UI.Flex;
 using Grasshopper2.UI.Primitives;
@@ -18,7 +19,7 @@ public sealed class CreateArchicadTerrainMeshAttributes : ComponentAttributes
         Responder.MouseDownHook += MouseDown;
         Responder.MouseUpHook += MouseUp;
     }
-    protected override void LayoutCentralBox(FontDescription font)
+    protected override void LayoutCentralBox(Font font)
     {
         CentralBox = RectangleF.FromCenter(Pivot.ToPoint(), new SizeF(220, 44));
         ContentBox = CentralBox.AdjustSides(-8f);
@@ -29,7 +30,7 @@ public sealed class CreateArchicadTerrainMeshAttributes : ComponentAttributes
     {
         context.Graphics.FillRectangle(pressed ? shade.Apex : shade.Apex.Lighten(0.2f), Button);
         context.Graphics.DrawRectangle(new Pen(shade.Edge, 1f), Button);
-        context.Graphics.DrawTextInFrame(skin.Shape.FontWord.ToEtoFont(), shade.Text,
+        context.Graphics.DrawTextInFrame(skin.Shape.FontWord, shade.Text,
             "Create Mesh", Button, TextAlignment.Center);
     }
     private Response MouseDown(ResponseMouseArgs args)
