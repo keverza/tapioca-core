@@ -262,6 +262,16 @@ internal sealed class Gh2PipeClient : IDisposable
         return ReadProjectAsync("Tapioca.GetGhElementHeaders",
             JsonSerializer.Serialize(new { guids = ids.Select(id => id.ToString("D")) }));
     }
+    internal Task<string> ReadElementChangesAsync(IReadOnlyList<Guid> ids, long projectEpoch,
+        long sinceRevision, int fields = 31)
+    {
+        if (ids.Count > 64 || ids.Any(id => id == Guid.Empty) || projectEpoch <= 0 || sinceRevision < 0 || fields is < 1 or > 31)
+            throw new ArgumentOutOfRangeException(nameof(ids), "Invalid bounded subscription cursor.");
+        return ReadProjectAsync("Tapioca.GetGhElementChanges", JsonSerializer.Serialize(new
+        {
+            guids = ids.Select(id => id.ToString("D")), projectEpoch, sinceRevision, fields
+        }));
+    }
     internal Task<string> ReadElementQueryAsync(IReadOnlyList<Guid> ids, string kind, string mode,
         string search, IReadOnlyList<string> selectors, int offset = 0)
     {

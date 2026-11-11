@@ -15,6 +15,23 @@ await server.WriteAsync(Gh2Wire.EncodeHeader(Gh2Wire.Message.HelloAck, 0, 0, 4),
 await server.WriteAsync(new byte[] { 2, 0, 0, 0 }, deadline.Token);
 using Gh2PipeClient client = await connecting.WaitAsync(deadline.Token);
 Task reader = Task.Run(() => client.WaitForShutdown());
+Guid subscribed = Guid.NewGuid();
+Task<string> changeRead = client.ReadElementChangesAsync([subscribed], 9, 12, 8);
+var changeRequest = await ReadRequest();
+int changeCommandLength = (int)BinaryPrimitives.ReadUInt32LittleEndian(changeRequest.Body);
+Check(Encoding.UTF8.GetString(changeRequest.Body, 8, changeCommandLength) == "Tapioca.GetGhElementChanges", "scoped change command");
+using (var json = JsonDocument.Parse(changeRequest.Body.AsMemory(8 + changeCommandLength)))
+{
+    var data = json.RootElement;
+    Check(data.GetProperty("guids")[0].GetGuid() == subscribed &&
+        data.GetProperty("projectEpoch").GetInt64() == 9 &&
+        data.GetProperty("sinceRevision").GetInt64() == 12 &&
+        data.GetProperty("fields").GetInt32() == 8, "subscription cursor and mask on wire");
+}
+await Reply(changeRequest.Header.RequestId);
+await changeRead.WaitAsync(deadline.Token);
+try { _ = client.ReadElementChangesAsync([Guid.Empty], 9, 0); throw new Exception("Invalid subscription accepted"); }
+catch (ArgumentOutOfRangeException) { }
 Task<string> active = client.ReadSelectionAsync();
 var first = await ReadRequest();
 int current = 1;

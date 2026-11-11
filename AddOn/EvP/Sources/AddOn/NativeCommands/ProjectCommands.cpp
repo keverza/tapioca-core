@@ -5,6 +5,7 @@
 #include "NativeCommands/ProjectCommands.hpp"
 #include "AddOnCommands.hpp" // ProjectInfoField is declared there
 #include "NativeCommands/CommandRegistration.hpp"
+#include "Notify/ElementChangeJournal.hpp"
 
 #include <cmath>
 
@@ -206,6 +207,53 @@ class GetGhConnectionInfoCommand : public MainThreadCommand {
 
 // GH2's basic on-demand resolver: header fields only. A miss remains at its
 // input position, so callers cannot attach one element's fields to another.
+class GetGhElementChangesCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override { return "GetGhElementChanges"; }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::Array<GS::UniString> texts;
+        GS::Int64 epoch = 0, since = 0;
+        GS::Int32 fields = 0;
+        if (!params.Get ("guids", texts) || texts.GetSize () > 64 ||
+            !params.Get ("projectEpoch", epoch) || epoch <= 0 ||
+            !params.Get ("sinceRevision", since) || since < 0 ||
+            !params.Get ("fields", fields) || fields < 1 || fields > 31)
+            return NativeCommandResult::Failure ("Invalid bounded GH2 change cursor or field mask.");
+        std::set<std::string> guids;
+        for (const auto& text : texts) {
+            if (text.IsEmpty () || text.GetLength () > 64)
+                return NativeCommandResult::Failure ("Invalid GH2 subscription GUID.");
+            const API_Guid guid = APIGuidFromString (text.ToCStr ().Get ());
+            if (guid == APINULLGuid)
+                return NativeCommandResult::Failure ("Invalid GH2 subscription GUID.");
+            guids.emplace (APIGuidToString (guid).ToCStr ().Get ());
+        }
+        auto& journal = tapioca::sync::ElementChanges ();
+        journal.SetEpoch (tapioca::preview::PublicationState ().Epoch ());
+        const auto delta = journal.Read (uint64_t (epoch), uint64_t (since), guids, uint32_t (fields));
+        GS::Array<GS::ObjectState> changes;
+        for (const auto& change : delta.changes) {
+            GS::ObjectState row;
+            row.Add ("guid", GS::UniString (change.guid.c_str ()));
+            row.Add ("revision", static_cast<GS::Int64> (change.revision));
+            row.Add ("changeMask", static_cast<GS::Int32> (change.mask));
+            changes.Push (row);
+        }
+        GS::ObjectState result;
+        result.Add ("projectEpoch", static_cast<GS::Int64> (delta.epoch));
+        result.Add ("revision", static_cast<GS::Int64> (delta.revision));
+        result.Add ("sourceActive", delta.sourceActive);
+        result.Add ("resyncRequired", delta.resyncRequired);
+        // This journal reports the existing non-mutating detector's hints, not
+        // an authoritative BIM/property subscription or proof of deletion.
+        result.Add ("coverage", GS::UniString ("modelwatch-hints"));
+        result.Add ("changes", changes);
+        return result;
+    }
+};
+
 class GetGhElementHeadersCommand : public MainThreadCommand {
   public:
     GS::String GetName () const override
@@ -564,6 +612,21 @@ const NativeCommandRegistration ProjectCommandRegistrations[] = {
             "additionalProperties":false,
             "required":["archicadVersion","archicadBuild","projectName","projectPath","untitled","modelStamp","projectEpoch"]
         })json" },
+    { "GetGhElementChanges", &MakeRegisteredNativeCommand<GetGhElementChangesCommand>, false,
+      R"json({"type":"object","properties":{
+        "guids":{"type":"array","maxItems":64,"items":{"type":"string","minLength":1,"maxLength":64}},
+        "projectEpoch":{"type":"integer","minimum":1},"sinceRevision":{"type":"integer","minimum":0},
+        "fields":{"type":"integer","minimum":1,"maximum":31}},
+        "additionalProperties":false,"required":["guids","projectEpoch","sinceRevision","fields"]})json",
+      R"json({"type":"object","properties":{
+        "projectEpoch":{"type":"integer","minimum":1},"revision":{"type":"integer","minimum":0},
+        "sourceActive":{"type":"boolean"},"resyncRequired":{"type":"boolean"},
+        "coverage":{"type":"string","enum":["modelwatch-hints"]},
+        "changes":{"type":"array","maxItems":64,"items":{"type":"object","properties":{
+          "guid":{"type":"string"},"revision":{"type":"integer","minimum":1},
+          "changeMask":{"type":"integer","minimum":1,"maximum":63}},
+          "additionalProperties":false,"required":["guid","revision","changeMask"]}}},
+        "additionalProperties":false,"required":["projectEpoch","revision","sourceActive","resyncRequired","coverage","changes"]})json" },
     { "GetGhElementHeaders", &MakeRegisteredNativeCommand<GetGhElementHeadersCommand>, false,
       R"json({"type":"object","properties":{"guids":{"type":"array","maxItems":64,"items":{"type":"string","minLength":1,"maxLength":64}}},"additionalProperties":false,"required":["guids"]})json",
       R"json({"type":"object","properties":{"elements":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"guid":{"type":"string"},"found":{"type":"boolean"},"type":{"type":"string"},"typeId":{"type":"integer"},"variationId":{"type":"integer"},"elementId":{"type":"string"},"story":{"type":"integer"},"layer":{"type":"string"}},"additionalProperties":false,"required":["guid","found","type","typeId","variationId","elementId","story","layer"]}}},"additionalProperties":false,"required":["elements"]})json" },

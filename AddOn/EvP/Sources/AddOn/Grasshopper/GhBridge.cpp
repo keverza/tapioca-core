@@ -663,7 +663,9 @@ void GhBridge::Run ()
                         if (!gh2ShutdownRequested && gh2PendingRequest == nullptr &&
                             (IsGh2OverlayRequest (request.command, request.parameters, gen) ||
                              (request.command == "Tapioca.GetGhConnectionInfo" && request.parameters == "{}") ||
-                             (request.command == "Tapioca.GetSelection" && request.parameters == "{}") ||
+                              (request.command == "Tapioca.GetSelection" && request.parameters == "{}") ||
+                              (request.command == "Tapioca.GetGhElementChanges" && request.parameters.size () <= 5000 &&
+                               request.parameters.rfind ("{\"guids\":[", 0) == 0 && request.parameters.back () == '}') ||
                              (request.command == "Tapioca.GetGhElementHeaders" && request.parameters.size () <= 5000 &&
                               request.parameters.rfind ("{\"guids\":[", 0) == 0 && request.parameters.size () >= 12 &&
                               request.parameters.compare (request.parameters.size () - 2, 2, "]}") == 0) ||

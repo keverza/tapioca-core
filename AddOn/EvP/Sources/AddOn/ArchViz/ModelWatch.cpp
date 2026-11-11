@@ -14,6 +14,8 @@
 #include "ArchViz/Dxgi/CameraRecognizer.hpp" // census::NoteModelRevision
 #include "ArchViz/Dxgi/HostOccluders.hpp"    // hostocclusion::SetModelRevision
 #include "Notify/ModelDiff.hpp"
+#include "Notify/ElementChangeJournal.hpp"
+#include "Preview/PublicationAdmission.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Python/MainThreadGate.hpp"
 
@@ -30,6 +32,13 @@ namespace archviz {
 namespace modelwatch {
 
 namespace {
+
+tapioca::sync::ElementChangeJournal& ChangeJournal ()
+{
+    auto& journal = tapioca::sync::ElementChanges ();
+    journal.SetEpoch (tapioca::preview::PublicationState ().Epoch ());
+    return journal;
+}
 
 // The diff may occupy at most 1/kDutyDivisor of the interval. At 20, a diff
 // measuring 40 ms settles the cadence at 800 ms; one measuring 500 ms settles it
@@ -329,6 +338,18 @@ void PollWatch (bool early)
     AdoptStamp ();
     gStampMovedSincePoll = false;
     const bool found = diff.ok && (!diff.created.empty () || !diff.modified.empty () || !diff.deleted.empty ());
+    if (found && diff.created.size () + diff.modified.size () + diff.deleted.size () >
+                     tapioca::sync::ElementChangeJournal::Capacity) {
+        ChangeJournal ().Invalidate ();
+    }
+    else if (found) {
+        std::set<std::string> changed (diff.created.begin (), diff.created.end ());
+        changed.insert (diff.modified.begin (), diff.modified.end ());
+        changed.insert (diff.deleted.begin (), diff.deleted.end ());
+        // A disappearance from a 3D model can be visibility, not BIM deletion.
+        // Publish invalidations; the subscriber resolves existence/fidelity later.
+        ChangeJournal ().Record (changed, tapioca::sync::ElementChangeJournal::Unknown);
+    }
     if (found)
         gEarlyMisses = 0;
     if (early) {
@@ -343,6 +364,7 @@ void PollWatch (bool early)
     }
 
     if (!diff.ok) {
+        ChangeJournal ().Invalidate ();
         // ⚠️ LOGGED ONCE PER DISTINCT MESSAGE, not once per tick. A generator
         // that fails usually keeps failing, and a per-tick log would bury
         // archviz.log under the same line at the poll rate.
@@ -566,6 +588,7 @@ void Rearm (uint32_t intervalMs, bool early)
                     "Use Refresh to rebuild it by hand.");
         hudconsole::Error ("Model", "edits will not be followed (no timer): refresh by hand");
         gStats.running = false;
+        ChangeJournal ().SetActive (false);
         return;
     }
     gIntervalMs = intervalMs;
@@ -576,6 +599,7 @@ void Rearm (uint32_t intervalMs, bool early)
         gStats.intervalMs = intervalMs;
     }
     gStats.running = true;
+    ChangeJournal ().SetActive (true);
 }
 
 void PollStamp ()
@@ -827,6 +851,7 @@ void Stop ()
     gBaseline.reset ();
     gIntervalMs = 0;
     gStats.running = false;
+    ChangeJournal ().SetActive (false);
     gStats.intervalMs = 0;
 }
 
@@ -884,6 +909,7 @@ void ServePending ()
 
 void NoteContentChanged (bool extract)
 {
+    ChangeJournal ().Invalidate ();
     ++gStats.contentChanges;
     ++gStats.revision;
     MeshStore::Get ().BumpCaptureStamp ();
@@ -899,6 +925,7 @@ void NoteContentChanged (bool extract)
 
 void NoteSweepChange (const std::set<std::string>& changed, size_t elements, bool countChanged)
 {
+    ChangeJournal ().Record (changed, tapioca::sync::ElementChangeJournal::Unknown);
     ++gStats.sweepChanges;
     ++gStats.revision;
     MeshStore::Get ().BumpCaptureStamp ();
