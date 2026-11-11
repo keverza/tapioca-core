@@ -64,13 +64,13 @@ bool BuildSunObstructionGeometry (const geomsrv::Snapshot& snapshot,
 
 // The solar cut's preview (SunStudySolarCutPreview.cpp): the merged cutting
 // surface (faint) with its edge rays from the point, and what goes as a
-// transparent cut-out -- faint removed surfaces, dark retained walls and
-// section faces, and the removed solid's outline. The won shadow geometry is
-// appended last by AppendSolarExposure, independently of the study-cell grid.
+// transparent cut-out -- faint removed surfaces, dark section faces, and the
+// removed solid's outline. What remains is not drawn: the model shows it. The
+// won shadow geometry is appended by AppendSolarExposure, depth-tested on the
+// receivers, independently of the study-cell grid.
 constexpr uint32_t kSolarCutEnvelopeRgba = 0xF240BF14u;
 constexpr uint32_t kSolarCutRemovedRgba = 0xF240BF18u;
-constexpr uint32_t kSolarCutCapRgba = 0x67204A60u;  // darker section faces, distinct from the removed ghost
-constexpr uint32_t kSolarCutKeptRgba = 0x30273590u; // retained walls, not another pink removed face
+constexpr uint32_t kSolarCutCapRgba = 0x67204A60u; // darker section faces, distinct from the removed ghost
 constexpr uint32_t kSolarCutEdgeRgba = 0x9E1E73FFu;
 constexpr uint32_t kSolarCutWonRgba = 0xFFE27AB0u;     // sun the cut wins: a warm yellow, apart from the map's colours
 constexpr uint32_t kSolarCutWonEdgeRgba = 0xD08A10FFu; // its perimeter

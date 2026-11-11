@@ -208,7 +208,7 @@ TEST (SunStudySolarCutPreview, CutFacesDoNotRestoreHiddenCutterSeams)
     }
 }
 
-TEST (SunStudySolarCutPreview, WonExposureDrawsLastAsAnXrayWithNoDepthWritingGeometry)
+TEST (SunStudySolarCutPreview, WonExposureLiesOnTheModelWhileTheCutStaysAnXray)
 {
     evp::sunstudy::SolarCutResult cut;
     cut.envelope = { Tri (0, 0, 2, 0, 0, 2) };
@@ -217,16 +217,35 @@ TEST (SunStudySolarCutPreview, WonExposureDrawsLastAsAnXrayWithNoDepthWritingGeo
     GhPreviewDrawables drawables;
     const double point[3] = {};
     BuildSolarCutGeometry (cut, point, drawables);
+    const size_t cutMeshes = drawables.xray.meshVertices.size (), cutLines = drawables.xray.lineVertices.size ();
     evp::sunstudy::SolarExposureResult exposure;
     exposure.triangles = { Tri (0, 0, 2, 0, 0, 2) };
     exposure.boundary = { { 0, 0, 0, 2, 0, 0 } };
     AppendSolarExposure (exposure, drawables);
-    ASSERT_FALSE (drawables.xray.meshVertices.empty ());
-    EXPECT_EQ (drawables.xray.meshVertices.back ().rgba, kSolarCutWonRgba);
-    EXPECT_EQ (drawables.xray.lineVertices.back ().rgba, kSolarCutWonEdgeRgba);
-    EXPECT_TRUE (drawables.depthTested.meshIndices.empty ());
+    // #168: a won patch behind the building must not draw over faces in front
+    // of it; it is a model surface, depth-tested (hidden edges dashed).
+    EXPECT_EQ (drawables.xray.meshVertices.size (), cutMeshes);
+    EXPECT_EQ (drawables.xray.lineVertices.size (), cutLines);
+    ASSERT_FALSE (drawables.depthTested.meshVertices.empty ());
+    EXPECT_EQ (drawables.depthTested.meshVertices.back ().rgba, kSolarCutWonRgba);
+    EXPECT_EQ (drawables.depthTested.lineVertices.back ().rgba, kSolarCutWonEdgeRgba);
     EXPECT_LT (kSolarCutRemovedRgba & 255u, 0x40u);
     EXPECT_LT (kSolarCutCapRgba >> 24, kSolarCutRemovedRgba >> 24);
+}
+
+TEST (SunStudySolarCutPreview, WhatRemainsOfACutElementIsNotGhosted)
+{
+    // #168: the kept part of a cut element was drawn as a grey x-ray; across a
+    // building of several slabs it read as false occlusion and flickered while
+    // the point was dragged. Only what changes is previewed.
+    evp::sunstudy::SolarCutResult cut;
+    cut.removed = { Tri (0, 0, 2, 0, 0, 2) };
+    cut.kept.emplace_back (0, evptest::MakeBox ("kept", 0, 0, 0, 2, 2, 1));
+    GhPreviewDrawables drawables;
+    const double point[3] = {};
+    BuildSolarCutGeometry (cut, point, drawables);
+    EXPECT_EQ (drawables.xray.meshVertices.size (), 3u); // the removed triangle alone
+    EXPECT_TRUE (drawables.depthTested.meshVertices.empty ());
 }
 
 TEST (SunStudySolarCutPreview, WonRegionUsesTheSingleShadowTriangleLatticeAndRealBoundary)

@@ -492,29 +492,11 @@ void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const doub
     // What goes, as a faint x-ray cut-out with darker section faces and its own
     // outline. No original-model or preview depth may cover this what-if layer.
     fill (cut.removed, kSolarCutRemovedRgba, drawables.xray);
-    // The original model is a reference, not a second occluder of this
-    // what-if preview. All solar-cut annotations are non-depth-writing x-rays;
-    // generic obstruction footprints keep their usual model-depth behavior.
-    for (const auto& [meshIndex, mesh] : cut.kept) {
-        (void) meshIndex;
-        for (size_t t = 0; t < mesh.TriangleCount (); ++t) {
-            V3 corners[3];
-            bool valid = true;
-            for (size_t c = 0; c < 3; ++c) {
-                const size_t v = 3ull * mesh.triangles[3 * t + c];
-                if (v + 2 >= mesh.vertices.size ()) {
-                    valid = false;
-                    break;
-                }
-                std::copy_n (&mesh.vertices[v], 3, corners[c].begin ());
-            }
-            if (!valid)
-                continue;
-            V3 normal = Cross (Sub (corners[1], corners[0]), Sub (corners[2], corners[0]));
-            if (Normalize (normal))
-                Triangle (corners[0], corners[1], corners[2], normal, kSolarCutKeptRgba, drawables.xray);
-        }
-    }
+    // ⚠️ NO GHOST OF WHAT REMAINS (#168). The cut elements as they would remain
+    // (cut.kept) were once drawn as a grey x-ray. Seen through a building made
+    // of several slabs it read as a solid occluding wrong things, and it came and
+    // went while the point was dragged (the surface stage has no kept geometry).
+    // The model itself shows what remains; the preview shows only what changes.
     fill (cut.caps, kSolarCutCapRgba, drawables.xray);
     std::vector<const evp::sunstudy::SolarCutTriangle*> solid;
     std::set<const evp::sunstudy::SolarCutTriangle*> capFaces;
@@ -532,16 +514,21 @@ void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const doub
 
 void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, GhPreviewDrawables& drawables)
 {
-    // A semantic x-ray layer, drawn after the cut sheet and cut solids. Neither
-    // model depth nor the transparent sheet may hide newly lit receivers.
+    // ON THE MODEL, NOT AN X-RAY (#168). Newly lit receivers are surfaces of the
+    // model, so they are depth-tested (the obstruction overlay pulls its meshes
+    // onto the surface they lie on) and their perimeter is dashed where the
+    // model hides it. As an x-ray, a won patch on a wall behind the building
+    // drew its yellow outline over unrelated faces in front of it. The cut's
+    // own x-ray layer still draws over this one.
     for (const auto& triangle : exposure.triangles) {
         const V3 a = Corner (triangle, 0), b = Corner (triangle, 1), c = Corner (triangle, 2);
         V3 normal = Cross (Sub (b, a), Sub (c, a));
         if (Normalize (normal))
-            Triangle (a, b, c, normal, kSolarCutWonRgba, drawables.xray);
+            Triangle (a, b, c, normal, kSolarCutWonRgba, drawables.depthTested);
     }
     for (const auto& edge : exposure.boundary)
-        Segment ({ edge[0], edge[1], edge[2] }, { edge[3], edge[4], edge[5] }, kSolarCutWonEdgeRgba, drawables.xray);
+        Segment ({ edge[0], edge[1], edge[2] }, { edge[3], edge[4], edge[5] }, kSolarCutWonEdgeRgba,
+                 drawables.depthTested);
 }
 
 void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables,
