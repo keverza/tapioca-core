@@ -133,22 +133,35 @@ void DrawSunStudyObstructionControls (HudState& state, const std::string& studyI
                            "Whole day: every measured step in the selected slice (all of it when none is "
                            "selected).\nSolar cut: what of the blockers must go for direct sun through the pink slice "
                            "on the day diagram.");
-    // The prerequisite, made actionable (#167): a hovered cell is one click
-    // from being the pinned point the attribution needs.
+    // The prerequisite, made actionable (#167, #168): Place point arms a click
+    // on the scene, so nobody has to know about the right-click menu. A cell
+    // hovered just before entering the panel can still be pinned directly.
+    const auto placeButton = [&state, &studyId] (const char* label) {
+        if (ImGui::SmallButton (state.sunPointPlacing ? "Click the scene...##sunobstructionplace" : label)) {
+            state.sunPointPlacing = !state.sunPointPlacing;
+            state.sunPointStudy = studyId;
+            state.sunPointDragging = false;
+        }
+        ImGui::SetItemTooltip ("Then click a measured surface in the view; keep the button down to drag the point "
+                               "into place. Right-click cancels. The view's right-click menu places it too.");
+    };
     if (!state.sunPointPlaced) {
+        placeButton ("Place point##sunobstructionplace");
         const bool hovered =
             state.sunHoverDayStudy == studyId && state.sunHoverDaySample != SIZE_MAX && state.sunHoverDayPointValid;
-        ImGui::BeginDisabled (!hovered);
-        if (ImGui::SmallButton ("Pin hovered cell##sunobstruction"))
-            PlaceSunStudyPoint (state, state.sunHoverDayPoint);
-        ImGui::EndDisabled ();
-        ImGui::SameLine ();
-        SunStudyNote (hovered ? "Pin the hovered cell to find what blocks it"
-                              : "Hover a measured surface (Inspect on), then pin it",
+        if (hovered && !state.sunPointPlacing) {
+            ImGui::SameLine ();
+            if (ImGui::SmallButton ("Pin hovered cell##sunobstruction"))
+                PlaceSunStudyPoint (state, state.sunHoverDayPoint);
+        }
+        SunStudyNote (state.sunPointPlacing ? "Click a measured surface in the view"
+                                            : "Place a study point to find what blocks it",
                       "Obstruction is attributed for a placed study point: its snapped cell, or every cell in its "
-                      "radius. Pin the hovered cell here, or right-click a measured surface and place the point.");
+                      "radius. Place it with the button, pin the cell hovered last, or right-click a measured "
+                      "surface and place the point there.");
         return;
     }
+    placeButton ("Move point##sunobstructionplace");
     if (state.sunPointHeight > 0.0f)
         SunStudyNote ("Attributed for the surface cells under the lifted point",
                       "Obstruction footprints belong to measured surface cells; the lifted receiver's diagram is "

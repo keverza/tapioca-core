@@ -256,6 +256,10 @@ struct HudState {
     float sunPointHeight = 0.0f;
     std::string sunPointStudy; // the study the point was last resolved against, for the grip
     bool sunPointDragging = false;
+    // Armed from the panel's Place point button (#168): the next left click on
+    // the scene places the point there and keeps dragging it until release.
+    // Right click, another tab or a lost study disarms it.
+    bool sunPointPlacing = false;
     bool sunPointScreenValid = false; // the 2D grip, projected last frame
     float sunPointScreen[2] = {};
     std::string sunPointLiftedFor; // "<study>|<version>|<at>|<height>"

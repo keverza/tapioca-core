@@ -131,6 +131,8 @@ void DrawSunStudyPointMenu (HudState& state)
 void DrawSunStudyPointOverlay (HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
 {
     state.sunPointScreenValid = false;
+    if (state.sunPointPlacing && !ImGui::IsWindowHovered (ImGuiHoveredFlags_AnyWindow))
+        ImGui::SetTooltip ("Click a measured surface to place the study point\nRight-click to cancel");
     if (!state.sunPointPlaced || viewProj == nullptr || width == 0 || height == 0)
         return;
     ImDrawList* draw = ImGui::GetForegroundDrawList ();
@@ -205,17 +207,43 @@ void DrawSunStudyPointOverlay (HudState& state, const float viewProj[16], uint32
 void ServiceSunStudyPointGrip (HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height,
                                const float rayOrigin[3], const float rayDirection[3])
 {
-    if (!state.sunPointPlaced || state.readOnly || state.sunPointStudy.empty () || !state.sunPointScreenValid ||
-        width == 0 || height == 0) {
-        state.sunPointDragging = false;
-        return;
-    }
-    bool pressed = false, released = false;
-    for (int i = 0; i < input.transitionCount; ++i)
+    bool pressed = false, released = false, rightPressed = false;
+    for (int i = 0; i < input.transitionCount; ++i) {
         if (input.transitions[i].button == kMouseLeft) {
             pressed = pressed || input.transitions[i].down;
             released = released || !input.transitions[i].down;
         }
+        if (input.transitions[i].button == kMouseRight && input.transitions[i].down)
+            rightPressed = true;
+    }
+    // Placing from the panel (#168): the press on the scene places the point
+    // and becomes a drag, so the same gesture can settle it where it belongs.
+    if (state.sunPointPlacing) {
+        if (state.readOnly || state.sunPointStudy.empty () || width == 0 || height == 0 ||
+            state.analysisFocus.tab != analysistabs::kSunTab || (rightPressed && input.inside)) {
+            state.sunPointPlacing = false;
+        }
+        else if (input.inside && !state.wantsMouse && pressed) {
+            const auto record = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (state.sunPointStudy);
+            const double origin[3] = { rayOrigin[0], rayOrigin[1], rayOrigin[2] };
+            const double direction[3] = { rayDirection[0], rayDirection[1], rayDirection[2] };
+            double hit[3];
+            state.viewpointOwnsMouse = true; // the click is the placement, not an orbit
+            if (record != nullptr && evp::sunstudy::SunStudySceneHit (*record, origin, direction, hit)) {
+                Place (state, hit);
+                state.sunPointPlacing = false;
+                state.sunPointDragging = !released;
+            }
+            return;
+        }
+    }
+    // A drag continues without last frame's grip: a point placed this frame
+    // has not been projected yet.
+    if (!state.sunPointPlaced || state.readOnly || state.sunPointStudy.empty () ||
+        (!state.sunPointScreenValid && !state.sunPointDragging) || width == 0 || height == 0) {
+        state.sunPointDragging = false;
+        return;
+    }
     const float x = float (CursorTargetX (input, width)), y = float (CursorTargetY (input, height));
     const bool overGrip =
         input.inside && std::hypot (x - state.sunPointScreen[0], y - state.sunPointScreen[1]) <= kGripRadius;
