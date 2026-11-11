@@ -22,11 +22,13 @@ public sealed class ArchicadOverlayAttributes : ComponentAttributes
     }
     protected override void LayoutCentralBox(Font font)
     {
-        CentralBox = RectangleF.FromCenter(Pivot.ToPoint(), new SizeF(200, 44));
+        base.LayoutCentralBox(font);
+        CentralBox = RectangleF.FromCenter(Pivot.ToPoint(),
+            new SizeF(Math.Max(240, CentralBox.Width), Math.Max(144, CentralBox.Height)));
         ContentBox = CentralBox.AdjustSides(-8f);
     }
-    private RectangleF Button(int index) => new(CentralBox.Left + 8 + index * 96,
-        CentralBox.Top + 6, 88, CentralBox.Height - 12);
+    private RectangleF Button(int index) => new(CentralBox.Left + 12 + index * (CentralBox.Width / 2 - 6),
+        CentralBox.Top + CentralBox.Height / 2 - 18, CentralBox.Width / 2 - 18, 36);
     protected override void DrawContent(Context context, Skin skin, Capsule capsule, Shade shade)
     {
         for (int index = 0; index < 2; index++)

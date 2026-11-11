@@ -26,10 +26,14 @@ public abstract class ArchicadOverlayComponent : Component
     private Batch? prepared;
     private ArchicadOverlayBridge.Lease? shownLease;
     private Document? boundDocument;
-    private string message = "Solve to prepare geometry, then press Show.";
+    private string message = "Waiting for prepared geometry.";
     private int busy;
     private long lifetime;
     private long producerLifetime;
+    private volatile bool automatic;
+    private UITimer? autoTimer;
+    private Batch? observedBatch, attemptedBatch;
+    private Batch? completedBatch;
 
     protected abstract bool Plan { get; }
     protected ArchicadOverlayComponent(Nomen nomen) : base(nomen) => DocumentChanged += OnDocumentChanged;
@@ -44,6 +48,7 @@ public abstract class ArchicadOverlayComponent : Component
         inputs.AddPoint("Points", "P", "Preview point markers.", Access.Twig, Requirement.MayBeMissing);
         inputs.AddColour("Tint", "T", "RGBA preview colour; accepts Preview Tint.").Set(Colors.CornflowerBlue);
         inputs.AddNumber("Width", "W", "Curve line width in pixels, greater than zero and at most 64.").Set(2.0);
+        inputs.AddBoolean("Auto sync", "A", "Publish settled solutions automatically. False: use Show. Clear holds until the next solution.").Set(true);
     }
 
     protected override void AddOutputs(OutputAdder outputs) =>
@@ -52,10 +57,12 @@ public abstract class ArchicadOverlayComponent : Component
     protected override void Process(IDataAccess access)
     {
         Volatile.Write(ref prepared, null);
+        access.GetItem(5, out bool autoSync);
+        automatic = autoSync;
         access.SetItem(0, message);
         if (access.Iterations != 1)
         {
-            access.AddWarning("Overlay branches", "Use one iteration: flatten geometry inputs and supply one Tint/Width. No partial branch will be published.");
+            access.AddWarning("Overlay branches", "Use one iteration: flatten geometry inputs and supply one Tint, Width and Auto value. No partial branch will be published.");
             return;
         }
         if (!access.GetItem(3, out GhColour tint) || !access.GetItem(4, out double width)) return;
@@ -78,10 +85,12 @@ public abstract class ArchicadOverlayComponent : Component
             string payload = Gh2OverlayPayload.Encode(lease.Generation, batchProducer, Plan, geometry.Lines, geometry.Points, geometry.Meshes,
                 lease.Epoch, documentSession, Interlocked.Increment(ref revision));
             Volatile.Write(ref prepared, new(geometry, lease, access.Solution.Id, batchProducer, payload));
-            access.SetItem(0, message + (geometry.Empty ? " No geometry; Clear removes the last layer." :
-                " Current solution prepared; Show publishes it. Solving alone leaves the last layer unchanged."));
+            access.SetItem(0, (automatic ? "Auto sync. " : "Manual. ") + message +
+                (geometry.Empty ? " No geometry; Clear removes the last layer." :
+                automatic ? " Prepared; waiting for a successful settled solution." : " Prepared; press Show to publish."));
             access.AddRemark("Overlay prepared", geometry.Empty ? "No geometry. Press Clear to remove the previous layer." :
-                $"{geometry.Lines.Length} curves, {geometry.Meshes.Length} meshes, {points?.Length ?? 0} points. Press Show to publish this solution.");
+                $"{geometry.Lines.Length} curves, {geometry.Meshes.Length} meshes, {points?.Length ?? 0} points. " +
+                (automatic ? "Auto sync enabled." : "Press Show to publish this solution."));
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException)
         {
@@ -107,6 +116,7 @@ public abstract class ArchicadOverlayComponent : Component
         }
         if (Interlocked.CompareExchange(ref busy, 1, 0) != 0) return;
         shownLease = batch.Lease; // retain even after an uncertain response, so Clear remains available
+        attemptedBatch = batch;
         long ticket = Interlocked.Read(ref lifetime);
         long producerTicket = Interlocked.Read(ref producerLifetime);
         Guid actionDocument = documentSession;
@@ -163,6 +173,12 @@ public abstract class ArchicadOverlayComponent : Component
         {
             if (Document is null || ticket != Interlocked.Read(ref lifetime)) return;
             message = result;
+            // Acknowledgements must not trigger another automatic publication.
+            if (automatic)
+            {
+                RhinoApp.WriteLine("Tapioca overlay: " + result);
+                return;
+            }
             Expire();
             Document.Solution.Start(); // status recompute only; Process has no publishing side effects
         })); }
@@ -172,11 +188,54 @@ public abstract class ArchicadOverlayComponent : Component
 
     private void OnDocumentChanged(object? sender, EventArgs args)
     {
-        if (boundDocument is not null) boundDocument.StateChanged -= OnDocumentStateChanged;
+        if (boundDocument is not null)
+        {
+            boundDocument.StateChanged -= OnDocumentStateChanged;
+            boundDocument.Solution.SolutionStarted -= OnSolutionStarted;
+            boundDocument.Solution.SolutionCompleted -= OnSolutionCompleted;
+        }
         Release();
         boundDocument = Document;
         documentSession = boundDocument is null ? Guid.Empty : documents.GetOrCreateValue(boundDocument).Id;
-        if (boundDocument is not null) boundDocument.StateChanged += OnDocumentStateChanged;
+        if (boundDocument is not null)
+        {
+            boundDocument.StateChanged += OnDocumentStateChanged;
+            boundDocument.Solution.SolutionStarted += OnSolutionStarted;
+            boundDocument.Solution.SolutionCompleted += OnSolutionCompleted;
+        }
+        if (boundDocument is not null && Application.Instance is not null)
+        {
+            autoTimer = new UITimer { Interval = 0.075 };
+            autoTimer.Elapsed += (_, _) => PublishSettled();
+            autoTimer.Start();
+        }
+    }
+
+    private void PublishSettled()
+    {
+        Batch? batch = Volatile.Read(ref prepared);
+        if (!automatic || batch is null || !ReferenceEquals(batch, Volatile.Read(ref completedBatch)) ||
+            ReferenceEquals(batch, attemptedBatch) ||
+            Volatile.Read(ref busy) != 0 || Document is null || State.Phase != Phase.Completed ||
+            State.CurrentId != batch.Solution || !batch.Lease.Current)
+            return;
+        // One latest pending batch, after a quiet interval. No solver or pipe
+        // work runs on this UI timer; Show dispatches the immutable payload.
+        if (!ReferenceEquals(batch, observedBatch)) { observedBatch = batch; return; }
+        attemptedBatch = batch;
+        // An empty upstream query may be awaiting its asynchronous snapshot.
+        // Preserve the last good preview; explicit Clear always remains available.
+        if (!batch.Geometry.Empty) Show();
+    }
+
+    private void OnSolutionStarted(object? sender, SolutionEventArgs args) =>
+        Volatile.Write(ref completedBatch, null);
+
+    private void OnSolutionCompleted(object? sender, SolutionEventArgs args)
+    {
+        Batch? batch = Volatile.Read(ref prepared);
+        if (batch is not null && batch.Solution == args.SolutionId)
+            Volatile.Write(ref completedBatch, batch);
     }
 
     private void OnDocumentStateChanged(object? sender, EventArgs args)
@@ -186,6 +245,11 @@ public abstract class ArchicadOverlayComponent : Component
 
     private void Release()
     {
+        autoTimer?.Stop();
+        autoTimer?.Dispose();
+        autoTimer = null;
+        observedBatch = attemptedBatch = null;
+        Volatile.Write(ref completedBatch, null);
         Interlocked.Increment(ref producerLifetime);
         Interlocked.Increment(ref lifetime);
         Volatile.Write(ref prepared, null);

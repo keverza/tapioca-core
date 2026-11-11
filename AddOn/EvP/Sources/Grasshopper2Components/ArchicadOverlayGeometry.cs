@@ -66,7 +66,7 @@ internal static class ArchicadOverlayGeometry
                 if (face.IsQuad) indices.AddRange([face.A, face.C, face.D]);
             }
             surfaces.Add(new(Pack(mesh.Vertices.Select(vertex => new Point3d(vertex))), indices.ToArray(), tint,
-                new { shading = "flat", opacity = 1.0, occlusion = plan ? "always" : "hide", cull = "none" }));
+                new { shading = plan ? "flat" : "lit", opacity = 1.0, occlusion = plan ? "always" : "hide", cull = "none" }));
         }
         Gh2OverlayPayload.PointSet[] markers = points.Length == 0 ? [] : [new(Pack(points), tint, 6.0, 0.1)];
         return new(lines.ToArray(), markers, surfaces.ToArray());

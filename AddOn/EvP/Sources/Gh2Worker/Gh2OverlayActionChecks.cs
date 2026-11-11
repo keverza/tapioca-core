@@ -58,6 +58,12 @@ internal static class Gh2OverlayActionChecks
                             data.GetProperty("views").GetString() != (i == 0 ? "2d" : "3d") ||
                             data.GetProperty("polylines").GetArrayLength() != 1)
                             throw new InvalidOperationException("Component published wrong surface/identity/geometry.");
+                        if (i != 0)
+                        {
+                            var xyz = data.GetProperty("polylines")[0].GetProperty("points");
+                            if (Math.Abs(xyz[3].GetDouble() - 3 * xyz[4].GetDouble()) > 1e-9)
+                                throw new InvalidOperationException("Auto sync published the superseded batch.");
+                        }
                     });
                     Expect(server, "Tapioca.ClearOverlayLayer", "{\"ok\":true,\"data\":{\"cleared\":1}}", json =>
                     {
@@ -96,6 +102,8 @@ internal static class Gh2OverlayActionChecks
             for (int i = 0; i < components.Length; i++)
             {
                 Component component = components[i];
+                ((BooleanParameter)component.Parameters.Input(5)).Set(i != 0);
+                component.Parameters.Input(5).Expire();
                 var line = new LineCurve(new Point3d(0, 0, 1), new Point3d(2, 3, 4));
                 ((CurveParameter)component.Parameters.Input(0)).Set(line);
                 component.Parameters.Input(0).Expire();
@@ -106,7 +114,29 @@ internal static class Gh2OverlayActionChecks
                         string.Join(" | ", component.State.Data.Messages.Errors.Concat(component.State.Data.Messages.Warnings)));
                 Interlocked.Increment(ref solves);
                 Type componentBase = component.GetType().BaseType!;
-                componentBase.GetMethod("Show", HiddenInstance)!.Invoke(component, null);
+                MethodInfo tick = componentBase.GetMethod("PublishSettled", HiddenInstance)!;
+                tick.Invoke(component, null);
+                if (componentBase.GetField("shownLease", HiddenInstance)!.GetValue(component) is not null)
+                    throw new InvalidOperationException("Overlay published before its settle interval.");
+                if (i != 0)
+                {
+                    ((CurveParameter)component.Parameters.Input(0)).Set(
+                        new LineCurve(new Point3d(0, 0, 1), new Point3d(9, 3, 4)));
+                    component.Parameters.Input(0).Expire();
+                    component.Expire();
+                    if (document.Solution.StartWait(null, SolutionMode.Headless).Phase != SolutionPhase.Completed)
+                        throw new InvalidOperationException("Replacement solution failed.");
+                    tick.Invoke(component, null);
+                    if (componentBase.GetField("shownLease", HiddenInstance)!.GetValue(component) is not null)
+                        throw new InvalidOperationException("Replacement bypassed debounce.");
+                }
+                tick.Invoke(component, null);
+                if (i == 0)
+                {
+                    if (componentBase.GetField("shownLease", HiddenInstance)!.GetValue(component) is not null)
+                        throw new InvalidOperationException("Manual overlay published automatically.");
+                    componentBase.GetMethod("Show", HiddenInstance)!.Invoke(component, null);
+                }
                 if (componentBase.GetField("shownLease", HiddenInstance)!.GetValue(component) is null)
                 {
                     object batch = componentBase.GetField("prepared", HiddenInstance)!.GetValue(component)!;
@@ -119,9 +149,11 @@ internal static class Gh2OverlayActionChecks
                         "; leaseCurrent=" + lease.GetType().GetProperty("Current", HiddenInstance)!.GetValue(lease));
                 }
                 WaitIdle(component, host);
+                tick.Invoke(component, null); // an acknowledgement must not republish the same batch
                 componentBase.GetMethod("Clear", HiddenInstance)!.Invoke(component, null);
                 if (!layerCleared.WaitOne(TimeSpan.FromSeconds(30)))
                     throw new TimeoutException("Clear did not reach the priority lane.");
+                tick.Invoke(component, null); // Clear must not resurrect the just-published solution
                 if (i == components.Length - 1)
                 {
                     FieldInfo producer = componentBase.GetField("producer", HiddenInstance)!;
@@ -142,7 +174,7 @@ internal static class Gh2OverlayActionChecks
             options.GetMethod("Clear", HiddenStatic)!.Invoke(null, null);
             status.GetMethod("Set", HiddenStatic)!.Invoke(null, ["Disconnected", "(none)", "(not connected)", null, null]);
         }
-        Console.WriteLine("GH2 connected solves are inert; Show/Clear on both surfaces and removal/re-add cleanup passed.");
+        Console.WriteLine("GH2 manual Show, settled automatic publication, Clear and removal/re-add cleanup passed.");
     }
 
     private static void WaitIdle(Component component, Task host)

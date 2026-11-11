@@ -15,7 +15,7 @@ internal static class Gh2OverlayChecks
         {
             var component = ObjectProxies.TryEmit<IDocumentObject>(id) as Component ??
                 throw new InvalidOperationException("GH2 did not harvest both overlay components.");
-            if (!document.Objects.Add(component) || component.Parameters.InputCount != 5 ||
+            if (!document.Objects.Add(component) || component.Parameters.InputCount != 6 ||
                 component.Parameters.OutputCount != 1 || ObjectProxies.FindById(id)?.Nomen.Section != "Display")
                 throw new InvalidOperationException("Overlay component ports/category changed.");
             return component;
@@ -43,6 +43,9 @@ internal static class Gh2OverlayChecks
             !Coords(Items(model, "Points")).SequenceEqual([1, 1, 5]))
             throw new InvalidOperationException("Overlay units or independent XY/XYZ conversion failed.");
         object surface = Items(model, "Meshes").GetValue(0)!;
+        object style = surface.GetType().GetProperty("style")!.GetValue(surface)!;
+        if ((string)style.GetType().GetProperty("shading")!.GetValue(style)! != "lit")
+            throw new InvalidOperationException("3D overlay must request native lit/smoothed shading.");
         if (!((int[])surface.GetType().GetProperty("indices")!.GetValue(surface)!).SequenceEqual([0, 1, 2, 0, 2, 3]) ||
             !mesh.Faces[0].IsQuad || mesh.Vertices[0].Z != 1000)
             throw new InvalidOperationException("Overlay lost quad triangulation or mutated source geometry.");
