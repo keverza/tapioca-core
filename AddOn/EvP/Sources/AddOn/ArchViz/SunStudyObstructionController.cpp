@@ -1,7 +1,9 @@
 #include "ArchViz/SunStudyObstructionController.hpp"
 
 #include "ArchViz/SunStudyObstructionGeometry.hpp"
+#include "Geometry/Aabb.hpp"
 #include "Geometry/MeshStore.hpp"
+#include "Geometry/QueryEngine.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyOccluders.hpp"
 #include "SunStudy/SunStudyPointProfile.hpp"
@@ -39,6 +41,35 @@ struct PendingRequest {
     uint64_t generation = 0;
     std::shared_ptr<const evp::sunstudy::StudyRecord> record;
 };
+
+// The cut clears the rays by 5 cm (SunStudySolarCut.hpp); a ray grazing the
+// removed part's box by less still counts as passing through it.
+constexpr double kRemovedBoxPad = 0.1;
+
+// Slab test: does the ray from `origin` along unit `direction` meet `box`
+// grown by `pad`? An invalid box meets nothing.
+bool RayMeetsBox (const double origin[3], const double direction[3], const geomsrv::Aabb& box, double pad)
+{
+    if (!box.Valid ())
+        return false;
+    double enter = 0.0, leave = INFINITY;
+    for (int axis = 0; axis < 3; ++axis) {
+        const double lo = box.mn[axis] - pad, hi = box.mx[axis] + pad;
+        if (std::abs (direction[axis]) < 1.0e-15) {
+            if (origin[axis] < lo || origin[axis] > hi)
+                return false;
+            continue;
+        }
+        double t0 = (lo - origin[axis]) / direction[axis], t1 = (hi - origin[axis]) / direction[axis];
+        if (t0 > t1)
+            std::swap (t0, t1);
+        enter = (std::max) (enter, t0);
+        leave = (std::min) (leave, t1);
+        if (enter > leave)
+            return false;
+    }
+    return true;
+}
 
 } // namespace
 
@@ -178,27 +209,55 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
         frame->cutStage = SunSolarCutStage::Done;
     }
 
-    // The shadows the cut removes: the scene again with the cut elements as they
-    // would remain, and every study cell whose ray toward a slice sun stopped on
-    // a cut element and now runs clear.
-    geomsrv::Snapshot remains = snapshot;
-    for (const auto& [mesh, kept] : cut.kept)
-        if (mesh < remains.meshes.size ())
-            remains.meshes[mesh] = kept;
-    const auto roles = evp::sunstudy::ResolveElementRoles (remains, record.analysisElements, record.contextElements,
-                                                           record.ignoredElements);
-    const auto after =
-        evp::sunstudy::BuildSunStudyOccluders (remains, roles, nullptr, [&] { return cancelled.load (); });
-    if (cancelled.load ())
-        return nullptr;
-    if (after == nullptr || record.occluders == nullptr)
+    // The shadows the cut removes: the scene with the cut elements as they would
+    // remain, and every study cell whose ray toward a slice sun stopped on a cut
+    // element and now runs clear.
+    //
+    // ⚠️ NO COPY OF THE SCENE, NO NEW INDEX (#168). This stage once copied the
+    // whole snapshot and rebuilt both occluder BVHs on every point move. The
+    // after scene is instead the study's own BVHs with the cut elements masked
+    // out, plus the few cut elements as they remain, tested directly.
+    if (record.occluders == nullptr)
         return frame;
-    const auto clear = [&after] (const double origin[3], const double direction[3]) {
-        for (const auto& engine : { after->analysis, after->context })
-            if (engine != nullptr && engine->Raycast (origin, direction, 0.0).hit)
+    std::set<std::string> keptGuids;
+    geomsrv::Snapshot keptScene;
+    for (const auto& [mesh, kept] : cut.kept)
+        if (mesh < snapshot.meshes.size ()) {
+            keptGuids.insert (evp::sunstudy::CanonicalGuid (snapshot.meshes[mesh].guid));
+            keptScene.meshes.push_back (kept);
+            auto& bounds = keptScene.meshes.back ().bounds;
+            bounds = geomsrv::Aabb ();
+            for (size_t v = 0; v + 2 < kept.vertices.size (); v += 3)
+                bounds.Expand (kept.vertices[v], kept.vertices[v + 1], kept.vertices[v + 2]);
+        }
+    std::vector<std::pair<std::shared_ptr<const geomsrv::QueryEngine>, std::vector<uint8_t>>> masked;
+    for (const auto& engine : { record.occluders->analysis, record.occluders->context }) {
+        if (engine == nullptr || engine->SourceSnapshot () == nullptr)
+            continue;
+        const auto& meshes = engine->SourceSnapshot ()->meshes;
+        std::vector<uint8_t> mask (meshes.size (), 1);
+        for (size_t m = 0; m < meshes.size (); ++m)
+            if (keptGuids.count (evp::sunstudy::CanonicalGuid (meshes[m].guid)) != 0)
+                mask[m] = 0;
+        masked.emplace_back (engine, std::move (mask));
+    }
+    const auto clear = [&masked, &keptScene] (const double origin[3], const double direction[3]) {
+        for (const auto& [engine, mask] : masked)
+            if (engine->RaycastMasked (origin, direction, 0.0, mask).hit)
+                return false;
+        for (size_t m = 0; m < keptScene.meshes.size (); ++m)
+            if (RayMeetsBox (origin, direction, keptScene.meshes[m].bounds, 0.0) &&
+                geomsrv::QueryEngine::RaycastMesh (keptScene, m, origin, direction, 0.0).hit)
                 return false;
         return true;
     };
+    // A ray that never passes through what goes meets the cut elements only
+    // where they remain: still blocked. Only rays through the removed part's
+    // box (padded) can be won, so only they are traced.
+    geomsrv::Aabb removedBox;
+    for (const auto& triangle : cut.removed)
+        for (const auto& corner : triangle.v)
+            removedBox.Expand (corner[0], corner[1], corner[2]);
     // The point itself, measured rather than assumed.
     for (const auto& sun : cut.facingSteps) {
         const double origin[3] = { input.point[0] + 0.001 * sun.direction[0], input.point[1] + 0.001 * sun.direction[1],
@@ -224,6 +283,8 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
                 continue;
             const double origin[3] = { position[0] + 0.001 * direction[0], position[1] + 0.001 * direction[1],
                                        position[2] + 0.001 * direction[2] };
+            if (!RayMeetsBox (origin, direction, removedBox, kRemovedBoxPad))
+                continue;
             // Blocked now, and first by an element the cut changes?
             double nearest = -1.0;
             std::string by;

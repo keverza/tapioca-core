@@ -69,13 +69,19 @@ def test_project_transitions_reset_without_permanently_stopping_the_worker():
     assert "stopping = true" not in cancel
 
 
-def test_solar_cut_uses_geometry_not_cell_hole_filling_and_preserves_the_kept_scene():
+def test_solar_cut_uses_geometry_not_cell_hole_filling_and_masks_the_kept_scene():
     controller = source("ArchViz/SunStudyObstructionController.cpp")
     solar = controller.split("SolarCutFrame (", 1)[1].split("struct SunObstructionController::Impl", 1)[0]
     assert "ComputeSolarExposure (snapshot, cut" in solar
     assert "AppendSolarExposure (frame->exposure" in solar
     assert "AppendSolarCutWonCells" not in solar
-    assert "remains.meshes[mesh] = kept" in solar
+    # The after scene is the study's BVHs with the cut elements masked out plus
+    # the cut elements as they remain -- never a copied scene and a rebuilt
+    # index per point move (#168), and never a moved-from kept mesh.
+    assert "RaycastMasked (origin, direction, 0.0, mask)" in solar
+    assert "keptScene.meshes.push_back (kept)" in solar
+    assert "geomsrv::Snapshot remains = snapshot" not in solar
+    assert "BuildSunStudyOccluders" not in solar
     assert "std::move (kept)" not in solar
     assert "record.patchGrid.patchOfTriangle" in solar
     assert "receivers = record.sampleGrid.faces" in solar
