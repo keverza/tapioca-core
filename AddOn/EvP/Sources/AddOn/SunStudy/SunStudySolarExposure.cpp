@@ -1,5 +1,6 @@
 #include "SunStudy/SunStudySolarExposure.hpp"
 
+#include "Geometry/BvhBuild.hpp"
 #include "Geometry/SurfaceCoverage.hpp"
 
 #include <algorithm>
@@ -88,6 +89,100 @@ cp::PathD Shadow (const SolarCutTriangle& triangle, const sc::Frame& frame, cons
     return path;
 }
 
+// The after scene's blockers, flat for a BVH: three unshared corners each.
+struct Blockers {
+    std::vector<double> vertices;
+    std::vector<uint32_t> meshOf;
+    geomsrv::BvhBuildResult bvh;
+
+    size_t Count () const
+    {
+        return meshOf.size ();
+    }
+    void Add (const SolarCutTriangle& triangle)
+    {
+        for (const auto& corner : triangle.v)
+            vertices.insert (vertices.end (), corner, corner + 3);
+        meshOf.push_back (triangle.mesh);
+    }
+    SolarCutTriangle At (size_t t) const
+    {
+        SolarCutTriangle triangle;
+        triangle.mesh = meshOf[t];
+        std::copy_n (&vertices[9 * t], 9, &triangle.v[0][0]);
+        return triangle;
+    }
+};
+
+// Whether anything in a box can shade `rect` on the receiver plane along
+// `sun`. Projection along the sun onto the plane is affine, so the box of its
+// eight projected corners contains the image of the box: conservative, never
+// a missed shadow. A box wholly behind the plane casts nothing on it.
+bool BoxShades (const double mn[3], const double mx[3], const sc::Frame& frame, const V& sun, double facing,
+                const cp::RectD& rect)
+{
+    double above = -INFINITY, left = INFINITY, right = -INFINITY, top = INFINITY, bottom = -INFINITY;
+    for (int k = 0; k < 8; ++k) {
+        const V p { (k & 1) ? mx[0] : mn[0], (k & 2) ? mx[1] : mn[1], (k & 4) ? mx[2] : mn[2] };
+        const double h = Dot (Sub (p, frame.origin), frame.normal);
+        above = (std::max) (above, h);
+        const auto q = frame.Project ({ p.x - h / facing * sun.x, p.y - h / facing * sun.y, p.z - h / facing * sun.z });
+        left = (std::min) (left, q.x), right = (std::max) (right, q.x);
+        top = (std::min) (top, q.y), bottom = (std::max) (bottom, q.y);
+    }
+    return above > 0.0 && right >= rect.left && left <= rect.right && bottom >= rect.top && top <= rect.bottom;
+}
+
+// Every blocker whose box can shade `rect`. nanort's pre-order layout: a
+// branch's data are its children, a leaf's its slice of `indices`.
+template <class Visit>
+bool ForShading (const Blockers& blockers, const sc::Frame& frame, const V& sun, double facing, const cp::RectD& rect,
+                 Visit&& visit)
+{
+    const auto& nodes = blockers.bvh.nodes;
+    if (nodes.empty ())
+        return true;
+    std::vector<uint32_t> stack { 0 };
+    while (!stack.empty ()) {
+        const auto& node = nodes[stack.back ()];
+        stack.pop_back ();
+        if (!BoxShades (node.bmin, node.bmax, frame, sun, facing, rect))
+            continue;
+        if (node.flag == 0) {
+            stack.push_back (node.data[0]);
+            stack.push_back (node.data[1]);
+            continue;
+        }
+        for (uint32_t i = 0; i < node.data[0]; ++i)
+            if (!visit (blockers.bvh.indices[node.data[1] + i]))
+                return false;
+    }
+    return true;
+}
+
+// Slivers out: what is narrower than two centimetres is numerical residue of
+// coincident shadow edges (the cut line where removed meets kept), not won
+// sun. Drawn, it was the stray yellow lines (#168). An opening -- shrink, grow
+// back, keep within the original -- removes it and leaves real regions exact.
+bool Open (cp::PathsD& won, std::string& error)
+{
+    constexpr double kSliver = 0.01;
+    constexpr double kMiter = 20.0; // corners down to ~6 degrees regrow exactly
+    const auto shrunk =
+        cp::InflatePaths (won, -kSliver, cp::JoinType::Miter, cp::EndType::Polygon, kMiter, sc::kPrecision);
+    if (shrunk.empty ()) {
+        won.clear ();
+        return true;
+    }
+    const auto grown =
+        cp::InflatePaths (shrunk, kSliver, cp::JoinType::Miter, cp::EndType::Polygon, kMiter, sc::kPrecision);
+    cp::PathsD kept;
+    if (!sc::Boolean (cp::ClipType::Intersection, grown, won, kept, error))
+        return false;
+    won = std::move (kept);
+    return true;
+}
+
 bool Fill (const cp::PathsD& paths, const Surface& surface, std::vector<SolarCutTriangle>& out, std::string& error)
 {
     if (paths.empty ())
@@ -133,17 +228,31 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
         return true;
     };
     const auto compute = [&] () -> bool {
+        if (cut.removed.empty ())
+            return true; // nothing goes, nothing is won
         std::set<uint32_t> wanted (receivers.begin (), receivers.end ());
         std::vector<Surface> surfaces;
-        std::vector<SolarCutTriangle> after;
+        Blockers after;
         std::map<size_t, const geomsrv::Mesh*> kept;
         for (const auto& [mesh, remains] : cut.kept)
             kept[mesh] = &remains;
+        // What goes, boxed once: a receiver it cannot shade at a step is skipped
+        // before a single triangle is projected.
+        double removedMin[3] = { INFINITY, INFINITY, INFINITY }, removedMax[3] = { -INFINITY, -INFINITY, -INFINITY };
+        for (const auto& triangle : cut.removed)
+            for (const auto& corner : triangle.v)
+                for (int axis = 0; axis < 3; ++axis) {
+                    removedMin[axis] = (std::min) (removedMin[axis], corner[axis]);
+                    removedMax[axis] = (std::max) (removedMax[axis], corner[axis]);
+                }
         uint32_t global = 0;
         for (size_t m = 0; m < snapshot.meshes.size (); ++m) {
             const auto& mesh = snapshot.meshes[m];
+            // A surface belongs to one mesh: search only this mesh's planes,
+            // never every plane found so far (quadratic on a large model).
+            const size_t meshSurfaces = surfaces.size ();
             for (size_t t = 0; t < mesh.TriangleCount (); ++t, ++global) {
-                if (!charge ())
+                if ((global & 1023u) == 0 && !charge ())
                     return false;
                 if (wanted.count (global) == 0)
                     continue;
@@ -152,12 +261,11 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
                 if (!Triangle (mesh, t, uint32_t (m), triangle) ||
                     !sc::MakeFrame (Corner (triangle, 0), Corner (triangle, 1), Corner (triangle, 2), frame))
                     continue;
-                auto found = surfaces.begin ();
+                auto found = surfaces.begin () + std::ptrdiff_t (meshSurfaces);
                 for (; found != surfaces.end (); ++found) {
                     if (!charge ())
                         return false;
-                    if (found->mesh == m && Dot (found->frame.normal, frame.normal) > 1.0 - 1.0e-12 &&
-                        Coplanar (triangle, found->frame))
+                    if (Dot (found->frame.normal, frame.normal) > 1.0 - 1.0e-12 && Coplanar (triangle, found->frame))
                         break;
                 }
                 if (found == surfaces.end ()) {
@@ -171,12 +279,24 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
             const auto change = kept.find (m);
             const auto& remains = change == kept.end () ? mesh : *change->second;
             for (size_t t = 0; t < remains.TriangleCount (); ++t) {
-                if (!charge ())
+                if ((t & 1023u) == 0 && !charge ())
                     return false;
                 SolarCutTriangle triangle;
                 if (Triangle (remains, t, uint32_t (m), triangle))
-                    after.push_back (triangle);
+                    after.Add (triangle);
             }
+        }
+        // The after scene, indexed once: each receiver and sun visits only the
+        // blockers whose shadow can reach what the removed part shaded.
+        if (after.Count () > 0) {
+            std::vector<uint32_t> faces (3 * after.Count ());
+            for (uint32_t i = 0; i < faces.size (); ++i)
+                faces[i] = i;
+            after.bvh = geomsrv::BuildBinnedSahBvh (after.vertices.data (), faces.data (), after.Count ());
+        }
+        if (cancelled && cancelled ()) {
+            prepared.error = "Sunlit-region calculation cancelled";
+            return false;
         }
         for (auto& surface : surfaces) {
             cp::PathsD domain;
@@ -205,38 +325,49 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
                 if (!charge ())
                     return false;
                 const V sun { step.direction[0], step.direction[1], step.direction[2] };
-                if (!(sun.z > 0.0) || !(Dot (surface.frame.normal, sun) > 1.0e-8))
+                const double facing = Dot (surface.frame.normal, sun);
+                if (!(sun.z > 0.0) || !(facing > 1.0e-8))
                     continue;
-                // Clip each projected piece to the receiver's small bounds before
-                // unioning, keeping low-sun world extents out of the Boolean.
-                const auto shadows = [&] (const std::vector<SolarCutTriangle>& triangles, cp::PathsD& out) {
-                    cp::PathsD paths;
-                    for (const auto& triangle : triangles) {
-                        if (!charge ())
-                            return false;
-                        auto path = Shadow (triangle, surface.frame, sun);
-                        if (path.size () < 3 || std::abs (cp::Area (path)) < 1.0e-14)
-                            continue;
-                        const auto box = cp::GetBounds (path);
-                        if (box.right < bounds.left || box.left > bounds.right || box.bottom < bounds.top ||
-                            box.top > bounds.bottom)
-                            continue;
-                        const auto clipped = cp::RectClip (bounds, path, sc::kPrecision);
-                        paths.insert (paths.end (), clipped.begin (), clipped.end ());
-                        if (paths.size () > 100000) {
-                            prepared.error = "Sunlit-region projection exceeds the preview polygon budget";
-                            return false;
-                        }
+                if (!BoxShades (removedMin, removedMax, surface.frame, sun, facing, bounds))
+                    continue; // the removed part cannot shade this receiver at this sun
+                // Clip each projected piece to `within` before unioning, keeping
+                // low-sun world extents out of the Boolean.
+                cp::PathsD paths;
+                const auto project = [&] (const SolarCutTriangle& triangle, const cp::RectD& within) {
+                    if (!charge ())
+                        return false;
+                    auto path = Shadow (triangle, surface.frame, sun);
+                    if (path.size () < 3 || std::abs (cp::Area (path)) < 1.0e-14)
+                        return true;
+                    const auto box = cp::GetBounds (path);
+                    if (box.right < within.left || box.left > within.right || box.bottom < within.top ||
+                        box.top > within.bottom)
+                        return true;
+                    const auto clipped = cp::RectClip (within, path, sc::kPrecision);
+                    paths.insert (paths.end (), clipped.begin (), clipped.end ());
+                    if (paths.size () > 100000) {
+                        prepared.error = "Sunlit-region projection exceeds the preview polygon budget";
+                        return false;
                     }
-                    return sc::Boolean (cp::ClipType::Intersection, paths, domain, out, prepared.error);
+                    return true;
                 };
                 cp::PathsD removedShadow, afterShadow, won;
-                if (!shadows (cut.removed, removedShadow))
+                for (const auto& triangle : cut.removed)
+                    if (!project (triangle, bounds))
+                        return false;
+                if (!sc::Boolean (cp::ClipType::Intersection, paths, domain, removedShadow, prepared.error))
                     return false;
                 if (removedShadow.empty ())
                     continue;
-                if (!shadows (after, afterShadow) ||
-                    !sc::Boolean (cp::ClipType::Difference, removedShadow, afterShadow, won, prepared.error))
+                // Only what can shade the removed part's shadow matters here.
+                const auto region = cp::GetBounds (removedShadow);
+                paths.clear ();
+                if (!ForShading (after, surface.frame, sun, facing, region,
+                                 [&] (uint32_t t) { return project (after.At (t), region); }))
+                    return false;
+                if (!sc::Boolean (cp::ClipType::Intersection, paths, domain, afterShadow, prepared.error) ||
+                    !sc::Boolean (cp::ClipType::Difference, removedShadow, afterShadow, won, prepared.error) ||
+                    !Open (won, prepared.error))
                     return false;
                 if (won.empty ())
                     continue;

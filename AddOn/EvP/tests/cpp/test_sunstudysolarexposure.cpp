@@ -196,3 +196,59 @@ TEST (SunStudySolarExposure, StraddlingBlockerOnlyProjectsItsSunwardPart)
     ASSERT_TRUE (f.Run (out)) << out.error;
     EXPECT_NEAR (Area (out.triangles), 1.5, 2.0e-6);
 }
+
+TEST (SunStudySolarExposure, CoincidentShadowSliversAreNotPaintedButNarrowRealRegionsStay)
+{
+    // #168: a remaining blocker whose shadow edge almost meets the removed
+    // part's leaves a hairline Difference; drawn, it was a stray yellow line.
+    Fixture f;
+    f.scene.meshes.push_back (Square (1.0005, 1, 1, 2));
+    SolarExposureResult out;
+    ASSERT_TRUE (f.Run (out)) << out.error;
+    EXPECT_TRUE (out.triangles.empty ());
+    EXPECT_TRUE (out.boundary.empty ());
+    // A 5 cm strip is real won sun and keeps its exact area.
+    f.scene.meshes.back () = Square (1.05, 1, 1, 2);
+    ASSERT_TRUE (f.Run (out)) << out.error;
+    EXPECT_NEAR (Area (out.triangles), 0.05 * 2.0, 1.0e-6);
+}
+
+TEST (SunStudySolarExposure, LargeSceneStaysWithinTheDefaultBudget)
+{
+    // Twenty measured receivers in the removed part's shadow, thirty suns and
+    // a dense scene away from the cut. Projecting every blocker per receiver
+    // and sun (20 x 30 x 120k) exhausted the 20M work budget, so complex
+    // scenes showed no lit surface at all (#168).
+    Fixture f;
+    std::vector<uint8_t> blocks { 1, 1 };
+    std::vector<uint32_t> receivers;
+    uint32_t global = 4;
+    for (int i = 0; i < 20; ++i) {
+        f.scene.meshes.push_back (Square (1.5 + 0.1 * (i % 5), 1.5 + 0.1 * (i / 5), 0.09 * i, 0.1));
+        blocks.push_back (0);
+        receivers.push_back (global);
+        receivers.push_back (global + 1);
+        global += 2;
+    }
+    for (int i = 0; i < 400; ++i) { // 120k blocker triangles
+        geomsrv::Mesh dense;
+        for (int k = 0; k < 150; ++k) {
+            const double x = -300.0 - i, y = 0.01 * k;
+            const uint32_t base = uint32_t (dense.vertices.size () / 3);
+            dense.vertices.insert (dense.vertices.end (),
+                                   { x, y, 5, x + 0.5, y, 5, x + 0.5, y + 0.01, 5, x, y + 0.01, 5 });
+            dense.triangles.insert (dense.triangles.end (), { base, base + 1, base + 2, base, base + 2, base + 3 });
+        }
+        f.scene.meshes.push_back (dense);
+        blocks.push_back (1);
+    }
+    for (int s = 1; s < 30; ++s) {
+        SunStep sun = f.suns[0];
+        sun.time = { 12, 30 + s };
+        sun.direction[0] = 0.001 * s;
+        f.suns.push_back (sun);
+    }
+    SolarExposureResult out;
+    ASSERT_TRUE (ComputeSolarExposure (f.scene, f.cut, blocks, receivers, f.suns, out)) << out.error;
+    EXPECT_NEAR (Area (out.triangles), 20 * 0.1 * 0.1, 1.0e-6);
+}
