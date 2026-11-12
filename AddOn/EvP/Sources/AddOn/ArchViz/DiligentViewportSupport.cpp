@@ -352,9 +352,11 @@ void DrawCornerGnomon (Diligent::IDeviceContext* context, DiligentScene& scene, 
     // the ordinary case rather than a corner case. The alternatives are worse:
     // unbinding the depth view draws a depth-enabled pipeline with no DSV (a
     // validation error, not a picture), and a scissored partial clear needs
-    // ScissorEnable on a rasterizer state the mesh pipelines do not have. This
-    // runs AFTER the main pass and immediately before Present, so the cleared
-    // depth is never read again -- it costs one clear and nothing else.
+    // ScissorEnable on a rasterizer state the mesh pipelines do not have.
+    // ⚠️ SO IT MUST BE THE LAST DEPTH CONSUMER. The trace-annotation text pass
+    // samples this depth to hide labels behind the model (annotation fades,
+    // the sunpath's words); run before it, the clear made every label read as
+    // unoccluded (#182). Keep it after UpdateAndDrawTraceAnnotations.
     if (dsv != nullptr)
         context->ClearDepthStencil (dsv, Diligent::CLEAR_DEPTH_FLAG, 1.0f, 0,
                                     Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);

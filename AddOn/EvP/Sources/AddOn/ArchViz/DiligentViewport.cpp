@@ -870,13 +870,13 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                                           planAnchorRgba_.load ());
             if (!offscreen && !screenshot.Active () && surface.mode == SurfaceMode::PaletteChild)
                 editorDraw.Update (device, context, rtv, dsv, view, stableProj, width, height);
-            if (!offscreen && !annotationsOnly && !blanked && !screenshot.Active () &&
-                !ShouldIsolateGraphInteraction (hudState, input))
-                DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
             ProjectedDrawList annotations = UpdateAndDrawTraceAnnotations (
                 textLayer, device, context, blanked, offscreen, annotationsOnly, surface.nwh, rtv, dsv,
                 drawTo.DepthShaderView (), viewProj, width, height, Camera::NearClip (), camera.FarClip (),
                 camera.IsPerspective (), hudState, input, annotationPlacementHistory, dimensionHoverState);
+            if (!offscreen && !annotationsOnly && !blanked && !screenshot.Active () &&
+                !ShouldIsolateGraphInteraction (hudState, input))
+                DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
 
             // ⚠️ NOT GATED ON `blanked`, ALONE AMONG THE LAYERS ABOVE. The blank
             // hides content drawn from a stale POSE; the panels have no pose to be
