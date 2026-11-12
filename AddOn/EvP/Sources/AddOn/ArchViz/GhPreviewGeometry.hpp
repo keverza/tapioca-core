@@ -116,6 +116,10 @@ struct GhPreviewDrawables {
     GhPreviewBucket depthTested;
     // Coplanar analysis patches only. Drawn after ordinary meshes, before lines.
     GhPreviewBucket surfaceDecals;
+    // See-through surfaces, MESHES ONLY: depth-tested against the model but
+    // writing no depth, so a translucent patch never hides the lines or the far
+    // side of itself behind it. Drawn after opaque meshes, before every line.
+    GhPreviewBucket translucent;
     GhPreviewBucket xray;
     std::vector<GhPreviewLabel> labels;
 

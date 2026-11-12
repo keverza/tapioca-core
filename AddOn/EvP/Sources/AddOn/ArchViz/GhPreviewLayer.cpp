@@ -379,6 +379,7 @@ struct GhPreviewLayer::Impl {
     RefCntAutoPtr<Diligent::IPipelineState> meshXRayPso;
     RefCntAutoPtr<Diligent::IPipelineState> meshPulledPso;
     RefCntAutoPtr<Diligent::IPipelineState> meshSurfaceDecalPso;
+    RefCntAutoPtr<Diligent::IPipelineState> meshTranslucentPso;
     RefCntAutoPtr<Diligent::IPipelineState> linePso;
     RefCntAutoPtr<Diligent::IPipelineState> lineXRayPso;
     RefCntAutoPtr<Diligent::IPipelineState> lineHiddenPso;
@@ -386,12 +387,14 @@ struct GhPreviewLayer::Impl {
     RefCntAutoPtr<Diligent::IShaderResourceBinding> meshXRaySrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> meshPulledSrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> meshSurfaceDecalSrb;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> meshTranslucentSrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> lineSrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> lineXRaySrb;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> lineHiddenSrb;
     RefCntAutoPtr<Diligent::IBuffer> constants;
     Bucket depthTested;
     Bucket surfaceDecals;
+    Bucket translucent;
     Bucket xray;
     size_t labelCount = 0;
     bool ready = false;
@@ -413,16 +416,16 @@ bool GhPreviewLayer::IsReady () const
 
 size_t GhPreviewLayer::MeshIndexCount () const
 {
-    return impl_ == nullptr
-               ? 0
-               : impl_->depthTested.meshIndexCount + impl_->surfaceDecals.meshIndexCount + impl_->xray.meshIndexCount;
+    return impl_ == nullptr ? 0
+                            : impl_->depthTested.meshIndexCount + impl_->surfaceDecals.meshIndexCount +
+                                  impl_->translucent.meshIndexCount + impl_->xray.meshIndexCount;
 }
 
 size_t GhPreviewLayer::LineVertexCount () const
 {
     return impl_ == nullptr ? 0
                             : impl_->depthTested.lineVertexCount + impl_->surfaceDecals.lineVertexCount +
-                                  impl_->xray.lineVertexCount;
+                                  impl_->translucent.lineVertexCount + impl_->xray.lineVertexCount;
 }
 
 size_t GhPreviewLayer::LabelCount () const
@@ -436,12 +439,14 @@ void GhPreviewLayer::Shutdown ()
         return;
     impl_->depthTested.Release ();
     impl_->surfaceDecals.Release ();
+    impl_->translucent.Release ();
     impl_->xray.Release ();
     impl_->constants.Release ();
     impl_->meshSrb.Release ();
     impl_->meshXRaySrb.Release ();
     impl_->meshPulledSrb.Release ();
     impl_->meshSurfaceDecalSrb.Release ();
+    impl_->meshTranslucentSrb.Release ();
     impl_->lineSrb.Release ();
     impl_->lineXRaySrb.Release ();
     impl_->lineHiddenSrb.Release ();
@@ -449,6 +454,7 @@ void GhPreviewLayer::Shutdown ()
     impl_->meshXRayPso.Release ();
     impl_->meshPulledPso.Release ();
     impl_->meshSurfaceDecalPso.Release ();
+    impl_->meshTranslucentPso.Release ();
     impl_->linePso.Release ();
     impl_->lineXRayPso.Release ();
     impl_->lineHiddenPso.Release ();
@@ -635,6 +641,12 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
     if (!buildPso ("Gh preview mesh x-ray PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), false, false,
                    impl_->meshXRayPso, impl_->meshXRaySrb))
         return false;
+    // ⚠️ A SEE-THROUGH SURFACE TESTS DEPTH AND DOES NOT WRITE IT. The model still
+    // hides it, but it never hides its own far side or the lines drawn after it;
+    // overlapping folds blend, which is what a translucent patch should show.
+    if (!buildPso ("Gh preview translucent mesh PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), true, false,
+                   impl_->meshTranslucentPso, impl_->meshTranslucentSrb))
+        return false;
     // The lines' pull, for surfaces laid over the model's own.
     if (!buildPso ("Gh preview pulled mesh PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), true, true,
                    impl_->meshPulledPso, impl_->meshPulledSrb, Diligent::COMPARISON_FUNC_LESS_EQUAL, true))
@@ -717,6 +729,8 @@ bool GhPreviewLayer::Upload (Diligent::IRenderDevice* device, Diligent::IDeviceC
     if (!upload (drawables.depthTested, impl_->depthTested, "depth-tested"))
         firstError = error;
     if (!upload (drawables.surfaceDecals, impl_->surfaceDecals, "surface decals") && firstError.empty ())
+        firstError = error;
+    if (!upload (drawables.translucent, impl_->translucent, "translucent") && firstError.empty ())
         firstError = error;
     if (!upload (drawables.xray, impl_->xray, "x-ray") && firstError.empty ())
         firstError = error;
@@ -817,6 +831,11 @@ void GhPreviewLayer::Draw (Diligent::IDeviceContext* context, const float viewPr
               params.pullMeshes ? impl_->meshPulledSrb : impl_->meshSrb);
     drawBucket (impl_->surfaceDecals, impl_->meshSurfaceDecalPso, impl_->meshSurfaceDecalSrb, impl_->linePso,
                 impl_->lineSrb);
+    // After every depth-writing mesh, so the model and opaque meshes in front
+    // hide it; before the lines, so lines read over the see-through surface.
+    // Mesh-only: lines placed here would take the ordinary line pipeline anyway.
+    drawMesh (impl_->translucent, impl_->meshTranslucentPso, impl_->meshTranslucentSrb);
+    drawLines (impl_->translucent, impl_->linePso, impl_->lineSrb);
     drawLines (impl_->depthTested, impl_->linePso, impl_->lineSrb);
     // ⚠️ DEPTH-TESTED FIRST, X-RAY SECOND. The x-ray pass is the one that must
     // end up on top: it exists to be seen through the building, and drawing it

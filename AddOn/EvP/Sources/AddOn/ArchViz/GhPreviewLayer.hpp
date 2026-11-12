@@ -34,7 +34,8 @@
 // ⚠️ DEPTH BEHAVIOUR IS A PIPELINE, NOT A COLOUR. A primitive flagged x-ray
 // must be visible INSIDE the wall it is being compared against; an analysis
 // decal instead tests against that wall with a bounded depth-only offset.
-// Meshes write depth to occlude themselves; lines and x-ray geometry do not.
+// Meshes write depth to occlude themselves; lines, translucent meshes and
+// x-ray geometry do not.
 //
 // ⚠️ TEXT IS NOT DRAWN HERE. GhPreviewGeometry collects labels; this renderer
 // has no text capability yet, and inventing a private one inside the preview
