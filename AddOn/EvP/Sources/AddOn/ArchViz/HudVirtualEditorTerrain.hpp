@@ -6,6 +6,9 @@
 #include "Edit/EditDocument.hpp"
 #include <memory>
 #include <functional>
+#include <cstdint>
+#include <string>
+#include <vector>
 
 namespace geomsrv {
 struct Mesh;
@@ -107,6 +110,14 @@ const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Sessi
 // or the terrain capture is invalid. Display only; status reads CurrentTerrainDesign.
 const tapioca::geometry::TerrainDesignOutcome* LastPublishedTerrainDesign (const Session& session, bool& stale);
 void DrawTerrainDesign (const Session& session, overlaylayers::Layer& layer);
+// #149 T4: the located outline-step witnesses of a built outcome as one marker set per kind --
+// faces ending at the reach limit, faces stepping at the region's edge, and the mesher's step
+// strips -- in the colours OutlineStepLegend names. Nothing for an unbuilt outcome.
+void AppendOutlineStepPlaces (const tapioca::geometry::TerrainDesignOutcome& outcome, overlaylayers::Layer& layer);
+// One legend line per marked kind, "N of M" where the build counted M observations.
+std::vector<std::string> OutlineStepLegend (const tapioca::geometry::TerrainDesignOutcome& outcome);
+// The marker colour of each kind (RGBA), shared by the markers and the legend swatch.
+constexpr uint32_t kOutlineReachRgba = 0xEAB308FFu, kOutlineRingRgba = 0xF97316FFu, kOutlineStripRgba = 0xA855F7FFu;
 void TerrainDesignPanel (Session& session);
 // #175: while the terrain is being regenerated, a line saying so at the top of the editor's
 // panel and a small badge at the top of the view (the foreground draw list: no window, so it

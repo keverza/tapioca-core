@@ -1397,6 +1397,29 @@ TEST (EditTerrainDesignJob, AnOutlineOutcomeCarriesItsLocatedStepWitnesses149)
                                      };
                                      return rank (a.kind) < rank (b.kind);
                                  }));
+    // The HUD marks each kind as one point set in its own colour, after what the layer already
+    // holds, and the legend says how many of the counted observations are marked.
+    namespace hud = geomsrv::archviz::edithud;
+    geomsrv::archviz::overlaylayers::Layer layer;
+    layer.points.emplace_back ();
+    hud::AppendOutlineStepPlaces (outlined, layer);
+    ASSERT_EQ (layer.points.size (), 3U);
+    EXPECT_EQ (layer.points[1].rgba, hud::kOutlineRingRgba);
+    EXPECT_EQ (layer.points[1].points.size (), 3 * perKind[2]);
+    EXPECT_EQ (layer.points[2].rgba, hud::kOutlineStripRgba);
+    EXPECT_EQ (layer.points[2].points.size (), 3 * perKind[3]);
+    const auto legend = hud::OutlineStepLegend (outlined);
+    ASSERT_EQ (legend.size (), 2U);
+    EXPECT_EQ (legend[0], "Orange: 32 of " + std::to_string (outlined.outlineClipped) +
+                              " places where a side slope steps at the edge.");
+    EXPECT_GT (outlined.outlineClipped, kOutlineStepWitnessLimit);
+    EXPECT_EQ (legend[1].rfind ("Purple: ", 0), 0U) << legend[1];
+    auto refused = outlined;
+    refused.built = false;
+    geomsrv::archviz::overlaylayers::Layer untouched;
+    hud::AppendOutlineStepPlaces (refused, untouched);
+    EXPECT_TRUE (untouched.points.empty ());
+    EXPECT_TRUE (hud::OutlineStepLegend (refused).empty ());
     EXPECT_TRUE (RunTerrainDesign (job).outlineSteps.empty ()) << "the legacy oracle lane has none";
 
     auto none = fixture.Options ();

@@ -689,6 +689,48 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         place.rgba = conflict.hard ? 0xD93A49FFu : 0xF59E0BFFu;
         layer.points.push_back (std::move (place));
     }
+    AppendOutlineStepPlaces (*current, layer);
+}
+
+void AppendOutlineStepPlaces (const lg::TerrainDesignOutcome& outcome, overlaylayers::Layer& layer)
+{
+    if (!outcome.built)
+        return;
+    for (const auto [kind, rgba] : { std::pair { lg::UnifiedStepKind::ReachLimit, kOutlineReachRgba },
+                                     std::pair { lg::UnifiedStepKind::RingMismatch, kOutlineRingRgba },
+                                     std::pair { lg::UnifiedStepKind::StepStrip, kOutlineStripRgba } }) {
+        overlaylayers::PointSet places;
+        for (const auto& step : outcome.outlineSteps)
+            if (step.kind == kind)
+                places.points.insert (places.points.end (), step.position.begin (), step.position.end ());
+        if (places.points.empty ())
+            continue;
+        places.rgba = rgba;
+        layer.points.push_back (std::move (places));
+    }
+}
+
+std::vector<std::string> OutlineStepLegend (const lg::TerrainDesignOutcome& outcome)
+{
+    std::vector<std::string> lines;
+    if (!outcome.built)
+        return lines;
+    const auto marked = [&] (lg::UnifiedStepKind kind) {
+        return static_cast<size_t> (std::count_if (outcome.outlineSteps.begin (), outcome.outlineSteps.end (),
+                                                   [kind] (const auto& step) { return step.kind == kind; }));
+    };
+    const auto line = [&] (size_t shown, uint32_t total, const char* colour, const char* what) {
+        if (shown == 0)
+            return;
+        lines.push_back (std::string (colour) + ": " + std::to_string (shown) +
+                         (total > shown ? " of " + std::to_string (total) : std::string ()) + " " + what + ".");
+    };
+    line (marked (lg::UnifiedStepKind::ReachLimit), outcome.outlineUnreached, "Yellow",
+          "places where a side slope ends at its reach");
+    line (marked (lg::UnifiedStepKind::RingMismatch), outcome.outlineClipped, "Orange",
+          "places where a side slope steps at the edge");
+    line (marked (lg::UnifiedStepKind::StepStrip), 0, "Purple", "places the mesher kept as a step");
+    return lines;
 }
 
 void SetTerrainBand (Session& s, bool band)
@@ -772,6 +814,10 @@ void TerrainDesignPanel (Session& s)
     }
     else if (!status.error.empty ())
         ImGui::TextWrapped ("%s", lg::TerrainConditionText (status.error).c_str ());
+    // #149 T4: where the steps happen, as marked on the terrain.
+    if (current)
+        for (const auto& line : OutlineStepLegend (*current))
+            ImGui::TextWrapped ("%s", line.c_str ());
     if (status.stale && !status.previewed)
         ImGui::TextWrapped ("Updating: the terrain shown is the last build and does not follow the paths yet. "
                             "It is replaced when the rebuild finishes.");
@@ -819,6 +865,13 @@ void TerrainDesignPanel (Session& s)
 
 #else
 namespace geomsrv::archviz::edithud {
+void AppendOutlineStepPlaces (const tapioca::geometry::TerrainDesignOutcome&, overlaylayers::Layer&)
+{
+}
+std::vector<std::string> OutlineStepLegend (const tapioca::geometry::TerrainDesignOutcome&)
+{
+    return {};
+}
 TerrainDebugSource GetTerrainDebugSource (const Session& s)
 {
     TerrainDebugSource out;

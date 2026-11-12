@@ -64,6 +64,8 @@ struct TerrainDesignOutcome {
     // #149 T4: the unified outline build's bounded located step witnesses, for markers at the
     // `unmet` step conditions. Empty on the legacy lanes and on any refusal.
     std::vector<UnifiedStepWitness> outlineSteps;
+    // Their observation counts: reach-limit vertices and ring samples, retained or not.
+    uint32_t outlineUnreached = 0, outlineClipped = 0;
 };
 
 // The condition a refusal code stands for, said plainly; the raw message when it has none.
