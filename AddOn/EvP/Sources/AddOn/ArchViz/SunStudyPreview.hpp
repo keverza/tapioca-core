@@ -185,6 +185,20 @@ inline uint32_t SunStudyRampColour (std::span<const overlaylayers::ColourStop> s
     return out;
 }
 
+// An hours value as the tint draws it: the low-sun swatch below `blueBelow`
+// (< 0: none), else the stepped band's centre (`bands` >= kSunBandsMin with
+// `edges`) or the smooth ramp. kArchVizSunTintPS's SunRamp, for geometry the
+// CPU colours itself (the solar cut's re-counted cells, #168).
+inline uint32_t SunStudyHoursRgba (std::span<const overlaylayers::ColourStop> stops, float hours, int bands,
+                                   const float* edges, float blueBelow, uint32_t lowSunRgba)
+{
+    if (blueBelow >= 0.0f && hours < blueBelow)
+        return lowSunRgba | 0xFFu;
+    if (edges != nullptr && bands >= kSunBandsMin)
+        return SunStudyRampColour (stops, SunStudyBandCentre (SunStudyBand (hours, bands, edges), bands, edges));
+    return SunStudyRampColour (stops, hours);
+}
+
 // The stops of the preset the HUD chose: `id`'s, the user's `custom` ones for
 // kCustomGradientId, or the default's for an unknown id -- end for end when
 // `flipped`. Never empty.

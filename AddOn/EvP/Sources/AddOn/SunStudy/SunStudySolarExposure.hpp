@@ -39,6 +39,7 @@ struct SolarExposureResult {
     std::vector<SolarExposureSpan> spans; // the swept regions with the time each stands for
     std::vector<SolarExposureBand> bands; // the union split by minutes gained
     double bandMinutes = 0.0;             // the width of one band
+    size_t work = 0;                      // work units used, of the call's limit
     std::string error;
 
     int MostLevel () const
@@ -56,7 +57,8 @@ struct SolarExposureResult {
 bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResult& cut,
                            const std::vector<uint8_t>& blocks, const std::vector<uint32_t>& receivers,
                            const std::vector<SunStep>& steps, SolarExposureResult& result,
-                           const std::function<bool ()>& cancelled = {}, size_t workLimit = 20000000);
+                           const std::function<bool ()>& cancelled = {}, size_t workLimit = 20000000,
+                           const std::function<void (size_t done, size_t of)>& progress = {});
 
 // X-ray picking: nearest won surface along the cursor ray, earliest won time
 // there. Hidden receiver geometry is intentionally inspectable.

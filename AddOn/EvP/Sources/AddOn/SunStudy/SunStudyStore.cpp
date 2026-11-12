@@ -715,6 +715,34 @@ bool SunStudyStore::PointDayOf (const std::string& id, const std::vector<size_t>
 #endif
 }
 
+bool SunStudyStore::SampleLitSteps (const std::string& id, const std::vector<size_t>& samples,
+                                    std::vector<std::vector<uint8_t>>& lit, std::string& error) const
+{
+    lit.assign (samples.size (), {});
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end ()) {
+        error = "no sun study with id '" + id + "'";
+        return false;
+    }
+    if (!SessionReadable (id, error))
+        return false;
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    const StudyRecord& record = *found->second;
+    if (record.rustCore == nullptr) {
+        error = NoStudyCoreError ();
+        return false;
+    }
+    for (size_t i = 0; i < samples.size (); ++i)
+        if (samples[i] < record.positions.size () / 3 && !record.rustCore->SampleSteps (samples[i], lit[i], error))
+            return false;
+    return true;
+#else
+    error = NoStudyCoreError ();
+    return false;
+#endif
+}
+
 bool SunStudyStore::StepMasks (const std::string& id, StepMaskAtlas& atlas, std::vector<uint16_t>& stepMinutes,
                                uint32_t& noonStep, std::string& error) const
 {

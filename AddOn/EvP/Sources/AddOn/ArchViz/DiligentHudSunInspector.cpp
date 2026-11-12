@@ -21,6 +21,7 @@ void ServiceSolarCutReading (HudState& state, const DiligentScene& scene, const 
         state.sunView != kSunObstructionView || state.sunObstructionMode != 3 || state.sunShowsPeriod) {
         state.sunCutReadingMinute = -1;
         state.sunCutReadingRuns.clear ();
+        state.sunCutCellBefore = state.sunCutCellAfter = -1.0f;
         generation = 0;
         return;
     }
@@ -29,9 +30,18 @@ void ServiceSolarCutReading (HudState& state, const DiligentScene& scene, const 
         frame->cutStage != SunSolarCutStage::Done || !frame->error.empty () || !frame->exposure.error.empty ()) {
         state.sunCutReadingMinute = -1;
         state.sunCutReadingRuns.clear ();
+        state.sunCutCellBefore = state.sunCutCellAfter = -1.0f;
         generation = 0;
         return;
     }
+    // The hovered study cell, re-counted: the sample the reading names (the
+    // last one read; a frame behind the cursor at most).
+    float before = -1.0f, after = -1.0f;
+    if (state.sunReadingState != 1 || state.sunReadingSample > UINT32_MAX ||
+        !frame->cutCells.Read (uint32_t (state.sunReadingSample), before, after))
+        before = after = -1.0f;
+    state.sunCutCellBefore = before;
+    state.sunCutCellAfter = after;
     const float ray[6] = { origin[0], origin[1], origin[2], direction[0], direction[1], direction[2] };
     if (generation == frame->generation && std::equal (ray, ray + 6, lastRay))
         return;

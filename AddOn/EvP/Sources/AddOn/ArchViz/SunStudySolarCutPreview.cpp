@@ -537,11 +537,11 @@ void FillOnModel (const std::vector<evp::sunstudy::SolarCutTriangle>& triangles,
             Triangle (a, b, c, normal, rgba, drawables.depthTested);
     }
 }
-void EdgesOnModel (const std::vector<std::array<double, 6>>& edges, GhPreviewDrawables& drawables)
+void EdgesOnModel (const std::vector<std::array<double, 6>>& edges, GhPreviewDrawables& drawables,
+                   uint32_t rgba = kSolarCutWonEdgeRgba)
 {
     for (const auto& edge : edges)
-        Segment ({ edge[0], edge[1], edge[2] }, { edge[3], edge[4], edge[5] }, kSolarCutWonEdgeRgba,
-                 drawables.depthTested);
+        Segment ({ edge[0], edge[1], edge[2] }, { edge[3], edge[4], edge[5] }, rgba, drawables.depthTested);
 }
 } // namespace
 
@@ -564,6 +564,15 @@ void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, Gh
     else
         FillOnModel (exposure.triangles, kSolarCutWonRgba, drawables);
     EdgesOnModel (exposure.boundary, drawables);
+}
+
+void AppendSolarCutCells (const evp::sunstudy::SolarCutCellsResult& cells,
+                          const std::function<uint32_t (float hours)>& colour, GhPreviewDrawables& drawables)
+{
+    // Opaque enough to replace the tint under it, as the tint covers the model.
+    for (const auto& group : cells.groups)
+        FillOnModel (group.triangles, (colour (group.after) & 0xFFFFFF00u) | 0xE6u, drawables);
+    EdgesOnModel (cells.outline, drawables, kSolarCutCellsEdgeRgba);
 }
 
 void AppendSolarExposureStep (const evp::sunstudy::SolarExposureResult& exposure, int minute,

@@ -18,10 +18,12 @@
 #include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudySolarCut.hpp"
+#include "SunStudy/SunStudySolarCutCells.hpp"
 #include "SunStudy/SunStudySolarExposure.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -74,6 +76,9 @@ constexpr uint32_t kSolarCutCapRgba = 0x67204A60u; // darker section faces, dist
 constexpr uint32_t kSolarCutEdgeRgba = 0x9E1E73FFu;
 constexpr uint32_t kSolarCutWonRgba = 0xFFE27AB0u;     // sun the cut wins: a warm yellow, apart from the map's colours
 constexpr uint32_t kSolarCutWonEdgeRgba = 0xD08A10FFu; // its perimeter
+// The re-counted study cells' merged perimeter: the cut's own pink, so the
+// cells read as "these come from the cut" over the hours map.
+constexpr uint32_t kSolarCutCellsEdgeRgba = 0xF240BFFFu;
 void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3],
                             GhPreviewDrawables& drawables);
 // The fill of gain band `level` of at most `most`: pale yellow for the least,
@@ -83,6 +88,11 @@ uint32_t SolarCutGainRgba (int level, int most);
 // The union swept between steps, shaded by minutes gained (its bands), with
 // the union's perimeter.
 void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, GhPreviewDrawables& drawables);
+// The study cells the cut changes, each filled in `colour` of its after-cut
+// hours (the hours map's own colours, from the view), with one pink outline
+// around each surface's merged cells.
+void AppendSolarCutCells (const evp::sunstudy::SolarCutCellsResult& cells,
+                          const std::function<uint32_t (float hours)>& colour, GhPreviewDrawables& drawables);
 // Only what the cut lights at the step measured at `minute`, flat yellow with
 // that step's perimeter; nothing when the slice has no such step won.
 void AppendSolarExposureStep (const evp::sunstudy::SolarExposureResult& exposure, int minute,

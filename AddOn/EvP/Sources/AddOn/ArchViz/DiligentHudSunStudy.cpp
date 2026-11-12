@@ -595,6 +595,17 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
     (void) height;
     if (state.sunInspect != 1 || !input.inside)
         return;
+    // A study cell the cut changes, over the hours map: its whole day before
+    // and after, then the slice's own gain where the cursor is on the lit surface.
+    if (state.sunView == kObstructionView && state.sunObstructionMode == 3 && state.sunCutShowsHours &&
+        state.sunCutShowsCells && state.sunCutCellAfter >= 0.0f) {
+        std::string text = SunStudyCutCellBeforeAfter (state.sunCutCellBefore, state.sunCutCellAfter);
+        const std::string gain = SunStudyCutGain (state.sunCutReadingRuns);
+        if (!gain.empty ())
+            text += "\nIn the slice: " + gain + ", " + SunStudyCutGainRuns (state.sunCutReadingRuns);
+        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right, text, kSolarCutCellsEdgeRgba);
+        return;
+    }
     if (state.sunView == kObstructionView && state.sunObstructionMode == 3 && state.sunCutReadingMinute >= 0) {
         std::string gain = SunStudyCutGain (state.sunCutReadingRuns);
         // Over the hours map, the whole day before and after: the total effect.

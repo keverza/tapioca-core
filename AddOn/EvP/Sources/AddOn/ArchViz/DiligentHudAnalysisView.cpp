@@ -10,6 +10,7 @@
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/SunStudyObstructionController.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
+#include "ArchViz/SunStudyPreview.hpp"
 #include "ArchViz/ViewpointOverlayGeometry.hpp"
 #include "ArchViz/ViewpointStudyController.hpp"
 #include "ArchViz/VisibilityStudyController.hpp"
@@ -17,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -241,6 +243,44 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
     const bool stepOnly = state.sunCutStepOnly && frame->mode == SunObstructionMode::SolarCut &&
                           frame->cutStage == SunSolarCutStage::Done && frame->exposure.error.empty () &&
                           !frame->exposure.steps.empty ();
+    // Sun hours under the cut: the study cells the cut changes, in the hours
+    // they would read after it (the map's own colours), outlined pink (#168).
+    const bool cellsShown = !stepOnly && state.sunCutShowsHours && state.sunCutShowsCells &&
+                            frame->mode == SunObstructionMode::SolarCut && frame->cutStage == SunSolarCutStage::Done &&
+                            !frame->cutCells.groups.empty ();
+    if (cellsShown) {
+        const SunStudyViewSettings view = SunStudyViewOf (state);
+        const bool gain = state.sunCutShowsGain && frame->exposure.error.empty ();
+        uint64_t key = 1469598103934665603ull;
+        Mix (key, &stageKey, sizeof (stageKey));
+        Mix (key, view.ramp, sizeof (view.ramp[0]) * size_t ((std::max) (0, view.rampCount)));
+        Mix (key, &view.bandCount, sizeof (view.bandCount));
+        Mix (key, view.bandEdges, sizeof (view.bandEdges));
+        Mix (key, &view.blueThreshold, sizeof (view.blueThreshold));
+        Mix (key, &view.lowSunRgba, sizeof (view.lowSunRgba));
+        Mix (key, &gain, sizeof (gain));
+        key = (key << 1) | 1u; // odd: never a whole-slice (stageKey * 2048) or step key
+        static uint64_t cellsKey = 0;
+        static GhPreviewDrawables cellsComposed;
+        if (cellsKey != key) {
+            cellsComposed = frame->cutDrawables;
+            if (gain)
+                AppendSolarExposure (frame->exposure, cellsComposed);
+            const std::span<const overlaylayers::ColourStop> stops (view.ramp, size_t ((std::max) (0, view.rampCount)));
+            const int bands = view.bandCount;
+            const float* edges = bands >= kSunBandsMin ? view.bandEdges : nullptr;
+            AppendSolarCutCells (
+                frame->cutCells,
+                [&] (float hours) {
+                    return SunStudyHoursRgba (stops, hours, bands, edges, view.blueThreshold, view.lowSunRgba);
+                },
+                cellsComposed);
+            cellsKey = key;
+        }
+        scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, &cellsComposed, key,
+                                      modelIsDrawn);
+        return;
+    }
     if (!stepOnly) {
         scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, &frame->drawables,
                                       stageKey * 2048, modelIsDrawn);

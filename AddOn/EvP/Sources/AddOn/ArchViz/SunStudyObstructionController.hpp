@@ -7,8 +7,11 @@
 
 #include "ArchViz/GhPreviewGeometry.hpp"
 #include "ArchViz/SunStudyObstructionGeometry.hpp"
+#include "SunStudy/SunStudySolarCutCells.hpp"
 #include "SunStudy/SunStudySolarExposure.hpp"
 
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -47,6 +50,57 @@ enum class SunSolarCutStage : uint8_t {
     Surface, // the envelope and the hours now; nothing clipped yet
     Cut,     // removed parts, volumes; the re-trace still running
     Done,
+};
+
+// Where a running solar cut is, read live by the panel while the frame of the
+// last finished stage is shown. One per request, shared by its stage frames;
+// the worker writes it, the UI only reads. A stage that runs long says so,
+// and one that stops advancing says THAT, instead of looking finished (#168).
+enum class SunSolarCutPhase : int {
+    Surface,    // the cutting surface
+    Cut,        // clipping the blockers
+    Cells,      // re-tracing the study cells' rays past what remains
+    LitSurface, // projecting the won-lit surface, surface by surface
+    CellHours,  // drawing the re-counted cells
+    Done,
+};
+const char* SunSolarCutPhaseName (SunSolarCutPhase phase);
+
+struct SunSolarCutProgress {
+    static int64_t NowMs ()
+    {
+        return std::chrono::duration_cast<std::chrono::milliseconds> (
+                   std::chrono::steady_clock::now ().time_since_epoch ())
+            .count ();
+    }
+    std::atomic<int> phase { int (SunSolarCutPhase::Surface) };
+    std::atomic<uint64_t> done { 0 }, total { 0 }; // of the current phase; total 0: unknown
+    std::atomic<uint64_t> ticks { 0 };             // inner work units, to tell slow from stuck
+    std::atomic<int64_t> startedMs { NowMs () }, phaseMs { NowMs () }, advancedMs { NowMs () };
+    std::atomic<double> phaseSeconds[int (SunSolarCutPhase::Done)] = {};
+
+    void Enter (SunSolarCutPhase next, uint64_t of = 0)
+    {
+        const int64_t now = NowMs ();
+        const int previous = phase.load ();
+        if (previous >= 0 && previous < int (SunSolarCutPhase::Done))
+            phaseSeconds[previous].store (double (now - phaseMs.load ()) / 1000.0);
+        phase.store (int (next));
+        done.store (0);
+        total.store (of);
+        phaseMs.store (now);
+        advancedMs.store (now);
+    }
+    void Advance (uint64_t count)
+    {
+        done.store (count);
+        advancedMs.store (NowMs ());
+    }
+    void Tick ()
+    {
+        if ((ticks.fetch_add (1) & 1023u) == 0)
+            advancedMs.store (NowMs ());
+    }
 };
 
 // One element's share of the solar cut, cubic metres.
@@ -90,6 +144,9 @@ struct SunObstructionFrame {
     // can show one step's lit surface (the day diagram's clock) on the same cut
     // without tracing again. `drawables` stays the whole slice, hours-shaded.
     GhPreviewDrawables cutDrawables;
+    // The study's cells the cut changes, re-counted over the whole day.
+    evp::sunstudy::SolarCutCellsResult cutCells;
+    std::shared_ptr<SunSolarCutProgress> progress;
     std::string error;
 };
 

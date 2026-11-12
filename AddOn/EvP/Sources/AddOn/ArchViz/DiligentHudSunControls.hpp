@@ -32,6 +32,9 @@ std::string SunStudyCutGainRuns (const std::vector<std::array<double, 2>>& runs)
 // after the cut (+1 h 15 min)". The gain is added: it is sun the removed part
 // blocked and nothing remaining blocks.
 std::string SunStudyCutBeforeAfter (double hoursNow, const std::vector<std::array<double, 2>>& runs);
+// A study cell the cut changes, re-counted over the whole day: "Cell: 5:15h
+// now -> 6:45h after the cut (+1 h 30 min a day)". Empty when it gains nothing.
+std::string SunStudyCutCellBeforeAfter (double before, double after);
 struct HudState;
 
 // The day diagram is a SEMICIRCLE from the first to the last measured sun

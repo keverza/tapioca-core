@@ -14,6 +14,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -91,8 +92,62 @@ void DrawSolarCutGain (HudState& state, const SunObstructionFrame& frame)
         ImGui::TextDisabled ("Hover the lit surface for what it gains");
     else
         ImGui::Text ("%s here, %s", gain.c_str (), SunStudyCutGainRuns (state.sunCutReadingRuns).c_str ());
-    if (!gain.empty () && state.sunCutShowsHours && state.sunReadingState == 1)
+    if (!gain.empty () && state.sunCutShowsHours && state.sunReadingState == 1 && state.sunCutCellAfter < 0.0f)
         ImGui::TextDisabled ("%s", SunStudyCutBeforeAfter (state.sunReadingHours, state.sunCutReadingRuns).c_str ());
+}
+
+// While a stage runs: which, how far, for how long, and whether it still
+// advances. A cut that stops advancing says so rather than looking done (#168).
+void DrawSolarCutProgress (const SunObstructionFrame& frame)
+{
+    if (frame.progress == nullptr)
+        return;
+    const SunSolarCutProgress& progress = *frame.progress;
+    const auto phase = SunSolarCutPhase (progress.phase.load ());
+    if (phase == SunSolarCutPhase::Done)
+        return;
+    const int64_t now = SunSolarCutProgress::NowMs ();
+    const double elapsed = double (now - progress.startedMs.load ()) / 1000.0;
+    const double idle = double (now - progress.advancedMs.load ()) / 1000.0;
+    const uint64_t done = progress.done.load (), total = progress.total.load ();
+    char text[160];
+    float fraction = 0.0f;
+    if (total > 0) {
+        fraction = float (std::clamp (double (done) / double (total), 0.0, 1.0));
+        std::snprintf (text, sizeof (text), "%s %.0f%%, %.0f s", SunSolarCutPhaseName (phase), 100.0 * fraction,
+                       elapsed);
+    }
+    else
+        std::snprintf (text, sizeof (text), "%s..., %.0f s", SunSolarCutPhaseName (phase), elapsed);
+    ImGui::ProgressBar (total > 0 ? fraction : -1.0f * float (ImGui::GetTime ()), ImVec2 (-FLT_MIN, 0.0f), text);
+    ImGui::SetItemTooltip ("Stage %d of 5: %s. %llu of %llu done; %llu work units so far.", int (phase) + 1,
+                           SunSolarCutPhaseName (phase), (unsigned long long) done, (unsigned long long) total,
+                           (unsigned long long) progress.ticks.load ());
+    constexpr double kStalled = 5.0;
+    if (idle > kStalled) {
+        char stalled[200];
+        std::snprintf (stalled, sizeof (stalled), "No progress for %.0f s in \"%s\"", idle,
+                       SunSolarCutPhaseName (phase));
+        ImGui::TextColored (ImVec4 (1.0f, 0.62f, 0.25f, 1.0f), "%s", stalled);
+        ImGui::SetItemTooltip ("The worker has not reported for a while. Moving the point or the slice restarts "
+                               "the cut; if it stalls again at the same place, report the point and slice.");
+    }
+}
+
+// What the finished cut cost, stage by stage, for a report.
+std::string SolarCutTimings (const SunObstructionFrame& frame)
+{
+    if (frame.progress == nullptr)
+        return {};
+    std::string text = "Stage times:";
+    char part[96];
+    for (int i = 0; i < int (SunSolarCutPhase::Done); ++i) {
+        std::snprintf (part, sizeof (part), "%s %s %.2f s", i == 0 ? "" : ",",
+                       SunSolarCutPhaseName (SunSolarCutPhase (i)), frame.progress->phaseSeconds[i].load ());
+        text += part;
+    }
+    std::snprintf (part, sizeof (part), ". Lit-surface work: %.1fM units.", double (frame.exposure.work) / 1.0e6);
+    return text + part;
 }
 
 // The solar cut in numbers: the hours it buys at the point (re-traced after
@@ -122,6 +177,7 @@ void DrawSolarCutSummary (HudState& state, const SunObstructionFrame& frame)
     if (frame.cutStage == SunSolarCutStage::Surface) {
         SunStudyNote ("Cutting the blockers...", "The cutting surface is shown first; what goes follows, then the "
                                                  "shadows re-traced without it.");
+        DrawSolarCutProgress (frame);
         return;
     }
     if (frame.cutObjects.empty ()) {
@@ -145,10 +201,42 @@ void DrawSolarCutSummary (HudState& state, const SunObstructionFrame& frame)
         "shaded by the minutes it gains (pale: the least, deep amber: the most). "
         "It is independent of cell spacing; real openings and remaining shadows stay unlit. "
         "Time precision is still the study timestep, not continuous sun motion.");
-    if (!frame.exposure.error.empty ())
-        SunStudyNote ("Won-lit surface unavailable", frame.exposure.error.c_str ());
+    if (!retraced)
+        DrawSolarCutProgress (frame);
+    // Every way the cut can end is SAID: an empty result is not a stall (#168).
+    const ImVec4 warning (1.0f, 0.62f, 0.25f, 1.0f);
+    const std::string timings = retraced ? SolarCutTimings (frame) : std::string ();
+    if (retraced && !frame.cutCells.error.empty ()) {
+        ImGui::TextColored (warning, "Cells not re-counted");
+        ImGui::SetItemTooltip ("%s", frame.cutCells.error.c_str ());
+    }
+    else if (retraced && frame.cutCells.cells > 0) {
+        std::snprintf (line, sizeof (line), "%zu cell%s gain sun over the day, %.1f m2, up to %s a day",
+                       frame.cutCells.cells, frame.cutCells.cells == 1 ? "" : "s", frame.cutCells.area,
+                       SunStudyCutDuration (double (frame.cutCells.mostGained) * 60.0).c_str ());
+        const std::string detail =
+            std::string ("Each study cell the cut changes, its day re-counted from the study's own result: steps "
+                         "already lit stay lit; a step whose ray ran through the removed part and now runs clear "
+                         "of what remains is won. ") +
+            (frame.cutCells.unplaced > 0 ? std::to_string (frame.cutCells.unplaced) +
+                                               " changed cells have no lattice to draw on and are counted only. "
+                                         : std::string ()) +
+            timings;
+        SunStudyNote (line, detail.c_str ());
+    }
+    if (!frame.exposure.error.empty ()) {
+        ImGui::TextColored (warning, "Won-lit surface failed");
+        ImGui::SetItemTooltip ("%s\n%s", frame.exposure.error.c_str (), timings.c_str ());
+    }
     else if (retraced && !frame.exposure.steps.empty ())
         DrawSolarCutGain (state, frame);
+    else if (retraced)
+        SunStudyNote (frame.wonCells > 0 ? "No won-lit surface on the measured surfaces in this slice"
+                                         : "The cut brings no new sun to the measured surfaces in this slice",
+                      (std::string ("The removed part's shadow in the slice lies on nothing the study measured, or "
+                                    "what remains still shades it. ") +
+                       timings)
+                          .c_str ());
     constexpr size_t kRows = 8;
     if (ImGui::BeginTable ("##suncutobjects", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn ("Element", ImGuiTableColumnFlags_WidthStretch, 1.0f);
@@ -217,6 +305,16 @@ void DrawSunStudyObstructionControls (HudState& state, const std::string& studyI
                 state.sunCutShowsHours = i == 0;
             ImGui::PopStyleColor ();
             ImGui::SetItemTooltip ("%s", baseTips[i]);
+        }
+        if (state.sunCutShowsHours) {
+            ImGui::Checkbox ("Cells after the cut##suncutcells", &state.sunCutShowsCells);
+            ImGui::SetItemTooltip ("The study cells the cut changes, re-counted over the whole day (the study's own "
+                                   "lit steps plus the rays that now run clear past what remains) and drawn in the "
+                                   "hours they would read, in the map's colours. The pink outline marks them.");
+            ImGui::SameLine ();
+            ImGui::Checkbox ("Gain shading##suncutgain", &state.sunCutShowsGain);
+            ImGui::SetItemTooltip ("The exact surface the cut lights in its slice, shaded yellow to amber by the "
+                                   "minutes it gains, over the cells.");
         }
     }
     // The prerequisite, made actionable (#167, #168): Place point arms a click

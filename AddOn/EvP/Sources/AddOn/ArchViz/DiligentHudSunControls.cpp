@@ -72,6 +72,14 @@ std::string SunStudyCutBeforeAfter (double hoursNow, const std::vector<std::arra
            " after the cut (" + SunStudyCutDuration (minutes) + ")";
 }
 
+std::string SunStudyCutCellBeforeAfter (double before, double after)
+{
+    if (!(after > before))
+        return {};
+    return "Cell: " + SunStudyClock (before, true) + " now -> " + SunStudyClock (after, true) + " after the cut (" +
+           SunStudyCutDuration ((after - before) * 60.0) + " a day)";
+}
+
 std::string SunStudyCutGainRuns (const std::vector<std::array<double, 2>>& runs)
 {
     constexpr size_t kShownRuns = 3;

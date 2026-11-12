@@ -371,7 +371,8 @@ V Unit (const V& v)
 bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResult& cut,
                            const std::vector<uint8_t>& blocks, const std::vector<uint32_t>& receivers,
                            const std::vector<SunStep>& steps, SolarExposureResult& result,
-                           const std::function<bool ()>& cancelled, size_t workLimit)
+                           const std::function<bool ()>& cancelled, size_t workLimit,
+                           const std::function<void (size_t done, size_t of)>& progress)
 {
     result = {};
     SolarExposureResult prepared;
@@ -475,7 +476,10 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
         double bandMinutes = 0.25 * timestep;
         while (bandMinutes * kMaxBands < double (steps.size ()) * timestep)
             bandMinutes *= 2.0;
+        size_t surfacesDone = 0;
         for (auto& surface : surfaces) {
+            if (progress)
+                progress (surfacesDone++, surfaces.size ());
             cp::PathsD domain;
             if (!sc::Boolean (cp::ClipType::Union, surface.domain, {}, domain, prepared.error))
                 return false;
@@ -674,9 +678,11 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
     };
     if (!compute ()) {
         result.error = prepared.error;
+        result.work = work;
         return false;
     }
     result = std::move (prepared);
+    result.work = work;
     return true;
 }
 

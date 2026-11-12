@@ -364,6 +364,11 @@ class SunStudyStore final {
     // Refused while the study advances, as ReadAt is.
     bool PointDayOf (const std::string& id, const std::vector<size_t>& samples, PointDay& day,
                      std::string& error) const;
+    // Each sample's stored lit flag per study step (aligned with the series'
+    // steps), for re-counting a sample's day after a solar cut. Refused while
+    // the study advances, as ReadAt is.
+    bool SampleLitSteps (const std::string& id, const std::vector<size_t>& samples,
+                         std::vector<std::vector<uint8_t>>& lit, std::string& error) const;
 
     bool Erase (const std::string& id, uint64_t expectedRevision = 0);
     void Clear ();

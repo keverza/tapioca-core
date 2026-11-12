@@ -9,10 +9,12 @@
 #include "SunStudy/SunStudyPointProfile.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudySolarCut.hpp"
+#include "SunStudy/SunStudySolarCutCells.hpp"
 #include "SunStudy/SunStudyTaskWorker.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <optional>
 #include <set>
 #include <mutex>
@@ -71,7 +73,132 @@ bool RayMeetsBox (const double origin[3], const double direction[3], const geoms
     return true;
 }
 
+constexpr size_t kExposureWorkLimit = 20000000;
+
+// Where a study cell lies, as the display draws it: its square on its own
+// lattice, and the surface whose triangles bound it. Patch cells merge per
+// patch; legacy triangle cells per mesh plane, so a surface's triangle seams
+// do not show in the merged outline. False for a cell with no lattice.
+struct CellPlacer {
+    const evp::sunstudy::StudyRecord& record;
+    const geomsrv::Snapshot& snapshot;
+    std::vector<size_t> firstFace; // per mesh, its first global face
+
+    CellPlacer (const evp::sunstudy::StudyRecord& r, const geomsrv::Snapshot& s) : record (r), snapshot (s)
+    {
+        size_t face = 0;
+        for (const auto& mesh : snapshot.meshes) {
+            firstFace.push_back (face);
+            face += mesh.TriangleCount ();
+        }
+    }
+
+    bool FaceTriangle (size_t global, evp::sunstudy::SolarCutTriangle& out) const
+    {
+        const auto at = std::upper_bound (firstFace.begin (), firstFace.end (), global);
+        if (at == firstFace.begin ())
+            return false;
+        const size_t m = size_t (at - firstFace.begin ()) - 1, t = global - firstFace[m];
+        const auto& mesh = snapshot.meshes[m];
+        if (t >= mesh.TriangleCount ())
+            return false;
+        out.mesh = uint32_t (m);
+        for (size_t c = 0; c < 3; ++c) {
+            const size_t v = 3ull * mesh.triangles[3 * t + c];
+            if (v + 2 >= mesh.vertices.size ())
+                return false;
+            std::copy_n (&mesh.vertices[v], 3, out.v[c]);
+        }
+        return true;
+    }
+
+    static void Square (const double origin[3], const double u[3], const double v[3], double spacing, long i, long j,
+                        double corners[4][3])
+    {
+        const long du[4] = { 0, 1, 1, 0 }, dv[4] = { 0, 0, 1, 1 };
+        for (int k = 0; k < 4; ++k)
+            for (int a = 0; a < 3; ++a)
+                corners[k][a] = origin[a] + u[a] * double (i + du[k]) * spacing + v[a] * double (j + dv[k]) * spacing;
+    }
+
+    // The cell, its surface key, and the global faces bounding that surface
+    // (all of a patch's at once; a legacy cell brings only its own face).
+    bool Place (size_t sample, evp::sunstudy::SolarCutCell& cell, std::vector<size_t>& faces) const
+    {
+        const double spacing = record.gridSpacing;
+        if (!(spacing > 0.0))
+            return false;
+        if (record.IsPatchDomain ()) {
+            const auto& grid = record.patchGrid;
+            if (sample >= grid.spanOf.size () || sample >= grid.cellColumns.size () || sample >= grid.cellRows.size ())
+                return false;
+            const uint32_t span = grid.spanOf[sample];
+            if (span >= grid.spans.size ())
+                return false;
+            const auto& patch = grid.spans[span];
+            Square (patch.origin, patch.uAxis, patch.vAxis, spacing, long (grid.cellColumns[sample]),
+                    long (grid.cellRows[sample]), cell.corners);
+            cell.surface = (uint64_t (1) << 63) | span;
+            return true; // the patch's faces are gathered once, by the caller
+        }
+        const auto& grid = record.sampleGrid;
+        if (sample >= grid.faces.size () || sample >= grid.cellColumns.size () || sample >= grid.cellRows.size ())
+            return false;
+        const uint32_t face = grid.faces[sample];
+        if (face >= grid.layouts.size () || !grid.layouts[face].gridded)
+            return false;
+        const auto& layout = grid.layouts[face];
+        Square (layout.origin, layout.uAxis, layout.vAxis, spacing, layout.uStart + long (grid.cellColumns[sample]),
+                layout.vStart + long (grid.cellRows[sample]), cell.corners);
+        evp::sunstudy::SolarCutTriangle triangle;
+        if (!FaceTriangle (face, triangle))
+            return false;
+        // The plane, quantised: coplanar faces of one mesh share a key.
+        double e1[3], e2[3], n[3];
+        for (int a = 0; a < 3; ++a)
+            e1[a] = triangle.v[1][a] - triangle.v[0][a], e2[a] = triangle.v[2][a] - triangle.v[0][a];
+        n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+        n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+        n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+        const double length = std::sqrt (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (!(length > 0.0))
+            return false;
+        uint64_t key = 1469598103934665603ull;
+        const auto mix = [&key] (int64_t value) {
+            key ^= uint64_t (value);
+            key *= 1099511628211ull;
+        };
+        mix (int64_t (triangle.mesh));
+        for (int a = 0; a < 3; ++a)
+            mix (std::llround (n[a] / length * 1.0e4));
+        mix (std::llround ((n[0] * triangle.v[0][0] + n[1] * triangle.v[0][1] + n[2] * triangle.v[0][2]) / length *
+                           1.0e3));
+        cell.surface = key & ~(uint64_t (1) << 63);
+        faces.push_back (face);
+        return true;
+    }
+};
+
 } // namespace
+
+const char* SunSolarCutPhaseName (SunSolarCutPhase phase)
+{
+    switch (phase) {
+        case SunSolarCutPhase::Surface:
+            return "Cutting surface";
+        case SunSolarCutPhase::Cut:
+            return "Clipping the blockers";
+        case SunSolarCutPhase::Cells:
+            return "Re-tracing study cells";
+        case SunSolarCutPhase::LitSurface:
+            return "Tracing the won-lit surface";
+        case SunSolarCutPhase::CellHours:
+            return "Drawing the re-counted cells";
+        case SunSolarCutPhase::Done:
+            return "Done";
+    }
+    return "";
+}
 
 // The solar cut for one request, on the worker: the point, the slice's suns,
 // which elements may block, then the cut and its preview. Moving the point
@@ -80,10 +207,17 @@ bool RayMeetsBox (const double origin[3], const double direction[3], const geoms
 // re-traced against what remains (the scene's occluders rebuilt).
 static std::shared_ptr<SunObstructionFrame>
 SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
-               const std::function<void (const SunObstructionFrame&)>& publish)
+               const std::function<void (const SunObstructionFrame&)>& publish,
+               const std::shared_ptr<SunSolarCutProgress>& progress)
 {
     const auto& record = *job.record;
     auto frame = std::make_shared<SunObstructionFrame> ();
+    frame->progress = progress;
+    // Every inner loop's cancellation poll doubles as a heartbeat.
+    const auto stop = [&] {
+        progress->Tick ();
+        return cancelled.load ();
+    };
     frame->generation = job.generation;
     frame->studyId = job.key.studyId;
     frame->snapshotId = job.key.snapshotId;
@@ -179,8 +313,9 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
             frame->drawables = GhPreviewDrawables ();
         }
     }
+    progress->Enter (SunSolarCutPhase::Cut);
     evp::sunstudy::SolarCutResult cut;
-    if (!evp::sunstudy::ComputeSolarCut (snapshot, input, cut, lit, [&] { return cancelled.load (); })) {
+    if (!evp::sunstudy::ComputeSolarCut (snapshot, input, cut, lit, stop)) {
         if (cancelled.load ())
             return nullptr;
         frame->error = cut.error;
@@ -217,8 +352,12 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
     // whole snapshot and rebuilt both occluder BVHs on every point move. The
     // after scene is instead the study's own BVHs with the cut elements masked
     // out, plus the few cut elements as they remain, tested directly.
-    if (record.occluders == nullptr)
+    if (record.occluders == nullptr) {
+        frame->exposure.error = "The study kept no occluders, so the shadows cannot be re-traced; run the study again";
+        frame->cutCells.error = frame->exposure.error;
+        progress->Enter (SunSolarCutPhase::Done);
         return frame;
+    }
     std::set<std::string> keptGuids;
     geomsrv::Snapshot keptScene;
     for (const auto& [mesh, kept] : cut.kept)
@@ -265,43 +404,143 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
         if (clear (origin, sun.direction))
             frame->litAfterHours += input.hoursPerStep;
     }
+    // The study's own cells: every ray of the WHOLE DAY that passes through
+    // what goes, from a cell the study read as unlit then, re-traced past
+    // what remains. Clear now, that step is won. The slice's share is the
+    // count the summary gives; the whole day's is what the cell would read.
+    struct Sun {
+        double direction[3] = {};
+        bool up = false, inSlice = false;
+    };
+    const auto& day = record.series.Steps ();
+    std::vector<Sun> suns (day.size ());
+    for (size_t i = 0; i < day.size (); ++i) {
+        const double length =
+            std::sqrt (day[i].direction[0] * day[i].direction[0] + day[i].direction[1] * day[i].direction[1] +
+                       day[i].direction[2] * day[i].direction[2]);
+        if (!(length > 0.0) || day[i].direction[2] <= 0.0)
+            continue;
+        for (int a = 0; a < 3; ++a)
+            suns[i].direction[a] = day[i].direction[a] / length;
+        suns[i].up = true;
+        const int minute = day[i].time.hour * 60 + day[i].time.minute;
+        suns[i].inSlice = minute >= job.key.fromMinute && minute < job.key.toMinute;
+    }
     const size_t samples = record.positions.size () / 3;
+    const bool haveNormals = record.normals.size () == record.positions.size ();
+    progress->Enter (SunSolarCutPhase::Cells, samples);
+    std::vector<size_t> candidates;
+    std::vector<std::vector<uint16_t>> through; // per candidate, the steps whose ray meets what goes
     for (size_t s = 0; s < samples; ++s) {
-        if ((s & 255) == 0 && cancelled.load ())
-            return nullptr;
-        const double* position = &record.positions[3 * s];
-        const double* normal = record.normals.size () == record.positions.size () ? &record.normals[3 * s] : nullptr;
-        for (const auto& step : input.steps) {
-            double direction[3] = { step.direction[0], step.direction[1], step.direction[2] };
-            const double length =
-                std::sqrt (direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2]);
-            if (!(length > 0.0) || direction[2] <= 0.0)
-                continue;
-            for (double& c : direction)
-                c /= length;
-            if (!evp::sunstudy::FacesSun (normal, direction))
-                continue;
-            const double origin[3] = { position[0] + 0.001 * direction[0], position[1] + 0.001 * direction[1],
-                                       position[2] + 0.001 * direction[2] };
-            if (!RayMeetsBox (origin, direction, removedBox, kRemovedBoxPad))
-                continue;
-            // Blocked now, and first by an element the cut changes?
-            double nearest = -1.0;
-            std::string by;
-            for (const auto& engine : { record.occluders->analysis, record.occluders->context }) {
-                if (engine == nullptr)
-                    continue;
-                const auto hit = engine->Raycast (origin, direction, 0.0);
-                if (hit.hit && (nearest < 0.0 || hit.t < nearest)) {
-                    nearest = hit.t;
-                    by = engine->SourceSnapshot ()->meshes[hit.meshIndex].guid;
-                }
-            }
-            if (nearest < 0.0 || cutGuids.count (evp::sunstudy::CanonicalGuid (by)) == 0 || !clear (origin, direction))
-                continue;
-            ++frame->wonCells; // measured-cell count only; never drives the spatial preview boundary
-            break;
+        if ((s & 255) == 0) {
+            if (cancelled.load ())
+                return nullptr;
+            progress->Advance (s);
         }
+        const double* position = &record.positions[3 * s];
+        const double* normal = haveNormals ? &record.normals[3 * s] : nullptr;
+        std::vector<uint16_t> steps;
+        for (size_t i = 0; i < suns.size (); ++i) {
+            if (!suns[i].up || !evp::sunstudy::FacesSun (normal, suns[i].direction))
+                continue;
+            const double* d = suns[i].direction;
+            const double origin[3] = { position[0] + 0.001 * d[0], position[1] + 0.001 * d[1],
+                                       position[2] + 0.001 * d[2] };
+            if (RayMeetsBox (origin, d, removedBox, kRemovedBoxPad))
+                steps.push_back (uint16_t (i));
+        }
+        if (!steps.empty ()) {
+            candidates.push_back (s);
+            through.push_back (std::move (steps));
+        }
+    }
+    // What the study read for them, step by step: the cells are re-counted
+    // from the study's own result, so an unchanged step stays exactly as the
+    // map shows it. Read in batches, so the store's lock is never held long.
+    std::vector<std::vector<uint8_t>> stored;
+    std::string cellsError;
+    for (size_t first = 0; first < candidates.size () && cellsError.empty (); first += 512) {
+        if (cancelled.load ())
+            return nullptr;
+        const std::vector<size_t> batch (candidates.begin () + std::ptrdiff_t (first),
+                                         candidates.begin () +
+                                             std::ptrdiff_t ((std::min) (first + 512, candidates.size ())));
+        std::vector<std::vector<uint8_t>> lit;
+        std::string error;
+        if (!evp::sunstudy::SunStudyStore::Get ().SampleLitSteps (job.key.studyId, batch, lit, error))
+            cellsError = "Cells not re-counted: " + error;
+        else
+            stored.insert (stored.end (), std::make_move_iterator (lit.begin ()), std::make_move_iterator (lit.end ()));
+    }
+    progress->total.store (samples + candidates.size ());
+    const CellPlacer placer (record, snapshot);
+    std::vector<evp::sunstudy::SolarCutCell> changed;
+    std::vector<size_t> legacyFaces;
+    std::vector<std::pair<size_t, uint64_t>> legacySurfaces;
+    std::set<uint32_t> patches;
+    size_t unplaced = 0;
+    const double hoursPerStep = double (record.timestepMinutes) / 60.0;
+    for (size_t c = 0; c < candidates.size (); ++c) {
+        if ((c & 63) == 0) {
+            if (cancelled.load ())
+                return nullptr;
+            progress->Advance (samples + c);
+        }
+        const size_t s = candidates[c];
+        const double* position = &record.positions[3 * s];
+        const bool known = cellsError.empty () && c < stored.size ();
+        size_t won = 0;
+        bool wonInSlice = false;
+        for (const uint16_t i : through[c]) {
+            const double* d = suns[i].direction;
+            const double origin[3] = { position[0] + 0.001 * d[0], position[1] + 0.001 * d[1],
+                                       position[2] + 0.001 * d[2] };
+            if (known) {
+                if (i < stored[c].size () && stored[c][i] != 0)
+                    continue; // lit already
+            }
+            else {
+                // Without the study's own reading: blocked now, and first by an element the cut changes?
+                double nearest = -1.0;
+                std::string by;
+                for (const auto& engine : { record.occluders->analysis, record.occluders->context }) {
+                    if (engine == nullptr)
+                        continue;
+                    const auto hit = engine->Raycast (origin, d, 0.0);
+                    if (hit.hit && (nearest < 0.0 || hit.t < nearest)) {
+                        nearest = hit.t;
+                        by = engine->SourceSnapshot ()->meshes[hit.meshIndex].guid;
+                    }
+                }
+                if (nearest < 0.0 || cutGuids.count (evp::sunstudy::CanonicalGuid (by)) == 0)
+                    continue;
+            }
+            if (!clear (origin, d))
+                continue;
+            ++won;
+            wonInSlice = wonInSlice || suns[i].inSlice;
+        }
+        if (wonInSlice)
+            ++frame->wonCells; // the slice's count; the cells below carry the whole day
+        if (won == 0 || !known)
+            continue;
+        evp::sunstudy::SolarCutCell cell;
+        cell.sample = uint32_t (s);
+        size_t litSteps = 0;
+        for (const uint8_t flag : stored[c])
+            litSteps += flag != 0 ? 1 : 0;
+        cell.before = float (double (litSteps) * hoursPerStep);
+        cell.after = float (double (litSteps + won) * hoursPerStep);
+        std::vector<size_t> faces;
+        if (!placer.Place (s, cell, faces)) {
+            ++unplaced;
+            continue;
+        }
+        for (const size_t face : faces) {
+            legacyFaces.push_back (face);
+            legacySurfaces.emplace_back (face, cell.surface);
+        }
+        changed.push_back (cell);
     }
     std::vector<uint32_t> receivers;
     if (record.IsPatchDomain ()) {
@@ -314,13 +553,55 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
         receivers = record.sampleGrid.faces;
     if (receivers.empty ())
         frame->exposure.error = "Won-lit surfaces need retained triangle/patch receiver geometry";
-    else if (evp::sunstudy::ComputeSolarExposure (snapshot, cut, input.blocks, receivers, input.steps, frame->exposure,
-                                                  [&] { return cancelled.load (); })) {
+    else {
+        progress->Enter (SunSolarCutPhase::LitSurface);
         frame->cutDrawables = frame->drawables;
-        AppendSolarExposure (frame->exposure, frame->drawables);
+        if (evp::sunstudy::ComputeSolarExposure (snapshot, cut, input.blocks, receivers, input.steps, frame->exposure,
+                                                 stop, kExposureWorkLimit, [&] (size_t done, size_t of) {
+                                                     progress->total.store (of);
+                                                     progress->Advance (done);
+                                                 })) {
+            AppendSolarExposure (frame->exposure, frame->drawables);
+        }
     }
     if (cancelled.load ())
         return nullptr;
+
+    // The study's cells, re-counted: drawn in the hours they would read.
+    progress->Enter (SunSolarCutPhase::CellHours, changed.size ());
+    if (!cellsError.empty ())
+        frame->cutCells.error = cellsError;
+    else if (!changed.empty ()) {
+        std::map<uint64_t, std::vector<evp::sunstudy::SolarCutTriangle>> surfaces;
+        std::set<size_t> faces (legacyFaces.begin (), legacyFaces.end ());
+        for (const auto& cell : changed)
+            if (cell.surface >> 63)
+                patches.insert (uint32_t (cell.surface));
+        if (!patches.empty ())
+            for (size_t face = 0; face < record.patchGrid.patchOfTriangle.size (); ++face)
+                if (patches.count (record.patchGrid.patchOfTriangle[face]) != 0)
+                    faces.insert (face);
+        std::map<size_t, uint64_t> surfaceOf; // a legacy face's plane key, from its cells
+        for (const auto& [face, key] : legacySurfaces)
+            surfaceOf[face] = key;
+        for (const size_t face : faces) {
+            evp::sunstudy::SolarCutTriangle triangle;
+            if (!placer.FaceTriangle (face, triangle))
+                continue;
+            uint64_t key = 0;
+            if (record.IsPatchDomain ())
+                key = (uint64_t (1) << 63) | record.patchGrid.patchOfTriangle[face];
+            else if (const auto found = surfaceOf.find (face); found != surfaceOf.end ())
+                key = found->second;
+            else
+                continue;
+            surfaces[key].push_back (triangle);
+        }
+        if (!evp::sunstudy::BuildSolarCutCells (changed, surfaces, frame->cutCells, stop) && cancelled.load ())
+            return nullptr;
+    }
+    frame->cutCells.unplaced += unplaced;
+    progress->Enter (SunSolarCutPhase::Done);
     return frame;
 }
 
@@ -379,7 +660,7 @@ struct SunObstructionController::Impl {
                     if (!cancelled.load () && current == job->key && generation == job->generation)
                         latest = std::move (shown);
                 };
-                auto frame = SolarCutFrame (*job, cancelled, publish);
+                auto frame = SolarCutFrame (*job, cancelled, publish, std::make_shared<SunSolarCutProgress> ());
                 std::lock_guard<std::mutex> lock (mutex);
                 if (frame != nullptr && !cancelled.load () && current == job->key && generation == job->generation)
                     latest = std::move (frame);
