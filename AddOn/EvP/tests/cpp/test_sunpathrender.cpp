@@ -666,7 +666,9 @@ TEST_F (SunPathGui, WithSceneTextTheWordsArePublishedForTheDepthTestedPassNotDra
     Draw ({ state.sunPathMarker[0], state.sunPathMarker[1] });
     ASSERT_EQ (state.sunPathLabels.size (), 16u + 3u + 2u) << "the tooltip's two lines";
     EXPECT_EQ (state.sunPathLabels[19].text, "Sun: 2028-02-29  10:05");
-    EXPECT_TRUE (state.sunPathLabels[19].panel);
+    EXPECT_FALSE (state.sunPathLabels[19].panel) << "plain text: no white plate";
+    EXPECT_EQ (state.sunPathLabels[19].haloRgba, 0u);
+    EXPECT_EQ (state.sunPathLabels[0].haloRgba, 0u) << "no halo block behind compass letters";
     EXPECT_EQ (state.sunPathLabels[20].text, "Analysis date: 2028-02-29");
     EXPECT_FALSE (state.sunPathHoverText.empty ());
 

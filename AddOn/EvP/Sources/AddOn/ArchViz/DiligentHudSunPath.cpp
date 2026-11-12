@@ -429,7 +429,7 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
                 line.centered = false;
                 line.offsetX = 10.0f;
                 line.offsetY = offsetY;
-                line.panel = true;
+                line.panel = false; // plain text, as the owner asked: no white plates
                 state.sunPathLabels.push_back (std::move (line));
                 offsetY += 18.0f;
                 begin = end + 1;

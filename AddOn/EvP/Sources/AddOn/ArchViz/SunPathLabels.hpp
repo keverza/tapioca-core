@@ -24,13 +24,15 @@ struct SunPathLabelSpec {
     double tangent[3] = {};
     std::string text;
     uint32_t rgba = 0x505058FFu;
-    uint32_t haloRgba = 0xFFFFFFB0u;
+    // No halo by default: this shader adds the halo width straight to the MSDF
+    // coverage, so even 1.25 filled each glyph quad as a white block (#182).
+    uint32_t haloRgba = 0;
     float sizePoints = 13.0f; // scaled by the DPI at projection
     // Centred on the anchor (compass letters), or left-aligned with its bottom
     // just above it (hour numbers, the tooltip's lines).
     bool centered = true;
     float offsetX = 0.0f, offsetY = 0.0f; // pixels, before DPI scaling
-    bool panel = false;                   // a light plate (the tooltip)
+    bool panel = false;                   // a light plate behind the text
 };
 
 // Specs behind the camera or outside the clip volume are dropped. Every label

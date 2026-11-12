@@ -100,8 +100,11 @@ const SunPathMoment* At (const std::vector<const SunPathMoment*>& day, int minut
 // One surface row between two traced days: a quad wherever both days have the
 // same two consecutive clock steps. A step either day lacks (below the horizon,
 // outside the window) leaves a hole rather than inventing a direction.
-size_t AppendStrip (const SunPathFrame& frame, const SunPathBandDay& a, const SunPathBandDay& b, uint32_t rgba,
-                    GhPreviewBucket& bucket)
+// The part of the row between fractions t0 and t1 of the way from a to b.
+// Inner edges interpolate the two days' matched directions (normalised lerp):
+// display only, and every row still starts and ends on exact stored steps.
+size_t AppendStrip (const SunPathFrame& frame, const SunPathBandDay& a, const SunPathBandDay& b, double t0, double t1,
+                    uint32_t rgba, GhPreviewBucket& bucket)
 {
     const auto other = Flatten (b);
     size_t quads = 0;
@@ -112,11 +115,24 @@ size_t AppendStrip (const SunPathFrame& frame, const SunPathBandDay& a, const Su
             if (b0 == nullptr || b1 == nullptr)
                 continue;
             const auto base = uint32_t (bucket.meshVertices.size ());
-            for (const float* direction : { run[i - 1].direction, run[i].direction, b1->direction, b0->direction }) {
+            const auto corner = [&] (const float* from, const float* to, double t) {
+                float direction[3];
+                double d[3], length = 0.0;
+                for (int axis = 0; axis < 3; ++axis) {
+                    d[axis] = double (from[axis]) * (1.0 - t) + double (to[axis]) * t;
+                    length += d[axis] * d[axis];
+                }
+                length = length > 0.0 ? std::sqrt (length) : 1.0;
+                for (int axis = 0; axis < 3; ++axis)
+                    direction[axis] = float (d[axis] / length);
                 float at[3];
                 SunPathWorld (frame, direction, at);
                 bucket.meshVertices.push_back ({ at[0], at[1], at[2], 0.0f, 0.0f, 0.0f, rgba });
-            }
+            };
+            corner (run[i - 1].direction, b0->direction, t0);
+            corner (run[i].direction, b1->direction, t0);
+            corner (run[i].direction, b1->direction, t1);
+            corner (run[i - 1].direction, b0->direction, t1);
             for (const uint32_t index : { 0u, 1u, 2u, 0u, 2u, 3u })
                 bucket.meshIndices.push_back (base + index);
             ++quads;
@@ -132,15 +148,27 @@ void AppendSurface (const SunPathFrame& frame, const SunPathBand& band, const Su
         return;
     out.surfaceStride = stride;
     size_t from = 0;
+    // Each row is split at its middle and each half belongs to the traced days
+    // on its side. A Preview month is one mid-month day, so it owns half of the
+    // row before it and half of the row after: its own calendar span, not the
+    // two months the whole rows covered (#179).
+    const auto hotBetween = [&] (size_t first, size_t last) {
+        bool hot = view.highlightAll;
+        for (size_t d = first; d <= last && !hot; ++d)
+            hot = Highlighted (band.days[d], view);
+        return hot;
+    };
     while (from + 1 < count) {
         const size_t to = (std::min) (from + stride, count - 1);
-        bool hot = view.highlightAll;
-        for (size_t d = from; d <= to && !hot; ++d)
-            hot = Highlighted (band.days[d], view);
+        const size_t middle = from + (to - from) / 2;
         // Highlighted rows change hue as well as alpha: a stronger yellow alone
         // was barely visible over a whole-year surface (#179).
-        out.surfaceQuads += AppendStrip (frame, band.days[from], band.days[to], hot ? Amber (hotAlpha) : Yellow (alpha),
-                                         out.arcs.translucent);
+        const bool firstHot = hotBetween (from, middle);
+        const bool secondHot = hotBetween (middle + 1, to); // middle < to always
+        out.surfaceQuads += AppendStrip (frame, band.days[from], band.days[to], 0.0, 0.5,
+                                         firstHot ? Amber (hotAlpha) : Yellow (alpha), out.arcs.translucent);
+        out.surfaceQuads += AppendStrip (frame, band.days[from], band.days[to], 0.5, 1.0,
+                                         secondHot ? Amber (hotAlpha) : Yellow (alpha), out.arcs.translucent);
         from = to;
     }
 }

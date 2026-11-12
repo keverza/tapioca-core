@@ -184,7 +184,7 @@ TEST (SunPathScene, EveryDaySurfaceJoinsMatchingStepsAndLeavesHolesWhereADayLack
     SunPathSceneGeometry scene;
     AppendSunPathAnalysis (Frame (), band, SunPathPreviewForm::EveryDay, {}, scene);
     EXPECT_EQ (scene.surfaceStride, 1u);
-    EXPECT_EQ (scene.surfaceQuads, 3u + 3u) << "only 09-12 on both rows";
+    EXPECT_EQ (scene.surfaceQuads, 2u * (3u + 3u)) << "only 09-12 on both rows, each split in two halves";
     EXPECT_EQ (scene.arcs.translucent.meshIndices.size (), scene.surfaceQuads * 6);
     EXPECT_TRUE (scene.arcs.depthTested.meshIndices.empty ()) << "the surface never writes depth";
     // The first and last day are the boundary lines.
@@ -200,7 +200,7 @@ TEST (SunPathScene, LongEveryDayPeriodBoundsItsSurfaceRowsAndSaysSo)
     SunPathSceneGeometry scene;
     AppendSunPathAnalysis (Frame (), band, SunPathPreviewForm::EveryDay, {}, scene);
     EXPECT_EQ (scene.surfaceStride, 5u);
-    EXPECT_LE (scene.surfaceQuads, 74u * 8u);
+    EXPECT_LE (scene.surfaceQuads, 2u * 74u * 8u);
     const auto caption = SunPathSceneCaption (SunPathPreviewForm::EveryDay, band, scene, false);
     EXPECT_NE (caption.find ("365 traced days"), std::string::npos);
     EXPECT_NE (caption.find ("joined every 5 traced days"), std::string::npos);
@@ -236,10 +236,16 @@ TEST (SunPathScene, MonthlyPreviewDrawsEachRepresentativeDayAndHighlightsTheMont
     EXPECT_EQ (SegmentsOf (scene.bold.depthTested, Amber (255)), PiecesOf (band.days[1]));
     EXPECT_EQ (Segments (scene.bold.depthTested), PiecesOf (band.days[1]));
     EXPECT_EQ (Segments (scene.arcs.depthTested), PiecesOf (band.days[0]) + PiecesOf (band.days[2]));
-    EXPECT_EQ (scene.surfaceQuads, 12u);
-    // Both surface rows touch February: amber, not just a stronger yellow.
-    for (const auto& vertex : scene.arcs.translucent.meshVertices)
-        EXPECT_EQ (vertex.rgba, Amber (130));
+    EXPECT_EQ (scene.surfaceQuads, 24u) << "two rows of six steps, each split in two halves";
+    // February owns the half of each row on its side: its own span, amber, not
+    // the two whole rows (about two months of sky) it used to light.
+    size_t amber = 0, yellow = 0;
+    for (const auto& vertex : scene.arcs.translucent.meshVertices) {
+        amber += vertex.rgba == Amber (130) ? 1 : 0;
+        yellow += vertex.rgba == SunPathDisplayRgba (255, 214, 64, 30) ? 1 : 0;
+    }
+    EXPECT_EQ (amber, 12u * 4u);
+    EXPECT_EQ (yellow, 12u * 4u);
     const auto caption = SunPathSceneCaption (SunPathPreviewForm::MonthlyPreview, band, scene, true);
     EXPECT_NE (caption.find ("one representative day per month"), std::string::npos);
     EXPECT_NE (caption.find ("calendar weights"), std::string::npos);
@@ -367,4 +373,24 @@ TEST (SunPathLabels, TooltipLinesSampleDepthAtTheSunAndScaleWithDpi)
     EXPECT_FLOAT_EQ (labels[0].fontSize, 26.0f);
     EXPECT_TRUE (labels[0].backgroundPanel);
     EXPECT_TRUE (ProjectSunPathLabels ({ line }, nullptr, 800, 600, 1.0f).empty ());
+}
+
+TEST (SunPathScene, SurfaceHalvesMeetAtTheRowMiddleOnTheDome)
+{
+    // Two traced days: the halves share their inner edge, which lies on the
+    // dome between the two exact rows.
+    const auto band = Band ({ Day (1, 15, 10, 11), Day (2, 15, 10, 11) });
+    SunPathSceneGeometry scene;
+    AppendSunPathAnalysis (Frame (), band, SunPathPreviewForm::MonthlyPreview, {}, scene);
+    ASSERT_EQ (scene.surfaceQuads, 2u);
+    const auto& v = scene.arcs.translucent.meshVertices;
+    ASSERT_EQ (v.size (), 8u);
+    // First half: corners 2/3 are at t = 0.5; second half: corners 0/1 at t = 0.5.
+    EXPECT_FLOAT_EQ (v[3].x, v[4].x);
+    EXPECT_FLOAT_EQ (v[3].y, v[4].y);
+    EXPECT_FLOAT_EQ (v[2].z, v[5].z);
+    const auto frame = Frame ();
+    for (const auto& vertex : v)
+        EXPECT_NEAR (std::hypot (vertex.x - frame.centre[0], vertex.y - frame.centre[1], vertex.z - frame.centre[2]),
+                     frame.radius, 1e-3);
 }
