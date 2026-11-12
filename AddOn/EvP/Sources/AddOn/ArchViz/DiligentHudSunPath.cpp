@@ -22,6 +22,7 @@
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/SunPathBandDraw.hpp"
 #include "ArchViz/SunPathCompass.hpp"
+#include "ArchViz/SunPathLabels.hpp"
 #include "ArchViz/SunPathMoment.hpp"
 #include "ArchViz/SunPathScene.hpp"
 #include "Geometry/MeshStore.hpp"
@@ -35,6 +36,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 namespace geomsrv::archviz {
@@ -113,8 +115,44 @@ void CompassLabel (ImDrawList* draw, ImVec2 centre, ImVec2 tangent, const char* 
     }
 }
 
-// The compass letters stay HUD text: the rings and ticks are scene geometry.
-// ⚠️ TEXT IS NOT OCCLUDED. A label behind a building still shows; see #179.
+constexpr const char* kCompass[] = { "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                                     "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW" };
+
+// The sunpath's words as world-anchored specs (#182): drawn through the scene
+// text layer after the scene, so the model hides them. Compass letters run
+// along the ring's tangent; hour numbers sit by the summer arc.
+void AppendLabelSpecs (const sunstudyhud::SunPath& path, const double centre[3], double radius, double groundZ,
+                       std::vector<SunPathLabelSpec>& specs)
+{
+    for (int i = 0; i < 16; ++i) {
+        const double angle = path.northRadians - double (i) * 2.0 * kPi / 16.0;
+        SunPathLabelSpec spec;
+        spec.anchor[0] = centre[0] + radius * 1.14 * std::cos (angle);
+        spec.anchor[1] = centre[1] + radius * 1.14 * std::sin (angle);
+        spec.anchor[2] = groundZ;
+        spec.tangent[0] = -radius * 1.14 * 0.001 * std::sin (angle);
+        spec.tangent[1] = radius * 1.14 * 0.001 * std::cos (angle);
+        spec.text = kCompass[i];
+        spec.rgba = i == 0 ? 0xD23C3CFFu : 0x505058FFu;
+        specs.push_back (std::move (spec));
+    }
+    for (const auto& arc : path.arcs)
+        if (arc.kind == 2)
+            for (const auto& point : arc.points)
+                if (point.minute % 120 == 0) {
+                    SunPathLabelSpec spec;
+                    for (int axis = 0; axis < 3; ++axis)
+                        spec.anchor[axis] = centre[axis] + radius * point.direction[axis];
+                    spec.text = std::to_string (point.minute / 60);
+                    spec.rgba = 0x606068FFu;
+                    spec.sizePoints = 12.0f;
+                    spec.centered = false;
+                    specs.push_back (std::move (spec));
+                }
+}
+
+// The ImGui fallback, only while the scene text layer is unavailable. It is
+// NOT occluded: it paints after the scene with no depth test.
 void DrawCompassLabels (const sunstudyhud::SunPath& path, const double centre[3], double radius, double groundZ,
                         const float viewProj[16], uint32_t width, uint32_t height, ImDrawList* draw)
 {
@@ -123,8 +161,6 @@ void DrawCompassLabels (const sunstudyhud::SunPath& path, const double centre[3]
                                   centre[1] + radius * ring * std::sin (angle), groundZ };
         return Project (point, viewProj, width, height, screen);
     };
-    constexpr const char* kCompass[] = { "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-                                         "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW" };
     for (int i = 0; i < 16; ++i) {
         const double angle = path.northRadians - double (i) * 2.0 * kPi / 16.0;
         ImVec2 before, after, screen;
@@ -182,6 +218,7 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
     state.sunPathBandNote.clear ();
     state.sunPathHoverText.clear ();
     state.sunPathSceneKey = 0; // hidden unless this frame publishes geometry below
+    state.sunPathLabels.clear ();
     if (!state.sunPathShown) {
         // Release the potentially year-sized storage once on the hidden
         // transition; subsequent hidden frames do no cache work.
@@ -211,10 +248,15 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
                               centre[2] + radius * direction[2] };
         return Project (p, viewProj, width, height, screen);
     };
-    DrawCompassLabels (*path, centre, radius, groundZ, viewProj, width, height, draw);
+    // The scene text layer draws the words, depth-tested, next frame at that
+    // frame's camera. ImGui only stands in while that layer is unavailable.
+    const bool sceneText = state.sunPathSceneText;
+    AppendLabelSpecs (*path, centre, radius, groundZ, state.sunPathLabels);
+    if (!sceneText)
+        DrawCompassLabels (*path, centre, radius, groundZ, viewProj, width, height, draw);
     // Hour numbers on the summer arc, where the analemmas cross it.
     for (const auto& arc : path->arcs)
-        if (arc.kind == 2)
+        if (arc.kind == 2 && !sceneText)
             for (const auto& point : arc.points)
                 if (point.minute % 120 == 0) {
                     ImVec2 s;
@@ -368,11 +410,35 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
     state.sunPathMarker[0] = s.x;
     state.sunPathMarker[1] = s.y;
     if (hot) {
+        state.sunPathHoverText =
+            SunPathHoverCaption (SunPathMomentCaption (sun.year, sun.month, sun.day, sun.minute), analysis ());
+        if (sceneText) {
+            // One plate per line, anchored at the sun: the scene depth there
+            // hides the tooltip with the sun it describes (#182).
+            const std::string& text = state.sunPathHoverText;
+            float offsetY = -4.0f;
+            size_t begin = 0;
+            while (begin <= text.size ()) {
+                const size_t end = (std::min) (text.find ('\n', begin), text.size ());
+                SunPathLabelSpec line;
+                for (int axis = 0; axis < 3; ++axis)
+                    line.anchor[axis] = centre[axis] + radius * sun.direction[axis];
+                line.text = text.substr (begin, end - begin);
+                line.rgba = 0x141414FFu;
+                line.haloRgba = 0;
+                line.centered = false;
+                line.offsetX = 10.0f;
+                line.offsetY = offsetY;
+                line.panel = true;
+                state.sunPathLabels.push_back (std::move (line));
+                offsetY += 18.0f;
+                begin = end + 1;
+            }
+            return;
+        }
         // The disc itself is scene geometry; only the hover affordance is HUD.
         ImDrawList* front = ImGui::GetForegroundDrawList ();
         front->AddCircle (s, 10.0f, IM_COL32 (60, 40, 0, 130), 0, 1.0f);
-        state.sunPathHoverText =
-            SunPathHoverCaption (SunPathMomentCaption (sun.year, sun.month, sun.day, sun.minute), analysis ());
         const ImVec2 textAt (s.x + 12.0f, s.y - 7.0f);
         const ImVec2 size = ImGui::CalcTextSize (state.sunPathHoverText.c_str ());
         front->AddRectFilled (ImVec2 (textAt.x - 5.0f, textAt.y - 4.0f),

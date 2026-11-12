@@ -35,6 +35,7 @@
 #include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/SunPathMoment.hpp"
 #include "ArchViz/SunPathBand.hpp"
+#include "ArchViz/SunPathLabels.hpp"
 #include "ArchViz/TraceAnnotationLayer.hpp"
 #include "SunStudy/SunStudyPointProfile.hpp"
 
@@ -319,6 +320,11 @@ struct HudState {
     // changes. `sunPathSceneKey` is this frame's: 0 hides the scene channel.
     std::shared_ptr<const SunPathSceneGeometry> sunPathScene;
     uint64_t sunPathSceneKey = 0, sunPathSceneBuilt = 0;
+    // The sunpath's words (#182), world-anchored, drawn by the scene text pass
+    // with depth; `sunPathSceneText` is that pass's readiness, set before the
+    // HUD each frame. False: the HUD draws them itself, unoccluded.
+    std::vector<SunPathLabelSpec> sunPathLabels;
+    bool sunPathSceneText = false;
     std::string sunPathBandNote;
     std::string sunPathHoverText; // the exact text sent to the sun or band-fallback hover
     bool sunPathMarkerValid = false;

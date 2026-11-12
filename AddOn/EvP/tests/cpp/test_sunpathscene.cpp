@@ -3,6 +3,7 @@
 // runs and surfaces never bridge a missing step, and that colours are display
 // sRGB linearised for the scene's sRGB target.
 
+#include "ArchViz/SunPathLabels.hpp"
 #include "ArchViz/SunPathScene.hpp"
 
 #include <gtest/gtest.h>
@@ -299,4 +300,71 @@ TEST (SunPathScene, ArcPiecesFollowTheDomeAndEndExactlyOnTheStoredDirections)
     GhPreviewBucket same;
     AppendSunPathArcPiece (frame, a, a, 0xFFFFFFFFu, same);
     EXPECT_TRUE (same.lineVertices.empty ()) << "a zero-length hop draws nothing";
+}
+
+// #182: the sunpath's words are projected at draw time and hidden by depth.
+namespace {
+// Row-vector clip = (0.01x, 0.01y, 0.01z + 0.3, 1), as SunPathGui's fixture.
+constexpr float kLabelMatrix[16] = { 0.01f, 0, 0, 0, 0, 0.01f, 0, 0, 0, 0, 0.01f, 0, 0, 0, 0.3f, 1 };
+} // namespace
+
+TEST (SunPathLabels, ProjectedAtTheAnchorHiddenByDepthAndKeptInPlace)
+{
+    SunPathLabelSpec spec;
+    spec.anchor[0] = 10.0;
+    spec.anchor[1] = 20.0;
+    spec.anchor[2] = 5.0;
+    spec.text = "N";
+    const auto labels = ProjectSunPathLabels ({ spec }, kLabelMatrix, 800, 600, 1.0f);
+    ASSERT_EQ (labels.size (), 1u);
+    const auto& label = labels[0];
+    EXPECT_FLOAT_EQ (label.depthAnchor.x, 440.0f);
+    EXPECT_FLOAT_EQ (label.depthAnchor.y, 240.0f);
+    EXPECT_NEAR (label.anchorDepth, 0.35f, 1e-6f);
+    EXPECT_TRUE (label.hideWhenOccluded);
+    EXPECT_FALSE (label.fadeWhenOccluded);
+    EXPECT_TRUE (label.allowOverlap) << "a ring label must not be displaced off its ring";
+    EXPECT_FLOAT_EQ (label.anchor.x, 440.0f);
+    EXPECT_LT (label.anchor.y, 240.0f) << "a centred label is lifted to sit on its anchor";
+    EXPECT_FLOAT_EQ (label.rotationRadians, 0.0f);
+}
+
+TEST (SunPathLabels, CompassTextFollowsTheProjectedTangentAndEdgeOnOrBehindIsDropped)
+{
+    SunPathLabelSpec along;
+    along.text = "E";
+    along.tangent[0] = 0.01;
+    SunPathLabelSpec up = along;
+    up.tangent[0] = 0.0;
+    up.tangent[1] = 0.01; // +y world is up the screen
+    SunPathLabelSpec edgeOn = along;
+    edgeOn.tangent[0] = 0.0;
+    edgeOn.tangent[2] = 0.01; // depth only: no screen direction
+    SunPathLabelSpec behind = along;
+    behind.anchor[2] = -40.0; // clip z < 0
+    const auto labels = ProjectSunPathLabels ({ along, up, edgeOn, behind }, kLabelMatrix, 800, 600, 1.0f);
+    ASSERT_EQ (labels.size (), 2u);
+    EXPECT_NEAR (labels[0].rotationRadians, 0.0f, 1e-6f);
+    EXPECT_NEAR (labels[1].rotationRadians, -1.5707963f, 1e-5f);
+}
+
+TEST (SunPathLabels, TooltipLinesSampleDepthAtTheSunAndScaleWithDpi)
+{
+    SunPathLabelSpec line;
+    line.anchor[0] = 10.0;
+    line.anchor[1] = 20.0;
+    line.anchor[2] = 5.0;
+    line.text = "Sun: 2028-02-29  10:05";
+    line.centered = false;
+    line.offsetX = 10.0f;
+    line.offsetY = 14.0f;
+    line.panel = true;
+    const auto labels = ProjectSunPathLabels ({ line }, kLabelMatrix, 800, 600, 2.0f);
+    ASSERT_EQ (labels.size (), 1u);
+    EXPECT_FLOAT_EQ (labels[0].anchor.x, 460.0f);
+    EXPECT_FLOAT_EQ (labels[0].anchor.y, 268.0f);
+    EXPECT_FLOAT_EQ (labels[0].depthAnchor.x, 440.0f) << "depth is read at the sun, not under the plate";
+    EXPECT_FLOAT_EQ (labels[0].fontSize, 26.0f);
+    EXPECT_TRUE (labels[0].backgroundPanel);
+    EXPECT_TRUE (ProjectSunPathLabels ({ line }, nullptr, 800, 600, 1.0f).empty ());
 }

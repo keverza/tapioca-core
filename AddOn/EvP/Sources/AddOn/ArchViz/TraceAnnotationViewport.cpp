@@ -5,6 +5,7 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/SceneTextLayer.hpp"
 #include "ArchViz/SceneTextLiveCheck.hpp"
+#include "ArchViz/SunPathLabels.hpp"
 
 #include <windows.h>
 
@@ -52,9 +53,9 @@ ProjectedDrawList UpdateAndDrawTraceAnnotations (
                 selected->SelectedFrame (), selected->drawList, selected->nodeIndex, selected->frameIndex, viewProj,
                 width, height, dpiScale, annotationsOnly, hudState, input, dimensionHoverState);
             const annotation::DimensionStyle dimensionStyle = AnnotationDimensionStyle (hudState);
-            annotations = BuildTraceAnnotations (
-                selected->SelectedFrame (), viewProj, width, height, dpiScale, annotationsOnly, measureText,
-                &placementHistory, dimensionStyle, primitiveFilter);
+            annotations =
+                BuildTraceAnnotations (selected->SelectedFrame (), viewProj, width, height, dpiScale, annotationsOnly,
+                                       measureText, &placementHistory, dimensionStyle, primitiveFilter);
             if (!annotations.labels.empty () && layer.IsReady () &&
                 layer.DrawProjected (device, context, depthView, annotations.labels, width, height, dpiScale, nearClip,
                                      farClip, perspective)) {
@@ -68,6 +69,14 @@ ProjectedDrawList UpdateAndDrawTraceAnnotations (
     else {
         dimensionHoverState = {};
     }
+    // The sunpath's words (#182): last frame's world specs, at THIS frame's
+    // camera, hidden where the scene depth is in front. The HUD falls back to
+    // its own unoccluded text only while this layer is not ready.
+    hudState.sunPathSceneText = layer.IsReady () && !annotationsOnly;
+    if (hudState.sunPathSceneText && !blanked && hudState.sunPathSceneKey != 0 && !hudState.sunPathLabels.empty ())
+        layer.DrawProjected (device, context, depthView,
+                             ProjectSunPathLabels (hudState.sunPathLabels, viewProj, width, height, dpiScale), width,
+                             height, dpiScale, nearClip, farClip, perspective);
     if (!annotationsOnly)
         DrawSceneTextLiveCheck (layer, device, context, hudState, width, height, dpiScale);
     context->SetRenderTargets (1, &colorTarget, depthTarget, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);

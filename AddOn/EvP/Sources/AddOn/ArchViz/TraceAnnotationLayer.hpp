@@ -59,6 +59,12 @@ struct ScreenLabel {
     ScreenPoint depthAnchor;
     float anchorDepth = 1.0f;
     bool fadeWhenOccluded = false;
+    // Hidden, not faded, where the scene depth is in front of `anchorDepth`
+    // (sampled at depthAnchor + the fragment's offset). Wins over the fade.
+    bool hideWhenOccluded = false;
+    // Drawn where it is, even over another label: a label tied to a ring or a
+    // marker that a displaced placement would misplace.
+    bool allowOverlap = false;
     bool resolvedPlacement = false;
 };
 
@@ -93,9 +99,9 @@ bool FitFrameProjection (const annotation::Frame& frame, const float viewProj[16
                          float marginPixels, float fittedViewProj[16]);
 
 std::optional<std::size_t> HitTestTraceDimension (const annotation::Frame& frame, const float viewProj[16],
-                                                   uint32_t width, uint32_t height, float dpiScale,
-                                                   bool fitSelectedFrame, const ScreenPoint& cursor,
-                                                   const annotation::DimensionStyle& style = {});
+                                                  uint32_t width, uint32_t height, float dpiScale,
+                                                  bool fitSelectedFrame, const ScreenPoint& cursor,
+                                                  const annotation::DimensionStyle& style = {});
 
 std::optional<std::size_t> UpdateDimensionHover (DimensionHoverState& state,
                                                  const std::shared_ptr<const annotation::DrawList>& source,

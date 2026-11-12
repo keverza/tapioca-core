@@ -608,11 +608,12 @@ bool SceneTextLayer::DrawProjected (Diligent::IRenderDevice* device, Diligent::I
                               std::clamp (label.haloWidthPixels, 0.0f, 8.0f), label.backgroundPanel });
         prepared.back ().edgeInsetPixels = 4.0f * dpiScale;
         prepared.back ().rotationRadians = label.rotationRadians;
-        if (label.fadeWhenOccluded) {
+        prepared.back ().allowOverlap = label.allowOverlap;
+        if (label.fadeWhenOccluded || label.hideWhenOccluded) {
             prepared.back ().depthUvOffset[0] = (label.depthAnchor.x - label.anchor.x) / float (surfaceWidth);
             prepared.back ().depthUvOffset[1] = (label.depthAnchor.y - label.anchor.y) / float (surfaceHeight);
             prepared.back ().anchorDepth = label.anchorDepth;
-            prepared.back ().occlusionMode = 2.0f;
+            prepared.back ().occlusionMode = label.hideWhenOccluded ? 1.0f : 2.0f; // the PS: < 1.5 hides
         }
     }
     return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, depthView, nearClip, farClip,

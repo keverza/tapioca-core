@@ -637,6 +637,44 @@ TEST_F (SunPathGui, SceneGeometryIsPublishedForTheSceneRebuiltOnlyOnChangeAndHid
     EXPECT_EQ (state.sunPathScene, nullptr);
 }
 
+TEST_F (SunPathGui, WithSceneTextTheWordsArePublishedForTheDepthTestedPassNotDrawnByImGui)
+{
+    s_path->northRadians = 0.5;
+    SunPathArc summer;
+    summer.kind = 2;
+    for (int minute = 600; minute <= 840; minute += 10) {
+        SunPathPoint point;
+        point.minute = minute;
+        point.direction[0] = 0.6f;
+        point.direction[2] = 0.8f;
+        summer.points.push_back (point);
+    }
+    s_path->arcs.push_back (summer);
+    state.sunPathSceneText = true;
+    state.sunShownDate = 20280229;
+    Draw ();
+    ASSERT_EQ (state.sunPathLabels.size (), 16u + 3u) << "16 compass letters, hours 10, 12 and 14";
+    EXPECT_EQ (state.sunPathLabels[0].text, "N");
+    EXPECT_NE (state.sunPathLabels[0].tangent[1], 0.0) << "letters run along the ring";
+    EXPECT_EQ (state.sunPathLabels[16].text, "10");
+    size_t textVertices = 0;
+    for (int i = 0; i < ImGui::GetDrawData ()->CmdListsCount; ++i)
+        textVertices += size_t (ImGui::GetDrawData ()->CmdLists[i]->VtxBuffer.Size);
+    EXPECT_EQ (textVertices, 0u) << "no unoccluded ImGui text while the scene text layer draws the words";
+
+    ASSERT_TRUE (state.sunPathMarkerValid);
+    Draw ({ state.sunPathMarker[0], state.sunPathMarker[1] });
+    ASSERT_EQ (state.sunPathLabels.size (), 16u + 3u + 2u) << "the tooltip's two lines";
+    EXPECT_EQ (state.sunPathLabels[19].text, "Sun: 2028-02-29  10:05");
+    EXPECT_TRUE (state.sunPathLabels[19].panel);
+    EXPECT_EQ (state.sunPathLabels[20].text, "Analysis date: 2028-02-29");
+    EXPECT_FALSE (state.sunPathHoverText.empty ());
+
+    state.sunPathShown = false;
+    Draw ();
+    EXPECT_TRUE (state.sunPathLabels.empty ());
+}
+
 TEST_F (SunPathGui, MissingSceneBoundsHideTheSceneChannel)
 {
     Draw ();
