@@ -365,7 +365,7 @@ struct HudState {
     std::string sunCutCellsPreset, sunCutGainPreset;
     std::vector<overlaylayers::ColourStop> sunCutCellsCustom, sunCutGainCustom;
     bool sunCutCellsFlipped = false, sunCutGainFlipped = false;
-    uint32_t sunCutOutlineRgba = 0xF240BFFFu; // kSolarCutCellsEdgeRgba
+    uint32_t sunCutOutlineRgba = 0x000000FFu; // kSolarCutCellsEdgeRgba, black
     uint32_t sunCutLitEdgeRgba = 0xD08A10FFu; // kSolarCutWonEdgeRgba
     uint32_t sunCutStepRgba = 0xFFE27AB0u;    // kSolarCutWonRgba
     // The hovered study cell's whole-day hours before and after the cut; -1

@@ -251,7 +251,7 @@ TEST (SolarCutReplay, FromEnvironment)
         std::cout << "cell " << cell << " (" << positions[3 * cell] << ", " << positions[3 * cell + 1] << ", "
                   << positions[3 * cell + 2] << ") " << seconds << " s: removed " << frame->removedVolume << " m3 of "
                   << frame->cutObjects.size () << ", won " << frame->wonCells << ", cells " << frame->cutCells.cells
-                  << " (" << frame->cutCells.area << " m2)"
+                  << " (" << frame->cutCells.area << " m2, " << frame->cutCells.outline.size () << " outline edges)"
                   << ", lit triangles " << e.triangles.size () << ", surfaces " << e.surfacesDone << "/"
                   << e.surfacesShaded << ", skipped " << e.skipped << ", work " << e.work;
         if (!frame->error.empty ())

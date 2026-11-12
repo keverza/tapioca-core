@@ -544,12 +544,6 @@ void FillOnModel (const std::vector<evp::sunstudy::SolarCutTriangle>& triangles,
         }
     }
 }
-void EdgesOnModel (const std::vector<std::array<double, 6>>& edges, GhPreviewDrawables& drawables,
-                   uint32_t rgba = kSolarCutWonEdgeRgba)
-{
-    for (const auto& edge : edges)
-        Segment ({ edge[0], edge[1], edge[2] }, { edge[3], edge[4], edge[5] }, rgba, drawables.depthTested);
-}
 // The lit surface's edges lifted with its fill: each edge end takes the
 // normal of a fill triangle at that corner (the outline and the fill are the
 // same paths), so the edge stays on the lifted sheet, not under it.
@@ -613,8 +607,12 @@ void AppendSolarCutCells (const evp::sunstudy::SolarCutCellsResult& cells,
     if (fill)
         for (const auto& group : cells.groups)
             FillOnModel (group.triangles, (colour (group.after) & 0xFFFFFF00u) | 0xE6u, drawables);
+    // The outline is a contour on the surface, not a guide to what is hidden:
+    // the translucent bucket's lines are depth-tested and get no dashed hidden
+    // pass, so behind the model it is simply not drawn.
     if (outline)
-        EdgesOnModel (cells.outline, drawables, outlineRgba);
+        for (const auto& edge : cells.outline)
+            Segment ({ edge[0], edge[1], edge[2] }, { edge[3], edge[4], edge[5] }, outlineRgba, drawables.translucent);
 }
 
 void AppendSolarExposureStep (const evp::sunstudy::SolarExposureResult& exposure, int minute,

@@ -605,7 +605,8 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
         const std::string gain = SunStudyCutGain (state.sunCutReadingRuns);
         if (!gain.empty ())
             text += "\nIn the slice: " + gain + ", " + SunStudyCutGainRuns (state.sunCutReadingRuns);
-        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right, text, kSolarCutCellsEdgeRgba);
+        // The cut's pink accent, not the outline's colour: black would vanish on the tip.
+        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right, text, kSunObstructionPink);
         return;
     }
     if (state.sunView == kObstructionView && state.sunObstructionMode == 3 && state.sunCutReadingMinute >= 0) {

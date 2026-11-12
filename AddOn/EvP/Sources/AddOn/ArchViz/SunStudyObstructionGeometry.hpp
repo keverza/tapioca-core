@@ -78,9 +78,9 @@ constexpr uint32_t kSolarCutCapRgba = 0x67204A60u; // darker section faces, dist
 constexpr uint32_t kSolarCutEdgeRgba = 0x9E1E73FFu;
 constexpr uint32_t kSolarCutWonRgba = 0xFFE27AB0u;     // sun the cut wins: a warm yellow, apart from the map's colours
 constexpr uint32_t kSolarCutWonEdgeRgba = 0xD08A10FFu; // its perimeter
-// The re-counted study cells' merged perimeter: the cut's own pink, so the
-// cells read as "these come from the cut" over the hours map.
-constexpr uint32_t kSolarCutCellsEdgeRgba = 0xF240BFFFu;
+// The re-counted study cells' merged perimeter: black, a contour that reads
+// over any colour of the hours map (the HUD can change it).
+constexpr uint32_t kSolarCutCellsEdgeRgba = 0x000000FFu;
 void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3],
                             GhPreviewDrawables& drawables);
 // The lit surface's colours as the HUD set them (#168). DISPLAY ONLY; the

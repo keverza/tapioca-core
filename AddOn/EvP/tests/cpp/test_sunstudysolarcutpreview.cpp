@@ -295,8 +295,12 @@ TEST (SunStudySolarCutPreview, TheHudsColoursReachTheLitSurfaceAndTheCellOutline
     cells.outline = { { 0, 0, 0, 1, 0, 0 } };
     GhPreviewDrawables outlined;
     AppendSolarCutCells (cells, [] (float) { return 0xFFFFFFFFu; }, outlined, false, true, 0x00FF00FFu);
-    ASSERT_FALSE (outlined.depthTested.lineVertices.empty ());
-    EXPECT_EQ (outlined.depthTested.lineVertices.back ().rgba, 0x00FF00FFu);
+    // Depth-tested but never dashed behind the model: the translucent bucket's
+    // lines get no hidden pass, the depth-tested bucket's do.
+    EXPECT_TRUE (outlined.depthTested.lineVertices.empty ());
+    ASSERT_FALSE (outlined.translucent.lineVertices.empty ());
+    EXPECT_EQ (outlined.translucent.lineVertices.back ().rgba, 0x00FF00FFu);
+    EXPECT_EQ (kSolarCutCellsEdgeRgba, 0x000000FFu); // black by default
 }
 
 TEST (SunStudySolarCutPreview, WhatRemainsOfACutElementIsNotGhosted)

@@ -85,6 +85,36 @@ TEST (SunStudySolarCutCells, CellsAreGroupedByHoursClippedToTheSurfaceAndOutline
     EXPECT_FALSE (result.Read (99, before, after));
 }
 
+// #168: where two surfaces meet with changed cells on both sides, their shared
+// edge is inside the lit cells, not a contour: it must not be drawn. The
+// second surface is wound the other way, so its frame faces down -- the seam
+// is found by the side the cells are on, not by which way the edges run.
+TEST (SunStudySolarCutCells, ASeamBetweenTwoLitSurfacesIsNotOutlined)
+{
+    std::map<uint64_t, std::vector<SolarCutTriangle>> surfaces;
+    surfaces[7] = { Tri ({ 0, 0, 0 }, { 1, 0, 0 }, { 1, 0.5, 0 }), Tri ({ 0, 0, 0 }, { 1, 0.5, 0 }, { 0, 0.5, 0 }) };
+    surfaces[8] = { Tri ({ 1, 0, 0 }, { 2, 0.5, 0 }, { 2, 0, 0 }), Tri ({ 1, 0, 0 }, { 1, 0.5, 0 }, { 2, 0.5, 0 }) };
+    const std::vector<SolarCutCell> cells = { Cell (0, 0, 1, 1.0f, 2.0f, 7), Cell (1, 0, 2, 1.0f, 2.0f, 7),
+                                              Cell (2, 0, 3, 1.0f, 2.0f, 8), Cell (3, 0, 4, 1.0f, 2.0f, 8) };
+    SolarCutCellsResult result;
+    ASSERT_TRUE (BuildSolarCutCells (cells, surfaces, result)) << result.error;
+    double perimeter = 0.0;
+    for (const auto& e : result.outline) {
+        perimeter += std::hypot (e[3] - e[0], e[4] - e[1]);
+        const bool alongSeam = std::abs (e[0] - 1.0) < 1e-9 && std::abs (e[3] - 1.0) < 1e-9;
+        EXPECT_FALSE (alongSeam) << "seam drawn at x = 1";
+    }
+    EXPECT_NEAR (perimeter, 2.0 + 0.5 + 2.0 + 0.5, 1.0e-6); // the union's, not each surface's
+
+    // Cells on one side only: the shared edge IS the contour there, and stays.
+    SolarCutCellsResult one;
+    ASSERT_TRUE (BuildSolarCutCells ({ cells[0], cells[1] }, surfaces, one)) << one.error;
+    double onePerimeter = 0.0;
+    for (const auto& e : one.outline)
+        onePerimeter += std::hypot (e[3] - e[0], e[4] - e[1]);
+    EXPECT_NEAR (onePerimeter, 3.0, 1.0e-6);
+}
+
 // A changed cell with no surface to draw on is counted, not invented.
 TEST (SunStudySolarCutCells, ACellWithoutItsSurfaceIsCountedNotDrawn)
 {
