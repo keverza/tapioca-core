@@ -69,7 +69,7 @@ void DrawContextList (viewpointstudy::Settings& settings, const viewpointstudy::
     const bool open = ImGui::TreeNodeEx ("##viewpoint-context", ImGuiTreeNodeFlags_DefaultOpen, "Context: %u object(s)",
                                          unsigned (settings.context.size ()));
     if (settings.context.empty ())
-        ImGui::SetItemTooltip ("None: every ray reaches the radius.");
+        geomsrv::archviz::hudshell::ItemTip ("None: every ray reaches the radius.");
     if (!open)
         return;
     size_t remove = settings.context.size ();
@@ -119,13 +119,13 @@ void DrawGumballHint (const HudState& state)
     static const char* const kAxes[3] = { "X", "Y", "Z" };
     const char* what = state.viewpointHotHandle == 1 ? "the target" : "the view point";
     if (state.viewpointHotHandle != state.viewpointActiveHandle)
-        ImGui::SetTooltip ("Click to select %s; drag to move it in plan", what);
+        geomsrv::archviz::hudshell::HoverTip ("Click to select %s; drag to move it in plan", what);
     else if (state.viewpointHotPart == kGumballCentre)
-        ImGui::SetTooltip ("Drag to place %s on the surface under the cursor", what);
+        geomsrv::archviz::hudshell::HoverTip ("Drag to place %s on the surface under the cursor", what);
     else if (state.viewpointHotPart == kGumballPlane)
-        ImGui::SetTooltip ("Drag to move %s in plan, keeping its height", what);
+        geomsrv::archviz::hudshell::HoverTip ("Drag to move %s in plan, keeping its height", what);
     else
-        ImGui::SetTooltip ("Drag to move %s along %s", what, kAxes[state.viewpointHotPart]);
+        geomsrv::archviz::hudshell::HoverTip ("Drag to move %s along %s", what, kAxes[state.viewpointHotPart]);
 }
 
 // A target-facing field of view turns with its target, whichever moved: set
@@ -203,8 +203,9 @@ void ConfigureViewpoint (HudState& state, viewpointstudy::Settings settings)
 bool DrawSharedContextToggle (viewpointstudy::Settings& settings)
 {
     const bool changed = ImGui::Checkbox ("Whole scene as Context", &settings.contextAll);
-    ImGui::SetItemTooltip ("Every element occludes, Analysis and Focus included. Shared by Surface visibility, "
-                           "Point visibility and Viewpoint.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Every element occludes, Analysis and Focus included. Shared by Surface visibility, "
+        "Point visibility and Viewpoint.");
     return changed;
 }
 
@@ -374,9 +375,10 @@ bool DrawPathProfile (HudState& state, double length)
         state.analysisProfileDrag = -1;
     if (over && state.analysisProfileDrag < 0) {
         const auto [s, z] = world (mouse);
-        ImGui::SetTooltip ("%.2f m along, %.2f m up\nDrag a point or handle; double-click adds a point, right-click "
-                           "removes one.\nThe along-path slider moves the view point.",
-                           s, z);
+        geomsrv::archviz::hudshell::HoverTip (
+            "%.2f m along, %.2f m up\nDrag a point or handle; double-click adds a point, right-click "
+            "removes one.\nThe along-path slider moves the view point.",
+            s, z);
     }
 
     // ---- the selected anchor, and keeping it ----------------------------------
@@ -389,7 +391,7 @@ bool DrawPathProfile (HudState& state, double length)
             MoveAnchor (profile, size_t (selected), values[0], values[1]);
             edited ();
         }
-        ImGui::SetItemTooltip ("The selected profile point; the ends stay at the path's ends.");
+        geomsrv::archviz::hudshell::ItemTip ("The selected profile point; the ends stay at the path's ends.");
     }
     if (ImGui::SmallButton ("Flat##profile")) {
         double z = ZAt (profile, here);
@@ -397,7 +399,7 @@ bool DrawPathProfile (HudState& state, double length)
         state.analysisProfileAnchor = -1;
         edited ();
     }
-    ImGui::SetItemTooltip ("One height all along: the point's current one.");
+    geomsrv::archviz::hudshell::ItemTip ("One height all along: the point's current one.");
     ImGui::SameLine ();
     ImGui::BeginDisabled (!state.analysisProfileDirty || state.analysisPath == nullptr);
     if (ImGui::SmallButton ("Save to Polyline")) {
@@ -406,7 +408,8 @@ bool DrawPathProfile (HudState& state, double length)
         analysispathsource::RequestSave (state.analysisPath->guid, profile);
     }
     ImGui::EndDisabled ();
-    ImGui::SetItemTooltip ("Keep the profile on the Polyline as Tapioca metadata (%s), one undo step.", kPropertyKey);
+    geomsrv::archviz::hudshell::ItemTip ("Keep the profile on the Polyline as Tapioca metadata (%s), one undo step.",
+                                         kPropertyKey);
     ImGui::SameLine ();
     if (state.analysisProfileDirty)
         ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "%s",
@@ -425,8 +428,9 @@ void DrawAnalysisPathButtons (HudState& state)
     ImGui::SameLine ();
     if (ImGui::Button (none ? "Import path" : "Replace path"))
         analysispathsource::RequestImport ();
-    ImGui::SetItemTooltip ("Take the first Polyline selected in Archicad, at its storey's level, as the path the "
-                           "point travels along.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Take the first Polyline selected in Archicad, at its storey's level, as the path the "
+        "point travels along.");
     if (none)
         return;
     ImGui::SameLine ();
@@ -434,7 +438,7 @@ void DrawAnalysisPathButtons (HudState& state)
         state.analysisPath.reset (); // the point stays where the path left it
         state.analysisPathError.clear ();
     }
-    ImGui::SetItemTooltip ("Forget the path; the point stays where it is.");
+    geomsrv::archviz::hudshell::ItemTip ("Forget the path; the point stays where it is.");
 }
 
 // The point on the path at its place, at the profile's height there; with `steer`
@@ -547,11 +551,11 @@ bool DrawAnalysisPathControls (HudState& state, viewpointstudy::Settings& settin
         state.analysisPathAt = path->Length () > 0.0 ? metres / float (path->Length ()) : 0.0f;
         moved = true;
     }
-    ImGui::SetItemTooltip ("Where the point is on the path, from its start; ctrl+click to type.");
+    geomsrv::archviz::hudshell::ItemTip ("Where the point is on the path, from its start; ctrl+click to type.");
     moved |= DrawPathProfile (state, path->Length ());
     if (steer) {
         moved |= ImGui::Checkbox ("Look along path", &state.viewpointAlongPath);
-        ImGui::SetItemTooltip ("The field of view faces the way the path runs at the point.");
+        geomsrv::archviz::hudshell::ItemTip ("The field of view faces the way the path runs at the point.");
     }
     return moved && PlaceOnPath (state, settings, steer && state.viewpointAlongPath);
 }
@@ -575,12 +579,13 @@ void DrawViewpointHudSection (HudState& state)
             changed = true;
         }
     }
-    ImGui::SetItemTooltip ("Click elements in the viewer to add or remove them; the viewer selection is not used.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Click elements in the viewer to add or remove them; the viewer selection is not used.");
     DrawContextList (settings, status, changed);
     if (!settings.contextAll) {
         const auto fromSelection = [&state] {
-            ImGui::SetItemTooltip ("From the viewer selection: %u element(s)",
-                                   unsigned (state.visibilitySelection.size ()));
+            geomsrv::archviz::hudshell::ItemTip ("From the viewer selection: %u element(s)",
+                                                 unsigned (state.visibilitySelection.size ()));
         };
         ImGui::BeginDisabled (state.visibilitySelection.empty ());
         if (ImGui::SmallButton ("Replace Context")) {
@@ -624,7 +629,7 @@ void DrawViewpointHudSection (HudState& state)
     DrawAnalysisPathButtons (state);
     changed |= ImGui::InputScalarN ("Point XYZ (m)", ImGuiDataType_Double, settings.options.point.data (), 3, nullptr,
                                     nullptr, "%.2f");
-    ImGui::SetItemTooltip ("Or drag the gumball: X/Y/Z arrows along an axis, the centre disc in plan.");
+    geomsrv::archviz::hudshell::ItemTip ("Or drag the gumball: X/Y/Z arrows along an axis, the centre disc in plan.");
     if (changed)
         settings.pointValid = true;
     changed |= placed;
@@ -640,13 +645,15 @@ void DrawViewpointHudSection (HudState& state)
         options.mode = evp::sunstudy::ViewpointMode (mode);
         changed = true;
     }
-    ImGui::SetItemTooltip ("Plan isovist: all round, in the horizontal plane at the point's height. Field of view: "
-                           "the same within a view angle. Spherical isovist: every direction within a band of "
-                           "elevations; the surfaces it reaches within the radius are coloured.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Plan isovist: all round, in the horizontal plane at the point's height. Field of view: "
+        "the same within a view angle. Spherical isovist: every direction within a band of "
+        "elevations; the surfaces it reaches within the radius are coloured.");
     if (options.mode == evp::sunstudy::ViewpointMode::FieldOfView) {
         ImGui::Checkbox ("Face target", &state.viewpointFaceTarget);
-        ImGui::SetItemTooltip ("The view turns to face a target point, and keeps facing it as either moves. "
-                               "Point visibility's cone shares the target.");
+        geomsrv::archviz::hudshell::ItemTip (
+            "The view turns to face a target point, and keeps facing it as either moves. "
+            "Point visibility's cone shares the target.");
         if (state.viewpointFaceTarget) {
             if (ImGui::SmallButton (state.viewpointPlacingTarget ? "Click a model surface...##target"
                                                                  : "Place target")) {
@@ -655,13 +662,13 @@ void DrawViewpointHudSection (HudState& state)
                 state.viewpointPickingContext = false;
                 state.viewpointDragging = false;
             }
-            ImGui::SetItemTooltip ("Click the model where the view should face.");
+            geomsrv::archviz::hudshell::ItemTip ("Click the model where the view should face.");
             if (ImGui::InputScalarN ("Target XYZ (m)##viewpoint", ImGuiDataType_Double, state.visibilityTarget, 3,
                                      nullptr, nullptr, "%.2f")) {
                 state.visibilityTargetSet = true;
                 state.visibilityTargetEdited = true;
             }
-            ImGui::SetItemTooltip ("Or click its blue marker in the view and drag its gumball.");
+            geomsrv::archviz::hudshell::ItemTip ("Or click its blue marker in the view and drag its gumball.");
             if (!state.visibilityTargetSet)
                 ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "Place a target to face.");
             else
@@ -669,14 +676,14 @@ void DrawViewpointHudSection (HudState& state)
         }
         else {
             changed |= ImGui::InputDouble ("bearing (deg)", &options.bearingDegrees, 5.0, 45.0, "%.0f");
-            ImGui::SetItemTooltip ("The view's centre, counterclockwise from +X (east).");
+            geomsrv::archviz::hudshell::ItemTip ("The view's centre, counterclockwise from +X (east).");
         }
         float angle = float (options.fieldOfViewDegrees);
         if (ImGui::SliderFloat ("view angle", &angle, 1.0f, 359.0f, "%.0f deg")) {
             options.fieldOfViewDegrees = double (angle);
             changed = true;
         }
-        ImGui::SetItemTooltip ("The field of view's full horizontal angle.");
+        geomsrv::archviz::hudshell::ItemTip ("The field of view's full horizontal angle.");
     }
     else if (options.mode == evp::sunstudy::ViewpointMode::Sphere) {
         float sky = float (options.maxElevationDegrees), ground = float (options.minElevationDegrees);
@@ -685,25 +692,27 @@ void DrawViewpointHudSection (HudState& state)
             options.minElevationDegrees = (std::min) (options.minElevationDegrees, double (sky) - 1.0);
             changed = true;
         }
-        ImGui::SetItemTooltip ("The highest elevation seen: 90 is the whole sky, 0 none of it.");
+        geomsrv::archviz::hudshell::ItemTip ("The highest elevation seen: 90 is the whole sky, 0 none of it.");
         if (ImGui::SliderFloat ("ground down to##viewpoint", &ground, -90.0f, 89.0f, "%.0f deg")) {
             options.minElevationDegrees = double (ground);
             options.maxElevationDegrees = (std::max) (options.maxElevationDegrees, double (ground) + 1.0);
             changed = true;
         }
-        ImGui::SetItemTooltip ("The lowest elevation seen: -90 straight down, 0 nothing below the horizon.");
+        geomsrv::archviz::hudshell::ItemTip (
+            "The lowest elevation seen: -90 straight down, 0 nothing below the horizon.");
         float grid = float (options.surfaceCellMetres);
         if (ImGui::SliderFloat ("surface grid##viewpoint", &grid, 0.0f, 2.0f, grid < 0.05f ? "auto" : "%.2f m")) {
             options.surfaceCellMetres = grid < 0.05f ? 0.0 : double (grid);
             changed = true;
         }
-        ImGui::SetItemTooltip ("The cell side surfaces are tested at; patch borders are cut where they cross a cell.\n"
-                               "Auto picks one from the radius. Finer finds smaller shadows and is slower; a run\n"
-                               "over its budget is coarsened.");
+        geomsrv::archviz::hudshell::ItemTip (
+            "The cell side surfaces are tested at; patch borders are cut where they cross a cell.\n"
+            "Auto picks one from the radius. Finer finds smaller shadows and is slower; a run\n"
+            "over its budget is coarsened.");
     }
     changed |= AdaptiveSlider ("Radius (m)", settings.options.radius, state.viewpointRadiusRange,
                                state.viewpointRadiusHeld, 0.1, 10000.0, "%.1f");
-    ImGui::SetItemTooltip ("The range rescales on release; ctrl+click to type a value.");
+    geomsrv::archviz::hudshell::ItemTip ("The range rescales on release; ctrl+click to type a value.");
     if (changed)
         ConfigureViewpoint (state, std::move (settings));
     ImGui::SeparatorText ("Display");
@@ -734,7 +743,8 @@ void DrawViewpointHudSection (HudState& state)
     else if (status.result != nullptr)
         ImGui::Text ("%.1f m2 visible; %u of %u rays hit Context", status.result->area,
                      unsigned (status.result->collisionCount), unsigned (status.result->perimeter.size ()));
-    ImGui::SetItemTooltip ("Edge: the blocked colour where Context stops a ray, the open colour at the radius.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Edge: the blocked colour where Context stops a ray, the open colour at the radius.");
     // A plan isovist or field of view, kept in the project as an Archicad Fill.
     const auto baked = viewpointbake::LastBake ();
     if (baked.serial != state.viewpointBakeSerial) {
@@ -756,8 +766,9 @@ void DrawViewpointHudSection (HudState& state)
         }
     }
     ImGui::EndDisabled ();
-    ImGui::SetItemTooltip ("Make the area shown an Archicad Fill on the floor plan's active story, with the Fill "
-                           "tool's current settings. One undo step.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Make the area shown an Archicad Fill on the floor plan's active story, with the Fill "
+        "tool's current settings. One undo step.");
     if (!state.viewpointBakeNote.empty ()) {
         ImGui::SameLine ();
         if (state.viewpointBakeNote.rfind ("Not baked", 0) == 0)
@@ -851,8 +862,9 @@ void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint
     if (state.viewpointPickingContext && state.hover.valid && !state.wantsMouse) {
         auto context = settings->context;
         const bool adding = evp::sunstudy::ToggleViewpointContext (context, state.hover.guid);
-        ImGui::SetTooltip ("Click to %s Context:\n%s", adding ? "add to" : "remove from",
-                           ElementLabel (visibilitystudy::ViewerCapture ().get (), state.hover.guid).c_str ());
+        geomsrv::archviz::hudshell::HoverTip (
+            "Click to %s Context:\n%s", adding ? "add to" : "remove from",
+            ElementLabel (visibilitystudy::ViewerCapture ().get (), state.hover.guid).c_str ());
     }
     handle (0, settings->options.point.data (), kViewPointRgba);
     DrawGumballHint (state);

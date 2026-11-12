@@ -1,4 +1,5 @@
 #include "ArchViz/DiligentHudShell.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/TapiocaUI/Foundation/AnalysisRunControl.hpp"
 
 #include "ArchViz/AnalysisLiveRerun.hpp"
@@ -57,10 +58,10 @@ bool RoleRow (const char* label, std::vector<std::string>& role, std::vector<std
     ImGui::PushID (label);
     ImGui::Text ("%s  %u element(s)", label, unsigned (role.size ()));
     if (tip != nullptr)
-        ImGui::SetItemTooltip ("%s", tip);
+        geomsrv::archviz::hudshell::ItemTip ("%s", tip);
     const bool haveSelection = !selection.empty ();
     const auto fromSelection = [&selection] {
-        ImGui::SetItemTooltip ("From the viewer selection: %u element(s)", unsigned (selection.size ()));
+        geomsrv::archviz::hudshell::ItemTip ("From the viewer selection: %u element(s)", unsigned (selection.size ()));
     };
     ImGui::BeginDisabled (!haveSelection);
     if (ImGui::SmallButton ("Replace")) {
@@ -226,7 +227,7 @@ bool DrawPointControls (HudState& state, viewpointstudy::Settings& shared, const
         shared.pointValid = true;
         ConfigureViewpoint (state, shared);
     }
-    ImGui::SetItemTooltip ("Or drag the gumball; the Viewpoint tab shares this point.");
+    geomsrv::archviz::hudshell::ItemTip ("Or drag the gumball; the Viewpoint tab shares this point.");
     if (state.viewpointPlacementMiss)
         ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "Point missed the model; click a surface.");
     if (DrawAnalysisPathControls (state, shared, false))
@@ -234,8 +235,9 @@ bool DrawPointControls (HudState& state, viewpointstudy::Settings& shared, const
     ImGui::SeparatorText ("View");
     const char* const views[] = { "View cone", "View sphere" };
     changed |= Choice ("##visibility-view", state.visibilityView, views, 2);
-    ImGui::SetItemTooltip ("Cone: what the point sees toward its target. Sphere: all round, within a band of "
-                           "elevations.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Cone: what the point sees toward its target. Sphere: all round, within a band of "
+        "elevations.");
     if (state.visibilityView == 0) {
         // Until the user moves it, the target follows Analysis's centre.
         if (!state.visibilityTargetEdited && capture != nullptr) {
@@ -258,30 +260,32 @@ bool DrawPointControls (HudState& state, viewpointstudy::Settings& shared, const
             state.visibilityTargetEdited = true;
             changed = true;
         }
-        ImGui::SetItemTooltip ("Where the cone looks: Analysis's centre until you move it. The cone keeps its target "
-                               "when the point moves; drag the target's gumball too.");
+        geomsrv::archviz::hudshell::ItemTip (
+            "Where the cone looks: Analysis's centre until you move it. The cone keeps its target "
+            "when the point moves; drag the target's gumball too.");
         if (ImGui::SmallButton (state.viewpointPlacingTarget ? "Click a model surface...##target" : "Place target")) {
             state.viewpointPlacingTarget = true;
             state.viewpointPlacing = false;
             state.viewpointDragging = false;
         }
-        ImGui::SetItemTooltip ("Click the model where the cone should look.");
+        geomsrv::archviz::hudshell::ItemTip ("Click the model where the cone should look.");
         ImGui::SameLine ();
         ImGui::BeginDisabled (!state.visibilityTargetEdited);
         if (ImGui::SmallButton ("Analysis centre")) {
             state.visibilityTargetEdited = false;
             state.visibilityTargetFollowKey.clear ();
         }
-        ImGui::SetItemTooltip ("Aim at the centre of Analysis's bounding box again, and follow it.");
+        geomsrv::archviz::hudshell::ItemTip ("Aim at the centre of Analysis's bounding box again, and follow it.");
         ImGui::EndDisabled ();
         changed |= ImGui::SliderFloat ("cone angle", &state.visibilityConeDegrees, 10.0f, 179.0f, "%.0f deg");
-        ImGui::SetItemTooltip ("The cone's full opening angle.");
+        geomsrv::archviz::hudshell::ItemTip ("The cone's full opening angle.");
     }
     else {
         changed |= ImGui::SliderFloat ("sky up to", &state.visibilitySkyDegrees, -89.0f, 90.0f, "%.0f deg");
-        ImGui::SetItemTooltip ("The highest elevation seen: 90 is the whole sky, 0 none of it.");
+        geomsrv::archviz::hudshell::ItemTip ("The highest elevation seen: 90 is the whole sky, 0 none of it.");
         changed |= ImGui::SliderFloat ("ground down to", &state.visibilityGroundDegrees, -90.0f, 89.0f, "%.0f deg");
-        ImGui::SetItemTooltip ("The lowest elevation seen: -90 straight down, 0 nothing below the horizon.");
+        geomsrv::archviz::hudshell::ItemTip (
+            "The lowest elevation seen: -90 straight down, 0 nothing below the horizon.");
         // Keep a band at least a degree wide; the edited end wins.
         if (state.visibilityGroundDegrees > state.visibilitySkyDegrees - 1.0f) {
             if (ImGui::IsItemEdited ())
@@ -346,7 +350,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
     ImGui::SeparatorText ("Sampling");
     changed |= ImGui::SliderFloat ("square cells", &state.visibilityGrid, 0.25f, 10.0f, "%.2f m",
                                    ImGuiSliderFlags_Logarithmic);
-    ImGui::SetItemTooltip ("Cells over coplanar surface patches.");
+    geomsrv::archviz::hudshell::ItemTip ("Cells over coplanar surface patches.");
     if (state.visibilityOrigin == 0)
         changed |= ImGui::SliderInt ("Focus aim points", &state.visibilityAimPoints, 1, 128);
     ImGui::EndDisabled ();
@@ -419,8 +423,9 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
             state.visibilityLiveUpdate = false; // an explicit stop must not immediately rerun
         }
         ImGui::Checkbox ("Live update", &state.visibilityLiveUpdate);
-        ImGui::SetItemTooltip ("After a run, edits in Archicad and changed settings re-run it; the last result stays "
-                               "up until the new one replaces it. Off: a change clears the result.");
+        geomsrv::archviz::hudshell::ItemTip (
+            "After a run, edits in Archicad and changed settings re-run it; the last result stays "
+            "up until the new one replaces it. Off: a change clears the result.");
         if (!following && ownResult && capture != nullptr && status.snapshotId != 0 && status.snapshotId != capture->id)
             ImGui::TextDisabled ("The model changed since this run.");
     }
@@ -436,9 +441,9 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
         hudshell::ErrorNotice ("Visibility failed: " + status.error);
     else if (!changed && status.complete && ownResult && scene.sunStudy.studyId == status.studyId) {
         ImGui::Text ("%.1f%% mean visible", status.meanVisibility * 100.0);
-        ImGui::SetItemTooltip ("%u cells, %u aim point(s), %.2f M rays, %.0f ms", unsigned (status.sampleCount),
-                               unsigned (status.aimPointCount), double (status.rayCount) / 1.0e6,
-                               status.analysisMilliseconds);
+        geomsrv::archviz::hudshell::ItemTip ("%u cells, %u aim point(s), %.2f M rays, %.0f ms",
+                                             unsigned (status.sampleCount), unsigned (status.aimPointCount),
+                                             double (status.rayCount) / 1.0e6, status.analysisMilliseconds);
     }
 
     // Both visibility tabs share the gradient; the tint redraws with it at once.
@@ -465,7 +470,7 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
         state.visibilityGradientCustom.clear ();
         state.visibilityGradientFlipped = false;
     }
-    ImGui::SetItemTooltip ("Back to the two default colours.");
+    geomsrv::archviz::hudshell::ItemTip ("Back to the two default colours.");
     if (ownResult) {
         if (ImGui::SmallButton ("Clear visibility")) {
             visibilitystudy::ClearDisplay ();
@@ -473,8 +478,8 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene,
             if (!live)
                 liverun::Disarm (follow); // nothing brings a cleared result back
         }
-        ImGui::SetItemTooltip ("%s, %u tinted element(s)", scene.sunStudy.studyId.c_str (),
-                               unsigned (scene.sunStudy.elementsAttached));
+        geomsrv::archviz::hudshell::ItemTip ("%s, %u tinted element(s)", scene.sunStudy.studyId.c_str (),
+                                             unsigned (scene.sunStudy.elementsAttached));
     }
 }
 

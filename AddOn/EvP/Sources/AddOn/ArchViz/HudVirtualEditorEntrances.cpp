@@ -112,7 +112,8 @@ void EntrancesPanel (Session& s)
     if (ImGui::SmallButton ("Path to entrance"))
         ReachSelectedPathEntrance (s);
     if (ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("The selected path's nearer end moves onto the nearest entrance, fixed at its threshold.");
+        geomsrv::archviz::hudshell::HoverTip (
+            "The selected path's nearer end moves onto the nearest entrance, fixed at its threshold.");
     const auto entrances = doc.landscape->entrances;
     for (const auto& entrance : entrances) {
         ImGui::PushID (static_cast<int> (entrance.id));

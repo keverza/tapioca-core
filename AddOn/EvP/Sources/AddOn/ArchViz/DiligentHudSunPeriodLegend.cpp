@@ -1,4 +1,5 @@
 #include "ArchViz/DiligentHudSunPeriodLegend.hpp"
+#include "ArchViz/HudShell.hpp"
 
 namespace geomsrv::archviz {
 
@@ -14,7 +15,7 @@ void LegendItem (ImU32 colour, const char* text, const char* meaning)
     ImGui::SameLine (0.0f, 4.0f);
     ImGui::TextDisabled ("%s", text);
     if (meaning != nullptr && ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("%s", meaning);
+        geomsrv::archviz::hudshell::HoverTip ("%s", meaning);
     ImGui::SameLine ();
 }
 

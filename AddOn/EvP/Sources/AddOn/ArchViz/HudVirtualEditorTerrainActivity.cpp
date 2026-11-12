@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include <imgui.h>
 #include <string>
@@ -36,8 +37,9 @@ void TerrainBuildSection (Session& s)
         RequestTerrainBuild (s);
     ImGui::EndDisabled ();
     if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip ("The terrain shown follows the paths as you edit, from its slopes directly. Build mesh "
-                           "triangulates it as an Archicad Mesh is built from it: seconds on a large site.");
+        geomsrv::archviz::hudshell::HoverTip (
+            "The terrain shown follows the paths as you edit, from its slopes directly. Build mesh "
+            "triangulates it as an Archicad Mesh is built from it: seconds on a large site.");
     if (!status.previewed)
         return;
     ImGui::Text ("Preview: cut %.1f m3   fill %.1f m3", status.previewCut, status.previewFill);

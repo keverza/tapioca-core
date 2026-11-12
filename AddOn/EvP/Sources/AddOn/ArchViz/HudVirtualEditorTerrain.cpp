@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "ArchViz/ArchVizLog.hpp"
@@ -729,8 +730,8 @@ void TerrainDesignPanel (Session& s)
     if (ImGui::Checkbox ("Rebuild terrain (3D)", &live))
         SetTerrainLive (s, live);
     if (ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("Off: only the paths are drawn and edited, and no terrain is rebuilt. "
-                           "On: the terrain is rebuilt from the paths as they are.");
+        geomsrv::archviz::hudshell::HoverTip ("Off: only the paths are drawn and edited, and no terrain is rebuilt. "
+                                              "On: the terrain is rebuilt from the paths as they are.");
     if (!s.terrainLive) {
         ImGui::TextWrapped ("Paths only: the terrain is not rebuilt or shown. Turn it on to rebuild it.");
         return;
@@ -755,8 +756,9 @@ void TerrainDesignPanel (Session& s)
         SetTerrainBand (s, band);
     ImGui::EndDisabled ();
     if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip ("Off: the terrain follows every path's paved outline, junctions and kerbs included. "
-                           "On: only the chosen path's band, as sampled stations.");
+        geomsrv::archviz::hudshell::HoverTip (
+            "Off: the terrain follows every path's paved outline, junctions and kerbs included. "
+            "On: only the chosen path's band, as sampled stations.");
     TerrainBuildSection (s);
     const auto status = GetTerrainDesignStatus (s);
     const auto* current = CurrentTerrainDesign (s);

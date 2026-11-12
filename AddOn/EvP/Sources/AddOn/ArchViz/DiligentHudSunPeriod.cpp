@@ -126,12 +126,13 @@ void QuantityButtons (HudState& state, int mode)
         ImGui::PopID ();
         ImGui::PopStyleColor ();
         if (usable)
-            ImGui::SetItemTooltip ("%s", kQuantities[q].meaning);
+            geomsrv::archviz::hudshell::ItemTip ("%s", kQuantities[q].meaning);
         else if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip ("%s\n\n%s", kQuantities[q].meaning,
-                               Instant (mode) ? "An instant shows lit or not lit: only Direct applies. Step Day by day "
-                                                "or Month by month for the others."
-                                              : "Whole period only: step Month by month.");
+            geomsrv::archviz::hudshell::HoverTip (
+                "%s\n\n%s", kQuantities[q].meaning,
+                Instant (mode) ? "An instant shows lit or not lit: only Direct applies. Step Day by day "
+                                 "or Month by month for the others."
+                               : "Whole period only: step Month by month.");
     }
 }
 
@@ -174,19 +175,21 @@ void PlayModeRow (HudState& state, const sunstudyhud::PeriodInfo& period)
                 }
             }
             if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip ("%s%s", kPlayModeTips[m],
-                                   enabled ? ""
-                                           : "\n\nThis run's whole-map day archive was too large to keep: tick \"Keep "
-                                             "large whole-map day archive\" and run again. For one point, use "
-                                             "Detailed point playback below; no day archive is needed.");
+                geomsrv::archviz::hudshell::HoverTip (
+                    "%s%s", kPlayModeTips[m],
+                    enabled ? ""
+                            : "\n\nThis run's whole-map day archive was too large to keep: tick \"Keep "
+                              "large whole-map day archive\" and run again. For one point, use "
+                              "Detailed point playback below; no day archive is needed.");
         }
         ImGui::EndCombo ();
     }
-    ImGui::SetItemTooltip ("How the player steps through the period.%s",
-                           period.daysKept ? ""
-                                           : "\n\nThis run's whole-map day archive was too large to keep; tick "
-                                             "\"Keep large whole-map day archive\" and run again. The "
-                                             "study point below can instead re-trace and play only its own cells.");
+    geomsrv::archviz::hudshell::ItemTip ("How the player steps through the period.%s",
+                                         period.daysKept
+                                             ? ""
+                                             : "\n\nThis run's whole-map day archive was too large to keep; tick "
+                                               "\"Keep large whole-map day archive\" and run again. The "
+                                               "study point below can instead re-trace and play only its own cells.");
     ImGui::SameLine ();
     ImGui::SetNextItemWidth (-1.0f);
     ImGui::BeginDisabled (state.sunPeriodPlayMode != kFixedHour);
@@ -195,7 +198,8 @@ void PlayModeRow (HudState& state, const sunstudyhud::PeriodInfo& period)
         state.sunPeriodClock = quarter * 15;
     ImGui::EndDisabled ();
     if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip ("Fixed hour: the clock time shown on every day (the nearest traced step).");
+        geomsrv::archviz::hudshell::HoverTip (
+            "Fixed hour: the clock time shown on every day (the nearest traced step).");
 }
 
 // The month timeline: "whole period" and every month the period reaches.
@@ -326,7 +330,7 @@ void ThresholdChoice (HudState& state, const sunstudyhud::PeriodInfo& period)
         }
         ImGui::EndCombo ();
     }
-    ImGui::SetItemTooltip ("Whole period only: days are binned by their hours as they were traced.");
+    geomsrv::archviz::hudshell::ItemTip ("Whole period only: days are binned by their hours as they were traced.");
 }
 
 // ---- the study point's diagrams ---------------------------------------------
@@ -450,7 +454,7 @@ void MonthBars (HudState& state, int quantity, const sunstudyhud::PeriodInfo& pe
         const auto sun = SunPathHoverMonth (state, hoveredMonth + 1, state.sunPeriodClock);
         const double d = period.monthDays[hoveredMonth];
         const double direct = point->unoccluded[hoveredMonth] / d, facing = point->facing[hoveredMonth] / d;
-        ImGui::SetTooltip (
+        geomsrv::archviz::hudshell::HoverTip (
             "%s, a day on average:\n  direct sun   %s\n  in front     %s\n  lost         %s\n  sun up       "
             "%s\n  access       %d%%%s",
             kMonthNames[hoveredMonth], HoursText (direct).c_str (), HoursText (facing).c_str (),
@@ -497,8 +501,8 @@ void DaysHistogram (HudState& state, const sunstudyhud::PeriodInfo& period, cons
         const int b = std::clamp (int ((ImGui::GetIO ().MousePos.x - start.x) / column), 0, 13);
         const std::string from = b == 0 ? "0:00" : SunStudyClock (period.edges[b - 1], false);
         const std::string to = b == 13 ? "" : SunStudyClock (period.edges[b], false);
-        ImGui::SetTooltip ("%.0f day(s) with %s%s%s h of direct sun", double (point->daily[b]), from.c_str (),
-                           b == 13 ? "+" : " to ", to.c_str ());
+        geomsrv::archviz::hudshell::HoverTip ("%.0f day(s) with %s%s%s h of direct sun", double (point->daily[b]),
+                                              from.c_str (), b == 13 ? "+" : " to ", to.c_str ());
     }
 }
 
@@ -571,11 +575,12 @@ void ProfileGrid (HudState& state, int quantity, const sunstudyhud::PeriodProfil
             h <= lastHour && profile->up[m][h] > 0.0) {
             const auto sun = SunPathHoverMonth (state, m + 1, h * 60 + 30, h * 60, (h + 1) * 60);
             const double up = profile->up[m][h], facing = profile->facing[m][h], lit = profile->lit[m][h];
-            ImGui::SetTooltip ("%s, %02d:00-%02d:00, of the time the sun is up:\n  lit          %d%%\n  shaded       "
-                               "%d%%\n  sun behind   %d%%%s",
-                               kMonthNames[m], h, h + 1, int (100.0 * lit / up + 0.5),
-                               int (100.0 * (std::max) (0.0, facing - lit) / up + 0.5),
-                               int (100.0 * (std::max) (0.0, up - facing) / up + 0.5), sun.c_str ());
+            geomsrv::archviz::hudshell::HoverTip (
+                "%s, %02d:00-%02d:00, of the time the sun is up:\n  lit          %d%%\n  shaded       "
+                "%d%%\n  sun behind   %d%%%s",
+                kMonthNames[m], h, h + 1, int (100.0 * lit / up + 0.5),
+                int (100.0 * (std::max) (0.0, facing - lit) / up + 0.5),
+                int (100.0 * (std::max) (0.0, up - facing) / up + 0.5), sun.c_str ());
         }
     }
 }
@@ -628,13 +633,13 @@ void DayStrip (HudState& state, int quantity, const sunstudyhud::PeriodProfile* 
         const size_t d = (std::min) (days - 1, size_t ((std::max) (0.0f, ImGui::GetIO ().MousePos.x - start.x) /
                                                        (std::max) (column, 0.001f)));
         SunPathHoverPeriodDay (state, profile->dayMonth[d], profile->dayOfMonth[d], state.sunPointPlayClock);
-        ImGui::SetTooltip ("%s %d: %s direct, %s in front, %s sun up\n%s",
-                           kMonthNames[std::clamp (profile->dayMonth[d], 1, 12) - 1], profile->dayOfMonth[d],
-                           HoursText (profile->dayLit[d]).c_str (), HoursText (profile->dayFacing[d]).c_str (),
-                           HoursText (profile->dayUp[d]).c_str (),
-                           SunPathMomentCaption (state.sunPathHover.year, state.sunPathHover.month,
-                                                 state.sunPathHover.day, state.sunPathHover.minute)
-                               .c_str ());
+        geomsrv::archviz::hudshell::HoverTip (
+            "%s %d: %s direct, %s in front, %s sun up\n%s", kMonthNames[std::clamp (profile->dayMonth[d], 1, 12) - 1],
+            profile->dayOfMonth[d], HoursText (profile->dayLit[d]).c_str (), HoursText (profile->dayFacing[d]).c_str (),
+            HoursText (profile->dayUp[d]).c_str (),
+            SunPathMomentCaption (state.sunPathHover.year, state.sunPathHover.month, state.sunPathHover.day,
+                                  state.sunPathHover.minute)
+                .c_str ());
     }
 }
 
@@ -656,8 +661,9 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
             }
         ImGui::EndCombo ();
     }
-    ImGui::SetItemTooltip ("Detailed playback of the study point only. It uses the on-demand re-trace and needs no "
-                           "whole-map day archive.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Detailed playback of the study point only. It uses the on-demand re-trace and needs no "
+        "whole-map day archive.");
     ImGui::SameLine ();
     ImGui::SetNextItemWidth (-1.0f);
     ImGui::BeginDisabled (mode != kFixedHour);
@@ -666,7 +672,8 @@ void PointPlayback (HudState& state, const sunstudyhud::PeriodProfile* profile, 
         state.sunPointPlayClock = quarter * 15;
     ImGui::EndDisabled ();
     if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip ("Fixed hour: the nearest measured step at this clock time on each traced day.");
+        geomsrv::archviz::hudshell::HoverTip (
+            "Fixed hour: the nearest measured step at this clock time on each traced day.");
 
     if (profile == nullptr || profile->dayLit.empty ()) {
         state.sunPointPlay.playing = false;
@@ -857,9 +864,10 @@ void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int q
         SunStudyNote (" ");
 
     ImGui::Checkbox ("Detailed point playback (re-trace)", &state.sunPeriodProfile);
-    ImGui::SetItemTooltip ("Re-traces only the study point's cells against every traced sun position: a month x hour "
-                           "map, a 24-hour clock, and every-step / fixed-hour / day-by-day playback. Runs on the CPU "
-                           "and does not keep a whole-map day archive.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Re-traces only the study point's cells against every traced sun position: a month x hour "
+        "map, a 24-hour clock, and every-step / fixed-hour / day-by-day playback. Runs on the CPU "
+        "and does not keep a whole-map day archive.");
     if (!state.sunPeriodProfile) {
         state.sunPointPlay.playing = false;
         return;
@@ -886,7 +894,7 @@ void PointSection (HudState& state, const sunstudyhud::PeriodInfo& period, int q
         pointMonth = shown->dayMonth[size_t (state.sunPointPlayDay)];
     ProfileGrid (state, quantity == 4 ? 0 : quantity, shown, note, pointMonth, ramp);
     if (profile != nullptr && !profile->error.empty () && ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("%s", profile->error.c_str ());
+        geomsrv::archviz::hudshell::HoverTip ("%s", profile->error.c_str ());
     const int shownDay = shown != nullptr ? state.sunPointPlayDay : -1;
     DayStrip (state, quantity == 4 ? 0 : quantity, shown, shownDay, ramp);
     if (shown != nullptr) {

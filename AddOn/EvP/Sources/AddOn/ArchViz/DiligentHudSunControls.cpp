@@ -388,11 +388,11 @@ bool DrawSunStudyTimeline (const char* id, int& index, int first, int last, HudT
         index = first;
         play.playing = false;
     }
-    ImGui::SetItemTooltip ("First");
+    geomsrv::archviz::hudshell::ItemTip ("First");
     ImGui::SameLine (0.0f, 2.0f);
     if (ImGui::SmallButton ("<") && index > first)
         --index;
-    ImGui::SetItemTooltip ("Step back");
+    geomsrv::archviz::hudshell::ItemTip ("Step back");
     ImGui::SameLine (0.0f, 2.0f);
     if (ImGui::SmallButton (play.playing ? "pause" : "play")) {
         play.playing = !play.playing;
@@ -403,13 +403,13 @@ bool DrawSunStudyTimeline (const char* id, int& index, int first, int last, HudT
     ImGui::SameLine (0.0f, 2.0f);
     if (ImGui::SmallButton (">") && index < last)
         ++index;
-    ImGui::SetItemTooltip ("Step forward");
+    geomsrv::archviz::hudshell::ItemTip ("Step forward");
     ImGui::SameLine (0.0f, 2.0f);
     if (ImGui::ArrowButton ("##last", ImGuiDir_Right)) {
         index = last;
         play.playing = false;
     }
-    ImGui::SetItemTooltip ("Last");
+    geomsrv::archviz::hudshell::ItemTip ("Last");
     ImGui::SameLine ();
     int speed = 2;
     for (int i = 0; i < int (std::size (kTimelineSpeeds)); ++i)
@@ -418,7 +418,7 @@ bool DrawSunStudyTimeline (const char* id, int& index, int first, int last, HudT
     ImGui::SetNextItemWidth (ImGui::CalcTextSize ("0.25x").x + ImGui::GetFrameHeight () * 1.6f);
     if (ImGui::Combo ("##speed", &speed, kTimelineSpeedNames, int (std::size (kTimelineSpeedNames))))
         play.speed = kTimelineSpeeds[speed];
-    ImGui::SetItemTooltip ("Playback speed");
+    geomsrv::archviz::hudshell::ItemTip ("Playback speed");
     ImGui::SameLine ();
     ImGui::Checkbox ("loop", &play.loop);
     ImGui::SetNextItemWidth (-1.0f);

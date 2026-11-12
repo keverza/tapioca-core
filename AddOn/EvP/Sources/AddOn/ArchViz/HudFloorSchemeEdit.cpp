@@ -434,7 +434,7 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
                                  fs::MaxFlat (programme, options)),
                    why);
         }
-        ImGui::SetItemTooltip ("%s", tip);
+        geomsrv::archviz::hudshell::ItemTip ("%s", tip);
     }
     ImGui::EndDisabled ();
     // Why the last edit could not be made (user, 2026-10-14: no silent failure).

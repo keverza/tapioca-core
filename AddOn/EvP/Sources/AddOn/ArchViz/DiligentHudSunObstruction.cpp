@@ -63,16 +63,18 @@ void DrawSolarCutGain (HudState& state, const SunObstructionFrame& frame)
                                  Opaque (SolarCutGainRgba (k, most)));
         }
         ImGui::Dummy (ImVec2 (bar, height));
-        ImGui::SetItemTooltip ("Sun the cut gains at each place over the slice, swept between the measured steps: "
-                               "each shade is up to %s more, the palest the least, the deepest the most any place "
-                               "gains. Precision is a fraction of the study timestep, not continuous.",
-                               SunStudyCutDuration (band).c_str () + 1);
+        geomsrv::archviz::hudshell::ItemTip (
+            "Sun the cut gains at each place over the slice, swept between the measured steps: "
+            "each shade is up to %s more, the palest the least, the deepest the most any place "
+            "gains. Precision is a fraction of the study timestep, not continuous.",
+            SunStudyCutDuration (band).c_str () + 1);
         ImGui::SameLine ();
         ImGui::TextUnformatted (to.c_str ());
     }
     ImGui::Checkbox ("Current step only##suncutstep", &state.sunCutStepOnly);
-    ImGui::SetItemTooltip ("Show only the surface the cut lights at the day diagram's clock step, and follow the "
-                           "clock as it is moved or played. Off: the whole slice, shaded by hours gained.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Show only the surface the cut lights at the day diagram's clock step, and follow the "
+        "clock as it is moved or played. Off: the whole slice, shaded by hours gained.");
     if (state.sunCutStepOnly) {
         const bool clocked = state.sunStep >= 0 && size_t (state.sunStep) < state.sunStepMinutes.size ();
         const int minute = clocked ? int (state.sunStepMinutes[size_t (state.sunStep)]) : -1;
@@ -120,17 +122,18 @@ void DrawSolarCutProgress (const SunObstructionFrame& frame)
     else
         std::snprintf (text, sizeof (text), "%s..., %.0f s", SunSolarCutPhaseName (phase), elapsed);
     ImGui::ProgressBar (total > 0 ? fraction : -1.0f * float (ImGui::GetTime ()), ImVec2 (-FLT_MIN, 0.0f), text);
-    ImGui::SetItemTooltip ("Stage %d of 5: %s. %llu of %llu done; %llu work units so far.", int (phase) + 1,
-                           SunSolarCutPhaseName (phase), (unsigned long long) done, (unsigned long long) total,
-                           (unsigned long long) progress.ticks.load ());
+    geomsrv::archviz::hudshell::ItemTip ("Stage %d of 5: %s. %llu of %llu done; %llu work units so far.",
+                                         int (phase) + 1, SunSolarCutPhaseName (phase), (unsigned long long) done,
+                                         (unsigned long long) total, (unsigned long long) progress.ticks.load ());
     constexpr double kStalled = 5.0;
     if (idle > kStalled) {
         char stalled[200];
         std::snprintf (stalled, sizeof (stalled), "No progress for %.0f s in \"%s\"", idle,
                        SunSolarCutPhaseName (phase));
         ImGui::TextColored (ImVec4 (1.0f, 0.62f, 0.25f, 1.0f), "%s", stalled);
-        ImGui::SetItemTooltip ("The worker has not reported for a while. Moving the point or the slice restarts "
-                               "the cut; if it stalls again at the same place, report the point and slice.");
+        geomsrv::archviz::hudshell::ItemTip (
+            "The worker has not reported for a while. Moving the point or the slice restarts "
+            "the cut; if it stalls again at the same place, report the point and slice.");
     }
 }
 
@@ -208,7 +211,7 @@ void DrawSolarCutSummary (HudState& state, const SunObstructionFrame& frame)
     const std::string timings = retraced ? SolarCutTimings (frame) : std::string ();
     if (retraced && !frame.cutCells.error.empty ()) {
         ImGui::TextColored (warning, "Cells not re-counted");
-        ImGui::SetItemTooltip ("%s", frame.cutCells.error.c_str ());
+        geomsrv::archviz::hudshell::ItemTip ("%s", frame.cutCells.error.c_str ());
     }
     else if (retraced && frame.cutCells.cells > 0) {
         std::snprintf (line, sizeof (line), "%zu cell%s gain sun over the day, %.1f m2, up to %s a day",
@@ -226,7 +229,7 @@ void DrawSolarCutSummary (HudState& state, const SunObstructionFrame& frame)
     }
     if (!frame.exposure.error.empty ()) {
         ImGui::TextColored (warning, "Won-lit surface failed");
-        ImGui::SetItemTooltip ("%s\n%s", frame.exposure.error.c_str (), timings.c_str ());
+        geomsrv::archviz::hudshell::ItemTip ("%s\n%s", frame.exposure.error.c_str (), timings.c_str ());
     }
     else if (retraced && !frame.exposure.steps.empty ())
         DrawSolarCutGain (state, frame);
@@ -248,15 +251,16 @@ void DrawSolarCutSummary (HudState& state, const SunObstructionFrame& frame)
             ImGui::TableNextRow ();
             ImGui::TableNextColumn ();
             ImGui::TextUnformatted (object.guid.substr (0, 9).c_str ());
-            ImGui::SetItemTooltip ("%s\ntype %d", object.guid.c_str (), int (object.elemType));
+            geomsrv::archviz::hudshell::ItemTip ("%s\ntype %d", object.guid.c_str (), int (object.elemType));
             ImGui::TableNextColumn ();
             if (object.closed)
                 ImGui::Text ("%.1f m3", object.removed);
             else
                 ImGui::TextDisabled ("open mesh");
-            ImGui::SetItemTooltip ("%s", object.closed ? "Volume above the cutting surface, from its closed boundary."
-                                                       : "The element is not a closed solid: its surfaces above the "
-                                                         "cut are shown, but no cut face or volume is invented.");
+            geomsrv::archviz::hudshell::ItemTip (
+                "%s", object.closed ? "Volume above the cutting surface, from its closed boundary."
+                                    : "The element is not a closed solid: its surfaces above the "
+                                      "cut are shown, but no cut face or volume is invented.");
             ImGui::TableNextColumn ();
             ImGui::Text ("%d%%",
                          object.closed && object.total > 0.0 ? int (100.0 * object.removed / object.total + 0.5) : 0);
@@ -286,7 +290,7 @@ void DrawSunStudyObstructionControls (HudState& state, const std::string& studyI
         if (ImGui::Button (labels[i], ImVec2 (modeWidth, 0)))
             state.sunObstructionMode = i + 1;
         ImGui::PopStyleColor ();
-        ImGui::SetItemTooltip ("%s", tips[i]);
+        geomsrv::archviz::hudshell::ItemTip ("%s", tips[i]);
     }
     // What lies under the cut (#168): the day's sun hours, to read the gain
     // against the whole study, or the single shadow at the diagram's clock.
@@ -304,17 +308,19 @@ void DrawSunStudyObstructionControls (HudState& state, const std::string& studyI
             if (ImGui::SmallButton (bases[i]))
                 state.sunCutShowsHours = i == 0;
             ImGui::PopStyleColor ();
-            ImGui::SetItemTooltip ("%s", baseTips[i]);
+            geomsrv::archviz::hudshell::ItemTip ("%s", baseTips[i]);
         }
         if (state.sunCutShowsHours) {
             ImGui::Checkbox ("Cells after the cut##suncutcells", &state.sunCutShowsCells);
-            ImGui::SetItemTooltip ("The study cells the cut changes, re-counted over the whole day (the study's own "
-                                   "lit steps plus the rays that now run clear past what remains) and drawn in the "
-                                   "hours they would read, in the map's colours. The pink outline marks them.");
+            geomsrv::archviz::hudshell::ItemTip (
+                "The study cells the cut changes, re-counted over the whole day (the study's own "
+                "lit steps plus the rays that now run clear past what remains) and drawn in the "
+                "hours they would read, in the map's colours. The pink outline marks them.");
             ImGui::SameLine ();
             ImGui::Checkbox ("Gain shading##suncutgain", &state.sunCutShowsGain);
-            ImGui::SetItemTooltip ("The exact surface the cut lights in its slice, shaded yellow to amber by the "
-                                   "minutes it gains, over the cells.");
+            geomsrv::archviz::hudshell::ItemTip (
+                "The exact surface the cut lights in its slice, shaded yellow to amber by the "
+                "minutes it gains, over the cells.");
         }
     }
     // The prerequisite, made actionable (#167, #168): Place point arms a click
@@ -326,8 +332,9 @@ void DrawSunStudyObstructionControls (HudState& state, const std::string& studyI
             state.sunPointStudy = studyId;
             state.sunPointDragging = false;
         }
-        ImGui::SetItemTooltip ("Then click a measured surface in the view; keep the button down to drag the point "
-                               "into place. Right-click cancels. The view's right-click menu places it too.");
+        geomsrv::archviz::hudshell::ItemTip (
+            "Then click a measured surface in the view; keep the button down to drag the point "
+            "into place. Right-click cancels. The view's right-click menu places it too.");
     };
     if (!state.sunPointPlaced) {
         placeButton ("Place point##sunobstructionplace");
@@ -421,8 +428,8 @@ void DrawSunStudyObstructionControls (HudState& state, const std::string& studyI
             ImGui::TableNextColumn ();
             const std::string shortGuid = blocker.guid.size () > 9 ? blocker.guid.substr (0, 9) : blocker.guid;
             ImGui::TextUnformatted (shortGuid.c_str ());
-            ImGui::SetItemTooltip ("%s\n%s element, type %d", blocker.guid.c_str (),
-                                   blocker.context ? "Context" : "Analysis", int (blocker.elemType));
+            geomsrv::archviz::hudshell::ItemTip ("%s\n%s element, type %d", blocker.guid.c_str (),
+                                                 blocker.context ? "Context" : "Analysis", int (blocker.elemType));
             ImGui::TableNextColumn ();
             // The first two intervals, each with a swatch in its time colour.
             std::string when;
@@ -448,7 +455,7 @@ void DrawSunStudyObstructionControls (HudState& state, const std::string& studyI
                 ImGui::SameLine (0.0f, 4.0f);
                 ImGui::TextDisabled ("+%zu", blocker.intervals.size () - 2);
             }
-            ImGui::SetItemTooltip ("%s", when.c_str ());
+            geomsrv::archviz::hudshell::ItemTip ("%s", when.c_str ());
             ImGui::TableNextColumn ();
             ImGui::Text ("%s %d%%", SunStudyClock (blocker.hours, true).c_str (),
                          int (100.0 * blocker.meanCellShare + 0.5));

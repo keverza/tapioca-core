@@ -160,13 +160,13 @@ int PeriodDays (const HudState& state)
 void PeriodControls (HudState& state)
 {
     ImGui::RadioButton ("Single day##sunrunperiod", &state.sunRunPeriod, 0);
-    ImGui::SetItemTooltip ("One date: hours of direct sun that day, with every step's shadows.");
+    geomsrv::archviz::hudshell::ItemTip ("One date: hours of direct sun that day, with every step's shadows.");
     ImGui::SameLine ();
     ImGui::RadioButton ("Period##sunrunperiod", &state.sunRunPeriod, 1);
-    ImGui::SetItemTooltip ("A date range within one year, traced day by day on the same model.");
+    geomsrv::archviz::hudshell::ItemTip ("A date range within one year, traced day by day on the same model.");
     ImGui::SameLine ();
     ImGui::RadioButton ("Year##sunrunperiod", &state.sunRunPeriod, 2);
-    ImGui::SetItemTooltip ("January 1 to December 31, traced day by day on the same model.");
+    geomsrv::archviz::hudshell::ItemTip ("January 1 to December 31, traced day by day on the same model.");
     if (state.sunRunPeriod == 0) {
         DatePicker ("sunrundate", "date", state.sunRunYear, state.sunRunMonth, state.sunRunDay, false);
         return;
@@ -186,18 +186,20 @@ void PeriodControls (HudState& state)
     const int days = (std::max) (0, PeriodDays (state));
     int sampling = state.sunRunDailyResolved ? 1 : 0;
     ImGui::RadioButton ("Preview##sunrunsampling", &sampling, 0);
-    ImGui::SetItemTooltip ("One middle day per month, weighted by the days it stands for. Fast, and an estimate: a "
-                           "shadow that comes and goes within a month can be missed.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "One middle day per month, weighted by the days it stands for. Fast, and an estimate: a "
+        "shadow that comes and goes within a month can be missed.");
     ImGui::SameLine ();
     char every[48];
     std::snprintf (every, sizeof (every), "Every day (%d)##sunrunsampling", days);
     ImGui::RadioButton (every, &sampling, 1);
-    ImGui::SetItemTooltip ("Every day of the period traced: the reference. Still limited by the timestep and the "
-                           "cell size, and about %d times the preview's work.",
-                           (std::max) (1, days / (std::max) (1, (std::min) (12, days))));
+    geomsrv::archviz::hudshell::ItemTip (
+        "Every day of the period traced: the reference. Still limited by the timestep and the "
+        "cell size, and about %d times the preview's work.",
+        (std::max) (1, days / (std::max) (1, (std::min) (12, days))));
     state.sunRunDailyResolved = sampling == 1;
     ImGui::Checkbox ("Keep large whole-map day archive (RAM)##sunrunkeep", &state.sunRunKeepDays);
-    ImGui::SetItemTooltip (
+    geomsrv::archviz::hudshell::ItemTip (
         "Every traced day's lit/shaded steps for the WHOLE MAP are kept in memory, so the map plays step by step, at a "
         "fixed hour through the days, or day by day. No file is saved; the archive is released with the period.\n\n"
         "A small archive (up to 256 MB) is always kept: every Preview, and an every-day period of a modest map. Tick "
@@ -218,8 +220,9 @@ void HourSlice (HudState& state)
     state.sunRunHourFrom = std::clamp (state.sunRunHourFrom, 0, 23);
     if (state.sunRunHourTo <= state.sunRunHourFrom)
         state.sunRunHourTo = (std::min) (24, state.sunRunHourFrom + 1);
-    ImGui::SetItemTooltip ("Only sun in this slice of each day counts; 00:00 to 24:00 is the whole day. Times are "
-                           "the project's clock as Archicad gives it.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Only sun in this slice of each day counts; 00:00 to 24:00 is the whole day. Times are "
+        "the project's clock as Archicad gives it.");
 }
 
 // One role per element, as the palette command's exclusive sets: putting an
@@ -444,7 +447,7 @@ void DrawSunStudyShadowDate (HudState& state)
                 state.sunShadowMonth = month;
                 state.sunShadowDay = day;
             }
-            ImGui::SetItemTooltip ("The study point's detailed playback is on this day.");
+            geomsrv::archviz::hudshell::ItemTip ("The study point's detailed playback is on this day.");
         }
     }
     // A kept day needs no trace: show it through the period player.
@@ -464,8 +467,9 @@ void DrawSunStudyShadowDate (HudState& state)
                 state.sunPeriodClock = state.sunStepMinutes[size_t (state.sunStep)];
             state.sunPeriodPlay.playing = false;
         }
-        ImGui::SetItemTooltip ("The run kept this day's whole-map steps: the period player shows it at the fixed "
-                               "hour, lit or shadowed, without a new trace.");
+        geomsrv::archviz::hudshell::ItemTip (
+            "The run kept this day's whole-map steps: the period player shows it at the fixed "
+            "hour, lit or shadowed, without a new trace.");
         return;
     }
     std::snprintf (text, sizeof (text), "Trace shadows for %s %d##shadowtrace", kMonths[state.sunShadowMonth - 1],
@@ -474,9 +478,10 @@ void DrawSunStudyShadowDate (HudState& state)
     if (ImGui::Button (text, ImVec2 (-1.0f, 0.0f)))
         RunSunStudyDay (state, state.sunShadowMonth, state.sunShadowDay);
     ImGui::EndDisabled ();
-    ImGui::SetItemTooltip ("Traces that one day with the period's settings and shows its shadows, steps and study "
-                           "point clock. It replaces the period result on screen; run the period again from the run "
-                           "form to return. A kept whole-map day archive switches days without a trace.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Traces that one day with the period's settings and shows its shadows, steps and study "
+        "point clock. It replaces the period result on screen; run the period again from the run "
+        "form to return. A kept whole-map day archive switches days without a trace.");
 }
 
 // What the finished run put on screen, in words: what a colour means, over
@@ -587,7 +592,7 @@ bool DrawSunStudyRunAction (HudState& state)
         case tapioca::ui::AnalysisRunAction::None:
             break;
     }
-    ImGui::SetItemTooltip (
+    geomsrv::archviz::hudshell::ItemTip (
         "Stops this run. The last complete study stays visible. Following stays paused until Resume.");
     // ⚠️ FIXED HEIGHT WHILE RUNNING: these lines are reserved for the whole
     // run, written or blank, so the panel below never jumps. A note that came
@@ -638,7 +643,7 @@ bool DrawSunStudyRunAction (HudState& state)
                 explanation += bytes;
                 explanation += " This is not the total memory used by the period or renderer.";
             }
-            ImGui::SetItemTooltip ("%s", explanation.c_str ());
+            geomsrv::archviz::hudshell::ItemTip ("%s", explanation.c_str ());
             if (clear) {
                 std::string error;
                 if (!sunstudyhud::ClearPeriodCache (error))
@@ -690,10 +695,11 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     ImGui::SliderFloat ("cell size##sunrun", &state.sunRunGrid, 0.25f, 10.0f, "%.2f m", ImGuiSliderFlags_Logarithmic);
 
     ImGui::RadioButton ("Early model##sunrun", &state.sunRunPreset, 0);
-    ImGui::SetItemTooltip ("Early measures all eligible faces.");
+    geomsrv::archviz::hudshell::ItemTip ("Early measures all eligible faces.");
     ImGui::SameLine ();
     ImGui::RadioButton ("Late model##sunrun", &state.sunRunPreset, 1);
-    ImGui::SetItemTooltip ("Late measures faces with at least 40%% transparency; other faces still cast shadow.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Late measures faces with at least 40%% transparency; other faces still cast shadow.");
     auto snapshot = MeshStore::Get ().Current ();
     const uint64_t captureStamp = MeshStore::Get ().CaptureStamp ();
     if (snapshot == nullptr || snapshot->scope != "all" || snapshot->captureStamp != captureStamp ||
@@ -709,16 +715,18 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
         SunStudyNote (advice.c_str ());
 
     ImGui::RadioButton ("CPU##sunrunbackend", &state.sunRunBackend, 0);
-    ImGui::SetItemTooltip ("The exact CPU tracer, on every machine. Edits rerun on CPU too.");
+    geomsrv::archviz::hudshell::ItemTip ("The exact CPU tracer, on every machine. Edits rerun on CPU too.");
     ImGui::SameLine ();
     ImGui::RadioButton ("GPU##sunrunbackend", &state.sunRunBackend, 1);
-    ImGui::SetItemTooltip ("FP64 D3D11 compute with exact CPU checks. Without a capable GPU the study finishes on CPU "
-                           "and says why.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "FP64 D3D11 compute with exact CPU checks. Without a capable GPU the study finishes on CPU "
+        "and says why.");
 
     // ⚠️ "##sunrunroles": the view selector below the run form has a "Roles"
     // button in the same window, and the two labels hashed to one ID (#116).
     const bool rolesOpen = ImGui::TreeNode ("Roles##sunrunroles");
-    ImGui::SetItemTooltip ("Analysis: everything not in Context or Ignored. Select elements to assign them a role.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Analysis: everything not in Context or Ignored. Select elements to assign them a role.");
     if (rolesOpen) {
         RoleRow ("Context", state.sunRunContext, state.sunRunIgnored, state.visibilitySelection);
         RoleRow ("Ignored", state.sunRunIgnored, state.sunRunContext, state.visibilitySelection);
@@ -741,8 +749,9 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
         if (state.sunRunShowBounds) {
             if (ImGui::SmallButton (state.sunRunPickingCentre ? "Click the model..." : "Pick centre"))
                 state.sunRunPickingCentre = !state.sunRunPickingCentre;
-            ImGui::SetItemTooltip ("Only faces inside are measured; everything still casts shadow. Drag the arrows "
-                                   "or disc to move it, the grip on the ring to resize.");
+            geomsrv::archviz::hudshell::ItemTip (
+                "Only faces inside are measured; everything still casts shadow. Drag the arrows "
+                "or disc to move it, the grip on the ring to resize.");
             ImGui::SameLine ();
             ImGui::BeginDisabled (!haveScene);
             if (ImGui::SmallButton ("Centre on scene"))

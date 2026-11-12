@@ -1,4 +1,5 @@
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "NativeCommands/SunStudySeasonal.hpp"
 
@@ -11,7 +12,7 @@ void DrawSunStudySeasonalClocks (HudState& state, const sunstudyhud::PeriodProfi
     if (profile == nullptr)
         return;
     ImGui::Checkbox ("Seasons##sunpoint", &state.sunPeriodSeasons);
-    ImGui::SetItemTooltip (
+    geomsrv::archviz::hudshell::ItemTip (
         "Winter, spring, summer and autumn clocks from the retained point profile (meteorological seasons, "
         "named for the project's hemisphere). Display only.");
     if (!state.sunPeriodSeasons)
@@ -23,7 +24,7 @@ void DrawSunStudySeasonalClocks (HudState& state, const sunstudyhud::PeriodProfi
         ImGui::TextUnformatted (season.name.c_str ());
         ImGui::SameLine ();
         ImGui::TextDisabled ("%s, %zu traced day(s)", season.months.c_str (), season.tracedDays);
-        ImGui::SetItemTooltip ("%.0f represented day(s)", season.representedDays);
+        geomsrv::archviz::hudshell::ItemTip ("%.0f represented day(s)", season.representedDays);
         const std::string id = "##season" + season.label;
         DrawSunStudyDayClock (state, season.day.minutes.empty () ? nullptr : &season.day, id.c_str (), -1,
                               "no measured sun", nullptr, 4096.0f, nullptr, SunChart::Season);

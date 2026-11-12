@@ -1,6 +1,7 @@
 // ArchViz/GradientPresetChoice -- see the header.
 
 #include "ArchViz/GradientPresetChoice.hpp"
+#include "ArchViz/HudShell.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -476,10 +477,11 @@ bool EditStops (std::vector<layers::ColourStop>& stops, float width)
             draw->AddCircle (centre, radius + 2.5f, IM_COL32 (30, 30, 30, 200), 0, 1.0f);
     }
     if (ImGui::IsItemHovered () && !ImGui::IsItemActive ())
-        ImGui::SetTooltip ("Click a colour to change it, drag it to move it, drag it off the bar to remove it.\n"
-                           "Click the bar to add a colour. Drag an arrow to move where two colours blend.");
+        geomsrv::archviz::hudshell::HoverTip (
+            "Click a colour to change it, drag it to move it, drag it off the bar to remove it.\n"
+            "Click the bar to add a colour. Drag an arrow to move where two colours blend.");
     else if (removing)
-        ImGui::SetTooltip ("Release to remove this colour");
+        geomsrv::archviz::hudshell::HoverTip ("Release to remove this colour");
 
     // The selected colour's own popup: opened by a click on its circle.
     if (ColourPopup ("##stop.colour", stops[size_t (selected)].rgba, true)) {
@@ -546,7 +548,8 @@ bool GradientPresetChoice (const char* id, std::string& presetId, std::vector<la
                    label.c_str ());
     draw->PopClipRect ();
     if (ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("Colours: choose a gradient or make your own. Display only; nothing is recalculated.");
+        geomsrv::archviz::hudshell::HoverTip (
+            "Colours: choose a gradient or make your own. Display only; nothing is recalculated.");
     if (pressed) {
         g_opened[original] = { presetId, custom, flipped };
         ImGui::OpenPopup ("##presets");
@@ -685,7 +688,7 @@ bool GradientPresetChoice (const char* id, std::string& presetId, std::vector<la
         changed = true;
     }
     ImGui::EndDisabled ();
-    ImGui::SetItemTooltip ("Turn the gradient end for end.");
+    geomsrv::archviz::hudshell::ItemTip ("Turn the gradient end for end.");
     ImGui::SameLine ();
     ImGui::TextDisabled ("Esc cancels");
     ImGui::EndPopup ();

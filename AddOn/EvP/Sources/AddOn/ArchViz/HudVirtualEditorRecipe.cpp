@@ -5,6 +5,7 @@
 // row's own controls (slice 2) are the supported edits, each one undo step.
 // OVERLAY-INVARIANTS.md §8: its cache lives on the editor Session.
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditorRecipe.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include <imgui.h>
@@ -63,12 +64,13 @@ void Controls (Session& s, const lg::RecipeRow& row)
         if (ImGui::ArrowButton ("##up", ImGuiDir_Up))
             move (-1);
         if (ImGui::IsItemHovered ())
-            ImGui::SetTooltip ("Move up: compose earlier, under the rows below it.");
+            geomsrv::archviz::hudshell::HoverTip ("Move up: compose earlier, under the rows below it.");
         ImGui::SameLine ();
         if (ImGui::ArrowButton ("##down", ImGuiDir_Down))
             move (1);
         if (ImGui::IsItemHovered ())
-            ImGui::SetTooltip ("Move down: compose later, over the rows above it. Paths always stay after regions.");
+            geomsrv::archviz::hudshell::HoverTip (
+                "Move down: compose later, over the rows above it. Paths always stay after regions.");
         ImGui::SameLine ();
     }
     // A plain region's root selects its one boundary: bypassing it would pass the same shape through,
@@ -81,8 +83,9 @@ void Controls (Session& s, const lg::RecipeRow& row)
                 return lg::SetLandscapeOperationEnabled (d, rootId, on, error);
             });
         if (ImGui::IsItemHovered ())
-            ImGui::SetTooltip ("Off bypasses the footprint's last step (its first input passes through). "
-                               "The terrain effect is a separate setting.");
+            geomsrv::archviz::hudshell::HoverTip (
+                "Off bypasses the footprint's last step (its first input passes through). "
+                "The terrain effect is a separate setting.");
         ImGui::SameLine ();
     }
     constexpr lg::RegionTerrainEffect effects[] = { lg::RegionTerrainEffect::None, lg::RegionTerrainEffect::Grade,
@@ -101,8 +104,9 @@ void Controls (Session& s, const lg::RecipeRow& row)
         ImGui::EndCombo ();
     }
     if (ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("None leaves the terrain recipe; the footprint stays. Grade, Raise only and Lower only "
-                           "need a target other than Existing.");
+        geomsrv::archviz::hudshell::HoverTip (
+            "None leaves the terrain recipe; the footprint stays. Grade, Raise only and Lower only "
+            "need a target other than Existing.");
 }
 
 void Row (Session& s, const lg::RecipeRow& row)
@@ -117,7 +121,8 @@ void Row (Session& s, const lg::RecipeRow& row)
     if (ImGui::Selectable (title.c_str (), selected) && entity != edit::kNoId)
         s.selection.Set ({ { entity, edit::Part::Entity, 0 } });
     if (ImGui::IsItemHovered () && entity == edit::kNoId)
-        ImGui::SetTooltip ("This row has no single line in the view (a derived domain or a constraint).");
+        geomsrv::archviz::hudshell::HoverTip (
+            "This row has no single line in the view (a derived domain or a constraint).");
     ImGui::Indent ();
     if (!row.effect.empty ())
         ImGui::Text ("Effect: %s%s%s", row.effect.c_str (),

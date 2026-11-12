@@ -251,6 +251,44 @@ bool Tip (const std::string& text, TipSide side, uint32_t swatch)
     return true;
 }
 
+namespace {
+std::string Formatted (const char* format, va_list args)
+{
+    va_list copy;
+    va_copy (copy, args);
+    const int length = std::vsnprintf (nullptr, 0, format, copy);
+    va_end (copy);
+    if (length <= 0)
+        return {};
+    std::string text (size_t (length) + 1, '\0');
+    std::vsnprintf (text.data (), text.size (), format, args);
+    text.resize (size_t (length));
+    return text;
+}
+} // namespace
+
+void ItemTip (const char* format, ...)
+{
+    if (!ImGui::IsItemHovered (ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        return;
+    va_list args;
+    va_start (args, format);
+    const std::string text = Formatted (format, args);
+    va_end (args);
+    if (!text.empty ())
+        TipBeside (ImGui::GetItemRectMin (), ImGui::GetItemRectMax (), TipSide::Below, text);
+}
+
+void HoverTip (const char* format, ...)
+{
+    va_list args;
+    va_start (args, format);
+    const std::string text = Formatted (format, args);
+    va_end (args);
+    if (!text.empty ())
+        TipAt (ImGui::GetIO ().MousePos, TipSide::Right, text);
+}
+
 float FontScaleOfStep (uint32_t step)
 {
     return kFontSteps[(std::min) (step, kFontStepCount - 1)] * float (graphicssettings::Number ("ui.fontScale", 1));

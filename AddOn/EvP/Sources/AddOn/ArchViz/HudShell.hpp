@@ -85,6 +85,11 @@ void TipBeside (ImVec2 min, ImVec2 max, TipSide side, const std::string& text, u
 // Every hover text of the HUD is said this way (or by TipAt / TipBeside for a place on a
 // canvas), never by ImGui's own tooltip window: one look everywhere.
 bool Tip (const std::string& text, TipSide side = TipSide::Left, uint32_t swatch = 0);
+// ImGui::SetItemTooltip and ImGui::SetTooltip, said as HUD tips. ImGui's own tooltip
+// never wraps, so a long hover text ran wider than the panel it explains; these wrap at
+// the tip width (22 em, the panel's) and keep ImGui's hover delay for an item.
+void ItemTip (const char* format, ...) IM_FMTARGS (1);
+void HoverTip (const char* format, ...) IM_FMTARGS (1);
 // A high-contrast inline error card for the viewer and shared navigation.
 void ErrorNotice (const std::string& message, float scale = 1.0f);
 

@@ -104,7 +104,8 @@ void DrawSunStudyPointMenu (HudState& state)
                          state.sunPointMenuValid))
         Place (state, state.sunPointMenuAt);
     if (!state.sunPointMenuValid)
-        ImGui::SetItemTooltip ("Right-click a measured surface (with Inspect on) to place the point there.");
+        geomsrv::archviz::hudshell::ItemTip (
+            "Right-click a measured surface (with Inspect on) to place the point there.");
     if (ImGui::BeginMenu ("Radius")) {
         for (const float radius : kRadii)
             if (ImGui::MenuItem (RadiusText (radius).c_str (), nullptr, state.sunPointRadius == radius))
@@ -132,7 +133,8 @@ void DrawSunStudyPointOverlay (HudState& state, const float viewProj[16], uint32
 {
     state.sunPointScreenValid = false;
     if (state.sunPointPlacing && !ImGui::IsWindowHovered (ImGuiHoveredFlags_AnyWindow))
-        ImGui::SetTooltip ("Click a measured surface to place the study point\nRight-click to cancel");
+        geomsrv::archviz::hudshell::HoverTip (
+            "Click a measured surface to place the study point\nRight-click to cancel");
     if (!state.sunPointPlaced || viewProj == nullptr || width == 0 || height == 0)
         return;
     ImDrawList* draw = ImGui::GetForegroundDrawList ();
@@ -201,7 +203,7 @@ void DrawSunStudyPointOverlay (HudState& state, const float viewProj[16], uint32
                                  ImVec2 (base.x - dy * 3.0f, base.y - dx * 3.0f), hot ? fill : ink);
     }
     if (hot && !state.sunPointDragging && !ImGui::IsWindowHovered (ImGuiHoveredFlags_AnyWindow))
-        ImGui::SetTooltip ("Drag: move the study point over the scene");
+        geomsrv::archviz::hudshell::HoverTip ("Drag: move the study point over the scene");
 }
 
 void ServiceSunStudyPointGrip (HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height,
@@ -342,18 +344,20 @@ bool DrawSunStudyPointHeader (HudState& state, const std::string& studyId)
     // A lifted point has no cell sphere, but Suncut still sweeps this radius.
     // Disabling the control here made that cut width impossible to change or reset.
     ImGui::SliderFloat ("##sunpointradius", &state.sunPointRadius, 0.0f, 10.0f, format);
-    ImGui::SetItemTooltip ("On a surface, every measured cell within this radius of the snapped point is averaged "
-                           "(at most %zu, nearest first); 0 is one cell. For a lifted point, this instead sets "
-                           "Suncut's half-width across the slice; 0 resets it to the point alone.",
-                           kPointSampleCap);
+    geomsrv::archviz::hudshell::ItemTip (
+        "On a surface, every measured cell within this radius of the snapped point is averaged "
+        "(at most %zu, nearest first); 0 is one cell. For a lifted point, this instead sets "
+        "Suncut's half-width across the slice; 0 resets it to the point alone.",
+        kPointSampleCap);
     ImGui::SameLine ();
     ImGui::SetNextItemWidth (slider);
     ImGui::SliderFloat ("##sunpointheight", &state.sunPointHeight, 0.0f, 5.0f,
                         state.sunPointHeight > 0.0f ? "h %.2f m" : "on surface");
-    ImGui::SetItemTooltip ("Height above the surface the point stands on (1.8 m: eye level). Above 0 the point is "
-                           "traced as one receiver in the air, never as the surface cells, and it is kept %.0f cm "
-                           "below anything overhead so its rays never start inside geometry.",
-                           evp::sunstudy::kLiftedPointClearance * 100.0);
+    geomsrv::archviz::hudshell::ItemTip (
+        "Height above the surface the point stands on (1.8 m: eye level). Above 0 the point is "
+        "traced as one receiver in the air, never as the surface cells, and it is kept %.0f cm "
+        "below anything overhead so its rays never start inside geometry.",
+        evp::sunstudy::kLiftedPointClearance * 100.0);
     if (ImGui::IsItemDeactivatedAfterEdit () && state.sunPointHeight < 0.05f)
         state.sunPointHeight = 0.0f;
     ImGui::SameLine ();
@@ -657,7 +661,8 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
             draw->AddCircle (at, hot ? 6.5f : 5.0f, kPink, 0, hot ? 3.0f : 2.0f); // a ring: no fill
         }
         if (onGrip || state.sunCutGrip != 0)
-            ImGui::SetTooltip ("%s", SunStudyCutSliceTooltip (state.sunCutFrom, state.sunCutTo).c_str ());
+            geomsrv::archviz::hudshell::HoverTip ("%s",
+                                                  SunStudyCutSliceTooltip (state.sunCutFrom, state.sunCutTo).c_str ());
     }
     const ImU32 ink = ImGui::GetColorU32 (ImGuiCol_Text);
     const auto outlineStep = [&] (int step, ImU32 colour, float thickness) {
@@ -752,7 +757,7 @@ void DrawSunStudyDayClock (HudState& state, const evp::sunstudy::PointDay* day, 
         ImGui::EndTooltip ();
     }
     else if (hovered && selection != nullptr && !onBars && slice)
-        ImGui::SetTooltip ("Click: clear the slice");
+        geomsrv::archviz::hudshell::HoverTip ("Click: clear the slice");
 
     LegendSwatch (lit, "sun");
     ImGui::SameLine ();

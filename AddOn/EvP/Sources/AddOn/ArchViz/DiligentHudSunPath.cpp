@@ -18,6 +18,7 @@
 // RENDER THREAD.
 
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/SunPathBandDraw.hpp"
@@ -399,7 +400,7 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
         if (band.hot && !overUi) {
             state.sunPathHoverText = analysis ();
             if (!state.sunPathHoverText.empty ())
-                ImGui::SetTooltip ("%s", state.sunPathHoverText.c_str ());
+                geomsrv::archviz::hudshell::HoverTip ("%s", state.sunPathHoverText.c_str ());
         }
         return;
     }

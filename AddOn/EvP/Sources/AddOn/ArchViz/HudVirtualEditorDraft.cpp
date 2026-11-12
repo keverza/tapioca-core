@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDraft.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "Edit/EditDraft.hpp"
@@ -286,8 +287,9 @@ void DraftControls (Session& s)
         RequestDraftList (s);
     ImGui::EndDisabled ();
     if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip ("Drafts are files in %%LOCALAPPDATA%%\\Tapioca\\Drafts. Opening one is a single "
-                           "undoable edit; undo history itself is not saved. Nothing is written to the model.");
+        geomsrv::archviz::hudshell::HoverTip (
+            "Drafts are files in %%LOCALAPPDATA%%\\Tapioca\\Drafts. Opening one is a single "
+            "undoable edit; undo history itself is not saved. Nothing is written to the model.");
     if (!s.draftFilesListed)
         return;
     if (s.draftFiles.empty ())

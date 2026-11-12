@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/HudShell.hpp"
 #include <cstdio>
 #include <cmath>
 
@@ -225,8 +226,9 @@ void PlaneControls (Session& s)
     char label[80];
     std::snprintf (label, sizeof label, "Elevation %.6g m##planeElevation", s.plane.origin.z);
     const bool elevationClicked = ImGui::SmallButton (label);
-    ImGui::SetItemTooltip ("Type the World XY elevation for the drawing plane. It moves neither the path nor "
-                           "the camera.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Type the World XY elevation for the drawing plane. It moves neither the path nor "
+        "the camera.");
     if (elevationClicked)
         BeginPlaneEntry (s); // the existing Tracker owns numeric text, validation and Esc
     ImGui::SameLine ();
@@ -236,17 +238,19 @@ void PlaneControls (Session& s)
     const auto& selected = s.selection.Items ();
     ImGui::BeginDisabled (selected.size () != 1 || selected[0].part != edit::Part::Face);
     const bool faceClicked = ImGui::SmallButton ("Drawing plane at selected face");
-    ImGui::SetItemTooltip ("Draws on the horizontal top or bottom face of an extrusion; the drawing plane "
-                           "sits at that face's elevation. Sloped or vertical faces are not supported.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Draws on the horizontal top or bottom face of an extrusion; the drawing plane "
+        "sits at that face's elevation. Sloped or vertical faces are not supported.");
     if (faceClicked)
         UseFacePlane (s, selected[0]);
     ImGui::EndDisabled ();
     const bool path = selected.size () == 1 && edit::FindPath (s.edits.Doc (), selected[0].entity) != nullptr;
     ImGui::BeginDisabled (!path);
     const bool stationClicked = ImGui::SmallButton ("Horizontal drawing plane along path...");
-    ImGui::SetItemTooltip ("A horizontal drawing plane at the path's elevation, a typed distance from its "
-                           "start. Its axes run along and across the path; it moves neither the path nor the "
-                           "camera.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "A horizontal drawing plane at the path's elevation, a typed distance from its "
+        "start. Its axes run along and across the path; it moves neither the path nor the "
+        "camera.");
     if (stationClicked)
         BeginPathPlaneEntry (s, selected[0].entity);
     ImGui::EndDisabled ();
@@ -256,8 +260,9 @@ void PlaneControls (Session& s)
                                 : selected[0].part == edit::Part::Break ? "Drawing plane at selected grade point"
                                                                         : "Drawing plane at selected control point";
         const bool partClicked = ImGui::SmallButton (partLabel);
-        ImGui::SetItemTooltip ("A horizontal drawing plane at this path point's own station and elevation; it "
-                               "moves neither the path nor the camera.");
+        geomsrv::archviz::hudshell::ItemTip (
+            "A horizontal drawing plane at this path point's own station and elevation; it "
+            "moves neither the path nor the camera.");
         if (partClicked)
             UsePathPartPlane (s, selected[0]);
     }

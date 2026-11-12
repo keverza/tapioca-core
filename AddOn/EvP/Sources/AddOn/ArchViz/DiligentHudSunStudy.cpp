@@ -268,7 +268,7 @@ bool InlineColour (const char* id, uint32_t& rgba, bool alpha, const char* tip)
 {
     // Cancel or Escape in its popup puts back the colour it opened on (#102).
     const bool changed = gradientchoice::ColourChoice (id, rgba, alpha);
-    ImGui::SetItemTooltip ("%s", tip);
+    geomsrv::archviz::hudshell::ItemTip ("%s", tip);
     return changed;
 }
 
@@ -305,10 +305,11 @@ void DrawSunStudyHoursDisplay (HudState& state)
                       "Shadow colour, and its opacity: how far a shadowed patch moves toward it");
     }
     ImGui::EndDisabled ();
-    ImGui::SetItemTooltip ("%s", pcf ? "Darkens the analysis colour where the viewer's current sun casts shadow. "
-                                       "Display only."
-                                 : !state.shadowsEnabled ? "Shadows are off in the Render tab."
-                                                         : "Needs PCF shadows (Render tab).");
+    geomsrv::archviz::hudshell::ItemTip (
+        "%s", pcf                     ? "Darkens the analysis colour where the viewer's current sun casts shadow. "
+                                        "Display only."
+              : !state.shadowsEnabled ? "Shadows are off in the Render tab."
+                                      : "Needs PCF shadows (Render tab).");
     if (!pcf) {
         ImGui::SameLine ();
         ImGui::TextDisabled (state.shadowsEnabled ? "needs PCF shadows" : "shadows are off");
@@ -345,7 +346,7 @@ void DrawSunStudyHoursDisplay (HudState& state)
     ImGui::EndDisabled ();
     ImGui::SameLine ();
     const bool reset = ImGui::SmallButton ("even##sunbands");
-    ImGui::SetItemTooltip ("Spreads the steps evenly again, the last one open at 9:00h+.");
+    geomsrv::archviz::hudshell::ItemTip ("Spreads the steps evenly again, the last one open at 9:00h+.");
     // A new count re-spreads the edges: grips tuned for four bands mean nothing
     // for five.
     if (count != state.sunBandCount || reset) {
@@ -381,8 +382,9 @@ void DrawSunStudyScreenshotControls (HudState& state)
         state.sunShotFailed = false;
     }
     ImGui::EndDisabled ();
-    ImGui::SetItemTooltip ("Renders the view at the chosen size, without the panels or the axis gizmo, adds the "
-                           "legend as a white strip below and saves a PNG to Tapioca\\Export.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Renders the view at the chosen size, without the panels or the axis gizmo, adds the "
+        "legend as a white strip below and saves a PNG to Tapioca\\Export.");
     if (state.sunShotRequested || state.sunShotBusy)
         ImGui::TextDisabled ("Rendering screenshot...");
     else if (state.sunShotFailed)
@@ -442,7 +444,7 @@ void DrawShadowPalette (const char* view, std::initializer_list<ShadowRole> role
         if (ImGui::SmallButton ("reset"))
             for (const ShadowRole& role : roles)
                 *role.rgba = role.fallback;
-        ImGui::SetItemTooltip ("Puts this view's default colours back.");
+        geomsrv::archviz::hudshell::ItemTip ("Puts this view's default colours back.");
     }
     ImGui::PopID ();
 }
@@ -674,16 +676,18 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     ReadingLines (state, first, second, sizeof (first));
     DrawSunStudyInspectControl (state.sunInspect, first, second);
     ImGui::Checkbox ("Sun path##sunpath", &state.sunPathShown);
-    ImGui::SetItemTooltip ("Draws the sun's path over the model from Archicad's location and north: the winter "
-                           "(blue) and summer (orange) solstices, the equinox (grey), the run form's date (yellow), "
-                           "the hours across the year, and the sun at the shadow view's time. Fixed at the scene "
-                           "centre and floor, independently of the study point.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Draws the sun's path over the model from Archicad's location and north: the winter "
+        "(blue) and summer (orange) solstices, the equinox (grey), the run form's date (yellow), "
+        "the hours across the year, and the sun at the shadow view's time. Fixed at the scene "
+        "centre and floor, independently of the study point.");
     ImGui::SameLine ();
     ImGui::BeginDisabled (!state.sunPathShown);
     ImGui::SetNextItemWidth (140.0f);
     ImGui::SliderFloat ("scale##sunpath", &state.sunPathScale, 0.25f, 4.0f, "%.2fx");
     ImGui::EndDisabled ();
-    ImGui::SetItemTooltip ("Scales only the sun-path preview and ground compass, not the analysis or measured hours.");
+    geomsrv::archviz::hudshell::ItemTip (
+        "Scales only the sun-path preview and ground compass, not the analysis or measured hours.");
     DrawSunStudySunPathStatus (state, study.studyId);
     ImGui::TextDisabled ("%s, %u element(s)", study.studyId.c_str (), unsigned (study.elementsAttached));
     if (state.sunShowsPeriod) {

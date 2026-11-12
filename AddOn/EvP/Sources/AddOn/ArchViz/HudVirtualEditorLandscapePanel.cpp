@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditorDraft.hpp"
 #include "ArchViz/HudVirtualEditorRecipe.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
@@ -168,9 +169,10 @@ void LandscapePanel (Session& s)
                         s.message = s.edits.Message ();
                 }
                 if (ImGui::IsItemHovered ())
-                    ImGui::SetTooltip ("Off bypasses this step: its first input passes through. The owner's "
-                                       "terrain effect is unchanged; set Effect to None to remove it from the "
-                                       "terrain recipe.");
+                    geomsrv::archviz::hudshell::HoverTip (
+                        "Off bypasses this step: its first input passes through. The owner's "
+                        "terrain effect is unchanged; set Effect to None to remove it from the "
+                        "terrain recipe.");
                 ImGui::SameLine ();
                 ImGui::Text ("%s %llu   %zu inputs", lg::RecipeOperationName (operation.kind),
                              static_cast<unsigned long long> (operation.id), operation.inputs.size ());

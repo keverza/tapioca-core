@@ -215,8 +215,9 @@ void Panel (Session& s)
         RequestDebugExport (s);
     ImGui::EndDisabled ();
     if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip ("Save paths, fillet settings, captured topography and current design to a new JSON file "
-                           "in %%LOCALAPPDATA%%\\Tapioca\\dumps. Export before and after a problematic edit.");
+        geomsrv::archviz::hudshell::HoverTip (
+            "Save paths, fillet settings, captured topography and current design to a new JSON file "
+            "in %%LOCALAPPDATA%%\\Tapioca\\dumps. Export before and after a problematic edit.");
     if (!s.debugExportPath.empty ())
         ImGui::TextWrapped ("Debug scene saved: %s", s.debugExportPath.c_str ());
     if (!s.debugExportError.empty ())
@@ -280,8 +281,9 @@ void Panel (Session& s)
     }
     ImGui::EndDisabled ();
     if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip ("Lines, polylines, arcs, circles and fill outlines selected in Archicad, at the "
-                           "working plane's height. One undo step.");
+        geomsrv::archviz::hudshell::HoverTip (
+            "Lines, polylines, arcs, circles and fill outlines selected in Archicad, at the "
+            "working plane's height. One undo step.");
     // How a drag from empty space (or from inside an unselected region) selects; Ctrl at the
     // press takes the other one for that drag.
     if (ImGui::RadioButton ("Window select", !s.lasso))
