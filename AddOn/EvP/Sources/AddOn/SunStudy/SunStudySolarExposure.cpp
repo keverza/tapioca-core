@@ -377,12 +377,15 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
     result = {};
     SolarExposureResult prepared;
     size_t work = 0;
+    bool stopped = false, exhausted = false; // cancelled; out of work budget
     const auto charge = [&] {
         if (cancelled && cancelled ()) {
+            stopped = true;
             prepared.error = "Sunlit-region calculation cancelled";
             return false;
         }
         if (++work > workLimit) {
+            exhausted = true;
             prepared.error = "Sunlit-region geometry exceeds the preview work budget; narrow the cut slice";
             return false;
         }
@@ -409,9 +412,12 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
         uint32_t global = 0;
         for (size_t m = 0; m < snapshot.meshes.size (); ++m) {
             const auto& mesh = snapshot.meshes[m];
-            // A surface belongs to one mesh: search only this mesh's planes,
-            // never every plane found so far (quadratic on a large model).
-            const size_t meshSurfaces = surfaces.size ();
+            // A surface belongs to one mesh, and its planes are bucketed by a
+            // quantised normal and offset: a terrain of thousands of distinct
+            // planes searched pairwise spent the whole work budget before a
+            // single shadow was cast (#168). A plane split across two buckets
+            // is two surfaces, which only costs a seam.
+            std::map<std::array<long long, 4>, std::vector<size_t>> planes;
             for (size_t t = 0; t < mesh.TriangleCount (); ++t, ++global) {
                 if ((global & 1023u) == 0 && !charge ())
                     return false;
@@ -422,18 +428,23 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
                 if (!Triangle (mesh, t, uint32_t (m), triangle) ||
                     !sc::MakeFrame (Corner (triangle, 0), Corner (triangle, 1), Corner (triangle, 2), frame))
                     continue;
-                auto found = surfaces.begin () + std::ptrdiff_t (meshSurfaces);
-                for (; found != surfaces.end (); ++found) {
-                    if (!charge ())
-                        return false;
-                    if (Dot (found->frame.normal, frame.normal) > 1.0 - 1.0e-12 && Coplanar (triangle, found->frame))
+                const std::array<long long, 4> key { std::llround (frame.normal.x * 1.0e5),
+                                                     std::llround (frame.normal.y * 1.0e5),
+                                                     std::llround (frame.normal.z * 1.0e5),
+                                                     std::llround (Dot (frame.origin, frame.normal) * 1.0e4) };
+                auto& bucket = planes[key];
+                size_t found = surfaces.size ();
+                for (const size_t candidate : bucket)
+                    if (Dot (surfaces[candidate].frame.normal, frame.normal) > 1.0 - 1.0e-12 &&
+                        Coplanar (triangle, surfaces[candidate].frame)) {
+                        found = candidate;
                         break;
-                }
-                if (found == surfaces.end ()) {
+                    }
+                if (found == surfaces.size ()) {
+                    bucket.push_back (found);
                     surfaces.push_back ({ uint32_t (m), frame, {} });
-                    found = surfaces.end () - 1;
                 }
-                found->domain.push_back (Project (triangle, found->frame));
+                surfaces[found].domain.push_back (Project (triangle, surfaces[found].frame));
             }
             if (m >= blocks.size () || !blocks[m])
                 continue;
@@ -476,205 +487,265 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
         double bandMinutes = 0.25 * timestep;
         while (bandMinutes * kMaxBands < double (steps.size ()) * timestep)
             bandMinutes *= 2.0;
-        size_t surfacesDone = 0;
-        for (auto& surface : surfaces) {
-            if (progress)
-                progress (surfacesDone++, surfaces.size ());
-            cp::PathsD domain;
-            if (!sc::Boolean (cp::ClipType::Union, surface.domain, {}, domain, prepared.error))
-                return false;
-            const auto change = kept.find (surface.mesh);
-            if (change != kept.end ()) {
-                cp::PathsD surviving;
-                for (size_t t = 0; t < change->second->TriangleCount (); ++t) {
-                    if (!charge ())
-                        return false;
-                    SolarCutTriangle triangle;
-                    if (Triangle (*change->second, t, surface.mesh, triangle) && Coplanar (triangle, surface.frame))
-                        surviving.push_back (Project (triangle, surface.frame));
-                }
-                cp::PathsD clipped;
-                if (!sc::Boolean (cp::ClipType::Intersection, domain, surviving, clipped, prepared.error))
-                    return false;
-                domain = std::move (clipped);
-            }
-            if (domain.empty ())
-                continue;
-            const auto bounds = cp::GetBounds (domain);
-            // The won region at one sun direction: the removed part's shadow
-            // minus every remaining shadow, on this surface. Empty when the
-            // sun cannot reach it or the removed part cannot shade it.
-            const auto wonAt = [&] (const V& sun, cp::PathsD& won) -> bool {
-                won.clear ();
-                if (!charge ())
-                    return false;
+        // Only a surface the removed part can shade at some measured sun is
+        // worth a Boolean; on a large site that is a handful of many thousands.
+        const auto reachable = [&] (const Surface& surface) {
+            const auto bounds = cp::GetBounds (surface.domain);
+            for (const auto& step : steps) {
+                const V sun { step.direction[0], step.direction[1], step.direction[2] };
                 const double facing = Dot (surface.frame.normal, sun);
-                if (!(sun.z > 0.0) || !(facing > 1.0e-8))
+                if (sun.z > 0.0 && facing > 1.0e-8 &&
+                    BoxShades (removedMin, removedMax, surface.frame, sun, facing, bounds))
                     return true;
-                if (!BoxShades (removedMin, removedMax, surface.frame, sun, facing, bounds))
-                    return true; // the removed part cannot shade this receiver at this sun
-                // Clip each projected piece to `within` before unioning, keeping
-                // low-sun world extents out of the Boolean.
-                cp::PathsD paths;
-                const auto project = [&] (const SolarCutTriangle& triangle, const cp::RectD& within) {
+            }
+            return false;
+        };
+        std::vector<Surface*> shaded;
+        for (auto& surface : surfaces) {
+            if (!charge ())
+                return false;
+            if (reachable (surface))
+                shaded.push_back (&surface);
+        }
+        prepared.surfacesShaded = shaded.size ();
+        std::string firstSkip;
+        // One surface's failure is that surface's, not the slice's (#168):
+        // everything finished so far is kept and the rest is said.
+        for (Surface* const each : shaded) {
+            if (progress)
+                progress (prepared.surfacesDone, shaded.size ());
+            SolarExposureResult own;
+            const auto shade = [&] (SolarExposureResult& out) -> bool {
+                auto& surface = *each;
+                cp::PathsD domain;
+                if (!sc::Boolean (cp::ClipType::Union, surface.domain, {}, domain, out.error))
+                    return false;
+                const auto change = kept.find (surface.mesh);
+                if (change != kept.end ()) {
+                    cp::PathsD surviving;
+                    for (size_t t = 0; t < change->second->TriangleCount (); ++t) {
+                        if (!charge ())
+                            return false;
+                        SolarCutTriangle triangle;
+                        if (Triangle (*change->second, t, surface.mesh, triangle) && Coplanar (triangle, surface.frame))
+                            surviving.push_back (Project (triangle, surface.frame));
+                    }
+                    cp::PathsD clipped;
+                    if (!sc::Boolean (cp::ClipType::Intersection, domain, surviving, clipped, out.error))
+                        return false;
+                    domain = std::move (clipped);
+                }
+                if (domain.empty ())
+                    return true;
+                const auto bounds = cp::GetBounds (domain);
+                // The won region at one sun direction: the removed part's shadow
+                // minus every remaining shadow, on this surface. Empty when the
+                // sun cannot reach it or the removed part cannot shade it.
+                const auto wonAt = [&] (const V& sun, cp::PathsD& won) -> bool {
+                    won.clear ();
                     if (!charge ())
                         return false;
-                    auto path = Shadow (triangle, surface.frame, sun);
-                    if (path.size () < 3 || std::abs (cp::Area (path)) < 1.0e-14)
+                    const double facing = Dot (surface.frame.normal, sun);
+                    if (!(sun.z > 0.0) || !(facing > 1.0e-8))
                         return true;
-                    const auto box = cp::GetBounds (path);
-                    if (box.right < within.left || box.left > within.right || box.bottom < within.top ||
-                        box.top > within.bottom)
+                    if (!BoxShades (removedMin, removedMax, surface.frame, sun, facing, bounds))
+                        return true; // the removed part cannot shade this receiver at this sun
+                    // Clip each projected piece to `within` before unioning, keeping
+                    // low-sun world extents out of the Boolean.
+                    cp::PathsD paths;
+                    const auto project = [&] (const SolarCutTriangle& triangle, const cp::RectD& within) {
+                        if (!charge ())
+                            return false;
+                        auto path = Shadow (triangle, surface.frame, sun);
+                        if (path.size () < 3 || std::abs (cp::Area (path)) < 1.0e-14)
+                            return true;
+                        const auto box = cp::GetBounds (path);
+                        if (box.right < within.left || box.left > within.right || box.bottom < within.top ||
+                            box.top > within.bottom)
+                            return true;
+                        const auto clipped = cp::RectClip (within, path, sc::kPrecision);
+                        paths.insert (paths.end (), clipped.begin (), clipped.end ());
+                        if (paths.size () > 100000) {
+                            out.error = "Sunlit-region projection exceeds the preview polygon budget";
+                            return false;
+                        }
                         return true;
-                    const auto clipped = cp::RectClip (within, path, sc::kPrecision);
-                    paths.insert (paths.end (), clipped.begin (), clipped.end ());
-                    if (paths.size () > 100000) {
-                        prepared.error = "Sunlit-region projection exceeds the preview polygon budget";
+                    };
+                    cp::PathsD removedShadow, afterShadow;
+                    for (const auto& triangle : cut.removed)
+                        if (!project (triangle, bounds))
+                            return false;
+                    if (!sc::Boolean (cp::ClipType::Intersection, paths, domain, removedShadow, out.error))
                         return false;
-                    }
+                    if (removedShadow.empty ())
+                        return true;
+                    // Only what can shade the removed part's shadow matters here.
+                    const auto region = cp::GetBounds (removedShadow);
+                    paths.clear ();
+                    if (!ForShading (after, surface.frame, sun, facing, region,
+                                     [&] (uint32_t t) { return project (after.At (t), region); }))
+                        return false;
+                    return sc::Boolean (cp::ClipType::Intersection, paths, domain, afterShadow, out.error) &&
+                           sc::Boolean (cp::ClipType::Difference, removedShadow, afterShadow, won, out.error) &&
+                           Open (won, out.error);
+                };
+                struct Sample {
+                    double minute = 0.0;
+                    V sun {};
+                    cp::PathsD won;
+                    double area = 0.0;
+                };
+                const auto sample = [&] (Sample& s) {
+                    if (!wonAt (s.sun, s.won))
+                        return false;
+                    s.area = AreaOf (s.won);
                     return true;
                 };
-                cp::PathsD removedShadow, afterShadow;
-                for (const auto& triangle : cut.removed)
-                    if (!project (triangle, bounds))
+                // The measured steps, exactly: the clock step view and the step
+                // accounting read these, never an interpolated sun.
+                std::vector<Sample> measured;
+                for (const auto& step : steps) {
+                    Sample s;
+                    s.minute = step.time.hour * 60 + step.time.minute;
+                    s.sun = { step.direction[0], step.direction[1], step.direction[2] };
+                    if (!sample (s))
                         return false;
-                if (!sc::Boolean (cp::ClipType::Intersection, paths, domain, removedShadow, prepared.error))
-                    return false;
-                if (removedShadow.empty ())
-                    return true;
-                // Only what can shade the removed part's shadow matters here.
-                const auto region = cp::GetBounds (removedShadow);
-                paths.clear ();
-                if (!ForShading (after, surface.frame, sun, facing, region,
-                                 [&] (uint32_t t) { return project (after.At (t), region); }))
-                    return false;
-                return sc::Boolean (cp::ClipType::Intersection, paths, domain, afterShadow, prepared.error) &&
-                       sc::Boolean (cp::ClipType::Difference, removedShadow, afterShadow, won, prepared.error) &&
-                       Open (won, prepared.error);
-            };
-            struct Sample {
-                double minute = 0.0;
-                V sun {};
-                cp::PathsD won;
-                double area = 0.0;
-            };
-            const auto sample = [&] (Sample& s) {
-                if (!wonAt (s.sun, s.won))
-                    return false;
-                s.area = AreaOf (s.won);
-                return true;
-            };
-            // The measured steps, exactly: the clock step view and the step
-            // accounting read these, never an interpolated sun.
-            std::vector<Sample> measured;
-            for (const auto& step : steps) {
-                Sample s;
-                s.minute = step.time.hour * 60 + step.time.minute;
-                s.sun = { step.direction[0], step.direction[1], step.direction[2] };
-                if (!sample (s))
-                    return false;
-                if (!s.won.empty ()) {
-                    SolarExposureStep timed;
-                    timed.minute = int (s.minute);
-                    if (!Fill (s.won, surface, timed.triangles, prepared.error))
-                        return false;
-                    Outline (s.won, surface, timed.boundary);
-                    prepared.steps.push_back (std::move (timed));
-                }
-                measured.push_back (std::move (s));
-            }
-            // SWEPT BETWEEN STEPS, NOT SAMPLED (#168). A thin won strip moves
-            // between two suns and lights what it passes over; drawn only
-            // where it stood at each step, the slice was a comb of strips with
-            // unlit gaps. Two near-convex regions sweep their common hull (a
-            // rigid motion's exact sweep); the sun halfway is traced to check
-            // that nothing remaining interrupts it, and the interval is split
-            // where it does or where the regions are not convex.
-            std::vector<Span> spans;
-            const std::function<bool (const Sample&, const Sample&, int)> sweep = [&] (const Sample& a, const Sample& b,
-                                                                                       int depth) {
-                constexpr int kMaxDepth = 3;
-                constexpr double kNone = 1.0e-8;
-                if (!charge ())
-                    return false;
-                if (a.area <= kNone && b.area <= kNone)
-                    return true;
-                Sample m;
-                m.minute = 0.5 * (a.minute + b.minute);
-                const V sa = Unit (a.sun), sb = Unit (b.sun);
-                m.sun = { sa.x + sb.x, sa.y + sb.y, sa.z + sb.z };
-                Span span { a.minute, b.minute, {} };
-                if (a.area > kNone && b.area > kNone && NearlyConvex (a.won, a.area) && NearlyConvex (b.won, b.area)) {
-                    const cp::PathsD hull { Hull (a.won, b.won) };
-                    bool swept = depth >= kMaxDepth;
-                    if (!swept) {
-                        cp::PathsD outside;
-                        if (!sample (m) ||
-                            !sc::Boolean (cp::ClipType::Difference, m.won, hull, outside, prepared.error))
+                    if (!s.won.empty ()) {
+                        SolarExposureStep timed;
+                        timed.minute = int (s.minute);
+                        if (!Fill (s.won, surface, timed.triangles, out.error))
                             return false;
-                        swept = m.area >= 0.8 * (std::min) (a.area, b.area) && AreaOf (outside) <= 0.2 * m.area;
+                        Outline (s.won, surface, timed.boundary);
+                        out.steps.push_back (std::move (timed));
                     }
-                    if (swept) {
-                        if (!sc::Boolean (cp::ClipType::Intersection, hull, domain, span.region, prepared.error))
+                    measured.push_back (std::move (s));
+                }
+                // SWEPT BETWEEN STEPS, NOT SAMPLED (#168). A thin won strip moves
+                // between two suns and lights what it passes over; drawn only
+                // where it stood at each step, the slice was a comb of strips with
+                // unlit gaps. Two near-convex regions sweep their common hull (a
+                // rigid motion's exact sweep); the sun halfway is traced to check
+                // that nothing remaining interrupts it, and the interval is split
+                // where it does or where the regions are not convex.
+                std::vector<Span> spans;
+                const std::function<bool (const Sample&, const Sample&, int)> sweep = [&] (const Sample& a,
+                                                                                           const Sample& b, int depth) {
+                    constexpr int kMaxDepth = 3;
+                    constexpr double kNone = 1.0e-8;
+                    if (!charge ())
+                        return false;
+                    if (a.area <= kNone && b.area <= kNone)
+                        return true;
+                    Sample m;
+                    m.minute = 0.5 * (a.minute + b.minute);
+                    const V sa = Unit (a.sun), sb = Unit (b.sun);
+                    m.sun = { sa.x + sb.x, sa.y + sb.y, sa.z + sb.z };
+                    Span span { a.minute, b.minute, {} };
+                    if (a.area > kNone && b.area > kNone && NearlyConvex (a.won, a.area) &&
+                        NearlyConvex (b.won, b.area)) {
+                        const cp::PathsD hull { Hull (a.won, b.won) };
+                        bool swept = depth >= kMaxDepth;
+                        if (!swept) {
+                            cp::PathsD outside;
+                            if (!sample (m) || !sc::Boolean (cp::ClipType::Difference, m.won, hull, outside, out.error))
+                                return false;
+                            swept = m.area >= 0.8 * (std::min) (a.area, b.area) && AreaOf (outside) <= 0.2 * m.area;
+                        }
+                        if (swept) {
+                            if (!sc::Boolean (cp::ClipType::Intersection, hull, domain, span.region, out.error))
+                                return false;
+                            spans.push_back (std::move (span));
+                            return true;
+                        }
+                        return sweep (a, m, depth + 1) && sweep (m, b, depth + 1);
+                    }
+                    bool joined = depth >= kMaxDepth;
+                    if (!joined && a.area > kNone && b.area > kNone) {
+                        cp::PathsD common;
+                        if (!sc::Boolean (cp::ClipType::Intersection, a.won, b.won, common, out.error))
+                            return false;
+                        joined = AreaOf (common) >= 0.5 * (std::min) (a.area, b.area);
+                    }
+                    if (joined) {
+                        if (!sc::Boolean (cp::ClipType::Union, a.won, b.won, span.region, out.error))
                             return false;
                         spans.push_back (std::move (span));
                         return true;
                     }
-                    return sweep (a, m, depth + 1) && sweep (m, b, depth + 1);
-                }
-                bool joined = depth >= kMaxDepth;
-                if (!joined && a.area > kNone && b.area > kNone) {
-                    cp::PathsD common;
-                    if (!sc::Boolean (cp::ClipType::Intersection, a.won, b.won, common, prepared.error))
+                    return sample (m) && sweep (a, m, depth + 1) && sweep (m, b, depth + 1);
+                };
+                // Each step stands for one timestep: half of it on each side.
+                // Between consecutive steps the sweep covers that time; at the
+                // slice's ends (or across a gap in the measured hours), the step's
+                // own region stands for its outer half.
+                for (size_t i = 0; i < measured.size (); ++i) {
+                    const Sample& s = measured[i];
+                    const bool left = i > 0 && s.minute - measured[i - 1].minute <= 1.5 * timestep;
+                    const bool right = i + 1 < measured.size () && measured[i + 1].minute - s.minute <= 1.5 * timestep;
+                    if (!s.won.empty () && !left)
+                        spans.push_back ({ s.minute - 0.5 * timestep, s.minute, s.won });
+                    if (!s.won.empty () && !right)
+                        spans.push_back ({ s.minute, s.minute + 0.5 * timestep, s.won });
+                    if (right && !sweep (s, measured[i + 1], 0))
                         return false;
-                    joined = AreaOf (common) >= 0.5 * (std::min) (a.area, b.area);
                 }
-                if (joined) {
-                    if (!sc::Boolean (cp::ClipType::Union, a.won, b.won, span.region, prepared.error))
-                        return false;
-                    spans.push_back (std::move (span));
+                spans.erase (std::remove_if (spans.begin (), spans.end (),
+                                             [] (const Span& span) { return span.region.empty (); }),
+                             spans.end ());
+                if (spans.empty ())
                     return true;
+                cp::PathsD all, united;
+                for (const auto& span : spans)
+                    all.insert (all.end (), span.region.begin (), span.region.end ());
+                if (!sc::Boolean (cp::ClipType::Union, all, {}, united, out.error) ||
+                    !Fill (united, surface, out.triangles, out.error))
+                    return false;
+                Outline (united, surface, out.boundary);
+                for (const auto& span : spans) {
+                    SolarExposureSpan timed { span.from, span.to, {} };
+                    if (!Fill (span.region, surface, timed.triangles, out.error))
+                        return false;
+                    out.spans.push_back (std::move (timed));
                 }
-                return sample (m) && sweep (a, m, depth + 1) && sweep (m, b, depth + 1);
+                if (!Bands (spans, united, timestep / 16.0, bandMinutes, surface, out.bands, charge, out.error))
+                    return false;
+                return true;
             };
-            // Each step stands for one timestep: half of it on each side.
-            // Between consecutive steps the sweep covers that time; at the
-            // slice's ends (or across a gap in the measured hours), the step's
-            // own region stands for its outer half.
-            for (size_t i = 0; i < measured.size (); ++i) {
-                const Sample& s = measured[i];
-                const bool left = i > 0 && s.minute - measured[i - 1].minute <= 1.5 * timestep;
-                const bool right = i + 1 < measured.size () && measured[i + 1].minute - s.minute <= 1.5 * timestep;
-                if (!s.won.empty () && !left)
-                    spans.push_back ({ s.minute - 0.5 * timestep, s.minute, s.won });
-                if (!s.won.empty () && !right)
-                    spans.push_back ({ s.minute, s.minute + 0.5 * timestep, s.won });
-                if (right && !sweep (s, measured[i + 1], 0))
+            if (!shade (own)) {
+                if (stopped)
                     return false;
-            }
-            spans.erase (
-                std::remove_if (spans.begin (), spans.end (), [] (const Span& span) { return span.region.empty (); }),
-                spans.end ());
-            if (spans.empty ())
+                if (exhausted) {
+                    prepared.partial = true;
+                    break;
+                }
+                ++prepared.skipped;
+                if (firstSkip.empty ())
+                    firstSkip = own.error.empty () ? prepared.error : own.error;
+                prepared.error.clear ();
+                ++prepared.surfacesDone;
                 continue;
-            cp::PathsD all, united;
-            for (const auto& span : spans)
-                all.insert (all.end (), span.region.begin (), span.region.end ());
-            if (!sc::Boolean (cp::ClipType::Union, all, {}, united, prepared.error) ||
-                !Fill (united, surface, prepared.triangles, prepared.error))
-                return false;
-            Outline (united, surface, prepared.boundary);
-            for (const auto& span : spans) {
-                SolarExposureSpan timed { span.from, span.to, {} };
-                if (!Fill (span.region, surface, timed.triangles, prepared.error))
-                    return false;
-                prepared.spans.push_back (std::move (timed));
             }
-            if (!Bands (spans, united, timestep / 16.0, bandMinutes, surface, prepared.bands, charge, prepared.error))
-                return false;
+            const auto append = [] (auto& to, auto& from) {
+                to.insert (to.end (), std::make_move_iterator (from.begin ()), std::make_move_iterator (from.end ()));
+            };
+            append (prepared.triangles, own.triangles);
+            append (prepared.boundary, own.boundary);
+            append (prepared.steps, own.steps);
+            append (prepared.spans, own.spans);
+            append (prepared.bands, own.bands);
+            ++prepared.surfacesDone;
         }
+        prepared.error.clear ();
         prepared.bandMinutes = bandMinutes;
-        return charge ();
+        if (prepared.partial)
+            prepared.note = "Work budget reached after " + std::to_string (prepared.surfacesDone) + " of " +
+                            std::to_string (prepared.surfacesShaded) +
+                            " surfaces the removed part can shade; the rest are not shown. Narrow the cut slice.";
+        if (prepared.skipped > 0)
+            prepared.note += (prepared.note.empty () ? "" : " ") + std::to_string (prepared.skipped) + " surface" +
+                             (prepared.skipped == 1 ? "" : "s") + " could not be shaded and " +
+                             (prepared.skipped == 1 ? "is" : "are") + " left out: " + firstSkip;
+        return true;
     };
     if (!compute ()) {
         result.error = prepared.error;

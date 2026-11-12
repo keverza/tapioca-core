@@ -40,6 +40,12 @@ struct SolarExposureResult {
     std::vector<SolarExposureBand> bands; // the union split by minutes gained
     double bandMinutes = 0.0;             // the width of one band
     size_t work = 0;                      // work units used, of the call's limit
+    // A surface that cannot be shaded is left out, not the whole result (#168):
+    // `skipped` counts them, `partial` says the work budget ran out after
+    // `surfacesDone` of `surfacesShaded`, and `note` says why, for the panel.
+    size_t skipped = 0, surfacesDone = 0, surfacesShaded = 0;
+    bool partial = false;
+    std::string note;
     std::string error;
 
     int MostLevel () const
@@ -52,8 +58,10 @@ struct SolarExposureResult {
 };
 
 // receivers are global source-triangle IDs of the measured surfaces. The
-// unchanged snapshot plus cut.kept is the after scene. Work is bounded and a
-// refusal/cancellation returns no partial exposure, never a coarser substitute.
+// unchanged snapshot plus cut.kept is the after scene. Work is bounded. A
+// cancellation returns nothing; a surface that fails is skipped, and a budget
+// that runs out keeps the surfaces finished so far -- each exact, never a
+// coarser substitute, and each said in `note`.
 bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResult& cut,
                            const std::vector<uint8_t>& blocks, const std::vector<uint32_t>& receivers,
                            const std::vector<SunStep>& steps, SolarExposureResult& result,

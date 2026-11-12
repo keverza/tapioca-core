@@ -255,6 +255,61 @@ TEST (SunStudySolarExposure, LargeSceneStaysWithinTheDefaultBudget)
     EXPECT_NEAR (Area (out.triangles), 20 * 0.1 * 0.1, 1.0e-6);
 }
 
+TEST (SunStudySolarExposure, ManyDistinctReceiverPlanesDoNotSpendTheBudget)
+{
+    // A measured terrain (or a solid-operated body) is thousands of triangles
+    // each in its own plane. Searched pairwise, 6000 of them cost 18M work
+    // units before a shadow was cast and the lit surface failed (#168).
+    Fixture f;
+    geomsrv::Mesh terrain;
+    for (int i = 0; i <= 60; ++i)
+        for (int j = 0; j <= 50; ++j)
+            terrain.vertices.insert (terrain.vertices.end (),
+                                     { 100.0 + i, double (j), 0.37 * std::sin (1.3 * i + 0.7 * j * j) });
+    std::vector<uint32_t> receivers { 0, 1 };
+    for (uint32_t i = 0; i < 60; ++i)
+        for (uint32_t j = 0; j < 50; ++j) {
+            const uint32_t a = i * 51 + j, b = a + 51;
+            terrain.triangles.insert (terrain.triangles.end (), { a, b, b + 1, a, b + 1, a + 1 });
+        }
+    for (uint32_t t = 0; t < terrain.TriangleCount (); ++t)
+        receivers.push_back (4 + t);
+    f.scene.meshes.push_back (terrain);
+    SolarExposureResult out;
+    ASSERT_TRUE (ComputeSolarExposure (f.scene, f.cut, { 1, 1, 0 }, receivers, f.suns, out, {}, 2000000)) << out.error;
+    EXPECT_NEAR (Area (out.triangles), 4.0, 1.0e-6);
+    EXPECT_TRUE (out.note.empty ()) << out.note;
+    EXPECT_EQ (out.surfacesShaded, 1u); // only the floor can be shaded by the removed square
+}
+
+TEST (SunStudySolarExposure, ARunOutBudgetKeepsTheFinishedSurfacesAndSaysSo)
+{
+    // Twenty receivers under the removed square; a budget that lasts for some
+    // of them shows those, exact, and says the rest are missing (#168).
+    Fixture f;
+    std::vector<uint8_t> blocks { 1, 1 };
+    std::vector<uint32_t> receivers;
+    uint32_t global = 4;
+    for (int i = 0; i < 20; ++i) {
+        f.scene.meshes.push_back (Square (1.5 + 0.1 * (i % 5), 1.5 + 0.1 * (i / 5), 0.09 * i, 0.1));
+        blocks.push_back (0);
+        receivers.push_back (global);
+        receivers.push_back (global + 1);
+        global += 2;
+    }
+    SolarExposureResult whole;
+    ASSERT_TRUE (ComputeSolarExposure (f.scene, f.cut, blocks, receivers, f.suns, whole)) << whole.error;
+    ASSERT_EQ (whole.surfacesDone, 20u);
+    SolarExposureResult part;
+    ASSERT_TRUE (ComputeSolarExposure (f.scene, f.cut, blocks, receivers, f.suns, part, {}, whole.work / 2))
+        << part.error;
+    EXPECT_TRUE (part.partial);
+    EXPECT_FALSE (part.note.empty ());
+    EXPECT_GT (part.surfacesDone, 0u);
+    EXPECT_LT (part.surfacesDone, 20u);
+    EXPECT_NEAR (Area (part.triangles), double (part.surfacesDone) * 0.1 * 0.1, 1.0e-6);
+}
+
 TEST (SunStudySolarExposure, BandsPartitionTheSweptUnionByMinutesGained)
 {
     // Three suns 30 min apart slide the removed square's shadow 0, 0.5 and 1 m.

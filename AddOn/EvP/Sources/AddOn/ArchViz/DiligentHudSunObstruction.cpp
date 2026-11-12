@@ -227,13 +227,23 @@ void DrawSolarCutSummary (HudState& state, const SunObstructionFrame& frame)
             timings;
         SunStudyNote (line, detail.c_str ());
     }
+    // The reason is in the panel, not only behind a hover: a report needs it.
     if (!frame.exposure.error.empty ()) {
-        ImGui::TextColored (warning, "Won-lit surface failed");
-        geomsrv::archviz::hudshell::ItemTip ("%s\n%s", frame.exposure.error.c_str (), timings.c_str ());
+        ImGui::PushStyleColor (ImGuiCol_Text, warning);
+        ImGui::TextWrapped ("Won-lit surface failed: %s", frame.exposure.error.c_str ());
+        ImGui::PopStyleColor ();
+        geomsrv::archviz::hudshell::ItemTip ("%s", timings.c_str ());
     }
-    else if (retraced && !frame.exposure.steps.empty ())
+    else if (retraced && !frame.exposure.note.empty ()) {
+        ImGui::PushStyleColor (ImGuiCol_Text, warning);
+        ImGui::TextWrapped ("Won-lit surface incomplete: %s", frame.exposure.note.c_str ());
+        ImGui::PopStyleColor ();
+        geomsrv::archviz::hudshell::ItemTip ("%s", timings.c_str ());
+    }
+    const bool shown = retraced && frame.exposure.error.empty ();
+    if (shown && !frame.exposure.steps.empty ())
         DrawSolarCutGain (state, frame);
-    else if (retraced)
+    else if (shown && frame.exposure.note.empty ())
         SunStudyNote (frame.wonCells > 0 ? "No won-lit surface on the measured surfaces in this slice"
                                          : "The cut brings no new sun to the measured surfaces in this slice",
                       (std::string ("The removed part's shadow in the slice lies on nothing the study measured, or "
