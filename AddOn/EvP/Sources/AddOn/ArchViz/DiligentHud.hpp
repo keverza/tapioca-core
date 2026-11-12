@@ -289,9 +289,10 @@ struct HudState {
     evp::sunstudy::PointDay sunPointDay;
     bool sunPointDayReady = false;
     uint64_t sunPointDayReads = 0; // observable proof that a still clock does no retrace/read
-    // Single-day exact obstruction: 0 off, 1 selected time step (pink),
-    // 2 whole day (timed parts coloured by their shadow hour).
-    int sunObstructionMode = 0; // 1 time step, 2 whole day, 3 solar cut
+    // Single-day exact obstruction: 3 the solar cut (the default), 2 whole day
+    // (timed parts coloured by their shadow hour). 1, the one clock step, is
+    // no longer offered (#168): the solar cut's Shadow at clock shows it.
+    int sunObstructionMode = 3;
     // The solar cut's slice (minutes; to <= from: not yet chosen) and the grip
     // being dragged on the diagram's pink arc (0 none, 1 from, 2 to, 3 the arc
     // itself, moved whole: sunCutGrabOffset minutes ahead of its start).
@@ -348,19 +349,25 @@ struct HudState {
     // When the cut lights the hovered place: ascending [from, to) clock-minute
     // runs, for "+1 h 15 min here, 10:30-11:45" in the panel and the tooltip.
     std::vector<std::array<double, 2>> sunCutReadingRuns;
-    // Solar cut: show only the surface lit at the day diagram's clock step,
-    // not the whole slice shaded by hours gained.
-    bool sunCutStepOnly = false;
     // Solar cut: the study's sun hours under the cut (true), so the gain reads
     // against the whole day, or the single shadow at the clock step (false).
     bool sunCutShowsHours = true;
-    // Over that map, each its own layer so they need not all be read at once:
-    // the study cells the cut changes, in the hours they would read after it;
-    // their merged pink outline; and the exact won-lit surface shaded by the
-    // minutes it gains (off by default).
+    // Over the hours map, each its own layer: the study cells the cut changes,
+    // in the hours they would read after it, and their merged outline.
     bool sunCutShowsCells = true;
     bool sunCutShowsOutline = true;
-    bool sunCutShowsGain = false;
+    // Over the clock shadow: the exact won-lit surface shaded by the minutes it
+    // gains, or only what it lights at the day diagram's clock step.
+    bool sunCutShowsGain = true;
+    bool sunCutStepOnly = false;
+    // Their colours (#168), DISPLAY ONLY. An empty preset: the cells take the
+    // hours map's gradient, the lit surface its pale yellow to deep amber.
+    std::string sunCutCellsPreset, sunCutGainPreset;
+    std::vector<overlaylayers::ColourStop> sunCutCellsCustom, sunCutGainCustom;
+    bool sunCutCellsFlipped = false, sunCutGainFlipped = false;
+    uint32_t sunCutOutlineRgba = 0xF240BFFFu; // kSolarCutCellsEdgeRgba
+    uint32_t sunCutLitEdgeRgba = 0xD08A10FFu; // kSolarCutWonEdgeRgba
+    uint32_t sunCutStepRgba = 0xFFE27AB0u;    // kSolarCutWonRgba
     // The hovered study cell's whole-day hours before and after the cut; -1
     // when the cut does not change it.
     float sunCutCellBefore = -1.0f, sunCutCellAfter = -1.0f;

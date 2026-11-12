@@ -551,11 +551,12 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
     }
     else
         receivers = record.sampleGrid.faces;
+    // The cut's own layers, before any lit surface: the HUD composes over them.
+    frame->cutDrawables = frame->drawables;
     if (receivers.empty ())
         frame->exposure.error = "Won-lit surfaces need retained triangle/patch receiver geometry";
     else {
         progress->Enter (SunSolarCutPhase::LitSurface);
-        frame->cutDrawables = frame->drawables;
         if (evp::sunstudy::ComputeSolarExposure (snapshot, cut, input.blocks, receivers, input.steps, frame->exposure,
                                                  stop, kExposureWorkLimit, [&] (size_t done, size_t of) {
                                                      progress->total.store (of);

@@ -183,8 +183,22 @@ TEST (SunStudyHud, SolarCutShowsTheDaysSunHoursUnderItUnlessAskedForTheClockShad
     state.sunCutShowsHours = false;
     EXPECT_EQ (SunStudyViewOf (state).viewOverride, 5); // the single shadow at the clock
     state.sunCutShowsHours = true;
-    state.sunObstructionMode = 1;
-    EXPECT_EQ (SunStudyViewOf (state).viewOverride, 5); // the time-step attribution keeps its shadow
+    state.sunObstructionMode = 2;
+    EXPECT_EQ (SunStudyViewOf (state).viewOverride, 5); // the whole-day attribution keeps its shadow
+}
+
+TEST (SunStudyHud, TheSolarCutIsTheDefaultObstructionWithTheLitSurfaceOverTheClockShadow)
+{
+    // #168: Time step is gone; the solar cut leads. The lit surface belongs to
+    // Shadow at clock, the cells and their outline to Sun hours.
+    const HudState state;
+    EXPECT_EQ (state.sunObstructionMode, 3);
+    EXPECT_TRUE (state.sunCutShowsHours);
+    EXPECT_TRUE (state.sunCutShowsCells && state.sunCutShowsOutline);
+    EXPECT_TRUE (state.sunCutShowsGain);
+    EXPECT_FALSE (state.sunCutStepOnly);
+    EXPECT_TRUE (state.sunCutCellsPreset.empty ()); // the hours map's own colours
+    EXPECT_TRUE (state.sunCutGainPreset.empty ());  // yellow to amber
 }
 
 TEST (SunStudyHud, SolarCutHoverGainSumsRunsAndNamesTheirClockTimes)

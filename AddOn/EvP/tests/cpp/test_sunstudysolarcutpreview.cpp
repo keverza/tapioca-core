@@ -262,6 +262,43 @@ TEST (SunStudySolarCutPreview, WonExposureIsShadedByHoursGainedAndCanShowOneStep
     EXPECT_TRUE (none.depthTested.meshVertices.empty ());
 }
 
+TEST (SunStudySolarCutPreview, TheHudsColoursReachTheLitSurfaceAndTheCellOutline)
+{
+    // #168: the gain gradient, the edge, the clock step and the cells' outline
+    // are the panel's; only the colours are taken, the fills keep their alpha.
+    const overlaylayers::ColourStop ramp[] = { { 0.0f, 0x0000FFFFu }, { 1.0f, 0xFF0000FFu } };
+    EXPECT_EQ (SolarCutGainRgba (1, 3, ramp), 0x0000FFB0u);
+    EXPECT_EQ (SolarCutGainRgba (3, 3, ramp), 0xFF0000B0u);
+    EXPECT_EQ (SolarCutGainRgba (2, 4, {}), SolarCutGainRgba (2, 4)); // no ramp: yellow to amber
+
+    evp::sunstudy::SolarExposureResult exposure;
+    exposure.triangles = { Tri (0, 0, 2, 0, 0, 2) };
+    exposure.boundary = { { 0, 0, 0, 2, 0, 0 } };
+    exposure.bands = { { 1, { Tri (0, 0, 1, 0, 0, 1) } }, { 3, { Tri (1, 0, 2, 0, 1, 1) } } };
+    exposure.steps = { { 750, { Tri (0, 0, 1, 0, 0, 1) }, { { 0, 0, 0, 1, 0, 0 } } } };
+    SolarCutLitColours colours;
+    colours.gain = ramp;
+    colours.edge = 0x112233FFu;
+    colours.step = 0x44556680u;
+    GhPreviewDrawables shaded, step;
+    AppendSolarExposure (exposure, shaded, colours);
+    EXPECT_EQ (shaded.depthTested.meshVertices.front ().rgba, 0x0000FFB0u);
+    EXPECT_EQ (shaded.depthTested.meshVertices.back ().rgba, 0xFF0000B0u);
+    ASSERT_FALSE (shaded.depthTested.lineVertices.empty ());
+    EXPECT_EQ (shaded.depthTested.lineVertices.back ().rgba, 0x112233FFu);
+    AppendSolarExposureStep (exposure, 750, step, colours);
+    ASSERT_FALSE (step.depthTested.meshVertices.empty ());
+    EXPECT_EQ (step.depthTested.meshVertices.front ().rgba, 0x44556680u);
+    EXPECT_EQ (step.depthTested.lineVertices.back ().rgba, 0x112233FFu);
+
+    evp::sunstudy::SolarCutCellsResult cells;
+    cells.outline = { { 0, 0, 0, 1, 0, 0 } };
+    GhPreviewDrawables outlined;
+    AppendSolarCutCells (cells, [] (float) { return 0xFFFFFFFFu; }, outlined, false, true, 0x00FF00FFu);
+    ASSERT_FALSE (outlined.depthTested.lineVertices.empty ());
+    EXPECT_EQ (outlined.depthTested.lineVertices.back ().rgba, 0x00FF00FFu);
+}
+
 TEST (SunStudySolarCutPreview, WhatRemainsOfACutElementIsNotGhosted)
 {
     // #168: the kept part of a cut element was drawn as a grey x-ray; across a

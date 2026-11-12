@@ -30,8 +30,10 @@ def test_obstruction_is_a_view_not_a_study_point_footer():
     assert 'RadioButton ("Off##sunobstruction"' not in point
     assert "sunView =" not in day
     controls = source("ArchViz/DiligentHudSunObstruction.cpp")
-    assert 'RadioButton ("Time step##sunobstruction"' in controls
-    assert 'RadioButton ("Whole day##sunobstruction"' in controls
+    # #168: the solar cut is the default; its Shadow at clock replaced Time step.
+    assert '"Solar cut##sunobstruction"' in controls
+    assert '"Whole day##sunobstruction"' in controls
+    assert "Time step##sunobstruction" not in controls
 
 
 def test_time_step_refusal_and_shared_capture_freshness_are_not_dropped():

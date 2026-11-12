@@ -7,6 +7,7 @@
 
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
+#include "ArchViz/GradientPresetChoice.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/SunStudyObstructionController.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
@@ -41,12 +42,17 @@ ImU32 Opaque (uint32_t rgba)
 namespace {
 
 // The lit surface's key (#168): the hours-gained ramp as it is on the model,
-// the toggle to the day diagram's clock step, and the hovered place's gain.
+// what the day diagram's clock step lights, and the hovered place's gain.
 void DrawSolarCutGain (HudState& state, const SunObstructionFrame& frame)
 {
     const int most = frame.exposure.MostLevel ();
     const double band = frame.exposure.bandMinutes;
-    if (!state.sunCutStepOnly && most > 0 && band > 0.0) {
+    const bool lit = !state.sunCutShowsHours && state.sunCutShowsGain;
+    const std::vector<overlaylayers::ColourStop> ramp =
+        state.sunCutGainPreset.empty ()
+            ? std::vector<overlaylayers::ColourStop> ()
+            : SunStudyRampStops (state.sunCutGainPreset, state.sunCutGainCustom, state.sunCutGainFlipped);
+    if (lit && !state.sunCutStepOnly && most > 0 && band > 0.0) {
         const std::string from = SunStudyCutDuration (band), to = SunStudyCutDuration (band * most);
         const float width = ImGui::GetContentRegionAvail ().x;
         const float toWidth = ImGui::CalcTextSize (to.c_str ()).x + ImGui::GetStyle ().ItemSpacing.x;
@@ -60,7 +66,7 @@ void DrawSolarCutGain (HudState& state, const SunObstructionFrame& frame)
         for (int k = 1; k <= most; ++k) {
             const float x0 = at.x + bar * float (k - 1) / float (most), x1 = at.x + bar * float (k) / float (most);
             draw->AddRectFilled (ImVec2 (x0, at.y + 0.2f * height), ImVec2 (x1 + 0.5f, at.y + 0.8f * height),
-                                 Opaque (SolarCutGainRgba (k, most)));
+                                 Opaque (SolarCutGainRgba (k, most, ramp)));
         }
         ImGui::Dummy (ImVec2 (bar, height));
         geomsrv::archviz::hudshell::ItemTip (
@@ -71,11 +77,7 @@ void DrawSolarCutGain (HudState& state, const SunObstructionFrame& frame)
         ImGui::SameLine ();
         ImGui::TextUnformatted (to.c_str ());
     }
-    ImGui::Checkbox ("Current step only##suncutstep", &state.sunCutStepOnly);
-    geomsrv::archviz::hudshell::ItemTip (
-        "Show only the surface the cut lights at the day diagram's clock step, and follow the "
-        "clock as it is moved or played. Off: the whole slice, shaded by hours gained.");
-    if (state.sunCutStepOnly) {
+    if (lit && state.sunCutStepOnly) {
         const bool clocked = state.sunStep >= 0 && size_t (state.sunStep) < state.sunStepMinutes.size ();
         const int minute = clocked ? int (state.sunStepMinutes[size_t (state.sunStep)]) : -1;
         const bool wins =
@@ -90,8 +92,10 @@ void DrawSolarCutGain (HudState& state, const SunObstructionFrame& frame)
                 (MinuteText (minute) + (wins ? ": lit by the cut" : ": the cut lights nothing new")).c_str ());
     }
     const std::string gain = SunStudyCutGain (state.sunCutReadingRuns);
-    if (gain.empty ())
-        ImGui::TextDisabled ("Hover the lit surface for what it gains");
+    if (gain.empty ()) {
+        if (lit)
+            ImGui::TextDisabled ("Hover the lit surface for what it gains");
+    }
     else
         ImGui::Text ("%s here, %s", gain.c_str (), SunStudyCutGainRuns (state.sunCutReadingRuns).c_str ());
     if (!gain.empty () && state.sunCutShowsHours && state.sunReadingState == 1 && state.sunCutCellAfter < 0.0f)
@@ -281,24 +285,78 @@ void DrawSolarCutSummary (HudState& state, const SunObstructionFrame& frame)
         ImGui::TextDisabled ("+%zu more elements", frame.cutObjects.size () - kRows);
 }
 
+// The layers each base offers, each with its colours beside it (#168): the
+// changed cells and their outline over Sun hours; the lit surface, whole slice
+// or one clock step, over Shadow at clock. DISPLAY ONLY: no cut re-runs.
+void DrawSolarCutLayers (HudState& state)
+{
+    namespace tip = geomsrv::archviz::hudshell;
+    if (state.sunCutShowsHours) {
+        ImGui::Checkbox ("Cells##suncutcells", &state.sunCutShowsCells);
+        tip::ItemTip ("The study cells the cut changes, re-counted over the whole day (the study's own "
+                      "lit steps plus the rays that now run clear past what remains) and drawn in the "
+                      "hours they would read.");
+        ImGui::SameLine ();
+        ImGui::BeginDisabled (!state.sunCutShowsCells);
+        gradientchoice::GradientPresetChoice ("##suncutcellsgradient", state.sunCutCellsPreset, state.sunCutCellsCustom,
+                                              state.sunCutCellsFlipped, ImGui::GetContentRegionAvail ().x,
+                                              overlaylayers::GradientCategory::Sun, "Hours map");
+        ImGui::EndDisabled ();
+        ImGui::Checkbox ("Outline##suncutoutline", &state.sunCutShowsOutline);
+        tip::ItemTip ("One outline around the changed cells on each surface: where the cut's new sun "
+                      "comes from.");
+        ImGui::SameLine ();
+        ImGui::BeginDisabled (!state.sunCutShowsOutline);
+        gradientchoice::ColourChoice ("##suncutoutlinecolour", state.sunCutOutlineRgba, false);
+        tip::ItemTip ("The outline's colour.");
+        ImGui::EndDisabled ();
+        return;
+    }
+    ImGui::Checkbox ("Lit surface##suncutgain", &state.sunCutShowsGain);
+    tip::ItemTip ("The exact surface the cut lights in its slice, shaded by the minutes it gains, "
+                  "least to most along its gradient, with its own edge.");
+    ImGui::SameLine ();
+    ImGui::BeginDisabled (!state.sunCutShowsGain);
+    gradientchoice::ColourChoice ("##suncutlitedge", state.sunCutLitEdgeRgba, false);
+    tip::ItemTip ("The lit surface's edge colour.");
+    ImGui::SameLine ();
+    gradientchoice::GradientPresetChoice ("##suncutgaingradient", state.sunCutGainPreset, state.sunCutGainCustom,
+                                          state.sunCutGainFlipped, ImGui::GetContentRegionAvail ().x,
+                                          overlaylayers::GradientCategory::Sun, "Yellow to amber");
+    ImGui::Checkbox ("Current step only##suncutstep", &state.sunCutStepOnly);
+    tip::ItemTip ("Show only the surface the cut lights at the day diagram's clock step, and follow "
+                  "the clock as it is moved or played. Off: the whole slice, shaded by minutes gained.");
+    ImGui::SameLine ();
+    ImGui::BeginDisabled (!state.sunCutStepOnly);
+    gradientchoice::ColourChoice ("##suncutstepcolour", state.sunCutStepRgba, true);
+    tip::ItemTip ("The clock step's colour, and its opacity.");
+    ImGui::EndDisabled ();
+    ImGui::EndDisabled ();
+}
+
 } // namespace
 
 void DrawSunStudyObstructionControls (HudState& state, const std::string& studyId)
 {
     // Segmented like the view row above: the active mode is the lit button.
-    const char* labels[] = { "Time step##sunobstruction", "Whole day##sunobstruction", "Solar cut##sunobstruction" };
-    const char* tips[] = { "What blocks the study point's sun at the diagram's selected step.",
-                           "Every measured step in the selected slice (all of it when none is selected).",
-                           "What of the blockers must go for direct sun through the pink slice on the day diagram." };
-    const float modeWidth = (ImGui::GetContentRegionAvail ().x - 2.0f * ImGui::GetStyle ().ItemSpacing.x) / 3.0f;
-    for (int i = 0; i < 3; ++i) {
+    // The solar cut leads and is the default; the clock step is its Shadow at
+    // clock, so a separate Time step mode is gone (#168).
+    if (state.sunObstructionMode != 2)
+        state.sunObstructionMode = 3;
+    const char* labels[] = { "Solar cut##sunobstruction", "Whole day##sunobstruction" };
+    const int modes[] = { 3, 2 };
+    const char* tips[] = { "What of the blockers must go for direct sun through the pink slice on the day diagram.",
+                           "What blocks the point at every measured step in the selected slice (all of it when "
+                           "none is selected)." };
+    const float modeWidth = (ImGui::GetContentRegionAvail ().x - ImGui::GetStyle ().ItemSpacing.x) / 2.0f;
+    for (int i = 0; i < 2; ++i) {
         if (i != 0)
             ImGui::SameLine ();
-        const bool active = state.sunObstructionMode == i + 1;
+        const bool active = state.sunObstructionMode == modes[i];
         ImGui::PushStyleColor (ImGuiCol_Button,
                                ImGui::GetStyleColorVec4 (active ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
         if (ImGui::Button (labels[i], ImVec2 (modeWidth, 0)))
-            state.sunObstructionMode = i + 1;
+            state.sunObstructionMode = modes[i];
         ImGui::PopStyleColor ();
         geomsrv::archviz::hudshell::ItemTip ("%s", tips[i]);
     }
@@ -320,23 +378,7 @@ void DrawSunStudyObstructionControls (HudState& state, const std::string& studyI
             ImGui::PopStyleColor ();
             geomsrv::archviz::hudshell::ItemTip ("%s", baseTips[i]);
         }
-        if (state.sunCutShowsHours) {
-            ImGui::Checkbox ("Cells##suncutcells", &state.sunCutShowsCells);
-            geomsrv::archviz::hudshell::ItemTip (
-                "The study cells the cut changes, re-counted over the whole day (the study's own "
-                "lit steps plus the rays that now run clear past what remains) and drawn in the "
-                "hours they would read, in the map's colours.");
-            ImGui::SameLine ();
-            ImGui::Checkbox ("Outline##suncutoutline", &state.sunCutShowsOutline);
-            geomsrv::archviz::hudshell::ItemTip (
-                "One pink outline around the changed cells on each surface: where the cut's new "
-                "sun comes from.");
-            ImGui::SameLine ();
-            ImGui::Checkbox ("Lit surface##suncutgain", &state.sunCutShowsGain);
-            geomsrv::archviz::hudshell::ItemTip (
-                "The exact surface the cut lights in its slice, independent of the cells, shaded "
-                "yellow to amber by the minutes it gains, with its own yellow edge.");
-        }
+        DrawSolarCutLayers (state);
     }
     // The prerequisite, made actionable (#167, #168): Place point arms a click
     // on the scene, so nobody has to know about the right-click menu. A cell

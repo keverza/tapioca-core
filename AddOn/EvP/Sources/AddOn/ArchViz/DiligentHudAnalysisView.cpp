@@ -240,66 +240,71 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
     }
     // Each stage of a staged cut re-uploads; so does each clock step shown.
     const uint64_t stageKey = frame->generation * 4 + uint64_t (frame->cutStage);
-    const bool stepOnly = state.sunCutStepOnly && frame->mode == SunObstructionMode::SolarCut &&
-                          frame->cutStage == SunSolarCutStage::Done && frame->exposure.error.empty () &&
-                          !frame->exposure.steps.empty ();
-    // Sun hours under the cut: the study cells the cut changes, in the hours
-    // they would read after it (the map's own colours), their pink outline,
-    // and the lit surface -- each its own toggle, composed here (#168).
-    const bool layered = !stepOnly && state.sunCutShowsHours && frame->mode == SunObstructionMode::SolarCut &&
-                         frame->cutStage == SunSolarCutStage::Done;
-    if (layered) {
-        const SunStudyViewSettings view = SunStudyViewOf (state);
-        const bool gain = state.sunCutShowsGain && frame->exposure.error.empty ();
-        const bool fill = state.sunCutShowsCells, outline = state.sunCutShowsOutline;
-        uint64_t key = 1469598103934665603ull;
-        Mix (key, &stageKey, sizeof (stageKey));
-        Mix (key, view.ramp, sizeof (view.ramp[0]) * size_t ((std::max) (0, view.rampCount)));
-        Mix (key, &view.bandCount, sizeof (view.bandCount));
-        Mix (key, view.bandEdges, sizeof (view.bandEdges));
-        Mix (key, &view.blueThreshold, sizeof (view.blueThreshold));
-        Mix (key, &view.lowSunRgba, sizeof (view.lowSunRgba));
-        Mix (key, &gain, sizeof (gain));
-        Mix (key, &fill, sizeof (fill));
-        Mix (key, &outline, sizeof (outline));
-        key = (key << 1) | 1u; // odd: never a whole-slice (stageKey * 2048) or step key
-        static uint64_t cellsKey = 0;
-        static GhPreviewDrawables cellsComposed;
-        if (cellsKey != key) {
-            cellsComposed = frame->cutDrawables;
-            if (gain)
-                AppendSolarExposure (frame->exposure, cellsComposed);
-            const std::span<const overlaylayers::ColourStop> stops (view.ramp, size_t ((std::max) (0, view.rampCount)));
-            const int bands = view.bandCount;
-            const float* edges = bands >= kSunBandsMin ? view.bandEdges : nullptr;
-            AppendSolarCutCells (
-                frame->cutCells,
-                [&] (float hours) {
-                    return SunStudyHoursRgba (stops, hours, bands, edges, view.blueThreshold, view.lowSunRgba);
-                },
-                cellsComposed, fill, outline);
-            cellsKey = key;
-        }
-        scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, &cellsComposed, key,
-                                      modelIsDrawn);
-        return;
-    }
-    if (!stepOnly) {
+    if (frame->mode != SunObstructionMode::SolarCut || frame->cutStage != SunSolarCutStage::Done) {
         scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, &frame->drawables,
                                       stageKey * 2048, modelIsDrawn);
         return;
     }
-    // Only the day diagram's clock step (#168): the cut's own layers and that
-    // step's lit surface, composed once per step rather than per frame.
-    const int minute = state.sunStep >= 0 && size_t (state.sunStep) < state.sunStepMinutes.size ()
+    // A finished cut, composed from what the panel shows (#168), once per
+    // change rather than per frame, over the cut's own layers:
+    //   Sun hours -- the study cells the cut changes, in the hours they would
+    //     read after it, and/or their outline;
+    //   Shadow at clock -- the lit surface shaded by the minutes it gains, or
+    //     only what it lights at the day diagram's clock step.
+    const bool hours = state.sunCutShowsHours;
+    const bool lit = !hours && state.sunCutShowsGain && frame->exposure.error.empty ();
+    const bool stepOnly = lit && state.sunCutStepOnly && !frame->exposure.steps.empty ();
+    const int minute = stepOnly && state.sunStep >= 0 && size_t (state.sunStep) < state.sunStepMinutes.size ()
                            ? int (state.sunStepMinutes[size_t (state.sunStep)])
                            : -1;
-    const uint64_t key = stageKey * 2048 + uint64_t (minute + 2); // 1..1441, never the whole-slice key
+    const bool fill = hours && state.sunCutShowsCells, outline = hours && state.sunCutShowsOutline;
+    const SunStudyViewSettings view = SunStudyViewOf (state);
+    // The cells' gradient: the hours map's own unless one is chosen for them.
+    const bool ownCells = !state.sunCutCellsPreset.empty ();
+    const std::vector<overlaylayers::ColourStop> cellRamp =
+        ownCells
+            ? SunStudyRampStops (state.sunCutCellsPreset, state.sunCutCellsCustom, state.sunCutCellsFlipped)
+            : std::vector<overlaylayers::ColourStop> (view.ramp, view.ramp + size_t ((std::max) (0, view.rampCount)));
+    const std::vector<overlaylayers::ColourStop> gainRamp =
+        state.sunCutGainPreset.empty ()
+            ? std::vector<overlaylayers::ColourStop> ()
+            : SunStudyRampStops (state.sunCutGainPreset, state.sunCutGainCustom, state.sunCutGainFlipped);
+    SolarCutLitColours colours;
+    colours.gain = gainRamp;
+    colours.edge = state.sunCutLitEdgeRgba;
+    colours.step = state.sunCutStepRgba;
+    uint64_t key = 1469598103934665603ull;
+    Mix (key, &stageKey, sizeof (stageKey));
+    for (const bool flag : { hours, lit, stepOnly, fill, outline })
+        Mix (key, &flag, sizeof (flag));
+    Mix (key, &minute, sizeof (minute));
+    Mix (key, cellRamp.data (), sizeof (cellRamp[0]) * cellRamp.size ());
+    Mix (key, gainRamp.data (), sizeof (gainRamp[0]) * gainRamp.size ());
+    Mix (key, &view.bandCount, sizeof (view.bandCount));
+    Mix (key, view.bandEdges, sizeof (view.bandEdges));
+    Mix (key, &view.blueThreshold, sizeof (view.blueThreshold));
+    Mix (key, &view.lowSunRgba, sizeof (view.lowSunRgba));
+    for (const uint32_t rgba : { state.sunCutOutlineRgba, state.sunCutLitEdgeRgba, state.sunCutStepRgba })
+        Mix (key, &rgba, sizeof (rgba));
+    key = (key << 1) | 1u; // odd: never a staged (stageKey * 2048) key
     static uint64_t composedKey = 0;
     static GhPreviewDrawables composed;
     if (composedKey != key) {
         composed = frame->cutDrawables;
-        AppendSolarExposureStep (frame->exposure, minute, composed);
+        if (stepOnly)
+            AppendSolarExposureStep (frame->exposure, minute, composed, colours);
+        else if (lit)
+            AppendSolarExposure (frame->exposure, composed, colours);
+        if (fill || outline) {
+            const int bands = view.bandCount;
+            const float* edges = bands >= kSunBandsMin ? view.bandEdges : nullptr;
+            AppendSolarCutCells (
+                frame->cutCells,
+                [&] (float h) {
+                    return SunStudyHoursRgba (cellRamp, h, bands, edges, view.blueThreshold, view.lowSunRgba);
+                },
+                composed, fill, outline, state.sunCutOutlineRgba);
+        }
         composedKey = key;
     }
     scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, &composed, key,

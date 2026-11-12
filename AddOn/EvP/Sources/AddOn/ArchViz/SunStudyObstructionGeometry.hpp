@@ -13,6 +13,7 @@
 // its step's time of day (SunStudyTimeOfDayRgba), the diagram's time row.
 
 #include "ArchViz/GhPreviewGeometry.hpp"
+#include "ArchViz/GradientLibrary.hpp"
 #include "Geometry/Mesh.hpp"
 #include "SunStudy/SunStudyObstruction.hpp"
 #include "SunStudy/SunStudyPatchSampler.hpp"
@@ -24,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -81,23 +83,33 @@ constexpr uint32_t kSolarCutWonEdgeRgba = 0xD08A10FFu; // its perimeter
 constexpr uint32_t kSolarCutCellsEdgeRgba = 0xF240BFFFu;
 void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3],
                             GhPreviewDrawables& drawables);
-// The fill of gain band `level` of at most `most`: pale yellow for the least,
-// deep amber for the most, at kSolarCutWonRgba's alpha. Shared with the
+// The lit surface's colours as the HUD set them (#168). DISPLAY ONLY; the
+// defaults are the constants above.
+struct SolarCutLitColours {
+    // The gain ramp, least to most; empty: pale yellow to deep amber. Only the
+    // colours are taken: every fill keeps kSolarCutWonRgba's alpha.
+    std::span<const overlaylayers::ColourStop> gain;
+    uint32_t edge = kSolarCutWonEdgeRgba;
+    uint32_t step = kSolarCutWonRgba; // the one clock step's flat fill
+};
+// The fill of gain band `level` of at most `most`: the least gain at the ramp's
+// start, the most at its end, at kSolarCutWonRgba's alpha. Shared with the
 // panel's legend so the swatches are the colours on the model.
-uint32_t SolarCutGainRgba (int level, int most);
+uint32_t SolarCutGainRgba (int level, int most, std::span<const overlaylayers::ColourStop> gain = {});
 // The union swept between steps, shaded by minutes gained (its bands), with
 // the union's perimeter.
-void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, GhPreviewDrawables& drawables);
+void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, GhPreviewDrawables& drawables,
+                          const SolarCutLitColours& colours = {});
 // The study cells the cut changes, each filled in `colour` of its after-cut
-// hours (the hours map's own colours, from the view), and/or one pink outline
-// around each surface's merged cells.
+// hours (the hours map's own colours by default, from the view), and/or one
+// outline in `outlineRgba` around each surface's merged cells.
 void AppendSolarCutCells (const evp::sunstudy::SolarCutCellsResult& cells,
                           const std::function<uint32_t (float hours)>& colour, GhPreviewDrawables& drawables,
-                          bool fill = true, bool outline = true);
-// Only what the cut lights at the step measured at `minute`, flat yellow with
-// that step's perimeter; nothing when the slice has no such step won.
+                          bool fill = true, bool outline = true, uint32_t outlineRgba = kSolarCutCellsEdgeRgba);
+// Only what the cut lights at the step measured at `minute`, flat in the
+// step colour with that step's perimeter; nothing when no such step is won.
 void AppendSolarExposureStep (const evp::sunstudy::SolarExposureResult& exposure, int minute,
-                              GhPreviewDrawables& drawables);
+                              GhPreviewDrawables& drawables, const SolarCutLitColours& colours = {});
 // Cell-layout preview helper, not the production solar-cut exposure path:
 // cells `size` apart, gaps of one cell closed and holes filled, perimeter only.
 struct SolarCutWonCell {

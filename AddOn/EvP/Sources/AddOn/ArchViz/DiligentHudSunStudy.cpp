@@ -741,8 +741,8 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
                            ImGui::GetStyleColorVec4 (obstruction ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
     if (ImGui::Button ("Obstruction##sunview", ImVec2 (buttonWidth, 0))) {
         state.sunView = kObstructionView;
-        if (state.sunObstructionMode == 0)
-            state.sunObstructionMode = 1;
+        if (state.sunObstructionMode != 2)
+            state.sunObstructionMode = 3; // the solar cut unless Whole day was chosen
     }
     ImGui::PopStyleColor ();
     ImGui::SameLine ();
