@@ -60,6 +60,7 @@ namespace geomsrv {
 namespace archviz {
 
 class Camera;
+struct SunPathSceneGeometry; // ArchViz/SunPathScene.hpp
 
 // Defined in DiligentShaders.hpp, which this header deliberately does not pull
 // in: it carries every shader source string in the renderer.
@@ -624,6 +625,13 @@ class DiligentScene final {
     void DrawObstructionOverlay (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
                                  uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                                  const GhPreviewDrawables* replacement, uint64_t key, bool modelIsDrawn);
+
+    // The sun path (#179) as depth-tested scene geometry, so the model hides
+    // what is behind it and lines keep a constant pixel width. Uploaded only
+    // when `key` changes; key 0 hides it.
+    void DrawSunPathOverlay (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                             uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                             const SunPathSceneGeometry* replacement, uint64_t key, bool modelIsDrawn);
 
     // ---- picking (PLAT-RE34) -----------------------------------------------
     // The same geometry, drawn as FLAT ID COLOURS into DiligentPickBuffer's id

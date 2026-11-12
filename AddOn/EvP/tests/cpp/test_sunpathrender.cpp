@@ -1,6 +1,7 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/SunPathSync.hpp"
 #include "ArchViz/SunPathBandDraw.hpp"
+#include "ArchViz/SunPathScene.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "MeshFixtures.hpp"
@@ -393,11 +394,10 @@ TEST_F (SunPathGui, SelectedDayPaintsAfterLaterOverlappingInactiveDay)
         std::vector<int> paintOrder;
         Draw ({ -100, -100 }, false, [&] {
             auto* draw = ImGui::GetBackgroundDrawList ();
-            DrawSunPathBand (draw, band, selected, 1, 1, false, 0, 1440,
-                             [] (const float direction[3], ImVec2& screen) {
-                                 screen = { 10.0f + direction[0], 100.0f };
-                                 return true;
-                             });
+            DrawSunPathBand (draw, band, selected, 1, 1, false, 0, 1440, [] (const float direction[3], ImVec2& screen) {
+                screen = { 10.0f + direction[0], 100.0f };
+                return true;
+            });
             const int inactive = SunPathBandInactiveAlpha (band.days.size ());
             const int active = SunPathBandActiveAlphaFor (1);
             for (const auto& vertex : draw->VtxBuffer) {
@@ -522,7 +522,7 @@ TEST_F (SunPathGui, ScreenCacheProjectsAllSamplesOnlyWhenTheViewChanges)
     EXPECT_EQ (cache.rebuilds, 6u);
     UpdateSunPathBandScreenCache (cache, band, 8, matrix, movedCentre, 20.0, 1024, 768, at);
     EXPECT_EQ (cache.rebuilds, 7u); // normalized study/band generation
-    SunPathBand other = band; // same generation and shape, different owner/content
+    SunPathBand other = band;       // same generation and shape, different owner/content
     other.days[0].runs[0][0].direction[0] = 0.75f;
     UpdateSunPathBandScreenCache (cache, other, 8, matrix, movedCentre, 20.0, 1024, 768, at);
     EXPECT_EQ (cache.rebuilds, 8u);
@@ -607,6 +607,43 @@ TEST_F (SunPathGui, ManyRunPeriodDrawIsGloballyBoundedAndKeepsRunEndpoints)
     EXPECT_LT (result.shown, result.total);
     EXPECT_GT (result.shown, 300u); // both endpoints of every run survive
     EXPECT_LE (result.shown, kSunPathBandSampleBudget + 2 * 300);
+}
+
+TEST_F (SunPathGui, SceneGeometryIsPublishedForTheSceneRebuiltOnlyOnChangeAndHiddenWithThePath)
+{
+    Draw ();
+    const uint64_t key = state.sunPathSceneKey;
+    ASSERT_NE (key, 0u);
+    ASSERT_NE (state.sunPathScene, nullptr);
+    const auto* built = state.sunPathScene.get ();
+    EXPECT_FALSE (built->arcs.depthTested.meshIndices.empty ()) << "the selected sun is a depth-tested sphere";
+    EXPECT_FALSE (built->fine.depthTested.lineVertices.empty ()) << "the ground compass";
+    EXPECT_FALSE (built->arcs.depthTested.lineVertices.empty ()) << "the day's analysis arc";
+    EXPECT_NE (state.sunPathBandNote.find ("All 2 analysis steps of the day"), std::string::npos);
+
+    matrix[12] += 1.0f; // the camera moves: world geometry does not change
+    Draw ();
+    EXPECT_EQ (state.sunPathSceneKey, key);
+    EXPECT_EQ (state.sunPathScene.get (), built);
+
+    state.sunStep = 1; // the selected sun moves
+    Draw ();
+    EXPECT_NE (state.sunPathSceneKey, key);
+    EXPECT_NE (state.sunPathSceneKey, 0u);
+
+    state.sunPathShown = false;
+    Draw ();
+    EXPECT_EQ (state.sunPathSceneKey, 0u);
+    EXPECT_EQ (state.sunPathScene, nullptr);
+}
+
+TEST_F (SunPathGui, MissingSceneBoundsHideTheSceneChannel)
+{
+    Draw ();
+    ASSERT_NE (state.sunPathSceneKey, 0u);
+    s_path->ready = false; // no capture: nothing may stay drawn from the last frame
+    Draw ();
+    EXPECT_EQ (state.sunPathSceneKey, 0u);
 }
 
 TEST_F (SunPathGui, AutomaticPlayerTicksCannotStealAnotherControlsExplicitOwnership)

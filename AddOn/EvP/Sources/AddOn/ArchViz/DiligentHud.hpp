@@ -55,6 +55,7 @@ namespace archviz {
 struct InputSnapshot;
 struct DiligentSceneStats;
 struct SunStudyAtlasUpload;
+struct SunPathSceneGeometry; // ArchViz/SunPathScene.hpp
 
 // What the HUD shows, and what the user can change from it. The viewport owns
 // one of these and reads it back after Draw.
@@ -314,6 +315,10 @@ struct HudState {
     int sunPathBandHoverFrame = -1;
     SunPathBandCache sunPathBand;
     SunPathBandScreenCache sunPathBandScreens; // per-view projection cache, rebuilt only when the view moves
+    // The depth-tested scene geometry (#179), rebuilt only when what it draws
+    // changes. `sunPathSceneKey` is this frame's: 0 hides the scene channel.
+    std::shared_ptr<const SunPathSceneGeometry> sunPathScene;
+    uint64_t sunPathSceneKey = 0, sunPathSceneBuilt = 0;
     std::string sunPathBandNote;
     std::string sunPathHoverText; // the exact text sent to the sun or band-fallback hover
     bool sunPathMarkerValid = false;

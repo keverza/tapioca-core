@@ -1,7 +1,14 @@
 // The sun path over the model (#152): an optional preview of the solar
-// geometry the study uses -- the horizon ring with the compass points from the
-// project's north, the solstice and equinox arcs, the chosen date's arc, the
-// hour analemmas, and a read-only sun reflecting the shown analysis selection.
+// geometry the study uses -- the ground compass from the project's north, the
+// solstice and equinox arcs, the chosen date's arc, the hour analemmas, the
+// shown analysis in its own form, and a read-only sun reflecting the shown
+// analysis selection.
+//
+// ⚠️ THE LINE WORK IS SCENE GEOMETRY, NOT HUD (#179). This file resolves what
+// to show and builds it (SunPathScene.hpp); DiligentScene draws it depth-tested
+// at a constant pixel width, so the model occludes it. The HUD keeps only the
+// text (compass letters, hour numbers), the sun's hover tooltip and the band's
+// hover hit-test.
 //
 // ⚠️ ITS OWN TRANSLATION UNIT, reading the runner (an architecture exception
 // in tools/quality/check_cpp.py): the positions are Archicad's, captured on
@@ -13,9 +20,10 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/MatrixMath.hpp"
+#include "ArchViz/SunPathBandDraw.hpp"
 #include "ArchViz/SunPathCompass.hpp"
 #include "ArchViz/SunPathMoment.hpp"
-#include "ArchViz/SunPathBandDraw.hpp"
+#include "ArchViz/SunPathScene.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
@@ -26,6 +34,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 namespace geomsrv::archviz {
@@ -70,32 +79,25 @@ bool Dome (const HudState& state, double centre[3], double& radius, double& grou
     return true;
 }
 
-ImU32 ArcColour (int kind)
+// The fixed arcs, by the runner's kind. The chosen date is lighter than the
+// analysis drawn over it on the same date; the analemmas are the faint grid.
+uint32_t ArcRgba (int kind)
 {
     switch (kind) {
         case 0:
-            return IM_COL32 (110, 160, 255, 220); // winter solstice
+            return SunPathDisplayRgba (90, 140, 245, 220); // winter solstice
         case 1:
-            return IM_COL32 (200, 200, 200, 200); // equinox
+            return SunPathDisplayRgba (140, 140, 150, 220); // equinox
         case 2:
-            return IM_COL32 (255, 150, 60, 220); // summer solstice
+            return SunPathDisplayRgba (245, 140, 50, 220); // summer solstice
         case 3:
-            return IM_COL32 (255, 225, 90, 255); // the chosen date
+            return SunPathDisplayRgba (255, 214, 64, 170); // the chosen date
         default:
-            return IM_COL32 (200, 200, 210, 90); // the hours
+            return SunPathDisplayRgba (120, 120, 132, 120); // the hours
     }
 }
 
 constexpr float kSunHoverRadius = 11.0f;
-
-// One polyline per visible run: the fixed overlay is still immediate-mode, but
-// it no longer emits one AddLine call per arc/ring segment every frame.
-void StrokeRun (ImDrawList* draw, std::vector<ImVec2>& points, ImU32 colour, float thickness)
-{
-    if (points.size () >= 2)
-        draw->AddPolyline (points.data (), int (points.size ()), colour, 0, thickness);
-    points.clear ();
-}
 
 void CompassLabel (ImDrawList* draw, ImVec2 centre, ImVec2 tangent, const char* text, ImU32 colour)
 {
@@ -111,40 +113,16 @@ void CompassLabel (ImDrawList* draw, ImVec2 centre, ImVec2 tangent, const char* 
     }
 }
 
-// A projected ground overlay, like the dome's line work: no depth occlusion is
-// implied. Its centre and Z are shared with the scene-centred dome.
-void DrawGroundCompass (const sunstudyhud::SunPath& path, const double centre[3], double radius, double groundZ,
-                        const float viewProj[16], uint32_t width, uint32_t height, ImDrawList* draw,
-                        std::vector<ImVec2>& run)
+// The compass letters stay HUD text: the rings and ticks are scene geometry.
+// ⚠️ TEXT IS NOT OCCLUDED. A label behind a building still shows; see #179.
+void DrawCompassLabels (const sunstudyhud::SunPath& path, const double centre[3], double radius, double groundZ,
+                        const float viewProj[16], uint32_t width, uint32_t height, ImDrawList* draw)
 {
     const auto at = [&] (double angle, double ring, ImVec2& screen) {
         const double point[3] = { centre[0] + radius * ring * std::cos (angle),
                                   centre[1] + radius * ring * std::sin (angle), groundZ };
         return Project (point, viewProj, width, height, screen);
     };
-    constexpr int kSegments = 128;
-    constexpr double kRings[] = { 1.0, 1.035, 1.07 };
-    for (int ring = 0; ring < 3; ++ring) {
-        run.clear ();
-        const ImU32 colour = IM_COL32 (225, 225, 225, ring == 0 ? 150 : 105);
-        for (int i = 0; i <= kSegments; ++i) {
-            const double angle = 2.0 * kPi * double (i) / double (kSegments);
-            ImVec2 screen;
-            if (at (angle, kRings[ring], screen))
-                run.push_back (screen);
-            else
-                StrokeRun (draw, run, colour, 1.0f);
-        }
-        StrokeRun (draw, run, colour, 1.0f);
-    }
-    // Thirty-two ticks, with the eight principal directions reaching the inner
-    // ring. Sixteen labels use compass bearings clockwise from project north.
-    for (int i = 0; i < 32; ++i) {
-        const double angle = path.northRadians - double (i) * 2.0 * kPi / 32.0;
-        ImVec2 from, to;
-        if (at (angle, i % 4 == 0 ? 1.0 : 1.035, from) && at (angle, 1.07, to))
-            draw->AddLine (from, to, IM_COL32 (225, 225, 225, i % 4 == 0 ? 180 : 120), 1.0f);
-    }
     constexpr const char* kCompass[] = { "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
                                          "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW" };
     for (int i = 0; i < 16; ++i) {
@@ -155,6 +133,21 @@ void DrawGroundCompass (const sunstudyhud::SunPath& path, const double centre[3]
             CompassLabel (draw, screen, ImVec2 (after.x - before.x, after.y - before.y), kCompass[i],
                           i == 0 ? IM_COL32 (255, 100, 100, 255) : IM_COL32 (230, 230, 230, 225));
     }
+}
+
+// FNV-1a over exactly what the scene geometry is built from.
+void Mix (uint64_t& hash, const void* data, size_t size)
+{
+    const auto* bytes = static_cast<const unsigned char*> (data);
+    for (size_t i = 0; i < size; ++i) {
+        hash ^= bytes[i];
+        hash *= 1099511628211ull;
+    }
+}
+
+template <class T> void MixValue (uint64_t& hash, const T& value)
+{
+    Mix (hash, &value, sizeof (value));
 }
 
 } // namespace
@@ -188,11 +181,14 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
     state.sunPathMinute = -1;
     state.sunPathBandNote.clear ();
     state.sunPathHoverText.clear ();
+    state.sunPathSceneKey = 0; // hidden unless this frame publishes geometry below
     if (!state.sunPathShown) {
-        // Release the potentially year-sized projection storage once on the
-        // hidden transition; subsequent hidden frames do no cache work.
+        // Release the potentially year-sized storage once on the hidden
+        // transition; subsequent hidden frames do no cache work.
         if (state.sunPathBandScreens.valid || !state.sunPathBandScreens.runs.empty ())
             state.sunPathBandScreens = {};
+        state.sunPathScene.reset ();
+        state.sunPathSceneBuilt = 0;
         return;
     }
     if (viewProj == nullptr || width == 0 || height == 0)
@@ -210,34 +206,12 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
     if (path == nullptr || !path->ready || !path->error.empty () || !Dome (state, centre, radius, groundZ))
         return;
     ImDrawList* draw = ImGui::GetBackgroundDrawList ();
-    ImDrawListSplitter layers;
-    layers.Split (draw, 2);
-    layers.SetCurrentChannel (draw, 1); // fixed arcs/compass above the analysis band
     const auto at = [&] (const float direction[3], ImVec2& screen) {
         const double p[3] = { centre[0] + radius * direction[0], centre[1] + radius * direction[1],
                               centre[2] + radius * direction[2] };
         return Project (p, viewProj, width, height, screen);
     };
-    std::vector<ImVec2> screenRun;
-    DrawGroundCompass (*path, centre, radius, groundZ, viewProj, width, height, draw, screenRun);
-    // The arcs, the analemmas faint underneath: one polyline per contiguous
-    // visible run, not one immediate-mode call per point.
-    for (int pass = 0; pass < 2; ++pass)
-        for (const auto& arc : path->arcs) {
-            if ((arc.kind == 4) != (pass == 0))
-                continue;
-            const ImU32 colour = ArcColour (arc.kind);
-            const float thickness = arc.kind == 3 ? 2.5f : arc.kind == 4 ? 1.0f : 1.5f;
-            screenRun.clear ();
-            for (const auto& point : arc.points) {
-                ImVec2 s;
-                if (at (point.direction, s))
-                    screenRun.push_back (s);
-                else
-                    StrokeRun (draw, screenRun, colour, thickness);
-            }
-            StrokeRun (draw, screenRun, colour, thickness);
-        }
+    DrawCompassLabels (*path, centre, radius, groundZ, viewProj, width, height, draw);
     // Hour numbers on the summer arc, where the analemmas cross it.
     for (const auto& arc : path->arcs)
         if (arc.kind == 2)
@@ -318,19 +292,59 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
             highlightDay = day.day;
         }
     }
-    layers.SetCurrentChannel (draw, 0);
-    // Project once per camera/band change, then draw only decimated samples.
+    const bool pointSlice = selection.source == SunPathSyncSource::PointPlayer && selection.pointActive;
+    SunPathAnalysisView view;
+    view.month = highlightMonth;
+    view.day = highlightDay;
+    view.highlightAll = state.sunPathBandHoverFrame == frame;
+    view.sliceFrom = pointSlice ? state.sunPointPlayFrom : double (state.sunTimeFrom) * 60.0;
+    view.sliceTo = pointSlice ? state.sunPointPlayTo : double (state.sunTimeTo) * 60.0;
+
+    // Hover only: project once per camera/band change and hit-test, no drawing.
     UpdateSunPathBandScreenCache (state.sunPathBandScreens, state.sunPathBand.Data (), state.sunPathBand.Builds (),
                                   viewProj, centre, radius, width, height, at);
-    const bool pointSlice = selection.source == SunPathSyncSource::PointPlayer && selection.pointActive;
-    const auto band = DrawSunPathBand (draw, state.sunPathBand.Data (), sun, highlightMonth, highlightDay,
-                                       state.sunPathBandHoverFrame == frame,
-                                       pointSlice ? state.sunPointPlayFrom : double (state.sunTimeFrom) * 60.0,
-                                       pointSlice ? state.sunPointPlayTo : double (state.sunTimeTo) * 60.0, at,
-                                       &state.sunPathBandScreens, state.sunPathBand.Builds ());
-    layers.Merge (draw);
+    const auto band =
+        DrawSunPathBand (nullptr, state.sunPathBand.Data (), sun, highlightMonth, highlightDay, view.highlightAll,
+                         view.sliceFrom, view.sliceTo, at, &state.sunPathBandScreens, state.sunPathBand.Builds ());
+
+    // The scene geometry, rebuilt only when what it draws changes.
     const bool estimate = state.sunPathPeriod != nullptr && state.sunPathPeriod->geometry->estimate;
-    state.sunPathBandNote = SunPathBandCaption (band, estimate);
+    const auto form = SunPathPreviewFormOf (state.sunPathBand.Data (), state.sunShowsPeriod, estimate);
+    uint64_t key = 1469598103934665603ull;
+    const void* source = path.get ();
+    MixValue (key, source);
+    Mix (key, centre, sizeof (centre));
+    MixValue (key, radius);
+    MixValue (key, groundZ);
+    MixValue (key, state.sunPathBand.Builds ());
+    MixValue (key, form);
+    for (const int value : { view.month, view.day, int (view.highlightAll), int (sun.valid) })
+        MixValue (key, value);
+    MixValue (key, view.sliceFrom);
+    MixValue (key, view.sliceTo);
+    if (sun.valid)
+        Mix (key, sun.direction, sizeof (sun.direction));
+    key |= 1u; // never the "hidden" key
+    if (state.sunPathScene == nullptr || state.sunPathSceneBuilt != key) {
+        SunPathFrame dome;
+        std::copy (centre, centre + 3, dome.centre);
+        dome.radius = radius;
+        dome.groundZ = groundZ;
+        auto scene = std::make_shared<SunPathSceneGeometry> ();
+        AppendSunPathCompass (dome, path->northRadians, *scene);
+        // The analemmas are the faint grid under everything; the date arcs over them.
+        for (const auto& arc : path->arcs)
+            AppendSunPathDirections (dome, arc.points, ArcRgba (arc.kind),
+                                     arc.kind >= 3 ? scene->fine.depthTested : scene->arcs.depthTested);
+        AppendSunPathAnalysis (dome, state.sunPathBand.Data (), form, view, *scene);
+        if (sun.valid)
+            AppendSunPathSun (dome, sun.direction, *scene);
+        state.sunPathScene = std::move (scene);
+        state.sunPathSceneBuilt = key;
+    }
+    state.sunPathSceneKey = key;
+    state.sunPathBandNote = SunPathSceneCaption (form, state.sunPathBand.Data (), *state.sunPathScene, estimate);
+
     const bool overUi = ImGui::IsWindowHovered (ImGuiHoveredFlags_AnyWindow) || ImGui::IsAnyItemActive ();
     const auto analysis = [&] {
         return SunPathAnalysisCaption (state.sunShowsPeriod, state.sunPeriodLabel, state.sunShownDate, state.sunRunYear,
@@ -350,14 +364,13 @@ void DrawSunStudySunPath (HudState& state, const float viewProj[16], uint32_t wi
     std::copy (sun.direction, sun.direction + 3, state.sunPathDirection);
     const ImVec2 mouse = ImGui::GetIO ().MousePos;
     const bool hot = !overUi && std::hypot (mouse.x - s.x, mouse.y - s.y) <= kSunHoverRadius;
-    ImDrawList* front = ImGui::GetForegroundDrawList ();
-    front->AddCircleFilled (s, hot ? 9.0f : 7.0f, IM_COL32 (255, 220, 60, 255));
-    if (hot)
-        front->AddCircle (s, 9.0f, IM_COL32 (60, 40, 0, 130), 0, 1.0f);
     state.sunPathMarkerValid = true;
     state.sunPathMarker[0] = s.x;
     state.sunPathMarker[1] = s.y;
     if (hot) {
+        // The disc itself is scene geometry; only the hover affordance is HUD.
+        ImDrawList* front = ImGui::GetForegroundDrawList ();
+        front->AddCircle (s, 10.0f, IM_COL32 (60, 40, 0, 130), 0, 1.0f);
         state.sunPathHoverText =
             SunPathHoverCaption (SunPathMomentCaption (sun.year, sun.month, sun.day, sun.minute), analysis ());
         const ImVec2 textAt (s.x + 12.0f, s.y - 7.0f);

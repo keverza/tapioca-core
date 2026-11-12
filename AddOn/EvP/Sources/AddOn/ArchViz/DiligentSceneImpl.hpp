@@ -654,6 +654,18 @@ struct geomsrv::archviz::DiligentScene::Impl {
         obstructionOverlayKey = 0;
         obstructionOverlayInitFailed = false;
     }
+
+    // The sun path (#179): fine, arc and bold line widths, one layer each.
+    GhPreviewLayer sunPathLayers[3];
+    uint64_t sunPathKey = 0;
+    bool sunPathInitFailed = false;
+    void ShutdownSunPathOverlay ()
+    {
+        for (GhPreviewLayer& layer : sunPathLayers)
+            layer.Shutdown ();
+        sunPathKey = 0;
+        sunPathInitFailed = false;
+    }
     Diligent::ITextureView* taaView = nullptr;
     bool taaEnabled = false;
     float taaStability = 0.9f;

@@ -146,6 +146,8 @@ inline bool SunPathBandScreenCacheMatches (const SunPathBandScreenCache& cache, 
     return ordinal == cache.runs.size ();
 }
 
+// `draw` may be null: the production sunpath draws its band as depth-tested
+// scene geometry (SunPathScene.hpp) and uses this only to hit-test the hover.
 template <class Projection>
 SunPathBandDrawing DrawSunPathBand (ImDrawList* draw, const SunPathBand& band, const SunPathMoment& selected, int month,
                                     int day, bool highlightAll, double sliceFrom, double sliceTo, const Projection& at,
@@ -216,7 +218,9 @@ SunPathBandDrawing DrawSunPathBand (ImDrawList* draw, const SunPathBand& band, c
                     const bool active = highlighted && inSlice;
                     if (traced.discrete) {
                         if (active == activePass) {
-                            draw->AddCircleFilled (screen, 3.5f, SunPathBandColour (active ? hotAlpha : baseAlpha), 12);
+                            if (draw != nullptr)
+                                draw->AddCircleFilled (screen, 3.5f, SunPathBandColour (active ? hotAlpha : baseAlpha),
+                                                       12);
                             result.hot = result.hot || std::hypot (mouse.x - screen.x, mouse.y - screen.y) <= 7.0f;
                         }
                     }
@@ -224,13 +228,15 @@ SunPathBandDrawing DrawSunPathBand (ImDrawList* draw, const SunPathBand& band, c
                         const bool previousInSlice = previousMinute >= sliceFrom && previousMinute < sliceTo;
                         const bool activeSegment = highlighted && inSlice && previousInSlice;
                         if (activeSegment == activePass) {
-                            draw->AddLine (previous, screen,
-                                           SunPathBandColour (activeSegment ? hotAlpha : baseAlpha), 8.0f);
+                            if (draw != nullptr)
+                                draw->AddLine (previous, screen,
+                                               SunPathBandColour (activeSegment ? hotAlpha : baseAlpha), 8.0f);
                             result.hot = result.hot || SunPathSegmentDistance (mouse, previous, screen) <= 7.0f;
                         }
                     }
                     else if (active == activePass) {
-                        draw->AddCircleFilled (screen, 3.5f, SunPathBandColour (active ? hotAlpha : baseAlpha), 12);
+                        if (draw != nullptr)
+                            draw->AddCircleFilled (screen, 3.5f, SunPathBandColour (active ? hotAlpha : baseAlpha), 12);
                         result.hot = result.hot || std::hypot (mouse.x - screen.x, mouse.y - screen.y) <= 7.0f;
                     }
                     previous = screen;

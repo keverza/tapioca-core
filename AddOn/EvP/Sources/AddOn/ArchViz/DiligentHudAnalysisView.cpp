@@ -271,6 +271,10 @@ void UpdateAndDrawAnalysisOverlays (DiligentScene& scene, Diligent::IDeviceConte
                                   modelIsDrawn, camera);
     UpdateAndDrawObstructionOverlay (scene, context, state, viewProj, width, height, colorFormat, depthFormat,
                                      modelIsDrawn);
+    // The sun path last: built by last frame's HUD (DrawSunStudySunPath), which
+    // runs after the scene. Its key is 0 whenever the path is hidden.
+    scene.DrawSunPathOverlay (context, viewProj, width, height, colorFormat, depthFormat, state.sunPathScene.get (),
+                              state.sunPathSceneKey, modelIsDrawn);
 }
 
 } // namespace geomsrv::archviz
