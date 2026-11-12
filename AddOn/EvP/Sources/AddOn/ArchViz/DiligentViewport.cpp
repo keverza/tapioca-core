@@ -853,10 +853,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             if (!annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input)) {
                 UpdateAndDrawGhPreview (scene, context, hudState, viewProj, width, height, drawTo.ColorFormat (),
                                         drawTo.DepthFormat (), modelIsDrawn);
-                UpdateAndDrawAnalysisOverlay (scene, context, hudState, viewProj, width, height, drawTo.ColorFormat (),
-                                              drawTo.DepthFormat (), modelIsDrawn, camera);
-                UpdateAndDrawObstructionOverlay (scene, context, hudState, viewProj, width, height,
-                                                 drawTo.ColorFormat (), drawTo.DepthFormat (), modelIsDrawn);
+                UpdateAndDrawAnalysisOverlays (scene, context, hudState, viewProj, width, height, drawTo.ColorFormat (),
+                                               drawTo.DepthFormat (), modelIsDrawn, camera);
             }
             gpuTimings.Begin (context, GpuTimingStage::Post);
             const bool textReady = UpdateAndDrawSceneText (

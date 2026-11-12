@@ -972,6 +972,10 @@ void UpdateAndDrawAnalysisOverlay (DiligentScene& scene, Diligent::IDeviceContex
 void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& state,
                                       const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
                                       uint32_t depthFormat, bool modelIsDrawn);
+// The frame loop's one call for the analysis channels above, in that order.
+void UpdateAndDrawAnalysisOverlays (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& state,
+                                    const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
+                                    uint32_t depthFormat, bool modelIsDrawn, const Camera& camera);
 void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
                                const float direction[3]);
 void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height);

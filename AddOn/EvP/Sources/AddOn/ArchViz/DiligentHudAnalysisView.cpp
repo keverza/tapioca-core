@@ -263,4 +263,14 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
                                   modelIsDrawn);
 }
 
+void UpdateAndDrawAnalysisOverlays (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& state,
+                                    const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
+                                    uint32_t depthFormat, bool modelIsDrawn, const Camera& camera)
+{
+    UpdateAndDrawAnalysisOverlay (scene, context, state, viewProj, width, height, colorFormat, depthFormat,
+                                  modelIsDrawn, camera);
+    UpdateAndDrawObstructionOverlay (scene, context, state, viewProj, width, height, colorFormat, depthFormat,
+                                     modelIsDrawn);
+}
+
 } // namespace geomsrv::archviz
