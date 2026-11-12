@@ -1198,6 +1198,7 @@ set (EVP_TEST_SOURCES
     test_sunstudysolarcut.cpp
     test_sunstudysolarexposure.cpp
     test_sunstudysolarcutcells.cpp
+    test_sunstudysolarcut_replay.cpp
     test_sunstudysolarcutpreview.cpp
     test_sunstudyobstruction_geometry.cpp
     test_sunstudyobstruction_controller.cpp
