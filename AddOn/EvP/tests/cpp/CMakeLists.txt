@@ -592,6 +592,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunStudy.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunRun.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPath.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SunPathScene.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPeriod.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPeriodLegend.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPoint.cpp"
@@ -1207,6 +1208,7 @@ set (EVP_TEST_SOURCES
     test_sunpathstudydata.cpp
     test_sunpathrender.cpp
     test_sunpathband.cpp
+    test_sunpathscene.cpp
     test_sunpathcharts.cpp
     test_analysisruncontrol.cpp
     test_sunstudytextureupdates.cpp
