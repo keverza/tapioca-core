@@ -55,7 +55,8 @@ void DiligentScene::DrawSunPathOverlay (Diligent::IDeviceContext* context, const
     for (int i = 0; i < 3; ++i) {
         GhPreviewLayer::DrawParams params;
         params.lineWidthPixels = kWidths[i];
-        params.ambient = 0.55f; // only the selected sun has normals; flat geometry is fully lit
+        params.ambient = 0.55f;    // only the selected sun has normals; flat geometry is fully lit
+        params.squareCaps = false; // dense curve pieces: overlapping caps would tooth every joint
         impl_->sunPathLayers[i].Draw (context, viewProj, surfaceWidth, surfaceHeight, params);
     }
 }

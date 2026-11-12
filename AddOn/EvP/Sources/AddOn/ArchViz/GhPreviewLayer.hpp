@@ -128,6 +128,10 @@ class GhPreviewLayer final {
         // Spherical isovist patches use surfaceDecals instead, whose bounded
         // depth-only offset cannot acquire the slope-scaled term.
         bool pullMeshes = false;
+        // false: segments end exactly at their endpoints. For dense polylines
+        // drawn translucent, where overlapping square caps would blend every
+        // joint twice and read as a jagged line (#179). Generic previews keep caps.
+        bool squareCaps = true;
         // Per-frame projection data, used only to cap surface-decal depth in
         // world metres. Defaults cover generic previews, which have no decals.
         float nearClipMetres = 0.05f;

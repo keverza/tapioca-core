@@ -64,10 +64,7 @@ void AppendSlice (const SunPathFrame& frame, const SunPathBandDay& day, const Su
             };
             if (!in (run[i - 1]) || !in (run[i]))
                 continue;
-            float a[3], b[3];
-            SunPathWorld (frame, run[i - 1].direction, a);
-            SunPathWorld (frame, run[i].direction, b);
-            AppendPreviewSegment (a, b, rgba, bucket);
+            AppendSunPathArcPiece (frame, run[i - 1].direction, run[i].direction, rgba, bucket);
         }
     }
 }
@@ -140,16 +137,25 @@ void AppendSurface (const SunPathFrame& frame, const SunPathBand& band, const Su
         bool hot = view.highlightAll;
         for (size_t d = from; d <= to && !hot; ++d)
             hot = Highlighted (band.days[d], view);
-        out.surfaceQuads +=
-            AppendStrip (frame, band.days[from], band.days[to], Yellow (hot ? hotAlpha : alpha), out.arcs.translucent);
+        // Highlighted rows change hue as well as alpha: a stronger yellow alone
+        // was barely visible over a whole-year surface (#179).
+        out.surfaceQuads += AppendStrip (frame, band.days[from], band.days[to], hot ? Amber (hotAlpha) : Yellow (alpha),
+                                         out.arcs.translucent);
         from = to;
     }
 }
 
 // The selected/hovered day: whole length in amber, its slice bold, its suns.
+// A whole highlighted month (no single day) is bold over its whole length: it
+// is the month-by-month player's only visible cue on the dome.
 void AppendChosenDay (const SunPathFrame& frame, const SunPathBandDay& day, const SunPathAnalysisView& view,
                       SunPathSceneGeometry& out)
 {
+    if (view.day == 0) {
+        AppendRuns (frame, day, Amber (255), out.bold.depthTested);
+        ++out.dayLines;
+        return;
+    }
     AppendRuns (frame, day, Amber (255), out.arcs.depthTested);
     AppendSlice (frame, day, view, out.bold.depthTested);
     if (day.discrete)
@@ -167,6 +173,38 @@ uint32_t SunPathDisplayRgba (int r, int g, int b, int a)
         return uint32_t (std::lround (l * 255.0));
     };
     return linear (r) << 24 | linear (g) << 16 | linear (b) << 8 | uint32_t (std::clamp (a, 0, 255));
+}
+
+void AppendSunPathArcPiece (const SunPathFrame& frame, const float a[3], const float b[3], uint32_t rgba,
+                            GhPreviewBucket& bucket)
+{
+    const double la = std::sqrt (double (a[0]) * a[0] + double (a[1]) * a[1] + double (a[2]) * a[2]);
+    const double lb = std::sqrt (double (b[0]) * b[0] + double (b[1]) * b[1] + double (b[2]) * b[2]);
+    if (!(la > 0.0) || !(lb > 0.0))
+        return;
+    const double cosine =
+        std::clamp ((double (a[0]) * b[0] + double (a[1]) * b[1] + double (a[2]) * b[2]) / (la * lb), -1.0, 1.0);
+    // Bounded: a malformed half-circle hop must not emit thousands of pieces.
+    const int pieces = std::clamp (int (std::ceil (std::acos (cosine) / kSunPathMaxPieceRadians)), 1, 256);
+    float previous[3];
+    SunPathWorld (frame, a, previous);
+    for (int i = 1; i <= pieces; ++i) {
+        float point[3];
+        if (i == pieces)
+            SunPathWorld (frame, b, point);
+        else {
+            const double t = double (i) / pieces;
+            double d[3];
+            for (int axis = 0; axis < 3; ++axis)
+                d[axis] = double (a[axis]) / la * (1.0 - t) + double (b[axis]) / lb * t;
+            const double length = std::sqrt (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+            const double scale = length > 0.0 ? (la * (1.0 - t) + lb * t) / length : 0.0;
+            const float direction[3] = { float (d[0] * scale), float (d[1] * scale), float (d[2] * scale) };
+            SunPathWorld (frame, direction, point);
+        }
+        AppendPreviewSegment (previous, point, rgba, bucket);
+        std::copy (point, point + 3, previous);
+    }
 }
 
 void SunPathWorld (const SunPathFrame& frame, const float direction[3], float out[3])
@@ -191,7 +229,7 @@ void AppendSunPathCompass (const SunPathFrame& frame, double northRadians, SunPa
         point[1] = float (frame.centre[1] + frame.radius * ring * std::sin (angle));
         point[2] = float (frame.groundZ);
     };
-    constexpr int kSegments = 128;
+    constexpr int kSegments = 720; // half-degree pieces: a smooth ring
     constexpr double kRings[] = { 1.0, 1.035, 1.07 };
     for (int ring = 0; ring < 3; ++ring) {
         const uint32_t rgba = SunPathDisplayRgba (96, 96, 100, ring == 0 ? 200 : 140);
@@ -237,7 +275,7 @@ void AppendSunPathAnalysis (const SunPathFrame& frame, const SunPathBand& band, 
             // Every day was traced: one continuous boundary surface, its two
             // edges solid, a faint line where each month begins.
             const size_t stride = (std::max) (size_t (1), (days.size () + kSurfaceRows - 1) / kSurfaceRows);
-            AppendSurface (frame, band, view, stride, 40, 95, out);
+            AppendSurface (frame, band, view, stride, 40, 130, out);
             for (size_t d = 0; d < days.size (); ++d) {
                 const auto& day = days[d];
                 if (OneDay (day, view))
@@ -248,7 +286,7 @@ void AppendSunPathAnalysis (const SunPathFrame& frame, const SunPathBand& band, 
                                        (d == 0 || days[d - 1].month != day.month || d + 1 == days.size () ||
                                         days[d + 1].month != day.month);
                 if (monthEdge)
-                    AppendRuns (frame, day, Amber (220), out.arcs.depthTested);
+                    AppendRuns (frame, day, Amber (255), out.bold.depthTested);
                 else if (edge)
                     AppendRuns (frame, day, Yellow (220), out.arcs.depthTested);
                 else if (monthStart)
@@ -262,7 +300,7 @@ void AppendSunPathAnalysis (const SunPathFrame& frame, const SunPathBand& band, 
         case SunPathPreviewForm::MonthlyPreview:
             // One representative day per month: each is its own line, and a
             // lighter surface between them shows the span it stands for.
-            AppendSurface (frame, band, view, 1, 30, 75, out);
+            AppendSurface (frame, band, view, 1, 30, 130, out);
             for (const auto& day : days) {
                 if (OneDay (day, view))
                     continue;

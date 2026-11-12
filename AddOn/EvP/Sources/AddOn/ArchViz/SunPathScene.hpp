@@ -79,17 +79,26 @@ void SunPathWorld (const SunPathFrame& frame, const float direction[3], float ou
 // Rings, 32 ticks and a red north tick at `groundZ`, rotated to project north.
 void AppendSunPathCompass (const SunPathFrame& frame, double northRadians, SunPathSceneGeometry& out);
 
-// A polyline through unit directions; anything with a `direction[3]` member.
+// The longest drawn piece of a curve, in radians on the dome. Samples are 10
+// (capture) to 60 (analysis) minutes apart: 2.5-15 degrees of hour angle.
+// Drawn straight, every joint's square caps step the line, which read as a
+// jagged arc (#179). Pieces this short read as a smooth curve at any zoom
+// the dome is legible at.
+constexpr double kSunPathMaxPieceRadians = 0.3 * 3.14159265358979323846 / 180.0;
+
+// Splits a→b along the great circle (normalised linear interpolation, which
+// equals slerp to well under a pixel at these angles). Only the drawing is
+// interpolated: both ends are the exact stored directions.
+void AppendSunPathArcPiece (const SunPathFrame& frame, const float a[3], const float b[3], uint32_t rgba,
+                            GhPreviewBucket& bucket);
+
+// A smooth polyline through unit directions; anything with a `direction[3]` member.
 template <class Point>
 void AppendSunPathDirections (const SunPathFrame& frame, const std::vector<Point>& points, uint32_t rgba,
                               GhPreviewBucket& bucket)
 {
-    for (size_t i = 1; i < points.size (); ++i) {
-        float a[3], b[3];
-        SunPathWorld (frame, points[i - 1].direction, a);
-        SunPathWorld (frame, points[i].direction, b);
-        AppendPreviewSegment (a, b, rgba, bucket);
-    }
+    for (size_t i = 1; i < points.size (); ++i)
+        AppendSunPathArcPiece (frame, points[i - 1].direction, points[i].direction, rgba, bucket);
 }
 
 // The analysis geometry for `form`. Exact stored directions only; runs are

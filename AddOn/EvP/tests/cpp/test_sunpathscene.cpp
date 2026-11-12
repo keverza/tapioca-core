@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 
 using namespace geomsrv::archviz;
@@ -74,6 +75,29 @@ size_t SegmentsOf (const GhPreviewBucket& bucket, uint32_t rgba)
     return count;
 }
 
+// The builder's subdivision: pieces of at most kSunPathMaxPieceRadians.
+size_t PiecesBetween (const SunPathMoment& a, const SunPathMoment& b)
+{
+    double dot = 0.0, la = 0.0, lb = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        dot += double (a.direction[i]) * b.direction[i];
+        la += double (a.direction[i]) * a.direction[i];
+        lb += double (b.direction[i]) * b.direction[i];
+    }
+    const double angle = std::acos (std::clamp (dot / std::sqrt (la * lb), -1.0, 1.0));
+    return size_t (std::clamp (int (std::ceil (angle / kSunPathMaxPieceRadians)), 1, 256));
+}
+
+size_t PiecesOf (const SunPathBandDay& day, int fromMinute = 0, int toMinute = 1440)
+{
+    size_t pieces = 0;
+    for (const auto& run : day.runs)
+        for (size_t i = 1; i < run.size (); ++i)
+            if (run[i - 1].minute >= fromMinute && run[i].minute < toMinute)
+                pieces += PiecesBetween (run[i - 1], run[i]);
+    return pieces;
+}
+
 uint32_t Amber (int alpha)
 {
     return SunPathDisplayRgba (255, 184, 28, alpha);
@@ -119,14 +143,15 @@ TEST (SunPathScene, DayFormDrawsItsArcWithSunsOnlyForDiscreteSteps)
 {
     SunPathSceneGeometry continuous;
     AppendSunPathAnalysis (Frame (), Band ({ Day (3, 21, 8, 12) }), SunPathPreviewForm::Day, {}, continuous);
-    EXPECT_EQ (Segments (continuous.arcs.depthTested), 4u);
+    EXPECT_EQ (Segments (continuous.arcs.depthTested), PiecesOf (Day (3, 21, 8, 12)));
+    EXPECT_GT (Segments (continuous.arcs.depthTested), 4u) << "drawn as a curve, not four chords";
     EXPECT_TRUE (continuous.arcs.translucent.Empty ());
     EXPECT_TRUE (continuous.bold.depthTested.Empty ()) << "a slice over the whole day adds no bold line";
     EXPECT_EQ (continuous.surfaceQuads, 0u);
 
     SunPathSceneGeometry discrete;
     AppendSunPathAnalysis (Frame (), Band ({ Day (3, 21, 8, 12, true) }), SunPathPreviewForm::Day, {}, discrete);
-    EXPECT_EQ (Segments (discrete.arcs.depthTested), 4u);
+    EXPECT_EQ (Segments (discrete.arcs.depthTested), PiecesOf (Day (3, 21, 8, 12, true)));
     EXPECT_FALSE (discrete.arcs.translucent.meshIndices.empty ()) << "five step suns";
 }
 
@@ -143,8 +168,9 @@ TEST (SunPathScene, HighlightedDayIsDrawnWholeAndOnlyItsSliceIsBold)
     view.sliceTo = 12 * 60 + 1;
     SunPathSceneGeometry scene;
     AppendSunPathAnalysis (Frame (), band, SunPathPreviewForm::EveryDay, view, scene);
-    EXPECT_EQ (SegmentsOf (scene.arcs.depthTested, Amber (255)), 14u) << "06:00 to 20:00, every hour";
-    EXPECT_EQ (Segments (scene.bold.depthTested), 3u) << "09-10, 10-11, 11-12";
+    EXPECT_EQ (SegmentsOf (scene.arcs.depthTested, Amber (255)), PiecesOf (band.days[1])) << "06:00 to 20:00";
+    EXPECT_EQ (Segments (scene.bold.depthTested), PiecesOf (band.days[1], 9 * 60, 12 * 60 + 1))
+        << "only 09-10, 10-11, 11-12";
     // The amber day is the last thing in its bucket, so no other day paints over it.
     ASSERT_GE (scene.arcs.depthTested.lineVertices.size (), 6u);
     EXPECT_EQ (scene.arcs.depthTested.lineVertices.back ().rgba, Amber (255));
@@ -161,7 +187,7 @@ TEST (SunPathScene, EveryDaySurfaceJoinsMatchingStepsAndLeavesHolesWhereADayLack
     EXPECT_EQ (scene.arcs.translucent.meshIndices.size (), scene.surfaceQuads * 6);
     EXPECT_TRUE (scene.arcs.depthTested.meshIndices.empty ()) << "the surface never writes depth";
     // The first and last day are the boundary lines.
-    EXPECT_EQ (Segments (scene.arcs.depthTested), 4u + 4u);
+    EXPECT_EQ (Segments (scene.arcs.depthTested), PiecesOf (band.days[0]) + PiecesOf (band.days[2]));
 }
 
 TEST (SunPathScene, LongEveryDayPeriodBoundsItsSurfaceRowsAndSaysSo)
@@ -189,7 +215,11 @@ TEST (SunPathScene, RunsAreNeverBridgedAcrossAHorizonGap)
         day.runs.back ().push_back (Moment (3, 21, hour * 60, float (hour)));
     SunPathSceneGeometry scene;
     AppendSunPathAnalysis (Frame (), Band ({ day }), SunPathPreviewForm::Day, {}, scene);
-    EXPECT_EQ (Segments (scene.arcs.depthTested), 2u + 2u) << "no 08:00 -> 16:00 segment";
+    EXPECT_EQ (Segments (scene.arcs.depthTested), PiecesOf (day)) << "no 08:00 -> 16:00 segment";
+    SunPathBandDay bridged = day; // what a bridge would have drawn
+    bridged.runs[0].insert (bridged.runs[0].end (), day.runs[1].begin (), day.runs[1].end ());
+    bridged.runs.pop_back ();
+    EXPECT_LT (Segments (scene.arcs.depthTested), PiecesOf (bridged));
 }
 
 TEST (SunPathScene, MonthlyPreviewDrawsEachRepresentativeDayAndHighlightsTheMonth)
@@ -200,12 +230,15 @@ TEST (SunPathScene, MonthlyPreviewDrawsEachRepresentativeDayAndHighlightsTheMont
     SunPathSceneGeometry scene;
     AppendSunPathAnalysis (Frame (), band, SunPathPreviewForm::MonthlyPreview, view, scene);
     EXPECT_EQ (scene.dayLines, 3u);
-    EXPECT_EQ (SegmentsOf (scene.arcs.depthTested, Amber (255)), 6u);
-    EXPECT_EQ (Segments (scene.arcs.depthTested), 18u);
+    // The highlighted month is bold amber over its whole length: the month
+    // player's cue was barely visible as a 2 px line.
+    EXPECT_EQ (SegmentsOf (scene.bold.depthTested, Amber (255)), PiecesOf (band.days[1]));
+    EXPECT_EQ (Segments (scene.bold.depthTested), PiecesOf (band.days[1]));
+    EXPECT_EQ (Segments (scene.arcs.depthTested), PiecesOf (band.days[0]) + PiecesOf (band.days[2]));
     EXPECT_EQ (scene.surfaceQuads, 12u);
-    // Both surface rows touch February, so both carry the stronger alpha.
+    // Both surface rows touch February: amber, not just a stronger yellow.
     for (const auto& vertex : scene.arcs.translucent.meshVertices)
-        EXPECT_EQ (vertex.rgba & 0xFFu, 75u);
+        EXPECT_EQ (vertex.rgba, Amber (130));
     const auto caption = SunPathSceneCaption (SunPathPreviewForm::MonthlyPreview, band, scene, true);
     EXPECT_NE (caption.find ("one representative day per month"), std::string::npos);
     EXPECT_NE (caption.find ("calendar weights"), std::string::npos);
@@ -216,7 +249,7 @@ TEST (SunPathScene, CompassAndSelectedSun)
     const auto frame = Frame ();
     SunPathSceneGeometry scene;
     AppendSunPathCompass (frame, 0.0, scene);
-    EXPECT_EQ (Segments (scene.fine.depthTested), 3u * 128u + 31u);
+    EXPECT_EQ (Segments (scene.fine.depthTested), 3u * 720u + 31u);
     ASSERT_EQ (Segments (scene.arcs.depthTested), 1u) << "north alone is red and wider";
     const auto& north = scene.arcs.depthTested.lineVertices[0];
     EXPECT_EQ (north.rgba, SunPathDisplayRgba (220, 60, 60, 255));
@@ -237,4 +270,33 @@ TEST (SunPathScene, CompassAndSelectedSun)
     EXPECT_NEAR (centre[0] / n, 10.0, 0.05);
     EXPECT_NEAR (centre[1] / n, -5.0 + 12.0, 0.05);
     EXPECT_NEAR (centre[2] / n, 16.0, 0.6) << "pole-weighted UV sphere centroid";
+}
+
+TEST (SunPathScene, ArcPiecesFollowTheDomeAndEndExactlyOnTheStoredDirections)
+{
+    const auto frame = Frame ();
+    const float a[3] = { 1.0f, 0.0f, 0.0f };
+    const float b[3] = { std::cos (0.1745f), std::sin (0.1745f), 0.0f }; // ten degrees
+    GhPreviewBucket bucket;
+    AppendSunPathArcPiece (frame, a, b, 0xFFFFFFFFu, bucket);
+    const size_t pieces = Segments (bucket);
+    EXPECT_EQ (pieces, 34u); // ceil (10 / 0.3)
+    float worldA[3], worldB[3];
+    SunPathWorld (frame, a, worldA);
+    SunPathWorld (frame, b, worldB);
+    const auto& first = bucket.lineVertices.front ();
+    EXPECT_FLOAT_EQ (first.x, worldA[0]);
+    EXPECT_FLOAT_EQ (first.y, worldA[1]);
+    // Each segment's six corners name its two ends; the last segment ends at b.
+    const auto& last = bucket.lineVertices[bucket.lineVertices.size () - 6];
+    EXPECT_NEAR (last.ox, worldB[0], 1e-4);
+    EXPECT_NEAR (last.oy, worldB[1], 1e-4);
+    for (const auto& vertex : bucket.lineVertices) {
+        const double r =
+            std::hypot (vertex.x - frame.centre[0], vertex.y - frame.centre[1], vertex.z - frame.centre[2]);
+        EXPECT_NEAR (r, frame.radius, 1e-3) << "every piece lies on the dome, not on the chord";
+    }
+    GhPreviewBucket same;
+    AppendSunPathArcPiece (frame, a, a, 0xFFFFFFFFu, same);
+    EXPECT_TRUE (same.lineVertices.empty ()) << "a zero-length hop draws nothing";
 }

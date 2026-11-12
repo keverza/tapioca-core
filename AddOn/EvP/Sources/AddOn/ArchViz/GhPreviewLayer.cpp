@@ -42,6 +42,10 @@ struct GhPreviewConstants {
     float light[4];
     // x = near clip, y = far clip, z = decal cap in metres, w = perspective.
     float decal[4];
+    // x = 1 square caps (each segment pushed half a width past both ends), 0
+    // butt ends. Declared only by the line VS: a cbuffer view smaller than the
+    // bound buffer is legal, so the other shaders keep their declarations.
+    float line[4];
 };
 
 // ⚠️ A LEGIBILITY LIGHT, NOT A SUN, AND DELIBERATELY FIXED IN WORLD SPACE. The
@@ -168,6 +172,7 @@ cbuffer GhPreviewConstants
     float4   g_params;
     float4   g_light;
     float4   g_decal;
+    float4   g_line;
 };
 
 struct VSInput
@@ -217,7 +222,9 @@ void main (in VSInput vsIn, out PSInput psIn)
     // Across for the width; against `along` for the square cap. The cap needs no
     // flag: `other` is always the far end, so `along` always points inward and
     // the outward push is always its negation.
-    float2 offsetPixels = acrossPixels * vsIn.side * halfPixels - alongPixels * halfPixels;
+    // Butt ends (g_line.x = 0) for dense polylines: square caps overlap at every
+    // joint, and a translucent line is blended twice there -- a tooth per joint.
+    float2 offsetPixels = acrossPixels * vsIn.side * halfPixels - alongPixels * halfPixels * g_line.x;
 
     clip.xy += offsetPixels * g_pixelToNdc.xy * clip.w;
 
@@ -777,6 +784,7 @@ void GhPreviewLayer::Draw (Diligent::IDeviceContext* context, const float viewPr
     constants.decal[1] = (std::max) (params.farClipMetres, nearClip + 1.0e-6f);
     constants.decal[2] = (std::max) (params.surfaceDecalMaxMetres, 0.0f);
     constants.decal[3] = params.perspective ? 1.0f : 0.0f;
+    constants.line[0] = params.squareCaps ? 1.0f : 0.0f;
 
     Diligent::PVoid mapped = nullptr;
     context->MapBuffer (impl_->constants, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
