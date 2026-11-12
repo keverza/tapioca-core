@@ -1076,6 +1076,24 @@ TEST (SunStudyHud, ShadowAndRoleViewsSubmitNoWidgetIdTwice)
     }
 }
 
+TEST (SunStudyHud, SmallPeriodArchivesAreKeptSoWholeMapPlayersStayAvailable)
+{
+    using geomsrv::sunstudyhud::KeepsPeriodDays;
+    using geomsrv::sunstudyhud::PeriodArchiveBytes;
+    // 96 quarter-hours: 12 bytes a sample and day.
+    EXPECT_EQ (PeriodArchiveBytes (1, 1, 0, 24, 15), 12u);
+    EXPECT_EQ (PeriodArchiveBytes (0, 365, 0, 24, 15), 0u);
+    EXPECT_EQ (PeriodArchiveBytes (10, 10, 8, 8, 15), 0u);
+    // A Preview year of a large map is small: the regression this fixes left
+    // every whole-year Preview stepping month by month.
+    EXPECT_TRUE (KeepsPeriodDays (false, PeriodArchiveBytes (200000, 12, 0, 24, 15)));
+    // An every-day year of a modest map fits; a large one needs the checkbox.
+    EXPECT_TRUE (KeepsPeriodDays (false, PeriodArchiveBytes (50000, 365, 0, 24, 15)));
+    EXPECT_FALSE (KeepsPeriodDays (false, PeriodArchiveBytes (100000, 365, 0, 24, 15)));
+    EXPECT_TRUE (KeepsPeriodDays (true, PeriodArchiveBytes (100000, 365, 0, 24, 15)));
+    EXPECT_FALSE (KeepsPeriodDays (false, 0));
+}
+
 TEST (SunStudyHud, ShadowRunsMergeConsecutiveStepsAndEndAQuantumLater)
 {
     const std::vector<uint16_t> minutes = { 480, 495, 510, 525, 540, 555 };

@@ -240,7 +240,8 @@ namespace rs = evp::sunstudy::rust;
 // Folds one traced day into the period, creating the totals on the first one
 // (the sample count is known only then) with any sunless days seen before it.
 std::string AddPeriodDay (std::unique_ptr<rs::RustAnnualSun>& annual, std::vector<rs::AnnualDay>& sunless,
-                          const evp::sunstudy::StudyRecord& record, const rs::AnnualDay& day, bool keepDays)
+                          const evp::sunstudy::StudyRecord& record, const rs::AnnualDay& day, const Request& request,
+                          size_t dayCount)
 {
     std::string error;
     if (record.rustCore == nullptr)
@@ -249,6 +250,12 @@ std::string AddPeriodDay (std::unique_ptr<rs::RustAnnualSun>& annual, std::vecto
         TapiocaStudyInfo info {};
         if (!record.rustCore->Info (info, error))
             return error;
+        const uint64_t bytes =
+            PeriodArchiveBytes (info.sampleCount, dayCount, request.hourFrom, request.hourTo, request.timestep);
+        const bool keepDays = KeepsPeriodDays (request.keepDays, bytes);
+        archviz::ArchVizLog ("pipeline: stage=sun-period-archive samples=" + std::to_string (info.sampleCount) +
+                             " estimateBytes=" + std::to_string (bytes) + " asked=" + (request.keepDays ? "1" : "0") +
+                             " kept=" + (keepDays ? "1" : "0"));
         annual = rs::RustAnnualSun::Create (info.sampleCount, error, keepDays);
         if (annual == nullptr)
             return "the period's totals could not be allocated (" + error + ")";
@@ -379,7 +386,7 @@ std::string RunPeriod (const Request& request, const std::shared_ptr<tapioca::Su
             const auto record = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (id);
             if (record == nullptr)
                 return "a period day was not complete after converging";
-            if (const std::string failed = AddPeriodDay (annual, sunless, *record, day, request.keepDays);
+            if (const std::string failed = AddPeriodDay (annual, sunless, *record, day, request, days.size ());
                 !failed.empty ())
                 return failed;
             if (!carrierId.empty ())

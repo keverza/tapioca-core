@@ -176,14 +176,16 @@ void PlayModeRow (HudState& state, const sunstudyhud::PeriodInfo& period)
             if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip ("%s%s", kPlayModeTips[m],
                                    enabled ? ""
-                                           : "\n\nWhole-map frames need \"Keep whole-map days for playback\". For "
-                                             "one point, use Detailed point playback below; no day archive is needed.");
+                                           : "\n\nThis run's whole-map day archive was too large to keep: tick \"Keep "
+                                             "large whole-map day archive\" and run again. For one point, use "
+                                             "Detailed point playback below; no day archive is needed.");
         }
         ImGui::EndCombo ();
     }
     ImGui::SetItemTooltip ("How the player steps through the period.%s",
                            period.daysKept ? ""
-                                           : "\n\nWhole-map steps need \"Keep whole-map days for playback\". The "
+                                           : "\n\nThis run's whole-map day archive was too large to keep; tick "
+                                             "\"Keep large whole-map day archive\" and run again. The "
                                              "study point below can instead re-trace and play only its own cells.");
     ImGui::SameLine ();
     ImGui::SetNextItemWidth (-1.0f);

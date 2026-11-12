@@ -25,6 +25,28 @@ struct FollowerStats;
 
 namespace geomsrv::sunstudyhud {
 
+// The whole-map day archive's size: one bit per sample and step, rounded up
+// to whole bytes a day (the archive measured about 11 bytes a sample and day
+// at 96 steps, under this bound).
+inline uint64_t PeriodArchiveBytes (size_t samples, size_t days, int hourFrom, int hourTo, int timestep)
+{
+    const int minutes = (hourTo - hourFrom) * 60;
+    if (samples == 0 || days == 0 || minutes <= 0 || timestep <= 0)
+        return 0;
+    const uint64_t steps = uint64_t ((minutes + timestep - 1) / timestep);
+    return uint64_t (samples) * uint64_t (days) * ((steps + 7) / 8);
+}
+
+// Whole-map playback (every step, fixed hour, day by day) needs the archive.
+// It is kept whenever it is small -- every Preview year and most every-day
+// periods of a modest map -- so those players are not disabled by a checkbox
+// left at its default (#179). `asked` keeps a larger archive.
+constexpr uint64_t kAutoKeepPeriodDaysBytes = 256ull * 1024ull * 1024ull;
+inline bool KeepsPeriodDays (bool asked, uint64_t archiveBytes)
+{
+    return asked || (archiveBytes > 0 && archiveBytes <= kAutoKeepPeriodDaysBytes);
+}
+
 struct Request {
     int year = 2026, month = 3, day = 21;
     // What is traced (#152): "day" the one date above; "period" from that
@@ -37,8 +59,8 @@ struct Request {
     // weighted by its days: an estimate), true = every day.
     bool dailyResolved = false;
     // Keep every traced day's whole-map lit bits IN RAM for playback
-    // (continuous, fixed hour, day by day). No file is written. Off by default:
-    // about 11 bytes a sample and day; point playback re-traces on demand.
+    // (continuous, fixed hour, day by day) even when the archive is large. No
+    // file is written. A small archive is kept anyway: see KeepsPeriodDays.
     bool keepDays = false;
     // The time slice, every mode: whole hours, `hourTo` exclusive.
     int hourFrom = 0, hourTo = 24;
