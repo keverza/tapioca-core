@@ -138,6 +138,7 @@ struct Storage {
     mappings: Vec<TerrainMapping>,
     lines: Vec<UnifiedLine>,
     locked: Vec<UnifiedLocked>,
+    steps: Vec<UnifiedStep>,
 }
 
 impl Storage {
@@ -154,6 +155,7 @@ impl Storage {
             mappings: Vec::new(),
             lines: Vec::new(),
             locked: Vec::new(),
+            steps: Vec::new(),
         }
     }
 
@@ -173,6 +175,13 @@ impl Storage {
         ];
         self.lines = vec![UnifiedLine::default(); self.counts.lines];
         self.locked = vec![UnifiedLocked::default(); self.counts.locked];
+        self.steps = vec![
+            UnifiedStep {
+                kind: 77,
+                ..UnifiedStep::default()
+            };
+            self.counts.steps
+        ];
     }
 
     fn query(
@@ -200,6 +209,8 @@ impl Storage {
             line_capacity: 0,
             locked: std::ptr::null_mut(),
             locked_capacity: 0,
+            steps: std::ptr::null_mut(),
+            step_capacity: 0,
             query_only: 1,
             reserved: 0,
         }
@@ -225,6 +236,8 @@ impl Storage {
             line_capacity: self.lines.len(),
             locked: self.locked.as_mut_ptr(),
             locked_capacity: self.locked.len(),
+            steps: self.steps.as_mut_ptr(),
+            step_capacity: self.steps.len(),
             query_only: 0,
             reserved: 0,
         }
@@ -303,12 +316,15 @@ fn layouts_match_the_documented_c_records() {
     assert_eq!(size_of::<UnifiedPath>(), 56);
     assert_eq!(size_of::<UnifiedMask>(), 32);
     assert_eq!(size_of::<UnifiedControl>(), 56);
-    assert_eq!(size_of::<UnifiedCounts>(), 40);
+    assert_eq!(size_of::<UnifiedCounts>(), 48);
     assert_eq!(size_of::<UnifiedMeta>(), 24);
     assert_eq!(size_of::<UnifiedOutline>(), 120);
     assert_eq!(size_of::<UnifiedRequest>(), 576);
     assert_eq!(size_of::<UnifiedLine>(), 32);
     assert_eq!(size_of::<UnifiedLocked>(), 16);
+    assert_eq!(size_of::<UnifiedStep>(), 48);
+    assert_eq!(std::mem::offset_of!(UnifiedStep, position), 8);
+    assert_eq!(size_of::<UnifiedOutput>(), 168);
     assert_eq!(size_of::<PreviewCounts>(), 40);
     assert_eq!(size_of::<PreviewSummary>(), 72);
     assert_eq!(size_of::<PreviewLine>(), 32);
@@ -826,4 +842,279 @@ fn the_field_preview_answers_in_one_call_once_its_capacities_fit() {
     );
     assert!(summary.cut.abs() < 1e-9);
     assert!(indices.iter().all(|&v| (v as usize) < surface.len() / 3));
+}
+
+/// A level 2 x 2 m pavement at 2 m over the z = 0 grid, 3 m inside the property on every side.
+const PAVED: [f64; 12] = [3.0, 3.0, 2.0, 5.0, 3.0, 2.0, 5.0, 5.0, 2.0, 3.0, 5.0, 2.0];
+const PAVED_TRIANGLES: [u32; 6] = [0, 1, 2, 0, 2, 3];
+const HALF: TerrainSlope = TerrainSlope {
+    a: 1.0,
+    b: 2.0,
+    kind: 3,
+    reserved: 0,
+};
+
+/// Owned pools of the outline-only unified plan over [`PAVED`] (#149 T1).
+struct OutlineScene {
+    points: Vec<f64>,
+    triangles: Vec<u32>,
+    rows: Vec<id::MappingRecord>,
+    outlines: [UnifiedOutline; 1],
+}
+
+impl OutlineScene {
+    /// The plan with the given plan reach, metres.
+    fn new(limit: f64) -> Self {
+        let (points, triangles) = base();
+        let none = TerrainRing {
+            offset: 0,
+            count: 0,
+        };
+        Self {
+            points,
+            triangles,
+            rows: rows(counts_in(0)),
+            outlines: [UnifiedOutline {
+                cut: HALF,
+                fill: HALF,
+                limit,
+                rounding: 0.0,
+                tolerance: 1e-6,
+                surface_points: TerrainRing {
+                    offset: 0,
+                    count: 12,
+                },
+                surface_triangles: TerrainRing {
+                    offset: 0,
+                    count: 6,
+                },
+                grades: none,
+                spots: none,
+                order: 0,
+                effect: 3,
+                first_line: 0,
+                line_count: 0,
+            }],
+        }
+    }
+
+    fn request(&self) -> UnifiedRequest {
+        UnifiedRequest {
+            points: view(&self.points),
+            triangles: view(&self.triangles),
+            property: view(&PROPERTY),
+            geometry: view(&PAVED),
+            rings: empty(),
+            parts: empty(),
+            part_indices: empty(),
+            stations: empty(),
+            surface_indices: view(&PAVED_TRIANGLES),
+            sources: empty(),
+            entries: empty(),
+            paths: empty(),
+            masks: empty(),
+            controls: empty(),
+            control_tolerance: 1e-3,
+            revision: 9,
+            plan_hash: 0xBEEF,
+            provenance: provenance(&self.rows, rows_counts(&self.rows), 7),
+            outlines: view(&self.outlines),
+            outline_lines: empty(),
+            outline_grades: empty(),
+        }
+    }
+}
+
+fn outline_build(limit: f64, storage: &mut Storage) -> Result<(), (i32, String)> {
+    build(&OutlineScene::new(limit).request(), storage)
+}
+
+#[test]
+fn every_witness_kind_maps_to_its_documented_row() {
+    use tapioca_geometry::terrain::outline::StepWitness;
+    assert_eq!(
+        super::super::unified::step(&StepWitness::ReachLimit {
+            vertex: 5,
+            position: [1.0, 2.0, 3.5],
+        }),
+        UnifiedStep {
+            kind: 1,
+            index: 5,
+            position: [1.0, 2.0, 3.5],
+            design: 3.5,
+            residual: 0.0,
+        }
+    );
+    assert_eq!(
+        super::super::unified::step(&StepWitness::RingMismatch {
+            segment: 7,
+            position: [1.0, 2.0, 0.25],
+            design: 1.0,
+        }),
+        UnifiedStep {
+            kind: 2,
+            index: 7,
+            position: [1.0, 2.0, 0.25],
+            design: 1.0,
+            residual: 0.75,
+        }
+    );
+    assert_eq!(
+        super::super::unified::step(&StepWitness::StepStrip {
+            position: [1.0, 2.0, 0.5],
+            design: 0.8,
+            residual: 0.04,
+        }),
+        UnifiedStep {
+            kind: 3,
+            index: u32::MAX,
+            position: [1.0, 2.0, 0.5],
+            design: 0.8,
+            residual: 0.04,
+        }
+    );
+}
+
+fn kinds(steps: &[UnifiedStep], kind: u32) -> Vec<UnifiedStep> {
+    steps
+        .iter()
+        .copied()
+        .filter(|row| row.kind == kind)
+        .collect()
+}
+
+#[test]
+fn reach_limit_witnesses_locate_published_vertices_under_the_cap() {
+    // A 1 m reach cannot bring a 2 m high pavement down at 1:2: reach-limit vertices.
+    let mut short = Storage::new();
+    assert_eq!(outline_build(1.0, &mut short), Ok(()));
+    let limit = tapioca_geometry::terrain::outline::STEP_WITNESS_LIMIT;
+    assert!(
+        short.meta.outline_unreached as usize > limit,
+        "{}",
+        short.meta.outline_unreached
+    );
+    assert_eq!(
+        short.counts.steps, limit,
+        "the count is the retained rows, not the observations"
+    );
+    assert_eq!(kinds(&short.steps, 1).len(), limit);
+    for row in &short.steps {
+        let at = row.index as usize * 3;
+        let published = short.points.get(at..at + 3).unwrap_or_default();
+        assert_eq!(published, row.position.as_slice(), "{row:?}");
+        assert_eq!((row.design, row.residual), (row.position[2], 0.0));
+    }
+}
+
+#[test]
+fn ring_and_strip_witnesses_publish_in_kernel_order_on_the_retained_ground() {
+    // A 10 m reach meets the ground 4 m out, past the property ring 3 m out: ring mismatches.
+    let mut long = Storage::new();
+    assert_eq!(outline_build(10.0, &mut long), Ok(()));
+    let limit = tapioca_geometry::terrain::outline::STEP_WITNESS_LIMIT;
+    assert_eq!(long.meta.outline_unreached, 0);
+    assert!(
+        long.meta.outline_clipped as usize > limit,
+        "{}",
+        long.meta.outline_clipped
+    );
+    let strips = kinds(&long.steps, 3);
+    let ring = kinds(&long.steps, 2);
+    assert!(!strips.is_empty() && strips.len() <= limit);
+    assert_eq!(ring.len(), limit);
+    assert_eq!(long.counts.steps, strips.len() + ring.len());
+    // Mesher strips precede ring samples; each keeps its own observation order.
+    assert!(
+        long.steps
+            .get(..strips.len())
+            .unwrap_or_default()
+            .iter()
+            .all(|row| row.kind == 3)
+    );
+    let segments = long.mappings.iter().filter(|row| row.kind == 17).count();
+    for row in &ring {
+        assert!((row.index as usize) < segments, "{row:?}");
+        let [x, y, z] = row.position;
+        assert!(
+            [x, y]
+                .iter()
+                .any(|v| v.abs() < 1e-12 || (v - 8.0).abs() < 1e-12),
+            "on the property ring: {row:?}"
+        );
+        assert_eq!(z, 0.0, "sampled on the retained ground");
+        assert!(row.design > 0.0);
+        assert_eq!(row.residual.to_bits(), (row.design - z).to_bits());
+    }
+    for row in &strips {
+        assert_eq!(
+            row.index,
+            u32::MAX,
+            "a classification event, not a triangle"
+        );
+        assert!(row.residual > 0.0 && row.design.is_finite());
+    }
+    // Deterministic: a second query/fill publishes the same rows.
+    let mut again = Storage::new();
+    assert_eq!(outline_build(10.0, &mut again), Ok(()));
+    assert_eq!(again.steps, long.steps);
+}
+
+#[test]
+fn a_short_step_capacity_refuses_before_any_write() {
+    let scene = OutlineScene::new(10.0);
+    let request = scene.request();
+    let mut storage = Storage::new();
+    assert_eq!(build(&request, &mut storage), Ok(()));
+    assert!(storage.counts.steps > 0);
+    storage.size();
+    storage.steps.pop();
+    storage.meta = UnifiedMeta::default();
+    storage.counts = UnifiedCounts::default();
+    let before = storage.clone();
+    let fill = storage.fill();
+    let mut buffer = [0_u8; 256];
+    // SAFETY: live immutable request pools; every output array is exclusive storage.
+    let status = unsafe {
+        tapioca_terrain_unified_build(
+            &raw const request,
+            &raw const fill,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+        )
+    };
+    assert_ne!(status, 0);
+    assert!(
+        message(&buffer).contains("TerrainOutputTooSmall"),
+        "{}",
+        message(&buffer)
+    );
+    assert_eq!(storage, before, "nothing is written on refusal");
+    // Query mode takes no step storage.
+    let mut counts = UnifiedCounts::default();
+    let mut meta = UnifiedMeta::default();
+    let (mut site, mut context) = (
+        TerrainHybridVolumes::default(),
+        TerrainHybridVolumes::default(),
+    );
+    let mut steps = [UnifiedStep::default()];
+    let mut query = Storage::query(&mut counts, &mut meta, &mut site, &mut context);
+    query.steps = steps.as_mut_ptr();
+    query.step_capacity = steps.len();
+    // SAFETY: as above.
+    let status = unsafe {
+        tapioca_terrain_unified_build(
+            &raw const request,
+            &raw const query,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+        )
+    };
+    assert_ne!(status, 0);
+    assert!(
+        message(&buffer).contains("TerrainOutputMode"),
+        "{}",
+        message(&buffer)
+    );
+    assert_eq!(counts, UnifiedCounts::default());
 }

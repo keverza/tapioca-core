@@ -3,6 +3,7 @@
 
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditTerrainDesign.hpp"
+#include "Geometry/GeometryRustUnifiedTerrain.hpp"
 #include <future>
 #include <memory>
 
@@ -60,6 +61,9 @@ struct TerrainDesignOutcome {
     // What the strict design asked for and could not have, in the user's words: each condition
     // the worker relaxed to build anyway, then -- when it still refused -- the one left.
     std::vector<std::string> unmet;
+    // #149 T4: the unified outline build's bounded located step witnesses, for markers at the
+    // `unmet` step conditions. Empty on the legacy lanes and on any refusal.
+    std::vector<UnifiedStepWitness> outlineSteps;
 };
 
 // The condition a refusal code stands for, said plainly; the raw message when it has none.

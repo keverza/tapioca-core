@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <iterator>
 #include <limits>
 #include <vector>
@@ -327,6 +328,34 @@ bool DecodeLines (const std::vector<TapiocaUnifiedLine>& rows, std::vector<Unifi
     return true;
 }
 
+// #149 T4: every row is checked before any is accepted; the kind fixes which index it may carry.
+bool DecodeSteps (const std::vector<TapiocaUnifiedStep>& rows, size_t vertices, size_t ringSegments,
+                  std::vector<UnifiedStepWitness>& steps, std::string& error)
+{
+    std::array<size_t, 4> perKind {};
+    steps.reserve (rows.size ());
+    for (const auto& row : rows) {
+        const bool finite = std::isfinite (row.position[0]) && std::isfinite (row.position[1]) &&
+                            std::isfinite (row.position[2]) && std::isfinite (row.design) &&
+                            std::isfinite (row.residual);
+        const bool indexed = (row.kind == 1 && row.index < vertices) || (row.kind == 2 && row.index < ringSegments) ||
+                             (row.kind == 3 && row.index == UINT32_MAX);
+        if (row.kind < 1 || row.kind > 3 || !finite || !indexed || ++perKind[row.kind] > kOutlineStepWitnessLimit) {
+            error = "TerrainOutputShape: invalid unified step witness";
+            return false;
+        }
+        UnifiedStepWitness step;
+        step.kind = static_cast<UnifiedStepKind> (row.kind);
+        if (row.kind != 3)
+            step.index = row.index;
+        step.position = { row.position[0], row.position[1], row.position[2] };
+        step.design = row.design;
+        step.residual = row.residual;
+        steps.push_back (step);
+    }
+    return true;
+}
+
 } // namespace
 
 bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResult& result, std::string& error)
@@ -354,10 +383,12 @@ bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResul
     std::vector<TapiocaTerrainMapping> mappings;
     std::vector<TapiocaUnifiedLine> lines;
     std::vector<TapiocaUnifiedLocked> locked;
+    std::vector<TapiocaUnifiedStep> steps;
     std::vector<uint32_t> owners;
     if (counts.points % 3 != 0 || counts.triangles % 3 != 0 || counts.points > candidate.points.max_size () ||
         counts.triangles > candidate.triangles.max_size () || counts.mappings > mappings.max_size () ||
-        counts.lines > lines.max_size () || counts.locked > locked.max_size ()) {
+        counts.lines > lines.max_size () || counts.locked > locked.max_size () ||
+        counts.steps > 3 * kOutlineStepWitnessLimit) {
         error = "TerrainOutputShape: invalid unified query counts";
         return false;
     }
@@ -369,6 +400,7 @@ bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResul
     mappings.resize (counts.mappings);
     lines.resize (counts.lines);
     locked.resize (counts.locked);
+    steps.resize (counts.steps);
     output.points = candidate.points.data ();
     output.pointCapacity = candidate.points.size ();
     output.base = candidate.base.data ();
@@ -383,6 +415,8 @@ bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResul
     output.lineCapacity = lines.size ();
     output.locked = locked.data ();
     output.lockedCapacity = locked.size ();
+    output.steps = steps.data ();
+    output.stepCapacity = steps.size ();
     output.queryOnly = 0;
     status = tapioca_terrain_unified_build (&converted.raw, &output, buffer.data (), buffer.size ());
     if (status != TAPIOCA_OK) {
@@ -390,7 +424,8 @@ bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResul
         return false;
     }
     if (counts.points != expected.points || counts.triangles != expected.triangles ||
-        counts.mappings != expected.mappings || counts.lines != expected.lines || counts.locked != expected.locked) {
+        counts.mappings != expected.mappings || counts.lines != expected.lines || counts.locked != expected.locked ||
+        counts.steps != expected.steps) {
         error = "TerrainOutputShape: unified query/fill counts disagree";
         return false;
     }
@@ -405,6 +440,10 @@ bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResul
         candidate.mappings.push_back (row);
     }
     if (!DecodeLines (lines, candidate.lines, error))
+        return false;
+    const size_t ringSegments = static_cast<size_t> (
+        std::count_if (mappings.begin (), mappings.end (), [] (const auto& row) { return row.kind == 17; }));
+    if (!DecodeSteps (steps, counts.points / 3, ringSegments, candidate.outlineSteps, error))
         return false;
     candidate.locked.reserve (locked.size ());
     for (const auto& row : locked)

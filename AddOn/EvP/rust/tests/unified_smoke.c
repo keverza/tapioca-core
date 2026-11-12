@@ -10,10 +10,11 @@ _Static_assert (sizeof (TapiocaUnifiedEntry) == 136, "entry layout");
 _Static_assert (sizeof (TapiocaUnifiedPath) == 56, "path layout");
 _Static_assert (sizeof (TapiocaUnifiedMask) == 32, "mask layout");
 _Static_assert (sizeof (TapiocaUnifiedControl) == 56, "control layout");
-_Static_assert (sizeof (TapiocaUnifiedCounts) == 40, "counts layout");
-_Static_assert (sizeof (TapiocaUnifiedMeta) == 16, "meta layout");
+_Static_assert (sizeof (TapiocaUnifiedCounts) == 48, "counts layout");
+_Static_assert (sizeof (TapiocaUnifiedMeta) == 24, "meta layout");
 _Static_assert (sizeof (TapiocaUnifiedLine) == 32, "line layout");
 _Static_assert (sizeof (TapiocaUnifiedLocked) == 16, "locked layout");
+_Static_assert (sizeof (TapiocaUnifiedStep) == 48, "step layout");
 _Static_assert (offsetof (TapiocaUnifiedRequest, provenance) == 248, "request padding");
 
 int unified_c_smoke (void)
@@ -114,7 +115,8 @@ int unified_c_smoke (void)
     TapiocaTerrainHybridVolumes site = { 0 }, context_volumes = { 0 };
     char error[256] = { 0 };
     const TapiocaUnifiedOutput query = {
-        &counts, &meta, &site, &context_volumes, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, 1, 0
+        &counts, &meta, &site, &context_volumes, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL,
+        0,       1,     0
     };
     if (tapioca_terrain_unified_build (&request, &query, error, sizeof error) != TAPIOCA_OK || counts.points == 0 ||
         counts.points % 3 != 0 || counts.triangles % 3 != 0 || counts.lines != 4)
@@ -128,7 +130,8 @@ int unified_c_smoke (void)
         TapiocaTerrainMapping out_mappings[96] = { { 0 } };
         TapiocaUnifiedLine out_lines[8] = { { 0 } };
         TapiocaUnifiedLocked out_locked[4] = { { 0 } };
-        if (counts.points > 96 || counts.points / 3 > 32 || counts.triangles > 64 || counts.mappings > 96)
+        if (counts.points > 96 || counts.points / 3 > 32 || counts.triangles > 64 || counts.mappings > 96 ||
+            counts.steps != 0)
             return 2;
         const TapiocaUnifiedOutput fill = { &counts,
                                             &meta,
@@ -148,6 +151,8 @@ int unified_c_smoke (void)
                                             counts.lines,
                                             out_locked,
                                             counts.locked,
+                                            NULL,
+                                            counts.steps,
                                             0,
                                             0 };
         if (tapioca_terrain_unified_build (&request, &fill, error, sizeof error) != TAPIOCA_OK ||

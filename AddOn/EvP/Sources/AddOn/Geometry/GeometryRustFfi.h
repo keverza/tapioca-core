@@ -861,6 +861,7 @@ typedef struct {
 } TapiocaUnifiedRequest;
 typedef struct {
     size_t points, triangles, mappings, lines, locked;
+    size_t steps; /* Retained located outline-step rows (#149 T4), at most 32 per kind. */
 } TapiocaUnifiedCounts;
 typedef struct {
     uint64_t revision, planHash;
@@ -873,6 +874,18 @@ typedef struct {
     uint32_t control, vertex;
     double height; /* Metres. */
 } TapiocaUnifiedLocked;
+/* One retained located outline-step observation (#149 T4). kind: 1 reach limit, 2 ring
+ * mismatch, 3 mesher step strip. index: output vertex (1), zero-based result region-ring
+ * segment (2), UINT32_MAX (3: a historical mesher classification event, never a final-triangle
+ * reference). position: world xyz, the graded vertex (1) or the sample on the retained composed
+ * ground (2, 3). design: outline design height there. residual: 0 (1), design - position z (2),
+ * the classified triangle's sampled vertical residual (3). Rows are deterministic: strips, then
+ * reach-limit vertices, then ring samples. TapiocaUnifiedMeta's counts include unretained ones. */
+typedef struct {
+    uint32_t kind, index;
+    double position[3];
+    double design, residual; /* Metres. */
+} TapiocaUnifiedStep;
 typedef struct {
     TapiocaUnifiedCounts* counts;         /* Required. */
     TapiocaUnifiedMeta* meta;             /* Required. */
@@ -892,6 +905,8 @@ typedef struct {
     size_t lineCapacity;
     TapiocaUnifiedLocked* locked;
     size_t lockedCapacity;
+    TapiocaUnifiedStep* steps; /* #149 T4 located outline-step rows. */
+    size_t stepCapacity;
     uint32_t queryOnly, reserved;
 } TapiocaUnifiedOutput;
 

@@ -2,6 +2,8 @@
 #define TAPIOCA_GEOMETRY_RUST_UNIFIED_TERRAIN_HPP
 
 #include "Geometry/GeometryRustHybridTerrain.hpp"
+#include <array>
+#include <optional>
 
 namespace tapioca::geometry {
 
@@ -117,6 +119,22 @@ struct UnifiedLocked {
     double height = 0; // Metres; the exact height is also in result.points.
     bool operator== (const UnifiedLocked&) const = default;
 };
+// #149 T4: one retained located outline-step observation. ReachLimit: `index` is the output
+// vertex, `position` the graded vertex. RingMismatch: `index` is the zero-based result region-ring
+// segment, `position` the sample on the retained composed ground. StepStrip: a historical mesher
+// classification event at a stitch sample -- `index` is nullopt because later refinement may
+// replace the classified triangle; it is never a final-triangle reference. `design` is the outline
+// design height there; `residual` is 0 (reach), design - position z (ring) or the classified
+// triangle's sampled vertical residual (strip). At most kOutlineStepWitnessLimit rows per kind.
+enum class UnifiedStepKind : uint32_t { ReachLimit = 1, RingMismatch = 2, StepStrip = 3 };
+constexpr size_t kOutlineStepWitnessLimit = 32;
+struct UnifiedStepWitness {
+    UnifiedStepKind kind = UnifiedStepKind::ReachLimit;
+    std::optional<uint32_t> index;
+    std::array<double, 3> position {}; // World metres.
+    double design = 0.0, residual = 0.0;
+    bool operator== (const UnifiedStepWitness&) const = default;
+};
 struct UnifiedTerrainResult {
     std::vector<double> points;                  // Proposed xyz.
     std::vector<double> base;                    // Baseline height per output vertex.
@@ -130,6 +148,9 @@ struct UnifiedTerrainResult {
     // #149 T1: outline vertices whose face ran out at its limit before the ground, and
     // rebuild-ring samples where a face had not yet met it (a step at the ring).
     uint32_t outlineUnreached = 0, outlineClipped = 0;
+    // #149 T4: their bounded located witnesses (strips, then reach-limit vertices, then ring
+    // samples); the counts above still include observations whose rows were not retained.
+    std::vector<UnifiedStepWitness> outlineSteps;
     ProvenanceRequest inputProvenance; // Retained unchanged input catalog.
     size_t inputPointCount = 0;        // Property vertex i has input provenance index inputPointCount+i.
     size_t inputPropertyCount = 0;

@@ -258,6 +258,9 @@ pub struct UnifiedCounts {
     pub lines: usize,
     /// Resolved locked-vertex count.
     pub locked: usize,
+    /// Retained located outline-step witness count (#149 T4), at most
+    /// [`kernel::outline::STEP_WITNESS_LIMIT`] per kind.
+    pub steps: usize,
 }
 
 /// The caller's revision and plan hash, carried through unchanged, and the
@@ -315,6 +318,34 @@ pub struct UnifiedLocked {
     pub height: f64,
 }
 
+/// One retained located outline-step observation (#149 T4). `kind`: 1 reach
+/// limit, 2 ring mismatch, 3 mesher step strip. `index` is the output vertex
+/// for kind 1, the zero-based result region-ring segment for kind 2 and
+/// `u32::MAX` for kind 3: a step strip is a historical mesher classification
+/// event, never a final-triangle reference, since later refinement may
+/// replace the classified triangle. `position` is world-metre xyz: the graded
+/// vertex for kind 1, the sample on the retained composed ground for kinds 2
+/// and 3. `design` is the outline design height there (kind 1: equal to
+/// `position[2]`). `residual` is zero for kind 1, `design - position[2]` for
+/// kind 2 and the classified triangle's sampled vertical residual for kind 3.
+/// Rows are deterministic: step strips, then reach-limit vertices, then ring
+/// samples, each in observation order. `UnifiedMeta`'s counts still include
+/// observations whose rows were not retained.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct UnifiedStep {
+    /// Witness kind, 1..3.
+    pub kind: u32,
+    /// Output vertex (1), ring segment (2) or `u32::MAX` (3).
+    pub index: u32,
+    /// World xyz, metres.
+    pub position: [f64; 3],
+    /// Outline design height at `position`, metres.
+    pub design: f64,
+    /// Kind-specific vertical residual, metres.
+    pub residual: f64,
+}
+
 /// Caller-owned disjoint result storage. `counts`, `meta`, `site` and
 /// `context` are required; query mode publishes only counts and needs zero
 /// capacities. All outputs stay unchanged on any refusal.
@@ -357,6 +388,10 @@ pub struct UnifiedOutput {
     pub locked: *mut UnifiedLocked,
     /// Capacity.
     pub locked_capacity: usize,
+    /// Located outline-step witnesses (#149 T4).
+    pub steps: *mut UnifiedStep,
+    /// Capacity.
+    pub step_capacity: usize,
     /// 1 publishes only counts; 0 publishes the complete result.
     pub query_only: u32,
     /// Zero.
@@ -376,6 +411,7 @@ fn writable(target: UnifiedOutput) -> Vec<Checked> {
         memory_range(target.mappings.cast_const(), target.mapping_capacity),
         memory_range(target.lines.cast_const(), target.line_capacity),
         memory_range(target.locked.cast_const(), target.locked_capacity),
+        memory_range(target.steps.cast_const(), target.step_capacity),
     ]
 }
 
@@ -389,7 +425,8 @@ fn mode(target: &UnifiedOutput) -> Result<(), Failure> {
                 | target.triangle_capacity
                 | target.mapping_capacity
                 | target.line_capacity
-                | target.locked_capacity)
+                | target.locked_capacity
+                | target.step_capacity)
                 != 0)
     {
         return Err(Failure::Argument("TerrainOutputMode"));
@@ -601,6 +638,7 @@ pub(super) struct Encoded {
     mappings: Vec<TerrainMapping>,
     lines: Vec<UnifiedLine>,
     locked: Vec<UnifiedLocked>,
+    steps: Vec<UnifiedStep>,
     site: TerrainHybridVolumes,
     context: TerrainHybridVolumes,
     meta: UnifiedMeta,
@@ -636,7 +674,7 @@ pub(super) fn encode(built: kernel::BuiltTerrain) -> Result<Encoded, Failure> {
         outline_lines,
         outline_unreached,
         outline_clipped,
-        outline_steps: _,
+        outline_steps,
         locked,
         volumes: report,
         revision,
@@ -801,7 +839,9 @@ pub(super) fn encode(built: kernel::BuiltTerrain) -> Result<Encoded, Failure> {
             height: vertex.height,
         })
         .collect();
+    let steps = outline_steps.iter().map(step).collect();
     Ok(Encoded {
+        steps,
         site: volumes(report.site),
         context: volumes(report.context),
         meta: UnifiedMeta {
@@ -821,6 +861,41 @@ pub(super) fn encode(built: kernel::BuiltTerrain) -> Result<Encoded, Failure> {
         lines: rows,
         locked,
     })
+}
+
+/// Encode one kernel witness as its fixed-layout row (#149 T4).
+pub(super) fn step(witness: &kernel::outline::StepWitness) -> UnifiedStep {
+    match *witness {
+        kernel::outline::StepWitness::ReachLimit { vertex, position } => UnifiedStep {
+            kind: 1,
+            index: vertex,
+            position,
+            design: position[2],
+            residual: 0.0,
+        },
+        kernel::outline::StepWitness::RingMismatch {
+            segment,
+            position,
+            design,
+        } => UnifiedStep {
+            kind: 2,
+            index: segment,
+            position,
+            design,
+            residual: design - position[2],
+        },
+        kernel::outline::StepWitness::StepStrip {
+            position,
+            design,
+            residual,
+        } => UnifiedStep {
+            kind: 3,
+            index: u32::MAX,
+            position,
+            design,
+            residual,
+        },
+    }
 }
 
 /// Input provenance dimensions for the documented vertex/edge order.
@@ -1225,6 +1300,7 @@ pub(super) unsafe fn publish(data: &Encoded, target: UnifiedOutput) -> Result<()
         mappings: data.mappings.len(),
         lines: data.lines.len(),
         locked: data.locked.len(),
+        steps: data.steps.len(),
     };
     if target.query_only == 0
         && (target.point_capacity < counts.points
@@ -1233,7 +1309,8 @@ pub(super) unsafe fn publish(data: &Encoded, target: UnifiedOutput) -> Result<()
             || target.triangle_capacity < counts.triangles
             || target.mapping_capacity < counts.mappings
             || target.line_capacity < counts.lines
-            || target.locked_capacity < counts.locked)
+            || target.locked_capacity < counts.locked
+            || target.step_capacity < counts.steps)
     {
         return Err(Failure::Argument("TerrainOutputTooSmall"));
     }
@@ -1247,6 +1324,7 @@ pub(super) unsafe fn publish(data: &Encoded, target: UnifiedOutput) -> Result<()
             copy(&data.mappings, target.mappings);
             copy(&data.lines, target.lines);
             copy(&data.locked, target.locked);
+            copy(&data.steps, target.steps);
             target.site.write(data.site);
             target.context.write(data.context);
             target.meta.write(data.meta);

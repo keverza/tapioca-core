@@ -22,6 +22,7 @@
 #include <limits>
 #include <map>
 #include <thread>
+#include <array>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -1335,6 +1336,74 @@ TEST (EditTerrainDesignJob, AnOutlineRunsOnTheUnifiedBuildAndMatchesTheLegacyOra
     EXPECT_EQ (refused.error, RunTerrainDesign (empty).error);
     EXPECT_TRUE (refused.result.build.points.empty ());
     EXPECT_FALSE (refused.published);
+}
+
+// #149 T4: the unified outline build carries its bounded located step witnesses into the job
+// outcome, each kind under its cap with the index its kind allows; the legacy lane and a refusal
+// carry none.
+TEST (EditTerrainDesignJob, AnOutlineOutcomeCarriesItsLocatedStepWitnesses149)
+{
+    DesignFixture fixture;
+    std::string error;
+    // 1:50 faces over ground falling 20 % across the path: the fill face never meets it, so the
+    // reach is widened to its cap and the faces end in steps at the terrain's edge.
+    ASSERT_TRUE (edit::EditPath (
+        fixture.doc, fixture.path,
+        [] (edit::Path& value, std::string&) {
+            for (auto& section : value.sections)
+                section.cutSlope = section.fillSlope = { TerrainSlope::Unit::Percent, 2, 0 };
+            return true;
+        },
+        error))
+        << error;
+    fixture.Capture ();
+    TerrainDesignPublisher publisher;
+    TerrainDesignJob job;
+    auto outline = fixture.Options ();
+    outline.outline = true;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), outline, {}, job, error)) << error;
+    const auto outlined = RunLandscapeTerrainDesign (job);
+    ASSERT_TRUE (outlined.built) << outlined.error;
+    std::array<size_t, 4> perKind {};
+    const size_t vertices = outlined.result.build.points.size () / 3;
+    for (const auto& step : outlined.outlineSteps) {
+        const auto kind = static_cast<size_t> (step.kind);
+        ASSERT_TRUE (kind >= 1 && kind <= 3);
+        ++perKind[kind];
+        EXPECT_EQ (step.index.has_value (), step.kind != UnifiedStepKind::StepStrip);
+        if (step.kind == UnifiedStepKind::ReachLimit) {
+            EXPECT_LT (*step.index, vertices);
+            EXPECT_EQ (step.residual, 0.0);
+            EXPECT_EQ (step.design, step.position[2]);
+        }
+        if (step.kind == UnifiedStepKind::RingMismatch)
+            EXPECT_EQ (step.residual, step.design - step.position[2]);
+    }
+    for (size_t kind = 1; kind <= 3; ++kind)
+        EXPECT_LE (perKind[kind], kOutlineStepWitnessLimit) << kind;
+    // The step condition the panel states has located rows behind it, capped per kind.
+    ASSERT_TRUE (std::any_of (outlined.unmet.begin (), outlined.unmet.end (), [] (const std::string& text) {
+        return text.find ("edge of the terrain or property line") != std::string::npos;
+    }));
+    EXPECT_EQ (perKind[2], kOutlineStepWitnessLimit) << "more ring samples step than are retained";
+    EXPECT_GT (perKind[3], 0U);
+    // Strips first, then reach-limit vertices, then ring samples.
+    EXPECT_TRUE (std::is_sorted (outlined.outlineSteps.begin (), outlined.outlineSteps.end (),
+                                 [] (const UnifiedStepWitness& a, const UnifiedStepWitness& b) {
+                                     auto rank = [] (UnifiedStepKind kind) {
+                                         return kind == UnifiedStepKind::StepStrip    ? 0
+                                                : kind == UnifiedStepKind::ReachLimit ? 1
+                                                                                      : 2;
+                                     };
+                                     return rank (a.kind) < rank (b.kind);
+                                 }));
+    EXPECT_TRUE (RunTerrainDesign (job).outlineSteps.empty ()) << "the legacy oracle lane has none";
+
+    auto none = fixture.Options ();
+    none.source = kNoId;
+    TerrainDesignJob empty;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), none, {}, empty, error)) << error;
+    EXPECT_TRUE (RunLandscapeTerrainDesign (empty).outlineSteps.empty ());
 }
 
 // #175: the field preview of an outline design, beside its build: its contours lie on the

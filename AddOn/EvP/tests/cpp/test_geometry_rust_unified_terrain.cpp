@@ -11,6 +11,7 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -167,13 +168,15 @@ TEST (GeometryRustUnifiedTerrain, AbiLayouts)
     static_assert (sizeof (TapiocaUnifiedPath) == 56);
     static_assert (sizeof (TapiocaUnifiedMask) == 32);
     static_assert (sizeof (TapiocaUnifiedControl) == 56);
-    static_assert (sizeof (TapiocaUnifiedCounts) == 40);
+    static_assert (sizeof (TapiocaUnifiedCounts) == 48);
     static_assert (sizeof (TapiocaUnifiedMeta) == 24);
     static_assert (sizeof (TapiocaUnifiedOutline) == 120);
     static_assert (sizeof (TapiocaUnifiedLine) == 32);
     static_assert (sizeof (TapiocaUnifiedLocked) == 16);
+    static_assert (sizeof (TapiocaUnifiedStep) == 48);
+    static_assert (offsetof (TapiocaUnifiedStep, position) == 8);
     static_assert (sizeof (void*) != 8 || sizeof (TapiocaUnifiedRequest) == 576);
-    static_assert (sizeof (void*) != 8 || sizeof (TapiocaUnifiedOutput) == 152);
+    static_assert (sizeof (void*) != 8 || sizeof (TapiocaUnifiedOutput) == 168);
     SUCCEED ();
 }
 

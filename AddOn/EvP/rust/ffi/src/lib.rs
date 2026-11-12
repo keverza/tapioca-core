@@ -147,7 +147,7 @@ pub use terrain::{
     TerrainSplitRequest, TerrainStation, TerrainSurfaceRequest, TerrainSurfaceView,
     TerrainVolumeOutput, TerrainVolumeRequest, TerrainVolumes, UnifiedControl, UnifiedCounts,
     UnifiedEntry, UnifiedLine, UnifiedLocked, UnifiedMask, UnifiedMeta, UnifiedOutline,
-    UnifiedOutput, UnifiedPart, UnifiedPath, UnifiedRequest, tapioca_slope_convert,
+    UnifiedOutput, UnifiedPart, UnifiedPath, UnifiedRequest, UnifiedStep, tapioca_slope_convert,
     tapioca_terrain_edit, tapioca_terrain_edit_clips, tapioca_terrain_hybrid_build,
     tapioca_terrain_hybrid_conflicts, tapioca_terrain_hybrid_locked_assess,
     tapioca_terrain_hybrid_locked_build, tapioca_terrain_outline_build, tapioca_terrain_sample,

@@ -256,6 +256,7 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
         outcome.built = true;
         outcome.published = std::move (published);
         MirrorPublished (unified, plan, scope, *outcome.published, outcome);
+        outcome.outlineSteps = std::move (unified.outlineSteps);
         if (!plan.outlines.empty ()) {
             // The outline lane's located shortfalls, in its words.
             OutlineUnmet (unified.outlineUnreached, unified.outlineClipped, asked, reached,
@@ -276,6 +277,7 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
     }
     if (!outcome.built) {
         outcome.result = {};
+        outcome.outlineSteps.clear ();
         outcome.unmet = { TerrainConditionText (outcome.error) };
         // Located refusal places keep the legacy band-lane contract: assessed
         // through the same authority the band lane uses. A refusal without a

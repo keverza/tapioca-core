@@ -51,7 +51,7 @@ pub use surface::{TerrainSurfaceRequest, tapioca_terrain_surface};
 pub use unified::{
     UnifiedControl, UnifiedCounts, UnifiedEntry, UnifiedLine, UnifiedLocked, UnifiedMask,
     UnifiedMeta, UnifiedOutline, UnifiedOutput, UnifiedPart, UnifiedPath, UnifiedRequest,
-    tapioca_terrain_unified_build,
+    UnifiedStep, tapioca_terrain_unified_build,
 };
 pub use volume::{
     TerrainEditVolumes, TerrainVolumeOutput, TerrainVolumeRequest, TerrainVolumes,
