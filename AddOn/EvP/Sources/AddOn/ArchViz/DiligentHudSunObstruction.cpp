@@ -321,16 +321,21 @@ void DrawSunStudyObstructionControls (HudState& state, const std::string& studyI
             geomsrv::archviz::hudshell::ItemTip ("%s", baseTips[i]);
         }
         if (state.sunCutShowsHours) {
-            ImGui::Checkbox ("Cells after the cut##suncutcells", &state.sunCutShowsCells);
+            ImGui::Checkbox ("Cells##suncutcells", &state.sunCutShowsCells);
             geomsrv::archviz::hudshell::ItemTip (
                 "The study cells the cut changes, re-counted over the whole day (the study's own "
                 "lit steps plus the rays that now run clear past what remains) and drawn in the "
-                "hours they would read, in the map's colours. The pink outline marks them.");
+                "hours they would read, in the map's colours.");
             ImGui::SameLine ();
-            ImGui::Checkbox ("Gain shading##suncutgain", &state.sunCutShowsGain);
+            ImGui::Checkbox ("Outline##suncutoutline", &state.sunCutShowsOutline);
             geomsrv::archviz::hudshell::ItemTip (
-                "The exact surface the cut lights in its slice, shaded yellow to amber by the "
-                "minutes it gains, over the cells.");
+                "One pink outline around the changed cells on each surface: where the cut's new "
+                "sun comes from.");
+            ImGui::SameLine ();
+            ImGui::Checkbox ("Lit surface##suncutgain", &state.sunCutShowsGain);
+            geomsrv::archviz::hudshell::ItemTip (
+                "The exact surface the cut lights in its slice, independent of the cells, shaded "
+                "yellow to amber by the minutes it gains, with its own yellow edge.");
         }
     }
     // The prerequisite, made actionable (#167, #168): Place point arms a click

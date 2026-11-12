@@ -354,10 +354,12 @@ struct HudState {
     // Solar cut: the study's sun hours under the cut (true), so the gain reads
     // against the whole day, or the single shadow at the clock step (false).
     bool sunCutShowsHours = true;
-    // Over that map: the study cells the cut changes, in the hours they would
-    // read after it, outlined pink (on by default); and the won-lit surface
-    // shaded by minutes gained (off by default when the cells are shown).
+    // Over that map, each its own layer so they need not all be read at once:
+    // the study cells the cut changes, in the hours they would read after it;
+    // their merged pink outline; and the exact won-lit surface shaded by the
+    // minutes it gains (off by default).
     bool sunCutShowsCells = true;
+    bool sunCutShowsOutline = true;
     bool sunCutShowsGain = false;
     // The hovered study cell's whole-day hours before and after the cut; -1
     // when the cut does not change it.

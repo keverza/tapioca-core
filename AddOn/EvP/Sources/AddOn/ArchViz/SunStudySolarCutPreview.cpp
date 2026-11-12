@@ -527,14 +527,18 @@ uint32_t SolarCutGainRgba (int level, int most)
 }
 
 namespace {
+// `lift` metres along each triangle's normal: a layer drawn over another on
+// the same surface sits above it rather than fighting it for depth (#168).
 void FillOnModel (const std::vector<evp::sunstudy::SolarCutTriangle>& triangles, uint32_t rgba,
-                  GhPreviewDrawables& drawables)
+                  GhPreviewDrawables& drawables, double lift = 0.0)
 {
     for (const auto& triangle : triangles) {
         const V3 a = Corner (triangle, 0), b = Corner (triangle, 1), c = Corner (triangle, 2);
         V3 normal = Cross (Sub (b, a), Sub (c, a));
-        if (Normalize (normal))
-            Triangle (a, b, c, normal, rgba, drawables.depthTested);
+        if (Normalize (normal)) {
+            const V3 up = Scale (normal, lift);
+            Triangle (Add (a, up), Add (b, up), Add (c, up), normal, rgba, drawables.depthTested);
+        }
     }
 }
 void EdgesOnModel (const std::vector<std::array<double, 6>>& edges, GhPreviewDrawables& drawables,
@@ -543,6 +547,37 @@ void EdgesOnModel (const std::vector<std::array<double, 6>>& edges, GhPreviewDra
     for (const auto& edge : edges)
         Segment ({ edge[0], edge[1], edge[2] }, { edge[3], edge[4], edge[5] }, rgba, drawables.depthTested);
 }
+// The lit surface's edges lifted with its fill: each edge end takes the
+// normal of a fill triangle at that corner (the outline and the fill are the
+// same paths), so the edge stays on the lifted sheet, not under it.
+void LiftedEdgesOnModel (const std::vector<std::array<double, 6>>& edges,
+                         const std::vector<evp::sunstudy::SolarCutTriangle>& triangles, double lift,
+                         GhPreviewDrawables& drawables)
+{
+    using Key = std::tuple<long long, long long, long long>;
+    const auto key = [] (const V3& p) {
+        return Key { std::llround (p[0] * 1.0e4), std::llround (p[1] * 1.0e4), std::llround (p[2] * 1.0e4) };
+    };
+    std::map<Key, V3> normals;
+    for (const auto& triangle : triangles) {
+        const V3 a = Corner (triangle, 0), b = Corner (triangle, 1), c = Corner (triangle, 2);
+        V3 normal = Cross (Sub (b, a), Sub (c, a));
+        if (Normalize (normal))
+            for (const V3& p : { a, b, c })
+                normals.emplace (key (p), normal);
+    }
+    const auto lifted = [&] (const V3& p, const V3& fallback) {
+        const auto found = normals.find (key (p));
+        return Add (p, Scale (found != normals.end () ? found->second : fallback, lift));
+    };
+    for (const auto& edge : edges) {
+        const V3 a { edge[0], edge[1], edge[2] }, b { edge[3], edge[4], edge[5] };
+        const auto fa = normals.find (key (a)), fb = normals.find (key (b));
+        const V3 fallback = fa != normals.end () ? fa->second : fb != normals.end () ? fb->second : V3 { 0, 0, 1 };
+        Segment (lifted (a, fallback), lifted (b, fallback), kSolarCutWonEdgeRgba, drawables.depthTested);
+    }
+}
+constexpr double kLitSurfaceLift = 0.02; // over the re-counted cells
 } // namespace
 
 void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, GhPreviewDrawables& drawables)
@@ -560,19 +595,22 @@ void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, Gh
     const int most = exposure.MostLevel ();
     if (most > 0)
         for (const auto& band : exposure.bands)
-            FillOnModel (band.triangles, SolarCutGainRgba (band.level, most), drawables);
+            FillOnModel (band.triangles, SolarCutGainRgba (band.level, most), drawables, kLitSurfaceLift);
     else
-        FillOnModel (exposure.triangles, kSolarCutWonRgba, drawables);
-    EdgesOnModel (exposure.boundary, drawables);
+        FillOnModel (exposure.triangles, kSolarCutWonRgba, drawables, kLitSurfaceLift);
+    LiftedEdgesOnModel (exposure.boundary, exposure.triangles, kLitSurfaceLift, drawables);
 }
 
 void AppendSolarCutCells (const evp::sunstudy::SolarCutCellsResult& cells,
-                          const std::function<uint32_t (float hours)>& colour, GhPreviewDrawables& drawables)
+                          const std::function<uint32_t (float hours)>& colour, GhPreviewDrawables& drawables, bool fill,
+                          bool outline)
 {
     // Opaque enough to replace the tint under it, as the tint covers the model.
-    for (const auto& group : cells.groups)
-        FillOnModel (group.triangles, (colour (group.after) & 0xFFFFFF00u) | 0xE6u, drawables);
-    EdgesOnModel (cells.outline, drawables, kSolarCutCellsEdgeRgba);
+    if (fill)
+        for (const auto& group : cells.groups)
+            FillOnModel (group.triangles, (colour (group.after) & 0xFFFFFF00u) | 0xE6u, drawables);
+    if (outline)
+        EdgesOnModel (cells.outline, drawables, kSolarCutCellsEdgeRgba);
 }
 
 void AppendSolarExposureStep (const evp::sunstudy::SolarExposureResult& exposure, int minute,
@@ -580,8 +618,8 @@ void AppendSolarExposureStep (const evp::sunstudy::SolarExposureResult& exposure
 {
     for (const auto& step : exposure.steps)
         if (step.minute == minute) {
-            FillOnModel (step.triangles, kSolarCutWonRgba, drawables);
-            EdgesOnModel (step.boundary, drawables);
+            FillOnModel (step.triangles, kSolarCutWonRgba, drawables, kLitSurfaceLift);
+            LiftedEdgesOnModel (step.boundary, step.triangles, kLitSurfaceLift, drawables);
         }
 }
 

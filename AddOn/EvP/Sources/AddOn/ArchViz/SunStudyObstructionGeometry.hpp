@@ -89,10 +89,11 @@ uint32_t SolarCutGainRgba (int level, int most);
 // the union's perimeter.
 void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, GhPreviewDrawables& drawables);
 // The study cells the cut changes, each filled in `colour` of its after-cut
-// hours (the hours map's own colours, from the view), with one pink outline
+// hours (the hours map's own colours, from the view), and/or one pink outline
 // around each surface's merged cells.
 void AppendSolarCutCells (const evp::sunstudy::SolarCutCellsResult& cells,
-                          const std::function<uint32_t (float hours)>& colour, GhPreviewDrawables& drawables);
+                          const std::function<uint32_t (float hours)>& colour, GhPreviewDrawables& drawables,
+                          bool fill = true, bool outline = true);
 // Only what the cut lights at the step measured at `minute`, flat yellow with
 // that step's perimeter; nothing when the slice has no such step won.
 void AppendSolarExposureStep (const evp::sunstudy::SolarExposureResult& exposure, int minute,

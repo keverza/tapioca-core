@@ -244,13 +244,14 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
                           frame->cutStage == SunSolarCutStage::Done && frame->exposure.error.empty () &&
                           !frame->exposure.steps.empty ();
     // Sun hours under the cut: the study cells the cut changes, in the hours
-    // they would read after it (the map's own colours), outlined pink (#168).
-    const bool cellsShown = !stepOnly && state.sunCutShowsHours && state.sunCutShowsCells &&
-                            frame->mode == SunObstructionMode::SolarCut && frame->cutStage == SunSolarCutStage::Done &&
-                            !frame->cutCells.groups.empty ();
-    if (cellsShown) {
+    // they would read after it (the map's own colours), their pink outline,
+    // and the lit surface -- each its own toggle, composed here (#168).
+    const bool layered = !stepOnly && state.sunCutShowsHours && frame->mode == SunObstructionMode::SolarCut &&
+                         frame->cutStage == SunSolarCutStage::Done;
+    if (layered) {
         const SunStudyViewSettings view = SunStudyViewOf (state);
         const bool gain = state.sunCutShowsGain && frame->exposure.error.empty ();
+        const bool fill = state.sunCutShowsCells, outline = state.sunCutShowsOutline;
         uint64_t key = 1469598103934665603ull;
         Mix (key, &stageKey, sizeof (stageKey));
         Mix (key, view.ramp, sizeof (view.ramp[0]) * size_t ((std::max) (0, view.rampCount)));
@@ -259,6 +260,8 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
         Mix (key, &view.blueThreshold, sizeof (view.blueThreshold));
         Mix (key, &view.lowSunRgba, sizeof (view.lowSunRgba));
         Mix (key, &gain, sizeof (gain));
+        Mix (key, &fill, sizeof (fill));
+        Mix (key, &outline, sizeof (outline));
         key = (key << 1) | 1u; // odd: never a whole-slice (stageKey * 2048) or step key
         static uint64_t cellsKey = 0;
         static GhPreviewDrawables cellsComposed;
@@ -274,7 +277,7 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
                 [&] (float hours) {
                     return SunStudyHoursRgba (stops, hours, bands, edges, view.blueThreshold, view.lowSunRgba);
                 },
-                cellsComposed);
+                cellsComposed, fill, outline);
             cellsKey = key;
         }
         scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, &cellsComposed, key,
