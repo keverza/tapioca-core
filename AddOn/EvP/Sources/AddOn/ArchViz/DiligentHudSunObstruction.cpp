@@ -39,10 +39,65 @@ ImU32 Opaque (uint32_t rgba)
 
 namespace {
 
+// The lit surface's key (#168): the hours-gained ramp as it is on the model,
+// the toggle to the day diagram's clock step, and the hovered place's gain.
+void DrawSolarCutGain (HudState& state, const SunObstructionFrame& frame)
+{
+    const int most = frame.exposure.MostSteps ();
+    const int step = (std::max) (1, frame.timestepMinutes);
+    if (!state.sunCutStepOnly && most > 0) {
+        const std::vector<int> least (1, 0), longest (size_t (most), 0);
+        const std::string from = SunStudyCutGain (least, step), to = SunStudyCutGain (longest, step);
+        const float width = ImGui::GetContentRegionAvail ().x;
+        const float toWidth = ImGui::CalcTextSize (to.c_str ()).x + ImGui::GetStyle ().ItemSpacing.x;
+        const float fromWidth = ImGui::CalcTextSize (from.c_str ()).x + ImGui::GetStyle ().ItemSpacing.x;
+        const float bar = (std::max) (24.0f, width - toWidth - fromWidth);
+        ImGui::TextUnformatted (from.c_str ());
+        ImGui::SameLine ();
+        const ImVec2 at = ImGui::GetCursorScreenPos ();
+        const float height = ImGui::GetTextLineHeight ();
+        ImDrawList* draw = ImGui::GetWindowDrawList ();
+        for (int k = 1; k <= most; ++k) {
+            const float x0 = at.x + bar * float (k - 1) / float (most), x1 = at.x + bar * float (k) / float (most);
+            draw->AddRectFilled (ImVec2 (x0, at.y + 0.2f * height), ImVec2 (x1 + 0.5f, at.y + 0.8f * height),
+                                 Opaque (SolarCutGainRgba (k, most)));
+        }
+        ImGui::Dummy (ImVec2 (bar, height));
+        ImGui::SetItemTooltip ("Sun the cut gains at each place over the slice: one measured step (%d min) is the "
+                               "palest, the most any place gains is the deepest.",
+                               step);
+        ImGui::SameLine ();
+        ImGui::TextUnformatted (to.c_str ());
+    }
+    ImGui::Checkbox ("Current step only##suncutstep", &state.sunCutStepOnly);
+    ImGui::SetItemTooltip ("Show only the surface the cut lights at the day diagram's clock step, and follow the "
+                           "clock as it is moved or played. Off: the whole slice, shaded by hours gained.");
+    if (state.sunCutStepOnly) {
+        const bool clocked = state.sunStep >= 0 && size_t (state.sunStep) < state.sunStepMinutes.size ();
+        const int minute = clocked ? int (state.sunStepMinutes[size_t (state.sunStep)]) : -1;
+        const bool wins =
+            std::any_of (frame.exposure.steps.begin (), frame.exposure.steps.end (),
+                         [minute] (const evp::sunstudy::SolarExposureStep& s) { return s.minute == minute; });
+        if (!clocked)
+            SunStudyNote ("Pick a step on the day diagram");
+        else if (minute < frame.fromMinute || minute >= frame.toMinute)
+            SunStudyNote ((MinuteText (minute) + ": outside the cut slice").c_str ());
+        else
+            SunStudyNote (
+                (MinuteText (minute) + (wins ? ": lit by the cut" : ": the cut lights nothing new")).c_str ());
+    }
+    const std::string gain = SunStudyCutGain (state.sunCutReadingMinutes, state.sunCutReadingStepMinutes);
+    if (gain.empty ())
+        ImGui::TextDisabled ("Hover the lit surface for what it gains");
+    else
+        ImGui::Text ("%s here, %s", gain.c_str (),
+                     SunStudyCutGainRuns (state.sunCutReadingMinutes, state.sunCutReadingStepMinutes).c_str ());
+}
+
 // The solar cut in numbers: the hours it buys at the point (re-traced after
 // the cut), the volume that goes, each element's share, and the cells whose
 // shadow it removes.
-void DrawSolarCutSummary (const HudState& state, const SunObstructionFrame& frame)
+void DrawSolarCutSummary (HudState& state, const SunObstructionFrame& frame)
 {
     char line[200];
     const bool retraced = frame.cutStage == SunSolarCutStage::Done;
@@ -85,11 +140,14 @@ void DrawSolarCutSummary (const HudState& state, const SunObstructionFrame& fram
         "The rays from the point to the slice's suns are merged into one cutting surface (pink sheet); "
         "everything of the blockers above it goes, extruded up (a see-through pink cut-out, the cut faces darker). The "
         "existing elements keep their outline and edges. Yellow area: projected removed shadows minus all "
-        "remaining shadows, clipped to surviving measured surfaces and united over the measured suns. "
+        "remaining shadows, clipped to surviving measured surfaces and united over the measured suns, shaded by "
+        "how many of them it gains (pale: one step, deep amber: the most). "
         "It is independent of cell spacing; real openings and remaining shadows stay unlit. "
         "Time precision is still the study timestep, not continuous sun motion.");
     if (!frame.exposure.error.empty ())
         SunStudyNote ("Won-lit surface unavailable", frame.exposure.error.c_str ());
+    else if (retraced && !frame.exposure.steps.empty ())
+        DrawSolarCutGain (state, frame);
     constexpr size_t kRows = 8;
     if (ImGui::BeginTable ("##suncutobjects", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn ("Element", ImGuiTableColumnFlags_WidthStretch, 1.0f);

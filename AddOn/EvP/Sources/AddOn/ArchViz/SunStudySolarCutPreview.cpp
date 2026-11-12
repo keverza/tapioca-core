@@ -512,6 +512,39 @@ void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const doub
     OutlineEdges (solid, kSolarCutEdgeRgba, drawables.xray, true, capFaces, cut.envelopeHiddenEdges);
 }
 
+uint32_t SolarCutGainRgba (int steps, int most)
+{
+    // Pale yellow -> deep amber. Both ends stay warm and apart from the map's
+    // hour ramp; lightness carries the order, so it reads without hue.
+    constexpr double kLeast[3] = { 255.0, 236.0, 150.0 }, kMost[3] = { 224.0, 112.0, 20.0 };
+    const double t = most > 1 ? std::clamp (double (steps - 1) / double (most - 1), 0.0, 1.0) : 0.0;
+    uint32_t rgba = kSolarCutWonRgba & 0xFFu;
+    for (int channel = 0; channel < 3; ++channel) {
+        const double value = kLeast[channel] + t * (kMost[channel] - kLeast[channel]);
+        rgba |= uint32_t (std::lround (value)) << (24 - 8 * channel);
+    }
+    return rgba;
+}
+
+namespace {
+void FillOnModel (const std::vector<evp::sunstudy::SolarCutTriangle>& triangles, uint32_t rgba,
+                  GhPreviewDrawables& drawables)
+{
+    for (const auto& triangle : triangles) {
+        const V3 a = Corner (triangle, 0), b = Corner (triangle, 1), c = Corner (triangle, 2);
+        V3 normal = Cross (Sub (b, a), Sub (c, a));
+        if (Normalize (normal))
+            Triangle (a, b, c, normal, rgba, drawables.depthTested);
+    }
+}
+void EdgesOnModel (const std::vector<std::array<double, 6>>& edges, GhPreviewDrawables& drawables)
+{
+    for (const auto& edge : edges)
+        Segment ({ edge[0], edge[1], edge[2] }, { edge[3], edge[4], edge[5] }, kSolarCutWonEdgeRgba,
+                 drawables.depthTested);
+}
+} // namespace
+
 void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, GhPreviewDrawables& drawables)
 {
     // ON THE MODEL, NOT AN X-RAY (#168). Newly lit receivers are surfaces of the
@@ -520,15 +553,27 @@ void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, Gh
     // model hides it. As an x-ray, a won patch on a wall behind the building
     // drew its yellow outline over unrelated faces in front of it. The cut's
     // own x-ray layer still draws over this one.
-    for (const auto& triangle : exposure.triangles) {
-        const V3 a = Corner (triangle, 0), b = Corner (triangle, 1), c = Corner (triangle, 2);
-        V3 normal = Cross (Sub (b, a), Sub (c, a));
-        if (Normalize (normal))
-            Triangle (a, b, c, normal, kSolarCutWonRgba, drawables.depthTested);
-    }
-    for (const auto& edge : exposure.boundary)
-        Segment ({ edge[0], edge[1], edge[2] }, { edge[3], edge[4], edge[5] }, kSolarCutWonEdgeRgba,
-                 drawables.depthTested);
+    //
+    // SHADED BY HOURS GAINED (#168): the bands partition the union, so each
+    // place is filled once, in the colour of how many steps it gains. Where
+    // the cut buys three hours no longer looks like where it buys a quarter.
+    const int most = exposure.MostSteps ();
+    if (most > 0)
+        for (const auto& band : exposure.bands)
+            FillOnModel (band.triangles, SolarCutGainRgba (band.steps, most), drawables);
+    else
+        FillOnModel (exposure.triangles, kSolarCutWonRgba, drawables);
+    EdgesOnModel (exposure.boundary, drawables);
+}
+
+void AppendSolarExposureStep (const evp::sunstudy::SolarExposureResult& exposure, int minute,
+                              GhPreviewDrawables& drawables)
+{
+    for (const auto& step : exposure.steps)
+        if (step.minute == minute) {
+            FillOnModel (step.triangles, kSolarCutWonRgba, drawables);
+            EdgesOnModel (step.boundary, drawables);
+        }
 }
 
 void AppendSolarCutWonCells (const std::vector<SolarCutWonCell>& cells, double size, GhPreviewDrawables& drawables,

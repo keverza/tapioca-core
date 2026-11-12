@@ -86,6 +86,10 @@ struct SunObstructionFrame {
     size_t sectors = 0, wonCells = 0;
     SunSolarCutStage cutStage = SunSolarCutStage::Done;
     evp::sunstudy::SolarExposureResult exposure;
+    // SolarCut with an exposure: the cut's own layers without it, so the view
+    // can show one step's lit surface (the day diagram's clock) on the same cut
+    // without tracing again. `drawables` stays the whole slice, hours-shaded.
+    GhPreviewDrawables cutDrawables;
     std::string error;
 };
 

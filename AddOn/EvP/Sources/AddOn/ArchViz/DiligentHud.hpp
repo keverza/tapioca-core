@@ -333,6 +333,13 @@ struct HudState {
     // shadow, for the shadow views' hover (#116). Empty when not measured.
     std::vector<uint8_t> sunReadingLit;
     int sunCutReadingMinute = -1; // exact won-surface hover, independent of the model's GPU pick
+    // Every step the cut wins at the hovered place, ascending, and the study's
+    // timestep, for "+1:15h here, 10:30-11:45" in the panel and the tooltip.
+    std::vector<int> sunCutReadingMinutes;
+    int sunCutReadingStepMinutes = 0;
+    // Solar cut: show only the surface lit at the day diagram's clock step,
+    // not the whole slice shaded by hours gained.
+    bool sunCutStepOnly = false;
     // The VIEW the HUD shows over the commanded one: an index into the
     // section's view list, 0 = "as shown" (follow the command). Reset to 0
     // when the COMMANDED mode changes -- the command wins only when it changes.

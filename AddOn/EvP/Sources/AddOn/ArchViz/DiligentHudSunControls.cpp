@@ -40,6 +40,48 @@ std::string SunStudyCutSliceTooltip (double fromMinute, double toMinute)
     return text;
 }
 
+std::string SunStudyCutGain (const std::vector<int>& minutes, int timestepMinutes)
+{
+    if (minutes.empty () || timestepMinutes <= 0)
+        return {};
+    const int gained = int (minutes.size ()) * timestepMinutes;
+    char text[48];
+    if (gained < 60)
+        std::snprintf (text, sizeof (text), "+%d min", gained);
+    else if (gained % 60 == 0)
+        std::snprintf (text, sizeof (text), "+%d h", gained / 60);
+    else
+        std::snprintf (text, sizeof (text), "+%d h %d min", gained / 60, gained % 60);
+    return text;
+}
+
+std::string SunStudyCutGainRuns (const std::vector<int>& minutes, int timestepMinutes)
+{
+    if (minutes.empty () || timestepMinutes <= 0)
+        return {};
+    constexpr size_t kShownRuns = 3;
+    std::string runs;
+    size_t count = 0;
+    const auto clock = [] (int minute) {
+        minute = std::clamp (minute, 0, 1440);
+        char text[8];
+        std::snprintf (text, sizeof (text), "%02d:%02d", minute / 60, minute % 60);
+        return std::string (text);
+    };
+    for (size_t i = 0; i < minutes.size ();) {
+        size_t j = i;
+        while (j + 1 < minutes.size () && minutes[j + 1] == minutes[j] + timestepMinutes)
+            ++j;
+        if (count < kShownRuns)
+            runs += (runs.empty () ? "" : ", ") + clock (minutes[i]) + "-" + clock (minutes[j] + timestepMinutes);
+        ++count;
+        i = j + 1;
+    }
+    if (count > kShownRuns)
+        runs += " +" + std::to_string (count - kShownRuns) + " more";
+    return runs;
+}
+
 std::string SunStudyCutSurfaceTooltip (int minute)
 {
     if (minute < 0 || minute >= 1440)

@@ -315,8 +315,10 @@ SolarCutFrame (const PendingRequest& job, const std::atomic<bool>& cancelled,
     if (receivers.empty ())
         frame->exposure.error = "Won-lit surfaces need retained triangle/patch receiver geometry";
     else if (evp::sunstudy::ComputeSolarExposure (snapshot, cut, input.blocks, receivers, input.steps, frame->exposure,
-                                                  [&] { return cancelled.load (); }))
+                                                  [&] { return cancelled.load (); })) {
+        frame->cutDrawables = frame->drawables;
         AppendSolarExposure (frame->exposure, frame->drawables);
+    }
     if (cancelled.load ())
         return nullptr;
     return frame;

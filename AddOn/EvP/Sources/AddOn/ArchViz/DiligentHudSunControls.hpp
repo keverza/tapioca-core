@@ -8,6 +8,7 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace evp::sunstudy {
 struct PointDay;
@@ -20,6 +21,11 @@ struct PeriodProfile;
 namespace geomsrv::archviz {
 std::string SunStudyCutSliceTooltip (double fromMinute, double toMinute);
 std::string SunStudyCutSurfaceTooltip (int minute);
+// What the cut gains at a hovered place from the steps won there (ascending
+// minutes) and the timestep: "+1 h 15 min", and the clock runs
+// "10:30-11:45, 14:00-14:15" with consecutive steps merged. Empty when none.
+std::string SunStudyCutGain (const std::vector<int>& minutes, int timestepMinutes);
+std::string SunStudyCutGainRuns (const std::vector<int>& minutes, int timestepMinutes);
 struct HudState;
 
 // The day diagram is a SEMICIRCLE from the first to the last measured sun

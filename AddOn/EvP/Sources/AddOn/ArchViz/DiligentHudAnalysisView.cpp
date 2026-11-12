@@ -236,9 +236,30 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
                                       modelIsDrawn);
         return;
     }
-    scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, &frame->drawables,
-                                  frame->generation * 4 +
-                                      uint64_t (frame->cutStage), // each stage of a staged cut re-uploads
+    // Each stage of a staged cut re-uploads; so does each clock step shown.
+    const uint64_t stageKey = frame->generation * 4 + uint64_t (frame->cutStage);
+    const bool stepOnly = state.sunCutStepOnly && frame->mode == SunObstructionMode::SolarCut &&
+                          frame->cutStage == SunSolarCutStage::Done && frame->exposure.error.empty () &&
+                          !frame->exposure.steps.empty ();
+    if (!stepOnly) {
+        scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, &frame->drawables,
+                                      stageKey * 2048, modelIsDrawn);
+        return;
+    }
+    // Only the day diagram's clock step (#168): the cut's own layers and that
+    // step's lit surface, composed once per step rather than per frame.
+    const int minute = state.sunStep >= 0 && size_t (state.sunStep) < state.sunStepMinutes.size ()
+                           ? int (state.sunStepMinutes[size_t (state.sunStep)])
+                           : -1;
+    const uint64_t key = stageKey * 2048 + uint64_t (minute + 2); // 1..1441, never the whole-slice key
+    static uint64_t composedKey = 0;
+    static GhPreviewDrawables composed;
+    if (composedKey != key) {
+        composed = frame->cutDrawables;
+        AppendSolarExposureStep (frame->exposure, minute, composed);
+        composedKey = key;
+    }
+    scene.DrawObstructionOverlay (context, viewProj, width, height, colorFormat, depthFormat, &composed, key,
                                   modelIsDrawn);
 }
 

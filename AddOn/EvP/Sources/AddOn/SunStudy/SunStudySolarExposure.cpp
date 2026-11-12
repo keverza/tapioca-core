@@ -206,6 +206,69 @@ bool Fill (const cp::PathsD& paths, const Surface& surface, std::vector<SolarCut
     return true;
 }
 
+void Outline (const cp::PathsD& paths, const Surface& surface, std::vector<std::array<double, 6>>& out)
+{
+    for (const auto& path : paths)
+        for (size_t i = 0; i < path.size (); ++i) {
+            const V a = surface.frame.Lift (path[i]), b = surface.frame.Lift (path[(i + 1) % path.size ()]);
+            out.push_back ({ a.x, a.y, a.z, b.x, b.y, b.z });
+        }
+}
+
+// The union split by how many steps won each part. Every step's region is a
+// Boolean result, so its outers share one orientation and its holes the other:
+// laid together, the winding number at a point is the count of steps that won
+// it. k reversed copies of a box around everything lower that count by k, so
+// the region the Positive (or Negative) rule keeps is "won on more than k".
+bool Bands (const std::vector<cp::PathsD>& won, const cp::PathsD& united, const Surface& surface,
+            std::vector<SolarExposureBand>& out, const std::function<bool ()>& charge, std::string& error)
+{
+    cp::PathsD all;
+    double orientation = 0.0;
+    for (const auto& step : won) {
+        all.insert (all.end (), step.begin (), step.end ());
+        if (orientation == 0.0)
+            for (const auto& path : step)
+                orientation += cp::Area (path);
+    }
+    if (all.empty ())
+        return true;
+    const bool positive = orientation > 0.0;
+    auto bounds = cp::GetBounds (all);
+    bounds.left -= 1.0, bounds.top -= 1.0, bounds.right += 1.0, bounds.bottom += 1.0;
+    cp::PathD box { { bounds.left, bounds.top },
+                    { bounds.right, bounds.top },
+                    { bounds.right, bounds.bottom },
+                    { bounds.left, bounds.bottom } };
+    if ((cp::Area (box) > 0.0) == positive)
+        std::reverse (box.begin (), box.end ());
+    cp::PathsD atLeast = united; // won on at least k steps
+    for (int k = 1; !atLeast.empty (); ++k) {
+        if (!charge ())
+            return false;
+        cp::PathsD more; // won on more than k
+        if (size_t (k) < won.size ()) {
+            all.push_back (box);
+            if (!sc::Boolean (cp::ClipType::Union, all, {}, more, error,
+                              positive ? cp::FillRule::Positive : cp::FillRule::Negative))
+                return false;
+        }
+        cp::PathsD band;
+        if (more.empty ())
+            band = std::move (atLeast);
+        else if (!sc::Boolean (cp::ClipType::Difference, atLeast, more, band, error))
+            return false;
+        SolarExposureBand shaded;
+        shaded.steps = k;
+        if (!Fill (band, surface, shaded.triangles, error))
+            return false;
+        if (!shaded.triangles.empty ())
+            out.push_back (std::move (shaded));
+        atLeast = std::move (more);
+    }
+    return true;
+}
+
 } // namespace
 
 bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResult& cut,
@@ -321,6 +384,7 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
                 continue;
             const auto bounds = cp::GetBounds (domain);
             cp::PathsD allWon;
+            std::vector<cp::PathsD> stepWon;
             for (const auto& step : steps) {
                 if (!charge ())
                     return false;
@@ -375,18 +439,18 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
                 timed.minute = step.time.hour * 60 + step.time.minute;
                 if (!Fill (won, surface, timed.triangles, prepared.error))
                     return false;
+                Outline (won, surface, timed.boundary);
                 prepared.steps.push_back (std::move (timed));
                 allWon.insert (allWon.end (), won.begin (), won.end ());
+                stepWon.push_back (std::move (won));
             }
             cp::PathsD united;
             if (!sc::Boolean (cp::ClipType::Union, allWon, {}, united, prepared.error) ||
                 !Fill (united, surface, prepared.triangles, prepared.error))
                 return false;
-            for (const auto& path : united)
-                for (size_t i = 0; i < path.size (); ++i) {
-                    const V a = surface.frame.Lift (path[i]), b = surface.frame.Lift (path[(i + 1) % path.size ()]);
-                    prepared.boundary.push_back ({ a.x, a.y, a.z, b.x, b.y, b.z });
-                }
+            Outline (united, surface, prepared.boundary);
+            if (!Bands (stepWon, united, surface, prepared.bands, charge, prepared.error))
+                return false;
         }
         return charge ();
     };
@@ -398,12 +462,17 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
     return true;
 }
 
-int ReadSolarExposure (const SolarExposureResult& result, const double origin[3], const double direction[3])
+std::vector<int> ReadSolarExposureSteps (const SolarExposureResult& result, const double origin[3],
+                                         const double direction[3])
 {
+    // Steps' regions on one surface lie in one plane, so they meet the ray at
+    // the same distance up to rounding; a step won on a surface farther along
+    // the ray is a different place and is not counted here.
+    constexpr double kSameSurface = 1.0e-5;
     const V o { origin[0], origin[1], origin[2] }, d { direction[0], direction[1], direction[2] };
-    double nearest = INFINITY;
-    int minute = -1;
-    for (const auto& step : result.steps)
+    std::vector<std::pair<double, int>> hits; // nearest distance per step, its minute
+    for (const auto& step : result.steps) {
+        double nearest = INFINITY;
         for (const auto& triangle : step.triangles) {
             const V a = Corner (triangle, 0), e1 = Sub (Corner (triangle, 1), a), e2 = Sub (Corner (triangle, 2), a);
             const V h = geomsrv::engine::Cross (d, e2);
@@ -414,12 +483,29 @@ int ReadSolarExposure (const SolarExposureResult& result, const double origin[3]
             const double u = Dot (s, h) / det, v = Dot (d, q) / det, t = Dot (e2, q) / det;
             if (u < -1.0e-8 || v < -1.0e-8 || u + v > 1.0 + 1.0e-8 || t < 0.0)
                 continue;
-            if (t < nearest - 1.0e-7 || (std::abs (t - nearest) <= 1.0e-7 && (minute < 0 || step.minute < minute))) {
-                nearest = t;
-                minute = step.minute;
-            }
+            nearest = (std::min) (nearest, t);
         }
-    return minute;
+        if (std::isfinite (nearest))
+            hits.emplace_back (nearest, step.minute);
+    }
+    std::vector<int> minutes;
+    if (hits.empty ())
+        return minutes;
+    double nearest = INFINITY;
+    for (const auto& hit : hits)
+        nearest = (std::min) (nearest, hit.first);
+    for (const auto& hit : hits)
+        if (hit.first <= nearest + kSameSurface)
+            minutes.push_back (hit.second);
+    std::sort (minutes.begin (), minutes.end ());
+    minutes.erase (std::unique (minutes.begin (), minutes.end ()), minutes.end ());
+    return minutes;
+}
+
+int ReadSolarExposure (const SolarExposureResult& result, const double origin[3], const double direction[3])
+{
+    const auto minutes = ReadSolarExposureSteps (result, origin, direction);
+    return minutes.empty () ? -1 : minutes.front ();
 }
 
 } // namespace evp::sunstudy

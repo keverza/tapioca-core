@@ -233,6 +233,35 @@ TEST (SunStudySolarCutPreview, WonExposureLiesOnTheModelWhileTheCutStaysAnXray)
     EXPECT_LT (kSolarCutCapRgba >> 24, kSolarCutRemovedRgba >> 24);
 }
 
+TEST (SunStudySolarCutPreview, WonExposureIsShadedByHoursGainedAndCanShowOneStep)
+{
+    // #168: pale yellow for one step, deep amber for the most, same alpha.
+    EXPECT_EQ (SolarCutGainRgba (1, 4), 0xFFEC96B0u);
+    EXPECT_EQ (SolarCutGainRgba (4, 4), 0xE07014B0u);
+    EXPECT_EQ (SolarCutGainRgba (1, 1), SolarCutGainRgba (1, 4));
+    EXPECT_GT (SolarCutGainRgba (2, 4) >> 8 & 255u, SolarCutGainRgba (3, 4) >> 8 & 255u);
+
+    evp::sunstudy::SolarExposureResult exposure;
+    exposure.triangles = { Tri (0, 0, 2, 0, 0, 2) };
+    exposure.boundary = { { 0, 0, 0, 2, 0, 0 } };
+    exposure.bands = { { 1, { Tri (0, 0, 1, 0, 0, 1) } }, { 3, { Tri (1, 0, 2, 0, 1, 1) } } };
+    exposure.steps = { { 750, { Tri (0, 0, 1, 0, 0, 1) }, { { 0, 0, 0, 1, 0, 0 }, { 1, 0, 0, 0, 1, 0 } } },
+                       { 780, { Tri (1, 0, 2, 0, 1, 1) }, {} } };
+    GhPreviewDrawables shaded;
+    AppendSolarExposure (exposure, shaded);
+    ASSERT_EQ (shaded.depthTested.meshVertices.size (), 6u); // the bands, not the union again
+    EXPECT_EQ (shaded.depthTested.meshVertices.front ().rgba, SolarCutGainRgba (1, 3));
+    EXPECT_EQ (shaded.depthTested.meshVertices.back ().rgba, SolarCutGainRgba (3, 3));
+
+    GhPreviewDrawables one, none;
+    AppendSolarExposureStep (exposure, 750, one);
+    ASSERT_EQ (one.depthTested.meshVertices.size (), 3u);
+    EXPECT_EQ (one.depthTested.meshVertices.front ().rgba, kSolarCutWonRgba);
+    EXPECT_FALSE (one.depthTested.lineVertices.empty ()); // that step's own perimeter
+    AppendSolarExposureStep (exposure, 765, none);        // a clock step the cut wins nothing at
+    EXPECT_TRUE (none.depthTested.meshVertices.empty ());
+}
+
 TEST (SunStudySolarCutPreview, WhatRemainsOfACutElementIsNotGhosted)
 {
     // #168: the kept part of a cut element was drawn as a grey x-ray; across a

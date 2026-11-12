@@ -33,16 +33,11 @@
 #include <vector>
 
 namespace {
-template <class T, class = void>
-struct HasGridMember : std::false_type {
-};
-template <class T>
-struct HasGridMember<T, std::void_t<decltype(std::declval<T&> ().grid)>> : std::true_type {
-};
+template <class T, class = void> struct HasGridMember : std::false_type {};
+template <class T> struct HasGridMember<T, std::void_t<decltype (std::declval<T&> ().grid)>> : std::true_type {};
 // Regression: a year-wide 10-minute lattice cost tens of thousands of host
 // calls on a year change and had no production reader.
-static_assert (!HasGridMember<geomsrv::sunstudyhud::SunPath>::value,
-               "SunPath must not carry the removed year lattice");
+static_assert (!HasGridMember<geomsrv::sunstudyhud::SunPath>::value, "SunPath must not carry the removed year lattice");
 } // namespace
 
 // The run service is the add-on's; the section only asks it for a status.
@@ -176,6 +171,20 @@ TEST (SunStudyHud, SolarCutTooltipsNameDurationClockRangeAndActualWonTime)
     EXPECT_EQ (SunStudyCutSliceTooltip (1380, 1440), "Cut Slice 1 hour\nfrom 23:00 to 24:00");
     EXPECT_EQ (SunStudyCutSurfaceTooltip (750), "Shadowed at 12:30\nAfter Suncut Lit");
     EXPECT_TRUE (SunStudyCutSurfaceTooltip (-1).empty ());
+}
+
+TEST (SunStudyHud, SolarCutHoverGainCountsStepsAndMergesClockRuns)
+{
+    const std::vector<int> run { 630, 645, 660, 675, 690 };
+    EXPECT_EQ (SunStudyCutGain (run, 15), "+1 h 15 min");
+    EXPECT_EQ (SunStudyCutGainRuns (run, 15), "10:30-11:45");
+    EXPECT_EQ (SunStudyCutGain ({ 750 }, 15), "+15 min");
+    EXPECT_EQ (SunStudyCutGain ({ 720, 780 }, 60), "+2 h");
+    EXPECT_EQ (SunStudyCutGainRuns ({ 630, 645, 840 }, 15), "10:30-11:00, 14:00-14:15");
+    EXPECT_EQ (SunStudyCutGainRuns ({ 0, 60, 120, 180, 240 }, 30), "00:00-00:30, 01:00-01:30, 02:00-02:30 +2 more");
+    EXPECT_EQ (SunStudyCutGainRuns ({ 1425 }, 15), "23:45-24:00");
+    EXPECT_TRUE (SunStudyCutGain ({}, 15).empty ());
+    EXPECT_TRUE (SunStudyCutGainRuns ({ 750 }, 0).empty ());
 }
 
 namespace {

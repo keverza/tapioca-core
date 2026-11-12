@@ -19,6 +19,7 @@ void ServiceSolarCutReading (HudState& state, const DiligentScene& scene, const 
     if (state.sunInspect == 0 || state.analysisFocus.tab != analysistabs::kSunTab ||
         state.sunView != kSunObstructionView || state.sunObstructionMode != 3 || state.sunShowsPeriod) {
         state.sunCutReadingMinute = -1;
+        state.sunCutReadingMinutes.clear ();
         generation = 0;
         return;
     }
@@ -26,6 +27,7 @@ void ServiceSolarCutReading (HudState& state, const DiligentScene& scene, const 
     if (!SunObstructionFrameCurrent (frame, scene.ShownSunStudyId ()) || frame->mode != SunObstructionMode::SolarCut ||
         frame->cutStage != SunSolarCutStage::Done || !frame->error.empty () || !frame->exposure.error.empty ()) {
         state.sunCutReadingMinute = -1;
+        state.sunCutReadingMinutes.clear ();
         generation = 0;
         return;
     }
@@ -35,7 +37,9 @@ void ServiceSolarCutReading (HudState& state, const DiligentScene& scene, const 
     generation = frame->generation;
     std::copy_n (ray, 6, lastRay);
     const double o[3] = { origin[0], origin[1], origin[2] }, d[3] = { direction[0], direction[1], direction[2] };
-    state.sunCutReadingMinute = evp::sunstudy::ReadSolarExposure (frame->exposure, o, d);
+    state.sunCutReadingMinutes = evp::sunstudy::ReadSolarExposureSteps (frame->exposure, o, d);
+    state.sunCutReadingMinute = state.sunCutReadingMinutes.empty () ? -1 : state.sunCutReadingMinutes.front ();
+    state.sunCutReadingStepMinutes = frame->timestepMinutes;
 }
 } // namespace
 

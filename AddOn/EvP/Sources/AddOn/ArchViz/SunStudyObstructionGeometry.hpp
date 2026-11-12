@@ -76,7 +76,16 @@ constexpr uint32_t kSolarCutWonRgba = 0xFFE27AB0u;     // sun the cut wins: a wa
 constexpr uint32_t kSolarCutWonEdgeRgba = 0xD08A10FFu; // its perimeter
 void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const double point[3],
                             GhPreviewDrawables& drawables);
+// The fill of a part won on `steps` of at most `most` steps: pale yellow for
+// the least, deep amber for the most, at kSolarCutWonRgba's alpha. Shared with
+// the panel's legend so the swatches are the colours on the model.
+uint32_t SolarCutGainRgba (int steps, int most);
+// The union, shaded by hours gained (its bands), with the union's perimeter.
 void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, GhPreviewDrawables& drawables);
+// Only what the cut lights at the step measured at `minute`, flat yellow with
+// that step's perimeter; nothing when the slice has no such step won.
+void AppendSolarExposureStep (const evp::sunstudy::SolarExposureResult& exposure, int minute,
+                              GhPreviewDrawables& drawables);
 // Cell-layout preview helper, not the production solar-cut exposure path:
 // cells `size` apart, gaps of one cell closed and holes filled, perimeter only.
 struct SolarCutWonCell {

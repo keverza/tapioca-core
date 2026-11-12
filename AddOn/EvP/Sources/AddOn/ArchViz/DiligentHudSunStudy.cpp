@@ -592,8 +592,13 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
     if (state.sunInspect != 1 || !input.inside)
         return;
     if (state.sunView == kObstructionView && state.sunObstructionMode == 3 && state.sunCutReadingMinute >= 0) {
+        const std::string gain = SunStudyCutGain (state.sunCutReadingMinutes, state.sunCutReadingStepMinutes);
         hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
-                         SunStudyCutSurfaceTooltip (state.sunCutReadingMinute), kSolarCutWonRgba);
+                         gain.empty ()
+                             ? SunStudyCutSurfaceTooltip (state.sunCutReadingMinute)
+                             : gain + " of sun after the cut\n" +
+                                   SunStudyCutGainRuns (state.sunCutReadingMinutes, state.sunCutReadingStepMinutes),
+                         kSolarCutWonRgba);
         return;
     }
     if (state.sunReadingState != 1)

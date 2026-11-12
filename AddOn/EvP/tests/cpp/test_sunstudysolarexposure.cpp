@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 using namespace evp::sunstudy;
 
@@ -251,4 +252,48 @@ TEST (SunStudySolarExposure, LargeSceneStaysWithinTheDefaultBudget)
     SolarExposureResult out;
     ASSERT_TRUE (ComputeSolarExposure (f.scene, f.cut, blocks, receivers, f.suns, out)) << out.error;
     EXPECT_NEAR (Area (out.triangles), 20 * 0.1 * 0.1, 1.0e-6);
+}
+
+TEST (SunStudySolarExposure, BandsPartitionTheUnionByStepsGained)
+{
+    // Three suns slide the removed square's shadow 0, 0.5 and 1 m: the middle
+    // metre is won three times, the strips beside it twice, the ends once (#168).
+    Fixture f;
+    SunStep second = f.suns[0], third = f.suns[0];
+    second.time = { 13, 0 };
+    second.direction[0] = 0.25;
+    third.time = { 13, 30 };
+    third.direction[0] = 0.5;
+    f.suns.push_back (second);
+    f.suns.push_back (third);
+    SolarExposureResult out;
+    ASSERT_TRUE (f.Run (out)) << out.error;
+    EXPECT_NEAR (Area (out.triangles), 6.0, 1.0e-6);
+    ASSERT_EQ (out.MostSteps (), 3);
+    double byCount[4] = {};
+    for (const auto& band : out.bands) {
+        ASSERT_GE (band.steps, 1);
+        ASSERT_LE (band.steps, 3);
+        byCount[band.steps] += Area (band.triangles);
+    }
+    EXPECT_NEAR (byCount[1], 2.0, 1.0e-6);
+    EXPECT_NEAR (byCount[2], 2.0, 1.0e-6);
+    EXPECT_NEAR (byCount[3], 2.0, 1.0e-6);
+    for (const auto& step : out.steps)
+        EXPECT_EQ (step.boundary.size (), 4u) << step.minute; // each step keeps its own perimeter
+}
+
+TEST (SunStudySolarExposure, HoverReadsEveryStepWonAtThatPlace)
+{
+    Fixture f;
+    SunStep later = f.suns[0];
+    later.time = { 13, 0 };
+    later.direction[0] = 0.5;
+    f.suns.push_back (later);
+    SolarExposureResult out;
+    ASSERT_TRUE (f.Run (out)) << out.error;
+    const double down[3] = { 0, 0, -1 }, first[3] = { 2.5, 2, 10 }, both[3] = { 1.5, 2, 10 }, off[3] = { 3.5, 2, 10 };
+    EXPECT_EQ (ReadSolarExposureSteps (out, first, down), (std::vector<int> { 750 }));
+    EXPECT_EQ (ReadSolarExposureSteps (out, both, down), (std::vector<int> { 750, 780 }));
+    EXPECT_TRUE (ReadSolarExposureSteps (out, off, down).empty ());
 }
