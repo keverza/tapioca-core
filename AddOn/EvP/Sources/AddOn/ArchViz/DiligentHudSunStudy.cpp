@@ -88,6 +88,10 @@ int ChosenMode (const HudState& state)
 {
     if (FanOnScreen (state) && state.sunFanInterval == kFanAmPm)
         return 6;
+    // The solar cut over the day's sun hours (#168): what it gains is read
+    // against the whole study, not one step's shadow.
+    if (state.sunView == kObstructionView && state.sunObstructionMode == 3 && state.sunCutShowsHours)
+        return 0;
     if (state.sunView <= 0 || state.sunView >= kViewCount)
         return -1;
     return kViewModes[state.sunView];
@@ -592,12 +596,14 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
     if (state.sunInspect != 1 || !input.inside)
         return;
     if (state.sunView == kObstructionView && state.sunObstructionMode == 3 && state.sunCutReadingMinute >= 0) {
-        const std::string gain = SunStudyCutGain (state.sunCutReadingMinutes, state.sunCutReadingStepMinutes);
+        std::string gain = SunStudyCutGain (state.sunCutReadingRuns);
+        // Over the hours map, the whole day before and after: the total effect.
+        if (!gain.empty () && state.sunCutShowsHours && state.sunReadingState == 1)
+            gain = SunStudyCutBeforeAfter (state.sunReadingHours, state.sunCutReadingRuns);
         hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
                          gain.empty ()
                              ? SunStudyCutSurfaceTooltip (state.sunCutReadingMinute)
-                             : gain + " of sun after the cut\n" +
-                                   SunStudyCutGainRuns (state.sunCutReadingMinutes, state.sunCutReadingStepMinutes),
+                             : gain + " of sun after the cut\n" + SunStudyCutGainRuns (state.sunCutReadingRuns),
                          kSolarCutWonRgba);
         return;
     }
@@ -651,6 +657,23 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     }
     // Whether the shown study is the runner's finished period, by id.
     state.sunShowsPeriod = !state.sunPeriodStudyId.empty () && state.sunPeriodStudyId == study.studyId;
+    // Hover and the sun path first (#168): they apply to every view below,
+    // so they sit at the top of the shown study rather than after the views.
+    char first[96] = {}, second[96] = {};
+    ReadingLines (state, first, second, sizeof (first));
+    DrawSunStudyInspectControl (state.sunInspect, first, second);
+    ImGui::Checkbox ("Sun path##sunpath", &state.sunPathShown);
+    ImGui::SetItemTooltip ("Draws the sun's path over the model from Archicad's location and north: the winter "
+                           "(blue) and summer (orange) solstices, the equinox (grey), the run form's date (yellow), "
+                           "the hours across the year, and the sun at the shadow view's time. Fixed at the scene "
+                           "centre and floor, independently of the study point.");
+    ImGui::SameLine ();
+    ImGui::BeginDisabled (!state.sunPathShown);
+    ImGui::SetNextItemWidth (140.0f);
+    ImGui::SliderFloat ("scale##sunpath", &state.sunPathScale, 0.25f, 4.0f, "%.2fx");
+    ImGui::EndDisabled ();
+    ImGui::SetItemTooltip ("Scales only the sun-path preview and ground compass, not the analysis or measured hours.");
+    DrawSunStudySunPathStatus (state, study.studyId);
     ImGui::TextDisabled ("%s, %u element(s)", study.studyId.c_str (), unsigned (study.elementsAttached));
     if (state.sunShowsPeriod) {
         char line[160];
@@ -714,21 +737,6 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         state.sunView = 4;
     ImGui::PopStyleColor ();
 
-    char first[96] = {}, second[96] = {};
-    ReadingLines (state, first, second, sizeof (first));
-    DrawSunStudyInspectControl (state.sunInspect, first, second);
-    ImGui::Checkbox ("Sun path##sunpath", &state.sunPathShown);
-    ImGui::SetItemTooltip ("Draws the sun's path over the model from Archicad's location and north: the winter "
-                           "(blue) and summer (orange) solstices, the equinox (grey), the run form's date (yellow), "
-                           "the hours across the year, and the sun at the shadow view's time. Fixed at the scene "
-                           "centre and floor, independently of the study point.");
-    ImGui::SameLine ();
-    ImGui::BeginDisabled (!state.sunPathShown);
-    ImGui::SetNextItemWidth (140.0f);
-    ImGui::SliderFloat ("scale##sunpath", &state.sunPathScale, 0.25f, 4.0f, "%.2fx");
-    ImGui::EndDisabled ();
-    ImGui::SetItemTooltip ("Scales only the sun-path preview and ground compass, not the analysis or measured hours.");
-    DrawSunStudySunPathStatus (state, study.studyId);
     if (ChosenMode (state) == 4 || (ChosenMode (state) < 0 && study.debugMode == 4)) {
         Swatch ("##roleA", Rgb (0xf59e24), "analysis: measured");
         ImGui::SameLine ();
@@ -746,6 +754,11 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
             SunStudyNote ("Obstruction attribution is available for a single-day study.");
         else
             DrawSunStudyObstructionControls (state, study.studyId);
+        // The hours map under the cut keeps its own legend and range, folded.
+        if (!state.sunShowsPeriod && ChosenMode (state) == 0 && ImGui::CollapsingHeader ("Sun hours display")) {
+            DrawSunStudyRange ("##sun-hours", state.sunFilterLo, state.sunFilterHi, 0.0f, kSunHoursFilterOpenTop, true);
+            DrawSunStudyHoursDisplay (state);
+        }
         return;
     }
     if (shadows && state.sunShowsPeriod) {

@@ -512,12 +512,12 @@ void BuildSolarCutGeometry (const evp::sunstudy::SolarCutResult& cut, const doub
     OutlineEdges (solid, kSolarCutEdgeRgba, drawables.xray, true, capFaces, cut.envelopeHiddenEdges);
 }
 
-uint32_t SolarCutGainRgba (int steps, int most)
+uint32_t SolarCutGainRgba (int level, int most)
 {
     // Pale yellow -> deep amber. Both ends stay warm and apart from the map's
     // hour ramp; lightness carries the order, so it reads without hue.
     constexpr double kLeast[3] = { 255.0, 236.0, 150.0 }, kMost[3] = { 224.0, 112.0, 20.0 };
-    const double t = most > 1 ? std::clamp (double (steps - 1) / double (most - 1), 0.0, 1.0) : 0.0;
+    const double t = most > 1 ? std::clamp (double (level - 1) / double (most - 1), 0.0, 1.0) : 0.0;
     uint32_t rgba = kSolarCutWonRgba & 0xFFu;
     for (int channel = 0; channel < 3; ++channel) {
         const double value = kLeast[channel] + t * (kMost[channel] - kLeast[channel]);
@@ -557,10 +557,10 @@ void AppendSolarExposure (const evp::sunstudy::SolarExposureResult& exposure, Gh
     // SHADED BY HOURS GAINED (#168): the bands partition the union, so each
     // place is filled once, in the colour of how many steps it gains. Where
     // the cut buys three hours no longer looks like where it buys a quarter.
-    const int most = exposure.MostSteps ();
+    const int most = exposure.MostLevel ();
     if (most > 0)
         for (const auto& band : exposure.bands)
-            FillOnModel (band.triangles, SolarCutGainRgba (band.steps, most), drawables);
+            FillOnModel (band.triangles, SolarCutGainRgba (band.level, most), drawables);
     else
         FillOnModel (exposure.triangles, kSolarCutWonRgba, drawables);
     EdgesOnModel (exposure.boundary, drawables);

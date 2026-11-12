@@ -43,11 +43,10 @@ namespace {
 // the toggle to the day diagram's clock step, and the hovered place's gain.
 void DrawSolarCutGain (HudState& state, const SunObstructionFrame& frame)
 {
-    const int most = frame.exposure.MostSteps ();
-    const int step = (std::max) (1, frame.timestepMinutes);
-    if (!state.sunCutStepOnly && most > 0) {
-        const std::vector<int> least (1, 0), longest (size_t (most), 0);
-        const std::string from = SunStudyCutGain (least, step), to = SunStudyCutGain (longest, step);
+    const int most = frame.exposure.MostLevel ();
+    const double band = frame.exposure.bandMinutes;
+    if (!state.sunCutStepOnly && most > 0 && band > 0.0) {
+        const std::string from = SunStudyCutDuration (band), to = SunStudyCutDuration (band * most);
         const float width = ImGui::GetContentRegionAvail ().x;
         const float toWidth = ImGui::CalcTextSize (to.c_str ()).x + ImGui::GetStyle ().ItemSpacing.x;
         const float fromWidth = ImGui::CalcTextSize (from.c_str ()).x + ImGui::GetStyle ().ItemSpacing.x;
@@ -63,9 +62,10 @@ void DrawSolarCutGain (HudState& state, const SunObstructionFrame& frame)
                                  Opaque (SolarCutGainRgba (k, most)));
         }
         ImGui::Dummy (ImVec2 (bar, height));
-        ImGui::SetItemTooltip ("Sun the cut gains at each place over the slice: one measured step (%d min) is the "
-                               "palest, the most any place gains is the deepest.",
-                               step);
+        ImGui::SetItemTooltip ("Sun the cut gains at each place over the slice, swept between the measured steps: "
+                               "each shade is up to %s more, the palest the least, the deepest the most any place "
+                               "gains. Precision is a fraction of the study timestep, not continuous.",
+                               SunStudyCutDuration (band).c_str () + 1);
         ImGui::SameLine ();
         ImGui::TextUnformatted (to.c_str ());
     }
@@ -86,12 +86,13 @@ void DrawSolarCutGain (HudState& state, const SunObstructionFrame& frame)
             SunStudyNote (
                 (MinuteText (minute) + (wins ? ": lit by the cut" : ": the cut lights nothing new")).c_str ());
     }
-    const std::string gain = SunStudyCutGain (state.sunCutReadingMinutes, state.sunCutReadingStepMinutes);
+    const std::string gain = SunStudyCutGain (state.sunCutReadingRuns);
     if (gain.empty ())
         ImGui::TextDisabled ("Hover the lit surface for what it gains");
     else
-        ImGui::Text ("%s here, %s", gain.c_str (),
-                     SunStudyCutGainRuns (state.sunCutReadingMinutes, state.sunCutReadingStepMinutes).c_str ());
+        ImGui::Text ("%s here, %s", gain.c_str (), SunStudyCutGainRuns (state.sunCutReadingRuns).c_str ());
+    if (!gain.empty () && state.sunCutShowsHours && state.sunReadingState == 1)
+        ImGui::TextDisabled ("%s", SunStudyCutBeforeAfter (state.sunReadingHours, state.sunCutReadingRuns).c_str ());
 }
 
 // The solar cut in numbers: the hours it buys at the point (re-traced after
@@ -140,8 +141,8 @@ void DrawSolarCutSummary (HudState& state, const SunObstructionFrame& frame)
         "The rays from the point to the slice's suns are merged into one cutting surface (pink sheet); "
         "everything of the blockers above it goes, extruded up (a see-through pink cut-out, the cut faces darker). The "
         "existing elements keep their outline and edges. Yellow area: projected removed shadows minus all "
-        "remaining shadows, clipped to surviving measured surfaces and united over the measured suns, shaded by "
-        "how many of them it gains (pale: one step, deep amber: the most). "
+        "remaining shadows, clipped to surviving measured surfaces and swept between consecutive measured suns, "
+        "shaded by the minutes it gains (pale: the least, deep amber: the most). "
         "It is independent of cell spacing; real openings and remaining shadows stay unlit. "
         "Time precision is still the study timestep, not continuous sun motion.");
     if (!frame.exposure.error.empty ())
@@ -182,15 +183,42 @@ void DrawSolarCutSummary (HudState& state, const SunObstructionFrame& frame)
 
 void DrawSunStudyObstructionControls (HudState& state, const std::string& studyId)
 {
-    ImGui::RadioButton ("Time step##sunobstruction", &state.sunObstructionMode, 1);
-    ImGui::SameLine ();
-    ImGui::RadioButton ("Whole day##sunobstruction", &state.sunObstructionMode, 2);
-    ImGui::SameLine ();
-    ImGui::RadioButton ("Solar cut##sunobstruction", &state.sunObstructionMode, 3);
-    ImGui::SetItemTooltip ("Time step: what blocks the study point's sun at the diagram's selected step.\n"
-                           "Whole day: every measured step in the selected slice (all of it when none is "
-                           "selected).\nSolar cut: what of the blockers must go for direct sun through the pink slice "
-                           "on the day diagram.");
+    // Segmented like the view row above: the active mode is the lit button.
+    const char* labels[] = { "Time step##sunobstruction", "Whole day##sunobstruction", "Solar cut##sunobstruction" };
+    const char* tips[] = { "What blocks the study point's sun at the diagram's selected step.",
+                           "Every measured step in the selected slice (all of it when none is selected).",
+                           "What of the blockers must go for direct sun through the pink slice on the day diagram." };
+    const float modeWidth = (ImGui::GetContentRegionAvail ().x - 2.0f * ImGui::GetStyle ().ItemSpacing.x) / 3.0f;
+    for (int i = 0; i < 3; ++i) {
+        if (i != 0)
+            ImGui::SameLine ();
+        const bool active = state.sunObstructionMode == i + 1;
+        ImGui::PushStyleColor (ImGuiCol_Button,
+                               ImGui::GetStyleColorVec4 (active ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
+        if (ImGui::Button (labels[i], ImVec2 (modeWidth, 0)))
+            state.sunObstructionMode = i + 1;
+        ImGui::PopStyleColor ();
+        ImGui::SetItemTooltip ("%s", tips[i]);
+    }
+    // What lies under the cut (#168): the day's sun hours, to read the gain
+    // against the whole study, or the single shadow at the diagram's clock.
+    if (state.sunObstructionMode == 3) {
+        const char* bases[] = { "Sun hours##suncutbase", "Shadow at clock##suncutbase" };
+        const char* baseTips[] = { "The study's hours of direct sun under the cut: hover a lit place for the day "
+                                   "before and after.",
+                                   "The single shadow at the day diagram's clock step under the cut." };
+        for (int i = 0; i < 2; ++i) {
+            if (i != 0)
+                ImGui::SameLine ();
+            const bool active = state.sunCutShowsHours == (i == 0);
+            ImGui::PushStyleColor (ImGuiCol_Button,
+                                   ImGui::GetStyleColorVec4 (active ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
+            if (ImGui::SmallButton (bases[i]))
+                state.sunCutShowsHours = i == 0;
+            ImGui::PopStyleColor ();
+            ImGui::SetItemTooltip ("%s", baseTips[i]);
+        }
+    }
     // The prerequisite, made actionable (#167, #168): Place point arms a click
     // on the scene, so nobody has to know about the right-click menu. A cell
     // hovered just before entering the panel can still be pinned directly.

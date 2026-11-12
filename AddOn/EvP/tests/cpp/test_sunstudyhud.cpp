@@ -173,18 +173,37 @@ TEST (SunStudyHud, SolarCutTooltipsNameDurationClockRangeAndActualWonTime)
     EXPECT_TRUE (SunStudyCutSurfaceTooltip (-1).empty ());
 }
 
-TEST (SunStudyHud, SolarCutHoverGainCountsStepsAndMergesClockRuns)
+TEST (SunStudyHud, SolarCutShowsTheDaysSunHoursUnderItUnlessAskedForTheClockShadow)
 {
-    const std::vector<int> run { 630, 645, 660, 675, 690 };
-    EXPECT_EQ (SunStudyCutGain (run, 15), "+1 h 15 min");
-    EXPECT_EQ (SunStudyCutGainRuns (run, 15), "10:30-11:45");
-    EXPECT_EQ (SunStudyCutGain ({ 750 }, 15), "+15 min");
-    EXPECT_EQ (SunStudyCutGain ({ 720, 780 }, 60), "+2 h");
-    EXPECT_EQ (SunStudyCutGainRuns ({ 630, 645, 840 }, 15), "10:30-11:00, 14:00-14:15");
-    EXPECT_EQ (SunStudyCutGainRuns ({ 0, 60, 120, 180, 240 }, 30), "00:00-00:30, 01:00-01:30, 02:00-02:30 +2 more");
-    EXPECT_EQ (SunStudyCutGainRuns ({ 1425 }, 15), "23:45-24:00");
-    EXPECT_TRUE (SunStudyCutGain ({}, 15).empty ());
-    EXPECT_TRUE (SunStudyCutGainRuns ({ 750 }, 0).empty ());
+    // #168: the cut's total effect reads against the whole day, not one step.
+    HudState state;
+    state.sunView = kSunObstructionView;
+    state.sunObstructionMode = 3;
+    EXPECT_EQ (SunStudyViewOf (state).viewOverride, 0); // hours, the default
+    state.sunCutShowsHours = false;
+    EXPECT_EQ (SunStudyViewOf (state).viewOverride, 5); // the single shadow at the clock
+    state.sunCutShowsHours = true;
+    state.sunObstructionMode = 1;
+    EXPECT_EQ (SunStudyViewOf (state).viewOverride, 5); // the time-step attribution keeps its shadow
+}
+
+TEST (SunStudyHud, SolarCutHoverGainSumsRunsAndNamesTheirClockTimes)
+{
+    using Runs = std::vector<std::array<double, 2>>;
+    EXPECT_EQ (SunStudyCutGain (Runs { { 630.0, 705.0 } }), "+1 h 15 min");
+    EXPECT_EQ (SunStudyCutGainRuns (Runs { { 630.0, 705.0 } }), "10:30-11:45");
+    EXPECT_EQ (SunStudyCutGain (Runs { { 727.5, 742.5 } }), "+15 min");
+    EXPECT_EQ (SunStudyCutGain (Runs { { 720.0, 780.0 }, { 800.0, 860.0 } }), "+2 h");
+    EXPECT_EQ (SunStudyCutGainRuns (Runs { { 630.0, 660.0 }, { 840.0, 855.0 } }), "10:30-11:00, 14:00-14:15");
+    EXPECT_EQ (SunStudyCutGainRuns (Runs { { 0, 30 }, { 60, 90 }, { 120, 150 }, { 180, 210 }, { 240, 270 } }),
+               "00:00-00:30, 01:00-01:30, 02:00-02:30 +2 more");
+    EXPECT_EQ (SunStudyCutGainRuns (Runs { { 1425.0, 1440.0 } }), "23:45-24:00");
+    EXPECT_EQ (SunStudyCutDuration (7.4), "+7 min");
+    EXPECT_EQ (SunStudyCutBeforeAfter (5.25, Runs { { 630.0, 705.0 } }),
+               "5:15h now -> 6:30h after the cut (+1 h 15 min)");
+    EXPECT_TRUE (SunStudyCutBeforeAfter (5.25, {}).empty ());
+    EXPECT_TRUE (SunStudyCutGain ({}).empty ());
+    EXPECT_TRUE (SunStudyCutGainRuns ({}).empty ());
 }
 
 namespace {

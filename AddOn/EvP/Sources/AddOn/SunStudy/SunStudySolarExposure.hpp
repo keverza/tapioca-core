@@ -15,26 +15,37 @@ struct SolarExposureStep {
     std::vector<std::array<double, 6>> boundary; // this step's own perimeter
 };
 
-// Where the cut wins sun on exactly `steps` measured steps. The bands of a
-// result partition its union: each point lies in one band, by how many steps
-// won it, so a fill shaded by `steps` reads as hours gained without overlap.
+// Where the cut wins sun during [from, to), clock minutes. Between two measured
+// steps the won region is SWEPT, not sampled: the sun moves continuously, and
+// a thin won strip that jumps between steps lights the ground it passes over.
+// Sampled alone, the slice drew a comb of separate strips (#168).
+struct SolarExposureSpan {
+    double from = 0.0, to = 0.0;
+    std::vector<SolarCutTriangle> triangles;
+};
+
+// Where the cut gains more than (level - 1) and at most `level` band widths
+// of sun (SolarExposureResult::bandMinutes). The bands partition the union,
+// so a fill shaded by level reads as hours gained without overlap.
 struct SolarExposureBand {
-    int steps = 0;
+    int level = 0;
     std::vector<SolarCutTriangle> triangles;
 };
 
 struct SolarExposureResult {
-    std::vector<SolarCutTriangle> triangles; // union over the requested steps
+    std::vector<SolarCutTriangle> triangles; // union over the slice, swept between steps
     std::vector<std::array<double, 6>> boundary;
-    std::vector<SolarExposureStep> steps; // same geometry, with its actual time
-    std::vector<SolarExposureBand> bands; // the union split by steps won, fewest first per surface
+    std::vector<SolarExposureStep> steps; // each measured step's exact won region, with its time
+    std::vector<SolarExposureSpan> spans; // the swept regions with the time each stands for
+    std::vector<SolarExposureBand> bands; // the union split by minutes gained
+    double bandMinutes = 0.0;             // the width of one band
     std::string error;
 
-    int MostSteps () const
+    int MostLevel () const
     {
         int most = 0;
         for (const auto& band : bands)
-            most = band.steps > most ? band.steps : most;
+            most = band.level > most ? band.level : most;
         return most;
     }
 };
@@ -51,10 +62,10 @@ bool ComputeSolarExposure (const geomsrv::Snapshot& snapshot, const SolarCutResu
 // there. Hidden receiver geometry is intentionally inspectable.
 int ReadSolarExposure (const SolarExposureResult& result, const double origin[3], const double direction[3]);
 
-// Every step won at that same nearest surface point, ascending minutes. The
-// hours gained there are their count times the study's timestep.
-std::vector<int> ReadSolarExposureSteps (const SolarExposureResult& result, const double origin[3],
-                                         const double direction[3]);
+// When the cut lights that same nearest surface point: its spans merged into
+// ascending [from, to) clock-minute runs. Their total length is the gain.
+std::vector<std::array<double, 2>> ReadSolarExposureRuns (const SolarExposureResult& result, const double origin[3],
+                                                          const double direction[3]);
 
 } // namespace evp::sunstudy
 

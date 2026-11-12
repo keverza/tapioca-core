@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -254,10 +255,12 @@ TEST (SunStudySolarExposure, LargeSceneStaysWithinTheDefaultBudget)
     EXPECT_NEAR (Area (out.triangles), 20 * 0.1 * 0.1, 1.0e-6);
 }
 
-TEST (SunStudySolarExposure, BandsPartitionTheUnionByStepsGained)
+TEST (SunStudySolarExposure, BandsPartitionTheSweptUnionByMinutesGained)
 {
-    // Three suns slide the removed square's shadow 0, 0.5 and 1 m: the middle
-    // metre is won three times, the strips beside it twice, the ends once (#168).
+    // Three suns 30 min apart slide the removed square's shadow 0, 0.5 and 1 m.
+    // Swept between them, with each end step standing for its outer quarter
+    // hour: the middle metre is lit 90 min, the strips beside it 75, the ends
+    // 45 (#168). Bands are 15 min wide over a 90 min slice.
     Fixture f;
     SunStep second = f.suns[0], third = f.suns[0];
     second.time = { 13, 0 };
@@ -269,21 +272,61 @@ TEST (SunStudySolarExposure, BandsPartitionTheUnionByStepsGained)
     SolarExposureResult out;
     ASSERT_TRUE (f.Run (out)) << out.error;
     EXPECT_NEAR (Area (out.triangles), 6.0, 1.0e-6);
-    ASSERT_EQ (out.MostSteps (), 3);
-    double byCount[4] = {};
+    EXPECT_DOUBLE_EQ (out.bandMinutes, 15.0);
+    ASSERT_EQ (out.MostLevel (), 6);
+    double byLevel[7] = {};
     for (const auto& band : out.bands) {
-        ASSERT_GE (band.steps, 1);
-        ASSERT_LE (band.steps, 3);
-        byCount[band.steps] += Area (band.triangles);
+        ASSERT_GE (band.level, 1);
+        ASSERT_LE (band.level, 6);
+        byLevel[band.level] += Area (band.triangles);
     }
-    EXPECT_NEAR (byCount[1], 2.0, 1.0e-6);
-    EXPECT_NEAR (byCount[2], 2.0, 1.0e-6);
-    EXPECT_NEAR (byCount[3], 2.0, 1.0e-6);
+    EXPECT_NEAR (byLevel[3], 2.0, 1.0e-6);
+    EXPECT_NEAR (byLevel[5], 2.0, 1.0e-6);
+    EXPECT_NEAR (byLevel[6], 2.0, 1.0e-6);
+    EXPECT_NEAR (byLevel[1] + byLevel[2] + byLevel[4], 0.0, 1.0e-9);
+    ASSERT_EQ (out.steps.size (), 3u);
     for (const auto& step : out.steps)
-        EXPECT_EQ (step.boundary.size (), 4u) << step.minute; // each step keeps its own perimeter
+        EXPECT_EQ (step.boundary.size (), 4u) << step.minute; // each measured step keeps its own perimeter
 }
 
-TEST (SunStudySolarExposure, HoverReadsEveryStepWonAtThatPlace)
+TEST (SunStudySolarExposure, AThinStripSweepsTheGapBetweenStepsInsteadOfACombOfStrips)
+{
+    // A 10 cm bar's shadow jumps a metre between two steps. Sampled, the slice
+    // was two separate strips with an unlit metre between them -- the jagged
+    // comb seen live (#168). The sun crosses that metre: it is one region.
+    Fixture f;
+    f.scene.meshes[1] = Square (2, 1, 2, 2);
+    for (size_t v = 0; v < f.scene.meshes[1].vertices.size (); v += 3)
+        if (f.scene.meshes[1].vertices[v] > 2.5)
+            f.scene.meshes[1].vertices[v] = 2.1;
+    f.cut.removed = Pieces (f.scene.meshes[1], 1);
+    SunStep later = f.suns[0];
+    later.time = { 13, 0 };
+    later.direction[0] = 0.5;
+    f.suns.push_back (later);
+    SolarExposureResult out;
+    ASSERT_TRUE (f.Run (out)) << out.error;
+    EXPECT_NEAR (Area (out.triangles), 1.1 * 2.0, 1.0e-6);
+    // One rectangle, no teeth: every perimeter edge lies on its four sides
+    // (collinear joins where the end steps meet the sweep may split a side).
+    const auto onSide = [] (double x, double y) {
+        return std::abs (x - 1.0) < 1.0e-6 || std::abs (x - 2.1) < 1.0e-6 || std::abs (y - 1.0) < 1.0e-6 ||
+               std::abs (y - 3.0) < 1.0e-6;
+    };
+    for (const auto& edge : out.boundary) {
+        EXPECT_TRUE (onSide (edge[0], edge[1]) && onSide (edge[3], edge[4]));
+        EXPECT_TRUE (std::abs (edge[0] - edge[3]) < 1.0e-6 || std::abs (edge[1] - edge[4]) < 1.0e-6);
+    }
+    ASSERT_EQ (out.steps.size (), 2u); // the clock-step view still shows each strip alone
+    EXPECT_NEAR (Area (out.steps[0].triangles) + Area (out.steps[1].triangles), 0.4, 1.0e-6);
+    const double down[3] = { 0, 0, -1 }, gap[3] = { 1.5, 2, 10 };
+    const auto runs = ReadSolarExposureRuns (out, gap, down);
+    ASSERT_EQ (runs.size (), 1u);
+    EXPECT_DOUBLE_EQ (runs[0][0], 750.0);
+    EXPECT_DOUBLE_EQ (runs[0][1], 780.0);
+}
+
+TEST (SunStudySolarExposure, HoverReadsWhenThatPlaceIsLit)
 {
     Fixture f;
     SunStep later = f.suns[0];
@@ -293,7 +336,8 @@ TEST (SunStudySolarExposure, HoverReadsEveryStepWonAtThatPlace)
     SolarExposureResult out;
     ASSERT_TRUE (f.Run (out)) << out.error;
     const double down[3] = { 0, 0, -1 }, first[3] = { 2.5, 2, 10 }, both[3] = { 1.5, 2, 10 }, off[3] = { 3.5, 2, 10 };
-    EXPECT_EQ (ReadSolarExposureSteps (out, first, down), (std::vector<int> { 750 }));
-    EXPECT_EQ (ReadSolarExposureSteps (out, both, down), (std::vector<int> { 750, 780 }));
-    EXPECT_TRUE (ReadSolarExposureSteps (out, off, down).empty ());
+    using Runs = std::vector<std::array<double, 2>>;
+    EXPECT_EQ (ReadSolarExposureRuns (out, first, down), (Runs { { 735.0, 780.0 } }));
+    EXPECT_EQ (ReadSolarExposureRuns (out, both, down), (Runs { { 735.0, 795.0 } }));
+    EXPECT_TRUE (ReadSolarExposureRuns (out, off, down).empty ());
 }

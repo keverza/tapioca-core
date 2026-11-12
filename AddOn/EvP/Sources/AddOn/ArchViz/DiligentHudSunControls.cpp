@@ -40,11 +40,9 @@ std::string SunStudyCutSliceTooltip (double fromMinute, double toMinute)
     return text;
 }
 
-std::string SunStudyCutGain (const std::vector<int>& minutes, int timestepMinutes)
+std::string SunStudyCutDuration (double minutes)
 {
-    if (minutes.empty () || timestepMinutes <= 0)
-        return {};
-    const int gained = int (minutes.size ()) * timestepMinutes;
+    const int gained = (std::max) (0, int (std::lround (minutes)));
     char text[48];
     if (gained < 60)
         std::snprintf (text, sizeof (text), "+%d min", gained);
@@ -55,31 +53,40 @@ std::string SunStudyCutGain (const std::vector<int>& minutes, int timestepMinute
     return text;
 }
 
-std::string SunStudyCutGainRuns (const std::vector<int>& minutes, int timestepMinutes)
+std::string SunStudyCutGain (const std::vector<std::array<double, 2>>& runs)
 {
-    if (minutes.empty () || timestepMinutes <= 0)
+    double minutes = 0.0;
+    for (const auto& run : runs)
+        minutes += (std::max) (0.0, run[1] - run[0]);
+    return minutes > 0.0 ? SunStudyCutDuration (minutes) : std::string ();
+}
+
+std::string SunStudyCutBeforeAfter (double hoursNow, const std::vector<std::array<double, 2>>& runs)
+{
+    double minutes = 0.0;
+    for (const auto& run : runs)
+        minutes += (std::max) (0.0, run[1] - run[0]);
+    if (!(minutes > 0.0))
         return {};
+    return SunStudyClock (hoursNow, true) + " now -> " + SunStudyClock (hoursNow + minutes / 60.0, true) +
+           " after the cut (" + SunStudyCutDuration (minutes) + ")";
+}
+
+std::string SunStudyCutGainRuns (const std::vector<std::array<double, 2>>& runs)
+{
     constexpr size_t kShownRuns = 3;
-    std::string runs;
-    size_t count = 0;
-    const auto clock = [] (int minute) {
-        minute = std::clamp (minute, 0, 1440);
+    const auto clock = [] (double minute) {
+        const int at = std::clamp (int (std::lround (minute)), 0, 1440);
         char text[8];
-        std::snprintf (text, sizeof (text), "%02d:%02d", minute / 60, minute % 60);
+        std::snprintf (text, sizeof (text), "%02d:%02d", at / 60, at % 60);
         return std::string (text);
     };
-    for (size_t i = 0; i < minutes.size ();) {
-        size_t j = i;
-        while (j + 1 < minutes.size () && minutes[j + 1] == minutes[j] + timestepMinutes)
-            ++j;
-        if (count < kShownRuns)
-            runs += (runs.empty () ? "" : ", ") + clock (minutes[i]) + "-" + clock (minutes[j] + timestepMinutes);
-        ++count;
-        i = j + 1;
-    }
-    if (count > kShownRuns)
-        runs += " +" + std::to_string (count - kShownRuns) + " more";
-    return runs;
+    std::string text;
+    for (size_t i = 0; i < runs.size () && i < kShownRuns; ++i)
+        text += (text.empty () ? "" : ", ") + clock (runs[i][0]) + "-" + clock (runs[i][1]);
+    if (runs.size () > kShownRuns)
+        text += " +" + std::to_string (runs.size () - kShownRuns) + " more";
+    return text;
 }
 
 std::string SunStudyCutSurfaceTooltip (int minute)
