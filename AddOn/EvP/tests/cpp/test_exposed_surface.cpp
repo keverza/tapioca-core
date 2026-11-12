@@ -8,7 +8,11 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <tuple>
+#include <future>
 #include <limits>
+#include <string>
+#include <vector>
 
 namespace {
 using namespace geomsrv;
@@ -161,6 +165,68 @@ TEST (ExposedSurface, CapturedOneGridTriangularContactSliverIsNotDiscarded)
         area += std::abs (cp::Area (triangle));
     EXPECT_NEAR (area, .5 * (121689711 - 116656546) * grid * grid, 1e-20);
     EXPECT_FALSE (triangles.empty ());
+}
+
+// #168: won-lit fragments from a slab with a cutout (captured offline from the
+// reporter's scene). Nearly coincident shadow edges leave hairline spikes the
+// triangulator refuses; one such surface blanked the whole won-lit surface.
+// Repaired, they fill their own area, less only the hairlines.
+// Refused with TriangulateResult 1 before the repair.
+const std::vector<std::vector<long long>> kRefused6 = {
+    { 3166643732,  -1117559008, 3329859844, -1115535272, 3494809848, -1113490036, 3670864080, -1111307116, 3670968556,
+      -839171064,  3555307208,  -840382904, 3510245544,  -840849536, 3490905744,  -841049808, 3490908928,  -840866928,
+      3327448216,  -842575404,  3327450240, -842554688,  3224442396, -843635560,  3161971668, -844303692,  3156805648,
+      -844358944,  3127045800,  -844669988, 2825323020,  -847886044, 2825342672,  -847904088, 2948677432,  -846584968,
+      2948675564,  -846578924,  2958701476, -846477756,  3156805648, -844358944,  3157686056, -844349740,  3161971668,
+      -844303692,  3161971440,  -844304952, 3327448216,  -842575404, 3327432388,  -842737220, 3369619788,  -842305800,
+      3490905744,  -841049808,  3486163504, -1113242168, 3309934128, -1115426924, 3144820032, -1117473880, 3119298972,
+      -1117790268, 3119681304,  -1118141292 },
+    { 3034662680, -1040084276, 2960109096, -971635388, 2960109096, -971635392, 2825377360, -847935940,
+      2825377364, -847935940,  2825360804, -847920736, 2825360800, -847920736, 2825377360, -847935940,
+      2825377360, -847935944,  2960109096, -971635392, 2998211696, -1006618024 },
+    { 3108048392, -1107460920, 3110422028, -1109640196, 3112880332, -1111897208 },
+};
+// Refused with TriangulateResult 3 before the repair.
+const std::vector<std::vector<long long>> kRefused7 = {
+    { 1061221580, 428576676,  1063012352, 450663328,  1064822632, 472818292,  1071027168, 559078020,
+      1083985804, 743917552,  1097327744, 933910132,  1111191180, 1130988704, 1117341768, 1221050752,
+      1117341764, 1221050748, 1110175624, 1213219464, 922886220,  1008546304, 1034929072, 1130988704,
+      1110175624, 1213219464, 1115439952, 1218972412, 1116120600, 1219716240, 1116495744, 1220126200,
+      1117341764, 1221050748, 1111191180, 1130988704, 1110775492, 1130860052, 1097327744, 933910132,
+      1096950468, 933825084,  1083985804, 743917552,  1083640456, 743868024,  1071027168, 559078020,
+      1070708252, 559058024,  1064822632, 472818292,  1064524508, 472823488,  1063012352, 450663328,
+      1062730396, 450690864,  1061221580, 428576676,  1060952128, 428624824,  1059433592, 406365352 },
+    { 846394460, 924954760, 846317324, 924870468, 846334408, 924889136, 846334412, 924889140, 846388380, 924948120,
+      846388384, 924948124 },
+    { 814643280, 470315388, 814803996, 472611336, 814744008, 472622060, 814903132, 474896612, 814839956,
+      474902784, 814999180, 477175304, 814932976, 477176460, 819574392, 543314816, 819521028, 543311472,
+      831068928, 707648104, 831036548, 707643464, 842916516, 876561248, 842895412, 876556492, 831036548,
+      707643464, 819521028, 543311472, 814932976, 477176460, 814839956, 474902784, 814744008, 472622060 },
+    { 846403564, 924964712, 854589212, 933910132, 846394460, 924954760 },
+};
+
+TEST (ExposedSurface, HairlineSpikesTheTriangulatorRefusesAreRepairedNotFailed)
+{
+    namespace cp = Clipper2Lib;
+    const double grid = std::ldexp (1.0, -24), unit = grid / 4.0;
+    for (const auto* refused : { &kRefused6, &kRefused7 }) {
+        cp::PathsD loops;
+        for (const auto& flat : *refused) {
+            cp::PathD loop;
+            for (size_t i = 0; i + 1 < flat.size (); i += 2)
+                loop.push_back ({ double (flat[i]) * unit, double (flat[i + 1]) * unit });
+            loops.push_back (std::move (loop));
+        }
+        cp::PathsD triangles;
+        std::string error;
+        ASSERT_TRUE (surfacecoverage::TriangulateOnGrid (loops, grid, triangles, error)) << error;
+        double area = 0;
+        for (const auto& triangle : triangles)
+            area += std::abs (cp::Area (triangle));
+        const double expected = std::abs (cp::Area (cp::Union (loops, cp::FillRule::NonZero, 7)));
+        EXPECT_GT (expected, 0.0);
+        EXPECT_NEAR (area, expected, 1.0e-3 * expected);
+    }
 }
 
 TEST (ExposedSurface, NonSeoOpposingFacesWithinOneMillimetreExcludeOnlyOverlappingPatch)
@@ -723,4 +789,38 @@ TEST (ExposedSurface, UnrepresentableSourceDoesNotSilentlyBecomeZeroExposedArea)
     mesh.guid = "below-contact-grid";
     Quad (mesh, { 0, 0, 0 }, { 4e-8, 0, 0 }, { 4e-8, 0, 3 }, { 0, 0, 3 }, 1, 10);
     ExpectRefusal (Capture ({ mesh }), Request ({ { { 0, 1 }, 1 } }), "");
+}
+
+// #168: a won-lit fragment from the reporter's scene, on the solar cut's
+// lattice (2^-26 m units). Clipper2 2.0.1's Triangulate never returned on it,
+// with or without Delaunay, and the solar cut hung for good. It must cover
+// its own area, and in bounded time: the watchdog turns a hang into a failure.
+TEST (ExposedSurface, AFragmentClipperNeverFinishedTriangulatesInBoundedTime)
+{
+    namespace cp = Clipper2Lib;
+    const double grid = std::ldexp (1.0, -24), unit = grid / 4.0;
+    const long long xy[] = { 3242200480, -1116266632, 3378334464, -1114578952, 3486163504, -1113242168,
+                             3496681892, -509514352,  2801317352, -516731288,  2663932580, -518207696,
+                             2661642456, -541624080,  2647644140, -684756112,  2796016612, -820979352,
+                             3115801252, -1114578952, 3119298964, -1117790260 };
+    cp::PathsD loops (1);
+    for (size_t i = 0; i + 1 < std::size (xy); i += 2)
+        loops[0].push_back ({ double (xy[i]) * unit, double (xy[i + 1]) * unit });
+    auto job = std::async (std::launch::async, [loops, grid] {
+        cp::PathsD triangles;
+        std::string error;
+        const bool ok = surfacecoverage::TriangulateOnGrid (loops, grid, triangles, error);
+        double area = 0;
+        for (const auto& triangle : triangles)
+            area += std::abs (cp::Area (triangle));
+        return std::make_tuple (ok, area, error);
+    });
+    if (job.wait_for (std::chrono::seconds (20)) != std::future_status::ready) {
+        ADD_FAILURE () << "TriangulateOnGrid did not return";
+        std::_Exit (1); // the hung worker cannot be joined
+    }
+    const auto [ok, area, error] = job.get ();
+    ASSERT_TRUE (ok) << error;
+    const double expected = std::abs (cp::Area (loops[0]));
+    EXPECT_NEAR (area, expected, 1.0e-9 * expected);
 }
