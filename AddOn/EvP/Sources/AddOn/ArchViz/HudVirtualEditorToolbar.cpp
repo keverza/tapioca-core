@@ -5,11 +5,10 @@
 #include <cstdio>
 #include <imgui.h>
 
-// #191 area B, the toolbar: pinned over the page, two rows of Iconoir glyphs. Row 1: the tools, then
-// the landscape Booleans in one popover. Row 2: the modifiers -- how a drag selects, the gizmo, snapping,
-// the axes, the drawing plane and the contours, the larger ones in popovers. Every control keeps the
-// action and the enable condition it had as a radio or checkbox (EDITOR-CONTROLS.md); the hotkey is in
-// the tooltip.
+// #191 area B, the toolbar: pinned over the page, three rows of Iconoir glyphs. Rows 1 and 2: the tools,
+// five to a row, then the landscape Booleans in one popover. Row 3: the modifiers -- how a drag selects, the gizmo,
+// snapping, the axes, the drawing plane and the contours, the larger ones in popovers. Every control keeps the action
+// and the enable condition it had as a radio or checkbox (EDITOR-CONTROLS.md); the hotkey is in the tooltip.
 namespace geomsrv::archviz::edithud {
 using namespace detail;
 namespace ui = geomsrv::archviz::ui;
@@ -22,7 +21,7 @@ struct ToolButton {
     const char* tip;
 };
 
-// Row 1's order, which ToolbarSelectsEveryTool191 presses by position.
+// The tools' order, which ToolbarSelectsEveryTool191 presses by position.
 const ToolButton kTools[] = {
     { Tool::Select, ui::IconId::CursorPointer, "Select (V)" },
     { Tool::Polyline, ui::IconId::Polyline, "Polyline (L)" },
@@ -81,10 +80,45 @@ ui::IconId GizmoIcon (edit::GizmoMode mode)
     }
 }
 
+// #191 U3 (the user, 2026-11-13: "slightly bigger"): the toolbar's buttons are taller than a frame by
+// 0.3 of the font, their glyphs with them (two thirds of the side); the gap between them is half the
+// item spacing, so row 1 still fits 320 px. Only the buttons are padded, never a popover's body.
+constexpr float kGlyphGrow = 0.15f;
+
+struct Taller {
+    Taller ()
+    {
+        const auto& style = ImGui::GetStyle ();
+        ImGui::PushStyleVar (ImGuiStyleVar_FramePadding,
+                             { style.FramePadding.x, style.FramePadding.y + kGlyphGrow * ImGui::GetFontSize () });
+    }
+    ~Taller ()
+    {
+        ImGui::PopStyleVar ();
+    }
+};
+
+bool Glyph (const char* id, ui::IconId icon, bool active = false)
+{
+    Taller taller;
+    return ui::IconButton (id, icon, active);
+}
+
+bool GlyphText (const char* id, const char* label, bool active = false)
+{
+    Taller taller;
+    return ui::IconTextButton (id, ui::IconId::None, label, active);
+}
+
+void Next ()
+{
+    ImGui::SameLine (0.0f, ToolGlyphGap ());
+}
+
 // A glyph that opens `popup` under it; the popover's body is the caller's while this returns true.
 bool Popover (const char* id, ui::IconId icon, bool active, const char* tip, const char* popup)
 {
-    if (ui::IconButton (id, icon, active))
+    if (Glyph (id, icon, active))
         ImGui::OpenPopup (popup);
     hudshell::Tip (tip, hudshell::TipSide::Above);
     return ImGui::BeginPopup (popup);
@@ -94,7 +128,7 @@ void BooleansPopover (Session& s)
 {
     if (!s.edits.Doc ().landscape)
         return;
-    ImGui::SameLine ();
+    Next ();
     ImGui::BeginDisabled (GizmoModeLocked (s) || !s.drawing.empty ());
     if (Popover ("bool", ui::IconId::BooleanUnion, false, "Union, Subtract, Intersection of regions", "##bool")) {
         if (ui::IconTextButton ("union", ui::IconId::BooleanUnion, "Union"))
@@ -160,50 +194,60 @@ void ContoursPopover (Session& s)
 }
 } // namespace
 
+float detail::ToolGlyphSide ()
+{
+    return ImGui::GetFrameHeight () + 2.0f * kGlyphGrow * ImGui::GetFontSize ();
+}
+
+float detail::ToolGlyphGap ()
+{
+    return ImGui::GetStyle ().ItemSpacing.x * 0.5f;
+}
+
 void detail::Toolbar (Session& s)
 {
     ImGui::PushID ("toolbar");
-    // Row 1: the tools.
+    // Rows 1 and 2: the tools, five to a row (the user, 2026-11-13), the Booleans tenth.
     ImGui::BeginDisabled (s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s));
     for (const auto& button : kTools) {
-        if (&button != kTools)
-            ImGui::SameLine ();
-        if (ui::IconButton (button.tip, button.icon, s.tool == button.tool))
+        if ((&button - kTools) % kToolsPerRow != 0)
+            Next ();
+        if (Glyph (button.tip, button.icon, s.tool == button.tool))
             ChooseTool (s, button.tool);
         hudshell::Tip (button.tip, hudshell::TipSide::Above);
     }
     ImGui::EndDisabled ();
     BooleansPopover (s);
-    // Row 2: the modifiers. How a drag from empty space (or from inside an unselected region)
+    // Row 3: the modifiers. How a drag from empty space (or from inside an unselected region)
     // selects; Ctrl at the press takes the other one for that drag. Lasso has no Iconoir glyph.
     ImGui::BeginDisabled (s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s));
-    if (ui::IconButton ("window", ui::IconId::WindowSelect, !s.lasso))
+    if (Glyph ("window", ui::IconId::WindowSelect, !s.lasso))
         s.lasso = false;
     hudshell::Tip ("Window select. Ctrl-drag: lasso.", hudshell::TipSide::Above);
     ImGui::SameLine (0.0f, 0.0f);
-    if (ui::IconTextButton ("lasso", ui::IconId::None, "La", s.lasso))
+    if (GlyphText ("lasso", "La", s.lasso))
         s.lasso = true;
     hudshell::Tip ("Lasso select. Ctrl-drag: window.", hudshell::TipSide::Above);
-    ImGui::SameLine ();
+    Next ();
     GizmoPopover (s);
-    ImGui::SameLine ();
+    Next ();
     if (Popover ("snap", ui::IconId::Snap, s.snapEnabled, "Snapping and snap options", "##snap")) {
         SnapControls (s, true);
         ImGui::EndPopup ();
     }
-    ImGui::SameLine ();
-    if (ui::IconTextButton ("axes", ui::IconId::None, s.localAxes ? "Local" : "World"))
+    Next ();
+    if (GlyphText ("axes", s.localAxes ? "Local" : "World"))
         s.localAxes = !s.localAxes;
     hudshell::Tip (s.localAxes ? "Local axes. Click for world axes." : "World axes. Click for local axes.",
                    hudshell::TipSide::Above);
     ImGui::EndDisabled ();
-    ImGui::SameLine ();
+    Next ();
     if (Popover ("plane", ui::IconId::DrawingPlane, s.plane.locked || s.plane.source != edit::PlaneSource::WorldXY,
                  "Drawing plane: elevation, lock, at a face or along a path", "##plane")) {
         PlaneControls (s);
         ImGui::EndPopup ();
     }
-    ImGui::SameLine ();
+    Next ();
     ContoursPopover (s);
     ImGui::PopID ();
 }

@@ -99,6 +99,10 @@ void OperationsTab (Session& s);
 void WarningsTab (Session& s);
 // `open`: the options drawn at once, without their tree node (#191 U3: the toolbar's Snap popover).
 void SnapControls (Session& s, bool open = false);
+// #191 U3: the toolbar's glyph buttons' side and the gap between them, in the current style.
+inline constexpr int kToolsPerRow = 5;
+float ToolGlyphSide ();
+float ToolGlyphGap ();
 void DuplicateOffsetControls (Session& s);
 // Rectangular array: a selection/revision/tool-bound draft with an outline-only cached preview.
 // Check closes a stale draft; a kernel refusal keeps it open for correction. Apply is one history

@@ -182,16 +182,17 @@ TEST (HudVirtualEditorCommandBar, ExitAndDeleteAreNotAdjacent191)
 }
 
 namespace {
-// The centre of row 1's `index`-th glyph: the toolbar drawn first in the window.
+// The centre of the `index`-th tool glyph, five to a row: the toolbar drawn first in the window.
 ImVec2 ToolCentre (int index)
 {
     const auto& style = ImGui::GetStyle ();
-    const float side = ImGui::GetFontSize () + 2.0f * style.FramePadding.y;
-    return { style.WindowPadding.x + index * (side + style.ItemSpacing.x) + side * 0.5f,
-             style.WindowPadding.y + side * 0.5f };
+    const float side = eh::detail::ToolGlyphSide (), gap = eh::detail::ToolGlyphGap ();
+    const int row = index / eh::detail::kToolsPerRow, column = index % eh::detail::kToolsPerRow;
+    return { style.WindowPadding.x + column * (side + gap) + side * 0.5f,
+             style.WindowPadding.y + row * (side + style.ItemSpacing.y) + side * 0.5f };
 }
 
-// Presses row 1's `index`-th glyph; its place is measured in a first frame, where the font is set.
+// Presses the `index`-th tool glyph; its place is measured in a first frame, where the font is set.
 void Press (Gui& gui, const std::function<void ()>& draw, int index)
 {
     ImVec2 at {};
@@ -205,7 +206,7 @@ void Press (Gui& gui, const std::function<void ()>& draw, int index)
 }
 } // namespace
 
-// #191 U3: row 1's glyphs, in order, set the same tool and landscape mode their radios did.
+// #191 U3: the tool glyphs, in order, set the same tool and landscape mode their radios did.
 TEST (HudVirtualEditorCommandBar, ToolbarSelectsEveryTool191)
 {
     struct Expected {
@@ -248,7 +249,8 @@ TEST (HudVirtualEditorCommandBar, ToolbarDisabledWhileCommandRuns191)
     EXPECT_TRUE (eh::detail::Running (s));
 }
 
-// The pinned A + B stays within #191's budget at 320 px: four rows, at most 120 logical px.
+// The pinned A + B at 320 px: the command bar's two rows and the toolbar's three (tools five to a
+// row, the user's layout of 2026-11-13). #191 planned four rows in 120 px; five need about 125.
 TEST (HudVirtualEditorCommandBar, PinnedHeaderFitsTheBudget191)
 {
     edit::Document doc;
@@ -257,7 +259,7 @@ TEST (HudVirtualEditorCommandBar, PinnedHeaderFitsTheBudget191)
     eh::Session s (doc);
     s.message = "Intersection complete. Sources remain editable. A long message that has to be elided here.";
     Gui gui;
-    float height = 0, left = 0, after = -1, frame = 0;
+    float height = 0, left = 0, after = -1, frame = 0, side = 0;
     gui.Frame ([&] {
         const float top = ImGui::GetCursorPosY ();
         left = ImGui::GetCursorPosX ();
@@ -265,10 +267,11 @@ TEST (HudVirtualEditorCommandBar, PinnedHeaderFitsTheBudget191)
         after = ImGui::GetCursorPosX ();
         height = ImGui::GetCursorPosY () - top - ImGui::GetStyle ().ItemSpacing.y;
         frame = ImGui::GetFrameHeight ();
+        side = eh::detail::ToolGlyphSide ();
     });
     // The page starts under the header, never beside its last control (a helper once resolved to
     // detail::Contours, which draws nothing, and left row 2 open for the page).
     EXPECT_EQ (after, left) << "the header ends on a fresh line";
-    EXPECT_GE (height, 4.0f * frame) << "A + B are four rows";
-    EXPECT_LE (height, 120.0f) << "A + B: " << height << " px";
+    EXPECT_GE (height, 2.0f * frame + 3.0f * side) << "A + B are five rows";
+    EXPECT_LE (height, 130.0f) << "A + B: " << height << " px";
 }
