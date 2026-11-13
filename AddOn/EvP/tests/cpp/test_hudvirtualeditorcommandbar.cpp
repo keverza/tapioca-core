@@ -182,13 +182,14 @@ TEST (HudVirtualEditorCommandBar, ExitAndDeleteAreNotAdjacent191)
 }
 
 namespace {
-// The centre of the `index`-th tool glyph, five to a row: the toolbar drawn first in the window.
+// The centre of the `index`-th tool button, five to a row across the window: the toolbar drawn first.
 ImVec2 ToolCentre (int index)
 {
     const auto& style = ImGui::GetStyle ();
     const float side = eh::detail::ToolGlyphSide (), gap = eh::detail::ToolGlyphGap ();
+    const float width = eh::detail::ToolButtonWidth (ImGui::GetContentRegionAvail ().x);
     const int row = index / eh::detail::kToolsPerRow, column = index % eh::detail::kToolsPerRow;
-    return { style.WindowPadding.x + column * (side + gap) + side * 0.5f,
+    return { style.WindowPadding.x + column * (width + gap) + width * 0.5f,
              style.WindowPadding.y + row * (side + style.ItemSpacing.y) + side * 0.5f };
 }
 

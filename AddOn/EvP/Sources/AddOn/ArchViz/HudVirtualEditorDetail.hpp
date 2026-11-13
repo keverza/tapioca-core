@@ -103,6 +103,8 @@ void SnapControls (Session& s, bool open = false);
 inline constexpr int kToolsPerRow = 5;
 float ToolGlyphSide ();
 float ToolGlyphGap ();
+// A tool button's width: five to a row across `available`, never narrower than its height.
+float ToolButtonWidth (float available);
 void DuplicateOffsetControls (Session& s);
 // Rectangular array: a selection/revision/tool-bound draft with an outline-only cached preview.
 // Check closes a stale draft; a kernel refusal keeps it open for correction. Apply is one history

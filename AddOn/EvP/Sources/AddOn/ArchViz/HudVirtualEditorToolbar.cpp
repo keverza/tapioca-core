@@ -2,6 +2,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/TapiocaUI/Foundation/Icons.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <imgui.h>
 
@@ -98,10 +99,10 @@ struct Taller {
     }
 };
 
-bool Glyph (const char* id, ui::IconId icon, bool active = false)
+bool Glyph (const char* id, ui::IconId icon, bool active = false, float width = 0.0f)
 {
     Taller taller;
-    return ui::IconButton (id, icon, active);
+    return ui::IconButton (id, icon, active, width);
 }
 
 bool GlyphText (const char* id, const char* label, bool active = false)
@@ -116,21 +117,22 @@ void Next ()
 }
 
 // A glyph that opens `popup` under it; the popover's body is the caller's while this returns true.
-bool Popover (const char* id, ui::IconId icon, bool active, const char* tip, const char* popup)
+bool Popover (const char* id, ui::IconId icon, bool active, const char* tip, const char* popup, float width = 0.0f)
 {
-    if (Glyph (id, icon, active))
+    if (Glyph (id, icon, active, width))
         ImGui::OpenPopup (popup);
     hudshell::Tip (tip, hudshell::TipSide::Above);
     return ImGui::BeginPopup (popup);
 }
 
-void BooleansPopover (Session& s)
+void BooleansPopover (Session& s, float width)
 {
     if (!s.edits.Doc ().landscape)
         return;
     Next ();
     ImGui::BeginDisabled (GizmoModeLocked (s) || !s.drawing.empty ());
-    if (Popover ("bool", ui::IconId::BooleanUnion, false, "Union, Subtract, Intersection of regions", "##bool")) {
+    if (Popover ("bool", ui::IconId::BooleanUnion, false, "Union, Subtract, Intersection of regions", "##bool",
+                 width)) {
         if (ui::IconTextButton ("union", ui::IconId::BooleanUnion, "Union"))
             BeginLandscapeCommand (s, lg::OperationKind::Union), ImGui::CloseCurrentPopup ();
         if (ui::IconTextButton ("subtract", ui::IconId::BooleanSubtract, "Subtract"))
@@ -204,20 +206,28 @@ float detail::ToolGlyphGap ()
     return ImGui::GetStyle ().ItemSpacing.x * 0.5f;
 }
 
+float detail::ToolButtonWidth (float available)
+{
+    const float width = (available - (kToolsPerRow - 1) * ToolGlyphGap ()) / kToolsPerRow;
+    return (std::max) (width, ToolGlyphSide ()); // never narrower than square
+}
+
 void detail::Toolbar (Session& s)
 {
     ImGui::PushID ("toolbar");
-    // Rows 1 and 2: the tools, five to a row (the user, 2026-11-13), the Booleans tenth.
+    // Rows 1 and 2: the tools, five to a row filling the panel's width (the user, 2026-11-13), the
+    // Booleans tenth.
+    const float width = ToolButtonWidth (ImGui::GetContentRegionAvail ().x);
     ImGui::BeginDisabled (s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s));
     for (const auto& button : kTools) {
         if ((&button - kTools) % kToolsPerRow != 0)
             Next ();
-        if (Glyph (button.tip, button.icon, s.tool == button.tool))
+        if (Glyph (button.tip, button.icon, s.tool == button.tool, width))
             ChooseTool (s, button.tool);
         hudshell::Tip (button.tip, hudshell::TipSide::Above);
     }
     ImGui::EndDisabled ();
-    BooleansPopover (s);
+    BooleansPopover (s, width);
     // Row 3: the modifiers. How a drag from empty space (or from inside an unselected region)
     // selects; Ctrl at the press takes the other one for that drag. Lasso has no Iconoir glyph.
     ImGui::BeginDisabled (s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s));
