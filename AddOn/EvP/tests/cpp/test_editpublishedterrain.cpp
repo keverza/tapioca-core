@@ -13,6 +13,9 @@
 #include "Edit/EditLandscapeDomain.hpp"
 #include "Edit/EditPolyline.hpp"
 #include "Edit/EditTerrainCapture.hpp"
+#include "Edit/EditLandscapeSerialization.hpp"
+#include "Edit/EditSession.hpp"
+#include "Geometry/Mesh.hpp"
 #include "legacy_region_composition.hpp"
 #include "virtual_editor_debug_replay.hpp"
 
@@ -928,4 +931,162 @@ TEST (EditPublishedTerrain, RecipeQuantityRowsNameEveryStackPositionOfAMixedBuil
     EXPECT_LT (q.residual, 1e-6);
     EXPECT_NEAR (q.total.fill, published.quantities.fill, 0);
     EXPECT_GT (q.total.fill + q.total.cut, 0);
+}
+
+// #105 step 5 acceptance: two overlapping regions, one cut under one fill, built for real. The
+// quantity rows follow the recipe through a reorder, an effect change, undo and save/reload: the
+// later region owns the overlap, each state's rows reconcile to its total, and returning to a state
+// reproduces its quantities exactly.
+namespace {
+struct StackBuild {
+    geo::LandscapeRecipe recipe;
+    geo::TerrainDesignOutcome outcome;
+    geo::RecipeQuantities quantities;
+};
+edit::Id StackRegion (edit::Document& doc, double x, double z)
+{
+    const auto line = edit::AddPolyline (doc, { { x, 5, 0 }, { x + 10, 5, 0 }, { x + 10, 15, 0 }, { x, 15, 0 } }, true);
+    std::string error;
+    EXPECT_TRUE (geo::SetLandscapeSourceRole (doc, line, geo::SourceRole::RegionBoundary, error)) << error;
+    const auto object = doc.landscape->objects.back ().id;
+    geo::RegionSurface surface;
+    surface.elevation = geo::RegionElevationMode::Constant;
+    surface.first.z = z;
+    EXPECT_TRUE (geo::SetRegionSurface (doc, object, surface, {}, error)) << error;
+    geo::RegionTerrain terrain;
+    terrain.effect = geo::RegionTerrainEffect::Grade;
+    EXPECT_TRUE (geo::SetRegionTerrain (doc, object, terrain, error)) << error;
+    return object;
+}
+StackBuild BuildStack (const edit::Document& doc, edit::Id owner)
+{
+    StackBuild out;
+    geomsrv::Mesh mesh;
+    mesh.guid = doc.landscape->sourceTerrainGuid;
+    mesh.vertices = { 0, 0, 0, 30, 0, 0, 30, 20, 0, 0, 20, 0 };
+    mesh.triangles = { 0, 1, 2, 0, 2, 3 };
+    auto capture = std::make_shared<geo::TerrainCapture> ();
+    std::string error;
+    EXPECT_TRUE (geo::CaptureLandscapeTerrain (doc, mesh, { owner, 2, 1 }, *capture, error)) << error;
+    geo::TerrainDesignJob job;
+    job.doc = std::make_shared<const edit::Document> (doc);
+    job.capture = capture;
+    job.options.object = owner;
+    out.outcome = geo::RunLandscapeTerrainDesign (job);
+    EXPECT_TRUE (out.outcome.built) << out.outcome.error;
+    out.recipe = geo::ProjectLandscapeRecipe (doc, std::nullopt);
+    EXPECT_TRUE (out.recipe.ok) << out.recipe.error;
+    out.quantities = geo::ProjectRecipeQuantities (out.recipe, out.outcome.published.get (), false);
+    return out;
+}
+const geo::RecipeQuantityRow* RowOf (const geo::RecipeQuantities& q, edit::Id object)
+{
+    for (const auto& row : q.rows)
+        if (!row.baseline && row.object == object)
+            return &row;
+    return nullptr;
+}
+std::vector<edit::Id> StackOrder (const geo::RecipeQuantities& q)
+{
+    std::vector<edit::Id> order;
+    for (const auto& row : q.rows)
+        if (!row.baseline)
+            order.push_back (row.object);
+    return order;
+}
+void ExpectCurrentAndReconciled (const StackBuild& build)
+{
+    ASSERT_TRUE (build.quantities.available) << build.quantities.reason;
+    EXPECT_TRUE (build.quantities.current);
+    ASSERT_TRUE (build.outcome.published);
+    EXPECT_EQ (build.recipe.hash, build.outcome.published->planHash);
+    EXPECT_LT (build.quantities.residual, 1e-6);
+    double cut = 0, fill = 0;
+    for (const auto& row : build.quantities.rows) {
+        cut += row.cut;
+        fill += row.fill;
+    }
+    EXPECT_NEAR (cut, build.quantities.total.cut, 1e-6);
+    EXPECT_NEAR (fill, build.quantities.total.fill, 1e-6);
+}
+void ExpectSameQuantities (const geo::RecipeQuantities& a, const geo::RecipeQuantities& b)
+{
+    ASSERT_EQ (a.rows.size (), b.rows.size ());
+    for (size_t i = 0; i < a.rows.size (); ++i) {
+        EXPECT_EQ (a.rows[i].object, b.rows[i].object) << i;
+        EXPECT_EQ (a.rows[i].order, b.rows[i].order) << i;
+        EXPECT_NEAR (a.rows[i].cut, b.rows[i].cut, 1e-9) << i;
+        EXPECT_NEAR (a.rows[i].fill, b.rows[i].fill, 1e-9) << i;
+    }
+    EXPECT_NEAR (a.total.cut, b.total.cut, 1e-9);
+    EXPECT_NEAR (a.total.fill, b.total.fill, 1e-9);
+}
+} // namespace
+
+TEST (EditPublishedTerrain, RecipeQuantitiesFollowReorderEffectUndoAndReloadOfOverlappingRegions105)
+{
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (geo::StartLandscape (doc, { 1 }, error)) << error;
+    edit::Id terrain = 0;
+    ASSERT_TRUE (geo::SetLandscapeTerrain (doc, "00112233-4455-6677-8899-AABBCCDDEEFF", terrain, error)) << error;
+    const auto cut = StackRegion (doc, 5, -1);  // 10 x 10 at -1
+    const auto fill = StackRegion (doc, 10, 1); // 10 x 10 at +1, overlapping the cut's right half
+    edit::Session session (doc);
+
+    // Recipe order: the cut, then the fill over it. The fill owns the 5 x 10 overlap.
+    const auto first = BuildStack (session.Doc (), cut);
+    ExpectCurrentAndReconciled (first);
+    ASSERT_EQ (StackOrder (first.quantities), (std::vector<edit::Id> { cut, fill }));
+    const auto* cutRow = RowOf (first.quantities, cut);
+    const auto* fillRow = RowOf (first.quantities, fill);
+    ASSERT_TRUE (cutRow && fillRow);
+    EXPECT_GE (fillRow->fill, 100 - 1e-6) << "its whole footprint at +1";
+    EXPECT_GE (cutRow->cut, 50 - 1e-6) << "its uncovered half at -1";
+    EXPECT_LT (cutRow->cut, 90) << "not the overlap the fill owns";
+
+    // Move the fill under the cut: one undoable edit; the old publication is stale for the new
+    // recipe; the rebuilt rows swap ownership of the overlap.
+    ASSERT_TRUE (session.Apply ([fill] (edit::Document& d, std::string& e) {
+        return geo::MoveRecipeRegion (d, fill, -1, e);
+    })) << session.Message ();
+    const auto movedRecipe = geo::ProjectLandscapeRecipe (session.Doc (), std::nullopt);
+    EXPECT_FALSE (geo::ProjectRecipeQuantities (movedRecipe, first.outcome.published.get (), false).current);
+    const auto moved = BuildStack (session.Doc (), cut);
+    ExpectCurrentAndReconciled (moved);
+    ASSERT_EQ (StackOrder (moved.quantities), (std::vector<edit::Id> { fill, cut }));
+    EXPECT_GE (RowOf (moved.quantities, cut)->cut, 100 - 1e-6) << "the cut now owns the overlap";
+    EXPECT_GE (RowOf (moved.quantities, fill)->fill, 50 - 1e-6);
+    EXPECT_LT (RowOf (moved.quantities, fill)->fill, 90);
+    EXPECT_GT (moved.quantities.total.cut, first.quantities.total.cut);
+    EXPECT_LT (moved.quantities.total.fill, first.quantities.total.fill);
+
+    // Effect None takes the cut out of the recipe and its row out of the quantities.
+    auto settings = std::find_if (session.Doc ().landscape->objects.begin (), session.Doc ().landscape->objects.end (),
+                                  [&] (const geo::HardscapeObject& o) { return o.id == cut; })
+                        ->terrain;
+    settings.effect = geo::RegionTerrainEffect::None;
+    ASSERT_TRUE (session.Apply ([cut, settings] (edit::Document& d, std::string& e) {
+        return geo::SetRegionTerrain (d, cut, settings, e);
+    })) << session.Message ();
+    const auto fillOnly = BuildStack (session.Doc (), cut);
+    ExpectCurrentAndReconciled (fillOnly);
+    EXPECT_EQ (StackOrder (fillOnly.quantities), (std::vector<edit::Id> { fill }));
+    EXPECT_GE (RowOf (fillOnly.quantities, fill)->fill, 100 - 1e-6);
+
+    // Undo walks back through both states and reproduces each one's quantities.
+    ASSERT_TRUE (session.Undo ());
+    ExpectSameQuantities (BuildStack (session.Doc (), cut).quantities, moved.quantities);
+    ASSERT_TRUE (session.Undo ());
+    ExpectSameQuantities (BuildStack (session.Doc (), cut).quantities, first.quantities);
+
+    // Save and reload the moved state: the same recipe order and the same quantities.
+    ASSERT_TRUE (session.Redo ());
+    std::string text;
+    ASSERT_TRUE (geo::WriteLandscape (session.Doc (), geo::LandscapeStorage::Virtual, text, error)) << error;
+    edit::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (text, loaded, error)) << error;
+    const auto reloaded = BuildStack (loaded, cut);
+    ExpectCurrentAndReconciled (reloaded);
+    ExpectSameQuantities (reloaded.quantities, moved.quantities);
 }
