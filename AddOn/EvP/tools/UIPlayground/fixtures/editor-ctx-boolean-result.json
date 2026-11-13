@@ -540,7 +540,7 @@
      "name": "Intersection",
      "path": "0",
      "surface": {
-      "elevation": 2,
+      "elevation": 1,
       "fallsTo": 1,
       "first": {
        "x": 0,

@@ -229,8 +229,10 @@ bool AdvanceLandscapeCommand (Session& s)
     // the output object (subject metadata, never an operand's); each further operand folds into
     // that object's root, so A op B op C stays one undo step and every source stays editable.
     edit::Id objectId = 0;
+    std::string note;
     const bool ok = s.edits.Apply ([&] (edit::Document& doc, std::string& error) {
         objectId = 0;
+        note.clear ();
         lg::Id root = inputs.front ();
         for (size_t i = 1; i < inputs.size (); ++i) {
             lg::DomainCommand domain;
@@ -246,6 +248,8 @@ bool AdvanceLandscapeCommand (Session& s)
             }
             objectId = applied.objectId;
             root = applied.operationId;
+            if (!applied.note.empty ())
+                note = applied.note;
         }
         return true;
     });
@@ -256,6 +260,8 @@ bool AdvanceLandscapeCommand (Session& s)
     CancelLandscapeCommand (s);
     s.landscapeObject = objectId;
     s.message = std::string (CommandName (command.kind)) + " complete. Sources remain editable.";
+    if (!note.empty ())
+        s.message += " " + note;
     Landscape (s);
     return true;
 }

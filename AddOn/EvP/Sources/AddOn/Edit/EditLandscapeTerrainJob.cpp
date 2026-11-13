@@ -217,10 +217,15 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
             // view; the unified authority rebuilds the domains itself from the
             // same plan. Path-only scenes skip it (the plan has no entries),
             // exactly as the legacy lane never ran it.
+            // #188: a refusal here never refuses the build. This stage splits the mesh once per ring,
+            // one after another, and a Boolean result's corners sit on the crossings its operands'
+            // splits already placed; the unified build below constrains every ring in one
+            // triangulation and builds that scene. Without the report the panel shows no per-region
+            // lines (it reads `regions` only when present).
             auto regions = std::make_shared<RegionTerrainResult> ();
-            if (!EvaluateRegionTerrain (*job.doc, baseline, *regions, outcome.error))
-                return;
-            outcome.regions = std::move (regions);
+            std::string reportError;
+            if (EvaluateRegionTerrain (*job.doc, baseline, *regions, reportError))
+                outcome.regions = std::move (regions);
         }
         if (!ValidateLandscapeFieldPlanForBuild (plan, outcome.error)) {
             outcome.error = "LandscapeFieldPlan: " + outcome.error;

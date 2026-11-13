@@ -118,6 +118,7 @@ bool KeepLandscapeFaces (Session& s, bool subtract)
     // #112 P1: the same domain command authors the selector and the Boolean that
     // folds it into the chosen object (or adopts it as a new output); identity and
     // metadata of a chosen owner stay stable.
+    std::string note; // #188: what the result took instead of Boundary curve Z
     const bool ok = s.edits.Apply ([&] (edit::Document& doc, std::string& error) {
         lg::DomainCommand command;
         command.kind = subtract ? lg::OperationKind::Difference : lg::OperationKind::Union;
@@ -136,13 +137,14 @@ bool KeepLandscapeFaces (Session& s, bool subtract)
         else
             command.subject.faces = std::move (faces);
         const auto applied = lg::ApplyDomainCommand (doc, command);
+        note = applied.note;
         if (applied.ok)
             output = applied.objectId;
         else
             error = applied.error;
         return applied.ok;
     });
-    s.message = ok ? "Sources remain editable." : s.edits.Message ();
+    s.message = ok ? "Sources remain editable." + (note.empty () ? "" : " " + note) : s.edits.Message ();
     if (ok)
         s.landscapeObject = output;
     Landscape (s);
@@ -377,6 +379,7 @@ bool BooleanLandscapeFaceSets (Session& s, lg::OperationKind kind)
         return false;
     }
     edit::Id objectId = s.landscapeObject;
+    std::string note;
     const bool ok = s.edits.Apply ([&] (edit::Document& doc, std::string& error) {
         // #112 P1: saved sets A and B are the subject and operand of the same domain
         // command the canvas and Keep paths call; a chosen result keeps its identity.
@@ -387,6 +390,7 @@ bool BooleanLandscapeFaceSets (Session& s, lg::OperationKind kind)
         command.subject.input = a;
         command.operand.input = b;
         const auto applied = lg::ApplyDomainCommand (doc, command);
+        note = applied.note;
         if (applied.ok)
             objectId = applied.objectId;
         else
@@ -395,7 +399,9 @@ bool BooleanLandscapeFaceSets (Session& s, lg::OperationKind kind)
     });
     if (ok)
         s.landscapeObject = objectId;
-    s.message = ok ? "Result updated from face sets A and B. Sources and sets are retained." : s.edits.Message ();
+    s.message =
+        ok ? "Result updated from face sets A and B. Sources and sets are retained." + (note.empty () ? "" : " " + note)
+           : s.edits.Message ();
     Landscape (s);
     return ok;
 }

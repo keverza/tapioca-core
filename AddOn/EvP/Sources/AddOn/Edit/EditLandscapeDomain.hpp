@@ -39,15 +39,18 @@ struct DomainCommand {
 
 struct DomainEditResult {
     bool ok = false;
-    Id objectId = kNoId;     // The owner, or the authored output object.
-    Id operationId = kNoId;  // The resulting domain root (Boolean or adopted node).
+    Id objectId = kNoId;    // The owner, or the authored output object.
+    Id operationId = kNoId; // The resulting domain root (Boolean or adopted node).
     std::string error;
+    std::string note; // What the user should know about an applied result; empty when nothing.
 };
 
 // One atomic document edit: all operand nodes, the Boolean (when an operand is
 // present) and the output owner publish together or not at all. When no `owner`
 // is given, the output inherits the subject owner's kind/surface/terrain/material/
-// thickness; the operand never contributes metadata. A fresh face subject that
+// thickness; the operand never contributes metadata. #188: a subject with Boundary
+// curve Z gives a derived output Constant elevation instead (a derived domain owns no
+// boundary line): the line's height when it is level, else its mean height, in `note`. A fresh face subject that
 // cites more than one configured region refuses rather than picking one.
 DomainEditResult ApplyDomainCommand (geomsrv::edit::Document& doc, const DomainCommand& command);
 

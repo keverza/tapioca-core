@@ -789,9 +789,10 @@ TEST (EditPublishedTerrain, DerivedBoundarySurfaceRefusesAtTheBuildBoundary)
     terrain.effect = lg::RegionTerrainEffect::Grade;
     ASSERT_TRUE (lg::SetRegionTerrain (doc, subject, terrain, error)) << error;
 
-    // A union extends the subject's footprint to [0,15]x[0,10]: the derived
-    // object keeps the Boundary surface, and its target now leaves the authored
-    // height surface, which must refuse rather than invent heights.
+    // A union extends the subject's footprint to [0,15]x[0,10]. #188: the Boolean now gives a
+    // derived object Constant elevation, but a document saved before that still holds a derived
+    // object with Boundary curve Z and no boundary line of its own. Its surface target cannot be
+    // made, which must refuse rather than invent heights.
     const auto rootOf = [&] (edit::Id object) {
         const auto found = std::find_if (doc.landscape->objects.begin (), doc.landscape->objects.end (),
                                          [=] (const auto& candidate) { return candidate.id == object; });
@@ -805,6 +806,11 @@ TEST (EditPublishedTerrain, DerivedBoundarySurfaceRefusesAtTheBuildBoundary)
     command.operand.input = rootOf (operand);
     const auto applied = lg::ApplyDomainCommand (doc, command);
     ASSERT_TRUE (applied.ok) << applied.error;
+    for (auto& object : doc.landscape->objects)
+        if (object.id == applied.objectId) {
+            ASSERT_EQ (object.surface->elevation, lg::RegionElevationMode::Constant) << "#188";
+            object.surface->elevation = lg::RegionElevationMode::Boundary; // as saved before #188
+        }
 
     lg::Id terrainSource = 0;
     ASSERT_TRUE (lg::SetLandscapeTerrain (doc, doc.landscape->sourceTerrainGuid, terrainSource, error)) << error;

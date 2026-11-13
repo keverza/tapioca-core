@@ -1,6 +1,7 @@
 #include "Edit/EditLandscapeDomain.hpp"
 #include "Edit/EditDocument.hpp"
 #include <algorithm>
+#include <cstdio>
 #include <set>
 
 namespace tapioca::geometry {
@@ -18,9 +19,8 @@ bool SubjectOwner (const geomsrv::edit::Document& doc, Id subjectNode, const Dom
     if (!doc.landscape)
         return true;
     const auto& objects = doc.landscape->objects;
-    const auto byRoot =
-        std::find_if (objects.begin (), objects.end (),
-                      [=] (const auto& o) { return o.footprintOperation == subjectNode; });
+    const auto byRoot = std::find_if (objects.begin (), objects.end (),
+                                      [=] (const auto& o) { return o.footprintOperation == subjectNode; });
     if (byRoot != objects.end ()) {
         owner = &*byRoot;
         return true;
@@ -39,8 +39,44 @@ bool SubjectOwner (const geomsrv::edit::Document& doc, Id subjectNode, const Dom
         return false;
     }
     if (owners.size () == 1)
-        owner = &*std::find_if (objects.begin (), objects.end (),
-                                [&] (const auto& o) { return o.id == *owners.begin (); });
+        owner =
+            &*std::find_if (objects.begin (), objects.end (), [&] (const auto& o) { return o.id == *owners.begin (); });
+    return true;
+}
+
+// #188: Boundary curve Z resolves through an owned boundary line only (SetRegionSurface), and a
+// derived domain owns none, so its build could never make the surface target. It takes Constant
+// elevation instead: the subject's boundary height when that line is level (exactly what Boundary
+// gave there), else its mean height, said in `note`.
+bool DerivedElevation (const geomsrv::edit::Document& doc, const HardscapeObject& subject, RegionSurface& surface,
+                       std::string& note, std::string& error)
+{
+    const auto source = std::find_if (doc.landscape->sources.begin (), doc.landscape->sources.end (),
+                                      [&] (const auto& s) { return s.id == subject.boundarySource && !s.deleted; });
+    std::vector<Vec3> boundary;
+    bool closed = false;
+    if (source == doc.landscape->sources.end () || !LandscapeSourcePreview (doc, *source, boundary, closed, error) ||
+        boundary.empty ()) {
+        if (error.empty ())
+            error = "Domain subject: its Boundary curve Z has no live boundary line; choose Constant elevation first.";
+        return false;
+    }
+    double low = boundary.front ().z, high = low, sum = 0;
+    for (const auto& point : boundary) {
+        low = (std::min) (low, point.z), high = (std::max) (high, point.z);
+        sum += point.z;
+    }
+    const bool level = high - low <= 1e-3;
+    surface.elevation = RegionElevationMode::Constant;
+    surface.slope = RegionSlopeMode::None;
+    surface.first.z = level ? boundary.front ().z : sum / double (boundary.size ());
+    if (!level) {
+        char text[160];
+        std::snprintf (text, sizeof text,
+                       "The result is level at %.2f m, the mean of its boundary heights (%.2f to %.2f m).",
+                       surface.first.z, low, high);
+        note = text;
+    }
     return true;
 }
 
@@ -61,9 +97,8 @@ DomainEditResult ApplyDomainCommand (geomsrv::edit::Document& doc, const DomainC
     geomsrv::edit::Document candidate = doc;
     const auto nodeFor = [&] (const DomainOperand& operand, Id& node) {
         if (operand.input != kNoId) {
-            const bool source =
-                std::any_of (candidate.landscape->sources.begin (), candidate.landscape->sources.end (),
-                             [=] (const auto& s) { return s.id == operand.input && !s.deleted; });
+            const bool source = std::any_of (candidate.landscape->sources.begin (), candidate.landscape->sources.end (),
+                                             [=] (const auto& s) { return s.id == operand.input && !s.deleted; });
             const bool operation =
                 std::any_of (candidate.landscape->operations.begin (), candidate.landscape->operations.end (),
                              [=] (const auto& o) { return o.id == operand.input; });
@@ -120,6 +155,9 @@ DomainEditResult ApplyDomainCommand (geomsrv::edit::Document& doc, const DomainC
         // acceptance: inheritance is explicit, never copied from the operand).
         object.kind = subject->kind;
         object.surface = subject->surface;
+        if (object.surface && object.surface->elevation == RegionElevationMode::Boundary &&
+            !DerivedElevation (candidate, *subject, *object.surface, result.note, result.error))
+            return result;
         object.terrain = subject->terrain;
         object.baseMaterial = subject->baseMaterial;
         object.thickness = subject->thickness;

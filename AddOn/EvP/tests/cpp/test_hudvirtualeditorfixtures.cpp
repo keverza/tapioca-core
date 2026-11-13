@@ -7,6 +7,7 @@
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPrimitives.hpp"
 #include "Edit/EditVirtualEditorDump.hpp"
+#include "virtual_editor_debug_replay.hpp"
 #include <gtest/gtest.h>
 #include <cstdlib>
 #include <filesystem>
@@ -229,3 +230,30 @@ TEST (HudVirtualEditorFixtures, BooleanRefusedDumpReadsWithItsRefusal188)
     EXPECT_EQ (doc.landscape->objects.size (), 3u);
     EXPECT_EQ (header.error.rfind ("PropertyLineOutside", 0), 0u) << header.error;
 }
+
+#if defined(TAPIOCA_GEOMETRY_RUST)
+// #188, the cause. The Intersection in this dump kept its operands' Boundary curve Z, which a derived
+// region cannot resolve, and the build then stopped on the attributed region report: that stage splits
+// the mesh once per ring, and the Intersection's corners sit on the crossings its operands' splits
+// already placed, so it refused with PropertyLineOutside although there is no property line. The report
+// no longer refuses the build; the Boundary result refuses with what to do; once it is Constant (what a
+// Boolean now gives it) the scene builds.
+TEST (HudVirtualEditorFixtures, BooleanRefusedFixtureBuildsOnceTheResultIsConstant188)
+{
+    auto scene = debugreplay::Read (Load (FixtureFolder () / "editor-boolean-refused.json"));
+    const auto refused = debugreplay::Run (scene);
+    EXPECT_FALSE (refused.built);
+    EXPECT_NE (refused.error.find ("derived region"), std::string::npos) << refused.error;
+    EXPECT_EQ (refused.error.find ("PropertyLineOutside"), std::string::npos) << refused.error;
+    bool found = false;
+    for (auto& object : scene.doc.landscape->objects)
+        if (object.name == "Intersection") {
+            object.surface->elevation = lg::RegionElevationMode::Constant;
+            found = true;
+        }
+    ASSERT_TRUE (found);
+    const auto built = debugreplay::Run (scene);
+    EXPECT_TRUE (built.built) << built.error;
+    EXPECT_GT (built.result.build.triangles.size (), 0u);
+}
+#endif

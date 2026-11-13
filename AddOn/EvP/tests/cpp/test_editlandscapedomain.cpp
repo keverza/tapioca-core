@@ -32,9 +32,8 @@ edit::Id Source (edit::Document& doc, std::vector<edit::Vec3> points)
 // A RegionBoundary square with its auto-owned configured region object.
 edit::Id Region (edit::Document& doc, double x, double size = 10)
 {
-    const auto line = edit::AddPolyline (doc,
-                                         { { x, 0, 0 }, { x + size, 0, 0 }, { x + size, size, 0 }, { x, size, 0 } },
-                                         true);
+    const auto line =
+        edit::AddPolyline (doc, { { x, 0, 0 }, { x + size, 0, 0 }, { x + size, size, 0 }, { x, size, 0 } }, true);
     std::string error;
     EXPECT_TRUE (geo::SetLandscapeSourceRole (doc, line, geo::SourceRole::RegionBoundary, error)) << error;
     return doc.landscape->objects.back ().id;
@@ -56,9 +55,8 @@ void Configure (edit::Document& doc, edit::Id object)
 }
 const geo::HardscapeObject& Object (const edit::Document& doc, edit::Id id)
 {
-    const auto object =
-        std::find_if (doc.landscape->objects.begin (), doc.landscape->objects.end (),
-                      [=] (const auto& o) { return o.id == id; });
+    const auto object = std::find_if (doc.landscape->objects.begin (), doc.landscape->objects.end (),
+                                      [=] (const auto& o) { return o.id == id; });
     EXPECT_NE (object, doc.landscape->objects.end ());
     return *object;
 }
@@ -239,5 +237,61 @@ TEST (EditLandscapeDomain, UnknownOperandAndMissingOwnerRefuseAtomically)
         const auto applied = geo::ApplyDomainCommand (doc, command);
         EXPECT_FALSE (applied.ok);
         EXPECT_NE (applied.error.find ("no longer exists"), std::string::npos) << applied.error;
+    }
+}
+
+// #188: Boundary curve Z resolves through an owned boundary line only, and a derived output owns none,
+// so a Boolean of Boundary regions used to leave a result whose terrain build could never make its
+// surface target. The output takes Constant elevation: the subject line's height when it is level,
+// else its mean height, which the note says.
+TEST (EditLandscapeDomain, ABooleanOfBoundaryRegionsTakesConstantElevation188)
+{
+    const auto boundaryRegion = [] (edit::Document& doc, double x, std::vector<double> heights) {
+        const auto line = edit::AddPolyline (
+            doc, { { x, 0, heights[0] }, { x + 10, 0, heights[1] }, { x + 10, 10, heights[2] }, { x, 10, heights[3] } },
+            true);
+        std::string error;
+        EXPECT_TRUE (geo::SetLandscapeSourceRole (doc, line, geo::SourceRole::RegionBoundary, error)) << error;
+        const auto object = doc.landscape->objects.back ().id;
+        geo::RegionSurface surface;
+        surface.elevation = geo::RegionElevationMode::Boundary;
+        EXPECT_TRUE (geo::SetRegionSurface (doc, object, surface, {}, error)) << error;
+        geo::RegionTerrain terrain;
+        terrain.effect = geo::RegionTerrainEffect::Grade;
+        EXPECT_TRUE (geo::SetRegionTerrain (doc, object, terrain, error)) << error;
+        return object;
+    };
+    const auto intersect = [] (edit::Document& doc, edit::Id a, edit::Id b) {
+        geo::DomainCommand command;
+        command.kind = geo::OperationKind::Intersection;
+        command.name = "Intersection";
+        command.subject.input = Object (doc, a).footprintOperation;
+        command.operand.input = Object (doc, b).footprintOperation;
+        return geo::ApplyDomainCommand (doc, command);
+    };
+    {
+        auto doc = Start ();
+        const auto a = boundaryRegion (doc, 0, { 1.5, 1.5, 1.5, 1.5 });
+        const auto b = boundaryRegion (doc, 5, { 0, 0, 0, 0 });
+        const auto applied = intersect (doc, a, b);
+        ASSERT_TRUE (applied.ok) << applied.error;
+        const auto& output = Object (doc, applied.objectId);
+        EXPECT_EQ (output.boundarySource, 0u);
+        ASSERT_TRUE (output.surface.has_value ());
+        EXPECT_EQ (output.surface->elevation, geo::RegionElevationMode::Constant);
+        EXPECT_DOUBLE_EQ (output.surface->first.z, 1.5) << "the subject's level line, not the operand's";
+        EXPECT_TRUE (applied.note.empty ()) << applied.note;
+        EXPECT_EQ (Object (doc, a).surface->elevation, geo::RegionElevationMode::Boundary) << "operands unchanged";
+    }
+    {
+        auto doc = Start ();
+        const auto a = boundaryRegion (doc, 0, { 0, 1, 2, 1 });
+        const auto b = boundaryRegion (doc, 5, { 0, 0, 0, 0 });
+        const auto applied = intersect (doc, a, b);
+        ASSERT_TRUE (applied.ok) << applied.error;
+        const auto& output = Object (doc, applied.objectId);
+        EXPECT_EQ (output.surface->elevation, geo::RegionElevationMode::Constant);
+        EXPECT_NEAR (output.surface->first.z, 1.0, 1e-9);
+        EXPECT_NE (applied.note.find ("mean"), std::string::npos) << applied.note;
     }
 }

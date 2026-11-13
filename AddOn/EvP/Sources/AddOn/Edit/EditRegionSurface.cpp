@@ -154,8 +154,12 @@ bool BuildRegionSurfaceMesh (const geomsrv::edit::Document& doc, const Hardscape
         bool closed = false;
         if (source == doc.landscape->sources.end () ||
             !LandscapeSourcePreview (doc, *source, boundary, closed, error) || !closed) {
+            // #188: a Boolean result saved before it took Constant elevation lands here; say the fix.
             if (error.empty ())
-                error = "RegionSurface: live closed boundary required";
+                error = object.boundarySource == kNoId
+                            ? "RegionSurface: a derived region (a Boolean result) has no boundary line for "
+                              "Boundary curve Z; set its elevation to Constant"
+                            : "RegionSurface: live closed boundary required";
             return false;
         }
         DerivedRegion authored;
