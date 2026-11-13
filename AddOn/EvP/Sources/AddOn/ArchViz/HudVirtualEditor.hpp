@@ -25,6 +25,7 @@
 #include "Edit/EditSnap.hpp"
 #include "Edit/EditTracker.hpp"
 #include "Edit/EditWorkingPlane.hpp"
+#include <chrono>
 #include <optional>
 #include <memory>
 #include <array>
@@ -219,11 +220,30 @@ struct Session {
     // Durable drafts (#159, HudVirtualEditorDraft.cpp). `draftClean` is the authored content at
     // the session's start or its last durable save/open: unsaved work is a difference from it.
     struct DraftRequest {
-        enum class Kind : uint8_t { Save, Open, List };
+        // Snapshot / Scan / Recover / DiscardRecovery / Forget: #159 D2 recovery (Drafts\Recovery).
+        enum class Kind : uint8_t { Save, Open, List, Snapshot, Scan, Recover, DiscardRecovery, Forget };
         Kind kind = Kind::List;
-        std::string file;        // the file name in the drafts folder (Save, Open)
+        std::string file;        // the file name in the drafts (or recovery) folder
         bool closeAfter = false; // Save from the unsaved-work prompt: close once it is on disk
     };
+    // #159 D2: unsaved work from an interrupted session, found in the recovery folder.
+    struct RecoveryOffer {
+        std::string file, savedUtc, terrain;
+        uint64_t revision = 0;
+        size_t objects = 0;
+        bool operator== (const RecoveryOffer&) const = default;
+    };
+    // This session's recovery file stem (random, per editor session: never a document's own id,
+    // so a reopened document cannot overwrite the recovery of its crashed predecessor).
+    std::string recoveryId;
+    bool recoveryEnabled = true;  // "Keep recovery snapshots"
+    bool recoveryWritten = false; // this session's recovery file exists
+    bool recoveryScanned = false;
+    uint64_t recoveryRevision = UINT64_MAX; // last revision written (or found clean)
+    uint64_t recoverySeenRevision = UINT64_MAX;
+    std::chrono::steady_clock::time_point recoveryChanged {}, recoveryAttempt {};
+    std::string recoveryStatus; // "Recovery snapshot 14:02:11 UTC" or why there is none
+    std::vector<RecoveryOffer> recoveries;
     std::string draftName = "Untitled";
     std::string draftFile;    // what this session last saved to or opened from; empty before either
     std::string draftSavedAt; // UTC of that save, or the opened draft's own

@@ -719,6 +719,8 @@ void Panel (Session& s)
 bool Follow (Session& s, overlaylayers::Layer& layer)
 {
     PollTerrainDesign (s);
+    // #159 D2: a recovery snapshot when one is due; the hosts drain it as they drain a draft save.
+    PostRecovery (s, std::chrono::steady_clock::now ());
     const auto& doc = Doc (s);
     if (doc.landscape)
         Landscape (s);
