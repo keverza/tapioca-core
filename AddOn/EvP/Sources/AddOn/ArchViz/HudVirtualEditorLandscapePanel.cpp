@@ -38,6 +38,54 @@ void ReferenceLinesPanel (Session& s)
     ImGui::EndDisabled ();
 }
 } // namespace
+// #191: the Outliner's two landscape views, as the Operations and Warnings tabs drew them.
+void detail::OperationsTab (Session& s)
+{
+    RecipePanel (s); // #105: the compiled terrain recipe, read-only
+    auto operations = s.edits.Doc ().landscape->operations;
+    // The authored footprint steps in storage order. Their checkbox is a footprint bypass
+    // (a disabled step passes its first input through), not the object's terrain effect.
+    if (!ImGui::CollapsingHeader ("Footprint steps (authored order)"))
+        operations.clear ();
+    else if (operations.empty ())
+        ImGui::TextDisabled ("No authored operations.");
+    for (const auto& operation : operations) {
+        if (IsLandscapeFaceSet (operation))
+            continue;
+        ImGui::PushID (std::to_string (operation.id).c_str ());
+        bool enabled = operation.enabled;
+        if (ImGui::Checkbox ("Footprint on", &enabled)) {
+            const auto id = operation.id;
+            if (!s.edits.Apply ([id, enabled] (edit::Document& doc, std::string& error) {
+                    return lg::SetLandscapeOperationEnabled (doc, id, enabled, error);
+                }))
+                s.message = s.edits.Message ();
+        }
+        if (ImGui::IsItemHovered ())
+            geomsrv::archviz::hudshell::HoverTip (
+                "Off bypasses this step: its first input passes through. The owner's "
+                "terrain effect is unchanged; set Effect to None to remove it from the "
+                "terrain recipe.");
+        ImGui::SameLine ();
+        ImGui::Text ("%s %llu   %zu inputs", lg::RecipeOperationName (operation.kind),
+                     static_cast<unsigned long long> (operation.id), operation.inputs.size ());
+        ImGui::PopID ();
+    }
+}
+void detail::WarningsTab (Session& s)
+{
+    Landscape (s);
+    if (!s.edits.Doc ().landscape->propertyLineSourceId)
+        ImGui::TextWrapped ("No property line: the captured terrain boundary limits region/path grading.");
+    if (s.landscape.diagnostics.empty () && s.landscape.planarDiagnostics.empty () && s.landscape.error.empty ())
+        ImGui::TextDisabled ("No evaluation warnings.");
+    for (const auto& warning : s.landscape.diagnostics)
+        ImGui::TextWrapped ("%s: %s", lg::LandscapeDiagnosticCodeName (warning.code), warning.message.c_str ());
+    for (const auto& warning : s.landscape.planarDiagnostics)
+        ImGui::TextWrapped ("%s: %s", lg::PlanarDiagnosticCodeName (warning.code), warning.message.c_str ());
+    if (!s.landscape.error.empty ())
+        ImGui::TextWrapped ("%s", s.landscape.error.c_str ());
+}
 void LandscapePanel (Session& s)
 {
     if (!s.edits.Doc ().landscape)
@@ -79,18 +127,6 @@ void LandscapePanel (Session& s)
     if (ImGui::Button ("Intersection"))
         BeginLandscapeCommand (s, lg::OperationKind::Intersection);
     ImGui::EndDisabled ();
-    if (s.landscapeCommand) {
-        const auto kind = s.landscapeCommand->kind;
-        ImGui::TextUnformatted (kind == lg::OperationKind::Union        ? "Union"
-                                : kind == lg::OperationKind::Difference ? "Subtract"
-                                                                        : "Intersection");
-    }
-    ImGui::TextWrapped ("%s", LandscapeCommandPrompt (s));
-    if (s.landscapeCommand) {
-        ImGui::Text ("%zu shapes picked", s.landscapeCommand->picks.size ());
-        if (ImGui::SmallButton ("Cancel (Esc)"))
-            CancelLandscapeCommand (s);
-    }
     ImGui::BeginDisabled (s.landscapeCommand.has_value ());
     if (hudshell::BeginSubTabs ("##landscape")) {
         if (ImGui::BeginTabItem ("Sources")) {
@@ -147,56 +183,8 @@ void LandscapePanel (Session& s)
                 RegionPanel (s);
             ImGui::EndTabItem ();
         }
-        if (ImGui::BeginTabItem ("Operations")) {
-            RecipePanel (s); // #105: the compiled terrain recipe, read-only
-            auto operations = s.edits.Doc ().landscape->operations;
-            // The authored footprint steps in storage order. Their checkbox is a footprint bypass
-            // (a disabled step passes its first input through), not the object's terrain effect.
-            if (!ImGui::CollapsingHeader ("Footprint steps (authored order)"))
-                operations.clear ();
-            else if (operations.empty ())
-                ImGui::TextDisabled ("No authored operations.");
-            for (const auto& operation : operations) {
-                if (IsLandscapeFaceSet (operation))
-                    continue;
-                ImGui::PushID (std::to_string (operation.id).c_str ());
-                bool enabled = operation.enabled;
-                if (ImGui::Checkbox ("Footprint on", &enabled)) {
-                    const auto id = operation.id;
-                    if (!s.edits.Apply ([id, enabled] (edit::Document& doc, std::string& error) {
-                            return lg::SetLandscapeOperationEnabled (doc, id, enabled, error);
-                        }))
-                        s.message = s.edits.Message ();
-                }
-                if (ImGui::IsItemHovered ())
-                    geomsrv::archviz::hudshell::HoverTip (
-                        "Off bypasses this step: its first input passes through. The owner's "
-                        "terrain effect is unchanged; set Effect to None to remove it from the "
-                        "terrain recipe.");
-                ImGui::SameLine ();
-                ImGui::Text ("%s %llu   %zu inputs", lg::RecipeOperationName (operation.kind),
-                             static_cast<unsigned long long> (operation.id), operation.inputs.size ());
-                ImGui::PopID ();
-            }
-            ImGui::EndTabItem ();
-        }
         if (ImGui::BeginTabItem ("Materials")) {
             RegionPanel (s, true);
-            ImGui::EndTabItem ();
-        }
-        if (ImGui::BeginTabItem ("Warnings")) {
-            Landscape (s);
-            if (!s.edits.Doc ().landscape->propertyLineSourceId)
-                ImGui::TextWrapped ("No property line: the captured terrain boundary limits region/path grading.");
-            if (s.landscape.diagnostics.empty () && s.landscape.planarDiagnostics.empty () &&
-                s.landscape.error.empty ())
-                ImGui::TextDisabled ("No evaluation warnings.");
-            for (const auto& warning : s.landscape.diagnostics)
-                ImGui::TextWrapped ("%s: %s", lg::LandscapeDiagnosticCodeName (warning.code), warning.message.c_str ());
-            for (const auto& warning : s.landscape.planarDiagnostics)
-                ImGui::TextWrapped ("%s: %s", lg::PlanarDiagnosticCodeName (warning.code), warning.message.c_str ());
-            if (!s.landscape.error.empty ())
-                ImGui::TextWrapped ("%s", s.landscape.error.c_str ());
             ImGui::EndTabItem ();
         }
         hudshell::EndSubTabs ();

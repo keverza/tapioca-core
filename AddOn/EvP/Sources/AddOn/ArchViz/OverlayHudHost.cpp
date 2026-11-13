@@ -493,6 +493,11 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
                 return;
             }
     };
+    // #191: the virtual editor's command bar and toolbar stay over its page while it scrolls.
+    spec.header = [&] (const std::string& k) {
+        if (store->virtualEditor && LayerOf (k) == editlayers::kLayer)
+            edithud::PanelHeader (*store->virtualEditor);
+    };
     std::vector<std::string> titledPanelKeys;
     titledPanelKeys.reserve (titled.size ());
     for (const size_t i : titled)

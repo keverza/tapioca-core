@@ -157,6 +157,14 @@ void DrawNative (NativePreview& p, Value& state, ImVec2 stageMin, ImVec2 stageMa
         spec.dockHorizontal = p.dock.horizontal;
         spec.tabs = visibleTabs ();
         spec.textInput = p.navigation.workflow != "@editor";
+        // As the add-on's host does (#191): the editor's command bar and toolbar over its page.
+        spec.header = [&] (const std::string& key) {
+            if (key != "@editor")
+                return;
+            ImGui::PushItemWidth (ImGui::GetContentRegionAvail ().x * 0.5f);
+            av::edithud::PanelHeader (p.mocks.editor);
+            ImGui::PopItemWidth ();
+        };
         const auto result = shell::Host (
             spec, p.held, p.shown, p.placement,
             [&] (const std::string& key) {

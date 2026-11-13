@@ -77,6 +77,15 @@ edit::Vec3 SnappedTranslation (const Session& s, edit::Vec3 at);
 // input layer handed over. Absent, the query keeps the plane metric alone.
 void ScreenPointer (const Session& s, const Map& m, ImVec2 mouse, float scale, edit::SnapQuery& q);
 void ScreenFlush (const Session& s, const Map& m, ImVec2 mouse, float scale, edit::SnapQuery& q);
+// #191's four areas of the panel (PanelHeader draws A and B, Panel C and D), and the pieces the
+// Inspector and the Outliner hold: the selected path's profile, the landscape recipe and warnings.
+void CommandBar (Session& s);
+void Toolbar (Session& s);
+void Inspector (Session& s);
+void Outliner (Session& s);
+void ProfileEditor (Session& s);
+void OperationsTab (Session& s);
+void WarningsTab (Session& s);
 void SnapControls (Session& s);
 void DuplicateOffsetControls (Session& s);
 // Rectangular array: a selection/revision/tool-bound draft with an outline-only cached preview.

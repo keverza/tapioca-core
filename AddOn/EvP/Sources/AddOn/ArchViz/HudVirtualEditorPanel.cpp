@@ -199,211 +199,10 @@ void detail::BreakSmoothingControl (Session& s, const edit::Path& path, size_t i
     ImGui::SameLine ();
 }
 
-void Panel (Session& s)
+// The profile canvas of the path ProfilePath names: its radius, break and fall controls above it.
+void detail::ProfileEditor (Session& s)
 {
     const auto& doc = Doc (s);
-    s.profilePlaced.clear (); // the canvas republishes its labels every frame
-    SettleWidgetGesture (s);
-    ClosePrompt (s);
-    TerrainActivityBadge (s);
-    LandscapePanel (s);
-    ImGui::Text ("%zu objects   %zu paths   %zu selected", doc.entities.size (), doc.paths.size (),
-                 s.selection.Items ().size ());
-    ImGui::BeginDisabled (s.debugExportRequested || s.edits.InGesture () || !s.drawing.empty () || s.terrainCapture ||
-                          s.draftingImport || GizmoModeLocked (s) || s.landscapeCommand);
-    if (ImGui::Button (s.debugExportRequested ? "Export requested..." : "Export debug scene"))
-        RequestDebugExport (s);
-    ImGui::EndDisabled ();
-    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        geomsrv::archviz::hudshell::HoverTip (
-            "Save paths, fillet settings, captured topography and current design to a new JSON file "
-            "in %%LOCALAPPDATA%%\\Tapioca\\dumps. Export before and after a problematic edit.");
-    if (!s.debugExportPath.empty ())
-        ImGui::TextWrapped ("Debug scene saved: %s", s.debugExportPath.c_str ());
-    if (!s.debugExportError.empty ())
-        ImGui::TextWrapped ("Debug export failed: %s", s.debugExportError.c_str ());
-    ImGui::BeginDisabled (s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s));
-    if (ImGui::RadioButton ("Select (V)", s.tool == Tool::Select))
-        SetTool (s, Tool::Select), s.landscapeMode = LandscapeMode::Select, s.drawing.clear ();
-    ImGui::SameLine ();
-    if (ImGui::RadioButton ("Polyline (L)", s.tool == Tool::Polyline))
-        SetTool (s, Tool::Polyline), s.landscapeMode = LandscapeMode::DrawSource;
-    ImGui::SameLine ();
-    if (ImGui::RadioButton ("Path (P)", s.tool == Tool::Path))
-        SetTool (s, Tool::Path), s.landscapeMode = LandscapeMode::DrawSource;
-    ImGui::SameLine ();
-    if (ImGui::RadioButton ("Curve (B)", s.tool == Tool::Curve))
-        SetTool (s, Tool::Curve), s.landscapeMode = LandscapeMode::DrawSource;
-    if (ImGui::RadioButton ("Rectangle (Q)", s.tool == Tool::Rectangle))
-        SetTool (s, Tool::Rectangle), s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
-    ImGui::SameLine ();
-    if (ImGui::RadioButton ("Polygon (N)", s.tool == Tool::Polygon))
-        SetTool (s, Tool::Polygon), s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
-    ImGui::SameLine ();
-    if (ImGui::RadioButton ("Ellipse (O)", s.tool == Tool::Ellipse))
-        SetTool (s, Tool::Ellipse), s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
-    ImGui::SameLine ();
-    if (ImGui::RadioButton ("Mirror (M)", s.tool == Tool::Mirror))
-        ToolKey (s, 'M');
-    ImGui::SameLine ();
-    if (ImGui::RadioButton ("Trim (X)", s.tool == Tool::Trim))
-        ToolKey (s, 'X');
-    if (s.tool == Tool::Mirror) {
-        ImGui::Checkbox ("Keep original", &s.mirrorKeeps);
-        ImGui::SameLine ();
-        ImGui::TextDisabled ("Click the mirror line's two points. Ctrl: the other way.");
-    }
-    if (s.tool == Tool::Trim)
-        ImGui::TextDisabled ("Hover a straight segment; click the highlighted span. Esc exits Trim.");
-    if (s.tool == Tool::Polygon) {
-        ImGui::SetNextItemWidth (120);
-        ImGui::SliderInt ("Sides (Up/Down)", &s.polygonSides, 3, edit::kMaxPolygonSides);
-    }
-    if (ShapeTool (s.tool))
-        ImGui::TextDisabled ("Click a corner or centre, then the size. Shift: square, circle.");
-    // Archicad's own drafting brought in as editor lines: what is selected in Archicad now.
-    ImGui::BeginDisabled (s.draftingImport || s.edits.InGesture () || !s.drawing.empty ());
-    if (ImGui::SmallButton (s.draftingImport ? "Adding Archicad lines..." : "Add selected Archicad lines and fills"))
-        s.draftingImport = true, s.draftingImportAs = "lines";
-    // The same selection as a landscape's reference outlines, or its doors as entrances.
-    if (s.edits.Doc ().landscape) {
-        const struct {
-            const char *label, *as;
-        } refs[] = { { "As property line", "property" },
-                     { "As building outline", "building" },
-                     { "Doors as entrances", "entrances" } };
-        for (size_t i = 0; i < std::size (refs); ++i) {
-            if (i)
-                ImGui::SameLine ();
-            if (ImGui::SmallButton (refs[i].label))
-                s.draftingImport = true, s.draftingImportAs = refs[i].as;
-        }
-    }
-    ImGui::EndDisabled ();
-    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        geomsrv::archviz::hudshell::HoverTip (
-            "Lines, polylines, arcs, circles and fill outlines selected in Archicad, at the "
-            "working plane's height. One undo step.");
-    // How a drag from empty space (or from inside an unselected region) selects; Ctrl at the
-    // press takes the other one for that drag.
-    if (ImGui::RadioButton ("Window select", !s.lasso))
-        s.lasso = false;
-    ImGui::SameLine ();
-    if (ImGui::RadioButton ("Lasso select", s.lasso))
-        s.lasso = true;
-    ImGui::SameLine ();
-    ImGui::TextDisabled ("Ctrl-drag: the other");
-    // The gumball holds applicable transforms; the same table gates individual modes, and a
-    // mode waits while a gesture or a typed value owns the control.
-    const bool locked = GizmoModeLocked (s);
-    ImGui::BeginDisabled (locked);
-    if (ImGui::RadioButton ("Gumball", s.gizmo == edit::GizmoMode::Gumball))
-        SetGizmoMode (s, edit::GizmoMode::Gumball);
-    ImGui::EndDisabled ();
-    const char* modes[] = { "Move (G)", "Rotate (R)", "Scale (S)", "Stretch (T)", "Extrude (E)" };
-    for (int i = 0; i < 5; ++i) {
-        ImGui::SameLine ();
-        ImGui::BeginDisabled (locked || !GizmoAvailable (s, edit::GizmoMode (i)));
-        if (ImGui::RadioButton (modes[i], int (s.gizmo) == i))
-            SetGizmoMode (s, edit::GizmoMode (i));
-        ImGui::EndDisabled ();
-    }
-    SnapControls (s);
-    if (ImGui::RadioButton ("Local axes", s.localAxes))
-        s.localAxes = true;
-    ImGui::SameLine ();
-    if (ImGui::RadioButton ("World axes", !s.localAxes))
-        s.localAxes = false;
-    ImGui::EndDisabled ();
-    PlaneControls (s);
-    // The grading guide: the paths' contour lines and their heights.
-    bool shown = s.contours;
-    if (ImGui::Checkbox ("Contours", &shown))
-        s.contours = shown, s.publishedRevision = UINT64_MAX; // the layer draws them
-    if (s.contours) {
-        static const double steps[] = { 0.0, 0.05, 0.1, 0.25, 0.5, 1.0 };
-        char preview[32];
-        if (s.contourStep > 0.0)
-            std::snprintf (preview, sizeof preview, "%g m", s.contourStep);
-        else
-            std::snprintf (preview, sizeof preview, "Auto (%g m)", s.contoursInterval);
-        ImGui::SameLine ();
-        ImGui::SetNextItemWidth (110.0f);
-        if (ImGui::BeginCombo ("##contourStep", preview)) {
-            for (const double step : steps) {
-                char label[32];
-                std::snprintf (label, sizeof label, step > 0.0 ? "%g m" : "Auto", step);
-                if (ImGui::Selectable (label, step == s.contourStep))
-                    s.contourStep = step, s.publishedRevision = UINT64_MAX;
-            }
-            ImGui::EndCombo ();
-        }
-        hudshell::Tip ("Height between contour lines", hudshell::TipSide::Above);
-    }
-    ImGui::BeginDisabled (s.drag != Drag::None || s.profileTyping);
-    if (ImGui::SmallButton ("Undo"))
-        History (s, true);
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Redo"))
-        History (s, false);
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Delete"))
-        DeleteSelection (s);
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Done"))
-        RequestClose (s);
-    // Context actions for what is selected.
-    // An action with nothing to do here is shown greyed, as the menu shows it.
-    bool offers = false, offset = false;
-    for (const edit::Action* a : edit::Applicable (Actions (s), s.selection, edit::ViewKind::Plan)) {
-        const auto op = a->make (doc, s.selection.Items ());
-        if (offers)
-            ImGui::SameLine ();
-        offers = true;
-        offset = offset || a->id == "offset";
-        ImGui::BeginDisabled (!op);
-        if (ImGui::SmallButton (a->label.c_str ())) {
-            const edit::Id since = doc.nextId;
-            if (!s.edits.Apply (op))
-                s.message = s.edits.Message ();
-            SelectMade (s, since);
-        }
-        ImGui::EndDisabled ();
-    }
-    // Its distance comes after the rows: changing it rebuilds the table they point into.
-    if (offset) {
-        float distance = float (s.actionDefaults.offsetDistance);
-        ImGui::SetNextItemWidth (110.0f);
-        if (ImGui::DragFloat ("Offset distance", &distance, 0.01f, -50.0f, 50.0f, "%.2f m"))
-            s.actionDefaults.offsetDistance = double (distance);
-        hudshell::Tip ("Positive: outside a closed outline or left of a line. Negative: inside or right.",
-                       hudshell::TipSide::Above);
-        OffsetJoinControl (s);
-        OffsetMiterLimitControl (s);
-    }
-    DuplicateOffsetControls (s);
-    RectangularArrayControls (s);
-    BooleanControls (s);
-    ImGui::EndDisabled ();
-    OrganizeControls (s);
-    EllipseControls (s);
-
-    // What is selected, measured: the tracker's values (type a number over the view to set one).
-    if (s.tracker.State () != edit::TrackerState::Hidden && !s.tracker.Items ().empty ()) {
-        ImGui::Separator ();
-        for (size_t i = 0; i < s.tracker.Items ().size (); ++i) {
-            const auto& item = s.tracker.Items ()[i];
-            const bool typing = s.tracker.State () == edit::TrackerState::Editing && i == s.tracker.Focus ();
-            const std::string value =
-                typing ? s.tracker.Text () + "_"
-                       : editlayers::FormatValue (item.quantity, item.locked ? item.lockedValue : item.value);
-            ImGui::Text ("%s  %s%s", edit::QuantityName (item.quantity), value.c_str (),
-                         item.locked ? "  (locked)" : "");
-            if (i + 1 < s.tracker.Items ().size ())
-                ImGui::SameLine (0.0f, 18.0f);
-        }
-    }
-
     const edit::Path* path = ProfilePath (s);
     if (path != nullptr) {
         s.profilePath = path->id;
@@ -710,10 +509,26 @@ void Panel (Session& s)
                 "Drag breaks and tangents, or a break's nubs to smooth it; double-click adds a break. Grades snap to "
                 "0.5 %%.");
     }
-    if (!s.message.empty ()) {
-        ImGui::Separator ();
-        ImGui::TextWrapped ("%s", s.message.c_str ());
-    }
+}
+
+// #191: the panel in four areas. The host pins PanelHeader (the command bar and the toolbar) over
+// the page; Panel is the page (the Inspector and the Outliner). A host that pins nothing gets the
+// header at the top of the page instead, so every control is drawn by every host.
+void PanelHeader (Session& s)
+{
+    s.panelHeaderFrame = ImGui::GetFrameCount ();
+    s.profilePlaced.clear (); // the canvas republishes its labels every frame
+    SettleWidgetGesture (s);
+    CommandBar (s);
+    Toolbar (s);
+}
+
+void Panel (Session& s)
+{
+    if (s.panelHeaderFrame != ImGui::GetFrameCount ())
+        PanelHeader (s);
+    Inspector (s);
+    Outliner (s);
 }
 
 bool Follow (Session& s, overlaylayers::Layer& layer)

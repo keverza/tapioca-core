@@ -453,6 +453,7 @@ struct Session {
     std::string labelText;
     std::vector<edit::Ref> publishedSelection;
     std::string message;
+    int panelHeaderFrame = -1; // the ImGui frame PanelHeader last drew in
     bool debugExportRequested = false;
     uint64_t debugExportRevision = 0;
     std::string debugExportPath, debugExportError;
@@ -481,7 +482,10 @@ constexpr char kPanelTitle[] = "Virtual editor";
 void OnView (Session& session, const overlayhud::Input& view, bool hovered, float scale);
 // Keys and edit actions, once per layout (not once per ImGui frame).
 void Keys (Session& session, const overlayhud::Input& view, bool textInput);
-// The host panel: tools, context actions, the selected path's profile.
+// The host panel (#191): PanelHeader is what a host pins over its page -- the command bar and the
+// toolbar -- and Panel the page itself: the Inspector (context actions, the selected path's
+// profile) and the Outliner. Panel draws the header first when the host did not this frame.
+void PanelHeader (Session& session);
 void Panel (Session& session);
 // The layer to publish when the document or the selection moved on; false when the
 // published one is current.
