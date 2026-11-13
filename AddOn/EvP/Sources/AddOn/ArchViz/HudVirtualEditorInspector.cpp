@@ -57,7 +57,7 @@ void detail::Inspector (Session& s)
     ImGui::BeginDisabled (s.drag != Drag::None || s.profileTyping);
     // Context actions for what is selected.
     // An action with nothing to do here is shown greyed, as the menu shows it.
-    // #191 U2: Delete heads the row, away from Done in the command bar; the Delete key is unchanged.
+    // #191 U2: Delete heads the row, away from Exit in the command bar; the Delete key is unchanged.
     if (ImGui::SmallButton ("Delete"))
         DeleteSelection (s);
     bool offers = true, offset = false;

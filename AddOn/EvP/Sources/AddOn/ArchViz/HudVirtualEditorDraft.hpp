@@ -36,7 +36,7 @@ struct Session;
 // Whether the authored content differs from the last durable save or open (or from the
 // session's start, before either). Cached per document revision.
 bool DraftDirty (Session& session);
-// Done / Esc / Close: closes at once with nothing unsaved; with unsaved landscape work it
+// Exit / Esc / Close: closes at once with nothing unsaved; with unsaved landscape work it
 // asks first (Session::closePrompt).
 void RequestClose (Session& session);
 // Requests; false (with the reason in `message`) while input is unfinished or the name is

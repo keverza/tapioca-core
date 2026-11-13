@@ -186,7 +186,7 @@ TEST (HudVirtualEditorDraft, ClosingWithUnsavedWorkAsksAndEachAnswerDoesWhatItSa
     {
         eh::Session s (Started ());
         eh::RequestClose (s);
-        EXPECT_TRUE (s.close) << "nothing unsaved: Done closes at once";
+        EXPECT_TRUE (s.close) << "nothing unsaved: Exit closes at once";
     }
     {
         eh::Session s (Started ());
@@ -315,7 +315,7 @@ TEST (HudVirtualEditorDraft, RecoverySnapshotsCommittedUnsavedWorkWhenQuietAndAU
     EXPECT_FALSE (fs::exists (OwnRecovery (s, folder))) << "saved: nothing left to recover";
     EXPECT_FALSE (Tick (s, folder, t2 + std::chrono::seconds (100)));
 
-    // Unsaved again, snapshotted, then back to the saved content: a clean Done deletes it.
+    // Unsaved again, snapshotted, then back to the saved content: a clean Exit deletes it.
     const auto t3 = t2 + std::chrono::seconds (200);
     Draw (s, 40);
     Tick (s, folder, t3);

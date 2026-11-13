@@ -55,7 +55,7 @@ Shared enable terms:
 | *contour step combo* (`##contourStep`) | `Panel` | Panel.cpp:333 | `s.contourStep`, republish | contours on | action: as above | B (Contours popover) | - |
 | Undo / Redo | `Panel` | Panel.cpp:346-350 | `History` | not EditLock | action: HudVirtualEditorDraft and HudLandscape undo tests | A | - |
 | Delete | `Panel` | Panel.cpp:352 | `DeleteSelection` | not EditLock | action: RoofSlope.DeleteChangesOnlyTheVirtualFootprintAndCanBeUndone | C (action row; the Delete key is unchanged) | all |
-| Done | `Panel` | Panel.cpp:355 | `RequestClose` | not EditLock | action: HudVirtualEditorDraft.ClosingWithUnsavedWorkAsksAndEachAnswerDoesWhatItSays | A (right edge) | - |
+| Exit | `CommandBar` | CommandBar.cpp:240 | `RequestClose` | not EditLock | action: HudVirtualEditorDraft.ClosingWithUnsavedWorkAsksAndEachAnswerDoesWhatItSays | A (right edge) | - |
 | *one button per applicable action* (Offset, Join, Duplicate...) | `Panel` | Panel.cpp:360-373 | `edit::Applicable (Actions (s))`, then `s.edits.Apply (op)`, `SelectMade` | not EditLock; greyed when the action makes no op | action: EditSelection.ActionsComeFromTheTable | C (action row) | all |
 | Offset distance | `Panel` | Panel.cpp:378 | `actionDefaults.offsetDistance` | Offset is offered | action: EditPolyline.OffsetCopyGoesOutsideARingOfEitherWindingAndLeftOfALine | C (with Offset) | all |
 | Offset join | `detail::OffsetJoinControl` | Panel.cpp:81 | the offset join setting | Offset is offered | none | C (with Offset) | all |

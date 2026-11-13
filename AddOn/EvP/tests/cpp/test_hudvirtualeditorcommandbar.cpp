@@ -1,5 +1,5 @@
 // #191 U2: the virtual editor's command bar -- the build state chip, a refusal that stays until a
-// newer build succeeds, a Cancel for every running command, and Done apart from Delete.
+// newer build succeeds, a Cancel for every running command, and Exit apart from Delete.
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
@@ -166,8 +166,8 @@ TEST (HudVirtualEditorCommandBar, CancelIsReachableDuringEveryCommand191)
     }
 }
 
-// The destructive action is not beside the exit: Done is in the command bar, Delete is not.
-TEST (HudVirtualEditorCommandBar, DoneAndDeleteAreNotAdjacent191)
+// The destructive action is not beside the exit: Exit is in the command bar, Delete is not.
+TEST (HudVirtualEditorCommandBar, ExitAndDeleteAreNotAdjacent191)
 {
     edit::Document doc;
     const auto a = Square (doc, 0, 0, 4);
@@ -175,7 +175,7 @@ TEST (HudVirtualEditorCommandBar, DoneAndDeleteAreNotAdjacent191)
     s.selection.Set ({ { a, edit::Part::Entity, 0 } });
     Gui gui;
     const auto bar = gui.Frame ([&] { eh::detail::CommandBar (s); });
-    EXPECT_NE (bar.find ("Done"), std::string::npos) << bar;
+    EXPECT_NE (bar.find ("Exit"), std::string::npos) << bar;
     EXPECT_EQ (bar.find ("Delete"), std::string::npos) << bar;
     const auto inspector = gui.Frame ([&] { eh::detail::Inspector (s); });
     EXPECT_NE (inspector.find ("Delete"), std::string::npos) << "Delete is in the Inspector's action row";

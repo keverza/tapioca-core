@@ -10,7 +10,7 @@
 #include <string>
 
 // #191 area A, the command bar: pinned over the page. Row 1: the terrain build's state, Undo, Redo,
-// the File menu and, apart at the right edge, Done. Row 2, always there so the panel does not jump:
+// the File menu and, apart at the right edge, Exit. Row 2, always there so the panel does not jump:
 // the running command, what it asks for and its Apply and Cancel; else the last message or the
 // active tool's hint.
 namespace geomsrv::archviz::edithud {
@@ -19,7 +19,7 @@ namespace lg = tapioca::geometry;
 
 Chip ChipState (const TerrainDesignStatus& status, const std::string& refusal)
 {
-    // At 320 px row 1 leaves the chip about one word beside Undo, Redo, File and Done (#191 U0):
+    // At 320 px row 1 leaves the chip about one word beside Undo, Redo, File and Exit (#191 U0):
     // the refusal's code and sentence are row 2's while no command runs.
     if (!refusal.empty ())
         return { ChipKind::Refused, "Refused", refusal };
@@ -132,10 +132,10 @@ void BuildChip (Session& s)
     if (tinted)
         ImGui::PushStyleColor (ImGuiCol_Text, chip.kind == ChipKind::Refused ? IM_COL32 (220, 38, 38, 255)
                                                                              : IM_COL32 (245, 158, 11, 255));
-    // What row 1 leaves it: Undo, Redo, File and Done keep their full labels.
+    // What row 1 leaves it: Undo, Redo, File and Exit keep their full labels.
     const float spacing = ImGui::GetStyle ().ItemSpacing.x;
     const float room = ImGui::GetContentRegionAvail ().x - ButtonWidth ("Undo") - ButtonWidth ("Redo") -
-                       ButtonWidth ("File") - ButtonWidth ("Done") - 5.0f * spacing;
+                       ButtonWidth ("File") - ButtonWidth ("Exit") - 5.0f * spacing;
     std::string shown = chip.text;
     while (shown.size () > 4 && ButtonWidth ((shown + "...").c_str ()) > room)
         shown.pop_back ();
@@ -233,11 +233,11 @@ void detail::CommandBar (Session& s)
     ImGui::EndDisabled ();
     ImGui::SameLine ();
     FileMenu (s);
-    // Done stands apart at the right edge; Delete is in the Inspector's action row and on its key.
-    const float done = ButtonWidth ("Done");
-    ImGui::SameLine ((std::max) (ImGui::GetCursorPosX (), ImGui::GetWindowContentRegionMax ().x - done));
+    // Exit stands apart at the right edge; Delete is in the Inspector's action row and on its key.
+    const float exitWidth = ButtonWidth ("Exit");
+    ImGui::SameLine ((std::max) (ImGui::GetCursorPosX (), ImGui::GetWindowContentRegionMax ().x - exitWidth));
     ImGui::BeginDisabled (s.drag != Drag::None || s.profileTyping);
-    if (ImGui::SmallButton ("Done"))
+    if (ImGui::SmallButton ("Exit"))
         RequestClose (s);
     ImGui::EndDisabled ();
     PromptRow (s);
