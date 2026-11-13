@@ -144,6 +144,10 @@ void PlaceTip (ImVec2 at, ImVec2 opposite, TipSide side, const std::string& text
 {
     if (text.empty ())
         return;
+    // The bubble is draw-list text, which ImGui's log never sees; ImGui's own tooltip
+    // window was logged. Say it to the log too (a no-op unless a log is open), so log
+    // capture and copy keep reading every hover text.
+    ImGui::LogText ("%s\n", text.c_str ());
     ImFont* const font = ImGui::GetFont ();
     const float em = ImGui::GetFontSize ();
     const bool swatched = (swatch & 0xFFu) != 0;
