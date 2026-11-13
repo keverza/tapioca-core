@@ -81,16 +81,17 @@ void Icon (IconId icon, ImVec2 position, float size, ImU32 colour)
               colour);
 }
 
-bool IconButton (const char* id, IconId icon, bool active)
+bool IconButton (const char* id, IconId icon, bool active, float width)
 {
     const float side = ImGui::GetFrameHeight ();
+    const float wide = width > 0.0f ? width : side;
     const ImVec2 at = ImGui::GetCursorScreenPos ();
-    const bool pressed = ImGui::InvisibleButton (id, ImVec2 (side, side));
+    const bool pressed = ImGui::InvisibleButton (id, ImVec2 (wide, side));
     ImU32 ground = 0, ink = 0;
     ButtonColours (active, ground, ink);
     ImDrawList* const draw = ImGui::GetWindowDrawList ();
-    draw->AddRectFilled (at, ImVec2 (at.x + side, at.y + side), ground, ImGui::GetStyle ().FrameRounding);
-    DrawIcon (draw, icon, ImVec2 (at.x + side * 0.5f, at.y + side * 0.5f), GlyphSide (side), ink);
+    draw->AddRectFilled (at, ImVec2 (at.x + wide, at.y + side), ground, ImGui::GetStyle ().FrameRounding);
+    DrawIcon (draw, icon, ImVec2 (at.x + wide * 0.5f, at.y + side * 0.5f), GlyphSide (side), ink);
     return pressed;
 }
 

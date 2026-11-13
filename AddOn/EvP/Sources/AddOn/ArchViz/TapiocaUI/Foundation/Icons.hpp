@@ -41,8 +41,9 @@ ImU32 IconInk (bool selected);
 
 // A square button the frame's height with `icon` at two thirds of it (the toolbar's 24 px item,
 // 16 px glyph). `active` shows it toggled on: the full-ink glyph on the pressed grey. True on the
-// frame it is pressed; never while disabled.
-bool IconButton (const char* id, IconId icon, bool active = false);
+// frame it is pressed; never while disabled. A positive `width` widens it, the glyph centred and
+// sized by the height, for a row of buttons that fills its panel.
+bool IconButton (const char* id, IconId icon, bool active = false, float width = 0.0f);
 
 // The same with `label` after the glyph.
 bool IconTextButton (const char* id, IconId icon, const char* label, bool active = false);
