@@ -137,6 +137,7 @@ internal sealed class Gh2PipeClient : IDisposable
                 if (header.Type != Gh2Wire.Message.HelloAck || header.RequestId != 0)
                     throw new InvalidDataException("The bridge did not answer GH2's hello.");
                 Gh2Wire.VerifyHelloAck(body);
+                client.SupportsElementChanges = (System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(body) & Gh2Wire.CapabilityElementChanges) != 0;
                 // Liveness only. Native reply publication wakes IO independently.
                 client.heartbeat.Change(TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
                 return client;
@@ -198,6 +199,8 @@ internal sealed class Gh2PipeClient : IDisposable
     }
 
     internal void ConfigureRefresh(Func<Task> callback) => refresh = callback;
+    internal event Action? ElementChangesAvailable;
+    internal bool SupportsElementChanges { get; private set; }
 
     internal void ConfigureMonitor(Func<Task> callback)
     {
@@ -388,6 +391,11 @@ internal sealed class Gh2PipeClient : IDisposable
             while (true)
             {
                 var (header, body) = Receive(Gh2Wire.MaxProjectOptionsResponse);
+                if (SupportsElementChanges && header.Type == Gh2Wire.Message.ElementChangesAvailable && body.Length == 0)
+                {
+                    ElementChangesAvailable?.Invoke(); // callbacks only enqueue work; reader must stay free
+                    continue;
+                }
                 if (header.Type == Gh2Wire.Message.ApiResponse)
                 {
                     TaskCompletionSource<string>? completion;

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -29,6 +30,9 @@ class ElementChangeJournal {
         std::vector<Change> changes;
     };
     static constexpr size_t Capacity = 4096;
+    // Main-thread owner installs/removes this before its IO wake handle closes.
+    // The callback only signals IO; it never reads the host or sends a frame.
+    std::function<void ()> changed;
 
     void SetEpoch (uint64_t value)
     {
@@ -38,6 +42,7 @@ class ElementChangeJournal {
         entries.clear ();
         revision = floor = 0;
         active = false;
+        if (changed) changed ();
     }
     void SetActive (bool value)
     {
@@ -50,6 +55,7 @@ class ElementChangeJournal {
     {
         entries.clear ();
         floor = ++revision;
+        if (changed) changed ();
     }
     void Record (const std::set<std::string>& guids, uint32_t mask)
     {
@@ -59,6 +65,7 @@ class ElementChangeJournal {
         if (guids.size () > Capacity) {
             entries.clear ();
             floor = next;
+            if (changed) changed ();
             return;
         }
         while (entries.size () + guids.size () > Capacity) {
@@ -70,6 +77,7 @@ class ElementChangeJournal {
         }
         for (const auto& guid : guids)
             entries.push_back ({ guid, next, mask });
+        if (changed) changed ();
     }
     Delta Read (uint64_t expectedEpoch, uint64_t since, const std::set<std::string>& guids,
                 uint32_t fields) const

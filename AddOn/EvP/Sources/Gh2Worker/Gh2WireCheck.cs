@@ -52,7 +52,7 @@ internal static class Gh2WireCheck
         {
             server.WaitForConnection();
             var (hello, payload) = Receive(server);
-            Require(hello.type == 1 && payload.Length == 8 && Read(payload, 4) == Gh2Wire.CapabilityGh2,
+            Require(hello.type == 1 && payload.Length == 8 && Read(payload, 4) == (Gh2Wire.CapabilityGh2 | Gh2Wire.CapabilityElementChanges),
                 "No GH2 hello arrived for the accepted project check.");
             Send(server, 2, 0, 0, Word(Gh2Wire.CapabilityGh2));
             uint requestId = ExpectPing(server);
@@ -91,7 +91,7 @@ internal static class Gh2WireCheck
             server.WaitForConnection();
             var (hello, payload) = Receive(server);
             Require(hello.type == 1 && payload.Length == 8, "No GH2 hello arrived.");
-            Require(Read(payload, 0) != 0 && Read(payload, 4) == Gh2Wire.CapabilityGh2,
+            Require(Read(payload, 0) != 0 && Read(payload, 4) == (Gh2Wire.CapabilityGh2 | Gh2Wire.CapabilityElementChanges),
                 "GH2 did not offer exactly its engine capability.");
             Send(server, 2, 0, 0, Word(Gh2Wire.CapabilityGh2));
 
@@ -132,7 +132,7 @@ internal static class Gh2WireCheck
         {
             server.WaitForConnection();
             var (hello, payload) = Receive(server);
-            Require(hello.type == 1 && payload.Length == 8 && Read(payload, 4) == Gh2Wire.CapabilityGh2,
+            Require(hello.type == 1 && payload.Length == 8 && Read(payload, 4) == (Gh2Wire.CapabilityGh2 | Gh2Wire.CapabilityElementChanges),
                 "No GH2 hello arrived for the project refusal check.");
             Send(server, 2, 0, 0, Word(Gh2Wire.CapabilityGh2));
             uint requestId = ExpectPing(server);
@@ -583,7 +583,7 @@ internal static class Gh2WireCheck
         {
             server.WaitForConnection();
             var (hello, body) = Receive(server);
-            Require(hello.type == 1 && body.Length == 8 && Read(body, 4) == Gh2Wire.CapabilityGh2,
+            Require(hello.type == 1 && body.Length == 8 && Read(body, 4) == (Gh2Wire.CapabilityGh2 | Gh2Wire.CapabilityElementChanges),
                 "Peer did not offer GH2 hello.");
             Send(server, 2, 0, 0, Word(Gh2Wire.CapabilityGh2));
             uint id = ExpectPing(server);

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Eto.Forms;
 using Grasshopper2.Components;
+using Grasshopper2.Doc;
 using Grasshopper2.Data;
 using Grasshopper2.Data.Meta;
 using Grasshopper2.Parameters;
@@ -21,7 +22,7 @@ internal interface IArchicadQueryPresets
     void ClearSelectorPresets();
 }
 
-public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets where T : class
+public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets, IArchicadChangeConsumer where T : class
 {
     private readonly object sync = new();
     private readonly Dictionary<string, QueryRow[]> cache = new();
@@ -29,9 +30,24 @@ public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets
     private readonly Dictionary<string, string> failures = new();
     private DateTimeOffset? snapshotTime;
     private long ticket;
+    private volatile bool deliveryActive;
+    bool IArchicadChangeConsumer.IsActive => deliveryActive;
 
-    protected ArchicadElementQuery(Nomen nomen) : base(nomen) => ArchicadPresetBindings.Register(this);
-    protected ArchicadElementQuery(IReader reader) : base(reader) => ArchicadPresetBindings.Register(this);
+    Document? IArchicadChangeConsumer.InvalidateArchicadInputs()
+    {
+        if (Document is null || Document.State is Grasshopper2.Doc.DocumentState.Closing or Grasshopper2.Doc.DocumentState.Closed) return null;
+        lock (sync) { ++ticket; cache.Clear(); pending.Clear(); failures.Clear(); }
+        Expire();
+        return Document;
+    }
+
+    protected ArchicadElementQuery(Nomen nomen) : base(nomen) => InitializeDelivery();
+    protected ArchicadElementQuery(IReader reader) : base(reader) => InitializeDelivery();
+    private void InitializeDelivery()
+    {
+        ArchicadPresetBindings.Register(this);
+        DocumentChanged += (_, _) => deliveryActive = false;
+    }
     protected abstract string Kind { get; }
     protected abstract string DefaultMode { get; }
     protected abstract string[] Modes { get; }
@@ -114,6 +130,9 @@ public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets
         }
         Guid[] ids = pears.Select(pear => pear.Item.ElementId).ToArray();
         string key = JsonSerializer.Serialize(new { project, Kind, mode, search, selectors, ids });
+        deliveryActive = true;
+        ArchicadChangeDelivery.Subscribe(this, key, ids, Kind switch { "properties" => 8, "gdl" => 4, "relationships" => 16, _ => 3 });
+        access.AddRemark("Archicad change source", ArchicadChangeDelivery.Status);
         QueryRow[]? rows;
         string? failure;
         bool queue;

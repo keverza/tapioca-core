@@ -169,6 +169,7 @@ class GhBridge {
     std::thread io;
     void* pipe = nullptr;      // HANDLE, kept opaque so <windows.h> stays out of this header
     void* replyWake = nullptr; // auto-reset event; closed only after IO joins
+    std::atomic<bool> elementChangesPending { false }, elementChangesGranted { false };
     mutable std::mutex writeMutex;
     mutable std::mutex messageMutex;
     mutable std::mutex gh2RequestMutex;

@@ -17,7 +17,9 @@ namespace TapiocaGH2;
 public abstract class ArchicadOverlayComponent : Component
 {
     private sealed record Batch(ArchicadOverlayGeometry.Prepared Geometry, ArchicadOverlayBridge.Lease Lease,
-        SolutionId Solution, Guid Producer, string Payload);
+        SolutionId Solution, Guid Producer, string Payload, string Fingerprint);
+    private sealed record Published(Batch Batch, long Lifetime);
+    private Published? publishedBatch;
     private Guid producer = Guid.NewGuid(); // runtime only: copies/reopens never share a layer
     private sealed class DocumentSession { internal readonly Guid Id = Guid.NewGuid(); }
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Document, DocumentSession> documents = new();
@@ -30,25 +32,52 @@ public abstract class ArchicadOverlayComponent : Component
     private int busy;
     private long lifetime;
     private long producerLifetime;
-    private volatile bool automatic;
+    private volatile bool automatic = true;
+    internal bool Automatic => automatic;
+    public bool AutoMode
+    {
+        get => automatic;
+        set
+        {
+            automatic = value;
+            if (Parameters.InputCount == 6 && Parameters.Input(5) is Grasshopper2.Parameters.Standard.BooleanParameter legacy)
+            { legacy.Set(value); legacy.Expire(); }
+            Expire();
+        }
+    }
     private UITimer? autoTimer;
     private Batch? observedBatch, attemptedBatch;
     private Batch? completedBatch;
 
     protected abstract bool Plan { get; }
     protected ArchicadOverlayComponent(Nomen nomen) : base(nomen) => DocumentChanged += OnDocumentChanged;
-    protected ArchicadOverlayComponent(IReader reader) : base(reader) => DocumentChanged += OnDocumentChanged;
+    protected ArchicadOverlayComponent(IReader reader) : base(reader)
+    {
+        automatic = !reader.HasItem((Name)"OverlayMode") || reader.String((Name)"OverlayMode") != "manual";
+        DocumentChanged += OnDocumentChanged;
+    }
+
+    public override void Store(IWriter writer)
+    {
+        base.Store(writer);
+        writer.String((Name)"OverlayMode", automatic ? "auto" : "manual");
+    }
+
+    internal void ToggleMode()
+    {
+        AddUndoRecord(new Grasshopper2.Undo.VerbNoun("Change", "Overlay Mode"),
+            new Grasshopper2.Undo.Actions.PropertyAction(this, nameof(AutoMode), autoExtend: false));
+        AutoMode = !AutoMode;
+        Document?.Solution.Start();
+    }
 
     protected override IAttributes CreateAttributes() => new ArchicadOverlayAttributes(this, Show, Clear);
 
     protected override void AddInputs(InputAdder inputs)
     {
-        inputs.AddCurve("Curves", "C", "Preview curves; non-polylines are sampled into 128 segments.", Access.Twig, Requirement.MayBeMissing);
-        inputs.AddMesh("Meshes", "M", "Preview meshes; quads are triangulated without modifying the source.", Access.Twig, Requirement.MayBeMissing);
-        inputs.AddPoint("Points", "P", "Preview point markers.", Access.Twig, Requirement.MayBeMissing);
+        inputs.AddGeneric("Geometry", "G", "Mixed points, curves, meshes, surfaces, Breps and SubD; surfaces are tessellated for preview.", Access.Twig, Requirement.MayBeMissing);
         inputs.AddColour("Tint", "T", "RGBA preview colour; accepts Preview Tint.").Set(Colors.CornflowerBlue);
         inputs.AddNumber("Width", "W", "Curve line width in pixels, greater than zero and at most 64.").Set(2.0);
-        inputs.AddBoolean("Auto sync", "A", "Publish settled solutions automatically. False: use Show. Clear holds until the next solution.").Set(true);
     }
 
     protected override void AddOutputs(OutputAdder outputs) =>
@@ -57,18 +86,25 @@ public abstract class ArchicadOverlayComponent : Component
     protected override void Process(IDataAccess access)
     {
         Volatile.Write(ref prepared, null);
-        access.GetItem(5, out bool autoSync);
-        automatic = autoSync;
+        bool legacyPorts = Parameters.InputCount == 6;
+        if (legacyPorts) { access.GetItem(5, out bool legacyAuto); automatic = legacyAuto; }
         access.SetItem(0, message);
         if (access.Iterations != 1)
         {
-            access.AddWarning("Overlay branches", "Use one iteration: flatten geometry inputs and supply one Tint, Width and Auto value. No partial branch will be published.");
+            access.AddWarning("Overlay branches", "Flatten Geometry and supply one Tint and Width. No partial branch will be published.");
             return;
         }
-        if (!access.GetItem(3, out GhColour tint) || !access.GetItem(4, out double width)) return;
-        access.GetPears<Curve>(0, out var curves);
-        access.GetPears<Mesh>(1, out var meshes);
-        access.GetPears<Point3d>(2, out var points);
+        if (!access.GetItem(legacyPorts ? 3 : 1, out GhColour tint) || !access.GetItem(legacyPorts ? 4 : 2, out double width)) return;
+        access.GetPears<object>(0, out var items);
+        object[] inputGeometry = items?.Select(pear => pear.Item).ToArray() ?? [];
+        if (legacyPorts)
+        {
+            access.GetPears<Mesh>(1, out var meshes);
+            access.GetPears<Point3d>(2, out var points);
+            inputGeometry = inputGeometry.Concat(meshes?.Select(pear => (object)pear.Item) ?? [])
+                .Concat(points?.Select(pear => (object)pear.Item) ?? []).ToArray();
+            access.AddRemark("Legacy overlay ports", "Existing wiring is retained. Place a new overlay for the single Geometry input.");
+        }
         try
         {
             ArchicadOverlayBridge.Lease lease = ArchicadOverlayBridge.Capture() ??
@@ -78,18 +114,19 @@ public abstract class ArchicadOverlayComponent : Component
                 throw new ArgumentException("Tint channels must be finite.");
             static int Byte(float value) => (int)Math.Round(Math.Clamp(value, 0, 1) * 255);
             string rgba = $"{Byte(colour.R):X2}{Byte(colour.G):X2}{Byte(colour.B):X2}{Byte(colour.A):X2}";
-            var geometry = ArchicadOverlayGeometry.Prepare(curves?.Select(pear => pear.Item).ToArray() ?? [],
-                meshes?.Select(pear => pear.Item).ToArray() ?? [], points?.Select(pear => pear.Item).ToArray() ?? [],
+            var geometry = ArchicadOverlayGeometry.PrepareMixed(inputGeometry,
                 Plan, RhinoMath.UnitScale(RhinoDoc.ActiveDoc?.ModelUnitSystem ?? UnitSystem.Meters, UnitSystem.Meters), rgba, width);
             Guid batchProducer = producer;
             string payload = Gh2OverlayPayload.Encode(lease.Generation, batchProducer, Plan, geometry.Lines, geometry.Points, geometry.Meshes,
                 lease.Epoch, documentSession, Interlocked.Increment(ref revision));
-            Volatile.Write(ref prepared, new(geometry, lease, access.Solution.Id, batchProducer, payload));
+            string fingerprint = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(geometry)));
+            Volatile.Write(ref prepared, new(geometry, lease, access.Solution.Id, batchProducer, payload, fingerprint));
             access.SetItem(0, (automatic ? "Auto sync. " : "Manual. ") + message +
                 (geometry.Empty ? " No geometry; Clear removes the last layer." :
                 automatic ? " Prepared; waiting for a successful settled solution." : " Prepared; press Show to publish."));
             access.AddRemark("Overlay prepared", geometry.Empty ? "No geometry. Press Clear to remove the previous layer." :
-                $"{geometry.Lines.Length} curves, {geometry.Meshes.Length} meshes, {points?.Length ?? 0} points. " +
+                $"{geometry.Lines.Length} curves, {geometry.Meshes.Length} meshes, {geometry.Points.Length} point sets. " +
                 (automatic ? "Auto sync enabled." : "Press Show to publish this solution."));
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException)
@@ -127,6 +164,7 @@ public abstract class ArchicadOverlayComponent : Component
             {
                 result = await ArchicadOverlayBridge.ShowAsync(batch.Lease, batch.Payload, batch.Producer, Plan,
                     () => ticket == Interlocked.Read(ref lifetime) && ReferenceEquals(Volatile.Read(ref prepared), batch));
+                Volatile.Write(ref publishedBatch, new Published(batch, ticket));
             }
             catch (Exception error) { result = error.Message; }
             finally
@@ -148,6 +186,7 @@ public abstract class ArchicadOverlayComponent : Component
             return;
         }
         long ticket = Interlocked.Increment(ref lifetime); // invalidate an outstanding Show
+        Volatile.Write(ref publishedBatch, null);
         Volatile.Write(ref prepared, null);
         long clearRevision = Interlocked.Increment(ref revision);
         Guid actionDocument = documentSession;
@@ -223,6 +262,10 @@ public abstract class ArchicadOverlayComponent : Component
         // work runs on this UI timer; Show dispatches the immutable payload.
         if (!ReferenceEquals(batch, observedBatch)) { observedBatch = batch; return; }
         attemptedBatch = batch;
+        Published? published = Volatile.Read(ref publishedBatch);
+        if (published is not null && published.Lifetime == Interlocked.Read(ref lifetime) &&
+            published.Batch.Lease == batch.Lease && published.Batch.Producer == batch.Producer &&
+            published.Batch.Fingerprint == batch.Fingerprint) return;
         // An empty upstream query may be awaiting its asynchronous snapshot.
         // Preserve the last good preview; explicit Clear always remains available.
         if (!batch.Geometry.Empty) Show();
@@ -251,6 +294,7 @@ public abstract class ArchicadOverlayComponent : Component
         observedBatch = attemptedBatch = null;
         Volatile.Write(ref completedBatch, null);
         Interlocked.Increment(ref producerLifetime);
+        Volatile.Write(ref publishedBatch, null);
         Interlocked.Increment(ref lifetime);
         Volatile.Write(ref prepared, null);
         ArchicadOverlayBridge.Lease? lease = shownLease;

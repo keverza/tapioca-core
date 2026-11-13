@@ -320,7 +320,7 @@ internal static class ArchicadProjectOptions
         return result;
     }
 
-    private static JsonElement Data(JsonElement root)
+    internal static JsonElement Data(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("ok", out JsonElement ok) ||
             ok.ValueKind != JsonValueKind.True || !root.TryGetProperty("data", out JsonElement data) ||

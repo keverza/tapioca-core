@@ -3,6 +3,22 @@
 
 using tapioca::sync::ElementChangeJournal;
 
+TEST (ElementChangeJournal, WakeDoesNotConsumeAndCanBeDetachedBeforeOwnerShutdown)
+{
+    ElementChangeJournal journal;
+    int wakes = 0;
+    journal.changed = [&] { ++wakes; };
+    journal.SetEpoch (1);
+    journal.SetActive (true);
+    journal.Record ({ "slab" }, ElementChangeJournal::Unknown);
+    EXPECT_EQ (wakes, 3);
+    EXPECT_EQ (journal.Read (1, 1, { "slab" }, 1).changes.size (), 1u);
+    EXPECT_EQ (wakes, 3);
+    journal.changed = {};
+    journal.SetActive (false);
+    EXPECT_EQ (wakes, 3);
+}
+
 TEST (ElementChangeJournal, ScopedReadersDoNotConsumeEachOther)
 {
     ElementChangeJournal journal;

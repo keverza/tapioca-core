@@ -3,6 +3,7 @@
 #include "GhBridge.hpp"
 #include "GhLog.hpp"
 #include "Gh2OverlayRequest.hpp"
+#include "Notify/ElementChangeJournal.hpp"
 #include "PipeTransfer.hpp"
 
 #include "AddOnCommands.hpp"
@@ -119,6 +120,8 @@ bool GhBridge::Start (uint32_t startGeneration, GS::UniString& error, bool expec
     lastHeartbeatTick.store (0);
     stopping.store (false);
     expectedGh2 = expectGh2;
+    elementChangesPending.store (false);
+    elementChangesGranted.store (false);
     {
         std::lock_guard<std::mutex> lock (gh2RequestMutex);
         gh2ShutdownRequested = false;
@@ -165,6 +168,11 @@ bool GhBridge::Start (uint32_t startGeneration, GS::UniString& error, bool expec
         return false;
     }
 
+    if (expectedGh2)
+        tapioca::sync::ElementChanges ().changed = [this] {
+            elementChangesPending.store (true);
+            SetEvent ((HANDLE) replyWake);
+        };
     LogLine (startGeneration, 0, "bridge listening on \\\\.\\pipe\\" + pipeName);
     return true;
 }
@@ -172,6 +180,7 @@ bool GhBridge::Start (uint32_t startGeneration, GS::UniString& error, bool expec
 void GhBridge::Stop ()
 {
     if (expectedGh2) {
+        if (io.joinable ()) tapioca::sync::ElementChanges ().changed = {};
         BeginGh2Shutdown ();
         // Only a live session can own content. The singleton destructor repeats
         // Stop after application teardown, when feature stores may already be gone.
@@ -259,6 +268,13 @@ void GhBridge::QueueGh2Reply (const std::shared_ptr<Gh2PendingRequest>& request,
 
 void GhBridge::FlushGh2Reply (void* server, uint32_t currentGeneration)
 {
+    if (elementChangesGranted.load () && elementChangesPending.exchange (false)) {
+        std::lock_guard<std::mutex> lock (writeMutex);
+        const auto frame = protocol::EncodeHeader (protocol::MessageType::ElementChangesAvailable, 0, 0, 0);
+        if (!stopping.load () && connected.load () &&
+            !WriteExact ((HANDLE) server, frame.data (), (DWORD) frame.size (), stopping))
+            stopping.store (true);
+    }
     // Called only by bridge IO, including while an overlapped read is pending.
     // Publication signals replyWake; heartbeat cadence does not clock replies.
     std::shared_ptr<Gh2PendingRequest> request;
@@ -524,6 +540,10 @@ void GhBridge::Run ()
     grantedAck.capabilities = hello.capabilities & protocol::CapabilityPreview;
     if (expectedGh2)
         grantedAck.capabilities |= protocol::CapabilityGh2;
+    if (expectedGh2 && (hello.capabilities & protocol::CapabilityElementChanges) != 0) {
+        grantedAck.capabilities |= protocol::CapabilityElementChanges;
+        elementChangesGranted.store (true);
+    }
     if (!evp::preview::PreviewRuntimeState::Get ().IsEnabled ())
         grantedAck.capabilities &= ~protocol::CapabilityPreview;
     previewIngest.GrantCapabilities (grantedAck.capabilities);

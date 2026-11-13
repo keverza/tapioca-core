@@ -14,6 +14,8 @@ internal static class Gh2HeadlessProof
     internal static int Run(string pluginPath, string fixturePath)
     {
         using var backend = new Gh2Backend(pluginPath);
+        Gh2ChangeDeliveryChecks.Run();
+        Gh2ChangeDeliveryChecks.Run(failFirstDispatch: true);
         if (!File.Exists(fixturePath))
         {
             backend.CreateDefinition();

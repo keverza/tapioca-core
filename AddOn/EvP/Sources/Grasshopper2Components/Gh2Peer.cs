@@ -81,6 +81,7 @@ internal static class Gh2Peer
             });
             bridge.ConfigureMonitor(() => ArchicadProjectOptions.CheckForChangesAsync(bridge));
             Gh2ConnectionStatus.Set("Connected", selected.Name, project, bridge);
+            ArchicadChangeDelivery.Attach(bridge);
             report($"GH2 attached to {selected.Name}. Waiting for Archicad to detach.");
             bridge.WaitForShutdown(acknowledgeShutdown: false);
             report("Archicad requested GH2 detach; Rhino remains open.");
@@ -105,6 +106,7 @@ internal static class Gh2Peer
         }
         finally
         {
+            ArchicadChangeDelivery.Detach(bridge);
             ArchicadProjectOptions.Clear();
             Gh2ConnectionStatus.Set("Disconnected", issue: issue);
             bridge?.Dispose();

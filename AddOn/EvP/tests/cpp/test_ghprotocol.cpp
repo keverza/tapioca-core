@@ -488,7 +488,7 @@ TEST (GhProtocol, EveryMessageTypeHasAName)
     const MessageType types[] = { MessageType::Hello,      MessageType::HelloAck,    MessageType::Heartbeat,
                                   MessageType::ApiRequest, MessageType::ApiResponse, MessageType::ShowEditor,
                                   MessageType::HideEditor, MessageType::Shutdown,    MessageType::Ack,
-                                  MessageType::Log };
+                                   MessageType::Log, MessageType::ElementChangesAvailable };
     for (size_t index = 0; index < sizeof (types) / sizeof (types[0]); ++index)
         EXPECT_STRNE ("unknown", DescribeMessageType (types[index]));
 }

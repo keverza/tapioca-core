@@ -102,10 +102,9 @@ internal static class Gh2OverlayActionChecks
             for (int i = 0; i < components.Length; i++)
             {
                 Component component = components[i];
-                ((BooleanParameter)component.Parameters.Input(5)).Set(i != 0);
-                component.Parameters.Input(5).Expire();
+                component.GetType().BaseType!.GetField("automatic", HiddenInstance)!.SetValue(component, i != 0);
                 var line = new LineCurve(new Point3d(0, 0, 1), new Point3d(2, 3, 4));
-                ((CurveParameter)component.Parameters.Input(0)).Set(line);
+                ((GenericParameter)component.Parameters.Input(0)).Set(line);
                 component.Parameters.Input(0).Expire();
                 component.Expire();
                 if (document.Solution.StartWait(null, SolutionMode.Headless).Phase != SolutionPhase.Completed ||
@@ -120,7 +119,7 @@ internal static class Gh2OverlayActionChecks
                     throw new InvalidOperationException("Overlay published before its settle interval.");
                 if (i != 0)
                 {
-                    ((CurveParameter)component.Parameters.Input(0)).Set(
+                    ((GenericParameter)component.Parameters.Input(0)).Set(
                         new LineCurve(new Point3d(0, 0, 1), new Point3d(9, 3, 4)));
                     component.Parameters.Input(0).Expire();
                     component.Expire();
@@ -150,6 +149,14 @@ internal static class Gh2OverlayActionChecks
                 }
                 WaitIdle(component, host);
                 tick.Invoke(component, null); // an acknowledgement must not republish the same batch
+                if (i != 0)
+                {
+                    component.Expire();
+                    document.Solution.StartWait(null, SolutionMode.Headless);
+                    tick.Invoke(component, null);
+                    tick.Invoke(component, null); // same content in a NEW solution must not upload again
+                    WaitIdle(component, host);
+                }
                 componentBase.GetMethod("Clear", HiddenInstance)!.Invoke(component, null);
                 if (!layerCleared.WaitOne(TimeSpan.FromSeconds(30)))
                     throw new TimeoutException("Clear did not reach the priority lane.");

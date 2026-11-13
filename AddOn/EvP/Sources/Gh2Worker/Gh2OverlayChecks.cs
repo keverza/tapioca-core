@@ -15,7 +15,7 @@ internal static class Gh2OverlayChecks
         {
             var component = ObjectProxies.TryEmit<IDocumentObject>(id) as Component ??
                 throw new InvalidOperationException("GH2 did not harvest both overlay components.");
-            if (!document.Objects.Add(component) || component.Parameters.InputCount != 6 ||
+            if (!document.Objects.Add(component) || component.Parameters.InputCount != 3 ||
                 component.Parameters.OutputCount != 1 || ObjectProxies.FindById(id)?.Nomen.Section != "Display")
                 throw new InvalidOperationException("Overlay component ports/category changed.");
             return component;
@@ -37,6 +37,12 @@ internal static class Gh2OverlayChecks
         double[] Coords(Array items) => (double[])items.GetValue(0)!.GetType().GetProperty("points")!.GetValue(items.GetValue(0))!;
         object floor = Build([curve], [mesh], [new Point3d(1000, 1000, 5000)], true);
         object model = Build([curve], [mesh], [new Point3d(1000, 1000, 5000)], false);
+        MethodInfo mixed = plugin.GetType("TapiocaGH2.ArchicadOverlayGeometry")!
+            .GetMethod("PrepareMixed", BindingFlags.NonPublic | BindingFlags.Static)!;
+        using var sphere = new Sphere(Point3d.Origin, 100).ToBrep();
+        object parsed = mixed.Invoke(null, [new object[] { curve, mesh, new Point3d(1, 2, 3), sphere }, false, 0.001, "6495ED80", 2.0])!;
+        if (Items(parsed, "Lines").Length != 1 || Items(parsed, "Meshes").Length < 2 || Items(parsed, "Points").Length != 1)
+            throw new InvalidOperationException("Mixed geometry dispatch lost a supported input.");
         if (!Coords(Items(floor, "Lines")).SequenceEqual([1, 2, 0, 2, 2, 0]) ||
             !Coords(Items(model, "Lines")).SequenceEqual([1, 2, 3, 2, 2, 4]) ||
             !Coords(Items(floor, "Points")).SequenceEqual([1, 1, 0]) ||
@@ -80,6 +86,9 @@ internal static class Gh2OverlayChecks
             var prepared = original.GetType().BaseType!.GetField("prepared", BindingFlags.Instance | BindingFlags.NonPublic)!;
             if (producer.GetValue(copy)!.Equals(producer.GetValue(original)) || prepared.GetValue(copy) is not null)
                 throw new InvalidOperationException("Overlay layer/action state leaked through save/reopen.");
+            var automatic = original.GetType().BaseType!.GetField("automatic", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            if (!automatic.GetValue(copy)!.Equals(automatic.GetValue(original)))
+                throw new InvalidOperationException("Overlay mode was not persisted.");
         }
     }
 }

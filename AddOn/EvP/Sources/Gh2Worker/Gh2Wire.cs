@@ -14,6 +14,7 @@ internal static class Gh2Wire
     internal const int MaxPingResponse = 64 * 1024;
     internal const int MaxProjectOptionsResponse = 1024 * 1024;
     internal const uint CapabilityGh2 = 1u << 1;
+    internal const uint CapabilityElementChanges = 1u << 2;
 
     internal enum Message : uint
     {
@@ -25,6 +26,7 @@ internal static class Gh2Wire
         Shutdown = 8,
         Ack = 9,
         Log = 10,
+        ElementChangesAvailable = 41,
     }
 
     internal readonly record struct Header(uint Version, Message Type, uint RequestId, uint CorrelationId, int PayloadBytes);
@@ -64,7 +66,7 @@ internal static class Gh2Wire
             throw new ArgumentOutOfRangeException(nameof(pid));
         byte[] bytes = new byte[8];
         Write(bytes, 0, (uint)pid);
-        Write(bytes, 4, CapabilityGh2);
+        Write(bytes, 4, CapabilityGh2 | CapabilityElementChanges);
         return bytes;
     }
 

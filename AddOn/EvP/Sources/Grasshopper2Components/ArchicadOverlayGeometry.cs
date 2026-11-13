@@ -13,6 +13,63 @@ internal static class ArchicadOverlayGeometry
         internal bool Empty => Lines.Length + Points.Length + Meshes.Length == 0;
     }
 
+    internal static Prepared PrepareMixed(object[] items, bool plan, double scale, string tint, double width)
+    {
+        var curves = new List<Curve>();
+        var meshes = new List<Mesh>();
+        var points = new List<Point3d>();
+        var owned = new List<IDisposable>();
+        try
+        {
+            if (items.Length > 20000) throw new ArgumentException("Overlay input exceeds 20,000 items.");
+            void AddBrep(Brep brep)
+            {
+                Mesh[] parts = Mesh.CreateFromBrep(brep, MeshingParameters.FastRenderMesh) ?? [];
+                if (parts.Length == 0) throw new ArgumentException("Could not tessellate overlay surface.");
+                owned.AddRange(parts); meshes.AddRange(parts);
+            }
+            foreach (object item in items)
+            {
+                switch (item)
+                {
+                    case Point3d point: points.Add(point); break;
+                    case Point point: points.Add(point.Location); break;
+                    case Curve curve: curves.Add(curve); break;
+                    case Mesh mesh: meshes.Add(mesh); break;
+                    case Brep brep: AddBrep(brep); break;
+                    case Sphere sphere:
+                        using (Brep brep = sphere.ToBrep()) AddBrep(brep);
+                        break;
+                    case Box box:
+                        using (Brep brep = box.ToBrep()) AddBrep(brep);
+                        break;
+                    case BoundingBox box:
+                        using (Brep brep = Brep.CreateFromBox(box)) AddBrep(brep);
+                        break;
+                    case Polyline polyline:
+                        var polylineCurve = new PolylineCurve(polyline); owned.Add(polylineCurve); curves.Add(polylineCurve); break;
+                    case Rectangle3d rectangle:
+                        var rectangleCurve = rectangle.ToNurbsCurve(); owned.Add(rectangleCurve); curves.Add(rectangleCurve); break;
+                    case Surface surface:
+                        using (Brep brep = surface.ToBrep()) AddBrep(brep);
+                        break;
+                    case SubD subd:
+                        using (Brep brep = subd.ToBrep()) AddBrep(brep);
+                        break;
+                    case Line line:
+                        var lineCurve = new LineCurve(line); owned.Add(lineCurve); curves.Add(lineCurve); break;
+                    case Arc arc:
+                        var arcCurve = new ArcCurve(arc); owned.Add(arcCurve); curves.Add(arcCurve); break;
+                    case Circle circle:
+                        var circleCurve = new ArcCurve(circle); owned.Add(circleCurve); curves.Add(circleCurve); break;
+                    default: throw new ArgumentException($"Unsupported overlay geometry: {item?.GetType().Name ?? "null"}.");
+                }
+            }
+            return Prepare(curves.ToArray(), meshes.ToArray(), points.ToArray(), plan, scale, tint, width);
+        }
+        finally { foreach (IDisposable item in owned) item.Dispose(); }
+    }
+
     internal static Prepared Prepare(Curve[] curves, Mesh[] meshes, Point3d[] points,
         bool plan, double scale, string tint, double width)
     {

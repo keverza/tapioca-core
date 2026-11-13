@@ -36,6 +36,7 @@ bool KnownMessageType (uint32_t value)
         case MessageType::Heartbeat:
         case MessageType::ApiRequest:
         case MessageType::ApiResponse:
+        case MessageType::ElementChangesAvailable:
         case MessageType::ShowEditor:
         case MessageType::HideEditor:
         case MessageType::Shutdown:
@@ -540,6 +541,8 @@ const char* DescribeMessageType (MessageType type)
             return "diagnostics-result";
         case MessageType::SessionEvent:
             return "session-event";
+        case MessageType::ElementChangesAvailable:
+            return "element-changes-available";
     }
     return "unknown";
 }

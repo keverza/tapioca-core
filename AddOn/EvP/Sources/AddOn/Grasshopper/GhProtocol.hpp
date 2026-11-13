@@ -68,6 +68,7 @@ constexpr uint32_t MaxCommandBytes = 1024;
 // GH1 peer, and an ordinary GH1 bridge must refuse a GH2 peer. The bit has no
 // meaning to GH1 and does not change any existing payload or frame layout.
 constexpr uint32_t CapabilityGh2 = 1u << 1;
+constexpr uint32_t CapabilityElementChanges = 1u << 2;
 
 enum class MessageType : uint32_t {
     // worker -> host, first message on a fresh connection. Payload: HelloPayload.
@@ -200,6 +201,9 @@ enum class MessageType : uint32_t {
     // session. Same payload as a SessionAck; the difference is that nothing
     // correlates to it.
     SessionEvent = 40,
+    // Additive GH2 capability: coalesced host -> peer journal wake, no payload.
+    // Peer reads its own scoped cursor; this frame is never an instruction to solve.
+    ElementChangesAvailable = 41,
 };
 
 // Mirrors TapiocaGhStatus's surviving cases. The transport carries them; it does
