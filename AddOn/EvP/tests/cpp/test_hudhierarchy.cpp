@@ -1,4 +1,5 @@
 #include "hud_fixture.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
@@ -465,4 +466,81 @@ TEST (HudHierarchy, TypedNavigationUsesExplicitFocusAndPanelArrivalKeepsTheCaret
     hud::SetHudOpen (*hud.state, true);
     hud.Lay ({ &panel }, At (0, 0));
     EXPECT_FALSE (hud.state->criteriaTextActive) << "reopening never requests focus";
+}
+
+namespace {
+// One frame of the shell host alone: a page of `lines` text lines, a "pinned" header button when
+// `header`, and the screen tops of that button and the page's first line. `scroll` scrolls the
+// page to its end in this frame.
+struct HeaderFrame {
+    float header = -1, first = -1;
+};
+struct HostState {
+    std::string shown;
+    shell::Placement placement;
+};
+HeaderFrame HostFrame (HostState& state, bool header, bool scroll)
+{
+    ImGui::GetIO ().DisplaySize = { 800, 400 };
+    ImGui::GetIO ().DeltaTime = 1.0f / 60;
+    ImGui::NewFrame ();
+    shell::HostSpec spec;
+    spec.view = { 800, 400 };
+    spec.tabs = { { "page", "Page" } };
+    HeaderFrame out;
+    if (header)
+        spec.header = [&] (const std::string&) {
+            ImGui::Button ("pinned");
+            out.header = ImGui::GetItemRectMin ().y;
+        };
+    shell::Host (
+        spec, "page", state.shown, state.placement,
+        [&] (const std::string&) {
+            for (int i = 0; i < 200; ++i) {
+                ImGui::Text ("line %d", i);
+                if (i == 0)
+                    out.first = ImGui::GetItemRectMin ().y;
+            }
+            if (scroll)
+                ImGui::SetScrollY (ImGui::GetScrollMaxY ());
+        },
+        nullptr);
+    ImGui::Render ();
+    return out;
+}
+} // namespace
+
+// #191: the virtual editor's command bar and toolbar are pinned. A host header is drawn under the
+// tab row and does not move when the page under it scrolls; without one the page starts where the
+// header would have.
+TEST (HudHierarchy, AHostHeaderStaysWhileThePageScrollsUnderIt191)
+{
+    auto* previous = ImGui::GetCurrentContext ();
+    auto* context = ImGui::CreateContext ();
+    ImGui::GetIO ().IniFilename = nullptr;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    ImGui::GetIO ().Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    HostState pinned;
+    for (int i = 0; i < 3; ++i)
+        HostFrame (pinned, true, false); // the panel settles its size
+    const auto top = HostFrame (pinned, true, false);
+    ASSERT_GT (top.header, 0.0f);
+    EXPECT_GT (top.first, top.header) << "the page starts under the header";
+    HostFrame (pinned, true, true);
+    const auto scrolled = HostFrame (pinned, true, false);
+    EXPECT_FLOAT_EQ (scrolled.header, top.header) << "the header did not move";
+    EXPECT_LT (scrolled.first, top.first) << "the page under it did";
+    ImGui::DestroyContext (context);
+
+    context = ImGui::CreateContext ();
+    ImGui::GetIO ().IniFilename = nullptr;
+    ImGui::GetIO ().Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    HostState plain;
+    for (int i = 0; i < 3; ++i)
+        HostFrame (plain, false, false);
+    const auto bare = HostFrame (plain, false, false);
+    EXPECT_FLOAT_EQ (bare.first, top.header) << "no header: the page starts where it would be";
+    ImGui::DestroyContext (context);
+    ImGui::SetCurrentContext (previous);
 }

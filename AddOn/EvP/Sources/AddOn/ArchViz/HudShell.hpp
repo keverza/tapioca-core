@@ -263,6 +263,10 @@ struct HostSpec {
     DockEdge dockEdge = DockEdge::Right;
     bool dockHorizontal = false;
     bool textInput = false; // false: omit the navigation-command strip entirely
+    // #191: drawn for the shown page between the tab row and the page, and never scrolled with
+    // it: what a page's user reaches many times a minute (the virtual editor's command bar and
+    // toolbar). The page takes what is left. Null: the page starts under the tab row, as before.
+    std::function<void (const std::string& key)> header;
 };
 
 struct NavigationState {

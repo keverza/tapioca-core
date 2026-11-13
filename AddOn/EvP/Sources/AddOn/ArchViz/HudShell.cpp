@@ -566,6 +566,10 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
         shownLast = held;
         const bool available =
             std::any_of (spec.tabs.begin (), spec.tabs.end (), [&] (const auto& tab) { return tab.key == held; });
+        // The header is the panel's own, not the page's child: the page's height is measured from
+        // the cursor after it, so it leaves the header its room without being told.
+        if (available && spec.header)
+            spec.header (held);
         if (available && page)
             result.scrolls = ScrollingPage (held, page, tallest,
                                             (std::max) (footerLast, (commandAbove || !spec.textInput ? 0.0f : 3.0f) *
