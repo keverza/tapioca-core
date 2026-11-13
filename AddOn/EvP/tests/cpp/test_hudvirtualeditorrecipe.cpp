@@ -162,3 +162,33 @@ TEST (HudVirtualEditorRecipe, RowArrowsMoveARegionAsOneUndoAndRefuseWithAReason1
     ASSERT_TRUE (eh::ReloadLandscape (d.session, text)) << d.session.message;
     EXPECT_EQ (order (), (std::vector<ed::Id> { b, a }));
 }
+
+// #105 step 4: with no terrain built, the Quantities section offers Build terrain; pressing it
+// without a terrain to build says why and records nothing. Rows themselves are covered offline
+// (EditLandscapeRecipe/EditPublishedTerrain *105).
+TEST (HudVirtualEditorRecipe, QuantitiesOfferBuildAndRefuseWithAReasonWithoutATerrain105)
+{
+    ed::Document doc;
+    std::string error;
+    ASSERT_TRUE (geo::StartLandscape (doc, { 1, 2, 3, 4 }, error)) << error;
+    ed::Id line = ed::kNoId;
+    Region (doc, 0, line);
+    RecipeDrive d (std::move (doc));
+    const auto before = d.session.edits.Doc ();
+    // From the bottom up: the section follows every recipe row and its controls.
+    bool pressed = false;
+    for (float y = 770; y > 30 && !pressed; y -= 4)
+        for (float x = 12; x < 160 && !pressed; x += 6) {
+            d.Frame ({ x, y });
+            if (d.context->HoveredId == 0)
+                continue;
+            d.Frame ({ x, y }, true);
+            d.Frame ({ x, y }, false);
+            pressed = !d.session.message.empty ();
+        }
+    ASSERT_TRUE (pressed);
+    EXPECT_NE (d.session.message.find ("before building"), std::string::npos) << d.session.message;
+    EXPECT_EQ (d.session.edits.UndoDepth (), 0u);
+    EXPECT_EQ (d.session.edits.Doc ().landscape, before.landscape);
+    EXPECT_FALSE (d.session.terrainDesign) << "Build asks; it starts nothing without a terrain";
+}

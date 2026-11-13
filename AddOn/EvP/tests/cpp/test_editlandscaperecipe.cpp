@@ -3,6 +3,7 @@
 // left out and why, footprint construction and bypass, and the current limitations -- from the
 // same plan compiler and routing rule the job uses, without changing the document.
 #include "Edit/EditLandscapeRecipe.hpp"
+#include "Edit/EditPublishedTerrain.hpp"
 #include "Edit/EditLandscapeDomain.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditDocument.hpp"
@@ -10,6 +11,8 @@
 #include "Edit/EditLandscapeSerialization.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cstdint>
+#include <optional>
 
 namespace geo = tapioca::geometry;
 namespace edit = geomsrv::edit;
@@ -335,4 +338,83 @@ TEST (EditLandscapeRecipe, ARegionSharingItsRootCannotMoveButANeighbourMovesPast
     EXPECT_EQ (doc.landscape, before.landscape);
     ASSERT_TRUE (geo::MoveRecipeRegion (doc, b, -1, error)) << error;
     EXPECT_EQ (Stack (doc), (std::vector<edit::Id> { b, a, twinId }));
+}
+
+// #105 step 4: quantity rows over a published terrain, named after the recipe rows, in stack order
+// with the baseline row last; they reconcile to the total; a publication of another revision is
+// stale; nothing is reported without one, and the outline lane says why.
+TEST (EditLandscapeRecipe, QuantityRowsNameThePublishedPartitionAndMarkAStaleOne105)
+{
+    auto doc = Start ();
+    const auto a = Region (doc, 0);
+    const auto b = Region (doc, 5);
+    Configure (doc, a, 2);
+    Configure (doc, b, 5, geo::RegionTerrainEffect::Add);
+    const auto recipe = geo::ProjectLandscapeRecipe (doc, std::nullopt);
+    ASSERT_TRUE (recipe.ok) << recipe.error;
+    const auto stack = Rows (recipe, geo::RecipeStage::Region);
+    ASSERT_EQ (stack.size (), 2u);
+
+    geo::PublishedTerrain published;
+    published.revision = recipe.revision;
+    published.planHash = 77; // a build's hash includes its capture; not compared
+    published.quantities = { 3, 10, 7, 300, 0 };
+    published.displaySite = { 2.5, 9.5, 7, 250, 0 };
+    // Out of stack order on purpose, with the baseline row first, as the publisher emits it.
+    published.domainQuantities = {
+        { UINT32_MAX, 0, 0, 1, 0, -1, 100, 4 },
+        { 1, stack[1]->operation, stack[1]->object, 0, 6, 6, 100, 8 },
+        { 0, stack[0]->operation, stack[0]->object, 2, 4, 2, 100, 8 },
+    };
+    const auto q = geo::ProjectRecipeQuantities (recipe, &published, false);
+    ASSERT_TRUE (q.available);
+    EXPECT_TRUE (q.current);
+    ASSERT_EQ (q.rows.size (), 3u);
+    EXPECT_EQ (q.rows[0].order, 1u);
+    EXPECT_EQ (q.rows[0].object, stack[0]->object);
+    EXPECT_EQ (q.rows[0].name, stack[0]->name);
+    EXPECT_EQ (q.rows[1].order, 2u);
+    EXPECT_EQ (q.rows[1].fill, 6);
+    EXPECT_TRUE (q.rows[2].baseline);
+    EXPECT_EQ (q.rows[2].order, 0u);
+    EXPECT_EQ (q.total.net, 7);
+    EXPECT_EQ (q.site.fill, 9.5);
+    EXPECT_NEAR (q.residual, 0, 1e-12);
+    EXPECT_TRUE (Mentions (q.notes, "sequential deltas")) << "the report says what it is not";
+    EXPECT_FALSE (Mentions (q.notes, "Stale"));
+    const auto text = geo::RecipeQuantitiesText (q);
+    EXPECT_EQ (text.rfind ("Stack\tOwner\tCut m3\tFill m3\tNet m3\tArea m2\n", 0), 0u) << text;
+    EXPECT_NE (text.find ("1\t" + stack[0]->name + "\t2.000\t4.000\t2.000\t100.000\n"), std::string::npos) << text;
+    EXPECT_NE (text.find ("Total (revision " + std::to_string (recipe.revision) + ")\t3.000\t10.000\t7.000"),
+               std::string::npos)
+        << text;
+
+    // Stale: another revision, or the caller's flag (another request or capture).
+    auto older = published;
+    older.revision = recipe.revision - 1;
+    const auto staleByRevision = geo::ProjectRecipeQuantities (recipe, &older, false);
+    EXPECT_FALSE (staleByRevision.current);
+    EXPECT_TRUE (Mentions (staleByRevision.notes, "Stale"));
+    EXPECT_NE (geo::RecipeQuantitiesText (staleByRevision).find (", stale)"), std::string::npos);
+    EXPECT_FALSE (geo::ProjectRecipeQuantities (recipe, &published, true).current);
+    // A position the recipe no longer has keeps its number instead of borrowing a name.
+    older.domainQuantities[1].object = 9999;
+    EXPECT_EQ (geo::ProjectRecipeQuantities (recipe, &older, false).rows[1].name, "Stack position 2");
+
+    // Rows that do not add up say so.
+    auto broken = published;
+    broken.domainQuantities[1].net = 5;
+    const auto unreconciled = geo::ProjectRecipeQuantities (recipe, &broken, false);
+    EXPECT_NEAR (unreconciled.residual, 1, 1e-12);
+    EXPECT_TRUE (Mentions (unreconciled.notes, "differ by 1.000 m3"));
+
+    // Nothing built; the outline lane publishes no attributed snapshot.
+    const auto none = geo::ProjectRecipeQuantities (recipe, nullptr, false);
+    EXPECT_FALSE (none.available);
+    EXPECT_TRUE (none.rows.empty ());
+    EXPECT_NE (none.reason.find ("No terrain"), std::string::npos);
+    auto legacy = recipe;
+    legacy.route = geo::RecipeRoute::Legacy;
+    EXPECT_NE (geo::ProjectRecipeQuantities (legacy, nullptr, false).reason.find ("totals only"), std::string::npos);
+    EXPECT_EQ (geo::RecipeQuantitiesText (none), "Stack\tOwner\tCut m3\tFill m3\tNet m3\tArea m2\n");
 }

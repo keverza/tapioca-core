@@ -1,7 +1,10 @@
 #include "Edit/EditLandscapeRecipe.hpp"
 #include "Edit/EditDocument.hpp"
+#include "Edit/EditPublishedTerrain.hpp"
 #include "Edit/EditRegionTerrain.hpp"
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -452,6 +455,106 @@ bool MoveRecipeRegion (geomsrv::edit::Document& doc, Id object, int step, std::s
     }
     doc = std::move (candidate);
     return true;
+}
+
+// ---- #105 step 4: quantity rows over the published terrain -----------------------------------
+namespace {
+RecipeVolumes Volumes (const HybridVolumes& v)
+{
+    return { v.cut, v.fill, v.net, v.area };
+}
+
+std::string Cubic (double value)
+{
+    char text[64];
+    std::snprintf (text, sizeof text, "%.3f", value);
+    return text;
+}
+} // namespace
+
+RecipeQuantities ProjectRecipeQuantities (const LandscapeRecipe& recipe, const PublishedTerrain* published, bool stale)
+{
+    RecipeQuantities out;
+    if (!published) {
+        out.reason = recipe.route == RecipeRoute::Legacy
+                         ? "Quantities by owner come from the unified build. The outline lane reports totals only "
+                           "(Terrain tab)."
+                         : "No terrain has been built yet. Build it to see its quantities.";
+        return out;
+    }
+    out.available = true;
+    out.revision = published->revision;
+    out.hash = published->planHash;
+    // Revision, not plan hash: the recipe's plan is compiled without a terrain capture, so its hash
+    // never equals the build's. A request or capture change is the caller's `stale`.
+    out.current = !stale && recipe.ok && published->revision == recipe.revision;
+    out.total = Volumes (published->quantities);
+    out.site = Volumes (published->displaySite);
+    out.context = Volumes (published->displayContext);
+    out.rebuildSite = Volumes (published->exactSite);
+    out.rebuildContext = Volumes (published->exactContext);
+    double net = 0;
+    std::vector<RecipeQuantityRow> baseline;
+    for (const auto& domain : published->domainQuantities) {
+        RecipeQuantityRow row;
+        row.cut = domain.cut;
+        row.fill = domain.fill;
+        row.net = domain.net;
+        row.area = domain.area;
+        row.triangles = domain.triangles;
+        net += domain.net;
+        if (domain.order == UINT32_MAX) {
+            row.baseline = true;
+            row.name = "Existing ground (no owner)";
+            baseline.push_back (std::move (row));
+            continue;
+        }
+        row.order = domain.order + 1;
+        row.object = domain.object;
+        row.operation = domain.operation;
+        // Named after its recipe row only when the recipe is the one this terrain was built from:
+        // a stale publication's positions may no longer mean the same rows.
+        const auto named = std::find_if (recipe.rows.begin (), recipe.rows.end (), [&] (const RecipeRow& r) {
+            return r.order != 0 && r.object == domain.object && r.operation == domain.operation;
+        });
+        if (named != recipe.rows.end ()) {
+            row.name = named->name;
+            row.path = named->path;
+        }
+        else
+            row.name = "Stack position " + std::to_string (row.order);
+        out.rows.push_back (std::move (row));
+    }
+    std::stable_sort (out.rows.begin (), out.rows.end (),
+                      [] (const RecipeQuantityRow& a, const RecipeQuantityRow& b) { return a.order < b.order; });
+    out.rows.insert (out.rows.end (), baseline.begin (), baseline.end ());
+    out.residual = std::fabs (net - out.total.net);
+    out.notes.push_back ("Exact: each triangle's height above or below the existing ground, integrated over the "
+                         "whole published surface.");
+    out.notes.push_back ("Rows: each triangle counts once, for the last region whose footprint holds it, else the "
+                         "last owner that moved it, else the existing ground. Rows add up to the total.");
+    out.notes.push_back ("Not shown: how much each operation changed the ground on its own (sequential deltas). "
+                         "A row is not that operation's own cut and fill.");
+    if (!out.current)
+        out.notes.push_back ("Stale: built from revision " + std::to_string (published->revision) +
+                             ". Inspect only; it is not what the document now describes.");
+    if (out.residual > 1e-6)
+        out.notes.push_back ("Rows and total differ by " + Cubic (out.residual) + " m3.");
+    return out;
+}
+
+std::string RecipeQuantitiesText (const RecipeQuantities& q)
+{
+    std::string text = "Stack\tOwner\tCut m3\tFill m3\tNet m3\tArea m2\n";
+    const auto line = [&] (const std::string& order, const std::string& name, const RecipeVolumes& v) {
+        text += order + "\t" + name + "\t" + Cubic (v.cut) + "\t" + Cubic (v.fill) + "\t" + Cubic (v.net) + "\t" +
+                Cubic (v.area) + "\n";
+    };
+    for (const auto& row : q.rows)
+        line (row.baseline ? "-" : std::to_string (row.order), row.name, { row.cut, row.fill, row.net, row.area });
+    if (q.available)
+        line ("", "Total (revision " + std::to_string (q.revision) + (q.current ? ")" : ", stale)"), q.total);
+    return text;
 }
 
 } // namespace tapioca::geometry

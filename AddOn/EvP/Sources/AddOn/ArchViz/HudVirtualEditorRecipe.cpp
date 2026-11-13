@@ -2,12 +2,14 @@
 // terrain build will actually do -- route, effective order, targets, footprint construction,
 // constraints, owners left out and their reasons, limitations -- from the one compiled plan
 // (Edit/EditLandscapeRecipe.hpp). A row click only selects the row's source in the view; the
-// row's own controls (slice 2) are the supported edits, each one undo step.
+// row's own controls (slice 2) are the supported edits, each one undo step. Step 4: the published
+// terrain's quantity rows, named after the recipe rows, with Build and Copy.
 // OVERLAY-INVARIANTS.md §8: its cache lives on the editor Session.
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditorRecipe.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
+#include "Edit/EditTerrainDesignJob.hpp"
 #include <imgui.h>
 #include <algorithm>
 
@@ -159,6 +161,84 @@ void Section (Session& s, const lg::LandscapeRecipe& recipe, lg::RecipeStage sta
         if (row.stage == stage)
             Row (s, row);
 }
+// #105 step 4: the published terrain's quantities, named after the recipe rows. Read-only: a row
+// click selects its owner's line; Build asks for the current revision's terrain; Copy puts the
+// table on the clipboard.
+void Quantities (Session& s, const lg::LandscapeRecipe& recipe, const TerrainDesignStatus& status)
+{
+    ImGui::SeparatorText ("Quantities");
+    bool stale = false;
+    const auto* last = LastPublishedTerrainDesign (s, stale);
+    const auto quantities = lg::ProjectRecipeQuantities (recipe, last ? last->published.get () : nullptr, stale);
+    if (status.pending)
+        ImGui::TextDisabled ("Building the terrain of this revision...");
+    else if (recipe.ok && recipe.route != lg::RecipeRoute::Nothing && !quantities.current) {
+        if (ImGui::Button ("Build terrain") && !RequestTerrainBuild (s) && s.message.empty ())
+            s.message = "The terrain cannot be built now.";
+        if (ImGui::IsItemHovered ())
+            geomsrv::archviz::hudshell::HoverTip ("Build the terrain of this revision; its quantities replace these.");
+        if (quantities.available)
+            ImGui::SameLine ();
+    }
+    if (!quantities.available) {
+        ImGui::TextWrapped ("%s", quantities.reason.c_str ());
+        return;
+    }
+    if (ImGui::Button ("Copy table"))
+        ImGui::SetClipboardText (lg::RecipeQuantitiesText (quantities).c_str ());
+    if (ImGui::IsItemHovered ())
+        geomsrv::archviz::hudshell::HoverTip ("Copy the rows and the total as tab-separated text.");
+    if (!quantities.current) {
+        ImGui::PushStyleColor (ImGuiCol_Text, kLimit);
+        ImGui::TextWrapped ("Built from revision %llu, not this one.",
+                            static_cast<unsigned long long> (quantities.revision));
+        ImGui::PopStyleColor ();
+    }
+    constexpr ImGuiTableFlags flags =
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp;
+    if (ImGui::BeginTable ("##quantities", 5, flags)) {
+        ImGui::TableSetupColumn ("Owner", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+        ImGui::TableSetupColumn ("Cut m3");
+        ImGui::TableSetupColumn ("Fill m3");
+        ImGui::TableSetupColumn ("Net m3");
+        ImGui::TableSetupColumn ("Area m2");
+        ImGui::TableHeadersRow ();
+        const auto numbers = [] (double cut, double fill, double net, double area) {
+            for (const double value : { cut, fill, net, area }) {
+                ImGui::TableNextColumn ();
+                ImGui::Text ("%.3f", value);
+            }
+        };
+        for (const auto& row : quantities.rows) {
+            ImGui::TableNextRow ();
+            ImGui::TableNextColumn ();
+            ImGui::PushID (row.baseline ? -1 : int (row.order));
+            const auto owner = std::find_if (recipe.rows.begin (), recipe.rows.end (), [&] (const lg::RecipeRow& r) {
+                return !row.baseline && r.order != 0 && r.object == row.object && r.operation == row.operation;
+            });
+            const edit::Id entity = owner != recipe.rows.end () ? RowEntity (s, *owner) : edit::kNoId;
+            const bool selected = entity != edit::kNoId && s.selection.Contains ({ entity, edit::Part::Entity, 0 });
+            const std::string label = row.baseline ? row.name : std::to_string (row.order) + ".  " + row.name;
+            if (ImGui::Selectable (label.c_str (), selected, ImGuiSelectableFlags_SpanAllColumns) &&
+                entity != edit::kNoId)
+                s.selection.Set ({ { entity, edit::Part::Entity, 0 } });
+            ImGui::PopID ();
+            numbers (row.cut, row.fill, row.net, row.area);
+        }
+        ImGui::TableNextRow ();
+        ImGui::TableNextColumn ();
+        ImGui::TextUnformatted ("Total");
+        numbers (quantities.total.cut, quantities.total.fill, quantities.total.net, quantities.total.area);
+        ImGui::EndTable ();
+    }
+    ImGui::TextDisabled ("Property, 0.25 m grid: cut %.3f m3, fill %.3f m3. Outside it: cut %.3f m3, fill %.3f m3.",
+                         quantities.site.cut, quantities.site.fill, quantities.context.cut, quantities.context.fill);
+    for (const auto& note : quantities.notes) {
+        ImGui::PushStyleColor (ImGuiCol_Text, kNote);
+        ImGui::TextWrapped ("%s", note.c_str ());
+        ImGui::PopStyleColor ();
+    }
+}
 } // namespace
 
 const lg::LandscapeRecipe& CurrentRecipe (Session& s)
@@ -219,5 +299,6 @@ void RecipePanel (Session& s)
         for (const auto& d : recipe.diagnostics)
             ImGui::TextWrapped ("%s", d.c_str ());
     }
+    Quantities (s, recipe, status);
 }
 } // namespace geomsrv::archviz::edithud

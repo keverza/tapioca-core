@@ -81,6 +81,50 @@ LandscapeRecipe ProjectLandscapeRecipe (const geomsrv::edit::Document& doc,
 // relative order is fixed by object id).
 bool MoveRecipeRegion (geomsrv::edit::Document& doc, Id object, int step, std::string& error);
 
+// #105 step 4: read-only quantity rows over one PUBLISHED terrain (EditPublishedTerrain.hpp), named
+// after the recipe's rows. Nothing is measured here: the rows are the publication's own
+// triangle-exact final-owner partition (each triangle whole to the last region whose footprint
+// holds it, else to its last moving owner, else to the baseline row), and the totals are its
+// whole-surface, 0.25 m display and rebuild-scope figures, each labelled with its method.
+// Three reports are kept apart and never summed into one another:
+//   - final totals: baseline versus proposal over the whole published surface;
+//   - final-owner attribution: the rows, which plus the baseline row reconcile to that total;
+//   - sequential per-operation deltas: not computed (each would need its own partial build).
+// A publication of another document revision, or one the caller reports stale (another request
+// or capture), is shown as stale: inspectable, never current commit input.
+struct PublishedTerrain;
+struct RecipeQuantityRow {
+    uint32_t order = 0; // 1-based stack position; 0 for the baseline row
+    Id object = kNoId, operation = kNoId, path = kNoId;
+    bool baseline = false; // triangles no domain claims and no owner moved
+    std::string name;      // the recipe row's name, or "Stack position N" when the recipe has none
+    double cut = 0, fill = 0, net = 0, area = 0; // m3, m3, m3 (fill - cut), m2
+    uint64_t triangles = 0;
+    bool operator== (const RecipeQuantityRow&) const = default;
+};
+struct RecipeVolumes {
+    double cut = 0, fill = 0, net = 0, area = 0;
+    bool operator== (const RecipeVolumes&) const = default;
+};
+struct RecipeQuantities {
+    bool available = false; // false: `reason` says why there are no rows
+    std::string reason;
+    bool current = false;                      // the publication is of the recipe's revision and not stale
+    uint64_t revision = 0, hash = 0;           // the publication's
+    RecipeVolumes total;                       // exact, whole published surface
+    RecipeVolumes site, context;               // 0.25 m grid against the property (the Terrain tab's figures)
+    RecipeVolumes rebuildSite, rebuildContext; // exact, inside/outside the rebuilt area
+    double residual = 0;                       // |sum of row nets - total net|, m3
+    std::vector<RecipeQuantityRow> rows;       // stack order, then the baseline row
+    std::vector<std::string> notes;            // method, scope and what is not reported
+    bool operator== (const RecipeQuantities&) const = default;
+};
+// `published` null: nothing built on the unified lane (the legacy outline lane publishes no
+// attributed snapshot). `stale`: the caller already knows the publication is not current.
+RecipeQuantities ProjectRecipeQuantities (const LandscapeRecipe& recipe, const PublishedTerrain* published, bool stale);
+// Tab-separated table (header, rows, total) for the clipboard.
+std::string RecipeQuantitiesText (const RecipeQuantities& quantities);
+
 const char* RecipeEffectName (RegionTerrainEffect effect);
 const char* RecipeOperationName (OperationKind kind);
 

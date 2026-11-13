@@ -6,6 +6,7 @@
 // conversion as parity oracle, the daylight sampled-error grid tolerance, and
 // refusal/reload behavior at the build boundary. No production dispatch.
 #include "Edit/EditPublishedTerrain.hpp"
+#include "Edit/EditLandscapeRecipe.hpp"
 
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditLandscapeDomain.hpp"
@@ -880,4 +881,53 @@ TEST (EditPublishedTerrain, SourceEditChangesPlanIdentityAndStalePlanRefuses)
     ASSERT_TRUE (plan.ok) << plan.error;
     EXPECT_GT (plan.revision, published.revision);
     EXPECT_NE (plan.hash, firstHash);
+}
+
+// #105 step 4 end to end: the Operations recipe names every row of a real mixed publication by its
+// own stack position (region, then the path), the baseline row comes last, the rows reconcile to
+// the exact total, and the build of this revision counts as current although its plan hash (which
+// includes the capture) is not the recipe's.
+TEST (EditPublishedTerrain, RecipeQuantityRowsNameEveryStackPositionOfAMixedBuild105)
+{
+    auto scene = Issue82Scene ();
+    scene.options.source = 8;
+    const auto mixed = debugreplay::Run (scene);
+    ASSERT_TRUE (mixed.built) << mixed.error;
+    ASSERT_TRUE (mixed.published);
+    const auto& published = *mixed.published;
+    geo::PathDesignRequest request;
+    request.source = scene.options.source;
+    request.operation = scene.options.operation;
+    request.object = scene.options.object;
+    request.effect = scene.options.effect;
+    request.outline = scene.options.outline;
+    const auto recipe = geo::ProjectLandscapeRecipe (scene.doc, request);
+    ASSERT_TRUE (recipe.ok) << recipe.error;
+    ASSERT_EQ (published.revision, recipe.revision);
+
+    const auto q = geo::ProjectRecipeQuantities (recipe, &published, false);
+    ASSERT_TRUE (q.available);
+    EXPECT_TRUE (q.current);
+    ASSERT_EQ (q.rows.size (), published.domainQuantities.size ());
+    ASSERT_GE (q.rows.size (), 3u) << "one region, the path and the baseline row";
+    bool region = false, path = false;
+    for (size_t i = 0; i < q.rows.size (); ++i) {
+        const auto& row = q.rows[i];
+        if (row.baseline) {
+            EXPECT_EQ (i + 1, q.rows.size ()) << "the baseline row comes last";
+            continue;
+        }
+        const auto named = std::find_if (recipe.rows.begin (), recipe.rows.end (),
+                                         [&] (const geo::RecipeRow& r) { return r.order == row.order; });
+        ASSERT_NE (named, recipe.rows.end ()) << "stack position " << row.order;
+        EXPECT_EQ (named->object, row.object);
+        EXPECT_EQ (named->name, row.name);
+        region = region || named->stage == geo::RecipeStage::Region;
+        path = path || named->stage == geo::RecipeStage::Path;
+    }
+    EXPECT_TRUE (region);
+    EXPECT_TRUE (path);
+    EXPECT_LT (q.residual, 1e-6);
+    EXPECT_NEAR (q.total.fill, published.quantities.fill, 0);
+    EXPECT_GT (q.total.fill + q.total.cut, 0);
 }
