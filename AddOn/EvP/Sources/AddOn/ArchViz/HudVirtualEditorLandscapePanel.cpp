@@ -108,16 +108,7 @@ void LandscapePanel (Session& s)
                  s.landscape.regions.size (), s.plane.origin.z);
     // #191 U2: Session snapshot and Restore snapshot are in the command bar's File menu.
     DraftControls (s);
-    ImGui::BeginDisabled (GizmoModeLocked (s) || !s.drawing.empty ());
-    if (ImGui::Button ("Union"))
-        BeginLandscapeCommand (s, lg::OperationKind::Union);
-    ImGui::SameLine ();
-    if (ImGui::Button ("Subtract"))
-        BeginLandscapeCommand (s, lg::OperationKind::Difference);
-    ImGui::SameLine ();
-    if (ImGui::Button ("Intersection"))
-        BeginLandscapeCommand (s, lg::OperationKind::Intersection);
-    ImGui::EndDisabled ();
+    // #191 U3: Union, Subtract and Intersection are the toolbar's Booleans popover.
     ImGui::BeginDisabled (s.landscapeCommand.has_value ());
     if (hudshell::BeginSubTabs ("##landscape")) {
         if (ImGui::BeginTabItem ("Sources")) {

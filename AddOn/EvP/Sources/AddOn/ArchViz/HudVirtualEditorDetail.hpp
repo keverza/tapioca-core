@@ -97,7 +97,8 @@ void Outliner (Session& s);
 void ProfileEditor (Session& s);
 void OperationsTab (Session& s);
 void WarningsTab (Session& s);
-void SnapControls (Session& s);
+// `open`: the options drawn at once, without their tree node (#191 U3: the toolbar's Snap popover).
+void SnapControls (Session& s, bool open = false);
 void DuplicateOffsetControls (Session& s);
 // Rectangular array: a selection/revision/tool-bound draft with an outline-only cached preview.
 // Check closes a stale draft; a kernel refusal keeps it open for correction. Apply is one history

@@ -4,6 +4,7 @@
 #include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "ArchViz/HudVirtualEditorDraft.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
+#include "ArchViz/TapiocaUI/Foundation/Icons.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 #include <imgui.h>
 #include <algorithm>
@@ -16,6 +17,7 @@
 namespace geomsrv::archviz::edithud {
 using namespace detail;
 namespace lg = tapioca::geometry;
+namespace ui = geomsrv::archviz::ui;
 
 Chip ChipState (const TerrainDesignStatus& status, const std::string& refusal)
 {
@@ -124,6 +126,7 @@ void BuildChip (Session& s)
     TrackBuildRefusal (s, status);
     const auto chip = ChipState (status, s.buildRefusal);
     if (chip.kind == ChipKind::None) {
+        ImGui::AlignTextToFramePadding ();
         ImGui::TextDisabled ("No terrain");
         return;
     }
@@ -132,17 +135,17 @@ void BuildChip (Session& s)
     if (tinted)
         ImGui::PushStyleColor (ImGuiCol_Text, chip.kind == ChipKind::Refused ? IM_COL32 (220, 38, 38, 255)
                                                                              : IM_COL32 (245, 158, 11, 255));
-    // What row 1 leaves it: Undo, Redo, File and Exit keep their full labels.
+    // What row 1 leaves it: Undo and Redo (glyphs a frame high), File and Exit keep theirs.
     const float spacing = ImGui::GetStyle ().ItemSpacing.x;
-    const float room = ImGui::GetContentRegionAvail ().x - ButtonWidth ("Undo") - ButtonWidth ("Redo") -
-                       ButtonWidth ("File") - ButtonWidth ("Exit") - 5.0f * spacing;
+    const float room = ImGui::GetContentRegionAvail ().x - 2.0f * ImGui::GetFrameHeight () - ButtonWidth ("File") -
+                       ButtonWidth ("Exit") - 5.0f * spacing;
     std::string shown = chip.text;
     while (shown.size () > 4 && ButtonWidth ((shown + "...").c_str ()) > room)
         shown.pop_back ();
     if (shown != chip.text)
         shown += "...";
     ImGui::PushID ("build-chip");
-    const bool pressed = ImGui::SmallButton (shown.c_str ());
+    const bool pressed = ImGui::Button (shown.c_str ());
     ImGui::PopID ();
     if (tinted)
         ImGui::PopStyleColor ();
@@ -155,7 +158,7 @@ void BuildChip (Session& s)
 
 void FileMenu (Session& s)
 {
-    if (ImGui::SmallButton ("File"))
+    if (ImGui::Button ("File"))
         ImGui::OpenPopup ("##file");
     if (!ImGui::BeginPopup ("##file"))
         return;
@@ -225,11 +228,13 @@ void detail::CommandBar (Session& s)
     BuildChip (s);
     ImGui::BeginDisabled (s.drag != Drag::None || s.profileTyping);
     ImGui::SameLine ();
-    if (ImGui::SmallButton ("Undo"))
+    if (ui::IconButton ("undo", ui::IconId::Undo))
         History (s, true);
+    hudshell::Tip ("Undo (Ctrl+Z)", hudshell::TipSide::Above);
     ImGui::SameLine ();
-    if (ImGui::SmallButton ("Redo"))
+    if (ui::IconButton ("redo", ui::IconId::Redo))
         History (s, false);
+    hudshell::Tip ("Redo (Ctrl+Y)", hudshell::TipSide::Above);
     ImGui::EndDisabled ();
     ImGui::SameLine ();
     FileMenu (s);
@@ -237,7 +242,7 @@ void detail::CommandBar (Session& s)
     const float exitWidth = ButtonWidth ("Exit");
     ImGui::SameLine ((std::max) (ImGui::GetCursorPosX (), ImGui::GetWindowContentRegionMax ().x - exitWidth));
     ImGui::BeginDisabled (s.drag != Drag::None || s.profileTyping);
-    if (ImGui::SmallButton ("Exit"))
+    if (ImGui::Button ("Exit"))
         RequestClose (s);
     ImGui::EndDisabled ();
     PromptRow (s);

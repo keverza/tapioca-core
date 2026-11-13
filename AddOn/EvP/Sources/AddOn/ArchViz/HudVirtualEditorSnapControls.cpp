@@ -25,13 +25,15 @@ const std::vector<SnapOption>& SnapOptions ()
 
 namespace detail {
 
-void SnapControls (Session& s)
+void SnapControls (Session& s, bool open)
 {
     ImGui::Checkbox ("Snapping", &s.snapEnabled);
     hudshell::Tip ("Suspend snapping without clearing your selected snap modes.", hudshell::TipSide::Above);
-    ImGui::SameLine ();
-    if (!ImGui::TreeNode ("Snap options"))
-        return;
+    if (!open) {
+        ImGui::SameLine ();
+        if (!ImGui::TreeNode ("Snap options"))
+            return;
+    }
     for (const auto& option : SnapOptions ()) {
         bool enabled = (s.snapModes & option.mode) != 0;
         if (ImGui::Checkbox (option.label, &enabled))
@@ -63,7 +65,8 @@ void SnapControls (Session& s)
     if (ImGui::DragFloat ("3D proximity", &proximity, 0.05f, 0.01f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp))
         s.snapProximity = proximity;
     hudshell::Tip ("A host point farther than this, in 3D, is not snapped to.", hudshell::TipSide::Above);
-    ImGui::TreePop ();
+    if (!open)
+        ImGui::TreePop ();
 }
 
 } // namespace detail

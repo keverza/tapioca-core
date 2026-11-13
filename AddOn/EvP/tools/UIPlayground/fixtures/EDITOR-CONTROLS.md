@@ -117,6 +117,22 @@ Shared enable terms:
 | Materials tab: Material preset metadata, Choose Archicad fill / surface..., Refresh project materials | `RegionPanel (s, true)` | Regions.cpp:343-354 | the material spec, `MaterialPickerRequest`, catalog refresh | as region settings | HudTerrainSetup.RegionSurfacePanelNamesContourDirectionAndHidesForReferenceSelection | C (Material heading) | 5, 6 |
 | *Warnings* (text) | `LandscapePanel` | LandscapePanel.cpp:187 | display | n/a | none | D (Issues) | - |
 
+## After #191 U3
+
+The toolbar (B) draws Iconoir glyphs (`IconId` 25-43) with the label and hotkey as the tooltip.
+Actions and enable conditions are unchanged.
+
+- **Row 1:** the nine tools, in the order Select, Polyline, Path, Curve, Rectangle, Polygon,
+  Ellipse, Mirror, Trim, then `Bool` (Union, Subtract, Intersection in a popover; moved here from
+  `LandscapePanel`, shown with a landscape). Test: `HudVirtualEditorCommandBar.ToolbarSelectsEveryTool191`
+  presses each glyph; `ToolbarDisabledWhileCommandRuns191` checks ToolLock.
+- **Row 2:** Window select glyph and `La` (Lasso; no Iconoir glyph fits), the Gizmo popover (its
+  glyph is the current mode's), the Snap popover (`SnapControls (s, true)`, options drawn open), the
+  Local/World toggle, the Plane popover (`PlaneControls`), the Contours popover.
+- **Command bar (A):** Undo and Redo are glyphs (Ctrl+Z, Ctrl+Y); Done reads Exit.
+- **Height:** `HudVirtualEditorCommandBar.PinnedHeaderFitsTheBudget191` keeps A + B within 120 px.
+- Every tool and modifier is reached in at most two clicks: one for a glyph, two for a popover entry.
+
 ## Notes found while taking the inventory
 
 - No test addresses `DuplicateOffsetControls`, `OffsetJoinControl` or `OffsetMiterLimitControl`.

@@ -180,3 +180,95 @@ TEST (HudVirtualEditorCommandBar, ExitAndDeleteAreNotAdjacent191)
     const auto inspector = gui.Frame ([&] { eh::detail::Inspector (s); });
     EXPECT_NE (inspector.find ("Delete"), std::string::npos) << "Delete is in the Inspector's action row";
 }
+
+namespace {
+// The centre of row 1's `index`-th glyph: the toolbar drawn first in the window.
+ImVec2 ToolCentre (int index)
+{
+    const auto& style = ImGui::GetStyle ();
+    const float side = ImGui::GetFontSize () + 2.0f * style.FramePadding.y;
+    return { style.WindowPadding.x + index * (side + style.ItemSpacing.x) + side * 0.5f,
+             style.WindowPadding.y + side * 0.5f };
+}
+
+// Presses row 1's `index`-th glyph; its place is measured in a first frame, where the font is set.
+void Press (Gui& gui, const std::function<void ()>& draw, int index)
+{
+    ImVec2 at {};
+    gui.Frame ([&] {
+        at = ToolCentre (index);
+        draw ();
+    });
+    gui.Frame (draw, at);
+    gui.Frame (draw, at, true);
+    gui.Frame (draw, at, false);
+}
+} // namespace
+
+// #191 U3: row 1's glyphs, in order, set the same tool and landscape mode their radios did.
+TEST (HudVirtualEditorCommandBar, ToolbarSelectsEveryTool191)
+{
+    struct Expected {
+        eh::Tool tool;
+        bool drawsSource;
+    };
+    const Expected expected[] = { { eh::Tool::Select, false },   { eh::Tool::Polyline, true },
+                                  { eh::Tool::Path, true },      { eh::Tool::Curve, true },
+                                  { eh::Tool::Rectangle, true }, { eh::Tool::Polygon, true },
+                                  { eh::Tool::Ellipse, true },   { eh::Tool::Mirror, false },
+                                  { eh::Tool::Trim, false } };
+    for (int i = 0; i < int (std::size (expected)); ++i) {
+        SCOPED_TRACE (i);
+        eh::Session s;
+        if (i == 0)
+            eh::detail::SetTool (s, eh::Tool::Polyline); // Select must be a change
+        Gui gui;
+        const auto bar = [&] { eh::detail::Toolbar (s); };
+        Press (gui, bar, i);
+        EXPECT_EQ (s.tool, expected[i].tool);
+        if (expected[i].drawsSource)
+            EXPECT_EQ (s.landscapeMode, eh::LandscapeMode::DrawSource);
+        else if (i == 0)
+            EXPECT_EQ (s.landscapeMode, eh::LandscapeMode::Select);
+    }
+}
+
+// The tool block keeps its enable condition: a running landscape command holds the tool.
+TEST (HudVirtualEditorCommandBar, ToolbarDisabledWhileCommandRuns191)
+{
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (lg::SeedLandscapeDemo (doc, 0, error)) << error;
+    eh::Session s (doc);
+    ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Union));
+    const auto before = s.tool;
+    Gui gui;
+    Press (gui, [&] { eh::detail::Toolbar (s); }, 1);
+    EXPECT_EQ (s.tool, before) << "Polyline is not reachable while Union runs";
+    EXPECT_TRUE (eh::detail::Running (s));
+}
+
+// The pinned A + B stays within #191's budget at 320 px: four rows, at most 120 logical px.
+TEST (HudVirtualEditorCommandBar, PinnedHeaderFitsTheBudget191)
+{
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (lg::SeedLandscapeDemo (doc, 0, error)) << error;
+    eh::Session s (doc);
+    s.message = "Intersection complete. Sources remain editable. A long message that has to be elided here.";
+    Gui gui;
+    float height = 0, left = 0, after = -1, frame = 0;
+    gui.Frame ([&] {
+        const float top = ImGui::GetCursorPosY ();
+        left = ImGui::GetCursorPosX ();
+        eh::PanelHeader (s);
+        after = ImGui::GetCursorPosX ();
+        height = ImGui::GetCursorPosY () - top - ImGui::GetStyle ().ItemSpacing.y;
+        frame = ImGui::GetFrameHeight ();
+    });
+    // The page starts under the header, never beside its last control (a helper once resolved to
+    // detail::Contours, which draws nothing, and left row 2 open for the page).
+    EXPECT_EQ (after, left) << "the header ends on a fresh line";
+    EXPECT_GE (height, 4.0f * frame) << "A + B are four rows";
+    EXPECT_LE (height, 120.0f) << "A + B: " << height << " px";
+}
