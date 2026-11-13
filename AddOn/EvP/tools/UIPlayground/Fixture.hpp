@@ -19,6 +19,9 @@ struct FixtureModel {
     av::massingslices::Result stats;
     av::floorprogramme::Programme programme, saved;
     av::massingareas::Coefficients coefficients;
+    // "hudeditor": a virtual editor debug dump, kept as written (HudVirtualEditorDebug.cpp). Its
+    // `playground` member, when present, names the variant and what the session starts with.
+    Value editor;
 };
 // Malformed transport is rejected; deliberately invalid domain values remain visible
 // for the real production validator. Stats fixtures never contain geometry.
@@ -27,4 +30,9 @@ Value EncodeFixture (const FixtureModel& model);
 Value EncodeProgramme (const av::floorprogramme::Programme& programme);
 bool DecodeProgramme (const Value& value, av::floorprogramme::Programme& programme);
 void Event (Value& document, const std::string& text);
+// A virtual editor debug dump (Export debug scene, or a fixture written in its format) as a
+// "hudeditor" fixture: its variant from `playground.variant`, else `fallbackVariant`; its status an
+// error when the dump recorded a terrain refusal.
+bool IsEditorDump (const Value& value);
+Value FixtureFromDump (const Value& dump, const std::string& fallbackVariant);
 } // namespace tapioca::playground

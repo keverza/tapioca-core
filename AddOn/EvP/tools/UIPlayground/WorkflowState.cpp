@@ -1,5 +1,7 @@
 #include "WorkflowState.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
+#include "Edit/EditVirtualEditorDump.hpp"
+#include "ArchViz/HudVirtualEditorDetail.hpp"
 #include <algorithm>
 #include <limits>
 #include <type_traits>
@@ -264,6 +266,70 @@ bool RestoreWorkflowState (MockServices& m, const Value& state)
         m.editor.selection.Set (refs);
     }
     m.hud.analysisFocus.selectTab = m.hud.analysisFocus.tab;
+    return true;
+}
+bool LoadEditorFixture (MockServices& m, const Value& dump, std::string& error)
+{
+    namespace eh = av::edithud;
+    namespace lg = tapioca::geometry;
+    geomsrv::edit::Document doc;
+    lg::VirtualEditorDumpHeader header;
+    try {
+        lg::ReadVirtualEditorDump (lg::landscape_json::Reader (dump, "fixture"), doc, &header);
+    }
+    catch (const std::exception& e) {
+        error = e.what ();
+        return false;
+    }
+    const auto& playground = Member (dump, "playground");
+    std::vector<geomsrv::edit::Ref> refs;
+    if (const auto* selection = Member (playground, "selection").AsArray ())
+        for (const auto& item : *selection) {
+            geomsrv::edit::Ref ref;
+            ref.entity = geomsrv::edit::Id (Number (item, "entity"));
+            ref.part = geomsrv::edit::Part (int (Number (item, "part")));
+            ref.item = geomsrv::edit::Id (Number (item, "item"));
+            if (!geomsrv::edit::Exists (doc, ref)) {
+                error = "the fixture selects " + std::to_string (ref.entity) + ", which its document does not have";
+                return false;
+            }
+            refs.push_back (ref);
+        }
+    auto& s = m.editor;
+    s = eh::Session (std::move (doc));
+    s.selection.Set (refs);
+    s.terrainLive = Flag (dump, "terrainLive", s.terrainLive);
+    s.contours = Flag (dump, "contours", s.contours);
+    s.message = header.message;
+    const auto& session = Member (playground, "session");
+    static const char* const tools[] = { "select",  "polyline", "path",   "curve", "rectangle",
+                                         "polygon", "ellipse",  "mirror", "trim" };
+    const auto tool = Text (session, "tool", "select");
+    for (size_t i = 0; i < std::size (tools); ++i)
+        if (tool == tools[i]) {
+            eh::detail::SetTool (s, eh::Tool (i));
+            s.landscapeMode = i == 0 ? eh::LandscapeMode::Select : eh::LandscapeMode::DrawSource;
+        }
+    s.closePrompt = Flag (session, "closePrompt");
+    const auto command = Text (session, "command");
+    if (!command.empty ()) {
+        const auto kind = command == "union"          ? lg::OperationKind::Union
+                          : command == "subtract"     ? lg::OperationKind::Difference
+                          : command == "intersection" ? lg::OperationKind::Intersection
+                                                      : lg::OperationKind::Stroke;
+        if (kind == lg::OperationKind::Stroke || !eh::BeginLandscapeCommand (s, kind)) {
+            error = "the fixture's command \"" + command + "\" did not start: " + s.message;
+            return false;
+        }
+        if (const auto* picks = Member (session, "picks").AsArray ())
+            for (const auto& pick : *picks) {
+                std::array<double, 3> at {};
+                if (!Decode (pick, at) || !eh::PickLandscapeShape (s, { at[0], at[1], at[2] }, true)) {
+                    error = "a pick of the fixture's command found no shape";
+                    return false;
+                }
+            }
+    }
     return true;
 }
 } // namespace tapioca::playground

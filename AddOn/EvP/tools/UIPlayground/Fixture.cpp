@@ -77,7 +77,14 @@ bool DecodeFixture (const Value& value, FixtureModel& model, std::string& error)
                                     result.status != "error" && result.status != "completed"))
         return false;
     const auto& data = Member (value, "data");
-    if (result.panel == "hudprogramme") {
+    if (result.panel == "hudeditor") {
+        // Transport only: the document itself is read by the editor's own dump reader when the
+        // fixture is opened, which reports what is wrong with it there.
+        if (!IsEditorDump (data))
+            return false;
+        result.editor = data;
+    }
+    else if (result.panel == "hudprogramme") {
         if (!DecodeProgramme (Member (data, "types"), result.programme))
             return false;
         result.saved = result.programme;
@@ -133,7 +140,9 @@ bool DecodeFixture (const Value& value, FixtureModel& model, std::string& error)
 Value EncodeFixture (const FixtureModel& model)
 {
     Value data;
-    if (model.panel == "hudprogramme")
+    if (model.panel == "hudeditor")
+        data = model.editor;
+    else if (model.panel == "hudprogramme")
         data = Value::Object (
             { { "types", EncodeProgramme (model.programme) }, { "saved", EncodeProgramme (model.saved) } });
     else {
@@ -167,6 +176,26 @@ Value EncodeFixture (const FixtureModel& model)
                             { "status", Value::Object ({ { "kind", Value::String (model.status) },
                                                          { "message", Value::String (model.message) } }) },
                             { "data", std::move (data) } });
+}
+bool IsEditorDump (const Value& value)
+{
+    // EditVirtualEditorDump.hpp's kVirtualEditorDumpFormat; this model library links no editor.
+    return Text (value, "format") == "tapioca.virtual-editor.debug" && Number (value, "version") == 1 &&
+           Member (value, "document").AsObject () != nullptr;
+}
+Value FixtureFromDump (const Value& dump, const std::string& fallbackVariant)
+{
+    const auto& playground = Member (dump, "playground");
+    const auto refusal = Text (Member (dump, "status"), "error");
+    const auto note = Text (playground, "note", Text (Member (dump, "status"), "message"));
+    return Value::Object (
+        { { "schema", Value::String ("tapioca.uiplayground.fixture") },
+          { "version", Value::Integer (1) },
+          { "panel", Value::String ("hudeditor") },
+          { "variant", Value::String (Text (playground, "variant", fallbackVariant)) },
+          { "status", Value::Object ({ { "kind", Value::String (refusal.empty () ? "ready" : "error") },
+                                       { "message", Value::String (refusal.empty () ? note : refusal) } }) },
+          { "data", dump } });
 }
 void Event (Value& document, const std::string& text)
 {

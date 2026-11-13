@@ -1,9 +1,9 @@
 #ifndef TAPIOCA_TEST_VIRTUAL_EDITOR_DEBUG_REPLAY_HPP
 #define TAPIOCA_TEST_VIRTUAL_EDITOR_DEBUG_REPLAY_HPP
 
-// Offline diagnostic reader: schema-check authored values without persistence's
-// region/geometry acceptance gate. Broken geometry is exactly what a dump preserves.
-#include "Edit/EditLandscapeJsonInternal.hpp"
+// Offline diagnostic reader: the document comes through the shared dump reader
+// (EditVirtualEditorDump.hpp, also the UI Playground's), the terrain inputs from here.
+#include "Edit/EditVirtualEditorDump.hpp"
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditTerrainDesignJob.hpp"
 #include "Edit/EditRegionTerrain.hpp"
@@ -46,16 +46,8 @@ struct Scene {
 inline Scene Read (const js::JsonValue& value)
 {
     const lj::Reader root (value, "debug");
-    if (root.Field ("format").Text () != "tapioca.virtual-editor.debug" || root.Field ("version").Integer () != 1)
-        throw std::runtime_error ("Unsupported virtual editor dump format/version");
     Scene scene;
-    const auto document = root.Field ("document");
-    const int version = document.Field ("version").Integer ();
-    if ((version != 1 && version != 2) || document.Field ("mode").Text () != "virtual")
-        throw std::runtime_error ("Expected a schema-v1 or schema-v2 virtual document");
-    lj::ReadDocument (document, scene.doc, lg::LandscapeStorage::Virtual);
-    if (!root.Field ("hadLandscape").Flag ())
-        scene.doc.landscape.reset ();
+    lg::ReadVirtualEditorDump (root, scene.doc);
     const auto baseline = root.Field ("baseline");
     if (!baseline.value.IsNull ()) {
         scene.baseline.guid = baseline.Field ("guid").Text ();

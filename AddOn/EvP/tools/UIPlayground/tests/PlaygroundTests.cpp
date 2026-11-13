@@ -44,6 +44,7 @@ int main (int argc, char** argv)
     try {
         Require (argc == 2, "Pass fixtures directory");
         pg::json::JsonArray fixtures;
+        size_t editors = 0;
         std::vector<fs::path> paths;
         for (const auto& entry : fs::directory_iterator (argv[1]))
             if (entry.path ().extension () == ".json")
@@ -51,9 +52,17 @@ int main (int argc, char** argv)
         std::sort (paths.begin (), paths.end ());
         for (const auto& path : paths) {
             auto parsed = pg::json::Parse (pg::ReadText (path));
+            Require (parsed.ok, "Fixture parse failed");
+            // A virtual editor dump is wrapped as the host wraps it (Host.cpp FixtureOf).
+            if (pg::IsEditorDump (parsed.value)) {
+                auto stem = path.stem ().string ();
+                parsed.value =
+                    pg::FixtureFromDump (parsed.value, stem.rfind ("editor-", 0) == 0 ? stem.substr (7) : stem);
+            }
             pg::FixtureModel model;
             std::string error;
-            Require (parsed.ok && pg::DecodeFixture (parsed.value, model, error), "Fixture decode failed");
+            Require (pg::DecodeFixture (parsed.value, model, error), "Fixture decode failed");
+            editors += model.panel == "hudeditor";
             if (model.panel == "hudprogramme") {
                 if (model.variant == "valid-populated")
                     Require (model.programme == pg::av::floorprogramme::Default (),
@@ -71,7 +80,13 @@ int main (int argc, char** argv)
                      "Fixture roundtrip changed data");
             fixtures.push_back (parsed.value);
         }
-        Require (fixtures.size () == 14, "Expected all seven variants for both panels");
+        Require (fixtures.size () == 14 + editors, "Expected all seven variants for both panels");
+        // #191 U0: one per Inspector context, and the #188 dump.
+        Require (editors == 12, "Expected 12 virtual editor fixtures");
+        // The Programme interaction below drives the first Programme fixture; editor fixtures sort first.
+        const int programme = int (editors);
+        Require (pg::Text (fixtures[size_t (programme)], "panel") == "hudprogramme",
+                 "Programme fixtures not after editor fixtures");
         auto document = pg::Value::Object ({ { "version", pg::Value::Integer (1) },
                                              { "nativeMode", pg::Value::Bool (false) },
                                              { "fixtures", pg::Value::Array (fixtures) },
@@ -105,6 +120,16 @@ int main (int argc, char** argv)
                         const auto parsed = pg::json::Parse (state);
                         Require (parsed.ok && pg::Number (parsed.value, "selected", -2) == selected,
                                  "Selection lost on draw");
+                        if (selected >= 0 && pg::Text (fixtures[size_t (selected)], "panel") == "hudeditor") {
+                            Require (pg::Number (parsed.value, "editorLoaded", -1) == selected,
+                                     "Virtual editor fixture not loaded");
+                            for (const auto& event : *pg::Member (parsed.value, "events").AsArray ()) {
+                                std::string text;
+                                event.AsString (text);
+                                if (text.find (" rejected: ") != std::string::npos)
+                                    throw std::runtime_error (text);
+                            }
+                        }
                     }
                 }
             }
@@ -118,7 +143,7 @@ int main (int argc, char** argv)
             state = Frame (module, state);
             // Drive a real production Programme drag through host input events.
             document = pg::json::Parse (state).value;
-            pg::Put (document, "selected", pg::Value::Integer (0));
+            pg::Put (document, "selected", pg::Value::Integer (programme));
             pg::Put (document, "density", pg::Value::Integer (1));
             state = pg::json::Write (document, 0);
             Require (module.Swap (dll, state, error), "Interaction fixture load failed");
@@ -143,7 +168,7 @@ int main (int argc, char** argv)
             io.AddMouseButtonEvent (0, false);
             state = Frame (module, state);
             const auto edited = pg::json::Parse (state).value;
-            const auto& first = (*pg::Member (edited, "fixtures").AsArray ())[0];
+            const auto& first = (*pg::Member (edited, "fixtures").AsArray ())[size_t (programme)];
             pg::FixtureModel model;
             Require (pg::DecodeFixture (first, model, error), "Edited fixture unreadable");
             Require (model.programme.types[0].rooms != 2.5,
@@ -247,7 +272,9 @@ int main (int argc, char** argv)
                 const auto* panel = ImGui::FindWindowByName ("###playground.native.hud");
                 Require (panel && std::abs (panel->Size.x - 320 * dpi) <= 1, "Production native DPI width mismatch");
             }
-            std::cout << "14 fixtures roundtrip; 120 panel/theme/density cases; real Programme input/save; 10 "
+            std::cout << editors << " editor fixtures load; " << fixtures.size () << " fixtures roundtrip; "
+                      << (fixtures.size () + 1) * 8
+                      << " panel/theme/density cases; real Programme input/save; 10 "
                          "consecutive reloads; native workflows, four Analysis bodies, DPI width and edited controls; "
                          "candidate "
                          "rollback passed.\n";

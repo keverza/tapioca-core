@@ -1,0 +1,823 @@
+{
+ "axes": "right-handed Z-up",
+ "createdUtc": "fixture",
+ "document": {
+  "entities": [
+   {
+    "closed": true,
+    "height": 0,
+    "id": "9",
+    "kind": 0,
+    "role": "",
+    "segments": [
+     {
+      "id": "14",
+      "tag": "0",
+      "width": 0
+     },
+     {
+      "id": "15",
+      "tag": "0",
+      "width": 0
+     },
+     {
+      "id": "16",
+      "tag": "0",
+      "width": 0
+     },
+     {
+      "id": "17",
+      "tag": "0",
+      "width": 0
+     }
+    ],
+    "vertices": [
+     {
+      "id": "10",
+      "in": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "point": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": false
+     },
+     {
+      "id": "11",
+      "in": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "point": {
+       "x": 8,
+       "y": 0,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": false
+     },
+     {
+      "id": "12",
+      "in": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "point": {
+       "x": 8,
+       "y": 8,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": false
+     },
+     {
+      "id": "13",
+      "in": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "point": {
+       "x": 0,
+       "y": 8,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": false
+     }
+    ]
+   },
+   {
+    "closed": true,
+    "height": 0,
+    "id": "22",
+    "kind": 0,
+    "role": "",
+    "segments": [
+     {
+      "id": "27",
+      "tag": "0",
+      "width": 0
+     },
+     {
+      "id": "28",
+      "tag": "0",
+      "width": 0
+     },
+     {
+      "id": "29",
+      "tag": "0",
+      "width": 0
+     },
+     {
+      "id": "30",
+      "tag": "0",
+      "width": 0
+     }
+    ],
+    "vertices": [
+     {
+      "id": "23",
+      "in": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "point": {
+       "x": 5,
+       "y": 3,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": false
+     },
+     {
+      "id": "24",
+      "in": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "point": {
+       "x": 13,
+       "y": 3,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": false
+     },
+     {
+      "id": "25",
+      "in": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "point": {
+       "x": 13,
+       "y": 11,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": false
+     },
+     {
+      "id": "26",
+      "in": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "point": {
+       "x": 5,
+       "y": 11,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": false
+     }
+    ]
+   },
+   {
+    "closed": false,
+    "height": 0,
+    "id": "35",
+    "kind": 0,
+    "role": "",
+    "segments": [
+     {
+      "id": "38",
+      "tag": "0",
+      "width": 0
+     }
+    ],
+    "vertices": [
+     {
+      "id": "36",
+      "in": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "point": {
+       "x": -5,
+       "y": -2,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": false
+     },
+     {
+      "id": "37",
+      "in": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "point": {
+       "x": -5,
+       "y": 10,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": false
+     }
+    ]
+   },
+   {
+    "closed": true,
+    "ellipse": {
+     "axisU": {
+      "x": 3,
+      "y": 0,
+      "z": 0
+     },
+     "axisV": {
+      "x": 0,
+      "y": 2,
+      "z": 0
+     },
+     "center": {
+      "x": -12,
+      "y": 4,
+      "z": 0
+     },
+     "mode": 1
+    },
+    "height": 0,
+    "id": "40",
+    "kind": 0,
+    "role": "fixture ellipse",
+    "segments": [
+     {
+      "id": "45",
+      "tag": "0",
+      "width": 0
+     },
+     {
+      "id": "46",
+      "tag": "0",
+      "width": 0
+     },
+     {
+      "id": "47",
+      "tag": "0",
+      "width": 0
+     },
+     {
+      "id": "48",
+      "tag": "0",
+      "width": 0
+     }
+    ],
+    "vertices": [
+     {
+      "id": "41",
+      "in": {
+       "x": -0,
+       "y": -1.1045694996615869,
+       "z": -0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": 0,
+       "y": 1.1045694996615869,
+       "z": 0
+      },
+      "point": {
+       "x": -9,
+       "y": 4,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": true
+     },
+     {
+      "id": "42",
+      "in": {
+       "x": 1.6568542494923804,
+       "y": 0,
+       "z": 0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": -1.6568542494923804,
+       "y": -0,
+       "z": -0
+      },
+      "point": {
+       "x": -12,
+       "y": 6,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": true
+     },
+     {
+      "id": "43",
+      "in": {
+       "x": 0,
+       "y": 1.1045694996615869,
+       "z": 0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": -0,
+       "y": -1.1045694996615869,
+       "z": -0
+      },
+      "point": {
+       "x": -15,
+       "y": 4,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": true
+     },
+     {
+      "id": "44",
+      "in": {
+       "x": -1.6568542494923804,
+       "y": -0,
+       "z": -0
+      },
+      "lockXY": false,
+      "lockZ": false,
+      "out": {
+       "x": 1.6568542494923804,
+       "y": 0,
+       "z": 0
+      },
+      "point": {
+       "x": -12,
+       "y": 2,
+       "z": 0
+      },
+      "radius": 0,
+      "smooth": true
+     }
+    ]
+   }
+  ],
+  "landscape": {
+   "assignments": [],
+   "bindings": [],
+   "edges": [],
+   "entrances": [],
+   "objects": [
+    {
+     "boundarySource": "18",
+     "footprint": "19",
+     "id": "20",
+     "kind": 2,
+     "masks": [],
+     "material": {
+      "fillGuid": "",
+      "fillName": "",
+      "hatchDensity": 2,
+      "hatchDirection": 45,
+      "preset": 0,
+      "surfaceGuid": "",
+      "surfaceName": ""
+     },
+     "name": "Region",
+     "path": "0",
+     "surface": {
+      "elevation": 2,
+      "fallsTo": 1,
+      "first": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "grade": {
+       "a": 2,
+       "b": 0,
+       "unit": 2
+      },
+      "second": {
+       "x": 1,
+       "y": 0,
+       "z": 0
+      },
+      "slope": 0
+     },
+     "thickness": 0
+    },
+    {
+     "boundarySource": "31",
+     "footprint": "32",
+     "id": "33",
+     "kind": 2,
+     "masks": [],
+     "material": {
+      "fillGuid": "",
+      "fillName": "",
+      "hatchDensity": 2,
+      "hatchDirection": 45,
+      "preset": 0,
+      "surfaceGuid": "",
+      "surfaceName": ""
+     },
+     "name": "Region",
+     "path": "0",
+     "surface": {
+      "elevation": 2,
+      "fallsTo": 1,
+      "first": {
+       "x": 0,
+       "y": 0,
+       "z": 0
+      },
+      "grade": {
+       "a": 2,
+       "b": 0,
+       "unit": 2
+      },
+      "second": {
+       "x": 1,
+       "y": 0,
+       "z": 0
+      },
+      "slope": 0
+     },
+     "thickness": 0
+    }
+   ],
+   "operations": [
+    {
+     "enabled": true,
+     "faces": [],
+     "id": "19",
+     "inputs": [
+      "18"
+     ],
+     "kind": 7,
+     "material": {
+      "fillGuid": "",
+      "fillName": "",
+      "hatchDensity": 2,
+      "hatchDirection": 45,
+      "preset": 0,
+      "surfaceGuid": "",
+      "surfaceName": ""
+     },
+     "offset": 0,
+     "priority": 0,
+     "width": 1.5
+    },
+    {
+     "enabled": true,
+     "faces": [],
+     "id": "32",
+     "inputs": [
+      "31"
+     ],
+     "kind": 7,
+     "material": {
+      "fillGuid": "",
+      "fillName": "",
+      "hatchDensity": 2,
+      "hatchDirection": 45,
+      "preset": 0,
+      "surfaceGuid": "",
+      "surfaceName": ""
+     },
+     "offset": 0,
+     "priority": 0,
+     "width": 1.5
+    }
+   ],
+   "patches": [],
+   "propertyLine": "0",
+   "regions": [
+    {
+     "active": true,
+     "descriptor": {
+      "boundaries": [
+       [
+        {
+         "reversed": false,
+         "segment": "14",
+         "source": "18"
+        },
+        {
+         "reversed": false,
+         "segment": "15",
+         "source": "18"
+        },
+        {
+         "reversed": false,
+         "segment": "16",
+         "source": "18"
+        },
+        {
+         "reversed": false,
+         "segment": "17",
+         "source": "18"
+        }
+       ]
+      ],
+      "object": "20",
+      "operations": [
+       "19"
+      ],
+      "sources": [
+       "18"
+      ]
+     },
+     "id": "21",
+     "predecessors": []
+    },
+    {
+     "active": true,
+     "descriptor": {
+      "boundaries": [
+       [
+        {
+         "reversed": false,
+         "segment": "27",
+         "source": "31"
+        },
+        {
+         "reversed": false,
+         "segment": "28",
+         "source": "31"
+        },
+        {
+         "reversed": false,
+         "segment": "29",
+         "source": "31"
+        },
+        {
+         "reversed": false,
+         "segment": "30",
+         "source": "31"
+        }
+       ]
+      ],
+      "object": "33",
+      "operations": [
+       "32"
+      ],
+      "sources": [
+       "31"
+      ]
+     },
+     "id": "34",
+     "predecessors": []
+    }
+   ],
+   "sourceTerrainGuid": "",
+   "sources": [
+    {
+     "arcAngles": [],
+     "deleted": false,
+     "entity": "0",
+     "guid": "",
+     "id": "8",
+     "path": "1",
+     "reference": false,
+     "revision": "4277360764351975393",
+     "role": 2
+    },
+    {
+     "arcAngles": [],
+     "deleted": false,
+     "entity": "9",
+     "guid": "",
+     "id": "18",
+     "path": "0",
+     "reference": false,
+     "revision": "13022084507444904292",
+     "role": 10
+    },
+    {
+     "arcAngles": [],
+     "deleted": false,
+     "entity": "22",
+     "guid": "",
+     "id": "31",
+     "path": "0",
+     "reference": false,
+     "revision": "1777517325066414332",
+     "role": 10
+    },
+    {
+     "arcAngles": [],
+     "deleted": false,
+     "entity": "35",
+     "guid": "",
+     "id": "39",
+     "path": "0",
+     "reference": false,
+     "revision": "16526515315411615270",
+     "role": 9
+    }
+   ],
+   "terrainControls": [],
+   "volumetricDetails": []
+  },
+  "mode": "virtual",
+  "nextId": "49",
+  "paths": [
+   {
+    "edgeRadius": 0,
+    "id": "1",
+    "kerbs": [],
+    "points": [
+     {
+      "id": "2",
+      "lockXY": false,
+      "point": {
+       "x": 0,
+       "y": -6,
+       "z": 0
+      },
+      "radius": 0
+     },
+     {
+      "id": "3",
+      "lockXY": false,
+      "point": {
+       "x": 20,
+       "y": -6,
+       "z": 0
+      },
+      "radius": 0
+     },
+     {
+      "id": "4",
+      "lockXY": false,
+      "point": {
+       "x": 28,
+       "y": 0,
+       "z": 0
+      },
+      "radius": 0
+     }
+    ],
+    "profile": [
+     {
+      "anchor": "0",
+      "binding": "",
+      "crossing": "0",
+      "curve": 0,
+      "fixed": false,
+      "id": "5",
+      "station": 0,
+      "z": 0
+     },
+     {
+      "anchor": "0",
+      "binding": "",
+      "crossing": "0",
+      "curve": 0,
+      "fixed": false,
+      "id": "6",
+      "station": 30,
+      "z": 1
+     }
+    ],
+    "role": "fixture path",
+    "sections": [
+     {
+      "crossfall": 2,
+      "crossfallNegative": false,
+      "crossfallSlope": {
+       "a": 2,
+       "b": 0,
+       "unit": 2
+      },
+      "cut": {
+       "a": 50,
+       "b": 0,
+       "unit": 2
+      },
+      "endLeft": 0.75,
+      "endRight": 0.75,
+      "fall": 0,
+      "fill": {
+       "a": 33,
+       "b": 0,
+       "unit": 2
+      },
+      "id": "7",
+      "rounding": 1,
+      "shoulder": 0,
+      "station": 0,
+      "taper": false,
+      "widthLeft": 1,
+      "widthRight": 1
+     }
+    ]
+   }
+  ],
+  "revision": "10",
+  "sessionUuid": "19010000-0000-4000-8000-000000000001",
+  "version": 2
+ },
+ "format": "tapioca.virtual-editor.debug",
+ "hadLandscape": true,
+ "playground": {
+  "note": "A Union picking whole shapes; region A is picked, B is next.",
+  "selection": [],
+  "session": {
+   "command": "union",
+   "picks": [
+    [
+     1,
+     1,
+     0
+    ]
+   ]
+  },
+  "variant": "command-running"
+ },
+ "status": {
+  "error": "",
+  "message": ""
+ },
+ "units": "metres",
+ "version": 1
+}

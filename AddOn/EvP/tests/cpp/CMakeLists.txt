@@ -1014,6 +1014,7 @@ set (EVP_TEST_SOURCES
     test_editpath.cpp
     test_editprofileview.cpp
     test_hudvirtualeditor.cpp
+    test_hudvirtualeditorfixtures.cpp
     test_hudvirtualeditorellipse.cpp
     test_viewereditor.cpp
     test_hudlandscape.cpp

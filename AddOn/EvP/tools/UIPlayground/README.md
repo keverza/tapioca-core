@@ -43,6 +43,14 @@ workspace for this launch. Default config is `RelWithDebInfo`. No add-on build r
 - Host/shared-ImGui/ABI edits require restarting and rerunning the entry script;
   only the UI module is reloadable. Do not run the full entry script's build while
   an instance holds the shared ImGui DLL open.
+- **Virtual editor fixtures** (`fixtures/editor-*.json`) are virtual editor debug dumps, the
+  format **Export debug scene** writes. They are listed under "Virtual editor fixtures"; choosing
+  one replaces the editor session with its document, selection and starting tool or command.
+  `editor-ctx-*` holds one per Inspector context of #191; regenerate them with
+  `TAPIOCA_PLAYGROUND_FIXTURES_OUT=<this folder>` and the offline test filter
+  `HudVirtualEditorFixtures.*`. `EDITOR-CONTROLS.md` is the panel's control inventory.
+  Open any exported dump directly with `Run-Playground.ps1 -Dump <file>` (or `--dump <file>`).
+  The Playground has no Rust terrain kernel: a dump's terrain refusal is shown, not rebuilt.
 - Fixture JSON files are read on startup. Use `-Fresh` after editing them; ordinary
   launches restore edited fixtures from the saved workspace.
 

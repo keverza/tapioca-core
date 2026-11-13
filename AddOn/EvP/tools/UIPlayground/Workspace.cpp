@@ -1,4 +1,5 @@
 #include "Workspace.hpp"
+#include "WorkflowState.hpp"
 #include "ArchViz/HudMassingStats.hpp"
 #include "ArchViz/HudFloorProgramme.hpp"
 #include "ArchViz/HudShell.hpp"
@@ -152,6 +153,13 @@ void ProgrammeDialogs (Workspace& w, FixtureModel& model)
 void DrawPanel (Workspace& w, FixtureModel& model, const av::overlaylayers::Panel& look, float scale)
 {
     ImGui::TextWrapped ("%s: %s", model.status.c_str (), model.message.c_str ());
+    if (model.panel == "hudeditor") {
+        // The production editor panel on the session the fixture loaded (EditorFixture).
+        w.native.mocks.document = &w.document;
+        MockScope scope (w.native.mocks);
+        av::edithud::Panel (w.native.mocks.editor);
+        return;
+    }
     if (model.panel == "hudmassingstats") {
         if (model.stats.rows.empty () && !model.stats.hasCoverage)
             ImGui::TextDisabled ("No floor area to distribute (owner empty state).");
@@ -255,6 +263,23 @@ void DrawPanel (Workspace& w, FixtureModel& model, const av::overlaylayers::Pane
         ProgrammeDialogs (w, model);
     }
 }
+// A Virtual editor fixture chosen in the browser replaces the editor session once; the document
+// remembers which one is loaded, so a UI reload or a redraw keeps the edits made since.
+void EditorFixture (Workspace& w, const json::JsonArray& fixtures, int selected)
+{
+    if (selected < 0 || Text (fixtures[size_t (selected)], "panel") != "hudeditor" ||
+        Number (w.document, "editorLoaded", -1) == selected)
+        return;
+    w.native.mocks.document = &w.document;
+    MockScope scope (w.native.mocks);
+    std::string error;
+    const auto variant = Text (fixtures[size_t (selected)], "variant");
+    if (LoadEditorFixture (w.native.mocks, Member (fixtures[size_t (selected)], "data"), error))
+        Event (w.document, "Virtual editor: fixture " + variant + " loaded");
+    else
+        Event (w.document, "Virtual editor: fixture " + variant + " rejected: " + error);
+    Put (w.document, "editorLoaded", Value::Integer (selected));
+}
 } // namespace
 bool Restore (Workspace& w, const Value& document)
 {
@@ -356,8 +381,10 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
                     selected = 0;
                 Put (w.document, "nativeRequest", Value::String (entry.second));
             }
-        for (const auto* panel : { "hudmassingstats", "hudprogramme" }) {
-            ImGui::SeparatorText (std::strcmp (panel, "hudprogramme") == 0 ? "Define Programme" : "Stats");
+        for (const auto* panel : { "hudeditor", "hudmassingstats", "hudprogramme" }) {
+            ImGui::SeparatorText (std::strcmp (panel, "hudprogramme") == 0 ? "Define Programme"
+                                  : std::strcmp (panel, "hudeditor") == 0  ? "Virtual editor fixtures"
+                                                                           : "Stats");
             for (size_t i = 0; i < fixtures.size (); ++i) {
                 if (Text (fixtures[i], "panel") != panel)
                     continue;
@@ -369,12 +396,14 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
                     selected = int (i);
                     Put (w.document, "nativeRequest",
                          Value::String (std::strcmp (panel, "hudprogramme") == 0 ? "@massing"
+                                        : std::strcmp (panel, "hudeditor") == 0  ? "@editor"
                                                                                  : av::hudshell::kStatsKey));
                 }
                 ImGui::PopID ();
             }
         }
         ImGui::EndChild ();
+        EditorFixture (w, fixtures, selected);
         ImGui::TableSetColumnIndex (1);
         const ImVec2 stageMin = ImGui::GetCursorScreenPos ();
         const ImVec2 stageMax = stageMin + ImGui::GetContentRegionAvail ();

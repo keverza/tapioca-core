@@ -41,7 +41,22 @@ LRESULT CALLBACK WindowProc (HWND window, UINT message, WPARAM wparam, LPARAM lp
         return 0;
     return DefWindowProcW (window, message, wparam, lparam);
 }
-std::string InitialState (const fs::path& folder)
+// A fixture file as the workspace holds it: a virtual editor dump is wrapped, its file name the
+// variant when it names none ("editor-boolean-refused.json" -> "boolean-refused").
+Value FixtureOf (const fs::path& path)
+{
+    const auto parsed = json::Parse (ReadText (path));
+    if (!parsed.ok)
+        throw std::runtime_error ("Invalid fixture " + path.filename ().string () + ": " + parsed.error);
+    if (!IsEditorDump (parsed.value))
+        return parsed.value;
+    auto stem = path.stem ().string ();
+    if (stem.rfind ("editor-", 0) == 0)
+        stem = stem.substr (7);
+    return FixtureFromDump (parsed.value, stem);
+}
+// `dumps`: debug dumps named on the command line (--dump), after the fixtures; the first is opened.
+std::string InitialState (const fs::path& folder, const std::vector<fs::path>& dumps)
 {
     json::JsonArray fixtures;
     std::vector<fs::path> paths;
@@ -49,18 +64,21 @@ std::string InitialState (const fs::path& folder)
         if (entry.path ().extension () == ".json")
             paths.push_back (entry.path ());
     std::sort (paths.begin (), paths.end ());
+    const size_t own = paths.size ();
+    paths.insert (paths.end (), dumps.begin (), dumps.end ());
     for (const auto& path : paths) {
-        const auto parsed = json::Parse (ReadText (path));
+        const auto fixture = FixtureOf (path);
         FixtureModel model;
         std::string error;
-        if (!parsed.ok || !DecodeFixture (parsed.value, model, error))
-            throw std::runtime_error ("Invalid fixture " + path.filename ().string () + ": " + parsed.error + error);
-        fixtures.push_back (parsed.value);
+        if (!DecodeFixture (fixture, model, error))
+            throw std::runtime_error ("Invalid fixture " + path.filename ().string () + ": " + error);
+        fixtures.push_back (fixture);
     }
     if (fixtures.empty ())
         throw std::runtime_error ("No JSON fixtures found.");
     return json::Write (Value::Object ({ { "version", Value::Integer (1) },
-                                         { "selected", Value::Integer (0) },
+                                         { "selected", Value::Integer (dumps.empty () ? 0 : int64_t (own)) },
+                                         { "nativeRequest", Value::String (dumps.empty () ? "" : "@editor") },
                                          { "fixtures", Value::Array (std::move (fixtures)) },
                                          { "events", Value::Array ({}) } }),
                         0);
@@ -156,6 +174,7 @@ int Run ()
     auto** argv = CommandLineToArgvW (GetCommandLineW (), &argc);
     int smokeFrames = 0, smokeReloads = 0;
     bool fresh = false, verification = false;
+    std::vector<fs::path> dumps;
     for (int i = 1; i < argc; ++i) {
         if (std::wstring (argv[i]) == L"--fresh")
             fresh = true;
@@ -165,6 +184,10 @@ int Run ()
             smokeFrames = _wtoi (argv[++i]);
         if (std::wstring (argv[i]) == L"--smoke-reloads" && i + 1 < argc)
             smokeReloads = _wtoi (argv[++i]);
+        // A debug dump to open in the Virtual editor; it starts from the fixtures, not the saved
+        // workspace, so the dump is what is shown.
+        if (std::wstring (argv[i]) == L"--dump" && i + 1 < argc)
+            dumps.push_back (argv[++i]), fresh = true;
     }
     LocalFree (argv);
     wchar_t executable[32768] {};
@@ -172,7 +195,7 @@ int Run ()
     const fs::path bin = fs::path (executable).parent_path ();
     const fs::path uiDll = bin / "TapiocaUIPlaygroundUI.dll";
     const fs::path stateFile = bin / "workspace.json";
-    std::string state = InitialState (fs::path (TAPIOCA_PLAYGROUND_SOURCE) / "fixtures");
+    std::string state = InitialState (fs::path (TAPIOCA_PLAYGROUND_SOURCE) / "fixtures", dumps);
     const auto original = state;
     if (!fresh && fs::exists (stateFile))
         state = ReadText (stateFile);

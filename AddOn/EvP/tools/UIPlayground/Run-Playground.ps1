@@ -2,7 +2,9 @@ param (
     [string] $BuildDir = "$PSScriptRoot\build",
     [ValidateSet("Debug", "RelWithDebInfo", "Release")] [string] $Config = "RelWithDebInfo",
     [switch] $BuildOnly,
-    [switch] $Fresh
+    [switch] $Fresh,
+    # A virtual editor debug dump (Export debug scene) to open in the Virtual editor.
+    [string] $Dump
 )
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\..\..\Find-CMake.ps1"
@@ -18,5 +20,6 @@ if ($LASTEXITCODE -ne 0) { throw "Playground smoke tests failed." }
 if (!$BuildOnly) {
     $exe = Join-Path $BuildDir "bin\$Config\TapiocaUIPlayground.exe"
     $arguments = if ($Fresh) { @("--fresh") } else { @() }
+    if ($Dump) { $arguments += @("--dump", "`"$((Resolve-Path $Dump).Path)`"") }
     Start-Process -FilePath $exe -ArgumentList ($arguments + @("--interactive"))
 }
