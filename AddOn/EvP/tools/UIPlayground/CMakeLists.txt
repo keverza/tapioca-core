@@ -69,6 +69,7 @@ add_library (PlaygroundModel STATIC Fixture.cpp "${ADDON_DIR}/NodeGraph/Json.cpp
 target_include_directories (PlaygroundModel PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" "${ADDON_DIR}")
 target_link_libraries (PlaygroundModel PUBLIC imgui)
 add_library (TapiocaUIPlaygroundUI SHARED UiModule.cpp Workspace.cpp NativePreview.cpp MockServices.cpp WorkflowState.cpp
+    RustTerrainStubs.cpp
     ${PLAYGROUND_PRODUCTION_SOURCES})
 target_link_libraries (TapiocaUIPlaygroundUI PRIVATE PlaygroundModel imgui)
 target_compile_definitions (TapiocaUIPlaygroundUI PRIVATE TAPIOCA_UI_MODULE=1)

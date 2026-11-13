@@ -896,7 +896,7 @@ TerrainDesignStatus GetTerrainDesignStatus (const Session&)
 {
     return {};
 }
-std::optional<lg::PathDesignRequest> TerrainRecipeRequest (const Session&)
+std::optional<tapioca::geometry::PathDesignRequest> TerrainRecipeRequest (const Session&)
 {
     return std::nullopt;
 }

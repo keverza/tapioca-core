@@ -4,6 +4,8 @@
 #include "ArchViz/ViewpointBake.hpp"
 #include "ArchViz/AnalysisPathSource.hpp"
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/DiligentHud.hpp"
+#include "SunStudy/SunPathStudyData.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
 #include "Geometry/MeshStore.hpp"
 #include <stdexcept>
@@ -55,11 +57,77 @@ Status Current ()
 {
     return pg::Services ().sun;
 }
+// The HUD's one control owner: the mock has no follower, so the manual status is the job's.
+Status CurrentJob ()
+{
+    return pg::Services ().sun;
+}
+void CancelActive ()
+{
+    Cancel ();
+}
+bool ResumeFollowing (std::string& error)
+{
+    error = "No follower in the playground.";
+    return false;
+}
+// No period run is ever kept: the period views show their empty state.
+PeriodInfo CurrentPeriod ()
+{
+    return {};
+}
+std::shared_ptr<const std::vector<KeptDay>> KeptPeriodDays ()
+{
+    return nullptr;
+}
+std::shared_ptr<const PeriodProfile> LatestPeriodProfile ()
+{
+    return nullptr;
+}
+bool ShowPeriodView (const PeriodView&, std::string& error)
+{
+    error = "No period run in the playground.";
+    return false;
+}
+bool ReadPeriodPoints (const std::vector<size_t>&, PeriodPoint&)
+{
+    return false;
+}
+void RequestPeriodProfile (const std::vector<size_t>&)
+{
+}
+bool ClearPeriodCache (std::string& error)
+{
+    error.clear ();
+    pg::LogMock ("Clear period cache (mock; nothing kept)");
+    return true;
+}
+} // namespace geomsrv::sunstudyhud
+namespace geomsrv::sunstudyhud {
+// No completed study is stored here: the sun path has no day to show.
+bool ReadSunPathStudyDay (const std::string&, SunPathStudyDay&)
+{
+    return false;
+}
 } // namespace geomsrv::sunstudyhud
 namespace geomsrv::archviz {
 void ArchVizLog (const std::string& message)
 {
     pg::LogMock (message);
+}
+// The period, point and obstruction views read the study store and its workers, which the
+// playground does not link; their place in the Analysis page says so.
+void DrawSunStudyPeriodView (HudState&)
+{
+    ImGui::TextDisabled ("Period view: needs a stored study (not in the playground).");
+}
+void DrawSunStudyPointDay (HudState&, const std::string&, uint64_t)
+{
+    ImGui::TextDisabled ("Point day: needs a stored study (not in the playground).");
+}
+void DrawSunStudyObstructionControls (HudState&, const std::string&)
+{
+    ImGui::TextDisabled ("Obstruction: needs the study workers (not in the playground).");
 }
 namespace edithud {
 bool RequestDebugExport (Session& s)

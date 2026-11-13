@@ -195,8 +195,11 @@ int main (int argc, char** argv)
                 state = Frame (module, state);
                 std::string rendered;
                 state = Frame (module, state, 1, &rendered);
-                const char* expected[] = { "Run sun study", "Run visibility", "Point XYZ (m)", "Show viewpoint" };
-                Require (rendered.find (expected[tab]) != std::string::npos, "Analysis tab body was not rendered");
+                // Visibility draws its run button through AnalysisRunControl, whose label the text log cannot see.
+                const char* expected[] = { "Run sun study", "square cells", "Point XYZ (m)", "Show viewpoint" };
+                if (rendered.find (expected[tab]) == std::string::npos)
+                    throw std::runtime_error ("Analysis tab " + std::to_string (tab) + " body was not rendered: no \"" +
+                                              expected[tab] + "\" in:\n" + rendered);
                 const auto answer = pg::json::Parse (state).value;
                 Require (pg::Number (pg::Member (pg::Member (answer, "native"), "values"), "analysisTab", -1) == tab,
                          "Real analysis sub-tab did not render");

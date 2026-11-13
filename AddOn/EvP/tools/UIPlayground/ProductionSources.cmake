@@ -4,8 +4,10 @@ set (panelSources
     ArchViz/HudFloorProgramme.cpp ArchViz/FloorProgramme.cpp
     ArchViz/HudShell.cpp ArchViz/HudShellStyle.cpp ArchViz/HudShellTabs.cpp
     ArchViz/HudShellDock.cpp ArchViz/HudShellNavigation.cpp ArchViz/OverlayHitMap.cpp
-    ArchViz/OverlayLayers.cpp ArchViz/PlanOverlayContent.cpp ArchViz/GraphicsSettings.cpp ArchViz/GraphicsSettingsUi.cpp
+    ArchViz/OverlayLayers.cpp ArchViz/OverlayRampChoices.cpp ArchViz/GradientLibrary.cpp
+    ArchViz/PlanOverlayContent.cpp ArchViz/GraphicsSettings.cpp ArchViz/GraphicsSettingsUi.cpp
     ArchViz/TapiocaUI/Foundation/ScopedStyle.cpp ArchViz/TapiocaUI/Foundation/Units.cpp
+    ArchViz/TapiocaUI/Foundation/AnalysisRunControl.cpp
     ArchViz/TapiocaUI/Foundation/Icons.cpp ArchViz/TapiocaUI/Foundation/Iconoir.gen.cpp
     ArchViz/TapiocaUI/Demo/WidgetGallery.cpp
     Metadata/TapiocaSchema.cpp Metadata/TapiocaMetadata.cpp)
