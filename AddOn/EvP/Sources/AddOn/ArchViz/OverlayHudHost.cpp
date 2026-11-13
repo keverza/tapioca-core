@@ -437,7 +437,9 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     spec.dockMax = dockMax;
     spec.dockEdge = store->host.dock.edge;
     spec.dockHorizontal = store->host.dock.horizontal;
-    spec.textInput = !own.viewerSurface && host.selected != std::string (editlayers::kLayer) + "#0";
+    // The virtual editor keeps the command line as every other page does (the user, 2026-11-13); its
+    // single-key shortcuts stand down while the line has focus (WantTextInput, OverlayHudVirtualEditor).
+    spec.textInput = !own.viewerSurface;
     spec.pageWidthPixels = showsPanel ? panels[shown]->pageWidthPixels : 0.0f;
     // Stats and Selection, the panels, Settings and Debug; without own pages the panels and
     // Settings.
