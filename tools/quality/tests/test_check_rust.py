@@ -352,6 +352,11 @@ def test_full_gate_commands_are_offline_locked_and_test_both_profiles():
     assert len(tests) == 2
     assert "--release" not in tests[0] and "--release" in tests[1]
     assert commands[-1][:4] == ["build", "--package", "tapioca-core-ffi", "--release"]
+    strict, advisory = [command for command in commands if command[0] == "clippy"]
+    # The advisory pass prints on a passing gate; quoted source must never reach
+    # MSBuild's error parser (a `error: Range,` parameter line failed the build).
+    assert "--message-format=short" in advisory[: advisory.index("--")]
+    assert "--message-format=short" not in strict
 
 
 @pytest.mark.parametrize(

@@ -323,9 +323,15 @@ def cargo_commands(target: str | None, build_only: bool = False) -> list[list[st
         ["fmt", "--all", "--", "--check"],
         ["check", *common],
         ["clippy", *common, "--", "-D", "warnings"],
+        # Advisory, so it prints even on a passing gate: short format, one
+        # `file:line:col: warning: ...` per finding and no source snippets.
+        # Under CMake's Visual Studio generator MSBuild parses this output, and a
+        # quoted source line such as `120 | |     error: Range,` reads as a
+        # canonical error that fails the custom build (MSB8066, exit -1).
         [
             "clippy",
             *common,
+            "--message-format=short",
             "--",
             "-A",
             "warnings",
