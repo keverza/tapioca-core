@@ -190,7 +190,7 @@ python tools/quality/check_rust.py
 ```
 
 The setup script downloads official rustup only with explicit `-InstallRustup`,
-verifies the published SHA-256, installs pinned Rust **1.99.1**, rustfmt, Clippy,
+verifies the published SHA-256, installs pinned Rust **1.100.0**, rustfmt, Clippy,
 and `x86_64-pc-windows-msvc`. It leaves the user PATH/global default unchanged.
 Run without that switch when rustup is already present. The checker locates rustup
 on PATH or under CARGO_HOME/`~/.cargo`, then runs the exact pinned toolchain with

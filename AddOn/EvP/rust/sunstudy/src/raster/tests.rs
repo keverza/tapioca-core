@@ -356,7 +356,7 @@ fn ground_grid_covers_the_padded_footprint() {
 fn ground_grid_is_centred_when_the_spacing_does_not_divide_evenly() {
     let g = grid(&[0.0; 3], &[10.0, 10.0, 1.0], 3.0, 0.0, 0.0);
     assert_eq!(g.map(|g| g.columns), Some(4));
-    let positions = g.map(|g| g.positions()).unwrap_or_default();
+    let positions = g.map_or_default(|g| g.positions());
     let first = positions.first().copied().unwrap_or(f64::NAN);
     let last = positions.get(9).copied().unwrap_or(f64::NAN);
     assert!(near(first, 10.0 - last, 1e-9));

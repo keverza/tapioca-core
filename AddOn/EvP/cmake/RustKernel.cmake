@@ -73,8 +73,11 @@ function (TapiocaLinkRustCore target)
         set_target_properties (TapiocaCoreFfi PROPERTIES IMPORTED_LOCATION "${_archive}")
         add_dependencies (TapiocaCoreFfi TapiocaRustCoreBuild)
         if (WIN32)
+            # Mirrors `rustc --print native-static-libs`. Rust 1.100's std futex
+            # Mutex/Condvar call WaitOnAddress/WakeByAddress*, exported by
+            # synchronization.lib; without it the staticlib fails at link time.
             set_property (TARGET TapiocaCoreFfi PROPERTY INTERFACE_LINK_LIBRARIES
-                "advapi32;bcrypt;ntdll;userenv;ws2_32")
+                "advapi32;bcrypt;ntdll;synchronization;userenv;ws2_32")
         elseif (UNIX)
             find_package (Threads REQUIRED)
             set_property (TARGET TapiocaCoreFfi PROPERTY INTERFACE_LINK_LIBRARIES
