@@ -80,6 +80,17 @@ void ScreenFlush (const Session& s, const Map& m, ImVec2 mouse, float scale, edi
 // #191's four areas of the panel (PanelHeader draws A and B, Panel C and D), and the pieces the
 // Inspector and the Outliner hold: the selected path's profile, the landscape recipe and warnings.
 void CommandBar (Session& s);
+// The command running now, for the command bar's prompt row: a landscape Boolean, a Boolean or an
+// array draft, or the Mirror and Trim tools; Apply is Enter's, Cancel is Esc's for it.
+struct RunningCommand {
+    const char* name = "";
+    std::string prompt;
+    size_t picked = 0;
+    bool canApply = false;
+};
+std::optional<RunningCommand> Running (const Session& s);
+bool ApplyRunning (Session& s);
+bool CancelRunning (Session& s);
 void Toolbar (Session& s);
 void Inspector (Session& s);
 void Outliner (Session& s);

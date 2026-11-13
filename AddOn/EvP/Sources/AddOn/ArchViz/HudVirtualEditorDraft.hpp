@@ -59,6 +59,9 @@ bool RequestDiscardRecovery (Session& session, const std::string& file);
 void SetRecoveryEnabled (Session& session, bool enabled);
 // The panel's draft row and the unsaved-work prompt (layout only; they request, never write).
 void DraftControls (Session& session);
+// #191 U2: the File menu's Save draft and Open draft... (inside an open menu or popup); the list
+// Open asks for is drawn by DraftControls.
+void DraftMenuItems (Session& session);
 void ClosePrompt (Session& session);
 } // namespace geomsrv::archviz::edithud
 #endif

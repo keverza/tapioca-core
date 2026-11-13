@@ -94,6 +94,18 @@ bool SetTerrainBaseline (Session& session, TerrainDesignBaseline baseline, edit:
 // The GUID of the terrain set, whether a design owns it yet or not; empty when none is.
 std::string TerrainGuid (const Session& session);
 TerrainDesignStatus GetTerrainDesignStatus (const Session& session);
+// #191 U2: the command bar's build state, one of four (or none without a terrain design). A
+// refusal stands until a newer build succeeds; Stale keeps its colour and says so in words (#71).
+enum class ChipKind : uint8_t { None, Current, Building, Stale, Refused };
+struct Chip {
+    ChipKind kind = ChipKind::None;
+    std::string text;   // what the chip says; a refusal only "Refused", which row 2 then explains
+    std::string detail; // the whole of it, for its hover and the prompt row
+};
+Chip ChipState (const TerrainDesignStatus& status, const std::string& refusal);
+// Keeps Session::buildRefusal from `status`: a refusal is taken as it comes; it is cleared only by
+// a built, current outcome of a newer revision than the refused one.
+void TrackBuildRefusal (Session& session, const TerrainDesignStatus& status);
 // The design's current path request, as the terrain job will compile it (#105 recipe view);
 // absent when no design exists, it grades regions only, or the build has no Rust kernel.
 std::optional<tapioca::geometry::PathDesignRequest> TerrainRecipeRequest (const Session& session);

@@ -4217,7 +4217,9 @@ TEST (HudVirtualEditor, AProfileLabelThePageHasScrolledAwayIsNotClickable)
     ShowProfile (d);
     // Too short a viewport for the page: the canvas is clipped out of the panel, and ImGui's own
     // hover must be what a click passes -- the published box alone is never enough.
-    d.input.height = 260.0f;
+    // #191 U2: 300, not 260, since the pinned command bar reserves its prompt row: at 260 the page
+    // had no room left to draw at all, and a page not drawn publishes nothing.
+    d.input.height = 300.0f;
     d.Frame ();
     const auto* box = ProfileLabel (d.S (), ed::Quantity::Elevation, mid);
     ASSERT_NE (box, nullptr); // still published...

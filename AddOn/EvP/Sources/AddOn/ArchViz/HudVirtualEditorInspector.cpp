@@ -17,15 +17,7 @@ void detail::Inspector (Session& s)
     const auto& doc = Doc (s);
     ClosePrompt (s);
     LandscapePanel (s);
-    ImGui::BeginDisabled (s.debugExportRequested || s.edits.InGesture () || !s.drawing.empty () || s.terrainCapture ||
-                          s.draftingImport || GizmoModeLocked (s) || s.landscapeCommand);
-    if (ImGui::Button (s.debugExportRequested ? "Export requested..." : "Export debug scene"))
-        RequestDebugExport (s);
-    ImGui::EndDisabled ();
-    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        geomsrv::archviz::hudshell::HoverTip (
-            "Save paths, fillet settings, captured topography and current design to a new JSON file "
-            "in %%LOCALAPPDATA%%\\Tapioca\\dumps. Export before and after a problematic edit.");
+    // #191 U2: Export debug scene is in the command bar's File menu; what it wrote is said here.
     if (!s.debugExportPath.empty ())
         ImGui::TextWrapped ("Debug scene saved: %s", s.debugExportPath.c_str ());
     if (!s.debugExportError.empty ())
@@ -33,17 +25,11 @@ void detail::Inspector (Session& s)
     ImGui::BeginDisabled (s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s));
     if (s.tool == Tool::Mirror) {
         ImGui::Checkbox ("Keep original", &s.mirrorKeeps);
-        ImGui::SameLine ();
-        ImGui::TextDisabled ("Click the mirror line's two points. Ctrl: the other way.");
     }
-    if (s.tool == Tool::Trim)
-        ImGui::TextDisabled ("Hover a straight segment; click the highlighted span. Esc exits Trim.");
     if (s.tool == Tool::Polygon) {
         ImGui::SetNextItemWidth (120);
         ImGui::SliderInt ("Sides (Up/Down)", &s.polygonSides, 3, edit::kMaxPolygonSides);
     }
-    if (ShapeTool (s.tool))
-        ImGui::TextDisabled ("Click a corner or centre, then the size. Shift: square, circle.");
     // Archicad's own drafting brought in as editor lines: what is selected in Archicad now.
     ImGui::BeginDisabled (s.draftingImport || s.edits.InGesture () || !s.drawing.empty ());
     if (ImGui::SmallButton (s.draftingImport ? "Adding Archicad lines..." : "Add selected Archicad lines and fills"))
@@ -71,7 +57,10 @@ void detail::Inspector (Session& s)
     ImGui::BeginDisabled (s.drag != Drag::None || s.profileTyping);
     // Context actions for what is selected.
     // An action with nothing to do here is shown greyed, as the menu shows it.
-    bool offers = false, offset = false;
+    // #191 U2: Delete heads the row, away from Done in the command bar; the Delete key is unchanged.
+    if (ImGui::SmallButton ("Delete"))
+        DeleteSelection (s);
+    bool offers = true, offset = false;
     for (const edit::Action* a : edit::Applicable (Actions (s), s.selection, edit::ViewKind::Plan)) {
         const auto op = a->make (doc, s.selection.Items ());
         if (offers)

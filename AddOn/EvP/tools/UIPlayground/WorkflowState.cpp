@@ -301,6 +301,8 @@ bool LoadEditorFixture (MockServices& m, const Value& dump, std::string& error)
     s.terrainLive = Flag (dump, "terrainLive", s.terrainLive);
     s.contours = Flag (dump, "contours", s.contours);
     s.message = header.message;
+    // The Playground builds no terrain: the refusal the dump recorded stands in the command bar (#188).
+    s.buildRefusal = header.error;
     const auto& session = Member (playground, "session");
     static const char* const tools[] = { "select",  "polyline", "path",   "curve", "rectangle",
                                          "polygon", "ellipse",  "mirror", "trim" };

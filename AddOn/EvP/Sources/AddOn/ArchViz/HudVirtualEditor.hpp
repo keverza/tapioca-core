@@ -454,6 +454,10 @@ struct Session {
     std::vector<edit::Ref> publishedSelection;
     std::string message;
     int panelHeaderFrame = -1; // the ImGui frame PanelHeader last drew in
+    // #191 U2: the last terrain build's refusal, kept until a build of a newer revision succeeds
+    // (TrackBuildRefusal); an edit or a new message never clears it. Empty: none stands.
+    std::string buildRefusal;
+    uint64_t buildRefusalRevision = 0;
     bool debugExportRequested = false;
     uint64_t debugExportRevision = 0;
     std::string debugExportPath, debugExportError;

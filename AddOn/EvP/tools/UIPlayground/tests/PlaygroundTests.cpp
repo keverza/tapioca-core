@@ -133,6 +133,27 @@ int main (int argc, char** argv)
                     }
                 }
             }
+            // #191 U2 / #188: the dump's refusal is in the native editor's command bar, unscrolled.
+            {
+                int refused = -1;
+                for (size_t i = 0; i < fixtures.size (); ++i)
+                    if (pg::Text (fixtures[i], "variant") == "boolean-refused")
+                        refused = int (i);
+                Require (refused >= 0, "No boolean-refused editor fixture");
+                auto native = pg::json::Parse (lastState).value;
+                pg::Put (native, "selected", pg::Value::Integer (refused));
+                pg::Put (native, "nativeMode", pg::Value::Bool (true));
+                pg::Put (native, "nativeRequest", pg::Value::String ("@editor"));
+                auto shown = pg::json::Write (native, 0);
+                Require (module.Swap (dll, shown, error), "Refused fixture restore failed");
+                shown = Frame (module, shown);
+                shown = Frame (module, shown);
+                std::string rendered;
+                Frame (module, shown, 1, &rendered);
+                if (rendered.find ("Refused") == std::string::npos ||
+                    rendered.find ("PropertyLineOutside") == std::string::npos)
+                    throw std::runtime_error ("The #188 refusal is not in the command bar:\n" + rendered);
+            }
             auto state = lastState;
             const auto generation = module.Generation ();
             Require (!module.Swap (dll, "{\"version\":999}", error), "Bad state candidate should fail Create");

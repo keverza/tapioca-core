@@ -576,23 +576,13 @@ void DraftControls (Session& s)
         ImGui::TextDisabled ("saved %s", s.draftSavedAt.c_str ());
     else
         ImGui::TextDisabled ("nothing to save yet");
+    // #191 U2: Save draft and Open draft... are in the command bar's File menu (DraftMenuItems);
+    // the name they save under, and the list Open shows, stay here.
     char name[96] = {};
     std::strncpy (name, s.draftName.c_str (), sizeof name - 1);
     ImGui::SetNextItemWidth (180.0f);
     if (ImGui::InputText ("##draft-name", name, sizeof name))
         s.draftName = name;
-    ImGui::SameLine ();
-    ImGui::BeginDisabled (pending || Busy (s));
-    if (ImGui::SmallButton ("Save draft"))
-        RequestDraftSave (s);
-    ImGui::SameLine ();
-    if (ImGui::SmallButton (s.draftFilesListed ? "Refresh drafts" : "Open draft..."))
-        RequestDraftList (s);
-    ImGui::EndDisabled ();
-    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        geomsrv::archviz::hudshell::HoverTip (
-            "Drafts are files in %%LOCALAPPDATA%%\\Tapioca\\Drafts. Opening one is a single "
-            "undoable edit; undo history itself is not saved. Nothing is written to the model.");
     bool keep = s.recoveryEnabled;
     if (ImGui::Checkbox ("Keep recovery snapshots", &keep))
         SetRecoveryEnabled (s, keep);
@@ -617,8 +607,26 @@ void DraftControls (Session& s)
         ImGui::PopID ();
     }
     ImGui::EndDisabled ();
+    ImGui::BeginDisabled (pending || Busy (s));
+    if (ImGui::SmallButton ("Refresh drafts"))
+        RequestDraftList (s);
+    ImGui::EndDisabled ();
+    ImGui::SameLine ();
     if (ImGui::SmallButton ("Hide drafts"))
         s.draftFilesListed = false, s.draftFiles.clear ();
+}
+
+void DraftMenuItems (Session& s)
+{
+    const bool idle = s.edits.Doc ().landscape && !(s.draftRequest && !Background (s.draftRequest)) && !Busy (s);
+    if (ImGui::MenuItem ("Save draft", nullptr, false, idle))
+        RequestDraftSave (s);
+    if (ImGui::MenuItem ("Open draft...", nullptr, false, idle))
+        RequestDraftList (s);
+    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+        geomsrv::archviz::hudshell::HoverTip (
+            "Drafts are files in %%LOCALAPPDATA%%\\Tapioca\\Drafts. Opening one is a single "
+            "undoable edit; undo history itself is not saved. Nothing is written to the model.");
 }
 
 void ClosePrompt (Session& s)
