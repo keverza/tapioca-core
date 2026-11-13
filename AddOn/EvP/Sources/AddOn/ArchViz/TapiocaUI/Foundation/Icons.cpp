@@ -95,7 +95,7 @@ bool IconButton (const char* id, IconId icon, bool active, float width)
     return pressed;
 }
 
-bool IconTextButton (const char* id, IconId icon, const char* label, bool active)
+bool IconTextButton (const char* id, IconId icon, const char* label, bool active, float wide)
 {
     const ImGuiStyle& style = ImGui::GetStyle ();
     const char* const end = ImGui::FindRenderedTextEnd (label);
@@ -103,14 +103,15 @@ bool IconTextButton (const char* id, IconId icon, const char* label, bool active
     const float side = ImGui::GetFrameHeight ();
     const float glyph = GlyphSide (side);
     const float lead = icon == IconId::None ? 0.0f : glyph + style.ItemInnerSpacing.x;
-    const float width = style.FramePadding.x * 2.0f + lead + text.x;
+    const float natural = style.FramePadding.x * 2.0f + lead + text.x;
+    const float width = (std::max) (natural, wide);
     const ImVec2 at = ImGui::GetCursorScreenPos ();
     const bool pressed = ImGui::InvisibleButton (id, ImVec2 (width, side));
     ImU32 ground = 0, ink = 0;
     ButtonColours (active, ground, ink);
     ImDrawList* const draw = ImGui::GetWindowDrawList ();
     draw->AddRectFilled (at, ImVec2 (at.x + width, at.y + side), ground, style.FrameRounding);
-    const float left = at.x + style.FramePadding.x;
+    const float left = at.x + style.FramePadding.x + (width - natural) * 0.5f;
     if (icon != IconId::None)
         DrawIcon (draw, icon, ImVec2 (left + glyph * 0.5f, at.y + side * 0.5f), glyph, ink);
     draw->AddText (ImVec2 (left + lead, at.y + (side - text.y) * 0.5f), ImGui::GetColorU32 (ImGuiCol_Text), label, end);

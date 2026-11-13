@@ -45,8 +45,8 @@ ImU32 IconInk (bool selected);
 // sized by the height, for a row of buttons that fills its panel.
 bool IconButton (const char* id, IconId icon, bool active = false, float width = 0.0f);
 
-// The same with `label` after the glyph.
-bool IconTextButton (const char* id, IconId icon, const char* label, bool active = false);
+// The same with `label` after the glyph. A `width` wider than that centres glyph and label in it.
+bool IconTextButton (const char* id, IconId icon, const char* label, bool active = false, float width = 0.0f);
 
 // For the gallery's sheet: how many ids the table holds (0 to the count less one), and each one's
 // IconId.hpp name and upstream file ("" for the placeholder).
