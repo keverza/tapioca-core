@@ -52,6 +52,27 @@ enum class IconId : uint16_t {
 
     // The sun study's diagrams: what each one shows, on hover
     InfoCircle = 24, // info-circle.svg
+
+    // The virtual editor's toolbar (#191 U3): its tools, then its modifiers
+    Polyline = 25,     // graph-up.svg
+    PathTool = 26,     // path-arrow.svg
+    Curve = 27,        // ease-curve-control-points.svg
+    Rectangle = 28,    // square.svg
+    Polygon = 29,      // pentagon.svg
+    Ellipse = 30,      // circle.svg
+    Mirror = 31,       // flip.svg
+    Undo = 32,         // undo.svg
+    Redo = 33,         // redo.svg
+    Snap = 34,         // magnet.svg
+    DrawingPlane = 35, // face-3d-draft.svg
+    Contours = 36,     // sea-waves.svg
+    WindowSelect = 37, // square-dashed.svg
+    Gumball = 38,      // axes.svg
+    GizmoMove = 39,    // drag.svg
+    GizmoRotate = 40,  // refresh.svg
+    GizmoScale = 41,   // scale-frame-enlarge.svg
+    GizmoStretch = 42, // expand-lines.svg
+    GizmoExtrude = 43, // extrude.svg
 };
 
 } // namespace ui
