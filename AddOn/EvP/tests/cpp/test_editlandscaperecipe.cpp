@@ -107,6 +107,7 @@ TEST (EditLandscapeRecipe, TwoOverlappingRegionsAndAPathShowTheCompiledOrderAndW
     geo::LandscapeSnapshot snapshot;
     snapshot.doc = &doc;
     snapshot.revision = doc.revision;
+    snapshot.captureRevision = doc.revision; // a build of this revision captures at it
     snapshot.session = doc.landscape->sessionUuid;
     snapshot.sourceTerrainGuid = doc.landscape->sourceTerrainGuid;
     snapshot.path = request;

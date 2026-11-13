@@ -224,6 +224,10 @@ LandscapeRecipe ProjectLandscapeRecipe (const geomsrv::edit::Document& doc,
     LandscapeSnapshot snapshot;
     snapshot.doc = &doc;
     snapshot.revision = doc.revision;
+    // A build of this revision captures the terrain at this revision (EditTerrainCapture.cpp), and
+    // its plan hash includes that capture revision: compiling with it makes the recipe's hash the
+    // one that build publishes, so the two can be compared.
+    snapshot.captureRevision = doc.revision;
     snapshot.session = session.sessionUuid;
     snapshot.sourceTerrainGuid = session.sourceTerrainGuid;
     snapshot.path = path;
@@ -485,8 +489,8 @@ RecipeQuantities ProjectRecipeQuantities (const LandscapeRecipe& recipe, const P
     out.available = true;
     out.revision = published->revision;
     out.hash = published->planHash;
-    // Revision, not plan hash: the recipe's plan is compiled without a terrain capture, so its hash
-    // never equals the build's. A request or capture change is the caller's `stale`.
+    // By revision; a request or capture change is the caller's `stale`. The plan hashes agree for a
+    // build of this revision (EditPublishedTerrain *105 pins it) and are shown, not re-compared.
     out.current = !stale && recipe.ok && published->revision == recipe.revision;
     out.total = Volumes (published->quantities);
     out.site = Volumes (published->displaySite);

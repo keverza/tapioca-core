@@ -59,7 +59,7 @@ struct LandscapeRecipe {
     std::string error;
     RecipeRoute route = RecipeRoute::Nothing;
     std::string routeText;
-    uint64_t revision = 0, hash = 0; // the compiled plan's (hash 0 on the legacy lane)
+    uint64_t revision = 0, hash = 0; // the compiled plan's, as a build of this revision publishes it
     std::vector<RecipeRow> rows;     // stack rows in order, then masks, controls, excluded
     std::vector<std::string> limitations;
     std::vector<std::string> diagnostics; // plan diagnostics not located on a row

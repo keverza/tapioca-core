@@ -7,6 +7,7 @@
 // refusal/reload behavior at the build boundary. No production dispatch.
 #include "Edit/EditPublishedTerrain.hpp"
 #include "Edit/EditLandscapeRecipe.hpp"
+#include "Edit/EditRegionTerrain.hpp"
 
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditLandscapeDomain.hpp"
@@ -885,8 +886,7 @@ TEST (EditPublishedTerrain, SourceEditChangesPlanIdentityAndStalePlanRefuses)
 
 // #105 step 4 end to end: the Operations recipe names every row of a real mixed publication by its
 // own stack position (region, then the path), the baseline row comes last, the rows reconcile to
-// the exact total, and the build of this revision counts as current although its plan hash (which
-// includes the capture) is not the recipe's.
+// the exact total, and the recipe's plan hash is the one the build published.
 TEST (EditPublishedTerrain, RecipeQuantityRowsNameEveryStackPositionOfAMixedBuild105)
 {
     auto scene = Issue82Scene ();
@@ -895,15 +895,13 @@ TEST (EditPublishedTerrain, RecipeQuantityRowsNameEveryStackPositionOfAMixedBuil
     ASSERT_TRUE (mixed.built) << mixed.error;
     ASSERT_TRUE (mixed.published);
     const auto& published = *mixed.published;
-    geo::PathDesignRequest request;
-    request.source = scene.options.source;
-    request.operation = scene.options.operation;
-    request.object = scene.options.object;
-    request.effect = scene.options.effect;
-    request.outline = scene.options.outline;
+    // The job's own request (EditLandscapeTerrainJob.cpp RunLandscapeTerrainDesign).
+    const auto request = geo::PathRequestFor (scene.options, !scene.region.empty ());
     const auto recipe = geo::ProjectLandscapeRecipe (scene.doc, request);
     ASSERT_TRUE (recipe.ok) << recipe.error;
     ASSERT_EQ (published.revision, recipe.revision);
+    // The recipe shows the hash of the plan this build ran (its capture revision included).
+    EXPECT_EQ (recipe.hash, published.planHash);
 
     const auto q = geo::ProjectRecipeQuantities (recipe, &published, false);
     ASSERT_TRUE (q.available);
