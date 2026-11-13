@@ -105,10 +105,10 @@ bool Glyph (const char* id, ui::IconId icon, bool active = false, float width = 
     return ui::IconButton (id, icon, active, width);
 }
 
-bool GlyphText (const char* id, const char* label, bool active = false)
+bool GlyphText (const char* id, const char* label, bool active = false, float width = 0.0f)
 {
     Taller taller;
-    return ui::IconTextButton (id, ui::IconId::None, label, active);
+    return ui::IconTextButton (id, ui::IconId::None, label, active, width);
 }
 
 void Next ()
@@ -144,11 +144,12 @@ void BooleansPopover (Session& s, float width)
     ImGui::EndDisabled ();
 }
 
-void GizmoPopover (Session& s)
+void GizmoPopover (Session& s, float width)
 {
     // The gumball holds applicable transforms; the same table gates individual modes, and a mode
     // waits while a gesture or a typed value owns the control.
-    if (!Popover ("gizmo", GizmoIcon (s.gizmo), false, "Gizmo: gumball, or one transform (G R S T E)", "##gizmo"))
+    if (!Popover ("gizmo", GizmoIcon (s.gizmo), false, "Gizmo: gumball, or one transform (G R S T E)", "##gizmo",
+                  width))
         return;
     const bool locked = GizmoModeLocked (s);
     ImGui::BeginDisabled (locked);
@@ -165,10 +166,10 @@ void GizmoPopover (Session& s)
     ImGui::EndPopup ();
 }
 
-void ContoursPopover (Session& s)
+void ContoursPopover (Session& s, float width)
 {
     // The grading guide: the paths' contour lines and their heights.
-    if (!Popover ("contours", ui::IconId::Contours, s.contours, "Contours", "##contours"))
+    if (!Popover ("contours", ui::IconId::Contours, s.contours, "Contours", "##contours", width))
         return;
     bool shown = s.contours;
     if (ImGui::Checkbox ("Contours", &shown))
@@ -206,9 +207,9 @@ float detail::ToolGlyphGap ()
     return ImGui::GetStyle ().ItemSpacing.x * 0.5f;
 }
 
-float detail::ToolButtonWidth (float available)
+float detail::ToolButtonWidth (float available, int perRow)
 {
-    const float width = (available - (kToolsPerRow - 1) * ToolGlyphGap ()) / kToolsPerRow;
+    const float width = (available - (perRow - 1) * ToolGlyphGap ()) / perRow;
     return (std::max) (width, ToolGlyphSide ()); // never narrower than square
 }
 
@@ -228,37 +229,49 @@ void detail::Toolbar (Session& s)
     }
     ImGui::EndDisabled ();
     BooleansPopover (s, width);
-    // Row 3: the modifiers. How a drag from empty space (or from inside an unselected region)
-    // selects; Ctrl at the press takes the other one for that drag. Lasso has no Iconoir glyph.
+    // Row 3: the modifiers, seven across the width as well. How a drag from empty space (or from
+    // inside an unselected region) selects; Ctrl at the press takes the other one for that drag.
+    // Lasso has no Iconoir glyph.
+    // Seven to the row; a text button never narrower than its label (Local or World, the wider, so it
+    // does not jump when toggled), the glyphs sharing what is left.
+    const float available = ImGui::GetContentRegionAvail ().x;
+    const float pad = 2.0f * ImGui::GetStyle ().FramePadding.x;
+    float modifier = ToolButtonWidth (available, kModifiersPerRow);
+    const float lassoWidth = (std::max) (modifier, ImGui::CalcTextSize ("La").x + pad);
+    const float axesWidth =
+        (std::max) (modifier, (std::max) (ImGui::CalcTextSize ("Local").x, ImGui::CalcTextSize ("World").x) + pad);
+    modifier = (std::max) ((available - (kModifiersPerRow - 1) * ToolGlyphGap () - lassoWidth - axesWidth) /
+                               (kModifiersPerRow - 2),
+                           ToolGlyphSide ());
     ImGui::BeginDisabled (s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s));
-    if (Glyph ("window", ui::IconId::WindowSelect, !s.lasso))
+    if (Glyph ("window", ui::IconId::WindowSelect, !s.lasso, modifier))
         s.lasso = false;
     hudshell::Tip ("Window select. Ctrl-drag: lasso.", hudshell::TipSide::Above);
-    ImGui::SameLine (0.0f, 0.0f);
-    if (GlyphText ("lasso", "La", s.lasso))
+    Next ();
+    if (GlyphText ("lasso", "La", s.lasso, lassoWidth))
         s.lasso = true;
     hudshell::Tip ("Lasso select. Ctrl-drag: window.", hudshell::TipSide::Above);
     Next ();
-    GizmoPopover (s);
+    GizmoPopover (s, modifier);
     Next ();
-    if (Popover ("snap", ui::IconId::Snap, s.snapEnabled, "Snapping and snap options", "##snap")) {
+    if (Popover ("snap", ui::IconId::Snap, s.snapEnabled, "Snapping and snap options", "##snap", modifier)) {
         SnapControls (s, true);
         ImGui::EndPopup ();
     }
     Next ();
-    if (GlyphText ("axes", s.localAxes ? "Local" : "World"))
+    if (GlyphText ("axes", s.localAxes ? "Local" : "World", false, axesWidth))
         s.localAxes = !s.localAxes;
     hudshell::Tip (s.localAxes ? "Local axes. Click for world axes." : "World axes. Click for local axes.",
                    hudshell::TipSide::Above);
     ImGui::EndDisabled ();
     Next ();
     if (Popover ("plane", ui::IconId::DrawingPlane, s.plane.locked || s.plane.source != edit::PlaneSource::WorldXY,
-                 "Drawing plane: elevation, lock, at a face or along a path", "##plane")) {
+                 "Drawing plane: elevation, lock, at a face or along a path", "##plane", modifier)) {
         PlaneControls (s);
         ImGui::EndPopup ();
     }
     Next ();
-    ContoursPopover (s);
+    ContoursPopover (s, modifier);
     ImGui::PopID ();
 }
 } // namespace geomsrv::archviz::edithud

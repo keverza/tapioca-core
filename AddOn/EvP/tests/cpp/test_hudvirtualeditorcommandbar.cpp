@@ -276,3 +276,21 @@ TEST (HudVirtualEditorCommandBar, PinnedHeaderFitsTheBudget191)
     EXPECT_GE (height, 2.0f * frame + 3.0f * side) << "A + B are five rows";
     EXPECT_LE (height, 130.0f) << "A + B: " << height << " px";
 }
+
+// The toolbar's rows fill the panel (the user, 2026-11-13): the modifier row's last button, the
+// toolbar's last item, ends at the content's right edge.
+TEST (HudVirtualEditorCommandBar, ToolbarRowsFillThePanelWidth191)
+{
+    eh::Session s;
+    Gui gui;
+    float right = 0, edge = 0, left = 0, start = 0;
+    gui.Frame ([&] {
+        start = ImGui::GetCursorScreenPos ().x;
+        edge = start + ImGui::GetContentRegionAvail ().x;
+        eh::detail::Toolbar (s);
+        right = ImGui::GetItemRectMax ().x;
+        left = ImGui::GetItemRectMin ().x;
+    });
+    EXPECT_NEAR (right, edge, 1.0f) << "Contours ends at the right edge";
+    EXPECT_GT (left, start + 0.8f * (edge - start)) << "and is the seventh of seven";
+}
