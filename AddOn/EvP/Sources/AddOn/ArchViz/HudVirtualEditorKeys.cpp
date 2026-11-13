@@ -1,6 +1,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/HudVirtualEditorDraft.hpp"
+#include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include <imgui.h>
@@ -19,8 +20,10 @@ using Vec3 = edit::Vec3;
 
 void Escape (Session& s)
 {
-    // A panel widget's drag is the innermost gesture: Esc gives it up and nothing else.
-    if (CancelWidgetGesture (s) || CancelLandscapeCommand (s) || CancelGumballReposition (s))
+    // A panel widget's drag is the innermost gesture: Esc gives it up and nothing else. The region
+    // and cross-section sliders keep their own owners (#24) and are given up the same way.
+    if (CancelWidgetGesture (s) || CancelRegionSlider (s) || CancelTerrainSectionDrag (s) ||
+        CancelLandscapeCommand (s) || CancelGumballReposition (s))
         return;
     if (s.closePrompt) { // the unsaved-work question: Esc is its Cancel
         s.closePrompt = false, s.message.clear ();

@@ -325,8 +325,42 @@ bool BeginTerrainSectionDrag (Session& s)
     }
     s.terrainSectionDrag = true;
     s.terrainSectionSliderId = 0;
+    s.terrainSectionCancelled = false;
+    s.terrainSectionBefore = std::make_shared<TerrainSectionDraft> (*draft);
     return true;
 }
+
+bool CancelTerrainSectionDrag (Session& s)
+{
+    if (!s.terrainSectionDrag)
+        return false;
+    s.terrainSectionDrag = false;
+    s.terrainSectionCancelled = true;
+    if (s.edits.InGesture ())
+        s.edits.Cancel ();
+    // The typed values go back too, in place: the panel's widgets hold references into the draft.
+    if (s.terrainSectionDraft && s.terrainSectionBefore) {
+        *s.terrainSectionDraft = *s.terrainSectionBefore;
+        s.terrainSectionDraft->revision = s.edits.Doc ().revision;
+    }
+    s.publishedRevision = UINT64_MAX;
+    s.message.clear ();
+    return true;
+}
+
+namespace {
+// After Esc, until the release: whatever the held slider wrote goes back. True when it did.
+bool KeepCancelledSection (Session& s)
+{
+    if (!s.terrainSectionCancelled)
+        return false;
+    if (s.terrainSectionDraft && s.terrainSectionBefore) {
+        *s.terrainSectionDraft = *s.terrainSectionBefore;
+        s.terrainSectionDraft->revision = s.edits.Doc ().revision;
+    }
+    return true;
+}
+} // namespace
 
 bool MoveTerrainSectionDrag (Session& s)
 {
@@ -343,8 +377,13 @@ bool MoveTerrainSectionDrag (Session& s)
 
 void EndTerrainSectionDrag (Session& s)
 {
-    if (!s.terrainSectionDrag)
+    if (!s.terrainSectionDrag) {
+        // The release of a slider Esc already gave up: nothing to record.
+        s.terrainSectionCancelled = false;
+        s.terrainSectionBefore.reset ();
         return;
+    }
+    s.terrainSectionBefore.reset ();
     s.terrainSectionDrag = false;
     s.terrainSectionSliderId = 0;
     s.edits.End ();
@@ -422,6 +461,11 @@ bool SectionSlopeFields (Session& s, const SlopeFieldLabels& labels, tapioca::ge
             return ImGui::IsItemEdited ();
         },
         mixedUnit);
+    if (edited && KeepCancelledSection (s)) {
+        if (released)
+            EndTerrainSectionDrag (s);
+        return false;
+    }
     const bool unitEdited = previousUnit != slope.unit;
     if (unitEdited)
         s.terrainSectionDraft->mixed |= SectionFieldBit (unitField);
@@ -499,7 +543,7 @@ void SectionPanel (Session& s, edit::Id path)
         ImGui::SliderScalar (label, ImGuiDataType_Double, &number, &lo, &hi, shown);
         if (ImGui::IsItemActivated ())
             BeginTerrainSectionDrag (s);
-        if (ImGui::IsItemEdited ()) {
+        if (ImGui::IsItemEdited () && !KeepCancelledSection (s)) {
             common (field);
             MoveTerrainSectionDrag (s);
         }

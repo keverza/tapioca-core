@@ -170,6 +170,9 @@ struct Session {
     tapioca::geometry::Id regionSliderObject = 0; // Owns one undoable property-slider gesture.
     uint32_t regionSliderId = 0;
     double regionSliderMin = 0, regionSliderMax = 0;
+    // #24: Esc gave the held region slider's gesture up; its remaining edits change nothing until
+    // the slider is released (CancelRegionSlider).
+    bool regionSliderCancelled = false;
     // The panel widget (ImGui id) whose drag or typed value owns the current edit gesture, and
     // whether that gesture was already given up (Esc, a view change) before the widget let go:
     // its remaining edits change nothing until it is released (detail::WidgetGesture).
@@ -191,6 +194,10 @@ struct Session {
     bool terrainSectionDrag = false;
     uint32_t terrainSectionSliderId = 0;
     double terrainSectionSliderMin = 0, terrainSectionSliderMax = 0;
+    // #24: the typed values as the held slider found them, and whether Esc gave its gesture up:
+    // until the release, the slider's edits only put these values back (CancelTerrainSectionDrag).
+    std::shared_ptr<TerrainSectionDraft> terrainSectionBefore;
+    bool terrainSectionCancelled = false;
     // Grade along the chosen design path's band only, instead of every path's paved outline.
     bool terrainBand = false;
     bool terrainPaths = true; // False: explicit region-only topography, authored paths stay unchanged.
@@ -507,6 +514,8 @@ bool SetSelectedSourceRole (Session& session, tapioca::geometry::SourceRole role
 std::optional<tapioca::geometry::SourceRole> SelectedSourceRole (const Session& session);
 void LandscapePanel (Session& session);
 void RegionPanel (Session& session, bool materialsOnly = false);
+// #24 Esc: a held region slider's gesture restores the state before it; true when there was one.
+bool CancelRegionSlider (Session& session);
 // A building entrance where `point` lies within `reach` metres of a building outline, at the
 // working plane's height; one undo step (HudVirtualEditorEntrances.cpp).
 bool PlaceEntrance (Session& session, edit::Vec3 point, double reach);

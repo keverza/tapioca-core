@@ -2,6 +2,7 @@
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudVirtualEditorMaterial.hpp"
 #include "ArchViz/HudSlopeFields.hpp"
+#include <imgui_internal.h> // ImGui::GetActiveID
 #include <algorithm>
 #include <set>
 #include <utility>
@@ -203,14 +204,29 @@ std::optional<lg::HardscapeObject> ActiveRegion (Session& s)
 }
 } // namespace
 
+bool CancelRegionSlider (Session& s)
+{
+    if (!s.regionSliderObject || s.regionSliderCancelled || !s.edits.InGesture ())
+        return false;
+    s.edits.Cancel ();
+    s.regionSliderCancelled = true; // held until its release; the slider shows the restored value
+    s.message.clear ();
+    return true;
+}
+
 void RegionPanel (Session& s, bool materialsOnly)
 {
-    if (s.regionSliderObject && !s.edits.InGesture ())
+    // A slider Esc gave up is forgotten once ImGui let go of it, released or no longer drawn.
+    if (s.regionSliderCancelled && ImGui::GetActiveID () != s.regionSliderId)
+        s.regionSliderObject = s.regionSliderId = 0, s.regionSliderCancelled = false;
+    if (s.regionSliderObject && !s.regionSliderCancelled && !s.edits.InGesture ())
         s.regionSliderObject = s.regionSliderId = 0;
     const auto object = ActiveRegion (s);
     if (s.regionSliderObject && (!object || object->id != s.regionSliderObject || materialsOnly)) {
-        s.edits.Cancel ();
+        if (!s.regionSliderCancelled)
+            s.edits.Cancel ();
         s.regionSliderObject = s.regionSliderId = 0;
+        s.regionSliderCancelled = false;
     }
     if (!object) {
         if (materialsOnly)
@@ -354,7 +370,7 @@ void RegionPanel (Session& s, bool materialsOnly)
                             "Missing materials need explicit replacement or clearing, never a preset substitution. "
                             "Native hatch-pattern rendering and output acceptance remain separate.");
     }
-    if (changed || terrainChanged) {
+    if ((changed || terrainChanged) && !s.regionSliderCancelled) {
         const auto operation = [id = object->id, surface, material, terrain] (edit::Document& doc, std::string& error) {
             if (surface.elevation == lg::RegionElevationMode::Existing &&
                 !lg::SetRegionTerrain (doc, id, terrain, error))
@@ -366,8 +382,10 @@ void RegionPanel (Session& s, bool materialsOnly)
             s.message = s.edits.Message ();
     }
     if (release && s.regionSliderObject) {
-        s.edits.End ();
+        if (!s.regionSliderCancelled)
+            s.edits.End ();
         s.regionSliderObject = s.regionSliderId = 0;
+        s.regionSliderCancelled = false;
     }
     ImGui::EndDisabled ();
     ImGui::PopID ();

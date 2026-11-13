@@ -154,6 +154,9 @@ bool ApplyTerrainSectionEdit (Session& session);
 bool BeginTerrainSectionDrag (Session& session);
 bool MoveTerrainSectionDrag (Session& session);
 void EndTerrainSectionDrag (Session& session);
+// #24 Esc: a held cross-section slider's gesture restores the document and the typed values as
+// they were before it; true when there was one. Nothing more applies until the release.
+bool CancelTerrainSectionDrag (Session& session);
 // Selected guide vertices become point controls; selected whole open polylines
 // become line controls. One existing Session history entry for the whole set.
 bool SetTerrainControlSelection (Session& session, bool enabled);

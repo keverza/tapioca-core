@@ -1,8 +1,10 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/OverlayHud.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "hud_fixture.hpp"
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -989,4 +991,112 @@ TEST (HudTerrainSetup, TaperEndWidthsDragLiveAndPersistWithoutChangingTheStartWi
     EXPECT_NE (session.message.find ("TerrainSectionStale:"), std::string::npos);
     ASSERT_TRUE (session.edits.Redo ());
     EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), expected);
+}
+
+namespace {
+void PressEscape (eh::Session& session)
+{
+    // The host runs the editor's keys before the ImGui frames of the same layout.
+    geomsrv::archviz::overlayhud::Input input = hudtest::At (0, 0);
+    input.viewActive = true;
+    input.keys = { { 0x1B, true } };
+    eh::Keys (session, input, false);
+}
+} // namespace
+
+// #24: Esc while a region slider is held restores the value before the drag; the rest of that
+// drag changes nothing and its release records nothing; the next drag works as before.
+TEST (HudTerrainSetup, EscapeOnAHeldRegionSliderRestoresAndTheRestOfTheDragChangesNothing24)
+{
+    auto doc = EmptyLandscape ();
+    const auto line = edit::AddPolyline (doc, { { 0, 0, 2 }, { 10, 0, 2 }, { 10, 10, 2 }, { 0, 10, 2 } }, true);
+    std::string error;
+    ASSERT_TRUE (lg::SetLandscapeSourceRole (doc, line, lg::SourceRole::RegionBoundary, error));
+    const auto object = doc.landscape->objects[0].id;
+    auto surface = *doc.landscape->objects[0].surface;
+    surface.elevation = lg::RegionElevationMode::Constant;
+    surface.first.z = 2;
+    ASSERT_TRUE (lg::SetRegionSurface (doc, object, surface, {}, error));
+    eh::Session session (doc);
+    session.selection.Set ({ { line, edit::Part::Entity, 0 } });
+    PanelGui gui;
+    gui.Frame (session, { 850, 1350 }, false, false, 1);
+    const auto* window = ImGui::FindWindowByName ("terrain setup");
+    const auto root = ImHashStr ("region-surface", 0, window->ID);
+    const auto owner = ImHashStr (std::to_string (object).c_str (), 0, root);
+    const auto target = ImHashStr ("Elevation (m)", 0, owner);
+    float row = 0;
+    for (float y = 24; y < 1250; y += 2) {
+        gui.Frame (session, { 60, y }, false, false, 1);
+        if (gui.context->HoveredId == target) {
+            row = y + 2;
+            break;
+        }
+    }
+    ASSERT_GT (row, 0);
+    gui.Frame (session, { 60, row }, true, false, 1);
+    gui.Frame (session, { 160, row }, true, false, 1);
+    gui.Frame (session, { 250, row }, true, false, 1);
+    ASSERT_TRUE (session.edits.InGesture ());
+    ASSERT_NE (session.edits.Doc ().landscape->objects[0].surface->first.z, 2) << "the drag previews live";
+
+    PressEscape (session);
+    EXPECT_FALSE (session.edits.InGesture ());
+    EXPECT_EQ (session.edits.Doc ().landscape, doc.landscape) << "the value before the drag";
+    EXPECT_TRUE (session.regionSliderCancelled);
+    EXPECT_EQ (session.selection.Items ().size (), 1u) << "Esc gave up only the slider";
+    EXPECT_FALSE (session.close);
+    gui.Frame (session, { 330, row }, true, false, 1); // still held, still moving
+    gui.Frame (session, { 120, row }, true, false, 1);
+    EXPECT_EQ (session.edits.Doc ().landscape, doc.landscape) << "the rest of the drag changes nothing";
+    EXPECT_FALSE (session.edits.InGesture ());
+    gui.Frame (session, { 120, row }, false, false, 1);
+    gui.Frame (session, { 120, row }, false, false, 1);
+    EXPECT_EQ (session.edits.UndoDepth (), 0u) << "its release records nothing";
+    EXPECT_FALSE (session.regionSliderCancelled);
+    EXPECT_EQ (session.regionSliderObject, 0u);
+
+    // The next drag is one undo entry again.
+    gui.Frame (session, { 60, row }, false, false, 1);
+    gui.Frame (session, { 60, row }, true, false, 1);
+    gui.Frame (session, { 200, row }, true, false, 1);
+    gui.Frame (session, { 200, row }, false, false, 1);
+    EXPECT_EQ (session.edits.UndoDepth (), 1u);
+    EXPECT_NE (session.edits.Doc ().landscape->objects[0].surface->first.z, 2);
+}
+
+// #24: Esc while a cross-section slider is held restores the document AND the typed values; the
+// release records nothing; the draft stays current, and the next drag works.
+TEST (HudTerrainSetup, EscapeOnAHeldSectionSliderRestoresTheDocumentAndTheTypedValues24)
+{
+    auto doc = EmptyLandscape ();
+    const auto path = AddDesignPath (doc);
+    const auto before = edit::FindPath (doc, path)->sections.front ();
+    eh::Session session (doc);
+    ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, before.id));
+    ASSERT_TRUE (eh::BeginTerrainSectionDrag (session)) << session.message;
+    session.terrainSectionDraft->value.widthLeft = before.widthLeft + 2.0;
+    ASSERT_TRUE (eh::MoveTerrainSectionDrag (session)) << session.message;
+    ASSERT_NE (edit::FindPath (session.edits.Doc (), path)->sections.front (), before);
+
+    PressEscape (session);
+    EXPECT_FALSE (session.edits.InGesture ());
+    EXPECT_FALSE (session.terrainSectionDrag);
+    EXPECT_TRUE (session.terrainSectionCancelled);
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), before);
+    EXPECT_EQ (session.terrainSectionDraft->value, before) << "the typed values go back too";
+    EXPECT_EQ (session.terrainSectionDraft->revision, session.edits.Doc ().revision);
+    EXPECT_FALSE (eh::MoveTerrainSectionDrag (session)) << "nothing more applies until the release";
+    eh::EndTerrainSectionDrag (session); // the release
+    EXPECT_FALSE (session.terrainSectionCancelled);
+    EXPECT_EQ (session.edits.UndoDepth (), 0u);
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), before);
+    EXPECT_FALSE (eh::CancelTerrainSectionDrag (session)) << "nothing held: Esc goes down the ladder";
+
+    ASSERT_TRUE (eh::BeginTerrainSectionDrag (session)) << session.message;
+    session.terrainSectionDraft->value.widthLeft = before.widthLeft + 1.0;
+    ASSERT_TRUE (eh::MoveTerrainSectionDrag (session)) << session.message;
+    eh::EndTerrainSectionDrag (session);
+    EXPECT_EQ (session.edits.UndoDepth (), 1u);
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front ().widthLeft, before.widthLeft + 1.0);
 }
