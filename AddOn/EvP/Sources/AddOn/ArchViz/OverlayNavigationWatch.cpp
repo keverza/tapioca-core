@@ -104,9 +104,20 @@ constexpr double kJumpDegrees = 30.0;      // anywhere: above every in-motion st
 constexpr double kStillJumpDegrees = 10.0; // where nothing of the user's was turning the camera
 constexpr uint64_t kPressSettleMs = 60;    // a press's first ms: no motion of its own yet
 bool g_haveLast = false;
-uint64_t g_lastRedrawMs = 0;
 uint64_t g_lastShiftUpTakenMs = 0;
-RedrawSource g_lastRedrawSource = RedrawSource::Gate;
+// ⚠️ EVERY RECENT REDRAW, NOT THE NEWEST ONE (2026-11-14). A jump is analysed at the heartbeat
+// after its decode, up to 500 ms later, and a hovered editor asks for a redraw every ~16 ms: one
+// remembered time was by then always a redraw made AFTER the decode, so the line read "N ms AFTER"
+// for every jump and could never show the redraw just before it. The 2026-11-05 conclusion drawn
+// from that field ("not our redraws") was not measured by it (§7).
+constexpr size_t kRedrawRing = 64;
+constexpr uint64_t kRedrawWindowMs = 500;
+struct RedrawMark {
+    uint64_t ms = 0;
+    RedrawSource source = RedrawSource::Gate;
+};
+RedrawMark g_redraws[kRedrawRing];
+size_t g_redrawNext = 0;
 dxgi::injection::freshness::CameraSample g_last;
 
 uint64_t Now ()
@@ -212,14 +223,39 @@ void SayJump (const CameraStep& step, const float* view, uint64_t ms, uint64_t d
     if (g_lastWheel != 0 && g_lastWheel <= ms && ms - g_lastWheel <= 1000)
         _snprintf_s (wheel, sizeof (wheel), _TRUNCATE, ", a wheel step %llu ms before",
                      (unsigned long long) (ms - g_lastWheel));
-    char redraw[96] = "no 3D redraw of ours yet";
-    if (g_lastRedrawMs != 0 && g_lastRedrawMs <= ms)
-        _snprintf_s (redraw, sizeof (redraw), _TRUNCATE, "our last 3D redraw %llu ms before (%s)",
-                     (unsigned long long) (ms - g_lastRedrawMs), NameOf (g_lastRedrawSource));
-    else if (g_lastRedrawMs != 0)
-        _snprintf_s (redraw, sizeof (redraw), _TRUNCATE, "our last 3D redraw %llu ms AFTER the decode (%s)",
-                     (unsigned long long) (g_lastRedrawMs - ms), NameOf (g_lastRedrawSource));
-    char line[512] = {};
+    // The newest redraw at or before the decode, how many fell in the window before it, and the
+    // first one after: the ring holds ~1 s of a hovered editor's redraws.
+    const RedrawMark* before = nullptr;
+    const RedrawMark* after = nullptr;
+    uint32_t inWindow = 0;
+    bool ringFull = true;
+    for (const RedrawMark& mark : g_redraws) {
+        if (mark.ms == 0) {
+            ringFull = false;
+            continue;
+        }
+        if (mark.ms <= ms) {
+            inWindow += ms - mark.ms <= kRedrawWindowMs ? 1 : 0;
+            if (before == nullptr || mark.ms > before->ms)
+                before = &mark;
+        }
+        else if (after == nullptr || mark.ms < after->ms)
+            after = &mark;
+    }
+    char redraw[200] = "no 3D redraw of ours yet";
+    char next[64] = "none after";
+    if (after != nullptr)
+        _snprintf_s (next, sizeof (next), _TRUNCATE, "the next %llu ms after",
+                     (unsigned long long) (after->ms - ms));
+    if (before != nullptr)
+        _snprintf_s (redraw, sizeof (redraw), _TRUNCATE,
+                     "our last 3D redraw before it %llu ms before (%s), %u in the %llu ms before, %s",
+                     (unsigned long long) (ms - before->ms), NameOf (before->source), inWindow,
+                     (unsigned long long) kRedrawWindowMs, next);
+    else if (after != nullptr)
+        _snprintf_s (redraw, sizeof (redraw), _TRUNCATE, "%s 3D redraw of ours before it, %s",
+                     ringFull ? "no REMEMBERED" : "no", next);
+    char line[640] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "%-12s %s: the camera turned %.1f deg and moved %.2f between two decodes %llu ms apart | %s%s | "
                  "%s | %s | %s",
@@ -373,8 +409,8 @@ void NoteWheel ()
 
 void NoteRedraw (RedrawSource source)
 {
-    g_lastRedrawMs = Now ();
-    g_lastRedrawSource = source;
+    g_redraws[g_redrawNext] = { Now (), source };
+    g_redrawNext = (g_redrawNext + 1) % kRedrawRing;
     ++g_window.redraws;
     g_window.redrawsAfterWheel += g_lastWheel != 0 && Now () - g_lastWheel <= kWheelWindowMs ? 1 : 0;
 }
@@ -443,7 +479,9 @@ void Reset ()
     g_pressGapMs = 0;
     g_current = g_previous = Gesture {};
     g_haveLast = false;
-    g_lastRedrawMs = 0;
+    for (RedrawMark& mark : g_redraws)
+        mark = RedrawMark {};
+    g_redrawNext = 0;
     g_lastShiftUpTakenMs = 0;
 }
 
