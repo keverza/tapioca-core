@@ -34,6 +34,19 @@ bool UtilityPage (const std::string& key)
     return key == kStatsKey || key == kSelectionKey || key == kSettingsKey || key == kDebugKey;
 }
 
+bool HasSurfacePanel (const std::vector<size_t>& titled, const std::vector<std::string>& keys)
+{
+    return std::any_of (titled.begin (), titled.end (),
+                        [&] (size_t index) { return keys[index] == surfacetakeoff::kWorkflowKey; });
+}
+
+void LaunchSurfaceIfNeeded (State& state, const std::vector<size_t>& titled, const std::vector<std::string>& keys,
+                            bool viewerSurface)
+{
+    if (!viewerSurface && !HasSurfacePanel (titled, keys))
+        state.exposedSurfaceRequested = true;
+}
+
 // A layer's name as Settings says it: the add-on's own (`tapioca.storeySlices`) in words
 // ("Storey slices"), a caller's as the caller named it.
 std::string Readable (const std::string& name)
@@ -229,6 +242,10 @@ std::vector<hudshell::HostTab> Engine::Impl::Tabs (const std::vector<const layer
         tabs.back ().purpose = "Explore massing feasibility and its results.";
     }
     if (own.standalone) {
+        tabs.push_back ({ surfacetakeoff::kWorkflowKey, "Exposed surfaces" });
+        tabs.back ().family = hudshell::WorkflowFamily::Document;
+        tabs.back ().token = "exposed surfaces";
+        tabs.back ().purpose = "Inspect exposed surfaces and their takeoff results.";
         tabs.push_back ({ std::string (editlayers::kLayer) + "#0", "Virtual editor" });
         tabs.back ().family = hudshell::WorkflowFamily::Design;
         tabs.back ().group = "Editing";
@@ -241,11 +258,11 @@ std::vector<hudshell::HostTab> Engine::Impl::Tabs (const std::vector<const layer
         }
     }
     for (const size_t i : titled) {
-        if (own.standalone && LayerOf (keys[i]) == editlayers::kLayer)
+        const std::string layerName = LayerOf (keys[i]);
+        if (own.standalone && (layerName == editlayers::kLayer || layerName == surfacetakeoff::kLayer))
             continue;
         tabs.push_back ({ keys[i], panels[i]->title });
         auto& tab = tabs.back ();
-        const std::string layerName = LayerOf (keys[i]);
         if (layerName == roofslope::kLayer || layerName == editlayers::kLayer) {
             tab.family = hudshell::WorkflowFamily::Design;
             tab.group = "Editing";
@@ -296,6 +313,8 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, const 
             store->host.workflow = dock.selected;
         if (dock.selected == std::string (editlayers::kLayer) + "#0")
             OpenVirtualEditorWorkflow (*store);
+        if (dock.selected == surfacetakeoff::kWorkflowKey)
+            LaunchSurfaceIfNeeded (*store, titled, keys, own.viewerSurface);
         const std::string title = TitleOf (dock.selected, panels, keys);
         changes.push_back ({ "panel", dock.selected, title, std::string (), -1, 1.0, title, true });
         ShowOverlay (true);
@@ -462,6 +481,24 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
             }
             return;
         }
+        if (k == surfacetakeoff::kWorkflowKey) {
+            if (own.viewerSurface) {
+                ImGui::TextWrapped ("Exposed surface calculation and highlights are currently available in the "
+                                    "Archicad 3D overlay. Switch to the overlay to calculate and inspect results.");
+                return;
+            }
+            if (!HasSurfacePanel (titled, keys)) {
+                ImGui::TextWrapped ("Calculate exposed surface areas from a fresh capture, then inspect the same "
+                                    "triangles and quantities here.");
+                if (ImGui::Button ("Calculate exposed surfaces"))
+                    store->exposedSurfaceRequested = true;
+                return;
+            }
+            // Existing and capture-expired panels retain an explicit refresh;
+            // selecting their workflow alone never reruns the calculation.
+            if (ImGui::Button ("Recalculate exposed surfaces"))
+                store->exposedSurfaceRequested = true;
+        }
         if (k == hudmassing::kTabKey) {
             MassingPage ();
             return;
@@ -525,6 +562,8 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
             host.workflow = result.pressed;
         if (result.pressed == std::string (editlayers::kLayer) + "#0")
             OpenVirtualEditorWorkflow (*store);
+        if (result.pressed == surfacetakeoff::kWorkflowKey)
+            LaunchSurfaceIfNeeded (*store, titled, keys, own.viewerSurface);
         const std::string title = TitleOf (result.pressed, panels, keys);
         bool panel = false;
         for (const size_t i : titled)

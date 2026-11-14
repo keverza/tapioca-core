@@ -41,6 +41,46 @@ void Quad (Mesh& mesh, const V& a, const V& b, const V& c, const V& d, int32_t p
     mesh.triMaterial.insert (mesh.triMaterial.end (), { material, material });
 }
 
+void Tri (Mesh& mesh, const V& a, const V& b, const V& c, int32_t polygon, int32_t material = 10)
+{
+    const uint32_t base = static_cast<uint32_t> (mesh.VertexCount ());
+    for (const auto& p : { a, b, c })
+        mesh.vertices.insert (mesh.vertices.end (), { p.x, p.y, p.z });
+    mesh.triangles.insert (mesh.triangles.end (), { base, base + 1, base + 2 });
+    mesh.triSourceBody.push_back (1);
+    mesh.triSourcePgon.push_back (polygon);
+    mesh.triMaterial.push_back (material);
+}
+
+Mesh Subdivided (const Mesh& source, size_t divisions)
+{
+    Mesh result;
+    result.guid = source.guid;
+    result.elemType = source.elemType;
+    for (size_t triangle = 0; triangle < source.triangles.size (); triangle += 3) {
+        const auto corner = [&] (size_t corner) {
+            const uint32_t index = source.triangles[triangle + corner];
+            return V { source.vertices[index * 3], source.vertices[index * 3 + 1], source.vertices[index * 3 + 2] };
+        };
+        const V a = corner (0), b = corner (1), c = corner (2);
+        const auto point = [&] (size_t i, size_t j) {
+            const double u = double (i) / divisions, v = double (j) / divisions;
+            return V { a.x + u * (b.x - a.x) + v * (c.x - a.x), a.y + u * (b.y - a.y) + v * (c.y - a.y),
+                       a.z + u * (b.z - a.z) + v * (c.z - a.z) };
+        };
+        for (size_t i = 0; i < divisions; ++i)
+            for (size_t j = 0; j + i < divisions; ++j) {
+                Tri (result, point (i, j), point (i + 1, j), point (i, j + 1), source.triSourcePgon[triangle / 3],
+                     source.triMaterial[triangle / 3]);
+                if (i + j + 1 < divisions)
+                    Tri (result, point (i + 1, j), point (i + 1, j + 1), point (i, j + 1),
+                         source.triSourcePgon[triangle / 3], source.triMaterial[triangle / 3]);
+            }
+    }
+    evptest::RecomputeBounds (result);
+    return result;
+}
+
 Mesh Opening ()
 {
     Mesh mesh;
@@ -71,6 +111,69 @@ void Append (Mesh& into, const Mesh& source, bool reverse = false)
     into.triSourceBody.insert (into.triSourceBody.end (), source.triSourceBody.begin (), source.triSourceBody.end ());
     into.triSourcePgon.insert (into.triSourcePgon.end (), source.triSourcePgon.begin (), source.triSourcePgon.end ());
     evptest::RecomputeBounds (into);
+}
+
+void TranslateAndBound (Mesh& mesh, double x)
+{
+    for (size_t i = 0; i < mesh.vertices.size (); i += 3)
+        mesh.vertices[i] += x;
+    evptest::RecomputeBounds (mesh);
+}
+
+Mesh Saddle ()
+{
+    Mesh mesh;
+    mesh.guid = "valid-saddle";
+    const V o { 0, 0, 0 }, e { 1, 0, 1 }, n { 0, 1, -1 }, w { -1, 0, 1 }, s { 0, -1, -1 };
+    const V be { 1, 0, -2 }, bn { 0, 1, -2 }, bw { -1, 0, -2 }, bs { 0, -1, -2 };
+    Tri (mesh, o, e, n, 1);
+    Tri (mesh, o, n, w, 2);
+    Tri (mesh, o, w, s, 3); // opposite the first triangle: point-only saddle contact
+    Tri (mesh, o, s, e, 4);
+    Quad (mesh, n, e, be, bn, 5, 10);
+    Quad (mesh, w, n, bn, bw, 6, 10);
+    Quad (mesh, s, w, bw, bs, 7, 10);
+    Quad (mesh, e, s, bs, be, 8, 10);
+    Tri (mesh, bn, be, bs, 9);
+    Tri (mesh, bn, bs, bw, 10);
+    TranslateAndBound (mesh, 10);
+    return mesh;
+}
+
+Mesh NearTieTetrahedron ()
+{
+    Mesh mesh;
+    mesh.guid = "valid-near-tie-adjacency";
+    const V o { 0, 0, 0 }, u { 1, 0, -1 }, v { 0, 1, -1 }, w { 0, -1, 1.00000001 }, x { 0, 0, 10 };
+    Tri (mesh, o, u, v, 1);
+    Tri (mesh, o, w, u, 2);
+    Tri (mesh, o, v, x, 3);
+    Tri (mesh, w, o, x, 4);
+    Tri (mesh, u, w, x, 5);
+    Tri (mesh, v, u, x, 6);
+    for (size_t i = 0; i < mesh.triangles.size (); i += 3)
+        std::swap (mesh.triangles[i + 1], mesh.triangles[i + 2]);
+    TranslateAndBound (mesh, 10);
+    return mesh;
+}
+
+Mesh CollinearPrism ()
+{
+    Mesh mesh;
+    mesh.guid = "valid-collinear-t-junction";
+    const V o { 0, 0, 0 }, d { 0, -1, 0 }, b { 1, .3, 0 }, c { 0, .03, 0 }, m { .5, .15, 0 };
+    const V bo { 0, 0, -1 }, bd { 0, -1, -1 }, bb { 1, .3, -1 }, bc { 0, .03, -1 };
+    Tri (mesh, o, d, b, 1);
+    Tri (mesh, o, m, c, 2);
+    Tri (mesh, m, b, c, 3);
+    Tri (mesh, bo, bb, bd, 4);
+    Tri (mesh, bo, bc, bb, 5);
+    Quad (mesh, d, o, bo, bd, 6, 10);
+    Quad (mesh, b, d, bd, bb, 7, 10);
+    Quad (mesh, c, b, bb, bc, 8, 10);
+    Quad (mesh, o, c, bc, bo, 9, 10);
+    TranslateAndBound (mesh, 10);
+    return mesh;
 }
 
 Snapshot Capture (std::vector<Mesh> meshes)
@@ -614,6 +717,121 @@ TEST (ExposedSurface, RotatedInclinedFacesKeepTrueThreeDimensionalArea)
     EXPECT_NEAR (EmittedArea (result), 9, 1e-6);
 }
 
+TEST (ExposedSurface, MirroredGeometryPreservesAreaWithoutAcceptingInsideOutCovers)
+{
+    auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3), Box ("cover", 0, -.3, 0, 2, .3, 3) });
+    for (auto& mesh : snapshot.meshes) {
+        for (size_t i = 0; i < mesh.vertices.size (); i += 3)
+            mesh.vertices[i] = -mesh.vertices[i];
+        // Reflection reverses triangle orientation. Restore outward source/cover
+        // winding so this fixture tests area invariance, not an invalid solid.
+        for (size_t i = 0; i < mesh.triangles.size (); i += 3)
+            std::swap (mesh.triangles[i + 1], mesh.triangles[i + 2]);
+        evptest::RecomputeBounds (mesh);
+    }
+    ex::Result result;
+    std::string error;
+    ASSERT_TRUE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, error)) << error;
+    EXPECT_NEAR (result.areas.grossGeometricArea, 15, 1e-9);
+    EXPECT_NEAR (result.areas.exposedArea, 9, 1e-6);
+    EXPECT_NEAR (EmittedArea (result), 9, 1e-6);
+
+    auto insideOut = snapshot;
+    auto& coverTriangles = insideOut.meshes[1].triangles;
+    for (size_t i = 0; i < coverTriangles.size (); i += 3)
+        std::swap (coverTriangles[i + 1], coverTriangles[i + 2]);
+    ExpectRefusal (insideOut, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), "outward-wound");
+}
+
+TEST (ExposedSurface, StaleCaptureRevisionCannotPublishOrRetainPartialOutput)
+{
+    const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3) });
+    auto request = Request ();
+    request.captureStamp = snapshot.captureStamp + 1;
+    ExpectRefusal (snapshot, request, "identity");
+}
+
+TEST (ExposedSurface, TypedRefusalsCarryStableCodesAndSourceIdentity)
+{
+    auto snapshot = Capture (
+        { Box ("wall", 0, 0, 0, 5, .2, 3), Box ("cover", 0, -.3, 0, 2, .3, 3), Box ("other", 0, 0, 0, 5, .2, 3, 20) });
+    ex::Result result;
+    ex::Refusal refusal;
+    auto request = Request ();
+    request.captureStamp = snapshot.captureStamp + 1;
+    ASSERT_FALSE (ex::Calculate (snapshot, request, result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::StaleCapture);
+    EXPECT_STREQ (ex::RefusalCodeName (refusal.code), "staleCapture");
+    EXPECT_TRUE (result.fragments.empty ());
+
+    request = Request ();
+    snapshot.meshes[0].vertices[1] = -.01;
+    ASSERT_FALSE (ex::Calculate (snapshot, request, result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::UnsupportedTarget);
+    EXPECT_EQ (refusal.elementGuid, "wall");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 3);
+
+    snapshot = Capture (
+        { Box ("wall", 0, 0, 0, 5, .2, 3), Box ("cover", 0, -.3, 0, 2, .3, 3), Box ("other", 0, 0, 0, 5, .2, 3, 20) });
+    auto& coverTriangles = snapshot.meshes[1].triangles;
+    for (size_t i = 0; i < coverTriangles.size (); i += 3)
+        std::swap (coverTriangles[i + 1], coverTriangles[i + 2]);
+    ASSERT_FALSE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::InvalidCover);
+    EXPECT_EQ (refusal.elementGuid, "cover");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 0);
+
+    ASSERT_FALSE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 99, 1 } }), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::InvalidCover);
+    EXPECT_TRUE (refusal.elementGuid.empty ());
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 0);
+
+    auto malformedCover = snapshot;
+    malformedCover.meshes[1].triangles[0] = 999;
+    ASSERT_FALSE (ex::Calculate (malformedCover, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::InvalidCover);
+    EXPECT_EQ (refusal.elementGuid, "cover");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 0);
+
+    auto malformedTarget = snapshot;
+    malformedTarget.meshes[0].triangles[0] = 999;
+    ASSERT_FALSE (ex::Calculate (malformedTarget, Request (), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::UnsupportedTarget);
+    EXPECT_EQ (refusal.elementGuid, "wall");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 3);
+
+    ASSERT_FALSE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 }, { { 2, 1 }, 3 } }), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::AmbiguousOwnership);
+    EXPECT_EQ (refusal.elementGuid, "other");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 3);
+
+    ex::Limits limits;
+    limits.maxWork = 1;
+    ASSERT_FALSE (ex::Calculate (snapshot, Request (), result, refusal, limits));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::WorkLimit);
+    ASSERT_FALSE (ex::Calculate (snapshot, Request (), result, refusal, {}, [] { return true; }));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::Cancelled);
+
+    request = Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } });
+    std::string legacyError;
+    ex::Result legacyResult;
+    ASSERT_FALSE (ex::Calculate (snapshot, request, legacyResult, legacyError));
+    ASSERT_FALSE (ex::Calculate (snapshot, request, result, refusal));
+    EXPECT_EQ (legacyError, refusal.message);
+
+    const auto valid = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3) });
+    ASSERT_TRUE (ex::Calculate (valid, Request (), result, refusal)) << refusal.message;
+    EXPECT_EQ (refusal.code, ex::RefusalCode::None);
+    EXPECT_TRUE (refusal.message.empty ());
+    EXPECT_NEAR (result.areas.exposedArea, 15, 1e-6);
+}
+
 TEST (ExposedSurface, InvalidMaterialFilterAndDuplicateElementIdentityAreExplicitRefusals)
 {
     auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3) });
@@ -622,6 +840,83 @@ TEST (ExposedSurface, InvalidMaterialFilterAndDuplicateElementIdentityAreExplici
     ExpectRefusal (snapshot, request, "negative");
     snapshot.meshes.push_back (Box ("WALL", 10, 0, 0, 5, .2, 3));
     ExpectRefusal (snapshot, Request ({ { { 0, 1 }, 3 }, { { 1, 1 }, 3 } }), "duplicate element");
+}
+
+TEST (ExposedSurface, SelfIntersectingCoverShellsRefuseAtomicallyWithSourceIdentity)
+{
+    Mesh cover = Box ("shell-a", 0, -.3, 0, 2, .3, 3);
+    Append (cover, Box ("shell-b", 1, -.3, 0, 2, .3, 3));
+    const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3), cover });
+    ExpectRefusal (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), "self-intersecting");
+
+    ex::Result result;
+    ex::Refusal refusal;
+    ASSERT_FALSE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::InvalidCover);
+    EXPECT_EQ (refusal.elementGuid, "shell-a");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 0);
+    EXPECT_TRUE (result.fragments.empty ());
+}
+
+TEST (ExposedSurface, DisconnectedNonintersectingShellsInOneBodyRemainValid)
+{
+    Mesh cover = Box ("shell-a", 0, -.3, 0, 2, .3, 3);
+    Append (cover, Box ("shell-b", 2.5, -.3, 0, 2, .3, 3));
+    const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3), cover });
+    ex::Result result;
+    ex::Refusal refusal;
+    ASSERT_TRUE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, refusal))
+        << refusal.message;
+    EXPECT_NEAR (result.areas.exposedArea, 3, 1e-6); // 15 - (2 + 2) * 3
+    EXPECT_NEAR (EmittedArea (result), 3, 1e-6);
+}
+
+TEST (ExposedSurface, EnclosedReversedCavityRemainsAValidCoverHole)
+{
+    Mesh cover = Box ("outer", 0, -1, 0, 5, 2, 3);
+    Append (cover, Box ("cavity", 1, -.5, 1, 3, 1, 1), true);
+    const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3), cover });
+    ex::Result result;
+    ex::Refusal refusal;
+    ASSERT_TRUE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, refusal))
+        << refusal.message;
+    EXPECT_NEAR (result.areas.exposedArea, 3, 1e-6); // Only the 3-by-1 cavity is uncovered.
+    EXPECT_NEAR (EmittedArea (result), 3, 1e-6);
+}
+
+TEST (ExposedSurface, CoplanarOverlappingShellFacesRefuseWithCoverIdentity)
+{
+    Mesh cover = Box ("overlap", 0, -.3, 0, 3, .3, 3);
+    Append (cover, Box ("second", 2, -.3, 0, 3, .3, 3));
+    const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3), cover });
+    ex::Result result;
+    ex::Refusal refusal;
+    EXPECT_FALSE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::InvalidCover);
+    EXPECT_EQ (refusal.elementGuid, "overlap");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_TRUE (result.fragments.empty ());
+}
+
+TEST (ExposedSurface, SaddlePointContactsAndNearTieAdjacentPlanesRemainValid)
+{
+    for (const auto& cover : { Saddle (), NearTieTetrahedron (), CollinearPrism () }) {
+        const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3), cover });
+        ex::Result result;
+        ex::Refusal refusal;
+        ASSERT_TRUE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, refusal))
+            << refusal.message;
+        EXPECT_NEAR (result.areas.exposedArea, 15, 1e-6);
+    }
+}
+
+TEST (ExposedSurface, EdgeAlignedCrossingOfSubdividedShellsIsRejected)
+{
+    Mesh subdivided = Subdivided (Box ("subdivided-shell", -2, -1, -1, 4, 2, 2), 4);
+    Append (subdivided, Box ("crossing-shell", -1, -2, -.5, 2, 4, 1));
+    const auto snapshot = Capture ({ Box ("wall", 10, 0, 0, 5, .2, 3), subdivided });
+    ExpectRefusal (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), "self-intersecting");
 }
 
 TEST (ExposedSurface, InwardWoundCoverCannotClaimSolidCoverage)
@@ -645,6 +940,20 @@ TEST (ExposedSurface, InvalidIdentityAndScopeCannotPublish)
     request = Request ();
     request.coverScopeId.clear ();
     ExpectRefusal (snapshot, request, "scope identity");
+}
+
+TEST (ExposedSurface, MissingTargetScopeRefusesInsteadOfReportingZeroArea)
+{
+    const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3) });
+    ex::Result result;
+    ex::Refusal refusal;
+    ASSERT_TRUE (ex::Calculate (snapshot, Request (), result, refusal));
+    ASSERT_GT (result.areas.exposedArea, 0);
+    EXPECT_FALSE (ex::Calculate (snapshot, Request ({}), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::InvalidQuery);
+    EXPECT_TRUE (result.faces.empty ());
+    EXPECT_TRUE (result.fragments.empty ());
+    EXPECT_DOUBLE_EQ (result.areas.exposedArea, 0);
 }
 
 TEST (ExposedSurface, AbsentFacesBodiesAndSidecarsAreRefusedNotZeroRows)

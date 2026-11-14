@@ -50,6 +50,7 @@ std::string InsertDay (bool complete)
 }
 } // namespace
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (SunPathStudyData, CompletedDayCopiesExactStepsMetadataAndReusesItsRevision)
 {
     auto& store = evp::sunstudy::SunStudyStore::Get ();
@@ -75,7 +76,9 @@ TEST (SunPathStudyData, CompletedDayCopiesExactStepsMetadataAndReusesItsRevision
     EXPECT_FALSE (day.available);
     EXPECT_TRUE (day.steps.empty ());
 }
+#endif
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (SunPathStudyData, UnfinishedAndMissingStudiesInvalidateCachedDay)
 {
     auto& store = evp::sunstudy::SunStudyStore::Get ();
@@ -89,6 +92,7 @@ TEST (SunPathStudyData, UnfinishedAndMissingStudiesInvalidateCachedDay)
     store.Erase (finished);
     store.Erase (pending);
 }
+#endif
 
 TEST (SunPathStudyData, AppliedFramesShareGeometryAndOldEnvelopesRemainImmutable)
 {

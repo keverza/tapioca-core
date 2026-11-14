@@ -1,0 +1,7 @@
+#ifndef EVP_NATIVECOMMANDS_SURFACETAKEOFFCONTROLLERCOMMANDS_HPP
+#define EVP_NATIVECOMMANDS_SURFACETAKEOFFCONTROLLERCOMMANDS_HPP
+#include "NativeCommands/CommandRegistration.hpp"
+namespace geomsrv {
+NativeCommandRegistrations GetSurfaceTakeoffControllerCommandRegistrations ();
+}
+#endif

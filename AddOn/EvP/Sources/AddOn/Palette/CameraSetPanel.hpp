@@ -16,7 +16,7 @@ class CameraSetPanel {
   public:
     CameraSetPanel (const DG::Panel& panel, DG::ButtonItemObserver& buttonObserver, DG::ListBoxObserver& listObserver);
 
-    void Rebuild (const GS::Array<GS::UniString>& names);
+    void Rebuild (const GS::Array<GS::UniString>& names, const GS::UniString& owner = {});
     void Clear ();
     short PlaceAt (short top, short left, short right, const PaletteScroll& clip);
     bool HandleButtonClicked (const DG::ButtonClickEvent& ev);

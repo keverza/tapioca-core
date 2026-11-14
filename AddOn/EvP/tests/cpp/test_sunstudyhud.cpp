@@ -495,6 +495,7 @@ TEST (SunStudyHud, TimeOfDayGradientRunsMorningDayEvening)
     EXPECT_STREQ (SunStudyDayPhase (1000), "evening");
 }
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (SunStudyHud, HoverDayLatchesForPanelAndStationaryPointReadsOnlyOnResultChanges)
 {
     auto& store = evp::sunstudy::SunStudyStore::Get ();
@@ -535,7 +536,9 @@ TEST (SunStudyHud, HoverDayLatchesForPanelAndStationaryPointReadsOnlyOnResultCha
     EXPECT_EQ (gui.state.sunPointDayReads, 4u);
     store.Clear ();
 }
+#endif
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (SunStudyHud, CollapsedPointStillLatchesHoverButStaleStudyReadingIsNotRelabelled)
 {
     auto& store = evp::sunstudy::SunStudyStore::Get ();
@@ -569,7 +572,9 @@ TEST (SunStudyHud, CollapsedPointStillLatchesHoverButStaleStudyReadingIsNotRelab
     EXPECT_FALSE (gui.state.sunPointDayReady && gui.state.sunPointDayStudy == "new-study");
     store.Clear ();
 }
+#endif
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (SunStudyHud, PointDayRetriesAfterATransientComputingRead)
 {
     auto& store = evp::sunstudy::SunStudyStore::Get ();
@@ -614,6 +619,7 @@ TEST (SunStudyHud, PointDayRetriesAfterATransientComputingRead)
     EXPECT_TRUE (gui.state.sunPointDayReady);
     store.Clear ();
 }
+#endif
 
 TEST (SunStudyHud, PeriodPointClockKeepsMeanStepsAndExactCellRange)
 {

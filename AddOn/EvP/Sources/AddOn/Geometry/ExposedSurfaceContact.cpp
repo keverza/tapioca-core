@@ -33,12 +33,11 @@ std::vector<Corner> Clip (const std::vector<Corner>& input, double boundary, boo
 }
 } // namespace
 
-bool NearContact (const Face& face, const Body& body, double tolerance, cp::PathsD& paths, Work& work,
-                  std::string& error)
+bool NearContact (const Face& face, const Body& body, double tolerance, cp::PathsD& paths, Work& work, Refusal& refusal)
 {
     const auto& mesh = body.mesh;
     for (size_t i = 0; i < mesh.triangles.size (); i += 3) {
-        if (!work.Check (1, error))
+        if (!work.Check (1, refusal))
             return false;
         const V a = Point (mesh.vertices, mesh.triangles[i]), b = Point (mesh.vertices, mesh.triangles[i + 1]),
                 c = Point (mesh.vertices, mesh.triangles[i + 2]);
@@ -67,6 +66,6 @@ bool NearContact (const Face& face, const Body& body, double tolerance, cp::Path
             std::reverse (path.begin (), path.end ());
         paths.push_back (std::move (path));
     }
-    return work.Check (0, error);
+    return work.Check (0, refusal);
 }
 } // namespace geomsrv::exposed::detail

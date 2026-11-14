@@ -24,10 +24,10 @@ void CameraSetPanel::Clear ()
     geomsrv::CameraSetStore::Get ().Clear ();
 }
 
-void CameraSetPanel::Rebuild (const GS::Array<GS::UniString>& names)
+void CameraSetPanel::Rebuild (const GS::Array<GS::UniString>& names, const GS::UniString& owner)
 {
     Clear ();
-    geomsrv::CameraSetStore::Get ().Configure (names);
+    geomsrv::CameraSetStore::Get ().Configure (owner, names);
     const DG::Rect seed (Margin, 0, Margin + 100, RowHeight);
     for (const GS::UniString& name : names) {
         Row row;

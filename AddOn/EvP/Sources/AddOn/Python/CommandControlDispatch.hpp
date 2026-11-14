@@ -12,6 +12,10 @@ bool DispatchCommandControlVerb (const GS::UniString& backend, const GS::UniStri
                                  const GS::ObjectState& params, GS::ObjectState& data, GS::ObjectState& error,
                                  bool& ok);
 
+// Main-thread project boundary: a temporary bus command must not leave its role
+// declarations on an unchanged palette. Restore the prior owner with empty values.
+void ResetCommandRolesForProject ();
+
 } // namespace evp
 
 #endif

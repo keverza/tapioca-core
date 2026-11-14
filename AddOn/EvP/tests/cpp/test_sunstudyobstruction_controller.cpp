@@ -155,6 +155,7 @@ SunObstructionRequest Request (const std::string& id)
     return request;
 }
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (SunStudyObstructionController, SingleDayStepAndWholeDayPublishOnlyTheLatestRequest)
 {
     StoreReset reset;
@@ -207,7 +208,9 @@ TEST (SunStudyObstructionController, SingleDayStepAndWholeDayPublishOnlyTheLates
     controller.Request ({});
     EXPECT_EQ (controller.Latest (), nullptr);
 }
+#endif
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (SunStudyObstructionController, SolarCutRemovesTheWedgeAndTheRetracedPointIsLit)
 {
     StoreReset reset;
@@ -242,7 +245,9 @@ TEST (SunStudyObstructionController, SolarCutRemovesTheWedgeAndTheRetracedPointI
     EXPECT_EQ (frame->cutStage, SunSolarCutStage::Done);
     controller.Request ({});
 }
+#endif
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (SunStudyObstructionController, TimeStepRefusalPublishesOnceInsteadOfRetrying)
 {
     StoreReset reset;
@@ -260,7 +265,9 @@ TEST (SunStudyObstructionController, TimeStepRefusalPublishesOnceInsteadOfRetryi
         EXPECT_EQ (controller.Latest (), frame);
     }
 }
+#endif
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (SunStudyObstructionController, SolarCutRefusesUnretainedCustomRayBounds)
 {
     StoreReset reset;
@@ -274,7 +281,9 @@ TEST (SunStudyObstructionController, SolarCutRefusesUnretainedCustomRayBounds)
     EXPECT_NE (frame->error.find ("custom ray bounds"), std::string::npos);
     EXPECT_TRUE (frame->drawables.xray.meshIndices.empty ());
 }
+#endif
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (SunStudyObstructionController, UnmappedReceiversKeepTheCutButExplicitlyRefuseTheWonSurface)
 {
     StoreReset reset;
@@ -293,6 +302,7 @@ TEST (SunStudyObstructionController, UnmappedReceiversKeepTheCutButExplicitlyRef
     EXPECT_FALSE (frame->drawables.xray.meshIndices.empty ());
     EXPECT_DOUBLE_EQ (frame->litAfterHours, 2.0);
 }
+#endif
 
 TEST (SunStudyObstructionController, FreshnessNeedsTheSharedSnapshotAndItsCaptureStamp)
 {

@@ -82,4 +82,4 @@ def test_material_list_and_tolerance_contract_are_bounded():
     assert data["properties"]["surfaceAttributeIndices"]["maxItems"] == 512
     assert data["properties"]["contactToleranceM"]["maximum"] == 0.001
     assert "allElementFaces" in data["properties"]["regionMode"]["enum"]
-    assert "request.contactToleranceM = .001" in SOURCE
+    assert "request.contactToleranceM = input.contactToleranceM.value_or (.001)" in SOURCE

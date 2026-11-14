@@ -4,6 +4,8 @@
 #include "APIEnvir.h"
 #include "ACAPinc.h"
 #include <cstdint>
+#include <utility>
+#include <vector>
 
 namespace geomsrv {
 
@@ -16,9 +18,23 @@ class SelectionSetStore {
 
     static SelectionSetStore& Get ();
 
+    struct State {
+        GS::UniString owner;
+        std::vector<std::pair<GS::UniString, GS::Array<GS::UniString>>> values;
+        bool exclusive = false;
+    };
     // `exclusive`: an element may be in only ONE of these sets -- adding it to
     // one (update or add) removes it from every other.
     void Configure (const GS::Array<GS::UniString>& names, bool exclusive = false);
+    // A same-owner/same-declaration launch retains captured inputs. Other owners
+    // replace them; Capture/Restore isolate a temporary bus-launched command.
+    void Configure (const GS::UniString& owner, const GS::Array<GS::UniString>& names, bool exclusive = false);
+    State Capture () const;
+    void Restore (const State& state);
+    GS::UniString Owner () const;
+    // Project boundaries drop old-document GUIDs but keep the selected command's
+    // declarations/owner, and advance revisions to veto pending restoration.
+    void ResetValues ();
     void Clear ();
     uint64_t Generation () const
     {
@@ -46,6 +62,7 @@ class SelectionSetStore {
     const Entry* Find (const GS::UniString& name) const;
 
     GS::Array<Entry> entries;
+    GS::UniString owner;
     bool exclusive = false;
     uint64_t generation = 1; // declaration lifetime, not content changes; main-thread-only
     uint64_t revision = 1;   // successful mutations/declarations; avoids copying sets on every follower tick

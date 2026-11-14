@@ -39,6 +39,7 @@ void SelectionSetStore::Configure (const GS::Array<GS::UniString>& names, bool e
 {
     ++generation;
     ++revision;
+    owner.Clear ();
     exclusive = exclusiveSets;
     entries.Clear ();
     for (const GS::UniString& name : names) {
@@ -48,10 +49,59 @@ void SelectionSetStore::Configure (const GS::Array<GS::UniString>& names, bool e
     }
 }
 
+void SelectionSetStore::Configure (const GS::UniString& commandOwner, const GS::Array<GS::UniString>& names,
+                                   bool exclusiveSets)
+{
+    const auto currentNames = Names ();
+    bool same = !commandOwner.IsEmpty () && owner == commandOwner && exclusive == exclusiveSets &&
+                currentNames.GetSize () == names.GetSize ();
+    for (UIndex i = 0; same && i < names.GetSize (); ++i)
+        same = Key (currentNames[i]) == Key (names[i]);
+    if (same)
+        return;
+    Configure (names, exclusiveSets);
+    owner = commandOwner;
+}
+
+SelectionSetStore::State SelectionSetStore::Capture () const
+{
+    State state;
+    state.owner = owner;
+    state.exclusive = exclusive;
+    for (const auto& entry : entries)
+        state.values.push_back ({ entry.name, entry.guids });
+    return state;
+}
+
+void SelectionSetStore::Restore (const State& state)
+{
+    ++generation;
+    ++revision;
+    owner = state.owner;
+    exclusive = state.exclusive;
+    entries.Clear ();
+    for (const auto& [name, guids] : state.values)
+        entries.Push ({ name, guids });
+}
+
+GS::UniString SelectionSetStore::Owner () const
+{
+    return owner;
+}
+
+void SelectionSetStore::ResetValues ()
+{
+    ++generation;
+    ++revision;
+    for (auto& entry : entries)
+        entry.guids.Clear ();
+}
+
 void SelectionSetStore::Clear ()
 {
     ++generation;
     ++revision;
+    owner.Clear ();
     entries.Clear ();
 }
 

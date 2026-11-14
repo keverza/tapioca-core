@@ -171,8 +171,30 @@ TEST (HudTerrainSetup, RegionOnlyWorkflowDoesNotRequireAnAuthoredDesignPath)
     const auto text = gui.Frame (session);
     EXPECT_NE (text.find ("Region and path terrain preview"), std::string::npos);
     EXPECT_NE (text.find ("Regions can grade without a path"), std::string::npos);
+#ifdef TAPIOCA_GEOMETRY_RUST
     EXPECT_NE (text.find ("Set terrain from selection"), std::string::npos);
+#else
+    EXPECT_NE (text.find ("Terrain preview requires the Rust geometry build."), std::string::npos);
+    EXPECT_EQ (text.find ("Set terrain from selection"), std::string::npos);
+#endif
 }
+
+#ifndef TAPIOCA_GEOMETRY_RUST
+TEST (HudTerrainSetup, UnavailableSlopeConversionRefusesSectionEditsWithoutChangingHistory)
+{
+    auto doc = EmptyLandscape ();
+    const auto path = AddDesignPath (doc);
+    const auto before = edit::FindPath (doc, path)->sections.front ();
+    eh::Session session (doc);
+    ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, before.id));
+    session.terrainSectionDraft->value.widthLeft = before.widthLeft + 1;
+    EXPECT_FALSE (eh::ApplyTerrainSectionEdit (session));
+    EXPECT_NE (session.message.find ("SlopeConversionUnavailable"), std::string::npos);
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), before);
+    EXPECT_EQ (session.edits.UndoDepth (), 0u);
+    EXPECT_FALSE (session.edits.InGesture ());
+}
+#endif
 
 TEST (HudTerrainSetup, RegionElevationSliderDragsWithoutTypingAndCreatesOneUndoEntry)
 {
@@ -710,6 +732,7 @@ TEST (HudTerrainSetup, PathEditingIsAvailableBeforeAPropertyLineAndSetupRefusesA
     EXPECT_EQ (session.drawing.size (), 1U);
 }
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (HudTerrainSetup, SectionFieldsApplyTogetherInOneHistoryEntryAndPersistInTheExistingPathCodec)
 {
     auto doc = EmptyLandscape ();
@@ -745,7 +768,9 @@ TEST (HudTerrainSetup, SectionFieldsApplyTogetherInOneHistoryEntryAndPersistInTh
     ASSERT_TRUE (session.edits.Redo ());
     EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), expected);
 }
+#endif
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (HudTerrainSetup, ASliderDragAppliesLiveAndItsReleaseIsOneUndoStep)
 {
     auto doc = EmptyLandscape ();
@@ -772,7 +797,9 @@ TEST (HudTerrainSetup, ASliderDragAppliesLiveAndItsReleaseIsOneUndoStep)
     ASSERT_TRUE (session.edits.Undo ());
     EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), before) << "one step back to the start";
 }
+#endif
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (HudTerrainSetup, SignedCrossfallDraftsRemainSignedAndPassiveSlidersDoNotNormalizeOrClampThem)
 {
     for (const auto fall : { edit::Fall::Left, edit::Fall::Right, edit::Fall::Crown }) {
@@ -800,6 +827,7 @@ TEST (HudTerrainSetup, SignedCrossfallDraftsRemainSignedAndPassiveSlidersDoNotNo
         EXPECT_EQ (session.edits.Doc ().paths, doc.paths);
     }
 }
+#endif
 
 TEST (HudTerrainSetup, CrossfallDraftAboveOneToOneRefusesWithoutChangingHistoryOrOtherFields)
 {
@@ -819,6 +847,7 @@ TEST (HudTerrainSetup, CrossfallDraftAboveOneToOneRefusesWithoutChangingHistoryO
     EXPECT_TRUE (session.terrainSectionDraft->value.crossfall.negative);
 }
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (HudTerrainSetup, InvalidOrIdentityChangingSectionDraftsRefuseAtomicallyAndRemainCorrectable)
 {
     auto doc = EmptyLandscape ();
@@ -878,6 +907,7 @@ TEST (HudTerrainSetup, InvalidOrIdentityChangingSectionDraftsRefuseAtomicallyAnd
     EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front ().cutSlope,
                (lg::TerrainSlope { lg::TerrainSlope::Unit::Percent, 65, 0 }));
 }
+#endif
 
 TEST (HudTerrainSetup, DraftsCannotCrossPathsOverwriteNewerEditsOrApplyDuringInput)
 {
@@ -918,6 +948,7 @@ TEST (HudTerrainSetup, PanelRendersExplicitSectionParametersInsteadOfOnlyCapture
     EXPECT_EQ (session.edits.UndoDepth (), 0U);
 }
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (HudTerrainSetup, TaperCheckboxSeedsCurrentWidthsAndResetsEndsInOneUndoableEdit)
 {
     auto doc = EmptyLandscape ();
@@ -954,7 +985,9 @@ TEST (HudTerrainSetup, TaperCheckboxSeedsCurrentWidthsAndResetsEndsInOneUndoable
     ASSERT_TRUE (session.edits.Redo ());
     EXPECT_FALSE (edit::FindPath (session.edits.Doc (), path)->sections.front ().taper);
 }
+#endif
 
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (HudTerrainSetup, TaperEndWidthsDragLiveAndPersistWithoutChangingTheStartWidths)
 {
     auto doc = EmptyLandscape ();
@@ -992,6 +1025,7 @@ TEST (HudTerrainSetup, TaperEndWidthsDragLiveAndPersistWithoutChangingTheStartWi
     ASSERT_TRUE (session.edits.Redo ());
     EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), expected);
 }
+#endif
 
 namespace {
 void PressEscape (eh::Session& session)
@@ -1067,6 +1101,7 @@ TEST (HudTerrainSetup, EscapeOnAHeldRegionSliderRestoresAndTheRestOfTheDragChang
 
 // #24: Esc while a cross-section slider is held restores the document AND the typed values; the
 // release records nothing; the draft stays current, and the next drag works.
+#ifdef TAPIOCA_GEOMETRY_RUST
 TEST (HudTerrainSetup, EscapeOnAHeldSectionSliderRestoresTheDocumentAndTheTypedValues24)
 {
     auto doc = EmptyLandscape ();
@@ -1100,3 +1135,4 @@ TEST (HudTerrainSetup, EscapeOnAHeldSectionSliderRestoresTheDocumentAndTheTypedV
     EXPECT_EQ (session.edits.UndoDepth (), 1u);
     EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front ().widthLeft, before.widthLeft + 1.0);
 }
+#endif

@@ -268,6 +268,11 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/TestCommands.cpp", "ArchViz/MassingSlices.hpp"),
     # The main-thread HUD owner opens the native Programme table after layout; widgets
     # queue immutable requests and never construct DG controls under the ImGui lock.
+    # Bus/HUD RunCommand is the role-declaration adapter when no palette selection
+    # changed: configure the scanned command's existing selection/camera stores
+    # before launching Python. It owns no role storage or SDK command behavior.
+    ("Python/CommandControlDispatch.cpp", "NativeCommands/SelectionSetStore.hpp"),
+    ("Python/CommandControlDispatch.cpp", "NativeCommands/CameraSetStore.hpp"),
     ("ArchViz/OverlayControllerHud.cpp", "Palette/ProgrammeDialog.hpp"),
     # The main-thread bake facade asks one native DG modal for an immutable settings
     # value. UI construction/picker ownership stay in Palette, never in HUD layout.

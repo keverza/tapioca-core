@@ -7,6 +7,8 @@
 #include "PythonHost.hpp"
 #include "RunCancel.hpp"
 #include "CommandRunState.hpp"
+#include "NativeCommands/CameraSetStore.hpp"
+#include "NativeCommands/SelectionSetStore.hpp"
 #include "Preview/PreviewRuntimeState.hpp"
 #include "Server/HttpServer.hpp"
 #include "Server/ServerState.hpp"
@@ -15,6 +17,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace {
@@ -25,6 +28,15 @@ struct RunStartOutcome {
     GS::UniString title;
     GS::UniString error;
 };
+struct PendingRoleRestore {
+    geomsrv::SelectionSetStore::State selections;
+    geomsrv::CameraSetStore::State cameras;
+    GS::UniString temporaryOwner;
+    uint64_t selectionRevision = 0, cameraRevision = 0;
+    uint64_t generation = 0;
+};
+// Main-thread only: one command run is allowed, so one temporary role owner.
+std::optional<PendingRoleRestore> s_pendingRoles;
 
 } // namespace
 
@@ -103,8 +115,22 @@ bool DispatchCommandControlVerb (const GS::UniString& backend, const GS::UniStri
                     port = (unsigned short) server.Port ();
                 }
 
+                // Bus/HUD launches have no palette selection change to declare the
+                // command's roles. Same-owner launches retain captured values; a
+                // temporary different owner gets the prior state back at finish.
+                const auto previousSelections = geomsrv::SelectionSetStore::Get ().Capture ();
+                const auto previousCameras = geomsrv::CameraSetStore::Get ().Capture ();
+                const bool restoreRoles = previousSelections.owner != info.path || previousCameras.owner != info.path;
+                geomsrv::SelectionSetStore::Get ().Configure (info.path, info.selectionSets,
+                                                              info.exclusiveSelectionSets);
+                geomsrv::CameraSetStore::Get ().Configure (info.path, info.cameraSets);
+
                 const uint64_t generation = RunCancel::Get ().BeginRun (info.timeoutSeconds);
                 if (!CommandRunState::Get ().Begin (generation, info.title)) {
+                    if (restoreRoles) {
+                        geomsrv::SelectionSetStore::Get ().Restore (previousSelections);
+                        geomsrv::CameraSetStore::Get ().Restore (previousCameras);
+                    }
                     RunCancel::Get ().EndRun (generation);
                     start->error = "A command-control run is already active.";
                     return;
@@ -123,8 +149,45 @@ bool DispatchCommandControlVerb (const GS::UniString& backend, const GS::UniStri
                                                      info.requiresApi, info.requiresTapir, info.requirements,
                                                      watchArmed,       external,           port,
                                                      generation };
-                LaunchCommand (request, [] (uint64_t finishedGeneration, const GS::UniString& status) {
-                    CommandRunState::Get ().Finish (finishedGeneration, status);
+                const GS::UniString commandPath = info.path;
+                const uint64_t selectionRevision = geomsrv::SelectionSetStore::Get ().Revision ();
+                const uint64_t cameraRevision = geomsrv::CameraSetStore::Get ().Revision ();
+                if (restoreRoles)
+                    s_pendingRoles = PendingRoleRestore { previousSelections, previousCameras, commandPath,
+                                                          selectionRevision,  cameraRevision,  generation };
+                else
+                    s_pendingRoles.reset ();
+                LaunchCommand (request, [previousSelections, previousCameras, restoreRoles, commandPath,
+                                         selectionRevision,
+                                         cameraRevision] (uint64_t finishedGeneration, const GS::UniString& status) {
+                    if (!restoreRoles) {
+                        CommandRunState::Get ().Finish (finishedGeneration, status);
+                        return;
+                    }
+                    GS::UniString gateError;
+                    const GS::UniString finishedStatus = status;
+                    const bool posted = MainThreadGate::Get ().Post (
+                        [previousSelections, previousCameras, commandPath, selectionRevision, cameraRevision,
+                         finishedGeneration, finishedStatus] {
+                            // Restore before Finish releases the run token. Any
+                            // declaration/content edit or project clear advances
+                            // the store revision and vetoes this old snapshot.
+                            const auto run = CommandRunState::Get ().Snapshot ();
+                            if (run.generation == finishedGeneration) {
+                                auto& selections = geomsrv::SelectionSetStore::Get ();
+                                if (selections.Owner () == commandPath && selections.Revision () == selectionRevision)
+                                    selections.Restore (previousSelections);
+                                auto& cameras = geomsrv::CameraSetStore::Get ();
+                                if (cameras.Owner () == commandPath && cameras.Revision () == cameraRevision)
+                                    cameras.Restore (previousCameras);
+                            }
+                            if (s_pendingRoles && s_pendingRoles->generation == finishedGeneration)
+                                s_pendingRoles.reset ();
+                            CommandRunState::Get ().Finish (finishedGeneration, finishedStatus);
+                        },
+                        gateError);
+                    if (!posted)
+                        CommandRunState::Get ().Finish (finishedGeneration, status);
                 });
 
                 start->started = true;
@@ -217,6 +280,30 @@ bool DispatchCommandControlVerb (const GS::UniString& backend, const GS::UniStri
     }
 
     return false;
+}
+
+void ResetCommandRolesForProject ()
+{
+    // If a temporary bus command was active, restore the palette owner's role
+    // declarations first, then drop every old-document value. The completion's
+    // owner/revision checks will refuse its obsolete snapshot afterward.
+    if (s_pendingRoles) {
+        const auto& selections = geomsrv::SelectionSetStore::Get ();
+        const auto& cameras = geomsrv::CameraSetStore::Get ();
+        // A → temporary B → palette C must keep C. Restore A only while B's
+        // exact declaration/content incarnation is still current.
+        const bool temporaryCurrent = selections.Owner () == s_pendingRoles->temporaryOwner &&
+                                      selections.Revision () == s_pendingRoles->selectionRevision &&
+                                      cameras.Owner () == s_pendingRoles->temporaryOwner &&
+                                      cameras.Revision () == s_pendingRoles->cameraRevision;
+        if (temporaryCurrent) {
+            geomsrv::SelectionSetStore::Get ().Restore (s_pendingRoles->selections);
+            geomsrv::CameraSetStore::Get ().Restore (s_pendingRoles->cameras);
+        }
+        s_pendingRoles.reset ();
+    }
+    geomsrv::SelectionSetStore::Get ().ResetValues ();
+    geomsrv::CameraSetStore::Get ().ResetValues ();
 }
 
 } // namespace evp

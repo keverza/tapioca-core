@@ -46,6 +46,8 @@
 #include "NativeCommands/GraphCaptureService.hpp"
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
 #include "NativeCommands/SurfaceInspectorCommands.hpp"
+#include "Python/CommandControlDispatch.hpp"
+#include "Geometry/SurfaceTakeoffController.hpp"
 #include "ArchViz/SunStudyObstructionController.hpp"
 #include "ArchViz/VisibilityStudyController.hpp"
 #include "ArchViz/ViewpointStudyController.hpp"
@@ -177,6 +179,8 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             tapioca::preview::PublicationState ().ProjectChanged ();
             geomsrv::ResetTestJobs ();
             geomsrv::ResetSurfaceInspectorState ();
+            evp::ResetCommandRolesForProject ();
+            geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().OnProjectClosed ();
             if (ControlPalette::HasInstance ()) {
                 ControlPalette::GetInstance ().Hide ();
                 ControlPalette::GetInstance ().ForgetCommandPreviews ();
@@ -208,6 +212,8 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             tapioca::preview::PublicationState ().ProjectChanged ();
             geomsrv::ResetTestJobs ();
             geomsrv::ResetSurfaceInspectorState ();
+            evp::ResetCommandRolesForProject ();
+            geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().OnProjectClosed ();
             if (ControlPalette::HasInstance ()) {
                 ControlPalette::GetInstance ().Hide ();
                 ControlPalette::GetInstance ().ForgetCommandPreviews ();
@@ -231,7 +237,10 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             tapioca::preview::PublicationState ().ProjectChanged ();
             geomsrv::ShutdownTestJobs ();
             geomsrv::ResetSurfaceInspectorState ();
+            evp::ResetCommandRolesForProject ();
+            geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().OnProjectClosed ();
             geomsrv::sunfollow::Shutdown ();
+            geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().Shutdown ();
             geomsrv::archviz::visibilitystudy::Shutdown ();
             geomsrv::archviz::viewpointstudy::Shutdown ();
             geomsrv::ServerState::Get ().modelOpen.store (false);
@@ -649,6 +658,7 @@ GSErrCode FreeData (void)
     // Retire posted interactions before the main-thread gate and this module go away.
     geomsrv::ResetSurfaceInspectorState ();
     geomsrv::sunfollow::Shutdown (); // never join a calculation thread under loader-lock destruction
+    geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().Shutdown ();
     geomsrv::archviz::visibilitystudy::Shutdown ();
     geomsrv::archviz::viewpointstudy::Shutdown ();
     // ⚠️ FIRST, AND AHEAD OF EVERY WINDOW AND THREAD BELOW. The camera-sync

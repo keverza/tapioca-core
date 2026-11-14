@@ -173,6 +173,10 @@ bool TakeCameraRepairRequest (State& state)
 {
     return std::exchange (state.cameraRepairRequested, false);
 }
+bool TakeExposedSurfaceRequest (State& state)
+{
+    return std::exchange (state.exposedSurfaceRequested, false);
+}
 
 std::string MassingStatsFunction (const State& state)
 {
