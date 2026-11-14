@@ -205,9 +205,9 @@ void SayJump (const CameraStep& step, const float* view, uint64_t ms, uint64_t d
     if (begun != nullptr && begun->haveStartView)
         _snprintf_s (undo, sizeof (undo), _TRUNCATE, "%.1f deg from the view before that gesture's press",
                      Step (begun->startView, view).degrees);
-    char shift[64] = "no Shift key-up taken";
+    char shift[64] = "no Shift key-up";
     if (g_lastShiftUpTakenMs != 0 && g_lastShiftUpTakenMs <= ms && ms - g_lastShiftUpTakenMs <= 2000)
-        _snprintf_s (shift, sizeof (shift), _TRUNCATE, "a Shift key-up taken by the HUD %llu ms before",
+        _snprintf_s (shift, sizeof (shift), _TRUNCATE, "a Shift key-up (the HUD's and Archicad's) %llu ms before",
                      (unsigned long long) (ms - g_lastShiftUpTakenMs));
     char where[256] = {};
     if (g == nullptr)

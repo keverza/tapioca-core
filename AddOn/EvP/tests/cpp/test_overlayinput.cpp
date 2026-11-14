@@ -20,6 +20,7 @@ namespace {
 int g_refreshes = 0;
 int s_hostHovers = 0, s_hostLeaves = 0;
 int s_hostDeletes = 0;
+int s_hostShifts = 0;
 int s_hostMiddleDown = 0, s_hostMiddleUp = 0;
 int s_hostNavigationMoves = 0;
 int s_hostHitTests = 0;
@@ -41,6 +42,8 @@ LRESULT CALLBACK HostProc (HWND window, UINT message, WPARAM wParam, LPARAM lPar
         ++s_hostHovers;
     if (message == WM_MOUSELEAVE)
         ++s_hostLeaves;
+    if ((message == WM_KEYDOWN || message == WM_KEYUP) && wParam == VK_SHIFT)
+        ++s_hostShifts;
     if (message == WM_COMMAND && LOWORD (wParam) == 4242)
         ++s_hostDeletes;
     if (message == WM_MBUTTONDOWN)
@@ -586,6 +589,51 @@ TEST (OverlayInput, LockedRoofConsumesParentDeleteBeforeNativeAcceleratorsAndFor
 
 // 2026-11-05 13:46-13:48: Shift+middle orbits, and Shift held auto-repeats ~30 times a second;
 // over the locked view every repeat asked a ~9 ms layout while Archicad navigated.
+// ⚠️ SHIFT REACHES THE HOST FROM A LOCKED VIEW, AND THE HUD STILL HEARS IT (#145, 2026-11-14):
+// Shift is Archicad's orbit modifier, and the camera jumped 109-312 ms after a middle release
+// whenever the HUD had just taken Shift's key-up from it. Each Shift message is the host's once
+// and the HUD's once -- not twice, though two hooks see a message left in the queue. Every other
+// key over the locked view is still the HUD's alone.
+TEST (OverlayInput, ShiftOverALockedViewIsTheHudsAndTheHosts)
+{
+    const HWND canvas = Canvas ();
+    ASSERT_NE (canvas, nullptr);
+    std::string error;
+    ASSERT_TRUE (input::Attach (input::View::Plan, canvas, Owner (), error)) << error;
+    input::HitMap map;
+    map.locked = true;
+    input::SetHitMap (input::View::Plan, map);
+    ASSERT_TRUE (input::EnableRoofEditKeys (true));
+    Pump ();
+    input::TakeInput (input::View::Plan);
+    s_hostShifts = s_hostDeletes = 0;
+    ::PostMessageW (canvas, WM_KEYDOWN, VK_SHIFT, 0);
+    ::PostMessageW (canvas, WM_KEYUP, VK_SHIFT, LPARAM (0xC0000001));
+    ::PostMessageW (canvas, WM_KEYDOWN, 'A', 0);
+    Pump ();
+    const auto taken = input::TakeInput (input::View::Plan);
+    EXPECT_EQ (s_hostShifts, 2) << "the press and the release both reach the host";
+    ASSERT_EQ (taken.keys.size (), 3u) << "and the HUD hears each key once";
+    EXPECT_EQ (taken.keys[0].code, uint32_t (VK_SHIFT));
+    EXPECT_TRUE (taken.keys[0].down);
+    EXPECT_EQ (taken.keys[1].code, uint32_t (VK_SHIFT));
+    EXPECT_FALSE (taken.keys[1].down);
+    EXPECT_EQ (taken.keys[2].code, uint32_t ('A'));
+    geomsrv::archviz::overlayhud::Input::Key key;
+    for (uint32_t code : { uint32_t (VK_SHIFT), uint32_t (VK_LSHIFT), uint32_t (VK_RSHIFT) }) {
+        key.code = code;
+        EXPECT_TRUE (input::keyboard::PassesToHost (key)) << code;
+    }
+    for (uint32_t code : { uint32_t (VK_CONTROL), uint32_t (VK_MENU), uint32_t (VK_DELETE), uint32_t ('A') }) {
+        key.code = code;
+        EXPECT_FALSE (input::keyboard::PassesToHost (key)) << code;
+    }
+    input::EnableRoofEditKeys (false);
+    input::Shutdown ();
+    ::DestroyWindow (canvas);
+    Pump ();
+}
+
 TEST (OverlayInput, AModifiersAutoRepeatAsksForNoLayout)
 {
     geomsrv::archviz::overlayhud::Input::Key key;

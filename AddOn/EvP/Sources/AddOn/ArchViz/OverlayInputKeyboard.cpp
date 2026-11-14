@@ -5,6 +5,26 @@ namespace {
 HHOOK s_hook = nullptr;
 Sink s_sink = nullptr;
 bool s_ctrl = false, s_shift = false, s_alt = false;
+// A key left to Archicad (`PassesToHost`) stays in the queue, so BOTH hooks see its message --
+// in an order Windows does not promise, and a posted one reaches the message hook alone. The
+// first to see it queues it for the HUD and notes it here; the other, seeing the same key next,
+// lets it go by. Never the same hook twice: an auto-repeat is the same key again.
+enum class Seen : uint8_t { None, ByKeyboardHook, ByMessageHook };
+struct Passed {
+    Seen by = Seen::None;
+    uint32_t code = 0;
+    LPARAM info = 0;
+} s_passed;
+// True when `by` is the first of the two hooks to see this key message.
+bool FirstToSee (Seen by, uint32_t code, LPARAM info)
+{
+    if (s_passed.by != Seen::None && s_passed.by != by && s_passed.code == code && s_passed.info == info) {
+        s_passed = Passed {};
+        return false;
+    }
+    s_passed = { by, code, info };
+    return true;
+}
 overlayhud::Input::Key Event (uint32_t code, LPARAM info)
 {
     overlayhud::Input::Key key;
@@ -40,6 +60,8 @@ LRESULT CALLBACK Hook (int code, WPARAM value, LPARAM info)
 {
     if (code == HC_ACTION && s_sink) {
         const auto key = Event (uint32_t (value), info);
+        if (PassesToHost (key) && !FirstToSee (Seen::ByKeyboardHook, key.code, info))
+            return ::CallNextHookEx (s_hook, code, value, info);
         if (!(key.alt && key.code == VK_F4) && s_sink (::GetFocus (), key, Text (key, info), true))
             return 1;
     }
@@ -63,6 +85,7 @@ void Stop ()
         ::UnhookWindowsHookEx (s_hook);
     s_hook = nullptr, s_sink = nullptr;
     s_ctrl = s_shift = s_alt = false;
+    s_passed = Passed {};
 }
 bool Installed ()
 {
@@ -76,6 +99,8 @@ void Message (MSG& message, bool take)
         message.message == WM_SYSKEYUP) {
         auto key = Event (uint32_t (message.wParam), message.lParam);
         key.down = message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN;
+        if (take && PassesToHost (key) && !FirstToSee (Seen::ByMessageHook, key.code, message.lParam))
+            return;
         if (!(key.alt && key.code == VK_F4) && s_sink (message.hwnd, key, Text (key, message.lParam), take))
             message.message = WM_NULL;
     }

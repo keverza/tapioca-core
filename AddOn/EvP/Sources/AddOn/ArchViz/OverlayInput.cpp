@@ -436,7 +436,7 @@ bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16str
             if (!keyboard::IsModifierRepeat (key))
                 RequestRefresh (*target);
         }
-        return true;
+        return !keyboard::PassesToHost (key);
     }
     Target* target = TargetFor (window);
     // Taken mouse presses do not focus Archicad's canvas. The document/frame may
@@ -474,7 +474,7 @@ bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16str
         if (!keyboard::IsModifierRepeat (key))
             RequestRefresh (*target);
     }
-    return true;
+    return !keyboard::PassesToHost (key); // Shift is the HUD's and Archicad's: its orbit modifier (#145)
 }
 LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
 {
