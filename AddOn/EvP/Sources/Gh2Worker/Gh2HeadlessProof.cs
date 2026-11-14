@@ -420,6 +420,7 @@ internal static class Gh2HeadlessProof
             if (!document.Objects.Add((IDocumentObject)standalone))
                 throw new InvalidOperationException("GH2 could not add a persistent Archicad reference parameter.");
             Gh2OverlayActionChecks.Run(document, overlays);
+            Gh2InputRevisionChecks.Run(pluginAssembly);
             Guid[] before = choiceComponents.Select(ExposureId).ToArray();
             document.Objects.ChangeAllIds();
             Guid[] reminted = choiceComponents.Select(ExposureId).ToArray();

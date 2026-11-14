@@ -9,13 +9,43 @@ namespace Tapioca.Gh2Worker;
 
 internal static class Gh2ChangeDeliveryChecks
 {
-    private sealed class Consumer : IArchicadChangeConsumer
+    private sealed class Consumer : IArchicadInputConsumer
     {
-        internal int Count;
+        internal int Count, Commits;
+        internal volatile bool Unadopted;
+        internal readonly List<Guid[]?> Changed = [];
         internal readonly AutoResetEvent Invalidated = new(false);
         internal bool Active = true;
+        private readonly object group = new();
         public bool IsActive => Active;
-        public Document? InvalidateArchicadInputs() { Interlocked.Increment(ref Count); Invalidated.Set(); return null; }
+        public object? InputGroup => group;
+        public Task<bool> StageInputsAsync(IReadOnlyCollection<Guid>? changed, bool lastAttempt, CancellationToken cancel)
+        {
+            lock (Changed) Changed.Add(changed?.ToArray());
+            Unadopted = true;
+            Interlocked.Increment(ref Count);
+            Invalidated.Set();
+            return Task.FromResult(true);
+        }
+        public bool CommitInputs() { Unadopted = false; Interlocked.Increment(ref Commits); return true; }
+    }
+
+    // A definition that is never solving, and a UI queue that runs inline.
+    private sealed class Host(bool failFirstPost) : IArchicadSolveHost
+    {
+        private int posts;
+        internal int Starts;
+        public long NowMs => Environment.TickCount64;
+        public Task Delay(int milliseconds, CancellationToken cancel) => Task.Delay(milliseconds, cancel);
+        public void Post(Action action)
+        {
+            if (Interlocked.Increment(ref posts) == 1 && failFirstPost)
+                throw new InvalidOperationException("Injected UI scheduling failure.");
+            action();
+        }
+        public bool IsSolving(object group) => false;
+        public void WhenIdle(object group, Action callback) => callback();
+        public void Start(object group) => Interlocked.Increment(ref Starts);
     }
 
     internal static void Run(bool failFirstDispatch = false)
@@ -67,7 +97,7 @@ internal static class Gh2ChangeDeliveryChecks
                     ok = true, data = new { projectEpoch = 7, revision, sourceActive = revision != 5,
                         resyncRequired = revision is 1 or 5 or 6, coverage = "modelwatch-hints", changes }
                 }));
-                bool expectInvalidation = revision is 3 or 6 || revision == (failFirstDispatch ? 2 : 1);
+                bool expectInvalidation = revision is 1 or 3 or 6;
                 if (expectInvalidation && !consumer.Invalidated.WaitOne(TimeSpan.FromSeconds(10)))
                     throw new TimeoutException("Relevant change did not invalidate its consumer.");
             }
@@ -77,18 +107,20 @@ internal static class Gh2ChangeDeliveryChecks
         client.ReadProjectInfo();
         Task reader = Task.Run(() => client.WaitForShutdown(false));
         ArchicadChangeDelivery.Subscribe(consumer, name, [id], 8);
-        int dispatches = 0;
-        ArchicadChangeDelivery.Attach(client, action =>
-        {
-            if (Interlocked.Increment(ref dispatches) == 1 && failFirstDispatch)
-                throw new InvalidOperationException("Injected UI scheduling failure.");
-            action();
-        });
+        var solver = new Host(failFirstDispatch);
+        ArchicadChangeDelivery.Attach(client, new ArchicadInputRevisions(solver));
         try
         {
             host.WaitAsync(deadline.Token).GetAwaiter().GetResult();
             reader.WaitAsync(deadline.Token).GetAwaiter().GetResult();
-            if (consumer.Count != 3) throw new InvalidOperationException("Unrelated/duplicate/inactive changes expired the consumer.");
+            if (consumer.Count != 3) throw new InvalidOperationException("Unrelated/duplicate/inactive changes re-read the consumer.");
+            lock (consumer.Changed)
+                if (consumer.Changed.Any(ids => ids is null || !ids.SequenceEqual([id])))
+                    throw new InvalidOperationException("A scoped change was widened beyond its own rows.");
+            // A refused UI post must not strand rows that were already read.
+            if (!SpinWait.SpinUntil(() => !consumer.Unadopted, TimeSpan.FromSeconds(10)) || consumer.Commits == 0 ||
+                solver.Starts != consumer.Commits)
+                throw new InvalidOperationException("Read rows were not adopted, or adoption did not start one solution each.");
         }
         finally { consumer.Active = false; ArchicadChangeDelivery.Detach(client); consumer.Invalidated.Dispose(); }
         Console.WriteLine("GH2 native-wake scoped delivery: baseline, relevant/unrelated, duplicate and source restart passed.");

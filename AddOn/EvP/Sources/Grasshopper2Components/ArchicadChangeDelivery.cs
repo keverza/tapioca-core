@@ -1,23 +1,17 @@
 using System.Text.Json;
-using Eto.Forms;
-using Grasshopper2.Doc;
 using Tapioca.Gh2Worker;
 
 namespace TapiocaGH2;
 
-internal interface IArchicadChangeConsumer
-{
-    bool IsActive { get; }
-    Document? InvalidateArchicadInputs();
-}
-
 // Host wakes, independent scoped cursors, one active drain plus one newest wake.
 // No component timer polls Archicad; weak owners do not retain closed definitions.
+// A drain only names what changed: reading the rows, adopting them and solving
+// belong to ArchicadInputRevisions.
 internal static class ArchicadChangeDelivery
 {
-    private sealed class Scope(IArchicadChangeConsumer owner, string key, Guid[] ids, int fields)
+    private sealed class Scope(IArchicadInputConsumer owner, string key, Guid[] ids, int fields)
     {
-        internal readonly WeakReference<IArchicadChangeConsumer> Owner = new(owner);
+        internal readonly WeakReference<IArchicadInputConsumer> Owner = new(owner);
         internal readonly string Key = key;
         internal readonly Guid[] Ids = ids;
         internal readonly int Fields = fields;
@@ -29,16 +23,13 @@ internal static class ArchicadChangeDelivery
     private static Gh2PipeClient? client;
     private static long epoch, generation;
     private static bool pending, running;
-    private static readonly HashSet<IArchicadChangeConsumer> uiPending = [];
-    private static bool uiPosted;
+    private static ArchicadInputRevisions? revisions;
     private static string status = "Automatic input refresh awaits a matched native connection.";
     internal static string Status => Volatile.Read(ref status);
-    private static void ScheduleOnUi(Action action) =>
-        (Application.Instance ?? throw new InvalidOperationException("GH2 UI scheduler is unavailable.")).AsyncInvoke(action);
-    private static Action<Action> dispatch = ScheduleOnUi;
 
-    internal static void Attach(Gh2PipeClient bridge, Action<Action>? schedule = null)
+    internal static void Attach(Gh2PipeClient bridge, ArchicadInputRevisions inputs)
     {
+        inputs.Reset(); // reads against the previous connection are abandoned
         if (!bridge.SupportsElementChanges)
         {
             Volatile.Write(ref status, "Native change delivery is unavailable in this add-on build; use manual Refresh.");
@@ -49,11 +40,10 @@ internal static class ArchicadChangeDelivery
             if (client is not null) client.ElementChangesAvailable -= Wake;
             client = bridge;
             Volatile.Write(ref status, "Waiting for the native change-source baseline.");
-            dispatch = schedule ?? ScheduleOnUi;
+            revisions = inputs;
             using var json = JsonDocument.Parse(bridge.LastProjectInfoJson!);
             epoch = ArchicadProjectOptions.Data(json.RootElement).GetProperty("projectEpoch").GetInt64();
             ++generation;
-            uiPending.Clear(); uiPosted = false;
             foreach (Scope scope in scopes) { scope.Revision = 0; scope.Initialized = false; }
             bridge.ElementChangesAvailable += Wake;
         }
@@ -62,16 +52,18 @@ internal static class ArchicadChangeDelivery
 
     internal static void Detach(Gh2PipeClient? bridge)
     {
+        ArchicadInputRevisions? inputs;
         lock (sync)
         {
             if (!ReferenceEquals(client, bridge)) return;
             if (client is not null) client.ElementChangesAvailable -= Wake;
-            client = null; ++generation; uiPending.Clear(); uiPosted = false;
+            client = null; ++generation; inputs = revisions;
             Volatile.Write(ref status, "Disconnected; automatic input refresh is paused.");
         }
+        inputs?.Reset();
     }
 
-    internal static void Subscribe(IArchicadChangeConsumer owner, string key, Guid[] ids, int fields)
+    internal static void Subscribe(IArchicadInputConsumer owner, string key, Guid[] ids, int fields)
     {
         bool added = false;
         lock (sync)
@@ -115,14 +107,15 @@ internal static class ArchicadChangeDelivery
                     pending = false; bridge = client; token = generation; expectedEpoch = epoch;
                     batch = scopes.ToArray();
                 }
-                var dirty = new HashSet<IArchicadChangeConsumer>();
+                var dirty = new Dictionary<IArchicadInputConsumer, HashSet<Guid>>();
                 try
                 {
                     foreach (Scope scope in batch)
                     {
                         if (!scope.Owner.TryGetTarget(out var owner) || !owner.IsActive) continue;
                         long next = long.MaxValue;
-                        bool invalidate = false;
+                        bool whole = false;
+                        var changed = new HashSet<Guid>();
                         foreach (Guid[] page in scope.Ids.Chunk(64))
                         {
                             lock (sync) if (token != generation) break;
@@ -137,15 +130,21 @@ internal static class ArchicadChangeDelivery
                             // cache and wait for the source-start wake/manual refresh.
                             if (!active) continue;
                             next = Math.Min(next, data.GetProperty("revision").GetInt64());
-                            invalidate |= !scope.Initialized || data.GetProperty("resyncRequired").GetBoolean() ||
-                                data.GetProperty("changes").GetArrayLength() != 0;
+                            // A first baseline or a lost history says nothing about which
+                            // rows moved: every row of this scope is re-read, and only this scope.
+                            whole |= !scope.Initialized || data.GetProperty("resyncRequired").GetBoolean();
+                            foreach (JsonElement change in data.GetProperty("changes").EnumerateArray())
+                                changed.Add(change.GetProperty("guid").GetGuid());
                         }
                         lock (sync)
                         {
                             if (token != generation) break;
                             if (next != long.MaxValue) { scope.Revision = next; scope.Initialized = true; }
                         }
-                        if (invalidate) dirty.Add(owner);
+                        if (whole) changed.UnionWith(scope.Ids);
+                        if (changed.Count == 0) continue;
+                        if (dirty.TryGetValue(owner, out HashSet<Guid>? known)) known.UnionWith(changed);
+                        else dirty[owner] = changed;
                     }
                 }
                 finally
@@ -166,40 +165,14 @@ internal static class ArchicadChangeDelivery
         }
     }
 
-    private static void QueueInvalidations(HashSet<IArchicadChangeConsumer> dirty, long token)
+    private static void QueueInvalidations(Dictionary<IArchicadInputConsumer, HashSet<Guid>> dirty, long token)
     {
+        ArchicadInputRevisions? inputs;
         lock (sync)
         {
             if (token != generation) return;
-            uiPending.UnionWith(dirty);
-            if (uiPosted) return;
-            uiPosted = true;
+            inputs = revisions;
         }
-        try { dispatch(() =>
-        {
-            IArchicadChangeConsumer[] targets;
-            lock (sync)
-            {
-                if (token != generation) return;
-                targets = uiPending.ToArray(); uiPending.Clear(); uiPosted = false;
-            }
-            var documents = new HashSet<Document>();
-            foreach (var owner in targets)
-                if (owner.IsActive && owner.InvalidateArchicadInputs() is { } document) documents.Add(document);
-            foreach (Document document in documents) document.Solution.Start();
-        }); }
-        catch
-        {
-            lock (sync)
-            {
-                if (token == generation)
-                {
-                    foreach (Scope scope in scopes)
-                        if (scope.Owner.TryGetTarget(out var owner) && uiPending.Contains(owner)) scope.Initialized = false;
-                    uiPosted = false; uiPending.Clear();
-                }
-            }
-            throw;
-        }
+        foreach (var (owner, ids) in dirty) inputs?.Invalidate(owner, ids);
     }
 }

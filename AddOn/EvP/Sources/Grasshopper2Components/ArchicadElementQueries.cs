@@ -22,23 +22,157 @@ internal interface IArchicadQueryPresets
     void ClearSelectorPresets();
 }
 
-public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets, IArchicadChangeConsumer where T : class
+public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets, IArchicadInputConsumer where T : class
 {
+    private sealed record Request(string Project, Guid[] Ids, string Mode, string Search, string[] Selectors);
+    private sealed record Staged(QueryRow[]? Rows, string? Failure, long Ticket);
     private readonly object sync = new();
+    // What Process reads. Only CommitInputs replaces it, between solutions.
     private readonly Dictionary<string, QueryRow[]> cache = new();
+    private readonly Dictionary<string, Request> requests = new();
+    // Rows read since, awaiting adoption. A refresh never empties the outputs.
+    private readonly Dictionary<string, Staged> staged = new();
     private readonly HashSet<string> pending = new();
+    private readonly HashSet<string> stalePending = new();
     private readonly Dictionary<string, string> failures = new();
+    private string? stagedIssue, refreshIssue;
     private DateTimeOffset? snapshotTime;
     private long ticket;
     private volatile bool deliveryActive;
-    bool IArchicadChangeConsumer.IsActive => deliveryActive;
+    bool IArchicadInputConsumer.IsActive => deliveryActive;
+    object? IArchicadInputConsumer.InputGroup =>
+        Document is { } document && document.State is not (Grasshopper2.Doc.DocumentState.Closing or Grasshopper2.Doc.DocumentState.Closed)
+            ? document : null;
 
-    Document? IArchicadChangeConsumer.InvalidateArchicadInputs()
+    private void ResetLocked()
     {
-        if (Document is null || Document.State is Grasshopper2.Doc.DocumentState.Closing or Grasshopper2.Doc.DocumentState.Closed) return null;
-        lock (sync) { ++ticket; cache.Clear(); pending.Clear(); failures.Clear(); }
-        Expire();
-        return Document;
+        ++ticket; cache.Clear(); requests.Clear(); staged.Clear(); pending.Clear(); stalePending.Clear();
+        failures.Clear(); stagedIssue = refreshIssue = null;
+    }
+
+    // Re-read only the rows a change names, merged over the rows now shown.
+    async Task<bool> IArchicadInputConsumer.StageInputsAsync(IReadOnlyCollection<Guid>? changed, bool lastAttempt,
+        CancellationToken cancel)
+    {
+        HashSet<Guid>? set = changed is null ? null : changed as HashSet<Guid> ?? [.. changed];
+        var work = new List<(string Key, Request Query, QueryRow[]? Shown)>();
+        long started;
+        lock (sync)
+        {
+            started = ticket;
+            foreach (var (key, query) in requests)
+            {
+                if (set is not null && !query.Ids.Any(set.Contains)) continue;
+                // A first read in flight may predate this change: it reads again.
+                if (pending.Contains(key)) { stalePending.Add(key); continue; }
+                work.Add((key, query, staged.TryGetValue(key, out Staged? newer) && newer.Ticket == started &&
+                    newer.Rows is not null ? newer.Rows : cache.GetValueOrDefault(key)));
+            }
+        }
+        if (work.Count == 0) return true;
+        try
+        {
+            var done = new List<(string Key, QueryRow[] Rows)>();
+            foreach (var (key, query, shown) in work)
+            {
+                cancel.ThrowIfCancellationRequested();
+                // A relationship row depends on elements other than its own.
+                bool whole = shown is null || set is null || Kind == "relationships";
+                Guid[] ids = (whole ? query.Ids : query.Ids.Where(set!.Contains)).Distinct().ToArray();
+                Dictionary<Guid, QueryRow>? rows = await FetchRowsAsync(ids, query, () =>
+                {
+                    if (cancel.IsCancellationRequested) return false;
+                    lock (sync) return started == ticket;
+                }).ConfigureAwait(false);
+                cancel.ThrowIfCancellationRequested();
+                if (rows is null) return true; // superseded by a refresh or reconnect; nothing to retry
+                done.Add((key, query.Ids.Select((id, i) => rows.TryGetValue(id, out QueryRow? row) ? row : shown![i]).ToArray()));
+            }
+            string identity = ArchicadProjectOptions.ParseIdentity(
+                await Gh2ConnectionStatus.ReadProjectInfoAsync().ConfigureAwait(false));
+            lock (sync)
+            {
+                if (started != ticket) return true;
+                foreach (var (key, rows) in done)
+                    if (requests.TryGetValue(key, out Request? query) && query.Project == identity)
+                        staged[key] = new(rows, null, started);
+                stagedIssue = null;
+            }
+            return true;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception error)
+        {
+            // The rows shown stay; after the last attempt they are labelled stale.
+            if (lastAttempt)
+                lock (sync)
+                    if (started == ticket) stagedIssue = error.Message;
+            return false;
+        }
+    }
+
+    bool IArchicadInputConsumer.CommitInputs()
+    {
+        if (Document is null) return false;
+        DateTimeOffset? checkedAt = ArchicadProjectOptions.ReadStatus().CheckedAt;
+        string? identity = ArchicadProjectOptions.CurrentIdentity();
+        bool changed = false;
+        var presets = new List<QueryRow[]>();
+        lock (sync)
+        {
+            foreach (var (key, entry) in staged)
+            {
+                if (snapshotTime != checkedAt || entry.Ticket != ticket ||
+                    !requests.TryGetValue(key, out Request? query) || query.Project != identity) continue;
+                pending.Remove(key);
+                if (entry.Rows is null)
+                {
+                    if (!cache.ContainsKey(key))
+                    {
+                        failures[key] = entry.Failure ?? "Archicad did not return query results.";
+                        changed = true;
+                    }
+                    continue;
+                }
+                bool known = cache.TryGetValue(key, out QueryRow[]? shown);
+                // A hint names an element, not a field. Identical rows mean the
+                // change was unrelated to this query: no expiry, no solution.
+                if (known && SameRows(shown!, entry.Rows)) { changed |= failures.Remove(key); continue; }
+                if (!known && cache.Count >= 32)
+                {
+                    cache.Clear(); failures.Clear();
+                    foreach (string stale in requests.Keys.Where(name => name != key && !pending.Contains(name) &&
+                                 !staged.ContainsKey(name)).ToArray())
+                        requests.Remove(stale);
+                }
+                cache[key] = entry.Rows; failures.Remove(key); changed = true;
+                // A selected-value read is only a subset. Replacing the picker's
+                // catalog with that subset would make its other choices disappear.
+                if (query.Selectors.Length == 0 && ((Kind == "properties" && query.Mode == "Discover") || Kind == "gdl"))
+                    presets.Add(entry.Rows);
+            }
+            staged.Clear();
+            changed |= stagedIssue is not null && stagedIssue != refreshIssue;
+            refreshIssue = stagedIssue;
+        }
+        foreach (QueryRow[] rows in presets) ApplySelectorPresets(rows);
+        if (changed) Expire();
+        return changed;
+    }
+
+    internal static bool SameRows(QueryRow[] left, QueryRow[] right)
+    {
+        if (left.Length != right.Length) return false;
+        for (int i = 0; i < left.Length; i++)
+        {
+            QueryRow a = left[i], b = right[i];
+            if (ReferenceEquals(a, b)) continue;
+            if (a.Guid != b.Guid || a.Status != b.Status || a.Diagnostic != b.Diagnostic || a.More != b.More ||
+                a.Items.Length != b.Items.Length) return false;
+            for (int item = 0; item < a.Items.Length; item++)
+                if (a.Items[item].GetRawText() != b.Items[item].GetRawText()) return false;
+        }
+        return true;
     }
 
     protected ArchicadElementQuery(Nomen nomen) : base(nomen) => InitializeDelivery();
@@ -134,21 +268,26 @@ public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets
         ArchicadChangeDelivery.Subscribe(this, key, ids, Kind switch { "properties" => 8, "gdl" => 4, "relationships" => 16, _ => 3 });
         access.AddRemark("Archicad change source", ArchicadChangeDelivery.Status);
         QueryRow[]? rows;
-        string? failure;
+        string? failure, issue;
         bool queue;
         long request;
         lock (sync)
         {
-            if (snapshotTime != status.CheckedAt)
-            {
-                ++ticket; cache.Clear(); pending.Clear(); failures.Clear(); snapshotTime = status.CheckedAt;
-            }
+            if (snapshotTime != status.CheckedAt) { ResetLocked(); snapshotTime = status.CheckedAt; }
             cache.TryGetValue(key, out rows);
             failures.TryGetValue(key, out failure);
             queue = rows is null && failure is null && pending.Add(key);
+            if (queue) requests[key] = new(project, ids, mode, search, selectors);
             request = ticket;
+            issue = refreshIssue;
         }
-        if (queue) _ = Task.Run(() => ResolveAsync(key, project, ids, mode, search, selectors, request, status.CheckedAt));
+        if (queue)
+        {
+            object? fetch = ArchicadInputs.Shared.BeginFetch(this);
+            _ = Task.Run(() => ResolveAsync(key, request, fetch));
+        }
+        if (issue is not null && rows is not null)
+            access.AddWarning("Archicad refresh", "Showing the last successful read; the latest refresh failed. " + issue);
         if (failure is not null)
         {
             access.AddWarning("Archicad query", failure);
@@ -194,73 +333,83 @@ public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets
         SetExtraOutputs(access, values, pears);
     }
 
-    private async Task ResolveAsync(string key, string project, Guid[] ids, string mode, string search, string[] selectors,
-        long request, DateTimeOffset? checkedAt)
+    // The first read of a new request. Its rows are staged like any refresh,
+    // so sibling components adopt together and the definition solves once.
+    private async Task ResolveAsync(string key, long request, object? fetch)
     {
         QueryRow[]? result = null;
         string? failure = null;
+        bool stagedAny = false;
         try
         {
-            string first = await Gh2ConnectionStatus.ReadProjectInfoAsync().ConfigureAwait(false);
-            if (ArchicadProjectOptions.ParseIdentity(first) != project)
-                throw new InvalidDataException("Archicad changed projects before the query.");
-            var collected = new List<QueryRow>(ids.Length);
-            int batchSize = Kind == "geometry" && mode == "Surface mesh" ? 1 : 8;
-            for (int offset = 0; offset < ids.Length; offset += batchSize)
+            Request? query;
+            lock (sync)
+                if (request != ticket || !requests.TryGetValue(key, out query)) return;
+            try
             {
-                lock (sync) if (request != ticket) return;
-                Guid[] page = ids.Skip(offset).Take(batchSize).ToArray();
-                var pageRows = new QueryRow[page.Length];
-                for (int position = 0; ; position += 128)
+                for (int attempt = 0; result is null; attempt++)
                 {
-                    lock (sync) if (request != ticket) return;
-                    QueryRow[] slice = ParseRows(await Gh2ConnectionStatus.ReadElementQueryAsync(
-                        page, Kind, mode, search, selectors, position).ConfigureAwait(false), page);
-                    pageRows = MergePages(pageRows, slice);
-                    if (!slice.Any(row => row.More)) break;
-                    if (position >= 1920)
+                    string first = await Gh2ConnectionStatus.ReadProjectInfoAsync().ConfigureAwait(false);
+                    if (ArchicadProjectOptions.ParseIdentity(first) != query.Project)
+                        throw new InvalidDataException("Archicad changed projects before the query.");
+                    Dictionary<Guid, QueryRow>? rows = await FetchRowsAsync(query.Ids.Distinct().ToArray(), query,
+                        () => { lock (sync) return request == ticket; }).ConfigureAwait(false);
+                    if (rows is null) return;
+                    string last = await Gh2ConnectionStatus.ReadProjectInfoAsync().ConfigureAwait(false);
+                    // modiStamp advances on selection and model-generation reads too.
+                    // It is a hint for the Connection Status catalog, not a transaction
+                    // token for unrelated Archicad element queries.
+                    if (ArchicadProjectOptions.ParseIdentity(last) != query.Project)
+                        throw new InvalidDataException("Archicad changed projects during the query.");
+                    lock (sync)
                     {
-                        for (int i = 0; i < pageRows.Length; i++)
-                            if (slice[i].More)
-                                pageRows[i] = new QueryRow(page[i], AcQueryStatus.Unavailable,
-                                    "More than 2,048 matching entries; narrow Search or Selectors.", false, []);
-                        break;
+                        if (request != ticket) return;
+                        // A change was reported while this read ran; read again, a bounded number of times.
+                        if (stalePending.Remove(key) && attempt < 2) continue;
                     }
+                    result = query.Ids.Select(id => rows[id]).ToArray();
                 }
-                collected.AddRange(pageRows);
             }
-            string last = await Gh2ConnectionStatus.ReadProjectInfoAsync().ConfigureAwait(false);
-            // modiStamp advances on selection and model-generation reads too.
-            // It is a hint for the Connection Status catalog, not a transaction
-            // token for unrelated Archicad element queries.
-            if (ArchicadProjectOptions.ParseIdentity(last) != project)
-                throw new InvalidDataException("Archicad changed projects during the query.");
-            result = collected.ToArray();
-        }
-        catch (Exception error) { failure = error.Message; }
-        Application? app = Application.Instance;
-        if (app is null) return;
-        try { app.AsyncInvoke((System.Action)(() =>
-        {
+            catch (Exception error) { failure = error.Message; }
             lock (sync)
             {
-                if (request != ticket || snapshotTime != checkedAt ||
-                    ArchicadProjectOptions.CurrentIdentity() != project) return;
-                pending.Remove(key);
-                if (result is null) failures[key] = failure ?? "Archicad did not return query results.";
-                else { if (cache.Count >= 32) cache.Clear(); cache[key] = result; }
+                if (request != ticket || !pending.Contains(key)) return;
+                staged[key] = new(result, result is null ? failure ?? "Archicad did not return query results." : null, request);
+                stagedAny = true;
             }
-            // A selected-value read is only a subset. Replacing the picker's
-            // catalog with that subset would make its other choices disappear.
-            if (result is not null && selectors.Length == 0 &&
-                ((Kind == "properties" && mode == "Discover") || Kind == "gdl"))
-                ApplySelectorPresets(result);
-            if (Document is null) return;
-            Expire();
-            Document.Solution.Start();
-        })); }
-        catch (ObjectDisposedException) { }
-        catch (InvalidOperationException) { }
+        }
+        finally { ArchicadInputs.Shared.EndFetch(fetch, this, stagedAny); }
+    }
+
+    // Reads the given distinct elements in bounded pages; null when superseded.
+    private async Task<Dictionary<Guid, QueryRow>?> FetchRowsAsync(Guid[] ids, Request query, Func<bool> current)
+    {
+        var collected = new Dictionary<Guid, QueryRow>(ids.Length);
+        int batchSize = Kind == "geometry" && query.Mode == "Surface mesh" ? 1 : 8;
+        for (int offset = 0; offset < ids.Length; offset += batchSize)
+        {
+            if (!current()) return null;
+            Guid[] page = ids.Skip(offset).Take(batchSize).ToArray();
+            var pageRows = new QueryRow[page.Length];
+            for (int position = 0; ; position += 128)
+            {
+                if (!current()) return null;
+                QueryRow[] slice = ParseRows(await Gh2ConnectionStatus.ReadElementQueryAsync(
+                    page, Kind, query.Mode, query.Search, query.Selectors, position).ConfigureAwait(false), page);
+                pageRows = MergePages(pageRows, slice);
+                if (!slice.Any(row => row.More)) break;
+                if (position >= 1920)
+                {
+                    for (int i = 0; i < pageRows.Length; i++)
+                        if (slice[i].More)
+                            pageRows[i] = new QueryRow(page[i], AcQueryStatus.Unavailable,
+                                "More than 2,048 matching entries; narrow Search or Selectors.", false, []);
+                    break;
+                }
+            }
+            for (int i = 0; i < page.Length; i++) collected[page[i]] = pageRows[i];
+        }
+        return collected;
     }
 
     private void ApplySelectorPresets(QueryRow[] rows)
