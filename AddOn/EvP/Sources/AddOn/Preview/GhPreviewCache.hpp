@@ -29,7 +29,9 @@
 
 #include "Grasshopper/GhPreviewProtocol.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -44,6 +46,87 @@ using evp::grasshopper::protocol::PreviewPayloadDescriptor;
 using evp::grasshopper::protocol::PreviewPrimitiveHeader;
 using evp::grasshopper::protocol::PreviewPrimitiveMessage;
 using evp::grasshopper::protocol::PreviewSurface;
+
+// One CPU buffer of a primitive, immutable from the moment it is assigned.
+//
+// ⚠️ COPYING ONE OF THESE COPIES A POINTER, NEVER THE ELEMENTS. That is the
+// whole point of the type: a primitive is re-made whenever its flags change
+// (visibility, selection), and with plain vectors that re-made primitive
+// carried a fresh copy of every vertex -- a selection change over a large mesh
+// moved megabytes to flip one bit. Readers see a const vector; a producer
+// builds an ordinary vector and hands it over once.
+template <typename T> class GhPreviewArray {
+  public:
+    GhPreviewArray () = default;
+    GhPreviewArray (std::vector<T> values) // NOLINT(google-explicit-constructor): a vector IS the value
+        : shared (values.empty () ? nullptr : std::make_shared<const std::vector<T>> (std::move (values)))
+    {
+    }
+    GhPreviewArray& operator= (std::vector<T> values)
+    {
+        shared = values.empty () ? nullptr : std::make_shared<const std::vector<T>> (std::move (values));
+        return *this;
+    }
+    GhPreviewArray& operator= (std::initializer_list<T> values)
+    {
+        return *this = std::vector<T> (values);
+    }
+
+    const std::vector<T>& Values () const
+    {
+        static const std::vector<T> none;
+        return shared ? *shared : none;
+    }
+    operator const std::vector<T>&() const // NOLINT(google-explicit-constructor): readers keep taking a vector
+    {
+        return Values ();
+    }
+    std::size_t size () const
+    {
+        return Values ().size ();
+    }
+    bool empty () const
+    {
+        return Values ().empty ();
+    }
+    const T* data () const
+    {
+        return Values ().data ();
+    }
+    const T& operator[] (std::size_t index) const
+    {
+        return Values ()[index];
+    }
+    typename std::vector<T>::const_iterator begin () const
+    {
+        return Values ().begin ();
+    }
+    typename std::vector<T>::const_iterator end () const
+    {
+        return Values ().end ();
+    }
+    // True when both name the very same elements, not merely equal ones.
+    bool SharesWith (const GhPreviewArray& other) const
+    {
+        return shared == other.shared;
+    }
+
+    friend bool operator== (const GhPreviewArray& left, const GhPreviewArray& right)
+    {
+        return left.shared == right.shared || left.Values () == right.Values ();
+    }
+    friend bool operator== (const GhPreviewArray& left, const std::vector<T>& right)
+    {
+        return left.Values () == right;
+    }
+    friend bool operator== (const std::vector<T>& left, const GhPreviewArray& right)
+    {
+        return left == right.Values ();
+    }
+
+  private:
+    std::shared_ptr<const std::vector<T>> shared;
+};
 
 // One primitive as the host holds it: the metadata that identifies it, and CPU
 // buffers ready to be uploaded. Immutable once published.
@@ -81,9 +164,10 @@ struct GhPreviewPrimitive {
     bool hasOwnColour = false;
     uint32_t rgba = 0; // 0xRRGGBBAA, matching every other colour in this renderer
 
-    std::vector<float> positions;
-    std::vector<float> normals;
-    std::vector<uint32_t> indices;
+    // Shared with every other primitive made from this one. See GhPreviewArray.
+    GhPreviewArray<float> positions;
+    GhPreviewArray<float> normals;
+    GhPreviewArray<uint32_t> indices;
     std::string text;
 
     uint32_t PointCount () const
@@ -162,6 +246,10 @@ class GhPreviewCache {
     // called it, only that this id now holds this content. The DISTINCTION
     // matters to the checksum, which is why the change kind is passed in.
     GhPreviewApply Apply (const PreviewPrimitiveMessage& message, PreviewChange change, std::string& reason);
+    // The same, taking the decoded arrays instead of copying them. What the
+    // transport calls: by then the message is this process's own memory and
+    // nothing reads it again, so a second copy of every vertex buys nothing.
+    GhPreviewApply Apply (PreviewPrimitiveMessage&& message, PreviewChange change, std::string& reason);
 
     GhPreviewApply Remove (const evp::grasshopper::protocol::PreviewIdRunPayload& run, std::string& reason);
 
@@ -191,6 +279,8 @@ class GhPreviewCache {
 
     // Called with `mutex` held.
     void PublishLocked ();
+    // Called with `mutex` held. Everything Apply checks before it stores.
+    bool AdmitLocked (const PreviewPrimitiveMessage& message, std::string& reason) const;
 
     mutable std::mutex mutex;
     uint64_t generation = 0;

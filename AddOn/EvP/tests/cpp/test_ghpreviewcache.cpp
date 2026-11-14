@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace evp::preview;
@@ -324,6 +325,103 @@ TEST (GhPreviewCache, SelectionArrivesBetweenBatchesAndMovesNoVertices)
     ASSERT_TRUE (primitive != nullptr);
     EXPECT_TRUE (primitive->Selected ());
     EXPECT_EQ (geometry, primitive->positions);
+    // The SAME elements, not an equal copy. "Never touches geometry" was a
+    // comment for a long time while the re-made primitive copied every vertex.
+    EXPECT_TRUE (primitive->positions.SharesWith (Find (before, 10)->positions));
+    EXPECT_EQ (Find (before, 10)->positions.data (), primitive->positions.data ());
+    // And the snapshot a renderer may still be holding did not change under it.
+    EXPECT_FALSE (Find (before, 10)->Selected ());
+}
+
+TEST (GhPreviewCache, AVisibilityChangeInsideABatchSharesEveryBufferOfAMesh)
+{
+    GhPreviewCache cache;
+    std::string reason;
+    Footer footer;
+    PreviewPrimitiveMessage mesh;
+    mesh.header.primitiveId = 30;
+    mesh.header.kind = PreviewKind::TriangleMesh;
+    mesh.header.flags = PreviewFlagVisible | PreviewFlagDepthTest;
+    mesh.header.revision = 1;
+    mesh.descriptor.positionFloats = 9;
+    mesh.descriptor.normalFloats = 9;
+    mesh.descriptor.indexCount = 3;
+    mesh.positions = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+    mesh.normals = { 0, 0, 1, 0, 0, 1, 0, 0, 1 };
+    mesh.indices = { 0, 1, 2 };
+    ASSERT_EQ (GhPreviewApply::Applied, cache.BeginBatch (Begin (1, 1, 1), reason));
+    ASSERT_EQ (GhPreviewApply::Applied, cache.Apply (mesh, PreviewChange::Added, reason)) << reason;
+    footer.Add (30, PreviewChange::Added);
+    ASSERT_EQ (GhPreviewApply::Applied, cache.EndBatch (footer.End (1, 1)).apply);
+    auto shown = cache.SnapshotCopy ();
+
+    Footer hide;
+    PreviewIdRunPayload run = IdRun (1, 2, { 30 });
+    run.flagMask = PreviewFlagVisible;
+    run.flagValue = 0;
+    ASSERT_EQ (GhPreviewApply::Applied, cache.BeginBatch (Begin (1, 2, 0), reason)) << reason;
+    ASSERT_EQ (GhPreviewApply::Applied, cache.SetFlags (run, reason)) << reason;
+    hide.Add (30, PreviewChange::Visibility);
+    ASSERT_EQ (GhPreviewApply::Applied, cache.EndBatch (hide.End (1, 2)).apply);
+
+    const GhPreviewPrimitive* before = Find (shown, 30);
+    const GhPreviewPrimitive* after = Find (cache.SnapshotCopy (), 30);
+    ASSERT_TRUE (before != nullptr && after != nullptr && before != after);
+    EXPECT_TRUE (before->Visible ());
+    EXPECT_FALSE (after->Visible ());
+    EXPECT_TRUE (after->positions.SharesWith (before->positions));
+    EXPECT_TRUE (after->normals.SharesWith (before->normals));
+    EXPECT_TRUE (after->indices.SharesWith (before->indices));
+}
+
+TEST (GhPreviewCache, AnOwnedMessageGivesItsArraysToTheCacheWithoutACopy)
+{
+    // What the transport does: the decoded message is its own memory and is
+    // never read again, so the vertices move into the cache instead of being
+    // copied a second time.
+    GhPreviewCache cache;
+    std::string reason;
+    Footer footer;
+    PreviewPrimitiveMessage message = Line (10, 1, 5);
+    const float* sent = message.positions.data ();
+    ASSERT_EQ (GhPreviewApply::Applied, cache.BeginBatch (Begin (1, 1, 1), reason));
+    ASSERT_EQ (GhPreviewApply::Applied, cache.Apply (std::move (message), PreviewChange::Added, reason)) << reason;
+    footer.Add (10, PreviewChange::Added);
+    ASSERT_EQ (GhPreviewApply::Applied, cache.EndBatch (footer.End (1, 1)).apply);
+
+    const GhPreviewPrimitive* primitive = Find (cache.SnapshotCopy (), 10);
+    ASSERT_TRUE (primitive != nullptr);
+    EXPECT_EQ (sent, primitive->positions.data ());
+    EXPECT_FLOAT_EQ (5.0f, primitive->positions[0]);
+}
+
+TEST (GhPreviewCache, AKeptMessageIsCopiedAndARefusedOneIsNeitherCopiedNorTaken)
+{
+    GhPreviewCache cache;
+    std::string reason;
+    const PreviewPrimitiveMessage kept = Line (10, 1, 5);
+    ASSERT_EQ (GhPreviewApply::Applied, cache.BeginBatch (Begin (1, 1, 2), reason));
+    ASSERT_EQ (GhPreviewApply::Applied, cache.Apply (kept, PreviewChange::Added, reason)) << reason;
+    EXPECT_EQ ((size_t) 6, kept.positions.size ()); // the caller's message is still whole
+
+    // Wrong revision: refused, and an owned message keeps its arrays so the
+    // caller can still report what it tried to send.
+    PreviewPrimitiveMessage wrong = Line (11, 7, 1);
+    EXPECT_EQ (GhPreviewApply::Refused, cache.Apply (std::move (wrong), PreviewChange::Added, reason));
+    EXPECT_EQ ((size_t) 6, wrong.positions.size ()); // NOLINT(bugprone-use-after-move): refusal must not consume
+}
+
+TEST (GhPreviewCache, AnEmptyBufferReadsAsAnEmptyVector)
+{
+    GhPreviewPrimitive primitive;
+    EXPECT_TRUE (primitive.positions.empty ());
+    EXPECT_EQ ((size_t) 0, primitive.indices.size ());
+    const std::vector<float>& view = primitive.normals;
+    EXPECT_TRUE (view.empty ());
+    primitive.positions = { 1.0f, 2.0f, 3.0f };
+    GhPreviewPrimitive copy = primitive;
+    EXPECT_TRUE (copy.positions.SharesWith (primitive.positions));
+    EXPECT_EQ (primitive.positions, (std::vector<float> { 1.0f, 2.0f, 3.0f }));
 }
 
 TEST (GhPreviewCache, AFlagChangeForAnIdTheHostDoesNotHoldIsQuietlySkipped)

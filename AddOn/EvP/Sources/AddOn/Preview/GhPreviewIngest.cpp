@@ -200,7 +200,7 @@ GhPreviewReply GhPreviewIngest::OnMessage (MessageType type, const uint8_t* byte
             const PreviewChange change =
                 type == MessageType::PreviewAdded ? PreviewChange::Added : PreviewChange::Changed;
             std::string reason;
-            if (cache.Apply (message, change, reason) != GhPreviewApply::Applied)
+            if (cache.Apply (std::move (message), change, reason) != GhPreviewApply::Applied)
                 return Spoil (reason, true);
             return reply;
         }

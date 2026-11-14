@@ -8,7 +8,8 @@ using namespace evp::grasshopper::protocol;
 
 namespace {
 
-std::shared_ptr<const GhPreviewPrimitive> Adopt (const PreviewPrimitiveMessage& message)
+// Takes the message's arrays. A caller that must keep its message passes a copy.
+std::shared_ptr<const GhPreviewPrimitive> Adopt (PreviewPrimitiveMessage&& message)
 {
     auto primitive = std::make_shared<GhPreviewPrimitive> ();
     primitive->id = message.header.primitiveId;
@@ -24,16 +25,16 @@ std::shared_ptr<const GhPreviewPrimitive> Adopt (const PreviewPrimitiveMessage& 
     primitive->contentHash = message.header.contentHash;
     primitive->revision = message.header.revision;
     primitive->closed = message.descriptor.closed;
-    primitive->positions = message.positions;
-    primitive->normals = message.normals;
-    primitive->indices = message.indices;
-    primitive->text = message.text;
+    primitive->positions = std::move (message.positions);
+    primitive->normals = std::move (message.normals);
+    primitive->indices = std::move (message.indices);
+    primitive->text = std::move (message.text);
     return primitive;
 }
 
-// Flags change, geometry does not. The buffers are shared with the old entry
-// rather than copied, which is what makes a selection change over 500
-// primitives cost the flag bytes and a pointer swap.
+// Flags change, geometry does not. The copy below copies the metadata and three
+// GhPreviewArray pointers; the vertices stay where they are, which is what makes
+// a selection change over 500 primitives cost the flag bytes and a pointer swap.
 std::shared_ptr<const GhPreviewPrimitive> WithFlags (const std::shared_ptr<const GhPreviewPrimitive>& primitive,
                                                      uint8_t value, uint8_t mask)
 {
@@ -115,38 +116,54 @@ GhPreviewApply GhPreviewCache::BeginBatch (const PreviewBeginBatchPayload& begin
 
 GhPreviewApply GhPreviewCache::Apply (const PreviewPrimitiveMessage& message, PreviewChange change, std::string& reason)
 {
+    {
+        // Refuse before paying for the copy the caller asked for by keeping its message.
+        std::lock_guard<std::mutex> guard (mutex);
+        if (!AdmitLocked (message, reason))
+            return GhPreviewApply::Refused;
+    }
+    return Apply (PreviewPrimitiveMessage (message), change, reason);
+}
+
+GhPreviewApply GhPreviewCache::Apply (PreviewPrimitiveMessage&& message, PreviewChange change, std::string& reason)
+{
     std::lock_guard<std::mutex> guard (mutex);
 
+    if (!AdmitLocked (message, reason))
+        return GhPreviewApply::Refused;
+
+    const uint64_t id = message.header.primitiveId;
+    staged[id] = Adopt (std::move (message));
+    batchChecksum = PreviewChecksumAccumulate (batchChecksum, id, change);
+    ++batchEntries;
+    return GhPreviewApply::Applied;
+}
+
+bool GhPreviewCache::AdmitLocked (const PreviewPrimitiveMessage& message, std::string& reason) const
+{
     if (!batchOpen) {
         reason = "A preview primitive arrived outside a batch.";
-        return GhPreviewApply::Refused;
+        return false;
     }
     if (message.inSegment) {
         // The arrays are still in the worker's memory. Reading them is
         // ReadPreviewSegment's job and it happens BEFORE the ack that releases
         // the segment; the cache must never hold a reference into it.
         reason = "A preview primitive reached the cache with its arrays still in the worker's segment.";
-        return GhPreviewApply::Refused;
+        return false;
     }
     if (message.header.revision != batchRevision) {
         reason = "A preview primitive claimed revision " + std::to_string (message.header.revision) +
                  " inside batch revision " + std::to_string (batchRevision) + ".";
-        return GhPreviewApply::Refused;
+        return false;
     }
     if (batchEntries >= MaxPreviewPrimitivesPerBatch) {
         reason =
             "A preview batch exceeded the " + std::to_string (MaxPreviewPrimitivesPerBatch) + "-primitive ceiling.";
-        return GhPreviewApply::Refused;
+        return false;
     }
-    if (!ValidatePreviewPayload (message.header.kind, message.descriptor, reason))
-        return GhPreviewApply::Refused;
-    if (!ValidatePreviewIndices (message, reason))
-        return GhPreviewApply::Refused;
-
-    staged[message.header.primitiveId] = Adopt (message);
-    batchChecksum = PreviewChecksumAccumulate (batchChecksum, message.header.primitiveId, change);
-    ++batchEntries;
-    return GhPreviewApply::Applied;
+    return ValidatePreviewPayload (message.header.kind, message.descriptor, reason) &&
+           ValidatePreviewIndices (message, reason);
 }
 
 GhPreviewApply GhPreviewCache::Remove (const PreviewIdRunPayload& run, std::string& reason)

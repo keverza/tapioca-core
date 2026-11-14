@@ -90,7 +90,9 @@ bool AppendValue (const Value& value, std::size_t depth, Walk& walk)
     switch (value.Type ()) {
         case ValueType::Point3: {
             auto primitive = NewPrimitive (walk, PreviewKind::PointMarker);
-            PushPoint (primitive->positions, std::get<Point3> (value.DataValue ()));
+            std::vector<float> positions;
+            PushPoint (positions, std::get<Point3> (value.DataValue ()));
+            primitive->positions = std::move (positions);
             walk.out->primitives.push_back (std::move (primitive));
             return true;
         }
@@ -100,8 +102,11 @@ bool AppendValue (const Value& value, std::size_t depth, Walk& walk)
             if (polyline.points.size () < 2)
                 return true; // a one-point polyline is not a drawing failure
             auto primitive = NewPrimitive (walk, PreviewKind::Polyline3D);
+            std::vector<float> positions;
+            positions.reserve (polyline.points.size () * 3);
             for (const Point3& point : polyline.points)
-                PushPoint (primitive->positions, point);
+                PushPoint (positions, point);
+            primitive->positions = std::move (positions);
             walk.out->primitives.push_back (std::move (primitive));
             return true;
         }
@@ -116,8 +121,11 @@ bool AppendValue (const Value& value, std::size_t depth, Walk& walk)
             // duplicated last point would draw a zero-length segment as well,
             // which is a degenerate quad in the ribbon and shows up as a speck.
             primitive->closed = true;
+            std::vector<float> positions;
+            positions.reserve (polygon.points.size () * 3);
             for (const Point3& point : polygon.points)
-                PushPoint (primitive->positions, point);
+                PushPoint (positions, point);
+            primitive->positions = std::move (positions);
             walk.out->primitives.push_back (std::move (primitive));
             return true;
         }
@@ -127,9 +135,11 @@ bool AppendValue (const Value& value, std::size_t depth, Walk& walk)
             if (mesh == nullptr || mesh->triangles.empty ())
                 return true;
             auto primitive = NewPrimitive (walk, PreviewKind::TriangleMesh);
-            primitive->positions.reserve (mesh->vertices.size ());
+            std::vector<float> positions;
+            positions.reserve (mesh->vertices.size ());
             for (const double coordinate : mesh->vertices)
-                primitive->positions.push_back (static_cast<float> (coordinate));
+                positions.push_back (static_cast<float> (coordinate));
+            primitive->positions = std::move (positions);
             // ⚠️ NORMALS ARE COPIED ONLY WHEN THERE IS ONE PER VERTEX. A short
             // normal array is worse than none: the mesh appender indexes it
             // positionally, so a mismatched length reads whatever follows it.
