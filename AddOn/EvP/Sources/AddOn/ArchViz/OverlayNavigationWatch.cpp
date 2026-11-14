@@ -5,6 +5,7 @@
 #include "ArchViz/OverlayNavigationWatch.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/OverlayInput.hpp"       // the pointer shim's counts
 #include "ArchViz/OverlayInputEvents.hpp" // windows.h, NOMINMAX first
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
 
@@ -318,25 +319,28 @@ void ReportIfDue ()
     g_lastReport = now;
     const Window w = g_window;
     g_window = Window {};
+    uint32_t pointerAsked = 0;
+    uint32_t pointerNowhere = 0;
+    overlayinput::TakePointerShimCounts (pointerAsked, pointerNowhere);
     // Nothing navigated, nothing laid out: a still view is not reported (§7, heartbeat lines
     // already say the overlay is alive).
     if (w.presses == 0 && w.wheels == 0 && w.movesEatenFromHost == 0 && w.refresh.count == 0 &&
-        w.heartbeatNavigating.count == 0 && w.keysTaken == 0)
+        w.heartbeatNavigating.count == 0 && w.keysTaken == 0 && pointerNowhere == 0)
         return;
-    char line[896] = {};
+    char line[1024] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "%-12s ~5 s: navigations +%u (locked +%u; Archicad's last move >%.0f px away +%u, worst %.0f px "
                  "%llu ms old) | moves passed +%u eaten +%u (in Archicad's gesture after release +%u) | wheel +%u, "
                  "3D redraws +%u (within %llu ms of a wheel +%u) | main thread: heartbeat %s, navigating %s; HUD "
                  "layout %s, navigating %s | keys the HUD took +%u (modifier auto-repeats +%u, middle held +%u), "
                  "middle double-clicks passed +%u | after a navigation Archicad told the pointer left +%u "
-                 "(not told +%u)",
+                 "(not told +%u) | Archicad asked where the pointer is +%u (told nowhere +%u)",
                  "NAVWATCH", w.presses, w.pressesOnLocked, kFarPixels, w.pressesFar, w.worstPixels,
                  (unsigned long long) w.worstAgeMs, w.movesPassed, w.movesEaten, w.movesEatenFromHost, w.wheels,
                  w.redraws, (unsigned long long) kWheelWindowMs, w.redrawsAfterWheel, Describe (w.heartbeat).c_str (),
                  Describe (w.heartbeatNavigating).c_str (), Describe (w.refresh).c_str (),
                  Describe (w.refreshNavigating).c_str (), w.keysTaken, w.modifierRepeatsTaken, w.keysTakenNavigating,
-                 w.middleDoubleClicks, w.hostHoverCleared, w.hostHoverLeft);
+                 w.middleDoubleClicks, w.hostHoverCleared, w.hostHoverLeft, pointerAsked, pointerNowhere);
     ArchVizLog (line);
 }
 

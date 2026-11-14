@@ -238,6 +238,17 @@ TEST (OverlayHitMap, APointerModeOfArchicadsOwnsALockedView)
     EXPECT_EQ (input::DecideHostMode (s), input::HostMode::None) << "unlocked, its presses are Archicad's already";
 }
 
+// #145, 2026-11-14: Archicad reads the pointer's position itself and pre-selected its elements
+// under a locked view. It is told "nowhere" only while the HUD owns the pointer there and it is
+// not navigating -- a zoom is about the pointer, an orbit starts from it.
+TEST (OverlayHitMap, ArchicadIsToldThePointerIsNowhereOnlyWhileTheLockedViewOwnsItAtRest)
+{
+    EXPECT_TRUE (input::HidesPointerFromHost (true, false, false));
+    EXPECT_FALSE (input::HidesPointerFromHost (false, false, false)) << "unlocked, over a palette, or a mode of Archicad's";
+    EXPECT_FALSE (input::HidesPointerFromHost (true, true, false)) << "the middle button held: its pan or orbit";
+    EXPECT_FALSE (input::HidesPointerFromHost (true, false, true)) << "a wheel step or a release settling: its zoom";
+}
+
 TEST (OverlayHitMap, NavigationPassesDuringACapturedHudGesture)
 {
     input::Router router;

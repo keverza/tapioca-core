@@ -24,6 +24,9 @@ struct Target {
     uint64_t navigationRevision = 0;
     // GetTickCount64 at the last navigation event passed to Archicad; 0: none this session.
     uint64_t lastNavigationMs = 0;
+    // The locked view's HUD owned the pointer at the last message the thread took, or as it
+    // went idle (`NotePointerClaims`): what the pointer shim answers from.
+    bool claims = false;
     bool leaveArmed = false; // the timer that tells Archicad the pointer left, after that settle
     std::vector<overlayhud::Input::Button> buttons;
     std::vector<overlayhud::Input::EditAction> editActions;
@@ -71,6 +74,15 @@ bool OfferHostCursor (const Target& target, HCURSOR foreign);
 void ArmHostLeave (Target& target, HWND inputWindow);
 bool HostLeaveTimer (HWND inputWindow, WPARAM timer);
 void DisarmHostLeave (Target& target, HWND inputWindow);
+// Where Archicad is told the pointer is (OverlayInputPointerShim.cpp): its libraries' imports of
+// GetCursorPos and GetMessagePos answered by ours, with the message hook and removed with it.
+void InstallPointerShim ();
+void RemovePointerShim ();
+// Each locked view's claim on the pointer, read now: at every message taken and at idle.
+void NotePointerClaims ();
+// A module's import slot for `function` of `library`, or null; and a compare-and-swap of it.
+void** ImportSlot (HMODULE module, const char* library, const char* function);
+bool SwapImport (void** slot, void* expected, void* replacement);
 // Session state (§8): what was learned of Archicad's cursors, and the mode.
 void ForgetHostMode ();
 

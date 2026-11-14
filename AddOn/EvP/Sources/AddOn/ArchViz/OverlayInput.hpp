@@ -115,6 +115,10 @@ void SetHitMap (View view, HitMap map);
 // Archicad, and nothing of the HUD's hovers or picks, while it is (#145).
 bool NavigatingNatively (View view);
 
+// How often Archicad asked for the pointer through the shimmed imports since the last call, and
+// how often it was told "nowhere" (OverlayInputPointerShim.cpp). Deltas (§7).
+void TakePointerShimCounts (uint32_t& asked, uint32_t& told);
+
 // Lay that view's HUD out again soon, as a pointer change would: something other than the
 // pointer changed what it shows (the text size set from Python). Nothing for a view not
 // attached.

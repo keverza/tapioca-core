@@ -731,6 +731,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputCursor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputHostMode.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputPointerShim.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputSnapshot.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputKeyboard.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputResidue.cpp"
@@ -1378,6 +1379,7 @@ endif ()
 set_source_files_properties ("${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
                              "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputCursor.cpp"
                              "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputHostMode.cpp"
+                             "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputPointerShim.cpp"
                              "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputSnapshot.cpp"
                              PROPERTIES COMPILE_DEFINITIONS "UNICODE;_UNICODE")
 add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}

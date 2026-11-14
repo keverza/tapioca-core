@@ -491,10 +491,12 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
         // through drags). Archicad also sets its cursor handling messages that are not the canvas's
         // -- its timers, its idle -- which the canvas subclass never sees; whatever the previous
         // message set is undone before the next one runs.
-        if (removing)
+        if (removing) {
             for (const Target& target : g_targets)
                 if (target.subclassed)
                     ReassertCursor (target);
+            state::NotePointerClaims (); // what Archicad is told of the pointer while this message runs
+        }
         // WH_CALLWNDPROCRET covers sent messages, not DispatchMessage's posted messages.
         // Coalesce one cursor-only turn after this dispatch, even if the pointer stops.
         if (removing && (original != kCursorRepairMessage || window != g_window) && !s_cursorRepairPending &&
@@ -537,6 +539,7 @@ LRESULT CALLBACK IdleProc (int code, WPARAM wParam, LPARAM lParam)
         for (const Target& target : g_targets)
             if (target.subclassed)
                 ReassertCursor (target);
+        state::NotePointerClaims ();
     }
     return ::CallNextHookEx (g_idleHook, code, wParam, lParam);
 }
@@ -720,6 +723,7 @@ void Uninstall ()
     // on the next attach instead of retaining addresses across module teardown.
     state::ForgetSubclassing ();
     state::ForgetHostMode ();
+    state::RemovePointerShim ();
     if (g_mouseHook != nullptr) {
         ::UnhookWindowsHookEx (g_mouseHook);
         g_mouseHook = nullptr;
@@ -779,6 +783,7 @@ bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error)
             return false;
         }
         ArchVizLog ("OVERLAY INPUT  the HUD's message hook installed on this thread");
+        state::InstallPointerShim ();
         FollowIdleHook ();
         FollowReturnHook ();
     }

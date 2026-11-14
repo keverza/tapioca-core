@@ -169,6 +169,14 @@ constexpr HostMode DecideHostMode (const HostCursorState& s)
                                                                  : HostMode::None;
 }
 
+// Archicad asks where the pointer is (OverlayInputPointerShim.cpp). It is told "nowhere" while a
+// locked view's HUD owns the pointer -- and the truth whenever it navigates: it zooms about the
+// pointer and orbits from it.
+constexpr bool HidesPointerFromHost (bool lockedViewOwnsPointer, bool middleHeld, bool settling)
+{
+    return lockedViewOwnsPointer && !middleHeld && !settling;
+}
+
 class Router {
   public:
     // A message being removed from the queue: its route, the latch moved by it. `overScroll`:

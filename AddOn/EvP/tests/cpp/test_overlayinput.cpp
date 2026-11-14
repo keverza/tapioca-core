@@ -3,6 +3,7 @@
 // stands in for Archicad's canvas; the owner counts what it is asked.
 
 #include "ArchViz/OverlayInput.hpp"
+#include "ArchViz/OverlayInputState.hpp"
 #include "ArchViz/OverlayInputKeyboard.hpp"
 #include "ArchViz/OverlayNavigationWatch.hpp"
 
@@ -632,6 +633,35 @@ TEST (OverlayInput, ShiftOverALockedViewIsTheHudsAndTheHosts)
     input::Shutdown ();
     ::DestroyWindow (canvas);
     Pump ();
+}
+
+// The pointer shim's mechanism, on this executable's own import of GetCursorPos: the slot is
+// found, swapped only against the value expected, and put back as it was.
+BOOL WINAPI NowhereCursorPos (LPPOINT point)
+{
+    point->x = point->y = -32000;
+    return TRUE;
+}
+TEST (OverlayInput, AnImportSlotIsSwappedAgainstWhatItHeldAndPutBack)
+{
+    namespace state = input::state;
+    void** const slot = state::ImportSlot (::GetModuleHandleW (nullptr), "USER32.dll", "GetCursorPos");
+    ASSERT_NE (slot, nullptr) << "this executable imports GetCursorPos from user32";
+    EXPECT_EQ (state::ImportSlot (::GetModuleHandleW (nullptr), "USER32.dll", "NoSuchFunction"), nullptr);
+    EXPECT_EQ (state::ImportSlot (::GetModuleHandleW (nullptr), "NoSuchLibrary.dll", "GetCursorPos"), nullptr);
+    void* const original = *slot;
+    void* const shim = reinterpret_cast<void*> (&NowhereCursorPos);
+    EXPECT_FALSE (state::SwapImport (slot, shim, shim)) << "not what the slot holds: left alone";
+    EXPECT_EQ (*slot, original);
+    ASSERT_TRUE (state::SwapImport (slot, original, shim));
+    POINT point = { 1, 1 };
+    ::GetCursorPos (&point);
+    EXPECT_EQ (point.x, -32000) << "the call goes through the swapped slot";
+    ASSERT_TRUE (state::SwapImport (slot, shim, original));
+    EXPECT_EQ (*slot, original);
+    point = { -32000, -32000 };
+    if (::GetCursorPos (&point))
+        EXPECT_NE (point.x, -32000);
 }
 
 TEST (OverlayInput, AModifiersAutoRepeatAsksForNoLayout)
