@@ -904,9 +904,8 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeFieldPlan.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeRecipe.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditRegionSurface.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditRegionTerrainQueries.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditMaterial.cpp"
-    "${EVP_ROOT}/Sources/AddOn/Edit/EditRegionTerrain.cpp"
-    "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrainJob.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEntrance.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEdge.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEval.cpp"
@@ -938,6 +937,10 @@ set (EVP_EDIT_CORE_SOURCES ${EVP_EDIT_SOURCES})
 
 if (TAPIOCA_LINK_RUST_GEOMETRY)
     list (APPEND EVP_EDIT_SOURCES
+        # Region/unified terrain evaluation and its job dispatcher cannot enable
+        # terrain consumers in the explicit legacy/no-Cargo configuration (#197).
+        "${EVP_ROOT}/Sources/AddOn/Edit/EditRegionTerrain.cpp"
+        "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrainJob.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainAdapter.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrain.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrainSplit.cpp"
@@ -972,7 +975,6 @@ set (EVP_TEST_SOURCES
     test_editlandscape.cpp
     test_editlandscapedomain.cpp
     test_editlandscapefieldplan.cpp
-    test_editpublishedterrain.cpp
     test_editmeshsnapshot.cpp
     test_editmeshstats.cpp
     test_editmeshclean.cpp
@@ -981,7 +983,6 @@ set (EVP_TEST_SOURCES
     test_editregionsurface.cpp
     test_editregioncontourslope.cpp
     test_editmaterial.cpp
-    test_editregionterrain.cpp
     test_editlandscapepreview.cpp
     test_editlandscapeentrance.cpp
     test_editlandscapeedge.cpp
@@ -1468,6 +1469,10 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editlandscapeterrain.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editlandscapeterrainsolve.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editterraintriangulation.cpp"
+        # These suites call the Rust-backed terrain consumers directly, including
+        # debugreplay::Run. They are not legacy/no-Cargo tests (#197).
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_editpublishedterrain.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_editregionterrain.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editterraindesign.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editterraincontrols.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editsparsesolve.cpp"

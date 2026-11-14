@@ -42,6 +42,230 @@ bool ValidateMesh (const Mesh& mesh, Refusal& refusal)
     return true;
 }
 
+struct Triangle {
+    std::array<V, 3> points;
+    V normal;
+    Aabb bounds;
+    size_t sourceTriangle = 0;
+};
+
+V Subtract (const V& a, const V& b)
+{
+    return { a.x - b.x, a.y - b.y, a.z - b.z };
+}
+
+V Interpolate (const V& a, const V& b, double t)
+{
+    return { a.x + t * (b.x - a.x), a.y + t * (b.y - a.y), a.z + t * (b.z - a.z) };
+}
+
+double Length (const V& value)
+{
+    return std::sqrt (engine::Dot (value, value));
+}
+
+void AddUnique (std::vector<V>& points, const V& point)
+{
+    if (std::none_of (points.begin (), points.end (), [&] (const V& existing) {
+            return Length (Subtract (existing, point)) <= surfacecoverage::kPlaneTolerance;
+        }))
+        points.push_back (point);
+}
+
+std::vector<V> PlaneContacts (const Triangle& triangle, const V& normal, const V& origin)
+{
+    std::vector<V> contacts;
+    for (size_t i = 0; i < 3; ++i) {
+        const V& a = triangle.points[i];
+        const V& b = triangle.points[(i + 1) % 3];
+        const double da = engine::Dot (Subtract (a, origin), normal), db = engine::Dot (Subtract (b, origin), normal);
+        if (std::abs (da) <= surfacecoverage::kPlaneTolerance)
+            AddUnique (contacts, a);
+        if ((da > surfacecoverage::kPlaneTolerance && db < -surfacecoverage::kPlaneTolerance) ||
+            (da < -surfacecoverage::kPlaneTolerance && db > surfacecoverage::kPlaneTolerance))
+            AddUnique (contacts, Interpolate (a, b, da / (da - db)));
+    }
+    return contacts;
+}
+
+bool OnSegment (const V& point, const V& a, const V& b)
+{
+    const V edge = Subtract (b, a), delta = Subtract (point, a);
+    const double length = Length (edge);
+    if (length <= surfacecoverage::kPlaneTolerance)
+        return Length (delta) <= surfacecoverage::kPlaneTolerance;
+    const double t = engine::Dot (delta, edge) / (length * length);
+    if (t < -surfacecoverage::kPlaneTolerance / length || t > 1 + surfacecoverage::kPlaneTolerance / length)
+        return false;
+    return Length (Subtract (delta, { t * edge.x, t * edge.y, t * edge.z })) <= surfacecoverage::kPlaneTolerance;
+}
+
+bool OnAnyEdge (const std::array<V, 2>& segment, const Triangle& triangle)
+{
+    for (size_t i = 0; i < 3; ++i)
+        if (OnSegment (segment[0], triangle.points[i], triangle.points[(i + 1) % 3]) &&
+            OnSegment (segment[1], triangle.points[i], triangle.points[(i + 1) % 3]))
+            return true;
+    return false;
+}
+
+std::optional<std::array<V, 2>> IntersectionSegment (const Triangle& a, const Triangle& b)
+{
+    auto contacts = PlaneContacts (a, b.normal, b.points[0]);
+    if (contacts.size () < 2)
+        return std::nullopt;
+    size_t first = 0, second = 1;
+    double longest = 0;
+    for (size_t i = 0; i < contacts.size (); ++i)
+        for (size_t j = i + 1; j < contacts.size (); ++j) {
+            const double length = Length (Subtract (contacts[j], contacts[i]));
+            if (length > longest) {
+                longest = length;
+                first = i;
+                second = j;
+            }
+        }
+    if (longest <= surfacecoverage::kPlaneTolerance)
+        return std::nullopt;
+
+    const V& start = contacts[first];
+    const V& end = contacts[second];
+    double low = 0, high = 1;
+    for (size_t i = 0; i < 3; ++i) {
+        const V& origin = b.points[i];
+        const V edge = Subtract (b.points[(i + 1) % 3], origin);
+        const double edgeLength = Length (edge);
+        if (edgeLength <= surfacecoverage::kPlaneTolerance)
+            continue;
+        const auto side = [&] (const V& point) {
+            return engine::Dot (engine::Cross (edge, Subtract (point, origin)), b.normal) / edgeLength;
+        };
+        const double before = side (start), change = side (end) - before;
+        if (std::abs (change) <= 1e-15) {
+            if (before < -surfacecoverage::kPlaneTolerance)
+                return std::nullopt;
+            continue;
+        }
+        const double crossing = -before / change;
+        if (change > 0)
+            low = std::max (low, crossing);
+        else
+            high = std::min (high, crossing);
+    }
+    if (high - low <= surfacecoverage::kPlaneTolerance / longest)
+        return std::nullopt;
+    return std::array<V, 2> { Interpolate (start, end, low), Interpolate (start, end, high) };
+}
+
+bool Coplanar (const Triangle& a, const Triangle& b)
+{
+    if (std::abs (engine::Dot (a.normal, b.normal)) < 1 - 1e-10)
+        return false;
+    for (const auto& point : b.points) {
+        const V delta { point.x - a.points[0].x, point.y - a.points[0].y, point.z - a.points[0].z };
+        if (std::abs (engine::Dot (delta, a.normal)) > surfacecoverage::kPlaneTolerance)
+            return false;
+    }
+    return true;
+}
+
+size_t ProjectionAxis (const V& normal)
+{
+    const V magnitude { std::abs (normal.x), std::abs (normal.y), std::abs (normal.z) };
+    return magnitude.x > magnitude.y ? (magnitude.x > magnitude.z ? 0 : 2) : (magnitude.y > magnitude.z ? 1 : 2);
+}
+
+double Side (const V& a, const V& b, const V& point, size_t drop)
+{
+    const double av[] { a.x, a.y, a.z }, bv[] { b.x, b.y, b.z }, pv[] { point.x, point.y, point.z };
+    const size_t first = (drop + 1) % 3, second = (drop + 2) % 3;
+    const double dx = bv[first] - av[first], dy = bv[second] - av[second];
+    const double length = std::sqrt (dx * dx + dy * dy);
+    return length > 0 ? (dx * (pv[second] - av[second]) - dy * (pv[first] - av[first])) / length : 0;
+}
+
+bool StrictlyInside (const V& point, const Triangle& triangle, size_t drop)
+{
+    for (size_t i = 0; i < 3; ++i) {
+        const V& a = triangle.points[i];
+        const V& b = triangle.points[(i + 1) % 3];
+        const double side = Side (a, b, point, drop);
+        if (std::abs (side) <= surfacecoverage::kPlaneTolerance ||
+            side * Side (a, b, triangle.points[(i + 2) % 3], drop) <= 0)
+            return false;
+    }
+    return true;
+}
+
+bool ProperCross (const V& a0, const V& a1, const V& b0, const V& b1, size_t drop)
+{
+    const auto opposite = [&] (double a, double b) {
+        return (a > surfacecoverage::kPlaneTolerance && b < -surfacecoverage::kPlaneTolerance) ||
+               (a < -surfacecoverage::kPlaneTolerance && b > surfacecoverage::kPlaneTolerance);
+    };
+    return opposite (Side (a0, a1, b0, drop), Side (a0, a1, b1, drop)) &&
+           opposite (Side (b0, b1, a0, drop), Side (b0, b1, a1, drop));
+}
+
+V Centre (const Triangle& triangle)
+{
+    return { (triangle.points[0].x + triangle.points[1].x + triangle.points[2].x) / 3,
+             (triangle.points[0].y + triangle.points[1].y + triangle.points[2].y) / 3,
+             (triangle.points[0].z + triangle.points[1].z + triangle.points[2].z) / 3 };
+}
+
+bool CoplanarOverlap (const Triangle& a, const Triangle& b)
+{
+    const size_t drop = ProjectionAxis (a.normal);
+    for (const auto& point : a.points)
+        if (StrictlyInside (point, b, drop))
+            return true;
+    for (const auto& point : b.points)
+        if (StrictlyInside (point, a, drop))
+            return true;
+    for (size_t i = 0; i < 3; ++i)
+        for (size_t j = 0; j < 3; ++j)
+            if (ProperCross (a.points[i], a.points[(i + 1) % 3], b.points[j], b.points[(j + 1) % 3], drop))
+                return true;
+    // Identical/contained triangles need no proper edge crossing or strict
+    // vertex. Original-coordinate predicates avoid grid-induced T-junction gaps.
+    return StrictlyInside (Centre (a), b, drop) || StrictlyInside (Centre (b), a, drop);
+}
+
+bool Crosses (const Triangle& a, const Triangle& b)
+{
+    if (Coplanar (a, b))
+        return CoplanarOverlap (a, b);
+    const auto segment = IntersectionSegment (a, b);
+    // Point contacts do not cross. A positive segment is valid only when it is
+    // a subset of existing edges on both triangles (adjacency/T-junction).
+    return segment && !(OnAnyEdge (*segment, a) && OnAnyEdge (*segment, b));
+}
+
+bool SelfIntersectionFree (std::vector<Triangle> triangles, Work& work, Refusal& refusal)
+{
+    std::sort (triangles.begin (), triangles.end (),
+               [] (const Triangle& a, const Triangle& b) { return a.bounds.mn[0] < b.bounds.mn[0]; });
+    for (size_t i = 0; i < triangles.size (); ++i) {
+        for (size_t j = i + 1;
+             j < triangles.size () &&
+             triangles[j].bounds.mn[0] <= triangles[i].bounds.mx[0] + surfacecoverage::kPlaneTolerance;
+             ++j) {
+            if (!work.Check (1, refusal))
+                return false;
+            if (!Overlaps (triangles[i].bounds, triangles[j].bounds))
+                continue;
+            if (Crosses (triangles[i], triangles[j]))
+                return Fail (refusal,
+                             "Cover body has self-intersecting shells or overlapping surface triangles (" +
+                                 std::to_string (triangles[i].sourceTriangle) + ", " +
+                                 std::to_string (triangles[j].sourceTriangle) + ").",
+                             RefusalCode::InvalidCover);
+        }
+    }
+    return true;
+}
+
 bool ClosedSolid (const Mesh& mesh, Work& work, Refusal& refusal)
 {
     using Key = std::array<int64_t, 3>;
@@ -59,6 +283,8 @@ bool ClosedSolid (const Mesh& mesh, Work& work, Refusal& refusal)
                           std::llround ((p.z - origin.z) / surfacecoverage::kPlaneTolerance) });
     }
     double volume6 = 0;
+    std::vector<Triangle> triangles;
+    triangles.reserve (mesh.TriangleCount ());
     for (size_t i = 0; i < mesh.triangles.size (); i += 3) {
         if (!work.Check (1, refusal))
             return false;
@@ -67,6 +293,15 @@ bool ClosedSolid (const Mesh& mesh, Work& work, Refusal& refusal)
                 c = Point (mesh.vertices, mesh.triangles[i + 2]);
         if (!surfacecoverage::MakeFrame (a, b, c, frame))
             return Fail (refusal, "Cover body contains a degenerate triangle.");
+        Triangle triangle;
+        for (size_t corner = 0; corner < 3; ++corner) {
+            const V point = Point (mesh.vertices, mesh.triangles[i + corner]);
+            triangle.points[corner] = { point.x - origin.x, point.y - origin.y, point.z - origin.z };
+            triangle.bounds.Expand (point.x, point.y, point.z);
+        }
+        triangle.normal = frame.normal;
+        triangle.sourceTriangle = i / 3;
+        triangles.push_back (std::move (triangle));
         const V da { a.x - origin.x, a.y - origin.y, a.z - origin.z },
             db { b.x - origin.x, b.y - origin.y, b.z - origin.z },
             dc { c.x - origin.x, c.y - origin.y, c.z - origin.z };
@@ -136,7 +371,7 @@ bool ClosedSolid (const Mesh& mesh, Work& work, Refusal& refusal)
             return Fail (refusal, "Cover body is open/non-manifold or has unmatched solid edges.");
     if (!std::isfinite (volume6) || volume6 <= 1e-12)
         return Fail (refusal, "Cover body has no positive outward-wound solid volume.");
-    return true;
+    return SelfIntersectionFree (std::move (triangles), work, refusal);
 }
 
 bool PrepareFace (const Mesh& mesh, const FaceKey& key, Face& face, Work& work, Refusal& refusal)

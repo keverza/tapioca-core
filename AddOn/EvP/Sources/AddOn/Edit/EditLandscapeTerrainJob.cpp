@@ -123,16 +123,6 @@ void OutlineUnmet (uint32_t unreached, uint32_t clipped, double asked, double re
 
 } // namespace
 
-TerrainRoute LandscapeTerrainRoute (const geomsrv::edit::Document& doc, bool hasPath, bool outline)
-{
-    // #149 T1 (owner decision 2026-11-07): the P4c "outline stays legacy" exception is dropped.
-    // An outline request is one unified-build stage like any other, fixed heights included; the
-    // legacy outline lane remains only as the parity oracle its tests compare against. A request
-    // with neither a region target nor a path keeps the legacy refusal text.
-    (void) outline;
-    return TerrainRegionObjects (doc).empty () && !hasPath ? TerrainRoute::Legacy : TerrainRoute::Unified;
-}
-
 PathDesignRequest PathRequestFor (const TerrainDesignOptions& options, bool namedRegion)
 {
     PathDesignRequest request;

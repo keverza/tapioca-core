@@ -116,7 +116,7 @@ controller maps them to transport failures without removing the legacy API:
 | Duplicate same-material coincident faces | Deterministic exposed ownership | Valid covers | Gross keeps source requests; exposed overlap counted once. |
 | Coincident different-material faces | Ambiguous | N/A | Atomic refusal. |
 | Open, non-manifold, degenerate or inward-wound cover | N/A | Invalid | Atomic refusal naming the required cover; never omit it. |
-| Self-intersecting cover | N/A | Caller precondition in the C++ baseline | Current edge-incidence/volume validation is not a general self-intersection solver; do not claim solid repair. General rejection remains an S0 gap. |
+| Self-intersecting cover | N/A | Invalid | Bounded local-coordinate crossing/overlap detection refuses atomically; shared edges, T-junctions, point contacts and disconnected nonintersecting components remain valid. |
 | Uncaptured cover or unsupported captured element types | Incomplete scope | Missing | Refuse completeness; disclose capture restrictions. |
 
 ## 5. Numeric policy and error budgets
@@ -163,6 +163,7 @@ independent proof of geometric correctness.
 | Duplicate material names | Separate stable attribute IDs survive selection and emitted provenance | `SurfaceAttributeMap.DuplicateDisplayNamesRemainDistinctStableIdentities` |
 | Thin slivers | Exact binary-grid area and captured #168 regressions | `CapturedOneGridTriangularContactSliver...`, `AFragmentClipperNeverFinished...` |
 | Invalid solids | Atomic refusal with no partial rows | `InwardWoundCover...`, `NonPlanarTargetAndOpenCover...`, `ClosedCoverWithCollinear...` |
+| Self-intersecting shells | Overlapping and edge-aligned closed shells refuse with cover identity; separated components, saddle point contacts and near-tie adjacent planes remain valid | `SelfIntersectingCoverShellsRefuseAtomicallyWithSourceIdentity`, `EdgeAlignedCrossingOfSubdividedShellsIsRejected`, `DisconnectedNonintersectingShellsInOneBodyRemainValid`, `SaddlePointContactsAndNearTieAdjacentPlanesRemainValid` |
 | Stale captures | Mismatched nonzero snapshot/stamp refuses and clears output | `StaleCaptureRevisionCannotPublishOrRetainPartialOutput` |
 | Large survey coordinates | Translation by `(6,000,000, -3,000,000, 1,500)` preserves `9 m²` | `SurveyCoordinatesDoNotInflateOrProjectArea` |
 
@@ -172,6 +173,9 @@ Default low-level limits are 100,000 input triangles across requested meshes,
 512 faces, 128 cover bodies, 2,000,000 charged work units, 200,000 output
 triangles and 2 seconds. The current calculator raises only cover bodies to 2,048
 for library openings. Input/work/time and solid validation remain enforced.
+Cover self-intersection validation uses an X-swept AABB broad phase followed by
+proper-crossing or positive-area coplanar-overlap checks in body-local coordinates.
+Every broad-phase pair scan is charged to the same work/cooperative time budget.
 
 Runtime and peak-memory measurements are environment-specific observations,
 never expected areas or cross-machine unit-test constants. Automatic refresh
@@ -210,13 +214,13 @@ those runs, not expected areas or portable timing assertions.
 
 | Fixture | Input triangles | Charged work | Output triangles | p50 ms | p95 ms |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Uncovered | 12 | 39 | 2 | 0.0100–0.0101 | 0.0187–0.0325 |
-| Partial contact | 24 | 118 | 3 | 0.0224–0.0229 | 0.0250–0.0302 |
-| Overlapping covers | 36 | 195 | 3 | 0.0332–0.0347 | 0.0385–0.0598 |
-| Opening/reveals | 16 | 192 | 20 | 0.0732–0.0744 | 0.1081–0.1444 |
-| Multi-face-32 | 768 | 5,264 | 96 | 0.8002–0.8457 | 0.9195–0.9530 |
+| Uncovered | 12 | 39 | 2 | 0.0094–0.0095 | 0.0107–0.0110 |
+| Partial contact | 24 | 180 | 3 | 0.0300–0.0302 | 0.0366–0.0394 |
+| Overlapping covers | 36 | 319 | 3 | 0.0483–0.0490 | 0.0546–0.0573 |
+| Opening/reveals | 16 | 192 | 20 | 0.0670–0.0698 | 0.0855–0.0907 |
+| Multi-face-32 | 768 | 7,248 | 96 | 1.0070–1.0790 | 1.0675–1.1224 |
 
-Final process peak RSS was 5.46–5.50 MiB. The initial **S8a admission budget**
+Final process peak RSS was 5.24–5.26 MiB. The initial **S8a admission budget**
 for the synthetic multi-face operation is p95 `<= 10 ms` in Release on this
 reference host, with exact analytic reconciliation and unchanged work/output
 counts. This is a review budget, not a flaky unit-test deadline. The hard
