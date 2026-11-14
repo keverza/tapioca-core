@@ -87,8 +87,9 @@ last-good result but cannot present it as aligned with a newer capture.
 no partial quantity.
 
 The legacy C++ API returns `bool` and a human-readable error and atomically clears
-`Result` on every failure. The version-1 native boundary must add machine-stable
-refusal codes and structured source IDs without removing that API:
+`Result` on every failure. The additive `Refusal` overload supplies the following
+machine-stable codes and source element/body/polygon IDs; the S1 native
+controller maps them to transport failures without removing the legacy API:
 
 | Code | Meaning |
 | --- | --- |
@@ -115,6 +116,7 @@ refusal codes and structured source IDs without removing that API:
 | Duplicate same-material coincident faces | Deterministic exposed ownership | Valid covers | Gross keeps source requests; exposed overlap counted once. |
 | Coincident different-material faces | Ambiguous | N/A | Atomic refusal. |
 | Open, non-manifold, degenerate or inward-wound cover | N/A | Invalid | Atomic refusal naming the required cover; never omit it. |
+| Self-intersecting cover | N/A | Caller precondition in the C++ baseline | Current edge-incidence/volume validation is not a general self-intersection solver; do not claim solid repair. General rejection remains an S0 gap. |
 | Uncaptured cover or unsupported captured element types | Incomplete scope | Missing | Refuse completeness; disclose capture restrictions. |
 
 ## 5. Numeric policy and error budgets
@@ -175,3 +177,50 @@ Runtime and peak-memory measurements are environment-specific observations,
 never expected areas or cross-machine unit-test constants. Automatic refresh
 remains disabled until reproducible baseline results and per-operation budgets
 are reviewed.
+
+The opt-in S0 C++ benchmark is `TapiocaExposedSurfaceBench`, enabled with
+`-DTAPIOCA_BUILD_EXPOSED_SURFACE_BENCHMARK=ON` (default `OFF`). The target itself
+has no Rust dependency; disable the default Rust-linked test project as well for
+a Rust-free configure. From `core/`:
+
+```powershell
+cmake -S AddOn/EvP/tests/cpp -B build-exposed-surface `
+  -DTAPIOCA_LINK_RUST_GEOMETRY=OFF `
+  -DTAPIOCA_BUILD_EXPOSED_SURFACE_BENCHMARK=ON
+cmake --build build-exposed-surface --config Release --target TapiocaExposedSurfaceBench
+build-exposed-surface/Release/TapiocaExposedSurfaceBench.exe --iterations 25
+```
+
+The iteration count is bounded to 1–1000. The benchmark reuses the production
+exposed-surface kernel and reports CSV for uncovered, partial-contact,
+overlapping-cover, opening/reveal and deterministic 32-face fixtures.
+Independent analytic gross and exposed areas are checked to `1e-6 m²` before any
+timed sample; work/output counts, nearest-rank p50/p95, maximum elapsed
+milliseconds and process peak RSS accompany each row. Peak RSS is cumulative for
+the process, including preflight and earlier fixtures, not isolated per-fixture
+allocation. Timings and memory values are observations for the measured
+environment, not correctness thresholds or a substitute for live-model review.
+
+### 2026-11-14 reference baseline
+
+Measured with the final C++ S0 kernel on Windows 11 Pro 10.0.26200 x64, an
+i9-12900K exposed as 3 cores/6 logical processors, 8 GiB visible RAM, MSVC
+Release, and two independent 25-iteration processes. Values are ranges across
+those runs, not expected areas or portable timing assertions.
+
+| Fixture | Input triangles | Charged work | Output triangles | p50 ms | p95 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Uncovered | 12 | 39 | 2 | 0.0100–0.0101 | 0.0187–0.0325 |
+| Partial contact | 24 | 118 | 3 | 0.0224–0.0229 | 0.0250–0.0302 |
+| Overlapping covers | 36 | 195 | 3 | 0.0332–0.0347 | 0.0385–0.0598 |
+| Opening/reveals | 16 | 192 | 20 | 0.0732–0.0744 | 0.1081–0.1444 |
+| Multi-face-32 | 768 | 5,264 | 96 | 0.8002–0.8457 | 0.9195–0.9530 |
+
+Final process peak RSS was 5.46–5.50 MiB. The initial **S8a admission budget**
+for the synthetic multi-face operation is p95 `<= 10 ms` in Release on this
+reference host, with exact analytic reconciliation and unchanged work/output
+counts. This is a review budget, not a flaky unit-test deadline. The hard
+per-operation limits remain 100,000 input triangles, 512 faces, 128 cover bodies
+(2,048 only in the calculator adapter), 2,000,000 work units, 200,000 output
+triangles and 2 seconds. S0 does not enable automatic refresh; representative
+live-model extraction, calculation and memory evidence is still required.

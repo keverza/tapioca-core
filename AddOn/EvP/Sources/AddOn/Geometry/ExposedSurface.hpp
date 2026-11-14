@@ -84,12 +84,35 @@ struct Limits {
     size_t maxWork = 2000000, maxOutputTriangles = 200000;
     double maxSeconds = 2;
 };
+enum class RefusalCode {
+    None,
+    StaleCapture,
+    InvalidQuery,
+    UnsupportedTarget,
+    InvalidCover,
+    AmbiguousOwnership,
+    WorkLimit,
+    Cancelled,
+    NumericalFailure,
+    InternalFailure
+};
+struct Refusal {
+    RefusalCode code = RefusalCode::None;
+    std::string message;
+    std::string elementGuid;
+    int32_t sourceBody = 0, sourcePgon = 0; // zero when refusal is not face/body-specific
+};
+const char* RefusalCodeName (RefusalCode code);
 
 // Atomic: failure/cancellation clears result and explains refusal. No partial
 // quantities. Duplicate face/cover requests are deduplicated deterministically;
 // same-facing overlaps are owned once; conflicting material ownership refuses.
 // Cover bodies must be closed consistently-wound solids. Unsupported topology
 // (including unmatched welded/T-junction solid edges) refuses, never approximates.
+// The Refusal overload adds stable categories and source identity for native
+// controllers. The string overload is the unchanged legacy compatibility API.
+bool Calculate (const Snapshot& snapshot, const Request& request, Result& result, Refusal& refusal,
+                const Limits& limits = {}, const std::function<bool ()>& cancelled = {});
 bool Calculate (const Snapshot& snapshot, const Request& request, Result& result, std::string& error,
                 const Limits& limits = {}, const std::function<bool ()>& cancelled = {});
 } // namespace geomsrv::exposed

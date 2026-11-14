@@ -17,6 +17,9 @@ __pycache__/
 !docs/static/*.gif
 !docs/static/Logo.jpg
 /AddOn/EvP/build_29
+# Ad-hoc CMake trees for opt-in benchmarks and local compiler experiments.
+# The canonical test tree has a narrower AddOn/EvP/tests/cpp/.gitignore rule.
+/build-*/
 /AddOn/EvP/rust/target/
 /AddOn/EvP/rust/build/
 # The artifacts Build-AddOn29.ps1 copies into dist/ at the end of a build, so the

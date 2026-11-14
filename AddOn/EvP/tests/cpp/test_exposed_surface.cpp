@@ -648,6 +648,87 @@ TEST (ExposedSurface, StaleCaptureRevisionCannotPublishOrRetainPartialOutput)
     ExpectRefusal (snapshot, request, "identity");
 }
 
+TEST (ExposedSurface, TypedRefusalsCarryStableCodesAndSourceIdentity)
+{
+    auto snapshot = Capture (
+        { Box ("wall", 0, 0, 0, 5, .2, 3), Box ("cover", 0, -.3, 0, 2, .3, 3), Box ("other", 0, 0, 0, 5, .2, 3, 20) });
+    ex::Result result;
+    ex::Refusal refusal;
+    auto request = Request ();
+    request.captureStamp = snapshot.captureStamp + 1;
+    ASSERT_FALSE (ex::Calculate (snapshot, request, result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::StaleCapture);
+    EXPECT_STREQ (ex::RefusalCodeName (refusal.code), "staleCapture");
+    EXPECT_TRUE (result.fragments.empty ());
+
+    request = Request ();
+    snapshot.meshes[0].vertices[1] = -.01;
+    ASSERT_FALSE (ex::Calculate (snapshot, request, result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::UnsupportedTarget);
+    EXPECT_EQ (refusal.elementGuid, "wall");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 3);
+
+    snapshot = Capture (
+        { Box ("wall", 0, 0, 0, 5, .2, 3), Box ("cover", 0, -.3, 0, 2, .3, 3), Box ("other", 0, 0, 0, 5, .2, 3, 20) });
+    auto& coverTriangles = snapshot.meshes[1].triangles;
+    for (size_t i = 0; i < coverTriangles.size (); i += 3)
+        std::swap (coverTriangles[i + 1], coverTriangles[i + 2]);
+    ASSERT_FALSE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::InvalidCover);
+    EXPECT_EQ (refusal.elementGuid, "cover");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 0);
+
+    ASSERT_FALSE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 99, 1 } }), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::InvalidCover);
+    EXPECT_TRUE (refusal.elementGuid.empty ());
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 0);
+
+    auto malformedCover = snapshot;
+    malformedCover.meshes[1].triangles[0] = 999;
+    ASSERT_FALSE (ex::Calculate (malformedCover, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::InvalidCover);
+    EXPECT_EQ (refusal.elementGuid, "cover");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 0);
+
+    auto malformedTarget = snapshot;
+    malformedTarget.meshes[0].triangles[0] = 999;
+    ASSERT_FALSE (ex::Calculate (malformedTarget, Request (), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::UnsupportedTarget);
+    EXPECT_EQ (refusal.elementGuid, "wall");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 3);
+
+    ASSERT_FALSE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 }, { { 2, 1 }, 3 } }), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::AmbiguousOwnership);
+    EXPECT_EQ (refusal.elementGuid, "other");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_EQ (refusal.sourcePgon, 3);
+
+    ex::Limits limits;
+    limits.maxWork = 1;
+    ASSERT_FALSE (ex::Calculate (snapshot, Request (), result, refusal, limits));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::WorkLimit);
+    ASSERT_FALSE (ex::Calculate (snapshot, Request (), result, refusal, {}, [] { return true; }));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::Cancelled);
+
+    request = Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } });
+    std::string legacyError;
+    ex::Result legacyResult;
+    ASSERT_FALSE (ex::Calculate (snapshot, request, legacyResult, legacyError));
+    ASSERT_FALSE (ex::Calculate (snapshot, request, result, refusal));
+    EXPECT_EQ (legacyError, refusal.message);
+
+    const auto valid = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3) });
+    ASSERT_TRUE (ex::Calculate (valid, Request (), result, refusal)) << refusal.message;
+    EXPECT_EQ (refusal.code, ex::RefusalCode::None);
+    EXPECT_TRUE (refusal.message.empty ());
+    EXPECT_NEAR (result.areas.exposedArea, 15, 1e-6);
+}
+
 TEST (ExposedSurface, InvalidMaterialFilterAndDuplicateElementIdentityAreExplicitRefusals)
 {
     auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3) });

@@ -1506,6 +1506,31 @@ if (TAPIOCA_BUILD_SUNTRACE_BENCHMARK)
     target_include_directories (TapiocaSunTraceBench SYSTEM PRIVATE "${NANORT_INC}")
     target_compile_definitions (TapiocaSunTraceBench PRIVATE TAPIOCA_BENCH_CONFIG="$<CONFIG>")
 endif ()
+# S0 exposed-surface timing reuses the production C++ kernel and independent
+# analytic fixtures. This target has no Rust, Archicad or test-executable link
+# dependency; use TAPIOCA_LINK_RUST_GEOMETRY=OFF for a Rust-free configure.
+option (TAPIOCA_BUILD_EXPOSED_SURFACE_BENCHMARK "Build the opt-in exposed-surface benchmark" OFF)
+if (TAPIOCA_BUILD_EXPOSED_SURFACE_BENCHMARK)
+    add_executable (TapiocaExposedSurfaceBench benchmark_exposed_surface.cpp
+        "${GEOM_DIR}/ExposedSurface.cpp"
+        "${GEOM_DIR}/ExposedSurfaceInputs.cpp"
+        "${GEOM_DIR}/ExposedSurfaceContact.cpp"
+        "${GEOM_DIR}/SurfaceCoverage.cpp"
+        "${GEOM_DIR}/SurfaceSourceMap.cpp"
+        "${GEOM_DIR}/SurfaceSourceBoundary.cpp"
+        "${GEOM_DIR}/GeometryEngine.cpp"
+        "${GEOM_DIR}/PlanarTriangulation.cpp"
+        "${GEOM_DIR}/SliceEngine.cpp")
+    target_compile_features (TapiocaExposedSurfaceBench PRIVATE cxx_std_20)
+    target_include_directories (TapiocaExposedSurfaceBench PRIVATE
+        "${EVP_ROOT}/Sources/AddOn" "${GEOM_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_include_directories (TapiocaExposedSurfaceBench SYSTEM PRIVATE "${EARSTRIP_INC}" "${GLM_INC}")
+    target_compile_definitions (TapiocaExposedSurfaceBench PRIVATE TAPIOCA_BENCH_CONFIG="$<CONFIG>")
+    target_link_libraries (TapiocaExposedSurfaceBench PRIVATE TapiocaClipper2)
+    if (WIN32)
+        target_link_libraries (TapiocaExposedSurfaceBench PRIVATE psapi)
+    endif ()
+endif ()
 if (TAPIOCA_LINK_RUST_GEOMETRY)
     set_source_files_properties (test_geometry_rust_terrain_corpus.cpp PROPERTIES COMPILE_DEFINITIONS
         TAPIOCA_TERRAIN_CORPUS="${EVP_ROOT}/rust/tests/fixtures/landscape.terrain")
