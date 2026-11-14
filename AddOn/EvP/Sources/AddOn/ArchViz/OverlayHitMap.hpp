@@ -163,10 +163,10 @@ struct HostCursorState {
 };
 constexpr HostMode DecideHostMode (const HostCursorState& s)
 {
-    return !s.locked || s.hudGesture                             ? HostMode::None
-           : !s.showing                                          ? HostMode::CursorHidden
+    return !s.locked || s.hudGesture                           ? HostMode::None
+           : !s.showing                                        ? HostMode::CursorHidden
            : s.admitted && s.navigationCursor && !s.overRegion ? HostMode::NavigationCursor
-                                                                 : HostMode::None;
+                                                               : HostMode::None;
 }
 
 // Archicad asks where the pointer is (OverlayInputPointerShim.cpp). It is told "nowhere" while a
@@ -175,6 +175,20 @@ constexpr HostMode DecideHostMode (const HostCursorState& s)
 constexpr bool HidesPointerFromHost (bool lockedViewOwnsPointer, bool middleHeld, bool settling)
 {
     return lockedViewOwnsPointer && !middleHeld && !settling;
+}
+
+// ⚠️ A LOCKED VIEW'S HOVER MOVES ARE ARCHICAD'S TOO WHILE ITS NAVIGATION SETTLES (the user,
+// 2026-11-14 12:13-12:26, #145: "almost every navigation where Shift is held and the middle
+// button released jumps; releasing Shift before the middle button avoids it"). The 9 jumps of
+// that run after a release each came 31-312 ms after the Shift key-up that followed it. From
+// the release on the locked view ate every move, so when Shift came up Archicad still held the
+// release's pointer position and orbited by the distance to where the pointer had gone. An
+// unlocked view, which passes those moves, never jumped. So the moves are eaten only at rest;
+// and the settle is held while the Shift a navigation ended under stays down
+// (`HoldSettleForShift`), then runs once more from its key-up.
+constexpr bool EatsLockedHover (bool locked, bool middleHeld, bool settling)
+{
+    return locked && !middleHeld && !settling;
 }
 
 class Router {

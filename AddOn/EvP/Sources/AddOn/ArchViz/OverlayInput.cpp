@@ -46,9 +46,9 @@ Target* TargetFor (HWND window)
 namespace {
 using events::EventOf;
 using events::PhysicalButtons;
+using state::InputOf;
 using state::ReassertCursor;
 using state::ShowCursor;
-using state::InputOf;
 using state::Subclass;
 using state::TargetFor;
 using state::Unsubclass;
@@ -212,6 +212,7 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     if (route == Route::Pass && (middle || event.kind == EventKind::Wheel ||
                                  (event.kind == EventKind::Move && (event.held & Bit (Button::Middle)) != 0))) {
         self->lastNavigationMs = ::GetTickCount64 ();
+        self->shiftNavigation = (::GetAsyncKeyState (VK_SHIFT) & 0x8000) != 0;
         state::ArmHostLeave (*self, g_window); // Archicad was told where the pointer is: untold after the settle
     }
     if (route == Route::Pass && (middle || (event.kind == EventKind::Wheel && event.wheel != 0.0f))) {
@@ -290,7 +291,10 @@ void Consider (MSG& message, bool removing)
     }
     // MSG::pt is where the pointer was when the message was posted, in screen pixels;
     // the wheel's lParam is in screen pixels too, so every message is read from it.
-    const bool taken = Weigh (*target, event, message.pt, removing) == Route::Take;
+    // Archicad's while its navigation settles (`EatsLockedHover`): the HUD hears the move, and so does it.
+    const bool settling = event.kind == EventKind::Move && target->map.locked &&
+                          NavigationSettling (::GetTickCount64 (), target->lastNavigationMs);
+    const bool taken = Weigh (*target, event, message.pt, removing) == Route::Take && !settling;
     if (removing && event.kind == EventKind::Move) // what Archicad was last told of the pointer
         navwatch::NoteMove (message.pt.x, message.pt.y, !taken, false);
     if (taken) {
@@ -342,7 +346,10 @@ LRESULT CALLBACK MouseProc (int code, WPARAM wParam, LPARAM lParam)
         move.kind = EventKind::Move;
         move.held = PhysicalButtons ();
         const bool hostGesture = g_router.GetOwner () == Owner::Host;
-        if (target != nullptr && target->map.locked && (move.held & Bit (Button::Middle)) == 0 &&
+        state::HoldSettleForShift (g_window);
+        if (target != nullptr &&
+            EatsLockedHover (target->map.locked, (move.held & Bit (Button::Middle)) != 0,
+                             NavigationSettling (::GetTickCount64 (), target->lastNavigationMs)) &&
             Weigh (*target, move, info->pt, false) == Route::Take) {
             Weigh (*target, move, info->pt, true);
             ShowCursor (*target);
@@ -417,6 +424,8 @@ bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16str
 {
     if ((!s_roofEditKeys && !s_hudTextKeys) || !window)
         return false;
+    if (keyboard::PassesToHost (key))
+        state::HoldSettleForShift (g_window); // its key-up starts the last settle
     for (const Target& candidate : g_targets) // Explore walks by the keyboard, Esc leaves Orbit (§16)
         if (candidate.canvas != nullptr && state::HostPointerMode (candidate) != HostMode::None)
             return false;

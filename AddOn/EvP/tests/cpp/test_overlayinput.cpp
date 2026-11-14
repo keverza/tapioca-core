@@ -22,6 +22,7 @@ int g_refreshes = 0;
 int s_hostHovers = 0, s_hostLeaves = 0;
 int s_hostDeletes = 0;
 int s_hostShifts = 0;
+int s_hostHoverMoves = 0;
 int s_hostMiddleDown = 0, s_hostMiddleUp = 0;
 int s_hostNavigationMoves = 0;
 int s_hostHitTests = 0;
@@ -53,6 +54,8 @@ LRESULT CALLBACK HostProc (HWND window, UINT message, WPARAM wParam, LPARAM lPar
         ++s_hostMiddleUp;
     if (message == WM_MOUSEMOVE && (wParam & MK_MBUTTON) != 0)
         ++s_hostNavigationMoves;
+    if (message == WM_MOUSEMOVE && wParam == 0)
+        ++s_hostHoverMoves;
     return ::DefWindowProcW (window, message, wParam, lParam);
 }
 
@@ -488,6 +491,39 @@ TEST (OverlayInput, ArchicadIsToldThePointerLeftOnceALockedNavigationSettles)
     ::Sleep (DWORD (input::kNavigationSettleMs + 120));
     Pump ();
     EXPECT_EQ (s_hostLeaves, 1) << "unlocked, Archicad sees the pointer's moves itself";
+    input::Shutdown ();
+    ::DestroyWindow (canvas);
+    Pump ();
+}
+
+// ⚠️ THE MOVES AFTER A LOCKED NAVIGATION'S RELEASE REACH ARCHICAD UNTIL IT HAS SETTLED (the
+// user, 2026-11-14 12:13-12:26, #145: the camera jumped when Shift was let go after the middle
+// button). Eaten from the release on, they left Archicad the release's pointer position to
+// orbit from. At rest the hover is the HUD's alone again.
+TEST (OverlayInput, HoverAfterALockedNavigationReachesTheHostUntilItSettles)
+{
+    const HWND canvas = Canvas ();
+    ASSERT_NE (canvas, nullptr);
+    std::string error;
+    ASSERT_TRUE (input::Attach (input::View::Plan, canvas, Owner (), error)) << error;
+    input::HitMap map;
+    map.locked = true;
+    input::SetHitMap (input::View::Plan, map);
+    Pump ();
+    s_hostHoverMoves = 0;
+    ::PostMessageW (canvas, WM_MOUSEMOVE, 0, MAKELPARAM (30, 40));
+    Pump ();
+    EXPECT_EQ (s_hostHoverMoves, 0) << "at rest the locked view's hover is the HUD's";
+    ::PostMessageW (canvas, WM_MBUTTONDOWN, MK_MBUTTON, MAKELPARAM (40, 40));
+    ::PostMessageW (canvas, WM_MBUTTONUP, 0, MAKELPARAM (60, 40));
+    ::PostMessageW (canvas, WM_MOUSEMOVE, 0, MAKELPARAM (90, 40));
+    Pump ();
+    EXPECT_EQ (s_hostHoverMoves, 1) << "settling: Archicad is told where the pointer went";
+    ::Sleep (DWORD (input::kNavigationSettleMs + 120));
+    Pump ();
+    ::PostMessageW (canvas, WM_MOUSEMOVE, 0, MAKELPARAM (95, 40));
+    Pump ();
+    EXPECT_EQ (s_hostHoverMoves, 1) << "settled: eaten again";
     input::Shutdown ();
     ::DestroyWindow (canvas);
     Pump ();

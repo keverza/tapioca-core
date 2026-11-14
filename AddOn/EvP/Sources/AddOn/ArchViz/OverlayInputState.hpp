@@ -27,7 +27,8 @@ struct Target {
     // The locked view's HUD owned the pointer at the last message the thread took, or as it
     // went idle (`NotePointerClaims`): what the pointer shim answers from.
     bool claims = false;
-    bool leaveArmed = false; // the timer that tells Archicad the pointer left, after that settle
+    bool shiftNavigation = false; // a navigation passed under Shift, and Shift not seen up since
+    bool leaveArmed = false;      // the timer that tells Archicad the pointer left, after that settle
     std::vector<overlayhud::Input::Button> buttons;
     std::vector<overlayhud::Input::EditAction> editActions;
     std::vector<overlayhud::Input::Key> keys;
@@ -73,6 +74,9 @@ bool OfferHostCursor (const Target& target, HCURSOR foreign);
 // locking -- and returns true for a timer that was its own. `DisarmHostLeave` with the session.
 void ArmHostLeave (Target& target, HWND inputWindow);
 bool HostLeaveTimer (HWND inputWindow, WPARAM timer);
+// While the Shift a navigation ended under is still down, every view's settle starts again; and
+// once more as it is first seen up (`EatsLockedHover`).
+void HoldSettleForShift (HWND inputWindow);
 void DisarmHostLeave (Target& target, HWND inputWindow);
 // Where Archicad is told the pointer is (OverlayInputPointerShim.cpp): its libraries' imports of
 // GetCursorPos and GetMessagePos answered by ours, with the message hook and removed with it.

@@ -97,7 +97,7 @@ const Known& Classify (HCURSOR cursor)
         _snprintf_s (line, sizeof (line), _TRUNCATE,
                      "HOSTCURSOR   a cursor of Archicad's over the locked view: resource #%u of '%ls' -- %s",
                      fresh.resource, module,
-                     fresh.navigation     ? "one it navigates with"
+                     fresh.navigation      ? "one it navigates with"
                      : fresh.resource == 0 ? "not a shared resource: its mode cannot be read from it"
                                            : "a tool's");
         ArchVizLog (line);
@@ -110,9 +110,10 @@ const Known& Classify (HCURSOR cursor)
 
 const char* NameOf (HostMode mode)
 {
-    return mode == HostMode::CursorHidden       ? "Archicad hid the cursor (Explore): every move, click and key is its"
-           : mode == HostMode::NavigationCursor ? "Archicad shows a navigation cursor (Orbit, Pan, Zoom): the view is its"
-                                                : "ended: the locked view is the HUD's again";
+    return mode == HostMode::CursorHidden ? "Archicad hid the cursor (Explore): every move, click and key is its"
+           : mode == HostMode::NavigationCursor
+               ? "Archicad shows a navigation cursor (Orbit, Pan, Zoom): the view is its"
+               : "ended: the locked view is the HUD's again";
 }
 
 // Over a panel, a legend or an open menu the HUD owns the pointer whatever Archicad's mode is.
@@ -189,10 +190,22 @@ void DisarmHostLeave (Target& target, HWND inputWindow)
     target.leaveArmed = false;
 }
 
+void HoldSettleForShift (HWND inputWindow)
+{
+    for (Target& target : targets) {
+        if (!target.shiftNavigation)
+            continue;
+        target.shiftNavigation = (::GetAsyncKeyState (VK_SHIFT) & 0x8000) != 0;
+        target.lastNavigationMs = ::GetTickCount64 ();
+        ArmHostLeave (target, inputWindow);
+    }
+}
+
 bool HostLeaveTimer (HWND inputWindow, WPARAM timer)
 {
     if (timer < kLeaveTimer || timer > kLeaveTimer + 1)
         return false;
+    HoldSettleForShift (inputWindow); // Shift held with the pointer still: no move or key says so
     Target& target = targets[timer - kLeaveTimer];
     // Still Archicad's -- a button held, a mode of its own, a later event's settle: the timer
     // repeats, and the pointer is said to have left once it is not.

@@ -244,9 +244,21 @@ TEST (OverlayHitMap, APointerModeOfArchicadsOwnsALockedView)
 TEST (OverlayHitMap, ArchicadIsToldThePointerIsNowhereOnlyWhileTheLockedViewOwnsItAtRest)
 {
     EXPECT_TRUE (input::HidesPointerFromHost (true, false, false));
-    EXPECT_FALSE (input::HidesPointerFromHost (false, false, false)) << "unlocked, over a palette, or a mode of Archicad's";
+    EXPECT_FALSE (input::HidesPointerFromHost (false, false, false))
+        << "unlocked, over a palette, or a mode of Archicad's";
     EXPECT_FALSE (input::HidesPointerFromHost (true, true, false)) << "the middle button held: its pan or orbit";
     EXPECT_FALSE (input::HidesPointerFromHost (true, false, true)) << "a wheel step or a release settling: its zoom";
+}
+
+// #145, 2026-11-14 12:13-12:26: a locked view ate every hover move from the middle release on,
+// and Archicad orbited from the release's position when Shift came up. The moves are eaten only
+// at rest.
+TEST (OverlayHitMap, ALockedViewsHoverIsEatenOnlyOnceTheNavigationHasSettled)
+{
+    EXPECT_TRUE (input::EatsLockedHover (true, false, false));
+    EXPECT_FALSE (input::EatsLockedHover (true, false, true)) << "settling: Archicad follows the pointer";
+    EXPECT_FALSE (input::EatsLockedHover (true, true, false)) << "the middle button held";
+    EXPECT_FALSE (input::EatsLockedHover (false, false, false)) << "unlocked";
 }
 
 TEST (OverlayHitMap, NavigationPassesDuringACapturedHudGesture)
