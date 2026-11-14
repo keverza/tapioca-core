@@ -38,6 +38,9 @@ struct Context {
         io.IniFilename = nullptr;
         io.DisplaySize = { 1200, 900 };
         io.DeltaTime = 1.0f / 60;
+        // As the HUD sets it (OverlayHud.cpp): without it one window is limited to 65 536
+        // vertices, which the gallery passes at the larger densities, and ImGui asserts.
+        io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
         unsigned char* pixels = nullptr;
         int width = 0, height = 0;
         io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
