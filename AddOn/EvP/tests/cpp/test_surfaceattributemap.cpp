@@ -97,6 +97,36 @@ TEST (SurfaceAttributeMap, SeveralPoolEntriesForOneSurfaceSelectAllMatchingFragm
     }
 }
 
+TEST (SurfaceAttributeMap, DuplicateDisplayNamesRemainDistinctStableIdentities)
+{
+    auto snapshot = Capture ();
+    snapshot.surfaceAttributes.at (202).name = snapshot.surfaceAttributes.at (101).name;
+    ASSERT_EQ (snapshot.surfaceAttributes.at (101).name, snapshot.surfaceAttributes.at (202).name);
+
+    ex::SurfaceSelection selection;
+    std::string error;
+    ASSERT_TRUE (ex::ResolveSurfaceSelection (snapshot, kFaces, std::set<int32_t> { 101, 202 }, selection, error))
+        << error;
+    EXPECT_EQ (selection.poolToSurface.at (7), 101);
+    EXPECT_EQ (selection.poolToSurface.at (8), 202);
+    EXPECT_NE (selection.poolToSurface.at (7), selection.poolToSurface.at (8));
+
+    ex::Request request;
+    request.snapshotId = snapshot.id;
+    request.captureStamp = snapshot.captureStamp;
+    request.coverScopeId = "explicit-empty-covers";
+    request.faces = kFaces;
+    request.materialPoolFilter = selection.materialPoolFilter;
+    ex::Result result;
+    ASSERT_TRUE (ex::Calculate (snapshot, request, result, error)) << error;
+    EXPECT_NEAR (result.areas.selectedExposedArea, 2, 1e-7);
+    for (const auto& fragment : result.fragments) {
+        EXPECT_TRUE (fragment.selected);
+        const int32_t surface = selection.poolToSurface.at (fragment.materialPoolIndex);
+        EXPECT_TRUE (surface == 101 || surface == 202);
+    }
+}
+
 TEST (SurfaceAttributeMap, DifferentProjectSurfacesCanBeSelectedTogether)
 {
     const auto snapshot = Capture ();

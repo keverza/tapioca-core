@@ -614,6 +614,40 @@ TEST (ExposedSurface, RotatedInclinedFacesKeepTrueThreeDimensionalArea)
     EXPECT_NEAR (EmittedArea (result), 9, 1e-6);
 }
 
+TEST (ExposedSurface, MirroredGeometryPreservesAreaWithoutAcceptingInsideOutCovers)
+{
+    auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3), Box ("cover", 0, -.3, 0, 2, .3, 3) });
+    for (auto& mesh : snapshot.meshes) {
+        for (size_t i = 0; i < mesh.vertices.size (); i += 3)
+            mesh.vertices[i] = -mesh.vertices[i];
+        // Reflection reverses triangle orientation. Restore outward source/cover
+        // winding so this fixture tests area invariance, not an invalid solid.
+        for (size_t i = 0; i < mesh.triangles.size (); i += 3)
+            std::swap (mesh.triangles[i + 1], mesh.triangles[i + 2]);
+        evptest::RecomputeBounds (mesh);
+    }
+    ex::Result result;
+    std::string error;
+    ASSERT_TRUE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, error)) << error;
+    EXPECT_NEAR (result.areas.grossGeometricArea, 15, 1e-9);
+    EXPECT_NEAR (result.areas.exposedArea, 9, 1e-6);
+    EXPECT_NEAR (EmittedArea (result), 9, 1e-6);
+
+    auto insideOut = snapshot;
+    auto& coverTriangles = insideOut.meshes[1].triangles;
+    for (size_t i = 0; i < coverTriangles.size (); i += 3)
+        std::swap (coverTriangles[i + 1], coverTriangles[i + 2]);
+    ExpectRefusal (insideOut, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), "outward-wound");
+}
+
+TEST (ExposedSurface, StaleCaptureRevisionCannotPublishOrRetainPartialOutput)
+{
+    const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3) });
+    auto request = Request ();
+    request.captureStamp = snapshot.captureStamp + 1;
+    ExpectRefusal (snapshot, request, "identity");
+}
+
 TEST (ExposedSurface, InvalidMaterialFilterAndDuplicateElementIdentityAreExplicitRefusals)
 {
     auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3) });
