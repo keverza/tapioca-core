@@ -2,6 +2,7 @@
 #define EVP_NATIVECOMMANDS_SURFACETAKEOFFCONTROLLER_HPP
 
 #include "Geometry/MeshStore.hpp"
+#include "Geometry/SurfaceTakeoffResult.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -14,6 +15,13 @@
 #include <thread>
 
 namespace geomsrv::surfacetakeoff {
+
+std::string CanonicalGuid (std::string guid);
+// Resolve the legacy calculator's explicit policies against one immutable capture.
+// Seeds and calculation options are added by the caller after preparation.
+std::optional<Request> PrepareRequest (const Snapshot& snapshot, const std::string& regionMode,
+                                       const std::string& coverPolicy, const std::vector<std::string>& extraCovers,
+                                       const std::vector<std::string>& surfaceNames, std::string& error);
 
 enum class ControllerState { Empty, Pending, Current, Stale, Refused, Cancelled };
 const char* ControllerStateName (ControllerState state);

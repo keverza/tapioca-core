@@ -16,6 +16,8 @@ def schema(name):
 
 def test_controller_commands_have_strict_schemas_and_registration():
     for name in (
+        "kPrepareInput",
+        "kPrepareOutput",
         "kStartOutput",
         "kPollOutput",
         "kEmptyInput",
@@ -38,12 +40,27 @@ def test_controller_commands_have_strict_schemas_and_registration():
     registry = (ROOT / "NativeCommands/CommandRegistry.cpp").read_text(encoding="utf-8")
     assert "&GetSurfaceTakeoffControllerCommandRegistrations" in registry
     for command in (
+        "PrepareExposedSurfaceTakeoff",
         "StartExposedSurfaceTakeoff",
         "PollExposedSurfaceTakeoff",
         "PublishExposedSurfaceTakeoff",
         "CancelExposedSurfaceTakeoff",
     ):
         assert f'return "{command}"' in SOURCE
+
+
+def test_preparation_schema_requires_explicit_bounded_policies():
+    validate = jsonschema.Draft202012Validator(schema("kPrepareInput"))
+    guided = {
+        "regionMode": "allElementFaces",
+        "coverPolicy": "constructionWithOpenings",
+        "extraCoverGuids": [],
+        "surfaceNames": [],
+    }
+    assert validate.is_valid(guided)
+    assert not validate.is_valid({**guided, "coverPolicy": "all"})
+    assert not validate.is_valid({**guided, "extraCoverGuids": ["one"] * 129})
+    assert not validate.is_valid({**guided, "snapshotId": 1})
 
 
 def test_controller_has_no_overlay_dependency_and_checks_capture_before_publication():

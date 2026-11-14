@@ -12,7 +12,6 @@
 #include "Python/MainThreadGate.hpp"
 #include "Python/RunCancel.hpp"
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 
 namespace geomsrv {
@@ -29,14 +28,6 @@ std::string Utf8 (const GS::UniString& value)
 {
     return value.ToCStr (0, MaxUSize, CC_UTF8).Get ();
 }
-std::string Guid (std::string value)
-{
-    if (value.size () == 38 && value.front () == '{' && value.back () == '}')
-        value = value.substr (1, 36);
-    std::transform (value.begin (), value.end (), value.begin (),
-                    [] (unsigned char c) { return char (std::toupper (c)); });
-    return value;
-}
 bool Current (const std::shared_ptr<const Snapshot>& snapshot)
 {
     return snapshot && MeshStore::Get ().Current () == snapshot &&
@@ -49,9 +40,10 @@ bool RunEnded (uint64_t generation)
 }
 bool FindMesh (const Snapshot& snapshot, const std::string& guid, size_t& index)
 {
+    const auto key = surfacetakeoff::CanonicalGuid (guid);
     size_t matches = 0;
     for (size_t i = 0; i < snapshot.meshes.size (); ++i)
-        if (Guid (snapshot.meshes[i].guid) == Guid (guid)) {
+        if (surfacetakeoff::CanonicalGuid (snapshot.meshes[i].guid) == key) {
             index = i;
             ++matches;
         }
@@ -227,7 +219,7 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
             size_t index = 0;
             if (!FindMesh (*snapshot, guid, index))
                 return fail ("Explicit cover missing or ambiguous; no covers omitted.");
-            coverNames.insert (Guid (snapshot->meshes[index].guid));
+            coverNames.insert (surfacetakeoff::CanonicalGuid (snapshot->meshes[index].guid));
             const std::set<int32_t> bodies (snapshot->meshes[index].triSourceBody.begin (),
                                             snapshot->meshes[index].triSourceBody.end ());
             if (bodies.empty ())

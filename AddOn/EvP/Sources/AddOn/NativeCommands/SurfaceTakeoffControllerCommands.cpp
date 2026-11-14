@@ -2,13 +2,58 @@
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/SurfaceTakeoffCommands.hpp"
 #include "Geometry/SurfaceTakeoffController.hpp"
+#include "AddOnCommands.hpp"
+
+#include <ModelElement.hpp>
 
 namespace geomsrv {
 namespace {
+using ModelElement = ModelerAPI::Element;
+static_assert (ModelElement::WallElement == 1 && ModelElement::SlabElement == 2 && ModelElement::DoorElement == 13 &&
+               ModelElement::WindowElement == 14 && ModelElement::ColumnElement == 17 &&
+               ModelElement::BeamElement == 19);
+
 GS::UniString Text (const std::string& value)
 {
     return GS::UniString (value.c_str (), CC_UTF8);
 }
+std::vector<std::string> ReadStrings (const GS::ObjectState& params, const char* key)
+{
+    GS::Array<GS::UniString> values;
+    params.Get (key, values);
+    std::vector<std::string> result;
+    for (const auto& value : values)
+        result.emplace_back (value.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+    return result;
+}
+GS::Array<GS::UniString> WriteStrings (const std::vector<std::string>& values)
+{
+    GS::Array<GS::UniString> result;
+    for (const auto& value : values)
+        result.Push (Text (value));
+    return result;
+}
+const char kPrepareInput[] = R"json({
+ "type":"object","additionalProperties":false,
+ "properties":{
+  "regionMode":{"enum":["seededFacade","allWallFaces","allElementFaces"]},
+  "coverPolicy":{"enum":["constructionWithOpenings","construction","wallsSlabsBeams","slabs","wallsSlabs","extraOnly"]},
+  "extraCoverGuids":{"type":"array","maxItems":128,"items":{"type":"string","minLength":1,"maxLength":38}},
+  "surfaceNames":{"type":"array","maxItems":512,"items":{"type":"string"}}
+ },"required":["regionMode","coverPolicy","extraCoverGuids","surfaceNames"]
+})json";
+const char kPrepareOutput[] = R"json({
+ "type":"object","additionalProperties":false,
+ "properties":{
+  "snapshotId":{"type":"integer","minimum":1},"captureStamp":{"type":"integer","minimum":1},
+  "regionMode":{"enum":["seededFacade","allWallFaces","allElementFaces"]},
+  "targetGuids":{"type":"array","minItems":1,"maxItems":64,"uniqueItems":true,"items":{"$ref":"#/$defs/guid"}},
+  "coverGuids":{"type":"array","maxItems":128,"uniqueItems":true,"items":{"$ref":"#/$defs/guid"}},
+  "coverScopeId":{"type":"string","minLength":1,"maxLength":256},
+  "surfaceAttributeIndices":{"type":"array","maxItems":512,"uniqueItems":true,"items":{"type":"integer","minimum":1}}
+ },"required":["snapshotId","captureStamp","regionMode","targetGuids","coverGuids","coverScopeId","surfaceAttributeIndices"],
+ "$defs":{"guid":{"type":"string","minLength":1,"maxLength":38}}
+})json";
 const char kStartOutput[] = R"json({
  "type":"object","additionalProperties":false,
  "properties":{
@@ -47,6 +92,64 @@ const char kCancelInput[] = R"json({
 })json";
 const char kCancelOutput[] =
     R"json({"type":"object","properties":{"cancelled":{"type":"boolean"}},"required":["cancelled"],"additionalProperties":false})json";
+
+class PrepareTakeoffCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "PrepareExposedSurfaceTakeoff";
+    }
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl& pc) const override
+    {
+        auto& store = MeshStore::Get ();
+        if (store.FullPassInFlight ())
+            return NativeCommandResult::Failure (Text ("A full model capture is in progress. Retry when it finishes."));
+
+        GS::ObjectState buildParams;
+        buildParams.Add ("scope", Text ("all"));
+        buildParams.Add ("meta", Text ("none"));
+        const auto built = ExecuteNativeCommand ("BuildSnapshot", buildParams);
+        if (!built.ok)
+            return built;
+
+        GS::Int64 id = 0, stamp = 0;
+        built.data.Get ("snapshotId", id);
+        built.data.Get ("captureStamp", stamp);
+        const auto snapshot = store.Current ();
+        const auto current = [&] {
+            return snapshot && id > 0 && stamp > 0 && snapshot->id == uint64_t (id) &&
+                   snapshot->captureStamp == uint64_t (stamp) && store.Current () == snapshot &&
+                   store.CaptureStamp () == snapshot->captureStamp;
+        };
+        if (pc.TestBreak () || !current ())
+            return NativeCommandResult::Failure (Text ("Surface capture changed or preparation was cancelled."));
+
+        GS::UniString mode, policy;
+        params.Get ("regionMode", mode);
+        params.Get ("coverPolicy", policy);
+        std::string error;
+        const auto request = surfacetakeoff::PrepareRequest (
+            *snapshot, mode.ToCStr (0, MaxUSize, CC_UTF8).Get (), policy.ToCStr (0, MaxUSize, CC_UTF8).Get (),
+            ReadStrings (params, "extraCoverGuids"), ReadStrings (params, "surfaceNames"), error);
+        if (!request)
+            return NativeCommandResult::Failure (Text (error));
+        if (pc.TestBreak () || !current ())
+            return NativeCommandResult::Failure (Text ("Surface capture changed or preparation was cancelled."));
+
+        GS::ObjectState output;
+        output.Add ("snapshotId", id);
+        output.Add ("captureStamp", stamp);
+        output.Add ("regionMode", Text (request->regionMode));
+        output.Add ("targetGuids", WriteStrings (request->targetGuids));
+        output.Add ("coverGuids", WriteStrings (request->coverGuids));
+        output.Add ("coverScopeId", Text (request->coverScopeId));
+        GS::Array<GS::Int32> indices;
+        for (const auto index : request->surfaceAttributeIndices)
+            indices.Push (index);
+        output.Add ("surfaceAttributeIndices", indices);
+        return output;
+    }
+};
 
 class StartTakeoffCommand : public MainThreadCommand {
   public:
@@ -185,6 +288,8 @@ class CancelTakeoffCommand : public MainThreadCommand {
 };
 
 const NativeCommandRegistration kRegistrations[] = {
+    { "PrepareExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<PrepareTakeoffCommand>, false, kPrepareInput,
+      kPrepareOutput },
     { "StartExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<StartTakeoffCommand>, false,
       SurfaceTakeoffInputSchema (), kStartOutput },
     { "PollExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<PollTakeoffCommand>, false, kEmptyInput, kPollOutput },

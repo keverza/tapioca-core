@@ -1,6 +1,9 @@
 #include "Geometry/SurfaceTakeoffController.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <exception>
+#include <set>
 #include <utility>
 
 namespace geomsrv::surfacetakeoff {
@@ -13,7 +16,108 @@ std::string ErrorText (const ControllerOutcome& result)
 {
     return result.error.empty () ? "Surface calculation returned no result." : result.error;
 }
+
+// ModelerAPI::Element::Type, kept SDK-free and checked at the native boundary.
+constexpr int32_t kWall = 1, kSlab = 2, kDoor = 13, kWindow = 14, kColumn = 17, kBeam = 19;
+
+const std::map<std::string, std::set<int32_t>> kCoverTypes { { "constructionWithOpenings",
+                                                               { kWall, kSlab, kColumn, kBeam, kDoor, kWindow } },
+                                                             { "construction", { kWall, kSlab, kColumn, kBeam } },
+                                                             { "wallsSlabsBeams", { kWall, kSlab, kBeam } },
+                                                             { "slabs", { kSlab } },
+                                                             { "wallsSlabs", { kWall, kSlab } },
+                                                             { "extraOnly", {} } };
+
+std::string CoverScopeId (const Request& request, const std::string& policy)
+{
+    // FNV-1a over sorted canonical GUIDs with an unambiguous separator.
+    // The explicit GUID list travels with the ID and controls the calculation.
+    uint64_t hash = 14695981039346656037ull;
+    for (const auto& guid : request.coverGuids) {
+        for (const unsigned char byte : guid)
+            hash = (hash ^ byte) * 1099511628211ull;
+        hash = (hash ^ 0xffu) * 1099511628211ull;
+    }
+    return "covers-v1:" + policy + ":" + std::to_string (request.snapshotId) + ":" +
+           std::to_string (request.captureStamp) + ":" + std::to_string (hash);
+}
 } // namespace
+
+std::string CanonicalGuid (std::string guid)
+{
+    if (guid.size () == 38 && guid.front () == '{' && guid.back () == '}')
+        guid = guid.substr (1, 36);
+    std::transform (guid.begin (), guid.end (), guid.begin (),
+                    [] (unsigned char c) { return char (std::toupper (c)); });
+    return guid;
+}
+
+std::optional<Request> PrepareRequest (const Snapshot& snapshot, const std::string& regionMode,
+                                       const std::string& coverPolicy, const std::vector<std::string>& extraCovers,
+                                       const std::vector<std::string>& surfaceNames, std::string& error)
+{
+    const auto fail = [&error] (std::string reason) -> std::optional<Request> {
+        error = std::move (reason);
+        return std::nullopt;
+    };
+    const auto coverTypes = kCoverTypes.find (coverPolicy);
+    const bool allElements = regionMode == "allElementFaces";
+    if ((!allElements && regionMode != "allWallFaces" && regionMode != "seededFacade") ||
+        coverTypes == kCoverTypes.end ())
+        return fail ("Unsupported target scope or cover policy.");
+    if (!snapshot.completeModel || snapshot.id == 0 || snapshot.captureStamp == 0 ||
+        snapshot.surfaceAttributes.empty ())
+        return fail ("A fresh unfiltered model capture with a project surface catalog is required.");
+
+    std::map<std::string, size_t> inventory;
+    std::set<std::string> targets, covers;
+    for (const auto& mesh : snapshot.meshes) {
+        const auto guid = CanonicalGuid (mesh.guid);
+        ++inventory[guid];
+        const auto type = mesh.elemType;
+        if (type == kWall || (allElements && (type == kSlab || type == kColumn || type == kBeam)))
+            targets.insert (guid);
+        if (coverTypes->second.contains (type))
+            covers.insert (guid);
+    }
+    for (const auto& guid : extraCovers)
+        covers.insert (CanonicalGuid (guid));
+    if (targets.empty () || targets.size () > 64 || covers.size () > 128)
+        return fail ("Use 1..64 captured candidate elements and at most 128 explicit covering elements.");
+    for (const auto& guid : targets)
+        if (guid.empty () || inventory.at (guid) != 1)
+            return fail ("Target missing or ambiguous in capture: " + guid);
+    for (const auto& guid : covers)
+        if (guid.empty () || !inventory.contains (guid) || inventory.at (guid) != 1)
+            return fail ("Explicit cover missing or ambiguous in capture: " + guid);
+
+    Request request;
+    request.snapshotId = snapshot.id;
+    request.captureStamp = snapshot.captureStamp;
+    request.regionMode = regionMode;
+    request.targetGuids.assign (targets.begin (), targets.end ());
+    request.coverGuids.assign (covers.begin (), covers.end ());
+    request.coverScopeId = CoverScopeId (request, coverPolicy);
+    std::set<int32_t> seen;
+    for (const auto& name : surfaceNames) {
+        if (name.empty ())
+            continue;
+        int32_t found = 0;
+        for (const auto& [index, surface] : snapshot.surfaceAttributes) {
+            if (surface.name != name)
+                continue;
+            if (found != 0)
+                return fail ("Selected project surface is ambiguous in the fresh capture: " + name);
+            found = index;
+        }
+        if (found <= 0)
+            return fail ("Selected project surface is absent in the fresh capture: " + name);
+        if (seen.insert (found).second)
+            request.surfaceAttributeIndices.push_back (found);
+    }
+    error.clear ();
+    return request;
+}
 
 const char* ControllerStateName (ControllerState state)
 {

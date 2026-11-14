@@ -321,22 +321,28 @@ def test_captured_door_window_bodies_remove_contact_without_seo(live_client, sur
 
 
 def test_native_controller_calculates_with_injected_overlay_off(live_client, surface_capture):
-    fixture, identity, catalog = surface_capture
+    fixture, _, _ = surface_capture
     if not fixture.get("allWallSurfaces"):
         pytest.skip("Fixture does not request the criteria calculator")
     call = live_client.tapioca_call
     call("Tapioca.Overlay3D", {"action": "off"})
+    prepared = call(
+        "Tapioca.PrepareExposedSurfaceTakeoff",
+        {"regionMode": "allElementFaces", "coverPolicy": "construction", "extraCoverGuids": [], "surfaceNames": []},
+    )
+    identity = pin(prepared)
     info = call("Tapioca.GetSnapshotInfo")
-    targets = [guid for guid, kind in zip(info["guids"], info["elemTypes"], strict=True) if kind in (1, 2, 17, 19)]
+    targets = sorted(
+        normalized_guid(guid).upper()
+        for guid, kind in zip(info["guids"], info["elemTypes"], strict=True)
+        if kind in (1, 2, 17, 19)
+    )
+    assert pin(info) == identity
+    assert prepared["targetGuids"] == prepared["coverGuids"] == targets
     request = {
-        **identity,
-        "regionMode": "allElementFaces",
+        **prepared,
         "seeds": [],
-        "targetGuids": targets,
-        "coverGuids": targets,
-        "coverScopeId": "Native controller:overlay-off",
         "contactToleranceM": 0.001,
-        "surfaceAttributeIndices": [],
         "publishOverlay": False,
         "compareNative": False,
     }
@@ -427,6 +433,9 @@ def test_document_launcher_publishes_the_accepted_controller_meshes(live_client,
             stream.seek(log_offset)
             entries = [json.loads(line) for line in stream.read().decode("utf-8").splitlines() if line.startswith("{")]
         commands = [entry["command"] for entry in entries]
+        assert "Tapioca.PrepareExposedSurfaceTakeoff" in commands
+        assert "Tapioca.BuildSnapshot" not in commands
+        assert "Tapioca.GetSnapshotSurfaces" not in commands
         assert "Tapioca.StartExposedSurfaceTakeoff" in commands
         assert "Tapioca.PollExposedSurfaceTakeoff" in commands
         assert "Tapioca.PublishExposedSurfaceTakeoff" in commands

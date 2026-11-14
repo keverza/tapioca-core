@@ -10,6 +10,70 @@ using namespace geomsrv;
 using namespace geomsrv::surfacetakeoff;
 constexpr auto kEventBound = std::chrono::seconds (10);
 
+Snapshot ScopeFixture ()
+{
+    Snapshot snapshot;
+    snapshot.id = 5;
+    snapshot.captureStamp = 7;
+    snapshot.completeModel = true;
+    snapshot.meshes = { { "WALL", 1 },    { "SLAB", 2 },    { "door", 13 }, { "window", 14 },
+                        { "object", 15 }, { "COLUMN", 17 }, { "BEAM", 19 } };
+    snapshot.surfaceAttributes = { { 100, { "Red", "" } }, { 200, { "Yellow", "" } } };
+    return snapshot;
+}
+
+TEST (SurfaceTakeoffPreparation, ResolvesEveryCoverPolicyIndependentlyOfTargets)
+{
+    const auto snapshot = ScopeFixture ();
+    const std::map<std::string, std::vector<std::string>> expectations {
+        { "constructionWithOpenings", { "BEAM", "COLUMN", "DOOR", "OBJECT", "SLAB", "WALL", "WINDOW" } },
+        { "construction", { "BEAM", "COLUMN", "OBJECT", "SLAB", "WALL" } },
+        { "wallsSlabsBeams", { "BEAM", "OBJECT", "SLAB", "WALL" } },
+        { "slabs", { "OBJECT", "SLAB" } },
+        { "wallsSlabs", { "OBJECT", "SLAB", "WALL" } },
+        { "extraOnly", { "OBJECT" } }
+    };
+    std::string error;
+    for (const auto& [policy, covers] : expectations) {
+        SCOPED_TRACE (policy);
+        const auto request = PrepareRequest (snapshot, "allElementFaces", policy, { "object" }, {}, error);
+        ASSERT_TRUE (request) << error;
+        EXPECT_EQ (request->coverGuids, covers);
+        EXPECT_EQ (request->targetGuids, (std::vector<std::string> { "BEAM", "COLUMN", "SLAB", "WALL" }));
+        EXPECT_TRUE (request->surfaceAttributeIndices.empty ());
+    }
+    const auto walls = PrepareRequest (snapshot, "allWallFaces", "slabs", { "slab", "OBJECT" },
+                                       { "Yellow", "", "Red", "Yellow" }, error);
+    const auto seeded = PrepareRequest (snapshot, "seededFacade", "slabs", { "object" }, {}, error);
+    ASSERT_TRUE (walls && seeded) << error;
+    EXPECT_EQ (walls->targetGuids, (std::vector<std::string> { "WALL" }));
+    EXPECT_EQ (seeded->targetGuids, walls->targetGuids);
+    EXPECT_EQ (walls->surfaceAttributeIndices, (std::vector<int32_t> { 200, 100 }));
+    EXPECT_EQ (walls->coverScopeId, seeded->coverScopeId);
+    const auto fewerCovers = PrepareRequest (snapshot, "allWallFaces", "slabs", {}, {}, error);
+    ASSERT_TRUE (fewerCovers);
+    EXPECT_NE (walls->coverScopeId, fewerCovers->coverScopeId);
+}
+
+TEST (SurfaceTakeoffPreparation, RefusesInvalidOrIncompletePreparedScopes)
+{
+    auto snapshot = ScopeFixture ();
+    std::string error;
+    EXPECT_FALSE (PrepareRequest (snapshot, "seededFacade", "slabs", { "absent" }, {}, error));
+    EXPECT_NE (error.find ("cover missing or ambiguous"), std::string::npos);
+    EXPECT_FALSE (PrepareRequest (snapshot, "seededFacade", "slabs", {}, { "Unknown" }, error));
+    EXPECT_NE (error.find ("absent"), std::string::npos);
+    snapshot.surfaceAttributes[300] = { "Red", "" };
+    EXPECT_FALSE (PrepareRequest (snapshot, "seededFacade", "slabs", {}, { "Red" }, error));
+    EXPECT_NE (error.find ("ambiguous"), std::string::npos);
+    snapshot.meshes.push_back ({ "wall", 1 });
+    EXPECT_FALSE (PrepareRequest (snapshot, "seededFacade", "slabs", {}, {}, error));
+    EXPECT_NE (error.find ("Target missing or ambiguous"), std::string::npos);
+    snapshot.completeModel = false;
+    EXPECT_FALSE (PrepareRequest (snapshot, "seededFacade", "slabs", {}, {}, error));
+    EXPECT_NE (error.find ("unfiltered"), std::string::npos);
+}
+
 std::shared_ptr<const Snapshot> Capture (uint64_t id, uint64_t stamp)
 {
     auto snapshot = std::make_shared<Snapshot> ();
