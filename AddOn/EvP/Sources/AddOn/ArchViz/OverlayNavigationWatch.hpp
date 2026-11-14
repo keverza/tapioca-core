@@ -49,6 +49,11 @@ void NoteWheel ();
 enum class RedrawSource { Gate, AfterNavigation, Budget };
 void NoteRedraw (RedrawSource source);
 
+// A navigation on a locked view settled: Archicad was told the pointer left its canvas
+// (`told`), so it drops the pre-selection and info tag it raised where the gesture ended -- or
+// was not, the view unlocked or hidden meanwhile.
+void NoteHostHover (bool told);
+
 // The HUD laid out for the pointer, in microseconds.
 void NoteHudRefresh (uint32_t micros);
 

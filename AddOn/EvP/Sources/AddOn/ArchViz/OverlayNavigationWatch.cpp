@@ -58,6 +58,8 @@ struct Window {
     uint32_t modifierRepeatsTaken = 0;
     uint32_t keysTakenNavigating = 0;
     uint32_t middleDoubleClicks = 0;
+    uint32_t hostHoverCleared = 0;
+    uint32_t hostHoverLeft = 0;
 };
 
 Window g_window;
@@ -321,19 +323,20 @@ void ReportIfDue ()
     if (w.presses == 0 && w.wheels == 0 && w.movesEatenFromHost == 0 && w.refresh.count == 0 &&
         w.heartbeatNavigating.count == 0 && w.keysTaken == 0)
         return;
-    char line[768] = {};
+    char line[896] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "%-12s ~5 s: navigations +%u (locked +%u; Archicad's last move >%.0f px away +%u, worst %.0f px "
                  "%llu ms old) | moves passed +%u eaten +%u (in Archicad's gesture after release +%u) | wheel +%u, "
                  "3D redraws +%u (within %llu ms of a wheel +%u) | main thread: heartbeat %s, navigating %s; HUD "
                  "layout %s, navigating %s | keys the HUD took +%u (modifier auto-repeats +%u, middle held +%u), "
-                 "middle double-clicks passed +%u",
+                 "middle double-clicks passed +%u | after a navigation Archicad told the pointer left +%u "
+                 "(not told +%u)",
                  "NAVWATCH", w.presses, w.pressesOnLocked, kFarPixels, w.pressesFar, w.worstPixels,
                  (unsigned long long) w.worstAgeMs, w.movesPassed, w.movesEaten, w.movesEatenFromHost, w.wheels,
                  w.redraws, (unsigned long long) kWheelWindowMs, w.redrawsAfterWheel, Describe (w.heartbeat).c_str (),
                  Describe (w.heartbeatNavigating).c_str (), Describe (w.refresh).c_str (),
                  Describe (w.refreshNavigating).c_str (), w.keysTaken, w.modifierRepeatsTaken, w.keysTakenNavigating,
-                 w.middleDoubleClicks);
+                 w.middleDoubleClicks, w.hostHoverCleared, w.hostHoverLeft);
     ArchVizLog (line);
 }
 
@@ -413,6 +416,11 @@ void NoteRedraw (RedrawSource source)
     g_redrawNext = (g_redrawNext + 1) % kRedrawRing;
     ++g_window.redraws;
     g_window.redrawsAfterWheel += g_lastWheel != 0 && Now () - g_lastWheel <= kWheelWindowMs ? 1 : 0;
+}
+
+void NoteHostHover (bool told)
+{
+    (told ? g_window.hostHoverCleared : g_window.hostHoverLeft) += 1;
 }
 
 void NoteHudRefresh (uint32_t micros)

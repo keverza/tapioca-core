@@ -24,6 +24,7 @@ struct Target {
     uint64_t navigationRevision = 0;
     // GetTickCount64 at the last navigation event passed to Archicad; 0: none this session.
     uint64_t lastNavigationMs = 0;
+    bool leaveArmed = false; // the timer that tells Archicad the pointer left, after that settle
     std::vector<overlayhud::Input::Button> buttons;
     std::vector<overlayhud::Input::EditAction> editActions;
     std::vector<overlayhud::Input::Key> keys;
@@ -60,6 +61,16 @@ HostMode HostPointerMode (const Target& target);
 // A cursor that replaced the HUD's on the locked view: true when it is a navigation cursor
 // Archicad set with nothing held, which is then left standing.
 bool OfferHostCursor (const Target& target, HCURSOR foreign);
+// ⚠️ AFTER A NAVIGATION ARCHICAD BELIEVES THE POINTER RESTS WHERE THE GESTURE ENDED (the user,
+// 2026-11-14, #145: the locked view still highlights Archicad's elements and raises its info
+// tags). The locked view eats every hover move, so the last position Archicad was told is the
+// middle release's or the wheel step's, and it pre-selects the element there. `ArmHostLeave`
+// after each navigation event passed on a locked view; when the settle has run out
+// `HostLeaveTimer` tells the canvas the pointer left -- as `SetHitMap` does at the moment of
+// locking -- and returns true for a timer that was its own. `DisarmHostLeave` with the session.
+void ArmHostLeave (Target& target, HWND inputWindow);
+bool HostLeaveTimer (HWND inputWindow, WPARAM timer);
+void DisarmHostLeave (Target& target, HWND inputWindow);
 // Session state (§8): what was learned of Archicad's cursors, and the mode.
 void ForgetHostMode ();
 

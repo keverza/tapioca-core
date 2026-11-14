@@ -33,6 +33,7 @@
 #include "ArchViz/OverlayInputState.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/OverlayNavigationWatch.hpp"
 
 #include <cstdio>
 #include <cwchar>
@@ -165,6 +166,48 @@ bool OfferHostCursor (const Target& target, HCURSOR foreign)
         NavigationSettling (::GetTickCount64 (), target.lastNavigationMs) || OverRegion (target))
         return false;
     s_cursorMode = true;
+    return true;
+}
+
+// ---- the pointer Archicad was last told of ----------------------------------------------
+// One timer a view on the input layer's own window, after the redraw timers' ids (1, 2).
+constexpr UINT_PTR kLeaveTimer = 3;
+
+void ArmHostLeave (Target& target, HWND inputWindow)
+{
+    if (inputWindow == nullptr || !target.map.locked)
+        return;
+    // Set again by every event of the navigation: it fires one settle after the last.
+    target.leaveArmed = ::SetTimer (inputWindow, kLeaveTimer + UINT_PTR (ViewOf (target)),
+                                    UINT (kNavigationSettleMs + 16), nullptr) != 0;
+}
+
+void DisarmHostLeave (Target& target, HWND inputWindow)
+{
+    if (target.leaveArmed && inputWindow != nullptr)
+        ::KillTimer (inputWindow, kLeaveTimer + UINT_PTR (ViewOf (target)));
+    target.leaveArmed = false;
+}
+
+bool HostLeaveTimer (HWND inputWindow, WPARAM timer)
+{
+    if (timer < kLeaveTimer || timer > kLeaveTimer + 1)
+        return false;
+    Target& target = targets[timer - kLeaveTimer];
+    // Still Archicad's -- a button held, a mode of its own, a later event's settle: the timer
+    // repeats, and the pointer is said to have left once it is not.
+    if (target.canvas != nullptr && target.map.locked && (PhysicalButtons () != 0 || NavigatingNatively (target)))
+        return true;
+    DisarmHostLeave (target, inputWindow);
+    const bool shown = target.owner.shown != nullptr && target.owner.shown ();
+    if (target.canvas == nullptr || !target.map.locked || !shown) {
+        navwatch::NoteHostHover (false); // unlocked or hidden meanwhile: the moves are Archicad's again
+        return true;
+    }
+    TRACKMOUSEEVENT tracking { sizeof (TRACKMOUSEEVENT), TME_CANCEL | TME_HOVER, target.canvas, 0 };
+    ::TrackMouseEvent (&tracking);
+    ::SendMessageW (target.canvas, WM_MOUSELEAVE, 0, 0);
+    navwatch::NoteHostHover (true);
     return true;
 }
 

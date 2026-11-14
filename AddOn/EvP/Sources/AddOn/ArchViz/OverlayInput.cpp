@@ -210,8 +210,10 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
         (event.kind == EventKind::Press || event.kind == EventKind::Release) && event.button == Button::Middle;
     // What Archicad navigates by, passed on: the settle window runs from the last of them.
     if (route == Route::Pass && (middle || event.kind == EventKind::Wheel ||
-                                 (event.kind == EventKind::Move && (event.held & Bit (Button::Middle)) != 0)))
+                                 (event.kind == EventKind::Move && (event.held & Bit (Button::Middle)) != 0))) {
         self->lastNavigationMs = ::GetTickCount64 ();
+        state::ArmHostLeave (*self, g_window); // Archicad was told where the pointer is: untold after the settle
+    }
     if (route == Route::Pass && (middle || (event.kind == EventKind::Wheel && event.wheel != 0.0f))) {
         ++self->navigationRevision;
         if (middle)
@@ -652,6 +654,8 @@ LRESULT CALLBACK WindowProc (HWND window, UINT message, WPARAM wParam, LPARAM lP
             ShowCursor (target);
         return 0;
     }
+    if (message == WM_TIMER && state::HostLeaveTimer (window, wParam))
+        return 0;
     if (message == WM_TIMER && wParam >= kRedrawTimer && wParam <= kRedrawTimer + 1) {
         ::KillTimer (window, wParam);
         Target& target = g_targets[wParam - kRedrawTimer];
@@ -703,6 +707,7 @@ void Clear (Target& target)
     if (s_keyboardTarget == &target)
         s_keyboardTarget = nullptr;
     Unsubclass (target);
+    state::DisarmHostLeave (target, g_window);
     if (target.timerArmed && g_window != nullptr)
         ::KillTimer (g_window, kRedrawTimer + UINT_PTR (ViewOf (target)));
     target = Target {};

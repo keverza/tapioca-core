@@ -451,6 +451,44 @@ TEST (OverlayInput, LockedCanvasCancelsOldHoverAndRejectsStationaryHostFeedbackO
     ::DestroyWindow (canvas);
     ::FreeLibrary (controls);
 }
+// ⚠️ AFTER A NAVIGATION ARCHICAD IS TOLD THE POINTER LEFT (the user, 2026-11-14, #145: the locked
+// view still highlighted Archicad's elements and raised its info tags). It was last told of the
+// pointer at the middle release, and every hover move since is eaten: it pre-selects what is
+// there. Once the settle has run out the canvas gets one WM_MOUSELEAVE -- not before, while the
+// navigation may still be Archicad's, and none on an unlocked view, whose moves it sees.
+TEST (OverlayInput, ArchicadIsToldThePointerLeftOnceALockedNavigationSettles)
+{
+    const HWND canvas = Canvas ();
+    ASSERT_NE (canvas, nullptr);
+    std::string error;
+    ASSERT_TRUE (input::Attach (input::View::Plan, canvas, Owner (), error)) << error;
+    input::HitMap map;
+    map.locked = true;
+    input::SetHitMap (input::View::Plan, map);
+    Pump ();
+    s_hostLeaves = 0;
+    ::PostMessageW (canvas, WM_MBUTTONDOWN, MK_MBUTTON, MAKELPARAM (40, 40));
+    ::PostMessageW (canvas, WM_MBUTTONUP, 0, MAKELPARAM (60, 40));
+    Pump ();
+    EXPECT_EQ (s_hostLeaves, 0) << "not inside the settle: the navigation may still be Archicad's";
+    ::Sleep (DWORD (input::kNavigationSettleMs + 120));
+    Pump ();
+    EXPECT_EQ (s_hostLeaves, 1);
+    ::Sleep (DWORD (input::kNavigationSettleMs + 120));
+    Pump ();
+    EXPECT_EQ (s_hostLeaves, 1) << "once a navigation, not on a repeating timer";
+    map.locked = false;
+    input::SetHitMap (input::View::Plan, map);
+    ::PostMessageW (canvas, WM_MOUSEWHEEL, MAKEWPARAM (0, WHEEL_DELTA), MAKELPARAM (50, 40));
+    Pump ();
+    ::Sleep (DWORD (input::kNavigationSettleMs + 120));
+    Pump ();
+    EXPECT_EQ (s_hostLeaves, 1) << "unlocked, Archicad sees the pointer's moves itself";
+    input::Shutdown ();
+    ::DestroyWindow (canvas);
+    Pump ();
+}
+
 // ⚠️ A CURSOR ARCHICAD HID IS ITS POINTER MODE, ON A LOCKED VIEW TOO (the user, 2026-11-14, #145):
 // in Explore the pointer is invisible and held at the middle of the view, and the locked view
 // went on taking its moves and clicks -- the virtual editor's objects lit up under it and a click
