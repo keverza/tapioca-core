@@ -141,9 +141,15 @@ TEST (OverlayInput, CapturedEditorNavigationIsPassedAndReported)
     ::PostMessageW (canvas, WM_MOUSEWHEEL, MAKEWPARAM (0, WHEEL_DELTA), MAKELPARAM (50, 40));
     Pump ();
     events = input::TakeInput (input::View::Plan);
-    EXPECT_FALSE (events.navigating);
+    // ⚠️ STILL ARCHICAD'S THROUGH THE SETTLE (#145): the editor's hover redrew the view as the
+    // button came up, inside Archicad's last moments of the gesture, and the view jumped.
+    EXPECT_TRUE (events.navigating);
+    EXPECT_TRUE (input::NavigatingNatively (input::View::Plan));
     EXPECT_EQ (events.navigationRevision, 3u);
     EXPECT_EQ (s_hostMiddleUp, 1);
+    ::Sleep (DWORD (input::kNavigationSettleMs + 50));
+    EXPECT_FALSE (input::CurrentInput (input::View::Plan).navigating);
+    EXPECT_FALSE (input::NavigatingNatively (input::View::Plan));
     EXPECT_TRUE (events.buttons.empty ());
     EXPECT_NE (events.viewIdentity, 0u);
     // A scrollable HUD page still consumes its wheel; it is not a native zoom event.

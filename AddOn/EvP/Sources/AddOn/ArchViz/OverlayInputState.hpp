@@ -22,6 +22,8 @@ struct Target {
     bool wasOver = false; // over the HUD at the last message: leaving it redraws the hover
     bool navigating = false;
     uint64_t navigationRevision = 0;
+    // GetTickCount64 at the last navigation event passed to Archicad; 0: none this session.
+    uint64_t lastNavigationMs = 0;
     std::vector<overlayhud::Input::Button> buttons;
     std::vector<overlayhud::Input::EditAction> editActions;
     std::vector<overlayhud::Input::Key> keys;
@@ -42,6 +44,10 @@ extern Stats stats;
 
 View ViewOf (const Target& target);
 Target* TargetFor (HWND window);
+
+// Archicad is navigating this view: its middle button is held, read live, or the last event of
+// a navigation passed to it is younger than `kNavigationSettleMs` (OverlayHitMap.hpp).
+bool NavigatingNatively (const Target& target);
 
 // The cursor over the HUD (OverlayInputCursor.cpp).
 // The HUD owns what is under the pointer now: the canvas itself is there -- not a palette

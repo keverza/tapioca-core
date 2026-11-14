@@ -117,6 +117,24 @@ enum class Owner : uint8_t { None = 0, Hud = 1, Host = 2 };
 // This does not change event routing or cancel an independent HUD edit/typed gesture.
 Owner CursorOwner (Owner remembered, uint32_t physicalButtons);
 
+// ⚠️ A NATIVE NAVIGATION OUTLASTS ITS BUTTON (2026-11-14, #145). Archicad's view kept jumping on
+// the virtual editor's locked view, and only with a path drawn: the pointer came to rest on the
+// path as the middle button came up, the editor's hover changed what the HUD draws, and the change
+// asked Archicad for a redraw inside the gesture's last moments -- the held-button gate
+// (2026-11-04) had already let go. The jumps the camera showed were 16-422 ms after a release, or
+// in a press's first ms (NAVJUMP, 2026-11-05 and 2026-11-14). So a navigation is still Archicad's
+// for this long after the last event of it that was passed on (a middle press or release, a move
+// with the middle button held, a wheel step): nothing hovers, nothing picks and no redraw is
+// asked for until it has run out.
+// ⚠️ NOT A VALIDATED THRESHOLD (§7): above the latest jump measured after a release (422 ms),
+// below what a user notices as a dead hover. NAVJUMP prints each jump's distance from the
+// release, so a run can argue with the number.
+constexpr uint64_t kNavigationSettleMs = 600;
+constexpr bool NavigationSettling (uint64_t nowMs, uint64_t lastEventMs)
+{
+    return lastEventMs != 0 && nowMs >= lastEventMs && nowMs - lastEventMs < kNavigationSettleMs;
+}
+
 class Router {
   public:
     // A message being removed from the queue: its route, the latch moved by it. `overScroll`:

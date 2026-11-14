@@ -202,6 +202,10 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     self->y = float (point.y);
     const bool middle =
         (event.kind == EventKind::Press || event.kind == EventKind::Release) && event.button == Button::Middle;
+    // What Archicad navigates by, passed on: the settle window runs from the last of them.
+    if (route == Route::Pass && (middle || event.kind == EventKind::Wheel ||
+                                 (event.kind == EventKind::Move && (event.held & Bit (Button::Middle)) != 0)))
+        self->lastNavigationMs = ::GetTickCount64 ();
     if (route == Route::Pass && (middle || (event.kind == EventKind::Wheel && event.wheel != 0.0f))) {
         ++self->navigationRevision;
         if (middle)
@@ -751,7 +755,9 @@ overlayhud::Input InputOf (Target& target, bool take)
     input.overHud = input.pointer && target.map.Hit (input.x, input.y, input.width, input.height) >= 0;
     input.hasButtonState = true;
     input.buttonsDown = PhysicalButtons ();
-    input.navigating = target.navigating || (input.buttonsDown & Bit (Button::Middle)) != 0;
+    // ⚠️ AND THROUGH ITS SETTLE (#145): the editor withholds its picks while this is set, so a
+    // path under the pointer is not highlighted -- and no redraw asked for -- as Archicad ends.
+    input.navigating = target.navigating || state::NavigatingNatively (target);
     input.navigationRevision = target.navigationRevision;
     input.viewIdentity = uint64_t (reinterpret_cast<uintptr_t> (target.canvas));
     // Read as the layout is: it follows the press that asked for it, the key held through both.
@@ -916,6 +922,11 @@ void SetHitMap (View view, HitMap map)
         ::TrackMouseEvent (&tracking);
         ::SendMessageW (target.canvas, WM_MOUSELEAVE, 0, 0); // clear feedback scheduled before the lock
     }
+}
+
+bool NavigatingNatively (View view)
+{
+    return state::NavigatingNatively (TargetOf (view));
 }
 
 void RequestLayout (View view)

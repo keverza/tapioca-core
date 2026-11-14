@@ -110,6 +110,11 @@ bool EnableHudTextKeys (bool enabled);
 // Where the HUD is on that view, from its last layout.
 void SetHitMap (View view, HitMap map);
 
+// Archicad is navigating that view now: its middle button is held, or the last navigation event
+// passed to it is younger than `kNavigationSettleMs` (OverlayHitMap.hpp). No redraw is asked of
+// Archicad, and nothing of the HUD's hovers or picks, while it is (#145).
+bool NavigatingNatively (View view);
+
 // Lay that view's HUD out again soon, as a pointer change would: something other than the
 // pointer changed what it shows (the text size set from Python). Nothing for a view not
 // attached.

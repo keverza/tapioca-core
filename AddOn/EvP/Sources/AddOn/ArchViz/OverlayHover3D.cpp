@@ -78,7 +78,9 @@ void Fill (overlayhud::Input& input)
         return;
     }
     input.hover.picks = true; // the 3D view reads under the pointer: its readout may say "nothing"
-    if (!input.pointer || input.overHud || !overlayvisibility::ContentShown ()) {
+    // Nothing is read under the pointer while Archicad navigates (#145): a tint that follows the
+    // pointer through an orbit is a redraw asked for inside it.
+    if (!input.pointer || input.overHud || input.navigating || !overlayvisibility::ContentShown ()) {
         ResetDwell ();
         return;
     }

@@ -49,6 +49,15 @@ bool NativeNavigation ()
     return (PhysicalButtons () & Bit (Button::Middle)) != 0;
 }
 
+} // namespace
+
+bool NavigatingNatively (const Target& target)
+{
+    return NativeNavigation () || NavigationSettling (::GetTickCount64 (), target.lastNavigationMs);
+}
+
+namespace {
+
 // ---- the cursor over the HUD ------------------------------------------------------------
 // Resolved from the comctl32 Archicad has already loaded, as PlanFrameSession's: the add-on
 // gains no import for it.

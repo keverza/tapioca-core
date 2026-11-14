@@ -185,6 +185,18 @@ TEST (OverlayHitMap, NavigationIsNeverTaken)
     EXPECT_EQ (router.Decide (Move (), true), input::Route::Take);
 }
 
+// #145, 2026-11-14: camera jumps 16-422 ms after a middle release, only with a path under the
+// pointer -- the hover's redraw landed inside Archicad's navigation once the button was up.
+TEST (OverlayHitMap, ANavigationIsStillArchicadsUntilItsSettleRunsOut)
+{
+    EXPECT_FALSE (input::NavigationSettling (5000, 0)); // no navigation yet this session
+    EXPECT_TRUE (input::NavigationSettling (5000, 5000));
+    EXPECT_TRUE (input::NavigationSettling (5000 + 422, 5000)); // the latest jump measured after a release
+    EXPECT_TRUE (input::NavigationSettling (5000 + input::kNavigationSettleMs - 1, 5000));
+    EXPECT_FALSE (input::NavigationSettling (5000 + input::kNavigationSettleMs, 5000));
+    EXPECT_FALSE (input::NavigationSettling (4000, 5000)); // a clock read before the event
+}
+
 TEST (OverlayHitMap, NavigationPassesDuringACapturedHudGesture)
 {
     input::Router router;

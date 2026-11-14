@@ -196,9 +196,12 @@ bool RefreshHud3D ()
 // publish asked Archicad to redraw in the middle of its own gesture. While the middle button is
 // held the redraw is held and counted; one is asked for at the first heartbeat after release.
 // Archicad presents through the whole gesture anyway, so nothing published waits for it.
+// ⚠️ AND THROUGH THE SETTLE AFTER IT, AND AFTER A WHEEL STEP (2026-11-14, `kNavigationSettleMs`):
+// with a path drawn the pointer rests on it at the release, the hover redraws at once, and the
+// jumps were measured 16-422 ms after a release. A wheel zoom holds no button at all.
 bool NavigatingNatively ()
 {
-    return (overlayinput::events::PhysicalButtons () & overlayinput::Bit (overlayinput::Button::Middle)) != 0;
+    return overlayinput::NavigatingNatively (overlayinput::View::ThreeD);
 }
 
 void Redraw3D ()
