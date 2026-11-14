@@ -123,6 +123,115 @@ RedrawMark g_redraws[kRedrawRing];
 size_t g_redrawNext = 0;
 dxgi::injection::freshness::CameraSample g_last;
 
+// ⚠️ WHAT ARCHICAD WAS GIVEN BEFORE A JUMP, IN ORDER (2026-11-14 15:06-15:09, #145). With the
+// moves after a release passed, the jumps left were single steps of 57-72 deg at the instant of a
+// press 210-324 ms after the release before it -- and no counter says what came between. So the
+// last events are kept, runs of the same one folded, and written after each NAVJUMP as NAVTRACE:
+// milliseconds from the jump's decode, negative before it.
+enum class Trace : uint8_t {
+    None,
+    Passed,
+    Eaten,
+    Press,
+    Release,
+    Wheel,
+    KeyDown,
+    KeyRepeat,
+    KeyUp,
+    Redraw,
+    Left,
+    Layout
+};
+struct TraceEvent {
+    uint64_t firstMs = 0;
+    uint64_t lastMs = 0;
+    Trace kind = Trace::None;
+    long x = 0; // the pointer; a key's code; a layout's longest, in ms
+    long y = 0;
+    uint32_t count = 0;
+};
+constexpr size_t kTraceRing = 96;
+constexpr uint64_t kTraceBeforeMs = 1500;
+constexpr uint64_t kTraceAfterMs = 100;
+constexpr uint32_t kTraceLayoutMicros = 30000; // a layout that held the main thread for two frames
+TraceEvent g_trace[kTraceRing];
+size_t g_traceNext = 0;
+
+void Remember (Trace kind, long x = 0, long y = 0)
+{
+    const uint64_t now = ::GetTickCount64 ();
+    TraceEvent& last = g_trace[(g_traceNext + kTraceRing - 1) % kTraceRing];
+    const bool run = kind == Trace::Passed || kind == Trace::Eaten || kind == Trace::Redraw || kind == Trace::Layout ||
+                     kind == Trace::KeyRepeat;
+    if (run && last.kind == kind && (kind != Trace::KeyRepeat || last.x == x)) {
+        last.lastMs = now;
+        ++last.count;
+        if (kind == Trace::Layout)
+            last.x = (std::max) (last.x, x);
+        else
+            last.x = x, last.y = y;
+        return;
+    }
+    g_trace[g_traceNext] = { now, now, kind, x, y, 1 };
+    g_traceNext = (g_traceNext + 1) % kTraceRing;
+}
+
+void SayTrace (uint64_t ms)
+{
+    std::string line = "NAVTRACE     ms from that jump:";
+    for (size_t i = 0; i < kTraceRing; ++i) {
+        const TraceEvent& e = g_trace[(g_traceNext + i) % kTraceRing];
+        if (e.kind == Trace::None || e.lastMs + kTraceBeforeMs < ms || e.firstMs > ms + kTraceAfterMs)
+            continue;
+        char when[48] = {};
+        if (e.count > 1)
+            _snprintf_s (when, sizeof (when), _TRUNCATE, " | %+lld..%+lld %ux ", (long long) (e.firstMs - ms),
+                         (long long) (e.lastMs - ms), e.count);
+        else
+            _snprintf_s (when, sizeof (when), _TRUNCATE, " | %+lld ", (long long) (e.firstMs - ms));
+        char what[96] = {};
+        switch (e.kind) {
+            case Trace::Passed:
+                _snprintf_s (what, sizeof (what), _TRUNCATE, "move passed, to (%ld, %ld)", e.x, e.y);
+                break;
+            case Trace::Eaten:
+                _snprintf_s (what, sizeof (what), _TRUNCATE, "move eaten, to (%ld, %ld)", e.x, e.y);
+                break;
+            case Trace::Press:
+                _snprintf_s (what, sizeof (what), _TRUNCATE, "MIDDLE PRESS at (%ld, %ld)", e.x, e.y);
+                break;
+            case Trace::Release:
+                _snprintf_s (what, sizeof (what), _TRUNCATE, "MIDDLE RELEASE");
+                break;
+            case Trace::Wheel:
+                _snprintf_s (what, sizeof (what), _TRUNCATE, "wheel");
+                break;
+            case Trace::KeyDown:
+            case Trace::KeyRepeat:
+            case Trace::KeyUp:
+                _snprintf_s (what, sizeof (what), _TRUNCATE, "key 0x%02lX %s", e.x,
+                             e.kind == Trace::KeyDown ? "DOWN"
+                             : e.kind == Trace::KeyUp ? "UP"
+                                                      : "repeat");
+                break;
+            case Trace::Redraw:
+                _snprintf_s (what, sizeof (what), _TRUNCATE, "3D redraw of ours");
+                break;
+            case Trace::Left:
+                _snprintf_s (what, sizeof (what), _TRUNCATE, "Archicad told the pointer left");
+                break;
+            case Trace::Layout:
+                _snprintf_s (what, sizeof (what), _TRUNCATE, "HUD layout of up to %ld ms", e.x);
+                break;
+            default:
+                break;
+        }
+        line += when;
+        line += what;
+    }
+    ArchVizLog (line);
+}
+
 uint64_t Now ()
 {
     return ::GetTickCount64 ();
@@ -248,8 +357,7 @@ void SayJump (const CameraStep& step, const float* view, uint64_t ms, uint64_t d
     char redraw[200] = "no 3D redraw of ours yet";
     char next[64] = "none after";
     if (after != nullptr)
-        _snprintf_s (next, sizeof (next), _TRUNCATE, "the next %llu ms after",
-                     (unsigned long long) (after->ms - ms));
+        _snprintf_s (next, sizeof (next), _TRUNCATE, "the next %llu ms after", (unsigned long long) (after->ms - ms));
     if (before != nullptr)
         _snprintf_s (redraw, sizeof (redraw), _TRUNCATE,
                      "our last 3D redraw before it %llu ms before (%s), %u in the %llu ms before, %s",
@@ -265,6 +373,7 @@ void SayJump (const CameraStep& step, const float* view, uint64_t ms, uint64_t d
                  "NAVJUMP", Clock (ms).c_str (), step.degrees, step.travel, (unsigned long long) dt, where, wheel,
                  redraw, undo, shift);
     ArchVizLog (line);
+    SayTrace (ms);
 }
 
 // Every camera decode since the last heartbeat, step by step.
@@ -348,6 +457,7 @@ void ReportIfDue ()
 
 void NoteMove (long x, long y, bool passed, bool eatenFromHostGesture)
 {
+    Remember (passed ? Trace::Passed : Trace::Eaten, x, y);
     if (g_current.open) {
         const uint64_t now = Now ();
         if (passed && g_current.lastPassedMs != 0)
@@ -369,6 +479,7 @@ void NoteMove (long x, long y, bool passed, bool eatenFromHostGesture)
 
 void NoteNavigationStart (long x, long y, bool locked)
 {
+    Remember (Trace::Press, x, y);
     ++g_window.presses;
     g_window.pressesOnLocked += locked ? 1 : 0;
     g_pressGapMs = g_lastNavigationStart != 0 ? Now () - g_lastNavigationStart : 0;
@@ -402,6 +513,7 @@ void NoteNavigationStart (long x, long y, bool locked)
 
 void NoteNavigationEnd ()
 {
+    Remember (Trace::Release);
     if (!g_current.open)
         return;
     g_current.open = false;
@@ -410,12 +522,14 @@ void NoteNavigationEnd ()
 
 void NoteWheel ()
 {
+    Remember (Trace::Wheel);
     ++g_window.wheels;
     g_lastWheel = Now ();
 }
 
 void NoteRedraw (RedrawSource source)
 {
+    Remember (Trace::Redraw);
     g_redraws[g_redrawNext] = { Now (), source };
     g_redrawNext = (g_redrawNext + 1) % kRedrawRing;
     ++g_window.redraws;
@@ -424,16 +538,21 @@ void NoteRedraw (RedrawSource source)
 
 void NoteHostHover (bool told)
 {
+    if (told)
+        Remember (Trace::Left);
     (told ? g_window.hostHoverCleared : g_window.hostHoverLeft) += 1;
 }
 
 void NoteHudRefresh (uint32_t micros)
 {
+    if (micros >= kTraceLayoutMicros)
+        Remember (Trace::Layout, long (micros / 1000));
     (Navigating () ? g_window.refreshNavigating : g_window.refresh).Add (micros);
 }
 
 void NoteKeyTaken (uint32_t code, bool down, bool repeat)
 {
+    Remember (!down ? Trace::KeyUp : repeat ? Trace::KeyRepeat : Trace::KeyDown, long (code));
     if (!down && (code == VK_SHIFT || code == VK_LSHIFT || code == VK_RSHIFT))
         g_lastShiftUpTakenMs = Now ();
     ++g_window.keysTaken;
@@ -495,6 +614,9 @@ void Reset ()
         mark = RedrawMark {};
     g_redrawNext = 0;
     g_lastShiftUpTakenMs = 0;
+    for (TraceEvent& event : g_trace)
+        event = TraceEvent {};
+    g_traceNext = 0;
 }
 
 CameraStep Step (const float* a, const float* b)
