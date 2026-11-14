@@ -730,6 +730,7 @@ set (EVP_ARCHVIZ_SOURCES
     # canvas; its log lines go nowhere (ArchVizLogStub.cpp).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputCursor.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputSnapshot.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputKeyboard.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputResidue.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayNavigationWatch.cpp"
@@ -1375,6 +1376,7 @@ endif ()
 # builds it: with UNICODE.
 set_source_files_properties ("${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
                              "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputCursor.cpp"
+                             "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputSnapshot.cpp"
                              PROPERTIES COMPILE_DEFINITIONS "UNICODE;_UNICODE")
 add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
                                ${EVP_ARCHVIZ_SOURCES} ${EVP_SCENE_TEXT_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}

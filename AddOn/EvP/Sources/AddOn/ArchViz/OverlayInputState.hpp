@@ -45,6 +45,10 @@ extern Stats stats;
 View ViewOf (const Target& target);
 Target* TargetFor (HWND window);
 
+// What the view's HUD is told for its layout (OverlayInputSnapshot.cpp); `take` hands over the
+// presses, keys and wheel collected since the last call.
+overlayhud::Input InputOf (Target& target, bool take);
+
 // Archicad is navigating this view: its middle button is held, read live, or the last event of
 // a navigation passed to it is younger than `kNavigationSettleMs` (OverlayHitMap.hpp).
 bool NavigatingNatively (const Target& target);
