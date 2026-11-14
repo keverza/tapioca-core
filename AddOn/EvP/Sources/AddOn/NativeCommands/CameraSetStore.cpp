@@ -24,13 +24,58 @@ CameraSetStore& CameraSetStore::Get ()
 
 void CameraSetStore::Configure (const GS::Array<GS::UniString>& names)
 {
+    ++revision;
+    owner.Clear ();
     entries.clear ();
     for (const GS::UniString& name : names)
         entries.push_back ({ name, {} });
 }
 
+void CameraSetStore::Configure (const GS::UniString& commandOwner, const GS::Array<GS::UniString>& names)
+{
+    bool same = !commandOwner.IsEmpty () && owner == commandOwner && entries.size () == names.GetSize ();
+    for (UIndex i = 0; same && i < names.GetSize (); ++i)
+        same = Key (entries[i].name) == Key (names[i]);
+    if (same)
+        return;
+    Configure (names);
+    owner = commandOwner;
+}
+
+CameraSetStore::State CameraSetStore::Capture () const
+{
+    State state;
+    state.owner = owner;
+    for (const auto& entry : entries)
+        state.values.push_back ({ entry.name, entry.cameras });
+    return state;
+}
+
+void CameraSetStore::Restore (const State& state)
+{
+    ++revision;
+    owner = state.owner;
+    entries.clear ();
+    for (const auto& [name, cameras] : state.values)
+        entries.push_back ({ name, cameras });
+}
+
+GS::UniString CameraSetStore::Owner () const
+{
+    return owner;
+}
+
+void CameraSetStore::ResetValues ()
+{
+    ++revision;
+    for (auto& entry : entries)
+        entry.cameras.clear ();
+}
+
 void CameraSetStore::Clear ()
 {
+    ++revision;
+    owner.Clear ();
     entries.clear ();
 }
 
@@ -67,6 +112,7 @@ bool CameraSetStore::Add (const GS::UniString& name, const ArchicadCamera& camer
         error = "camera set is not declared for the active command";
         return false;
     }
+    ++revision;
     entry->cameras.push_back (camera);
     return true;
 }
@@ -83,6 +129,7 @@ bool CameraSetStore::Update (const GS::UniString& name, size_t index, const Arch
         error = "the selected camera no longer exists";
         return false;
     }
+    ++revision;
     entry->cameras[index] = camera;
     return true;
 }
@@ -98,6 +145,7 @@ bool CameraSetStore::Remove (const GS::UniString& name, size_t index, GS::UniStr
         error = "the selected camera no longer exists";
         return false;
     }
+    ++revision;
     entry->cameras.erase (entry->cameras.begin () + static_cast<std::ptrdiff_t> (index));
     return true;
 }
@@ -109,6 +157,7 @@ bool CameraSetStore::Clear (const GS::UniString& name, GS::UniString& error)
         error = "camera set is not declared for the active command";
         return false;
     }
+    ++revision;
     entry->cameras.clear ();
     return true;
 }

@@ -23,10 +23,10 @@ void SelectionSetPanel::Clear ()
 }
 
 void SelectionSetPanel::Rebuild (const GS::Array<GS::UniString>& names, bool exclusive,
-                                 const GS::Array<GS::UniString>& rulesJson)
+                                 const GS::Array<GS::UniString>& rulesJson, const GS::UniString& owner)
 {
     Clear ();
-    geomsrv::SelectionSetStore::Get ().Configure (names, exclusive);
+    geomsrv::SelectionSetStore::Get ().Configure (owner, names, exclusive);
     for (const GS::UniString& name : names) {
         Row row;
         row.name = name;

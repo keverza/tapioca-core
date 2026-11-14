@@ -35,7 +35,7 @@ class SelectionSetPanel {
     // `exclusive`: the command's sets are mutually exclusive (see
     // SelectionSetStore::Configure); every row is refreshed after a move.
     void Rebuild (const GS::Array<GS::UniString>& names, bool exclusive = false,
-                  const GS::Array<GS::UniString>& rulesJson = {});
+                  const GS::Array<GS::UniString>& rulesJson = {}, const GS::UniString& owner = {});
     bool RefreshVisibility (const ParamPanel& params);
     void Clear ();
     short PlaceAt (short top, short left, short right, const PaletteScroll& clip);

@@ -245,6 +245,55 @@ TEST (ExteriorSurface, RedYellowOverlayAndPanelUseExactSelectedFragmentTriangles
         EXPECT_EQ (output.layer.meshes[i].style.behind, archviz::overlaylayers::Behind::Show);
         EXPECT_FALSE (output.layer.meshes[i].style.cullBack);
     }
+    geomsrv::surfacetakeoff::Result published;
+    published.snapshotId = snapshot.id;
+    published.captureStamp = snapshot.captureStamp;
+    published.classification = "userExteriorSeeds-connectedCoplanar";
+    published.unit = "m2";
+    published.coverScopeId = result.coverScopeId;
+    published.contactToleranceM = result.contactToleranceM;
+    published.coverBodyCount = result.covers.size ();
+    for (const auto& entry : result.byElementGuid)
+        published.regionElementGuids.push_back (entry.first);
+    published.selectedTriangleCount = output.triangles;
+    published.selectedAreaM2 = output.areaM2;
+    published.nativeComparisonNote = output.comparisonNote;
+    for (const auto& row : output.rows)
+        published.surfaces.push_back ({ row.index, row.name, row.rgba, row.areaM2 });
+    for (const auto& [index, area] : output.nativeAreas)
+        published.nativeSurfaces.push_back ({ index, area });
+    for (const auto& fragment : result.fragments) {
+        geomsrv::surfacetakeoff::FragmentMesh mesh;
+        mesh.guid = snapshot.meshes[fragment.source.body.meshIndex].guid;
+        mesh.sourceBody = fragment.source.body.sourceBody;
+        mesh.sourcePgon = fragment.source.sourcePgon;
+        mesh.surfaceAttributeIndex = selection.poolToSurface.at (fragment.materialPoolIndex);
+        mesh.areaM2 = fragment.areaM2;
+        mesh.points = fragment.points;
+        mesh.triangles = fragment.triangles;
+        published.meshes.push_back (std::move (mesh));
+    }
+    presentation::Presentation restored;
+    ASSERT_TRUE (presentation::BuildFromResult (snapshot, published, restored, error)) << error;
+    EXPECT_EQ (restored.rows.size (), output.rows.size ());
+    EXPECT_EQ (restored.layer.meshes.size (), output.layer.meshes.size ());
+    EXPECT_EQ (restored.triangles, output.triangles);
+    EXPECT_DOUBLE_EQ (restored.areaM2, output.areaM2);
+    EXPECT_EQ (restored.meshFacings, output.meshFacings);
+    EXPECT_EQ (restored.meshElements, output.meshElements);
+    EXPECT_EQ (restored.nativeAreas, output.nativeAreas);
+    EXPECT_EQ (restored.scopeLabel, output.scopeLabel);
+    EXPECT_EQ (restored.coverLabel, output.coverLabel);
+    for (size_t i = 0; i < restored.layer.meshes.size (); ++i) {
+        EXPECT_EQ (restored.layer.meshes[i].points, output.layer.meshes[i].points);
+        EXPECT_EQ (restored.layer.meshes[i].indices, output.layer.meshes[i].indices);
+    }
+    auto tampered = published;
+    tampered.selectedAreaM2 = 999;
+    EXPECT_FALSE (presentation::BuildFromResult (snapshot, tampered, restored, error));
+    EXPECT_TRUE (restored.layer.meshes.empty ());
+    EXPECT_TRUE (restored.rows.empty ());
+
     result.areas.selectedExposedArea = 999;
     EXPECT_FALSE (presentation::Build (snapshot, result, selection, { 100, 200 }, {}, "", output, error));
     EXPECT_TRUE (output.layer.meshes.empty ());

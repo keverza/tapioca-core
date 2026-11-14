@@ -5,9 +5,11 @@
 #include "ArchViz/OverlayLayers.hpp"
 #include "Geometry/SurfaceAttributeMap.hpp"
 #include "Geometry/SurfaceCriteria.hpp"
+#include "Geometry/SurfaceTakeoffResult.hpp"
 
 namespace geomsrv::archviz::surfacetakeoff {
 constexpr const char* kLayer = "tapioca.exposedSurfaces";
+constexpr const char* kWorkflowKey = "tapioca.exposedSurfaces#0";
 constexpr size_t kMaxSurfaces = 512; // bounded by the candidate-face budget, not the project catalog
 constexpr size_t kAreaPageSize = 50;
 // sRGB conversion of oklch(0.56 0.06 151), rounded to 8-bit channels.
@@ -68,5 +70,9 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
             const std::vector<int32_t>& surfaces, const std::map<int32_t, double>& nativeAreas,
             const std::string& comparisonNote, Presentation& output, std::string& error,
             const std::vector<uint32_t>& colors = {}, bool allWalls = false);
+// Publish-time view of the controller's immutable DTO. This copies and verifies
+// its exact fragment meshes; it does not recalculate exposure or accept UI data.
+bool BuildFromResult (const Snapshot& snapshot, const geomsrv::surfacetakeoff::Result& result, Presentation& output,
+                      std::string& error);
 } // namespace geomsrv::archviz::surfacetakeoff
 #endif

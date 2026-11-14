@@ -412,6 +412,8 @@ bool TakeLogsRequest (State& state);
 // owner re-pins the build if the hooks refused it and learns the camera again -- after the
 // layout, never inside it.
 bool TakeCameraRepairRequest (State& state);
+// Stable Document workflow selection/button, drained by the main-thread owner.
+bool TakeExposedSurfaceRequest (State& state);
 // What the user changed in the Selection page's metadata since the last call, in order: the
 // owner writes it -- after the layout, never inside it (ArchViz/SelectionMetadata.hpp).
 std::vector<hudmeta::Edit> TakeMetadataEdits (State& state);

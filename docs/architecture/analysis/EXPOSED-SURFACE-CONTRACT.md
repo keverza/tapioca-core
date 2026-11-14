@@ -86,15 +86,36 @@ last-good result but cannot present it as aligned with a newer capture.
 `refused`, `cancelled`, superseded and stale-capture worker completions publish
 no partial quantity.
 
-The S1 `StartExposedSurfaceTakeoff`, `PollExposedSurfaceTakeoff` and
-`CancelExposedSurfaceTakeoff` native commands expose this mailbox without an
-overlay dependency. Submissions return the generation assigned under the
-controller lock. Workers consume typed SDK-free request/result DTOs; GS conversion
-is confined to the legacy command and poll boundaries. Queued superseded work is
-discarded, cancellation is cooperative, and document close revokes pending work.
-`lastGoodResult` is present only when `hasLastGood` is true and is exportable only
-when `state == "current"`; `pending` and `stale` results are explicitly not current.
-`FreeData` joins the worker on APX unload, including unload without a Quit event.
+The S1 `StartExposedSurfaceTakeoff`, `PollExposedSurfaceTakeoff`,
+`PublishExposedSurfaceTakeoff` and `CancelExposedSurfaceTakeoff` native commands
+expose this mailbox without an overlay dependency. Submissions return the
+generation assigned under the controller lock. Workers consume typed SDK-free
+request/result DTOs; GS conversion is confined to the legacy command and poll
+boundaries. Queued superseded work is discarded, cancellation is cooperative, and
+document close revokes pending work. `lastGoodResult` is present only when
+`hasLastGood` is true and is exportable only when `state == "current"`; `pending`
+and `stale` results are explicitly not current. `FreeData` joins the worker on APX
+unload, including unload without a Quit event.
+
+The stable **Document → Exposed surfaces** navigation entry exists before a result
+layer is published. It queues the existing `RunCommand` intent and the main-thread
+HUD owner dispatches it after layout; no work starts in an ImGui draw call. The
+Python workflow retains capture, catalog and picking orchestration but uses only
+Start/Poll for calculation. It validates the accepted DTO and then calls Publish
+with only its generation. The native main-thread adapter reconstructs and verifies
+the existing overlay presentation from that exact immutable DTO, finalizes any
+requested whole-element comparison there (never in the detached worker), reads
+basic criteria metadata for the resolved candidates, and publishes through the
+existing overlay sink. Its response carries the natively finalized result for a
+second Python mesh/area validation. Python cannot substitute meshes or area totals
+at publication.
+
+Publish generation/currentness and the sink commit share the controller mutex with
+Submit/Cancel/Clear. Cleanup accepts an optional generation and is cancel-exempt:
+a stopped or superseded caller can discard its own work without revoking a
+successor. Existing and capture-expired panels retain an explicit Recalculate
+action; selecting an existing result alone does not recalculate it. The shared
+ImGui page and separate viewer mesh sink remain outside this slice.
 
 The legacy C++ API returns `bool` and a human-readable error and atomically clears
 `Result` on every failure. The additive `Refusal` overload supplies the following

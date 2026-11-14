@@ -29,6 +29,22 @@ const char kPollOutput[] = R"json({
  },"required":["state","generation","error","hasLastGood"]
 })json";
 const char kEmptyInput[] = R"json({"type":"object","properties":{},"additionalProperties":false})json";
+const char kPublishInput[] = R"json({
+ "type":"object","additionalProperties":false,
+ "properties":{"generation":{"type":"integer","minimum":1}},"required":["generation"]
+})json";
+const char kPublishOutput[] = R"json({
+ "type":"object","additionalProperties":false,
+ "properties":{
+  "overlayPublished":{"const":true},"generation":{"type":"integer","minimum":1},
+  "snapshotId":{"type":"integer","minimum":1},"captureStamp":{"type":"integer","minimum":1},
+  "result":{"type":"object"}
+ },"required":["overlayPublished","generation","snapshotId","captureStamp","result"]
+})json";
+const char kCancelInput[] = R"json({
+ "type":"object","additionalProperties":false,
+ "properties":{"generation":{"type":"integer","minimum":1}}
+})json";
 const char kCancelOutput[] =
     R"json({"type":"object","properties":{"cancelled":{"type":"boolean"}},"required":["cancelled"],"additionalProperties":false})json";
 
@@ -53,7 +69,6 @@ class StartTakeoffCommand : public MainThreadCommand {
             return NativeCommandResult::Failure (Text ("Snapshot missing or stale; prepare a fresh capture."));
         auto calculation = SurfaceTakeoffRequestFromNative (params);
         calculation.publishOverlay = false;
-        calculation.compareNative = false;
         surfacetakeoff::ControllerRequest request;
         request.snapshot = snapshot;
         request.execute = [calculation] (const std::atomic<bool>& cancelled) {
@@ -109,6 +124,45 @@ class PollTakeoffCommand : public MainThreadCommand {
     }
 };
 
+class PublishTakeoffCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "PublishExposedSurfaceTakeoff";
+    }
+    bool NeedsMainThread () const override
+    {
+        return true;
+    }
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::Int64 generation = 0;
+        params.Get ("generation", generation);
+        const auto view = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().Poll ();
+        if (view.state != surfacetakeoff::ControllerState::Current || !view.lastGood || generation <= 0 ||
+            view.lastGood->generation != uint64_t (generation) || view.lastGood->generation != view.generation)
+            return NativeCommandResult::Failure (Text ("The requested controller result is not current."));
+        const auto result = std::static_pointer_cast<const surfacetakeoff::Result> (view.lastGood->payload);
+        if (!result)
+            return NativeCommandResult::Failure (Text ("The controller result has no immutable surface payload."));
+        NativeCommandResult published;
+        std::string error;
+        auto& controller = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ();
+        const bool committed = controller.CommitPublication (
+            uint64_t (generation),
+            [&] (std::string& commitError) {
+                published = PublishExteriorSurfaceResult (*result, uint64_t (generation));
+                if (!published.ok)
+                    commitError = published.error.ToCStr (0, MaxUSize, CC_UTF8).Get ();
+                return published.ok;
+            },
+            error);
+        if (!committed)
+            return NativeCommandResult::Failure (Text (error));
+        return published;
+    }
+};
+
 class CancelTakeoffCommand : public MainThreadCommand {
   public:
     GS::String GetName () const override
@@ -119,11 +173,13 @@ class CancelTakeoffCommand : public MainThreadCommand {
     {
         return false;
     }
-    NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().Cancel ();
+        GS::Int64 generation = 0;
+        params.Get ("generation", generation);
         GS::ObjectState output;
-        output.Add ("cancelled", true);
+        output.Add ("cancelled",
+                    geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().Cancel (uint64_t (generation)));
         return output;
     }
 };
@@ -132,7 +188,9 @@ const NativeCommandRegistration kRegistrations[] = {
     { "StartExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<StartTakeoffCommand>, false,
       SurfaceTakeoffInputSchema (), kStartOutput },
     { "PollExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<PollTakeoffCommand>, false, kEmptyInput, kPollOutput },
-    { "CancelExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<CancelTakeoffCommand>, false, kEmptyInput,
+    { "PublishExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<PublishTakeoffCommand>, false, kPublishInput,
+      kPublishOutput },
+    { "CancelExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<CancelTakeoffCommand>, true, kCancelInput,
       kCancelOutput }
 };
 } // namespace

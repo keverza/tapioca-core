@@ -36,6 +36,7 @@
 #include "ArchViz/HudVirtualEditorDraft.hpp"
 #include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "Palette/ProgrammeDialog.hpp"
+#include "Python/CommandControlDispatch.hpp"
 
 #include <algorithm>
 #include <climits>
@@ -174,6 +175,26 @@ void FollowHudState ()
         hudconsole::OpenLogs ();
     if (overlayhud::TakeCameraRepairRequest (*state))
         overlaycontrol::RepairCamera3D ();
+    if (overlayhud::TakeExposedSurfaceRequest (*state)) {
+        // The stable Document launcher uses the one existing Python run path. No
+        // worker, picker or palette run is started inside ImGui layout.
+        GS::ObjectState params, commandParams, data, error;
+        commandParams.Add ("action", GS::UniString ("Calculate"));
+        commandParams.Add ("object_scope", GS::UniString ("Criteria - captured elements"));
+        commandParams.Add ("covering", GS::UniString ("Captured construction + doors/windows"));
+        commandParams.Add ("contact_tolerance_mm", 1.0);
+        commandParams.Add ("seed_faces", 1);
+        params.Add ("folder", GS::UniString ("ExposedSurfaceCalculator"));
+        params.Add ("params", commandParams);
+        bool ok = false;
+        evp::DispatchCommandControlVerb ("EvP", "RunCommand", "Document: Exposed surfaces", params, data, error, ok);
+        if (!ok) {
+            GS::UniString message;
+            error.Get ("message", message);
+            hudconsole::Warning ("Exposed surfaces", message.IsEmpty () ? "The calculator could not start."
+                                                                        : message.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+        }
+    }
     overlaylayers::Layer stairs, units, planUnits;
     // The floor plan shows its own storey's units (user, 2026-10-14); its storey is the plan
     // session's, read here on the main thread like the rest of this turn.

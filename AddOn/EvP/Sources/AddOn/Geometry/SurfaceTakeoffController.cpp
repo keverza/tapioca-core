@@ -133,9 +133,11 @@ ControllerView SurfaceTakeoffController::Poll ()
     return ViewLocked ();
 }
 
-void SurfaceTakeoffController::Cancel ()
+bool SurfaceTakeoffController::Cancel (uint64_t generation)
 {
     std::lock_guard<std::mutex> lock (mutex_);
+    if (generation != 0 && generation_ != generation)
+        return false;
     ++generation_;
     if (running_)
         running_->cancelled.store (true);
@@ -145,11 +147,14 @@ void SurfaceTakeoffController::Cancel ()
     ready_ = false;
     terminal_ = lastGood_ ? ControllerState::Stale : ControllerState::Cancelled;
     error_ = "Surface calculation cancelled.";
+    return true;
 }
 
-void SurfaceTakeoffController::Clear ()
+bool SurfaceTakeoffController::Clear (uint64_t generation)
 {
     std::lock_guard<std::mutex> lock (mutex_);
+    if (generation != 0 && generation_ != generation)
+        return false;
     ++generation_;
     if (running_)
         running_->cancelled.store (true);
@@ -160,6 +165,19 @@ void SurfaceTakeoffController::Clear ()
     lastGood_.reset ();
     terminal_ = ControllerState::Empty;
     error_.clear ();
+    return true;
+}
+
+bool SurfaceTakeoffController::CommitPublication (uint64_t generation,
+                                                  const std::function<bool (std::string&)>& publish, std::string& error)
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    if (!publish || generation_ != generation || !lastGood_ || lastGood_->generation != generation ||
+        ViewLocked ().state != ControllerState::Current) {
+        error = "The requested controller result is not current.";
+        return false;
+    }
+    return publish (error);
 }
 
 void SurfaceTakeoffController::OnProjectClosed ()

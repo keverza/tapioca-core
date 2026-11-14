@@ -7,6 +7,9 @@
 #include "ArchViz/MassingSlices.hpp"
 #include "ArchViz/SlabSliceSource.hpp"
 #include "Metadata/MetadataStorage.hpp"
+#include "NativeCommands/CameraSetStore.hpp"
+#include "NativeCommands/SelectionSetStore.hpp"
+#include "Python/CommandControlDispatch.hpp"
 #include "Python/MainThreadGate.hpp"
 
 #include <algorithm>
@@ -63,6 +66,18 @@ constexpr const char kReset[] =
     R"json({"type":"object","properties":{"workerBusy":{"type":"boolean"}},"required":["workerBusy"],"additionalProperties":false})json";
 constexpr const char kCapture[] =
     R"json({"type":"object","properties":{"supported":{"type":"boolean","enum":[false]},"reason":{"type":"string"}},"required":["supported","reason"],"additionalProperties":false})json";
+constexpr const char kRoleInput[] = R"json({
+ "type":"object","additionalProperties":false,
+ "properties":{"store":{"enum":["selection","camera"]},"owner":{"type":"string","minLength":1},
+               "role":{"type":"string","minLength":1},"value":{"type":"string"},
+               "projectReset":{"type":"boolean"}},
+ "required":["store","owner","role"]
+})json";
+constexpr const char kRoleOutput[] = R"json({
+ "type":"object","additionalProperties":false,
+ "properties":{"owner":{"type":"string"},"role":{"type":"string"},"count":{"type":"integer","minimum":0}},
+ "required":["owner","role","count"]
+})json";
 
 class TestPingCommand : public MainThreadCommand {
   public:
@@ -261,12 +276,73 @@ class TestCaptureCommand : public MainThreadCommand {
     }
 };
 
+// Live adapter probe for command-role ownership. It uses the production stores,
+// but never reads/writes Archicad selection, camera or project geometry.
+class TestRoleStoreCommand : public MainThreadCommand {
+  public:
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::UniString storeName, owner, role, value;
+        bool projectReset = false;
+        params.Get ("store", storeName);
+        params.Get ("owner", owner);
+        params.Get ("role", role);
+        params.Get ("value", value);
+        params.Get ("projectReset", projectReset);
+        if (projectReset)
+            evp::ResetCommandRolesForProject ();
+        if (owner.IsEmpty () || role.IsEmpty ())
+            return NativeCommandResult::Failure ("Role owner and name are required.");
+        GS::Array<GS::UniString> roles;
+        roles.Push (role);
+        GS::UniString error;
+        GS::Int32 count = 0;
+        if (storeName == "selection") {
+            auto& store = SelectionSetStore::Get ();
+            if (!value.IsEmpty ()) {
+                store.Configure (owner, roles);
+                GS::Array<GS::UniString> values;
+                values.Push (value);
+                GS::Int32 changed = 0;
+                if (!store.Mutate (role, values, SelectionSetStore::Mutation::Replace, changed, error))
+                    return NativeCommandResult::Failure (error);
+            }
+            count = store.Values (role).GetSize ();
+            owner = store.Owner ();
+        }
+        else if (storeName == "camera") {
+            auto& store = CameraSetStore::Get ();
+            if (!value.IsEmpty ()) {
+                store.Configure (owner, roles);
+                ArchicadCamera camera;
+                camera.valid = true;
+                camera.source = value.ToCStr (0, MaxUSize, CC_UTF8).Get ();
+                const bool updated = store.IsDeclared (role) && !store.Values (role).empty ();
+                const bool ok = updated ? store.Update (role, 0, camera, error) : store.Add (role, camera, error);
+                if (!ok)
+                    return NativeCommandResult::Failure (error);
+            }
+            count = GS::Int32 (store.Values (role).size ());
+            owner = store.Owner ();
+        }
+        else {
+            return NativeCommandResult::Failure ("Unknown role store.");
+        }
+        GS::ObjectState out;
+        out.Add ("owner", owner);
+        out.Add ("role", role);
+        out.Add ("count", count);
+        return out;
+    }
+};
+
 const NativeCommandRegistration registrations[] = {
     { "TestPing", &MakeRegisteredNativeCommand<TestPingCommand>, true, kEmpty, kPing },
     { "TestRunWorkflow", &MakeRegisteredNativeCommand<TestRunWorkflowCommand>, false, kRun, kStarted },
     { "TestGetStatus", &MakeRegisteredNativeCommand<TestGetStatusCommand>, true, kJobInput, kStatus },
     { "TestGetDiagnostics", &MakeRegisteredNativeCommand<TestGetDiagnosticsCommand>, true, kEmpty, kDiagnostics },
     { "TestReset", &MakeRegisteredNativeCommand<TestResetCommand>, true, kEmpty, kReset },
+    { "TestRoleStore", &MakeRegisteredNativeCommand<TestRoleStoreCommand>, true, kRoleInput, kRoleOutput },
     { "TestCapture", &MakeRegisteredNativeCommand<TestCaptureCommand>, true, kEmpty, kCapture },
 };
 

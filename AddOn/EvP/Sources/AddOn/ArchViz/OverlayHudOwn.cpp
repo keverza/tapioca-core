@@ -5,6 +5,7 @@
 
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/HudMassingStats.hpp"
+#include "ArchViz/SurfaceTakeoffLayer.hpp"
 
 #include <string>
 #include <algorithm>
@@ -93,6 +94,8 @@ std::string Engine::Impl::TitleOf (const std::string& tabKey, const std::vector<
         return "Massing";
     if (tabKey == "virtual-editor#0")
         return "Virtual editor";
+    if (tabKey == surfacetakeoff::kWorkflowKey)
+        return "Exposed surfaces";
     if (tabKey == "@viewer.analysis")
         return "Analysis";
     if (tabKey == kDebugKey)

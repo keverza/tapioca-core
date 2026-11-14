@@ -171,6 +171,71 @@ TEST_F (ControllerFixture, ClearDiscardsQueuedWorkAndIsImmediatelyEmpty)
     EXPECT_EQ (queuedCalls.load (), 0u);
 }
 
+TEST_F (ControllerFixture, SupersededCallerCannotClearItsSuccessor)
+{
+    const auto snapshot = Capture (19, 7);
+    auto gate = std::make_shared<Gate> ();
+    auto entered = gate->Entered ();
+    const auto first = Success (), second = Success ();
+    const uint64_t firstGeneration = controller.Submit ({ snapshot,
+                                                          [gate, first] (const std::atomic<bool>&) {
+                                                              gate->entered.set_value ();
+                                                              gate->released.wait ();
+                                                              return first;
+                                                          } },
+                                                        error);
+    ASSERT_GT (firstGeneration, 0u);
+    ASSERT_EQ (entered.wait_for (kEventBound), std::future_status::ready);
+    const uint64_t secondGeneration =
+        controller.Submit ({ snapshot, [second] (const std::atomic<bool>&) { return second; } }, error);
+    ASSERT_GT (secondGeneration, firstGeneration);
+    EXPECT_FALSE (controller.Clear (firstGeneration));
+    gate->Open ();
+    const auto view = Wait (controller, ControllerState::Current);
+    ASSERT_TRUE (view.lastGood.has_value ());
+    EXPECT_EQ (view.lastGood->generation, secondGeneration);
+    EXPECT_EQ (view.lastGood->payload, second.payload);
+}
+
+TEST_F (ControllerFixture, PublicationCommitAndCancelShareOneGenerationGate)
+{
+    const auto snapshot = Capture (19, 7);
+    ASSERT_TRUE (controller.Submit ({ snapshot, [] (const std::atomic<bool>&) { return Success (); } }, error));
+    const auto current = Wait (controller, ControllerState::Current);
+    const uint64_t generation = current.generation;
+    auto gate = std::make_shared<Gate> ();
+    auto entered = gate->Entered ();
+    auto committed = std::async (std::launch::async, [&] {
+        std::string commitError;
+        return controller.CommitPublication (
+            generation,
+            [&] (std::string&) {
+                gate->entered.set_value ();
+                gate->released.wait ();
+                return true;
+            },
+            commitError);
+    });
+    ASSERT_EQ (entered.wait_for (kEventBound), std::future_status::ready);
+    auto cancelled = std::async (std::launch::async, [&] { return controller.Cancel (generation); });
+    EXPECT_EQ (cancelled.wait_for (std::chrono::milliseconds (20)), std::future_status::timeout);
+    gate->Open ();
+    ASSERT_EQ (committed.wait_for (kEventBound), std::future_status::ready);
+    EXPECT_TRUE (committed.get ());
+    ASSERT_EQ (cancelled.wait_for (kEventBound), std::future_status::ready);
+    EXPECT_TRUE (cancelled.get ());
+    std::atomic<bool> called { false };
+    std::string commitError;
+    EXPECT_FALSE (controller.CommitPublication (
+        generation,
+        [&] (std::string&) {
+            called.store (true);
+            return true;
+        },
+        commitError));
+    EXPECT_FALSE (called.load ());
+}
+
 TEST_F (ControllerFixture, CaptureReplacementCannotPublishLateResult)
 {
     const auto snapshot = Capture (19, 7);

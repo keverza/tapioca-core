@@ -394,8 +394,8 @@ void ControlPalette::RebuildCommandBlock ()
     actionBar.Rebuild (*info);
 
     params.Rebuild (*info);
-    selectionSets.Rebuild (info->selectionSets, info->exclusiveSelectionSets, info->selectionSetRulesJson);
-    cameraSets.Rebuild (info->cameraSets);
+    selectionSets.Rebuild (info->selectionSets, info->exclusiveSelectionSets, info->selectionSetRulesJson, info->path);
+    cameraSets.Rebuild (info->cameraSets, info->path);
 
     // Position everything BEFORE revealing it: a dynamically created DG item starts
     // hidden at its construction rect, and showing it first would make every control

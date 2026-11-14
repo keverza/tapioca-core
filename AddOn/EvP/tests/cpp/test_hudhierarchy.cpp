@@ -1,6 +1,7 @@
 #include "hud_fixture.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "ArchViz/SurfaceTakeoffLayer.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 #include <cstring>
@@ -145,6 +146,22 @@ TEST (HudHierarchy, NativeVirtualEditorIsAvailableWithoutAPublishedPanel)
     Navigate (hud, {}, "virtual editor");
     EXPECT_EQ (hud.engine.Selected (), "virtual-editor#0");
     layers::Clear ("virtual-editor");
+}
+
+TEST (HudHierarchy, NativeExposedSurfacesLauncherNeedsNoPublishedLayer)
+{
+    Watched hud;
+    hud::OwnPages own;
+    own.standalone = true;
+    hud.engine.SetOwnPages (own);
+    Navigate (hud, {}, "exposed surfaces");
+    EXPECT_EQ (hud.engine.Selected (), geomsrv::archviz::surfacetakeoff::kWorkflowKey);
+    EXPECT_EQ (hud.state->host.workflow, geomsrv::archviz::surfacetakeoff::kWorkflowKey);
+    EXPECT_TRUE (hud::TakeExposedSurfaceRequest (*hud.state));
+    EXPECT_FALSE (hud::TakeExposedSurfaceRequest (*hud.state));
+    // Rendering the launch page does not dispatch work by itself.
+    hud.Lay ({}, At (0, 0));
+    EXPECT_FALSE (hud::TakeExposedSurfaceRequest (*hud.state));
 }
 
 TEST (HudHierarchy, DockVirtualEditorChoiceStartsTheWorkflowWithoutASecondButton)

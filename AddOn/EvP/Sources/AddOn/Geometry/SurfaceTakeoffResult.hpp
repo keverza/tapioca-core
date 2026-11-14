@@ -45,9 +45,14 @@ struct Result {
     std::string classification, unit, coverScopeId;
     double contactToleranceM = 0;
     std::vector<std::string> coverGuids, regionElementGuids;
+    // Resolved candidates retained for the publish-time basic metadata batch.
+    // This is controller-owned data, not an additional wire/result quantity.
+    std::vector<std::string> targetGuids;
     size_t regionFaceCount = 0, coverBodyCount = 0, selectedTriangleCount = 0;
     double selectedAreaM2 = 0;
     bool overlayPublished = false, nativeComparisonAvailable = false;
+    // Controller workers defer SDK native quantities to main-thread publication.
+    bool nativeComparisonRequested = false;
     std::string nativeComparisonNote;
     std::vector<SurfaceRow> surfaces;
     std::vector<FragmentMesh> meshes;

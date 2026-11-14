@@ -54,8 +54,13 @@ class SurfaceTakeoffController final {
 
     uint64_t Submit (ControllerRequest request, std::string& error); // assigned generation, zero on refusal
     ControllerView Poll ();
-    void Cancel ();
-    void Clear ();
+    // Zero means unconditional legacy cancellation/clear. A nonzero receipt is
+    // conditional: a superseded caller cannot revoke its successor.
+    bool Cancel (uint64_t generation = 0);
+    bool Clear (uint64_t generation = 0);
+    // The sink commit and its generation/currentness check share mutex_ with
+    // Submit/Cancel/Clear. The callback runs on the caller's main thread.
+    bool CommitPublication (uint64_t generation, const std::function<bool (std::string&)>& publish, std::string& error);
     void OnProjectClosed ();
     void Shutdown ();
 

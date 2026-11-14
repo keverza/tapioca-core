@@ -1,7 +1,9 @@
 """Explicit analytic faces; does not assert exterior membership or schedule equivalence."""
 
 import json
+import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -370,3 +372,164 @@ def test_native_controller_calculates_with_injected_overlay_off(live_client, sur
     assert cancelled["hasLastGood"] is True
     assert cancelled["lastGoodResult"] == expected
     assert pin(call("Tapioca.GetSnapshotInfo")) == identity
+
+
+def test_document_launcher_publishes_the_accepted_controller_meshes(live_client, surface_capture):
+    fixture, _, _ = surface_capture
+    if not fixture.get("allWallSurfaces"):
+        pytest.skip("Fixture does not request the criteria calculator")
+    call = live_client.tapioca_call
+    log_path = Path(os.environ["LOCALAPPDATA"]) / "Tapioca/logs/exposed_surface_calculator.log"
+    log_offset = log_path.stat().st_size if log_path.exists() else 0
+    call("Tapioca.ClearExteriorSurfaceTakeoff", {})
+    call("Tapioca.Overlay3D", {"action": "off"})
+    started = call(
+        "Tapioca.RunCommand",
+        {
+            "folder": "ExposedSurfaceCalculator",
+            "params": {
+                "action": "Calculate",
+                "object_scope": "Criteria - captured elements",
+                "covering": "Captured construction + doors/windows",
+                "contact_tolerance_mm": 1.0,
+                "seed_faces": 1,
+            },
+        },
+    )
+    assert started["started"] is True and started["generation"] > 0
+    try:
+        for _ in range(1200):
+            run = call("Tapioca.GetRunState", {})
+            if run["generation"] == started["generation"] and not run["active"]:
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("Document launcher workflow did not finish within 60 seconds")
+        assert "No new surface takeoff" not in run["status"]
+        assert "No new surface takeoff" not in run["resultText"]
+        assert run["headers"] and run["rows"], run
+
+        polled = call("Tapioca.PollExposedSurfaceTakeoff", {})
+        assert polled["state"] == "current", polled
+        result = polled["lastGoodResult"]
+        assert result["nativeComparisonAvailable"] is False
+        assert "main-thread publish command" in result["nativeComparisonNote"]
+        assert result["selectedTriangleCount"] > 0 and result["selectedAreaM2"] > 0
+        # Publication does not mutate the accepted controller DTO or let Python
+        # substitute a second response payload.
+        assert result["overlayPublished"] is False
+        layers = call("Tapioca.OverlayLayers", {})["layers"]
+        exposed = next(layer for layer in layers if layer["layer"] == "tapioca.exposedSurfaces")
+        assert exposed["meshes"] == len(result["meshes"])
+        assert exposed["triangles"] == result["selectedTriangleCount"]
+        assert pin(call("Tapioca.GetSnapshotInfo")) == pin(result)
+        with log_path.open("rb") as stream:
+            stream.seek(log_offset)
+            entries = [json.loads(line) for line in stream.read().decode("utf-8").splitlines() if line.startswith("{")]
+        commands = [entry["command"] for entry in entries]
+        assert "Tapioca.StartExposedSurfaceTakeoff" in commands
+        assert "Tapioca.PollExposedSurfaceTakeoff" in commands
+        assert "Tapioca.PublishExposedSurfaceTakeoff" in commands
+        assert "Tapioca.CalculateExteriorSurfaceTakeoff" not in commands
+        published = next(
+            entry["data"] for entry in entries if entry["command"] == "Tapioca.PublishExposedSurfaceTakeoff"
+        )
+        assert published["result"]["nativeComparisonAvailable"] is True
+        assert published["result"]["meshes"] == result["meshes"]
+    finally:
+        call("Tapioca.ClearExteriorSurfaceTakeoff", {})
+        call("Tapioca.Overlay3D", {"action": "off"})
+
+
+def test_bus_launch_preserves_and_restores_populated_role_stores(live_client, surface_capture):
+    call = live_client.tapioca_call
+    info = call("Tapioca.GetSnapshotInfo", {})
+    wall = next(guid for guid, kind in zip(info["guids"], info["elemTypes"], strict=True) if kind == 1)
+    commands = [json.loads(row) for row in call("Tapioca.GetCommands", {})["commands"]]
+    exposed_path = next(row["path"] for row in commands if row["folder"] == "ExposedSurfaceCalculator")
+    massing = next(row for row in commands if row["folder"] == "MassingFeasibility")
+    massing_path = massing["path"]
+    camera_role = massing["camera_sets"][0]
+
+    def probe(store, owner, role, value=None):
+        params = {"store": store, "owner": owner, "role": role}
+        if value is not None:
+            params["value"] = value
+        return call("Tapioca.TestRoleStore", params)
+
+    def finish(folder, params):
+        started = call("Tapioca.RunCommand", {"folder": folder, "params": params})
+        for _ in range(600):
+            run = call("Tapioca.GetRunState", {})
+            if run["generation"] == started["generation"] and not run["active"]:
+                return run
+            time.sleep(0.05)
+        pytest.fail(f"{folder} did not finish within 30 seconds")
+
+    assert probe("selection", exposed_path, "Extra covers", wall)["count"] == 1
+    assert probe("selection", exposed_path, "Extra covers")["count"] == 1
+    assert probe("camera", massing_path, camera_role, "role-test")["count"] == 1
+    assert probe("camera", massing_path, camera_role)["count"] == 1
+    finish("ExposedSurfaceCalculator", {"action": "Clear"})
+    assert probe("selection", exposed_path, "Extra covers")["count"] == 1
+    assert probe("camera", massing_path, camera_role)["count"] == 1
+    finish("MassingFeasibility", {})
+    assert probe("selection", exposed_path, "Extra covers")["count"] == 1
+    assert probe("camera", massing_path, camera_role)["count"] == 1
+
+    assert probe("selection", "palette-owner", "Extra covers", wall)["count"] == 1
+    assert probe("camera", "palette-owner", "Reference", "role-test")["count"] == 1
+    finish("ParkingSolver", {"action": "Clear preview"})
+    restored = probe("selection", "palette-owner", "Extra covers")
+    assert restored["owner"] == "palette-owner" and restored["count"] == 1
+    restored_camera = probe("camera", "palette-owner", "Reference")
+    assert restored_camera["owner"] == "palette-owner" and restored_camera["count"] == 1
+
+    # Hold a different bus command open, then apply the exact project-boundary
+    # adapter. The palette owner's declarations return, but old-document values
+    # do not, and the temporary run cannot restore them again at completion.
+    assert probe("selection", "palette-owner", "Extra covers", wall)["count"] == 1
+    assert probe("camera", "palette-owner", "Reference", "role-test")["count"] == 1
+    started = call("Tapioca.RunCommand", {"folder": "CommandRoleLifecycle", "params": {"duration_s": 10.0}})
+    reset = call(
+        "Tapioca.TestRoleStore",
+        {"store": "selection", "owner": "temporary-owner", "role": "Extra covers", "projectReset": True},
+    )
+    assert reset["owner"] == "palette-owner" and reset["count"] == 0
+    reset_camera = call(
+        "Tapioca.TestRoleStore",
+        {"store": "camera", "owner": "palette-owner", "role": "Reference"},
+    )
+    assert reset_camera["owner"] == "palette-owner" and reset_camera["count"] == 0
+    call("Tapioca.CancelRun", {})
+    for _ in range(600):
+        run = call("Tapioca.GetRunState", {})
+        if run["generation"] == started["generation"] and not run["active"]:
+            break
+        time.sleep(0.05)
+    else:
+        pytest.fail("Command role lifecycle probe did not cancel within 30 seconds")
+    assert probe("selection", "palette-owner", "Extra covers")["count"] == 0
+    assert probe("camera", "palette-owner", "Reference")["count"] == 0
+
+    # A → temporary B → palette C → project reset: C is not replaced by A.
+    started = call("Tapioca.RunCommand", {"folder": "CommandRoleLifecycle", "params": {"duration_s": 10.0}})
+    assert probe("selection", "palette-c", "Current role", "current")["count"] == 1
+    assert probe("camera", "palette-c", "Current camera", "current")["count"] == 1
+    changed = call(
+        "Tapioca.TestRoleStore",
+        {"store": "selection", "owner": "temporary-owner", "role": "Current role", "projectReset": True},
+    )
+    assert changed["owner"] == "palette-c" and changed["count"] == 0
+    changed_camera = probe("camera", "palette-c", "Current camera")
+    assert changed_camera["owner"] == "palette-c" and changed_camera["count"] == 0
+    call("Tapioca.CancelRun", {})
+    for _ in range(600):
+        run = call("Tapioca.GetRunState", {})
+        if run["generation"] == started["generation"] and not run["active"]:
+            break
+        time.sleep(0.05)
+    else:
+        pytest.fail("Second command role lifecycle probe did not cancel within 30 seconds")
+    assert probe("selection", "palette-c", "Current role")["count"] == 0
+    assert probe("camera", "palette-c", "Current camera")["count"] == 0

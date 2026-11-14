@@ -46,6 +46,7 @@
 #include "NativeCommands/GraphCaptureService.hpp"
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
 #include "NativeCommands/SurfaceInspectorCommands.hpp"
+#include "Python/CommandControlDispatch.hpp"
 #include "Geometry/SurfaceTakeoffController.hpp"
 #include "ArchViz/SunStudyObstructionController.hpp"
 #include "ArchViz/VisibilityStudyController.hpp"
@@ -178,6 +179,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             tapioca::preview::PublicationState ().ProjectChanged ();
             geomsrv::ResetTestJobs ();
             geomsrv::ResetSurfaceInspectorState ();
+            evp::ResetCommandRolesForProject ();
             geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().OnProjectClosed ();
             if (ControlPalette::HasInstance ()) {
                 ControlPalette::GetInstance ().Hide ();
@@ -210,6 +212,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             tapioca::preview::PublicationState ().ProjectChanged ();
             geomsrv::ResetTestJobs ();
             geomsrv::ResetSurfaceInspectorState ();
+            evp::ResetCommandRolesForProject ();
             geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().OnProjectClosed ();
             if (ControlPalette::HasInstance ()) {
                 ControlPalette::GetInstance ().Hide ();
@@ -234,6 +237,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             tapioca::preview::PublicationState ().ProjectChanged ();
             geomsrv::ShutdownTestJobs ();
             geomsrv::ResetSurfaceInspectorState ();
+            evp::ResetCommandRolesForProject ();
             geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().OnProjectClosed ();
             geomsrv::sunfollow::Shutdown ();
             geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().Shutdown ();

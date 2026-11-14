@@ -111,6 +111,10 @@ const char kOutput[] = R"json({
   },"required":["snapshotId","captureStamp","classification","unit","coverScopeId","coverGuids","contactToleranceM","regionFaceCount","coverBodyCount","regionElementGuids","selectedTriangleCount","selectedAreaM2","overlayPublished","nativeComparisonAvailable","nativeComparisonNote","nativeSurfaces","surfaces","meshes"]
 })json";
 const char kEmptyInput[] = R"json({"type":"object","properties":{},"additionalProperties":false})json";
+const char kClearInput[] = R"json({
+ "type":"object","additionalProperties":false,
+ "properties":{"generation":{"type":"integer","minimum":1}}
+})json";
 const char kClearOutput[] =
     R"json({"type":"object","properties":{"cleared":{"type":"boolean"}},"required":["cleared"],"additionalProperties":false})json";
 
@@ -185,7 +189,10 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
         if (!Current (snapshot) || id == 0 || stamp == 0 || snapshot->id != id || snapshot->captureStamp != stamp)
             return fail ("Snapshot missing or stale; prepare a fresh capture.");
         const std::string mode = input.regionMode.empty () ? "seededFacade" : input.regionMode;
-        const bool publish = input.publishOverlay, compare = input.compareNative;
+        const bool publish = input.publishOverlay;
+        // Controller workers never construct SDK quantity jobs or rendezvous on
+        // the gate. Publish finalizes that separate comparison on the main thread.
+        const bool compare = input.compareNative && !t_controllerExecution;
         const bool allWalls = mode == "allWallFaces";
         const bool allElements = mode == "allElementFaces";
         const bool wholeTargets = allWalls || allElements;
@@ -287,7 +294,9 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
         if (!ex::Calculate (*snapshot, request, result, error, limits, cancelled))
             return fail (error);
         std::map<int32_t, double> nativeAreas;
-        std::string note = "Native comparison not requested. Surface Schedule acceptance is separate.";
+        std::string note = input.compareNative && !compare
+                               ? "Native whole-element comparison is finalized by the main-thread publish command."
+                               : "Native comparison not requested. Surface Schedule acceptance is separate.";
         bool nativeAvailable = false;
         if (compare) {
             GS::ObjectState quantityParams;
@@ -389,10 +398,13 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
         output.coverBodyCount = result.covers.size ();
         for (const auto& entry : result.byElementGuid)
             output.regionElementGuids.push_back (entry.first);
+        for (const size_t index : targetIndices)
+            output.targetGuids.push_back (snapshot->meshes[index].guid);
         output.selectedTriangleCount = presentation->triangles;
         output.selectedAreaM2 = presentation->areaM2;
         output.overlayPublished = publish;
         output.nativeComparisonAvailable = nativeAvailable;
+        output.nativeComparisonRequested = input.compareNative;
         output.nativeComparisonNote = note;
         for (const auto& row : presentation->rows)
             output.surfaces.push_back ({ row.index, row.name, row.rgba, row.areaM2 });
@@ -475,6 +487,99 @@ NativeCommandResult ToNativeResult (const surfacetakeoff::Result& value)
     return output;
 }
 
+bool FinalizeNativeComparison (surfacetakeoff::Result& result, std::string& error)
+{
+    if (!result.nativeComparisonRequested)
+        return true;
+    GS::ObjectState params;
+    GS::Array<GS::ObjectState> elements, covers;
+    for (const auto& guid : result.regionElementGuids)
+        elements.Push (Element (guid));
+    for (const auto& guid : result.coverGuids)
+        covers.Push (Element (guid));
+    params.Add ("elements", elements);
+    params.Add ("coverElements", covers);
+    // Main-thread publication/finalization only: no MainThreadGate wait and no
+    // SDK/GS object is captured by the detached controller worker.
+    const auto quantity = ExecuteNativeCommand ("GetExposedSurfaceQuantities", params);
+    const bool wholeTargets = result.classification != "userExteriorSeeds-connectedCoplanar";
+    result.nativeComparisonAvailable = quantity.ok;
+    result.nativeComparisonNote =
+        quantity.ok ? (wholeTargets ? "Native whole candidate elements, same cover GUIDs. Surface Schedule equivalence "
+                                      "not established."
+                                    : "Native whole region elements, same cover GUIDs; NOT equivalent facade-face/"
+                                      "schedule scope.")
+                    : "Native whole-element comparison unavailable: " + Utf8 (quantity.error);
+    result.nativeSurfaces.clear ();
+    if (quantity.ok) {
+        std::map<int32_t, double> areas;
+        for (const auto& row : result.surfaces)
+            areas[row.surfaceAttributeIndex] = 0;
+        GS::Array<GS::ObjectState> rows;
+        quantity.data.Get ("elements", rows);
+        for (const auto& row : rows) {
+            GS::Array<GS::ObjectState> values;
+            row.Get ("quantities", values);
+            for (const auto& value : values) {
+                GS::UniString material;
+                double area = 0;
+                if (!value.Get ("materialIndex", material) || !ReadReal (value, "exposedSurface", area) ||
+                    !std::isfinite (area) || area < 0) {
+                    error = "Invalid native comparison row.";
+                    return false;
+                }
+                try {
+                    const int index = std::stoi (Utf8 (material));
+                    if (areas.contains (index))
+                        areas[index] += area;
+                }
+                catch (...) {
+                    error = "Invalid native surface index.";
+                    return false;
+                }
+            }
+        }
+        for (const auto& [index, area] : areas)
+            result.nativeSurfaces.push_back ({ index, area });
+    }
+    result.nativeComparisonNote +=
+        " Native comparison does not apply the near-contact tolerance or face-direction filters.";
+    return true;
+}
+
+NativeCommandResult PublishResult (const surfacetakeoff::Result& result, uint64_t generation)
+{
+    const auto snapshot = MeshStore::Get ().Current ();
+    if (!Current (snapshot) || snapshot->id != result.snapshotId || snapshot->captureStamp != result.captureStamp)
+        return NativeCommandResult::Failure (Text ("Capture changed before controller overlay publication."));
+    surfacetakeoff::Result finalized = result;
+    std::string error;
+    if (!FinalizeNativeComparison (finalized, error))
+        return NativeCommandResult::Failure (Text (error));
+    view::Presentation presentation;
+    if (!view::BuildFromResult (*snapshot, finalized, presentation, error))
+        return NativeCommandResult::Failure (Text (error));
+    std::vector<size_t> targets;
+    for (const auto& guid : finalized.targetGuids) {
+        size_t index = 0;
+        if (!FindMesh (*snapshot, guid, index))
+            return NativeCommandResult::Failure (Text ("Published target is missing or ambiguous in the capture."));
+        targets.push_back (index);
+    }
+    ReadSurfaceCriteriaMetadata (*snapshot, targets, presentation.elements);
+    const uint64_t ticket = view::BeginRequest ();
+    if (!view::Publish (presentation, finalized.snapshotId, finalized.captureStamp, ticket, error))
+        return NativeCommandResult::Failure (Text (error));
+    finalized.overlayPublished = true;
+    GS::ObjectState output;
+    output.Add ("overlayPublished", true);
+    output.Add ("generation", GS::Int64 (generation));
+    output.Add ("snapshotId", GS::Int64 (finalized.snapshotId));
+    output.Add ("captureStamp", GS::Int64 (finalized.captureStamp));
+    output.Add ("result", ToNativeResult (finalized).data);
+    return output;
+}
+
 NativeCommandResult SurfaceTakeoffCommand::ExecuteNative (const GS::ObjectState& params, GS::ProcessControl& pc) const
 {
     const auto calculation = Calculate (FromObjectState (params), &pc);
@@ -534,6 +639,11 @@ NativeCommandResult ToNativeSurfaceTakeoffResult (const surfacetakeoff::Result& 
     return ToNativeResult (result);
 }
 
+NativeCommandResult PublishExteriorSurfaceResult (const surfacetakeoff::Result& result, uint64_t generation)
+{
+    return PublishResult (result, generation);
+}
+
 NativeCommandResult CalculateExteriorSurfaceTakeoff (const GS::ObjectState& params, GS::ProcessControl& processControl,
                                                      const std::function<bool ()>& cancelled)
 {
@@ -549,18 +659,21 @@ class ClearSurfaceTakeoffCommand : public MainThreadCommand {
     {
         return "ClearExteriorSurfaceTakeoff";
     }
-    NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().Clear ();
-        view::Clear ();
+        GS::Int64 generation = 0;
+        params.Get ("generation", generation);
+        const bool cleared = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().Clear (uint64_t (generation));
+        if (cleared)
+            view::Clear ();
         GS::ObjectState output;
-        output.Add ("cleared", true);
+        output.Add ("cleared", cleared);
         return output;
     }
 };
 const NativeCommandRegistration kRegistrations[] = {
     { "CalculateExteriorSurfaceTakeoff", &MakeRegisteredNativeCommand<SurfaceTakeoffCommand>, false, kInput, kOutput },
-    { "ClearExteriorSurfaceTakeoff", &MakeRegisteredNativeCommand<ClearSurfaceTakeoffCommand>, false, kEmptyInput,
+    { "ClearExteriorSurfaceTakeoff", &MakeRegisteredNativeCommand<ClearSurfaceTakeoffCommand>, true, kClearInput,
       kClearOutput }
 };
 } // namespace

@@ -15,7 +15,15 @@ def schema(name):
 
 
 def test_controller_commands_have_strict_schemas_and_registration():
-    for name in ("kStartOutput", "kPollOutput", "kEmptyInput", "kCancelOutput"):
+    for name in (
+        "kStartOutput",
+        "kPollOutput",
+        "kEmptyInput",
+        "kPublishInput",
+        "kPublishOutput",
+        "kCancelInput",
+        "kCancelOutput",
+    ):
         data = schema(name)
         jsonschema.Draft202012Validator.check_schema(data)
         assert data["additionalProperties"] is False
@@ -29,7 +37,12 @@ def test_controller_commands_have_strict_schemas_and_registration():
     ]
     registry = (ROOT / "NativeCommands/CommandRegistry.cpp").read_text(encoding="utf-8")
     assert "&GetSurfaceTakeoffControllerCommandRegistrations" in registry
-    for command in ("StartExposedSurfaceTakeoff", "PollExposedSurfaceTakeoff", "CancelExposedSurfaceTakeoff"):
+    for command in (
+        "StartExposedSurfaceTakeoff",
+        "PollExposedSurfaceTakeoff",
+        "PublishExposedSurfaceTakeoff",
+        "CancelExposedSurfaceTakeoff",
+    ):
         assert f'return "{command}"' in SOURCE
 
 
@@ -42,9 +55,71 @@ def test_controller_has_no_overlay_dependency_and_checks_capture_before_publicat
     assert "ticket->cancelled.load ()" in controller
 
 
+def test_generation_only_publication_uses_immutable_result_and_main_thread_sink():
+    assert 'return "PublishExposedSurfaceTakeoff"' in SOURCE
+    publish = SOURCE[SOURCE.index("class PublishTakeoffCommand") : SOURCE.index("class CancelTakeoffCommand")]
+    assert "view.lastGood->generation != uint64_t (generation)" in publish
+    assert "PublishExteriorSurfaceResult (*result, uint64_t (generation))" in publish
+    assert "controller.CommitPublication" in publish
+    assert "lastGoodResult" not in schema("kPublishInput")["properties"]
+    takeoff = (ROOT / "NativeCommands/SurfaceTakeoffCommands.cpp").read_text(encoding="utf-8")
+    assert "view::BuildFromResult (*snapshot, finalized, presentation, error)" in takeoff
+    assert "ReadSurfaceCriteriaMetadata (*snapshot, targets, presentation.elements)" in takeoff
+
+
+def test_document_launcher_is_stable_and_dispatches_only_after_layout():
+    host = (ROOT / "ArchViz/OverlayHudHost.cpp").read_text(encoding="utf-8")
+    owner = (ROOT / "ArchViz/OverlayControllerHud.cpp").read_text(encoding="utf-8")
+    assert 'surfacetakeoff::kWorkflowKey, "Exposed surfaces"' in host
+    assert "hudshell::WorkflowFamily::Document" in host
+    assert "state.exposedSurfaceRequested = true" in host
+    assert "RunCommand" not in host
+    assert "TakeExposedSurfaceRequest" in owner
+    assert 'DispatchCommandControlVerb ("EvP", "RunCommand"' in owner
+    assert '"ExposedSurfaceCalculator"' in owner
+    assert '"Recalculate exposed surfaces"' in host
+    dispatch = (ROOT / "Python/CommandControlDispatch.cpp").read_text(encoding="utf-8")
+    assert "SelectionSetStore::Get ().Configure (info.path, info.selectionSets" in dispatch
+    assert "CameraSetStore::Get ().Configure (info.path, info.cameraSets)" in dispatch
+    assert "const auto previousSelections" in dispatch and "const auto previousCameras" in dispatch
+    assert "Restore (previousSelections)" in dispatch and "Restore (previousCameras)" in dispatch
+    assert "run.generation == finishedGeneration" in dispatch
+    assert "selections.Revision () == selectionRevision" in dispatch
+    assert "cameras.Revision () == cameraRevision" in dispatch
+    completion = dispatch[dispatch.index("const bool posted = MainThreadGate::Get ().Post") :]
+    assert completion.index("Restore (previousSelections)") < completion.index("Finish (finishedGeneration")
+    assert dispatch.index("SelectionSetStore::Get ().Configure") < dispatch.index("LaunchCommand (")
+
+
+def test_native_comparison_is_deferred_and_cleanup_is_stop_safe_and_scoped():
+    takeoff = (ROOT / "NativeCommands/SurfaceTakeoffCommands.cpp").read_text(encoding="utf-8")
+    assert "input.compareNative && !t_controllerExecution" in takeoff
+    assert "FinalizeNativeComparison (finalized, error)" in takeoff
+    publish = takeoff[
+        takeoff.index("NativeCommandResult PublishResult") : takeoff.index(
+            "NativeCommandResult SurfaceTakeoffCommand::ExecuteNative"
+        )
+    ]
+    assert "MainThreadGate" not in publish
+    assert 'output.Add ("result", ToNativeResult (finalized).data)' in publish
+    assert "MakeRegisteredNativeCommand<ClearSurfaceTakeoffCommand>, true, kClearInput" in takeoff
+    assert "MakeRegisteredNativeCommand<CancelTakeoffCommand>, true, kCancelInput" in SOURCE
+    controller = (ROOT / "Geometry/SurfaceTakeoffController.cpp").read_text(encoding="utf-8")
+    assert "generation != 0 && generation_ != generation" in controller
+    assert "ViewLocked ().state != ControllerState::Current" in controller
+
+
 def test_clear_close_and_unload_revoke_native_controller():
     takeoff = (ROOT / "NativeCommands/SurfaceTakeoffCommands.cpp").read_text(encoding="utf-8")
     main = (ROOT / "AddOnMain.cpp").read_text(encoding="utf-8")
-    assert "SharedSurfaceTakeoffController ().Clear ();" in takeoff
+    assert "SharedSurfaceTakeoffController ().Clear (uint64_t (generation))" in takeoff
     assert main.count("SharedSurfaceTakeoffController ().OnProjectClosed ();") >= 3
     assert "SharedSurfaceTakeoffController ().Shutdown ();" in main
+    assert main.count("ResetCommandRolesForProject ();") >= 3
+    dispatch = (ROOT / "Python/CommandControlDispatch.cpp").read_text(encoding="utf-8")
+    assert "if (s_pendingRoles)" in dispatch
+    project_reset = dispatch[dispatch.index("void ResetCommandRolesForProject") :]
+    assert project_reset.index("Restore (s_pendingRoles->selections)") < project_reset.index("ResetValues ()")
+    assert "selections.Revision () == s_pendingRoles->selectionRevision" in project_reset
+    assert "cameras.Revision () == s_pendingRoles->cameraRevision" in project_reset
+    assert "if (temporaryCurrent)" in project_reset
