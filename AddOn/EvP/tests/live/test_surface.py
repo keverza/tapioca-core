@@ -1,6 +1,7 @@
 """Explicit analytic faces; does not assert exterior membership or schedule equivalence."""
 
 import json
+import time
 
 import pytest
 
@@ -314,4 +315,58 @@ def test_captured_door_window_bodies_remove_contact_without_seo(live_client, sur
     assert covered["selectedAreaM2"] < baseline["selectedAreaM2"] - 1e-6, "Casing contact must remove actual area"
     close(sum(triangle_area(mesh) for mesh in covered["meshes"]), covered["selectedAreaM2"], 1e-6)
     assert call("Tapioca.CalculateExteriorSurfaceTakeoff", request) == covered
+    assert pin(call("Tapioca.GetSnapshotInfo")) == identity
+
+
+def test_native_controller_calculates_with_injected_overlay_off(live_client, surface_capture):
+    fixture, identity, catalog = surface_capture
+    if not fixture.get("allWallSurfaces"):
+        pytest.skip("Fixture does not request the criteria calculator")
+    call = live_client.tapioca_call
+    call("Tapioca.Overlay3D", {"action": "off"})
+    info = call("Tapioca.GetSnapshotInfo")
+    targets = [guid for guid, kind in zip(info["guids"], info["elemTypes"], strict=True) if kind in (1, 2, 17, 19)]
+    request = {
+        **identity,
+        "regionMode": "allElementFaces",
+        "seeds": [],
+        "targetGuids": targets,
+        "coverGuids": targets,
+        "coverScopeId": "Native controller:overlay-off",
+        "contactToleranceM": 0.001,
+        "surfaceAttributeIndices": [],
+        "publishOverlay": False,
+        "compareNative": False,
+    }
+    expected = call("Tapioca.CalculateExteriorSurfaceTakeoff", request)
+    started = call("Tapioca.StartExposedSurfaceTakeoff", request)
+    assert started["state"] == "pending" and started["generation"] > 0
+    assert pin(started) == identity
+    for _ in range(1000):
+        polled = call("Tapioca.PollExposedSurfaceTakeoff")
+        if polled["state"] != "pending":
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail("Native controller did not finish within 10 seconds")
+    assert polled["state"] == "current", polled
+    assert polled["generation"] == started["generation"]
+    assert polled["hasLastGood"] is True
+    assert polled["lastGoodGeneration"] == started["generation"]
+    assert polled["lastGoodSnapshotId"] == identity["snapshotId"]
+    assert polled["lastGoodCaptureStamp"] == identity["captureStamp"]
+    assert polled["lastGoodResult"] == expected
+
+    call("Tapioca.StartExposedSurfaceTakeoff", request)
+    call("Tapioca.CancelExposedSurfaceTakeoff")
+    for _ in range(1000):
+        cancelled = call("Tapioca.PollExposedSurfaceTakeoff")
+        if cancelled["state"] != "pending":
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail("Native controller cancellation did not settle within 10 seconds")
+    assert cancelled["state"] in ("cancelled", "stale")
+    assert cancelled["hasLastGood"] is True
+    assert cancelled["lastGoodResult"] == expected
     assert pin(call("Tapioca.GetSnapshotInfo")) == identity

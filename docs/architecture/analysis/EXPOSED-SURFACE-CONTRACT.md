@@ -86,6 +86,16 @@ last-good result but cannot present it as aligned with a newer capture.
 `refused`, `cancelled`, superseded and stale-capture worker completions publish
 no partial quantity.
 
+The S1 `StartExposedSurfaceTakeoff`, `PollExposedSurfaceTakeoff` and
+`CancelExposedSurfaceTakeoff` native commands expose this mailbox without an
+overlay dependency. Submissions return the generation assigned under the
+controller lock. Workers consume typed SDK-free request/result DTOs; GS conversion
+is confined to the legacy command and poll boundaries. Queued superseded work is
+discarded, cancellation is cooperative, and document close revokes pending work.
+`lastGoodResult` is present only when `hasLastGood` is true and is exportable only
+when `state == "current"`; `pending` and `stale` results are explicitly not current.
+`FreeData` joins the worker on APX unload, including unload without a Quit event.
+
 The legacy C++ API returns `bool` and a human-readable error and atomically clears
 `Result` on every failure. The additive `Refusal` overload supplies the following
 machine-stable codes and source element/body/polygon IDs; the S1 native

@@ -96,6 +96,7 @@ set (EVP_GEOM_SOURCES
     "${GEOM_DIR}/ExposedSurfaceInputs.cpp"
     "${GEOM_DIR}/ExposedSurfaceContact.cpp"
     "${GEOM_DIR}/ExposedSurface.cpp"
+    "${GEOM_DIR}/SurfaceTakeoffController.cpp"
     "${GEOM_DIR}/SurfaceAttributeMap.cpp"
     "${GEOM_DIR}/ExteriorSurfaceRegion.cpp"
     "${GEOM_DIR}/SurfaceCriteria.cpp"
@@ -1070,6 +1071,7 @@ set (EVP_TEST_SOURCES
     test_meshgroups.cpp
     test_surfacesourcemap.cpp
     test_exposed_surface.cpp
+    test_surfacetakeoffcontroller.cpp
     test_exterior_surface.cpp
     test_surfacecriteria.cpp
     test_triangledegeneracy.cpp
