@@ -187,7 +187,11 @@ TEST (HudVirtualEditorRecipe, QuantitiesOfferBuildAndRefuseWithAReasonWithoutATe
             pressed = !d.session.message.empty ();
         }
     ASSERT_TRUE (pressed);
+#ifdef TAPIOCA_GEOMETRY_RUST
     EXPECT_NE (d.session.message.find ("before building"), std::string::npos) << d.session.message;
+#else
+    EXPECT_EQ (d.session.message, "Terrain design requires the Rust geometry build.");
+#endif
     EXPECT_EQ (d.session.edits.UndoDepth (), 0u);
     EXPECT_EQ (d.session.edits.Doc ().landscape, before.landscape);
     EXPECT_FALSE (d.session.terrainDesign) << "Build asks; it starts nothing without a terrain";

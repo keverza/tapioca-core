@@ -1019,7 +1019,6 @@ set (EVP_TEST_SOURCES
     test_editpathcutunits.cpp
     test_editpathfillunits.cpp
     test_editpathcrossfallcontract.cpp
-    test_editpathcrossfallunits.cpp
     test_editpath.cpp
     test_editprofileview.cpp
     test_hudvirtualeditor.cpp
@@ -1035,7 +1034,6 @@ set (EVP_TEST_SOURCES
     test_editdraft.cpp
     test_editlandscaperecipe.cpp
     test_hudvirtualeditorrecipe.cpp
-    test_hudmixedpathsections.cpp
     test_hudvirtualeditorsnap.cpp
     test_hudvirtualeditorsnapcontrols.cpp
     test_hudvirtualeditormap.cpp
@@ -1475,6 +1473,10 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         # debugreplay::Run. They are not legacy/no-Cargo tests (#197).
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editpublishedterrain.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editregionterrain.cpp"
+        # Typed slope conversion is a Rust service too; these integration suites
+        # cannot assert successful conversion in the explicit no-Rust build.
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_editpathcrossfallunits.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_hudmixedpathsections.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editterraindesign.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editterraincontrols.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editsparsesolve.cpp"
