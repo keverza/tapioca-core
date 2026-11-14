@@ -40,9 +40,10 @@ bool HasSurfacePanel (const std::vector<size_t>& titled, const std::vector<std::
                         [&] (size_t index) { return keys[index] == surfacetakeoff::kWorkflowKey; });
 }
 
-void LaunchSurfaceIfNeeded (State& state, const std::vector<size_t>& titled, const std::vector<std::string>& keys)
+void LaunchSurfaceIfNeeded (State& state, const std::vector<size_t>& titled, const std::vector<std::string>& keys,
+                            bool viewerSurface)
 {
-    if (!HasSurfacePanel (titled, keys))
+    if (!viewerSurface && !HasSurfacePanel (titled, keys))
         state.exposedSurfaceRequested = true;
 }
 
@@ -313,7 +314,7 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, const 
         if (dock.selected == std::string (editlayers::kLayer) + "#0")
             OpenVirtualEditorWorkflow (*store);
         if (dock.selected == surfacetakeoff::kWorkflowKey)
-            LaunchSurfaceIfNeeded (*store, titled, keys);
+            LaunchSurfaceIfNeeded (*store, titled, keys, own.viewerSurface);
         const std::string title = TitleOf (dock.selected, panels, keys);
         changes.push_back ({ "panel", dock.selected, title, std::string (), -1, 1.0, title, true });
         ShowOverlay (true);
@@ -481,6 +482,11 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
             return;
         }
         if (k == surfacetakeoff::kWorkflowKey) {
+            if (own.viewerSurface) {
+                ImGui::TextWrapped ("Exposed surface calculation and highlights are currently available in the "
+                                    "Archicad 3D overlay. Switch to the overlay to calculate and inspect results.");
+                return;
+            }
             if (!HasSurfacePanel (titled, keys)) {
                 ImGui::TextWrapped ("Calculate exposed surface areas from a fresh capture, then inspect the same "
                                     "triangles and quantities here.");
@@ -557,7 +563,7 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
         if (result.pressed == std::string (editlayers::kLayer) + "#0")
             OpenVirtualEditorWorkflow (*store);
         if (result.pressed == surfacetakeoff::kWorkflowKey)
-            LaunchSurfaceIfNeeded (*store, titled, keys);
+            LaunchSurfaceIfNeeded (*store, titled, keys, own.viewerSurface);
         const std::string title = TitleOf (result.pressed, panels, keys);
         bool panel = false;
         for (const size_t i : titled)

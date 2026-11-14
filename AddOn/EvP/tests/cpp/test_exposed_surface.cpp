@@ -872,6 +872,33 @@ TEST (ExposedSurface, DisconnectedNonintersectingShellsInOneBodyRemainValid)
     EXPECT_NEAR (EmittedArea (result), 3, 1e-6);
 }
 
+TEST (ExposedSurface, EnclosedReversedCavityRemainsAValidCoverHole)
+{
+    Mesh cover = Box ("outer", 0, -1, 0, 5, 2, 3);
+    Append (cover, Box ("cavity", 1, -.5, 1, 3, 1, 1), true);
+    const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3), cover });
+    ex::Result result;
+    ex::Refusal refusal;
+    ASSERT_TRUE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, refusal))
+        << refusal.message;
+    EXPECT_NEAR (result.areas.exposedArea, 3, 1e-6); // Only the 3-by-1 cavity is uncovered.
+    EXPECT_NEAR (EmittedArea (result), 3, 1e-6);
+}
+
+TEST (ExposedSurface, CoplanarOverlappingShellFacesRefuseWithCoverIdentity)
+{
+    Mesh cover = Box ("overlap", 0, -.3, 0, 3, .3, 3);
+    Append (cover, Box ("second", 2, -.3, 0, 3, .3, 3));
+    const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3), cover });
+    ex::Result result;
+    ex::Refusal refusal;
+    EXPECT_FALSE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::InvalidCover);
+    EXPECT_EQ (refusal.elementGuid, "overlap");
+    EXPECT_EQ (refusal.sourceBody, 1);
+    EXPECT_TRUE (result.fragments.empty ());
+}
+
 TEST (ExposedSurface, SaddlePointContactsAndNearTieAdjacentPlanesRemainValid)
 {
     for (const auto& cover : { Saddle (), NearTieTetrahedron (), CollinearPrism () }) {
@@ -913,6 +940,20 @@ TEST (ExposedSurface, InvalidIdentityAndScopeCannotPublish)
     request = Request ();
     request.coverScopeId.clear ();
     ExpectRefusal (snapshot, request, "scope identity");
+}
+
+TEST (ExposedSurface, MissingTargetScopeRefusesInsteadOfReportingZeroArea)
+{
+    const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3) });
+    ex::Result result;
+    ex::Refusal refusal;
+    ASSERT_TRUE (ex::Calculate (snapshot, Request (), result, refusal));
+    ASSERT_GT (result.areas.exposedArea, 0);
+    EXPECT_FALSE (ex::Calculate (snapshot, Request ({}), result, refusal));
+    EXPECT_EQ (refusal.code, ex::RefusalCode::InvalidQuery);
+    EXPECT_TRUE (result.faces.empty ());
+    EXPECT_TRUE (result.fragments.empty ());
+    EXPECT_DOUBLE_EQ (result.areas.exposedArea, 0);
 }
 
 TEST (ExposedSurface, AbsentFacesBodiesAndSidecarsAreRefusedNotZeroRows)

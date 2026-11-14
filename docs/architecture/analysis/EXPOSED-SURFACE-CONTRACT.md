@@ -100,7 +100,16 @@ unload, including unload without a Quit event.
 The stable **Document → Exposed surfaces** navigation entry exists before a result
 layer is published. It queues the existing `RunCommand` intent and the main-thread
 HUD owner dispatches it after layout; no work starts in an ImGui draw call. The
-Python workflow retains capture, catalog and picking orchestration but uses only
+standalone viewer currently keeps this entry informational: it has neither the
+launcher dispatcher nor a surface highlight sink. Its page directs users to the
+Archicad overlay rather than exposing Calculate buttons that cannot run.
+S1 is **partial**: capture/catalog/picking orchestration remains in Python,
+and the user-facing workflow still enables and requires the injected overlay.
+Start/Poll can calculate from an already prepared capture without that overlay;
+this is not yet the complete host-independent workflow required by issue #193.
+The versioned query/result fields above describe the delivery contract, not a
+claim that the legacy-shaped S1 wire DTO already implements every field.
+The Python workflow retains capture, catalog and picking orchestration but uses only
 Start/Poll for calculation. It validates the accepted DTO and then calls Publish
 with only its generation. The native main-thread adapter reconstructs and verifies
 the existing overlay presentation from that exact immutable DTO, finalizes any
@@ -119,8 +128,9 @@ ImGui page and separate viewer mesh sink remain outside this slice.
 
 The legacy C++ API returns `bool` and a human-readable error and atomically clears
 `Result` on every failure. The additive `Refusal` overload supplies the following
-machine-stable codes and source element/body/polygon IDs; the S1 native
-controller maps them to transport failures without removing the legacy API:
+machine-stable codes and source element/body/polygon IDs. The current S1 adapter
+still uses the legacy string-error overload: structured refusal propagation to
+the controller/wire DTO remains outstanding. The low-level codes are:
 
 | Code | Meaning |
 | --- | --- |

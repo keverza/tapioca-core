@@ -91,6 +91,25 @@ TEST_F (ControllerFixture, StandaloneCompletionPublishesCurrentResultWithoutOver
     EXPECT_TRUE (view.error.empty ());
 }
 
+TEST_F (ControllerFixture, SuccessWithoutPayloadRefusesAndPreservesLastGood)
+{
+    const auto snapshot = Capture (19, 7);
+    const auto emptySuccess = [] (const std::atomic<bool>&) { return ControllerOutcome { true, {}, {} }; };
+    ASSERT_TRUE (controller.Submit ({ snapshot, emptySuccess }, error));
+    const auto refused = Wait (controller, ControllerState::Refused);
+    EXPECT_FALSE (refused.lastGood.has_value ());
+    EXPECT_EQ (refused.error, "Surface calculation returned no result.");
+
+    const auto expected = Success ();
+    ASSERT_TRUE (controller.Submit ({ snapshot, [expected] (const std::atomic<bool>&) { return expected; } }, error));
+    ASSERT_EQ (Wait (controller, ControllerState::Current).state, ControllerState::Current);
+    ASSERT_TRUE (controller.Submit ({ snapshot, emptySuccess }, error));
+    const auto stale = Wait (controller, ControllerState::Stale);
+    ASSERT_TRUE (stale.lastGood.has_value ());
+    EXPECT_EQ (stale.lastGood->payload, expected.payload);
+    EXPECT_NE (stale.lastGood->generation, stale.generation);
+}
+
 TEST_F (ControllerFixture, SupersededCompletionCannotPublishOverReplacement)
 {
     const auto snapshot = Capture (19, 7);

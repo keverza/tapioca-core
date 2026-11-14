@@ -113,7 +113,7 @@ ControllerView SurfaceTakeoffController::Poll ()
                 terminal_ = ControllerState::Stale;
                 error_ = "Capture changed before surface result publication.";
             }
-            else if (!result.ok) {
+            else if (!result.ok || !result.payload) {
                 terminal_ = lastGood_ ? ControllerState::Stale : ControllerState::Refused;
                 error_ = ErrorText (result);
             }

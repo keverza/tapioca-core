@@ -476,6 +476,8 @@ bool Prepare (const Snapshot& snapshot, const Request& request, std::vector<Face
                      RefusalCode::StaleCapture);
     if (request.coverScopeId.empty ())
         return Fail (refusal, "An explicit cover/model-state scope identity is required.");
+    if (request.faces.empty ())
+        return Fail (refusal, "An explicit nonempty target face scope is required.");
     if (!std::isfinite (request.contactToleranceM) || request.contactToleranceM < 0 || request.contactToleranceM > .001)
         return Fail (refusal, "Contact tolerance must be finite and in 0..0.001 m.");
     if (request.materialPoolFilter)

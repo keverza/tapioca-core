@@ -164,6 +164,28 @@ TEST (HudHierarchy, NativeExposedSurfacesLauncherNeedsNoPublishedLayer)
     EXPECT_FALSE (hud::TakeExposedSurfaceRequest (*hud.state));
 }
 
+TEST (HudHierarchy, ViewerSurfacePageDoesNotQueueAnUnconsumedOverlayCalculation)
+{
+    Watched hud;
+    hud::OwnPages own;
+    own.standalone = true;
+    own.viewerSurface = true;
+    hud.engine.SetOwnPages (own);
+    hud.state->host.selected = geomsrv::archviz::hudmassing::kTabKey;
+    const auto before = hud.Lay ({}, At (600, 600));
+    const float y = Top (before.dock) + before.dock.height * 0.5f;
+    const auto choices = hud.Click ({}, Left (before.dock) + before.dock.height * 2.5f, y);
+    ASSERT_TRUE (choices.popup);
+    float fill[4] = {};
+    ASSERT_TRUE (Box (choices.overlay, shell::PlainLook ().accentRgba, fill));
+    // The second of the four workflow buttons is Exposed surfaces.
+    hud.Click ({}, fill[0] + (fill[2] - fill[0]) * .35f, y);
+    EXPECT_EQ (hud.engine.Selected (), geomsrv::archviz::surfacetakeoff::kWorkflowKey);
+    EXPECT_FALSE (hud::TakeExposedSurfaceRequest (*hud.state));
+    hud.Lay ({}, At (0, 0));
+    EXPECT_FALSE (hud::TakeExposedSurfaceRequest (*hud.state));
+}
+
 TEST (HudHierarchy, DockVirtualEditorChoiceStartsTheWorkflowWithoutASecondButton)
 {
     Watched hud;
