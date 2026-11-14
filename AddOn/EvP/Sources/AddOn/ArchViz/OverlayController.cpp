@@ -192,13 +192,10 @@ bool RefreshHud3D ()
 // The input layer's paced redraw: a still 3D view presents nothing by itself.
 // ⚠️ NO 3D REDRAW WHILE ARCHICAD NAVIGATES (the user, 2026-11-04: with the virtual editor's lock
 // on, an orbit jumped or went back to where it began; the standalone overlay did not). The
-// editor's layer follows the view, so it is published at every heartbeat of an orbit, and each
-// publish asked Archicad to redraw in the middle of its own gesture. While the middle button is
-// held the redraw is held and counted; one is asked for at the first heartbeat after release.
-// Archicad presents through the whole gesture anyway, so nothing published waits for it.
-// ⚠️ AND THROUGH THE SETTLE AFTER IT, AND AFTER A WHEEL STEP (2026-11-14, `kNavigationSettleMs`):
-// with a path drawn the pointer rests on it at the release, the hover redraws at once, and the
-// jumps were measured 16-422 ms after a release. A wheel zoom holds no button at all.
+// editor's layer follows the view, so each publish asked Archicad to redraw inside its own
+// gesture. While it navigates the redraw is held and counted; one is asked for afterwards.
+// ⚠️ "WHILE": the held button, its settle, a wheel step's, a pointer mode of Archicad's (§16,
+// 2026-11-14: with a path drawn the hover redrew at the release; jumps 16-422 ms after one).
 bool NavigatingNatively ()
 {
     return overlayinput::NavigatingNatively (overlayinput::View::ThreeD);
