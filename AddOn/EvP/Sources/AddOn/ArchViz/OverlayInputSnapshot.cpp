@@ -44,6 +44,8 @@ overlayhud::Input InputOf (Target& target, bool take)
     // ⚠️ AND THROUGH ITS SETTLE (#145): the editor withholds its picks while this is set, so a
     // path under the pointer is not highlighted -- and no redraw asked for -- as Archicad ends.
     input.navigating = target.navigating || NavigatingNatively (target);
+    if (HostPointerMode (target) != HostMode::None)
+        input.pointer = input.overHud = false; // the pointer is Archicad's: nothing of the HUD's is under it
     input.navigationRevision = target.navigationRevision;
     input.viewIdentity = uint64_t (reinterpret_cast<uintptr_t> (target.canvas));
     // Read as the layout is: it follows the press that asked for it, the key held through both.

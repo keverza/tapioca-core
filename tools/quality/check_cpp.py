@@ -1374,6 +1374,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/SurfaceSwitch.cpp",
     "ArchViz/OverlayInput.cpp",
     "ArchViz/OverlayInputCursor.cpp",
+    "ArchViz/OverlayInputHostMode.cpp",
     "ArchViz/OverlayInputSnapshot.cpp",
     "ArchViz/OverlayInputResidue.cpp",
     "ArchViz/OverlayNavigationWatch.cpp",

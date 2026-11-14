@@ -135,6 +135,40 @@ constexpr bool NavigationSettling (uint64_t nowMs, uint64_t lastEventMs)
     return lastEventMs != 0 && nowMs >= lastEventMs && nowMs - lastEventMs < kNavigationSettleMs;
 }
 
+// ⚠️ ARCHICAD'S OWN NAVIGATION CURSORS (2026-11-14, #145): group-cursor resources of the host
+// executable, read from the installed Archicad 29 binary -- the 4-way pan arrows (322, 323, 922),
+// the zoom glasses (324, 325), the pan hands (326, 327, 393, 927), the look and walk eyes (328,
+// 329) and the orbit rings (339, 340). One of them standing over a locked view with no button
+// held is a pointer mode of Archicad's (Orbit, Pan, Zoom): the view is not the HUD's then
+// (OverlayInputHostMode.cpp). A different Archicad build may number them differently; the mode
+// is then not recognised and the log's HOSTCURSOR lines say which ids it saw.
+bool IsNavigationCursorResource (uint32_t resource);
+
+// A pointer mode of Archicad's on a locked view: the cursor hidden (Explore), or one of its
+// navigation cursors admitted (Orbit, Pan, Zoom). While it is not None the view's messages, keys
+// and cursor are Archicad's. The decision, apart from the Win32 reads that feed it:
+//   - never on an unlocked view (its presses are Archicad's already), and never inside a gesture
+//     the HUD holds -- a cursor changing under a drag ends nothing;
+//   - a hidden cursor is the mode wherever the pointer is;
+//   - a navigation cursor only once admitted (`OfferHostCursor`), and not over a region of the
+//     HUD's: a panel is the HUD's in every mode.
+enum class HostMode : uint8_t { None = 0, CursorHidden = 1, NavigationCursor = 2 };
+struct HostCursorState {
+    bool locked = false;
+    bool hudGesture = false;       // the router's owner is the HUD and a button is held
+    bool showing = true;           // the system reports the cursor showing
+    bool admitted = false;         // a navigation cursor was admitted and not yet replaced
+    bool navigationCursor = false; // the cursor showing now is one Archicad navigates with
+    bool overRegion = false;       // the pointer is over a published region of the HUD's
+};
+constexpr HostMode DecideHostMode (const HostCursorState& s)
+{
+    return !s.locked || s.hudGesture                             ? HostMode::None
+           : !s.showing                                          ? HostMode::CursorHidden
+           : s.admitted && s.navigationCursor && !s.overRegion ? HostMode::NavigationCursor
+                                                                 : HostMode::None;
+}
+
 class Router {
   public:
     // A message being removed from the queue: its route, the latch moved by it. `overScroll`:

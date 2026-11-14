@@ -197,6 +197,47 @@ TEST (OverlayHitMap, ANavigationIsStillArchicadsUntilItsSettleRunsOut)
     EXPECT_FALSE (input::NavigationSettling (4000, 5000)); // a clock read before the event
 }
 
+// #145: Orbit did nothing on a locked view. Its cursor, and those of the other navigation
+// modes, are resources of the host executable; a tool's arrow or pencil is not one of them.
+TEST (OverlayHitMap, ArchicadsNavigationCursorsAreToldFromItsToolCursors)
+{
+    for (uint32_t id : { 322u, 323u, 324u, 325u, 326u, 327u, 328u, 329u, 339u, 340u, 393u, 922u, 927u })
+        EXPECT_TRUE (input::IsNavigationCursorResource (id)) << id;
+    // The arrow, the pencil, the check mark, the eyedropper, the magic wand; and no resource.
+    for (uint32_t id : { 0u, 304u, 306u, 308u, 367u, 333u, 1001u, 32512u })
+        EXPECT_FALSE (input::IsNavigationCursorResource (id)) << id;
+}
+
+// #145: in Explore the cursor is hidden and the locked view went on taking its moves and clicks;
+// in Orbit the left button drags the view and the locked view took the press.
+TEST (OverlayHitMap, APointerModeOfArchicadsOwnsALockedView)
+{
+    input::HostCursorState s;
+    s.locked = true;
+    EXPECT_EQ (input::DecideHostMode (s), input::HostMode::None) << "a tool's cursor showing: the HUD's view";
+    s.showing = false;
+    EXPECT_EQ (input::DecideHostMode (s), input::HostMode::CursorHidden);
+    s.overRegion = true;
+    EXPECT_EQ (input::DecideHostMode (s), input::HostMode::CursorHidden) << "hidden is the mode wherever it is";
+    s.hudGesture = true;
+    EXPECT_EQ (input::DecideHostMode (s), input::HostMode::None) << "a drag the HUD holds is the HUD's to finish";
+    s = {};
+    s.locked = true;
+    s.navigationCursor = true;
+    EXPECT_EQ (input::DecideHostMode (s), input::HostMode::None)
+        << "what a middle-button orbit left behind is not a mode: never admitted";
+    s.admitted = true;
+    EXPECT_EQ (input::DecideHostMode (s), input::HostMode::NavigationCursor);
+    s.overRegion = true;
+    EXPECT_EQ (input::DecideHostMode (s), input::HostMode::None) << "a panel is the HUD's in every mode";
+    s.overRegion = false;
+    s.navigationCursor = false;
+    EXPECT_EQ (input::DecideHostMode (s), input::HostMode::None) << "Archicad set a tool's cursor: the mode ended";
+    s.navigationCursor = true;
+    s.locked = false;
+    EXPECT_EQ (input::DecideHostMode (s), input::HostMode::None) << "unlocked, its presses are Archicad's already";
+}
+
 TEST (OverlayHitMap, NavigationPassesDuringACapturedHudGesture)
 {
     input::Router router;

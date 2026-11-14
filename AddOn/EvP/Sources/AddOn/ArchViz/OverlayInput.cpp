@@ -159,7 +159,10 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     const bool shown = self->owner.shown != nullptr && self->owner.shown ();
     if (removing)
         ++g_stats.seen;
-    if (!shown) {
+    // ⚠️ OR ARCHICAD IS IN A POINTER MODE OF ITS OWN (§16; OverlayInputHostMode.cpp): Explore,
+    // Orbit, Pan, Zoom take the left button and every move, on a locked view as on any other.
+    const bool hosts = shown && state::HostPointerMode (*self) != HostMode::None;
+    if (!shown || hosts) {
         // Nothing of the HUD is on screen: every message is Archicad's, and the latch
         // lets go of a gesture the HUD can no longer finish.
         if (removing) {
@@ -168,8 +171,10 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
             self->buttons.clear ();
             self->wheel = 0.0f;
             self->wasOver = false;
-            self->navigating = false;
-            if (over)
+            self->navigating = hosts;
+            if (hosts)
+                self->lastNavigationMs = ::GetTickCount64 (); // its end settles like any navigation's
+            else if (over)
                 ++g_stats.declinedHidden;
         }
         return Route::Pass;
@@ -410,6 +415,9 @@ bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16str
 {
     if ((!s_roofEditKeys && !s_hudTextKeys) || !window)
         return false;
+    for (const Target& candidate : g_targets) // Explore walks by the keyboard, Esc leaves Orbit (§16)
+        if (candidate.canvas != nullptr && state::HostPointerMode (candidate) != HostMode::None)
+            return false;
     if (s_hudTextKeys && !s_roofEditKeys) {
         Target* target = s_keyboardTarget;
         if (!target || !target->canvas || TextField (window) || !state::OwnsPointer (*target))
@@ -706,6 +714,7 @@ void Uninstall ()
     // Resolved procedures belong to comctl32, not to this session. Resolve again
     // on the next attach instead of retaining addresses across module teardown.
     state::ForgetSubclassing ();
+    state::ForgetHostMode ();
     if (g_mouseHook != nullptr) {
         ::UnhookWindowsHookEx (g_mouseHook);
         g_mouseHook = nullptr;

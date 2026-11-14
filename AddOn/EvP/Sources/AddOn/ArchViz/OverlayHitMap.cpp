@@ -17,6 +17,28 @@ Cursor CursorFor (const HitMap& map, bool overRegion, bool hudGesture)
     return map.locked && !overRegion && !hudGesture && cursor == Cursor::Hand ? Cursor::Arrow : cursor;
 }
 
+bool IsNavigationCursorResource (uint32_t resource)
+{
+    switch (resource) {
+        case 322:
+        case 323:
+        case 324:
+        case 325:
+        case 326:
+        case 327:
+        case 328:
+        case 329:
+        case 339:
+        case 340:
+        case 393:
+        case 922:
+        case 927:
+            return true;
+        default:
+            return false;
+    }
+}
+
 int HitMap::Hit (float x, float y, float width, float height) const
 {
     for (size_t i = regions.size (); i-- > 0;) {

@@ -53,7 +53,8 @@ bool NativeNavigation ()
 
 bool NavigatingNatively (const Target& target)
 {
-    return NativeNavigation () || NavigationSettling (::GetTickCount64 (), target.lastNavigationMs);
+    return NativeNavigation () || NavigationSettling (::GetTickCount64 (), target.lastNavigationMs) ||
+           HostPointerMode (target) != HostMode::None;
 }
 
 namespace {
@@ -174,6 +175,8 @@ bool OwnsPointer (const Target& target)
     const CursorQuery query;
     if (target.owner.shown == nullptr || !target.owner.shown ())
         return false;
+    if (HostPointerMode (target) != HostMode::None)
+        return false; // Explore, Orbit, Pan, Zoom: the pointer is Archicad's on a locked view too (§16)
     const Owner owner = CursorOwner (router.GetOwner (), PhysicalButtons ());
     if (owner != Owner::None)
         return owner == Owner::Hud;
@@ -272,8 +275,9 @@ void ReassertCursor (const Target& target)
         return;
     Cursor desired = Cursor::Arrow;
     const HCURSOR cursor = DesiredCursor (target, desired);
-    if (::GetCursor () == cursor)
-        return;
+    const HCURSOR shown = ::GetCursor ();
+    if (shown == cursor || OfferHostCursor (target, shown))
+        return; // ours already, or a navigation mode of Archicad's beginning (§16)
     ::SetCursor (cursor);
     ++stats.cursorsReasserted;
 }

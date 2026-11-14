@@ -50,8 +50,18 @@ Target* TargetFor (HWND window);
 overlayhud::Input InputOf (Target& target, bool take);
 
 // Archicad is navigating this view: its middle button is held, read live, or the last event of
-// a navigation passed to it is younger than `kNavigationSettleMs` (OverlayHitMap.hpp).
+// a navigation passed to it is younger than `kNavigationSettleMs` (OverlayHitMap.hpp), or it is
+// in a pointer mode of its own (below).
 bool NavigatingNatively (const Target& target);
+
+// A pointer mode of Archicad's on a locked view (`HostMode`, OverlayHitMap.hpp), read live from
+// the cursor (OverlayInputHostMode.cpp).
+HostMode HostPointerMode (const Target& target);
+// A cursor that replaced the HUD's on the locked view: true when it is a navigation cursor
+// Archicad set with nothing held, which is then left standing.
+bool OfferHostCursor (const Target& target, HCURSOR foreign);
+// Session state (§8): what was learned of Archicad's cursors, and the mode.
+void ForgetHostMode ();
 
 // The cursor over the HUD (OverlayInputCursor.cpp).
 // The HUD owns what is under the pointer now: the canvas itself is there -- not a palette
