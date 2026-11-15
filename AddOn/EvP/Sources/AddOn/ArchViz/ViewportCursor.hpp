@@ -35,6 +35,9 @@ namespace viewportcursor {
 // Install native pointer/button/wheel handling and the arrow cursor on `hwnd`.
 // DG remains the palette shell and does not feed the renderer's input stream.
 bool Attach (void* hwnd);
+// The renderer reports explicit text-field activation. Only the main thread focuses its child.
+void SetHudTextActive (bool active);
+void FollowHudTextFocus ();
 
 // Restore the original WndProc. Safe to call when nothing is attached.
 void Detach ();

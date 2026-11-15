@@ -813,8 +813,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             SetDiligentCameraRays (scene, camera, width, height);
 
-            // Why this is conditional, and why the id pass reads the same flag,
-            // is at `modelIsDrawn` above -- next to the picking that depends on it.
+            // Shading and the pick pass use the same model-visibility gate.
             if (modelIsDrawn) {
                 gpuTimings.Begin (context, GpuTimingStage::Shading);
                 SceneDrawRequest request;
@@ -827,6 +826,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 request.eye = eye;
                 request.jitter = jitter;
                 request.debugView = hudState.debugView;
+                request.surfaceFocus = !hudState.planMode && !screenshot.Active () && editorDraw.SurfaceFocused ();
                 request.frameIndex = static_cast<uint32_t> (frames);
                 request.ambientOcclusion = hudState.ambientOcclusion;
                 request.ambientOcclusionIntensity = hudState.ambientOcclusionIntensity;

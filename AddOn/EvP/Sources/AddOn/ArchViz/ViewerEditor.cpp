@@ -15,6 +15,7 @@
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
 #include "ArchViz/SurfaceTakeoffLayer.hpp"
+#include "ArchViz/ViewportCursor.hpp"
 #include "Geometry/SurfaceTakeoffController.hpp"
 #include "AddOnCommands.hpp"
 #include "Python/MainThreadGate.hpp"
@@ -45,6 +46,7 @@ std::optional<surfacetakeoff::PageAction> s_surfaceAction;
 std::string s_surfaceError;
 std::atomic<std::shared_ptr<const SurfaceHighlight>> s_surfaceHighlight;
 surfacetakeoff::Presentation s_surfacePresentation;
+surfacetakeoff::UiState s_surfaceUi;
 uint64_t s_preparedGeneration = 0;
 
 void RefreshSurfaceHighlight (const std::optional<surfacetakeoff::PageAction>& action)
@@ -61,10 +63,10 @@ void RefreshSurfaceHighlight (const std::optional<surfacetakeoff::PageAction>& a
     }
     const auto& accepted = *view->lastGood;
     const auto old = s_surfaceHighlight.load ();
-    const bool isolate = action && action->kind == surfacetakeoff::PageAction::Kind::Isolate &&
-                         action->generation == accepted.generation && old &&
-                         old->summary.generation == accepted.generation;
-    if (s_preparedGeneration == accepted.generation && !isolate)
+    const bool update = action && action->generation == accepted.generation && old &&
+                        old->summary.generation == accepted.generation &&
+                        surfacetakeoff::ApplyHighlightSelection (s_surfacePresentation, s_surfaceUi, *action);
+    if (s_preparedGeneration == accepted.generation && !update)
         return;
     std::string error;
     const auto result = std::static_pointer_cast<const geomsrv::surfacetakeoff::Result> (accepted.payload);
@@ -77,15 +79,13 @@ void RefreshSurfaceHighlight (const std::optional<surfacetakeoff::PageAction>& a
             s_surfaceError = std::move (error);
             return;
         }
+        s_surfaceUi = surfacetakeoff::InitialUi (s_surfacePresentation, "");
     }
-    auto ui = surfacetakeoff::InitialUi (s_surfacePresentation, "");
-    if (isolate)
-        ui.focus = action->material;
     auto highlight = std::make_shared<SurfaceHighlight> ();
     highlight->capture = accepted.snapshot;
     highlight->summary.generation = accepted.generation;
     auto layer = std::make_shared<const overlaylayers::Layer> (
-        surfacetakeoff::HighlightLayer (s_surfacePresentation, ui, highlight->summary, error));
+        surfacetakeoff::HighlightLayer (s_surfacePresentation, s_surfaceUi, highlight->summary, error));
     highlight->scene = overlayscene::PrepareScene ({ layer }, nullptr);
     if (highlight->scene.fills.size () / 3 != highlight->summary.triangles) {
         std::lock_guard<std::mutex> lock (s_mutex);
@@ -111,7 +111,8 @@ void FollowSurfaceTakeoff ()
         action = std::exchange (s_surfaceAction, std::nullopt);
     }
     RefreshSurfaceHighlight (action);
-    if (!action || action->kind == surfacetakeoff::PageAction::Kind::Isolate)
+    if (!action || (action->kind != surfacetakeoff::PageAction::Kind::Calculate &&
+                    action->kind != surfacetakeoff::PageAction::Kind::Cancel))
         return;
     const auto generation = Generation ();
     GS::UniString error;
@@ -175,6 +176,8 @@ bool Refresh ()
         return false;
     }
     FollowSurfaceTakeoff ();
+    if (!Active ())
+        viewportcursor::FollowHudTextFocus ();
     const auto state = guesttext::HudState ();
     if (s_requested.exchange (false)) {
         {
@@ -248,6 +251,7 @@ bool Refresh ()
     if (const auto action = overlayhud::TakeExposedSurfaceRequest (*state))
         RequestSurfaceTakeoff (*action);
     state->exposedSurfaceError = SurfaceTakeoffError ();
+    overlayinput::EnableHudTextKeys (overlayhud::CriteriaTextActive (*state));
     // This host has no overlay-controller refresh. Drain its explicit file action
     // here on the main thread, after layout, never on the renderer's Present.
     if (state->virtualEditor && state->virtualEditor->debugExportRequested)
@@ -424,6 +428,8 @@ void Stop (bool preserve)
     if (!s_running.exchange (false))
         return;
     s_active.store (false);
+    overlayinput::EnableHudTextKeys (false);
+    viewportcursor::SetHudTextActive (false);
     s_requested.store (false);
     s_analysisRequested.store (false);
     s_generation.fetch_add (1);
@@ -450,6 +456,7 @@ void Stop (bool preserve)
     s_dock = {};
     s_placementRequested = false;
     s_pending.reset ();
+    s_surfaceUi = {};
     s_surfaceHighlight.store (nullptr);
     s_surfacePresentation = {};
     s_preparedGeneration = 0;

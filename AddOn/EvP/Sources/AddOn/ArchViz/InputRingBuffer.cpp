@@ -63,6 +63,20 @@ void InputRingBuffer::PushPointerMessage (int32_t x, int32_t y)
     state_.pointerMessageQpc = QpcNow ();
 }
 
+void InputRingBuffer::PushTextKey (TextKey key)
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    if (state_.textKeys.size () < 64)
+        state_.textKeys.push_back (key);
+}
+
+void InputRingBuffer::PushText (char16_t text)
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    if (state_.text.size () < 256)
+        state_.text.push_back (text);
+}
+
 void InputRingBuffer::Reset ()
 {
     std::lock_guard<std::mutex> lock (mutex_);
@@ -79,6 +93,8 @@ InputSnapshot InputRingBuffer::Take ()
     // in the returned copy, from Win32, immediately after this call.
     state_.wheelDelta = 0;
     state_.transitionCount = 0;
+    state_.textKeys.clear ();
+    state_.text.clear ();
     state_.eventQpc = 0;
     return out;
 }

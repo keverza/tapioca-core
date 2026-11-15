@@ -399,7 +399,8 @@ class DiligentScene final {
     void Draw (Diligent::IDeviceContext* context, Diligent::ITextureView* colorTarget,
                Diligent::ITextureView* depthTarget, const float view[16], const float proj[16],
                const float viewProj[16], const float motionViewProj[16], const float eye[3], const float jitter[2],
-               CullMode cull, int debugView, float nearClip, float farClip, float focusDistance, uint32_t frameIndex);
+               CullMode cull, int debugView, float nearClip, float farClip, float focusDistance, uint32_t frameIndex,
+               bool surfaceFocus = false);
 
     // Render opaque geometry into the shader-readable normal/depth G-buffer,
     // then resolve one channel to the viewport target.

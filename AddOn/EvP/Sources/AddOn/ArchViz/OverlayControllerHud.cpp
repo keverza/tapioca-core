@@ -97,6 +97,8 @@ void FollowHudState ()
     massinghybrid::Poll ();
     massingslicesmodel::Poll ();
     const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
+    overlayvisibility::surfaceTakeoffFocused.store (overlayhud::LayerShown (*state, surfacetakeoff::kLayer) &&
+                                                    surfacetakeoff::ReadHighlight ().Focused ());
     bool recoloured = false;
     roofslopebake::Follow (state);
     FollowTerrainCapture (state);
@@ -181,8 +183,8 @@ void FollowHudState ()
         state->exposedSurfaceError.clear ();
         if (action->kind == surfacetakeoff::PageAction::Kind::Cancel)
             geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().Cancel (action->generation);
-        else if (action->kind == surfacetakeoff::PageAction::Kind::Isolate)
-            surfacetakeoff::Isolate (action->generation, action->material);
+        else if (action->kind != surfacetakeoff::PageAction::Kind::Calculate)
+            surfacetakeoff::ApplyHighlightAction (*action);
         else {
             // The stable Document launcher uses the one existing Python run path. No
             // worker, picker or palette run is started inside ImGui layout.

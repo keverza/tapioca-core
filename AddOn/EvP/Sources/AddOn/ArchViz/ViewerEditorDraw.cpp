@@ -98,6 +98,17 @@ void ViewerEditorDraw::Release ()
     Clear ();
 }
 
+bool ViewerEditorDraw::SurfaceFocused () const
+{
+    const auto highlight = vieweredit::ReadSurfaceHighlight ();
+    if (!highlight || !highlight->summary.Focused () || highlight->capture != capture_ ||
+        !MeshStore::Get ().IsCurrentCapture (capture_, true))
+        return false;
+    const auto result = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().TryPoll ();
+    return result && result->state == geomsrv::surfacetakeoff::ControllerState::Current &&
+           result->generation == highlight->summary.generation;
+}
+
 void ViewerEditorDraw::Update (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                                Diligent::ITextureView* target, Diligent::ITextureView* depth, const float* view,
                                const float* projection, uint32_t width, uint32_t height, bool showSurfaceHighlight)

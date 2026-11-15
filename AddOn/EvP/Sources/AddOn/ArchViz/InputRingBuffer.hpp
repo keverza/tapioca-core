@@ -41,6 +41,8 @@
 // very hard to see. Revisit only with a measurement.
 
 #include <cstdint>
+#include <string>
+#include <vector>
 #include <mutex>
 
 namespace geomsrv {
@@ -57,6 +59,11 @@ enum MouseButtonMask : uint8_t {
 struct ButtonTransition {
     uint8_t button = kMouseNone;
     bool down = false;
+};
+
+struct TextKey {
+    uint32_t code;
+    bool down, ctrl, shift, alt;
 };
 
 // What the render thread reads once per frame.
@@ -106,6 +113,8 @@ struct InputSnapshot {
     static constexpr int kMaxTransitions = 16;
     ButtonTransition transitions[kMaxTransitions] = {};
     int transitionCount = 0;
+    std::vector<TextKey> textKeys;
+    std::u16string text;
 };
 
 // The cursor in RENDER-TARGET pixels.
@@ -143,6 +152,8 @@ class InputRingBuffer final {
     void PushButton (uint8_t button, bool down);
     void PushWheel (int32_t delta);
     void PushPointerMessage (int32_t x, int32_t y);
+    void PushTextKey (TextKey key);
+    void PushText (char16_t text);
     // The viewer is closing, or the child lost the mouse in a way Windows did not
     // report. Clears held buttons so nothing is left mid-drag.
     void Reset ();

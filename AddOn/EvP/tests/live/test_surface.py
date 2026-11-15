@@ -158,10 +158,11 @@ def test_seeded_exterior_takeoff_against_independent_fixture(live_client, surfac
         area = triangle_area(mesh)
         close(area, mesh["areaM2"], 1e-6)
         measured[mesh["surfaceAttributeIndex"]] += area
+    captured_colors = {row["surfaceAttributeIndex"]: row["rgba"] for row in catalog}
     for row, expected in zip(data["surfaces"], exterior["expectedAreaM2"], strict=True):
         close(row["areaM2"], expected, fixture["absoluteTolerance"])
         close(row["areaM2"], measured[row["surfaceAttributeIndex"]], 1e-6)
-        assert row["rgba"] == 0x5A7F62FF  # legacy per-material colors cannot override selection styling
+        assert row["rgba"] == captured_colors[row["surfaceAttributeIndex"]]
     close(sum(measured.values()), data["selectedAreaM2"], 1e-6)
     assert data["selectedTriangleCount"] == sum(len(mesh["triangles"]) // 3 for mesh in data["meshes"])
     assert call("Tapioca.CalculateExteriorSurfaceTakeoff", request) == data
@@ -270,7 +271,8 @@ def test_criteria_candidates_have_an_automatic_multimaterial_tolerant_capture(li
     assert data["contactToleranceM"] == 0.001
     assert {normalized_guid(g) for g in data["regionElementGuids"]} == {normalized_guid(g) for g in targets}
     assert 3 <= len(data["surfaces"]) <= 512, "Fixture must exercise a list, not two finish slots"
-    assert {row["rgba"] for row in data["surfaces"]} == {0x5A7F62FF}
+    captured_colors = {row["surfaceAttributeIndex"]: row["rgba"] for row in catalog}
+    assert all(row["rgba"] == captured_colors[row["surfaceAttributeIndex"]] for row in data["surfaces"])
     assert {row["surfaceAttributeIndex"] for row in data["surfaces"]} <= {
         row["surfaceAttributeIndex"] for row in catalog
     }

@@ -24,8 +24,8 @@ constexpr const char kCatalogOutput[] = R"json({
         "scope":{"const":"capturedProjectSurfaceCatalog"},
         "surfaces":{"type":"array","items":{"type":"object","properties":{
             "surfaceAttributeIndex":{"type":"integer","minimum":1},
-            "name":{"type":"string"},"guid":{"type":"string"}
-        },"additionalProperties":false,"required":["surfaceAttributeIndex","name","guid"]}}
+            "name":{"type":"string"},"guid":{"type":"string"},"rgba":{"type":"integer","minimum":0,"maximum":4294967295}
+        },"additionalProperties":false,"required":["surfaceAttributeIndex","name","guid","rgba"]}}
     },"additionalProperties":false,"required":["snapshotId","captureStamp","scope","surfaces"]
 })json";
 constexpr const char kCalculateInput[] = R"json({
@@ -284,6 +284,7 @@ class GetSnapshotSurfacesCommand : public MainThreadCommand {
             row.Add ("surfaceAttributeIndex", index);
             row.Add ("name", Text (surface.name));
             row.Add ("guid", Text (surface.guid));
+            row.Add ("rgba", GS::Int64 (surface.rgba));
             surfaces.Push (row);
         }
         output.Add ("surfaces", surfaces);

@@ -9,6 +9,7 @@
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/ImGuiContextLock.hpp" // ImGui's one global context: every use under its lock
 #include "ArchViz/InputRingBuffer.hpp"
+#include "ArchViz/ViewportCursor.hpp"
 #include "ArchViz/ImGuiGraphInteractionLab.hpp"
 #include "ArchViz/SceneTextLiveCheck.hpp"
 #include "ArchViz/TapiocaUI/Demo/WidgetGallery.hpp"
@@ -235,6 +236,19 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     if (input.wheelDelta != 0)
         io.AddMouseWheelEvent (0.0f, float (input.wheelDelta) / 120.0f);
     io.AddKeyEvent (ImGuiMod_Shift, input.shift);
+    const bool wasTextActive = impl_->shell.exposedSurfaces.textActive;
+    impl_->shell.exposedSurfaces.textActive = false;
+    if (wasTextActive) {
+        for (const auto& key : input.textKeys) {
+            io.AddKeyEvent (ImGuiMod_Ctrl, key.ctrl);
+            io.AddKeyEvent (ImGuiMod_Shift, key.shift);
+            io.AddKeyEvent (ImGuiMod_Alt, key.alt);
+            if (const auto mapped = hudshell::TextKey (key.code); mapped != ImGuiKey_None)
+                io.AddKeyEvent (mapped, key.down);
+        }
+        for (char16_t text : input.text)
+            io.AddInputCharacterUTF16 (text);
+    }
 
     // Every HUD's style (HudShell.hpp) at the system's DPI -- the scale the overlays' 3D HUD
     // takes too -- times the text size the user chose.
@@ -288,6 +302,8 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     }
 
     if (!showControls) {
+        if (wasTextActive)
+            viewportcursor::SetHudTextActive (false);
         ImGui::PopFont ();
         ImGui::Render ();
         impl_->renderer->RenderDrawData (context, ImGui::GetDrawData ());
@@ -380,6 +396,11 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
         figures.dpiScale = dpiScale;
         figures.fontNote = impl_->fontNote.c_str ();
         viewerhud::Draw (impl_->shell, state, scene, width, height, impl_->font, figures);
+    }
+    if (wasTextActive != impl_->shell.exposedSurfaces.textActive) {
+        viewportcursor::SetHudTextActive (impl_->shell.exposedSurfaces.textActive);
+        if (wasTextActive)
+            io.ClearInputKeys ();
     }
 
     if (state.showGraphInteractionLab)

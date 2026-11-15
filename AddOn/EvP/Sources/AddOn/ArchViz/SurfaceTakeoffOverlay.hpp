@@ -8,7 +8,7 @@ uint64_t BeginRequest ();
 bool Publish (const Presentation& presentation, uint64_t snapshotId, uint64_t captureStamp, uint64_t request,
               std::string& error, uint64_t generation = 0);
 HighlightSummary ReadHighlight ();
-void Isolate (uint64_t generation, std::optional<int32_t> material);
+void ApplyHighlightAction (const PageAction& action);
 void Clear ();
 void OnProjectClosed ();
 } // namespace geomsrv::archviz::surfacetakeoff

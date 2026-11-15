@@ -75,7 +75,7 @@ const char kInput[] = R"json({
   "seeds":{"type":"array","maxItems":8,"items":{"type":"object","additionalProperties":false,
     "properties":{"guid":{"type":"string","minLength":1,"maxLength":38},"point":{"$ref":"#/$defs/vector"},"normal":{"$ref":"#/$defs/vector"}},"required":["guid","point","normal"]}},
    "surfaceAttributeIndices":{"type":"array","maxItems":512,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
-   "surfaceColors":{"type":"array","maxItems":512,"description":"Legacy compatibility input; highlights use the fixed selection color.","items":{"type":"integer","minimum":0,"maximum":4294967295}},
+   "surfaceColors":{"type":"array","maxItems":512,"description":"Legacy compatibility input; swatches and outlines use captured surface colors.","items":{"type":"integer","minimum":0,"maximum":4294967295}},
   "publishOverlay":{"type":"boolean"},"compareNative":{"type":"boolean"}
  },"required":["snapshotId","captureStamp","targetGuids","coverGuids","coverScopeId","seeds","surfaceAttributeIndices","publishOverlay","compareNative"],
  "$defs":{"vector":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}}}
@@ -268,8 +268,6 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
             surfaces.assign (captured.begin (), captured.end ());
         }
         std::vector<uint32_t> colors;
-        for (size_t i = 0; i < surfaces.size (); ++i)
-            colors.push_back (view::DefaultColor (i));
         if (input.surfaceColors) {
             const auto& values = *input.surfaceColors;
             if (!values.empty () && values.size () != surfaces.size ())

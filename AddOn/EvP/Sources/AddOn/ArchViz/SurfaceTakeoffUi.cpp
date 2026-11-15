@@ -19,6 +19,11 @@ bool Included (Facing facing, const UiState& state)
            : facing == Facing::Bottom ? state.includeBottom
                                       : state.includeSides;
 }
+bool IncludedMesh (const Presentation& presentation, const UiState& state, size_t i)
+{
+    return (state.materials.empty () || state.materials.contains (presentation.meshSurfaces[i])) &&
+           Included (presentation.meshFacings[i], state) && MatchesCriteria (presentation, state, i);
+}
 } // namespace
 UiState InitialUi (const Presentation& presentation, const std::string& token)
 {
@@ -79,13 +84,35 @@ bool ApplyUiChange (const Presentation& presentation, UiState& state, const std:
     }
     return false;
 }
+bool ApplyHighlightSelection (const Presentation& presentation, UiState& state, const PageAction& action)
+{
+    const auto measured = [&] (int32_t id) {
+        return std::any_of (presentation.rows.begin (), presentation.rows.end (),
+                            [id] (const auto& row) { return row.index == id && row.areaM2 > 0; });
+    };
+    if (action.kind == PageAction::Kind::Isolate) {
+        if (action.material && (!measured (*action.material) ||
+                                (!state.materials.empty () && !state.materials.contains (*action.material))))
+            return false;
+        state.focus = action.material;
+        return true;
+    }
+    if (action.kind != PageAction::Kind::FilterMaterials ||
+        !std::all_of (action.materials.begin (), action.materials.end (), measured))
+        return false;
+    state.materials = action.materials;
+    state.focus.reset ();
+    state.areaPage = 0;
+    return true;
+}
+
 std::map<int32_t, double> UiAreas (const Presentation& presentation, const UiState& state)
 {
     std::map<int32_t, double> areas;
     for (const auto& row : presentation.rows)
         areas[row.index] = 0;
     for (size_t i = 0; i < presentation.meshSurfaces.size (); ++i)
-        if (Included (presentation.meshFacings[i], state) && MatchesCriteria (presentation, state, i))
+        if (IncludedMesh (presentation, state, i))
             areas[presentation.meshSurfaces[i]] += presentation.meshAreas[i];
     return areas;
 }
@@ -97,18 +124,24 @@ layers::Layer HighlightLayer (const Presentation& presentation, const UiState& s
     layer.views = presentation.layer.views;
     layer.occlusion = presentation.layer.occlusion;
     summary.material = state.focus;
+    summary.materials = state.materials;
     summary.triangles = 0;
     summary.areaM2 = 0;
+    summary.rowAreas.clear ();
     std::vector<size_t> shown;
     for (size_t i = 0; i < presentation.meshSurfaces.size (); ++i) {
         const int32_t surface = presentation.meshSurfaces[i];
-        if (Included (presentation.meshFacings[i], state) && MatchesCriteria (presentation, state, i) &&
-            (!state.focus || state.focus == surface)) {
-            auto& mesh = layer.meshes.emplace_back (presentation.layer.meshes[i]);
-            summary.triangles += mesh.indices.size () / 3;
-            summary.areaM2 += presentation.meshAreas[i];
-            shown.push_back (i);
-        }
+        if (!IncludedMesh (presentation, state, i))
+            continue;
+        summary.rowAreas[surface] += presentation.meshAreas[i];
+        if (state.focus && state.focus != surface)
+            continue;
+        auto& mesh = layer.meshes.emplace_back (presentation.layer.meshes[i]);
+        if (summary.Focused ())
+            mesh.style.opacity = .85f;
+        summary.triangles += mesh.indices.size () / 3;
+        summary.areaM2 += presentation.meshAreas[i];
+        shown.push_back (i);
     }
     BoundaryLines (presentation, shown, layer.polylines, outlineError);
     return layer;
@@ -184,7 +217,7 @@ layers::Layer UiLayer (const Presentation& presentation, const UiState& state, H
             layers::PanelItem swatch;
             swatch.kind = layers::ItemKind::Swatch;
             swatch.id = UiId (state, "highlight", row.index);
-            swatch.rgba = kHighlightRgba;
+            swatch.rgba = row.rgba;
             swatch.checked = !state.focus || state.focus == row.index;
             swatch.text = row.name;
             swatch.value =

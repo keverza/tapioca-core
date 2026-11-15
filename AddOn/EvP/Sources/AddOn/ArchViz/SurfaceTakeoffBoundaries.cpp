@@ -13,6 +13,7 @@ V Point (const std::vector<double>& points, uint32_t at)
 }
 struct Group {
     int32_t surface;
+    uint32_t rgba;
     surfacecoverage::Frame frame;
     cp::PathsD triangles;
 };
@@ -50,7 +51,7 @@ bool BoundaryLines (const Presentation& presentation, const std::vector<size_t>&
                 break;
             }
         if (!group) {
-            groups.push_back ({ presentation.meshSurfaces[i], frame, {} });
+            groups.push_back ({ presentation.meshSurfaces[i], mesh.rgba, frame, {} });
             group = &groups.back ();
         }
         for (size_t t = 0; t < mesh.indices.size (); t += 3)
@@ -66,9 +67,9 @@ bool BoundaryLines (const Presentation& presentation, const std::vector<size_t>&
         for (const auto& loop : boundary) {
             overlaylayers::Polyline line;
             line.closed = true;
-            line.rgba = (kHighlightRgba & 0xFFFFFF00u) | 0x80u;
+            line.rgba = group.rgba | 0xFFu;
             line.behind = overlaylayers::Behind::Show;
-            line.widthPixels = 1.5f;
+            line.widthPixels = 2.5f;
             for (const auto& point : loop) {
                 const V world = group.frame.Lift (point);
                 line.points.insert (line.points.end (), { world.x, world.y, world.z });

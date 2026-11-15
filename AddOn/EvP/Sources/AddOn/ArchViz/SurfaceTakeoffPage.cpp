@@ -5,6 +5,7 @@
 
 #include <imgui.h>
 #include <algorithm>
+#include <string_view>
 
 namespace geomsrv::archviz::surfacetakeoff {
 namespace {
@@ -39,6 +40,73 @@ void Area (double area)
         ImGui::Text ("%.3f", area);
 }
 
+std::string MaterialLabel (const geomsrv::surfacetakeoff::SurfaceRow& row)
+{
+    return row.name + " [" + std::to_string (row.surfaceAttributeIndex) + "]";
+}
+
+bool Swatch (uint32_t rgba)
+{
+    const auto color = ImVec4 (float ((rgba >> 24) & 255u) / 255.0f, float ((rgba >> 16) & 255u) / 255.0f,
+                               float ((rgba >> 8) & 255u) / 255.0f, 1.0f);
+    const float size = ImGui::GetTextLineHeight ();
+    const bool pressed = ImGui::ColorButton (
+        "##sourceColor", color, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2 (size, size));
+    ImGui::SameLine ();
+    return pressed;
+}
+
+std::optional<PageAction> MaterialPicker (PageState& page, const Result& result, const HighlightSummary& highlight)
+{
+    if (!ImGui::CollapsingHeader ("Filter by material"))
+        return std::nullopt;
+    ImGui::SetNextItemWidth (-1);
+    ImGui::InputTextWithHint ("##materialSearch", "Search measured materials...", page.materialSearch.data (),
+                              page.materialSearch.size ());
+    page.textActive = ImGui::IsItemActive ();
+    const std::string_view needle (page.materialSearch.data ());
+    const auto same = [] (unsigned char a, unsigned char b) {
+        const auto fold = [] (unsigned char c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; };
+        return fold (a) == fold (b);
+    };
+    if (ImGui::BeginListBox ("##measuredMaterials", ImVec2 (-1, ImGui::GetTextLineHeightWithSpacing () * 5))) {
+        bool found = false;
+        for (const auto& row : result.surfaces) {
+            const auto label = MaterialLabel (row);
+            if (row.areaM2 <= 0 ||
+                std::search (label.begin (), label.end (), needle.begin (), needle.end (), same) == label.end ())
+                continue;
+            found = true;
+            ImGui::PushID (row.surfaceAttributeIndex);
+            bool checked = page.draftMaterials.contains (row.surfaceAttributeIndex);
+            if (ImGui::Checkbox (label.c_str (), &checked)) {
+                if (checked)
+                    page.draftMaterials.insert (row.surfaceAttributeIndex);
+                else
+                    page.draftMaterials.erase (row.surfaceAttributeIndex);
+            }
+            ImGui::PopID ();
+        }
+        if (!found)
+            ImGui::TextDisabled ("No matching measured materials");
+        ImGui::EndListBox ();
+    }
+    ImGui::TextDisabled ("An empty selection includes all measured materials.");
+    const bool changed = page.draftMaterials != highlight.materials;
+    ImGui::BeginDisabled (!changed);
+    const bool apply = ImGui::Button ("Apply materials");
+    ImGui::EndDisabled ();
+    ImGui::SameLine ();
+    ImGui::BeginDisabled (page.draftMaterials.empty ());
+    if (ImGui::Button ("Clear selection"))
+        page.draftMaterials.clear ();
+    ImGui::EndDisabled ();
+    if (!apply)
+        return std::nullopt;
+    page.page = 0;
+    return PageAction { PageAction::Kind::FilterMaterials, page.scope, highlight.generation, {}, page.draftMaterials };
+}
+
 std::optional<PageAction> MeasuredRows (PageState& page, const Result& result, const HighlightSummary& highlight)
 {
     std::optional<PageAction> action;
@@ -52,7 +120,7 @@ std::optional<PageAction> MeasuredRows (PageState& page, const Result& result, c
     ImGui::TextUnformatted ("Calculated area before filters (m²)");
     Area (result.selectedAreaM2);
     if (canIsolate) {
-        ImGui::TextWrapped ("%s %.3f mÂ² (%zu triangles)", highlight.material ? "Isolated" : "Highlighted",
+        ImGui::TextWrapped ("%s %.3f m² (%zu triangles)", highlight.material ? "Isolated" : "Highlighted",
                             highlight.areaM2, highlight.triangles);
         if (highlight.material && ImGui::Button ("Show all surfaces"))
             action = PageAction { PageAction::Kind::Isolate, page.scope, highlight.generation };
@@ -60,13 +128,23 @@ std::optional<PageAction> MeasuredRows (PageState& page, const Result& result, c
     if (result.selectedAreaM2 <= 0)
         return action;
 
+    if (canIsolate) {
+        if (!highlight.materials.empty ())
+            ImGui::Text ("%zu materials selected", highlight.materials.size ());
+        if (auto filterAction = MaterialPicker (page, result, highlight))
+            action = std::move (filterAction);
+    }
     std::vector<const geomsrv::surfacetakeoff::SurfaceRow*> rows;
-    for (const auto& row : result.surfaces)
-        if (row.areaM2 > 0)
+    for (const auto& row : result.surfaces) {
+        const auto area = highlight.rowAreas.find (row.surfaceAttributeIndex);
+        if (canIsolate ? area != highlight.rowAreas.end () && area->second > 0 : row.areaM2 > 0)
             rows.push_back (&row);
+    }
     const size_t pageCount = (rows.size () + kRowsPerPage - 1) / kRowsPerPage;
-    if (pageCount == 0)
+    if (pageCount == 0) {
+        ImGui::TextWrapped ("No measured surfaces match the applied filters.");
         return action;
+    }
     page.page = (std::min) (page.page, pageCount - 1);
     if (ImGui::BeginTable ("surfaceAreas", 2,
                            ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp |
@@ -80,11 +158,12 @@ std::optional<PageAction> MeasuredRows (PageState& page, const Result& result, c
             const auto& row = *rows[i];
             ImGui::TableNextRow ();
             ImGui::TableSetColumnIndex (0);
-            const auto label = row.name + " [" + std::to_string (row.surfaceAttributeIndex) + "]";
+            const auto label = MaterialLabel (row);
             ImGui::PushID (row.surfaceAttributeIndex);
             ImGui::BeginDisabled (!canIsolate);
             const bool isolated = canIsolate && highlight.material == row.surfaceAttributeIndex;
-            if (ImGui::Selectable (label.c_str (), isolated, ImGuiSelectableFlags_SpanAllColumns)) {
+            const bool swatch = Swatch (row.rgba);
+            if (ImGui::Selectable (label.c_str (), isolated, ImGuiSelectableFlags_SpanAllColumns) || swatch) {
                 action = PageAction { PageAction::Kind::Isolate, page.scope, highlight.generation };
                 if (!isolated)
                     action->material = row.surfaceAttributeIndex;
@@ -94,7 +173,7 @@ std::optional<PageAction> MeasuredRows (PageState& page, const Result& result, c
             if (ImGui::IsItemHovered (ImGuiHoveredFlags_DelayShort))
                 ImGui::SetTooltip ("Captured Archicad surface attribute. Names can repeat across attribute IDs.");
             ImGui::TableSetColumnIndex (1);
-            Area (row.areaM2);
+            Area (canIsolate ? highlight.rowAreas.at (row.surfaceAttributeIndex) : row.areaM2);
         }
         ImGui::EndTable ();
     }
@@ -135,8 +214,9 @@ const char* LauncherScope (TargetScope scope)
 }
 
 std::optional<PageAction> DrawPage (PageState& page, const geomsrv::surfacetakeoff::ControllerView* view,
-                                    const std::string& actionError, HighlightSummary highlight)
+                                    const std::string& actionError, const HighlightSummary& highlight)
 {
+    page.textActive = false;
     if (view == nullptr) {
         ImGui::TextDisabled ("Updating calculation status…");
         return std::nullopt;
@@ -171,6 +251,8 @@ std::optional<PageAction> DrawPage (PageState& page, const geomsrv::surfacetakeo
         if (page.shownGeneration != view->generation) {
             page.shownGeneration = view->generation;
             page.page = 0;
+            page.materialSearch = {};
+            page.draftMaterials = highlight.materials;
         }
         if (auto rowAction =
                 MeasuredRows (page, *std::static_pointer_cast<const Result> (view->lastGood->payload), highlight))

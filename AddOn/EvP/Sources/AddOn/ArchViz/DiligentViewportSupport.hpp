@@ -83,6 +83,7 @@ struct SceneDrawRequest {
     const float* eye = nullptr;            // 3
     const float* jitter = nullptr;         // 2
     int debugView = 0;
+    bool surfaceFocus = false;
     uint32_t frameIndex = 0;
     // RE51.C3. `intensity` scales the darkening only, never the effect's radius.
     bool ambientOcclusion = true;

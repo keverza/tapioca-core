@@ -3,6 +3,7 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 
+#include <atomic>
 #include <windows.h>
 #include <windowsx.h>
 
@@ -16,6 +17,8 @@ HWND gWindow = nullptr;
 WNDPROC gPreviousProc = nullptr;
 HHOOK gMessageHook = nullptr;
 bool gExpectedCaptureRelease = false;
+std::atomic<bool> gHudTextActive { false };
+bool gHudTextFocused = false;
 
 bool PointTargetsViewport (POINT screenPoint)
 {
@@ -82,6 +85,21 @@ LRESULT CALLBACK ViewportProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lP
                 return 0;
             }
             break;
+        case WM_CHAR:
+            if (gHudTextActive.load ()) {
+                if (wParam >= 32)
+                    input.PushText (char16_t (wParam));
+                return 0;
+            }
+            break;
+        case WM_KEYDOWN:
+        case WM_KEYUP:
+            if (gHudTextActive.load ()) {
+                input.PushTextKey ({ uint32_t (wParam), message == WM_KEYDOWN, ::GetKeyState (VK_CONTROL) < 0,
+                                     ::GetKeyState (VK_SHIFT) < 0, ::GetKeyState (VK_MENU) < 0 });
+                return 0;
+            }
+            break;
         case WM_CAPTURECHANGED:
             if (!gExpectedCaptureRelease) {
                 input.PushButton (kMouseLeft, false);
@@ -115,6 +133,19 @@ LRESULT CALLBACK ViewportProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lP
 }
 
 } // namespace
+
+void SetHudTextActive (bool active)
+{
+    gHudTextActive.store (active);
+}
+
+void FollowHudTextFocus ()
+{
+    const bool active = gHudTextActive.load ();
+    if (active && !gHudTextFocused && gWindow && ::GetAncestor (gWindow, GA_ROOT) == ::GetForegroundWindow ())
+        ::SetFocus (gWindow);
+    gHudTextFocused = active;
+}
 
 bool Attach (void* hwnd)
 {
@@ -169,6 +200,8 @@ void Detach ()
     }
     gWindow = nullptr;
     gPreviousProc = nullptr;
+    gHudTextActive.store (false);
+    gHudTextFocused = false;
     InputRingBuffer::Get ().Reset ();
 }
 

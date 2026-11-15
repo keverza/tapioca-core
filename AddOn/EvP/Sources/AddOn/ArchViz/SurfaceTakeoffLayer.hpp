@@ -15,7 +15,6 @@ constexpr size_t kMaxSurfaces = 512; // bounded by the candidate-face budget, no
 constexpr size_t kAreaPageSize = 50;
 // sRGB conversion of oklch(0.56 0.06 151), rounded to 8-bit channels.
 constexpr uint32_t kHighlightRgba = 0x5A7F62FFu;
-uint32_t DefaultColor (size_t index);
 struct SurfaceRow {
     int32_t index = 0;
     std::string name;
@@ -44,6 +43,7 @@ struct UiState {
     std::string warning;
     size_t areaPage = 0;
     std::optional<int32_t> focus;
+    std::set<int32_t> materials;
     bool includeTop = true, includeBottom = true, includeSides = true;
     std::vector<surfacecriteria::Rule> draftRules, rules;
     int32_t nextRuleId = 1;
@@ -53,6 +53,7 @@ UiState InitialUi (const Presentation& presentation, const std::string& token);
 std::string UiId (const UiState& state, const char* action, int32_t surface = 0);
 bool ApplyUiChange (const Presentation& presentation, UiState& state, const std::string& kind, const std::string& id,
                     double value, const std::string& text = {});
+bool ApplyHighlightSelection (const Presentation& presentation, UiState& state, const PageAction& action);
 overlaylayers::Layer HighlightLayer (const Presentation& presentation, const UiState& state, HighlightSummary& summary,
                                      std::string& outlineError);
 overlaylayers::Layer UiLayer (const Presentation& presentation, const UiState& state,

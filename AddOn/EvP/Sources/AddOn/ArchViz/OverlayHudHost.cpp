@@ -471,6 +471,7 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
             if (auto action = surfacetakeoff::DrawPage (store->exposedSurfaces, view ? &*view : nullptr,
                                                         store->exposedSurfaceError, own.exposedSurfaceHighlight))
                 store->exposedSurfaceAction = *action;
+            store->criteriaTextActive |= store->exposedSurfaces.textActive;
             if (!own.viewerSurface)
                 for (const size_t i : titled)
                     if (keys[i] == k && ImGui::CollapsingHeader ("Filters & highlights")) {

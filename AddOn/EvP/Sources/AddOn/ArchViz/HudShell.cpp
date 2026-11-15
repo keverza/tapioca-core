@@ -19,6 +19,50 @@ namespace hudshell {
 
 namespace layers = overlaylayers;
 
+ImGuiKey TextKey (uint32_t code)
+{
+    if (code >= 'A' && code <= 'Z')
+        return ImGuiKey (ImGuiKey_A + code - 'A');
+    if (code >= '0' && code <= '9')
+        return ImGuiKey (ImGuiKey_0 + code - '0');
+    if (code >= 0x70 && code <= 0x87)
+        return ImGuiKey (ImGuiKey_F1 + code - 0x70);
+    switch (code) {
+        case 0x08:
+            return ImGuiKey_Backspace;
+        case 0x09:
+            return ImGuiKey_Tab;
+        case 0x0D:
+            return ImGuiKey_Enter;
+        case 0x1B:
+            return ImGuiKey_Escape;
+        case 0x20:
+            return ImGuiKey_Space;
+        case 0x21:
+            return ImGuiKey_PageUp;
+        case 0x22:
+            return ImGuiKey_PageDown;
+        case 0x23:
+            return ImGuiKey_End;
+        case 0x24:
+            return ImGuiKey_Home;
+        case 0x25:
+            return ImGuiKey_LeftArrow;
+        case 0x26:
+            return ImGuiKey_UpArrow;
+        case 0x27:
+            return ImGuiKey_RightArrow;
+        case 0x28:
+            return ImGuiKey_DownArrow;
+        case 0x2D:
+            return ImGuiKey_Insert;
+        case 0x2E:
+            return ImGuiKey_Delete;
+        default:
+            return ImGuiKey_None;
+    }
+}
+
 ImVec4 Colour (uint32_t rgba)
 {
     return ImVec4 (float ((rgba >> 24) & 0xFFu) / 255.0f, float ((rgba >> 16) & 0xFFu) / 255.0f,

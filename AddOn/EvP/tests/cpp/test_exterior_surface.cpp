@@ -26,8 +26,8 @@ Snapshot Capture ()
     snapshot.id = 1;
     snapshot.captureStamp = 2;
     snapshot.meshes = { Box ("left", 0), Box ("right", 1, 0, 2), Box ("detached", 3), Box ("interior", 0, 1) };
-    snapshot.surfaceAttributes[100] = { "Stucco red", "red-guid" };
-    snapshot.surfaceAttributes[200] = { "Stucco yellow", "yellow-guid" };
+    snapshot.surfaceAttributes[100] = { "Stucco red", "red-guid", 0xA03730FFu };
+    snapshot.surfaceAttributes[200] = { "Stucco yellow", "yellow-guid", 0xDCB741FFu };
     snapshot.materialIdentity[1] = { "Red pool", 100 };
     snapshot.materialIdentity[2] = { "Yellow pool", 200 };
     return snapshot;
@@ -227,8 +227,8 @@ TEST (ExteriorSurface, RedYellowOverlayAndPanelUseExactSelectedFragmentTriangles
         << error;
     ASSERT_EQ (output.rows.size (), 2u);
     ASSERT_EQ (output.layer.meshes.size (), result.fragments.size ());
-    EXPECT_EQ (output.rows[0].rgba, presentation::kHighlightRgba);
-    EXPECT_EQ (output.rows[1].rgba, presentation::kHighlightRgba);
+    EXPECT_EQ (output.rows[0].rgba, snapshot.surfaceAttributes.at (100).rgba);
+    EXPECT_EQ (output.rows[1].rgba, snapshot.surfaceAttributes.at (200).rgba);
     EXPECT_DOUBLE_EQ (output.rows[0].areaM2, 1);
     EXPECT_DOUBLE_EQ (output.rows[1].areaM2, 1);
     EXPECT_DOUBLE_EQ (output.areaM2, 2);
@@ -239,7 +239,7 @@ TEST (ExteriorSurface, RedYellowOverlayAndPanelUseExactSelectedFragmentTriangles
         EXPECT_EQ (output.layer.meshes[i].points, result.fragments[i].points);
         EXPECT_EQ (output.layer.meshes[i].indices, result.fragments[i].triangles);
         EXPECT_TRUE (output.layer.meshes[i].styled);
-        EXPECT_EQ (output.layer.meshes[i].rgba, presentation::kHighlightRgba);
+        EXPECT_EQ (output.layer.meshes[i].rgba, snapshot.surfaceAttributes.at (output.meshSurfaces[i]).rgba);
         EXPECT_EQ (output.layer.meshes[i].style.edgeRgba, 0u);
         EXPECT_EQ (output.layer.meshes[i].style.opacity, .5f);
         EXPECT_EQ (output.layer.meshes[i].style.behind, archviz::overlaylayers::Behind::Show);
@@ -311,6 +311,21 @@ TEST (ExteriorSurface, RedYellowOverlayAndPanelUseExactSelectedFragmentTriangles
     }
     EXPECT_EQ (isolated.triangles, materialTriangles);
     EXPECT_NEAR (isolated.areaM2, materialArea, 1e-6);
+    for (const auto& edge : viewer.polylines)
+        EXPECT_EQ (edge.rgba, snapshot.surfaceAttributes.at (*ui.focus).rgba);
+    presentation::PageAction filter {
+        presentation::PageAction::Kind::FilterMaterials, presentation::TargetScope::Construction, 1, {}, { *ui.focus }
+    };
+    ASSERT_TRUE (presentation::ApplyHighlightSelection (restored, ui, filter));
+    EXPECT_FALSE (ui.focus);
+    const auto filtered = presentation::UiLayer (restored, ui, &highlighted);
+    EXPECT_EQ (highlighted.rowAreas.size (), 1u);
+    EXPECT_EQ (highlighted.triangles, materialTriangles);
+    EXPECT_NEAR (highlighted.areaM2, materialArea, 1e-6);
+    EXPECT_EQ (filtered.meshes.size (), viewer.meshes.size ());
+    filter.materials.insert (999);
+    EXPECT_FALSE (presentation::ApplyHighlightSelection (restored, ui, filter));
+    EXPECT_EQ (ui.materials.size (), 1u);
     EXPECT_EQ (overlay.meshes.size (), published.meshes.size ());
     auto tampered = published;
     tampered.selectedAreaM2 = 999;
@@ -471,7 +486,7 @@ TEST (ExteriorSurface, BoundaryUnionKeepsHolesMaterialBoundariesGapsAndCreases)
     ASSERT_TRUE (presentation::BoundaryLines (ring, { 0, 1, 2, 3 }, lines, error)) << error;
     EXPECT_EQ (lines.size (), 2u); // perimeter and real hole
     for (const auto& line : lines)
-        EXPECT_EQ (line.rgba, (presentation::kHighlightRgba & 0xFFFFFF00u) | 0x80u);
+        EXPECT_EQ (line.rgba, presentation::kHighlightRgba);
     for (int variant = 0; variant < 3; ++variant) {
         presentation::Presentation data;
         Patch (data, 0, 0, 1, 1);

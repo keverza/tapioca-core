@@ -1972,7 +1972,7 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
     // image was steady, reported live on 2026-08-24. Tutorial27_PostProcessing
     // composites SSR into the radiance BEFORE ComputeTAA for exactly this
     // reason. kArchVizSsrCompositePS is that pass; this one now only tone-maps.
-    color = float4 (Grade (radiance), coverage);
+    color = float4 (SurfaceFocusContext (Grade (radiance)), coverage);
 }
 )hlsl";
 
@@ -2091,6 +2091,14 @@ float3 AcesFitted (float3 colour)
 float3 Grade (float3 radiance)
 {
     return AcesFitted (radiance * g_whiteBalance.rgb * g_gradeParams.x);
+}
+
+float3 SurfaceFocusContext (float3 color)
+{
+    if (g_frameControl.z < 0.5)
+        return color;
+    const float grey = dot (color, float3 (0.2126, 0.7152, 0.0722));
+    return lerp (float3 (0.60, 0.60, 0.60), float3 (grey, grey, grey), 0.38);
 }
 
 )hlsl";
@@ -2815,7 +2823,7 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
         if (g_frameControl.x > 0.5)
             base.rgb = colour;
         else
-            base.rgb = Grade (colour);
+            base.rgb = SurfaceFocusContext (Grade (colour));
         lighting = float3 (1.0, 1.0, 1.0);   // already applied above
         premultiplied = true;                // and so was the alpha
     }

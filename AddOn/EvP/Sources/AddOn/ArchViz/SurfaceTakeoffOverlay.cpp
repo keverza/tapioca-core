@@ -4,6 +4,7 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "Geometry/SurfaceTakeoffController.hpp"
 #include "ArchViz/OverlayHudEvents.hpp"
+#include "ArchViz/OverlayVisibility.hpp"
 #include "Geometry/MeshStore.hpp"
 #include <windows.h>
 #include <atomic>
@@ -27,6 +28,7 @@ bool Current (uint64_t id, uint64_t stamp)
 void PublishHighlight ()
 {
     overlaylayers::Set (UiLayer (*s_presentation, s_ui, &s_highlight));
+    overlayvisibility::surfaceTakeoffFocused.store (s_highlight.Focused ());
     overlaycontrol::PublishLayers ();
     ArchVizLog ("SURFACE HIGHLIGHT host=overlay snapshot=" + std::to_string (s_snapshotId) +
                 " generation=" + std::to_string (s_highlight.generation) +
@@ -67,6 +69,7 @@ void CALLBACK Tick (HWND, UINT, UINT_PTR timer, DWORD)
     s_presentation.reset ();
     s_ui = {};
     s_highlight = {};
+    overlayvisibility::surfaceTakeoffFocused.store (false);
     overlaylayers::Clear (kLayer);
     overlaylayers::Layer stale;
     stale.name = kLayer;
@@ -122,16 +125,17 @@ HighlightSummary ReadHighlight ()
 {
     return Current (s_snapshotId, s_captureStamp) ? s_highlight : HighlightSummary {};
 }
-void Isolate (uint64_t generation, std::optional<int32_t> material)
+void ApplyHighlightAction (const PageAction& action)
 {
+    const auto generation = action.generation;
     if (!s_presentation || !generation || generation != s_highlight.generation ||
         !Current (s_snapshotId, s_captureStamp))
         return;
     const auto view = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().TryPoll ();
     if (!view || view->generation != generation || view->state != geomsrv::surfacetakeoff::ControllerState::Current)
         return;
-    s_ui.focus = material;
-    PublishHighlight ();
+    if (ApplyHighlightSelection (*s_presentation, s_ui, action))
+        PublishHighlight ();
 }
 void OnProjectClosed ()
 {
@@ -143,6 +147,7 @@ void OnProjectClosed ()
     s_presentation.reset ();
     s_ui = {};
     s_highlight = {};
+    overlayvisibility::surfaceTakeoffFocused.store (false);
     s_eventSeq = 0;
     overlaylayers::Clear (kLayer);
 }

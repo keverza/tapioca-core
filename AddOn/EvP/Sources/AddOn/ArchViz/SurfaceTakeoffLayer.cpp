@@ -16,11 +16,6 @@ std::string Area (double value)
     return text.str ();
 }
 } // namespace
-uint32_t DefaultColor (size_t index)
-{
-    (void) index;
-    return kHighlightRgba;
-}
 bool Build (const Snapshot& snapshot, const exposed::Result& result, const exposed::SurfaceSelection& selection,
             const std::vector<int32_t>& surfaces, const std::map<int32_t, double>& nativeAreas,
             const std::string& comparisonNote, Presentation& output, std::string& error,
@@ -55,7 +50,7 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
         if (found == snapshot.surfaceAttributes.end () || positions.contains (index))
             return fail ("Missing/duplicate selected project surface.");
         positions[index] = prepared.rows.size ();
-        prepared.rows.push_back ({ index, found->second.name, kHighlightRgba, 0 });
+        prepared.rows.push_back ({ index, found->second.name, found->second.rgba, 0 });
     }
     for (const auto& fragment : result.fragments) {
         const auto mapped = selection.poolToSurface.find (fragment.materialPoolIndex);
@@ -168,7 +163,7 @@ bool BuildFromResult (const Snapshot& snapshot, const geomsrv::surfacetakeoff::R
     for (const auto& row : result.surfaces) {
         const auto found = snapshot.surfaceAttributes.find (row.surfaceAttributeIndex);
         if (found == snapshot.surfaceAttributes.end () || found->second.name != row.name ||
-            positions.contains (row.surfaceAttributeIndex) || row.rgba != kHighlightRgba ||
+            positions.contains (row.surfaceAttributeIndex) || row.rgba != found->second.rgba ||
             !std::isfinite (row.areaM2) || row.areaM2 < 0)
             return fail ("Invalid published project surface row.");
         positions[row.surfaceAttributeIndex] = prepared.rows.size ();

@@ -734,11 +734,16 @@ std::map<int32_t, CapturedSurface> ReadSurfaceAttributes ()
     if (ACAPI_Attribute_GetAttributesByType (API_MaterialID, attributes) != NoError)
         return {};
     std::map<int32_t, CapturedSurface> result;
+    const auto byte = [] (double value) {
+        return std::isfinite (value) ? uint32_t (std::lround (std::clamp (value, 0.0, 1.0) * 255.0)) : 128u;
+    };
     for (const auto& attribute : attributes) {
         const GS::UniString name (attribute.header.name);
+        const auto& rgb = attribute.material.surfaceRGB;
+        const uint32_t rgba = (byte (rgb.f_red) << 24) | (byte (rgb.f_green) << 16) | (byte (rgb.f_blue) << 8) | 0xFFu;
         result.emplace (attribute.header.index.ToInt32_Deprecated (),
                         CapturedSurface { name.ToCStr (0, MaxUSize, CC_UTF8).Get (),
-                                          APIGuidToString (attribute.header.guid).ToCStr ().Get () });
+                                          APIGuidToString (attribute.header.guid).ToCStr ().Get (), rgba });
     }
     return result;
 }

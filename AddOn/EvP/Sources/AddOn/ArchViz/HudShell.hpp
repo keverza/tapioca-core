@@ -34,6 +34,8 @@ namespace geomsrv {
 namespace archviz {
 namespace hudshell {
 
+ImGuiKey TextKey (uint32_t code);
+
 // ---- colour -----------------------------------------------------------------------
 
 // 0xRRGGBBAA as ImGui wants it, and back.

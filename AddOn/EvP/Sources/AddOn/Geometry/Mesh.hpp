@@ -65,6 +65,7 @@ struct Mesh {
 
 struct CapturedSurface {
     std::string name, guid;
+    uint32_t rgba = 0x808080FFu;
     bool operator== (const CapturedSurface&) const = default;
 };
 struct CapturedMaterialIdentity {

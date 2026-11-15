@@ -35,6 +35,8 @@ inline void SetContentShown (bool shown)
     ContentFlag ().store (shown, std::memory_order_release);
 }
 
+inline std::atomic<bool> surfaceTakeoffFocused { false };
+
 // Existing-model reference edges only. Keep occluder geometry and analysis layers
 // active when the reference is hidden, in both Present paths.
 inline std::atomic<bool>& WireframeFlag ()
