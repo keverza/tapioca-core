@@ -27,6 +27,9 @@
 #include <vector>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler (HWND, UINT, WPARAM, LPARAM);
+// ImGuiFiles.cpp, in the shared ImGui: every section open while on, closed again when turned off.
+void PlaygroundExpandAll (bool on);
+size_t PlaygroundExpandedCount ();
 
 namespace tapioca::playground {
 namespace fs = std::filesystem;
@@ -236,9 +239,8 @@ Crop PanelCrop (uint32_t width, uint32_t height)
 // The frame just drawn into the back buffer -- cropped to the panel Archicad shows (PanelCrop) --
 // as "playground-20261115-131500-<n>.png" in the export folder: copied to a staging texture, read
 // back, opaque, PNG-encoded. Returns the file written.
-fs::path Screenshot (Graphics& graphics, uint32_t width, uint32_t height)
+fs::path Screenshot (Graphics& graphics, Diligent::ITexture* backBuffer, uint32_t width, uint32_t height)
 {
-    auto* backBuffer = graphics.swapChain->GetCurrentBackBufferRTV ()->GetTexture ();
     Diligent::TextureDesc desc;
     desc.Name = "Playground screenshot";
     desc.Type = Diligent::RESOURCE_DIM_TEX_2D;
@@ -296,6 +298,78 @@ fs::path Screenshot (Graphics& graphics, uint32_t width, uint32_t height)
     out.write (static_cast<const char*> (blob->GetConstDataPtr ()), std::streamsize (blob->GetSize ()));
     if (!out)
         throw std::runtime_error ("Screenshot: could not write " + file.string ());
+    return file;
+}
+
+// The panel whole: the state again with the preview at its tallest, drawn into a tall offscreen
+// target with every section open (PlaygroundExpandAll) until no frame opens another -- a section
+// opened shows the ones inside it on the next -- and the panel has laid itself out. Then each
+// section is closed again and the live state put back. Returns the file written.
+fs::path FullScreenshot (Graphics& graphics, Module& module, const fs::path& uiDll, const std::string& state,
+                         uint32_t width, float dpi)
+{
+    auto parsed = json::Parse (state);
+    if (!parsed.ok)
+        throw std::runtime_error ("Screenshot: the state could not be read.");
+    constexpr double kTallest = 2400.0; // Workspace's preview height limit, logical px
+    Put (parsed.value, "previewHeight", Value::Double (kTallest));
+    std::string error;
+    if (!module.Swap (uiDll, json::Write (parsed.value, 0), error))
+        throw std::runtime_error ("Screenshot: " + error);
+    const auto height = uint32_t (kTallest * dpi + 400.0f * dpi);
+    Diligent::TextureDesc desc;
+    desc.Name = "Playground full screenshot";
+    desc.Type = Diligent::RESOURCE_DIM_TEX_2D;
+    desc.Width = width;
+    desc.Height = height;
+    desc.Format = graphics.swapChain->GetDesc ().ColorBufferFormat;
+    desc.BindFlags = Diligent::BIND_RENDER_TARGET;
+    Diligent::RefCntAutoPtr<Diligent::ITexture> target;
+    graphics.device->CreateTexture (desc, nullptr, &target);
+    std::string failure;
+    fs::path file;
+    if (!target)
+        failure = "Screenshot: the offscreen target could not be created.";
+    PlaygroundExpandAll (true);
+    size_t opened = SIZE_MAX;
+    for (int frame = 0, settled = 0; frame < 24 && settled < 3 && failure.empty (); ++frame) {
+        settled = PlaygroundExpandedCount () == opened ? settled + 1 : 0;
+        opened = PlaygroundExpandedCount ();
+        graphics.renderer->NewFrame (width, height, Diligent::SURFACE_TRANSFORM_IDENTITY);
+        ImGui_ImplWin32_NewFrame ();
+        ImGui::GetIO ().DisplaySize = ImVec2 (float (width), float (height));
+        ImGui::NewFrame ();
+        ImGui::PushFont (nullptr, 13.0f * dpi);
+        const TapiocaUiFrame tall { float (width), float (height), dpi, "" };
+        TapiocaUiResult result {};
+        const bool drawn = module.Draw (tall, result);
+        if (result.stateJson)
+            std::free (result.stateJson);
+        ImGui::PopFont ();
+        ImGui::Render ();
+        if (!drawn) {
+            failure = "Screenshot: the UI did not draw.";
+            break;
+        }
+        auto* rtv = target->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET);
+        graphics.context->SetRenderTargets (1, &rtv, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        const float clear[] { 0.12f, 0.12f, 0.12f, 1 };
+        graphics.context->ClearRenderTarget (rtv, clear, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        graphics.renderer->RenderDrawData (graphics.context, ImGui::GetDrawData ());
+    }
+    if (failure.empty ()) {
+        try {
+            file = Screenshot (graphics, target, width, height);
+        }
+        catch (const std::exception& e) {
+            failure = e.what ();
+        }
+    }
+    PlaygroundExpandAll (false);
+    if (!module.Swap (uiDll, state, error))
+        throw std::runtime_error ("Screenshot: the live state could not be restored: " + error);
+    if (!failure.empty ())
+        throw std::runtime_error (failure);
     return file;
 }
 
@@ -434,10 +508,12 @@ int Run ()
         const float clear[] { 0.12f, 0.12f, 0.12f, 1 };
         graphics.context->ClearRenderTarget (target, clear, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         graphics.renderer->RenderDrawData (graphics.context, ImGui::GetDrawData ());
+        graphics.swapChain->Present (1);
         if (g_screenshotRequested || (screenshotFrame > 0 && frames + 1 == screenshotFrame)) {
             g_screenshotRequested = false;
             try {
-                const auto file = Screenshot (graphics, width, height);
+                const auto file = FullScreenshot (graphics, module, uiDll, state, width,
+                                                  float (GetDpiForWindow (window.handle)) / 96);
                 reloadStatus = "Screenshot saved: " + file.string () + "\n";
             }
             catch (const std::exception& failure) {
@@ -445,7 +521,6 @@ int Run ()
             }
             diagnostic << reloadStatus << std::flush;
         }
-        graphics.swapChain->Present (1);
         if (frames == 0 && ImGui::GetDrawData ()->TotalVtxCount <= 0)
             throw std::runtime_error ("No UI vertices drawn.");
         ++frames;

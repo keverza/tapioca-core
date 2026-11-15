@@ -26,7 +26,10 @@ add_library (imgui SHARED
 set_target_properties (imgui PROPERTIES OUTPUT_NAME TapiocaImGui WINDOWS_EXPORT_ALL_SYMBOLS ON)
 target_include_directories (imgui SYSTEM PUBLIC "${IMGUI_DIR}"
     "${DILIGENT_DIR}/DiligentTools/Imgui/interface")
+# IMGUI_ENABLE_TEST_ENGINE: only for its item hooks, which open every section for a screenshot
+# (ImGuiFiles.cpp); they stay off (TestEngineHookItems) outside one.
 target_compile_definitions (imgui PUBLIC IMGUI_USER_CONFIG="ImGuiDiligentConfig.h" IMGUI_DEFINE_MATH_OPERATORS
+    IMGUI_ENABLE_TEST_ENGINE
     PRIVATE "IMGUI_API=__declspec(dllexport)" INTERFACE "IMGUI_API=__declspec(dllimport)")
 target_link_libraries (imgui PRIVATE dwmapi gdi32)
 
