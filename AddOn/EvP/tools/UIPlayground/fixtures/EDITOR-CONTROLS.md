@@ -169,7 +169,7 @@ whether a control is drawn. Exceptions and decisions:
 
 Tests: `HudVirtualEditorFixtures.ResolveContextTable191`, `ResolveContextPrecedence191`,
 `HudVirtualEditorInspector.{InspectorShowsOneContext191, TheActionRowFollowsTheSelection191,
-PathProfileVisibleWithoutScroll191}`. `NoInventoryControlUnreachable` is not written yet.
+PathProfileVisibleWithoutScroll191}`. `HudVirtualEditorInspector.NoInventoryControlUnreachable191` draws each C control in its context and counts the C rows here.
 
 ## Notes found while taking the inventory
 

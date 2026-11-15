@@ -4,10 +4,16 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "Edit/EditLandscape.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditPrimitives.hpp"
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <functional>
+#include <sstream>
+#include <vector>
 #include <string>
 
 namespace {
@@ -175,4 +181,137 @@ TEST (HudVirtualEditorInspector, PathProfileVisibleWithoutScroll191)
     for (const auto& label : s.profilePlaced)
         top = std::min (top, label.box.y0);
     EXPECT_LT (top, 700.0f) << "the profile starts below the panel: the user must scroll to reach it";
+}
+
+namespace {
+// The inventory's Inspector rows (Area C), counted: a new C row fails NoInventoryControlUnreachable
+// until it is added to the table there.
+size_t InventoryInspectorRows ()
+{
+    std::ifstream in (std::filesystem::path (__FILE__).parent_path () /
+                      "../../tools/UIPlayground/fixtures/EDITOR-CONTROLS.md");
+    size_t rows = 0;
+    for (std::string line; std::getline (in, line);) {
+        if (line.empty () || line[0] != '|')
+            continue;
+        std::vector<std::string> cells;
+        std::stringstream split (line.substr (1));
+        for (std::string cell; std::getline (split, cell, '|');)
+            cells.push_back (cell);
+        if (cells.size () >= 8) {
+            const auto area = cells[6].find_first_not_of (' ');
+            rows += area != std::string::npos && cells[6][area] == 'C';
+        }
+    }
+    return rows;
+}
+} // namespace
+
+// #191 U4: every Inspector control of EDITOR-CONTROLS.md is drawn in its context -- or under that
+// context's More, Expert or own header, opened here as a user would open it.
+TEST (HudVirtualEditorInspector, NoInventoryControlUnreachable191)
+{
+    EXPECT_EQ (InventoryInspectorRows (), 43u) << "EDITOR-CONTROLS.md changed its Inspector rows: update this table";
+    auto site = MakeSite ();
+    const auto plainA = edit::AddPolyline (site.doc, { { 30, 0, 0 }, { 34, 0, 0 }, { 34, 4, 0 }, { 30, 4, 0 } }, true);
+    const auto plainB = edit::AddPolyline (site.doc, { { 32, 2, 0 }, { 36, 2, 0 }, { 36, 6, 0 }, { 32, 6, 0 } }, true);
+    std::string error;
+    edit::PrimitiveInput input;
+    input.kind = edit::Primitive::Ellipse;
+    input.first = { -12, 4, 0 };
+    input.second = { -9, 6, 0 };
+    const auto ellipse = edit::AddPrimitive (site.doc, input, "ellipse", error);
+    ASSERT_NE (ellipse, edit::kNoId) << error;
+    const auto whole = [] (edit::Id id) { return edit::Ref { id, edit::Part::Entity, 0 }; };
+    const auto* path = edit::FindPath (site.doc, site.path);
+    ASSERT_NE (path, nullptr);
+    ASSERT_GE (path->profile.size (), 3u);
+    const edit::Ref brk { site.path, edit::Part::Break, path->profile[1].id };
+    const auto* region = edit::Find (site.doc, site.region);
+    const edit::Ref vertex { site.region, edit::Part::Vertex, region->vertices[0].id };
+
+    struct Case {
+        const char* name;
+        std::function<void (eh::Session&)> setup;
+        std::vector<const char*> labels;
+    };
+    const std::vector<Case> cases {
+        { "close prompt",
+          [] (eh::Session& s) { s.closePrompt = true; },
+          { "Save and close", "Discard and close", "Cancel" } },
+        { "recovery offer",
+          [] (eh::Session& s) { s.recoveries.push_back ({ "r.json", "2026-11-15 10:00", "", 3, 2 }); },
+          { "Recover", "Discard" } },
+        { "draft list",
+          [] (eh::Session& s) {
+              s.draftFilesListed = true;
+              s.draftFiles = { "a.json" };
+          },
+          { "a.json", "Refresh drafts", "Hide drafts" } },
+        { "mirror", [] (eh::Session& s) { eh::detail::SetTool (s, eh::Tool::Mirror); }, { "Keep original" } },
+        { "array draft",
+          [&] (eh::Session& s) {
+              s.selection.Set ({ whole (plainA) });
+              ASSERT_TRUE (eh::detail::BeginRectangularArray (s)) << s.message;
+          },
+          { "Array count X (total)", "Array spacing X (m)", "Apply array", "Cancel array" } },
+        { "boolean draft",
+          [&] (eh::Session& s) {
+              s.selection.Set ({ whole (plainA), whole (plainB) });
+              ASSERT_TRUE (eh::detail::BeginBoolean (s, edit::BooleanKind::Union)) << s.message;
+          },
+          { "Apply boolean", "Cancel boolean" } },
+        { "polygon tool", [] (eh::Session& s) { eh::detail::SetTool (s, eh::Tool::Polygon); }, { "Sides (Up/Down)" } },
+        { "polyline tool",
+          [] (eh::Session& s) {
+              eh::detail::SetTool (s, eh::Tool::Polyline);
+              s.landscapeMode = eh::LandscapeMode::DrawSource;
+          },
+          { "Next line's role:", "Region boundary", "Cutter", "Property line" } },
+        { "path",
+          [&] (eh::Session& s) { s.selection.Set ({ whole (site.path) }); },
+          { "Path profile", "Kerb radius", "Crown", "Falls left", "Falls right", "Path to entrance" } },
+        { "path break", [&] (eh::Session& s) { s.selection.Set ({ brk }); }, { "Smoothing", "Fix elevation" } },
+        { "region",
+          [&] (eh::Session& s) { s.selection.Set ({ whole (site.region) }); },
+          { "Use selected lines as:", "Material boundary", "Building outline", "Elevation", "Terrain interaction",
+            "Material preset metadata", "Choose Archicad fill / surface...", "Delete", "More", "Expert",
+            "Duplicate offset XYZ (m)", "Rectangular array...", "object " } },
+        { "offset",
+          [&] (eh::Session& s) { s.selection.Set ({ whole (plainA) }); },
+          { "Offset distance", "Offset join", "Offset miter limit" } },
+        { "reference line",
+          [&] (eh::Session& s) { s.selection.Set ({ whole (site.reference) }); },
+          { "Visible", "Locked", "Width (pixels)", "Line colour" } },
+        { "ellipse",
+          [&] (eh::Session& s) { s.selection.Set ({ whole (ellipse) }); },
+          { "Circle (use major radius)", "Convert to curve" } },
+        { "fixed heights",
+          [&] (eh::Session& s) { s.selection.Set ({ vertex }); },
+          { "Fix selected heights", "Release selected heights" } },
+        { "several",
+          [&] (eh::Session& s) { s.selection.Set ({ whole (site.path), whole (ellipse) }); },
+          { "1 paths", "Use selected lines as:" } },
+        { "nothing",
+          [] (eh::Session&) {},
+          { "Rebuild terrain (3D)", "Place entrances", "Keep recovery snapshots", "Reference line display",
+            "Add selected Archicad lines and fills", "As property line", "As building outline",
+            "Doors as entrances" } },
+    };
+    for (const auto& c : cases) {
+        Gui gui;
+        eh::Session s (site.doc);
+        c.setup (s);
+        if (::testing::Test::HasFatalFailure ())
+            return;
+        gui.Frame ([&] { eh::detail::Inspector (s); });
+        auto* window = ImGui::FindWindowByName ("inspector");
+        ASSERT_NE (window, nullptr);
+        for (const char* header : { "More", "Expert", "Fixed terrain heights" })
+            window->StateStorage.SetInt (ImHashStr (header, 0, window->ID), 1);
+        const auto text = gui.Frame ([&] { eh::detail::Inspector (s); });
+        for (const char* label : c.labels)
+            EXPECT_TRUE (Has (text, label)) << c.name << ": \"" << label << "\" is not drawn ("
+                                            << eh::InspectorContextName (eh::ResolveContext (s)) << ")";
+    }
 }
