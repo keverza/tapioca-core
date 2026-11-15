@@ -28,13 +28,31 @@ void LRun (Ctx& c, const Skeleton& sk, const Corner& k, Portion pa, Portion pb, 
     // Swapped frame for the child arm: u' runs up the arm.
     Frame g;
     g.o = f.o, g.u = f.v, g.v = f.u;
-    const double DA = A.depth, DB = B.depth, corr = c.o.corridor, w = c.o.coreWidth;
+    const double DA = A.depth, DB = B.depth, w = c.o.coreWidth;
     const double LAp = pa.s1 - pa.s0, LBp = pb.s1 - pb.s0; // portion lengths from the corner
     const double s = (std::min) (c.o.stairWindow, w);
     // A stub arm too shallow for a centre corridor is entered from a corridor along its inner
     // side, its flats facing the outer facade (site B's 12 m end wings, user 2026-10-10).
     const bool single = k.single;
-    const double ca = (DA - corr) / 2, cb = single ? DB - corr : (DB - corr) / 2;
+    // Where the corridor crosses each arm: the middle, or where the user has it (Pins::Corridor: one
+    // in the parent beyond the corner, one in the arm). One corridor has one width: the parent's
+    // pin gives it, else the arm's. Each arm keeps a row of flats either side, as a straight run.
+    bool pinA = false, pinB = false;
+    const Lane laneA =
+        LaneFor (c.pins, c.o, f, DB, (std::max) (DB, pa.s1 - pa.s0), DA, true, c.laneUsed, c.notes, &pinA);
+    const Lane laneB =
+        LaneFor (c.pins, c.o, g, DA, DA + (std::max) (0.0, pb.s1 - pb.s0), DB, true, c.laneUsed, c.notes, &pinB);
+    const double corr = pinA ? laneA.Width () : pinB ? laneB.Width () : c.o.corridor;
+    if (pinA && pinB && std::abs (laneA.Width () - laneB.Width ()) > 1e-6)
+        c.notes.push_back ({ Diagnostic::Info, "pin.corridor_width",
+                             "A corridor that turns a corner has one width: the arm's takes its parent's.",
+                             f.World (DB / 2, DA / 2) });
+    // The arm's own place across it, the corridor being `corr` wide.
+    auto place = [&] (const Lane& lane, bool pinned, double depth) {
+        const double lo = kRowDepthMin, hi = depth - corr - kRowDepthMin;
+        return !pinned || hi < lo ? (depth - corr) / 2 : Clip ((lane.c0 + lane.c1 - corr) / 2, lo, hi);
+    };
+    const double ca = place (laneA, pinA, DA), cb = single ? DB - corr : place (laneB, pinB, DB);
     const double bandA = DA - ca - corr, bandB = DB - cb - corr;
     // An L is two bars at a right angle. An outer corner facing north only makes a deep, dark
     // corner flat: the notch where the two outer bands meet is left out of the massing, and the

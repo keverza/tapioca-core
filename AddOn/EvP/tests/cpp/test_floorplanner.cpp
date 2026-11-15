@@ -259,3 +259,85 @@ TEST (FloorPlanner, EveryFloorIsPlannedToTheStacksMainWalls)
             EXPECT_NEAR (floor->scheme.grid[i][0].x, grid[i][0].x, 1e-9) << story;
     }
 }
+
+// HANDOFF 27.5 / #163: the key a scheme is kept under names every option a plan depends on, and
+// the skeleton when it is the user's -- two inputs that would plan differently never share one.
+TEST (FloorPlanner, EveryOptionAndTheSkeletonAreInAFloorsSignature)
+{
+    const std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 60) } };
+    const std::map<std::string, bp::Draft> drafts;
+    const auto input = [&] (const fs::Options& o) {
+        return bp::InputFor (plans, drafts, "A", plans.at ("A").floors[0], fp::Default (), {}, o);
+    };
+    const std::string plain = input ({}).signature;
+    EXPECT_EQ (plain, input ({}).signature);
+    const std::pair<const char*, void (*) (fs::Options&)> changes[] = {
+        { "corridor", [] (fs::Options& o) { o.corridor = 2.0; } },
+        { "coreWidth", [] (fs::Options& o) { o.coreWidth = 5.0; } },
+        { "coreDepth", [] (fs::Options& o) { o.coreDepth = 4.6; } },
+        { "stairWindow", [] (fs::Options& o) { o.stairWindow = 1.2; } },
+        { "maxDeadEnd", [] (fs::Options& o) { o.maxDeadEnd = 20; } },
+        { "sectionArea", [] (fs::Options& o) { o.sectionArea = 450; } },
+        { "sectionSlack", [] (fs::Options& o) { o.sectionSlack = 0; } },
+        { "minWingDepth", [] (fs::Options& o) { o.minWingDepth = 6; } },
+        { "maxWingDepth", [] (fs::Options& o) { o.maxWingDepth = 20; } },
+        { "minWingLength", [] (fs::Options& o) { o.minWingLength = 8; } },
+        { "centreDepth", [] (fs::Options& o) { o.centreDepth = 14; } },
+        { "stairCost", [] (fs::Options& o) { o.stairCost = 30; } },
+        { "windowGap", [] (fs::Options& o) { o.windowGap = 1.8; } },
+        { "maxFlat", [] (fs::Options& o) { o.maxFlat = 100; } },
+        { "minCap", [] (fs::Options& o) { o.minCap = 6; } },
+        { "maxCap", [] (fs::Options& o) { o.maxCap = 9; } },
+        { "raster", [] (fs::Options& o) { o.raster = 0.5; } },
+        { "cullCorners", [] (fs::Options& o) { o.cullCorners = false; } },
+        { "biteCorners", [] (fs::Options& o) { o.biteCorners = true; } },
+        { "north", [] (fs::Options& o) { o.north = 0.5; } },
+        { "grossFactor", [] (fs::Options& o) { o.grossFactor = 0.8; } },
+    };
+    for (const auto& [name, change] : changes) {
+        fs::Options o;
+        change (o);
+        EXPECT_NE (input (o).signature, plain) << name;
+    }
+    auto authored = input ({});
+    authored.design.pins.wings = { { 1, { 0, 8 }, { 60, 8 }, 16 } };
+    bp::Sign (authored);
+    EXPECT_NE (authored.signature, plain) << "the user's wings";
+    auto corridor = input ({});
+    corridor.design.pins.corridors = { { { 30, 9 }, 0 } };
+    bp::Sign (corridor);
+    EXPECT_NE (corridor.signature, plain) << "a moved corridor";
+}
+
+// A skeleton drawn on the largest floor does not fit the floor every floor shares: the stack is
+// still planned, on the shared floor's own wings, and every floor gets its stairs.
+TEST (FloorPlanner, TheStackIsPlannedEvenWhereTheLeadFloorsOwnSkeletonDoesNotFitTheSharedFloor)
+{
+    auto building = Building ("A", 0, 60, 2);
+    building.floors[1].outline = { Chain (0, 0, 40, 16) }; // the upper floor steps back 20 m
+    building.floors[1].contours = { building.floors[1].outline };
+    building.floors[1].areaM2 = 40 * 16;
+    building.floors[1].outlineKey = "A-upper";
+    const std::map<std::string, bp::Plan> plans { { "A", building } };
+    std::map<std::string, bp::Draft> drafts;
+    // The lead floor's skeleton: its one wing, 60 m long.
+    drafts["A"].designs.floors[0].pins.wings = { { 1, { 0, 8 }, { 60, 8 }, 16 } };
+    bp::Planner planner;
+    for (int round = 0; round < 3; ++round) {
+        bp::WantFloors (planner, plans, drafts, "A", fp::Default (), 0);
+        Settle (planner);
+    }
+    const auto* stack = planner.Latest (bp::StackId ("A", building));
+    ASSERT_NE (stack, nullptr);
+    EXPECT_FALSE (stack->scheme.authored) << "the shared floor is 40 m: the 60 m wing is not asked of it";
+    EXPECT_FALSE (stack->scheme.cores.empty ());
+    for (const auto& d : stack->scheme.diagnostics)
+        EXPECT_NE (d.code.rfind ("skeleton.wing", 0), 0u) << d.text;
+    const auto* lower = planner.Latest (bp::FloorId ("A", 0));
+    const auto* upper = planner.Latest (bp::FloorId ("A", 1));
+    ASSERT_NE (lower, nullptr);
+    ASSERT_NE (upper, nullptr);
+    EXPECT_TRUE (lower->scheme.authored) << "the lead floor itself keeps the user's wing";
+    EXPECT_FALSE (lower->scheme.flats.empty ());
+    EXPECT_FALSE (upper->scheme.flats.empty ());
+}

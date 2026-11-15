@@ -25,6 +25,11 @@ struct Target {
     std::optional<fe::End> end;
 };
 enum class Drag : uint8_t { None, Body, Arrow };
+// What the Plan view's canvas shows and edits: the flats, or the skeleton they are made on -- the
+// wings and each wing's corridor (HudFloorSchemeSkeleton.cpp).
+enum class Stage : uint8_t { Units, Skeleton };
+// What a skeleton gesture holds of its wing: the wing itself, one of its four sides, its corridor.
+enum class Grip : int8_t { None = -1, Body, Start, End, Left, Right, Corridor };
 // Where the pointer edits a floor: the Plan view's canvas, or the view itself while locked. One
 // editor serves both, so a gesture belongs to the surface it began on.
 enum class Surface : uint8_t { Canvas, View };
@@ -87,6 +92,11 @@ struct Editor {
     // from detail::Now () when it arrived; the canvas draws them for kMorphSeconds.
     std::vector<Morph> morphs;
     double morphStart = -1;
+    // The Skeleton stage: the wing selected there (the scheme's index) and what a gesture holds of
+    // it. Its gesture uses `drag`, `from`, `at`, `base` and `baseDesign` like any other.
+    Stage stage = Stage::Units;
+    int wing = -1;
+    Grip grip = Grip::None;
 };
 constexpr double kMorphSeconds = 0.35;
 constexpr double kNoticeSeconds = 8.0;
@@ -165,6 +175,23 @@ std::string DimensionText (const AlignedDimension& dimension, const char* name);
 // "L x D m": the two dimensions' lengths, along the facade first, for the canvas's corner.
 std::string SizeText (const std::array<AlignedDimension, 2>& dimensions);
 void Canvas (Editor& e, Context& c, float scale);
+// The canvas's own helpers, shared with the Skeleton stage.
+View Fit (const std::vector<fs::Ring>& rings, ImVec2 origin, float width, float scale);
+void Dashed (ImDrawList* draw, ImVec2 a, ImVec2 b, ImU32 colour, float width, float dash);
+void Ring (ImDrawList* draw, const View& v, const fs::Ring& r, ImU32 colour, float width);
+double Stepped (double t); // to the gesture step (fe::kStep)
+const char* AccessName (fs::Access a);
+// HudFloorSchemeSkeleton.cpp: the Skeleton stage on the Plan view's canvas -- the wings the floor is
+// planned on, each drawn over the plan with its size; a wing dragged, its sides dragged in or out,
+// its corridor dragged across it, all in steps and each one undo step; an edit the floor cannot
+// take shown red while held and said on the notice line. Only on the canvas, never on the view.
+void SkeletonCanvas (Editor& e, Context& c, float scale);
+// Its right-click menu ("##skeletonMenu"): a wing's access, corridor width, removal; a wing added
+// to free floor; the skeleton kept as the user's or given back to the generator.
+void SkeletonMenu (Editor& e, Context& c);
+// The design the held skeleton gesture makes from the scheme it began on; unchanged, with `why`,
+// when the floor cannot take it.
+fe::Design SkeletonGesture (const Editor& e, const Context& c, std::string* why = nullptr);
 // HudFloorSchemeMorph.cpp: the morphs from what was shown (`before`, each outline and its colour) to
 // `after`'s flats -- each new flat from the outline it overlaps most, else growing from its middle; an
 // outline no new flat took shrinking to its middle.

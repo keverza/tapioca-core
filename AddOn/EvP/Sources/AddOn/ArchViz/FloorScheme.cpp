@@ -667,48 +667,7 @@ void Tidy (Scheme& s)
 }
 } // namespace
 
-namespace {
-// Net area less what the stairs cost and the floor left unassigned; a broken scheme loses.
-double Economy (const Scheme& s, const Options& o)
-{
-    double red = 0;
-    for (const auto& u : s.unassigned)
-        if (u.reason.find ("storage") == std::string::npos)
-            red += std::abs (Area (u.shape));
-    return s.net - o.stairCost * static_cast<double> (s.cores.size ()) - red - (s.ok ? 0.0 : 1e6);
-}
-Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins,
-             const Options& options);
-} // namespace
-
-Scheme Generate (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins,
-                 const Options& options)
-{
-    auto s = Plan (outline, programme, pins, options);
-    if (options.shallow != Access::Auto)
-        return s;
-    // Typology adaptation (user, 2026-10-10): shallow wings planned as sections are weighed
-    // against a corridor on one side, the economic plan of a thin bar.
-    bool sections = false;
-    for (const auto& w : s.wings)
-        sections = sections || w.access == Access::CoreOnly;
-    if (!sections)
-        return s;
-    Options corridor = options;
-    corridor.shallow = Access::OneSide;
-    auto alt = Plan (outline, programme, pins, corridor);
-    const double a = Economy (s, options), b = Economy (alt, options);
-    auto& kept = b > a ? alt : s;
-    kept.diagnostics.push_back ({ Diagnostic::Info,
-                                  "typology.choice",
-                                  std::string (b > a ? "A corridor on one side" : "Sections round stairs") +
-                                      " scored " + std::to_string (static_cast<int> (std::round ((std::max) (a, b)))) +
-                                      " against " + std::to_string (static_cast<int> (std::round ((std::min) (a, b)))) +
-                                      " (net m2 less stairs and unassigned).",
-                                  {} });
-    return std::move (kept);
-}
-
+// Generate and Analyse, the two stages a floor is planned to: FloorSchemeStages.cpp.
 namespace {
 // Stretches of the outline against a neighbouring building's floor (Options::party): the walls
 // no window may be in, drawn thick.
@@ -902,10 +861,12 @@ void Gives (Scheme& s, const cp::PathsD& outline, const cp::PathsD& blind, const
         }
     }
 }
-Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins,
-             const Options& options)
+} // namespace
+Scheme detail::PlanFloor (const std::vector<Ring>& outline, const floorprogramme::Programme& programme,
+                          const Pins& pins, const Options& options, bool skeletonOnly)
 {
     Scheme s;
+    s.authored = !pins.wings.empty ();
     auto paths = cp::Union (ToPaths (outline), cp::FillRule::NonZero, kPrecision);
     {
         cp::PathsD kept;
@@ -921,7 +882,7 @@ Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& 
               {});
         return s;
     }
-    auto skeleton = Decompose (paths, options, s.diagnostics);
+    auto skeleton = Decompose (paths, options, s.diagnostics, pins.wings);
     s.typology = skeleton.typology;
     auto layout = Circulate (paths, skeleton, programme, pins, options, s.diagnostics);
     if (!layout.culled.empty ()) {
@@ -949,6 +910,16 @@ Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& 
         band.depth = slot.box.H ();
         band.section = slot.section;
         s.bands.push_back (std::move (band));
+    }
+    if (skeletonOnly) {
+        // The skeleton on its own (Analyse): no flat, so none of the rules that need one.
+        s.stage = Stage::Skeleton;
+        s.party = PartyWalls (paths, ToPaths (options.party));
+        for (const auto& piece : skeleton.rest)
+            s.unassigned.push_back ({ piece, "outside the skeleton's wings" });
+        s.ok = std::none_of (s.diagnostics.begin (), s.diagnostics.end (),
+                             [] (const Diagnostic& d) { return d.level == Diagnostic::Error; });
+        return s;
     }
     Divide (programme, layout.slots, s, pins, options);
     for (const auto& f : s.flats)
@@ -991,7 +962,5 @@ Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& 
         CheckStack (s, pins.cores, options);
     return s;
 }
-
-} // namespace
 
 } // namespace geomsrv::archviz::floorscheme

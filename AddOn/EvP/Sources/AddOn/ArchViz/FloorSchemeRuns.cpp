@@ -255,8 +255,7 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
     if (coreEnd != 0) {
         // A short section: the stair takes the corridor end at its inner end (-1: s0, +1: s1),
         // so only the other end needs a cap.
-        const double corr = c.o.corridor;
-        const double c0 = (depth - corr) / 2, c1 = c0 + corr;
+        const double c0 = c.lane.c0, c1 = c.lane.c1;
         const double coreLo = up ? c0 : 0, coreHi = up ? depth : c1;
         const double w = CoreAlong (c, PinIn (c, f, { s0, 0, s1, depth }, CoreSlack (c.o)), coreHi - coreLo);
         const double cap0 = Clip ((std::max) (up ? depth - c1 : c0, RoomFrontage (2).pref), c.o.minCap, c.o.maxCap);
@@ -300,8 +299,7 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
             AddSlot (c, f, { r0, c1, r1, depth }, true, id, 0, 0, true, e0, e1);
         return;
     }
-    const double corr = c.o.corridor;
-    const double c0 = (depth - corr) / 2, c1 = c0 + corr;
+    const double c0 = c.lane.c0, c1 = c.lane.c1;
     const double coreLo = up ? c1 : 0, coreHi = up ? depth : c0;
     const double band = coreHi - coreLo;
     double capLo = Clip ((std::max) (band, RoomFrontage (2).pref), c.o.minCap, c.o.maxCap), capHi = capLo;
@@ -410,7 +408,7 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
 // the corridor runs to it from both caps (two straight corridors meeting at the stair).
 void OneSideSection (Ctx& c, const Frame& f, double depth, double s0, double s1, bool up, int run)
 {
-    const double corr = c.o.corridor;
+    const double corr = c.lane.Width ();
     const double c0 = up ? depth - corr : 0, c1 = up ? depth : corr;
     // Caps take the full depth: no wider than a flat of the largest size.
     const double widest = (MaxFlat (c.programme, c.o) + kPartyWall * depth) / (depth - floorprogramme::kFacade);
@@ -693,6 +691,9 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
         access = Access::CoreOnly;
     if (access == Access::OneSide && length < 2 * c.o.minCap + w)
         access = Access::CoreOnly;
+    // The corridor across the wing: the middle, or where the user has it (Pins::Corridor).
+    if (access == Access::Centre || access == Access::OneSide)
+        c.lane = LaneFor (c.pins, c.o, f, p.s0, p.s1, depth, access == Access::Centre, c.laneUsed, c.notes);
     int n = 1;
     Sectional sectional;
     if (access == Access::CoreOnly || access == Access::Rows) {
@@ -784,8 +785,8 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
         if (access == Access::Centre)
             if (const auto* pin = PinIn (c, f, { a, 0, b, depth }, 0)) {
                 const double v = f.Local (pin->centre).y;
-                if (std::abs (v - depth / 2) > c.o.corridor / 2)
-                    side = v > depth / 2;
+                if (v < c.lane.c0 || v > c.lane.c1)
+                    side = v > (c.lane.c0 + c.lane.c1) / 2;
             }
         if (access == Access::Centre && b - a < 2 * c.o.maxCap + w + 5.0) {
             // Short: the stair takes the corridor's end at a gable, where it has a window. Never at
@@ -794,8 +795,8 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
             // in the band when it fits.
             const bool lowGable = SideFacade (c, f, { a, 0, b, depth }, 3) >= 0.5 * depth;
             const bool highGable = SideFacade (c, f, { a, 0, b, depth }, 1) >= 0.5 * depth;
-            const double c0 = (depth - c.o.corridor) / 2;
-            const Box core { 0, side ? c0 : 0, w, side ? depth : c0 + c.o.corridor };
+            const double c0 = c.lane.c0;
+            const Box core { 0, side ? c0 : 0, w, side ? depth : c.lane.c1 };
             auto window = [&] (double u0) {
                 const Box k { u0, core.v0, u0 + w, core.v1 };
                 return SideFacade (c, f, k, side ? 2 : 0) + SideFacade (c, f, k, u0 <= a + 1e-6 ? 3 : 1);
@@ -813,7 +814,7 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
             // corridor's end.
             if (const auto* pin = PinIn (c, f, { a, 0, b, depth }, 0)) {
                 const double at = f.Local (pin->centre).x;
-                const bool corridorEnd = pin->depth > c0 + c.o.corridor / 2;
+                const bool corridorEnd = pin->depth > c0 + c.lane.Width () / 2;
                 if (c.o.holdCores)
                     end = corridorEnd ? (at - a < b - at ? -1 : 1) : 0;
                 else if (b - a >= 2 * c.o.minCap + w + 5.0)
@@ -858,6 +859,7 @@ Layout Circulate (const cp::PathsD& outline, Skeleton& sk, const floorprogramme:
     c.fill.resize (1201);
     for (size_t i = 0; i < c.fill.size (); ++i)
         c.fill[i] = Fillable (programme, i / 10.0) ? 1 : 0;
+    c.laneUsed.assign (pins.corridors.size (), 0);
     std::vector<Access> access (sk.wings.size ());
     for (size_t i = 0; i < sk.wings.size (); ++i)
         sk.wings[i].access = access[i] = AutoAccess (c, sk, i);
@@ -923,6 +925,13 @@ Layout Circulate (const cp::PathsD& outline, Skeleton& sk, const floorprogramme:
             straight.push_back ({ static_cast<int> (i), 0, sk.wings[i].length });
     for (const auto& p : straight)
         Straight (c, sk, p, access[p.wing], run++);
+    // A corridor pin no straight run took: its wing has no corridor, or one that turns or bends.
+    for (size_t i = 0; i < pins.corridors.size (); ++i)
+        if (!c.laneUsed[i])
+            notes.push_back ({ Diagnostic::Warning, "pin.corridor_ignored",
+                               "A moved corridor is not kept: its wing has no corridor of its own (sections round "
+                               "stairs), or shares one that bends with an arm at an angle.",
+                               pins.corridors[i].at });
     return std::move (c.out);
 }
 } // namespace geomsrv::archviz::floorscheme::detail

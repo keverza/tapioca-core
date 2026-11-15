@@ -145,8 +145,16 @@ FloorInput InputFor (const std::map<std::string, Plan>& plans, const std::map<st
 void Sign (FloorInput& in)
 {
     std::ostringstream signature;
-    signature << std::setprecision (9) << floorprogramme::Key (in.programme) << '|' << in.options.grossFactor << '|'
-              << in.options.north << '|' << in.options.holdCores << '|';
+    const auto& o = in.options;
+    signature << std::setprecision (9) << floorprogramme::Key (in.programme) << '|' << o.grossFactor << '|' << o.north
+              << '|' << o.holdCores << '|';
+    // Every other option a plan depends on: two inputs that differ in one never share a scheme.
+    // (`shallow` is the design's and `party` the input's own: both are written below.)
+    for (const double value : { o.corridor, o.coreWidth, o.coreDepth, o.stairWindow, o.maxDeadEnd, o.sectionArea,
+                                o.sectionSlack, o.minWingDepth, o.maxWingDepth, o.minWingLength, o.centreDepth,
+                                o.stairCost, o.windowGap, o.maxFlat, o.minCap, o.maxCap, o.raster })
+        signature << value << ',';
+    signature << o.cullCorners << o.biteCorners << '|';
     for (const auto& g : in.options.grid)
         signature << g[0].x << ',' << g[0].y << ',' << g[1].x << ',' << g[1].y << ';';
     signature << '|';
@@ -288,7 +296,19 @@ const Planner::Planned* WantFloors (Planner& planner, const std::map<std::string
     // ordinary pins (they may move to fit, here only); the stairs it gets are held on every
     // floor, the lead floor too, so identical floors plan identically.
     auto reference = InputFor (plans, drafts, key, *lead, programme, {}, options);
+    const auto area = [] (const std::vector<fs::Ring>& rings) {
+        double a = 0;
+        for (const auto& ring : rings)
+            a += fs::Area (ring);
+        return a;
+    };
+    const double whole = area (reference.owned);
     reference.owned = Common (plan->second, reference.owned);
+    // The lead floor's own skeleton (Pins::wings) was drawn on the lead floor. Where the floor every
+    // floor shares is smaller, those wings need not lie in it -- left out, the stack would have no
+    // stair there -- so the stack is planned on the wings the generator finds in the shared floor.
+    if (std::abs (area (reference.owned) - whole) > 0.5)
+        reference.design.pins.wings.clear ();
     reference.options.holdCores = false;
     Sign (reference);
     planner.Want (StackId (key, plan->second), std::move (reference), true);

@@ -13,6 +13,10 @@
 //   T6 rooms       living (in the corner of corner flats), bedrooms, hall, bath, storage
 //   T7 mould       what the simplification left out joins a flat or stays unassigned
 //
+// The skeleton is the contract between the massing and the flats, and it can be the user's:
+// `Pins::wings` are the wings T1 takes instead of searching for them, and `Analyse` plans as far as
+// the bands (T0-T4) so a skeleton is looked at, and changed, before any flat is made.
+//
 // Hard rules are checked, never weighed (`Check`). User edits are pins in world XY: the
 // generator may move a pin by at most `kPinTolerance` to keep a hard rule, otherwise it
 // keeps the pin and reports the conflict. Pure C++/Clipper2: no ImGui, no Archicad.
@@ -30,6 +34,11 @@ struct Vec {
 using Ring = std::vector<Vec>; // closed implicitly, counter-clockwise for areas
 
 constexpr double kPinTolerance = 3.0;
+// A corridor the user made wider or narrower (Pins::Corridor): the generator's bounds, m. Not a
+// regulation: a project's own minimum is the user's to keep.
+constexpr double kCorridorMin = 1.2, kCorridorMax = 3.0;
+// The least depth of a row of flats beside a corridor the user moved off the wing's middle.
+constexpr double kRowDepthMin = 5.5;
 // Room widths along the facade (STR 2.02.01 Table 9 minimums; preferred slightly larger).
 constexpr double kLivingMin = 3.3, kBedroomMin = 2.6, kBathMin = 1.7, kWcMin = 1.5, kStorageMin = 1.0;
 constexpr double kHallMin = 1.4, kInnerWall = 0.1, kPartyWall = floorprogramme::kWall;
@@ -119,6 +128,26 @@ struct Pins {
         Vec at; // a wing's sections meet here, across its centre line (Scheme::divisions)
         bool operator== (const Cut&) const = default;
     };
+    // A wing of the skeleton, the user's: its centre line and its depth across it. `id` names it
+    // from the design to the scheme (Wing::id), whatever happens to the wings beside it.
+    struct Wing {
+        uint32_t id = 0;
+        Vec a, b;
+        double depth = 0;
+        // Which way the wing's frame runs across it: to the left of a->b, or to the right when
+        // mirrored. Only a tie depends on it (which facade a stair takes when both do as well): kept
+        // so the wings a scheme was planned with plan the same scheme again.
+        bool mirror = false;
+        bool operator== (const Wing&) const = default;
+    };
+    // The corridor of the wing under `at` runs through `at`, `width` wide (0: Options::corridor).
+    // A corridor that turns a corner takes a pin in either arm (and one width, its parent's); one
+    // that bends with an arm at an angle stays in the middle.
+    struct Corridor {
+        Vec at;
+        double width = 0;
+        bool operator== (const Corridor&) const = default;
+    };
     std::vector<Core> cores;
     std::vector<AccessAt> access;
     std::vector<Wall> walls;
@@ -128,6 +157,11 @@ struct Pins {
     std::vector<Join> joins; // applied in order, after division
     std::vector<Give> gives; // applied in order, after the joins
     std::vector<Cut> cuts;   // a wing's, honoured when there is one for each place its sections meet
+    // The skeleton, when it is the user's: T1 takes these wings, in this order (the first is the
+    // root the others grow out of), and searches for none. One that does not fit the floor is left
+    // out and said (skeleton.wing_*), never bent to fit.
+    std::vector<Wing> wings;
+    std::vector<Corridor> corridors;
     bool operator== (const Pins&) const = default;
 };
 
@@ -139,6 +173,8 @@ struct Wing {
     char joint = 0;   // 'L' corner, 'T' middle, 'S' step (same direction), 0 root
     double angle = 0; // degrees between this axis and its parent's
     Access access = Access::Auto;
+    uint32_t id = 0;     // Pins::Wing::id when the wing is the user's, else 0
+    bool mirror = false; // Pins::Wing::mirror: the way its frame runs across it
 };
 struct Corridor {
     std::vector<Vec> axis; // two points (straight) or three (one L turn)
@@ -201,7 +237,11 @@ struct Diagnostic {
     std::string code, text;
     Vec at;
 };
+// How far a scheme was planned: `Analyse` stops at the bands, `Generate` makes the flats.
+enum class Stage : uint8_t { Skeleton, Units };
 struct Scheme {
+    Stage stage = Stage::Units;
+    bool authored = false;     // its wings are the user's (Pins::wings)
     std::vector<Ring> outline; // T0, outer rings counter-clockwise, holes clockwise
     std::string typology;      // T1, e.g. "L 90", "U", "O", "T", "+", "X 60"
     std::vector<Wing> wings;
@@ -251,6 +291,29 @@ double MaxFlat (const floorprogramme::Programme& programme, const Options& optio
 // overlap: they are planned as one massing); `programme` is the whole massing's.
 Scheme Generate (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins = {},
                  const Options& options = {});
+// T0-T4 on their own: the skeleton `Generate` would divide into flats -- wings, sections, corridors,
+// stairs and the bands between them and the facade, with no flat, room or mould. Its diagnostics
+// are the skeleton's (a wing that does not fit, a stair with no place); the hard rules that need
+// flats are `Generate`'s. With Options::shallow Auto a thin wing is shown as sections round stairs:
+// `Generate` may still keep a corridor on one side, and says so (typology.choice).
+Scheme Analyse (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins = {},
+                const Options& options = {});
+// The skeletons a floor can be planned on, where it has a choice: a thin wing is planned as
+// sections round stairs or with a corridor on one side, and `Generate` keeps the floor that scores
+// better. Each candidate is that skeleton (as `Analyse` gives it) with what it comes to as a whole
+// floor, so the choice is seen before it is made and `Analyse` never shows a skeleton `Generate`
+// would not build. One candidate when the floor has no thin wing or Options::shallow already says.
+struct Candidate {
+    Access shallow = Access::Auto; // Options::shallow that plans it: `Generate` with it builds `skeleton`
+    Scheme skeleton;               // Stage::Skeleton
+    // The whole floor planned on it -- this one floor, not the massing.
+    int flats = 0, stairs = 0;
+    double net = 0;      // m2 of flats
+    double score = 0;    // net less Options::stairCost per stair and the floor left unassigned
+    bool chosen = false; // the one `Generate` keeps with the options as given
+};
+std::vector<Candidate> Candidates (const std::vector<Ring>& outline, const floorprogramme::Programme& programme,
+                                   const Pins& pins = {}, const Options& options = {});
 // What lies beyond a stretch of one flat's outline, for laying its rooms on their own.
 struct Side {
     enum Kind : uint8_t {

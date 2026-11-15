@@ -476,9 +476,29 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
         ImGui::TextUnformatted ("A building or its saved plan changed in the project; Discard reloads it.");
         ImGui::EndPopup ();
     }
-    Palette (c.programme, scale);
-    Canvas (e, c, scale);
-    Menu (e, c, draft, plan->second, *floor, asked);
+    // The stage: the flats, or the skeleton they are made on (wings, corridors).
+    for (const auto& [label, stage, tip] :
+         { std::tuple { "Units", Stage::Units, "Flats, stairs and walls" },
+           std::tuple { "Skeleton", Stage::Skeleton,
+                        "The wings the floor is planned on and each wing's corridor: drag a wing, its sides or "
+                        "its corridor; right click for more" } }) {
+        if (stage != Stage::Units)
+            ImGui::SameLine ();
+        if (ImGui::RadioButton (label, e.stage == stage) && e.stage != stage && e.drag == Drag::None) {
+            e.stage = stage;
+            e.selected = {}, e.wing = -1, e.grip = Grip::None;
+        }
+        geomsrv::archviz::hudshell::ItemTip ("%s", tip);
+    }
+    if (e.stage == Stage::Skeleton) {
+        SkeletonCanvas (e, c, scale);
+        SkeletonMenu (e, c);
+    }
+    else {
+        Palette (c.programme, scale);
+        Canvas (e, c, scale);
+        Menu (e, c, draft, plan->second, *floor, asked);
+    }
 
     // One line on the floor; the problems in its tooltip.
     if (!e.have) {
