@@ -3,6 +3,7 @@
 // boundary line in the view.
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorRecipe.hpp"
+#include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "Edit/EditLandscape.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 #include <gtest/gtest.h>
@@ -139,8 +140,12 @@ TEST (HudVirtualEditorRecipe, RowArrowsMoveARegionAsOneUndoAndRefuseWithAReason1
         return out;
     };
     ASSERT_EQ (order (), (std::vector<ed::Id> { a, b }));
+    // #191 U5: the first row's up arrow is disabled, and its tooltip gives the refusal's reason.
+    EXPECT_NE (eh::RecipeMoveRefusal (d.session, a, -1).find ("Already the first"), std::string::npos)
+        << eh::RecipeMoveRefusal (d.session, a, -1);
+    EXPECT_TRUE (eh::RecipeMoveRefusal (d.session, a, 1).empty ());
     // Press each control in reading order until one publishes an edit: the first row's up arrow
-    // (refused), then its down arrow. Below the title bar, whose collapse arrow would fold the panel.
+    // (disabled), then its down arrow. Below the title bar, whose collapse arrow would fold the panel.
     bool moved = false;
     for (float y = 30; y < 770 && !moved; y += 4)
         for (float x = 12; x < 120 && !moved; x += 6) {
@@ -152,7 +157,6 @@ TEST (HudVirtualEditorRecipe, RowArrowsMoveARegionAsOneUndoAndRefuseWithAReason1
             moved = d.session.edits.UndoDepth () > 0;
         }
     ASSERT_TRUE (moved) << d.session.message;
-    EXPECT_NE (d.session.message.find ("Already the first"), std::string::npos) << d.session.message;
     EXPECT_EQ (d.session.edits.UndoDepth (), 1u);
     EXPECT_EQ (order (), (std::vector<ed::Id> { b, a }));
     std::string text;
@@ -163,10 +167,10 @@ TEST (HudVirtualEditorRecipe, RowArrowsMoveARegionAsOneUndoAndRefuseWithAReason1
     EXPECT_EQ (order (), (std::vector<ed::Id> { b, a }));
 }
 
-// #105 step 4: with no terrain built, the Quantities section offers Build terrain; pressing it
-// without a terrain to build says why and records nothing. Rows themselves are covered offline
-// (EditLandscapeRecipe/EditPublishedTerrain *105).
-TEST (HudVirtualEditorRecipe, QuantitiesOfferBuildAndRefuseWithAReasonWithoutATerrain105)
+// #105 step 4, as #191 Decided 4 moves it: the Quantities section no longer offers Build terrain --
+// Build mesh with nothing selected and the state chip do. No control in the recipe asks for a build
+// or says anything; the build itself, asked without a terrain, still says why and records nothing.
+TEST (HudVirtualEditorRecipe, QuantitiesNoLongerOfferBuildAndABuildRefusesWithAReason191)
 {
     ed::Document doc;
     std::string error;
@@ -175,18 +179,16 @@ TEST (HudVirtualEditorRecipe, QuantitiesOfferBuildAndRefuseWithAReasonWithoutATe
     Region (doc, 0, line);
     RecipeDrive d (std::move (doc));
     const auto before = d.session.edits.Doc ();
-    // From the bottom up: the section follows every recipe row and its controls.
-    bool pressed = false;
-    for (float y = 770; y > 30 && !pressed; y -= 4)
-        for (float x = 12; x < 160 && !pressed; x += 6) {
+    for (float y = 770; y > 30; y -= 4)
+        for (float x = 12; x < 160; x += 6) {
             d.Frame ({ x, y });
             if (d.context->HoveredId == 0)
                 continue;
             d.Frame ({ x, y }, true);
             d.Frame ({ x, y }, false);
-            pressed = !d.session.message.empty ();
+            ASSERT_TRUE (d.session.message.empty ()) << "at " << x << ", " << y << ": " << d.session.message;
         }
-    ASSERT_TRUE (pressed);
+    EXPECT_FALSE (eh::RequestTerrainBuild (d.session));
 #ifdef TAPIOCA_GEOMETRY_RUST
     EXPECT_NE (d.session.message.find ("before building"), std::string::npos) << d.session.message;
 #else

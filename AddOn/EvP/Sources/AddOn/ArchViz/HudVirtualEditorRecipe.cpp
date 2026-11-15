@@ -12,6 +12,7 @@
 #include "Edit/EditTerrainDesignJob.hpp"
 #include <imgui.h>
 #include <algorithm>
+#include <cstdio>
 
 namespace geomsrv::archviz::edithud {
 namespace lg = tapioca::geometry;
@@ -63,16 +64,20 @@ void Controls (Session& s, const lg::RecipeRow& row)
                 return lg::MoveRecipeRegion (d, id, step, error);
             });
         };
-        if (ImGui::ArrowButton ("##up", ImGuiDir_Up))
-            move (-1);
-        if (ImGui::IsItemHovered ())
-            geomsrv::archviz::hudshell::HoverTip ("Move up: compose earlier, under the rows below it.");
+        // #191 U5: an arrow that would be refused is disabled, and its tooltip says why.
+        const auto arrow = [&] (const char* widget, ImGuiDir dir, int step, const char* tip) {
+            const auto refusal = RecipeMoveRefusal (s, id, step);
+            ImGui::BeginDisabled (!refusal.empty ());
+            if (ImGui::ArrowButton (widget, dir))
+                move (step);
+            ImGui::EndDisabled ();
+            if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+                geomsrv::archviz::hudshell::HoverTip ("%s", refusal.empty () ? tip : refusal.c_str ());
+        };
+        arrow ("##up", ImGuiDir_Up, -1, "Move up: compose earlier, under the rows below it.");
         ImGui::SameLine ();
-        if (ImGui::ArrowButton ("##down", ImGuiDir_Down))
-            move (1);
-        if (ImGui::IsItemHovered ())
-            geomsrv::archviz::hudshell::HoverTip (
-                "Move down: compose later, over the rows above it. Paths always stay after regions.");
+        arrow ("##down", ImGuiDir_Down, 1,
+               "Move down: compose later, over the rows above it. Paths always stay after regions.");
         ImGui::SameLine ();
     }
     // A plain region's root selects its one boundary: bypassing it would pass the same shape through,
@@ -170,16 +175,11 @@ void Quantities (Session& s, const lg::LandscapeRecipe& recipe, const TerrainDes
     bool stale = false;
     const auto* last = LastPublishedTerrainDesign (s, stale);
     const auto quantities = lg::ProjectRecipeQuantities (recipe, last ? last->published.get () : nullptr, stale);
+    // #191 Decided 4: Build lives with nothing selected and on the state chip, not here.
     if (status.pending)
         ImGui::TextDisabled ("Building the terrain of this revision...");
-    else if (recipe.ok && recipe.route != lg::RecipeRoute::Nothing && !quantities.current) {
-        if (ImGui::Button ("Build terrain") && !RequestTerrainBuild (s) && s.message.empty ())
-            s.message = "The terrain cannot be built now.";
-        if (ImGui::IsItemHovered ())
-            geomsrv::archviz::hudshell::HoverTip ("Build the terrain of this revision; its quantities replace these.");
-        if (quantities.available)
-            ImGui::SameLine ();
-    }
+    else if (recipe.ok && recipe.route != lg::RecipeRoute::Nothing && !quantities.current)
+        ImGui::TextDisabled ("Not built from this revision: Build mesh, or click the state chip.");
     if (!quantities.available) {
         ImGui::TextWrapped ("%s", quantities.reason.c_str ());
         return;
@@ -194,19 +194,33 @@ void Quantities (Session& s, const lg::LandscapeRecipe& recipe, const TerrainDes
                             static_cast<unsigned long long> (quantities.revision));
         ImGui::PopStyleColor ();
     }
-    constexpr ImGuiTableFlags flags =
-        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp;
+    // #191 U5: Area and Net shown by default; Cut and Fill from the header's right-click menu.
+    // Numbers sit in fixed columns, right-aligned and never wrapped; one too wide for its column
+    // is clipped and shown whole on hover.
+    constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_Hideable |
+                                      ImGuiTableFlags_SizingFixedFit;
     if (ImGui::BeginTable ("##quantities", 5, flags)) {
-        ImGui::TableSetupColumn ("Owner", ImGuiTableColumnFlags_WidthStretch, 3.0f);
-        ImGui::TableSetupColumn ("Cut m3");
-        ImGui::TableSetupColumn ("Fill m3");
-        ImGui::TableSetupColumn ("Net m3");
-        ImGui::TableSetupColumn ("Area m2");
+        const float number = ImGui::CalcTextSize ("-00000.000").x;
+        ImGui::TableSetupColumn ("Owner", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoHide);
+        ImGui::TableSetupColumn ("Area m2", ImGuiTableColumnFlags_WidthFixed, number);
+        ImGui::TableSetupColumn ("Net m3", ImGuiTableColumnFlags_WidthFixed, number);
+        ImGui::TableSetupColumn ("Cut m3", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultHide,
+                                 number);
+        ImGui::TableSetupColumn ("Fill m3", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultHide,
+                                 number);
         ImGui::TableHeadersRow ();
         const auto numbers = [] (double cut, double fill, double net, double area) {
-            for (const double value : { cut, fill, net, area }) {
-                ImGui::TableNextColumn ();
-                ImGui::Text ("%.3f", value);
+            for (const double value : { area, net, cut, fill }) {
+                if (!ImGui::TableNextColumn ())
+                    continue;
+                char text[32];
+                std::snprintf (text, sizeof text, "%.3f", value);
+                const float width = ImGui::CalcTextSize (text).x, room = ImGui::GetContentRegionAvail ().x;
+                if (width < room)
+                    ImGui::SetCursorPosX (ImGui::GetCursorPosX () + room - width);
+                ImGui::TextUnformatted (text);
+                if (width > room && ImGui::IsItemHovered ())
+                    geomsrv::archviz::hudshell::HoverTip ("%s", text);
             }
         };
         for (const auto& row : quantities.rows) {
@@ -240,6 +254,24 @@ void Quantities (Session& s, const lg::LandscapeRecipe& recipe, const TerrainDes
     }
 }
 } // namespace
+
+std::string RecipeMoveRefusal (Session& s, lg::Id object, int step)
+{
+    const auto& doc = s.edits.Doc ();
+    if (s.recipeMovesRevision != doc.revision)
+        s.recipeMoves.clear (), s.recipeMovesRevision = doc.revision;
+    for (const auto& [key, reason] : s.recipeMoves)
+        if (key.first == object && key.second == step)
+            return reason;
+    auto copy = doc;
+    std::string error;
+    if (lg::MoveRecipeRegion (copy, object, step, error))
+        error.clear ();
+    else if (error.empty ())
+        error = "This row cannot move that way.";
+    s.recipeMoves.push_back ({ { object, step }, error });
+    return error;
+}
 
 const lg::LandscapeRecipe& CurrentRecipe (Session& s)
 {
