@@ -7,6 +7,7 @@
 #include "Edit/EditLandscapeSerialization.hpp"
 #include <algorithm>
 #include <iterator>
+#include <imgui_internal.h>
 #include <cfloat>
 #include <string>
 #include <functional>
@@ -96,7 +97,7 @@ void detail::WarningsTab (Session& s)
 }
 namespace {
 // #191: a role is picked from a grid of toggle buttons, three to a row across the panel's width;
-// a two-word role reads on two lines. The one in force is drawn pressed. Returns the index pressed,
+// a two-word role reads on two lines, each centred. The one in force is drawn pressed. Returns the index pressed,
 // or -1.
 int RoleGrid (const char* id, const char* const* labels, size_t count, const std::function<bool (size_t)>& active)
 {
@@ -114,9 +115,22 @@ int RoleGrid (const char* id, const char* const* labels, size_t count, const std
                 ImGui::PushStyleColor (ImGuiCol_Button, ImGui::GetStyleColorVec4 (ImGuiCol_ButtonActive));
                 ImGui::PushStyleColor (ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4 (ImGuiCol_ButtonActive));
             }
+            // The frame is the button's; each line of its label is centred on its own (ImGui centres a
+            // multi-line label as one block, its lines left-aligned).
             ImGui::PushID (int (i));
-            if (ImGui::Button (label.c_str (), ImVec2 (-FLT_MIN, height)))
+            if (ImGui::Button ("##role", ImVec2 (-FLT_MIN, height)))
                 pressed = int (i);
+            const ImVec2 lo = ImGui::GetItemRectMin (), hi = ImGui::GetItemRectMax ();
+            const auto lines = 1 + std::count (label.begin (), label.end (), '\n');
+            const float line = ImGui::GetTextLineHeight ();
+            float y = (lo.y + hi.y - line * float (lines)) * 0.5f;
+            for (size_t start = 0; start <= label.size ();) {
+                const auto end = std::min (label.find ('\n', start), label.size ());
+                ImGui::RenderTextClipped (ImVec2 (lo.x, y), ImVec2 (hi.x, y + line), label.c_str () + start,
+                                          label.c_str () + end, nullptr, ImVec2 (0.5f, 0.0f));
+                y += line;
+                start = end + 1;
+            }
             ImGui::PopID ();
             if (on)
                 ImGui::PopStyleColor (2);
