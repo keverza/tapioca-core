@@ -72,6 +72,8 @@ V Write (const Design& d)
         });
     if (!p.ends.empty ())
         o["ends"] = List (p.ends, [] (const Pins::End& e) { return Point (e.at); });
+    if (!p.doors.empty ())
+        o["doors"] = List (p.doors, [] (const Pins::Door& e) { return Point (e.at); });
     if (!p.counts.empty ())
         o["counts"] = List (p.counts, [] (const Pins::Count& c) {
             return V::Array ({ Number (c.at.x), Number (c.at.y), V::Integer (c.flats) });
@@ -205,6 +207,8 @@ bool Read (const V& value, Design& d)
                      }) &&
            ReadList (value.Find ("ends"), p.ends,
                      [] (const V& item, Pins::End& e) { return ReadPoint (item, e.at); }) &&
+           ReadList (value.Find ("doors"), p.doors,
+                     [] (const V& item, Pins::Door& e) { return ReadPoint (item, e.at); }) &&
            ReadList (value.Find ("counts"), p.counts,
                      [] (const V& item, Pins::Count& c) {
                          const auto* array = item.AsArray ();

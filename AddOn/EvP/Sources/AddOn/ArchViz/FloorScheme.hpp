@@ -148,6 +148,13 @@ struct Pins {
         double width = 0;
         bool operator== (const Corridor&) const = default;
     };
+    // The entrance of the flat `at` is in: on the flat's wall to its corridor, landing or lobby,
+    // as near `at` as that wall and the hall behind it allow (user, 2026-11-15: "allow to change
+    // entrance door location").
+    struct Door {
+        Vec at;
+        bool operator== (const Door&) const = default;
+    };
     std::vector<Core> cores;
     std::vector<AccessAt> access;
     std::vector<Wall> walls;
@@ -162,6 +169,7 @@ struct Pins {
     // out and said (skeleton.wing_*), never bent to fit.
     std::vector<Wing> wings;
     std::vector<Corridor> corridors;
+    std::vector<Door> doors;
     bool operator== (const Pins&) const = default;
 };
 
@@ -333,7 +341,8 @@ struct Side {
 // has its rooms laid in its largest rectangle along that facade, then each room grows over the
 // strip beyond it as wide as itself; what no room takes is left to the flat's rest. False, with
 // the rooms left to the user (`manual`), when no such rectangle has facade a window fits in.
-bool PlanRooms (Flat& flat, const std::vector<Side>& sides);
+// `doors`: the user's entrances (Pins::doors); the one inside the flat is honoured.
+bool PlanRooms (Flat& flat, const std::vector<Side>& sides, const std::vector<Pins::Door>* doors = nullptr);
 // Every hard rule on a finished scheme; appends Error diagnostics and returns their count.
 size_t Check (Scheme& scheme, const Options& options = {});
 // The building's stair stack on this floor: every stack stair inside the floor stands on one of

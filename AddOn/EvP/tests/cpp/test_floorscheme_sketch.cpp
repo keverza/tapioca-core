@@ -182,7 +182,9 @@ TEST (FloorSchemeSketch, TheAccessGraphJoinsEveryFlatToCirculation)
         size_t legs = 0;
         for (const auto& c : s.corridors)
             legs += c.axis.size () - 1;
-        EXPECT_EQ (g.nodes.size (), s.flats.size () + s.cores.size () + legs);
+        const auto rooms = std::count_if (g.nodes.begin (), g.nodes.end (),
+                                          [] (const sk::Graph::Node& n) { return n.kind == sk::Graph::Kind::Room; });
+        EXPECT_EQ (g.nodes.size () - rooms, s.flats.size () + s.cores.size () + legs);
         // An edge leaves every flat's node and ends on circulation: a corridor's line or a stair.
         for (size_t i = 0; i < s.flats.size (); ++i) {
             const auto node = std::find_if (g.nodes.begin (), g.nodes.end (), [&] (const sk::Graph::Node& n) {

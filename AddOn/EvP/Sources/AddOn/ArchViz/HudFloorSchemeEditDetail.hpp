@@ -28,8 +28,8 @@ struct Target {
 enum class Drag : uint8_t { None, Body, Arrow };
 // What a skeleton gesture holds: a part of the skeleton's drawing (FloorSchemeSketch.hpp: a wing's
 // side, corner or the wing; a corridor's end or leg; a stair's side or the stair), picked with the
-// virtual editor's pick in the drawing made from the scheme the gesture began on -- or a flat, by
-// its node in the access graph.
+// virtual editor's pick in the drawing made from the scheme the gesture began on -- or a flat's
+// entrance door, by its flat.
 struct SkeletonHold {
     fs::sketch::Sketch sketch;
     ::geomsrv::edit::Ref ref; // entity kNoId: nothing of the drawing
@@ -117,6 +117,7 @@ struct Editor {
     int wing = -1;             // the wing the menu was opened in
     SkeletonHold hold;         // held: `drag` is the skeleton's, not the canvas's
     ::geomsrv::edit::Ref over; // the skeleton's part under the pointer this frame
+    int overDoor = -1;         // the flat whose entrance door is under the pointer this frame
     fs::sketch::Sketch sketch;
     fs::sketch::Graph graph;
     uint64_t sketchOf = UINT64_MAX;

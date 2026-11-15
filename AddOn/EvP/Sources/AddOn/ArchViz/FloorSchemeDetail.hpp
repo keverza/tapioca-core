@@ -8,6 +8,7 @@
 #include <functional>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace geomsrv::archviz::floorscheme::detail {
 namespace cp = Clipper2Lib;
@@ -174,12 +175,13 @@ struct Slot {
     Box box;
     int section = -1, band = -1;
     bool cap = false;
-    bool through = false;                    // v0 is a facade too
-    bool cornerLo = false, cornerHi = false; // u0 / u1 on a facade
-    int door = 0;                            // 0: v0, 1: the u0 end, 2: the u1 end
-    double doorLo = -1e18, doorHi = 1e18;    // where circulation meets that side: u on v0, v on an end
-    int count = 0;                           // 0 free, else exactly this many flats
-    Box extra;                               // a hall reaching past the box to the stair (sectional)
+    bool through = false;                           // v0 is a facade too
+    bool cornerLo = false, cornerHi = false;        // u0 / u1 on a facade
+    int door = 0;                                   // 0: v0, 1: the u0 end, 2: the u1 end
+    double doorLo = -1e18, doorHi = 1e18;           // where circulation meets that side: u on v0, v on an end
+    int count = 0;                                  // 0 free, else exactly this many flats
+    Box extra;                                      // a hall reaching past the box to the stair (sectional)
+    const std::vector<Pins::Door>* doors = nullptr; // the user's entrances; outlive the slot
 };
 // T2-T4: circulation and the slots between it and the facade.
 struct Layout {
@@ -201,6 +203,7 @@ bool Fillable (const floorprogramme::Programme& programme, double length);
 struct DoorAt {
     int side = 0;
     double lo = -1e18, hi = 1e18;
+    double want = std::numeric_limits<double>::quiet_NaN (); // where along the side the user put it
 };
 // T6: rooms, windows and the entrance of one flat; `corner` -1 none, 0 at u0, 1 at u1.
 void LayRooms (Flat& flat, const Slot& slot, Box b, int corner, DoorAt door);

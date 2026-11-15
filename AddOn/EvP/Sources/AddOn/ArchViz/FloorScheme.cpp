@@ -774,7 +774,7 @@ void Refit (Scheme& s, Flat& f, const cp::PathsD& outline, const cp::PathsD& bli
     // Rooms that would break a hard rule (an L's hall away from the corridor, a room too narrow
     // for its kind) are left to the user instead.
     bool broken = false;
-    if (PlanRooms (f, SidesOf (s, outline, blind, f.shape)))
+    if (PlanRooms (f, SidesOf (s, outline, blind, f.shape), &pins.doors))
         RoomRules (s, f, o, [&] (const char*, const std::string&, Vec) { broken = true; });
     if (broken)
         f.manual = true, f.roomList.clear (), f.windows.clear (), f.door = {};
@@ -894,6 +894,8 @@ Scheme detail::PlanFloor (const std::vector<Ring>& outline, const floorprogramme
     auto skeleton = Decompose (paths, options, s.diagnostics, pins.wings);
     s.typology = skeleton.typology;
     auto layout = Circulate (paths, skeleton, programme, pins, options, s.diagnostics);
+    for (auto& slot : layout.slots)
+        slot.doors = &pins.doors;
     if (!layout.culled.empty ()) {
         // What the typology leaves out is no longer floor: the rest is planned and checked.
         cp::PathsD cut;

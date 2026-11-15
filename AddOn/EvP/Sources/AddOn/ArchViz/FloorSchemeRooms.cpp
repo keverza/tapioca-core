@@ -148,6 +148,8 @@ double DoorCentre (const Ctx& c)
         return c.b.u0;
     if (c.door.side == 2)
         return c.b.u1;
+    if (!std::isnan (c.door.want))
+        return c.door.want;
     const double lo = (std::max) (c.door.lo, c.b.u0), hi = (std::min) (c.door.hi, c.b.u1);
     return lo <= hi ? (lo + hi) / 2 : (c.b.u0 + c.b.u1) / 2;
 }
@@ -335,6 +337,19 @@ bool Through (Ctx& c, bool hallOutside)
 
 void LayRooms (Flat& flat, const Slot& slot, Box b, int corner, DoorAt door)
 {
+    // The user's entrance, when one of theirs is in this flat: along the door side, a door's half
+    // width inside where circulation meets it.
+    constexpr double kHalfDoor = 0.45;
+    for (size_t k = 0; slot.doors && k < slot.doors->size (); ++k) {
+        const Vec q = slot.frame.Local ((*slot.doors)[k].at);
+        if (q.x < b.u0 - 0.05 || q.x > b.u1 + 0.05 || q.y < b.v0 - 0.05 || q.y > b.v1 + 0.05)
+            continue;
+        const bool alongU = door.side == 0;
+        const double lo = (std::max) (door.lo, alongU ? b.u0 : b.v0) + kHalfDoor;
+        const double hi = (std::min) (door.hi, alongU ? b.u1 : b.v1) - kHalfDoor;
+        if (lo <= hi)
+            door.want = Clip (alongU ? q.x : q.y, lo, hi);
+    }
     Ctx c { flat, slot, b, door };
     flat.roomList.clear ();
     flat.windows.clear ();
@@ -348,15 +363,20 @@ void LayRooms (Flat& flat, const Slot& slot, Box b, int corner, DoorAt door)
         const auto q0 = slot.frame.Local (r.shape[0]), q2 = slot.frame.Local (r.shape[2]);
         const Box h { (std::min) (q0.x, q2.x), (std::min) (q0.y, q2.y), (std::max) (q0.x, q2.x),
                       (std::max) (q0.y, q2.y) };
+        // Within the hall, as near the user's place as a door's width allows.
+        const auto place = [&] (double lo, double hi, double mid) {
+            return std::isnan (door.want) || hi - lo < 2 * kHalfDoor ? mid
+                                                                     : Clip (door.want, lo + kHalfDoor, hi - kHalfDoor);
+        };
         if (door.side == 0) {
             const double lo = (std::max) (h.u0, door.lo), hi = (std::min) (h.u1, door.hi);
-            const double mid = lo <= hi ? (lo + hi) / 2 : (h.u0 + h.u1) / 2;
+            const double mid = place (lo, hi, lo <= hi ? (lo + hi) / 2 : (h.u0 + h.u1) / 2);
             flat.door = { slot.frame.World (mid - 0.45, b.v0), slot.frame.World (mid + 0.45, b.v0), RoomKind::Hall };
         }
         else {
             const double u = door.side == 1 ? b.u0 : b.u1;
             const double lo = (std::max) (h.v0, door.lo), hi = (std::min) (h.v1, door.hi);
-            const double mid = lo <= hi ? (lo + hi) / 2 : (h.v0 + h.v1) / 2;
+            const double mid = place (lo, hi, lo <= hi ? (lo + hi) / 2 : (h.v0 + h.v1) / 2);
             flat.door = { slot.frame.World (u, mid - 0.45), slot.frame.World (u, mid + 0.45), RoomKind::Hall };
         }
         break;
@@ -416,7 +436,8 @@ struct Along {
     double access[kWays] = {}, lo[kWays] = { 1e18, 1e18, 1e18 }, hi[kWays] = { -1e18, -1e18, -1e18 };
 };
 // Rooms of a rectangular flat with corners `r`; false (nothing laid) without facade a window fits in.
-bool Rectangle (Flat& flat, const std::array<Vec, 4>& r, const std::vector<Side>& sides)
+bool Rectangle (Flat& flat, const std::array<Vec, 4>& r, const std::vector<Side>& sides,
+                const std::vector<Pins::Door>* doors)
 {
     std::array<Vec, 4> d;
     std::array<double, 4> length {};
@@ -492,6 +513,7 @@ bool Rectangle (Flat& flat, const std::array<Vec, 4>& r, const std::vector<Side>
     Slot slot;
     slot.frame = f;
     slot.box = b;
+    slot.doors = doors;
     slot.through = along[back].facade >= 0.5 * b.W ();
     slot.cornerLo = along[lowEnd].facade >= 0.5 * b.H ();
     slot.cornerHi = along[highEnd].facade >= 0.5 * b.H ();
@@ -645,7 +667,7 @@ bool Contained (const Flat& flat, const Ring& shape)
 }
 } // namespace
 
-bool PlanRooms (Flat& flat, const std::vector<Side>& sides)
+bool PlanRooms (Flat& flat, const std::vector<Side>& sides, const std::vector<Pins::Door>* doors)
 {
     auto manual = [&flat] {
         flat.manual = true;
@@ -655,7 +677,7 @@ bool PlanRooms (Flat& flat, const std::vector<Side>& sides)
     };
     std::array<Vec, 4> r;
     if (Corners (flat.shape, r))
-        return (Rectangle (flat, r, sides) && Contained (flat, flat.shape)) || manual ();
+        return (Rectangle (flat, r, sides, doors) && Contained (flat, flat.shape)) || manual ();
     // Any other outline: the rooms in its largest rectangle along the facade they face, grown over
     // the rest. The facade direction is the flat's axis when facade runs that way, else the one
     // with the most facade.
@@ -698,7 +720,7 @@ bool PlanRooms (Flat& flat, const std::vector<Side>& sides)
             Flat inner = flat;
             inner.shape = ToRing (frame, box);
             std::array<Vec, 4> corners;
-            if (!Corners (inner.shape, corners) || !Rectangle (inner, corners, sides))
+            if (!Corners (inner.shape, corners) || !Rectangle (inner, corners, sides, doors))
                 continue;
             Grow (inner, shape, inner.shape);
             if (!Contained (inner, shape))

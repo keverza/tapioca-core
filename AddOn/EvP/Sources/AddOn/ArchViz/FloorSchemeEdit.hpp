@@ -111,6 +111,16 @@ Design SplitFlat (const Scheme& s, Design d, int flat, Vec at, std::string* why 
 Design RemoveFlat (const Scheme& s, Design d, int flat, std::string* why = nullptr, double most = 0);
 Design SetRooms (const Scheme& s, Design d, int flat, double rooms);
 Design MoveEnd (Design d, const End& end, Vec to);
+// --- a flat's entrance (FloorSchemeEditDoor.cpp) ----------------------------------------------
+// The middle of the flat's entrance door; none when its rooms are left to the user or it has no way in.
+std::optional<Vec> DoorOf (const Scheme& s, int flat);
+// Where the entrance would stand if moved towards `to`: on the wall it is on, the nearest place
+// where a whole door opens onto a corridor, a landing or a lobby.
+std::optional<Vec> DoorPlace (const Scheme& s, int flat, Vec to);
+// The entrance moved there (Pins::Door): the flat's rooms are laid again with the hall behind it,
+// so the door lands as near as the hall can follow. `ResetDoor` gives it back to the generator.
+Design MoveDoor (const Scheme& s, Design d, int flat, Vec to, std::string* why = nullptr);
+Design ResetDoor (const Scheme& s, Design d, int flat);
 // Two flats change places: in one band with their widths, across bands (the corridor) their room
 // counts.
 Design SwapFlats (const Scheme& s, Design d, int a, int b, std::string* why = nullptr);

@@ -123,6 +123,41 @@ void Square (ImDrawList* draw, ImVec2 p, float h, ImU32 fill, float line)
     draw->AddRectFilled ({ p.x - h, p.y - h }, { p.x + h, p.y + h }, fill);
     draw->AddRect ({ p.x - h, p.y - h }, { p.x + h, p.y + h }, kLine, 0, 0, line);
 }
+// The flat whose entrance door's middle is within `reach` metres of `m`; -1 when none is.
+int DoorUnder (const fs::Scheme& s, fs::Vec m, double reach)
+{
+    int best = -1;
+    double near = reach;
+    for (size_t i = 0; i < s.flats.size (); ++i)
+        if (const auto door = fe::DoorOf (s, int (i)))
+            if (const double d = std::hypot (door->x - m.x, door->y - m.y); d <= near)
+                near = d, best = int (i);
+    return best;
+}
+void Door (ImDrawList* draw, const View& v, const fs::Opening& door, fs::Vec at, ImU32 colour, float width)
+{
+    const fs::Vec half { (door.b.x - door.a.x) / 2, (door.b.y - door.a.y) / 2 };
+    draw->AddLine (v.P ({ at.x - half.x, at.y - half.y }), v.P ({ at.x + half.x, at.y + half.y }), colour, width);
+}
+const char* RoomName (fs::RoomKind kind)
+{
+    switch (kind) {
+        case fs::RoomKind::Living:
+            return "Living room";
+        case fs::RoomKind::Bedroom:
+            return "Bedroom";
+        case fs::RoomKind::Alcove:
+            return "Alcove";
+        case fs::RoomKind::Hall:
+            return "Hall";
+        case fs::RoomKind::Bath:
+            return "Bath";
+        case fs::RoomKind::Wc:
+            return "WC";
+        default:
+            return "Storage";
+    }
+}
 const char* PartName (const Under& u)
 {
     if (!u.item)
@@ -211,6 +246,7 @@ bool SkeletonPointer (Editor& e, Context& c, const View& v, bool hovered, float 
     const fs::Vec mouse = v.W (at);
     const double px = v.Pixel ();
     e.over = {};
+    e.overDoor = -1;
     // A gesture of its own, carried on and let go.
     if (e.drag != Drag::None && e.hold.Held ()) {
         if (e.owner != ImGui::GetCurrentContext () || e.dragOn != Surface::Canvas)
@@ -221,7 +257,13 @@ bool SkeletonPointer (Editor& e, Context& c, const View& v, bool hovered, float 
         if (ImGui::IsKeyPressed (ImGuiKey_Escape))
             e.drag = Drag::None, e.hold = {};
         else if (!ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
-            if (e.moved) {
+            if (e.moved && e.hold.flat >= 0) {
+                // An entrance door, let go: along its wall, as near here as it opens onto circulation.
+                std::string why;
+                auto next = fe::MoveDoor (e.base, e.baseDesign, e.hold.flat, e.at, &why);
+                Apply (e, c, e.baseDesign, std::move (next), why);
+            }
+            else if (e.moved) {
                 auto pull = SkeletonGesture (e, c);
                 Apply (e, c, e.baseDesign, std::move (pull.next), pull.why);
             }
@@ -235,14 +277,17 @@ bool SkeletonPointer (Editor& e, Context& c, const View& v, bool hovered, float 
     if (!hovered || !e.have || e.drag != Drag::None || e.sketchOf != e.revision ||
         ImGui::IsMouseClicked (ImGuiMouseButton_Right) || ImGui::IsPopupOpen ("##planMenu"))
         return false;
-    const Under under = Pick (e, v, at, scale);
-    if (!under.item)
-        return false;
     // A wall against the next building, a corridor's end and a zone's division are held first.
     const Kind unit = HitAt (e.scheme, mouse, px).kind;
     if (unit == Kind::Party || unit == Kind::End || unit == Kind::Division)
         return false;
+    // A flat's entrance door, by its middle; then an edge of the skeleton.
+    const int door = DoorUnder (e.scheme, mouse, kPickReach * scale * px);
+    const Under under = door >= 0 ? Under {} : Pick (e, v, at, scale);
+    if (door < 0 && !under.item)
+        return false;
     e.over = under.ref;
+    e.overDoor = door;
     if (ImGui::IsMouseClicked (ImGuiMouseButton_Left)) {
         e.from = e.at = mouse;
         e.base = e.scheme;
@@ -251,7 +296,7 @@ bool SkeletonPointer (Editor& e, Context& c, const View& v, bool hovered, float 
         e.moved = false;
         e.dragOn = Surface::Canvas;
         e.held = {};
-        e.hold = { e.sketch, under.ref, -1, kSnapReach * px };
+        e.hold = { door >= 0 ? sk::Sketch {} : e.sketch, under.ref, door, kSnapReach * px };
         e.drag = Drag::Body;
     }
     hudshell::OwnCursor ();
@@ -264,21 +309,46 @@ void SkeletonMarks (Editor& e, Context& c, const View& v, ImDrawList* draw, floa
     const auto& s = e.scheme;
     if (!e.have || e.sketchOf != e.revision)
         return;
-    // How the floor is entered: each flat through its door to the circulation it opens onto.
-    for (const auto& edge : e.graph.edges)
-        for (size_t i = 0; i + 1 < edge.line.size (); ++i)
-            draw->AddLine (v.P (edge.line[i]), v.P (edge.line[i + 1]), kEdge, 1.2f * scale);
+    // How the floor is entered: each flat through its door to the circulation it opens onto, and
+    // inside it from the door to the hall and on from room to room. A flat whose rooms are laid is
+    // its rooms' nodes; one whose rooms are left to the user is one node.
+    const auto laid = [&] (int flat) {
+        return flat >= 0 && flat < int (s.flats.size ()) && !s.flats[flat].roomList.empty () &&
+               fe::DoorOf (s, flat).has_value ();
+    };
+    for (const auto& edge : e.graph.edges) {
+        const bool inside = edge.kind == sk::Graph::Edge::Kind::Inside;
+        // From the door on, where the rooms' own edges lead up to it.
+        const size_t first = edge.kind == sk::Graph::Edge::Kind::Access && edge.line.size () == 3 && laid (edge.flat);
+        for (size_t i = first; i + 1 < edge.line.size (); ++i)
+            draw->AddLine (v.P (edge.line[i]), v.P (edge.line[i + 1]), kEdge, (inside ? 1.0f : 1.2f) * scale);
+    }
+    const sk::Graph::Node* room = nullptr; // the room's node under the pointer
     for (const auto& node : e.graph.nodes) {
         const ImVec2 p = v.P (node.at);
         if (node.kind == sk::Graph::Kind::Stair)
             Square (draw, p, 3.0f * scale, kLine, 1);
         else if (node.kind == sk::Graph::Kind::Corridor)
             draw->AddCircleFilled (p, 3.0f * scale, kLane);
-        else {
+        else if (node.kind == sk::Graph::Kind::Room) {
+            const bool hall = node.what == fs::RoomKind::Hall;
+            draw->AddCircleFilled (p, (hall ? 2.6f : 2.0f) * scale, hall ? kLane : kNode);
+            draw->AddCircle (p, (hall ? 2.6f : 2.0f) * scale, kLane, 0, 1.0f * scale);
+            const ImVec2 m = ImGui::GetIO ().MousePos;
+            if (hovered && std::hypot (m.x - p.x, m.y - p.y) <= 5 * scale)
+                room = &node;
+        }
+        else if (!laid (node.index)) {
             draw->AddCircleFilled (p, 3.0f * scale, kNode);
             draw->AddCircle (p, 3.0f * scale, kLane, 0, 1.2f * scale);
         }
     }
+    // Each entrance door, a handle on its wall: the one under the pointer as it would be held.
+    for (size_t i = 0; i < s.flats.size (); ++i)
+        if (const auto at = fe::DoorOf (s, int (i))) {
+            const bool over = e.drag == Drag::None && e.overDoor == int (i);
+            Door (draw, v, s.flats[i].door, *at, over ? kMine : kLane, (over ? 5.0f : 3.0f) * scale);
+        }
     for (const auto& corridor : s.corridors)
         for (size_t i = 0; i + 1 < corridor.axis.size (); ++i)
             Dashed (draw, v.P (corridor.axis[i]), v.P (corridor.axis[i + 1]), kLane, 1.5f * scale, 6 * scale);
@@ -298,7 +368,15 @@ void SkeletonMarks (Editor& e, Context& c, const View& v, ImDrawList* draw, floa
     // The gesture, drawn at once: the part where it would stand, red when the floor cannot take
     // it; what it snapped to.
     std::string why;
-    if (e.drag != Drag::None && e.hold.Held () && e.moved) {
+    if (e.drag != Drag::None && e.hold.flat >= 0 && e.moved && e.hold.flat < int (e.base.flats.size ())) {
+        // A held door: where it would stand on its wall, red where it has nowhere to go.
+        const auto place = fe::DoorPlace (e.base, e.hold.flat, e.at);
+        const auto was = fe::DoorOf (e.base, e.hold.flat);
+        if (place || was)
+            Door (draw, v, e.base.flats[e.hold.flat].door, place ? *place : *was, place ? kMine : kBad, 5 * scale);
+        why = place ? "the hall follows the door" : "no way in from circulation there";
+    }
+    else if (e.drag != Drag::None && e.hold.Held () && e.moved) {
         const auto pull = SkeletonGesture (e, c);
         why = pull.refused ? pull.why : pull.snapped ? std::string ("flush") : std::string ();
         if (const auto* entity = ge::Find (pull.doc, e.hold.ref.entity))
@@ -310,6 +388,11 @@ void SkeletonMarks (Editor& e, Context& c, const View& v, ImDrawList* draw, floa
         return;
     if (!why.empty ())
         hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right, why);
+    else if (e.drag == Drag::None && e.overDoor >= 0)
+        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
+                         "Entrance | drag it along the wall: the hall follows");
+    else if (e.drag == Drag::None && room && e.over.entity == ge::kNoId)
+        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right, RoomName (room->what));
     else if (e.drag == Drag::None && e.over.entity != ge::kNoId)
         if (const auto* item = e.sketch.Find (e.over.entity)) {
             Under under;
@@ -335,6 +418,16 @@ void SkeletonMenuItems (Editor& e, Context& c)
     const auto& full = e.input.design;
     std::string why;
     e.wing = fe::WingAt (s, e.menuAt);
+    // The flat's entrance, when it is the user's: given back to the generator.
+    if (const int flat = fe::FlatAt (s, e.menuAt); flat >= 0) {
+        const bool own = std::any_of (full.pins.doors.begin (), full.pins.doors.end (),
+                                      [&] (const fs::Pins::Door& p) { return fe::FlatAt (s, p.at) == flat; });
+        ImGui::BeginDisabled (!own);
+        if (ImGui::MenuItem ("Entrance back where the generator puts it"))
+            Commit (e, c, fe::ResetDoor (s, full, flat));
+        ImGui::EndDisabled ();
+        ImGui::Separator ();
+    }
     if (Valid (s, e.wing)) {
         const auto& w = s.wings[e.wing];
         ImGui::TextDisabled ("Wing %u | %.1f x %.1f m", fe::WingId (s, e.wing), w.length, w.depth);

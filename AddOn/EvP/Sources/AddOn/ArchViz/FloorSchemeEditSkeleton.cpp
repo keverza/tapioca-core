@@ -65,6 +65,8 @@ void Carry (Design& d, const Ring& rect, Vec by)
         move (p.at);
     for (auto& p : d.pins.ends)
         move (p.at);
+    for (auto& p : d.pins.doors)
+        move (p.at);
     for (auto& p : d.pins.counts)
         move (p.at);
     for (auto& p : d.pins.cuts)

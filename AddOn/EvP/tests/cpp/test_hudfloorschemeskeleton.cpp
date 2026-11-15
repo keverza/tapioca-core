@@ -228,3 +228,42 @@ TEST (HudFloorSchemeSkeleton, AStairsSideIsDraggedAndItsBodyIsStillTheCanvass)
         return std::abs (c.width - (core.width + 0.8)) < 0.45;
     })) << "the stair is wider";
 }
+
+TEST (HudFloorSchemeSkeleton, AnEntranceDoorIsDraggedAlongItsWallAndTheRoomsAreInTheGraph)
+{
+    Panel p;
+    p.Settle ();
+    ASSERT_TRUE (p.editor && p.editor->have);
+    p.Frame ({ 5, 5 }, false);
+    const auto& s = p.editor->scheme;
+    using Node = fs::sketch::Graph::Node;
+    EXPECT_TRUE (std::any_of (p.editor->graph.nodes.begin (), p.editor->graph.nodes.end (), [] (const Node& n) {
+        return n.kind == fs::sketch::Graph::Kind::Room && n.what == fs::RoomKind::Hall;
+    })) << "the flats' rooms are nodes of the graph";
+    // The widest flat in a row along the corridor: its door has somewhere to go.
+    int flat = -1;
+    for (size_t i = 0; i < s.flats.size (); ++i)
+        if (s.flats[i].band >= 0 && !s.flats[i].cap && fe::DoorOf (s, int (i)) &&
+            (flat < 0 || s.flats[i].frontage > s.flats[flat].frontage))
+            flat = int (i);
+    ASSERT_GE (flat, 0);
+    const fs::Vec was = *fe::DoorOf (s, flat);
+    const fs::Vec mid = fe::FlatAt (s, was) == flat ? was : was;
+    double lo = 0, hi = 0;
+    for (const auto& q : s.flats[flat].shape)
+        lo = (std::min) (lo, q.x - mid.x), hi = (std::max) (hi, q.x - mid.x);
+    const fs::Vec to { was.x + (-lo > hi ? lo : hi), was.y };
+    // Over the door the pointer is the door's.
+    p.Frame (p.Screen (was), false);
+    EXPECT_EQ (p.editor->overDoor, flat);
+    p.Drag (was, to);
+    p.Settle ();
+    ASSERT_EQ (p.Design ().pins.doors.size (), 1u) << p.editor->notice;
+    const int again = fe::FlatAt (p.editor->scheme, p.Design ().pins.doors[0].at);
+    ASSERT_GE (again, 0);
+    const auto now = fe::DoorOf (p.editor->scheme, again);
+    ASSERT_TRUE (now.has_value ());
+    EXPECT_GT (std::abs (now->x - was.x), 0.5) << "the door moved along its wall";
+    EXPECT_NEAR (now->y, was.y, 1e-6);
+    EXPECT_EQ (p.editor->scheme.flats.size (), s.flats.size ());
+}

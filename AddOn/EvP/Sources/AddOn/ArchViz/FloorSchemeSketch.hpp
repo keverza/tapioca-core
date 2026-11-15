@@ -49,16 +49,25 @@ edit::Design Read (const Scheme& s, edit::Design d, const Sketch& before, const 
 
 // How the floor is entered, as a graph over the plan: a node for each stair, each corridor leg and
 // each flat, and an edge from each flat through its door to the circulation it opens onto, and
-// from each stair to the corridor it stands on.
+// from each stair to the corridor it stands on. And inside each flat whose rooms are laid (user,
+// 2026-11-15: "graph editor should show also unit rooms"): a node for each room, an edge from the
+// entrance door to the hall, and from each room to the room it is entered from -- the hall, else the
+// nearest room to the hall it shares a wall with.
 struct Graph {
-    enum class Kind : uint8_t { Stair, Corridor, Flat };
+    enum class Kind : uint8_t { Stair, Corridor, Flat, Room };
     struct Node {
         Kind kind = Kind::Flat;
-        int index = -1;
+        int index = -1; // a stair, a corridor, a flat; a room's flat
         Vec at;
+        int room = -1;                    // a room: its index in the flat's roomList
+        RoomKind what = RoomKind::Living; // a room's kind
     };
     struct Edge {
         std::vector<Vec> line; // from a node, through a door where there is one, to circulation
+        // Access: a flat to circulation, its second point the door when the line has three.
+        // Inside: within flat `flat`, door to hall or room to room.
+        enum class Kind : uint8_t { Circulation, Access, Inside } kind = Kind::Circulation;
+        int flat = -1;
     };
     std::vector<Node> nodes;
     std::vector<Edge> edges;

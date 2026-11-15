@@ -1,4 +1,5 @@
 #include "ArchViz/FloorSchemeSketch.hpp"
+#include "ArchViz/FloorSchemeDetail.hpp"
 #include "Edit/EditPolyline.hpp"
 #include <algorithm>
 #include <cmath>
@@ -372,7 +373,46 @@ Graph Access (const Scheme& s)
         const auto [to, far] = circulation (door ? through : at, true);
         if (far > 1e299)
             continue;
-        g.edges.push_back (door ? Graph::Edge { { at, through, to } } : Graph::Edge { { at, to } });
+        g.edges.push_back (door ? Graph::Edge { { at, through, to }, Graph::Edge::Kind::Access, int (i) }
+                                : Graph::Edge { { at, to }, Graph::Edge::Kind::Access, int (i) });
+        // Inside it: the rooms, each entered from the room before it on the way from the hall.
+        const auto& rooms = flat.roomList;
+        std::vector<Vec> centre (rooms.size ());
+        std::vector<int> from (rooms.size (), -2); // -2 not reached, -1 the hall itself
+        std::vector<size_t> queue;
+        for (size_t k = 0; k < rooms.size (); ++k) {
+            centre[k] = Mid (rooms[k].shape);
+            if (rooms[k].extends >= 0)
+                continue; // a further box of another room: that room's node stands for both
+            g.nodes.push_back ({ Graph::Kind::Room, int (i), centre[k], int (k), rooms[k].kind });
+            if (rooms[k].kind == RoomKind::Hall && queue.empty ())
+                from[k] = -1, queue.push_back (k);
+        }
+        if (queue.empty ())
+            continue;
+        const size_t hall = queue.front ();
+        if (door)
+            g.edges.push_back ({ { through, centre[hall] }, Graph::Edge::Kind::Inside, int (i) });
+        // The room a box belongs to, and whether two rooms share a wall a door fits in.
+        const auto owner = [&] (size_t k) { return rooms[k].extends >= 0 ? size_t (rooms[k].extends) : k; };
+        const auto beside = [&] (size_t a, size_t b) {
+            for (size_t p = 0; p < rooms.size (); ++p)
+                for (size_t q = 0; q < rooms.size (); ++q)
+                    if (owner (p) == a && owner (q) == b && detail::Touch (rooms[p].shape, rooms[q].shape, 0.3) >= 0.8)
+                        return true;
+            return false;
+        };
+        for (size_t head = 0; head < queue.size (); ++head)
+            for (size_t k = 0; k < rooms.size (); ++k)
+                if (from[k] == -2 && rooms[k].extends < 0 && beside (queue[head], k))
+                    from[k] = int (queue[head]), queue.push_back (k);
+        for (size_t k = 0; k < rooms.size (); ++k) {
+            if (rooms[k].extends >= 0 || k == hall)
+                continue;
+            // A room no wall joins to the others is still entered from the hall.
+            const size_t parent = from[k] >= 0 ? size_t (from[k]) : hall;
+            g.edges.push_back ({ { centre[parent], centre[k] }, Graph::Edge::Kind::Inside, int (i) });
+        }
     }
     return g;
 }
