@@ -259,7 +259,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         s.selection.hover = s.hoverHandle < 0 && !hits.empty () ? hits.front ().ref : edit::Ref {};
     }
     else if (!hovered && s.drag == Drag::None)
-        s.selection.hover = {}, s.hoverHandle = -1;
+        s.selection.hover = s.outlinerHover, s.hoverHandle = -1; // #191 U5: an Outliner row's object, or nothing
 
     // Live-corner grips first: they sit over the geometry and the gizmo.
     bool gripTook = CornerGrips (s, m, mouse, hovered && s.tool == Tool::Select, scale);

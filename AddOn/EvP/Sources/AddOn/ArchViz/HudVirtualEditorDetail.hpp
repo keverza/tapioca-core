@@ -94,6 +94,8 @@ bool CancelRunning (Session& s);
 void Toolbar (Session& s);
 void Inspector (Session& s);
 void Outliner (Session& s);
+// #191 U5: the warnings the Issues view lists -- what its tab and the state chip count.
+size_t IssueCount (const Session& s);
 void ProfileEditor (Session& s);
 void OperationsTab (Session& s);
 void WarningsTab (Session& s);
@@ -240,7 +242,18 @@ enum class OrganizeCommand : uint8_t {
     SameKind
 };
 void Organize (Session& s, OrganizeCommand command);
-void OrganizeControls (Session& s);
+// #191 U5: the Outliner's Objects view, in parts. OrganizeVisibility is Hide, Lock, Isolate and
+// their undo; SelectMenuItems the selection queries for the Select menu; LayerRows the editor's
+// layers; ObjectRows the objects by group -- flat, and only those whose name holds `filter`, when
+// it is not empty. A row under the pointer is s.outlinerHover; a row the view selected is
+// scrolled into view when `reveal`.
+void OrganizeVisibility (Session& s);
+void SelectMenuItems (Session& s);
+void LayerRows (Session& s);
+void ObjectRows (Session& s, const std::string& filter, bool reveal);
+// #191 U5: under every Inspector selection context: the selection's layer (choosing one moves it
+// there) and Group / Ungroup.
+void LayerAndGroupRow (Session& s);
 
 // The colours the editor offers wherever a user picks one (a layer's, a reference line's): 20
 // colours chosen to stay apart from each other, then white and black, as 0xRRGGBBAA.

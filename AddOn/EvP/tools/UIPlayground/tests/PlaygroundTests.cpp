@@ -172,7 +172,9 @@ int main (int argc, char** argv)
             state = Frame (module, state);
             ImGuiWindow* preview = nullptr;
             for (auto* window : ImGui::GetCurrentContext ()->Windows)
-                if (std::strstr (window->Name, "production-preview"))
+                // The preview itself, not a child of it ("...production-preview.../<id>"): #191 U5's
+                // editor Outliner views are child windows that outlive their frame.
+                if (const char* at = std::strstr (window->Name, "production-preview"); at && !std::strchr (at, '/'))
                     preview = window;
             Require (preview != nullptr, "Production preview window missing");
             const auto* table = ImGui::GetCurrentContext ()->Tables.GetByKey (preview->GetID ("##massing.programme"));

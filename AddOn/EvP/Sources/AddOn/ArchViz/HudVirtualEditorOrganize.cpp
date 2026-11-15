@@ -2,10 +2,12 @@
 #include "ArchViz/HudShell.hpp"
 #include "Edit/EditOrganize.hpp"
 #include <imgui.h>
+#include <cctype>
 #include <algorithm>
 #include <cstdio>
 #include <functional>
 #include <iterator>
+#include <optional>
 
 // The virtual editor's layers and groups palette, and the hide, lock, isolate and selection
 // commands the panel, the menu and the keys share (EditOrganize.hpp does the work).
@@ -74,8 +76,9 @@ std::string Label (const edit::Document& doc, edit::Id id)
     return kind + (role.empty () ? "" : " " + role) + "  #" + std::to_string (id);
 }
 
-// An object's row: shown and locked toggles, then its name, which selects it (Ctrl adds).
-void ObjectRow (Session& s, edit::Id id)
+// An object's row: shown and locked toggles, then its name, which selects it (Ctrl adds). Hovered,
+// it is what the view highlights; selected in the view, it is scrolled into sight once (#191 U5).
+void ObjectRow (Session& s, edit::Id id, bool reveal = false)
 {
     const edit::Membership m = *edit::MemberOf (Doc (s), id);
     const std::string label = Label (Doc (s), id);
@@ -99,6 +102,10 @@ void ObjectRow (Session& s, edit::Id id)
         else
             s.selection.Set (ref);
     }
+    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+        s.outlinerHover = ref.front ();
+    if (reveal && selected)
+        ImGui::SetScrollHereY (0.5f);
     ImGui::EndDisabled ();
     ImGui::PopID ();
 }
@@ -118,7 +125,7 @@ void Contents (const edit::Document& doc, edit::Id group, std::vector<edit::Id>&
             objects.push_back (e.id);
 }
 
-void GroupTree (Session& s, edit::Id group)
+void GroupTree (Session& s, edit::Id group, bool reveal)
 {
     const edit::Group* g = edit::FindGroup (Doc (s), group);
     if (g == nullptr)
@@ -136,10 +143,10 @@ void GroupTree (Session& s, edit::Id group)
         std::vector<edit::Id> groups, objects;
         Contents (Doc (s), group, groups, objects);
         for (const edit::Id child : groups)
-            GroupTree (s, child);
+            GroupTree (s, child, reveal);
         for (const edit::Id id : objects)
             if (edit::MemberOf (Doc (s), id) != nullptr)
-                ObjectRow (s, id);
+                ObjectRow (s, id, reveal);
         ImGui::TreePop ();
     }
     ImGui::PopID ();
@@ -240,13 +247,8 @@ void Organize (Session& s, OrganizeCommand command)
     }
 }
 
-void OrganizeControls (Session& s)
+void OrganizeVisibility (Session& s)
 {
-    // Open of itself once there is something to organise beyond layer 0; the user's choice after that.
-    if (!Doc (s).layers.empty () || !Doc (s).groups.empty ())
-        ImGui::SetNextItemOpen (true, ImGuiCond_Once);
-    if (!ImGui::TreeNode ("Layers and groups"))
-        return;
     const bool any = !s.selection.Items ().empty ();
     const bool isolated = !Doc (s).isolated.empty ();
     ImGui::BeginDisabled (s.drag != Drag::None || !s.drawing.empty ());
@@ -271,24 +273,28 @@ void OrganizeControls (Session& s)
     ImGui::SameLine ();
     if (ImGui::SmallButton ("Unlock all"))
         Organize (s, OrganizeCommand::UnlockAll);
-
-    if (ImGui::SmallButton ("Select all"))
-        Organize (s, OrganizeCommand::SelectAll);
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Invert"))
-        Organize (s, OrganizeCommand::Invert);
-    ImGui::BeginDisabled (!any);
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Same role"))
-        Organize (s, OrganizeCommand::SameRole);
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Same layer"))
-        Organize (s, OrganizeCommand::SameLayer);
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Same kind"))
-        Organize (s, OrganizeCommand::SameKind);
     ImGui::EndDisabled ();
+}
 
+void SelectMenuItems (Session& s)
+{
+    const bool any = !s.selection.Items ().empty ();
+    const bool idle = s.drag == Drag::None && s.drawing.empty ();
+    if (ImGui::MenuItem ("Select all", nullptr, false, idle))
+        Organize (s, OrganizeCommand::SelectAll);
+    if (ImGui::MenuItem ("Invert", nullptr, false, idle))
+        Organize (s, OrganizeCommand::Invert);
+    if (ImGui::MenuItem ("Same role", nullptr, false, idle && any))
+        Organize (s, OrganizeCommand::SameRole);
+    if (ImGui::MenuItem ("Same layer", nullptr, false, idle && any))
+        Organize (s, OrganizeCommand::SameLayer);
+    if (ImGui::MenuItem ("Same kind", nullptr, false, idle && any))
+        Organize (s, OrganizeCommand::SameKind);
+}
+
+void LayerRows (Session& s)
+{
+    ImGui::BeginDisabled (s.drag != Drag::None || !s.drawing.empty ());
     // Layers, 0 first: shown, locked, colour, name; the selection moves onto one. They are the
     // editor's alone: none of them is an Archicad layer.
     ImGui::SeparatorText ("Layers");
@@ -349,17 +355,85 @@ void OrganizeControls (Session& s)
     }
     hudshell::Tip ("A new layer, with the selection moved onto it", hudshell::TipSide::Above);
 
+    ImGui::EndDisabled ();
+}
+
+void LayerAndGroupRow (Session& s)
+{
+    const auto refs = s.selection.Items ();
+    // The layer the selection shares, or none when it is on several.
+    std::optional<edit::Id> shared;
+    bool mixed = false;
+    for (const auto& ref : refs)
+        if (const auto* m = edit::MemberOf (Doc (s), ref.entity)) {
+            mixed = mixed || (shared && *shared != m->layer);
+            shared = m->layer;
+        }
+    std::vector<edit::Layer> layers { Doc (s).layer0 };
+    layers.insert (layers.end (), Doc (s).layers.begin (), Doc (s).layers.end ());
+    std::string current = mixed ? "(several)" : "";
+    for (const auto& layer : layers)
+        if (!mixed && shared && layer.id == *shared)
+            current = layer.name;
+    ImGui::BeginDisabled (s.drag != Drag::None || !s.drawing.empty () || refs.empty ());
+    ImGui::SetNextItemWidth (120.0f);
+    if (ImGui::BeginCombo ("Layer", current.c_str ())) {
+        for (const auto& layer : layers)
+            if (ImGui::Selectable (layer.name.c_str (), !mixed && shared && layer.id == *shared)) {
+                const edit::Id id = layer.id;
+                Change (s,
+                        [refs, id] (edit::Document& d, std::string& e) { return edit::MoveToLayer (d, refs, id, e); });
+            }
+        ImGui::EndCombo ();
+    }
+    ImGui::SameLine ();
+    if (ImGui::SmallButton ("Group"))
+        GroupSelection (s, true);
+    ImGui::SameLine ();
+    if (ImGui::SmallButton ("Ungroup"))
+        GroupSelection (s, false);
+    ImGui::EndDisabled ();
+}
+
+void ObjectRows (Session& s, const std::string& filter, bool reveal)
+{
+    ImGui::BeginDisabled (s.drag != Drag::None || !s.drawing.empty ());
+    if (!filter.empty ()) {
+        // Searching: every object whose row reads the text, flat, whatever group it is in.
+        const auto lower = [] (std::string text) {
+            for (auto& c : text)
+                c = char (std::tolower (static_cast<unsigned char> (c)));
+            return text;
+        };
+        const auto wanted = lower (filter);
+        std::vector<edit::Id> ids;
+        for (const auto& p : Doc (s).paths)
+            ids.push_back (p.id);
+        for (const auto& e : Doc (s).entities)
+            ids.push_back (e.id);
+        size_t shown = 0;
+        for (const edit::Id id : ids)
+            if (edit::MemberOf (Doc (s), id) != nullptr &&
+                lower (Label (Doc (s), id)).find (wanted) != std::string::npos) {
+                ObjectRow (s, id, reveal);
+                ++shown;
+            }
+        if (!shown)
+            ImGui::TextDisabled ("No object matches \"%s\".", filter.c_str ());
+        ImGui::EndDisabled ();
+        return;
+    }
     // Objects, by group. A group's name selects all of it; an object's, itself.
-    ImGui::SeparatorText ("Objects");
     std::vector<edit::Id> groups, objects;
     Contents (Doc (s), edit::kNoId, groups, objects);
     for (const edit::Id g : groups)
-        GroupTree (s, g);
+        GroupTree (s, g, reveal);
     for (const edit::Id id : objects)
         if (edit::MemberOf (Doc (s), id) != nullptr)
-            ObjectRow (s, id);
+            ObjectRow (s, id, reveal);
+    if (groups.empty () && objects.empty ())
+        ImGui::TextDisabled ("No objects yet.");
     ImGui::EndDisabled ();
-    ImGui::TreePop ();
 }
 
 } // namespace geomsrv::archviz::edithud::detail

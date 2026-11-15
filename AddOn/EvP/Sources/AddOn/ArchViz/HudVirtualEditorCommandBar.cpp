@@ -139,10 +139,13 @@ void BuildChip (Session& s)
     const float spacing = ImGui::GetStyle ().ItemSpacing.x;
     const float room = ImGui::GetContentRegionAvail ().x - 2.0f * ImGui::GetFrameHeight () - ButtonWidth ("File") -
                        ButtonWidth ("Exit") - 5.0f * spacing;
-    std::string shown = chip.text;
+    // #191 U5: the Issues view's count rides on the chip; a click on a refusal or a count opens it.
+    const auto issues = IssueCount (s);
+    std::string shown = issues ? chip.text + " !" + std::to_string (issues) : chip.text;
+    const std::string full = shown;
     while (shown.size () > 4 && ButtonWidth ((shown + "...").c_str ()) > room)
         shown.pop_back ();
-    if (shown != chip.text)
+    if (shown != full)
         shown += "...";
     ImGui::PushID ("build-chip");
     const bool pressed = ImGui::Button (shown.c_str ());
@@ -150,10 +153,13 @@ void BuildChip (Session& s)
     if (tinted)
         ImGui::PopStyleColor ();
     if (ImGui::IsItemHovered ())
-        hudshell::HoverTip ("%s%s", (chip.detail.empty () ? chip.text : chip.detail).c_str (),
-                            chip.kind == ChipKind::Stale ? "\nClick to build the mesh now." : "");
+        hudshell::HoverTip ("%s%s%s", (chip.detail.empty () ? chip.text : chip.detail).c_str (),
+                            chip.kind == ChipKind::Stale ? "\nClick to build the mesh now." : "",
+                            issues ? "\nIssues are listed in the Outliner." : "");
     if (pressed && chip.kind == ChipKind::Stale)
         RequestTerrainBuild (s);
+    else if (pressed && (chip.kind == ChipKind::Refused || issues))
+        s.outlinerShow = 2;
 }
 
 void FileMenu (Session& s)

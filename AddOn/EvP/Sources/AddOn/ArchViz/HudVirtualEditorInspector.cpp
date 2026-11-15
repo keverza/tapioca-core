@@ -169,13 +169,14 @@ void AddFromArchicad (Session& s)
     ImGui::EndDisabled ();
 }
 
-// The shared tail under every selection context: the action row -- the right-click menu's
+// The shared tail under every selection context: the layer and group row, the action row -- the right-click menu's
 // table, an action with nothing to do here greyed as the menu greys it -- with an option shown
 // only beside its action, then More and Expert.
 void SelectionTail (Session& s)
 {
     const auto& doc = Doc (s);
     ImGui::Separator ();
+    LayerAndGroupRow (s);
     ImGui::BeginDisabled (s.drag != Drag::None || s.profileTyping);
     // #191 U2: Delete heads the row, away from Exit in the command bar; the Delete key is unchanged.
     if (ImGui::SmallButton ("Delete"))

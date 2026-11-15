@@ -266,6 +266,17 @@ struct Session {
     std::shared_ptr<const tapioca::geometry::LandscapeRecipe> recipe;
     uint64_t recipeRevision = UINT64_MAX;
     std::optional<tapioca::geometry::PathDesignRequest> recipeRequest;
+    // Why each recipe arrow would refuse at `recipeMovesRevision` (#191 U5): (object, step) -> reason,
+    // empty when the move is allowed. Worked out on a copy once per revision, never per frame.
+    std::vector<std::pair<std::pair<tapioca::geometry::Id, int>, std::string>> recipeMoves;
+    uint64_t recipeMovesRevision = UINT64_MAX;
+    // #191 U5: the Outliner's own view state -- never document state. `outlinerShow` asks the next
+    // frame to open a view (0 Objects, 1 Recipe, 2 Issues), as a click on the state chip does.
+    std::string outlinerFilter;
+    bool outlinerCollapsed = false;
+    int outlinerShow = -1;
+    edit::Ref outlinerHover;             // the row under the pointer: the view highlights it
+    std::vector<edit::Ref> outlinerSeen; // the selection the Outliner last brought into view
     std::optional<LandscapeCommand> landscapeCommand;
     edit::GizmoMode gizmo = edit::GizmoMode::Gumball; // all applicable transform handles
     bool localAxes = true; // the gumball along the shape (EditGizmo SelectionFrame), else the world's

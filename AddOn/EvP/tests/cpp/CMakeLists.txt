@@ -1025,6 +1025,7 @@ set (EVP_TEST_SOURCES
     test_hudvirtualeditorfixtures.cpp
     test_hudvirtualeditorcommandbar.cpp
     test_hudvirtualeditorinspector.cpp
+    test_hudvirtualeditoroutliner.cpp
     test_hudvirtualeditorellipse.cpp
     test_viewereditor.cpp
     test_hudlandscape.cpp

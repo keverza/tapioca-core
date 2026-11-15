@@ -211,7 +211,7 @@ size_t InventoryInspectorRows ()
 // context's More, Expert or own header, opened here as a user would open it.
 TEST (HudVirtualEditorInspector, NoInventoryControlUnreachable191)
 {
-    EXPECT_EQ (InventoryInspectorRows (), 43u) << "EDITOR-CONTROLS.md changed its Inspector rows: update this table";
+    EXPECT_EQ (InventoryInspectorRows (), 44u) << "EDITOR-CONTROLS.md changed its Inspector rows: update this table";
     auto site = MakeSite ();
     const auto plainA = edit::AddPolyline (site.doc, { { 30, 0, 0 }, { 34, 0, 0 }, { 34, 4, 0 }, { 30, 4, 0 } }, true);
     const auto plainB = edit::AddPolyline (site.doc, { { 32, 2, 0 }, { 36, 2, 0 }, { 36, 6, 0 }, { 32, 6, 0 } }, true);
@@ -276,7 +276,7 @@ TEST (HudVirtualEditorInspector, NoInventoryControlUnreachable191)
           [&] (eh::Session& s) { s.selection.Set ({ whole (site.region) }); },
           { "Use selected lines as:", "Material boundary", "Building outline", "Elevation", "Terrain interaction",
             "Material preset metadata", "Choose Archicad fill / surface...", "Delete", "More", "Expert",
-            "Duplicate offset XYZ (m)", "Rectangular array...", "object " } },
+            "Duplicate offset XYZ (m)", "Rectangular array...", "object ", "Layer", "Group", "Ungroup" } },
         { "offset",
           [&] (eh::Session& s) { s.selection.Set ({ whole (plainA) }); },
           { "Offset distance", "Offset join", "Offset miter limit" } },

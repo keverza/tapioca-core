@@ -171,6 +171,37 @@ Tests: `HudVirtualEditorFixtures.ResolveContextTable191`, `ResolveContextPrecede
 `HudVirtualEditorInspector.{InspectorShowsOneContext191, TheActionRowFollowsTheSelection191,
 PathProfileVisibleWithoutScroll191}`. `HudVirtualEditorInspector.NoInventoryControlUnreachable191` draws each C control in its context and counts the C rows here.
 
+## After #191 U5
+
+The Outliner (D) sits under the Inspector. Its header row has a collapse arrow, the object counts,
+a search box and a `Select` menu. Below that come three tabs: **Objects**, **Recipe** and
+**Issues n**. Each tab's body is a child about twelve rows high with its own scroll.
+
+| Label | Draw function | file:line | Action | Enabled when | Test | Area | Ctx |
+|---|---|---|---|---|---|---|---|
+| Layer (combo), Group, Ungroup | `LayerAndGroupRow` | Organize.cpp | `edit::MoveToLayer` the selection / `GroupSelection` | a selection, no drag or drawing | HudVirtualEditorInspector.NoInventoryControlUnreachable191 | C (selection tail) | all |
+| *collapse arrow* (`##collapse`), *search* (`##search`), Select (menu: Select all, Invert, Same role, Same layer, Same kind) | `Outliner`, `SelectMenuItems` | Outliner.cpp, Organize.cpp | `outlinerCollapsed`, `outlinerFilter`, `Organize` | menu items: idle; the Same ones need a selection | HudVirtualEditorOutliner.IssueCountCollapseAndSearch191 | D (header) | - |
+
+- **Objects:** Hide, Lock, Isolate, Show isolated, Show all and Unlock all (`OrganizeVisibility`).
+  Then the layers under a **Layers** header (`LayerRows`), then the objects by group
+  (`ObjectRows`). While a search is typed, the objects are listed flat and filtered by their row
+  text. The selection-set buttons moved to `Select`; the "Layers and groups" tree node is gone.
+- **Recipe:** `OperationsTab`, unchanged apart from three things:
+  - Build terrain is gone (Decided 4). In its place a line names Build mesh and the state chip.
+  - An arrow that would be refused is disabled, and its tooltip gives the reason (`RecipeMoveRefusal`, cached per revision).
+  - The quantity columns are Area and Net by default; Cut and Fill come from the header's
+    right-click menu. Numbers are right-aligned in fixed columns and never wrap. A value too wide
+    for its column is clipped and shown whole on hover.
+- **Issues:** `WarningsTab`. The tab shows the count (`IssueCount`), and the state chip mirrors it
+  as `!n`. A click on a refused chip, or on one with issues, opens this tab.
+- **Sync:**
+  - A row press selects its object.
+  - A selection made in the view scrolls its row into sight once.
+  - The row under the pointer is `outlinerHover`, which the view draws as its hover while the
+    pointer is off the view.
+- **Not changed:** the full reference-line list stays under Nothing selected (C ctx 11), and the
+  cross-section is still drawn in both the Path context and under Topography preview.
+
 ## Notes found while taking the inventory
 
 - No test addresses `DuplicateOffsetControls`, `OffsetJoinControl` or `OffsetMiterLimitControl`.
