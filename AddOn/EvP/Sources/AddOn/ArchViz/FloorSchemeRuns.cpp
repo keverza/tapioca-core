@@ -421,7 +421,10 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
         AddSlot (c, f, { r0, c1, r1, depth }, true, id, 0, 0, true, e0, e1);
 }
 // Corridor along the facade on side `up`; the stair takes the full depth in the middle and
-// the corridor runs to it from both caps (two straight corridors meeting at the stair).
+// the corridor runs to it from both caps (two straight corridors meeting at the stair). A stair
+// the user made shallower than the flats' band stands in the band instead -- against the corridor,
+// or where the building's stack has it, a landing between it and the corridor -- the corridor
+// runs on past it as one, and the floor behind the stair joins the flat beside it (Gather): an L.
 void OneSideSection (Ctx& c, const Frame& f, double depth, double s0, double s1, bool up, int run)
 {
     const double corr = c.lane.Width ();
@@ -441,9 +444,17 @@ void OneSideSection (Ctx& c, const Frame& f, double depth, double s0, double s1,
         capLo *= k, capHi *= k;
     }
     const int id = AddSection (c, run, (s1 - s0) * depth, 'O');
-    const double e0 = s0 + capLo, e1 = s1 - capHi;
+    double e0 = s0 + capLo, e1 = s1 - capHi;
     const double wanted = pin ? f.Local (pin->centre).x - w / 2 : (e0 + e1 - w) / 2;
     const bool held = pin && c.o.holdCores; // a stack stair never moves
+    // It stands anywhere along the section (user, 2026-11-15): the corridor runs on to reach it,
+    // and the cap it shortens joins the flat beside it (Gather).
+    if (held && wanted >= s0 - 1e-9 && wanted + w <= s1 + 1e-9) {
+        if (wanted < e0)
+            e0 = wanted;
+        if (wanted + w > e1)
+            e1 = wanted + w;
+    }
     double uc = held ? wanted : Clip (wanted, e0, e1 - w);
     for (int k = 0; k <= 30 && !held; ++k) {
         const double u = Clip (wanted + (k % 2 ? 1 : -1) * (k / 2) * 0.1, e0, e1 - w);
@@ -453,15 +464,35 @@ void OneSideSection (Ctx& c, const Frame& f, double depth, double s0, double s1,
             break;
         }
     }
-    AddCore (c, f, { uc, 0, uc + w, depth }, id, pin != nullptr);
     const double mid = (c0 + c1) / 2;
-    if (uc - e0 > 0.05)
-        AddCorridor (c, f, { { e0, c0, uc, c1 } }, { { e0, mid }, { uc, mid } }, id);
-    if (e1 - uc - w > 0.05)
-        AddCorridor (c, f, { { uc + w, c0, e1, c1 } }, { { uc + w, mid }, { e1, mid } }, id);
-    AddCap (c, f, { s0, 0, e0, depth }, true, id, c0, c1);
-    AddCap (c, f, { e1, 0, s1, depth }, false, id, c0, c1);
     const double b0 = up ? 0 : corr, b1 = up ? depth - corr : depth;
+    // The stair's own depth, when the user gave it one that leaves a room's depth behind it.
+    const double own = pin && pin->depth > 0 ? pin->depth : depth;
+    if (own <= b1 - b0 - kBathMin) {
+        // Across the wing a stack stair stands where it stands on every floor.
+        const double v0 = held ? Clip (f.Local (pin->centre).y - own / 2, b0, b1 - own) : up ? b1 - own : b0;
+        AddCore (c, f, { uc, v0, uc + w, v0 + own }, id, true);
+        if (e1 - e0 > 0.05)
+            AddCorridor (c, f, { { e0, c0, e1, c1 } }, { { e0, mid }, { e1, mid } }, id);
+        const Box below { uc, b0, uc + w, v0 }, above { uc, v0 + own, uc + w, b1 };
+        const Box& landing = up ? above : below;
+        const Box& behind = up ? below : above;
+        if (landing.H () > 0.05)
+            c.out.lobbies.push_back (ToRing (f, landing));
+        if (behind.H () > 0.05)
+            c.out.storage.push_back ({ ToRing (f, behind), "behind the stair" });
+    }
+    else {
+        AddCore (c, f, { uc, 0, uc + w, depth }, id, pin != nullptr);
+        if (uc - e0 > 0.05)
+            AddCorridor (c, f, { { e0, c0, uc, c1 } }, { { e0, mid }, { uc, mid } }, id);
+        if (e1 - uc - w > 0.05)
+            AddCorridor (c, f, { { uc + w, c0, e1, c1 } }, { { uc + w, mid }, { e1, mid } }, id);
+    }
+    if (e0 - s0 > 0.05)
+        AddCap (c, f, { s0, 0, e0, depth }, true, id, c0, c1);
+    if (s1 - e1 > 0.05)
+        AddCap (c, f, { e1, 0, s1, depth }, false, id, c0, c1);
     AddSlot (c, f, { e0, b0, uc, b1 }, !up, id);
     AddSlot (c, f, { uc + w, b0, e1, b1 }, !up, id);
 }

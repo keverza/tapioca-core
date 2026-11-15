@@ -118,3 +118,50 @@ TEST (FloorSchemeGather, AThinBarKeepsItsCorridorOnOneEdgeRatherThanTwoHallsRoun
     for (const auto& f : s.flats)
         EXPECT_LE (f.net, fs::MaxFlat (fp::Default (), o) + 0.5) << "no hall";
 }
+
+TEST (FloorSchemeGather, ACorridorOnOneEdgeRunsOnPastAStairShallowerThanTheFlats)
+{
+    // The thin bar again, its stair made 4.5 x 4.2 m: it stands against the corridor, the corridor
+    // is one from cap to cap, and the floor behind the stair is the flat's beside it.
+    const std::vector<fs::Ring> outline { Rect (0, 0, 37.1, 9.4) };
+    fs::Options o;
+    o.holdCores = true;
+    o.shallow = fs::Access::OneSide;
+    fs::Pins pins;
+    pins.cores.push_back ({ { 18.5, 4.7 }, 4.5, 4.2 });
+    for (const double x : { 18.5, 12.0, 26.0 }) {
+        pins.cores[0].centre.x = x;
+        const auto s = fs::Generate (outline, fp::Default (), pins, o);
+        EXPECT_TRUE (s.ok) << "stair at " << x << "\n" << Report (s);
+        EXPECT_EQ (Red (s), 0u) << "stair at " << x << "\n" << Report (s);
+        ASSERT_EQ (s.cores.size (), 1u);
+        EXPECT_NEAR (s.cores[0].centre.x, x, 1e-6);
+        EXPECT_NEAR (s.cores[0].depth, 4.2, 1e-6) << "its own depth, not the wing's";
+        ASSERT_EQ (s.corridors.size (), 1u) << "one corridor, past the stair\n" << Report (s);
+        const auto& axis = s.corridors[0].axis;
+        EXPECT_LT ((std::min) (axis.front ().x, axis.back ().x), x - 2.25 - 1.0);
+        EXPECT_GT ((std::max) (axis.front ().x, axis.back ().x), x + 2.25 + 1.0);
+        EXPECT_TRUE (
+            std::any_of (s.flats.begin (), s.flats.end (), [] (const fs::Flat& f) { return f.shape.size () > 4; }))
+            << "the unit round the stair is an L\n"
+            << Report (s);
+        for (const auto& f : s.flats)
+            EXPECT_GE (f.net, Smallest () - 0.5);
+    }
+}
+
+TEST (FloorSchemeGather, AStackStairOnAOneEdgeCorridorStandsNearTheGableToo)
+{
+    const std::vector<fs::Ring> outline { Rect (0, 0, 37.1, 9.4) };
+    fs::Options o;
+    o.holdCores = true;
+    o.shallow = fs::Access::OneSide;
+    fs::Pins pins;
+    pins.cores.push_back ({ { 4.0, 4.7 }, 4.5, 4.2 });
+    const auto s = fs::Generate (outline, fp::Default (), pins, o);
+    EXPECT_TRUE (s.ok) << Report (s);
+    EXPECT_EQ (Red (s), 0u) << Report (s);
+    ASSERT_EQ (s.cores.size (), 1u);
+    EXPECT_NEAR (s.cores[0].centre.x, 4.0, 1e-6);
+    EXPECT_LT (fs::edit::FlatAt (s, s.cores[0].centre), 0) << "no flat over the stair";
+}

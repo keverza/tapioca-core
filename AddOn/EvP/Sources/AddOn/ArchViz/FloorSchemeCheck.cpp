@@ -140,8 +140,13 @@ size_t Check (Scheme& s, const Options& o)
             if (Touch (core.shape, c.shape) > 0.5)
                 beside = (std::max) (beside, FacadeOf (outline, c.shape, &blind));
         for (const auto& l : s.lobbies)
-            if (Touch (core.shape, l) > 0.5)
+            if (Touch (core.shape, l) > 0.5) {
                 beside = (std::max) (beside, FacadeOf (outline, l, &blind));
+                // Its landing opens onto a corridor along the facade: lit through it.
+                for (const auto& c : s.corridors)
+                    if (Touch (l, c.shape) > 0.5)
+                        beside = (std::max) (beside, FacadeOf (outline, c.shape, &blind));
+            }
         if (beside < o.stairWindow - 0.05)
             fail ("stair.no_facade", "A stair has no window, nor does the corridor beside it.", core.centre);
     }
