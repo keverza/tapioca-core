@@ -55,8 +55,10 @@ void detail::Outliner (Session& s)
         hudshell::HoverTip (s.outlinerCollapsed ? "Show the Outliner" : "Collapse the Outliner to this line");
     ImGui::SameLine ();
     ImGui::AlignTextToFramePadding ();
-    ImGui::Text ("%zu objects   %zu paths   %zu selected", doc.entities.size (), doc.paths.size (),
-                 s.selection.Items ().size ());
+    // Every row the Objects view lists, paths among them, and how many of those are paths.
+    const size_t objects = doc.entities.size () + doc.paths.size ();
+    ImGui::Text ("%zu object%s (%zu path%s)   %zu selected", objects, objects == 1 ? "" : "s", doc.paths.size (),
+                 doc.paths.size () == 1 ? "" : "s", s.selection.Items ().size ());
     if (s.outlinerCollapsed) {
         ImGui::PopID ();
         return;

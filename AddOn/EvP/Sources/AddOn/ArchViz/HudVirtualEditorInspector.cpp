@@ -231,7 +231,11 @@ void SelectionCounts (Session& s)
             paths.insert (ref.entity);
         else if (const auto* entity = edit::Find (doc, ref.entity))
             (entity->ellipse ? other : lines).insert (ref.entity);
-    ImGui::Text ("%zu paths   %zu lines   %zu other", paths.size (), lines.size (), other.size ());
+    const auto count = [] (size_t n, const char* one, const char* many) {
+        return std::to_string (n) + " " + (n == 1 ? one : many);
+    };
+    ImGui::Text ("%s   %s   %zu other", count (paths.size (), "path", "paths").c_str (),
+                 count (lines.size (), "line", "lines").c_str (), other.size ());
 }
 
 const char* ToolName (Tool tool)
@@ -240,6 +244,27 @@ const char* ToolName (Tool tool)
                                          "Polygon", "Ellipse",  "Mirror", "Trim" };
     const auto i = size_t (tool);
     return i < std::size (names) ? names[i] : "";
+}
+
+// What the running command is called, as its toolbar entry names it.
+const char* CommandTitle (const Session& s)
+{
+    if (s.landscapeCommand)
+        switch (s.landscapeCommand->kind) {
+            case lg::OperationKind::Union:
+                return "Union";
+            case lg::OperationKind::Difference:
+                return "Subtract";
+            case lg::OperationKind::Intersection:
+                return "Intersection";
+            default:
+                return "Boolean";
+        }
+    if (s.booleanDraft)
+        return "Boolean";
+    if (s.rectangularArray)
+        return "Rectangular array";
+    return ToolName (s.tool);
 }
 
 std::string Title (const Session& s, InspectorContext context)
@@ -251,6 +276,8 @@ std::string Title (const Session& s, InspectorContext context)
         title += " " + std::to_string (items.front ().entity);
     else if (context == InspectorContext::DrawTool && s.tool != Tool::Select)
         title += ": " + std::string (ToolName (s.tool));
+    else if (context == InspectorContext::Command)
+        title += ": " + std::string (CommandTitle (s));
     return title;
 }
 } // namespace
@@ -280,9 +307,17 @@ void detail::Inspector (Session& s)
                 ImGui::Checkbox ("Keep original", &s.mirrorKeeps);
                 ImGui::EndDisabled ();
             }
+            // The whole prompt, which the command bar's row may cut short, and what is picked so far.
+            if (s.landscapeCommand) {
+                ImGui::TextWrapped ("%s", LandscapeCommandPrompt (s));
+                ImGui::TextDisabled ("%zu picked. Enter applies, Esc cancels.", s.landscapeCommand->picks.size ());
+            }
+            // Only the draft that runs: an array's starter button is the selection's (More), not here.
             ImGui::BeginDisabled (s.drag != Drag::None || s.profileTyping);
-            RectangularArrayControls (s);
-            BooleanControls (s);
+            if (s.rectangularArray)
+                RectangularArrayControls (s);
+            if (s.booleanDraft)
+                BooleanControls (s);
             ImGui::EndDisabled ();
             TrackerValues (s);
             return;
