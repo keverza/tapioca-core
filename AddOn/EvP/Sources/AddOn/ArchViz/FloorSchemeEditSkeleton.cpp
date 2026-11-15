@@ -27,7 +27,8 @@ int PinOf (const Scheme& s, Design& d, int wing)
     const bool adopted = d.pins.wings.empty ();
     d = AdoptSkeleton (s, std::move (d));
     // Adopted just now: the pins are the scheme's wings in order. Else by the name it carries.
-    const uint32_t id = adopted ? static_cast<uint32_t> (wing) + 1 : s.wings[wing].id;
+    // A scheme planned before the adoption still shows the generator's wings: they were named in order.
+    const uint32_t id = adopted || !s.authored ? static_cast<uint32_t> (wing) + 1 : s.wings[wing].id;
     for (size_t i = 0; i < d.pins.wings.size (); ++i)
         if (d.pins.wings[i].id == id)
             return static_cast<int> (i);
@@ -148,6 +149,21 @@ Design ResizeWing (const Scheme& s, Design d, int wing, Vec grip, double by, std
     }
     if (side < 2 && Dot ({ pin.b.x - pin.a.x, pin.b.y - pin.a.y }, u) < 0.1)
         return Refuse (before, why, "A wing cannot be made shorter than nothing.");
+    if (const auto fault = Fault (s, d, static_cast<size_t> (at), o); !fault.empty ())
+        return Refuse (before, why, "%s", fault.c_str ());
+    return d;
+}
+Design SetWing (const Scheme& s, Design d, int wing, Vec a, Vec b, double depth, std::string* why, const Options& o)
+{
+    const Design before = d;
+    const int at = PinOf (s, d, wing);
+    if (at < 0)
+        return Refuse (before, why, "There is no wing there.");
+    auto& pin = d.pins.wings[at];
+    // The same way round: an end is not dragged through the other.
+    if (Dot ({ b.x - a.x, b.y - a.y }, Unit ({ pin.b.x - pin.a.x, pin.b.y - pin.a.y })) < 0.1 || depth < 0.1)
+        return Refuse (before, why, "A wing cannot be made smaller than nothing.");
+    pin.a = a, pin.b = b, pin.depth = depth;
     if (const auto fault = Fault (s, d, static_cast<size_t> (at), o); !fault.empty ())
         return Refuse (before, why, "%s", fault.c_str ());
     return d;

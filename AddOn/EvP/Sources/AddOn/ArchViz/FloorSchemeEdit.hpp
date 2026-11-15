@@ -154,6 +154,10 @@ Design MoveWing (const Scheme& s, Design d, int wing, Vec by, std::string* why =
 // negative): its length or its depth. The pins inside it stay where they are.
 Design ResizeWing (const Scheme& s, Design d, int wing, Vec grip, double by, std::string* why = nullptr,
                    const Options& o = {});
+// The wing made the rectangle with the centre line a-b, `depth` across it, turned as it was. The
+// pins inside it stay where they are.
+Design SetWing (const Scheme& s, Design d, int wing, Vec a, Vec b, double depth, std::string* why = nullptr,
+                const Options& o = {});
 // A wing with the centre line a-b, `depth` across it, added after the others.
 Design AddWing (const Scheme& s, Design d, Vec a, Vec b, double depth, std::string* why = nullptr,
                 const Options& o = {});
