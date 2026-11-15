@@ -40,9 +40,22 @@ ImU64 ImFileWrite (const void* data, ImU64 size, ImU64 count, ImFileHandle file)
 #include <vector>
 
 namespace {
+float g_captureHeight = 0.0f;
 bool g_expandAll = false;
 std::vector<std::pair<ImGuiStorage*, ImGuiID>> g_expanded;
 } // namespace
+
+// The preview height a screenshot draws at, logical px; 0 outside one. Read by the UI module
+// (Workspace.cpp), so the capture changes no state and rebuilds no session.
+void PlaygroundSetCaptureHeight (float height)
+{
+    g_captureHeight = height;
+}
+
+float PlaygroundCaptureHeight ()
+{
+    return g_captureHeight;
+}
 
 void PlaygroundExpandAll (bool on)
 {

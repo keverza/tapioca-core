@@ -30,6 +30,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler (HWND, UINT, WPARAM
 // ImGuiFiles.cpp, in the shared ImGui: every section open while on, closed again when turned off.
 void PlaygroundExpandAll (bool on);
 size_t PlaygroundExpandedCount ();
+void PlaygroundSetCaptureHeight (float height);
 
 namespace tapioca::playground {
 namespace fs = std::filesystem;
@@ -301,21 +302,16 @@ fs::path Screenshot (Graphics& graphics, Diligent::ITexture* backBuffer, uint32_
     return file;
 }
 
-// The panel whole: the state again with the preview at its tallest, drawn into a tall offscreen
-// target with every section open (PlaygroundExpandAll) until no frame opens another -- a section
-// opened shows the ones inside it on the next -- and the panel has laid itself out. Then each
-// section is closed again and the live state put back. Returns the file written.
-fs::path FullScreenshot (Graphics& graphics, Module& module, const fs::path& uiDll, const std::string& state,
-                         uint32_t width, float dpi)
+// The panel whole: the live session drawn with the preview at its tallest (PlaygroundSetCaptureHeight)
+// into a tall offscreen target, with every section open (PlaygroundExpandAll) until no frame opens
+// another -- a section opened shows the ones inside it on the next -- and the panel has laid itself
+// out. Then each section is closed again and the height put back. Nothing is swapped, so what the
+// session holds and its state file does not -- a close prompt, a running command -- is captured too.
+// What these frames return as state is dropped. Returns the file written.
+fs::path FullScreenshot (Graphics& graphics, Module& module, uint32_t width, float dpi)
 {
-    auto parsed = json::Parse (state);
-    if (!parsed.ok)
-        throw std::runtime_error ("Screenshot: the state could not be read.");
-    constexpr double kTallest = 2400.0; // Workspace's preview height limit, logical px
-    Put (parsed.value, "previewHeight", Value::Double (kTallest));
-    std::string error;
-    if (!module.Swap (uiDll, json::Write (parsed.value, 0), error))
-        throw std::runtime_error ("Screenshot: " + error);
+    constexpr float kTallest = 2400.0f; // Workspace's preview height limit, logical px
+    PlaygroundSetCaptureHeight (kTallest);
     const auto height = uint32_t (kTallest * dpi + 400.0f * dpi);
     Diligent::TextureDesc desc;
     desc.Name = "Playground full screenshot";
@@ -366,8 +362,7 @@ fs::path FullScreenshot (Graphics& graphics, Module& module, const fs::path& uiD
         }
     }
     PlaygroundExpandAll (false);
-    if (!module.Swap (uiDll, state, error))
-        throw std::runtime_error ("Screenshot: the live state could not be restored: " + error);
+    PlaygroundSetCaptureHeight (0.0f);
     if (!failure.empty ())
         throw std::runtime_error (failure);
     return file;
@@ -512,8 +507,8 @@ int Run ()
         if (g_screenshotRequested || (screenshotFrame > 0 && frames + 1 == screenshotFrame)) {
             g_screenshotRequested = false;
             try {
-                const auto file = FullScreenshot (graphics, module, uiDll, state, width,
-                                                  float (GetDpiForWindow (window.handle)) / 96);
+                const auto file =
+                    FullScreenshot (graphics, module, width, float (GetDpiForWindow (window.handle)) / 96);
                 reloadStatus = "Screenshot saved: " + file.string () + "\n";
             }
             catch (const std::exception& failure) {

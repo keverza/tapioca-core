@@ -10,6 +10,9 @@
 #include <cstring>
 #include <climits>
 
+// ImGuiFiles.cpp, in the shared ImGui: the preview height a screenshot is taken at, or 0.
+float PlaygroundCaptureHeight ();
+
 namespace tapioca::playground {
 namespace {
 void GalleryState (Workspace& w, bool write)
@@ -344,6 +347,10 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
     bool nativeMode = Flag (w.document, "nativeMode", true);
     float width = float (std::clamp (Number (w.document, "previewWidth", 320), 160.0, 2400.0));
     float height = float (std::clamp (Number (w.document, "previewHeight", 740), 120.0, 2400.0));
+    // A screenshot draws the preview at its tallest for its frames only; the stored height stays.
+    const float storedHeight = height;
+    if (PlaygroundCaptureHeight () > 0.0f)
+        height = PlaygroundCaptureHeight ();
     const float scale =
         (dpi > 0 ? dpi : frame.dpiScale) * (selected == -1 ? 1.0f : av::ui::tokens::kDensitySteps[density]);
     av::hudshell::BaseStyle (scale);
@@ -536,7 +543,7 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
     Put (w.document, "compact", Value::Bool (compact));
     Put (w.document, "nativeMode", Value::Bool (nativeMode));
     Put (w.document, "previewWidth", Value::Double (width));
-    Put (w.document, "previewHeight", Value::Double (height));
+    Put (w.document, "previewHeight", Value::Double (PlaygroundCaptureHeight () > 0.0f ? storedHeight : height));
     Put (w.document, "demo", Value::Bool (w.demo));
     Put (w.document, "styleEditor", Value::Bool (w.styleEditor));
     Put (w.document, "search", Value::String (w.search));
