@@ -91,7 +91,7 @@ def test_controller_has_no_overlay_dependency_and_checks_capture_before_publicat
     assert "Overlay3D" not in SOURCE and "ArchViz/Dxgi/" not in SOURCE
     controller = (ROOT / "Geometry/SurfaceTakeoffController.cpp").read_text(encoding="utf-8")
     assert "ticket->generation == generation_" in controller
-    assert "Current (ticket->request.snapshot)" in controller
+    assert "IsCurrentCapture (ticket->request.snapshot, ticket->request.viewerScene)" in controller
     assert "lastGood_" in controller and "ControllerState::Stale" in controller
     assert "ticket->cancelled.load ()" in controller
 

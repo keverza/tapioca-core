@@ -1,6 +1,9 @@
 // OVERLAY-INVARIANTS.md: shared prepared arrays/pipelines only, not camera
 // discovery or injection state. This runs exclusively on the viewer render thread.
+#include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/ViewerEditorDraw.hpp"
+#include "ArchViz/ArchVizLog.hpp"
+#include "Geometry/SurfaceTakeoffController.hpp"
 #include "ArchViz/Dxgi/CameraShaderSource.hpp"
 #include "ArchViz/Dxgi/GuestShaderSources.hpp"
 #include <cstring>
@@ -76,9 +79,28 @@ bool Matrix (Diligent::IDeviceContext* context, Diligent::IBuffer* buffer, const
 }
 } // namespace
 
+size_t ViewerEditorDraw::ConsumeScene (DiligentScene& scene, Diligent::IRenderDevice* device,
+                                       Diligent::IDeviceContext* context)
+{
+    const size_t consumed = scene.Consume (device, 32, context);
+    if (consumed && standalone_) {
+        capture_ = scene.CommittedCapture ();
+        MeshStore::Get ().PublishViewerCapture (capture_);
+    }
+    return consumed;
+}
+
+void ViewerEditorDraw::Release ()
+{
+    if (standalone_)
+        MeshStore::Get ().PublishViewerCapture (nullptr);
+    capture_.reset ();
+    Clear ();
+}
+
 void ViewerEditorDraw::Update (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                                Diligent::ITextureView* target, Diligent::ITextureView* depth, const float* view,
-                               const float* projection, uint32_t width, uint32_t height)
+                               const float* projection, uint32_t width, uint32_t height, bool showSurfaceHighlight)
 {
     if (!vieweredit::Running ()) {
         Clear ();
@@ -95,7 +117,23 @@ void ViewerEditorDraw::Update (Diligent::IRenderDevice* device, Diligent::IDevic
     frame.width = width;
     frame.height = height;
     vieweredit::PublishFrame (frame);
-    if (!vieweredit::Active ())
+    const bool editorActive = vieweredit::Active ();
+    auto highlight = vieweredit::ReadSurfaceHighlight ();
+    if (showSurfaceHighlight && highlight && capture_ == highlight->capture &&
+        MeshStore::Get ().IsCurrentCapture (capture_, true)) {
+        const auto result = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().TryPoll ();
+        if (!result || result->state != geomsrv::surfacetakeoff::ControllerState::Current ||
+            result->generation != highlight->summary.generation)
+            highlight.reset ();
+    }
+    else
+        highlight.reset ();
+    if (!highlight && (!uploadedSurface_ || !MeshStore::Get ().IsCurrentCapture (uploadedSurface_->capture, true))) {
+        uploadedSurface_.reset ();
+        surface_ = {};
+        surfacePages_.clear ();
+    }
+    if (!editorActive && !highlight)
         return;
     const auto stored = StoredEncodingView (target);
     Diligent::ITextureView* bound = stored ? stored.RawPtr () : target;
@@ -105,8 +143,9 @@ void ViewerEditorDraw::Update (Diligent::IRenderDevice* device, Diligent::IDevic
     viewport.Height = float (height);
     context->SetViewports (1, &viewport, width, height);
     std::string error;
-    const bool drawn = Draw (device, context, bound->GetDesc ().Format,
-                             depth ? depth->GetDesc ().Format : Diligent::TEX_FORMAT_UNKNOWN, frame, error);
+    const bool drawn =
+        Draw (device, context, bound->GetDesc ().Format,
+              depth ? depth->GetDesc ().Format : Diligent::TEX_FORMAT_UNKNOWN, frame, editorActive, highlight, error);
     // The viewer's own layers follow on its _SRGB view, and the context must not
     // keep the per-frame view alive into Present or a resize.
     context->SetRenderTargets (1, &target, depth, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
@@ -116,7 +155,8 @@ void ViewerEditorDraw::Update (Diligent::IRenderDevice* device, Diligent::IDevic
 
 bool ViewerEditorDraw::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                              Diligent::TEXTURE_FORMAT colour, Diligent::TEXTURE_FORMAT depth,
-                             const vieweredit::Frame& frame, std::string& error)
+                             const vieweredit::Frame& frame, bool editorActive,
+                             const std::shared_ptr<const vieweredit::SurfaceHighlight>& highlight, std::string& error)
 {
     if (!pipelines_.ready) {
         const auto body = dxgi::guestshaders::SceneBody ();
@@ -146,24 +186,43 @@ bool ViewerEditorDraw::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceC
             return false;
         ready_ = true;
     }
-    if (!ready_)
+    const bool uploadHighlight = highlight && highlight != uploadedSurface_;
+    if (uploadHighlight && !Upload (device, pipelines_, highlight->scene, surfacePages_, surface_, error))
+        return false;
+    if (!ready_ && !highlight)
         return true;
     if (!Matrix (context, view_, frame.view) || !Matrix (context, projection_, frame.projection)) {
         error = "Viewer editor camera upload failed";
         return false;
     }
-    gpu::BindCamera (pipelines_, pages_, view_, projection_);
-    gpu::BindCamera (pipelines_, hudPages_, view_, projection_);
     const float constants[] = { float (frame.width), float (frame.height), scale_, 0.00001f };
     gpu::DrawStats stats;
-    gpu::Draw (context, pipelines_, pages_, scene_, constants, true, scale_, stats, {}, true);
-    gpu::Draw (context, pipelines_, pages_, scene_, constants, true, scale_, stats);
-    gpu::Draw (context, pipelines_, hudPages_, hud_, constants, true, scale_, stats);
+    if (highlight) {
+        gpu::BindCamera (pipelines_, surfacePages_, view_, projection_);
+        gpu::Draw (context, pipelines_, surfacePages_, surface_, constants, depth != Diligent::TEX_FORMAT_UNKNOWN,
+                   scale_, stats);
+        if (uploadHighlight && !stats.mapFailures) {
+            uploadedSurface_ = highlight;
+            const auto& summary = highlight->summary;
+            ArchVizLog ("SURFACE HIGHLIGHT host=viewer snapshot=" + std::to_string (highlight->capture->id) +
+                        " generation=" + std::to_string (summary.generation) +
+                        " material=" + std::to_string (summary.material.value_or (0)) + " triangles=" +
+                        std::to_string (summary.triangles) + " areaM2=" + std::to_string (summary.areaM2) +
+                        " drawCalls=" + std::to_string (stats.drawCalls));
+        }
+    }
+    if (editorActive && ready_) {
+        gpu::BindCamera (pipelines_, pages_, view_, projection_);
+        gpu::BindCamera (pipelines_, hudPages_, view_, projection_);
+        gpu::Draw (context, pipelines_, pages_, scene_, constants, true, scale_, stats, {}, true);
+        gpu::Draw (context, pipelines_, pages_, scene_, constants, true, scale_, stats);
+        gpu::Draw (context, pipelines_, hudPages_, hud_, constants, true, scale_, stats);
+        vieweredit::Drawn (generation_);
+    }
     if (stats.mapFailures) {
         error = "Viewer editor draw constants upload failed";
         return false;
     }
-    vieweredit::Drawn (generation_);
     return true;
 }
 
@@ -172,6 +231,9 @@ void ViewerEditorDraw::Clear ()
     pipelines_ = {};
     scene_ = {};
     hud_ = {};
+    surface_ = {};
+    surfacePages_.clear ();
+    uploadedSurface_.reset ();
     pages_.clear ();
     hudPages_.clear ();
     view_.Release ();

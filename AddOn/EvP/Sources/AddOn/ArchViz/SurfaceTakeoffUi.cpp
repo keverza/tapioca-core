@@ -89,23 +89,36 @@ std::map<int32_t, double> UiAreas (const Presentation& presentation, const UiSta
             areas[presentation.meshSurfaces[i]] += presentation.meshAreas[i];
     return areas;
 }
-layers::Layer UiLayer (const Presentation& presentation, const UiState& state)
+layers::Layer HighlightLayer (const Presentation& presentation, const UiState& state, HighlightSummary& summary,
+                              std::string& outlineError)
 {
-    auto layer = presentation.layer;
-    layer.meshes.clear ();
-    layer.polylines.clear ();
-    layer.panels.clear ();
+    layers::Layer layer;
+    layer.name = presentation.layer.name;
+    layer.views = presentation.layer.views;
+    layer.occlusion = presentation.layer.occlusion;
+    summary.material = state.focus;
+    summary.triangles = 0;
+    summary.areaM2 = 0;
     std::vector<size_t> shown;
     for (size_t i = 0; i < presentation.meshSurfaces.size (); ++i) {
         const int32_t surface = presentation.meshSurfaces[i];
         if (Included (presentation.meshFacings[i], state) && MatchesCriteria (presentation, state, i) &&
             (!state.focus || state.focus == surface)) {
-            layer.meshes.push_back (presentation.layer.meshes[i]);
+            auto& mesh = layer.meshes.emplace_back (presentation.layer.meshes[i]);
+            summary.triangles += mesh.indices.size () / 3;
+            summary.areaM2 += presentation.meshAreas[i];
             shown.push_back (i);
         }
     }
-    std::string outlineError;
     BoundaryLines (presentation, shown, layer.polylines, outlineError);
+    return layer;
+}
+
+layers::Layer UiLayer (const Presentation& presentation, const UiState& state, HighlightSummary* summary)
+{
+    HighlightSummary ignored;
+    std::string outlineError;
+    auto layer = HighlightLayer (presentation, state, summary ? *summary : ignored, outlineError);
     layers::Panel panel;
     panel.title = "Exposed surfaces";
     panel.widthPixels = panel.pageWidthPixels = 1000;

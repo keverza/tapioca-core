@@ -310,6 +310,7 @@ struct Displays {
 struct OwnPages {
     bool standalone = false;
     bool viewerSurface = false; // same editor HUD, hosted by the separate viewer
+    surfacetakeoff::HighlightSummary exposedSurfaceHighlight;
     std::vector<hudshell::Card> stats;
     std::shared_ptr<const massingslices::Result> massingStats;
     hudshell::SelectionPage selection;

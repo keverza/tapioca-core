@@ -14,6 +14,7 @@
 #include "ArchViz/VirtualEditorMaterialPicker.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
+#include "ArchViz/SurfaceTakeoffLayer.hpp"
 #include "Geometry/SurfaceTakeoffController.hpp"
 #include "AddOnCommands.hpp"
 #include "Python/MainThreadGate.hpp"
@@ -42,6 +43,58 @@ uint64_t s_hudHash = 0;
 bool s_refreshing = false;
 std::optional<surfacetakeoff::PageAction> s_surfaceAction;
 std::string s_surfaceError;
+std::atomic<std::shared_ptr<const SurfaceHighlight>> s_surfaceHighlight;
+surfacetakeoff::Presentation s_surfacePresentation;
+uint64_t s_preparedGeneration = 0;
+
+void RefreshSurfaceHighlight (const std::optional<surfacetakeoff::PageAction>& action)
+{
+    const auto view = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().TryPoll ();
+    if (!view)
+        return;
+    if (view->state != geomsrv::surfacetakeoff::ControllerState::Current || !view->lastGood ||
+        !view->lastGood->viewerScene || view->lastGood->generation != view->generation) {
+        s_surfaceHighlight.store (nullptr);
+        s_surfacePresentation = {};
+        s_preparedGeneration = 0;
+        return;
+    }
+    const auto& accepted = *view->lastGood;
+    const auto old = s_surfaceHighlight.load ();
+    const bool isolate = action && action->kind == surfacetakeoff::PageAction::Kind::Isolate &&
+                         action->generation == accepted.generation && old &&
+                         old->summary.generation == accepted.generation;
+    if (s_preparedGeneration == accepted.generation && !isolate)
+        return;
+    std::string error;
+    const auto result = std::static_pointer_cast<const geomsrv::surfacetakeoff::Result> (accepted.payload);
+    if (s_preparedGeneration != accepted.generation) {
+        s_preparedGeneration = accepted.generation;
+        s_surfaceHighlight.store (nullptr);
+        s_surfacePresentation = {};
+        if (!surfacetakeoff::BuildFromResult (*accepted.snapshot, *result, s_surfacePresentation, error)) {
+            std::lock_guard<std::mutex> lock (s_mutex);
+            s_surfaceError = std::move (error);
+            return;
+        }
+    }
+    auto ui = surfacetakeoff::InitialUi (s_surfacePresentation, "");
+    if (isolate)
+        ui.focus = action->material;
+    auto highlight = std::make_shared<SurfaceHighlight> ();
+    highlight->capture = accepted.snapshot;
+    highlight->summary.generation = accepted.generation;
+    auto layer = std::make_shared<const overlaylayers::Layer> (
+        surfacetakeoff::HighlightLayer (s_surfacePresentation, ui, highlight->summary, error));
+    highlight->scene = overlayscene::PrepareScene ({ layer }, nullptr);
+    if (highlight->scene.fills.size () / 3 != highlight->summary.triangles) {
+        std::lock_guard<std::mutex> lock (s_mutex);
+        s_surfaceError = "Viewer highlight triangles differ from the validated result.";
+        return;
+    }
+    if (MeshStore::Get ().IsCurrentCapture (highlight->capture, true))
+        s_surfaceHighlight.store (std::move (highlight));
+}
 
 void ReportSurfaceError (uint64_t generation, const GS::UniString& error)
 {
@@ -57,7 +110,8 @@ void FollowSurfaceTakeoff ()
         std::lock_guard<std::mutex> lock (s_mutex);
         action = std::exchange (s_surfaceAction, std::nullopt);
     }
-    if (!action)
+    RefreshSurfaceHighlight (action);
+    if (!action || action->kind == surfacetakeoff::PageAction::Kind::Isolate)
         return;
     const auto generation = Generation ();
     GS::UniString error;
@@ -76,7 +130,16 @@ void FollowSurfaceTakeoff ()
                     ReportSurfaceError (generation, "The calculation changed. Try again.");
                     return;
                 }
+                auto& store = MeshStore::Get ();
+                const auto capture = store.ViewerCapture ();
+                if (!store.IsCurrentCapture (capture, true)) {
+                    ReportSurfaceError (generation,
+                                        "Wait for the viewer model to finish loading or refresh the model.");
+                    return;
+                }
                 GS::ObjectState params;
+                params.Add ("sceneSnapshotId", GS::Int64 (capture->id));
+                params.Add ("sceneCaptureStamp", GS::Int64 (capture->captureStamp));
                 params.Add ("regionMode", GS::UniString (surfacetakeoff::RegionMode (action.scope)));
                 const auto started = ExecuteNativeCommand ("StartCapturedExposedSurfaceTakeoff", params);
                 if (!started.ok)
@@ -171,6 +234,8 @@ bool Refresh ()
     overlayhud::OwnPages own;
     own.standalone = true;
     own.viewerSurface = true;
+    if (const auto highlight = ReadSurfaceHighlight ())
+        own.exposedSurfaceHighlight = highlight->summary;
     own.overlay.tip = "Switch back to the Archicad overlay; keep this editor";
     own.viewer.active = true;
     own.viewer.phase = hudshell::Phase::Ready;
@@ -299,6 +364,10 @@ bool TakeAnalysisRequest (hudshell::DockPlacement& dock, uint32_t& fontStep)
     fontStep = s_fontStep;
     return true;
 }
+std::shared_ptr<const SurfaceHighlight> ReadSurfaceHighlight ()
+{
+    return s_surfaceHighlight.load ();
+}
 void RequestSurfaceTakeoff (surfacetakeoff::PageAction action)
 {
     std::lock_guard<std::mutex> lock (s_mutex);
@@ -381,6 +450,9 @@ void Stop (bool preserve)
     s_dock = {};
     s_placementRequested = false;
     s_pending.reset ();
+    s_surfaceHighlight.store (nullptr);
+    s_surfacePresentation = {};
+    s_preparedGeneration = 0;
     s_surfaceAction.reset ();
     s_surfaceError.clear ();
 }

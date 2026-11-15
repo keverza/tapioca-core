@@ -311,6 +311,28 @@ TEST_F (ControllerFixture, SuccessWithoutPayloadRefusesAndPreservesLastGood)
     EXPECT_NE (stale.lastGood->generation, stale.generation);
 }
 
+TEST_F (ControllerFixture, ViewerResultTracksItsCommittedSceneIndependentlyOfQueryCaptures)
+{
+    auto& store = MeshStore::Get ();
+    const auto query = Capture (19, 7);
+    auto scene = std::make_shared<Snapshot> (*query);
+    scene->id = 20;
+    store.PublishViewerCapture (scene);
+    const auto run = [] (const std::atomic<bool>&) { return Success (); };
+    EXPECT_EQ (controller.Submit ({ query, run, true }, error), 0u);
+    ASSERT_TRUE (controller.Submit ({ scene, run, true }, error));
+    const auto result = Wait (controller, ControllerState::Current);
+    ASSERT_TRUE (result.lastGood);
+    EXPECT_EQ (result.lastGood->snapshot, scene);
+    EXPECT_TRUE (result.lastGood->viewerScene);
+    Capture (21, 7);
+    EXPECT_EQ (controller.Poll ().state, ControllerState::Current);
+    auto replacement = std::make_shared<Snapshot> (*scene);
+    replacement->id = 22;
+    store.PublishViewerCapture (replacement);
+    EXPECT_EQ (controller.Poll ().state, ControllerState::Stale);
+}
+
 TEST_F (ControllerFixture, SupersededCompletionCannotPublishOverReplacement)
 {
     const auto snapshot = Capture (19, 7);

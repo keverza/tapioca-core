@@ -1,6 +1,8 @@
 // Bound by OVERLAY-INVARIANTS.md §§5,8,12: no renderer/camera modifications.
 #include "SurfaceTakeoffOverlay.hpp"
 #include "ArchViz/OverlayController.hpp"
+#include "ArchViz/ArchVizLog.hpp"
+#include "Geometry/SurfaceTakeoffController.hpp"
 #include "ArchViz/OverlayHudEvents.hpp"
 #include "Geometry/MeshStore.hpp"
 #include <windows.h>
@@ -14,12 +16,22 @@ uint64_t s_snapshotId = 0, s_captureStamp = 0;
 std::atomic<uint64_t> s_request { 0 };
 std::shared_ptr<const Presentation> s_presentation;
 UiState s_ui;
+HighlightSummary s_highlight;
 uint64_t s_eventSeq = 0;
 bool Current (uint64_t id, uint64_t stamp)
 {
     const auto snapshot = MeshStore::Get ().Current ();
     return snapshot && snapshot->id == id && snapshot->captureStamp == stamp &&
            MeshStore::Get ().CaptureStamp () == stamp;
+}
+void PublishHighlight ()
+{
+    overlaylayers::Set (UiLayer (*s_presentation, s_ui, &s_highlight));
+    overlaycontrol::PublishLayers ();
+    ArchVizLog ("SURFACE HIGHLIGHT host=overlay snapshot=" + std::to_string (s_snapshotId) +
+                " generation=" + std::to_string (s_highlight.generation) +
+                " material=" + std::to_string (s_highlight.material.value_or (0)) + " triangles=" +
+                std::to_string (s_highlight.triangles) + " areaM2=" + std::to_string (s_highlight.areaM2));
 }
 void CALLBACK Tick (HWND, UINT, UINT_PTR timer, DWORD)
 {
@@ -43,10 +55,8 @@ void CALLBACK Tick (HWND, UINT, UINT_PTR timer, DWORD)
                     continue;
                 changed |= ApplyUiChange (*s_presentation, s_ui, event.kind, event.id, event.value, event.text);
             }
-        if (changed) {
-            overlaylayers::Set (UiLayer (*s_presentation, s_ui));
-            overlaycontrol::PublishLayers ();
-        }
+        if (changed)
+            PublishHighlight ();
         return;
     }
     // An old capture expiring must not revoke a newer worker request that has
@@ -56,6 +66,7 @@ void CALLBACK Tick (HWND, UINT, UINT_PTR timer, DWORD)
     s_snapshotId = s_captureStamp = 0;
     s_presentation.reset ();
     s_ui = {};
+    s_highlight = {};
     overlaylayers::Clear (kLayer);
     overlaylayers::Layer stale;
     stale.name = kLayer;
@@ -76,7 +87,8 @@ uint64_t BeginRequest ()
 {
     return ++s_request;
 }
-bool Publish (const Presentation& presentation, uint64_t id, uint64_t stamp, uint64_t request, std::string& error)
+bool Publish (const Presentation& presentation, uint64_t id, uint64_t stamp, uint64_t request, std::string& error,
+              uint64_t generation)
 {
     if (request != s_request.load ()) {
         error = "Surface request superseded before publication.";
@@ -102,9 +114,24 @@ bool Publish (const Presentation& presentation, uint64_t id, uint64_t stamp, uin
     s_presentation = std::make_shared<const Presentation> (presentation);
     s_ui = InitialUi (presentation, std::to_string (request));
     s_eventSeq = overlayhudevents::LastSeq ();
-    overlaylayers::Set (UiLayer (presentation, s_ui));
-    overlaycontrol::PublishLayers ();
+    s_highlight.generation = generation;
+    PublishHighlight ();
     return true;
+}
+HighlightSummary ReadHighlight ()
+{
+    return Current (s_snapshotId, s_captureStamp) ? s_highlight : HighlightSummary {};
+}
+void Isolate (uint64_t generation, std::optional<int32_t> material)
+{
+    if (!s_presentation || !generation || generation != s_highlight.generation ||
+        !Current (s_snapshotId, s_captureStamp))
+        return;
+    const auto view = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().TryPoll ();
+    if (!view || view->generation != generation || view->state != geomsrv::surfacetakeoff::ControllerState::Current)
+        return;
+    s_ui.focus = material;
+    PublishHighlight ();
 }
 void OnProjectClosed ()
 {
@@ -115,6 +142,7 @@ void OnProjectClosed ()
     s_snapshotId = s_captureStamp = 0;
     s_presentation.reset ();
     s_ui = {};
+    s_highlight = {};
     s_eventSeq = 0;
     overlaylayers::Clear (kLayer);
 }

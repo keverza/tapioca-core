@@ -42,6 +42,20 @@ class MeshStore {
         std::lock_guard<std::mutex> lock (mtx);
         return shared;
     }
+    // The standalone render thread publishes after consuming the complete GPU batch.
+    void PublishViewerCapture (std::shared_ptr<const Snapshot> snapshot)
+    {
+        viewerCapture.store (std::move (snapshot));
+    }
+    std::shared_ptr<const Snapshot> ViewerCapture () const
+    {
+        return viewerCapture.load ();
+    }
+    bool IsCurrentCapture (const std::shared_ptr<const Snapshot>& snapshot, bool viewerScene = false) const
+    {
+        return snapshot && snapshot->id && snapshot->captureStamp &&
+               (viewerScene ? ViewerCapture () : Current ()) == snapshot && CaptureStamp () == snapshot->captureStamp;
+    }
     uint64_t NextId ()
     {
         std::lock_guard<std::mutex> lock (mtx);
@@ -107,6 +121,7 @@ class MeshStore {
         std::lock_guard<std::mutex> lock (mtx);
         current.reset ();
         shared.reset ();
+        viewerCapture.store (nullptr);
         ++captureStamp;
     }
 
@@ -122,6 +137,7 @@ class MeshStore {
     mutable std::mutex mtx;
     std::shared_ptr<const Snapshot> current;
     std::shared_ptr<const Snapshot> shared;
+    std::atomic<std::shared_ptr<const Snapshot>> viewerCapture;
     uint64_t nextId = 1;
     std::atomic<uint64_t> captureStamp { 1 };
     std::atomic<bool> captureActive { false };

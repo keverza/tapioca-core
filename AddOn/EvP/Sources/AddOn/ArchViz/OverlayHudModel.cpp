@@ -7,6 +7,7 @@
 #include "ACAPinc.h"
 
 #include "ArchViz/OverlayHudModel.hpp"
+#include "ArchViz/SurfaceTakeoffOverlay.hpp"
 #include "ArchViz/HudDebugCounters.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
 
@@ -436,6 +437,8 @@ overlayhud::OwnPages Plan ()
 overlayhud::OwnPages Pages (overlayinput::View view)
 {
     overlayhud::OwnPages pages = view == overlayinput::View::ThreeD ? ThreeD () : Plan ();
+    if (view == overlayinput::View::ThreeD)
+        pages.exposedSurfaceHighlight = surfacetakeoff::ReadHighlight ();
     pages.selection = Selection ();
     pages.metadata = g_metadata;
     pages.massing = massingmodel::Read ();

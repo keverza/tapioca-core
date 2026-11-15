@@ -3,6 +3,7 @@
 
 // OVERLAY-INVARIANTS.md: a client of existing layers, never a camera/renderer.
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/SurfaceTakeoffPage.hpp"
 #include "Geometry/SurfaceAttributeMap.hpp"
 #include "Geometry/SurfaceCriteria.hpp"
 #include "Geometry/SurfaceTakeoffResult.hpp"
@@ -52,7 +53,10 @@ UiState InitialUi (const Presentation& presentation, const std::string& token);
 std::string UiId (const UiState& state, const char* action, int32_t surface = 0);
 bool ApplyUiChange (const Presentation& presentation, UiState& state, const std::string& kind, const std::string& id,
                     double value, const std::string& text = {});
-overlaylayers::Layer UiLayer (const Presentation& presentation, const UiState& state);
+overlaylayers::Layer HighlightLayer (const Presentation& presentation, const UiState& state, HighlightSummary& summary,
+                                     std::string& outlineError);
+overlaylayers::Layer UiLayer (const Presentation& presentation, const UiState& state,
+                              HighlightSummary* summary = nullptr);
 std::map<int32_t, double> UiAreas (const Presentation& presentation, const UiState& state);
 std::vector<std::string> CriterionValues (const Presentation& presentation, surfacecriteria::Field field);
 bool ApplyCriteriaChange (const Presentation& presentation, UiState& state, const std::string& kind,

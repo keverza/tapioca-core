@@ -288,6 +288,30 @@ TEST (ExteriorSurface, RedYellowOverlayAndPanelUseExactSelectedFragmentTriangles
         EXPECT_EQ (restored.layer.meshes[i].points, output.layer.meshes[i].points);
         EXPECT_EQ (restored.layer.meshes[i].indices, output.layer.meshes[i].indices);
     }
+    auto ui = presentation::InitialUi (restored, "fixture");
+    presentation::HighlightSummary highlighted;
+    const auto overlay = presentation::UiLayer (restored, ui, &highlighted);
+    EXPECT_EQ (highlighted.triangles, published.selectedTriangleCount);
+    EXPECT_NEAR (highlighted.areaM2, published.selectedAreaM2, 1e-6);
+    ui.focus = restored.meshSurfaces.front ();
+    std::string outlineError;
+    presentation::HighlightSummary isolated;
+    const auto viewer = presentation::HighlightLayer (restored, ui, isolated, outlineError);
+    const auto isolation = presentation::UiLayer (restored, ui, &highlighted);
+    EXPECT_EQ (viewer.meshes.size (), isolation.meshes.size ());
+    EXPECT_EQ (isolated.triangles, highlighted.triangles);
+    EXPECT_DOUBLE_EQ (isolated.areaM2, highlighted.areaM2);
+    size_t materialTriangles = 0;
+    double materialArea = 0;
+    for (const auto& mesh : published.meshes) {
+        if (mesh.surfaceAttributeIndex == ui.focus) {
+            materialTriangles += mesh.triangles.size () / 3;
+            materialArea += mesh.areaM2;
+        }
+    }
+    EXPECT_EQ (isolated.triangles, materialTriangles);
+    EXPECT_NEAR (isolated.areaM2, materialArea, 1e-6);
+    EXPECT_EQ (overlay.meshes.size (), published.meshes.size ());
     auto tampered = published;
     tampered.selectedAreaM2 = 999;
     EXPECT_FALSE (presentation::BuildFromResult (snapshot, tampered, restored, error));

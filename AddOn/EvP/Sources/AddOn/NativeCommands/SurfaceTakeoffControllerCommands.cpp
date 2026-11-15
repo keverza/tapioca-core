@@ -75,7 +75,9 @@ const char kSeededStartInput[] = R"json({
 })json";
 const char kCapturedStartInput[] = R"json({
  "type":"object","additionalProperties":false,
- "properties":{"regionMode":{"enum":["allWallFaces","allElementFaces"]}},"required":["regionMode"]
+ "properties":{"regionMode":{"enum":["allWallFaces","allElementFaces"]},
+               "sceneSnapshotId":{"type":"integer","minimum":1},"sceneCaptureStamp":{"type":"integer","minimum":1}},
+ "required":["regionMode"]
 })json";
 const char kStartOutput[] = R"json({
  "type":"object","additionalProperties":false,
@@ -174,34 +176,31 @@ class PrepareTakeoffCommand : public MainThreadCommand {
     }
 };
 
-bool CaptureCurrent (const std::shared_ptr<const Snapshot>& snapshot)
-{
-    auto& store = MeshStore::Get ();
-    return snapshot && store.Current () == snapshot && store.CaptureStamp () == snapshot->captureStamp;
-}
-
 bool RunEnded (uint64_t generation)
 {
     auto& run = evp::RunCancel::Get ();
     return generation != 0 && (!run.IsRunning () || run.Generation () != generation || run.IsCancelled (generation));
 }
 
-NativeCommandResult SubmitTakeoff (const GS::ObjectState& params, size_t seedCount, uint64_t runGeneration)
+NativeCommandResult SubmitTakeoff (surfacetakeoff::Request calculation, size_t seedCount, uint64_t runGeneration,
+                                   bool viewerScene = false)
 {
     const auto pickGeneration = seedCount != 0 ? SurfacePolygonPickGeneration () : 0;
-    auto calculation = SurfaceTakeoffRequestFromNative (params);
-    const auto snapshot = MeshStore::Get ().Current ();
-    if (!CaptureCurrent (snapshot) || snapshot->id != calculation.snapshotId ||
+    auto& store = MeshStore::Get ();
+    const auto snapshot = viewerScene ? store.ViewerCapture () : store.Current ();
+    if (!store.IsCurrentCapture (snapshot, viewerScene) || snapshot->id != calculation.snapshotId ||
         snapshot->captureStamp != calculation.captureStamp)
         return NativeCommandResult::Failure (Text ("Snapshot missing or stale; prepare a fresh capture."));
 
     calculation.publishOverlay = false;
     surfacetakeoff::ControllerRequest request;
     request.snapshot = snapshot;
-    request.execute = [calculation = std::move (calculation), snapshot, seedCount, pickGeneration, runGeneration] (
-                          const std::atomic<bool>& cancelled) mutable -> surfacetakeoff::ControllerOutcome {
+    request.viewerScene = viewerScene;
+    request.execute = [calculation = std::move (calculation), snapshot, seedCount, pickGeneration, runGeneration,
+                       viewerScene] (const std::atomic<bool>& cancelled) mutable -> surfacetakeoff::ControllerOutcome {
         const auto interrupted = [&] {
-            return cancelled.load () || RunEnded (runGeneration) || !CaptureCurrent (snapshot);
+            return cancelled.load () || RunEnded (runGeneration) ||
+                   !MeshStore::Get ().IsCurrentCapture (snapshot, viewerScene);
         };
         if (seedCount != 0) {
             const polygonpick::WorldIdentity world { snapshot->captureStamp, true, snapshot->id };
@@ -217,7 +216,7 @@ NativeCommandResult SubmitTakeoff (const GS::ObjectState& params, size_t seedCou
                 return { false, {}, std::move (input.error), input.cancelled };
             calculation.seeds = std::move (input.seeds);
         }
-        auto result = CalculateExteriorSurfaceResult (calculation, interrupted);
+        auto result = CalculateExteriorSurfaceResult (calculation, interrupted, viewerScene);
         if (RunEnded (runGeneration))
             return { false, {}, "Surface takeoff stopped.", true };
         surfacetakeoff::ControllerOutcome outcome;
@@ -251,7 +250,7 @@ class StartTakeoffCommand : public MainThreadCommand {
     }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        return SubmitTakeoff (params, 0, 0);
+        return SubmitTakeoff (SurfaceTakeoffRequestFromNative (params), 0, 0);
     }
 };
 
@@ -274,7 +273,7 @@ class StartSeededTakeoffCommand : public MainThreadCommand {
         const uint64_t runGeneration = cancelWithRun ? evp::RunCancel::Get ().Generation () : 0;
         if (cancelWithRun && (runGeneration == 0 || RunEnded (runGeneration)))
             return NativeCommandResult::Failure (Text ("No active command run owns this pick."));
-        return SubmitTakeoff (params, static_cast<size_t> (seedCount), runGeneration);
+        return SubmitTakeoff (SurfaceTakeoffRequestFromNative (params), static_cast<size_t> (seedCount), runGeneration);
     }
 };
 
@@ -286,7 +285,24 @@ class StartCapturedTakeoffCommand : public MainThreadCommand {
     }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        // The viewer uses the same preparation/worker seams without an overlay publication.
+        if (params.Contains ("sceneSnapshotId") || params.Contains ("sceneCaptureStamp")) {
+            GS::Int64 id = 0, stamp = 0;
+            params.Get ("sceneSnapshotId", id);
+            params.Get ("sceneCaptureStamp", stamp);
+            auto& store = MeshStore::Get ();
+            const auto snapshot = store.ViewerCapture ();
+            if (!store.IsCurrentCapture (snapshot, true) || snapshot->id != uint64_t (id) ||
+                snapshot->captureStamp != uint64_t (stamp))
+                return NativeCommandResult::Failure (
+                    Text ("Viewer capture changed. Refresh the viewer model and retry."));
+            GS::UniString mode;
+            params.Get ("regionMode", mode);
+            std::string error;
+            auto request = surfacetakeoff::PrepareRequest (*snapshot, mode.ToCStr (0, MaxUSize, CC_UTF8).Get (),
+                                                           "constructionWithOpenings", {}, {}, error);
+            return request ? SubmitTakeoff (std::move (*request), 0, 0, true)
+                           : NativeCommandResult::Failure (Text (error));
+        }
         GS::ObjectState input = params;
         input.Add ("coverPolicy", Text ("constructionWithOpenings"));
         input.Add ("extraCoverGuids", GS::Array<GS::UniString> ());

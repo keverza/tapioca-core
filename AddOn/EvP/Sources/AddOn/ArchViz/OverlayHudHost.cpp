@@ -469,7 +469,7 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
         if (k == surfacetakeoff::kWorkflowKey) {
             const auto view = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().TryPoll ();
             if (auto action = surfacetakeoff::DrawPage (store->exposedSurfaces, view ? &*view : nullptr,
-                                                        store->exposedSurfaceError))
+                                                        store->exposedSurfaceError, own.exposedSurfaceHighlight))
                 store->exposedSurfaceAction = *action;
             if (!own.viewerSurface)
                 for (const size_t i : titled)

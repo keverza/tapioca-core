@@ -173,12 +173,15 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
     {
         return false;
     }
-    surfacetakeoff::Calculation Calculate (const surfacetakeoff::Request& input, GS::ProcessControl* pc = nullptr) const
+    surfacetakeoff::Calculation Calculate (const surfacetakeoff::Request& input, GS::ProcessControl* pc = nullptr,
+                                           bool viewerScene = false) const
     {
         const auto fail = [] (const std::string& error) { return surfacetakeoff::Calculation { std::nullopt, error }; };
         const uint64_t id = input.snapshotId, stamp = input.captureStamp;
-        const auto snapshot = MeshStore::Get ().Current ();
-        if (!Current (snapshot) || id == 0 || stamp == 0 || snapshot->id != id || snapshot->captureStamp != stamp)
+        auto& store = MeshStore::Get ();
+        const auto snapshot = viewerScene ? store.ViewerCapture () : store.Current ();
+        if (!store.IsCurrentCapture (snapshot, viewerScene) || id == 0 || stamp == 0 || snapshot->id != id ||
+            snapshot->captureStamp != stamp)
             return fail ("Snapshot missing or stale; prepare a fresh capture.");
         const std::string mode = input.regionMode.empty () ? "seededFacade" : input.regionMode;
         const bool publish = input.publishOverlay;
@@ -242,7 +245,7 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
         const uint64_t ticket = publish ? view::BeginRequest () : 0;
         const auto cancelled = [&] {
             return (pc && pc->TestBreak ()) || (!t_controllerExecution && RunEnded (generation)) ||
-                   !Current (snapshot) || (t_externalCancel && (*t_externalCancel) ());
+                   !store.IsCurrentCapture (snapshot, viewerScene) || (t_externalCancel && (*t_externalCancel) ());
         };
         std::string error;
         if (!(wholeTargets
@@ -417,7 +420,7 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
         // Publication is the commit point: a later Stop does not turn a valid
         // completed display into a false partial-result failure. Capture drift
         // always refuses (the native freshness timer removes its old geometry).
-        if (!Current (snapshot) || (!publish && cancelled ()))
+        if (!store.IsCurrentCapture (snapshot, viewerScene) || (!publish && cancelled ()))
             return fail ("Capture changed during response serialization.");
         return { std::move (output), {} };
     }
@@ -560,7 +563,7 @@ NativeCommandResult PublishResult (const surfacetakeoff::Result& result, uint64_
     }
     ReadSurfaceCriteriaMetadata (*snapshot, targets, presentation.elements);
     const uint64_t ticket = view::BeginRequest ();
-    if (!view::Publish (presentation, finalized.snapshotId, finalized.captureStamp, ticket, error))
+    if (!view::Publish (presentation, finalized.snapshotId, finalized.captureStamp, ticket, error, generation))
         return NativeCommandResult::Failure (Text (error));
     finalized.overlayPublished = true;
     GS::ObjectState output;
@@ -610,11 +613,11 @@ surfacetakeoff::Request SurfaceTakeoffRequestFromNative (const GS::ObjectState& 
 }
 
 surfacetakeoff::Calculation CalculateExteriorSurfaceResult (const surfacetakeoff::Request& request,
-                                                            const std::function<bool ()>& cancelled)
+                                                            const std::function<bool ()>& cancelled, bool viewerScene)
 {
     ExternalCancelScope scope (cancelled);
     SurfaceTakeoffCommand command;
-    return command.Calculate (request);
+    return command.Calculate (request, nullptr, viewerScene);
 }
 
 surfacetakeoff::Calculation CalculateExteriorSurfaceResult (const GS::ObjectState& params,

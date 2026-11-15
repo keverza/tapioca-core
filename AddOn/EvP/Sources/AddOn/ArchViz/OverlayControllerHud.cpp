@@ -9,6 +9,7 @@
 // THREAD. Every entry point is MAIN THREAD.
 
 #include "ArchViz/OverlayController.hpp"
+#include "ArchViz/SurfaceTakeoffOverlay.hpp"
 #include "ArchViz/EditLayers.hpp"
 
 #include "ArchViz/OverlayClickTiming.hpp"
@@ -180,6 +181,8 @@ void FollowHudState ()
         state->exposedSurfaceError.clear ();
         if (action->kind == surfacetakeoff::PageAction::Kind::Cancel)
             geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().Cancel (action->generation);
+        else if (action->kind == surfacetakeoff::PageAction::Kind::Isolate)
+            surfacetakeoff::Isolate (action->generation, action->material);
         else {
             // The stable Document launcher uses the one existing Python run path. No
             // worker, picker or palette run is started inside ImGui layout.

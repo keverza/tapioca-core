@@ -36,12 +36,14 @@ struct ControllerOutcome {
 struct ControllerRequest {
     std::shared_ptr<const Snapshot> snapshot;
     std::function<ControllerOutcome (const std::atomic<bool>&)> execute;
+    bool viewerScene = false;
 };
 
 struct ControllerResult {
     uint64_t generation = 0, snapshotId = 0, captureStamp = 0;
     std::shared_ptr<const Snapshot> snapshot;
     std::shared_ptr<const void> payload;
+    bool viewerScene = false;
 };
 
 struct ControllerView {
@@ -84,7 +86,6 @@ class SurfaceTakeoffController final {
     void ThreadMain ();
     ControllerView PollLocked ();
     ControllerView ViewLocked () const;
-    static bool Current (const std::shared_ptr<const Snapshot>& snapshot);
 
     mutable std::mutex mutex_;
     std::atomic<bool> publishing_ { false };

@@ -8,7 +8,8 @@ namespace geomsrv {
 const char* SurfaceTakeoffInputSchema ();
 surfacetakeoff::Request SurfaceTakeoffRequestFromNative (const GS::ObjectState& params);
 surfacetakeoff::Calculation CalculateExteriorSurfaceResult (const surfacetakeoff::Request& request,
-                                                            const std::function<bool ()>& cancelled = {});
+                                                            const std::function<bool ()>& cancelled = {},
+                                                            bool viewerScene = false);
 surfacetakeoff::Calculation CalculateExteriorSurfaceResult (const GS::ObjectState& params,
                                                             GS::ProcessControl& processControl,
                                                             const std::function<bool ()>& cancelled = {});

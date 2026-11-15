@@ -9,6 +9,9 @@
 #include <array>
 #include <memory>
 
+namespace geomsrv {
+struct Snapshot;
+}
 namespace geomsrv::archviz::vieweredit {
 struct Frame {
     std::array<float, 16> view {}, projection {};
@@ -20,6 +23,12 @@ struct Drawing {
     bool sceneChanged = false;
     float scale = 1.0f;
 };
+struct SurfaceHighlight {
+    std::shared_ptr<const Snapshot> capture;
+    surfacetakeoff::HighlightSummary summary;
+    overlayscene::Scene scene;
+};
+std::shared_ptr<const SurfaceHighlight> ReadSurfaceHighlight ();
 // MAIN THREAD. Start the native workflow dispatcher when the viewer opens. Stop before the child
 // HWND/renderer goes away. A surface switch preserves the session, a close does not.
 bool Start (void* window);

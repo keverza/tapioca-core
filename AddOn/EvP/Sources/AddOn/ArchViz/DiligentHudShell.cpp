@@ -142,8 +142,10 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
             ImGui::TextUnformatted ("Opening virtual editor...");
         else if (key == surfacetakeoff::kWorkflowKey) {
             const auto result = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().TryPoll ();
-            if (const auto action = surfacetakeoff::DrawPage (shell.exposedSurfaces, result ? &*result : nullptr,
-                                                              vieweredit::SurfaceTakeoffError ()))
+            const auto highlight = vieweredit::ReadSurfaceHighlight ();
+            if (const auto action = surfacetakeoff::DrawPage (
+                    shell.exposedSurfaces, result ? &*result : nullptr, vieweredit::SurfaceTakeoffError (),
+                    highlight ? highlight->summary : surfacetakeoff::HighlightSummary {}))
                 vieweredit::RequestSurfaceTakeoff (*action);
         }
         else if (key == hudshell::kSettingsKey)

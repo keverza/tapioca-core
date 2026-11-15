@@ -82,12 +82,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
     DiligentPickBuffer pick;
     DiligentGpuTimings gpuTimings;
     SceneTextLayer textLayer;
-    ViewerEditorDraw editorDraw;
+    ViewerEditorDraw editorDraw (surface.mode == SurfaceMode::PaletteChild);
 
     // Give back the HWND. See the long note at the call site in the success
     // path; this is that same teardown, reachable from both.
     auto releaseEverything = [&] () {
-        editorDraw.Clear ();
+        editorDraw.Release ();
         gpuTimings.Collect ();
         gpuTimings.Shutdown ();
         scene.Shutdown ();
@@ -426,9 +426,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // ---- the scene --------------------------------------------------
             // ⚠️ BOUNDED PER FRAME. A full extraction queues thousands of
             // elements; uploading them all at once stops the viewer presenting
-            // for a second and takes that second out of Archicad's UI thread
-            // with it. 32 is the same starting point the bgfx path uses.
-            const size_t consumed = annotationsOnly ? 0 : scene.Consume (device, 32, context);
+            // for a second and takes that second out of Archicad's UI thread with it.
+            const size_t consumed = annotationsOnly ? 0 : editorDraw.ConsumeScene (scene, device, context);
             if (consumed > 0)
                 scene.ResetTemporalAntiAliasingHistory ();
 
@@ -868,8 +867,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                                           planAnchorSeq_.load (), lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked,
                                           viewProj, width, height, planAnchorWidthPixels_.load (),
                                           planAnchorRgba_.load ());
-            if (!offscreen && !screenshot.Active () && surface.mode == SurfaceMode::PaletteChild)
-                editorDraw.Update (device, context, rtv, dsv, view, stableProj, width, height);
+            if (!screenshot.Active () && surface.mode == SurfaceMode::PaletteChild)
+                editorDraw.Update (device, context, rtv, dsv, view, stableProj, width, height,
+                                   modelIsDrawn && !hudState.planMode);
             ProjectedDrawList annotations = UpdateAndDrawTraceAnnotations (
                 textLayer, device, context, blanked, offscreen, annotationsOnly, surface.nwh, rtv, dsv,
                 drawTo.DepthShaderView (), viewProj, width, height, Camera::NearClip (), camera.FarClip (),

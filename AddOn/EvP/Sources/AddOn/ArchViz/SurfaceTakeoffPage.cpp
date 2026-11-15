@@ -39,8 +39,10 @@ void Area (double area)
         ImGui::Text ("%.3f", area);
 }
 
-void MeasuredRows (PageState& page, const Result& result)
+std::optional<PageAction> MeasuredRows (PageState& page, const Result& result, const HighlightSummary& highlight)
 {
+    std::optional<PageAction> action;
+    const bool canIsolate = highlight.generation != 0 && highlight.generation == page.shownGeneration;
     if (result.classification == "allElementFaces-contactOnly")
         ImGui::TextWrapped ("Captured construction faces, including interiors.");
     else if (result.classification == "allWallFaces-contactOnly")
@@ -49,8 +51,14 @@ void MeasuredRows (PageState& page, const Result& result)
         ImGui::TextWrapped ("User-confirmed exterior facade faces.");
     ImGui::TextUnformatted ("Calculated area before filters (m²)");
     Area (result.selectedAreaM2);
+    if (canIsolate) {
+        ImGui::TextWrapped ("%s %.3f mÂ² (%zu triangles)", highlight.material ? "Isolated" : "Highlighted",
+                            highlight.areaM2, highlight.triangles);
+        if (highlight.material && ImGui::Button ("Show all surfaces"))
+            action = PageAction { PageAction::Kind::Isolate, page.scope, highlight.generation };
+    }
     if (result.selectedAreaM2 <= 0)
-        return;
+        return action;
 
     std::vector<const geomsrv::surfacetakeoff::SurfaceRow*> rows;
     for (const auto& row : result.surfaces)
@@ -58,7 +66,7 @@ void MeasuredRows (PageState& page, const Result& result)
             rows.push_back (&row);
     const size_t pageCount = (rows.size () + kRowsPerPage - 1) / kRowsPerPage;
     if (pageCount == 0)
-        return;
+        return action;
     page.page = (std::min) (page.page, pageCount - 1);
     if (ImGui::BeginTable ("surfaceAreas", 2,
                            ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp |
@@ -72,7 +80,17 @@ void MeasuredRows (PageState& page, const Result& result)
             const auto& row = *rows[i];
             ImGui::TableNextRow ();
             ImGui::TableSetColumnIndex (0);
-            ImGui::TextWrapped ("%s [%d]", row.name.c_str (), row.surfaceAttributeIndex);
+            const auto label = row.name + " [" + std::to_string (row.surfaceAttributeIndex) + "]";
+            ImGui::PushID (row.surfaceAttributeIndex);
+            ImGui::BeginDisabled (!canIsolate);
+            const bool isolated = canIsolate && highlight.material == row.surfaceAttributeIndex;
+            if (ImGui::Selectable (label.c_str (), isolated, ImGuiSelectableFlags_SpanAllColumns)) {
+                action = PageAction { PageAction::Kind::Isolate, page.scope, highlight.generation };
+                if (!isolated)
+                    action->material = row.surfaceAttributeIndex;
+            }
+            ImGui::EndDisabled ();
+            ImGui::PopID ();
             if (ImGui::IsItemHovered (ImGuiHoveredFlags_DelayShort))
                 ImGui::SetTooltip ("Captured Archicad surface attribute. Names can repeat across attribute IDs.");
             ImGui::TableSetColumnIndex (1);
@@ -93,6 +111,7 @@ void MeasuredRows (PageState& page, const Result& result)
         ImGui::SameLine ();
         ImGui::Text ("%zu / %zu", page.page + 1, pageCount);
     }
+    return action;
 }
 } // namespace
 
@@ -116,7 +135,7 @@ const char* LauncherScope (TargetScope scope)
 }
 
 std::optional<PageAction> DrawPage (PageState& page, const geomsrv::surfacetakeoff::ControllerView* view,
-                                    const std::string& actionError)
+                                    const std::string& actionError, HighlightSummary highlight)
 {
     if (view == nullptr) {
         ImGui::TextDisabled ("Updating calculation status…");
@@ -153,7 +172,9 @@ std::optional<PageAction> DrawPage (PageState& page, const geomsrv::surfacetakeo
             page.shownGeneration = view->generation;
             page.page = 0;
         }
-        MeasuredRows (page, *std::static_pointer_cast<const Result> (view->lastGood->payload));
+        if (auto rowAction =
+                MeasuredRows (page, *std::static_pointer_cast<const Result> (view->lastGood->payload), highlight))
+            action = *rowAction;
     }
     ImGui::PopID ();
     return action;

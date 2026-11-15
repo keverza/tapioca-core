@@ -143,12 +143,6 @@ SurfaceTakeoffController::~SurfaceTakeoffController ()
     Shutdown ();
 }
 
-bool SurfaceTakeoffController::Current (const std::shared_ptr<const Snapshot>& snapshot)
-{
-    return snapshot && snapshot->id != 0 && snapshot->captureStamp != 0 && MeshStore::Get ().Current () == snapshot &&
-           MeshStore::Get ().CaptureStamp () == snapshot->captureStamp;
-}
-
 uint64_t SurfaceTakeoffController::Submit (ControllerRequest request, std::string& error)
 {
     std::lock_guard<std::mutex> lock (mutex_);
@@ -156,7 +150,7 @@ uint64_t SurfaceTakeoffController::Submit (ControllerRequest request, std::strin
         error = "Surface calculation controller is stopped.";
         return 0;
     }
-    if (!request.execute || !Current (request.snapshot)) {
+    if (!request.execute || !MeshStore::Get ().IsCurrentCapture (request.snapshot, request.viewerScene)) {
         error = "A current pinned capture and calculation are required.";
         return 0;
     }
@@ -199,7 +193,9 @@ ControllerView SurfaceTakeoffController::ViewLocked () const
     else if (terminal_ != ControllerState::Empty)
         view.state = terminal_;
     else if (lastGood_)
-        view.state = Current (lastGood_->snapshot) ? ControllerState::Current : ControllerState::Stale;
+        view.state = MeshStore::Get ().IsCurrentCapture (lastGood_->snapshot, lastGood_->viewerScene)
+                         ? ControllerState::Current
+                         : ControllerState::Stale;
     return view;
 }
 
@@ -228,7 +224,7 @@ ControllerView SurfaceTakeoffController::PollLocked ()
         completion_ = {};
         ready_ = false;
         if (ticket->generation == generation_) {
-            if (!Current (ticket->request.snapshot)) {
+            if (!MeshStore::Get ().IsCurrentCapture (ticket->request.snapshot, ticket->request.viewerScene)) {
                 terminal_ = ControllerState::Stale;
                 error_ = "Capture changed before surface result publication.";
             }
@@ -244,6 +240,7 @@ ControllerView SurfaceTakeoffController::PollLocked ()
                 accepted.snapshotId = ticket->request.snapshot->id;
                 accepted.captureStamp = ticket->request.snapshot->captureStamp;
                 accepted.snapshot = ticket->request.snapshot;
+                accepted.viewerScene = ticket->request.viewerScene;
                 accepted.payload = std::move (result.payload);
                 lastGood_ = std::move (accepted);
                 terminal_ = ControllerState::Empty;
