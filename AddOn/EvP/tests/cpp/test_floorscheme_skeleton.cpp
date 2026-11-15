@@ -391,3 +391,27 @@ TEST (FloorSchemeSkeleton, WingsAndCorridorsAreSavedAndADesignWithoutThemStaysVe
                              R"({"version":3,"floors":[]})" })
         EXPECT_FALSE (fe::FromJson (bad, read, error)) << bad;
 }
+
+// "Add a wing here": the largest wing the free floor under the pointer takes, square to the
+// skeleton; where the floor is some wing's already, or too small for one, it is refused.
+TEST (FloorSchemeSkeleton, AWingIsAddedToTheFreeFloorUnderAPoint)
+{
+    const std::vector<fs::Ring> bar { Rect (0, 0, 60, 16) };
+    fs::Pins pins;
+    pins.wings = { { 1, { 0, 8 }, { 40, 8 }, 16 } };
+    const auto s = fs::Generate (bar, fp::Default (), pins);
+    ASSERT_EQ (s.wings.size (), 1u) << Report (s);
+    fe::Design d;
+    d.pins = pins;
+    std::string why;
+    const auto added = fe::AddWingAt (s, d, { 50, 8 }, &why);
+    ASSERT_EQ (added.pins.wings.size (), 2u) << why;
+    EXPECT_EQ (added.pins.wings[1].id, 2u);
+    const auto both = fs::Generate (bar, fp::Default (), added.pins);
+    ASSERT_EQ (both.wings.size (), 2u) << Report (both);
+    EXPECT_NEAR (std::abs (fs::Area (both.wings[1].rect)), 20 * 16, 1.0) << "the 20 x 16 m the first wing left";
+    EXPECT_LT (Unassigned (both), 1.0) << Report (both);
+    why.clear ();
+    EXPECT_EQ (fe::AddWingAt (s, d, { 20, 8 }, &why), d);
+    EXPECT_NE (why.find ("already belongs to a wing"), std::string::npos) << why;
+}

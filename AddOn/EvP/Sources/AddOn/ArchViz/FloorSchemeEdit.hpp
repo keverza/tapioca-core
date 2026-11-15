@@ -169,6 +169,15 @@ Design DropWing (Design d, uint32_t id);
 Design SetCorridor (const Scheme& s, Design d, int wing, Vec through, double width = 0, std::string* why = nullptr,
                     const Options& o = {});
 Design ResetCorridor (const Scheme& s, Design d, int wing);
+// A wing put where the floor has none: the largest one that fits the unassigned floor under `at`,
+// its sides along and across the nearest wing's. Refused where no wing-sized rectangle is free.
+Design AddWingAt (const Scheme& s, Design d, Vec at, std::string* why = nullptr, const Options& o = {});
+// The name the scheme's `wing` has, or will have once the skeleton is adopted (Pins::Wing::id).
+uint32_t WingId (const Scheme& s, int wing);
+// The design's wing as it would stand: its rectangle.
+Ring WingRect (const Pins::Wing& wing);
+// The middle of the wing's own straight corridor, when it has one (what SetCorridor moves).
+std::optional<Vec> CorridorOf (const Scheme& s, int wing);
 Design AddRect (Design d, Ring rect);
 Design CutRect (Design d, Ring rect);
 // A rectangle from two corners in the frame of the wing under `a` (or world axes): the

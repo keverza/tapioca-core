@@ -634,6 +634,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeEdit.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeMorph.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeCanvas.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeSkeleton.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeOnView.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudLocked.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlope.cpp"
@@ -1141,6 +1142,7 @@ set (EVP_TEST_SOURCES
     test_roofslope_bake.cpp
     test_overlayfloorplans.cpp
     test_hudfloorschemeedit.cpp
+    test_hudfloorschemeskeleton.cpp
     test_floorprogramme.cpp
     test_massingheadroom.cpp
     test_massingbake.cpp

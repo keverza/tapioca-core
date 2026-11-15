@@ -215,6 +215,56 @@ Design SetCorridor (const Scheme& s, Design d, int wing, Vec through, double wid
     d.pins.corridors.push_back ({ { mid.x + n.x * off, mid.y + n.y * off }, width });
     return d;
 }
+Design AddWingAt (const Scheme& s, Design d, Vec at, std::string* why, const Options& o)
+{
+    const Piece* free = nullptr;
+    for (const auto& piece : s.unassigned)
+        if (In (piece.shape, at))
+            free = &piece;
+    if (!free)
+        return Refuse (std::move (d), why, "The floor here already belongs to a wing.");
+    // Along the nearest wing, so the new one stands square to the skeleton.
+    double theta = 0, near = 1e18;
+    for (const auto& w : s.wings) {
+        const Vec m = Centroid (w.rect);
+        if (const double dd = std::hypot (m.x - at.x, m.y - at.y); dd < near)
+            near = dd, theta = std::atan2 (w.b.y - w.a.y, w.b.x - w.a.x);
+    }
+    Frame frame;
+    Box box;
+    if (!Inscribed ({ ToPath (Counter (free->shape)) }, theta, o.minWingDepth, o.minWingLength, frame, box))
+        return Refuse (std::move (d), why,
+                       "No wing fits the free floor there: a wing is at least %.1f m deep and %.1f m long.",
+                       o.minWingDepth, o.minWingLength);
+    // Its longer side is its length; no deeper than a wing may be.
+    const bool alongU = box.W () >= box.H ();
+    const double depth = (std::min) (alongU ? box.H () : box.W (), o.maxWingDepth);
+    const Vec a = alongU ? frame.World (box.u0, box.v0 + depth / 2) : frame.World (box.u0 + depth / 2, box.v0);
+    const Vec b = alongU ? frame.World (box.u1, box.v0 + depth / 2) : frame.World (box.u0 + depth / 2, box.v1);
+    return AddWing (s, std::move (d), a, b, depth, why, o);
+}
+uint32_t WingId (const Scheme& s, int wing)
+{
+    if (wing < 0 || wing >= static_cast<int> (s.wings.size ()))
+        return 0;
+    return s.authored ? s.wings[wing].id : static_cast<uint32_t> (wing) + 1;
+}
+Ring WingRect (const Pins::Wing& wing)
+{
+    return RectOf (wing);
+}
+std::optional<Vec> CorridorOf (const Scheme& s, int wing)
+{
+    if (wing < 0 || wing >= static_cast<int> (s.wings.size ()))
+        return std::nullopt;
+    for (const auto& c : s.corridors)
+        if (c.axis.size () == 2) {
+            const Vec mid { (c.axis[0].x + c.axis[1].x) / 2, (c.axis[0].y + c.axis[1].y) / 2 };
+            if (In (s.wings[wing].rect, mid))
+                return mid;
+        }
+    return std::nullopt;
+}
 Design ResetCorridor (const Scheme& s, Design d, int wing)
 {
     if (wing >= 0 && wing < static_cast<int> (s.wings.size ()))
