@@ -296,7 +296,19 @@ const Planner::Planned* WantFloors (Planner& planner, const std::map<std::string
     // ordinary pins (they may move to fit, here only); the stairs it gets are held on every
     // floor, the lead floor too, so identical floors plan identically.
     auto reference = InputFor (plans, drafts, key, *lead, programme, {}, options);
+    const auto area = [] (const std::vector<fs::Ring>& rings) {
+        double a = 0;
+        for (const auto& ring : rings)
+            a += fs::Area (ring);
+        return a;
+    };
+    const double whole = area (reference.owned);
     reference.owned = Common (plan->second, reference.owned);
+    // The lead floor's own skeleton (Pins::wings) was drawn on the lead floor. Where the floor every
+    // floor shares is smaller, those wings need not lie in it -- left out, the stack would have no
+    // stair there -- so the stack is planned on the wings the generator finds in the shared floor.
+    if (std::abs (area (reference.owned) - whole) > 0.5)
+        reference.design.pins.wings.clear ();
     reference.options.holdCores = false;
     Sign (reference);
     planner.Want (StackId (key, plan->second), std::move (reference), true);

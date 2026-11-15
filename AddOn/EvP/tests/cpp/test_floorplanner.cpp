@@ -308,3 +308,36 @@ TEST (FloorPlanner, EveryOptionAndTheSkeletonAreInAFloorsSignature)
     bp::Sign (corridor);
     EXPECT_NE (corridor.signature, plain) << "a moved corridor";
 }
+
+// A skeleton drawn on the largest floor does not fit the floor every floor shares: the stack is
+// still planned, on the shared floor's own wings, and every floor gets its stairs.
+TEST (FloorPlanner, TheStackIsPlannedEvenWhereTheLeadFloorsOwnSkeletonDoesNotFitTheSharedFloor)
+{
+    auto building = Building ("A", 0, 60, 2);
+    building.floors[1].outline = { Chain (0, 0, 40, 16) }; // the upper floor steps back 20 m
+    building.floors[1].contours = { building.floors[1].outline };
+    building.floors[1].areaM2 = 40 * 16;
+    building.floors[1].outlineKey = "A-upper";
+    const std::map<std::string, bp::Plan> plans { { "A", building } };
+    std::map<std::string, bp::Draft> drafts;
+    // The lead floor's skeleton: its one wing, 60 m long.
+    drafts["A"].designs.floors[0].pins.wings = { { 1, { 0, 8 }, { 60, 8 }, 16 } };
+    bp::Planner planner;
+    for (int round = 0; round < 3; ++round) {
+        bp::WantFloors (planner, plans, drafts, "A", fp::Default (), 0);
+        Settle (planner);
+    }
+    const auto* stack = planner.Latest (bp::StackId ("A", building));
+    ASSERT_NE (stack, nullptr);
+    EXPECT_FALSE (stack->scheme.authored) << "the shared floor is 40 m: the 60 m wing is not asked of it";
+    EXPECT_FALSE (stack->scheme.cores.empty ());
+    for (const auto& d : stack->scheme.diagnostics)
+        EXPECT_NE (d.code.rfind ("skeleton.wing", 0), 0u) << d.text;
+    const auto* lower = planner.Latest (bp::FloorId ("A", 0));
+    const auto* upper = planner.Latest (bp::FloorId ("A", 1));
+    ASSERT_NE (lower, nullptr);
+    ASSERT_NE (upper, nullptr);
+    EXPECT_TRUE (lower->scheme.authored) << "the lead floor itself keeps the user's wing";
+    EXPECT_FALSE (lower->scheme.flats.empty ());
+    EXPECT_FALSE (upper->scheme.flats.empty ());
+}
