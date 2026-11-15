@@ -257,10 +257,14 @@ std::optional<Vec> CorridorOf (const Scheme& s, int wing)
 {
     if (wing < 0 || wing >= static_cast<int> (s.wings.size ()))
         return std::nullopt;
+    // A straight corridor in the wing, or the leg of one that turns a corner which runs along it.
+    const auto& w = s.wings[wing];
+    const Vec u = Unit ({ w.b.x - w.a.x, w.b.y - w.a.y });
     for (const auto& c : s.corridors)
-        if (c.axis.size () == 2) {
-            const Vec mid { (c.axis[0].x + c.axis[1].x) / 2, (c.axis[0].y + c.axis[1].y) / 2 };
-            if (In (s.wings[wing].rect, mid))
+        for (size_t i = 0; i + 1 < c.axis.size (); ++i) {
+            const Vec a = c.axis[i], b = c.axis[i + 1], mid { (a.x + b.x) / 2, (a.y + b.y) / 2 };
+            if (std::hypot (b.x - a.x, b.y - a.y) > 0.5 && In (w.rect, mid) &&
+                std::abs (Dot (Unit ({ b.x - a.x, b.y - a.y }), u)) > 0.9)
                 return mid;
         }
     return std::nullopt;

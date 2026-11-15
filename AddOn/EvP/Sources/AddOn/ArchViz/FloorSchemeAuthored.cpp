@@ -75,10 +75,12 @@ std::string WingFault (const cp::PathsD& floor, const std::vector<Ring>& others,
 }
 
 Lane LaneFor (const Pins& pins, const Options& o, const Frame& f, double s0, double s1, double depth, bool centre,
-              std::vector<char>& used, std::vector<Diagnostic>& notes)
+              std::vector<char>& used, std::vector<Diagnostic>& notes, bool* pinned)
 {
     Lane lane { (depth - o.corridor) / 2, 0 };
     lane.c1 = lane.c0 + o.corridor;
+    if (pinned)
+        *pinned = false;
     if (used.size () < pins.corridors.size ())
         used.resize (pins.corridors.size (), 0);
     for (size_t i = 0; i < pins.corridors.size (); ++i) {
@@ -87,6 +89,8 @@ Lane LaneFor (const Pins& pins, const Options& o, const Frame& f, double s0, dou
         if (q.x < s0 || q.x > s1 || q.y < -0.01 || q.y > depth + 0.01)
             continue;
         used[i] = 1;
+        if (pinned)
+            *pinned = true;
         const double asked = pin.width > 0 ? pin.width : o.corridor;
         const double width = Clip (asked, kCorridorMin, kCorridorMax);
         if (std::abs (width - asked) > 1e-6)

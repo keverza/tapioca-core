@@ -141,7 +141,8 @@ struct Pins {
         bool operator== (const Wing&) const = default;
     };
     // The corridor of the wing under `at` runs through `at`, `width` wide (0: Options::corridor).
-    // Straight runs only: a corridor that turns a corner or bends stays in the middle.
+    // A corridor that turns a corner takes a pin in either arm (and one width, its parent's); one
+    // that bends with an arm at an angle stays in the middle.
     struct Corridor {
         Vec at;
         double width = 0;

@@ -147,9 +147,10 @@ struct Lane {
 // The corridor of a `depth` deep wing over [s0, s1] of frame `f`: in the middle and
 // Options::corridor wide, or as the user's pin there has it (Pins::Corridor), brought back to where
 // a row of flats still fits either side when `centre` (a corridor on one side keeps its side and
-// takes only the width). `used` marks the pin taken; `notes` says what was changed.
+// takes only the width). `used` marks the pin taken; `notes` says what was changed; `pinned` whether
+// a pin was there at all.
 Lane LaneFor (const Pins& pins, const Options& options, const Frame& f, double s0, double s1, double depth, bool centre,
-              std::vector<char>& used, std::vector<Diagnostic>& notes);
+              std::vector<char>& used, std::vector<Diagnostic>& notes, bool* pinned = nullptr);
 // T0-T7, or T0-T4 when `skeletonOnly` (Analyse).
 Scheme PlanFloor (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins,
                   const Options& options, bool skeletonOnly = false);

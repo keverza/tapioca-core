@@ -77,6 +77,15 @@ fs::Vec Centre (const fs::Ring& ring)
         c.x += p.x / static_cast<double> (ring.size ()), c.y += p.y / static_cast<double> (ring.size ());
     return c;
 }
+bool Within (const fs::Ring& ring, fs::Vec p)
+{
+    bool inside = false;
+    for (size_t i = 0, j = ring.size () - 1; i < ring.size (); j = i++)
+        if ((ring[i].y > p.y) != (ring[j].y > p.y) &&
+            p.x < ring[j].x + (ring[i].x - ring[j].x) * (p.y - ring[j].y) / (ring[i].y - ring[j].y))
+            inside = !inside;
+    return inside;
+}
 double Unassigned (const fs::Scheme& s)
 {
     double a = 0;
@@ -461,4 +470,63 @@ TEST (FloorSchemeSkeleton, TheChosenCandidateIsTheSkeletonGenerateBuilds)
     fs::Options said;
     said.shallow = fs::Access::OneSide;
     EXPECT_EQ (fs::Candidates ({ Rect (0, 0, 60, 10) }, fp::Default (), {}, said).size (), 1u);
+}
+
+// A corridor that turns a corner is moved and widened in either arm; the corner's stair, lobby and
+// caps follow, and the floor keeps every hard rule it kept before.
+TEST (FloorSchemeSkeleton, ACorridorThatTurnsACornerIsMovedInEitherArm)
+{
+    struct Shape {
+        const char* name;
+        std::vector<fs::Ring> outline;
+    };
+    const Shape shapes[] = {
+        { "L", { Rect (0, 0, 48, 18), Rect (0, 18, 18, 50) } },
+        { "U", { Rect (0, 0, 66, 18), Rect (0, 18, 18, 44), Rect (48, 18, 66, 44) } },
+        { "O", { Rect (0, 0, 60, 60), Reversed (Rect (18, 18, 42, 42)) } },
+    };
+    const auto errors = [] (const fs::Scheme& s) {
+        return std::count_if (s.diagnostics.begin (), s.diagnostics.end (),
+                              [] (const fs::Diagnostic& d) { return d.level == fs::Diagnostic::Error; });
+    };
+    for (const auto& shape : shapes) {
+        fs::Options o;
+        o.cullCorners = false; // the whole corner, so the same floor is compared
+        const auto plain = fs::Generate (shape.outline, fp::Default (), {}, o);
+        int turning = -1; // a corridor with a turn, and a wing one of its legs runs along
+        int wing = -1;
+        fs::Vec leg;
+        for (size_t i = 0; i < plain.corridors.size () && wing < 0; ++i)
+            if (plain.corridors[i].axis.size () == 3)
+                for (size_t w = 0; w < plain.wings.size () && wing < 0; ++w)
+                    if (const auto mid = fe::CorridorOf (plain, int (w));
+                        mid && plain.wings[w].access == fs::Access::Centre) {
+                        turning = int (i), wing = int (w), leg = *mid;
+                    }
+        ASSERT_GE (turning, 0) << shape.name << ": a corridor that turns\n" << Report (plain);
+        const auto& w = plain.wings[wing];
+        const double l = std::hypot (w.b.x - w.a.x, w.b.y - w.a.y);
+        const fs::Vec n { -(w.b.y - w.a.y) / l, (w.b.x - w.a.x) / l };
+        // 1.2 m off the middle and 2.4 m wide.
+        std::string why;
+        const auto d = fe::SetCorridor (plain, {}, wing, { leg.x + n.x * 1.2, leg.y + n.y * 1.2 }, 2.4, &why, o);
+        ASSERT_EQ (d.pins.corridors.size (), 1u) << shape.name << ": " << why;
+        const auto moved = fs::Generate (shape.outline, fp::Default (), d.pins, o);
+        EXPECT_FALSE (Has (moved, "pin.corridor_ignored")) << shape.name << "\n" << Report (moved);
+        EXPECT_LE (errors (moved), errors (plain)) << shape.name << "\n" << Report (plain) << Report (moved);
+        const auto now = fe::CorridorOf (moved, wing);
+        ASSERT_TRUE (now.has_value ()) << shape.name;
+        const double off = (now->x - leg.x) * n.x + (now->y - leg.y) * n.y;
+        EXPECT_NEAR (off, 1.2, 1e-6) << shape.name << ": the leg stands where it was put";
+        EXPECT_EQ (moved.cores.size (), plain.cores.size ()) << shape.name;
+        // 2.4 m wide there: floor 1.1 m either side of its middle line is corridor, 1.3 m is not.
+        const auto corridor = [&] (double across) {
+            const fs::Vec q { now->x + n.x * across, now->y + n.y * across };
+            return std::any_of (moved.corridors.begin (), moved.corridors.end (),
+                                [&] (const fs::Corridor& c) { return Within (c.shape, q); });
+        };
+        EXPECT_TRUE (corridor (1.1) && corridor (-1.1)) << shape.name << ": 2.4 m wide";
+        EXPECT_FALSE (corridor (1.3) || corridor (-1.3)) << shape.name << ": and no wider";
+        EXPECT_FALSE (moved.flats.empty ()) << shape.name;
+    }
 }

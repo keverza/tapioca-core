@@ -859,6 +859,7 @@ Layout Circulate (const cp::PathsD& outline, Skeleton& sk, const floorprogramme:
     c.fill.resize (1201);
     for (size_t i = 0; i < c.fill.size (); ++i)
         c.fill[i] = Fillable (programme, i / 10.0) ? 1 : 0;
+    c.laneUsed.assign (pins.corridors.size (), 0);
     std::vector<Access> access (sk.wings.size ());
     for (size_t i = 0; i < sk.wings.size (); ++i)
         sk.wings[i].access = access[i] = AutoAccess (c, sk, i);
@@ -922,15 +923,14 @@ Layout Circulate (const cp::PathsD& outline, Skeleton& sk, const floorprogramme:
     for (size_t i = 0; i < sk.wings.size (); ++i)
         if (endUse[i][0] < 0 && endUse[i][1] < 0 && !bent[i])
             straight.push_back ({ static_cast<int> (i), 0, sk.wings[i].length });
-    c.laneUsed.assign (pins.corridors.size (), 0);
     for (const auto& p : straight)
         Straight (c, sk, p, access[p.wing], run++);
     // A corridor pin no straight run took: its wing has no corridor, or one that turns or bends.
     for (size_t i = 0; i < pins.corridors.size (); ++i)
         if (!c.laneUsed[i])
             notes.push_back ({ Diagnostic::Warning, "pin.corridor_ignored",
-                               "A moved corridor is not kept: its wing has no straight corridor of its own "
-                               "(sections round stairs, or a corridor that turns a corner).",
+                               "A moved corridor is not kept: its wing has no corridor of its own (sections round "
+                               "stairs), or shares one that bends with an arm at an angle.",
                                pins.corridors[i].at });
     return std::move (c.out);
 }
