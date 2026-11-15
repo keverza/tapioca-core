@@ -297,7 +297,7 @@ void LayerRows (Session& s)
     ImGui::BeginDisabled (s.drag != Drag::None || !s.drawing.empty ());
     // Layers, 0 first: shown, locked, colour, name; the selection moves onto one. They are the
     // editor's alone: none of them is an Archicad layer.
-    ImGui::SeparatorText ("Layers");
+    // Under the Outliner's Layers header (#191 U5): no second title.
     const auto refs = s.selection.Items ();
     std::vector<edit::Layer> layers { Doc (s).layer0 }; // copies: a row's edit replaces the document
     layers.insert (layers.end (), Doc (s).layers.begin (), Doc (s).layers.end ());

@@ -182,9 +182,13 @@ void SelectionTail (Session& s)
     if (ImGui::SmallButton ("Delete"))
         DeleteSelection (s);
     bool offset = false;
+    // The row wraps: a button that would run past the panel's edge starts the next line.
+    const float right = ImGui::GetItemRectMin ().x + ImGui::GetContentRegionAvail ().x;
     for (const edit::Action* a : edit::Applicable (Actions (s), s.selection, edit::ViewKind::Plan)) {
         const auto op = a->make (doc, s.selection.Items ());
-        ImGui::SameLine ();
+        const float width = ImGui::CalcTextSize (a->label.c_str ()).x + 2.0f * ImGui::GetStyle ().FramePadding.x;
+        if (ImGui::GetItemRectMax ().x + ImGui::GetStyle ().ItemSpacing.x + width <= right)
+            ImGui::SameLine ();
         offset = offset || a->id == "offset";
         ImGui::BeginDisabled (!op);
         if (ImGui::SmallButton (a->label.c_str ())) {
