@@ -1,6 +1,7 @@
 #include "Fixture.hpp"
 #include "Reload.hpp"
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <backends/imgui_impl_win32.h>
 #include "EngineFactoryD3D11.h"
 #include "RenderDevice.h"
@@ -205,8 +206,36 @@ fs::path ExportFolder ()
     return folder;
 }
 
-// The frame just drawn into the back buffer, as "playground-20261115-131500-<n>.png" in the export
-// folder: copied to a staging texture, read back, opaque, PNG-encoded. Returns the file written.
+// What Archicad shows of the frame: the native panel and its dock tab, with a small margin; the whole
+// frame when neither is drawn (a gallery or another non-native view).
+struct Crop {
+    uint32_t x = 0, y = 0, width = 0, height = 0;
+};
+Crop PanelCrop (uint32_t width, uint32_t height)
+{
+    ImRect area;
+    bool any = false;
+    for (const char* name : { "###playground.native.hud", "###tapioca.dock" })
+        if (const ImGuiWindow* window = ImGui::FindWindowByName (name); window && window->Active) {
+            const ImRect rect (window->Pos, window->Pos + window->Size);
+            area = any ? ImRect (ImMin (area.Min, rect.Min), ImMax (area.Max, rect.Max)) : rect;
+            any = true;
+        }
+    if (!any)
+        return { 0, 0, width, height };
+    area.Expand (8.0f);
+    const auto x0 = uint32_t (std::clamp (area.Min.x, 0.0f, float (width)));
+    const auto y0 = uint32_t (std::clamp (area.Min.y, 0.0f, float (height)));
+    const auto x1 = uint32_t (std::clamp (area.Max.x, 0.0f, float (width)));
+    const auto y1 = uint32_t (std::clamp (area.Max.y, 0.0f, float (height)));
+    if (x1 <= x0 || y1 <= y0)
+        return { 0, 0, width, height };
+    return { x0, y0, x1 - x0, y1 - y0 };
+}
+
+// The frame just drawn into the back buffer -- cropped to the panel Archicad shows (PanelCrop) --
+// as "playground-20261115-131500-<n>.png" in the export folder: copied to a staging texture, read
+// back, opaque, PNG-encoded. Returns the file written.
 fs::path Screenshot (Graphics& graphics, uint32_t width, uint32_t height)
 {
     auto* backBuffer = graphics.swapChain->GetCurrentBackBufferRTV ()->GetTexture ();
@@ -234,10 +263,13 @@ fs::path Screenshot (Graphics& graphics, uint32_t width, uint32_t height)
                                              mapped);
     if (!mapped.pData)
         throw std::runtime_error ("Screenshot: the staging texture could not be mapped.");
-    const size_t row = size_t (width) * 4;
-    std::vector<uint8_t> rgba (row * height);
-    for (uint32_t y = 0; y < height; ++y)
-        std::memcpy (rgba.data () + row * y, static_cast<const uint8_t*> (mapped.pData) + size_t (mapped.Stride) * y,
+    const Crop crop = PanelCrop (width, height);
+    const size_t row = size_t (crop.width) * 4;
+    std::vector<uint8_t> rgba (row * crop.height);
+    for (uint32_t y = 0; y < crop.height; ++y)
+        std::memcpy (rgba.data () + row * y,
+                     static_cast<const uint8_t*> (mapped.pData) + size_t (mapped.Stride) * (crop.y + y) +
+                         size_t (crop.x) * 4,
                      row);
     graphics.context->UnmapTextureSubresource (staging, 0, 0);
     if (desc.Format == Diligent::TEX_FORMAT_BGRA8_UNORM || desc.Format == Diligent::TEX_FORMAT_BGRA8_UNORM_SRGB)
@@ -247,7 +279,7 @@ fs::path Screenshot (Graphics& graphics, uint32_t width, uint32_t height)
         rgba[i] = 255; // the window is opaque; the cleared alpha is not the picture's
     Diligent::RefCntAutoPtr<Diligent::IDataBlob> blob = Diligent::DataBlobImpl::Create ();
     constexpr int kPngColorTypeRgba = 6; // PNG's numeric colour type for RGBA (as DiligentViewportTarget)
-    if (Diligent::EncodePng (rgba.data (), width, height, uint32_t (row), kPngColorTypeRgba, blob) !=
+    if (Diligent::EncodePng (rgba.data (), crop.width, crop.height, uint32_t (row), kPngColorTypeRgba, blob) !=
             Diligent::ENCODE_PNG_RESULT_OK ||
         !blob || !blob->GetSize ())
         throw std::runtime_error ("Screenshot: PNG encoding failed.");

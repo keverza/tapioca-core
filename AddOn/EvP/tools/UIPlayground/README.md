@@ -51,7 +51,8 @@ workspace for this launch. Default config is `RelWithDebInfo`. No add-on build r
   `HudVirtualEditorFixtures.*`. `EDITOR-CONTROLS.md` is the panel's control inventory.
   Open any exported dump directly with `Run-Playground.ps1 -Dump <file>` (or `--dump <file>`).
   The Playground has no Rust terrain kernel: a dump's terrain refusal is shown, not rebuilt.
-- **Screenshots:** press **F12** to save the next frame as a PNG to
+- **Screenshots:** press **F12** to save the production panel -- what Archicad shows, the panel and its
+  dock tab, not the Playground around it -- as a PNG to
   `%LOCALAPPDATA%\Tapioca\Export` (`playground-<date>-<time>-<n>.png`), the folder the add-on's
   viewer screenshots use. The status line names the file. Unattended: `--select <variant>`
   opens one fixture (an editor fixture on the native editor page) and `--screenshot <frame>`
