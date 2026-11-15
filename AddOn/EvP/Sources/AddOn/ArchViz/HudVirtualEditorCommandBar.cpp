@@ -8,6 +8,8 @@
 #include "Edit/EditLandscapeSerialization.hpp"
 #include <imgui.h>
 #include <algorithm>
+#include <initializer_list>
+#include <cctype>
 #include <string>
 
 // #191 area A, the command bar: pinned over the page. Row 1: the terrain build's state, Undo, Redo,
@@ -252,5 +254,108 @@ void detail::CommandBar (Session& s)
         RequestClose (s);
     ImGui::EndDisabled ();
     PromptRow (s);
+}
+
+// #191: what the host's command line runs on the editor's page. Names are the toolbar's and the
+// menu's words, with the short forms a CAD user types; each runs exactly what its button does.
+bool RunCommandLine (Session& s, const std::string& typed, std::string& message)
+{
+    message.clear ();
+    std::string text;
+    for (const char c : typed)
+        text += char (std::tolower (static_cast<unsigned char> (c)));
+    const auto first = text.find_first_not_of (" \t"), last = text.find_last_not_of (" \t");
+    if (first == std::string::npos)
+        return false;
+    text = text.substr (first, last - first + 1);
+    const auto is = [&] (std::initializer_list<const char*> names) {
+        return std::any_of (names.begin (), names.end (), [&] (const char* n) { return text == n; });
+    };
+    const bool locked = s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s);
+    const bool editing = s.drag != Drag::None || s.profileTyping;
+    const struct {
+        Tool tool;
+        std::initializer_list<const char*> names;
+    } tools[] = { { Tool::Select, { "select", "sel" } },
+                  { Tool::Polyline, { "polyline", "line", "pl" } },
+                  { Tool::Path, { "path" } },
+                  { Tool::Curve, { "curve", "spline" } },
+                  { Tool::Rectangle, { "rectangle", "rect" } },
+                  { Tool::Polygon, { "polygon", "poly" } },
+                  { Tool::Ellipse, { "ellipse", "circle" } },
+                  { Tool::Mirror, { "mirror" } },
+                  { Tool::Trim, { "trim" } } };
+    for (const auto& t : tools)
+        if (is (t.names)) {
+            if (locked)
+                message = "Finish or cancel the running command first (Enter or Esc).";
+            else
+                SelectTool (s, t.tool);
+            return true;
+        }
+    const struct {
+        lg::OperationKind kind;
+        std::initializer_list<const char*> names;
+    } booleans[] = { { lg::OperationKind::Union, { "union", "merge" } },
+                     { lg::OperationKind::Difference, { "subtract", "difference", "minus" } },
+                     { lg::OperationKind::Intersection, { "intersection", "intersect" } } };
+    for (const auto& b : booleans)
+        if (is (b.names)) {
+            if (!s.edits.Doc ().landscape)
+                message = "Booleans of regions need a landscape.";
+            else if (!BeginLandscapeCommand (s, b.kind))
+                message = s.message.empty () ? "The Boolean could not start now." : s.message;
+            return true;
+        }
+    if (is ({ "undo", "u" }) || is ({ "redo" })) {
+        if (editing)
+            message = "Finish the drag or the typed value first.";
+        else
+            History (s, text != "redo");
+        return true;
+    }
+    if (is ({ "delete", "del", "erase" })) {
+        if (editing || s.selection.Items ().empty ())
+            message = s.selection.Items ().empty () ? "Select what to delete first." : "Finish the drag first.";
+        else
+            DeleteSelection (s);
+        return true;
+    }
+    if (is ({ "build", "build mesh" })) {
+        if (!RequestTerrainBuild (s))
+            message = s.message.empty () ? "The terrain cannot be built now." : s.message;
+        return true;
+    }
+    if (is ({ "save", "save draft" })) {
+        if (!RequestDraftSave (s))
+            message = s.message.empty () ? "The draft cannot be saved now." : s.message;
+        return true;
+    }
+    if (is ({ "exit", "close", "done" })) {
+        RequestClose (s);
+        return true;
+    }
+    // An action the selection offers, by its id or its menu label: what its Inspector button does.
+    for (const edit::Action* a : edit::Applicable (Actions (s), s.selection, edit::ViewKind::Plan)) {
+        std::string label;
+        for (const char c : a->label)
+            label += char (std::tolower (static_cast<unsigned char> (c)));
+        if (text != a->id && text != label)
+            continue;
+        const auto& doc = s.edits.Doc ();
+        const auto op = a->make (doc, s.selection.Items ());
+        if (editing)
+            message = "Finish the drag first.";
+        else if (!op)
+            message = a->label + " has nothing to do with this selection.";
+        else {
+            const edit::Id since = doc.nextId;
+            if (!s.edits.Apply (op))
+                message = s.edits.Message ();
+            SelectMade (s, since);
+        }
+        return true;
+    }
+    return false;
 }
 } // namespace geomsrv::archviz::edithud

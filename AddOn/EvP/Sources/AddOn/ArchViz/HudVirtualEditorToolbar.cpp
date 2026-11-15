@@ -197,6 +197,11 @@ void ContoursPopover (Session& s, float width)
 }
 } // namespace
 
+void detail::SelectTool (Session& s, Tool tool)
+{
+    ChooseTool (s, tool);
+}
+
 float detail::ToolGlyphSide ()
 {
     return ImGui::GetFrameHeight () + 2.0f * kGlyphGrow * ImGui::GetFontSize ();

@@ -93,12 +93,21 @@ std::string NavigationInput (const HostSpec& spec, NavigationState& state, bool&
         return selected;
     ImGui::Separator ();
     ImGui::SetNextItemWidth (-1);
+    const char* hint =
+        spec.commandHint.empty () ? "Go to a page: Settings, Debug, or a workflow's name" : spec.commandHint.c_str ();
     const bool submit =
-        ImGui::InputTextWithHint ("##hudCommand", "show Settings / workflow <name>", state.input, sizeof state.input,
+        ImGui::InputTextWithHint ("##hudCommand", hint, state.input, sizeof state.input,
                                   ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_EscapeClearsAll);
     active = ImGui::IsItemActive ();
-    Tip ("Navigate to a page using its name from the dock list.");
-    if (submit) {
+    Tip (spec.command ? "Type a command of this page, or a page's name to go there. Enter runs it."
+                      : "Navigate to a page using its name from the dock list.");
+    std::string refused;
+    if (submit && spec.command && spec.command (state.input, refused)) {
+        state.message = refused;
+        if (refused.empty ())
+            state.input[0] = '\0';
+    }
+    else if (submit) {
         selected = ResolveNavigation (state.input, spec.tabs);
         state.message = selected.empty () ? "No unique page matches. Use its exact name from the dock list." : "";
         if (!selected.empty ())

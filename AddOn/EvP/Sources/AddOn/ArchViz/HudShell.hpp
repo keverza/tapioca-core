@@ -263,6 +263,12 @@ struct HostSpec {
     DockEdge dockEdge = DockEdge::Right;
     bool dockHorizontal = false;
     bool textInput = false; // false: omit the navigation-command strip entirely
+    // #191: the shown page's own command line. `commandHint` replaces the navigation hint while it
+    // is set; `command` is asked first with what was typed and returns true when the text named one
+    // of the page's commands (`message` says why one it named was refused). Otherwise the text
+    // navigates to a page, as it does on every page.
+    std::string commandHint;
+    std::function<bool (const std::string& text, std::string& message)> command;
     // #191: drawn for the shown page between the tab row and the page, and never scrolled with
     // it: what a page's user reaches many times a minute (the virtual editor's command bar and
     // toolbar). The page takes what is left. Null: the page starts under the tab row, as before.

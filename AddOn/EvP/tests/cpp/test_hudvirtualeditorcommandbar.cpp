@@ -294,3 +294,48 @@ TEST (HudVirtualEditorCommandBar, ToolbarRowsFillThePanelWidth191)
     EXPECT_NEAR (right, edge, 1.0f) << "Contours ends at the right edge";
     EXPECT_GT (left, start + 0.8f * (edge - start)) << "and is the seventh of seven";
 }
+
+// #191: the host's command line on the editor's page runs a tool, a landscape Boolean, an action the
+// selection offers or an editor verb by name; it refuses with a reason where the button would be
+// disabled, and leaves any other text to page navigation.
+TEST (HudVirtualEditorCommandBar, TheCommandLineRunsEditorCommandsAndLeavesPagesToNavigation191)
+{
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (lg::StartLandscape (doc, { 1, 2, 3, 4 }, error)) << error;
+    const auto square = Square (doc, 0, 0, 4);
+    eh::Session s (std::move (doc));
+    std::string message;
+
+    EXPECT_TRUE (eh::RunCommandLine (s, "  LINE ", message));
+    EXPECT_TRUE (message.empty ()) << message;
+    EXPECT_EQ (s.tool, eh::Tool::Polyline);
+    EXPECT_TRUE (eh::RunCommandLine (s, "rect", message));
+    EXPECT_EQ (s.tool, eh::Tool::Rectangle);
+    EXPECT_TRUE (eh::RunCommandLine (s, "select", message));
+    EXPECT_EQ (s.tool, eh::Tool::Select);
+
+    // An action of the selection, by its id: one undo step, as its button.
+    s.selection.Set ({ { square, edit::Part::Entity, 0 } });
+    EXPECT_TRUE (eh::RunCommandLine (s, "offset", message));
+    EXPECT_TRUE (message.empty ()) << message;
+    EXPECT_EQ (s.edits.UndoDepth (), 1u);
+    EXPECT_TRUE (eh::RunCommandLine (s, "undo", message));
+    EXPECT_EQ (s.edits.UndoDepth (), 0u);
+
+    // A Boolean starts its command; while it runs, a tool is refused with what to do.
+    s.selection.Clear ();
+    EXPECT_TRUE (eh::RunCommandLine (s, "union", message));
+    EXPECT_TRUE (s.landscapeCommand.has_value ()) << message;
+    EXPECT_TRUE (eh::RunCommandLine (s, "line", message));
+    EXPECT_FALSE (message.empty ());
+    EXPECT_EQ (s.tool, eh::Tool::Select);
+
+    // Delete with nothing selected says so; a page's name is not the editor's.
+    eh::CancelLandscapeCommand (s);
+    EXPECT_TRUE (eh::RunCommandLine (s, "delete", message));
+    EXPECT_FALSE (message.empty ());
+    EXPECT_FALSE (eh::RunCommandLine (s, "Settings", message));
+    EXPECT_FALSE (eh::RunCommandLine (s, "show settings", message));
+    EXPECT_FALSE (eh::RunCommandLine (s, "   ", message));
+}

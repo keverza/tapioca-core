@@ -459,6 +459,13 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     // The virtual editor keeps the command line as every other page does (the user, 2026-11-13); its
     // single-key shortcuts stand down while the line has focus (WantTextInput, OverlayHudVirtualEditor).
     spec.textInput = !own.viewerSurface;
+    // #191: on the editor's page the line is the editor's command line first, a page's name second.
+    if (store->virtualEditor && host.selected == std::string (editlayers::kLayer) + "#0") {
+        spec.commandHint = edithud::kCommandLineHint;
+        spec.command = [&] (const std::string& text, std::string& message) {
+            return edithud::RunCommandLine (*store->virtualEditor, text, message);
+        };
+    }
     spec.pageWidthPixels = showsPanel ? panels[shown]->pageWidthPixels : 0.0f;
     // Stats and Selection, the panels, Settings and Debug; without own pages the panels and
     // Settings.

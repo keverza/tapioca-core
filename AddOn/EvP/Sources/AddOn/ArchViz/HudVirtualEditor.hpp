@@ -519,6 +519,13 @@ enum class InspectorContext : uint8_t {
     Nothing        // nothing selected: the terrain, its build, what to add from Archicad
 };
 InspectorContext ResolveContext (const Session& session);
+// #191: the host's command line on the editor's page. Runs a tool ("line", "rect"), a landscape
+// Boolean ("union"), an action the selection offers ("offset", "join"), or an editor verb ("undo",
+// "redo", "delete", "build", "save", "exit"); case and surrounding spaces do not matter. True when
+// the text named one of these: `message` is empty when it ran, else why not. False when it named
+// none, so the host can try it as a page's name.
+bool RunCommandLine (Session& session, const std::string& text, std::string& message);
+constexpr const char* kCommandLineHint = "Command: line, rect, union, offset, undo... or a page";
 const char* InspectorContextName (InspectorContext context);
 // The layer to publish when the document or the selection moved on; false when the
 // published one is current.

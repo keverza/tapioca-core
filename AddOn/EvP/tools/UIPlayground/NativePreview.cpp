@@ -156,7 +156,14 @@ void DrawNative (NativePreview& p, Value& state, ImVec2 stageMin, ImVec2 stageMa
         spec.dockEdge = p.dock.edge;
         spec.dockHorizontal = p.dock.horizontal;
         spec.tabs = visibleTabs ();
-        spec.textInput = p.navigation.workflow != "@editor";
+        // As the add-on's host does: the line on every page; on the editor's, its command line first.
+        spec.textInput = true;
+        if (p.held == "@editor") {
+            spec.commandHint = av::edithud::kCommandLineHint;
+            spec.command = [&] (const std::string& text, std::string& message) {
+                return av::edithud::RunCommandLine (p.mocks.editor, text, message);
+            };
+        }
         // As the add-on's host does (#191): the editor's command bar and toolbar over its page.
         spec.header = [&] (const std::string& key) {
             if (key != "@editor")
