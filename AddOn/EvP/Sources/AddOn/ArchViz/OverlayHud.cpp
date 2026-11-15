@@ -173,9 +173,9 @@ bool TakeCameraRepairRequest (State& state)
 {
     return std::exchange (state.cameraRepairRequested, false);
 }
-bool TakeExposedSurfaceRequest (State& state)
+std::optional<surfacetakeoff::PageAction> TakeExposedSurfaceRequest (State& state)
 {
-    return std::exchange (state.exposedSurfaceRequested, false);
+    return std::exchange (state.exposedSurfaceAction, std::nullopt);
 }
 
 std::string MassingStatsFunction (const State& state)

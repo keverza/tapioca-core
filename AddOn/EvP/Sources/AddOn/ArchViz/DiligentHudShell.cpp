@@ -6,6 +6,8 @@
 #include "ArchViz/HudConsole.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
 #include "ArchViz/ViewerEditor.hpp"
+#include "ArchViz/SurfaceTakeoffLayer.hpp"
+#include "Geometry/SurfaceTakeoffController.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h> // ImGuiWindow: the dock's width, for the view's right column
@@ -82,6 +84,7 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     tabs.back ().group = "Editing";
     tabs.back ().token = "virtual editor";
     tabs.back ().purpose = "Create or resume native virtual geometry editing.";
+    tabs.push_back (surfacetakeoff::WorkflowTab ());
     tabs.push_back ({ hudshell::kSettingsKey, "Settings" });
     // The console's errors and warnings not shown yet, counted on the tab (HudConsole.hpp).
     const uint32_t unseen = hudconsole::Unseen (hudconsole::Entries (), shell.consoleSeen, shell.consoleCleared);
@@ -137,6 +140,12 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
             SunStudyPage (state, scene);
         else if (key == "@viewer.editor")
             ImGui::TextUnformatted ("Opening virtual editor...");
+        else if (key == surfacetakeoff::kWorkflowKey) {
+            const auto result = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().TryPoll ();
+            if (const auto action = surfacetakeoff::DrawPage (shell.exposedSurfaces, result ? &*result : nullptr,
+                                                              vieweredit::SurfaceTakeoffError ()))
+                vieweredit::RequestSurfaceTakeoff (*action);
+        }
         else if (key == hudshell::kSettingsKey)
             SettingsPage (shell, state, scene);
         else if (key == hudshell::kDebugKey)

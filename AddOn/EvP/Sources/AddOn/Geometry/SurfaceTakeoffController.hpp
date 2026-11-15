@@ -63,6 +63,8 @@ class SurfaceTakeoffController final {
 
     uint64_t Submit (ControllerRequest request, std::string& error); // assigned generation, zero on refusal
     ControllerView Poll ();
+    // HUD layout must not wait for main-thread publication, which can itself lay out the HUD.
+    std::optional<ControllerView> TryPoll ();
     // Zero means unconditional legacy cancellation/clear. A nonzero receipt is
     // conditional: a superseded caller cannot revoke its successor.
     bool Cancel (uint64_t generation = 0);
@@ -80,10 +82,12 @@ class SurfaceTakeoffController final {
         std::atomic<bool> cancelled { false };
     };
     void ThreadMain ();
+    ControllerView PollLocked ();
     ControllerView ViewLocked () const;
     static bool Current (const std::shared_ptr<const Snapshot>& snapshot);
 
     mutable std::mutex mutex_;
+    std::atomic<bool> publishing_ { false };
     std::condition_variable workAvailable_;
     std::thread thread_;
     std::shared_ptr<Ticket> pending_, running_, completed_;

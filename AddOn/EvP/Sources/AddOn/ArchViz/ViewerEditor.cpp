@@ -14,9 +14,13 @@
 #include "ArchViz/VirtualEditorMaterialPicker.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
+#include "Geometry/SurfaceTakeoffController.hpp"
+#include "AddOnCommands.hpp"
+#include "Python/MainThreadGate.hpp"
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <utility>
 
 namespace geomsrv::archviz::vieweredit {
 namespace {
@@ -36,6 +40,51 @@ UINT_PTR s_timer = 0;
 std::shared_ptr<const overlaylayers::Layer> s_layer;
 uint64_t s_hudHash = 0;
 bool s_refreshing = false;
+std::optional<surfacetakeoff::PageAction> s_surfaceAction;
+std::string s_surfaceError;
+
+void ReportSurfaceError (uint64_t generation, const GS::UniString& error)
+{
+    std::lock_guard<std::mutex> lock (s_mutex);
+    if (Running () && Generation () == generation)
+        s_surfaceError = error.ToCStr (0, MaxUSize, CC_UTF8).Get ();
+}
+
+void FollowSurfaceTakeoff ()
+{
+    std::optional<surfacetakeoff::PageAction> action;
+    {
+        std::lock_guard<std::mutex> lock (s_mutex);
+        action = std::exchange (s_surfaceAction, std::nullopt);
+    }
+    if (!action)
+        return;
+    const auto generation = Generation ();
+    GS::UniString error;
+    if (!evp::MainThreadGate::Get ().PostDeferred (
+            [action = *action, generation] {
+                if (!Running () || Generation () != generation)
+                    return;
+                auto& controller = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ();
+                if (action.kind == surfacetakeoff::PageAction::Kind::Cancel) {
+                    controller.Cancel (action.generation);
+                    return;
+                }
+                const auto view = controller.TryPoll ();
+                if (!view || view->generation != action.generation ||
+                    view->state == geomsrv::surfacetakeoff::ControllerState::Pending) {
+                    ReportSurfaceError (generation, "The calculation changed. Try again.");
+                    return;
+                }
+                GS::ObjectState params;
+                params.Add ("regionMode", GS::UniString (surfacetakeoff::RegionMode (action.scope)));
+                const auto started = ExecuteNativeCommand ("StartCapturedExposedSurfaceTakeoff", params);
+                if (!started.ok)
+                    ReportSurfaceError (generation, started.error);
+            },
+            error))
+        ReportSurfaceError (generation, error);
+}
 
 int64_t Now ()
 {
@@ -62,6 +111,7 @@ bool Refresh ()
         Stop (true); // renderer failure must not silently discard the document
         return false;
     }
+    FollowSurfaceTakeoff ();
     const auto state = guesttext::HudState ();
     if (s_requested.exchange (false)) {
         {
@@ -130,6 +180,9 @@ bool Refresh ()
     auto drawing = std::make_unique<Drawing> ();
     drawing->scale = scale;
     drawing->hud = overlayscene::PrepareSceneHud (overlaylayers::Layers (), engine, scale, input);
+    if (const auto action = overlayhud::TakeExposedSurfaceRequest (*state))
+        RequestSurfaceTakeoff (*action);
+    state->exposedSurfaceError = SurfaceTakeoffError ();
     // This host has no overlay-controller refresh. Drain its explicit file action
     // here on the main thread, after layout, never on the renderer's Present.
     if (state->virtualEditor && state->virtualEditor->debugExportRequested)
@@ -246,6 +299,19 @@ bool TakeAnalysisRequest (hudshell::DockPlacement& dock, uint32_t& fontStep)
     fontStep = s_fontStep;
     return true;
 }
+void RequestSurfaceTakeoff (surfacetakeoff::PageAction action)
+{
+    std::lock_guard<std::mutex> lock (s_mutex);
+    if (Running ()) {
+        s_surfaceError.clear ();
+        s_surfaceAction = action;
+    }
+}
+std::string SurfaceTakeoffError ()
+{
+    std::lock_guard<std::mutex> lock (s_mutex);
+    return s_surfaceError;
+}
 uint64_t Generation ()
 {
     return s_generation.load ();
@@ -315,5 +381,7 @@ void Stop (bool preserve)
     s_dock = {};
     s_placementRequested = false;
     s_pending.reset ();
+    s_surfaceAction.reset ();
+    s_surfaceError.clear ();
 }
 } // namespace geomsrv::archviz::vieweredit

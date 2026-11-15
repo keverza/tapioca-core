@@ -5,6 +5,7 @@
 // only across the render boundary. The viewer has its own camera, never the census.
 #include "ArchViz/OverlayScene.hpp"
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/SurfaceTakeoffPage.hpp"
 #include <array>
 #include <memory>
 
@@ -28,6 +29,8 @@ bool Active ();
 bool Running ();
 void RequestWorkflow (const hudshell::DockPlacement& dock, uint32_t fontStep);
 bool TakeAnalysisRequest (hudshell::DockPlacement& dock, uint32_t& fontStep);
+void RequestSurfaceTakeoff (surfacetakeoff::PageAction action);
+std::string SurfaceTakeoffError ();
 uint64_t Generation ();
 void PublishFrame (Frame frame);
 std::unique_ptr<Drawing> TakeDrawing ();

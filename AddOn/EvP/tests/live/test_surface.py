@@ -326,30 +326,14 @@ def test_native_controller_calculates_with_injected_overlay_off(live_client, sur
         pytest.skip("Fixture does not request the criteria calculator")
     call = live_client.tapioca_call
     call("Tapioca.Overlay3D", {"action": "off"})
-    prepared = call(
-        "Tapioca.PrepareExposedSurfaceTakeoff",
-        {"regionMode": "allElementFaces", "coverPolicy": "construction", "extraCoverGuids": [], "surfaceNames": []},
-    )
-    identity = pin(prepared)
-    info = call("Tapioca.GetSnapshotInfo")
-    targets = sorted(
-        normalized_guid(guid).upper()
-        for guid, kind in zip(info["guids"], info["elemTypes"], strict=True)
-        if kind in (1, 2, 17, 19)
-    )
-    assert pin(info) == identity
-    assert prepared["targetGuids"] == prepared["coverGuids"] == targets
-    request = {
-        **prepared,
-        "seeds": [],
-        "contactToleranceM": 0.001,
-        "publishOverlay": False,
-        "compareNative": False,
-    }
-    expected = call("Tapioca.CalculateExteriorSurfaceTakeoff", request)
-    started = call("Tapioca.StartExposedSurfaceTakeoff", request)
+    started = call("Tapioca.StartCapturedExposedSurfaceTakeoff", {"regionMode": "allElementFaces"})
+    identity = pin(started)
     assert started["state"] == "pending" and started["generation"] > 0
-    assert pin(started) == identity
+    info = call("Tapioca.GetSnapshotInfo")
+    assert pin(info) == identity
+    inventory = list(zip(info["guids"], info["elemTypes"], strict=True))
+    targets = sorted(normalized_guid(guid).upper() for guid, kind in inventory if kind in (1, 2, 17, 19))
+    covers = sorted(normalized_guid(guid).upper() for guid, kind in inventory if kind in (1, 2, 13, 14, 17, 19))
     for _ in range(1000):
         polled = call("Tapioca.PollExposedSurfaceTakeoff")
         if polled["state"] != "pending":
@@ -363,6 +347,18 @@ def test_native_controller_calculates_with_injected_overlay_off(live_client, sur
     assert polled["lastGoodGeneration"] == started["generation"]
     assert polled["lastGoodSnapshotId"] == identity["snapshotId"]
     assert polled["lastGoodCaptureStamp"] == identity["captureStamp"]
+    request = {
+        **identity,
+        "regionMode": "allElementFaces",
+        "seeds": [],
+        "targetGuids": targets,
+        "coverGuids": covers,
+        "coverScopeId": polled["lastGoodResult"]["coverScopeId"],
+        "surfaceAttributeIndices": [],
+        "compareNative": False,
+        "publishOverlay": False,
+    }
+    expected = call("Tapioca.CalculateExteriorSurfaceTakeoff", request)
     assert polled["lastGoodResult"] == expected
 
     call("Tapioca.StartExposedSurfaceTakeoff", request)

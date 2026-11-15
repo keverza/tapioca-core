@@ -430,6 +430,7 @@ TEST_F (ControllerFixture, PublicationCommitAndCancelShareOneGenerationGate)
         return controller.CommitPublication (
             generation,
             [&] (std::string&) {
+                EXPECT_FALSE (controller.TryPoll ().has_value ());
                 gate->entered.set_value ();
                 gate->released.wait ();
                 return true;
@@ -437,6 +438,7 @@ TEST_F (ControllerFixture, PublicationCommitAndCancelShareOneGenerationGate)
             commitError);
     });
     ASSERT_EQ (entered.wait_for (kEventBound), std::future_status::ready);
+    EXPECT_FALSE (controller.TryPoll ().has_value ());
     auto cancelled = std::async (std::launch::async, [&] { return controller.Cancel (generation); });
     EXPECT_EQ (cancelled.wait_for (std::chrono::milliseconds (20)), std::future_status::timeout);
     gate->Open ();

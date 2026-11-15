@@ -28,6 +28,7 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/HudSection.hpp"
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/SurfaceTakeoffPage.hpp"
 
 #include <cstdint>
 #include <string>
@@ -51,6 +52,7 @@ struct Shell {
     hudshell::NavigationState navigation;
     uint32_t fontStep = hudshell::kFontStepDefault;
     hudsection::Run floors; // the building section's floors picked on the Selection tab
+    surfacetakeoff::PageState exposedSurfaces;
     // The Debug tab's console marks (HudConsole.hpp `Draw`): shown, and hidden by its Clear.
     uint64_t consoleSeen = 0;
     uint64_t consoleCleared = 0;

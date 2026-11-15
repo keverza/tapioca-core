@@ -19,6 +19,7 @@ def test_controller_commands_have_strict_schemas_and_registration():
         "kPrepareInput",
         "kPrepareOutput",
         "kSeededStartInput",
+        "kCapturedStartInput",
         "kStartOutput",
         "kPollOutput",
         "kEmptyInput",
@@ -44,6 +45,7 @@ def test_controller_commands_have_strict_schemas_and_registration():
         "PrepareExposedSurfaceTakeoff",
         "StartExposedSurfaceTakeoff",
         "StartSeededExposedSurfaceTakeoff",
+        "StartCapturedExposedSurfaceTakeoff",
         "PollExposedSurfaceTakeoff",
         "PublishExposedSurfaceTakeoff",
         "CancelExposedSurfaceTakeoff",
@@ -109,14 +111,23 @@ def test_generation_only_publication_uses_immutable_result_and_main_thread_sink(
 def test_document_launcher_is_stable_and_dispatches_only_after_layout():
     host = (ROOT / "ArchViz/OverlayHudHost.cpp").read_text(encoding="utf-8")
     owner = (ROOT / "ArchViz/OverlayControllerHud.cpp").read_text(encoding="utf-8")
-    assert 'surfacetakeoff::kWorkflowKey, "Exposed surfaces"' in host
-    assert "hudshell::WorkflowFamily::Document" in host
-    assert "state.exposedSurfaceRequested = true" in host
+    page = (ROOT / "ArchViz/SurfaceTakeoffPage.cpp").read_text(encoding="utf-8")
+    viewer = (ROOT / "ArchViz/DiligentHudShell.cpp").read_text(encoding="utf-8")
+    viewer_owner = (ROOT / "ArchViz/ViewerEditor.cpp").read_text(encoding="utf-8")
+    assert 'kWorkflowKey, "Exposed surfaces"' in page
+    assert "hudshell::WorkflowFamily::Document" in page
+    for renderer in (host, viewer):
+        assert "surfacetakeoff::WorkflowTab ()" in renderer
+        assert "surfacetakeoff::DrawPage (" in renderer
+    assert "store->exposedSurfaceAction = *action" in host
     assert 'DispatchCommandControlVerb ("EvP", "RunCommand"' not in host
     assert "TakeExposedSurfaceRequest" in owner
     assert 'DispatchCommandControlVerb ("EvP", "RunCommand"' in owner
     assert '"ExposedSurfaceCalculator"' in owner
-    assert '"Recalculate exposed surfaces"' in host
+    assert "StartCapturedExposedSurfaceTakeoff" not in viewer
+    assert "vieweredit::RequestSurfaceTakeoff" in viewer
+    assert "MainThreadGate::Get ().PostDeferred" in viewer_owner
+    assert "StartCapturedExposedSurfaceTakeoff" in viewer_owner
     dispatch = (ROOT / "Python/CommandControlDispatch.cpp").read_text(encoding="utf-8")
     assert "SelectionSetStore::Get ().Configure (info.path, info.selectionSets" in dispatch
     assert "CameraSetStore::Get ().Configure (info.path, info.cameraSets)" in dispatch

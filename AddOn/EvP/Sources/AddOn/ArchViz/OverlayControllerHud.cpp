@@ -35,6 +35,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDraft.hpp"
 #include "ArchViz/HudVirtualEditorDebug.hpp"
+#include "Geometry/SurfaceTakeoffController.hpp"
 #include "Palette/ProgrammeDialog.hpp"
 #include "Python/CommandControlDispatch.hpp"
 
@@ -175,24 +176,31 @@ void FollowHudState ()
         hudconsole::OpenLogs ();
     if (overlayhud::TakeCameraRepairRequest (*state))
         overlaycontrol::RepairCamera3D ();
-    if (overlayhud::TakeExposedSurfaceRequest (*state)) {
-        // The stable Document launcher uses the one existing Python run path. No
-        // worker, picker or palette run is started inside ImGui layout.
-        GS::ObjectState params, commandParams, data, error;
-        commandParams.Add ("action", GS::UniString ("Calculate"));
-        commandParams.Add ("object_scope", GS::UniString ("Criteria - captured elements"));
-        commandParams.Add ("covering", GS::UniString ("Captured construction + doors/windows"));
-        commandParams.Add ("contact_tolerance_mm", 1.0);
-        commandParams.Add ("seed_faces", 1);
-        params.Add ("folder", GS::UniString ("ExposedSurfaceCalculator"));
-        params.Add ("params", commandParams);
-        bool ok = false;
-        evp::DispatchCommandControlVerb ("EvP", "RunCommand", "Document: Exposed surfaces", params, data, error, ok);
-        if (!ok) {
-            GS::UniString message;
-            error.Get ("message", message);
-            hudconsole::Warning ("Exposed surfaces", message.IsEmpty () ? "The calculator could not start."
-                                                                        : message.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+    if (const auto action = overlayhud::TakeExposedSurfaceRequest (*state)) {
+        state->exposedSurfaceError.clear ();
+        if (action->kind == surfacetakeoff::PageAction::Kind::Cancel)
+            geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().Cancel (action->generation);
+        else {
+            // The stable Document launcher uses the one existing Python run path. No
+            // worker, picker or palette run is started inside ImGui layout.
+            GS::ObjectState params, commandParams, data, error;
+            commandParams.Add ("action", GS::UniString ("Calculate"));
+            commandParams.Add ("object_scope", GS::UniString (surfacetakeoff::LauncherScope (action->scope)));
+            commandParams.Add ("covering", GS::UniString ("Captured construction + doors/windows"));
+            commandParams.Add ("contact_tolerance_mm", 1.0);
+            commandParams.Add ("seed_faces", 1);
+            params.Add ("folder", GS::UniString ("ExposedSurfaceCalculator"));
+            params.Add ("params", commandParams);
+            bool ok = false;
+            evp::DispatchCommandControlVerb ("EvP", "RunCommand", "Document: Exposed surfaces", params, data, error,
+                                             ok);
+            if (!ok) {
+                GS::UniString message;
+                error.Get ("message", message);
+                state->exposedSurfaceError = message.IsEmpty () ? "The calculator could not start."
+                                                                : message.ToCStr (0, MaxUSize, CC_UTF8).Get ();
+                hudconsole::Warning ("Exposed surfaces", state->exposedSurfaceError);
+            }
         }
     }
     overlaylayers::Layer stairs, units, planUnits;

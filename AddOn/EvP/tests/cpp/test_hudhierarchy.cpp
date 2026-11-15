@@ -157,9 +157,9 @@ TEST (HudHierarchy, NativeExposedSurfacesLauncherNeedsNoPublishedLayer)
     Navigate (hud, {}, "exposed surfaces");
     EXPECT_EQ (hud.engine.Selected (), geomsrv::archviz::surfacetakeoff::kWorkflowKey);
     EXPECT_EQ (hud.state->host.workflow, geomsrv::archviz::surfacetakeoff::kWorkflowKey);
-    EXPECT_TRUE (hud::TakeExposedSurfaceRequest (*hud.state));
     EXPECT_FALSE (hud::TakeExposedSurfaceRequest (*hud.state));
-    // Rendering the launch page does not dispatch work by itself.
+    EXPECT_FALSE (hud::TakeExposedSurfaceRequest (*hud.state));
+    // Selecting and rendering the calculator page never starts work by itself.
     hud.Lay ({}, At (0, 0));
     EXPECT_FALSE (hud::TakeExposedSurfaceRequest (*hud.state));
 }

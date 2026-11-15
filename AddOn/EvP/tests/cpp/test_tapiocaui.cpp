@@ -9,6 +9,8 @@
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudShellTabs.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "ArchViz/SurfaceTakeoffPage.hpp"
+#include "Geometry/SurfaceTakeoffController.hpp"
 #include "ArchViz/TapiocaUI/Demo/WidgetGallery.hpp"
 #include "ArchViz/TapiocaUI/Foundation/IconData.hpp"
 #include "ArchViz/TapiocaUI/Foundation/Icons.hpp"
@@ -73,6 +75,47 @@ struct Stacks {
 };
 
 } // namespace
+
+TEST (SurfaceTakeoffPage, ReturnsExplicitCalculateAndGenerationScopedCancel)
+{
+    namespace page = geomsrv::archviz::surfacetakeoff;
+    namespace takeoff = geomsrv::surfacetakeoff;
+    Context context;
+    page::PageState state;
+    state.scope = page::TargetScope::Walls;
+    takeoff::ControllerView view;
+    ImVec2 centre;
+    const auto frame = [&] (bool down) {
+        auto& io = ImGui::GetIO ();
+        io.AddMousePosEvent (centre.x, centre.y);
+        io.AddMouseButtonEvent (0, down);
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 10, 10 });
+        ImGui::SetNextWindowSize ({ 340, 300 });
+        ImGui::Begin ("surface test", nullptr, ImGuiWindowFlags_NoDecoration);
+        const auto start = ImGui::GetCursorScreenPos ();
+        centre = { start.x + 15, start.y + 2 * ImGui::GetTextLineHeightWithSpacing () +
+                                     ImGui::GetFrameHeightWithSpacing () + ImGui::GetFrameHeight () * 0.5f };
+        const auto action = page::DrawPage (state, &view, {});
+        ImGui::End ();
+        ImGui::Render ();
+        return action;
+    };
+    EXPECT_FALSE (frame (false));
+    EXPECT_FALSE (frame (true));
+    const auto calculate = frame (false);
+    ASSERT_TRUE (calculate);
+    EXPECT_EQ (calculate->kind, page::PageAction::Kind::Calculate);
+    EXPECT_EQ (calculate->scope, page::TargetScope::Walls);
+    view.state = takeoff::ControllerState::Pending;
+    view.generation = 42;
+    EXPECT_FALSE (frame (false));
+    EXPECT_FALSE (frame (true));
+    const auto cancel = frame (false);
+    ASSERT_TRUE (cancel);
+    EXPECT_EQ (cancel->kind, page::PageAction::Kind::Cancel);
+    EXPECT_EQ (cancel->generation, 42u);
+}
 
 TEST (TapiocaUiUnits, EitherDecimalSeparatorReadsTheSameNumber)
 {

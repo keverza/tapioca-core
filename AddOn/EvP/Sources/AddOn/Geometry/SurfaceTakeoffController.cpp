@@ -206,6 +206,21 @@ ControllerView SurfaceTakeoffController::ViewLocked () const
 ControllerView SurfaceTakeoffController::Poll ()
 {
     std::lock_guard<std::mutex> lock (mutex_);
+    return PollLocked ();
+}
+
+std::optional<ControllerView> SurfaceTakeoffController::TryPoll ()
+{
+    if (publishing_.load ())
+        return std::nullopt;
+    const std::unique_lock<std::mutex> lock (mutex_, std::try_to_lock);
+    if (!lock)
+        return std::nullopt;
+    return PollLocked ();
+}
+
+ControllerView SurfaceTakeoffController::PollLocked ()
+{
     if (ready_) {
         auto ticket = std::move (completed_);
         auto result = std::move (completion_);
@@ -283,6 +298,14 @@ bool SurfaceTakeoffController::CommitPublication (uint64_t generation,
         error = "The requested controller result is not current.";
         return false;
     }
+    struct PublicationScope {
+        std::atomic<bool>& active;
+        ~PublicationScope ()
+        {
+            active.store (false);
+        }
+    } scope { publishing_ };
+    publishing_.store (true);
     return publish (error);
 }
 

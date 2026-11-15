@@ -73,6 +73,10 @@ const char kSeededStartInput[] = R"json({
                "surfaceAttributeIndices","compareNative"],
  "$defs":{"guid":{"type":"string","minLength":1,"maxLength":38}}
 })json";
+const char kCapturedStartInput[] = R"json({
+ "type":"object","additionalProperties":false,
+ "properties":{"regionMode":{"enum":["allWallFaces","allElementFaces"]}},"required":["regionMode"]
+})json";
 const char kStartOutput[] = R"json({
  "type":"object","additionalProperties":false,
  "properties":{
@@ -274,6 +278,29 @@ class StartSeededTakeoffCommand : public MainThreadCommand {
     }
 };
 
+class StartCapturedTakeoffCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "StartCapturedExposedSurfaceTakeoff";
+    }
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        // The viewer uses the same preparation/worker seams without an overlay publication.
+        GS::ObjectState input = params;
+        input.Add ("coverPolicy", Text ("constructionWithOpenings"));
+        input.Add ("extraCoverGuids", GS::Array<GS::UniString> ());
+        input.Add ("surfaceNames", GS::Array<GS::UniString> ());
+        auto prepared = ExecuteNativeCommand ("PrepareExposedSurfaceTakeoff", input);
+        if (!prepared.ok)
+            return prepared;
+        prepared.data.Add ("seeds", GS::Array<GS::ObjectState> ());
+        prepared.data.Add ("compareNative", false);
+        prepared.data.Add ("publishOverlay", false);
+        return ExecuteNativeCommand ("StartExposedSurfaceTakeoff", prepared.data);
+    }
+};
+
 class PollTakeoffCommand : public MainThreadCommand {
   public:
     GS::String GetName () const override
@@ -371,6 +398,8 @@ const NativeCommandRegistration kRegistrations[] = {
       SurfaceTakeoffInputSchema (), kStartOutput },
     { "StartSeededExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<StartSeededTakeoffCommand>, false,
       kSeededStartInput, kStartOutput },
+    { "StartCapturedExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<StartCapturedTakeoffCommand>, false,
+      kCapturedStartInput, kStartOutput },
     { "PollExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<PollTakeoffCommand>, false, kEmptyInput, kPollOutput },
     { "PublishExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<PublishTakeoffCommand>, false, kPublishInput,
       kPublishOutput },
@@ -383,4 +412,5 @@ NativeCommandRegistrations GetSurfaceTakeoffControllerCommandRegistrations ()
 {
     return MakeRegistrationView (kRegistrations);
 }
+
 } // namespace geomsrv
