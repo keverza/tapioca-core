@@ -5,14 +5,19 @@
 // to the flats (T5-T7) and, where a thin wing can be planned two ways, keeps the better floor.
 namespace geomsrv::archviz::floorscheme {
 namespace {
-// Net area less what the stairs cost and the floor left unassigned; a broken scheme loses.
-double Economy (const Scheme& s, const Options& o)
+// Net area less what the stairs cost and the floor left unassigned; a broken scheme loses. A flat
+// counts for no more than the largest flat there is (`cap`): two halls of 150 m2 either side of one
+// stair are not worth more than four flats on a corridor (user, 2026-11-15: a thin bar with a
+// corridor on one edge was passed over for them).
+double Economy (const Scheme& s, const Options& o, double cap)
 {
-    double red = 0;
+    double red = 0, net = 0;
     for (const auto& u : s.unassigned)
         if (u.reason.find ("storage") == std::string::npos)
             red += std::abs (Area (u.shape));
-    return s.net - o.stairCost * static_cast<double> (s.cores.size ()) - red - (s.ok ? 0.0 : 1e6);
+    for (const auto& f : s.flats)
+        net += (std::min) (f.net, cap);
+    return net - o.stairCost * static_cast<double> (s.cores.size ()) - red - (s.ok ? 0.0 : 1e6);
 }
 } // namespace
 
@@ -36,7 +41,7 @@ Weighed Weigh (const std::vector<Ring>& outline, const floorprogramme::Programme
 {
     Weighed w;
     w.plans.emplace_back (options.shallow, detail::PlanFloor (outline, programme, pins, options));
-    w.scores.push_back (Economy (w.plans[0].second, options));
+    w.scores.push_back (Economy (w.plans[0].second, options, MaxFlat (programme, options)));
     if (options.shallow != Access::Auto)
         return w;
     // Typology adaptation (user, 2026-10-10): shallow wings planned as sections are weighed
@@ -50,7 +55,7 @@ Weighed Weigh (const std::vector<Ring>& outline, const floorprogramme::Programme
     Options corridor = options;
     corridor.shallow = Access::OneSide;
     w.plans.emplace_back (Access::OneSide, detail::PlanFloor (outline, programme, pins, corridor));
-    w.scores.push_back (Economy (w.plans[1].second, options));
+    w.scores.push_back (Economy (w.plans[1].second, options, MaxFlat (programme, options)));
     w.chosen = w.scores[1] > w.scores[0] ? 1 : 0;
     return w;
 }
