@@ -820,7 +820,7 @@ TEST (HudFloorSchemeEdit, AnEditThatCannotBeMadeIsSaidUnderTheTools)
     EXPECT_FALSE (bp::Dirty (drafts["A"])) << "nothing changed";
     frame ({ 5, 5 }, false);
     EXPECT_LT (notice.x, notice.z) << "the reason is drawn";
-    EXPECT_LT (notice.w, floor.y) << "under the tools, above the plan";
+    EXPECT_GT (notice.y, floor.w) << "under the plan, where it moves nothing";
     EXPECT_EQ (planner.Latest (bp::FloorId ("A", 0))->scheme.flats.size (), flats);
 }
 

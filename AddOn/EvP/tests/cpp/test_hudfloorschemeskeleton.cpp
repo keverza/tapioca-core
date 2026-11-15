@@ -1,6 +1,7 @@
-// The Plan view's Skeleton stage headless: the wings the floor is planned on drawn over the plan,
-// a wing's end dragged in 0.4 m steps and the floor planned again on the user's wing, a drag the
-// floor cannot take said and not made, a corridor dragged across its wing.
+// The skeleton on the Plan view's canvas, headless: the wings the floor is planned on drawn over
+// the flats in the one view, a wing's side dragged in 0.4 m steps and the floor planned again on
+// the user's wing, a drag the floor cannot take said and not made, a corridor's leg dragged across
+// its wing, a stair's side dragged -- and the flats still held by the canvas under them.
 #include "ArchViz/FloorSchemeEdit.hpp"
 #include "ArchViz/HudFloorSchemeEdit.hpp"
 #include "ArchViz/HudFloorSchemeEditDetail.hpp"
@@ -122,39 +123,34 @@ struct Panel {
 };
 } // namespace
 
-TEST (HudFloorSchemeSkeleton, TheSkeletonStageDrawsTheWingsOverThePlan)
+TEST (HudFloorSchemeSkeleton, TheWingsAreDrawnOverTheFlatsInTheOneView)
 {
     Panel p;
     p.Settle ();
     ASSERT_NE (p.editor, nullptr);
     ASSERT_TRUE (p.editor->have);
-    EXPECT_EQ (p.editor->stage, hf::Stage::Units);
-    p.editor->stage = hf::Stage::Skeleton;
     p.Frame ({ 5, 5 }, false);
-    ASSERT_GT (p.floor.z, p.floor.x) << "the plan is still drawn under the skeleton";
-    // The generator's one wing, in blue, over the whole floor.
+    ASSERT_GT (p.floor.z, p.floor.x) << "the plan is drawn";
+    // The generator's one wing, in blue, round the whole floor.
     EXPECT_NEAR (p.found.x, p.floor.x, 3);
     EXPECT_NEAR (p.found.z, p.floor.z, 3);
-    EXPECT_GT (p.mine.x, p.mine.z) << "nothing is the user's yet: no accent, no grips";
-    // Clicked, the wing is selected and shows its grips.
+    EXPECT_EQ (p.editor->sketch.items.size (),
+               p.editor->scheme.wings.size () + p.editor->scheme.corridors.size () + p.editor->scheme.cores.size ());
+    EXPECT_FALSE (p.editor->graph.edges.empty ()) << "how the flats are entered is drawn";
+    // Inside a flat the pointer is the canvas's: the flat is selected, nothing of the skeleton held.
     p.Click ({ 30, 4 });
-    EXPECT_EQ (p.editor->wing, 0);
-    p.Frame ({ 5, 5 }, false);
-    EXPECT_LT (p.mine.x, p.mine.z) << "the selected wing's grips";
+    EXPECT_EQ (p.editor->selected.kind, hf::Kind::Flat);
+    EXPECT_FALSE (p.editor->hold.Held ());
     EXPECT_FALSE (bp::Dirty (p.drafts["A"])) << "looking changes nothing";
 }
 
-TEST (HudFloorSchemeSkeleton, AWingsEndIsDraggedInStepsAndTheFloorPlannedOnIt)
+TEST (HudFloorSchemeSkeleton, AWingsSideIsDraggedInStepsAndTheFloorPlannedOnIt)
 {
     Panel p;
     p.Settle ();
     ASSERT_NE (p.editor, nullptr);
-    p.editor->stage = hf::Stage::Skeleton;
-    p.Frame ({ 5, 5 }, false);
-    p.Click ({ 30, 4 });
-    ASSERT_EQ (p.editor->wing, 0);
     // The end at x = 60 pulled in 4.1 m: it lands 4.0 m in.
-    p.Drag ({ 59.8, 8 }, { 55.7, 8 });
+    p.Drag ({ 59.9, 4 }, { 55.8, 4 });
     ASSERT_EQ (p.Design ().pins.wings.size (), 1u) << p.editor->notice;
     const auto& wing = p.Design ().pins.wings[0];
     EXPECT_NEAR ((std::max) (wing.a.x, wing.b.x), 56, 1e-6);
@@ -172,23 +168,25 @@ TEST (HudFloorSchemeSkeleton, AWingsEndIsDraggedInStepsAndTheFloorPlannedOnIt)
     EXPECT_LT (p.mine.z, p.floor.z - 20) << "and stops short of the floor's end";
 }
 
-TEST (HudFloorSchemeSkeleton, ADragTheFloorCannotTakeIsSaidAndNotMade)
+TEST (HudFloorSchemeSkeleton, ADragTheFloorCannotTakeIsSaidUnderThePlanAndNotMade)
 {
     Panel p;
     p.Settle ();
     ASSERT_NE (p.editor, nullptr);
-    p.editor->stage = hf::Stage::Skeleton;
-    p.Frame ({ 5, 5 }, false);
-    p.Click ({ 30, 4 });
-    // The whole wing dragged 2 m along the floor: 2 m of it would lie outside.
-    p.Drag ({ 30, 4 }, { 32.1, 4 });
+    const ImVec4 before = p.floor;
+    // The wing's end pushed 2 m out of the floor.
+    p.Drag ({ 59.9, 4 }, { 62.0, 4 });
     EXPECT_NE (p.editor->notice.find ("outside the floor"), std::string::npos) << p.editor->notice;
     EXPECT_FALSE (bp::Dirty (p.drafts["A"]));
     EXPECT_TRUE (p.editor->undo.empty ());
     EXPECT_EQ (p.editor->drag, hf::Drag::None);
+    // Said under the plan: the plan has not moved.
+    p.Frame ({ 5, 5 }, false);
+    EXPECT_NEAR (p.floor.y, before.y, 0.5);
+    EXPECT_NEAR (p.floor.w, before.w, 0.5);
 }
 
-TEST (HudFloorSchemeSkeleton, ACorridorIsDraggedAcrossItsWing)
+TEST (HudFloorSchemeSkeleton, ACorridorsLegIsDraggedAcrossItsWing)
 {
     Panel p;
     p.Settle ();
@@ -196,8 +194,6 @@ TEST (HudFloorSchemeSkeleton, ACorridorIsDraggedAcrossItsWing)
     const auto lane = fe::CorridorOf (p.editor->scheme, 0);
     ASSERT_TRUE (lane.has_value ()) << "the bar has a centre corridor";
     EXPECT_NEAR (lane->y, 8, 1e-6);
-    p.editor->stage = hf::Stage::Skeleton;
-    p.Frame ({ 5, 5 }, false);
     // Held by its middle line and moved 1.3 m across the wing: 1.2 m, in steps.
     p.Drag ({ lane->x, 8 }, { lane->x, 9.3 });
     ASSERT_EQ (p.Design ().pins.corridors.size (), 1u) << p.editor->notice;
@@ -213,41 +209,22 @@ TEST (HudFloorSchemeSkeleton, ACorridorIsDraggedAcrossItsWing)
     EXPECT_NEAR (p.Design ().pins.corridors[0].at.y, 9.2, 1e-6);
 }
 
-// The stage picks, drags and snaps as the virtual editor does (FloorSchemeSketch.hpp): a stair held
-// by its body goes along its wing, a corridor held by its end runs along its own line.
-TEST (HudFloorSchemeSkeleton, AStairAndACorridorsEndAreDraggedWithTheVirtualEditorsKernel)
+TEST (HudFloorSchemeSkeleton, AStairsSideIsDraggedAndItsBodyIsStillTheCanvass)
 {
     Panel p;
     p.Settle ();
     ASSERT_NE (p.editor, nullptr);
     ASSERT_FALSE (p.editor->scheme.cores.empty ());
-    ASSERT_FALSE (p.editor->scheme.corridors.empty ());
-    p.editor->stage = hf::Stage::Skeleton;
-    p.Frame ({ 5, 5 }, false);
-    EXPECT_EQ (p.editor->sketch.items.size (),
-               p.editor->scheme.wings.size () + p.editor->scheme.corridors.size () + p.editor->scheme.cores.size ());
-    EXPECT_FALSE (p.editor->graph.edges.empty ()) << "how the flats are entered is drawn";
-    // The corridor's far end pulled 2.1 m back along it, the pointer drifting across: it stays on
-    // its line and lands within the snap's reach of 2 m.
-    const fs::Vec end = p.editor->scheme.corridors[0].axis.back (), start = p.editor->scheme.corridors[0].axis.front ();
-    const double way = end.x > start.x ? -1 : 1;
-    p.Drag (end, { end.x + way * 2.1, end.y + 0.3 });
-    ASSERT_EQ (p.Design ().pins.ends.size (), 1u) << p.editor->notice;
-    EXPECT_NEAR (p.Design ().pins.ends[0].at.y, end.y, 1e-6);
-    EXPECT_NEAR (p.Design ().pins.ends[0].at.x, end.x + way * 2.0, 0.6);
-    EXPECT_TRUE (p.Design ().pins.wings.empty ()) << "a corridor's length does not make the wings the user's";
-    EXPECT_EQ (p.editor->undo.size (), 1u);
-    p.Settle ();
-    // A stair held inside itself and taken 2.5 m along the wing.
     const auto core = p.editor->scheme.cores[0];
-    p.Drag (core.centre, { core.centre.x + 2.5, core.centre.y });
-    EXPECT_EQ (p.editor->undo.size (), 2u) << p.editor->notice;
+    // Inside the stair the canvas holds it, as before.
+    p.Click (core.centre);
+    EXPECT_EQ (p.editor->selected.kind, hf::Kind::Stair);
+    // Its side facing +x, pulled 0.8 m out: the stair is 0.8 m wider.
+    p.Drag ({ core.centre.x + core.width / 2, core.centre.y }, { core.centre.x + core.width / 2 + 0.8, core.centre.y });
+    EXPECT_EQ (p.editor->undo.size (), 1u) << p.editor->notice;
     p.Settle ();
     const auto& cores = p.planner.Latest (bp::FloorId ("A", 0))->scheme.cores;
     EXPECT_TRUE (std::any_of (cores.begin (), cores.end (), [&] (const fs::Core& c) {
-        return std::abs (c.centre.x - (core.centre.x + 2.4)) < 0.6;
-    })) << "the stair stands where it was dropped";
-    EXPECT_TRUE (std::none_of (cores.begin (), cores.end (), [&] (const fs::Core& c) {
-        return std::abs (c.centre.x - core.centre.x) < 0.3;
-    })) << "and no longer where it was";
+        return std::abs (c.width - (core.width + 0.8)) < 0.45;
+    })) << "the stair is wider";
 }

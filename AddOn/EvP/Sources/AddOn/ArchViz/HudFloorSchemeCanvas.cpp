@@ -804,7 +804,8 @@ void Canvas (Editor& e, Context& c, float scale)
         Dropped (e, c, mouse, insertion, stairDrop);
         ImGui::EndDragDropTarget ();
     }
-    const Pointing at = Interact (e, c, v, hovered);
+    // The skeleton's edges first (a wing's side, a corridor's leg, a stair's side), then the rest.
+    const Pointing at = SkeletonPointer (e, c, v, hovered, scale) ? Pointing {} : Interact (e, c, v, hovered);
 
     // ---- drawing ----
     draw->AddRectFilled (v.origin, end, ImGui::GetColorU32 (ImGuiCol_FrameBg), 4 * scale);
@@ -905,6 +906,7 @@ void Canvas (Editor& e, Context& c, float scale)
         if (d.level == fs::Diagnostic::Error)
             draw->AddCircleFilled (v.P (d.at), 4 * scale, kRed);
     Marks (e, c, v, draw, scale, at);
+    SkeletonMarks (e, c, v, draw, scale, hovered);
     const Target selected = shown == &s ? e.selected : Again (*shown, e.selected, e.selectedAt);
     // The selected flat's size, along the facade by across, in the canvas's lower right corner --
     // dimension lines covered too much of the small plan (user, 2026-10-15: "Instead of alligned

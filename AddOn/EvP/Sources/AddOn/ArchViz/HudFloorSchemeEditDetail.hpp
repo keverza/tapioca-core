@@ -26,9 +26,6 @@ struct Target {
     std::optional<fe::End> end;
 };
 enum class Drag : uint8_t { None, Body, Arrow };
-// What the Plan view's canvas shows and edits: the flats, or the skeleton they are made on -- the
-// wings and each wing's corridor (HudFloorSchemeSkeleton.cpp).
-enum class Stage : uint8_t { Units, Skeleton };
 // What a skeleton gesture holds: a part of the skeleton's drawing (FloorSchemeSketch.hpp: a wing's
 // side, corner or the wing; a corridor's end or leg; a stair's side or the stair), picked with the
 // virtual editor's pick in the drawing made from the scheme the gesture began on -- or a flat, by
@@ -117,9 +114,9 @@ struct Editor {
     // The Skeleton stage: the wing selected there (the scheme's index) and what a gesture holds.
     // Its gesture uses `drag`, `from`, `at`, `base` and `baseDesign` like any other. `sketch` and
     // `graph` are the shown scheme's, made once per scheme (`sketchOf`).
-    Stage stage = Stage::Units;
-    int wing = -1;
-    SkeletonHold hold;
+    int wing = -1;             // the wing the menu was opened in
+    SkeletonHold hold;         // held: `drag` is the skeleton's, not the canvas's
+    ::geomsrv::edit::Ref over; // the skeleton's part under the pointer this frame
     fs::sketch::Sketch sketch;
     fs::sketch::Graph graph;
     uint64_t sketchOf = UINT64_MAX;
@@ -214,10 +211,15 @@ const char* AccessName (fs::Access a);
 // each gesture one undo step; a flat's node dropped on another changes their places. An edit the
 // floor cannot take is red while held and said on the notice line. Only on the canvas, never on
 // the view.
-void SkeletonCanvas (Editor& e, Context& c, float scale);
-// Its right-click menu ("##skeletonMenu"): a wing's access, corridor width, removal; a wing added
-// to free floor; the skeleton kept as the user's or given back to the generator.
-void SkeletonMenu (Editor& e, Context& c);
+// The skeleton's turn at the pointer, before the canvas's own: true when it has it -- an edge of the
+// skeleton is under it, or its gesture is held -- and the canvas then leaves the pointer alone.
+bool SkeletonPointer (Editor& e, Context& c, const View& v, bool hovered, float scale);
+// The skeleton over the flats: wings, corridor centre lines, the access graph, the part under the
+// pointer and the held gesture; inside the canvas's clip rectangle.
+void SkeletonMarks (Editor& e, Context& c, const View& v, ImDrawList* draw, float scale, bool hovered);
+// The wing's and its corridor's items in the right-click menu, for the wing under Editor::menuAt:
+// access, corridor width, removal; a wing added to free floor; the wings kept or given back.
+void SkeletonMenuItems (Editor& e, Context& c);
 // What the held skeleton gesture makes of the scheme it began on.
 SkeletonPull SkeletonGesture (const Editor& e, const Context& c);
 // HudFloorSchemeMorph.cpp: the morphs from what was shown (`before`, each outline and its colour) to

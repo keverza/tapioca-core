@@ -374,6 +374,11 @@ void Menu (Editor& e, Context& c, bp::Draft& draft, const bp::Plan& plan, const 
         if (ImGui::MenuItem ("Export plan"))
             asked.exportPlan = true;
     }
+    ImGui::Separator ();
+    if (ImGui::BeginMenu ("Wing and corridor")) {
+        SkeletonMenuItems (e, c);
+        ImGui::EndMenu ();
+    }
     ImGui::EndPopup ();
 }
 } // namespace detail
@@ -437,12 +442,6 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
         geomsrv::archviz::hudshell::ItemTip ("%s", tip);
     }
     ImGui::EndDisabled ();
-    // Why the last edit could not be made (user, 2026-10-14: no silent failure).
-    if (const auto notice = Fresh (e); !notice.empty ()) {
-        ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.86f, 0.52f, 0.13f, 1));
-        ImGui::TextWrapped ("%s", notice.c_str ());
-        ImGui::PopStyleColor ();
-    }
     // Save and Discard: every building the edits changed (a party wall moves two).
     std::vector<std::string> dirty;
     for (auto& [name, d] : drafts)
@@ -476,29 +475,19 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
         ImGui::TextUnformatted ("A building or its saved plan changed in the project; Discard reloads it.");
         ImGui::EndPopup ();
     }
-    // The stage: the flats, or the skeleton they are made on (wings, corridors).
-    for (const auto& [label, stage, tip] :
-         { std::tuple { "Units", Stage::Units, "Flats, stairs and walls" },
-           std::tuple { "Skeleton", Stage::Skeleton,
-                        "The wings the floor is planned on and each wing's corridor: drag a wing, its sides or "
-                        "its corridor; right click for more" } }) {
-        if (stage != Stage::Units)
-            ImGui::SameLine ();
-        if (ImGui::RadioButton (label, e.stage == stage) && e.stage != stage && e.drag == Drag::None) {
-            e.stage = stage;
-            e.selected = {}, e.wing = -1, e.hold = {};
-        }
-        geomsrv::archviz::hudshell::ItemTip ("%s", tip);
+    Palette (c.programme, scale);
+    Canvas (e, c, scale);
+    Menu (e, c, draft, plan->second, *floor, asked);
+    // Why the last edit could not be made (user, 2026-10-14: no silent failure), under the plan in
+    // a place that is always there (user, 2026-11-15: above it, it moved the layout).
+    const float noticeTop = ImGui::GetCursorPosY ();
+    if (const auto notice = Fresh (e); !notice.empty ()) {
+        ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.86f, 0.52f, 0.13f, 1));
+        ImGui::TextWrapped ("%s", notice.c_str ());
+        ImGui::PopStyleColor ();
     }
-    if (e.stage == Stage::Skeleton) {
-        SkeletonCanvas (e, c, scale);
-        SkeletonMenu (e, c);
-    }
-    else {
-        Palette (c.programme, scale);
-        Canvas (e, c, scale);
-        Menu (e, c, draft, plan->second, *floor, asked);
-    }
+    // Two lines kept for it whether it speaks or not; a longer one takes what it needs.
+    ImGui::SetCursorPosY ((std::max) (ImGui::GetCursorPosY (), noticeTop + 2 * ImGui::GetTextLineHeightWithSpacing ()));
 
     // One line on the floor; the problems in its tooltip.
     if (!e.have) {
