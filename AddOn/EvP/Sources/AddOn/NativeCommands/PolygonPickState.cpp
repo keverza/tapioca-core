@@ -35,9 +35,12 @@ bool IsFiniteNormal (const double n[3])
 
 } // namespace
 
-BeginStatus PolygonPickState::Begin (const std::string& newRequestId, const WorldIdentity& world, Token& outToken)
+BeginStatus PolygonPickState::Begin (const std::string& newRequestId, const WorldIdentity& world, Token& outToken,
+                                     uint64_t expectedGeneration)
 {
     std::lock_guard<std::mutex> lock (mtx);
+    if (expectedGeneration != 0 && expectedGeneration != generation)
+        return BeginStatus::LifecycleChanged;
 
     // Both refusals are deliberate. A queued request that has not reached the SDK
     // is still owned by a live token, and a physically running GetPoint cannot be

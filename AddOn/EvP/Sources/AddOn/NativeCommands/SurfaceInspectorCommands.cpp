@@ -333,25 +333,11 @@ class PickPolygonCommand : public MainThreadCommand {
             GS::UniString prompt;
             params.Get ("prompt", prompt); // the start schema forbids requestId: the server owns it
 
-            const std::string id = GenerateRequestId ();
-            polygonpick::Token token;
-            const polygonpick::BeginStatus begin = s_pickState.Begin (id, ReadWorld (), token);
-            if (begin == polygonpick::BeginStatus::BusyRequest)
-                return NativeCommandResult::Failure (EVP_FAIL (
-                    "a pick request is already pending; poll or cancel it first", "Tapioca.PickPolygon start"));
-            if (begin == polygonpick::BeginStatus::BusyInput)
+            std::string id, error;
+            if (!StartSurfacePolygonPick (ToStl (prompt), ReadWorld (), 0, id, error))
                 return NativeCommandResult::Failure (
-                    EVP_FAIL ("a pick is already in progress; wait for it to finish", "Tapioca.PickPolygon start"));
+                    EVP_FAIL (GS::UniString (error.c_str (), CC_UTF8), "Tapioca.PickPolygon start"));
 
-            if (!PostPick (token, ToStl (prompt))) {
-                // Never leave the request Pending forever: a gate that will not
-                // dispatch cannot ever complete it.
-                s_pickState.Fail (token, 0, "the main-thread gate is not dispatching; the pick was not started");
-                return NativeCommandResult::Failure (EVP_FAIL (
-                    "the main-thread gate is not dispatching; the pick was not started", "Tapioca.PickPolygon start"));
-            }
-
-            archviz::ArchVizLog ("surface pick: start id=" + id + " generation=" + std::to_string (token.generation));
             GS::ObjectState os;
             os.Add ("state", GS::UniString ("pending"));
             os.Add ("requestId", GS::UniString (id.c_str (), CC_UTF8));
@@ -366,23 +352,13 @@ class PickPolygonCommand : public MainThreadCommand {
             }
             const std::string id = ToStl (requestId);
 
-            polygonpick::Outcome outcome;
-            if (action == "cancel") {
-                polygonpick::Token token;
-                if (s_pickState.RequestCancel (id, token))
-                    PostCancelUserInput (token); // bound to the exact token/generation
-                outcome = s_pickState.Peek (id); // cancel does not consume
-            }
-            else {
-                outcome = s_pickState.Poll (id, ReadWorld ()); // poll consumes a terminal state
-            }
+            const auto outcome = action == "cancel" ? CancelSurfacePolygonPick (id) : PollSurfacePolygonPick (id);
             return BuildOutcomeResponse (id, outcome);
         }
 
         return NativeCommandResult::Failure (EVP_FAIL ("action must be start, poll or cancel", "Tapioca.PickPolygon"));
     }
 
-  private:
     static std::string GenerateRequestId ()
     {
         static std::atomic<uint64_t> counter { 0 };
@@ -392,7 +368,7 @@ class PickPolygonCommand : public MainThreadCommand {
     static bool PostPick (const polygonpick::Token& token, const std::string& prompt)
     {
         GS::UniString gateError;
-        return evp::MainThreadGate::Get ().Post (
+        return evp::MainThreadGate::Get ().PostDeferred (
             [token, prompt] () {
                 try {
                     RunPick (token, prompt);
@@ -429,6 +405,7 @@ class PickPolygonCommand : public MainThreadCommand {
             gateError);
     }
 
+  private:
     static void CopyPrompt (char (&dest)[256], const std::string& prompt)
     {
         dest[0] = '\0';
@@ -573,6 +550,7 @@ class PickPolygonCommand : public MainThreadCommand {
         {
             s_callbackTarget.store (&s_pickState, std::memory_order_release);
             s_callbackToken = token;
+            archviz::ArchVizLog ("surface pick: input id=" + token.requestId);
             err = ACAPI_UserInput_GetPoint (&pointInfo, nullptr, &SurfacePickComponentProc);
             s_callbackTarget.store (nullptr, std::memory_order_release);
         }
@@ -580,6 +558,7 @@ class PickPolygonCommand : public MainThreadCommand {
         if (err == APIERR_CANCEL) {
             // A real SDK cancellation: keep its raw code in the failure.
             s_pickState.Cancelled (token, err, "the user cancelled the pick");
+            archviz::ArchVizLog ("surface pick: SDK cancelled id=" + token.requestId);
             return;
         }
 
@@ -714,6 +693,54 @@ const NativeCommandRegistration kSurfaceInspectorCommandRegistrations[] = {
 NativeCommandRegistrations GetSurfaceInspectorCommandRegistrations ()
 {
     return MakeRegistrationView (kSurfaceInspectorCommandRegistrations);
+}
+
+uint64_t SurfacePolygonPickGeneration ()
+{
+    return s_pickState.Generation ();
+}
+
+bool StartSurfacePolygonPick (const std::string& prompt, const polygonpick::WorldIdentity& world,
+                              uint64_t pickGeneration, std::string& id, std::string& error)
+{
+    const auto candidate = PickPolygonCommand::GenerateRequestId ();
+    polygonpick::Token token;
+    switch (s_pickState.Begin (candidate, world, token, pickGeneration)) {
+        case polygonpick::BeginStatus::BusyRequest:
+            error = "a pick request is already pending; poll or cancel it first";
+            return false;
+        case polygonpick::BeginStatus::BusyInput:
+            error = "a pick is already in progress; wait for it to finish";
+            return false;
+        case polygonpick::BeginStatus::LifecycleChanged:
+            error = "the document changed before the pick could be posted";
+            return false;
+        case polygonpick::BeginStatus::Accepted:
+            break;
+    }
+    if (!PickPolygonCommand::PostPick (token, prompt)) {
+        error = "the main-thread gate is not dispatching; the pick was not started";
+        s_pickState.Fail (token, 0, error);
+        return false;
+    }
+    archviz::ArchVizLog ("surface pick: start id=" + candidate + " generation=" + std::to_string (token.generation));
+    id = candidate;
+    return true;
+}
+
+polygonpick::Outcome PollSurfacePolygonPick (const std::string& id)
+{
+    return s_pickState.Poll (id, ReadWorld ());
+}
+
+polygonpick::Outcome CancelSurfacePolygonPick (const std::string& id)
+{
+    polygonpick::Token token;
+    if (s_pickState.RequestCancel (id, token)) {
+        archviz::ArchVizLog ("surface pick: cancel requested id=" + token.requestId);
+        PickPolygonCommand::PostCancelUserInput (token);
+    }
+    return s_pickState.Peek (id);
 }
 
 void ResetSurfaceInspectorState ()

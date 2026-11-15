@@ -1,4 +1,5 @@
 #include "Geometry/SurfaceTakeoffController.hpp"
+#include "NativeCommands/SurfaceTakeoffSeedInput.hpp"
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -9,6 +10,142 @@ namespace {
 using namespace geomsrv;
 using namespace geomsrv::surfacetakeoff;
 constexpr auto kEventBound = std::chrono::seconds (10);
+
+class SeedInputFixture : public testing::Test {
+  protected:
+    Request request;
+    polygonpick::PolygonPickState state;
+    polygonpick::WorldIdentity world { 7, true, 5 };
+    const uint64_t lifecycle = state.Generation ();
+    polygonpick::Token token;
+    std::vector<std::string> prompts, cancelled;
+    bool stopped = false;
+    std::function<void ()> onWait;
+    SeedPicker picker { [this] (const std::string& prompt, std::string& id, std::string& error) {
+                           const std::string candidate = "owned-" + std::to_string (prompts.size () + 1);
+                           const auto started = state.Begin (candidate, world, token, lifecycle);
+                           if (started != polygonpick::BeginStatus::Accepted) {
+                               error = "picker refused";
+                               return false;
+                           }
+                           id = candidate;
+                           prompts.push_back (prompt);
+                           EXPECT_EQ (state.BeginInput (token, world), polygonpick::InputStart::Started);
+                           return true;
+                       },
+                        [this] (const std::string& id) { return state.Poll (id, world); },
+                        [this] (const std::string& id) {
+                            cancelled.push_back (id);
+                            polygonpick::Token owned;
+                            state.RequestCancel (id, owned);
+                        },
+                        [this] {
+                            return stopped || world.captureStamp != request.captureStamp ||
+                                   world.snapshotId != request.snapshotId;
+                        },
+                        [this] { onWait (); } };
+
+    void SetUp () override
+    {
+        request.snapshotId = world.snapshotId;
+        request.captureStamp = world.captureStamp;
+        request.targetGuids = { "WALL" };
+    }
+
+    void CommitFace (bool match = true)
+    {
+        polygonpick::Sighting sighting;
+        sighting.valid = true;
+        sighting.guid = "wall";
+        sighting.ipgon = match ? 42 : 10;
+        sighting.normal[2] = 1;
+        state.OnComponent (token, sighting);
+        polygonpick::FacePick pick;
+        pick.found = true;
+        pick.guid = sighting.guid;
+        pick.ipgon = 42;
+        pick.pos[0] = double (prompts.size ());
+        state.Complete (token, pick, world);
+        state.EndInput (token);
+    }
+};
+
+TEST_F (SeedInputFixture, SequencesCallbackMatchedFacesAndKeepsOnlyWorldProvenance)
+{
+    onWait = [this] { CommitFace (); };
+    const auto input = CollectExteriorSeeds (request, 2, picker);
+    ASSERT_TRUE (input.error.empty ()) << input.error;
+    ASSERT_EQ (input.seeds.size (), 2u);
+    EXPECT_EQ (prompts, (std::vector<std::string> { "Pick EXTERIOR facade 1/2", "Pick EXTERIOR facade 2/2" }));
+    EXPECT_EQ (input.seeds[0].guid, "WALL");
+    EXPECT_EQ (input.seeds[0].normal, (std::vector<double> { 0, 0, 1 }));
+    EXPECT_EQ (input.seeds[1].point, (std::vector<double> { 2, 0, 0 }));
+    EXPECT_TRUE (cancelled.empty ());
+}
+
+TEST_F (SeedInputFixture, EscapeDiscardsPreviouslyAcceptedSeeds)
+{
+    onWait = [this] {
+        if (prompts.size () == 1) {
+            CommitFace ();
+            return;
+        }
+        state.Cancelled (token, -1, "the user cancelled the pick");
+        state.EndInput (token);
+    };
+    const auto input = CollectExteriorSeeds (request, 2, picker);
+    EXPECT_TRUE (input.cancelled);
+    EXPECT_TRUE (input.seeds.empty ());
+    EXPECT_EQ (input.error, "Exterior pick cancelled: the user cancelled the pick");
+    EXPECT_TRUE (cancelled.empty ());
+}
+
+TEST_F (SeedInputFixture, StopCancelsOnlyTheOwnedInput)
+{
+    onWait = [this] { stopped = true; };
+    const auto input = CollectExteriorSeeds (request, 1, picker);
+    EXPECT_TRUE (input.cancelled);
+    EXPECT_TRUE (input.seeds.empty ());
+    EXPECT_EQ (cancelled, (std::vector<std::string> { "owned-1" }));
+    EXPECT_EQ (state.ShouldAbort (token), polygonpick::Abort::CancelRequested);
+}
+
+TEST_F (SeedInputFixture, CaptureReplacementDropsACompletedFaceBeforeAdoption)
+{
+    onWait = [this] {
+        CommitFace ();
+        ++world.snapshotId;
+    };
+    const auto input = CollectExteriorSeeds (request, 1, picker);
+    EXPECT_TRUE (input.seeds.empty ());
+    EXPECT_FALSE (input.error.empty ());
+    EXPECT_EQ (cancelled, (std::vector<std::string> { "owned-1" }));
+}
+
+TEST_F (SeedInputFixture, ProjectResetForbidsPostingTheNextFace)
+{
+    onWait = [this] { CommitFace (); };
+    const auto poll = picker.poll;
+    picker.poll = [this, poll] (const std::string& id) {
+        auto outcome = poll (id);
+        if (outcome.status == polygonpick::Status::Done)
+            state.Reset ();
+        return outcome;
+    };
+    const auto input = CollectExteriorSeeds (request, 2, picker);
+    EXPECT_TRUE (input.seeds.empty ());
+    EXPECT_EQ (input.error, "picker refused");
+    EXPECT_EQ (prompts.size (), 1u);
+}
+
+TEST_F (SeedInputFixture, RejectsUnmatchedCallback)
+{
+    onWait = [this] { CommitFace (false); };
+    const auto input = CollectExteriorSeeds (request, 1, picker);
+    EXPECT_TRUE (input.seeds.empty ());
+    EXPECT_FALSE (input.cancelled);
+    EXPECT_NE (input.error.find ("no matching callback"), std::string::npos);
+}
 
 Snapshot ScopeFixture ()
 {

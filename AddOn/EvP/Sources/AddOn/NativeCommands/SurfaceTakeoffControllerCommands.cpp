@@ -1,10 +1,14 @@
 #include "NativeCommands/SurfaceTakeoffControllerCommands.hpp"
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/SurfaceTakeoffCommands.hpp"
+#include "NativeCommands/SurfaceInspectorCommands.hpp"
+#include "NativeCommands/SurfaceTakeoffSeedInput.hpp"
 #include "Geometry/SurfaceTakeoffController.hpp"
 #include "AddOnCommands.hpp"
+#include "Python/RunCancel.hpp"
 
 #include <ModelElement.hpp>
+#include <chrono>
 
 namespace geomsrv {
 namespace {
@@ -52,6 +56,21 @@ const char kPrepareOutput[] = R"json({
   "coverScopeId":{"type":"string","minLength":1,"maxLength":256},
   "surfaceAttributeIndices":{"type":"array","maxItems":512,"uniqueItems":true,"items":{"type":"integer","minimum":1}}
  },"required":["snapshotId","captureStamp","regionMode","targetGuids","coverGuids","coverScopeId","surfaceAttributeIndices"],
+ "$defs":{"guid":{"type":"string","minLength":1,"maxLength":38}}
+})json";
+const char kSeededStartInput[] = R"json({
+ "type":"object","additionalProperties":false,
+ "properties":{
+  "snapshotId":{"type":"integer","minimum":1},"captureStamp":{"type":"integer","minimum":1},
+  "regionMode":{"const":"seededFacade"},"seedCount":{"type":"integer","minimum":1,"maximum":8},
+  "targetGuids":{"type":"array","minItems":1,"maxItems":64,"uniqueItems":true,"items":{"$ref":"#/$defs/guid"}},
+  "coverGuids":{"type":"array","maxItems":128,"uniqueItems":true,"items":{"$ref":"#/$defs/guid"}},
+  "coverScopeId":{"type":"string","minLength":1,"maxLength":256},
+  "surfaceAttributeIndices":{"type":"array","maxItems":512,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
+  "contactToleranceM":{"type":"number","minimum":0,"maximum":0.001},
+  "compareNative":{"type":"boolean"},"cancelWithRun":{"type":"boolean"}
+ },"required":["snapshotId","captureStamp","regionMode","seedCount","targetGuids","coverGuids","coverScopeId",
+               "surfaceAttributeIndices","compareNative"],
  "$defs":{"guid":{"type":"string","minLength":1,"maxLength":38}}
 })json";
 const char kStartOutput[] = R"json({
@@ -151,6 +170,71 @@ class PrepareTakeoffCommand : public MainThreadCommand {
     }
 };
 
+bool CaptureCurrent (const std::shared_ptr<const Snapshot>& snapshot)
+{
+    auto& store = MeshStore::Get ();
+    return snapshot && store.Current () == snapshot && store.CaptureStamp () == snapshot->captureStamp;
+}
+
+bool RunEnded (uint64_t generation)
+{
+    auto& run = evp::RunCancel::Get ();
+    return generation != 0 && (!run.IsRunning () || run.Generation () != generation || run.IsCancelled (generation));
+}
+
+NativeCommandResult SubmitTakeoff (const GS::ObjectState& params, size_t seedCount, uint64_t runGeneration)
+{
+    const auto pickGeneration = seedCount != 0 ? SurfacePolygonPickGeneration () : 0;
+    auto calculation = SurfaceTakeoffRequestFromNative (params);
+    const auto snapshot = MeshStore::Get ().Current ();
+    if (!CaptureCurrent (snapshot) || snapshot->id != calculation.snapshotId ||
+        snapshot->captureStamp != calculation.captureStamp)
+        return NativeCommandResult::Failure (Text ("Snapshot missing or stale; prepare a fresh capture."));
+
+    calculation.publishOverlay = false;
+    surfacetakeoff::ControllerRequest request;
+    request.snapshot = snapshot;
+    request.execute = [calculation = std::move (calculation), snapshot, seedCount, pickGeneration, runGeneration] (
+                          const std::atomic<bool>& cancelled) mutable -> surfacetakeoff::ControllerOutcome {
+        const auto interrupted = [&] {
+            return cancelled.load () || RunEnded (runGeneration) || !CaptureCurrent (snapshot);
+        };
+        if (seedCount != 0) {
+            const polygonpick::WorldIdentity world { snapshot->captureStamp, true, snapshot->id };
+            const surfacetakeoff::SeedPicker picker {
+                [world, pickGeneration] (const std::string& prompt, std::string& id, std::string& error) {
+                    return StartSurfacePolygonPick (prompt, world, pickGeneration, id, error);
+                },
+                &PollSurfacePolygonPick, [] (const std::string& id) { CancelSurfacePolygonPick (id); }, interrupted,
+                [] { std::this_thread::sleep_for (std::chrono::milliseconds (50)); }
+            };
+            auto input = surfacetakeoff::CollectExteriorSeeds (calculation, seedCount, picker);
+            if (!input.error.empty ())
+                return { false, {}, std::move (input.error), input.cancelled };
+            calculation.seeds = std::move (input.seeds);
+        }
+        auto result = CalculateExteriorSurfaceResult (calculation, interrupted);
+        if (RunEnded (runGeneration))
+            return { false, {}, "Surface takeoff stopped.", true };
+        surfacetakeoff::ControllerOutcome outcome;
+        outcome.ok = result.result.has_value ();
+        if (result.result)
+            outcome.payload = std::make_shared<surfacetakeoff::Result> (std::move (*result.result));
+        outcome.error = std::move (result.error);
+        return outcome;
+    };
+    std::string error;
+    const uint64_t generation = surfacetakeoff::SharedSurfaceTakeoffController ().Submit (std::move (request), error);
+    if (generation == 0)
+        return NativeCommandResult::Failure (Text (error));
+    GS::ObjectState output;
+    output.Add ("state", Text ("pending"));
+    output.Add ("generation", GS::Int64 (generation));
+    output.Add ("snapshotId", GS::Int64 (snapshot->id));
+    output.Add ("captureStamp", GS::Int64 (snapshot->captureStamp));
+    return output;
+}
+
 class StartTakeoffCommand : public MainThreadCommand {
   public:
     GS::String GetName () const override
@@ -163,37 +247,30 @@ class StartTakeoffCommand : public MainThreadCommand {
     }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        GS::Int64 id = 0, stamp = 0;
-        params.Get ("snapshotId", id);
-        params.Get ("captureStamp", stamp);
-        const auto snapshot = MeshStore::Get ().Current ();
-        if (!snapshot || snapshot->id != uint64_t (id) || snapshot->captureStamp != uint64_t (stamp) ||
-            MeshStore::Get ().CaptureStamp () != snapshot->captureStamp)
-            return NativeCommandResult::Failure (Text ("Snapshot missing or stale; prepare a fresh capture."));
-        auto calculation = SurfaceTakeoffRequestFromNative (params);
-        calculation.publishOverlay = false;
-        surfacetakeoff::ControllerRequest request;
-        request.snapshot = snapshot;
-        request.execute = [calculation] (const std::atomic<bool>& cancelled) {
-            auto result = CalculateExteriorSurfaceResult (calculation, [&cancelled] { return cancelled.load (); });
-            surfacetakeoff::ControllerOutcome outcome;
-            outcome.ok = result.result.has_value ();
-            if (result.result)
-                outcome.payload = std::make_shared<surfacetakeoff::Result> (std::move (*result.result));
-            outcome.error = std::move (result.error);
-            return outcome;
-        };
-        std::string error;
-        auto& controller = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ();
-        const uint64_t generation = controller.Submit (std::move (request), error);
-        if (generation == 0)
-            return NativeCommandResult::Failure (Text (error));
-        GS::ObjectState output;
-        output.Add ("state", Text ("pending"));
-        output.Add ("generation", GS::Int64 (generation));
-        output.Add ("snapshotId", id);
-        output.Add ("captureStamp", stamp);
-        return output;
+        return SubmitTakeoff (params, 0, 0);
+    }
+};
+
+class StartSeededTakeoffCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "StartSeededExposedSurfaceTakeoff";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::Int32 seedCount = 0;
+        bool cancelWithRun = false;
+        params.Get ("seedCount", seedCount);
+        params.Get ("cancelWithRun", cancelWithRun);
+        const uint64_t runGeneration = cancelWithRun ? evp::RunCancel::Get ().Generation () : 0;
+        if (cancelWithRun && (runGeneration == 0 || RunEnded (runGeneration)))
+            return NativeCommandResult::Failure (Text ("No active command run owns this pick."));
+        return SubmitTakeoff (params, static_cast<size_t> (seedCount), runGeneration);
     }
 };
 
@@ -292,6 +369,8 @@ const NativeCommandRegistration kRegistrations[] = {
       kPrepareOutput },
     { "StartExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<StartTakeoffCommand>, false,
       SurfaceTakeoffInputSchema (), kStartOutput },
+    { "StartSeededExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<StartSeededTakeoffCommand>, false,
+      kSeededStartInput, kStartOutput },
     { "PollExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<PollTakeoffCommand>, false, kEmptyInput, kPollOutput },
     { "PublishExposedSurfaceTakeoff", &MakeRegisteredNativeCommand<PublishTakeoffCommand>, false, kPublishInput,
       kPublishOutput },

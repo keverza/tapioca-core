@@ -380,6 +380,21 @@ def test_native_controller_calculates_with_injected_overlay_off(live_client, sur
     assert pin(call("Tapioca.GetSnapshotInfo")) == identity
 
 
+def test_seeded_start_refuses_a_replaced_prepared_capture(live_client, surface_capture):
+    fixture, _, _ = surface_capture
+    if not fixture.get("allWallSurfaces"):
+        pytest.skip("Fixture does not request the criteria calculator")
+    call = live_client.tapioca_call
+    params = {"regionMode": "seededFacade", "coverPolicy": "extraOnly", "extraCoverGuids": [], "surfaceNames": []}
+    prepared = call("Tapioca.PrepareExposedSurfaceTakeoff", params)
+    replacement = call("Tapioca.PrepareExposedSurfaceTakeoff", params)
+    assert replacement["snapshotId"] != prepared["snapshotId"]
+    before = call("Tapioca.PollExposedSurfaceTakeoff")
+    with pytest.raises(LiveTestError, match="Snapshot missing or stale"):
+        call("Tapioca.StartSeededExposedSurfaceTakeoff", {**prepared, "seedCount": 1, "compareNative": False})
+    assert call("Tapioca.PollExposedSurfaceTakeoff") == before
+
+
 def test_document_launcher_publishes_the_accepted_controller_meshes(live_client, surface_capture):
     fixture, _, _ = surface_capture
     if not fixture.get("allWallSurfaces"):

@@ -100,7 +100,7 @@ struct Token {
 
 // Begin()'s answer. BusyRequest = a Pending/queued request exists; BusyInput = a
 // GetPoint call is physically in flight. Both are refusals, never a supersede.
-enum class BeginStatus { Accepted, BusyRequest, BusyInput };
+enum class BeginStatus { Accepted, BusyRequest, BusyInput, LifecycleChanged };
 
 // BeginInput()'s answer. Only Started permits GetPoint to run.
 enum class InputStart { Started, NotOwned, Cancelled, StaleModel, Superseded, LifecycleChanged };
@@ -135,7 +135,8 @@ class PolygonPickState {
     // Adopt a new request. Refuses (without touching the active one) when a
     // request is pending or an SDK input is physically in flight. `expected` is
     // the world identity captured at start.
-    BeginStatus Begin (const std::string& newRequestId, const WorldIdentity& expected, Token& outToken);
+    BeginStatus Begin (const std::string& newRequestId, const WorldIdentity& expected, Token& outToken,
+                       uint64_t expectedGeneration = 0);
 
     // Ask the active request to stop, bound to its exact token/generation. Ignored
     // for a terminal or unknown request. On success `outToken` is the live token

@@ -18,6 +18,7 @@ def test_controller_commands_have_strict_schemas_and_registration():
     for name in (
         "kPrepareInput",
         "kPrepareOutput",
+        "kSeededStartInput",
         "kStartOutput",
         "kPollOutput",
         "kEmptyInput",
@@ -42,6 +43,7 @@ def test_controller_commands_have_strict_schemas_and_registration():
     for command in (
         "PrepareExposedSurfaceTakeoff",
         "StartExposedSurfaceTakeoff",
+        "StartSeededExposedSurfaceTakeoff",
         "PollExposedSurfaceTakeoff",
         "PublishExposedSurfaceTakeoff",
         "CancelExposedSurfaceTakeoff",
@@ -61,6 +63,26 @@ def test_preparation_schema_requires_explicit_bounded_policies():
     assert not validate.is_valid({**guided, "coverPolicy": "all"})
     assert not validate.is_valid({**guided, "extraCoverGuids": ["one"] * 129})
     assert not validate.is_valid({**guided, "snapshotId": 1})
+
+
+def test_seeded_start_accepts_a_pinned_scope_and_seed_count_only():
+    input_schema = jsonschema.Draft202012Validator(schema("kSeededStartInput"))
+    seeded = {
+        "snapshotId": 1,
+        "captureStamp": 2,
+        "regionMode": "seededFacade",
+        "seedCount": 1,
+        "targetGuids": ["wall"],
+        "coverGuids": [],
+        "coverScopeId": "test",
+        "surfaceAttributeIndices": [],
+        "compareNative": False,
+        "cancelWithRun": True,
+    }
+    assert input_schema.is_valid(seeded)
+    assert not input_schema.is_valid({**seeded, "seeds": []})
+    assert not input_schema.is_valid({**seeded, "seedCount": 9})
+    assert not input_schema.is_valid({**seeded, "regionMode": "allWallFaces"})
 
 
 def test_controller_has_no_overlay_dependency_and_checks_capture_before_publication():
@@ -90,7 +112,7 @@ def test_document_launcher_is_stable_and_dispatches_only_after_layout():
     assert 'surfacetakeoff::kWorkflowKey, "Exposed surfaces"' in host
     assert "hudshell::WorkflowFamily::Document" in host
     assert "state.exposedSurfaceRequested = true" in host
-    assert "RunCommand" not in host
+    assert 'DispatchCommandControlVerb ("EvP", "RunCommand"' not in host
     assert "TakeExposedSurfaceRequest" in owner
     assert 'DispatchCommandControlVerb ("EvP", "RunCommand"' in owner
     assert '"ExposedSurfaceCalculator"' in owner

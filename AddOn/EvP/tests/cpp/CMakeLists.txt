@@ -101,6 +101,7 @@ set (EVP_GEOM_SOURCES
     "${GEOM_DIR}/ExteriorSurfaceRegion.cpp"
     "${GEOM_DIR}/SurfaceCriteria.cpp"
     "${EVP_ROOT}/Sources/AddOn/NativeCommands/PolygonPickState.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NativeCommands/SurfaceTakeoffSeedInput.cpp"
     "${EVP_ROOT}/Sources/AddOn/NativeCommands/VirtualEditorProjection.cpp")
 list (APPEND EVP_GEOM_SOURCES "${GEOM_DIR}/WireframeEdges.cpp")
 

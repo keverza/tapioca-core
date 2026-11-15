@@ -2,6 +2,7 @@
 #define EVP_NATIVECOMMANDS_SURFACEINSPECTORCOMMANDS_HPP
 
 #include "NativeCommands/CommandRegistration.hpp"
+#include "NativeCommands/PolygonPickState.hpp"
 
 namespace geomsrv {
 
@@ -26,6 +27,14 @@ NativeCommandRegistrations GetSurfaceInspectorCommandRegistrations ();
 // thread. Safe to call with no request pending; the next pick observes the bumped
 // lifecycle generation and cannot publish into the next document.
 void ResetSurfaceInspectorState ();
+
+// Native surface workflow shares the wire picker's single-flight SDK input.
+// All three operations are safe off the main thread, including while input runs.
+uint64_t SurfacePolygonPickGeneration ();
+bool StartSurfacePolygonPick (const std::string& prompt, const polygonpick::WorldIdentity& world,
+                              uint64_t pickGeneration, std::string& id, std::string& error);
+polygonpick::Outcome PollSurfacePolygonPick (const std::string& id);
+polygonpick::Outcome CancelSurfacePolygonPick (const std::string& id);
 
 } // namespace geomsrv
 

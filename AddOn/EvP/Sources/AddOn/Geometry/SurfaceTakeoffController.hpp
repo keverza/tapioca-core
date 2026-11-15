@@ -30,6 +30,7 @@ struct ControllerOutcome {
     bool ok = false;
     std::shared_ptr<const void> payload;
     std::string error;
+    bool cancelled = false;
 };
 
 struct ControllerRequest {
