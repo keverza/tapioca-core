@@ -137,6 +137,38 @@ Design SetCount (const Scheme& s, Design d, int total, std::string* why = nullpt
 Design SetLocked (const Scheme& s, Design d, int flat, bool locked);
 bool Locked (const Scheme& s, const Design& d, int flat);
 Design SetAccess (const Scheme& s, Design d, int wing, Access access);
+// --- the skeleton itself (FloorSchemeEditSkeleton.cpp) --------------------------------------
+// The wings a floor is planned on are the generator's until the user changes one: the first such
+// edit takes the scheme's wings as the design's own (Pins::wings), and from then on the generator
+// plans on those and searches for none. `wing` is the scheme's (WingAt). An edit the generator
+// would answer by leaving the wing out -- off the floor, over another wing, too shallow, too deep,
+// too short -- is refused, and `why` gives what was measured and what is asked.
+bool Authored (const Design& d);
+// The scheme's wings as the design's, named 1.. in their order: the same scheme plans again.
+Design AdoptSkeleton (const Scheme& s, Design d);
+// The generator searches for the wings again; every other pin stays.
+Design ReleaseSkeleton (Design d);
+// The wing moved by `by`, with every pin inside it (its stairs, walls, counts, corridor).
+Design MoveWing (const Scheme& s, Design d, int wing, Vec by, std::string* why = nullptr, const Options& o = {});
+// The side of the wing nearest `grip` -- an end or a long side -- moved out by `by` m (in when
+// negative): its length or its depth. The pins inside it stay where they are.
+Design ResizeWing (const Scheme& s, Design d, int wing, Vec grip, double by, std::string* why = nullptr,
+                   const Options& o = {});
+// A wing with the centre line a-b, `depth` across it, added after the others.
+Design AddWing (const Scheme& s, Design d, Vec a, Vec b, double depth, std::string* why = nullptr,
+                const Options& o = {});
+// The wing taken out of the skeleton: its floor is no flat's until another wing takes it. Never the
+// last one.
+Design RemoveWing (const Scheme& s, Design d, int wing, std::string* why = nullptr);
+// The design's wing named `id` taken out: for one the generator left out and said (skeleton.wing_*),
+// which no scheme shows.
+Design DropWing (Design d, uint32_t id);
+// The wing's corridor run through `through` (a centre corridor: off the middle, a row of flats at
+// least kRowDepthMin deep left either side; one on a side keeps its side) and made `width` wide (0:
+// Options::corridor). Refused for a wing whose flats are entered from stairs.
+Design SetCorridor (const Scheme& s, Design d, int wing, Vec through, double width = 0, std::string* why = nullptr,
+                    const Options& o = {});
+Design ResetCorridor (const Scheme& s, Design d, int wing);
 Design AddRect (Design d, Ring rect);
 Design CutRect (Design d, Ring rect);
 // A rectangle from two corners in the frame of the wing under `a` (or world axes): the

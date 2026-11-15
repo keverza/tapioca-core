@@ -495,12 +495,36 @@ bool Inscribed (const cp::PathsD& area, double theta, double minDepth, double mi
     box = { c.x0, c.y0, c.x1, c.y1 };
     return true;
 }
-Skeleton Decompose (const cp::PathsD& outline, const Options& o, std::vector<Diagnostic>& notes)
+namespace {
+// T1 when the skeleton is the user's (Pins::wings): each wing as it was drawn, in the order given.
+// One that does not fit the floor is said and left out -- its floor stays unassigned -- never bent
+// to fit: what the user sees is what was asked for, or why not.
+void Authored (Skeleton& s, const cp::PathsD& outline, const Options& o, const std::vector<Pins::Wing>& wings,
+               std::vector<Diagnostic>& notes)
+{
+    std::vector<Ring> taken;
+    for (const auto& pin : wings) {
+        const char* code = "skeleton.wing";
+        if (const auto fault = WingFault (outline, taken, pin, o, &code); !fault.empty ()) {
+            notes.push_back ({ Diagnostic::Error, code, fault, { (pin.a.x + pin.b.x) / 2, (pin.a.y + pin.b.y) / 2 } });
+            continue;
+        }
+        Frame frame;
+        s.wings.push_back (AuthoredWing (pin, frame));
+        s.frames.push_back (frame);
+        taken.push_back (s.wings.back ().rect);
+    }
+}
+} // namespace
+Skeleton Decompose (const cp::PathsD& outline, const Options& o, std::vector<Diagnostic>& notes,
+                    const std::vector<Pins::Wing>& authored)
 {
     Skeleton s;
     const auto directions = Directions (outline);
     cp::PathsD remain = outline;
-    while (s.wings.size () < 32) {
+    if (!authored.empty ())
+        Authored (s, outline, o, authored, notes);
+    while (authored.empty () && s.wings.size () < 32) {
         Candidate best;
         for (double theta : directions) {
             const auto c = Largest (remain, theta, o);
@@ -523,7 +547,7 @@ Skeleton Decompose (const cp::PathsD& outline, const Options& o, std::vector<Dia
     // A rectangle found on the search grid can stop short of a slanted facade, and an angled
     // arm stops short of its neighbour's rectangle: push every side of every wing outward while
     // it still lies inside the floor and clear of the other wings (sides by up to 3 m).
-    for (size_t i = 0; i < s.wings.size (); ++i)
+    for (size_t i = 0; authored.empty () && i < s.wings.size (); ++i)
         for (int side = 0; side < 4; ++side) {
             auto& w = s.wings[i];
             auto& f = s.frames[i];
@@ -560,7 +584,8 @@ Skeleton Decompose (const cp::PathsD& outline, const Options& o, std::vector<Dia
                 Counter ({ f.World (0, 0), f.World (w.length, 0), f.World (w.length, w.depth), f.World (0, w.depth) });
             w.a = f.World (0, w.depth / 2), w.b = f.World (w.length, w.depth / 2);
         }
-    Steps (s, outline, o);
+    if (authored.empty ())
+        Steps (s, outline, o);
     if (!s.wings.empty ()) {
         cp::PathsD all;
         for (const auto& w : s.wings)
@@ -691,9 +716,13 @@ Skeleton Decompose (const cp::PathsD& outline, const Options& o, std::vector<Dia
     }
     s.typology = typology.str ();
     s.rest = FromPaths (remain);
+    for (size_t i = 0; i < s.wings.size (); ++i)
+        s.wings[i].mirror = s.frames[i].u.x * s.frames[i].v.y - s.frames[i].u.y * s.frames[i].v.x < 0;
     if (s.wings.empty ())
         notes.push_back ({ Diagnostic::Error, "skeleton.empty",
-                           "No wing fits: every part of this floor is shallower than the minimum flat depth." });
+                           authored.empty ()
+                               ? "No wing fits: every part of this floor is shallower than the minimum flat depth."
+                               : "None of the skeleton's wings fits this floor." });
     return s;
 }
 } // namespace geomsrv::archviz::floorscheme::detail

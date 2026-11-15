@@ -628,6 +628,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeEdit.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeEditCount.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeEditSession.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeEditSkeleton.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeDesigns.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorPlanner.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeEdit.cpp"
@@ -681,6 +682,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorEllipse.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLabels.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeSkeleton.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeAuthored.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeStages.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRuns.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeCorners.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeDivide.cpp"
@@ -1130,6 +1133,7 @@ set (EVP_TEST_SOURCES
     test_floorscheme.cpp
     test_floorscheme_edit.cpp
     test_floorscheme_designs.cpp
+    test_floorscheme_skeleton.cpp
     test_floorplanner.cpp
     test_buildingtopology.cpp
     test_buildinggenerator.cpp

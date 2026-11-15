@@ -126,7 +126,33 @@ struct Skeleton {
     std::vector<Ring> rest;    // outline the wings leave out (mould pieces)
     std::string typology;
 };
-Skeleton Decompose (const cp::PathsD& outline, const Options& options, std::vector<Diagnostic>& notes);
+// `wings`: the user's (Pins::wings), taken as they are in place of the search; empty: searched for.
+Skeleton Decompose (const cp::PathsD& outline, const Options& options, std::vector<Diagnostic>& notes,
+                    const std::vector<Pins::Wing>& wings = {});
+// FloorSchemeAuthored.cpp: the user's wing as a wing and its frame.
+Wing AuthoredWing (const Pins::Wing& pin, Frame& frame);
+// Why `pin` cannot be a wing of `floor` beside `others` (the wings already taken): empty when it
+// can. `code` is the diagnostic's (skeleton.wing_*); the text gives what was measured and what is
+// asked. One rule for the generator and the edits.
+std::string WingFault (const cp::PathsD& floor, const std::vector<Ring>& others, const Pins::Wing& pin,
+                       const Options& options, const char** code = nullptr);
+// Where a wing's corridor runs across it, v in its frame.
+struct Lane {
+    double c0 = 0, c1 = 0;
+    double Width () const
+    {
+        return c1 - c0;
+    }
+};
+// The corridor of a `depth` deep wing over [s0, s1] of frame `f`: in the middle and
+// Options::corridor wide, or as the user's pin there has it (Pins::Corridor), brought back to where
+// a row of flats still fits either side when `centre` (a corridor on one side keeps its side and
+// takes only the width). `used` marks the pin taken; `notes` says what was changed.
+Lane LaneFor (const Pins& pins, const Options& options, const Frame& f, double s0, double s1, double depth, bool centre,
+              std::vector<char>& used, std::vector<Diagnostic>& notes);
+// T0-T7, or T0-T4 when `skeletonOnly` (Analyse).
+Scheme PlanFloor (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins,
+                  const Options& options, bool skeletonOnly = false);
 // Largest rectangle inside `area` whose sides run along `theta` (frame u) and across it.
 bool Inscribed (const cp::PathsD& area, double theta, double minDepth, double minLength, Frame& frame, Box& box);
 

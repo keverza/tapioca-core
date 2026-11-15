@@ -100,8 +100,13 @@ size_t Check (Scheme& s, const Options& o)
             const Vec d = Unit ({ p.x - q.x, p.y - q.y }), n { -d.y, d.x };
             std::vector<int> owners;
             bool open = false;
+            // A straight corridor's own width (the user may have changed it: Pins::Corridor).
+            double width = o.corridor;
+            if (c.axis.size () == 2)
+                if (const double run = std::hypot (c.axis[1].x - c.axis[0].x, c.axis[1].y - c.axis[0].y); run > 0.5)
+                    width = (std::min) (o.corridor, std::abs (Area (c.shape)) / run);
             for (int k = -2; k <= 2; ++k) {
-                const double t = k * (o.corridor / 2 - 0.1) / 2;
+                const double t = k * (width / 2 - 0.1) / 2;
                 const Vec at { p.x + d.x * 0.1 + n.x * t, p.y + d.y * 0.1 + n.y * t };
                 int owner = -1;
                 for (size_t f = 0; f < s.flats.size () && owner < 0; ++f)

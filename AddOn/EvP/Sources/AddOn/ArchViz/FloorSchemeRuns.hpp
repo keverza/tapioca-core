@@ -18,6 +18,10 @@ struct Ctx {
     Layout out;
     std::vector<char> fill; // Fillable by 0.1 m
     cp::PathsD blind;       // neighbouring buildings' floor (Options::party): party walls, no facade
+    // Where the corridor of the straight run being laid out crosses its wing (LaneFor): the middle,
+    // or where the user's Pins::Corridor has it. `laneUsed`: the corridor pins a run took.
+    Lane lane;
+    std::vector<char> laneUsed;
     bool Fits (double length) const
     {
         if (length < 0.05)

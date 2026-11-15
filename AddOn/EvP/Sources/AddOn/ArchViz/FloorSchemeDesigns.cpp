@@ -6,7 +6,17 @@ namespace geomsrv::archviz::floorscheme::edit {
 namespace {
 namespace js = evp::nodegraph::json;
 using V = js::JsonValue;
-constexpr int64_t kVersion = 1;
+// 2: a design may hold the skeleton's wings and moved corridors. A design with neither is still
+// written as 1, which every build reads; one with either is 2, which an older build refuses rather
+// than plan without them.
+constexpr int64_t kVersion = 1, kSkeletonVersion = 2;
+bool HasSkeleton (const Designs& designs)
+{
+    for (const auto& [story, design] : designs.floors)
+        if (!design.pins.wings.empty () || !design.pins.corridors.empty ())
+            return true;
+    return false;
+}
 
 V Number (double value)
 {
@@ -72,6 +82,15 @@ V Write (const Design& d)
         });
     if (!p.cuts.empty ())
         o["cuts"] = List (p.cuts, [] (const Pins::Cut& c) { return Point (c.at); });
+    if (!p.wings.empty ())
+        o["wings"] = List (p.wings, [] (const Pins::Wing& w) {
+            return V::Array ({ V::Integer (w.id), Number (w.a.x), Number (w.a.y), Number (w.b.x), Number (w.b.y),
+                               Number (w.depth), V::Integer (w.mirror ? 1 : 0) });
+        });
+    if (!p.corridors.empty ())
+        o["corridors"] = List (p.corridors, [] (const Pins::Corridor& c) {
+            return V::Array ({ Number (c.at.x), Number (c.at.y), Number (c.width) });
+        });
     if (!p.gives.empty ())
         o["gives"] = List (p.gives, [] (const Pins::Give& g) {
             js::JsonArray n { Number (g.into.x), Number (g.into.y) };
@@ -207,6 +226,30 @@ bool Read (const V& value, Design& d)
                      }) &&
            ReadList (value.Find ("cuts"), p.cuts,
                      [] (const V& item, Pins::Cut& c) { return ReadPoint (item, c.at); }) &&
+           ReadList (value.Find ("wings"), p.wings,
+                     [] (const V& item, Pins::Wing& w) {
+                         const auto* array = item.AsArray ();
+                         int64_t id = 0, mirror = 0;
+                         double n[5];
+                         if (!array || array->size () != 7 || !(*array)[0].AsInteger (id) || id < 1 ||
+                             id > 0xffffffffLL || !(*array)[6].AsInteger (mirror) || mirror < 0 || mirror > 1)
+                             return false;
+                         for (size_t i = 0; i < 5; ++i)
+                             if (!(*array)[i + 1].AsDouble (n[i]) || !std::isfinite (n[i]) || std::abs (n[i]) > 1e9)
+                                 return false;
+                         if (n[4] <= 0 || n[4] > 100)
+                             return false;
+                         w = { static_cast<uint32_t> (id), { n[0], n[1] }, { n[2], n[3] }, n[4], mirror == 1 };
+                         return true;
+                     }) &&
+           ReadList (value.Find ("corridors"), p.corridors,
+                     [] (const V& item, Pins::Corridor& c) {
+                         double n[3];
+                         if (!Numbers (item, 3, n) || n[2] < 0 || n[2] > 10)
+                             return false;
+                         c = { { n[0], n[1] }, n[2] };
+                         return true;
+                     }) &&
            ReadList (value.Find ("gives"), p.gives, [] (const V& item, Pins::Give& g) {
                // The flat it goes to, then the region: x y pairs, three corners at least.
                const auto* array = item.AsArray ();
@@ -233,7 +276,7 @@ std::string ToJson (const Designs& designs)
         floors.push_back (V::Object ({ { "story", V::Integer (story) }, { "design", Write (design) } }));
     for (int story : designs.unique)
         unique.push_back (V::Integer (story));
-    return js::Write (V::Object ({ { "version", V::Integer (kVersion) },
+    return js::Write (V::Object ({ { "version", V::Integer (HasSkeleton (designs) ? kSkeletonVersion : kVersion) },
                                    { "floors", V::Array (std::move (floors)) },
                                    { "unique", V::Array (std::move (unique)) } }),
                       0);
@@ -252,7 +295,7 @@ bool FromJson (const std::string& text, Designs& designs, std::string& error)
     const auto parsed = js::Parse (text);
     int64_t version = 0;
     const V* v = parsed.ok ? parsed.value.Find ("version") : nullptr;
-    if (!parsed.ok || !v || !v->AsInteger (version) || version != kVersion) {
+    if (!parsed.ok || !v || !v->AsInteger (version) || (version != kVersion && version != kSkeletonVersion)) {
         error = parsed.ok ? "Floor designs are not a version this add-on reads."
                           : "Floor designs are not JSON: " + parsed.error;
         return false;
