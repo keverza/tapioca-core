@@ -297,6 +297,22 @@ Scheme Generate (const std::vector<Ring>& outline, const floorprogramme::Program
 // `Generate` may still keep a corridor on one side, and says so (typology.choice).
 Scheme Analyse (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins = {},
                 const Options& options = {});
+// The skeletons a floor can be planned on, where it has a choice: a thin wing is planned as
+// sections round stairs or with a corridor on one side, and `Generate` keeps the floor that scores
+// better. Each candidate is that skeleton (as `Analyse` gives it) with what it comes to as a whole
+// floor, so the choice is seen before it is made and `Analyse` never shows a skeleton `Generate`
+// would not build. One candidate when the floor has no thin wing or Options::shallow already says.
+struct Candidate {
+    Access shallow = Access::Auto; // Options::shallow that plans it: `Generate` with it builds `skeleton`
+    Scheme skeleton;               // Stage::Skeleton
+    // The whole floor planned on it -- this one floor, not the massing.
+    int flats = 0, stairs = 0;
+    double net = 0;      // m2 of flats
+    double score = 0;    // net less Options::stairCost per stair and the floor left unassigned
+    bool chosen = false; // the one `Generate` keeps with the options as given
+};
+std::vector<Candidate> Candidates (const std::vector<Ring>& outline, const floorprogramme::Programme& programme,
+                                   const Pins& pins = {}, const Options& options = {});
 // What lies beyond a stretch of one flat's outline, for laying its rooms on their own.
 struct Side {
     enum Kind : uint8_t {

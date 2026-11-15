@@ -415,3 +415,50 @@ TEST (FloorSchemeSkeleton, AWingIsAddedToTheFreeFloorUnderAPoint)
     EXPECT_EQ (fe::AddWingAt (s, d, { 20, 8 }, &why), d);
     EXPECT_NE (why.find ("already belongs to a wing"), std::string::npos) << why;
 }
+
+// The skeleton shown before any flat is made is the one the flats are then made on: where a thin
+// wing can be planned two ways both are candidates, each with what it comes to, and the one marked
+// chosen is the one Generate builds.
+TEST (FloorSchemeSkeleton, TheChosenCandidateIsTheSkeletonGenerateBuilds)
+{
+    size_t choices = 0;
+    for (const auto& c : Cases ()) {
+        const auto whole = fs::Generate (c.outline, fp::Default ());
+        const auto candidates = fs::Candidates (c.outline, fp::Default ());
+        ASSERT_FALSE (candidates.empty ()) << c.name;
+        ASSERT_LE (candidates.size (), 2u) << c.name;
+        choices += candidates.size () > 1;
+        EXPECT_EQ (
+            std::count_if (candidates.begin (), candidates.end (), [] (const fs::Candidate& k) { return k.chosen; }), 1)
+            << c.name;
+        for (const auto& k : candidates) {
+            EXPECT_EQ (k.skeleton.stage, fs::Stage::Skeleton) << c.name;
+            EXPECT_TRUE (k.skeleton.flats.empty ()) << c.name;
+            // Planned whole with the candidate's own access, the floor stands on its skeleton.
+            fs::Options o;
+            o.shallow = k.shallow;
+            const auto built = fs::Generate (c.outline, fp::Default (), {}, o);
+            ASSERT_EQ (built.wings.size (), k.skeleton.wings.size ()) << c.name;
+            for (size_t i = 0; i < built.wings.size (); ++i)
+                EXPECT_EQ (built.wings[i].access, k.skeleton.wings[i].access) << c.name << " wing " << i;
+            EXPECT_EQ (built.cores.size (), k.skeleton.cores.size ()) << c.name;
+            EXPECT_EQ (built.corridors.size (), k.skeleton.corridors.size ()) << c.name;
+            EXPECT_EQ (built.bands.size (), k.skeleton.bands.size ()) << c.name;
+            EXPECT_EQ (static_cast<int> (built.flats.size ()), k.flats) << c.name;
+            EXPECT_NEAR (built.net, k.net, 1e-6) << c.name;
+            if (!k.chosen)
+                continue;
+            ASSERT_EQ (whole.wings.size (), k.skeleton.wings.size ()) << c.name;
+            for (size_t i = 0; i < whole.wings.size (); ++i)
+                EXPECT_EQ (whole.wings[i].access, k.skeleton.wings[i].access)
+                    << c.name << " wing " << i << ": the stage showed another access than was built";
+            EXPECT_EQ (whole.flats.size (), built.flats.size ()) << c.name;
+            EXPECT_EQ (whole.cores.size (), k.skeleton.cores.size ()) << c.name;
+        }
+    }
+    EXPECT_GE (choices, 2u) << "the thin bars have a choice";
+    // The options say: no choice left.
+    fs::Options said;
+    said.shallow = fs::Access::OneSide;
+    EXPECT_EQ (fs::Candidates ({ Rect (0, 0, 60, 10) }, fp::Default (), {}, said).size (), 1u);
+}
