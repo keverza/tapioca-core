@@ -3,6 +3,7 @@
 // the same dump reader the Playground uses. Regenerate with
 //   TAPIOCA_PLAYGROUND_FIXTURES_OUT=<dir> EvPGeomTests --gtest_filter=HudVirtualEditorFixtures.Write*
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPrimitives.hpp"
@@ -214,6 +215,68 @@ TEST (HudVirtualEditorFixtures, EveryInspectorContextHasAReadableFixture)
         variants.insert (f.variant);
     }
     EXPECT_EQ (variants.size (), generated.size ());
+}
+
+// #191 U4: each fixture, set on a session the way the Playground sets it, resolves to the Inspector
+// context it is named for -- the 11 fixtures are in the context table's order.
+TEST (HudVirtualEditorFixtures, ResolveContextTable191)
+{
+    const auto generated = Fixtures ();
+    ASSERT_EQ (generated.size (), 11u);
+    for (size_t i = 0; i < generated.size (); ++i) {
+        const auto& f = generated[i];
+        eh::Session s (f.doc);
+        s.selection.Set (f.selection);
+        const auto member = [&] (const char* key) -> const Value* {
+            const auto it = f.session.find (key);
+            return it == f.session.end () ? nullptr : &it->second;
+        };
+        std::string tool;
+        if (const auto* value = member ("tool"); value && value->AsString (tool) && tool == "polyline") {
+            eh::detail::SetTool (s, eh::Tool::Polyline);
+            s.landscapeMode = eh::LandscapeMode::DrawSource;
+        }
+        if (const auto* prompt = member ("closePrompt"))
+            prompt->AsBool (s.closePrompt);
+        if (member ("command")) {
+            ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Union)) << s.message;
+            ASSERT_TRUE (eh::PickLandscapeShape (s, { 1, 1, 0 }, true)) << s.message;
+        }
+        EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext (i))
+            << f.variant << " resolved to " << eh::InspectorContextName (eh::ResolveContext (s));
+    }
+}
+
+// #191 U4: the order of precedence. A running command outranks the selection; a drawing tool
+// outranks it too; a selection of terrain-line vertices is fixed heights, not the line.
+TEST (HudVirtualEditorFixtures, ResolveContextPrecedence191)
+{
+    const auto site = Site ();
+    eh::Session s (site.doc);
+    s.selection.Set ({ { site.path, edit::Part::Entity, 0 } });
+    EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::Path);
+    s.tool = eh::Tool::Rectangle;
+    EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::DrawTool);
+    s.tool = eh::Tool::Trim;
+    EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::Command);
+    s.closePrompt = true;
+    EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::Prompt);
+    s = eh::Session (site.doc);
+    const auto* region = edit::Find (s.edits.Doc (), site.regionA);
+    ASSERT_NE (region, nullptr);
+    s.selection.Set ({ { site.regionA, edit::Part::Vertex, region->vertices[0].id },
+                       { site.regionA, edit::Part::Vertex, region->vertices[1].id } });
+    EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::FixedHeights);
+    s.selection.Set ({ { site.regionA, edit::Part::Segment, region->segments[0].id } });
+    EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::Region);
+    // A reference line's vertices are not terrain heights: that is still the line.
+    const auto* reference = edit::Find (s.edits.Doc (), site.reference);
+    s.selection.Set ({ { site.reference, edit::Part::Vertex, reference->vertices[0].id } });
+    EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::ReferenceLine);
+    s.selection.Set ({ { site.regionA, edit::Part::Entity, 0 }, { site.regionB, edit::Part::Entity, 0 } });
+    EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::Several);
+    s.selection.Clear ();
+    EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::Nothing);
 }
 
 // #188: the reduced live dump -- two regions and their Intersection, no path and no property line

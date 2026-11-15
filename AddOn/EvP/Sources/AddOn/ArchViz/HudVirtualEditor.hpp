@@ -491,6 +491,24 @@ void Keys (Session& session, const overlayhud::Input& view, bool textInput);
 // profile) and the Outliner. Panel draws the header first when the host did not this frame.
 void PanelHeader (Session& session);
 void Panel (Session& session);
+// #191 U4: what the Inspector shows, exactly one at a time, resolved from the session alone.
+// The order is the order of precedence: the first that applies wins. A selection of only the
+// vertices of terrain source lines is FixedHeights, not the line's own context.
+enum class InspectorContext : uint8_t {
+    Prompt,        // the unsaved-work close prompt or a draft recovery offer
+    Command,       // a landscape Boolean, a Boolean or array draft, Mirror or Trim
+    DrawTool,      // a drawing tool or source drawing: the next line's role and the tool's options
+    Path,          // one path, or a break or range of it
+    Region,        // one closed line with a terrain role
+    BooleanResult, // the input lines of one landscape Boolean
+    ReferenceLine, // one reference line
+    Entity,        // one other object: an ellipse, a plain line
+    FixedHeights,  // vertices of terrain source lines: fix or release their heights
+    Several,       // more than one object
+    Nothing        // nothing selected: the terrain, its build, what to add from Archicad
+};
+InspectorContext ResolveContext (const Session& session);
+const char* InspectorContextName (InspectorContext context);
 // The layer to publish when the document or the selection moved on; false when the
 // published one is current.
 bool Follow (Session& session, overlaylayers::Layer& layer);

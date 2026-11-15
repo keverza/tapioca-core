@@ -6,11 +6,119 @@
 #include "ArchViz/EditLayers.hpp"
 #include "Edit/EditPrimitives.hpp"
 #include <imgui.h>
+#include <algorithm>
+#include <iterator>
+#include <set>
 
 // #191 area C, the Inspector: the page's top, under the pinned header. Until U4 picks one context,
 // it holds every control the header and the Outliner do not, in the order the panel drew them.
 namespace geomsrv::archviz::edithud {
 using namespace detail;
+namespace lg = tapioca::geometry;
+
+namespace {
+bool BooleanKind (lg::OperationKind kind)
+{
+    return kind == lg::OperationKind::Union || kind == lg::OperationKind::Difference ||
+           kind == lg::OperationKind::Intersection || kind == lg::OperationKind::Xor;
+}
+const lg::LandscapeSource* SourceOf (const edit::Document& doc, edit::Id entity)
+{
+    for (const auto& source : doc.landscape->sources)
+        if (!source.deleted && source.entityId == entity)
+            return &source;
+    return nullptr;
+}
+// What a line is when a Boolean takes it whole: its region's footprint, or the line itself (#160).
+edit::Id BooleanInputOf (const edit::Document& doc, const lg::LandscapeSource& source)
+{
+    for (const auto& object : doc.landscape->objects)
+        if (object.boundarySource == source.id && object.footprintOperation)
+            return object.footprintOperation;
+    return source.id;
+}
+// The lines a Boolean folded in, through the earlier Booleans of the same chain (A op B op C).
+void BooleanLeaves (const lg::LandscapeSession& landscape, edit::Id operation, std::set<edit::Id>& leaves,
+                    int depth = 0)
+{
+    for (const auto& op : landscape.operations)
+        if (op.id == operation && BooleanKind (op.kind) && depth < 64) {
+            for (const auto input : op.inputs) {
+                leaves.insert (input);
+                BooleanLeaves (landscape, input, leaves, depth + 1);
+            }
+            return;
+        }
+}
+} // namespace
+
+InspectorContext ResolveContext (const Session& s)
+{
+    if (s.closePrompt || !s.recoveries.empty ())
+        return InspectorContext::Prompt;
+    if (s.landscapeCommand || s.booleanDraft || s.rectangularArray || s.tool == Tool::Mirror || s.tool == Tool::Trim)
+        return InspectorContext::Command;
+    if (s.tool != Tool::Select || !s.drawing.empty () || s.landscapeMode == LandscapeMode::DrawSource ||
+        s.landscapeMode == LandscapeMode::Entrance)
+        return InspectorContext::DrawTool;
+    const auto& doc = s.edits.Doc ();
+    std::vector<edit::Id> objects;
+    bool vertices = true;
+    for (const auto& ref : s.selection.Items ()) {
+        if (ref.entity == edit::kNoId)
+            continue;
+        vertices = vertices && ref.part == edit::Part::Vertex;
+        if (std::find (objects.begin (), objects.end (), ref.entity) == objects.end ())
+            objects.push_back (ref.entity);
+    }
+    if (objects.empty ())
+        return s.selection.Items ().empty () ? InspectorContext::Nothing : InspectorContext::Several;
+    std::vector<const lg::LandscapeSource*> sources;
+    if (doc.landscape)
+        for (const auto id : objects)
+            if (const auto* source = SourceOf (doc, id))
+                sources.push_back (source);
+    const bool allSources = sources.size () == objects.size ();
+    // Vertices of terrain lines are what Fix height acts on, whatever line they belong to.
+    const bool fixedHeights =
+        vertices && allSources && std::none_of (sources.begin (), sources.end (), [] (const auto* source) {
+            return source->role == lg::SourceRole::ReferenceLine || source->role == lg::SourceRole::PathCenterline;
+        });
+    if (objects.size () == 1 && edit::FindPath (doc, objects.front ()))
+        return InspectorContext::Path;
+    if (objects.size () == 1 && !fixedHeights && allSources) {
+        const auto role = sources.front ()->role;
+        const auto* entity = edit::Find (doc, objects.front ());
+        if (entity && entity->closed && role != lg::SourceRole::ReferenceLine && role != lg::SourceRole::PathCenterline)
+            return InspectorContext::Region;
+    }
+    if (objects.size () > 1 && allSources && !fixedHeights)
+        for (const auto& op : doc.landscape->operations) {
+            if (!BooleanKind (op.kind))
+                continue;
+            std::set<edit::Id> leaves;
+            BooleanLeaves (*doc.landscape, op.id, leaves);
+            if (std::all_of (sources.begin (), sources.end (),
+                             [&] (const auto* source) { return leaves.count (BooleanInputOf (doc, *source)) > 0; }))
+                return InspectorContext::BooleanResult;
+        }
+    if (objects.size () == 1 && allSources && sources.front ()->role == lg::SourceRole::ReferenceLine)
+        return InspectorContext::ReferenceLine;
+    if (objects.size () == 1 && !fixedHeights)
+        return InspectorContext::Entity;
+    if (fixedHeights)
+        return InspectorContext::FixedHeights;
+    return InspectorContext::Several;
+}
+
+const char* InspectorContextName (InspectorContext context)
+{
+    static const char* const names[] = { "Prompt",        "Command",         "Draw tool",       "Path",
+                                         "Region",        "Boolean result",  "Reference line",  "Object",
+                                         "Fixed heights", "Several objects", "Nothing selected" };
+    const auto i = size_t (context);
+    return i < std::size (names) ? names[i] : "";
+}
 
 void detail::Inspector (Session& s)
 {
