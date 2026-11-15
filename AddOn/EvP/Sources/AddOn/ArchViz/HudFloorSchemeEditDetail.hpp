@@ -4,6 +4,7 @@
 // Shared by the Plan view's two translation units: HudFloorSchemeEdit.cpp (designs, undo, the
 // right-click menu, the tools) and HudFloorSchemeCanvas.cpp (the canvas: what is under the
 // pointer, the selection's arrows, gestures, drawing, the palette). MAIN THREAD, under ImGui's lock.
+#include "ArchViz/FloorSchemeSketch.hpp"
 #include "ArchViz/HudFloorSchemeEdit.hpp"
 #include "imgui.h"
 #include <algorithm>
@@ -28,8 +29,29 @@ enum class Drag : uint8_t { None, Body, Arrow };
 // What the Plan view's canvas shows and edits: the flats, or the skeleton they are made on -- the
 // wings and each wing's corridor (HudFloorSchemeSkeleton.cpp).
 enum class Stage : uint8_t { Units, Skeleton };
-// What a skeleton gesture holds of its wing: the wing itself, one of its four sides, its corridor.
-enum class Grip : int8_t { None = -1, Body, Start, End, Left, Right, Corridor };
+// What a skeleton gesture holds: a part of the skeleton's drawing (FloorSchemeSketch.hpp: a wing's
+// side, corner or the wing; a corridor's end or leg; a stair's side or the stair), picked with the
+// virtual editor's pick in the drawing made from the scheme the gesture began on -- or a flat, by
+// its node in the access graph.
+struct SkeletonHold {
+    fs::sketch::Sketch sketch;
+    ::geomsrv::edit::Ref ref; // entity kNoId: nothing of the drawing
+    int flat = -1;
+    double reach = 0.5; // metres the snap reaches: the pointer's pixels, as the view has them
+    bool Held () const
+    {
+        return ref.entity != ::geomsrv::edit::kNoId || flat >= 0;
+    }
+};
+// What a held skeleton gesture comes to at the pointer: the drawing as dragged and snapped, the
+// design read from it, and what to show.
+struct SkeletonPull {
+    fe::Design next;
+    ::geomsrv::edit::Document doc;
+    bool refused = false, snapped = false;
+    std::vector<::geomsrv::edit::Guide> guides;
+    std::string why;
+};
 // Where the pointer edits a floor: the Plan view's canvas, or the view itself while locked. One
 // editor serves both, so a gesture belongs to the surface it began on.
 enum class Surface : uint8_t { Canvas, View };
@@ -92,11 +114,15 @@ struct Editor {
     // from detail::Now () when it arrived; the canvas draws them for kMorphSeconds.
     std::vector<Morph> morphs;
     double morphStart = -1;
-    // The Skeleton stage: the wing selected there (the scheme's index) and what a gesture holds of
-    // it. Its gesture uses `drag`, `from`, `at`, `base` and `baseDesign` like any other.
+    // The Skeleton stage: the wing selected there (the scheme's index) and what a gesture holds.
+    // Its gesture uses `drag`, `from`, `at`, `base` and `baseDesign` like any other. `sketch` and
+    // `graph` are the shown scheme's, made once per scheme (`sketchOf`).
     Stage stage = Stage::Units;
     int wing = -1;
-    Grip grip = Grip::None;
+    SkeletonHold hold;
+    fs::sketch::Sketch sketch;
+    fs::sketch::Graph graph;
+    uint64_t sketchOf = UINT64_MAX;
 };
 constexpr double kMorphSeconds = 0.35;
 constexpr double kNoticeSeconds = 8.0;
@@ -182,16 +208,18 @@ void Ring (ImDrawList* draw, const View& v, const fs::Ring& r, ImU32 colour, flo
 double Stepped (double t); // to the gesture step (fe::kStep)
 const char* AccessName (fs::Access a);
 // HudFloorSchemeSkeleton.cpp: the Skeleton stage on the Plan view's canvas -- the wings the floor is
-// planned on, each drawn over the plan with its size; a wing dragged, its sides dragged in or out,
-// its corridor dragged across it, all in steps and each one undo step; an edit the floor cannot
-// take shown red while held and said on the notice line. Only on the canvas, never on the view.
+// planned on, its corridors, its stairs and how each flat is entered, drawn over the plan. A wing's
+// side, corner or the wing; a corridor's end or leg; a stair's side or the stair is picked, dragged
+// and snapped as the virtual editor does it (FloorSchemeSketch.hpp), in steps where nothing snaps,
+// each gesture one undo step; a flat's node dropped on another changes their places. An edit the
+// floor cannot take is red while held and said on the notice line. Only on the canvas, never on
+// the view.
 void SkeletonCanvas (Editor& e, Context& c, float scale);
 // Its right-click menu ("##skeletonMenu"): a wing's access, corridor width, removal; a wing added
 // to free floor; the skeleton kept as the user's or given back to the generator.
 void SkeletonMenu (Editor& e, Context& c);
-// The design the held skeleton gesture makes from the scheme it began on; unchanged, with `why`,
-// when the floor cannot take it.
-fe::Design SkeletonGesture (const Editor& e, const Context& c, std::string* why = nullptr);
+// What the held skeleton gesture makes of the scheme it began on.
+SkeletonPull SkeletonGesture (const Editor& e, const Context& c);
 // HudFloorSchemeMorph.cpp: the morphs from what was shown (`before`, each outline and its colour) to
 // `after`'s flats -- each new flat from the outline it overlaps most, else growing from its middle; an
 // outline no new flat took shrinking to its middle.

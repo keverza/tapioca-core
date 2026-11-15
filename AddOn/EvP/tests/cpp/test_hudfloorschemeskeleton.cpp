@@ -199,7 +199,7 @@ TEST (HudFloorSchemeSkeleton, ACorridorIsDraggedAcrossItsWing)
     p.editor->stage = hf::Stage::Skeleton;
     p.Frame ({ 5, 5 }, false);
     // Held by its middle line and moved 1.3 m across the wing: 1.2 m, in steps.
-    p.Drag ({ 20, 8 }, { 20, 9.3 });
+    p.Drag ({ lane->x, 8 }, { lane->x, 9.3 });
     ASSERT_EQ (p.Design ().pins.corridors.size (), 1u) << p.editor->notice;
     EXPECT_NEAR (p.Design ().pins.corridors[0].at.y, 9.2, 1e-6);
     EXPECT_TRUE (p.Design ().pins.wings.empty ()) << "a corridor moved does not make the wings the user's";
@@ -208,7 +208,46 @@ TEST (HudFloorSchemeSkeleton, ACorridorIsDraggedAcrossItsWing)
     ASSERT_TRUE (moved.has_value ());
     EXPECT_NEAR (moved->y, 9.2, 1e-6);
     // Too far: a row of flats would be under 5.5 m deep. Said, and the corridor stays.
-    p.Drag ({ 20, 9.2 }, { 20, 12.5 });
+    p.Drag ({ lane->x, 9.2 }, { lane->x, 12.5 });
     EXPECT_NE (p.editor->notice.find ("at least 5.5 m"), std::string::npos) << p.editor->notice;
     EXPECT_NEAR (p.Design ().pins.corridors[0].at.y, 9.2, 1e-6);
+}
+
+// The stage picks, drags and snaps as the virtual editor does (FloorSchemeSketch.hpp): a stair held
+// by its body goes along its wing, a corridor held by its end runs along its own line.
+TEST (HudFloorSchemeSkeleton, AStairAndACorridorsEndAreDraggedWithTheVirtualEditorsKernel)
+{
+    Panel p;
+    p.Settle ();
+    ASSERT_NE (p.editor, nullptr);
+    ASSERT_FALSE (p.editor->scheme.cores.empty ());
+    ASSERT_FALSE (p.editor->scheme.corridors.empty ());
+    p.editor->stage = hf::Stage::Skeleton;
+    p.Frame ({ 5, 5 }, false);
+    EXPECT_EQ (p.editor->sketch.items.size (),
+               p.editor->scheme.wings.size () + p.editor->scheme.corridors.size () + p.editor->scheme.cores.size ());
+    EXPECT_FALSE (p.editor->graph.edges.empty ()) << "how the flats are entered is drawn";
+    // The corridor's far end pulled 2.1 m back along it, the pointer drifting across: it stays on
+    // its line and lands within the snap's reach of 2 m.
+    const fs::Vec end = p.editor->scheme.corridors[0].axis.back (), start = p.editor->scheme.corridors[0].axis.front ();
+    const double way = end.x > start.x ? -1 : 1;
+    p.Drag (end, { end.x + way * 2.1, end.y + 0.3 });
+    ASSERT_EQ (p.Design ().pins.ends.size (), 1u) << p.editor->notice;
+    EXPECT_NEAR (p.Design ().pins.ends[0].at.y, end.y, 1e-6);
+    EXPECT_NEAR (p.Design ().pins.ends[0].at.x, end.x + way * 2.0, 0.6);
+    EXPECT_TRUE (p.Design ().pins.wings.empty ()) << "a corridor's length does not make the wings the user's";
+    EXPECT_EQ (p.editor->undo.size (), 1u);
+    p.Settle ();
+    // A stair held inside itself and taken 2.5 m along the wing.
+    const auto core = p.editor->scheme.cores[0];
+    p.Drag (core.centre, { core.centre.x + 2.5, core.centre.y });
+    EXPECT_EQ (p.editor->undo.size (), 2u) << p.editor->notice;
+    p.Settle ();
+    const auto& cores = p.planner.Latest (bp::FloorId ("A", 0))->scheme.cores;
+    EXPECT_TRUE (std::any_of (cores.begin (), cores.end (), [&] (const fs::Core& c) {
+        return std::abs (c.centre.x - (core.centre.x + 2.4)) < 0.6;
+    })) << "the stair stands where it was dropped";
+    EXPECT_TRUE (std::none_of (cores.begin (), cores.end (), [&] (const fs::Core& c) {
+        return std::abs (c.centre.x - core.centre.x) < 0.3;
+    })) << "and no longer where it was";
 }

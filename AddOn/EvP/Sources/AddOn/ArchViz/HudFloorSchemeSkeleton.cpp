@@ -5,39 +5,37 @@
 #include <cmath>
 #include <cstdio>
 
-// The Plan view's Skeleton stage (HudFloorSchemeEdit.hpp): the wings the floor is planned on, drawn
-// over the plan they make, and edited there. A wing is dragged, its ends and long sides are dragged
-// in or out, its corridor is dragged across it -- in the canvas's 0.4 m steps, each one undo step.
-// What the floor cannot take is red while it is held and said on the notice line when let go: the
-// edits and the generator share one rule (floorscheme::edit), so nothing is accepted here that the
-// plan then leaves out. The canvas only: the locked view keeps the flats' gestures.
+// The Plan view's Skeleton stage (HudFloorSchemeEdit.hpp): the wings the floor is planned on, its
+// corridors and stairs, and how each flat is entered, drawn over the plan they make and edited
+// there. The skeleton is a drawing the virtual editor's kernel edits (FloorSchemeSketch.hpp): the
+// pointer picks a corner, a side or a shape with its pick, a drag is its edit of that part and
+// snaps flush to the floor's and the skeleton's own lines with its snap, and the drawing is read
+// back through the floor plan's edits -- so nothing is accepted here that the plan then leaves out.
+// What the floor cannot take is red while it is held and said on the notice line when let go. The
+// canvas only: the locked view keeps the flats' gestures.
 namespace geomsrv::archviz::hudfloorscheme::detail {
 namespace {
+namespace ge = ::geomsrv::edit;
+namespace sk = fs::sketch;
 const ImU32 kLine = IM_COL32 (30, 40, 45, 255), kFound = IM_COL32 (47, 93, 138, 255),
             kMine = IM_COL32 (255, 186, 0, 255), kBad = IM_COL32 (214, 48, 49, 255),
-            kVeil = IM_COL32 (236, 238, 232, 150), kLane = IM_COL32 (122, 72, 160, 255);
-constexpr double kGripReach = 9, kLaneReach = 7; // pixels
+            kVeil = IM_COL32 (236, 238, 232, 150), kLane = IM_COL32 (122, 72, 160, 255),
+            kEdge = IM_COL32 (122, 72, 160, 120), kNode = IM_COL32 (255, 255, 255, 235),
+            kSnap = IM_COL32 (0, 150, 136, 255);
+constexpr float kPickReach = 9, kNodeReach = 7, kSnapReach = 8; // pixels
 
 fs::Vec Along (const fs::Wing& w)
 {
     const double l = std::hypot (w.b.x - w.a.x, w.b.y - w.a.y);
     return l > 1e-9 ? fs::Vec { (w.b.x - w.a.x) / l, (w.b.y - w.a.y) / l } : fs::Vec { 1, 0 };
 }
-fs::Vec Left (const fs::Wing& w)
+fs::Vec Q (ge::Vec3 p)
 {
-    const fs::Vec u = Along (w);
-    return { -u.y, u.x };
+    return { p.x, p.y };
 }
-double Dot (fs::Vec a, fs::Vec b)
+ge::Vec3 P3 (fs::Vec p)
 {
-    return a.x * b.x + a.y * b.y;
-}
-// Where a wing is held to change it: its two ends, then the middles of its long sides.
-std::array<fs::Vec, 4> Grips (const fs::Wing& w)
-{
-    const fs::Vec n = Left (w), m { (w.a.x + w.b.x) / 2, (w.a.y + w.b.y) / 2 };
-    const double h = w.depth / 2;
-    return { w.a, w.b, fs::Vec { m.x + n.x * h, m.y + n.y * h }, fs::Vec { m.x - n.x * h, m.y - n.y * h } };
+    return { p.x, p.y, 0.0 };
 }
 bool Valid (const fs::Scheme& s, int wing)
 {
@@ -55,73 +53,168 @@ double PinnedWidth (const fs::Scheme& s, const fe::Design& d, int wing)
             return pin.width;
     return 0;
 }
-// What of the scheme is under `m`: a grip of the selected wing, a wing's corridor, a wing.
-std::pair<int, Grip> Under (const fs::Scheme& s, int selected, fs::Vec m, double px)
-{
-    if (Valid (s, selected)) {
-        const auto grips = Grips (s.wings[selected]);
-        for (int k = 0; k < 4; ++k)
-            if (std::hypot (grips[k].x - m.x, grips[k].y - m.y) < kGripReach * px)
-                return { selected, Grip (int (Grip::Start) + k) };
+// What of the skeleton is under the pointer.
+struct Under {
+    ge::Ref ref;
+    const sk::Item* item = nullptr;
+    int flat = -1, wing = -1;
+    bool Any () const
+    {
+        return item != nullptr || flat >= 0;
     }
-    const int wing = fe::WingAt (s, m);
-    if (!Valid (s, wing))
-        return { -1, Grip::None };
-    const auto& w = s.wings[wing];
-    if (w.access == fs::Access::Centre)
-        if (const auto lane = fe::CorridorOf (s, wing))
-            if (std::abs (Dot ({ m.x - lane->x, m.y - lane->y }, Left (w))) < kLaneReach * px)
-                return { wing, Grip::Corridor };
-    return { wing, Grip::Body };
+};
+// A flat's node; else the nearest part of the drawing the virtual editor's pick gives -- a stair's
+// before a corridor's before a wing's, an edge or a corner before the inside of a shape.
+Under Pick (const Editor& e, const View& v, ImVec2 mouse, float scale)
+{
+    Under u;
+    u.wing = fe::WingAt (e.scheme, v.W (mouse));
+    for (const auto& node : e.graph.nodes)
+        if (node.kind == sk::Graph::Kind::Flat) {
+            const ImVec2 p = v.P (node.at);
+            if (std::hypot (p.x - mouse.x, p.y - mouse.y) < kNodeReach * scale)
+                return u.flat = node.index, u;
+        }
+    ge::PickView view;
+    view.toScreen = [&v] (ge::Vec3 w, double& x, double& y) {
+        const ImVec2 p = v.P ({ w.x, w.y });
+        return x = p.x, y = p.y, true;
+    };
+    int best = INT_MAX;
+    for (const auto& hit : ge::Pick (e.sketch.doc, view, mouse.x, mouse.y,
+                                     ge::kPickVertex | ge::kPickSegment | ge::kPickEntity, kPickReach * scale)) {
+        const auto* item = e.sketch.Find (hit.ref.entity);
+        if (!item || (item->what == sk::What::Corridor && hit.ref.part == ge::Part::Entity))
+            continue;
+        const int rank = (hit.inside ? 10 : 0) + (item->what == sk::What::Stair      ? 0
+                                                  : item->what == sk::What::Corridor ? 1
+                                                                                     : 2);
+        if (rank < best)
+            best = rank, u.ref = hit.ref, u.item = item;
+    }
+    if (u.item && u.item->what == sk::What::Wing)
+        u.wing = u.item->index;
+    return u;
+}
+// The lines of `entity`'s part `ref`: a side, the sides at a corner, or every side.
+std::vector<std::pair<ge::Vec3, ge::Vec3>> Edges (const ge::Entity& entity, const ge::Ref& ref)
+{
+    std::vector<std::pair<ge::Vec3, ge::Vec3>> out;
+    for (size_t k = 0; k < ge::SegmentCount (entity); ++k) {
+        size_t from = 0, to = 0;
+        ge::SegmentEnds (entity, k, from, to);
+        if (ref.part == ge::Part::Segment && entity.segments[k].id != ref.item)
+            continue;
+        if (ref.part == ge::Part::Vertex && entity.vertices[from].id != ref.item && entity.vertices[to].id != ref.item)
+            continue;
+        out.push_back ({ entity.vertices[from].p, entity.vertices[to].p });
+    }
+    return out;
+}
+void Outline (ImDrawList* draw, const View& v, const ge::Entity& entity, ImU32 colour, float width)
+{
+    for (size_t k = 0; k < ge::SegmentCount (entity); ++k) {
+        size_t from = 0, to = 0;
+        ge::SegmentEnds (entity, k, from, to);
+        draw->AddLine (v.P (Q (entity.vertices[from].p)), v.P (Q (entity.vertices[to].p)), colour, width);
+    }
+}
+void Square (ImDrawList* draw, ImVec2 p, float h, ImU32 fill, float line)
+{
+    draw->AddRectFilled ({ p.x - h, p.y - h }, { p.x + h, p.y + h }, fill);
+    draw->AddRect ({ p.x - h, p.y - h }, { p.x + h, p.y + h }, kLine, 0, 0, line);
+}
+const char* PartName (const Under& u)
+{
+    if (u.flat >= 0)
+        return "drop it on another flat to change their places";
+    if (!u.item)
+        return "";
+    const bool side = u.ref.part == ge::Part::Segment, corner = u.ref.part == ge::Part::Vertex;
+    switch (u.item->what) {
+        case sk::What::Stair:
+            return side ? "drag the side: the stair's size" : "drag the stair along its wing";
+        case sk::What::Corridor:
+            return corner ? "drag the end: the corridor's length" : "drag the corridor across its wing";
+        default:
+            return side ? "drag the side" : corner ? "drag the corner" : "drag the wing";
+    }
 }
 } // namespace
 
-fe::Design SkeletonGesture (const Editor& e, const Context& c, std::string* why)
+SkeletonPull SkeletonGesture (const Editor& e, const Context& c)
 {
-    const auto& s = e.base;
-    if (!Valid (s, e.wing) || e.grip == Grip::None)
-        return e.baseDesign;
-    const auto& w = s.wings[e.wing];
-    const fs::Vec d { e.at.x - e.from.x, e.at.y - e.from.y }, u = Along (w), n = Left (w);
-    const auto grips = Grips (w);
-    switch (e.grip) {
-        case Grip::Body: {
-            const double along = Stepped (Dot (d, u)), across = Stepped (Dot (d, n));
-            return fe::MoveWing (s, e.baseDesign, e.wing, { u.x * along + n.x * across, u.y * along + n.y * across },
-                                 why, c.options);
-        }
-        case Grip::Start:
-            return fe::ResizeWing (s, e.baseDesign, e.wing, grips[0], Stepped (-Dot (d, u)), why, c.options);
-        case Grip::End:
-            return fe::ResizeWing (s, e.baseDesign, e.wing, grips[1], Stepped (Dot (d, u)), why, c.options);
-        case Grip::Left:
-            return fe::ResizeWing (s, e.baseDesign, e.wing, grips[2], Stepped (Dot (d, n)), why, c.options);
-        case Grip::Right:
-            return fe::ResizeWing (s, e.baseDesign, e.wing, grips[3], Stepped (-Dot (d, n)), why, c.options);
-        case Grip::Corridor: {
-            const auto lane = fe::CorridorOf (s, e.wing);
-            if (!lane)
-                return e.baseDesign;
-            const double across = Stepped (Dot (d, n));
-            return fe::SetCorridor (s, e.baseDesign, e.wing, { lane->x + n.x * across, lane->y + n.y * across },
-                                    PinnedWidth (s, e.baseDesign, e.wing), why, c.options);
-        }
-        default:
-            return e.baseDesign;
+    SkeletonPull pull;
+    pull.next = e.baseDesign;
+    const auto& h = e.hold;
+    pull.doc = h.sketch.doc;
+    const auto* item = h.sketch.Find (h.ref.entity);
+    if (!item)
+        return pull;
+    // In steps along the wing where nothing snaps.
+    const fs::Vec to = fe::Stepped (e.base, e.from, e.at);
+    fs::Vec by { to.x - e.from.x, to.y - e.from.y };
+    std::string error;
+    const auto drag = [&] {
+        pull.doc = h.sketch.doc;
+        error.clear ();
+        return sk::Drag (pull.doc, h.sketch, h.ref, by, error);
+    };
+    if (!drag ()) {
+        pull.refused = true, pull.why = error;
+        return pull;
     }
+    // The virtual editor's snap, against the floor's own lines and the rest of the skeleton: an end
+    // to a point, a side or a shape flush with a line beside it.
+    const auto context = sk::Context (e.base, e.real);
+    ge::SnapQuery query;
+    query.cursor = P3 (e.at);
+    query.tolerance = h.reach;
+    query.anchor = P3 (e.from);
+    query.exclude = { ge::Ref { h.ref.entity } };
+    query.modes =
+        ge::kSnapEndpoint | ge::kSnapMidpoint | ge::kSnapIntersection | ge::kSnapPerpendicular | ge::kSnapNearest;
+    const ge::Entity* was = ge::Find (h.sketch.doc, h.ref.entity);
+    const ge::Entity* now = ge::Find (pull.doc, h.ref.entity);
+    ge::SnapResult snap;
+    if (item->what == sk::What::Corridor && h.ref.part == ge::Part::Vertex) {
+        snap = ge::Snap (h.sketch.doc, context, query);
+        if (const int i = was ? ge::VertexIndex (*was, h.ref.item) : -1; snap.snapped && i >= 0)
+            by = { snap.point.x - was->vertices[i].p.x, snap.point.y - was->vertices[i].p.y };
+        else
+            snap.snapped = false;
+    }
+    else if (now && item->what != sk::What::Corridor) {
+        // A corridor's leg is its centre line, flush with nothing: it goes in steps.
+        ge::Vec3 translate = P3 (by);
+        if (ge::SnapEdges (h.sketch.doc, context, query, Edges (*now, h.ref), translate, snap))
+            by = Q (translate), snap.snapped = true;
+        else
+            snap.snapped = false;
+    }
+    if (snap.snapped && !drag ()) {
+        pull.refused = true, pull.why = error;
+        return pull;
+    }
+    pull.snapped = snap.snapped;
+    pull.guides = std::move (snap.guides);
+    pull.next = sk::Read (e.base, e.baseDesign, h.sketch, pull.doc, &pull.why, c.options);
+    pull.refused = pull.next == e.baseDesign && !pull.why.empty ();
+    return pull;
 }
 
 namespace {
-// The pointer over the canvas in the Skeleton stage: the wing selected, a gesture begun, carried on
-// and let go, Delete, the right-click menu opened, the cursor. What is under the pointer.
-std::pair<int, Grip> Pointer (Editor& e, Context& c, const View& v, bool hovered)
+// The pointer over the canvas in the Skeleton stage: what is under it, a gesture begun, carried on
+// and let go, Delete, the right-click menu opened, the cursor.
+Under Pointer (Editor& e, Context& c, const View& v, bool hovered, float scale)
 {
-    const fs::Vec mouse = v.W (ImGui::GetIO ().MousePos);
+    const ImVec2 at = ImGui::GetIO ().MousePos;
+    const fs::Vec mouse = v.W (at);
     const double px = v.Pixel ();
     const auto& s = e.scheme;
     if (!Valid (s, e.wing))
         e.wing = -1;
-    const auto under = hovered && e.have ? Under (s, e.wing, mouse, px) : std::pair { -1, Grip::None };
+    const Under under = hovered && e.have ? Pick (e, v, at, scale) : Under {};
     if (hovered && e.have && ImGui::IsMouseClicked (ImGuiMouseButton_Left) && e.drag == Drag::None) {
         e.from = e.at = mouse;
         e.base = s;
@@ -129,23 +222,33 @@ std::pair<int, Grip> Pointer (Editor& e, Context& c, const View& v, bool hovered
         e.owner = ImGui::GetCurrentContext ();
         e.moved = false;
         e.dragOn = Surface::Canvas;
-        e.wing = under.first, e.grip = under.second;
-        e.drag = e.grip == Grip::None ? Drag::None : Drag::Body;
+        e.wing = under.wing;
+        e.hold = { e.sketch, under.ref, under.flat, kSnapReach * px };
+        if (!under.item)
+            e.hold.ref = {};
+        e.drag = e.hold.Held () ? Drag::Body : Drag::None;
     }
     if (e.drag != Drag::None && e.owner == ImGui::GetCurrentContext () && e.dragOn == Surface::Canvas) {
         e.at = mouse;
+        e.hold.reach = kSnapReach * px;
         e.moved = e.moved || std::hypot (e.at.x - e.from.x, e.at.y - e.from.y) > 4 * px;
         if (!ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
-            if (e.moved) {
-                std::string why;
-                auto next = SkeletonGesture (e, c, &why);
-                Apply (e, c, e.baseDesign, std::move (next), why);
+            std::string why;
+            if (e.moved && e.hold.flat >= 0) {
+                if (const int other = fe::FlatAt (e.base, e.at); other >= 0 && other != e.hold.flat)
+                    Apply (e, c, e.baseDesign, fe::SwapFlats (e.base, e.baseDesign, e.hold.flat, other, &why), why);
+                else
+                    Notice (e, "Drop the flat on another flat to change their places.");
             }
-            e.drag = Drag::None, e.grip = Grip::None;
+            else if (e.moved) {
+                auto pull = SkeletonGesture (e, c);
+                Apply (e, c, e.baseDesign, std::move (pull.next), pull.why);
+            }
+            e.drag = Drag::None, e.hold = {};
         }
     }
     if (hovered && ImGui::IsKeyPressed (ImGuiKey_Escape))
-        e.drag = Drag::None, e.grip = Grip::None;
+        e.drag = Drag::None, e.hold = {};
     if (hovered && e.have && Valid (s, e.wing) && e.drag == Drag::None &&
         (ImGui::IsKeyPressed (ImGuiKey_Delete) || ImGui::IsKeyPressed (ImGuiKey_Backspace))) {
         std::string why;
@@ -155,15 +258,15 @@ std::pair<int, Grip> Pointer (Editor& e, Context& c, const View& v, bool hovered
     if (hovered && e.have && ImGui::IsMouseClicked (ImGuiMouseButton_Right)) {
         hudshell::ClaimRightClick ();
         e.menuAt = mouse;
-        e.wing = under.first;
+        e.wing = under.wing;
         ImGui::OpenPopup ("##skeletonMenu");
     }
     if (hovered) {
         hudshell::OwnCursor ();
-        ImGui::SetMouseCursor (e.drag != Drag::None || (under.second != Grip::None && under.second != Grip::Body)
-                                   ? ImGuiMouseCursor_ResizeAll
-                               : under.second == Grip::Body ? ImGuiMouseCursor_Hand
-                                                            : ImGuiMouseCursor_Arrow);
+        const bool body = under.flat >= 0 || (under.item && under.ref.part == ge::Part::Entity);
+        ImGui::SetMouseCursor (e.drag != Drag::None || (under.Any () && !body) ? ImGuiMouseCursor_ResizeAll
+                               : body                                          ? ImGuiMouseCursor_Hand
+                                                                               : ImGuiMouseCursor_Arrow);
     }
     return under;
 }
@@ -177,7 +280,12 @@ void SkeletonCanvas (Editor& e, Context& c, float scale)
         Fit (all, ImGui::GetCursorScreenPos (), (std::max) (120.0f, ImGui::GetContentRegionAvail ().x), scale);
     ImGui::InvisibleButton ("##skeleton", v.size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
     const bool hovered = ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
-    const auto under = Pointer (e, c, v, hovered);
+    if (e.have && e.sketchOf != e.revision) {
+        e.sketch = sk::Of (e.scheme);
+        e.graph = sk::Access (e.scheme);
+        e.sketchOf = e.revision;
+    }
+    const auto under = Pointer (e, c, v, hovered, scale);
     const auto& s = e.scheme;
     auto* draw = ImGui::GetWindowDrawList ();
     const ImVec2 end (v.origin.x + v.size.x, v.origin.y + v.size.y);
@@ -210,6 +318,29 @@ void SkeletonCanvas (Editor& e, Context& c, float scale)
             Ring (draw, v, u.shape, kBad, 1.5f * scale);
     for (const auto& p : s.culled)
         Ring (draw, v, p.shape, IM_COL32 (120, 120, 120, 200), 1.2f * scale);
+    // How the floor is entered: each flat through its door to the circulation it opens onto.
+    if (e.sketchOf == e.revision) {
+        for (const auto& edge : e.graph.edges)
+            for (size_t i = 0; i + 1 < edge.line.size (); ++i)
+                draw->AddLine (v.P (edge.line[i]), v.P (edge.line[i + 1]), kEdge, 1.2f * scale);
+        for (const auto& node : e.graph.nodes) {
+            const ImVec2 p = v.P (node.at);
+            const bool hot = node.kind == sk::Graph::Kind::Flat && node.index == under.flat;
+            if (node.kind == sk::Graph::Kind::Stair)
+                Square (draw, p, 3.5f * scale, kLine, 1);
+            else if (node.kind == sk::Graph::Kind::Corridor)
+                draw->AddCircleFilled (p, 3.5f * scale, kLane);
+            else {
+                draw->AddCircleFilled (p, (hot ? 5.5f : 4.0f) * scale, kNode);
+                draw->AddCircle (p, (hot ? 5.5f : 4.0f) * scale, kLane, 0, 1.3f * scale);
+            }
+        }
+        // The ends a corridor is held by.
+        for (const auto& corridor : s.corridors)
+            if (corridor.axis.size () >= 2)
+                for (const auto& p : { corridor.axis.front (), corridor.axis.back () })
+                    Square (draw, v.P (p), 3.5f * scale, kLane, 1);
+    }
     // The wings: the user's in the accent, the generator's in blue; the selected one thick.
     const ImU32 colour = s.authored ? kMine : kFound;
     for (size_t i = 0; i < s.wings.size (); ++i) {
@@ -227,40 +358,47 @@ void SkeletonCanvas (Editor& e, Context& c, float scale)
     for (const auto& d : s.diagnostics)
         if (d.level == fs::Diagnostic::Error)
             draw->AddCircleFilled (v.P (d.at), 4 * scale, kBad);
-    // The selected wing's grips; the one under the pointer larger.
-    if (Valid (s, e.wing) && e.drag == Drag::None) {
-        const auto grips = Grips (s.wings[e.wing]);
-        for (int k = 0; k < 4; ++k) {
-            const bool hot = under.first == e.wing && int (under.second) == int (Grip::Start) + k;
-            const float h = (hot ? 6.0f : 4.5f) * scale;
-            const ImVec2 p = v.P (grips[k]);
-            draw->AddRectFilled ({ p.x - h, p.y - h }, { p.x + h, p.y + h }, kMine);
-            draw->AddRect ({ p.x - h, p.y - h }, { p.x + h, p.y + h }, kLine, 0, 0, 1.2f * scale);
-        }
-    }
-    // The gesture, drawn at once: where the wing or its corridor would stand, red when the floor
-    // cannot take it.
-    std::string why;
-    if (e.drag != Drag::None && e.moved && Valid (e.base, e.wing)) {
-        const auto next = SkeletonGesture (e, c, &why);
-        const bool refused = next == e.baseDesign;
-        const auto& w = e.base.wings[e.wing];
-        if (e.grip == Grip::Corridor) {
-            const fs::Vec n = Left (w);
-            const double across = Stepped (Dot ({ e.at.x - e.from.x, e.at.y - e.from.y }, n));
-            if (const auto lane = fe::CorridorOf (e.base, e.wing)) {
-                const fs::Vec u = Along (w), m { lane->x + n.x * across, lane->y + n.y * across };
-                const double h = w.length / 2;
-                draw->AddLine (v.P ({ m.x - u.x * h, m.y - u.y * h }), v.P ({ m.x + u.x * h, m.y + u.y * h }),
-                               refused ? kBad : kMine, 3 * scale);
+    // The selected wing's grips -- its corners and the middles of its sides -- and the part under
+    // the pointer, as it would be held.
+    if (e.drag == Drag::None && e.sketchOf == e.revision) {
+        if (const auto* item = e.sketch.Find (sk::What::Wing, e.wing))
+            if (const auto* entity = ge::Find (e.sketch.doc, item->entity))
+                for (size_t k = 0; k < ge::SegmentCount (*entity); ++k) {
+                    size_t from = 0, to = 0;
+                    ge::SegmentEnds (*entity, k, from, to);
+                    const fs::Vec a = Q (entity->vertices[from].p), b = Q (entity->vertices[to].p);
+                    Square (draw, v.P (a), 3.5f * scale, kMine, 1.2f * scale);
+                    Square (draw, v.P ({ (a.x + b.x) / 2, (a.y + b.y) / 2 }), 4.5f * scale, kMine, 1.2f * scale);
+                }
+        if (under.item)
+            if (const auto* entity = ge::Find (e.sketch.doc, under.ref.entity)) {
+                for (const auto& [a, b] : Edges (*entity, under.ref))
+                    draw->AddLine (v.P (Q (a)), v.P (Q (b)), IM_COL32 (255, 255, 255, 220), 3.5f * scale);
+                if (under.ref.part == ge::Part::Vertex)
+                    if (const int i = ge::VertexIndex (*entity, under.ref.item); i >= 0)
+                        Square (draw, v.P (Q (entity->vertices[i].p)), 6 * scale, kMine, 1.2f * scale);
             }
-        }
-        else if (refused)
-            Ring (draw, v, w.rect, kBad, 3 * scale);
-        else
-            for (const auto& pin : next.pins.wings)
-                if (pin.id == fe::WingId (e.base, e.wing))
-                    Ring (draw, v, fe::WingRect (pin), kMine, 3 * scale);
+    }
+    // The gesture, drawn at once: the part where it would stand, red when the floor cannot take
+    // it; what it snapped to.
+    std::string why;
+    if (e.drag != Drag::None && e.moved && e.hold.flat >= 0 && e.hold.flat < int (e.base.flats.size ())) {
+        fs::Ring moved = e.base.flats[e.hold.flat].shape;
+        for (auto& p : moved)
+            p.x += e.at.x - e.from.x, p.y += e.at.y - e.from.y;
+        Ring (draw, v, moved, kMine, 2.5f * scale);
+        if (const int other = fe::FlatAt (e.base, e.at); other >= 0 && other != e.hold.flat)
+            Ring (draw, v, e.base.flats[other].shape, kMine, 3 * scale);
+    }
+    else if (e.drag != Drag::None && e.moved) {
+        const auto pull = SkeletonGesture (e, c);
+        why = pull.refused ? pull.why : std::string ();
+        if (const auto* entity = ge::Find (pull.doc, e.hold.ref.entity))
+            Outline (draw, v, *entity, pull.refused ? kBad : kMine, 3 * scale);
+        for (const auto& guide : pull.guides)
+            Dashed (draw, v.P (Q (guide.from)), v.P (Q (guide.to)), kSnap, 1.5f * scale, 4 * scale);
+        if (pull.snapped && why.empty ())
+            why = "flush";
     }
     if (c.planner.Pending (bp::FloorId (e.key, e.story), e.input.signature))
         draw->AddText ({ v.origin.x + 6 * scale, v.origin.y + 4 * scale }, IM_COL32 (90, 100, 105, 255), "planning...");
@@ -270,12 +408,23 @@ void SkeletonCanvas (Editor& e, Context& c, float scale)
         return;
     if (e.drag != Drag::None && !why.empty ())
         hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right, why);
-    else if (e.drag == Drag::None && Valid (s, under.first)) {
-        const auto& w = s.wings[under.first];
+    else if (e.drag == Drag::None && under.flat >= 0 && under.flat < int (s.flats.size ()))
         hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
-                         hudshell::Formatted ("Wing %u | %.1f x %.1f m | %s%s", fe::WingId (s, under.first), w.length,
-                                              w.depth, AccessName (w.access),
-                                              under.second == Grip::Corridor ? " | drag the corridor across the wing"
+                         hudshell::Formatted ("Flat | %.1f rooms | %.1f m2 | %s", s.flats[under.flat].rooms,
+                                              s.flats[under.flat].net, PartName (under)));
+    else if (e.drag == Drag::None && under.item && under.item->what == sk::What::Stair)
+        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
+                         hudshell::Formatted ("Stair | %.1f x %.1f m | %s", s.cores[under.item->index].width,
+                                              s.cores[under.item->index].depth, PartName (under)));
+    else if (e.drag == Drag::None && under.item && under.item->what == sk::What::Corridor)
+        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
+                         hudshell::Formatted ("Corridor | %s", PartName (under)));
+    else if (e.drag == Drag::None && Valid (s, under.wing)) {
+        const auto& w = s.wings[under.wing];
+        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
+                         hudshell::Formatted ("Wing %u | %.1f x %.1f m | %s%s%s", fe::WingId (s, under.wing), w.length,
+                                              w.depth, AccessName (w.access), under.item ? " | " : "",
+                                              under.item   ? PartName (under)
                                               : s.authored ? ""
                                                            : " | the generator's: an edit makes the wings yours"));
     }
@@ -323,6 +472,15 @@ void SkeletonMenu (Editor& e, Context& c)
                 Commit (e, c, fe::ResetCorridor (s, full, e.wing));
             ImGui::EndDisabled ();
         }
+        if (const int core = fe::CoreAt (s, e.menuAt); core >= 0) {
+            ImGui::Separator ();
+            if (ImGui::MenuItem ("Turn the stair a quarter"))
+                Apply (e, c, full, fe::RotateStair (s, full, core, &why), why);
+            if (ImGui::MenuItem ("Remove the stair"))
+                Apply (e, c, full, fe::RemoveStair (s, full, core, &why), why);
+        }
+        else if (ImGui::MenuItem ("Add a stair here"))
+            Apply (e, c, full, fe::AddStair (s, full, e.menuAt, &why), why);
         ImGui::Separator ();
         if (ImGui::MenuItem ("Remove wing") && Apply (e, c, full, fe::RemoveWing (s, full, e.wing, &why), why))
             e.wing = -1;

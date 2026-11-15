@@ -486,7 +486,7 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
             ImGui::SameLine ();
         if (ImGui::RadioButton (label, e.stage == stage) && e.stage != stage && e.drag == Drag::None) {
             e.stage = stage;
-            e.selected = {}, e.wing = -1, e.grip = Grip::None;
+            e.selected = {}, e.wing = -1, e.hold = {};
         }
         geomsrv::archviz::hudshell::ItemTip ("%s", tip);
     }
