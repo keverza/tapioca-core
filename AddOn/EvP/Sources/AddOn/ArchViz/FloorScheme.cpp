@@ -862,6 +862,15 @@ void Gives (Scheme& s, const cp::PathsD& outline, const cp::PathsD& blind, const
     }
 }
 } // namespace
+bool detail::JoinRing (Ring& shape, const cp::PathD& piece)
+{
+    return Join (shape, piece);
+}
+void detail::RefitFlat (Scheme& s, Flat& f, const cp::PathsD& outline, const cp::PathsD& blind,
+                        const floorprogramme::Programme& programme, const Pins& pins, const Options& o)
+{
+    Refit (s, f, outline, blind, programme, pins, o);
+}
 Scheme detail::PlanFloor (const std::vector<Ring>& outline, const floorprogramme::Programme& programme,
                           const Pins& pins, const Options& options, bool skeletonOnly)
 {
@@ -930,6 +939,7 @@ Scheme detail::PlanFloor (const std::vector<Ring>& outline, const floorprogramme
     Rework (paths, s, programme, pins, options);
     Joins (s, paths, blind, programme, pins, options);
     Gives (s, paths, blind, programme, pins, options);
+    Gather (s, paths, blind, programme, pins, options);
     Tidy (s);
     s.party = PartyWalls (paths, blind);
     // A flat whose rooms are left to the user takes the type its area fits.

@@ -115,6 +115,16 @@ double Touch (const Ring& a, const Ring& b, double band = 0.05);
 // Facade length of a ring: its edges that face outside the outline (and not into `blind`).
 double FacadeOf (const cp::PathsD& outline, const Ring& ring, const cp::PathsD* blind = nullptr);
 void Note (Scheme& s, Diagnostic::Level level, const char* code, const std::string& text, Vec at);
+// FloorScheme.cpp's own join and refit, for FloorSchemeGather.cpp: `piece` joined to `shape` when
+// the result is one ring without a hole or a fold; a flat whose outline changed given the type its
+// area fits and its rooms laid again.
+bool JoinRing (Ring& shape, const cp::PathD& piece);
+void RefitFlat (Scheme& s, Flat& f, const cp::PathsD& outline, const cp::PathsD& blind,
+                const floorprogramme::Programme& programme, const Pins& pins, const Options& o);
+// FloorSchemeGather.cpp: after every other stage, floor that could be no flat and flats under the
+// smallest of the programme join the flat beside them.
+void Gather (Scheme& s, const cp::PathsD& outline, const cp::PathsD& blind, const floorprogramme::Programme& programme,
+             const Pins& pins, const Options& o);
 Vec Centroid (const Ring& r);
 // Bounding-box overlap test before the Clipper work.
 bool Near (const Ring& a, const Ring& b, double gap);

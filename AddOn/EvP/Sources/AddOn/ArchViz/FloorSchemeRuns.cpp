@@ -307,15 +307,29 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
     const double capFloor = (std::min) (capLo, c.o.minCap + 1.0);
     capLo = (std::max) (capFloor, capLo - Wedge (c, f, s0, false, coreLo, coreHi));
     capHi = (std::max) (capFloor, capHi - Wedge (c, f, s1, true, coreLo, coreHi));
+    const double usualLo = capLo, usualHi = capHi;
     EndPins (c, f, { s0, 0, s1, depth }, c0, c1, capLo, capHi);
+    // The corridor's ends are the user's (user, 2026-11-15: "corridor extend should allow to go
+    // beyond stairwell and create L shaped units"): they stay where they were put, and what the
+    // band beside the stair then leaves too short for a flat joins the flat beside it (Gather).
+    const bool endsPinned = capLo != usualLo || capHi != usualHi;
     const int id = AddSection (c, run, (s1 - s0) * depth, 'C');
     double e0 = s0 + capLo, e1 = s1 - capHi;
     const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, CoreSlack (c.o));
     const double w = CoreAlong (c, pin, band);
     const double wanted = pin ? f.Local (pin->centre).x - w / 2 : (e0 + e1 - w) / 2;
+    // A stack stair stands where it is, anywhere along the section (user, 2026-11-15: "stairwell
+    // should be allowed to be moved anywhere along the corridor -- resizing the apartments"): the
+    // corridor runs on to reach it, and the cap it shortens joins the flat beside it (Gather).
+    if (pin && c.o.holdCores && wanted >= s0 - 1e-9 && wanted + w <= s1 + 1e-9) {
+        if (wanted < e0)
+            e0 = wanted, capLo = e0 - s0;
+        if (wanted + w > e1)
+            e1 = wanted + w, capHi = s1 - e1;
+    }
     // A stair the user put somewhere stays there when other cap lengths make the bands either
     // side of it whole flats: the nearest caps to the usual that do.
-    if (pin && wanted >= e0 - 3 && wanted + w <= e1 + 3) {
+    if (pin && !endsPinned && wanted >= e0 - 3 && wanted + w <= e1 + 3) {
         auto fits = [&] (double lo, double hi) {
             const double a0 = s0 + lo, a1 = s1 - hi;
             return wanted >= a0 - 1e-9 && wanted + w <= a1 + 1e-9 && wanted - a0 <= c.o.maxDeadEnd &&
@@ -388,6 +402,8 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
     AddCorridor (c, f, { { e0, c0, e1, c1 } }, { { e0, (c0 + c1) / 2 }, { e1, (c0 + c1) / 2 } }, id);
     // No facade on either side (the crossing of a +): the corridor ends in storage.
     auto cap = [&] (Box sigma, Box other, bool flip, bool doorHigh) {
+        if (sigma.W () < 0.05)
+            return; // the corridor runs to the gable: a stair stands at the section's very end
         if (!flip && lit (sigma, up) < kBedroomMin && lit (other, !up) < kBedroomMin)
             c.out.storage.push_back ({ ToRing (f, sigma), "corridor end without facade (storage)" });
         else
