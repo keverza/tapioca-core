@@ -3981,6 +3981,9 @@ void ShowProfile (Drive& d)
 {
     d.input.width = 1200.0f;
     d.input.height = 1500.0f;
+    // #191 U4: the profile is the path context's; the Inspector shows it for a selected path only.
+    if (d.S ().selection.Items ().empty () && d.D ().paths.size () == 1)
+        d.S ().selection.Set ({ { d.D ().paths.front ().id, ed::Part::Entity, 0 } });
     d.Frame ();
 }
 // A straight 100 m ramp, 100.0 to 103.0, with a break at 40 m set to 102.0 (5 % then 1 %).
@@ -4226,7 +4229,9 @@ TEST (HudVirtualEditor, AProfileLabelThePageHasScrolledAwayIsNotClickable)
     const ImVec2 at = Centre (*box);
     d.Press (at.x, at.y);
     EXPECT_FALSE (d.S ().profileTyping); // ...and not clickable where it is not drawn
-    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    // #191 U4: with the path selected the page shifts and the clipped label publishes at the view's
+    // edge, past the panel: the press is the view's own (a marquee), never the profile's.
+    EXPECT_FALSE (eh::ProfileDrag (d.S ().drag)) << "pressed at " << at.x << ", " << at.y;
     EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
 }
 

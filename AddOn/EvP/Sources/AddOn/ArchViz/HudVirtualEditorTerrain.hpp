@@ -157,6 +157,10 @@ bool EditTerrainDesignPath (Session& session);
 bool DrawTerrainDesignPath (Session& session);
 bool DrawTerrainPropertyLine (Session& session);
 void TerrainSetupPanel (Session& session);
+// #191 U4: the chosen design path's cross-section, as the setup panel draws it, for the path context.
+void TerrainSectionPanel (Session& session, edit::Id path);
+// #191 U4: Fix / Release selected heights and the list of fixed heights, for the fixed-heights context.
+void FixedHeightsPanel (Session& session);
 // One explicit Apply through the existing Session history. Drafts are revision-
 // bound; stale/missing ranges refuse rather than retarget or overwrite newer edits.
 bool BeginTerrainSectionEdit (Session& session, edit::Id section);

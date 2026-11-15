@@ -495,7 +495,7 @@ void Panel (Session& session);
 // The order is the order of precedence: the first that applies wins. A selection of only the
 // vertices of terrain source lines is FixedHeights, not the line's own context.
 enum class InspectorContext : uint8_t {
-    Prompt,        // the unsaved-work close prompt or a draft recovery offer
+    Prompt,        // the unsaved-work close prompt, a draft recovery offer or the open draft list
     Command,       // a landscape Boolean, a Boolean or array draft, Mirror or Trim
     DrawTool,      // a drawing tool or source drawing: the next line's role and the tool's options
     Path,          // one path, or a break or range of it

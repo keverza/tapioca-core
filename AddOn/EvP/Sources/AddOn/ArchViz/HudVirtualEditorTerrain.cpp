@@ -150,6 +150,11 @@ void TerrainControlsPanel (Session& s)
     ImGui::EndDisabled ();
 }
 } // namespace
+
+void FixedHeightsPanel (Session& s)
+{
+    TerrainControlsPanel (s);
+}
 } // namespace geomsrv::archviz::edithud
 
 #if defined(TAPIOCA_GEOMETRY_RUST)

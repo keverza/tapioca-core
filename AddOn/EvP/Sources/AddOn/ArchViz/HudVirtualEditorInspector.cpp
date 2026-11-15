@@ -10,8 +10,8 @@
 #include <iterator>
 #include <set>
 
-// #191 area C, the Inspector: the page's top, under the pinned header. Until U4 picks one context,
-// it holds every control the header and the Outliner do not, in the order the panel drew them.
+// #191 area C, the Inspector: the page's top, under the pinned header. It shows one context at a
+// time -- what the active command, tool or selection needs -- and never the others' controls.
 namespace geomsrv::archviz::edithud {
 using namespace detail;
 namespace lg = tapioca::geometry;
@@ -54,7 +54,8 @@ void BooleanLeaves (const lg::LandscapeSession& landscape, edit::Id operation, s
 
 InspectorContext ResolveContext (const Session& s)
 {
-    if (s.closePrompt || !s.recoveries.empty ())
+    // The File menu's Open draft... lists the drafts here, with the recovery offers (#159).
+    if (s.closePrompt || !s.recoveries.empty () || s.draftFilesListed)
         return InspectorContext::Prompt;
     if (s.landscapeCommand || s.booleanDraft || s.rectangularArray || s.tool == Tool::Mirror || s.tool == Tool::Trim)
         return InspectorContext::Command;
@@ -120,25 +121,29 @@ const char* InspectorContextName (InspectorContext context)
     return i < std::size (names) ? names[i] : "";
 }
 
-void detail::Inspector (Session& s)
+namespace {
+// What is selected, measured: the tracker's values (type a number over the view to set one).
+void TrackerValues (Session& s)
 {
-    const auto& doc = Doc (s);
-    ClosePrompt (s);
-    LandscapePanel (s);
-    // #191 U2: Export debug scene is in the command bar's File menu; what it wrote is said here.
-    if (!s.debugExportPath.empty ())
-        ImGui::TextWrapped ("Debug scene saved: %s", s.debugExportPath.c_str ());
-    if (!s.debugExportError.empty ())
-        ImGui::TextWrapped ("Debug export failed: %s", s.debugExportError.c_str ());
+    if (s.tracker.State () == edit::TrackerState::Hidden || s.tracker.Items ().empty ())
+        return;
+    ImGui::Separator ();
+    for (size_t i = 0; i < s.tracker.Items ().size (); ++i) {
+        const auto& item = s.tracker.Items ()[i];
+        const bool typing = s.tracker.State () == edit::TrackerState::Editing && i == s.tracker.Focus ();
+        const std::string value =
+            typing ? s.tracker.Text () + "_"
+                   : editlayers::FormatValue (item.quantity, item.locked ? item.lockedValue : item.value);
+        ImGui::Text ("%s  %s%s", edit::QuantityName (item.quantity), value.c_str (), item.locked ? "  (locked)" : "");
+        if (i + 1 < s.tracker.Items ().size ())
+            ImGui::SameLine (0.0f, 18.0f);
+    }
+}
+
+// Archicad's own drafting brought in as editor lines: what is selected in Archicad now.
+void AddFromArchicad (Session& s)
+{
     ImGui::BeginDisabled (s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s));
-    if (s.tool == Tool::Mirror) {
-        ImGui::Checkbox ("Keep original", &s.mirrorKeeps);
-    }
-    if (s.tool == Tool::Polygon) {
-        ImGui::SetNextItemWidth (120);
-        ImGui::SliderInt ("Sides (Up/Down)", &s.polygonSides, 3, edit::kMaxPolygonSides);
-    }
-    // Archicad's own drafting brought in as editor lines: what is selected in Archicad now.
     ImGui::BeginDisabled (s.draftingImport || s.edits.InGesture () || !s.drawing.empty ());
     if (ImGui::SmallButton (s.draftingImport ? "Adding Archicad lines..." : "Add selected Archicad lines and fills"))
         s.draftingImport = true, s.draftingImportAs = "lines";
@@ -162,18 +167,23 @@ void detail::Inspector (Session& s)
             "Lines, polylines, arcs, circles and fill outlines selected in Archicad, at the "
             "working plane's height. One undo step.");
     ImGui::EndDisabled ();
+}
+
+// The shared tail under every selection context: the action row -- the right-click menu's
+// table, an action with nothing to do here greyed as the menu greys it -- with an option shown
+// only beside its action, then More and Expert.
+void SelectionTail (Session& s)
+{
+    const auto& doc = Doc (s);
+    ImGui::Separator ();
     ImGui::BeginDisabled (s.drag != Drag::None || s.profileTyping);
-    // Context actions for what is selected.
-    // An action with nothing to do here is shown greyed, as the menu shows it.
     // #191 U2: Delete heads the row, away from Exit in the command bar; the Delete key is unchanged.
     if (ImGui::SmallButton ("Delete"))
         DeleteSelection (s);
-    bool offers = true, offset = false;
+    bool offset = false;
     for (const edit::Action* a : edit::Applicable (Actions (s), s.selection, edit::ViewKind::Plan)) {
         const auto op = a->make (doc, s.selection.Items ());
-        if (offers)
-            ImGui::SameLine ();
-        offers = true;
+        ImGui::SameLine ();
         offset = offset || a->id == "offset";
         ImGui::BeginDisabled (!op);
         if (ImGui::SmallButton (a->label.c_str ())) {
@@ -195,27 +205,113 @@ void detail::Inspector (Session& s)
         OffsetJoinControl (s);
         OffsetMiterLimitControl (s);
     }
-    DuplicateOffsetControls (s);
-    RectangularArrayControls (s);
-    BooleanControls (s);
-    ImGui::EndDisabled ();
-    EllipseControls (s);
-
-    // What is selected, measured: the tracker's values (type a number over the view to set one).
-    if (s.tracker.State () != edit::TrackerState::Hidden && !s.tracker.Items ().empty ()) {
-        ImGui::Separator ();
-        for (size_t i = 0; i < s.tracker.Items ().size (); ++i) {
-            const auto& item = s.tracker.Items ()[i];
-            const bool typing = s.tracker.State () == edit::TrackerState::Editing && i == s.tracker.Focus ();
-            const std::string value =
-                typing ? s.tracker.Text () + "_"
-                       : editlayers::FormatValue (item.quantity, item.locked ? item.lockedValue : item.value);
-            ImGui::Text ("%s  %s%s", edit::QuantityName (item.quantity), value.c_str (),
-                         item.locked ? "  (locked)" : "");
-            if (i + 1 < s.tracker.Items ().size ())
-                ImGui::SameLine (0.0f, 18.0f);
-        }
+    if (ImGui::CollapsingHeader ("More")) {
+        DuplicateOffsetControls (s);
+        RectangularArrayControls (s);
     }
-    ProfileEditor (s);
+    ImGui::EndDisabled ();
+    if (ImGui::CollapsingHeader ("Expert"))
+        for (const auto& ref : s.selection.Items ())
+            ImGui::TextDisabled ("object %llu   part %d   item %llu", static_cast<unsigned long long> (ref.entity),
+                                 int (ref.part), static_cast<unsigned long long> (ref.item));
+}
+
+// Several objects: how many of each kind.
+void SelectionCounts (Session& s)
+{
+    const auto& doc = Doc (s);
+    std::set<edit::Id> paths, lines, other;
+    for (const auto& ref : s.selection.Items ())
+        if (edit::FindPath (doc, ref.entity))
+            paths.insert (ref.entity);
+        else if (const auto* entity = edit::Find (doc, ref.entity))
+            (entity->ellipse ? other : lines).insert (ref.entity);
+    ImGui::Text ("%zu paths   %zu lines   %zu other", paths.size (), lines.size (), other.size ());
+}
+
+const char* ToolName (Tool tool)
+{
+    static const char* const names[] = { "Select",  "Polyline", "Path",   "Curve", "Rectangle",
+                                         "Polygon", "Ellipse",  "Mirror", "Trim" };
+    const auto i = size_t (tool);
+    return i < std::size (names) ? names[i] : "";
+}
+
+std::string Title (const Session& s, InspectorContext context)
+{
+    std::string title = InspectorContextName (context);
+    const auto& items = s.selection.Items ();
+    if (context >= InspectorContext::Path && context <= InspectorContext::Entity && !items.empty () &&
+        context != InspectorContext::BooleanResult)
+        title += " " + std::to_string (items.front ().entity);
+    else if (context == InspectorContext::DrawTool && s.tool != Tool::Select)
+        title += ": " + std::string (ToolName (s.tool));
+    return title;
+}
+} // namespace
+
+// #191 U4: one context at a time (ResolveContext), each drawn by the functions that drew its
+// controls before; a selection context ends with the shared action row, More and Expert.
+void detail::Inspector (Session& s)
+{
+    const auto context = ResolveContext (s);
+    if (Doc (s).landscape)
+        Landscape (s); // evaluated every frame the page is drawn, as the landscape block did
+    ImGui::TextDisabled ("%s", Title (s, context).c_str ());
+    // #191 U2: Export debug scene is in the command bar's File menu; what it wrote is said here.
+    if (!s.debugExportPath.empty ())
+        ImGui::TextWrapped ("Debug scene saved: %s", s.debugExportPath.c_str ());
+    if (!s.debugExportError.empty ())
+        ImGui::TextWrapped ("Debug export failed: %s", s.debugExportError.c_str ());
+    const bool toolLock = s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s);
+    switch (context) {
+        case InspectorContext::Prompt:
+            ClosePrompt (s);
+            DraftControls (s);
+            return;
+        case InspectorContext::Command:
+            if (s.tool == Tool::Mirror) {
+                ImGui::BeginDisabled (toolLock);
+                ImGui::Checkbox ("Keep original", &s.mirrorKeeps);
+                ImGui::EndDisabled ();
+            }
+            ImGui::BeginDisabled (s.drag != Drag::None || s.profileTyping);
+            RectangularArrayControls (s);
+            BooleanControls (s);
+            ImGui::EndDisabled ();
+            TrackerValues (s);
+            return;
+        case InspectorContext::DrawTool:
+            if (s.tool == Tool::Polygon) {
+                ImGui::BeginDisabled (toolLock);
+                ImGui::SetNextItemWidth (120);
+                ImGui::SliderInt ("Sides (Up/Down)", &s.polygonSides, 3, edit::kMaxPolygonSides);
+                ImGui::EndDisabled ();
+            }
+            LandscapePanel (s);
+            TrackerValues (s);
+            return;
+        case InspectorContext::Nothing:
+            LandscapePanel (s);
+            AddFromArchicad (s);
+            return;
+        case InspectorContext::Path:
+            ProfileEditor (s);
+            LandscapePanel (s);
+            break;
+        case InspectorContext::Entity:
+            EllipseControls (s);
+            LandscapePanel (s);
+            break;
+        case InspectorContext::Several:
+            SelectionCounts (s);
+            LandscapePanel (s);
+            break;
+        default: // Region, Boolean result, reference line, fixed heights: the landscape's own
+            LandscapePanel (s);
+            break;
+    }
+    TrackerValues (s);
+    SelectionTail (s);
 }
 } // namespace geomsrv::archviz::edithud

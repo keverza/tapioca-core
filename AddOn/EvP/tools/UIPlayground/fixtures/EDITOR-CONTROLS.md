@@ -133,6 +133,44 @@ Actions and enable conditions are unchanged.
 - **Height:** `HudVirtualEditorCommandBar.PinnedHeaderFitsTheBudget191` keeps A + B within 120 px.
 - Every tool and modifier is reached in at most two clicks: one for a glyph, two for a popover entry.
 
+## After #191 U4
+
+The Inspector (C) draws one context at a time: `ResolveContext (const Session&)` in
+`Inspector.cpp`, first match in the table's order. The **Ctx** column above is now what decides
+whether a control is drawn. Exceptions and decisions:
+
+- **Prompt (1)** also holds the open draft list (File > Open draft...). The draft name and
+  Keep recovery snapshots are in Nothing selected (11).
+- **Command (2)** draws Keep original for Mirror, which resolves to Command rather than to Draw
+  tool. It also draws `RectangularArrayControls` while an array draft is armed, and `BooleanControls`.
+- **Draw tool (3)** draws Sides for Polygon, the next line's role (ID `draw-source-role`) and, in
+  entrance placement, `EntrancesPanel`.
+- **Path (4)** draws `ProfileEditor`, `EntrancesPanel` (Path to entrance) and, for the chosen design
+  path, the Terrain cross-section (`TerrainSectionPanel`). The cross-section is also still in
+  Nothing selected (11) under Topography preview. The profile is no longer drawn with nothing
+  selected; `ProfilePath`'s fallback to the only path only names what the canvas shows.
+- **Region (5)** draws the selected lines' role (ID `selected-source-role`), `RegionPanel (s)`,
+  then `RegionPanel (s, true)` under a Material heading. A building outline also gets `EntrancesPanel`.
+  The Sources and Materials sub-tabs are gone.
+- **Boolean result (6)** names the Boolean and draws the selected lines' role. The construction
+  inputs wait for #189.
+- **Reference line (7)** draws the selected line's style only, without a header. The full list,
+  under its Reference line display header, is in Nothing selected (11) until U5 moves it to D.
+- **Object (8)** draws `EllipseControls` and the selected lines' role, so a plain line can take a role.
+- **Fixed heights (9)** draws `FixedHeightsPanel` (the Fixed terrain heights header, open on entry).
+- **Several (10)** draws the count by kind and the selected lines' role.
+- **Nothing (11)** draws `TerrainDesignPanel`, `EntrancesPanel`, the face and region count,
+  `DraftControls`, the reference line list, and Add selected Archicad lines with its three variants.
+- **Shared tail (4 to 10):** Delete and the action row. Offset distance, join and miter limit
+  appear only when Offset is offered. **More** holds Duplicate offset and Rectangular array...;
+  **Expert** lists the selection's object, part and item ids.
+- The "Landscape. Sources remain editable." text and the Select sources / Draw source radios are
+  dropped. The toolbar's Select and draw tools set the same landscape mode.
+
+Tests: `HudVirtualEditorFixtures.ResolveContextTable191`, `ResolveContextPrecedence191`,
+`HudVirtualEditorInspector.{InspectorShowsOneContext191, TheActionRowFollowsTheSelection191,
+PathProfileVisibleWithoutScroll191}`. `NoInventoryControlUnreachable` is not written yet.
+
 ## Notes found while taking the inventory
 
 - No test addresses `DuplicateOffsetControls`, `OffsetJoinControl` or `OffsetMiterLimitControl`.

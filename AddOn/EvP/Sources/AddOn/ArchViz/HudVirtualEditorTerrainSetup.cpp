@@ -616,6 +616,11 @@ void SectionPanel (Session& s, edit::Id path)
 }
 } // namespace
 
+void TerrainSectionPanel (Session& s, edit::Id path)
+{
+    SectionPanel (s, path);
+}
+
 void TerrainSetupPanel (Session& s)
 {
     const auto& doc = s.edits.Doc ();
