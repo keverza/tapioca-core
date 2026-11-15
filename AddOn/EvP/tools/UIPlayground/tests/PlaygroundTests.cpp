@@ -154,6 +154,39 @@ int main (int argc, char** argv)
                     rendered.find ("PropertyLineOutside") == std::string::npos)
                     throw std::runtime_error ("The #188 refusal is not in the command bar:\n" + rendered);
             }
+            // #191: the region fixture's role picker is a grid of buttons, three across the page, a
+            // two-word role on two lines; the editor page's line is the editor's command line.
+            {
+                int region = -1;
+                for (size_t i = 0; i < fixtures.size (); ++i)
+                    if (pg::Text (fixtures[i], "variant") == "region")
+                        region = int (i);
+                Require (region >= 0, "No region editor fixture");
+                auto native = pg::json::Parse (lastState).value;
+                pg::Put (native, "selected", pg::Value::Integer (region));
+                pg::Put (native, "nativeMode", pg::Value::Bool (true));
+                pg::Put (native, "nativeRequest", pg::Value::String ("@editor"));
+                auto shown = pg::json::Write (native, 0);
+                Require (module.Swap (dll, shown, error), "Region fixture restore failed");
+                shown = Frame (module, shown);
+                shown = Frame (module, shown);
+                std::string rendered;
+                Frame (module, shown, 1, &rendered);
+                if (rendered.find ("Use selected lines as:") == std::string::npos ||
+                    rendered.find ("boundary") == std::string::npos ||
+                    rendered.find ("Region boundary") != std::string::npos)
+                    throw std::runtime_error ("The region's roles are not a two-line button grid:\n" + rendered);
+                if (rendered.find ("Command: line") == std::string::npos)
+                    throw std::runtime_error ("The editor page's line is not its command line:\n" + rendered);
+                bool full = false;
+                auto& tables = ImGui::GetCurrentContext ()->Tables;
+                for (int i = 0; i < tables.GetMapSize (); ++i)
+                    if (const auto* table = tables.TryGetMapData (i);
+                        table && table->ColumnsCount == 3 && table->OuterWindow &&
+                        table->OuterRect.GetWidth () >= table->OuterWindow->WorkRect.GetWidth () - 2.0f)
+                        full = true;
+                Require (full, "The role grid does not span the page");
+            }
             auto state = lastState;
             const auto generation = module.Generation ();
             Require (!module.Swap (dll, "{\"version\":999}", error), "Bad state candidate should fail Create");

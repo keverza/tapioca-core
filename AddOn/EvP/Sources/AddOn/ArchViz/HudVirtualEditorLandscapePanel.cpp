@@ -7,6 +7,9 @@
 #include "Edit/EditLandscapeSerialization.hpp"
 #include <algorithm>
 #include <iterator>
+#include <cfloat>
+#include <string>
+#include <functional>
 
 namespace geomsrv::archviz::edithud {
 namespace lg = tapioca::geometry;
@@ -92,6 +95,37 @@ void detail::WarningsTab (Session& s)
         ImGui::TextWrapped ("%s", s.landscape.error.c_str ());
 }
 namespace {
+// #191: a role is picked from a grid of toggle buttons, three to a row across the panel's width;
+// a two-word role reads on two lines. The one in force is drawn pressed. Returns the index pressed,
+// or -1.
+int RoleGrid (const char* id, const char* const* labels, size_t count, const std::function<bool (size_t)>& active)
+{
+    int pressed = -1;
+    ImGui::PushID (id);
+    const float height = 2.0f * ImGui::GetTextLineHeight () + 2.0f * ImGui::GetStyle ().FramePadding.y;
+    if (ImGui::BeginTable ("##roles", 3, ImGuiTableFlags_SizingStretchSame)) {
+        for (size_t i = 0; i < count; ++i) {
+            ImGui::TableNextColumn ();
+            std::string label = labels[i];
+            if (const auto space = label.find (' '); space != std::string::npos)
+                label[space] = '\n';
+            const bool on = active (i);
+            if (on) {
+                ImGui::PushStyleColor (ImGuiCol_Button, ImGui::GetStyleColorVec4 (ImGuiCol_ButtonActive));
+                ImGui::PushStyleColor (ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4 (ImGuiCol_ButtonActive));
+            }
+            ImGui::PushID (int (i));
+            if (ImGui::Button (label.c_str (), ImVec2 (-FLT_MIN, height)))
+                pressed = int (i);
+            ImGui::PopID ();
+            if (on)
+                ImGui::PopStyleColor (2);
+        }
+        ImGui::EndTable ();
+    }
+    ImGui::PopID ();
+    return pressed;
+}
 // The role the next drawn line takes (Inspector context: draw tool).
 void NextLineRole (Session& s)
 {
@@ -99,14 +133,10 @@ void NextLineRole (Session& s)
     const lg::SourceRole values[] = { lg::SourceRole::ReferenceLine, lg::SourceRole::RegionBoundary,
                                       lg::SourceRole::Cutter, lg::SourceRole::PropertyLine };
     ImGui::TextUnformatted ("Next line's role:");
-    ImGui::PushID ("draw-source-role");
-    for (int i = 0; i < 4; ++i) {
-        if (i % 2)
-            ImGui::SameLine ();
-        if (ImGui::RadioButton (roles[i], s.landscapeRole == values[i]))
-            s.landscapeRole = values[i];
-    }
-    ImGui::PopID ();
+    const int pressed = RoleGrid ("draw-source-role", roles, std::size (roles),
+                                  [&] (size_t i) { return s.landscapeRole == values[i]; });
+    if (pressed >= 0)
+        s.landscapeRole = values[pressed];
 }
 // The selected lines' role: any line can be a region's boundary, a cutter, a material
 // boundary, or -- one closed line -- the property line. A path is always a centreline.
@@ -131,14 +161,13 @@ void SelectedLinesRole (Session& s)
         ImGui::TextDisabled ("%zu line%s referenced from Archicad: locked here, edit in Archicad.", references,
                              references == 1 ? "" : "s");
     ImGui::TextUnformatted ("Use selected lines as:");
-    ImGui::PushID ("selected-source-role");
-    for (size_t i = 0; i < std::size (uses); ++i) {
-        if (i % 2)
-            ImGui::SameLine ();
-        if (ImGui::RadioButton (uses[i].label, shared == uses[i].role))
-            SetSelectedSourceRole (s, uses[i].role);
-    }
-    ImGui::PopID ();
+    const char* labels[std::size (uses)];
+    for (size_t i = 0; i < std::size (uses); ++i)
+        labels[i] = uses[i].label;
+    const int pressed =
+        RoleGrid ("selected-source-role", labels, std::size (uses), [&] (size_t i) { return shared == uses[i].role; });
+    if (pressed >= 0)
+        SetSelectedSourceRole (s, uses[pressed].role);
     ImGui::EndDisabled ();
     if (shared == lg::SourceRole::ReferenceLine)
         ImGui::TextWrapped (

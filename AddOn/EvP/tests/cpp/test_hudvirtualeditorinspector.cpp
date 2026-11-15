@@ -267,14 +267,14 @@ TEST (HudVirtualEditorInspector, NoInventoryControlUnreachable191)
               eh::detail::SetTool (s, eh::Tool::Polyline);
               s.landscapeMode = eh::LandscapeMode::DrawSource;
           },
-          { "Next line's role:", "Region boundary", "Cutter", "Property line" } },
+          { "Next line's role:", "Region", "boundary", "Cutter", "Property" } },
         { "path",
           [&] (eh::Session& s) { s.selection.Set ({ whole (site.path) }); },
           { "Path profile", "Kerb radius", "Crown", "Falls left", "Falls right", "Path to entrance" } },
         { "path break", [&] (eh::Session& s) { s.selection.Set ({ brk }); }, { "Smoothing", "Fix elevation" } },
         { "region",
           [&] (eh::Session& s) { s.selection.Set ({ whole (site.region) }); },
-          { "Use selected lines as:", "Material boundary", "Building outline", "Elevation", "Terrain interaction",
+          { "Use selected lines as:", "Material", "Building", "outline", "Elevation", "Terrain interaction",
             "Material preset metadata", "Choose Archicad fill / surface...", "Delete", "More", "Expert",
             "Duplicate offset XYZ (m)", "Rectangular array...", "object ", "Layer", "Group", "Ungroup" } },
         { "offset",
