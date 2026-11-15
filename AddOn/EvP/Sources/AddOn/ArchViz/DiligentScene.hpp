@@ -356,6 +356,7 @@ class DiligentScene final {
     // a second and takes that second out of Archicad's UI thread too. Returns
     // how many it applied.
     size_t Consume (Diligent::IRenderDevice* device, size_t maxCommands, Diligent::IDeviceContext* context = nullptr);
+    std::shared_ptr<const Snapshot> CommittedCapture () const;
 
     // Everything visible, opaque pass then transparent pass. `viewProj` is
     // MatrixMath's row-major product, uploaded unchanged (DiligentShaders.hpp

@@ -2,6 +2,7 @@
 
 #include "ArchViz/Dxgi/HostOccluders.hpp"
 #include "ArchViz/ArchVizLog.hpp"
+#include "Geometry/Mesh.hpp"
 
 #include <algorithm>
 
@@ -99,7 +100,34 @@ void FeedOpaqueOccluders (const ElementUpload& upload)
 
 } // namespace
 
-void SceneCmdQueue::PushBeginBatch (bool full)
+void SceneCaptureCommit::Begin (bool full, uint64_t baseSnapshotId)
+{
+    validBatch = full || (current && current->id == baseSnapshotId);
+    current.reset ();
+}
+
+void SceneCaptureCommit::GeometryChanged ()
+{
+    current.reset ();
+}
+
+void SceneCaptureCommit::UploadFailed ()
+{
+    current.reset ();
+    validBatch = false;
+}
+
+void SceneCaptureCommit::End (std::shared_ptr<const Snapshot> capture, size_t elementCount)
+{
+    if (validBatch && capture && capture->completeModel && capture->id && capture->captureStamp &&
+        capture->meshes.size () == elementCount)
+        current = std::move (capture);
+    else
+        current.reset ();
+    validBatch = false;
+}
+
+void SceneCmdQueue::PushBeginBatch (bool full, uint64_t baseSnapshotId)
 {
     // ⚠️ THE OCCLUDER BATCH FOLLOWS THE SCENE BATCH EXACTLY, so a
     // full rebuild replaces the occluder rather than adding a second copy of the
@@ -111,6 +139,7 @@ void SceneCmdQueue::PushBeginBatch (bool full)
     SceneCmd cmd;
     cmd.type = SceneCmdType::BeginBatch;
     cmd.full = full;
+    cmd.baseSnapshotId = baseSnapshotId;
     queue_.push_back (std::move (cmd));
 }
 
@@ -152,7 +181,7 @@ void SceneCmdQueue::PushRemove (const std::string& guid)
     queue_.push_back (std::move (cmd));
 }
 
-void SceneCmdQueue::PushEndBatch ()
+void SceneCmdQueue::PushEndBatch (std::shared_ptr<const Snapshot> capture)
 {
     // Publish the occluder snapshot in one exchange. Until this runs the render
     // thread keeps the previous building, so a half-extracted model never
@@ -163,6 +192,7 @@ void SceneCmdQueue::PushEndBatch ()
         return;
     SceneCmd cmd;
     cmd.type = SceneCmdType::EndBatch;
+    cmd.capture = std::move (capture);
     queue_.push_back (std::move (cmd));
 }
 

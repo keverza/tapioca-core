@@ -117,6 +117,11 @@ bool DiligentScene::AddOverlayMesh (Diligent::IRenderDevice* device, const char*
     return true;
 }
 
+std::shared_ptr<const Snapshot> DiligentScene::CommittedCapture () const
+{
+    return impl_->capture.Current ();
+}
+
 size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxCommands, Diligent::IDeviceContext* context)
 {
     if (device == nullptr || !impl_->ready)
@@ -134,6 +139,7 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
 
         switch (cmd.type) {
             case SceneCmdType::BeginBatch:
+                impl_->capture.Begin (cmd.full, cmd.baseSnapshotId);
                 impl_->inFullBatch = cmd.full;
                 if (cmd.full) {
                     for (Entry& e : impl_->elements)
@@ -198,12 +204,17 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
             }
 
             case SceneCmdType::UpsertElement: {
-                if (cmd.upload == nullptr)
+                impl_->capture.GeometryChanged ();
+                if (cmd.upload == nullptr) {
+                    impl_->capture.UploadFailed ();
                     break;
+                }
                 const ElementUpload& upload = *cmd.upload;
                 const uint32_t verts = uint32_t (upload.VertexCount ());
-                if (verts == 0 || upload.indices.empty ())
+                if (verts == 0 || upload.indices.empty ()) {
+                    impl_->capture.UploadFailed ();
                     break;
+                }
 
                 std::vector<ArchVizVertex> interleaved (verts);
                 for (uint32_t i = 0; i < verts; ++i) {
@@ -233,8 +244,10 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 std::string error;
                 if (!CreateMeshBuffers (device, "ArchViz element", e, interleaved.data (),
                                         interleaved.size () * sizeof (ArchVizVertex), upload.indices.data (),
-                                        upload.indices.size () * sizeof (uint32_t), error))
+                                        upload.indices.size () * sizeof (uint32_t), error)) {
+                    impl_->capture.UploadFailed ();
                     break;
+                }
 
                 CreateWireEdgeBuffer (device, e, upload.wireEdges);
 
@@ -285,6 +298,7 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
             }
 
             case SceneCmdType::RemoveElement:
+                impl_->capture.GeometryChanged ();
                 for (size_t i = 0; i < impl_->elements.size (); ++i) {
                     if (impl_->elements[i].guid != cmd.guid)
                         continue;
@@ -307,6 +321,7 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                     }
                 }
                 impl_->inFullBatch = false;
+                impl_->capture.End (std::move (cmd.capture), impl_->elements.size ());
                 // ⚠️ HERE, AND NOT IN THE UPSERT. An element's side buffer can
                 // only be bound once the element exists, and a study names
                 // elements the batch may deliver in any order -- so the one

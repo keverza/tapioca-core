@@ -11,12 +11,58 @@
 // elements it was about to receive.
 
 #include "ArchViz/SceneCmdQueue.hpp"
+#include "Geometry/Mesh.hpp"
 
 #include <gtest/gtest.h>
 
 #include <thread>
 
 using namespace geomsrv::archviz;
+
+TEST (SceneCaptureCommit, RequiresCompletedUploadsAndTheExactIncrementalBaseline)
+{
+    auto first = std::make_shared<geomsrv::Snapshot> ();
+    first->id = 7;
+    first->captureStamp = 11;
+    first->completeModel = true;
+    first->meshes.resize (1);
+    auto next = std::make_shared<geomsrv::Snapshot> (*first);
+    next->id = 8;
+    next->captureStamp = 12;
+
+    auto& queue = SceneCmdQueue::Get ();
+    queue.Clear ();
+    queue.SetConsumer (true);
+    queue.PushBeginBatch (true);
+    queue.PushEndBatch (first);
+    auto packets = queue.Take (2);
+    queue.SetConsumer (false);
+    ASSERT_EQ (packets.size (), 2u);
+    SceneCaptureCommit commit;
+    commit.Begin (packets[0].full, packets[0].baseSnapshotId);
+    EXPECT_FALSE (commit.Current ());
+    commit.End (packets[1].capture, 1);
+    EXPECT_EQ (commit.Current (), first);
+
+    commit.Begin (false, first->id);
+    EXPECT_FALSE (commit.Current ());
+    commit.End (next, 1);
+    EXPECT_EQ (commit.Current (), next);
+
+    commit.Begin (false, first->id);
+    commit.End (next, 1);
+    EXPECT_FALSE (commit.Current ());
+    commit.Begin (true, 0);
+    commit.UploadFailed ();
+    commit.End (next, 1);
+    EXPECT_FALSE (commit.Current ());
+    commit.Begin (true, 0);
+    commit.End (next, 0);
+    EXPECT_FALSE (commit.Current ());
+    commit.Begin (true, 0);
+    commit.End (nullptr, 1);
+    EXPECT_FALSE (commit.Current ());
+}
 
 namespace {
 

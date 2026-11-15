@@ -7,6 +7,7 @@
 #include "ArchViz/ExtractionReport.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "Geometry/Mesh.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -15,6 +16,13 @@
 namespace geomsrv {
 namespace archviz {
 namespace extractionreport {
+
+void SharedSnapshot (const Snapshot& snapshot, bool partial)
+{
+    ArchVizLog ("pipeline: stage=geometry-shared-snapshot snapshot=" + std::to_string (snapshot.id) +
+                " captureStamp=" + std::to_string (snapshot.captureStamp) +
+                " meshes=" + std::to_string (snapshot.meshes.size ()) + " incremental=" + std::to_string (partial));
+}
 
 EmptyLists DescribeEmpty (const std::map<std::string, uint32_t>& byType,
                           const std::map<std::string, std::map<std::string, uint32_t>>& reasons)

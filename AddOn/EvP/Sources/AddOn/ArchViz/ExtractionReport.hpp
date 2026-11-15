@@ -28,6 +28,7 @@ namespace extractionreport {
 // size on a partial pass, the model count on a full one, which only the caller
 // knows.
 void Pass (const ExtractionWorker::Progress& progress, bool partial, size_t elementsSeen, uint32_t removed);
+void SharedSnapshot (const Snapshot& snapshot, bool partial);
 
 // The three lists a pass's empty elements are told in, pure so tests/cpp pins them:
 // - ORDINARY: 2D kinds, and `+`-prefixed parts with nothing of their own to draw;

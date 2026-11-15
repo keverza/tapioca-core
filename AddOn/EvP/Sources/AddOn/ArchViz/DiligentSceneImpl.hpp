@@ -687,6 +687,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     std::vector<Entry> overlayMeshes; // the gnomon: screen corner, not world
 
     MaterialTable materials;
+    SceneCaptureCommit capture;
     bool inFullBatch = false;
 
     // The selected set, KEPT rather than only applied.

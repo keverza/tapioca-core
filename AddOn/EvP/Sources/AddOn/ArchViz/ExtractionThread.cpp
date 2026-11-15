@@ -252,7 +252,9 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     bool partial = !filter.empty ();
     std::set<std::string> effectiveFilter = filter;
     const MeshStore::FullPassScope inFlight (!partial);
-    auto baseSnapshot = MeshStore::Get ().Shared ();
+    auto baseSnapshot = lastSceneCapture_.lock ();
+    if (!baseSnapshot)
+        baseSnapshot = MeshStore::Get ().Shared ();
 
     const auto fail = [this, started] (const std::string& why, bool console = true) {
         {
@@ -450,7 +452,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         ApplySubstanceMemory (substanceMemory_, **materials);
     }
 
-    SceneCmdQueue::Get ().PushBeginBatch (full);
+    SceneCmdQueue::Get ().PushBeginBatch (full, partial ? baseSnapshot->id : 0);
+    bool packetsComplete = true;
     if (*materials != nullptr)
         SceneCmdQueue::Get ().PushMaterials (std::move (*materials));
     if (haveEnv->load ())
@@ -581,8 +584,10 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
 
             std::unique_ptr<ElementUpload> up = MakeElementPacket (packet);
             assembly.Add (std::move (packet.mesh)); // retained doubles, no second host extraction
-            if (up == nullptr)
+            if (up == nullptr) {
+                packetsComplete = false;
                 continue;
+            }
             triangles += up->indices.size () / 3;
             SceneCmdQueue::Get ().PushUpsert (std::move (up));
             ++pushed;
@@ -663,20 +668,14 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     if (storeySlices.Active () && complete)
         storeySlices.FinishAndPush ();
 
-    // ---- close the batch ----------------------------------------------------
-    // EndBatch even on a stop or a give-up. The consumer clears at BEGIN, not at
-    // end (SceneCache.cpp), so this cannot delete anything — it only says "no
-    // more is coming", which is what makes a partial load visibly finished
-    // rather than apparently still streaming.
-    SceneCmdQueue::Get ().PushEndBatch ();
-
+    // EndBatch is required even when extraction stops partway.
     releaseModel ();
-
-    if (auto snapshot = assembly.Finish (complete)) {
+    const auto snapshot = assembly.Finish (complete);
+    SceneCmdQueue::Get ().PushEndBatch (packetsComplete ? snapshot : nullptr);
+    lastSceneCapture_ = packetsComplete ? snapshot : nullptr;
+    if (snapshot) {
         MeshStore::Get ().PublishShared (snapshot);
-        ArchVizLog ("pipeline: stage=geometry-shared-snapshot snapshot=" + std::to_string (snapshot->id) +
-                    " captureStamp=" + std::to_string (snapshot->captureStamp) + " meshes=" +
-                    std::to_string (snapshot->meshes.size ()) + " incremental=" + std::to_string (partial));
+        extractionreport::SharedSnapshot (*snapshot, partial);
     }
 
     {

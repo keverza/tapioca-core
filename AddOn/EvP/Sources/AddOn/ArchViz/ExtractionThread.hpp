@@ -62,6 +62,7 @@
 #include <utility>
 
 namespace geomsrv {
+struct Snapshot;
 namespace archviz {
 
 // ---------------------------------------------------------------------------
@@ -300,6 +301,7 @@ class ExtractionWorker final {
     }
 
   private:
+    std::weak_ptr<const geomsrv::Snapshot> lastSceneCapture_;
     ExtractionWorker () = default;
     ~ExtractionWorker ();
     ExtractionWorker (const ExtractionWorker&) = delete;

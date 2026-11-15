@@ -40,6 +40,7 @@
 #include <vector>
 
 namespace geomsrv {
+struct Snapshot;
 namespace archviz {
 
 enum class SceneCmdType : uint8_t {
@@ -299,6 +300,26 @@ struct SceneCmd {
     // elements it names. Getting this backwards on a partial refresh deletes the
     // building and leaves the twelve walls that changed.
     bool full = false;
+    uint64_t baseSnapshotId = 0;             // BeginBatch, for an incremental update
+    std::shared_ptr<const Snapshot> capture; // EndBatch, when extraction completed
+};
+
+// Render-thread batch receipt. An incomplete or failed batch invalidates the
+// previous receipt as soon as scene geometry can diverge from it.
+class SceneCaptureCommit {
+  public:
+    void Begin (bool full, uint64_t baseSnapshotId);
+    void GeometryChanged ();
+    void UploadFailed ();
+    void End (std::shared_ptr<const Snapshot> capture, size_t elementCount);
+    const std::shared_ptr<const Snapshot>& Current () const
+    {
+        return current;
+    }
+
+  private:
+    std::shared_ptr<const Snapshot> current;
+    bool validBatch = false;
 };
 
 // Unbounded, mutex-guarded, single-producer/single-consumer by convention.
@@ -318,10 +339,10 @@ class SceneCmdQueue final {
     static SceneCmdQueue& Get ();
 
     // ---- producer ----
-    void PushBeginBatch (bool full);
+    void PushBeginBatch (bool full, uint64_t baseSnapshotId = 0);
     void PushUpsert (std::unique_ptr<ElementUpload> upload);
     void PushRemove (const std::string& guid);
-    void PushEndBatch ();
+    void PushEndBatch (std::shared_ptr<const Snapshot> capture = {});
     void PushMaterials (std::unique_ptr<MaterialTable> materials);
     void PushEnvironment (const EnvironmentUpload& environment);
     void PushSelection (std::vector<std::string> guids);
