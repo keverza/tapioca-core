@@ -8,10 +8,17 @@
 #include "SwapChain.h"
 #include "TextureView.h"
 #include "RefCntAutoPtr.hpp"
+#include "Texture.h"
+#include "DataBlobImpl.hpp"
+#include "PNGCodec.h"
 #include "ImGuiImplDiligent.hpp"
 #include "ImGuiDiligentRenderer.hpp"
 #include <shellapi.h>
 #include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <cstring>
+#include <ctime>
 #include <cstdlib>
 #include <fstream>
 #include <memory>
@@ -23,8 +30,13 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler (HWND, UINT, WPARAM
 namespace tapioca::playground {
 namespace fs = std::filesystem;
 namespace {
+// F12 asks for a screenshot of the next frame drawn (Screenshot below).
+bool g_screenshotRequested = false;
+
 LRESULT CALLBACK WindowProc (HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
+    if (message == WM_KEYDOWN && wparam == VK_F12 && !(lparam & (1 << 30)))
+        g_screenshotRequested = true;
     if (ImGui::GetCurrentContext () && ImGui_ImplWin32_WndProcHandler (window, message, wparam, lparam))
         return 1;
     if (message == WM_DESTROY) {
@@ -56,7 +68,7 @@ Value FixtureOf (const fs::path& path)
     return FixtureFromDump (parsed.value, stem);
 }
 // `dumps`: debug dumps named on the command line (--dump), after the fixtures; the first is opened.
-std::string InitialState (const fs::path& folder, const std::vector<fs::path>& dumps)
+std::string InitialState (const fs::path& folder, const std::vector<fs::path>& dumps, const std::string& select)
 {
     json::JsonArray fixtures;
     std::vector<fs::path> paths;
@@ -76,9 +88,22 @@ std::string InitialState (const fs::path& folder, const std::vector<fs::path>& d
     }
     if (fixtures.empty ())
         throw std::runtime_error ("No JSON fixtures found.");
+    int64_t selected = dumps.empty () ? 0 : int64_t (own);
+    bool editor = !dumps.empty ();
+    if (!select.empty ()) {
+        selected = -1;
+        for (size_t i = 0; i < fixtures.size (); ++i)
+            if (Text (fixtures[i], "variant") == select || paths[i].stem ().string () == select ||
+                paths[i].stem ().string () == "editor-" + select) {
+                selected = int64_t (i);
+                editor = Text (fixtures[i], "panel") == "hudeditor";
+            }
+        if (selected < 0)
+            throw std::runtime_error ("--select: no fixture named " + select);
+    }
     return json::Write (Value::Object ({ { "version", Value::Integer (1) },
-                                         { "selected", Value::Integer (dumps.empty () ? 0 : int64_t (own)) },
-                                         { "nativeRequest", Value::String (dumps.empty () ? "" : "@editor") },
+                                         { "selected", Value::Integer (selected) },
+                                         { "nativeRequest", Value::String (editor ? "@editor" : "") },
                                          { "fixtures", Value::Array (std::move (fixtures)) },
                                          { "events", Value::Array ({}) } }),
                         0);
@@ -168,11 +193,86 @@ struct Graphics {
         renderer = std::make_unique<Diligent::ImGuiDiligentRenderer> (info);
     }
 };
+// %LOCALAPPDATA%\Tapioca\Export, where the add-on's viewer screenshots go too: a screenshot is
+// something to keep and send, not a build or session file.
+fs::path ExportFolder ()
+{
+    const wchar_t* root = _wgetenv (L"LOCALAPPDATA");
+    if (!root || !*root)
+        throw std::runtime_error ("LOCALAPPDATA is unavailable");
+    const auto folder = fs::path (root) / L"Tapioca" / L"Export";
+    fs::create_directories (folder);
+    return folder;
+}
+
+// The frame just drawn into the back buffer, as "playground-20261115-131500-<n>.png" in the export
+// folder: copied to a staging texture, read back, opaque, PNG-encoded. Returns the file written.
+fs::path Screenshot (Graphics& graphics, uint32_t width, uint32_t height)
+{
+    auto* backBuffer = graphics.swapChain->GetCurrentBackBufferRTV ()->GetTexture ();
+    Diligent::TextureDesc desc;
+    desc.Name = "Playground screenshot";
+    desc.Type = Diligent::RESOURCE_DIM_TEX_2D;
+    desc.Width = width;
+    desc.Height = height;
+    desc.Format = backBuffer->GetDesc ().Format;
+    desc.Usage = Diligent::USAGE_STAGING;
+    desc.CPUAccessFlags = Diligent::CPU_ACCESS_READ;
+    Diligent::RefCntAutoPtr<Diligent::ITexture> staging;
+    graphics.device->CreateTexture (desc, nullptr, &staging);
+    if (!staging)
+        throw std::runtime_error ("Screenshot: the staging texture could not be created.");
+    Diligent::CopyTextureAttribs copy;
+    copy.pSrcTexture = backBuffer;
+    copy.SrcTextureTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+    copy.pDstTexture = staging;
+    copy.DstTextureTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+    graphics.context->CopyTexture (copy);
+    graphics.context->WaitForIdle ();
+    Diligent::MappedTextureSubresource mapped;
+    graphics.context->MapTextureSubresource (staging, 0, 0, Diligent::MAP_READ, Diligent::MAP_FLAG_NONE, nullptr,
+                                             mapped);
+    if (!mapped.pData)
+        throw std::runtime_error ("Screenshot: the staging texture could not be mapped.");
+    const size_t row = size_t (width) * 4;
+    std::vector<uint8_t> rgba (row * height);
+    for (uint32_t y = 0; y < height; ++y)
+        std::memcpy (rgba.data () + row * y, static_cast<const uint8_t*> (mapped.pData) + size_t (mapped.Stride) * y,
+                     row);
+    graphics.context->UnmapTextureSubresource (staging, 0, 0);
+    if (desc.Format == Diligent::TEX_FORMAT_BGRA8_UNORM || desc.Format == Diligent::TEX_FORMAT_BGRA8_UNORM_SRGB)
+        for (size_t i = 0; i < rgba.size (); i += 4)
+            std::swap (rgba[i], rgba[i + 2]);
+    for (size_t i = 3; i < rgba.size (); i += 4)
+        rgba[i] = 255; // the window is opaque; the cleared alpha is not the picture's
+    Diligent::RefCntAutoPtr<Diligent::IDataBlob> blob = Diligent::DataBlobImpl::Create ();
+    constexpr int kPngColorTypeRgba = 6; // PNG's numeric colour type for RGBA (as DiligentViewportTarget)
+    if (Diligent::EncodePng (rgba.data (), width, height, uint32_t (row), kPngColorTypeRgba, blob) !=
+            Diligent::ENCODE_PNG_RESULT_OK ||
+        !blob || !blob->GetSize ())
+        throw std::runtime_error ("Screenshot: PNG encoding failed.");
+    const std::time_t now = std::chrono::system_clock::to_time_t (std::chrono::system_clock::now ());
+    std::tm local {};
+    localtime_s (&local, &now);
+    char stamp[32] {};
+    std::strftime (stamp, sizeof stamp, "%Y%m%d-%H%M%S", &local);
+    const auto folder = ExportFolder ();
+    fs::path file;
+    for (int n = 1; file.empty () || fs::exists (file); ++n)
+        file = folder / ("playground-" + std::string (stamp) + "-" + std::to_string (n) + ".png");
+    std::ofstream out (file, std::ios::binary);
+    out.write (static_cast<const char*> (blob->GetConstDataPtr ()), std::streamsize (blob->GetSize ()));
+    if (!out)
+        throw std::runtime_error ("Screenshot: could not write " + file.string ());
+    return file;
+}
+
 int Run ()
 {
     int argc = 0;
     auto** argv = CommandLineToArgvW (GetCommandLineW (), &argc);
-    int smokeFrames = 0, smokeReloads = 0;
+    int smokeFrames = 0, smokeReloads = 0, screenshotFrame = 0;
+    std::string select;
     bool fresh = false, verification = false;
     std::vector<fs::path> dumps;
     for (int i = 1; i < argc; ++i) {
@@ -188,6 +288,15 @@ int Run ()
         // workspace, so the dump is what is shown.
         if (std::wstring (argv[i]) == L"--dump" && i + 1 < argc)
             dumps.push_back (argv[++i]), fresh = true;
+        // A screenshot of frame N, to the export folder, as F12 takes one (unattended checks).
+        if (std::wstring (argv[i]) == L"--screenshot" && i + 1 < argc)
+            screenshotFrame = _wtoi (argv[++i]);
+        // Open one fixture by its variant or file name; an editor fixture on the native editor page.
+        if (std::wstring (argv[i]) == L"--select" && i + 1 < argc) {
+            const std::wstring wide = argv[++i];
+            select.assign (wide.begin (), wide.end ());
+            fresh = true;
+        }
     }
     LocalFree (argv);
     wchar_t executable[32768] {};
@@ -195,7 +304,7 @@ int Run ()
     const fs::path bin = fs::path (executable).parent_path ();
     const fs::path uiDll = bin / "TapiocaUIPlaygroundUI.dll";
     const fs::path stateFile = bin / "workspace.json";
-    std::string state = InitialState (fs::path (TAPIOCA_PLAYGROUND_SOURCE) / "fixtures", dumps);
+    std::string state = InitialState (fs::path (TAPIOCA_PLAYGROUND_SOURCE) / "fixtures", dumps, select);
     const auto original = state;
     if (!fresh && fs::exists (stateFile))
         state = ReadText (stateFile);
@@ -293,6 +402,17 @@ int Run ()
         const float clear[] { 0.12f, 0.12f, 0.12f, 1 };
         graphics.context->ClearRenderTarget (target, clear, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         graphics.renderer->RenderDrawData (graphics.context, ImGui::GetDrawData ());
+        if (g_screenshotRequested || (screenshotFrame > 0 && frames + 1 == screenshotFrame)) {
+            g_screenshotRequested = false;
+            try {
+                const auto file = Screenshot (graphics, width, height);
+                reloadStatus = "Screenshot saved: " + file.string () + "\n";
+            }
+            catch (const std::exception& failure) {
+                reloadStatus = std::string (failure.what ()) + "\n";
+            }
+            diagnostic << reloadStatus << std::flush;
+        }
         graphics.swapChain->Present (1);
         if (frames == 0 && ImGui::GetDrawData ()->TotalVtxCount <= 0)
             throw std::runtime_error ("No UI vertices drawn.");

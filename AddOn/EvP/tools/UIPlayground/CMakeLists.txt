@@ -76,8 +76,10 @@ target_compile_definitions (TapiocaUIPlaygroundUI PRIVATE TAPIOCA_UI_MODULE=1)
 include (WorkflowSources.cmake)
 
 add_executable (TapiocaUIPlayground WIN32 Host.cpp Reload.cpp)
+# Diligent-TextureLoader: EncodePng for the F12 / --screenshot capture, as the add-on's viewer uses it.
 target_link_libraries (TapiocaUIPlayground PRIVATE PlaygroundModel imgui Diligent-Imgui
-    Diligent-Common Diligent-GraphicsEngineD3D11-static Diligent-GraphicsTools d3d11 dxgi shell32)
+    Diligent-Common Diligent-GraphicsEngineD3D11-static Diligent-GraphicsTools Diligent-TextureLoader
+    d3d11 dxgi shell32)
 target_compile_definitions (TapiocaUIPlayground PRIVATE
     TAPIOCA_PLAYGROUND_SOURCE=L"${CMAKE_CURRENT_SOURCE_DIR}"
     TAPIOCA_PLAYGROUND_BUILD=L"${CMAKE_BINARY_DIR}"
