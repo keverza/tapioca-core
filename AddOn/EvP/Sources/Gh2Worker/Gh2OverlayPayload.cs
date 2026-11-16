@@ -25,6 +25,9 @@ internal static class Gh2OverlayPayload
         {
             layer = Layer(generation, producer), views = plan ? "2d" : "3d",
             projectEpoch, documentSession = document.ToString("N"), revision,
+            // Host occlusion alone does not make preview meshes hide each other.
+            // Solid layers share the native guest's depth-writing phase.
+            solid = !plan,
             occlusion = plan ? "always" : "hide", polylines = lines, points, meshes
         });
         if (Encoding.UTF8.GetByteCount(json) > MaxBytes)

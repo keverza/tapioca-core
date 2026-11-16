@@ -89,6 +89,25 @@ def test_layout_choice_thumbnail_matches_strict_native_item_schema(monkeypatch):
         jsonschema.validate(item, item_schema)
 
 
+def test_solid_overlay_mode_is_optional_and_strictly_boolean():
+    source = (Path(__file__).resolve().parents[1] / "Sources/AddOn/NativeCommands/OverlayLayerCommands.cpp").read_text(
+        encoding="utf-8"
+    )
+    declaration = source[
+        source.index("constexpr const char kSetOverlayLayerInput") : source.index(
+            "constexpr const char kSetOverlayLayerOutput"
+        )
+    ]
+    schema = json.loads("".join(re.findall(r'R"json\((.*?)\)json"', declaration, re.S)))
+    payload = {"layer": "preview", "views": "3d", "occlusion": "hide"}
+    jsonschema.validate(payload, schema)
+    for solid in (True, False):
+        jsonschema.validate({**payload, "solid": solid}, schema)
+    for invalid in ("true", 1, None, {}):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate({**payload, "solid": invalid}, schema)
+
+
 def test_a_panel_is_its_items_in_order():
     panel = (
         overlay.Panel(title="Sun study", anchor="top-right", width=260)

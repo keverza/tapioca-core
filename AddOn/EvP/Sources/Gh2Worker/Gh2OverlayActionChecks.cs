@@ -56,6 +56,7 @@ internal static class Gh2OverlayActionChecks
                             throw new InvalidOperationException("Overlay published before Show or without admission identity.");
                         if (layer is null || !layer.StartsWith("gh2.42.", StringComparison.Ordinal) ||
                             data.GetProperty("views").GetString() != (i == 0 ? "2d" : "3d") ||
+                            data.GetProperty("solid").GetBoolean() != (i != 0) ||
                             data.GetProperty("polylines").GetArrayLength() != 1)
                             throw new InvalidOperationException("Component published wrong surface/identity/geometry.");
                         if (i != 0)

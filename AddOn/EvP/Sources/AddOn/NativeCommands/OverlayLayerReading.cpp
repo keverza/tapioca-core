@@ -752,6 +752,8 @@ bool ReadLayer (const GS::ObjectState& params, layers::Layer& layer, std::string
     }
     const layers::Behind occlusion = OcclusionOf (params, layers::Behind::Layer);
     layer.occlusion = occlusion == layers::Behind::Layer ? layers::Behind::Hide : occlusion;
+    if (params.Contains ("solid"))
+        params.Get ("solid", layer.solid);
     // The layer's font is every text-bearing item's that names none of its own.
     std::string font;
     if (!ReadFont (params, "font", font, error))

@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.IO.Pipes;
 using System.Text;
+using System.Text.Json;
 using TapiocaGH2;
 
 namespace Tapioca.Gh2Worker;
@@ -432,6 +433,12 @@ internal static class Gh2WireCheck
         Require(payloads[0].Contains("\"views\":\"2d\"", StringComparison.Ordinal) &&
             payloads[1].Contains("\"views\":\"3d\"", StringComparison.Ordinal) &&
             layer != Gh2OverlayPayload.Layer(13, producer), "Overlay lost view/generation identity.");
+        for (int i = 0; i < payloads.Length; i++)
+        {
+            using var encoded = JsonDocument.Parse(payloads[i]);
+            Require(encoded.RootElement.TryGetProperty("solid", out var solid) && solid.GetBoolean() == (i == 1),
+                "3D preview must enter the shared solid-depth phase; plan preview must remain planar.");
+        }
         try
         {
             Gh2OverlayPayload.Encode(12, producer, false,

@@ -303,6 +303,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
     "views":{"type":"string","enum":["2d","3d","both"]},
     "lifetime":{"type":"string","enum":["project","command"],"description":"Command previews are cleared before the next palette run; all layers end with the project."},
     "occlusion":{"type":"string","enum":["hide","fade","dash","always"]},
+    "solid":{"type":"boolean","description":"3D only: meshes share depth with other solid layers, hiding each other and their lines while retaining host occlusion. Defaults to false; does not change planar draw order."},
     "font":{"type":"string","minLength":1,"maxLength":260,"description":"An installed family as Windows lists it, or a .ttf, .otf or .ttc path."},
     "polylines":{"type":"array","maxItems":20000,"items":{"type":"object","properties":{
         "points":{"type":"array","minItems":6,"maxItems":300000,"description":"Packed x, y, z model metres; stride 3.","items":{"type":"number"}},
