@@ -54,8 +54,9 @@ void BooleanLeaves (const lg::LandscapeSession& landscape, edit::Id operation, s
 
 InspectorContext ResolveContext (const Session& s)
 {
-    // The File menu's Open draft... lists the drafts here, with the recovery offers (#159).
-    if (s.closePrompt || !s.recoveries.empty () || s.draftFilesListed)
+    // The File menu's Open draft... lists the drafts here, with the recovery offers (#159). Pending
+    // offers alone are not a prompt: they would hide the terrain setup until each was answered.
+    if (s.closePrompt || s.draftFilesListed)
         return InspectorContext::Prompt;
     if (s.landscapeCommand || s.booleanDraft || s.rectangularArray || s.tool == Tool::Mirror || s.tool == Tool::Trim)
         return InspectorContext::Command;
@@ -161,8 +162,11 @@ void AddFromArchicad (Session& s)
         } refs[] = { { "As property line", "property" },
                      { "As building outline", "building" },
                      { "Doors as entrances", "entrances" } };
+        // The row wraps: a button that would run past the panel's edge starts the next line.
+        const float right = ImGui::GetItemRectMin ().x + ImGui::GetContentRegionAvail ().x;
         for (size_t i = 0; i < std::size (refs); ++i) {
-            if (i)
+            const float width = ImGui::CalcTextSize (refs[i].label).x + 2.0f * ImGui::GetStyle ().FramePadding.x;
+            if (i && ImGui::GetItemRectMax ().x + ImGui::GetStyle ().ItemSpacing.x + width <= right)
                 ImGui::SameLine ();
             if (ImGui::SmallButton (refs[i].label))
                 s.draftingImport = true, s.draftingImportAs = refs[i].as;

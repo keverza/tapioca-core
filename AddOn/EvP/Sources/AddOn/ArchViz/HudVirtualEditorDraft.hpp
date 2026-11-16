@@ -58,7 +58,11 @@ bool RequestDiscardRecovery (Session& session, const std::string& file);
 // "Keep recovery snapshots": off deletes this session's recovery file.
 void SetRecoveryEnabled (Session& session, bool enabled);
 // The panel's draft row and the unsaved-work prompt (layout only; they request, never write).
-void DraftControls (Session& session);
+// `offers` false where RecoveryOffers was already drawn above.
+void DraftControls (Session& session, bool offers = true);
+// The recovery offers alone. They never take the Inspector over: with nothing selected they are
+// drawn above the terrain setup, which stays reachable while offers are pending.
+void RecoveryOffers (Session& session);
 // #191 U2: the File menu's Save draft and Open draft... (inside an open menu or popup); the list
 // Open asks for is drawn by DraftControls.
 void DraftMenuItems (Session& session);

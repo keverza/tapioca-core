@@ -277,13 +277,14 @@ void LandscapePanel (Session& s)
             SelectedLinesRole (s);
             break;
         case InspectorContext::Nothing:
+            RecoveryOffers (s);
             TerrainDesignPanel (s);
             ImGui::Separator ();
             EntrancesPanel (s);
             ImGui::Text ("%zu faces   %zu regions   XY preview at %.2f m", s.landscape.faces.size (),
                          s.landscape.regions.size (), s.plane.origin.z);
             // #191 U2: Session snapshot and Restore snapshot are in the command bar's File menu.
-            DraftControls (s);
+            DraftControls (s, false);
             ReferenceLinesPanel (s, false);
             break;
         default:

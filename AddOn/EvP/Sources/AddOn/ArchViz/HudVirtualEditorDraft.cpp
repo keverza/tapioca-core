@@ -534,24 +534,25 @@ bool FollowDraftFiles (Session& s)
     return FollowDraftFiles (s, fs::path (root) / "Tapioca" / "Drafts");
 }
 
-void DraftControls (Session& s)
+// #159 D2: earlier sessions' unsaved work, offered, never loaded unasked. Each offer's text wraps
+// and its two buttons are on a line of their own, so neither runs past a narrow panel.
+void RecoveryOffers (Session& s)
 {
-    if (!s.edits.Doc ().landscape)
+    if (!s.edits.Doc ().landscape || s.recoveries.empty ())
         return;
-    const bool dirty = DraftDirty (s);
     const bool pending = s.draftRequest.has_value () && !Background (s.draftRequest);
-    ImGui::Separator ();
-    // #159 D2: earlier sessions' unsaved work, offered, never loaded unasked.
-    if (!s.recoveries.empty ()) {
+    {
         ImGui::TextWrapped ("Unsaved work from an earlier session was found:");
         const std::string terrain = s.edits.Doc ().landscape->sourceTerrainGuid;
         ImGui::BeginDisabled (pending || Busy (s));
         for (const auto offer : s.recoveries) { // a copy: a click may drop it from the list
             ImGui::PushID (offer.file.c_str ());
-            ImGui::BulletText ("%s, revision %llu, %zu objects%s", offer.savedUtc.c_str (),
-                               static_cast<unsigned long long> (offer.revision), offer.objects,
-                               offer.terrain != terrain ? ", another terrain" : "");
+            ImGui::Bullet ();
             ImGui::SameLine ();
+            ImGui::TextWrapped ("%s, revision %llu, %zu objects%s", offer.savedUtc.c_str (),
+                                static_cast<unsigned long long> (offer.revision), offer.objects,
+                                offer.terrain != terrain ? ", another terrain" : "");
+            ImGui::Indent ();
             if (ImGui::SmallButton ("Recover"))
                 RequestRecover (s, offer.file);
             if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
@@ -563,11 +564,23 @@ void DraftControls (Session& s)
                 RequestDiscardRecovery (s, offer.file);
             if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
                 geomsrv::archviz::hudshell::HoverTip ("Delete this recovered work.");
+            ImGui::Unindent ();
             ImGui::PopID ();
         }
         ImGui::EndDisabled ();
         ImGui::Separator ();
     }
+}
+
+void DraftControls (Session& s, bool offers)
+{
+    if (!s.edits.Doc ().landscape)
+        return;
+    const bool dirty = DraftDirty (s);
+    const bool pending = s.draftRequest.has_value () && !Background (s.draftRequest);
+    ImGui::Separator ();
+    if (offers)
+        RecoveryOffers (s);
     ImGui::TextUnformatted ("Draft");
     ImGui::SameLine ();
     if (dirty)

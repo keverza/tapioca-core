@@ -2,6 +2,7 @@
 // drawing tool's options or, with nothing selected, the terrain -- and never another context's.
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/HudVirtualEditorDraft.hpp"
 #include "Edit/EditLandscape.hpp"
 #include "Edit/EditRegionTerrain.hpp"
 #include "Edit/EditPathEdit.hpp"
@@ -241,8 +242,9 @@ TEST (HudVirtualEditorInspector, NoInventoryControlUnreachable191)
           [] (eh::Session& s) { s.closePrompt = true; },
           { "Save and close", "Discard and close", "Cancel" } },
         { "recovery offer",
-          [] (eh::Session& s) { s.recoveries.push_back ({ "r.json", "2026-11-15 10:00", "", 3, 2 }); },
-          { "Recover", "Discard" } },
+          // Pending offers leave the terrain setup reachable: they are not a prompt.
+          [] (eh::Session& s) { s.recoveries.push_back ({ "r.json", "2026-11-13T12:54:38Z", "other", 698, 3 }); },
+          { "Recover", "Discard", "another terrain", "Rebuild terrain (3D)", "Set terrain from selection" } },
         { "draft list",
           [] (eh::Session& s) {
               s.draftFilesListed = true;
@@ -310,11 +312,45 @@ TEST (HudVirtualEditorInspector, NoInventoryControlUnreachable191)
         ASSERT_NE (window, nullptr);
         for (const char* header : { "More", "Expert", "Fixed terrain heights" })
             window->StateStorage.SetInt (ImHashStr (header, 0, window->ID), 1);
-        const auto text = gui.Frame ([&] { eh::detail::Inspector (s); });
+        float right = 0, edge = 0;
+        const auto text = gui.Frame ([&] {
+            eh::detail::Inspector (s);
+            right = ImGui::GetCurrentWindow ()->DC.CursorMaxPos.x, edge = ImGui::GetCurrentWindow ()->WorkRect.Max.x;
+        });
         for (const char* label : c.labels)
             EXPECT_TRUE (Has (text, label)) << c.name << ": \"" << label << "\" is not drawn ("
                                             << eh::InspectorContextName (eh::ResolveContext (s)) << ")";
+        // No control runs past the 320 px panel's right edge, where it would be clipped. The contexts
+        // of tapioca-dev #212 still do; one fixed there is taken off this list.
+        static const char* const wide[] = { "recovery offer", "array draft", "boolean draft", "path",
+                                            "path break",     "region",      "offset",        "reference line",
+                                            "ellipse",        "fixed heights", "several",     "nothing" };
+        if (std::none_of (std::begin (wide), std::end (wide), [&] (const char* name) { return c.name == std::string (name); }))
+            EXPECT_LE (right, edge + 1) << c.name << ": a control is laid out past the panel's right edge";
     }
+}
+
+// Pending recovery offers fit the narrowest panel -- their text wraps and Recover / Discard are on
+// a line of their own -- and they do not take the Inspector over: the terrain setup stays below.
+TEST (HudVirtualEditorInspector, RecoveryOffersFitThePanelAndLeaveTheTerrainSetup)
+{
+    const auto site = MakeSite ();
+    Gui gui;
+    eh::Session s (site.doc);
+    s.recoveries.push_back ({ "a.tapdraft", "2026-11-13T12:54:38Z", "other", 29, 1 });
+    s.recoveries.push_back ({ "b.tapdraft", "2026-11-13T10:53:21Z", "other", 698, 3 });
+    float right = 0, edge = 0;
+    const auto offers = gui.Frame ([&] {
+        eh::RecoveryOffers (s);
+        right = ImGui::GetCurrentWindow ()->DC.CursorMaxPos.x, edge = ImGui::GetCurrentWindow ()->WorkRect.Max.x;
+    });
+    EXPECT_TRUE (Has (offers, "Recover") && Has (offers, "Discard") && Has (offers, "another terrain")) << offers;
+    EXPECT_LE (right, edge + 1) << "a recovery offer runs past the panel's right edge";
+    EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::Nothing);
+    const auto text = gui.Frame ([&] { eh::detail::Inspector (s); });
+    EXPECT_TRUE (Has (text, "Recover"));
+    EXPECT_TRUE (Has (text, "Set terrain from selection")) << "the terrain setup is hidden behind the offers";
+    EXPECT_LT (text.find ("Recover"), text.find ("Rebuild terrain (3D)")) << "the offers come first";
 }
 
 // #189: after the editor's own Boolean, the picked regions are construction inputs. Picking, the
