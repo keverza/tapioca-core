@@ -551,6 +551,10 @@ bool SetLandscapeMode (Session& session, LandscapeMode mode);
 bool PickLandscapeFace (Session& session, edit::Vec3 point, bool click, bool additive = false);
 bool KeepLandscapeFaces (Session& session, bool subtract = false);
 bool BooleanLandscape (Session& session, tapioca::geometry::OperationKind kind, edit::Id cutter);
+// #210: takes the Boolean result `object` apart in one undo step (lg::DissolveBoolean). Its inputs
+// are regions of their own again; a region cut in place keeps its identity. False, with the reason
+// in `message`, when it is no Boolean result or something else is built from it.
+bool DissolveBooleanResult (Session& session, edit::Id object);
 bool IsLandscapeFaceSet (const tapioca::geometry::LandscapeOperation& operation);
 bool CreateLandscapeFaceSet (Session& session);
 bool EditLandscapeFaceSet (Session& session, bool remove = false);

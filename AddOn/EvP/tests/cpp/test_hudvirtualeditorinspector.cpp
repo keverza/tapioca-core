@@ -444,6 +444,57 @@ TEST (HudVirtualEditorInspector, ABareBooleanInputLineStandsForItsResult210)
     EXPECT_EQ (lg::LandscapeSourceResult (twice, source), edit::kNoId);
 }
 
+// #210: Dissolve Boolean, from the result's Inspector: the inputs are regions of their own again
+// with the settings they kept, in one undo step; Undo brings the result back.
+TEST (HudVirtualEditorInspector, DissolveBooleanGivesTheInputsBackInOneUndoStep210)
+{
+    auto site = MakeSite ();
+    const auto second =
+        Role (site.doc, edit::AddPolyline (site.doc, { { 5, 3, 0 }, { 13, 3, 0 }, { 13, 11, 0 }, { 5, 11, 0 } }, true),
+              lg::SourceRole::RegionBoundary);
+    std::string error;
+    for (const auto& object : std::vector<lg::HardscapeObject> (site.doc.landscape->objects)) {
+        lg::RegionSurface surface;
+        surface.elevation = lg::RegionElevationMode::Constant;
+        surface.first.z = 2;
+        ASSERT_TRUE (lg::SetRegionSurface (site.doc, object.id, surface, {}, error)) << error;
+        lg::RegionTerrain terrain;
+        terrain.effect = lg::RegionTerrainEffect::Grade;
+        ASSERT_TRUE (lg::SetRegionTerrain (site.doc, object.id, terrain, error)) << error;
+    }
+    const auto inputs = site.doc.landscape->objects;
+    eh::Session s (site.doc);
+    ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Union));
+    ASSERT_TRUE (eh::PickLandscapeShape (s, { 1, 1, 0 }, true));
+    ASSERT_TRUE (eh::PickLandscapeShape (s, { 12, 10, 0 }, true));
+    ASSERT_TRUE (eh::AdvanceLandscapeCommand (s)) << s.message;
+    const auto result = s.landscapeObject;
+    ASSERT_EQ (lg::TerrainRegionObjects (s.edits.Doc ()), (std::vector<edit::Id> { result }));
+
+    s.selection.Set ({ { second, edit::Part::Entity, 0 } });
+    ASSERT_EQ (eh::ResolveContext (s), eh::InspectorContext::BooleanResult);
+    Gui gui;
+    const auto text = gui.Frame ([&] { eh::detail::Inspector (s); });
+    EXPECT_TRUE (Has (text, "Dissolve Boolean")) << text;
+
+    ASSERT_TRUE (eh::DissolveBooleanResult (s, result)) << s.message;
+    EXPECT_NE (s.message.find ("regions of their own again"), std::string::npos) << s.message;
+    EXPECT_EQ (s.edits.Doc ().landscape->objects, inputs) << "the inputs exactly as they were";
+    EXPECT_TRUE (lg::LandscapeConstructionInputs (*s.edits.Doc ().landscape).empty ());
+    EXPECT_EQ (lg::TerrainRegionObjects (s.edits.Doc ()).size (), 2u);
+    EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::Region);
+
+    // One undo step brings the result back; redo takes it apart again.
+    ASSERT_TRUE (s.edits.Undo ());
+    EXPECT_EQ (lg::TerrainRegionObjects (s.edits.Doc ()), (std::vector<edit::Id> { result }));
+    ASSERT_TRUE (s.edits.Redo ());
+    EXPECT_EQ (s.edits.Doc ().landscape->objects, inputs);
+
+    // A plain region refuses and says why.
+    EXPECT_FALSE (eh::DissolveBooleanResult (s, inputs.front ().id));
+    EXPECT_NE (s.message.find ("not a Boolean result"), std::string::npos) << s.message;
+}
+
 // #189: after the editor's own Boolean, the picked regions are construction inputs. Picking, the
 // panel's region and the Inspector all follow the result: an input's line stands for it.
 TEST (HudVirtualEditorInspector, ABooleansInputsStandForItsResult189)

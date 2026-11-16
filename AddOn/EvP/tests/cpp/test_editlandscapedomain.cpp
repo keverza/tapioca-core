@@ -298,6 +298,120 @@ TEST (EditLandscapeDomain, ABooleanOfBoundaryRegionsTakesConstantElevation188)
     }
 }
 
+// #210: Dissolve takes a Boolean apart. A result the Boolean authored goes, with its steps; the
+// inputs are owners again exactly as they were. A chained result goes alone, leaving the earlier
+// result whole; that earlier one refuses while the later is built from it.
+TEST (EditLandscapeDomain, DissolveRemovesAnAuthoredResultAndItsInputsOwnAgain210)
+{
+    auto doc = Start ();
+    const auto a = Region (doc, 0), b = Region (doc, 5), c = Region (doc, 12);
+    for (const auto id : { a, b, c })
+        Configure (doc, id);
+    const auto objects = doc.landscape->objects;
+    const auto operations = doc.landscape->operations;
+    const auto combine = [] (edit::Document& d, geo::OperationKind kind, edit::Id subject, edit::Id operand) {
+        geo::DomainCommand command;
+        command.kind = kind;
+        command.name = "Result";
+        command.subject.input = Object (d, subject).footprintOperation;
+        command.operand.input = Object (d, operand).footprintOperation;
+        const auto applied = geo::ApplyDomainCommand (d, command);
+        EXPECT_TRUE (applied.ok) << applied.error;
+        return applied.objectId;
+    };
+    const auto result = combine (doc, geo::OperationKind::Intersection, a, b);
+    const auto afterFirst = doc;
+    const auto last = combine (doc, geo::OperationKind::Union, result, c);
+    ASSERT_EQ (geo::TerrainRegionObjects (doc), (std::vector<edit::Id> { last }));
+
+    // The earlier result refuses while the later one is built from it, changing nothing.
+    const auto before = doc;
+    const auto refused = geo::DissolveBoolean (doc, result);
+    EXPECT_FALSE (refused.ok);
+    EXPECT_NE (refused.error.find ("dissolve that one first"), std::string::npos) << refused.error;
+    EXPECT_EQ (doc.landscape, before.landscape);
+    EXPECT_EQ (doc.revision, before.revision);
+
+    // The later one goes alone: the earlier result is whole and owns its area again.
+    const auto outer = geo::DissolveBoolean (doc, last);
+    ASSERT_TRUE (outer.ok) << outer.error;
+    EXPECT_EQ (outer.objectId, edit::kNoId);
+    EXPECT_EQ (doc.landscape->objects, afterFirst.landscape->objects);
+    EXPECT_EQ (doc.landscape->operations, afterFirst.landscape->operations);
+    EXPECT_EQ (geo::TerrainRegionObjects (doc), (std::vector<edit::Id> { c, result }));
+
+    // Then the first: every input is an owner again, settings untouched, no step left behind.
+    const auto inner = geo::DissolveBoolean (doc, result);
+    ASSERT_TRUE (inner.ok) << inner.error;
+    EXPECT_EQ (doc.landscape->objects, objects);
+    EXPECT_EQ (doc.landscape->operations, operations);
+    EXPECT_TRUE (geo::LandscapeConstructionInputs (*doc.landscape).empty ());
+    EXPECT_EQ (geo::TerrainRegionObjects (doc), (std::vector<edit::Id> { a, b, c }));
+    geo::LandscapeResult evaluated;
+    EXPECT_TRUE (geo::EvaluateLandscape (doc, evaluated)) << evaluated.error;
+
+    // A region that is no Boolean result refuses.
+    const auto plain = geo::DissolveBoolean (doc, a);
+    EXPECT_FALSE (plain.ok);
+    EXPECT_NE (plain.error.find ("not a Boolean result"), std::string::npos) << plain.error;
+}
+
+// #210: the case Dissolve is for. A reopened draft has no undo history; the result read back
+// dissolves to exactly the regions saved before the Boolean.
+TEST (EditLandscapeDomain, AReopenedResultDissolves210)
+{
+    auto doc = Start ();
+    const auto a = Region (doc, 0), b = Region (doc, 5);
+    Configure (doc, a);
+    Configure (doc, b);
+    const auto objects = doc.landscape->objects;
+    geo::DomainCommand command;
+    command.kind = geo::OperationKind::Union;
+    command.name = "Union";
+    command.subject.input = Object (doc, a).footprintOperation;
+    command.operand.input = Object (doc, b).footprintOperation;
+    const auto applied = geo::ApplyDomainCommand (doc, command);
+    ASSERT_TRUE (applied.ok) << applied.error;
+    std::string text, error;
+    ASSERT_TRUE (geo::WriteLandscape (doc, geo::LandscapeStorage::Virtual, text, error)) << error;
+    edit::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (text, loaded, error)) << error;
+    const auto dissolved = geo::DissolveBoolean (loaded, applied.objectId);
+    ASSERT_TRUE (dissolved.ok) << dissolved.error;
+    EXPECT_EQ (loaded.landscape->objects, objects);
+    EXPECT_EQ (geo::TerrainRegionObjects (loaded), (std::vector<edit::Id> { a, b }));
+}
+
+// #210: a region a line cut in place (the cutter's owner) keeps its identity and gets its own
+// boundary back; the cutter line takes no part any more.
+TEST (EditLandscapeDomain, DissolveRestoresARegionCutInPlace210)
+{
+    auto doc = Start ();
+    const auto owner = Region (doc, 0);
+    Configure (doc, owner);
+    const auto root = Object (doc, owner).footprintOperation;
+    const auto settings = Object (doc, owner);
+    const auto operations = doc.landscape->operations;
+    const auto bar = Source (doc, { { 4, -1, 0 }, { 6, -1, 0 }, { 6, 11, 0 }, { 4, 11, 0 } });
+    geo::DomainCommand command;
+    command.kind = geo::OperationKind::Difference;
+    command.owner = owner;
+    command.subject.input = root;
+    command.operand.input = bar;
+    const auto applied = geo::ApplyDomainCommand (doc, command);
+    ASSERT_TRUE (applied.ok) << applied.error;
+    ASSERT_EQ (Footprint (doc, owner).size (), 2u) << "the bar splits it in two";
+    EXPECT_EQ (geo::LandscapeSourceResult (*doc.landscape, bar), owner);
+
+    const auto dissolved = geo::DissolveBoolean (doc, owner);
+    ASSERT_TRUE (dissolved.ok) << dissolved.error;
+    EXPECT_EQ (dissolved.objectId, owner);
+    EXPECT_EQ (Object (doc, owner), settings) << "identity, surface, effect and material kept";
+    EXPECT_EQ (doc.landscape->operations, operations);
+    EXPECT_EQ (Footprint (doc, owner).size (), 1u);
+    EXPECT_EQ (geo::LandscapeSourceResult (*doc.landscape, bar), edit::kNoId);
+}
+
 // #189: a Boolean's inputs become construction geometry. They stay authored, with their own
 // settings, and only the result owns that area: one terrain owner, one field-plan entry. The rule
 // is read from the operation DAG, so nothing is stored and a chain, a bypass and a reload all

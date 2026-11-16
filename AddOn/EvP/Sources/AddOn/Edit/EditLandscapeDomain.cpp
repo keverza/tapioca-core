@@ -172,4 +172,124 @@ DomainEditResult ApplyDomainCommand (geomsrv::edit::Document& doc, const DomainC
     return result;
 }
 
+DomainEditResult DissolveBoolean (geomsrv::edit::Document& doc, Id objectId)
+{
+    DomainEditResult result;
+    if (!doc.landscape) {
+        result.error = "Dissolve: the landscape session is not started";
+        return result;
+    }
+    geomsrv::edit::Document candidate = doc;
+    auto& s = *candidate.landscape;
+    const auto object =
+        std::find_if (s.objects.begin (), s.objects.end (), [&] (const auto& o) { return o.id == objectId; });
+    if (object == s.objects.end ()) {
+        result.error = "Dissolve: the region no longer exists";
+        return result;
+    }
+    const auto boolean = [] (OperationKind kind) {
+        return kind == OperationKind::Union || kind == OperationKind::Difference ||
+               kind == OperationKind::Intersection || kind == OperationKind::Xor;
+    };
+    const auto find = [&] (Id id) {
+        const auto op =
+            std::find_if (s.operations.begin (), s.operations.end (), [&] (const auto& o) { return o.id == id; });
+        return op == s.operations.end () ? nullptr : &*op;
+    };
+    const auto* root = find (object->footprintOperation);
+    if (!root || !boolean (root->kind)) {
+        result.error = "Dissolve: this region is not a Boolean result";
+        return result;
+    }
+    // The Boolean steps: the footprint and every Boolean node under it, every input followed
+    // (a bypassed step still holds its other inputs), down to another region's footprint: that
+    // region is an input, a result of its own, and stays.
+    const auto rootOfAnother = [&] (Id id) {
+        return std::any_of (s.objects.begin (), s.objects.end (),
+                            [&] (const auto& o) { return o.id != objectId && o.footprintOperation == id; });
+    };
+    std::set<Id> steps;
+    std::vector<Id> open { root->id };
+    while (!open.empty ()) {
+        const auto id = open.back ();
+        open.pop_back ();
+        const auto* op = find (id);
+        if (!op || !boolean (op->kind) || rootOfAnother (id) || !steps.insert (id).second)
+            continue;
+        open.insert (open.end (), op->inputs.begin (), op->inputs.end ());
+    }
+    // Nothing else may be built from them: another step, another region's footprint or mask, this
+    // region's mask, or a material assignment's mask.
+    const auto inSteps = [&] (Id id) { return steps.count (id) > 0; };
+    for (const auto& op : s.operations)
+        if (!inSteps (op.id) && std::any_of (op.inputs.begin (), op.inputs.end (), inSteps)) {
+            result.error = "Dissolve: another Boolean is built from this result; dissolve that one first";
+            return result;
+        }
+    for (const auto& other : s.objects)
+        if ((other.id != objectId && inSteps (other.footprintOperation)) ||
+            std::any_of (other.maskOperations.begin (), other.maskOperations.end (), inSteps)) {
+            result.error = "Dissolve: another region uses this result as its shape or mask";
+            return result;
+        }
+    for (const auto& assignment : s.assignments)
+        if (inSteps (assignment.mask)) {
+            result.error = "Dissolve: a material assignment is masked by this result";
+            return result;
+        }
+    std::set<Id> removedObjects;
+    if (object->boundarySource != kNoId) {
+        // Cut in place: the region's own footprint is the RegionSelect of its boundary line.
+        const auto own = std::find_if (s.operations.begin (), s.operations.end (), [&] (const auto& op) {
+            return op.kind == OperationKind::RegionSelect && op.inputs == std::vector<Id> { object->boundarySource } &&
+                   op.faces.empty ();
+        });
+        if (own == s.operations.end ()) {
+            result.error = "Dissolve: the region's own boundary footprint is missing";
+            return result;
+        }
+        object->footprintOperation = own->id;
+        result.objectId = objectId;
+    }
+    else
+        removedObjects.insert (objectId);
+    // What only the removed object and steps carried, as when a region line stops being one.
+    std::set<Id> regions, assignments, patches;
+    for (const auto& region : s.regions)
+        if (removedObjects.count (region.descriptor.object) ||
+            std::any_of (region.descriptor.operations.begin (), region.descriptor.operations.end (), inSteps))
+            regions.insert (region.id);
+    if (!removedObjects.empty ()) {
+        for (const auto& assignment : s.assignments)
+            if (regions.count (assignment.region))
+                assignments.insert (assignment.id);
+        for (const auto& patch : s.patches)
+            if (removedObjects.count (patch.object) || assignments.count (patch.assignment))
+                patches.insert (patch.key);
+    }
+    std::erase_if (s.objects, [&] (const auto& v) { return removedObjects.count (v.id) > 0; });
+    std::erase_if (s.operations, [&] (const auto& v) { return inSteps (v.id); });
+    std::erase_if (s.regions, [&] (const auto& v) { return regions.count (v.id) > 0; });
+    std::erase_if (s.assignments, [&] (const auto& v) { return assignments.count (v.id) > 0; });
+    std::erase_if (s.patches, [&] (const auto& v) { return patches.count (v.key) > 0; });
+    for (auto& region : s.regions)
+        std::erase_if (region.predecessors, [&] (Id id) { return regions.count (id) > 0; });
+    for (auto& patch : s.patches) {
+        std::erase_if (patch.predecessorRegions, [&] (Id id) { return regions.count (id) > 0; });
+        std::erase_if (patch.predecessorPatches, [&] (Id id) { return patches.count (id) > 0; });
+    }
+    std::erase_if (s.bindings, [&] (const auto& v) {
+        return (v.kind == BindingKind::Object && removedObjects.count (v.logicalId)) ||
+               (v.kind == BindingKind::Operation && inSteps (v.logicalId));
+    });
+    LandscapeResult rebuilt;
+    if (!RebuildLandscape (candidate, rebuilt, result.error, &doc) ||
+        !geomsrv::edit::Validate (candidate, result.error))
+        return result;
+    candidate.revision = doc.revision + 1;
+    doc = std::move (candidate);
+    result.ok = true;
+    return result;
+}
+
 } // namespace tapioca::geometry

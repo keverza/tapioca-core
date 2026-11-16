@@ -54,5 +54,16 @@ struct DomainEditResult {
 // cites more than one configured region refuses rather than picking one.
 DomainEditResult ApplyDomainCommand (geomsrv::edit::Document& doc, const DomainCommand& command);
 
+// #210: take a Boolean result apart, the inverse of ApplyDomainCommand. The Boolean steps under
+// `object`'s footprint (Union/Difference/Intersection/Xor nodes, down to the first node that is
+// not one) are removed. A result the Boolean authored (no boundary line of its own) is removed
+// with them, and its region identities, material assignments, patches and bindings; a region a
+// Boolean cut in place (a cutter's owner) keeps its identity and gets its own boundary footprint
+// back. Either way the inputs are not touched: with nothing consuming them they are owners again
+// (#189) with the surface, effect and material they kept. Refuses, changing nothing, when the
+// footprint is not a Boolean or when anything else is built from those steps. One mutation: wrap
+// it in Session::Apply for one undo entry. `objectId` is the kept owner, or kNoId when removed.
+DomainEditResult DissolveBoolean (geomsrv::edit::Document& doc, Id object);
+
 } // namespace tapioca::geometry
 #endif

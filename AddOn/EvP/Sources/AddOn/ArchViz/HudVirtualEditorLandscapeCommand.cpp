@@ -269,4 +269,25 @@ bool AdvanceLandscapeCommand (Session& s)
     Landscape (s);
     return true;
 }
+bool DissolveBooleanResult (Session& s, edit::Id object)
+{
+    edit::Id kept = edit::kNoId;
+    const bool ok = s.edits.Apply ([&] (edit::Document& doc, std::string& error) {
+        const auto dissolved = lg::DissolveBoolean (doc, object);
+        error = dissolved.error;
+        kept = dissolved.objectId;
+        return dissolved.ok;
+    });
+    if (!ok) {
+        s.message = s.edits.Message ();
+        return false;
+    }
+    s.landscapeObject = kept;
+    s.message = kept != edit::kNoId
+                    ? "Boolean dissolved: the region has its own outline again, and the cutting line no part in it."
+                    : "Boolean dissolved: its input shapes are regions of their own again, with the settings they "
+                      "kept.";
+    Landscape (s);
+    return true;
+}
 } // namespace geomsrv::archviz::edithud

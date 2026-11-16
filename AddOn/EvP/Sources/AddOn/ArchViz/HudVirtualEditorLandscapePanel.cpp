@@ -255,7 +255,14 @@ void LandscapePanel (Session& s)
             break;
         case InspectorContext::BooleanResult:
             // #189: the selected input lines stand for the result; its settings are edited here.
-            if (BooleanOfSelection (s)) {
+            if (const auto result = BooleanOfSelection (s)) {
+                // #210: the way back, for a result whose undo history is gone (a reopened draft).
+                if (ImGui::Button ("Dissolve Boolean"))
+                    DissolveBooleanResult (s, result);
+                if (ImGui::IsItemHovered ())
+                    geomsrv::archviz::hudshell::HoverTip (
+                        "Take this result apart: its input shapes become regions of their own again, with the "
+                        "settings they kept. One undo step.");
                 ImGui::SeparatorText ("Result");
                 RegionPanel (s);
                 ImGui::SeparatorText ("Material");

@@ -120,6 +120,18 @@ void Controls (Session& s, const lg::RecipeRow& row)
                 "The terrain effect is a separate setting.");
         ImGui::SameLine ();
     }
+    // #210: a Boolean result's row takes it apart.
+    if (root != doc.landscape->operations.end () &&
+        (root->kind == lg::OperationKind::Union || root->kind == lg::OperationKind::Difference ||
+         root->kind == lg::OperationKind::Intersection || root->kind == lg::OperationKind::Xor)) {
+        if (ImGui::SmallButton ("Dissolve"))
+            DissolveBooleanResult (s, id);
+        if (ImGui::IsItemHovered ())
+            geomsrv::archviz::hudshell::HoverTip (
+                "Dissolve the Boolean: its input shapes become regions of their own again, with the settings "
+                "they kept. One undo step.");
+        ImGui::SameLine ();
+    }
     constexpr lg::RegionTerrainEffect effects[] = { lg::RegionTerrainEffect::None, lg::RegionTerrainEffect::Grade,
                                                     lg::RegionTerrainEffect::Add, lg::RegionTerrainEffect::Subtract };
     ImGui::SetNextItemWidth (130.0f);
