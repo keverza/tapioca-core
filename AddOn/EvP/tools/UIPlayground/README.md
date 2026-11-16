@@ -59,6 +59,10 @@ workspace for this launch. Default config is `RelWithDebInfo`. No add-on build r
   opens one fixture (an editor fixture on the native editor page) and `--screenshot <frame>`
   saves that frame, for example
   `TapiocaUIPlayground.exe --select region --screenshot 40 --smoke-frames 45`.
+- **Exposed surfaces criteria** (browser, *Overlay HUD*) draws the takeoff's production criteria grid
+  at the preview width with a playground-only rule list; `--select criteria` opens it unattended.
+  Below the grid's minimum width the grid alone scrolls sideways; wider, its text columns stretch
+  in proportion.
 - Fixture JSON files are read on startup. Use `-Fresh` after editing them; ordinary
   launches restore edited fixtures from the saved workspace.
 

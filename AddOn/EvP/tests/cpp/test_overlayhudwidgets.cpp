@@ -96,13 +96,19 @@ TEST (OverlayHudWidgets, CriteriaTextReceivesScopedKeyboardWithoutStartingTheRoo
     panel.items = { table };
     watched.Lay ({ &panel }, At (1100, 600));
     EXPECT_FALSE (hud::CriteriaTextActive (*watched.state));
-    watched.Click ({ &panel }, kLeft + 350, kTop + 30);
+    // Proportional columns place the value field by the font's measure: find it.
+    float x = kLeft + 200;
+    for (; x < kLeft + 700 && !hud::CriteriaTextActive (*watched.state); x += 12) {
+        watched.Click ({ &panel }, 1100, 600);
+        watched.Click ({ &panel }, x, kTop + 30);
+    }
+    x -= 12;
     ASSERT_TRUE (hud::CriteriaTextActive (*watched.state));
     watched.heard.clear ();
-    auto text = At (kLeft + 350, kTop + 30);
+    auto text = At (x, kTop + 30);
     text.characters = u"X";
     watched.Lay ({ &panel }, text);
-    auto enter = At (kLeft + 350, kTop + 30);
+    auto enter = At (x, kTop + 30);
     hud::Input::Key key;
     key.code = 0x0D;
     key.down = true;

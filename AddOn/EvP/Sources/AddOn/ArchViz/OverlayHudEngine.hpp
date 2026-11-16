@@ -9,6 +9,7 @@
 //
 // MAIN THREAD, inside ImGui's lock (ImGuiContextLock.hpp) wherever a frame is laid out.
 
+#include "ArchViz/OverlayHudCriteriaTable.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudDebugCounters.hpp"
 #include "ArchViz/OverlayHud.hpp"
@@ -82,10 +83,7 @@ struct State {
     struct Panel {
         std::map<uint32_t, bool> sections;  // by item index
         std::map<std::string, Held> values; // by control id; the tab bar's by its id
-        struct Text {
-            std::string sent, current, search;
-            uint32_t field = 0;
-        };
+        using Text = CriteriaText;
         std::map<std::string, Text> criteriaText;
     };
     std::map<std::string, Panel> panels;

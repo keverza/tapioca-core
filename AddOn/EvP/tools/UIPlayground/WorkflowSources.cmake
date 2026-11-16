@@ -19,7 +19,7 @@ foreach (source
     ArchViz/DiligentHudControls.cpp ArchViz/AnalysisTabs.cpp
     ArchViz/AnalysisPath.cpp ArchViz/AnalysisProfile.cpp ArchViz/EditLayers.cpp
     ArchViz/EditLayersPlacement.cpp ArchViz/EditLandscapeLayers.cpp ArchViz/RoofSlopeCanvas.cpp
-    ArchViz/AnalysisLiveRerun.cpp
+    ArchViz/AnalysisLiveRerun.cpp ArchViz/OverlayHudCriteriaTable.cpp
     ArchViz/MatrixMath.cpp ArchViz/PointGumball.cpp ArchViz/HudGumball.cpp
     Geometry/Fillet2D.cpp Geometry/GeometryEngine.cpp Geometry/SurfaceCriteria.cpp Geometry/PlanarTriangulation.cpp
     Geometry/QueryEngine.cpp Geometry/BvhBuild.cpp

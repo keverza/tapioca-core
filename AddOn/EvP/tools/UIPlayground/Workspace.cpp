@@ -3,12 +3,17 @@
 #include "ArchViz/HudMassingStats.hpp"
 #include "ArchViz/HudFloorProgramme.hpp"
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/OverlayHudCriteriaTable.hpp"
+#include "Geometry/SurfaceCriteria.hpp"
 #include "ArchViz/TapiocaUI/Foundation/ScopedStyle.hpp"
 #include <imgui.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <climits>
+#include <map>
+#include <string>
+#include <vector>
 
 // ImGuiFiles.cpp, in the shared ImGui: the preview height a screenshot is taken at, or 0.
 float PlaygroundCaptureHeight ();
@@ -266,6 +271,108 @@ void DrawPanel (Workspace& w, FixtureModel& model, const av::overlaylayers::Pane
         ProgrammeDialogs (w, model);
     }
 }
+// Exposed surfaces criteria grid (overlay HUD), drawn by the production table at the
+// preview's width. A playground-only rule list stands in for the takeoff's draft rules.
+constexpr int kCriteriaPreview = -2;
+void CriteriaPreview (Workspace& w)
+{
+    struct Demo {
+        std::vector<av::overlaylayers::CriteriaRow> rows;
+        std::map<std::string, av::overlayhud::CriteriaText> texts;
+        uint32_t next = 1;
+    };
+    static Demo demo;
+    const auto& fields = geomsrv::surfacecriteria::Fields ();
+    const auto options = [] (uint32_t field) -> std::vector<std::string> {
+        switch (field) {
+            case 0:
+                return { "Wall", "Slab", "Column", "Beam", "Roof", "Curtain Wall" };
+            case 1:
+                return { "A-WALL-EXTR", "A-WALL-INTR", "S-SLAB" };
+            case 2:
+                return { "Ground floor", "1st floor", "2nd floor" };
+            case 4:
+                return { "Stucco red", "Stucco yellow", "Unknown surface (generated or pen colour)" };
+            case 5:
+                return { "Top", "Bottom", "Side" };
+            default:
+                return {};
+        }
+    };
+    const auto add = [&] (uint32_t field, uint32_t condition, std::string value, uint32_t open = 0, uint32_t close = 0,
+                          bool orNext = false) {
+        av::overlaylayers::CriteriaRow row;
+        row.id = "playground:rule:" + std::to_string (demo.next++);
+        row.field = field;
+        row.condition = condition;
+        row.value = std::move (value);
+        row.open = open;
+        row.close = close;
+        row.orNext = orNext;
+        row.options = options (field);
+        demo.rows.push_back (row);
+    };
+    if (demo.rows.empty () && demo.next == 1) {
+        add (0, 0, "Wall", 1);
+        add (4, 2, "Stucco", 0, 0, true);
+        add (5, 1, "Bottom", 0, 1);
+    }
+    ImGui::PushTextWrapPos (0.0f);
+    ImGui::TextUnformatted ("Select objects and materials with rules. For example: Surface contains Stucco. Use OR for "
+                            "several finishes. Drafts change quantities/highlights only after Apply criteria.");
+    ImGui::PopTextWrapPos ();
+    av::overlaylayers::PanelItem grid;
+    grid.kind = av::overlaylayers::ItemKind::CriteriaGrid;
+    grid.id = "criteriaGrid";
+    grid.labels = fields;
+    grid.columns = geomsrv::surfacecriteria::Conditions ();
+    grid.criteria = demo.rows;
+    std::vector<av::overlayhud::CriteriaEdit> edits;
+    bool textActive = false;
+    av::overlayhud::DrawCriteriaTable (grid, demo.texts, ImGui::GetContentRegionAvail ().x, edits, textActive);
+    for (const auto& edit : edits) {
+        const auto at =
+            std::find_if (demo.rows.begin (), demo.rows.end (), [&] (const auto& row) { return row.id == edit.rowId; });
+        if (at == demo.rows.end ())
+            continue;
+        const std::string kind = edit.kind;
+        const auto value = uint32_t (edit.value);
+        if (kind == "criteriaOpen")
+            at->open = value;
+        else if (kind == "criteriaClose")
+            at->close = value;
+        else if (kind == "criteriaLink")
+            at->orNext = value == 1;
+        else if (kind == "criteriaCondition")
+            at->condition = value;
+        else if (kind == "criteriaField") {
+            at->field = value;
+            at->options = options (value);
+            at->value = at->options.empty () ? "" : at->options.front ();
+        }
+        else if (kind == "criteriaValue")
+            at->value = edit.text;
+        else if (kind == "criteriaRemove") {
+            demo.rows.erase (at);
+            Event (w.document, "Criteria: " + kind);
+            continue;
+        }
+        else if (kind == "criteriaMove") {
+            const auto from = at - demo.rows.begin ();
+            const auto to = from + int64_t (edit.value);
+            if (to >= 0 && to < int64_t (demo.rows.size ()))
+                std::swap (demo.rows[size_t (from)], demo.rows[size_t (to)]);
+        }
+        Event (w.document, "Criteria: " + kind + " " + edit.text);
+    }
+    if (ImGui::Button ("Add criterion"))
+        add (0, 0, "Wall");
+    ImGui::SameLine ();
+    if (ImGui::Button ("Clear draft"))
+        demo.rows.clear ();
+    ImGui::TextDisabled ("Grid minimum %.0f px at this font; preview %.0f px.",
+                         av::overlayhud::MeasureCriteria (grid).minimum, ImGui::GetContentRegionAvail ().x);
+}
 // A Virtual editor fixture chosen in the browser replaces the editor session once; the document
 // remembers which one is loaded, so a UI reload or a redraw keeps the edits made since.
 void EditorFixture (Workspace& w, const json::JsonArray& fixtures, int selected)
@@ -337,7 +444,7 @@ bool Restore (Workspace& w, const Value& document)
 void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& result)
 {
     auto fixtures = *Member (w.document, "fixtures").AsArray ();
-    int selected = std::clamp (int (Number (w.document, "selected")), -1, int (fixtures.size ()) - 1);
+    int selected = std::clamp (int (Number (w.document, "selected")), kCriteriaPreview, int (fixtures.size ()) - 1);
     bool dark = Flag (w.document, "dark");
     int density = std::clamp (int (Number (w.document, "density", 1)), 0, 3);
     float dpi = float (std::clamp (Number (w.document, "dpi", 0), 0.0, 4.0));
@@ -378,6 +485,9 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
         ImGui::InputTextWithHint ("##search", "Search panels / fixtures", w.search, sizeof (w.search));
         if (ImGui::Selectable ("Component gallery", selected == -1))
             selected = -1;
+        ImGui::SeparatorText ("Overlay HUD");
+        if (ImGui::Selectable ("Exposed surfaces criteria", selected == kCriteriaPreview))
+            selected = kCriteriaPreview;
         ImGui::SeparatorText ("Native workflows");
         for (const auto& entry : { std::pair { "Massing", "@massing" },
                                    { "Analysis (Sun / View)", "@analysis" },
@@ -415,7 +525,7 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
         const ImVec2 stageMin = ImGui::GetCursorScreenPos ();
         const ImVec2 stageMax = stageMin + ImGui::GetContentRegionAvail ();
         ImGui::BeginChild ("preview-scroll", { 0, 0 }, ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
-        if (!nativeMode || selected == -1) {
+        if (!nativeMode || selected < 0) {
             ImGui::BeginChild ("production-preview", { width * frame.dpiScale, height * frame.dpiScale },
                                ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX | ImGuiChildFlags_ResizeY);
             if (selected == -1) {
@@ -434,6 +544,8 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
                                                    (entry.result.committed ? " committed" : "") +
                                                    (entry.result.canceled ? " canceled" : ""));
             }
+            else if (selected == kCriteriaPreview)
+                CriteriaPreview (w);
             else if (!nativeMode) {
                 FixtureModel model;
                 std::string error;

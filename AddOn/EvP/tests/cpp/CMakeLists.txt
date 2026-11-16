@@ -732,6 +732,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/GradientPresetChoice.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudCriteria.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudCriteriaTable.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudItems.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudEvents.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayClickTiming.cpp"
@@ -1123,6 +1124,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudcontrols.cpp
     test_overlayhudevents.cpp
     test_overlayhudwidgets.cpp
+    test_overlayhudcriteriatable.cpp
     test_overlayhudown.cpp
     test_overlayhuddisplays.cpp
     test_hudshell.cpp

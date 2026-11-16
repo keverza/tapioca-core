@@ -95,7 +95,9 @@ std::string InitialState (const fs::path& folder, const std::vector<fs::path>& d
         throw std::runtime_error ("No JSON fixtures found.");
     int64_t selected = dumps.empty () ? 0 : int64_t (own);
     bool editor = !dumps.empty ();
-    if (!select.empty ()) {
+    if (select == "criteria")
+        selected = -2; // Workspace's Exposed surfaces criteria preview
+    else if (!select.empty ()) {
         selected = -1;
         for (size_t i = 0; i < fixtures.size (); ++i)
             if (Text (fixtures[i], "variant") == select || paths[i].stem ().string () == select ||
