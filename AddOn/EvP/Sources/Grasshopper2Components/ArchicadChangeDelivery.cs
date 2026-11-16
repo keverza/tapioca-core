@@ -151,7 +151,7 @@ internal static class ArchicadChangeDelivery
                             if (data.GetProperty("projectEpoch").GetInt64() != expectedEpoch)
                                 throw new InvalidDataException("Archicad project changed; refresh the connection before querying references.");
                             bool active = data.GetProperty("sourceActive").GetBoolean();
-                            Volatile.Write(ref status, active ? "Automatic input refresh: GUID-scoped ModelWatch hints." :
+                            Volatile.Write(ref status, active ? "Automatic input refresh: ModelWatch invalidation hints." :
                                 "ModelWatch is inactive; automatic input refresh is paused. Use manual Refresh.");
                             // An inactive source is not proof of freshness. Preserve the
                             // cache and wait for the source-start wake/manual refresh.

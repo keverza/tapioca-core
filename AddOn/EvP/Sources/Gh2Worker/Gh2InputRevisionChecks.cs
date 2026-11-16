@@ -25,6 +25,7 @@ internal static class Gh2InputRevisionChecks
     {
         private readonly object sync = new();
         private readonly Dictionary<Guid, string> values = elements.ToDictionary(id => id, _ => "v1");
+        private readonly Dictionary<Guid, HashSet<Guid>> relations = elements.ToDictionary(id => id, _ => new HashSet<Guid>());
         private readonly List<(long Revision, Guid Id)> journal = [];
         private readonly List<(string Kind, Guid[] Ids)> reads = [];
         private long revision = 1, lastRequest = Environment.TickCount64;
@@ -36,6 +37,16 @@ internal static class Gh2InputRevisionChecks
             {
                 if (value is not null) values[id] = value;
                 journal.Add((++revision, id));
+            }
+        }
+
+        internal void SetRelation(Guid owner, Guid target, bool present)
+        {
+            lock (sync)
+            {
+                if (present) relations[owner].Add(target);
+                else relations[owner].Remove(target);
+                journal.Add((++revision, target)); // only the child was named by the detector
             }
         }
 
@@ -77,6 +88,7 @@ internal static class Gh2InputRevisionChecks
                 {
                     Guid[] scope = request.GetProperty("guids").EnumerateArray().Select(id => id.GetGuid()).ToArray();
                     long since = request.GetProperty("sinceRevision").GetInt64();
+                    bool membership = (request.GetProperty("fields").GetInt32() & 16) != 0;
                     lock (sync)
                         return JsonSerializer.Serialize(new
                         {
@@ -85,7 +97,9 @@ internal static class Gh2InputRevisionChecks
                             {
                                 projectEpoch = 3, revision, sourceActive = true, resyncRequired = false,
                                 coverage = "modelwatch-hints",
-                                changes = journal.Where(entry => entry.Revision > since && scope.Contains(entry.Id))
+                                changes = membership && journal.Any(entry => entry.Revision > since)
+                                    ? scope.Select(id => new { guid = id, revision, changeMask = 16 })
+                                    : journal.Where(entry => entry.Revision > since && scope.Contains(entry.Id))
                                     .Select(entry => new { guid = entry.Id, revision = entry.Revision, changeMask = 32 })
                             }
                         });
@@ -104,7 +118,8 @@ internal static class Gh2InputRevisionChecks
                             {
                                 elements = ids.Select(id => new
                                 {
-                                    guid = id, status = "Success", diagnostic = "", more = false,
+                                    guid = id, status = kind == "relationships" && relations[id].Count == 0 ? "Empty" : "Success",
+                                    diagnostic = "", more = false,
                                     items = kind == "properties"
                                         ? [new
                                         {
@@ -113,6 +128,10 @@ internal static class Gh2InputRevisionChecks
                                             valueStatus = "HasValue", value = values[id], hasNumber = false, number = 0.0,
                                             hasBoolean = false, boolean = false
                                         }]
+                                        : kind == "relationships" ? relations[id].Order().Select(target => (object)new
+                                        {
+                                            target, relation = "HostsWindow", provenance = "fixture"
+                                        }).ToArray()
                                         : new object[] { new { minX = 0.0, minY = 0.0, minZ = 0.0, maxX = 1.0, maxY = 2.0, maxZ = 3.0 } }
                                 })
                             }
@@ -295,6 +314,53 @@ internal static class Gh2InputRevisionChecks
             Settle();
             if (Volatile.Read(ref idle) != 2) throw new InvalidOperationException("The idle callback is not one-shot.");
 
+            // 6. Membership changes name only a target, including one never
+            // seen before. Relationship owners must refresh; their independent
+            // property/geometry subscriptions must remain quiet.
+            var relationships = (Component)ObjectProxies.TryEmit<IDocumentObject>(new Guid("1aca73bb-0231-4a9c-921e-37aba8546155"))!;
+            if (!document.Objects.Add(relationships) ||
+                !Connections.Connect(selection.Parameters.Output(1), relationships.Parameters.Input(0)))
+                throw new InvalidOperationException("The relationship fixture could not be wired.");
+            document.Solution.StartWait(null, SolutionMode.Headless);
+            Pump(() => Texts(relationships, 1).SequenceEqual(["Empty", "Empty"]), "initial relationship rows never arrived");
+            Settle();
+            host.TakeReads();
+            document.Solution.SolutionStopped += (_, _) =>
+            {
+                if (Texts(relationships, 1).Any(state => state is not ("Success" or "Empty")))
+                    emptied.Enqueue("relationship refresh");
+            };
+            Guid child = Guid.NewGuid();
+            void CheckMembership(Action edit, string[] expected)
+            {
+                int initial = Volatile.Read(ref started);
+                edit();
+                host.Wake();
+                Pump(() => Texts(relationships, 4).SequenceEqual(expected), "relationship membership was not updated");
+                Settle();
+                var refreshed = host.TakeReads();
+                if (Volatile.Read(ref started) != initial + 1 || refreshed.Length != 1 ||
+                    refreshed[0].Kind != "relationships" || !refreshed[0].Ids.SequenceEqual([first, second]))
+                    throw new InvalidOperationException("Membership did not refresh only its owners and solve once.");
+            }
+            string edge = $"HostsWindow: {child:D}";
+            CheckMembership(() => host.SetRelation(first, child, true), [edge, ""]);
+            CheckMembership(() =>
+            {
+                host.SetRelation(first, child, false);
+                host.SetRelation(second, child, true);
+            }, ["", edge]);
+            CheckMembership(() => host.SetRelation(second, child, false), ["", ""]);
+            before = Volatile.Read(ref started);
+            host.Change(Guid.NewGuid()); // conservative dependency hint, unchanged edges
+            host.Wake();
+            Pump(() => host.QuietMs < 200, "the external hint was not read");
+            Settle();
+            reads = host.TakeReads();
+            if (Volatile.Read(ref started) != before || reads.Length != 1 || reads[0].Kind != "relationships")
+                throw new InvalidOperationException("Unchanged membership solved or refreshed unrelated fields.");
+            if (!emptied.IsEmpty) throw new InvalidOperationException("A membership refresh emitted Pending rows.");
+
             host.Shutdown();
             serving.WaitAsync(TimeSpan.FromSeconds(30)).ContinueWith(_ => { }).GetAwaiter().GetResult();
             reader.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
@@ -307,6 +373,7 @@ internal static class Gh2InputRevisionChecks
             postOverride.SetValue(null, null);
             document.Close();
         }
-        Console.WriteLine("GH2 input revisions: joint first adoption, unrelated-change silence, row-level refresh, burst coalescing and solver gate passed.");
+        Console.WriteLine("GH2 input revisions: joint first adoption, unrelated-change silence, row-level refresh, burst coalescing, " +
+            "solver gate and external-target relationship add/move/remove passed.");
     }
 }

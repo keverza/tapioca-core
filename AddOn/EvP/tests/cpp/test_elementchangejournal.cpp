@@ -46,10 +46,52 @@ TEST (ElementChangeJournal, FieldFilteringCoalescingAndUnknownInvalidation)
     journal.Record ({ "a" }, ElementChangeJournal::Geometry);
     auto delta = journal.Read (1, 1, { "a" }, 31);
     ASSERT_EQ (delta.changes.size (), 1u);
-    EXPECT_EQ (delta.changes[0].mask, 9u);
+    EXPECT_EQ (delta.changes[0].mask, 25u);
     EXPECT_EQ (delta.changes[0].revision, delta.revision);
     journal.Record ({ "a" }, ElementChangeJournal::Unknown);
     EXPECT_EQ (journal.Read (1, delta.revision, { "a" }, ElementChangeJournal::Properties).changes.size (), 1u);
+}
+
+TEST (ElementChangeJournal, MembershipRefreshesOwnersForNewMovedAndRemovedTargets)
+{
+    ElementChangeJournal journal;
+    journal.SetEpoch (1);
+    journal.SetActive (true);
+    uint64_t cursor = 1;
+    for (const auto* target : { "new-child", "moved-child", "removed-child" }) {
+        journal.Record ({ target }, ElementChangeJournal::Unknown);
+        const auto delta = journal.Read (1, cursor, { "owner" }, ElementChangeJournal::Membership);
+        ASSERT_FALSE (delta.resyncRequired);
+        ASSERT_EQ (delta.changes.size (), 1u);
+        EXPECT_EQ (delta.changes[0].guid, "owner");
+        EXPECT_EQ (delta.changes[0].mask, ElementChangeJournal::Membership);
+        EXPECT_EQ (delta.changes[0].revision, delta.revision);
+        EXPECT_TRUE (journal.Read (1, cursor, { "owner" }, ElementChangeJournal::Geometry).changes.empty ());
+        EXPECT_TRUE (journal.Read (1, cursor, { "owner" }, ElementChangeJournal::Properties).changes.empty ());
+        cursor = delta.revision;
+        EXPECT_TRUE (journal.Read (1, cursor, { "owner" }, ElementChangeJournal::Membership).changes.empty ());
+    }
+}
+
+TEST (ElementChangeJournal, MembershipIsBoundedToRequestedOwnersAndIndependentCursors)
+{
+    ElementChangeJournal journal;
+    journal.SetEpoch (1);
+    journal.SetActive (true);
+    journal.Record ({ "external-a" }, ElementChangeJournal::Geometry);
+    journal.Record ({ "owner-a" }, ElementChangeJournal::Properties);
+    journal.Record ({ "external-b" }, ElementChangeJournal::Transform);
+    const auto delta = journal.Read (1, 1, { "owner-a", "owner-b" },
+                                     ElementChangeJournal::Membership | ElementChangeJournal::Properties);
+    ASSERT_EQ (delta.changes.size (), 2u);
+    EXPECT_EQ (delta.changes[0].guid, "owner-a");
+    EXPECT_EQ (delta.changes[0].mask, 24u);
+    EXPECT_EQ (delta.changes[1].guid, "owner-b");
+    EXPECT_EQ (delta.changes[1].mask, ElementChangeJournal::Membership);
+    EXPECT_EQ (delta.changes[0].revision, delta.revision);
+    EXPECT_EQ (delta.changes[1].revision, delta.revision);
+    EXPECT_EQ (journal.Read (1, 1, { "other-owner" }, ElementChangeJournal::Membership).changes.size (), 1u);
+    EXPECT_TRUE (journal.Read (1, 1, {}, ElementChangeJournal::Membership).changes.empty ());
 }
 
 TEST (ElementChangeJournal, SourceGapsProjectReplacementAndFutureCursorsRequireRebase)

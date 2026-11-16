@@ -42,7 +42,8 @@ class ElementChangeJournal {
         entries.clear ();
         revision = floor = 0;
         active = false;
-        if (changed) changed ();
+        if (changed)
+            changed ();
     }
     void SetActive (bool value)
     {
@@ -55,7 +56,8 @@ class ElementChangeJournal {
     {
         entries.clear ();
         floor = ++revision;
-        if (changed) changed ();
+        if (changed)
+            changed ();
     }
     void Record (const std::set<std::string>& guids, uint32_t mask)
     {
@@ -65,7 +67,8 @@ class ElementChangeJournal {
         if (guids.size () > Capacity) {
             entries.clear ();
             floor = next;
-            if (changed) changed ();
+            if (changed)
+                changed ();
             return;
         }
         while (entries.size () + guids.size () > Capacity) {
@@ -77,24 +80,42 @@ class ElementChangeJournal {
         }
         for (const auto& guid : guids)
             entries.push_back ({ guid, next, mask });
-        if (changed) changed ();
+        if (changed)
+            changed ();
     }
-    Delta Read (uint64_t expectedEpoch, uint64_t since, const std::set<std::string>& guids,
-                uint32_t fields) const
+    Delta Read (uint64_t expectedEpoch, uint64_t since, const std::set<std::string>& guids, uint32_t fields) const
     {
-        Delta result { epoch, revision, active,
-                       expectedEpoch != epoch || !active || since < floor || since > revision, {} };
+        Delta result {
+            epoch, revision, active, expectedEpoch != epoch || !active || since < floor || since > revision, {}
+        };
         if (result.resyncRequired)
             return result;
         std::map<std::string, Change> merged;
+        uint64_t membershipRevision = 0;
         for (const auto& entry : entries) {
-            if (entry.revision <= since || guids.count (entry.guid) == 0 ||
-                (entry.mask & (fields | Unknown)) == 0)
+            if (entry.revision <= since)
+                continue;
+            // A relation may gain or lose a target outside its current GUIDs.
+            // Without dependency-aware detector hints, every observed edit can
+            // invalidate membership. Only the requested owners are re-read;
+            // these are invalidation hints, not claims that their edges changed.
+            if ((fields & Membership) != 0)
+                membershipRevision = entry.revision;
+            if (guids.count (entry.guid) == 0 || (entry.mask & (fields | Unknown)) == 0)
                 continue;
             auto [it, inserted] = merged.emplace (entry.guid, entry);
             if (!inserted) {
                 it->second.revision = entry.revision;
                 it->second.mask |= entry.mask;
+            }
+        }
+        if (membershipRevision != 0) {
+            for (const auto& guid : guids) {
+                auto [it, inserted] = merged.emplace (guid, Change { guid, membershipRevision, Membership });
+                if (!inserted) {
+                    it->second.revision = membershipRevision;
+                    it->second.mask |= Membership;
+                }
             }
         }
         for (auto& [guid, change] : merged)
