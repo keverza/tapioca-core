@@ -428,10 +428,23 @@ bool SplitEditTerrainRing (const geomsrv::edit::Document& doc, const EditTerrain
         }
         EditTerrainSplitResult candidate;
         candidate.derivedRingVertices = ring.size ();
-        if (!terrain_detail::Validate (combined, error) ||
-            !SplitTerrainMesh ({ input.mesh.points, input.mesh.triangles, line, {}, combined }, candidate.split,
-                               error) ||
-            !Remap (input, options, sources, candidate, error))
+        if (!terrain_detail::Validate (combined, error))
+            return false;
+        if (!SplitTerrainMesh ({ input.mesh.points, input.mesh.triangles, line, {}, combined }, candidate.split,
+                               error)) {
+            // #194: the kernel words a ring it cannot split as the property line. This ring is a
+            // region footprint, its reach or a mask: say so, and whose, keeping the kernel's words
+            // after it. Other refusals keep their own code.
+            if (error.rfind ("PropertyLineOutside", 0) != 0)
+                return false;
+            std::string owners;
+            for (const auto source : sources)
+                owners += (owners.empty () ? "" : ", ") + std::to_string (source);
+            error = "TerrainRingSplit: the ring of source " + owners +
+                    " (a region, its reach or a mask) must be a simple ring covered by the terrain (" + error + ")";
+            return false;
+        }
+        if (!Remap (input, options, sources, candidate, error))
             return false;
         candidate.revision = input.revision;
         candidate.sourceTerrainGuid = input.sourceTerrainGuid;

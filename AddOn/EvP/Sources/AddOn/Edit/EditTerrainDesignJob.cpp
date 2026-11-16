@@ -176,6 +176,8 @@ std::string TerrainConditionText (const std::string& error)
                                     "follow: split the path's cross-section ranges there." },
         { "LockedConflict", "A fixed height disagrees with the path or another fixed height." },
         { "TerrainCaptureStale", "The Archicad terrain changed: set it again." },
+        { "TerrainRingSplit", "A region, its reach or a mask must be one closed outline without crossings, over the "
+                              "captured terrain." },
     };
     for (const auto& [code, text] : kConditions)
         if (error.rfind (code, 0) == 0)

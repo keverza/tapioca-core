@@ -1,6 +1,7 @@
 #include "Edit/EditTerrainTriangulation.hpp"
 #include "Edit/EditLandscapeTerrain.hpp"
 #include "Edit/EditDocument.hpp"
+#include "Edit/EditTerrainDesignJob.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <bit>
@@ -280,6 +281,23 @@ TEST (EditTerrainTriangulation, DerivedRingRetainsTerrainOwnerWhenBoundaryOperat
     EXPECT_EQ (fixture.provenance, original);
     EXPECT_EQ (fixture.doc.landscape, before);
     EXPECT_TRUE (std::equal (fixture.points.begin (), fixture.points.end (), result.split.points.begin ()));
+}
+
+// #194: a derived ring that cannot split the terrain is refused as itself, naming its source,
+// never as the property line's refusal.
+TEST (EditTerrainTriangulation, DerivedRingOffTheTerrainRefusesAsTheRingNotThePropertyLine194)
+{
+    SplitFixture fixture;
+    fixture.Capture ();
+    const std::array<Vec3, 4> ring { Vec3 { 2, 2, 0 }, { 40, 2, 0 }, { 40, 6, 0 }, { 2, 6, 0 } };
+    const std::array<SourceId, 1> sources { fixture.footprint };
+    EditTerrainSplitResult result;
+    std::string error;
+    EXPECT_FALSE (
+        SplitEditTerrainRing (fixture.doc, fixture.Input (), fixture.Options (), ring, sources, result, error));
+    EXPECT_EQ (error.rfind ("TerrainRingSplit:", 0), 0u) << error;
+    EXPECT_NE (error.find ("source " + std::to_string (fixture.footprint)), std::string::npos) << error;
+    EXPECT_EQ (TerrainConditionText (error).find ("property line"), std::string::npos);
 }
 
 TEST (EditTerrainTriangulation, SplitFirstEvaluationPreservesEveryOutsideFragmentAndPropertyEdge)
