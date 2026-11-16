@@ -331,6 +331,10 @@ struct ConstructionInput {
 std::vector<ConstructionInput> LandscapeConstructionInputs (const LandscapeSession& session);
 // The region that owns `object`'s area in the terrain recipe: itself unless it is consumed.
 Id LandscapeTerrainOwner (const LandscapeSession& session, Id object);
+// #210: the one region, no other region's input, whose footprint a Boolean built from the line
+// `source` taken whole (a closed Guide, Cutter or Building line with no region of its own); kNoId
+// when none or several do. Read from the operation DAG like LandscapeConstructionInputs.
+Id LandscapeSourceResult (const LandscapeSession& session, Id source);
 // One call is one document mutation; wrap it in Session::Apply for one undo entry.
 bool AddVolumetricDetail (geomsrv::edit::Document& doc, VolumetricDetail detail, Id& id, std::string& error);
 // Set requires the current detail revision. Retained entries keep their IDs;

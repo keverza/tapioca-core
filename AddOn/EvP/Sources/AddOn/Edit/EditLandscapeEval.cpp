@@ -62,6 +62,43 @@ std::vector<ConstructionInput> LandscapeConstructionInputs (const LandscapeSessi
     return inputs;
 }
 
+// #210. Reach as in LandscapeConstructionInputs (a bypassed step passes only its first input),
+// but every input counts, not only operations: a line a Boolean took whole without a region of
+// its own is an input id of the step itself.
+Id LandscapeSourceResult (const LandscapeSession& session, Id source)
+{
+    std::map<Id, const LandscapeOperation*> operations;
+    for (const auto& op : session.operations)
+        operations.emplace (op.id, &op);
+    const auto inputs = LandscapeConstructionInputs (session);
+    Id found = kNoId;
+    for (const auto& object : session.objects) {
+        if (object.pathId || object.kind == ObjectKind::Path || !operations.count (object.footprintOperation) ||
+            std::any_of (inputs.begin (), inputs.end (), [&] (const auto& input) { return input.object == object.id; }))
+            continue;
+        std::set<Id> seen;
+        std::vector<Id> open { object.footprintOperation };
+        bool reaches = false;
+        while (!open.empty () && !reaches) {
+            const auto* op = operations.at (open.back ());
+            open.pop_back ();
+            for (size_t i = 0; i < op->inputs.size () && (op->enabled || i == 0); ++i) {
+                const auto input = op->inputs[i];
+                if (input == source && !operations.count (input))
+                    reaches = true;
+                else if (operations.count (input) && seen.insert (input).second)
+                    open.push_back (input);
+            }
+        }
+        if (!reaches)
+            continue;
+        if (found != kNoId && found != object.id)
+            return kNoId; // Two results take it: it stands for neither.
+        found = object.id;
+    }
+    return found;
+}
+
 Id LandscapeTerrainOwner (const LandscapeSession& session, Id object)
 {
     for (const auto& input : LandscapeConstructionInputs (session))

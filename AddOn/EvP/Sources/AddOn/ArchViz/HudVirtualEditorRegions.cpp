@@ -177,13 +177,24 @@ edit::Id detail::SelectedRegionObject (Session& s)
                 return edit::kNoId; // two objects share the winning root: ambiguous
             resolved.insert (*winner);
         }
-        else if (ref.entity != edit::kNoId)
+        else if (ref.entity != edit::kNoId) {
+            bool owned = false;
             for (const auto& object : doc.landscape->objects)
                 if (object.boundarySource)
                     for (const auto& source : doc.landscape->sources)
-                        if (!source.deleted && source.id == object.boundarySource && source.entityId == ref.entity)
+                        if (!source.deleted && source.id == object.boundarySource && source.entityId == ref.entity) {
                             // #189: a construction input's line stands for the region built from it.
                             resolved.insert (lg::LandscapeTerrainOwner (*doc.landscape, object.id));
+                            owned = true;
+                        }
+            // #210: so does a line a Boolean took whole without a region of its own.
+            if (!owned)
+                for (const auto& source : doc.landscape->sources)
+                    if (!source.deleted && source.entityId == ref.entity)
+                        if (const auto result = lg::LandscapeSourceResult (*doc.landscape, source.id);
+                            result != edit::kNoId)
+                            resolved.insert (result);
+        }
     if (resolved.size () != 1)
         return edit::kNoId;
     s.landscapeObject = *resolved.begin ();

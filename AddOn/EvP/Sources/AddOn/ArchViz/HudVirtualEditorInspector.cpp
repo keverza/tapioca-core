@@ -94,10 +94,16 @@ InspectorContext ResolveContext (const Session& s)
         if (entity && entity->closed && role != lg::SourceRole::ReferenceLine &&
             role != lg::SourceRole::PathCenterline) {
             // #189: a line whose region a Boolean consumed shows the result it is an input of.
+            bool owned = false;
             for (const auto& object : doc.landscape->objects)
-                if (object.boundarySource == sources.front ()->id &&
-                    lg::LandscapeTerrainOwner (*doc.landscape, object.id) != object.id)
-                    return InspectorContext::BooleanResult;
+                if (object.boundarySource == sources.front ()->id) {
+                    owned = true;
+                    if (lg::LandscapeTerrainOwner (*doc.landscape, object.id) != object.id)
+                        return InspectorContext::BooleanResult;
+                }
+            // #210: a line a Boolean took whole, with no region of its own, shows that result.
+            if (!owned && lg::LandscapeSourceResult (*doc.landscape, sources.front ()->id) != edit::kNoId)
+                return InspectorContext::BooleanResult;
             return InspectorContext::Region;
         }
     }

@@ -8,6 +8,7 @@
 #include "Edit/EditRegionTerrain.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPrimitives.hpp"
+#include "Edit/EditLandscapeDomain.hpp"
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -382,6 +383,65 @@ TEST (HudVirtualEditorInspector, TheArchicadMeshSectionFitsThePanelAndSaysWhatIs
         EXPECT_FALSE (Has (text, "Create Archicad Mesh"));
         EXPECT_LE (right, edge + 1) << "a control runs past the panel's right edge";
     }
+}
+
+// #210: a closed line a Boolean took whole, with no region of its own (a cutter here), stands for
+// the region built from it like a consumed region's line does: picking it shows that result.
+TEST (HudVirtualEditorInspector, ABareBooleanInputLineStandsForItsResult210)
+{
+    auto site = MakeSite ();
+    const auto cutter =
+        Role (site.doc, edit::AddPolyline (site.doc, { { 3, -1, 0 }, { 5, -1, 0 }, { 5, 9, 0 }, { 3, 9, 0 } }, true),
+              lg::SourceRole::Cutter);
+    // A second region the same line will cut, drawn before any Boolean.
+    Role (site.doc, edit::AddPolyline (site.doc, { { 2, 4, 0 }, { 7, 4, 0 }, { 7, 12, 0 }, { 2, 12, 0 } }, true),
+          lg::SourceRole::RegionBoundary);
+    const auto region = site.doc.landscape->objects.front ().id;
+    const auto other = site.doc.landscape->objects.back ().id;
+    const auto otherRoot = site.doc.landscape->objects.back ().footprintOperation;
+    const auto root = site.doc.landscape->objects.front ().footprintOperation;
+    edit::Id source = edit::kNoId;
+    for (const auto& candidate : site.doc.landscape->sources)
+        if (candidate.entityId == cutter)
+            source = candidate.id;
+    ASSERT_NE (source, edit::kNoId);
+    {
+        eh::Session s (site.doc);
+        s.selection.Set ({ { cutter, edit::Part::Entity, 0 } });
+        EXPECT_NE (eh::ResolveContext (s), eh::InspectorContext::BooleanResult) << "nothing takes it yet";
+        EXPECT_EQ (lg::LandscapeSourceResult (*site.doc.landscape, source), edit::kNoId);
+    }
+
+    lg::DomainCommand command;
+    command.kind = lg::OperationKind::Difference;
+    command.owner = region;
+    command.subject.input = root;
+    command.operand.input = source;
+    const auto applied = lg::ApplyDomainCommand (site.doc, command);
+    ASSERT_TRUE (applied.ok) << applied.error;
+    EXPECT_EQ (lg::LandscapeSourceResult (*site.doc.landscape, source), region);
+    {
+        eh::Session s (site.doc);
+        s.selection.Set ({ { cutter, edit::Part::Entity, 0 } });
+        EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::BooleanResult);
+        EXPECT_EQ (eh::detail::SelectedRegionObject (s), region) << "the region it cuts";
+    }
+
+    // A second region cut by the same line: it stands for neither. (Read from the operation DAG
+    // alone, so the second cut is written into a copy of it.)
+    auto twice = *site.doc.landscape;
+    lg::LandscapeOperation cut;
+    cut.id =
+        1 + std::max_element (twice.operations.begin (), twice.operations.end (), [] (const auto& x, const auto& y) {
+                return x.id < y.id;
+            })->id;
+    cut.kind = lg::OperationKind::Difference;
+    cut.inputs = { otherRoot, source };
+    twice.operations.push_back (cut);
+    for (auto& object : twice.objects)
+        if (object.id == other)
+            object.footprintOperation = cut.id;
+    EXPECT_EQ (lg::LandscapeSourceResult (twice, source), edit::kNoId);
 }
 
 // #189: after the editor's own Boolean, the picked regions are construction inputs. Picking, the
