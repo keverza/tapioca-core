@@ -107,7 +107,9 @@ TEST (HudVirtualEditorCommandBar, RefusalStaysUntilANewerBuildSucceeds188)
     Gui gui;
     const auto bar = gui.Frame ([&] { eh::detail::CommandBar (s); });
     EXPECT_NE (bar.find ("Refused"), std::string::npos) << bar;
-    EXPECT_NE (bar.find ("PropertyLineOutside"), std::string::npos) << "row 2 names it" << bar;
+    EXPECT_NE (bar.find ("The property line"), std::string::npos) << "row 2 says it in words (#157)" << bar;
+    EXPECT_EQ (bar.find ("PropertyLineOutside"), std::string::npos) << "the code is the hover's" << bar;
+    EXPECT_NE (bar.find ("Issues"), std::string::npos) << "with its one action" << bar;
     EXPECT_EQ (bar.find ("Intersection complete."), std::string::npos) << "over the last message" << bar;
     eh::TrackBuildRefusal (s, Status (true, true, 6));
     EXPECT_TRUE (s.buildRefusal.empty ()) << "a newer good build does";
@@ -144,6 +146,41 @@ TEST (HudVirtualEditorCommandBar, RecaptureClearsAStaleCaptureRefusal157)
     empty.buildRefusal = "PropertyLineOutside: no ring";
     EXPECT_FALSE (eh::SetTerrainBaseline (empty, { nullptr, false, {} }, 0));
     EXPECT_FALSE (empty.buildRefusal.empty ()) << "a capture that failed changes nothing";
+}
+
+// #157: a stale capture's refusal carries its answer. Row 2 says it in words and its Recapture
+// button asks the bound terrain to be read again; Issues answers any other refusal.
+TEST (HudVirtualEditorCommandBar, StaleCaptureRefusalOffersRecapture157)
+{
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (lg::SeedLandscapeDemo (doc, 0, error)) << error;
+    eh::Session s (doc);
+    auto mesh = std::make_shared<geomsrv::Mesh> ();
+    mesh->guid = "terrain";
+    mesh->vertices = { 0, 0, 0, 10, 0, 0, 0, 10, 0 };
+    mesh->triangles = { 0, 1, 2 };
+    ASSERT_TRUE (eh::SetTerrainBaseline (s, { mesh, false, {} }, 0)) << s.message;
+    s.buildRefusal = "TerrainCaptureStale: native terrain changed; capture it again.";
+    s.terrainLive = false; // nothing but the button may act between frames
+
+    Gui gui;
+    ImVec2 button {};
+    const auto bar = [&] {
+        eh::detail::CommandBar (s);
+        const ImVec2 min = ImGui::GetItemRectMin (), max = ImGui::GetItemRectMax ();
+        button = { (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f }; // the row's last item
+    };
+    const auto text = gui.Frame (bar);
+    EXPECT_NE (text.find ("The Archicad terrain changed"), std::string::npos) << text;
+    EXPECT_EQ (text.find ("TerrainCaptureStale"), std::string::npos) << text;
+    EXPECT_NE (text.find ("Recapture"), std::string::npos) << text;
+    ASSERT_FALSE (s.terrainCapture);
+    gui.Frame (bar, button);
+    gui.Frame (bar, button, true);
+    gui.Frame (bar, button, false);
+    ASSERT_TRUE (s.terrainCapture) << "Recapture requested a capture: " << s.message;
+    EXPECT_EQ (s.terrainCapture->terrainGuid, "terrain") << "of the bound terrain, not the selection";
 }
 
 // Every running command has its Cancel in the prompt row, and pressing it ends the command.

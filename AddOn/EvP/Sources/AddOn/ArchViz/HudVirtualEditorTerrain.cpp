@@ -382,6 +382,11 @@ std::string TerrainGuid (const Session& s)
     return s.edits.Doc ().landscape ? s.edits.Doc ().landscape->sourceTerrainGuid : std::string {};
 }
 
+std::string TerrainRefusalText (const std::string& refusal)
+{
+    return lg::TerrainConditionText (refusal);
+}
+
 void PollTerrainDesign (Session& s)
 {
     // Paths only: nothing starts, and a build already running is collected when turned back on.
@@ -932,6 +937,10 @@ bool SetTerrainBaseline (Session& s, TerrainDesignBaseline, edit::Id)
 std::string TerrainGuid (const Session& s)
 {
     return s.edits.Doc ().landscape ? s.edits.Doc ().landscape->sourceTerrainGuid : std::string {};
+}
+std::string TerrainRefusalText (const std::string& refusal)
+{
+    return refusal;
 }
 const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Session&)
 {

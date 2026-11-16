@@ -155,8 +155,12 @@ void BuildChip (Session& s)
     ImGui::PopID ();
     if (tinted)
         ImGui::PopStyleColor ();
+    // #157: a refusal in words first; its code after, for a report.
+    const std::string said = chip.kind == ChipKind::Refused && TerrainRefusalText (chip.detail) != chip.detail
+                                 ? TerrainRefusalText (chip.detail) + "\n" + chip.detail
+                                 : (chip.detail.empty () ? chip.text : chip.detail);
     if (ImGui::IsItemHovered ())
-        hudshell::HoverTip ("%s%s%s", (chip.detail.empty () ? chip.text : chip.detail).c_str (),
+        hudshell::HoverTip ("%s%s%s", said.c_str (),
                             chip.kind == ChipKind::Stale ? "\nClick to build the mesh now." : "",
                             issues ? "\nIssues are listed in the Outliner." : "");
     if (pressed && chip.kind == ChipKind::Stale)
@@ -222,10 +226,26 @@ void PromptRow (Session& s)
         return;
     }
     if (!s.buildRefusal.empty ()) { // #188: the refusal stands over the last message until a newer build
+        // #157: in words, beside the one action that answers it. A stale capture is answered by
+        // recapturing the bound terrain (which clears the refusal); any other by its Issues list.
+        const bool stale = s.buildRefusal.rfind ("TerrainCaptureStale", 0) == 0;
+        const char* action = stale ? "Recapture" : "Issues";
         ImGui::AlignTextToFramePadding ();
         ImGui::PushStyleColor (ImGuiCol_Text, IM_COL32 (220, 38, 38, 255));
-        Elided (s.buildRefusal, ImGui::GetContentRegionAvail ().x);
+        Elided (TerrainRefusalText (s.buildRefusal),
+                ImGui::GetContentRegionAvail ().x - ButtonWidth (action) - spacing);
         ImGui::PopStyleColor ();
+        if (ImGui::IsItemHovered ())
+            hudshell::HoverTip ("%s", s.buildRefusal.c_str ());
+        ImGui::SameLine ();
+        ImGui::BeginDisabled (stale && TerrainGuid (s).empty ());
+        if (ImGui::SmallButton (action)) {
+            if (stale)
+                RequestTerrainCapture (s, false);
+            else
+                s.outlinerShow = 2;
+        }
+        ImGui::EndDisabled ();
         return;
     }
     const std::string text = !s.message.empty () ? s.message : ToolHint (s.tool);

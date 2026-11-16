@@ -107,6 +107,9 @@ Chip ChipState (const TerrainDesignStatus& status, const std::string& refusal);
 // a built, current outcome of a newer revision than the refused one, or by a terrain capture
 // (SetTerrainBaseline, #157), which replaces the input the refusal was about.
 void TrackBuildRefusal (Session& session, const TerrainDesignStatus& status);
+// #157: a refusal in words (TerrainConditionText); the code itself when it has no sentence, or
+// in a build without the Rust kernel. The code stays in the log and the hover.
+std::string TerrainRefusalText (const std::string& refusal);
 // The design's current path request, as the terrain job will compile it (#105 recipe view);
 // absent when no design exists, it grades regions only, or the build has no Rust kernel.
 std::optional<tapioca::geometry::PathDesignRequest> TerrainRecipeRequest (const Session& session);
