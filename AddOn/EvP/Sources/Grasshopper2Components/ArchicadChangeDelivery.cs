@@ -17,6 +17,7 @@ internal static class ArchicadChangeDelivery
         internal readonly int Fields = fields;
         internal long Revision;
         internal bool Initialized;
+        internal readonly TaskCompletionSource Baseline = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
     private static readonly object sync = new();
     private static readonly List<Scope> scopes = [];
@@ -44,7 +45,11 @@ internal static class ArchicadChangeDelivery
             using var json = JsonDocument.Parse(bridge.LastProjectInfoJson!);
             epoch = ArchicadProjectOptions.Data(json.RootElement).GetProperty("projectEpoch").GetInt64();
             ++generation;
-            foreach (Scope scope in scopes) { scope.Revision = 0; scope.Initialized = false; }
+            foreach (Scope scope in scopes)
+            {
+                scope.Baseline.TrySetResult();
+                scope.Revision = 0; scope.Initialized = false;
+            }
             bridge.ElementChangesAvailable += Wake;
         }
         Wake();
@@ -58,27 +63,45 @@ internal static class ArchicadChangeDelivery
             if (!ReferenceEquals(client, bridge)) return;
             if (client is not null) client.ElementChangesAvailable -= Wake;
             client = null; ++generation; inputs = revisions;
+            foreach (Scope scope in scopes) scope.Baseline.TrySetResult();
             Volatile.Write(ref status, "Disconnected; automatic input refresh is paused.");
         }
         inputs?.Reset();
     }
 
-    internal static void Subscribe(IArchicadInputConsumer owner, string key, Guid[] ids, int fields)
+    // New readers await this barrier before requesting rows. Completion releases
+    // the read, not a freshness guarantee: unavailable sources fall back to manual
+    // reads and retain an uninitialized cursor for a later source-start resync.
+    internal static Task Subscribe(IArchicadInputConsumer owner, string key, Guid[] ids, int fields,
+        bool beforeFirstRead = false)
     {
         bool added = false;
+        Scope subscription;
         lock (sync)
         {
-            scopes.RemoveAll(scope => !scope.Owner.TryGetTarget(out var target) || !target.IsActive);
-            if (scopes.Any(scope => scope.Key == key && scope.Owner.TryGetTarget(out var target) && ReferenceEquals(owner, target))) return;
+            foreach (Scope scope in scopes.Where(scope => !scope.Owner.TryGetTarget(out var target) || !target.IsActive).ToArray())
+            {
+                scope.Baseline.TrySetResult();
+                scopes.Remove(scope);
+            }
+            Scope? existing = scopes.Find(scope => scope.Key == key && scope.Owner.TryGetTarget(out var target) && ReferenceEquals(owner, target));
+            if (existing is not null) return existing.Baseline.Task;
             // Match the query cache's bounded working set. Old scopes are hints,
             // never a reason to retain unbounded GUID subscriptions.
             var owned = scopes.Where(scope => scope.Owner.TryGetTarget(out var target) && ReferenceEquals(owner, target)).ToArray();
-            if (owned.Length >= 32) foreach (Scope scope in owned) scopes.Remove(scope);
+            if (owned.Length >= 32) foreach (Scope scope in owned)
+            {
+                scope.Baseline.TrySetResult();
+                scopes.Remove(scope);
+            }
             if (scopes.Count >= 1024) throw new InvalidOperationException("Archicad subscription capacity reached.");
-            scopes.Add(new(owner, key, ids.Distinct().ToArray(), fields));
+            subscription = new(owner, key, ids.Distinct().ToArray(), fields);
+            if (!beforeFirstRead || client is null) subscription.Baseline.TrySetResult();
+            scopes.Add(subscription);
             added = true;
         }
         if (added) Wake();
+        return subscription.Baseline.Task;
     }
 
     private static void Wake()
@@ -112,7 +135,11 @@ internal static class ArchicadChangeDelivery
                 {
                     foreach (Scope scope in batch)
                     {
-                        if (!scope.Owner.TryGetTarget(out var owner) || !owner.IsActive) continue;
+                        if (!scope.Owner.TryGetTarget(out var owner) || !owner.IsActive)
+                        {
+                            scope.Baseline.TrySetResult();
+                            continue;
+                        }
                         long next = long.MaxValue;
                         bool whole = false;
                         var changed = new HashSet<Guid>();
@@ -140,6 +167,15 @@ internal static class ArchicadChangeDelivery
                         {
                             if (token != generation) break;
                             if (next != long.MaxValue) { scope.Revision = next; scope.Initialized = true; }
+                            // A waiting first read starts after this cursor, so it
+                            // already includes the baseline's hints. Inactive/error
+                            // fallback leaves Initialized false for a later resync.
+                            if (!scope.Baseline.Task.IsCompleted)
+                            {
+                                whole = false;
+                                changed.Clear();
+                                scope.Baseline.TrySetResult();
+                            }
                         }
                         if (whole) changed.UnionWith(scope.Ids);
                         if (changed.Count == 0) continue;
@@ -160,7 +196,11 @@ internal static class ArchicadChangeDelivery
             Volatile.Write(ref status, "Automatic input refresh paused: " + error.Message);
             System.Diagnostics.Trace.WriteLine("Archicad change delivery: " + error.Message);
             bool retry;
-            lock (sync) { running = false; retry = pending && client is not null; }
+            lock (sync)
+            {
+                foreach (Scope scope in scopes) scope.Baseline.TrySetResult();
+                running = false; retry = pending && client is not null;
+            }
             if (retry) Wake(); // preserve a wake that arrived during the failed read
         }
     }

@@ -265,8 +265,6 @@ public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets
         Guid[] ids = pears.Select(pear => pear.Item.ElementId).ToArray();
         string key = JsonSerializer.Serialize(new { project, Kind, mode, search, selectors, ids });
         deliveryActive = true;
-        ArchicadChangeDelivery.Subscribe(this, key, ids, Kind switch { "properties" => 8, "gdl" => 4, "relationships" => 16, _ => 3 });
-        access.AddRemark("Archicad change source", ArchicadChangeDelivery.Status);
         QueryRow[]? rows;
         string? failure, issue;
         bool queue;
@@ -281,10 +279,13 @@ public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets
             request = ticket;
             issue = refreshIssue;
         }
+        Task baseline = ArchicadChangeDelivery.Subscribe(this, key, ids,
+            Kind switch { "properties" => 8, "gdl" => 4, "relationships" => 16, _ => 3 }, beforeFirstRead: queue);
+        access.AddRemark("Archicad change source", ArchicadChangeDelivery.Status);
         if (queue)
         {
             object? fetch = ArchicadInputs.Shared.BeginFetch(this);
-            _ = Task.Run(() => ResolveAsync(key, request, fetch));
+            _ = Task.Run(() => ResolveAsync(key, request, fetch, baseline));
         }
         if (issue is not null && rows is not null)
             access.AddWarning("Archicad refresh", "Showing the last successful read; the latest refresh failed. " + issue);
@@ -335,13 +336,14 @@ public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets
 
     // The first read of a new request. Its rows are staged like any refresh,
     // so sibling components adopt together and the definition solves once.
-    private async Task ResolveAsync(string key, long request, object? fetch)
+    private async Task ResolveAsync(string key, long request, object? fetch, Task baseline)
     {
         QueryRow[]? result = null;
         string? failure = null;
         bool stagedAny = false;
         try
         {
+            await baseline.ConfigureAwait(false);
             Request? query;
             lock (sync)
                 if (request != ticket || !requests.TryGetValue(key, out query)) return;

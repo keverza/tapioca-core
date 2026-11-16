@@ -48,11 +48,13 @@ internal static class Gh2ChangeDeliveryChecks
         public void Start(object group) => Interlocked.Increment(ref Starts);
     }
 
-    internal static void Run(bool failFirstDispatch = false)
+    internal static void Run(bool failFirstDispatch = false, bool beforeFirstRead = false,
+        bool inactiveBaseline = false, bool failedBaseline = false)
     {
         string name = "Tapioca.ChangeDelivery." + Guid.NewGuid().ToString("N");
         Guid id = Guid.NewGuid();
         var consumer = new Consumer();
+        var subscribed = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         async Task<(Gh2Wire.Header Header, byte[] Body)> Read()
@@ -87,17 +89,24 @@ internal static class Gh2ChangeDeliveryChecks
                     throw new InvalidOperationException("Change delivery performed a full refresh.");
                 using var json = JsonDocument.Parse(request.Body.AsMemory(8 + length));
                 var cursor = json.RootElement;
-                long expected = revision == 6 ? 4 : revision - 1;
+                long expected = revision == 6 ? 4 : revision == 2 && (inactiveBaseline || failedBaseline) ? 0 : revision - 1;
                 if (cursor.GetProperty("guids")[0].GetGuid() != id || cursor.GetProperty("fields").GetInt32() != 8 ||
                     cursor.GetProperty("sinceRevision").GetInt64() != expected)
                     throw new InvalidOperationException("Scoped cursor or inactive-source rebasing failed.");
                 object[] changes = revision == 3 ? [new { guid = id, revision, changeMask = 32 }] : [];
-                await Send(Gh2Wire.Message.ApiResponse, request.Header.RequestId, JsonSerializer.SerializeToUtf8Bytes(new
-                {
-                    ok = true, data = new { projectEpoch = 7, revision, sourceActive = revision != 5,
-                        resyncRequired = revision is 1 or 5 or 6, coverage = "modelwatch-hints", changes }
-                }));
-                bool expectInvalidation = revision is 1 or 3 or 6;
+                Task baseline = await subscribed.Task.WaitAsync(deadline.Token);
+                if (revision == 1 && beforeFirstRead && baseline.IsCompleted)
+                    throw new InvalidOperationException("First data read was released before the cursor response.");
+                await Send(Gh2Wire.Message.ApiResponse, request.Header.RequestId,
+                    revision == 1 && failedBaseline ? Encoding.UTF8.GetBytes("{\"ok\":false,\"error\":\"Injected baseline failure.\"}") :
+                    JsonSerializer.SerializeToUtf8Bytes(new
+                    {
+                        ok = true, data = new { projectEpoch = 7, revision, sourceActive = revision != 5 && !(revision == 1 && inactiveBaseline),
+                            resyncRequired = revision is 1 or 5 or 6, coverage = "modelwatch-hints", changes }
+                    }));
+                if (revision == 1) await baseline.WaitAsync(deadline.Token);
+                bool expectInvalidation = revision is 3 or 6 ||
+                    revision == 1 && !beforeFirstRead || revision == 2 && (inactiveBaseline || failedBaseline);
                 if (expectInvalidation && !consumer.Invalidated.WaitOne(TimeSpan.FromSeconds(10)))
                     throw new TimeoutException("Relevant change did not invalidate its consumer.");
             }
@@ -106,14 +115,18 @@ internal static class Gh2ChangeDeliveryChecks
         using var client = Gh2PipeClient.Connect(name);
         client.ReadProjectInfo();
         Task reader = Task.Run(() => client.WaitForShutdown(false));
-        ArchicadChangeDelivery.Subscribe(consumer, name, [id], 8);
         var solver = new Host(failFirstDispatch);
+        if (!beforeFirstRead)
+            subscribed.SetResult(ArchicadChangeDelivery.Subscribe(consumer, name, [id], 8));
         ArchicadChangeDelivery.Attach(client, new ArchicadInputRevisions(solver));
+        if (beforeFirstRead)
+            subscribed.SetResult(ArchicadChangeDelivery.Subscribe(consumer, name, [id], 8, beforeFirstRead: true));
         try
         {
             host.WaitAsync(deadline.Token).GetAwaiter().GetResult();
             reader.WaitAsync(deadline.Token).GetAwaiter().GetResult();
-            if (consumer.Count != 3) throw new InvalidOperationException("Unrelated/duplicate/inactive changes re-read the consumer.");
+            int expectedCount = beforeFirstRead && !inactiveBaseline && !failedBaseline ? 2 : 3;
+            if (consumer.Count != expectedCount) throw new InvalidOperationException("Unrelated/duplicate/inactive changes re-read the consumer.");
             lock (consumer.Changed)
                 if (consumer.Changed.Any(ids => ids is null || !ids.SequenceEqual([id])))
                     throw new InvalidOperationException("A scoped change was widened beyond its own rows.");
@@ -123,6 +136,7 @@ internal static class Gh2ChangeDeliveryChecks
                 throw new InvalidOperationException("Read rows were not adopted, or adoption did not start one solution each.");
         }
         finally { consumer.Active = false; ArchicadChangeDelivery.Detach(client); consumer.Invalidated.Dispose(); }
-        Console.WriteLine("GH2 native-wake scoped delivery: baseline, relevant/unrelated, duplicate and source restart passed.");
+        Console.WriteLine($"GH2 native-wake scoped delivery: baseline, relevant/unrelated, duplicate and source restart passed " +
+            $"(cursor-first={beforeFirstRead}, inactive={inactiveBaseline}, failed={failedBaseline}).");
     }
 }

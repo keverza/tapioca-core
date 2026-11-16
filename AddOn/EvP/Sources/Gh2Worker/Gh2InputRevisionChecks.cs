@@ -230,7 +230,10 @@ internal static class Gh2InputRevisionChecks
             if (!Texts(properties, 4)[0].Contains("v1") || !Texts(properties, 4)[1].Contains("v1"))
                 throw new InvalidOperationException("The adopted property rows are not the host's values.");
             Volatile.Write(ref watching, true);
-            host.TakeReads();
+            var firstReads = host.TakeReads();
+            if (firstReads.Length != 2 || firstReads.Any(read => !read.Ids.SequenceEqual([first, second])) ||
+                !firstReads.Select(read => read.Kind).Order().SequenceEqual(["geometry", "properties"]))
+                throw new InvalidOperationException("First subscription must read each query once after its cursor baseline.");
 
             // 2. A change the queries do not depend on: its rows are re-read, nothing solves.
             int before = Volatile.Read(ref started);
