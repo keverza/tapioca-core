@@ -9,6 +9,7 @@
 #include "ArchViz/DiligentViewportSupport.hpp" // ApplyArchicadCamera
 #include "ArchViz/OrbitAnchor.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
+#include "ArchViz/ViewPresets.hpp"
 
 #include <cmath>
 #include <string>
@@ -64,6 +65,49 @@ void FollowOrbitAnchor (Camera& camera, HudState& hud, const DiligentScene& scen
                 std::to_string (anchor.point[2]));
 }
 
+std::string DescribeView (const Camera& camera)
+{
+    float target[3];
+    camera.GetTarget (target);
+    return std::string (camera.IsOrthographic () ? "orthographic" : "perspective") + ", target " +
+           std::to_string (target[0]) + "," + std::to_string (target[1]) + "," + std::to_string (target[2]) +
+           ", distance " + std::to_string (camera.Distance ()) +
+           (camera.IsOrthographic () ? ", half-height " + std::to_string (camera.OrthoHalfHeightMetres ()) : "");
+}
+
+// The HUD's named view (`HudState::viewPreset`, a one-shot cleared here whatever comes of it):
+// the selection framed when there is one, else the scene.
+bool FollowViewPreset (Camera& camera, HudState& hud, const DiligentScene& scene, uint32_t width, uint32_t height)
+{
+    const ViewPreset preset = ViewPreset (hud.viewPreset);
+    hud.viewPreset = 0;
+    if (preset == ViewPreset::None || preset >= ViewPreset::Count)
+        return false;
+    float selMin[3], selMax[3], sceneMin[3], sceneMax[3];
+    const bool haveSelection = scene.SelectionBounds (selMin, selMax);
+    const bool haveScene = scene.SceneBounds (sceneMin, sceneMax);
+    const float* frameMin = haveSelection ? selMin : haveScene ? sceneMin : nullptr;
+    const float* frameMax = haveSelection ? selMax : haveScene ? sceneMax : nullptr;
+    const float north = scene.Stats ().northDegrees;
+    const ViewPresetOutcome outcome = ApplyViewPreset (
+        camera, preset, north, hud.planMode, hud.planOrbit, frameMin, frameMax, haveScene ? sceneMin : nullptr,
+        haveScene ? sceneMax : nullptr, height > 0 ? float (width) / float (height) : 1.0f);
+    hud.viewPresetOutcome = int (outcome);
+    if (outcome == ViewPresetOutcome::None || outcome == ViewPresetOutcome::HeldToPlan) {
+        ArchVizLog (std::string ("viewer view preset: ") + ViewPresetName (preset) + " not applied (held to the plan)");
+        return false;
+    }
+    // Parallel now: the toggle follows, and its edge finds the camera already so.
+    hud.orthographic = true;
+    const char* what = outcome == ViewPresetOutcome::PlanHome        ? "the plan's home"
+                       : outcome == ViewPresetOutcome::DirectionOnly ? "direction only, no bounds yet"
+                       : haveSelection                               ? "framed the selection"
+                                                                     : "framed the scene";
+    ArchVizLog (std::string ("viewer view preset: ") + ViewPresetName (preset) + " (" + what + "), north " +
+                std::to_string (north) + ", " + DescribeView (camera));
+    return true;
+}
+
 } // namespace
 
 bool NavigateViewer (Camera& camera, HudState& hud, const DiligentScene& scene, const InputSnapshot& input,
@@ -81,8 +125,15 @@ bool NavigateViewer (Camera& camera, HudState& hud, const DiligentScene& scene, 
             moved = true;
         }
     }
+    moved = FollowViewPreset (camera, hud, scene, width, height) || moved;
     FollowOrbitAnchor (camera, hud, scene, input);
-    return camera.ApplyInput (input, hud.wantsMouse || hud.viewpointOwnsMouse, width, height) || moved;
+    moved = camera.ApplyInput (input, hud.wantsMouse || hud.viewpointOwnsMouse, width, height) || moved;
+    // A pan or an orbit about the anchor moved a parallel view's target: the model stays inside
+    // its depth range. Not the top-down pose -- the plan's eye is on its cut, and a plan slaved to
+    // Archicad is not this function's to move.
+    if (moved && !camera.IsTopDown ())
+        camera.CoverBoundsInDepth ();
+    return moved;
 }
 
 void AdoptSceneBounds (Camera& camera, const DiligentScene& scene, bool focus)
@@ -105,7 +156,17 @@ bool FollowProjectionToggle (Camera& camera, const HudState& hud, bool& last)
     if (hud.orthographic == last)
         return false;
     last = hud.orthographic;
+    // False when the camera is already so: a preset or the plan's top view set it, the toggle followed.
+    const bool switched = camera.IsOrthographic () != hud.orthographic;
     camera.SwitchProjection (hud.orthographic);
+    if (switched) {
+        const float before = camera.Distance ();
+        // ⚠️ PARALLEL DEPTH IS THE DISTANCE: switched close to a large model, the far half would be
+        // cut off. The eye backs off along its line of sight; the picture does not change.
+        const bool covered = camera.CoverBoundsInDepth ();
+        ArchVizLog ("viewer projection: " + DescribeView (camera) +
+                    (covered ? " (backed off from " + std::to_string (before) + " to hold the model in depth)" : ""));
+    }
     return true;
 }
 

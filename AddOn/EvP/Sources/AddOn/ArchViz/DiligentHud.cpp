@@ -372,7 +372,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                          kRenderQualityNames[state.renderQuality >= 0 && state.renderQuality < kRenderQualityCount
                                                  ? state.renderQuality
                                                  : 0],
-                         state.orthographic ? "axonometric" : "perspective");
+                         state.orthographic ? "orthographic" : "perspective");
             ImGui::Separator ();
             ImGui::Text ("elements %llu", (unsigned long long) scene.elements);
             ImGui::Text ("triangles %llu", (unsigned long long) scene.triangles);

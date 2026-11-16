@@ -496,6 +496,8 @@ set (EVP_ARCHVIZ_SOURCES
     # frame is drawn with -- a mirrored axis is right at the centre and wrong
     # everywhere else, so it is pinned by a round trip, offline.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/Camera.cpp"
+    # ArchViz/ViewPresets.cpp: the named axonometric views over that camera (issue #88).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewPresets.cpp"
     # ArchViz/PickVote.cpp is the rule that decides WHICH element a click selects.
     # It has been wrong three times (PLAT-RE44 and the accuracy reports after it),
     # every time found by a human clicking on a building and reporting that the
@@ -1272,6 +1274,7 @@ set (EVP_TEST_SOURCES
     test_camera_cursorray.cpp
     test_camera_plan.cpp
     test_camera_orbitpivot.cpp
+    test_viewpresets.cpp
     test_ghprotocol.cpp
     test_gh2overlayrequest.cpp
     test_ghsessionprotocol.cpp

@@ -177,6 +177,14 @@ class Camera final {
     }
     // Re-frame whatever FrameBounds was last given. Does nothing if it never was.
     void FrameLastBounds ();
+    // ⚠️ A PARALLEL VIEW'S DEPTH RANGE IS ITS DISTANCE (FarClip, GetProjMatrix), AND THE PICTURE IS
+    // NOT: backing a parallel eye off along its line of sight changes nothing it shows. So when the
+    // remembered box (SetBounds) does not fit between the near plane and twice the distance -- a
+    // projection switched close to a large model, a preset turned about a near target -- the eye is
+    // backed off until it does, whichever way the view is then turned about its target. True when
+    // the distance grew. Nothing in perspective, without a box, or in the plan's own pose, whose
+    // eye stands on the storey's cut on purpose (SetPlanHome). Issue #88 M3.
+    bool CoverBoundsInDepth ();
 
     // ---- what the orbit turns about (issue #9, #88) -----------------------------
     // ⚠️ A PIVOT, NOT A NEW TARGET. The orbit turns the whole camera -- eye and target together --

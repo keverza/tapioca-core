@@ -43,9 +43,11 @@ bool StartViewerCamera (Camera& camera, HudState& hud, const CameraStart& start,
                         float* outDistance);
 
 // One frame's navigation: plan mode's controls first -- the orbit held unless freed, the top
-// view when asked for (`HudState::planTopView`, cleared here) -- then, while the navigation
-// button is down, the orbit's anchor (OrbitAnchor.hpp: the selection, else the scene's box),
-// then the input. True when the camera moved.
+// view when asked for (`HudState::planTopView`, cleared here) -- then the HUD's named view
+// (`HudState::viewPreset`, cleared here; ViewPresets.hpp), then, while the navigation button is
+// down, the orbit's anchor (OrbitAnchor.hpp: the selection, else the scene's box), then the
+// input. A parallel view that moved keeps the model in its depth range
+// (Camera::CoverBoundsInDepth). True when the camera moved.
 bool NavigateViewer (Camera& camera, HudState& hud, const DiligentScene& scene, const InputSnapshot& input,
                      uint32_t width, uint32_t height);
 
@@ -55,8 +57,9 @@ bool NavigateViewer (Camera& camera, HudState& hud, const DiligentScene& scene, 
 // work at the model's scale without a fit first. The picture does not move either way.
 void AdoptSceneBounds (Camera& camera, const DiligentScene& scene, bool focus);
 
-// The HUD's projection toggle, on the frame it changed (Camera::SwitchProjection): true then,
-// and the frame loop resets its temporal history. `last` is the frame loop's.
+// The HUD's projection control, on the frame it changed (Camera::SwitchProjection, the one
+// conversion; switched to parallel, the model held in the depth range): true then, and the frame
+// loop resets its temporal history. `last` is the frame loop's.
 bool FollowProjectionToggle (Camera& camera, const HudState& hud, bool& last);
 
 // ⚠️ THE PLAN'S CUT, ITS WALLS' OUTLINE (the user, 2026-10-03: the plan view should have wall

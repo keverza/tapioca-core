@@ -201,6 +201,28 @@ void Camera::FrameLastBounds ()
         FrameBounds (boundsMin_, boundsMax_);
 }
 
+bool Camera::CoverBoundsInDepth ()
+{
+    if (!orthographic_ || !haveBounds_ || (topDown_ && planHome_))
+        return false;
+    float reach = 0.0f, diagonal = 0.0f;
+    const float target[3] = { targetX_, targetY_, targetZ_ };
+    for (int i = 0; i < 3; ++i) {
+        const float toMiddle = 0.5f * (boundsMin_[i] + boundsMax_[i]) - target[i];
+        const float extent = boundsMax_[i] - boundsMin_[i];
+        reach += toMiddle * toMiddle;
+        diagonal += extent * extent;
+    }
+    // The farthest the box can be from the target, in any direction: its middle's offset plus its
+    // sphere's radius. With the eye that far back and a metre more, the box lies between
+    // `distance - reach` (in front of the near plane) and `distance + reach` (inside 2 x distance).
+    const float need = (std::sqrt (reach) + 0.5f * std::sqrt (diagonal)) * 1.05f + 1.0f;
+    if (!(need > distance_))
+        return false;
+    distance_ = (std::min) (need, kMaxDistance);
+    return true;
+}
+
 void Camera::SetOrbitPivot (const float pivot[3])
 {
     for (int i = 0; i < 3; ++i)

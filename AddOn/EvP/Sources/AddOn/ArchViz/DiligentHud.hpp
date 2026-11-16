@@ -724,6 +724,13 @@ struct HudState {
     // projection needs a parallel PICK, and before this toggle the only
     // orthographic camera was the plan overlay's.
     bool orthographic = false;
+    // ⚠️ A NAMED AXONOMETRIC VIEW, ASKED FOR (issue #88 M3; ViewPresets.hpp). A ViewPreset raised by
+    // the HUD and cleared by the frame loop (ViewerPlanMode.cpp `NavigateViewer`) -- the one-shot
+    // shape of `planTopView`: the HUD never calls the camera. The preset sets `orthographic` itself;
+    // there is no second projection state. `viewPresetOutcome` is the last one's ViewPresetOutcome,
+    // for the line under the control. Session only, like the projection.
+    int viewPreset = 0;
+    int viewPresetOutcome = 0;
 
     // ---- plan mode: the viewer opened in the floor plan's place --------------
     // ⚠️ THE PLAN VIEW STAYS A PLAN UNLESS THE USER SAYS OTHERWISE (the user, 2026-10-03: a way

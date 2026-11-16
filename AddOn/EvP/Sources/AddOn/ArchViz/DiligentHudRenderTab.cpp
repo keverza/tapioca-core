@@ -12,6 +12,7 @@
 #include "ArchViz/DiligentHudSections.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/OrbitAnchor.hpp"
+#include "ArchViz/ViewPresets.hpp"
 
 #include <imgui.h>
 
@@ -175,9 +176,32 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
     // ---- 6. camera -------------------------------------------------------------------------
     if (hudshell::Section ("camera")) {
         // A plan is parallel while it is held to the plan; freed, it can be turned to perspective.
-        ImGui::BeginDisabled (state.planMode && !state.planOrbit);
-        ImGui::Checkbox ("axonometric (parallel projection)", &state.orthographic);
+        // ⚠️ ONE SOURCE OF TRUTH: both buttons write `state.orthographic` and nothing else; the frame
+        // loop applies it (ViewerPlanMode.cpp `FollowProjectionToggle`). The named views raise a
+        // one-shot the same loop consumes (`state.viewPreset`).
+        const bool heldToPlan = state.planMode && !state.planOrbit;
+        ImGui::BeginDisabled (heldToPlan);
+        if (ImGui::RadioButton ("Perspective", !state.orthographic))
+            state.orthographic = false;
+        ImGui::SameLine ();
+        if (ImGui::RadioButton ("Orthographic", state.orthographic))
+            state.orthographic = true;
+        hudshell::Tip ("Switches the projection only: the direction, the target and the size on screen are kept");
+        ImGui::SetNextItemWidth (-FLT_MIN);
+        if (ImGui::BeginCombo ("##viewpreset", "Axonometric view...")) {
+            for (int k = 1; k < int (ViewPreset::Count); ++k)
+                if (ImGui::Selectable (ViewPresetName (ViewPreset (k))))
+                    state.viewPreset = k;
+            ImGui::EndCombo ();
+        }
+        hudshell::Tip ("Orthographic from a named direction, framed on the selection or the model.\n"
+                       "Isometric: all axes alike. Dimetric: width, height, depth 1 : 1 : 1/2.\n"
+                       "Trimetric: 1 : 0.9 : 0.5. Directions follow project north.");
         ImGui::EndDisabled ();
+        if (heldToPlan)
+            ImGui::TextDisabled ("held to the plan -- free the orbit to change the view");
+        else if (const char* note = ViewPresetNote (ViewPresetOutcome (state.viewPresetOutcome)))
+            ImGui::TextDisabled ("%s", note);
         ImGui::Checkbox ("smooth navigation", &state.navSmoothing);
         hudshell::Tip ("Spreads each drag step over ~25 ms, so orbits and diagonal pans glide instead of stepping");
         ImGui::TextDisabled ("orbits about: %s", OrbitAnchorName (OrbitAnchorSource (state.orbitAnchor)));
