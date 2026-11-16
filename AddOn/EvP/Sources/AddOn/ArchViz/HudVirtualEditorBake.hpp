@@ -27,6 +27,9 @@ const edit::BakePlan* TerrainBakePlan (Session& session, std::string* why = null
 void TerrainBakePanel (Session& session);
 // The cached plan over the terrain, while the preview is on and the plan is the built surface's.
 void DrawTerrainBake (const Session& session, overlaylayers::Layer& layer);
+// The File menu's entry: with nothing selected the Inspector shows the terrain, and the section is
+// opened and scrolled to. False, with the reason in `message`, when there is no terrain design.
+bool RevealTerrainBake (Session& session);
 // Asks for the create; false, with the reason in `message`, when there is nothing sound to make.
 bool RequestTerrainBake (Session& session);
 // The native create's parameters for the cached plan, as JSON text with every number a real

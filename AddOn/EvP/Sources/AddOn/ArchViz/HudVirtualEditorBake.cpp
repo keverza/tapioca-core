@@ -182,9 +182,34 @@ void FinishTerrainBake (Session& s, bool created, const std::string& message)
         s.bake.preview = false; // the Mesh itself is in the model now
 }
 
+bool RevealTerrainBake (Session& s)
+{
+    if (!s.terrainLive || !s.terrainDesign) {
+        s.message = "Set a terrain and turn on Rebuild terrain (3D) first: the Archicad Mesh is made from the built "
+                    "terrain.";
+        return false;
+    }
+    if (s.edits.InGesture () || !s.drawing.empty () || s.landscapeCommand) {
+        s.message = "Finish the current input first.";
+        return false;
+    }
+    // The section is the terrain's, shown with nothing selected.
+    s.selection.Clear ();
+    s.bake.reveal = true;
+    return true;
+}
+
 void TerrainBakePanel (Session& s)
 {
-    if (!ImGui::CollapsingHeader ("Archicad Mesh"))
+    const bool reveal = s.bake.reveal;
+    if (reveal)
+        ImGui::SetNextItemOpen (true);
+    const bool open = ImGui::CollapsingHeader ("Archicad Mesh");
+    if (reveal) {
+        ImGui::SetScrollHereY (0.0f);
+        s.bake.reveal = false;
+    }
+    if (!open)
         return;
     auto& bake = s.bake;
     auto& options = bake.options;

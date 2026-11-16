@@ -926,6 +926,15 @@ TEST (EditRegionTerrain, TheBuiltTerrainIsPlannedPreviewedAndRequestedAsAnArchic
     ASSERT_TRUE (eh::SetTerrainBaseline (session, { mesh, false, {} }, 0));
     ASSERT_TRUE (settle (session));
 
+    // The File menu's entry clears the selection so the Inspector shows the terrain's section.
+    session.selection.Set ({ { fixture.doc.entities[0].id, edit::Part::Entity, 0 } });
+    ASSERT_TRUE (eh::RevealTerrainBake (session)) << session.message;
+    EXPECT_TRUE (session.selection.Items ().empty ());
+    EXPECT_TRUE (session.bake.reveal);
+    eh::Session bare (fixture.doc);
+    EXPECT_FALSE (eh::RevealTerrainBake (bare));
+    EXPECT_NE (bare.message.find ("Set a terrain"), std::string::npos) << bare.message;
+
     // Only the field preview so far: nothing to make a Mesh from, and the reason is said.
     std::string why;
     EXPECT_EQ (eh::TerrainBakePlan (session, &why), nullptr);

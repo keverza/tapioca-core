@@ -199,6 +199,7 @@ struct Session {
         uint64_t generation = UINT64_MAX;
         edit::BakePlan plan;
         bool requested = false, queued = false;
+        bool reveal = false; // the File menu asked for the section: open it and scroll to it once
         std::string status;
     } bake;
     edit::Id terrainPath = edit::kNoId;

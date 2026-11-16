@@ -1,5 +1,6 @@
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorBake.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "ArchViz/HudVirtualEditorDraft.hpp"
@@ -179,6 +180,12 @@ void FileMenu (Session& s)
         lg::WriteLandscape (s.edits.Doc (), lg::LandscapeStorage::Virtual, s.landscapeSaved, s.message);
     if (ImGui::MenuItem ("Restore snapshot", nullptr, false, landscape && free && !s.landscapeSaved.empty ()))
         ReloadLandscape (s, s.landscapeSaved);
+    // tapioca-dev #177: the terrain panel's Archicad Mesh section, wherever the Inspector is now.
+    if (ImGui::MenuItem ("Create Archicad Mesh...", nullptr, false, landscape))
+        RevealTerrainBake (s);
+    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+        hudshell::HoverTip ("Opens the Archicad Mesh section of the terrain panel: choose the lines, see them on "
+                            "the terrain, then create the Mesh.");
     ImGui::Separator ();
     const bool exportable = !(s.debugExportRequested || s.edits.InGesture () || !s.drawing.empty () ||
                               s.terrainCapture || s.draftingImport || GizmoModeLocked (s) || s.landscapeCommand);
