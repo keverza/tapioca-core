@@ -4,7 +4,9 @@
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudVirtualEditorTerrainState.hpp"
 #include "ArchViz/OverlayLayers.hpp"
+#include "Edit/EditLandscapeFieldPlan.hpp"
 #include "Edit/EditPathContours.hpp"
+#include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditPublishedTerrain.hpp"
 #include "Edit/EditTerrainBake.hpp"
 #include <imgui.h>
@@ -35,6 +37,34 @@ const tapioca::geometry::TerrainDesignOutcome* Built (const Session& s, std::str
     if (stale || GetTerrainDesignStatus (s).pending)
         return say ("The built mesh does not follow the last edits. Build it again first.");
     return last;
+}
+
+// #177 Signature: the design as modelled, beside the surface built from it -- the existing ground
+// under every built point, and the authored rings: the paths' paved outline and the rings of the
+// regions that grade the terrain.
+edit::BakeDesign Design (const Session& s, const tapioca::geometry::TerrainDesignOutcome& built)
+{
+    namespace tg = tapioca::geometry;
+    edit::BakeDesign design;
+    const auto* published = built.published.get ();
+    design.base = published ? published->base : built.result.build.base;
+    const auto& doc = s.edits.Doc ();
+    for (auto& ring : edit::Pave (doc.paths, 0.5, false).rings)
+        design.outlines.push_back (std::move (ring));
+    if (doc.landscape) {
+        tg::LandscapeSnapshot snapshot;
+        snapshot.doc = &doc;
+        snapshot.revision = doc.revision;
+        snapshot.session = doc.landscape->sessionUuid;
+        snapshot.sourceTerrainGuid = doc.landscape->sourceTerrainGuid;
+        const auto plan = tg::CompileLandscapeFieldPlan (snapshot);
+        for (const auto& entry : plan.entries)
+            if (entry.terrain.effect != tg::RegionTerrainEffect::None)
+                for (const auto& part : entry.parts)
+                    for (const auto& ring : part.rings)
+                        design.outlines.push_back (ring);
+    }
+    return design;
 }
 #endif
 
@@ -70,9 +100,10 @@ const edit::BakePlan* TerrainBakePlan (Session& s, std::string* why)
     auto& bake = s.bake;
     if (bake.generation != built->generation || !(bake.planned == bake.options)) {
         const auto* published = built->published.get ();
-        bake.plan =
-            edit::PlanTerrainBake (published ? published->points : built->result.build.points,
-                                   published ? published->triangles : built->result.build.triangles, bake.options);
+        bake.plan = edit::PlanTerrainBake (
+            published ? published->points : built->result.build.points,
+            published ? published->triangles : built->result.build.triangles, bake.options,
+            bake.options.mode == edit::BakeMode::Signature ? Design (s, *built) : edit::BakeDesign {});
         bake.generation = built->generation;
         bake.planned = bake.options;
     }
@@ -112,11 +143,16 @@ void DrawTerrainBake (const Session& s, overlaylayers::Layer& layer)
         line.behind = overlaylayers::Behind::Show;
         layer.polylines.push_back (std::move (line));
     };
-    // The Mesh's outline, its contours and its creases, each in its own colour; a mark at
-    // every point the Mesh would get.
+    // The Mesh's outline and each kind of line in its own colour; a mark at every point the Mesh
+    // would get.
     add (bake.plan.outline, true, 0xEA580CFFu, 2.5f);
-    for (const auto& line : bake.plan.lines)
-        add (line.points, line.closed, line.kind == edit::BakeLineKind::Crease ? 0x1D4ED8FFu : 0xC026D3FFu, 2.0f);
+    for (const auto& line : bake.plan.lines) {
+        const uint32_t rgba = line.kind == edit::BakeLineKind::Outline  ? 0x16A34AFFu  // the design's edge
+                              : line.kind == edit::BakeLineKind::Toe    ? 0x1D4ED8FFu  // where it meets the ground
+                              : line.kind == edit::BakeLineKind::Crease ? 0x64748BFFu  // a fold
+                                                                        : 0xC026D3FFu; // a contour
+        add (line.points, line.closed, rgba, 2.0f);
+    }
     layer.points.push_back (std::move (marks));
 #else
     (void) s;
@@ -221,8 +257,9 @@ void TerrainBakePanel (Session& s)
     ImGui::SameLine ();
     ImGui::RadioButton ("Signature lines", &mode, int (edit::BakeMode::Signature));
     if (ImGui::IsItemHovered ())
-        hudshell::HoverTip ("The surface's own edges - pads, toes, kerbs, the terrain's ridges - with a few "
-                            "contours for the soft ground between them.");
+        hudshell::HoverTip ("What was modelled: each path's and grading region's outline (green) and its toe, "
+                            "where the slope meets the existing ground (blue), with a few contours for the "
+                            "ground the design left alone.");
     options.mode = edit::BakeMode (mode);
     const bool signature = options.mode == edit::BakeMode::Signature;
     // Labels above their controls: the panel is narrow.
@@ -241,13 +278,26 @@ void TerrainBakePanel (Session& s)
     if (ImGui::IsItemHovered ())
         hudshell::HoverTip ("A point is dropped while its line stays within this distance of the traced one.");
     if (signature) {
-        float crease = float (options.creaseDegrees);
-        ImGui::TextWrapped ("%s", "Edge angle (degrees)");
+        float shortest = float (options.shortest);
+        ImGui::TextWrapped ("%s", "Shortest design line (m)");
         ImGui::SetNextItemWidth (width);
-        if (ImGui::SliderFloat ("##bake-crease", &crease, 0.5f, 30.0f, "%.1f"))
-            options.creaseDegrees = double (std::clamp (crease, 0.5f, 30.0f));
+        if (ImGui::SliderFloat ("##bake-shortest", &shortest, 0.0f, 10.0f, "%.1f"))
+            options.shortest = double (std::clamp (shortest, 0.0f, 10.0f));
         if (ImGui::IsItemHovered ())
-            hudshell::HoverTip ("An edge is a line where its two faces meet at more than this angle.");
+            hudshell::HoverTip ("An open outline or toe piece shorter than this is left out.");
+        ImGui::Checkbox ("Also the surface's folds", &options.folds);
+        if (ImGui::IsItemHovered ())
+            hudshell::HoverTip ("Adds every edge of the built surface folded by more than the angle below. "
+                                "Off: only the lines that were modelled.");
+        if (options.folds) {
+            float crease = float (options.creaseDegrees);
+            ImGui::TextWrapped ("%s", "Edge angle (degrees)");
+            ImGui::SetNextItemWidth (width);
+            if (ImGui::SliderFloat ("##bake-crease", &crease, 0.5f, 30.0f, "%.1f"))
+                options.creaseDegrees = double (std::clamp (crease, 0.5f, 30.0f));
+            if (ImGui::IsItemHovered ())
+                hudshell::HoverTip ("An edge is a line where its two faces meet at more than this angle.");
+        }
     }
     float skirt = float (bake.skirt);
     ImGui::TextWrapped ("%s", "Depth under the lowest point (m)");
@@ -265,13 +315,19 @@ void TerrainBakePanel (Session& s)
             ImGui::TextWrapped ("%s", bake.status.c_str ());
         return;
     }
-    size_t creases = 0, contours = 0;
+    size_t outlines = 0, toes = 0, creases = 0, contours = 0;
     for (const auto& line : plan->lines)
-        (line.kind == edit::BakeLineKind::Crease ? creases : contours) += 1;
+        (line.kind == edit::BakeLineKind::Outline  ? outlines
+         : line.kind == edit::BakeLineKind::Toe    ? toes
+         : line.kind == edit::BakeLineKind::Crease ? creases
+                                                   : contours) += 1;
     ImGui::TextWrapped ("Outline: %zu points (%zu traced)", plan->outline.size (), plan->outlineTraced);
-    if (signature)
-        ImGui::TextWrapped ("%zu edge lines, %zu contours at %.*f m", creases, contours,
+    if (signature) {
+        ImGui::TextWrapped ("%zu design outlines, %zu toe lines, %zu contours at %.*f m", outlines, toes, contours,
                             edit::StepDecimals (plan->interval), plan->interval);
+        if (creases)
+            ImGui::TextWrapped ("%zu fold lines", creases);
+    }
     else
         ImGui::TextWrapped ("%zu contours at %.*f m", contours, edit::StepDecimals (plan->interval), plan->interval);
     ImGui::TextWrapped ("Line points: %zu (%zu traced)", plan->points, plan->traced);

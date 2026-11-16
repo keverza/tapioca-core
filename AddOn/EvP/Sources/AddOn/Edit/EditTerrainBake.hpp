@@ -6,9 +6,12 @@
 //
 // Two ways of choosing the level lines:
 //   Contours   horizontal cuts of the surface every `interval` metres;
-//   Signature  the surface's own creases (pad edges, toes, kerbs, the source terrain's ridges:
-//              every edge its two faces meet at more than `creaseDegrees`), with a few coarse
-//              contours for what lies between them.
+//   Signature  what was modelled (the user, 2026-11-16: "a path actually only needs 2
+//              contours"): the authored outlines (paths' paved edges, grading regions' rings)
+//              draped on the surface, and the toe -- where the built surface leaves the
+//              existing ground -- outside them; a few coarse contours of the ground the design
+//              left alone. The surface's folds (every edge its two faces meet at more than
+//              `creaseDegrees`) only when `folds` asks, or when no design is given.
 // Each line is reduced to `tolerance`: a point is dropped while the line stays within that
 // distance of the traced one. Where a line ends on the boundary, the boundary has a vertex.
 //
@@ -27,11 +30,20 @@ struct BakeOptions {
     BakeMode mode = BakeMode::Contours;
     double interval = 0.0;      // metres; 0: a round one (about ten levels, four for Signature)
     double tolerance = 0.05;    // metres a reduced line may leave the traced one by
-    double creaseDegrees = 4.0; // Signature: the fold an edge needs to be a line
+    double creaseDegrees = 4.0; // Signature with folds: the fold an edge needs to be a line
+    bool folds = false;         // Signature: the surface's folds as well as the design's lines
+    double shortest = 1.0;      // Signature: metres an open design line needs to be kept
     bool operator== (const BakeOptions&) const = default;
 };
 
-enum class BakeLineKind { Contour, Crease };
+// Signature's input beside the surface: the design as it was modelled.
+struct BakeDesign {
+    std::vector<double> base;                // existing ground height per surface point; empty: no toe
+    std::vector<std::vector<Vec3>> outlines; // authored closed rings; their plan is draped on the surface
+    double ground = 0.01;                    // metres a point may move and still be existing ground
+};
+
+enum class BakeLineKind { Contour, Crease, Outline, Toe };
 
 struct BakeLine {
     BakeLineKind kind = BakeLineKind::Contour;
@@ -54,7 +66,7 @@ struct BakePlan {
 
 // `points` xyz triples, `triangles` index triples (counter-clockwise from above).
 BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<uint32_t>& triangles,
-                          const BakeOptions& options);
+                          const BakeOptions& options, const BakeDesign& design = {});
 
 // The plan in the native create's own frame: heights measured from a base plane `skirtDepth`
 // under the lowest point (`baseLevel`, absolute), a closed line's first point repeated at its end.

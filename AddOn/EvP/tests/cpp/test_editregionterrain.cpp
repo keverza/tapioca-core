@@ -973,6 +973,31 @@ TEST (EditRegionTerrain, TheBuiltTerrainIsPlannedPreviewedAndRequestedAsAnArchic
     ASSERT_NE (plan, nullptr);
     EXPECT_LE (plan->points, before);
 
+    // #177 rework: Signature lines are the design's own -- the grading region's ring draped on
+    // the built surface, its toe on the existing ground -- and no fold of the triangulation.
+    session.bake.options.mode = edit::BakeMode::Signature;
+    plan = eh::TerrainBakePlan (session, &why);
+    ASSERT_NE (plan, nullptr) << why;
+    ASSERT_TRUE (plan->ok) << plan->error;
+    size_t outlines = 0, toes = 0, folds = 0;
+    for (const auto& line : plan->lines) {
+        outlines += line.kind == edit::BakeLineKind::Outline;
+        toes += line.kind == edit::BakeLineKind::Toe;
+        folds += line.kind == edit::BakeLineKind::Crease;
+        if (line.kind == edit::BakeLineKind::Outline)
+            for (const auto& p : line.points)
+                EXPECT_NEAR (p.z, 2.0, 0.05) << "the region's ring at its level";
+    }
+    EXPECT_GE (outlines, 1u) << "the region's ring";
+    EXPECT_GE (toes, 1u) << "where its falloff meets the ground";
+    EXPECT_EQ (folds, 0u);
+    EXPECT_TRUE (std::none_of (plan->notes.begin (), plan->notes.end (),
+                               [] (const std::string& n) { return n.find ("No design lines") != std::string::npos; }));
+    session.bake.options.mode = edit::BakeMode::Contours;
+    session.bake.options.tolerance = 0.25;
+    plan = eh::TerrainBakePlan (session);
+    ASSERT_NE (plan, nullptr);
+
     // The request: model heights, the base plane a metre under the lowest point, reals only.
     const auto json = eh::TerrainBakeRequestJson (session);
     ASSERT_FALSE (json.empty ());

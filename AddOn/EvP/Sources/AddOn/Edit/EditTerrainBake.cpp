@@ -211,12 +211,225 @@ double RunLength (const BakeLine& line)
     double length = 0.0;
     for (size_t i = 1; i < line.points.size (); ++i)
         length += Length (line.points[i] - line.points[i - 1]);
+    if (line.closed && line.points.size () > 2)
+        length += Length (line.points.front () - line.points.back ());
     return length;
+}
+
+// The pieces of `line` whose points `keep` says, in order: a closed line kept whole stays closed;
+// otherwise each run of two or more kept points is an open line (a ring's run may wrap round).
+std::vector<BakeLine> Runs (const BakeLine& line, const std::vector<char>& keep)
+{
+    const size_t n = line.points.size ();
+    std::vector<BakeLine> out;
+    if (std::all_of (keep.begin (), keep.end (), [] (char k) { return k != 0; })) {
+        out.push_back (line);
+        return out;
+    }
+    size_t start = 0;
+    if (line.closed) // begin just after a dropped point, so no run is cut at the seam
+        while (keep[start])
+            ++start;
+    BakeLine run;
+    run.kind = line.kind;
+    const auto flush = [&] {
+        if (run.points.size () >= 2)
+            out.push_back (run);
+        run.points.clear ();
+    };
+    for (size_t i = 0; i < n; ++i) {
+        const size_t at = line.closed ? (start + 1 + i) % n : i;
+        if (keep[at])
+            run.points.push_back (line.points[at]);
+        else
+            flush ();
+    }
+    flush ();
+    return out;
+}
+
+// Where the surface is in plan: triangles binned by their bounding boxes on a uniform grid.
+struct Locator {
+    const Surface& s;
+    double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0, cell = 1.0;
+    int nx = 1, ny = 1;
+    std::vector<std::vector<uint32_t>> cells;
+
+    explicit Locator (const Surface& surface) : s (surface)
+    {
+        x0 = y0 = INFINITY, x1 = y1 = -INFINITY;
+        for (const auto& v : s.vertices)
+            x0 = std::min (x0, v.x), y0 = std::min (y0, v.y), x1 = std::max (x1, v.x), y1 = std::max (y1, v.y);
+        const auto& t = *s.triangles;
+        const double w = std::max (x1 - x0, 1.0e-9), h = std::max (y1 - y0, 1.0e-9);
+        cell = std::max (std::sqrt (w * h / double (std::max<size_t> (t.size () / 3, 1))) * 2.0, 1.0e-6);
+        nx = int (std::clamp (w / cell + 1.0, 1.0, 1024.0));
+        ny = int (std::clamp (h / cell + 1.0, 1.0, 1024.0));
+        cells.resize (size_t (nx) * size_t (ny));
+        for (size_t f = 0; f + 2 < t.size (); f += 3) {
+            double fx0 = INFINITY, fy0 = INFINITY, fx1 = -INFINITY, fy1 = -INFINITY;
+            for (int k = 0; k < 3; ++k) {
+                const auto& v = s.vertices[t[f + k]];
+                fx0 = std::min (fx0, v.x), fy0 = std::min (fy0, v.y), fx1 = std::max (fx1, v.x),
+                fy1 = std::max (fy1, v.y);
+            }
+            for (int j = Iy (fy0); j <= Iy (fy1); ++j)
+                for (int i = Ix (fx0); i <= Ix (fx1); ++i)
+                    cells[size_t (j) * size_t (nx) + size_t (i)].push_back (uint32_t (f / 3));
+        }
+    }
+    int Ix (double x) const
+    {
+        return std::clamp (int ((x - x0) / cell), 0, nx - 1);
+    }
+    int Iy (double y) const
+    {
+        return std::clamp (int ((y - y0) / cell), 0, ny - 1);
+    }
+    // The surface's height at (x, y); false off the surface.
+    bool Height (double x, double y, double& z) const
+    {
+        constexpr double kEdge = 1.0e-9;
+        if (x < x0 - kOnLine || x > x1 + kOnLine || y < y0 - kOnLine || y > y1 + kOnLine)
+            return false;
+        const auto& t = *s.triangles;
+        for (const uint32_t f : cells[size_t (Iy (y)) * size_t (nx) + size_t (Ix (x))]) {
+            const Vec3 a = s.vertices[t[f * 3]], b = s.vertices[t[f * 3 + 1]], c = s.vertices[t[f * 3 + 2]];
+            const double d = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+            if (std::abs (d) < 1.0e-18)
+                continue;
+            const double l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / d;
+            const double l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / d;
+            const double l3 = 1.0 - l1 - l2;
+            if (l1 >= -kEdge && l2 >= -kEdge && l3 >= -kEdge) {
+                z = l1 * a.z + l2 * b.z + l3 * c.z;
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+// The authored rings at the surface's heights; where a ring leaves the surface it is cut there.
+std::vector<BakeLine> Drape (const Locator& at, const std::vector<std::vector<Vec3>>& rings)
+{
+    std::vector<BakeLine> out;
+    for (const auto& ring : rings) {
+        if (ring.size () < 3)
+            continue;
+        BakeLine line;
+        line.kind = BakeLineKind::Outline;
+        line.closed = true;
+        std::vector<char> keep;
+        for (const auto& p : ring) {
+            double z = 0.0;
+            const bool on = std::isfinite (p.x) && std::isfinite (p.y) && at.Height (p.x, p.y, z);
+            line.points.push_back ({ p.x, p.y, on ? z : 0.0 });
+            keep.push_back (on);
+        }
+        // An authored ring may repeat its first point at its end.
+        if (line.points.size () > 3 && Length (line.points.front () - line.points.back ()) < kOnLine)
+            line.points.pop_back (), keep.pop_back ();
+        for (auto& piece : Runs (line, keep))
+            out.push_back (std::move (piece));
+    }
+    return out;
+}
+
+// Inside the rings in plan, by crossings: a hole (a ring inside another) is outside.
+bool InsideRings (Vec3 p, const std::vector<std::vector<Vec3>>& rings)
+{
+    bool inside = false;
+    for (const auto& ring : rings)
+        for (size_t i = 0, j = ring.size () - 1; i < ring.size (); j = i++) {
+            const Vec3 a = ring[i], b = ring[j];
+            if ((a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
+                inside = !inside;
+        }
+    return inside;
+}
+
+// The toe: where the surface leaves the existing ground by `ground`, traced across the triangles
+// as one level line of |z - base| and joined end to end.
+std::vector<BakeLine> Toe (const Surface& s, const std::vector<double>& base, double ground)
+{
+    const auto& t = *s.triangles;
+    std::vector<double> moved (s.vertices.size ());
+    for (size_t i = 0; i < moved.size (); ++i)
+        moved[i] = std::abs (s.vertices[i].z - base[i]);
+    const auto away = [&] (uint32_t v) { return moved[v] >= ground; };
+    std::unordered_map<uint64_t, Vec3> crossing;
+    const auto cross = [&] (uint32_t a, uint32_t b) {
+        const uint64_t key = EdgeKey (a, b);
+        if (!crossing.count (key)) {
+            const double span = moved[b] - moved[a];
+            const double f = std::abs (span) > 0.0 ? std::clamp ((ground - moved[a]) / span, 0.0, 1.0) : 0.5;
+            crossing[key] = s.vertices[a] + (s.vertices[b] - s.vertices[a]) * f;
+        }
+        return key;
+    };
+    std::vector<std::pair<uint64_t, uint64_t>> segments;
+    std::unordered_map<uint64_t, std::vector<size_t>> ends;
+    for (size_t f = 0; f + 2 < t.size (); f += 3) {
+        uint64_t keys[2] = { 0, 0 };
+        int count = 0;
+        for (int e = 0; e < 3 && count < 2; ++e) {
+            const uint32_t a = t[f + e], b = t[f + (e + 1) % 3];
+            if (away (a) != away (b))
+                keys[count++] = cross (a, b);
+        }
+        if (count != 2)
+            continue;
+        ends[keys[0]].push_back (segments.size ());
+        ends[keys[1]].push_back (segments.size ());
+        segments.push_back ({ keys[0], keys[1] });
+    }
+    std::vector<char> used (segments.size (), 0);
+    std::vector<BakeLine> out;
+    const auto walk = [&] (uint64_t from) {
+        BakeLine line;
+        line.kind = BakeLineKind::Toe;
+        line.points.push_back (crossing[from]);
+        uint64_t at = from;
+        for (;;) {
+            size_t next = segments.size ();
+            for (const size_t k : ends[at])
+                if (!used[k]) {
+                    next = k;
+                    break;
+                }
+            if (next == segments.size ())
+                break;
+            used[next] = 1;
+            at = segments[next].first == at ? segments[next].second : segments[next].first;
+            line.points.push_back (crossing[at]);
+            if (at == from)
+                break;
+        }
+        if (line.points.size () > 3 && at == from) {
+            line.closed = true;
+            line.points.pop_back ();
+        }
+        if (line.points.size () >= 2)
+            out.push_back (std::move (line));
+    };
+    // Open lines first, from their ends on the surface's edge; then the rings.
+    std::vector<uint64_t> starts;
+    for (const auto& [key, at] : ends)
+        if (at.size () == 1)
+            starts.push_back (key);
+    std::sort (starts.begin (), starts.end ());
+    for (const uint64_t key : starts)
+        walk (key);
+    for (size_t k = 0; k < segments.size (); ++k)
+        if (!used[k])
+            walk (segments[k].first);
+    return out;
 }
 } // namespace
 
 BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<uint32_t>& triangles,
-                          const BakeOptions& options)
+                          const BakeOptions& options, const BakeDesign& design)
 {
     BakePlan plan;
     const auto fail = [&] (const char* why) {
@@ -276,12 +489,47 @@ BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<u
                     : range > 1.0e-9       ? std::max (NiceStep (range, signature ? 4 : 10), 0.01)
                                            : 0.0;
     std::vector<BakeLine> traced;
-    if (signature)
-        traced = Creases (s, options.creaseDegrees);
+    // Signature: the design's own lines first -- its outlines on the surface, then its toe
+    // outside them. The ground it moved is described by those, so the soft-ground contours run
+    // only where it moved nothing.
+    const bool toe =
+        signature && design.base.size () == s.vertices.size () && design.ground > 0.0 &&
+        std::isfinite (design.ground) &&
+        std::all_of (design.base.begin (), design.base.end (), [] (double z) { return std::isfinite (z); });
+    const bool designed = signature && (toe || !design.outlines.empty ());
+    if (signature && !design.outlines.empty ()) {
+        const Locator at (s);
+        for (auto& line : Drape (at, design.outlines))
+            traced.push_back (std::move (line));
+    }
+    if (toe)
+        for (const auto& line : Toe (s, design.base, design.ground)) {
+            std::vector<char> outside;
+            for (const auto& p : line.points)
+                outside.push_back (!InsideRings (p, design.outlines));
+            for (auto& piece : Runs (line, outside))
+                traced.push_back (std::move (piece));
+        }
+    if (designed) // An open design line shorter than `shortest` is a fragment, not a line.
+        std::erase_if (traced, [&] (const BakeLine& line) {
+            return !line.closed && RunLength (line) < std::max (options.shortest, 0.0);
+        });
+    if (signature && (options.folds || !designed))
+        for (auto& line : Creases (s, options.creaseDegrees))
+            traced.push_back (std::move (line));
     if (plan.interval > 0.0) {
         PavedArea surface;
         surface.vertices = s.vertices;
-        surface.triangles = triangles;
+        if (toe) {
+            for (size_t i = 0; i + 2 < triangles.size (); i += 3)
+                if (std::all_of (triangles.begin () + i, triangles.begin () + i + 3, [&] (uint32_t v) {
+                        return std::abs (s.vertices[v].z - design.base[v]) < design.ground;
+                    }))
+                    surface.triangles.insert (surface.triangles.end (), triangles.begin () + i,
+                                              triangles.begin () + i + 3);
+        }
+        else
+            surface.triangles = triangles;
         const auto contours = SurfaceContours (surface, plan.interval);
         if (contours.empty () && range / plan.interval > 400.0)
             plan.notes.push_back ("No contours: the interval cuts more than 400 levels. Use a larger one.");
@@ -368,6 +616,8 @@ BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<u
     if (!signature && range > 1.0e-9)
         plan.notes.push_back ("A flat area between two levels is not in a contour Mesh. Use Signature lines "
                               "where hardscape must keep its height.");
+    if (signature && !designed)
+        plan.notes.push_back ("No design lines were given: the lines are the surface's folds.");
     if (plan.lines.empty () && range > 1.0e-9)
         plan.notes.push_back ("No level lines: the Mesh would be shaped by its outline alone.");
     plan.ok = true;

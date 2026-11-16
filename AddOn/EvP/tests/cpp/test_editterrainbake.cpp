@@ -114,13 +114,16 @@ TEST (EditTerrainBake, AnOpenContourEndsOnAnOutlineVertex)
     EXPECT_NEAR (twice / 2, 400.0, 1e-9);
 }
 
-TEST (EditTerrainBake, SignatureLinesAreTheSurfacesCreases)
+// With no design given (or with `folds`), Signature still traces the surface's folds.
+TEST (EditTerrainBake, WithoutADesignSignatureLinesAreTheSurfacesFolds)
 {
     const auto g = MakeGrid (20, Pad);
     ed::BakeOptions options;
     options.mode = ed::BakeMode::Signature;
     const auto plan = ed::PlanTerrainBake (g.points, g.triangles, options);
     ASSERT_TRUE (plan.ok) << plan.error;
+    EXPECT_TRUE (std::any_of (plan.notes.begin (), plan.notes.end (),
+                              [] (const std::string& n) { return n.find ("No design lines") != std::string::npos; }));
     EXPECT_DOUBLE_EQ (plan.interval, 0.5) << "a round interval for about four levels of 2.3 m";
     size_t creases = 0, contours = 0;
     bool padEdge = false, toeEdge = false;
@@ -149,6 +152,124 @@ TEST (EditTerrainBake, SignatureLinesAreTheSurfacesCreases)
     ASSERT_TRUE (none.ok);
     EXPECT_TRUE (none.lines.empty ());
     EXPECT_EQ (none.outline.size (), 4u);
+}
+
+namespace {
+// Ground rising 0.05 m per metre east; a path paved level at 3 m over 10..30 x 12..18, in fill
+// all along, with a 1:1 batter down to the ground.
+double Ground (double x, double)
+{
+    return 0.05 * x;
+}
+double Road (double x, double y)
+{
+    const double d = std::max ({ 10.0 - x, x - 30.0, 12.0 - y, y - 18.0, 0.0 });
+    return Ground (x, y) + std::max (3.0 - Ground (x, y) - d, 0.0);
+}
+struct Site {
+    Grid grid;
+    ed::BakeDesign design;
+};
+// 40 x 30 one-metre cells; the path's paved outline sampled every 0.5 m, as paving gives it.
+Site RoadSite (double x0 = 10, double x1 = 30)
+{
+    Site site;
+    site.grid = MakeGrid (
+        40, [] (double x, double y) { return y > 30 ? 0.0 : Road (x, y); }, [] (int, int j) { return j >= 30; });
+    for (size_t i = 0; i < site.grid.points.size (); i += 3)
+        site.design.base.push_back (Ground (site.grid.points[i], site.grid.points[i + 1]));
+    std::vector<ed::Vec3> ring;
+    const auto run = [&] (ed::Vec3 a, ed::Vec3 b) {
+        const int n = int (std::round (Length (b - a) / 0.5));
+        for (int k = 0; k < n; ++k)
+            ring.push_back (a + (b - a) * (double (k) / n));
+    };
+    run ({ x0, 12, 3 }, { x1, 12, 3 });
+    run ({ x1, 12, 3 }, { x1, 18, 3 });
+    run ({ x1, 18, 3 }, { x0, 18, 3 });
+    run ({ x0, 18, 3 }, { x0, 12, 3 });
+    site.design.outlines.push_back (ring);
+    return site;
+}
+} // namespace
+
+// #177 rework (the user, 2026-11-16): signature lines are what was modelled. A path needs two:
+// its outline and its toe, where the batter meets the existing ground -- not the triangulation's
+// short folds. The soft ground keeps a few contours, and they stay off the graded area.
+TEST (EditTerrainBake, APathOnSlopedGroundIsItsOutlineAndItsToe177)
+{
+    const auto site = RoadSite ();
+    ed::BakeOptions options;
+    options.mode = ed::BakeMode::Signature;
+    const auto plan = ed::PlanTerrainBake (site.grid.points, site.grid.triangles, options, site.design);
+    ASSERT_TRUE (plan.ok) << plan.error;
+
+    std::vector<const ed::BakeLine*> outlines, toes, contours;
+    for (const auto& line : plan.lines) {
+        EXPECT_NE (line.kind, ed::BakeLineKind::Crease) << "no fold is a line unless asked";
+        (line.kind == ed::BakeLineKind::Outline ? outlines
+         : line.kind == ed::BakeLineKind::Toe   ? toes
+                                                : contours)
+            .push_back (&line);
+    }
+    ASSERT_EQ (outlines.size (), 1u);
+    ASSERT_EQ (toes.size (), 1u);
+    const auto& outline = *outlines[0];
+    EXPECT_TRUE (outline.closed);
+    EXPECT_EQ (outline.points.size (), 4u) << "the paved rectangle keeps its corners only";
+    for (const auto& p : outline.points)
+        EXPECT_NEAR (p.z, 3.0, 1e-9) << "draped on the built surface: the path's own level";
+
+    const auto& toe = *toes[0];
+    EXPECT_TRUE (toe.closed) << "the batter meets the ground all round";
+    EXPECT_LT (toe.points.size (), 40u) << "reduced to a polyline, not the triangulation";
+    for (const auto& p : toe.points) {
+        EXPECT_NEAR (p.z, Ground (p.x, p.y), 0.02) << "on the existing ground at " << p.x << ", " << p.y;
+        EXPECT_FALSE (p.x > 10 && p.x < 30 && p.y > 12 && p.y < 18) << "outside the paved area";
+        EXPECT_GT (std::max ({ 10.0 - p.x, p.x - 30.0, 12.0 - p.y, p.y - 18.0 }), 1.0)
+            << "out where the batter ends, not on the path's edge";
+    }
+
+    EXPECT_FALSE (contours.empty ()) << "the soft ground keeps a few contours";
+    for (const auto* line : contours)
+        for (const auto& p : line->points)
+            EXPECT_NEAR (p.z, Ground (p.x, p.y), 1e-9) << "a contour of the ground the design left alone";
+    EXPECT_TRUE (ed::CheckBakePayload (ed::TerrainBakePayload (plan)).empty ());
+
+    // Asked for, the folds come back beside the design's lines.
+    options.folds = true;
+    const auto folded = ed::PlanTerrainBake (site.grid.points, site.grid.triangles, options, site.design);
+    ASSERT_TRUE (folded.ok);
+    EXPECT_TRUE (std::any_of (folded.lines.begin (), folded.lines.end (),
+                              [] (const ed::BakeLine& l) { return l.kind == ed::BakeLineKind::Crease; }));
+}
+
+// A path that runs off the built surface is cut where it leaves; a piece shorter than
+// `shortest` is a fragment and is left out.
+TEST (EditTerrainBake, ADesignOutlineLeavingTheSurfaceIsCutAndFragmentsDropped177)
+{
+    auto site = RoadSite ();
+    // A second ring almost wholly east of the 40 m site: only a 0.5 m stub of it lies on the surface.
+    site.design.outlines.push_back ({ { 39.5, 2, 0 }, { 60, 2, 0 }, { 60, 2.5, 0 }, { 39.5, 2.5, 0 } });
+    ed::BakeOptions options;
+    options.mode = ed::BakeMode::Signature;
+    auto plan = ed::PlanTerrainBake (site.grid.points, site.grid.triangles, options, site.design);
+    ASSERT_TRUE (plan.ok) << plan.error;
+    size_t outlines = 0;
+    for (const auto& line : plan.lines)
+        if (line.kind == ed::BakeLineKind::Outline) {
+            ++outlines;
+            for (const auto& p : line.points)
+                EXPECT_LE (p.x, 40.0 + 1e-9) << "nothing off the surface";
+        }
+    EXPECT_EQ (outlines, 1u) << "the stub is shorter than a metre";
+    options.shortest = 0.0;
+    plan = ed::PlanTerrainBake (site.grid.points, site.grid.triangles, options, site.design);
+    ASSERT_TRUE (plan.ok);
+    outlines = 0;
+    for (const auto& line : plan.lines)
+        outlines += line.kind == ed::BakeLineKind::Outline;
+    EXPECT_GT (outlines, 1u) << "kept when no shortest length is asked";
 }
 
 TEST (EditTerrainBake, ThePayloadIsMeasuredFromABasePlaneUnderTheLowestPoint)
