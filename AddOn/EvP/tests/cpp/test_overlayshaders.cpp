@@ -15,8 +15,10 @@
 #endif
 #include <windows.h>
 
+#include <d3d11.h>
 #include <d3d11shader.h>
 #include <d3dcompiler.h>
+#include <wrl/client.h>
 
 #include <cstdio>
 #include <cstring>
@@ -172,6 +174,64 @@ TEST (OverlayShaders, SurfaceFocusContextCompiles)
     namespace context = geomsrv::archviz::dxgi::surfacefocuscontext;
     EXPECT_EQ (Compile (context::kVertexShader, "VSSurfaceContext", "vs_5_0"), "");
     EXPECT_EQ (Compile (context::kPixelShader, "PSSurfaceContext", "ps_5_0"), "");
+}
+
+TEST (OverlayShaders, SurfaceFocusContextRestoresTheSceneViewportOnWarp)
+{
+    using Microsoft::WRL::ComPtr;
+    namespace context = geomsrv::archviz::dxgi::surfacefocuscontext;
+    context::Shutdown ();
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> gpu;
+    ASSERT_TRUE (SUCCEEDED (D3D11CreateDevice (nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                               &device, nullptr, &gpu)));
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = 16;
+    desc.Height = 16;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    ComPtr<ID3D11Texture2D> texture;
+    ComPtr<ID3D11RenderTargetView> target;
+    ASSERT_TRUE (SUCCEEDED (device->CreateTexture2D (&desc, nullptr, &texture)));
+    ASSERT_TRUE (SUCCEEDED (device->CreateRenderTargetView (texture.Get (), nullptr, &target)));
+    const float red[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
+    gpu->ClearRenderTargetView (target.Get (), red);
+
+    const D3D11_VIEWPORT incoming = { 3.0f, 2.0f, 7.0f, 5.0f, 0.0f, 1.0f };
+    gpu->RSSetViewports (1, &incoming);
+    ASSERT_EQ (context::Draw (gpu.Get (), target.Get (), 0.38f), context::DrawResult::Drawn);
+    UINT count = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+    D3D11_VIEWPORT restored[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE] = {};
+    gpu->RSGetViewports (&count, restored);
+    ASSERT_EQ (count, 1u);
+    EXPECT_FLOAT_EQ (restored[0].TopLeftX, incoming.TopLeftX);
+    EXPECT_FLOAT_EQ (restored[0].TopLeftY, incoming.TopLeftY);
+    EXPECT_FLOAT_EQ (restored[0].Width, incoming.Width);
+    EXPECT_FLOAT_EQ (restored[0].Height, incoming.Height);
+    EXPECT_FLOAT_EQ (restored[0].MinDepth, incoming.MinDepth);
+    EXPECT_FLOAT_EQ (restored[0].MaxDepth, incoming.MaxDepth);
+
+    desc.BindFlags = 0;
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ComPtr<ID3D11Texture2D> staging;
+    ASSERT_TRUE (SUCCEEDED (device->CreateTexture2D (&desc, nullptr, &staging)));
+    gpu->OMSetRenderTargets (0, nullptr, nullptr);
+    gpu->CopyResource (staging.Get (), texture.Get ());
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    ASSERT_TRUE (SUCCEEDED (gpu->Map (staging.Get (), 0, D3D11_MAP_READ, 0, &mapped)));
+    const auto* pixel = static_cast<const uint8_t*> (mapped.pData);
+    // Red's 0.2126 luminance fills every channel, then fades 62% toward 0.60.
+    EXPECT_NEAR (pixel[0], 116, 2);
+    EXPECT_NEAR (pixel[1], 116, 2);
+    EXPECT_NEAR (pixel[2], 116, 2);
+    EXPECT_EQ (pixel[3], 255);
+    gpu->Unmap (staging.Get (), 0);
+    context::Shutdown ();
 }
 
 TEST (OverlayShaders, TheThreeDLayerCompilesForEveryCameraSlot)

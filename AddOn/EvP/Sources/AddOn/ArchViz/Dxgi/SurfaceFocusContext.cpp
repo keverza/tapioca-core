@@ -28,6 +28,20 @@ template <typename T> void Release (T*& object)
     }
 }
 
+struct ViewportGuard {
+    explicit ViewportGuard (ID3D11DeviceContext* context) : context (context)
+    {
+        context->RSGetViewports (&count, values);
+    }
+    ~ViewportGuard ()
+    {
+        context->RSSetViewports (count, values);
+    }
+    ID3D11DeviceContext* context;
+    UINT count = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+    D3D11_VIEWPORT values[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE] = {};
+};
+
 bool Compile (ID3D11Device* device)
 {
     if (g_vertexShader != nullptr && g_pixelShader != nullptr && g_opacity != nullptr && g_raster != nullptr)
@@ -154,6 +168,11 @@ DrawResult Draw (ID3D11DeviceContext* context, ID3D11RenderTargetView* target, f
         Release (source);
         return DrawResult::PipelineError;
     }
+
+    // The rest of Present still needs the captured scene viewport, which can be
+    // smaller than or offset inside the back buffer. Restore it before those draws,
+    // not just when the outer pipeline guard eventually restores Archicad's state.
+    const ViewportGuard viewportGuard (context);
 
     // Do not copy from a texture still bound as the draw target. The caller's
     // guard restores Archicad's original bindings after the complete composition.
