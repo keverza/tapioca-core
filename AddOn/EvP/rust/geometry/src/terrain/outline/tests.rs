@@ -995,9 +995,11 @@ fn ring_step_counts_use_composed_ground() -> Result<(), String> {
     let baseline = unified_on(&property, [0.0, 10.0], &[], &[], false)
         .map_err(|e| format!("baseline {e:?}"))?;
     assert!(baseline.outline_clipped > 0);
-    // At this right-ring sample the pavement's fill face is at 10.5 m. The whole-property composed
-    // falloff raises the retained ground from 10 to 10.15 m; evaluating the immutable base would
-    // report the wrong gap. The ring uses the established coincident-boundary contract.
+    // At this right-ring sample the pavement's fill face is at 10.5 m. The whole-property region
+    // composes the ground there to its own 10.5 m, as the published surface is; evaluating the
+    // immutable base would report a 0.5 m gap. (Before #209 the ground was interpolated between
+    // the baseline's vertices, 10.15 m, and reported a step the published mesh does not have.)
+    // The ring uses the established coincident-boundary contract.
     let band = property;
     let parts = [crate::terrain::Part {
         outer: &band,
@@ -1035,15 +1037,14 @@ fn ring_step_counts_use_composed_ground() -> Result<(), String> {
             .filter_map(at_composed_sample)
             .any(|(retained, design)| (retained - 10.0).abs() <= 1e-9 && design > retained)
     );
+    let kept: Vec<(f64, f64)> = composed
+        .outline_steps
+        .iter()
+        .filter_map(at_composed_sample)
+        .collect();
     assert!(
-        composed
-            .outline_steps
-            .iter()
-            .filter_map(at_composed_sample)
-            .any(|(retained, design)| {
-                (retained - 10.15).abs() <= 1e-9 && (design - 10.5).abs() <= 1e-9
-            }),
-        "the witness uses the composed ground, not the immutable 10 m base"
+        kept.is_empty(),
+        "the composed ground meets the face there; no step against the immutable 10 m base: {kept:?}"
     );
     let field = Field::new(&composed.points, &composed.mesh.triangles)
         .map_err(|e| format!("composed field {e:?}"))?;

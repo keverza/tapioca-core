@@ -124,8 +124,8 @@ lg::UnifiedEntry ConstantEntry (uint32_t order, uint64_t object, uint64_t operat
     entry.object = object;
     entry.rootOperation = operation;
     entry.surface = { lg::UnifiedSurfaceKind::Constant, level };
-    // A small positive falloff: grid vertices sit 1 m apart, so only the ring
-    // vertices (distance 0) take the target and the result is the sharp case.
+    // A small positive falloff. Since #209 the build resolves it with rows of
+    // vertices up to 0.5 m outside the ring; those vertices belong to the entry.
     entry.transition = { lg::UnifiedTransitionKind::Falloff, 0.5, {}, {}, 0.0 };
     entry.parts = parts;
     return entry;
@@ -402,13 +402,14 @@ TEST (EditPublishedTerrain, QuantitiesAttributeHolesOverlapsAndSplitCutFillExact
     // Area and volume attribution on this grid-aligned scene:
     // - B owns exactly its 16 m2 footprint, including over A's hole: the
     //   overlap is charged to the later stack position only.
-    // - A owns its exclusive footprint (20 m2) plus the boundary band: every
-    //   grid edge along its rings carries band triangles whose ring vertices
-    //   A moved (hard ring vertices keep one height, so the neighbour
-    //   triangle interpolates; no vertical wall is claimed). That is 26 m2.
+    // - A owns its exclusive footprint (20 m2) plus its 0.5 m falloff belt
+    //   (24 * 0.5 + pi * 0.25 = 12.79 m2), whose rows of vertices it moved,
+    //   plus the cells that straddle the belt's last row. Before #209 the
+    //   falloff had no vertices of its own, so A was charged every 1 m grid
+    //   cell beside its ring instead (46 m2).
     // - The hole interior is never charged to A: its vertices keep baseline
     //   heights and its triangles reconcile into the remaining rows.
-    // - The untouched surround (2 m2 here) reconciles into the baseline row.
+    // - The untouched surround reconciles into the baseline row.
     const auto* rowA = Row (published, 0);
     const auto* rowB = Row (published, 1);
     const auto* rowBase = Row (published, UINT32_MAX);
@@ -417,8 +418,10 @@ TEST (EditPublishedTerrain, QuantitiesAttributeHolesOverlapsAndSplitCutFillExact
     ASSERT_NE (rowBase, nullptr);
     EXPECT_NEAR (rowB->area, 16.0, 1e-9);
     EXPECT_NEAR (rowA->area + rowB->area + rowBase->area, published.quantities.area, 1e-9);
-    EXPECT_NEAR (rowA->area, 46.0, 1e-9);
-    EXPECT_NEAR (rowBase->area, 2.0, 1e-9);
+    const double belt = 24.0 * 0.5 + 3.14159265358979323846 * 0.25;
+    EXPECT_GE (rowA->area, 20.0 + belt - 1e-9);
+    EXPECT_LT (rowA->area, 20.0 + 24.0 * 1.0 + 4.0) << "no longer every grid cell beside the ring";
+    EXPECT_NEAR (rowBase->area, 64.0 - 16.0 - rowA->area, 1e-9);
 
     // The sloped baseline crosses both targets: A cuts and fills; B raises
     // everything inside its footprint: pure fill. The baseline row carries
@@ -445,15 +448,24 @@ TEST (EditPublishedTerrain, QuantitiesAttributeHolesOverlapsAndSplitCutFillExact
         triangles += double (row.triangles);
     EXPECT_NEAR (triangles, double (published.quantities.triangles), 1e-9);
 
-    // Owner mappings attribute the same way the footprints do: B inside its
-    // ring, A in its exclusive annulus, none in the hole.
+    // Owner mappings attribute the same way the footprints do, widened by each
+    // entry's 0.5 m falloff (#209): B inside its ring and its falloff, A in its
+    // exclusive annulus and falloff, none in the hole (B covers it).
+    // A falloff ends at its blur: at exactly 0.5 m out it no longer changes the ground.
+    const auto outside = [] (double x, double y, double lo, double hi) {
+        return std::hypot (std::max ({ lo - x, 0.0, x - hi }), std::max ({ lo - y, 0.0, y - hi }));
+    };
     for (size_t vertex = 0; vertex < published.owners.size (); ++vertex) {
         if (!published.owners[vertex])
             continue;
         const double x = published.points[vertex * 3], y = published.points[vertex * 3 + 1];
-        const bool inB = x >= 2.0 && x <= 6.0 && y >= 2.0 && y <= 6.0;
-        const bool inHole = x >= 3.0 && x <= 5.0 && y >= 3.0 && y <= 5.0;
-        const bool inA = x >= 1.0 && x <= 7.0 && y >= 1.0 && y <= 7.0 && !inHole;
+        // On the falloff's end itself (a vertex of its last row) either owner is right: the
+        // falloff's change there is rounding, and the owner is whoever changed the bits last.
+        if (std::abs (outside (x, y, 2.0, 6.0) - 0.5) <= 1e-9)
+            continue;
+        const bool inB = outside (x, y, 2.0, 6.0) < 0.5;
+        const bool inHole = x > 3.0 && x < 5.0 && y > 3.0 && y < 5.0;
+        const bool inA = outside (x, y, 1.0, 7.0) <= 0.5 + 1e-9 && !inHole;
         if (inB)
             EXPECT_EQ (*published.owners[vertex], 1u) << x << ", " << y;
         else if (inA)

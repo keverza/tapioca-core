@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use super::{
     Baseline, BuildError, Candidate, Design, Field, Plan, PreparedTransition, candidate, design,
-    grading_allowed, is_protected, outline, plan, region_height_field, validate_plan,
+    grading_allowed, is_protected, outline, plan, region_height_field, ring_lines, validate_plan,
 };
 use crate::terrain::preview::{self, Preview};
 
@@ -44,7 +44,14 @@ pub fn field_preview(
     let composed = if prepared.is_empty() {
         None
     } else {
-        Some(region_height_field(baseline, &prepared, plan.masks)?)
+        // #209: the same ground the build designs its paths against.
+        let (lines, mask_lines) = ring_lines(baseline, plan)?;
+        Some(region_height_field(
+            baseline,
+            (&lines, &mask_lines),
+            &prepared,
+            plan.masks,
+        )?)
     };
     let ground_field = composed.as_ref().unwrap_or(&base);
     // Each entry's plan bounds, widened by its transition: a node outside them is not its.

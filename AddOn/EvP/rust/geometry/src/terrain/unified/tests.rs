@@ -204,7 +204,9 @@ fn grade_hole_and_disjoint_parts_keep_membership_and_volumes() -> Result<(), Bui
     // exact positive fill; hard-step duplication/refusal is a later P3 slice.
     assert!(built.volumes.site.fill > 0.0);
     assert!(close(built.volumes.site.cut, 0.0, 1e-12));
-    assert!(close(built.volumes.site.area, 49.0, 1e-12));
+    // Summed over the transition's small triangles too (#209): exact to rounding, not 1e-12.
+    let area = built.volumes.site.area;
+    assert!(close(area, 49.0, 1e-9), "area {area:e}");
     Ok(())
 }
 
@@ -1195,9 +1197,13 @@ fn path_across_a_region_hole_builds_one_coherent_mesh() -> Result<(), BuildError
         outer: &outer,
         holes: &holes,
     }];
+    // The band is 0.5 m above the 1 m region, so its 1:1 faces meet the region 0.5 m out. At
+    // 1 m above, a face would run exactly onto the region's ring (y = 6) and lie along the
+    // region's own 1:1 daylight face beyond it: degenerate roots, which the band refuses
+    // once the ground shows that face (#209).
     let stations = [
-        design_station(2.0, 4.0, 2.0, 1.0),
-        design_station(6.0, 4.0, 2.0, 1.0),
+        design_station(2.0, 4.0, 1.5, 1.0),
+        design_station(6.0, 4.0, 1.5, 1.0),
     ];
     let entries = [constant_entry(
         0,
@@ -1237,7 +1243,7 @@ fn path_across_a_region_hole_builds_one_coherent_mesh() -> Result<(), BuildError
             .get(crossing as usize * 3 + 2)
             .copied()
             .unwrap_or(f64::NAN),
-        2.0,
+        1.5,
         1e-12
     ));
     assert_eq!(built.owners.get(crossing as usize), Some(&Some(1)));
@@ -1916,5 +1922,67 @@ fn field_preview_shows_a_region_between_the_baseline_vertices() -> Result<(), Bu
         "fill {}",
         lower.fill
     );
+    Ok(())
+}
+
+/// #209: the path stage's daylight lines are traced over the ground the regions compose. A
+/// baseline with no vertex inside the region (two triangles for the whole site) used to give the
+/// path the original 0 m ground there, so a band 1 m above a 2 m region put its daylight lines
+/// 3 m out instead of 1 m, and the real toe was interpolated across one long triangle.
+#[test]
+fn path_daylight_meets_the_region_composed_ground_between_baseline_vertices()
+-> Result<(), BuildError> {
+    let (points, triangles) = surface(2, 20.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [19.0, 1.0], [19.0, 19.0], [1.0, 19.0]]);
+    let outer = ring(&[[5.0, 5.0], [15.0, 5.0], [15.0, 15.0], [5.0, 15.0]]);
+    let parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let stations = [
+        design_station(7.0, 10.0, 3.0, 1.0),
+        design_station(13.0, 10.0, 3.0, 1.0),
+    ];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        2.0,
+        TerrainEffect::Grade,
+        transitioned(),
+    )];
+    let paths = [path(1, &stations)];
+    let plan = Plan {
+        revision: 209,
+        hash: 2091,
+        entries: &entries,
+        paths: &paths,
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+        outlines: &[],
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    assert_mesh_invariants(&built);
+    // The 1:1 fill faces fall 1 m from the band edges (y = 9 and 11) to the region's 2 m.
+    let surface = Field::new(&built.points, &built.mesh.triangles).map_err(BuildError::Baseline)?;
+    for (x, y, expected) in [
+        (10.0, 11.5, 2.5),
+        (10.0, 8.5, 2.5),
+        (10.0, 12.5, 2.0),
+        (10.0, 7.5, 2.0),
+        (10.0, 13.5, 2.0),
+    ] {
+        let height = surface
+            .height_at(x, y)
+            .map_or(f64::NAN, |sample| sample.height);
+        assert!(close(height, expected, 1e-9), "({x}, {y}) at {height}");
+    }
     Ok(())
 }

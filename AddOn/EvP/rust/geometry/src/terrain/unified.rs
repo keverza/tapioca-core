@@ -1417,12 +1417,258 @@ fn apply_entry(
     Ok(())
 }
 
+/// The entry rings (less any segment on the property ring, which the region rebuild already
+/// constrains) and the mask rings, as the build's breaklines.
+fn ring_lines(
+    baseline: &Baseline<'_>,
+    plan: &Plan<'_>,
+) -> Result<(Vec<PlannedLine>, Vec<PlannedMaskLine>), BuildError> {
+    let mut lines = Vec::new();
+    for entry in plan.entries {
+        for (part_index, part) in entry.parts.iter().enumerate() {
+            let part_index =
+                u32::try_from(part_index).map_err(|_| plan_shape(entry.order, u32::MAX, 0))?;
+            push_ring_lines(&mut lines, part.outer, entry.order, part_index, 0)?;
+            for (hole_index, hole) in part.holes.iter().enumerate() {
+                let ring = u32::try_from(hole_index + 1)
+                    .map_err(|_| plan_shape(entry.order, part_index, u32::MAX))?;
+                push_ring_lines(&mut lines, hole, entry.order, part_index, ring)?;
+            }
+        }
+    }
+    if let Some(property) = baseline.property {
+        // Entry ring segments coinciding with the property ring are dropped:
+        // the region rebuild already constrains the property ring, and a
+        // duplicate breakline degenerates the triangulation. This is the
+        // common "grade the whole property" case.
+        let mut property_segments = std::collections::BTreeSet::new();
+        let vertices = plan::vertices(property);
+        for index in 0..vertices.len() {
+            let (Some(&a), Some(&b)) = (
+                vertices.get(index),
+                vertices.get((index + 1) % vertices.len()),
+            ) else {
+                break;
+            };
+            let key = |&[x, y, _]: &[f64; 3]| (x.to_bits(), y.to_bits());
+            let (ka, kb) = (key(&a), key(&b));
+            property_segments.insert(if kb < ka { (kb, ka) } else { (ka, kb) });
+        }
+        let coincident = |line: &PlannedLine| {
+            let vertices = plan::vertices(&line.points);
+            let (Some(&a), Some(&b)) = (vertices.first(), vertices.get(1)) else {
+                return false;
+            };
+            let key = |&[x, y, _]: &[f64; 3]| (x.to_bits(), y.to_bits());
+            let (ka, kb) = (key(&a), key(&b));
+            property_segments.contains(&if kb < ka { (kb, ka) } else { (ka, kb) })
+        };
+        lines.retain(|line| !coincident(line));
+    }
+    let mut mask_lines = Vec::new();
+    for (mask_index, mask) in plan.masks.iter().enumerate() {
+        let mask_index = u32::try_from(mask_index).map_err(|_| BuildError::MaskShape {
+            mask: u32::MAX,
+            part: u32::MAX,
+            ring: u32::MAX,
+        })?;
+        for (part_index, part) in mask.parts.iter().enumerate() {
+            let part_index = u32::try_from(part_index).map_err(|_| BuildError::MaskShape {
+                mask: mask_index,
+                part: u32::MAX,
+                ring: u32::MAX,
+            })?;
+            push_mask_lines(&mut mask_lines, mask_index, part_index, 0, part.outer)?;
+            for (hole_index, hole) in part.holes.iter().enumerate() {
+                let ring = u32::try_from(hole_index + 1).map_err(|_| BuildError::MaskShape {
+                    mask: mask_index,
+                    part: part_index,
+                    ring: u32::MAX,
+                })?;
+                push_mask_lines(&mut mask_lines, mask_index, part_index, ring, hole)?;
+            }
+        }
+    }
+    Ok((lines, mask_lines))
+}
+
+/// Rows of points across each entry's transition, for the ground split (#209).
+const TRANSITION_ROWS: u32 = 4;
+/// A cap on the estimated transition points of one ground split; past it the rows are spaced
+/// wider along the rings.
+const TRANSITION_POINT_CAP: f64 = 20_000.0;
+/// Directions in the fan of points around each ring corner.
+const TRANSITION_FAN: u32 = 16;
+
+/// Isolated points that resolve every entry's falloff or daylight transition in the ground
+/// split: rows at `k / TRANSITION_ROWS` of the spread outward from each outer-ring segment
+/// and around each ring corner, the last row at the full spread, where the transition ends.
+/// Without them the split interpolates a transition from its ring to the next baseline
+/// vertex, which on a coarse baseline can be the far corner of the site. Points are kept
+/// only strictly inside the property, clear of every line and caller spot and of each other;
+/// they are vertices, never constraints, so they cannot cross anything. Both the ground the
+/// path and outline stages design against and the published mesh take them.
+fn transition_points(
+    prepared: &[PreparedEntry<'_>],
+    property: &[f64],
+    rings: &[&[f64]],
+    spots: &[f64],
+) -> Vec<f64> {
+    let spread_of = |entry: &PreparedEntry<'_>| match entry.transition {
+        PreparedTransition::Falloff { blur } => blur,
+        PreparedTransition::Daylight { reach, .. } => reach,
+    };
+    let usable = |spread: f64| spread > 0.0 && spread.is_finite();
+    // Along-ring spacing: half the spread, widened until the estimate fits the cap.
+    let mut estimate = 0.0;
+    for entry in prepared {
+        let spread = spread_of(entry);
+        if !usable(spread) {
+            continue;
+        }
+        for part in entry.entry.parts {
+            let ring = plan::vertices(part.outer);
+            let mut length = 0.0;
+            for index in 0..ring.len() {
+                if let (Some(a), Some(b)) = (ring.get(index), ring.get((index + 1) % ring.len())) {
+                    length += (b[0] - a[0]).hypot(b[1] - a[1]);
+                }
+            }
+            let corners = f64::from(u32::try_from(ring.len()).unwrap_or(u32::MAX));
+            estimate += (2.0 * length / (0.5 * spread) + corners * f64::from(TRANSITION_FAN))
+                * f64::from(TRANSITION_ROWS);
+        }
+    }
+    let widen = (estimate / TRANSITION_POINT_CAP).max(1.0);
+    let boundary = plan::vertices(property);
+    let mut points: Vec<f64> = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for entry in prepared {
+        let spread = spread_of(entry);
+        if !usable(spread) {
+            continue;
+        }
+        let spacing = 0.5 * spread * widen;
+        let clearance = 0.2 * spread / f64::from(TRANSITION_ROWS);
+        let mut offer = |x: f64, y: f64, offset: f64| {
+            // Only a point on its row's offset curve: a fan direction off the corner's outward
+            // wedge, or a side's offset at a concave corner, lands nearer the ring than its row.
+            // There it would be a lone vertex a little higher than its neighbours, a fold in the
+            // published surface the transition does not have.
+            let Some(distance) = distance_to_parts(entry.entry.parts, x, y) else {
+                return;
+            };
+            if distance <= clearance || (distance - offset).abs() > 1e-9 * spread.max(1.0) {
+                return;
+            }
+            if plan::inside(boundary, x, y) != Some(true)
+                || plan::nearest(boundary, true, x, y).is_none_or(|n| n.distance <= clearance)
+            {
+                return;
+            }
+            if rings.iter().any(|line| {
+                plan::nearest(plan::vertices(line), false, x, y)
+                    .is_some_and(|n| n.distance <= clearance)
+            }) || plan::vertices(spots)
+                .iter()
+                .any(|&[sx, sy, _]| (sx - x).hypot(sy - y) <= clearance)
+            {
+                return;
+            }
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a dedupe key: the clearance cell of a finite plan position"
+            )]
+            let key = (
+                (x / clearance).round() as i64,
+                (y / clearance).round() as i64,
+            );
+            if seen.insert(key) {
+                points.extend([x, y, 0.0]);
+            }
+        };
+        for part in entry.entry.parts {
+            let ring = plan::vertices(part.outer);
+            let count = ring.len();
+            for index in 0..count {
+                let (Some(&[ax, ay, _]), Some(&[bx, by, _])) =
+                    (ring.get(index), ring.get((index + 1) % count))
+                else {
+                    continue;
+                };
+                let length = (bx - ax).hypot(by - ay);
+                if length <= 0.0 {
+                    continue;
+                }
+                let (ux, uy) = ((bx - ax) / length, (by - ay) / length);
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "a positive station count, clamped"
+                )]
+                let stations = ((length / spacing).ceil() as u32).clamp(1, 1 << 16);
+                for row in 1..=TRANSITION_ROWS {
+                    let offset = spread * f64::from(row) / f64::from(TRANSITION_ROWS);
+                    // Both normals: the distance test keeps the outward side whichever the winding.
+                    for side in [-1.0, 1.0] {
+                        let (nx, ny) = (-uy * side * offset, ux * side * offset);
+                        for station in 0..=stations {
+                            let t = length * f64::from(station) / f64::from(stations);
+                            offer(ax + ux * t + nx, ay + uy * t + ny, offset);
+                        }
+                    }
+                    // Around the corner at `a`: a fan of directions covering any turn.
+                    for step in 0..TRANSITION_FAN {
+                        let angle =
+                            std::f64::consts::TAU * f64::from(step) / f64::from(TRANSITION_FAN);
+                        offer(ax + offset * angle.cos(), ay + offset * angle.sin(), offset);
+                    }
+                }
+            }
+        }
+    }
+    points
+}
+
+/// The ground the region entries compose, as one [`Field`] for the path and outline stages.
+///
+/// #209: composed at the vertices of the baseline split by the entry and mask rings and by
+/// [`transition_points`], so a region between the baseline's own vertices, and its
+/// transition, are part of it. The field stays piecewise linear (daylight roots stay
+/// closed-form); a transition is linear between its rows of points. O(transition points x
+/// ring segments) plus one region split; worker-classified.
 fn region_height_field(
     baseline: &Baseline<'_>,
+    (entry_lines, mask_lines): (&[PlannedLine], &[PlannedMaskLine]),
     prepared: &[PreparedEntry<'_>],
     masks: &[Mask<'_>],
 ) -> Result<Field, BuildError> {
-    let mut heights: Vec<f64> = plan::vertices(baseline.points)
+    if prepared.is_empty() {
+        return Field::new(baseline.points, baseline.triangles).map_err(BuildError::Baseline);
+    }
+    // Without a property line there is nothing to split inside: the baseline's own vertices.
+    let split = match baseline.property {
+        Some(property) => {
+            let mut rings: Vec<&[f64]> = entry_lines
+                .iter()
+                .map(|line| line.points.as_slice())
+                .collect();
+            rings.extend(mask_lines.iter().map(|line| line.points.as_slice()));
+            let spots = transition_points(prepared, property, &rings, &[]);
+            retriangulate_region_with_points(
+                &RegionRequest {
+                    points: baseline.points,
+                    triangles: baseline.triangles,
+                    region: property,
+                    breaklines: &rings,
+                },
+                &spots,
+            )
+            .map_err(BuildError::Region)?
+        }
+        None => baseline_mesh(baseline.points, baseline.triangles)?,
+    };
+    let mut heights: Vec<f64> = plan::vertices(&split.points)
         .iter()
         .map(|&[_, _, z]| z)
         .collect();
@@ -1432,20 +1678,20 @@ fn region_height_field(
         apply_entry(
             entry,
             masks,
-            baseline.points,
+            &split.points,
             &mut heights,
             &mut owners,
             &mut claims,
         )?;
     }
-    let mut points = baseline.points.to_vec();
+    let mut points = split.points;
     let chunks = points.as_chunks_mut::<3>();
     for (height, point) in heights.iter().zip(chunks.0) {
         if let Some(slot) = point.get_mut(2) {
             *slot = *height;
         }
     }
-    Field::new(&points, baseline.triangles).map_err(|_| BuildError::PathCoverage {
+    Field::new(&points, &split.triangles).map_err(|_| BuildError::PathCoverage {
         path: u32::MAX,
         vertex: u32::MAX,
     })
@@ -1543,86 +1789,27 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         })
         .transpose()
         .map_err(BuildError::Outline)?;
-    let mut lines = Vec::new();
-    for entry in plan.entries {
-        for (part_index, part) in entry.parts.iter().enumerate() {
-            let part_index =
-                u32::try_from(part_index).map_err(|_| plan_shape(entry.order, u32::MAX, 0))?;
-            push_ring_lines(&mut lines, part.outer, entry.order, part_index, 0)?;
-            for (hole_index, hole) in part.holes.iter().enumerate() {
-                let ring = u32::try_from(hole_index + 1)
-                    .map_err(|_| plan_shape(entry.order, part_index, u32::MAX))?;
-                push_ring_lines(&mut lines, hole, entry.order, part_index, ring)?;
-            }
-        }
-    }
-    if let Some(property) = baseline.property {
-        // Entry ring segments coinciding with the property ring are dropped:
-        // the region rebuild already constrains the property ring, and a
-        // duplicate breakline degenerates the triangulation. This is the
-        // common "grade the whole property" case.
-        let mut property_segments = std::collections::BTreeSet::new();
-        let vertices = plan::vertices(property);
-        for index in 0..vertices.len() {
-            let (Some(&a), Some(&b)) = (
-                vertices.get(index),
-                vertices.get((index + 1) % vertices.len()),
-            ) else {
-                break;
-            };
-            let key = |&[x, y, _]: &[f64; 3]| (x.to_bits(), y.to_bits());
-            let (ka, kb) = (key(&a), key(&b));
-            property_segments.insert(if kb < ka { (kb, ka) } else { (ka, kb) });
-        }
-        let coincident = |line: &PlannedLine| {
-            let vertices = plan::vertices(&line.points);
-            let (Some(&a), Some(&b)) = (vertices.first(), vertices.get(1)) else {
-                return false;
-            };
-            let key = |&[x, y, _]: &[f64; 3]| (x.to_bits(), y.to_bits());
-            let (ka, kb) = (key(&a), key(&b));
-            property_segments.contains(&if kb < ka { (kb, ka) } else { (ka, kb) })
-        };
-        lines.retain(|line| !coincident(line));
-    }
-    let path_field = if plan.paths.is_empty() {
+    let (lines, mask_lines) = ring_lines(baseline, plan)?;
+    // #209: one composed ground for the path and outline stages, built only when one needs it.
+    let mut ground_field = if plan.paths.is_empty() && paved.is_none() {
         None
     } else {
-        Some(region_height_field(baseline, &prepared, plan.masks)?)
+        Some(region_height_field(
+            baseline,
+            (&lines, &mask_lines),
+            &prepared,
+            plan.masks,
+        )?)
     };
     let mut path_lines = Vec::new();
     for (path_index, path) in plan.paths.iter().enumerate() {
         let path_index =
             u32::try_from(path_index).map_err(|_| BuildError::PathShape { path: u32::MAX })?;
-        let field = path_field.as_ref().ok_or(BuildError::PathCoverage {
+        let field = ground_field.as_ref().ok_or(BuildError::PathCoverage {
             path: path_index,
             vertex: u32::MAX,
         })?;
         push_path_lines(&mut path_lines, path_index, path, field)?;
-    }
-    let mut mask_lines = Vec::new();
-    for (mask_index, mask) in plan.masks.iter().enumerate() {
-        let mask_index = u32::try_from(mask_index).map_err(|_| BuildError::MaskShape {
-            mask: u32::MAX,
-            part: u32::MAX,
-            ring: u32::MAX,
-        })?;
-        for (part_index, part) in mask.parts.iter().enumerate() {
-            let part_index = u32::try_from(part_index).map_err(|_| BuildError::MaskShape {
-                mask: mask_index,
-                part: u32::MAX,
-                ring: u32::MAX,
-            })?;
-            push_mask_lines(&mut mask_lines, mask_index, part_index, 0, part.outer)?;
-            for (hole_index, hole) in part.holes.iter().enumerate() {
-                let ring = u32::try_from(hole_index + 1).map_err(|_| BuildError::MaskShape {
-                    mask: mask_index,
-                    part: part_index,
-                    ring: u32::MAX,
-                })?;
-                push_mask_lines(&mut mask_lines, mask_index, part_index, ring, hole)?;
-            }
-        }
     }
     let mut control_lines = Vec::new();
     let spots = push_control_lines(&mut control_lines, plan.controls)?;
@@ -1659,11 +1846,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             let all_spots = [spots.as_slice(), planned.spots].concat();
             // The toe is traced over the ground the outline grades: the baseline, or the
             // region-composed surface when region entries come first.
-            outline_ground = Some(if prepared.is_empty() {
-                Field::new(baseline.points, baseline.triangles).map_err(BuildError::Baseline)?
-            } else {
-                region_height_field(baseline, &prepared, plan.masks)?
-            });
+            outline_ground = ground_field.take();
             let ground = |x: f64, y: f64| {
                 outline_ground
                     .as_ref()?
@@ -1686,6 +1869,15 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             let first_traced = u32::try_from(breaklines.len()).unwrap_or(u32::MAX);
             let mut with_toe = breaklines.clone();
             with_toe.extend(toe.iter().map(Vec::as_slice));
+            // #209: the regions' transitions resolved in the published mesh, after every
+            // caller spot so their indices are unchanged.
+            let mut clear_of = with_toe.clone();
+            clear_of.extend(supports.lines.iter().map(Vec::as_slice));
+            let all_spots = [
+                all_spots.as_slice(),
+                &transition_points(&prepared, property, &clear_of, &all_spots),
+            ]
+            .concat();
             let caller = |toe_count: usize| {
                 let mut origins: Vec<OutlineLineOrigin> = planned
                     .lines
@@ -1753,7 +1945,14 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             outline_steps = steps;
             meshed
         } else {
-            retriangulate_region_with_points(&request(&breaklines), &spots)
+            // #209: the regions' transitions resolved in the published mesh, after the
+            // control spots so their indices are unchanged.
+            let all_spots = [
+                spots.as_slice(),
+                &transition_points(&prepared, property, &breaklines, &spots),
+            ]
+            .concat();
+            retriangulate_region_with_points(&request(&breaklines), &all_spots)
                 .map_err(BuildError::Region)?
         }
     } else {
