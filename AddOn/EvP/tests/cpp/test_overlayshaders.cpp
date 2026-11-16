@@ -6,6 +6,7 @@
 #include "ArchViz/Dxgi/CameraShaderSource.hpp"
 #include "ArchViz/Dxgi/GuestShaderSources.hpp"
 #include "ArchViz/Dxgi/OverlayShaderSources.hpp"
+#include "ArchViz/Dxgi/SurfaceFocusContext.hpp"
 
 #include <gtest/gtest.h>
 
@@ -147,8 +148,8 @@ TEST (OverlayShaders, TheGuestSceneCompilesForEveryCameraSlot)
     const std::string body = guest::SceneBody ();
     std::vector<char> source (64 * 1024);
     const std::pair<const char*, size_t> expected[] = {
-        { "VSFill", 5 },  // SceneFillVertex: position, normal, offset, rgba, value
-        { "VSLine", 7 },  // SceneLine: a, b, rgba, hidden rgba, style, dashes, behind
+        { "VSFill", 5 },   // SceneFillVertex: position, normal, offset, rgba, value
+        { "VSLine", 7 },   // SceneLine: a, b, rgba, hidden rgba, style, dashes, behind
         { "VSGlyph", 10 }, // SceneGlyph: includes the shared whole-label visibility bound
     };
     for (uint32_t slot = 0; slot < cs::kShaderSlots; ++slot) {
@@ -164,6 +165,13 @@ TEST (OverlayShaders, TheGuestSceneCompilesForEveryCameraSlot)
     ASSERT_TRUE (cs::Compose (0, body.c_str (), source.data (), source.size ()));
     for (const char* entry : { "PSFill", "PSLine", "PSGlyph" })
         EXPECT_EQ (Compile (source.data (), entry, "ps_5_0"), "") << entry;
+}
+
+TEST (OverlayShaders, SurfaceFocusContextCompiles)
+{
+    namespace context = geomsrv::archviz::dxgi::surfacefocuscontext;
+    EXPECT_EQ (Compile (context::kVertexShader, "VSSurfaceContext", "vs_5_0"), "");
+    EXPECT_EQ (Compile (context::kPixelShader, "PSSurfaceContext", "ps_5_0"), "");
 }
 
 TEST (OverlayShaders, TheThreeDLayerCompilesForEveryCameraSlot)

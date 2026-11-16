@@ -5,6 +5,7 @@
 
 #include <imgui.h>
 #include <algorithm>
+#include <cmath>
 #include <string_view>
 
 namespace geomsrv::archviz::surfacetakeoff {
@@ -124,6 +125,18 @@ std::optional<PageAction> MeasuredRows (PageState& page, const Result& result, c
                             highlight.areaM2, highlight.triangles);
         if (highlight.material && ImGui::Button ("Show all surfaces"))
             action = PageAction { PageAction::Kind::Isolate, page.scope, highlight.generation };
+        if (highlight.Focused ()) {
+            int opacity = int (std::lround (highlight.contextOpacity * 100));
+            ImGui::SetNextItemWidth (-1);
+            if (ImGui::SliderInt ("Context opacity", &opacity, 0, 100, "%d%%")) {
+                PageAction changed { PageAction::Kind::ContextOpacity, page.scope, highlight.generation };
+                changed.contextOpacity = opacity / 100.0;
+                action = std::move (changed);
+            }
+            if (ImGui::IsItemHovered (ImGuiHoveredFlags_DelayShort))
+                ImGui::SetTooltip (
+                    "Fade the desaturated model toward a neutral backdrop. The selected highlight stays unchanged.");
+        }
     }
     if (result.selectedAreaM2 <= 0)
         return action;

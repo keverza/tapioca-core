@@ -452,6 +452,7 @@ cbuffer ArchVizConstants
     float4   g_frameControl;    // x = 1 for HDR output (skip Grade, resolve pass tone-maps)
                                 // y = 1 when g_hdrCoverage is TAA-resolved (coverage in RED,
                                 //     not ALPHA -- see kArchVizCoveragePS)
+                                // z = material focus, w = desaturated context opacity
     float4x4 g_motionViewProj;  // RE51.C8: current camera without projection jitter
     float4   g_wireParams;      // x tess factor, y line width px, zw viewport px
     float4   g_sunStudyParams;  // xy = 1/atlas size, z = hours ramp top,
@@ -2098,7 +2099,7 @@ float3 SurfaceFocusContext (float3 color)
     if (g_frameControl.z < 0.5)
         return color;
     const float grey = dot (color, float3 (0.2126, 0.7152, 0.0722));
-    return lerp (float3 (0.60, 0.60, 0.60), float3 (grey, grey, grey), 0.38);
+    return lerp (float3 (0.60, 0.60, 0.60), float3 (grey, grey, grey), saturate (g_frameControl.w));
 }
 
 )hlsl";

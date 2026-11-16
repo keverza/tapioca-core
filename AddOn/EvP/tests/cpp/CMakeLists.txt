@@ -760,6 +760,8 @@ set (EVP_ARCHVIZ_SOURCES
     # What the 3D composition costs per Present: D3D11 timestamp queries in a ring read back
     # without waiting, driven here on a WARP device.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/Dxgi/ComposeTiming.cpp"
+    # Material-focus display pass: owned D3D11 copy/shader resources, no Archicad SDK or camera.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/Dxgi/SurfaceFocusContext.cpp"
     # How an extraction pass tells its empty elements: ordinary, or a gap and why.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ExtractionReport.cpp"
     # Which draw is the 3D camera and how it is found again -- a resize, an edit, a view

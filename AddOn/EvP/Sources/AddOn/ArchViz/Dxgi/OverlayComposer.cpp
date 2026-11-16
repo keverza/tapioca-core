@@ -15,6 +15,7 @@
 #include "ArchViz/Dxgi/LayerOverlay3D.hpp"
 #include "ArchViz/Dxgi/OverlayStyle.hpp"
 #include "ArchViz/Dxgi/SceneGuest.hpp"
+#include "ArchViz/Dxgi/SurfaceFocusContext.hpp"
 
 #include <d3d11_1.h>
 
@@ -152,6 +153,27 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
         return;
     }
 
+    // Material focus changes only the displayed host colours. Selection geometry
+    // still uses the semantic occluder below, with no camera or depth change.
+    if (overlayvisibility::surfaceTakeoffFocused.load ()) {
+        const auto result =
+            surfacefocuscontext::Draw (context, targetView, overlayvisibility::surfaceTakeoffContextOpacity.load ());
+        switch (result) {
+            case surfacefocuscontext::DrawResult::Drawn:
+                ++g_stats.surfaceContextDraws;
+                break;
+            case surfacefocuscontext::DrawResult::NoTarget:
+                ++g_stats.surfaceContextNoTarget;
+                break;
+            case surfacefocuscontext::DrawResult::UnsupportedTarget:
+                ++g_stats.surfaceContextUnsupported;
+                break;
+            case surfacefocuscontext::DrawResult::PipelineError:
+                ++g_stats.surfaceContextErrors;
+                break;
+        }
+    }
+
     // ⚠️ THE HOST DEPTH TAKES THE TARGET'S SAMPLE COUNT, NOT ARCHICAD'S (2026-10-01):
     // Archicad's scene depth can be multisampled while the back buffer we compose into
     // is not, and a depth copied from it is then refused beside the target -- the
@@ -227,6 +249,7 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
 
 void Shutdown ()
 {
+    surfacefocuscontext::Shutdown ();
     hostoverlay::Shutdown ();
     layers3d::ReleaseDeviceObjects ();
     sceneguest::ReleaseDeviceObjects ();

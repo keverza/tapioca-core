@@ -15,7 +15,8 @@ class ViewerEditorDraw {
     }
     size_t ConsumeScene (DiligentScene& scene, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context);
     void Release ();
-    bool SurfaceFocused () const;
+    // Negative when no current material focus is active; otherwise its 0..1 context fade.
+    float SurfaceContextOpacity () const;
     void Update (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, Diligent::ITextureView* target,
                  Diligent::ITextureView* depth, const float* view, const float* projection, uint32_t width,
                  uint32_t height, bool showSurfaceHighlight);

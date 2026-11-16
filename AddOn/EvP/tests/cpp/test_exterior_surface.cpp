@@ -381,6 +381,30 @@ TEST (ExteriorSurface, CriteriaSwatchesAndDirectionFiltersUseCachedClippedGeomet
     EXPECT_LT (isolated.meshes.size (), data.layer.meshes.size ());
     EXPECT_EQ (presentation::UiAreas (data, state), areas); // focusing never changes measured quantities
     EXPECT_EQ (state.focus, 200);
+    const auto contextSlider =
+        std::find_if (isolated.panels[0].items.begin (), isolated.panels[0].items.end (), [&] (const auto& item) {
+            return item.kind == archviz::overlaylayers::ItemKind::Slider &&
+                   item.id == presentation::UiId (state, "contextOpacity");
+        });
+    ASSERT_NE (contextSlider, isolated.panels[0].items.end ());
+    EXPECT_DOUBLE_EQ (contextSlider->number, presentation::kDefaultContextOpacity * 100);
+    EXPECT_DOUBLE_EQ (contextSlider->min, 0);
+    EXPECT_DOUBLE_EQ (contextSlider->max, 100);
+    ASSERT_TRUE (presentation::ApplyUiChange (data, state, "slider", presentation::UiId (state, "contextOpacity"), 25));
+    EXPECT_FLOAT_EQ (state.contextOpacity, .25f);
+    EXPECT_FALSE (
+        presentation::ApplyUiChange (data, state, "slider", presentation::UiId (state, "contextOpacity"), 101));
+    presentation::PageAction contextAction { presentation::PageAction::Kind::ContextOpacity,
+                                             presentation::TargetScope::Construction, 1 };
+    contextAction.contextOpacity = .6;
+    ASSERT_TRUE (presentation::ApplyHighlightSelection (data, state, contextAction));
+    EXPECT_FLOAT_EQ (state.contextOpacity, .6f);
+    contextAction.contextOpacity = -0.1;
+    EXPECT_FALSE (presentation::ApplyHighlightSelection (data, state, contextAction));
+    EXPECT_FLOAT_EQ (state.contextOpacity, .6f);
+    presentation::HighlightSummary contextSummary;
+    presentation::UiLayer (data, state, &contextSummary);
+    EXPECT_FLOAT_EQ (contextSummary.contextOpacity, .6f);
     ASSERT_TRUE (presentation::ApplyUiChange (data, state, "checkbox", presentation::UiId (state, "top"), 0));
     EXPECT_NEAR (presentation::UiAreas (data, state).at (200), 2.4, 1e-6);
     ASSERT_TRUE (presentation::ApplyUiChange (data, state, "checkbox", presentation::UiId (state, "bottom"), 0));

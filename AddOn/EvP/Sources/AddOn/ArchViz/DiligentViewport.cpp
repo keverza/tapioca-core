@@ -826,7 +826,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 request.eye = eye;
                 request.jitter = jitter;
                 request.debugView = hudState.debugView;
-                request.surfaceFocus = !hudState.planMode && !screenshot.Active () && editorDraw.SurfaceFocused ();
+                SetSurfaceFocus (request, hudState.planMode, screenshot.Active (), editorDraw.SurfaceContextOpacity ());
                 request.frameIndex = static_cast<uint32_t> (frames);
                 request.ambientOcclusion = hudState.ambientOcclusion;
                 request.ambientOcclusionIntensity = hudState.ambientOcclusionIntensity;

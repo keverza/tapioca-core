@@ -50,6 +50,10 @@ struct LiveMark {
     uint64_t culled = 0;
     uint64_t mismatch = 0;
     uint64_t hidden = 0;
+    uint64_t surfaceContextDraws = 0;
+    uint64_t surfaceContextNoTarget = 0;
+    uint64_t surfaceContextUnsupported = 0;
+    uint64_t surfaceContextErrors = 0;
     uint64_t sceneNew = 0;
     uint64_t sceneRepeat = 0;
     uint64_t sceneLate = 0;
@@ -342,12 +346,13 @@ void Live (const Health& health)
     // ⚠️ TARGET AND DEPTH SAY THEIR SAMPLE COUNTS AFTER THE SLASH: equal sizes with
     // different counts is a binding D3D11 refuses, and everything composed then lands
     // nowhere while every counter here rises (2026-10-01).
-    char line[512] = {};
+    char line[768] = {};
     _snprintf_s (
         line, sizeof (line), _TRUNCATE,
         "%s present+%llu compose+%llu lines=%u curved=%u host=%u cam=%s vp=%ux%u target=%ux%u/%u depth=%ux%u/%u "
         "rebind=%llu miss=0x%02x | stale+%llu nodepth+%llu nogeom+%llu noedge+%llu nocam+%llu culled+%llu "
-        "mismatch+%llu hidden+%llu cam(new+%llu repeat+%llu LATE+%llu) "
+        "mismatch+%llu hidden+%llu context(+%llu noTarget+%llu unsupported+%llu error+%llu) "
+        "cam(new+%llu repeat+%llu LATE+%llu) "
         "age(0=%llu 1=%llu 2=%llu 3+=%llu max=%u of %llu) suppressed+%llu redraw=%llu",
         compose > g_mark.compose ? "composing" : "NOT COMPOSING", (unsigned long long) (present - g_mark.present),
         (unsigned long long) (compose - g_mark.compose), health.linesDrawn, health.silhouetteEdges,
@@ -362,7 +367,12 @@ void Live (const Health& health)
         (unsigned long long) (health.overlayNoCamera - g_mark.noCamera),
         (unsigned long long) (health.overlayCulled - g_mark.culled),
         (unsigned long long) (health.composeSizeMismatches - g_mark.mismatch),
-        (unsigned long long) (hidden - g_mark.hidden), (unsigned long long) (health.sceneNew - g_mark.sceneNew),
+        (unsigned long long) (hidden - g_mark.hidden),
+        (unsigned long long) (composed.surfaceContextDraws - g_mark.surfaceContextDraws),
+        (unsigned long long) (composed.surfaceContextNoTarget - g_mark.surfaceContextNoTarget),
+        (unsigned long long) (composed.surfaceContextUnsupported - g_mark.surfaceContextUnsupported),
+        (unsigned long long) (composed.surfaceContextErrors - g_mark.surfaceContextErrors),
+        (unsigned long long) (health.sceneNew - g_mark.sceneNew),
         (unsigned long long) (health.sceneRepeat - g_mark.sceneRepeat),
         (unsigned long long) (health.sceneLate - g_mark.sceneLate), (unsigned long long) health.age0,
         (unsigned long long) health.age1, (unsigned long long) health.age2, (unsigned long long) health.age3plus,
@@ -380,6 +390,10 @@ void Live (const Health& health)
     g_mark.culled = health.overlayCulled;
     g_mark.mismatch = health.composeSizeMismatches;
     g_mark.hidden = hidden;
+    g_mark.surfaceContextDraws = composed.surfaceContextDraws;
+    g_mark.surfaceContextNoTarget = composed.surfaceContextNoTarget;
+    g_mark.surfaceContextUnsupported = composed.surfaceContextUnsupported;
+    g_mark.surfaceContextErrors = composed.surfaceContextErrors;
     g_mark.sceneNew = health.sceneNew;
     g_mark.sceneRepeat = health.sceneRepeat;
     g_mark.sceneLate = health.sceneLate;

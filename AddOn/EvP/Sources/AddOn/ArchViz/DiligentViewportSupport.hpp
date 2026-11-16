@@ -84,6 +84,7 @@ struct SceneDrawRequest {
     const float* jitter = nullptr;         // 2
     int debugView = 0;
     bool surfaceFocus = false;
+    float surfaceContextOpacity = 0.38f;
     uint32_t frameIndex = 0;
     // RE51.C3. `intensity` scales the darkening only, never the effect's radius.
     bool ambientOcclusion = true;
@@ -98,6 +99,12 @@ struct SceneDrawRequest {
     bool temporalAntiAliasing = false;
     float taaStability = 0.9f;
 };
+
+inline void SetSurfaceFocus (SceneDrawRequest& request, bool planMode, bool screenshotActive, float contextOpacity)
+{
+    request.surfaceFocus = !planMode && !screenshotActive && contextOpacity >= 0.0f;
+    request.surfaceContextOpacity = request.surfaceFocus ? contextOpacity : 0.38f;
+}
 
 // `lastLoggedGBufferView` is carried by the caller so switching away from a
 // debug view and back reports the camera as it is THEN rather than staying

@@ -353,7 +353,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                           Diligent::ITextureView* depthTarget, const float view[16], const float proj[16],
                           const float viewProj[16], const float motionViewProj[16], const float eye[3],
                           const float jitter[2], CullMode cull, int debugView, float nearClip, float farClip,
-                          float focusDistance, uint32_t frameIndex, bool surfaceFocus)
+                          float focusDistance, uint32_t frameIndex, bool surfaceFocus, float surfaceContextOpacity)
 {
     if (context == nullptr || !impl_->ready)
         return;
@@ -584,6 +584,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // through every per-range upload, exactly as materialParams[1] does.
     constants.frameControl[0] = useHdr ? 1.0f : 0.0f;
     constants.frameControl[2] = surfaceFocus && debugView == 0 ? 1.0f : 0.0f;
+    constants.frameControl[3] = std::clamp (surfaceContextOpacity, 0.0f, 1.0f);
 
     const WhiteBalanceGains balance = ComputeWhiteBalance (impl_->whiteBalanceKelvin, impl_->whiteBalanceTint);
     for (int c = 0; c < 3; ++c)

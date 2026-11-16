@@ -54,6 +54,10 @@ struct Stats {
     // Passes at which the user had hidden the overlay (OverlayVisibility.hpp): the HUD
     // alone drawn, no occluder rendered -- counted, not a silent return (§7).
     uint64_t hidden = 0;
+    uint64_t surfaceContextDraws = 0;
+    uint64_t surfaceContextNoTarget = 0;
+    uint64_t surfaceContextUnsupported = 0;
+    uint64_t surfaceContextErrors = 0;
     uint32_t targetWidth = 0, targetHeight = 0;
     uint32_t depthWidth = 0, depthHeight = 0;
     // ⚠️ AND THE SAMPLE COUNTS (2026-10-01): D3D11 refuses a render target and a depth

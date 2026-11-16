@@ -1,6 +1,7 @@
 // OVERLAY-INVARIANTS.md: pure layer content/state, no renderer or camera changes.
 #include "SurfaceTakeoffLayer.hpp"
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <sstream>
 
@@ -24,6 +25,13 @@ bool IncludedMesh (const Presentation& presentation, const UiState& state, size_
     return (state.materials.empty () || state.materials.contains (presentation.meshSurfaces[i])) &&
            Included (presentation.meshFacings[i], state) && MatchesCriteria (presentation, state, i);
 }
+bool SetContextOpacity (UiState& state, double opacity)
+{
+    if (!std::isfinite (opacity) || opacity < 0 || opacity > 1)
+        return false;
+    state.contextOpacity = float (opacity);
+    return true;
+}
 } // namespace
 UiState InitialUi (const Presentation& presentation, const std::string& token)
 {
@@ -41,6 +49,8 @@ bool ApplyUiChange (const Presentation& presentation, UiState& state, const std:
 {
     if (ApplyCriteriaChange (presentation, state, kind, id, value, text))
         return true;
+    if (kind == "slider" && id == UiId (state, "contextOpacity"))
+        return SetContextOpacity (state, value / 100);
     if (kind == "checkbox" && (value == 0 || value == 1)) {
         bool* flag = nullptr;
         if (id == UiId (state, "top"))
@@ -86,6 +96,8 @@ bool ApplyUiChange (const Presentation& presentation, UiState& state, const std:
 }
 bool ApplyHighlightSelection (const Presentation& presentation, UiState& state, const PageAction& action)
 {
+    if (action.kind == PageAction::Kind::ContextOpacity)
+        return SetContextOpacity (state, action.contextOpacity);
     const auto measured = [&] (int32_t id) {
         return std::any_of (presentation.rows.begin (), presentation.rows.end (),
                             [id] (const auto& row) { return row.index == id && row.areaM2 > 0; });
@@ -125,6 +137,7 @@ layers::Layer HighlightLayer (const Presentation& presentation, const UiState& s
     layer.occlusion = presentation.layer.occlusion;
     summary.material = state.focus;
     summary.materials = state.materials;
+    summary.contextOpacity = state.contextOpacity;
     summary.triangles = 0;
     summary.areaM2 = 0;
     summary.rowAreas.clear ();
@@ -246,6 +259,18 @@ layers::Layer UiLayer (const Presentation& presentation, const UiState& state, H
     button.id = UiId (state, "showAll");
     button.text = "Highlight all matching surfaces";
     panel.items.push_back (button);
+    if (state.focus || state.materials.size () == 1) {
+        layers::PanelItem opacity;
+        opacity.kind = layers::ItemKind::Slider;
+        opacity.id = UiId (state, "contextOpacity");
+        opacity.text = "Context opacity";
+        opacity.number = state.contextOpacity * 100;
+        opacity.min = 0;
+        opacity.max = 100;
+        opacity.step = 1;
+        opacity.unit = "%";
+        panel.items.push_back (opacity);
+    }
     section.text = "Native comparison (different rules)";
     section.open = false;
     panel.items.push_back (section);

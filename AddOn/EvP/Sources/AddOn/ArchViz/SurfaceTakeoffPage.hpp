@@ -19,17 +19,20 @@ struct HostTab;
 namespace geomsrv::archviz::surfacetakeoff {
 
 enum class TargetScope { Construction, Walls };
+constexpr float kDefaultContextOpacity = 0.38f;
 struct PageAction {
-    enum class Kind { Calculate, Cancel, Isolate, FilterMaterials };
+    enum class Kind { Calculate, Cancel, Isolate, FilterMaterials, ContextOpacity };
     Kind kind;
     TargetScope scope;
     uint64_t generation = 0;
     std::optional<int32_t> material = {};
     std::set<int32_t> materials = {};
+    double contextOpacity = kDefaultContextOpacity;
 };
 struct HighlightSummary {
     uint64_t generation = 0;
     std::optional<int32_t> material;
+    float contextOpacity = kDefaultContextOpacity;
     size_t triangles = 0;
     double areaM2 = 0;
     std::set<int32_t> materials;

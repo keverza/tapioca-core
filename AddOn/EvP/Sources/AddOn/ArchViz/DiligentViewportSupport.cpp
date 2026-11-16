@@ -170,7 +170,8 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
                                    camera.Distance (), request.frameIndex, CullMode::Cw);
     scene.Draw (context, request.target, request.depth, request.view, request.proj, request.viewProj,
                 request.motionViewProj, request.eye, request.jitter, CullMode::Cw, request.debugView,
-                Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex, request.surfaceFocus);
+                Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex, request.surfaceFocus,
+                request.surfaceContextOpacity);
     scene.AdvanceFrame (request.motionViewProj);
 }
 

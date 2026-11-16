@@ -36,6 +36,7 @@ inline void SetContentShown (bool shown)
 }
 
 inline std::atomic<bool> surfaceTakeoffFocused { false };
+inline std::atomic<float> surfaceTakeoffContextOpacity { 0.38f };
 
 // Existing-model reference edges only. Keep occluder geometry and analysis layers
 // active when the reference is hidden, in both Present paths.
