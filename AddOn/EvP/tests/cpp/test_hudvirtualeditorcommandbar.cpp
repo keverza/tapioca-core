@@ -4,6 +4,7 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "Edit/EditLandscape.hpp"
+#include "Geometry/Mesh.hpp"
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -110,6 +111,39 @@ TEST (HudVirtualEditorCommandBar, RefusalStaysUntilANewerBuildSucceeds188)
     EXPECT_EQ (bar.find ("Intersection complete."), std::string::npos) << "over the last message" << bar;
     eh::TrackBuildRefusal (s, Status (true, true, 6));
     EXPECT_TRUE (s.buildRefusal.empty ()) << "a newer good build does";
+}
+
+// #157 (live 2026-11-16): the user edited the terrain in Archicad and recaptured it, and
+// "capture it again" stayed. The recapture kept the document revision, so no later build could
+// clear the refusal either. A capture replaces what the refusal was about: it clears it, and a
+// refusal still true of the new terrain comes back with the next build.
+TEST (HudVirtualEditorCommandBar, RecaptureClearsAStaleCaptureRefusal157)
+{
+    eh::Session s;
+    const auto revision = s.edits.Doc ().revision;
+    eh::TrackBuildRefusal (s,
+                           Status (false, false, 0, "TerrainCaptureStale: native terrain changed; capture it again."));
+    ASSERT_FALSE (s.buildRefusal.empty ());
+    eh::TrackBuildRefusal (s, Status (true, true, revision));
+    ASSERT_FALSE (s.buildRefusal.empty ()) << "the #188 rule alone: a build at the same revision keeps it";
+
+    auto mesh = std::make_shared<geomsrv::Mesh> ();
+    mesh->guid = "terrain";
+    mesh->vertices = { 0, 0, 0, 10, 0, 0, 0, 10, 0 };
+    mesh->triangles = { 0, 1, 2 };
+    ASSERT_TRUE (eh::SetTerrainBaseline (s, { mesh, false, {} }, 0)) << s.message;
+    EXPECT_EQ (s.edits.Doc ().revision, revision) << "the case that stuck: the capture keeps the revision";
+    EXPECT_TRUE (s.buildRefusal.empty ()) << "the capture clears it";
+    EXPECT_EQ (eh::ChipState (eh::GetTerrainDesignStatus (s), s.buildRefusal).kind, eh::ChipKind::None)
+        << "no design yet: nothing refused, nothing stale";
+
+    eh::TrackBuildRefusal (s, Status (true, false, revision, "PropertyLineOutside: no ring"));
+    EXPECT_EQ (s.buildRefusal, "PropertyLineOutside: no ring") << "a refusal of the new terrain still stands";
+
+    eh::Session empty;
+    empty.buildRefusal = "PropertyLineOutside: no ring";
+    EXPECT_FALSE (eh::SetTerrainBaseline (empty, { nullptr, false, {} }, 0));
+    EXPECT_FALSE (empty.buildRefusal.empty ()) << "a capture that failed changes nothing";
 }
 
 // Every running command has its Cancel in the prompt row, and pressing it ends the command.

@@ -104,7 +104,8 @@ struct Chip {
 };
 Chip ChipState (const TerrainDesignStatus& status, const std::string& refusal);
 // Keeps Session::buildRefusal from `status`: a refusal is taken as it comes; it is cleared only by
-// a built, current outcome of a newer revision than the refused one.
+// a built, current outcome of a newer revision than the refused one, or by a terrain capture
+// (SetTerrainBaseline, #157), which replaces the input the refusal was about.
 void TrackBuildRefusal (Session& session, const TerrainDesignStatus& status);
 // The design's current path request, as the terrain job will compile it (#105 recipe view);
 // absent when no design exists, it grades regions only, or the build has no Rust kernel.

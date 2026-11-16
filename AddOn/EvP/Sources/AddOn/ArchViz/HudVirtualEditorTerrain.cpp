@@ -351,12 +351,25 @@ bool SetTerrainBaseline (Session& s, TerrainDesignBaseline baseline, edit::Id pa
         s.message = "TerrainCaptureSource: the terrain has no mesh.";
         return false;
     }
-    if (path)
-        return StartTerrainDesign (s, std::move (baseline), path);
+    // #157: a standing refusal described the terrain this capture replaces. A recapture need not
+    // change the document revision, and TrackBuildRefusal keeps a refusal through any build of the
+    // refused revision, so without this the refusal (TerrainCaptureStale above all) outlives the
+    // fix it asks for. A refusal still true of the new terrain comes back with its next build.
+    const auto clearRefusal = [&s] {
+        s.buildRefusal.clear ();
+        s.buildRefusalRevision = 0;
+    };
+    if (path) {
+        if (!StartTerrainDesign (s, std::move (baseline), path))
+            return false;
+        clearRefusal ();
+        return true;
+    }
     // A new terrain replaces the one a design was built on: that design is over.
     s.terrainDesign.reset ();
     s.terrainBaseline = std::make_shared<TerrainDesignBaseline> (std::move (baseline));
     s.publishedRevision = UINT64_MAX;
+    clearRefusal ();
     s.message = "Terrain set. Enable a region's Grade/Raise-only/Lower-only or draw/select a design path.";
     LogTerrain (s, "baseline held guid=" + s.terrainBaseline->mesh->guid);
     return true;
