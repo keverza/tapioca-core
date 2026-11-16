@@ -29,6 +29,18 @@ def test_strict_takeoff_schemas_and_native_registration():
     assert "ArchViz/Dxgi/" not in SOURCE
 
 
+def test_unknown_surface_identity_is_an_explicit_output_bucket():
+    # Issue #193: a derived (unfiltered) scope carries surface 0 as its own row.
+    output = schema("kOutput")["properties"]
+    for name in ("surfaces", "meshes"):
+        assert output[name]["items"]["properties"]["surfaceAttributeIndex"]["minimum"] == 0
+    assert output["nativeSurfaces"]["items"]["properties"]["surfaceAttributeIndex"]["minimum"] == 1
+    assert schema("kInput")["properties"]["surfaceAttributeIndices"]["items"]["minimum"] == 1
+    assert "no captured original project surface" not in SOURCE
+    assert "const bool derivedScope = surfaces.empty ();" in SOURCE
+    assert "surface != view::kUnknownSurfaceIndex" in SOURCE
+
+
 @pytest.mark.parametrize("missing", schema("kInput")["required"])
 def test_required_scope_cannot_be_omitted(missing):
     payload = dict(

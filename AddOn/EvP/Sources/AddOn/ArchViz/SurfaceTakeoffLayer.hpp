@@ -16,6 +16,11 @@ constexpr size_t kAreaPageSize = 50;
 constexpr float kOccludedHighlightOpacity = 0.5f;
 // sRGB conversion of oklch(0.56 0.06 151), rounded to 8-bit channels.
 constexpr uint32_t kHighlightRgba = 0x5A7F62FFu;
+// Captured surface identity 0: generated, GDL or pen-colour faces with no project
+// SURFACE attribute. Never guessed; shown as its own labelled row (catalog is 1-based).
+constexpr int32_t kUnknownSurfaceIndex = 0;
+constexpr const char* kUnknownSurfaceName = "Unknown surface (generated or pen colour)";
+constexpr uint32_t kUnknownSurfaceRgba = 0x808080FFu;
 struct SurfaceRow {
     int32_t index = 0;
     std::string name;

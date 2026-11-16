@@ -348,6 +348,78 @@ TEST (ExteriorSurface, RedYellowOverlayAndPanelUseExactSelectedFragmentTriangles
     EXPECT_TRUE (output.rows.empty ());
 }
 
+TEST (ExteriorSurface, UnknownCapturedSurfaceIsItsOwnExplicitBucket)
+{
+    // Issue #193: a generated/pen-colour face (surface 0) in a derived scope is
+    // measured as its own labelled row, never refused and never guessed.
+    auto snapshot = Capture ();
+    snapshot.meshes[1].triSurfaceAttribute.assign (12, 0);
+    std::vector<ex::FaceKey> faces;
+    std::string error;
+    ASSERT_TRUE (ex::ResolveFacadeRegion (snapshot, { 0, 1 }, { Seed () }, faces, error)) << error;
+    ex::SurfaceSelection selection;
+    ASSERT_TRUE (ex::ResolveSurfaceSelection (snapshot, faces, std::nullopt, selection, error)) << error;
+    ASSERT_FALSE (selection.materialPoolFilter.has_value ());
+    EXPECT_EQ (selection.poolToSurface.at (2), presentation::kUnknownSurfaceIndex);
+    ex::Request request;
+    request.snapshotId = 1;
+    request.captureStamp = 2;
+    request.coverScopeId = "none";
+    request.faces = faces;
+    request.materialPoolFilter = selection.materialPoolFilter;
+    ex::Result result;
+    ASSERT_TRUE (ex::Calculate (snapshot, request, result, error)) << error;
+    presentation::Presentation output;
+    ASSERT_TRUE (presentation::Build (snapshot, result, selection, { 0, 100 }, { { 100, 1 } }, "", output, error))
+        << error;
+    ASSERT_EQ (output.rows.size (), 2u);
+    EXPECT_EQ (output.rows[0].index, presentation::kUnknownSurfaceIndex);
+    EXPECT_EQ (output.rows[0].name, presentation::kUnknownSurfaceName);
+    EXPECT_EQ (output.rows[0].rgba, presentation::kUnknownSurfaceRgba);
+    EXPECT_DOUBLE_EQ (output.rows[0].areaM2, 1);
+    EXPECT_DOUBLE_EQ (output.rows[1].areaM2, 1);
+    EXPECT_DOUBLE_EQ (output.areaM2, result.areas.selectedExposedArea);
+
+    geomsrv::surfacetakeoff::Result published;
+    published.snapshotId = snapshot.id;
+    published.captureStamp = snapshot.captureStamp;
+    published.classification = "userExteriorSeeds-connectedCoplanar";
+    published.unit = "m2";
+    published.coverScopeId = result.coverScopeId;
+    published.contactToleranceM = result.contactToleranceM;
+    for (const auto& entry : result.byElementGuid)
+        published.regionElementGuids.push_back (entry.first);
+    published.selectedTriangleCount = output.triangles;
+    published.selectedAreaM2 = output.areaM2;
+    for (const auto& row : output.rows)
+        published.surfaces.push_back ({ row.index, row.name, row.rgba, row.areaM2 });
+    for (const auto& [index, area] : output.nativeAreas)
+        published.nativeSurfaces.push_back ({ index, area });
+    for (const auto& fragment : result.fragments) {
+        geomsrv::surfacetakeoff::FragmentMesh mesh;
+        mesh.guid = snapshot.meshes[fragment.source.body.meshIndex].guid;
+        mesh.sourceBody = fragment.source.body.sourceBody;
+        mesh.sourcePgon = fragment.source.sourcePgon;
+        mesh.surfaceAttributeIndex = selection.poolToSurface.at (fragment.materialPoolIndex);
+        mesh.areaM2 = fragment.areaM2;
+        mesh.points = fragment.points;
+        mesh.triangles = fragment.triangles;
+        published.meshes.push_back (std::move (mesh));
+    }
+    presentation::Presentation restored;
+    ASSERT_TRUE (presentation::BuildFromResult (snapshot, published, restored, error)) << error;
+    EXPECT_EQ (restored.rows.size (), output.rows.size ());
+    EXPECT_DOUBLE_EQ (restored.areaM2, output.areaM2);
+    EXPECT_FALSE (restored.nativeAreas.contains (presentation::kUnknownSurfaceIndex));
+    auto renamed = published;
+    renamed.surfaces[0].name = "Stucco red";
+    EXPECT_FALSE (presentation::BuildFromResult (snapshot, renamed, restored, error));
+
+    // Negative control: an explicit surface filter still refuses the unknown face.
+    EXPECT_FALSE (ex::ResolveSurfaceSelection (snapshot, faces, std::set<int32_t> { 100 }, selection, error));
+    EXPECT_NE (error.find ("no original project surface"), std::string::npos) << error;
+}
+
 TEST (ExteriorSurface, CriteriaSwatchesAndDirectionFiltersUseCachedClippedGeometry)
 {
     auto snapshot = Capture ();

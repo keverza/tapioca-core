@@ -272,10 +272,10 @@ def test_criteria_candidates_have_an_automatic_multimaterial_tolerant_capture(li
     assert {normalized_guid(g) for g in data["regionElementGuids"]} == {normalized_guid(g) for g in targets}
     assert 3 <= len(data["surfaces"]) <= 512, "Fixture must exercise a list, not two finish slots"
     captured_colors = {row["surfaceAttributeIndex"]: row["rgba"] for row in catalog}
-    assert all(row["rgba"] == captured_colors[row["surfaceAttributeIndex"]] for row in data["surfaces"])
-    assert {row["surfaceAttributeIndex"] for row in data["surfaces"]} <= {
-        row["surfaceAttributeIndex"] for row in catalog
-    }
+    known = [row for row in data["surfaces"] if row["surfaceAttributeIndex"] != 0]
+    # Identity 0 is the explicit generated/pen-colour bucket, never a catalog key.
+    assert all(row["rgba"] == captured_colors[row["surfaceAttributeIndex"]] for row in known)
+    assert {row["surfaceAttributeIndex"] for row in known} <= {row["surfaceAttributeIndex"] for row in catalog}
     measured = {row["surfaceAttributeIndex"]: 0.0 for row in data["surfaces"]}
     for mesh in data["meshes"]:
         area = triangle_area(mesh)

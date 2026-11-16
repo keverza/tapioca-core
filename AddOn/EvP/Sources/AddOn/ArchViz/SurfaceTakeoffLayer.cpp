@@ -46,6 +46,13 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
         return fail ("Missing selected surface colors.");
     std::map<int32_t, size_t> positions;
     for (int32_t index : surfaces) {
+        if (index == kUnknownSurfaceIndex) {
+            if (positions.contains (index))
+                return fail ("Missing/duplicate selected project surface.");
+            positions[index] = prepared.rows.size ();
+            prepared.rows.push_back ({ index, kUnknownSurfaceName, kUnknownSurfaceRgba, 0 });
+            continue;
+        }
         const auto found = snapshot.surfaceAttributes.find (index);
         if (found == snapshot.surfaceAttributes.end () || positions.contains (index))
             return fail ("Missing/duplicate selected project surface.");
@@ -162,6 +169,14 @@ bool BuildFromResult (const Snapshot& snapshot, const geomsrv::surfacetakeoff::R
     }
     std::map<int32_t, size_t> positions;
     for (const auto& row : result.surfaces) {
+        if (row.surfaceAttributeIndex == kUnknownSurfaceIndex) {
+            if (row.name != kUnknownSurfaceName || row.rgba != kUnknownSurfaceRgba ||
+                positions.contains (row.surfaceAttributeIndex) || !std::isfinite (row.areaM2) || row.areaM2 < 0)
+                return fail ("Invalid published project surface row.");
+            positions[row.surfaceAttributeIndex] = prepared.rows.size ();
+            prepared.rows.push_back ({ row.surfaceAttributeIndex, row.name, row.rgba, 0 });
+            continue;
+        }
         const auto found = snapshot.surfaceAttributes.find (row.surfaceAttributeIndex);
         if (found == snapshot.surfaceAttributes.end () || found->second.name != row.name ||
             positions.contains (row.surfaceAttributeIndex) || row.rgba != found->second.rgba ||

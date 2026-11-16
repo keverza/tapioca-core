@@ -94,10 +94,10 @@ const char kOutput[] = R"json({
   "nativeSurfaces":{"type":"array","items":{"type":"object","additionalProperties":false,
     "properties":{"surfaceAttributeIndex":{"type":"integer","minimum":1},"areaM2":{"type":"number","minimum":0}},"required":["surfaceAttributeIndex","areaM2"]}},
   "surfaces":{"type":"array","items":{"type":"object","additionalProperties":false,
-    "properties":{"surfaceAttributeIndex":{"type":"integer","minimum":1},"name":{"type":"string"},"rgba":{"type":"integer","minimum":0},"areaM2":{"type":"number","minimum":0}},"required":["surfaceAttributeIndex","name","rgba","areaM2"]}},
+    "properties":{"surfaceAttributeIndex":{"type":"integer","minimum":0},"name":{"type":"string"},"rgba":{"type":"integer","minimum":0},"areaM2":{"type":"number","minimum":0}},"required":["surfaceAttributeIndex","name","rgba","areaM2"]}},
   "meshes":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{
     "guid":{"type":"string"},"sourceBody":{"type":"integer","minimum":1},"sourcePgon":{"type":"integer","minimum":1},
-    "surfaceAttributeIndex":{"type":"integer","minimum":1},"areaM2":{"type":"number","exclusiveMinimum":0},
+    "surfaceAttributeIndex":{"type":"integer","minimum":0},"areaM2":{"type":"number","exclusiveMinimum":0},
     "points":{"type":"array","minItems":9,"items":{"type":"number"}},"triangles":{"type":"array","minItems":3,"items":{"type":"integer","minimum":0}}
   },"required":["guid","sourceBody","sourcePgon","surfaceAttributeIndex","areaM2","points","triangles"]}}
   },"required":["snapshotId","captureStamp","classification","unit","coverScopeId","coverGuids","contactToleranceM","regionFaceCount","coverBodyCount","regionElementGuids","selectedTriangleCount","selectedAreaM2","overlayPublished","nativeComparisonAvailable","nativeComparisonNote","nativeSurfaces","surfaces","meshes"]
@@ -254,15 +254,16 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
             return fail (error);
         std::vector<int32_t> surfaces = input.surfaceAttributeIndices;
         ex::SurfaceSelection selection;
-        if (surfaces.empty ()) {
+        // No caller scope: the scope is every captured surface of the region, computed
+        // UNFILTERED. Identity 0 (generated/pen-derived, never guessed) is its own row;
+        // an explicit caller scope keeps the strict filtered refusal (issue #193).
+        const bool derivedScope = surfaces.empty ();
+        if (derivedScope) {
             if (!ex::ResolveSurfaceSelection (*snapshot, request.faces, std::nullopt, selection, error))
                 return fail (error);
             std::set<int32_t> captured;
-            for (const auto& entry : selection.poolToSurface) {
-                if (entry.second <= 0)
-                    return fail ("A wall face has no captured original project surface.");
+            for (const auto& entry : selection.poolToSurface)
                 captured.insert (entry.second);
-            }
             if (captured.empty () || captured.size () > view::kMaxSurfaces)
                 return fail ("The criteria capture requires 1..512 candidate surfaces.");
             surfaces.assign (captured.begin (), captured.end ());
@@ -275,7 +276,8 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
             if (!values.empty ())
                 colors.assign (values.begin (), values.end ());
         }
-        if (!ex::ResolveSurfaceSelection (*snapshot, request.faces,
+        if (!derivedScope &&
+            !ex::ResolveSurfaceSelection (*snapshot, request.faces,
                                           std::set<int32_t> (surfaces.begin (), surfaces.end ()), selection, error))
             return fail (error);
         request.materialPoolFilter = selection.materialPoolFilter;
@@ -321,7 +323,8 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
                        : "Native whole-element comparison unavailable: " + Utf8 (quantity->error);
             if (quantity->ok) {
                 for (int32_t surface : surfaces)
-                    nativeAreas[surface] = 0;
+                    if (surface != view::kUnknownSurfaceIndex)
+                        nativeAreas[surface] = 0;
                 GS::Array<GS::ObjectState> rows;
                 quantity->data.Get ("elements", rows);
                 for (const auto& row : rows) {
@@ -507,7 +510,8 @@ bool FinalizeNativeComparison (surfacetakeoff::Result& result, std::string& erro
     if (quantity.ok) {
         std::map<int32_t, double> areas;
         for (const auto& row : result.surfaces)
-            areas[row.surfaceAttributeIndex] = 0;
+            if (row.surfaceAttributeIndex != archviz::surfacetakeoff::kUnknownSurfaceIndex)
+                areas[row.surfaceAttributeIndex] = 0;
         GS::Array<GS::ObjectState> rows;
         quantity.data.Get ("elements", rows);
         for (const auto& row : rows) {
