@@ -242,7 +242,8 @@ TEST (ExteriorSurface, RedYellowOverlayAndPanelUseExactSelectedFragmentTriangles
         EXPECT_EQ (output.layer.meshes[i].rgba, snapshot.surfaceAttributes.at (output.meshSurfaces[i]).rgba);
         EXPECT_EQ (output.layer.meshes[i].style.edgeRgba, 0u);
         EXPECT_EQ (output.layer.meshes[i].style.opacity, .5f);
-        EXPECT_EQ (output.layer.meshes[i].style.behind, archviz::overlaylayers::Behind::Show);
+        EXPECT_EQ (output.layer.meshes[i].style.behind, archviz::overlaylayers::Behind::Fade);
+        EXPECT_EQ (output.layer.meshes[i].style.occludedOpacity, presentation::kOccludedHighlightOpacity);
         EXPECT_FALSE (output.layer.meshes[i].style.cullBack);
     }
     geomsrv::surfacetakeoff::Result published;
@@ -311,8 +312,16 @@ TEST (ExteriorSurface, RedYellowOverlayAndPanelUseExactSelectedFragmentTriangles
     }
     EXPECT_EQ (isolated.triangles, materialTriangles);
     EXPECT_NEAR (isolated.areaM2, materialArea, 1e-6);
-    for (const auto& edge : viewer.polylines)
+    for (const auto& mesh : viewer.meshes) {
+        EXPECT_EQ (mesh.style.opacity, .85f);
+        EXPECT_EQ (mesh.style.behind, archviz::overlaylayers::Behind::Fade);
+        EXPECT_EQ (mesh.style.occludedOpacity, presentation::kOccludedHighlightOpacity);
+    }
+    for (const auto& edge : viewer.polylines) {
         EXPECT_EQ (edge.rgba, snapshot.surfaceAttributes.at (*ui.focus).rgba);
+        EXPECT_EQ (edge.behind, archviz::overlaylayers::Behind::Fade);
+        EXPECT_EQ (edge.hidden.rgba & 0xFFu, 0x80u);
+    }
     presentation::PageAction filter {
         presentation::PageAction::Kind::FilterMaterials, presentation::TargetScope::Construction, 1, {}, { *ui.focus }
     };

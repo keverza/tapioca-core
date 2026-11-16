@@ -13,6 +13,7 @@ constexpr const char* kLayer = "tapioca.exposedSurfaces";
 constexpr const char* kWorkflowKey = "tapioca.exposedSurfaces#0";
 constexpr size_t kMaxSurfaces = 512; // bounded by the candidate-face budget, not the project catalog
 constexpr size_t kAreaPageSize = 50;
+constexpr float kOccludedHighlightOpacity = 0.5f;
 // sRGB conversion of oklch(0.56 0.06 151), rounded to 8-bit channels.
 constexpr uint32_t kHighlightRgba = 0x5A7F62FFu;
 struct SurfaceRow {

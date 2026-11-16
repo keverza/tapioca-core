@@ -34,7 +34,7 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
     auto& layer = prepared.layer;
     layer.name = kLayer;
     layer.views = overlaylayers::Views::ThreeD;
-    layer.occlusion = overlaylayers::Behind::Show;
+    layer.occlusion = overlaylayers::Behind::Fade;
     for (const auto& entry : result.byElementGuid) {
         const auto mesh = std::find_if (snapshot.meshes.begin (), snapshot.meshes.end (),
                                         [&] (const auto& value) { return value.guid == entry.first; });
@@ -98,8 +98,9 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
         mesh.rgba = row.rgba;
         mesh.styled = true;
         mesh.style.opacity = .5f;
-        mesh.style.behind = overlaylayers::Behind::Show;
-        mesh.style.cullBack = false; // selected faces stay inspectable through the model from either side
+        mesh.style.behind = overlaylayers::Behind::Fade;
+        mesh.style.occludedOpacity = kOccludedHighlightOpacity;
+        mesh.style.cullBack = false; // both sides remain inspectable; hidden fill retains half its alpha
         mesh.style.edgeRgba = 0;     // BoundaryLines owns outlines across fragment/element seams.
         mesh.style.edgeWidthPixels = 1.5f;
         mesh.hoverTitle = row.name;
@@ -151,7 +152,7 @@ bool BuildFromResult (const Snapshot& snapshot, const geomsrv::surfacetakeoff::R
     auto& layer = prepared.layer;
     layer.name = kLayer;
     layer.views = overlaylayers::Views::ThreeD;
-    layer.occlusion = overlaylayers::Behind::Show;
+    layer.occlusion = overlaylayers::Behind::Fade;
     for (const auto& guid : result.regionElementGuids) {
         const auto mesh = std::find_if (snapshot.meshes.begin (), snapshot.meshes.end (),
                                         [&] (const auto& value) { return value.guid == guid; });
@@ -211,7 +212,8 @@ bool BuildFromResult (const Snapshot& snapshot, const geomsrv::surfacetakeoff::R
         mesh.rgba = row.rgba;
         mesh.styled = true;
         mesh.style.opacity = .5f;
-        mesh.style.behind = overlaylayers::Behind::Show;
+        mesh.style.behind = overlaylayers::Behind::Fade;
+        mesh.style.occludedOpacity = kOccludedHighlightOpacity;
         mesh.style.cullBack = false;
         mesh.style.edgeRgba = 0;
         mesh.style.edgeWidthPixels = 1.5f;

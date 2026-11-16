@@ -68,7 +68,8 @@ bool BoundaryLines (const Presentation& presentation, const std::vector<size_t>&
             overlaylayers::Polyline line;
             line.closed = true;
             line.rgba = group.rgba | 0xFFu;
-            line.behind = overlaylayers::Behind::Show;
+            line.hidden.rgba = (line.rgba & 0xFFFFFF00u) | 0x80u;
+            line.behind = overlaylayers::Behind::Fade;
             line.widthPixels = 2.5f;
             for (const auto& point : loop) {
                 const V world = group.frame.Lift (point);
