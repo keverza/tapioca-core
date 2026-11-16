@@ -25,7 +25,7 @@ void Engine::Impl::Criteria (const layers::Panel& panel, const layers::PanelItem
         return;
     const float em = ImGui::GetFontSize ();
     ImGui::TableSetupColumn ("(", ImGuiTableColumnFlags_WidthFixed, 2 * em);
-    ImGui::TableSetupColumn ("Criterion", ImGuiTableColumnFlags_WidthFixed, 10 * em);
+    ImGui::TableSetupColumn ("Criterion", ImGuiTableColumnFlags_WidthFixed, 7 * em);
     ImGui::TableSetupColumn ("Condition", ImGuiTableColumnFlags_WidthFixed, 7 * em);
     ImGui::TableSetupColumn ("Value", ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableSetupColumn (")", ImGuiTableColumnFlags_WidthFixed, 2 * em);
