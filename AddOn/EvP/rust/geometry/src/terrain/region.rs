@@ -207,7 +207,29 @@ pub fn retriangulate_region_with_points(
     request: &RegionRequest<'_>,
     spots: &[f64],
 ) -> Result<RegionMesh, RegionError> {
-    rebuild(request, spots, request.breaklines.len(), false)
+    rebuild(request, spots, request.breaklines.len(), false, None)
+}
+
+/// Where a constrained base edge from `a` to `b` (plan positions) takes extra vertices: edge
+/// parameters strictly between 0 and 1, ascending (#219).
+pub(super) type EdgeSplits<'a> = &'a dyn Fn([f64; 2], [f64; 2]) -> Vec<f64>;
+
+/// As [`retriangulate_region_with_points`], with every constrained interior base edge split
+/// where `splits` asks (#219): the edge becomes a chain through those vertices, each a
+/// [`RegionVertex::Refined`]. The base surface is affine along the edge, so the result is still
+/// the base surface; a caller resolving a transition across the edge gets vertices on it.
+pub(super) fn retriangulate_region_split(
+    request: &RegionRequest<'_>,
+    spots: &[f64],
+    splits: EdgeSplits<'_>,
+) -> Result<RegionMesh, RegionError> {
+    rebuild(
+        request,
+        spots,
+        request.breaklines.len(),
+        false,
+        Some(splits),
+    )
 }
 
 /// Outline-only pre-clipped supports. The augmented ring contains every support
@@ -226,6 +248,7 @@ pub(super) fn retriangulate_with_supports(
     spots: &[f64],
     ring: &[f64],
     supports: &[Vec<f64>],
+    splits: Option<EdgeSplits<'_>>,
 ) -> Result<RegionMesh, RegionError> {
     validate_breaklines(request, request.breaklines.len())?;
     let mut lines = request.breaklines.to_vec();
@@ -239,6 +262,7 @@ pub(super) fn retriangulate_with_supports(
         spots,
         request.breaklines.len(),
         true,
+        splits,
     )
 }
 
@@ -305,6 +329,7 @@ fn rebuild(
     spots: &[f64],
     strict: usize,
     free_coplanar: bool,
+    splits: Option<EdgeSplits<'_>>,
 ) -> Result<RegionMesh, RegionError> {
     let field = Field::new(request.points, request.triangles)
         .map_err(|_| RegionError::Terrain(Error::Shape))?;
@@ -400,14 +425,31 @@ fn rebuild(
     for &[x, y, _] in plan::vertices(spots) {
         points.extend([x, y, 0.0]);
     }
+    let spot_end = points.len() / 3;
     let boundary = ring
         .iter()
         .map(|&v| local(v))
         .collect::<Result<Vec<_>, _>>()?;
-    let edges = interior
-        .iter()
-        .map(|&[a, b]| Ok([local(a)?, local(b)?]))
-        .collect::<Result<Vec<[u32; 2]>, RegionError>>()?;
+    // #219: an edge split where the caller asks is a chain through the new vertices.
+    let mut edges: Vec<Vec<u32>> = Vec::with_capacity(interior.len());
+    for &[a, b] in &interior {
+        let mut chain = vec![local(a)?];
+        if let Some(splits) = splits {
+            let (Some(&[ax, ay, _]), Some(&[bx, by, _])) =
+                (split_points.get(a as usize), split_points.get(b as usize))
+            else {
+                return Err(RegionError::Topology);
+            };
+            for t in splits([ax, ay], [bx, by]) {
+                if t > 0.0 && t < 1.0 {
+                    chain.push(index(points.len() / 3)?);
+                    points.extend([(bx - ax).mul_add(t, ax), (by - ay).mul_add(t, ay), 0.0]);
+                }
+            }
+        }
+        chain.push(local(b)?);
+        edges.push(chain);
+    }
     let mut constraints = vec![Constraint {
         role: Role::Boundary,
         vertices: &boundary,
@@ -467,8 +509,10 @@ fn rebuild(
                     .get(input - mesh_count)
                     .ok_or(RegionError::Topology)?;
                 Err(RegionVertex::Breakline { line, vertex })
-            } else {
+            } else if input < spot_end {
                 Err(RegionVertex::Point(index(input - spot_start)?))
+            } else {
+                Err(RegionVertex::Refined)
             });
         }
     }
@@ -563,7 +607,7 @@ fn rebuild(
         .collect::<Result<Vec<_>, _>>()?;
     let point_vertices = tin
         .input_vertices
-        .get(spot_start..)
+        .get(spot_start..spot_end)
         .ok_or(RegionError::Topology)?
         .iter()
         .map(|&vertex| map(vertex))

@@ -147,10 +147,17 @@ bool BoundaryLoops (const Surface& s, std::vector<std::vector<uint32_t>>& loops)
     return true;
 }
 
-Vec3 Normal (const Surface& s, uint32_t face)
+// `heights` (optional, one per vertex): the face's normal at those heights instead of its own.
+Vec3 Normal (const Surface& s, uint32_t face, const std::vector<double>* heights = nullptr)
 {
     const auto& t = *s.triangles;
-    const Vec3 a = s.vertices[t[face * 3]], u = s.vertices[t[face * 3 + 1]] - a, v = s.vertices[t[face * 3 + 2]] - a;
+    const auto at = [&] (uint32_t v) {
+        Vec3 p = s.vertices[v];
+        if (heights)
+            p.z = (*heights)[v];
+        return p;
+    };
+    const Vec3 a = at (t[face * 3]), u = at (t[face * 3 + 1]) - a, v = at (t[face * 3 + 2]) - a;
     const Vec3 n { u.y * v.z - u.z * v.y, u.z * v.x - u.x * v.z, u.x * v.y - u.y * v.x };
     const double length = Length (n);
     return length > 1.0e-14 ? n * (1.0 / length) : Vec3 {};
@@ -159,14 +166,17 @@ Vec3 Normal (const Surface& s, uint32_t face)
 // The edges folded by more than `degrees`, joined end to end: a chain runs from one branching
 // or ending vertex to the next; what is left over are rings.
 // `faces` (optional, one flag per triangle): only an edge both of whose faces it marks.
-std::vector<BakeLine> Creases (const Surface& s, double degrees, const std::vector<char>* faces = nullptr)
+// `heights` (optional, one per vertex): the fold measured at those heights (#219: the existing
+// ground's, so a design that moved a vertex by millimetres adds no fold of the ground).
+std::vector<BakeLine> Creases (const Surface& s, double degrees, const std::vector<char>* faces = nullptr,
+                               const std::vector<double>* heights = nullptr)
 {
     const double limit = std::cos (std::clamp (degrees, 0.1, 89.0) * 3.14159265358979323846 / 180.0);
     std::map<uint32_t, std::vector<uint32_t>> around;
     for (const auto& [key, use] : s.edges) {
         if (use.count != 2 || (faces && (!(*faces)[use.faces[0]] || !(*faces)[use.faces[1]])))
             continue;
-        const Vec3 a = Normal (s, use.faces[0]), b = Normal (s, use.faces[1]);
+        const Vec3 a = Normal (s, use.faces[0], heights), b = Normal (s, use.faces[1], heights);
         if (Dot (a, a) == 0.0 || Dot (b, b) == 0.0 || Dot (a, b) >= limit)
             continue;
         around[use.from].push_back (use.to);
@@ -531,7 +541,10 @@ BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<u
     if (signature) {
         const bool every = options.folds || !designed;
         if (every || toe)
-            for (auto& line : Creases (s, options.creaseDegrees, every ? nullptr : &untouched))
+            // The untouched ground's folds are its own, at the heights it had: a transition's
+            // last millimetres before the ground (#219: refined to 1 cm) are the design's.
+            for (auto& line :
+                 Creases (s, options.creaseDegrees, every ? nullptr : &untouched, every ? nullptr : &design.base))
                 traced.push_back (std::move (line));
     }
     // A peak or pit of the untouched ground that no line passes through yet (a gentle one, under

@@ -264,6 +264,10 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
             outcome.unmet.push_back (std::to_string (job.doc->paths.size () - plan.paths.size ()) + " of " +
                                      std::to_string (job.doc->paths.size ()) +
                                      " paths are not graded: band grading grades one selected path.");
+        if (unified.transitionWidened)
+            // #219: the region transitions needed more points than one build takes.
+            outcome.unmet.push_back ("The region transitions are built coarser than 1 cm of height: there are too "
+                                     "many for one build. Shorten the falloffs or reaches to keep that detail.");
     };
     try {
         run ();

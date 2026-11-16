@@ -276,6 +276,11 @@ pub struct UnifiedMeta {
     pub outline_unreached: u32,
     /// Rebuild-ring samples where an outline face had not met the ground.
     pub outline_clipped: u32,
+    /// 1 when the point cap spaced the region transitions' rays wider than the
+    /// vertical tolerance asks (#219).
+    pub transition_widened: u32,
+    /// Region-transition rays still over the vertical tolerance (#219).
+    pub transition_unresolved: u32,
 }
 
 /// Authored origin of one constrained breakline, in breakline order: every
@@ -675,6 +680,7 @@ pub(super) fn encode(built: kernel::BuiltTerrain) -> Result<Encoded, Failure> {
         outline_unreached,
         outline_clipped,
         outline_steps,
+        transition,
         locked,
         volumes: report,
         revision,
@@ -849,6 +855,8 @@ pub(super) fn encode(built: kernel::BuiltTerrain) -> Result<Encoded, Failure> {
             plan_hash,
             outline_unreached,
             outline_clipped,
+            transition_widened: u32::from(transition.widened),
+            transition_unresolved: transition.unresolved,
         },
         points,
         base,

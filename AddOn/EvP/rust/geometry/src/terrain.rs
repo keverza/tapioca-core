@@ -59,8 +59,8 @@ pub use split::{Host, LineEdge, NewVertex, Origin, SplitMesh, SplitRequest, spli
 pub use unified::{
     Baseline, BuildError, BuiltTerrain, Control, ControlLineOrigin, Entry, LineOrigin,
     LockedVertex, Mask, MaskKind, MaskLineOrigin, Outline, OutlineLineOrigin, Part, Path,
-    PathLineOrigin, Plan, Surface, Terrain, TerrainEffect, Transition, build_terrain,
-    field_preview,
+    PathLineOrigin, Plan, Surface, Terrain, TerrainEffect, Transition, TransitionReport,
+    build_terrain, field_preview,
 };
 pub use verify::{extract_edges, verify_constraints};
 

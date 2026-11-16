@@ -169,7 +169,7 @@ TEST (GeometryRustUnifiedTerrain, AbiLayouts)
     static_assert (sizeof (TapiocaUnifiedMask) == 32);
     static_assert (sizeof (TapiocaUnifiedControl) == 56);
     static_assert (sizeof (TapiocaUnifiedCounts) == 48);
-    static_assert (sizeof (TapiocaUnifiedMeta) == 24);
+    static_assert (sizeof (TapiocaUnifiedMeta) == 32);
     static_assert (sizeof (TapiocaUnifiedOutline) == 120);
     static_assert (sizeof (TapiocaUnifiedLine) == 32);
     static_assert (sizeof (TapiocaUnifiedLocked) == 16);

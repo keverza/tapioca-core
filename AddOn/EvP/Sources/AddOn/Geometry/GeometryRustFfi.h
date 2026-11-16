@@ -866,6 +866,9 @@ typedef struct {
 typedef struct {
     uint64_t revision, planHash;
     uint32_t outlineUnreached, outlineClipped; /* #149 T1 located shortfalls. */
+    /* #219: 1 when the point cap widened the region transitions' rays; rays still over the
+       vertical tolerance. */
+    uint32_t transitionWidened, transitionUnresolved;
 } TapiocaUnifiedMeta;
 typedef struct {
     uint32_t domain, index, part, ring, segment, kind, side, root;

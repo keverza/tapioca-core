@@ -2051,3 +2051,192 @@ fn a_path_face_lying_along_a_region_daylight_face_builds() -> Result<(), BuildEr
     }
     Ok(())
 }
+
+/// Largest vertical gap between the built surface and `analytic(distance)` over a 5 cm grid of the
+/// belt around the square region 90..110, and the build.
+fn transition_error(
+    baseline: (&[f64], &[u32]),
+    transition: Transition,
+    analytic: fn(f64) -> f64,
+) -> Result<(f64, BuiltTerrain), BuildError> {
+    let property = ring(&[[1.0, 1.0], [199.0, 1.0], [199.0, 199.0], [1.0, 199.0]]);
+    let outer = ring(&[[90.0, 90.0], [110.0, 90.0], [110.0, 110.0], [90.0, 110.0]]);
+    let parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        2.0,
+        TerrainEffect::Grade,
+        transition,
+    )];
+    let plan = Plan {
+        revision: 219,
+        hash: 2191,
+        entries: &entries,
+        paths: &[],
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+        outlines: &[],
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: baseline.0,
+            triangles: baseline.1,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    assert_mesh_invariants(&built);
+    let field = Field::new(&built.points, &built.mesh.triangles).map_err(BuildError::Baseline)?;
+    let mut worst = 0.0_f64;
+    for i in 0..=800 {
+        for j in 0..=800 {
+            let (x, y) = (80.0 + f64::from(i) * 0.05, 80.0 + f64::from(j) * 0.05);
+            let distance = distance_to_parts(&parts, x, y).unwrap_or(0.0);
+            if distance > 0.0 {
+                let height = field
+                    .height_at(x, y)
+                    .map_or(f64::NAN, |sample| sample.height);
+                worst = worst.max((height - analytic(distance)).abs());
+            }
+        }
+    }
+    Ok((worst, built))
+}
+
+/// #219: on a coarse site (two triangles, 200 m) a 2 m region's transition is within the 1 cm
+/// vertical tolerance everywhere: a falloff's curve, a daylight toe that falls between the
+/// starting rows, and the corner where the baseline's own diagonal edge leaves the region's
+/// corner. Four fixed rows erred by 3.8 %, 16.7 % and 1.9 % of the rise here, and the
+/// diagonal was one edge from the region's corner to the site's.
+#[test]
+fn region_transitions_are_within_the_vertical_tolerance_on_a_coarse_site() -> Result<(), BuildError>
+{
+    let (points, triangles) = surface(2, 200.0, |_, _| 0.0);
+    for (transition, analytic) in [
+        (
+            Transition::Falloff { blur: 8.0 },
+            (|d: f64| 2.0 * (1.0 - smoother_step(d / 8.0))) as fn(f64) -> f64,
+        ),
+        (daylight(6.0), |d: f64| (2.0 - d).max(0.0)),
+        (daylight(8.0), |d: f64| (2.0 - d).max(0.0)),
+    ] {
+        let (worst, built) = transition_error((&points, &triangles), transition, analytic)?;
+        assert!(worst <= TRANSITION_TOLERANCE, "{transition:?}: {worst} m");
+        assert_eq!(
+            built.transition,
+            TransitionReport::default(),
+            "{transition:?}"
+        );
+    }
+    Ok(())
+}
+
+/// #219: more transition points than the cap are spaced wider and the build says so.
+#[test]
+fn transition_points_past_the_cap_are_reported_widened() -> Result<(), BuildError> {
+    let (points, triangles) = surface(2, 400.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [399.0, 1.0], [399.0, 399.0], [1.0, 399.0]]);
+    let outer = ring(&[[10.0, 10.0], [390.0, 10.0], [390.0, 390.0], [10.0, 390.0]]);
+    let parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        2.0,
+        TerrainEffect::Grade,
+        Transition::Falloff { blur: 0.2 },
+    )];
+    let plan = Plan {
+        revision: 219,
+        hash: 2192,
+        entries: &entries,
+        paths: &[],
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+        outlines: &[],
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    assert!(built.transition.widened);
+    assert!(built.mesh.new_vertices.len() <= 2 * TRANSITION_POINT_CAP);
+    Ok(())
+}
+
+/// #219 timing: a 200 m site on a 1 m grid baseline with nine regions, falloff and daylight.
+#[test]
+#[ignore = "timing; run with --ignored --nocapture"]
+fn transition_timing_on_a_200_m_grid_site() -> Result<(), BuildError> {
+    let (points, triangles) = surface(201, 1.0, |x, y| 0.02 * x + 0.01 * y);
+    let property = ring(&[[0.5, 0.5], [199.5, 0.5], [199.5, 199.5], [0.5, 199.5]]);
+    let rings: Vec<Vec<f64>> = (0..9)
+        .map(|k| {
+            let (x, y) = (
+                20.0 + 60.0 * f64::from(k % 3),
+                20.0 + 60.0 * f64::from(k / 3),
+            );
+            ring(&[[x, y], [x + 30.3, y], [x + 30.3, y + 25.7], [x, y + 25.7]])
+        })
+        .collect();
+    let parts: Vec<[Part<'_>; 1]> = rings
+        .iter()
+        .map(|outer| [Part { outer, holes: &[] }])
+        .collect();
+    let entries: Vec<Entry<'_>> = (0_u32..)
+        .zip(&parts)
+        .map(|(k, part)| {
+            let transition = if k % 2 == 0 {
+                Transition::Falloff { blur: 6.0 }
+            } else {
+                daylight(10.0)
+            };
+            constant_entry(
+                k,
+                part,
+                3.0 + f64::from(k),
+                TerrainEffect::Grade,
+                transition,
+            )
+        })
+        .collect();
+    let plan = Plan {
+        revision: 219,
+        hash: 2193,
+        entries: &entries,
+        paths: &[],
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+        outlines: &[],
+    };
+    let started = std::time::Instant::now();
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    println!(
+        "200 m grid, 9 regions: {:?}, {} vertices ({} added), {:?}",
+        started.elapsed(),
+        built.points.len() / 3,
+        built.mesh.new_vertices.len(),
+        built.transition
+    );
+    Ok(())
+}

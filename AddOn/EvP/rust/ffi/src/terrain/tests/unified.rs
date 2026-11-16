@@ -317,7 +317,7 @@ fn layouts_match_the_documented_c_records() {
     assert_eq!(size_of::<UnifiedMask>(), 32);
     assert_eq!(size_of::<UnifiedControl>(), 56);
     assert_eq!(size_of::<UnifiedCounts>(), 48);
-    assert_eq!(size_of::<UnifiedMeta>(), 24);
+    assert_eq!(size_of::<UnifiedMeta>(), 32);
     assert_eq!(size_of::<UnifiedOutline>(), 120);
     assert_eq!(size_of::<UnifiedRequest>(), 576);
     assert_eq!(size_of::<UnifiedLine>(), 32);

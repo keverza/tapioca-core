@@ -148,6 +148,10 @@ struct UnifiedTerrainResult {
     // #149 T1: outline vertices whose face ran out at its limit before the ground, and
     // rebuild-ring samples where a face had not yet met it (a step at the ring).
     uint32_t outlineUnreached = 0, outlineClipped = 0;
+    // #219: the point cap spaced the region transitions wider than their 1 cm vertical
+    // tolerance; transition rays and base edges still over it (a step at a daylight reach).
+    bool transitionWidened = false;
+    uint32_t transitionUnresolved = 0;
     // #149 T4: their bounded located witnesses (strips, then reach-limit vertices, then ring
     // samples); the counts above still include observations whose rows were not retained.
     std::vector<UnifiedStepWitness> outlineSteps;

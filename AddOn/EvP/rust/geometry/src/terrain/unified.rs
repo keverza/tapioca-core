@@ -34,8 +34,7 @@ use super::hybrid::{self, LineKind};
 use super::outline::{self, Grading, OutlineError, SurfaceGrade, steepest};
 use super::plan;
 use super::region::{
-    RegionError, RegionMesh, RegionRequest, retriangulate_region_with_points,
-    retriangulate_with_supports,
+    RegionError, RegionMesh, RegionRequest, retriangulate_region_split, retriangulate_with_supports,
 };
 use super::volume::VolumeError;
 use super::volume::exact::{ExactReport, ExactRequest, exact_cut_fill};
@@ -354,6 +353,8 @@ pub struct BuiltTerrain {
     /// Bounded located outline-step observations. Mesher strips precede reach-limit vertices and
     /// ring samples; counts above still include observations whose witnesses were not retained.
     pub outline_steps: Vec<outline::StepWitness>,
+    /// How the regions' transitions were resolved in the published mesh (#219).
+    pub transition: TransitionReport,
     /// Every fixed-height vertex resolved from `Plan::controls`.
     pub locked: Vec<LockedVertex>,
     /// Exact cut/fill against `base`, split at the property line.
@@ -1492,104 +1493,244 @@ fn ring_lines(
     Ok((lines, mask_lines))
 }
 
-/// Rows of points across each entry's transition, for the ground split (#209).
+/// #219: the vertical error a resolved transition may keep between its vertices, metres.
+/// Vertices are added along each ray and each constrained base edge until linear interpolation
+/// between them is within it.
+const TRANSITION_TOLERANCE: f64 = 0.01;
+/// Rows every transition ray starts from: `k / TRANSITION_ROWS` of the spread.
 const TRANSITION_ROWS: u32 = 4;
-/// A cap on the estimated transition points of one ground split; past it the rows are spaced
-/// wider along the rings.
-const TRANSITION_POINT_CAP: f64 = 20_000.0;
-/// Directions in the fan of points around each ring corner.
-const TRANSITION_FAN: u32 = 16;
+/// Halvings of one starting row a profile may refine to meet [`TRANSITION_TOLERANCE`]; a
+/// profile still over it then is counted in [`TransitionReport::unresolved`].
+const TRANSITION_DEPTH: u32 = 8;
+/// The finest spacing a profile refines to, metres, whatever the spread: an interval this short
+/// still over the tolerance is a step in the profile (a daylight face ending above the ground at
+/// its reach), which no vertex resolves.
+const TRANSITION_FINEST: f64 = 0.01;
+/// A cap on the transition points of one split; past it the rays are spaced wider along the
+/// rings and around the corners, and [`TransitionReport::widened`] says so.
+const TRANSITION_POINT_CAP: usize = 20_000;
+/// Directions around one ring corner: at least, and at most.
+const TRANSITION_FAN: (u32, u32) = (16, 256);
 
-/// Isolated points that resolve every entry's falloff or daylight transition in the ground
-/// split: rows at `k / TRANSITION_ROWS` of the spread outward from each outer-ring segment
-/// and around each ring corner, the last row at the full spread, where the transition ends.
-/// Without them the split interpolates a transition from its ring to the next baseline
-/// vertex, which on a coarse baseline can be the far corner of the site. Points are kept
-/// only strictly inside the property, clear of every line and caller spot and of each other;
-/// they are vertices, never constraints, so they cannot cross anything. Both the ground the
-/// path and outline stages design against and the published mesh take them.
+/// How a build resolved its regions' transitions (#219).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TransitionReport {
+    /// The point cap spaced the rays wider than the tolerance asks: the transitions are
+    /// coarser than the 1 cm vertical tolerance between rays.
+    pub widened: bool,
+    /// Rays and base edges whose profile was still over the tolerance at the finest spacing.
+    pub unresolved: u32,
+}
+
+/// `(position, height)` nodes over `knots` (ascending; each interval checked on its own), with
+/// every interval halved until the profile is within [`TRANSITION_TOLERANCE`] of linear on it
+/// or it is no longer than `finest`. Each interval is checked at its midpoint and quarter
+/// points: a crease anywhere inside it shows at least half its interpolation error at one of
+/// them, so against half the tolerance. A knot off the ground ends the nodes there. Returns
+/// whether the tolerance was met everywhere.
+fn refine_profile(
+    knots: &[f64],
+    finest: f64,
+    profile: &impl Fn(f64) -> Option<f64>,
+) -> (Vec<(f64, f64)>, bool) {
+    let over = |a: f64, za: f64, b: f64, zb: f64| {
+        [0.25, 0.5, 0.75].iter().any(|&s| {
+            profile(a + (b - a) * s)
+                .is_some_and(|z| (z - (zb - za).mul_add(s, za)).abs() > 0.5 * TRANSITION_TOLERANCE)
+        })
+    };
+    let mut nodes: Vec<(f64, f64)> = Vec::new();
+    let mut resolved = true;
+    for &knot in knots {
+        let Some(z) = profile(knot) else {
+            break; // Off the ground: nothing to resolve past it.
+        };
+        let Some(&(start, z_start)) = nodes.last() else {
+            nodes.push((knot, z));
+            continue;
+        };
+        // Depth-first halving, emitted in ascending order.
+        let mut stack = vec![(knot, z)];
+        let mut a = (start, z_start);
+        while let Some(&(b, zb)) = stack.last() {
+            if over(a.0, a.1, b, zb) {
+                if 0.5 * (b - a.0) >= finest
+                    && let Some(zm) = profile(a.0.midpoint(b))
+                {
+                    stack.push((a.0.midpoint(b), zm));
+                    continue;
+                }
+                resolved = false;
+            }
+            stack.pop();
+            nodes.push((b, zb));
+            a = (b, zb);
+        }
+    }
+    (nodes, resolved)
+}
+
+/// Offsets along one ray, ascending, ending at `spread`, so that the composed profile is within
+/// [`TRANSITION_TOLERANCE`] of linear between consecutive offsets (zero, the ring, is implied),
+/// the profile's steepest slope between them, and whether the tolerance was met.
+fn transition_offsets(spread: f64, profile: impl Fn(f64) -> Option<f64>) -> (Vec<f64>, f64, bool) {
+    let knots: Vec<f64> = (0..=TRANSITION_ROWS)
+        .map(|row| spread * f64::from(row) / f64::from(TRANSITION_ROWS))
+        .collect();
+    let finest = finest_spacing(spread);
+    let (nodes, resolved) = refine_profile(&knots, finest, &profile);
+    let mut slope = 0.0_f64;
+    let mut offsets = Vec::with_capacity(nodes.len());
+    for pair in nodes.windows(2) {
+        if let [(a, za), (b, zb)] = *pair {
+            slope = slope.max((zb - za).abs() / (b - a));
+            offsets.push(b);
+        }
+    }
+    (offsets, slope, resolved)
+}
+
+/// The finest spacing a transition of `spread` refines to: [`TRANSITION_DEPTH`] halvings of a
+/// starting row, but never under [`TRANSITION_FINEST`].
+fn finest_spacing(spread: f64) -> f64 {
+    (spread / f64::from(TRANSITION_ROWS) / f64::from(1_u32 << TRANSITION_DEPTH))
+        .max(TRANSITION_FINEST)
+}
+
+/// The spread of an entry's transition, metres: its falloff blur or daylight reach.
+const fn spread_of(entry: &PreparedEntry<'_>) -> f64 {
+    match entry.transition {
+        PreparedTransition::Falloff { blur } => blur,
+        PreparedTransition::Daylight { reach, .. } => reach,
+    }
+}
+
+/// The ground the region entries compose at a plan point, masks aside: `ground` with every
+/// entry's candidate applied in order.
+fn composed_height(prepared: &[PreparedEntry<'_>], ground: &Field, x: f64, y: f64) -> Option<f64> {
+    ground.height_at(x, y).map(|sample| {
+        prepared.iter().fold(sample.height, |current, entry| {
+            candidate(entry, x, y, current).map_or(current, |next| next.next)
+        })
+    })
+}
+
+/// Isolated points that resolve every entry's falloff or daylight transition: along outward rays
+/// from each outer-ring segment and fanned around each ring corner, at offsets chosen so that the
+/// composed surface is within [`TRANSITION_TOLERANCE`] of linear between them along the ray
+/// (#219; four fixed rows before it, #209). The last point of a ray sits at the full spread,
+/// where the transition ends. Without them the split interpolates a transition from its ring to
+/// the next baseline vertex, which on a coarse baseline can be the far corner of the site.
+/// Constrained base edges across a transition get their vertices from [`TransitionEdges`].
+///
+/// The profile along a ray is the regions' composition over `ground` (masks aside). Points are
+/// kept only on their ray's offset curve, strictly inside the property, clear of every line and
+/// caller spot and of each other; they are vertices, never constraints, so they cannot cross
+/// anything. Both the ground the path and outline stages design against and the published mesh
+/// take them. O(rays x refinement x entries x ring segments).
 fn transition_points(
     prepared: &[PreparedEntry<'_>],
+    ground: &Field,
     property: &[f64],
     rings: &[&[f64]],
     spots: &[f64],
-) -> Vec<f64> {
-    let spread_of = |entry: &PreparedEntry<'_>| match entry.transition {
-        PreparedTransition::Falloff { blur } => blur,
-        PreparedTransition::Daylight { reach, .. } => reach,
-    };
-    let usable = |spread: f64| spread > 0.0 && spread.is_finite();
-    // Along-ring spacing: half the spread, widened until the estimate fits the cap.
-    let mut estimate = 0.0;
-    for entry in prepared {
-        let spread = spread_of(entry);
-        if !usable(spread) {
-            continue;
-        }
-        for part in entry.entry.parts {
-            let ring = plan::vertices(part.outer);
-            let mut length = 0.0;
-            for index in 0..ring.len() {
-                if let (Some(a), Some(b)) = (ring.get(index), ring.get((index + 1) % ring.len())) {
-                    length += (b[0] - a[0]).hypot(b[1] - a[1]);
-                }
-            }
-            let corners = f64::from(u32::try_from(ring.len()).unwrap_or(u32::MAX));
-            estimate += (2.0 * length / (0.5 * spread) + corners * f64::from(TRANSITION_FAN))
-                * f64::from(TRANSITION_ROWS);
-        }
+) -> (Vec<f64>, TransitionReport) {
+    let (points, report) = transition_points_spaced(prepared, ground, property, rings, spots, 1.0);
+    let count = points.len() / 3;
+    if count <= TRANSITION_POINT_CAP {
+        return (points, report);
     }
-    let widen = (estimate / TRANSITION_POINT_CAP).max(1.0);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a ratio of point counts far below 2^52"
+    )]
+    let widen = count as f64 / TRANSITION_POINT_CAP as f64;
+    let (points, mut report) =
+        transition_points_spaced(prepared, ground, property, rings, spots, widen);
+    report.widened = true;
+    (points, report)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the ray pass of transition_points, again with the rays spaced wider past the cap"
+)]
+fn transition_points_spaced(
+    prepared: &[PreparedEntry<'_>],
+    ground: &Field,
+    property: &[f64],
+    rings: &[&[f64]],
+    spots: &[f64],
+    widen: f64,
+) -> (Vec<f64>, TransitionReport) {
     let boundary = plan::vertices(property);
     let mut points: Vec<f64> = Vec::new();
+    let mut report = TransitionReport::default();
     let mut seen = std::collections::BTreeSet::new();
     for entry in prepared {
         let spread = spread_of(entry);
-        if !usable(spread) {
+        if !(spread > 0.0 && spread.is_finite()) {
             continue;
         }
-        let spacing = 0.5 * spread * widen;
-        let clearance = 0.2 * spread / f64::from(TRANSITION_ROWS);
-        let mut offer = |x: f64, y: f64, offset: f64| {
-            // Only a point on its row's offset curve: a fan direction off the corner's outward
-            // wedge, or a side's offset at a concave corner, lands nearer the ring than its row.
-            // There it would be a lone vertex a little higher than its neighbours, a fold in the
-            // published surface the transition does not have.
-            let Some(distance) = distance_to_parts(entry.entry.parts, x, y) else {
-                return;
-            };
-            if distance <= clearance || (distance - offset).abs() > 1e-9 * spread.max(1.0) {
-                return;
+        let cell = 0.4 * finest_spacing(spread);
+        // One ray: its resolved offsets offered as points, its steepest slope returned.
+        let mut ray = |[ox, oy]: [f64; 2], [ux, uy]: [f64; 2]| -> f64 {
+            let (offsets, slope, resolved) = transition_offsets(spread, |d| {
+                composed_height(prepared, ground, ux.mul_add(d, ox), uy.mul_add(d, oy))
+            });
+            let mut kept = false;
+            let mut previous = 0.0;
+            for (index, &offset) in offsets.iter().enumerate() {
+                let next = offsets
+                    .get(index + 1)
+                    .copied()
+                    .unwrap_or(2.0f64.mul_add(offset, -previous));
+                let clearance = 0.4 * (offset - previous).min(next - offset);
+                previous = offset;
+                let (x, y) = (ux.mul_add(offset, ox), uy.mul_add(offset, oy));
+                // Only a point on its offset curve: a fan direction off the corner's outward
+                // wedge, or a side's ray at a concave corner, lands nearer the ring than its
+                // offset. There it would be a lone vertex a little off its neighbours, a fold in
+                // the published surface the transition does not have.
+                let Some(distance) = distance_to_parts(entry.entry.parts, x, y) else {
+                    continue;
+                };
+                if distance <= clearance || (distance - offset).abs() > 1e-9 * spread.max(1.0) {
+                    continue;
+                }
+                if plan::inside(boundary, x, y) != Some(true)
+                    || plan::nearest(boundary, true, x, y).is_none_or(|n| n.distance <= clearance)
+                {
+                    continue;
+                }
+                if rings.iter().any(|line| {
+                    plan::nearest(plan::vertices(line), false, x, y)
+                        .is_some_and(|n| n.distance <= clearance)
+                }) || plan::vertices(spots)
+                    .iter()
+                    .any(|&[sx, sy, _]| (sx - x).hypot(sy - y) <= clearance)
+                {
+                    continue;
+                }
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "a dedupe key: a fine cell of a finite plan position"
+                )]
+                let key = ((x / cell).round() as i64, (y / cell).round() as i64);
+                if seen.insert(key) {
+                    points.extend([x, y, 0.0]);
+                    kept = true;
+                }
             }
-            if plan::inside(boundary, x, y) != Some(true)
-                || plan::nearest(boundary, true, x, y).is_none_or(|n| n.distance <= clearance)
-            {
-                return;
+            if kept && !resolved {
+                report.unresolved = report.unresolved.saturating_add(1);
             }
-            if rings.iter().any(|line| {
-                plan::nearest(plan::vertices(line), false, x, y)
-                    .is_some_and(|n| n.distance <= clearance)
-            }) || plan::vertices(spots)
-                .iter()
-                .any(|&[sx, sy, _]| (sx - x).hypot(sy - y) <= clearance)
-            {
-                return;
-            }
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "a dedupe key: the clearance cell of a finite plan position"
-            )]
-            let key = (
-                (x / clearance).round() as i64,
-                (y / clearance).round() as i64,
-            );
-            if seen.insert(key) {
-                points.extend([x, y, 0.0]);
-            }
+            slope
         };
         for part in entry.entry.parts {
             let ring = plan::vertices(part.outer);
             let count = ring.len();
+            let mut steepest = 0.0_f64;
             for index in 0..count {
                 let (Some(&[ax, ay, _]), Some(&[bx, by, _])) =
                     (ring.get(index), ring.get((index + 1) % count))
@@ -1606,28 +1747,241 @@ fn transition_points(
                     clippy::cast_sign_loss,
                     reason = "a positive station count, clamped"
                 )]
-                let stations = ((length / spacing).ceil() as u32).clamp(1, 1 << 16);
-                for row in 1..=TRANSITION_ROWS {
-                    let offset = spread * f64::from(row) / f64::from(TRANSITION_ROWS);
-                    // Both normals: the distance test keeps the outward side whichever the winding.
-                    for side in [-1.0, 1.0] {
-                        let (nx, ny) = (-uy * side * offset, ux * side * offset);
-                        for station in 0..=stations {
-                            let t = length * f64::from(station) / f64::from(stations);
-                            offer(ax + ux * t + nx, ay + uy * t + ny, offset);
-                        }
+                let stations = ((length / (0.5 * spread * widen)).ceil() as u32).clamp(1, 1 << 16);
+                // Both normals: the offset-curve test keeps the outward side whichever the winding.
+                for side in [-1.0, 1.0] {
+                    for station in 0..=stations {
+                        let t = length * f64::from(station) / f64::from(stations);
+                        steepest = steepest.max(ray(
+                            [ux.mul_add(t, ax), uy.mul_add(t, ay)],
+                            [-uy * side, ux * side],
+                        ));
                     }
-                    // Around the corner at `a`: a fan of directions covering any turn.
-                    for step in 0..TRANSITION_FAN {
-                        let angle =
-                            std::f64::consts::TAU * f64::from(step) / f64::from(TRANSITION_FAN);
-                        offer(ax + offset * angle.cos(), ay + offset * angle.sin(), offset);
-                    }
+                }
+            }
+            // Around each corner, a fan fine enough that its chords sag less than the tolerance
+            // at the steepest slope the sides showed: `spread * (1 - cos(pi / n)) * slope`.
+            let sag = TRANSITION_TOLERANCE / (steepest * spread).max(f64::MIN_POSITIVE);
+            let wanted = if sag >= 1.0 {
+                f64::from(TRANSITION_FAN.0)
+            } else {
+                (std::f64::consts::PI / (1.0 - sag).acos()).ceil() / widen
+            };
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a positive direction count, clamped"
+            )]
+            let fan = (wanted.max(1.0) as u32).clamp(TRANSITION_FAN.0, TRANSITION_FAN.1);
+            for &[ax, ay, _] in ring {
+                for step in 0..fan {
+                    let angle = std::f64::consts::TAU * f64::from(step) / f64::from(fan);
+                    ray([ax, ay], [angle.cos(), angle.sin()]);
                 }
             }
         }
     }
-    points
+    (points, report)
+}
+
+/// Vertices on the constrained base edges that cross a transition (#219). A base edge is a
+/// constraint of the rebuild (it keeps the base affine under every output triangle), so a
+/// transition crossing it is interpolated along it from vertex to vertex whatever points lie
+/// beside it: from a region's ring to a site corner, on a coarse baseline. The rays' points
+/// never land exactly on it, so the edge is split instead, at positions refined along it to
+/// [`TRANSITION_TOLERANCE`] like a ray, then thinned to the ones the profile needs.
+struct TransitionEdges<'a> {
+    prepared: &'a [PreparedEntry<'a>],
+    ground: &'a Field,
+    /// The lines of the rebuild: a crossing with one is a crease of the profile and gets the
+    /// triangulation's own vertex, so the split keeps clear of it.
+    lines: &'a [&'a [f64]],
+    /// Each transition's plan bounds (ring bounds grown by its spread) and spread.
+    belts: Vec<([f64; 4], f64)>,
+    unresolved: std::cell::Cell<u32>,
+}
+
+impl<'a> TransitionEdges<'a> {
+    fn new(prepared: &'a [PreparedEntry<'a>], ground: &'a Field, lines: &'a [&'a [f64]]) -> Self {
+        let mut belts = Vec::new();
+        for entry in prepared {
+            let spread = spread_of(entry);
+            if !(spread > 0.0 && spread.is_finite()) {
+                continue;
+            }
+            for part in entry.entry.parts {
+                let mut bounds = [
+                    f64::INFINITY,
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                    f64::NEG_INFINITY,
+                ];
+                for &[x, y, _] in plan::vertices(part.outer) {
+                    bounds = [
+                        bounds[0].min(x),
+                        bounds[1].min(y),
+                        bounds[2].max(x),
+                        bounds[3].max(y),
+                    ];
+                }
+                if bounds[0] <= bounds[2] {
+                    belts.push((
+                        [
+                            bounds[0] - spread,
+                            bounds[1] - spread,
+                            bounds[2] + spread,
+                            bounds[3] + spread,
+                        ],
+                        spread,
+                    ));
+                }
+            }
+        }
+        Self {
+            prepared,
+            ground,
+            lines,
+            belts,
+            unresolved: std::cell::Cell::new(0),
+        }
+    }
+
+    /// Edge parameters strictly between 0 and 1, ascending, where the edge `a`-`b` takes a
+    /// vertex.
+    fn splits(&self, [ax, ay]: [f64; 2], [bx, by]: [f64; 2]) -> Vec<f64> {
+        let length = (bx - ax).hypot(by - ay);
+        if !length.is_finite() || length <= 0.0 {
+            return Vec::new();
+        }
+        // The edge's parameter range inside each belt's bounds, and the narrowest spread there.
+        let (mut low, mut high, mut spread) = (1.0_f64, 0.0_f64, f64::INFINITY);
+        for &([x0, y0, x1, y1], belt) in &self.belts {
+            let (mut t0, mut t1) = (0.0_f64, 1.0_f64);
+            for (start, delta, min, max) in [(ax, bx - ax, x0, x1), (ay, by - ay, y0, y1)] {
+                if delta == 0.0 {
+                    if start < min || start > max {
+                        t0 = 1.0;
+                        t1 = 0.0;
+                    }
+                } else {
+                    let (u, v) = ((min - start) / delta, (max - start) / delta);
+                    t0 = t0.max(u.min(v));
+                    t1 = t1.min(u.max(v));
+                }
+            }
+            if t0 < t1 {
+                low = low.min(t0);
+                high = high.max(t1);
+                spread = spread.min(belt);
+            }
+        }
+        if low >= high {
+            return Vec::new();
+        }
+        // Knots: the range sampled a quarter spread apart (a check over a longer interval
+        // could miss a narrow belt), and every crossing with a line, a crease the
+        // triangulation gives its own vertex.
+        let step = 0.25 * spread / length;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a positive knot count, clamped"
+        )]
+        let count = (((high - low) / step).ceil() as u32).clamp(1, 1 << 16);
+        // The ends are knots too: the split's profile is checked from vertex to vertex.
+        let mut knots: Vec<f64> = (0..=count)
+            .map(|k| (high - low).mul_add(f64::from(k) / f64::from(count), low))
+            .chain([0.0, 1.0])
+            .collect();
+        let mut creases = Vec::new();
+        for line in self.lines {
+            for pair in plan::vertices(line).windows(2) {
+                if let [[px, py, _], [qx, qy, _]] = *pair
+                    && let Some(t) = crossing([ax, ay], [bx, by], [px, py], [qx, qy])
+                    && t > low
+                    && t < high
+                {
+                    creases.push(t);
+                }
+            }
+        }
+        knots.extend(&creases);
+        knots.sort_by(f64::total_cmp);
+        knots.dedup();
+        let finest = finest_spacing(spread);
+        let (nodes, resolved) = refine_profile(&knots, finest / length, &|t: f64| {
+            composed_height(
+                self.prepared,
+                self.ground,
+                (bx - ax).mul_add(t, ax),
+                (by - ay).mul_add(t, ay),
+            )
+        });
+        let kept = thin(&nodes, 0.5 * TRANSITION_TOLERANCE);
+        let clear = 0.4 * finest / length;
+        let splits: Vec<f64> = kept
+            .into_iter()
+            .filter(|&t| {
+                t > clear
+                    && t < 1.0 - clear
+                    && creases.iter().all(|&crease| (crease - t).abs() > clear)
+            })
+            .collect();
+        if !resolved && !splits.is_empty() {
+            self.unresolved.set(self.unresolved.get().saturating_add(1));
+        }
+        splits
+    }
+}
+
+/// The parameter along `a`-`b` where it properly crosses `p`-`q`, if it does.
+fn crossing(
+    [ax, ay]: [f64; 2],
+    [bx, by]: [f64; 2],
+    [px, py]: [f64; 2],
+    [qx, qy]: [f64; 2],
+) -> Option<f64> {
+    let (rx, ry) = (bx - ax, by - ay);
+    let (sx, sy) = (qx - px, qy - py);
+    let denominator = rx.mul_add(sy, -(ry * sx));
+    if denominator == 0.0 {
+        return None;
+    }
+    let (wx, wy) = (px - ax, py - ay);
+    let along = wx.mul_add(sy, -(wy * sx)) / denominator;
+    let across = wx.mul_add(ry, -(wy * rx)) / denominator;
+    ((0.0..=1.0).contains(&along) && (0.0..=1.0).contains(&across)).then_some(along)
+}
+
+/// The interior positions of `nodes` a piecewise-linear profile within `tolerance` of every node
+/// needs (Douglas-Peucker on height): the ends are implied.
+fn thin(nodes: &[(f64, f64)], tolerance: f64) -> Vec<f64> {
+    let mut keep = vec![false; nodes.len()];
+    let mut stack = vec![(0, nodes.len().saturating_sub(1))];
+    while let Some((first, last)) = stack.pop() {
+        let (Some(&(ta, za)), Some(&(tb, zb))) = (nodes.get(first), nodes.get(last)) else {
+            continue;
+        };
+        let mut worst = (0.0_f64, 0);
+        for (index, &(t, z)) in nodes.iter().enumerate().take(last).skip(first + 1) {
+            let error = (z - (zb - za).mul_add((t - ta) / (tb - ta), za)).abs();
+            if error > worst.0 {
+                worst = (error, index);
+            }
+        }
+        if worst.0 > tolerance {
+            if let Some(slot) = keep.get_mut(worst.1) {
+                *slot = true;
+            }
+            stack.push((first, worst.1));
+            stack.push((worst.1, last));
+        }
+    }
+    nodes
+        .iter()
+        .zip(keep)
+        .filter_map(|(&(t, _), kept)| kept.then_some(t))
+        .collect()
 }
 
 /// The ground the region entries compose, as one [`Field`] for the path and outline stages.
@@ -1654,8 +2008,11 @@ fn region_height_field(
                 .map(|line| line.points.as_slice())
                 .collect();
             rings.extend(mask_lines.iter().map(|line| line.points.as_slice()));
-            let spots = transition_points(prepared, property, &rings, &[]);
-            retriangulate_region_with_points(
+            let ground =
+                Field::new(baseline.points, baseline.triangles).map_err(BuildError::Baseline)?;
+            let (spots, _) = transition_points(prepared, &ground, property, &rings, &[]);
+            let edges = TransitionEdges::new(prepared, &ground, &rings);
+            retriangulate_region_split(
                 &RegionRequest {
                     points: baseline.points,
                     triangles: baseline.triangles,
@@ -1663,6 +2020,7 @@ fn region_height_field(
                     breaklines: &rings,
                 },
                 &spots,
+                &|a, b| edges.splits(a, b),
             )
             .map_err(BuildError::Region)?
         }
@@ -1729,7 +2087,9 @@ fn baseline_mesh(points: &[f64], triangles: &[u32]) -> Result<RegionMesh, BuildE
 /// # Errors
 /// See [`BuildError`]. Inputs are immutable and no partial result is returned.
 pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTerrain, BuildError> {
-    Field::new(baseline.points, baseline.triangles).map_err(BuildError::Baseline)?;
+    let base_field =
+        Field::new(baseline.points, baseline.triangles).map_err(BuildError::Baseline)?;
+    let mut transition = TransitionReport::default();
     if let Some(property) = baseline.property {
         if !property.len().is_multiple_of(3) || plan::vertices(property).len() < 3 {
             return Err(BuildError::PlanShape {
@@ -1873,11 +2233,11 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
             // caller spot so their indices are unchanged.
             let mut clear_of = with_toe.clone();
             clear_of.extend(supports.lines.iter().map(Vec::as_slice));
-            let all_spots = [
-                all_spots.as_slice(),
-                &transition_points(&prepared, property, &clear_of, &all_spots),
-            ]
-            .concat();
+            let (resolved, report) =
+                transition_points(&prepared, &base_field, property, &clear_of, &all_spots);
+            let all_spots = [all_spots.as_slice(), &resolved].concat();
+            let edges = TransitionEdges::new(&prepared, &base_field, &clear_of);
+            let splits = |a, b| edges.splits(a, b);
             let caller = |toe_count: usize| {
                 let mut origins: Vec<OutlineLineOrigin> = planned
                     .lines
@@ -1901,12 +2261,21 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
                 origins
             };
             // As in the outline lane: a toe the triangulation cannot take is left out.
-            let (rebuilt, traced) = match retriangulate_with_supports(
-                &request(&with_toe),
-                &all_spots,
-                &supports.ring,
-                &supports.lines,
-            ) {
+            let rebuild_with = |lines: &[&[f64]]| {
+                retriangulate_with_supports(
+                    &RegionRequest {
+                        points: baseline.points,
+                        triangles: baseline.triangles,
+                        region: property,
+                        breaklines: lines,
+                    },
+                    &all_spots,
+                    &supports.ring,
+                    &supports.lines,
+                    Some(&splits),
+                )
+            };
+            let (rebuilt, traced) = match rebuild_with(&with_toe) {
                 Ok(mesh) => {
                     outline_lines = caller(toe.len());
                     let count = u32::try_from(toe.len()).unwrap_or(u32::MAX);
@@ -1914,16 +2283,15 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
                 }
                 Err(_) if !toe.is_empty() => {
                     outline_lines = caller(0);
-                    retriangulate_with_supports(
-                        &request(&breaklines),
-                        &all_spots,
-                        &supports.ring,
-                        &supports.lines,
-                    )
-                    .map_err(BuildError::Region)
-                    .map(|mesh| (mesh, [first_traced, first_traced]))?
+                    rebuild_with(&breaklines)
+                        .map_err(BuildError::Region)
+                        .map(|mesh| (mesh, [first_traced, first_traced]))?
                 }
                 Err(error) => return Err(BuildError::Region(error)),
+            };
+            transition = TransitionReport {
+                unresolved: report.unresolved.saturating_add(edges.unresolved.get()),
+                ..report
             };
             // #149 T3: the outline's faces get their vertices from the error and the angles
             // they leave (the mesher), over the same ground the toe was traced over. An
@@ -1947,13 +2315,19 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         } else {
             // #209: the regions' transitions resolved in the published mesh, after the
             // control spots so their indices are unchanged.
-            let all_spots = [
-                spots.as_slice(),
-                &transition_points(&prepared, property, &breaklines, &spots),
-            ]
-            .concat();
-            retriangulate_region_with_points(&request(&breaklines), &all_spots)
-                .map_err(BuildError::Region)?
+            let (resolved, report) =
+                transition_points(&prepared, &base_field, property, &breaklines, &spots);
+            let all_spots = [spots.as_slice(), &resolved].concat();
+            let edges = TransitionEdges::new(&prepared, &base_field, &breaklines);
+            let mesh = retriangulate_region_split(&request(&breaklines), &all_spots, &|a, b| {
+                edges.splits(a, b)
+            })
+            .map_err(BuildError::Region)?;
+            transition = TransitionReport {
+                unresolved: report.unresolved.saturating_add(edges.unresolved.get()),
+                ..report
+            };
+            mesh
         }
     } else {
         baseline_mesh(baseline.points, baseline.triangles)?
@@ -2033,6 +2407,7 @@ pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTe
         outline_unreached,
         outline_clipped,
         outline_steps,
+        transition,
         locked,
         mesh,
         volumes,

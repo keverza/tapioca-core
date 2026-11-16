@@ -1156,6 +1156,7 @@ pub(in crate::terrain) fn build_with(
             spots,
             &supports.ring,
             lines,
+            None,
         )
         .map_err(OutlineError::Region)
     };

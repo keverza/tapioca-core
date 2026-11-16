@@ -457,6 +457,8 @@ bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResul
     candidate.planHash = meta.planHash;
     candidate.outlineUnreached = meta.outlineUnreached;
     candidate.outlineClipped = meta.outlineClipped;
+    candidate.transitionWidened = meta.transitionWidened != 0;
+    candidate.transitionUnresolved = meta.transitionUnresolved;
     candidate.inputProvenance = request.provenance;
     candidate.inputPointCount = request.mesh.points.size () / 3;
     candidate.inputPropertyCount = request.property.size () / 3;
