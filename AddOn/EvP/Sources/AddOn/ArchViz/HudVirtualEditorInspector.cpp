@@ -90,8 +90,15 @@ InspectorContext ResolveContext (const Session& s)
     if (objects.size () == 1 && !fixedHeights && allSources) {
         const auto role = sources.front ()->role;
         const auto* entity = edit::Find (doc, objects.front ());
-        if (entity && entity->closed && role != lg::SourceRole::ReferenceLine && role != lg::SourceRole::PathCenterline)
+        if (entity && entity->closed && role != lg::SourceRole::ReferenceLine &&
+            role != lg::SourceRole::PathCenterline) {
+            // #189: a line whose region a Boolean consumed shows the result it is an input of.
+            for (const auto& object : doc.landscape->objects)
+                if (object.boundarySource == sources.front ()->id &&
+                    lg::LandscapeTerrainOwner (*doc.landscape, object.id) != object.id)
+                    return InspectorContext::BooleanResult;
             return InspectorContext::Region;
+        }
     }
     if (objects.size () > 1 && allSources && !fixedHeights)
         for (const auto& op : doc.landscape->operations) {

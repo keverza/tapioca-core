@@ -135,6 +135,15 @@ struct Tree {
         node.label += " " + std::to_string (id);
         node.bypassed = !op->enabled;
         node.reference = shown.count (id) != 0 || open.count (id) != 0;
+        // #189: a step that is another region's footprint names that region, a construction input here.
+        if (depth > 0)
+            for (const auto& object : session.objects)
+                if (object.footprintOperation == id && !object.pathId) {
+                    node.object = object.id;
+                    node.label += ": " + (object.name.empty () ? KindName (object.kind) : object.name) + " " +
+                                  std::to_string (object.id) + " (construction input)";
+                    break;
+                }
         nodes.push_back (node);
         if (node.reference)
             return;
@@ -326,6 +335,7 @@ LandscapeRecipe ProjectLandscapeRecipe (const geomsrv::edit::Document& doc,
         recipe.rows.push_back (std::move (row));
     }
     size_t otherPaths = 0;
+    const auto construction = LandscapeConstructionInputs (session);
     for (const auto& object : session.objects) {
         if (inStack.count (object.id))
             continue;
@@ -341,10 +351,24 @@ LandscapeRecipe ProjectLandscapeRecipe (const geomsrv::edit::Document& doc,
         row.kind = KindName (object.kind);
         row.effect = RecipeEffectName (object.terrain.effect);
         row.target = Target (object.surface);
-        row.notes.push_back (object.terrain.effect == RegionTerrainEffect::None
-                                 ? "Not in the terrain recipe: its terrain effect is None (footprint and material "
-                                   "only)."
-                                 : "Not in the terrain recipe: it has no live footprint root.");
+        const auto input = std::find_if (construction.begin (), construction.end (),
+                                         [&] (const ConstructionInput& c) { return c.object == object.id; });
+        if (input != construction.end ()) {
+            // #189: said before the effect, which is kept but not applied while the region is consumed.
+            const auto consumer = std::find_if (session.objects.begin (), session.objects.end (),
+                                                [&] (const HardscapeObject& o) { return o.id == input->consumer; });
+            row.constructionOf = input->consumer;
+            row.notes.push_back ("Construction input of " +
+                                 (consumer->name.empty () ? KindName (consumer->kind) : consumer->name) + " " +
+                                 std::to_string (input->consumer) +
+                                 ": it shapes that region's footprint and has no terrain effect or quantities of "
+                                 "its own. Its settings are kept and apply again if the Boolean is undone.");
+        }
+        else
+            row.notes.push_back (object.terrain.effect == RegionTerrainEffect::None
+                                     ? "Not in the terrain recipe: its terrain effect is None (footprint and "
+                                       "material only)."
+                                     : "Not in the terrain recipe: it has no live footprint root.");
         recipe.rows.push_back (std::move (row));
     }
     const size_t designed = plan.outlines.empty () ? plan.paths.size () : plan.outlines.front ().paths.size ();
@@ -416,7 +440,9 @@ bool MoveRecipeRegion (geomsrv::edit::Document& doc, Id object, int step, std::s
     const auto entry = std::find_if (plan.entries.begin (), plan.entries.end (),
                                      [=] (const FieldPlanEntry& e) { return e.object == object; });
     if (entry == plan.entries.end ()) {
-        error = owner->terrain.effect == RegionTerrainEffect::None
+        error = LandscapeTerrainOwner (session, object) != object
+                    ? "This region is a construction input of a Boolean result; move the result instead."
+                : owner->terrain.effect == RegionTerrainEffect::None
                     ? "This region has no terrain effect, so it is not in the stack. Set an effect first."
                     : "This region is not in the terrain stack (its footprint has no live root).";
         return false;

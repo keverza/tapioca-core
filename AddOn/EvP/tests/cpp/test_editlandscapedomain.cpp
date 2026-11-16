@@ -3,6 +3,8 @@
 // metadata inheritance from the subject only, stable owner identity, atomic refusal
 // and derived topology (holes/islands) without a second domain model.
 #include "Edit/EditLandscapeDomain.hpp"
+#include "Edit/EditLandscapeFieldPlan.hpp"
+#include "Edit/EditRegionTerrain.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditPolyline.hpp"
@@ -294,4 +296,81 @@ TEST (EditLandscapeDomain, ABooleanOfBoundaryRegionsTakesConstantElevation188)
         EXPECT_NEAR (output.surface->first.z, 1.0, 1e-9);
         EXPECT_NE (applied.note.find ("mean"), std::string::npos) << applied.note;
     }
+}
+
+// #189: a Boolean's inputs become construction geometry. They stay authored, with their own
+// settings, and only the result owns that area: one terrain owner, one field-plan entry. The rule
+// is read from the operation DAG, so nothing is stored and a chain, a bypass and a reload all
+// follow from it.
+TEST (EditLandscapeDomain, BooleanInputsAreConstructionAndOnlyTheResultOwnsTerrain189)
+{
+    auto doc = Start ();
+    const auto a = Region (doc, 0), b = Region (doc, 5), c = Region (doc, 12);
+    for (const auto id : { a, b, c })
+        Configure (doc, id);
+    EXPECT_TRUE (geo::LandscapeConstructionInputs (*doc.landscape).empty ());
+    EXPECT_EQ (geo::TerrainRegionObjects (doc), (std::vector<edit::Id> { a, b, c }));
+
+    const auto combine = [] (edit::Document& d, geo::OperationKind kind, edit::Id subject, edit::Id operand) {
+        geo::DomainCommand command;
+        command.kind = kind;
+        command.name = "Result";
+        command.subject.input = Object (d, subject).footprintOperation;
+        command.operand.input = Object (d, operand).footprintOperation;
+        const auto applied = geo::ApplyDomainCommand (d, command);
+        EXPECT_TRUE (applied.ok) << applied.error;
+        return applied.objectId;
+    };
+    const auto settingsA = Object (doc, a);
+    const auto result = combine (doc, geo::OperationKind::Intersection, a, b);
+    using Input = geo::ConstructionInput;
+    EXPECT_EQ (geo::LandscapeConstructionInputs (*doc.landscape),
+               (std::vector<Input> { { a, result, result }, { b, result, result } }));
+    EXPECT_EQ (geo::LandscapeTerrainOwner (*doc.landscape, a), result);
+    EXPECT_EQ (geo::LandscapeTerrainOwner (*doc.landscape, result), result);
+    EXPECT_EQ (geo::LandscapeTerrainOwner (*doc.landscape, c), c);
+    EXPECT_EQ (geo::TerrainRegionObjects (doc), (std::vector<edit::Id> { c, result }));
+    EXPECT_EQ (Object (doc, a), settingsA) << "an input keeps its surface, effect and material";
+
+    geo::LandscapeResult evaluated;
+    ASSERT_TRUE (geo::EvaluateLandscape (doc, evaluated)) << evaluated.error;
+    for (const auto& region : evaluated.regions)
+        EXPECT_EQ (region.constructionOf, region.objectId == a || region.objectId == b ? result : edit::kNoId)
+            << "region of object " << region.objectId;
+
+    geo::LandscapeSnapshot snapshot;
+    snapshot.doc = &doc;
+    snapshot.revision = doc.revision;
+    const auto plan = geo::CompileLandscapeFieldPlan (snapshot);
+    ASSERT_TRUE (plan.ok) << plan.error;
+    std::vector<edit::Id> owners;
+    for (const auto& entry : plan.entries)
+        owners.push_back (entry.object);
+    std::sort (owners.begin (), owners.end ());
+    EXPECT_EQ (owners, (std::vector<edit::Id> { c, result })) << "the overlap has one owner, not three";
+
+    // The same answer after a save and reload: nothing about it is stored.
+    {
+        std::string text, error;
+        ASSERT_TRUE (geo::WriteLandscape (doc, geo::LandscapeStorage::Virtual, text, error)) << error;
+        edit::Document loaded;
+        ASSERT_TRUE (geo::ReadLandscape (text, loaded, error)) << error;
+        EXPECT_EQ (geo::LandscapeConstructionInputs (*loaded.landscape),
+                   geo::LandscapeConstructionInputs (*doc.landscape));
+    }
+
+    // A result that is itself combined is an input too; the last result owns everything under it.
+    const auto last = combine (doc, geo::OperationKind::Union, result, c);
+    EXPECT_EQ (
+        geo::LandscapeConstructionInputs (*doc.landscape),
+        (std::vector<Input> { { a, result, last }, { b, result, last }, { c, last, last }, { result, last, last } }));
+    EXPECT_EQ (geo::TerrainRegionObjects (doc), (std::vector<edit::Id> { last }));
+
+    // A bypassed step passes its first input through: the other input is no longer part of the
+    // footprint, so it owns its own area again.
+    std::string error;
+    ASSERT_TRUE (geo::SetLandscapeOperationEnabled (doc, Object (doc, last).footprintOperation, false, error)) << error;
+    EXPECT_EQ (geo::LandscapeTerrainOwner (*doc.landscape, c), c);
+    EXPECT_EQ (geo::LandscapeTerrainOwner (*doc.landscape, a), last);
+    EXPECT_EQ (geo::TerrainRegionObjects (doc), (std::vector<edit::Id> { c, last }));
 }

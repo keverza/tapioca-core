@@ -21,20 +21,45 @@ namespace {
 constexpr ImVec4 kNote { 0.45f, 0.45f, 0.50f, 1.0f };
 constexpr ImVec4 kLimit { 0.80f, 0.45f, 0.05f, 1.0f };
 
-// The view's counterpart of a row: the region's boundary line or the designed path.
-edit::Id RowEntity (const Session& s, const lg::RecipeRow& row)
+// The view's counterpart of a row: the region's boundary line or the designed path. #189: a
+// Boolean result has no line of its own, so its counterpart is its construction inputs' lines.
+std::vector<edit::Id> RowEntities (const Session& s, const lg::RecipeRow& row)
 {
     if (row.path != edit::kNoId)
-        return row.path;
+        return { row.path };
     const auto& doc = s.edits.Doc ();
     if (!doc.landscape)
+        return {};
+    const auto line = [&] (edit::Id objectId) {
+        for (const auto& object : doc.landscape->objects)
+            if (object.id == objectId && object.boundarySource != edit::kNoId)
+                for (const auto& source : doc.landscape->sources)
+                    if (source.id == object.boundarySource && !source.deleted)
+                        return source.entityId;
         return edit::kNoId;
-    for (const auto& object : doc.landscape->objects)
-        if (object.id == row.object && object.boundarySource != edit::kNoId)
-            for (const auto& source : doc.landscape->sources)
-                if (source.id == object.boundarySource && !source.deleted)
-                    return source.entityId;
-    return edit::kNoId;
+    };
+    if (const auto own = line (row.object))
+        return { own };
+    std::vector<edit::Id> lines;
+    if (row.object)
+        for (const auto& input : lg::LandscapeConstructionInputs (*doc.landscape))
+            if (input.owner == row.object)
+                if (const auto entity = line (input.object))
+                    lines.push_back (entity);
+    return lines;
+}
+bool RowSelected (const Session& s, const std::vector<edit::Id>& entities)
+{
+    return !entities.empty () && std::all_of (entities.begin (), entities.end (), [&] (edit::Id entity) {
+        return s.selection.Contains ({ entity, edit::Part::Entity, 0 });
+    });
+}
+void SelectRow (Session& s, const std::vector<edit::Id>& entities)
+{
+    std::vector<edit::Ref> refs;
+    for (const auto entity : entities)
+        refs.push_back ({ entity, edit::Part::Entity, 0 });
+    s.selection.Set (refs);
 }
 
 // #105 slice 2: the recipe's supported edits, each one undo step. Order moves only regions within
@@ -116,18 +141,40 @@ void Controls (Session& s, const lg::RecipeRow& row)
             "need a target other than Existing.");
 }
 
-void Row (Session& s, const lg::RecipeRow& row)
+// #189: the regions a row's footprint consumed, as its children: dashed in the view, no effect or
+// quantities of their own, each still selectable and editable.
+void ConstructionInputs (Session& s, const lg::LandscapeRecipe& recipe, edit::Id consumer, int depth = 0)
+{
+    for (const auto& input : recipe.rows) {
+        if (input.constructionOf != consumer || input.constructionOf == edit::kNoId || depth > 16)
+            continue;
+        ImGui::PushID (int (input.object));
+        const auto entities = RowEntities (s, input);
+        const std::string title = "Input:  " + input.name + " " + std::to_string (input.object);
+        if (ImGui::Selectable (title.c_str (), RowSelected (s, entities)) && !entities.empty ())
+            SelectRow (s, entities);
+        if (ImGui::IsItemHovered ())
+            geomsrv::archviz::hudshell::HoverTip (
+                "A construction input: dashed in the view and still editable. It has no terrain effect or "
+                "quantities while this region is built from it.");
+        ImGui::Indent ();
+        ConstructionInputs (s, recipe, input.object, depth + 1);
+        ImGui::Unindent ();
+        ImGui::PopID ();
+    }
+}
+
+void Row (Session& s, const lg::LandscapeRecipe& recipe, const lg::RecipeRow& row)
 {
     ImGui::PushID (row.object ? int (row.object) : int (row.operation ? row.operation : row.source));
-    const edit::Id entity = RowEntity (s, row);
-    const bool selected = entity != edit::kNoId && s.selection.Contains ({ entity, edit::Part::Entity, 0 });
+    const auto entities = RowEntities (s, row);
     std::string title = row.order ? std::to_string (row.order) + ".  " : "-   ";
     title += row.name;
     if (row.kind != row.name)
         title += "  (" + row.kind + ")";
-    if (ImGui::Selectable (title.c_str (), selected) && entity != edit::kNoId)
-        s.selection.Set ({ { entity, edit::Part::Entity, 0 } });
-    if (ImGui::IsItemHovered () && entity == edit::kNoId)
+    if (ImGui::Selectable (title.c_str (), RowSelected (s, entities)) && !entities.empty ())
+        SelectRow (s, entities);
+    if (ImGui::IsItemHovered () && entities.empty ())
         geomsrv::archviz::hudshell::HoverTip (
             "This row has no single line in the view (a derived domain or a constraint).");
     ImGui::Indent ();
@@ -135,6 +182,8 @@ void Row (Session& s, const lg::RecipeRow& row)
         ImGui::Text ("Effect: %s%s%s", row.effect.c_str (),
                      row.target.empty () ? "" : "   Target: ", row.target.c_str ());
     Controls (s, row);
+    if (row.object)
+        ConstructionInputs (s, recipe, row.object);
     if (row.stage == lg::RecipeStage::Region && row.priority != 0)
         ImGui::Text ("Priority %d", row.priority);
     for (const auto& note : row.notes) {
@@ -157,14 +206,14 @@ void Row (Session& s, const lg::RecipeRow& row)
 
 void Section (Session& s, const lg::LandscapeRecipe& recipe, lg::RecipeStage stage, const char* heading)
 {
-    const bool any = std::any_of (recipe.rows.begin (), recipe.rows.end (),
-                                  [&] (const lg::RecipeRow& r) { return r.stage == stage; });
-    if (!any)
+    // #189: a construction input is listed under the row built from it, not as a row of its own.
+    const auto listed = [&] (const lg::RecipeRow& r) { return r.stage == stage && !r.constructionOf; };
+    if (!std::any_of (recipe.rows.begin (), recipe.rows.end (), listed))
         return;
     ImGui::SeparatorText (heading);
     for (const auto& row : recipe.rows)
-        if (row.stage == stage)
-            Row (s, row);
+        if (listed (row))
+            Row (s, recipe, row);
 }
 // #105 step 4: the published terrain's quantities, named after the recipe rows. Read-only: a row
 // click selects its owner's line; Build asks for the current revision's terrain; Copy puts the
@@ -230,12 +279,11 @@ void Quantities (Session& s, const lg::LandscapeRecipe& recipe, const TerrainDes
             const auto owner = std::find_if (recipe.rows.begin (), recipe.rows.end (), [&] (const lg::RecipeRow& r) {
                 return !row.baseline && r.order != 0 && r.object == row.object && r.operation == row.operation;
             });
-            const edit::Id entity = owner != recipe.rows.end () ? RowEntity (s, *owner) : edit::kNoId;
-            const bool selected = entity != edit::kNoId && s.selection.Contains ({ entity, edit::Part::Entity, 0 });
+            const auto entities = owner != recipe.rows.end () ? RowEntities (s, *owner) : std::vector<edit::Id> {};
             const std::string label = row.baseline ? row.name : std::to_string (row.order) + ".  " + row.name;
-            if (ImGui::Selectable (label.c_str (), selected, ImGuiSelectableFlags_SpanAllColumns) &&
-                entity != edit::kNoId)
-                s.selection.Set ({ { entity, edit::Part::Entity, 0 } });
+            if (ImGui::Selectable (label.c_str (), RowSelected (s, entities), ImGuiSelectableFlags_SpanAllColumns) &&
+                !entities.empty ())
+                SelectRow (s, entities);
             ImGui::PopID ();
             numbers (row.cut, row.fill, row.net, row.area);
         }

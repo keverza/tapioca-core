@@ -164,8 +164,9 @@ edit::Id detail::SelectedRegionObject (Session& s)
             if (face == evaluated.faces.end ())
                 continue;
             std::set<edit::Id> candidates;
+            // #189: a construction input is not a candidate; the region built from it is.
             for (const auto& region : evaluated.regions)
-                if (region.objectId && FaceInside (face->seed, region.rings))
+                if (region.objectId && !region.constructionOf && FaceInside (face->seed, region.rings))
                     candidates.insert (region.objectId);
             if (candidates.empty ())
                 continue;
@@ -181,7 +182,8 @@ edit::Id detail::SelectedRegionObject (Session& s)
                 if (object.boundarySource)
                     for (const auto& source : doc.landscape->sources)
                         if (!source.deleted && source.id == object.boundarySource && source.entityId == ref.entity)
-                            resolved.insert (object.id);
+                            // #189: a construction input's line stands for the region built from it.
+                            resolved.insert (lg::LandscapeTerrainOwner (*doc.landscape, object.id));
     if (resolved.size () != 1)
         return edit::kNoId;
     s.landscapeObject = *resolved.begin ();

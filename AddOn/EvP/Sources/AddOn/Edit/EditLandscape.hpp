@@ -261,6 +261,8 @@ struct RegionBoundaryPiece {
 };
 struct DerivedRegion {
     Id regionId = kNoId, objectId = kNoId;
+    // #189: the region whose footprint this one is a construction input of (kNoId: an owner).
+    Id constructionOf = kNoId;
     uint64_t faceId = 0; // Current evaluation only.
     RegionDescriptor descriptor;
     std::vector<std::vector<Vec3>> rings;
@@ -314,6 +316,21 @@ bool SetLandscapeOperationEnabled (geomsrv::edit::Document& doc, Id id, bool ena
 bool SetLandscapeOperationPriorities (geomsrv::edit::Document& doc, const std::vector<std::pair<Id, int>>& priorities,
                                       std::string& error);
 bool AddHardscapeObject (geomsrv::edit::Document& doc, HardscapeObject object, Id& id, std::string& error);
+// #189: construction inputs. A region whose footprint root another region's footprint is built
+// from (reached through operation inputs; a bypassed step passes only its first input) is
+// construction geometry: it stays authored and editable, keeps its own surface and terrain
+// settings, and takes no part in the terrain recipe, the quantities or the solid display while
+// it is consumed. Only the consuming region owns that area. Derived from the operation DAG on
+// every read, never stored: undoing the Boolean, or anything else that stops the result reaching
+// the input, makes the input an owner again with the settings it had. Path objects are never
+// consumed. `consumer` is the nearest consuming region; `owner` the one no region consumes.
+struct ConstructionInput {
+    Id object = kNoId, consumer = kNoId, owner = kNoId;
+    bool operator== (const ConstructionInput&) const = default;
+};
+std::vector<ConstructionInput> LandscapeConstructionInputs (const LandscapeSession& session);
+// The region that owns `object`'s area in the terrain recipe: itself unless it is consumed.
+Id LandscapeTerrainOwner (const LandscapeSession& session, Id object);
 // One call is one document mutation; wrap it in Session::Apply for one undo entry.
 bool AddVolumetricDetail (geomsrv::edit::Document& doc, VolumetricDetail detail, Id& id, std::string& error);
 // Set requires the current detail revision. Retained entries keep their IDs;

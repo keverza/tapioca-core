@@ -495,9 +495,13 @@ FieldPlan CompileLandscapeFieldPlan (const LandscapeSnapshot& snapshot)
     // Every active owner contributes exactly one entry. Objects with no
     // configured effect are not field-stack members; a configured effect on a
     // dead root is a located diagnostic, not a silently skipped owner.
+    // #189: a construction input is not an owner; the region built from it owns that area.
+    std::set<Id> construction;
+    for (const auto& input : LandscapeConstructionInputs (session))
+        construction.insert (input.object);
     std::vector<FieldPlanEntry> entries;
     for (const auto& object : session.objects) {
-        if (object.terrain.effect == RegionTerrainEffect::None)
+        if (object.terrain.effect == RegionTerrainEffect::None || construction.count (object.id))
             continue;
         const auto* root = operation (object.footprintOperation);
         if (!root) {

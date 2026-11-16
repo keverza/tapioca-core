@@ -130,8 +130,9 @@ const std::vector<LandscapeShape>& LandscapeCommandShapes (Session& s)
             continue;
         LandscapeShape shape;
         shape.pick.object = object.id;
+        // #189: a construction input is picked through the region built from it, not on its own.
         for (const auto& region : result.regions)
-            if (region.objectId == object.id) {
+            if (region.objectId == object.id && !region.constructionOf) {
                 shape.rings.insert (shape.rings.end (), region.rings.begin (), region.rings.end ());
                 shape.area += region.area;
             }
@@ -259,7 +260,10 @@ bool AdvanceLandscapeCommand (Session& s)
     }
     CancelLandscapeCommand (s);
     s.landscapeObject = objectId;
-    s.message = std::string (CommandName (command.kind)) + " complete. Sources remain editable.";
+    // #189: what became of the picked shapes, said once where the user looks after Enter.
+    s.message = std::string (CommandName (command.kind)) +
+                " complete. The picked shapes are now its dashed construction inputs: still editable, and only "
+                "the result grades the terrain.";
     if (!note.empty ())
         s.message += " " + note;
     Landscape (s);

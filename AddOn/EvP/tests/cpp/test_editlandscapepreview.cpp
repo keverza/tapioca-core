@@ -303,3 +303,30 @@ TEST (LandscapePreviewLayers, FaceSelectionAndHoverKeepExistingFillStyleAndOutli
     EXPECT_EQ (layer.meshes[0].rgba, (style.landscapeHover & 0xFFFFFF00u) | 0x28u);
     EXPECT_EQ (layer.meshes[0].indices, indices);
 }
+
+// #189: a construction input is not drawn as a region. Only the region built from it gets the
+// solid outline and the fill; the input keeps the dashed source line every source has.
+TEST (LandscapePreviewLayers, AConstructionInputIsNotDrawnAsARegion189)
+{
+    edit::Document doc;
+    doc.landscape.emplace ();
+    geo::LandscapeResult result;
+    result.regions = { WithHole (), WithHole () };
+    for (auto& ring : result.regions[1].rings)
+        for (auto& point : ring)
+            point.x += 20;
+    result.regions[0].objectId = 3;
+    result.regions[0].constructionOf = 9;
+    result.regions[1].objectId = 9;
+    el::Feedback feedback;
+    feedback.landscape = &result;
+    feedback.landscapeZ = 6;
+    layers::Layer layer;
+    el::AddLandscape (doc, feedback, {}, layer);
+    ASSERT_EQ (layer.meshes.size (), 1u) << "one fill: the result's";
+    ASSERT_EQ (layer.polylines.size (), 2u) << "the result's outer ring and hole";
+    for (const auto& line : layer.polylines) {
+        EXPECT_TRUE (line.dashMetres.empty ());
+        EXPECT_GE (line.points[0], 20.0) << "the input at x 0..4 has no solid outline";
+    }
+}

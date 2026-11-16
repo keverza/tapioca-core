@@ -238,19 +238,23 @@ TEST (EditLandscapeFieldPlan, ConfiguredBooleanCompositionFollowsOperandsAndKeep
 
     const auto plan = Compile (doc);
     ASSERT_TRUE (plan.ok) << plan.error;
-    ASSERT_EQ (plan.entries.size (), 3u); // A, B and the derived result each contribute one entry
+    // #189: A and B are the result's construction inputs; the result alone owns their area.
+    ASSERT_EQ (plan.entries.size (), 1u);
     const auto* output = Entry (plan, applied.objectId);
     ASSERT_NE (output, nullptr);
     // A's metadata wins; the operand never contributes its own.
     ASSERT_TRUE (output->surface.has_value ());
     EXPECT_DOUBLE_EQ (output->surface->first.z, 2);
     EXPECT_EQ (output->terrain.effect, geo::RegionTerrainEffect::Grade);
-    // The derived result follows its operands: it stacks after A and B, so it
-    // wins in its own output domain and B is never applied twice over it.
-    EXPECT_GT (output->order, Entry (plan, a)->order);
-    EXPECT_GT (output->order, Entry (plan, b)->order);
-    ASSERT_TRUE (Entry (plan, b)->surface.has_value ());
-    EXPECT_DOUBLE_EQ (Entry (plan, b)->surface->first.z, 5); // B keeps its own domain
+    // The inputs are not entries, so B is never applied under or over the result; each keeps
+    // its own authored target for when the Boolean is undone.
+    EXPECT_EQ (Entry (plan, a), nullptr);
+    EXPECT_EQ (Entry (plan, b), nullptr);
+    for (const auto& object : doc.landscape->objects)
+        if (object.id == b) {
+            ASSERT_TRUE (object.surface.has_value ());
+            EXPECT_DOUBLE_EQ (object.surface->first.z, 5);
+        }
 }
 
 TEST (EditLandscapeFieldPlan, HoleKeepsMembershipOutOfTheSurroundingEntry)

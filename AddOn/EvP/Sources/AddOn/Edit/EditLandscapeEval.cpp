@@ -12,6 +12,64 @@
 namespace tapioca::geometry {
 namespace edit = geomsrv::edit;
 using namespace landscape_detail;
+
+// #189. Reach follows what the evaluation reads: every input of an enabled step, the first input
+// of a bypassed one (EvaluateLandscapeOperations passes that one through).
+std::vector<ConstructionInput> LandscapeConstructionInputs (const LandscapeSession& session)
+{
+    std::map<Id, const LandscapeOperation*> operations;
+    for (const auto& op : session.operations)
+        operations.emplace (op.id, &op);
+    // Per region with a live root: the operations under that root, the root left out.
+    std::map<Id, std::set<Id>> under;
+    for (const auto& object : session.objects) {
+        if (!operations.count (object.footprintOperation))
+            continue;
+        auto& reached = under[object.id];
+        std::vector<Id> open { object.footprintOperation };
+        while (!open.empty ()) {
+            const auto* op = operations.at (open.back ());
+            open.pop_back ();
+            for (size_t i = 0; i < op->inputs.size () && (op->enabled || i == 0); ++i)
+                if (operations.count (op->inputs[i]) && op->inputs[i] != object.footprintOperation &&
+                    reached.insert (op->inputs[i]).second)
+                    open.push_back (op->inputs[i]);
+        }
+    }
+    std::map<Id, Id> nearest;
+    for (const auto& object : session.objects) {
+        if (object.pathId || object.kind == ObjectKind::Path || !under.count (object.id))
+            continue;
+        const std::set<Id>* best = nullptr;
+        for (const auto& other : session.objects) {
+            const auto reached = under.find (other.id);
+            if (other.id == object.id || reached == under.end () || !reached->second.count (object.footprintOperation))
+                continue;
+            // The nearest consumer reaches the least; object order breaks a tie deterministically.
+            if (!best || reached->second.size () < best->size ()) {
+                best = &reached->second;
+                nearest[object.id] = other.id;
+            }
+        }
+    }
+    std::vector<ConstructionInput> inputs;
+    for (const auto& [object, consumer] : nearest) {
+        Id owner = consumer;
+        for (size_t guard = 0; nearest.count (owner) && guard < nearest.size (); ++guard)
+            owner = nearest.at (owner);
+        inputs.push_back ({ object, consumer, owner });
+    }
+    return inputs;
+}
+
+Id LandscapeTerrainOwner (const LandscapeSession& session, Id object)
+{
+    for (const auto& input : LandscapeConstructionInputs (session))
+        if (input.object == object)
+            return input.owner;
+    return object;
+}
+
 namespace {
 const LandscapeSource* Source (const LandscapeSession& session, Id id)
 {
@@ -407,11 +465,16 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out, std::map<Id, Sha
             Diagnostic (out, LandscapeDiagnosticCode::ClipEmpty, id, "operation produced no footprint");
         values[id] = std::move (shape);
     }
+    std::map<Id, Id> consumers;
+    for (const auto& input : LandscapeConstructionInputs (session))
+        consumers.emplace (input.object, input.consumer);
     for (const auto& object : session.objects) {
         if (unavailable.count (object.footprintOperation))
             continue;
         for (auto region : values.at (object.footprintOperation)) {
             region.objectId = object.id;
+            if (const auto consumer = consumers.find (object.id); consumer != consumers.end ())
+                region.constructionOf = consumer->second;
             region.material = object.baseMaterial;
             Describe (region);
             for (const auto& identity : session.regions)

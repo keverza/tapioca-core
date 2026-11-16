@@ -3,6 +3,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "Edit/EditLandscape.hpp"
+#include "Edit/EditRegionTerrain.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPrimitives.hpp"
 #include <gtest/gtest.h>
@@ -291,7 +292,7 @@ TEST (HudVirtualEditorInspector, NoInventoryControlUnreachable191)
           { "Fix selected heights", "Release selected heights" } },
         { "several",
           [&] (eh::Session& s) { s.selection.Set ({ whole (site.path), whole (ellipse) }); },
-          { "1 paths", "Use selected lines as:" } },
+          { "1 path ", "Use selected lines as:" } },
         { "nothing",
           [] (eh::Session&) {},
           { "Rebuild terrain (3D)", "Place entrances", "Keep recovery snapshots", "Reference line display",
@@ -314,4 +315,66 @@ TEST (HudVirtualEditorInspector, NoInventoryControlUnreachable191)
             EXPECT_TRUE (Has (text, label)) << c.name << ": \"" << label << "\" is not drawn ("
                                             << eh::InspectorContextName (eh::ResolveContext (s)) << ")";
     }
+}
+
+// #189: after the editor's own Boolean, the picked regions are construction inputs. Picking, the
+// panel's region and the Inspector all follow the result: an input's line stands for it.
+TEST (HudVirtualEditorInspector, ABooleansInputsStandForItsResult189)
+{
+    auto site = MakeSite ();
+    const auto second =
+        Role (site.doc, edit::AddPolyline (site.doc, { { 5, 3, 0 }, { 13, 3, 0 }, { 13, 11, 0 }, { 5, 11, 0 } }, true),
+              lg::SourceRole::RegionBoundary);
+    std::string error;
+    for (const auto& object : std::vector<lg::HardscapeObject> (site.doc.landscape->objects)) {
+        lg::RegionSurface surface;
+        surface.elevation = lg::RegionElevationMode::Constant;
+        surface.first.z = 2;
+        ASSERT_TRUE (lg::SetRegionSurface (site.doc, object.id, surface, {}, error)) << error;
+        lg::RegionTerrain terrain;
+        terrain.effect = lg::RegionTerrainEffect::Grade;
+        ASSERT_TRUE (lg::SetRegionTerrain (site.doc, object.id, terrain, error)) << error;
+    }
+    eh::Session s (site.doc);
+    ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Intersection));
+    ASSERT_TRUE (eh::PickLandscapeShape (s, { 1, 1, 0 }, true));
+    ASSERT_TRUE (eh::PickLandscapeShape (s, { 12, 10, 0 }, true));
+    ASSERT_TRUE (eh::AdvanceLandscapeCommand (s)) << s.message;
+    EXPECT_NE (s.message.find ("construction inputs"), std::string::npos) << s.message;
+    const auto result = s.landscapeObject;
+    ASSERT_NE (result, edit::kNoId);
+    const auto& landscape = *s.edits.Doc ().landscape;
+    ASSERT_EQ (lg::LandscapeConstructionInputs (landscape).size (), 2u);
+
+    // One input line, or both: the Boolean result's context, and the panel's region is the result.
+    for (const auto& selection : std::vector<std::vector<edit::Ref>> {
+             { { site.region, edit::Part::Entity, 0 } },
+             { { site.region, edit::Part::Entity, 0 }, { second, edit::Part::Entity, 0 } } }) {
+        s.selection.Set (selection);
+        EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::BooleanResult) << selection.size ();
+        EXPECT_EQ (eh::detail::SelectedRegionObject (s), result) << selection.size ();
+    }
+    Gui gui;
+    const auto text = gui.Frame ([&] { eh::detail::Inspector (s); });
+    EXPECT_TRUE (Has (text, "Construction inputs (dashed)")) << text;
+    EXPECT_TRUE (Has (text, "Terrain interaction")) << "the result's settings are edited here";
+    EXPECT_TRUE (Has (text, "Use selected lines as:"));
+
+    // The next command picks the result as one shape; an input is not a shape of its own.
+    ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Union));
+    size_t regions = 0;
+    for (const auto& shape : eh::LandscapeCommandShapes (s))
+        if (shape.pick.object) {
+            ++regions;
+            EXPECT_EQ (shape.pick.object, result);
+        }
+    EXPECT_EQ (regions, 1u);
+    eh::CancelLandscapeCommand (s);
+
+    // Undo: the inputs are ordinary regions again, each with the effect it had.
+    ASSERT_TRUE (s.edits.Undo ());
+    EXPECT_TRUE (lg::LandscapeConstructionInputs (*s.edits.Doc ().landscape).empty ());
+    EXPECT_EQ (lg::TerrainRegionObjects (s.edits.Doc ()).size (), 2u);
+    s.selection.Set ({ { site.region, edit::Part::Entity, 0 } });
+    EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::Region);
 }

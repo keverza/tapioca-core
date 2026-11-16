@@ -13,7 +13,8 @@
 //     position, object id; later entries compose over earlier ones), then the one designed
 //     path, which always follows every region; masks and fixed controls are constraints,
 //     listed apart and never ordered with the stack;
-//   - owners that are not in the stack, with the reason (no terrain effect, no live root...);
+//   - owners that are not in the stack, with the reason (no terrain effect, no live root, or a
+//     construction input of another region's Boolean, #189);
 //   - each entry's footprint construction as a dependency tree: an operand used by more than
 //     one parent is shown as a reference, not copied; a disabled node is a footprint bypass
 //     (its first input passes through), which is not the same as "no terrain effect";
@@ -34,6 +35,7 @@ struct RecipeNode {
     uint32_t depth = 0;
     Id operation = kNoId;   // kNoId: a source leaf
     Id source = kNoId;      // the leaf's source
+    Id object = kNoId;      // #189: the region whose footprint this step is (a construction input)
     std::string label;      // "Union", "Difference (A minus B)", "Region boundary 12"...
     bool bypassed = false;  // a disabled operation: its first input passes through
     bool reference = false; // already shown above (shared operand): not expanded again
@@ -44,9 +46,10 @@ struct RecipeRow {
     RecipeStage stage = RecipeStage::Region;
     uint32_t order = 0; // 1-based stack position; 0 for masks, controls and excluded owners
     Id object = kNoId, operation = kNoId, source = kNoId, path = kNoId;
-    std::string name, kind; // "Plaza", "Path", "Protected zone"...
-    std::string effect;     // "Grade", "Raise only (fill)", "Lower only (cut)", "None"
-    std::string target;     // "Boundary curve Z", "Constant 12.50 m", "Existing", "Path profile"
+    Id constructionOf = kNoId; // #189: an excluded row consumed by this region's footprint
+    std::string name, kind;    // "Plaza", "Path", "Protected zone"...
+    std::string effect;        // "Grade", "Raise only (fill)", "Lower only (cut)", "None"
+    std::string target;        // "Boundary curve Z", "Constant 12.50 m", "Existing", "Path profile"
     int priority = 0;
     std::vector<Id> sources;
     std::vector<RecipeNode> construction;

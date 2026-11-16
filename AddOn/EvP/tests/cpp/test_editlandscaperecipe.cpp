@@ -419,3 +419,48 @@ TEST (EditLandscapeRecipe, QuantityRowsNameThePublishedPartitionAndMarkAStaleOne
     EXPECT_NE (geo::ProjectRecipeQuantities (legacy, nullptr, false).reason.find ("totals only"), std::string::npos);
     EXPECT_EQ (geo::RecipeQuantitiesText (none), "Stack\tOwner\tCut m3\tFill m3\tNet m3\tArea m2\n");
 }
+
+// #189: after a Boolean the recipe has one row for that area. The inputs are not terrain rows:
+// each is listed as a construction input of the result, named on the result's footprint tree,
+// and cannot be moved in a stack it is not in.
+TEST (EditLandscapeRecipe, ABooleanResultIsOneRowAndItsInputsAreConstruction189)
+{
+    auto doc = Start ();
+    const auto a = Region (doc, 0);
+    const auto b = Region (doc, 5);
+    Configure (doc, a, 2);
+    Configure (doc, b, 5);
+    geo::DomainCommand command;
+    command.kind = geo::OperationKind::Intersection;
+    command.name = "Intersection";
+    command.subject.input = RootOf (doc, a);
+    command.operand.input = RootOf (doc, b);
+    const auto applied = geo::ApplyDomainCommand (doc, command);
+    ASSERT_TRUE (applied.ok) << applied.error;
+
+    const auto recipe = geo::ProjectLandscapeRecipe (doc, std::nullopt);
+    ASSERT_TRUE (recipe.ok) << recipe.error;
+    const auto regions = Rows (recipe, geo::RecipeStage::Region);
+    ASSERT_EQ (regions.size (), 1u) << "three rows for one overlap was the defect";
+    EXPECT_EQ (regions[0]->object, applied.objectId);
+    EXPECT_EQ (regions[0]->constructionOf, edit::kNoId);
+    for (const edit::Id input : { a, b })
+        EXPECT_TRUE (std::any_of (regions[0]->construction.begin (), regions[0]->construction.end (),
+                                  [&] (const geo::RecipeNode& n) {
+                                      return n.object == input &&
+                                             n.label.find ("construction input") != std::string::npos;
+                                  }))
+            << input;
+    const auto excluded = Rows (recipe, geo::RecipeStage::Excluded);
+    ASSERT_EQ (excluded.size (), 2u);
+    for (const auto* row : excluded) {
+        EXPECT_EQ (row->constructionOf, applied.objectId);
+        EXPECT_TRUE (Mentions (row->notes, "Construction input of Intersection")) << row->notes.front ();
+        EXPECT_EQ (row->effect, "Grade") << "the input's own setting is kept and shown";
+    }
+    std::string error;
+    auto copy = doc;
+    EXPECT_FALSE (geo::MoveRecipeRegion (copy, a, 1, error));
+    EXPECT_NE (error.find ("construction input"), std::string::npos) << error;
+    EXPECT_EQ (copy.revision, doc.revision) << "a refused move changes nothing";
+}

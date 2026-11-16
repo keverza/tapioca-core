@@ -75,8 +75,11 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
         if (!mesh.indices.empty ())
             layer.meshes.push_back (std::move (mesh));
     };
+    // #189: a construction input is not drawn as a region: its own dashed source line stays, and
+    // only the region built from it is solid and filled.
     for (const auto& r : f.landscape->regions)
-        region (r, style.landscapeEdge, true);
+        if (!r.constructionOf)
+            region (r, style.landscapeEdge, true);
     for (const auto& face : f.landscape->faces) {
         const edit::Ref ref { edit::kNoId, edit::Part::LandscapeFace, face.faceId, f.landscape->revision };
         const bool selected = f.selection && f.selection->Contains (ref);

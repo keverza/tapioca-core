@@ -883,13 +883,14 @@ TEST (HudLandscape, ToolbarBooleanOfConfiguredSubjectInheritsMetadataAndStaysEdi
         EXPECT_TRUE (lg::SetRegionTerrain (copy, result.id, terrain, error)) << error;
         const auto targets = lg::TerrainRegionObjects (s.edits.Doc ());
         EXPECT_EQ (std::count (targets.begin (), targets.end (), result.id), 1);
-        // A face of the derived domain resolves the panel to it (latest root wins),
-        // while the operand region stays reachable through its boundary line.
+        // A face of the derived domain resolves the panel to it, and so does the subject's
+        // boundary line: the subject is the result's construction input now (#189).
         const auto derived = *lg::LandscapeFaceAt (eh::Landscape (s), { 5, 5, 0 });
         s.selection.Set ({ { ed::kNoId, ed::Part::LandscapeFace, derived.faceId, s.landscapeRevision } });
         EXPECT_EQ (eh::detail::SelectedRegionObject (s), result.id);
         s.selection.Set ({ { a, ed::Part::Entity, 0 } });
-        EXPECT_EQ (eh::detail::SelectedRegionObject (s), subject);
+        EXPECT_EQ (eh::detail::SelectedRegionObject (s), result.id);
+        EXPECT_EQ (lg::LandscapeTerrainOwner (*s.edits.Doc ().landscape, subject), result.id);
         // One undo step removes the whole command: Boolean and output.
         EXPECT_EQ (s.edits.Doc ().landscape->operations.size (), 2u);
         ASSERT_TRUE (s.edits.Undo ());

@@ -187,18 +187,35 @@ void SelectedLinesRole (Session& s)
         ImGui::TextWrapped (
             "Reference line: snappable linework only. No fill, material, quantities or terrain effect.");
 }
-// The landscape Boolean the selected lines feed, by name (#189 adds its construction inputs).
-void BooleanOfSelection (Session& s)
+// #189: the Boolean result the selected lines are construction inputs of, and those inputs by
+// name. Returns the result's region, or zero when the selection resolves to none (lines a Boolean
+// took without a region of their own): then every Boolean result is named, as before.
+edit::Id BooleanOfSelection (Session& s)
 {
     const auto& landscape = *s.edits.Doc ().landscape;
+    const auto boolean = [] (lg::OperationKind kind) {
+        return kind == lg::OperationKind::Union || kind == lg::OperationKind::Difference ||
+               kind == lg::OperationKind::Intersection || kind == lg::OperationKind::Xor;
+    };
+    const auto name = [] (const lg::HardscapeObject& object) {
+        return (object.name.empty () ? std::string ("Region") : object.name) + " " + std::to_string (object.id);
+    };
+    const auto result = detail::SelectedRegionObject (s);
     for (const auto& object : landscape.objects)
         for (const auto& op : landscape.operations)
-            if (op.id == object.footprintOperation &&
-                (op.kind == lg::OperationKind::Union || op.kind == lg::OperationKind::Difference ||
-                 op.kind == lg::OperationKind::Intersection || op.kind == lg::OperationKind::Xor)) {
+            if (op.id == object.footprintOperation && boolean (op.kind) && (!result || object.id == result))
                 ImGui::Text ("%s %llu   %zu inputs", lg::RecipeOperationName (op.kind),
                              static_cast<unsigned long long> (op.id), op.inputs.size ());
-            }
+    if (!result)
+        return edit::kNoId;
+    ImGui::TextWrapped ("Construction inputs (dashed): still editable, with no terrain effect or quantities of "
+                        "their own. Only the result below grades the terrain.");
+    for (const auto& input : lg::LandscapeConstructionInputs (landscape))
+        if (input.owner == result)
+            for (const auto& object : landscape.objects)
+                if (object.id == input.object)
+                    ImGui::BulletText ("%s", name (object).c_str ());
+    return result;
 }
 bool SelectionIsBuilding (const Session& s)
 {
@@ -237,7 +254,14 @@ void LandscapePanel (Session& s)
                 EntrancesPanel (s);
             break;
         case InspectorContext::BooleanResult:
-            BooleanOfSelection (s);
+            // #189: the selected input lines stand for the result; its settings are edited here.
+            if (BooleanOfSelection (s)) {
+                ImGui::SeparatorText ("Result");
+                RegionPanel (s);
+                ImGui::SeparatorText ("Material");
+                RegionPanel (s, true);
+                ImGui::SeparatorText ("Input lines");
+            }
             SelectedLinesRole (s);
             break;
         case InspectorContext::ReferenceLine:
