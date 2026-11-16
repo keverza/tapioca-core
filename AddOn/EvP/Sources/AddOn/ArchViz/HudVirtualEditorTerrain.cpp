@@ -1,6 +1,7 @@
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorBake.hpp"
 #include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "Geometry/Mesh.hpp"
@@ -677,6 +678,7 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
             }
         }
     }
+    DrawTerrainBake (s, layer); // #177: the Mesh the built surface would become, while asked for
     // Located conflicts and diagnostic places belong to the newest outcome that
     // describes the document: a refusal's places are current geometry and draw
     // even while the last good surface holds above them. An in-flight rebuild
@@ -807,6 +809,7 @@ void TerrainDesignPanel (Session& s)
             "Off: the terrain follows every path's paved outline, junctions and kerbs included. "
             "On: only the chosen path's band, as sampled stations.");
     TerrainBuildSection (s);
+    TerrainBakePanel (s);
     const auto status = GetTerrainDesignStatus (s);
     const auto* current = CurrentTerrainDesign (s);
     // The worker always tries to build; what it could not satisfy is listed, not thrown at the

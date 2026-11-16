@@ -5,6 +5,7 @@
 #include "Edit/EditPublishedTerrain.hpp"
 #include "Geometry/Mesh.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorBake.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathEdit.hpp"
@@ -899,6 +900,104 @@ TEST (EditRegionTerrain, ARegionEditIsFollowedByThePreviewWithoutAskingForABuild
 // #112 P1: terrain-target discovery is valid owned-root based -- a Boolean-derived
 // configured domain (durable owner + live root, no boundarySource) participates in
 // region grading, and a single hole-free derived footprint grades end to end.
+// tapioca-dev #177: the Archicad Mesh is planned from the BUILT surface only, drawn before it is
+// made, and asked for as one request whose numbers are all reals.
+TEST (EditRegionTerrain, TheBuiltTerrainIsPlannedPreviewedAndRequestedAsAnArchicadMesh177)
+{
+    namespace eh = geomsrv::archviz::edithud;
+    const auto settle = [] (eh::Session& session) {
+        const auto end = std::chrono::steady_clock::now () + std::chrono::seconds (20);
+        while (std::chrono::steady_clock::now () < end) {
+            eh::PollTerrainDesign (session);
+            const auto status = eh::GetTerrainDesignStatus (session);
+            if (status.active && !status.previewPending && !status.pending && !status.buildRequested)
+                return true;
+            std::this_thread::sleep_for (std::chrono::milliseconds (1));
+        }
+        return false;
+    };
+    Fixture fixture;
+    const auto captured = fixture.Capture ();
+    auto mesh = std::make_shared<geomsrv::Mesh> ();
+    mesh->guid = captured->sourceTerrainGuid;
+    mesh->vertices = captured->points;
+    mesh->triangles = captured->triangles;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::SetTerrainBaseline (session, { mesh, false, {} }, 0));
+    ASSERT_TRUE (settle (session));
+
+    // Only the field preview so far: nothing to make a Mesh from, and the reason is said.
+    std::string why;
+    EXPECT_EQ (eh::TerrainBakePlan (session, &why), nullptr);
+    EXPECT_NE (why.find ("Build the terrain mesh first"), std::string::npos) << why;
+    EXPECT_FALSE (eh::RequestTerrainBake (session));
+    EXPECT_TRUE (eh::TerrainBakeRequestJson (session).empty ());
+
+    ASSERT_TRUE (eh::RequestTerrainBuild (session)) << session.message;
+    ASSERT_TRUE (settle (session));
+    ASSERT_TRUE (eh::GetTerrainDesignStatus (session).built) << eh::GetTerrainDesignStatus (session).error;
+    session.bake.options.interval = 0.5;
+    const auto* plan = eh::TerrainBakePlan (session, &why);
+    ASSERT_NE (plan, nullptr) << why;
+    ASSERT_TRUE (plan->ok) << plan->error;
+    EXPECT_GE (plan->outline.size (), 4u);
+    ASSERT_FALSE (plan->lines.empty ()) << "a region raised to 2 m has contours every 0.5 m";
+    EXPECT_NEAR (plan->hi, 2.0, 0.05);
+    for (const auto& line : plan->lines)
+        EXPECT_GE (line.points.size (), 2u) << "no loose points";
+
+    // The preview: the outline, every line, and a mark at each of their points.
+    geomsrv::archviz::overlaylayers::Layer layer;
+    eh::DrawTerrainBake (session, layer);
+    EXPECT_EQ (layer.polylines.size (), plan->lines.size () + 1);
+    ASSERT_EQ (layer.points.size (), 1u);
+    EXPECT_EQ (layer.points[0].points.size (), (plan->outline.size () + plan->points) * 3);
+    session.bake.preview = false;
+    geomsrv::archviz::overlaylayers::Layer hidden;
+    eh::DrawTerrainBake (session, hidden);
+    EXPECT_TRUE (hidden.polylines.empty () && hidden.points.empty ());
+
+    // A coarser reduction is another plan, with no more points.
+    const auto before = plan->points;
+    session.bake.options.tolerance = 0.25;
+    plan = eh::TerrainBakePlan (session);
+    ASSERT_NE (plan, nullptr);
+    EXPECT_LE (plan->points, before);
+
+    // The request: model heights, the base plane a metre under the lowest point, reals only.
+    const auto json = eh::TerrainBakeRequestJson (session);
+    ASSERT_FALSE (json.empty ());
+    EXPECT_NE (json.find ("\"absoluteBase\":true"), std::string::npos);
+    EXPECT_NE (json.find ("\"baseLevel\":-1.0"), std::string::npos) << json.substr (0, 200);
+    EXPECT_NE (json.find ("\"ridgeCounts\":["), std::string::npos);
+    const auto outline = json.substr (json.find ('[') + 1, json.find (']') - json.find ('[') - 1);
+    size_t at = 0;
+    while (at < outline.size ()) {
+        const auto end = std::min (outline.find (',', at), outline.size ());
+        EXPECT_NE (outline.substr (at, end - at).find_first_of (".e"), std::string::npos)
+            << "a whole number written without a fraction: " << outline.substr (at, end - at);
+        at = end + 1;
+    }
+
+    ASSERT_TRUE (eh::RequestTerrainBake (session)) << session.message;
+    EXPECT_TRUE (session.bake.requested);
+    EXPECT_FALSE (eh::RequestTerrainBake (session)) << "one create at a time";
+    eh::FinishTerrainBake (session, true, "Archicad Mesh created.");
+    EXPECT_FALSE (session.bake.requested);
+    EXPECT_EQ (session.message, "Archicad Mesh created.");
+    EXPECT_EQ (fixture.doc.revision, session.edits.Doc ().revision) << "the create is not an edit";
+
+    // An edit after the build: the built surface no longer follows the document.
+    auto target = *fixture.doc.landscape->objects[0].surface;
+    target.first.z = 1;
+    ASSERT_TRUE (session.edits.Apply (
+        [&] (auto& doc, auto& error) { return lg::SetRegionSurface (doc, fixture.object, target, {}, error); }));
+    ASSERT_TRUE (settle (session));
+    EXPECT_EQ (eh::TerrainBakePlan (session, &why), nullptr);
+    EXPECT_NE (why.find ("Build it again"), std::string::npos) << why;
+    EXPECT_FALSE (eh::RequestTerrainBake (session));
+}
+
 TEST (EditRegionTerrain, TerrainRegionObjectsDiscoversOwnedRootResults112)
 {
     Fixture fixture;

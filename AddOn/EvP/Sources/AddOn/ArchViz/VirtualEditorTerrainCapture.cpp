@@ -3,6 +3,7 @@
 #include "APIEnvir.h"
 #include "ACAPinc.h"
 #include "ArchViz/VirtualEditorTerrainCapture.hpp"
+#include "ArchViz/VirtualEditorTerrainBake.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
@@ -154,6 +155,7 @@ void FollowTerrainCapture (const std::shared_ptr<overlayhud::State>& state)
 }
 void FollowDraftingImport (const std::shared_ptr<overlayhud::State>& state)
 {
+    FollowTerrainBake (state); // #177: the same message-loop point, for the editor's one native write
     const auto session = state->virtualEditor;
     if (!session || !session->draftingImport || session->draftingImportQueued)
         return;

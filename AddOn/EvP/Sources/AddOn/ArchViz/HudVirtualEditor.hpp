@@ -23,6 +23,7 @@
 #include "Edit/EditPolyline.hpp"
 #include "Edit/EditProfileView.hpp"
 #include "Edit/EditSnap.hpp"
+#include "Edit/EditTerrainBake.hpp"
 #include "Edit/EditTracker.hpp"
 #include "Edit/EditWorkingPlane.hpp"
 #include <chrono>
@@ -187,6 +188,19 @@ struct Session {
     // What the queued import makes of Archicad's selection: "lines", "property", "building" or
     // "entrances" (the selected doors) -- Tapioca.VirtualEditor's importAs.
     std::string draftingImportAs = "lines";
+    // tapioca-dev #177: the built terrain as a native Mesh (HudVirtualEditorBake.hpp). The
+    // panel's options, the plan they give for the built surface of `generation` (drawn while
+    // `preview`), and the create asked from layout and queued on the message loop. Derived:
+    // none of it is document state.
+    struct TerrainBake {
+        edit::BakeOptions options, planned;
+        double skirt = 1.0;
+        bool preview = true;
+        uint64_t generation = UINT64_MAX;
+        edit::BakePlan plan;
+        bool requested = false, queued = false;
+        std::string status;
+    } bake;
     edit::Id terrainPath = edit::kNoId;
     std::shared_ptr<TerrainSectionDraft> terrainSectionDraft; // Uncommitted typed fields; not document state.
     // A cross-section slider is held: its gesture applies every change live (the terrain worker

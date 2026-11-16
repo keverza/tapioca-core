@@ -1,6 +1,7 @@
 // #191 U4: the Inspector shows one context at a time -- a path's profile, a region's settings, a
 // drawing tool's options or, with nothing selected, the terrain -- and never another context's.
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorBake.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/HudVirtualEditorDraft.hpp"
 #include "Edit/EditLandscape.hpp"
@@ -213,7 +214,7 @@ size_t InventoryInspectorRows ()
 // context's More, Expert or own header, opened here as a user would open it.
 TEST (HudVirtualEditorInspector, NoInventoryControlUnreachable191)
 {
-    EXPECT_EQ (InventoryInspectorRows (), 44u) << "EDITOR-CONTROLS.md changed its Inspector rows: update this table";
+    EXPECT_EQ (InventoryInspectorRows (), 45u) << "EDITOR-CONTROLS.md changed its Inspector rows: update this table";
     auto site = MakeSite ();
     const auto plainA = edit::AddPolyline (site.doc, { { 30, 0, 0 }, { 34, 0, 0 }, { 34, 4, 0 }, { 30, 4, 0 } }, true);
     const auto plainB = edit::AddPolyline (site.doc, { { 32, 2, 0 }, { 36, 2, 0 }, { 36, 6, 0 }, { 32, 6, 0 } }, true);
@@ -322,10 +323,11 @@ TEST (HudVirtualEditorInspector, NoInventoryControlUnreachable191)
                                             << eh::InspectorContextName (eh::ResolveContext (s)) << ")";
         // No control runs past the 320 px panel's right edge, where it would be clipped. The contexts
         // of tapioca-dev #212 still do; one fixed there is taken off this list.
-        static const char* const wide[] = { "recovery offer", "array draft", "boolean draft", "path",
-                                            "path break",     "region",      "offset",        "reference line",
-                                            "ellipse",        "fixed heights", "several",     "nothing" };
-        if (std::none_of (std::begin (wide), std::end (wide), [&] (const char* name) { return c.name == std::string (name); }))
+        static const char* const wide[] = { "recovery offer", "array draft",   "boolean draft", "path",
+                                            "path break",     "region",        "offset",        "reference line",
+                                            "ellipse",        "fixed heights", "several",       "nothing" };
+        if (std::none_of (std::begin (wide), std::end (wide),
+                          [&] (const char* name) { return c.name == std::string (name); }))
             EXPECT_LE (right, edge + 1) << c.name << ": a control is laid out past the panel's right edge";
     }
 }
@@ -351,6 +353,32 @@ TEST (HudVirtualEditorInspector, RecoveryOffersFitThePanelAndLeaveTheTerrainSetu
     EXPECT_TRUE (Has (text, "Recover"));
     EXPECT_TRUE (Has (text, "Set terrain from selection")) << "the terrain setup is hidden behind the offers";
     EXPECT_LT (text.find ("Recover"), text.find ("Rebuild terrain (3D)")) << "the offers come first";
+}
+
+// tapioca-dev #177: the Archicad Mesh section offers both ways of choosing lines with their
+// controls, fits the narrowest panel, and without a built terrain says what is missing
+// instead of offering Create.
+TEST (HudVirtualEditorInspector, TheArchicadMeshSectionFitsThePanelAndSaysWhatIsMissing177)
+{
+    const auto site = MakeSite ();
+    Gui gui;
+    eh::Session s (site.doc);
+    for (const auto mode : { edit::BakeMode::Contours, edit::BakeMode::Signature }) {
+        s.bake.options.mode = mode;
+        float right = 0, edge = 0;
+        const auto text = gui.Frame ([&] {
+            ImGui::SetNextItemOpen (true);
+            eh::TerrainBakePanel (s);
+            right = ImGui::GetCurrentWindow ()->DC.CursorMaxPos.x, edge = ImGui::GetCurrentWindow ()->WorkRect.Max.x;
+        });
+        for (const char* label : { "Contour lines", "Signature lines", "Point reduction (m)",
+                                   "Depth under the lowest point (m)", "Show the lines and points" })
+            EXPECT_TRUE (Has (text, label)) << label;
+        EXPECT_EQ (Has (text, "Edge angle (degrees)"), mode == edit::BakeMode::Signature);
+        EXPECT_TRUE (Has (text, "build its mesh first")) << text;
+        EXPECT_FALSE (Has (text, "Create Archicad Mesh"));
+        EXPECT_LE (right, edge + 1) << "a control runs past the panel's right edge";
+    }
 }
 
 // #189: after the editor's own Boolean, the picked regions are construction inputs. Picking, the
