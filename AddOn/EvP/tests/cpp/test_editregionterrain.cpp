@@ -824,6 +824,78 @@ TEST (EditRegionTerrain, RegionOnlyHudStartsFromHeldTerrainAndRebuildsAfterUndo)
     EXPECT_GT (eh::GetTerrainDesignStatus (session).fill, 199);
 }
 
+// #190: with live rebuild on and no mesh build asked for, the terrain shown follows a region edit by
+// itself: the field preview of the new revision lands and stands in for the build, for a typed
+// value, an effect change and a slider drag alike.
+TEST (EditRegionTerrain, ARegionEditIsFollowedByThePreviewWithoutAskingForABuild190)
+{
+    namespace eh = geomsrv::archviz::edithud;
+    const auto settle = [] (eh::Session& session) {
+        const auto end = std::chrono::steady_clock::now () + std::chrono::seconds (10);
+        while (std::chrono::steady_clock::now () < end) {
+            eh::PollTerrainDesign (session);
+            const auto status = eh::GetTerrainDesignStatus (session);
+            if (status.active && !status.previewPending && !status.pending)
+                return true;
+            std::this_thread::sleep_for (std::chrono::milliseconds (1));
+        }
+        return false;
+    };
+    Fixture fixture;
+    const auto captured = fixture.Capture ();
+    auto mesh = std::make_shared<geomsrv::Mesh> ();
+    mesh->guid = captured->sourceTerrainGuid;
+    mesh->vertices = captured->points;
+    mesh->triangles = captured->triangles;
+    eh::Session session (fixture.doc);
+    ASSERT_FALSE (session.terrainAutoBuild) << "the default: the editor previews, the mesh builds when asked";
+    ASSERT_TRUE (eh::SetTerrainBaseline (session, { mesh, false, {} }, 0));
+    ASSERT_TRUE (settle (session));
+    const auto shown = [&] {
+        const auto status = eh::GetTerrainDesignStatus (session);
+        EXPECT_TRUE (status.previewed) << status.error;
+        EXPECT_TRUE (status.error.empty ()) << status.error;
+        // What the view draws: the highest point of the surface shown over the flat ground at 0.
+        geomsrv::archviz::overlaylayers::Layer layer;
+        eh::DrawTerrainDesign (session, layer);
+        EXPECT_EQ (layer.meshes.size (), 1u);
+        double top = 0;
+        if (!layer.meshes.empty ())
+            for (size_t i = 2; i < layer.meshes[0].points.size (); i += 3)
+                top = std::max (top, layer.meshes[0].points[i]);
+        return top;
+    };
+    EXPECT_NEAR (shown (), 2, 0.05) << "a region raised to 2 m";
+
+    // A typed value: one applied edit.
+    auto target = *fixture.doc.landscape->objects[0].surface;
+    target.first.z = 1;
+    ASSERT_TRUE (session.edits.Apply (
+        [&] (auto& doc, auto& error) { return lg::SetRegionSurface (doc, fixture.object, target, {}, error); }));
+    ASSERT_TRUE (settle (session));
+    EXPECT_NEAR (shown (), 1, 0.05);
+
+    // The effect: lower-only on ground below the target moves nothing.
+    auto terrain = fixture.doc.landscape->objects[0].terrain;
+    terrain.effect = lg::RegionTerrainEffect::Subtract;
+    ASSERT_TRUE (session.edits.Apply (
+        [&] (auto& doc, auto& error) { return lg::SetRegionTerrain (doc, fixture.object, terrain, error); }));
+    ASSERT_TRUE (settle (session));
+    EXPECT_NEAR (shown (), 0, 0.05);
+
+    // A slider drag: the preview follows while the gesture is open, and after its release.
+    terrain.effect = lg::RegionTerrainEffect::Grade;
+    ASSERT_TRUE (session.edits.Begin ());
+    ASSERT_TRUE (session.edits.Move (
+        [&] (auto& doc, auto& error) { return lg::SetRegionTerrain (doc, fixture.object, terrain, error); }));
+    ASSERT_TRUE (settle (session));
+    EXPECT_NEAR (shown (), 1, 0.05) << "while the slider is held";
+    session.edits.End ();
+    ASSERT_TRUE (settle (session));
+    EXPECT_NEAR (shown (), 1, 0.05);
+    EXPECT_FALSE (eh::GetTerrainDesignStatus (session).built) << "no mesh build was asked for";
+}
+
 // #112 P1: terrain-target discovery is valid owned-root based -- a Boolean-derived
 // configured domain (durable owner + live root, no boundarySource) participates in
 // region grading, and a single hole-free derived footprint grades end to end.

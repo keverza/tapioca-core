@@ -733,7 +733,9 @@ fn nested_transitions_and_coincident_property_entry_ring_builds() {
 
 /// #175: the field preview of the graded entry, through the C ABI: too-small capacities return
 /// the counts and write nothing else, a second call with them writes everything, and its fill
-/// is the build's to within the grid's resolution.
+/// is the field's own. #190: the regions are composed at the grid's nodes, not read from the
+/// baseline's vertices, so the fill is the design's analytic volume. The build's is larger here
+/// (70 m3): its 1 m mesh spreads the 1 m step where this entry's reach ends over a whole cell.
 #[test]
 fn the_field_preview_answers_in_one_call_once_its_capacities_fit() {
     let (points, triangles) = base();
@@ -834,9 +836,11 @@ fn the_field_preview_answers_in_one_call_once_its_capacities_fit() {
             .map(|points| points * 3),
         Some(line_points.len())
     );
+    // 4 x 4 m at 2 m, plus the 1:1 face over its 1 m reach: 16 m of sides and four quarter turns.
+    let field = 32.0 + 16.0 * 1.5 + 2.0 * std::f64::consts::PI * (1.0 - 1.0 / 3.0);
     assert!(
-        (summary.fill - storage.site.fill).abs() <= 0.03 * storage.site.fill,
-        "preview fill {} vs build {}",
+        (summary.fill - field).abs() <= 0.02 * field,
+        "preview fill {} vs field {field} (build {})",
         summary.fill,
         storage.site.fill
     );

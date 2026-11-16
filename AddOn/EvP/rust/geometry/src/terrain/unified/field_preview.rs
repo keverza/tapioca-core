@@ -3,8 +3,8 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use super::{
-    Baseline, BuildError, Design, Field, Plan, design, grading_allowed, is_protected, outline,
-    plan, region_height_field, validate_plan,
+    Baseline, BuildError, Candidate, Design, Field, Plan, PreparedTransition, candidate, design,
+    grading_allowed, is_protected, outline, plan, region_height_field, validate_plan,
 };
 use crate::terrain::preview::{self, Preview};
 
@@ -18,6 +18,10 @@ use crate::terrain::preview::{self, Preview};
 /// that, then each path band over that (a design has an outline or bands, not both), masks
 /// included; outside it, and with no property, the baseline. Fixed controls pin mesh vertices,
 /// not a field: the build applies them.
+///
+/// The region entries are composed at each grid node, as the build composes them at each vertex
+/// of its own triangulation. They are not read from the baseline's vertices: a region lying
+/// between those vertices would not show at all, and an edit to it would change nothing.
 ///
 /// Where the outline's faces run out before they meet the ground, the reach is widened as the
 /// editor's job widens the build's -- four times at a time, at least 20 m -- up to `max_reach`
@@ -43,6 +47,33 @@ pub fn field_preview(
         Some(region_height_field(baseline, &prepared, plan.masks)?)
     };
     let ground_field = composed.as_ref().unwrap_or(&base);
+    // Each entry's plan bounds, widened by its transition: a node outside them is not its.
+    let spans: Vec<[f64; 4]> = prepared
+        .iter()
+        .map(|entry| {
+            let spread = match entry.transition {
+                PreparedTransition::Falloff { blur } => blur,
+                PreparedTransition::Daylight { reach, .. } => reach,
+            };
+            let mut span = [
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+            ];
+            for part in entry.entry.parts {
+                for &[x, y, _] in plan::vertices(part.outer) {
+                    span = [
+                        span[0].min(x - spread),
+                        span[1].min(y - spread),
+                        span[2].max(x + spread),
+                        span[3].max(y + spread),
+                    ];
+                }
+            }
+            span
+        })
+        .collect();
     let bands = plan
         .paths
         .iter()
@@ -114,11 +145,17 @@ pub fn field_preview(
             if !inside(x, y) {
                 return Some([ground, ground]);
             }
-            let composed = composed.as_ref().map_or(Some(ground), |field| {
-                field.height_at(x, y).map(|sample| sample.height)
-            })?;
             if is_protected(plan.masks, x, y) || !grading_allowed(plan.masks, x, y) {
-                return Some([composed, ground]);
+                return Some([ground, ground]);
+            }
+            let mut composed = ground;
+            for (entry, span) in prepared.iter().zip(&spans) {
+                if x < span[0] || y < span[1] || x > span[2] || y > span[3] {
+                    continue;
+                }
+                if let Some(Candidate { next, .. }) = candidate(entry, x, y, composed) {
+                    composed = next;
+                }
             }
             let mut design = composed;
             if let (Some(faces), Some(near)) = (&faces, &near)

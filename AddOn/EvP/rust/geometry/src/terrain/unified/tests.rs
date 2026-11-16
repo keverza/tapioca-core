@@ -1852,3 +1852,69 @@ fn point_controls_after_a_line_control_resolve_their_own_spots() -> Result<(), B
     );
     Ok(())
 }
+
+/// #190: the preview composes a region at its own grid nodes. A baseline with no vertex inside
+/// the region (here two triangles for the whole site) used to preview as untouched ground, so a
+/// region edit changed nothing on screen until a mesh build was asked for.
+#[test]
+fn field_preview_shows_a_region_between_the_baseline_vertices() -> Result<(), BuildError> {
+    let (points, triangles) = surface(2, 20.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [19.0, 1.0], [19.0, 19.0], [1.0, 19.0]]);
+    let outer = ring(&[[5.0, 5.0], [15.0, 5.0], [15.0, 15.0], [5.0, 15.0]]);
+    let parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let preview = |level: f64| {
+        let entries = [constant_entry(
+            0,
+            &parts,
+            level,
+            TerrainEffect::Grade,
+            Transition::Falloff { blur: 1.0 },
+        )];
+        let plan = Plan {
+            revision: 5,
+            hash: 55,
+            entries: &entries,
+            paths: &[],
+            masks: &[],
+            controls: &[],
+            control_tolerance: 1e-3,
+            outlines: &[],
+        };
+        field_preview(
+            &Baseline {
+                points: &points,
+                triangles: &triangles,
+                property: Some(&property),
+            },
+            &plan,
+            0.25,
+            0.5,
+            0.0,
+        )
+    };
+    let raised = preview(2.0)?;
+    let top = raised
+        .points
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .fold(f64::NEG_INFINITY, |top, point| top.max(point[2]));
+    assert!(close(top, 2.0, 1e-9), "top {top}");
+    // 100 m2 at 2 m, plus the 1 m blend around it.
+    assert!(
+        raised.fill > 200.0 && raised.fill < 260.0,
+        "fill {}",
+        raised.fill
+    );
+    assert!(close(raised.cut, 0.0, 1e-9));
+    let lower = preview(1.0)?;
+    assert!(
+        close(lower.fill, raised.fill / 2.0, 1e-6),
+        "fill {}",
+        lower.fill
+    );
+    Ok(())
+}
