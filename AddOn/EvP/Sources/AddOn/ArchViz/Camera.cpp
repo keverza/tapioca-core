@@ -530,6 +530,12 @@ void Camera::CursorRay (int32_t px, int32_t py, uint32_t width, uint32_t height,
     // conventions. test_camera_cursorray.cpp pins the round trip.
     for (int k = 0; k < 3; ++k)
         right[k] = -right[k];
+    // ⚠️ THE TOP-DOWN POSE'S AXES ARE ITS ROTATION'S, as in Basis. Straight down the world up and the
+    // line of sight are parallel, CameraBasis takes its fixed fallback (+X), and the ray was that of
+    // an unturned plan with its sides swapped: right only at the window's middle. The view matrix
+    // is built from the pose's explicit up (GetViewMatrix); the ray takes the same axes.
+    if (topDown_)
+        Basis (right, up);
 
     constexpr float kPi = 3.14159265358979323846f;
     const float aspect = (height > 0) ? float (width) / float (height) : 1.0f;

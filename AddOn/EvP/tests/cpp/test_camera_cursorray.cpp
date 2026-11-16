@@ -84,3 +84,20 @@ TEST (CameraCursorRay, AnOrthographicRayPassesThroughItsPixelAtEveryCorner)
     camera.SetOrthographic (true, 15.0f);
     ExpectRoundTrip (camera, "orthographic");
 }
+
+// ⚠️ STRAIGHT DOWN, THE RAY FOLLOWS THE POSE'S ROTATION: the viewer opened in the plan's place and
+// any top view. The shared basis has no answer at the pole and fell back to a fixed one, so the
+// ray was right at the window's middle and wrong everywhere else, at every rotation.
+TEST (CameraCursorRay, ATopDownRayPassesThroughItsPixelAtEveryRotation)
+{
+    for (const float rotation : { 0.0f, 0.6f, -2.2f, 1.5707963f }) {
+        Camera camera;
+        camera.SetTarget (120.0f, 40.0f, -30.0f);
+        camera.SetDistance (60.0f);
+        camera.SetTopDown (rotation);
+        camera.SetOrthographic (true, 12.0f);
+        ExpectRoundTrip (camera, "top-down parallel");
+        camera.SetOrthographic (false, 0.0f);
+        ExpectRoundTrip (camera, "top-down perspective");
+    }
+}
