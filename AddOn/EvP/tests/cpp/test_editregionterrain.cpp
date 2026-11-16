@@ -1,4 +1,6 @@
 #include "Edit/EditRegionTerrain.hpp"
+#include "Edit/EditLandscapeDomain.hpp"
+#include "Edit/EditLandscapeRecipe.hpp"
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 #include "Edit/EditSession.hpp"
@@ -1104,6 +1106,40 @@ TEST (EditRegionTerrain, TheBuiltTerrainIsPlannedPreviewedAndRequestedAsAnArchic
     EXPECT_EQ (eh::TerrainBakePlan (session, &why), nullptr);
     EXPECT_NE (why.find ("Build it again"), std::string::npos) << why;
     EXPECT_FALSE (eh::RequestTerrainBake (session));
+}
+
+// #194 part 2: the attributed region report covers a Boolean scene. Its result's corners are the
+// crossings of its operands' rings; the report (one split per ring) refused there, and the panel
+// showed no per-region lines while the unified build went ahead.
+TEST (EditRegionTerrain, TheRegionReportCoversABooleanResult194)
+{
+    for (const auto kind :
+         { lg::OperationKind::Intersection, lg::OperationKind::Union, lg::OperationKind::Difference }) {
+        Fixture fixture;
+        std::string error;
+        const auto line =
+            edit::AddPolyline (fixture.doc, { { 10, 8, 0 }, { 18, 8, 0 }, { 18, 12, 0 }, { 10, 12, 0 } }, true);
+        ASSERT_TRUE (lg::SetLandscapeSourceRole (fixture.doc, line, lg::SourceRole::RegionBoundary, error)) << error;
+        const auto& objects = fixture.doc.landscape->objects;
+        lg::DomainCommand command;
+        command.kind = kind;
+        command.name = "Result";
+        command.subject.input = objects.front ().footprintOperation;
+        command.operand.input = objects.back ().footprintOperation;
+        const auto applied = lg::ApplyDomainCommand (fixture.doc, command);
+        ASSERT_TRUE (applied.ok) << applied.error;
+        lg::RegionSurface surface;
+        surface.elevation = lg::RegionElevationMode::Constant;
+        surface.first.z = 1;
+        ASSERT_TRUE (lg::SetRegionSurface (fixture.doc, applied.objectId, surface, {}, error)) << error;
+        lg::RegionTerrain terrain;
+        terrain.effect = lg::RegionTerrainEffect::Grade;
+        ASSERT_TRUE (lg::SetRegionTerrain (fixture.doc, applied.objectId, terrain, error)) << error;
+        ASSERT_EQ (lg::TerrainRegionObjects (fixture.doc), (std::vector<edit::Id> { applied.objectId }));
+        lg::RegionTerrainResult result;
+        EXPECT_TRUE (lg::EvaluateRegionTerrain (fixture.doc, fixture.Capture (), result, error))
+            << lg::RecipeOperationName (kind) << ": " << error;
+    }
 }
 
 TEST (EditRegionTerrain, TerrainRegionObjectsDiscoversOwnedRootResults112)

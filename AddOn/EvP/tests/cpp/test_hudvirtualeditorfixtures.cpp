@@ -318,5 +318,8 @@ TEST (HudVirtualEditorFixtures, BooleanRefusedFixtureBuildsOnceTheResultIsConsta
     const auto built = debugreplay::Run (scene);
     EXPECT_TRUE (built.built) << built.error;
     EXPECT_GT (built.result.build.triangles.size (), 0u);
+    // #194 part 2: and the attributed region report covers it, so the panel has its region lines.
+    ASSERT_TRUE (built.regions) << "the region report refused on the Boolean scene";
+    EXPECT_FALSE (built.regions->evaluation.terrain.reports.empty ());
 }
 #endif
