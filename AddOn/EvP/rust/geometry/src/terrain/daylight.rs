@@ -174,20 +174,34 @@ pub fn eased_daylight_roots(
     breaks.sort_by(f64::total_cmp);
     breaks.dedup();
 
+    // #218: a residual within rounding of zero is the face touching the ground. A run of such
+    // breaks is a face lying on the ground over an interval: one root, where it first touches,
+    // never one per break or per rounding sign flip along it.
+    let touch = 1e-9 * (1.0 + ez.abs() + gradient * length.min(1.0e6));
     let mut roots = Vec::new();
     let mut previous: Option<(f64, f64)> = None;
+    let mut touching = false;
     let mut last = (0.0, 0.0);
     for &t in &breaks {
         let Some(value) = residual(t) else {
             break; // Off the surface: the search ends at the last covered break.
         };
-        match previous {
-            Some((t0, f0)) if f0 * value < 0.0 => roots.push(t0 + (t - t0) * f0 / (f0 - value)),
-            _ if value == 0.0 => roots.push(t),
-            _ => {}
+        last = (t, value);
+        if value.abs() <= touch {
+            if !touching {
+                roots.push(t);
+            }
+            touching = true;
+            previous = None;
+            continue;
+        }
+        touching = false;
+        if let Some((t0, f0)) = previous
+            && f0 * value < 0.0
+        {
+            roots.push(t0 + (t - t0) * f0 / (f0 - value));
         }
         previous = Some((t, value));
-        last = (t, value);
     }
     let within: Vec<f64> = roots
         .iter()

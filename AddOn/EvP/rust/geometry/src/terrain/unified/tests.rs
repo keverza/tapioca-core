@@ -1986,3 +1986,68 @@ fn path_daylight_meets_the_region_composed_ground_between_baseline_vertices()
     }
     Ok(())
 }
+
+/// #218: on a coarse baseline (two triangles), a band 1 m above a 1 m region whose edge is 1 m
+/// inside the ring, 1:1 faces on both: the band's fill face reaches the region exactly at its
+/// ring and then lies on the region's own daylight face down to the ground. It meets the ground
+/// once, where it first touches: one daylight line per side, not one per rounding sign flip.
+#[test]
+fn a_path_face_lying_along_a_region_daylight_face_builds() -> Result<(), BuildError> {
+    let (points, triangles) = surface(2, 20.0, |_, _| 0.0);
+    let property = ring(&[[1.0, 1.0], [19.0, 1.0], [19.0, 19.0], [1.0, 19.0]]);
+    let outer = ring(&[[5.0, 5.0], [15.0, 5.0], [15.0, 15.0], [5.0, 15.0]]);
+    let parts = [Part {
+        outer: &outer,
+        holes: &[],
+    }];
+    let stations = [
+        design_station(7.0, 13.0, 2.0, 1.0),
+        design_station(13.0, 13.0, 2.0, 1.0),
+    ];
+    let entries = [constant_entry(
+        0,
+        &parts,
+        1.0,
+        TerrainEffect::Grade,
+        daylight(3.0),
+    )];
+    let paths = [path(1, &stations)];
+    let plan = Plan {
+        revision: 218,
+        hash: 2181,
+        entries: &entries,
+        paths: &paths,
+        masks: &[],
+        controls: &[],
+        control_tolerance: 1e-3,
+        outlines: &[],
+    };
+    let built = build_terrain(
+        &Baseline {
+            points: &points,
+            triangles: &triangles,
+            property: Some(&property),
+        },
+        &plan,
+    )?;
+    assert_mesh_invariants(&built);
+    // One daylight line per side. Before #218 the left side had three: the touch at the ring,
+    // then one per rounding sign flip along the stretch where the two faces coincide.
+    let daylights: Vec<_> = built
+        .path_lines
+        .iter()
+        .filter(|o| matches!(o.kind, crate::terrain::hybrid::LineKind::Daylight { .. }))
+        .map(|o| o.kind)
+        .collect();
+    assert_eq!(daylights.len(), 2, "{daylights:?}");
+    // Band edge y = 14; its face meets the region's 1 m at the ring (y = 15), then runs on with
+    // the region's daylight face to the 0 m ground at y = 16.
+    let surface = Field::new(&built.points, &built.mesh.triangles).map_err(BuildError::Baseline)?;
+    for (x, y, expected) in [(10.0, 14.5, 1.5), (10.0, 15.5, 0.5), (10.0, 16.5, 0.0)] {
+        let height = surface
+            .height_at(x, y)
+            .map_or(f64::NAN, |sample| sample.height);
+        assert!(close(height, expected, 1e-9), "({x}, {y}) at {height}");
+    }
+    Ok(())
+}

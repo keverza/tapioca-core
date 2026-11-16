@@ -339,3 +339,44 @@ fn a_rounded_toe_meets_the_ground_beyond_the_straight_face() -> Result<(), Dayli
     }
     Ok(())
 }
+
+/// #218: a face lying on the ground over an interval meets it once, where it first touches. Here
+/// a 1:1 fill from 2 m crosses a level 1 m pad and then runs down the pad's own 1:1 side slope
+/// (z = 2 - y from y = 1 to 2) onto flat 0 m ground.
+#[test]
+fn a_face_lying_on_the_ground_meets_it_once_at_the_near_end() -> Result<(), DaylightError> {
+    let one = Slope::RiseRun {
+        rise: 1.0,
+        run: 1.0,
+    };
+    // The pad's side, also through intermediate rows (as the build's transition rows give it),
+    // with values that round differently from the face's own.
+    for side in [
+        vec![(-1.0, 1.0), (1.0, 1.0), (2.0, 0.0), (8.0, 0.0)],
+        vec![
+            (-1.0, 1.0),
+            (1.0, 1.0),
+            (1.1, 0.9),
+            (1.3, 0.7),
+            (1.7, 0.3),
+            (1.9, 0.1),
+            (2.0, 0.0),
+            (8.0, 0.0),
+        ],
+    ] {
+        let field = strip(&side)?;
+        let ray = Ray {
+            edge: [0.3, 0.0, 2.0],
+            outward: [0.0, 1.0],
+            shoulder: 0.0,
+        };
+        let locus = daylight_roots(&ray, Sense::Fill, face(one, 6.0), &field)?;
+        let found = roots(&locus);
+        assert_eq!(found.len(), 1, "{locus:?}");
+        assert!(
+            found.first().is_some_and(|&r| close(r, 1.0, 1e-9)),
+            "{locus:?}"
+        );
+    }
+    Ok(())
+}
