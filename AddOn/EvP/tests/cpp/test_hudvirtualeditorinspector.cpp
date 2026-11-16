@@ -375,8 +375,9 @@ TEST (HudVirtualEditorInspector, TheArchicadMeshSectionFitsThePanelAndSaysWhatIs
                                    "Depth under the lowest point (m)", "Show the lines and points" })
             EXPECT_TRUE (Has (text, label)) << label;
         EXPECT_EQ (Has (text, "Shortest design line (m)"), mode == edit::BakeMode::Signature);
-        EXPECT_EQ (Has (text, "Also the surface's folds"), mode == edit::BakeMode::Signature);
-        EXPECT_FALSE (Has (text, "Edge angle (degrees)")) << "folds are off by default (#177 rework)";
+        EXPECT_EQ (Has (text, "Also the graded surface's folds"), mode == edit::BakeMode::Signature);
+        EXPECT_EQ (Has (text, "Edge angle (degrees)"), mode == edit::BakeMode::Signature)
+            << "it sets which of the existing ground's edges are kept";
         EXPECT_TRUE (Has (text, "build its mesh first")) << text;
         EXPECT_FALSE (Has (text, "Create Archicad Mesh"));
         EXPECT_LE (right, edge + 1) << "a control runs past the panel's right edge";

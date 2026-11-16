@@ -902,6 +902,80 @@ TEST (EditRegionTerrain, ARegionEditIsFollowedByThePreviewWithoutAskingForABuild
 // region grading, and a single hole-free derived footprint grades end to end.
 // tapioca-dev #177: the Archicad Mesh is planned from the BUILT surface only, drawn before it is
 // made, and asked for as one request whose numbers are all reals.
+// #177 live 2026-11-16 (fixtures/peaks-path-20261116.debug.json): the source Mesh is level at
+// -0.2 m on a 6.9 m grid but for two raised points -- an inner peak and a corner. A path built
+// through it and planned as Signature lines lost both peaks in the created Mesh. The ground the
+// design left alone keeps its own points: each peak is a point of the planned Mesh at its height.
+TEST (EditRegionTerrain, SignatureLinesKeepTheSourceTerrainsPeaks177)
+{
+    namespace eh = geomsrv::archviz::edithud;
+    const auto file = std::filesystem::path (__FILE__).parent_path () / "fixtures/peaks-path-20261116.debug.json";
+    std::ifstream input (file, std::ios::binary);
+    ASSERT_TRUE (input) << file;
+    const std::string text { std::istreambuf_iterator<char> (input), {} };
+    const auto parsed = evp::nodegraph::json::Parse (text);
+    ASSERT_TRUE (parsed.ok) << parsed.error;
+    const auto scene = debugreplay::Read (parsed.value);
+
+    eh::Session session (scene.doc);
+    session.terrainBand = false;
+    auto mesh = std::make_shared<geomsrv::Mesh> (scene.baseline);
+    ASSERT_TRUE (eh::SetTerrainBaseline (session, { mesh, scene.nativeSolid, {} }, 1)) << session.message;
+    const auto settle = [&] {
+        const auto end = std::chrono::steady_clock::now () + std::chrono::seconds (60);
+        while (std::chrono::steady_clock::now () < end) {
+            eh::PollTerrainDesign (session);
+            const auto status = eh::GetTerrainDesignStatus (session);
+            if (status.active && !status.previewPending && !status.pending && !status.buildRequested)
+                return true;
+            std::this_thread::sleep_for (std::chrono::milliseconds (1));
+        }
+        return false;
+    };
+    ASSERT_TRUE (settle ());
+    ASSERT_TRUE (eh::RequestTerrainBuild (session)) << session.message;
+    ASSERT_TRUE (settle ());
+    ASSERT_TRUE (eh::GetTerrainDesignStatus (session).built) << eh::GetTerrainDesignStatus (session).error;
+
+    const edit::Vec3 peaks[] = { { 17.549, 10.999, 1.018 }, { -3.043, -3.244, 0.988 } };
+    bool stale = false;
+    const auto* built = eh::LastPublishedTerrainDesign (session, stale);
+    ASSERT_NE (built, nullptr);
+    const auto& points = built->published ? built->published->points : built->result.build.points;
+    const auto& base = built->published ? built->published->base : built->result.build.base;
+    for (const auto& peak : peaks) {
+        double best = INFINITY, z = 0, b = 0;
+        for (size_t i = 0; i + 2 < points.size (); i += 3)
+            if (const double d = std::hypot (points[i] - peak.x, points[i + 1] - peak.y); d < best)
+                best = d, z = points[i + 2], b = base.size () == points.size () / 3 ? base[i / 3] : NAN;
+        EXPECT_LT (best, 1e-3) << "the built surface keeps the source vertex";
+        EXPECT_NEAR (z, peak.z, 1e-3) << "at its height";
+        EXPECT_NEAR (z, b, 1e-9) << "untouched: so the plan, not the build, is what lost it";
+    }
+
+    session.bake.options.mode = edit::BakeMode::Signature;
+    std::string why;
+    const auto* plan = eh::TerrainBakePlan (session, &why);
+    ASSERT_NE (plan, nullptr) << why;
+    ASSERT_TRUE (plan->ok) << plan->error;
+    size_t kinds[4] = { 0, 0, 0, 0 };
+    for (const auto& line : plan->lines)
+        ++kinds[size_t (line.kind)];
+    EXPECT_GE (kinds[size_t (edit::BakeLineKind::Outline)], 1u) << "the path's outline";
+    EXPECT_GE (kinds[size_t (edit::BakeLineKind::Toe)], 1u) << "and its toe";
+    EXPECT_GE (kinds[size_t (edit::BakeLineKind::Crease)], 1u) << "the existing ground's own lines";
+    for (const auto& peak : peaks) {
+        bool kept = std::any_of (plan->outline.begin (), plan->outline.end (), [&] (const edit::Vec3& p) {
+            return std::hypot (p.x - peak.x, p.y - peak.y) < 1e-3 && std::abs (p.z - peak.z) < 1e-3;
+        });
+        for (const auto& line : plan->lines)
+            kept = kept || std::any_of (line.points.begin (), line.points.end (), [&] (const edit::Vec3& p) {
+                       return std::hypot (p.x - peak.x, p.y - peak.y) < 1e-3 && std::abs (p.z - peak.z) < 1e-3;
+                   });
+        EXPECT_TRUE (kept) << "the peak at " << peak.x << ", " << peak.y << " is a point of the planned Mesh";
+    }
+}
+
 TEST (EditRegionTerrain, TheBuiltTerrainIsPlannedPreviewedAndRequestedAsAnArchicadMesh177)
 {
     namespace eh = geomsrv::archviz::edithud;

@@ -10,8 +10,11 @@
 //              contours"): the authored outlines (paths' paved edges, grading regions' rings)
 //              draped on the surface, and the toe -- where the built surface leaves the
 //              existing ground -- outside them; a few coarse contours of the ground the design
-//              left alone. The surface's folds (every edge its two faces meet at more than
-//              `creaseDegrees`) only when `folds` asks, or when no design is given.
+//              left alone. That ground keeps its own shape: its folds (every edge its two faces
+//              meet at more than `creaseDegrees`) are lines, so a raised mesh point becomes the
+//              lines through it, and a gentler peak or pit gets a line down its steepest edge.
+//              The graded surface's folds only when `folds` asks; every fold when no design is
+//              given.
 // Each line is reduced to `tolerance`: a point is dropped while the line stays within that
 // distance of the traced one. Where a line ends on the boundary, the boundary has a vertex.
 //

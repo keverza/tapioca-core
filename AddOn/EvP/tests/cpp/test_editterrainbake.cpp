@@ -272,6 +272,43 @@ TEST (EditTerrainBake, ADesignOutlineLeavingTheSurfaceIsCutAndFragmentsDropped17
     EXPECT_GT (outlines, 1u) << "kept when no shortest length is asked";
 }
 
+// #177 (live 2026-11-16): a raised point of the existing Mesh, away from the design, was lost --
+// contours ringed it and the Mesh got a flat top. The untouched ground keeps its own shape: a
+// sharp point becomes the folds through it, a gentle one (under the fold angle) a line down its
+// steepest edge; level ground gets no line at all.
+TEST (EditTerrainBake, TheUntouchedGroundKeepsItsPeaksAsLines177)
+{
+    auto site = RoadSite ();
+    const auto raise = [&] (int i, int j, double by) {
+        const size_t v = size_t (j * 41 + i);
+        site.grid.points[v * 3 + 2] += by;
+        site.design.base[v] += by; // existing ground: the design did not move it
+        return ed::Vec3 { double (i), double (j), site.grid.points[v * 3 + 2] };
+    };
+    const ed::Vec3 sharp = raise (35, 25, 1.2), gentle = raise (5, 25, 0.06);
+    ed::BakeOptions options;
+    options.mode = ed::BakeMode::Signature;
+    const auto plan = ed::PlanTerrainBake (site.grid.points, site.grid.triangles, options, site.design);
+    ASSERT_TRUE (plan.ok) << plan.error;
+    for (const auto& peak : { sharp, gentle }) {
+        size_t through = 0;
+        for (const auto& line : plan.lines)
+            if (line.kind == ed::BakeLineKind::Crease &&
+                std::any_of (line.points.begin (), line.points.end (),
+                             [&] (const ed::Vec3& p) { return Near (p, peak); }))
+                ++through;
+        EXPECT_GE (through, 1u) << "the peak at " << peak.x << ", " << peak.y << " is a point of a line";
+    }
+    for (const auto& line : plan.lines)
+        if (line.kind == ed::BakeLineKind::Crease)
+            for (const auto& p : line.points)
+                EXPECT_LE (
+                    std::min (std::hypot (p.x - sharp.x, p.y - sharp.y), std::hypot (p.x - gentle.x, p.y - gentle.y)),
+                    1.5)
+                    << "level ground keeps no line: " << p.x << ", " << p.y;
+    EXPECT_TRUE (ed::CheckBakePayload (ed::TerrainBakePayload (plan)).empty ());
+}
+
 TEST (EditTerrainBake, ThePayloadIsMeasuredFromABasePlaneUnderTheLowestPoint)
 {
     const auto g = MakeGrid (20, [] (double x, double y) { return 94.0 + Pad (x, y); });

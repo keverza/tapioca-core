@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <tuple>
 #include <unordered_map>
 
 namespace geomsrv::edit {
@@ -157,12 +158,13 @@ Vec3 Normal (const Surface& s, uint32_t face)
 
 // The edges folded by more than `degrees`, joined end to end: a chain runs from one branching
 // or ending vertex to the next; what is left over are rings.
-std::vector<BakeLine> Creases (const Surface& s, double degrees)
+// `faces` (optional, one flag per triangle): only an edge both of whose faces it marks.
+std::vector<BakeLine> Creases (const Surface& s, double degrees, const std::vector<char>* faces = nullptr)
 {
     const double limit = std::cos (std::clamp (degrees, 0.1, 89.0) * 3.14159265358979323846 / 180.0);
     std::map<uint32_t, std::vector<uint32_t>> around;
     for (const auto& [key, use] : s.edges) {
-        if (use.count != 2)
+        if (use.count != 2 || (faces && (!(*faces)[use.faces[0]] || !(*faces)[use.faces[1]])))
             continue;
         const Vec3 a = Normal (s, use.faces[0]), b = Normal (s, use.faces[1]);
         if (Dot (a, a) == 0.0 || Dot (b, b) == 0.0 || Dot (a, b) >= limit)
@@ -514,19 +516,73 @@ BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<u
         std::erase_if (traced, [&] (const BakeLine& line) {
             return !line.closed && RunLength (line) < std::max (options.shortest, 0.0);
         });
-    if (signature && (options.folds || !designed))
-        for (auto& line : Creases (s, options.creaseDegrees))
+    // The ground the design left alone keeps its own shape (the user, 2026-11-16: "existing
+    // points should be kept or be redefined to lines"): its folds are lines -- a raised mesh point
+    // is where its edges fold, so it becomes the lines through it, and level ground gives none.
+    // The graded surface's folds only when asked; without a design, every fold.
+    std::vector<char> untouched;
+    if (toe) {
+        untouched.assign (triangles.size () / 3, 0);
+        for (size_t f = 0; f < untouched.size (); ++f)
+            untouched[f] = std::all_of (triangles.begin () + f * 3, triangles.begin () + f * 3 + 3, [&] (uint32_t v) {
+                return std::abs (s.vertices[v].z - design.base[v]) < design.ground;
+            });
+    }
+    if (signature) {
+        const bool every = options.folds || !designed;
+        if (every || toe)
+            for (auto& line : Creases (s, options.creaseDegrees, every ? nullptr : &untouched))
+                traced.push_back (std::move (line));
+    }
+    // A peak or pit of the untouched ground that no line passes through yet (a gentle one, under
+    // the fold angle) gets one: from it down (or up) its steepest edge, on the surface.
+    if (toe) {
+        std::vector<char> lined (s.vertices.size (), 0), inner (s.vertices.size (), 1);
+        std::vector<std::vector<uint32_t>> next (s.vertices.size ());
+        for (const auto& [key, use] : s.edges) {
+            next[use.from].push_back (use.to);
+            next[use.to].push_back (use.from);
+            const bool open = use.count != 2 || !untouched[use.faces[0]] || !untouched[use.faces[1]];
+            if (open) // on the boundary or beside the design: the outline or the toe describes it
+                inner[use.from] = inner[use.to] = 0;
+        }
+        std::map<std::tuple<double, double, double>, uint32_t> at;
+        for (uint32_t v = 0; v < s.vertices.size (); ++v)
+            at[{ s.vertices[v].x, s.vertices[v].y, s.vertices[v].z }] = v;
+        for (const auto& line : traced)
+            for (const auto& p : line.points)
+                if (const auto found = at.find ({ p.x, p.y, p.z }); found != at.end ())
+                    lined[found->second] = 1;
+        const double rise = std::max (options.tolerance, 1.0e-9);
+        for (uint32_t v = 0; v < s.vertices.size (); ++v) {
+            if (!inner[v] || lined[v] || next[v].empty ())
+                continue;
+            const double z = s.vertices[v].z;
+            const bool peak =
+                std::all_of (next[v].begin (), next[v].end (), [&] (uint32_t u) { return z - s.vertices[u].z > rise; });
+            const bool pit =
+                std::all_of (next[v].begin (), next[v].end (), [&] (uint32_t u) { return s.vertices[u].z - z > rise; });
+            if (!peak && !pit)
+                continue;
+            const uint32_t steepest =
+                *std::max_element (next[v].begin (), next[v].end (), [&] (uint32_t a, uint32_t b) {
+                    return std::abs (s.vertices[a].z - z) / std::max (Length (s.vertices[a] - s.vertices[v]), 1.0e-12) <
+                           std::abs (s.vertices[b].z - z) / std::max (Length (s.vertices[b] - s.vertices[v]), 1.0e-12);
+                });
+            BakeLine line;
+            line.kind = BakeLineKind::Crease;
+            line.points = { s.vertices[v], s.vertices[steepest] };
             traced.push_back (std::move (line));
+        }
+    }
     if (plan.interval > 0.0) {
         PavedArea surface;
         surface.vertices = s.vertices;
         if (toe) {
-            for (size_t i = 0; i + 2 < triangles.size (); i += 3)
-                if (std::all_of (triangles.begin () + i, triangles.begin () + i + 3, [&] (uint32_t v) {
-                        return std::abs (s.vertices[v].z - design.base[v]) < design.ground;
-                    }))
-                    surface.triangles.insert (surface.triangles.end (), triangles.begin () + i,
-                                              triangles.begin () + i + 3);
+            for (size_t f = 0; f < untouched.size (); ++f)
+                if (untouched[f])
+                    surface.triangles.insert (surface.triangles.end (), triangles.begin () + f * 3,
+                                              triangles.begin () + f * 3 + 3);
         }
         else
             surface.triangles = triangles;

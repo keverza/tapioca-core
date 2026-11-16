@@ -258,8 +258,8 @@ void TerrainBakePanel (Session& s)
     ImGui::RadioButton ("Signature lines", &mode, int (edit::BakeMode::Signature));
     if (ImGui::IsItemHovered ())
         hudshell::HoverTip ("What was modelled: each path's and grading region's outline (green) and its toe, "
-                            "where the slope meets the existing ground (blue), with a few contours for the "
-                            "ground the design left alone.");
+                            "where the slope meets the existing ground (blue). The ground the design left alone "
+                            "keeps its own peaks and breaks (grey) and a few contours.");
     options.mode = edit::BakeMode (mode);
     const bool signature = options.mode == edit::BakeMode::Signature;
     // Labels above their controls: the panel is narrow.
@@ -285,19 +285,18 @@ void TerrainBakePanel (Session& s)
             options.shortest = double (std::clamp (shortest, 0.0f, 10.0f));
         if (ImGui::IsItemHovered ())
             hudshell::HoverTip ("An open outline or toe piece shorter than this is left out.");
-        ImGui::Checkbox ("Also the surface's folds", &options.folds);
+        float crease = float (options.creaseDegrees);
+        ImGui::TextWrapped ("%s", "Edge angle (degrees)");
+        ImGui::SetNextItemWidth (width);
+        if (ImGui::SliderFloat ("##bake-crease", &crease, 0.5f, 30.0f, "%.1f"))
+            options.creaseDegrees = double (std::clamp (crease, 0.5f, 30.0f));
         if (ImGui::IsItemHovered ())
-            hudshell::HoverTip ("Adds every edge of the built surface folded by more than the angle below. "
-                                "Off: only the lines that were modelled.");
-        if (options.folds) {
-            float crease = float (options.creaseDegrees);
-            ImGui::TextWrapped ("%s", "Edge angle (degrees)");
-            ImGui::SetNextItemWidth (width);
-            if (ImGui::SliderFloat ("##bake-crease", &crease, 0.5f, 30.0f, "%.1f"))
-                options.creaseDegrees = double (std::clamp (crease, 0.5f, 30.0f));
-            if (ImGui::IsItemHovered ())
-                hudshell::HoverTip ("An edge is a line where its two faces meet at more than this angle.");
-        }
+            hudshell::HoverTip ("The existing ground the design left alone keeps every edge whose two faces meet "
+                                "at more than this angle: its peaks, ridges and breaks. Level ground keeps none.");
+        ImGui::Checkbox ("Also the graded surface's folds", &options.folds);
+        if (ImGui::IsItemHovered ())
+            hudshell::HoverTip ("Adds the folds of the ground the design moved too. Off: there, only the lines "
+                                "that were modelled.");
     }
     float skirt = float (bake.skirt);
     ImGui::TextWrapped ("%s", "Depth under the lowest point (m)");
@@ -326,7 +325,7 @@ void TerrainBakePanel (Session& s)
         ImGui::TextWrapped ("%zu design outlines, %zu toe lines, %zu contours at %.*f m", outlines, toes, contours,
                             edit::StepDecimals (plan->interval), plan->interval);
         if (creases)
-            ImGui::TextWrapped ("%zu fold lines", creases);
+            ImGui::TextWrapped ("%zu existing-ground lines (peaks, ridges, breaks)", creases);
     }
     else
         ImGui::TextWrapped ("%zu contours at %.*f m", contours, edit::StepDecimals (plan->interval), plan->interval);
