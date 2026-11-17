@@ -372,3 +372,58 @@ TEST (DiagramStoreyBinding, AmbiguousMatchRefusesTheRebind)
     std::vector<std::string> notes;
     EXPECT_TRUE (dg::KeepSelection (first.bindings[0].id, split, notes).Empty ());
 }
+
+namespace {
+// Archicad stories with floorIds, stacked from z = 0 at 3 m.
+std::vector<dg::StoreySource> Floors (const std::vector<int>& floorIds)
+{
+    std::vector<dg::StoreySource> s;
+    for (size_t i = 0; i < floorIds.size (); ++i)
+        s.push_back ({ dg::StoreyPersistentId (floorIds[i]), int (i), 3.0 * double (i), int (i) });
+    return s;
+}
+} // namespace
+
+TEST (DiagramStoreyBinding, InsertMiddleKeepsMovedIdentity)
+{
+    uint64_t next = 1;
+    const auto before = dg::BindStoreys ("b", {}, Floors ({ 10, 11, 12 }), next);
+    // A storey (floorId 13) inserted at z = 3: the old 11 and 12 move up one index and 3 m.
+    const auto after = dg::BindStoreys ("b", Bound (before), Floors ({ 10, 13, 11, 12 }), next);
+    EXPECT_EQ (after.bindings[0].id, before.bindings[0].id);
+    EXPECT_EQ (after.bindings[2].id, before.bindings[1].id);
+    EXPECT_EQ (after.bindings[3].id, before.bindings[2].id);
+    EXPECT_EQ (after.bindings[1].serial, 4u);
+    EXPECT_TRUE (after.dropped.empty ());
+    std::vector<std::string> notes;
+    EXPECT_EQ (dg::KeepSelection (before.bindings[1].id, after, notes), before.bindings[1].id);
+    EXPECT_TRUE (notes.empty ());
+}
+
+TEST (DiagramStoreyBinding, DeleteMiddleKeepsMovedIdentity)
+{
+    uint64_t next = 1;
+    const auto before = dg::BindStoreys ("b", {}, Floors ({ 10, 11, 12 }), next);
+    const auto after = dg::BindStoreys ("b", Bound (before), Floors ({ 10, 12 }), next);
+    EXPECT_EQ (after.bindings[0].id, before.bindings[0].id);
+    EXPECT_EQ (after.bindings[1].id, before.bindings[2].id); // took 11's index and elevation
+    ASSERT_EQ (after.dropped.size (), 1u);
+    EXPECT_EQ (after.dropped[0], before.bindings[1].id);
+    std::vector<std::string> notes;
+    EXPECT_TRUE (dg::KeepSelection (before.bindings[1].id, after, notes).Empty ());
+}
+
+TEST (DiagramStoreyBinding, DifferentPersistentIdsNeverMatchByPosition)
+{
+    uint64_t next = 1;
+    const auto before = dg::BindStoreys ("b", {}, Floors ({ 10 }), next);
+    // Same index and elevation, a different story: replaced, not renamed.
+    const auto after = dg::BindStoreys ("b", Bound (before), Floors ({ 20 }), next);
+    EXPECT_NE (after.bindings[0].id, before.bindings[0].id);
+    EXPECT_EQ (after.dropped.size (), 1u);
+    // A missing ID still falls back to position (older snapshots, fixtures).
+    auto anonymous = Floors ({ 20 });
+    anonymous[0].persistentId.clear ();
+    const auto fallback = dg::BindStoreys ("b", Bound (after), anonymous, next);
+    EXPECT_EQ (fallback.bindings[0].id, after.bindings[0].id);
+}

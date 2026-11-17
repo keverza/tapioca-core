@@ -159,8 +159,12 @@ std::optional<PickHit> Pick (const Frame& frame, const LayoutPlan& plan, const s
 
 // ---- Storey identity --------------------------------------------------------
 // Elevation and order are match attributes, never identity. A binding's serial is
-// session-stable; persistentId arrives with persisted options (#163).
+// session-stable. persistentId is the Archicad story's floorId (StoreyPersistentId),
+// which survives a mid-stack insert/delete; without it the ranks are positional and
+// such an edit can move identity (#222).
 constexpr double kStoreyTolerance = 0.05; // m, = buildingplan::kElevationTolerance
+
+std::string StoreyPersistentId (int floorId); // "floor:<id>"
 
 struct StoreySource {
     std::string persistentId;
@@ -181,6 +185,7 @@ struct BindResult {
 // Canonical order: persistent ID -> story and elevation -> unique elevation ->
 // unique story -> unique display order -> new serial. Two candidates at one rank
 // refuse the rebind (new serial and a note); a value never becomes the identity.
+// Storeys whose persistent IDs are both set and differ never match positionally.
 BindResult BindStoreys (const std::string& buildingKey, const std::vector<StoreyBinding>& previous,
                         const std::vector<StoreySource>& current, uint64_t& nextSerial);
 // The selection survives only when its binding does; otherwise empty plus a note.

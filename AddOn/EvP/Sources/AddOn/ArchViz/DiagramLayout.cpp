@@ -371,6 +371,10 @@ namespace {
 bool MatchesAt (int rank, const StoreySource& a, const StoreySource& b)
 {
     const bool sameZ = std::abs (a.z - b.z) <= kStoreyTolerance;
+    // Two different persistent IDs are two different storeys, whatever their position:
+    // story index and elevation are positional and shift on a mid-stack insert/delete.
+    if (rank > 1 && !a.persistentId.empty () && !b.persistentId.empty () && a.persistentId != b.persistentId)
+        return false;
     switch (rank) {
         case 1:
             return !a.persistentId.empty () && a.persistentId == b.persistentId;
@@ -393,6 +397,11 @@ std::string Label (const StoreySource& s)
     return text;
 }
 } // namespace
+
+std::string StoreyPersistentId (int floorId)
+{
+    return "floor:" + std::to_string (floorId);
+}
 
 BindResult BindStoreys (const std::string& buildingKey, const std::vector<StoreyBinding>& previous,
                         const std::vector<StoreySource>& current, uint64_t& nextSerial)

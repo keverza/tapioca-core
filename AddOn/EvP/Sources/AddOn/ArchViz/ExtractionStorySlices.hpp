@@ -40,6 +40,9 @@ struct ProjectStoreys {
     std::vector<double> levels;
     std::vector<std::string> names;
     std::vector<int> indices; // Archicad's storey numbers, firstStory upwards
+    // API_StoryType::floorId, "unique ID of the story": it survives inserting or deleting
+    // another storey, where `indices` and `levels` shift. Empty when not read.
+    std::vector<int> floorIds;
 
     bool Empty () const
     {

@@ -42,6 +42,7 @@ ProjectStoreys ReadStoreys ()
             out.levels.push_back (story.level);
             out.names.push_back (std::string (GS::UniString (story.uName).ToCStr (0, GS::MaxUSize, CC_UTF8).Get ()));
             out.indices.push_back (int (info.firstStory) + int (i));
+            out.floorIds.push_back (int (story.floorId));
         }
         // The handle is ours to free -- the SDK allocated it for this call.
         BMKillHandle (reinterpret_cast<GSHandle*> (&info.data));
