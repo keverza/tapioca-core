@@ -123,7 +123,7 @@ bool BuildProvenance (const edit::Document& doc, const TerrainCapture& capture, 
     std::set<OperationId> catalogOperations;
     for (const auto& entry : plan.entries) {
         catalogSources.insert (entry.sources.begin (), entry.sources.end ());
-        catalogOperations.insert (entry.rootOperation);
+        catalogOperations.insert (AttributedFootprintOperation (*doc.landscape, entry.rootOperation));
     }
     for (const auto& path : plan.paths) {
         catalogSources.insert (path.source);

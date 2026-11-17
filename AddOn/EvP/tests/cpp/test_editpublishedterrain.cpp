@@ -1108,3 +1108,132 @@ TEST (EditPublishedTerrain, RecipeQuantitiesFollowReorderEffectUndoAndReloadOfOv
     ExpectCurrentAndReconciled (reloaded);
     ExpectSameQuantities (reloaded.quantities, moved.quantities);
 }
+
+// #105 bypass acceptance: a cut region whose footprint is a Difference (its right half cut away by
+// a construction-only region). "Footprint on" off bypasses that step: the first input passes
+// through, so the whole 10 x 10 grades and the cutter, consumed no more, is an owner again (with
+// effect None, still no row). Undo restores the cut-away quantities exactly; a reload keeps the
+// bypass.
+TEST (EditPublishedTerrain, RecipeQuantitiesFollowAFootprintBypassOfABooleanRegion105)
+{
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (geo::StartLandscape (doc, { 1 }, error)) << error;
+    edit::Id terrain = 0;
+    ASSERT_TRUE (geo::SetLandscapeTerrain (doc, "00112233-4455-6677-8899-AABBCCDDEEFF", terrain, error)) << error;
+    const auto cut = StackRegion (doc, 5, -1);    // 10 x 10 at -1
+    const auto cutter = StackRegion (doc, 10, 0); // its right half and beyond
+    const auto objectOf = [] (const edit::Document& d, edit::Id id) -> const geo::HardscapeObject& {
+        return *std::find_if (d.landscape->objects.begin (), d.landscape->objects.end (),
+                              [&] (const geo::HardscapeObject& o) { return o.id == id; });
+    };
+    auto none = objectOf (doc, cutter).terrain;
+    none.effect = geo::RegionTerrainEffect::None;
+    ASSERT_TRUE (geo::SetRegionTerrain (doc, cutter, none, error)) << error;
+    geo::DomainCommand command;
+    command.kind = geo::OperationKind::Difference;
+    command.owner = cut;
+    command.subject.input = objectOf (doc, cut).footprintOperation;
+    command.operand.input = objectOf (doc, cutter).footprintOperation;
+    const auto applied = geo::ApplyDomainCommand (doc, command);
+    ASSERT_TRUE (applied.ok) << applied.error;
+    ASSERT_EQ (objectOf (doc, cut).footprintOperation, applied.operationId);
+    const edit::Id root = applied.operationId;
+    edit::Session session (doc);
+
+    const auto bypassedOf = [&] (const geo::LandscapeRecipe& recipe) {
+        for (const auto& row : recipe.rows)
+            for (const auto& node : row.construction)
+                if (node.operation == root)
+                    return std::optional<bool> (node.bypassed);
+        return std::optional<bool> ();
+    };
+    const auto cutAway = BuildStack (session.Doc (), cut);
+    ExpectCurrentAndReconciled (cutAway);
+    ASSERT_EQ (StackOrder (cutAway.quantities), (std::vector<edit::Id> { cut }));
+    EXPECT_EQ (bypassedOf (cutAway.recipe), std::optional<bool> (false));
+    const auto* half = RowOf (cutAway.quantities, cut);
+    ASSERT_TRUE (half);
+    EXPECT_GE (half->cut, 50 - 1e-6) << "the left half at -1";
+    EXPECT_LT (half->cut, 90) << "not the half the Difference took away";
+
+    ASSERT_TRUE (session.Apply ([root] (edit::Document& d, std::string& e) {
+        return geo::SetLandscapeOperationEnabled (d, root, false, e);
+    })) << session.Message ();
+    const auto bypassedRecipe = geo::ProjectLandscapeRecipe (session.Doc (), std::nullopt);
+    EXPECT_FALSE (geo::ProjectRecipeQuantities (bypassedRecipe, cutAway.outcome.published.get (), false).current);
+    const auto bypassed = BuildStack (session.Doc (), cut);
+    ExpectCurrentAndReconciled (bypassed);
+    EXPECT_EQ (bypassedOf (bypassed.recipe), std::optional<bool> (true));
+    EXPECT_EQ (StackOrder (bypassed.quantities), (std::vector<edit::Id> { cut }))
+        << "the cutter is an owner again but its effect is None";
+    const auto* whole = RowOf (bypassed.quantities, cut);
+    ASSERT_TRUE (whole);
+    EXPECT_GE (whole->cut, 100 - 1e-6) << "the whole footprint at -1";
+    EXPECT_GT (bypassed.quantities.total.cut, cutAway.quantities.total.cut);
+
+    ASSERT_TRUE (session.Undo ());
+    ExpectSameQuantities (BuildStack (session.Doc (), cut).quantities, cutAway.quantities);
+
+    ASSERT_TRUE (session.Redo ());
+    std::string text;
+    ASSERT_TRUE (geo::WriteLandscape (session.Doc (), geo::LandscapeStorage::Virtual, text, error)) << error;
+    edit::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (text, loaded, error)) << error;
+    const auto reloaded = BuildStack (loaded, cut);
+    ExpectCurrentAndReconciled (reloaded);
+    EXPECT_EQ (bypassedOf (reloaded.recipe), std::optional<bool> (true));
+    ExpectSameQuantities (reloaded.quantities, bypassed.quantities);
+}
+
+// #105 bypass on the unified lane: the #82 region beside its path, cut by a Difference, then the
+// Difference bypassed. Both builds succeed (a bypassed root is attributed to the step it passes
+// through, not refused as ProvenanceUnattributable) and they grade different footprints.
+TEST (EditPublishedTerrain, AMixedBuildGradesABypassedBooleanRegion105)
+{
+    auto scene = Issue82Scene ();
+    scene.options.source = 8;
+    auto& doc = scene.doc;
+    auto& objects = doc.landscape->objects;
+    const auto region = std::find_if (objects.begin (), objects.end (), [] (const geo::HardscapeObject& o) {
+        return !o.pathId && o.boundarySource && o.terrain.effect != geo::RegionTerrainEffect::None;
+    });
+    ASSERT_NE (region, objects.end ());
+    const edit::Id regionId = region->id, regionRoot = region->footprintOperation;
+    const auto source = std::find_if (doc.landscape->sources.begin (), doc.landscape->sources.end (),
+                                      [&] (const geo::LandscapeSource& s) { return s.id == region->boundarySource; });
+    ASSERT_NE (source, doc.landscape->sources.end ());
+    const auto* line = edit::Find (doc, source->entityId);
+    ASSERT_TRUE (line);
+    double x0 = INFINITY, x1 = -INFINITY, y0 = INFINITY, y1 = -INFINITY, z = 0;
+    for (const auto& v : line->vertices) {
+        x0 = std::min (x0, v.p.x), x1 = std::max (x1, v.p.x);
+        y0 = std::min (y0, v.p.y), y1 = std::max (y1, v.p.y);
+        z += v.p.z / double (line->vertices.size ());
+    }
+    const double cut = x1 - 0.3 * (x1 - x0);
+    const auto cutterLine = edit::AddPolyline (
+        doc, { { cut, y0 - 1, z }, { x1 + 1, y0 - 1, z }, { x1 + 1, y1 + 1, z }, { cut, y1 + 1, z } }, true);
+    std::string error;
+    ASSERT_TRUE (geo::SetLandscapeSourceRole (doc, cutterLine, geo::SourceRole::RegionBoundary, error)) << error;
+    auto& cutter = doc.landscape->objects.back ();
+    cutter.terrain.effect = geo::RegionTerrainEffect::None;
+    geo::DomainCommand command;
+    command.kind = geo::OperationKind::Difference;
+    command.owner = regionId;
+    command.subject.input = regionRoot;
+    command.operand.input = cutter.footprintOperation;
+    const auto applied = geo::ApplyDomainCommand (doc, command);
+    ASSERT_TRUE (applied.ok) << applied.error;
+
+    const auto cutAway = debugreplay::Run (scene);
+    ASSERT_TRUE (cutAway.built) << cutAway.error;
+    ASSERT_TRUE (geo::SetLandscapeOperationEnabled (doc, applied.operationId, false, error)) << error;
+    const auto bypassed = debugreplay::Run (scene);
+    ASSERT_TRUE (bypassed.built) << bypassed.error;
+    ASSERT_TRUE (cutAway.published && bypassed.published);
+    EXPECT_NE (cutAway.published->planHash, bypassed.published->planHash);
+    EXPECT_NE (cutAway.published->quantities.cut + cutAway.published->quantities.fill,
+               bypassed.published->quantities.cut + bypassed.published->quantities.fill)
+        << "the bypass grades the whole footprint, not the cut-away one";
+}

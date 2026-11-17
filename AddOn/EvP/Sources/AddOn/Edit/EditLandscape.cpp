@@ -752,6 +752,23 @@ bool SetLandscapeOperationEnabled (edit::Document& doc, Id id, bool enabled, std
         error);
 }
 
+Id AttributedFootprintOperation (const LandscapeSession& session, Id root)
+{
+    const auto find = [&] (Id id) {
+        const auto it = std::find_if (session.operations.begin (), session.operations.end (),
+                                      [=] (const auto& op) { return op.id == id; });
+        return it == session.operations.end () ? nullptr : &*it;
+    };
+    Id id = root;
+    for (size_t guard = 0; guard <= session.operations.size (); ++guard) {
+        const auto* op = find (id);
+        if (op == nullptr || op->enabled || op->inputs.empty () || find (op->inputs.front ()) == nullptr)
+            return op != nullptr && op->enabled ? id : root;
+        id = op->inputs.front ();
+    }
+    return root;
+}
+
 bool SetLandscapeOperationPriorities (edit::Document& doc, const std::vector<std::pair<Id, int>>& priorities,
                                       std::string& error)
 {

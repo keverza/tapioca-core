@@ -311,6 +311,12 @@ bool AddLandscapeSource (geomsrv::edit::Document& doc, LandscapeSource source, I
 bool DeleteLandscapeSource (geomsrv::edit::Document& doc, Id id, std::string& error);
 bool AddLandscapeOperation (geomsrv::edit::Document& doc, LandscapeOperation operation, Id& id, std::string& error);
 bool SetLandscapeOperationEnabled (geomsrv::edit::Document& doc, Id id, bool enabled, std::string& error);
+// #105: the step a region's terrain edit is attributed to. Its footprint root, or, when that root
+// is bypassed ("Footprint on" off), the enabled step whose shape the bypass passes through: the
+// evaluation reads a disabled step's first input, and terrain provenance attributes edits to
+// enabled steps only. A chain that ends at a source or a missing step returns the root (which
+// still refuses, with its reason).
+Id AttributedFootprintOperation (const LandscapeSession& session, Id root);
 // One document edit setting each listed operation's explicit priority (the terrain stack's first
 // sort key, EditLandscapeFieldPlan.hpp). Unknown ids refuse the whole edit.
 bool SetLandscapeOperationPriorities (geomsrv::edit::Document& doc, const std::vector<std::pair<Id, int>>& priorities,

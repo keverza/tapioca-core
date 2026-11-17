@@ -137,8 +137,10 @@ bool EvaluateRegionTerrain (const geomsrv::edit::Document& doc, std::shared_ptr<
             return false;
         auto sorted = ids;
         std::sort (sorted.begin (), sorted.end (), [&] (Id a, Id b) {
-            return std::find (order.begin (), order.end (), objectFor (a).footprintOperation) <
-                   std::find (order.begin (), order.end (), objectFor (b).footprintOperation);
+            return std::find (order.begin (), order.end (),
+                              AttributedFootprintOperation (*doc.landscape, objectFor (a).footprintOperation)) <
+                   std::find (order.begin (), order.end (),
+                              AttributedFootprintOperation (*doc.landscape, objectFor (b).footprintOperation));
         });
         for (Id id : sorted) {
             const auto& object = objectFor (id);
@@ -200,7 +202,7 @@ bool EvaluateRegionTerrain (const geomsrv::edit::Document& doc, std::shared_ptr<
                 targetPoints.push_back (std::move (points));
                 targetTriangles.push_back (std::move (target.triangles));
             }
-            edits.push_back ({ object.footprintOperation, parameters });
+            edits.push_back ({ AttributedFootprintOperation (*doc.landscape, object.footprintOperation), parameters });
         }
         // Constrain every positional mask edge as well as property/footprint
         // edges, so a protected face cannot tilt across an unsplit boundary.
