@@ -194,7 +194,9 @@ enum class TerrainMappingKind : uint32_t {
     RegionPoint = 20,
     ControlPointVertex = 21,
     LockedVertex = 22,
-    RegionRefinedVertex = 23 // #149 T3: a vertex the unified outline mesher added; no input names it.
+    RegionRefinedVertex = 23, // #149 T3: a vertex the unified outline mesher added; no input names it.
+    DetailVertex = 24,        // A level-of-detail vertex -> its built vertex (DetailTerrainSurface).
+    DetailLineEdge = 25       // A level-of-detail kept edge: v0/v1 its output endpoints.
 };
 // Lossless support records; indices/values have the documented ABI v1 row
 // meanings (GeometryRustFfi.h), not semantic IDs. Source IDs, operation DAG,
@@ -286,6 +288,16 @@ struct TerrainMeshView {
 // or arbitrary-sheet overlap certification. Mandatory input domains=5; worker.
 bool ExtractTerrainSurface (const TerrainMeshView& mesh, const ProvenanceRequest& provenance, TerrainResult& result,
                             std::string& error);
+// A built terrain at a level of detail (tapioca_terrain_detail): `keep` vertices and `lines`
+// (flat vertex pairs) exact -- lines reduced to 1 mm along them -- the boundary too, and the
+// built vertices it needs for every built vertex to be within `tolerance` metres in height.
+// Rows 24 (output vertex -> built vertex) and 25 (kept edge); no provenance. Worker.
+struct TerrainDetailRequest {
+    std::span<const double> points;
+    std::span<const uint32_t> triangles, keep, lines;
+    double tolerance = 0.05;
+};
+bool DetailTerrainSurface (const TerrainDetailRequest& request, TerrainResult& result, std::string& error);
 enum class TerrainGradientMethod : uint32_t { Central = 1, OneSided = 2, Face = 3 };
 struct TerrainSample {
     bool onSurface = false; // Every other field is zero when false.

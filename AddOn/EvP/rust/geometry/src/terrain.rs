@@ -33,6 +33,7 @@ mod constrain;
 pub mod contour;
 pub mod daylight;
 pub mod design;
+pub mod detail;
 pub mod edit;
 pub mod field;
 pub mod hybrid;

@@ -989,6 +989,20 @@ typedef struct {
     TapiocaProvenanceRequest provenance;
 } TapiocaTerrainSurfaceRequest;
 
+// A built terrain at a level of detail (geometry terrain::detail): a constrained Delaunay
+// triangulation of the kept vertices, the kept lines (flat vertex pairs, chained and reduced to
+// 1 mm along them) and the boundary, plus the built vertices it needs for every built vertex to be
+// within `tolerance` metres in height. Uses TapiocaTerrainOutput query/fill. No provenance:
+// mapping 24 Detail vertex: index=output vertex, values[0]=built vertex; mapping 25 Detail line
+// edge: index=ordinal, values[0]/[1]=output endpoints of a kept line or the boundary.
+typedef struct {
+    TapiocaDoubleView points;
+    TapiocaIndexView triangles;
+    TapiocaIndexView keep;
+    TapiocaIndexView lines;
+    double tolerance;
+} TapiocaTerrainDetailRequest;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -1324,6 +1338,8 @@ TapiocaStatus tapioca_terrain_split_mesh (const TapiocaTerrainSplitRequest* requ
                                           char* error, size_t errorCapacity);
 TapiocaStatus tapioca_terrain_surface (const TapiocaTerrainSurfaceRequest* request, const TapiocaTerrainOutput* output,
                                        char* error, size_t errorCapacity);
+TapiocaStatus tapioca_terrain_detail (const TapiocaTerrainDetailRequest* request, const TapiocaTerrainOutput* output,
+                                      char* error, size_t errorCapacity);
 
 // S3b.3: single compute, caller-sized outputs (no query mode). The same
 // live/aligned/disjoint/atomic contract as above applies, including every

@@ -157,7 +157,10 @@ bool TerrainCall (const Request& input, Function function, const ProvenanceReque
     }
     for (const auto& mapping : mappings) {
         const bool surface = std::is_same_v<Request, TapiocaTerrainSurfaceRequest>;
-        if (surface ? (mapping.kind != 18 && mapping.kind != 19) : (mapping.kind < 1 || mapping.kind > 11)) {
+        const bool detail = std::is_same_v<Request, TapiocaTerrainDetailRequest>;
+        if (detail    ? (mapping.kind != 24 && mapping.kind != 25)
+            : surface ? (mapping.kind != 18 && mapping.kind != 19)
+                      : (mapping.kind < 1 || mapping.kind > 11)) {
             error = "TerrainOutputShape: unknown support kind";
             return false;
         }
@@ -214,6 +217,18 @@ bool SplitTerrainMesh (const TerrainSplitRequest& request, TerrainResult& result
     input.arcAngles = { request.arcAngles.data (), request.arcAngles.size () };
     return TerrainCall (input, tapioca_terrain_split_mesh, request.provenance, request.points.size () / 3, result,
                         error);
+}
+
+bool DetailTerrainSurface (const TerrainDetailRequest& request, TerrainResult& result, std::string& error)
+{
+    TapiocaTerrainDetailRequest input {};
+    input.points = { request.points.data (), request.points.size () };
+    input.triangles = { request.triangles.data (), request.triangles.size () };
+    input.keep = { request.keep.data (), request.keep.size () };
+    input.lines = { request.lines.data (), request.lines.size () };
+    input.tolerance = request.tolerance;
+    static const ProvenanceRequest kNone {};
+    return TerrainCall (input, tapioca_terrain_detail, kNone, request.points.size () / 3, result, error);
 }
 
 bool ExtractTerrainSurface (const TerrainMeshView& mesh, const ProvenanceRequest& provenance, TerrainResult& result,

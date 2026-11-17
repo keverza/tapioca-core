@@ -6,6 +6,7 @@ use crate::identity::ProvenanceRequest;
 use tapioca_geometry::{identity as id, terrain as kernel};
 
 mod conflict;
+mod detail;
 mod edit;
 mod hybrid;
 mod locked;
@@ -23,6 +24,7 @@ pub use conflict::{
     TerrainClip, TerrainClipOutput, TerrainConflict, TerrainConflictOutput, TerrainRowsOutput,
     tapioca_terrain_edit_clips, tapioca_terrain_hybrid_conflicts,
 };
+pub use detail::{TerrainDetailRequest, tapioca_terrain_detail};
 pub use edit::{
     TerrainDaylight, TerrainEdit, TerrainEditOutput, TerrainEditReport, TerrainEditRequest,
     TerrainFaceOwner, TerrainRing, TerrainSlope, TerrainSurfaceView, tapioca_terrain_edit,
