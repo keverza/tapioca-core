@@ -89,6 +89,12 @@ struct Options {
     uint32_t frames = 48;
     float ssrThickness = -1.0f;
     int ssrSteps = -1;
+    // --off: effects switched off in every style, to isolate one in a picture (ao, ssr, taa,
+    // shadows, env).
+    std::vector<std::string> off;
+    // Shadow-map overrides (negative: the viewer's default), to sweep the biases.
+    float shadowBias = -1.0f, shadowClamp = -1.0f, shadowFilter = -1.0f;
+    int shadowPcss = -1;
 };
 
 bool ParseTriple (const std::string& text, float out[3])
@@ -157,6 +163,20 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.ssrThickness = std::stof (next ());
         else if (a == "--ssr-steps")
             o.ssrSteps = std::stoi (next ());
+        else if (a == "--shadow-bias")
+            o.shadowBias = std::stof (next ());
+        else if (a == "--shadow-clamp")
+            o.shadowClamp = std::stof (next ());
+        else if (a == "--shadow-filter")
+            o.shadowFilter = std::stof (next ());
+        else if (a == "--shadow-pcss")
+            o.shadowPcss = std::stoi (next ());
+        else if (a == "--off") {
+            std::stringstream in (next ());
+            std::string s;
+            while (std::getline (in, s, ','))
+                o.off.push_back (s);
+        }
         else
             return false;
     }
@@ -165,7 +185,7 @@ bool ParseArgs (int argc, char** argv, Options& o)
 
 // The HUD state a style starts from: the viewer's defaults, then the style's preset.
 //
-// âš ï¸ A COPY OF kPresets IN DiligentHudRenderTab.cpp (Architecture, Rendered, RayTraced rows), not
+// ⚠️ A COPY OF kPresets IN DiligentHudRenderTab.cpp (Architecture, Rendered, RayTraced rows), not
 // a call to ApplyPreview: that TU links the whole HUD -- editors, massing, consoles -- and the
 // bench is the renderer only. Change both or neither.
 av::HudState StyleState (const std::string& style, const Options& o)
@@ -206,6 +226,26 @@ av::HudState StyleState (const std::string& style, const Options& o)
         hud.ssrThickness = o.ssrThickness;
     if (o.ssrSteps > 0)
         hud.ssrMaxSteps = o.ssrSteps;
+    for (const std::string& effect : o.off) {
+        if (effect == "ao")
+            hud.ambientOcclusion = false;
+        else if (effect == "ssr")
+            hud.screenSpaceReflection = false;
+        else if (effect == "taa")
+            hud.temporalAntiAliasing = false;
+        else if (effect == "shadows")
+            hud.shadowsEnabled = false;
+        else if (effect == "env")
+            hud.environmentEnabled = false;
+    }
+    if (o.shadowBias >= 0.0f)
+        hud.shadowDepthBias = o.shadowBias;
+    if (o.shadowClamp >= 0.0f)
+        hud.shadowReceiverBiasClamp = o.shadowClamp;
+    if (o.shadowPcss >= 0)
+        hud.shadowPcss = o.shadowPcss != 0;
+    if (o.shadowFilter >= 0.0f)
+        hud.shadowFilterWorldSize = o.shadowFilter;
     hud.sunOverride = true;
     hud.sunAzimuthDegrees = o.sunAz;
     hud.sunAltitudeDegrees = o.sunAlt;
@@ -292,6 +332,14 @@ void RenderFrame (av::DiligentScene& scene, Diligent::IDeviceContext* context, T
     av::Multiply (viewProj, view16, proj);
 
     scene.SetShadowsEnabled (hud.shadowsEnabled);
+    // The shadow fields the bench can sweep; the rest stay at the settings' defaults, which are
+    // the HUD's (DiligentViewportSupport's ApplyShadowSettings maps the same fields).
+    av::DiligentShadowSettings shadow;
+    shadow.fixedDepthBias = hud.shadowDepthBias;
+    shadow.receiverPlaneBiasClamp = hud.shadowReceiverBiasClamp;
+    shadow.pcssEnabled = hud.shadowPcss;
+    shadow.filterWorldSize = hud.shadowFilterWorldSize;
+    scene.SetShadowSettings (shadow);
     scene.RenderShadowMap (context, view16, stableProj);
     scene.SetSunOverride (hud.sunOverride, hud.sunAzimuthDegrees, hud.sunAltitudeDegrees);
     scene.SetEnvironmentSettings (hud.environmentEnabled, hud.environmentIntensity, hud.environmentRotationDegrees);
@@ -493,12 +541,14 @@ int main (int argc, char** argv)
             av::ArchVizLog ("bench: " + file + (saved ? " saved" : " NOT saved") + " in " + std::to_string (seconds) +
                             " s; ray tracing " + av::RayTracedStateName (s.state) + " " + std::to_string (s.samples) +
                             "/" + std::to_string (s.maxSamples) + " samples, reflections " +
-                            (s.reflectionsTraced ? "traced" : "screen-space") +
+                            (s.reflectionsTraced ? "traced" : "screen-space") + ", sky light " +
+                            (s.skyLightTraced ? "traced" : "AO") +
                             (s.reason.empty () ? std::string () : " (" + s.reason + ")"));
             report << (firstRender ? "" : ",\n") << "    { \"view\": \"" << view.name << "\", \"style\": \"" << style
                    << "\", \"file\": \"" << file << "\", \"seconds\": " << seconds << ", \"rtState\": \""
                    << av::RayTracedStateName (s.state) << "\", \"samples\": " << s.samples
-                   << ", \"reflectionsTraced\": " << (s.reflectionsTraced ? "true" : "false") << " }";
+                   << ", \"reflectionsTraced\": " << (s.reflectionsTraced ? "true" : "false")
+                   << ", \"skyLightTraced\": " << (s.skyLightTraced ? "true" : "false") << " }";
             firstRender = false;
         }
     }

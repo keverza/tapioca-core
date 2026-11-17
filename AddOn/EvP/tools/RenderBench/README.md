@@ -47,6 +47,15 @@ The whole run's summary goes to `suite.json` in `--out`.
 `glossy MAE` is the mean absolute error in linear light over pixels with roughness < 0.35. It is
 the reflection number; `MAE` over the whole image also carries the ambient-light differences.
 
+## Isolating an effect
+
+Pass bench arguments through `run_suite.py --extra "..."`, or call the exe directly:
+
+- `--off ao,ssr,taa,shadows,env` switches effects off in every style. Turn one off and watch
+  whether an artefact goes with it.
+- `--shadow-bias`, `--shadow-clamp`, `--shadow-filter` and `--shadow-pcss 0|1` override the
+  shadow map's fixed depth bias, receiver-plane clamp, filter size in metres, and PCSS.
+
 ## Adding a source
 
 When the link reports a new unresolved renderer symbol, `grow_sources.py` finds the source that
