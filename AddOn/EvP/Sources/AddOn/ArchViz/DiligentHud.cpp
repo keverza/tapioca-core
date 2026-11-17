@@ -451,8 +451,10 @@ float CaptureDpiScale (float scale)
 
 uint32_t DiligentHud::CaptureLegendHeight (float scale) const
 {
-    // Padding, title, gap, bar, gap, hour labels, padding.
-    return uint32_t (std::lround (6.0f * 13.0f * CaptureDpiScale (scale)));
+    // Padding, then the tallest column (#156): a header and three lines --
+    // Location and Analysis period's text, or the colour legend's header,
+    // title, bar and hour labels -- with ImGui's item spacing, then padding.
+    return uint32_t (std::lround (7.5f * 13.0f * CaptureDpiScale (scale)));
 }
 
 void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,
@@ -472,7 +474,7 @@ void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t
     impl_->renderer->NewFrame (width, height, Diligent::SURFACE_TRANSFORM_IDENTITY);
     ImGui::NewFrame ();
     ImGui::PushFont (impl_->font, 13.0f * dpiScale);
-    DrawSunStudyCaptureLegend (state, scene.sunStudy, width, height);
+    DrawSunStudyCaptureLegend (state, scene, width, height);
     ImGui::PopFont ();
     ImGui::Render ();
     impl_->renderer->RenderDrawData (context, ImGui::GetDrawData ());

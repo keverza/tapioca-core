@@ -14,7 +14,8 @@
 #include "ArchViz/GradientPresetChoice.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 #include "ArchViz/DiligentScene.hpp"
-#include "ArchViz/HudShell.hpp" // the tips
+#include "ArchViz/SunPathCompass.hpp" // the legend's location and period text
+#include "ArchViz/HudShell.hpp"       // the tips
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "ArchViz/SunStudyObstructionGeometry.hpp"
@@ -451,9 +452,9 @@ void DrawShadowPalette (const char* view, std::initializer_list<ShadowRole> role
 
 } // namespace
 
-void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStatus& study, uint32_t width,
-                                uint32_t height)
+void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats& scene, uint32_t width, uint32_t height)
 {
+    const SunStudyOverlayStatus& study = scene.sunStudy;
     if (!study.drawing || study.analysisKind != 0)
         return;
     const int chosen = ChosenMode (state);
@@ -464,12 +465,54 @@ void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStat
     ImGui::SetNextWindowSize (ImVec2 (float (width), float (height)));
     ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (font, 0.8f * font));
     ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar (ImGuiStyleVar_CellPadding, ImVec2 (font, 0.0f));
     ImGui::PushStyleColor (ImGuiCol_WindowBg, ImVec4 (1.0f, 1.0f, 1.0f, 1.0f));
     ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.12f, 0.12f, 0.12f, 1.0f));
     ImGui::PushStyleColor (ImGuiCol_TextDisabled, ImVec4 (0.38f, 0.38f, 0.38f, 1.0f));
+    ImGui::PushStyleColor (ImGuiCol_TableBorderLight, ImVec4 (0.82f, 0.82f, 0.82f, 1.0f));
     ImGui::Begin ("##sun-capture-legend", nullptr,
                   ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs |
                       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollbar);
+    // ⚠️ THREE COLUMNS (#156): Location | Analysis period | Colour legend. The
+    // image leaves the panel behind, so where and when travel with the colours.
+    if (!ImGui::BeginTable ("##sun-capture-columns", 3,
+                            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV |
+                                ImGuiTableFlags_NoSavedSettings)) {
+        ImGui::End ();
+        ImGui::PopStyleColor (4);
+        ImGui::PopStyleVar (3);
+        return;
+    }
+    ImGui::TableSetupColumn ("Location", ImGuiTableColumnFlags_WidthStretch, 0.22f);
+    ImGui::TableSetupColumn ("Analysis period", ImGuiTableColumnFlags_WidthStretch, 0.28f);
+    ImGui::TableSetupColumn ("Colour legend", ImGuiTableColumnFlags_WidthStretch, 0.50f);
+    ImGui::TableNextRow ();
+    const auto column = [] (const char* header, const std::vector<std::string>& lines) {
+        ImGui::TableNextColumn ();
+        ImGui::TextDisabled ("%s", header);
+        for (const std::string& line : lines)
+            ImGui::TextUnformatted (line.c_str ());
+    };
+    column ("Location", SunStudyCaptureLocationLines (scene.sunApplied, scene.latitudeDegrees, scene.longitudeDegrees,
+                                                      scene.siteAltitudeMetres, scene.northDegrees));
+    SunStudyCapturePeriod period;
+    period.showsPeriod = state.sunShowsPeriod;
+    period.periodLabel = state.sunPeriodLabel;
+    period.estimate = state.sunPeriodEstimate;
+    period.carrierDate = state.sunPeriodCarrierDate;
+    // ⚠️ NOT THE RUN FORM'S DATE as a fallback: that may be a pending pick, and
+    // an image must not caption a study with a date it was not run for.
+    period.shownDate = state.sunShownDate;
+    if (!study.stepMinutes.empty ()) {
+        period.firstMinute = study.stepMinutes.front ();
+        period.lastMinute = study.stepMinutes.back ();
+        if (study.stepMinutes.size () > 1)
+            period.stepMinutes = int (study.stepMinutes[1]) - int (study.stepMinutes[0]);
+    }
+    period.shadowsOfOneDay = mode == 5 || mode == 6 || mode == 7;
+    column ("Analysis period", SunStudyCapturePeriodLines (period));
+    ImGui::TableNextColumn ();
+    ImGui::TextDisabled ("Colour legend");
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     if (mode == 0) {
         const SunStudyViewSettings view = SunStudyViewOf (state);
@@ -509,12 +552,17 @@ void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStat
             draw->AddLine (ImVec2 (x, at.y + size.y), ImVec2 (x, labelY), ink, (std::max) (1.0f, 0.08f * font));
             draw->AddText (ImVec2 (left, labelY), ink, label.c_str ());
         }
+        ImGui::Dummy (ImVec2 (size.x, 0.25f * font + ImGui::GetTextLineHeight ())); // the labels' row
     }
     else {
+        // The column is half the strip: the title on its line, the swatches under it.
         const auto row = [&] (const char* title, std::initializer_list<std::pair<unsigned, const char*>> swatches) {
             ImGui::TextUnformatted (title);
+            bool first = true;
             for (const auto& swatch : swatches) {
-                ImGui::SameLine (0.0f, 2.0f * font);
+                if (!first)
+                    ImGui::SameLine (0.0f, 2.0f * font);
+                first = false;
                 LegendSwatch (swatch.first, swatch.second);
             }
         };
@@ -540,9 +588,10 @@ void DrawSunStudyCaptureLegend (const HudState& state, const SunStudyOverlayStat
         else
             ImGui::TextUnformatted ("Sun study diagnostic view");
     }
+    ImGui::EndTable ();
     ImGui::End ();
-    ImGui::PopStyleColor (3);
-    ImGui::PopStyleVar (2);
+    ImGui::PopStyleColor (4);
+    ImGui::PopStyleVar (3);
 }
 
 SunStudyViewSettings SunStudyViewOf (const HudState& state)

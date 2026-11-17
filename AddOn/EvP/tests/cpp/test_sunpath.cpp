@@ -58,3 +58,50 @@ TEST (SunPath, HoverCaptionCarriesOnlyTheSunAndAnalysisNotBandDiagnostics)
     EXPECT_EQ (SunPathHoverCaption (moment, ""), moment);
     EXPECT_TRUE (SunPathHoverCaption ("", "").empty ());
 }
+
+TEST (SunPath, CaptureLegendLocationNamesHemispheresAltitudeAndNorth)
+{
+    const auto lines = SunStudyCaptureLocationLines (true, 54.6872f, -25.2797f, 112.0f, 90.0f);
+    ASSERT_EQ (lines.size (), 3u);
+    EXPECT_EQ (lines[0], "54.6872 N, 25.2797 W");
+    EXPECT_EQ (lines[1], "Altitude 112 m");
+    EXPECT_EQ (lines[2], "North 90.0 deg CCW from +X");
+    EXPECT_EQ (SunStudyCaptureLocationLines (true, -33.8688f, 151.2093f, 0.0f, 0.0f)[0], "33.8688 S, 151.2093 E");
+    // No place ever arrived: say so, never "0.0000 N, 0.0000 E".
+    const auto unknown = SunStudyCaptureLocationLines (false, 0.0f, 0.0f, 0.0f, 90.0f);
+    ASSERT_EQ (unknown.size (), 1u);
+    EXPECT_EQ (unknown[0], "Not received from Archicad");
+}
+
+TEST (SunPath, CaptureLegendPeriodSaysWhenAndWhichDayTheShadowsAre)
+{
+    SunStudyCapturePeriod day;
+    day.shownDate = 20260621;
+    day.firstMinute = 5 * 60 + 15;
+    day.lastMinute = 21 * 60 + 45;
+    day.stepMinutes = 15;
+    auto lines = SunStudyCapturePeriodLines (day);
+    ASSERT_EQ (lines.size (), 2u);
+    EXPECT_EQ (lines[0], "2026-06-21, one day");
+    EXPECT_EQ (lines[1], "Traced 05:15-21:45, every 15 min");
+    // A single day's shadows ARE the study's day: no extra line.
+    day.shadowsOfOneDay = true;
+    EXPECT_EQ (SunStudyCapturePeriodLines (day).size (), 2u);
+
+    SunStudyCapturePeriod period;
+    period.showsPeriod = true;
+    period.periodLabel = "2026-03-21 to 2026-09-23";
+    period.estimate = true;
+    period.carrierDate = "2026-09-23";
+    lines = SunStudyCapturePeriodLines (period);
+    ASSERT_EQ (lines.size (), 1u);
+    EXPECT_EQ (lines[0], "2026-03-21 to 2026-09-23 (estimate)");
+    // A period frame showing shadows names the one traced day they are of.
+    period.shadowsOfOneDay = true;
+    lines = SunStudyCapturePeriodLines (period);
+    ASSERT_EQ (lines.size (), 2u);
+    EXPECT_EQ (lines[1], "Shadows of 2026-09-23 only");
+
+    // Unknown date is said, not invented from a pending run form.
+    EXPECT_EQ (SunStudyCapturePeriodLines (SunStudyCapturePeriod {})[0], "Date unknown");
+}
