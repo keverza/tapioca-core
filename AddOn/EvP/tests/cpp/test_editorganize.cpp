@@ -428,3 +428,44 @@ TEST (EditOrganize, AGroupRenamesUniquelyAmongItsSiblings124)
     ASSERT_TRUE (geo::ReadLandscape (text, loaded, s.error)) << s.error;
     EXPECT_EQ (ed::FindGroup (loaded, beds)->name, "garden");
 }
+
+// #124: a layer renames by the group rule, across every layer (layer 0 among them, which keeps its
+// own name); new layers and groups take the first free default name, never one already beside them.
+TEST (EditOrganize, LayersRenameUniquelyAndDefaultNamesNeverRepeat124)
+{
+    Scene s;
+    const ed::Id first = ed::AddLayer (s.doc, {});
+    const ed::Id second = ed::AddLayer (s.doc, {});
+    EXPECT_EQ (ed::FindLayer (s.doc, first)->name, "Layer 1");
+    EXPECT_EQ (ed::FindLayer (s.doc, second)->name, "Layer 2");
+    ASSERT_TRUE (ed::DeleteLayer (s.doc, first, s.error)) << s.error;
+    EXPECT_EQ (ed::FindLayer (s.doc, ed::AddLayer (s.doc, {}))->name, "Layer 1")
+        << "the freed name, not a third 'Layer 2'";
+
+    EXPECT_TRUE (ed::RenameLayer (s.doc, second, "  Kerbs ", s.error)) << s.error;
+    EXPECT_EQ (ed::FindLayer (s.doc, second)->name, "Kerbs");
+    s.error.clear ();
+    EXPECT_FALSE (ed::RenameLayer (s.doc, second, "Kerbs", s.error));
+    EXPECT_TRUE (s.error.empty ());
+    EXPECT_FALSE (ed::RenameLayer (s.doc, second, "Layer 1", s.error));
+    EXPECT_NE (s.error.find ("already called"), std::string::npos) << s.error;
+    EXPECT_FALSE (ed::RenameLayer (s.doc, second, "0", s.error)) << "layer 0's name is taken too";
+    EXPECT_FALSE (ed::RenameLayer (s.doc, second, "  ", s.error));
+    EXPECT_NE (s.error.find ("needs a name"), std::string::npos);
+    EXPECT_FALSE (ed::RenameLayer (s.doc, ed::kNoId, "Base", s.error));
+    EXPECT_NE (s.error.find ("layer 0"), std::string::npos);
+    EXPECT_FALSE (ed::RenameLayer (s.doc, ed::Id (99999), "x", s.error));
+    EXPECT_EQ (ed::FindLayer (s.doc, second)->name, "Kerbs");
+
+    // Groups: an ungroup frees "Group 1"; the next group takes it rather than repeating "Group 2".
+    const ed::Id g1 = ed::GroupObjects (s.doc, { s.R (s.a), s.R (s.b) }, {}, s.error);
+    const ed::Id g2 = ed::GroupObjects (s.doc, { s.R (s.c), s.R (s.path) }, {}, s.error);
+    ASSERT_NE (g2, ed::kNoId) << s.error;
+    EXPECT_EQ (ed::FindGroup (s.doc, g1)->name, "Group 1");
+    EXPECT_EQ (ed::FindGroup (s.doc, g2)->name, "Group 2");
+    ASSERT_TRUE (ed::Ungroup (s.doc, { s.R (s.a) }, s.error)) << s.error;
+    const ed::Id g3 = ed::GroupObjects (s.doc, { s.R (s.a), s.R (s.b) }, {}, s.error);
+    ASSERT_NE (g3, ed::kNoId) << s.error;
+    EXPECT_EQ (ed::FindGroup (s.doc, g3)->name, "Group 1");
+    s.Valid ();
+}

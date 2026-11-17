@@ -350,8 +350,9 @@ void LayerRows (Session& s)
         ImGui::BeginDisabled (id == edit::kNoId); // layer 0 keeps its name
         if (ImGui::InputText ("##name", name, sizeof name, ImGuiInputTextFlags_EnterReturnsTrue) &&
             layer.name != name) {
-            const std::string renamed = name;
-            ChangeLayer (s, id, [renamed] (edit::Layer& l) { l.name = renamed; });
+            const std::string renamed = name; // #124: refused (empty, taken) with the reason
+            Change (
+                s, [id, renamed] (edit::Document& d, std::string& e) { return edit::RenameLayer (d, id, renamed, e); });
         }
         ImGui::EndDisabled ();
         ImGui::SameLine ();
@@ -369,10 +370,9 @@ void LayerRows (Session& s)
     }
     if (ImGui::SmallButton ("New layer")) {
         // Named and coloured in turn: each new layer takes the next swatch.
-        const std::string name = "Layer " + std::to_string (layers.size ());
         const uint32_t colour = kSwatches[(layers.size () - 1) % std::size (kSwatches)];
-        Change (s, [refs, name, colour] (edit::Document& d, std::string&) {
-            const edit::Id id = edit::AddLayer (d, name);
+        Change (s, [refs, colour] (edit::Document& d, std::string&) {
+            const edit::Id id = edit::AddLayer (d, {}); // the first free "Layer N"
             edit::FindLayer (d, id)->rgba = colour;
             std::string unused;
             if (!refs.empty ())

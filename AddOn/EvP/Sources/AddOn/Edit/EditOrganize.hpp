@@ -32,7 +32,12 @@ bool ValidateOrganization (const Document& doc, std::string& error);
 std::vector<Id> ObjectsOf (const Document& doc, const std::vector<Ref>& refs);
 std::vector<Ref> WholeRefs (const std::vector<Id>& objects);
 
+// An empty `name` takes the first free "Layer N".
 Id AddLayer (Document& doc, const std::string& name);
+// #124: renames a layer to `name` with its outer spaces trimmed. Refuses layer 0, an empty name, a
+// name another layer (layer 0 among them) already has, and a layer that no longer exists; the same
+// name again changes nothing and returns false with no error.
+bool RenameLayer (Document& doc, Id layer, const std::string& name, std::string& error);
 // Its objects go to layer 0, which itself cannot be deleted.
 bool DeleteLayer (Document& doc, Id layer, std::string& error);
 // `layer` kNoId is layer 0.
@@ -46,6 +51,7 @@ std::vector<Id> GroupMembers (const Document& doc, Id group);
 // group along, nested inside the new one. At least two objects or groups are needed. Inside
 // `within` (an entered group), the groups just inside it count as outermost, and a new group
 // of what is all inside it sits in it.
+// An empty `name` takes the first "Group N" no group beside it has.
 Id GroupObjects (Document& doc, const std::vector<Ref>& refs, const std::string& name, std::string& error,
                  Id within = kNoId);
 // Renames `group` to `name` with its outer spaces trimmed. Refuses an empty name, a name a

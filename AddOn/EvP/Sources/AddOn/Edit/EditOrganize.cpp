@@ -155,13 +155,62 @@ std::vector<Ref> WholeRefs (const std::vector<Id>& objects)
     return out;
 }
 
+namespace {
+// `text` without its outer spaces.
+std::string Trimmed (const std::string& text)
+{
+    const auto space = [] (char c) { return std::isspace (static_cast<unsigned char> (c)) != 0; };
+    const auto first = std::find_if_not (text.begin (), text.end (), space);
+    const auto last = std::find_if_not (text.rbegin (), text.rend (), space).base ();
+    return first < last ? std::string (first, last) : std::string ();
+}
+// `base` followed by the first number from 1 that `taken` refuses.
+template <typename Taken> std::string FreeName (const std::string& base, Taken taken)
+{
+    for (size_t n = 1;; ++n)
+        if (const std::string name = base + std::to_string (n); !taken (name))
+            return name;
+}
+bool LayerNamed (const Document& doc, const std::string& name)
+{
+    return doc.layer0.name == name ||
+           std::any_of (doc.layers.begin (), doc.layers.end (), [&] (const Layer& l) { return l.name == name; });
+}
+} // namespace
+
 Id AddLayer (Document& doc, const std::string& name)
 {
     Layer l;
     l.id = NewId (doc);
-    l.name = name;
+    l.name = name.empty () ? FreeName ("Layer ", [&] (const std::string& n) { return LayerNamed (doc, n); }) : name;
     doc.layers.push_back (l);
     return l.id;
+}
+
+bool RenameLayer (Document& doc, Id layer, const std::string& name, std::string& error)
+{
+    if (layer == kNoId) {
+        error = "layer 0 keeps its name";
+        return false;
+    }
+    Layer* l = FindLayer (doc, layer);
+    if (l == nullptr) {
+        error = "the layer no longer exists";
+        return false;
+    }
+    const std::string trimmed = Trimmed (name);
+    if (trimmed.empty ()) {
+        error = "a layer needs a name";
+        return false;
+    }
+    if (trimmed == l->name)
+        return false;
+    if (LayerNamed (doc, trimmed)) {
+        error = "another layer is already called \"" + trimmed + "\"";
+        return false;
+    }
+    l->name = trimmed;
+    return true;
 }
 
 bool DeleteLayer (Document& doc, Id layer, std::string& error)
@@ -229,10 +278,7 @@ bool RenameGroup (Document& doc, Id group, const std::string& name, std::string&
         error = "the group no longer exists";
         return false;
     }
-    const auto space = [] (char c) { return std::isspace (static_cast<unsigned char> (c)) != 0; };
-    const auto first = std::find_if_not (name.begin (), name.end (), space);
-    const auto last = std::find_if_not (name.rbegin (), name.rend (), space).base ();
-    const std::string trimmed = first < last ? std::string (first, last) : std::string ();
+    const std::string trimmed = Trimmed (name);
     if (trimmed.empty ()) {
         error = "a group needs a name";
         return false;
@@ -268,8 +314,12 @@ Id GroupObjects (Document& doc, const std::vector<Ref>& refs, const std::string&
     }
     Group g;
     g.id = NewId (doc);
-    g.name = name.empty () ? "Group " + std::to_string (doc.groups.size () + 1) : name;
     g.parent = allInside ? within : kNoId;
+    // #124: a default name no group beside it has, so two rows at one level never read alike.
+    g.name = !name.empty () ? name : FreeName ("Group ", [&] (const std::string& n) {
+        return std::any_of (doc.groups.begin (), doc.groups.end (),
+                            [&] (const Group& o) { return o.parent == g.parent && o.name == n; });
+    });
     for (auto& other : doc.groups)
         if (groups.count (other.id))
             other.parent = g.id;
