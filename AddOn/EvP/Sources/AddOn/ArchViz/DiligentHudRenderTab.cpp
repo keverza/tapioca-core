@@ -258,7 +258,16 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
                 ImGui::SetNextItemWidth (-FLT_MIN);
                 hudshell::ColourChoice ("##sectionline", state.sectionLineRgba);
                 ImGui::TextDisabled ("section line");
-                ImGui::SliderFloat ("line##section", &state.sectionLinePixels, 0.5f, 6.0f, "%.1f px");
+                ImGui::SliderFloat ("line##section", &state.sectionLineMm, 0.0f, 200.0f, "%.0f mm");
+                hudshell::Tip ("Model width, drawn inside the cut solid");
+                ImGui::Checkbox ("hatch##section", &state.sectionHatch);
+                if (state.sectionHatch) {
+                    ImGui::SetNextItemWidth (-FLT_MIN);
+                    hudshell::ColourChoice ("##sectionhatch", state.sectionHatchRgba);
+                    ImGui::TextDisabled ("hatch");
+                    ImGui::SliderFloat ("spacing##hatch", &state.sectionHatchSpacingMm, 20.0f, 1000.0f, "%.0f mm");
+                    ImGui::SliderFloat ("angle##hatch", &state.sectionHatchAngle, 0.0f, 180.0f, "%.0f deg");
+                }
                 // ⚠️ THE THREE COUNTS ARE THE POINT: an open chain is a mesh that is not closed
                 // at the plane, outlined but never filled -- it is shown, not hidden.
                 const SectionCapCounts& counts = scene.sectionCaps;
@@ -270,7 +279,10 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
                                         counts.fillFailures);
             }
             else {
-                ImGui::TextDisabled ("open cut: you see into the solids");
+                ImGui::Checkbox ("fill back faces##section", &state.sectionBackFaces);
+                ImGui::SetNextItemWidth (-FLT_MIN);
+                hudshell::ColourChoice ("##sectionback", state.sectionCapRgba);
+                hudshell::Tip ("The inside of each cut solid, flat in this colour");
             }
         }
     }

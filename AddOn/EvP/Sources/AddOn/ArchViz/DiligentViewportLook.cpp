@@ -33,7 +33,12 @@ void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay)
     caps.caps = hud.sectionCaps;
     caps.fillRgba = hud.sectionCapRgba;
     caps.lineRgba = hud.sectionLineRgba;
-    caps.linePixels = hud.sectionLinePixels;
+    caps.backFaces = hud.sectionBackFaces;
+    caps.hatchRgba = hud.sectionHatchRgba;
+    caps.shape.lineWidth = hud.sectionLineMm * 0.001f;
+    caps.shape.hatch = hud.sectionHatch;
+    caps.shape.hatchSpacing = hud.sectionHatchSpacingMm * 0.001f;
+    caps.shape.hatchAngleDegrees = hud.sectionHatchAngle;
     scene.SetSectionCapStyle (caps);
 }
 

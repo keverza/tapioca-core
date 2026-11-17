@@ -69,10 +69,12 @@ TEST (SectionCaps, BoxCrossSectionOnEveryAxis)
         EXPECT_EQ (r.counts.openChains, 0u) << SectionAxisName (c.axis);
         EXPECT_EQ (r.counts.fillFailures, 0u) << SectionAxisName (c.axis);
         EXPECT_NEAR (r.counts.areaM2, c.area, 1.0e-3) << SectionAxisName (c.axis);
-        ASSERT_FALSE (r.fill.empty ());
-        ASSERT_FALSE (r.outline.empty ());
+        ASSERT_FALSE (r.poche.vertices.empty ());
+        ASSERT_FALSE (r.line.vertices.empty ());
+        // Poche plus line cover the cut exactly: the line is inside, not centred on the edge.
+        EXPECT_NEAR (SectionCapMeshArea (r.poche) + SectionCapMeshArea (r.line), c.area, 1.0e-3);
         // In the plane's frame the cap lies at z = the cut.
-        for (const StorySliceFillVertex& v : r.fill)
+        for (const StorySliceFillVertex& v : r.poche.vertices)
             EXPECT_NEAR (v.z, c.at, 1.0e-3f);
     }
 }
@@ -96,8 +98,8 @@ TEST (SectionCaps, OpenMeshIsOutlinedButNeverFilled)
     EXPECT_EQ (r.counts.closedLoops, 0u);
     EXPECT_EQ (r.counts.openChains, 1u);
     EXPECT_NEAR (r.counts.areaM2, 0.0, 1.0e-9);
-    EXPECT_TRUE (r.fill.empty ());
-    EXPECT_FALSE (r.outline.empty ()); // shown, not hidden
+    EXPECT_TRUE (r.poche.vertices.empty ());
+    EXPECT_FALSE (r.line.vertices.empty ()); // shown, not hidden
 }
 
 TEST (SectionCaps, AMissedElementIsNotCut)
@@ -106,8 +108,8 @@ TEST (SectionCaps, AMissedElementIsNotCut)
     AddBox (box, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f);
     const SectionCapResult r = Cut (box, SectionAxis::Z, 5.0f);
     EXPECT_EQ (r.counts.elementsCut, 0u);
-    EXPECT_TRUE (r.outline.empty ());
-    EXPECT_TRUE (r.fill.empty ());
+    EXPECT_TRUE (r.line.vertices.empty ());
+    EXPECT_TRUE (r.poche.vertices.empty ());
 }
 
 TEST (SectionCaps, ATangentPlaneIsNudgedIntoTheKeptSide)
@@ -139,4 +141,21 @@ TEST (SectionCaps, LocalFrameRoundTripsToWorld)
         for (int k = 0; k < 3; ++k)
             EXPECT_FLOAT_EQ (back[k], world[k]) << SectionAxisName (axis) << " component " << k;
     }
+}
+
+TEST (SectionCaps, LineIsAWorldWidthBandInsideTheCut)
+{
+    SectionMesh box;
+    AddBox (box, 0.0f, 0.0f, 0.0f, 2.0f, 3.0f, 4.0f);
+    SectionCapRequest request;
+    request.coordinate = 1.0f;
+    request.shape.lineWidth = 0.1f;
+    request.shape.hatch = true;
+    request.meshes.push_back (std::make_shared<SectionMesh> (box));
+    const SectionCapResult r = BuildSectionCaps (request);
+    // Inset by 0.1 m with mitred corners: 1.8 x 2.8 of poche, the rest is line.
+    EXPECT_NEAR (SectionCapMeshArea (r.poche), 1.8 * 2.8, 1.0e-3);
+    EXPECT_NEAR (SectionCapMeshArea (r.line), 6.0 - 1.8 * 2.8, 1.0e-3);
+    EXPECT_GT (SectionCapMeshArea (r.hatch), 0.0);
+    EXPECT_LT (SectionCapMeshArea (r.hatch), SectionCapMeshArea (r.poche));
 }

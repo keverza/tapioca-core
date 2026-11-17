@@ -881,6 +881,8 @@ class DiligentScene final {
                                      uint32_t depthBufferFormat, std::string& error);
     bool CreateSelectionPipelines (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
                                    uint32_t depthBufferFormat, std::string& error);
+    // The section's back-face pass, built on first use (DiligentSceneSection.cpp).
+    bool CreateSectionBackPipelines (std::string& error);
     // ---- the sun study tint, all of it in DiligentSceneSunStudy.cpp ---------
     //
     // ⚠️ BUILT LAZILY ON THE FIRST STUDY, like the occlusion prepass and for
@@ -911,8 +913,8 @@ class DiligentScene final {
     // these are the marks that say where a thing ends, so the pass order is the
     // contract and it stays where it can be read in one place. `nearClip` is the
     // frame's near plane, which sizes the selection edges' depth pull.
-    // The section plane's caps, rebuilt off-thread when stale (DiligentSceneSection.cpp).
-    void DrawSectionCaps (Diligent::IDeviceContext* context, const float viewProj[16]);
+    // The section plane's back faces and caps, rebuilt off-thread when stale (DiligentSceneSection.cpp).
+    void DrawSectionCaps (Diligent::IDeviceContext* context, DiligentSceneConstants& constants, CullMode cull);
     void DrawLineOverlays (Diligent::IDeviceContext* context, DiligentSceneConstants& constants, CullMode cull,
                            bool drawWireframe, float nearClip);
     // Implemented in DiligentSceneOcclusion.cpp beside its one caller. ⚠️ NOT

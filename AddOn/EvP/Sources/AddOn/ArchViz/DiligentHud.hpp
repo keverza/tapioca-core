@@ -647,7 +647,14 @@ struct HudState {
     bool sectionCaps = true;
     uint32_t sectionCapRgba = 0x4A4A4AFFu;
     uint32_t sectionLineRgba = 0x141414FFu;
-    float sectionLinePixels = 1.5f;
+    // Model-width line inside the cut, in millimetres; the back faces close the cut even with
+    // caps off; the hatch is optional (SectionCapShape).
+    float sectionLineMm = 20.0f;
+    bool sectionBackFaces = true;
+    bool sectionHatch = false;
+    uint32_t sectionHatchRgba = 0x1E1E1EFFu;
+    float sectionHatchSpacingMm = 150.0f;
+    float sectionHatchAngle = 45.0f;
 
     // ---- RE51.B9 -------------------------------------------------------------
     //

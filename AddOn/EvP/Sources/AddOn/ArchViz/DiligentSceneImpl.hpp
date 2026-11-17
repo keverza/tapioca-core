@@ -594,8 +594,14 @@ struct geomsrv::archviz::DiligentScene::Impl {
 
     // ---- the section plane's caps (#14 P2, DiligentSceneSection.cpp) -----------------------
     struct SectionCaps {
-        StorySliceLayer layer;
+        // Drawn in this order, each one flat colour: the poche, its hatch, the section line.
+        StorySliceLayer layers[3];
         bool initFailed = false;
+        // The back faces as the cut (SectionCapStyle::backFaces), indexed by the VISIBLE pass's
+        // cull and built with its inverse, like the outline hull. Built on first use.
+        RefCntAutoPtr<Diligent::IPipelineState> backPso[kCullModeCount];
+        RefCntAutoPtr<Diligent::IShaderResourceBinding> backSrb[kCullModeCount];
+        bool backFailed = false;
         SectionCapStyle style;
         // The plane as SetSectionPlane last placed it, in world metres.
         bool planeEnabled = false;
@@ -635,7 +641,13 @@ struct geomsrv::archviz::DiligentScene::Impl {
         // holds only its own snapshot, but its result must not land on a torn-down layer.
         if (sectionCaps.inFlight.valid ())
             sectionCaps.inFlight.wait ();
-        sectionCaps.layer.Shutdown ();
+        for (StorySliceLayer& layer : sectionCaps.layers)
+            layer.Shutdown ();
+        for (int i = 0; i < kCullModeCount; ++i) {
+            sectionCaps.backPso[i].Release ();
+            sectionCaps.backSrb[i].Release ();
+        }
+        sectionCaps.backFailed = false;
         sectionCaps.inFlight = {};
         sectionCaps.initFailed = false;
         sectionCaps.builtKey = 0;

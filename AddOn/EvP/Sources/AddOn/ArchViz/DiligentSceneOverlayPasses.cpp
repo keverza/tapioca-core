@@ -26,9 +26,9 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
     if (impl_ == nullptr || context == nullptr)
         return;
 
-    // ---- the section's caps and section line (#14 P2, DiligentSceneSection.cpp) --------------
+    // ---- the section's back faces, caps and section line (#14 P2, DiligentSceneSection.cpp) ---
     // FIRST: the poche is a surface, so the wireframe, the edges and the selection draw over it.
-    DrawSectionCaps (context, constants.viewProj);
+    DrawSectionCaps (context, constants, cull);
 
     // The same upload the mesh pass uses, over the same buffer: only the base
     // colour changes between these draws.
