@@ -454,7 +454,9 @@ uint32_t DiligentHud::CaptureLegendHeight (float scale) const
     // Padding, then the tallest column (#156): a header and three lines --
     // Location and Analysis period's text, or the colour legend's header,
     // title, bar and hour labels -- with ImGui's item spacing, then padding.
-    return uint32_t (std::lround (7.5f * 13.0f * CaptureDpiScale (scale)));
+    // One line more for the swatches when a period's long title pushes them
+    // off the title's line.
+    return uint32_t (std::lround (8.5f * 13.0f * CaptureDpiScale (scale)));
 }
 
 void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,

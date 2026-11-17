@@ -1198,6 +1198,15 @@ TEST (SunStudyHud, APeriodViewAsksOnceAndSharesReadAsPercent)
     EXPECT_DOUBLE_EQ (geomsrv::sunstudyhud::s_shownView.scale, double (kSunRampTop));
     EXPECT_EQ (SunLegendUnit (), SunValueUnit::Share);
     EXPECT_EQ (SunStudyValueText (5.0), "50%");
+    // The screenshot legend's title names what the map shows (#156).
+    EXPECT_EQ (gui.state.sunMapTitle, "Sun access, % of possible -- Whole period (365 days)");
+    gui.state.sunPeriodMonth = 3;
+    gui.Frame ();
+    EXPECT_EQ (gui.state.sunMapTitle, "Sun access, % of possible -- March (30 days)");
+    gui.state.sunPeriodQuantity = 4;
+    gui.state.sunPeriodThreshold = 3;
+    gui.Frame ();
+    EXPECT_EQ (gui.state.sunMapTitle, "Days with at least 2:00h of direct sun, % of days -- whole period");
 
     // Leaving the period: hours again, and the direct-sun colours back.
     status.period = false;
@@ -1207,5 +1216,6 @@ TEST (SunStudyHud, APeriodViewAsksOnceAndSharesReadAsPercent)
     gui.Frame ();
     EXPECT_FALSE (gui.state.sunShowsPeriod);
     EXPECT_EQ (SunLegendUnit (), SunValueUnit::Hours);
+    EXPECT_TRUE (gui.state.sunMapTitle.empty ());
     EXPECT_EQ (gui.state.sunGradientPreset, direct);
 }

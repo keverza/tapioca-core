@@ -340,6 +340,10 @@ struct HudState {
     double sunPeriodDays = 0.0;
     std::string sunPeriodLabel, sunPeriodCarrierDate;
     bool sunPeriodEstimate = false;
+    // What a period map shows, in the panel's words: quantity, unit and frame
+    // ("Sun access, % of possible -- March (31 days)"). Set by the period view
+    // each frame, empty on a single-day study; the screenshot legend's title.
+    std::string sunMapTitle;
     int sunReadingRole = -1; // ElementRole, or -1 when unknown
     bool sunReadingNearest = false;
     // The read sample's lit flags, a byte per step (1 lit): WHEN it was in
@@ -925,7 +929,7 @@ class DiligentHud final {
     // no panels; the next Draw restores the panel's style.
     void DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,
                             const DiligentSceneStats& scene, const HudState& state);
-    // The strip's height for `scale`: a column header and up to three lines.
+    // The strip's height for `scale`: a column header and up to four lines.
     uint32_t CaptureLegendHeight (float scale) const;
 
   private:

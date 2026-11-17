@@ -202,8 +202,9 @@ void PlayModeRow (HudState& state, const sunstudyhud::PeriodInfo& period)
             "Fixed hour: the clock time shown on every day (the nearest traced step).");
 }
 
-// The month timeline: "whole period" and every month the period reaches.
-void MonthTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, sunstudyhud::PeriodView& want)
+// The month timeline: "whole period" and every month the period reaches. It
+// and DayTimeline return the frame's label, as shown, for the map's title.
+std::string MonthTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, sunstudyhud::PeriodView& want)
 {
     std::vector<int> months { 0 };
     for (int m = 1; m <= 12; ++m)
@@ -230,6 +231,7 @@ void MonthTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, suns
     state.sunPeriodMonth = months[index];
     want.frame = 0;
     want.month = state.sunPeriodMonth;
+    return label ();
 }
 
 // The step nearest `clock`, or one past the last when the sun is down then.
@@ -251,8 +253,8 @@ int StepAt (const sunstudyhud::KeptDay& day, int clock)
     return StepAt (day.minutes, day.hoursPerStep, clock);
 }
 
-void DayTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, const std::vector<sunstudyhud::KeptDay>& kept,
-                  sunstudyhud::PeriodView& want)
+std::string DayTimeline (HudState& state, const sunstudyhud::PeriodInfo& period,
+                         const std::vector<sunstudyhud::KeptDay>& kept, sunstudyhud::PeriodView& want)
 {
     const int last = int (kept.size ()) - 1;
     if (state.sunPeriodPlayMode == kEveryStep) {
@@ -264,7 +266,7 @@ void DayTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, const 
         if (total == 0) {
             DrawSunStudyTimeline ("periodsteps", state.sunPeriodStep, 0, 0, state.sunPeriodPlay, kStepSeconds,
                                   "no sun on any kept day", true);
-            return;
+            return "no sun on any kept day";
         }
         int index =
             std::clamp (first[size_t (std::clamp (state.sunPeriodDay, 0, last))] + state.sunPeriodStep, 0, total - 1);
@@ -290,7 +292,7 @@ void DayTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, const 
         want.frame = 1;
         want.day = day;
         want.step = step;
-        return;
+        return label ();
     }
     int day = std::clamp (state.sunPeriodDay, 0, last);
     const auto label = [&] {
@@ -313,6 +315,7 @@ void DayTimeline (HudState& state, const sunstudyhud::PeriodInfo& period, const 
     }
     else
         want.frame = 2;
+    return label ();
 }
 
 void ThresholdChoice (HudState& state, const sunstudyhud::PeriodInfo& period)
@@ -921,6 +924,7 @@ void DrawSunStudyPeriodView (HudState& state)
     if (!state.sunShowsPeriod || period.studyId != state.sunPeriodStudyId) {
         // Back on a day study: its words and its colours.
         SunLegendUnit () = SunValueUnit::Hours;
+        state.sunMapTitle.clear ();
         if (state.sunPeriodPresetsFor != 0)
             SwitchColours (state, 0);
         state.sunPeriodQuantity = state.sunPeriodMonth = state.sunPeriodDay = state.sunPeriodStep = 0;
@@ -943,15 +947,23 @@ void DrawSunStudyPeriodView (HudState& state)
     want.quantity = Instant (mode) ? 0 : quantity;
     want.threshold = state.sunPeriodThreshold;
     want.scale = IsShare (quantity) || Instant (mode) ? double (kSunRampTop) : 1.0;
+    std::string frame;
     if (quantity == 4) {
         ThresholdChoice (state, period);
         state.sunPeriodMonth = 0;
         state.sunPeriodPlay.playing = false;
+        frame = "whole period";
     }
     else if (mode == kMonthByMonth || kept == nullptr)
-        MonthTimeline (state, period, want);
+        frame = MonthTimeline (state, period, want);
     else
-        DayTimeline (state, period, *kept, want);
+        frame = DayTimeline (state, period, *kept, want);
+    // The screenshot legend's title (#156), in the panel's words: quantity, unit, frame.
+    std::string title = Instant (mode) ? "Lit or not at this instant" : kQuantities[quantity].line;
+    if (!Instant (mode) && quantity == 4)
+        title = "Days with at least " + HoursText (period.edges[std::clamp (state.sunPeriodThreshold, 0, 12)]) +
+                " of direct sun, % of days";
+    state.sunMapTitle = title + " -- " + frame;
     char line[96];
     std::snprintf (line, sizeof (line), "%s%s",
                    Instant (mode) ? "Lit or not at this instant" : kQuantities[quantity].line,

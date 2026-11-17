@@ -483,8 +483,9 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
         ImGui::PopStyleVar (3);
         return;
     }
-    ImGui::TableSetupColumn ("Location", ImGuiTableColumnFlags_WidthStretch, 0.22f);
-    ImGui::TableSetupColumn ("Analysis period", ImGuiTableColumnFlags_WidthStretch, 0.28f);
+    // A quarter, a quarter, a half.
+    ImGui::TableSetupColumn ("Location", ImGuiTableColumnFlags_WidthStretch, 0.25f);
+    ImGui::TableSetupColumn ("Analysis period", ImGuiTableColumnFlags_WidthStretch, 0.25f);
     ImGui::TableSetupColumn ("Colour legend", ImGuiTableColumnFlags_WidthStretch, 0.50f);
     ImGui::TableNextRow ();
     const auto column = [] (const char* header, const std::vector<std::string>& lines) {
@@ -516,15 +517,23 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     if (mode == 0) {
         const SunStudyViewSettings view = SunStudyViewOf (state);
-        ImGui::TextUnformatted ("Direct sun hours");
-        if (view.shadowOverlay) {
-            ImGui::SameLine (0.0f, 2.0f * font);
-            LegendSwatch (ShadowOnWhite (view.shadowRgba), "shadow at the viewer's sun");
-        }
+        // A period names its quantity, unit and frame (#156); a day is hours.
+        const bool periodTitle = state.sunShowsPeriod && !state.sunMapTitle.empty ();
+        const float right = ImGui::GetCursorScreenPos ().x + ImGui::GetContentRegionAvail ().x;
+        ImGui::TextUnformatted (periodTitle ? state.sunMapTitle.c_str () : "Direct sun hours");
+        // Beside the title while it fits the column, else on the next line:
+        // a period's title is long and the column is half the strip.
+        const auto swatchAfter = [&] (unsigned hex, const std::string& label) {
+            const float need = 2.0f * font + ImGui::GetTextLineHeight () + ImGui::GetStyle ().ItemSpacing.x +
+                               ImGui::CalcTextSize (label.c_str ()).x;
+            if (ImGui::GetItemRectMax ().x + need <= right)
+                ImGui::SameLine (0.0f, 2.0f * font);
+            LegendSwatch (hex, label.c_str ());
+        };
+        if (view.shadowOverlay)
+            swatchAfter (ShadowOnWhite (view.shadowRgba), "shadow at the viewer's sun");
         if (view.blueThreshold > 0.0f) {
-            ImGui::SameLine (0.0f, 2.0f * font);
-            LegendSwatch (view.lowSunRgba >> 8,
-                          ("low sun: below " + SunStudyClock (view.blueThreshold, true)).c_str ());
+            swatchAfter (view.lowSunRgba >> 8, "low sun: below " + SunStudyClock (view.blueThreshold, true));
         }
         // The gradient across the strip, and its hour steps under it: every
         // band edge when stepped, every hour when smooth.
@@ -545,7 +554,9 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
         const float labelY = at.y + size.y + 0.25f * font;
         for (size_t k = 0; k < ticks.size (); ++k) {
             const float x = at.x + size.x * ticks[k] / kSunRampTop;
-            const std::string label = SunStudyValueText (ticks[k], true) + (k + 1 == ticks.size () ? "+" : "");
+            // The open top band is "9:00h+"; a share's top is 100 %, never more.
+            const bool openTop = k + 1 == ticks.size () && SunLegendUnit () == SunValueUnit::Hours;
+            const std::string label = SunStudyValueText (ticks[k], true) + (openTop ? "+" : "");
             const float wide = ImGui::CalcTextSize (label.c_str ()).x;
             // Centred on its tick, held inside the bar's span at the two ends.
             const float left = std::clamp (x - 0.5f * wide, at.x, at.x + size.x - wide);
