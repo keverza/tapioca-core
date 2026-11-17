@@ -2296,7 +2296,7 @@ struct PSOutput
 {
     float4 color : SV_TARGET;
 };
-
+)hlsl" R"hlsl(
 #if SHADOW_MODE == SHADOW_MODE_PCF
 // ---- RE51.C6a: the sampling floor, the dither and the disk ------------------
 //
