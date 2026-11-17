@@ -479,6 +479,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SelectionEdges.cpp"
     # ArchViz/TechnicalEdges.cpp: the model-wide technical edges' angle tiers and HUD style (#14 P2).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/TechnicalEdges.cpp"
+    # ArchViz/SectionPlane.cpp: the movable section plane's keep/cut side (#14 P2).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SectionPlane.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ScenePacketTrace.cpp"
     # SceneCmdQueue feeds ArchViz/Dxgi/HostOccluders at every batch boundary,
     # and that file is Direct3D 11. The stub answers the production "no room"
@@ -1233,6 +1235,8 @@ set (EVP_TEST_SOURCES
     test_selectionhighlightstyle.cpp
     test_selectionedges.cpp
     test_technicaledges.cpp
+    test_sectionplane.cpp
+    test_sceneshaders.cpp
     test_occlusionprepass.cpp
     test_pointcloudply.cpp
     test_pointcloudhierarchy.cpp

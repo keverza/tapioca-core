@@ -155,7 +155,7 @@ bool DiligentScene::DrawOcclusionDepth (Diligent::IDeviceContext* context, const
     // because the masked-off pixel shader's output goes nowhere.
     DiligentSceneConstants constants;
     std::memcpy (constants.viewProj, viewProj, sizeof (float) * 16);
-    UploadConstants (context, impl_->constants, constants);
+    impl_->Upload (context, constants);
 
     context->SetPipelineState (impl_->occlusionDepthPso);
     context->CommitShaderResources (impl_->occlusionDepthSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);

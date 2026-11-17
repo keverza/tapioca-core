@@ -68,7 +68,7 @@ bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context, const fl
     for (uint32_t cascade = 0; cascade < impl_->shadowMap.CascadeCount (); ++cascade) {
         DiligentSceneConstants constants;
         impl_->shadowMap.CopyCascadeViewProjection (cascade, constants.lightViewProj);
-        UploadConstants (context, impl_->constants, constants);
+        impl_->Upload (context, constants);
         impl_->shadowMap.BeginCascade (context, cascade);
 
         for (const Entry& e : impl_->elements)
@@ -131,7 +131,7 @@ void DiligentScene::DrawIds (Diligent::IDeviceContext* context, const float view
         constants.baseColor[1] = float ((e.pickId >> 8) & 0xFF) / 255.0f;
         constants.baseColor[2] = float (e.pickId & 0xFF) / 255.0f;
         constants.baseColor[3] = 1.0f;
-        UploadConstants (context, impl_->constants, constants);
+        impl_->Upload (context, constants);
 
         // ⚠️ THE WHOLE ELEMENT IN ONE DRAW, ranges ignored. The id is a property
         // of the element, and drawing 0..indexCount covers every range because
@@ -326,7 +326,7 @@ void DiligentScene::DrawOverlay (Diligent::IDeviceContext* context, const float 
     constants.sunDir[2] = 0.87f;
     constants.skyColor[0] = constants.skyColor[1] = constants.skyColor[2] = 1.0f;
     constants.groundColor[0] = constants.groundColor[1] = constants.groundColor[2] = 0.6f;
-    UploadConstants (context, impl_->constants, constants);
+    impl_->Upload (context, constants);
 
     const int index = CullIndex (CullMode::Cw);
     const int shadowMode = ShadowModeIndex (impl_->shadowMap.Settings ().mode);
@@ -598,7 +598,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // model, and a photographic sky behind a normals or roughness read makes it
     // harder, not easier, to see what the view exists to show.
     if (envActive && impl_->environmentBackground && debugView == 0 && impl_->envBackgroundPso != nullptr) {
-        UploadConstants (context, impl_->constants, constants);
+        impl_->Upload (context, constants);
         // ⚠️ HDR PATH USES THE HDR ENV BACKGROUND PSO, which writes raw radiance
         // into the RGBA16_FLOAT target. The LDR path uses the original PSO that
         // tone-maps inline into the swap chain's sRGB view.
@@ -643,7 +643,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // static_assert in DiligentShaders.hpp and every PSO built against that
         // layout stay put.
         constants.materialParams[2] = metallic;
-        UploadConstants (context, impl_->constants, constants);
+        impl_->Upload (context, constants);
     };
 
     const int shadowMode = ShadowModeIndex (impl_->shadowMap.Settings ().mode);
@@ -892,7 +892,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // value against this frame's texture, and the two disagree exactly on
         // the frame TAA starts or stops resolving.
         constants.frameControl[1] = (impl_->taaCoverageView != nullptr) ? 1.0f : 0.0f;
-        UploadConstants (context, impl_->constants, constants);
+        impl_->Upload (context, constants);
         context->SetRenderTargets (1, &colorTarget, depthTarget, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         context->SetViewports (1, nullptr, 0, 0);
 

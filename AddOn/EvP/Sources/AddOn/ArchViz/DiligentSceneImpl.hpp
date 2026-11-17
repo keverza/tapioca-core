@@ -896,6 +896,20 @@ struct geomsrv::archviz::DiligentScene::Impl {
     ClayLook clay;
     // Issue #14 P2: off by default, like clay.
     TechnicalEdgeStyle technicalEdges;
+    // Issue #14 P2: the section plane every upload stamps (DiligentSceneConstants::sectionPlane).
+    // (0,0,0,1) = no section, the default and the overlay's.
+    float sectionPlane[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+    // ⚠️ THE ONE WAY THE SCENE'S PASSES UPLOAD THEIR CONSTANTS. Each pass builds its own local
+    // DiligentSceneConstants, so a field that must reach EVERY pass -- the section plane -- is
+    // stamped here rather than set in thirteen places, one of which would be forgotten and would
+    // draw the cut-away half back into the shadows, the AO or the id buffer.
+    void Upload (Diligent::IDeviceContext* context, DiligentSceneConstants& c)
+    {
+        for (int k = 0; k < 4; ++k)
+            c.sectionPlane[k] = sectionPlane[k];
+        UploadConstants (context, constants, c);
+    }
     // RE51.B9. `autoExposure` gates whether `exposure` above is used at all;
     // `lastAutoExposure` is what the estimate CHOSE this frame and is reported
     // whether or not it was applied -- see DiligentScene::SetAutoExposure.

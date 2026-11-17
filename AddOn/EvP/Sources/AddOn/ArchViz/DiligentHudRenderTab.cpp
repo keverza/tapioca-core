@@ -12,6 +12,7 @@
 #include "ArchViz/DiligentHudSections.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/OrbitAnchor.hpp"
+#include "ArchViz/SectionPlane.hpp"
 #include "ArchViz/TechnicalEdges.hpp"
 #include "ArchViz/ViewPresets.hpp"
 
@@ -220,6 +221,34 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
             hudshell::Tip ("Faces meeting at more than this angle draw their edge; flatter ones merge");
             ImGui::Checkbox ("hidden edges##technical", &state.technicalEdgeHidden);
             hudshell::Tip ("Show the edges behind surfaces, faint -- the hidden-line reading");
+        }
+    }
+    // ---- section: one movable cut through the model (SectionPlane.hpp) ---------------------
+    if (hudshell::Section ("section")) {
+        ImGui::Checkbox ("cut##section", &state.sectionEnabled);
+        hudshell::Tip ("Remove everything beyond a plane -- image, shadows, AO and picking alike");
+        if (state.sectionEnabled) {
+            for (int a = 0; a < 3; ++a) {
+                if (a > 0)
+                    ImGui::SameLine ();
+                char label[16];
+                std::snprintf (label, sizeof (label), "%s##sectionaxis", SectionAxisName (SectionAxis (a)));
+                ImGui::RadioButton (label, &state.sectionAxis, a);
+            }
+            ImGui::SameLine ();
+            ImGui::TextDisabled (state.sectionAxis == 2 ? "horizontal" : "vertical");
+            ImGui::SetNextItemWidth (-FLT_MIN);
+            float percent = state.sectionPosition * 100.0f;
+            if (ImGui::SliderFloat ("##sectionposition", &percent, 0.0f, 100.0f, "%.1f%% of the model"))
+                state.sectionPosition = percent / 100.0f;
+            ImGui::Checkbox ("flip##section", &state.sectionFlipped);
+            hudshell::Tip (state.sectionFlipped ? "Keeping the high side" : "Keeping the low side");
+            ImGui::SameLine ();
+            if (ImGui::Button ("reset##section")) {
+                state.sectionPosition = 0.5f;
+                state.sectionFlipped = false;
+            }
+            ImGui::TextDisabled ("open cut: no cap fill yet");
         }
     }
     // ---- 3. environment; 4. sun and shadows; 5. colour and post ------------------------------

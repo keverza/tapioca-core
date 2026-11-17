@@ -42,7 +42,7 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
         constants.outlineParams[3] = 1.0f;
         constants.materialParams[0] = 0.5f;
         constants.materialParams[2] = 0.0f;
-        UploadConstants (context, impl_->constants, constants);
+        impl_->Upload (context, constants);
     };
 
     // The hull's push, in NDC, for one ring. ⚠️ EVERY RING SETS ITS OWN: the

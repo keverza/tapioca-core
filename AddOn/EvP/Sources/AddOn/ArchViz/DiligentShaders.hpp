@@ -364,6 +364,14 @@ struct DiligentSceneConstants {
     // relative margin at the near plane and the far one. A pull in NDC (z -= c*w,
     // HostOverlay's form) is a hairline far away and centimetres up close.
     float edgeParams[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    // ---- appended for the SECTION PLANE (issue #14 P2, ArchViz/SectionPlane.hpp) -----------
+    // xyz = unit normal, w = offset: a point is KEPT where dot(xyz, p) + w >= 0. Every vertex
+    // stage that feeds the rasterizer writes it to SV_ClipDistance0 (SectionClip below), so the
+    // shaded image, the G-buffer, the shadow casters, the AO prepass, the outlines, the edges
+    // and the id pass all lose the same half. ⚠️ THE DEFAULT (0,0,0,1) IS "NO SECTION": the
+    // distance is 1 everywhere. A pass that never hears of the section draws as before, which
+    // is what keeps the overlay and every other user of this struct unchanged.
+    float sectionPlane[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -405,7 +413,7 @@ enum class DiligentDebugView : int {
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
                                                       16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48 + 32 + 256 +
-                                                      16 + 256 + 16 + 80 + 16,
+                                                      16 + 256 + 16 + 80 + 16 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -475,7 +483,14 @@ cbuffer ArchVizConstants
     float4   g_visibilityRampInfo; // x = how many stops; 0 = g_visibilityLow/High
     float4   g_sunStudyShadowPalette[5]; // sRGB: single lit, shadowed; AM/PM sunlit, morning, evening
     float4   g_edgeParams;      // x = clip z the wire GS pulls toward the camera, y = edge-mask bit shift (#118)
+    float4   g_sectionPlane;    // keep where dot(xyz, p) + w >= 0; (0,0,0,1) = no section (#14 P2)
 };
+
+// The section plane's signed distance, for SV_ClipDistance0: negative is cut away.
+float SectionClip (float3 worldPos)
+{
+    return dot (g_sectionPlane.xyz, worldPos) + g_sectionPlane.w;
+}
 )hlsl";
 
 constexpr const char* kArchVizMeshVS = R"hlsl(
@@ -508,11 +523,15 @@ struct PSInput
     // image from ever disagreeing about where a triangle is.
     float4 currClip : CURRCLIP;
     float4 prevClip : PREVCLIP;
+    // ⚠️ LAST, SO EVERY PIXEL SHADER'S INPUT STAYS A PREFIX OF THIS. The section plane
+    // (SectionClip); the rasterizer consumes it and no pixel shader declares it.
+    float clipDistance : SV_ClipDistance0;
 };
 
 void main (in VSInput vsIn, out PSInput psIn)
 {
     float4 world = float4 (vsIn.position, 1.0);
+    psIn.clipDistance = SectionClip (vsIn.position);
     psIn.position = mul (g_viewProj, world);
     psIn.worldPos = vsIn.position;   // already world space
     psIn.normal   = vsIn.normal;     // identity model matrix, so no normal matrix
@@ -539,9 +558,11 @@ struct VSInput
     float4 color    : ATTRIB2;
 };
 
-void main (in VSInput vsIn, out float4 position : SV_POSITION)
+void main (in VSInput vsIn, out float4 position : SV_POSITION, out float clipDistance : SV_ClipDistance0)
 {
     position = mul (g_lightViewProj, float4 (vsIn.position, 1.0));
+    // What the section cut away casts no shadow: the sun reaches into the section.
+    clipDistance = SectionClip (vsIn.position);
 }
 )hlsl";
 
@@ -580,10 +601,12 @@ struct PSInput
     float3 worldPos : WORLDPOS;
     float3 normal   : NORMAL;
     float4 color    : COLOR0;
+    float clipDistance : SV_ClipDistance0; // the section plane, last (see the mesh VS)
 };
 
 void main (in VSInput vsIn, out PSInput psIn)
 {
+    psIn.clipDistance = SectionClip (vsIn.position);
     float4 clipPos = mul (g_viewProj, float4 (vsIn.position, 1.0));
     float3 clipNormal = mul ((float3x3) g_viewProj, vsIn.normal);
 
@@ -1183,6 +1206,7 @@ struct WireDomainOutput
     float4 position : SV_POSITION;
     float3 domain   : DOMAINCOORD;
     nointerpolation uint edgeMask : EDGEMASK;
+    float clipDistance : SECTIONCLIP; // the section plane, handed to the GS's SV_ClipDistance0
 };
 
 [domain("tri")]
@@ -1195,6 +1219,7 @@ WireDomainOutput main (WirePatchConstants constants,
                       patch[1].worldPos * domain.y +
                       patch[2].worldPos * domain.z;
     output.position = mul (g_viewProj, float4 (worldPos, 1.0));
+    output.clipDistance = SectionClip (worldPos);
     output.domain = domain;
     output.edgeMask = constants.edgeMask;
     return output;
@@ -1207,12 +1232,14 @@ struct WireDomainOutput
     float4 position : SV_POSITION;
     float3 domain   : DOMAINCOORD;
     nointerpolation uint edgeMask : EDGEMASK;
+    float clipDistance : SECTIONCLIP; // the section plane, handed to the GS's SV_ClipDistance0
 };
 
 struct WirePixelInput
 {
     float4 position : SV_POSITION;
     noperspective float3 distanceToEdges : EDGEDISTANCE;
+    float clipDistance : SV_ClipDistance0; // last: kArchVizWirePS's input is the prefix above
 };
 
 bool GeneratedEdgeIsVisible (float3 domainA, float3 domainB, uint edgeMask)
@@ -1260,12 +1287,15 @@ void main (triangle WireDomainOutput input[3], inout TriangleStream<WirePixelInp
     WirePixelInput output;
     output.position = input[0].position - pull;
     output.distanceToEdges = d0;
+    output.clipDistance = input[0].clipDistance;
     stream.Append (output);
     output.position = input[1].position - pull;
     output.distanceToEdges = d1;
+    output.clipDistance = input[1].clipDistance;
     stream.Append (output);
     output.position = input[2].position - pull;
     output.distanceToEdges = d2;
+    output.clipDistance = input[2].clipDistance;
     stream.Append (output);
 }
 )hlsl";

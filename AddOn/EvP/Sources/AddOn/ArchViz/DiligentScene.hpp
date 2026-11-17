@@ -37,6 +37,7 @@
 
 #include "ArchViz/ArchVizVertex.hpp"
 #include "ArchViz/ClayLook.hpp"
+#include "ArchViz/SectionPlane.hpp"
 #include "ArchViz/TechnicalEdges.hpp"
 #include "ArchViz/DiligentShadowMap.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
@@ -479,6 +480,10 @@ class DiligentScene final {
     // The model-wide technical / hidden-line edges (issue #14 P2, ArchViz/TechnicalEdges.hpp),
     // drawn by DrawLineOverlays before the selection's own edges.
     void SetTechnicalEdges (const TechnicalEdgeStyle& style);
+
+    // The movable section plane (issue #14 P2, ArchViz/SectionPlane.hpp), placed against this
+    // scene's own bounds every call. Stamped into every pass's constants (Impl::Upload).
+    void SetSectionPlane (const SectionPlaneState& state);
 
     // ---- RE51.B9: the finishing controls that follow the LIGHT ---------------
 

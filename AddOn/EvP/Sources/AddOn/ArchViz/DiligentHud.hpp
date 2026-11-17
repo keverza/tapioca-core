@@ -635,6 +635,14 @@ struct HudState {
     float technicalEdgeAngle = 30.0f;
     bool technicalEdgeHidden = false;
 
+    // ---- the section plane (issue #14 P2, ArchViz/SectionPlane.hpp) ---------------------------
+    // One axis-aligned cut, its position a FRACTION of the model's extent along the axis (0..1),
+    // so the slider means the same on any project and Reset is the middle. 2 = Z, the plan cut.
+    bool sectionEnabled = false;
+    int sectionAxis = 2;
+    float sectionPosition = 0.5f;
+    bool sectionFlipped = false;
+
     // ---- RE51.B9 -------------------------------------------------------------
     //
     // ⚠️ AUTO EXPOSURE SHIPS OFF, AND THE CHECKBOX IS THE MEASUREMENT. The

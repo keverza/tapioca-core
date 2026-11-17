@@ -215,7 +215,7 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
     // DiligentSceneConstants::prevViewProj.
     std::memcpy (constants.prevViewProj, impl_->havePrevViewProj ? impl_->prevViewProj : viewProj, sizeof (float) * 16);
     constants.gradeParams[2] = impl_->roughnessBias;
-    UploadConstants (context, impl_->constants, constants);
+    impl_->Upload (context, constants);
 
     const int index = CullIndex (cull);
     context->SetPipelineState (impl_->gBufferPso[index]);
@@ -233,7 +233,7 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
         constants.outlineParams[3] = surface.roughness;
         constants.materialParams[0] = surface.reflectance;
         constants.materialParams[2] = surface.metallic;
-        UploadConstants (context, impl_->constants, constants);
+        impl_->Upload (context, constants);
     };
 
     auto drawOpaqueRanges = [&] (const Entry& e, bool consultMaterials) {
@@ -289,6 +289,20 @@ void DiligentScene::SetTechnicalEdges (const TechnicalEdgeStyle& style)
 {
     if (impl_ != nullptr)
         impl_->technicalEdges = style;
+}
+
+void DiligentScene::SetSectionPlane (const SectionPlaneState& state)
+{
+    if (impl_ == nullptr)
+        return;
+    float boundsMin[3] = {};
+    float boundsMax[3] = {};
+    if (!SceneBounds (boundsMin, boundsMax)) {
+        // No geometry yet: nothing to cut, and no extent to place the plane in.
+        SectionPlaneEquation (SectionPlaneState {}, boundsMin, boundsMax, impl_->sectionPlane);
+        return;
+    }
+    SectionPlaneEquation (state, boundsMin, boundsMax, impl_->sectionPlane);
 }
 
 void DiligentScene::SetAmbientOcclusion (bool enabled, float intensity, float radiusMetres)
@@ -470,7 +484,7 @@ Diligent::ITextureView* DiligentScene::CompositeScreenSpaceReflection (Diligent:
 
     const float savedSsrLane = constants.gradeParams[3];
     constants.gradeParams[3] = impl_->ssrIntensity;
-    UploadConstants (context, impl_->constants, constants);
+    impl_->Upload (context, constants);
     constants.gradeParams[3] = savedSsrLane;
 
     if (Diligent::IShaderResourceVariable* hdrVar =
@@ -772,7 +786,7 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
     // kArchVizGBufferDebugPS for why a focus-derived window went black.
     constants.shadowParams[2] = focusDistance;
     constants.shadowParams[3] = perspective ? 1.0f : 0.0f;
-    UploadConstants (context, impl_->constants, constants);
+    impl_->Upload (context, constants);
     Diligent::IPipelineState* debugPso = debugView == int (DiligentDebugView::AmbientOcclusion)
                                              ? impl_->ambientOcclusionDebugPso.RawPtr ()
                                              : impl_->gBufferDebugPso.RawPtr ();

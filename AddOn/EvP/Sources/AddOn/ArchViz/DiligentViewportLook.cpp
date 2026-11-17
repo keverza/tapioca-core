@@ -22,6 +22,13 @@ void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay)
     scene.SetTechnicalEdges (TechnicalEdgeStyleFromHud (hud.technicalEdges && !overlay, hud.technicalEdgeRgba,
                                                         hud.technicalEdgePixels, hud.technicalEdgeHidden,
                                                         hud.technicalEdgeAngle));
+    // The section plane: withheld on the overlay, whose picture must match Archicad's window.
+    SectionPlaneState section;
+    section.enabled = hud.sectionEnabled && !overlay;
+    section.axis = SectionAxis (hud.sectionAxis < 0 || hud.sectionAxis > 2 ? 2 : hud.sectionAxis);
+    section.position = hud.sectionPosition;
+    section.flipped = hud.sectionFlipped;
+    scene.SetSectionPlane (section);
 }
 
 } // namespace archviz

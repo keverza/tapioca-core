@@ -698,7 +698,7 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
         constants.visibilityLowColor[channel] = float ((impl_->visibilityLowRgba >> shift) & 0xffu) / 255.0f;
         constants.visibilityHighColor[channel] = float ((impl_->visibilityHighRgba >> shift) & 0xffu) / 255.0f;
     }
-    UploadConstants (context, impl_->constants, constants);
+    impl_->Upload (context, constants);
 
     if (Diligent::IShaderResourceVariable* atlas = srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_sunAtlas"))
         atlas->Set (impl_->sunAtlasSRV);
