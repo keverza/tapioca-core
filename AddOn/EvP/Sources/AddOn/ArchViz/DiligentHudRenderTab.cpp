@@ -248,7 +248,30 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
                 state.sectionPosition = 0.5f;
                 state.sectionFlipped = false;
             }
-            ImGui::TextDisabled ("open cut: no cap fill yet");
+            // ---- caps: the cut closed, its outline drawn (SectionCaps.hpp) ----------------------
+            ImGui::Checkbox ("caps##section", &state.sectionCaps);
+            hudshell::Tip ("Fill the cut solids and draw the section line; open cuts are outlined only");
+            if (state.sectionCaps) {
+                ImGui::SetNextItemWidth (-FLT_MIN);
+                hudshell::ColourChoice ("##sectioncap", state.sectionCapRgba);
+                ImGui::TextDisabled ("cap fill");
+                ImGui::SetNextItemWidth (-FLT_MIN);
+                hudshell::ColourChoice ("##sectionline", state.sectionLineRgba);
+                ImGui::TextDisabled ("section line");
+                ImGui::SliderFloat ("line##section", &state.sectionLinePixels, 0.5f, 6.0f, "%.1f px");
+                // ⚠️ THE THREE COUNTS ARE THE POINT: an open chain is a mesh that is not closed
+                // at the plane, outlined but never filled -- it is shown, not hidden.
+                const SectionCapCounts& counts = scene.sectionCaps;
+                ImGui::TextDisabled ("%u elements cut, %u filled loops%s", counts.elementsCut, counts.closedLoops,
+                                     counts.building ? " (cutting...)" : "");
+                if (counts.openChains > 0 || counts.fillFailures > 0)
+                    ImGui::TextColored (ImVec4 (0.95f, 0.70f, 0.25f, 1.0f),
+                                        "%u open (outlined, not filled), %u refused", counts.openChains,
+                                        counts.fillFailures);
+            }
+            else {
+                ImGui::TextDisabled ("open cut: you see into the solids");
+            }
         }
     }
     // ---- 3. environment; 4. sun and shadows; 5. colour and post ------------------------------

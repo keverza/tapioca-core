@@ -34,6 +34,8 @@
 #include "ArchViz/DiligentShaders.hpp" // DiligentSceneConstants, for UploadConstants below
 #include "ArchViz/DiligentDepthRange.hpp"
 #include <algorithm>
+#include <future>
+#include <memory>
 #include "ArchViz/DiligentShadowMap.hpp"
 #include "ArchViz/EnvironmentMap.hpp"
 #include "ArchViz/SunShadowMath.hpp"
@@ -206,6 +208,9 @@ struct Entry {
     bool hasBounds = false;
     float boundsMin[3] = { 0.0f, 0.0f, 0.0f };
     float boundsMax[3] = { 0.0f, 0.0f, 0.0f };
+    // The element's triangles kept on the CPU for the section caps (#14 P2, SectionCaps.hpp).
+    // Shared, so a cap build in flight keeps its snapshot alive past an upsert or a removal.
+    std::shared_ptr<const SectionMesh> sectionMesh;
 };
 
 // ---- the three draw helpers, shared by the forward and G-buffer passes ------
@@ -587,6 +592,26 @@ struct geomsrv::archviz::DiligentScene::Impl {
     bool planCutReceived = false; // a pass has cut it: an empty set is then an answer
     double planCutAreaM2 = 0.0;
 
+    // ---- the section plane's caps (#14 P2, DiligentSceneSection.cpp) -----------------------
+    struct SectionCaps {
+        StorySliceLayer layer;
+        bool initFailed = false;
+        SectionCapStyle style;
+        // The plane as SetSectionPlane last placed it, in world metres.
+        bool planeEnabled = false;
+        SectionAxis axis = SectionAxis::Z;
+        float coordinate = 0.0f;
+        bool flipped = false;
+        // What is drawn, and what is being cut. 0 = nothing built yet.
+        uint64_t builtKey = 0;
+        SectionAxis builtAxis = SectionAxis::Z;
+        uint64_t inFlightKey = 0;
+        SectionAxis inFlightAxis = SectionAxis::Z;
+        std::future<SectionCapResult> inFlight;
+        SectionCapCounts counts;
+    };
+    SectionCaps sectionCaps;
+
     // ⚠️ ONE METHOD RATHER THAN FIVE LINES AT THE CALL SITE, because the call
     // site is DiligentScene.cpp -- a file the architecture gate has FROZEN at its
     // current size. Teardown that belongs together should live together anyway;
@@ -606,6 +631,16 @@ struct geomsrv::archviz::DiligentScene::Impl {
         planCutInitFailed = false;
         planCutReceived = false;
         planCutAreaM2 = 0.0;
+        // The section caps are the same kind of layer. ⚠️ A build in flight is waited for: it
+        // holds only its own snapshot, but its result must not land on a torn-down layer.
+        if (sectionCaps.inFlight.valid ())
+            sectionCaps.inFlight.wait ();
+        sectionCaps.layer.Shutdown ();
+        sectionCaps.inFlight = {};
+        sectionCaps.initFailed = false;
+        sectionCaps.builtKey = 0;
+        sectionCaps.inFlightKey = 0;
+        sectionCaps.counts = SectionCapCounts {};
     }
 
     // ---- the Grasshopper preview overlay -----------------------------------

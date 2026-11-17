@@ -29,6 +29,12 @@ void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay)
     section.position = hud.sectionPosition;
     section.flipped = hud.sectionFlipped;
     scene.SetSectionPlane (section);
+    SectionCapStyle caps;
+    caps.caps = hud.sectionCaps;
+    caps.fillRgba = hud.sectionCapRgba;
+    caps.lineRgba = hud.sectionLineRgba;
+    caps.linePixels = hud.sectionLinePixels;
+    scene.SetSectionCapStyle (caps);
 }
 
 } // namespace archviz

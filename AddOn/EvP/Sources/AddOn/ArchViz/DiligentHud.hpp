@@ -642,6 +642,12 @@ struct HudState {
     int sectionAxis = 2;
     float sectionPosition = 0.5f;
     bool sectionFlipped = false;
+    // The cut's caps and section line (SectionCaps.hpp): on by default -- an open cut is the
+    // exception. sRGB 0xRRGGBBAA like the storey slices'.
+    bool sectionCaps = true;
+    uint32_t sectionCapRgba = 0x4A4A4AFFu;
+    uint32_t sectionLineRgba = 0x141414FFu;
+    float sectionLinePixels = 1.5f;
 
     // ---- RE51.B9 -------------------------------------------------------------
     //

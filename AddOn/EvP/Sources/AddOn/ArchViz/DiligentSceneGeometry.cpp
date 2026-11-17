@@ -282,6 +282,18 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                     e.boundsMin[k] = upload.boundsMin[k];
                     e.boundsMax[k] = upload.boundsMax[k];
                 }
+                {
+                    // #14 P2: the triangles the section caps cut (SectionCaps.hpp) -- a new
+                    // object per upsert, which is what tells the cap build it is stale.
+                    auto mesh = std::make_shared<SectionMesh> ();
+                    mesh->positions = upload.vertices;
+                    mesh->indices = upload.indices;
+                    for (int k = 0; k < 3; ++k) {
+                        mesh->boundsMin[k] = upload.boundsMin[k];
+                        mesh->boundsMax[k] = upload.boundsMax[k];
+                    }
+                    e.sectionMesh = std::move (mesh);
+                }
                 e.unmappedRanges = 0;
                 e.transparentRanges = 0;
                 for (const MaterialRange& r : e.ranges) {
@@ -681,6 +693,7 @@ DiligentSceneStats DiligentScene::Stats () const
     s.planCutReceived = impl_->planCutReceived;
     s.planCutVertices = impl_->planCut.OutlineVertexCount ();
     s.planCutAreaM2 = impl_->planCutAreaM2;
+    s.sectionCaps = impl_->sectionCaps.counts;
 
     const DiligentPointCloudStats pointStats = impl_->pointCloud.Stats ();
     s.pointLayers = pointStats.layers;

@@ -37,6 +37,7 @@
 
 #include "ArchViz/ArchVizVertex.hpp"
 #include "ArchViz/ClayLook.hpp"
+#include "ArchViz/SectionCaps.hpp"
 #include "ArchViz/SectionPlane.hpp"
 #include "ArchViz/TechnicalEdges.hpp"
 #include "ArchViz/DiligentShadowMap.hpp"
@@ -178,6 +179,8 @@ struct DiligentSceneStats {
     bool planCutReceived = false;
     size_t planCutVertices = 0;
     double planCutAreaM2 = 0.0;
+    // The section plane's caps (SectionCaps.hpp): closed, open and refused, for the HUD.
+    SectionCapCounts sectionCaps;
     // ⚠️ `sunApplied` false means no SetEnvironment ever arrived and the shader
     // is running on a hardcoded default -- indistinguishable from a real sun by
     // eye, and the first thing to check when the model reads flat.
@@ -484,6 +487,10 @@ class DiligentScene final {
     // The movable section plane (issue #14 P2, ArchViz/SectionPlane.hpp), placed against this
     // scene's own bounds every call. Stamped into every pass's constants (Impl::Upload).
     void SetSectionPlane (const SectionPlaneState& state);
+    // The section's caps and section line (ArchViz/SectionCaps.hpp): cut on a worker from the
+    // elements' retained triangles whenever the plane or the geometry changes, drawn by
+    // DrawLineOverlays first, so edges and the selection draw over the poche.
+    void SetSectionCapStyle (const SectionCapStyle& style);
 
     // ---- RE51.B9: the finishing controls that follow the LIGHT ---------------
 
@@ -904,6 +911,8 @@ class DiligentScene final {
     // these are the marks that say where a thing ends, so the pass order is the
     // contract and it stays where it can be read in one place. `nearClip` is the
     // frame's near plane, which sizes the selection edges' depth pull.
+    // The section plane's caps, rebuilt off-thread when stale (DiligentSceneSection.cpp).
+    void DrawSectionCaps (Diligent::IDeviceContext* context, const float viewProj[16]);
     void DrawLineOverlays (Diligent::IDeviceContext* context, DiligentSceneConstants& constants, CullMode cull,
                            bool drawWireframe, float nearClip);
     // Implemented in DiligentSceneOcclusion.cpp beside its one caller. ⚠️ NOT

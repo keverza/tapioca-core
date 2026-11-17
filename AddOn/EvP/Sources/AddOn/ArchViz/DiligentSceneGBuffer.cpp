@@ -300,9 +300,16 @@ void DiligentScene::SetSectionPlane (const SectionPlaneState& state)
     if (!SceneBounds (boundsMin, boundsMax)) {
         // No geometry yet: nothing to cut, and no extent to place the plane in.
         SectionPlaneEquation (SectionPlaneState {}, boundsMin, boundsMax, impl_->sectionPlane);
+        impl_->sectionCaps.planeEnabled = false;
         return;
     }
     SectionPlaneEquation (state, boundsMin, boundsMax, impl_->sectionPlane);
+    // The caps' copy (DiligentSceneSection.cpp), in world metres. Enabled exactly when the clip is.
+    impl_->sectionCaps.planeEnabled = impl_->sectionPlane[3] != 1.0f || impl_->sectionPlane[0] != 0.0f ||
+                                      impl_->sectionPlane[1] != 0.0f || impl_->sectionPlane[2] != 0.0f;
+    impl_->sectionCaps.axis = state.axis;
+    impl_->sectionCaps.coordinate = SectionPlaneCoordinate (state, boundsMin, boundsMax);
+    impl_->sectionCaps.flipped = state.flipped;
 }
 
 void DiligentScene::SetAmbientOcclusion (bool enabled, float intensity, float radiusMetres)
