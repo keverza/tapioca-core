@@ -1,6 +1,7 @@
 #include "edit_gesture_replay.hpp"
 #include "Edit/EditSnap.hpp"
 #include "Edit/EditOrganize.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include <gtest/gtest.h>
 #include <cstdint>
 
@@ -146,4 +147,36 @@ TEST (EditSnapTargets, ItRebuildsWhenALayerIsHidden51)
     ExpectSame (ed::Snap (scene.doc, context, plain), hidden, 0);
     EXPECT_NE (hidden.source.entity, scene.paths[0]) << "nothing on the hidden layer is snapped to";
     EXPECT_FALSE (targets.Update (scene.doc, context, 0, q));
+}
+
+// #51: a drag moves an item the query excludes whole (a path named by any exclusion), and Gather
+// skips it. Moving only that item keeps the index -- no rebuild per drag frame -- and the indexed
+// snap stays the full scan; moving anything else still rebuilds.
+TEST (EditSnapTargets, ADragOfTheExcludedItemKeepsTheIndex51)
+{
+    auto scene = editreplay::Grid ("g", 3);
+    const ed::Id moved = scene.paths[0];
+    const ed::Id point = ed::FindPath (scene.doc, moved)->points.front ().id;
+    ed::SnapContext context;
+    ed::SnapTargets targets;
+    ed::SnapQuery q;
+    q.pathStep = 0.5;
+    q.tolerance = 0.4;
+    q.exclude.push_back ({ moved, ed::Part::PathPoint, point });
+    EXPECT_TRUE (targets.Update (scene.doc, context, 0, q));
+    std::string error;
+    for (int i = 1; i <= 10; ++i) {
+        const ed::Vec3 at { -2.0 + 0.3 * i, -1.0 + 0.2 * i, 0 };
+        ASSERT_TRUE (ed::MovePathPoint (scene.doc, moved, point, at, error)) << error;
+        EXPECT_FALSE (targets.Update (scene.doc, context, 0, q)) << "frame " << i;
+        ed::SnapQuery plain = q, indexed = q;
+        plain.cursor = indexed.cursor = { 1.0 * i, 2.0 * i, 0 };
+        indexed.targets = &targets;
+        ExpectSame (ed::Snap (scene.doc, context, plain), ed::Snap (scene.doc, context, indexed), i);
+    }
+    EXPECT_EQ (targets.builds, 1u);
+    ASSERT_TRUE (ed::SetPathWidth (scene.doc, scene.paths[1], scene.doc.paths[1].sections[0].id, 3, 3, error));
+    EXPECT_TRUE (targets.Update (scene.doc, context, 0, q)) << "another path changed";
+    q.exclude.clear ();
+    EXPECT_TRUE (targets.Update (scene.doc, context, 0, q)) << "released: the moved path is gathered again";
 }

@@ -47,8 +47,8 @@ bool SnapTargets::Update (const Document& doc, const SnapContext& context, uint6
     if (index_ && index_->contextKey == contextKey && index_->For (doc, query))
         return false;
     auto index = std::make_unique<Index> ();
-    index->entities = doc.entities;
-    index->paths = doc.paths;
+    index->entities = Index::Gathered (doc.entities, query.exclude);
+    index->paths = Index::Gathered (doc.paths, query.exclude);
     index->layers = doc.layers;
     index->hiddenLines = HiddenLines (doc);
     index->contextKey = contextKey;

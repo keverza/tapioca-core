@@ -55,6 +55,10 @@ TEST (EditGestureReplay, CachedFramesMatchUncachedFrames)
         ASSERT_EQ (plain.size (), cached.size ());
         for (size_t i = 0; i < plain.size (); ++i)
             EXPECT_TRUE (plain[i] == cached[i]) << er::GestureName (g) << " frame " << i;
+        // #51: a drag moves only the path its query excludes, so the index is built once and used
+        // by every frame; a hover never changes the document.
+        if (g != er::Gesture::Width)
+            EXPECT_EQ (snapTargets.builds, 1u) << er::GestureName (g);
     }
 }
 

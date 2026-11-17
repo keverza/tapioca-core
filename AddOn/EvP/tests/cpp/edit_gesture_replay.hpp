@@ -161,12 +161,14 @@ inline FrameResult RunFrame (ed::Document& doc, const Scene& scene, Gesture gest
     q.tolerance = o.pickRadius / o.pixelsPerMetre;
     q.pathStep = o.pathStep;
     q.outlines = caches.outlines;
+    // The exclusion first: the index is used only for the query it was updated for, so updated
+    // before it, a drag frame's snap never met the index.
+    if (gesture == Gesture::Drag && path != nullptr)
+        q.exclude.push_back ({ moved, ed::Part::PathPoint, path->points.front ().id });
     if (caches.snapTargets != nullptr) {
         caches.snapTargets->Update (doc, {}, 0, q);
         q.targets = caches.snapTargets;
     }
-    if (gesture == Gesture::Drag && path != nullptr)
-        q.exclude.push_back ({ moved, ed::Part::PathPoint, path->points.front ().id });
     const ed::SnapResult snap = ed::Snap (doc, {}, q);
     r.snapped = snap.snapped;
     r.snap = snap.point;

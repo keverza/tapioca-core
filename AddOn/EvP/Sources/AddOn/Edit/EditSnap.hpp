@@ -141,9 +141,10 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
 
 // The snap targets of a document and a host context, kept between queries. The pointer moves
 // far more often than the document changes, so hovering re-gathers nothing: Update rebuilds
-// only when the document's entities or paths (compared by value, so an edit can never leave a
-// stale index in use), the caller's `contextKey` (bumped whenever the host context's points,
-// segments or source names change), the query's exclusions, path step or working plane differ
+// only when the document's entities or paths it gathered (compared by value, so an edit can never
+// leave a stale index in use; an item the query excludes whole is not gathered, so a drag that
+// moves only it keeps the index), the layers or hidden Reference lines, the caller's `contextKey` (bumped whenever the
+// host context's points, segments or source names change), the query's exclusions, path step or working plane differ
 // from the last build. One thread; one per editor session.
 class SnapTargets {
   public:

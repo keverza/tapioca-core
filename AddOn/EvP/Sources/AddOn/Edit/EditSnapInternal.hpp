@@ -52,7 +52,10 @@ std::vector<Id> HiddenLines (const Document& doc);
 // lists the points in it and the segments whose bounds touch it, in gather order.
 struct SnapTargets::Index {
     uint64_t contextKey = 0;
-    std::vector<Entity> entities; // what it was gathered from, compared on every use
+    // What it was gathered from, compared on every use: only the entities and paths Gather reads.
+    // A moving item the query excludes whole is skipped there, so a drag that changes nothing
+    // else keeps the index (#51: no rebuild per drag frame).
+    std::vector<Entity> entities;
     std::vector<Path> paths;
     // What decides which of them are shown (Gather skips hidden ones): the layers' visibility and
     // the Reference lines whose display is off. Without these a hidden layer stayed snappable.
@@ -70,9 +73,41 @@ struct SnapTargets::Index {
 
     bool For (const Document& doc, const SnapQuery& q) const
     {
-        return exclude == q.exclude && pathStep == q.pathStep && entities == doc.entities && paths == doc.paths &&
-               layers == doc.layers && hiddenLines == HiddenLines (doc) && plane.origin == q.plane.origin &&
-               plane.normal == q.plane.normal && plane.u == q.plane.u;
+        return exclude == q.exclude && pathStep == q.pathStep && SameGathered (entities, doc.entities, exclude) &&
+               SameGathered (paths, doc.paths, exclude) && layers == doc.layers && hiddenLines == HiddenLines (doc) &&
+               plane.origin == q.plane.origin && plane.normal == q.plane.normal && plane.u == q.plane.u;
+    }
+    // Gather skips an entity some exclusion names other than by a vertex, and a path any names.
+    static bool Skipped (const Entity& e, const std::vector<Ref>& exclude)
+    {
+        return std::any_of (exclude.begin (), exclude.end (),
+                            [&] (const Ref& r) { return r.entity == e.id && r.part != Part::Vertex; });
+    }
+    static bool Skipped (const Path& p, const std::vector<Ref>& exclude)
+    {
+        return std::any_of (exclude.begin (), exclude.end (), [&] (const Ref& r) { return r.entity == p.id; });
+    }
+    template <class T> static std::vector<T> Gathered (const std::vector<T>& all, const std::vector<Ref>& exclude)
+    {
+        std::vector<T> out;
+        for (const auto& x : all)
+            if (!Skipped (x, exclude))
+                out.push_back (x);
+        return out;
+    }
+    // `kept` is exactly `all` less what `exclude` skips, in order; nothing is copied.
+    template <class T>
+    static bool SameGathered (const std::vector<T>& kept, const std::vector<T>& all, const std::vector<Ref>& exclude)
+    {
+        size_t k = 0;
+        for (const auto& x : all) {
+            if (Skipped (x, exclude))
+                continue;
+            if (k >= kept.size () || !(kept[k] == x))
+                return false;
+            ++k;
+        }
+        return k == kept.size ();
     }
     int Column (double x) const
     {
