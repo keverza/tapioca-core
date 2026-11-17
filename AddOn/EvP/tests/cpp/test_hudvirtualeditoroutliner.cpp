@@ -8,7 +8,9 @@
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <cstring>
 #include <functional>
+#include <map>
 #include <string>
 
 namespace {
@@ -295,6 +297,7 @@ TEST (HudVirtualEditorOutliner, FocusFramesWhatIsShownAndNeverEditsTheDocument12
     EXPECT_LT (s.focusRequest->rect[1], 360.0f); // above y = 4
     EXPECT_GT (s.focusRequest->rect[3], 400.0f); // below y = 0
 
+
     // Behind the camera: nothing projects, refused with a reason.
     s.focusRequest.reset ();
     ASSERT_TRUE (eh::detail::FocusOn (s, { a }, "Outline  #1"));
@@ -338,4 +341,98 @@ TEST (HudVirtualEditorOutliner, DroppingALayerOrGroupRowIsOneUndo124)
     // The panel draws with the grip and the drag targets in place.
     Gui gui;
     gui.Frame (s);
+}
+
+namespace {
+// The Objects view's Layers header open, as a click on it leaves it. A probe that lands on the
+// header toggles it, so each one opens it again first.
+void OpenLayers (Gui& gui, eh::Session& s)
+{
+    if (ImGuiWindow* objects = gui.Child ("##objects"); objects != nullptr)
+        objects->StateStorage.SetInt (objects->GetID ("Layers"), 1);
+    gui.Frame (s);
+}
+
+// Press at `at` and drag down past ImGui's threshold: the id the row drag carries as `type`, if
+// the press was on such a row's handle. The drag is then let go far from any row.
+edit::Id Grab (Gui& gui, eh::Session& s, ImVec2 at, const char* type)
+{
+    OpenLayers (gui, s);
+    gui.Frame (s, at);
+    gui.Frame (s, at, true);
+    gui.Frame (s, { at.x, at.y + 4 }, true);
+    gui.Frame (s, { at.x, at.y + 12 }, true);
+    edit::Id id = edit::kNoId;
+    if (const ImGuiPayload* p = ImGui::GetDragDropPayload (); p != nullptr && p->IsDataType (type))
+        std::memcpy (&id, p->Data, sizeof id);
+    gui.Frame (s, { 399, 799 }, true);
+    gui.Frame (s, { 399, 799 });
+    gui.Frame (s, { 399, 799 });
+    return id;
+}
+
+// Each row handle found down the panel at `x`: the y it was grabbed at, by the id it carries.
+std::map<edit::Id, float> Handles (Gui& gui, eh::Session& s, float x, const char* type)
+{
+    std::map<edit::Id, float> at;
+    for (float y = 20; y < 690; y += 4)
+        if (const edit::Id id = Grab (gui, s, { x, y }, type); id != edit::kNoId && !at.count (id))
+            at[id] = y;
+    return at;
+}
+
+// Press on one handle, carry it over another, let go there.
+void DragOnto (Gui& gui, eh::Session& s, float x, float from, float to)
+{
+    OpenLayers (gui, s);
+    gui.Frame (s, { x, from });
+    gui.Frame (s, { x, from }, true);
+    for (int step = 1; step <= 6; ++step)
+        gui.Frame (s, { x, from + (to - from) * float (step) / 6.0f }, true);
+    gui.Frame (s, { x, to }, true);
+    gui.Frame (s, { x, to });
+    gui.Frame (s, { 399, 799 });
+}
+} // namespace
+
+// #124, through the panel as a user does it: a layer dragged by its grip onto another layer, and a
+// group row onto a sibling group, each one undo step; layer 0 cannot be picked up.
+TEST (HudVirtualEditorOutliner, LayersAndGroupsReorderByDraggingTheirRows124)
+{
+    auto doc = Squares (4);
+    const edit::Id a = edit::AddLayer (doc, "A"), b = edit::AddLayer (doc, "B");
+    std::string error;
+    const auto R = [&] (size_t i) { return edit::Ref { doc.entities[i].id, edit::Part::Entity, 0 }; };
+    const edit::Id g1 = edit::GroupObjects (doc, { R (0), R (1) }, "g1", error);
+    const edit::Id g2 = edit::GroupObjects (doc, { R (2), R (3) }, "g2", error);
+    ASSERT_NE (g2, edit::kNoId) << error;
+    eh::Session s (doc);
+    Gui gui;
+    gui.Frame (s);
+    ASSERT_NE (gui.Child ("##objects"), nullptr);
+
+    // The grip is the row's first item, just inside the Objects view's border.
+    constexpr float kGrip = 24.0f;
+    const auto layers = Handles (gui, s, kGrip, "TAPIOCA_LAYER_ROW");
+    ASSERT_EQ (layers.size (), 2u) << "A and B have grips; layer 0's is disabled";
+    ASSERT_TRUE (layers.count (a) && layers.count (b));
+    EXPECT_LT (layers.at (a), layers.at (b));
+    EXPECT_EQ (s.edits.UndoDepth (), 0u) << "a drag let go away from the rows moves nothing";
+
+    DragOnto (gui, s, kGrip, layers.at (b), layers.at (a));
+    ASSERT_EQ (s.edits.Doc ().layers.size (), 2u);
+    EXPECT_EQ (s.edits.Doc ().layers[0].id, b) << s.message;
+    EXPECT_EQ (s.edits.Doc ().layers[1].id, a);
+    EXPECT_EQ (s.edits.UndoDepth (), 1u);
+
+    const auto groups = Handles (gui, s, 150.0f, "TAPIOCA_GROUP_ROW");
+    ASSERT_TRUE (groups.count (g1) && groups.count (g2)) << groups.size ();
+    EXPECT_EQ (s.edits.UndoDepth (), 1u);
+    DragOnto (gui, s, 150.0f, groups.at (g2), groups.at (g1));
+    EXPECT_EQ (s.edits.Doc ().groups.front ().id, g2) << s.message;
+    EXPECT_EQ (s.edits.UndoDepth (), 2u);
+    ASSERT_TRUE (s.edits.Undo ());
+    EXPECT_EQ (s.edits.Doc ().groups.front ().id, g1);
+    ASSERT_TRUE (s.edits.Undo ());
+    EXPECT_EQ (s.edits.Doc ().layers.front ().id, a);
 }
