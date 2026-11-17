@@ -80,7 +80,7 @@ OVERSIZED = {
         "area, and the next feature extracts a seam rather than adding to it",
     ),
     "ArchViz/DiligentViewport.cpp": (
-        1070,
+        1068,
         "the single render-thread lifecycle and frame-order authority. Device and "
         "target control, support algorithms, scene storage/draw passes, and offscreen "
         "target ownership already live in separate translation units; splitting the "
@@ -99,7 +99,9 @@ OVERSIZED = {
         "-3 (2026-11-01): the cached IDXGISwapChain* is gone; the chain is fetched from the target. "
         "-3 (2026-11-01): the scene-bounds refresh moved to ViewerPlanMode.cpp::AdoptSceneBounds. "
         "-2 (2026-11-12): the analysis and obstruction channels are one ordered call, "
-        "DiligentHudAnalysisView.cpp::UpdateAndDrawAnalysisOverlays",
+        "DiligentHudAnalysisView.cpp::UpdateAndDrawAnalysisOverlays. "
+        "-2 (2026-11-17, #201): the preview, the analysis channels and the exploded diagram "
+        "are one ordered call, DiligentHudAnalysisView.cpp::UpdateAndDrawModelOverlays",
     ),
     "Palette/ControlPalette.cpp": (
         626,
@@ -125,7 +127,7 @@ OVERSIZED = {
         "of lines needs a sub-object, not another shell file",
     ),
     "ArchViz/DiligentScene.cpp": (
-        1185,
+        1172,
         "the scene's lifecycle file - shaders, pipeline states, settings. The "
         "class is already split over four TUs (DiligentSceneGeometry.cpp for the "
         "element map, DiligentSceneDraw.cpp for the passes, "

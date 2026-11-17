@@ -52,7 +52,7 @@ bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context, const fl
     // writing depth in the main pass, in a place where it is much harder to
     // recognise.
     auto shadowCastRanges = [&] (const Entry& e, bool consultMaterials) {
-        if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
+        if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr || e.hidden)
             return;
         BindMesh (context, e);
         for (const MaterialRange& r : e.ranges) {
@@ -120,7 +120,7 @@ void DiligentScene::DrawIds (Diligent::IDeviceContext* context, const float view
     // click on the gnomon in the corner deselect whatever is selected, which
     // reads as picking being unreliable.
     for (const Entry& e : impl_->elements) {
-        if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr || e.pickId == kNoPickId)
+        if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr || e.pickId == kNoPickId || e.hidden)
             continue;
 
         // The id, unpacked to three 0..1 channels. 24 bits is 16.7M elements --
@@ -776,7 +776,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         for (const Entry& e : impl_->elements) {
             if (!drawSurfaces)
                 break;
-            if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
+            if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr || e.hidden)
                 continue;
             // ⚠️ ONE DRAW PER MATERIAL RANGE. Drawing the element in one call
             // paints every surface in the first material's colour -- the exact

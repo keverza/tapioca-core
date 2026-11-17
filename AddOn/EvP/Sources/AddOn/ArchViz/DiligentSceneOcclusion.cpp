@@ -174,7 +174,7 @@ bool DiligentScene::DrawOcclusionDepth (Diligent::IDeviceContext* context, const
     // so one model would occlude differently depending on a display switch.
     size_t draws = 0;
     for (const Entry& e : impl_->elements) {
-        if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
+        if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr || e.hidden)
             continue;
         // ⚠️ BOUND LAZILY, INSIDE THE RANGE LOOP. An element that is entirely
         // glass -- a curtain wall is exactly that -- then costs no vertex-buffer

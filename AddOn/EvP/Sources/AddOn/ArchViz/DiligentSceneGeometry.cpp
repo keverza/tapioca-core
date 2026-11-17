@@ -4,6 +4,7 @@
 // says why the class is spread over three files.
 
 #include "ArchViz/AutoExposure.hpp"
+#include "ArchViz/DiagramModel.hpp"
 #include "ArchViz/DiligentSceneImpl.hpp"
 #include "ArchViz/ScenePacketTrace.hpp"
 
@@ -130,6 +131,7 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
     // ⚠️ Take() HANDS OVER OWNERSHIP OF A BATCH. The nodes hold unique_ptrs the
     // producer has already let go of, so anything not consumed here is freed
     // here -- there is no putting one back.
+    impl_->ApplyHidden (diagrammodel::HiddenSource ()); // #201: before any pass of this frame
     std::vector<SceneCmd> batch = SceneCmdQueue::Get ().Take (maxCommands);
     size_t applied = 0;
     const size_t elementsBefore = impl_->elements.size ();
@@ -274,6 +276,7 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 e.indexCount = uint32_t (upload.indices.size ());
                 e.ranges = upload.ranges;
                 e.seenThisBatch = true;
+                e.hidden = impl_->IsHidden (e.guid);
                 e.hasBounds = true;
                 for (int k = 0; k < 3; ++k) {
                     e.boundsMin[k] = upload.boundsMin[k];

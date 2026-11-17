@@ -2,7 +2,12 @@
 // main-thread HUD. No renderer or session is accessed across its thread boundary.
 #include "ArchViz/ViewerEditor.hpp"
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/DiagramModel.hpp"
 #include "ArchViz/EditLayers.hpp"
+#include "ArchViz/HudMassing.hpp"
+#include "ArchViz/MassingHybrid.hpp"
+#include "ArchViz/MassingSlicesModel.hpp"
+#include "ArchViz/OverlayHudModel.hpp"
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayHud.hpp"
@@ -30,6 +35,8 @@ namespace {
 std::atomic<bool> s_active { false };
 std::atomic<bool> s_running { false }, s_requested { false };
 std::atomic<bool> s_analysisRequested { false };
+std::atomic<bool> s_massingRequested { false };
+bool s_massing = false; // MAIN THREAD: the host shows the Massing workflow (#201)
 std::atomic<uint64_t> s_generation { 0 };
 std::atomic<int64_t> s_drawn { 0 };
 std::mutex s_mutex;
@@ -168,6 +175,21 @@ bool Hovering ()
 {
     return Active ();
 }
+bool Refresh ();
+// What keeps this host's main-thread HUD up: an editor document, or the Massing workflow.
+bool Hosted (const overlayhud::State& state)
+{
+    return overlayhud::VirtualEditorActive (state) || s_massing;
+}
+bool AttachInput ()
+{
+    overlayinput::HudOwner owner { &Shown, &Refresh, &Redraw, &Hovering };
+    std::string error;
+    if (overlayinput::Attach (overlayinput::View::ThreeD, s_window, owner, error))
+        return true;
+    ArchVizLog ("VIEWER EDITOR input could not start: " + error);
+    return false;
+}
 
 bool Refresh ()
 {
@@ -177,11 +199,15 @@ bool Refresh ()
         Stop (true); // renderer failure must not silently discard the document
         return false;
     }
+    // #201 Diagram Mode: this timer is the viewer's main-thread follow of the massing,
+    // whether or not an editor workflow holds the input.
+    diagrammodel::Follow ();
     FollowSurfaceTakeoff ();
     if (!Active ())
         viewportcursor::FollowHudTextFocus ();
     const auto state = guesttext::HudState ();
-    if (s_requested.exchange (false)) {
+    const bool massing = s_massingRequested.exchange (false);
+    if (s_requested.exchange (false) || massing) {
         {
             std::lock_guard<std::mutex> lock (s_mutex);
             if (s_placementRequested) {
@@ -190,20 +216,27 @@ bool Refresh ()
                 s_placementRequested = false;
             }
         }
-        if (overlayhud::OpenVirtualEditorWorkflow (*state)) {
-            overlayinput::HudOwner owner { &Shown, &Refresh, &Redraw, &Hovering };
-            std::string error;
-            if (overlayinput::Attach (overlayinput::View::ThreeD, s_window, owner, error)) {
-                overlayhud::RestoreVirtualEditor (*state, overlayhud::TakeVirtualEditor (*state));
+        if (massing) {
+            // The overlays' Massing page, held open with no editor document behind it.
+            state->shown = true;
+            state->host.open = true;
+            state->host.selected = state->host.workflow = hudmassing::kTabKey;
+            ++state->revision;
+            if (Active () || AttachInput ()) {
+                s_massing = true;
                 s_active.store (true);
             }
-            else
-                ArchVizLog ("VIEWER EDITOR input could not start: " + error);
+        }
+        else if (overlayhud::OpenVirtualEditorWorkflow (*state) && AttachInput ()) {
+            overlayhud::RestoreVirtualEditor (*state, overlayhud::TakeVirtualEditor (*state));
+            s_active.store (true);
         }
     }
     if (!Active ())
         return false;
-    if (!overlayhud::VirtualEditorActive (*state)) {
+    if (s_massing && overlayhud::VirtualEditorActive (*state) && state->host.workflow != hudmassing::kTabKey)
+        s_massing = false; // the dock moved on to the editor: it holds the host now
+    if (!Hosted (*state)) {
         s_active.store (false);
         overlayinput::Detach (overlayinput::View::ThreeD);
         overlayinput::EnableRoofEditKeys (false);
@@ -236,7 +269,14 @@ bool Refresh ()
         s_refreshing = false;
         return false;
     }
-    overlayhud::OwnPages own;
+    // The Massing workflow reads the overlays' own pages and keeps the massing followed; the
+    // editor alone keeps its smaller set.
+    if (s_massing) {
+        massinghybrid::Poll ();
+        massingslicesmodel::Poll ();
+    }
+    overlayhud::OwnPages own =
+        s_massing ? overlayhudmodel::Pages (overlayinput::View::ThreeD) : overlayhud::OwnPages {};
     own.standalone = true;
     own.viewerSurface = true;
     if (const auto highlight = ReadSurfaceHighlight ())
@@ -264,7 +304,12 @@ bool Refresh ()
     FollowDraftingImport (state);
     FollowFocus (state, false); // #124: the box goes to the render thread (RequestFocus)
     FollowMaterialPicker (state);
+    if (s_massing && !overlayhudmodel::FollowWorkflowRequests (state)) {
+        s_refreshing = false; // a modal let another project in: this turn drains nothing more
+        return false;
+    }
     if (engine->Selected () == "@viewer.analysis") {
+        s_massing = false;
         // Navigation releases input, not the document. Renderer-owned analysis keeps
         // its own state; no Session or ImGui pointer crosses the thread boundary.
         auto session = overlayhud::TakeVirtualEditor (*state);
@@ -299,7 +344,7 @@ bool Refresh ()
         else
             overlaylayers::Set (std::move (layer));
     }
-    if (!overlayhud::VirtualEditorActive (*state)) {
+    if (!Hosted (*state)) {
         s_refreshing = false;
         s_active.store (false);
         overlayinput::Detach (overlayinput::View::ThreeD);
@@ -352,6 +397,15 @@ bool Active ()
 bool Running ()
 {
     return s_running.load ();
+}
+void RequestMassingWorkflow (const hudshell::DockPlacement& dock, uint32_t fontStep)
+{
+    std::lock_guard<std::mutex> lock (s_mutex);
+    s_dock = dock;
+    s_dock.workflowFlyoutOpen = false;
+    s_fontStep = fontStep;
+    s_placementRequested = true;
+    s_massingRequested.store (true);
 }
 void RequestWorkflow (const hudshell::DockPlacement& dock, uint32_t fontStep)
 {
@@ -448,6 +502,8 @@ void Stop (bool preserve)
     viewportcursor::SetHudTextActive (false);
     s_requested.store (false);
     s_analysisRequested.store (false);
+    s_massingRequested.store (false);
+    s_massing = false;
     s_generation.fetch_add (1);
     if (s_timer)
         ::KillTimer (nullptr, s_timer);
@@ -462,6 +518,7 @@ void Stop (bool preserve)
     else {
         overlayhud::StopVirtualEditor (*state, "viewer closed");
         overlaylayers::Clear (editlayers::kLayer);
+        diagrammodel::Forget (); // a closed viewer ends Diagram Mode and restores the source
     }
     guesttext::ReleaseHud (overlayinput::View::ThreeD);
     s_window = nullptr;

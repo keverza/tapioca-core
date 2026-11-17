@@ -2,6 +2,7 @@
 
 #include "ArchViz/DiligentHudShell.hpp"
 
+#include "ArchViz/DiligentHudDiagram.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/HudConsole.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
@@ -79,6 +80,11 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     tabs.back ().family = hudshell::WorkflowFamily::Analyze;
     tabs.back ().token = "analysis";
     tabs.back ().purpose = "Study sun, view quality and the current viewpoint.";
+    tabs.push_back ({ kMassingKey, "Massing", {}, archviz::ui::IconId::HomeSimple });
+    tabs.back ().family = hudshell::WorkflowFamily::Design;
+    tabs.back ().group = "Massing";
+    tabs.back ().token = "massing";
+    tabs.back ().purpose = "Exploded storey diagram of the massing, and the Massing workflow.";
     tabs.push_back ({ "@viewer.editor", "Virtual editor" });
     tabs.back ().family = hudshell::WorkflowFamily::Design;
     tabs.back ().group = "Editing";
@@ -138,6 +144,10 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
             SelectionPage (shell, state, ui);
         else if (key == kSunStudyKey)
             SunStudyPage (state, scene);
+        else if (key == kMassingKey) {
+            if (DiagramPage (ui))
+                vieweredit::RequestMassingWorkflow (shell.dock, shell.fontStep);
+        }
         else if (key == "@viewer.editor")
             ImGui::TextUnformatted ("Opening virtual editor...");
         else if (key == surfacetakeoff::kWorkflowKey) {

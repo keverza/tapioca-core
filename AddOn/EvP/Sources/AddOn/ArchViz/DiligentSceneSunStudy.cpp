@@ -723,7 +723,7 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     // is far worse); being unable to tell that it happened is not.
     size_t incomplete = 0;
     for (const Entry& e : impl_->elements) {
-        if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
+        if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr || e.hidden)
             continue;
         if (e.sunFaceBuffer == nullptr) {
             ++incomplete;

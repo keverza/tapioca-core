@@ -28,10 +28,12 @@
 #include "ArchViz/DiligentPointCloudLayer.hpp"
 #include "ArchViz/GhPreviewLayer.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
+#include "ArchViz/DiagramLayer.hpp"
 #include "ArchViz/DiligentScreenSpaceReflection.hpp"
 #include "ArchViz/DiligentTemporalAntiAliasing.hpp"
 #include "ArchViz/DiligentShaders.hpp" // DiligentSceneConstants, for UploadConstants below
 #include "ArchViz/DiligentDepthRange.hpp"
+#include <algorithm>
 #include "ArchViz/DiligentShadowMap.hpp"
 #include "ArchViz/EnvironmentMap.hpp"
 #include "ArchViz/SunShadowMath.hpp"
@@ -198,6 +200,9 @@ struct Entry {
     bool selected = false;
     uint8_t analysisRole = 0; // 0 none, 1 Focus, 2 Analysis (SetAnalysisHighlight), 3 Obstruction
     bool seenThisBatch = false;
+    // #201 Diagram Mode's source policy: presentation only. A hidden element stays uploaded,
+    // selected and named; every pass that draws, casts, occludes or picks skips it.
+    bool hidden = false;
     bool hasBounds = false;
     float boundsMin[3] = { 0.0f, 0.0f, 0.0f };
     float boundsMax[3] = { 0.0f, 0.0f, 0.0f };
@@ -666,6 +671,32 @@ struct geomsrv::archviz::DiligentScene::Impl {
         sunPathKey = 0;
         sunPathInitFailed = false;
     }
+
+    // ---- the exploded diagram (#201, DiligentSceneDiagram.cpp) -----------------
+    // The publication lives in DiagramModel, on the CPU; only the GPU copy dies with the
+    // viewport. `diagramGeneration` names what is uploaded (0: nothing).
+    DiagramLayer diagram;
+    uint64_t diagramGeneration = 0;
+    bool diagramInitFailed = false;
+    double diagramT = 0.0;        // displayed t, eased toward the commanded one
+    uint64_t diagramLastTick = 0; // GetTickCount64 of the last diagram frame
+    void ShutdownDiagram ()
+    {
+        diagram.Shutdown ();
+        diagramGeneration = 0;
+        diagramInitFailed = false;
+        diagramT = 0.0;
+        diagramLastTick = 0;
+    }
+    // Every overlay layer drawn over the model, torn down together with the viewport.
+    void ShutdownModelOverlays ()
+    {
+        ShutdownGhPreview ();
+        ShutdownAnalysisOverlay ();
+        ShutdownObstructionOverlay ();
+        ShutdownSunPathOverlay ();
+        ShutdownDiagram ();
+    }
     Diligent::ITextureView* taaView = nullptr;
     bool taaEnabled = false;
     float taaStability = 0.9f;
@@ -926,6 +957,22 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // removed element would let a pick issued before the removal resolve to the
     // element that inherited the number.
     uint32_t nextPickId = kNoPickId + 1;
+
+    // The hidden-source policy (#201): sorted GUIDs, null for none. Applied to every
+    // element when it changes and to each element as it is uploaded.
+    std::shared_ptr<const std::vector<std::string>> hiddenGuids;
+    bool IsHidden (const std::string& guid) const
+    {
+        return hiddenGuids && std::binary_search (hiddenGuids->begin (), hiddenGuids->end (), guid);
+    }
+    void ApplyHidden (std::shared_ptr<const std::vector<std::string>> guids)
+    {
+        if (guids == hiddenGuids)
+            return;
+        hiddenGuids = std::move (guids);
+        for (Entry& e : elements)
+            e.hidden = IsHidden (e.guid);
+    }
 
     Entry* Find (const std::string& guid)
     {

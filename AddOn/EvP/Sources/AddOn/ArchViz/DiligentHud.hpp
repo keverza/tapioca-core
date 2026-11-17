@@ -31,7 +31,8 @@
 #include "ArchViz/AnalysisProfile.hpp"
 #include "ArchViz/AnalysisLiveRerun.hpp"
 #include "ArchViz/AnalysisTabs.hpp"
-#include "ArchViz/DiligentScene.hpp" // ElementInfo, for the hover callout
+#include "ArchViz/DiligentScene.hpp"          // ElementInfo, for the hover callout
+#include "ArchViz/DiligentViewportTarget.hpp" // SurfaceMode, for UpdateAndDrawModelOverlays
 #include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/SunPathMoment.hpp"
 #include "ArchViz/SunPathBand.hpp"
@@ -1020,6 +1021,12 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
 void UpdateAndDrawAnalysisOverlays (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& state,
                                     const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
                                     uint32_t depthFormat, bool modelIsDrawn, const Camera& camera);
+// The frame loop's one call for everything drawn over the model, in this order: the
+// preview, the analysis channels, then the #201 diagram -- which only the viewer's own
+// surfaces draw (never the Archicad overlay, whose source slabs it cannot hide).
+void UpdateAndDrawModelOverlays (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& state,
+                                 const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
+                                 uint32_t depthFormat, bool modelIsDrawn, const Camera& camera, SurfaceMode surface);
 void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
                                const float direction[3]);
 void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height);

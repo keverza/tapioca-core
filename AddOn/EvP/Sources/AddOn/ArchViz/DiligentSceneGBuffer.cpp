@@ -236,7 +236,7 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
     };
 
     auto drawOpaqueRanges = [&] (const Entry& e, bool consultMaterials) {
-        if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
+        if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr || e.hidden)
             return;
         BindMesh (context, e);
         for (const MaterialRange& range : e.ranges) {
@@ -449,7 +449,6 @@ Diligent::ITextureView* DiligentScene::CompositeScreenSpaceReflection (Diligent:
     bindCompositeTexture ("g_gbufferAlbedo", albedoView);
     bindCompositeTexture ("g_gbufferMaterialData", materialView);
 
-
     const float savedSsrLane = constants.gradeParams[3];
     constants.gradeParams[3] = impl_->ssrIntensity;
     UploadConstants (context, impl_->constants, constants);
@@ -459,7 +458,8 @@ Diligent::ITextureView* DiligentScene::CompositeScreenSpaceReflection (Diligent:
             impl_->ssrCompositeSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrColor"))
         hdrVar->Set (sourceColor);
 
-    context->SetRenderTargets (1, &impl_->ssrCompositeRTV, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->SetRenderTargets (1, &impl_->ssrCompositeRTV, nullptr,
+                               Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     context->SetViewports (1, nullptr, 0, 0);
     context->SetPipelineState (impl_->ssrCompositePso);
     context->CommitShaderResources (impl_->ssrCompositeSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);

@@ -850,10 +850,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                                           drawTo.ColorFormat (), drawTo.DepthFormat ());
             // Preview and analysis overlays; not gated on `offscreen` -- see the helpers.
             if (!annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input)) {
-                UpdateAndDrawGhPreview (scene, context, hudState, viewProj, width, height, drawTo.ColorFormat (),
-                                        drawTo.DepthFormat (), modelIsDrawn);
-                UpdateAndDrawAnalysisOverlays (scene, context, hudState, viewProj, width, height, drawTo.ColorFormat (),
-                                               drawTo.DepthFormat (), modelIsDrawn, camera);
+                UpdateAndDrawModelOverlays (scene, context, hudState, viewProj, width, height, drawTo.ColorFormat (),
+                                            drawTo.DepthFormat (), modelIsDrawn, camera, surface.mode);
             }
             gpuTimings.Begin (context, GpuTimingStage::Post);
             const bool textReady = UpdateAndDrawSceneText (

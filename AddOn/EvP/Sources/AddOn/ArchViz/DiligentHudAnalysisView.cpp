@@ -7,6 +7,7 @@
 #include "ArchViz/Camera.hpp"
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/DiligentViewportSupport.hpp" // UpdateAndDrawGhPreview
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/SunStudyObstructionController.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
@@ -323,6 +324,17 @@ void UpdateAndDrawAnalysisOverlays (DiligentScene& scene, Diligent::IDeviceConte
     // runs after the scene. Its key is 0 whenever the path is hidden.
     scene.DrawSunPathOverlay (context, viewProj, width, height, colorFormat, depthFormat, state.sunPathScene.get (),
                               state.sunPathSceneKey, modelIsDrawn);
+}
+
+void UpdateAndDrawModelOverlays (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& state,
+                                 const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
+                                 uint32_t depthFormat, bool modelIsDrawn, const Camera& camera, SurfaceMode surface)
+{
+    UpdateAndDrawGhPreview (scene, context, state, viewProj, width, height, colorFormat, depthFormat, modelIsDrawn);
+    UpdateAndDrawAnalysisOverlays (scene, context, state, viewProj, width, height, colorFormat, depthFormat,
+                                   modelIsDrawn, camera);
+    if (surface != SurfaceMode::Overlay)
+        scene.DrawDiagram (context, viewProj, colorFormat, depthFormat);
 }
 
 } // namespace geomsrv::archviz

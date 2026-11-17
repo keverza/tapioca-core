@@ -37,6 +37,9 @@ void Stop (bool preserve = false);
 bool Active ();
 bool Running ();
 void RequestWorkflow (const hudshell::DockPlacement& dock, uint32_t fontStep);
+// #201: the Massing workflow -- the overlays' full Massing page -- hosted in this viewer, with
+// no virtual-editor document. Input and HUD ownership are the editor's (the same host).
+void RequestMassingWorkflow (const hudshell::DockPlacement& dock, uint32_t fontStep);
 bool TakeAnalysisRequest (hudshell::DockPlacement& dock, uint32_t& fontStep);
 void RequestSurfaceTakeoff (surfacetakeoff::PageAction action);
 std::string SurfaceTakeoffError ();

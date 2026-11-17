@@ -60,7 +60,7 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
         DrawEntryRange (context, e, whole);
         ++impl_->drawCalls;
     };
-    auto drawable = [] (const Entry& e) { return e.vertexBuffer != nullptr && e.indexBuffer != nullptr; };
+    auto drawable = [] (const Entry& e) { return e.vertexBuffer != nullptr && e.indexBuffer != nullptr && !e.hidden; };
 
     // ---- the wireframe overlay ---------------------------------------------
     // ⚠️ ELEMENTS ONLY, AND THE WHOLE ELEMENT IN ONE DRAW. Material ranges do not

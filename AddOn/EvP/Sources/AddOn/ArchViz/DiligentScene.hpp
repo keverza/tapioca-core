@@ -606,6 +606,13 @@ class DiligentScene final {
                         uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                         const GhPreviewStyle& style, const GhPreviewLayer::DrawParams& params);
 
+    // #201: the exploded massing diagram, after the model and depth-tested against it. Pulls
+    // its publication from DiagramModel itself (as the preview pulls GhPreviewCache); geometry
+    // uploads on a new publication only, and t eases toward the commanded explode with
+    // frame time. Nothing is drawn while Diagram Mode is off.
+    void DrawDiagram (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t colorBufferFormat,
+                      uint32_t depthBufferFormat);
+
     // For the HUD. `labels` non-zero while nothing is drawn is the answer to
     // "my text panel shows nothing"; `deferredKinds` is the answer to "my points
     // and planes never appear".
