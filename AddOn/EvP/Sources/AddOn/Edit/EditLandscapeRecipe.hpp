@@ -83,6 +83,11 @@ LandscapeRecipe ProjectLandscapeRecipe (const geomsrv::edit::Document& doc,
 // region already at that end, and a region whose footprint root another region shares (their
 // relative order is fixed by object id).
 bool MoveRecipeRegion (geomsrv::edit::Document& doc, Id object, int step, std::string& error);
+// #105: a recipe row dropped on another: `object` takes `onto`'s place in the region stack, the
+// rows between shifting one place. The same validation as MoveRecipeRegion, one place at a time on
+// a copy; any refusal leaves `doc` untouched and says why. The revision advances once per place
+// moved; wrap it in Session::Apply for one undo entry. A row dropped on itself changes nothing.
+bool MoveRecipeRegionTo (geomsrv::edit::Document& doc, Id object, Id onto, std::string& error);
 
 // #105 step 4: read-only quantity rows over one PUBLISHED terrain (EditPublishedTerrain.hpp), named
 // after the recipe's rows. Nothing is measured here: the rows are the publication's own

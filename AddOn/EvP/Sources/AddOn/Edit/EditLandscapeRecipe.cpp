@@ -487,6 +487,44 @@ bool MoveRecipeRegion (geomsrv::edit::Document& doc, Id object, int step, std::s
     return true;
 }
 
+bool MoveRecipeRegionTo (geomsrv::edit::Document& doc, Id object, Id onto, std::string& error)
+{
+    error.clear ();
+    if (object == onto)
+        return true;
+    const FieldPlan plan = doc.landscape ? RegionPlan (doc) : FieldPlan {};
+    if (!plan.ok) {
+        error = doc.landscape ? "The terrain recipe cannot be compiled: " + plan.error : "No landscape.";
+        return false;
+    }
+    std::vector<Id> roots;
+    for (const auto& entry : plan.entries)
+        if (roots.empty () || roots.back () != entry.rootOperation)
+            roots.push_back (entry.rootOperation);
+    const auto at = [&] (Id id) -> std::ptrdiff_t {
+        const auto entry = std::find_if (plan.entries.begin (), plan.entries.end (),
+                                         [=] (const FieldPlanEntry& e) { return e.object == id; });
+        return entry == plan.entries.end ()
+                   ? -1
+                   : std::find (roots.begin (), roots.end (), entry->rootOperation) - roots.begin ();
+    };
+    const auto from = at (object), to = at (onto);
+    if (to < 0) {
+        error = "Drop it on a region in the stack. Paths always compose after every region.";
+        return false;
+    }
+    if (from < 0) // the single-step move says why this region cannot move
+        return MoveRecipeRegion (doc, object, to > 0 ? -1 : 1, error);
+    // The supported single-place moves, all on a copy: a refusal on the way leaves `doc` untouched.
+    geomsrv::edit::Document candidate = doc;
+    const int step = to > from ? 1 : -1;
+    for (auto i = from; i != to; i += step)
+        if (!MoveRecipeRegion (candidate, object, step, error))
+            return false;
+    doc = std::move (candidate);
+    return true;
+}
+
 // ---- #105 step 4: quantity rows over the published terrain -----------------------------------
 namespace {
 RecipeVolumes Volumes (const HybridVolumes& v)

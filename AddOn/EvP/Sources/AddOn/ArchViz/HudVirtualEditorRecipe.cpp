@@ -13,6 +13,7 @@
 #include <imgui.h>
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 namespace geomsrv::archviz::edithud {
 namespace lg = tapioca::geometry;
@@ -157,6 +158,30 @@ void Controls (Session& s, const lg::RecipeRow& row)
             "need a target other than Existing.");
 }
 
+// #105: a region row is dragged onto another to take its place in the stack -- the arrows'
+// validation, one undo step; a refused drop changes nothing and says why in the status line.
+constexpr const char* kRowPayload = "TAPIOCA_RECIPE_REGION";
+void DragRow (Session& s, const lg::RecipeRow& row)
+{
+    if (ImGui::IsItemHovered () && ImGui::GetDragDropPayload () == nullptr)
+        geomsrv::archviz::hudshell::HoverTip ("Click selects its line. Drag onto another region to move it there.");
+    if (ImGui::BeginDragDropSource ()) {
+        const edit::Id object = row.object;
+        ImGui::SetDragDropPayload (kRowPayload, &object, sizeof object);
+        ImGui::Text ("Move %s", row.name.c_str ());
+        ImGui::EndDragDropSource ();
+    }
+    if (ImGui::BeginDragDropTarget ()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload (kRowPayload);
+            payload != nullptr && payload->DataSize == sizeof (edit::Id)) {
+            edit::Id moved = 0;
+            std::memcpy (&moved, payload->Data, sizeof moved);
+            DropRecipeRow (s, moved, row.object);
+        }
+        ImGui::EndDragDropTarget ();
+    }
+}
+
 // #189: the regions a row's footprint consumed, as its children: dashed in the view, no effect or
 // quantities of their own, each still selectable and editable.
 void ConstructionInputs (Session& s, const lg::LandscapeRecipe& recipe, edit::Id consumer, int depth = 0)
@@ -190,6 +215,8 @@ void Row (Session& s, const lg::LandscapeRecipe& recipe, const lg::RecipeRow& ro
         title += "  (" + row.kind + ")";
     if (ImGui::Selectable (title.c_str (), RowSelected (s, entities)) && !entities.empty ())
         SelectRow (s, entities);
+    if (row.stage == lg::RecipeStage::Region && row.object)
+        DragRow (s, row);
     if (ImGui::IsItemHovered () && entities.empty ())
         geomsrv::archviz::hudshell::HoverTip (
             "This row has no single line in the view (a derived domain or a constraint).");
@@ -318,6 +345,16 @@ void Quantities (Session& s, const lg::LandscapeRecipe& recipe, const TerrainDes
     }
 }
 } // namespace
+
+bool DropRecipeRow (Session& s, lg::Id object, lg::Id onto)
+{
+    if (s.edits.Apply ([object, onto] (edit::Document& d, std::string& error) {
+            return lg::MoveRecipeRegionTo (d, object, onto, error);
+        }))
+        return true;
+    s.message = s.edits.Message ();
+    return false;
+}
 
 std::string RecipeBypassRefusal (const Session& s, lg::Id operation)
 {

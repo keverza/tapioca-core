@@ -494,3 +494,32 @@ TEST (EditLandscapeRecipe, ABypassBuildsOnlyWhereAnEnabledStepLiesBelow220)
     session.operations[0].enabled = false; // 10
     EXPECT_EQ (geo::AttributedFootprintOperation (session, 10), 10u);
 }
+
+// #105 drag reorder: a row dropped on another takes its place; the rows between shift one place.
+// The arrows' validation, all or nothing.
+TEST (EditLandscapeRecipe, ARowDroppedOnAnotherTakesItsPlace105)
+{
+    auto doc = Start ();
+    const auto a = Region (doc, 0);
+    const auto b = Region (doc, 5);
+    const auto c = Region (doc, 8);
+    const auto d = Region (doc, 12);
+    const auto none = Region (doc, 40);
+    for (const auto id : { a, b, c, d })
+        Configure (doc, id, 2);
+    ASSERT_EQ (Stack (doc), (std::vector<edit::Id> { a, b, c, d }));
+    std::string error;
+    ASSERT_TRUE (geo::MoveRecipeRegionTo (doc, a, c, error)) << error;
+    EXPECT_EQ (Stack (doc), (std::vector<edit::Id> { b, c, a, d }));
+    ASSERT_TRUE (geo::MoveRecipeRegionTo (doc, d, b, error)) << error;
+    EXPECT_EQ (Stack (doc), (std::vector<edit::Id> { d, b, c, a }));
+    const edit::Document before = doc;
+    ASSERT_TRUE (geo::MoveRecipeRegionTo (doc, c, c, error)) << error;
+    EXPECT_EQ (doc.revision, before.revision) << "dropped on itself: nothing changes";
+    EXPECT_FALSE (geo::MoveRecipeRegionTo (doc, a, none, error));
+    EXPECT_NE (error.find ("Drop it on a region in the stack"), std::string::npos) << error;
+    EXPECT_FALSE (geo::MoveRecipeRegionTo (doc, none, a, error));
+    EXPECT_NE (error.find ("no terrain effect"), std::string::npos) << error;
+    EXPECT_EQ (doc.landscape, before.landscape);
+    EXPECT_EQ (doc.revision, before.revision);
+}

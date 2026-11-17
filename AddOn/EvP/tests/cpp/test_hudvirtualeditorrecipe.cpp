@@ -244,3 +244,52 @@ TEST (HudVirtualEditorRecipe, BypassIsRefusedWithAReasonWhereItCouldNeverBuild22
     d.Frame (); // draws the disabled or enabled switch without editing anything
     EXPECT_EQ (d.session.edits.UndoDepth (), 1u);
 }
+
+// #105 live request (2026-11-13): drag a region row onto another to move it there. One undo step,
+// the arrows' validation; the rows between shift one place.
+TEST (HudVirtualEditorRecipe, DraggingARowOntoAnotherMovesItThereAsOneUndo105)
+{
+    ed::Document doc;
+    std::string error;
+    ASSERT_TRUE (geo::StartLandscape (doc, { 1, 2, 3, 4 }, error)) << error;
+    ed::Id lineA = 0, lineB = 0, lineC = 0;
+    const auto a = Region (doc, 0, lineA);
+    const auto b = Region (doc, 5, lineB);
+    const auto c = Region (doc, 8, lineC);
+    RecipeDrive d (std::move (doc));
+    const auto order = [&] {
+        std::vector<ed::Id> out;
+        for (const auto& row : eh::CurrentRecipe (d.session).rows)
+            if (row.stage == geo::RecipeStage::Region)
+                out.push_back (row.object);
+        return out;
+    };
+    ASSERT_EQ (order (), (std::vector<ed::Id> { a, b, c }));
+    // The rows' selectables span the panel; nothing else is hoverable this far right.
+    std::vector<float> rows;
+    ImGuiID last = 0;
+    for (float y = 30; y < 770; y += 2) {
+        d.Frame ({ 450, y });
+        const ImGuiID id = d.context->HoveredId;
+        if (id != 0 && id != last)
+            rows.push_back (y);
+        last = id;
+    }
+    ASSERT_GE (rows.size (), 3u);
+    const ImVec2 from { 450, rows[0] + 2 }, onto { 450, rows[2] + 2 };
+    d.Frame (from);
+    d.Frame (from, true);
+    for (int i = 1; i <= 8; ++i)
+        d.Frame ({ from.x, from.y + (onto.y - from.y) * float (i) / 8.0f }, true);
+    d.Frame (onto, true);
+    d.Frame (onto, false);
+    d.Frame (onto, false);
+    EXPECT_EQ (order (), (std::vector<ed::Id> { b, c, a })) << d.session.message;
+    EXPECT_EQ (d.session.edits.UndoDepth (), 1u);
+    ASSERT_TRUE (d.session.edits.Undo ());
+    EXPECT_EQ (order (), (std::vector<ed::Id> { a, b, c }));
+    // A refused drop changes nothing and says why.
+    EXPECT_FALSE (eh::DropRecipeRow (d.session, a, ed::Id (9999)));
+    EXPECT_NE (d.session.message.find ("Drop it on a region"), std::string::npos) << d.session.message;
+    EXPECT_EQ (order (), (std::vector<ed::Id> { a, b, c }));
+}
