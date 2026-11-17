@@ -28,7 +28,13 @@ class PathOutlineCache {
     // Ends a frame: entries no lookup used since the previous Prune are dropped, so the cache
     // holds what the current document still asks for and nothing a deleted path left.
     void Prune ();
+    // Drops every entry of a path not in `paths` (deleted, or undone away), whenever it was
+    // last used. Each kept path holds at most a few steps, so this bounds the cache by the
+    // document without Prune's one-generation lag.
+    void Retain (const std::vector<Path>& paths);
     size_t Size () const;
+    // Whether any entry of the path `id` is kept (a deleted path's go with the next Prune).
+    bool Holds (Id id) const;
 
     uint64_t builds = 0; // outlines actually tessellated: the misses
     uint64_t hits = 0;

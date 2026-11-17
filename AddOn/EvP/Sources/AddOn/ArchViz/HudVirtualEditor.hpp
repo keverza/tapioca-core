@@ -225,6 +225,13 @@ struct Session {
     edit::Selection selection;
     // Model-space outlines only; bounded to this session and reprojected for every pick.
     edit::PickGeometryCache pickCache;
+    // #51: the paths' outlines, shared by the snap, the paving and the path labels; a path that
+    // did not change is not tessellated again. Each repave (PavedSurface) retains only the
+    // document's paths, so a deleted path's entries go with it.
+    edit::PathOutlineCache outlines;
+    // #51: the snap's indexed targets; rebuilt only when the document, the host context or the
+    // query's plane, step or exclusions change, so hovering re-gathers nothing.
+    edit::SnapTargets snapTargets;
     edit::Tracker tracker;
     edit::SnapContext context; // host geometry snapshot, filled by the starting command
     Tool tool = Tool::Select;

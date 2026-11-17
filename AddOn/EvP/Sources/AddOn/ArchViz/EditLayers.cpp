@@ -815,20 +815,24 @@ void AddGizmo (const GizmoView& g, const Style& style, layers::Layer& layer)
 
 } // namespace
 
-std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style)
+std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style, edit::PathOutlineCache* outlines)
 {
     std::vector<MarkLabel> out;
     for (const auto& path : doc.paths) {
-        edit::PathOutline o;
+        if (!edit::Shown (doc, path.member))
+            continue;
+        edit::PathOutline built;
         std::string error;
-        if (edit::Shown (doc, path.member) && edit::Outline (path, style.pathStep, o, error) &&
-            o.stations.size () >= 2) {
-            PathMarkLabels (doc, path, o, style, out);
-            PathDimensionLabels (doc, path, o, style, out);
+        const edit::PathOutline* o = outlines != nullptr ? outlines->Get (path, style.pathStep)
+                                     : edit::Outline (path, style.pathStep, built, error) ? &built
+                                                                                          : nullptr;
+        if (o != nullptr && o->stations.size () >= 2) {
+            PathMarkLabels (doc, path, *o, style, out);
+            PathDimensionLabels (doc, path, *o, style, out);
         }
     }
     // Each rounded kerb corner's radius, from its fillet's centre to its middle.
-    for (const auto& c : edit::Pave (doc.paths, style.pathStep, false).corners) {
+    for (const auto& c : edit::Pave (doc.paths, style.pathStep, false, outlines).corners) {
         if (c.key.radius < 0.005 || !edit::Shown (doc, c.path))
             continue; // "R 0.00 m" says nothing, and a hidden path says nothing at all
         const double r = c.key.radius;

@@ -144,7 +144,10 @@ struct MarkLabel {
 };
 // The layer's own labels for its paths (heights, grades, crossfalls), and, for the view
 // only, their dimensions (widths, bend and kerb radii).
-std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style = {});
+// `outlines` (optional, caller-owned, #51): the paths' outlines are taken from it rather than
+// tessellated again; the labels are identical with or without it.
+std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style = {},
+                                   edit::PathOutlineCache* outlines = nullptr);
 
 // Triangles of a counter-clockwise plan polygon (ear clipping), as index triples.
 std::vector<uint32_t> TriangulateXY (const std::vector<edit::Vec3>& polygon);

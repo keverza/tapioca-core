@@ -6,6 +6,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
@@ -236,4 +237,61 @@ TEST (HudVirtualEditorSnap, DirectDragFlushIgnoresARemoteMovingEdge)
     const auto& v = d.D ().entities[0].vertices;
     EXPECT_NEAR (v[2].p.y, 11.4, 1e-6); // it did not jump down to 11.0
     d.Release (640, 452);
+}
+
+// #51: the session's snap index is built once and reused while the pointer only moves; the
+// host context is fingerprinted, so a context edited in place still rebuilds it. The snap
+// itself is unchanged (the kernel's differential test pins identity with and without).
+TEST (HudVirtualEditorSnap, HoverReusesTheSnapIndexUntilTheContextChanges51)
+{
+    ed::Document doc = Box (0, 0);
+    ed::AddPath (doc, { { 0, -6, 0 }, { 10, -6, 0 } }, 2);
+    Drive d (std::move (doc));
+    d.S ().tool = eh::Tool::Polyline;
+    d.At (680, 460); // the corner (4, 2)
+    ASSERT_TRUE (d.S ().snap.snapped);
+    EXPECT_EQ (d.S ().snap.kind, ed::SnapKind::Endpoint);
+    const uint64_t built = d.S ().snapTargets.builds;
+    EXPECT_GE (built, 1u);
+    EXPECT_GT (d.S ().outlines.Size (), 0u) << "the path's snap outline comes from the session cache";
+    for (float x : { 650.f, 660.f, 670.f, 679.f })
+        d.At (x, 461);
+    d.At (680, 460);
+    EXPECT_EQ (d.S ().snapTargets.builds, built) << "hovering re-gathers nothing";
+    EXPECT_EQ (d.S ().snap.kind, ed::SnapKind::Endpoint);
+    d.S ().context.points.push_back ({ { 30, 30, 0 }, "host" });
+    d.At (681, 460);
+    EXPECT_EQ (d.S ().snapTargets.builds, built + 1) << "a context edited in place is seen";
+}
+
+// #51: one path edited re-tessellates that path alone; the others' outlines are reused by the
+// paving and the labels, and a deleted path's entries leave the cache with the next repave.
+TEST (HudVirtualEditorSnap, AnEditRetessellatesOnlyTheChangedPath51)
+{
+    ed::Document doc;
+    std::vector<ed::Id> ids;
+    for (int i = 0; i < 4; ++i)
+        ids.push_back (ed::AddPath (doc, { { 0, 10.0 * i, 0 }, { 20, 10.0 * i + 3, 1 } }, 2));
+    Drive d (std::move (doc));
+    d.At (1000, 900);
+    const size_t size = d.S ().outlines.Size ();
+    EXPECT_GE (size, ids.size ());
+    const uint64_t builds = d.S ().outlines.builds, hits = d.S ().outlines.hits;
+    const ed::Id moved = ids[1];
+    ASSERT_TRUE (d.S ().edits.Apply ([&] (ed::Document& c, std::string& error) {
+        const ed::Path* p = ed::FindPath (c, moved);
+        return p != nullptr && ed::SetPathWidth (c, moved, p->sections.front ().id, 1.5, 1.5, error);
+    }));
+    d.At (1000, 900);
+    EXPECT_GE (d.S ().outlines.builds - builds, 1u);
+    EXPECT_LE (d.S ().outlines.builds - builds, 2u) << "the paving's and the snap's outline of one path, no more";
+    EXPECT_GT (d.S ().outlines.hits, hits) << "the unchanged paths were reused";
+    EXPECT_TRUE (d.S ().outlines.Holds (ids[3]));
+    ASSERT_TRUE (d.S ().edits.Apply ([&] (ed::Document& c, std::string&) {
+        std::erase_if (c.paths, [&] (const ed::Path& p) { return p.id == ids[3]; });
+        return true;
+    }));
+    d.At (1000, 900);
+    EXPECT_FALSE (d.S ().outlines.Holds (ids[3])) << "a deleted path's outlines are pruned";
+    EXPECT_TRUE (d.S ().outlines.Holds (ids[0]));
 }

@@ -36,6 +36,38 @@ void PrepareSnap (const Session& s, edit::SnapQuery& q)
         q.references.insert (q.references.begin (), { s.drawing[s.drawing.size () - 2], s.drawing.back () });
 }
 
+uint64_t SnapContextKey (const edit::SnapContext& context)
+{
+    // FNV-1a over what the targets are gathered from: every point, segment and source name.
+    // Hashing is linear but allocates nothing, far below a gather, so a context the host
+    // replaced or a test edited in place is always seen.
+    uint64_t h = 1469598103934665603ull;
+    const auto mix = [&] (const void* data, size_t n) {
+        const auto* b = static_cast<const unsigned char*> (data);
+        for (size_t i = 0; i < n; ++i)
+            h = (h ^ b[i]) * 1099511628211ull;
+    };
+    const auto vec = [&] (const Vec3& p) { mix (&p.x, sizeof p.x), mix (&p.y, sizeof p.y), mix (&p.z, sizeof p.z); };
+    const auto text = [&] (const std::string& t) {
+        const size_t n = t.size ();
+        mix (&n, sizeof n), mix (t.data (), n);
+    };
+    const size_t points = context.points.size (), segments = context.segments.size ();
+    mix (&points, sizeof points), mix (&segments, sizeof segments);
+    for (const auto& p : context.points)
+        vec (p.p), text (p.source);
+    for (const auto& g : context.segments)
+        vec (g.a), vec (g.b), text (g.source);
+    return h;
+}
+
+void UseSnapCaches (Session& s, const edit::SnapContext& context, edit::SnapQuery& q)
+{
+    q.outlines = &s.outlines;
+    s.snapTargets.Update (Doc (s), context, SnapContextKey (context), q);
+    q.targets = &s.snapTargets;
+}
+
 void Acquire (Session& s, const edit::SnapResult& snap)
 {
     if (!snap.onEdge || edit::DistanceXY (snap.edgeFrom, snap.edgeTo) < 1.0e-6)

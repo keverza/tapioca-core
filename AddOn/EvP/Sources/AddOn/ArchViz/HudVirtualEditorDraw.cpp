@@ -764,7 +764,7 @@ void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& tak
 {
     const auto& doc = Doc (s);
     if (s.marksRevision != doc.revision) {
-        s.marks = editlayers::PathLabels (doc);
+        s.marks = editlayers::PathLabels (doc, {}, &s.outlines);
         s.marksRevision = doc.revision;
     }
     const float h = ImGui::GetTextLineHeight () + 4.0f;

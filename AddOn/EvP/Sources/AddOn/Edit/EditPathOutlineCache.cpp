@@ -58,6 +58,19 @@ void PathOutlineCache::Prune ()
     ++frame_;
 }
 
+void PathOutlineCache::Retain (const std::vector<Path>& paths)
+{
+    for (auto it = entries_.begin (); it != entries_.end ();)
+        it = std::any_of (paths.begin (), paths.end (), [&] (const Path& p) { return p.id == it->first; })
+                 ? std::next (it)
+                 : entries_.erase (it);
+}
+
+bool PathOutlineCache::Holds (Id id) const
+{
+    return entries_.count (id) != 0;
+}
+
 size_t PathOutlineCache::Size () const
 {
     size_t n = 0;

@@ -68,6 +68,10 @@ void Note (Session& s, const Map& m, edit::Vec3 p, ImVec2 offset, const std::str
 // pressed (its captured base point); and a moved item's edges snapping flush to parallel
 // ones, correcting `t` -- false when none did.
 void PrepareSnap (const Session& s, edit::SnapQuery& q);
+// #51: a fingerprint of the host context's targets (SnapTargets' context key), and the session's
+// caches attached to a query that is otherwise complete: the snap is identical with or without.
+uint64_t SnapContextKey (const edit::SnapContext& context);
+void UseSnapCaches (Session& s, const edit::SnapContext& context, edit::SnapQuery& q);
 edit::Vec3 SnappedTranslation (const Session& s, edit::Vec3 at);
 // Fill the kernel's optional view screening from this view's own mapping
 // (HudVirtualEditorSnap.cpp): a candidate must be near the pointer in this view's pixels, on

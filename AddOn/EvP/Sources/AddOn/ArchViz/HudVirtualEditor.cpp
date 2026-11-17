@@ -112,7 +112,9 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
     q.exclude = exclude;
     PrepareSnap (s, q);
     ScreenPointer (s, m, mouse, scale, q);
-    s.snap = edit::Snap (Doc (s), s.drawing.empty () ? s.context : context, q);
+    const edit::SnapContext& used = s.drawing.empty () ? s.context : context;
+    UseSnapCaches (s, used, q);
+    s.snap = edit::Snap (Doc (s), used, q);
     Acquire (s, s.snap);
     out = s.snap.point;
     return true;

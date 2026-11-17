@@ -299,7 +299,10 @@ const edit::PavedArea& PavedSurface (Session& s)
     const double step = SurfaceStep (s);
     if (s.pavedRevision != Doc (s).revision || s.pavedStep != step) {
         const std::string previousWarning = s.paved.warning;
-        s.paved = edit::Pave (Doc (s).paths, step);
+        s.paved = edit::Pave (Doc (s).paths, step, true, &s.outlines);
+        // A deleted path's outlines go with the repave that no longer holds it; every kept
+        // path has at most a few steps, so the cache stays as large as the network.
+        s.outlines.Retain (Doc (s).paths);
         if (s.message.empty () || s.message == previousWarning)
             s.message = s.paved.warning;
         s.pavedRevision = Doc (s).revision;
