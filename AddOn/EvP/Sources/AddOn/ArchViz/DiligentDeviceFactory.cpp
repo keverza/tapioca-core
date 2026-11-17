@@ -46,6 +46,17 @@ std::string BundledDxCompilerPath ()
     const std::wstring dll = dir.substr (0, slash + 1) + L"dxcompiler.dll";
     if (GetFileAttributesW (dll.c_str ()) == INVALID_FILE_ATTRIBUTES)
         return {};
+    // ⚠️ DXIL.DLL LOADED HERE, BY FULL PATH, BEFORE DXC EVER RUNS: dxcompiler.dll signs its output
+    // through LoadLibrary (L"dxil.dll") -- the bare name, searched from Archicad's directory, never
+    // ours. Unfound, DXC only warns, emits UNSIGNED DXIL, and D3D12 then refuses every PSO built
+    // from it ("Failed to create pipeline state"). An already-loaded module answers a bare-name
+    // load, so this handle is what DXC gets. Deliberately never freed: it lives with the process.
+    const std::wstring signer = dir.substr (0, slash + 1) + L"dxil.dll";
+    if (GetModuleHandleW (L"dxil.dll") == nullptr && LoadLibraryExW (signer.c_str (), nullptr, 0) == nullptr) {
+        ArchVizLog ("[#231] bundled dxil.dll did not load (error " + std::to_string (GetLastError ()) +
+                    "): DXC output would be unsigned, so the ray-traced style stays unavailable");
+        return {};
+    }
     const int bytes = WideCharToMultiByte (CP_ACP, 0, dll.c_str (), -1, nullptr, 0, nullptr, nullptr);
     if (bytes <= 1)
         return {};
