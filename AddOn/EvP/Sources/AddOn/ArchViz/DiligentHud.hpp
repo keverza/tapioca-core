@@ -929,7 +929,7 @@ class DiligentHud final {
     // no panels; the next Draw restores the panel's style.
     void DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,
                             const DiligentSceneStats& scene, const HudState& state);
-    // The strip's height for `scale`: a column header and up to four lines.
+    // The strip's height for `scale`: three lines and a thin margin.
     uint32_t CaptureLegendHeight (float scale) const;
 
   private:
@@ -941,10 +941,11 @@ class DiligentHud final {
 // the hours range, its legend, and the role legend. Draws nothing unless a
 // study is on screen.
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene);
-// The screenshot's legend strip, three columns (#156): Location (place and
-// north), Analysis period (date or period, traced hours, the shadows' day) and
-// the colour legend -- the gradient and its hour steps -- from the same
-// painter and view state the panel uses. Fills the width x height display.
+// The screenshot's legend strip, two halves (#156): on the left the location
+// (place and north) on one line and the analysis period (date or period,
+// traced hours, the shadows' day) on the next; on the right the colour legend
+// -- the gradient and its hour steps -- from the same painter and view state
+// the panel uses. Fills the width x height display.
 void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats& scene, uint32_t width,
                                 uint32_t height);
 // Its "Run sun study" form, in DiligentHudSunRun.cpp: date, timestep, cell

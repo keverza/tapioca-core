@@ -70,7 +70,15 @@ TEST (SunPath, CaptureLegendLocationNamesHemispheresAltitudeAndNorth)
     // No place ever arrived: say so, never "0.0000 N, 0.0000 E".
     const auto unknown = SunStudyCaptureLocationLines (false, 0.0f, 0.0f, 0.0f, 90.0f);
     ASSERT_EQ (unknown.size (), 1u);
-    EXPECT_EQ (unknown[0], "Not received from Archicad");
+    EXPECT_EQ (unknown[0], "Location not received from Archicad");
+}
+
+TEST (SunPath, CaptureLegendJoinsEachHalfLineWithBars)
+{
+    EXPECT_EQ (SunStudyCaptureJoin (SunStudyCaptureLocationLines (true, 54.6736f, 25.2250f, 120.0f, 90.0f)),
+               "54.6736 N, 25.2250 E | Altitude 120 m | North 90.0 deg CCW from +X");
+    EXPECT_EQ (SunStudyCaptureJoin ({ "2026-03-21, one day" }), "2026-03-21, one day");
+    EXPECT_TRUE (SunStudyCaptureJoin ({}).empty ());
 }
 
 TEST (SunPath, CaptureLegendPeriodSaysWhenAndWhichDayTheShadowsAre)

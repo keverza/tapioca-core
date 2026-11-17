@@ -463,39 +463,30 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
     // The whole strip: the caller cleared it white and it is the image's width.
     ImGui::SetNextWindowPos (ImVec2 (0.0f, 0.0f));
     ImGui::SetNextWindowSize (ImVec2 (float (width), float (height)));
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (font, 0.8f * font));
+    // Tight: the strip is CaptureLegendHeight's three lines and a margin.
+    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (font, 0.25f * font));
     ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar (ImGuiStyleVar_CellPadding, ImVec2 (font, 0.0f));
+    ImGui::PushStyleVar (ImGuiStyleVar_ItemSpacing, ImVec2 (ImGui::GetStyle ().ItemSpacing.x, 0.15f * font));
     ImGui::PushStyleColor (ImGuiCol_WindowBg, ImVec4 (1.0f, 1.0f, 1.0f, 1.0f));
     ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.12f, 0.12f, 0.12f, 1.0f));
-    ImGui::PushStyleColor (ImGuiCol_TextDisabled, ImVec4 (0.38f, 0.38f, 0.38f, 1.0f));
-    ImGui::PushStyleColor (ImGuiCol_TableBorderLight, ImVec4 (0.82f, 0.82f, 0.82f, 1.0f));
     ImGui::Begin ("##sun-capture-legend", nullptr,
                   ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs |
                       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollbar);
-    // ⚠️ THREE COLUMNS (#156): Location | Analysis period | Colour legend. The
-    // image leaves the panel behind, so where and when travel with the colours.
-    if (!ImGui::BeginTable ("##sun-capture-columns", 3,
-                            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV |
-                                ImGuiTableFlags_NoSavedSettings)) {
+    // ⚠️ TWO COLUMNS, NO HEADERS, NO RULES (#156): the left half is where and
+    // when, one line each joined with " | "; the right half is the colours.
+    // The image leaves the panel behind, so where and when travel with them.
+    if (!ImGui::BeginTable ("##sun-capture-columns", 2,
+                            ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
         ImGui::End ();
-        ImGui::PopStyleColor (4);
-        ImGui::PopStyleVar (3);
+        ImGui::PopStyleColor (2);
+        ImGui::PopStyleVar (4);
         return;
     }
-    // A quarter, a quarter, a half.
-    ImGui::TableSetupColumn ("Location", ImGuiTableColumnFlags_WidthStretch, 0.25f);
-    ImGui::TableSetupColumn ("Analysis period", ImGuiTableColumnFlags_WidthStretch, 0.25f);
-    ImGui::TableSetupColumn ("Colour legend", ImGuiTableColumnFlags_WidthStretch, 0.50f);
     ImGui::TableNextRow ();
-    const auto column = [] (const char* header, const std::vector<std::string>& lines) {
-        ImGui::TableNextColumn ();
-        ImGui::TextDisabled ("%s", header);
-        for (const std::string& line : lines)
-            ImGui::TextUnformatted (line.c_str ());
-    };
-    column ("Location", SunStudyCaptureLocationLines (scene.sunApplied, scene.latitudeDegrees, scene.longitudeDegrees,
-                                                      scene.siteAltitudeMetres, scene.northDegrees));
+    // Swatches that do not fit beside the colour title go to the left half's
+    // third line, so the strip never needs a fourth.
+    std::vector<std::pair<unsigned, std::string>> overflow;
     SunStudyCapturePeriod period;
     period.showsPeriod = state.sunShowsPeriod;
     period.periodLabel = state.sunPeriodLabel;
@@ -511,9 +502,8 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
             period.stepMinutes = int (study.stepMinutes[1]) - int (study.stepMinutes[0]);
     }
     period.shadowsOfOneDay = mode == 5 || mode == 6 || mode == 7;
-    column ("Analysis period", SunStudyCapturePeriodLines (period));
-    ImGui::TableNextColumn ();
-    ImGui::TextDisabled ("Colour legend");
+    // The colours first, so the left half knows what spilled over.
+    ImGui::TableSetColumnIndex (1);
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     if (mode == 0) {
         const SunStudyViewSettings view = SunStudyViewOf (state);
@@ -521,20 +511,24 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
         const bool periodTitle = state.sunShowsPeriod && !state.sunMapTitle.empty ();
         const float right = ImGui::GetCursorScreenPos ().x + ImGui::GetContentRegionAvail ().x;
         ImGui::TextUnformatted (periodTitle ? state.sunMapTitle.c_str () : "Direct sun hours");
-        // Beside the title while it fits the column, else on the next line:
+        // Beside the title while it fits the column, else to the left half:
         // a period's title is long and the column is half the strip.
+        bool spilled = false;
         const auto swatchAfter = [&] (unsigned hex, const std::string& label) {
             const float need = 2.0f * font + ImGui::GetTextLineHeight () + ImGui::GetStyle ().ItemSpacing.x +
                                ImGui::CalcTextSize (label.c_str ()).x;
-            if (ImGui::GetItemRectMax ().x + need <= right)
-                ImGui::SameLine (0.0f, 2.0f * font);
+            if (spilled || ImGui::GetItemRectMax ().x + need > right) {
+                spilled = true;
+                overflow.emplace_back (hex, label);
+                return;
+            }
+            ImGui::SameLine (0.0f, 2.0f * font);
             LegendSwatch (hex, label.c_str ());
         };
         if (view.shadowOverlay)
             swatchAfter (ShadowOnWhite (view.shadowRgba), "shadow at the viewer's sun");
-        if (view.blueThreshold > 0.0f) {
+        if (view.blueThreshold > 0.0f)
             swatchAfter (view.lowSunRgba >> 8, "low sun: below " + SunStudyClock (view.blueThreshold, true));
-        }
         // The gradient across the strip, and its hour steps under it: every
         // band edge when stepped, every hour when smooth.
         const ImVec2 at = ImGui::GetCursorScreenPos ();
@@ -569,11 +563,9 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
         // The column is half the strip: the title on its line, the swatches under it.
         const auto row = [&] (const char* title, std::initializer_list<std::pair<unsigned, const char*>> swatches) {
             ImGui::TextUnformatted (title);
-            bool first = true;
             for (const auto& swatch : swatches) {
-                if (!first)
+                if (&swatch != swatches.begin ())
                     ImGui::SameLine (0.0f, 2.0f * font);
-                first = false;
                 LegendSwatch (swatch.first, swatch.second);
             }
         };
@@ -599,10 +591,22 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
         else
             ImGui::TextUnformatted ("Sun study diagnostic view");
     }
+    // The left half: location on one line, the analysis period on the next.
+    ImGui::TableSetColumnIndex (0);
+    ImGui::TextUnformatted (SunStudyCaptureJoin (SunStudyCaptureLocationLines (
+                                                     scene.sunApplied, scene.latitudeDegrees, scene.longitudeDegrees,
+                                                     scene.siteAltitudeMetres, scene.northDegrees))
+                                .c_str ());
+    ImGui::TextUnformatted (SunStudyCaptureJoin (SunStudyCapturePeriodLines (period)).c_str ());
+    for (size_t i = 0; i < overflow.size (); ++i) {
+        if (i > 0)
+            ImGui::SameLine (0.0f, 2.0f * font);
+        LegendSwatch (overflow[i].first, overflow[i].second.c_str ());
+    }
     ImGui::EndTable ();
     ImGui::End ();
-    ImGui::PopStyleColor (4);
-    ImGui::PopStyleVar (3);
+    ImGui::PopStyleColor (2);
+    ImGui::PopStyleVar (4);
 }
 
 SunStudyViewSettings SunStudyViewOf (const HudState& state)

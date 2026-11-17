@@ -77,10 +77,19 @@ inline std::string SunPathAnalysisCaption (bool showsPeriod, const std::string& 
     return text;
 }
 
-// ---- the screenshot legend's text columns (#156) ----------------------------
-// The strip under a screenshot is three columns: Location, Analysis period and
-// the colour legend. These build the first two, one string per line, so the
-// image says where and when without the panel beside it.
+// ---- the screenshot legend's text (#156) --------------------------------------
+// The strip under a screenshot is two halves: on the left, the location on one
+// line and the analysis period on the next, each its parts joined with " | ";
+// on the right, the colour legend. These build the parts, so the image says
+// where and when without the panel beside it.
+
+inline std::string SunStudyCaptureJoin (const std::vector<std::string>& parts)
+{
+    std::string line;
+    for (const std::string& part : parts)
+        line += (line.empty () ? "" : " | ") + part;
+    return line;
+}
 
 // Where: the place Archicad's sun came from and the project north. `known`
 // false (no SetEnvironment ever arrived) says so instead of printing 0, 0.
@@ -89,7 +98,7 @@ inline std::vector<std::string> SunStudyCaptureLocationLines (bool known, float 
                                                               float altitudeMetres, float northDegrees)
 {
     if (!known || !std::isfinite (latitude) || !std::isfinite (longitude))
-        return { "Not received from Archicad" };
+        return { "Location not received from Archicad" };
     std::vector<std::string> lines;
     char text[96];
     std::snprintf (text, sizeof (text), "%.4f %c, %.4f %c", std::abs (latitude), latitude < 0.0f ? 'S' : 'N',
