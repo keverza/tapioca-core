@@ -25,6 +25,7 @@
    {"guid": "g1", "function": "residential", "story": 1, "z": 3, "floorHeight": 3, "rgba": 3870106111,
     "chains": [{"closed": true, "xy": [0, 0, 20, 0, 20, 8, 8, 8, 8, 20, 0, 20]}]},
    {"guid": "g2", "function": "office", "story": 2, "z": 6, "floorHeight": 3.5, "rgba": 1689051135,
+    "rawArea": 64, "allowedArea": 60,
     "chains": [{"closed": true, "xy": [0, 0, 8, 0, 8, 8, 0, 8]}]},
    {"guid": "g3", "function": "retail", "story": 0, "z": 0, "floorHeight": 4.5, "rgba": 4071211007,
     "chains": [{"closed": true, "xy": [30, 0, 40, 0, 40, 10, 30, 10]}]}

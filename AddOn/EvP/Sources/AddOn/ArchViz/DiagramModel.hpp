@@ -35,6 +35,13 @@ std::shared_ptr<const diagram::Publication> Read ();
 // off, hide off, or no publication yet -- never hide a source with nothing standing in).
 std::shared_ptr<const std::vector<std::string>> HiddenSource ();
 
+// The diagram's own selection (§5.9): one storey or none. Diagram-owned, so the scene's
+// world-space selection is cleared when it is set -- one highlight source at a time. It
+// survives a new publication only while its storey binding does; otherwise it is cleared
+// with a note, never moved to another storey.
+diagram::EntityId Selected ();
+void Select (const diagram::EntityId& id); // ANY THREAD; empty clears
+
 struct Status {
     std::string state; // one line for the HUD
     std::vector<std::string> notes;

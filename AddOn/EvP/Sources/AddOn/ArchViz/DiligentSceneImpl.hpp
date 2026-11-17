@@ -678,8 +678,9 @@ struct geomsrv::archviz::DiligentScene::Impl {
     DiagramLayer diagram;
     uint64_t diagramGeneration = 0;
     bool diagramInitFailed = false;
-    double diagramT = 0.0;        // displayed t, eased toward the commanded one
-    uint64_t diagramLastTick = 0; // GetTickCount64 of the last diagram frame
+    double diagramT = 0.0;                                                // displayed t, eased toward the commanded one
+    uint64_t diagramLastTick = 0;                                         // GetTickCount64 of the last diagram frame
+    std::function<void (int32_t, int32_t, float[3], float[3])> cursorRay; // this frame's camera
     void ShutdownDiagram ()
     {
         diagram.Shutdown ();

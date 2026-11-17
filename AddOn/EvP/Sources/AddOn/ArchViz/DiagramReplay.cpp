@@ -39,6 +39,8 @@ V WriteResult (const massingslices::Result& result, bool nested)
         o["z"] = Number (row.z);
         o["floorHeight"] = Number (row.floorHeight);
         o["rgba"] = V::Integer (static_cast<int64_t> (row.rgba));
+        o["rawArea"] = Number (row.rawArea);
+        o["allowedArea"] = Number (row.allowedArea);
         o["chains"] = Chains (row.chains);
         if (!row.rawChains.empty ())
             o["rawChains"] = Chains (row.rawChains);
@@ -117,6 +119,15 @@ bool ReadResult (const V& value, massingslices::Result& out, bool nested, std::s
             !ReadDouble (item, "floorHeight", row.floorHeight) || !c || !c->AsInteger (rgba) ||
             !ReadChains (item.Find ("chains"), row.chains) || !ReadChains (item.Find ("rawChains"), row.rawChains)) {
             error = "Capture row " + std::to_string (i) + " is malformed.";
+            return false;
+        }
+        // Optional: the inspector's areas (absent in hand-written fixtures, which read 0).
+        if (item.Find ("rawArea") && !ReadDouble (item, "rawArea", row.rawArea)) {
+            error = "Capture row " + std::to_string (i) + " has a malformed rawArea.";
+            return false;
+        }
+        if (item.Find ("allowedArea") && !ReadDouble (item, "allowedArea", row.allowedArea)) {
+            error = "Capture row " + std::to_string (i) + " has a malformed allowedArea.";
             return false;
         }
         row.story = static_cast<int> (story);

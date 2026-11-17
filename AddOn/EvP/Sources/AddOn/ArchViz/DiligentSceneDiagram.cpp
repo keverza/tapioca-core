@@ -47,12 +47,44 @@ void DiligentScene::DrawDiagram (Diligent::IDeviceContext* context, const float 
     const double target = controls.explode;
     impl_->diagramT = impl_->diagramT < target ? (std::min) (target, impl_->diagramT + step)
                                                : (std::max) (target, impl_->diagramT - step);
-    const diagram::Frame frame = diagram::Evaluate (publication->plan, {}, impl_->diagramT);
+    const auto selected = diagrammodel::Selected ();
+    const diagram::Frame frame = diagram::Evaluate (
+        publication->plan, selected.Empty () ? std::vector<diagram::EntityId> {} : std::vector { selected },
+        impl_->diagramT);
     // The viewer draws world metres: the render origin is zero (DiagramGeometry.hpp).
     const auto draws = diagram::DrawsOf (publication->geometry, publication->plan, frame, diagram::Vec3 {});
     impl_->diagram.Draw (context, viewProj, draws, DiagramLayer::DrawParams {});
     diagrammodel::ReportDraw (impl_->diagram.UploadCount (), impl_->diagram.UploadedBytes (),
                               impl_->diagram.DrawCount (), impl_->diagramT);
+}
+
+void DiligentScene::SetCursorRay (CursorRayFn ray)
+{
+    if (impl_ != nullptr)
+        impl_->cursorRay = std::move (ray);
+}
+
+bool DiligentScene::PickDiagram (int32_t px, int32_t py)
+{
+    if (impl_ == nullptr || !impl_->cursorRay || !diagrammodel::ReadControls ().enabled)
+        return false;
+    const auto publication = diagrammodel::Read ();
+    if (!publication)
+        return false;
+    float origin[3], direction[3];
+    impl_->cursorRay (px, py, origin, direction);
+    // The pose being shown, not the commanded one: a click lands on what the user sees.
+    const diagram::Frame frame = diagram::Evaluate (publication->plan, {}, impl_->diagramT);
+    const auto hit =
+        diagram::Pick (frame, publication->plan, publication->shells, diagram::Vec3 { origin[0], origin[1], origin[2] },
+                       diagram::Vec3 { direction[0], direction[1], direction[2] });
+    if (!hit) {
+        diagrammodel::Select ({});
+        return false; // terrain, neighbours and the sky stay the model's to pick
+    }
+    diagrammodel::Select (hit->id);
+    SetSelection ({}); // one highlight source: the diagram's
+    return true;
 }
 
 } // namespace archviz

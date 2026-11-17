@@ -87,6 +87,37 @@ bool DiagramPage (float ui)
         }
     }
 
+    if (controls.enabled && publication) {
+        ImGui::SeparatorText ("Selected storey");
+        const auto selected = diagrammodel::Selected ();
+        const auto info = selected.Empty () ? publication->storeyInfo.end () : publication->storeyInfo.find (selected);
+        if (info == publication->storeyInfo.end ())
+            Wrapped ("Click a storey in the diagram to inspect it.");
+        else {
+            const auto& s = info->second;
+            char line[200];
+            const std::string building = s.buildingId.empty () ? "unnamed slab" : "building " + s.buildingId;
+            const std::string story = s.storyName.empty () ? "story " + std::to_string (s.sourceStory) : s.storyName;
+            Wrapped (building + ", " + story);
+            std::snprintf (line, sizeof (line), "z %.2f to %.2f m (%.2f m)", s.z, s.top, s.top - s.z);
+            Wrapped (line);
+            if (s.rawArea > 0 || s.allowedArea > 0) {
+                std::snprintf (line, sizeof (line), "Area %.1f m2, allowed %.1f m2", s.rawArea, s.allowedArea);
+                Wrapped (line);
+            }
+            std::string functions;
+            for (const auto& f : s.functions)
+                functions += (functions.empty () ? "" : ", ") + f;
+            if (!functions.empty ())
+                Wrapped ("Function: " + functions);
+            Wrapped (s.planned ? "Planned" : "Not planned: a storey shell, no apartments yet");
+            std::snprintf (line, sizeof (line), "%zu source slab(s); read-only", s.slabs.size ());
+            Wrapped (line);
+            if (ImGui::Button ("Clear selection"))
+                diagrammodel::Select ({});
+        }
+    }
+
     ImGui::SeparatorText ("Capture");
     if (ImGui::Button ("Save capture (JSON)"))
         diagrammodel::RequestSave ();

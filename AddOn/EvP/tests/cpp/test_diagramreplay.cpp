@@ -177,3 +177,53 @@ TEST (DiagramPublication, ARefusedSnapshotKeepsTheSessionBindings)
     ASSERT_TRUE (second.publication);
     EXPECT_EQ (second.bindings.byBuilding.at ("building:A")[1].id, first.bindings.byBuilding.at ("building:A")[1].id);
 }
+
+TEST (DiagramPublication, StoreySummariesCarryTheSourceFields)
+{
+    const auto prepared = Replay (Fixture ());
+    ASSERT_TRUE (prepared.publication);
+    const auto& info = prepared.publication->storeyInfo;
+    ASSERT_EQ (info.size (), 4u);
+    const dg::StoreySummary* top = nullptr;
+    for (const auto& [id, s] : info)
+        if (s.buildingKey == "building:A" && s.sourceStory == 2)
+            top = &s;
+    ASSERT_TRUE (top);
+    EXPECT_EQ (top->buildingId, "A");
+    EXPECT_EQ (top->storyName, "Second");
+    EXPECT_DOUBLE_EQ (top->z, 6.0);
+    EXPECT_DOUBLE_EQ (top->top, 9.5);
+    EXPECT_DOUBLE_EQ (top->rawArea, 64.0);
+    EXPECT_DOUBLE_EQ (top->allowedArea, 60.0);
+    EXPECT_EQ (top->functions, (std::vector<std::string> { "office" }));
+    EXPECT_EQ (top->slabs, (std::vector<std::string> { "g2" }));
+    EXPECT_FALSE (top->planned);
+}
+
+TEST (DiagramPublication, AClickPicksTheDisplacedStoreyNotItsSource)
+{
+    const auto prepared = Replay (Fixture ());
+    ASSERT_TRUE (prepared.publication);
+    const auto& p = *prepared.publication;
+    const dg::EntityId* topId = nullptr;
+    for (const auto& [id, s] : p.storeyInfo)
+        if (s.buildingKey == "building:A" && s.sourceStory == 2)
+            topId = &id;
+    ASSERT_TRUE (topId);
+    const int node = p.plan.Find (*topId);
+    ASSERT_GE (node, 0);
+    const auto exploded = dg::Evaluate (p.plan, {}, 1.0);
+    const auto& pose = exploded.poses[size_t (node)];
+    ASSERT_GT (pose.offset[2], 0.5); // it rose
+    // Straight down through the set-back top's centre, from above everything.
+    const dg::Vec3 down { 0, 0, -1 };
+    const dg::Vec3 above { pose.pivot[0] + pose.offset[0], pose.pivot[1] + pose.offset[1], 100 };
+    const auto hit = dg::Pick (exploded, p.plan, p.shells, above, down);
+    ASSERT_TRUE (hit);
+    EXPECT_EQ (hit->id, *topId);
+    EXPECT_NEAR (hit->point[2], 9.5 + pose.offset[2], 1e-6); // its displaced roof, not its source roof
+    // A horizontal ray at the top's SOURCE height, beside the lower storeys, finds nothing of it.
+    const dg::Vec3 side { -50, 4, 7.5 };
+    const auto miss = dg::Pick (exploded, p.plan, p.shells, side, dg::Vec3 { 1, 0, 0 });
+    EXPECT_TRUE (!miss || miss->id != *topId);
+}

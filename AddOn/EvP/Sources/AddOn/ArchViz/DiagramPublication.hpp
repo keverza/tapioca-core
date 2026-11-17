@@ -17,7 +17,8 @@ struct Publication {
     LayoutPlan plan;
     DiagramGeometry geometry;
     std::vector<PickMesh> shells;
-    std::vector<std::string> representedGuids; // sorted; what "hide source" hides
+    std::vector<std::string> representedGuids;    // sorted; what "hide source" hides
+    std::map<EntityId, StoreySummary> storeyInfo; // the inspector's fields per storey
     std::vector<std::string> notes;
     size_t buildings = 0, storeys = 0;
     double buildMs = 0;

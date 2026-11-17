@@ -20,6 +20,7 @@ namespace {
 std::mutex s_mutex; // guards s_controls, s_status
 Controls s_controls;
 Status s_status;
+diagram::EntityId s_selected;
 std::atomic<std::shared_ptr<const diagram::Publication>> s_publication;
 std::atomic<std::shared_ptr<const std::vector<std::string>>> s_hidden;
 std::atomic<bool> s_saveRequested { false };
@@ -127,9 +128,15 @@ void Adopt ()
     }
     s_bindings = std::move (prepared.bindings);
     const auto& p = *prepared.publication;
+    std::vector<std::string> kept;
+    if (!s_selected.Empty () && p.plan.Find (s_selected) < 0) {
+        kept.push_back ("Selection cleared: its storey is no longer in the diagram.");
+        s_selected = {};
+    }
     s_status.state = std::to_string (p.buildings) + " building(s), " + std::to_string (p.storeys) + " storey(s)" +
                      (p.domain == diagram::StoreyDomain::ProjectStories ? " on project stories" : " on massing floors");
     s_status.notes = p.notes;
+    s_status.notes.insert (s_status.notes.begin (), kept.begin (), kept.end ());
     ++s_status.publications;
     s_publication.store (std::move (prepared.publication));
 }
@@ -155,6 +162,16 @@ void Request (std::shared_ptr<const massingslices::Result> slices, ProjectStorey
 }
 } // namespace
 
+diagram::EntityId Selected ()
+{
+    std::lock_guard<std::mutex> lock (s_mutex);
+    return s_selected;
+}
+void Select (const diagram::EntityId& id)
+{
+    std::lock_guard<std::mutex> lock (s_mutex);
+    s_selected = id;
+}
 Controls ReadControls ()
 {
     std::lock_guard<std::mutex> lock (s_mutex);
@@ -246,5 +263,6 @@ void Forget ()
     std::lock_guard<std::mutex> lock (s_mutex);
     s_controls = {};
     s_status = {};
+    s_selected = {};
 }
 } // namespace geomsrv::archviz::diagrammodel

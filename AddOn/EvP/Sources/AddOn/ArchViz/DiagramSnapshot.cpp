@@ -243,6 +243,28 @@ BuiltScene BuildScene (const DiagramInputSnapshot& snapshot, StoreyBindings& bin
             storey.source.sourceStory = floor.story;
             storey.planned = false;
             built.colours[storey.id] = floor.rows.front ()->rgba;
+            {
+                StoreySummary summary;
+                summary.buildingKey = group.key;
+                summary.buildingId = group.id;
+                summary.sourceStory = floor.story;
+                summary.z = floor.z;
+                summary.top = floor.top;
+                for (size_t s = 0; s < snapshot.storeys.indices.size () && s < snapshot.storeys.names.size (); ++s)
+                    if (snapshot.domain == StoreyDomain::ProjectStories && snapshot.storeys.indices[s] == floor.story)
+                        summary.storyName = snapshot.storeys.names[s];
+                std::set<std::string> slabs;
+                for (const auto* row : floor.rows) {
+                    summary.rawArea += row->rawArea;
+                    summary.allowedArea += row->allowedArea;
+                    if (!row->function.empty () && std::find (summary.functions.begin (), summary.functions.end (),
+                                                              row->function) == summary.functions.end ())
+                        summary.functions.push_back (row->function);
+                    slabs.insert (row->guid);
+                }
+                summary.slabs.assign (slabs.begin (), slabs.end ());
+                built.storeys[storey.id] = std::move (summary);
+            }
             storey.boundsMin = { 0, 0, floor.z };
             storey.boundsMax = { 0, 0, floor.top };
             const bool geometry = mesh.points.size () >= 3;

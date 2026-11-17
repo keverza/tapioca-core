@@ -31,6 +31,10 @@ void SetDiligentCameraRays (DiligentScene& scene, const Camera& camera, uint32_t
         }
     }
     scene.SetCameraRays (rayRight, rayUp, forward);
+    // The click's ray for the diagram's CPU pick: the camera itself, never a second basis.
+    scene.SetCursorRay ([camera, width, height] (int32_t px, int32_t py, float origin[3], float direction[3]) {
+        camera.CursorRay (px, py, width, height, origin, direction);
+    });
 }
 
 } // namespace geomsrv::archviz

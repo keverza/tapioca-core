@@ -661,6 +661,10 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled, Dili
     // anywhere saying so. That is the reported "sometimes does not register
     // selection", and the hover requests below would have made it the common case
     // rather than a rare one.
+    // #201: a click on the exploded diagram is the diagram's, exactly and at once (CPU); only a
+    // miss goes on to the model's id pass. Aimed where the button went down, like the id pass.
+    if (clicked && scene.PickDiagram (state.leftDownX, state.leftDownY))
+        clicked = false;
     state.clickPending = clicked && pick.HasPendingRequest ();
 
     // ---- hover (PLAT-RE43, PLAT-RE136) -------------------------------------

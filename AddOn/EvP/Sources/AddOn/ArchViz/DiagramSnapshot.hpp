@@ -66,11 +66,25 @@ struct StoreyBindings {
     uint64_t nextSerial = 1;
 };
 
+// What the inspector says about a storey: source fields as published, never re-measured
+// (§5.9 synthesized read-only page; metrics authority stays with the massing result, #165).
+struct StoreySummary {
+    std::string buildingKey, buildingId; // id empty for a slab without an authored building ID
+    int sourceStory = 0;
+    std::string storyName; // the project story's name, when the domain is project stories
+    double z = 0, top = 0;
+    double rawArea = 0, allowedArea = 0; // sums of the storey's rows, m2
+    std::vector<std::string> functions;  // distinct, in row order
+    std::vector<std::string> slabs;      // source GUIDs, sorted
+    bool planned = false;
+};
+
 struct BuiltScene {
     std::shared_ptr<const Scene> scene;        // null when the snapshot is incompatible
     std::vector<PickMesh> shells;              // one per storey, node-local; also the draw source
     std::vector<std::string> representedGuids; // source slabs the diagram stands in for, sorted
     std::map<EntityId, uint32_t> colours;      // storey -> its first row's function colour, 0xRRGGBBAA
+    std::map<EntityId, StoreySummary> storeys; // storey -> inspector fields
     std::vector<EntityId> dropped;             // storey bindings with no successor
     std::vector<std::string> notes;
     RevisionSet revisions;

@@ -45,6 +45,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -612,6 +613,15 @@ class DiligentScene final {
     // frame time. Nothing is drawn while Diagram Mode is off.
     void DrawDiagram (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t colorBufferFormat,
                       uint32_t depthBufferFormat);
+    // The frame camera's world ray through a render-target pixel (Camera::CursorRay), set each
+    // frame by SetDiligentCameraRays so the scene can pick the diagram exactly on the CPU.
+    using CursorRayFn = std::function<void (int32_t px, int32_t py, float origin[3], float direction[3])>;
+    void SetCursorRay (CursorRayFn ray);
+    // #201: an exact CPU pick of the diagram at a click's pixel, against the frame being drawn.
+    // True when a storey took the click: it becomes the diagram's selection and the model's is
+    // cleared. False (Diagram Mode off, or a miss) leaves the click to the model's id pass;
+    // a miss also clears the diagram's selection. Hidden source never wins: it is not drawn.
+    bool PickDiagram (int32_t px, int32_t py);
 
     // For the HUD. `labels` non-zero while nothing is drawn is the answer to
     // "my text panel shows nothing"; `deferredKinds` is the answer to "my points
