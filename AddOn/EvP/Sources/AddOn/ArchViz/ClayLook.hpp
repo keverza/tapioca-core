@@ -65,6 +65,13 @@ DrawnSurface ResolveDrawnSurface (const SurfaceMaterial& material, const Surface
 // may turn panes solid. Equal to `ResolveDrawnSurface (...).alpha`.
 float DrawnAlpha (const SurfaceMaterial& material, const ClayLook& clay);
 
+// The sun study's display model (issue #230): matte white, roughness 1, dielectric, and
+// every pane opaque so translucent study colours cannot stack by draw order. Expressed
+// as a clay look so the forward pass, the G-buffer, the shadow casters and the AO depth
+// prepass all draw the SAME surface while a study is shown -- before #230 only the
+// forward pass knew about it.
+ClayLook StudyModelLook ();
+
 // The HUD stores colours as sRGB 0xRRGGBBAA; the renderer wants linear.
 ClayLook ClayLookFromHud (bool enabled, uint32_t srgbRgba, float roughness, bool keepGlass);
 

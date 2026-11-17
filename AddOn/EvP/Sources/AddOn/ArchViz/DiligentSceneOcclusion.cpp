@@ -173,6 +173,8 @@ bool DiligentScene::DrawOcclusionDepth (Diligent::IDeviceContext* context, const
     // preview inside the building -- and it would do so ONLY in wireframe mode,
     // so one model would occlude differently depending on a display switch.
     size_t draws = 0;
+    // #230: the same opacity the image is drawn with, study model or clay included.
+    const ClayLook look = impl_->SurfaceLook (impl_->StudyModelShown ());
     for (const Entry& e : impl_->elements) {
         if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr || e.hidden)
             continue;
@@ -183,7 +185,7 @@ bool DiligentScene::DrawOcclusionDepth (Diligent::IDeviceContext* context, const
         for (const MaterialRange& r : e.ranges) {
             if (r.indexCount == 0)
                 continue;
-            if (DrawnAlpha (impl_->materials.Lookup (r.material), impl_->clay) < kOpaqueAlpha)
+            if (DrawnAlpha (impl_->materials.Lookup (r.material), look) < kOpaqueAlpha)
                 continue;
             if (!bound) {
                 BindMesh (context, e);

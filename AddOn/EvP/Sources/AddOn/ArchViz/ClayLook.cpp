@@ -51,6 +51,16 @@ float DrawnAlpha (const SurfaceMaterial& material, const ClayLook& clay)
     return 1.0f;
 }
 
+ClayLook StudyModelLook ()
+{
+    ClayLook study;
+    study.enabled = true;
+    study.r = study.g = study.b = 1.0f;
+    study.roughness = 1.0f;
+    study.keepGlass = false;
+    return study;
+}
+
 ClayLook ClayLookFromHud (bool enabled, uint32_t srgbRgba, float roughness, bool keepGlass)
 {
     ClayLook clay;

@@ -224,6 +224,7 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
         impl_->drawCalls = 0;
 
     const SurfaceMaterial defaultMaterial;
+    const ClayLook look = impl_->SurfaceLook (impl_->StudyModelShown ()); // #230: as the forward pass
     auto uploadMaterial = [&] (const DrawnSurface& surface) {
         constants.baseColor[0] = surface.r;
         constants.baseColor[1] = surface.g;
@@ -247,7 +248,7 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
             // The SAME resolution as the forward pass (ClayLook.hpp), so SSR and AO
             // see the surfaces the image shows; the helper meshes are never clay.
             const DrawnSurface surface = consultMaterials
-                                             ? ResolveDrawnSurface (material, PresetFor (material), impl_->clay)
+                                             ? ResolveDrawnSurface (material, PresetFor (material), look)
                                              : ResolveDrawnSurface (material, SurfacePreset {}, ClayLook {});
             if (consultMaterials) {
                 if (appendTransparent) {

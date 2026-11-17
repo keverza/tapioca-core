@@ -51,6 +51,7 @@ bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context, const fl
     // whole floor plate behind it -- the same fault as a transparent surface
     // writing depth in the main pass, in a place where it is much harder to
     // recognise.
+    const ClayLook look = impl_->SurfaceLook (impl_->StudyModelShown ()); // #230
     auto shadowCastRanges = [&] (const Entry& e, bool consultMaterials) {
         if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr || e.hidden)
             return;
@@ -58,7 +59,7 @@ bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context, const fl
         for (const MaterialRange& r : e.ranges) {
             if (r.indexCount == 0)
                 continue;
-            if (consultMaterials && DrawnAlpha (impl_->materials.Lookup (r.material), impl_->clay) < kOpaqueAlpha)
+            if (consultMaterials && DrawnAlpha (impl_->materials.Lookup (r.material), look) < kOpaqueAlpha)
                 continue;
             DrawEntryRange (context, e, r);
         }
@@ -733,9 +734,9 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // valid, not so the shader reads it.
     constants.gradeParams[3] = impl_->aoView != nullptr ? impl_->aoIntensity : 0.0f;
 
-    const uint32_t studyMode = impl_->sunViewOverride >= 0 ? uint32_t (impl_->sunViewOverride) : impl_->sunDebugMode;
-    const bool studyModel = debugView == 0 && impl_->sunAtlasSRV != nullptr && impl_->sunElementsAttached > 0 &&
-                            !impl_->sunTintInitFailed && (studyMode == 0 || studyMode >= 5);
+    const bool studyModel = debugView == 0 && impl_->StudyModelShown ();
+    // #230: the study model is a clay look (StudyModelLook), resolved like any other.
+    const ClayLook surfaceLook = impl_->SurfaceLook (studyModel);
     // A display-only matte-white override; original materials/render preferences
     // return when the study is hidden. Opaque glass writes the same nearest depth
     // as other receivers, preventing translucent study colours stacking by draw order.
@@ -795,26 +796,22 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 // ⚠️ AND THE CLAY OVERRIDE (ClayLook.hpp) IS RESOLVED BEFORE THE
                 // PASS PARTITION: with glass kept off, a pane becomes opaque and
                 // must leave the blended pass, so `blended` reads the RESOLVED alpha.
-                const DrawnSurface drawn = ResolveDrawnSurface (mat, PresetFor (mat), impl_->clay);
+                const DrawnSurface drawn = ResolveDrawnSurface (mat, PresetFor (mat), surfaceLook);
                 // ⚠️ A SELECTED ELEMENT DRAWS EXACTLY AS AN UNSELECTED ONE
                 // (issue #118). It used to be tinted cyan and forced into this
                 // pass translucent; the selection is now marked at its edges by
                 // DrawLineOverlays, so its surfaces keep their material, their
                 // pass and their depth.
-                const bool blended = !studyModel && drawn.alpha < kOpaqueAlpha;
+                const bool blended = drawn.alpha < kOpaqueAlpha;
                 if (blended != transparentPass)
                     continue;
                 // ⚠️ NOT NAMED r/g/b -- `r` is the MaterialRange this loop is
                 // over, and shadowing it hands the range's colour to the draw.
-                const float surfaceR = studyModel ? 1.0f : drawn.r;
-                const float surfaceG = studyModel ? 1.0f : drawn.g;
-                const float surfaceB = studyModel ? 1.0f : drawn.b;
-                const float alpha = studyModel ? 1.0f : drawn.alpha;
                 // ⚠️ PER RANGE, NOT PER FRAME. Hoisting the upload out of this
                 // loop paints every range in the last material's colour -- and
                 // now its finish too, in both channels.
-                uploadConstants (surfaceR, surfaceG, surfaceB, alpha, studyModel ? 1.0f : drawn.roughness,
-                                 studyModel ? 0.5f : drawn.reflectance, studyModel ? 0.0f : drawn.metallic);
+                uploadConstants (drawn.r, drawn.g, drawn.b, drawn.alpha, drawn.roughness, drawn.reflectance,
+                                 drawn.metallic);
                 drawRange (e, r, blended);
             }
         }

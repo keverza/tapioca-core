@@ -145,3 +145,23 @@ TEST (ClayLook, LuminanceIsRec709)
     clay.g = clay.b = 0.0f;
     EXPECT_NEAR (ClayLuminance (clay), 0.2126f, 1.0e-6f);
 }
+
+// #230: the sun study's display model, now resolved through ClayLook in every pass,
+// must draw exactly what the forward pass's old ternaries drew -- white, roughness 1,
+// specular 0.5, dielectric, and glass OPAQUE so it casts, occludes and leaves the
+// blended pass.
+TEST (ClayLook, StudyModelMatchesTheOldForwardOverride)
+{
+    const ClayLook study = StudyModelLook ();
+    for (const SurfaceMaterial& m : { Paint (), Glass () }) {
+        const DrawnSurface d = ResolveDrawnSurface (m, Metal (), study);
+        EXPECT_FLOAT_EQ (d.r, 1.0f);
+        EXPECT_FLOAT_EQ (d.g, 1.0f);
+        EXPECT_FLOAT_EQ (d.b, 1.0f);
+        EXPECT_FLOAT_EQ (d.alpha, 1.0f);
+        EXPECT_FLOAT_EQ (d.roughness, 1.0f);
+        EXPECT_FLOAT_EQ (d.reflectance, 0.5f);
+        EXPECT_FLOAT_EQ (d.metallic, 0.0f);
+        EXPECT_FLOAT_EQ (DrawnAlpha (m, study), 1.0f);
+    }
+}

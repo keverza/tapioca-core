@@ -797,6 +797,23 @@ struct geomsrv::archviz::DiligentScene::Impl {
                                     : (sunViewOverride >= 0 ? uint32_t (sunViewOverride) : sunDebugMode);
     }
 
+    // Whether the sun study's matte-white display model replaces the materials (#230).
+    // ⚠️ SCENE STATE ONLY, NO DEBUG VIEW: the passes that prepare the frame (shadow
+    // casters, AO depth, G-buffer) do not know it, so a diagnostic view during a study
+    // shows them the study model -- what the study's image is lit and occluded by. The
+    // forward pass additionally requires the final view, as it always did.
+    bool StudyModelShown () const
+    {
+        const uint32_t mode = sunViewOverride >= 0 ? uint32_t (sunViewOverride) : sunDebugMode;
+        return sunAtlasSRV != nullptr && sunElementsAttached > 0 && !sunTintInitFailed && (mode == 0 || mode >= 5);
+    }
+
+    // The look every pass resolves surfaces through: the study model over the HUD's clay.
+    ClayLook SurfaceLook (bool studyModel) const
+    {
+        return studyModel ? StudyModelLook () : clay;
+    }
+
     // The step the single shadow shows, when it is shown and its sun is known.
     // ⚠️ THE STUDY'S SUN, NOT THE HOST'S: the preview's outline must be cast by
     // the date, place and time the study measured, or it disagrees with the
