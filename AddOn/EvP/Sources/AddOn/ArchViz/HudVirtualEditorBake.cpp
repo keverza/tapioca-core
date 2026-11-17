@@ -6,6 +6,7 @@
 #include "ArchViz/HudVirtualEditorTerrainState.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "Edit/EditLandscapeFieldPlan.hpp"
+#include "Edit/EditTerrainDetail.hpp"
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditPublishedTerrain.hpp"
@@ -99,14 +100,23 @@ const edit::BakePlan* TerrainBakePlan (Session& s, std::string* why)
     if (!built)
         return nullptr;
     auto& bake = s.bake;
-    if (bake.generation != built->generation || !(bake.planned == bake.options)) {
+    // Surface: the surface the editor shows (Mesh detail), else the full build.
+    const auto* detailed = bake.options.mode == edit::BakeMode::Surface ? ShownTerrainDetail (s) : nullptr;
+    if (bake.generation != built->generation || !(bake.planned == bake.options) || bake.surface != detailed) {
         const auto* published = built->published.get ();
-        bake.plan = edit::PlanTerrainBake (
-            published ? published->points : built->result.build.points,
-            published ? published->triangles : built->result.build.triangles, bake.options,
-            bake.options.mode == edit::BakeMode::Signature ? Design (s, *built) : edit::BakeDesign {});
+        const auto& points = detailed ? detailed->points : published ? published->points : built->result.build.points;
+        const auto& triangles = detailed    ? detailed->triangles
+                                : published ? published->triangles
+                                            : built->result.build.triangles;
+        edit::BakeDesign design;
+        if (bake.options.mode == edit::BakeMode::Signature)
+            design = Design (s, *built);
+        else if (detailed)
+            design.edges = detailed->lines;
+        bake.plan = edit::PlanTerrainBake (points, triangles, bake.options, design);
         bake.generation = built->generation;
         bake.planned = bake.options;
+        bake.surface = detailed;
     }
     if (!bake.plan.ok && why)
         *why = bake.plan.error;
@@ -261,22 +271,31 @@ void TerrainBakePanel (Session& s)
         hudshell::HoverTip ("What was modelled: each path's and grading region's outline (green) and its toe, "
                             "where the slope meets the existing ground (blue). The ground the design left alone "
                             "keeps its own peaks and breaks (grey) and a few contours.");
+    ImGui::RadioButton ("As built", &mode, int (edit::BakeMode::Surface)); // its own line: the panel is narrow
+    if (ImGui::IsItemHovered ())
+        hudshell::HoverTip ("The surface shown, at its Mesh detail: the same points and edges, so the Mesh is the "
+                            "terrain you see. The existing ground, fixed heights and the paths' lines stay exact.");
     options.mode = edit::BakeMode (mode);
     const bool signature = options.mode == edit::BakeMode::Signature;
+    const bool surface = options.mode == edit::BakeMode::Surface;
     // Labels above their controls: the panel is narrow.
     const float width = std::min (ImGui::GetContentRegionAvail ().x, 220.0f);
     const auto units = edit::CurrentDisplayUnits ();
     const std::string symbol = edit::LengthSymbol (units);
-    const std::string intervalLabel =
-        (signature ? "Soft-ground contour interval (" : "Contour interval (") + symbol + ", 0: automatic)";
-    ImGui::TextWrapped ("%s", intervalLabel.c_str ());
-    ImGui::SetNextItemWidth (width);
-    LengthDrag ({ "##bake-interval", 0.0, 10.0, 0.05, 2 }, options.interval);
-    ImGui::TextWrapped ("%s", WithLengthUnit (units, "Point reduction").c_str ());
-    ImGui::SetNextItemWidth (width);
-    LengthSlider ({ "##bake-tolerance", 0.0, 0.5, 0.0, 3 }, options.tolerance);
-    if (ImGui::IsItemHovered ())
-        hudshell::HoverTip ("A point is dropped while its line stays within this distance of the traced one.");
+    if (surface)
+        MeshDetailControl (s);
+    else {
+        const std::string intervalLabel =
+            (signature ? "Soft-ground contour interval (" : "Contour interval (") + symbol + ", 0: automatic)";
+        ImGui::TextWrapped ("%s", intervalLabel.c_str ());
+        ImGui::SetNextItemWidth (width);
+        LengthDrag ({ "##bake-interval", 0.0, 10.0, 0.05, 2 }, options.interval);
+        ImGui::TextWrapped ("%s", WithLengthUnit (units, "Point reduction").c_str ());
+        ImGui::SetNextItemWidth (width);
+        LengthSlider ({ "##bake-tolerance", 0.0, 0.5, 0.0, 3 }, options.tolerance);
+        if (ImGui::IsItemHovered ())
+            hudshell::HoverTip ("A point is dropped while its line stays within this distance of the traced one.");
+    }
     if (signature) {
         ImGui::TextWrapped ("%s", WithLengthUnit (units, "Shortest design line").c_str ());
         ImGui::SetNextItemWidth (width);
@@ -317,7 +336,9 @@ void TerrainBakePanel (Session& s)
          : line.kind == edit::BakeLineKind::Crease ? creases
                                                    : contours) += 1;
     ImGui::TextWrapped ("Outline: %zu points (%zu traced)", plan->outline.size (), plan->outlineTraced);
-    if (signature) {
+    if (surface)
+        ImGui::TextWrapped ("%zu level lines through every point of the surface shown", plan->lines.size ());
+    else if (signature) {
         ImGui::TextWrapped ("%zu design outlines, %zu toe lines, %zu contours at %.*f m", outlines, toes, contours,
                             edit::StepDecimals (plan->interval), plan->interval);
         if (creases)

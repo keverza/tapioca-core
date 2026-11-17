@@ -6,6 +6,8 @@
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditTerrainDesignJob.hpp"
 #include "Edit/EditPublishedTerrain.hpp"
+#include "Edit/EditTerrainDetail.hpp"
+#include "Edit/EditTerrainBake.hpp"
 #include "Edit/EditTerrainOutline.hpp"
 #include "Geometry/GeometryRustOutlineTerrain.hpp"
 #include "Geometry/Mesh.hpp"
@@ -1870,7 +1872,28 @@ TEST (VirtualEditorDebug, ReplayDumpFromEnvironment)
                           << " ms=" << previewed.milliseconds
                           << " triangles=" << previewed.preview.triangles.size () / 3
                           << " lines=" << previewed.preview.lines.size () << " fill=" << previewed.preview.fill
-                          << " cut=" << previewed.preview.cut << " error=" << previewed.error << std::endl;
+                          << " cut=" << previewed.preview.cut << " reach=" << previewed.preview.reach
+                          << " unreached=" << previewed.preview.unreached << " error=" << previewed.error << std::endl;
+#ifdef _WIN32
+                const auto* previewOut = _wgetenv (L"TAPIOCA_VIRTUAL_EDITOR_REPLAY_PREVIEW_OUT");
+#else
+                const auto* previewOut = std::getenv ("TAPIOCA_VIRTUAL_EDITOR_REPLAY_PREVIEW_OUT");
+#endif
+                // Optional: the preview's surface as flat JSON arrays, to compare with the build's.
+                if (previewOut && *previewOut && previewed.built) {
+                    std::ofstream file { std::filesystem::path (previewOut), std::ios::binary };
+                    file.precision (17);
+                    const auto write = [&file] (const char* name, const auto& values, bool last) {
+                        file << '"' << name << "\":[";
+                        for (size_t i = 0; i < values.size (); ++i)
+                            file << (i ? "," : "") << values[i];
+                        file << (last ? "]" : "],");
+                    };
+                    file << '{';
+                    write ("points", previewed.preview.points, false);
+                    write ("triangles", previewed.preview.triangles, true);
+                    file << '}';
+                }
                 ask.points = previewed.preview.points.size ();
                 ask.triangles = previewed.preview.triangles.size ();
                 ask.lines = previewed.preview.lines.size ();
@@ -1887,6 +1910,25 @@ TEST (VirtualEditorDebug, ReplayDumpFromEnvironment)
               << std::endl;
     std::cout << "Replay built=" << outcome.built << " triangles=" << outcome.result.build.triangles.size () / 3
               << " error=" << outcome.error << '\n';
+    if (outcome.detailed)
+        std::cout << "Replay mesh detail=" << outcome.detailed->tolerance
+                  << " triangles=" << outcome.detailed->triangles.size () / 3
+                  << " points=" << outcome.detailed->points.size () / 3
+                  << " kept lines=" << outcome.detailed->lines.size () << '\n';
+    else if (!outcome.detailError.empty ())
+        std::cout << "Replay mesh detail refused: " << outcome.detailError << '\n';
+    if (outcome.detailed) {
+        // What "As built" would make of it: an Archicad Mesh through every point shown.
+        edit::BakeOptions options;
+        options.mode = edit::BakeMode::Surface;
+        edit::BakeDesign design;
+        design.edges = outcome.detailed->lines;
+        const auto plan =
+            edit::PlanTerrainBake (outcome.detailed->points, outcome.detailed->triangles, options, design);
+        std::cout << "Replay bake as built ok=" << plan.ok << " outline=" << plan.outline.size ()
+                  << " lines=" << plan.lines.size () << " line points=" << plan.points
+                  << " problems=" << edit::CheckBakePayload (edit::TerrainBakePayload (plan)).size () << '\n';
+    }
     for (const auto& condition : outcome.unmet)
         std::cout << "Unmet: " << condition << '\n';
     // Optional: the replayed mesh as flat JSON arrays, for plotting it against the saved one.
@@ -2380,11 +2422,11 @@ TEST (HudTerrainDesign, TheProposedTerrainReadsThroughItsHostAndCarriesContours)
     EXPECT_TRUE (terrain->styled);
     EXPECT_EQ (terrain->style.shading, layers::Shading::Lit);
     EXPECT_GE (terrain->style.occludedOpacity * terrain->style.opacity, 0.6f) << "readable where its host is in front";
-    const auto& build = eh::CurrentTerrainDesign (session)->result.build;
+    // The contours lie on the surface drawn (the build at its Mesh detail), the one the user sees.
     edit::PavedArea surface;
-    for (size_t i = 0; i + 2 < build.points.size (); i += 3)
-        surface.vertices.push_back ({ build.points[i], build.points[i + 1], build.points[i + 2] });
-    surface.triangles = build.triangles;
+    for (size_t i = 0; i + 2 < terrain->points.size (); i += 3)
+        surface.vertices.push_back ({ terrain->points[i], terrain->points[i + 1], terrain->points[i + 2] });
+    surface.triangles = terrain->indices;
     size_t lines = 0;
     for (const auto& line : layer.polylines) {
         if (line.behind != layers::Behind::Show || (line.rgba != 0x2F4A35E6u && line.rgba != 0x37523D99u))
@@ -2526,6 +2568,8 @@ TEST (HudTerrainDesign, ANewMeshGenerationRetracesContoursEvenWhenTheTriangleCou
     session.terrainAutoBuild = true; // the mesh build lane (#175: the editor previews)
     session.contourStep = 0.5;
     ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path));
+    // The full build drawn (Mesh detail Full): the contours are compared with its own.
+    ASSERT_TRUE (eh::SetMeshDetail (session, 0.0));
     layers::Layer layer;
     ASSERT_TRUE (AwaitTerrain (session, layer));
     const auto contours = [] (const layers::Layer& value) {
@@ -2576,6 +2620,45 @@ TEST (HudTerrainDesign, ANewMeshGenerationRetracesContoursEvenWhenTheTriangleCou
     EXPECT_FALSE (contours (layer) == before) << "a small edit cannot keep the previous mesh's contours";
 }
 
+// Mesh detail: what is drawn is the last build at the chosen detail -- far fewer triangles than
+// the build, the published mesh staying the quantities' -- and a new choice re-details that build
+// at once, without building again. Full draws the build itself.
+TEST (HudTerrainDesign, TheMeshShownIsTheBuildAtItsChosenDetail)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true;
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto* built = eh::CurrentTerrainDesign (session);
+    ASSERT_NE (built, nullptr);
+    if (!built->published)
+        GTEST_SKIP () << "this lane publishes no unified snapshot";
+    const auto generation = built->generation;
+    const auto* standard = eh::ShownTerrainDetail (session);
+    ASSERT_NE (standard, nullptr) << "the default is the standard detail";
+    EXPECT_EQ (standard->builtTriangles, built->published->triangles.size () / 3);
+    EXPECT_LE (standard->triangles.size (), built->published->triangles.size ());
+    ASSERT_NE (TerrainMesh (layer), nullptr);
+    EXPECT_EQ (TerrainMesh (layer)->points, standard->points) << "drawn as shown";
+    const size_t standardTriangles = standard->triangles.size ();
+
+    ASSERT_TRUE (eh::SetMeshDetail (session, tapioca::geometry::kMeshDetailCoarse)) << session.message;
+    const auto* coarse = eh::ShownTerrainDetail (session);
+    ASSERT_NE (coarse, nullptr) << "re-detailed at once";
+    EXPECT_EQ (coarse->tolerance, tapioca::geometry::kMeshDetailCoarse);
+    EXPECT_LE (coarse->triangles.size (), standardTriangles);
+    EXPECT_EQ (eh::CurrentTerrainDesign (session)->generation, generation) << "not built again";
+    eh::Follow (session, layer);
+    EXPECT_EQ (TerrainMesh (layer)->points, coarse->points);
+
+    ASSERT_TRUE (eh::SetMeshDetail (session, 0.0));
+    EXPECT_EQ (eh::ShownTerrainDetail (session), nullptr);
+    eh::Follow (session, layer);
+    EXPECT_EQ (TerrainMesh (layer)->points, built->published->points) << "Full draws the build";
+}
+
 TEST (HudTerrainDesign, TypedCrossSectionApplyRebuildsTheExistingPreviewWithoutAddingWorkerHistory)
 {
     TerrainHostFixture fixture;
@@ -2586,6 +2669,8 @@ TEST (HudTerrainDesign, TypedCrossSectionApplyRebuildsTheExistingPreviewWithoutA
     ASSERT_TRUE (AwaitTerrain (session, layer));
     EXPECT_EQ (session.terrainPath, fixture.path);
     const auto original = eh::CurrentTerrainDesign (session)->result.build.points;
+    ASSERT_NE (TerrainMesh (layer), nullptr);
+    const auto drawn = TerrainMesh (layer)->points; // at its Mesh detail
     const auto section = edit::FindPath (session.edits.Doc (), fixture.path)->sections.front ().id;
     ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, section)) << session.message;
     session.terrainSectionDraft->value.widthLeft = 2;
@@ -2598,7 +2683,7 @@ TEST (HudTerrainDesign, TypedCrossSectionApplyRebuildsTheExistingPreviewWithoutA
     EXPECT_EQ (session.edits.UndoDepth (), depth + 1);
     eh::Follow (session, layer);
     ASSERT_NE (TerrainMesh (layer), nullptr) << "the last build stays until the rebuild (#71)";
-    EXPECT_EQ (TerrainMesh (layer)->points, original);
+    EXPECT_EQ (TerrainMesh (layer)->points, drawn);
     EXPECT_TRUE (eh::GetTerrainDesignStatus (session).stale);
     ASSERT_TRUE (AwaitTerrain (session, layer));
     EXPECT_NE (eh::CurrentTerrainDesign (session)->result.build.points, original);

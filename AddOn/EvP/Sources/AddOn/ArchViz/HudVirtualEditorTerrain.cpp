@@ -5,6 +5,7 @@
 #include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "Geometry/Mesh.hpp"
+#include "Edit/EditTerrainDetail.hpp"
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditRegionTerrain.hpp"
@@ -412,6 +413,55 @@ const lg::TerrainDesignOutcome* LastPublishedTerrainDesign (const Session& s, bo
     return last;
 }
 
+const lg::DetailedTerrain* ShownTerrainDetail (const Session& s)
+{
+    bool stale = false;
+    const auto* last = LastPublishedTerrainDesign (s, stale);
+    if (!last || !last->published)
+        return nullptr;
+    const double tolerance = s.terrainDesign->options.meshDetail;
+    if (!(tolerance > 0.0))
+        return nullptr;
+    if (last->detailed && last->detailed->tolerance == tolerance)
+        return last->detailed.get ();
+    const auto& state = *s.terrainDesign;
+    if (state.redetailed && state.redetailedGeneration == last->generation && state.redetailed->tolerance == tolerance)
+        return state.redetailed.get ();
+    return nullptr;
+}
+
+bool SetMeshDetail (Session& s, double tolerance)
+{
+    if (!s.terrainDesign || !std::isfinite (tolerance) || tolerance < 0.0)
+        return false;
+    auto& state = *s.terrainDesign;
+    state.options.meshDetail = tolerance;
+    state.contoursGeneration = UINT64_MAX; // the contours follow the surface shown
+    s.publishedRevision = UINT64_MAX;
+    bool stale = false;
+    const auto* last = LastPublishedTerrainDesign (s, stale);
+    if (!(tolerance > 0.0) || !last || !last->published || !last->capture || ShownTerrainDetail (s))
+        return true;
+    // The last build at the new tolerance, now: no rebuild.
+    const auto started = std::chrono::steady_clock::now ();
+    auto detailed = std::make_shared<lg::DetailedTerrain> ();
+    std::string error;
+    if (!lg::DetailPublishedTerrain (*last->published, last->capture->points, tolerance, *detailed, error)) {
+        s.message = "The mesh could not be simplified: " + error;
+        LogTerrain (s, "detail refused: " + error);
+        return false;
+    }
+    state.redetailed = std::move (detailed);
+    state.redetailedGeneration = last->generation;
+    LogTerrain (
+        s, "detail tolerance=" + std::to_string (tolerance) +
+               " triangles=" + std::to_string (state.redetailed->triangles.size () / 3) + " of " +
+               std::to_string (state.redetailed->builtTriangles) + " ms=" +
+               std::to_string (
+                   std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ()));
+    return true;
+}
+
 std::optional<lg::PathDesignRequest> TerrainRecipeRequest (const Session& s)
 {
     if (!s.terrainDesign || s.terrainDesign->options.source == edit::kNoId)
@@ -538,9 +588,14 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         const auto& points = published ? published->points : last->result.build.points;
         const auto& triangles = published ? published->triangles : last->result.build.triangles;
         const auto& mappings = published ? published->mappings : last->result.build.mappings;
+        // Mesh detail: the surface shown is the one baked (EditTerrainDetail.hpp), the published
+        // snapshot staying the quantities' authority.
+        const auto* detailed = ShownTerrainDetail (s);
+        const auto& shownPoints = detailed ? detailed->points : points;
+        const auto& shownTriangles = detailed ? detailed->triangles : triangles;
         overlaylayers::Mesh mesh;
-        mesh.points = points;
-        mesh.indices = triangles;
+        mesh.points = shownPoints;
+        mesh.indices = shownTriangles;
         // ⚠️ THE PROPOSAL LIES ON THE TERRAIN IT WAS CAPTURED FROM (the user, 2026-10-24: barely
         // visible, and only from below). Unstyled, it took the layer's Fade, so wherever the host
         // surface is coincident or above it -- everywhere outside the cut -- it drew at the faded
@@ -579,8 +634,8 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         if (s.contours) {
             auto& state = *s.terrainDesign;
             double lo = INFINITY, hi = -INFINITY;
-            for (size_t i = 2; i < points.size (); i += 3)
-                lo = std::min (lo, points[i]), hi = std::max (hi, points[i]);
+            for (size_t i = 2; i < shownPoints.size (); i += 3)
+                lo = std::min (lo, shownPoints[i]), hi = std::max (hi, shownPoints[i]);
             const double interval = s.contourStep > 0.0 ? s.contourStep
                                     : hi > lo           ? std::max (edit::NiceStep (hi - lo, 10), 0.1)
                                                         : 0.0;
@@ -588,9 +643,9 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
             // count can both stay unchanged while every height/contour moves.
             if (state.contoursGeneration != last->generation || state.contoursInterval != interval) {
                 edit::PavedArea surface;
-                for (size_t i = 0; i + 2 < points.size (); i += 3)
-                    surface.vertices.push_back ({ points[i], points[i + 1], points[i + 2] });
-                surface.triangles = triangles;
+                for (size_t i = 0; i + 2 < shownPoints.size (); i += 3)
+                    surface.vertices.push_back ({ shownPoints[i], shownPoints[i + 1], shownPoints[i + 2] });
+                surface.triangles = shownTriangles;
                 state.contours =
                     interval > 0.0 ? edit::SurfaceContours (surface, interval) : std::vector<edit::Contour> {};
                 state.contoursGeneration = last->generation;
@@ -884,6 +939,14 @@ void TerrainDesignPanel (Session& s)
 {
     TerrainSetupPanel (s);
     FixedHeightsPanel (s);
+}
+const tapioca::geometry::DetailedTerrain* ShownTerrainDetail (const Session&)
+{
+    return nullptr;
+}
+bool SetMeshDetail (Session&, double)
+{
+    return false;
 }
 } // namespace geomsrv::archviz::edithud
 #endif

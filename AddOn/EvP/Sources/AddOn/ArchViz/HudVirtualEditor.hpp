@@ -198,6 +198,7 @@ struct Session {
         double skirt = 1.0;
         bool preview = true;
         uint64_t generation = UINT64_MAX;
+        const void* surface = nullptr; // Surface mode: the detailed surface the plan was made from
         edit::BakePlan plan;
         bool requested = false, queued = false;
         bool reveal = false; // the File menu asked for the section: open it and scroll to it once

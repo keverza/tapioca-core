@@ -8,6 +8,7 @@
 #include <memory>
 
 namespace tapioca::geometry {
+struct DetailedTerrain;
 struct RegionTerrainResult;
 struct PublishedTerrain;
 
@@ -55,6 +56,10 @@ struct TerrainDesignOutcome {
     // quantities, debug replay and status consume it instead of lane-specific
     // result fields once present.
     std::shared_ptr<const PublishedTerrain> published;
+    // Mesh detail: the published terrain at options.meshDetail (EditTerrainDetail.hpp), what the
+    // editor shows and bakes; null at full detail or when it could not be made (detailError).
+    std::shared_ptr<const DetailedTerrain> detailed;
+    std::string detailError;
     TerrainDesignResult result;                   // When built.
     std::vector<TerrainDesignConflict> conflicts; // Station places and canonical fixed conflicts (if TIN exists).
     std::string error;                            // When refused.

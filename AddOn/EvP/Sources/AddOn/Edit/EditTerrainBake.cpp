@@ -1,6 +1,7 @@
 #include "Edit/EditTerrainBake.hpp"
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathNetwork.hpp"
+#include <set>
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -438,6 +439,112 @@ std::vector<BakeLine> Toe (const Surface& s, const std::vector<double>& base, do
             walk (segments[k].first);
     return out;
 }
+// Surface: the outline is the boundary as it is; the kept edges are lines; every other vertex is
+// put on a line walked along the surface's edges, so the Mesh's own triangulation of the same
+// points, constrained by those lines, is this surface.
+BakePlan SurfaceLines (const Surface& s, const std::vector<std::vector<uint32_t>>& loops, const std::vector<Vec3>& ring,
+                       const std::vector<std::array<uint32_t, 2>>& edges, BakePlan& plan)
+{
+    const size_t n = s.vertices.size ();
+    std::vector<char> covered (n, 0);
+    for (const auto& loop : loops)
+        for (const uint32_t v : loop)
+            covered[v] = 1;
+    // The kept edges, chained where two meet at a point.
+    std::map<uint32_t, std::vector<uint32_t>> around;
+    std::set<uint64_t> kept;
+    for (const auto& [a, b] : edges) {
+        if (a >= n || b >= n || a == b || !s.edges.contains (EdgeKey (a, b)))
+            continue; // not an edge of this surface
+        const auto& use = s.edges.at (EdgeKey (a, b));
+        if (use.count < 2 || !kept.insert (EdgeKey (a, b)).second)
+            continue; // the boundary is the outline's; a duplicate once
+        around[a].push_back (b);
+        around[b].push_back (a);
+    }
+    std::set<uint64_t> walked;
+    const auto walk = [&] (uint32_t from, uint32_t to) {
+        BakeLine line;
+        line.kind = BakeLineKind::Outline;
+        line.points.push_back (s.vertices[from]);
+        covered[from] = 1;
+        uint32_t at = from, next = to;
+        while (true) {
+            walked.insert (EdgeKey (at, next));
+            line.points.push_back (s.vertices[next]);
+            covered[next] = 1;
+            const auto& here = around[next];
+            if (here.size () != 2)
+                break;
+            const uint32_t after = here[0] == at ? here[1] : here[0];
+            if (walked.contains (EdgeKey (next, after)))
+                break; // a loop closed
+            at = next, next = after;
+        }
+        line.traced = line.points.size ();
+        plan.points += line.points.size ();
+        plan.traced += line.points.size ();
+        plan.lines.push_back (std::move (line));
+    };
+    for (const auto& [v, list] : around)
+        if (list.size () != 2)
+            for (const uint32_t w : list)
+                if (!walked.contains (EdgeKey (v, w)))
+                    walk (v, w);
+    for (const auto& [v, list] : around)
+        for (const uint32_t w : list)
+            if (!walked.contains (EdgeKey (v, w)))
+                walk (v, w); // the loops left
+    // Every other vertex: walked from along the surface's edges to the uncovered ones beside it;
+    // a vertex with none left beside it joins its nearest covered neighbour.
+    std::vector<std::vector<uint32_t>> neighbours (n);
+    for (const auto& [key, use] : s.edges) {
+        neighbours[use.from].push_back (use.to);
+        neighbours[use.to].push_back (use.from);
+    }
+    for (uint32_t v = 0; v < n; ++v) {
+        if (covered[v] || neighbours[v].empty ())
+            continue;
+        BakeLine line;
+        line.kind = BakeLineKind::Crease;
+        uint32_t at = v;
+        line.points.push_back (s.vertices[at]);
+        covered[at] = 1;
+        while (true) {
+            uint32_t next = UINT32_MAX;
+            for (const uint32_t w : neighbours[at])
+                if (!covered[w] && (next == UINT32_MAX || w < next))
+                    next = w;
+            if (next == UINT32_MAX)
+                break;
+            line.points.push_back (s.vertices[next]);
+            covered[next] = 1;
+            at = next;
+        }
+        if (line.points.size () == 1) {
+            // Alone: a line to its nearest neighbour, already on a line or the outline.
+            uint32_t nearest = neighbours[v].front ();
+            double best = INFINITY;
+            for (const uint32_t w : neighbours[v]) {
+                const double d = std::hypot (s.vertices[w].x - s.vertices[v].x, s.vertices[w].y - s.vertices[v].y);
+                if (d < best)
+                    best = d, nearest = w;
+            }
+            line.points.push_back (s.vertices[nearest]);
+        }
+        line.traced = line.points.size ();
+        plan.points += line.points.size ();
+        plan.traced += line.points.size ();
+        plan.lines.push_back (std::move (line));
+    }
+    plan.outline = ring;
+    if (plan.holes)
+        plan.notes.push_back (std::to_string (plan.holes) +
+                              (plan.holes == 1 ? " inner opening is" : " inner openings are") +
+                              " not written: the Mesh covers the area inside.");
+    plan.ok = true;
+    return plan;
+}
 } // namespace
 
 BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<uint32_t>& triangles,
@@ -493,6 +600,8 @@ BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<u
         std::reverse (ring.begin (), ring.end ());
     plan.holes = loops.size () - 1;
     plan.outlineTraced = ring.size ();
+    if (options.mode == BakeMode::Surface)
+        return SurfaceLines (s, loops, ring, design.edges, plan);
 
     // The level lines, as traced.
     const double range = plan.hi - plan.lo;

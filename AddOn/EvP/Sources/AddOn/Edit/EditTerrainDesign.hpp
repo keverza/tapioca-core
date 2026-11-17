@@ -36,6 +36,10 @@ struct TerrainDesignOptions {
     double cutLimit = 10, fillLimit = 10; // Plan reach of each face, metres.
     TerrainEditEffect effect = TerrainEditEffect::Both;
     double tolerance = 1e-3; // At-grade height band, metres.
+    // Mesh detail (EditTerrainDetail.hpp): the vertical tolerance, metres, of the surface shown
+    // and baked from the build -- the existing ground, controls and authored lines exact, the
+    // rest within it. Zero shows and bakes the full build.
+    double meshDetail = 0.05;
     // Caller-owned transient table tokens, NOT authored IDs: new within the
     // input's retained support set and distinct from each other.
     uint64_t designTable = 0, meshTable = 0;

@@ -1,3 +1,4 @@
+#include "Edit/EditTerrainDetail.hpp"
 #include "Edit/EditRegionTerrain.hpp"
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditTerrainAdapterInternal.hpp"
@@ -251,6 +252,13 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
         outcome.built = true;
         outcome.published = std::move (published);
         MirrorPublished (unified, plan, scope, *outcome.published, outcome);
+        // Mesh detail: what is shown and baked, the published terrain staying the authority.
+        if (job.options.meshDetail > 0.0) {
+            auto detailed = std::make_shared<DetailedTerrain> ();
+            if (DetailPublishedTerrain (*outcome.published, baseline->points, job.options.meshDetail, *detailed,
+                                        outcome.detailError))
+                outcome.detailed = std::move (detailed);
+        }
         outcome.outlineSteps = std::move (unified.outlineSteps);
         outcome.outlineUnreached = unified.outlineUnreached;
         outcome.outlineClipped = unified.outlineClipped;

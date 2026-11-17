@@ -19,6 +19,9 @@ struct TerrainDesignOutcome;
 namespace geomsrv::archviz::overlaylayers {
 struct Layer;
 }
+namespace tapioca::geometry {
+struct DetailedTerrain;
+}
 namespace geomsrv::archviz::edithud {
 struct Session;
 struct TerrainDesignState;
@@ -165,6 +168,14 @@ void TerrainSetupPanel (Session& session);
 void TerrainSectionPanel (Session& session, edit::Id path);
 // #191 U4: Fix / Release selected heights and the list of fixed heights, for the fixed-heights context.
 void FixedHeightsPanel (Session& session);
+// Mesh detail (EditTerrainDetail.hpp): the last build's surface at the chosen tolerance, what the
+// editor shows and bakes; null at full detail or when it is not made yet (the full build shows).
+const tapioca::geometry::DetailedTerrain* ShownTerrainDetail (const Session& session);
+// Choose the tolerance, metres (0: full). The last build is detailed again at once, not rebuilt;
+// the next build uses it too. False when the choice could not be applied (s.message says why).
+bool SetMeshDetail (Session& session, double tolerance);
+// The Mesh detail choice and the triangles it leaves (under Build mesh, and in the bake's As built).
+void MeshDetailControl (Session& session);
 // One explicit Apply through the existing Session history. Drafts are revision-
 // bound; stale/missing ranges refuse rather than retarget or overwrite newer edits.
 bool BeginTerrainSectionEdit (Session& session, edit::Id section);

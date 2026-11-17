@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <set>
 
 namespace {
 namespace ed = geomsrv::edit;
@@ -351,4 +352,42 @@ TEST (EditTerrainBake, AnOpeningIsCountedAndSaidAndNoSurfaceIsRefused)
     EXPECT_FALSE (none.ok);
     EXPECT_NE (none.error.find ("BakeSurfaceEmpty"), std::string::npos);
     EXPECT_TRUE (ed::TerrainBakePayload (none).outline.empty ());
+}
+
+// Mesh detail's As built: the surface as it is -- every vertex on the outline or on a level line,
+// each line along the surface's own edges, its kept edges one line, nothing a Mesh refuses.
+TEST (EditTerrainBake, AsBuiltPutsEveryPointOnALineAlongTheSurfacesEdges)
+{
+    const auto g = MakeGrid (8, [] (double x, double y) { return Pad (x * 2.5, y * 2.5); });
+    ed::BakeOptions options;
+    options.mode = ed::BakeMode::Surface;
+    ed::BakeDesign design;
+    design.edges = { { 3 * 9 + 2, 3 * 9 + 3 }, { 3 * 9 + 3, 3 * 9 + 4 } }; // a kept line along y = 3
+    const auto plan = ed::PlanTerrainBake (g.points, g.triangles, options, design);
+    ASSERT_TRUE (plan.ok) << plan.error;
+    std::set<std::pair<double, double>> on;
+    for (const auto& p : plan.outline)
+        on.emplace (p.x, p.y);
+    std::set<std::pair<int, int>> edges;
+    for (size_t i = 0; i < g.triangles.size (); i += 3)
+        for (int e = 0; e < 3; ++e) {
+            const int a = int (g.triangles[i + e]), b = int (g.triangles[i + (e + 1) % 3]);
+            edges.emplace (std::min (a, b), std::max (a, b));
+        }
+    const auto index = [] (const ed::Vec3& p) { return int (std::lround (p.y)) * 9 + int (std::lround (p.x)); };
+    bool keptLine = false;
+    for (const auto& line : plan.lines) {
+        ASSERT_GE (line.points.size (), 2u) << "never a loose point";
+        for (size_t k = 0; k < line.points.size (); ++k) {
+            on.emplace (line.points[k].x, line.points[k].y);
+            if (k) {
+                const int a = index (line.points[k - 1]), b = index (line.points[k]);
+                EXPECT_TRUE (edges.contains ({ std::min (a, b), std::max (a, b) })) << "a line along the surface";
+            }
+        }
+        keptLine |= line.kind == ed::BakeLineKind::Outline && line.points.size () == 3;
+    }
+    EXPECT_TRUE (keptLine) << "the kept edges are one line";
+    EXPECT_EQ (on.size (), g.points.size () / 3) << "every point of the surface is in the Mesh";
+    EXPECT_TRUE (ed::CheckBakePayload (ed::TerrainBakePayload (plan)).empty ());
 }

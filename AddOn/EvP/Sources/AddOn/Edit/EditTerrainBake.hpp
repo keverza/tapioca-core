@@ -4,7 +4,7 @@
 // The built terrain as an Archicad Mesh would be made from it (tapioca-dev #177): a boundary
 // ring with a height per vertex and level lines inside it. Polylines, never loose points.
 //
-// Two ways of choosing the level lines:
+// Three ways of choosing the level lines:
 //   Contours   horizontal cuts of the surface every `interval` metres;
 //   Signature  what was modelled (the user, 2026-11-16: "a path actually only needs 2
 //              contours"): the authored outlines (paths' paved edges, grading regions' rings)
@@ -15,19 +15,23 @@
 //              lines through it, and a gentler peak or pit gets a line down its steepest edge.
 //              The graded surface's folds only when `folds` asks; every fold when no design is
 //              given.
-// Each line is reduced to `tolerance`: a point is dropped while the line stays within that
+//   Surface    the surface as it is (Mesh detail, EditTerrainDetail.hpp): its kept edges as lines,
+//              unreduced, and every other vertex on a line along the surface's own edges -- so
+//              the Mesh, triangulating the same points with those lines, is the same surface.
+// Each Contours or Signature line is reduced to `tolerance`: a point is dropped while the line stays within that
 // distance of the traced one. Where a line ends on the boundary, the boundary has a vertex.
 //
 // This is a plan only: pure geometry, no model read or write. The plan is what the preview
 // draws and, unchanged, what the native Mesh is created from.
 #include "Edit/EditTypes.hpp"
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace geomsrv::edit {
 
-enum class BakeMode { Contours, Signature };
+enum class BakeMode { Contours, Signature, Surface };
 
 struct BakeOptions {
     BakeMode mode = BakeMode::Contours;
@@ -44,6 +48,8 @@ struct BakeDesign {
     std::vector<double> base;                // existing ground height per surface point; empty: no toe
     std::vector<std::vector<Vec3>> outlines; // authored closed rings; their plan is draped on the surface
     double ground = 0.01;                    // metres a point may move and still be existing ground
+    // Surface: the surface's edges that must be lines (its kept lines), as point index pairs.
+    std::vector<std::array<uint32_t, 2>> edges;
 };
 
 enum class BakeLineKind { Contour, Crease, Outline, Toe };

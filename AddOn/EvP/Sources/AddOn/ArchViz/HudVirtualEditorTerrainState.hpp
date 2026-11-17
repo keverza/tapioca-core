@@ -3,6 +3,7 @@
 // The terrain design's session state, shared by its build lane (HudVirtualEditorTerrain.cpp)
 // and its field-preview lane (HudVirtualEditorTerrainPreview.cpp). Private to those two.
 // OVERLAY-INVARIANTS.md §8: session-owned derived state; nothing outlives the session.
+#include "Edit/EditTerrainDetail.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "Edit/EditPathContours.hpp"
@@ -40,6 +41,10 @@ struct TerrainDesignState {
     lg::UnifiedPreviewAsk previewAsk;
     // #176: the outline geometry of the last preview, reused while its inputs are unchanged.
     std::shared_ptr<lg::OutlineGeometryCache> outlineCache = std::make_shared<lg::OutlineGeometryCache> ();
+    // Mesh detail chosen after a build: that build at the new tolerance, made on the spot (a
+    // tenth of a second) rather than built again. For the build of `redetailedGeneration` only.
+    std::shared_ptr<const lg::DetailedTerrain> redetailed;
+    uint64_t redetailedGeneration = UINT64_MAX;
 };
 
 // Lifecycle transitions only, never status polling or per-frame rendering.
