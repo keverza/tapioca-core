@@ -216,6 +216,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     if (!s.gumballRepositionFor.empty () && !GumballRepositioning (s))
         CancelGumballReposition (s);
     CheckView (s, v);
+    TakeFocus (s, m); // #124: a row's Focus, framed by the view that draws next
     CheckRectangularArrayDraft (s);
     UpdatePathDetail (s, m, scale);
     Navigate (s, m, mouse);

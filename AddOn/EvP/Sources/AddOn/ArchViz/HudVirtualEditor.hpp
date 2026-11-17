@@ -298,7 +298,19 @@ struct Session {
     std::string outlinerFilter;
     bool outlinerCollapsed = false;
     int outlinerShow = -1;
-    edit::Ref outlinerHover;             // the row under the pointer: the view highlights it
+    edit::Ref outlinerHover; // the row under the pointer: the view highlights it
+    // #124: focus-in-view, a change of view and never of the document. A row's Focus asks for
+    // the box of its shown objects (`focusPending`); the next frame of a view turns it into
+    // that view's request (`focusRequest`: the plan a model box, 3D a pixel rectangle of it),
+    // which the host carries out on the main thread and then clears.
+    struct FocusRequest {
+        edit::Vec3 lo, hi; // model metres, margin included
+        bool planar = true;
+        float rect[4] = {}; // 3D: left, top, right, bottom in the view's pixels
+        std::string what;   // "layer Kerbs", "group beds", "kerb 12": for the message
+    };
+    std::optional<FocusRequest> focusPending, focusRequest;
+    bool focusQueued = false;
     std::vector<edit::Ref> outlinerSeen; // the selection the Outliner last brought into view
     std::optional<LandscapeCommand> landscapeCommand;
     edit::GizmoMode gizmo = edit::GizmoMode::Gumball; // all applicable transform handles

@@ -103,6 +103,7 @@ void FollowHudState ()
     roofslopebake::Follow (state);
     FollowTerrainCapture (state);
     FollowDraftingImport (state);
+    FollowFocus (state, true); // #124: Archicad's own zoom, queued like the rest
     FollowMaterialPicker (state);
     if (state->virtualEditor && state->virtualEditor->debugExportRequested) {
         edithud::SaveDebugExport (*state->virtualEditor);

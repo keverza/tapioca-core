@@ -259,6 +259,17 @@ void LayerRows (Session& s);
 // #124: renames a group as one undo step; false, with the reason in s.message, when refused (an
 // unchanged name is refused with no reason).
 bool RenameGroup (Session& s, edit::Id group, const std::string& name);
+// #124: a layer or group row dropped on another takes its place, one undo step; false, with the
+// reason in s.message, when refused.
+bool DropLayer (Session& s, edit::Id layer, edit::Id onto);
+bool DropGroup (Session& s, edit::Id group, edit::Id onto);
+// #124: asks the view to frame the shown ones of `objects` ("Focus in view" on a layer, group or
+// object row). False, with the reason in s.message, when none is shown or none has a point;
+// nothing about the document changes either way.
+bool FocusOn (Session& s, const std::vector<edit::Id>& objects, const std::string& what);
+// The view's half: a pending focus becomes this view's request -- its box in the plan, or the
+// pixel rectangle its corners project to in 3D (refused when none of them is in front).
+void TakeFocus (Session& s, const Map& m);
 void ObjectRows (Session& s, const std::string& filter, bool reveal);
 // #191 U5: under every Inspector selection context: the selection's layer (choosing one moves it
 // there) and Group / Ungroup.

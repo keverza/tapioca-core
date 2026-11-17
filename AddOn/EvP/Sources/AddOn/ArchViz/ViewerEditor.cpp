@@ -260,6 +260,7 @@ bool Refresh ()
         edithud::FollowDraftFiles (*state->virtualEditor); // #159 drafts, same rule
     FollowTerrainCapture (state);
     FollowDraftingImport (state);
+    FollowFocus (state, false); // #124: refused here with a reason; the viewer has no frame request yet
     FollowMaterialPicker (state);
     if (engine->Selected () == "@viewer.analysis") {
         // Navigation releases input, not the document. Renderer-owned analysis keeps

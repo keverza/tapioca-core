@@ -271,6 +271,61 @@ Id TopIn (const Document& doc, Id object, Id within, bool& inside)
 }
 } // namespace
 
+namespace {
+// Moves the element at `from` to `to` in `items`, the ones between shifting one place.
+template <typename T> void MoveTo (std::vector<T>& items, size_t from, size_t to)
+{
+    if (from < to)
+        std::rotate (items.begin () + from, items.begin () + from + 1, items.begin () + to + 1);
+    else
+        std::rotate (items.begin () + to, items.begin () + from, items.begin () + from + 1);
+}
+} // namespace
+
+bool MoveLayer (Document& doc, Id layer, Id onto, std::string& error)
+{
+    if (layer == kNoId || onto == kNoId) {
+        error = "layer 0 stays first";
+        return false;
+    }
+    const auto at = [&] (Id id) {
+        return size_t (
+            std::find_if (doc.layers.begin (), doc.layers.end (), [id] (const Layer& l) { return l.id == id; }) -
+            doc.layers.begin ());
+    };
+    const size_t from = at (layer), to = at (onto);
+    if (from == doc.layers.size () || to == doc.layers.size ()) {
+        error = "the layer no longer exists";
+        return false;
+    }
+    if (from == to)
+        return false;
+    MoveTo (doc.layers, from, to);
+    return true;
+}
+
+bool MoveGroup (Document& doc, Id group, Id onto, std::string& error)
+{
+    const auto at = [&] (Id id) {
+        return size_t (
+            std::find_if (doc.groups.begin (), doc.groups.end (), [id] (const Group& g) { return g.id == id; }) -
+            doc.groups.begin ());
+    };
+    const size_t from = at (group), to = at (onto);
+    if (from == doc.groups.size () || to == doc.groups.size ()) {
+        error = "the group no longer exists";
+        return false;
+    }
+    if (from == to)
+        return false;
+    if (doc.groups[from].parent != doc.groups[to].parent) {
+        error = "drop a group on another group at the same level; moving it into a group is Group / Ungroup";
+        return false;
+    }
+    MoveTo (doc.groups, from, to);
+    return true;
+}
+
 bool RenameGroup (Document& doc, Id group, const std::string& name, std::string& error)
 {
     auto it = std::find_if (doc.groups.begin (), doc.groups.end (), [group] (const Group& g) { return g.id == group; });

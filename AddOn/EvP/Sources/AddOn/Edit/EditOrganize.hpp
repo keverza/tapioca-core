@@ -58,6 +58,13 @@ Id GroupObjects (Document& doc, const std::vector<Ref>& refs, const std::string&
 // group beside it (the same parent) already has, and a group that no longer exists; the same
 // name again changes nothing and returns false with no error.
 bool RenameGroup (Document& doc, Id group, const std::string& name, std::string& error);
+// #124: the palette's order is the document's own: layers in `doc.layers` (layer 0 always first,
+// before them all), groups in `doc.groups` among those beside them. Neither touches what an
+// object is drawn, paved or picked in. `layer` (`group`) takes the place of `onto`, the rows
+// between moving one place; refused, with the reason, for layer 0, a missing row or a group of
+// another parent. Onto itself: no change, false with no error.
+bool MoveLayer (Document& doc, Id layer, Id onto, std::string& error);
+bool MoveGroup (Document& doc, Id group, Id onto, std::string& error);
 // Dissolves the outermost group (inside `within`) of each object `refs` reach: its members and
 // the groups inside it move up one level.
 bool Ungroup (Document& doc, const std::vector<Ref>& refs, std::string& error, Id within = kNoId);

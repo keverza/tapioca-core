@@ -3,11 +3,14 @@
 #include "Edit/EditOrganize.hpp"
 #include <imgui.h>
 #include <cctype>
+#include <cfloat>
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <iterator>
 #include <optional>
+#include <utility>
 
 // The virtual editor's layers and groups palette, and the hide, lock, isolate and selection
 // commands the panel, the menu and the keys share (EditOrganize.hpp does the work).
@@ -104,6 +107,11 @@ void ObjectRow (Session& s, edit::Id id, bool reveal = false)
     }
     if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
         s.outlinerHover = ref.front ();
+    if (ImGui::BeginPopupContextItem ("object")) { // #124
+        if (ImGui::MenuItem ("Focus in view"))
+            FocusOn (s, { ref.front ().entity }, label);
+        ImGui::EndPopup ();
+    }
     if (reveal && selected)
         ImGui::SetScrollHereY (0.5f);
     ImGui::EndDisabled ();
@@ -125,6 +133,26 @@ void Contents (const edit::Document& doc, edit::Id group, std::vector<edit::Id>&
             objects.push_back (e.id);
 }
 
+// #124: the last item a drag source (carrying `id`) and a drop target for rows of the same kind.
+template <typename Drop> void DragRow (const char* payload, edit::Id id, const std::string& name, Drop drop)
+{
+    if (ImGui::BeginDragDropSource ()) {
+        ImGui::SetDragDropPayload (payload, &id, sizeof id);
+        ImGui::Text ("Move %s", name.c_str ());
+        ImGui::EndDragDropSource ();
+    }
+    if (ImGui::BeginDragDropTarget ()) {
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload (payload); p != nullptr && p->DataSize == sizeof id) {
+            edit::Id moved = edit::kNoId;
+            std::memcpy (&moved, p->Data, sizeof moved);
+            drop (moved);
+        }
+        ImGui::EndDragDropTarget ();
+    }
+}
+constexpr const char* kLayerPayload = "TAPIOCA_LAYER_ROW";
+constexpr const char* kGroupPayload = "TAPIOCA_GROUP_ROW";
+
 void GroupTree (Session& s, edit::Id group, bool reveal)
 {
     const edit::Group* g = edit::FindGroup (Doc (s), group);
@@ -139,16 +167,24 @@ void GroupTree (Session& s, edit::Id group, bool reveal)
                 members.push_back ({ id, edit::Part::Entity, edit::kNoId });
         s.selection.Set (members);
     }
-    if (ImGui::IsItemHovered () && !ImGui::IsPopupOpen ("rename"))
-        hudshell::HoverTip ("Click selects the group. Right-click renames it.");
+    DragRow (kGroupPayload, group, g->name, [&s, group] (edit::Id moved) { DropGroup (s, moved, group); });
+    if (ImGui::IsItemHovered () && !ImGui::IsPopupOpen ("rename") && ImGui::GetDragDropPayload () == nullptr)
+        hudshell::HoverTip ("Click selects the group. Drag onto a group beside it to move it there. Right-click to "
+                            "focus on it or rename it.");
     // #124: a group renamed in place, one undo step; a refused name says why and the box stays.
     if (ImGui::BeginPopupContextItem ("rename")) {
         static char name[64]; // the box's draft: one popup is open at a time
-        if (ImGui::IsWindowAppearing ()) {
+        const bool appearing = ImGui::IsWindowAppearing ();
+        if (appearing)
             std::snprintf (name, sizeof name, "%s", g->name.c_str ());
-            ImGui::SetKeyboardFocusHere ();
+        if (ImGui::MenuItem ("Focus in view")) {
+            FocusOn (s, edit::GroupMembers (Doc (s), group), "group " + g->name);
+            ImGui::CloseCurrentPopup ();
         }
+        ImGui::Separator ();
         ImGui::TextUnformatted ("Rename group");
+        if (appearing)
+            ImGui::SetKeyboardFocusHere (); // typing goes straight into the name
         if (ImGui::InputText ("##name", name, sizeof name,
                               ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
             if (RenameGroup (s, group, name) || s.message.empty ())
@@ -311,6 +347,78 @@ void SelectMenuItems (Session& s)
         Organize (s, OrganizeCommand::SameKind);
 }
 
+bool FocusOn (Session& s, const std::vector<edit::Id>& objects, const std::string& what)
+{
+    std::vector<edit::Ref> shown;
+    for (const edit::Id id : objects)
+        if (edit::Shown (Doc (s), id))
+            shown.push_back ({ id, edit::Part::Entity, edit::kNoId });
+    edit::Frame box; // world axes
+    if (shown.empty () || !edit::FitBox (Doc (s), shown, box)) {
+        s.message = objects.empty () ? "Nothing to focus on: " + what + " is empty."
+                                     : "Nothing to focus on: everything in " + what + " is hidden.";
+        return false;
+    }
+    // A margin round it, and never less than a few metres across: a point or a short line is
+    // framed with its surroundings, not filling the view.
+    Session::FocusRequest request;
+    request.what = what;
+    for (int a = 0; a < 3; ++a) {
+        const double half = std::max (box.half[a] * 1.15, a < 2 ? 2.5 : 0.0);
+        const double c = a == 0 ? box.origin.x : a == 1 ? box.origin.y : box.origin.z;
+        (a == 0 ? request.lo.x : a == 1 ? request.lo.y : request.lo.z) = c - half;
+        (a == 0 ? request.hi.x : a == 1 ? request.hi.y : request.hi.z) = c + half;
+    }
+    s.focusPending = request;
+    s.focusRequest.reset (); // the newest ask wins
+    s.message.clear ();
+    return true;
+}
+
+void TakeFocus (Session& s, const Map& m)
+{
+    if (!s.focusPending || s.focusQueued)
+        return;
+    Session::FocusRequest request = *std::exchange (s.focusPending, std::nullopt);
+    request.planar = m.v.planar;
+    if (!request.planar) {
+        float rect[4] = { FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX };
+        bool any = false;
+        for (int corner = 0; corner < 8; ++corner) {
+            const edit::Vec3 p { corner & 1 ? request.hi.x : request.lo.x, corner & 2 ? request.hi.y : request.lo.y,
+                                 corner & 4 ? request.hi.z : request.lo.z };
+            ImVec2 at;
+            if (!m.Screen (p, at))
+                continue;
+            any = true;
+            rect[0] = std::min (rect[0], at.x), rect[1] = std::min (rect[1], at.y);
+            rect[2] = std::max (rect[2], at.x), rect[3] = std::max (rect[3], at.y);
+        }
+        if (!any || rect[2] - rect[0] < 1.0f || rect[3] - rect[1] < 1.0f) {
+            s.message = "Cannot focus on " + request.what + " from here: it is behind the camera. Turn towards it.";
+            return;
+        }
+        std::copy (std::begin (rect), std::end (rect), request.rect);
+    }
+    s.focusRequest = std::move (request);
+}
+
+bool DropLayer (Session& s, edit::Id layer, edit::Id onto)
+{
+    const uint64_t revision = Doc (s).revision;
+    s.message.clear ();
+    Change (s, [layer, onto] (edit::Document& d, std::string& e) { return edit::MoveLayer (d, layer, onto, e); });
+    return Doc (s).revision != revision;
+}
+
+bool DropGroup (Session& s, edit::Id group, edit::Id onto)
+{
+    const uint64_t revision = Doc (s).revision;
+    s.message.clear ();
+    Change (s, [group, onto] (edit::Document& d, std::string& e) { return edit::MoveGroup (d, group, onto, e); });
+    return Doc (s).revision != revision;
+}
+
 bool RenameGroup (Session& s, edit::Id group, const std::string& name)
 {
     const uint64_t revision = Doc (s).revision;
@@ -331,6 +439,16 @@ void LayerRows (Session& s)
     for (const auto& layer : layers) {
         const edit::Id id = layer.id;
         ImGui::PushID (int (id));
+        // #124: the grip to drag the row by (the name is a text box); layer 0 stays first.
+        ImGui::BeginDisabled (id == edit::kNoId);
+        ImGui::SmallButton ("=");
+        ImGui::EndDisabled ();
+        if (id != edit::kNoId) {
+            DragRow (kLayerPayload, id, layer.name, [&s, id] (edit::Id moved) { DropLayer (s, moved, id); });
+            if (ImGui::IsItemHovered () && ImGui::GetDragDropPayload () == nullptr)
+                hudshell::HoverTip ("Drag onto another layer to move it there");
+        }
+        ImGui::SameLine ();
         bool visible = layer.visible, locked = layer.locked;
         if (ImGui::Checkbox ("##visible", &visible))
             ChangeLayer (s, id, [visible] (edit::Layer& l) { l.visible = visible; });
@@ -360,6 +478,18 @@ void LayerRows (Session& s)
         if (ImGui::SmallButton ("Move here"))
             Change (s, [refs, id] (edit::Document& d, std::string& e) { return edit::MoveToLayer (d, refs, id, e); });
         ImGui::EndDisabled ();
+        ImGui::SameLine ();
+        if (ImGui::SmallButton ("Focus")) { // #124: frame what is shown on it; the document is untouched
+            std::vector<edit::Id> on;
+            for (const auto& p : Doc (s).paths)
+                if (p.member.layer == id)
+                    on.push_back (p.id);
+            for (const auto& e : Doc (s).entities)
+                if (e.member.layer == id)
+                    on.push_back (e.id);
+            FocusOn (s, on, "layer " + layer.name);
+        }
+        hudshell::Tip ("Frame what is shown on this layer in the view", hudshell::TipSide::Above);
         if (id != edit::kNoId) {
             ImGui::SameLine ();
             if (ImGui::SmallButton ("Delete"))

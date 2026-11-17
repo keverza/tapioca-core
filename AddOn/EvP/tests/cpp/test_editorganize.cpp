@@ -469,3 +469,76 @@ TEST (EditOrganize, LayersRenameUniquelyAndDefaultNamesNeverRepeat124)
     EXPECT_EQ (ed::FindGroup (s.doc, g3)->name, "Group 1");
     s.Valid ();
 }
+
+// #124: the palette's order is the document's: a dragged layer or group takes the place of the row
+// it is dropped on, the rows between shifting one place. Layer 0 stays first; a group moves only
+// among the groups beside it. No object changes layer, group or drawing order, and it reloads.
+TEST (EditOrganize, LayersAndSiblingGroupsReorderWithoutTouchingObjects124)
+{
+    Scene s;
+    const ed::Id l1 = ed::AddLayer (s.doc, "A"), l2 = ed::AddLayer (s.doc, "B"), l3 = ed::AddLayer (s.doc, "C");
+    ASSERT_TRUE (ed::MoveToLayer (s.doc, { s.R (s.b) }, l2, s.error)) << s.error;
+    const auto layers = [&] {
+        std::vector<ed::Id> out;
+        for (const auto& l : s.doc.layers)
+            out.push_back (l.id);
+        return out;
+    };
+    const auto entities = s.doc.entities;
+    const auto paths = s.doc.paths;
+    EXPECT_TRUE (ed::MoveLayer (s.doc, l1, l3, s.error)) << s.error;
+    EXPECT_EQ (layers (), (std::vector<ed::Id> { l2, l3, l1 }));
+    EXPECT_TRUE (ed::MoveLayer (s.doc, l1, l2, s.error)) << s.error;
+    EXPECT_EQ (layers (), (std::vector<ed::Id> { l1, l2, l3 }));
+    s.error.clear ();
+    EXPECT_FALSE (ed::MoveLayer (s.doc, l2, l2, s.error));
+    EXPECT_TRUE (s.error.empty ()) << "onto itself is no change";
+    EXPECT_FALSE (ed::MoveLayer (s.doc, l2, ed::kNoId, s.error));
+    EXPECT_NE (s.error.find ("layer 0"), std::string::npos);
+    EXPECT_FALSE (ed::MoveLayer (s.doc, ed::kNoId, l2, s.error));
+    EXPECT_FALSE (ed::MoveLayer (s.doc, l2, ed::Id (99999), s.error));
+    EXPECT_EQ (ed::MemberOf (s.doc, s.b)->layer, l2);
+
+    // Groups: siblings reorder; a group of another parent is refused.
+    const ed::Id inner = ed::GroupObjects (s.doc, { s.R (s.a), s.R (s.b) }, "inner", s.error);
+    const ed::Id other = ed::GroupObjects (s.doc, { s.R (s.c), s.R (s.path) }, "other", s.error);
+    const ed::Id outer = ed::GroupObjects (s.doc, { s.R (s.a), s.R (s.c) }, "outer", s.error); // holds both
+    ASSERT_NE (outer, ed::kNoId) << s.error;
+    const ed::Id loose = ed::AddPolyline (s.doc, { { 20, 0, 0 }, { 21, 0, 0 } }, false, "x");
+    const ed::Id loose2 = ed::AddPolyline (s.doc, { { 22, 0, 0 }, { 23, 0, 0 } }, false, "y");
+    const ed::Id top = ed::GroupObjects (s.doc, { s.R (loose), s.R (loose2) }, "top", s.error);
+    ASSERT_NE (top, ed::kNoId) << s.error;
+    const auto order = [&] {
+        std::vector<ed::Id> out;
+        for (const auto& g : s.doc.groups)
+            out.push_back (g.id);
+        return out;
+    };
+    const auto before = order ();
+    EXPECT_TRUE (ed::MoveGroup (s.doc, other, inner, s.error)) << s.error; // both inside outer
+    {
+        const auto now = order ();
+        EXPECT_LT (std::find (now.begin (), now.end (), other), std::find (now.begin (), now.end (), inner));
+    }
+    EXPECT_FALSE (ed::MoveGroup (s.doc, inner, top, s.error)) << "another level";
+    EXPECT_NE (s.error.find ("same level"), std::string::npos) << s.error;
+    EXPECT_TRUE (ed::MoveGroup (s.doc, top, outer, s.error)) << s.error; // both outermost
+    EXPECT_EQ (ed::FindGroup (s.doc, inner)->parent, outer);
+    EXPECT_EQ (ed::FindGroup (s.doc, other)->parent, outer);
+    EXPECT_EQ (order ().size (), before.size ());
+    s.Valid ();
+
+    // Reloads in the order it was left; objects never moved.
+    namespace geo = tapioca::geometry;
+    ASSERT_TRUE (geo::StartLandscape (s.doc, { 1 }, s.error)) << s.error;
+    std::string text;
+    ASSERT_TRUE (geo::WriteLandscape (s.doc, geo::LandscapeStorage::Virtual, text, s.error)) << s.error;
+    ed::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (text, loaded, s.error)) << s.error;
+    EXPECT_EQ (loaded.layers, s.doc.layers);
+    EXPECT_EQ (loaded.groups, s.doc.groups);
+    for (size_t i = 0; i < entities.size (); ++i)
+        EXPECT_EQ (s.doc.entities[i].id, entities[i].id) << "drawing order untouched";
+    for (size_t i = 0; i < paths.size (); ++i)
+        EXPECT_EQ (s.doc.paths[i].id, paths[i].id);
+}

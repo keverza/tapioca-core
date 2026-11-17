@@ -246,3 +246,96 @@ TEST (HudVirtualEditorOutliner, AGroupRenamesFromItsRowAsOneUndo124)
     EXPECT_FALSE (eh::detail::RenameGroup (s, beds, "beds"));
     EXPECT_EQ (s.edits.UndoDepth (), 0u);
 }
+
+// #124: Focus in view frames what is shown of a layer, group or object, and is a view change
+// only: the plan asks for the model box with a margin, 3D for the pixel rectangle the box
+// projects to. Nothing shown (an empty or hidden target) or nothing in front is refused with a
+// reason, and the document's revision and undo never move.
+TEST (HudVirtualEditorOutliner, FocusFramesWhatIsShownAndNeverEditsTheDocument124)
+{
+    auto doc = Squares (3); // 4 m squares at x = 0, 6, 12
+    std::string error;
+    const edit::Id a = doc.entities[0].id, b = doc.entities[1].id, c = doc.entities[2].id;
+    ASSERT_TRUE (edit::SetHidden (doc, { { c, edit::Part::Entity, 0 } }, true, error)) << error;
+    eh::Session s (doc);
+    const auto revision = s.edits.Doc ().revision;
+
+    ASSERT_TRUE (eh::detail::FocusOn (s, { a, b, c }, "group beds")) << s.message;
+    ASSERT_TRUE (s.focusPending.has_value ());
+    const auto& pending = *s.focusPending;
+    // Only the shown two (x 0..10, y 0..4), with a margin; the hidden third (x 12..16) is not framed.
+    EXPECT_LT (pending.lo.x, 0.0);
+    EXPECT_GT (pending.hi.x, 10.0);
+    EXPECT_LT (pending.hi.x, 12.0);
+    EXPECT_LT (pending.lo.y, 0.0);
+    EXPECT_GT (pending.hi.y, 4.0);
+
+    geomsrv::archviz::overlayhud::Input plan;
+    plan.planar = true;
+    plan.plan[0] = 10, plan.plan[2] = 100, plan.plan[4] = -10, plan.plan[5] = 400;
+    eh::detail::TakeFocus (s, eh::detail::Map { plan });
+    EXPECT_FALSE (s.focusPending.has_value ());
+    ASSERT_TRUE (s.focusRequest.has_value ());
+    EXPECT_TRUE (s.focusRequest->planar);
+    EXPECT_EQ (s.focusRequest->what, "group beds");
+
+    // 3D: the rectangle the box's corners project to (here a plain scale, y down).
+    ASSERT_TRUE (eh::detail::FocusOn (s, { a }, "Outline  #1"));
+    geomsrv::archviz::overlayhud::Input view;
+    view.planar = false;
+    view.project = [] (double x, double y, double, float& px, float& py) {
+        px = float (100 + 10 * x), py = float (400 - 10 * y);
+        return true;
+    };
+    eh::detail::TakeFocus (s, eh::detail::Map { view });
+    ASSERT_TRUE (s.focusRequest.has_value ());
+    EXPECT_FALSE (s.focusRequest->planar);
+    EXPECT_LT (s.focusRequest->rect[0], 100.0f); // left of x = 0
+    EXPECT_GT (s.focusRequest->rect[2], 140.0f); // right of x = 4
+    EXPECT_LT (s.focusRequest->rect[1], 360.0f); // above y = 4
+    EXPECT_GT (s.focusRequest->rect[3], 400.0f); // below y = 0
+
+    // Behind the camera: nothing projects, refused with a reason.
+    s.focusRequest.reset ();
+    ASSERT_TRUE (eh::detail::FocusOn (s, { a }, "Outline  #1"));
+    view.project = [] (double, double, double, float&, float&) { return false; };
+    eh::detail::TakeFocus (s, eh::detail::Map { view });
+    EXPECT_FALSE (s.focusRequest.has_value ());
+    EXPECT_NE (s.message.find ("behind the camera"), std::string::npos) << s.message;
+
+    // Hidden-only and empty targets.
+    EXPECT_FALSE (eh::detail::FocusOn (s, { c }, "layer Hidden"));
+    EXPECT_NE (s.message.find ("hidden"), std::string::npos) << s.message;
+    EXPECT_FALSE (eh::detail::FocusOn (s, {}, "layer Empty"));
+    EXPECT_NE (s.message.find ("empty"), std::string::npos) << s.message;
+    EXPECT_FALSE (s.focusPending.has_value ());
+
+    EXPECT_EQ (s.edits.Doc ().revision, revision) << "focus is a view change";
+    EXPECT_EQ (s.edits.UndoDepth (), 0u);
+}
+
+// #124: dropping a layer or group row is one undo step; a refused drop says why and records nothing.
+TEST (HudVirtualEditorOutliner, DroppingALayerOrGroupRowIsOneUndo124)
+{
+    auto doc = Squares (4);
+    const edit::Id l1 = edit::AddLayer (doc, "A"), l2 = edit::AddLayer (doc, "B");
+    std::string error;
+    const auto R = [&] (size_t i) { return edit::Ref { doc.entities[i].id, edit::Part::Entity, 0 }; };
+    const edit::Id g1 = edit::GroupObjects (doc, { R (0), R (1) }, "g1", error);
+    const edit::Id g2 = edit::GroupObjects (doc, { R (2), R (3) }, "g2", error);
+    ASSERT_NE (g2, edit::kNoId) << error;
+    eh::Session s (doc);
+    ASSERT_TRUE (eh::detail::DropLayer (s, l2, l1));
+    EXPECT_EQ (s.edits.Doc ().layers.front ().id, l2);
+    ASSERT_TRUE (eh::detail::DropGroup (s, g2, g1));
+    EXPECT_EQ (s.edits.Doc ().groups.front ().id, g2);
+    EXPECT_EQ (s.edits.UndoDepth (), 2u);
+    ASSERT_TRUE (s.edits.Undo ());
+    EXPECT_EQ (s.edits.Doc ().groups.front ().id, g1);
+    EXPECT_FALSE (eh::detail::DropLayer (s, l1, edit::kNoId));
+    EXPECT_NE (s.message.find ("layer 0"), std::string::npos) << s.message;
+    EXPECT_EQ (s.edits.UndoDepth (), 1u);
+    // The panel draws with the grip and the drag targets in place.
+    Gui gui;
+    gui.Frame (s);
+}

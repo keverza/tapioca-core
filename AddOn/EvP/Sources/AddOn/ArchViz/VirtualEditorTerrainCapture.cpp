@@ -1,5 +1,6 @@
 // OVERLAY-INVARIANTS.md §§8,11,12: explicit queued native reads only; no ACAPI,
-// capture, document mutation or worker launch from ImGui layout or Present.
+// capture, document mutation or worker launch from ImGui layout or Present. The one view
+// change, FollowFocus (#124), is queued the same way: Archicad's zoom, on the message loop.
 #include "APIEnvir.h"
 #include "ACAPinc.h"
 #include "ArchViz/VirtualEditorTerrainCapture.hpp"
@@ -14,6 +15,7 @@
 #include "Python/ApiDispatcher.hpp"
 #include "Python/MainThreadGate.hpp"
 #include <set>
+#include <utility>
 
 namespace geomsrv::archviz {
 namespace {
@@ -153,6 +155,54 @@ void FollowTerrainCapture (const std::shared_ptr<overlayhud::State>& state)
         ArchVizLog ("TERRAIN capture queue-refused: " + session->message);
     }
 }
+void FollowFocus (const std::shared_ptr<overlayhud::State>& state, bool archicadView)
+{
+    const auto session = state->virtualEditor;
+    if (!session || !session->focusRequest || session->focusQueued)
+        return;
+    const auto request = *std::exchange (session->focusRequest, std::nullopt);
+    if (!archicadView) {
+        session->message = "Focus in view works in Archicad's plan and 3D views; not in the Tapioca viewer yet.";
+        return;
+    }
+    session->focusQueued = true;
+    const auto done = [session] (const std::string& message) {
+        session->focusQueued = false;
+        session->message = message;
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    };
+    GS::UniString error;
+    if (!evp::MainThreadGate::Get ().Post (
+            [state, session, request, done] {
+                if (state != guesttext::HudState () || state->virtualEditor != session || !state->shown) {
+                    done ({}); // the editor went or was hidden: nothing to frame
+                    return;
+                }
+                GSErrCode err = NoError;
+                if (request.planar) {
+                    API_Box box {};
+                    box.xMin = request.lo.x, box.yMin = request.lo.y;
+                    box.xMax = request.hi.x, box.yMax = request.hi.y;
+                    err = ACAPI_View_Zoom (&box);
+                }
+                else {
+                    // The 3D window honours only a rectangle, in its pixels (ACAPI_View_Zoom).
+                    API_Rect rect {};
+                    rect.left = Int32 (request.rect[0]), rect.top = Int32 (request.rect[1]);
+                    rect.right = Int32 (request.rect[2]), rect.bottom = Int32 (request.rect[3]);
+                    err = ACAPI_View_Zoom (nullptr, &rect);
+                }
+                ArchVizLog ("VIRTUAL EDITOR focus " + request.what + (request.planar ? " (plan)" : " (3D)") +
+                            " err=" + std::to_string (err));
+                done (err == NoError ? std::string ()
+                                     : "Archicad could not zoom to " + request.what + " (error " +
+                                           std::to_string (err) + "); the front window may be another view.");
+            },
+            error))
+        done ("Focus was not queued: " + std::string (error.ToCStr (0, MaxUSize, CC_UTF8).Get ()));
+}
+
 void FollowDraftingImport (const std::shared_ptr<overlayhud::State>& state)
 {
     FollowTerrainBake (state); // #177: the same message-loop point, for the editor's one native write
