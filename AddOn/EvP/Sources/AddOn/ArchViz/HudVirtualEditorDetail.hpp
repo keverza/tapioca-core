@@ -292,6 +292,12 @@ void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& tak
 const std::vector<edit::Contour>& Contours (Session& s);
 const edit::PavedArea& PavedSurface (Session& s);
 double SurfaceStep (const Session& s);
+// #51: the step of the surface actually shown -- after a release, the preview's until the resting
+// pave lands. Publishing and contours key on it, so the resting surface republishes once it does.
+double ShownSurfaceStep (Session& s);
+bool RestingSurfacePending (const Session& s);
+// Waits for the resting pave and shows it (tests, and anything that must not see the preview).
+const edit::PavedArea& FinishRestingSurface (Session& s);
 void DrawContourLabels (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
 // The gumball for `mode` at `frame`, `size` metres across; `active` is the handle hovered
 // or, while `dragging`, held -- then it alone is drawn, with a guide along its axis.

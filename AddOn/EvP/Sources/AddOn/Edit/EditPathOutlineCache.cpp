@@ -66,6 +66,23 @@ void PathOutlineCache::Retain (const std::vector<Path>& paths)
                  : entries_.erase (it);
 }
 
+void PathOutlineCache::Adopt (PathOutlineCache&& other)
+{
+    for (auto& [id, theirs] : other.entries_) {
+        auto& list = entries_[id];
+        for (auto& e : theirs) {
+            auto same = std::find_if (list.begin (), list.end (), [&] (const Entry& m) { return m.step == e.step; });
+            if (same != list.end () && same->input == e.input)
+                continue; // already here: keep ours
+            e.used = frame_;
+            if (same != list.end ())
+                *same = std::move (e); // ours is of an older value of the path
+            else if (list.size () < kStepsPerPath)
+                list.push_back (std::move (e));
+        }
+    }
+}
+
 bool PathOutlineCache::Holds (Id id) const
 {
     return entries_.count (id) != 0;

@@ -27,6 +27,7 @@
 #include "Edit/EditTracker.hpp"
 #include "Edit/EditWorkingPlane.hpp"
 #include <chrono>
+#include <future>
 #include <optional>
 #include <memory>
 #include <array>
@@ -412,6 +413,15 @@ struct Session {
     edit::PavedArea paved;
     uint64_t pavedRevision = UINT64_MAX;
     double pavedStep = 0, publishedPathStep = 0, contoursPathStep = 0;
+    // #51: the resting surface paved off the UI thread once a gesture ends. The drag's preview of
+    // that same revision stays shown until it lands; any other change paves at once, as before.
+    struct RestingPave {
+        uint64_t revision = 0;
+        edit::PavedArea paved;
+        edit::PathOutlineCache outlines; // the session's copy, lent to the worker and adopted back
+    };
+    std::future<RestingPave> restingPave;
+    uint64_t restingPaves = 0; // launched: one per release
     std::vector<edit::Id> quietPaths, publishedQuietPaths;
     bool wholeGrab = false;               // the press grabbed a selected object by its own part
     bool dragStarted = false;             // the pointer has left the press by the drag threshold

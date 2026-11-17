@@ -879,11 +879,12 @@ const std::vector<edit::Contour>& Contours (Session& s)
         s.contoursRevision = UINT64_MAX;
         return s.contourLines;
     }
-    if (s.contoursRevision == doc.revision && s.contoursAsked == s.contourStep && s.contoursPathStep == SurfaceStep (s))
+    if (s.contoursRevision == doc.revision && s.contoursAsked == s.contourStep &&
+        s.contoursPathStep == ShownSurfaceStep (s))
         return s.contourLines;
     s.contoursRevision = doc.revision;
     s.contoursAsked = s.contourStep;
-    s.contoursPathStep = SurfaceStep (s);
+    s.contoursPathStep = ShownSurfaceStep (s);
     // Asked for none: about three divisions over the heights there are, never finer than 5 cm --
     // a crown's few centimetres are not grading.
     double interval = s.contourStep, lo = 0.0, hi = 0.0;

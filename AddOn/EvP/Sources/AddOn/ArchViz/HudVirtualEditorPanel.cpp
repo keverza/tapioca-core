@@ -542,7 +542,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     if (edit::FindGroup (doc, s.enteredGroup) == nullptr)
         s.enteredGroup = edit::kNoId; // ungrouped or undone since it was entered
     if (doc.revision == s.publishedRevision && s.selection.Items () == s.publishedSelection &&
-        s.publishedPathStep == SurfaceStep (s) && s.quietPaths == s.publishedQuietPaths &&
+        s.publishedPathStep == ShownSurfaceStep (s) && s.quietPaths == s.publishedQuietPaths &&
         s.publishedGroup == s.enteredGroup && (!doc.landscape || s.publishedLandscapeZ == s.plane.origin.z))
         return false;
     edit::Selection shown = s.selection;
@@ -570,7 +570,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     panel.widthPixels = 400;
     layer.panels.push_back (panel);
     s.publishedRevision = doc.revision;
-    s.publishedPathStep = SurfaceStep (s);
+    s.publishedPathStep = s.pavedStep; // f.paved above made it the shown surface's
     s.publishedSelection = s.selection.Items ();
     s.publishedQuietPaths = s.quietPaths;
     s.publishedLandscapeZ = s.plane.origin.z;

@@ -294,21 +294,82 @@ double SurfaceStep (const Session& s)
                : 0.5;
 }
 
+namespace {
+constexpr double kRestingStep = 0.5;
+
+void Show (Session& s, edit::PavedArea paved, uint64_t revision, double step)
+{
+    const std::string previousWarning = s.paved.warning;
+    s.paved = std::move (paved);
+    // A deleted path's outlines go with the repave that no longer holds it; every kept
+    // path has at most a few steps, so the cache stays as large as the network.
+    s.outlines.Retain (Doc (s).paths);
+    if (s.message.empty () || s.message == previousWarning)
+        s.message = s.paved.warning;
+    s.pavedRevision = revision;
+    s.pavedStep = step;
+}
+
+// A finished resting pave is shown when the document is still the revision it paved and the
+// preview of that revision is what is shown; otherwise it is dropped (its outlines are kept).
+void CollectRestingPave (Session& s, bool wait)
+{
+    if (!s.restingPave.valid () ||
+        (!wait && s.restingPave.wait_for (std::chrono::seconds (0)) != std::future_status::ready))
+        return;
+    Session::RestingPave done = s.restingPave.get ();
+    s.outlines.Adopt (std::move (done.outlines));
+    if (done.revision == Doc (s).revision && s.pavedRevision == done.revision && s.pavedStep != kRestingStep &&
+        SurfaceStep (s) == kRestingStep)
+        Show (s, std::move (done.paved), done.revision, kRestingStep);
+}
+} // namespace
+
 const edit::PavedArea& PavedSurface (Session& s)
 {
     const double step = SurfaceStep (s);
-    if (s.pavedRevision != Doc (s).revision || s.pavedStep != step) {
-        const std::string previousWarning = s.paved.warning;
-        s.paved = edit::Pave (Doc (s).paths, step, true, &s.outlines);
-        // A deleted path's outlines go with the repave that no longer holds it; every kept
-        // path has at most a few steps, so the cache stays as large as the network.
-        s.outlines.Retain (Doc (s).paths);
-        if (s.message.empty () || s.message == previousWarning)
-            s.message = s.paved.warning;
-        s.pavedRevision = Doc (s).revision;
-        s.pavedStep = step;
+    const uint64_t revision = Doc (s).revision;
+    CollectRestingPave (s, false);
+    if (s.pavedRevision == revision && s.pavedStep == step)
+        return s.paved;
+    // Released: this revision's preview is on screen, so the resting surface is paved on a worker
+    // and swapped in when it lands -- the release itself costs no full repave (#51).
+    if (step == kRestingStep && s.pavedRevision == revision && !s.edits.InGesture ()) {
+        if (!s.restingPave.valid ()) {
+            ++s.restingPaves;
+            s.restingPave =
+                std::async (std::launch::async, [paths = Doc (s).paths, revision, outlines = s.outlines] () mutable {
+                    Session::RestingPave out;
+                    out.revision = revision;
+                    out.paved = edit::Pave (paths, kRestingStep, true, &outlines);
+                    out.outlines = std::move (outlines);
+                    return out;
+                });
+        }
+        return s.paved; // a pave of an older revision still running is collected, then this one starts
+    }
+    Show (s, edit::Pave (Doc (s).paths, step, true, &s.outlines), revision, step);
+    return s.paved;
+}
+
+bool RestingSurfacePending (const Session& s)
+{
+    return s.restingPave.valid ();
+}
+
+const edit::PavedArea& FinishRestingSurface (Session& s)
+{
+    while (s.restingPave.valid ()) {
+        CollectRestingPave (s, true);
+        PavedSurface (s); // a pave of an older revision gives way to this one's
     }
     return s.paved;
+}
+
+double ShownSurfaceStep (Session& s)
+{
+    PavedSurface (s);
+    return s.pavedStep;
 }
 
 const edit::PavedCorner* PickedKerb (Session& s)

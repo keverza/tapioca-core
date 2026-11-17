@@ -32,6 +32,10 @@ class PathOutlineCache {
     // last used. Each kept path holds at most a few steps, so this bounds the cache by the
     // document without Prune's one-generation lag.
     void Retain (const std::vector<Path>& paths);
+    // Takes the entries of `other` (a copy this cache lent a worker, which paved with it) that this
+    // one lacks for the same path value and step: the worker's tessellations are not redone,
+    // and what this cache built meanwhile is kept.
+    void Adopt (PathOutlineCache&& other);
     size_t Size () const;
     // Whether any entry of the path `id` is kept (a deleted path's go with the next Prune).
     bool Holds (Id id) const;

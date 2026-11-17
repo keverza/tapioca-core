@@ -471,6 +471,62 @@ TEST (HudVirtualEditor, AnOffsetEndpointPressSnapsThePointAndJoinsWithAGradeCont
     EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
 }
 
+// #51: a release keeps the drag's preview on screen and paves the resting surface on a worker;
+// what lands is exactly the surface a pave on the UI thread gives, and it republishes once. A
+// change made before it lands (an undo here) is paved at once and the late result is dropped.
+TEST (HudVirtualEditor, AReleasePavesTheRestingSurfaceOffTheUiThread51)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 1 }, { 30, 12, 0 } }, 2);
+    ed::AddPath (doc, { { 10, -8, 0 }, { 10, 8, 0 } }, 1.5);
+    Drive d (doc);
+    d.Publish ();
+    ASSERT_DOUBLE_EQ (d.S ().pavedStep, 0.5);
+    const auto grade = doc.paths[0].profile.back ().id;
+    const auto drag = [&] (double z) {
+        ASSERT_TRUE (d.S ().edits.Begin ());
+        ASSERT_TRUE (d.S ().edits.Move (
+            [=] (ed::Document& c, std::string& e) { return ed::SetPathElevation (c, id, grade, z, e); }));
+        d.Publish ();
+        ASSERT_GT (d.S ().pavedStep, 0.5) << "the drag shows a coarser preview";
+        ASSERT_TRUE (d.S ().edits.End ());
+    };
+    drag (3);
+    const auto preview = d.S ().paved.triangles.size ();
+    const auto launched = d.S ().restingPaves;
+    d.Publish ();
+    EXPECT_EQ (d.S ().restingPaves, launched + 1);
+    // Further frames while it paves start no second worker.
+    for (int i = 0; i < 3 && eh::detail::RestingSurfacePending (d.S ()); ++i)
+        d.Publish ();
+    EXPECT_EQ (d.S ().restingPaves, launched + 1);
+    eh::detail::FinishRestingSurface (d.S ());
+    d.Publish (); // republishes now if the landing was not already published by a frame above
+    EXPECT_DOUBLE_EQ (d.S ().pavedStep, 0.5);
+    EXPECT_DOUBLE_EQ (d.S ().publishedPathStep, 0.5) << "the published layer is the resting surface's";
+    const auto direct = ed::Pave (d.D ().paths, 0.5, true);
+    EXPECT_EQ (d.S ().paved.vertices, direct.vertices) << "the worker's surface is the UI thread's, exactly";
+    EXPECT_EQ (d.S ().paved.triangles, direct.triangles);
+    EXPECT_NE (d.S ().paved.triangles.size (), preview);
+    const auto settled = layers::Generation ();
+    d.Publish ();
+    EXPECT_EQ (layers::Generation (), settled);
+
+    // Released, then undone before the resting pave is collected: the undo paves at once and the
+    // late result of the released revision is never shown.
+    drag (5);
+    d.Publish ();
+    ASSERT_TRUE (d.S ().edits.Undo ());
+    d.Publish ();
+    EXPECT_EQ (d.S ().pavedRevision, d.D ().revision);
+    EXPECT_DOUBLE_EQ (d.S ().pavedStep, 0.5);
+    eh::detail::FinishRestingSurface (d.S ());
+    d.Publish ();
+    const auto undone = ed::Pave (d.D ().paths, 0.5, true);
+    EXPECT_EQ (d.S ().pavedRevision, d.D ().revision);
+    EXPECT_EQ (d.S ().paved.vertices, undone.vertices);
+}
+
 TEST (HudVirtualEditor, SurfaceQualityChangesOnlyForChangedPreviewsAndRefinesOnceAtEnd)
 {
     ed::Document doc;
@@ -490,6 +546,9 @@ TEST (HudVirtualEditor, SurfaceQualityChangesOnlyForChangedPreviewsAndRefinesOnc
     ASSERT_TRUE (d.S ().edits.End ());
     d.Publish ();
     EXPECT_EQ (d.D ().revision, revision);
+    EXPECT_EQ (d.S ().restingPaves, 1u) << "the release paves its resting surface on a worker (#51)";
+    eh::detail::FinishRestingSurface (d.S ());
+    d.Publish (); // the resting surface republishes once it lands
     EXPECT_DOUBLE_EQ (d.S ().pavedStep, 0.5);
     EXPECT_EQ (d.S ().paved.triangles.size (), coarse) << "a planar run needs no extra resting subdivisions";
     const auto finished = layers::Generation ();
