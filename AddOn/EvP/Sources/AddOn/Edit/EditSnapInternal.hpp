@@ -45,12 +45,19 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
 
 } // namespace snapgather
 
+// The Reference lines a landscape hides (tapioca::geometry::LandscapeLineVisible false), ascending.
+std::vector<Id> HiddenLines (const Document& doc);
+
 // The gathered targets, and a uniform grid over them in the working plane's frame: each cell
 // lists the points in it and the segments whose bounds touch it, in gather order.
 struct SnapTargets::Index {
     uint64_t contextKey = 0;
     std::vector<Entity> entities; // what it was gathered from, compared on every use
     std::vector<Path> paths;
+    // What decides which of them are shown (Gather skips hidden ones): the layers' visibility and
+    // the Reference lines whose display is off. Without these a hidden layer stayed snappable.
+    std::vector<Layer> layers;
+    std::vector<Id> hiddenLines;
     std::vector<Ref> exclude;
     double pathStep = 0.0;
     Plane plane;
@@ -64,7 +71,8 @@ struct SnapTargets::Index {
     bool For (const Document& doc, const SnapQuery& q) const
     {
         return exclude == q.exclude && pathStep == q.pathStep && entities == doc.entities && paths == doc.paths &&
-               plane.origin == q.plane.origin && plane.normal == q.plane.normal && plane.u == q.plane.u;
+               layers == doc.layers && hiddenLines == HiddenLines (doc) && plane.origin == q.plane.origin &&
+               plane.normal == q.plane.normal && plane.u == q.plane.u;
     }
     int Column (double x) const
     {

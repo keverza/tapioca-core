@@ -1,5 +1,6 @@
 #include "edit_gesture_replay.hpp"
 #include "Edit/EditSnap.hpp"
+#include "Edit/EditOrganize.hpp"
 #include <gtest/gtest.h>
 #include <cstdint>
 
@@ -112,4 +113,37 @@ TEST (EditSnapTargets, ItRebuildsOnlyWhenWhatItGatheredChanges)
     ExpectSame (plain, ed::Snap (scene.doc, context, other), 0);
     targets.Reset ();
     EXPECT_EQ (targets.Points (), 0u);
+}
+
+// #51: what Gather skips as hidden is part of what the index was built for. Hiding a layer (or a
+// Reference line's display) changes no entity or path, yet the cached targets must not keep
+// offering the hidden objects.
+TEST (EditSnapTargets, ItRebuildsWhenALayerIsHidden51)
+{
+    auto scene = editreplay::Grid ("g", 3);
+    const ed::Id layer = ed::AddLayer (scene.doc, "hidden later");
+    std::string error;
+    ASSERT_TRUE (ed::MoveToLayer (scene.doc, { { scene.paths[0], ed::Part::Entity, 0 } }, layer, error)) << error;
+    const auto& firstPoint = ed::FindPath (scene.doc, scene.paths[0])->points.front ();
+    ed::SnapContext context;
+    ed::SnapTargets targets;
+    ed::SnapQuery q;
+    q.pathStep = 0.5;
+    q.cursor = firstPoint.p;
+    q.tolerance = 0.2;
+    EXPECT_TRUE (targets.Update (scene.doc, context, 0, q));
+    q.targets = &targets;
+    const auto shown = ed::Snap (scene.doc, context, q);
+    ASSERT_TRUE (shown.snapped);
+    EXPECT_EQ (shown.source.entity, scene.paths[0]);
+    for (auto& l : scene.doc.layers)
+        if (l.id == layer)
+            l.visible = false;
+    EXPECT_TRUE (targets.Update (scene.doc, context, 0, q)) << "the hidden layer is seen";
+    ed::SnapQuery plain = q;
+    plain.targets = nullptr;
+    const auto hidden = ed::Snap (scene.doc, context, q);
+    ExpectSame (ed::Snap (scene.doc, context, plain), hidden, 0);
+    EXPECT_NE (hidden.source.entity, scene.paths[0]) << "nothing on the hidden layer is snapped to";
+    EXPECT_FALSE (targets.Update (scene.doc, context, 0, q));
 }

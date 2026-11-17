@@ -1,10 +1,26 @@
 #include "Edit/EditSnapInternal.hpp"
+#include "Edit/EditLandscape.hpp"
+#include <algorithm>
 #include <memory>
 
 namespace geomsrv::edit {
 
 using snapgather::Gather;
 using snapgather::P2;
+
+std::vector<Id> HiddenLines (const Document& doc)
+{
+    // The rule of tapioca::geometry::LandscapeLineVisible, for every line at once.
+    std::vector<Id> out;
+    if (doc.landscape)
+        for (const auto& source : doc.landscape->sources)
+            if (!source.deleted && source.role == tapioca::geometry::SourceRole::ReferenceLine &&
+                !source.lineStyle.visible)
+                out.push_back (source.entityId);
+    std::sort (out.begin (), out.end ());
+    out.erase (std::unique (out.begin (), out.end ()), out.end ());
+    return out;
+}
 
 SnapTargets::SnapTargets () = default;
 SnapTargets::~SnapTargets () = default;
@@ -33,6 +49,8 @@ bool SnapTargets::Update (const Document& doc, const SnapContext& context, uint6
     auto index = std::make_unique<Index> ();
     index->entities = doc.entities;
     index->paths = doc.paths;
+    index->layers = doc.layers;
+    index->hiddenLines = HiddenLines (doc);
     index->contextKey = contextKey;
     index->exclude = query.exclude;
     index->pathStep = query.pathStep;
