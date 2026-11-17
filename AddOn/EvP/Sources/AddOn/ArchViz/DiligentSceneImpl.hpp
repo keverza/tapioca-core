@@ -943,6 +943,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     ClayLook clay;
     // Issue #14 P2: off by default, like clay.
     TechnicalEdgeStyle technicalEdges;
+    float wireColor[4] = { kWireframeColor[0], kWireframeColor[1], kWireframeColor[2], kWireframeColor[3] };
     // Issue #14 P2: the section plane every upload stamps (DiligentSceneConstants::sectionPlane).
     // (0,0,0,1) = no section, the default and the overlay's.
     float sectionPlane[4] = { 0.0f, 0.0f, 0.0f, 1.0f };

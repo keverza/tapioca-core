@@ -291,6 +291,13 @@ void DiligentScene::SetTechnicalEdges (const TechnicalEdgeStyle& style)
         impl_->technicalEdges = style;
 }
 
+void DiligentScene::SetWireColor (const float rgba[4])
+{
+    if (impl_ != nullptr && rgba != nullptr)
+        for (int k = 0; k < 4; ++k)
+            impl_->wireColor[k] = rgba[k];
+}
+
 void DiligentScene::SetSectionPlane (const SectionPlaneState& state)
 {
     if (impl_ == nullptr)

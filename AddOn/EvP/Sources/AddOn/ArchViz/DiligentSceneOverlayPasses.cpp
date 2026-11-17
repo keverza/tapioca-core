@@ -74,7 +74,8 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
     // pass: they are not the model, and in the overlay's wireframe they would be
     // the only things NOT matching Archicad's window.
     if (drawWireframe) {
-        uploadConstants (kWireframeColor[0], kWireframeColor[1], kWireframeColor[2], kWireframeColor[3]);
+        const float* wire = impl_->wireColor;
+        uploadConstants (wire[0], wire[1], wire[2], wire[3]);
         for (const Entry& e : impl_->elements) {
             if (!drawable (e))
                 continue;

@@ -14,6 +14,11 @@ namespace archviz {
 void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay)
 {
     scene.SetGrading (hud.exposure, hud.reflectance, hud.roughnessBias);
+    // The wireframe colour applies on the overlay too: there the wire IS the picture.
+    float wire[4];
+    for (int k = 0; k < 4; ++k)
+        wire[k] = float ((hud.wireRgba >> (24 - 8 * k)) & 0xFF) / 255.0f;
+    scene.SetWireColor (wire);
     // ⚠️ WITHHELD ON THE OVERLAY, like the sky background: over Archicad's own 3D window the
     // picture is compared against Archicad's shading, so it must keep the project's materials.
     scene.SetClayLook (ClayLookFromHud (hud.clay && !overlay, hud.clayRgba, hud.clayRoughness, hud.clayKeepGlass));

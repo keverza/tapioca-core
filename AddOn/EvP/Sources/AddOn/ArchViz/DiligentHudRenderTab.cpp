@@ -38,6 +38,8 @@ struct Knobs {
     int background;
     int clay;
     int edges;
+    int reflections;  // screen-space reflections
+    int antiAliasing; // temporal
 };
 
 // ⚠️ THE REFERENCE'S MODES, WHERE THIS RENDERER CAN HONOUR THEM (HANDOFF-HudTabs.md section 1):
@@ -50,14 +52,16 @@ struct Knobs {
 // ⚠️ TWO AO SCALES (the handoff's caveat 8), CONVERTED IN THE OPEN: the reference's 0-1 blend
 // is doubled onto this renderer's 0-2 intensity -- Architecture's 0.70 is 1.4, Rendered's 0.40
 // is 0.8. Ground, edge angle and tone-map choice are not native; Architecture is told from
-// Rendered by its AO and by drawing no sky behind the model.
+// Rendered by its AO and by drawing no sky behind the model -- which the 2026-11-17 live run
+// found too close to tell apart. So Rendered also turns on screen-space reflections and temporal
+// anti-aliasing (the full raster path), and Architecture turns both off (the calm, flat reading).
 constexpr Knobs kPresets[] = {
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 1, -1, 0, 0 },    // Shaded
-    { int (SceneRenderMode::Wireframe), -1, -1, -1, -1.0f, 0, -1, -1, -1 },                     // Wireframe
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 0, 0 },  // Architecture
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0 },  // Rendered
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 1, -1 }, // Clay
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 0, -1, 1, 1 },    // Technical
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 1, -1, 0, 0, -1, -1 },    // Shaded
+    { int (SceneRenderMode::Wireframe), -1, -1, -1, -1.0f, 0, -1, -1, -1, -1, -1 },                     // Wireframe
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 0, 0, 0, 0 },    // Architecture
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 1, 1 },    // Rendered
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 1, -1, -1, -1 }, // Clay
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 0, -1, 1, 1, -1, -1 },    // Technical
 };
 constexpr const char* kPreviewNames[] = { "Shaded", "Wireframe", "Architecture", "Rendered",
                                           "Clay",   "Technical", "Custom" };
@@ -75,7 +79,9 @@ bool Matches (const Knobs& knobs, const HudState& state)
            (knobs.shadows < 0 || state.shadowsEnabled == (knobs.shadows != 0)) &&
            (knobs.background < 0 || state.environmentBackground == (knobs.background != 0)) &&
            (knobs.clay < 0 || state.clay == (knobs.clay != 0)) &&
-           (knobs.edges < 0 || state.technicalEdges == (knobs.edges != 0));
+           (knobs.edges < 0 || state.technicalEdges == (knobs.edges != 0)) &&
+           (knobs.reflections < 0 || state.screenSpaceReflection == (knobs.reflections != 0)) &&
+           (knobs.antiAliasing < 0 || state.temporalAntiAliasing == (knobs.antiAliasing != 0));
 }
 
 } // namespace
@@ -117,6 +123,10 @@ void ApplyPreview (HudState& state, Preview preview)
         state.clay = knobs.clay != 0;
     if (knobs.edges >= 0)
         state.technicalEdges = knobs.edges != 0;
+    if (knobs.reflections >= 0)
+        state.screenSpaceReflection = knobs.reflections != 0;
+    if (knobs.antiAliasing >= 0)
+        state.temporalAntiAliasing = knobs.antiAliasing != 0;
 }
 
 void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scene)
@@ -168,6 +178,19 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
         ImGui::EndCombo ();
     }
     ImGui::TextDisabled ("preview -- a preset over the knobs below; an edit reads Custom");
+    // ⚠️ THE STYLE'S OWN COLOURS, BESIDE THE STYLE (2026-11-17 live run): the clay colour lived
+    // three clicks down in a collapsed section and read as missing. The same state as there.
+    auto quickColour = [] (const char* id, const char* label, uint32_t& rgba) {
+        ImGui::SetNextItemWidth (-FLT_MIN);
+        hudshell::ColourChoice (id, rgba);
+        ImGui::TextDisabled ("%s", label);
+    };
+    if (state.renderMode != int (SceneRenderMode::Shaded))
+        quickColour ("##quickwire", "wire colour", state.wireRgba);
+    if (state.clay)
+        quickColour ("##quickclay", "clay colour", state.clayRgba);
+    if (state.technicalEdges)
+        quickColour ("##quickedges", "edge colour", state.technicalEdgeRgba);
 
     // ---- 2. surfaces -----------------------------------------------------------------------
     if (hudshell::Section ("surfaces", true)) {
@@ -179,6 +202,9 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
             // factor of 0 culls the patch.
             ImGui::SliderInt ("wire subdivisions", &state.wireTessellation, 1, 16);
             ImGui::SliderFloat ("wire width", &state.wireLineWidth, 0.5f, 3.0f, "%.2f px");
+            ImGui::SetNextItemWidth (-FLT_MIN);
+            hudshell::ColourChoice ("##wirecolour", state.wireRgba);
+            ImGui::TextDisabled ("wire colour");
         }
         // ⚠️ A SEPARATE COMBO, NOT MORE ENTRIES IN THE ONE ABOVE: quality and surfaces are
         // independent axes and every pairing is wanted (RenderQuality, ViewerSettings.hpp).

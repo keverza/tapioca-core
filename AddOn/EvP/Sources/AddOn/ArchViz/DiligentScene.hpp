@@ -484,6 +484,10 @@ class DiligentScene final {
     // drawn by DrawLineOverlays before the selection's own edges.
     void SetTechnicalEdges (const TechnicalEdgeStyle& style);
 
+    // The wireframe's line colour (the HUD's picker), straight into the overlay target as
+    // kWireframeColor was; its default.
+    void SetWireColor (const float rgba[4]);
+
     // The movable section plane (issue #14 P2, ArchViz/SectionPlane.hpp), placed against this
     // scene's own bounds every call. Stamped into every pass's constants (Impl::Upload).
     void SetSectionPlane (const SectionPlaneState& state);

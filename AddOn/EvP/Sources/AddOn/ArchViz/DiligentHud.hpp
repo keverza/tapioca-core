@@ -158,6 +158,8 @@ struct HudState {
     // default; the slider is still there for anyone who wants the interior grid.
     int wireTessellation = 1;
     float wireLineWidth = 1.25f;
+    // The wireframe's colour, sRGB 0xRRGGBBAA; the default is kWireframeColor.
+    uint32_t wireRgba = 0x1AD9FFBFu;
     // The sun study's hours range -- the web study's "direct sun hours shown"
     // range. Surfaces outside it are drawn neutral. 24 hours is the open top.
     // ⚠️ HUD-ONLY: no command sets it, so nothing is reconciled per frame.
