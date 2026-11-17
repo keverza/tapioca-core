@@ -725,7 +725,7 @@ struct HudState {
     int shadowFilterSize = 3;
     float shadowPartitioning = 0.95f;
     float shadowFilterWorldSize = 0.05f;
-    float shadowDepthBias = 0.0025f;
+    float shadowDepthBias = 0.0005f; // #233: DiligentShadowSettings::fixedDepthBias says why
     float shadowReceiverBiasClamp = 10.0f;
     float shadowCascadeTransition = 0.1f;
     float shadowLightBleeding = 0.1f;

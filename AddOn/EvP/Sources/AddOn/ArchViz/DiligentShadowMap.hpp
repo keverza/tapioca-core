@@ -58,7 +58,11 @@ struct DiligentShadowSettings {
     // that and it is a real runtime uniform.
     bool visualizeCascades = false;
     bool shadowsOnly = false;
-    float fixedDepthBias = 0.0025f;
+    // #233: 0.0005, down from 0.0025. A flat depth offset lets light through under every
+    // zero-thickness occluder edge: RenderBench measured a band ~10 px wide at each Cornell and
+    // bathroom wall join at 0.0025. The per-cascade normal offset already removes the acne, so
+    // the smaller value shows none; zero would too, but keeps no margin for far cascades.
+    float fixedDepthBias = 0.0005f;
     float receiverPlaneBiasClamp = 10.0f;
     float cascadeTransition = 0.1f;
     float filterWorldSize = 0.05f;
