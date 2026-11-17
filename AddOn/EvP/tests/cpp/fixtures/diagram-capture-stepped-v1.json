@@ -1,0 +1,38 @@
+{
+ "format": "tapioca.diagram.capture",
+ "version": 1,
+ "note": "Hand-authored M1 fixture (#201): building A is two slabs sharing authored ID 'A', an L-shaped plinth over two stories and a set-back top story; slab g3 has no ID and stands alone 30 m east. Project stories carry floorIds 11-13.",
+ "storeys": {
+  "levels": [0, 3, 6],
+  "names": ["Ground", "First", "Second"],
+  "indices": [0, 1, 2],
+  "floorIds": [11, 12, 13]
+ },
+ "revisions": {
+  "projectEpoch": 4,
+  "modelStamp": 1207,
+  "slices": 9,
+  "topology": 0,
+  "metadata": 0,
+  "metrics": 0
+ },
+ "slices": {
+  "complete": true,
+  "followsStories": true,
+  "rows": [
+   {"guid": "g1", "function": "residential", "story": 0, "z": 0, "floorHeight": 3, "rgba": 3870106111,
+    "chains": [{"closed": true, "xy": [0, 0, 20, 0, 20, 8, 8, 8, 8, 20, 0, 20]}]},
+   {"guid": "g1", "function": "residential", "story": 1, "z": 3, "floorHeight": 3, "rgba": 3870106111,
+    "chains": [{"closed": true, "xy": [0, 0, 20, 0, 20, 8, 8, 8, 8, 20, 0, 20]}]},
+   {"guid": "g2", "function": "office", "story": 2, "z": 6, "floorHeight": 3.5, "rgba": 1689051135,
+    "chains": [{"closed": true, "xy": [0, 0, 8, 0, 8, 8, 0, 8]}]},
+   {"guid": "g3", "function": "retail", "story": 0, "z": 0, "floorHeight": 4.5, "rgba": 4071211007,
+    "chains": [{"closed": true, "xy": [30, 0, 40, 0, 40, 10, 30, 10]}]}
+  ],
+  "records": [
+   {"guid": "g1", "id": "A"},
+   {"guid": "g2", "id": "A"},
+   {"guid": "g3", "id": ""}
+  ]
+ }
+}

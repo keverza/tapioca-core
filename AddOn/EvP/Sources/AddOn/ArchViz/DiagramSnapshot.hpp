@@ -70,6 +70,7 @@ struct BuiltScene {
     std::shared_ptr<const Scene> scene;        // null when the snapshot is incompatible
     std::vector<PickMesh> shells;              // one per storey, node-local; also the draw source
     std::vector<std::string> representedGuids; // source slabs the diagram stands in for, sorted
+    std::map<EntityId, uint32_t> colours;      // storey -> its first row's function colour, 0xRRGGBBAA
     std::vector<EntityId> dropped;             // storey bindings with no successor
     std::vector<std::string> notes;
     RevisionSet revisions;

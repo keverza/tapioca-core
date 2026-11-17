@@ -242,6 +242,7 @@ BuiltScene BuildScene (const DiagramInputSnapshot& snapshot, StoreyBindings& bin
             storey.source.sourceGuid = floor.rows.front ()->guid;
             storey.source.sourceStory = floor.story;
             storey.planned = false;
+            built.colours[storey.id] = floor.rows.front ()->rgba;
             storey.boundsMin = { 0, 0, floor.z };
             storey.boundsMax = { 0, 0, floor.top };
             const bool geometry = mesh.points.size () >= 3;
