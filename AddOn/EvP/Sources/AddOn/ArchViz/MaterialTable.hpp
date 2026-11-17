@@ -26,7 +26,7 @@
 // convention (`GetSurfaceColor`), passed through rather than rescaled, so the
 // numbers here can be diffed against EvP.GetModelMaterials' output directly.
 
-#include "ArchViz/BuildingMaterialSignal.hpp"   // Substance -- pure, no ACAPI
+#include "ArchViz/BuildingMaterialSignal.hpp" // Substance -- pure, no ACAPI
 
 #include <cmath>
 #include <cstddef>
@@ -129,7 +129,10 @@ struct SurfaceMaterial {
 
     std::string name;
 
-    size_t Bytes () const { return sizeof (SurfaceMaterial) + name.capacity (); }
+    size_t Bytes () const
+    {
+        return sizeof (SurfaceMaterial) + name.capacity ();
+    }
 };
 
 // At or above this, a surface draws in the opaque pass. Not 1.0: Archicad
@@ -168,6 +171,13 @@ constexpr float kOpaqueAlpha = 0.995f;
 //   factor 11.00 -> 0.392    factor 0.00 -> 1.000
 constexpr float kMaxShininessFactor = 100.0f;
 
+// The mirror end of the scale: from this factor up the roughness leaves the
+// exponent curve (0.147 here) and reaches kMirrorRoughness at factor 100.
+// Measured project finishes sit at 28 and below, so only a surface authored at
+// the top of the slider moves.
+constexpr float kMirrorShineFactor = 90.0f;
+constexpr float kMirrorRoughness = 0.03f;
+
 // Archicad exposes transparency, shine and specular reflection for a surface,
 // but no IOR, no refraction and no metalness. Transparent ranges are therefore
 // treated as dielectric glass for the forward preview. Keep authored shine when
@@ -195,13 +205,24 @@ inline float SurfaceRoughness (const SurfaceMaterial& material)
 
     float roughness = std::sqrt (2.0f / (factor + 2.0f));
 
+    // ⚠️ THE TOP OF THE SCALE IS WHERE AUTHORS PUT MIRRORS, and the exponent
+    // relation alone stops at 0.14 there: a surface at maximum shine drew as
+    // brushed metal (#233, RenderBench cornell-mirror). Above kMirrorShineFactor
+    // the roughness runs linearly down to kMirrorRoughness, so the curve stays
+    // continuous and monotonic and every factor below it is unchanged.
+    if (factor > kMirrorShineFactor) {
+        const float atKnee = std::sqrt (2.0f / (kMirrorShineFactor + 2.0f));
+        const float t = (factor - kMirrorShineFactor) / (kMaxShininessFactor - kMirrorShineFactor);
+        roughness = atKnee + (kMirrorRoughness - atKnee) * t;
+    }
+
     if (material.alpha < kOpaqueAlpha && roughness > kTransparentRoughnessCeiling)
         roughness = kTransparentRoughnessCeiling;
     return roughness;
 }
 
 class MaterialTable final {
-public:
+  public:
     // Add or REPLACE the entry for `m.index`. Replacing rather than appending so
     // a pool that reports the same index twice cannot produce two answers to one
     // lookup — a duplicate is a bad read, and the last one wins quietly instead
@@ -229,13 +250,22 @@ public:
 
     static const SurfaceMaterial& Missing ();
 
-    size_t Size ()    const { return byIndex_.size (); }
-    bool   IsEmpty () const { return byIndex_.empty (); }
-    size_t Bytes ()   const;
+    size_t Size () const
+    {
+        return byIndex_.size ();
+    }
+    bool IsEmpty () const
+    {
+        return byIndex_.empty ();
+    }
+    size_t Bytes () const;
 
-    const std::vector<SurfaceMaterial>& All () const { return byIndex_; }
+    const std::vector<SurfaceMaterial>& All () const
+    {
+        return byIndex_;
+    }
 
-private:
+  private:
     // A flat vector, linear-scanned. A pool has tens of entries, the lookup runs
     // once per DRAW RANGE (not per triangle, not per vertex), and a map would
     // cost an allocation per entry to save nothing measurable. Revisit only with
@@ -243,7 +273,7 @@ private:
     std::vector<SurfaceMaterial> byIndex_;
 };
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

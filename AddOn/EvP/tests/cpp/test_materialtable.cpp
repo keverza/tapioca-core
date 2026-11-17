@@ -127,17 +127,22 @@ TEST (MaterialTable, ShineIsReadAsAPhongExponentAndNotAsAGlossFraction)
     glossiest.shininess = 0.2818f; // factor 28.18: the pool's maximum
     EXPECT_NEAR (SurfaceRoughness (glossiest), 0.2574278f, 1e-5f);
 
-    // The documented ceiling of the factor. Glossy, but deliberately not a
-    // mirror -- Archicad has no channel that means "mirror".
+    // The top of the slider is the mirror (#233): factor 100 reaches
+    // kMirrorRoughness, and the knee at factor 90 still sits on the curve.
+    SurfaceMaterial knee = Make (6, 1.0f, 1.0f, 1.0f);
+    knee.shininess = 0.9f; // factor 90
+    EXPECT_NEAR (SurfaceRoughness (knee), 0.147442f, 1e-5f);
+
     SurfaceMaterial maxed = Make (5, 1.0f, 1.0f, 1.0f);
     maxed.shininess = 1.0f; // factor 100
-    EXPECT_NEAR (SurfaceRoughness (maxed), 0.140028f, 1e-5f);
+    EXPECT_NEAR (SurfaceRoughness (maxed), kMirrorRoughness, 1e-5f);
 
     // Monotonic: more shine is never rougher.
     EXPECT_GT (SurfaceRoughness (matte), SurfaceRoughness (paint));
     EXPECT_GT (SurfaceRoughness (paint), SurfaceRoughness (steel));
     EXPECT_GT (SurfaceRoughness (steel), SurfaceRoughness (glossiest));
-    EXPECT_GT (SurfaceRoughness (glossiest), SurfaceRoughness (maxed));
+    EXPECT_GT (SurfaceRoughness (glossiest), SurfaceRoughness (knee));
+    EXPECT_GT (SurfaceRoughness (knee), SurfaceRoughness (maxed));
 }
 
 TEST (MaterialTable, OutOfSpecShineIsClampedRatherThanPropagated)
@@ -154,7 +159,7 @@ TEST (MaterialTable, OutOfSpecShineIsClampedRatherThanPropagated)
 
     SurfaceMaterial huge = Make (3, 1.0f, 1.0f, 1.0f);
     huge.shininess = 80.0f; // factor 8000, i.e. the RAW storage
-    EXPECT_NEAR (SurfaceRoughness (huge), 0.140028f, 1e-5f);
+    EXPECT_NEAR (SurfaceRoughness (huge), kMirrorRoughness, 1e-5f);
 }
 
 TEST (MaterialTable, TransparentMaterialsKeepAVisibleGlassRoughness)
