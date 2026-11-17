@@ -20,6 +20,7 @@
 //     (its first input passes through), which is not the same as "no terrain effect";
 //   - located compiler diagnostics and the current limitations (band grading grades one
 //     selected path; an outline request grades every path's paved area, #149 T1).
+#include "Edit/EditDisplayUnits.hpp"
 #include "Edit/EditLandscapeFieldPlan.hpp"
 #include <optional>
 #include <string>
@@ -131,7 +132,8 @@ struct RecipeQuantities {
 // attributed snapshot). `stale`: the caller already knows the publication is not current.
 RecipeQuantities ProjectRecipeQuantities (const LandscapeRecipe& recipe, const PublishedTerrain* published, bool stale);
 // Tab-separated table (header, rows, total) for the clipboard.
-std::string RecipeQuantitiesText (const RecipeQuantities& quantities);
+// Tab-separated, in `units` (#109); the defaults are cubic and square metres to three decimals.
+std::string RecipeQuantitiesText (const RecipeQuantities& quantities, const geomsrv::edit::DisplayUnits& units = {});
 
 const char* RecipeEffectName (RegionTerrainEffect effect);
 const char* RecipeOperationName (OperationKind kind);

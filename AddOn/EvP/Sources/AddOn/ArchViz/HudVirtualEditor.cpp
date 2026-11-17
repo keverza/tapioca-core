@@ -3,6 +3,7 @@
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayHitMap.hpp"
+#include "Edit/EditDisplayUnits.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
@@ -515,8 +516,13 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 s.dragValue = r.value;
                 char text[48];
                 const bool everyAxis = shift && h.kind == edit::HandleKind::ScaleAxis;
-                std::snprintf (text, sizeof text, "%.2f %s%s", r.value, edit::QuantityUnit (h.quantity),
-                               everyAxis ? " uniform" : "");
+                if (edit::IsLength (h.quantity)) // #109: in the project's unit
+                    std::snprintf (text, sizeof text, "%s%s",
+                                   edit::FormatLength (edit::CurrentDisplayUnits (), r.value).c_str (),
+                                   everyAxis ? " uniform" : "");
+                else
+                    std::snprintf (text, sizeof text, "%.2f %s%s", r.value, edit::QuantityUnit (h.quantity),
+                                   everyAxis ? " uniform" : "");
                 s.snap = {};
                 s.snap.point = s.frame.origin;
                 s.snap.hint = text;

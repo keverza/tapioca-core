@@ -389,6 +389,15 @@ TEST (EditLandscapeRecipe, QuantityRowsNameThePublishedPartitionAndMarkAStaleOne
     EXPECT_NE (text.find ("Total (revision " + std::to_string (recipe.revision) + ")\t3.000\t10.000\t7.000"),
                std::string::npos)
         << text;
+    // #109: in the project's units and decimals when they were read from it.
+    geomsrv::edit::DisplayUnits project;
+    project.fromProject = true;
+    project.volume = geomsrv::edit::DisplayUnits::Volume::Litre;
+    project.area = geomsrv::edit::DisplayUnits::Area::SquareCentimetre;
+    project.volumeDecimals = project.areaDecimals = 0;
+    const auto litres = geo::RecipeQuantitiesText (q, project);
+    EXPECT_EQ (litres.rfind ("Stack\tOwner\tCut L\tFill L\tNet L\tArea cm2\n", 0), 0u) << litres;
+    EXPECT_NE (litres.find ("1\t" + stack[0]->name + "\t2000\t4000\t2000\t1000000\n"), std::string::npos) << litres;
 
     // Stale: another revision, or the caller's flag (another request or capture).
     auto older = published;

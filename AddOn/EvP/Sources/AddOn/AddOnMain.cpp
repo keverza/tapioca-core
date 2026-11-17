@@ -37,6 +37,7 @@
 #include "RayWorker/RayWorkerTraversal.hpp"     // the supervised DXR ray worker process
 #include "NativeCommands/SunStudyHudRunner.hpp" // the HUD's sun study run thread
 #include "AddOnCommands.hpp"
+#include "ProjectEnv/ProjectUnits.hpp" // #109: the working units the editor shows
 #include "ArchViz/MassingBake.hpp"
 #include "Server/ServerState.hpp"
 #include "Server/HttpServer.hpp"
@@ -159,14 +160,20 @@ static void RefreshModelOpen ()
 // can never disagree about which ones are held.
 // APINotify_ChangeProjectDB: a HINT for the model watch to poll now rather than at its
 // backed-off cadence (modelwatch::NoteProjectChanged). Catching it writes nothing.
+// APINotify_UnitChanged: the working units changed in Preferences; the editor's display units
+// follow them (#109). Reading preferences writes nothing either.
 static constexpr GSFlags kProjectEvents = APINotify_New | APINotify_NewAndReset | APINotify_Open | APINotify_Close |
-                                          APINotify_Quit | APINotify_ChangeWindow | APINotify_ChangeProjectDB;
+                                          APINotify_Quit | APINotify_ChangeWindow | APINotify_ChangeProjectDB |
+                                          APINotify_UnitChanged;
 
 static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
 {
     switch (notifID) {
         case APINotify_ChangeProjectDB:
             geomsrv::archviz::modelwatch::NoteProjectChanged (param);
+            break;
+        case APINotify_UnitChanged:
+            geomsrv::projectenv::RefreshProjectUnits ();
             break;
         case APINotify_ChangeWindow:
             // The overlay leaves a view the moment the view is left: the 3D session's
@@ -193,6 +200,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             geomsrv::archviz::planframes::Shutdown ();
             geomsrv::archviz::ResetSunObstructionTasks ();
             geomsrv::ServerState::Get ().modelOpen.store (true);
+            geomsrv::projectenv::RefreshProjectUnits (); // the new document's working units
             // E25: a different document is the largest change there is, and every
             // element observer just went with the old one. Bump the token (so a
             // watcher refreshes) and drop the watch (so it knows to re-arm).
@@ -229,6 +237,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 param)
             geomsrv::archviz::planframes::Shutdown ();
             geomsrv::archviz::ResetSunObstructionTasks ();
             geomsrv::ServerState::Get ().modelOpen.store (false);
+            geomsrv::projectenv::ForgetProjectUnits (); // units never outlive their project
             geomsrv::ChangeTracker::Get ().OnProjectEvent ();
             geomsrv::ArmWorker::Get ().RequestStop ();
             geomsrv::archviz::ExtractionWorker::Get ().RequestStop ();
@@ -641,7 +650,8 @@ GSErrCode Initialize (void)
 
     // Track model open/close on the main thread for /health.
     ACAPI_ProjectOperation_CatchProjectEvent (kProjectEvents, ProjectEventHandler);
-    RefreshModelOpen (); // seed current state
+    RefreshModelOpen ();                         // seed current state
+    geomsrv::projectenv::RefreshProjectUnits (); // and the open project's units, if one is open
     ACAPI_Notification_CatchSelectionChange (SelectionChangeHandler);
     // The overlay or the viewer, never both: the HUD's switch posts to a window of this thread.
     geomsrv::archviz::surfaceswitch::Arm ();

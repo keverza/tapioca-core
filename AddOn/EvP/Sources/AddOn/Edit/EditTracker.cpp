@@ -1,4 +1,5 @@
 #include "Edit/EditTracker.hpp"
+#include "Edit/EditDisplayUnits.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
 #include <cmath>
@@ -164,6 +165,8 @@ Tracker::Event Tracker::Key (const TrackerKey& key)
                 event.outcome = Outcome::Invalid;
                 return event;
             }
+            // #109: a length is typed in the project's unit; the host is given metres.
+            value = TypedToDocument (CurrentDisplayUnits (), items[focus].quantity, value);
             event.value = value;
             text.clear ();
             state = TrackerState::Showing;

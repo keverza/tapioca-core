@@ -611,12 +611,17 @@ RecipeQuantities ProjectRecipeQuantities (const LandscapeRecipe& recipe, const P
     return out;
 }
 
-std::string RecipeQuantitiesText (const RecipeQuantities& q)
+std::string RecipeQuantitiesText (const RecipeQuantities& q, const geomsrv::edit::DisplayUnits& units)
 {
-    std::string text = "Stack\tOwner\tCut m3\tFill m3\tNet m3\tArea m2\n";
-    const auto line = [&] (const std::string& order, const std::string& name, const RecipeVolumes& v) {
-        text += order + "\t" + name + "\t" + Cubic (v.cut) + "\t" + Cubic (v.fill) + "\t" + Cubic (v.net) + "\t" +
-                Cubic (v.area) + "\n";
+    geomsrv::edit::DisplayUnits shown = units;
+    if (!shown.fromProject)
+        shown.volumeDecimals = shown.areaDecimals = 3; // no project read: as it always was
+    const std::string v = geomsrv::edit::VolumeSymbol (shown), a = geomsrv::edit::AreaSymbol (shown);
+    std::string text = "Stack\tOwner\tCut " + v + "\tFill " + v + "\tNet " + v + "\tArea " + a + "\n";
+    const auto volume = [&] (double m3) { return geomsrv::edit::FormatVolume (shown, m3, false); };
+    const auto line = [&] (const std::string& order, const std::string& name, const RecipeVolumes& r) {
+        text += order + "\t" + name + "\t" + volume (r.cut) + "\t" + volume (r.fill) + "\t" + volume (r.net) + "\t" +
+                geomsrv::edit::FormatArea (shown, r.area, false) + "\n";
     };
     for (const auto& row : q.rows)
         line (row.baseline ? "-" : std::to_string (row.order), row.name, { row.cut, row.fill, row.net, row.area });

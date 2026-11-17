@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 namespace geomsrv::archviz::edithud {
 namespace lg = tapioca::geometry;
@@ -296,7 +297,7 @@ void Quantities (Session& s, const lg::LandscapeRecipe& recipe, const TerrainDes
         return;
     }
     if (ImGui::Button ("Copy table"))
-        ImGui::SetClipboardText (lg::RecipeQuantitiesText (quantities).c_str ());
+        ImGui::SetClipboardText (lg::RecipeQuantitiesText (quantities, edit::CurrentDisplayUnits ()).c_str ());
     if (ImGui::IsItemHovered ())
         geomsrv::archviz::hudshell::HoverTip ("Copy the rows and the total as tab-separated text.");
     if (!quantities.current) {
@@ -308,24 +309,37 @@ void Quantities (Session& s, const lg::LandscapeRecipe& recipe, const TerrainDes
     // #191 U5: Area and Net shown by default; Cut and Fill from the header's right-click menu.
     // Numbers sit in fixed columns, right-aligned and never wrapped; one too wide for its column
     // is clipped and shown whole on hover.
+    edit::DisplayUnits units = edit::CurrentDisplayUnits ();
+    if (!units.fromProject)
+        units.volumeDecimals = units.areaDecimals = 3; // no project read: as it always was
     constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_Hideable |
                                       ImGuiTableFlags_SizingFixedFit;
     if (ImGui::BeginTable ("##quantities", 5, flags)) {
         const float number = ImGui::CalcTextSize ("-00000.000").x;
         ImGui::TableSetupColumn ("Owner", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoHide);
-        ImGui::TableSetupColumn ("Area m2", ImGuiTableColumnFlags_WidthFixed, number);
-        ImGui::TableSetupColumn ("Net m3", ImGuiTableColumnFlags_WidthFixed, number);
-        ImGui::TableSetupColumn ("Cut m3", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultHide,
+        // #109: the project's area and volume units; ### keeps each column's identity as they change.
+        const std::string area = std::string ("Area ") + edit::AreaSymbol (units) + "###area",
+                          net = std::string ("Net ") + edit::VolumeSymbol (units) + "###net",
+                          cut = std::string ("Cut ") + edit::VolumeSymbol (units) + "###cut",
+                          fill = std::string ("Fill ") + edit::VolumeSymbol (units) + "###fill";
+        ImGui::TableSetupColumn (area.c_str (), ImGuiTableColumnFlags_WidthFixed, number);
+        ImGui::TableSetupColumn (net.c_str (), ImGuiTableColumnFlags_WidthFixed, number);
+        ImGui::TableSetupColumn (cut.c_str (), ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultHide,
                                  number);
-        ImGui::TableSetupColumn ("Fill m3", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultHide,
+        ImGui::TableSetupColumn (fill.c_str (), ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultHide,
                                  number);
         ImGui::TableHeadersRow ();
-        const auto numbers = [] (double cut, double fill, double net, double area) {
+        const auto numbers = [&units] (double cut, double fill, double net, double area) {
+            bool isArea = true;
             for (const double value : { area, net, cut, fill }) {
+                const bool squared = std::exchange (isArea, false);
                 if (!ImGui::TableNextColumn ())
                     continue;
                 char text[32];
-                std::snprintf (text, sizeof text, "%.3f", value);
+                std::snprintf (
+                    text, sizeof text, "%s",
+                    (squared ? edit::FormatArea (units, value, false) : edit::FormatVolume (units, value, false))
+                        .c_str ());
                 const float width = ImGui::CalcTextSize (text).x, room = ImGui::GetContentRegionAvail ().x;
                 if (width < room)
                     ImGui::SetCursorPosX (ImGui::GetCursorPosX () + room - width);
@@ -357,8 +371,11 @@ void Quantities (Session& s, const lg::LandscapeRecipe& recipe, const TerrainDes
         numbers (quantities.total.cut, quantities.total.fill, quantities.total.net, quantities.total.area);
         ImGui::EndTable ();
     }
-    ImGui::TextDisabled ("Property, 0.25 m grid: cut %.3f m3, fill %.3f m3. Outside it: cut %.3f m3, fill %.3f m3.",
-                         quantities.site.cut, quantities.site.fill, quantities.context.cut, quantities.context.fill);
+    ImGui::TextDisabled ("Property, 0.25 m grid: cut %s, fill %s. Outside it: cut %s, fill %s.",
+                         edit::FormatVolume (units, quantities.site.cut).c_str (),
+                         edit::FormatVolume (units, quantities.site.fill).c_str (),
+                         edit::FormatVolume (units, quantities.context.cut).c_str (),
+                         edit::FormatVolume (units, quantities.context.fill).c_str ());
     for (const auto& note : quantities.notes) {
         ImGui::PushStyleColor (ImGuiCol_Text, kNote);
         ImGui::TextWrapped ("%s", note.c_str ());

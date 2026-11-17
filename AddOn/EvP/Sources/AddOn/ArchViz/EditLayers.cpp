@@ -1,5 +1,6 @@
 #include "ArchViz/EditLayers.hpp"
 #include "Edit/EditCompound.hpp"
+#include "Edit/EditDisplayUnits.hpp"
 #include "Edit/EditOrganize.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditShape.hpp"
@@ -24,14 +25,12 @@ std::string FormatValue (edit::Quantity quantity, double value)
             break;
         case edit::Quantity::Z:
         case edit::Quantity::Elevation:
-            std::snprintf (text, sizeof text, "%+.2f m", value);
-            break;
+            return edit::FormatLength (edit::CurrentDisplayUnits (), value, true); // #109: the project's unit
         case edit::Quantity::Factor:
             std::snprintf (text, sizeof text, "x%.3f", value);
             break;
         default:
-            std::snprintf (text, sizeof text, "%.2f m", value);
-            break;
+            return edit::FormatLength (edit::CurrentDisplayUnits (), value);
     }
     return text;
 }

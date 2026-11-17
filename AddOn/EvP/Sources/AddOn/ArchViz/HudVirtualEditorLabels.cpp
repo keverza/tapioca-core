@@ -1,5 +1,6 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditDisplayUnits.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include <imgui.h>
@@ -61,6 +62,9 @@ bool Enter (Session& s)
     if (!edit::ParseNumber (s.labelText, value))
         return refuse ("Type a plain number; Enter applies, Esc cancels.");
     const editlayers::MarkLabel t = s.labelTarget;
+    // #109: typed in the project's unit, as the label showed it; the document is metres.
+    value = edit::TypedToDocument (edit::CurrentDisplayUnits (),
+                                   t.kerbPath != edit::kNoId ? edit::Quantity::Radius : t.value.quantity, value);
     if (t.kerbPath != edit::kNoId && value == t.kerb.radius) {
         s.labelOpen = false;
         s.message.clear ();
@@ -136,8 +140,9 @@ bool LabelClick (Session& s, ImVec2 mouse, bool hovered)
             // A fitted display is not the user's stored request. Edit that request with
             // round-trip plain-number precision, so opening/confirming it loses no intent.
             char text[2048];
-            const auto result =
-                std::to_chars (text, text + sizeof text, it->target.kerb.radius, std::chars_format::fixed);
+            const auto result = std::to_chars (
+                text, text + sizeof text, edit::MetresToLength (edit::CurrentDisplayUnits (), it->target.kerb.radius),
+                std::chars_format::fixed);
             if (result.ec != std::errc {}) {
                 s.labelOpen = false;
                 s.message = "The requested radius could not be formatted for editing.";

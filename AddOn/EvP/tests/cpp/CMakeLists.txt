@@ -893,6 +893,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSnapTargets.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditWorkingPlane.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditTracker.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditDisplayUnits.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditGizmo.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditGizmoContext.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSelection.cpp"
@@ -1019,6 +1020,7 @@ set (EVP_TEST_SOURCES
     test_editterrainbake.cpp
     test_editpathcrossing.cpp
     test_edittracker.cpp
+    test_editdisplayunits.cpp
     test_editgizmo.cpp
     test_editselection.cpp
     test_editprimitives.cpp
