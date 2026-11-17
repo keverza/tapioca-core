@@ -945,7 +945,8 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
         if (edit::Shown (doc, p.member))
             shown.push_back (p);
     const edit::PavedArea* cached = shown.size () == doc.paths.size () ? f.paved : nullptr;
-    const edit::PavedArea built = cached || shown.empty () ? edit::PavedArea {} : edit::Pave (shown, style.pathStep);
+    const edit::PavedArea built =
+        cached || shown.empty () ? edit::PavedArea {} : edit::Pave (shown, style.pathStep, true, f.outlines);
     const edit::PavedArea* surface = shown.empty () ? nullptr : cached ? cached : &built;
     const bool paved = surface != nullptr && AddPaved (*surface, style, layer);
     if (f.contours != nullptr)

@@ -168,6 +168,7 @@ bool FlushEdges (Session& s, const Map& m, ImVec2 mouse, const std::vector<edit:
     q.exclude = exclude;
     ScreenFlush (s, m, mouse, scale, q);
     edit::SnapResult r;
+    q.outlines = &s.outlines; // #51: the paths' outlines, as the pointer snap reads them
     if (!edit::SnapEdges (before, s.context, q, edges, t.translate, r))
         return false;
     r.point = at;

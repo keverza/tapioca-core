@@ -63,7 +63,10 @@ struct Feedback {
     // The paths' contour lines (PathContours), drawn under their lines; the view writes
     // their heights. None when null.
     const std::vector<edit::Contour>* contours = nullptr;
-    const edit::PavedArea* paved = nullptr;            // session's revision-cached shared surface
+    const edit::PavedArea* paved = nullptr; // session's revision-cached shared surface
+    // #51: the session's path outlines (optional): with a path hidden, the shown ones are paved
+    // here, from these rather than tessellated again.
+    edit::PathOutlineCache* outlines = nullptr;
     const std::vector<edit::Id>* quietPaths = nullptr; // far-zoom overview: surface, boundary and contours only
     // Inside a group: its objects drawn at full strength, everything else of the scene faded
     // (the selection, snaps and the gizmo are not the scene, and stay as they are). None when null.

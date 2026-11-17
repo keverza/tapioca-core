@@ -553,6 +553,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     f.landscape = doc.landscape ? &s.landscape : nullptr;
     f.landscapeZ = s.plane.origin.z;
     f.paved = &PavedSurface (s);
+    f.outlines = &s.outlines;
     f.quietPaths = &s.quietPaths;
     f.contours = s.contours ? &Contours (s) : nullptr;
     // Inside a group, the rest of the scene fades so the group is what stands out.
