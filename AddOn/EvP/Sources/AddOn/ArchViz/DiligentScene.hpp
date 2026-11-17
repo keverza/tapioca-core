@@ -37,6 +37,7 @@
 
 #include "ArchViz/ArchVizVertex.hpp"
 #include "ArchViz/ClayLook.hpp"
+#include "ArchViz/RayTracedView.hpp"
 #include "ArchViz/SectionCaps.hpp"
 #include "ArchViz/SectionPlane.hpp"
 #include "ArchViz/TechnicalEdges.hpp"
@@ -181,6 +182,8 @@ struct DiligentSceneStats {
     double planCutAreaM2 = 0.0;
     // The section plane's caps (SectionCaps.hpp): closed, open and refused, for the HUD.
     SectionCapCounts sectionCaps;
+    // The ray-traced style (#231): state, samples, and why it cannot run when it cannot.
+    RayTracedStats rayTraced;
     // ⚠️ `sunApplied` false means no SetEnvironment ever arrived and the shader
     // is running on a hardcoded default -- indistinguishable from a real sun by
     // eye, and the first thing to check when the model reads flat.
@@ -495,6 +498,13 @@ class DiligentScene final {
     // elements' retained triangles whenever the plane or the geometry changes, drawn by
     // DrawLineOverlays first, so edges and the selection draw over the poche.
     void SetSectionCapStyle (const SectionCapStyle& style);
+
+    // The ray-traced display style (issue #231, ArchViz/RayTracedView.hpp): off unless set, and only
+    // ever on a D3D12 device with inline ray tracing and the bundled DXC. The status says which.
+    void SetRayTraced (const RayTracedSettings& settings);
+    RayTracedStats RayTracedStatus () const;
+    // Why this device cannot trace, or empty when it may try (the HUD greys the style out on it).
+    std::string RayTracingRefusal () const;
 
     // ---- RE51.B9: the finishing controls that follow the LIGHT ---------------
 
@@ -887,6 +897,12 @@ class DiligentScene final {
                                    uint32_t depthBufferFormat, std::string& error);
     // The section's back-face pass, built on first use (DiligentSceneSection.cpp).
     bool CreateSectionBackPipelines (std::string& error);
+    // The ray-traced style (DiligentSceneRayTraced.cpp). TraceView returns the accumulated image
+    // to resolve in place of the raster one, or null to keep the raster image.
+    bool CreateRayTracedPipeline (std::string& error);
+    bool BuildRayTracedScene (Diligent::IDeviceContext* context, uint64_t key, std::string& error);
+    Diligent::ITextureView* TraceView (Diligent::IDeviceContext* context, const DiligentSceneConstants& constants,
+                                       const float viewProj[16], const float eye[3]);
     // ---- the sun study tint, all of it in DiligentSceneSunStudy.cpp ---------
     //
     // ⚠️ BUILT LAZILY ON THE FIRST STUDY, like the occlusion prepass and for

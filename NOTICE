@@ -33,6 +33,10 @@ Other dependency boundaries are:
   includes Rhino.Inside.dll. RhinoCommon and Grasshopper are compile-time-only
   references and are not copied or redistributed; the assemblies that run come
   from the user's separately installed and licensed Rhino 8.
+- The release includes dxcompiler.dll and dxil.dll, the DirectX Shader Compiler
+  from the Windows SDK's redistributable D3D folder (Microsoft; DXC itself under
+  the University of Illinois/NCSA licence). They are used only to compile the
+  viewer's optional ray-traced display style and are redistributed unmodified.
 
 Notable upstream components used by the build, each under its own license:
 
@@ -43,6 +47,7 @@ Notable upstream components used by the build, each under its own license:
 - nanort
 - OpenGL Mathematics (GLM)
 - Clipper2
+- DirectX Shader Compiler (dxcompiler.dll, dxil.dll)
 - earstrip
 - quickjs-ng
 - GoogleTest

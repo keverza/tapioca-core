@@ -40,6 +40,7 @@ struct Knobs {
     int edges;
     int reflections;  // screen-space reflections
     int antiAliasing; // temporal
+    int rayTraced;    // #231
 };
 
 // ⚠️ THE REFERENCE'S MODES, WHERE THIS RENDERER CAN HONOUR THEM (HANDOFF-HudTabs.md section 1):
@@ -55,16 +56,20 @@ struct Knobs {
 // Rendered by its AO and by drawing no sky behind the model -- which the 2026-11-17 live run
 // found too close to tell apart. So Rendered also turns on screen-space reflections and temporal
 // anti-aliasing (the full raster path), and Architecture turns both off (the calm, flat reading).
+// Ray traced (#231) is Rendered's light, path traced: reflections and TAA off, since the traced
+// image is converged rather than reprojected. Clay leaves tracing as it is -- traced clay is the
+// classic massing render.
 constexpr Knobs kPresets[] = {
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 1, -1, 0, 0, -1, -1 },    // Shaded
-    { int (SceneRenderMode::Wireframe), -1, -1, -1, -1.0f, 0, -1, -1, -1, -1, -1 },                     // Wireframe
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 0, 0, 0, 0 },    // Architecture
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 1, 1 },    // Rendered
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 1, -1, -1, -1 }, // Clay
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 0, -1, 1, 1, -1, -1 },    // Technical
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 1, -1, 0, 0, -1, -1, 0 }, // Shaded
+    { int (SceneRenderMode::Wireframe), -1, -1, -1, -1.0f, 0, -1, -1, -1, -1, -1, 0 },                  // Wireframe
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 0, 0, 0, 0, 0 }, // Architecture
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 1, 1, 0 }, // Rendered
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 1, -1, -1, -1, -1 }, // Clay
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 0, -1, 1, 1, -1, -1, 0 },     // Technical
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 0, 0, 1 },     // RayTraced
 };
 constexpr const char* kPreviewNames[] = { "Shaded", "Wireframe", "Architecture", "Rendered",
-                                          "Clay",   "Technical", "Custom" };
+                                          "Clay",   "Technical", "Ray traced",   "Custom" };
 static_assert (sizeof (kPresets) / sizeof (kPresets[0]) == size_t (Preview::Custom),
                "a preview preset for every Preview but Custom");
 
@@ -81,7 +86,8 @@ bool Matches (const Knobs& knobs, const HudState& state)
            (knobs.clay < 0 || state.clay == (knobs.clay != 0)) &&
            (knobs.edges < 0 || state.technicalEdges == (knobs.edges != 0)) &&
            (knobs.reflections < 0 || state.screenSpaceReflection == (knobs.reflections != 0)) &&
-           (knobs.antiAliasing < 0 || state.temporalAntiAliasing == (knobs.antiAliasing != 0));
+           (knobs.antiAliasing < 0 || state.temporalAntiAliasing == (knobs.antiAliasing != 0)) &&
+           (knobs.rayTraced < 0 || state.rayTraced == (knobs.rayTraced != 0));
 }
 
 } // namespace
@@ -127,6 +133,8 @@ void ApplyPreview (HudState& state, Preview preview)
         state.screenSpaceReflection = knobs.reflections != 0;
     if (knobs.antiAliasing >= 0)
         state.temporalAntiAliasing = knobs.antiAliasing != 0;
+    if (knobs.rayTraced >= 0)
+        state.rayTraced = knobs.rayTraced != 0;
 }
 
 void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scene)
@@ -172,9 +180,18 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
     const Preview now = MatchPreview (state);
     ImGui::SetNextItemWidth (-FLT_MIN);
     if (ImGui::BeginCombo ("##preview", PreviewName (now))) {
-        for (int k = 0; k < int (Preview::Custom); ++k)
-            if (ImGui::Selectable (PreviewName (Preview (k)), now == Preview (k)) && now != Preview (k))
+        // ⚠️ RAY TRACED IS LISTED EVEN WHERE IT CANNOT RUN, GREYED, WITH THE REASON: a style that
+        // silently does not exist on one machine reads as a missing feature, not as a missing GPU.
+        const bool canTrace = scene.rayTraced.reason.empty ();
+        for (int k = 0; k < int (Preview::Custom); ++k) {
+            const bool traced = Preview (k) == Preview::RayTraced;
+            if (ImGui::Selectable (PreviewName (Preview (k)), now == Preview (k),
+                                   traced && !canTrace ? ImGuiSelectableFlags_Disabled : 0) &&
+                now != Preview (k))
                 ApplyPreview (state, Preview (k));
+            if (traced && !canTrace)
+                hudshell::Tip (scene.rayTraced.reason.c_str ());
+        }
         ImGui::EndCombo ();
     }
     ImGui::TextDisabled ("preview -- a preset over the knobs below; an edit reads Custom");
@@ -247,6 +264,21 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
             hudshell::Tip ("Faces meeting at more than this angle draw their edge; flatter ones merge");
             ImGui::Checkbox ("hidden edges##technical", &state.technicalEdgeHidden);
             hudshell::Tip ("Show the edges behind surfaces, faint -- the hidden-line reading");
+        }
+    }
+    // ---- ray tracing: the traced style's state and its two knobs (RayTracedView.hpp) ----------
+    if (hudshell::Section ("ray tracing")) {
+        ImGui::Checkbox ("trace##raytraced", &state.rayTraced);
+        hudshell::Tip ("Path-traced light while the view is still; the raster image while it moves");
+        const RayTracedStats& traced = scene.rayTraced;
+        if (!traced.reason.empty ())
+            ImGui::TextColored (ImVec4 (0.95f, 0.70f, 0.25f, 1.0f), "%s", traced.reason.c_str ());
+        if (state.rayTraced) {
+            ImGui::SliderInt ("samples##raytraced", &state.rayTracedMaxSamples, 16, 4096, "%d max",
+                              ImGuiSliderFlags_Logarithmic);
+            ImGui::SliderInt ("bounces##raytraced", &state.rayTracedBounces, 1, 6);
+            ImGui::TextDisabled ("%s -- %u / %u samples, %llu triangles", RayTracedStateName (traced.state),
+                                 traced.samples, traced.maxSamples, (unsigned long long) traced.triangles);
         }
     }
     // ---- section: one movable cut through the model (SectionPlane.hpp) ---------------------

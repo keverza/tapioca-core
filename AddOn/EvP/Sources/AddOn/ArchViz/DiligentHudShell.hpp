@@ -87,7 +87,7 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
 // ⚠️ A PRESET WRITES THE ORTHOGONAL KNOBS, IT IS NOT A NEW ENUM: quality and mode stay
 // independent axes. The combo reads which preset the knobs match now, so editing any of them
 // reads "Custom" -- no flag to keep in step.
-enum class Preview : int { Shaded = 0, Wireframe, Architecture, Rendered, Clay, Technical, Custom };
+enum class Preview : int { Shaded = 0, Wireframe, Architecture, Rendered, Clay, Technical, RayTraced, Custom };
 const char* PreviewName (Preview preview);
 Preview MatchPreview (const HudState& state);
 void ApplyPreview (HudState& state, Preview preview);

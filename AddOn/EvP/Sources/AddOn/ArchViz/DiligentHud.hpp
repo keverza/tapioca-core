@@ -627,6 +627,13 @@ struct HudState {
     float clayRoughness = 0.8f;
     bool clayKeepGlass = true;
 
+    // ---- the ray-traced style (issue #231, ArchViz/RayTracedView.hpp) -------------------------
+    // Progressive path tracing while the view is still; the raster image while it moves. Only
+    // honoured on a D3D12 device with inline ray tracing and the bundled DXC.
+    bool rayTraced = false;
+    int rayTracedMaxSamples = 512;
+    int rayTracedBounces = 2;
+
     // ---- technical / hidden-line edges (issue #14 P2, ArchViz/TechnicalEdges.hpp) -----------
     // Borders and creases sharper than `technicalEdgeAngle` over the whole model, never the
     // triangulation. The angle snaps to the pre-built tiers (kTechnicalEdgeAngles); hidden edges

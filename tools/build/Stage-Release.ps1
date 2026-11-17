@@ -42,6 +42,11 @@ if (Test-Path -LiteralPath $stage) {
 }
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
+# #231: the bundled DXC, optional (the ray-traced style only).
+foreach ($name in @("dxcompiler.dll", "dxil.dll")) {
+    $from = Join-Path $build $name
+    if (Test-Path -LiteralPath $from) { Copy-Item -LiteralPath $from -Destination $stage -Force }
+}
 foreach ($name in @("Tapioca.apx", "EvPPy.dll")) {
     Copy-Item -LiteralPath (Join-Path $build $name) -Destination $stage -Force
 }

@@ -884,6 +884,9 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // source. Tutorial27_PostProcessing calls UpdateSSRSourceColor at the
         // same point, for the same reason.
         RememberScreenSpaceReflectionFrame (context, resolvedHdr);
+        // #231: the ray-traced style's image replaces the raster colour, never its depth or coverage.
+        if (Diligent::ITextureView* traced = TraceView (context, constants, viewProj, eye))
+            resolvedHdr = traced;
 
         constants.frameControl[0] = 0.0f;
         // ⚠️ SET HERE, WITH THE OTHER CONSTANTS AND BEFORE UploadConstants. The

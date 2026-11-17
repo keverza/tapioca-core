@@ -257,6 +257,9 @@ inline void DrawEntryRange (Diligent::IDeviceContext* context, const Entry& e, c
 bool CreateMeshBuffers (Diligent::IRenderDevice* device, const char* name, Entry& entry, const void* vertices,
                         size_t vertexBytes, const void* indices, size_t indexBytes, std::string& error);
 
+// The ray-traced style's GPU objects, defined in DiligentSceneRayTraced.cpp.
+struct RayTracedGpu;
+
 } // namespace archviz
 } // namespace geomsrv
 
@@ -618,6 +621,19 @@ struct geomsrv::archviz::DiligentScene::Impl {
     };
     SectionCaps sectionCaps;
 
+    // ---- the ray-traced display style (issue #231, DiligentSceneRayTraced.cpp) -------------------
+    // `gpu` is built on first use and dropped on any refusal, which latches in `failed`/`failure`
+    // until the device is replaced.
+    struct RayTraced {
+        RayTracedSettings settings;
+        RayTracedAccumulator accumulator;
+        RayTracedStats stats;
+        std::shared_ptr<RayTracedGpu> gpu;
+        bool failed = false;
+        std::string failure;
+    };
+    RayTraced rayTraced;
+
     // ⚠️ ONE METHOD RATHER THAN FIVE LINES AT THE CALL SITE, because the call
     // site is DiligentScene.cpp -- a file the architecture gate has FROZEN at its
     // current size. Teardown that belongs together should live together anyway;
@@ -653,6 +669,11 @@ struct geomsrv::archviz::DiligentScene::Impl {
         sectionCaps.builtKey = 0;
         sectionCaps.inFlightKey = 0;
         sectionCaps.counts = SectionCapCounts {};
+        // The traced view's GPU objects go with the device; a refusal is not a verdict on the next one.
+        rayTraced.gpu.reset ();
+        rayTraced.accumulator.Reset ();
+        rayTraced.failed = false;
+        rayTraced.failure.clear ();
     }
 
     // ---- the Grasshopper preview overlay -----------------------------------

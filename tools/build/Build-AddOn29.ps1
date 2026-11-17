@@ -122,6 +122,21 @@ if (Test-Path -LiteralPath $productAddon -PathType Leaf) {
 Move-Item -LiteralPath $builtAddon -Destination $productAddon
 Write-Host "Built ($config) -> build_29\Tapioca.apx" -ForegroundColor Green
 
+# #231: the DirectX Shader Compiler beside Tapioca.apx, for the viewer's ray-traced style only
+# (Shader Model 6.5 inline ray tracing; every other shader compiles with FXC). The Windows SDK's
+# redistributable pair -- dxcompiler.dll and dxil.dll, which signs the DXIL D3D12 requires. A
+# machine without the SDK still builds a complete add-on; the style then says what is missing.
+$dxcRedist = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\Redist\D3D\x64"
+if ((Test-Path (Join-Path $dxcRedist "dxcompiler.dll")) -and (Test-Path (Join-Path $dxcRedist "dxil.dll"))) {
+    foreach ($name in @("dxcompiler.dll", "dxil.dll")) {
+        Copy-Item -LiteralPath (Join-Path $dxcRedist $name) -Destination (Join-Path $root "build_29\$name") -Force
+    }
+    Write-Host "Bundled DXC from $dxcRedist" -ForegroundColor Green
+}
+else {
+    Write-Host "DXC redist not found ($dxcRedist); the ray-traced style will be unavailable." -ForegroundColor Yellow
+}
+
 # ---------------------------------------------------------------------------
 # Copy the built artifacts into dist\ so they are in one findable place.
 # ---------------------------------------------------------------------------

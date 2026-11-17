@@ -45,6 +45,12 @@ void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay)
     caps.shape.hatchSpacing = hud.sectionHatchSpacingMm * 0.001f;
     caps.shape.hatchAngleDegrees = hud.sectionHatchAngle;
     scene.SetSectionCapStyle (caps);
+    // #231: withheld on the overlay -- a guest on Archicad's D3D11 device cannot trace.
+    RayTracedSettings traced;
+    traced.enabled = hud.rayTraced && !overlay;
+    traced.maxSamples = uint32_t (hud.rayTracedMaxSamples < 1 ? 1 : hud.rayTracedMaxSamples);
+    traced.bounces = uint32_t (hud.rayTracedBounces < 0 ? 0 : hud.rayTracedBounces);
+    scene.SetRayTraced (traced);
 }
 
 } // namespace archviz

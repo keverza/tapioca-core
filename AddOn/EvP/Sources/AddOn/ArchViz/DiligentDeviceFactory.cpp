@@ -12,6 +12,7 @@
 #include <EngineFactoryD3D12.h>
 #include <RenderDevice.h>
 
+#include <string>
 #include <vector>
 
 namespace geomsrv::archviz {
@@ -22,6 +23,36 @@ using Diligent::RefCntAutoPtr;
 // Direct3D 12 refuses anything below 11.0; the enumeration and the creation
 // must use the same minimum or the adapter indices do not line up.
 const Diligent::Version kMinD3D12FeatureLevel { 11, 0 };
+
+// #231: the DirectX Shader Compiler bundled beside Tapioca.apx, or empty when it is not there.
+// ⚠️ A FULL PATH, NEVER THE BARE NAME: the bare name would search Archicad's own directory and the
+// system path first, and whichever dxcompiler.dll answered would be the one that compiled. Only
+// the ray-traced style uses it; every other shader stays on FXC, so a missing file costs nothing
+// but that style, which then says so in the HUD.
+std::string BundledDxCompilerPath ()
+{
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                             reinterpret_cast<LPCWSTR> (&BundledDxCompilerPath), &module))
+        return {};
+    wchar_t path[MAX_PATH];
+    const DWORD length = GetModuleFileNameW (module, path, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH)
+        return {};
+    std::wstring dir (path, length);
+    const size_t slash = dir.find_last_of (L"\\/");
+    if (slash == std::wstring::npos)
+        return {};
+    const std::wstring dll = dir.substr (0, slash + 1) + L"dxcompiler.dll";
+    if (GetFileAttributesW (dll.c_str ()) == INVALID_FILE_ATTRIBUTES)
+        return {};
+    const int bytes = WideCharToMultiByte (CP_ACP, 0, dll.c_str (), -1, nullptr, 0, nullptr, nullptr);
+    if (bytes <= 1)
+        return {};
+    std::string narrow (size_t (bytes - 1), '\0');
+    WideCharToMultiByte (CP_ACP, 0, dll.c_str (), -1, narrow.data (), bytes, nullptr, nullptr);
+    return narrow;
+}
 
 RenderAdapterKind KindOf (Diligent::ADAPTER_TYPE type)
 {
@@ -75,6 +106,11 @@ bool TryCreateD3D12 (RenderBackendChoice& choice, RefCntAutoPtr<Diligent::IRende
     // REQUIRED, not optional: the adapter was chosen for it, so a device without
     // it is the wrong device rather than a lesser one.
     engineCI.Features.RayTracing = Diligent::DEVICE_FEATURE_STATE_ENABLED;
+    const std::string dxc = BundledDxCompilerPath ();
+    if (!dxc.empty ())
+        engineCI.pDxCompilerPath = dxc.c_str ();
+    ArchVizLog (dxc.empty () ? "[#231] no bundled dxcompiler.dll: the ray-traced style is unavailable"
+                             : "[#231] DXC: " + dxc);
     Diligent::GetEngineFactoryD3D12 ()->CreateDeviceAndContextsD3D12 (engineCI, &device, &context);
     if (device == nullptr || context == nullptr) {
         device.Release ();

@@ -694,6 +694,7 @@ DiligentSceneStats DiligentScene::Stats () const
     s.planCutVertices = impl_->planCut.OutlineVertexCount ();
     s.planCutAreaM2 = impl_->planCutAreaM2;
     s.sectionCaps = impl_->sectionCaps.counts;
+    s.rayTraced = RayTracedStatus ();
 
     const DiligentPointCloudStats pointStats = impl_->pointCloud.Stats ();
     s.pointLayers = pointStats.layers;
