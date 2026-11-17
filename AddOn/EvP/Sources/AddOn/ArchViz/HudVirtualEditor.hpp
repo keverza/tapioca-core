@@ -310,6 +310,7 @@ struct Session {
         std::string what;   // "layer Kerbs", "group beds", "kerb 12": for the message
     };
     std::optional<FocusRequest> focusPending, focusRequest;
+    double gradeReach = 1.0; // #109: metres from a path's centreline a control point grades it from
     bool focusQueued = false;
     std::vector<edit::Ref> outlinerSeen; // the selection the Outliner last brought into view
     std::optional<LandscapeCommand> landscapeCommand;

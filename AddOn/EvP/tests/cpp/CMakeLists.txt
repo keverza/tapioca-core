@@ -918,6 +918,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarFlatten.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarFaces.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscape.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditGradeToControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeDomain.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeFieldPlan.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeRecipe.cpp"
@@ -1022,6 +1023,7 @@ set (EVP_TEST_SOURCES
     test_editpathcrossing.cpp
     test_edittracker.cpp
     test_editdisplayunits.cpp
+    test_editgradetocontrols.cpp
     test_editgizmo.cpp
     test_editselection.cpp
     test_editprimitives.cpp

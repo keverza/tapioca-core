@@ -180,6 +180,10 @@ bool CancelTerrainSectionDrag (Session& session);
 // Selected guide vertices become point controls; selected whole open polylines
 // become line controls. One existing Session history entry for the whole set.
 bool SetTerrainControlSelection (Session& session, bool enabled);
+// #109: grades the selected paths to the fixed-height control points within s.gradeReach of them
+// (EditGradeToControls.hpp), one undo step. The outcome, or why nothing changed, is s.message;
+// true when a path changed.
+bool GradeSelectedPathsToControls (Session& session);
 // Pure UI request/ownership gate, no native read or document/history mutation.
 bool RequestTerrainCapture (Session& session, bool fromSelection);
 bool TerrainCaptureIsCurrent (const Session& session, const std::shared_ptr<const TerrainCaptureRequest>& request);

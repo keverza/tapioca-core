@@ -5,6 +5,8 @@
 #include "ArchViz/HudVirtualEditorDebug.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "Geometry/Mesh.hpp"
+#include "Edit/EditDisplayUnits.hpp"
+#include "Edit/EditGradeToControls.hpp"
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditRegionTerrain.hpp"
@@ -116,6 +118,32 @@ bool SetTerrainControlSelection (Session& s, bool enabled)
     return changed;
 }
 
+bool GradeSelectedPathsToControls (Session& s)
+{
+    std::vector<edit::Id> paths;
+    for (const auto& r : s.selection.Items ())
+        if (edit::FindPath (s.edits.Doc (), r.entity) != nullptr &&
+            std::find (paths.begin (), paths.end (), r.entity) == paths.end ())
+            paths.push_back (r.entity);
+    if (paths.empty ()) {
+        s.message = "Select the paths to grade first.";
+        return false;
+    }
+    tapioca::geometry::GradeToControlsReport report;
+    const double reach = s.gradeReach;
+    std::string refused;
+    const bool changed = s.edits.Apply ([paths, reach, &report, &refused] (edit::Document& doc, std::string& error) {
+        // Nothing in reach is no edit: false with no reason, so no undo step is recorded.
+        const bool ok = tapioca::geometry::GradePathsToControls (doc, paths, reach, report, error);
+        refused = ok ? std::string () : error;
+        return ok && !report.graded.empty ();
+    });
+    s.message = refused.empty () ? report.Summary () : refused;
+    if (changed)
+        s.publishedRevision = UINT64_MAX;
+    return changed;
+}
+
 namespace {
 void TerrainControlsPanel (Session& s)
 {
@@ -147,6 +175,26 @@ void TerrainControlsPanel (Session& s)
         ImGui::Text ("Source %llu / %s %llu", static_cast<unsigned long long> (control.source),
                      control.vertex ? "vertex" : "line", static_cast<unsigned long long> (control.vertex));
         ImGui::PopID ();
+    }
+    // #109: the selected paths take the heights of the control points within reach of them.
+    ImGui::SeparatorText ("Grade paths to control points");
+    {
+        const auto units = edit::CurrentDisplayUnits ();
+        double reach = edit::MetresToLength (units, s.gradeReach);
+        const std::string format = std::string ("%.2f ") + edit::LengthSymbol (units);
+        const double low = edit::MetresToLength (units, 0.05), high = edit::MetresToLength (units, 50.0);
+        ImGui::SetNextItemWidth (120.0f);
+        if (ImGui::DragScalar ("Reach", ImGuiDataType_Double, &reach, float (edit::MetresToLength (units, 0.05)), &low,
+                               &high, format.c_str (), ImGuiSliderFlags_AlwaysClamp))
+            s.gradeReach = edit::LengthToMetres (units, reach);
+        if (ImGui::IsItemHovered ())
+            hudshell::HoverTip ("How far from a path's centreline, in plan, a control point grades it");
+        ImGui::SameLine ();
+        if (ImGui::Button ("Grade selected paths"))
+            GradeSelectedPathsToControls (s);
+        if (ImGui::IsItemHovered ())
+            hudshell::HoverTip ("Each fixed height within reach sets the path's elevation where it projects onto it; "
+                                "the grade runs straight between. Path ends with none in reach keep their height.");
     }
     ImGui::EndDisabled ();
 }
