@@ -49,6 +49,7 @@ struct RecipeDrive {
         ImGui::SetNextWindowPos ({ 0, 0 });
         ImGui::SetNextWindowSize ({ 580, 780 });
         ImGui::Begin ("recipe");
+        session.outlinerHover = {}; // as the Outliner does before its views draw
         eh::RecipePanel (session);
         ImGui::End ();
         ImGui::Render ();
@@ -292,4 +293,41 @@ TEST (HudVirtualEditorRecipe, DraggingARowOntoAnotherMovesItThereAsOneUndo105)
     EXPECT_FALSE (eh::DropRecipeRow (d.session, a, ed::Id (9999)));
     EXPECT_NE (d.session.message.find ("Drop it on a region"), std::string::npos) << d.session.message;
     EXPECT_EQ (order (), (std::vector<ed::Id> { a, b, c }));
+}
+
+// #105: rows and the view hover each other. The pointer over a row hands the view that row's line
+// (selecting nothing, recording nothing); a line hovered in the view lights its row.
+TEST (HudVirtualEditorRecipe, RowsAndTheViewHoverEachOther105)
+{
+    ed::Document doc;
+    std::string error;
+    ASSERT_TRUE (geo::StartLandscape (doc, { 1, 2, 3, 4 }, error)) << error;
+    ed::Id lineA = 0, lineB = 0;
+    Region (doc, 0, lineA);
+    Region (doc, 20, lineB);
+    RecipeDrive d (std::move (doc));
+    std::vector<ed::Id> seen;
+    for (float y = 30; y < 770; y += 2) {
+        d.Frame ({ 450, y });
+        const ed::Id hovered = d.session.outlinerHover.entity;
+        if (hovered != ed::kNoId && std::find (seen.begin (), seen.end (), hovered) == seen.end ())
+            seen.push_back (hovered);
+        EXPECT_EQ (d.session.outlinerHover.part, ed::Part::Entity);
+    }
+    EXPECT_NE (std::find (seen.begin (), seen.end (), lineA), seen.end ());
+    EXPECT_NE (std::find (seen.begin (), seen.end (), lineB), seen.end ());
+    EXPECT_TRUE (d.session.selection.Items ().empty ()) << "hovering only hovers";
+    EXPECT_EQ (d.session.edits.UndoDepth (), 0u);
+    d.Frame ();
+    EXPECT_EQ (d.session.outlinerHover.entity, ed::kNoId) << "off the rows, the view is handed nothing";
+
+    // A line hovered in the view (any part of it) adds its row's highlight; an unrelated item adds none.
+    const auto drawn = [&] (ed::Ref hover) {
+        d.session.selection.hover = hover;
+        d.Frame ();
+        return ImGui::GetDrawData ()->TotalVtxCount;
+    };
+    const int plain = drawn ({});
+    EXPECT_EQ (drawn ({ ed::Id (99999), ed::Part::Entity, 0 }), plain);
+    EXPECT_GT (drawn ({ lineB, ed::Part::Segment, 1 }), plain);
 }

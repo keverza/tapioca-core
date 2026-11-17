@@ -63,6 +63,22 @@ void SelectRow (Session& s, const std::vector<edit::Id>& entities)
     s.selection.Set (refs);
 }
 
+// #105: rows and the view hover each other. The pointer over a row is the Outliner's hover, which
+// the view draws (one line: a Boolean's first input); the pointer over a line in the view lights
+// every row that line stands for, as if the pointer were on it.
+ImGuiSelectableFlags ViewHovered (const Session& s, const std::vector<edit::Id>& entities)
+{
+    const edit::Id hovered = s.selection.hover.entity;
+    return hovered != edit::kNoId && std::find (entities.begin (), entities.end (), hovered) != entities.end ()
+               ? ImGuiSelectableFlags_Highlight
+               : ImGuiSelectableFlags_None;
+}
+void HoverRow (Session& s, const std::vector<edit::Id>& entities)
+{
+    if (!entities.empty () && ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+        s.outlinerHover = { entities.front (), edit::Part::Entity, 0 };
+}
+
 // #105 slice 2: the recipe's supported edits, each one undo step. Order moves only regions within
 // the region stage; "Footprint on" bypasses the root step; Effect is the terrain participation.
 // A refused edit changes nothing and says why.
@@ -192,8 +208,10 @@ void ConstructionInputs (Session& s, const lg::LandscapeRecipe& recipe, edit::Id
         ImGui::PushID (int (input.object));
         const auto entities = RowEntities (s, input);
         const std::string title = "Input:  " + input.name + " " + std::to_string (input.object);
-        if (ImGui::Selectable (title.c_str (), RowSelected (s, entities)) && !entities.empty ())
+        if (ImGui::Selectable (title.c_str (), RowSelected (s, entities), ViewHovered (s, entities)) &&
+            !entities.empty ())
             SelectRow (s, entities);
+        HoverRow (s, entities);
         if (ImGui::IsItemHovered ())
             geomsrv::archviz::hudshell::HoverTip (
                 "A construction input: dashed in the view and still editable. It has no terrain effect or "
@@ -213,8 +231,9 @@ void Row (Session& s, const lg::LandscapeRecipe& recipe, const lg::RecipeRow& ro
     title += row.name;
     if (row.kind != row.name)
         title += "  (" + row.kind + ")";
-    if (ImGui::Selectable (title.c_str (), RowSelected (s, entities)) && !entities.empty ())
+    if (ImGui::Selectable (title.c_str (), RowSelected (s, entities), ViewHovered (s, entities)) && !entities.empty ())
         SelectRow (s, entities);
+    HoverRow (s, entities);
     if (row.stage == lg::RecipeStage::Region && row.object)
         DragRow (s, row);
     if (ImGui::IsItemHovered () && entities.empty ())
@@ -324,9 +343,11 @@ void Quantities (Session& s, const lg::LandscapeRecipe& recipe, const TerrainDes
             });
             const auto entities = owner != recipe.rows.end () ? RowEntities (s, *owner) : std::vector<edit::Id> {};
             const std::string label = row.baseline ? row.name : std::to_string (row.order) + ".  " + row.name;
-            if (ImGui::Selectable (label.c_str (), RowSelected (s, entities), ImGuiSelectableFlags_SpanAllColumns) &&
+            if (ImGui::Selectable (label.c_str (), RowSelected (s, entities),
+                                   ImGuiSelectableFlags_SpanAllColumns | ViewHovered (s, entities)) &&
                 !entities.empty ())
                 SelectRow (s, entities);
+            HoverRow (s, entities);
             ImGui::PopID ();
             numbers (row.cut, row.fill, row.net, row.area);
         }
