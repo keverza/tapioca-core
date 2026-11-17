@@ -899,11 +899,11 @@ class DiligentScene final {
                                    uint32_t depthBufferFormat, std::string& error);
     // The section's back-face pass, built on first use (DiligentSceneSection.cpp).
     bool CreateSectionBackPipelines (std::string& error);
-    // The ray-traced style (DiligentSceneRayTraced.cpp). TraceView returns the accumulated image
-    // to resolve in place of the raster one, or null to keep the raster image.
+    // DiligentSceneRayTraced.cpp: TraceView (the style), TraceReflections (#232), TraceSkyLight (#233).
+    bool TraceSkyLight (Diligent::IDeviceContext* context, const DiligentSceneConstants& constants,
+                        const float viewProj[16], const float eye[3], uint32_t frameIndex);
     bool CreateRayTracedPipeline (std::string& error);
     bool BuildRayTracedScene (Diligent::IDeviceContext* context, uint64_t key, std::string& error);
-    // #232: TraceReflections returns traced reflections in SSR's output contract, or null to run SSR.
     bool PrepareRayTracedFrame (Diligent::IDeviceContext* context, const DiligentSceneConstants& constants,
                                 const float viewProj[16], const float eye[3], uint32_t width, uint32_t height,
                                 struct RayTracedConstants& c, uint64_t& key);

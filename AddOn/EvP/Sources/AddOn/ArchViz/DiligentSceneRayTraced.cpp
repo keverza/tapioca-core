@@ -75,6 +75,12 @@ struct RayTracedGpu {
     RefCntAutoPtr<Diligent::ITexture> reflection;
     Diligent::ITextureView* reflectBound[4] = {}; // depth, normal, roughness, env the SRB holds
     bool reflectSrbDirty = true;
+    // #233: the sky-light pass, the same way.
+    RefCntAutoPtr<Diligent::IPipelineState> skyPso;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> skySrb;
+    RefCntAutoPtr<Diligent::ITexture> skyLight;
+    Diligent::ITextureView* skyBound[4] = {}; // depth, normal, occlusion, env the SRB holds
+    bool skySrbDirty = true;
     RefCntAutoPtr<Diligent::IBuffer> constants;
     RefCntAutoPtr<Diligent::IBuffer> positions, indices, triangleMaterial, materials;
     RefCntAutoPtr<Diligent::IBottomLevelAS> blas;
@@ -139,9 +145,10 @@ bool DiligentScene::CreateRayTracedPipeline (std::string& error)
         device->CreateShader (sci, &out, nullptr);
         return out != nullptr;
     };
-    RefCntAutoPtr<Diligent::IShader> cs, reflectCs;
+    RefCntAutoPtr<Diligent::IShader> cs, reflectCs, skyCs;
     if (!compile ("ArchViz ray-traced CS", kRayTracedAccumulateMain, cs) ||
-        !compile ("ArchViz traced reflections CS", kRayTracedReflectMain, reflectCs)) {
+        !compile ("ArchViz traced reflections CS", kRayTracedReflectMain, reflectCs) ||
+        !compile ("ArchViz traced sky light CS", kRayTracedSkyMain, skyCs)) {
         error = "the ray-traced shaders did not compile (dxcompiler.dll missing beside Tapioca.apx, or rejected)";
         return false;
     }
@@ -167,7 +174,10 @@ bool DiligentScene::CreateRayTracedPipeline (std::string& error)
     pci.PSODesc.Name = "ArchViz traced reflections PSO";
     pci.pCS = reflectCs;
     device->CreateComputePipelineState (pci, &gpu->reflectPso);
-    if (gpu->pso == nullptr || gpu->reflectPso == nullptr) {
+    pci.PSODesc.Name = "ArchViz traced sky light PSO";
+    pci.pCS = skyCs;
+    device->CreateComputePipelineState (pci, &gpu->skyPso);
+    if (gpu->pso == nullptr || gpu->reflectPso == nullptr || gpu->skyPso == nullptr) {
         error = "Diligent CreateComputePipelineState(ray-traced) failed";
         return false;
     }
@@ -217,6 +227,7 @@ bool DiligentScene::BuildRayTracedScene (Diligent::IDeviceContext* context, uint
     gpu.tlas.Release ();
     gpu.srbDirty = true;
     gpu.reflectSrbDirty = true;
+    gpu.skySrbDirty = true;
     gpu.geometryKey = key;
     gpu.triangles = geometry.TriangleCount ();
     gpu.materialIds = geometry.materials;
@@ -414,6 +425,7 @@ bool DiligentScene::PrepareRayTracedFrame (Diligent::IDeviceContext* context, co
         gpu.lastMaterials.clear ();
         gpu.srbDirty = true;
         gpu.reflectSrbDirty = true;
+        gpu.skySrbDirty = true;
     }
     if (gpu.lastMaterials.size () != table.size () ||
         std::memcmp (gpu.lastMaterials.data (), table.data (), tableBytes) != 0) {
@@ -646,6 +658,84 @@ Diligent::ITextureView* DiligentScene::TraceReflections (Diligent::IDeviceContex
     context->DispatchCompute (dispatch);
     rt.stats.reflectionsTraced = true;
     return gpu.reflection->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+}
+
+// #233: traced sky light and sun in the AO texture's place (kRayTracedSkyMain). True when
+// impl_->aoView now holds them -- with the AO intensity already applied, so the caller sets the AO
+// lane to 2: the mesh shader reads that as intensity 1 plus "y is the traced sun".
+bool DiligentScene::TraceSkyLight (Diligent::IDeviceContext* context, const DiligentSceneConstants& constants,
+                                   const float viewProj[16], const float eye[3], uint32_t frameIndex)
+{
+    Impl::RayTraced& rt = impl_->rayTraced;
+    rt.stats.skyLightTraced = false;
+    if (!rt.settings.skyLight || impl_->aoView == nullptr || impl_->gBuffer == nullptr)
+        return false;
+    Diligent::ITextureView* depth =
+        impl_->gBuffer->GetBuffer (kGBufferDepth)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* normal =
+        impl_->gBuffer->GetBuffer (kGBufferNormal)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    const Diligent::TextureDesc& size = depth->GetTexture ()->GetDesc ();
+    RayTracedConstants c;
+    uint64_t key = 0;
+    if (!PrepareRayTracedFrame (context, constants, viewProj, eye, size.Width, size.Height, c, key))
+        return false;
+    RayTracedGpu& gpu = *rt.gpu;
+
+    if (gpu.skyLight == nullptr || gpu.skyLight->GetDesc ().Width != size.Width ||
+        gpu.skyLight->GetDesc ().Height != size.Height) {
+        gpu.skyLight.Release ();
+        Diligent::TextureDesc desc;
+        desc.Name = "ArchViz traced sky light";
+        desc.Type = Diligent::RESOURCE_DIM_TEX_2D;
+        desc.Width = size.Width;
+        desc.Height = size.Height;
+        desc.Format = Diligent::TEX_FORMAT_RG16_FLOAT;
+        desc.BindFlags = Diligent::BIND_SHADER_RESOURCE | Diligent::BIND_UNORDERED_ACCESS;
+        desc.Usage = Diligent::USAGE_DEFAULT;
+        impl_->device->CreateTexture (desc, nullptr, &gpu.skyLight);
+        if (gpu.skyLight == nullptr) {
+            LatchRayTracingFailure ("the traced sky light target could not be created");
+            return false;
+        }
+        gpu.skySrbDirty = true;
+    }
+    // Compared, not assumed, as the reflection pass's views are: a resize recreates them.
+    Diligent::ITextureView* bound[4] = { depth, normal, impl_->aoView, gpu.envView };
+    if (gpu.skySrbDirty || gpu.srbDirty || gpu.skySrb == nullptr ||
+        std::memcmp (bound, gpu.skyBound, sizeof (bound)) != 0) {
+        gpu.skySrb.Release ();
+        gpu.skyPso->CreateShaderResourceBinding (&gpu.skySrb, true);
+        if (gpu.skySrb == nullptr) {
+            LatchRayTracingFailure ("Diligent CreateShaderResourceBinding(traced sky light) failed");
+            return false;
+        }
+        BindRayTracedScene (gpu, gpu.skySrb);
+        auto set = [&] (const char* name, Diligent::IDeviceObject* object) {
+            if (Diligent::IShaderResourceVariable* v =
+                    gpu.skySrb->GetVariableByName (Diligent::SHADER_TYPE_COMPUTE, name))
+                v->Set (object);
+        };
+        set ("g_depth", depth);
+        set ("g_normal", normal);
+        set ("g_occlusion", impl_->aoView);
+        set ("g_skyLight", gpu.skyLight->GetDefaultView (Diligent::TEXTURE_VIEW_UNORDERED_ACCESS));
+        std::memcpy (gpu.skyBound, bound, sizeof (bound));
+        gpu.skySrbDirty = false;
+    }
+    c.frame[2] = frameIndex;
+    c.ray[1] = constants.shadowParams[2]; // the raster's shadows on: only then does the ray shadow
+    c.ray[3] = impl_->aoIntensity;
+    context->UpdateBuffer (gpu.constants, 0, sizeof (c), &c, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->SetPipelineState (gpu.skyPso);
+    context->CommitShaderResources (gpu.skySrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    Diligent::DispatchComputeAttribs dispatch;
+    dispatch.ThreadGroupCountX = (size.Width + 7) / 8;
+    dispatch.ThreadGroupCountY = (size.Height + 7) / 8;
+    dispatch.ThreadGroupCountZ = 1;
+    context->DispatchCompute (dispatch);
+    impl_->aoView = gpu.skyLight->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    rt.stats.skyLightTraced = true;
+    return true;
 }
 
 RayTracedStats DiligentScene::RayTracedStatus () const

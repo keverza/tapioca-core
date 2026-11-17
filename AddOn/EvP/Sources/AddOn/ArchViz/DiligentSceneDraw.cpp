@@ -688,6 +688,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // when the AO pass declined. The fallback is a 1x1 WHITE texel meaning
     // "nothing is occluded"; see DiligentSceneImpl::aoFallback for why white
     // and not simply "leave it".
+    // #233: on DXR the occlusion becomes traced sky light and sun (the AO lane then reads 2).
+    const bool skyTraced = debugView == 0 && TraceSkyLight (context, constants, viewProj, eye, frameIndex);
     Diligent::ITextureView* occlusionView = impl_->aoView;
     if (occlusionView == nullptr && impl_->aoFallback != nullptr)
         occlusionView = impl_->aoFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
@@ -732,7 +734,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     }
     // The constant is still the gate: the fallback is bound so the SRB is
     // valid, not so the shader reads it.
-    constants.gradeParams[3] = impl_->aoView != nullptr ? impl_->aoIntensity : 0.0f;
+    constants.gradeParams[3] = impl_->aoView != nullptr ? (skyTraced ? 2.0f : impl_->aoIntensity) : 0.0f;
 
     const bool studyModel = debugView == 0 && impl_->StudyModelShown ();
     // #230: the study model is a clay look (StudyModelLook), resolved like any other.

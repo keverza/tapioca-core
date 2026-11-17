@@ -2258,11 +2258,10 @@ SamplerState           g_filterableShadowMap_sampler;
 // entirely -- and a half-texel slip in an occlusion term looks like a rim of
 // light around every contact edge, which reads as a lighting choice.
 //
-// ⚠️ IT IS DECLARED WHETHER OR NOT ONE IS BOUND, and the gate is
-// `g_gradeParams.w`, NOT a null check. HLSL cannot ask whether a texture is
-// bound; an unbound Load returns ZERO, and zero occlusion means fully occluded,
-// which would render the whole model black.
-Texture2D<float> g_ambientOcclusion;
+// ⚠️ IT IS DECLARED WHETHER OR NOT ONE IS BOUND, and the gate is `g_gradeParams.w`, NOT a null
+// check: an unbound Load returns ZERO, which would render the whole model black. #233: x is the
+// occlusion; with g_gradeParams.w == 2 (DXR) it is traced sky light, y the traced sun (< 0: none).
+Texture2D<float2> g_ambientOcclusion;
 
 // The sky's diffuse contribution for a world normal, reconstructed from the nine
 // coefficients. The irradiance convolution and the 1/pi are ALREADY FOLDED INTO
@@ -2616,26 +2615,27 @@ void main (in PSInput psIn, out PSOutput psOut)
     // about the sun's direction, so a courtyard in full skylight had exactly
     // the brightness of an open roof. That contact gradient is what the eye
     // reads as "this object is SITTING on that surface".
-    float aoVisible = 1.0; // #232: the specular occlusion below reads the same AO
+    float aoVisible = 1.0, tracedSun = -1.0; // #232: the specular occlusion reads the same AO
     if (g_gradeParams.w > 0.0)
     {
-        float occlusion = g_ambientOcclusion.Load (int3 (int2 (psIn.position.xy), 0));
+        float2 occlusion = g_ambientOcclusion.Load (int3 (int2 (psIn.position.xy), 0));
         // lerp toward the measured occlusion by the intensity, so 0 is exactly
         // the image without this and 1 is GTAO at the strength it computed.
         // ⚠️ INTENSITY IS NOT THE EFFECT'S RADIUS. C3's acceptance asks for the
         // two to be separable; a radius change is a different request and lives
         // in the AO pass's own settings.
-        aoVisible = lerp (1.0, saturate (occlusion), saturate (g_gradeParams.w));
+        aoVisible = lerp (1.0, saturate (occlusion.x), saturate (g_gradeParams.w));
         ambientTerm *= aoVisible;
+        tracedSun = g_gradeParams.w > 1.5 && g_baseColor.a >= 0.99 ? occlusion.y : -1.0;
     }
 
-    // ---- direct: the sun, occluded by the shadow map ----------------------
+    // ---- direct: the sun, occluded by the shadow map, or by a ray (#233) --
     float ndotl  = max (dot (n, g_sunAndAmbient.xyz), 0.0);
     // ⚠️ psIn.position IS ALREADY IN PIXELS HERE. The hardware divided by w and
     // mapped SV_POSITION to the viewport before the pixel shader saw it, which is
     // exactly the space the PCSS dither wants: one distinct phase per screen
     // pixel, independent of how many pixels a shadow texel covers.
-    float4 shadow = SampleSunShadow (psIn.worldPos, n, psIn.position.xy);
+    float4 shadow = tracedSun >= 0.0 ? tracedSun.xxxx : SampleSunShadow (psIn.worldPos, n, psIn.position.xy);
     float direct = directWeight * ndotl * shadow.x;
 
     float3 lighting = ambientTerm + direct.xxx * g_skyColor.w;

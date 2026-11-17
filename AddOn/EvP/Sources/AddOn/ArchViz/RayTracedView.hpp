@@ -44,6 +44,8 @@ struct RayTracedSettings {
     // #232: the Rendered style's reflections traced instead of screen-space, where the device can.
     // Independent of `enabled`: it changes the raster image's reflections, not the style.
     bool reflections = true;
+    // #233: the Rendered style's sky light occluded by rays (traced visibility in GTAO's place).
+    bool skyLight = true;
 };
 
 // One element as the renderer holds it: the retained triangles and the material ranges over them.
@@ -120,6 +122,7 @@ struct RayTracedStats {
     uint32_t maxSamples = 0;
     uint64_t triangles = 0;
     bool reflectionsTraced = false; // #232: last frame's reflections came from rays, not SSR
+    bool skyLightTraced = false;    // #233: last frame's sky light was occluded by rays
     std::string reason;
 };
 

@@ -52,6 +52,7 @@ void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay)
     traced.maxSamples = uint32_t (hud.rayTracedMaxSamples < 1 ? 1 : hud.rayTracedMaxSamples);
     traced.bounces = uint32_t (hud.rayTracedBounces < 0 ? 0 : hud.rayTracedBounces);
     traced.reflections = hud.rayTracedReflections && !overlay;
+    traced.skyLight = traced.reflections; // #233: one HUD switch for traced light in Rendered
     scene.SetRayTraced (traced);
 }
 

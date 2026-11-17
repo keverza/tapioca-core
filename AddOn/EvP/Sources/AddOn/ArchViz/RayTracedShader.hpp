@@ -417,6 +417,84 @@ void main (uint3 id : SV_DispatchThreadID)
 }
 )hlsl";
 
+// #233: traced sky light for the Rendered style. The raster's sky ambient is occluded only by
+// GTAO, whose reach is a metre or two, so a closed room was lit as if it stood outdoors. Here a
+// few cosine rays per pixel ask what the point really sees: the sky where a ray escapes, and the
+// sunlit diffuse surface where it lands (one bounce, sun only). The ratio of that to the open sky
+// along the same rays is the share of the raster's ambient the point keeps -- capped at 1, so an
+// outdoor point is never brightened and keeps GTAO's contact detail -- written in the AO
+// texture's place, with the AO intensity already applied (g_ray.w). TAA averages the noise.
+//
+// y is the sun's visibility from one shadow ray, which the raster takes in place of its shadow
+// map on opaque surfaces: a shadow map's depth bias leaks light along every zero-thickness join
+// (RenderBench: a bright line where each Cornell wall meets the next). -1 where there is no
+// G-buffer surface, so whatever the raster draws there keeps the shadow map.
+inline constexpr char kRayTracedSkyMain[] = R"hlsl(
+Texture2D<float>  g_depth;
+Texture2D<float4> g_normal;
+Texture2D<float>  g_occlusion;
+RWTexture2D<float2> g_skyLight;
+
+float3 SkyDiffuse (float3 d)
+{
+    if (g_env.z > 0.5)
+        return g_envMap.SampleLevel (g_envMap_sampler, EnvUv (d), g_ray.z).rgb * g_env.x;
+    return g_sky.w * lerp (g_ground.rgb, g_sky.rgb, saturate (d.z * 0.5 + 0.5));
+}
+
+[numthreads (8, 8, 1)]
+void main (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= g_frame.x || id.y >= g_frame.y)
+        return;
+    float depth = g_depth.Load (int3 (id.xy, 0));
+    float gtao = lerp (1.0, saturate (g_occlusion.Load (int3 (id.xy, 0))), saturate (g_ray.w));
+    bool background = g_ray.x < 0.5 ? depth >= 0.9999999 : depth <= 1.0e-7;
+    if (background)
+    {
+        g_skyLight[id.xy] = float2 (gtao, -1.0);
+        return;
+    }
+    float2 ndc = float2 ((id.x + 0.5) / g_frame.x * 2.0 - 1.0, 1.0 - (id.y + 0.5) / g_frame.y * 2.0);
+    float4 a = mul (g_invViewProj, float4 (ndc, g_ray.x, 1.0));
+    float4 w = mul (g_invViewProj, float4 (ndc, depth, 1.0));
+    float3 eye = a.xyz / a.w;
+    float3 p = w.xyz / w.w;
+    float3 v = normalize (p - eye);
+    float3 n = g_normal.Load (int3 (id.xy, 0)).xyz;
+    n = dot (n, n) > 0.0 ? normalize (n) : -v;
+    if (dot (n, v) > 0.0)
+        n = -n;
+    float3 at = p + n * Epsilon (p);
+
+    uint rng = (id.x * 1973u + id.y * 9277u + g_frame.z * 26699u) | 1u;
+    Rand (rng);
+    float open = 0.0, seen = 0.0;
+    for (uint s = 0; s < 4u; ++s)
+    {
+        float3 d = CosineSample (n, rng);
+        float sky = Luminance (SkyDiffuse (d));
+        open += sky;
+        Hit h = Trace (at, d, false, rng);
+        if (!h.hit)
+        {
+            seen += sky;
+            continue;
+        }
+        float3 hp, hn, albedo, finish;
+        SurfaceFull (h, at, d, hp, hn, albedo, finish);
+        float3 hat = hp + hn * Epsilon (hp);
+        seen += Luminance (albedo * (1.0 - saturate (finish.y)) * SunLight (hat, hn, rng));
+    }
+    float traced = saturate (seen / max (open, 1.0e-4));
+    // g_ray.y: the raster's shadows are on. Off, the sun stays unshadowed, as the raster draws it.
+    float sun = g_ray.y > 0.5 ? 1.0 : -1.0;
+    if (g_ray.y > 0.5 && g_sun.w > 0.0)
+        sun = dot (n, g_sun.xyz) <= 0.0 || Trace (at, g_sun.xyz, true, rng).hit ? 0.0 : 1.0;
+    g_skyLight[id.xy] = float2 (min (gtao, traced), sun);
+}
+)hlsl";
+
 } // namespace geomsrv::archviz
 
 #endif

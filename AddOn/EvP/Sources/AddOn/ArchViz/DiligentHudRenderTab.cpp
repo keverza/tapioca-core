@@ -273,8 +273,11 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
         const RayTracedStats& traced = scene.rayTraced;
         ImGui::Checkbox ("traced reflections##raytraced", &state.rayTracedReflections);
         hudshell::Tip ("Reflections from rays instead of the screen: far, offscreen and hidden objects reflect too. "
-                       "Needs screen-space reflections on (post processing)");
-        ImGui::TextDisabled ("reflections: %s", traced.reflectionsTraced ? "traced" : "screen-space or off");
+                       "Also occludes the sky light with rays, so closed rooms are not lit as if outdoors. "
+                       "Needs screen-space reflections and ambient occlusion on (post processing)");
+        ImGui::TextDisabled ("reflections: %s, sky light: %s",
+                             traced.reflectionsTraced ? "traced" : "screen-space or off",
+                             traced.skyLightTraced ? "traced" : "AO only or off");
         if (!traced.reason.empty ())
             ImGui::TextColored (ImVec4 (0.95f, 0.70f, 0.25f, 1.0f), "%s", traced.reason.c_str ());
         if (state.rayTraced) {
