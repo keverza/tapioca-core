@@ -63,6 +63,8 @@ void detail::OperationsTab (Session& s)
             continue;
         ImGui::PushID (std::to_string (operation.id).c_str ());
         bool enabled = operation.enabled;
+        const auto refusal = RecipeBypassRefusal (s, operation.id);
+        ImGui::BeginDisabled (!refusal.empty ());
         if (ImGui::Checkbox ("Footprint on", &enabled)) {
             const auto id = operation.id;
             if (!s.edits.Apply ([id, enabled] (edit::Document& doc, std::string& error) {
@@ -70,11 +72,13 @@ void detail::OperationsTab (Session& s)
                 }))
                 s.message = s.edits.Message ();
         }
-        if (ImGui::IsItemHovered ())
-            geomsrv::archviz::hudshell::HoverTip (
-                "Off bypasses this step: its first input passes through. The owner's "
-                "terrain effect is unchanged; set Effect to None to remove it from the "
-                "terrain recipe.");
+        ImGui::EndDisabled ();
+        if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+            geomsrv::archviz::hudshell::HoverTip ("%s", !refusal.empty ()
+                                                            ? refusal.c_str ()
+                                                            : "Off bypasses this step: its first input passes through. "
+                                                              "The owner's terrain effect is unchanged; set Effect to "
+                                                              "None to remove it from the terrain recipe.");
         ImGui::SameLine ();
         ImGui::Text ("%s %llu   %zu inputs", lg::RecipeOperationName (operation.kind),
                      static_cast<unsigned long long> (operation.id), operation.inputs.size ());

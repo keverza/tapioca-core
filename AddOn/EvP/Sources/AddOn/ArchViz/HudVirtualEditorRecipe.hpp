@@ -15,5 +15,9 @@ void RecipePanel (Session& session);
 // would move. Worked out on a copy of the document once per revision; the arrow is disabled and
 // says why in its tooltip.
 std::string RecipeMoveRefusal (Session& session, tapioca::geometry::Id object, int step);
+// #220: why turning footprint step `operation` off would be refused, or empty when it may be. Only
+// a region's root whose bypass leaves no enabled step to build from refuses; turning a step back
+// on never does. Both "Footprint on" switches are disabled and say why in their tooltip.
+std::string RecipeBypassRefusal (const Session& session, tapioca::geometry::Id operation);
 } // namespace geomsrv::archviz::edithud
 #endif

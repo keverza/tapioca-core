@@ -464,3 +464,33 @@ TEST (EditLandscapeRecipe, ABooleanResultIsOneRowAndItsInputsAreConstruction189)
     EXPECT_NE (error.find ("construction input"), std::string::npos) << error;
     EXPECT_EQ (copy.revision, doc.revision) << "a refused move changes nothing";
 }
+
+// #220 / #105: what a footprint bypass can be built from. Ids 1-2 are sources; 10+ are steps.
+TEST (EditLandscapeRecipe, ABypassBuildsOnlyWhereAnEnabledStepLiesBelow220)
+{
+    geo::LandscapeSession session;
+    const auto step = [&] (geo::Id id, geo::OperationKind kind, std::vector<geo::Id> inputs, bool enabled = true) {
+        geo::LandscapeOperation op;
+        op.id = id;
+        op.kind = kind;
+        op.inputs = std::move (inputs);
+        op.enabled = enabled;
+        session.operations.push_back (op);
+    };
+    step (10, geo::OperationKind::RegionSelect, { 1 });      // reads line 1 directly
+    step (11, geo::OperationKind::RegionSelect, { 2 });      // reads line 2 directly
+    step (12, geo::OperationKind::Difference, { 10, 11 });   // built from steps
+    step (13, geo::OperationKind::Union, { 12, 11 }, false); // bypassed already
+    step (14, geo::OperationKind::Intersection, { 13, 10 }); // through a bypassed step
+    step (15, geo::OperationKind::Difference, { 1, 11 });    // its subject is a line
+    EXPECT_FALSE (geo::FootprintBypassBuildable (session, 10)) << "a line, not a step, lies below";
+    EXPECT_TRUE (geo::FootprintBypassBuildable (session, 12));
+    EXPECT_TRUE (geo::FootprintBypassBuildable (session, 14)) << "13 is skipped, 12 is enabled";
+    EXPECT_FALSE (geo::FootprintBypassBuildable (session, 15));
+    EXPECT_FALSE (geo::FootprintBypassBuildable (session, 99)) << "an unknown step";
+    // The attribution agrees: a buildable bypass names an enabled step, an unbuildable one the root.
+    session.operations[4].enabled = false; // 14
+    EXPECT_EQ (geo::AttributedFootprintOperation (session, 14), 12u);
+    session.operations[0].enabled = false; // 10
+    EXPECT_EQ (geo::AttributedFootprintOperation (session, 10), 10u);
+}

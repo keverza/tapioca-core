@@ -317,6 +317,10 @@ bool SetLandscapeOperationEnabled (geomsrv::edit::Document& doc, Id id, bool ena
 // enabled steps only. A chain that ends at a source or a missing step returns the root (which
 // still refuses, with its reason).
 Id AttributedFootprintOperation (const LandscapeSession& session, Id root);
+// #220: whether bypassing the footprint root `root` leaves something a terrain build can attribute:
+// the chain of first inputs below it reaches an enabled step. False where it reaches a source line
+// or nothing (a step reading its line directly): that bypass could never build.
+bool FootprintBypassBuildable (const LandscapeSession& session, Id root);
 // One document edit setting each listed operation's explicit priority (the terrain stack's first
 // sort key, EditLandscapeFieldPlan.hpp). Unknown ids refuse the whole edit.
 bool SetLandscapeOperationPriorities (geomsrv::edit::Document& doc, const std::vector<std::pair<Id, int>>& priorities,

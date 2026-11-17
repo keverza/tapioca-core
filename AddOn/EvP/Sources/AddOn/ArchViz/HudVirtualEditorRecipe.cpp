@@ -110,14 +110,18 @@ void Controls (Session& s, const lg::RecipeRow& row)
     if (root != doc.landscape->operations.end () &&
         !(root->kind == lg::OperationKind::RegionSelect && root->faces.empty () && root->inputs.size () == 1)) {
         bool on = root->enabled;
+        const auto refusal = RecipeBypassRefusal (s, rootId);
+        ImGui::BeginDisabled (!refusal.empty ());
         if (ImGui::Checkbox ("Footprint on", &on))
             apply ([rootId, on] (edit::Document& d, std::string& error) {
                 return lg::SetLandscapeOperationEnabled (d, rootId, on, error);
             });
-        if (ImGui::IsItemHovered ())
+        ImGui::EndDisabled ();
+        if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
             geomsrv::archviz::hudshell::HoverTip (
-                "Off bypasses the footprint's last step (its first input passes through). "
-                "The terrain effect is a separate setting.");
+                "%s", !refusal.empty () ? refusal.c_str ()
+                                        : "Off bypasses the footprint's last step (its first input passes through). "
+                                          "The terrain effect is a separate setting.");
         ImGui::SameLine ();
     }
     // #210: a Boolean result's row takes it apart.
@@ -314,6 +318,24 @@ void Quantities (Session& s, const lg::LandscapeRecipe& recipe, const TerrainDes
     }
 }
 } // namespace
+
+std::string RecipeBypassRefusal (const Session& s, lg::Id operation)
+{
+    const auto& doc = s.edits.Doc ();
+    if (!doc.landscape)
+        return {};
+    const auto& session = *doc.landscape;
+    const auto op = std::find_if (session.operations.begin (), session.operations.end (),
+                                  [&] (const lg::LandscapeOperation& o) { return o.id == operation; });
+    if (op == session.operations.end () || !op->enabled)
+        return {}; // turning a step back on is always allowed
+    const bool root = std::any_of (session.objects.begin (), session.objects.end (),
+                                   [&] (const lg::HardscapeObject& o) { return o.footprintOperation == operation; });
+    if (!root || lg::FootprintBypassBuildable (session, operation))
+        return {};
+    return "This step reads its line directly: bypassed, it would leave no step the terrain build can grade "
+           "from. Set Effect to None to take the region out of the terrain instead.";
+}
 
 std::string RecipeMoveRefusal (Session& s, lg::Id object, int step)
 {

@@ -5,8 +5,10 @@
 #include "ArchViz/HudVirtualEditorRecipe.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "Edit/EditLandscape.hpp"
+#include "Edit/EditLandscapeDomain.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -197,4 +199,48 @@ TEST (HudVirtualEditorRecipe, QuantitiesNoLongerOfferBuildAndABuildRefusesWithAR
     EXPECT_EQ (d.session.edits.UndoDepth (), 0u);
     EXPECT_EQ (d.session.edits.Doc ().landscape, before.landscape);
     EXPECT_FALSE (d.session.terrainDesign) << "Build asks; it starts nothing without a terrain";
+}
+
+// #220: "Footprint on" is refused, with a reason, where a bypass could never build -- a region root
+// that reads its line directly -- and allowed on a Boolean result; turning a step back on is never
+// refused.
+TEST (HudVirtualEditorRecipe, BypassIsRefusedWithAReasonWhereItCouldNeverBuild220)
+{
+    ed::Document doc;
+    std::string error;
+    ASSERT_TRUE (geo::StartLandscape (doc, { 1, 2, 3, 4 }, error)) << error;
+    ed::Id lineA = 0, lineB = 0;
+    const auto a = Region (doc, 0, lineA);
+    const auto b = Region (doc, 5, lineB);
+    const auto rootOf = [&] (const ed::Document& d, ed::Id id) {
+        return std::find_if (d.landscape->objects.begin (), d.landscape->objects.end (),
+                             [&] (const geo::HardscapeObject& o) { return o.id == id; })
+            ->footprintOperation;
+    };
+    // A plain region's root selects its boundary line directly; the Footprint steps list offers its
+    // switch (the recipe row hides it: it would not change the footprint).
+    const auto aRoot = rootOf (doc, a);
+    const auto& op = *std::find_if (doc.landscape->operations.begin (), doc.landscape->operations.end (),
+                                    [&] (const geo::LandscapeOperation& o) { return o.id == aRoot; });
+    const bool readsLine = std::none_of (doc.landscape->operations.begin (), doc.landscape->operations.end (),
+                                         [&] (const geo::LandscapeOperation& o) { return o.id == op.inputs.front (); });
+    geo::DomainCommand command;
+    command.kind = geo::OperationKind::Difference;
+    command.owner = b;
+    command.subject.input = rootOf (doc, b);
+    command.operand.input = aRoot;
+    const auto applied = geo::ApplyDomainCommand (doc, command);
+    ASSERT_TRUE (applied.ok) << applied.error;
+    RecipeDrive d (std::move (doc));
+    ASSERT_TRUE (readsLine);
+    const auto reason = eh::RecipeBypassRefusal (d.session, aRoot);
+    EXPECT_NE (reason.find ("reads its line directly"), std::string::npos) << reason;
+    EXPECT_TRUE (eh::RecipeBypassRefusal (d.session, applied.operationId).empty ())
+        << "a Boolean result's bypass builds";
+    ASSERT_TRUE (d.session.edits.Apply ([&] (ed::Document& c, std::string& e) {
+        return geo::SetLandscapeOperationEnabled (c, applied.operationId, false, e);
+    }));
+    EXPECT_TRUE (eh::RecipeBypassRefusal (d.session, applied.operationId).empty ()) << "turning it back on";
+    d.Frame (); // draws the disabled or enabled switch without editing anything
+    EXPECT_EQ (d.session.edits.UndoDepth (), 1u);
 }

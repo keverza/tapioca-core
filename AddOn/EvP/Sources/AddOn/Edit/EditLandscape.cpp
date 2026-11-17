@@ -769,6 +769,24 @@ Id AttributedFootprintOperation (const LandscapeSession& session, Id root)
     return root;
 }
 
+bool FootprintBypassBuildable (const LandscapeSession& session, Id root)
+{
+    const auto find = [&] (Id id) {
+        const auto it = std::find_if (session.operations.begin (), session.operations.end (),
+                                      [=] (const auto& op) { return op.id == id; });
+        return it == session.operations.end () ? nullptr : &*it;
+    };
+    const auto* op = find (root);
+    for (size_t guard = 0; op != nullptr && guard <= session.operations.size (); ++guard) {
+        if (op->inputs.empty ())
+            return false;
+        op = find (op->inputs.front ());
+        if (op != nullptr && op->enabled)
+            return true;
+    }
+    return false;
+}
+
 bool SetLandscapeOperationPriorities (edit::Document& doc, const std::vector<std::pair<Id, int>>& priorities,
                                       std::string& error)
 {
