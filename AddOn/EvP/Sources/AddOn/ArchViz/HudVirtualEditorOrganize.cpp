@@ -394,11 +394,11 @@ void TakeFocus (Session& s, const Map& m)
             rect[0] = std::min (rect[0], at.x), rect[1] = std::min (rect[1], at.y);
             rect[2] = std::max (rect[2], at.x), rect[3] = std::max (rect[3], at.y);
         }
-        if (!any || rect[2] - rect[0] < 1.0f || rect[3] - rect[1] < 1.0f) {
-            s.message = "Cannot focus on " + request.what + " from here: it is behind the camera. Turn towards it.";
-            return;
-        }
-        std::copy (std::begin (rect), std::end (rect), request.rect);
+        // Behind the camera: no rectangle. Archicad's 3D zoom needs one and refuses; the Tapioca
+        // viewer frames the box itself and does not (FollowFocus).
+        request.onScreen = any && rect[2] - rect[0] >= 1.0f && rect[3] - rect[1] >= 1.0f;
+        if (request.onScreen)
+            std::copy (std::begin (rect), std::end (rect), request.rect);
     }
     s.focusRequest = std::move (request);
 }

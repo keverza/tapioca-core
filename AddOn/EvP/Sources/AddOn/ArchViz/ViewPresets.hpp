@@ -89,6 +89,13 @@ const char* ViewPresetNote (ViewPresetOutcome outcome);
 // depth range use (Camera::SetBounds, CoverBoundsInDepth). Either pair may be null: no box.
 // `aspect` is the surface's width over its height; a surface taller than wide is framed by its
 // width.
+// #124 Focus in view: frame `lo`..`hi` as the view is turned now -- no projection switch and no
+// turn, so a plan stays a plan with its eye on the cut (Camera::FrameBounds). The scene's box, when
+// given, stays the one "zoom to fit" and the parallel depth range use. False for an empty or
+// non-finite box.
+bool FrameFocusBox (Camera& camera, const float lo[3], const float hi[3], const float* sceneMin, const float* sceneMax,
+                    float aspect);
+
 ViewPresetOutcome ApplyViewPreset (Camera& camera, ViewPreset preset, float northDegrees, bool planMode, bool planOrbit,
                                    const float* frameMin, const float* frameMax, const float* sceneMin,
                                    const float* sceneMax, float aspect);

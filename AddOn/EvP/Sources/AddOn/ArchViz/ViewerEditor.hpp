@@ -43,6 +43,13 @@ std::string SurfaceTakeoffError ();
 uint64_t Generation ();
 void PublishFrame (Frame frame);
 std::unique_ptr<Drawing> TakeDrawing ();
+// #124 Focus in view: a model box (metres, margin included) for the viewer camera to frame.
+// MAIN THREAD requests; the RENDER THREAD takes the latest one after its navigation, once.
+struct FocusBox {
+    std::array<float, 3> lo {}, hi {};
+};
+void RequestFocus (const std::array<float, 3>& lo, const std::array<float, 3>& hi);
+bool TakeFocusRequest (FocusBox& box);
 void Drawn (uint64_t generation);
 } // namespace geomsrv::archviz::vieweredit
 #endif

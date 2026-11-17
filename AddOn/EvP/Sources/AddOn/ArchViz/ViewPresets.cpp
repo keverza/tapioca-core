@@ -104,6 +104,23 @@ const char* ViewPresetNote (ViewPresetOutcome outcome)
     }
 }
 
+bool FrameFocusBox (Camera& camera, const float lo[3], const float hi[3], const float* sceneMin, const float* sceneMax,
+                    float aspect)
+{
+    for (int i = 0; i < 3; ++i)
+        if (!std::isfinite (lo[i]) || !std::isfinite (hi[i]) || hi[i] < lo[i])
+            return false;
+    camera.FrameBounds (lo, hi);
+    // As a preset: the parallel extent fits the box's sphere to the HEIGHT; a surface taller than
+    // wide is framed by its width.
+    if (camera.IsOrthographic () && aspect > 1e-3f && aspect < 1.0f)
+        camera.SetOrthographic (true, camera.OrthoHalfHeightMetres () / aspect);
+    if (sceneMin != nullptr && sceneMax != nullptr)
+        camera.SetBounds (sceneMin, sceneMax);
+    camera.CoverBoundsInDepth ();
+    return true;
+}
+
 ViewPresetOutcome ApplyViewPreset (Camera& camera, ViewPreset preset, float northDegrees, bool planMode, bool planOrbit,
                                    const float* frameMin, const float* frameMax, const float* sceneMin,
                                    const float* sceneMax, float aspect)

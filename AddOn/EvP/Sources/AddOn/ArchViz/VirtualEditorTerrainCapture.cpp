@@ -8,6 +8,7 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
+#include "ArchViz/ViewerEditor.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayInput.hpp"
@@ -162,7 +163,15 @@ void FollowFocus (const std::shared_ptr<overlayhud::State>& state, bool archicad
         return;
     const auto request = *std::exchange (session->focusRequest, std::nullopt);
     if (!archicadView) {
-        session->message = "Focus in view works in Archicad's plan and 3D views; not in the Tapioca viewer yet.";
+        // Plain floats to the render thread; the camera is framed there, never from here.
+        vieweredit::RequestFocus ({ float (request.lo.x), float (request.lo.y), float (request.lo.z) },
+                                  { float (request.hi.x), float (request.hi.y), float (request.hi.z) });
+        ArchVizLog ("VIRTUAL EDITOR focus " + request.what + " (viewer)");
+        session->message.clear ();
+        return;
+    }
+    if (!request.planar && !request.onScreen) {
+        session->message = "Cannot focus on " + request.what + " from here: it is behind the camera. Turn towards it.";
         return;
     }
     session->focusQueued = true;

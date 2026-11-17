@@ -306,8 +306,9 @@ struct Session {
     struct FocusRequest {
         edit::Vec3 lo, hi; // model metres, margin included
         bool planar = true;
-        float rect[4] = {}; // 3D: left, top, right, bottom in the view's pixels
-        std::string what;   // "layer Kerbs", "group beds", "kerb 12": for the message
+        float rect[4] = {};    // 3D: left, top, right, bottom in the view's pixels
+        bool onScreen = false; // 3D: `rect` holds the box's projection (false: behind the camera)
+        std::string what;      // "layer Kerbs", "group beds", "kerb 12": for the message
     };
     std::optional<FocusRequest> focusPending, focusRequest;
     double gradeReach = 1.0; // #109: metres from a path's centreline a control point grades it from

@@ -10,6 +10,7 @@
 #include "ArchViz/OrbitAnchor.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/ViewPresets.hpp"
+#include "ArchViz/ViewerEditor.hpp"
 
 #include <cmath>
 #include <string>
@@ -108,6 +109,22 @@ bool FollowViewPreset (Camera& camera, HudState& hud, const DiligentScene& scene
     return true;
 }
 
+// #124: the editor's Focus in view (vieweredit::RequestFocus, a one-shot box from the main
+// thread), framed with this camera as it is turned now. True when it moved the camera.
+bool FollowEditorFocus (Camera& camera, const DiligentScene& scene, uint32_t width, uint32_t height)
+{
+    vieweredit::FocusBox focus;
+    if (!vieweredit::TakeFocusRequest (focus))
+        return false;
+    float sceneMin[3], sceneMax[3];
+    const bool haveScene = scene.SceneBounds (sceneMin, sceneMax);
+    if (!FrameFocusBox (camera, focus.lo.data (), focus.hi.data (), haveScene ? sceneMin : nullptr,
+                        haveScene ? sceneMax : nullptr, height > 0 ? float (width) / float (height) : 1.0f))
+        return false;
+    ArchVizLog ("viewer editor focus: " + DescribeView (camera));
+    return true;
+}
+
 } // namespace
 
 bool NavigateViewer (Camera& camera, HudState& hud, const DiligentScene& scene, const InputSnapshot& input,
@@ -126,6 +143,7 @@ bool NavigateViewer (Camera& camera, HudState& hud, const DiligentScene& scene, 
         }
     }
     moved = FollowViewPreset (camera, hud, scene, width, height) || moved;
+    moved = FollowEditorFocus (camera, scene, width, height) || moved;
     FollowOrbitAnchor (camera, hud, scene, input);
     moved = camera.ApplyInput (input, hud.wantsMouse || hud.viewpointOwnsMouse, width, height) || moved;
     // A pan or an orbit about the anchor moved a parallel view's target: the model stays inside

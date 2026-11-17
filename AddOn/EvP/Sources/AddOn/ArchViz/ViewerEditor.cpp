@@ -22,6 +22,7 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <optional>
 #include <utility>
 
 namespace geomsrv::archviz::vieweredit {
@@ -37,6 +38,7 @@ hudshell::DockPlacement s_dock;
 uint32_t s_fontStep = hudshell::kFontStepDefault;
 bool s_placementRequested = false;
 std::unique_ptr<Drawing> s_pending;
+std::optional<FocusBox> s_focus; // #124: the latest box to frame; the render thread takes it
 HWND s_window = nullptr;
 UINT_PTR s_timer = 0;
 std::shared_ptr<const overlaylayers::Layer> s_layer;
@@ -260,7 +262,7 @@ bool Refresh ()
         edithud::FollowDraftFiles (*state->virtualEditor); // #159 drafts, same rule
     FollowTerrainCapture (state);
     FollowDraftingImport (state);
-    FollowFocus (state, false); // #124: refused here with a reason; the viewer has no frame request yet
+    FollowFocus (state, false); // #124: the box goes to the render thread (RequestFocus)
     FollowMaterialPicker (state);
     if (engine->Selected () == "@viewer.analysis") {
         // Navigation releases input, not the document. Renderer-owned analysis keeps
@@ -400,6 +402,19 @@ std::unique_ptr<Drawing> TakeDrawing ()
 {
     std::lock_guard<std::mutex> lock (s_mutex);
     return std::move (s_pending);
+}
+void RequestFocus (const std::array<float, 3>& lo, const std::array<float, 3>& hi)
+{
+    std::lock_guard<std::mutex> lock (s_mutex);
+    s_focus = FocusBox { lo, hi };
+}
+bool TakeFocusRequest (FocusBox& box)
+{
+    std::lock_guard<std::mutex> lock (s_mutex);
+    if (!s_focus)
+        return false;
+    box = *std::exchange (s_focus, std::nullopt);
+    return true;
 }
 void Drawn (uint64_t generation)
 {

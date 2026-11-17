@@ -297,14 +297,18 @@ TEST (HudVirtualEditorOutliner, FocusFramesWhatIsShownAndNeverEditsTheDocument12
     EXPECT_LT (s.focusRequest->rect[1], 360.0f); // above y = 4
     EXPECT_GT (s.focusRequest->rect[3], 400.0f); // below y = 0
 
+    EXPECT_TRUE (s.focusRequest->onScreen);
 
-    // Behind the camera: nothing projects, refused with a reason.
+    // Behind the camera: nothing projects. The box is still asked for -- the Tapioca viewer frames
+    // it -- with no rectangle, which Archicad's 3D zoom needs and refuses without (FollowFocus).
     s.focusRequest.reset ();
     ASSERT_TRUE (eh::detail::FocusOn (s, { a }, "Outline  #1"));
     view.project = [] (double, double, double, float&, float&) { return false; };
     eh::detail::TakeFocus (s, eh::detail::Map { view });
-    EXPECT_FALSE (s.focusRequest.has_value ());
-    EXPECT_NE (s.message.find ("behind the camera"), std::string::npos) << s.message;
+    ASSERT_TRUE (s.focusRequest.has_value ());
+    EXPECT_FALSE (s.focusRequest->planar);
+    EXPECT_FALSE (s.focusRequest->onScreen);
+    EXPECT_LT (s.focusRequest->lo.x, s.focusRequest->hi.x);
 
     // Hidden-only and empty targets.
     EXPECT_FALSE (eh::detail::FocusOn (s, { c }, "layer Hidden"));

@@ -411,3 +411,58 @@ TEST (ViewPresets, APresetsParallelViewStillPicks)
         EXPECT_LT (off, 2.0f * camera.OrthoHalfHeightMetres () / 600.0f * 1.5f) << ViewPresetName (preset);
     }
 }
+
+namespace {
+void Direction (const Camera& camera, float out[3])
+{
+    float eye[3], target[3];
+    camera.GetEyePosition (eye);
+    camera.GetTarget (target);
+    const float length = std::hypot (target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]);
+    for (int i = 0; i < 3; ++i)
+        out[i] = (target[i] - eye[i]) / length;
+}
+} // namespace
+
+// #124 Focus in view in the Tapioca viewer: the box is framed as the view is turned now -- no
+// projection switch, no turn -- and the scene stays the box "zoom to fit" returns to.
+TEST (ViewPresets, FocusFramesTheBoxWithoutTurningTheView124)
+{
+    const float boxLow[3] = { 150.0f, -20.0f, 0.0f }, boxHigh[3] = { 154.0f, -16.0f, 3.0f };
+    Camera camera;
+    camera.SetOrbit (0.7f, 0.4f);
+    camera.FrameBounds (kLow, kHigh);
+    float before[3];
+    Direction (camera, before);
+    ASSERT_TRUE (FrameFocusBox (camera, boxLow, boxHigh, kLow, kHigh, 1000.0f / 600.0f));
+    float after[3];
+    Direction (camera, after);
+    for (int i = 0; i < 3; ++i)
+        EXPECT_NEAR (after[i], before[i], 1e-5f) << "the view is not turned";
+    EXPECT_FALSE (camera.IsOrthographic ()) << "nor its projection switched";
+    ExpectBoxShown (camera, boxLow, boxHigh, 1000, 600, true, "the focused box");
+    EXPECT_LT (camera.Distance (), 30.0f) << "framed on the box, not the scene";
+    camera.FrameLastBounds ();
+    ExpectBoxShown (camera, kLow, kHigh, 1000, 600, true, "the scene after a fit");
+
+    const float bad[3] = { NAN, 0.0f, 0.0f };
+    EXPECT_FALSE (FrameFocusBox (camera, bad, boxHigh, kLow, kHigh, 1.6f));
+    EXPECT_FALSE (FrameFocusBox (camera, boxHigh, boxLow, kLow, kHigh, 1.6f)) << "an inverted box";
+}
+
+// In the plan's pose the focus stays the plan: top down, its rotation, its eye on the cut.
+TEST (ViewPresets, FocusInThePlanKeepsThePlan124)
+{
+    Camera camera = PlanMode (0.6f);
+    const float boxLow[3] = { 130.0f, 30.0f, 0.0f }, boxHigh[3] = { 136.0f, 34.0f, 3.0f };
+    ASSERT_TRUE (FrameFocusBox (camera, boxLow, boxHigh, kLow, kHigh, 1.6f));
+    EXPECT_TRUE (camera.IsTopDown ());
+    EXPECT_TRUE (camera.IsOrthographic ());
+    EXPECT_NEAR (camera.TopDownRotationRadians (), 0.6f, 1e-6f);
+    float eye[3];
+    camera.GetEyePosition (eye);
+    EXPECT_NEAR (eye[2], 3.1f, 1e-3f) << "the eye stays on the storey's cut";
+    EXPECT_NEAR (eye[0], 133.0f, 1e-3f);
+    EXPECT_NEAR (eye[1], 32.0f, 1e-3f);
+    ExpectBoxShown (camera, boxLow, boxHigh, 1000, 600, true, "the focused box in the plan");
+}
