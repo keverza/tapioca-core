@@ -43,6 +43,9 @@ class PlanAnchorLayer;
 struct HudState;
 
 void ApplyShadowSettings (DiligentScene& scene, const HudState& hud);
+// The HUD's grading and clay override (issue #14 P2), in DiligentViewportLook.cpp. `overlay`
+// withholds clay: the overlay is compared AGAINST Archicad's shading and keeps the materials.
+void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay);
 void ServiceViewpointInput (const Camera& camera, HudState& hud, const InputSnapshot& input, uint32_t width,
                             uint32_t height);
 void ServiceCursorAnalysis (const Camera& camera, HudState& hud, const DiligentScene& scene, const InputSnapshot& input,

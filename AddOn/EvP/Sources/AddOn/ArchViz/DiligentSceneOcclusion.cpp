@@ -183,7 +183,7 @@ bool DiligentScene::DrawOcclusionDepth (Diligent::IDeviceContext* context, const
         for (const MaterialRange& r : e.ranges) {
             if (r.indexCount == 0)
                 continue;
-            if (impl_->materials.Lookup (r.material).alpha < kOpaqueAlpha)
+            if (DrawnAlpha (impl_->materials.Lookup (r.material), impl_->clay) < kOpaqueAlpha)
                 continue;
             if (!bound) {
                 BindMesh (context, e);

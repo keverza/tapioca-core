@@ -58,7 +58,7 @@ bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context, const fl
         for (const MaterialRange& r : e.ranges) {
             if (r.indexCount == 0)
                 continue;
-            if (consultMaterials && impl_->materials.Lookup (r.material).alpha < kOpaqueAlpha)
+            if (consultMaterials && DrawnAlpha (impl_->materials.Lookup (r.material), impl_->clay) < kOpaqueAlpha)
                 continue;
             DrawEntryRange (context, e, r);
         }
@@ -571,7 +571,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // and a separate member on this one. Same value, two names -- see
         // DiligentSceneConstants, where sunDir[3] and ambient are one float4.
         light.ambientShare = constants.ambient;
-        light.meanAlbedo = MeanPoolAlbedo (impl_->materials);
+        // Clay replaces the whole pool's colour, so the estimate must assume the clay's.
+        light.meanAlbedo = impl_->clay.enabled ? ClayLuminance (impl_->clay) : MeanPoolAlbedo (impl_->materials);
 
         impl_->lastSceneLuminance = MeanSceneLuminance (light);
         impl_->lastAutoExposure = AutoExposure (light);
@@ -785,32 +786,35 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 if (r.indexCount == 0)
                     continue;
                 const SurfaceMaterial& mat = impl_->materials.Lookup (r.material);
-                // ⚠️ A SELECTED ELEMENT DRAWS EXACTLY AS AN UNSELECTED ONE
-                // (issue #118). It used to be tinted cyan and forced into this
-                // pass translucent; the selection is now marked at its edges by
-                // DrawLineOverlays, so its surfaces keep their material, their
-                // pass and their depth.
-                const bool blended = !studyModel && mat.alpha < kOpaqueAlpha;
-                if (blended != transparentPass)
-                    continue;
-                // ⚠️ NOT NAMED r/g/b -- `r` is the MaterialRange this loop is
-                // over, and shadowing it hands the range's colour to the draw.
-                const float surfaceR = studyModel ? 1.0f : mat.r;
-                const float surfaceG = studyModel ? 1.0f : mat.g;
-                const float surfaceB = studyModel ? 1.0f : mat.b;
-                const float alpha = studyModel ? 1.0f : mat.alpha;
                 // ⚠️ THE WHOLE PBR DESCRIPTION, FROM THE CLASSIFIER, NOT FROM
                 // THE RAW CHANNELS. `PresetFor` runs SurfaceClassifier over the
                 // measured numbers and returns the roughness, the dielectric
                 // specular level and -- the part Archicad has no channel for at
                 // all -- the metalness. Reading `mat.shininess` directly here
                 // again would quietly restore the dielectric-only renderer.
-                const SurfacePreset preset = PresetFor (mat);
+                // ⚠️ AND THE CLAY OVERRIDE (ClayLook.hpp) IS RESOLVED BEFORE THE
+                // PASS PARTITION: with glass kept off, a pane becomes opaque and
+                // must leave the blended pass, so `blended` reads the RESOLVED alpha.
+                const DrawnSurface drawn = ResolveDrawnSurface (mat, PresetFor (mat), impl_->clay);
+                // ⚠️ A SELECTED ELEMENT DRAWS EXACTLY AS AN UNSELECTED ONE
+                // (issue #118). It used to be tinted cyan and forced into this
+                // pass translucent; the selection is now marked at its edges by
+                // DrawLineOverlays, so its surfaces keep their material, their
+                // pass and their depth.
+                const bool blended = !studyModel && drawn.alpha < kOpaqueAlpha;
+                if (blended != transparentPass)
+                    continue;
+                // ⚠️ NOT NAMED r/g/b -- `r` is the MaterialRange this loop is
+                // over, and shadowing it hands the range's colour to the draw.
+                const float surfaceR = studyModel ? 1.0f : drawn.r;
+                const float surfaceG = studyModel ? 1.0f : drawn.g;
+                const float surfaceB = studyModel ? 1.0f : drawn.b;
+                const float alpha = studyModel ? 1.0f : drawn.alpha;
                 // ⚠️ PER RANGE, NOT PER FRAME. Hoisting the upload out of this
                 // loop paints every range in the last material's colour -- and
                 // now its finish too, in both channels.
-                uploadConstants (surfaceR, surfaceG, surfaceB, alpha, studyModel ? 1.0f : preset.roughness,
-                                 studyModel ? 0.5f : preset.reflectance, studyModel ? 0.0f : preset.metallic);
+                uploadConstants (surfaceR, surfaceG, surfaceB, alpha, studyModel ? 1.0f : drawn.roughness,
+                                 studyModel ? 0.5f : drawn.reflectance, studyModel ? 0.0f : drawn.metallic);
                 drawRange (e, r, blended);
             }
         }

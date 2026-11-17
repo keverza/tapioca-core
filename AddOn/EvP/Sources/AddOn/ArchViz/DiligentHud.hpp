@@ -613,6 +613,18 @@ struct HudState {
     float reflectance = 1.0f;
     float roughnessBias = 0.0f;
 
+    // ---- the clay override (issue #14 P2, ArchViz/ClayLook.hpp) ---------------
+    //
+    // Every surface drawn in one neutral material, so a scheme reads by form, shadow
+    // and occlusion. Independent of the render mode and quality, like everything in
+    // "surfaces"; the Clay preview turns it on with the Architecture lighting.
+    // `clayRgba` is sRGB 0xRRGGBBAA as the colour picker edits it; the default is
+    // ClayLook's linear default, encoded.
+    bool clay = false;
+    uint32_t clayRgba = 0xE6E3DEFFu;
+    float clayRoughness = 0.8f;
+    bool clayKeepGlass = true;
+
     // ---- RE51.B9 -------------------------------------------------------------
     //
     // ⚠️ AUTO EXPOSURE SHIPS OFF, AND THE CHECKBOX IS THE MEASUREMENT. The

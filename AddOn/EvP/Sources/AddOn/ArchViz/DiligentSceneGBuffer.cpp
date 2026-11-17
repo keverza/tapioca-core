@@ -224,14 +224,14 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
         impl_->drawCalls = 0;
 
     const SurfaceMaterial defaultMaterial;
-    auto uploadMaterial = [&] (const SurfaceMaterial& material, const SurfacePreset& preset) {
-        constants.baseColor[0] = material.r;
-        constants.baseColor[1] = material.g;
-        constants.baseColor[2] = material.b;
-        constants.baseColor[3] = material.alpha;
-        constants.outlineParams[3] = preset.roughness;
-        constants.materialParams[0] = preset.reflectance;
-        constants.materialParams[2] = preset.metallic;
+    auto uploadMaterial = [&] (const DrawnSurface& surface) {
+        constants.baseColor[0] = surface.r;
+        constants.baseColor[1] = surface.g;
+        constants.baseColor[2] = surface.b;
+        constants.baseColor[3] = surface.alpha;
+        constants.outlineParams[3] = surface.roughness;
+        constants.materialParams[0] = surface.reflectance;
+        constants.materialParams[2] = surface.metallic;
         UploadConstants (context, impl_->constants, constants);
     };
 
@@ -244,21 +244,25 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
                 continue;
             const SurfaceMaterial& material =
                 consultMaterials ? impl_->materials.Lookup (range.material) : defaultMaterial;
+            // The SAME resolution as the forward pass (ClayLook.hpp), so SSR and AO
+            // see the surfaces the image shows; the helper meshes are never clay.
+            const DrawnSurface surface = consultMaterials
+                                             ? ResolveDrawnSurface (material, PresetFor (material), impl_->clay)
+                                             : ResolveDrawnSurface (material, SurfacePreset {}, ClayLook {});
             if (consultMaterials) {
                 if (appendTransparent) {
-                    if (material.alpha >= kOpaqueAlpha ||
+                    if (surface.alpha >= kOpaqueAlpha ||
                         (glassOnly && ClassifySurface (material).cls != SurfaceClass::Glass))
                         continue;
                 }
-                else if (material.alpha < kOpaqueAlpha) {
+                else if (surface.alpha < kOpaqueAlpha) {
                     continue;
                 }
             }
             else if (appendTransparent) {
                 continue;
             }
-            const SurfacePreset preset = consultMaterials ? PresetFor (material) : SurfacePreset {};
-            uploadMaterial (material, preset);
+            uploadMaterial (surface);
             DrawEntryRange (context, e, range);
             ++impl_->drawCalls;
         }
@@ -270,6 +274,14 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
         for (const Entry& e : impl_->staticMeshes)
             drawOpaqueRanges (e, false);
     }
+}
+
+// Issue #14 P2. Here rather than beside SetGrading because DiligentScene.cpp is size-frozen;
+// the G-buffer pass is one of the override's two readers (ClayLook.hpp).
+void DiligentScene::SetClayLook (const ClayLook& clay)
+{
+    if (impl_ != nullptr)
+        impl_->clay = clay;
 }
 
 void DiligentScene::SetAmbientOcclusion (bool enabled, float intensity, float radiusMetres)

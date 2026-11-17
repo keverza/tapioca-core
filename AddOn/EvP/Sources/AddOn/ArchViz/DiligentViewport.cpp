@@ -776,7 +776,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // every other.
             scene.SetEnvironmentBackground (hudState.environmentBackground && surface.mode != SurfaceMode::Overlay);
             scene.SetSunWithSkyWeight (hudState.sunWithSkyWeight);
-            scene.SetGrading (hudState.exposure, hudState.reflectance, hudState.roughnessBias);
+            ApplySurfaceLook (scene, hudState, surface.mode == SurfaceMode::Overlay); // grading + clay
             scene.SetAutoExposure (hudState.autoExposure);
             scene.SetWhiteBalance (hudState.whiteBalanceKelvin, hudState.whiteBalanceTint);
             scene.SetAtmosphere (hudState.epipolarAtmosphere && surface.mode != SurfaceMode::Overlay,

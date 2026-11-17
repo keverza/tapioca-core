@@ -467,6 +467,9 @@ set (EVP_ARCHVIZ_SOURCES
     # calibration: the RAL measurements that prove Archicad's colours are
     # display-referred are arithmetic, so they can be pinned exactly, offline.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ColourSpace.cpp"
+    # ArchViz/ClayLook.cpp is the clay material override (issue #14 P2): pure, and its
+    # wrong answers (a solid pane left in the blended pass, a clay chrome) look plausible.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ClayLook.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudPly.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudHierarchy.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudLod.cpp"
@@ -1114,6 +1117,7 @@ set (EVP_TEST_SOURCES
     ${EVP_SCENE_TEXT_TESTS}
     test_materialtable.cpp
     test_surfaceclassifier.cpp
+    test_claylook.cpp
     test_buildingmaterialsignal.cpp
     test_substancejoin.cpp
     test_autoexposure.cpp

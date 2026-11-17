@@ -36,6 +36,7 @@
 // command hold one of these without pulling in Diligent's headers.
 
 #include "ArchViz/ArchVizVertex.hpp"
+#include "ArchViz/ClayLook.hpp"
 #include "ArchViz/DiligentShadowMap.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/GhPreviewLayer.hpp"  // GhPreviewLayer::DrawParams
@@ -468,6 +469,11 @@ class DiligentScene final {
     // DiligentSceneConstants::gradeParams: Archicad's surfaces are Blinn-Phong
     // percentages, and this project's read as matte almost everywhere.
     void SetGrading (float exposure, float reflectance, float roughnessBias);
+
+    // The clay material override (issue #14 P2, ArchViz/ClayLook.hpp). Applied per draw
+    // range in BOTH the forward and the G-buffer pass, so SSR and AO see the same surfaces
+    // the image does. The sun study's own white model takes precedence while it is shown.
+    void SetClayLook (const ClayLook& clay);
 
     // ---- RE51.B9: the finishing controls that follow the LIGHT ---------------
 

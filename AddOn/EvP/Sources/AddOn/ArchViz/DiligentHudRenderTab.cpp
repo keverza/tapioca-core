@@ -33,22 +33,26 @@ struct Knobs {
     float ambientOcclusionIntensity;
     int shadows;
     int background;
+    int clay;
 };
 
 // ⚠️ THE REFERENCE'S MODES, WHERE THIS RENDERER CAN HONOUR THEM (HANDOFF-HudTabs.md section 1):
-// Shaded, Wireframe, Architecture and Rendered. Sketch is not here: it needs an outline pass
-// this renderer does not have, and a preset that cannot take effect is worse than none.
+// Shaded, Wireframe, Architecture and Rendered, plus Clay (issue #14 P2): Architecture's light
+// over one neutral material (ClayLook.hpp) -- the reference's arctic look. Sketch is not here: it
+// needs an outline pass this renderer does not have, and a preset that cannot take effect is
+// worse than none. Every preset but Wireframe states `clay`, so Architecture and Clay stay apart.
 // ⚠️ TWO AO SCALES (the handoff's caveat 8), CONVERTED IN THE OPEN: the reference's 0-1 blend
 // is doubled onto this renderer's 0-2 intensity -- Architecture's 0.70 is 1.4, Rendered's 0.40
 // is 0.8. Ground, edge angle and tone-map choice are not native; Architecture is told from
 // Rendered by its AO and by drawing no sky behind the model.
 constexpr Knobs kPresets[] = {
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 1, -1 },   // Shaded
-    { int (SceneRenderMode::Wireframe), -1, -1, -1, -1.0f, 0, -1 },                      // Wireframe
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0 }, // Architecture
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1 }, // Rendered
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 1, -1, 0 },   // Shaded
+    { int (SceneRenderMode::Wireframe), -1, -1, -1, -1.0f, 0, -1, -1 },                     // Wireframe
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 0 }, // Architecture
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0 }, // Rendered
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 1 }, // Clay
 };
-constexpr const char* kPreviewNames[] = { "Shaded", "Wireframe", "Architecture", "Rendered", "Custom" };
+constexpr const char* kPreviewNames[] = { "Shaded", "Wireframe", "Architecture", "Rendered", "Clay", "Custom" };
 static_assert (sizeof (kPresets) / sizeof (kPresets[0]) == size_t (Preview::Custom),
                "a preview preset for every Preview but Custom");
 
@@ -61,7 +65,8 @@ bool Matches (const Knobs& knobs, const HudState& state)
            (knobs.ambientOcclusionIntensity < 0.0f ||
             std::fabs (state.ambientOcclusionIntensity - knobs.ambientOcclusionIntensity) < 1.0e-4f) &&
            (knobs.shadows < 0 || state.shadowsEnabled == (knobs.shadows != 0)) &&
-           (knobs.background < 0 || state.environmentBackground == (knobs.background != 0));
+           (knobs.background < 0 || state.environmentBackground == (knobs.background != 0)) &&
+           (knobs.clay < 0 || state.clay == (knobs.clay != 0));
 }
 
 } // namespace
@@ -99,6 +104,8 @@ void ApplyPreview (HudState& state, Preview preview)
         state.shadowsEnabled = knobs.shadows != 0;
     if (knobs.background >= 0)
         state.environmentBackground = knobs.background != 0;
+    if (knobs.clay >= 0)
+        state.clay = knobs.clay != 0;
 }
 
 void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scene)
@@ -167,6 +174,18 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
         ImGui::SetNextItemWidth (-FLT_MIN);
         ImGui::Combo ("##renderquality", &state.renderQuality, kRenderQualityNames, kRenderQualityCount);
         ImGui::TextDisabled ("quality -- realistic adds specular + tone mapping");
+        // ---- clay: one neutral material over every surface (ClayLook.hpp) --------------------
+        ImGui::Checkbox ("clay##surfaces", &state.clay);
+        hudshell::Tip ("Every surface in one neutral material -- the scheme reads by form, shadow and AO");
+        if (state.clay) {
+            ImGui::SetNextItemWidth (-FLT_MIN);
+            hudshell::ColourChoice ("##claycolour", state.clayRgba);
+            ImGui::TextDisabled ("clay colour");
+            ImGui::SliderFloat ("roughness##clay", &state.clayRoughness, 0.0f, 1.0f, "%.2f");
+            ImGui::Checkbox ("keep glass##clay", &state.clayKeepGlass);
+            hudshell::Tip (state.clayKeepGlass ? "Panes stay translucent and lose only their tint"
+                                               : "Panes turn to solid clay -- the massing reading");
+        }
     }
     // ---- 3. environment; 4. sun and shadows; 5. colour and post ------------------------------
     DrawEnvironmentControls (state, scene);
