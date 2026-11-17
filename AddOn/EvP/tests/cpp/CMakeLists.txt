@@ -623,6 +623,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingHeadroomDisplay.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingBuildings.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiagramLayout.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiagramSnapshot.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudBuildingPlan.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanExport.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorProgramme.cpp"
@@ -1148,6 +1149,7 @@ set (EVP_TEST_SOURCES
     test_massingcollapse.cpp
     test_massingbuildings.cpp
     test_diagramlayout.cpp
+    test_diagramsnapshot.cpp
     test_hudbuildingplan.cpp
     test_floorscheme.cpp
     test_floorscheme_edit.cpp
