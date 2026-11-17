@@ -217,6 +217,24 @@ impl Mesher<'_, '_> {
         seen
     }
 
+    /// Whether a face ran out at its reach limit at one of the triangle's corners or inside
+    /// samples ([`super::Faces::over`]'s flag): the triangle holds the step where that face ends.
+    fn reach_ends(&mut self, [pa, pb, pc]: [Point2<f64>; 3]) -> bool {
+        let corners = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        corners
+            .iter()
+            .chain(super::refine::SAMPLES.iter())
+            .any(|&[wa, wb, wc]| {
+                let (x, y) = (
+                    wa.mul_add(pa.x, wb.mul_add(pb.x, wc * pc.x)),
+                    wa.mul_add(pa.y, wb.mul_add(pb.y, wc * pc.y)),
+                );
+                self.memo
+                    .height(self.lane.design, x, y)
+                    .is_some_and(|(_, ran_out)| ran_out)
+            })
+    }
+
     /// Whether the design moves the ground at vertex `v`.
     fn moved_at(&mut self, v: usize) -> bool {
         let (Some(p), Some(height)) = (self.position(v), self.height(v)) else {
@@ -410,6 +428,14 @@ impl Mesher<'_, '_> {
             if (self.lane.allowed)(position[0], position[1]) {
                 push_step_witness(&mut self.steps, witness);
             }
+            return Some((Some(Why::Step(error)), moved));
+        }
+        // A face cut short at its reach limit ends in a step there (counted as `unreached`): a
+        // triangle across that end is refined like a ring step, down to the shortest side, and
+        // its residual is the step's, not an interpolation error. Without this a step smaller
+        // than the slope test below (1-2 cm at a 10 m fill reach) was left at the shortest side
+        // as actionable error and the whole build refused.
+        if error > refine.tolerance && self.reach_ends([pa, pb, pc]) {
             return Some((Some(Why::Step(error)), moved));
         }
         // Within a triangle a field no steeper than `steepest` strays from its corners' plane by

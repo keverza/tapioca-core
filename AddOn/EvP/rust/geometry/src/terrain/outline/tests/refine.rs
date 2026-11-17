@@ -546,3 +546,68 @@ fn the_mesher_keeps_the_ground_affine_the_area_and_every_line() -> Result<(), Ou
     }
     Ok(())
 }
+
+/// A plan sliver's plane gradient is not the ground's: an Archicad Mesh's vertical side face or a
+/// paved TIN's near-collinear corner fan gave the whole region a slope bound in the thousands,
+/// and every face ending at its reach passed for a slope (topography dump, 2026-11-17). Narrower
+/// than the mesher's shortest triangle, a triangle gives its edges' slopes.
+#[test]
+fn a_plan_sliver_does_not_set_the_steepest_gradient() {
+    // A 1:2 plane, then a sliver 1 mm wide with 5 mm across it, then a vertical face.
+    let points = [
+        0.0, 0.0, 0.0, 10.0, 0.0, 5.0, 0.0, 10.0, 0.0, // the plane: 0.5
+        20.0, 0.0, 0.0, 30.0, 0.0, 0.01, 25.0, 0.001, 0.005, // the sliver
+        40.0, 0.0, 0.0, 50.0, 0.0, 0.0, 50.0, 0.0, 3.0, // vertical: no plan area
+    ];
+    let steepest =
+        |triangles: &[u32]| crate::terrain::outline::refine::steepest(&points, triangles, 0.05);
+    assert!((steepest(&[0, 1, 2]) - 0.5).abs() < 1e-12);
+    let sliver = steepest(&[3, 4, 5]);
+    assert!(sliver < 0.01, "its edges' slope, not its plane's: {sliver}");
+    // A vertical face: its plane has no plan area; its slanted edge rises 3 m over 10 m.
+    assert!((steepest(&[6, 7, 8]) - 0.3).abs() < 1e-12);
+    assert!((steepest(&[0, 1, 2, 3, 4, 5, 6, 7, 8]) - 0.5).abs() < 1e-12);
+}
+
+/// Faces cut short at their reach end in a step of every height down to nothing, where the
+/// ground rises to meet the limit. A step smaller than the slope test (a centimetre or two) at
+/// the shortest triangle is the step, reported as `unreached`, not an error refusing the build.
+#[test]
+fn a_small_step_at_the_reach_limit_does_not_refuse_the_build() -> Result<(), OutlineError> {
+    let (mut points, triangles) = base();
+    for p in points.as_chunks_mut::<3>().0 {
+        p[2] = 0.05f64.mul_add(p[0], 9.0);
+    }
+    // The pavement is 3 m over the ground at x = 0 and 1 m at x = 40; a 1:2 fill reaching 3.9 m
+    // ends over a metre short at one end and meets the ground near x = 21. Before this, the
+    // centimetre steps beside that point were left as 1.3 cm of actionable error.
+    let built = build_with(
+        &OutlineRequest {
+            points: &points,
+            triangles: &triangles,
+            region: &REGION,
+            surface_points: &PAVED,
+            surface_triangles: &PAVED_TRIANGLES,
+            breaklines: &[],
+            spots: &[],
+            surface_grades: &[],
+            refine: Some(Refine::DEFAULT),
+            grading: Grading {
+                cut: HALF,
+                fill: HALF,
+                limit: 3.9,
+                rounding: 0.0,
+                effect: Effect::Both,
+                tolerance: 1e-6,
+            },
+        },
+        Some(crate::terrain::outline::toe::Toe::DEFAULT),
+    )?;
+    assert!(built.unreached > 0, "the faces end short of the ground");
+    assert!(
+        built.refined.residual <= Refine::DEFAULT.tolerance,
+        "{:?}",
+        built.refined
+    );
+    Ok(())
+}

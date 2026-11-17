@@ -1040,8 +1040,9 @@ impl Operator {
                 .flat_map(|edge| [edge.grade.cut, edge.grade.fill])
                 .filter(|grade| grade.is_finite())
                 .fold(
-                    refine::steepest(base_points, base_triangles)
-                        .max(refine::steepest(surface_points, surface_triangles)),
+                    refine::steepest(base_points, base_triangles, refine.shortest).max(
+                        refine::steepest(surface_points, surface_triangles, refine.shortest),
+                    ),
                     f64::max,
                 ),
             traced,

@@ -186,9 +186,27 @@ pub(super) fn grade(
     Ok(graded)
 }
 
-/// The steepest plan gradient of any triangle of a flat xyz mesh.
-pub(super) fn steepest(points: &[f64], triangles: &[u32]) -> f64 {
+/// The steepest plan gradient of a flat xyz mesh, as the mesher can see it: `narrowest` is the
+/// smallest triangle it makes ([`Refine::shortest`]).
+///
+/// ⚠️ A TRIANGLE NARROWER THAN `narrowest` GIVES ITS EDGES' SLOPES, NOT ITS PLANE'S. A plan
+/// sliver -- an Archicad Mesh's vertical side face, a paved TIN's near-collinear corner fan -- has
+/// a plane gradient of thousands from millimetres of height, and that one number became the bound
+/// of the whole region: the step test then took every face ending at its reach for a slope and
+/// refined it to the shortest side, which the certification refused (a 10 m fill reach on a
+/// 119 m path, 2026-11-17). Across a sliver the height changes by no more than along its edges,
+/// and no refined triangle is narrower than `narrowest`, so at that resolution it is a step.
+/// Edges shorter than `narrowest` in plan are left out for the same reason.
+pub(super) fn steepest(points: &[f64], triangles: &[u32], narrowest: f64) -> f64 {
     let vertices = plan::vertices(points);
+    let edge_slope = |p: &[f64; 3], q: &[f64; 3]| {
+        let run = (q[0] - p[0]).hypot(q[1] - p[1]);
+        if run >= narrowest {
+            (q[2] - p[2]).abs() / run
+        } else {
+            0.0
+        }
+    };
     triangles
         .as_chunks::<3>()
         .0
@@ -199,6 +217,21 @@ pub(super) fn steepest(points: &[f64], triangles: &[u32]) -> f64 {
                 vertices.get(second as usize)?,
                 vertices.get(third as usize)?,
             );
+            // The plan's narrowest altitude: twice its area over its longest side.
+            let doubled = ((along[0] - origin[0]) * (across[1] - origin[1])
+                - (along[1] - origin[1]) * (across[0] - origin[0]))
+                .abs();
+            let longest = [(origin, along), (along, across), (across, origin)]
+                .iter()
+                .map(|(p, q)| (q[0] - p[0]).hypot(q[1] - p[1]))
+                .fold(0.0, f64::max);
+            if !(longest > 0.0 && doubled / longest >= narrowest) {
+                return Some(
+                    edge_slope(origin, along)
+                        .max(edge_slope(along, across))
+                        .max(edge_slope(across, origin)),
+                );
+            }
             let (u, v) = (
                 [
                     along[0] - origin[0],
