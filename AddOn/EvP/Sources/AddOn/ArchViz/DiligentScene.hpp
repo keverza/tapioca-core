@@ -864,6 +864,8 @@ class DiligentScene final {
     // than this gets no SSR, which is correct because a rough surface's
     // reflection is a diffuse blur that screen-space rays cannot represent.
     void SetScreenSpaceReflection (bool enabled, float intensity, float roughnessThreshold);
+    // #232: the SSR march's thickness and step budget (DiligentScreenSpaceReflection::SetTuning).
+    void SetScreenSpaceReflectionTuning (float thickness, uint32_t maxSteps);
     void ClearScreenSpaceReflection ();
     void PrepareScreenSpaceReflection (Diligent::IDeviceContext* context, const DiligentSceneConstants& constants,
                                        const float view[16], const float proj[16], const float viewProj[16],

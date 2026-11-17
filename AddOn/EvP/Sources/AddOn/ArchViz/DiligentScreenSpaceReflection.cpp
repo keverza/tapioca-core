@@ -26,6 +26,8 @@ namespace geomsrv {
 namespace archviz {
 
 struct DiligentScreenSpaceReflection::Impl {
+    float thickness = 0.04f;
+    uint32_t maxSteps = 256;
     std::unique_ptr<Diligent::PostFXContext> postFx;
     std::unique_ptr<Diligent::ScreenSpaceReflection> ssr;
 
@@ -220,7 +222,9 @@ Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
     impl_->postFx->Execute (postFxAttributes);
 
     Diligent::HLSL::ScreenSpaceReflectionAttribs settings {};
-    settings.DepthBufferThickness = 0.025f;
+    // #232: from the HUD. DiligentFX's 0.025 dropped thin, far hits (tree crowns at distance);
+    // wider accepts them at the cost of reflections "stretching" toward what they reflect.
+    settings.DepthBufferThickness = impl_->thickness;
     // ⚠️ THE ROUGHNESS THRESHOLD GATES WHICH SURFACES SPAWN RAYS. A surface
     // rougher than this gets no SSR, which is correct: a rough surface's
     // reflection is a diffuse blur that screen-space rays cannot represent.
@@ -228,7 +232,7 @@ Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
     settings.RoughnessThreshold = roughnessThreshold;
     settings.IsRoughnessPerceptual = TRUE;
     settings.RoughnessChannel = 0;
-    settings.MaxTraversalIntersections = 128;
+    settings.MaxTraversalIntersections = impl_->maxSteps;
     // ⚠️ DILIGENTFX'S DEFAULTS, UNCONDITIONALLY, AND THE "UNCONDITIONALLY" IS
     // THE FIX. These used to be zeroed whenever this class thought it had no
     // history -- but 0 does not mean "reset", it means `lerp(current, history,
@@ -324,6 +328,14 @@ void DiligentScreenSpaceReflection::RememberFrame (Diligent::IDeviceContext* con
     context->CopyTexture (copyColor);
 
     impl_->haveColorHistory = true;
+}
+
+void DiligentScreenSpaceReflection::SetTuning (float thickness, uint32_t maxSteps)
+{
+    if (impl_ == nullptr)
+        return;
+    impl_->thickness = thickness < 0.001f ? 0.001f : (thickness > 0.5f ? 0.5f : thickness);
+    impl_->maxSteps = maxSteps < 16u ? 16u : (maxSteps > 1024u ? 1024u : maxSteps);
 }
 
 bool DiligentScreenSpaceReflection::HasDepthHistory () const

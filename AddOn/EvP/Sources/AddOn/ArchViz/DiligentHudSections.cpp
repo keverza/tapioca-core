@@ -149,6 +149,12 @@ void DrawPostProcessingControls (HudState& state, const DiligentSceneStats& scen
         ImGui::SetNextItemWidth (-1.0f);
         ImGui::SliderFloat ("##ssrroughness", &state.ssrRoughnessThreshold, 0.0f, 1.0f, "%.2f");
         ImGui::TextDisabled ("SSR roughness threshold -- surfaces rougher than this get no rays");
+        ImGui::SetNextItemWidth (-1.0f);
+        ImGui::SliderFloat ("##ssrthickness", &state.ssrThickness, 0.005f, 0.2f, "%.3f");
+        ImGui::TextDisabled ("SSR thickness -- wider keeps thin, far hits; too wide stretches them");
+        ImGui::SetNextItemWidth (-1.0f);
+        ImGui::SliderInt ("##ssrsteps", &state.ssrMaxSteps, 64, 512, "%d steps");
+        ImGui::TextDisabled ("SSR step budget -- more finds longer reflections, costs more");
         // ⚠️ "colour: NO" WHILE SSR IS ON IS THE CONVERGENCE FAULT.
         // It means every reflection is sampling the CURRENT frame, so
         // the effect restarts from scratch each frame and the jitter

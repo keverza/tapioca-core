@@ -35,19 +35,23 @@ class DiligentScreenSpaceReflection final {
     // ⚠️ FEATURE_FLAG_PREVIOUS_FRAME is the mode that uses the motion vectors
     // C2 landed and the previous frame's colour. Without it the effect is
     // spatial-only and produces noisier reflections.
-    Diligent::ITextureView* Execute (
-        Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-        Diligent::ITextureView* color, Diligent::ITextureView* depth,
-        Diligent::ITextureView* normal, Diligent::ITextureView* material,
-        Diligent::ITextureView* motion, uint32_t width, uint32_t height,
-        uint32_t frameIndex, const float view[16], const float proj[16],
-        const float viewProj[16], const float eye[3], const float jitter[2],
-        float nearClip, float farClip, float focusDistance, float roughnessThreshold);
+    Diligent::ITextureView* Execute (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                                     Diligent::ITextureView* color, Diligent::ITextureView* depth,
+                                     Diligent::ITextureView* normal, Diligent::ITextureView* material,
+                                     Diligent::ITextureView* motion, uint32_t width, uint32_t height,
+                                     uint32_t frameIndex, const float view[16], const float proj[16],
+                                     const float viewProj[16], const float eye[3], const float jitter[2],
+                                     float nearClip, float farClip, float focusDistance, float roughnessThreshold);
 
     // RE51.C7. Remember the radiance next frame's rays should read. ⚠️ CALL IT
     // AFTER TAA, with the ACCUMULATED frame -- see the definition for what
     // handing it the raw jittered target costs.
     void RememberFrame (Diligent::IDeviceContext* context, Diligent::ITextureView* resolved);
+
+    // #232: the march's two quality knobs, live from the HUD. `thickness` is DiligentFX's
+    // DepthBufferThickness -- how far behind the depth buffer a hit may land, as a fraction of
+    // view depth; `maxSteps` its MaxTraversalIntersections.
+    void SetTuning (float thickness, uint32_t maxSteps);
 
     // RE51.C7 diagnostics. ⚠️ THE PAIR IS THE DIAGNOSIS. Depth history without
     // colour history means RememberFrame is not being reached, so every

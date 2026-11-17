@@ -32,6 +32,12 @@
 namespace geomsrv {
 namespace archviz {
 
+void DiligentScene::SetScreenSpaceReflectionTuning (float thickness, uint32_t maxSteps)
+{
+    if (impl_ != nullptr)
+        impl_->screenSpaceReflection.SetTuning (thickness, maxSteps);
+}
+
 void DiligentScene::SetScreenSpaceReflection (bool enabled, float intensity, float roughnessThreshold)
 {
     if (impl_ == nullptr)
@@ -505,11 +511,22 @@ Diligent::ITextureView* DiligentScene::CompositeScreenSpaceReflection (Diligent:
     bindCompositeTexture ("g_gbufferNormal", normalView);
     bindCompositeTexture ("g_gbufferAlbedo", albedoView);
     bindCompositeTexture ("g_gbufferMaterialData", materialView);
+    // #232: the AO the forward pass occluded its environment with -- the 1x1 white fallback (no
+    // occlusion) when the AO pass did not run, so the variable is never left unbound.
+    Diligent::ITextureView* occlusionView = impl_->aoView;
+    if (occlusionView == nullptr && impl_->aoFallback != nullptr)
+        occlusionView = impl_->aoFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    bindCompositeTexture ("g_ambientOcclusion", occlusionView);
 
+    // ⚠️ TWO LANES BORROWED FOR THIS PASS: gradeParams.w carries the AO intensity everywhere else
+    // and the SSR intensity here; the AO intensity rides in materialParams.w, unused elsewhere.
     const float savedSsrLane = constants.gradeParams[3];
+    const float savedAoLane = constants.materialParams[3];
+    constants.materialParams[3] = impl_->aoView != nullptr ? savedSsrLane : 0.0f;
     constants.gradeParams[3] = impl_->ssrIntensity;
     impl_->Upload (context, constants);
     constants.gradeParams[3] = savedSsrLane;
+    constants.materialParams[3] = savedAoLane;
 
     if (Diligent::IShaderResourceVariable* hdrVar =
             impl_->ssrCompositeSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrColor"))

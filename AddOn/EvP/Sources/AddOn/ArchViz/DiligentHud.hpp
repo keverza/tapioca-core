@@ -749,6 +749,10 @@ struct HudState {
     float ssrIntensity = 1.0f;
     // Surfaces rougher than this get no SSR. 0.2 = only near-mirrors; 1.0 = all.
     float ssrRoughnessThreshold = 0.2f;
+    // #232: the march's quality knobs (DiligentScreenSpaceReflection::SetTuning). Defaults wider
+    // than DiligentFX's (0.025, 128), which dropped thin and far hits; live A/B decides.
+    float ssrThickness = 0.04f;
+    int ssrMaxSteps = 256;
 
     // ---- RE51.C8: temporal anti-aliasing -----------------------------------
     // Off until its first live A/B. The control makes the port reversible while

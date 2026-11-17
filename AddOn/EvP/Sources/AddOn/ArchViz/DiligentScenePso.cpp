@@ -182,6 +182,7 @@ bool DiligentScene::CreateResolvePipelines (Diligent::IRenderDevice* device, uin
             { Diligent::SHADER_TYPE_PIXEL, "g_gbufferNormal", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
             { Diligent::SHADER_TYPE_PIXEL, "g_gbufferAlbedo", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
             { Diligent::SHADER_TYPE_PIXEL, "g_gbufferMaterialData", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_ambientOcclusion", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
         };
         Diligent::GraphicsPipelineStateCreateInfo pci;
         pci.PSODesc.Name = "ArchViz SSR composite PSO";

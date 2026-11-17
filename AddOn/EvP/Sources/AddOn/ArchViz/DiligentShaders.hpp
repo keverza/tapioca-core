@@ -1897,6 +1897,9 @@ Texture2D<float>  g_gbufferRoughness;
 Texture2D<float4> g_gbufferNormal;
 Texture2D<float4> g_gbufferAlbedo;
 Texture2D<float4> g_gbufferMaterialData;
+// #232: the forward pass's AO, so the environment replaced here is the occluded one it added.
+// g_materialParams.w is the AO intensity in this pass (0 when the AO pass did not run).
+Texture2D<float>  g_ambientOcclusion;
 
 void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 {
@@ -1962,6 +1965,8 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
                              saturate (reflected.z * 0.5 + 0.5));
         }
 
+        float ao = lerp (1.0, saturate (g_ambientOcclusion.Load (int3 (pixel, 0))), saturate (g_materialParams.w));
+        envColor *= SpecularOcclusion (ndotv, ao, roughness);
         radiance += (ssr.rgb - envColor) * envBrdf * g_gradeParams.y * g_skyColor.w * ssrWeight;
     }
 
@@ -2029,6 +2034,16 @@ SamplerState g_envMap_sampler;
 //
 //   v = 0 is the +Z pole, v = 1 is -Z   (row 0 is up, Archicad is Z-up)
 //   u = 0 is phi = 0, i.e. +X, advancing counter-clockwise toward +Y
+// #232: how much of the sky a glossy reflection can still see, from the ambient occlusion
+// (Lagarde & de Rousiers 2014, "Moving Frostbite to PBR", eq. 85). ⚠️ THE ENVIRONMENT IS THE
+// FALLBACK FOR EVERY REFLECTION RAY THAT FOUND NOTHING, and unoccluded it is open sky: the ground
+// under a building reflected the sky instead of the building, so every screen-space miss read
+// as a hole. AO is the one visibility estimate every device has; at ao = 1 this is exactly 1.
+float SpecularOcclusion (float ndotv, float ao, float roughness)
+{
+    return saturate (pow (abs (ndotv + ao), exp2 (-16.0 * roughness - 1.0)) - 1.0 + ao);
+}
+
 float2 EnvUv (float3 dir)
 {
     float3 d = normalize (dir);
@@ -2601,6 +2616,7 @@ void main (in PSInput psIn, out PSOutput psOut)
     // about the sun's direction, so a courtyard in full skylight had exactly
     // the brightness of an open roof. That contact gradient is what the eye
     // reads as "this object is SITTING on that surface".
+    float aoVisible = 1.0; // #232: the specular occlusion below reads the same AO
     if (g_gradeParams.w > 0.0)
     {
         float occlusion = g_ambientOcclusion.Load (int3 (int2 (psIn.position.xy), 0));
@@ -2609,7 +2625,8 @@ void main (in PSInput psIn, out PSOutput psOut)
         // ⚠️ INTENSITY IS NOT THE EFFECT'S RADIUS. C3's acceptance asks for the
         // two to be separable; a radius change is a different request and lives
         // in the AO pass's own settings.
-        ambientTerm *= lerp (1.0, saturate (occlusion), saturate (g_gradeParams.w));
+        aoVisible = lerp (1.0, saturate (occlusion), saturate (g_gradeParams.w));
+        ambientTerm *= aoVisible;
     }
 
     // ---- direct: the sun, occluded by the shadow map ----------------------
@@ -2808,7 +2825,9 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
         float2 envAB = float2 (-1.04, 1.04) * a004 + rp.zw;
         float3 envBrdf = f0 * envAB.x + envAB.y;
 
-        float3 envSpec = envBrdf * envColor * g_gradeParams.y;
+        // ⚠️ OCCLUDED HERE AND IN kArchVizSsrCompositePS ALIKE: the composite subtracts this
+        // exact term before adding SSR's, and a mismatch would brighten or darken every reflection.
+        float3 envSpec = envBrdf * envColor * g_gradeParams.y * SpecularOcclusion (ndotv, aoVisible, rough);
 
         // ⚠️ STILL NEEDED SEPARATELY, for the diffuse side only. `envBrdf`
         // above is the specular share; `fresnelEnv` below is what that share

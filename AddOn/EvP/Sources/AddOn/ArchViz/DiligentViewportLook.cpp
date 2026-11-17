@@ -14,6 +14,7 @@ namespace archviz {
 void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay)
 {
     scene.SetGrading (hud.exposure, hud.reflectance, hud.roughnessBias);
+    scene.SetScreenSpaceReflectionTuning (hud.ssrThickness, uint32_t (hud.ssrMaxSteps < 16 ? 16 : hud.ssrMaxSteps));
     // The wireframe colour applies on the overlay too: there the wire IS the picture.
     float wire[4];
     for (int k = 0; k < 4; ++k)
