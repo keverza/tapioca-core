@@ -625,6 +625,16 @@ struct HudState {
     float clayRoughness = 0.8f;
     bool clayKeepGlass = true;
 
+    // ---- technical / hidden-line edges (issue #14 P2, ArchViz/TechnicalEdges.hpp) -----------
+    // Borders and creases sharper than `technicalEdgeAngle` over the whole model, never the
+    // triangulation. The angle snaps to the pre-built tiers (kTechnicalEdgeAngles); hidden edges
+    // are optional and faint. `technicalEdgeRgba` is sRGB 0xRRGGBBAA, near-black by default.
+    bool technicalEdges = false;
+    uint32_t technicalEdgeRgba = 0x1A1A1AFFu;
+    float technicalEdgePixels = 1.25f;
+    float technicalEdgeAngle = 30.0f;
+    bool technicalEdgeHidden = false;
+
     // ---- RE51.B9 -------------------------------------------------------------
     //
     // ⚠️ AUTO EXPOSURE SHIPS OFF, AND THE CHECKBOX IS THE MEASUREMENT. The

@@ -477,6 +477,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ElementPacket.cpp"
     # ElementPacket packs the selection's shape-defining edges (issue #118).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SelectionEdges.cpp"
+    # ArchViz/TechnicalEdges.cpp: the model-wide technical edges' angle tiers and HUD style (#14 P2).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/TechnicalEdges.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ScenePacketTrace.cpp"
     # SceneCmdQueue feeds ArchViz/Dxgi/HostOccluders at every batch boundary,
     # and that file is Direct3D 11. The stub answers the production "no room"
@@ -1230,6 +1232,7 @@ set (EVP_TEST_SOURCES
     # relate (issue #118).
     test_selectionhighlightstyle.cpp
     test_selectionedges.cpp
+    test_technicaledges.cpp
     test_occlusionprepass.cpp
     test_pointcloudply.cpp
     test_pointcloudhierarchy.cpp

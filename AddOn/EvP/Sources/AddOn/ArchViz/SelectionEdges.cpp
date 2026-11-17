@@ -47,8 +47,23 @@ uint64_t EdgeKey (uint32_t a, uint32_t b)
 std::vector<uint8_t> BuildSelectionEdgeMasks (const std::vector<float>& positions, const std::vector<uint32_t>& indices,
                                               const std::vector<uint32_t>& wireMasks, float creaseDegrees)
 {
+    const std::vector<uint32_t> packed = BuildCreaseEdgeMasks (positions, indices, wireMasks, &creaseDegrees, 1);
+    std::vector<uint8_t> masks (packed.size ());
+    for (size_t t = 0; t < packed.size (); ++t)
+        masks[t] = uint8_t (packed[t] & 0x7u);
+    return masks;
+}
+
+std::vector<uint32_t> BuildCreaseEdgeMasks (const std::vector<float>& positions, const std::vector<uint32_t>& indices,
+                                            const std::vector<uint32_t>& wireMasks, const float* creaseDegrees,
+                                            size_t thresholdCount)
+{
     const size_t triCount = indices.size () / 3;
-    std::vector<uint8_t> masks (triCount, 0);
+    std::vector<uint32_t> masks (triCount, 0);
+    if (creaseDegrees == nullptr)
+        thresholdCount = 0;
+    if (thresholdCount > 10)
+        thresholdCount = 10;
     const size_t vertexCount = positions.size () / 3;
     if (triCount == 0 || vertexCount == 0)
         return masks;
@@ -107,8 +122,10 @@ std::vector<uint8_t> BuildSelectionEdgeMasks (const std::vector<float>& position
         }
     }
 
-    // 4. Keep an edge the wireframe draws that is a border or a crease.
-    const float creaseCos = std::cos (creaseDegrees * 3.14159265358979f / 180.0f);
+    // 4. Keep an edge the wireframe draws that is a border or a crease, once per threshold.
+    float creaseCos[10] = {};
+    for (size_t k = 0; k < thresholdCount; ++k)
+        creaseCos[k] = std::cos (creaseDegrees[k] * 3.14159265358979f / 180.0f);
     for (size_t t = 0; t < triCount; ++t) {
         const uint32_t drawable = wireMasks.empty () ? 0x7u : (t < wireMasks.size () ? wireMasks[t] & 0x7u : 0x7u);
         for (int edge = 0; edge < 3; ++edge) {
@@ -118,18 +135,21 @@ std::vector<uint8_t> BuildSelectionEdgeMasks (const std::vector<float>& position
             if (key == ~uint64_t (0))
                 continue;
             const EdgeFaces& f = faces[key];
-            bool keep = f.count != 2;
-            if (!keep) {
+            const bool border = f.count != 2;
+            // The faces' cosine; above 1 means "no crease at any angle" (a sliver beside it).
+            float faceCos = 2.0f;
+            if (!border) {
                 const size_t other = f.first == t ? f.second : f.first;
                 const float* n0 = &normals[t * 3];
                 const float* n1 = &normals[other * 3];
                 const float n0Length = n0[0] * n0[0] + n0[1] * n0[1] + n0[2] * n0[2];
                 const float n1Length = n1[0] * n1[0] + n1[1] * n1[1] + n1[2] * n1[2];
                 if (n0Length > 0.5f && n1Length > 0.5f)
-                    keep = n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2] < creaseCos;
+                    faceCos = n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2];
             }
-            if (keep)
-                masks[t] |= uint8_t (1u << edge);
+            for (size_t k = 0; k < thresholdCount; ++k)
+                if (border || faceCos < creaseCos[k])
+                    masks[t] |= 1u << (3 * k + size_t (edge));
         }
     }
     return masks;

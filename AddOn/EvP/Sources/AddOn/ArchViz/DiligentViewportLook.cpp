@@ -17,6 +17,11 @@ void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay)
     // ⚠️ WITHHELD ON THE OVERLAY, like the sky background: over Archicad's own 3D window the
     // picture is compared against Archicad's shading, so it must keep the project's materials.
     scene.SetClayLook (ClayLookFromHud (hud.clay && !overlay, hud.clayRgba, hud.clayRoughness, hud.clayKeepGlass));
+    // Issue #14 P2. Withheld on the overlay for the same reason: there the lines that matter are the
+    // ones that register against Archicad's own window, which is the wireframe's job.
+    scene.SetTechnicalEdges (TechnicalEdgeStyleFromHud (hud.technicalEdges && !overlay, hud.technicalEdgeRgba,
+                                                        hud.technicalEdgePixels, hud.technicalEdgeHidden,
+                                                        hud.technicalEdgeAngle));
 }
 
 } // namespace archviz

@@ -285,6 +285,12 @@ void DiligentScene::SetClayLook (const ClayLook& clay)
         impl_->clay = clay;
 }
 
+void DiligentScene::SetTechnicalEdges (const TechnicalEdgeStyle& style)
+{
+    if (impl_ != nullptr)
+        impl_->technicalEdges = style;
+}
+
 void DiligentScene::SetAmbientOcclusion (bool enabled, float intensity, float radiusMetres)
 {
     if (impl_ == nullptr)

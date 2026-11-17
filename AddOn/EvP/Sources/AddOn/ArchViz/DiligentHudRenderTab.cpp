@@ -12,11 +12,13 @@
 #include "ArchViz/DiligentHudSections.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/OrbitAnchor.hpp"
+#include "ArchViz/TechnicalEdges.hpp"
 #include "ArchViz/ViewPresets.hpp"
 
 #include <imgui.h>
 
 #include <cmath>
+#include <cstdio>
 
 namespace geomsrv {
 namespace archviz {
@@ -34,6 +36,7 @@ struct Knobs {
     int shadows;
     int background;
     int clay;
+    int edges;
 };
 
 // ⚠️ THE REFERENCE'S MODES, WHERE THIS RENDERER CAN HONOUR THEM (HANDOFF-HudTabs.md section 1):
@@ -41,18 +44,22 @@ struct Knobs {
 // over one neutral material (ClayLook.hpp) -- the reference's arctic look. Sketch is not here: it
 // needs an outline pass this renderer does not have, and a preset that cannot take effect is
 // worse than none. Every preset but Wireframe states `clay`, so Architecture and Clay stay apart.
+// Technical (also #14 P2) is clay under the model's shape-defining edges in the flat Fast light,
+// without shadows or AO: a line drawing with its faces filled. Clay leaves the edges as they are.
 // ⚠️ TWO AO SCALES (the handoff's caveat 8), CONVERTED IN THE OPEN: the reference's 0-1 blend
 // is doubled onto this renderer's 0-2 intensity -- Architecture's 0.70 is 1.4, Rendered's 0.40
 // is 0.8. Ground, edge angle and tone-map choice are not native; Architecture is told from
 // Rendered by its AO and by drawing no sky behind the model.
 constexpr Knobs kPresets[] = {
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 1, -1, 0 },   // Shaded
-    { int (SceneRenderMode::Wireframe), -1, -1, -1, -1.0f, 0, -1, -1 },                     // Wireframe
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 0 }, // Architecture
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0 }, // Rendered
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 1 }, // Clay
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 1, -1, 0, 0 },    // Shaded
+    { int (SceneRenderMode::Wireframe), -1, -1, -1, -1.0f, 0, -1, -1, -1 },                     // Wireframe
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 0, 0 },  // Architecture
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0 },  // Rendered
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 1, -1 }, // Clay
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 0, -1, 1, 1 },    // Technical
 };
-constexpr const char* kPreviewNames[] = { "Shaded", "Wireframe", "Architecture", "Rendered", "Clay", "Custom" };
+constexpr const char* kPreviewNames[] = { "Shaded", "Wireframe", "Architecture", "Rendered",
+                                          "Clay",   "Technical", "Custom" };
 static_assert (sizeof (kPresets) / sizeof (kPresets[0]) == size_t (Preview::Custom),
                "a preview preset for every Preview but Custom");
 
@@ -66,7 +73,8 @@ bool Matches (const Knobs& knobs, const HudState& state)
             std::fabs (state.ambientOcclusionIntensity - knobs.ambientOcclusionIntensity) < 1.0e-4f) &&
            (knobs.shadows < 0 || state.shadowsEnabled == (knobs.shadows != 0)) &&
            (knobs.background < 0 || state.environmentBackground == (knobs.background != 0)) &&
-           (knobs.clay < 0 || state.clay == (knobs.clay != 0));
+           (knobs.clay < 0 || state.clay == (knobs.clay != 0)) &&
+           (knobs.edges < 0 || state.technicalEdges == (knobs.edges != 0));
 }
 
 } // namespace
@@ -106,6 +114,8 @@ void ApplyPreview (HudState& state, Preview preview)
         state.environmentBackground = knobs.background != 0;
     if (knobs.clay >= 0)
         state.clay = knobs.clay != 0;
+    if (knobs.edges >= 0)
+        state.technicalEdges = knobs.edges != 0;
 }
 
 void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scene)
@@ -185,6 +195,31 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
             ImGui::Checkbox ("keep glass##clay", &state.clayKeepGlass);
             hudshell::Tip (state.clayKeepGlass ? "Panes stay translucent and lose only their tint"
                                                : "Panes turn to solid clay -- the massing reading");
+        }
+        // ---- technical edges: borders and creases, never the triangulation (TechnicalEdges.hpp)
+        ImGui::Checkbox ("edges##technical", &state.technicalEdges);
+        hudshell::Tip ("The edges that define the shape -- borders and creases sharper than the angle");
+        if (state.technicalEdges) {
+            ImGui::SetNextItemWidth (-FLT_MIN);
+            hudshell::ColourChoice ("##edgecolour", state.technicalEdgeRgba);
+            ImGui::TextDisabled ("edge colour");
+            ImGui::SliderFloat ("width##edges", &state.technicalEdgePixels, 0.5f, 4.0f, "%.2f px");
+            // The angle snaps to the tiers built with the model (kTechnicalEdgeAngles).
+            const size_t tier = NearestCreaseTier (state.technicalEdgeAngle);
+            char current[16];
+            std::snprintf (current, sizeof (current), "%.0f\xC2\xB0", kCreaseTierDegrees[tier]);
+            if (ImGui::BeginCombo ("angle##edges", current)) {
+                for (size_t k = 0; k < kTechnicalEdgeAngleCount; ++k) {
+                    char label[16];
+                    std::snprintf (label, sizeof (label), "%.0f\xC2\xB0", kTechnicalEdgeAngles[k]);
+                    if (ImGui::Selectable (label, NearestCreaseTier (kTechnicalEdgeAngles[k]) == tier))
+                        state.technicalEdgeAngle = kTechnicalEdgeAngles[k];
+                }
+                ImGui::EndCombo ();
+            }
+            hudshell::Tip ("Faces meeting at more than this angle draw their edge; flatter ones merge");
+            ImGui::Checkbox ("hidden edges##technical", &state.technicalEdgeHidden);
+            hudshell::Tip ("Show the edges behind surfaces, faint -- the hidden-line reading");
         }
     }
     // ---- 3. environment; 4. sun and shadows; 5. colour and post ------------------------------

@@ -894,6 +894,8 @@ struct geomsrv::archviz::DiligentScene::Impl {
     float roughnessBias = 0.0f;
     // Issue #14 P2: off by default, so a scene no HUD has set draws its own materials.
     ClayLook clay;
+    // Issue #14 P2: off by default, like clay.
+    TechnicalEdgeStyle technicalEdges;
     // RE51.B9. `autoExposure` gates whether `exposure` above is used at all;
     // `lastAutoExposure` is what the estimate CHOSE this frame and is reported
     // whether or not it was applied -- see DiligentScene::SetAutoExposure.

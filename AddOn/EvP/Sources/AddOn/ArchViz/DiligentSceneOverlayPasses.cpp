@@ -99,8 +99,10 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
     const uint32_t hoverId = impl_->hoverId;
     const bool anySelected = !impl_->selectionGuids.empty ();
     const bool anyObstruction = !impl_->obstructionGuids.empty ();
-    if (!anySelected && hoverId == kNoPickId && impl_->focusGuids.empty () && impl_->analysisGuids.empty () &&
-        !anyObstruction)
+    const bool anyMark = anySelected || hoverId != kNoPickId || !impl_->focusGuids.empty () ||
+                         !impl_->analysisGuids.empty () || anyObstruction;
+    const TechnicalEdgeStyle& technical = impl_->technicalEdges;
+    if (!anyMark && !technical.enabled)
         return;
     auto marked = [&] (const Entry& e) {
         return e.selected || e.analysisRole != 0 || (hoverId != kNoPickId && e.pickId == hoverId);
@@ -120,6 +122,45 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
     }
     const bool selectionReady = !sel.initFailed && sel.depthPso[0] != nullptr;
     const int cullIndex = CullIndex (cull);
+
+    // ---- the technical edges (issue #14 P2, ArchViz/TechnicalEdges.hpp) -------------------------
+    // The selection's two edge passes over EVERY element, at the HUD's angle tier, width and
+    // colour: hidden first and faint (only when asked), then visible. Before the depth prime and
+    // the selection's edges, so a selected element's own edges draw over these.
+    // ⚠️ FACE-AWARE ONLY. Without the semantic pipeline the edge PSO draws every triangle edge --
+    // the triangulation this view must never show -- so the fallback draws nothing.
+    // ⚠️ PULL, SHIFT AND WIDTH ARE PUT BACK, for the reason the selection's block gives below.
+    if (technical.enabled && selectionReady && sel.semantic) {
+        const float lineWidth = constants.wireParams[1];
+        constants.edgeParams[0] = kSelectionEdgeDepthPull * nearClip;
+        constants.edgeParams[1] = float (technical.maskShift);
+        for (const int passIndex : { Impl::kHiddenEdges, Impl::kVisibleEdges }) {
+            const bool hidden = passIndex == Impl::kHiddenEdges;
+            if (hidden && !technical.showHidden)
+                continue;
+            constants.wireParams[1] = hidden ? technical.hiddenPixels : technical.pixels;
+            uploadConstants (technical.rgba[0], technical.rgba[1], technical.rgba[2],
+                             technical.rgba[3] * (hidden ? technical.hiddenAlpha : 1.0f));
+            Diligent::IShaderResourceVariable* edgeVariable =
+                sel.edgeSrb[passIndex]->GetVariableByName (Diligent::SHADER_TYPE_HULL, "g_wirePatchFlags");
+            if (edgeVariable == nullptr)
+                continue;
+            context->SetPipelineState (sel.edgePso[passIndex]);
+            for (const Entry& e : impl_->elements) {
+                if (!drawable (e) || e.wireEdgeBuffer == nullptr)
+                    continue;
+                edgeVariable->Set (e.wireEdgeBuffer->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
+                context->CommitShaderResources (sel.edgeSrb[passIndex],
+                                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+                drawWhole (e);
+            }
+        }
+        constants.wireParams[1] = lineWidth;
+        constants.edgeParams[0] = 0.0f;
+        constants.edgeParams[1] = 0.0f;
+    }
+    if (!anyMark)
+        return;
 
     // ---- the depth prime -----------------------------------------------------
     // ⚠️ BEFORE THE EDGES AND THE RINGS, AFTER THE GLOBAL WIREFRAME. A marked

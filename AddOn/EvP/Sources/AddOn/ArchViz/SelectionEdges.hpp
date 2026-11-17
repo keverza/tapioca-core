@@ -43,6 +43,13 @@ constexpr uint32_t kSelectionEdgeShift = 3;
 std::vector<uint8_t> BuildSelectionEdgeMasks (const std::vector<float>& positions, const std::vector<uint32_t>& indices,
                                               const std::vector<uint32_t>& wireMasks, float creaseDegrees);
 
+// The same edges at SEVERAL crease angles in one weld and one neighbour search (issue #14 P2's
+// technical edges): threshold k's 3-bit mask sits at bits 3k..3k+2 of the result. Borders are in
+// every group. At most 10 thresholds, so the result fits 30 bits; extra thresholds are ignored.
+std::vector<uint32_t> BuildCreaseEdgeMasks (const std::vector<float>& positions, const std::vector<uint32_t>& indices,
+                                            const std::vector<uint32_t>& wireMasks, const float* creaseDegrees,
+                                            size_t thresholdCount);
+
 } // namespace archviz
 } // namespace geomsrv
 
