@@ -393,7 +393,8 @@ bool DiligentScene::PrepareRayTracedFrame (Diligent::IDeviceContext* context, co
     for (size_t k = 0; k < gpu.materialIds.size (); ++k) {
         const SurfaceMaterial& mat = impl_->materials.Lookup (gpu.materialIds[k]);
         const DrawnSurface drawn = ResolveDrawnSurface (mat, PresetFor (mat), look);
-        table[k] = { { drawn.r, drawn.g, drawn.b, drawn.alpha }, { drawn.roughness, drawn.metallic, 0.0f, 0.0f } };
+        table[k] = { { drawn.r, drawn.g, drawn.b, drawn.alpha },
+                     { drawn.roughness, drawn.metallic, drawn.reflectance, 0.0f } };
     }
     const size_t tableBytes = table.size () * sizeof (GpuMaterial);
     if (gpu.materials == nullptr || gpu.materials->GetDesc ().Size < tableBytes) {

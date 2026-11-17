@@ -124,9 +124,10 @@ float Epsilon (float3 p)
     return max (1.0e-3, m * 4.8e-7);
 }
 
-// The surface a committed hit landed on: position, normal facing the ray, and albedo. A back
-// face with the section on is the cut: the cap colour lying in the plane, facing the ray.
-void Surface (Hit h, float3 o, float3 d, out float3 p, out float3 n, out float3 albedo)
+// The surface a committed hit landed on: position, normal facing the ray, base colour and finish
+// (params: x roughness, y metallic, z reflectance -- the raster's DrawnSurface). A back face with
+// the section on is the cut: the cap colour lying in the plane, facing the ray, matte.
+void SurfaceFull (Hit h, float3 o, float3 d, out float3 p, out float3 n, out float3 albedo, out float3 finish)
 {
     p = o + d * h.t;
     uint i0 = g_indices[h.prim * 3], i1 = g_indices[h.prim * 3 + 1], i2 = g_indices[h.prim * 3 + 2];
@@ -138,8 +139,10 @@ void Surface (Hit h, float3 o, float3 d, out float3 p, out float3 n, out float3 
         n = -n;
     Material m = g_materials[g_triangleMaterial[h.prim]];
     albedo = m.colorAlpha.rgb;
+    finish = m.params.xyz;
     if (back && g_cap.w > 0.5 && m.colorAlpha.a >= 0.99)
     {
+        finish = float3 (1.0, 0.0, 0.5);
         float facing = dot (g_plane.xyz, d);
         if (abs (facing) > 1.0e-6)
         {
@@ -152,6 +155,12 @@ void Surface (Hit h, float3 o, float3 d, out float3 p, out float3 n, out float3 
     }
 }
 
+void Surface (Hit h, float3 o, float3 d, out float3 p, out float3 n, out float3 albedo)
+{
+    float3 finish;
+    SurfaceFull (h, o, d, p, n, albedo, finish);
+}
+
 // The sun's irradiance at an offset point, shadow ray included.
 float3 SunLight (float3 at, float3 n, inout uint rng)
 {
@@ -160,6 +169,71 @@ float3 SunLight (float3 at, float3 n, inout uint rng)
         return 0.0;
     Hit s = Trace (at, g_sun.xyz, true, rng);
     return s.hit ? 0.0 : (g_sun.w * ndl).xxx;
+}
+
+float Luminance (float3 c)
+{
+    return dot (c, float3 (0.2126, 0.7152, 0.0722));
+}
+
+float3 FresnelSchlick (float3 f0, float cosTheta)
+{
+    float k = pow (1.0 - saturate (cosTheta), 5.0);
+    return f0 + (1.0 - f0) * k;
+}
+
+// Smith-GGX masking for one direction, alpha = roughness^2 (the raster's convention).
+float SmithG1 (float ndx, float alpha)
+{
+    float a2 = alpha * alpha;
+    return 2.0 * ndx / (ndx + sqrt (a2 + (1.0 - a2) * ndx * ndx));
+}
+
+// A GGX half vector around n, distributed by D (so the weight below needs no D).
+float3 SampleGgxHalf (float3 n, float alpha, inout uint rng)
+{
+    float u = Rand (rng), w = Rand (rng);
+    float phi = 2.0 * kPi * u;
+    float cosTheta = sqrt ((1.0 - w) / (1.0 + (alpha * alpha - 1.0) * w));
+    float sinTheta = sqrt (max (0.0, 1.0 - cosTheta * cosTheta));
+    float3 t = abs (n.z) < 0.999 ? normalize (cross (float3 (0, 0, 1), n)) : float3 (1, 0, 0);
+    float3 b = cross (n, t);
+    return normalize (t * (sinTheta * cos (phi)) + b * (sinTheta * sin (phi)) + n * cosTheta);
+}
+
+// #232: the specular lobe the raster draws, so the reference can judge reflections. The sun is
+// a delta light, so its highlight is the GGX BRDF evaluated once; roughness is floored for it
+// alone, as the raster's analytic highlight is, or a mirror would carry one infinite pixel.
+float3 SunSpecular (float3 n, float3 v, float3 f0, float rough, float3 sunIrradiance)
+{
+    float3 l = g_sun.xyz;
+    float ndl = dot (n, l);
+    float ndv = max (dot (n, v), 1.0e-4);
+    if (ndl <= 0.0 || all (sunIrradiance <= 0.0))
+        return 0.0;
+    float3 hv = normalize (l + v);
+    float ndh = saturate (dot (n, hv));
+    float alpha = max (rough * rough, 0.05 * 0.05);
+    float a2 = alpha * alpha;
+    float den = ndh * ndh * (a2 - 1.0) + 1.0;
+    float D = a2 / (kPi * den * den);
+    float G = SmithG1 (ndv, alpha) * SmithG1 (ndl, alpha);
+    float3 F = FresnelSchlick (f0, saturate (dot (v, hv)));
+    // sunIrradiance carries the raster's Lambert convention (albedo * E is radiance), so the
+    // physical irradiance is pi * E -- the same factor the diffuse lobe hides.
+    return D * G * F / (4.0 * ndl * ndv) * kPi * sunIrradiance;
+}
+
+// #232: an indirect contribution brighter than four sunlit white walls is a firefly -- a rare
+// diffuse-then-glossy path that would take thousands of samples to average away. Capped, the
+// reference converges in hundreds; the bias touches only those paths.
+float3 Indirect (float3 c, uint bounce)
+{
+    if (bounce == 0)
+        return c;
+    float cap = 4.0 * max (g_sun.w, 1.0);
+    float y = Luminance (c);
+    return y > cap ? c * (cap / y) : c;
 }
 
 float3 Radiance (float3 o, float3 d, inout uint rng)
@@ -171,18 +245,47 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
         if (!h.hit)
         {
             if (i > 0 || (g_env.w > 0.5 && g_env.z > 0.5))
-                L += T * SkyRadiance (d);
+                L += Indirect (T * SkyRadiance (d), i);
             break;
         }
-        float3 p, n, albedo;
-        Surface (h, o, d, p, n, albedo);
+        float3 p, n, albedo, finish;
+        SurfaceFull (h, o, d, p, n, albedo, finish);
+        float rough = saturate (finish.x), metal = saturate (finish.y);
+        float3 f0 = lerp ((0.08 * saturate (finish.z)).xxx, albedo, metal);
+        float3 diffuse = albedo * (1.0 - metal);
+        float3 v = -d;
+        float ndv = max (dot (n, v), 1.0e-4);
+        float3 F = FresnelSchlick (f0, ndv);
         float3 at = p + n * Epsilon (p);
-        L += T * albedo * SunLight (at, n, rng);
+        float3 sun = SunLight (at, n, rng);
+        L += Indirect (T * (diffuse * (1.0 - F) * sun + SunSpecular (n, v, f0, rough, sun)), i);
         if (i == g_frame.w)
             break;
-        T *= albedo;
+        // One lobe per bounce, chosen by its share of the reflected energy.
+        float specularShare = Luminance (F);
+        float diffuseShare = Luminance (diffuse * (1.0 - F));
+        float pSpecular = clamp (specularShare / max (specularShare + diffuseShare, 1.0e-4), 0.05, 1.0);
         o = at;
-        d = CosineSample (n, rng);
+        if (Rand (rng) < pSpecular)
+        {
+            float alpha = max (rough * rough, 1.0e-4);
+            float3 hv = SampleGgxHalf (n, alpha, rng);
+            float3 l = reflect (d, hv);
+            float ndl = dot (n, l);
+            if (ndl <= 0.0)
+                break;
+            float vdh = saturate (dot (v, hv));
+            float ndh = max (dot (n, hv), 1.0e-4);
+            // D-sampled GGX: f * cos / pdf = F * G * vdh / (ndh * ndv).
+            T *= FresnelSchlick (f0, vdh) * SmithG1 (ndv, alpha) * SmithG1 (ndl, alpha) * vdh / (ndh * ndv) /
+                 pSpecular;
+            d = l;
+        }
+        else
+        {
+            T *= diffuse * (1.0 - F) / (1.0 - pSpecular);
+            d = CosineSample (n, rng);
+        }
     }
     return L;
 }
@@ -294,10 +397,21 @@ void main (uint3 id : SV_DispatchThreadID)
             sum += SkyLevel (d, 0.0);
             continue;
         }
-        float3 hp, hn, albedo;
-        Surface (h, at, d, hp, hn, albedo);
+        float3 hp, hn, albedo, finish;
+        SurfaceFull (h, at, d, hp, hn, albedo, finish);
         float3 hat = hp + hn * Epsilon (hp);
-        sum += albedo * (SunLight (hat, hn, rng) + SkyLevel (hn, g_ray.z));
+        // #232: THE SKY AT THE HIT IS SEEN THROUGH ONE VISIBILITY RAY, not assumed. Unoccluded,
+        // every wall a reflection landed on inside a closed room was lit as if it stood outdoors,
+        // and an indoor mirror glowed (RenderBench bathroom: the mirror twice the reference's
+        // brightness). One cosine-distributed ray per sample; TAA averages the rest.
+        float3 skyDir = CosineSample (hn, rng);
+        float skySeen = Trace (hat, skyDir, true, rng).hit ? 0.0 : 1.0;
+        float metal = saturate (finish.y);
+        float3 diffuseLight = SunLight (hat, hn, rng) + SkyLevel (hn, g_ray.z) * skySeen;
+        // A metal seen in a reflection has no diffuse lobe; it shows its own reflection of the sky
+        // (unoccluded -- one level deep is where this pass stops).
+        float3 mirrored = SkyLevel (reflect (d, hn), g_ray.z * saturate (finish.x));
+        sum += albedo * lerp (diffuseLight, mirrored, metal);
     }
     g_reflection[id.xy] = float4 (sum / float (count), 1.0);
 }

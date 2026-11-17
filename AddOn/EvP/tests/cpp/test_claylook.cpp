@@ -46,7 +46,9 @@ SurfacePreset Metal ()
 
 TEST (ClayLook, OffPassesTheMaterialAndPresetThrough)
 {
-    const SurfaceMaterial m = Paint ();
+    // No specular: the base colour is already the stronger F0 (see the mirror test below).
+    SurfaceMaterial m = Paint ();
+    m.specular = 0.0f;
     const SurfacePreset p = Metal ();
     const DrawnSurface d = ResolveDrawnSurface (m, p, ClayLook {});
     EXPECT_FLOAT_EQ (d.r, m.r);
@@ -56,6 +58,37 @@ TEST (ClayLook, OffPassesTheMaterialAndPresetThrough)
     EXPECT_FLOAT_EQ (d.roughness, p.roughness);
     EXPECT_FLOAT_EQ (d.reflectance, p.reflectance);
     EXPECT_FLOAT_EQ (d.metallic, p.metallic);
+}
+
+// #232: a Phong mirror -- near-black diffuse, strong white specular -- classified as a metal drew
+// black, because a metal's F0 is its base colour. RenderBench's CornellBox-Mirror, measured.
+TEST (ClayLook, MetalTakesTheStrongerOfBaseColourAndSpecularAsF0)
+{
+    SurfaceMaterial mirror;
+    mirror.r = mirror.g = mirror.b = 0.01f;
+    mirror.specular = 0.95f;
+    mirror.specularR = mirror.specularG = mirror.specularB = 1.0f;
+    const DrawnSurface d = ResolveDrawnSurface (mirror, Metal (), ClayLook {});
+    EXPECT_NEAR (d.r, 0.95f, 1.0e-4f);
+    EXPECT_NEAR (d.g, 0.95f, 1.0e-4f);
+    EXPECT_NEAR (d.b, 0.95f, 1.0e-4f);
+
+    // A tinted specular colour is display-referred and decoded: sRGB 0.5 is linear 0.214.
+    SurfaceMaterial gold = mirror;
+    gold.specular = 1.0f;
+    gold.specularB = 0.5f;
+    EXPECT_NEAR (ResolveDrawnSurface (gold, Metal (), ClayLook {}).b, 0.2140f, 1.0e-3f);
+
+    // A metal authored with a matching, brighter base colour keeps it.
+    SurfaceMaterial steel = mirror;
+    steel.r = steel.g = steel.b = 0.6f;
+    steel.specular = 0.4f;
+    EXPECT_FLOAT_EQ (ResolveDrawnSurface (steel, Metal (), ClayLook {}).r, 0.6f);
+
+    // A dielectric never takes it: its specular is a reflectance level, not a colour.
+    SurfacePreset paint = Metal ();
+    paint.metallic = 0.0f;
+    EXPECT_FLOAT_EQ (ResolveDrawnSurface (mirror, paint, ClayLook {}).r, 0.01f);
 }
 
 TEST (ClayLook, OpaqueSurfaceBecomesNeutralDielectricClay)

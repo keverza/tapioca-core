@@ -20,6 +20,19 @@ DrawnSurface ResolveDrawnSurface (const SurfaceMaterial& material, const Surface
         out.roughness = preset.roughness;
         out.reflectance = preset.reflectance;
         out.metallic = preset.metallic;
+        if (preset.metallic > 0.0f) {
+            // #232: A CONDUCTOR'S F0 IS THE STRONGER OF ITS BASE COLOUR AND ITS SPECULAR. A metal's
+            // F0 is its base colour in the shader, and Phong authoring -- Archicad's surfaces among
+            // it -- puts a mirror's reflectance in the SPECULAR channels with a near-black diffuse
+            // colour. Read from the base colour alone, such a mirror reflected 1 % and drew black
+            // (RenderBench, CornellBox-Mirror: diffuse 0.01, specular 0.95 white). The specular
+            // colour arrives display-referred, unlike the decoded base colour, so it is decoded here.
+            // Per channel max: a metal authored with a matching base colour is unchanged.
+            const float spec = std::clamp (material.specular, 0.0f, 1.0f);
+            out.r = (std::max) (out.r, SrgbToLinear (material.specularR) * spec);
+            out.g = (std::max) (out.g, SrgbToLinear (material.specularG) * spec);
+            out.b = (std::max) (out.b, SrgbToLinear (material.specularB) * spec);
+        }
         return out;
     }
 
