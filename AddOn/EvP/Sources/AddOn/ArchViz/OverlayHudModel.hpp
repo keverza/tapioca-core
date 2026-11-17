@@ -30,6 +30,11 @@ namespace overlayhudmodel {
 // What the view's HUD shows of its own now. The overlay runs there: `standalone`.
 overlayhud::OwnPages Pages (overlayinput::View view);
 
+// The pages' requests -- massing, rules, calculations, programme prompts, plan exports, metadata
+// edits, displays, bakes -- handed to their owning models. False when a modal it opened let
+// another project in: the caller drains nothing more this turn.
+bool FollowWorkflowRequests (const std::shared_ptr<overlayhud::State>& state);
+
 // The view's HUD engine with its own pages set -- made if need be -- or null when it cannot
 // start (OverlayGuestText.hpp says why, once).
 overlayhud::Engine* Prepare (overlayinput::View view);

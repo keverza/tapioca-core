@@ -273,7 +273,8 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # before launching Python. It owns no role storage or SDK command behavior.
     ("Python/CommandControlDispatch.cpp", "NativeCommands/SelectionSetStore.hpp"),
     ("Python/CommandControlDispatch.cpp", "NativeCommands/CameraSetStore.hpp"),
-    ("ArchViz/OverlayControllerHud.cpp", "Palette/ProgrammeDialog.hpp"),
+    # Moved with the drain out of OverlayControllerHud.cpp (#201); the viewer host shares it.
+    ("ArchViz/OverlayHudFollow.cpp", "Palette/ProgrammeDialog.hpp"),
     # The main-thread bake facade asks one native DG modal for an immutable settings
     # value. UI construction/picker ownership stay in Palette, never in HUD layout.
     ("ArchViz/MassingBake.cpp", "Palette/MassingBakeDialog.hpp"),
@@ -1375,6 +1376,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/InjectedOverlayRuntime.cpp",
     "ArchViz/OverlayController.cpp",
     "ArchViz/OverlayControllerHud.cpp",
+    "ArchViz/OverlayHudFollow.cpp",
     "ArchViz/OverlayHudModel.cpp",
     "ArchViz/SurfaceSwitch.cpp",
     "ArchViz/OverlayInput.cpp",
