@@ -1,11 +1,16 @@
-// The ray-traced display style's GPU half (issue #231): capability, acceleration structures,
-// accumulation and dispatch. What can be decided without a device is RayTracedView.hpp; the
-// shader is RayTracedShader.hpp.
+// The ray-traced display style's GPU half (issue #231) and the Rendered style's traced
+// reflections (#232): capability, acceleration structures, accumulation and dispatch. What can be decided without a
+// device is RayTracedView.hpp; the shader is RayTracedShader.hpp.
 //
 // ⚠️ OPT-IN, LATCHED, AND NEVER IN THE WAY. Nothing here is built until the style is turned on;
 // any refusal -- a D3D11 device, no inline ray tracing, no DXC, a pipeline the driver rejects --
 // latches with its reason (shown in the HUD) and the frame stays the raster frame. Draw() calls
 // TraceView after the raster resolve inputs exist; a null return means "use the raster image".
+// PrepareScreenSpaceReflection calls TraceReflections first; a null return means "run SSR".
+//
+// ⚠️ ONE SCENE, TWO PASSES. The style and the reflections share the pipeline object, the BLAS/TLAS,
+// the material table and the constants (PrepareRayTracedFrame); only their outputs differ. So
+// turning on Ray traced after Rendered costs no second acceleration structure.
 //
 // ⚠️ ONE BLAS FOR THE WHOLE MODEL, REBUILT ON A FINGERPRINT. The renderer already retains every
 // element's triangles for the section caps (SectionMesh); they are flattened into one soup with
@@ -33,9 +38,7 @@
 namespace geomsrv {
 namespace archviz {
 
-namespace {
-
-// ⚠️ FIELD FOR FIELD WITH kRayTracedCS's cbuffer.
+// ⚠️ FIELD FOR FIELD WITH kRayTracedCommon's cbuffer.
 struct RayTracedConstants {
     float invViewProj[16];
     float sun[4];
@@ -47,7 +50,9 @@ struct RayTracedConstants {
     uint32_t frame[4];
     float ray[4];
 };
-static_assert (sizeof (RayTracedConstants) == 16 * 4 + 8 * 16, "kRayTracedCS cbuffer layout");
+static_assert (sizeof (RayTracedConstants) == 16 * 4 + 8 * 16, "kRayTracedCommon cbuffer layout");
+
+namespace {
 
 struct GpuMaterial {
     float colorAlpha[4];
@@ -64,6 +69,12 @@ float SrgbToLinear (float c)
 struct RayTracedGpu {
     RefCntAutoPtr<Diligent::IPipelineState> pso;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> srb;
+    // #232: the reflection pass -- its own pipeline and binding over the same scene.
+    RefCntAutoPtr<Diligent::IPipelineState> reflectPso;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> reflectSrb;
+    RefCntAutoPtr<Diligent::ITexture> reflection;
+    Diligent::ITextureView* reflectBound[4] = {}; // depth, normal, roughness, env the SRB holds
+    bool reflectSrbDirty = true;
     RefCntAutoPtr<Diligent::IBuffer> constants;
     RefCntAutoPtr<Diligent::IBuffer> positions, indices, triangleMaterial, materials;
     RefCntAutoPtr<Diligent::IBottomLevelAS> blas;
@@ -76,6 +87,7 @@ struct RayTracedGpu {
     uint64_t geometryKey = 0;
     uint64_t triangles = 0;
     Diligent::ITextureView* boundEnv = nullptr;
+    Diligent::ITextureView* envView = nullptr; // this frame's sky, or the placeholder
     bool srbDirty = true;
 };
 
@@ -111,20 +123,26 @@ bool DiligentScene::CreateRayTracedPipeline (std::string& error)
     Diligent::IRenderDevice* device = impl_->device;
     auto gpu = std::make_shared<RayTracedGpu> ();
 
-    Diligent::ShaderCreateInfo sci;
-    sci.Desc.Name = "ArchViz ray-traced CS";
-    sci.Desc.ShaderType = Diligent::SHADER_TYPE_COMPUTE;
-    sci.EntryPoint = "main";
-    sci.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_HLSL;
     // ⚠️ ONLY DXC COMPILES RayQuery (SM 6.5). It is bundled beside Tapioca.apx and loaded by
     // DiligentDeviceFactory; without it this is the refusal the HUD shows.
-    sci.ShaderCompiler = Diligent::SHADER_COMPILER_DXC;
-    sci.HLSLVersion = { 6, 5 };
-    sci.Source = kRayTracedCS;
-    RefCntAutoPtr<Diligent::IShader> cs;
-    device->CreateShader (sci, &cs, nullptr);
-    if (cs == nullptr) {
-        error = "the ray-traced shader did not compile (dxcompiler.dll missing beside Tapioca.apx, or rejected)";
+    auto compile = [&] (const char* shaderName, const char* main, RefCntAutoPtr<Diligent::IShader>& out) {
+        const std::string source = std::string (kRayTracedCommon) + main;
+        Diligent::ShaderCreateInfo sci;
+        sci.Desc.Name = shaderName;
+        sci.Desc.ShaderType = Diligent::SHADER_TYPE_COMPUTE;
+        sci.EntryPoint = "main";
+        sci.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_HLSL;
+        sci.ShaderCompiler = Diligent::SHADER_COMPILER_DXC;
+        sci.HLSLVersion = { 6, 5 };
+        sci.Source = source.c_str ();
+        sci.SourceLength = source.size ();
+        device->CreateShader (sci, &out, nullptr);
+        return out != nullptr;
+    };
+    RefCntAutoPtr<Diligent::IShader> cs, reflectCs;
+    if (!compile ("ArchViz ray-traced CS", kRayTracedAccumulateMain, cs) ||
+        !compile ("ArchViz traced reflections CS", kRayTracedReflectMain, reflectCs)) {
+        error = "the ray-traced shaders did not compile (dxcompiler.dll missing beside Tapioca.apx, or rejected)";
         return false;
     }
 
@@ -146,7 +164,10 @@ bool DiligentScene::CreateRayTracedPipeline (std::string& error)
     pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (samplers);
     pci.pCS = cs;
     device->CreateComputePipelineState (pci, &gpu->pso);
-    if (gpu->pso == nullptr) {
+    pci.PSODesc.Name = "ArchViz traced reflections PSO";
+    pci.pCS = reflectCs;
+    device->CreateComputePipelineState (pci, &gpu->reflectPso);
+    if (gpu->pso == nullptr || gpu->reflectPso == nullptr) {
         error = "Diligent CreateComputePipelineState(ray-traced) failed";
         return false;
     }
@@ -195,6 +216,7 @@ bool DiligentScene::BuildRayTracedScene (Diligent::IDeviceContext* context, uint
     gpu.blas.Release ();
     gpu.tlas.Release ();
     gpu.srbDirty = true;
+    gpu.reflectSrbDirty = true;
     gpu.geometryKey = key;
     gpu.triangles = geometry.TriangleCount ();
     gpu.materialIds = geometry.materials;
@@ -324,32 +346,31 @@ bool DiligentScene::BuildRayTracedScene (Diligent::IDeviceContext* context, uint
     return true;
 }
 
-Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* context,
-                                                  const DiligentSceneConstants& constants, const float viewProj[16],
-                                                  const float eye[3])
+void DiligentScene::LatchRayTracingFailure (const std::string& why)
 {
     Impl::RayTraced& rt = impl_->rayTraced;
-    rt.stats = RayTracedStats {};
-    rt.stats.maxSamples = rt.settings.maxSamples;
-    if (!rt.settings.enabled || context == nullptr || impl_->hdrColorTexture == nullptr)
-        return nullptr;
-    rt.stats.reason = RayTracingRefusal ();
-    if (!rt.stats.reason.empty ()) {
-        rt.stats.state = RayTracedState::Unavailable;
-        return nullptr;
-    }
-    auto fail = [&] (const std::string& why) -> Diligent::ITextureView* {
-        rt.failed = true;
-        rt.failure = why;
-        rt.gpu.reset ();
-        rt.stats.state = RayTracedState::Unavailable;
-        rt.stats.reason = why;
-        ArchVizLog ("Diligent scene: ray-traced style unavailable (" + why + ")");
-        return nullptr;
-    };
+    rt.failed = true;
+    rt.failure = why;
+    rt.gpu.reset ();
+    rt.stats.state = RayTracedState::Unavailable;
+    rt.stats.reason = why;
+    ArchVizLog ("Diligent scene: ray tracing unavailable (" + why + ")");
+}
+
+// Everything both passes need this frame: the pipelines, the scene (rebuilt on its fingerprint),
+// the material table, and the constants with their view key. False means latched (or nothing to do).
+bool DiligentScene::PrepareRayTracedFrame (Diligent::IDeviceContext* context, const DiligentSceneConstants& constants,
+                                           const float viewProj[16], const float eye[3], uint32_t width,
+                                           uint32_t height, RayTracedConstants& c, uint64_t& key)
+{
+    Impl::RayTraced& rt = impl_->rayTraced;
+    if (context == nullptr || width == 0 || height == 0 || !RayTracingRefusal ().empty ())
+        return false;
     std::string error;
-    if (rt.gpu == nullptr && !CreateRayTracedPipeline (error))
-        return fail (error);
+    if (rt.gpu == nullptr && !CreateRayTracedPipeline (error)) {
+        LatchRayTracingFailure (error);
+        return false;
+    }
     RayTracedGpu& gpu = *rt.gpu;
 
     // ---- geometry: rebuilt only when an element's mesh or visibility changed ---------------
@@ -360,8 +381,10 @@ Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* cont
         const uint8_t hidden = e.hidden ? 1 : 0;
         geometryKey = HashBytes (geometryKey, &hidden, 1);
     }
-    if (geometryKey != gpu.geometryKey && !BuildRayTracedScene (context, geometryKey, error))
-        return fail (error);
+    if (geometryKey != gpu.geometryKey && !BuildRayTracedScene (context, geometryKey, error)) {
+        LatchRayTracingFailure (error);
+        return false;
+    }
     rt.stats.triangles = gpu.triangles;
 
     // ---- the material table, resolved as the raster pass resolves it ----------------------
@@ -383,10 +406,13 @@ Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* cont
         desc.ElementByteStride = sizeof (GpuMaterial);
         desc.Size = tableBytes;
         impl_->device->CreateBuffer (desc, nullptr, &gpu.materials);
-        if (gpu.materials == nullptr)
-            return fail ("the ray-traced material table could not be created");
+        if (gpu.materials == nullptr) {
+            LatchRayTracingFailure ("the ray-traced material table could not be created");
+            return false;
+        }
         gpu.lastMaterials.clear ();
         gpu.srbDirty = true;
+        gpu.reflectSrbDirty = true;
     }
     if (gpu.lastMaterials.size () != table.size () ||
         std::memcmp (gpu.lastMaterials.data (), table.data (), tableBytes) != 0) {
@@ -394,31 +420,13 @@ Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* cont
                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         gpu.lastMaterials = table;
     }
-
-    // ---- the accumulation target, at the HDR target's size --------------------------------
-    const Diligent::TextureDesc& hdr = impl_->hdrColorTexture->GetDesc ();
-    if (gpu.accum == nullptr || gpu.accum->GetDesc ().Width != hdr.Width ||
-        gpu.accum->GetDesc ().Height != hdr.Height) {
-        gpu.accum.Release ();
-        Diligent::TextureDesc desc;
-        desc.Name = "ArchViz ray-traced accumulation";
-        desc.Type = Diligent::RESOURCE_DIM_TEX_2D;
-        desc.Width = hdr.Width;
-        desc.Height = hdr.Height;
-        desc.Format = Diligent::TEX_FORMAT_RGBA32_FLOAT;
-        desc.BindFlags = Diligent::BIND_SHADER_RESOURCE | Diligent::BIND_UNORDERED_ACCESS;
-        desc.Usage = Diligent::USAGE_DEFAULT;
-        impl_->device->CreateTexture (desc, nullptr, &gpu.accum);
-        if (gpu.accum == nullptr)
-            return fail ("the ray-traced accumulation target could not be created");
-        gpu.srbDirty = true;
-        rt.accumulator.Reset ();
-    }
+    if (gpu.tlas == nullptr)
+        return false; // an empty model: the raster picture is the same picture
 
     // ---- the constants, and the key everything above feeds ---------------------------------
-    RayTracedConstants c {};
+    c = RayTracedConstants {};
     if (!InvertMatrix4 (viewProj, c.invViewProj))
-        return nullptr;
+        return false;
     // The near plane's NDC depth: 0, or 1 under reversed Z -- whichever unprojects nearer the eye.
     auto distanceAt = [&] (float z) {
         const float v[4] = { 0.0f, 0.0f, z, 1.0f };
@@ -450,15 +458,81 @@ Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* cont
     for (int k = 0; k < 3; ++k)
         c.cap[k] = SrgbToLinear (float ((capRgba >> (24 - 8 * k)) & 0xFF) / 255.0f);
     c.cap[3] = impl_->sectionCaps.planeEnabled ? 1.0f : 0.0f;
-    c.frame[0] = hdr.Width;
-    c.frame[1] = hdr.Height;
+    c.frame[0] = width;
+    c.frame[1] = height;
     c.frame[3] = std::clamp (rt.settings.bounces, 0u, 8u);
     c.ray[0] = distanceAt (0.0f) <= distanceAt (1.0f) ? 0.0f : 1.0f;
+    // The environment's last mip: the hit's diffuse sky in the reflection pass.
+    c.ray[2] = (std::max) (constants.envParams[3] - 1.0f, 0.0f);
 
-    uint64_t key = HashBytes (kHashSeed, &c, sizeof (c)); // frame[2] and ray[1] are still zero here
+    key = HashBytes (kHashSeed, &c, sizeof (c)); // frame[2], ray[1] and ray[3] are still zero here
     key = HashBytes (key, &geometryKey, sizeof (geometryKey));
     key = HashBytes (key, table.data (), tableBytes);
     key = HashBytes (key, &envView, sizeof (envView));
+    gpu.envView = envView != nullptr ? envView : gpu.dummyEnv->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    return true;
+}
+
+// Binds the scene's shared resources on a fresh SRB of either pipeline.
+static void BindRayTracedScene (RayTracedGpu& gpu, Diligent::IShaderResourceBinding* srb)
+{
+    auto set = [&] (const char* name, Diligent::IDeviceObject* object) {
+        if (Diligent::IShaderResourceVariable* v = srb->GetVariableByName (Diligent::SHADER_TYPE_COMPUTE, name))
+            v->Set (object);
+    };
+    set ("RayTracedConstants", gpu.constants);
+    set ("g_scene", gpu.tlas);
+    set ("g_positions", gpu.positions->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
+    set ("g_indices", gpu.indices->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
+    set ("g_triangleMaterial", gpu.triangleMaterial->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
+    set ("g_materials", gpu.materials->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
+    set ("g_envMap", gpu.envView);
+}
+
+Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* context,
+                                                  const DiligentSceneConstants& constants, const float viewProj[16],
+                                                  const float eye[3])
+{
+    Impl::RayTraced& rt = impl_->rayTraced;
+    rt.stats.state = RayTracedState::Off;
+    rt.stats.samples = 0;
+    rt.stats.maxSamples = rt.settings.maxSamples;
+    rt.stats.reason.clear ();
+    if (!rt.settings.enabled || context == nullptr || impl_->hdrColorTexture == nullptr)
+        return nullptr;
+    rt.stats.reason = RayTracingRefusal ();
+    if (!rt.stats.reason.empty ()) {
+        rt.stats.state = RayTracedState::Unavailable;
+        return nullptr;
+    }
+    const Diligent::TextureDesc& hdr = impl_->hdrColorTexture->GetDesc ();
+    RayTracedConstants c;
+    uint64_t key = 0;
+    if (!PrepareRayTracedFrame (context, constants, viewProj, eye, hdr.Width, hdr.Height, c, key))
+        return nullptr;
+    RayTracedGpu& gpu = *rt.gpu;
+
+    // ---- the accumulation target, at the HDR target's size --------------------------------
+    if (gpu.accum == nullptr || gpu.accum->GetDesc ().Width != hdr.Width ||
+        gpu.accum->GetDesc ().Height != hdr.Height) {
+        gpu.accum.Release ();
+        Diligent::TextureDesc desc;
+        desc.Name = "ArchViz ray-traced accumulation";
+        desc.Type = Diligent::RESOURCE_DIM_TEX_2D;
+        desc.Width = hdr.Width;
+        desc.Height = hdr.Height;
+        desc.Format = Diligent::TEX_FORMAT_RGBA32_FLOAT;
+        desc.BindFlags = Diligent::BIND_SHADER_RESOURCE | Diligent::BIND_UNORDERED_ACCESS;
+        desc.Usage = Diligent::USAGE_DEFAULT;
+        impl_->device->CreateTexture (desc, nullptr, &gpu.accum);
+        if (gpu.accum == nullptr) {
+            LatchRayTracingFailure ("the ray-traced accumulation target could not be created");
+            return nullptr;
+        }
+        gpu.srbDirty = true;
+        rt.accumulator.Reset ();
+    }
+
     const RayTracedStep step = rt.accumulator.Advance (key, (std::max) (rt.settings.maxSamples, 1u));
     rt.stats.samples = rt.accumulator.Samples ();
     if (!step.show) {
@@ -466,30 +540,19 @@ Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* cont
         return nullptr;
     }
     rt.stats.state = step.trace > 0 ? RayTracedState::Accumulating : RayTracedState::Converged;
-
-    // ---- trace ---------------------------------------------------------------------------
-    if (step.trace > 0 && gpu.tlas != nullptr) {
-        Diligent::ITextureView* env =
-            envView != nullptr ? envView : gpu.dummyEnv->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
-        if (gpu.srbDirty || gpu.srb == nullptr || gpu.boundEnv != env) {
+    if (step.trace > 0) {
+        if (gpu.srbDirty || gpu.srb == nullptr || gpu.boundEnv != gpu.envView) {
             gpu.srb.Release ();
             gpu.pso->CreateShaderResourceBinding (&gpu.srb, true);
-            if (gpu.srb == nullptr)
-                return fail ("Diligent CreateShaderResourceBinding(ray-traced) failed");
-            auto set = [&] (const char* name, Diligent::IDeviceObject* object) {
-                if (Diligent::IShaderResourceVariable* v =
-                        gpu.srb->GetVariableByName (Diligent::SHADER_TYPE_COMPUTE, name))
-                    v->Set (object);
-            };
-            set ("RayTracedConstants", gpu.constants);
-            set ("g_scene", gpu.tlas);
-            set ("g_positions", gpu.positions->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
-            set ("g_indices", gpu.indices->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
-            set ("g_triangleMaterial", gpu.triangleMaterial->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
-            set ("g_materials", gpu.materials->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
-            set ("g_envMap", env);
-            set ("g_accum", gpu.accum->GetDefaultView (Diligent::TEXTURE_VIEW_UNORDERED_ACCESS));
-            gpu.boundEnv = env;
+            if (gpu.srb == nullptr) {
+                LatchRayTracingFailure ("Diligent CreateShaderResourceBinding(ray-traced) failed");
+                return nullptr;
+            }
+            BindRayTracedScene (gpu, gpu.srb);
+            if (Diligent::IShaderResourceVariable* v =
+                    gpu.srb->GetVariableByName (Diligent::SHADER_TYPE_COMPUTE, "g_accum"))
+                v->Set (gpu.accum->GetDefaultView (Diligent::TEXTURE_VIEW_UNORDERED_ACCESS));
+            gpu.boundEnv = gpu.envView;
             gpu.srbDirty = false;
         }
         c.frame[2] = step.firstSample;
@@ -503,10 +566,85 @@ Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* cont
         dispatch.ThreadGroupCountZ = 1;
         context->DispatchCompute (dispatch);
     }
-    else if (gpu.tlas == nullptr) {
-        return nullptr; // an empty model: the raster sky is the same picture
-    }
     return gpu.accum->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+}
+
+// #232: traced reflections in SSR's place. Same output contract as DiligentFX SSR -- reflected
+// radiance in rgb, confidence in a -- so kArchVizSsrCompositePS composites it unchanged; the
+// confidence is 1 wherever a ray was traced, because a traced ray never "misses" the way a
+// screen-space one does: no hit is the sky, which is the right answer.
+Diligent::ITextureView* DiligentScene::TraceReflections (Diligent::IDeviceContext* context,
+                                                         const DiligentSceneConstants& constants,
+                                                         const float viewProj[16], const float eye[3],
+                                                         Diligent::ITextureView* depth, Diligent::ITextureView* normal,
+                                                         Diligent::ITextureView* roughness, uint32_t frameIndex,
+                                                         float roughnessThreshold)
+{
+    Impl::RayTraced& rt = impl_->rayTraced;
+    rt.stats.reflectionsTraced = false;
+    if (!rt.settings.reflections || depth == nullptr || normal == nullptr || roughness == nullptr)
+        return nullptr;
+    const Diligent::TextureDesc& size = depth->GetTexture ()->GetDesc ();
+    RayTracedConstants c;
+    uint64_t key = 0;
+    if (!PrepareRayTracedFrame (context, constants, viewProj, eye, size.Width, size.Height, c, key))
+        return nullptr;
+    RayTracedGpu& gpu = *rt.gpu;
+
+    if (gpu.reflection == nullptr || gpu.reflection->GetDesc ().Width != size.Width ||
+        gpu.reflection->GetDesc ().Height != size.Height) {
+        gpu.reflection.Release ();
+        Diligent::TextureDesc desc;
+        desc.Name = "ArchViz traced reflections";
+        desc.Type = Diligent::RESOURCE_DIM_TEX_2D;
+        desc.Width = size.Width;
+        desc.Height = size.Height;
+        desc.Format = Diligent::TEX_FORMAT_RGBA16_FLOAT;
+        desc.BindFlags = Diligent::BIND_SHADER_RESOURCE | Diligent::BIND_UNORDERED_ACCESS;
+        desc.Usage = Diligent::USAGE_DEFAULT;
+        impl_->device->CreateTexture (desc, nullptr, &gpu.reflection);
+        if (gpu.reflection == nullptr) {
+            LatchRayTracingFailure ("the traced reflection target could not be created");
+            return nullptr;
+        }
+        gpu.reflectSrbDirty = true;
+    }
+    // ⚠️ THE G-BUFFER VIEWS ARE COMPARED, NOT ASSUMED: a resize recreates them, and a binding
+    // that still holds the old ones reads freed textures.
+    Diligent::ITextureView* bound[4] = { depth, normal, roughness, gpu.envView };
+    if (gpu.reflectSrbDirty || gpu.srbDirty || gpu.reflectSrb == nullptr ||
+        std::memcmp (bound, gpu.reflectBound, sizeof (bound)) != 0) {
+        gpu.reflectSrb.Release ();
+        gpu.reflectPso->CreateShaderResourceBinding (&gpu.reflectSrb, true);
+        if (gpu.reflectSrb == nullptr) {
+            LatchRayTracingFailure ("Diligent CreateShaderResourceBinding(traced reflections) failed");
+            return nullptr;
+        }
+        BindRayTracedScene (gpu, gpu.reflectSrb);
+        auto set = [&] (const char* name, Diligent::IDeviceObject* object) {
+            if (Diligent::IShaderResourceVariable* v =
+                    gpu.reflectSrb->GetVariableByName (Diligent::SHADER_TYPE_COMPUTE, name))
+                v->Set (object);
+        };
+        set ("g_depth", depth);
+        set ("g_normal", normal);
+        set ("g_roughness", roughness);
+        set ("g_reflection", gpu.reflection->GetDefaultView (Diligent::TEXTURE_VIEW_UNORDERED_ACCESS));
+        std::memcpy (gpu.reflectBound, bound, sizeof (bound));
+        gpu.reflectSrbDirty = false;
+    }
+    c.frame[2] = frameIndex;
+    c.ray[3] = roughnessThreshold;
+    context->UpdateBuffer (gpu.constants, 0, sizeof (c), &c, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->SetPipelineState (gpu.reflectPso);
+    context->CommitShaderResources (gpu.reflectSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    Diligent::DispatchComputeAttribs dispatch;
+    dispatch.ThreadGroupCountX = (size.Width + 7) / 8;
+    dispatch.ThreadGroupCountY = (size.Height + 7) / 8;
+    dispatch.ThreadGroupCountZ = 1;
+    context->DispatchCompute (dispatch);
+    rt.stats.reflectionsTraced = true;
+    return gpu.reflection->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
 }
 
 RayTracedStats DiligentScene::RayTracedStatus () const
@@ -516,6 +654,7 @@ RayTracedStats DiligentScene::RayTracedStatus () const
     RayTracedStats stats = impl_->rayTraced.stats;
     if (!impl_->rayTraced.settings.enabled) {
         stats.state = RayTracedState::Off;
+        stats.samples = 0;
         stats.reason = RayTracingRefusal ();
     }
     return stats;

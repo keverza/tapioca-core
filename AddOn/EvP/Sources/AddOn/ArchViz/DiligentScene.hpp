@@ -865,10 +865,10 @@ class DiligentScene final {
     // reflection is a diffuse blur that screen-space rays cannot represent.
     void SetScreenSpaceReflection (bool enabled, float intensity, float roughnessThreshold);
     void ClearScreenSpaceReflection ();
-    void PrepareScreenSpaceReflection (Diligent::IDeviceContext* context, const float view[16], const float proj[16],
-                                       const float viewProj[16], const float motionViewProj[16], const float eye[3],
-                                       const float jitter[2], float nearClip, float farClip, float focusDistance,
-                                       uint32_t frameIndex);
+    void PrepareScreenSpaceReflection (Diligent::IDeviceContext* context, const DiligentSceneConstants& constants,
+                                       const float view[16], const float proj[16], const float viewProj[16],
+                                       const float motionViewProj[16], const float eye[3], const float jitter[2],
+                                       float nearClip, float farClip, float focusDistance, uint32_t frameIndex);
 
     // ---- RE51.C8: temporal anti-aliasing on genuine history ----------------
     void SetTemporalAntiAliasing (bool enabled, float stability);
@@ -901,6 +901,16 @@ class DiligentScene final {
     // to resolve in place of the raster one, or null to keep the raster image.
     bool CreateRayTracedPipeline (std::string& error);
     bool BuildRayTracedScene (Diligent::IDeviceContext* context, uint64_t key, std::string& error);
+    // #232: TraceReflections returns traced reflections in SSR's output contract, or null to run SSR.
+    bool PrepareRayTracedFrame (Diligent::IDeviceContext* context, const DiligentSceneConstants& constants,
+                                const float viewProj[16], const float eye[3], uint32_t width, uint32_t height,
+                                struct RayTracedConstants& c, uint64_t& key);
+    void LatchRayTracingFailure (const std::string& why);
+    Diligent::ITextureView* TraceReflections (Diligent::IDeviceContext* context,
+                                              const DiligentSceneConstants& constants, const float viewProj[16],
+                                              const float eye[3], Diligent::ITextureView* depth,
+                                              Diligent::ITextureView* normal, Diligent::ITextureView* roughness,
+                                              uint32_t frameIndex, float roughnessThreshold);
     Diligent::ITextureView* TraceView (Diligent::IDeviceContext* context, const DiligentSceneConstants& constants,
                                        const float viewProj[16], const float eye[3]);
     // ---- the sun study tint, all of it in DiligentSceneSunStudy.cpp ---------

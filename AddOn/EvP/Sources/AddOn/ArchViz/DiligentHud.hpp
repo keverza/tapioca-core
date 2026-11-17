@@ -633,6 +633,8 @@ struct HudState {
     bool rayTraced = false;
     int rayTracedMaxSamples = 512;
     int rayTracedBounces = 2;
+    // #232: Rendered's reflections traced on a DXR 1.1 device; SSR everywhere else.
+    bool rayTracedReflections = true;
 
     // ---- technical / hidden-line edges (issue #14 P2, ArchViz/TechnicalEdges.hpp) -----------
     // Borders and creases sharper than `technicalEdgeAngle` over the whole model, never the

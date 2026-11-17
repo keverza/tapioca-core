@@ -32,11 +32,18 @@
 namespace geomsrv {
 namespace archviz {
 
+// The GPU half's constant block (DiligentSceneRayTraced.cpp), named here so DiligentScene.hpp can
+// pass it without seeing it.
+struct RayTracedConstants;
+
 // The HUD's knobs for the style.
 struct RayTracedSettings {
     bool enabled = false;
     uint32_t maxSamples = 512; // per pixel; the image is final after this many
     uint32_t bounces = 2;      // diffuse bounces after the first hit (0 = direct light only)
+    // #232: the Rendered style's reflections traced instead of screen-space, where the device can.
+    // Independent of `enabled`: it changes the raster image's reflections, not the style.
+    bool reflections = true;
 };
 
 // One element as the renderer holds it: the retained triangles and the material ranges over them.
@@ -112,6 +119,7 @@ struct RayTracedStats {
     uint32_t samples = 0;
     uint32_t maxSamples = 0;
     uint64_t triangles = 0;
+    bool reflectionsTraced = false; // #232: last frame's reflections came from rays, not SSR
     std::string reason;
 };
 

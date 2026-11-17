@@ -271,6 +271,10 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
         ImGui::Checkbox ("trace##raytraced", &state.rayTraced);
         hudshell::Tip ("Path-traced light while the view is still; the raster image while it moves");
         const RayTracedStats& traced = scene.rayTraced;
+        ImGui::Checkbox ("traced reflections##raytraced", &state.rayTracedReflections);
+        hudshell::Tip ("Reflections from rays instead of the screen: far, offscreen and hidden objects reflect too. "
+                       "Needs screen-space reflections on (post processing)");
+        ImGui::TextDisabled ("reflections: %s", traced.reflectionsTraced ? "traced" : "screen-space or off");
         if (!traced.reason.empty ())
             ImGui::TextColored (ImVec4 (0.95f, 0.70f, 0.25f, 1.0f), "%s", traced.reason.c_str ());
         if (state.rayTraced) {

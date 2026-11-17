@@ -851,8 +851,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // prepass earlier in the frame; SSR completes it with glass receivers.
         // The HDR colour SRV is available because EnsureHdrTarget succeeded.
         if (impl_->ssrEnabled && impl_->ssrIntensity > 0.0f) {
-            PrepareScreenSpaceReflection (context, view, proj, viewProj, motionViewProj, eye, jitter, nearClip, farClip,
-                                          focusDistance, frameIndex);
+            PrepareScreenSpaceReflection (context, constants, view, proj, viewProj, motionViewProj, eye, jitter,
+                                          nearClip, farClip, focusDistance, frameIndex);
         }
 
         // ---- RE51.C7: fold the reflections in BEFORE anything temporal -----

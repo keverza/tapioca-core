@@ -25,7 +25,8 @@
 
 namespace geomsrv::archviz {
 
-inline constexpr char kRayTracedCS[] = R"hlsl(
+// The shared half: constants, scene resources, the trace, and the surface at a hit.
+inline constexpr char kRayTracedCommon[] = R"hlsl(
 cbuffer RayTracedConstants
 {
     float4x4 g_invViewProj;
@@ -47,7 +48,6 @@ struct Material { float4 colorAlpha; float4 params; };
 StructuredBuffer<Material> g_materials;
 Texture2D<float4> g_envMap;
 SamplerState      g_envMap_sampler;
-RWTexture2D<float4> g_accum;
 
 static const float kPi = 3.14159265359;
 
@@ -124,6 +124,44 @@ float Epsilon (float3 p)
     return max (1.0e-3, m * 4.8e-7);
 }
 
+// The surface a committed hit landed on: position, normal facing the ray, and albedo. A back
+// face with the section on is the cut: the cap colour lying in the plane, facing the ray.
+void Surface (Hit h, float3 o, float3 d, out float3 p, out float3 n, out float3 albedo)
+{
+    p = o + d * h.t;
+    uint i0 = g_indices[h.prim * 3], i1 = g_indices[h.prim * 3 + 1], i2 = g_indices[h.prim * 3 + 2];
+    float3 a = g_positions[i0], b = g_positions[i1], c = g_positions[i2];
+    n = cross (b - a, c - a);
+    n = dot (n, n) > 0.0 ? normalize (n) : -d;
+    bool back = dot (n, d) > 0.0;
+    if (back)
+        n = -n;
+    Material m = g_materials[g_triangleMaterial[h.prim]];
+    albedo = m.colorAlpha.rgb;
+    if (back && g_cap.w > 0.5 && m.colorAlpha.a >= 0.99)
+    {
+        float facing = dot (g_plane.xyz, d);
+        if (abs (facing) > 1.0e-6)
+        {
+            float tPlane = -(dot (g_plane.xyz, o) + g_plane.w) / facing;
+            if (tPlane > 0.0 && tPlane < h.t)
+                p = o + d * tPlane;
+        }
+        n = facing < 0.0 ? g_plane.xyz : -g_plane.xyz;
+        albedo = g_cap.rgb;
+    }
+}
+
+// The sun's irradiance at an offset point, shadow ray included.
+float3 SunLight (float3 at, float3 n, inout uint rng)
+{
+    float ndl = dot (n, g_sun.xyz);
+    if (ndl <= 0.0 || g_sun.w <= 0.0)
+        return 0.0;
+    Hit s = Trace (at, g_sun.xyz, true, rng);
+    return s.hit ? 0.0 : (g_sun.w * ndl).xxx;
+}
+
 float3 Radiance (float3 o, float3 d, inout uint rng)
 {
     float3 L = 0.0, T = 1.0;
@@ -136,37 +174,10 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
                 L += T * SkyRadiance (d);
             break;
         }
-        float3 p = o + d * h.t;
-        uint i0 = g_indices[h.prim * 3], i1 = g_indices[h.prim * 3 + 1], i2 = g_indices[h.prim * 3 + 2];
-        float3 a = g_positions[i0], b = g_positions[i1], c = g_positions[i2];
-        float3 n = cross (b - a, c - a);
-        n = dot (n, n) > 0.0 ? normalize (n) : -d;
-        bool back = dot (n, d) > 0.0;
-        if (back)
-            n = -n;
-        Material m = g_materials[g_triangleMaterial[h.prim]];
-        float3 albedo = m.colorAlpha.rgb;
-        if (back && g_cap.w > 0.5 && m.colorAlpha.a >= 0.99)
-        {
-            // The cut: the cap colour, lying in the plane, facing the ray.
-            float facing = dot (g_plane.xyz, d);
-            if (abs (facing) > 1.0e-6)
-            {
-                float tPlane = -(dot (g_plane.xyz, o) + g_plane.w) / facing;
-                if (tPlane > 0.0 && tPlane < h.t)
-                    p = o + d * tPlane;
-            }
-            n = facing < 0.0 ? g_plane.xyz : -g_plane.xyz;
-            albedo = g_cap.rgb;
-        }
+        float3 p, n, albedo;
+        Surface (h, o, d, p, n, albedo);
         float3 at = p + n * Epsilon (p);
-        float ndl = dot (n, g_sun.xyz);
-        if (ndl > 0.0 && g_sun.w > 0.0)
-        {
-            Hit s = Trace (at, g_sun.xyz, true, rng);
-            if (!s.hit)
-                L += T * albedo * (g_sun.w * ndl);
-        }
+        L += T * albedo * SunLight (at, n, rng);
         if (i == g_frame.w)
             break;
         T *= albedo;
@@ -175,6 +186,12 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
     }
     return L;
 }
+
+)hlsl";
+
+// The style: a running mean of full paths per pixel.
+inline constexpr char kRayTracedAccumulateMain[] = R"hlsl(
+RWTexture2D<float4> g_accum;
 
 [numthreads (8, 8, 1)]
 void main (uint3 id : SV_DispatchThreadID)
@@ -200,6 +217,89 @@ void main (uint3 id : SV_DispatchThreadID)
         acc.rgb += (L - acc.rgb) / float (sample + 1);
     }
     g_accum[id.xy] = float4 (acc.rgb, 1.0);
+}
+)hlsl";
+
+// Traced reflections for the Rendered style (#232): one pass over the G-buffer writing what
+// DiligentFX's SSR writes -- reflected radiance and a confidence -- so the SSR composite is
+// unchanged. Every glossy pixel reflects the real model, offscreen and occluded parts included.
+// The hit is lit by the sun (with its shadow ray) and the sky's diffuse light; no second bounce.
+// g_ray.z is the environment's last mip, g_ray.w the roughness threshold, g_frame.z the frame.
+inline constexpr char kRayTracedReflectMain[] = R"hlsl(
+Texture2D<float>  g_depth;
+Texture2D<float4> g_normal;
+Texture2D<float>  g_roughness;
+RWTexture2D<float4> g_reflection;
+
+float3 SkyLevel (float3 d, float level)
+{
+    if (g_env.z > 0.5)
+        return g_envMap.SampleLevel (g_envMap_sampler, EnvUv (d), level).rgb * g_env.x;
+    return g_sky.w * lerp (g_ground.rgb, g_sky.rgb, saturate (d.z * 0.5 + 0.5));
+}
+
+// GGX half-vector sample around n (perceptual roughness), reflected about it.
+float3 SampleReflection (float3 v, float3 n, float rough, inout uint rng)
+{
+    float a = max (rough * rough, 1.0e-4);
+    float u = Rand (rng), w = Rand (rng);
+    float phi = 2.0 * kPi * u;
+    float cosTheta = sqrt ((1.0 - w) / (1.0 + (a * a - 1.0) * w));
+    float sinTheta = sqrt (max (0.0, 1.0 - cosTheta * cosTheta));
+    float3 t = abs (n.z) < 0.999 ? normalize (cross (float3 (0, 0, 1), n)) : float3 (1, 0, 0);
+    float3 b = cross (n, t);
+    float3 h = normalize (t * (sinTheta * cos (phi)) + b * (sinTheta * sin (phi)) + n * cosTheta);
+    return reflect (v, h);
+}
+
+[numthreads (8, 8, 1)]
+void main (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= g_frame.x || id.y >= g_frame.y)
+        return;
+    float depth = g_depth.Load (int3 (id.xy, 0));
+    float rough = g_roughness.Load (int3 (id.xy, 0));
+    bool background = g_ray.x < 0.5 ? depth >= 0.9999999 : depth <= 1.0e-7;
+    if (background || rough > g_ray.w)
+    {
+        g_reflection[id.xy] = float4 (0, 0, 0, 0);
+        return;
+    }
+    float2 ndc = float2 ((id.x + 0.5) / g_frame.x * 2.0 - 1.0, 1.0 - (id.y + 0.5) / g_frame.y * 2.0);
+    float4 a = mul (g_invViewProj, float4 (ndc, g_ray.x, 1.0));
+    float4 w = mul (g_invViewProj, float4 (ndc, depth, 1.0));
+    float3 eye = a.xyz / a.w;
+    float3 p = w.xyz / w.w;
+    float3 v = normalize (p - eye);
+    float3 n = g_normal.Load (int3 (id.xy, 0)).xyz;
+    n = dot (n, n) > 0.0 ? normalize (n) : -v;
+    if (dot (n, v) > 0.0)
+        n = -n;
+    float3 at = p + n * Epsilon (p);
+
+    uint rng = (id.x * 1973u + id.y * 9277u + g_frame.z * 26699u) | 1u;
+    Rand (rng);
+    // ONE RAY FOR A MIRROR, FOUR FOR A GLOSS: the GGX lobe is sampled, and TAA (on in Rendered)
+    // averages the remaining noise across frames.
+    uint count = rough < 0.03 ? 1u : 4u;
+    float3 sum = 0.0;
+    for (uint s = 0; s < count; ++s)
+    {
+        float3 d = count == 1u ? reflect (v, n) : SampleReflection (v, n, rough, rng);
+        if (dot (d, n) <= 0.0)
+            d = reflect (v, n);
+        Hit h = Trace (at, d, false, rng);
+        if (!h.hit)
+        {
+            sum += SkyLevel (d, 0.0);
+            continue;
+        }
+        float3 hp, hn, albedo;
+        Surface (h, at, d, hp, hn, albedo);
+        float3 hat = hp + hn * Epsilon (hp);
+        sum += albedo * (SunLight (hat, hn, rng) + SkyLevel (hn, g_ray.z));
+    }
+    g_reflection[id.xy] = float4 (sum / float (count), 1.0);
 }
 )hlsl";
 

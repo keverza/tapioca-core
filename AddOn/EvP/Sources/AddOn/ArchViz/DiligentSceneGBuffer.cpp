@@ -365,7 +365,8 @@ void DiligentScene::ClearScreenSpaceReflection ()
 // the shading. The two share the G-buffer but nothing else.
 //
 // ⚠️ RENDER THREAD ONLY, like everything else in this file.
-void DiligentScene::PrepareScreenSpaceReflection (Diligent::IDeviceContext* context, const float view[16],
+void DiligentScene::PrepareScreenSpaceReflection (Diligent::IDeviceContext* context,
+                                                  const DiligentSceneConstants& constants, const float view[16],
                                                   const float proj[16], const float viewProj[16],
                                                   const float motionViewProj[16], const float eye[3],
                                                   const float jitter[2], float nearClip, float farClip,
@@ -405,6 +406,15 @@ void DiligentScene::PrepareScreenSpaceReflection (Diligent::IDeviceContext* cont
     Diligent::ITextureView* motionSrv =
         impl_->gBuffer->GetBuffer (kGBufferMotion)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
 
+    // #232: traced reflections where the device can -- no screen-space limits (offscreen, behind
+    // a foreground object, thin and far). SSR stays the fallback; its output contract is the same.
+    Diligent::ITextureView* roughnessSrv =
+        impl_->gBuffer->GetBuffer (kGBufferRoughness)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    if (Diligent::ITextureView* traced = TraceReflections (context, constants, viewProj, eye, depthSrv, normalSrv,
+                                                           roughnessSrv, frameIndex, impl_->ssrRoughnessThreshold)) {
+        impl_->ssrView = traced;
+        return;
+    }
     impl_->ssrView = impl_->screenSpaceReflection.Execute (
         impl_->device, context, impl_->hdrColorSRV, depthSrv, normalSrv, materialSrv, motionSrv, impl_->viewportWidth,
         impl_->viewportHeight, frameIndex, view, proj, viewProj, eye, jitter, nearClip, farClip, focusDistance,
