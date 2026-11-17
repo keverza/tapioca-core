@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditDisplayUnits.hpp"
 #include "Edit/EditEllipse.hpp"
 #include "Edit/EditOrganize.hpp"
 #include <algorithm>
@@ -125,15 +126,20 @@ void EllipseControls (Session& s)
     ImGui::PushID (std::to_string (id).c_str ());
     ImGui::Separator ();
     ImGui::TextUnformatted (circle ? "Circle parameters" : "Ellipse parameters");
-    ImGui::TextWrapped ("Metres; rotation in degrees in the ellipse plane. Enter applies.");
+    const auto units = edit::CurrentDisplayUnits ();
+    ImGui::TextWrapped ("Lengths in %s; rotation in degrees in the ellipse plane. Enter applies.",
+                        edit::LengthSymbol (units));
     ImGui::BeginDisabled (EllipseLocked (s, id));
     // Enter commits once through Session. Keep doubles throughout; display rounding must
     // never become an unedited parameter's value, or a float-limited tracker increment.
+    // #109: lengths in the project's unit, converted only on Enter, so an unedited one never moves.
     const auto input = [&] (const char* label, EllipseField field, double value, bool disabled = false) {
+        const bool length = field != EllipseField::Rotation;
         ImGui::BeginDisabled (disabled);
         ImGui::SetNextItemWidth (180.0f);
-        if (ImGui::InputDouble (label, &value, 0, 0, "%.17g", ImGuiInputTextFlags_EnterReturnsTrue))
-            SetSelectedEllipseValue (s, field, value);
+        double shown = length ? edit::MetresToLength (units, value) : value;
+        if (ImGui::InputDouble (label, &shown, 0, 0, "%.17g", ImGuiInputTextFlags_EnterReturnsTrue))
+            SetSelectedEllipseValue (s, field, length ? edit::LengthToMetres (units, shown) : shown);
         ImGui::EndDisabled ();
     };
     input ("Centre X", EllipseField::CenterX, parameters.center.x);

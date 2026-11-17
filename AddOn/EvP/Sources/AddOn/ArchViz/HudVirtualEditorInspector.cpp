@@ -1,4 +1,5 @@
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/HudLengthField.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/HudVirtualEditorDebug.hpp"
@@ -218,10 +219,8 @@ void SelectionTail (Session& s)
     }
     // Its distance comes after the rows: changing it rebuilds the table they point into.
     if (offset) {
-        float distance = float (s.actionDefaults.offsetDistance);
         ImGui::SetNextItemWidth (110.0f);
-        if (ImGui::DragFloat ("Offset distance", &distance, 0.01f, -50.0f, 50.0f, "%.2f m"))
-            s.actionDefaults.offsetDistance = double (distance);
+        LengthDrag ({ "Offset distance", -50.0, 50.0, 0.01, 2 }, s.actionDefaults.offsetDistance);
         hudshell::Tip ("Positive: outside a closed outline or left of a line. Negative: inside or right.",
                        hudshell::TipSide::Above);
         OffsetJoinControl (s);

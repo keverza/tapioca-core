@@ -1,4 +1,5 @@
 #include "ArchViz/EditLayers.hpp"
+#include "ArchViz/HudLengthField.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
@@ -159,27 +160,28 @@ void detail::SettleWidgetGesture (Session& s)
 void detail::PathRadiusControls (Session& s, const edit::Path& path)
 {
     // Its kerb radius: its outside corners and its junctions with other paths rounded.
-    float kerb = float (path.edgeRadius);
+    double kerb = path.edgeRadius;
     ImGui::SetNextItemWidth (140.0f);
-    ImGui::DragFloat ("Kerb radius", &kerb, 0.05f, 0.0f, 20.0f, "%.2f m");
+    LengthDrag ({ "Kerb radius", 0.0, 20.0, 0.05, 2 }, kerb);
     {
         const edit::Id id = path.id;
-        const double r = double (kerb);
+        const double r = kerb;
         WidgetGesture (s,
                        [id, r] (edit::Document& d, std::string& e) { return edit::SetPathEdgeRadius (d, id, r, e); });
     }
     // A kerb corner picked on the view: its own radius, apart from the path's.
     if (const edit::PavedCorner* k = PickedKerb (s)) {
-        float r = float (k->requestedRadius);
+        double r = k->requestedRadius;
         ImGui::SetNextItemWidth (140.0f);
-        ImGui::DragFloat (k->key.other != edit::kNoId ? "Junction corner" : "Corner radius", &r, 0.05f, 0.0f, 0.0f,
-                          "%.2f m");
+        LengthDrag ({ k->key.other != edit::kNoId ? "Junction corner" : "Corner radius", 0.0, 0.0, 0.05, 2 }, r);
         const edit::PavedCorner c = *k;
-        const double v = double (r);
+        const double v = r;
         WidgetGesture (
             s, [c, v] (edit::Document& d, std::string& e) { return edit::SetKerbRadius (d, c.path, c.key, v, e); });
         if (const edit::PavedCorner* now = PickedKerb (s); now != nullptr && now->Limited ())
-            ImGui::Text ("Fitted radius %.2f m. Requested %.2f m.", now->key.radius, now->requestedRadius);
+            ImGui::Text ("Fitted radius %s. Requested %s.",
+                         edit::FormatLength (edit::CurrentDisplayUnits (), now->key.radius).c_str (),
+                         edit::FormatLength (edit::CurrentDisplayUnits (), now->requestedRadius).c_str ());
     }
 }
 
@@ -192,10 +194,10 @@ void detail::BreakSmoothingControl (Session& s, const edit::Path& path, size_t i
     const double room = edit::MaxCurve (path, index);
     if (room <= 0.0)
         return;
-    float length = float (b.curve);
+    double length = b.curve;
     ImGui::SetNextItemWidth (140.0f);
-    ImGui::SliderFloat ("Smoothing", &length, 0.0f, float (room), "%.2f m");
-    WidgetGesture (s, edit::DragCurve (path.id, b.id, double (length)));
+    LengthSlider ({ "Smoothing", 0.0, room, 0.0, 2 }, length);
+    WidgetGesture (s, edit::DragCurve (path.id, b.id, length));
     ImGui::SameLine ();
 }
 

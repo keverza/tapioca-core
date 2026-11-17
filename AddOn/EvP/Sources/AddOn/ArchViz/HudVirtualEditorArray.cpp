@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/HudLengthField.hpp"
 #include "Edit/EditOrganize.hpp"
 #include "Edit/EditShape.hpp"
 #include <algorithm>
@@ -264,9 +265,11 @@ void RectangularArrayControls (Session& s)
     ImGui::SetNextItemWidth (150.0f);
     ImGui::InputInt ("Array count Y (total)", &draft.countY, 1, 10, ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SetNextItemWidth (150.0f);
-    ImGui::InputDouble ("Array spacing X (m)", &draft.spacingX, 0.1, 1.0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
+    LengthInput ({ "Array spacing X", 0.0, 0.0, 0.1, 3 }, draft.spacingX, 0.1, 1.0,
+                 ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SetNextItemWidth (150.0f);
-    ImGui::InputDouble ("Array spacing Y (m)", &draft.spacingY, 0.1, 1.0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
+    LengthInput ({ "Array spacing Y", 0.0, 0.0, 0.1, 3 }, draft.spacingY, 0.1, 1.0,
+                 ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::TextDisabled ("Counts include the source; signed spacing is centre-to-centre.");
     UpdateRectangularArrayPreview (s);
     if (ImGui::SmallButton ("Apply array")) {

@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/HudLengthField.hpp"
 #include "ArchViz/HudShell.hpp"
 #include <imgui.h>
 
@@ -53,16 +54,16 @@ void SnapControls (Session& s, bool open)
             s.angleStep = step;
     }
     if ((s.snapModes & edit::kSnapGrid) != 0) {
-        float grid = float (s.snapGrid);
+        double grid = s.snapGrid;
         ImGui::SetNextItemWidth (120.0f);
-        if (ImGui::DragFloat ("Grid spacing", &grid, 0.05f, 0.01f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp))
+        if (LengthDrag ({ "Grid spacing", 0.01, 100.0, 0.05, 2 }, grid))
             s.snapGrid = grid;
     }
     // How far in 3D a host point may be and still be "here" for a snap; the viewport and camera
     // are screened separately; a positive bound is always kept in 3D.
-    float proximity = float (s.snapProximity);
+    double proximity = s.snapProximity;
     ImGui::SetNextItemWidth (120.0f);
-    if (ImGui::DragFloat ("3D proximity", &proximity, 0.05f, 0.01f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp))
+    if (LengthDrag ({ "3D proximity", 0.01, 100.0, 0.05, 2 }, proximity))
         s.snapProximity = proximity;
     hudshell::Tip ("A host point farther than this, in 3D, is not snapped to.", hudshell::TipSide::Above);
     if (!open)

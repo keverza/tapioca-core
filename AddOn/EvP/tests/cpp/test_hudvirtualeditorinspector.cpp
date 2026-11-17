@@ -259,7 +259,7 @@ TEST (HudVirtualEditorInspector, NoInventoryControlUnreachable191)
               s.selection.Set ({ whole (plainA) });
               ASSERT_TRUE (eh::detail::BeginRectangularArray (s)) << s.message;
           },
-          { "Array count X (total)", "Array spacing X (m)", "Apply array", "Cancel array" } },
+          { "Array count X (total)", "Array spacing X", "Apply array", "Cancel array" } },
         { "boolean draft",
           [&] (eh::Session& s) {
               s.selection.Set ({ whole (plainA), whole (plainB) });

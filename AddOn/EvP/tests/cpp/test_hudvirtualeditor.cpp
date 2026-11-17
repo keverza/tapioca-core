@@ -4483,9 +4483,9 @@ TEST (HudVirtualEditor, RectangularArrayPanelTypesParametersAppliesCancelsAndEsc
     EXPECT_EQ (d.session.rectangularArray->countX, 4);
     ASSERT_TRUE (d.Type ("Array count Y (total)", "2"));
     EXPECT_EQ (d.session.rectangularArray->countY, 2);
-    ASSERT_TRUE (d.Type ("Array spacing X (m)", "4.5"));
+    ASSERT_TRUE (d.Type ("Array spacing X", "4.5"));
     EXPECT_DOUBLE_EQ (d.session.rectangularArray->spacingX, 4.5);
-    ASSERT_TRUE (d.Type ("Array spacing Y (m)", "-2.5"));
+    ASSERT_TRUE (d.Type ("Array spacing Y", "-2.5"));
     EXPECT_DOUBLE_EQ (d.session.rectangularArray->spacingY, -2.5);
     ASSERT_TRUE (d.session.rectangularArray.has_value ());
     EXPECT_EQ (d.session.rectangularArray->lines.size (), 7u);

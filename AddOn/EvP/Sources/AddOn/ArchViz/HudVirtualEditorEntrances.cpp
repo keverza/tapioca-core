@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/HudLengthField.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "Edit/EditLandscapeEntrance.hpp"
 #include "Edit/EditPath.hpp"
@@ -119,7 +120,8 @@ void EntrancesPanel (Session& s)
         ImGui::PushID (static_cast<int> (entrance.id));
         double z = entrance.z;
         ImGui::SetNextItemWidth (90);
-        if (ImGui::InputDouble ("##z", &z, 0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue) && z != entrance.z) {
+        if (LengthInput ({ "##z", 0.0, 0.0, 0.0, 3 }, z, 0.0, 0.0, ImGuiInputTextFlags_EnterReturnsTrue) &&
+            z != entrance.z) {
             const auto id = entrance.id;
             s.edits.Apply ([id, z] (edit::Document& d, std::string& error) {
                 for (auto& e : d.landscape->entrances)

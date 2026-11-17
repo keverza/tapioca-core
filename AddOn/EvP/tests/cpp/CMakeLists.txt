@@ -665,6 +665,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorMaterial.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTerrain.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorFixedHeights.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudLengthField.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDebug.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDraft.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorRecipe.cpp"
@@ -1026,6 +1027,7 @@ set (EVP_TEST_SOURCES
     test_edittracker.cpp
     test_editdisplayunits.cpp
     test_editgradetocontrols.cpp
+    test_hudlengthfield.cpp
     test_editgizmo.cpp
     test_editselection.cpp
     test_editprimitives.cpp

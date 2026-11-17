@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorBake.hpp"
+#include "ArchViz/HudLengthField.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
@@ -264,25 +265,22 @@ void TerrainBakePanel (Session& s)
     const bool signature = options.mode == edit::BakeMode::Signature;
     // Labels above their controls: the panel is narrow.
     const float width = std::min (ImGui::GetContentRegionAvail ().x, 220.0f);
-    float interval = float (options.interval);
-    ImGui::TextWrapped ("%s", signature ? "Soft-ground contour interval (m, 0: automatic)"
-                                        : "Contour interval (m, 0: automatic)");
+    const auto units = edit::CurrentDisplayUnits ();
+    const std::string symbol = edit::LengthSymbol (units);
+    const std::string intervalLabel =
+        (signature ? "Soft-ground contour interval (" : "Contour interval (") + symbol + ", 0: automatic)";
+    ImGui::TextWrapped ("%s", intervalLabel.c_str ());
     ImGui::SetNextItemWidth (width);
-    if (ImGui::DragFloat ("##bake-interval", &interval, 0.05f, 0.0f, 10.0f, "%.2f"))
-        options.interval = double (std::clamp (interval, 0.0f, 10.0f));
-    float tolerance = float (options.tolerance);
-    ImGui::TextWrapped ("%s", "Point reduction (m)");
+    LengthDrag ({ "##bake-interval", 0.0, 10.0, 0.05, 2 }, options.interval);
+    ImGui::TextWrapped ("%s", WithLengthUnit (units, "Point reduction").c_str ());
     ImGui::SetNextItemWidth (width);
-    if (ImGui::SliderFloat ("##bake-tolerance", &tolerance, 0.0f, 0.5f, "%.3f"))
-        options.tolerance = double (std::clamp (tolerance, 0.0f, 0.5f));
+    LengthSlider ({ "##bake-tolerance", 0.0, 0.5, 0.0, 3 }, options.tolerance);
     if (ImGui::IsItemHovered ())
         hudshell::HoverTip ("A point is dropped while its line stays within this distance of the traced one.");
     if (signature) {
-        float shortest = float (options.shortest);
-        ImGui::TextWrapped ("%s", "Shortest design line (m)");
+        ImGui::TextWrapped ("%s", WithLengthUnit (units, "Shortest design line").c_str ());
         ImGui::SetNextItemWidth (width);
-        if (ImGui::SliderFloat ("##bake-shortest", &shortest, 0.0f, 10.0f, "%.1f"))
-            options.shortest = double (std::clamp (shortest, 0.0f, 10.0f));
+        LengthSlider ({ "##bake-shortest", 0.0, 10.0, 0.0, 1 }, options.shortest);
         if (ImGui::IsItemHovered ())
             hudshell::HoverTip ("An open outline or toe piece shorter than this is left out.");
         float crease = float (options.creaseDegrees);
@@ -298,11 +296,9 @@ void TerrainBakePanel (Session& s)
             hudshell::HoverTip ("Adds the folds of the ground the design moved too. Off: there, only the lines "
                                 "that were modelled.");
     }
-    float skirt = float (bake.skirt);
-    ImGui::TextWrapped ("%s", "Depth under the lowest point (m)");
+    ImGui::TextWrapped ("%s", WithLengthUnit (units, "Depth under the lowest point").c_str ());
     ImGui::SetNextItemWidth (width);
-    if (ImGui::DragFloat ("##bake-skirt", &skirt, 0.05f, 0.0f, 50.0f, "%.2f"))
-        bake.skirt = double (std::clamp (skirt, 0.0f, 50.0f));
+    LengthDrag ({ "##bake-skirt", 0.0, 50.0, 0.05, 2 }, bake.skirt);
     ImGui::Checkbox ("Show the lines and points", &bake.preview);
     ImGui::EndDisabled ();
 
