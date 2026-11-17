@@ -392,6 +392,8 @@ endif ()
 # D3D11 backend compiles its HLSL at runtime, so d3dcompiler is still needed and
 # is now named here rather than inherited from a renderer that is gone.
 target_link_libraries (${ADDON_LIB} d3dcompiler dxguid gdi32 d3d11 dxgi)
+# The renderer outside Archicad, for automated image checks; never built by default.
+include ("${CMAKE_CURRENT_LIST_DIR}/cmake/RenderBench.cmake")
 target_link_libraries (${ADDON_LIB} "${WEBVIEW2_DIR}/build/native/x64/WebView2LoaderStatic.lib" version)
 # winmm: timeBeginPeriod, which the overlay's camera sync holds while it is armed.
 # Without it SetTimer cannot fire between Windows' 15.625 ms ticks and the sync
