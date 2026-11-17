@@ -256,6 +256,9 @@ void Organize (Session& s, OrganizeCommand command);
 void OrganizeVisibility (Session& s);
 void SelectMenuItems (Session& s);
 void LayerRows (Session& s);
+// #124: renames a group as one undo step; false, with the reason in s.message, when refused (an
+// unchanged name is refused with no reason).
+bool RenameGroup (Session& s, edit::Id group, const std::string& name);
 void ObjectRows (Session& s, const std::string& filter, bool reveal);
 // #191 U5: under every Inspector selection context: the selection's layer (choosing one moves it
 // there) and Group / Ungroup.

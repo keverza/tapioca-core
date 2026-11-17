@@ -4,6 +4,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "Edit/EditLandscape.hpp"
+#include "Edit/EditOrganize.hpp"
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -35,11 +36,12 @@ struct Gui {
         ImGui::SetCurrentContext (previous);
     }
     // One frame of the Outliner in a 320 x 700 window, the pointer at `at`; its logged text.
-    std::string Frame (eh::Session& s, ImVec2 at = { 399, 799 }, bool down = false)
+    std::string Frame (eh::Session& s, ImVec2 at = { 399, 799 }, bool down = false, int button = 0)
     {
         auto& io = ImGui::GetIO ();
         io.AddMousePosEvent (at.x, at.y);
-        io.AddMouseButtonEvent (0, down);
+        io.AddMouseButtonEvent (0, down && button == 0);
+        io.AddMouseButtonEvent (1, down && button == 1);
         ImGui::NewFrame ();
         ImGui::SetNextWindowPos ({ 0, 0 });
         ImGui::SetNextWindowSize ({ 320, 700 });
@@ -181,4 +183,66 @@ TEST (HudVirtualEditorOutliner, IssueCountCollapseAndSearch191)
     text = gui.Frame (s);
     EXPECT_FALSE (s.outlinerCollapsed);
     EXPECT_EQ (s.outlinerShow, -1);
+}
+
+// #124: a group is renamed from its row's right-click box, one undo step, keeping its id and
+// members; an empty name or one a group beside it has is refused with the reason and the box stays.
+TEST (HudVirtualEditorOutliner, AGroupRenamesFromItsRowAsOneUndo124)
+{
+    auto doc = Squares (4);
+    std::string error;
+    const edit::Id beds = edit::GroupObjects (
+        doc, { { doc.entities[0].id, edit::Part::Entity, 0 }, { doc.entities[1].id, edit::Part::Entity, 0 } }, "beds",
+        error);
+    ASSERT_NE (beds, edit::kNoId) << error;
+    ASSERT_NE (edit::GroupObjects (
+                   doc,
+                   { { doc.entities[2].id, edit::Part::Entity, 0 }, { doc.entities[3].id, edit::Part::Entity, 0 } },
+                   "lawn", error),
+               edit::kNoId)
+        << error;
+    const auto members = edit::GroupMembers (doc, beds);
+    eh::Session s (doc);
+    Gui gui;
+    gui.Frame (s);
+    const auto popupOpen = [&] { return gui.context->OpenPopupStack.Size > 0; };
+    // Right-click down the rows until a box opens: the first group row is "beds".
+    ImVec2 at {};
+    for (float y = 20; y < 690 && !popupOpen (); y += 3) {
+        at = { 120, y };
+        gui.Frame (s, at);
+        gui.Frame (s, at, true, 1);
+        gui.Frame (s, at, false, 1);
+        gui.Frame (s, at);
+    }
+    ASSERT_TRUE (popupOpen ()) << "a group row opens its rename box on right-click";
+    EXPECT_EQ (s.edits.UndoDepth (), 0u);
+    const auto type = [&] (const char* text) {
+        ImGui::GetIO ().AddInputCharactersUTF8 (text);
+        gui.Frame (s, at);
+        ImGui::GetIO ().AddKeyEvent (ImGuiKey_Enter, true);
+        gui.Frame (s, at);
+        ImGui::GetIO ().AddKeyEvent (ImGuiKey_Enter, false);
+        gui.Frame (s, at);
+    };
+    type ("lawn");
+    EXPECT_TRUE (popupOpen ()) << "a refused name keeps the box open";
+    EXPECT_NE (s.message.find ("already called"), std::string::npos) << s.message;
+    EXPECT_EQ (s.edits.UndoDepth (), 0u);
+    EXPECT_EQ (edit::FindGroup (s.edits.Doc (), beds)->name, "beds");
+
+    type ("  planting ");
+    EXPECT_FALSE (popupOpen ()) << s.message;
+    ASSERT_NE (edit::FindGroup (s.edits.Doc (), beds), nullptr);
+    EXPECT_EQ (edit::FindGroup (s.edits.Doc (), beds)->name, "planting");
+    EXPECT_EQ (edit::GroupMembers (s.edits.Doc (), beds), members) << "a rename moves nothing";
+    EXPECT_EQ (s.edits.UndoDepth (), 1u);
+    ASSERT_TRUE (s.edits.Undo ());
+    EXPECT_EQ (edit::FindGroup (s.edits.Doc (), beds)->name, "beds");
+
+    // The wrapper: an empty name is refused with a reason; the same name, quietly.
+    EXPECT_FALSE (eh::detail::RenameGroup (s, beds, "   "));
+    EXPECT_NE (s.message.find ("needs a name"), std::string::npos) << s.message;
+    EXPECT_FALSE (eh::detail::RenameGroup (s, beds, "beds"));
+    EXPECT_EQ (s.edits.UndoDepth (), 0u);
 }

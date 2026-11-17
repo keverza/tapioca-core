@@ -48,6 +48,10 @@ std::vector<Id> GroupMembers (const Document& doc, Id group);
 // of what is all inside it sits in it.
 Id GroupObjects (Document& doc, const std::vector<Ref>& refs, const std::string& name, std::string& error,
                  Id within = kNoId);
+// Renames `group` to `name` with its outer spaces trimmed. Refuses an empty name, a name a
+// group beside it (the same parent) already has, and a group that no longer exists; the same
+// name again changes nothing and returns false with no error.
+bool RenameGroup (Document& doc, Id group, const std::string& name, std::string& error);
 // Dissolves the outermost group (inside `within`) of each object `refs` reach: its members and
 // the groups inside it move up one level.
 bool Ungroup (Document& doc, const std::vector<Ref>& refs, std::string& error, Id within = kNoId);

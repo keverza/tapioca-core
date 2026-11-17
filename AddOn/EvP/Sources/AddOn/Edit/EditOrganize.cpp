@@ -1,5 +1,6 @@
 #include "Edit/EditOrganize.hpp"
 #include <algorithm>
+#include <cctype>
 #include <map>
 #include <set>
 
@@ -220,6 +221,32 @@ Id TopIn (const Document& doc, Id object, Id within, bool& inside)
     return at == chain.begin () ? kNoId : *(at - 1);
 }
 } // namespace
+
+bool RenameGroup (Document& doc, Id group, const std::string& name, std::string& error)
+{
+    auto it = std::find_if (doc.groups.begin (), doc.groups.end (), [group] (const Group& g) { return g.id == group; });
+    if (it == doc.groups.end ()) {
+        error = "the group no longer exists";
+        return false;
+    }
+    const auto space = [] (char c) { return std::isspace (static_cast<unsigned char> (c)) != 0; };
+    const auto first = std::find_if_not (name.begin (), name.end (), space);
+    const auto last = std::find_if_not (name.rbegin (), name.rend (), space).base ();
+    const std::string trimmed = first < last ? std::string (first, last) : std::string ();
+    if (trimmed.empty ()) {
+        error = "a group needs a name";
+        return false;
+    }
+    if (trimmed == it->name)
+        return false;
+    for (const auto& other : doc.groups)
+        if (other.id != group && other.parent == it->parent && other.name == trimmed) {
+            error = "a group beside it is already called \"" + trimmed + "\"";
+            return false;
+        }
+    it->name = trimmed;
+    return true;
+}
 
 Id GroupObjects (Document& doc, const std::vector<Ref>& refs, const std::string& name, std::string& error, Id within)
 {

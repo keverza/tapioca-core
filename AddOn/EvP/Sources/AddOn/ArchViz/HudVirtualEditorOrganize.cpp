@@ -139,6 +139,25 @@ void GroupTree (Session& s, edit::Id group, bool reveal)
                 members.push_back ({ id, edit::Part::Entity, edit::kNoId });
         s.selection.Set (members);
     }
+    if (ImGui::IsItemHovered () && !ImGui::IsPopupOpen ("rename"))
+        hudshell::HoverTip ("Click selects the group. Right-click renames it.");
+    // #124: a group renamed in place, one undo step; a refused name says why and the box stays.
+    if (ImGui::BeginPopupContextItem ("rename")) {
+        static char name[64]; // the box's draft: one popup is open at a time
+        if (ImGui::IsWindowAppearing ()) {
+            std::snprintf (name, sizeof name, "%s", g->name.c_str ());
+            ImGui::SetKeyboardFocusHere ();
+        }
+        ImGui::TextUnformatted ("Rename group");
+        if (ImGui::InputText ("##name", name, sizeof name,
+                              ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
+            if (RenameGroup (s, group, name) || s.message.empty ())
+                ImGui::CloseCurrentPopup ();
+            else
+                ImGui::SetKeyboardFocusHere (-1); // back into the box, its text selected, for another try
+        }
+        ImGui::EndPopup ();
+    }
     if (open) {
         std::vector<edit::Id> groups, objects;
         Contents (Doc (s), group, groups, objects);
@@ -290,6 +309,14 @@ void SelectMenuItems (Session& s)
         Organize (s, OrganizeCommand::SameLayer);
     if (ImGui::MenuItem ("Same kind", nullptr, false, idle && any))
         Organize (s, OrganizeCommand::SameKind);
+}
+
+bool RenameGroup (Session& s, edit::Id group, const std::string& name)
+{
+    const uint64_t revision = Doc (s).revision;
+    s.message.clear ();
+    Change (s, [group, name] (edit::Document& d, std::string& e) { return edit::RenameGroup (d, group, name, e); });
+    return Doc (s).revision != revision;
 }
 
 void LayerRows (Session& s)

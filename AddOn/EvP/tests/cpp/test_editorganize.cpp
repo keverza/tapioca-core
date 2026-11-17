@@ -387,3 +387,44 @@ TEST (EditOrganize, PathsOnDifferentLayersNeitherMeetNorJoinNorPaveTogether)
     })) << s.Message ();
     EXPECT_EQ (s.Doc ().paths.size (), 2u);
 }
+
+// #124: a rename trims, refuses an empty name or one a group beside it already has (a group
+// elsewhere in the tree may share it), changes nothing for the same name, and survives a reload.
+TEST (EditOrganize, AGroupRenamesUniquelyAmongItsSiblings124)
+{
+    Scene s;
+    const ed::Id beds = ed::GroupObjects (s.doc, { s.R (s.b), s.R (s.c) }, "beds", s.error);
+    const ed::Id garden = ed::GroupObjects (s.doc, { s.R (s.a), s.R (s.b) }, "garden", s.error);
+    ASSERT_NE (garden, ed::kNoId) << s.error;
+    ASSERT_EQ (ed::FindGroup (s.doc, beds)->parent, garden);
+    // "garden" is outermost; "beds" sits inside it, so it may take the outer group's name.
+    EXPECT_TRUE (ed::RenameGroup (s.doc, beds, "  garden  ", s.error)) << s.error;
+    EXPECT_EQ (ed::FindGroup (s.doc, beds)->name, "garden");
+    const auto before = s.doc;
+    s.error.clear ();
+    EXPECT_FALSE (ed::RenameGroup (s.doc, beds, "garden", s.error));
+    EXPECT_TRUE (s.error.empty ()) << "the same name is no change, not a refusal";
+    EXPECT_FALSE (ed::RenameGroup (s.doc, beds, " 	 ", s.error));
+    EXPECT_NE (s.error.find ("needs a name"), std::string::npos);
+    EXPECT_FALSE (ed::RenameGroup (s.doc, ed::Id (99999), "x", s.error));
+    EXPECT_NE (s.error.find ("no longer exists"), std::string::npos);
+    EXPECT_EQ (s.doc.groups, before.groups);
+    EXPECT_EQ (s.doc.revision, before.revision);
+    s.Valid ();
+
+    // Two outermost groups are siblings: the second may not take the first one's name.
+    ASSERT_TRUE (ed::Ungroup (s.doc, { s.R (s.a) }, s.error)) << s.error; // garden dissolves
+    const ed::Id path = ed::GroupObjects (s.doc, { s.R (s.path), s.R (s.a) }, "walks", s.error);
+    ASSERT_NE (path, ed::kNoId) << s.error;
+    EXPECT_FALSE (ed::RenameGroup (s.doc, path, "garden", s.error));
+    EXPECT_NE (s.error.find ("already called"), std::string::npos) << s.error;
+    EXPECT_EQ (ed::FindGroup (s.doc, path)->name, "walks");
+
+    namespace geo = tapioca::geometry;
+    ASSERT_TRUE (geo::StartLandscape (s.doc, { 1 }, s.error)) << s.error;
+    std::string text;
+    ASSERT_TRUE (geo::WriteLandscape (s.doc, geo::LandscapeStorage::Virtual, text, s.error)) << s.error;
+    ed::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (text, loaded, s.error)) << s.error;
+    EXPECT_EQ (ed::FindGroup (loaded, beds)->name, "garden");
+}
