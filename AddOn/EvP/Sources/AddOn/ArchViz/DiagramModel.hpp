@@ -27,6 +27,8 @@ struct Controls {
     bool hideSource = true;   // hide the represented massing slabs while the diagram is shown
     diagram::Colouring colouring = diagram::Colouring::Function;
     diagram::Detail detail = diagram::Detail::Topology;
+    bool outlines = true;   // the shells' edges
+    bool connectors = true; // dashed corner lines between a building's storeys
     auto operator<=> (const Controls&) const = default;
 };
 Controls ReadControls ();

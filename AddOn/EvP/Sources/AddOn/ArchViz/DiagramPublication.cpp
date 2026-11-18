@@ -25,6 +25,7 @@ Prepared Prepare (const DiagramInputSnapshot& snapshot, StoreyBindings bindings,
     publication->domain = snapshot.domain;
     publication->plan = Plan (*built.scene, request);
     publication->geometry = BuildGeometry (built);
+    AddConnectors (publication->geometry, publication->plan);
     publication->representedGuids = built.representedGuids;
     publication->storeyInfo = std::move (built.storeys);
     publication->notes = built.scene->notes;

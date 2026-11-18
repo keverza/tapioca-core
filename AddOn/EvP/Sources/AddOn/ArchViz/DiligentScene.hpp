@@ -655,7 +655,8 @@ class DiligentScene final {
     struct DiagramFrameStats {
         uint64_t uploads = 0; // geometry uploads since the layer started
         size_t uploadedBytes = 0, draws = 0;
-        double shownGap = 0; // the shared storey gap on screen, m
+        size_t lineDraws = 0; // outlines and corner connectors
+        double shownGap = 0;  // the shared storey gap on screen, m
     };
     DiagramFrameStats DrawDiagram (Diligent::IDeviceContext* context, const float viewProj[16],
                                    uint32_t colorBufferFormat, uint32_t depthBufferFormat,

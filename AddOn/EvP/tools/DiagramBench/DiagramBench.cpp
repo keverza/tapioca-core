@@ -59,6 +59,7 @@ struct Options {
     std::map<std::string, double> buildingGaps;
     std::vector<dg::Colouring> colourings { dg::Colouring::Function };
     std::vector<std::string> views { "iso", "front", "side" };
+    bool lines = true; // outlines and corner connectors
 };
 
 std::vector<std::string> Split (const std::string& text, char by)
@@ -111,6 +112,12 @@ bool ParseArgs (int argc, char** argv, Options& o)
         }
         else if (a == "--views")
             o.views = Split (next (), ',');
+        else if (a == "--lines") {
+            const std::string v = next ();
+            if (v != "on" && v != "off")
+                return false;
+            o.lines = v == "on";
+        }
         else
             return false;
     }
@@ -191,7 +198,7 @@ int main (int argc, char** argv)
     Options o;
     if (!ParseArgs (argc, argv, o)) {
         std::fprintf (stderr, "usage: TapiocaDiagramBench --capture file.json --out dir [--size WxH] [--gaps 0,3,8] "
-                              "[--building building:A=12 ...] [--colour function|white|both] "
+                              "[--building building:A=12 ...] [--colour function|white|both] [--lines on|off] "
                               "[--views iso,front,side,top]\n");
         return 2;
     }
@@ -249,6 +256,7 @@ int main (int argc, char** argv)
             view.spacing.storeyGap = gap;
             view.spacing.buildingGap = o.buildingGaps;
             view.colouring = colouring;
+            view.outlines = view.connectors = o.lines;
             view.animate = false; // the asked spacing at once: one picture per setting
             dg::Vec3 lo {}, hi {};
             dg::FramingBounds (dg::Spaced (publication.plan, view.spacing), lo, hi);
@@ -296,7 +304,8 @@ int main (int argc, char** argv)
                 }
                 ++written;
                 av::ArchVizLog ("diagram bench: " + path + " (" + std::to_string (stats.draws) + " draws, " +
-                                std::to_string (stats.uploads) + " upload(s))");
+                                std::to_string (stats.lineDraws) + " line draws, " + std::to_string (stats.uploads) +
+                                " upload(s))");
             }
         }
     av::ArchVizLog ("diagram bench: " + std::to_string (written) + " picture(s) in " + o.out);

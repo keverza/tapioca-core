@@ -65,12 +65,15 @@ DiligentScene::DiagramFrameStats DiligentScene::DrawDiagram (Diligent::IDeviceCo
         view->selected.Empty () ? std::vector<diagram::EntityId> {} : std::vector { view->selected }, 1.0);
     // The viewer draws world metres: the render origin is zero (DiagramGeometry.hpp).
     const auto draws = diagram::DrawsOf (publication->geometry, *impl_->diagramPlan, frame, diagram::Vec3 {});
+    const auto lines = diagram::LineDrawsOf (publication->geometry, *impl_->diagramPlan, frame, diagram::Vec3 {},
+                                             view->outlines, view->connectors);
     DiagramLayer::DrawParams params;
     params.monochrome = view->colouring == diagram::Colouring::White ? 1.0f : 0.0f;
-    impl_->diagram.Draw (context, viewProj, draws, params);
+    impl_->diagram.Draw (context, viewProj, draws, lines, params);
     stats.uploads = impl_->diagram.UploadCount ();
     stats.uploadedBytes = impl_->diagram.UploadedBytes ();
     stats.draws = impl_->diagram.DrawCount ();
+    stats.lineDraws = impl_->diagram.LineDrawCount ();
     stats.shownGap = impl_->diagramShown.storeyGap;
     return stats;
 }

@@ -35,6 +35,7 @@ build_29\DiagramBench\TapiocaDiagramBench.exe --capture diagram-capture.json --o
 | `--building key=m` | A per-building gap. The bench prints every building key at start. |
 | `--colour` | `function`, `white` or `both`. |
 | `--views` | `iso`, `front`, `side`, `top`. Each view is framed on the spaced diagram's bounds. |
+| `--lines` | `on` (default) or `off`: the storey outlines and the dashed corner lines. |
 | `--size` | `WxH`, 1280x800 by default. |
 
 Each picture is `<view>_gap<g>_<colour>.png`. The console says how many draws and uploads it took.

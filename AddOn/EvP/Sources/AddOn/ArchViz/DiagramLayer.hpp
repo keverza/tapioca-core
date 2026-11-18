@@ -35,6 +35,7 @@ struct IRenderDevice;
 namespace geomsrv::archviz::diagram {
 struct DiagramGeometry;
 struct DiagramDraw;
+struct DiagramLineDraw;
 } // namespace geomsrv::archviz::diagram
 
 namespace geomsrv::archviz {
@@ -56,15 +57,22 @@ class DiagramLayer final {
 
     struct DrawParams {
         float ambient = 0.5f;
-        uint32_t selectedRgba = 0x2BB3E6FF; // diagram-owned highlight (§5.9): one highlight source
-        float monochrome = 0.0f;            // 1: one white study-model tone instead of function colours
+        uint32_t selectedRgba = 0x2BB3E6FF;  // diagram-owned highlight (§5.9): one highlight source
+        float monochrome = 0.0f;             // 1: one white study-model tone instead of function colours
+        uint32_t outlineRgba = 0x2C3036FF;   // edges of the shells
+        uint32_t connectorRgba = 0x5A6068FF; // dashed corner lines between storeys
+        float dashMetres = 0.5f;             // one dash plus one gap
     };
+    // Shells first, then lines over them: an outline is pulled further toward the camera
+    // than its faces, so it wins the coincident edge, and it writes no depth.
     void Draw (Diligent::IDeviceContext* context, const float viewProj[16],
-               const std::vector<diagram::DiagramDraw>& draws, const DrawParams& params);
+               const std::vector<diagram::DiagramDraw>& draws, const std::vector<diagram::DiagramLineDraw>& lines,
+               const DrawParams& params);
 
     uint64_t UploadCount () const; // geometry uploads since Init
     size_t UploadedBytes () const;
-    size_t DrawCount () const; // draws issued by the last Draw
+    size_t DrawCount () const;     // shell draws issued by the last Draw
+    size_t LineDrawCount () const; // outline and connector draws issued by the last Draw
 
   private:
     struct Impl;

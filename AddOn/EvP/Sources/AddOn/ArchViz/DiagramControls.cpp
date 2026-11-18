@@ -103,6 +103,12 @@ void Draw (Memory& memory)
     ImGui::RadioButton ("White", &colouring, int (diagram::Colouring::White));
     controls.colouring = diagram::Colouring (colouring);
 
+    ImGui::Checkbox ("Outlines", &controls.outlines);
+    Tip ("Draws the storeys' edges, so white storeys stay readable.");
+    ImGui::SameLine ();
+    ImGui::Checkbox ("Corner lines", &controls.connectors);
+    Tip ("Dashed lines from each storey's corners down to the storey below, while exploded.");
+
     ImGui::Checkbox ("Hide source slabs", &controls.hideSource);
     Tip ("Hides only the massing slabs the diagram stands in for; terrain and neighbours stay.");
     ImGui::BeginDisabled (!publication);

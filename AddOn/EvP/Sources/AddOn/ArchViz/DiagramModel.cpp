@@ -191,6 +191,8 @@ diagram::DiagramView View ()
     view.spacing = s_controls.spacing;
     view.colouring = s_controls.colouring;
     view.detail = s_controls.detail;
+    view.outlines = s_controls.outlines;
+    view.connectors = s_controls.connectors;
     view.selected = s_selected;
     return view;
 }

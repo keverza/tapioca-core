@@ -163,6 +163,128 @@ TEST (DiagramGeometry, AFrameOfAnotherPlanDrawsNothing)
     EXPECT_TRUE (dg::DrawsOf (prepared.publication->geometry, prepared.publication->plan, stale, {}).empty ());
 }
 
+namespace {
+// A node-local axis box as two triangles per face: the diagonals are coplanar and must
+// stay undrawn; the twelve box edges are creases.
+dg::PickMesh Box (const std::string& key, double w, double d, double h)
+{
+    dg::PickMesh mesh;
+    mesh.id = { dg::Level::Storey, key };
+    for (int i = 0; i < 8; ++i)
+        for (const double v : { (i & 1 ? w : -w) / 2, (i & 2 ? d : -d) / 2, (i & 4 ? h : -h) / 2 })
+            mesh.positions.push_back (v);
+    const uint32_t quads[6][4] = { { 0, 1, 3, 2 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 },
+                                   { 2, 3, 7, 6 }, { 0, 2, 6, 4 }, { 1, 3, 7, 5 } };
+    for (const auto& q : quads)
+        for (const uint32_t c : { q[0], q[1], q[2], q[0], q[2], q[3] })
+            mesh.indices.push_back (c);
+    return mesh;
+}
+} // namespace
+
+TEST (DiagramGeometry, OutlinesAreTheCreasesNotTheDiagonals)
+{
+    dg::BuiltScene built;
+    built.shells.push_back (Box ("storey:box:1", 4, 2, 3));
+    const auto g = dg::BuildGeometry (built);
+    ASSERT_EQ (g.meshes.size (), 1u);
+    EXPECT_EQ (g.meshes[0].lineCount, 24u); // 12 edges, two vertices each
+    size_t vertical = 0;
+    for (uint32_t i = 0; i + 1 < g.lines.size (); i += 2) {
+        const auto& a = g.lines[i].position;
+        const auto& b = g.lines[i + 1].position;
+        int axes = 0;
+        for (int k = 0; k < 3; ++k)
+            axes += std::abs (a[k] - b[k]) > 1e-6f;
+        EXPECT_EQ (axes, 1) << "a diagonal was drawn";
+        vertical += std::abs (a[2] - b[2]) > 1e-6f;
+        EXPECT_EQ (g.lines[i].end, 0.0f);
+    }
+    EXPECT_EQ (vertical, 4u);
+
+    // A T-junction: the roof gets a vertex mid-way along one rim edge that its wall does
+    // not share. The roof's split rim halves and its fan are not drawn; the wall still
+    // draws the rim, so the outline is the same twelve edges.
+    auto split = Box ("storey:box:2", 4, 2, 3);
+    // Drop the roof (the second quad) ...
+    split.indices.erase (split.indices.begin () + 6, split.indices.begin () + 12);
+    const uint32_t mid = uint32_t (split.positions.size () / 3);
+    for (const double v : { 0.0, -1.0, 1.5 })
+        split.positions.push_back (v); // ... midway along roof rim 4-5
+    for (const uint32_t c : { 4u, mid, 6u, mid, 7u, 6u, mid, 5u, 7u })
+        split.indices.push_back (c);
+    dg::BuiltScene tee;
+    tee.shells.push_back (split);
+    EXPECT_EQ (dg::BuildGeometry (tee).meshes[0].lineCount, 24u);
+
+    // A sliver: slice chains repeat a corner a few micrometres away, across a weld cell
+    // boundary. The cap triangle from the twin to the far corner collapses when welded and
+    // must not make the roof diagonal non-manifold.
+    auto sliver = Box ("storey:box:3", 4, 2, 3);
+    const uint32_t twin = uint32_t (sliver.positions.size () / 3);
+    for (const double v : { 2.0 + 0.5e-4 + 2e-6, 1.0, 1.5 }) // vertex 7, just over a cell edge
+        sliver.positions.push_back (v);
+    sliver.positions[7 * 3] = 2.0 + 0.5e-4 - 1e-6;
+    for (const uint32_t c : { 4u, 7u, twin })
+        sliver.indices.push_back (c);
+    dg::BuiltScene thin;
+    thin.shells.push_back (sliver);
+    EXPECT_EQ (dg::BuildGeometry (thin).meshes[0].lineCount, 24u);
+
+    EXPECT_EQ (g.Bytes (), g.vertices.size () * sizeof (dg::DiagramVertex) + g.indices.size () * 4 +
+                               g.lines.size () * sizeof (dg::DiagramLineVertex));
+}
+
+TEST (DiagramGeometry, ConnectorsSpanTheGapBetweenConsecutiveStoreys)
+{
+    const auto prepared = Replay (Fixture ());
+    ASSERT_TRUE (prepared.publication);
+    const auto& p = *prepared.publication;
+    // Building A stacks three storeys: two pairs. The lone slab has nothing to connect.
+    ASSERT_EQ (p.geometry.connectors.size (), 2u);
+    for (const auto& c : p.geometry.connectors) {
+        EXPECT_GT (c.lineCount, 0u);
+        EXPECT_EQ (c.lineCount % 2, 0u);
+        const auto* upper = Node (p.plan, c.upper.key);
+        const auto* lower = Node (p.plan, c.lower.key);
+        ASSERT_TRUE (upper && lower);
+        EXPECT_EQ (upper->sibling, lower->sibling + 1);
+    }
+    // Assembled: the stack touches, so no connector is drawn; outlines still are.
+    const auto still =
+        dg::LineDrawsOf (p.geometry, p.plan, dg::Evaluate (dg::Spaced (p.plan, { 0.0 }), {}, 1.0), {}, true, true);
+    EXPECT_EQ (still.size (), p.geometry.meshes.size ());
+    for (const auto& draw : still)
+        EXPECT_FALSE (draw.dashed);
+
+    // At a 3 m gap every connector line is exactly one gap long, vertical, and dashed from
+    // the upper storey's bottom.
+    const auto spaced = dg::Spaced (p.plan, { 3.0 });
+    const auto frame = dg::Evaluate (spaced, {}, 1.0);
+    const auto lines = dg::LineDrawsOf (p.geometry, spaced, frame, {}, false, true);
+    ASSERT_EQ (lines.size (), 2u);
+    for (const auto& draw : lines) {
+        EXPECT_TRUE (draw.dashed);
+        for (uint32_t i = draw.firstLine; i < draw.firstLine + draw.lineCount; i += 2) {
+            const auto& top = p.geometry.lines[i];
+            const auto& bottom = p.geometry.lines[i + 1];
+            ASSERT_EQ (top.end, 0.0f);
+            ASSERT_EQ (bottom.end, 1.0f);
+            float a[3], b[3];
+            for (int k = 0; k < 3; ++k) {
+                a[k] = top.position[k] + draw.first[size_t (k)];
+                b[k] = bottom.position[k] + draw.second[size_t (k)];
+            }
+            EXPECT_NEAR (a[0], b[0], 1e-3f);
+            EXPECT_NEAR (a[1], b[1], 1e-3f);
+            EXPECT_NEAR (a[2] - b[2], 3.0f, 1e-3f);
+            EXPECT_NEAR (a[2], draw.dashOrigin, 1e-3f);
+        }
+    }
+    // Lines off draws none.
+    EXPECT_TRUE (dg::LineDrawsOf (p.geometry, spaced, frame, {}, false, false).empty ());
+}
+
 TEST (DiagramPublication, ARefusedSnapshotKeepsTheSessionBindings)
 {
     auto first = Replay (Fixture ());
