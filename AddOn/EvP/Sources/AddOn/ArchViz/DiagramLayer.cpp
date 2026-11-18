@@ -29,6 +29,7 @@ struct DiagramConstants {
     float light[4];       // xyz: fixed legibility direction, w: ambient
     float translation[4]; // xyz: the node's display translation, w unused
     float tint[4];        // rgb: highlight colour, a: highlight weight (0 = none)
+    float style[4];       // x: white study-model weight (0 = function colours), yzw unused
 };
 
 // ⚠️ .wzyx: a 0xRRGGBBAA uint read as normalized UINT8x4 arrives byte-reversed on a
@@ -40,6 +41,7 @@ cbuffer DiagramConstants
     float4   g_light;
     float4   g_translation;
     float4   g_tint;
+    float4   g_style;
 };
 struct VSInput
 {
@@ -58,7 +60,8 @@ void main (in VSInput vsIn, out PSInput psIn)
     float lambert = abs (dot (normalize (vsIn.normal), g_light.xyz));
     float shade = g_light.w + (1.0 - g_light.w) * lambert;
     float4 rgba = vsIn.color.wzyx;
-    float3 base = lerp (rgba.rgb, g_tint.rgb, g_tint.a);
+    float3 colour = lerp (rgba.rgb, float3 (0.93, 0.93, 0.91), g_style.x);
+    float3 base = lerp (colour, g_tint.rgb, g_tint.a);
     psIn.color = float4 (base * shade, 1.0);
 }
 )hlsl";
@@ -282,6 +285,7 @@ void DiagramLayer::Draw (Diligent::IDeviceContext* context, const float viewProj
     constants.tint[0] = float ((sel >> 24) & 0xFF) / 255.0f;
     constants.tint[1] = float ((sel >> 16) & 0xFF) / 255.0f;
     constants.tint[2] = float ((sel >> 8) & 0xFF) / 255.0f;
+    constants.style[0] = (std::min) ((std::max) (params.monochrome, 0.0f), 1.0f);
 
     Diligent::IBuffer* buffers[1] = { impl_->vertices };
     const Diligent::Uint64 offsets[1] = { 0 };

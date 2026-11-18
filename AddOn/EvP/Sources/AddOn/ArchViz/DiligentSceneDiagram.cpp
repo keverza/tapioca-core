@@ -1,61 +1,78 @@
-// #201 Diagram Mode in the viewer: the scene's half. The publication is DiagramModel's;
-// this file owns only when it is uploaded and how its frame is placed.
+// #201 Diagram Mode in the viewer: the scene's half. The publication and the presentation come
+// in a DiagramView (DiagramView.hpp); this file owns only when it is uploaded and where its
+// frame is placed.
 #include "ArchViz/DiligentSceneImpl.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/DiagramModel.hpp"
+#include "ArchViz/DiagramView.hpp"
 #include <windows.h>
 #include <algorithm>
+#include <cmath>
 
 namespace geomsrv {
 namespace archviz {
 
-void DiligentScene::DrawDiagram (Diligent::IDeviceContext* context, const float viewProj[16],
-                                 uint32_t colorBufferFormat, uint32_t depthBufferFormat)
+DiligentScene::DiagramFrameStats DiligentScene::DrawDiagram (Diligent::IDeviceContext* context,
+                                                             const float viewProj[16], uint32_t colorBufferFormat,
+                                                             uint32_t depthBufferFormat,
+                                                             const diagram::DiagramView* view)
 {
+    DiagramFrameStats stats;
     if (impl_ == nullptr || context == nullptr || impl_->device == nullptr || impl_->diagramInitFailed)
-        return;
-    const auto controls = diagrammodel::ReadControls ();
-    const auto publication = diagrammodel::Read ();
-    if (!controls.enabled || !publication) {
-        impl_->diagramT = 0.0; // re-entry explodes from the assembled building again
+        return stats;
+    const auto& publication = view ? view->publication : nullptr;
+    if (!publication) {
+        impl_->diagramShown = Impl::ZeroSpacing (); // re-entry explodes from the assembled building again
+        impl_->diagramPlan.reset ();
+        impl_->diagramPlanFor.reset ();
         impl_->diagramLastTick = 0;
-        return;
+        return stats;
     }
     if (!impl_->diagram.IsReady ()) {
         std::string error;
         if (!impl_->diagram.Init (impl_->device, colorBufferFormat, depthBufferFormat, error)) {
             impl_->diagramInitFailed = true; // ONCE: a shader that failed fails every frame
             ArchVizLog ("Diligent scene: diagram layer unavailable (" + error + ")");
-            return;
+            return stats;
         }
     }
-    // ⚠️ A NEW PUBLICATION IS THE ONLY UPLOAD. Animation changes translations, not bytes.
+    // ⚠️ A NEW PUBLICATION IS THE ONLY UPLOAD. Spacing changes translations, not bytes.
     if (publication->generation != impl_->diagramGeneration) {
         std::string error;
         if (!impl_->diagram.Upload (impl_->device, context, publication->geometry, error)) {
             ArchVizLog ("Diligent scene: diagram upload failed (" + error + ")");
-            return;
+            return stats;
         }
         impl_->diagramGeneration = publication->generation;
     }
-    // A full travel takes about two thirds of a second; Evaluate's easing shapes it.
+    // Eased toward the view's spacing: about 90 % of the way in a third of a second.
     const uint64_t now = ::GetTickCount64 ();
     const double seconds = impl_->diagramLastTick ? double (now - impl_->diagramLastTick) / 1000.0 : 0.0;
     impl_->diagramLastTick = now;
-    const double step = std::clamp (seconds, 0.0, 0.1) * 1.5;
-    const double target = controls.explode;
-    impl_->diagramT = impl_->diagramT < target ? (std::min) (target, impl_->diagramT + step)
-                                               : (std::max) (target, impl_->diagramT - step);
-    const auto selected = diagrammodel::Selected ();
+    impl_->diagramShown = view->animate ? diagram::Approach (impl_->diagramShown, view->spacing,
+                                                             1.0 - std::exp (-7.0 * std::clamp (seconds, 0.0, 0.1)))
+                                        : view->spacing;
+    if (impl_->diagramPlanFor != publication || !impl_->diagramPlan ||
+        !(impl_->diagramPlanSpacing == impl_->diagramShown)) {
+        impl_->diagramPlan =
+            std::make_shared<const diagram::LayoutPlan> (diagram::Spaced (publication->plan, impl_->diagramShown));
+        impl_->diagramPlanFor = publication;
+        impl_->diagramPlanSpacing = impl_->diagramShown;
+    }
     const diagram::Frame frame = diagram::Evaluate (
-        publication->plan, selected.Empty () ? std::vector<diagram::EntityId> {} : std::vector { selected },
-        impl_->diagramT);
+        *impl_->diagramPlan,
+        view->selected.Empty () ? std::vector<diagram::EntityId> {} : std::vector { view->selected }, 1.0);
     // The viewer draws world metres: the render origin is zero (DiagramGeometry.hpp).
-    const auto draws = diagram::DrawsOf (publication->geometry, publication->plan, frame, diagram::Vec3 {});
-    impl_->diagram.Draw (context, viewProj, draws, DiagramLayer::DrawParams {});
-    diagrammodel::ReportDraw (impl_->diagram.UploadCount (), impl_->diagram.UploadedBytes (),
-                              impl_->diagram.DrawCount (), impl_->diagramT);
+    const auto draws = diagram::DrawsOf (publication->geometry, *impl_->diagramPlan, frame, diagram::Vec3 {});
+    DiagramLayer::DrawParams params;
+    params.monochrome = view->colouring == diagram::Colouring::White ? 1.0f : 0.0f;
+    impl_->diagram.Draw (context, viewProj, draws, params);
+    stats.uploads = impl_->diagram.UploadCount ();
+    stats.uploadedBytes = impl_->diagram.UploadedBytes ();
+    stats.draws = impl_->diagram.DrawCount ();
+    stats.shownGap = impl_->diagramShown.storeyGap;
+    return stats;
 }
 
 void DiligentScene::SetCursorRay (CursorRayFn ray)
@@ -69,14 +86,15 @@ bool DiligentScene::PickDiagram (int32_t px, int32_t py)
     if (impl_ == nullptr || !impl_->cursorRay || !diagrammodel::ReadControls ().enabled)
         return false;
     const auto publication = diagrammodel::Read ();
-    if (!publication)
+    // The plan on screen, not the commanded one: a click lands on what the user sees.
+    const auto plan = impl_->diagramPlan;
+    if (!publication || !plan || impl_->diagramPlanFor != publication)
         return false;
     float origin[3], direction[3];
     impl_->cursorRay (px, py, origin, direction);
-    // The pose being shown, not the commanded one: a click lands on what the user sees.
-    const diagram::Frame frame = diagram::Evaluate (publication->plan, {}, impl_->diagramT);
+    const diagram::Frame frame = diagram::Evaluate (*plan, {}, 1.0);
     const auto hit =
-        diagram::Pick (frame, publication->plan, publication->shells, diagram::Vec3 { origin[0], origin[1], origin[2] },
+        diagram::Pick (frame, *plan, publication->shells, diagram::Vec3 { origin[0], origin[1], origin[2] },
                        diagram::Vec3 { direction[0], direction[1], direction[2] });
     if (!hit) {
         diagrammodel::Select ({});

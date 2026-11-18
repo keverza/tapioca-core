@@ -15,20 +15,25 @@
 //
 // Read-only (§5.9): nothing here writes the model, metadata or an undo step. Hiding the
 // source is a presentation policy of the viewer's scene, not an element change.
-#include "ArchViz/DiagramPublication.hpp"
+#include "ArchViz/DiagramView.hpp"
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace geomsrv::archviz::diagrammodel {
 struct Controls {
-    bool enabled = false;   // Diagram Mode in the viewer
-    double explode = 0.6;   // target t; §5.11 opens at 60 %
-    bool hideSource = true; // hide the represented massing slabs while the diagram is shown
+    bool enabled = false;     // Diagram Mode in the viewer
+    diagram::Spacing spacing; // storey gap in metres, and per-building overrides (#201 2026-11-18)
+    bool hideSource = true;   // hide the represented massing slabs while the diagram is shown
+    diagram::Colouring colouring = diagram::Colouring::Function;
+    diagram::Detail detail = diagram::Detail::Topology;
     auto operator<=> (const Controls&) const = default;
 };
 Controls ReadControls ();
 void SetControls (const Controls& controls);
+// ANY THREAD: this frame's input for DiligentScene::DrawDiagram; no publication while
+// Diagram Mode is off.
+diagram::DiagramView View ();
 
 std::shared_ptr<const diagram::Publication> Read ();
 // The represented source GUIDs to hide, sorted; null when nothing is hidden (Diagram Mode
@@ -51,17 +56,17 @@ struct Status {
     uint64_t unchanged = 0;
     std::string savedPath, saveError;
     // Reported by the renderer: geometry uploads since its layer started, their bytes, the
-    // last frame's draws and the displayed t. Uploads stay flat while t animates.
+    // last frame's draws and the storey gap on screen. Uploads stay flat while it animates.
     uint64_t uploads = 0;
     size_t uploadedBytes = 0, draws = 0;
-    double shownT = 0;
+    double shownGap = 0;
 };
 Status ReadStatus ();
 // Write the last captured input as a replayable JSON file (DiagramReplay). The main thread
 // does the IO on its next Follow; the result lands in Status::savedPath / saveError.
 void RequestSave ();
 // RENDER THREAD: what the last diagram frame did.
-void ReportDraw (uint64_t uploads, size_t uploadedBytes, size_t draws, double shownT);
+void ReportDraw (uint64_t uploads, size_t uploadedBytes, size_t draws, double shownGap);
 
 void Follow ();
 void Forget ();

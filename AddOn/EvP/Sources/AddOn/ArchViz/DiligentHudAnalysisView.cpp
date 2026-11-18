@@ -5,6 +5,7 @@
 
 #include "ArchViz/AnalysisTabs.hpp"
 #include "ArchViz/Camera.hpp"
+#include "ArchViz/DiagramModel.hpp"
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentViewportSupport.hpp" // UpdateAndDrawGhPreview
@@ -333,8 +334,12 @@ void UpdateAndDrawModelOverlays (DiligentScene& scene, Diligent::IDeviceContext*
     UpdateAndDrawGhPreview (scene, context, state, viewProj, width, height, colorFormat, depthFormat, modelIsDrawn);
     UpdateAndDrawAnalysisOverlays (scene, context, state, viewProj, width, height, colorFormat, depthFormat,
                                    modelIsDrawn, camera);
-    if (surface != SurfaceMode::Overlay)
-        scene.DrawDiagram (context, viewProj, colorFormat, depthFormat);
+    if (surface != SurfaceMode::Overlay) {
+        const auto view = diagrammodel::View ();
+        const auto drawn = scene.DrawDiagram (context, viewProj, colorFormat, depthFormat, &view);
+        if (view.publication)
+            diagrammodel::ReportDraw (drawn.uploads, drawn.uploadedBytes, drawn.draws, drawn.shownGap);
+    }
 }
 
 } // namespace geomsrv::archviz

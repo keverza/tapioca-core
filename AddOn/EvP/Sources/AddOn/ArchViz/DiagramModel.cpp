@@ -177,7 +177,22 @@ void SetControls (const Controls& controls)
 {
     std::lock_guard<std::mutex> lock (s_mutex);
     s_controls = controls;
-    s_controls.explode = controls.explode < 0 ? 0 : controls.explode > 1 ? 1 : controls.explode;
+    s_controls.spacing.storeyGap = controls.spacing.GapOf ({});
+    for (auto& [key, gap] : s_controls.spacing.buildingGap)
+        gap = controls.spacing.GapOf (key);
+}
+diagram::DiagramView View ()
+{
+    diagram::DiagramView view;
+    std::lock_guard<std::mutex> lock (s_mutex);
+    if (!s_controls.enabled)
+        return view;
+    view.publication = s_publication.load ();
+    view.spacing = s_controls.spacing;
+    view.colouring = s_controls.colouring;
+    view.detail = s_controls.detail;
+    view.selected = s_selected;
+    return view;
 }
 std::shared_ptr<const diagram::Publication> Read ()
 {
@@ -196,13 +211,13 @@ void RequestSave ()
 {
     s_saveRequested.store (true);
 }
-void ReportDraw (uint64_t uploads, size_t uploadedBytes, size_t draws, double shownT)
+void ReportDraw (uint64_t uploads, size_t uploadedBytes, size_t draws, double shownGap)
 {
     std::lock_guard<std::mutex> lock (s_mutex);
     s_status.uploads = uploads;
     s_status.uploadedBytes = uploadedBytes;
     s_status.draws = draws;
-    s_status.shownT = shownT;
+    s_status.shownGap = shownGap;
 }
 
 void Follow ()

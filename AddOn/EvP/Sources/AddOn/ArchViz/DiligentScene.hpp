@@ -67,6 +67,9 @@ namespace archviz {
 
 class Camera;
 struct SunPathSceneGeometry; // ArchViz/SunPathScene.hpp
+namespace diagram {
+struct DiagramView; // ArchViz/DiagramView.hpp
+}
 
 // Defined in DiligentShaders.hpp, which this header deliberately does not pull
 // in: it carries every shader source string in the renderer.
@@ -644,12 +647,19 @@ class DiligentScene final {
                         uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                         const GhPreviewStyle& style, const GhPreviewLayer::DrawParams& params);
 
-    // #201: the exploded massing diagram, after the model and depth-tested against it. Pulls
-    // its publication from DiagramModel itself (as the preview pulls GhPreviewCache); geometry
-    // uploads on a new publication only, and t eases toward the commanded explode with
-    // frame time. Nothing is drawn while Diagram Mode is off.
-    void DrawDiagram (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t colorBufferFormat,
-                      uint32_t depthBufferFormat);
+    // #201: the exploded massing diagram, after the model and depth-tested against it. `view`
+    // is everything it reads (DiagramView.hpp): the live viewer fills it from DiagramModel,
+    // RenderBench from a capture; null draws nothing and the next view explodes from the
+    // assembled building again. Geometry uploads on a new publication only; the shown
+    // spacing eases toward the view's with frame time, which moves translations, not bytes.
+    struct DiagramFrameStats {
+        uint64_t uploads = 0; // geometry uploads since the layer started
+        size_t uploadedBytes = 0, draws = 0;
+        double shownGap = 0; // the shared storey gap on screen, m
+    };
+    DiagramFrameStats DrawDiagram (Diligent::IDeviceContext* context, const float viewProj[16],
+                                   uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                                   const diagram::DiagramView* view);
     // The frame camera's world ray through a render-target pixel (Camera::CursorRay), set each
     // frame by SetDiligentCameraRays so the scene can pick the diagram exactly on the CPU.
     using CursorRayFn = std::function<void (int32_t px, int32_t py, float origin[3], float direction[3])>;

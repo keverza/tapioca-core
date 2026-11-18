@@ -29,6 +29,7 @@
 #include "ArchViz/GhPreviewLayer.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/DiagramLayer.hpp"
+#include "ArchViz/DiagramLayout.hpp"
 #include "ArchViz/DiligentScreenSpaceReflection.hpp"
 #include "ArchViz/DiligentTemporalAntiAliasing.hpp"
 #include "ArchViz/DiligentShaders.hpp" // DiligentSceneConstants, for UploadConstants below
@@ -746,15 +747,29 @@ struct geomsrv::archviz::DiligentScene::Impl {
     DiagramLayer diagram;
     uint64_t diagramGeneration = 0;
     bool diagramInitFailed = false;
-    double diagramT = 0.0;                                                // displayed t, eased toward the commanded one
-    uint64_t diagramLastTick = 0;                                         // GetTickCount64 of the last diagram frame
+    // The spacing on screen, eased toward the view's; all gaps 0 while nothing is shown, so a
+    // view explodes from the assembled building. `diagramPlan` is the publication's plan at
+    // that spacing -- what is drawn and what a click picks against.
+    diagram::Spacing diagramShown = ZeroSpacing ();
+    std::shared_ptr<const diagram::LayoutPlan> diagramPlan;
+    std::shared_ptr<const void> diagramPlanFor; // the publication diagramPlan was spaced from
+    diagram::Spacing diagramPlanSpacing;
+    uint64_t diagramLastTick = 0; // GetTickCount64 of the last diagram frame
+    static diagram::Spacing ZeroSpacing ()
+    {
+        diagram::Spacing zero;
+        zero.storeyGap = 0;
+        return zero;
+    }
     std::function<void (int32_t, int32_t, float[3], float[3])> cursorRay; // this frame's camera
     void ShutdownDiagram ()
     {
         diagram.Shutdown ();
         diagramGeneration = 0;
         diagramInitFailed = false;
-        diagramT = 0.0;
+        diagramShown = ZeroSpacing ();
+        diagramPlan.reset ();
+        diagramPlanFor.reset ();
         diagramLastTick = 0;
     }
     // Every overlay layer drawn over the model, torn down together with the viewport.

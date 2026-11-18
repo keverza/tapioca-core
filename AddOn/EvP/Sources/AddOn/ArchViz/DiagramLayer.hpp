@@ -57,6 +57,7 @@ class DiagramLayer final {
     struct DrawParams {
         float ambient = 0.5f;
         uint32_t selectedRgba = 0x2BB3E6FF; // diagram-owned highlight (§5.9): one highlight source
+        float monochrome = 0.0f;            // 1: one white study-model tone instead of function colours
     };
     void Draw (Diligent::IDeviceContext* context, const float viewProj[16],
                const std::vector<diagram::DiagramDraw>& draws, const DrawParams& params);
