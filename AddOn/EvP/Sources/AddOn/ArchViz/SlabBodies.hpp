@@ -37,6 +37,11 @@ void Want (const std::vector<std::string>& guids, const std::string& owner = "st
 // Invalidate edited sources before asking for another pass. Tickets reject a pass
 // that started before the edit, even if it completes afterwards.
 void Invalidate (const std::vector<std::string>& guids);
+// The model moved but these sources' own records did not (an SEO operator or a link may
+// have changed them, or nothing has): a pass that started before now is rejected as by
+// Invalidate, but the held bodies stay published until the next pass replaces them.
+// Erasing them would publish an "awaiting a body" result between two identical ones (#235).
+void Revalidate (const std::vector<std::string>& guids);
 std::map<std::string, uint64_t> Capture ();
 // What a pass reads at its start.
 std::set<std::string> Wanted ();
@@ -50,6 +55,11 @@ struct Bodies {
 void Publish (std::vector<Mesh> meshes);
 void Publish (std::vector<Mesh> meshes, const std::map<std::string, uint64_t>& captured);
 std::shared_ptr<const Bodies> Latest ();
+
+// True when `a` and `b` hold the same set of `guids` with identical vertices and
+// triangles -- what the slices read. A newer generation with the same geometry is then
+// no reason to rebuild. Either null counts as different unless `guids` is empty.
+bool SameGeometry (const Bodies* a, const Bodies* b, const std::vector<std::string>& guids);
 
 // Project closed (§8): release every consumer and every cached body.
 void Clear ();

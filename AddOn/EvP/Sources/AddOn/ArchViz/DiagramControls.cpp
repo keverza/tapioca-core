@@ -2,6 +2,7 @@
 #include "ArchViz/DiagramControls.hpp"
 #include "ArchViz/DiagramModel.hpp"
 #include "ArchViz/DiligentHud.hpp" // viewerhud::AdaptiveSlider
+#include "ArchViz/MassingSlicesModel.hpp"
 #include "ArchViz/ViewerEditor.hpp"
 
 #include <imgui.h>
@@ -172,6 +173,11 @@ void Draw (Memory& memory)
             static_cast<unsigned long long> (status.unchanged));
         Wrapped (line, &kMuted);
     }
+    const auto slices = massingslicesmodel::ReadCounts ();
+    std::snprintf (line, sizeof (line), "massing: %llu build(s), %llu body pass(es) with nothing new",
+                   static_cast<unsigned long long> (slices.builds),
+                   static_cast<unsigned long long> (slices.sameBodies));
+    Wrapped (line, &kMuted);
     if (!status.notes.empty () && ImGui::TreeNode ("DiagramNotes", "Notes (%zu)", status.notes.size ())) {
         for (size_t i = 0; i < status.notes.size () && i < 12; ++i)
             Wrapped (status.notes[i], &kMuted);

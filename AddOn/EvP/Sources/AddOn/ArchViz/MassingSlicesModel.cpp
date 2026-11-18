@@ -21,6 +21,7 @@
 #include "Server/ServerState.hpp"
 
 #include <algorithm>
+#include <atomic>
 
 namespace geomsrv::archviz::massingslicesmodel {
 namespace {
@@ -35,12 +36,14 @@ std::shared_ptr<const massingslices::Result> s_result;
 storysliceoverlay::Controls s_display;
 bool s_shown = true, s_styleDirty = false, s_bodyPass = false;
 uint64_t s_bodies = 0;
-std::string s_bodySignature;
+std::shared_ptr<const slabbodies::Bodies> s_heldBodies; // the bodies s_result was built from
+std::string s_bodySignature, s_bodyModelStamp;
 std::string s_hoverFunction;
 bool s_collapseShown = false;
 std::string s_collapseNote;
 std::shared_ptr<const std::vector<SliceChain>> s_collapseContours;
 bool s_bakeCollapse = false;
+std::atomic<uint64_t> s_builds { 0 }, s_sameBodies { 0 }; // results published; body passes that changed nothing
 
 void Highlight ()
 {
@@ -129,15 +132,26 @@ void Update ()
         const auto operatorStamps = slabsource::Stamps (watchedOperators);
         for (size_t i = 0; i < watchedOperators.size (); ++i)
             bodySignature += watchedOperators[i] + ":" + std::to_string (operatorStamps[i]) + ";";
-        // SEO operation/link edits may leave the participating element records
-        // unchanged. The extraction's model revision also invalidates held bodies.
-        if (!bodyTargets.empty ())
-            bodySignature += "model:" + std::to_string (modelwatch::CaptureStamp ());
     }
+    // SEO operation/link edits may leave the participating element records unchanged, so
+    // the model's capture stamp also asks for a body pass -- but only a REVALIDATION: the
+    // sources' own records did not move, so the held bodies stay until the pass replaces
+    // them. Erasing them published an "awaiting a body" result between two identical ones,
+    // and a pass that brings back the same geometry rebuilds nothing (#235).
+    // ⚠️ THE STAMP STAYS IN THE REBUILD SIGNATURE: a stamp move rebuilds once, which is
+    // what re-reads the sources' metadata (a function edit is element user data, and its
+    // effect on modiStamp is not established).
+    const std::string modelStamp = bodyTargets.empty () ? std::string () : std::to_string (modelwatch::CaptureStamp ());
     slabbodies::Want (bodyTargets, "massing");
     if (bodySignature != s_bodySignature) {
         s_bodySignature = bodySignature;
+        s_bodyModelStamp = modelStamp;
         slabbodies::Invalidate (bodyTargets);
+        s_bodyPass = !bodyTargets.empty ();
+    }
+    else if (modelStamp != s_bodyModelStamp) {
+        s_bodyModelStamp = modelStamp;
+        slabbodies::Revalidate (bodyTargets);
         s_bodyPass = !bodyTargets.empty ();
     }
     if (s_bodyPass && !ExtractionWorker::Get ().IsRunning ()) {
@@ -145,8 +159,15 @@ void Update ()
         ExtractionWorker::Get ().Start (true);
     }
     const auto bodies = slabbodies::Latest ();
-    const uint64_t bodyGeneration = bodies && !bodyTargets.empty () ? bodies->generation : 0;
-    signature += bodySignature;
+    uint64_t bodyGeneration = bodies && !bodyTargets.empty () ? bodies->generation : 0;
+    // A new generation holding the geometry this result was built from is not a change.
+    if (bodyGeneration != s_bodies && s_result &&
+        slabbodies::SameGeometry (s_heldBodies.get (), bodies.get (), bodyTargets)) {
+        s_bodies = bodyGeneration;
+        s_heldBodies = bodies;
+        ++s_sameBodies;
+    }
+    signature += bodySignature + "model:" + modelStamp;
     const auto calculation = massinghybrid::Read ();
     const auto envelope = calculation.preview;
     if (signature == s_signature && envelope == s_envelope && calculation.terrain == s_projectionTerrain && s_result &&
@@ -154,6 +175,7 @@ void Update ()
         return;
     s_styleDirty = false;
     s_bodies = bodyGeneration;
+    s_heldBodies = bodyTargets.empty () ? nullptr : bodies;
     s_signature = std::move (signature);
     s_envelope = envelope;
     s_projectionTerrain = calculation.terrain;
@@ -290,6 +312,7 @@ void Update ()
     if (s_shown && !result.rows.empty ())
         overlaylayers::Set (result.layer);
     s_result = std::make_shared<const massingslices::Result> (std::move (result));
+    ++s_builds;
     sectionmodel::Publish ();
     overlayhudmodel::RefreshSelection ();
     Highlight ();
@@ -349,6 +372,11 @@ void Poll ()
         Changed ();
     Update ();
     s_polling = false;
+}
+
+Counts ReadCounts ()
+{
+    return { s_builds.load (), s_sameBodies.load () };
 }
 
 std::shared_ptr<const massingslices::Result> Read ()
@@ -436,6 +464,8 @@ void Forget ()
     slabbodies::Want ({}, "massing");
     s_bodies = 0;
     s_bodySignature.clear ();
+    s_bodyModelStamp.clear ();
+    s_heldBodies.reset ();
     s_bodyPass = false;
     s_display = {};
     s_shown = true;

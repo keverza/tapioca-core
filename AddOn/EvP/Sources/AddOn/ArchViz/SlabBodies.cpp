@@ -56,6 +56,32 @@ void Invalidate (const std::vector<std::string>& guids)
     g_latest = std::move (next);
 }
 
+void Revalidate (const std::vector<std::string>& guids)
+{
+    std::lock_guard<std::mutex> lock (g_mutex);
+    for (const auto& guid : guids)
+        if (g_wanted.count (guid))
+            s_tickets[guid] = ++s_serial;
+}
+
+bool SameGeometry (const Bodies* a, const Bodies* b, const std::vector<std::string>& guids)
+{
+    if (guids.empty ())
+        return true;
+    if (a == nullptr || b == nullptr)
+        return false;
+    for (const auto& guid : guids) {
+        const auto x = a->meshes.find (guid);
+        const auto y = b->meshes.find (guid);
+        const bool hasX = x != a->meshes.end (), hasY = y != b->meshes.end ();
+        if (hasX != hasY)
+            return false;
+        if (hasX && (x->second.vertices != y->second.vertices || x->second.triangles != y->second.triangles))
+            return false;
+    }
+    return true;
+}
+
 std::map<std::string, uint64_t> Capture ()
 {
     std::lock_guard<std::mutex> lock (g_mutex);

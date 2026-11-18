@@ -3,6 +3,7 @@
 // here -- the storey rule against the feasibility figures' own cases -- and so is the
 // slice's outline, holes and arcs included.
 
+#include "ArchViz/SlabBodies.hpp"
 #include "ArchViz/SlabSlices.hpp"
 
 #include <gtest/gtest.h>
@@ -355,4 +356,66 @@ TEST (SlabSlices, TheSlicesAboveTheTopStoreyCountOn)
     ASSERT_EQ (slices.size (), 8u) << summary.problem;
     for (size_t k = 0; k < slices.size (); ++k)
         EXPECT_EQ (slices[k].storey, int (k) - 1) << "floor " << k + 1;
+}
+
+// ---- #235: a model stamp revalidates the held bodies instead of erasing them ----------
+
+namespace {
+namespace sb = geomsrv::archviz::slabbodies;
+
+geomsrv::Mesh Body (const std::string& guid, double lift)
+{
+    geomsrv::Mesh mesh;
+    mesh.guid = guid;
+    mesh.vertices = { 0, 0, lift, 1, 0, lift, 0, 1, lift };
+    mesh.triangles = { 0, 1, 2 };
+    return mesh;
+}
+} // namespace
+
+TEST (SlabBodies, RevalidateKeepsTheHeldBodyAndRejectsAnOlderPass)
+{
+    sb::Clear ();
+    sb::Want ({ "a" }, "massing");
+    sb::Publish ({ Body ("a", 0) });
+    const auto held = sb::Latest ();
+    ASSERT_TRUE (held && held->meshes.count ("a"));
+
+    const auto before = sb::Capture (); // a pass that started before the model moved
+    sb::Revalidate ({ "a" });
+    // Still shown: no "awaiting a body" result between two identical ones.
+    EXPECT_EQ (sb::Latest (), held);
+    // That older pass brings a stale body: rejected, the held one stays.
+    sb::Publish ({ Body ("a", 5) }, before);
+    ASSERT_TRUE (sb::Latest ()->meshes.count ("a"));
+    EXPECT_EQ (sb::Latest ()->meshes.at ("a").vertices, held->meshes.at ("a").vertices);
+    // A pass after it is accepted.
+    sb::Publish ({ Body ("a", 0) });
+    EXPECT_GT (sb::Latest ()->generation, held->generation);
+    EXPECT_TRUE (sb::SameGeometry (held.get (), sb::Latest ().get (), { "a" }));
+
+    // Invalidate still erases: an edited source must not show its old body.
+    sb::Invalidate ({ "a" });
+    EXPECT_FALSE (sb::Latest ()->meshes.count ("a"));
+    sb::Clear ();
+}
+
+TEST (SlabBodies, SameGeometryComparesWhatTheSlicesRead)
+{
+    sb::Bodies a, b;
+    a.meshes["a"] = Body ("a", 0);
+    b.meshes["a"] = Body ("a", 0);
+    b.meshes["a"].normals = { 0, 0, 1, 0, 0, 1, 0, 0, 1 }; // not read by the slices
+    b.generation = 7;
+    EXPECT_TRUE (sb::SameGeometry (&a, &b, { "a" }));
+    EXPECT_TRUE (sb::SameGeometry (&a, &b, {}));
+    b.meshes["a"].vertices[2] = 0.01;
+    EXPECT_FALSE (sb::SameGeometry (&a, &b, { "a" }));
+    b.meshes.erase ("a");
+    EXPECT_FALSE (sb::SameGeometry (&a, &b, { "a" }));
+    EXPECT_FALSE (sb::SameGeometry (nullptr, &a, { "a" }));
+    // A guid outside the targets does not matter.
+    a.meshes["z"] = Body ("z", 3);
+    b.meshes["a"] = Body ("a", 0);
+    EXPECT_TRUE (sb::SameGeometry (&a, &b, { "a" }));
 }

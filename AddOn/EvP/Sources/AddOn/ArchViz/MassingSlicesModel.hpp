@@ -18,5 +18,13 @@ bool Shown ();
 storysliceoverlay::Controls Controls ();
 void Forget ();
 void Shutdown ();
+
+// ANY THREAD. How often a result was built and published, and how often a body pass
+// brought back the geometry already shown and rebuilt nothing (#235). On an idle model
+// `builds` stays flat.
+struct Counts {
+    uint64_t builds = 0, sameBodies = 0;
+};
+Counts ReadCounts ();
 } // namespace geomsrv::archviz::massingslicesmodel
 #endif
