@@ -12,6 +12,7 @@ set (RENDER_BENCH_DIR "${CMAKE_CURRENT_LIST_DIR}/../tools/RenderBench")
 set (RENDER_BENCH_SOURCES
     "${RENDER_BENCH_DIR}/RenderBench.cpp"
     "${RENDER_BENCH_DIR}/ObjScene.cpp"
+    "${RENDER_BENCH_DIR}/SunVisibility.cpp"
     "${RENDER_BENCH_DIR}/BenchStubs.cpp")
 # The renderer's own sources, one path per line relative to Sources/AddOn, in Sources.txt beside
 # the bench -- the closure of what DiligentScene links against, grown one unresolved symbol at a

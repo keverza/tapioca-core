@@ -16,6 +16,7 @@
 //       [--sun az,alt] [--env sky.hdr] [--samples 256] [--frames 48]
 
 #include "ObjScene.hpp"
+#include "SunVisibility.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/DiligentDeviceFactory.hpp"
@@ -39,6 +40,7 @@
 #include <windows.h>
 #include <dbghelp.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -95,6 +97,8 @@ struct Options {
     // Shadow-map overrides (negative: the viewer's default), to sweep the biases.
     float shadowBias = -1.0f, shadowClamp = -1.0f, shadowFilter = -1.0f;
     int shadowPcss = -1;
+    int shadowResolution = int (av::DiligentShadowSettings {}.resolution);
+    int shadowFit = -1;
 };
 
 bool ParseTriple (const std::string& text, float out[3])
@@ -171,6 +175,10 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.shadowFilter = std::stof (next ());
         else if (a == "--shadow-pcss")
             o.shadowPcss = std::stoi (next ());
+        else if (a == "--shadow-resolution")
+            o.shadowResolution = std::stoi (next ());
+        else if (a == "--shadow-fit")
+            o.shadowFit = std::stoi (next ());
         else if (a == "--off") {
             std::stringstream in (next ());
             std::string s;
@@ -215,6 +223,16 @@ av::HudState StyleState (const std::string& style, const Options& o)
         hud.rayTracedMaxSamples = int (o.samples);
         // "ssr" is the fallback every non-DXR machine sees; "traced" is Rendered on DXR.
         hud.rayTracedReflections = style == "traced";
+    }
+    if (style == "shadow") {
+        // The raster sun visibility alone (DiligentShadowMap's shadowsOnly view): what the
+        // CPU-traced "sunvis" picture is compared against (#234). Nothing that blurs or adds
+        // light, so a pixel is the shadow map's answer for that pixel and nothing else.
+        hud.shadowOnly = true;
+        hud.ambientOcclusion = false;
+        hud.screenSpaceReflection = false;
+        hud.temporalAntiAliasing = false;
+        hud.environmentBackground = false;
     }
     if (style == "mask") {
         // The G-buffer's material data (roughness, metalness, reflectance): compare.py's glossy mask.
@@ -339,6 +357,10 @@ void RenderFrame (av::DiligentScene& scene, Diligent::IDeviceContext* context, T
     shadow.receiverPlaneBiasClamp = hud.shadowReceiverBiasClamp;
     shadow.pcssEnabled = hud.shadowPcss;
     shadow.filterWorldSize = hud.shadowFilterWorldSize;
+    shadow.shadowsOnly = hud.shadowOnly;
+    shadow.resolution = uint32_t (o.shadowResolution);
+    if (o.shadowFit >= 0)
+        shadow.fitCascadesToScene = o.shadowFit != 0;
     scene.SetShadowSettings (shadow);
     scene.RenderShadowMap (context, view16, stableProj);
     scene.SetSunOverride (hud.sunOverride, hud.sunAzimuthDegrees, hud.sunAltitudeDegrees);
@@ -489,6 +511,10 @@ int main (int argc, char** argv)
         return 1;
     }
 
+    renderbench::SunVisibility sunVisibility;
+    if (std::find (o.styles.begin (), o.styles.end (), "sunvis") != o.styles.end ())
+        sunVisibility.Build (obj); // before the elements are handed to the queue
+
     av::SceneCmdQueue& queue = av::SceneCmdQueue::Get ();
     queue.SetConsumer (true);
     queue.PushMaterials (std::move (obj.materials));
@@ -515,11 +541,34 @@ int main (int argc, char** argv)
     }
 
     std::ofstream report (o.out + "/bench.json");
-    report << "{\n  \"scene\": \"" << o.scene << "\",\n  \"adapter\": \"" << choice.adapterName
+    // Forward slashes: a Windows path's backslashes are JSON escapes, and the report must parse.
+    std::string scenePath = o.scene;
+    std::replace (scenePath.begin (), scenePath.end (), '\\', '/');
+    report << "{\n  \"scene\": \"" << scenePath << "\",\n  \"adapter\": \"" << choice.adapterName
            << "\",\n  \"triangles\": " << obj.triangles << ",\n  \"renders\": [\n";
     bool firstRender = true;
     for (const View& view : o.views) {
         for (const std::string& style : o.styles) {
+            if (style == "sunvis") {
+                // CPU-traced, so it needs no GPU ray tracing (SunVisibility.hpp). The sun as
+                // DiligentSceneImpl::EffectiveSun derives it from the override.
+                const float az = o.sunAz * 3.14159265f / 180.0f, alt = o.sunAlt * 3.14159265f / 180.0f;
+                const float sun[3] = { std::cos (alt) * std::cos (az), std::cos (alt) * std::sin (az), std::sin (alt) };
+                const auto start = std::chrono::steady_clock::now ();
+                const std::vector<uint8_t> vis =
+                    sunVisibility.Render (view.eye, view.target, view.fov, o.width, o.height, sun);
+                const double seconds =
+                    std::chrono::duration<double> (std::chrono::steady_clock::now () - start).count ();
+                const std::string file = view.name + "_sunvis.png";
+                const bool saved = stbi_write_png ((o.out + "/" + file).c_str (), int (o.width), int (o.height), 1,
+                                                   vis.data (), int (o.width)) != 0;
+                av::ArchVizLog ("bench: " + file + (saved ? " saved" : " NOT saved") + " in " +
+                                std::to_string (seconds) + " s (CPU)");
+                report << (firstRender ? "" : ",\n") << "    { \"view\": \"" << view.name
+                       << "\", \"style\": \"sunvis\", \"file\": \"" << file << "\", \"seconds\": " << seconds << " }";
+                firstRender = false;
+                continue;
+            }
             const av::HudState hud = StyleState (style, o);
             scene.ResetTemporalAntiAliasingHistory ();
             const bool reference = style == "reference";

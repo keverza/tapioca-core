@@ -43,6 +43,12 @@ The whole run's summary goes to `suite.json` in `--out`.
 | `reference` | The Ray traced style, converged (`--samples`). |
 | `architecture` | The Architecture preset. |
 | `mask` | The G-buffer material view, which `compare.py` uses to find the glossy pixels. |
+| `shadow` | The raster sun visibility alone (the shadow map's `shadowsOnly` view): white lit, black occluded. |
+| `sunvis` | The sun visibility traced on the CPU (`SunVisibility.cpp`): 255 lit, 0 occluded, 128 not a shadow question (sky, glazing, surfaces facing away from the sun). Needs no GPU ray tracing. |
+
+`shadow` and `sunvis` match pixel for pixel, so a pixel `sunvis` calls occluded and `shadow` calls
+lit is a shadow-map leak (#234). This is the shadow reference on machines without DXR, where
+`reference` reports "unavailable".
 
 `glossy MAE` is the mean absolute error in linear light over pixels with roughness < 0.35. It is
 the reflection number; `MAE` over the whole image also carries the ambient-light differences.
@@ -55,6 +61,8 @@ Pass bench arguments through `run_suite.py --extra "..."`, or call the exe direc
   whether an artefact goes with it.
 - `--shadow-bias`, `--shadow-clamp`, `--shadow-filter` and `--shadow-pcss 0|1` override the
   shadow map's fixed depth bias, receiver-plane clamp, filter size in metres, and PCSS.
+- `--shadow-resolution N` sets the shadow map's size; `--shadow-fit 0` splits the cascades over the
+  projection's whole near..far, as before #234, for an A/B against the scene-fitted range.
 
 ## Adding a source
 
