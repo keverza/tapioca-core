@@ -17,6 +17,10 @@ Controls ReadControls ()
 void SetControls (const Controls&)
 {
 }
+diagram::DiagramView View ()
+{
+    return {};
+}
 std::shared_ptr<const diagram::Publication> Read ()
 {
     return nullptr;
