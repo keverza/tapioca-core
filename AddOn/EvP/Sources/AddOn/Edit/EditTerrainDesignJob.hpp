@@ -40,6 +40,10 @@ struct TerrainDesignJob {
     std::shared_ptr<const TerrainCapture> capture;
     TerrainDesignOptions options; // `region` is ignored; see below.
     std::vector<double> region;   // Owned caller ring; empty derives the band's reach.
+    // The side slopes' reach the newest field preview of this revision widened to, metres (0:
+    // none): the build starts there rather than finding it again, each try being a full
+    // refinement (a large site: a minute each).
+    double startReach = 0.0;
 };
 
 // What a worker produced, stamped with what it was computed against.

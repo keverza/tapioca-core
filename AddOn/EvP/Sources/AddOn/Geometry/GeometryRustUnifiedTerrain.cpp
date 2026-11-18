@@ -3,6 +3,7 @@
 #include "GeometryRustFfi.h"
 #include "GeometryRustIdentityAbi.hpp"
 
+#include <mutex>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -373,26 +374,115 @@ bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResul
     output.meta = &meta;
     output.site = &site;
     output.context = &context;
-    output.queryOnly = 1;
-    auto status = tapioca_terrain_unified_build (&converted.raw, &output, buffer.data (), buffer.size ());
-    if (status != TAPIOCA_OK) {
-        error = Failure (status, buffer);
-        return false;
-    }
     UnifiedTerrainResult candidate;
     std::vector<TapiocaTerrainMapping> mappings;
     std::vector<TapiocaUnifiedLine> lines;
     std::vector<TapiocaUnifiedLocked> locked;
     std::vector<TapiocaUnifiedStep> steps;
     std::vector<uint32_t> owners;
-    if (counts.points % 3 != 0 || counts.triangles % 3 != 0 || counts.points > candidate.points.max_size () ||
-        counts.triangles > candidate.triangles.max_size () || counts.mappings > mappings.max_size () ||
-        counts.lines > lines.max_size () || counts.locked > locked.max_size () ||
-        counts.steps > 3 * kOutlineStepWitnessLimit) {
-        error = "TerrainOutputShape: invalid unified query counts";
+    // Outputs of `room`'s sizes, filled.
+    const auto fill = [&] (const TapiocaUnifiedCounts& room) {
+        candidate.points.assign (room.points, 0.0);
+        candidate.base.assign (room.points / 3, 0.0);
+        owners.assign (room.points / 3, 0);
+        candidate.triangles.assign (room.triangles, 0);
+        mappings.assign (room.mappings, {});
+        lines.assign (room.lines, {});
+        locked.assign (room.locked, {});
+        steps.assign (room.steps, {});
+        output.points = candidate.points.data ();
+        output.pointCapacity = candidate.points.size ();
+        output.base = candidate.base.data ();
+        output.baseCapacity = candidate.base.size ();
+        output.owners = owners.data ();
+        output.ownerCapacity = owners.size ();
+        output.triangles = candidate.triangles.data ();
+        output.triangleCapacity = candidate.triangles.size ();
+        output.mappings = mappings.data ();
+        output.mappingCapacity = mappings.size ();
+        output.lines = lines.data ();
+        output.lineCapacity = lines.size ();
+        output.locked = locked.data ();
+        output.lockedCapacity = locked.size ();
+        output.steps = steps.data ();
+        output.stepCapacity = steps.size ();
+        output.queryOnly = 0;
+        return tapioca_terrain_unified_build (&converted.raw, &output, buffer.data (), buffer.size ());
+    };
+    const auto valid = [&] (const TapiocaUnifiedCounts& c) {
+        return c.points % 3 == 0 && c.triangles % 3 == 0 && c.points <= candidate.points.max_size () &&
+               c.triangles <= candidate.triangles.max_size () && c.mappings <= mappings.max_size () &&
+               c.lines <= lines.max_size () && c.locked <= locked.max_size () &&
+               c.steps <= 3 * kOutlineStepWitnessLimit;
+    };
+    // A query computes the whole build, and its fill computes it again: a large site's refinement
+    // takes a minute. The fill is first tried at the last build's sizes with room (the same design
+    // rebuilt, or its reach widened); a query only when that does not fit. Each build runs on a
+    // worker thread of its own, so the sizes are kept for the process.
+    static std::mutex s_lastMutex;
+    static TapiocaUnifiedCounts s_last {};
+    TapiocaUnifiedCounts t_last {};
+    {
+        std::lock_guard lock (s_lastMutex);
+        t_last = s_last;
+    }
+    bool filled = false;
+    if (t_last.points > 0) {
+        const auto room = [] (size_t n, size_t align) { return (n + n / 2 + 1024) / align * align; };
+        TapiocaUnifiedCounts guess = t_last;
+        guess.points = room (t_last.points, 3);
+        guess.triangles = room (t_last.triangles, 3);
+        guess.mappings = room (t_last.mappings, 1);
+        guess.lines = room (t_last.lines, 1);
+        guess.locked = room (t_last.locked, 1);
+        guess.steps = 3 * kOutlineStepWitnessLimit;
+        const auto status = fill (guess);
+        if (status == TAPIOCA_OK)
+            filled = true;
+        else if (std::string (buffer.data ()).find ("TerrainOutputTooSmall") == std::string::npos) {
+            error = Failure (status, buffer);
+            return false;
+        }
+    }
+    if (!filled) {
+        output = {};
+        output.counts = &counts;
+        output.meta = &meta;
+        output.site = &site;
+        output.context = &context;
+        output.queryOnly = 1;
+        auto status = tapioca_terrain_unified_build (&converted.raw, &output, buffer.data (), buffer.size ());
+        if (status != TAPIOCA_OK) {
+            error = Failure (status, buffer);
+            return false;
+        }
+        if (!valid (counts)) {
+            error = "TerrainOutputShape: invalid unified query counts";
+            return false;
+        }
+        const auto expected = counts;
+        status = fill (expected);
+        if (status != TAPIOCA_OK) {
+            error = Failure (status, buffer);
+            return false;
+        }
+        if (counts.points != expected.points || counts.triangles != expected.triangles ||
+            counts.mappings != expected.mappings || counts.lines != expected.lines ||
+            counts.locked != expected.locked || counts.steps != expected.steps) {
+            error = "TerrainOutputShape: unified query/fill counts disagree";
+            return false;
+        }
+    }
+    if (!valid (counts) || counts.points > candidate.points.size () || counts.triangles > candidate.triangles.size () ||
+        counts.mappings > mappings.size () || counts.lines > lines.size () || counts.locked > locked.size () ||
+        counts.steps > steps.size ()) {
+        error = "TerrainOutputShape: invalid unified fill counts";
         return false;
     }
-    const auto expected = counts;
+    {
+        std::lock_guard lock (s_lastMutex);
+        s_last = counts;
+    }
     candidate.points.resize (counts.points);
     candidate.base.resize (counts.points / 3);
     owners.resize (counts.points / 3);
@@ -401,34 +491,6 @@ bool BuildUnifiedTerrain (const UnifiedPlanRequest& request, UnifiedTerrainResul
     lines.resize (counts.lines);
     locked.resize (counts.locked);
     steps.resize (counts.steps);
-    output.points = candidate.points.data ();
-    output.pointCapacity = candidate.points.size ();
-    output.base = candidate.base.data ();
-    output.baseCapacity = candidate.base.size ();
-    output.owners = owners.data ();
-    output.ownerCapacity = owners.size ();
-    output.triangles = candidate.triangles.data ();
-    output.triangleCapacity = candidate.triangles.size ();
-    output.mappings = mappings.data ();
-    output.mappingCapacity = mappings.size ();
-    output.lines = lines.data ();
-    output.lineCapacity = lines.size ();
-    output.locked = locked.data ();
-    output.lockedCapacity = locked.size ();
-    output.steps = steps.data ();
-    output.stepCapacity = steps.size ();
-    output.queryOnly = 0;
-    status = tapioca_terrain_unified_build (&converted.raw, &output, buffer.data (), buffer.size ());
-    if (status != TAPIOCA_OK) {
-        error = Failure (status, buffer);
-        return false;
-    }
-    if (counts.points != expected.points || counts.triangles != expected.triangles ||
-        counts.mappings != expected.mappings || counts.lines != expected.lines || counts.locked != expected.locked ||
-        counts.steps != expected.steps) {
-        error = "TerrainOutputShape: unified query/fill counts disagree";
-        return false;
-    }
     for (const auto& mapping : mappings) {
         if (mapping.kind != 9 && (mapping.kind < 12 || mapping.kind > 17) && mapping.kind != 20 && mapping.kind != 21 &&
             mapping.kind != 23) {

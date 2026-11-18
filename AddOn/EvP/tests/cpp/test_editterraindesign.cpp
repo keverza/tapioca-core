@@ -1853,6 +1853,7 @@ TEST (VirtualEditorDebug, ReplayDumpFromEnvironment)
     ASSERT_TRUE (parsed.value.Find ("designActive")->AsBool (active));
     if (!active)
         return; // A path-only/terrain-first dump is still useful for fillet diagnosis.
+    double previewReach = 0.0;
     {
         // #175: the same scene's field preview, timed beside the build.
         auto capture = std::make_shared<TerrainCapture> ();
@@ -1871,6 +1872,8 @@ TEST (VirtualEditorDebug, ReplayDumpFromEnvironment)
             UnifiedPreviewAsk ask;
             for (const char* pass : { "first", "again" }) {
                 const auto previewed = RunLandscapeTerrainPreview (job, ask, &outlines);
+                if (previewed.built)
+                    previewReach = previewed.preview.reach; // the build starts there, as the editor's
                 std::cout << "Replay preview " << pass << " built=" << previewed.built
                           << " ms=" << previewed.milliseconds
                           << " triangles=" << previewed.preview.triangles.size () / 3
@@ -1907,7 +1910,7 @@ TEST (VirtualEditorDebug, ReplayDumpFromEnvironment)
         }
     }
     const auto replayStarted = std::chrono::steady_clock::now ();
-    const auto outcome = debugreplay::Run (scene);
+    const auto outcome = debugreplay::Run (scene, previewReach);
     std::cout << "Replay build ms="
               << std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - replayStarted).count ()
               << std::endl;

@@ -87,7 +87,8 @@ inline Scene Read (const js::JsonValue& value)
 }
 
 #if defined(TAPIOCA_GEOMETRY_RUST)
-inline lg::TerrainDesignOutcome Run (const Scene& scene)
+// `startReach`: the preview's widened reach, as the editor passes it (0: none).
+inline lg::TerrainDesignOutcome Run (const Scene& scene, double startReach = 0.0)
 {
     auto capture = std::make_shared<lg::TerrainCapture> ();
     std::string error;
@@ -99,6 +100,7 @@ inline lg::TerrainDesignOutcome Run (const Scene& scene)
     job.options = scene.options;
     job.region = scene.region;
     job.surfaceTable = scene.nativeSolid ? 5 : 0;
+    job.startReach = startReach;
     return lg::RunLandscapeTerrainDesign (job);
 }
 #endif

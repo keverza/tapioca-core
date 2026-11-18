@@ -225,15 +225,19 @@ TerrainDesignOutcome RunLandscapeTerrainDesign (const TerrainDesignJob& job)
         UnifiedTerrainResult unified;
         UnifiedLandscapeBuildScope scope;
         UnifiedLandscapeBuildOptions build;
+        const double asked = std::max (job.options.cutLimit, job.options.fillLimit);
+        double reached = asked;
+        // The preview of this revision already widened the reach: start there (each try is a full
+        // refinement). The policy below still widens further if the build needs it.
+        if (!plan.outlines.empty () && job.startReach > asked)
+            build.outlineLimit = reached = std::min (job.startReach, kMaxSlopeReach);
         if (!BuildUnifiedLandscapeTerrain (*job.doc, *baseline, plan, build, unified, scope, outcome.error))
             return;
         // #149 T1: the outline lane's reach policy, unchanged -- a face that runs out before
         // it meets the ground gets a wider reach, 4x at a time, at least 20 m, at most
         // kMaxSlopeReach; the widest build that succeeded is kept.
-        const double asked = std::max (job.options.cutLimit, job.options.fillLimit);
-        double reached = asked;
         if (!plan.outlines.empty ()) {
-            build.outlineLimit = asked;
+            build.outlineLimit = reached;
             while (unified.outlineUnreached > 0 && build.outlineLimit < kMaxSlopeReach) {
                 build.outlineLimit = std::min (kMaxSlopeReach, std::max (build.outlineLimit * 4, 20.0));
                 UnifiedTerrainResult wider;

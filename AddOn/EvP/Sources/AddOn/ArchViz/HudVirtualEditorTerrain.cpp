@@ -197,6 +197,8 @@ void StartTerrainDesignWorker (Session& s, TerrainDesignState& state)
         return;
     }
     job.surfaceTable = state.baseline.nativeSolid ? 5 : 0;
+    if (state.preview.built && state.preview.revision == doc.revision)
+        job.startReach = state.preview.preview.reach;
     try {
         LogTerrain (s, "worker launch generation=" + std::to_string (job.generation) +
                            " nativeSurfaceRequired=" + std::to_string (job.surfaceTable != 0));
