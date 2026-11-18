@@ -450,7 +450,7 @@ struct Session {
 
     // The profile canvas.
     edit::Id profilePath = edit::kNoId;
-    edit::ProfileView profileView; // frozen while a profile drag runs
+    edit::ProfileView profileView; // the profile view last drawn, frozen while a profile drag runs
     size_t profileIndex = 0;
     double profileStartZ = 0.0;
     float profileStartY = 0.0f;

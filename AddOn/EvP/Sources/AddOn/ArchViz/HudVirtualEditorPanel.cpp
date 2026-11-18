@@ -335,6 +335,8 @@ void detail::ProfileEditor (Session& s)
         const bool dragging = ProfileDrag (s.drag);
         const edit::ProfileView view =
             dragging ? frozen : edit::FitProfile (*path, min.x + gutter, min.y, width - gutter, height, margin);
+        if (!dragging)
+            frozen = view; // the view last drawn: a drag starts from it
         // The canvas clips its own drawing: a label that runs past an edge, or that the page has
         // scrolled out of the panel, is never drawn over the page beside it.
         list->PushClipRect (min, { min.x + width, min.y + height }, true);
@@ -384,8 +386,10 @@ void detail::ProfileEditor (Session& s)
         for (const double z : edit::Levels (view.zMin, view.zMax, up)) {
             const float y = screen (0, z).y;
             list->AddLine ({ x0, y }, { x1, y }, kGrid, 1.0f);
+            // #202: a height that rounds to zero reads 0, never -0.
+            const double shown = std::abs (z) < 0.5 * std::pow (10.0, -decimals) ? 0.0 : z;
             char text[32];
-            std::snprintf (text, sizeof text, "%.*f", decimals, z);
+            std::snprintf (text, sizeof text, "%.*f", decimals, shown);
             const ImVec2 size = ImGui::CalcTextSize (text);
             list->AddText ({ x0 - 4.0f - size.x, y - size.y * 0.5f }, kGridText, text);
         }
@@ -451,7 +455,10 @@ void detail::ProfileEditor (Session& s)
             if (b.fixed)
                 text += " fixed";
             const float w = ImGui::CalcTextSize (text.c_str ()).x + 8.0f, h = lineHeight + 2.0f;
-            const auto box = editlayers::PlaceLabel (at.x, at.y, w, h, 0.0f, -1.0f, h, taken);
+            // #202: never over the heights written in the gutter -- a label at the left end stands to
+            // the right of its point, one at the right end to the left.
+            const float lo = x0 + 0.5f * w + 2.0f, hi = std::max (lo, min.x + width - 0.5f * w - 2.0f);
+            const auto box = editlayers::PlaceLabel (std::clamp (at.x, lo, hi), at.y, w, h, 0.0f, -1.0f, h, taken);
             set (box, text, b.fixed ? kAxis[0] : kInk,
                  { { path->id, edit::Part::Break, b.id }, edit::Quantity::Elevation });
         }

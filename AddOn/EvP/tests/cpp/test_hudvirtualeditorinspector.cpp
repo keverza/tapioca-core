@@ -187,6 +187,34 @@ TEST (HudVirtualEditorInspector, PathProfileVisibleWithoutScroll191)
     EXPECT_LT (top, 700.0f) << "the profile starts below the panel: the user must scroll to reach it";
 }
 
+// tapioca-dev #202: at 320 px a break's elevation label at the left end stood over the heights
+// written in the canvas' gutter. Every elevation label now lies right of the gutter and inside the
+// canvas, on a 0 to 1 m path (the Playground's fixture) as on the 100 m ramp.
+TEST (HudVirtualEditorInspector, ProfileLabelsKeepClearOfTheHeightsGutter202)
+{
+    for (const double base : { 0.0, 100.0 }) {
+        auto site = MakeSite ();
+        const auto path = edit::AddPath (site.doc, { { 0, 30, base }, { 60, 30, base + 1.0 } }, 1.8);
+        Gui gui;
+        eh::Session s (site.doc);
+        s.selection.Set ({ { path, edit::Part::Entity, 0 } });
+        for (int i = 0; i < 3; ++i) {
+            s.profilePlaced.clear (); // the host clears them every frame (eh::Panel)
+            gui.Frame ([&] { eh::detail::Inspector (s); });
+        }
+        const float left = float (s.profileView.left);
+        ASSERT_GT (left, 8.0f) << "the canvas keeps a gutter for its heights";
+        size_t elevations = 0;
+        for (const auto& label : s.profilePlaced)
+            if (label.target.quantity == edit::Quantity::Elevation) {
+                ++elevations;
+                EXPECT_GE (label.box.x0, left) << base << ": an elevation label stands over the gutter's heights";
+                EXPECT_LE (label.box.x1, 320.0f) << base << ": an elevation label runs past the panel";
+            }
+        EXPECT_EQ (elevations, 2u) << base;
+    }
+}
+
 namespace {
 // The inventory's Inspector rows (Area C), counted: a new C row fails NoInventoryControlUnreachable
 // until it is added to the table there.
