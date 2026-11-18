@@ -63,12 +63,15 @@ std::string Describe (const EntityId& id)
 
 LayoutRules DefaultLayoutRules ()
 {
+    // Architecture explodes upward first (#201, user 2026-11-18): buildings stay on their
+    // site and storeys lift apart by about one storey height, so a floor and the next read
+    // as separate plates. Sideways separation stays available as a rule, off by default.
     LayoutRules rules;
-    rules.building.strategy = Strategy::Horizontal;
-    rules.building.gapFraction = 0.25;
-    rules.building.minGapMetres = 2.0;
-    rules.building.maxGapMetres = 20.0;
+    rules.building.strategy = Strategy::None;
     rules.storey.strategy = Strategy::Vertical;
+    rules.storey.gapFraction = 1.0;
+    rules.storey.minGapMetres = 1.0;
+    rules.storey.maxGapMetres = 8.0;
     return rules;
 }
 

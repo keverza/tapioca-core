@@ -112,8 +112,8 @@ TEST (DiagramSnapshot, RegularBuildingOnProjectStories)
     dg::LayoutRequest request;
     request.rules = dg::DefaultLayoutRules ();
     const auto plan = dg::Plan (*built.scene, request);
-    const auto frame = dg::Evaluate (plan, {}, 1.0); // top storey: z 6..9 -> 9..12
-    auto hit = dg::Pick (frame, plan, built.shells, { 5, -50, 10.5 }, { 0, 1, 0 });
+    const auto frame = dg::Evaluate (plan, {}, 1.0); // top storey: z 6..9 -> 12..15
+    auto hit = dg::Pick (frame, plan, built.shells, { 5, -50, 13.5 }, { 0, 1, 0 });
     ASSERT_TRUE (hit);
     EXPECT_EQ (hit->id, bindings.byBuilding.at ("building:Tower")[2].id);
     EXPECT_NEAR (hit->point[1], 0.0, 1e-6);

@@ -69,7 +69,8 @@ struct LayoutRules {
     Easing easing = Easing::SmoothStep;
     double staggerFraction = 0.0; // total normalised delay across siblings, in [0, 1)
 };
-// Buildings spread along +X, storeys stack along +Z; apartments/rooms stay (M2).
+// Storeys stack along +Z by one storey height (1..8 m); buildings stay put (sideways
+// separation is deferred); apartments/rooms stay (M2).
 LayoutRules DefaultLayoutRules ();
 
 struct RepresentationPolicy {

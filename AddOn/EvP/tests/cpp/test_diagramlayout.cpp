@@ -48,6 +48,19 @@ dg::LayoutRequest Linear ()
     request.rules.easing = dg::Easing::Linear;
     return request;
 }
+// The packing rules the algorithm tests were measured against, independent of the defaults.
+dg::LayoutRequest Measured ()
+{
+    auto request = Linear ();
+    request.rules.building.strategy = dg::Strategy::Horizontal;
+    request.rules.building.gapFraction = 0.25;
+    request.rules.building.minGapMetres = 2.0;
+    request.rules.building.maxGapMetres = 20.0;
+    request.rules.storey.gapFraction = 0.5;
+    request.rules.storey.minGapMetres = 0.6;
+    request.rules.storey.maxGapMetres = 6.0;
+    return request;
+}
 const dg::NodePose& PoseOf (const dg::Frame& frame, const dg::EntityId& id)
 {
     for (const auto& pose : frame.poses)
@@ -85,7 +98,7 @@ TEST (DiagramLayout, IrregularStoreysSeparateByTheirOwnExtent)
 {
     dg::Scene scene;
     AddBuilding (scene, "A", 0, { 2.2, 3.0, 4.5, 3.0 });
-    const auto plan = dg::Plan (scene, Linear ());
+    const auto plan = dg::Plan (scene, Measured ());
     const auto frame = dg::Evaluate (plan, {}, 1.0);
     // gap = clamp (0.5 * previous height, 0.6, 6.0): 1.1, 1.5, 2.25.
     const double expected[] = { 1.1, 1.5, 2.25 };
@@ -101,11 +114,28 @@ TEST (DiagramLayout, IrregularStoreysSeparateByTheirOwnExtent)
     }
 }
 
+TEST (DiagramLayout, DefaultsExplodeUpwardOnly)
+{
+    dg::Scene scene;
+    AddBuilding (scene, "A", 0, { 3, 3, 3 });
+    AddBuilding (scene, "B", 5, { 3, 3 }); // overlaps A in x: still not moved sideways
+    const auto plan = dg::Plan (scene, Linear ());
+    const auto frame = dg::Evaluate (plan, {}, 1.0);
+    for (const auto& pose : frame.poses) {
+        EXPECT_EQ (pose.offset[0], 0.0) << pose.id.key;
+        EXPECT_EQ (pose.offset[1], 0.0) << pose.id.key;
+    }
+    // One storey height between plates: 3 m storeys lift by 3 and 6.
+    EXPECT_NEAR (PoseOf (frame, Storey ("A", 1)).offset[2], 3.0, 1e-12);
+    EXPECT_NEAR (PoseOf (frame, Storey ("A", 2)).offset[2], 6.0, 1e-12);
+    EXPECT_NEAR (PoseOf (frame, Storey ("B", 1)).offset[2], 3.0, 1e-12);
+}
+
 TEST (DiagramLayout, GapClampHasMinimumFirstAndMaximumLast)
 {
     dg::Scene scene;
     AddBuilding (scene, "A", 0, { 0.5, 20.0, 3.0 });
-    const auto plan = dg::Plan (scene, Linear ());
+    const auto plan = dg::Plan (scene, Measured ());
     // 0.5 * 0.5 = 0.25 -> min 0.6; 0.5 * 20 = 10 -> max 6.
     EXPECT_NEAR (plan.nodes[size_t (plan.Find (Storey ("A", 1)))].target[2], 0.6, 1e-12);
     EXPECT_NEAR (plan.nodes[size_t (plan.Find (Storey ("A", 2)))].target[2], 6.6, 1e-12);
@@ -161,7 +191,7 @@ TEST (DiagramLayout, BuildingsSpreadAndStoreysComposeOnTop)
     dg::Scene scene;
     AddBuilding (scene, "A", 0, { 3, 3 });
     AddBuilding (scene, "B", 5, { 3, 3 }); // overlaps A in x
-    const auto plan = dg::Plan (scene, Linear ());
+    const auto plan = dg::Plan (scene, Measured ());
     const auto frame = dg::Evaluate (plan, {}, 1.0);
     // B moves to A's end (10) plus clamp (0.25 * 10, 2, 20) = 2.5: x0 12.5, offset 7.5.
     EXPECT_NEAR (PoseOf (frame, Building ("B")).offset[0], 7.5, 1e-12);
