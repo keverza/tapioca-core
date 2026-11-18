@@ -457,3 +457,60 @@ TEST (DiagramStoreyBinding, DifferentPersistentIdsNeverMatchByPosition)
     const auto fallback = dg::BindStoreys ("b", Bound (after), anonymous, next);
     EXPECT_EQ (fallback.bindings[0].id, after.bindings[0].id);
 }
+
+// #201 (user 2026-11-18): the explode is a distance, and a building can carry its own.
+TEST (DiagramLayout, SpacedLiftsEachStoreyByItsRankTimesTheGap)
+{
+    dg::Scene scene;
+    AddBuilding (scene, "A", 0, { 3, 4, 3 });
+    AddBuilding (scene, "B", 30, { 3, 3 });
+    const auto plan = dg::Plan (scene, Linear ());
+    dg::Spacing spacing;
+    spacing.storeyGap = 2.5;
+    spacing.buildingGap[Building ("B").key] = 10.0;
+    const auto spaced = dg::Spaced (plan, spacing);
+    const auto frame = dg::Evaluate (spaced, {}, 1.0);
+    EXPECT_NEAR (PoseOf (frame, Storey ("A", 0)).offset[2], 0.0, 1e-12);
+    EXPECT_NEAR (PoseOf (frame, Storey ("A", 1)).offset[2], 2.5, 1e-12);
+    EXPECT_NEAR (PoseOf (frame, Storey ("A", 2)).offset[2], 5.0, 1e-12);  // irregular heights: still rank x gap
+    EXPECT_NEAR (PoseOf (frame, Storey ("B", 1)).offset[2], 10.0, 1e-12); // its override only
+    for (const auto& pose : frame.poses) {
+        EXPECT_EQ (pose.offset[0], 0.0) << pose.id.key;
+        EXPECT_EQ (pose.offset[1], 0.0) << pose.id.key;
+    }
+    EXPECT_NEAR (spaced.explodedMax[2], 16.0, 1e-12); // B's top storey: 3..6 lifted by 10
+}
+
+TEST (DiagramLayout, SpacedZeroIsAssembledAndGapsAreClamped)
+{
+    dg::Scene scene;
+    AddBuilding (scene, "A", 0, { 3, 3, 3 });
+    const auto plan = dg::Plan (scene, Linear ());
+    dg::Spacing zero;
+    zero.storeyGap = 0;
+    for (const auto& pose : dg::Evaluate (dg::Spaced (plan, zero), {}, 1.0).poses)
+        EXPECT_EQ (pose.offset, (dg::Vec3 {})) << pose.id.key;
+    dg::Spacing wild;
+    wild.storeyGap = 1e9;
+    wild.buildingGap[Building ("A").key] = -4;
+    EXPECT_EQ (wild.GapOf ("other"), dg::kMaxStoreyGap);
+    EXPECT_EQ (wild.GapOf (Building ("A").key), 0.0);
+}
+
+TEST (DiagramLayout, ApproachConvergesAndDropsARemovedOverride)
+{
+    dg::Spacing shown, target;
+    shown.storeyGap = 0;
+    target.storeyGap = 4;
+    target.buildingGap["building:B"] = 8;
+    for (int i = 0; i < 200; ++i)
+        shown = dg::Approach (shown, target, 0.2);
+    EXPECT_EQ (shown, target);
+    target.buildingGap.clear (); // the override removed: B eases back to 4, then is dropped
+    const auto step = dg::Approach (shown, target, 0.5);
+    EXPECT_NEAR (step.GapOf ("building:B"), 6.0, 1e-12);
+    for (int i = 0; i < 200; ++i)
+        shown = dg::Approach (shown, target, 0.2);
+    EXPECT_TRUE (shown.buildingGap.empty ());
+    EXPECT_EQ (dg::Approach (shown, target, 0.0), shown);
+}

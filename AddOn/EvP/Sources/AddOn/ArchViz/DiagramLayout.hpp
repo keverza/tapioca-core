@@ -11,6 +11,7 @@
 #include <array>
 #include <compare>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -100,6 +101,7 @@ struct PlanNode {
     Vec3 target {};  // offset in parent axes at t = 1
     int sibling = 0; // rank among moving siblings, for stagger
     int siblings = 1;
+    bool stacked = false; // moved by a Vertical rule: Spaced lifts it by `sibling` gaps
     bool visible = false; // exactly one owner per region: no visible ancestor or descendant
     bool expanded = false;
     bool addressable = true;
@@ -119,6 +121,24 @@ LayoutPlan Plan (const Scene& scene, const LayoutRequest& request);
 
 // Union of assembled and exploded bounds, so animation never leaves the frame.
 void FramingBounds (const LayoutPlan& plan, Vec3& lo, Vec3& hi);
+
+// ---- Spacing: the explode as a distance (#201, user 2026-11-18) ------------------
+// "Exploding vertical should be not percent but offset distance", and a building can
+// carry its own. A stacked storey of rank k lifts by k gaps of its building: linear in
+// the gap, so the same plan serves every distance and a slider never rebuilds.
+constexpr double kMaxStoreyGap = 200.0; // m; a gap is clamped to [0, this]
+struct Spacing {
+    double storeyGap = 3.0;                    // m between consecutive storeys
+    std::map<std::string, double> buildingGap; // building EntityId key -> its own gap
+    double GapOf (const std::string& buildingKey) const;
+    auto operator<=> (const Spacing&) const = default;
+};
+// The plan with every stacked node's target replaced by rank x its building's gap, and
+// the exploded bounds recomputed. Nodes the rules did not stack keep their targets.
+LayoutPlan Spaced (const LayoutPlan& plan, const Spacing& spacing);
+// One animation step from `shown` toward `target`: every gap moves by `fraction` of the
+// way. An override that is gone eases back to the shared gap before it is dropped.
+Spacing Approach (const Spacing& shown, const Spacing& target, double fraction);
 
 struct NodePose {
     EntityId id;

@@ -59,6 +59,22 @@ std::string Describe (const EntityId& id)
 {
     return id.key.empty () ? std::string ("<root>") : id.key;
 }
+
+// The assembled (t = 0) and exploded (t = 1) bounds of the visible nodes.
+void Bound (LayoutPlan& plan)
+{
+    plan.assembledMin = plan.assembledMax = plan.explodedMin = plan.explodedMax = {};
+    bool anyA = false, anyE = false;
+    std::vector<Vec3> world (plan.nodes.size ());
+    for (size_t i = 0; i < plan.nodes.size (); ++i) {
+        const auto& node = plan.nodes[i];
+        world[i] = node.parent < 0 ? node.target : Add (world[size_t (node.parent)], node.target);
+        if (!node.visible)
+            continue;
+        Grow (plan.assembledMin, plan.assembledMax, node.boundsMin, node.boundsMax, anyA);
+        Grow (plan.explodedMin, plan.explodedMax, Add (node.boundsMin, world[i]), Add (node.boundsMax, world[i]), anyE);
+    }
+}
 } // namespace
 
 LayoutRules DefaultLayoutRules ()
@@ -194,6 +210,7 @@ LayoutPlan Plan (const Scene& scene, const LayoutRequest& request)
                 offset = rule.maxOffsetMetres;
             }
             node.target[size_t (axis)] = offset;
+            node.stacked = axis == 2;
             node.sibling = int (k);
             node.siblings = int (kids.size ());
             previousEnd = start + offset + extent;
@@ -201,17 +218,52 @@ LayoutPlan Plan (const Scene& scene, const LayoutRequest& request)
         }
     }
 
-    bool anyA = false, anyE = false;
-    std::vector<Vec3> world (plan.nodes.size ());
-    for (size_t i = 0; i < plan.nodes.size (); ++i) {
-        const auto& node = plan.nodes[i];
-        world[i] = node.parent < 0 ? node.target : Add (world[size_t (node.parent)], node.target);
-        if (!node.visible)
-            continue;
-        Grow (plan.assembledMin, plan.assembledMax, node.boundsMin, node.boundsMax, anyA);
-        Grow (plan.explodedMin, plan.explodedMax, Add (node.boundsMin, world[i]), Add (node.boundsMax, world[i]), anyE);
-    }
+    Bound (plan);
     return plan;
+}
+
+double Spacing::GapOf (const std::string& buildingKey) const
+{
+    const auto found = buildingGap.find (buildingKey);
+    const double gap = found == buildingGap.end () ? storeyGap : found->second;
+    return std::isfinite (gap) ? std::clamp (gap, 0.0, kMaxStoreyGap) : 0.0;
+}
+
+LayoutPlan Spaced (const LayoutPlan& source, const Spacing& spacing)
+{
+    LayoutPlan plan = source;
+    for (auto& node : plan.nodes) {
+        if (!node.stacked)
+            continue;
+        std::string building;
+        for (int p = node.parent; p >= 0; p = plan.nodes[size_t (p)].parent)
+            if (plan.nodes[size_t (p)].id.level == Level::Building) {
+                building = plan.nodes[size_t (p)].id.key;
+                break;
+            }
+        node.target = { 0.0, 0.0, double (node.sibling) * spacing.GapOf (building) };
+    }
+    Bound (plan);
+    return plan;
+}
+
+Spacing Approach (const Spacing& shown, const Spacing& target, double fraction)
+{
+    const double f = std::isfinite (fraction) ? std::clamp (fraction, 0.0, 1.0) : 1.0;
+    const auto lerp = [f] (double a, double b) { return std::abs (b - a) < 1e-4 ? b : a + f * (b - a); };
+    Spacing out;
+    out.storeyGap = lerp (shown.GapOf ({}), target.GapOf ({}));
+    std::set<std::string> keys;
+    for (const auto& [key, gap] : shown.buildingGap)
+        keys.insert (key);
+    for (const auto& [key, gap] : target.buildingGap)
+        keys.insert (key);
+    for (const auto& key : keys) {
+        const double value = lerp (shown.GapOf (key), target.GapOf (key));
+        if (target.buildingGap.count (key) || std::abs (value - out.storeyGap) > 1e-4)
+            out.buildingGap[key] = value;
+    }
+    return out;
 }
 
 void FramingBounds (const LayoutPlan& plan, Vec3& lo, Vec3& hi)
