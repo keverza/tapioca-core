@@ -1185,6 +1185,7 @@ set (EVP_TEST_SOURCES
     test_buildinggenerator.cpp
     test_roofslope.cpp
     test_roofslope_bake.cpp
+    test_roofslope_replan.cpp
     test_overlayfloorplans.cpp
     test_hudfloorschemeedit.cpp
     test_hudfloorschemeskeleton.cpp

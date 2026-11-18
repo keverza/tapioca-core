@@ -56,7 +56,8 @@ Vec Local (const Data& data, Vec world);
 bool Rebuild (Data& data, std::string& error);
 bool SetElevation (Data& data, int node, double z, std::string& error);
 bool MoveDrain (Data& data, int cell, Vec xy, std::string& error);
-// Moves every connected divider at that coordinate. Refuses footprint borders,
+// Moves the picked divider and every divider connected to it along the same line;
+// disconnected dividers at the same coordinate stay. Refuses footprint borders,
 // collapsed cells, locked nodes and a cap/coverage violation instead of warping a box.
 bool MoveDivider (Data& data, int cell, int side, double value, std::string& error);
 bool RemoveDivider (Data& data, int cell, int side, std::string& error);

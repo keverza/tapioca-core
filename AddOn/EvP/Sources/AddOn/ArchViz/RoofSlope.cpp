@@ -501,18 +501,36 @@ bool MoveDivider (Data& d, int cell, int side, double value, std::string& error)
         error = "Select a rectangle divider.";
         return false;
     }
-    const int axis = side % 2;
+    const int axis = side % 2, other = 1 - axis;
     const double old = d.cells[cell].box[side];
     if (Close (value, old))
         return true;
+    // The chain is the picked side plus every cell side on the same line that touches
+    // it, transitively. A divider of a disconnected wing that merely shares the
+    // coordinate is a different divider and stays where it is.
+    std::vector<char> chain (d.cells.size (), 0);
+    chain[cell] = 1;
+    double lo = d.cells[cell].box[other], hi = d.cells[cell].box[other + 2];
+    for (bool grew = true; grew;) {
+        grew = false;
+        for (size_t i = 0; i < d.cells.size (); ++i) {
+            const auto& b = d.cells[i].box;
+            if (chain[i] || !(Close (b[axis], old) || Close (b[axis + 2], old)) || b[other] > hi + kTolerance ||
+                b[other + 2] < lo - kTolerance)
+                continue;
+            chain[i] = 1, grew = true;
+            lo = (std::min) (lo, b[other]), hi = (std::max) (hi, b[other + 2]);
+        }
+    }
     std::vector<Box> boxes;
     std::vector<Cell> oldCells = d.cells;
     std::vector<Node> nodes = d.nodes;
     bool low = false, high = false;
-    for (auto& c : oldCells) {
+    for (size_t ci = 0; ci < oldCells.size (); ++ci) {
+        auto& c = oldCells[ci];
         auto b = c.box;
         for (int s : { axis, axis + 2 })
-            if (Close (b[s], old)) {
+            if (chain[ci] && Close (b[s], old)) {
                 (s < 2 ? low : high) = true;
                 c.box[s] = value;
             }
@@ -535,7 +553,8 @@ bool MoveDivider (Data& d, int cell, int side, double value, std::string& error)
     }
     for (int n = 0; n < int (nodes.size ()); ++n) {
         const double at = axis == 0 ? nodes[n].xy.x : nodes[n].xy.y;
-        if (Close (at, old)) {
+        const double along = axis == 0 ? nodes[n].xy.y : nodes[n].xy.x;
+        if (Close (at, old) && along >= lo - kTolerance && along <= hi + kTolerance) {
             if (nodes[n].lockXY) {
                 error = "A point on this divider is XY-locked.";
                 return false;
