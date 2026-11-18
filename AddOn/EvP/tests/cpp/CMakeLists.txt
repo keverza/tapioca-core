@@ -662,6 +662,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeOnView.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudLocked.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlope.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeLayer.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeBakePlan.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeHud.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeCanvas.cpp"
