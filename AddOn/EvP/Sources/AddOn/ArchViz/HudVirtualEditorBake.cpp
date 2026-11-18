@@ -282,8 +282,11 @@ void TerrainBakePanel (Session& s)
     const float width = std::min (ImGui::GetContentRegionAvail ().x, 220.0f);
     const auto units = edit::CurrentDisplayUnits ();
     const std::string symbol = edit::LengthSymbol (units);
-    if (surface)
+    if (surface) {
+        ImGui::PushID ("bake"); // the same control is under Build mesh, in this window
         MeshDetailControl (s);
+        ImGui::PopID ();
+    }
     else {
         const std::string intervalLabel =
             (signature ? "Soft-ground contour interval (" : "Contour interval (") + symbol + ", 0: automatic)";

@@ -2,6 +2,9 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudVirtualEditorDebug.hpp"
+#include "ArchViz/HudVirtualEditorBake.hpp"
+#include <imgui.h>
+#include <imgui_internal.h>
 #include "virtual_editor_debug_replay.hpp"
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditTerrainDesignJob.hpp"
@@ -2689,6 +2692,64 @@ TEST (HudTerrainDesign, TheBuildBarFollowsTheRefinementAndNeverGoesBack)
     bar = eh::MakeTerrainBuildBar (input);
     EXPECT_GT (bar.fraction, 0.92f);
     EXPECT_NE (bar.label.find ("Mesh detail"), std::string::npos) << bar.label;
+}
+
+// The terrain panel and the Archicad Mesh section are one window: the Mesh detail control is in
+// both (under Build mesh, and in As built) and must not share an ImGui ID. Every row is hovered;
+// none is two items. Build mesh spans the panel.
+TEST (HudTerrainDesign, TheTerrainAndMeshPanelsHaveNoConflictingIds)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    session.terrainAutoBuild = true;
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    session.bake.options.mode = edit::BakeMode::Surface;
+    ImGuiContext* previous = ImGui::GetCurrentContext ();
+    ImGuiContext* context = ImGui::CreateContext ();
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.DisplaySize = { 400, 900 };
+    io.DeltaTime = 1.0f / 60;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    float panelWidth = 0;
+    bool sawDetail = false;
+    const auto frame = [&] (ImVec2 at) {
+        io.AddMousePosEvent (at.x, at.y);
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 320, 900 });
+        ImGui::Begin ("terrain", nullptr, ImGuiWindowFlags_NoDecoration);
+        ImGui::LogToBuffer ();
+        panelWidth = ImGui::GetContentRegionAvail ().x;
+        eh::TerrainBuildSection (session);
+        ImGui::SetNextItemOpen (true);
+        eh::TerrainBakePanel (session);
+        const std::string text = context->LogBuffer.c_str ();
+        const auto first = text.find ("Mesh: "); // under each Mesh detail control
+        sawDetail = first != std::string::npos && text.find ("Mesh: ", first + 1) != std::string::npos;
+        ImGui::LogFinish ();
+        ImGui::End ();
+        ImGui::Render ();
+    };
+    frame ({ 399, 899 });
+    frame ({ 399, 899 });
+    EXPECT_TRUE (sawDetail) << "the Mesh detail control is drawn in both places";
+    // Build mesh, the window's first row, reaches the panel's right edge.
+    frame ({ 8 + panelWidth - 4, 16 });
+    frame ({ 8 + panelWidth - 4, 16 });
+    EXPECT_NE (context->HoveredId, 0u) << "Build mesh spans the panel";
+    for (float y = 2; y < 898; y += 3) {
+        frame ({ 100, y });
+        frame ({ 100, y });
+        EXPECT_LE (context->HoveredIdPreviousFrameItemCount, 1) << "two items share an ID at y=" << y;
+        EXPECT_EQ (context->DebugDrawIdConflictsId, 0u) << "y=" << y;
+    }
+    ImGui::DestroyContext (context);
+    ImGui::SetCurrentContext (previous);
 }
 
 TEST (HudTerrainDesign, TypedCrossSectionApplyRebuildsTheExistingPreviewWithoutAddingWorkerHistory)
