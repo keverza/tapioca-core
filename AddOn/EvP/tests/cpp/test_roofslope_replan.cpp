@@ -75,3 +75,14 @@ TEST (RoofSlopeReplan, DividerMoveKeepsAnXyLockedDrainOutsideItsChain)
         kept = kept || (n.lockXY && std::abs (n.xy.x - locked.x) < 1e-9 && std::abs (n.xy.y - locked.y) < 1e-9);
     EXPECT_TRUE (kept);
 }
+TEST (RoofSlopeReplan, FootprintEditKeepsTheChosenLayoutFrame)
+{
+    auto d = Plan ({ { { 0, 0 }, { 30, 0 }, { 30, 10 }, { 0, 10 } } });
+    std::string error;
+    ASSERT_TRUE (rs::Reorient (d, 0.2, error)) << error;
+    ASSERT_NEAR (d.bearing, 0.2, 1e-12);
+    // The user chose this frame; moving one footprint vertex must not re-derive it.
+    const auto at = d.outline[0][2];
+    ASSERT_TRUE (rs::EditOutline (d, 0, 2, { at.x - 0.5, at.y }, false, false, error)) << error;
+    EXPECT_NEAR (d.bearing, 0.2, 1e-12);
+}

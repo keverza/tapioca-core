@@ -510,7 +510,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 if (locked)
                     error = "Unlock all controls before replanning the virtual footprint.";
                 else
-                    rs::Plan (rings, candidate.topZ, candidate.targetPercent, candidate.cap, candidate, error);
+                    rs::Plan (rings, candidate.topZ, candidate.targetPercent, candidate.cap, candidate, error,
+                              candidate.bearing);
             }
             if (error.empty ()) {
                 e.Apply (std::move (candidate));

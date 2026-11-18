@@ -706,8 +706,9 @@ bool EditOutline (Data& d, int ring, int vertex, Vec at, bool insert, bool remov
     for (auto& contour : rings)
         for (auto& p : contour)
             p = World (d, p);
+    // A footprint edit keeps the current layout frame. Only Reorient changes it.
     Data candidate;
-    if (!Plan (rings, d.topZ, d.targetPercent, d.cap, candidate, error))
+    if (!Plan (rings, d.topZ, d.targetPercent, d.cap, candidate, error, d.bearing))
         return false;
     candidate.textHeight = d.textHeight;
     d = std::move (candidate);
