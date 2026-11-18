@@ -18,6 +18,7 @@ ArchViz/DiligentAmbientOcclusion.cpp
 ArchViz/DiligentScreenSpaceReflection.cpp
 ArchViz/DiligentTemporalAntiAliasing.cpp
 ArchViz/DiligentShadowMap.cpp
+ArchViz/ShadowDepthFit.cpp
 ArchViz/DiligentEpipolarLightScattering.cpp
 ArchViz/DiligentFxLink.cpp
 ArchViz/DiligentDeviceFactory.cpp

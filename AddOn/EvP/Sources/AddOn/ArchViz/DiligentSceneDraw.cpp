@@ -43,7 +43,11 @@ bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context, const fl
 
     float shadowSun[3];
     impl_->EffectiveSun (shadowSun);
-    if (!impl_->shadowMap.Prepare (context, view, projection, shadowSun))
+    // #234: the cascades split the depth the model occupies, not the projection's 20 km.
+    float sceneMin[3] = {}, sceneMax[3] = {};
+    const bool bounded = SceneBounds (sceneMin, sceneMax);
+    if (!impl_->shadowMap.Prepare (context, view, projection, shadowSun, bounded ? sceneMin : nullptr,
+                                   bounded ? sceneMax : nullptr))
         return false;
 
     // ⚠️ OPAQUE RANGES ONLY. A pane of glass that writes into the shadow map

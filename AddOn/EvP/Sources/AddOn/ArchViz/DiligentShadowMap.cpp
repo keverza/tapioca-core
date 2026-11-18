@@ -1,6 +1,7 @@
 #include "ArchViz/DiligentShadowMap.hpp"
 
 #include "ArchViz/DiligentShaders.hpp"
+#include "ArchViz/ShadowDepthFit.hpp"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -159,6 +160,12 @@ bool DiligentShadowMap::Init (Diligent::IRenderDevice* device, Diligent::IShader
     pipeline.DSVFormat = Diligent::TEX_FORMAT_D32_FLOAT;
     pipeline.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     pipeline.RasterizerDesc.CullMode = Diligent::CULL_MODE_NONE;
+    // ⚠️ DEPTH CLAMP, NOT CLIP (#234). A cascade's light-space depth spans only the sphere around
+    // its slice of the view, and since the cascades are fitted to the scene that sphere no longer
+    // reaches every caster between it and the sun. Clipped, such a caster (a roof over the room,
+    // the far wall of a courtyard) vanishes from the map and its shadow with it; clamped, it lands
+    // on the near plane and still occludes everything behind it.
+    pipeline.RasterizerDesc.DepthClipEnable = Diligent::False;
     pipeline.DepthStencilDesc.DepthEnable = Diligent::True;
     pipeline.DepthStencilDesc.DepthWriteEnable = Diligent::True;
     pipeline.InputLayout.LayoutElements = static_cast<const Diligent::LayoutElement*> (inputLayout);
@@ -259,7 +266,7 @@ bool DiligentShadowMap::SetSettings (const DiligentShadowSettings& requested, st
 }
 
 bool DiligentShadowMap::Prepare (Diligent::IDeviceContext* context, const float view[16], const float projection[16],
-                                 const float towardSun[3])
+                                 const float towardSun[3], const float* sceneMin, const float* sceneMax)
 {
     impl_->fitted = false;
     if (context == nullptr || !impl_->ready || impl_->manager == nullptr || view == nullptr || projection == nullptr ||
@@ -318,6 +325,13 @@ bool DiligentShadowMap::Prepare (Diligent::IDeviceContext* context, const float 
     // ArchViz uploads row-major matrices into default column-major HLSL and uses
     // mul(matrix, vector), the same convention as its camera matrices.
     distribute.PackMatrixRowMajor = true;
+    // #234: split the scene's depth range, not the projection's (ShadowDepthFit.hpp). Index -1
+    // is the whole range, before DistributeCascades partitions it.
+    if (impl_->settings.fitCascadesToScene && sceneMin != nullptr && sceneMax != nullptr)
+        distribute.AdjustCascadeRange = [view, sceneMin, sceneMax] (int cascade, float& minZ, float& maxZ) {
+            if (cascade == -1)
+                FitShadowDepthRange (view, sceneMin, sceneMax, minZ, maxZ);
+        };
     impl_->manager->DistributeCascades (distribute, impl_->shadowAttribs);
 
     // ⚠️ AFTER DistributeCascades, BECAUSE IT NEEDS THE FITTED CASCADE. See

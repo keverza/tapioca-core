@@ -503,6 +503,8 @@ set (EVP_ARCHVIZ_SOURCES
     # perfectly fine. It shipped once and was found by measuring which way pan
     # went, not by looking.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MatrixMath.cpp"
+    # ArchViz/ShadowDepthFit.cpp: the depth range the sun's shadow cascades split (#234).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ShadowDepthFit.cpp"
     # ArchViz/Camera.cpp: CursorRay must agree with the view-projection the
     # frame is drawn with -- a mirrored axis is right at the centre and wrong
     # everywhere else, so it is pinned by a round trip, offline.
@@ -1309,6 +1311,7 @@ set (EVP_TEST_SOURCES
     test_camera_cursorray.cpp
     test_camera_plan.cpp
     test_camera_orbitpivot.cpp
+    test_shadow_depth_fit.cpp
     test_viewpresets.cpp
     test_ghprotocol.cpp
     test_gh2overlayrequest.cpp

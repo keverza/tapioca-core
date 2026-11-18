@@ -58,6 +58,9 @@ struct DiligentShadowSettings {
     // that and it is a real runtime uniform.
     bool visualizeCascades = false;
     bool shadowsOnly = false;
+    // #234: split the scene's depth range rather than the projection's (FitShadowDepthRange).
+    // Off only to compare against the old fit (RenderBench --shadow-fit 0).
+    bool fitCascadesToScene = true;
     // #233: 0.0005, down from 0.0025. A flat depth offset lets light through under every
     // zero-thickness occluder edge: RenderBench measured a band ~10 px wide at each Cornell and
     // bathroom wall join at 0.0025. The per-cascade normal offset already removes the acne, so
@@ -96,8 +99,11 @@ class DiligentShadowMap final {
     bool SetSettings (const DiligentShadowSettings& settings, std::string& error);
     const DiligentShadowSettings& Settings () const;
 
+    // `sceneMin`/`sceneMax` (optional, world metres): the casters' and receivers' bounds. With
+    // them the cascades split the depth range the scene occupies, not the projection's whole
+    // near..far (#234, see ShadowDepthFit.hpp).
     bool Prepare (Diligent::IDeviceContext* context, const float view[16], const float projection[16],
-                  const float towardSun[3]);
+                  const float towardSun[3], const float* sceneMin = nullptr, const float* sceneMax = nullptr);
     void BeginCascade (Diligent::IDeviceContext* context, uint32_t cascade);
     void End (Diligent::IDeviceContext* context);
 
