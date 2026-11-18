@@ -611,3 +611,26 @@ fn a_small_step_at_the_reach_limit_does_not_refuse_the_build() -> Result<(), Out
     );
     Ok(())
 }
+
+/// A triangle under twice the shortest side is as fine as the mesher makes one: error still above
+/// the tolerance there is a step or a fold in the design (two faces meeting a centimetre apart at
+/// a path corner, topography dump 2026-11-18), not one more vertex would mend. It does not refuse
+/// the build; the triangles large enough to split are still held to the tolerance.
+#[test]
+fn error_left_at_the_shortest_triangle_does_not_refuse_the_build() -> Result<(), OutlineError> {
+    // Rounded faces curve everywhere: at a tenth of a millimetre no 0.5 m triangle fits them.
+    let fine = Refine {
+        tolerance: 1e-4,
+        shortest: 0.5,
+        toe: 0.5,
+        ..Refine::DEFAULT
+    };
+    let (built, _) = refined(2.0, Some(fine))?;
+    assert!(
+        built.refined.residual <= fine.tolerance,
+        "{:?}",
+        built.refined
+    );
+    assert!(built.refined.added > 0, "{:?}", built.refined);
+    Ok(())
+}

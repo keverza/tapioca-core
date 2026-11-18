@@ -438,6 +438,15 @@ impl Mesher<'_, '_> {
         if error > refine.tolerance && self.reach_ends([pa, pb, pc]) {
             return Some((Some(Why::Step(error)), moved));
         }
+        // Under twice the shortest side a triangle is as fine as the mesher makes one (its
+        // fall-back leaves it, and no angle is refined there): error still above the tolerance
+        // is a step or fold in the design -- two faces meeting 1.8 cm apart at a path corner
+        // (topography dump, 2026-11-18) -- that no vertex mends. It is left, and is not residual:
+        // only triangles large enough to split are certified. Refining it as a step kept
+        // crowding vertices around it (that dump: 75 s to refuse, then 236 s to build).
+        if error > refine.tolerance && longest < 2.0 * refine.shortest {
+            return Some((None, moved));
+        }
         // Within a triangle a field no steeper than `steepest` strays from its corners' plane by
         // at most twice `steepest` times its size: more is a step, where a face ends.
         let step = 2.0f64.mul_add(self.bound.steepest * longest, 2.0 * self.lane.snap);
