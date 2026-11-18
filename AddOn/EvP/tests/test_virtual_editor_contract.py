@@ -26,7 +26,8 @@ def test_shared_material_picker_is_native_queued_and_drained_by_both_hosts():
 
 
 def test_debug_scene_export_requests_in_layout_and_writes_only_from_the_controller():
-    panel = (ROOT / "ArchViz" / "HudVirtualEditorPanel.cpp").read_text(encoding="utf-8")
+    # The request is a File-menu item of the editor's command bar; only the hosts write the file.
+    panel = (ROOT / "ArchViz" / "HudVirtualEditorCommandBar.cpp").read_text(encoding="utf-8")
     controller = (ROOT / "ArchViz" / "OverlayControllerHud.cpp").read_text(encoding="utf-8")
     viewer = (ROOT / "ArchViz" / "ViewerEditor.cpp").read_text(encoding="utf-8")
     export = (ROOT / "ArchViz" / "HudVirtualEditorDebug.cpp").read_text(encoding="utf-8")
@@ -56,9 +57,13 @@ def test_viewer_flyout_opens_editor_directly_through_the_main_thread_request():
     assert 'Button ("Open virtual editor")' not in source
 
 
-def test_native_editor_and_viewer_do_not_publish_the_navigation_command_strip():
+def test_editor_page_command_line_runs_the_editors_commands():
+    # The virtual editor keeps the command line like every other page (the user, 2026-11-13); on its
+    # page the line runs the editor's commands (#191).
     host = (ROOT / "ArchViz" / "OverlayHudHost.cpp").read_text(encoding="utf-8")
-    assert 'spec.textInput = !own.viewerSurface && host.selected != std::string (editlayers::kLayer) + "#0"' in host
+    assert "spec.textInput = !own.viewerSurface;" in host
+    assert 'host.selected == std::string (editlayers::kLayer) + "#0"' in host
+    assert "edithud::RunCommandLine (*store->virtualEditor, text, message)" in host
     navigation = (ROOT / "ArchViz" / "HudShellNavigation.cpp").read_text(encoding="utf-8")
     body = navigation[navigation.index("std::string NavigationInput (") :]
     assert body.index("if (!spec.textInput)") < body.index("ImGui::Separator ()")
@@ -92,6 +97,8 @@ def test_viewer_editor_stores_the_overlays_encoded_colours_through_a_unorm_view(
 
 def test_landscape_commands_replace_the_deprecated_saved_set_selection_ui():
     panel = (ROOT / "ArchViz" / "HudVirtualEditorLandscapePanel.cpp").read_text(encoding="utf-8")
+    toolbar = (ROOT / "ArchViz" / "HudVirtualEditorToolbar.cpp").read_text(encoding="utf-8")
+    inspector = (ROOT / "ArchViz" / "HudVirtualEditorInspector.cpp").read_text(encoding="utf-8")
     for removed in (
         '"Sets"',
         '"New face set"',
@@ -100,11 +107,13 @@ def test_landscape_commands_replace_the_deprecated_saved_set_selection_ui():
         '"Show set selection"',
         '"Output"',
     ):
-        assert removed not in panel
+        assert removed not in panel and removed not in toolbar
+    # The toolbar's Booleans popover starts the commands; the Inspector shows the running one's prompt.
     for kind in ("Union", "Difference", "Intersection"):
-        assert f"BeginLandscapeCommand (s, lg::OperationKind::{kind})" in panel
-    assert "LandscapeCommandPrompt (s)" in panel
-    assert "BooleanLandscapeFaceSets (s," not in panel
+        assert f"BeginLandscapeCommand (s, lg::OperationKind::{kind})" in toolbar
+    assert "LandscapeCommandPrompt (s)" in inspector
+    for source in (panel, toolbar, inspector):
+        assert "BooleanLandscapeFaceSets (s," not in source
 
 
 def _state_schema():
