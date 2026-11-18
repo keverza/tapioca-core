@@ -146,8 +146,24 @@ void TerrainActivityBadge (const Session& session);
 // worker, once input is idle. False, and a message, when it is built or cannot be.
 bool RequestTerrainBuild (Session& session);
 // #175: the panel's Build mesh button and, while the preview stands in, its quantities and
-// shortfalls.
+// shortfalls. While a build runs the button is a progress bar the panel's width.
 void TerrainBuildSection (Session& session);
+// The bar: the build's stage (0 idle, 1 preparing, 2 refining, 3 finishing) and refinement as the
+// kernel reports them, the seconds it has run and the last build took, and the furthest the bar
+// has shown (it never goes back).
+struct TerrainBuildBarInput {
+    bool requested = false; // asked, not started yet
+    uint32_t stage = 0, round = 0, added = 0, pending = 0;
+    double residual = 0, first = 0, tolerance = 0; // metres
+    double seconds = 0, lastSeconds = 0;
+    float shown = 0;
+};
+struct TerrainBuildBar {
+    float fraction = 0;
+    std::string label;  // on the bar
+    std::string detail; // under it
+};
+TerrainBuildBar MakeTerrainBuildBar (const TerrainBuildBarInput& input);
 // Grade along the chosen path's band only (true), or from every path's paved outline (false, the
 // default); a running design rebuilds the other way on the next idle poll.
 void SetTerrainBand (Session& session, bool band);

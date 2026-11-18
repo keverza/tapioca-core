@@ -1069,6 +1069,15 @@ pub(in crate::terrain) fn refine(
                 })
                 .map(|triangle| (triangle, Why::Angle)),
         );
+        crate::terrain::progress::refining(&crate::terrain::progress::Progress {
+            round: report.rounds,
+            added: u32::try_from(mesher.base.len() - initial).unwrap_or(u32::MAX),
+            budget: bound.refine.budget,
+            pending: u32::try_from(bad.len()).unwrap_or(u32::MAX),
+            residual: report.residual,
+            tolerance: bound.refine.tolerance,
+            ..crate::terrain::progress::Progress::default()
+        });
         if bad.is_empty() {
             // A refused triangle stays in `left` while unrelated work settles. Its residual is
             // still unresolved; do not report a successful exhaustion state just because no
@@ -1113,6 +1122,7 @@ pub(in crate::terrain) fn refine(
         }
     }
     report.added = u32::try_from(mesher.base.len() - initial).ok()?;
+    crate::terrain::progress::finishing();
     let built = assemble(mesh, &mesher)?;
     Some((built, report, mesher.steps))
 }

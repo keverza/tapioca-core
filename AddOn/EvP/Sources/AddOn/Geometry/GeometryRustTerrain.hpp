@@ -298,6 +298,14 @@ struct TerrainDetailRequest {
     double tolerance = 0.05;
 };
 bool DetailTerrainSurface (const TerrainDetailRequest& request, TerrainResult& result, std::string& error);
+// How far the running unified build has got (tapioca_terrain_progress): any thread, any time.
+enum class TerrainBuildStage : uint32_t { Idle = 0, Preparing = 1, Refining = 2, Finishing = 3 };
+struct TerrainBuildProgress {
+    TerrainBuildStage stage = TerrainBuildStage::Idle;
+    uint32_t round = 0, added = 0, budget = 0, pending = 0;
+    double residual = 0, first = 0, tolerance = 0; // metres: now, at the first round, refined to
+};
+TerrainBuildProgress ReadTerrainBuildProgress ();
 enum class TerrainGradientMethod : uint32_t { Central = 1, OneSided = 2, Face = 3 };
 struct TerrainSample {
     bool onSurface = false; // Every other field is zero when false.

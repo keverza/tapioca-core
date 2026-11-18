@@ -2659,6 +2659,38 @@ TEST (HudTerrainDesign, TheMeshShownIsTheBuildAtItsChosenDetail)
     EXPECT_EQ (TerrainMesh (layer)->points, built->published->points) << "Full draws the build";
 }
 
+// Build mesh's progress bar (the user, 2026-11-18: a large build takes minutes): the refinement's
+// share follows its worst error down from the first round to the tolerance, never goes back, and
+// says how long it has run and the last build took.
+TEST (HudTerrainDesign, TheBuildBarFollowsTheRefinementAndNeverGoesBack)
+{
+    eh::TerrainBuildBarInput input;
+    input.requested = true;
+    EXPECT_EQ (eh::MakeTerrainBuildBar (input).fraction, 0.0f);
+    input.requested = false;
+    input.stage = 1;
+    EXPECT_LT (eh::MakeTerrainBuildBar (input).fraction, 0.1f);
+    input.stage = 2, input.round = 12, input.added = 24162, input.pending = 300;
+    input.first = 0.4, input.residual = 0.04, input.tolerance = 0.01; // a tenth of the way down a 40:1 log
+    input.seconds = 65, input.lastSeconds = 76;
+    auto bar = eh::MakeTerrainBuildBar (input);
+    EXPECT_NEAR (bar.fraction, 0.1 + 0.8 * std::log (10.0) / std::log (40.0), 1e-6);
+    EXPECT_NE (bar.label.find ("Refining"), std::string::npos) << bar.label;
+    EXPECT_NE (bar.label.find ("1:05"), std::string::npos) << bar.label;
+    EXPECT_NE (bar.detail.find ("Round 12, 24162 points added, 300 triangles to fix"), std::string::npos) << bar.detail;
+    EXPECT_NE (bar.detail.find ("the last build took 1:16"), std::string::npos) << bar.detail;
+    input.shown = 0.8f; // a round whose worst triangle got worse: the bar stays
+    EXPECT_EQ (eh::MakeTerrainBuildBar (input).fraction, 0.8f);
+    input.shown = 0, input.residual = 0.009;
+    EXPECT_NEAR (eh::MakeTerrainBuildBar (input).fraction, 0.9f, 1e-6) << "the error met: the angles' tenth left";
+    input.stage = 3;
+    EXPECT_GT (eh::MakeTerrainBuildBar (input).fraction, 0.9f);
+    input.stage = 0, input.shown = 0.92f; // the kernel done, the job simplifying to the Mesh detail
+    bar = eh::MakeTerrainBuildBar (input);
+    EXPECT_GT (bar.fraction, 0.92f);
+    EXPECT_NE (bar.label.find ("Mesh detail"), std::string::npos) << bar.label;
+}
+
 TEST (HudTerrainDesign, TypedCrossSectionApplyRebuildsTheExistingPreviewWithoutAddingWorkerHistory)
 {
     TerrainHostFixture fixture;

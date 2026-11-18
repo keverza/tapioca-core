@@ -12,6 +12,7 @@ mod hybrid;
 mod locked;
 mod outline;
 mod preview;
+mod progress;
 mod result;
 mod sample;
 mod slope;
@@ -44,6 +45,7 @@ pub use outline::{
 pub use preview::{
     PreviewCounts, PreviewLine, PreviewOutput, PreviewSummary, tapioca_terrain_unified_preview,
 };
+pub use progress::{TerrainProgress, tapioca_terrain_progress};
 pub use sample::{
     TerrainFieldSummary, TerrainSample, TerrainSampleOutput, TerrainSampleRequest,
     tapioca_terrain_sample,

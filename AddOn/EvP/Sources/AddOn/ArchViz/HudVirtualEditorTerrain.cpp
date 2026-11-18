@@ -201,6 +201,8 @@ void StartTerrainDesignWorker (Session& s, TerrainDesignState& state)
         LogTerrain (s, "worker launch generation=" + std::to_string (job.generation) +
                            " nativeSurfaceRequired=" + std::to_string (job.surfaceTable != 0));
         state.worker = lg::LaunchLandscapeTerrainDesign (std::move (job));
+        state.buildStarted = std::chrono::steady_clock::now ();
+        state.buildShown = 0.0f;
     }
     catch (const std::exception& exception) {
         state.error = std::string ("TerrainDesignWorker: ") + exception.what ();
@@ -329,6 +331,8 @@ void PollTerrainDesign (Session& s)
         if (state.worker.wait_for (std::chrono::seconds (0)) != std::future_status::ready)
             return;
         auto outcome = state.worker.get ();
+        state.lastBuildSeconds =
+            std::chrono::duration<double> (std::chrono::steady_clock::now () - state.buildStarted).count ();
         const auto& capture = outcome.capture;
         LogTerrain (
             s, "worker completed generation=" + std::to_string (outcome.generation) +

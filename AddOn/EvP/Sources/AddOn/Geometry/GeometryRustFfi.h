@@ -1003,6 +1003,20 @@ typedef struct {
     double tolerance;
 } TapiocaTerrainDetailRequest;
 
+/* How far the running terrain build has got; stage 0 idle, 1 preparing, 2 refining, 3 finishing.
+ * Errors in metres. Read from any thread while a build runs on another. */
+typedef struct TapiocaTerrainProgress {
+    uint32_t stage;
+    uint32_t round;
+    uint32_t added;
+    uint32_t budget;
+    uint32_t pending;
+    uint32_t reserved;
+    double residual;
+    double first;
+    double tolerance;
+} TapiocaTerrainProgress;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -1340,6 +1354,7 @@ TapiocaStatus tapioca_terrain_surface (const TapiocaTerrainSurfaceRequest* reque
                                        char* error, size_t errorCapacity);
 TapiocaStatus tapioca_terrain_detail (const TapiocaTerrainDetailRequest* request, const TapiocaTerrainOutput* output,
                                       char* error, size_t errorCapacity);
+TapiocaStatus tapioca_terrain_progress (TapiocaTerrainProgress* out, char* error, size_t errorCapacity);
 
 // S3b.3: single compute, caller-sized outputs (no query mode). The same
 // live/aligned/disjoint/atomic contract as above applies, including every

@@ -42,6 +42,7 @@ pub mod outline;
 mod plan;
 mod presplit;
 pub mod preview;
+pub mod progress;
 mod refine;
 pub mod region;
 mod split;

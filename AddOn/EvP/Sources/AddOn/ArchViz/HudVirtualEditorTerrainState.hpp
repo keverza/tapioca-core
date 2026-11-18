@@ -9,6 +9,7 @@
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditRegionTerrain.hpp"
 #include "Edit/EditTerrainOutline.hpp"
+#include <chrono>
 #include <future>
 #include <string>
 #include <vector>
@@ -45,6 +46,11 @@ struct TerrainDesignState {
     // tenth of a second) rather than built again. For the build of `redetailedGeneration` only.
     std::shared_ptr<const lg::DetailedTerrain> redetailed;
     uint64_t redetailedGeneration = UINT64_MAX;
+    // Build mesh's progress bar: when the running build started, the furthest the bar has shown
+    // (it never goes back), and how long the last build took, seconds.
+    std::chrono::steady_clock::time_point buildStarted {};
+    float buildShown = 0.0f;
+    double lastBuildSeconds = 0.0;
 };
 
 // Lifecycle transitions only, never status polling or per-frame rendering.

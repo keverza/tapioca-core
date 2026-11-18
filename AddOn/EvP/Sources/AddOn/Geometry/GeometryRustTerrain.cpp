@@ -231,6 +231,22 @@ bool DetailTerrainSurface (const TerrainDetailRequest& request, TerrainResult& r
     return TerrainCall (input, tapioca_terrain_detail, kNone, request.points.size () / 3, result, error);
 }
 
+TerrainBuildProgress ReadTerrainBuildProgress ()
+{
+    TapiocaTerrainProgress raw {};
+    char error[64] = {};
+    if (tapioca_terrain_progress (&raw, error, sizeof error) != TAPIOCA_OK || raw.stage > 3)
+        return {};
+    return { TerrainBuildStage (raw.stage),
+             raw.round,
+             raw.added,
+             raw.budget,
+             raw.pending,
+             raw.residual,
+             raw.first,
+             raw.tolerance };
+}
+
 bool ExtractTerrainSurface (const TerrainMeshView& mesh, const ProvenanceRequest& provenance, TerrainResult& result,
                             std::string& error)
 {

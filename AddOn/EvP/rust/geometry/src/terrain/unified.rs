@@ -2087,6 +2087,7 @@ fn baseline_mesh(points: &[f64], triangles: &[u32]) -> Result<RegionMesh, BuildE
 /// # Errors
 /// See [`BuildError`]. Inputs are immutable and no partial result is returned.
 pub fn build_terrain(baseline: &Baseline<'_>, plan: &Plan<'_>) -> Result<BuiltTerrain, BuildError> {
+    let _running = super::progress::Running::begin();
     let base_field =
         Field::new(baseline.points, baseline.triangles).map_err(BuildError::Baseline)?;
     let mut transition = TransitionReport::default();
