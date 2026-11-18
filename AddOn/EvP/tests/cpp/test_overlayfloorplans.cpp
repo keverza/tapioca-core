@@ -238,8 +238,22 @@ TEST (OverlayFloorPlans, ThePlanShowsItsStoreysCellsFilledAnd3DShowsEveryFloor)
         << "3D: every floor, and its slab's wireframe to the top";
     EXPECT_TRUE (units.solid) << "its solids hide each other";
     ASSERT_FALSE (onPlan.meshes.empty ()) << "cells filled";
-    for (const auto& mesh : onPlan.meshes)
+    for (const auto& mesh : onPlan.meshes) {
         EXPECT_EQ (mesh.rgba & 0xFFu, 0x99u) << "a fill shows the plan through it";
+        // Issue 2 (P3): a cell's fill is indexed over its own corners, each stored once, its
+        // triangles counter-clockwise from above.
+        std::set<std::pair<long long, long long>> corners;
+        for (size_t i = 0; i + 2 < mesh.points.size (); i += 3)
+            corners.insert ({ std::llround (mesh.points[i] * 1e6), std::llround (mesh.points[i + 1] * 1e6) });
+        EXPECT_EQ (corners.size (), mesh.points.size () / 3) << "no corner stored twice";
+        ASSERT_EQ (mesh.indices.size () % 3, 0u);
+        for (size_t t = 0; t < mesh.indices.size (); t += 3) {
+            const double* a = &mesh.points[3 * size_t (mesh.indices[t])];
+            const double* b = &mesh.points[3 * size_t (mesh.indices[t + 1])];
+            const double* c = &mesh.points[3 * size_t (mesh.indices[t + 2])];
+            EXPECT_GT ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]), 0.0);
+        }
+    }
     EXPECT_TRUE (layers::Validate (onPlan).empty ());
     // Another storey on the plan: its floor instead.
     hud::SetPlanStorey (*state, 2);

@@ -2,8 +2,7 @@
 #include "ArchViz/BuildingTopology.hpp"
 #include "ArchViz/GraphicsSettings.hpp"
 #include "ArchViz/MassingSlices.hpp"
-#include <clipper2/clipper.h>
-#include <clipper2/clipper.triangulation.h>
+#include "Geometry/PlanarTriangulation.hpp"
 #include <climits>
 #include <cmath>
 #include <array>
@@ -149,54 +148,50 @@ void EdgeLengths (overlaylayers::Layer& layer, const fs::Ring& ring, double z)
         layer.texts.push_back (std::move (t));
     }
 }
-// A ring filled, flat at `z`: triangulated, so an L or a notched flat fills only itself.
+// A ring's exact cover over its own corners: counter-clockwise index triples into `ring`. Refuses
+// (empty) a crossing or degenerate ring rather than guessing one -- no corner is ever added.
+std::vector<uint32_t> Cover (const fs::Ring& ring)
+{
+    if (ring.size () < 3)
+        return {};
+    std::vector<double> xy;
+    xy.reserve (ring.size () * 2);
+    for (const auto& p : ring)
+        xy.insert (xy.end (), { p.x, p.y });
+    engine::PlanarTriangulation cover;
+    std::string error;
+    if (!engine::TriangulatePlanar ({ { xy.data (), ring.size () } }, false, cover, error) ||
+        cover.cover != engine::PlanarCover::Exact || !cover.generatedXY.empty ())
+        return {};
+    return std::move (cover.triangles);
+}
+// A ring filled, flat at `z`: triangulated over its own corners, so an L or a notched flat fills
+// only itself and stores each corner once.
 void Fill (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t rgba)
 {
-    namespace cp = Clipper2Lib;
-    cp::PathD path;
-    for (const auto& p : ring)
-        path.emplace_back (p.x, p.y);
-    cp::PathsD triangles;
-    if (ring.size () < 3 || cp::Triangulate ({ path }, 4, triangles, false) != cp::TriangulateResult::success)
+    auto triangles = Cover (ring);
+    if (triangles.empty ())
         return;
     overlaylayers::Mesh mesh;
     mesh.rgba = rgba;
     mesh.styled = true;
     mesh.style.behind = overlaylayers::Behind::Show;
-    for (const auto& t : triangles) {
-        if (t.size () != 3)
-            continue;
-        const uint32_t base = static_cast<uint32_t> (mesh.points.size () / 3);
-        for (const auto& q : t)
-            mesh.points.insert (mesh.points.end (), { q.x, q.y, z });
-        mesh.indices.insert (mesh.indices.end (), { base, base + 1, base + 2 });
-    }
-    if (!mesh.indices.empty ())
-        layer.meshes.push_back (std::move (mesh));
+    for (const auto& p : ring)
+        mesh.points.insert (mesh.points.end (), { p.x, p.y, z });
+    mesh.indices = std::move (triangles);
+    layer.meshes.push_back (std::move (mesh));
 }
 // A counter-clockwise ring raised from z0 to z1 into `mesh`, coloured `rgba`: its caps
 // triangulated over its own corners (so their seams are no edge), its sides quads. Each cap and the
 // sides have their own corners, so the mesh's feature edges are the solid's outline.
 void Solid (overlaylayers::Mesh& mesh, const fs::Ring& ring, double z0, double z1, uint32_t rgba)
 {
-    namespace cp = Clipper2Lib;
     const uint32_t n = static_cast<uint32_t> (ring.size ());
     if (n < 3 || z1 <= z0)
         return;
-    cp::PathD path;
-    for (const auto& p : ring)
-        path.emplace_back (p.x, p.y);
-    cp::PathsD triangles;
-    if (cp::Triangulate ({ path }, 4, triangles, false) != cp::TriangulateResult::success)
+    const auto triangles = Cover (ring);
+    if (triangles.empty ())
         return;
-    const auto corner = [&] (const cp::PointD& q) {
-        uint32_t best = 0;
-        double nearest = 1e300;
-        for (uint32_t i = 0; i < n; ++i)
-            if (const double d = std::hypot (ring[i].x - q.x, ring[i].y - q.y); d < nearest)
-                nearest = d, best = i;
-        return best;
-    };
     const auto put = [&] (double z) {
         const uint32_t base = static_cast<uint32_t> (mesh.points.size () / 3);
         for (const auto& p : ring)
@@ -205,12 +200,8 @@ void Solid (overlaylayers::Mesh& mesh, const fs::Ring& ring, double z0, double z
         return base;
     };
     const uint32_t bottom = put (z0), top = put (z1);
-    for (const auto& t : triangles) {
-        if (t.size () != 3)
-            continue;
-        uint32_t a = corner (t[0]), b = corner (t[1]), c = corner (t[2]);
-        if ((t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[1].y - t[0].y) * (t[2].x - t[0].x) < 0)
-            std::swap (b, c); // counter-clockwise from above
+    for (size_t t = 0; t + 2 < triangles.size (); t += 3) {
+        const uint32_t a = triangles[t], b = triangles[t + 1], c = triangles[t + 2]; // counter-clockwise
         mesh.indices.insert (mesh.indices.end (), { top + a, top + b, top + c, bottom + a, bottom + c, bottom + b });
     }
     const uint32_t low = put (z0), high = put (z1);
@@ -256,16 +247,8 @@ namespace {
 // A point inside a ring: its first triangle's centre (a flat's centre may be outside an L).
 fs::Vec Inside (const fs::Ring& ring)
 {
-    namespace cp = Clipper2Lib;
-    cp::PathD path;
-    for (const auto& p : ring)
-        path.emplace_back (p.x, p.y);
-    cp::PathsD triangles;
-    if (ring.size () >= 3 && cp::Triangulate ({ path }, 4, triangles, false) == cp::TriangulateResult::success &&
-        !triangles.empty () && triangles.front ().size () == 3) {
-        const auto& t = triangles.front ();
-        return { (t[0].x + t[1].x + t[2].x) / 3, (t[0].y + t[1].y + t[2].y) / 3 };
-    }
+    if (const auto t = Cover (ring); t.size () >= 3)
+        return { (ring[t[0]].x + ring[t[1]].x + ring[t[2]].x) / 3, (ring[t[0]].y + ring[t[1]].y + ring[t[2]].y) / 3 };
     return ring.empty () ? fs::Vec {} : ring.front ();
 }
 // Whether view pixel (x, y) is inside the projected polygon `screen` (even-odd).

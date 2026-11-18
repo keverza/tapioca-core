@@ -1,7 +1,7 @@
 #include "ArchViz/FloorSchemeDetail.hpp"
 #include <algorithm>
 #include <array>
-#include <clipper2/clipper.triangulation.h>
+#include "Geometry/PlanarTriangulation.hpp"
 
 // T0 and T7 plus the hard-rule check. Generate joins the massing floor into one outline,
 // runs the skeleton, circulation and division stages, then moulds the scheme back onto
@@ -454,16 +454,30 @@ void Mould (const cp::PathsD& outline, const cp::PathsD* blind, Scheme& s, doubl
         for (const auto& hole : rest)
             if (cp::Area (hole) < 0 && !hole.empty () && Inside ({ outer }, { hole.front ().x, hole.front ().y }))
                 region.push_back (hole);
-        cp::PathsD part;
-        if (cp::Triangulate (region, kPrecision, part, false) == cp::TriangulateResult::success) {
-            // Either winding comes back; the shares below keep only counter-clockwise paths.
+        std::vector<double> xy;
+        std::vector<engine::PlanarRing> planar;
+        for (const auto& ring : region)
+            for (const auto& p : ring)
+                xy.insert (xy.end (), { p.x, p.y });
+        for (size_t i = 0, start = 0; i < region.size (); start += region[i++].size ())
+            planar.push_back ({ xy.data () + 2 * start, region[i].size () });
+        engine::PlanarTriangulation cover;
+        std::string why;
+        // An exact cover over the region's own corners, counter-clockwise; generated crossings or
+        // a forced cut fall through to the grid.
+        if (engine::TriangulatePlanar (planar, false, cover, why) && cover.generatedXY.empty () &&
+            (cover.cover == engine::PlanarCover::Exact ||
+             (cover.cover == engine::PlanarCover::Repaired && planar.size () > 1))) {
+            cp::PathsD part;
             double sum = 0;
-            for (auto& t : part) {
-                if (cp::Area (t) < 0)
-                    std::reverse (t.begin (), t.end ());
-                sum += cp::Area (t);
+            for (size_t t = 0; t + 2 < cover.triangles.size (); t += 3) {
+                cp::PathD tri;
+                for (size_t k = 0; k < 3; ++k)
+                    tri.emplace_back (xy[2 * size_t (cover.triangles[t + k])],
+                                      xy[2 * size_t (cover.triangles[t + k]) + 1]);
+                sum += cp::Area (tri);
+                part.push_back (std::move (tri));
             }
-            // On touching rings of real outlines it can also drop or repeat triangles.
             if (std::abs (sum - detail::Area (region)) < 0.01) {
                 triangles.insert (triangles.end (), part.begin (), part.end ());
                 continue;

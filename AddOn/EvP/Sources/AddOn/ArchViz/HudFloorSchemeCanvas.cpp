@@ -1,7 +1,7 @@
 #include "ArchViz/HudFloorSchemeEditDetail.hpp"
 #include "ArchViz/HudShell.hpp"
 #include <clipper2/clipper.h>
-#include <clipper2/clipper.triangulation.h>
+#include "Geometry/PlanarTriangulation.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -62,22 +62,50 @@ fs::Vec Outward (const std::array<fs::Vec, 2>& wall)
     const fs::Vec d = Unit ({ wall[1].x - wall[0].x, wall[1].y - wall[0].y });
     return { d.y, -d.x };
 }
+// The rings filled by non-zero winding, as Inside reads them: their union resolved into islands,
+// each an outer and its own holes covered exactly over its corners. An island with no exact cover
+// is left unfilled (its outline still draws) rather than fanned into triangles outside it.
 Fill Triangles (const std::vector<fs::Ring>& rings, ImU32 colour)
 {
     Fill fill;
     fill.colour = colour;
     cp::PathsD paths;
     for (const auto& r : rings)
-        paths.push_back (Path (r));
-    cp::PathsD tris;
-    if (cp::Triangulate (paths, 4, tris, false) == cp::TriangulateResult::success)
-        for (const auto& t : tris)
-            for (const auto& p : t)
-                fill.triangles.push_back ({ p.x, p.y });
-    else
-        for (const auto& r : rings) // a fan: right for the convex shapes that fail
-            for (size_t i = 1; i + 1 < r.size (); ++i)
-                fill.triangles.insert (fill.triangles.end (), { r[0], r[i], r[i + 1] });
+        if (r.size () >= 3)
+            paths.push_back (Path (r));
+    cp::ClipperD clipper (4);
+    cp::PolyTreeD tree;
+    clipper.AddSubject (paths);
+    if (paths.empty () || !clipper.Execute (cp::ClipType::Union, cp::FillRule::NonZero, tree))
+        return fill;
+    const auto island = [&] (const auto& self, const cp::PolyPathD& node) -> void {
+        if (!node.Polygon ().empty () && !node.IsHole ()) {
+            std::vector<double> xy;
+            std::vector<size_t> counts;
+            const auto append = [&] (const cp::PathD& path) {
+                for (const auto& p : path)
+                    xy.insert (xy.end (), { p.x, p.y });
+                counts.push_back (path.size ());
+            };
+            append (node.Polygon ());
+            for (const auto& child : node)
+                if (child->IsHole ())
+                    append (child->Polygon ());
+            std::vector<engine::PlanarRing> planar;
+            for (size_t i = 0, start = 0; i < counts.size (); start += counts[i++])
+                planar.push_back ({ xy.data () + 2 * start, counts[i] });
+            engine::PlanarTriangulation cover;
+            std::string error;
+            if (engine::TriangulatePlanar (planar, false, cover, error) && cover.generatedXY.empty () &&
+                (cover.cover == engine::PlanarCover::Exact ||
+                 (cover.cover == engine::PlanarCover::Repaired && planar.size () > 1)))
+                for (uint32_t index : cover.triangles)
+                    fill.triangles.push_back ({ xy[2 * size_t (index)], xy[2 * size_t (index) + 1] });
+        }
+        for (const auto& child : node)
+            self (self, *child);
+    };
+    island (island, tree);
     return fill;
 }
 ImU32 Ink (uint32_t rgba)

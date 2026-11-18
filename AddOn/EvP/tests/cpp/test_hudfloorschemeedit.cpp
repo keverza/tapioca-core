@@ -247,6 +247,51 @@ TEST (HudFloorSchemeEdit, FlatsOfTheSameRoomCountUseTheirOwnProgrammeColours)
     EXPECT_EQ (fills[2].colour, IM_COL32 (239, 80, 80, 255));
 }
 
+// Issue 2 (P3): the canvas fills through the exact planar cover. An L and an outline with a
+// stair hole fill exactly their area with counter-clockwise triangles; a crossing ring, which the
+// old convex fan covered with triangles outside it, fills only its own lobes.
+TEST (HudFloorSchemeEdit, CanvasFillsCoverExactlyTheirShapeAndNeverOutsideIt)
+{
+    const auto area = [] (const hf::Fill& fill, bool& ccw) {
+        double sum = 0;
+        ccw = fill.triangles.size () % 3 == 0;
+        for (size_t i = 0; i + 2 < fill.triangles.size (); i += 3) {
+            const auto &a = fill.triangles[i], &b = fill.triangles[i + 1], &c = fill.triangles[i + 2];
+            const double twice = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+            ccw = ccw && twice > 0;
+            sum += twice / 2;
+        }
+        return sum;
+    };
+    bool ccw = false;
+    const fs::Ring l { { 0, 0 }, { 6, 0 }, { 6, 2 }, { 2, 2 }, { 2, 5 }, { 0, 5 } };
+    const auto lFill = hf::detail::Triangles ({ l }, 0);
+    EXPECT_NEAR (area (lFill, ccw), 18.0, 1e-9);
+    EXPECT_TRUE (ccw);
+    EXPECT_EQ (lFill.triangles.size (), 12u) << "four triangles over the L's own six corners";
+
+    const fs::Ring outer { { 0, 0 }, { 10, 0 }, { 10, 8 }, { 0, 8 } };
+    const fs::Ring hole { { 4, 3 }, { 4, 5 }, { 6, 5 }, { 6, 3 } }; // clockwise: an opening
+    EXPECT_NEAR (area (hf::detail::Triangles ({ outer, hole }, 0), ccw), 76.0, 1e-9);
+    EXPECT_TRUE (ccw);
+
+    // A crossing ring is resolved by non-zero winding into its left and right lobes; the old fan
+    // also filled the gap below the crossing, at (2, 1).
+    const fs::Ring bowtie { { 0, 0 }, { 4, 4 }, { 4, 0 }, { 0, 4 } };
+    const auto crossed = hf::detail::Triangles ({ bowtie }, 0);
+    EXPECT_NEAR (area (crossed, ccw), 8.0, 1e-6);
+    EXPECT_TRUE (ccw);
+    for (size_t i = 0; i + 2 < crossed.triangles.size (); i += 3) {
+        const fs::Vec p { 2, 1 };
+        const auto side = [&] (const fs::Vec& a, const fs::Vec& b) {
+            return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+        };
+        const auto &a = crossed.triangles[i], &b = crossed.triangles[i + 1], &c = crossed.triangles[i + 2];
+        EXPECT_FALSE (side (a, b) > 0 && side (b, c) > 0 && side (c, a) > 0)
+            << "triangle " << i / 3 << " fills the gap";
+    }
+}
+
 TEST (HudFloorSchemeEdit, CanvasDrawsRoomAndAreaOnSeparateCentredLines)
 {
     auto* previous = ImGui::GetCurrentContext ();
