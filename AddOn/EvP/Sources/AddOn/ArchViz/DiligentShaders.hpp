@@ -2139,10 +2139,15 @@ float3 Grade (float3 radiance)
     return AcesFitted (radiance * g_whiteBalance.rgb * g_gradeParams.x);
 }
 
+// Material focus (Exposed surfaces): z = 0 none, 1 desaturated, 2 white model.
+// The white model's albedo is set in the mesh PS, so here it only fades toward a
+// white backdrop; the desaturated one fades toward neutral grey.
 float3 SurfaceFocusContext (float3 color)
 {
     if (g_frameControl.z < 0.5)
         return color;
+    if (g_frameControl.z > 1.5)
+        return lerp (float3 (1.0, 1.0, 1.0), color, saturate (g_frameControl.w));
     const float grey = dot (color, float3 (0.2126, 0.7152, 0.0722));
     return lerp (float3 (0.60, 0.60, 0.60), float3 (grey, grey, grey), saturate (g_frameControl.w));
 }
@@ -2640,6 +2645,10 @@ void main (in PSInput psIn, out PSOutput psOut)
 
     float3 lighting = ambientTerm + direct.xxx * g_skyColor.w;
     float4 base = psIn.color * g_baseColor;
+    // White-model material focus: every surface is a white architectural render
+    // with its own lighting and alpha; the focused one is coloured by its overlay.
+    if (g_frameControl.z > 1.5)
+        base.rgb = float3 (0.85, 0.85, 0.85);
 
     // ---- RenderQuality::Realistic (PLAT-RE126) ----------------------------
     //

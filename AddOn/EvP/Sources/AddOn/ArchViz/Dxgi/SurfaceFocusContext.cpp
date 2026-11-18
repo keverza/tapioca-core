@@ -125,12 +125,12 @@ bool PrepareCopy (ID3D11Device* device, const D3D11_TEXTURE2D_DESC& target)
     return true;
 }
 
-bool UploadOpacity (ID3D11DeviceContext* context, float opacity)
+bool UploadOpacity (ID3D11DeviceContext* context, float opacity, bool whiteModel)
 {
     D3D11_MAPPED_SUBRESOURCE mapped = {};
     if (FAILED (context->Map (g_opacity, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
         return false;
-    const float values[4] = { std::clamp (opacity, 0.0f, 1.0f), 0.0f, 0.0f, 0.0f };
+    const float values[4] = { std::clamp (opacity, 0.0f, 1.0f), whiteModel ? 1.0f : 0.0f, 0.0f, 0.0f };
     std::memcpy (mapped.pData, values, sizeof (values));
     context->Unmap (g_opacity, 0);
     return true;
@@ -138,7 +138,7 @@ bool UploadOpacity (ID3D11DeviceContext* context, float opacity)
 
 } // namespace
 
-DrawResult Draw (ID3D11DeviceContext* context, ID3D11RenderTargetView* target, float opacity)
+DrawResult Draw (ID3D11DeviceContext* context, ID3D11RenderTargetView* target, float opacity, bool whiteModel)
 {
     if (context == nullptr || target == nullptr)
         return DrawResult::NoTarget;
@@ -179,7 +179,7 @@ DrawResult Draw (ID3D11DeviceContext* context, ID3D11RenderTargetView* target, f
     context->OMSetRenderTargets (0, nullptr, nullptr);
     context->CopyResource (g_copy, source);
     Release (source);
-    if (!UploadOpacity (context, opacity))
+    if (!UploadOpacity (context, opacity, whiteModel))
         return DrawResult::PipelineError;
 
     context->OMSetRenderTargets (1, &target, nullptr);

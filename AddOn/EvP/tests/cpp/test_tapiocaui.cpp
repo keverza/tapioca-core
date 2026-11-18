@@ -10,6 +10,8 @@
 #include "ArchViz/HudShellTabs.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/SurfaceTakeoffPage.hpp"
+#include "ArchViz/SurfaceTakeoffShot.hpp"
+#include "Geometry/SurfaceTakeoffResult.hpp"
 #include "Geometry/SurfaceTakeoffController.hpp"
 #include "ArchViz/TapiocaUI/Demo/WidgetGallery.hpp"
 #include "ArchViz/TapiocaUI/Foundation/IconData.hpp"
@@ -24,6 +26,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <string>
 
 namespace ui = geomsrv::archviz::ui;
@@ -115,6 +118,93 @@ TEST (SurfaceTakeoffPage, ReturnsExplicitCalculateAndGenerationScopedCancel)
     ASSERT_TRUE (cancel);
     EXPECT_EQ (cancel->kind, page::PageAction::Kind::Cancel);
     EXPECT_EQ (cancel->generation, 42u);
+}
+
+TEST (SurfaceTakeoffShot, TheAreaTableMeasuresItsWrappedHeightAndLeavesImGuiAsFound)
+{
+    // Issue #193 S7: the screenshot strip is laid out, measured and drawn again taller
+    // when names wrap. It never clips a name to fit and never leaks a style push.
+    namespace shot = geomsrv::archviz::surfacetakeoff;
+    Context context;
+    shot::ShotTable table;
+    table.title = "EXPOSED SURFACE AREAS";
+    table.subtitle = "Exposed | Captured walls, interiors included | Complete for the captured scope";
+    table.rows = { { 117, "Stucco - White", 0xEEEEEEFFu, 8, 124.38 }, { 118, "Concrete", 0x999999FFu, 3, 0.0001 } };
+    table.totalM2 = 124.3801;
+    table.elements = 10;
+    table.footer = { "Capture 1 | Result 2 | 2026-11-18 10:00:00" };
+    const auto draw = [&] (float width) {
+        ImGui::NewFrame ();
+        const Stacks before = Stacks::Now ();
+        const float used = shot::DrawShotTable (table, width, 200.0f);
+        EXPECT_TRUE (Stacks::Now () == before);
+        ImGui::Render ();
+        return used;
+    };
+    const float plain = draw (900.0f);
+    EXPECT_GT (plain, 0.0f);
+    table.rows[0].name = std::string (400, 'W');
+    const float wrapped = draw (900.0f);
+    EXPECT_GT (wrapped, plain + ImGui::GetTextLineHeight ()); // the long name took more lines
+    table.rows.resize (40, table.rows[1]);
+    EXPECT_GT (draw (900.0f), 200.0f); // past the strip it was given: the caller redraws, never truncates
+    EXPECT_EQ (shot::ShotArea (0.0001), "<0.001");
+    EXPECT_EQ (shot::ShotArea (0.0), "0.000");
+    EXPECT_EQ (shot::ShotArea (12.3456), "12.346");
+}
+
+TEST (SurfaceTakeoffPage, TheOverlayPointsToTheViewerForScreenshotsAndTheViewerAsksForOne)
+{
+    namespace page = geomsrv::archviz::surfacetakeoff;
+    namespace takeoff = geomsrv::surfacetakeoff;
+    Context context;
+    auto result = std::make_shared<takeoff::Result> ();
+    result->classification = "allWallFaces-contactOnly";
+    result->selectedAreaM2 = 5;
+    result->surfaces = { { 117, "Stucco", 0xEEEEEEFFu, 5 } };
+    takeoff::ControllerView view;
+    view.state = takeoff::ControllerState::Current;
+    view.generation = 7;
+    takeoff::ControllerResult accepted;
+    accepted.generation = 7;
+    accepted.payload = result;
+    view.lastGood = accepted;
+    page::PageState state;
+    page::HighlightSummary highlight;
+    highlight.generation = 7;
+    highlight.areaM2 = 5;
+    highlight.rowAreas[117] = 5;
+    page::ShotControls shot;
+    shot.presets = { "1.5x", "2x", "3x" };
+    ImVec2 button;
+    const auto frame = [&] (page::ShotControls* controls, bool down) {
+        auto& io = ImGui::GetIO ();
+        io.AddMousePosEvent (button.x, button.y);
+        io.AddMouseButtonEvent (0, down);
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 10, 10 });
+        ImGui::SetNextWindowSize ({ 400, 800 });
+        ImGui::Begin ("surface shot test", nullptr, ImGuiWindowFlags_NoDecoration);
+        const auto action = page::DrawPage (state, &view, {}, highlight, controls);
+        // With no status line yet, the page's last item is the Screenshot button.
+        const ImVec2 min = ImGui::GetItemRectMin (), max = ImGui::GetItemRectMax ();
+        ImGui::End ();
+        ImGui::Render ();
+        if (!down)
+            button = { (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f };
+        return action;
+    };
+    EXPECT_FALSE (frame (&shot, false));
+    EXPECT_FALSE (frame (&shot, true));
+    const auto asked = frame (&shot, false);
+    ASSERT_TRUE (asked);
+    EXPECT_EQ (asked->kind, page::PageAction::Kind::Screenshot);
+    EXPECT_EQ (asked->generation, 7u);
+    shot.busy = true; // disabled while either kind of screenshot runs
+    EXPECT_FALSE (frame (&shot, true));
+    EXPECT_FALSE (frame (&shot, false));
+    EXPECT_FALSE (frame (nullptr, true)); // the overlay: a note, no button
+    EXPECT_FALSE (frame (nullptr, false));
 }
 
 TEST (TapiocaUiUnits, EitherDecimalSeparatorReadsTheSameNumber)

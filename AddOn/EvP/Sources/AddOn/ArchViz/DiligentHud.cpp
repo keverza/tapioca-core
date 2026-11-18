@@ -12,6 +12,7 @@
 #include "ArchViz/ViewportCursor.hpp"
 #include "ArchViz/ImGuiGraphInteractionLab.hpp"
 #include "ArchViz/SceneTextLiveCheck.hpp"
+#include "ArchViz/SurfaceTakeoffShot.hpp"
 #include "ArchViz/TapiocaUI/Demo/WidgetGallery.hpp"
 
 #include <windows.h>
@@ -455,6 +456,38 @@ uint32_t DiligentHud::CaptureLegendHeight (float scale) const
     // lines), against location / period / spilled swatches on the left; tight
     // item spacing and a quarter-line margin above and below.
     return uint32_t (std::lround (4.25f * 13.0f * CaptureDpiScale (scale)));
+}
+
+uint32_t DiligentHud::CaptureTableHeight (float scale, size_t rows, size_t footerLines) const
+{
+    // Title, subtitle, header, rows, total and footer, at the table's cell
+    // padding, plus the window's margins: measured again when drawn.
+    const float line = 13.0f * CaptureDpiScale (scale);
+    return uint32_t (std::lround (line * (5.0f + 1.5f * float (rows + 2) + 1.2f * float (footerLines))));
+}
+
+uint32_t DiligentHud::DrawCaptureTable (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,
+                                        const surfacetakeoff::ShotTable& table)
+{
+    if (context == nullptr || !impl_->ready || width == 0 || height == 0)
+        return 0;
+    std::lock_guard<std::mutex> lock (ImGuiContextMutex ());
+    ImGui::SetCurrentContext (impl_->context);
+    ImGuiIO& io = ImGui::GetIO ();
+    io.DisplaySize = ImVec2 (float (width), float (height));
+    io.DeltaTime = 1.0f / 60.0f;
+    io.AddMousePosEvent (-FLT_MAX, -FLT_MAX); // no hover carried into the image
+    const float dpiScale = CaptureDpiScale (scale);
+    hudshell::BaseStyle (dpiScale * hudshell::FontScaleOfStep (impl_->shell.fontStep));
+    impl_->renderer->NewFrame (width, height, Diligent::SURFACE_TRANSFORM_IDENTITY);
+    ImGui::NewFrame ();
+    ImGui::PushFont (impl_->font, 13.0f * dpiScale);
+    const float used = surfacetakeoff::DrawShotTable (table, float (width), float (height));
+    ImGui::PopFont ();
+    ImGui::Render ();
+    impl_->renderer->RenderDrawData (context, ImGui::GetDrawData ());
+    impl_->renderer->EndFrame ();
+    return uint32_t (std::ceil (used));
 }
 
 void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,

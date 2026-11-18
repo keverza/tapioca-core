@@ -59,6 +59,9 @@ struct InputSnapshot;
 struct DiligentSceneStats;
 struct SunStudyAtlasUpload;
 struct SunPathSceneGeometry; // ArchViz/SunPathScene.hpp
+namespace surfacetakeoff {
+struct ShotTable; // ArchViz/SurfaceTakeoffShot.hpp
+}
 
 // What the HUD shows, and what the user can change from it. The viewport owns
 // one of these and reads it back after Draw.
@@ -66,6 +69,10 @@ struct SunPathSceneGeometry; // ArchViz/SunPathScene.hpp
 // divided by `speed`, wrapping when `loop`.
 // Inner Sunstudy view index: single-shadow tint plus exact obstruction parts.
 constexpr int kSunObstructionView = 5;
+
+// Which still a screenshot request takes (HudState::shotKind).
+constexpr int kShotSunStudy = 0;
+constexpr int kShotExposedSurfaces = 1;
 
 struct HudTimeline {
     bool playing = false;
@@ -196,11 +203,18 @@ struct HudState {
     // The sun study SCREENSHOT (ArchViz/ViewerScreenshot.cpp): the preset, an
     // index into kViewerScreenshotScales; the request the frame loop takes; and
     // what the last one did, path or reason.
+    //
+    // ⚠️ ONE REQUEST, TWO STILLS: `shotKind` says whose. Exposed surfaces
+    // (issue #193) takes the same live still with its area table under it,
+    // pinned in `exposedShot` when asked; each page shows the status only of
+    // its own kind. The fields keep the sun study's names because it was first.
     int sunShotPreset = 1;
     bool sunShotRequested = false;
     bool sunShotBusy = false;
     bool sunShotFailed = false;
     std::string sunShotResult;
+    int shotKind = 0; // kShotSunStudy or kShotExposedSurfaces
+    std::shared_ptr<const surfacetakeoff::ShotTable> exposedShot;
     float sunTimeFrom = 0.0f;
     float sunTimeTo = 24.0f;
     // The hover INSPECTOR: 0 off, 1 a tooltip at the cursor, 2 a line in the
@@ -990,6 +1004,13 @@ class DiligentHud final {
                             const DiligentSceneStats& scene, const HudState& state);
     // The strip's height for `scale`: three lines and a thin margin.
     uint32_t CaptureLegendHeight (float scale) const;
+    // Exposed surfaces' screenshot strip (SurfaceTakeoffShot.hpp): the area table
+    // laid out like the legend. Returns the height the table NEEDED, which can
+    // exceed `height` when names wrap; the caller draws it again that tall.
+    uint32_t DrawCaptureTable (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,
+                               const surfacetakeoff::ShotTable& table);
+    // A first guess at that height: every name on one line.
+    uint32_t CaptureTableHeight (float scale, size_t rows, size_t footerLines) const;
 
   private:
     struct Impl;

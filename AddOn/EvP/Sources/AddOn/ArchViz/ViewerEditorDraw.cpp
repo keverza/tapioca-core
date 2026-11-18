@@ -1,6 +1,7 @@
 // OVERLAY-INVARIANTS.md: shared prepared arrays/pipelines only, not camera
 // discovery or injection state. This runs exclusively on the viewer render thread.
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/DiligentViewportSupport.hpp"
 #include "ArchViz/ViewerEditorDraw.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "Geometry/SurfaceTakeoffController.hpp"
@@ -111,10 +112,23 @@ float ViewerEditorDraw::SurfaceContextOpacity () const
     return std::clamp (highlight->summary.contextOpacity, 0.0f, 1.0f);
 }
 
+void ViewerEditorDraw::ApplySurfaceFocus (SceneDrawRequest& request, bool planMode, bool screenshotActive) const
+{
+    const float opacity = SurfaceContextOpacity ();
+    const auto highlight = opacity >= 0.0f ? vieweredit::ReadSurfaceHighlight () : nullptr;
+    SetSurfaceFocus (request, planMode, screenshotActive, opacity,
+                     highlight && highlight->summary.contextStyle == surfacetakeoff::ContextStyle::WhiteModel);
+}
+
 void ViewerEditorDraw::Update (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                                Diligent::ITextureView* target, Diligent::ITextureView* depth, const float* view,
-                               const float* projection, uint32_t width, uint32_t height, bool showSurfaceHighlight)
+                               const float* projection, uint32_t width, uint32_t height, bool showSurfaceHighlight,
+                               float screenshotScale)
 {
+    // Nonzero: a screenshot's frame (ViewerScreenshot), at that many times the
+    // window's pixels. It carries the measured highlight only, at widths scaled to match.
+    const bool editorShown = screenshotScale <= 0.0f;
+    shotScale_ = screenshotScale;
     if (!vieweredit::Running ()) {
         Clear ();
         return;
@@ -129,8 +143,11 @@ void ViewerEditorDraw::Update (Diligent::IRenderDevice* device, Diligent::IDevic
     std::copy_n (projection, 16, frame.projection.begin ());
     frame.width = width;
     frame.height = height;
-    vieweredit::PublishFrame (frame);
-    const bool editorActive = vieweredit::Active ();
+    // A screenshot's frame carries the measured highlight only: no editor
+    // handles, and its offscreen size must not become the editor's pick frame.
+    if (editorShown)
+        vieweredit::PublishFrame (frame);
+    const bool editorActive = editorShown && vieweredit::Active ();
     auto highlight = vieweredit::ReadSurfaceHighlight ();
     if (showSurfaceHighlight && highlight && capture_ == highlight->capture &&
         MeshStore::Get ().IsCurrentCapture (capture_, true)) {
@@ -211,9 +228,11 @@ bool ViewerEditorDraw::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceC
     const float constants[] = { float (frame.width), float (frame.height), scale_, 0.00001f };
     gpu::DrawStats stats;
     if (highlight) {
+        const float pixels = scale_ * (shotScale_ > 0.0f ? shotScale_ : 1.0f);
+        const float shotConstants[] = { float (frame.width), float (frame.height), pixels, 0.00001f };
         gpu::BindCamera (pipelines_, surfacePages_, view_, projection_);
-        gpu::Draw (context, pipelines_, surfacePages_, surface_, constants, depth != Diligent::TEX_FORMAT_UNKNOWN,
-                   scale_, stats);
+        gpu::Draw (context, pipelines_, surfacePages_, surface_, shotConstants, depth != Diligent::TEX_FORMAT_UNKNOWN,
+                   pixels, stats);
         if (uploadHighlight && !stats.mapFailures) {
             uploadedSurface_ = highlight;
             const auto& summary = highlight->summary;

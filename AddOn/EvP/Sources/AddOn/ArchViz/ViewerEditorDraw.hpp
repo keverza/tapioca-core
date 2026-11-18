@@ -8,6 +8,7 @@
 
 namespace geomsrv::archviz {
 class DiligentScene;
+struct SceneDrawRequest;
 class ViewerEditorDraw {
   public:
     explicit ViewerEditorDraw (bool standalone) : standalone_ (standalone)
@@ -17,9 +18,11 @@ class ViewerEditorDraw {
     void Release ();
     // Negative when no current material focus is active; otherwise its 0..1 context fade.
     float SurfaceContextOpacity () const;
+    // The scene's material-focus context (fade and style) for this frame, or none.
+    void ApplySurfaceFocus (SceneDrawRequest& request, bool planMode, bool screenshotActive) const;
     void Update (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, Diligent::ITextureView* target,
                  Diligent::ITextureView* depth, const float* view, const float* projection, uint32_t width,
-                 uint32_t height, bool showSurfaceHighlight);
+                 uint32_t height, bool showSurfaceHighlight, float screenshotScale = 0.0f);
     bool Draw (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, Diligent::TEXTURE_FORMAT colour,
                Diligent::TEXTURE_FORMAT depth, const vieweredit::Frame& frame, bool editorActive,
                const std::shared_ptr<const vieweredit::SurfaceHighlight>& highlight, std::string& error);
@@ -34,6 +37,7 @@ class ViewerEditorDraw {
     std::shared_ptr<const vieweredit::SurfaceHighlight> uploadedSurface_;
     Diligent::RefCntAutoPtr<Diligent::IBuffer> view_, projection_;
     float scale_ = 1;
+    float shotScale_ = 0; // Update's screenshotScale, for Draw's highlight widths
     bool ready_ = false;
     uint64_t generation_ = 0;
 };

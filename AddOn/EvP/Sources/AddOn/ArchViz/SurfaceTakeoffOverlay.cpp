@@ -30,6 +30,7 @@ void PublishHighlight ()
     overlaylayers::Set (UiLayer (*s_presentation, s_ui, &s_highlight));
     overlayvisibility::surfaceTakeoffFocused.store (s_highlight.Focused ());
     overlayvisibility::surfaceTakeoffContextOpacity.store (s_highlight.contextOpacity);
+    overlayvisibility::surfaceTakeoffWhiteModel.store (s_highlight.contextStyle == ContextStyle::WhiteModel);
     overlaycontrol::PublishLayers ();
     ArchVizLog ("SURFACE HIGHLIGHT host=overlay snapshot=" + std::to_string (s_snapshotId) +
                 " generation=" + std::to_string (s_highlight.generation) +
@@ -72,6 +73,7 @@ void CALLBACK Tick (HWND, UINT, UINT_PTR timer, DWORD)
     s_highlight = {};
     overlayvisibility::surfaceTakeoffFocused.store (false);
     overlayvisibility::surfaceTakeoffContextOpacity.store (kDefaultContextOpacity);
+    overlayvisibility::surfaceTakeoffWhiteModel.store (false);
     overlaylayers::Clear (kLayer);
     overlaylayers::Layer stale;
     stale.name = kLayer;
@@ -151,6 +153,7 @@ void OnProjectClosed ()
     s_highlight = {};
     overlayvisibility::surfaceTakeoffFocused.store (false);
     overlayvisibility::surfaceTakeoffContextOpacity.store (kDefaultContextOpacity);
+    overlayvisibility::surfaceTakeoffWhiteModel.store (false);
     s_eventSeq = 0;
     overlaylayers::Clear (kLayer);
 }

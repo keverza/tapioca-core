@@ -1,6 +1,7 @@
 // User-confirmed exterior seeds, not camera/material-based classification.
 #include "Geometry/ExteriorSurfaceRegion.hpp"
 #include "ArchViz/SurfaceTakeoffLayer.hpp"
+#include "ArchViz/SurfaceTakeoffShot.hpp"
 #include "MeshFixtures.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -322,6 +323,68 @@ TEST (ExteriorSurface, RedYellowOverlayAndPanelUseExactSelectedFragmentTriangles
         EXPECT_EQ (edge.behind, archviz::overlaylayers::Behind::Fade);
         EXPECT_EQ (edge.hidden.rgba & 0xFFu, 0x80u);
     }
+    // White model: the same fragments and totals; only the styling changes. The
+    // selected surface keeps its colour, shows through at 30% and dashes hidden contours.
+    presentation::PageAction whiteAction { presentation::PageAction::Kind::ContextStyle,
+                                           presentation::TargetScope::Construction, 1 };
+    whiteAction.contextStyle = presentation::ContextStyle::WhiteModel;
+    ASSERT_TRUE (presentation::ApplyHighlightSelection (restored, ui, whiteAction));
+    presentation::HighlightSummary whiteSummary;
+    const auto white = presentation::HighlightLayer (restored, ui, whiteSummary, outlineError);
+    EXPECT_EQ (whiteSummary.contextStyle, presentation::ContextStyle::WhiteModel);
+    EXPECT_EQ (whiteSummary.triangles, isolated.triangles);
+    EXPECT_DOUBLE_EQ (whiteSummary.areaM2, isolated.areaM2);
+    ASSERT_EQ (white.meshes.size (), viewer.meshes.size ());
+    for (const auto& mesh : white.meshes) {
+        EXPECT_EQ (mesh.rgba, snapshot.surfaceAttributes.at (*ui.focus).rgba);
+        EXPECT_EQ (mesh.style.behind, archviz::overlaylayers::Behind::Dash);
+        EXPECT_NEAR (mesh.style.opacity * mesh.style.occludedOpacity, presentation::kWhiteModelHiddenOpacity, 1e-6);
+        EXPECT_GT (mesh.style.opacity, .85f);
+    }
+    ASSERT_EQ (white.polylines.size (), viewer.polylines.size ());
+    for (const auto& edge : white.polylines) {
+        EXPECT_EQ (edge.behind, archviz::overlaylayers::Behind::Dash);
+        EXPECT_EQ (edge.hidden.rgba, 0u);
+        EXPECT_EQ (edge.hidden.dashMetres.size (), 2u);
+    }
+    EXPECT_TRUE (archviz::overlaylayers::Validate (white).empty ());
+    // Unfocused, the style is remembered but does not restyle the full highlight.
+    const auto focus = ui.focus;
+    ui.focus.reset ();
+    presentation::HighlightSummary allSummary;
+    for (const auto& mesh : presentation::HighlightLayer (restored, ui, allSummary, outlineError).meshes)
+        EXPECT_EQ (mesh.style.behind, archviz::overlaylayers::Behind::Fade);
+    // Screenshot table (S7): pinned from the same highlight, summing what is shown.
+    allSummary.generation = 9;
+    presentation::ShotTable table;
+    ASSERT_TRUE (presentation::BuildShotTable (published, allSummary, snapshot.id, "now", table, error)) << error;
+    EXPECT_EQ (table.title, "EXPOSED SURFACE AREAS");
+    EXPECT_NEAR (table.totalM2, published.selectedAreaM2, 1e-6);
+    EXPECT_EQ (table.rows.size (), published.surfaces.size ());
+    size_t rowElementSum = 0;
+    for (const auto& row : table.rows)
+        rowElementSum += row.elements;
+    EXPECT_GT (table.elements, 0u);
+    EXPECT_LE (table.elements, published.regionElementGuids.size ());
+    EXPECT_GE (rowElementSum, table.elements); // a union, never the sum of the rows
+    EXPECT_TRUE (presentation::ShotMatches (table, allSummary, snapshot.id));
+    EXPECT_FALSE (presentation::ShotMatches (table, allSummary, snapshot.id + 1));
+    whiteSummary.generation = 9;
+    ASSERT_TRUE (presentation::BuildShotTable (published, whiteSummary, snapshot.id, "now", table, error)) << error;
+    EXPECT_EQ (table.title, "ISOLATED MATERIAL - SUBTOTAL");
+    ASSERT_EQ (table.rows.size (), 1u);
+    EXPECT_EQ (table.rows[0].surface, *ui.focus);
+    EXPECT_NEAR (table.totalM2, materialArea, 1e-6);
+    EXPECT_FALSE (presentation::ShotMatches (table, allSummary, snapshot.id)); // a different subset
+    auto drifted = whiteSummary;
+    drifted.areaM2 += 1;
+    EXPECT_FALSE (presentation::BuildShotTable (published, drifted, snapshot.id, "now", table, error));
+    EXPECT_TRUE (table.rows.empty ());
+    EXPECT_FALSE (
+        presentation::BuildShotTable (published, presentation::HighlightSummary {}, snapshot.id, "now", table, error));
+    ui.focus = focus;
+    whiteAction.contextStyle = presentation::ContextStyle::Desaturated;
+    ASSERT_TRUE (presentation::ApplyHighlightSelection (restored, ui, whiteAction));
     presentation::PageAction filter {
         presentation::PageAction::Kind::FilterMaterials, presentation::TargetScope::Construction, 1, {}, { *ui.focus }
     };
@@ -477,6 +540,16 @@ TEST (ExteriorSurface, CriteriaSwatchesAndDirectionFiltersUseCachedClippedGeomet
     presentation::HighlightSummary contextSummary;
     presentation::UiLayer (data, state, &contextSummary);
     EXPECT_FLOAT_EQ (contextSummary.contextOpacity, .6f);
+    const auto whiteToggle =
+        std::find_if (isolated.panels[0].items.begin (), isolated.panels[0].items.end (),
+                      [&] (const auto& item) { return item.id == presentation::UiId (state, "whiteModel"); });
+    ASSERT_NE (whiteToggle, isolated.panels[0].items.end ());
+    EXPECT_FALSE (whiteToggle->checked);
+    ASSERT_TRUE (presentation::ApplyUiChange (data, state, "checkbox", presentation::UiId (state, "whiteModel"), 1));
+    EXPECT_EQ (state.contextStyle, presentation::ContextStyle::WhiteModel);
+    EXPECT_FALSE (presentation::ApplyUiChange (data, state, "checkbox", presentation::UiId (state, "whiteModel"), 2));
+    ASSERT_TRUE (presentation::ApplyUiChange (data, state, "checkbox", presentation::UiId (state, "whiteModel"), 0));
+    EXPECT_EQ (state.contextStyle, presentation::ContextStyle::Desaturated);
     ASSERT_TRUE (presentation::ApplyUiChange (data, state, "checkbox", presentation::UiId (state, "top"), 0));
     EXPECT_NEAR (presentation::UiAreas (data, state).at (200), 2.4, 1e-6);
     ASSERT_TRUE (presentation::ApplyUiChange (data, state, "checkbox", presentation::UiId (state, "bottom"), 0));

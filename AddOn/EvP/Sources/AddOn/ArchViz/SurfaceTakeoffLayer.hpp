@@ -51,6 +51,7 @@ struct UiState {
     std::optional<int32_t> focus;
     std::set<int32_t> materials;
     float contextOpacity = kDefaultContextOpacity;
+    ContextStyle contextStyle = ContextStyle::Desaturated;
     bool includeTop = true, includeBottom = true, includeSides = true;
     std::vector<surfacecriteria::Rule> draftRules, rules;
     int32_t nextRuleId = 1;

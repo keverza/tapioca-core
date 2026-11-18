@@ -112,6 +112,10 @@ std::optional<PageAction> MeasuredRows (PageState& page, const Result& result, c
 {
     std::optional<PageAction> action;
     const bool canIsolate = highlight.generation != 0 && highlight.generation == page.shownGeneration;
+    // The scope combo is a draft: until Refresh, the table is still the previous scope's.
+    if (result.classification.rfind ("all", 0) == 0 && result.classification.rfind (RegionMode (page.scope), 0) != 0)
+        ImGui::TextWrapped ("These areas are for the previous target scope. Press Refresh to calculate %s.",
+                            page.scope == TargetScope::Walls ? "captured walls" : "captured construction");
     if (result.classification == "allElementFaces-contactOnly")
         ImGui::TextWrapped ("Captured construction faces, including interiors.");
     else if (result.classification == "allWallFaces-contactOnly")
@@ -126,16 +130,33 @@ std::optional<PageAction> MeasuredRows (PageState& page, const Result& result, c
         if (highlight.material && ImGui::Button ("Show all surfaces"))
             action = PageAction { PageAction::Kind::Isolate, page.scope, highlight.generation };
         if (highlight.Focused ()) {
+            const bool white = highlight.contextStyle == ContextStyle::WhiteModel;
+            int style = white ? 1 : 0;
+            const char* styles[] = { "Desaturated model", "White model" };
+            ImGui::TextUnformatted ("Rest of the model");
+            ImGui::SetNextItemWidth (-1);
+            if (ImGui::Combo ("##contextStyle", &style, styles, 2)) {
+                PageAction changed { PageAction::Kind::ContextStyle, page.scope, highlight.generation };
+                changed.contextStyle = style == 1 ? ContextStyle::WhiteModel : ContextStyle::Desaturated;
+                action = std::move (changed);
+            }
+            if (ImGui::IsItemHovered (ImGuiHoveredFlags_DelayShort))
+                ImGui::SetTooltip (white ? "The model renders white. The selected surface keeps its own colour, shows "
+                                           "through the model at 30%% and its hidden contours are dashed."
+                                         : "The model keeps its shading without colour. The selected surface keeps "
+                                           "its own colour.");
             int opacity = int (std::lround (highlight.contextOpacity * 100));
             ImGui::SetNextItemWidth (-1);
-            if (ImGui::SliderInt ("Context opacity", &opacity, 0, 100, "%d%%")) {
+            if (ImGui::SliderInt ("##contextOpacity", &opacity, 0, 100, "Context opacity %d%%")) {
                 PageAction changed { PageAction::Kind::ContextOpacity, page.scope, highlight.generation };
                 changed.contextOpacity = opacity / 100.0;
                 action = std::move (changed);
             }
             if (ImGui::IsItemHovered (ImGuiHoveredFlags_DelayShort))
-                ImGui::SetTooltip (
-                    "Fade the desaturated model toward a neutral backdrop. The selected highlight stays unchanged.");
+                ImGui::SetTooltip (white ? "Fade the white model toward a white backdrop. The selected highlight "
+                                           "stays unchanged."
+                                         : "Fade the desaturated model toward a neutral backdrop. The selected "
+                                           "highlight stays unchanged.");
         }
     }
     if (result.selectedAreaM2 <= 0)
@@ -205,6 +226,39 @@ std::optional<PageAction> MeasuredRows (PageState& page, const Result& result, c
     }
     return action;
 }
+// The image of what is highlighted, with its area table under it.
+std::optional<PageAction> ShotRow (PageState& page, const HighlightSummary& highlight, ShotControls* shot)
+{
+    ImGui::SeparatorText ("Screenshot");
+    if (shot == nullptr) {
+        ImGui::TextDisabled ("Screenshot available in the standalone viewer.");
+        return std::nullopt;
+    }
+    std::optional<PageAction> action;
+    std::vector<const char*> labels;
+    for (const auto& preset : shot->presets)
+        labels.push_back (preset.c_str ());
+    ImGui::BeginDisabled (shot->busy || labels.empty ());
+    if (!labels.empty ()) {
+        shot->preset = std::clamp (shot->preset, 0, int (labels.size ()) - 1);
+        ImGui::SetNextItemWidth (ImGui::GetContentRegionAvail ().x * 0.55f);
+        ImGui::Combo ("##shotScale", &shot->preset, labels.data (), int (labels.size ()));
+        ImGui::SameLine ();
+    }
+    if (ImGui::Button ("Screenshot", ImVec2 (-1.0f, 0.0f)))
+        action = PageAction { PageAction::Kind::Screenshot, page.scope, highlight.generation };
+    ImGui::EndDisabled ();
+    if (ImGui::IsItemHovered (ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip ("Renders the view at the chosen size without panels or gizmo, adds the area table of "
+                           "what is highlighted below it and saves a PNG to Tapioca\\Export.");
+    if (shot->busy)
+        ImGui::TextDisabled ("Rendering screenshot...");
+    else if (shot->failed)
+        ImGui::TextWrapped ("Screenshot not saved: %s", shot->result.c_str ());
+    else if (!shot->result.empty ())
+        ImGui::TextWrapped ("Saved %s", shot->result.c_str ());
+    return action;
+}
 } // namespace
 
 hudshell::HostTab WorkflowTab ()
@@ -227,7 +281,8 @@ const char* LauncherScope (TargetScope scope)
 }
 
 std::optional<PageAction> DrawPage (PageState& page, const geomsrv::surfacetakeoff::ControllerView* view,
-                                    const std::string& actionError, const HighlightSummary& highlight)
+                                    const std::string& actionError, const HighlightSummary& highlight,
+                                    ShotControls* shot)
 {
     page.textActive = false;
     if (view == nullptr) {
@@ -270,6 +325,9 @@ std::optional<PageAction> DrawPage (PageState& page, const geomsrv::surfacetakeo
         if (auto rowAction =
                 MeasuredRows (page, *std::static_pointer_cast<const Result> (view->lastGood->payload), highlight))
             action = *rowAction;
+        if (highlight.generation == view->generation && highlight.areaM2 > 0)
+            if (auto shotAction = ShotRow (page, highlight, shot))
+                action = *shotAction;
     }
     ImGui::PopID ();
     return action;

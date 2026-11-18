@@ -826,7 +826,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 request.eye = eye;
                 request.jitter = jitter;
                 request.debugView = hudState.debugView;
-                SetSurfaceFocus (request, hudState.planMode, screenshot.Active (), editorDraw.SurfaceContextOpacity ());
+                editorDraw.ApplySurfaceFocus (request, hudState.planMode, screenshot.HidesSurfaceFocus ());
                 request.frameIndex = static_cast<uint32_t> (frames);
                 request.ambientOcclusion = hudState.ambientOcclusion;
                 request.ambientOcclusionIntensity = hudState.ambientOcclusionIntensity;
@@ -865,9 +865,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                                           planAnchorSeq_.load (), lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked,
                                           viewProj, width, height, planAnchorWidthPixels_.load (),
                                           planAnchorRgba_.load ());
-            if (!screenshot.Active () && surface.mode == SurfaceMode::PaletteChild)
+            if (screenshot.DrawsSurfaceHighlight () && surface.mode == SurfaceMode::PaletteChild)
                 editorDraw.Update (device, context, rtv, dsv, view, stableProj, width, height,
-                                   modelIsDrawn && !hudState.planMode);
+                                   modelIsDrawn && !hudState.planMode, screenshot.Scale ());
             ProjectedDrawList annotations = UpdateAndDrawTraceAnnotations (
                 textLayer, device, context, blanked, offscreen, annotationsOnly, surface.nwh, rtv, dsv,
                 drawTo.DepthShaderView (), viewProj, width, height, Camera::NearClip (), camera.FarClip (),

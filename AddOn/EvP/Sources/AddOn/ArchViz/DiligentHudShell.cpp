@@ -8,12 +8,17 @@
 #include "ArchViz/SurfaceSwitch.hpp"
 #include "ArchViz/ViewerEditor.hpp"
 #include "ArchViz/SurfaceTakeoffLayer.hpp"
+#include "ArchViz/SurfaceTakeoffShot.hpp"
+#include "ArchViz/ViewerScreenshot.hpp"
 #include "Geometry/SurfaceTakeoffController.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h> // ImGuiWindow: the dock's width, for the view's right column
 
+#include <chrono>
 #include <cmath>
+#include <ctime>
+#include <memory>
 #include <vector>
 
 namespace geomsrv {
@@ -34,6 +39,58 @@ const layers::Panel& ViewerLook ()
         return look;
     }();
     return panel;
+}
+
+// Exposed surfaces (#193): the shared page, with the standalone screenshot row. The
+// screenshot pins its area table from the published highlight HERE, when asked; the
+// frame loop takes the request and refuses it if the highlight moves before readback.
+void ExposedSurfacesPage (Shell& shell, HudState& state)
+{
+    const auto result = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().TryPoll ();
+    const auto highlight = vieweredit::ReadSurfaceHighlight ();
+    const surfacetakeoff::HighlightSummary summary =
+        highlight ? highlight->summary : surfacetakeoff::HighlightSummary {};
+    surfacetakeoff::ShotControls shot;
+    shot.preset = state.sunShotPreset;
+    shot.presets = ViewerScreenshotPresetLabels (state.width, state.height);
+    const bool mine = state.shotKind == kShotExposedSurfaces;
+    shot.busy = state.sunShotRequested || state.sunShotBusy; // either kind holds the frame loop
+    shot.failed = mine && state.sunShotFailed;
+    shot.result = mine ? state.sunShotResult : std::string ();
+    const auto action = surfacetakeoff::DrawPage (shell.exposedSurfaces, result ? &*result : nullptr,
+                                                  vieweredit::SurfaceTakeoffError (), summary, &shot);
+    state.sunShotPreset = shot.preset;
+    if (!action)
+        return;
+    if (action->kind != surfacetakeoff::PageAction::Kind::Screenshot) {
+        vieweredit::RequestSurfaceTakeoff (*action);
+        return;
+    }
+    state.shotKind = kShotExposedSurfaces;
+    state.sunShotFailed = true;
+    state.sunShotResult = "the calculation changed; take the screenshot again";
+    if (!result || !highlight || !highlight->capture ||
+        result->state != geomsrv::surfacetakeoff::ControllerState::Current || !result->lastGood ||
+        !result->lastGood->payload || result->generation != action->generation ||
+        summary.generation != action->generation)
+        return;
+    const std::time_t now = std::chrono::system_clock::to_time_t (std::chrono::system_clock::now ());
+    std::tm local = {};
+    localtime_s (&local, &now);
+    char stamp[32] = {};
+    std::strftime (stamp, sizeof (stamp), "%Y-%m-%d %H:%M:%S", &local);
+    auto table = std::make_shared<surfacetakeoff::ShotTable> ();
+    std::string error;
+    if (!surfacetakeoff::BuildShotTable (
+            *std::static_pointer_cast<const geomsrv::surfacetakeoff::Result> (result->lastGood->payload), summary,
+            highlight->capture->id, stamp, *table, error)) {
+        state.sunShotResult = error;
+        return;
+    }
+    state.exposedShot = std::move (table);
+    state.sunShotFailed = false;
+    state.sunShotResult.clear ();
+    state.sunShotRequested = true;
 }
 
 // The viewer's own circle: busy while it still reads the model, neutral once it holds it.
@@ -150,14 +207,8 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
         }
         else if (key == "@viewer.editor")
             ImGui::TextUnformatted ("Opening virtual editor...");
-        else if (key == surfacetakeoff::kWorkflowKey) {
-            const auto result = geomsrv::surfacetakeoff::SharedSurfaceTakeoffController ().TryPoll ();
-            const auto highlight = vieweredit::ReadSurfaceHighlight ();
-            if (const auto action = surfacetakeoff::DrawPage (
-                    shell.exposedSurfaces, result ? &*result : nullptr, vieweredit::SurfaceTakeoffError (),
-                    highlight ? highlight->summary : surfacetakeoff::HighlightSummary {}))
-                vieweredit::RequestSurfaceTakeoff (*action);
-        }
+        else if (key == surfacetakeoff::kWorkflowKey)
+            ExposedSurfacesPage (shell, state);
         else if (key == hudshell::kSettingsKey)
             SettingsPage (shell, state, scene);
         else if (key == hudshell::kDebugKey)

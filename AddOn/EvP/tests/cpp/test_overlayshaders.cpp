@@ -231,6 +231,20 @@ TEST (OverlayShaders, SurfaceFocusContextRestoresTheSceneViewportOnWarp)
     EXPECT_NEAR (pixel[2], 116, 2);
     EXPECT_EQ (pixel[3], 255);
     gpu->Unmap (staging.Get (), 0);
+
+    // White model: red's luminance lifts to lerp (0.55, 1, 0.2126) = 0.6457, then
+    // fades 62% toward white: 1 - 0.38 * 0.3543 = 0.8654.
+    gpu->ClearRenderTargetView (target.Get (), red);
+    ASSERT_EQ (context::Draw (gpu.Get (), target.Get (), 0.38f, true), context::DrawResult::Drawn);
+    gpu->OMSetRenderTargets (0, nullptr, nullptr);
+    gpu->CopyResource (staging.Get (), texture.Get ());
+    ASSERT_TRUE (SUCCEEDED (gpu->Map (staging.Get (), 0, D3D11_MAP_READ, 0, &mapped)));
+    pixel = static_cast<const uint8_t*> (mapped.pData);
+    EXPECT_NEAR (pixel[0], 221, 2);
+    EXPECT_NEAR (pixel[1], 221, 2);
+    EXPECT_NEAR (pixel[2], 221, 2);
+    EXPECT_EQ (pixel[3], 255);
+    gpu->Unmap (staging.Get (), 0);
     context::Shutdown ();
 }
 

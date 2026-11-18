@@ -157,7 +157,8 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
     // still uses the semantic occluder below, with no camera or depth change.
     if (overlayvisibility::surfaceTakeoffFocused.load ()) {
         const auto result =
-            surfacefocuscontext::Draw (context, targetView, overlayvisibility::surfaceTakeoffContextOpacity.load ());
+            surfacefocuscontext::Draw (context, targetView, overlayvisibility::surfaceTakeoffContextOpacity.load (),
+                                       overlayvisibility::surfaceTakeoffWhiteModel.load ());
         switch (result) {
             case surfacefocuscontext::DrawResult::Drawn:
                 ++g_stats.surfaceContextDraws;

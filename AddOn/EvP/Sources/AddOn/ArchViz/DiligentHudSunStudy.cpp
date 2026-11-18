@@ -364,20 +364,17 @@ void DrawSunStudyHoursDisplay (HudState& state)
 void DrawSunStudyScreenshotControls (HudState& state)
 {
     state.sunShotPreset = std::clamp (state.sunShotPreset, 0, kViewerScreenshotScaleCount - 1);
-    char names[kViewerScreenshotScaleCount][48];
+    const std::vector<std::string> names = ViewerScreenshotPresetLabels (state.width, state.height);
     const char* labels[kViewerScreenshotScaleCount];
-    for (int i = 0; i < kViewerScreenshotScaleCount; ++i) {
-        const float scale = kViewerScreenshotScales[i];
-        std::snprintf (names[i], sizeof (names[i]), "%gx  %u x %u", double (scale),
-                       unsigned (ViewerScreenshotSize (state.width, scale)),
-                       unsigned (ViewerScreenshotSize (state.height, scale)));
-        labels[i] = names[i];
-    }
+    for (int i = 0; i < kViewerScreenshotScaleCount; ++i)
+        labels[i] = names[i].c_str ();
     ImGui::BeginDisabled (state.sunShotRequested || state.sunShotBusy);
     ImGui::SetNextItemWidth (ImGui::GetContentRegionAvail ().x * 0.55f);
     ImGui::Combo ("##sunshotscale", &state.sunShotPreset, labels, kViewerScreenshotScaleCount);
     ImGui::SameLine ();
     if (ImGui::Button ("Screenshot##sunshot", ImVec2 (-1.0f, 0.0f))) {
+        state.shotKind = kShotSunStudy;
+        state.exposedShot.reset ();
         state.sunShotRequested = true;
         state.sunShotResult.clear ();
         state.sunShotFailed = false;
@@ -386,6 +383,8 @@ void DrawSunStudyScreenshotControls (HudState& state)
     geomsrv::archviz::hudshell::ItemTip (
         "Renders the view at the chosen size, without the panels or the axis gizmo, adds the "
         "legend as a white strip below and saves a PNG to Tapioca\\Export.");
+    if (state.shotKind != kShotSunStudy)
+        return; // the status belongs to the other kind's page
     if (state.sunShotRequested || state.sunShotBusy)
         ImGui::TextDisabled ("Rendering screenshot...");
     else if (state.sunShotFailed)

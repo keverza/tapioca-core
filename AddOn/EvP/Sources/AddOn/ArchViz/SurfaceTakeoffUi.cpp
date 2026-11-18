@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <iterator>
 #include <sstream>
 
 namespace geomsrv::archviz::surfacetakeoff {
@@ -24,6 +25,13 @@ bool IncludedMesh (const Presentation& presentation, const UiState& state, size_
 {
     return (state.materials.empty () || state.materials.contains (presentation.meshSurfaces[i])) &&
            Included (presentation.meshFacings[i], state) && MatchesCriteria (presentation, state, i);
+}
+constexpr float kWhiteModelVisibleOpacity = 0.9f;
+// Model metres, like every overlay dash: a facade-scale pattern that stays on the building.
+constexpr float kWhiteModelHiddenDash[2] = { 0.25f, 0.15f };
+bool WhiteModel (const HighlightSummary& summary)
+{
+    return summary.Focused () && summary.contextStyle == ContextStyle::WhiteModel;
 }
 bool SetContextOpacity (UiState& state, double opacity)
 {
@@ -51,6 +59,10 @@ bool ApplyUiChange (const Presentation& presentation, UiState& state, const std:
         return true;
     if (kind == "slider" && id == UiId (state, "contextOpacity"))
         return SetContextOpacity (state, value / 100);
+    if (kind == "checkbox" && id == UiId (state, "whiteModel") && (value == 0 || value == 1)) {
+        state.contextStyle = value == 1 ? ContextStyle::WhiteModel : ContextStyle::Desaturated;
+        return true;
+    }
     if (kind == "checkbox" && (value == 0 || value == 1)) {
         bool* flag = nullptr;
         if (id == UiId (state, "top"))
@@ -98,6 +110,12 @@ bool ApplyHighlightSelection (const Presentation& presentation, UiState& state, 
 {
     if (action.kind == PageAction::Kind::ContextOpacity)
         return SetContextOpacity (state, action.contextOpacity);
+    if (action.kind == PageAction::Kind::ContextStyle) {
+        if (action.contextStyle != ContextStyle::Desaturated && action.contextStyle != ContextStyle::WhiteModel)
+            return false;
+        state.contextStyle = action.contextStyle;
+        return true;
+    }
     const auto measured = [&] (int32_t id) {
         return std::any_of (presentation.rows.begin (), presentation.rows.end (),
                             [id] (const auto& row) { return row.index == id && row.areaM2 > 0; });
@@ -138,25 +156,47 @@ layers::Layer HighlightLayer (const Presentation& presentation, const UiState& s
     summary.material = state.focus;
     summary.materials = state.materials;
     summary.contextOpacity = state.contextOpacity;
+    summary.contextStyle = state.contextStyle;
     summary.triangles = 0;
     summary.areaM2 = 0;
     summary.rowAreas.clear ();
+    summary.rowElements.clear ();
     std::vector<size_t> shown;
+    std::map<int32_t, std::set<std::string>> rowElements;
+    std::set<std::string> shownElements;
     for (size_t i = 0; i < presentation.meshSurfaces.size (); ++i) {
         const int32_t surface = presentation.meshSurfaces[i];
         if (!IncludedMesh (presentation, state, i))
             continue;
         summary.rowAreas[surface] += presentation.meshAreas[i];
+        rowElements[surface].insert (presentation.meshElements[i]);
         if (state.focus && state.focus != surface)
             continue;
+        shownElements.insert (presentation.meshElements[i]);
         auto& mesh = layer.meshes.emplace_back (presentation.layer.meshes[i]);
         if (summary.Focused ())
             mesh.style.opacity = .85f;
+        if (WhiteModel (summary)) {
+            // Its own colour where seen, kWhiteModelHiddenOpacity through the model.
+            mesh.style.opacity = kWhiteModelVisibleOpacity;
+            mesh.style.behind = layers::Behind::Dash;
+            mesh.style.occludedOpacity = kWhiteModelHiddenOpacity / kWhiteModelVisibleOpacity;
+        }
         summary.triangles += mesh.indices.size () / 3;
         summary.areaM2 += presentation.meshAreas[i];
         shown.push_back (i);
     }
+    for (const auto& [surface, elements] : rowElements)
+        summary.rowElements[surface] = elements.size ();
+    summary.elements = shownElements.size ();
     BoundaryLines (presentation, shown, layer.polylines, outlineError);
+    if (WhiteModel (summary))
+        for (auto& line : layer.polylines) {
+            // Hidden-line convention: solid where seen, dashed through the model.
+            line.behind = layers::Behind::Dash;
+            line.hidden.rgba = 0; // the contour's own colour
+            line.hidden.dashMetres.assign (std::begin (kWhiteModelHiddenDash), std::end (kWhiteModelHiddenDash));
+        }
     return layer;
 }
 
@@ -270,6 +310,12 @@ layers::Layer UiLayer (const Presentation& presentation, const UiState& state, H
         opacity.step = 1;
         opacity.unit = "%";
         panel.items.push_back (opacity);
+        layers::PanelItem white;
+        white.kind = layers::ItemKind::Checkbox;
+        white.id = UiId (state, "whiteModel");
+        white.text = "White model context";
+        white.checked = state.contextStyle == ContextStyle::WhiteModel;
+        panel.items.push_back (white);
     }
     section.text = "Native comparison (different rules)";
     section.open = false;

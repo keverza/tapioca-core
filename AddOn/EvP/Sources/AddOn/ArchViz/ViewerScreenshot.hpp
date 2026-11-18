@@ -3,6 +3,9 @@
 
 // ArchViz/ViewerScreenshot — a high-resolution still of the LIVE viewer, with
 // the sun study's legend in a white strip under it, saved to Tapioca\Export.
+// Exposed surfaces (#193) takes the same still with its area table as the
+// strip instead (HudState::shotKind): the scene keeps its material focus and the
+// measured highlight, and the request is refused if either moves before readback.
 //
 // ⚠️ NOT StartCapture. That path is headless: it refuses while the viewer
 // runs and re-extracts the whole model, which is minutes on the models a sun
@@ -25,8 +28,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace Diligent {
 struct IDeviceContext;
@@ -35,6 +40,9 @@ struct IRenderDevice;
 
 namespace geomsrv::archviz {
 
+namespace surfacetakeoff {
+struct ShotTable;
+}
 class DiligentHud;
 class DiligentScene;
 struct HudState;
@@ -52,6 +60,19 @@ inline uint32_t ViewerScreenshotSize (uint32_t windowSize, float scale)
     return (std::min) (kViewerScreenshotMaxDimension, uint32_t (std::lround (double (windowSize) * double (scale))));
 }
 
+// The size presets as the pages list them: "2x  3840 x 2160".
+inline std::vector<std::string> ViewerScreenshotPresetLabels (uint32_t width, uint32_t height)
+{
+    std::vector<std::string> labels;
+    for (const float scale : kViewerScreenshotScales) {
+        char label[48] = {};
+        std::snprintf (label, sizeof (label), "%gx  %u x %u", double (scale),
+                       unsigned (ViewerScreenshotSize (width, scale)), unsigned (ViewerScreenshotSize (height, scale)));
+        labels.push_back (label);
+    }
+    return labels;
+}
+
 class ViewerScreenshot final {
   public:
     ViewerScreenshot ();
@@ -64,6 +85,11 @@ class ViewerScreenshot final {
     DiligentViewportTarget& TargetFor (DiligentViewportTarget& surface, Diligent::IRenderDevice* device,
                                        Diligent::IDeviceContext* context, DiligentScene& scene, HudState& state);
     bool Active () const;
+    // The sun study's still hides the material focus; Exposed surfaces' keeps it
+    // and the measured highlight (but never the editor's handles or the HUD).
+    bool HidesSurfaceFocus () const;
+    bool DrawsSurfaceHighlight () const; // also true with no screenshot running
+    float Scale () const;                // the running screenshot's, 0 with none
 
     // After the frame unbound its targets. True when the frame was the
     // screenshot's, which is never presented and carries no HUD. On the last
@@ -80,6 +106,8 @@ class ViewerScreenshot final {
     Diligent::IRenderDevice* device_ = nullptr; // the frame loop's, borrowed while a shot runs
     float scale_ = 1.0f;
     int frames_ = 0;
+    int kind_ = 0; // HudState::shotKind, taken with the request
+    std::shared_ptr<const surfacetakeoff::ShotTable> table_;
 };
 
 } // namespace geomsrv::archviz

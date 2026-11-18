@@ -88,6 +88,7 @@ struct SceneDrawRequest {
     int debugView = 0;
     bool surfaceFocus = false;
     float surfaceContextOpacity = 0.38f;
+    bool surfaceWhiteModel = false;
     uint32_t frameIndex = 0;
     // RE51.C3. `intensity` scales the darkening only, never the effect's radius.
     bool ambientOcclusion = true;
@@ -103,10 +104,12 @@ struct SceneDrawRequest {
     float taaStability = 0.9f;
 };
 
-inline void SetSurfaceFocus (SceneDrawRequest& request, bool planMode, bool screenshotActive, float contextOpacity)
+inline void SetSurfaceFocus (SceneDrawRequest& request, bool planMode, bool screenshotActive, float contextOpacity,
+                             bool whiteModel = false)
 {
     request.surfaceFocus = !planMode && !screenshotActive && contextOpacity >= 0.0f;
     request.surfaceContextOpacity = request.surfaceFocus ? contextOpacity : 0.38f;
+    request.surfaceWhiteModel = request.surfaceFocus && whiteModel;
 }
 
 // `lastLoggedGBufferView` is carried by the caller so switching away from a

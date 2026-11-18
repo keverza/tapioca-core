@@ -358,7 +358,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                           Diligent::ITextureView* depthTarget, const float view[16], const float proj[16],
                           const float viewProj[16], const float motionViewProj[16], const float eye[3],
                           const float jitter[2], CullMode cull, int debugView, float nearClip, float farClip,
-                          float focusDistance, uint32_t frameIndex, bool surfaceFocus, float surfaceContextOpacity)
+                          float focusDistance, uint32_t frameIndex, bool surfaceFocus, float surfaceContextOpacity,
+                          bool surfaceWhiteModel)
 {
     if (context == nullptr || !impl_->ready)
         return;
@@ -589,7 +590,9 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // the resolve pass at the end applies it once. Set once here and it rides
     // through every per-range upload, exactly as materialParams[1] does.
     constants.frameControl[0] = useHdr ? 1.0f : 0.0f;
-    constants.frameControl[2] = surfaceFocus && debugView == 0 ? 1.0f : 0.0f;
+    // 0: no material focus; 1: desaturated context; 2: white-model context
+    // (SurfaceFocusContext and the mesh PS's albedo in DiligentShaders.hpp).
+    constants.frameControl[2] = surfaceFocus && debugView == 0 ? (surfaceWhiteModel ? 2.0f : 1.0f) : 0.0f;
     constants.frameControl[3] = std::clamp (surfaceContextOpacity, 0.0f, 1.0f);
 
     const WhiteBalanceGains balance = ComputeWhiteBalance (impl_->whiteBalanceKelvin, impl_->whiteBalanceTint);
