@@ -2,6 +2,7 @@
 // main-thread HUD. No renderer or session is accessed across its thread boundary.
 #include "ArchViz/ViewerEditor.hpp"
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/DiagramControls.hpp"
 #include "ArchViz/DiagramModel.hpp"
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudMassing.hpp"
@@ -281,6 +282,14 @@ bool Refresh ()
         s_massing ? overlayhudmodel::Pages (overlayinput::View::ThreeD) : overlayhud::OwnPages {};
     own.standalone = true;
     own.viewerSurface = true;
+    // #201: the exploded diagram is a section of the Massing feasibility workflow in this viewer.
+    if (s_massing)
+        own.diagramSection = [] () {
+            static diagramcontrols::Memory memory; // MAIN THREAD: this host's slider ranges
+            diagramcontrols::Draw (memory);
+            diagramcontrols::DrawSelection (memory);
+            diagramcontrols::DrawCapture ();
+        };
     if (const auto highlight = ReadSurfaceHighlight ())
         own.exposedSurfaceHighlight = highlight->summary;
     own.overlay.tip = "Switch back to the Archicad overlay; keep this editor";

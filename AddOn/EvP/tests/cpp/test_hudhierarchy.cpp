@@ -3,6 +3,7 @@
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/SurfaceTakeoffLayer.hpp"
 #include <gtest/gtest.h>
+#include <imgui.h>
 #include <cmath>
 #include <cstring>
 
@@ -582,4 +583,28 @@ TEST (HudHierarchy, AHostHeaderStaysWhileThePageScrollsUnderIt191)
     EXPECT_FLOAT_EQ (bare.first, top.header) << "no header: the page starts where it would be";
     ImGui::DestroyContext (context);
     ImGui::SetCurrentContext (previous);
+}
+
+// #201 (user 2026-11-18): in the viewer the exploded diagram is a section of the Massing
+// feasibility workflow. The page draws what the viewer supplies, inside its own layout.
+TEST (HudHierarchy, ViewerMassingWorkflowDrawsTheDiagramSection)
+{
+    Watched hud;
+    hud::OwnPages own;
+    own.standalone = true;
+    own.viewerSurface = true;
+    int drawn = 0;
+    own.diagramSection = [&drawn] () {
+        ++drawn;
+        ImGui::TextUnformatted ("diagram controls");
+    };
+    hud.engine.SetOwnPages (own);
+    hud.state->host.selected = geomsrv::archviz::hudmassing::kTabKey;
+    hud.Lay ({}, At (600, 600));
+    EXPECT_GE (drawn, 1);
+    own.diagramSection = nullptr; // the overlays' own Massing page has no diagram
+    hud.engine.SetOwnPages (own);
+    const int before = drawn;
+    hud.Lay ({}, At (600, 600));
+    EXPECT_EQ (drawn, before);
 }

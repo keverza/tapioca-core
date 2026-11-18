@@ -348,6 +348,11 @@ void Engine::Impl::MassingPage ()
         changes.push_back ({ "massingCoefficients", {}, "Massing", "area calculations", -1, 1, {}, true });
     if (!store->massingCoefficientNumbers.empty ())
         changes.push_back ({ "massingCoefficientNumber", {}, "Massing", "set", -1, 0, {}, true });
+    if (own.diagramSection && ImGui::CollapsingHeader ("Exploded diagram", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::PushID ("diagram");
+        own.diagramSection ();
+        ImGui::PopID ();
+    }
     if (!ImGui::CollapsingHeader ("Preview and Bake options", ImGuiTreeNodeFlags_DefaultOpen))
         return;
     ImGui::Checkbox ("Show segment and endpoint labels", &store->massingRules.labels);

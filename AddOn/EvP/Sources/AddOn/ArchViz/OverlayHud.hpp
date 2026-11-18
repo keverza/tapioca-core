@@ -310,6 +310,10 @@ struct Displays {
 struct OwnPages {
     bool standalone = false;
     bool viewerSurface = false; // same editor HUD, hosted by the separate viewer
+    // The viewer's exploded massing diagram (#201), drawn as a section of the Massing feasibility
+    // workflow while the viewer hosts it. The viewer supplies it (DiagramControls); the page only
+    // calls it, on the main thread, inside its own layout. Empty everywhere else.
+    std::function<void ()> diagramSection;
     surfacetakeoff::HighlightSummary exposedSurfaceHighlight;
     std::vector<hudshell::Card> stats;
     std::shared_ptr<const massingslices::Result> massingStats;
