@@ -2908,7 +2908,12 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
         // with the surface -- glass that is somehow MORE opaque than the wall
         // behind it. The opaque pass is unaffected either way: alpha is 1 there
         // and the multiply is the identity.
-        float3 shaded = premultiplied ? base.rgb : base.rgb * lighting * base.a;
+        // Material focus in Fast quality too: the Realistic branch applies it
+        // after Grade, the HDR resolve after its own; Fast has neither (#193).
+        float3 lit = base.rgb * lighting;
+        if (g_frameControl.x < 0.5)
+            lit = SurfaceFocusContext (lit);
+        float3 shaded = premultiplied ? base.rgb : lit * base.a;
         // Apply diagnostics after both quality paths. Realistic has already
         // folded lighting into base.rgb, so applying these earlier is silently
         // overwritten by its GGX branch.
