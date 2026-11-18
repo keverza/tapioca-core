@@ -50,6 +50,12 @@ edit::BakeDesign Design (const Session& s, const tapioca::geometry::TerrainDesig
     edit::BakeDesign design;
     const auto* published = built.published.get ();
     design.base = published ? published->base : built.result.build.base;
+    // The existing ground's own vertices where the design left their height: level points.
+    if (published && built.capture) {
+        design.existing.assign (published->points.size () / 3, 0);
+        for (const uint32_t v : tg::PublishedDetailFeatures (*published, built.capture->points).keep)
+            design.existing[v] = 1;
+    }
     const auto& doc = s.edits.Doc ();
     for (auto& ring : edit::Pave (doc.paths, 0.5, false).rings)
         design.outlines.push_back (std::move (ring));
@@ -164,6 +170,8 @@ void DrawTerrainBake (const Session& s, overlaylayers::Layer& layer)
                                                                         : 0xC026D3FFu; // a contour
         add (line.points, line.closed, rgba, 2.0f);
     }
+    for (const auto& p : bake.plan.levelPoints) // As built: the points on no line
+        marks.points.insert (marks.points.end (), { p.x, p.y, p.z });
     layer.points.push_back (std::move (marks));
 #else
     (void) s;
@@ -270,11 +278,11 @@ void TerrainBakePanel (Session& s)
     if (ImGui::IsItemHovered ())
         hudshell::HoverTip ("What was modelled: each path's and grading region's outline (green) and its toe, "
                             "where the slope meets the existing ground (blue). The ground the design left alone "
-                            "keeps its own peaks and breaks (grey) and a few contours.");
+                            "keeps its own points, exactly, and a few contours.");
     ImGui::RadioButton ("As built", &mode, int (edit::BakeMode::Surface)); // its own line: the panel is narrow
     if (ImGui::IsItemHovered ())
-        hudshell::HoverTip ("The surface shown, at its Mesh detail: the same points and edges, so the Mesh is the "
-                            "terrain you see. The existing ground, fixed heights and the paths' lines stay exact.");
+        hudshell::HoverTip ("The surface shown, at its Mesh detail: the paths', regions' and fixed lines as level "
+                            "lines and every other point as a level point, so the Mesh is the terrain you see.");
     options.mode = edit::BakeMode (mode);
     const bool signature = options.mode == edit::BakeMode::Signature;
     const bool surface = options.mode == edit::BakeMode::Surface;
@@ -340,10 +348,13 @@ void TerrainBakePanel (Session& s)
                                                    : contours) += 1;
     ImGui::TextWrapped ("Outline: %zu points (%zu traced)", plan->outline.size (), plan->outlineTraced);
     if (surface)
-        ImGui::TextWrapped ("%zu level lines through every point of the surface shown", plan->lines.size ());
+        ImGui::TextWrapped ("%zu design lines and %zu level points: every point of the surface shown",
+                            plan->lines.size (), plan->levelPoints.size ());
     else if (signature) {
         ImGui::TextWrapped ("%zu design outlines, %zu toe lines, %zu contours at %.*f m", outlines, toes, contours,
                             edit::StepDecimals (plan->interval), plan->interval);
+        if (!plan->levelPoints.empty ())
+            ImGui::TextWrapped ("%zu points of the existing ground kept", plan->levelPoints.size ());
         if (creases)
             ImGui::TextWrapped ("%zu existing-ground lines (peaks, ridges, breaks)", creases);
     }

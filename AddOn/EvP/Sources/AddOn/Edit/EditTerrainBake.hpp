@@ -2,7 +2,8 @@
 #define EVP_EDIT_EDITTERRAINBAKE_HPP
 
 // The built terrain as an Archicad Mesh would be made from it (tapioca-dev #177): a boundary
-// ring with a height per vertex and level lines inside it. Polylines, never loose points.
+// ring with a height per vertex and level lines inside it. Contour lines are polylines, never loose
+// points; Signature's existing ground and As built's points on no line are Archicad level points.
 //
 // Three ways of choosing the level lines:
 //   Contours   horizontal cuts of the surface every `interval` metres;
@@ -10,14 +11,17 @@
 //              contours"): the authored outlines (paths' paved edges, grading regions' rings)
 //              draped on the surface, and the toe -- where the built surface leaves the
 //              existing ground -- outside them; a few coarse contours of the ground the design
-//              left alone. That ground keeps its own shape: its folds (every edge its two faces
-//              meet at more than `creaseDegrees`) are lines, so a raised mesh point becomes the
-//              lines through it, and a gentler peak or pit gets a line down its steepest edge.
-//              The graded surface's folds only when `folds` asks; every fold when no design is
-//              given.
-//   Surface    the surface as it is (Mesh detail, EditTerrainDetail.hpp): its kept edges as lines,
-//              unreduced, and every other vertex on a line along the surface's own edges -- so
-//              the Mesh, triangulating the same points with those lines, is the same surface.
+//              left alone. That ground keeps its own shape: given its own mesh's vertices
+//              (`existing`), the untouched ones are level points; else its folds (every edge its
+//              two faces meet at more than `creaseDegrees`) are lines, so a raised mesh point
+//              becomes the lines through it, and a gentler peak or pit gets a line down its
+//              steepest edge. The graded surface's folds only when `folds` asks; every fold when
+//              no design is given.
+//   Surface    the surface as it is (Mesh detail, EditTerrainDetail.hpp): its kept edges -- the
+//              paths', regions' and fixed lines -- as lines, unreduced, and every other vertex a
+//              level point, so the Mesh triangulates the same points with the same lines. Filler
+//              polylines through those points (the first As built) drew as stray lines across the
+//              ground in Archicad, and every level line is a visible ridge (the user, 2026-11-18).
 // Each Contours or Signature line is reduced to `tolerance`: a point is dropped while the line stays within that
 // distance of the traced one. Where a line ends on the boundary, the boundary has a vertex.
 //
@@ -50,6 +54,10 @@ struct BakeDesign {
     double ground = 0.01;                    // metres a point may move and still be existing ground
     // Surface: the surface's edges that must be lines (its kept lines), as point index pairs.
     std::vector<std::array<uint32_t, 2>> edges;
+    // Signature: per surface point, a vertex of the existing ground's own mesh. With a toe, the
+    // untouched ones are level points -- the ground exact, its peaks kept, no line drawn -- in place
+    // of its folds as lines (which hatched the soft ground: the user, 2026-11-18, "messy").
+    std::vector<char> existing;
 };
 
 enum class BakeLineKind { Contour, Crease, Outline, Toe };
@@ -69,6 +77,7 @@ struct BakePlan {
     size_t outlineTraced = 0;
     std::vector<BakeLine> lines;
     size_t points = 0, traced = 0; // level-line points after and before the reduction
+    std::vector<Vec3> levelPoints; // the vertices given as single level points (Signature, Surface)
     size_t holes = 0;              // inner boundary loops, which the Mesh does not get
     double lo = 0.0, hi = 0.0, interval = 0.0;
 };
@@ -83,6 +92,7 @@ struct BakePayload {
     std::vector<double> outline, polyZ, ridgeCoords; // xy pairs; one z each; xyz triples
     std::vector<int32_t> ridgeCounts;
     double baseLevel = 0.0;
+    size_t levelPoints = 0; // the last ridges: one point each (As built)
 };
 BakePayload TerrainBakePayload (const BakePlan& plan, double skirtDepth = 1.0);
 // What the native create would refuse or misbuild, empty when the payload is sound.

@@ -310,6 +310,47 @@ TEST (EditTerrainBake, TheUntouchedGroundKeepsItsPeaksAsLines177)
     EXPECT_TRUE (ed::CheckBakePayload (ed::TerrainBakePayload (plan)).empty ());
 }
 
+// The user, 2026-11-18: Signature's soft ground was hatched with fold lines and fans. Given the
+// existing ground's own vertices, the untouched ones are level points: the ground exact, both peaks
+// kept at their heights, and no line but the design's, its toe and the contours. Nothing under the
+// design or on the boundary is a point; the payload sends them as one-point ridges.
+TEST (EditTerrainBake, SignatureKeepsTheExistingGroundAsItsOwnPoints)
+{
+    auto site = RoadSite ();
+    const auto raise = [&] (int i, int j, double by) {
+        const size_t v = size_t (j * 41 + i);
+        site.grid.points[v * 3 + 2] += by;
+        site.design.base[v] += by;
+        return ed::Vec3 { double (i), double (j), site.grid.points[v * 3 + 2] };
+    };
+    const ed::Vec3 sharp = raise (35, 25, 1.2), gentle = raise (5, 25, 0.06);
+    site.design.existing.assign (site.grid.points.size () / 3, 1);
+    ed::BakeOptions options;
+    options.mode = ed::BakeMode::Signature;
+    const auto plan = ed::PlanTerrainBake (site.grid.points, site.grid.triangles, options, site.design);
+    ASSERT_TRUE (plan.ok) << plan.error;
+    for (const auto& line : plan.lines)
+        EXPECT_NE (line.kind, ed::BakeLineKind::Crease) << "no fold line";
+    for (const auto& peak : { sharp, gentle })
+        EXPECT_TRUE (std::any_of (plan.levelPoints.begin (), plan.levelPoints.end (),
+                                  [&] (const ed::Vec3& p) { return Near (p, peak); }))
+            << "the peak at " << peak.x << ", " << peak.y << " is kept";
+    ASSERT_FALSE (plan.levelPoints.empty ());
+    for (const auto& p : plan.levelPoints) {
+        EXPECT_NEAR (p.z,
+                     Ground (p.x, p.y) + (Near (p, sharp)    ? 1.2
+                                          : Near (p, gentle) ? 0.06
+                                                             : 0.0),
+                     1e-9)
+            << "existing ground at " << p.x << ", " << p.y;
+        EXPECT_TRUE (p.x > 0 && p.x < 40 && p.y > 0 && p.y < 30) << "not on the boundary";
+        EXPECT_GT (std::max ({ 10.0 - p.x, p.x - 30.0, 12.0 - p.y, p.y - 18.0 }), 1.0) << "not under the design";
+    }
+    const auto payload = ed::TerrainBakePayload (plan);
+    EXPECT_EQ (payload.levelPoints, plan.levelPoints.size ());
+    EXPECT_TRUE (ed::CheckBakePayload (payload).empty ());
+}
+
 TEST (EditTerrainBake, ThePayloadIsMeasuredFromABasePlaneUnderTheLowestPoint)
 {
     const auto g = MakeGrid (20, [] (double x, double y) { return 94.0 + Pad (x, y); });
@@ -354,9 +395,11 @@ TEST (EditTerrainBake, AnOpeningIsCountedAndSaidAndNoSurfaceIsRefused)
     EXPECT_TRUE (ed::TerrainBakePayload (none).outline.empty ());
 }
 
-// Mesh detail's As built: the surface as it is -- every vertex on the outline or on a level line,
-// each line along the surface's own edges, its kept edges one line, nothing a Mesh refuses.
-TEST (EditTerrainBake, AsBuiltPutsEveryPointOnALineAlongTheSurfacesEdges)
+// Mesh detail's As built: the surface as it is -- its kept edges one level line along the surface,
+// every other vertex a level point, no other line (the user, 2026-11-18: filler lines through the
+// points drew as stray lines across the ground). The payload sends each point as a one-point ridge
+// last, and a one-point line anywhere else is still refused.
+TEST (EditTerrainBake, AsBuiltKeepsItsLinesAndGivesEveryOtherPointAsALevelPoint)
 {
     const auto g = MakeGrid (8, [] (double x, double y) { return Pad (x * 2.5, y * 2.5); });
     ed::BakeOptions options;
@@ -368,26 +411,25 @@ TEST (EditTerrainBake, AsBuiltPutsEveryPointOnALineAlongTheSurfacesEdges)
     std::set<std::pair<double, double>> on;
     for (const auto& p : plan.outline)
         on.emplace (p.x, p.y);
-    std::set<std::pair<int, int>> edges;
-    for (size_t i = 0; i < g.triangles.size (); i += 3)
-        for (int e = 0; e < 3; ++e) {
-            const int a = int (g.triangles[i + e]), b = int (g.triangles[i + (e + 1) % 3]);
-            edges.emplace (std::min (a, b), std::max (a, b));
-        }
-    const auto index = [] (const ed::Vec3& p) { return int (std::lround (p.y)) * 9 + int (std::lround (p.x)); };
-    bool keptLine = false;
-    for (const auto& line : plan.lines) {
-        ASSERT_GE (line.points.size (), 2u) << "never a loose point";
-        for (size_t k = 0; k < line.points.size (); ++k) {
-            on.emplace (line.points[k].x, line.points[k].y);
-            if (k) {
-                const int a = index (line.points[k - 1]), b = index (line.points[k]);
-                EXPECT_TRUE (edges.contains ({ std::min (a, b), std::max (a, b) })) << "a line along the surface";
-            }
-        }
-        keptLine |= line.kind == ed::BakeLineKind::Outline && line.points.size () == 3;
+    ASSERT_EQ (plan.lines.size (), 1u) << "only the kept line";
+    const auto& kept = plan.lines.front ();
+    EXPECT_EQ (kept.kind, ed::BakeLineKind::Outline);
+    ASSERT_EQ (kept.points.size (), 3u);
+    for (const auto& p : kept.points) {
+        EXPECT_EQ (p.y, 3.0);
+        on.emplace (p.x, p.y);
     }
-    EXPECT_TRUE (keptLine) << "the kept edges are one line";
+    for (const auto& p : plan.levelPoints)
+        EXPECT_TRUE (on.emplace (p.x, p.y).second) << "a level point on no line";
     EXPECT_EQ (on.size (), g.points.size () / 3) << "every point of the surface is in the Mesh";
-    EXPECT_TRUE (ed::CheckBakePayload (ed::TerrainBakePayload (plan)).empty ());
+    EXPECT_EQ (plan.points, 3 + plan.levelPoints.size ());
+    auto payload = ed::TerrainBakePayload (plan);
+    EXPECT_EQ (payload.levelPoints, plan.levelPoints.size ());
+    ASSERT_EQ (payload.ridgeCounts.size (), 1 + plan.levelPoints.size ());
+    EXPECT_EQ (payload.ridgeCounts.front (), 3);
+    EXPECT_TRUE (
+        std::all_of (payload.ridgeCounts.begin () + 1, payload.ridgeCounts.end (), [] (int32_t n) { return n == 1; }));
+    EXPECT_TRUE (ed::CheckBakePayload (payload).empty ());
+    payload.levelPoints = 0; // the same points, as lines: refused
+    EXPECT_FALSE (ed::CheckBakePayload (payload).empty ());
 }

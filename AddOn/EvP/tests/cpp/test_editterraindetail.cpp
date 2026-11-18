@@ -103,7 +103,8 @@ TEST (EditTerrainDetail, FewerTrianglesTheFeaturesExactTheRestWithinTheTolerance
     }
     EXPECT_LE (worst, lg::kMeshDetailStandard + 1e-9);
 
-    // Baked As built: every detailed point on the outline or a level line, nothing a Mesh refuses.
+    // Baked As built: every detailed point on the outline, a kept line or a level point (2026-11-18:
+    // no filler lines), nothing a Mesh refuses.
     ed::BakeOptions options;
     options.mode = ed::BakeMode::Surface;
     ed::BakeDesign design;
@@ -118,6 +119,8 @@ TEST (EditTerrainDetail, FewerTrianglesTheFeaturesExactTheRestWithinTheTolerance
         for (const auto& p : line.points)
             on.emplace (p.x, p.y);
     }
+    for (const auto& p : plan.levelPoints)
+        EXPECT_TRUE (on.emplace (p.x, p.y).second) << "a level point on no line";
     EXPECT_EQ (on.size (), detailed.points.size () / 3);
     EXPECT_TRUE (ed::CheckBakePayload (ed::TerrainBakePayload (plan)).empty ());
 

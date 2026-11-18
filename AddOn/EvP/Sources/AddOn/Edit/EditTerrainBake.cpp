@@ -495,48 +495,15 @@ BakePlan SurfaceLines (const Surface& s, const std::vector<std::vector<uint32_t>
         for (const uint32_t w : list)
             if (!walked.contains (EdgeKey (v, w)))
                 walk (v, w); // the loops left
-    // Every other vertex: walked from along the surface's edges to the uncovered ones beside it;
-    // a vertex with none left beside it joins its nearest covered neighbour.
-    std::vector<std::vector<uint32_t>> neighbours (n);
-    for (const auto& [key, use] : s.edges) {
-        neighbours[use.from].push_back (use.to);
-        neighbours[use.to].push_back (use.from);
-    }
-    for (uint32_t v = 0; v < n; ++v) {
-        if (covered[v] || neighbours[v].empty ())
-            continue;
-        BakeLine line;
-        line.kind = BakeLineKind::Crease;
-        uint32_t at = v;
-        line.points.push_back (s.vertices[at]);
-        covered[at] = 1;
-        while (true) {
-            uint32_t next = UINT32_MAX;
-            for (const uint32_t w : neighbours[at])
-                if (!covered[w] && (next == UINT32_MAX || w < next))
-                    next = w;
-            if (next == UINT32_MAX)
-                break;
-            line.points.push_back (s.vertices[next]);
-            covered[next] = 1;
-            at = next;
+    // Every other vertex of the surface is a level point.
+    std::vector<char> used (n, 0);
+    for (size_t k = 0; k < s.triangles->size (); ++k)
+        used[(*s.triangles)[k]] = 1;
+    for (uint32_t v = 0; v < n; ++v)
+        if (used[v] && !covered[v]) {
+            plan.levelPoints.push_back (s.vertices[v]);
+            ++plan.points, ++plan.traced;
         }
-        if (line.points.size () == 1) {
-            // Alone: a line to its nearest neighbour, already on a line or the outline.
-            uint32_t nearest = neighbours[v].front ();
-            double best = INFINITY;
-            for (const uint32_t w : neighbours[v]) {
-                const double d = std::hypot (s.vertices[w].x - s.vertices[v].x, s.vertices[w].y - s.vertices[v].y);
-                if (d < best)
-                    best = d, nearest = w;
-            }
-            line.points.push_back (s.vertices[nearest]);
-        }
-        line.traced = line.points.size ();
-        plan.points += line.points.size ();
-        plan.traced += line.points.size ();
-        plan.lines.push_back (std::move (line));
-    }
     plan.outline = ring;
     if (plan.holes)
         plan.notes.push_back (std::to_string (plan.holes) +
@@ -647,9 +614,12 @@ BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<u
                 return std::abs (s.vertices[v].z - design.base[v]) < design.ground;
             });
     }
+    // The existing ground's own vertices, where given: its untouched ones become level points.
+    const bool own = toe && design.existing.size () == s.vertices.size () &&
+                     std::any_of (design.existing.begin (), design.existing.end (), [] (char e) { return e != 0; });
     if (signature) {
         const bool every = options.folds || !designed;
-        if (every || toe)
+        if (every || (toe && !own))
             // The untouched ground's folds are its own, at the heights it had: a transition's
             // last millimetres before the ground (#219: refined to 1 cm) are the design's.
             for (auto& line :
@@ -657,8 +627,9 @@ BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<u
                 traced.push_back (std::move (line));
     }
     // A peak or pit of the untouched ground that no line passes through yet (a gentle one, under
-    // the fold angle) gets one: from it down (or up) its steepest edge, on the surface.
-    if (toe) {
+    // the fold angle) gets one: from it down (or up) its steepest edge, on the surface. With the
+    // ground's own points given, they keep it.
+    if (toe && !own) {
         std::vector<char> lined (s.vertices.size (), 0), inner (s.vertices.size (), 1);
         std::vector<std::vector<uint32_t>> next (s.vertices.size ());
         for (const auto& [key, use] : s.edges) {
@@ -787,6 +758,27 @@ BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<u
         plan.lines.push_back (std::move (line));
     }
 
+    if (own) {
+        // The untouched ones, but not on the boundary (the outline's) nor on a line already.
+        std::set<std::pair<double, double>> taken;
+        for (const auto& line : plan.lines)
+            for (const auto& p : line.points)
+                taken.emplace (p.x, p.y);
+        std::vector<char> rim (s.vertices.size (), 0), used (s.vertices.size (), 0);
+        for (const auto& loop : loops)
+            for (const uint32_t v : loop)
+                rim[v] = 1;
+        for (const uint32_t v : triangles)
+            used[v] = 1;
+        for (uint32_t v = 0; v < s.vertices.size (); ++v) {
+            const auto& p = s.vertices[v];
+            if (!used[v] || !design.existing[v] || rim[v] || std::abs (p.z - design.base[v]) >= design.ground ||
+                !taken.emplace (p.x, p.y).second)
+                continue;
+            plan.levelPoints.push_back (p);
+            ++plan.points, ++plan.traced;
+        }
+    }
     if (plan.holes)
         plan.notes.push_back (std::to_string (plan.holes) +
                               (plan.holes == 1 ? " inner opening is" : " inner openings are") +
@@ -821,6 +813,11 @@ BakePayload TerrainBakePayload (const BakePlan& plan, double skirtDepth)
         }
         out.ridgeCounts.push_back (int32_t (line.points.size () + (line.closed ? 1 : 0)));
     }
+    for (const auto& p : plan.levelPoints) {
+        out.ridgeCoords.insert (out.ridgeCoords.end (), { p.x, p.y, p.z - out.baseLevel });
+        out.ridgeCounts.push_back (1);
+    }
+    out.levelPoints = plan.levelPoints.size ();
     return out;
 }
 
@@ -841,13 +838,21 @@ std::vector<std::string> CheckBakePayload (const BakePayload& payload)
     if (n >= 3 && std::abs (twice) < 1.0e-9)
         problems.push_back ("The outline encloses no area.");
     int64_t total = 0;
-    for (const auto count : payload.ridgeCounts) {
+    const size_t lines = payload.ridgeCounts.size () - std::min (payload.levelPoints, payload.ridgeCounts.size ());
+    for (size_t i = 0; i < payload.ridgeCounts.size (); ++i) {
+        const auto count = payload.ridgeCounts[i];
         total += count;
-        if (count < 2) {
+        if (i < lines && count < 2) {
             problems.push_back ("A level line has fewer than two points.");
             break;
         }
+        if (i >= lines && count != 1) {
+            problems.push_back ("A level point is not one point.");
+            break;
+        }
     }
+    if (payload.levelPoints > payload.ridgeCounts.size ())
+        problems.push_back ("More level points than ridges.");
     if (total * 3 != int64_t (payload.ridgeCoords.size ()))
         problems.push_back ("The level lines' point counts do not add up to their points.");
     const auto sound = [] (const std::vector<double>& values) {

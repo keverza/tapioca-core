@@ -965,11 +965,15 @@ TEST (EditRegionTerrain, SignatureLinesKeepTheSourceTerrainsPeaks177)
         ++kinds[size_t (line.kind)];
     EXPECT_GE (kinds[size_t (edit::BakeLineKind::Outline)], 1u) << "the path's outline";
     EXPECT_GE (kinds[size_t (edit::BakeLineKind::Toe)], 1u) << "and its toe";
-    EXPECT_GE (kinds[size_t (edit::BakeLineKind::Crease)], 1u) << "the existing ground's own lines";
+    // 2026-11-18: the existing ground's own vertices are level points, not its folds as lines.
+    EXPECT_EQ (kinds[size_t (edit::BakeLineKind::Crease)], 0u) << "no fold lines across the soft ground";
+    EXPECT_FALSE (plan->levelPoints.empty ()) << "the existing ground's own points";
     for (const auto& peak : peaks) {
-        bool kept = std::any_of (plan->outline.begin (), plan->outline.end (), [&] (const edit::Vec3& p) {
+        const auto at = [&] (const edit::Vec3& p) {
             return std::hypot (p.x - peak.x, p.y - peak.y) < 1e-3 && std::abs (p.z - peak.z) < 1e-3;
-        });
+        };
+        bool kept = std::any_of (plan->outline.begin (), plan->outline.end (), at) ||
+                    std::any_of (plan->levelPoints.begin (), plan->levelPoints.end (), at);
         for (const auto& line : plan->lines)
             kept = kept || std::any_of (line.points.begin (), line.points.end (), [&] (const edit::Vec3& p) {
                        return std::hypot (p.x - peak.x, p.y - peak.y) < 1e-3 && std::abs (p.z - peak.z) < 1e-3;
