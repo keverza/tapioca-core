@@ -19,6 +19,7 @@
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/StorySliceOverlay.hpp"
 #include "ArchViz/SurfaceTakeoffOverlay.hpp"
+#include "ArchViz/ViewerEditor.hpp"
 #include "Preview/RetainedPreviewStore.hpp"
 
 namespace geomsrv {
@@ -48,7 +49,14 @@ void ThreeD ()
     dxgi::layers3d::Publish (overlaylayers::Prepared3D {});
     // The layers as laid out for it; the plan's are the plan's.
     overlayscene::ForgetDrafts (overlaylayers::Views::ThreeD);
-    guesttext::ReleaseHud (overlayinput::View::ThreeD);
+    // ⚠️ THE 3D HUD ENGINE HAS TWO HOSTS: this overlay and the Tapioca viewer's editor
+    // (ViewerEditor.cpp), which lays out the same engine on the main thread and releases it
+    // in its own Stop. PublishLayers forgets the 3D overlay whenever nobody wants it --
+    // including from inside the viewer's Refresh, through massingslicesmodel::Poll -- and
+    // deleted the engine the viewer was half-way through using: an access violation in
+    // Engine::SetOwnPages (#201, 2026-11-18 08:47, Open Massing workflow from the viewer).
+    if (!vieweredit::Running ())
+        guesttext::ReleaseHud (overlayinput::View::ThreeD);
 }
 
 void Plan ()

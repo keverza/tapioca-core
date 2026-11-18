@@ -264,16 +264,18 @@ bool Refresh ()
     input.cameraDirection[0] = -frame.view[2];
     input.cameraDirection[1] = -frame.view[6];
     input.cameraDirection[2] = -frame.view[10];
+    // The Massing workflow reads the overlays' own pages and keeps the massing followed; the
+    // editor alone keeps its smaller set. ⚠️ POLLED BEFORE THE ENGINE IS TAKEN: a poll can
+    // publish the overlay layers, and nothing that runs after it may hold an engine pointer
+    // taken before it (OverlayRelease.cpp ThreeD says why).
+    if (s_massing) {
+        massinghybrid::Poll ();
+        massingslicesmodel::Poll ();
+    }
     auto* engine = guesttext::Hud (overlayinput::View::ThreeD);
     if (!engine) {
         s_refreshing = false;
         return false;
-    }
-    // The Massing workflow reads the overlays' own pages and keeps the massing followed; the
-    // editor alone keeps its smaller set.
-    if (s_massing) {
-        massinghybrid::Poll ();
-        massingslicesmodel::Poll ();
     }
     overlayhud::OwnPages own =
         s_massing ? overlayhudmodel::Pages (overlayinput::View::ThreeD) : overlayhud::OwnPages {};
