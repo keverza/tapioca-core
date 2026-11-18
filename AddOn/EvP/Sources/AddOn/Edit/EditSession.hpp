@@ -28,6 +28,15 @@ class Session {
   public:
     explicit Session (Document start = {}, size_t undoCap = 128);
 
+    // A domain rule the kernel cannot see (a roof's coverage and falls), run on every candidate
+    // after the document's own validation. A refusal keeps the last valid state and its reason
+    // becomes `Message`, exactly like a kernel refusal. The host that owns the domain installs it.
+    using Validator = std::function<bool (const Document&, std::string&)>;
+    void SetValidator (Validator check)
+    {
+        validator = std::move (check);
+    }
+
     const Document& Doc () const
     {
         return doc;
@@ -83,6 +92,7 @@ class Session {
     bool gesture = false, changed = false;
     Ref target;
     std::string message;
+    Validator validator;
 };
 
 } // namespace geomsrv::edit

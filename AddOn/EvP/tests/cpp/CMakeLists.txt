@@ -664,6 +664,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlope.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeLayer.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeBakePlan.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeDocument.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeHud.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeCanvas.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeReport.cpp"
@@ -911,6 +912,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditTypes.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditDocument.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSession.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditRoof.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSnap.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSnapTargets.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditWorkingPlane.cpp"
@@ -1188,6 +1190,7 @@ set (EVP_TEST_SOURCES
     test_roofslope.cpp
     test_roofslope_bake.cpp
     test_roofslope_replan.cpp
+    test_editroof.cpp
     test_overlayfloorplans.cpp
     test_hudfloorschemeedit.cpp
     test_hudfloorschemeskeleton.cpp

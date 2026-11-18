@@ -7,6 +7,7 @@
 // offline suite. Units are metres, coordinates are world, Z is absolute.
 #include "Edit/EditPath.hpp"
 #include "Edit/EditLandscape.hpp"
+#include "Edit/EditRoof.hpp"
 #include "Edit/EditTypes.hpp"
 #include <cstdint>
 #include <optional>
@@ -105,6 +106,7 @@ struct Document {
     std::vector<Entity> entities;
     std::vector<Path> paths; // ids share one space with the entities
     std::optional<tapioca::geometry::LandscapeSession> landscape;
+    std::optional<RoofDesign> roof; // EditRoof.hpp; its ids share the document's id space
     // Layer 0: always there, with no id, so every object is on a layer. It cannot be deleted
     // or renamed; what leaves another layer lands on it.
     Layer layer0 { kNoId, "0" };

@@ -54,6 +54,10 @@ bool Plan (const std::vector<Ring>& worldOutline, double topZ, double percent, d
 Vec World (const Data& data, Vec local);
 Vec Local (const Data& data, Vec world);
 bool Rebuild (Data& data, std::string& error);
+// Re-derives everything from outline, nodes and cell boxes/rims/drains as given, without
+// replanning: clipped areas, the envelope rules (span, aspect, strict cap), exact coverage
+// of the outline and every opening, then the faces. Refuses a cell left with no roof.
+bool Refresh (Data& data, std::string& error);
 bool SetElevation (Data& data, int node, double z, std::string& error);
 bool MoveDrain (Data& data, int cell, Vec xy, std::string& error);
 // Moves the picked divider and every divider connected to it along the same line;

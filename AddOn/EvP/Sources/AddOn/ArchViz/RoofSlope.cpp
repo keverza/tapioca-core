@@ -459,6 +459,59 @@ bool Rebuild (Data& d, std::string& error)
 {
     return Mesh (d, error);
 }
+bool Refresh (Data& d, std::string& error)
+{
+    const auto outline = Paths (d.outline);
+    if (!ValidOutline (outline, error))
+        return false;
+    cp::PathsD cover;
+    double sum = 0;
+    for (size_t ci = 0; ci < d.cells.size (); ++ci) {
+        auto& c = d.cells[ci];
+        const Box b = c.box;
+        if (c.rim.size () != 4 || c.drain < 0 || size_t (c.drain) >= d.nodes.size ()) {
+            error = "Roof cell " + std::to_string (ci + 1) + " needs four corners and a drain.";
+            return false;
+        }
+        for (int n : c.rim)
+            if (n < 0 || size_t (n) >= d.nodes.size ()) {
+                error = "Roof cell " + std::to_string (ci + 1) + " names a missing corner.";
+                return false;
+            }
+        if (b[2] - b[0] < kMinSpan || b[3] - b[1] < kMinSpan) {
+            error = "A roof cell is narrower than 10 mm.";
+            return false;
+        }
+        if (Aspect (b) > kMaxAspect + 1e-6) {
+            error = "Roof rectangles must stay near-square (maximum aspect ratio 1.5:1).";
+            return false;
+        }
+        if ((b[2] - b[0]) * (b[3] - b[1]) >= d.cap - 1e-7) {
+            error = "Every drainage cell must be strictly below " + Number (d.cap, 2) + " m2.";
+            return false;
+        }
+        double area = 0;
+        for (const auto& piece : cp::Intersect ({ Rect (b) }, outline, cp::FillRule::NonZero, kPrecision)) {
+            cover.push_back (piece);
+            area += cp::Area (piece);
+        }
+        if (area <= 1e-9) {
+            error = "Roof cell " + std::to_string (ci + 1) + " no longer covers any roof. Delete or replan it.";
+            return false;
+        }
+        sum += area;
+        c.area = area;
+        c.rectangle = Close (area, cp::Area (Rect (b)));
+    }
+    const auto united = cp::Union (cover, cp::FillRule::NonZero, kPrecision);
+    const double tolerance = (std::max) (1e-4, Area (outline) * 1e-7);
+    if (Area (cp::Xor (outline, united, cp::FillRule::NonZero, kPrecision)) > tolerance ||
+        std::abs (sum - Area (united)) > tolerance) {
+        error = "This edit would leave an overlap, gap or lost opening.";
+        return false;
+    }
+    return Mesh (d, error);
+}
 bool SetElevation (Data& d, int node, double z, std::string& error)
 {
     if (node < 0 || size_t (node) >= d.nodes.size () || d.nodes[node].lockZ || !std::isfinite (z)) {

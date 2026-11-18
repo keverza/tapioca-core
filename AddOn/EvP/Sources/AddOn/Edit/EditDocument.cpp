@@ -786,7 +786,16 @@ bool Validate (const Document& doc, std::string& error)
             return false;
         }
     }
-    return ValidateOrganization (doc, error) && tapioca::geometry::ValidateLandscape (doc, error);
+    if (doc.roof) {
+        for (const auto& n : doc.roof->nodes)
+            if (!claim (n.id, "roof node"))
+                return false;
+        for (const auto& c : doc.roof->cells)
+            if (!claim (c.id, "roof cell"))
+                return false;
+    }
+    return ValidateOrganization (doc, error) && tapioca::geometry::ValidateLandscape (doc, error) &&
+           ValidateRoof (doc, error);
 }
 
 } // namespace geomsrv::edit
