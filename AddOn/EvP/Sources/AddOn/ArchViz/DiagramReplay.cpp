@@ -203,6 +203,13 @@ std::string WriteCapture (const DiagramInputSnapshot& snapshot, const std::strin
     return js::Write (V::Object (std::move (o)), 1);
 }
 
+std::string ContentSignature (const DiagramInputSnapshot& snapshot)
+{
+    DiagramInputSnapshot content = snapshot; // shared rows; only the stamps are reset
+    content.revisions = {};
+    return WriteCapture (content);
+}
+
 bool ReadCapture (const std::string& text, CaptureInputs& out, std::string& error)
 {
     out = {};

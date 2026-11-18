@@ -47,6 +47,8 @@ struct Status {
     std::vector<std::string> notes;
     bool building = false;
     uint64_t publications = 0, discarded = 0, refused = 0;
+    // Republished inputs whose content matched the last request: no build, no upload.
+    uint64_t unchanged = 0;
     std::string savedPath, saveError;
     // Reported by the renderer: geometry uploads since its layer started, their bytes, the
     // last frame's draws and the displayed t. Uploads stay flat while t animates.

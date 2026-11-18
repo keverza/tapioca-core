@@ -74,10 +74,12 @@ bool DiagramPage (float ui)
                        double (status.uploadedBytes) / 1024.0);
         Wrapped (line, &muted);
         if (publication) {
-            std::snprintf (line, sizeof (line), "built in %.1f ms  |  %llu published, %llu superseded, %llu refused",
+            std::snprintf (line, sizeof (line),
+                           "built in %.1f ms  |  %llu published, %llu superseded, %llu refused, %llu unchanged",
                            publication->buildMs, static_cast<unsigned long long> (status.publications),
                            static_cast<unsigned long long> (status.discarded),
-                           static_cast<unsigned long long> (status.refused));
+                           static_cast<unsigned long long> (status.refused),
+                           static_cast<unsigned long long> (status.unchanged));
             Wrapped (line, &muted);
         }
         if (!status.notes.empty () && ImGui::TreeNode ("Notes", "Notes (%zu)", status.notes.size ())) {

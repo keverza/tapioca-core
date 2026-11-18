@@ -33,6 +33,7 @@ std::shared_ptr<const massingslices::Result> s_seenSlices;
 std::string s_seenStoreys;
 uint64_t s_slicesGeneration = 0, s_lastFollow = 0;
 std::shared_ptr<const diagram::DiagramInputSnapshot> s_lastSnapshot;
+std::string s_lastContent; // ContentSignature of s_lastSnapshot
 std::shared_ptr<const diagram::Publication> s_hiddenFor;
 bool s_hiddenWanted = false;
 
@@ -141,15 +142,10 @@ void Adopt ()
     s_publication.store (std::move (prepared.publication));
 }
 
-void Request (std::shared_ptr<const massingslices::Result> slices, ProjectStoreys storeys)
+void Request (std::shared_ptr<const diagram::DiagramInputSnapshot> snapshot, std::string content)
 {
-    diagram::RevisionSet revisions;
-    revisions.projectEpoch = massingmodel::ProjectEpoch ();
-    revisions.modelStamp = modelwatch::CaptureStamp ();
-    revisions.slices = s_slicesGeneration;
-    auto snapshot = std::make_shared<const diagram::DiagramInputSnapshot> (
-        diagram::Capture (std::move (slices), std::move (storeys), revisions));
     s_lastSnapshot = snapshot;
+    s_lastContent = std::move (content);
     const uint64_t generation = ++s_requested;
     {
         std::lock_guard<std::mutex> lock (s_mutex);
@@ -234,13 +230,30 @@ void Follow ()
     const bool changed = slices != s_seenSlices || signature != s_seenStoreys || !s_lastSnapshot;
     if (!changed || s_job.valid ())
         return; // an in-flight build finishes first; the next tick sees the change again
-    if (slices != s_seenSlices)
-        ++s_slicesGeneration;
+    // ⚠️ A NEW POINTER IS NOT A NEW MASSING. massingslicesmodel republishes whenever its
+    // body signature moves, and that signature carries the model capture stamp, which
+    // every extraction pass bumps -- so an idle viewer saw a fresh Result each pass and
+    // rebuilt and re-uploaded an identical diagram forever (#201, 2026-11-18). The build
+    // is keyed on the captured content; the stamps alone never start one.
+    const bool slicesMoved = slices != s_seenSlices;
     s_seenSlices = slices;
     s_seenStoreys = std::move (signature);
-    if (!slices)
+    diagram::RevisionSet revisions;
+    revisions.projectEpoch = massingmodel::ProjectEpoch ();
+    revisions.modelStamp = modelwatch::CaptureStamp ();
+    revisions.slices = s_slicesGeneration + (slicesMoved ? 1 : 0);
+    auto snapshot = std::make_shared<const diagram::DiagramInputSnapshot> (
+        diagram::Capture (std::move (slices), std::move (storeys), revisions));
+    std::string content = diagram::ContentSignature (*snapshot);
+    if (s_lastSnapshot && content == s_lastContent) {
+        std::lock_guard<std::mutex> lock (s_mutex);
+        ++s_status.unchanged;
+        return;
+    }
+    s_slicesGeneration = revisions.slices;
+    if (!snapshot->slices)
         SetState ("Waiting for a published massing result.");
-    Request (std::move (slices), std::move (storeys));
+    Request (std::move (snapshot), std::move (content));
 }
 
 void Forget ()
@@ -255,6 +268,7 @@ void Forget ()
     s_slicesGeneration = 0;
     s_lastFollow = 0;
     s_lastSnapshot.reset ();
+    s_lastContent.clear ();
     s_hiddenFor.reset ();
     s_hiddenWanted = false;
     s_publication.store (nullptr);

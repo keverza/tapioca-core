@@ -27,6 +27,10 @@ struct CaptureInputs {
 
 // The snapshot's inputs, never its derived fields: Capture re-derives them on replay.
 std::string WriteCapture (const DiagramInputSnapshot& snapshot, const std::string& note = {});
+// The capture text with its revision stamps zeroed and no note: what the diagram is built
+// from, and nothing about when. Two snapshots with the same signature build the same
+// diagram, whatever bumped the stamps between them -- the live follow keys on it.
+std::string ContentSignature (const DiagramInputSnapshot& snapshot);
 // Strict: an unknown format or version, or a malformed row, refuses the whole file.
 bool ReadCapture (const std::string& text, CaptureInputs& out, std::string& error);
 // ReadCapture then Capture: the offline twin of the live session's capture step.

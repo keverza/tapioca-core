@@ -227,3 +227,23 @@ TEST (DiagramPublication, AClickPicksTheDisplacedStoreyNotItsSource)
     const auto miss = dg::Pick (exploded, p.plan, p.shells, side, dg::Vec3 { 1, 0, 0 });
     EXPECT_TRUE (!miss || miss->id != *topId);
 }
+
+// The live follow keys builds on this: a republished massing whose only change is a stamp
+// (every extraction pass bumps the model capture stamp) must not rebuild or re-upload.
+TEST (DiagramReplay, ContentSignatureIgnoresStampsButSeesContent)
+{
+    dg::DiagramInputSnapshot snapshot;
+    std::string error;
+    ASSERT_TRUE (dg::ReplayCapture (Fixture (), snapshot, error)) << error;
+    const std::string base = dg::ContentSignature (snapshot);
+    auto revisions = snapshot.revisions;
+    revisions.modelStamp += 17;
+    revisions.slices += 3;
+    const auto restamped = dg::Capture (snapshot.slices, snapshot.storeys, revisions);
+    EXPECT_EQ (dg::ContentSignature (restamped), base);
+    auto storeys = snapshot.storeys;
+    ASSERT_FALSE (storeys.levels.empty ());
+    storeys.levels.back () += 0.5;
+    const auto moved = dg::Capture (snapshot.slices, storeys, snapshot.revisions);
+    EXPECT_NE (dg::ContentSignature (moved), base);
+}
