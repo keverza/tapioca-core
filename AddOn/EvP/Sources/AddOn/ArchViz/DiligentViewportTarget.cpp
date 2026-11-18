@@ -93,6 +93,7 @@ struct DiligentViewportTarget::Impl {
 
     // ---- the offscreen path -----------------------------------------------
     RefCntAutoPtr<Diligent::ITexture> offscreenColor;
+    RefCntAutoPtr<Diligent::ITextureView> offscreenView; // the _SRGB render target over it
     RefCntAutoPtr<Diligent::ITexture> offscreenStaging;
 
     // ---- the overlay path --------------------------------------------------
@@ -313,10 +314,24 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device, Diligent::
         cd.Width = width;
         cd.Height = height;
         cd.MipLevels = 1;
-        cd.Format = static_cast<Diligent::TEXTURE_FORMAT> (impl_->colorFormat);
+        // ⚠️ TYPELESS, WITH THE _SRGB VIEW MADE EXPLICITLY. The palette chain's
+        // texture is UNORM under an _SRGB view, and ViewerEditorDraw stores the
+        // overlay's already-encoded colours through a UNORM view of the same
+        // texture. D3D11 allows a second view format only over a TYPELESS
+        // resource, and Diligent creates an _SRGB colour texture typed, so a
+        // screenshot that carries the Exposed surfaces highlight would encode it
+        // twice. The scene still draws through the _SRGB view: no pixel changes.
+        cd.Format = Diligent::TEX_FORMAT_RGBA8_TYPELESS;
         cd.BindFlags = Diligent::BIND_RENDER_TARGET;
         cd.Usage = Diligent::USAGE_DEFAULT;
         device->CreateTexture (cd, nullptr, &impl_->offscreenColor);
+        if (impl_->offscreenColor != nullptr) {
+            Diligent::TextureViewDesc view;
+            view.Name = "ArchViz offscreen sRGB target";
+            view.ViewType = Diligent::TEXTURE_VIEW_RENDER_TARGET;
+            view.Format = static_cast<Diligent::TEXTURE_FORMAT> (impl_->colorFormat);
+            impl_->offscreenColor->CreateView (view, &impl_->offscreenView);
+        }
 
         Diligent::TextureDesc sd = cd;
         sd.Name = "ArchViz offscreen readback";
@@ -326,7 +341,7 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device, Diligent::
         device->CreateTexture (sd, nullptr, &impl_->offscreenStaging);
 
         if (!impl_->CreateDepth (width, height, impl_->depthTexture, error) || impl_->offscreenColor == nullptr ||
-            impl_->offscreenStaging == nullptr) {
+            impl_->offscreenView == nullptr || impl_->offscreenStaging == nullptr) {
             if (error.empty ())
                 error = "could not create the offscreen colour or staging texture";
             return false;
@@ -492,6 +507,7 @@ void DiligentViewportTarget::Destroy (Diligent::IDeviceContext* context)
     impl_->ReleaseOverlay ();
     impl_->swapChain.Release ();
     impl_->offscreenStaging.Release ();
+    impl_->offscreenView.Release ();
     impl_->offscreenColor.Release ();
     impl_->depthTexture.Release ();
     impl_->deviceD3D11.Release ();
@@ -603,9 +619,9 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
     }
 
     if (impl_->mode == SurfaceMode::Offscreen) {
-        if (impl_->offscreenColor == nullptr || impl_->depthTexture == nullptr)
+        if (impl_->offscreenView == nullptr || impl_->depthTexture == nullptr)
             return false;
-        rtv = impl_->offscreenColor->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET);
+        rtv = impl_->offscreenView;
         dsv = impl_->depthTexture->GetDefaultView (Diligent::TEXTURE_VIEW_DEPTH_STENCIL);
         return rtv != nullptr && dsv != nullptr;
     }
