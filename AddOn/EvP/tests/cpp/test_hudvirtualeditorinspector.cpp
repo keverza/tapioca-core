@@ -322,14 +322,9 @@ TEST (HudVirtualEditorInspector, NoInventoryControlUnreachable191)
         for (const char* label : c.labels)
             EXPECT_TRUE (Has (text, label)) << c.name << ": \"" << label << "\" is not drawn ("
                                             << eh::InspectorContextName (eh::ResolveContext (s)) << ")";
-        // No control runs past the 320 px panel's right edge, where it would be clipped. The contexts
-        // of tapioca-dev #212 still do; one fixed there is taken off this list.
-        static const char* const wide[] = { "recovery offer", "array draft",   "boolean draft", "path",
-                                            "path break",     "region",        "offset",        "reference line",
-                                            "ellipse",        "fixed heights", "several",       "nothing" };
-        if (std::none_of (std::begin (wide), std::end (wide),
-                          [&] (const char* name) { return c.name == std::string (name); }))
-            EXPECT_LE (right, edge + 1) << c.name << ": a control is laid out past the panel's right edge";
+        // tapioca-dev #212: no control runs past the 320 px panel's right edge, where it would be
+        // clipped -- in any context.
+        EXPECT_LE (right, edge + 1) << c.name << ": a control is laid out past the panel's right edge";
     }
 }
 

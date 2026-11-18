@@ -4,6 +4,7 @@
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "Edit/EditDisplayUnits.hpp"
 #include "Edit/EditGradeToControls.hpp"
 #include "Edit/EditLandscape.hpp"
@@ -96,7 +97,7 @@ void TerrainControlsPanel (Session& s)
                         "this is not an object movement lock. Controls must be inside the rebuild region.");
     if (ImGui::Button ("Fix selected heights"))
         SetTerrainControlSelection (s, true);
-    ImGui::SameLine ();
+    detail::SameLineIfRoom (detail::ButtonWidth ("Release selected heights"));
     if (ImGui::Button ("Release selected heights"))
         SetTerrainControlSelection (s, false);
     const auto controls = s.edits.Doc ().landscape->terrainControls;
@@ -131,7 +132,7 @@ void TerrainControlsPanel (Session& s)
             s.gradeReach = edit::LengthToMetres (units, reach);
         if (ImGui::IsItemHovered ())
             hudshell::HoverTip ("How far from a path's centreline, in plan, a control point grades it");
-        ImGui::SameLine ();
+        detail::SameLineIfRoom (detail::ButtonWidth ("Grade selected paths"));
         if (ImGui::Button ("Grade selected paths"))
             GradeSelectedPathsToControls (s);
         if (ImGui::IsItemHovered ())

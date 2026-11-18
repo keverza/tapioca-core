@@ -126,7 +126,7 @@ void BooleanControls (Session& s)
     const auto& draft = *s.booleanDraft;
     ImGui::Separator ();
     ImGui::Text ("%s of %zu outlines", Title (draft.kind), draft.operands.size ());
-    ImGui::TextDisabled ("The first selected keeps its identity; curves become straight pieces.");
+    WrappedHint ("The first selected keeps its identity; curves become straight pieces.");
     ImGui::BeginDisabled (!draft.error.empty ());
     if (ImGui::SmallButton ("Apply boolean")) {
         ImGui::EndDisabled ();

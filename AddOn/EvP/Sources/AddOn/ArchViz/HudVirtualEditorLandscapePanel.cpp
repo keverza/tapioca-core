@@ -34,6 +34,7 @@ void ReferenceLinesPanel (Session& s, bool selectedOnly)
         bool changed = ImGui::Checkbox ("Visible", &style.visible);
         ImGui::SameLine ();
         changed |= ImGui::Checkbox ("Locked", &style.locked);
+        ImGui::SetNextItemWidth (detail::WidthBeside ("Width (pixels)"));
         changed |= ImGui::InputDouble ("Width (pixels)", &style.widthPixels, 0.5, 1, "%.1f");
         changed |= detail::SwatchPicker ("line colour", style.rgba); // one undo step per colour chosen
         ImGui::SameLine ();
@@ -250,7 +251,7 @@ void LandscapePanel (Session& s)
             break;
         case InspectorContext::Region:
             SelectedLinesRole (s);
-            ImGui::TextDisabled ("A region boundary must be a closed editor-owned line.");
+            detail::WrappedHint ("A region boundary must be a closed editor-owned line.");
             RegionPanel (s);
             ImGui::SeparatorText ("Material");
             RegionPanel (s, true);

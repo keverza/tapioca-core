@@ -113,6 +113,16 @@ float ToolGlyphSide ();
 float ToolGlyphGap ();
 // A toolbar button's width: `perRow` to a row across `available`, never narrower than its height.
 float ToolButtonWidth (float available, int perRow = kToolsPerRow);
+// tapioca-dev #212: the Inspector fits the narrowest (320 px) panel. SameLineIfRoom keeps the next
+// item on this line only when its `width` fits before the panel's edge; the widths are those of a
+// button (Button or SmallButton) and a radio button or checkbox with `label`. WidthBeside is the
+// item width that leaves room for `label` to its right. WrappedHint is disabled-colour text that
+// wraps at the edge.
+void SameLineIfRoom (float width);
+float ButtonWidth (const char* label);
+float RadioWidth (const char* label);
+float WidthBeside (const char* label);
+void WrappedHint (const char* format, ...) IM_FMTARGS (1);
 void DuplicateOffsetControls (Session& s);
 // Rectangular array: a selection/revision/tool-bound draft with an outline-only cached preview.
 // Check closes a stale draft; a kernel refusal keeps it open for correction. Apply is one history

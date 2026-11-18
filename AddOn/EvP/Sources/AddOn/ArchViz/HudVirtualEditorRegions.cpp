@@ -36,6 +36,7 @@ bool Slider (Session& s, lg::Id object, const char* label, double& value, double
         lo = s.regionSliderMin;
         hi = s.regionSliderMax;
     }
+    ImGui::SetNextItemWidth (detail::WidthBeside (label));
     ImGui::SliderScalar (label, ImGuiDataType_Double, &value, &lo, &hi, format, ImGuiSliderFlags_AlwaysClamp);
     if (ImGui::IsItemActivated () && !s.edits.InGesture () && s.edits.Begin ()) {
         s.regionSliderObject = object;
@@ -310,7 +311,7 @@ void RegionPanel (Session& s, bool materialsOnly)
             }
             ImGui::EndDisabled ();
             if (!points)
-                ImGui::TextDisabled ("Select exactly two vertices, or enter their coordinates above.");
+                detail::WrappedHint ("Select exactly two vertices, or enter their coordinates above.");
         }
         ImGui::EndDisabled ();
         if (surface.elevation == lg::RegionElevationMode::Boundary)
@@ -325,12 +326,14 @@ void RegionPanel (Session& s, bool materialsOnly)
         // #112 P5: presentation names only — the persisted RegionTerrainEffect
         // values stay Grade/Add/Subtract; Add/Subtract are raise-only/lower-only
         // clamps, never signed displacement.
+        ImGui::SetNextItemWidth (detail::WidthBeside ("Terrain interaction"));
         if (ImGui::Combo ("Terrain interaction", &effect,
                           "None (target preview only)\0Grade (cut and fill)\0Raise-only\0Lower-only\0")) {
             terrain.effect = lg::RegionTerrainEffect (effect);
             terrainChanged = true;
         }
         int transition = int (terrain.transition);
+        ImGui::SetNextItemWidth (detail::WidthBeside ("Ground transition"));
         if (ImGui::Combo ("Ground transition", &transition, "Falloff\0Daylight slopes\0")) {
             terrain.transition = lg::RegionTerrainTransition (transition);
             terrainChanged = true;
@@ -349,10 +352,11 @@ void RegionPanel (Session& s, bool materialsOnly)
                             "None is target preview only. Existing has no vertical target. Set a terrain to build the "
                             "actual topography.");
         if (TerrainGuid (s).empty ())
-            ImGui::TextDisabled ("Set the topography in the terrain controls above.");
+            detail::WrappedHint ("Set the topography in the terrain controls above.");
     }
     else {
         int preset = int (material.preset);
+        ImGui::SetNextItemWidth (detail::WidthBeside ("Material preset metadata"));
         if (ImGui::Combo ("Material preset metadata", &preset,
                           "None\0Hard paving\0Rubber playground\0Gravel\0Asphalt\0Reinforced grass\0Grass\0")) {
             material.preset = lg::MaterialPreset (preset);
@@ -373,12 +377,12 @@ void RegionPanel (Session& s, bool materialsOnly)
             if (!lg::ValidateMaterialAvailability (material, *s.materialCatalog, error))
                 ImGui::TextWrapped ("%s", error.c_str ());
             else
-                ImGui::TextDisabled ("Assigned native attributes resolve by GUID in this project.");
+                detail::WrappedHint ("Assigned native attributes resolve by GUID in this project.");
         }
         else if (!s.materialCatalogError.empty ())
             ImGui::TextWrapped ("%s", s.materialCatalogError.c_str ());
         else
-            ImGui::TextDisabled ("Waiting for the project's fill/surface catalog.");
+            detail::WrappedHint ("Waiting for the project's fill/surface catalog.");
         ImGui::TextWrapped ("Shared material picker (#26): GUID/name persist; project indices do not. "
                             "Missing materials need explicit replacement or clearing, never a preset substitution. "
                             "Native hatch-pattern rendering and output acceptance remain separate.");

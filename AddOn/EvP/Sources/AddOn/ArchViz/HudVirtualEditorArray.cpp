@@ -270,7 +270,7 @@ void RectangularArrayControls (Session& s)
     ImGui::SetNextItemWidth (150.0f);
     LengthInput ({ "Array spacing Y", 0.0, 0.0, 0.1, 3 }, draft.spacingY, 0.1, 1.0,
                  ImGuiInputTextFlags_EnterReturnsTrue);
-    ImGui::TextDisabled ("Counts include the source; signed spacing is centre-to-centre.");
+    WrappedHint ("Counts include the source; signed spacing is centre-to-centre.");
     UpdateRectangularArrayPreview (s);
     if (ImGui::SmallButton ("Apply array")) {
         if (ApplyRectangularArray (s))

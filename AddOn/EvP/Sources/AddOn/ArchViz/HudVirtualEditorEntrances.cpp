@@ -109,7 +109,7 @@ void EntrancesPanel (Session& s)
     if (ImGui::RadioButton ("Place entrances", s.landscapeMode == LandscapeMode::Entrance))
         SetLandscapeMode (s,
                           s.landscapeMode == LandscapeMode::Entrance ? LandscapeMode::Select : LandscapeMode::Entrance);
-    ImGui::SameLine ();
+    detail::SameLineIfRoom (detail::ButtonWidth ("Path to entrance"));
     if (ImGui::SmallButton ("Path to entrance"))
         ReachSelectedPathEntrance (s);
     if (ImGui::IsItemHovered ())

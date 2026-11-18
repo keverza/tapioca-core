@@ -12,6 +12,7 @@
 #include <imgui.h>
 #include <imgui_internal.h> // ImGui::GetActiveID
 #include <algorithm>
+#include <cstdarg>
 #include <cmath>
 #include <cstdio>
 
@@ -67,10 +68,47 @@ void SlopeArrow (ImDrawList* list, ImVec2 from, ImVec2 to, ImU32 colour, float s
 constexpr double kNubPixels = 16.0;
 } // namespace
 
+void detail::SameLineIfRoom (float width)
+{
+    // After an item the cursor is at the start of the next line, so the edge is that far across.
+    const float edge = ImGui::GetCursorScreenPos ().x + ImGui::GetContentRegionAvail ().x;
+    if (ImGui::GetItemRectMax ().x + ImGui::GetStyle ().ItemSpacing.x + width <= edge)
+        ImGui::SameLine ();
+}
+
+float detail::ButtonWidth (const char* label)
+{
+    return ImGui::CalcTextSize (label, nullptr, true).x + 2.0f * ImGui::GetStyle ().FramePadding.x;
+}
+
+float detail::RadioWidth (const char* label)
+{
+    return ImGui::GetFrameHeight () + ImGui::GetStyle ().ItemInnerSpacing.x +
+           ImGui::CalcTextSize (label, nullptr, true).x;
+}
+
+float detail::WidthBeside (const char* label)
+{
+    const float text = ImGui::CalcTextSize (label, nullptr, true).x;
+    const float room =
+        ImGui::GetContentRegionAvail ().x - (text > 0 ? text + ImGui::GetStyle ().ItemInnerSpacing.x : 0);
+    return std::max (room, 4.0f * ImGui::GetFrameHeight ());
+}
+
+void detail::WrappedHint (const char* format, ...)
+{
+    va_list args;
+    va_start (args, format);
+    ImGui::PushStyleColor (ImGuiCol_Text, ImGui::GetStyleColorVec4 (ImGuiCol_TextDisabled));
+    ImGui::TextWrappedV (format, args);
+    ImGui::PopStyleColor ();
+    va_end (args);
+}
+
 void detail::DuplicateOffsetControls (Session& s)
 {
     double offset[] = { s.duplicateOffset.x, s.duplicateOffset.y, s.duplicateOffset.z };
-    ImGui::SetNextItemWidth (240.0f);
+    ImGui::SetNextItemWidth (WidthBeside ("Duplicate offset XYZ (m)"));
     if (ImGui::InputScalarN ("Duplicate offset XYZ (m)", ImGuiDataType_Double, offset, 3, nullptr, nullptr, "%.3f",
                              ImGuiInputTextFlags_EnterReturnsTrue)) {
         s.duplicateOffset = { offset[0], offset[1], offset[2] };
@@ -198,7 +236,7 @@ void detail::BreakSmoothingControl (Session& s, const edit::Path& path, size_t i
     ImGui::SetNextItemWidth (140.0f);
     LengthSlider ({ "Smoothing", 0.0, room, 0.0, 2 }, length);
     WidgetGesture (s, edit::DragCurve (path.id, b.id, length));
-    ImGui::SameLine ();
+    SameLineIfRoom (ButtonWidth ("Unfix elevation")); // the break's Fix / Unfix button follows
 }
 
 // The profile canvas of the path ProfilePath names: its radius, break and fall controls above it.
@@ -256,14 +294,14 @@ void detail::ProfileEditor (Session& s)
             const edit::Id id = path->id;
             for (int i = 0; i < 3; ++i) {
                 if (i > 0)
-                    ImGui::SameLine ();
+                    SameLineIfRoom (RadioWidth (falls[i]));
                 if (ImGui::RadioButton (falls[i], fall == i) &&
                     !s.edits.Apply ([=] (edit::Document& d, std::string& e) {
                         return edit::SetPathFall (d, id, range, edit::Fall (i), e);
                     }))
                     s.message = s.edits.Message ();
             }
-            ImGui::SameLine ();
+            SameLineIfRoom (ButtonWidth ("Flip fall"));
             ImGui::BeginDisabled (!sided);
             if (ImGui::SmallButton ("Flip fall") && !s.edits.Apply ([=] (edit::Document& d, std::string& e) {
                     return edit::FlipPathFall (d, id, range, e);
@@ -505,9 +543,9 @@ void detail::ProfileEditor (Session& s)
             s.drag = Drag::None;
         }
         if (s.profileTyping)
-            ImGui::TextDisabled ("Type the clicked label's value; Enter applies it, Esc gives it up.");
+            WrappedHint ("Type the clicked label's value; Enter applies it, Esc gives it up.");
         else
-            ImGui::TextDisabled (
+            WrappedHint (
                 "Drag breaks and tangents, or a break's nubs to smooth it; double-click adds a break. Grades snap to "
                 "0.5 %%.");
     }
