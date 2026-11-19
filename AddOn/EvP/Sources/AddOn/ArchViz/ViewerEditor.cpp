@@ -52,6 +52,7 @@ HWND s_window = nullptr;
 UINT_PTR s_timer = 0;
 std::vector<std::shared_ptr<const overlaylayers::Layer>> s_layers; // the source layers last drawn
 viewerscene::Converter s_converter; // MAIN THREAD: raw items as guest items, kept per layer
+bool s_standsIn = false;            // MAIN THREAD: the diagram stood in when s_layers was prepared
 uint64_t s_hudHash = 0;
 bool s_refreshing = false;
 std::optional<surfacetakeoff::PageAction> s_surfaceAction;
@@ -380,15 +381,20 @@ bool Refresh ()
     // #201: hosting the Massing workflow, the viewer draws what the overlay would in 3D
     // (envelope, slices, highlights); the editor alone draws its own layer.
     std::vector<std::shared_ptr<const overlaylayers::Layer>> layers;
+    const bool standsIn = diagrammodel::HiddenSource () != nullptr;
+    if (s_standsIn != standsIn) {
+        s_standsIn = standsIn;
+        s_layers.clear (); // the same layers, converted the other way: prepare them again
+    }
     if (overlayhud::ContentShown (*state))
-        layers = viewerscene::Select (overlaylayers::Layers (), { s_massing, diagrammodel::HiddenSource () != nullptr,
-                                                                  [&state] (const std::string& name) {
-                                                                      return overlayhud::LayerShown (*state, name);
-                                                                  } });
+        layers =
+            viewerscene::Select (overlaylayers::Layers (), { s_massing, standsIn, [&state] (const std::string& name) {
+                                                                return overlayhud::LayerShown (*state, name);
+                                                            } });
     drawing->sceneChanged = layers != s_layers;
     if (drawing->sceneChanged) {
-        drawing->scene =
-            overlayscene::PrepareScene (s_converter.Convert (layers), guesttext::Engine (), &guesttext::EngineFor);
+        drawing->scene = overlayscene::PrepareScene (s_converter.Convert (layers, standsIn), guesttext::Engine (),
+                                                     &guesttext::EngineFor);
         s_layers = std::move (layers);
     }
     const auto hash = overlayscene::Fingerprint (drawing->hud);
@@ -553,6 +559,7 @@ void Stop (bool preserve)
     s_window = nullptr;
     s_layers.clear ();
     s_converter.Clear ();
+    s_standsIn = false;
     s_hudHash = 0;
     std::lock_guard<std::mutex> lock (s_mutex);
     s_frame = {};

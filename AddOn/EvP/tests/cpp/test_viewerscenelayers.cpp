@@ -77,13 +77,12 @@ TEST (ViewerSceneLayers, EditorAloneDrawsItsLayerTheMassingWorkflowDrawsTheShown
     EXPECT_EQ (Names (vs::Select (all, { true, false, shown })),
                (std::set<std::string> { av::editlayers::kLayer, av::massingcalculation::kEnvelopeLayer,
                                         av::massingslices::kLayer }));
-    // The exploded diagram stands in for the storeys: their in-place layer goes, the
-    // envelope (the rules' context) stays.
-    EXPECT_EQ (Names (vs::Select (all, { true, true, shown })),
-               (std::set<std::string> { av::editlayers::kLayer, av::massingcalculation::kEnvelopeLayer }));
+    // The exploded diagram stands in for the storeys: their in-place layer and the envelope go.
+    EXPECT_EQ (Names (vs::Select (all, { true, true, shown })), std::set<std::string> { av::editlayers::kLayer });
     EXPECT_TRUE (vs::DrawsStoreysInPlace (av::massingslices::kHighlightLayer));
     EXPECT_TRUE (vs::DrawsStoreysInPlace (av::buildingplan::kUnitsLayer)); // the planned flats too
-    EXPECT_FALSE (vs::DrawsStoreysInPlace (av::massingcalculation::kEnvelopeLayer));
+    EXPECT_TRUE (vs::DrawsStoreysInPlace (av::massingcalculation::kEnvelopeLayer));
+    EXPECT_FALSE (vs::DrawsStoreysInPlace ("tapioca.massing.lines")); // the property lines stay
 }
 
 // PrepareScene caches by layer identity: an unchanged source must convert to the same copy.
@@ -101,4 +100,37 @@ TEST (ViewerSceneLayers, ConverterKeepsTheConvertedIdentityOfAnUnchangedLayer)
     EXPECT_NE (third[1], first[1]);
     converter.Clear ();
     EXPECT_NE (converter.Convert ({ a })[0], first[0]);
+}
+
+// Behind the diagram a property line is hidden, not dashed through the storeys (#201).
+TEST (ViewerSceneLayers, BehindTheDiagramFaintAndDashedBecomeHidden)
+{
+    auto site = std::make_shared<ol::Layer> ();
+    site->name = "tapioca.massing.lines";
+    site->occlusion = ol::Behind::Dash;
+    ol::Polyline line;
+    line.points = { 0, 0, 0, 10, 0, 0 };
+    line.dashMetres = { 1.0f, 0.5f };
+    line.hidden.widthPixels = 1.0f;
+    site->polylines.push_back (line);
+    line.behind = ol::Behind::Show; // an "always" item keeps its rule
+    site->polylines.push_back (line);
+    const vs::LayerPtr layer = site;
+    EXPECT_EQ (vs::GuestDrawn (layer, false), layer); // nothing raw: as it is
+    const auto hidden = vs::GuestDrawn (layer, true);
+    ASSERT_NE (hidden, layer);
+    EXPECT_EQ (hidden->occlusion, ol::Behind::Hide);
+    EXPECT_EQ (hidden->polylines[0].behind, ol::Behind::Layer);
+    EXPECT_EQ (ol::Resolve (hidden->polylines[0].behind, *hidden), ol::Behind::Hide);
+    EXPECT_EQ (hidden->polylines[0].hidden.widthPixels, 0.0f);
+    EXPECT_EQ (hidden->polylines[1].behind, ol::Behind::Show);
+    EXPECT_EQ (hidden->polylines[0].dashMetres, layer->polylines[0].dashMetres); // its own dash stays
+
+    // The converter prepares again when the stand-in changes.
+    vs::Converter converter;
+    const auto off = converter.Convert ({ layer }, false);
+    const auto on = converter.Convert ({ layer }, true);
+    EXPECT_EQ (off[0], layer);
+    EXPECT_NE (on[0], layer);
+    EXPECT_EQ (converter.Convert ({ layer }, true)[0], on[0]);
 }
