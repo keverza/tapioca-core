@@ -12,14 +12,16 @@
 // ⚠️ STALENESS IS A FINGERPRINT, NOT A REVISION COUNTER. An upsert replaces an element's mesh
 // object and a hide flips `hidden`, in different files and command paths; hashing (mesh pointer,
 // hidden) per element each frame the caps are on catches every one of them at O(elements), and
-// cannot be forgotten by the next path that changes geometry. The cap's SHAPE (line width, hatch)
-// is in the key too; its colours are not, so recolouring never re-cuts.
+// cannot be forgotten by the next path that changes geometry. The cap's line width is in the key
+// too; its colours and its hatch are not (the hatch is drawn per pixel), so neither re-cuts.
 
 #include "ArchViz/DiligentSceneImpl.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/MatrixMath.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <string>
 
@@ -112,12 +114,7 @@ void DiligentScene::DrawSectionCaps (Diligent::IDeviceContext* context, Diligent
     key = MixFloat (key, caps.coordinate);
     key = Mix (key, caps.flipped ? 1u : 0u);
     key = MixFloat (key, shape.lineWidth);
-    key = Mix (key, shape.hatch ? 1u : 0u);
-    if (shape.hatch) {
-        key = MixFloat (key, shape.hatchSpacing);
-        key = MixFloat (key, shape.hatchAngleDegrees);
-        key = MixFloat (key, shape.hatchWidth);
-    }
+    // The hatch is not: it is drawn per pixel over the poche (#251), so it never re-cuts.
     for (const Entry& e : impl_->elements) {
         key = Mix (key, uint64_t (reinterpret_cast<uintptr_t> (e.sectionMesh.get ())));
         key = Mix (key, e.hidden ? 1u : 0u);
@@ -158,6 +155,7 @@ void DiligentScene::DrawSectionCaps (Diligent::IDeviceContext* context, Diligent
         request.coordinate = caps.coordinate;
         request.flipped = caps.flipped;
         request.shape = shape;
+        request.shape.hatch = false; // drawn per pixel over the poche, not built (#251)
         request.meshes.reserve (impl_->elements.size ());
         for (const Entry& e : impl_->elements)
             if (!e.hidden && e.sectionMesh != nullptr)
@@ -178,14 +176,30 @@ void DiligentScene::DrawSectionCaps (Diligent::IDeviceContext* context, Diligent
     SectionLocalToWorld (caps.builtAxis, localToWorld);
     float capViewProj[16];
     Multiply (capViewProj, localToWorld, constants.viewProj);
-    // Poche, hatch, line: coplanar and none writes depth, so the later one is simply on top.
-    const uint32_t colours[3] = { caps.style.fillRgba, caps.style.hatchRgba, caps.style.lineRgba };
-    for (int k = 0; k < 3; ++k) {
-        if (!caps.layers[k].IsReady () || (k == 1 && !shape.hatch))
+    // Poche, then the line: coplanar and neither writes depth, so the later one is simply on top.
+    // ⚠️ THE HATCH IS PART OF THE POCHE'S PIXEL SHADER, NOT A LAYER OF STRIPS (#251). Strips 12 mm
+    // wide hit or missed pixel centres and drew a strong moire; the shader box-filters the
+    // strokes over each pixel instead. Layer 1 is no longer built and stays empty.
+    double eyeLocal[3] = { 0.0, 0.0, 0.0 };
+    ToSectionLocal (caps.builtAxis, constants.eyePos, eyeLocal);
+    const double hatchRadians = double (shape.hatchAngleDegrees) * 3.14159265358979323846 / 180.0;
+    for (int k = 0; k < 3; k += 2) {
+        if (!caps.layers[k].IsReady ())
             continue;
         StorySliceLayer::DrawParams params;
-        params.fillRgba = colours[k];
+        params.fillRgba = k == 0 ? caps.style.fillRgba : caps.style.lineRgba;
         params.drawFill = true;
+        if (k == 0 && shape.hatch) {
+            params.hatch.enabled = true;
+            params.hatch.rgba = caps.style.hatchRgba;
+            // Across the strokes, which run at the angle from the frame's u axis.
+            params.hatch.acrossX = float (-std::sin (hatchRadians));
+            params.hatch.acrossY = float (std::cos (hatchRadians));
+            params.hatch.spacing = (std::max) (shape.hatchSpacing, 1.0e-3f); // windows.h max
+            params.hatch.width = shape.hatchWidth;
+            params.hatch.originX = eyeLocal[0];
+            params.hatch.originY = eyeLocal[1];
+        }
         // Behind the kept geometry, a cap is hidden like any face: it is the solid's own cut surface.
         params.occluded = OccludedStyle::Hidden;
         caps.layers[k].Draw (context, capViewProj, impl_->viewportWidth, impl_->viewportHeight, params);

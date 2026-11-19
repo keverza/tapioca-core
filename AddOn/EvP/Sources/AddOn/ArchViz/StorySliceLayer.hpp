@@ -101,6 +101,24 @@ class StorySliceLayer final {
         OccludedStyle occluded = OccludedStyle::Dashed;
         float dashPixels = 8.0f; // one full on+off cycle
         float dashDuty = 0.55f;  // fraction of it that is drawn
+        // Parallel strokes composed into the FILL per pixel (the section caps' hatch, #251), in
+        // the fill vertices' own xy frame. Strokes are centred where dot(p, across) is a multiple
+        // of `spacing`, so they are anchored to absolute coordinates.
+        // ⚠️ BOX-FILTERED OVER THE PIXEL, NOT GEOMETRY. The hatch used to be thin strips (12 mm
+        // wide every 150 mm), which hit or missed pixel centres: a strong moire as soon as a
+        // period neared a few pixels. Here each pixel takes the exact fraction of its footprint
+        // the strokes cover, so a stroke thinner than a pixel draws faint and a period under a
+        // pixel converges to its average tone.
+        struct Hatch {
+            bool enabled = false;
+            uint32_t rgba = 0x1E1E1EFFu;
+            float acrossX = 0.0f, acrossY = 1.0f; // unit normal to the strokes
+            float spacing = 0.15f;                // metres between stroke centres
+            float width = 0.012f;                 // stroke width, metres
+            // Any point near the view, in the same frame. The shader works relative to it, so
+            // the strokes stay sharp at survey coordinates where a float has centimetre steps.
+            double originX = 0.0, originY = 0.0;
+        } hatch;
     };
 
     void Draw (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,

@@ -9,7 +9,9 @@
 // included -- by Clipper2, and the result is three filled meshes drawn through StorySliceLayers:
 //
 //     poche   the cut solid, inset by the section line
-//     hatch   optional parallel strokes clipped to the poche
+//     hatch   optional parallel strokes clipped to the poche -- for callers that need geometry.
+//             The viewer does NOT build it: thin strips alias into a moire (#251), so it hatches
+//             the poche per pixel instead (StorySliceLayer::DrawParams::Hatch).
 //     line    the section line: the band between the cut's boundary and its inset
 //
 // ⚠️ THE SECTION LINE IS A WORLD-WIDTH BAND INSIDE THE CUT, NOT A PIXEL RIBBON ON ITS EDGE. The

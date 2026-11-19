@@ -598,7 +598,8 @@ struct geomsrv::archviz::DiligentScene::Impl {
 
     // ---- the section plane's caps (#14 P2, DiligentSceneSection.cpp) -----------------------
     struct SectionCaps {
-        // Drawn in this order, each one flat colour: the poche, its hatch, the section line.
+        // Drawn in this order: the poche (its hatch composed per pixel, #251), the section line.
+        // Layer 1 held the hatch as strips; the viewer no longer builds it.
         StorySliceLayer layers[3];
         bool initFailed = false;
         // The back faces as the cut (SectionCapStyle::backFaces), indexed by the VISIBLE pass's

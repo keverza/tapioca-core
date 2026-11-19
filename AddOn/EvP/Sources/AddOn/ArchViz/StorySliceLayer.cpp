@@ -17,6 +17,7 @@
 #include <ShaderResourceBinding.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace geomsrv {
@@ -40,6 +41,10 @@ struct StorySliceConstants {
     float color[4]; // the outline colour
     float fillColor[4];
     float dash[4]; // x = period in pixels, y = duty cycle, z = on/off, w unused
+    // The fill's hatch (DrawParams::Hatch). Appended: the outline shaders declare only the prefix.
+    float hatch[4];       // xy = across / spacing (stripes per metre), z = width / spacing, w = on
+    float hatchOrigin[4]; // xy = origin (float), z = the stripe phase at it, w unused
+    float hatchColor[4];
 };
 
 // The outline. One flat colour, one width, no lighting. The push happens HERE
@@ -168,7 +173,8 @@ void main (in PSInput psIn, out PSOutput psOut)
 )hlsl";
 
 // The fill. Position only: the colour is one constant for the whole layer, so
-// there is nothing per-vertex that could disagree with anything.
+// there is nothing per-vertex that could disagree with anything. The optional hatch is
+// composed here too, per pixel, from the position relative to the hatch origin.
 constexpr const char* kStorySliceFillVS = R"hlsl(
 cbuffer StorySliceConstants
 {
@@ -177,14 +183,19 @@ cbuffer StorySliceConstants
     float4   g_color;
     float4   g_fillColor;
     float4   g_dash;
+    float4   g_hatch;
+    float4   g_hatchOrigin;
+    float4   g_hatchColor;
 };
 
 struct VSInput  { float3 position : ATTRIB0; };
-struct PSInput  { float4 position : SV_POSITION; };
+struct PSInput  { float4 position : SV_POSITION; float2 local : TEXCOORD0; };
 
 void main (in VSInput vsIn, out PSInput psIn)
 {
     psIn.position = mul (g_viewProj, float4 (vsIn.position, 1.0));
+    // Small numbers from here on: the rasteriser interpolates the offset, not the coordinate.
+    psIn.local = vsIn.position.xy - g_hatchOrigin.xy;
 }
 )hlsl";
 
@@ -196,14 +207,34 @@ cbuffer StorySliceConstants
     float4   g_color;
     float4   g_fillColor;
     float4   g_dash;
+    float4   g_hatch;
+    float4   g_hatchOrigin;
+    float4   g_hatchColor;
 };
 
-struct PSInput  { float4 position : SV_POSITION; };
+struct PSInput  { float4 position : SV_POSITION; float2 local : TEXCOORD0; };
 struct PSOutput { float4 color : SV_TARGET; };
+
+// How much of [0, x] a pulse train covers: a stroke occupies [0, w) of every unit period.
+float PulseIntegral (float x, float w)
+{
+    return floor (x) * w + min (frac (x), w);
+}
 
 void main (in PSInput psIn, out PSOutput psOut)
 {
-    psOut.color = g_fillColor;
+    float4 c = g_fillColor;
+    if (g_hatch.w > 0.5) {
+        float w = g_hatch.z;
+        // Strokes centred on integers: shift so each starts half a width before its centre.
+        float f = dot (psIn.local, g_hatch.xy) + g_hatchOrigin.z + 0.5 * w;
+        // The pixel's footprint across the strokes, in periods; its box average is the exact
+        // coverage. Floored so a face seen dead-on still divides by something.
+        float fw = max (fwidth (f), 1e-4);
+        float coverage = saturate ((PulseIntegral (f + 0.5 * fw, w) - PulseIntegral (f - 0.5 * fw, w)) / fw);
+        c.rgb = lerp (c.rgb, g_hatchColor.rgb, coverage * g_hatchColor.a);
+    }
+    psOut.color = c;
 }
 )hlsl";
 
@@ -527,6 +558,23 @@ void StorySliceLayer::Draw (Diligent::IDeviceContext* context, const float viewP
     UnpackRgba (params.fillRgba, constants.fillColor);
     constants.dash[0] = params.dashPixels;
     constants.dash[1] = params.dashDuty;
+    const DrawParams::Hatch& hatch = params.hatch;
+    if (hatch.enabled && hatch.spacing > 0.0f) {
+        const float perMetre = 1.0f / hatch.spacing;
+        constants.hatch[0] = hatch.acrossX * perMetre;
+        constants.hatch[1] = hatch.acrossY * perMetre;
+        constants.hatch[2] = std::clamp (hatch.width * perMetre, 0.0f, 1.0f);
+        constants.hatch[3] = 1.0f;
+        // The shader sees the origin as a float, so the phase is taken at THAT point, in double:
+        // the stripes then sit where the absolute coordinates say, wherever the origin is.
+        const float ox = float (hatch.originX), oy = float (hatch.originY);
+        const double stripes =
+            (double (ox) * double (hatch.acrossX) + double (oy) * double (hatch.acrossY)) / double (hatch.spacing);
+        constants.hatchOrigin[0] = ox;
+        constants.hatchOrigin[1] = oy;
+        constants.hatchOrigin[2] = float (stripes - std::floor (stripes));
+        UnpackRgba (hatch.rgba, constants.hatchColor);
+    }
 
     auto upload = [&] () {
         Diligent::PVoid mapped = nullptr;
