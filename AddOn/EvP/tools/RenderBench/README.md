@@ -68,6 +68,11 @@ Pass bench arguments through `run_suite.py --extra "..."`, or call the exe direc
   cap; `--shadow-diag N` makes the `shadow` style show one stage of the PCSS lookup instead of its
   light amount (`DiligentShadowSettings::diagnostic`: the hard comparison, the blocker search, the
   filter radius, the cascade, or 7 = the search before #234).
+- `--section x|y|z,POS[,HATCH_MM[,ANGLE]]` turns on the viewer's section plane, with caps, at POS
+  (0..1 across the model's bounds), and hatches the caps when a spacing is given (#251). It is set as
+  HUD state, because each frame applies the HUD's look, which owns the plane. The caps are cut on a
+  worker, so the bench keeps rendering until they land, and logs how many elements were cut, closed,
+  left open or refused.
 
 ## Adding a source
 

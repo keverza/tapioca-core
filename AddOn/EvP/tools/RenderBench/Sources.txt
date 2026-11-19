@@ -30,6 +30,7 @@ ArchViz/SceneCmdQueue.cpp
 ArchViz/MaterialTable.cpp
 ArchViz/MatrixMath.cpp
 Geometry/SliceEngine.cpp
+Geometry/PlanarTriangulation.cpp
 ArchViz/AutoExposure.cpp
 ArchViz/ClayLook.cpp
 ArchViz/SectionPlane.cpp

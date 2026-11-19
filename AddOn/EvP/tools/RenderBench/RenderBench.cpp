@@ -48,6 +48,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace av = geomsrv::archviz;
@@ -102,6 +103,13 @@ struct Options {
     int shadowDiagnostic = 0;
     float shadowSearch = -1.0f;
     float shadowSunSize = -1.0f;
+    // --section axis,position[,hatchMm[,angleDeg]]: the viewer's section plane with caps, the
+    // hatch on when a spacing is given (#251). position 0..1 across the model's bounds. Set as
+    // HUD state: the frame applies the HUD's look (DiligentViewportLook), which owns the plane.
+    bool section = false;
+    int sectionAxis = 2;
+    float sectionPosition = 0.5f;
+    float sectionHatchMm = 0.0f, sectionHatchAngle = 45.0f;
 };
 
 bool ParseTriple (const std::string& text, float out[3])
@@ -186,6 +194,15 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.shadowSearch = std::stof (next ());
         else if (a == "--shadow-diag")
             o.shadowDiagnostic = std::stoi (next ());
+        else if (a == "--section") {
+            char axis = 0;
+            const int n = std::sscanf (next ().c_str (), " %c,%f,%f,%f", &axis, &o.sectionPosition, &o.sectionHatchMm,
+                                       &o.sectionHatchAngle);
+            if (n < 2 || (axis != 'x' && axis != 'y' && axis != 'z'))
+                return false;
+            o.section = true;
+            o.sectionAxis = axis - 'x'; // the HUD's 0 = X, 1 = Y, 2 = Z
+        }
         else if (a == "--shadow-fit")
             o.shadowFit = std::stoi (next ());
         else if (a == "--off") {
@@ -215,6 +232,16 @@ av::HudState StyleState (const std::string& style, const Options& o)
     hud.shadowsEnabled = true;
     hud.clay = false;
     hud.technicalEdges = false;
+    if (o.section) {
+        hud.sectionEnabled = true;
+        hud.sectionAxis = o.sectionAxis;
+        hud.sectionPosition = o.sectionPosition;
+        hud.sectionHatch = o.sectionHatchMm > 0.0f;
+        if (hud.sectionHatch) {
+            hud.sectionHatchSpacingMm = o.sectionHatchMm;
+            hud.sectionHatchAngle = o.sectionHatchAngle;
+        }
+    }
     if (style == "architecture") {
         hud.ambientOcclusionIntensity = 1.4f;
         hud.environmentBackground = false;
@@ -478,7 +505,8 @@ int main (int argc, char** argv)
     if (!ParseArgs (argc, argv, o)) {
         std::fprintf (stderr, "usage: TapiocaRenderBench --scene file.obj [--yup] [--scale s] --out dir "
                               "[--size WxH] --view name:ex,ey,ez:tx,ty,tz[:fov] ... [--styles ssr,traced,reference] "
-                              "[--sun az,alt] [--env sky.hdr] [--samples N] [--frames N]\n");
+                              "[--sun az,alt] [--env sky.hdr] [--samples N] [--frames N] "
+                              "[--section x|y|z,pos[,hatchMm[,angle]]]\n");
         return 2;
     }
     av::g_log.open (o.out + "/bench.log");
@@ -571,9 +599,10 @@ int main (int argc, char** argv)
                 const float sun[3] = { std::cos (alt) * std::cos (az), std::cos (alt) * std::sin (az), std::sin (alt) };
                 const auto start = std::chrono::steady_clock::now ();
                 // sunsoft: the sun as the disk the PCSS path assumes (--shadow-sun-size).
-                const float diameter = style == "sunvis"         ? 0.0f
-                                       : o.shadowSunSize >= 0.0f ? o.shadowSunSize
-                                                                 : av::DiligentShadowSettings {}.pcssLightAngularDiameter;
+                const float diameter = style == "sunvis" ? 0.0f
+                                       : o.shadowSunSize >= 0.0f
+                                           ? o.shadowSunSize
+                                           : av::DiligentShadowSettings {}.pcssLightAngularDiameter;
                 const std::vector<uint8_t> vis =
                     sunVisibility.Render (view.eye, view.target, view.fov, o.width, o.height, sun, diameter);
                 const double seconds =
@@ -583,8 +612,8 @@ int main (int argc, char** argv)
                                                    vis.data (), int (o.width)) != 0;
                 av::ArchVizLog ("bench: " + file + (saved ? " saved" : " NOT saved") + " in " +
                                 std::to_string (seconds) + " s (CPU)");
-                report << (firstRender ? "" : ",\n") << "    { \"view\": \"" << view.name
-                       << "\", \"style\": \"" << style << "\", \"file\": \"" << file << "\", \"seconds\": " << seconds << " }";
+                report << (firstRender ? "" : ",\n") << "    { \"view\": \"" << view.name << "\", \"style\": \""
+                       << style << "\", \"file\": \"" << file << "\", \"seconds\": " << seconds << " }";
                 firstRender = false;
                 continue;
             }
@@ -600,6 +629,19 @@ int main (int argc, char** argv)
                     if (s.state == av::RayTracedState::Converged || s.state == av::RayTracedState::Unavailable)
                         break;
                 }
+            }
+            // The caps are cut on a worker: keep rendering until the current plane's build has landed,
+            // so the picture is never the back faces standing in for caps that were still coming.
+            for (int extra = 0; o.section && extra < 300; ++extra) {
+                const av::SectionCapCounts caps = scene.Stats ().sectionCaps;
+                if (!caps.building && extra >= 2) {
+                    av::ArchVizLog ("bench: section caps: " + std::to_string (caps.elementsCut) + " elements cut, " +
+                                    std::to_string (caps.closedLoops) + " closed, " + std::to_string (caps.openChains) +
+                                    " open, " + std::to_string (caps.fillFailures) + " refused");
+                    break;
+                }
+                std::this_thread::sleep_for (std::chrono::milliseconds (10));
+                RenderFrame (scene, context, targets, o, view, hud, frames + uint32_t (extra));
             }
             context->WaitForIdle ();
             const double seconds = std::chrono::duration<double> (std::chrono::steady_clock::now () - start).count ();
