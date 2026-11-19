@@ -431,6 +431,7 @@ set (EVP_ARCHVIZ_SOURCES
     # checked numerically here rather than by looking at a viewport.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyOverlay.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MaterialTable.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MaterialTexture.cpp"
     # ArchViz/SurfaceClassifier.cpp decides what a surface IS from its numeric
     # channels alone. It is here for the strongest version of the ArchViz
     # argument: every wrong threshold renders a complete, correct building in
@@ -483,6 +484,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SectionPlane.cpp"
     # ArchViz/SectionCaps.cpp: the section caps' cut, fill and line, judged by area (#14 P2).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SectionCaps.cpp"
+    # ArchViz/TemporalConvergence.cpp: the still-camera mean and when it restarts (#14 P1, #247, #248).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/TemporalConvergence.cpp"
     # ArchViz/RayTracedView.cpp: the ray-traced style's scene flattening and accumulation rule (#231).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RayTracedView.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ScenePacketTrace.cpp"
@@ -1253,6 +1256,8 @@ set (EVP_TEST_SOURCES
     test_sectionplane.cpp
     test_sceneshaders.cpp
     test_sectioncaps.cpp
+    test_temporalconvergence.cpp
+    test_materialtexture.cpp
     test_raytracedview.cpp
     test_occlusionprepass.cpp
     test_pointcloudply.cpp

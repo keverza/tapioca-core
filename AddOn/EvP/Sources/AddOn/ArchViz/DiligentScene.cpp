@@ -82,7 +82,9 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         return true;
     };
 
-    if (!compile (Diligent::SHADER_TYPE_VERTEX, "ArchViz mesh VS", kArchVizMeshVS, impl_->vs))
+    if (!compile (Diligent::SHADER_TYPE_VERTEX, "ArchViz mesh VS", kArchVizMeshVS, impl_->vs) ||
+        !compile (Diligent::SHADER_TYPE_VERTEX, "ArchViz textured mesh VS", "#define ARCHVIZ_UV 1\n", impl_->vsTextured,
+                  kArchVizMeshVS))
         return false;
     for (int mode = 0; mode < kShadowModeCount; ++mode) {
         if (!CompileDiligentShadowPixelShader (device, static_cast<DiligentShadowMode> (mode + 1), &impl_->ps[mode],
@@ -208,61 +210,10 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         impl_->environmentError = environmentError;
     }
 
-    // The PCF representation is a comparison texture; VSM/EVSM are ordinary
-    // filterable arrays. Their sampler types are part of the shader signature.
-    Diligent::SamplerDesc shadowSampler;
-    shadowSampler.MinFilter = Diligent::FILTER_TYPE_COMPARISON_LINEAR;
-    shadowSampler.MagFilter = Diligent::FILTER_TYPE_COMPARISON_LINEAR;
-    shadowSampler.MipFilter = Diligent::FILTER_TYPE_COMPARISON_LINEAR;
-    shadowSampler.AddressU = Diligent::TEXTURE_ADDRESS_CLAMP;
-    shadowSampler.AddressV = Diligent::TEXTURE_ADDRESS_CLAMP;
-    shadowSampler.AddressW = Diligent::TEXTURE_ADDRESS_CLAMP;
-    shadowSampler.ComparisonFunc = Diligent::COMPARISON_FUNC_LESS;
-
-    Diligent::SamplerDesc filterableShadowSampler;
-    filterableShadowSampler.MinFilter = Diligent::FILTER_TYPE_ANISOTROPIC;
-    filterableShadowSampler.MagFilter = Diligent::FILTER_TYPE_ANISOTROPIC;
-    filterableShadowSampler.MipFilter = Diligent::FILTER_TYPE_ANISOTROPIC;
-    filterableShadowSampler.AddressU = Diligent::TEXTURE_ADDRESS_CLAMP;
-    filterableShadowSampler.AddressV = Diligent::TEXTURE_ADDRESS_CLAMP;
-    filterableShadowSampler.AddressW = Diligent::TEXTURE_ADDRESS_CLAMP;
-    filterableShadowSampler.MaxAnisotropy = 4;
-
-    // The environment's sampler is a DIFFERENT one, and every field differs for
-    // a reason. ⚠️ U WRAPS AND V CLAMPS, WHICH IS NOT A DETAIL: an
-    // equirectangular map is periodic in longitude (u) and bounded in latitude
-    // (v), so wrapping v mirrors the sky through the poles and clamping u puts a
-    // visible seam of stretched pixels down one side of every reflection.
-    // Linear + mip-linear because the roughness blur IS the mip selection --
-    // point mip filtering would make a surface's reflection jump between blur
-    // levels as its roughness or its angle changes.
-    Diligent::SamplerDesc envSampler;
-    envSampler.MinFilter = Diligent::FILTER_TYPE_LINEAR;
-    envSampler.MagFilter = Diligent::FILTER_TYPE_LINEAR;
-    envSampler.MipFilter = Diligent::FILTER_TYPE_LINEAR;
-    envSampler.AddressU = Diligent::TEXTURE_ADDRESS_WRAP;
-    envSampler.AddressV = Diligent::TEXTURE_ADDRESS_CLAMP;
-    envSampler.AddressW = Diligent::TEXTURE_ADDRESS_CLAMP;
-
-    const Diligent::ImmutableSamplerDesc pcfSamplers[] = {
-        { Diligent::SHADER_TYPE_PIXEL, "g_shadowMap_sampler", shadowSampler },
-        { Diligent::SHADER_TYPE_PIXEL, "g_envMap_sampler", envSampler },
-    };
-    const Diligent::ImmutableSamplerDesc filterableSamplers[] = {
-        { Diligent::SHADER_TYPE_PIXEL, "g_filterableShadowMap_sampler", filterableShadowSampler },
-        { Diligent::SHADER_TYPE_PIXEL, "g_envMap_sampler", envSampler },
-    };
-
-    // See the ⚠️ at the mesh PSO's resource layout for why this one variable is
-    // not STATIC like everything else the mesh shader reads.
-    const Diligent::ShaderResourceVariableDesc pcfVariables[] = {
-        { Diligent::SHADER_TYPE_PIXEL, "g_ambientOcclusion", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-        { Diligent::SHADER_TYPE_PIXEL, "g_shadowMap", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-    };
-    const Diligent::ShaderResourceVariableDesc filterableVariables[] = {
-        { Diligent::SHADER_TYPE_PIXEL, "g_ambientOcclusion", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-        { Diligent::SHADER_TYPE_PIXEL, "g_filterableShadowMap", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-    };
+    // The mesh pipelines' samplers, mutable variables and textured layout (#252):
+    // DiligentSceneMeshResources.cpp, whose tables were built here.
+    const MeshPipelineResources& meshResources = MeshResources ();
+    const Diligent::SamplerDesc& envSampler = meshResources.env;
 
     for (int mode = 0; mode < kShadowModeCount; ++mode) {
         for (int i = 0; i < kCullModeCount; ++i) {
@@ -287,8 +238,8 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
                 // ⚠️ THE TRANSPARENT PASS DOES NOT WRITE DEPTH. See the header: a
                 // pane of glass that writes depth hides the room behind it.
                 gp.DepthStencilDesc.DepthWriteEnable = blended ? Diligent::False : Diligent::True;
-                gp.InputLayout.LayoutElements = layout;
-                gp.InputLayout.NumElements = _countof (layout);
+                gp.InputLayout.LayoutElements = meshResources.texturedLayout;
+                gp.InputLayout.NumElements = _countof (meshResources.texturedLayout);
 
                 Diligent::RenderTargetBlendDesc& rt = gp.BlendDesc.RenderTargets[0];
                 rt.BlendEnable = blended ? Diligent::True : Diligent::False;
@@ -315,7 +266,7 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
                     rt.BlendOpAlpha = Diligent::BLEND_OPERATION_ADD;
                 }
 
-                pci.pVS = impl_->vs;
+                pci.pVS = impl_->vsTextured;
                 pci.pPS = impl_->ps[mode];
                 pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
                 // ⚠️ THE AMBIENT OCCLUSION IS THE ONE MUTABLE TEXTURE IN THIS
@@ -326,10 +277,10 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
                 // viewport resize, so a static binding would capture a view that is
                 // freed the first time the panel is dragged wider. DYNAMIC lets Draw
                 // re-point it per frame.
-                pci.PSODesc.ResourceLayout.Variables = mode == 0 ? pcfVariables : filterableVariables;
-                pci.PSODesc.ResourceLayout.NumVariables = _countof (pcfVariables);
-                pci.PSODesc.ResourceLayout.ImmutableSamplers = mode == 0 ? pcfSamplers : filterableSamplers;
-                pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (pcfSamplers);
+                pci.PSODesc.ResourceLayout.Variables = meshResources.variables[mode == 0 ? 0 : 1];
+                pci.PSODesc.ResourceLayout.NumVariables = _countof (meshResources.variables[0]);
+                pci.PSODesc.ResourceLayout.ImmutableSamplers = meshResources.samplers[mode == 0 ? 0 : 1];
+                pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (meshResources.samplers[0]);
 
                 RefCntAutoPtr<Diligent::IPipelineState>& pso =
                     blended ? impl_->blendPso[mode][i] : impl_->opaquePso[mode][i];
@@ -572,8 +523,8 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
                 gp.RasterizerDesc.FrontCounterClockwise = Diligent::False;
                 gp.DepthStencilDesc.DepthEnable = Diligent::True;
                 gp.DepthStencilDesc.DepthWriteEnable = blended ? Diligent::False : Diligent::True;
-                gp.InputLayout.LayoutElements = layout;
-                gp.InputLayout.NumElements = _countof (layout);
+                gp.InputLayout.LayoutElements = meshResources.texturedLayout;
+                gp.InputLayout.NumElements = _countof (meshResources.texturedLayout);
 
                 Diligent::RenderTargetBlendDesc& rt = gp.BlendDesc.RenderTargets[0];
                 rt.BlendEnable = blended ? Diligent::True : Diligent::False;
@@ -594,13 +545,13 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
                     rt.BlendOpAlpha = Diligent::BLEND_OPERATION_ADD;
                 }
 
-                pci.pVS = impl_->vs;
+                pci.pVS = impl_->vsTextured;
                 pci.pPS = impl_->ps[mode];
                 pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
-                pci.PSODesc.ResourceLayout.Variables = mode == 0 ? pcfVariables : filterableVariables;
-                pci.PSODesc.ResourceLayout.NumVariables = _countof (pcfVariables);
-                pci.PSODesc.ResourceLayout.ImmutableSamplers = mode == 0 ? pcfSamplers : filterableSamplers;
-                pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (pcfSamplers);
+                pci.PSODesc.ResourceLayout.Variables = meshResources.variables[mode == 0 ? 0 : 1];
+                pci.PSODesc.ResourceLayout.NumVariables = _countof (meshResources.variables[0]);
+                pci.PSODesc.ResourceLayout.ImmutableSamplers = meshResources.samplers[mode == 0 ? 0 : 1];
+                pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (meshResources.samplers[0]);
 
                 RefCntAutoPtr<Diligent::IPipelineState>& pso =
                     blended ? impl_->hdrBlendPso[mode][i] : impl_->hdrOpaquePso[mode][i];
@@ -1031,7 +982,7 @@ void DiligentScene::Shutdown ()
     impl_->ambientOcclusion.Shutdown ();
     impl_->epipolarLightScattering.Shutdown ();
     impl_->screenSpaceReflection.Shutdown ();
-    impl_->temporalAntiAliasing.Shutdown ();
+    ShutdownTemporal (); // TAA and the still-camera mean (DiligentSceneTemporal.cpp)
     impl_->pointCloud.Shutdown ();
     impl_->ShutdownStorySlices ();
     impl_->ShutdownModelOverlays ();

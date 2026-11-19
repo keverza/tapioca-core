@@ -27,8 +27,10 @@
 // numbers here can be diffed against EvP.GetModelMaterials' output directly.
 
 #include "ArchViz/BuildingMaterialSignal.hpp" // Substance -- pure, no ACAPI
+#include "ArchViz/MaterialTexture.hpp"        // #252 -- pure, no ACAPI
 
 #include <cmath>
+#include <map>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -126,6 +128,18 @@ struct SurfaceMaterial {
     // dominance bar; a second threshold here would be a second policy in a
     // second place, drifting from the first.
     float substanceConfidence = 0.0f;
+
+    // ---- the texture (#252) --------------------------------------------------
+    //
+    // MaterialTable::Texture (textureKey) holds the image; 0 is "no texture", and a key whose image
+    // the table does not hold draws as if it were 0. The size is what one repeat of the image covers
+    // in Archicad's texture coordinates (ModelerAPI::Texture::GetXSize / GetYSize), so the shader
+    // samples at uv / size. The mirror flags turn every other repeat over, as Archicad does.
+    uint64_t textureKey = 0;
+    float textureSizeX = 1.0f;
+    float textureSizeY = 1.0f;
+    bool textureMirrorX = false;
+    bool textureMirrorY = false;
 
     std::string name;
 
@@ -265,12 +279,29 @@ class MaterialTable final {
         return byIndex_;
     }
 
+    // #252: the images the materials' `textureKey` name, shared with the producer's cache.
+    void SetTexture (uint64_t key, TexturePixelsPtr pixels)
+    {
+        if (key != 0 && pixels != nullptr && pixels->Valid ())
+            textures_[key] = std::move (pixels);
+    }
+    TexturePixelsPtr Texture (uint64_t key) const
+    {
+        const auto found = textures_.find (key);
+        return found != textures_.end () ? found->second : nullptr;
+    }
+    const std::map<uint64_t, TexturePixelsPtr>& Textures () const
+    {
+        return textures_;
+    }
+
   private:
     // A flat vector, linear-scanned. A pool has tens of entries, the lookup runs
     // once per DRAW RANGE (not per triangle, not per vertex), and a map would
     // cost an allocation per entry to save nothing measurable. Revisit only with
     // a measurement — the same standard SceneCmdQueue's mutex is held to.
     std::vector<SurfaceMaterial> byIndex_;
+    std::map<uint64_t, TexturePixelsPtr> textures_;
 };
 
 } // namespace archviz

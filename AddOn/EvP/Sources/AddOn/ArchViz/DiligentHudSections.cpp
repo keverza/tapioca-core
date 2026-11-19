@@ -181,8 +181,18 @@ void DrawPostProcessingControls (HudState& state, const DiligentSceneStats& scen
         if (state.temporalAntiAliasing) {
             ImGui::TextDisabled ("TAA jitter %+.2f, %+.2f px -- resolved: %s", scene.taaJitterPixels[0],
                                  scene.taaJitterPixels[1], scene.taaResolved ? "yes" : "NO");
+            // #247/#248: what a still camera does. "converged" with jitter above non-zero is
+            // impossible by construction; if seen, the jitter comes from somewhere else.
+            ImGui::Checkbox ("converge when still", &state.temporalConvergence);
+            ImGui::TextDisabled ("  still image: %s %u/%u%s, restarts %u (last: %s)",
+                                 TemporalPhaseName (scene.temporal.phase), scene.temporal.samples,
+                                 scene.temporal.targetSamples, scene.temporal.idle ? ", idle" : "",
+                                 scene.temporal.restarts, TemporalRestartName (scene.temporal.lastRestart));
+            ImGui::Checkbox ("steady edges and section", &state.stableOverlays);
+            ImGui::Checkbox ("stop rendering when converged", &state.idleWhenConverged);
         }
 
+        ImGui::Checkbox ("material textures", &state.materialTextures); // #252
         ImGui::Checkbox ("auto exposure", &state.autoExposure);
         ImGui::TextDisabled ("  auto would pick %.2f (scene luminance %.4f, albedo %.3f)", scene.autoExposure,
                              scene.sceneLuminance, scene.meanAlbedo);

@@ -41,6 +41,7 @@
 #include "ArchViz/SectionCaps.hpp"
 #include "ArchViz/SectionPlane.hpp"
 #include "ArchViz/TechnicalEdges.hpp"
+#include "ArchViz/TemporalConvergence.hpp"
 #include "ArchViz/DiligentShadowMap.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/GhPreviewLayer.hpp"  // GhPreviewLayer::DrawParams
@@ -307,6 +308,9 @@ struct DiligentSceneStats {
     bool ssrDepthHistory = false;
     bool ssrColorHistory = false;
     float taaJitterPixels[2] = { 0.0f, 0.0f };
+    // #247/#248: the still-camera mean (ArchViz/TemporalConvergence). Converged with jitter
+    // non-zero is impossible by construction; seeing it means the jitter came from elsewhere.
+    TemporalStatus temporal;
 
     // ---- RE51.B2: how far the substance join actually got --------------------
     // ⚠️ COVERAGE IS THE WHOLE MEASUREMENT AND IT IS NOT A SUCCESS RATE.
@@ -885,9 +889,19 @@ class DiligentScene final {
 
     // ---- RE51.C8: temporal anti-aliasing on genuine history ----------------
     void SetTemporalAntiAliasing (bool enabled, float stability);
-    void PrepareTemporalAntiAliasingFrame (Diligent::IDeviceContext* context, uint32_t frameIndex,
+    // `view` and `projection` are the UNJITTERED camera: with the projection they are the
+    // still-camera mean's camera key (#247/#248), and a converged mean turns the jitter off here.
+    void PrepareTemporalAntiAliasingFrame (Diligent::IDeviceContext* context, uint32_t frameIndex, const float view[16],
                                            const float projection[16], float jitteredProjection[16], float jitter[2]);
     void ResetTemporalAntiAliasingHistory ();
+    // #247/#248: fold TAA's output into a mean while the camera and scene hold still, and present
+    // the mean (ArchViz/TemporalConvergence). Needs TAA; off by itself when TAA does not run.
+    void SetTemporalConvergence (const TemporalConvergenceSettings& settings);
+    // #248: true when this frame's depth was redrawn without the jitter after the resolve; the
+    // viewport's overlays then draw with the unjittered camera to match.
+    bool OverlaysUnjittered () const;
+    // #252: Archicad's material textures in the Realistic quality (Rendered, Ray traced). On by default.
+    void SetMaterialTextures (bool enabled);
 
   private:
     struct Impl;
@@ -970,6 +984,29 @@ class DiligentScene final {
 
     bool EnsureCoverageTarget ();
     bool EnsureSsrCompositeTarget ();
+    // #247/#248, DiligentSceneTemporal.cpp: the still-camera mean's pipeline (built lazily) and
+    // target, one step of it after TAA, and the teardown of TAA and the mean together.
+    // StepTemporalConvergence returns the view the resolve should present (the mean), or null to
+    // present TAA's output as before.
+    bool EnsureTemporalMeanPipeline ();
+    bool EnsureAccumTarget ();
+    void ShutdownTemporal ();
+    Diligent::ITextureView* StepTemporalConvergence (Diligent::IDeviceContext* context,
+                                                     Diligent::ITextureView* taaColor, size_t pointDraws);
+    // #247 idle: a converged, unchanged frame presents the mean over a depth-only redraw and
+    // returns true; Draw then skips the scene passes and draws only what follows the resolve.
+    bool PresentIdleFrame (Diligent::IDeviceContext* context, DiligentSceneConstants& constants,
+                           Diligent::ITextureView* colorTarget, Diligent::ITextureView* depthTarget, CullMode cull,
+                           bool drawSurfaces);
+    // The opaque set, depth-only, with whatever camera the constants buffer holds.
+    void DrawStableDepth (Diligent::IDeviceContext* context, CullMode cull, Diligent::ITextureView* depthTarget);
+    // #248: on a jittered frame, redraw the opaque depth unjittered and switch `constants.viewProj`
+    // to the unjittered camera for the passes after the resolve.
+    bool EnsureStableDepthPipelines ();
+    // #252, DiligentSceneMeshResources.cpp: the material table's images onto the GPU.
+    void SyncAlbedoTextures (Diligent::IRenderDevice* device);
+    void UnjitterOverlays (Diligent::IDeviceContext* context, DiligentSceneConstants& constants, CullMode cull,
+                           Diligent::ITextureView* depthTarget, bool drawSurfaces);
     // The opaque geometry, into the G-buffer's MRTs. The SSR call follows with
     // transparent glass receivers without clearing, after AO has consumed the
     // opaque-only buffers.

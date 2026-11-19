@@ -961,6 +961,7 @@ void CopySceneStatsInto (DiligentViewportStats& stats, const DiligentSceneStats&
     stats.ssrColorHistory = sceneStats.ssrColorHistory;
     stats.taaJitterPixels[0] = sceneStats.taaJitterPixels[0];
     stats.taaJitterPixels[1] = sceneStats.taaJitterPixels[1];
+    stats.temporal = sceneStats.temporal;
     for (int c = 0; c < 3; ++c)
         stats.whiteBalanceGains[c] = sceneStats.whiteBalanceGains[c];
     stats.substanceNamed = sceneStats.substanceNamed;

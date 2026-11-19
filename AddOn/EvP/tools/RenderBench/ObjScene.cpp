@@ -1,6 +1,13 @@
 #include "ObjScene.hpp"
 
+// #252: the MTL's map_Kd images. STATIC: DiligentTools carries its own stb_image, and two
+// non-static implementations in one link collide.
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <cstdlib>
@@ -22,6 +29,7 @@ struct MtlEntry {
     float ke[3] = { 0.0f, 0.0f, 0.0f };
     float ns = 0.0f;
     float d = 1.0f;
+    std::string mapKd; // #252: the diffuse image, relative to the MTL
 };
 
 bool ReadFile (const std::string& path, std::string& bytes)
@@ -105,6 +113,8 @@ void ParseMtl (const std::string& path, std::map<std::string, MtlEntry>& out)
             in >> current->ns;
         else if (key == "d")
             in >> current->d;
+        else if (key == "map_Kd")
+            current->mapKd = RestOfLine (line.c_str () + line.find ("map_Kd") + 6, line.c_str () + line.size ());
         else if (key == "Tr") {
             float tr = 0.0f;
             in >> tr;
@@ -144,8 +154,29 @@ av::SurfaceMaterial ToSurface (int32_t index, const std::string& name, const Mtl
 
 struct Builder {
     std::unique_ptr<av::ElementUpload> element;
-    std::unordered_map<uint64_t, uint32_t> welded;
+    std::map<std::array<int64_t, 3>, uint32_t> welded; // position, normal, texture coordinate
 };
+
+// #252: an MTL image as the viewer holds Archicad's (MaterialTexture.hpp), or null. Archicad's OBJ
+// export writes a 16x16 magenta stand-in for every texture it could not find; those are missing,
+// not textures, and draw the surface colour as the viewer would.
+av::TexturePixelsPtr LoadTexture (const std::string& path)
+{
+    int w = 0, h = 0, channels = 0;
+    stbi_uc* pixels = stbi_load (path.c_str (), &w, &h, &channels, 4);
+    if (pixels == nullptr)
+        return nullptr;
+    auto image = std::make_shared<av::TexturePixels> ();
+    if (w > 16 || h > 16) {
+        image->width = uint32_t (w);
+        image->height = uint32_t (h);
+        image->rgba.assign (pixels, pixels + size_t (w) * size_t (h) * 4);
+        image->name = path;
+        av::FitTexturePixels (*image, av::kMaxTextureSide);
+    }
+    stbi_image_free (pixels);
+    return image->Valid () ? image : nullptr;
+}
 
 } // namespace
 
@@ -158,6 +189,7 @@ bool LoadObjScene (const std::string& path, bool yUp, float scale, ObjScene& out
     }
     std::vector<float> positions;
     std::vector<float> normals;
+    std::vector<float> texcoords; // #252: vt, already in metres in Archicad's export
     std::map<std::string, MtlEntry> library;
     std::map<std::string, int32_t> materialIndex;
     std::vector<Builder> builders;
@@ -191,6 +223,7 @@ bool LoadObjScene (const std::string& path, bool yUp, float scale, ObjScene& out
 
     std::vector<int64_t> faceV;
     std::vector<int64_t> faceN;
+    std::vector<int64_t> faceT;
     const char* p = bytes.data ();
     const char* end = p + bytes.size ();
     while (p < end) {
@@ -207,6 +240,13 @@ bool LoadObjScene (const std::string& path, bool yUp, float scale, ObjScene& out
             convert (v, o, scale);
             positions.insert (positions.end (), o, o + 3);
         }
+        else if (q + 2 < lineEnd && q[0] == 'v' && q[1] == 't') {
+            float t[2] = {};
+            const char* r = q + 2;
+            for (float& c : t)
+                r = ReadFloat (r, lineEnd, c);
+            texcoords.insert (texcoords.end (), t, t + 2);
+        }
         else if (q + 2 < lineEnd && q[0] == 'v' && q[1] == 'n') {
             float v[3] = {};
             const char* r = q + 2;
@@ -219,6 +259,7 @@ bool LoadObjScene (const std::string& path, bool yUp, float scale, ObjScene& out
         else if (q + 1 < lineEnd && q[0] == 'f' && (q[1] == ' ' || q[1] == '\t')) {
             faceV.clear ();
             faceN.clear ();
+            faceT.clear ();
             const char* r = q + 1;
             while (true) {
                 r = SkipSpace (r, lineEnd);
@@ -247,6 +288,8 @@ bool LoadObjScene (const std::string& path, bool yUp, float scale, ObjScene& out
                 const int64_t nCount = int64_t (normals.size () / 3);
                 faceV.push_back (vi < 0 ? vCount + vi : vi - 1);
                 faceN.push_back (ni == 0 ? -1 : (ni < 0 ? nCount + ni : ni - 1));
+                const int64_t tCount = int64_t (texcoords.size () / 2);
+                faceT.push_back (ti == 0 ? -1 : (ti < 0 ? tCount + ti : ti - 1));
             }
             Builder& b = builders[size_t (current)];
             if (b.element == nullptr) {
@@ -275,9 +318,10 @@ bool LoadObjScene (const std::string& path, bool yUp, float scale, ObjScene& out
                 for (size_t c : corner) {
                     const int64_t vi = faceV[c];
                     const int64_t ni = faceN[c] < int64_t (normals.size () / 3) ? faceN[c] : -1;
+                    const int64_t ti = faceT[c] < int64_t (texcoords.size () / 2) ? faceT[c] : -1;
                     uint32_t index = 0;
                     if (ni >= 0) {
-                        const uint64_t key = (uint64_t (vi) << 32) | uint64_t (ni);
+                        const std::array<int64_t, 3> key { vi, ni, ti };
                         auto found = b.welded.find (key);
                         if (found != b.welded.end ()) {
                             e.indices.push_back (found->second);
@@ -293,6 +337,11 @@ bool LoadObjScene (const std::string& path, bool yUp, float scale, ObjScene& out
                     }
                     const float* v = &positions[size_t (vi) * 3];
                     e.vertices.insert (e.vertices.end (), v, v + 3);
+                    // #252: two per vertex once the file has any, zeros where a corner has none.
+                    if (!texcoords.empty ()) {
+                        e.uvs.push_back (ti >= 0 ? texcoords[size_t (ti) * 2] : 0.0f);
+                        e.uvs.push_back (ti >= 0 ? texcoords[size_t (ti) * 2 + 1] : 0.0f);
+                    }
                     e.indices.push_back (index);
                 }
             }
@@ -314,7 +363,18 @@ bool LoadObjScene (const std::string& path, bool yUp, float scale, ObjScene& out
         const MtlEntry entry = found != library.end () ? found->second : MtlEntry {};
         if (entry.ke[0] + entry.ke[1] + entry.ke[2] > 0.0f)
             ++out.emissive;
-        out.materials->Set (ToSurface (int32_t (i), name, entry));
+        av::SurfaceMaterial surface = ToSurface (int32_t (i), name, entry);
+        if (!entry.mapKd.empty ()) {
+            const std::string imagePath = DirectoryOf (path) + entry.mapKd;
+            const av::TexturePixelsPtr image = LoadTexture (imagePath);
+            if (image != nullptr) {
+                // OBJ coordinates already span one image per unit, so one repeat is 1 x 1.
+                surface.textureKey = av::TextureKeyOf (imagePath);
+                out.materials->SetTexture (surface.textureKey, image);
+                ++out.textured;
+            }
+        }
+        out.materials->Set (surface);
         if (builders[i].element == nullptr || builders[i].element->indices.empty ())
             continue;
         av::ElementUpload& e = *builders[i].element;

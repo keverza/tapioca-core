@@ -27,6 +27,7 @@ struct ObjScene {
     float boundsMax[3] = { 0.0f, 0.0f, 0.0f };
     size_t triangles = 0;
     size_t emissive = 0; // MTL Ke surfaces: drawn as their Kd; the viewer has no emitters
+    size_t textured = 0; // #252: materials whose map_Kd image loaded
 };
 
 // `yUp`: the file is Y-up (every scene in McGuire's archive is), and is rotated to the viewer's

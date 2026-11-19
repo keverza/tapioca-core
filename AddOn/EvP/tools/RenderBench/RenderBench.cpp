@@ -106,6 +106,18 @@ struct Options {
     // --section axis,position[,hatchMm[,angleDeg]]: the viewer's section plane with caps, the
     // hatch on when a spacing is given (#251). position 0..1 across the model's bounds. Set as
     // HUD state: the frame applies the HUD's look (DiligentViewportLook), which owns the plane.
+    // --temporal N: after the picture is taken, N more frames of the same still camera, each read
+    // back and compared with the one before (#247/#248). 0: off.
+    uint32_t temporal = 0;
+    // --temporal-change K: from the K-th of those frames on, the white balance moves to 4500 K -- a
+    // content change made while the view is converged (and idle), which must reach the picture.
+    int temporalChange = -1;
+    // --edges: the technical edges on (#14 P2), the lines #248 reports moving with the jitter.
+    bool edges = false;
+    // --converge-settle N / --converge-samples N: the still-camera mean's settle frames and target
+    // (TemporalConvergenceSettings); negative / 0 keeps the viewer's.
+    int convergeSettle = -1;
+    int convergeSamples = 0;
     bool section = false;
     int sectionAxis = 2;
     float sectionPosition = 0.5f;
@@ -174,6 +186,14 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.samples = uint32_t (std::stoul (next ()));
         else if (a == "--frames")
             o.frames = uint32_t (std::stoul (next ()));
+        else if (a == "--temporal")
+            o.temporal = uint32_t (std::stoul (next ()));
+        else if (a == "--temporal-change")
+            o.temporalChange = std::stoi (next ());
+        else if (a == "--converge-settle")
+            o.convergeSettle = std::stoi (next ());
+        else if (a == "--converge-samples")
+            o.convergeSamples = std::stoi (next ());
         else if (a == "--ssr-thickness")
             o.ssrThickness = std::stof (next ());
         else if (a == "--ssr-steps")
@@ -194,6 +214,8 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.shadowSearch = std::stof (next ());
         else if (a == "--shadow-diag")
             o.shadowDiagnostic = std::stoi (next ());
+        else if (a == "--edges")
+            o.edges = true;
         else if (a == "--section") {
             char axis = 0;
             const int n = std::sscanf (next ().c_str (), " %c,%f,%f,%f", &axis, &o.sectionPosition, &o.sectionHatchMm,
@@ -231,7 +253,7 @@ av::HudState StyleState (const std::string& style, const Options& o)
     hud.ambientOcclusion = true;
     hud.shadowsEnabled = true;
     hud.clay = false;
-    hud.technicalEdges = false;
+    hud.technicalEdges = o.edges;
     if (o.section) {
         hud.sectionEnabled = true;
         hud.sectionAxis = o.sectionAxis;
@@ -291,6 +313,14 @@ av::HudState StyleState (const std::string& style, const Options& o)
             hud.shadowsEnabled = false;
         else if (effect == "env")
             hud.environmentEnabled = false;
+        else if (effect == "converge") // #247/#248: TAA alone, as before the still-camera mean
+            hud.temporalConvergence = false;
+        else if (effect == "overlays") // #248: the passes after the resolve keep the jitter
+            hud.stableOverlays = false;
+        else if (effect == "idle") // #247: a converged view keeps rendering every pass
+            hud.idleWhenConverged = false;
+        else if (effect == "textures") // #252: surfaces in their colour, as before textures
+            hud.materialTextures = false;
     }
     if (o.shadowBias >= 0.0f)
         hud.shadowDepthBias = o.shadowBias;
@@ -335,7 +365,8 @@ bool CreateTargets (Diligent::IRenderDevice* device, uint32_t w, uint32_t h, Tar
     return t.color != nullptr && t.depth != nullptr && t.staging != nullptr;
 }
 
-bool SavePng (Diligent::IDeviceContext* context, Targets& t, uint32_t w, uint32_t h, const std::string& path)
+// The colour target as tightly packed RGBA8 rows; empty if the readback failed.
+std::vector<uint8_t> ReadBack (Diligent::IDeviceContext* context, Targets& t, uint32_t w, uint32_t h)
 {
     Diligent::CopyTextureAttribs copy (t.color, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION, t.staging,
                                        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
@@ -345,13 +376,42 @@ bool SavePng (Diligent::IDeviceContext* context, Targets& t, uint32_t w, uint32_
     context->MapTextureSubresource (t.staging, 0, 0, Diligent::MAP_READ, Diligent::MAP_FLAG_DO_NOT_WAIT, nullptr,
                                     mapped);
     if (mapped.pData == nullptr)
-        return false;
+        return {};
     std::vector<uint8_t> rows (size_t (w) * h * 4);
     for (uint32_t y = 0; y < h; ++y)
         std::memcpy (&rows[size_t (y) * w * 4], static_cast<const uint8_t*> (mapped.pData) + size_t (y) * mapped.Stride,
                      size_t (w) * 4);
     context->UnmapTextureSubresource (t.staging, 0, 0);
-    return stbi_write_png (path.c_str (), int (w), int (h), 4, rows.data (), int (w) * 4) != 0;
+    return rows;
+}
+
+bool SavePng (Diligent::IDeviceContext* context, Targets& t, uint32_t w, uint32_t h, const std::string& path)
+{
+    const std::vector<uint8_t> rows = ReadBack (context, t, w, h);
+    return !rows.empty () && stbi_write_png (path.c_str (), int (w), int (h), 4, rows.data (), int (w) * 4) != 0;
+}
+
+// What changed between two consecutive frames of a still camera (#247/#248): the pixels whose
+// largest channel moved by more than `threshold` levels of 255, and the largest move anywhere.
+struct FrameChange {
+    size_t pixels = 0;
+    int largest = 0;
+};
+
+FrameChange CompareFrames (const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, int threshold)
+{
+    FrameChange change;
+    if (a.size () != b.size ())
+        return change;
+    for (size_t p = 0; p + 3 < a.size (); p += 4) {
+        int worst = 0;
+        for (size_t c = 0; c < 3; ++c)
+            worst = std::max (worst, std::abs (int (a[p + c]) - int (b[p + c])));
+        change.largest = std::max (change.largest, worst);
+        if (worst > threshold)
+            ++change.pixels;
+    }
+    return change;
 }
 
 // One frame, in DiligentViewport's order. `frame` drives TAA's jitter sequence and the tracer's
@@ -381,7 +441,16 @@ void RenderFrame (av::DiligentScene& scene, Diligent::IDeviceContext* context, T
     scene.SetViewportSize (w, h);
     const bool taa = hud.temporalAntiAliasing && hud.renderQuality == int (av::RenderQuality::Realistic);
     scene.SetTemporalAntiAliasing (taa, hud.taaStability);
-    scene.PrepareTemporalAntiAliasingFrame (context, frame, stableProj, proj, jitter);
+    av::TemporalConvergenceSettings convergence;
+    convergence.enabled = hud.temporalConvergence;
+    convergence.stableOverlays = hud.stableOverlays;
+    convergence.idleWhenConverged = hud.idleWhenConverged;
+    if (o.convergeSettle >= 0)
+        convergence.settleFrames = uint32_t (o.convergeSettle);
+    if (o.convergeSamples > 0)
+        convergence.targetSamples = uint32_t (o.convergeSamples);
+    scene.SetTemporalConvergence (convergence);
+    scene.PrepareTemporalAntiAliasingFrame (context, frame, view16, stableProj, proj, jitter);
     av::Multiply (motionViewProj, view16, stableProj);
     av::Multiply (viewProj, view16, proj);
 
@@ -520,11 +589,11 @@ int main (int argc, char** argv)
     }
     const double loadSeconds = std::chrono::duration<double> (std::chrono::steady_clock::now () - t0).count ();
     av::ArchVizLog ("bench: " + std::to_string (obj.triangles) + " triangles, " +
-                    std::to_string (obj.elements.size ()) + " materials in use, bounds " +
-                    std::to_string (obj.boundsMin[0]) + "," + std::to_string (obj.boundsMin[1]) + "," +
-                    std::to_string (obj.boundsMin[2]) + " .. " + std::to_string (obj.boundsMax[0]) + "," +
-                    std::to_string (obj.boundsMax[1]) + "," + std::to_string (obj.boundsMax[2]) + ", loaded in " +
-                    std::to_string (loadSeconds) + " s");
+                    std::to_string (obj.elements.size ()) + " materials in use (" + std::to_string (obj.textured) +
+                    " textured), bounds " + std::to_string (obj.boundsMin[0]) + "," +
+                    std::to_string (obj.boundsMin[1]) + "," + std::to_string (obj.boundsMin[2]) + " .. " +
+                    std::to_string (obj.boundsMax[0]) + "," + std::to_string (obj.boundsMax[1]) + "," +
+                    std::to_string (obj.boundsMax[2]) + ", loaded in " + std::to_string (loadSeconds) + " s");
     for (size_t i = 0; i < obj.materialNames.size (); ++i) {
         const av::SurfaceMaterial& m = obj.materials->Lookup (int32_t (i));
         av::ArchVizLog ("bench: material " + std::to_string (i) + " '" + m.name + "' rgb " + std::to_string (m.r) +
@@ -632,6 +701,7 @@ int main (int argc, char** argv)
             }
             // The caps are cut on a worker: keep rendering until the current plane's build has landed,
             // so the picture is never the back faces standing in for caps that were still coming.
+            uint32_t nextFrame = frames;
             for (int extra = 0; o.section && extra < 300; ++extra) {
                 const av::SectionCapCounts caps = scene.Stats ().sectionCaps;
                 if (!caps.building && extra >= 2) {
@@ -641,12 +711,82 @@ int main (int argc, char** argv)
                     break;
                 }
                 std::this_thread::sleep_for (std::chrono::milliseconds (10));
-                RenderFrame (scene, context, targets, o, view, hud, frames + uint32_t (extra));
+                RenderFrame (scene, context, targets, o, view, hud, nextFrame++);
             }
             context->WaitForIdle ();
             const double seconds = std::chrono::duration<double> (std::chrono::steady_clock::now () - start).count ();
             const std::string file = view.name + "_" + style + ".png";
             const bool saved = SavePng (context, targets, o.width, o.height, o.out + "/" + file);
+
+            // --temporal: the still camera's frame-to-frame change (#247/#248). 24 levels is the
+            // threshold the #248 measurements used; "settled" is the first pair from which every
+            // later pair changes nothing at all.
+            std::string temporalJson;
+            if (o.temporal > 0 && style != "reference") {
+                constexpr int kThreshold = 24;
+                std::vector<uint8_t> previous = ReadBack (context, targets, o.width, o.height);
+                FrameChange worst, last;
+                size_t worstAtOrAfter16 = 0;
+                int settledAt = -1;
+                // #247: frames that presented the mean without drawing the scene, and the first one.
+                uint32_t idleFrames = 0;
+                int firstIdle = -1;
+                // One row per frame: a slow drift or a long-period swing (a history that never
+                // settles) shows here, where the pair-to-pair counts above miss it.
+                std::ofstream csv (o.out + "/" + view.name + "_" + style + "_temporal.csv");
+                csv << "frame,changed,largest,mean,idle\n";
+                av::HudState changed = hud;
+                changed.whiteBalanceKelvin = 4500.0f;
+                for (uint32_t k = 0; k < o.temporal; ++k) {
+                    const bool change = o.temporalChange >= 0 && int (k) >= o.temporalChange;
+                    RenderFrame (scene, context, targets, o, view, change ? changed : hud, nextFrame++);
+                    std::vector<uint8_t> current = ReadBack (context, targets, o.width, o.height);
+                    last = CompareFrames (previous, current, kThreshold);
+                    double sum = 0.0;
+                    for (size_t p = 0; p + 3 < current.size (); p += 4)
+                        sum += double (current[p]) + current[p + 1] + current[p + 2];
+                    const bool idle = scene.Stats ().temporal.idle;
+                    if (idle && firstIdle < 0)
+                        firstIdle = int (k);
+                    idleFrames += idle ? 1u : 0u;
+                    csv << (nextFrame - 1) << "," << last.pixels << "," << last.largest << ","
+                        << sum / (3.0 * double (o.width) * o.height) << "," << (idle ? 1 : 0) << "\n";
+                    if (last.pixels > worst.pixels || (last.pixels == worst.pixels && last.largest > worst.largest))
+                        worst = last;
+                    if (k >= 16)
+                        worstAtOrAfter16 = std::max (worstAtOrAfter16, last.pixels);
+                    if (last.largest == 0) {
+                        if (settledAt < 0)
+                            settledAt = int (k);
+                    }
+                    else
+                        settledAt = -1;
+                    previous = std::move (current);
+                }
+                // The still picture at the end, for comparing what a still camera settles on.
+                stbi_write_png ((o.out + "/" + view.name + "_" + style + "_still.png").c_str (), int (o.width),
+                                int (o.height), 4, previous.data (), int (o.width) * 4);
+                const av::DiligentSceneStats st = scene.Stats ();
+                av::ArchVizLog (
+                    "bench: temporal " + view.name + "_" + style + ": " + std::to_string (o.temporal) +
+                    " frames, worst pair " + std::to_string (worst.pixels) + " px > " + std::to_string (kThreshold) +
+                    " (largest " + std::to_string (worst.largest) + "), worst after 16 frames " +
+                    std::to_string (worstAtOrAfter16) + " px, last pair " + std::to_string (last.pixels) +
+                    " px (largest " + std::to_string (last.largest) + "), settled " +
+                    (settledAt < 0 ? std::string ("never") : "at +" + std::to_string (settledAt)) + ", convergence " +
+                    av::TemporalPhaseName (st.temporal.phase) + " " + std::to_string (st.temporal.samples) + "/" +
+                    std::to_string (st.temporal.targetSamples) + ", idle " + std::to_string (idleFrames) + " frames" +
+                    (firstIdle < 0 ? std::string () : " from +" + std::to_string (firstIdle)) + ", restarts " +
+                    std::to_string (st.temporal.restarts) + " (last " +
+                    av::TemporalRestartName (st.temporal.lastRestart) + ")");
+                temporalJson = ", \"temporal\": { \"frames\": " + std::to_string (o.temporal) +
+                               ", \"worstPixels\": " + std::to_string (worst.pixels) +
+                               ", \"worstLargest\": " + std::to_string (worst.largest) +
+                               ", \"worstAfter16\": " + std::to_string (worstAtOrAfter16) +
+                               ", \"lastPixels\": " + std::to_string (last.pixels) +
+                               ", \"lastLargest\": " + std::to_string (last.largest) +
+                               ", \"settledAt\": " + std::to_string (settledAt) + " }";
+            }
             const av::RayTracedStats s = scene.RayTracedStatus ();
             av::ArchVizLog ("bench: " + file + (saved ? " saved" : " NOT saved") + " in " + std::to_string (seconds) +
                             " s; ray tracing " + av::RayTracedStateName (s.state) + " " + std::to_string (s.samples) +
@@ -658,7 +798,7 @@ int main (int argc, char** argv)
                    << "\", \"file\": \"" << file << "\", \"seconds\": " << seconds << ", \"rtState\": \""
                    << av::RayTracedStateName (s.state) << "\", \"samples\": " << s.samples
                    << ", \"reflectionsTraced\": " << (s.reflectionsTraced ? "true" : "false")
-                   << ", \"skyLightTraced\": " << (s.skyLightTraced ? "true" : "false") << " }";
+                   << ", \"skyLightTraced\": " << (s.skyLightTraced ? "true" : "false") << temporalJson << " }";
             firstRender = false;
         }
     }

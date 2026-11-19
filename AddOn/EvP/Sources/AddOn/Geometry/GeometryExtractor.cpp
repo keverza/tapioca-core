@@ -16,6 +16,7 @@
 #include <ConvexPolygon.hpp>
 #include <AttributeIndex.hpp>
 #include <ModelMaterial.hpp>
+#include <TextureCoordinate.hpp>
 
 #include <algorithm>
 #include <cassert>
@@ -135,6 +136,15 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                 polygon.GetMaterialIndex (matIdx);
                 const int32_t material = matIdx.GetIndex ();
                 const int32_t surfaceAttribute = ReadPolygonSurfaceAttribute (polygon);
+                // #252: texture coordinates only where the material has a texture -- the call is
+                // per corner, and most of a model is plain paint.
+                bool textured = false;
+                try {
+                    textured = polygon.HasMaterialTexture ();
+                }
+                catch (const GS::Exception&) {
+                    textured = false;
+                }
                 if (recorder != nullptr)
                     recorder->BeginPolygon (iPoly, material, surfaceAttribute, visibleEdges);
 
@@ -158,7 +168,21 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                             break;
                         }
                         const ModelerAPI::Vector n = convex.GetNormalVectorByVertex (k);
-                        corners.push_back (ExtractionCorner { bi, n.x, n.y, n.z });
+                        ExtractionCorner corner { bi, n.x, n.y, n.z };
+                        if (textured) {
+                            ModelerAPI::Vertex world;
+                            world.x = bodyPos[size_t (bi) * 3];
+                            world.y = bodyPos[size_t (bi) * 3 + 1];
+                            world.z = bodyPos[size_t (bi) * 3 + 2];
+                            ModelerAPI::TextureCoordinate uv;
+                            polygon.GetTextureCoordinate (&world, &uv);
+                            if (std::isfinite (uv.u) && std::isfinite (uv.v)) {
+                                corner.hasUv = true;
+                                corner.u = uv.u;
+                                corner.v = uv.v;
+                            }
+                        }
+                        corners.push_back (corner);
                     }
                     if (!indicesOk || corners.size () < 3)
                         continue;

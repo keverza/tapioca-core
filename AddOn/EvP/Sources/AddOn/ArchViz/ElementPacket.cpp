@@ -28,6 +28,8 @@ std::unique_ptr<ElementUpload> MakeElementPacket (const CapturedMeshPacket& pack
     for (size_t i = 0; i < mesh.vertices.size (); ++i)
         up->vertices[i] = static_cast<float> (mesh.vertices[i]);
     up->normals = mesh.normals;
+    if (mesh.HasUvs ())
+        up->uvs = mesh.uvs;
     // Retain the exact material permutation on the upload for later face-picking
     // integration. It refers only to this producing mesh; no renderer consumer
     // or native-picker/ModelerAPI index equivalence is implied in Stage A.

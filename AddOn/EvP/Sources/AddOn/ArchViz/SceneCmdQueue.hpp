@@ -125,6 +125,9 @@ struct ElementUpload {
     // georeferenced project first. Tracked as PLAT-BGFX-P6-PRECISION.
     std::vector<float> vertices; // xyz interleaved, world metres, Z-up
     std::vector<float> normals;  // xyz per vertex, Archicad's true per-corner normals
+    // #252: Archicad's texture coordinate per vertex (u, v), or empty when nothing in the element
+    // is textured (Mesh::uvs). Exactly two per vertex when present.
+    std::vector<float> uvs;
 
     // ⚠️ ALREADY MATERIAL-GROUPED by MeshGroups::BuildMaterialGroups, and the
     // ranges match. Doing it here rather than on the render thread keeps a

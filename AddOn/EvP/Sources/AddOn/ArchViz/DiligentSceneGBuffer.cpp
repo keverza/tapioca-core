@@ -34,8 +34,11 @@ namespace archviz {
 
 void DiligentScene::SetScreenSpaceReflectionTuning (float thickness, uint32_t maxSteps)
 {
-    if (impl_ != nullptr)
-        impl_->screenSpaceReflection.SetTuning (thickness, maxSteps);
+    if (impl_ == nullptr)
+        return;
+    impl_->screenSpaceReflection.SetTuning (thickness, maxSteps);
+    impl_->ssrTuning[0] = thickness;
+    impl_->ssrTuning[1] = float (maxSteps);
 }
 
 void DiligentScene::SetScreenSpaceReflection (bool enabled, float intensity, float roughnessThreshold)
@@ -61,8 +64,8 @@ void DiligentScene::SetTemporalAntiAliasing (bool enabled, float stability)
 }
 
 void DiligentScene::PrepareTemporalAntiAliasingFrame (Diligent::IDeviceContext* context, uint32_t frameIndex,
-                                                      const float projection[16], float jitteredProjection[16],
-                                                      float jitter[2])
+                                                      const float view[16], const float projection[16],
+                                                      float jitteredProjection[16], float jitter[2])
 {
     if (projection == nullptr || jitteredProjection == nullptr || jitter == nullptr)
         return;
@@ -72,18 +75,35 @@ void DiligentScene::PrepareTemporalAntiAliasingFrame (Diligent::IDeviceContext* 
     if (impl_ != nullptr) {
         impl_->taaJitterInUse[0] = 0.0f;
         impl_->taaJitterInUse[1] = 0.0f;
+        impl_->overlaysUnjittered = false; // Draw sets it again (UnjitterOverlays)
     }
-    if (impl_ == nullptr || !impl_->taaEnabled || context == nullptr)
+    if (impl_ == nullptr)
         return;
     // Jitter is enabled only after every resource needed by both the HDR source
     // and temporal history exists. Failure therefore falls back to the stable,
     // unjittered path rather than displaying a moving raw sample.
-    if (!EnsureHdrTarget () || !EnsureGBufferTargets ())
+    const bool running = impl_->taaEnabled && context != nullptr && EnsureHdrTarget () && EnsureGBufferTargets ();
+    const TemporalConvergenceSettings& convergence = impl_->temporalConvergenceSettings;
+    impl_->temporalConvergence.BeginFrame (view, projection, impl_->viewportWidth, impl_->viewportHeight, running,
+                                           convergence);
+    impl_->idleThisFrame = convergence.idleWhenConverged && impl_->idleEligible &&
+                           impl_->temporalConvergence.Phase () == TemporalPhase::Converged;
+    if (!running)
         return;
 
     impl_->temporalAntiAliasing.Init (impl_->device);
     impl_->temporalAntiAliasing.Prepare (impl_->device, context, impl_->viewportWidth, impl_->viewportHeight,
                                          frameIndex, projection, jitteredProjection, jitter);
+    // #247/#248: A CONVERGED MEAN TURNS THE JITTER OFF. The mean already holds every jitter
+    // position; what still draws each frame -- the sun-study tint, section back faces and caps,
+    // wireframe, edges, outlines, all after the resolve -- then rasterises against an unjittered
+    // depth buffer and stops moving. TAA still runs (Prepare above keeps its resources and frame
+    // counter in step), so the first moving frame has history to start from.
+    if (!impl_->temporalConvergence.JitterThisFrame ()) {
+        std::memcpy (jitteredProjection, projection, sizeof (float) * 16);
+        jitter[0] = 0.0f;
+        jitter[1] = 0.0f;
+    }
     // ⚠️ IN PIXELS, NOT NDC. DiligentFX's offset is (halton - 0.5) / (0.5 * W),
     // so multiplying back by half the viewport recovers the sub-pixel shift the
     // rasteriser actually receives -- which is the number a live run needs, and
@@ -95,8 +115,10 @@ void DiligentScene::PrepareTemporalAntiAliasingFrame (Diligent::IDeviceContext* 
 
 void DiligentScene::ResetTemporalAntiAliasingHistory ()
 {
-    if (impl_ != nullptr)
-        impl_->temporalAntiAliasing.ResetHistory ();
+    if (impl_ == nullptr)
+        return;
+    impl_->temporalAntiAliasing.ResetHistory ();
+    impl_->temporalConvergence.Reset ();
 }
 
 bool DiligentScene::EnsureGBufferTargets ()
@@ -704,6 +726,8 @@ void DiligentScene::PrepareAmbientOcclusion (Diligent::IDeviceContext* context, 
                                              CullMode cull)
 {
     ClearAmbientOcclusion ();
+    if (impl_->idleThisFrame) // #247: an idle frame draws no scene pass (PresentIdleFrame)
+        return;
     if (context == nullptr || !impl_->ready || impl_->gBuffer == nullptr || !impl_->aoEnabled ||
         impl_->aoIntensity <= 0.0f || impl_->viewportWidth == 0 || impl_->viewportHeight == 0)
         return;

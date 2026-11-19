@@ -58,8 +58,28 @@ the reflection number; `MAE` over the whole image also carries the ambient-light
 
 Pass bench arguments through `run_suite.py --extra "..."`, or call the exe directly:
 
-- `--off ao,ssr,taa,shadows,env` switches effects off in every style. Turn one off and watch
-  whether an artefact goes with it.
+- `--off ao,ssr,taa,shadows,env,converge` switches effects off in every style. Turn one off and watch
+  whether an artefact goes with it. `converge` is the still-camera mean (#247/#248): off, TAA alone
+  presents the image, as before it existed. `overlays` keeps the jitter on everything drawn after the
+  resolve (tint, section, wireframe, edges, outlines) instead of redrawing the depth unjittered for
+  them (#248). `idle` keeps a converged view rendering every pass instead of presenting the mean
+  without drawing the scene (#247).
+- `--temporal-change K` moves the white balance to 4500 K from the K-th `--temporal` frame on: a
+  content change made while converged and idle, which must restart the mean and reach the picture
+  one frame later.
+- `--edges` turns the technical edges on, so `--temporal` sees the lines #248 reports moving.
+- `--temporal N` measures a still camera: after the picture is saved, N more frames are rendered and
+  read back, and the log line `bench: temporal` reports the pixels changing by more than 24 levels
+  between consecutive frames (worst, after 16 frames, last pair) and the frame from which nothing
+  changes at all, plus how many frames were idle (presented the converged mean without drawing the
+  scene) and how many times a still image restarted, with the last reason.
+  `<view>_<style>_temporal.csv` has one row per frame (changed pixels, largest change, mean level,
+  idle) and `<view>_<style>_still.png` is the last frame. Use this, not `--frames N`
+  sweeps, to look at history over time: without a readback per frame the frames are queued, and
+  effects that build their pipelines asynchronously switch on after a wall-clock delay, not a frame
+  count.
+- `--converge-settle N` and `--converge-samples N` override the still-camera mean's settle frames and
+  sample target (`TemporalConvergenceSettings`).
 - `--shadow-bias`, `--shadow-clamp`, `--shadow-filter` and `--shadow-pcss 0|1` override the
   shadow map's fixed depth bias, receiver-plane clamp, filter size in metres, and PCSS.
 - `--shadow-resolution N` sets the shadow map's size; `--shadow-fit 0` splits the cascades over the

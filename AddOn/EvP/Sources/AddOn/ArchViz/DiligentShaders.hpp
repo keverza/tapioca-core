@@ -372,6 +372,9 @@ struct DiligentSceneConstants {
     // distance is 1 everywhere. A pass that never hears of the section draws as before, which
     // is what keeps the overlay and every other user of this struct unchanged.
     float sectionPlane[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    // #252, per draw range: x = 1 when the range samples g_albedoMap, y/z = 1 / the size one repeat
+    // of the image covers, w = mirror bits (1 = x, 2 = y). x = 0 draws the surface colour.
+    float textureParams[4] = { 0.0f, 1.0f, 1.0f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -413,7 +416,7 @@ enum class DiligentDebugView : int {
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
                                                       16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48 + 32 + 256 +
-                                                      16 + 256 + 16 + 80 + 16 + 16,
+                                                      16 + 256 + 16 + 80 + 16 + 16 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -459,7 +462,8 @@ cbuffer ArchVizConstants
     float4x4 g_prevViewProj;    // RE51.C2: last frame's camera, for motion
     float4   g_frameControl;    // x = 1 for HDR output (skip Grade, resolve pass tone-maps)
                                 // y = 1 when g_hdrCoverage is TAA-resolved (coverage in RED,
-                                //     not ALPHA -- see kArchVizCoveragePS)
+                                //     not ALPHA -- see kArchVizCoveragePS); 2 when it is the
+                                //     still-camera mean (resolved, in ALPHA -- kArchVizAccumulatePS)
                                 // z = material focus, w = desaturated context opacity
     float4x4 g_motionViewProj;  // RE51.C8: current camera without projection jitter
     float4   g_wireParams;      // x tess factor, y line width px, zw viewport px
@@ -484,6 +488,7 @@ cbuffer ArchVizConstants
     float4   g_sunStudyShadowPalette[5]; // sRGB: single lit, shadowed; AM/PM sunlit, morning, evening
     float4   g_edgeParams;      // x = clip z the wire GS pulls toward the camera, y = edge-mask bit shift (#118)
     float4   g_sectionPlane;    // keep where dot(xyz, p) + w >= 0; (0,0,0,1) = no section (#14 P2)
+    float4   g_textureParams;   // #252 per range: x textured, yz 1/repeat size, w mirror bits (1 x, 2 y)
 };
 
 // The section plane's signed distance, for SV_ClipDistance0: negative is cut away.
@@ -499,6 +504,12 @@ struct VSInput
     float3 position : ATTRIB0;
     float3 normal   : ATTRIB1;
     float4 color    : ATTRIB2;
+#if ARCHVIZ_UV
+    // #252: the texture coordinate, from a second vertex buffer (slot 1) only the shaded mesh
+    // pipelines declare. Compiled in with ARCHVIZ_UV for them alone; every other pass keeps the
+    // three-attribute layout and this exact position math.
+    float2 uv       : ATTRIB3;
+#endif
 };
 
 struct PSInput
@@ -507,6 +518,10 @@ struct PSInput
     float3 worldPos : WORLDPOS;
     float3 normal   : NORMAL;
     float4 color    : COLOR0;
+#if ARCHVIZ_UV
+    // ⚠️ RIGHT AFTER THE COLOUR: kArchVizMeshPS reads a PREFIX of this struct and declares it here.
+    float2 uv       : TEXCOORD5;
+#endif
     // ---- RE51.C2 ---------------------------------------------------------
     // ⚠️ THE CLIP POSITION IS CARRIED SEPARATELY EVEN THOUGH SV_POSITION EXISTS.
     // By the time the pixel shader sees `position` the hardware has already
@@ -536,6 +551,9 @@ void main (in VSInput vsIn, out PSInput psIn)
     psIn.worldPos = vsIn.position;   // already world space
     psIn.normal   = vsIn.normal;     // identity model matrix, so no normal matrix
     psIn.color    = vsIn.color;
+#if ARCHVIZ_UV
+    psIn.uv       = vsIn.uv;
+#endif
     // Visible position is jittered; motion is not. Otherwise a stationary edge
     // reports the Halton sample delta as movement and TAA chases its own jitter.
     psIn.currClip = mul (g_motionViewProj, world);
@@ -1877,6 +1895,29 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 }
 )hlsl";
 
+// ---- #247/#248: the still-camera mean ---------------------------------------
+//
+// One sample of ArchViz/TemporalConvergence's running mean: TAA's resolved
+// radiance in RGB and its resolved coverage (RED of the coverage accumulation,
+// see kArchVizCoveragePS) in ALPHA. The mean itself is the blend state --
+// src * w + dst * (1 - w) with w the constant blend factor -- so this pass reads
+// two textures and writes one texel, and the target needs no ping-pong partner.
+//
+// ⚠️ COVERAGE GOES INTO THE MEAN'S ALPHA, AND THE RESOLVE READS IT THERE
+// (g_frameControl.y == 2). Taking it from this frame's raw target instead would
+// put a jittered binary edge under an averaged colour, which is the crawl
+// RE51.C8 removed.
+constexpr const char* kArchVizAccumulatePS = R"hlsl(
+Texture2D<float4> g_taaColor;
+Texture2D<float4> g_taaCoverage;
+
+void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
+{
+    int3 texel = int3 (int2 (position.xy), 0);
+    color = float4 (g_taaColor.Load (texel).rgb, g_taaCoverage.Load (texel).r);
+}
+)hlsl";
+
 // ---- RE51.C7/C8: SSR composited into the HDR radiance, BEFORE TAA ----------
 //
 // ⚠️ THE ORDER IS THE WHOLE POINT OF THIS PASS EXISTING. This code used to be a
@@ -1990,7 +2031,9 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
     // into RGB before the accumulation and it comes back in RED. When TAA is
     // off there is no jitter to resolve, nothing runs that pass, and this frame's
     // own HDR target is bound with coverage still in ALPHA.
-    float coverage = g_frameControl.y > 0.5 ? coverageTexel.r : coverageTexel.a;
+    // ⚠️ 2 IS THE STILL-CAMERA MEAN (kArchVizAccumulatePS), which is resolved like
+    // TAA's coverage but carries it in ALPHA, beside its own radiance.
+    float coverage = (g_frameControl.y > 0.5 && g_frameControl.y < 1.5) ? coverageTexel.r : coverageTexel.a;
 
     // ⚠️ A THRESHOLD, NOT `> 0`, ON THE RESOLVED PATH. Accumulated coverage is
     // FRACTIONAL at a silhouette -- that is the whole point of resolving it --
@@ -2295,13 +2338,37 @@ struct PSInput
     float3 worldPos : WORLDPOS;
     float3 normal   : NORMAL;
     float4 color    : COLOR0;
+    float2 uv       : TEXCOORD5; // #252: kArchVizMeshVS compiled with ARCHVIZ_UV feeds this PS
 };
 
 struct PSOutput
 {
     float4 color : SV_TARGET;
 };
-)hlsl" R"hlsl(
+
+// #252: the range's Archicad texture (g_textureParams.x gates it; an unbound read would be black).
+// sRGB-formatted, so the sample is already linear. ⚠️ SampleGrad ON THE UNFOLDED COORDINATE: the
+// mirror fold has a kink, and the derivatives of the folded coordinate would pick the smallest
+// mip along every fold line.
+Texture2D    g_albedoMap;
+SamplerState g_albedoMap_sampler;
+
+float4 SampleAlbedoMap (float2 uv)
+{
+    float2 t = uv * g_textureParams.yz;
+    const float2 dx = ddx (t);
+    const float2 dy = ddy (t);
+    const uint mirror = (uint) (g_textureParams.w + 0.5);
+    // Archicad's v grows upward; the image's first row is its top.
+    float2 s = float2 (t.x, -t.y);
+    if ((mirror & 1u) != 0u)
+        s.x = 1.0 - abs (frac (s.x * 0.5) * 2.0 - 1.0);
+    if ((mirror & 2u) != 0u)
+        s.y = 1.0 - abs (frac (s.y * 0.5) * 2.0 - 1.0);
+    return g_albedoMap.SampleGrad (g_albedoMap_sampler, s, float2 (dx.x, -dx.y), float2 (dy.x, -dy.y));
+}
+)hlsl"
+                                       R"hlsl(
 #if SHADOW_MODE == SHADOW_MODE_PCF
 // ---- RE51.C6a: the sampling floor, the dither and the disk ------------------
 //
@@ -2702,6 +2769,10 @@ void main (in PSInput psIn, out PSOutput psOut)
 
     float3 lighting = ambientTerm + direct.xxx * g_skyColor.w;
     float4 base = psIn.color * g_baseColor;
+    // #252: an Archicad texture REPLACES the surface colour, as in Archicad; the opacity stays the
+    // surface's. Clay and the study model clear the lane, so they keep their own colour.
+    if (g_textureParams.x > 0.5)
+        base.rgb = psIn.color.rgb * SampleAlbedoMap (psIn.uv).rgb;
     // White-model material focus: every surface is a white architectural render
     // with its own lighting and alpha; the focused one is coloured by its overlay.
     if (g_frameControl.z > 1.5)

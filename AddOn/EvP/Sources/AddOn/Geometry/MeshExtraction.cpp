@@ -38,7 +38,9 @@ void AppendExtractedConvex (Mesh& mesh, VertexWelder& welder, std::span<const do
     const auto point = [&] (const ExtractionCorner& corner) { return &bodyPositions[size_t (corner.vertex) * 3]; };
     const auto emit = [&] (const ExtractionCorner& corner) {
         const auto* position = point (corner);
-        return welder.Add (corner.vertex, position[0], position[1], position[2], corner.nx, corner.ny, corner.nz);
+        const double uv[2] = { corner.u, corner.v };
+        return welder.Add (corner.vertex, position[0], position[1], position[2], corner.nx, corner.ny, corner.nz,
+                           corner.hasUv ? uv : nullptr);
     };
     const uint32_t i0 = emit (corners[0]);
     for (size_t k = 1; k + 1 < corners.size (); ++k) {

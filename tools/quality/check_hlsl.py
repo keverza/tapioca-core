@@ -60,6 +60,8 @@ STAGES = {
     "kArchVizGBufferDebugPS": "ps_5_0",
     "kArchVizAmbientOcclusionDebugPS": "ps_5_0",
     "kArchVizResolvePS": "ps_5_0",
+    # #247/#248: one sample of the still-camera mean.
+    "kArchVizAccumulatePS": "ps_5_0",
     # ⚠️ THE SUN STUDY TINT IS BUILT LAZILY, ON THE FIRST STUDY A USER SHOWS,
     # so it is the one stage whose compile failure would surface as "the tint
     # never appeared" in a live Archicad session rather than at startup -- and

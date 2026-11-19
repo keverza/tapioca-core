@@ -14,6 +14,9 @@ namespace geomsrv {
 struct ExtractionCorner {
     int32_t vertex;
     double nx, ny, nz;
+    // #252: the texture coordinate when the polygon's material has a texture.
+    bool hasUv = false;
+    double u = 0.0, v = 0.0;
 };
 
 struct ExtractionFace {

@@ -777,6 +777,16 @@ struct HudState {
     // What the last orbit turned about, an OrbitAnchorSource (OrbitAnchor.hpp): the HUD says it.
     int orbitAnchor = 0;
     float taaStability = 0.9f;
+    // #247/#248: with TAA on, a still camera folds TAA's output into a mean and then stops the
+    // jitter (ArchViz/TemporalConvergence). On by default: it changes nothing while moving.
+    bool temporalConvergence = true;
+    // #248: the edges, outlines, section and tint drawn unjittered over a redrawn depth, so they
+    // stand still while the camera moves and while the mean accumulates (TemporalConvergenceSettings).
+    bool stableOverlays = true;
+    // #247: a converged view stops drawing the scene until the camera or the content changes.
+    bool idleWhenConverged = true;
+    // #252: Archicad's material textures in the Realistic quality (Rendered, Ray traced).
+    bool materialTextures = true;
 
     // 6500 K and tint 0 are the EXACT identity (AutoExposure.hpp), so these
     // defaults change no image rendered before this existed.

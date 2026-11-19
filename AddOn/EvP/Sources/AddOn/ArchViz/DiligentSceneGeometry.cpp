@@ -48,6 +48,7 @@ bool CreateMeshBuffers (Diligent::IRenderDevice* device, const char* name, Entry
         return false;
     }
     entry.gpuBytes = vertexBytes + indexBytes;
+    CreateUvBuffer (device, entry, {}, uint32_t (vertexBytes / sizeof (ArchVizVertex))); // #252: zeros until told
     return true;
 }
 
@@ -166,8 +167,10 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
             case SceneCmdType::SetMaterials:
                 // ⚠️ WHOLE-TABLE REPLACE, and it must land BEFORE its batch's
                 // upserts. The pool is renumbered on every rebuild.
-                if (cmd.materials != nullptr)
+                if (cmd.materials != nullptr) {
                     impl_->materials = std::move (*cmd.materials);
+                    SyncAlbedoTextures (device); // #252
+                }
                 break;
 
             case SceneCmdType::SetEnvironment: {
@@ -252,6 +255,8 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 }
 
                 CreateWireEdgeBuffer (device, e, upload.wireEdges);
+                if (!upload.uvs.empty ())
+                    CreateUvBuffer (device, e, upload.uvs, verts); // #252: Archicad's texture coordinates
 
                 // ⚠️ THE SIDE BUFFER DOES NOT SURVIVE AN UPSERT. Re-extracted
                 // geometry has a new triangle list; the buffer that described
@@ -674,6 +679,8 @@ DiligentSceneStats DiligentScene::Stats () const
     s.ssrColorHistory = impl_->screenSpaceReflection.HasColorHistory ();
     s.taaJitterPixels[0] = impl_->taaJitterInUse[0];
     s.taaJitterPixels[1] = impl_->taaJitterInUse[1];
+    s.temporal = impl_->temporalConvergence.Status ();
+    s.temporal.idle = impl_->idleLastFrame;
     for (const SurfaceMaterial& surface : impl_->materials.All ()) {
         const size_t slot = size_t (surface.substance);
         if (slot < 7)

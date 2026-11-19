@@ -20,6 +20,11 @@ struct Mesh {
     std::vector<float> normals;       // per-vertex xyz (smooth), same count as vertices
     std::vector<uint32_t> triangles;  // 3 vertex indices per triangle
     std::vector<int32_t> triMaterial; // one material index per triangle
+    // #252: Archicad's texture coordinate per vertex (u, v interleaved), as
+    // ModelerAPI::Polygon::GetTextureCoordinate gives it. ⚠️ EMPTY WHEN NOTHING IN THE ELEMENT IS
+    // TEXTURED, otherwise exactly two per vertex: a consumer checks HasUvs () rather than the
+    // size, and a producer that appends vertices without coordinates leaves it empty.
+    std::vector<float> uvs;
     // Three source-face boundary bits per triangle. Internal triangulation
     // edges stay clear so the wire pass can omit them without changing geometry.
     std::vector<uint8_t> triWireEdges;
@@ -52,14 +57,19 @@ struct Mesh {
     {
         return triangles.size () / 3;
     }
+    bool HasUvs () const
+    {
+        return !uvs.empty () && uvs.size () == VertexCount () * 2;
+    }
 
     // Retained heap bytes — so memory held is reportable, not folklore.
     size_t Bytes () const
     {
         return guid.capacity () + vertices.capacity () * sizeof (double) + normals.capacity () * sizeof (float) +
-               triangles.capacity () * sizeof (uint32_t) + triMaterial.capacity () * sizeof (int32_t) +
-               triWireEdges.capacity () * sizeof (uint8_t) + triSourceBody.capacity () * sizeof (int32_t) +
-               triSourcePgon.capacity () * sizeof (int32_t) + triSurfaceAttribute.capacity () * sizeof (int32_t);
+               uvs.capacity () * sizeof (float) + triangles.capacity () * sizeof (uint32_t) +
+               triMaterial.capacity () * sizeof (int32_t) + triWireEdges.capacity () * sizeof (uint8_t) +
+               triSourceBody.capacity () * sizeof (int32_t) + triSourcePgon.capacity () * sizeof (int32_t) +
+               triSurfaceAttribute.capacity () * sizeof (int32_t);
     }
 };
 

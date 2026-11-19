@@ -63,6 +63,7 @@
 
 #include <algorithm>
 #include <array>
+#include <map>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -180,6 +181,9 @@ struct Entry {
     RefCntAutoPtr<Diligent::IBuffer> vertexBuffer;
     RefCntAutoPtr<Diligent::IBuffer> indexBuffer;
     RefCntAutoPtr<Diligent::IBuffer> wireEdgeBuffer;
+    // #252: the texture coordinates (float2 per vertex) at vertex slot 1, for the shaded mesh
+    // pipelines; zeros for an entry Archicad gave none. Every entry has one (CreateUvBuffer).
+    RefCntAutoPtr<Diligent::IBuffer> uvBuffer;
     // ---- the sun study side car (one SunFaceMap per RENDERED triangle) ------
     // Null unless a study named this element. ⚠️ BOUND BY THE TINT PASS ONLY:
     // no other pass declares it, so an element without one costs nothing and the
@@ -236,11 +240,23 @@ inline void UploadConstants (Diligent::IDeviceContext* context, Diligent::IBuffe
 
 inline void BindMesh (Diligent::IDeviceContext* context, const Entry& e)
 {
-    Diligent::IBuffer* vertexBuffers[1] = { e.vertexBuffer };
-    const Diligent::Uint64 offsets[1] = { 0 };
-    context->SetVertexBuffers (0, 1, vertexBuffers, offsets, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
+    // #252: slot 1 is the texture coordinates; a pipeline that does not declare it ignores it.
+    Diligent::IBuffer* vertexBuffers[2] = { e.vertexBuffer, e.uvBuffer };
+    const Diligent::Uint64 offsets[2] = { 0, 0 };
+    context->SetVertexBuffers (0, e.uvBuffer != nullptr ? 2 : 1, vertexBuffers, offsets,
+                               Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
                                Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
     context->SetIndexBuffer (e.indexBuffer, 0, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+}
+
+// #252: the mesh SRB's dynamic albedo map. Bound on every draw, a 1x1 white when the range has no
+// texture, because a dynamic variable left unset fails Diligent's validation inside Archicad.
+inline void BindAlbedo (Diligent::IShaderResourceBinding* srb, Diligent::ITextureView* view)
+{
+    if (srb != nullptr && view != nullptr)
+        if (Diligent::IShaderResourceVariable* variable =
+                srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_albedoMap"))
+            variable->Set (view);
 }
 
 inline void DrawEntryRange (Diligent::IDeviceContext* context, const Entry& e, const MaterialRange& r)
@@ -252,6 +268,20 @@ inline void DrawEntryRange (Diligent::IDeviceContext* context, const Entry& e, c
     draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
     context->DrawIndexed (draw);
 }
+
+// #252: the shaded mesh pipelines' samplers, mutable variables and vertex layout, built once
+// (DiligentSceneMeshResources.cpp). [0] is the PCF shadow representation, [1] the filterable one.
+struct MeshPipelineResources {
+    Diligent::SamplerDesc shadow, filterableShadow, env, albedo;
+    Diligent::ImmutableSamplerDesc samplers[2][3];
+    Diligent::ShaderResourceVariableDesc variables[2][3];
+    Diligent::LayoutElement texturedLayout[4];
+};
+const MeshPipelineResources& MeshResources ();
+
+// #252: the entry's texture-coordinate buffer, Archicad's where `uvs` has two per vertex.
+bool CreateUvBuffer (Diligent::IRenderDevice* device, Entry& entry, const std::vector<float>& uvs,
+                     uint32_t vertexCount);
 
 // Vertex and index buffers for one mesh, replacing whatever the entry held.
 // Shared by the element upserts and by the static/overlay meshes.
@@ -498,6 +528,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // applies Grade() once when copying HDR back to the swap chain.
     RefCntAutoPtr<Diligent::IShader> resolvePs;
     RefCntAutoPtr<Diligent::IShader> coveragePs;
+    RefCntAutoPtr<Diligent::IShader> accumulatePs;
     RefCntAutoPtr<Diligent::IShader> ssrCompositePs;
     RefCntAutoPtr<Diligent::IPipelineState> hdrOpaquePso[kShadowModeCount][kCullModeCount];
     RefCntAutoPtr<Diligent::IPipelineState> hdrBlendPso[kShadowModeCount][kCullModeCount];
@@ -792,6 +823,72 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // of those is happening without needing a debug view.
     bool taaResolvedThisFrame = false;
     float taaJitterInUse[2] = { 0.0f, 0.0f };
+
+    // ---- #247/#248: the still-camera mean (ArchViz/TemporalConvergence) ------
+    // TAA's output and its resolved coverage folded into one RGBA32_FLOAT running mean
+    // (rgb radiance, a coverage) with a constant blend factor, so the mean needs no second
+    // target and no clear: the first sample's weight is 1. ⚠️ 32-BIT, NOT 16: at 1/64 a half
+    // float's ten mantissa bits round each step and the mean drifts.
+    TemporalConvergence temporalConvergence;
+    TemporalConvergenceSettings temporalConvergenceSettings;
+    // The content key folded in while Draw runs; see TemporalConvergence.hpp. Both are defined in
+    // DiligentSceneTemporal.cpp: the frame constants and settings, then one call per drawn range
+    // (`range`/`surface` null for a helper mesh drawn whole).
+    // BeginFrameContent folds in the constants, the settings and every range the frame will draw
+    // (resolved surface included) BEFORE anything is drawn, so an idle frame can be checked
+    // against it; `earlyKey` is that value. What only drawing can tell (whether AO, SSR and the
+    // atmosphere actually ran, the point splats drawn) is folded in by StepTemporalConvergence.
+    ContentKey frameContent;
+    uint64_t earlyKey = 0;
+    void BeginFrameContent (const DiligentSceneConstants& constants, const ClayLook& look, bool drawSurfaces);
+    void NoteDrawnContent (const Entry& entry, const MaterialRange* range, const DrawnSurface* surface);
+    // #247 idle: `idleEligible` is set on a converged frame whose every enabled effect ran, with
+    // `idleKey` its early key and `resolveConstants` what its resolve uploaded; `idleThisFrame` is
+    // decided in PrepareTemporalAntiAliasingFrame (converged, camera unchanged) and lets the
+    // shadow map, the G-buffer prepass and Draw skip their work (PresentIdleFrame).
+    // #252: the material textures on the GPU, keyed by SurfaceMaterial::textureKey (the table's own
+    // images; SyncAlbedoTextures), the 1x1 white bound when a range has none, the HUD toggle, and
+    // the mesh VS compiled with ARCHVIZ_UV for the shaded pipelines.
+    std::map<uint64_t, RefCntAutoPtr<Diligent::ITexture>> albedoTextures;
+    RefCntAutoPtr<Diligent::ITexture> albedoFallback;
+    bool materialTexturesEnabled = true;
+    RefCntAutoPtr<Diligent::IShader> vsTextured;
+    Diligent::ITextureView* AlbedoFor (const SurfaceMaterial& material, const ClayLook& look,
+                                       DiligentSceneConstants& constants) const;
+    Diligent::ITextureView* AlbedoFallbackView () const
+    {
+        return albedoFallback != nullptr ? albedoFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE)
+                                         : nullptr;
+    }
+    bool idleEligible = false;
+    bool idleThisFrame = false;
+    bool idleLastFrame = false;
+    bool atmosphereRan = false;
+    uint64_t idleKey = 0;
+    // The last frame's key inputs, so a still image that restarts on content says which one moved
+    // (the log line in StepTemporalConvergence; #247 live: "jitter and stop" for minutes at start).
+    uint64_t lastEarlyKey = 0;
+    bool lastAoRan = false, lastSsrRan = false, lastAtmosphereRan = false;
+    size_t lastPointDraws = 0;
+    DiligentSceneConstants resolveConstants;
+    // The sample pass is built on the first still frame, like the selection pipelines, and a
+    // failure is latched: the mean is then simply never used.
+    bool accumInitFailed = false;
+    float ssrTuning[2] = { 0.0f, 0.0f }; // thickness, max steps, for the content key
+    Diligent::RefCntAutoPtr<Diligent::ITexture> accumTexture;
+    Diligent::ITextureView* accumRTV = nullptr;
+    Diligent::ITextureView* accumSRV = nullptr;
+    uint32_t accumWidth = 0;
+    uint32_t accumHeight = 0;
+    Diligent::RefCntAutoPtr<Diligent::IPipelineState> accumPso;
+    Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> accumSrb;
+    // #248: the unjittered depth the overlays test against (DiligentScene::UnjitterOverlays), one
+    // depth-only pipeline per cull index, built on first use; a failure latches. The flag says this
+    // frame's depth was redrawn unjittered, so the viewport's own overlays switch camera too.
+    Diligent::RefCntAutoPtr<Diligent::IPipelineState> stableDepthPso[3];
+    Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> stableDepthSrb[3];
+    bool stableDepthInitFailed = false;
+    bool overlaysUnjittered = false;
     DiligentDepthRange depthRange;
     uint32_t gBufferWidth = 0;
     uint32_t gBufferHeight = 0;

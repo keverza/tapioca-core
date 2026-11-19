@@ -49,6 +49,10 @@ bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context, const fl
     if (!impl_->shadowMap.Prepare (context, view, projection, shadowSun, bounded ? sceneMin : nullptr,
                                    bounded ? sceneMax : nullptr))
         return false;
+    // #247: an idle frame keeps the map it converged with. The fit above still runs (CPU only, the
+    // same camera gives the same cascades) because SetShadowSettings clears it every frame.
+    if (impl_->idleThisFrame)
+        return true;
 
     // ⚠️ OPAQUE RANGES ONLY. A pane of glass that writes into the shadow map
     // casts a solid black shadow, and a curtain-walled facade then shadows the
@@ -654,6 +658,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     };
 
     const int shadowMode = ShadowModeIndex (impl_->shadowMap.Settings ().mode);
+    Diligent::ITextureView* albedo = nullptr; // #252: the range's texture, set per range below
     auto drawRange = [&] (const Entry& e, const MaterialRange& r, bool blended) {
         // ⚠️ HDR PATH SELECTS THE HDR PSO SET. Same shaders, same SRB layout,
         // different RTV format (RGBA16_FLOAT). The pixel shader branches on
@@ -669,6 +674,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
             srb = blended ? impl_->blendSrb[shadowMode][index] : impl_->opaqueSrb[shadowMode][index];
         }
         context->SetPipelineState (pso);
+        BindAlbedo (srb, albedo != nullptr ? albedo : impl_->AlbedoFallbackView ());
         context->CommitShaderResources (srb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         BindMesh (context, e);
         DrawEntryRange (context, e, r);
@@ -763,13 +769,18 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // never a global flag.
     const bool drawWireframe = impl_->renderMode != SceneRenderMode::Shaded &&
                                (impl_->semanticWirePso != nullptr || impl_->wirePso != nullptr);
-    (impl_->semanticWirePso != nullptr || impl_->wirePso != nullptr);
+
+    // #247/#248: the still-camera mean's content key, before anything is drawn, and the idle frame
+    // it allows: the mean presented with no scene pass at all (DiligentSceneTemporal.cpp).
+    impl_->BeginFrameContent (constants, surfaceLook, drawSurfaces);
+    const bool idle = PresentIdleFrame (context, constants, colorTarget, depthTarget, cull, drawSurfaces);
+    size_t pointDraws = 0;
 
     // Two passes over the same ranges: opaque first, then everything that
     // blends. Not a sort -- a partition, which needs no comparator and no
     // per-frame allocation, and gets the one ordering that actually matters
     // right for free.
-    for (int pass = 0; pass < 2; ++pass) {
+    for (int pass = idle ? 2 : 0; pass < 2; ++pass) {
         const bool transparentPass = pass == 1;
 
         if (drawSurfaces && !transparentPass) {
@@ -819,6 +830,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 // ⚠️ PER RANGE, NOT PER FRAME. Hoisting the upload out of this
                 // loop paints every range in the last material's colour -- and
                 // now its finish too, in both channels.
+                albedo = impl_->AlbedoFor (mat, surfaceLook, constants);
                 uploadConstants (drawn.r, drawn.g, drawn.b, drawn.alpha, drawn.roughness, drawn.reflectance,
                                  drawn.metallic);
                 drawRange (e, r, blended);
@@ -829,8 +841,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // depth as architecture. Drawing here puts them after opaque ranges and
         // before transparent glass, while retaining the active HDR/LDR target.
         if (!transparentPass && debugView == 0) {
-            const size_t pointDraws = impl_->pointCloud.Draw (context, viewProj, proj, eye, impl_->viewportWidth,
-                                                              impl_->viewportHeight, useHdr, frameIndex);
+            pointDraws = impl_->pointCloud.Draw (context, viewProj, proj, eye, impl_->viewportWidth,
+                                                 impl_->viewportHeight, useHdr, frameIndex);
             impl_->drawCalls += pointDraws;
         }
     }
@@ -852,7 +864,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // In the mesh shader it is the AO intensity; in the resolve pass AO is
     // already baked into the HDR colour, so the lane is free. When SSR is off,
     // it is set to 0 and the shader's roughness check skips the SSR branch.
-    if (useHdr) {
+    if (useHdr && !idle) {
         // ---- RE51.C7: prepare SSR before the resolve -----------------------
         //
         // ⚠️ SSR READS THE HDR SCENE COLOUR, so it must run AFTER the mesh draw
@@ -875,8 +887,10 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         Diligent::ITextureView* postProcessedHdr = impl_->hdrColorSRV;
         if (impl_->ssrView != nullptr && impl_->ssrIntensity > 0.0f)
             postProcessedHdr = CompositeScreenSpaceReflection (context, constants, postProcessedHdr);
-        if (Diligent::ITextureView* atmosphere =
-                ExecuteAtmosphere (context, postProcessedHdr, view, proj, viewProj, eye, nearClip, farClip, frameIndex))
+        Diligent::ITextureView* atmosphere =
+            ExecuteAtmosphere (context, postProcessedHdr, view, proj, viewProj, eye, nearClip, farClip, frameIndex);
+        impl_->atmosphereRan = atmosphere != nullptr; // content (StepTemporalConvergence)
+        if (atmosphere != nullptr)
             postProcessedHdr = atmosphere;
 
         Diligent::ITextureView* resolvedHdr =
@@ -894,8 +908,16 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // same point, for the same reason.
         RememberScreenSpaceReflectionFrame (context, resolvedHdr);
         // #231: the ray-traced style's image replaces the raster colour, never its depth or coverage.
-        if (Diligent::ITextureView* traced = TraceView (context, constants, viewProj, eye))
+        Diligent::ITextureView* traced = TraceView (context, constants, viewProj, eye);
+
+        // #247/#248: the still-camera mean. ⚠️ AFTER RememberScreenSpaceReflectionFrame, which
+        // keeps TAA's output for SSR's history. Traced images accumulate on their own: no mean.
+        Diligent::ITextureView* mean =
+            StepTemporalConvergence (context, (traced == nullptr && !skyTraced) ? impl_->taaView : nullptr, pointDraws);
+        if (traced != nullptr)
             resolvedHdr = traced;
+        else if (mean != nullptr)
+            resolvedHdr = mean;
 
         constants.frameControl[0] = 0.0f;
         // ⚠️ SET HERE, WITH THE OTHER CONSTANTS AND BEFORE UploadConstants. The
@@ -903,8 +925,11 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // the lane down there instead leaves the shader reading last frame's
         // value against this frame's texture, and the two disagree exactly on
         // the frame TAA starts or stops resolving.
-        constants.frameControl[1] = (impl_->taaCoverageView != nullptr) ? 1.0f : 0.0f;
+        // 2: the still-camera mean, which carries its own resolved coverage in alpha.
+        const bool presentMean = traced == nullptr && mean != nullptr;
+        constants.frameControl[1] = presentMean ? 2.0f : (impl_->taaCoverageView != nullptr) ? 1.0f : 0.0f;
         impl_->Upload (context, constants);
+        impl_->resolveConstants = constants; // what an idle frame re-uploads (PresentIdleFrame)
         context->SetRenderTargets (1, &colorTarget, depthTarget, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         context->SetViewports (1, nullptr, 0, 0);
 
@@ -924,7 +949,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         const bool coverageResolved = impl_->taaCoverageView != nullptr;
         if (Diligent::IShaderResourceVariable* coverageVar =
                 impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrCoverage"))
-            coverageVar->Set (coverageResolved ? impl_->taaCoverageView : impl_->hdrColorSRV);
+            coverageVar->Set (presentMean ? mean : coverageResolved ? impl_->taaCoverageView : impl_->hdrColorSRV);
         context->SetPipelineState (impl_->resolvePso);
         context->CommitShaderResources (impl_->resolveSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         Diligent::DrawAttribs resolve;
@@ -951,6 +976,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // ⚠️ AND IT IS SKIPPED IN EVERY DEBUG VIEW. Those answer questions about
     // the model's own data; painting the study over a normals or roughness read
     // would hide the thing the view exists to show.
+    // #248: on a jittered frame everything from here on draws unjittered, over a redrawn depth.
+    UnjitterOverlays (context, constants, cull, depthTarget, drawSurfaces);
     if (drawSurfaces && debugView == 0)
         DrawSunStudyTint (context, constants, cull);
 

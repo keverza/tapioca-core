@@ -15,6 +15,17 @@ void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay)
 {
     scene.SetGrading (hud.exposure, hud.reflectance, hud.roughnessBias);
     scene.SetScreenSpaceReflectionTuning (hud.ssrThickness, uint32_t (hud.ssrMaxSteps < 16 ? 16 : hud.ssrMaxSteps));
+    // #247/#248: the still-camera mean (TemporalConvergence.hpp). Read by the NEXT frame's
+    // PrepareTemporalAntiAliasingFrame, so a toggle lands one frame late, which nothing can see.
+    // ⚠️ WITHHELD ON THE OVERLAY, like the clay and the section: over Archicad's own window the
+    // picture keeps the path the overlay was qualified on.
+    TemporalConvergenceSettings convergence;
+    convergence.enabled = hud.temporalConvergence && !overlay;
+    convergence.stableOverlays = hud.stableOverlays && !overlay;
+    convergence.idleWhenConverged = hud.idleWhenConverged;
+    // #252: off on the overlay, like the clay: there Archicad's own window shows its textures.
+    scene.SetMaterialTextures (hud.materialTextures && !overlay);
+    scene.SetTemporalConvergence (convergence);
     // The wireframe colour applies on the overlay too: there the wire IS the picture.
     float wire[4];
     for (int k = 0; k < 4; ++k)

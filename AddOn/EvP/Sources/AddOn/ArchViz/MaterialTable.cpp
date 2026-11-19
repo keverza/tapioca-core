@@ -46,8 +46,10 @@ size_t MaterialTable::Bytes () const
     size_t n = sizeof (MaterialTable);
     for (const SurfaceMaterial& m : byIndex_)
         n += m.Bytes ();
+    for (const auto& [key, pixels] : textures_)
+        n += sizeof (key) + sizeof (pixels) + (pixels != nullptr ? pixels->Bytes () : 0);
     return n;
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

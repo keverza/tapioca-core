@@ -5,6 +5,7 @@
 #include "ArchViz/PlanAnchorRibbon.hpp"
 #include "ArchViz/RenderBackend.hpp"
 #include "ArchViz/SceneTextLayer.hpp"
+#include "ArchViz/TemporalConvergence.hpp"
 #include "ArchViz/ViewerHost.hpp"
 #include "ArchViz/ViewerSettings.hpp" // SliceOccludedStyle
 
@@ -166,6 +167,8 @@ struct DiligentViewportStats {
     bool ssrDepthHistory = false;
     bool ssrColorHistory = false;
     float taaJitterPixels[2] = { 0.0f, 0.0f };
+    // #247/#248: the still-camera mean (DiligentScene::Stats).
+    TemporalStatus temporal;
     float whiteBalanceGains[3] = { 1.0f, 1.0f, 1.0f };
 
     // The sun study overlay, straight from the render thread. ⚠️ IT IS THE ONLY

@@ -41,13 +41,26 @@ constexpr double kNormalQuantum = 1.0e4;
 struct WeldKey {
     int32_t srcVertex;
     int32_t nx, ny, nz;
+    // #252: a corner with a texture coordinate splits from one with another (a seam), and from one
+    // with none. 0.01 mm in Archicad's coordinate units.
+    bool hasUv = false;
+    int64_t u = 0, v = 0;
 
     bool operator< (const WeldKey& o) const
     {
-        if (srcVertex != o.srcVertex) return srcVertex < o.srcVertex;
-        if (nx != o.nx)               return nx < o.nx;
-        if (ny != o.ny)               return ny < o.ny;
-        return nz < o.nz;
+        if (srcVertex != o.srcVertex)
+            return srcVertex < o.srcVertex;
+        if (nx != o.nx)
+            return nx < o.nx;
+        if (ny != o.ny)
+            return ny < o.ny;
+        if (nz != o.nz)
+            return nz < o.nz;
+        if (hasUv != o.hasUv)
+            return hasUv < o.hasUv;
+        if (u != o.u)
+            return u < o.u;
+        return v < o.v;
     }
 };
 
@@ -55,24 +68,33 @@ struct WeldKey {
 // index to use in the triangle list. One instance per body — source vertex
 // indices are body-local, so Reset() between bodies is mandatory.
 class VertexWelder {
-public:
-    explicit VertexWelder (Mesh& mesh) : mesh_ (mesh) {}
+  public:
+    explicit VertexWelder (Mesh& mesh) : mesh_ (mesh)
+    {
+    }
 
     // Reset the dedup table when moving to the next body. Does NOT clear the
     // mesh — indices already emitted stay valid.
-    void Reset () { map_.clear (); }
+    void Reset ()
+    {
+        map_.clear ();
+    }
 
     // Returns the mesh vertex index for this corner, creating it if the
     // (source vertex, normal) pair has not been seen in this body yet.
     // The normal is expected pre-normalized; it is stored as given.
-    uint32_t Add (int32_t srcVertex,
-                  double x, double y, double z,
-                  double nx, double ny, double nz);
+    // `uv` (two values) is the corner's texture coordinate, or null for an untextured corner. The
+    // first textured corner gives the mesh its `uvs`, zero-filled for the vertices before it.
+    uint32_t Add (int32_t srcVertex, double x, double y, double z, double nx, double ny, double nz,
+                  const double* uv = nullptr);
 
-    size_t UniqueCount () const { return map_.size (); }
+    size_t UniqueCount () const
+    {
+        return map_.size ();
+    }
 
-private:
-    Mesh&                    mesh_;
+  private:
+    Mesh& mesh_;
     std::map<WeldKey, uint32_t> map_;
 };
 
@@ -82,8 +104,7 @@ bool NormalizeVector (double& x, double& y, double& z);
 
 // Geometric normal of a triangle, unnormalized (length = 2 * area). Used as
 // the substitute when Archicad reports a degenerate corner normal.
-void TriangleNormal (const double* a, const double* b, const double* c,
-                     double& nx, double& ny, double& nz);
+void TriangleNormal (const double* a, const double* b, const double* c, double& nx, double& ny, double& nz);
 
 // Area-weighted average of adjacent face normals, welded across every shared
 // vertex. This SMOOTHS HARD EDGES and is wrong for box-like geometry — it

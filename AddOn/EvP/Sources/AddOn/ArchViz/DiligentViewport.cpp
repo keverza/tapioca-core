@@ -595,11 +595,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             const bool blanked = blanked_.load ();
             scene.SetViewportSize (width, height);
-            float view[16];
-            float stableProj[16];
-            float proj[16];
-            float motionViewProj[16];
-            float viewProj[16];
+            float view[16], stableProj[16], proj[16];
+            float motionViewProj[16], viewProj[16];
             float jitter[2] = { 0.0f, 0.0f };
             camera.GetViewMatrix (view);
             camera.GetProjMatrix (stableProj, height > 0 ? float (width) / float (height) : 1.0f);
@@ -609,7 +606,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 hudState.debugView == int (DiligentDebugView::Final) &&
                 debugView_.load () == int (DiligentDebugView::Final) && !camera.IsOrthographic () && !blanked;
             scene.SetTemporalAntiAliasing (taaActive, hudState.taaStability);
-            scene.PrepareTemporalAntiAliasingFrame (context, static_cast<uint32_t> (frames), stableProj, proj, jitter);
+            scene.PrepareTemporalAntiAliasingFrame (context, uint32_t (frames), view, stableProj, proj, jitter);
             Multiply (motionViewProj, view, stableProj);
             Multiply (viewProj, view, proj);
 
@@ -843,6 +840,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 gpuTimings.Begin (context, GpuTimingStage::Shading);
                 gpuTimings.End (context, GpuTimingStage::Shading);
             }
+            // #248: the scene redrew its depth unjittered for the overlays; everything below matches.
+            if (scene.OverlaysUnjittered ())
+                Multiply (viewProj, view, stableProj);
 
             // Under the anchors; ⚠️ NOT gated on `offscreen` -- see the helper.
             if (!annotationsOnly && !ShouldIsolateGraphInteraction (hudState, input))

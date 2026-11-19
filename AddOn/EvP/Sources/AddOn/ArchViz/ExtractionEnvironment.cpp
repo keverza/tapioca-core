@@ -17,10 +17,12 @@
 #include <AttributeIndex.hpp>
 #include <Model.hpp>
 #include <ModelMaterial.hpp>
+#include <Texture.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -92,6 +94,86 @@ void ForgetEnvironmentLog ()
     g_environmentReadsSuppressed = 0;
 }
 
+namespace {
+
+// #252: a material's texture -> SurfaceMaterial's texture fields, and the image into `table`.
+// MAIN THREAD (ModelerAPI). Images are read once per Archicad fingerprint and kept for the session:
+// a live sync re-reads the materials every time the model changes, and re-reading a 4K image
+// through GetPixelMap each time would stall the main thread for nothing.
+void ReadMaterialTexture (const ModelerAPI::Model& model, const ModelerAPI::Material& material, SurfaceMaterial& m,
+                          MaterialTable& table)
+{
+    static std::map<std::string, TexturePixelsPtr> s_images; // main thread only
+    try {
+        ModelerAPI::AttributeIndex textureIndex;
+        material.GetTextureIndex (textureIndex);
+        if (textureIndex.GetIndex () <= 0)
+            return;
+        ModelerAPI::Texture texture;
+        model.GetTexture (textureIndex, &texture);
+        if (!texture.IsAvailable () || texture.IsBumpMapPattern ())
+            return;
+        const Int32 width = texture.GetPixelMapXSize ();
+        const Int32 height = texture.GetPixelMapYSize ();
+        if (width <= 0 || height <= 0)
+            return;
+        const std::string identity = texture.GetFingerprint ().ToCStr ().Get ();
+        const std::string key = identity.empty () ? std::string (texture.GetName ().ToCStr ().Get ()) : identity;
+        auto found = s_images.find (key);
+        if (found == s_images.end ()) {
+            auto pixels = std::make_shared<TexturePixels> ();
+            pixels->name = texture.GetName ().ToCStr ().Get ();
+            pixels->width = uint32_t (width);
+            pixels->height = uint32_t (height);
+            pixels->rgba.resize (size_t (width) * size_t (height) * 4);
+            if (texture.GetPixelType () == ModelerAPI::Texture::ARGBPixelType) {
+                std::vector<ModelerAPI::Texture::ARGBPixel> argb (size_t (width) * size_t (height));
+                texture.GetPixelMap (argb.data ());
+                for (size_t i = 0; i < argb.size (); ++i) {
+                    pixels->rgba[i * 4 + 0] = argb[i].red;
+                    pixels->rgba[i * 4 + 1] = argb[i].green;
+                    pixels->rgba[i * 4 + 2] = argb[i].blue;
+                    pixels->rgba[i * 4 + 3] = texture.HasAlphaChannel () ? argb[i].alpha : 255;
+                    pixels->hasAlpha = pixels->hasAlpha || pixels->rgba[i * 4 + 3] < 255;
+                }
+            }
+            else {
+                // Grey and black-and-white maps: one call per pixel through the colour getter,
+                // which every pixel type answers. Rare, and small.
+                for (Int32 y = 0; y < height; ++y)
+                    for (Int32 x = 0; x < width; ++x) {
+                        ModelerAPI::Color c;
+                        texture.GetPixelColor (x, y, &c);
+                        uint8_t* px = &pixels->rgba[(size_t (y) * size_t (width) + size_t (x)) * 4];
+                        px[0] = uint8_t (std::clamp (c.red, 0.0, 1.0) * 255.0 + 0.5);
+                        px[1] = uint8_t (std::clamp (c.green, 0.0, 1.0) * 255.0 + 0.5);
+                        px[2] = uint8_t (std::clamp (c.blue, 0.0, 1.0) * 255.0 + 0.5);
+                        px[3] = 255;
+                    }
+            }
+            FitTexturePixels (*pixels, kMaxTextureSide);
+            if (s_images.size () > 512)
+                s_images.clear (); // a session that cycled through a whole library: start over
+            found = s_images.emplace (key, std::move (pixels)).first;
+            ArchVizLog ("Diligent textures: read '" + found->second->name + "' " + std::to_string (width) + "x" +
+                        std::to_string (height) + " -> " + std::to_string (found->second->width) + "x" +
+                        std::to_string (found->second->height) + ", " + std::to_string (texture.GetXSize ()) + " x " +
+                        std::to_string (texture.GetYSize ()) + " per repeat");
+        }
+        m.textureKey = TextureKeyOf (key);
+        m.textureSizeX = texture.GetXSize () > 1e-6 ? float (texture.GetXSize ()) : 1.0f;
+        m.textureSizeY = texture.GetYSize () > 1e-6 ? float (texture.GetYSize ()) : 1.0f;
+        m.textureMirrorX = texture.IsMirroredInX ();
+        m.textureMirrorY = texture.IsMirroredInY ();
+        table.SetTexture (m.textureKey, found->second);
+    }
+    catch (const GS::Exception&) {
+        m.textureKey = 0; // an unreadable texture draws the surface colour, as before #252
+    }
+}
+
+} // namespace
+
 // The model's surface pool -> MaterialTable. MAIN THREAD (it is ModelerAPI).
 //
 // ⚠️ 1-BASED, AND THE INDEX IS THE POOL'S, NOT ARCHICAD'S ATTRIBUTE INDEX. The
@@ -159,6 +241,7 @@ std::unique_ptr<MaterialTable> ReadMaterials (const ModelerAPI::Model& model)
         m.specularG = static_cast<float> (std::clamp (sc.green, 0.0, 1.0));
         m.specularB = static_cast<float> (std::clamp (sc.blue, 0.0, 1.0));
         m.name = material.GetName ().ToCStr ().Get ();
+        ReadMaterialTexture (model, material, m, *table);
 
         table->Set (m);
     }
