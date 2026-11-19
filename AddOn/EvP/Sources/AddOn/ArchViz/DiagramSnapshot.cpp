@@ -194,6 +194,12 @@ const PlannedFloor* PlannedFloorOf (const FloorPlans* plans, const std::string& 
     return best;
 }
 
+EntityId SpaceId (const EntityId& storey, Detail detail, uint64_t id)
+{
+    return { detail == Detail::Rooms ? Level::Room : Level::Apartment,
+             (detail == Detail::Rooms ? "room:" : "unit:") + storey.key + "#" + std::to_string (id) };
+}
+
 namespace {
 // One planned space as a node-local prism; false (and nothing added) when it does not
 // triangulate.
@@ -237,10 +243,13 @@ void AddDetails (const PlannedFloor& floor, const EntityId& storey, const Vec3& 
         for (const auto& space : *spaces) {
             DetailSpace prism;
             std::string error;
-            if (SpacePrism (space, floor.z, top, pivot, prism, error))
-                mesh.spaces.push_back (std::move (prism));
-            else
+            if (!SpacePrism (space, floor.z, top, pivot, prism, error)) {
                 ++failed;
+                continue;
+            }
+            prism.id = SpaceId (storey, detail, space.id);
+            built.spaces[prism.id] = { storey, detail, space.label, space.area };
+            mesh.spaces.push_back (std::move (prism));
         }
         if (!mesh.spaces.empty ())
             built.details.push_back (std::move (mesh));

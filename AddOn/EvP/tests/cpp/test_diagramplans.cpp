@@ -35,8 +35,11 @@ std::shared_ptr<const dg::FloorPlans> Plans ()
     ground.height = 3;
     ground.units = { Rect (1, 0.2, 0.2, 9.8, 7.8, 0xD9A441FFu), Rect (2, 10.2, 0.2, 19.8, 7.8, 0x7FA7C7FFu),
                      Rect (3, 0.2, 8.2, 7.8, 19.8, 0xEAD9A6FFu) };
-    ground.rooms = ground.units;
-    ground.rooms.push_back (Rect (4, 0.2, 0.2, 4.0, 3.0, 0x5FAE9FFFu));
+    ground.units[1].label = "2-room flat";
+    ground.units[1].area = 72.96;
+    // The first flat as two rooms; the others whole.
+    ground.rooms = { Rect (4, 0.2, 0.2, 4.0, 7.8, 0x5FAE9FFFu), Rect (5, 4.2, 0.2, 9.8, 7.8, 0xD9A441FFu),
+                     ground.units[1], ground.units[2] };
     plans->buildings.push_back ({ "building:A", { ground } });
     plans->revision = 7;
     return plans;
@@ -74,32 +77,81 @@ TEST (DiagramPlans, APlannedStoreyCarriesUnitsAndRoomsInItsShellsFrame)
     EXPECT_EQ (summary.rooms, 4u);
     EXPECT_FALSE (p.storeyInfo.at (first->id).planned);
 
-    const int shell = p.geometry.Find (ground->id);
-    const int units = p.geometry.Find (ground->id, dg::Detail::Units);
-    const int rooms = p.geometry.Find (ground->id, dg::Detail::Rooms);
-    ASSERT_GE (shell, 0);
-    ASSERT_GE (units, 0);
-    ASSERT_GE (rooms, 0);
-    EXPECT_EQ (p.geometry.Find (first->id, dg::Detail::Units), -1);
+    EXPECT_EQ (p.geometry.Of (ground->id, dg::Detail::Topology).count, 1u);
+    const auto units = p.geometry.Of (ground->id, dg::Detail::Units);
+    const auto rooms = p.geometry.Of (ground->id, dg::Detail::Rooms);
+    ASSERT_EQ (units.count, 3u); // one mesh per flat: each its own pick and highlight
+    ASSERT_EQ (rooms.count, 4u);
+    EXPECT_EQ (p.geometry.Of (first->id, dg::Detail::Units).count, 0u);
     // Node-local like the shell: world = vertex + pivot, inside the storey, under its top.
-    const auto& mesh = p.geometry.meshes[size_t (units)];
     std::set<uint32_t> colours;
-    for (uint32_t i = mesh.firstIndex; i < mesh.firstIndex + mesh.indexCount; ++i) {
-        const auto& v = p.geometry.vertices[p.geometry.indices[i]];
-        const double x = v.position[0] + ground->pivot[0], y = v.position[1] + ground->pivot[1],
-                     z = v.position[2] + ground->pivot[2];
-        EXPECT_GE (x, 0.2 - 1e-4);
-        EXPECT_LE (x, 19.8 + 1e-4);
-        EXPECT_GE (y, 0.2 - 1e-4);
-        EXPECT_GE (z, 0.02 - 1e-4);
-        EXPECT_LE (z, 3.02 - dg::kDetailSlabGap + 1e-4);
-        colours.insert (v.rgba);
+    for (uint32_t m = units.first; m < units.first + units.count; ++m) {
+        const auto& mesh = p.geometry.meshes[m];
+        EXPECT_EQ (mesh.node, ground->id);
+        EXPECT_EQ (mesh.id.level, dg::Level::Apartment);
+        EXPECT_EQ (mesh.indexCount, 36u); // a box: 12 triangles
+        EXPECT_GT (mesh.lineCount, 0u);   // its own rim
+        for (uint32_t i = mesh.firstIndex; i < mesh.firstIndex + mesh.indexCount; ++i) {
+            const auto& v = p.geometry.vertices[p.geometry.indices[i]];
+            const double x = v.position[0] + ground->pivot[0], y = v.position[1] + ground->pivot[1],
+                         z = v.position[2] + ground->pivot[2];
+            EXPECT_GE (x, 0.2 - 1e-4);
+            EXPECT_LE (x, 19.8 + 1e-4);
+            EXPECT_GE (y, 0.2 - 1e-4);
+            EXPECT_GE (z, 0.02 - 1e-4);
+            EXPECT_LE (z, 3.02 - dg::kDetailSlabGap + 1e-4);
+            colours.insert (v.rgba);
+        }
     }
     EXPECT_EQ (colours.size (), 3u); // one per flat, the programme's colour kept
-    EXPECT_GT (mesh.lineCount, 0u);  // each flat its own rim
-    // Three boxes: 3 x 12 triangles.
-    EXPECT_EQ (mesh.indexCount, 3u * 36u);
-    EXPECT_EQ (p.geometry.meshes[size_t (rooms)].indexCount, 4u * 36u);
+    EXPECT_EQ (p.spaceInfo.size (), 7u);
+    const auto& flat = p.spaceInfo.at (dg::SpaceId (ground->id, dg::Detail::Units, 2));
+    EXPECT_EQ (flat.storey, ground->id);
+    EXPECT_EQ (flat.label, "2-room flat");
+    EXPECT_NEAR (flat.area, 72.96, 1e-6);
+}
+
+// User, 2026-11-19: "in topology selects slabs, in units selects units, in rooms selects rooms".
+TEST (DiagramPlans, AClickSelectsWhatTheDetailShows)
+{
+    const auto prepared = dg::Prepare (Snapshot (Plans ()), {}, dg::DefaultRequest (), 1);
+    ASSERT_TRUE (prepared.publication);
+    const auto& p = *prepared.publication;
+    const auto plan = dg::Spaced (p.plan, { 0.0 });
+    const auto frame = dg::Evaluate (plan, {}, 1.0);
+    const auto* ground = StoreyAt (p.plan, "building:A", 0);
+    const auto* first = StoreyAt (p.plan, "building:A", 3);
+    ASSERT_TRUE (ground && first);
+    // Straight down onto the ground floor's first flat (x 0.2..9.8, y 0.2..7.8): through the
+    // first floor above it, which is unplanned and so its shell takes the click first.
+    const auto pick = [&] (dg::Detail detail, double z) {
+        return dg::PickShown (frame, plan, p.geometry, p.shells, p.details, detail, { 2.0, 2.0, z }, { 0, 0, -1 });
+    };
+    auto hit = pick (dg::Detail::Units, 50);
+    ASSERT_TRUE (hit);
+    EXPECT_EQ (hit->id.level, dg::Level::Storey); // the top of the stack is a shell
+    // From inside the ground storey's height, under the first floor: the flat itself.
+    hit = pick (dg::Detail::Units, 2.9);
+    ASSERT_TRUE (hit);
+    EXPECT_EQ (hit->id, dg::SpaceId (ground->id, dg::Detail::Units, 1));
+    hit = pick (dg::Detail::Rooms, 2.9);
+    ASSERT_TRUE (hit);
+    EXPECT_EQ (hit->id, dg::SpaceId (ground->id, dg::Detail::Rooms, 4)); // the flat's first room
+    hit = pick (dg::Detail::Topology, 2.9);
+    ASSERT_TRUE (hit);
+    EXPECT_EQ (hit->id, ground->id);
+
+    // A selected flat highlights alone; a selected storey highlights all it shows.
+    const auto flat = dg::SpaceId (ground->id, dg::Detail::Units, 1);
+    size_t lit = 0;
+    for (const auto& draw : dg::DrawsOf (p.geometry, plan, dg::Evaluate (plan, { flat }, 1.0), {}, dg::Detail::Units))
+        lit += draw.selected;
+    EXPECT_EQ (lit, 1u);
+    lit = 0;
+    for (const auto& draw :
+         dg::DrawsOf (p.geometry, plan, dg::Evaluate (plan, { ground->id }, 1.0), {}, dg::Detail::Units))
+        lit += draw.selected;
+    EXPECT_EQ (lit, 3u);
 }
 
 TEST (DiagramPlans, DetailPicksTheBodyAndAnUnplannedStoreyKeepsItsShell)
@@ -111,9 +163,9 @@ TEST (DiagramPlans, DetailPicksTheBodyAndAnUnplannedStoreyKeepsItsShell)
     const auto* ground = StoreyAt (p.plan, "building:A", 0);
     ASSERT_TRUE (ground);
     const auto meshOf = [&] (dg::Detail detail) {
-        std::map<dg::EntityId, dg::Detail> out;
+        std::map<dg::EntityId, dg::Detail> out; // storey -> the detail it draws
         for (const auto& draw : dg::DrawsOf (p.geometry, p.plan, frame, {}, detail))
-            out[p.geometry.meshes[draw.mesh].id] = p.geometry.meshes[draw.mesh].detail;
+            out[p.geometry.meshes[draw.mesh].node] = p.geometry.meshes[draw.mesh].detail;
         return out;
     };
     for (const auto detail : { dg::Detail::Topology, dg::Detail::Units, dg::Detail::Rooms, dg::Detail::Walls }) {

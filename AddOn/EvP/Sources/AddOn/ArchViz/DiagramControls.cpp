@@ -57,7 +57,9 @@ void Frame (const diagram::Publication& publication, const diagram::Spacing& spa
 // The building of the selected storey, by key; empty while none is selected.
 std::string SelectedBuilding (const diagram::Publication& publication)
 {
-    const auto selected = diagrammodel::Selected ();
+    auto selected = diagrammodel::Selected ();
+    if (const auto space = publication.spaceInfo.find (selected); space != publication.spaceInfo.end ())
+        selected = space->second.storey;
     const auto info = selected.Empty () ? publication.storeyInfo.end () : publication.storeyInfo.find (selected);
     return info == publication.storeyInfo.end () ? std::string () : info->second.buildingKey;
 }
@@ -205,15 +207,28 @@ void DrawSelection (Memory& memory)
     const auto publication = diagrammodel::Read ();
     if (!controls.enabled || !publication)
         return;
+    auto selected = diagrammodel::Selected ();
+    char line[200];
+    // A flat or a room first, then the storey it stands on.
+    if (const auto space = publication->spaceInfo.find (selected); space != publication->spaceInfo.end ()) {
+        const auto& f = space->second;
+        ImGui::SeparatorText (f.detail == diagram::Detail::Rooms ? "Selected room" : "Selected unit");
+        Wrapped (f.label.empty () ? std::string ("Planned space") : f.label);
+        if (f.area > 0) {
+            std::snprintf (line, sizeof (line), "Area %.1f m2 inside its walls", f.area);
+            Wrapped (line);
+        }
+        selected = f.storey;
+    }
     ImGui::SeparatorText ("Selected storey");
-    const auto selected = diagrammodel::Selected ();
     const auto info = selected.Empty () ? publication->storeyInfo.end () : publication->storeyInfo.find (selected);
     if (info == publication->storeyInfo.end ()) {
-        Wrapped ("Click a storey in the diagram to inspect it.");
+        Wrapped (controls.detail == diagram::Detail::Topology
+                     ? "Click a storey in the diagram to inspect it."
+                     : "Click a flat or room in the diagram to inspect it; an unplanned storey selects whole.");
         return;
     }
     const auto& s = info->second;
-    char line[200];
     const std::string building = s.buildingId.empty () ? "unnamed slab" : "building " + s.buildingId;
     const std::string story = s.storyName.empty () ? "story " + std::to_string (s.sourceStory) : s.storyName;
     Wrapped (building + ", " + story);

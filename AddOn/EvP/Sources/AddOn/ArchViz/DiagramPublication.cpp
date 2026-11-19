@@ -37,6 +37,8 @@ Prepared Prepare (const DiagramInputSnapshot& snapshot, StoreyBindings bindings,
         publication->plannedStoreys += entity.id.level == Level::Storey && entity.planned;
     }
     publication->shells = std::move (built.shells);
+    publication->details = std::move (built.details);
+    publication->spaceInfo = std::move (built.spaces);
     publication->scene = std::move (built.scene);
     publication->buildMs =
         std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();

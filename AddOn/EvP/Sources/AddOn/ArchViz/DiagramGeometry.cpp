@@ -1,6 +1,7 @@
 #include "ArchViz/DiagramGeometry.hpp"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <tuple>
 
@@ -156,36 +157,53 @@ void Append (DiagramGeometry& out, const PickMesh& body, uint32_t rgba)
 }
 } // namespace
 
-int DiagramGeometry::Find (const EntityId& id, Detail detail) const
+namespace {
+bool MeshLess (const DiagramMesh& a, const DiagramMesh& b)
 {
-    const auto key = std::tie (id, detail);
-    auto it = std::lower_bound (meshes.begin (), meshes.end (), key,
-                                [] (const DiagramMesh& m, const auto& k) { return std::tie (m.id, m.detail) < k; });
-    return it != meshes.end () && it->id == id && it->detail == detail ? int (it - meshes.begin ()) : -1;
+    return std::tie (a.node, a.detail, a.id) < std::tie (b.node, b.detail, b.id);
+}
+} // namespace
+
+DiagramGeometry::Range DiagramGeometry::Of (const EntityId& node, Detail detail) const
+{
+    const auto lo =
+        std::lower_bound (meshes.begin (), meshes.end (), std::tie (node, detail),
+                          [] (const DiagramMesh& m, const auto& k) { return std::tie (m.node, m.detail) < k; });
+    auto hi = lo;
+    while (hi != meshes.end () && hi->node == node && hi->detail == detail)
+        ++hi;
+    return { uint32_t (lo - meshes.begin ()), uint32_t (hi - lo), detail };
 }
 
-int DiagramGeometry::Shown (const EntityId& id, Detail detail) const
+DiagramGeometry::Range DiagramGeometry::Shown (const EntityId& node, Detail detail) const
 {
     if (detail == Detail::Rooms || detail == Detail::Walls)
-        if (const int rooms = Find (id, Detail::Rooms); rooms >= 0)
+        if (const auto rooms = Of (node, Detail::Rooms); rooms.count)
             return rooms;
     if (detail != Detail::Topology)
-        if (const int units = Find (id, Detail::Units); units >= 0)
+        if (const auto units = Of (node, Detail::Units); units.count)
             return units;
-    return Find (id, Detail::Topology);
+    return Of (node, Detail::Topology);
+}
+
+int DiagramGeometry::Find (const EntityId& node, Detail detail) const
+{
+    const auto range = Of (node, detail);
+    return range.count ? int (range.first) : -1;
 }
 
 DiagramGeometry BuildGeometry (const BuiltScene& built)
 {
     DiagramGeometry out;
-    const auto add = [&] (const EntityId& id, Detail detail, const auto& bodies) {
+    const auto add = [&] (const EntityId& id, const EntityId& node, Detail detail, const PickMesh& body,
+                          uint32_t rgba) {
         DiagramMesh mesh;
         mesh.id = id;
+        mesh.node = node;
         mesh.detail = detail;
         mesh.firstIndex = uint32_t (out.indices.size ());
         mesh.firstLine = uint32_t (out.lines.size ());
-        for (const auto& [body, rgba] : bodies)
-            Append (out, *body, Opaque (rgba));
+        Append (out, body, Opaque (rgba));
         mesh.indexCount = uint32_t (out.indices.size ()) - mesh.firstIndex;
         mesh.lineCount = uint32_t (out.lines.size ()) - mesh.firstLine;
         if (mesh.indexCount > 0)
@@ -193,27 +211,18 @@ DiagramGeometry BuildGeometry (const BuiltScene& built)
     };
     for (const auto& shell : built.shells) {
         const auto colour = built.colours.find (shell.id);
-        const std::vector<std::pair<const PickMesh*, uint32_t>> one {
-            { &shell, colour != built.colours.end () ? colour->second : 0u }
-        };
-        add (shell.id, Detail::Topology, one);
+        add (shell.id, shell.id, Detail::Topology, shell, colour != built.colours.end () ? colour->second : 0u);
     }
-    // Each planned space is a body of its own: its own colour, its own rim between flats.
-    std::vector<PickMesh> bodies;
-    for (const auto& detail : built.details) {
-        bodies.assign (detail.spaces.size (), {});
-        std::vector<std::pair<const PickMesh*, uint32_t>> spaces;
-        for (size_t i = 0; i < detail.spaces.size (); ++i) {
-            bodies[i].id = detail.id;
-            bodies[i].positions = detail.spaces[i].positions;
-            bodies[i].indices = detail.spaces[i].indices;
-            spaces.emplace_back (&bodies[i], detail.spaces[i].rgba);
+    // Each planned space is a body of its own: its own colour, its own rim, its own pick.
+    for (const auto& detail : built.details)
+        for (const auto& space : detail.spaces) {
+            PickMesh body;
+            body.id = space.id;
+            body.positions = space.positions;
+            body.indices = space.indices;
+            add (space.id, detail.id, detail.detail, body, space.rgba);
         }
-        add (detail.id, detail.detail, spaces);
-    }
-    std::sort (out.meshes.begin (), out.meshes.end (), [] (const DiagramMesh& a, const DiagramMesh& b) {
-        return std::tie (a.id, a.detail) < std::tie (b.id, b.detail);
-    });
+    std::sort (out.meshes.begin (), out.meshes.end (), MeshLess);
     return out;
 }
 
@@ -285,15 +294,20 @@ std::vector<DiagramDraw> DrawsOf (const DiagramGeometry& geometry, const LayoutP
     for (const auto& pose : frame.poses) {
         if (!pose.visible)
             continue;
-        const int mesh = geometry.Shown (pose.id, detail);
-        if (mesh < 0)
+        const auto range = geometry.Shown (pose.id, detail);
+        if (!range.count)
             continue;
-        DiagramDraw draw;
-        draw.mesh = uint32_t (mesh);
         const auto matrix = DisplayMatrix (pose, origin);
-        draw.translation = { matrix[12], matrix[13], matrix[14] };
-        draw.selected = std::binary_search (frame.selected.begin (), frame.selected.end (), pose.id);
-        draws.push_back (draw);
+        const bool storey = std::binary_search (frame.selected.begin (), frame.selected.end (), pose.id);
+        for (uint32_t m = range.first; m < range.first + range.count; ++m) {
+            DiagramDraw draw;
+            draw.mesh = m;
+            draw.translation = { matrix[12], matrix[13], matrix[14] };
+            draw.selected =
+                storey || (range.detail != Detail::Topology &&
+                           std::binary_search (frame.selected.begin (), frame.selected.end (), geometry.meshes[m].id));
+            draws.push_back (draw);
+        }
     }
     return draws;
 }
@@ -312,14 +326,16 @@ std::vector<DiagramLineDraw> LineDrawsOf (const DiagramGeometry& geometry, const
             const auto& pose = frame.poses[i];
             if (!pose.visible)
                 continue;
-            const int mesh = geometry.Shown (pose.id, detail);
-            if (mesh < 0 || geometry.meshes[size_t (mesh)].lineCount == 0)
-                continue;
-            DiagramLineDraw draw;
-            draw.firstLine = geometry.meshes[size_t (mesh)].firstLine;
-            draw.lineCount = geometry.meshes[size_t (mesh)].lineCount;
-            draw.first = draw.second = translation (int (i));
-            draws.push_back (draw);
+            const auto range = geometry.Shown (pose.id, detail);
+            for (uint32_t m = range.first; m < range.first + range.count; ++m) {
+                if (geometry.meshes[m].lineCount == 0)
+                    continue;
+                DiagramLineDraw draw;
+                draw.firstLine = geometry.meshes[m].firstLine;
+                draw.lineCount = geometry.meshes[m].lineCount;
+                draw.first = draw.second = translation (int (i));
+                draws.push_back (draw);
+            }
         }
     if (connectors)
         for (const auto& connector : geometry.connectors) {
@@ -342,5 +358,99 @@ std::vector<DiagramLineDraw> LineDrawsOf (const DiagramGeometry& geometry, const
             draws.push_back (draw);
         }
     return draws;
+}
+namespace {
+// Nearest ray-triangle distance of a node-local body (Moller-Trumbore, both faces).
+bool RayHit (const std::vector<double>& positions, const std::vector<uint32_t>& indices, const Vec3& o, const Vec3& d,
+             double& best, int& triangle)
+{
+    bool hit = false;
+    for (size_t f = 0; f + 2 < indices.size (); f += 3) {
+        Vec3 v[3];
+        bool valid = true;
+        for (int c = 0; c < 3 && valid; ++c) {
+            const size_t at = size_t (indices[f + size_t (c)]) * 3;
+            valid = at + 2 < positions.size ();
+            if (valid)
+                v[c] = { positions[at], positions[at + 1], positions[at + 2] };
+        }
+        if (!valid)
+            continue;
+        const Vec3 e1 { v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2] };
+        const Vec3 e2 { v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2] };
+        const Vec3 p { d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0] };
+        const double det = e1[0] * p[0] + e1[1] * p[1] + e1[2] * p[2];
+        if (std::abs (det) < 1e-15)
+            continue;
+        const double inv = 1.0 / det;
+        const Vec3 s { o[0] - v[0][0], o[1] - v[0][1], o[2] - v[0][2] };
+        const double u = (s[0] * p[0] + s[1] * p[1] + s[2] * p[2]) * inv;
+        if (u < 0 || u > 1)
+            continue;
+        const Vec3 q { s[1] * e1[2] - s[2] * e1[1], s[2] * e1[0] - s[0] * e1[2], s[0] * e1[1] - s[1] * e1[0] };
+        const double w = (d[0] * q[0] + d[1] * q[1] + d[2] * q[2]) * inv;
+        if (w < 0 || u + w > 1)
+            continue;
+        const double t = (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) * inv;
+        if (t > 1e-9 && t < best) {
+            best = t;
+            triangle = int (f / 3);
+            hit = true;
+        }
+    }
+    return hit;
+}
+} // namespace
+
+std::optional<PickHit> PickShown (const Frame& frame, const LayoutPlan& plan, const DiagramGeometry& geometry,
+                                  const std::vector<PickMesh>& shells, const std::vector<DetailMesh>& details,
+                                  Detail detail, const Vec3& origin, const Vec3& direction)
+{
+    const double length =
+        std::sqrt (direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2]);
+    if (!(length > 0) || frame.poses.size () != plan.nodes.size ())
+        return std::nullopt;
+    const Vec3 d { direction[0] / length, direction[1] / length, direction[2] / length };
+    std::map<EntityId, const PickMesh*> shellOf;
+    for (const auto& shell : shells)
+        shellOf.emplace (shell.id, &shell);
+    std::map<std::pair<EntityId, Detail>, const DetailMesh*> detailOf;
+    for (const auto& mesh : details)
+        detailOf.emplace (std::pair { mesh.id, mesh.detail }, &mesh);
+    std::optional<PickHit> best;
+    double nearest = std::numeric_limits<double>::infinity ();
+    for (size_t i = 0; i < plan.nodes.size (); ++i) {
+        const auto& node = plan.nodes[i];
+        const auto& pose = frame.poses[i];
+        if (!pose.visible || !node.addressable)
+            continue;
+        const auto shown = geometry.Shown (node.id, detail);
+        if (!shown.count)
+            continue;
+        const Vec3 o { origin[0] - pose.pivot[0] - pose.offset[0], origin[1] - pose.pivot[1] - pose.offset[1],
+                       origin[2] - pose.pivot[2] - pose.offset[2] };
+        const auto take = [&] (const EntityId& id, const std::vector<double>& positions,
+                               const std::vector<uint32_t>& indices) {
+            int triangle = -1;
+            if (!RayHit (positions, indices, o, d, nearest, triangle))
+                return;
+            PickHit hit;
+            hit.id = id;
+            hit.distance = nearest;
+            hit.triangle = triangle;
+            for (int k = 0; k < 3; ++k)
+                hit.point[size_t (k)] = origin[size_t (k)] + d[size_t (k)] * nearest;
+            best = hit;
+        };
+        if (shown.detail == Detail::Topology) {
+            if (const auto shell = shellOf.find (node.id); shell != shellOf.end ())
+                take (node.id, shell->second->positions, shell->second->indices);
+            continue;
+        }
+        if (const auto mesh = detailOf.find ({ node.id, shown.detail }); mesh != detailOf.end ())
+            for (const auto& space : mesh->second->spaces)
+                take (space.id, space.positions, space.indices);
+    }
+    return best;
 }
 } // namespace geomsrv::archviz::diagram

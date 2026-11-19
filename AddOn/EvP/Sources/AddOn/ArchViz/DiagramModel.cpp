@@ -134,8 +134,8 @@ void Adopt ()
     s_bindings = std::move (prepared.bindings);
     const auto& p = *prepared.publication;
     std::vector<std::string> kept;
-    if (!s_selected.Empty () && p.plan.Find (s_selected) < 0) {
-        kept.push_back ("Selection cleared: its storey is no longer in the diagram.");
+    if (!s_selected.Empty () && p.plan.Find (s_selected) < 0 && !p.spaceInfo.count (s_selected)) {
+        kept.push_back ("Selection cleared: it is no longer in the diagram.");
         s_selected = {};
     }
     s_status.state = std::to_string (p.buildings) + " building(s), " + std::to_string (p.storeys) + " storey(s)" +

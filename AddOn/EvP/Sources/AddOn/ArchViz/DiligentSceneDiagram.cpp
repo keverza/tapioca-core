@@ -98,9 +98,11 @@ bool DiligentScene::PickDiagram (int32_t px, int32_t py)
     float origin[3], direction[3];
     impl_->cursorRay (px, py, origin, direction);
     const diagram::Frame frame = diagram::Evaluate (*plan, {}, 1.0);
+    // Topology selects a storey, Units a flat, Rooms a room: what the click is on.
     const auto hit =
-        diagram::Pick (frame, *plan, publication->shells, diagram::Vec3 { origin[0], origin[1], origin[2] },
-                       diagram::Vec3 { direction[0], direction[1], direction[2] });
+        diagram::PickShown (frame, *plan, publication->geometry, publication->shells, publication->details,
+                            diagrammodel::ReadControls ().detail, diagram::Vec3 { origin[0], origin[1], origin[2] },
+                            diagram::Vec3 { direction[0], direction[1], direction[2] });
     if (!hit) {
         diagrammodel::Select ({});
         return false; // terrain, neighbours and the sky stay the model's to pick

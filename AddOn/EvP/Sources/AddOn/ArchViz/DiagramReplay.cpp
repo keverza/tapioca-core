@@ -77,9 +77,14 @@ V WriteSpaces (const std::vector<PlannedSpace>& spaces)
             }
             rings.push_back (V::Array (std::move (xy)));
         }
-        out.push_back (V::Object ({ { "id", Unsigned (space.id) },
-                                    { "rgba", V::Integer (static_cast<int64_t> (space.rgba)) },
-                                    { "rings", V::Array (std::move (rings)) } }));
+        js::JsonObject o { { "id", Unsigned (space.id) },
+                           { "rgba", V::Integer (static_cast<int64_t> (space.rgba)) },
+                           { "rings", V::Array (std::move (rings)) } };
+        if (!space.label.empty ())
+            o["label"] = V::String (space.label);
+        if (space.area > 0)
+            o["area"] = Number (space.area);
+        out.push_back (V::Object (std::move (o)));
     }
     return V::Array (std::move (out));
 }
@@ -209,6 +214,9 @@ bool ReadSpaces (const V* value, std::vector<PlannedSpace>& out)
             return false;
         space.id = static_cast<uint64_t> (id);
         space.rgba = static_cast<uint32_t> (rgba);
+        ReadString (item, "label", space.label); // optional
+        if (item.Find ("area") && !ReadDouble (item, "area", space.area))
+            return false;
         for (const auto& ring : *rings) {
             const auto* xy = ring.AsArray ();
             if (!xy || xy->size () % 2 != 0)

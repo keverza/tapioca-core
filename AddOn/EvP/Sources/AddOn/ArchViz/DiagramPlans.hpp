@@ -26,6 +26,8 @@ struct PlannedSpace {
     uint64_t id = 0; // the complex's stable unit or cell id (Reconcile)
     std::vector<PlanRing> rings;
     uint32_t rgba = 0; // 0xRRGGBBAA; 0 draws the neutral grey
+    std::string label; // what the inspector calls it: "2-room flat", "Corridor", "Bedroom"
+    double area = 0;   // m2 inside its walls, as the complex measured it
 };
 
 struct PlannedFloor {

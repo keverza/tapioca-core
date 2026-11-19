@@ -88,9 +88,20 @@ struct StoreySummary {
 // shell): one space per flat at Units detail, one per cell at Rooms. Each space keeps its
 // own colour and its own outline.
 struct DetailSpace {
+    EntityId id;                   // SpaceId: Apartment at Units, Room at Rooms
     std::vector<double> positions; // xyz
     std::vector<uint32_t> indices;
     uint32_t rgba = 0;
+};
+// A planned space's diagram identity: its storey's key and the complex's stable id. A
+// session binding like the storey's; Units and Rooms name the same cell apart.
+EntityId SpaceId (const EntityId& storey, Detail detail, uint64_t id);
+// What the inspector says about a selected flat or room.
+struct SpaceSummary {
+    EntityId storey;
+    Detail detail = Detail::Units;
+    std::string label;
+    double area = 0;
 };
 struct DetailMesh {
     EntityId id; // the storey
@@ -110,6 +121,7 @@ struct BuiltScene {
     std::shared_ptr<const Scene> scene;        // null when the snapshot is incompatible
     std::vector<PickMesh> shells;              // one per storey, node-local; also the draw source
     std::vector<DetailMesh> details;           // planned storeys' Units and Rooms, sorted by (id, detail)
+    std::map<EntityId, SpaceSummary> spaces;   // every detail space -> inspector fields
     std::vector<std::string> representedGuids; // source slabs the diagram stands in for, sorted
     std::map<EntityId, uint32_t> colours;      // storey -> its first row's function colour, 0xRRGGBBAA
     std::map<EntityId, StoreySummary> storeys; // storey -> inspector fields

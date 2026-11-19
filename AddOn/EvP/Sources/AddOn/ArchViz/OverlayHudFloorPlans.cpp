@@ -695,6 +695,53 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
     return true;
 }
 
+namespace {
+// What the diagram's inspector calls a planned cell (#201).
+std::string CellLabel (const bt::Cell& cell)
+{
+    switch (cell.kind) {
+        case bt::CellKind::Room:
+            switch (cell.room) {
+                case fs::RoomKind::Living:
+                    return "Living room";
+                case fs::RoomKind::Bedroom:
+                    return "Bedroom";
+                case fs::RoomKind::Alcove:
+                    return "Alcove";
+                case fs::RoomKind::Hall:
+                    return "Hall";
+                case fs::RoomKind::Bath:
+                    return "Bathroom";
+                case fs::RoomKind::Wc:
+                    return "WC";
+                case fs::RoomKind::Storage:
+                    return "Storage";
+            }
+            return "Room";
+        case bt::CellKind::FlatRest:
+            return "Flat recess";
+        case bt::CellKind::Flat:
+            return "Flat (rooms not planned)";
+        case bt::CellKind::Corridor:
+            return "Corridor";
+        case bt::CellKind::Lobby:
+            return "Lobby";
+        case bt::CellKind::Core:
+            return "Stair core";
+        case bt::CellKind::Unassigned:
+            return "Unassigned floor";
+    }
+    return "Cell";
+}
+double ClearArea (const std::vector<fs::Ring>& rings)
+{
+    double area = 0;
+    for (const auto& ring : rings)
+        area += fs::Area (ring); // holes run clockwise: they subtract
+    return std::abs (area);
+}
+} // namespace
+
 std::shared_ptr<const diagram::FloorPlans> DiagramFloorPlans (State& state)
 {
     // Keyed on what the complexes were built from and the programme that colours the flats.
@@ -733,8 +780,11 @@ std::shared_ptr<const diagram::FloorPlans> DiagramFloorPlans (State& state)
             const auto& unit = complex.units[u];
             if (unit.floor < 0 || size_t (unit.floor) >= building.floors.size ())
                 continue;
+            char label[64];
+            std::snprintf (label, sizeof (label), "%g-room flat", unit.rooms);
             diagram::PlannedSpace space { unit.id, rings (held->units[u]),
-                                          fp::Colour (state.massingProgramme, unit.type, unit.rooms) | 0xFFu };
+                                          fp::Colour (state.massingProgramme, unit.type, unit.rooms) | 0xFFu, label,
+                                          ClearArea (held->units[u]) };
             if (!space.rings.empty ())
                 building.floors[size_t (unit.floor)].units.push_back (std::move (space));
         }
@@ -742,7 +792,8 @@ std::shared_ptr<const diagram::FloorPlans> DiagramFloorPlans (State& state)
             const auto& cell = complex.cells[id];
             if (cell.context || cell.floor < 0 || size_t (cell.floor) >= building.floors.size ())
                 continue;
-            diagram::PlannedSpace space { cell.id, rings (held->cells[id]), CellRgba (cell) };
+            diagram::PlannedSpace space { cell.id, rings (held->cells[id]), CellRgba (cell), CellLabel (cell),
+                                          ClearArea (held->cells[id]) };
             if (space.rings.empty ())
                 continue;
             auto& floor = building.floors[size_t (cell.floor)];
