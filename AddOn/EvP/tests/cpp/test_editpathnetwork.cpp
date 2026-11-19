@@ -254,7 +254,8 @@ void ExpectMeshFillsItsOutline (const ed::PavedArea& a)
     ASSERT_FALSE (a.triangles.empty ());
     double outlined = 0.0;
     for (const auto& ring : a.rings)
-        outlined += std::abs (Area (ring));
+        outlined += Area (ring); // outlines counter-clockwise, holes clockwise
+    outlined = std::abs (outlined);
     for (size_t t = 0; t + 2 < a.triangles.size (); t += 3) {
         const auto& p = a.vertices[a.triangles[t]];
         const auto& q = a.vertices[a.triangles[t + 1]];
@@ -722,6 +723,49 @@ TEST (EditPathNetwork, AnalyticFilletsRetainHolesIslandsAndRequestedRadiusOnReco
     EXPECT_GT (arcs, 0u);
     for (const auto& p : doc.paths)
         EXPECT_DOUBLE_EQ (p.edgeRadius, p.id == island ? .5 : 1);
+}
+
+TEST (EditPathNetwork, ARefinedSurfaceKeepsTheOutlinesPlanVerticesSharedAndFillsAnIslandInAHole)
+{
+    // A loop inside another loop's hole, oblique and far from the origin: the inner loop is an
+    // island with a hole of its own, so it is a region of its own and not a second hole of the
+    // outer loop. The surface keeps every outline vertex where the outline put it, stores each
+    // plan position once, and fills the island.
+    const double angle = .31;
+    const auto at = [=] (double x, double y) {
+        return ed::Vec3 { 1234.567 + x * std::cos (angle) - y * std::sin (angle),
+                          987.654 + x * std::sin (angle) + y * std::cos (angle), 0 };
+    };
+    ed::Document doc;
+    for (const double lo : { 0.0, 6.0 }) {
+        const double hi = 20 - lo;
+        const ed::Vec3 corners[] = { at (lo, lo), at (hi, lo), at (hi, hi), at (lo, hi) };
+        for (size_t i = 0; i < 4; ++i)
+            ed::AddPath (doc, { corners[i], corners[(i + 1) % 4] }, 2);
+    }
+    const auto paved = ed::Pave (doc.paths, .5, true);
+    ASSERT_EQ (paved.rings.size (), 4u);
+    ExpectMeshFillsItsOutline (paved);
+    std::vector<std::pair<double, double>> plan;
+    for (const auto& v : paved.vertices)
+        plan.emplace_back (v.x, v.y);
+    std::sort (plan.begin (), plan.end ());
+    EXPECT_EQ (std::adjacent_find (plan.begin (), plan.end ()), plan.end ()) << "a plan position stored twice";
+    for (const auto& ring : paved.rings)
+        for (const auto& p : ring)
+            EXPECT_TRUE (std::binary_search (plan.begin (), plan.end (), std::pair { p.x, p.y }))
+                << "outline vertex " << p.x << ", " << p.y << " moved or missing";
+    const auto covered = [&] (ed::Vec3 p) {
+        for (size_t t = 0; t + 2 < paved.triangles.size (); t += 3)
+            if (Inside ({ paved.vertices[paved.triangles[t]], paved.vertices[paved.triangles[t + 1]],
+                          paved.vertices[paved.triangles[t + 2]] },
+                        p.x, p.y))
+                return true;
+        return false;
+    };
+    EXPECT_TRUE (covered (at (6, 10)));   // the island
+    EXPECT_FALSE (covered (at (10, 10))); // the island's own hole
+    EXPECT_FALSE (covered (at (3, 10)));  // the outer loop's hole
 }
 
 TEST (EditPathNetwork, ThreeWayJunctionKeepsOneAnalyticBoundary)

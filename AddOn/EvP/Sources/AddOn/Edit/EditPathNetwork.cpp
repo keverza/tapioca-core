@@ -2,8 +2,8 @@
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditPathCrossing.hpp"
 #include "Edit/EditPathSurface.hpp"
+#include "Geometry/PlanarTriangulation.hpp"
 #include <clipper2/clipper.h>
-#include <clipper2/clipper.triangulation.h>
 #include <algorithm>
 #include <map>
 #include <cmath>
@@ -651,40 +651,53 @@ PavedArea PaveTogether (const std::vector<Path>& paths, double step, bool surfac
         return out;
     if (sources.size () == 1 && BuildLinearSurface (out, *sources[0].path, sources[0].geometry, sources[0].preparation))
         return out;
-    // The surface: each outline with its holes triangulated.
+    // The surface: each outline with its own holes, covered over its own corners. A hole
+    // belongs to the smallest outline around it, so an island inside a hole is its own region.
     for (const auto& outer : united) {
-        if (cp::Area (outer) <= 0.0)
+        const double area = cp::Area (outer);
+        if (area <= 0.0)
             continue;
+        const auto inside = [] (const cp::PathD& ring, const cp::PathD& around) {
+            return !ring.empty () && cp::PointInPolygon (ring.front (), around) != cp::PointInPolygonResult::IsOutside;
+        };
         cp::PathsD region { outer };
-        for (const auto& hole : united)
-            if (cp::Area (hole) < 0.0 && !hole.empty () &&
-                cp::PointInPolygon (hole.front (), outer) != cp::PointInPolygonResult::IsOutside)
-                region.push_back (hole);
-        // Boolean outlines use a binary lattice. The decimal triangulation
-        // overload rounds that boundary a second time, moving slanted edges;
-        // refinement then exposes triangles outside the original footprint.
-        // Triangulate the existing lattice without changing its plan vertices.
-        const double lattice = kLattice;
-        cp::Paths64 grid;
-        for (const auto& ring : region) {
-            cp::Path64 path;
-            for (const auto& q : ring)
-                path.push_back ({ int64_t (std::llround (q.x * lattice)), int64_t (std::llround (q.y * lattice)) });
-            grid.push_back (std::move (path));
-        }
-        cp::Paths64 triangles;
-        if (cp::Triangulate (grid, triangles, true) != cp::TriangulateResult::success)
-            continue; // a refused region stays outlined, unfilled
-        for (auto& t : triangles) {
-            if (t.size () != 3)
+        for (const auto& hole : united) {
+            if (cp::Area (hole) >= 0.0 || !inside (hole, outer))
                 continue;
-            if (cp::Area (t) < 0.0)
-                std::reverse (t.begin (), t.end ());
-            for (const auto& q : t) {
-                out.triangles.push_back (static_cast<uint32_t> (out.vertices.size ()));
-                out.vertices.push_back (lift ({ double (q.x) / lattice, double (q.y) / lattice }));
+            bool nearer = false;
+            for (const auto& other : united)
+                if (&other != &outer && cp::Area (other) > 0.0 && cp::Area (other) < area && inside (hole, other) &&
+                    inside (other, outer))
+                    nearer = true;
+            if (!nearer)
+                region.push_back (hole);
+        }
+        // The cover indexes the boolean outline's own binary-lattice points, so plan
+        // vertices never move and refinement never exposes triangles outside the footprint.
+        std::vector<std::vector<double>> xy;
+        std::vector<engine::PlanarRing> rings;
+        std::vector<cp::PointD> points;
+        for (const auto& ring : region) {
+            auto& flat = xy.emplace_back ();
+            for (const auto& q : ring) {
+                flat.insert (flat.end (), { q.x, q.y });
+                points.push_back (q);
             }
         }
+        for (const auto& flat : xy)
+            rings.push_back ({ flat.data (), flat.size () / 2 });
+        engine::PlanarTriangulation cover;
+        std::string error;
+        const bool exact = engine::TriangulatePlanar (rings, false, cover, error) && cover.generatedXY.empty () &&
+                           (cover.cover == engine::PlanarCover::Exact ||
+                            (cover.cover == engine::PlanarCover::Repaired && region.size () > 1));
+        if (!exact)
+            continue; // a refused region stays outlined, unfilled
+        const auto base = uint32_t (out.vertices.size ());
+        for (const auto& q : points)
+            out.vertices.push_back (lift (q));
+        for (uint32_t index : cover.triangles)
+            out.triangles.push_back (base + index);
     }
     std::vector<Vec3> samples;
     for (const auto& source : sources) {
