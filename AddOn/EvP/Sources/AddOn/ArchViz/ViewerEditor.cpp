@@ -302,6 +302,11 @@ bool Refresh ()
         };
     if (const auto highlight = ReadSurfaceHighlight ())
         own.exposedSurfaceHighlight = highlight->summary;
+    // The overlays' own pages carry the 3D overlay's circle, which is Busy (an orange,
+    // animating arc that keeps the HUD redrawing) whenever that overlay is not running. Here
+    // it is only the way back to the overlay, as on the editor's host: never a status.
+    own.overlay.phase = hudshell::Phase::Off;
+    own.overlay.progress = -1.0f;
     own.overlay.tip = "Switch back to the Archicad overlay; keep this editor";
     own.viewer.active = true;
     own.viewer.phase = hudshell::Phase::Ready;
