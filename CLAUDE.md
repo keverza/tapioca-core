@@ -6,6 +6,12 @@ Read the component README before changing build or runtime boundaries.
 
 ## Code Rules
 
+- Track work in labeled `keverza/tapioca-dev` issues, never in this repository's
+  issue tracker. Post an update and final handoff on the owning issue each session.
+- Review touched source files over 600 lines. Above 1,000, split on a real
+  responsibility boundary or record a bounded exception: why the logic belongs
+  together, its ceiling, and when to revisit. Never split just to hit a number.
+  For `Sources/AddOn` `.cpp` files, register exceptions in `tools/quality/check_cpp.py`.
 - Archicad SDK calls run only on the main thread through `MainThreadGate`.
 - Never capture a local by reference in a gate lambda; a timed-out job may run later.
 - Never open an undo scope inside a native command; the dispatcher owns transactions.

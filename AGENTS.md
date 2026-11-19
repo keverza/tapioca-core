@@ -4,6 +4,9 @@ Tapioca is an Archicad 29 add-on with a native C++ host and a shipped Python
 command package. Keep changes small, preserve the existing seams, and validate
 the public command roots before syncing them.
 
+Follow `CLAUDE.md` for issue routing, session updates and handoffs, and the
+600-line advisory / 1,000-line hard source-size limit with reasoned exceptions.
+
 ## Naming and comments
 
 - C++ types and functions use PascalCase.

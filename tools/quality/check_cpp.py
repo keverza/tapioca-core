@@ -32,7 +32,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ADDON_SRC = REPO_ROOT / "AddOn" / "EvP" / "Sources" / "AddOn"
 EXCLUDED_PARTS = {"_deps", "archive", "build_29", "dist", "node_modules", "reference"}
 CPP_EXTENSIONS = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}
-SOFT_CAP = 1000
+SOFT_CAP = 600
+HARD_CAP = 1000
 
 # path relative to Sources/AddOn -> (max lines allowed, why it is allowed)
 # A file here may NOT grow. Shrink the number when you shrink the file.
@@ -1074,12 +1075,13 @@ def _check_architecture_sizes(failures: list[str]) -> None:
                         f"It is already a stated exception ({why}) - it may not grow. "
                         "Split it, or move code out."
                     )
-            elif lines > SOFT_CAP:
+            elif lines > HARD_CAP:
                 failures.append(
-                    f"SIZE: {key} is {lines} lines, over the ~{SOFT_CAP}-line soft "
-                    "cap. Split it in this commit series, or add it to "
-                    "OVERSIZED in tools/quality/check_cpp.py with the reason."
+                    f"SIZE: {key} is {lines} lines, over the {HARD_CAP}-line hard cap. "
+                    "Split at a responsibility boundary or record a bounded OVERSIZED exception."
                 )
+            elif lines > SOFT_CAP:
+                print(f"SIZE advisory: {key} ({lines} lines). When touched, review for a meaningful split.")
 
 
 def _capture_output(function):
