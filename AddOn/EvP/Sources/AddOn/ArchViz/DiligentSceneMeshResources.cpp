@@ -11,6 +11,7 @@
 #include "ArchViz/ClayLook.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -170,6 +171,15 @@ void DiligentScene::SyncAlbedoTextures (Diligent::IRenderDevice* device)
         }
         impl_->albedoTextures.emplace (key, texture);
     }
+
+    // #252 diagnostic: what the table names against what the GPU now holds. textured > 0 with
+    // images = 0 is a table that lost its pixels on the way here.
+    size_t textured = 0;
+    for (const SurfaceMaterial& m : impl_->materials.All ())
+        textured += m.textureKey != 0 ? 1 : 0;
+    ArchVizLog ("Diligent textures: table materials=" + std::to_string (impl_->materials.Size ()) +
+                " textured=" + std::to_string (textured) + " images=" + std::to_string (wanted.size ()) +
+                " gpuImages=" + std::to_string (impl_->albedoTextures.size ()));
 }
 
 // #252: the texture lane for one draw range, into `constants`, and the view Draw binds with it.
@@ -181,17 +191,100 @@ Diligent::ITextureView* DiligentScene::Impl::AlbedoFor (const SurfaceMaterial& m
     constants.textureParams[0] = 0.0f;
     Diligent::ITextureView* fallback =
         albedoFallback != nullptr ? albedoFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE) : nullptr;
-    if (!materialTexturesEnabled || look.enabled || renderQuality != RenderQuality::Realistic ||
-        material.textureKey == 0)
+    if (material.textureKey == 0)
         return fallback;
+    if (!materialTexturesEnabled || look.enabled || renderQuality != RenderQuality::Realistic) {
+        ++textureLane[2];
+        return fallback;
+    }
     const auto found = albedoTextures.find (material.textureKey);
-    if (found == albedoTextures.end ())
+    if (found == albedoTextures.end ()) {
+        ++textureLane[1];
         return fallback;
+    }
+    ++textureLane[0];
     constants.textureParams[0] = 1.0f;
     constants.textureParams[1] = 1.0f / (std::max) (material.textureSizeX, 1e-6f);
     constants.textureParams[2] = 1.0f / (std::max) (material.textureSizeY, 1e-6f);
     constants.textureParams[3] = float ((material.textureMirrorX ? 1 : 0) | (material.textureMirrorY ? 2 : 0));
     return found->second->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+}
+
+// #252 diagnostic: closes the previous frame's count. Logged when it changes, so a live run
+// says in one line whether textured ranges drew, named an image the GPU lost, or were gated.
+void DiligentScene::Impl::NoteTextureLane ()
+{
+    if (!idleLastFrame)
+        std::copy (std::begin (textureLane), std::end (textureLane), std::begin (textureLaneDrawn));
+    std::fill (std::begin (textureLane), std::end (textureLane), 0u);
+    if (std::equal (std::begin (textureLaneDrawn), std::end (textureLaneDrawn), std::begin (textureLaneLogged)))
+        return;
+    std::copy (std::begin (textureLaneDrawn), std::end (textureLaneDrawn), std::begin (textureLaneLogged));
+    ArchVizLog ("Diligent textures: drawn ranges textured=" + std::to_string (textureLaneDrawn[0]) + " missingImage=" +
+                std::to_string (textureLaneDrawn[1]) + " gated=" + std::to_string (textureLaneDrawn[2]) +
+                " (gpuImages=" + std::to_string (albedoTextures.size ()) +
+                " toggle=" + std::to_string (materialTexturesEnabled ? 1 : 0) +
+                " realistic=" + std::to_string (renderQuality == RenderQuality::Realistic ? 1 : 0) + ")");
+}
+
+// #252 diagnostic: the coordinate range of the first textured elements, against the material's
+// repeat size in the log's "read" line. Spans of a few units mean metres; spans near 0..1 mean
+// the coordinates arrived already divided by the repeat.
+void LogUvRange (const std::string& guid, const std::vector<float>& vertices, const std::vector<uint32_t>& indices,
+                 const std::vector<float>& uvs, uint32_t& logged)
+{
+    if (uvs.size () < 2 || logged >= 24)
+        return;
+    ++logged;
+    float lo[2] = { uvs[0], uvs[1] }, hi[2] = { uvs[0], uvs[1] };
+    for (size_t i = 0; i + 1 < uvs.size (); i += 2)
+        for (size_t k = 0; k < 2; ++k) {
+            lo[k] = (std::min) (lo[k], uvs[i + k]);
+            hi[k] = (std::max) (hi[k], uvs[i + k]);
+        }
+    ArchVizLog ("Diligent textures: uv " + guid + " vertices=" + std::to_string (uvs.size () / 2) + " u=[" +
+                std::to_string (lo[0]) + ", " + std::to_string (hi[0]) + "] v=[" + std::to_string (lo[1]) + ", " +
+                std::to_string (hi[1]) + "]");
+
+    // Per triangle, as uploaded: Archicad maps a face evenly (Material Texture Check, stage 6),
+    // so a squeezed triangle here means the coordinates were paired with the wrong corners on
+    // the way. Triangles whose corners all sit at (0, 0) are untextured and skipped.
+    const size_t vertexCount = (std::min) (vertices.size () / 3, uvs.size () / 2);
+    size_t measured = 0, squeezed = 0;
+    std::vector<std::pair<double, size_t>> worst;
+    for (size_t t = 0; t + 2 < indices.size (); t += 3) {
+        const uint32_t a = indices[t], b = indices[t + 1], c = indices[t + 2];
+        if (a >= vertexCount || b >= vertexCount || c >= vertexCount)
+            continue;
+        const float* ta = &uvs[size_t (a) * 2];
+        const float* tb = &uvs[size_t (b) * 2];
+        const float* tc = &uvs[size_t (c) * 2];
+        if (ta[0] == 0.0f && ta[1] == 0.0f && tb[0] == 0.0f && tb[1] == 0.0f && tc[0] == 0.0f && tc[1] == 0.0f)
+            continue;
+        const UvStretch s = TriangleUvStretch (&vertices[size_t (a) * 3], &vertices[size_t (b) * 3],
+                                               &vertices[size_t (c) * 3], ta, tb, tc);
+        if (s.maxPerUnit <= 0.0)
+            continue;
+        ++measured;
+        const double ratio = s.maxPerUnit / (std::max) (s.minPerUnit, 1e-12);
+        if (ratio > 1.5) {
+            ++squeezed;
+            worst.emplace_back (ratio, t);
+        }
+    }
+    ArchVizLog ("Diligent textures: uv " + guid + " triangles=" + std::to_string (measured) +
+                " squeezed=" + std::to_string (squeezed) + " (stretch > 1.5x)");
+    std::sort (worst.begin (), worst.end (), [] (const auto& x, const auto& y) { return x.first > y.first; });
+    for (size_t k = 0; k < worst.size () && k < 3; ++k) {
+        std::string corners;
+        for (size_t j = 0; j < 3; ++j) {
+            const uint32_t v = indices[worst[k].second + j];
+            corners += " #" + std::to_string (v) + " p=(" + std::to_string (vertices[v * 3]) + "," +
+                       std::to_string (vertices[v * 3 + 1]) + "," + std::to_string (vertices[v * 3 + 2]) + ") uv=(" +
+                       std::to_string (uvs[v * 2]) + "," + std::to_string (uvs[v * 2 + 1]) + ")";
+        }
+        ArchVizLog ("Diligent textures: uv " + guid + " squeezed " + std::to_string (worst[k].first) + "x:" + corners);
+    }
 }
 
 void DiligentScene::SetMaterialTextures (bool enabled)

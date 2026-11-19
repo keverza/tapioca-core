@@ -6,8 +6,8 @@
 namespace geomsrv {
 namespace archviz {
 
-std::map<int32_t, SurfaceSubstance> JoinSurfaceSubstances (
-    const std::vector<SurfaceSubstanceObservation>& observations, float dominance)
+std::map<int32_t, SurfaceSubstance> JoinSurfaceSubstances (const std::vector<SurfaceSubstanceObservation>& observations,
+                                                           float dominance)
 {
     // surface -> (substance -> weight), plus the surface's total weight.
     std::map<int32_t, std::map<int, double>> votes;
@@ -35,9 +35,8 @@ std::map<int32_t, SurfaceSubstance> JoinSurfaceSubstances (
 
         const auto found = votes.find (surface);
         if (found != votes.end () && total > 0.0) {
-            const auto best = std::max_element (
-                found->second.begin (), found->second.end (),
-                [] (const auto& a, const auto& b) { return a.second < b.second; });
+            const auto best = std::max_element (found->second.begin (), found->second.end (),
+                                                [] (const auto& a, const auto& b) { return a.second < b.second; });
             const double share = best->second / total;
             if (share >= double (dominance)) {
                 verdict.substance = static_cast<Substance> (best->first);
@@ -71,10 +70,9 @@ void ApplySubstanceMemory (const SubstanceMemory& memory, MaterialTable& table)
     }
 }
 
-std::unique_ptr<MaterialTable> BuildSubstanceTable (
-    const std::vector<SurfaceMaterial>& surfaces,
-    const std::vector<SurfaceSubstanceObservation>& observations,
-    SubstanceMemory& memory, int& named)
+std::unique_ptr<MaterialTable> BuildSubstanceTable (const MaterialTable& source,
+                                                    const std::vector<SurfaceSubstanceObservation>& observations,
+                                                    SubstanceMemory& memory, int& named)
 {
     const std::map<int32_t, SurfaceSubstance> joined = JoinSurfaceSubstances (observations);
 
@@ -85,8 +83,8 @@ std::unique_ptr<MaterialTable> BuildSubstanceTable (
     memory.clear ();
     named = 0;
 
-    auto table = std::make_unique<MaterialTable> ();
-    for (SurfaceMaterial surface : surfaces) {
+    auto table = std::make_unique<MaterialTable> (source); // keeps the textures (header)
+    for (SurfaceMaterial surface : source.All ()) {
         const auto found = joined.find (surface.index);
         if (found != joined.end ()) {
             surface.substance = found->second.substance;
@@ -95,8 +93,7 @@ std::unique_ptr<MaterialTable> BuildSubstanceTable (
                 ++named;
         }
         memory[surface.index] =
-            std::make_pair (surface.name,
-                            SurfaceSubstance { surface.substance, surface.substanceConfidence });
+            std::make_pair (surface.name, SurfaceSubstance { surface.substance, surface.substanceConfidence });
         table->Set (surface);
     }
     return table;

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace geomsrv {
 namespace archviz {
@@ -255,8 +256,10 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 }
 
                 CreateWireEdgeBuffer (device, e, upload.wireEdges);
-                if (!upload.uvs.empty ())
+                if (!upload.uvs.empty ()) {
                     CreateUvBuffer (device, e, upload.uvs, verts); // #252: Archicad's texture coordinates
+                    LogUvRange (upload.guid, upload.vertices, upload.indices, upload.uvs, impl_->uvElementsLogged);
+                }
 
                 // ⚠️ THE SIDE BUFFER DOES NOT SURVIVE AN UPSERT. Re-extracted
                 // geometry has a new triangle list; the buffer that described
@@ -690,6 +693,10 @@ DiligentSceneStats DiligentScene::Stats () const
     }
     s.selected = SelectionCount ();
     s.materials = impl_->materials.Size ();
+    for (const SurfaceMaterial& m : impl_->materials.All ())
+        s.texturedMaterials += m.textureKey != 0 ? 1 : 0;
+    s.textureImages = impl_->albedoTextures.size ();
+    std::copy (std::begin (impl_->textureLaneDrawn), std::end (impl_->textureLaneDrawn), s.texturedRanges);
     s.pending = SceneCmdQueue::Get ().PendingCount ();
     s.drawCalls = impl_->drawCalls;
     s.storeySlices = impl_->storeySliceCount;

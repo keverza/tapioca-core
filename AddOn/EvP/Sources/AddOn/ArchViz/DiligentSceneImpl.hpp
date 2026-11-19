@@ -282,6 +282,10 @@ const MeshPipelineResources& MeshResources ();
 // #252: the entry's texture-coordinate buffer, Archicad's where `uvs` has two per vertex.
 bool CreateUvBuffer (Diligent::IRenderDevice* device, Entry& entry, const std::vector<float>& uvs,
                      uint32_t vertexCount);
+// #252 diagnostic: logs the first textured elements' coordinate ranges and their most squeezed
+// triangles, from the uploaded data itself (DiligentSceneMeshResources).
+void LogUvRange (const std::string& guid, const std::vector<float>& vertices, const std::vector<uint32_t>& indices,
+                 const std::vector<float>& uvs, uint32_t& logged);
 
 // Vertex and index buffers for one mesh, replacing whatever the entry held.
 // Shared by the element upserts and by the static/overlay meshes.
@@ -855,6 +859,15 @@ struct geomsrv::archviz::DiligentScene::Impl {
     RefCntAutoPtr<Diligent::IShader> vsTextured;
     Diligent::ITextureView* AlbedoFor (const SurfaceMaterial& material, const ClayLook& look,
                                        DiligentSceneConstants& constants) const;
+    // #252 diagnostic, per textured range (one with a textureKey) as AlbedoFor answers it:
+    // [0] bound its image, [1] named an image the GPU does not hold, [2] gated off (quality,
+    // clay, study model, HUD toggle). Counted this frame; the last drawn frame's totals are
+    // what the HUD and the log show (NoteTextureLane; an idle frame draws no range).
+    mutable uint32_t textureLane[3] = {};
+    uint32_t textureLaneDrawn[3] = {};
+    uint32_t textureLaneLogged[3] = { ~0u, ~0u, ~0u };
+    uint32_t uvElementsLogged = 0;
+    void NoteTextureLane ();
     Diligent::ITextureView* AlbedoFallbackView () const
     {
         return albedoFallback != nullptr ? albedoFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE)

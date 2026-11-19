@@ -247,6 +247,7 @@ Diligent::ITextureView* DiligentScene::StepTemporalConvergence (Diligent::IDevic
 void DiligentScene::Impl::BeginFrameContent (const DiligentSceneConstants& constants, const ClayLook& look,
                                              bool drawSurfaces)
 {
+    NoteTextureLane (); // #252 diagnostic: closes the previous frame's textured-range count
     frameContent = ContentKey ();
     DiligentSceneConstants key = constants;
     std::memset (key.viewProj, 0, sizeof (key.viewProj));

@@ -446,9 +446,9 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     // undifferentiated matte for the length of the walk, and it is replaced by
     // the freshly joined table at the end. See substanceMemory_ for why the
     // carry-forward is checked against the surface name rather than trusted.
-    std::vector<SurfaceMaterial> surfaces;
+    MaterialTable surfaces; // with its textures (#252); images are shared, not copied
     if (*materials != nullptr) {
-        surfaces = (*materials)->All ();
+        surfaces = **materials;
         ApplySubstanceMemory (substanceMemory_, **materials);
     }
 
@@ -656,7 +656,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         int named = 0;
         SceneCmdQueue::Get ().PushMaterials (BuildSubstanceTable (surfaces, observations, substanceMemory_, named));
 
-        extractionreport::SubstanceJoin (named, surfaces.size (), substances->classified, substances->total,
+        extractionreport::SubstanceJoin (named, surfaces.Size (), substances->classified, substances->total,
                                          observations.size (), substances->error);
     }
 

@@ -160,6 +160,11 @@ struct DiligentSceneStats {
     // under us.
     size_t materials = 0;
     size_t materialMisses = 0;
+    // #252: materials naming a texture, the images on the GPU, and the last drawn frame's
+    // textured ranges: bound, naming an image the GPU lacks, gated off (Impl::textureLane).
+    size_t texturedMaterials = 0;
+    size_t textureImages = 0;
+    uint32_t texturedRanges[3] = {};
     size_t transparentRanges = 0;
     size_t pointLayers = 0;
     size_t pointNodes = 0;

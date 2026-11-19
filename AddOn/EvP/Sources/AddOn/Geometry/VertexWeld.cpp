@@ -34,9 +34,13 @@ uint32_t VertexWelder::Add (int32_t srcVertex, double x, double y, double z, dou
     mesh_.normals.push_back (static_cast<float> (nx));
     mesh_.normals.push_back (static_cast<float> (ny));
     mesh_.normals.push_back (static_cast<float> (nz));
-    if (uv != nullptr && mesh_.uvs.empty ())
-        mesh_.uvs.assign (size_t (index) * 2, 0.0f);
-    if (!mesh_.uvs.empty ()) {
+    // #252: once any vertex has a coordinate, every vertex has two (zeros where it has none).
+    // ⚠️ `uvs.empty ()` IS NOT "NO COORDINATES YET" ON ITS OWN: when the very first vertex is the
+    // textured one, the back-fill is empty too, and testing emptiness alone skipped vertex 0's own
+    // pair; the next vertex then back-filled it with (0, 0) and every triangle on vertex 0 drew
+    // its texture squeezed (live, SimpleArchicadScene's terrain: 3 of 32 triangles, up to 24x).
+    if (uv != nullptr || !mesh_.uvs.empty ()) {
+        mesh_.uvs.resize (size_t (index) * 2, 0.0f); // back-fill the untextured vertices before it
         mesh_.uvs.push_back (uv != nullptr ? static_cast<float> (uv[0]) : 0.0f);
         mesh_.uvs.push_back (uv != nullptr ? static_cast<float> (uv[1]) : 0.0f);
     }

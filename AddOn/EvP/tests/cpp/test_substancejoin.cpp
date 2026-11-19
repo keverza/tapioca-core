@@ -27,7 +27,7 @@ SurfaceSubstanceObservation Obs (int32_t surface, Substance substance, double we
     return o;
 }
 
-}   // namespace
+} // namespace
 
 TEST (SubstanceJoin, EmptyInEmptyOut)
 {
@@ -110,7 +110,7 @@ TEST (SubstanceJoin, SizeOutweighsCount)
 {
     std::vector<SurfaceSubstanceObservation> observations;
     for (int i = 0; i < 20; ++i)
-        observations.push_back (Obs (4, Substance::Metal, 2.0));    // 40 total
+        observations.push_back (Obs (4, Substance::Metal, 2.0)); // 40 total
     observations.push_back (Obs (4, Substance::Concrete, 960.0));
     const auto joined = JoinSurfaceSubstances (observations);
     EXPECT_EQ (joined.at (4).substance, Substance::Concrete);
@@ -140,4 +140,28 @@ TEST (SubstanceJoin, SurfacesAreIndependent)
     EXPECT_EQ (joined.at (1).substance, Substance::Concrete);
     EXPECT_EQ (joined.at (2).substance, Substance::Wood);
     EXPECT_EQ (joined.at (3).substance, Substance::Unknown);
+}
+
+// #252: the published table replaces the one that carried the material textures. A table
+// rebuilt from the surface list alone kept every textureKey and lost every image, so the
+// viewer dropped its textures at the end of each full pass -- live only, never in the bench.
+TEST (SubstanceJoin, PublishedTableKeepsTheTextures)
+{
+    SurfaceMaterial textured;
+    textured.index = 1;
+    textured.name = "Concrete";
+    textured.textureKey = 42;
+    auto image = std::make_shared<TexturePixels> ();
+    image->width = image->height = 1;
+    image->rgba = { 1, 2, 3, 255 };
+    MaterialTable pass;
+    pass.Set (textured);
+    pass.SetTexture (42, image);
+
+    SubstanceMemory memory;
+    int named = 0;
+    const auto table = BuildSubstanceTable (pass, { Obs (1, Substance::Concrete, 1.0) }, memory, named);
+    ASSERT_NE (table, nullptr);
+    EXPECT_EQ (table->Lookup (1).textureKey, 42u);
+    EXPECT_EQ (table->Texture (42), image);
 }

@@ -111,7 +111,11 @@ void ReadMaterialTexture (const ModelerAPI::Model& model, const ModelerAPI::Mate
             return;
         ModelerAPI::Texture texture;
         model.GetTexture (textureIndex, &texture);
-        if (!texture.IsAvailable () || texture.IsBumpMapPattern ())
+        // ⚠️ NOT GATED ON IsBumpMapPattern. The pattern flags are independent: "bump mapping" says
+        // the image is ALSO used as a bump map, and Archicad's 3D window still draws it as the
+        // surface's colour. Measured on SimpleArchicadScene (Material Texture Check, 2026-11-19):
+        // every texture the model used carried the flag, and skipping them left none drawn.
+        if (!texture.IsAvailable ())
             return;
         const Int32 width = texture.GetPixelMapXSize ();
         const Int32 height = texture.GetPixelMapYSize ();

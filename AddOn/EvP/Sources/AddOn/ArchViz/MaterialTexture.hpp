@@ -53,6 +53,16 @@ void FitTexturePixels (TexturePixels& pixels, uint32_t maxSide);
 // RenderBench). Never 0, which SurfaceMaterial::textureKey reserves for "no texture".
 uint64_t TextureKeyOf (const std::string& identity);
 
+// #252 diagnostic: how evenly a triangle's texture coordinates map its surface -- the two
+// singular values of the position -> (u, v) map, in coordinate units per model unit. Equal for an
+// undistorted mapping; far apart for a squeezed one (streaks). Zero for a degenerate triangle.
+struct UvStretch {
+    double maxPerUnit = 0.0;
+    double minPerUnit = 0.0;
+};
+UvStretch TriangleUvStretch (const float* p0, const float* p1, const float* p2, const float* t0, const float* t1,
+                             const float* t2);
+
 } // namespace archviz
 } // namespace geomsrv
 

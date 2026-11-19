@@ -97,9 +97,8 @@ constexpr float kSubstanceDominance = 0.90f;
 // present in the result with substance `Unknown` and confidence 0, NOT absent:
 // "asked and refused" and "never seen" are different facts and the caller can
 // tell them apart.
-std::map<int32_t, SurfaceSubstance> JoinSurfaceSubstances (
-    const std::vector<SurfaceSubstanceObservation>& observations,
-    float dominance = kSubstanceDominance);
+std::map<int32_t, SurfaceSubstance> JoinSurfaceSubstances (const std::vector<SurfaceSubstanceObservation>& observations,
+                                                           float dominance = kSubstanceDominance);
 
 // ---- carrying a verdict from one extraction pass to the next ----------------
 //
@@ -127,13 +126,18 @@ using SubstanceMemory = std::map<int32_t, std::pair<std::string, SurfaceSubstanc
 void ApplySubstanceMemory (const SubstanceMemory& memory, MaterialTable& table);
 
 // Fold `observations` into per-surface verdicts, write them onto a copy of
-// `surfaces`, refresh `memory`, and return the table to publish. `named` is set
+// `source`'s surfaces, refresh `memory`, and return the table to publish. `named` is set
 // to how many surfaces came out with a substance -- the coverage number the log
 // and the probe report.
-std::unique_ptr<MaterialTable> BuildSubstanceTable (
-    const std::vector<SurfaceMaterial>& surfaces,
-    const std::vector<SurfaceSubstanceObservation>& observations,
-    SubstanceMemory& memory, int& named);
+//
+// ⚠️ THE WHOLE TABLE, NOT ITS SURFACE LIST (#252). The result replaces the pass's table in
+// the viewer, and that table also carries the material textures. Rebuilt from the surface
+// list alone, every textureKey survived and named nothing: the viewer dropped its GPU
+// copies and every textured surface drew its plain colour from the end of the first full
+// pass on -- live only, because the bench never runs this join.
+std::unique_ptr<MaterialTable> BuildSubstanceTable (const MaterialTable& source,
+                                                    const std::vector<SurfaceSubstanceObservation>& observations,
+                                                    SubstanceMemory& memory, int& named);
 
 } // namespace archviz
 } // namespace geomsrv

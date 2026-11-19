@@ -111,3 +111,38 @@ TEST (MaterialTexture, ExtractedConvexCarriesItsCornersCoordinates)
         EXPECT_FLOAT_EQ (mesh.uvs[k * 2 + 1], float (uv[k][1]));
     }
 }
+
+TEST (MaterialTexture, TriangleStretchTellsEvenFromSqueezed)
+{
+    const float p0[3] = { 0, 0, 0 }, p1[3] = { 4, 0, 0 }, p2[3] = { 0, 4, 0 };
+    // Archicad's top projection: one coordinate unit per metre both ways.
+    const float a0[2] = { 0, 0 }, a1[2] = { 4, 0 }, a2[2] = { 0, 4 };
+    UvStretch even = TriangleUvStretch (p0, p1, p2, a0, a1, a2);
+    EXPECT_NEAR (even.maxPerUnit, 1.0, 1e-9);
+    EXPECT_NEAR (even.minPerUnit, 1.0, 1e-9);
+    // A corner paired with another vertex's coordinate: many repeats squeezed one way.
+    const float b2[2] = { 0, 40 };
+    UvStretch squeezed = TriangleUvStretch (p0, p1, p2, a0, a1, b2);
+    EXPECT_GT (squeezed.maxPerUnit / squeezed.minPerUnit, 5.0);
+    // Degenerate: zero, not a division by zero.
+    UvStretch flat = TriangleUvStretch (p0, p1, p1, a0, a1, a2);
+    EXPECT_EQ (flat.maxPerUnit, 0.0);
+}
+
+// Live (SimpleArchicadScene's terrain): when the FIRST vertex is the textured one, its own pair was
+// skipped and the next vertex back-filled it with (0, 0) -- three triangles drew squeezed 12-24x.
+TEST (MaterialTexture, WeldKeepsTheFirstVertexsOwnCoordinate)
+{
+    Mesh mesh;
+    VertexWelder welder (mesh);
+    const double a[2] = { 116.5, -228.25 };
+    const double b[2] = { 88.25, -228.25 };
+    welder.Add (0, 0, 0, 0, 0, 0, 1, a);
+    welder.Add (1, 1, 0, 0, 0, 0, 1, b);
+    welder.Add (2, 2, 0, 0, 0, 0, 1); // an untextured vertex after them still gets its pair
+    ASSERT_TRUE (mesh.HasUvs ());
+    EXPECT_FLOAT_EQ (mesh.uvs[0], 116.5f);
+    EXPECT_FLOAT_EQ (mesh.uvs[1], -228.25f);
+    EXPECT_FLOAT_EQ (mesh.uvs[2], 88.25f);
+    EXPECT_FLOAT_EQ (mesh.uvs[4], 0.0f);
+}

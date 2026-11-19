@@ -1,5 +1,8 @@
 #include "ArchViz/MaterialTexture.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 namespace geomsrv {
 namespace archviz {
 
@@ -40,6 +43,37 @@ uint64_t TextureKeyOf (const std::string& identity)
         hash *= 1099511628211ull;
     }
     return hash == 0 ? 1 : hash;
+}
+
+UvStretch TriangleUvStretch (const float* p0, const float* p1, const float* p2, const float* t0, const float* t1,
+                             const float* t2)
+{
+    // J maps the triangle's plane to (u, v): J E = D with E = [e1 e2] (3x2) and D = [d1 d2]
+    // (2x2), so J J^T = D G^-1 D^T with G = E^T E. Its eigenvalues are the squared answers.
+    double e1[3], e2[3];
+    for (int k = 0; k < 3; ++k) {
+        e1[k] = double (p1[k]) - p0[k];
+        e2[k] = double (p2[k]) - p0[k];
+    }
+    const double g11 = e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2];
+    const double g12 = e1[0] * e2[0] + e1[1] * e2[1] + e1[2] * e2[2];
+    const double g22 = e2[0] * e2[0] + e2[1] * e2[1] + e2[2] * e2[2];
+    const double det = g11 * g22 - g12 * g12;
+    if (!(det > 1e-18 * (g11 * g22 + 1e-30)))
+        return {};
+    const double i11 = g22 / det, i12 = -g12 / det, i22 = g11 / det;
+    const double d[2][2] = { { double (t1[0]) - t0[0], double (t2[0]) - t0[0] },
+                             { double (t1[1]) - t0[1], double (t2[1]) - t0[1] } };
+    double m[2][2];
+    for (int r = 0; r < 2; ++r)
+        for (int c = 0; c < 2; ++c)
+            m[r][c] = d[r][0] * (i11 * d[c][0] + i12 * d[c][1]) + d[r][1] * (i12 * d[c][0] + i22 * d[c][1]);
+    const double mean = 0.5 * (m[0][0] + m[1][1]);
+    const double spread = std::sqrt (0.25 * (m[0][0] - m[1][1]) * (m[0][0] - m[1][1]) + m[0][1] * m[1][0]);
+    UvStretch out;
+    out.maxPerUnit = std::sqrt ((std::max) (mean + spread, 0.0));
+    out.minPerUnit = std::sqrt ((std::max) (mean - spread, 0.0));
+    return out;
 }
 
 } // namespace archviz
