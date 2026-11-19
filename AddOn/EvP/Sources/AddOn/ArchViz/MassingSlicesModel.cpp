@@ -27,7 +27,8 @@ namespace geomsrv::archviz::massingslicesmodel {
 namespace {
 UINT_PTR s_timer = 0;
 uint64_t s_lastPoll = 0;
-bool s_dirty = true, s_polling = false;
+// s_dirty: read the selection again. s_forced: and rebuild whatever it reads (Changed).
+bool s_dirty = true, s_forced = true, s_polling = false;
 std::vector<std::string> s_selected;
 std::string s_signature;
 std::shared_ptr<const massingcalculation::Preview> s_envelope;
@@ -82,10 +83,15 @@ void Publish ()
 
 void Update ()
 {
+    // ⚠️ A RE-READ SELECTION REBUILDS ONLY WHEN IT MOVED (#201, 2026-11-19). The viewer runs
+    // no overlay session, so no timer is armed and every Poll re-reads the selection; clearing
+    // the signature on each read rebuilt and republished the whole massing four times a
+    // second on an idle model. An explicit Changed () still forces the rebuild.
+    const bool reread = s_dirty, forced = s_forced;
+    const auto before = s_selected;
     if (s_dirty) {
         s_selected = selectionmetadata::SelectedGuids ();
-        s_dirty = false;
-        s_signature.clear ();
+        s_dirty = s_forced = false;
     }
     const auto defined = massingmodel::Read ();
     s_selected.erase (std::remove_if (s_selected.begin (), s_selected.end (),
@@ -94,6 +100,8 @@ void Update ()
                                                  defined.guids[3].end ();
                                       }),
                       s_selected.end ());
+    if (forced || (reread && s_selected != before))
+        s_signature.clear ();
     auto guids = defined.guids[3];
     // Viewport selection inspects defined sources; it never enrolls new elements.
     // Copy/paste retains the authored role and is discovered by the model scan.
@@ -355,7 +363,7 @@ void Arm ()
 
 void Changed ()
 {
-    s_dirty = true;
+    s_dirty = s_forced = true;
     Arm ();
 }
 
@@ -368,8 +376,10 @@ void Poll ()
         return;
     s_lastPoll = now;
     s_polling = true;
-    if (s_timer == 0)
-        Changed ();
+    if (s_timer == 0) {
+        s_dirty = true; // no timer follows the selection: read it now, rebuild only if it moved
+        Arm ();
+    }
     Update ();
     s_polling = false;
 }
@@ -469,7 +479,7 @@ void Forget ()
     s_bodyPass = false;
     s_display = {};
     s_shown = true;
-    s_dirty = true;
+    s_dirty = s_forced = true;
     s_lastPoll = 0;
 }
 
