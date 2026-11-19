@@ -71,8 +71,9 @@ void Draw (Memory& memory)
     const auto publication = diagrammodel::Read ();
 
     ImGui::SeparatorText ("Diagram");
-    if (ImGui::Checkbox ("Diagram mode", &controls.enabled) && controls.enabled && publication)
-        Frame (*publication, controls.spacing);
+    // ⚠️ TOGGLING NEVER MOVES THE CAMERA (user, 2026-11-19): the view stays where the user put
+    // it; "Frame diagram" below frames on request.
+    ImGui::Checkbox ("Diagram mode", &controls.enabled);
     Tip ("An exploded, read-only view of the published massing: one storey per source floor.");
     ImGui::BeginDisabled (!controls.enabled);
 
