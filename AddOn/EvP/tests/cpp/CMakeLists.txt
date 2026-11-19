@@ -671,6 +671,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudRoof.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudVirtualEditor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerEditorFrame.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerSceneLayers.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorArray.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorBoolean.cpp"
@@ -1075,6 +1076,7 @@ set (EVP_TEST_SOURCES
     test_hudvirtualeditoroutliner.cpp
     test_hudvirtualeditorellipse.cpp
     test_viewereditor.cpp
+    test_viewerscenelayers.cpp
     test_hudlandscape.cpp
     test_hudterrainsetup.cpp
     test_hudpathcutunits.cpp

@@ -22,6 +22,7 @@
 #include "ArchViz/SurfaceSwitch.hpp"
 #include "ArchViz/SurfaceTakeoffLayer.hpp"
 #include "ArchViz/ViewportCursor.hpp"
+#include "ArchViz/ViewerSceneLayers.hpp"
 #include "Geometry/SurfaceTakeoffController.hpp"
 #include "AddOnCommands.hpp"
 #include "Python/MainThreadGate.hpp"
@@ -49,7 +50,8 @@ std::unique_ptr<Drawing> s_pending;
 std::optional<FocusBox> s_focus; // #124: the latest box to frame; the render thread takes it
 HWND s_window = nullptr;
 UINT_PTR s_timer = 0;
-std::shared_ptr<const overlaylayers::Layer> s_layer;
+std::vector<std::shared_ptr<const overlaylayers::Layer>> s_layers; // the source layers last drawn
+viewerscene::Converter s_converter; // MAIN THREAD: raw items as guest items, kept per layer
 uint64_t s_hudHash = 0;
 bool s_refreshing = false;
 std::optional<surfacetakeoff::PageAction> s_surfaceAction;
@@ -272,6 +274,14 @@ bool Refresh ()
     if (s_massing) {
         massinghybrid::Poll ();
         massingslicesmodel::Poll ();
+        // The planned flats and stairs (the Massing tab's cell complex): the overlay
+        // controller's follow makes these layers, and this host has none (#201).
+        overlaylayers::Layer stairs, units, planUnits;
+        if (overlayhud::TakeFloorPlanLayers (*state, stairs, units, &planUnits)) {
+            overlaylayers::Set (std::move (stairs));
+            overlaylayers::Set (std::move (units));
+            overlaylayers::Set (std::move (planUnits));
+        }
     }
     auto* engine = guesttext::Hud (overlayinput::View::ThreeD);
     if (!engine) {
@@ -362,16 +372,19 @@ bool Refresh ()
         overlayinput::EnableRoofEditKeys (false);
         return true;
     }
+    // #201: hosting the Massing workflow, the viewer draws what the overlay would in 3D
+    // (envelope, slices, highlights); the editor alone draws its own layer.
     std::vector<std::shared_ptr<const overlaylayers::Layer>> layers;
-    for (const auto& candidate : overlaylayers::Layers ())
-        if (candidate->name == editlayers::kLayer && overlayhud::ContentShown (*state) &&
-            overlayhud::LayerShown (*state, candidate->name))
-            layers.push_back (candidate);
-    const auto current = layers.empty () ? nullptr : layers.front ();
-    drawing->sceneChanged = current != s_layer;
+    if (overlayhud::ContentShown (*state))
+        layers = viewerscene::Select (overlaylayers::Layers (), { s_massing, diagrammodel::HiddenSource () != nullptr,
+                                                                  [&state] (const std::string& name) {
+                                                                      return overlayhud::LayerShown (*state, name);
+                                                                  } });
+    drawing->sceneChanged = layers != s_layers;
     if (drawing->sceneChanged) {
-        drawing->scene = overlayscene::PrepareScene (layers, guesttext::Engine ());
-        s_layer = current;
+        drawing->scene =
+            overlayscene::PrepareScene (s_converter.Convert (layers), guesttext::Engine (), &guesttext::EngineFor);
+        s_layers = std::move (layers);
     }
     const auto hash = overlayscene::Fingerprint (drawing->hud);
     if (hash != s_hudHash || drawing->sceneChanged) {
@@ -533,7 +546,8 @@ void Stop (bool preserve)
     }
     guesttext::ReleaseHud (overlayinput::View::ThreeD);
     s_window = nullptr;
-    s_layer.reset ();
+    s_layers.clear ();
+    s_converter.Clear ();
     s_hudHash = 0;
     std::lock_guard<std::mutex> lock (s_mutex);
     s_frame = {};
