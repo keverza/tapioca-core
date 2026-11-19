@@ -45,6 +45,7 @@ The whole run's summary goes to `suite.json` in `--out`.
 | `mask` | The G-buffer material view, which `compare.py` uses to find the glossy pixels. |
 | `shadow` | The raster sun visibility alone (the shadow map's `shadowsOnly` view): white lit, black occluded. |
 | `sunvis` | The sun visibility traced on the CPU (`SunVisibility.cpp`): 255 lit, 0 occluded, 128 not a shadow question (sky, glazing, surfaces facing away from the sun). Needs no GPU ray tracing. |
+| `sunsoft` | `sunvis` with the sun as a disk of the PCSS sun diameter (`--shadow-sun-size`, 64 rays): 0..250 the fraction of the disk in view, 255 not a shadow question. The truth for a finite sun, penumbra included. |
 
 `shadow` and `sunvis` match pixel for pixel, so a pixel `sunvis` calls occluded and `shadow` calls
 lit is a shadow-map leak (#234). This is the shadow reference on machines without DXR, where
@@ -63,6 +64,10 @@ Pass bench arguments through `run_suite.py --extra "..."`, or call the exe direc
   shadow map's fixed depth bias, receiver-plane clamp, filter size in metres, and PCSS.
 - `--shadow-resolution N` sets the shadow map's size; `--shadow-fit 0` splits the cascades over the
   projection's whole near..far, as before #234, for an A/B against the scene-fitted range.
+- `--shadow-sun-size DEG` and `--shadow-search M` set the PCSS sun diameter and the blocker search's
+  cap; `--shadow-diag N` makes the `shadow` style show one stage of the PCSS lookup instead of its
+  light amount (`DiligentShadowSettings::diagnostic`: the hard comparison, the blocker search, the
+  filter radius, the cascade, or 7 = the search before #234).
 
 ## Adding a source
 

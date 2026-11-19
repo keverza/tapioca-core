@@ -99,6 +99,9 @@ struct Options {
     int shadowPcss = -1;
     int shadowResolution = int (av::DiligentShadowSettings {}.resolution);
     int shadowFit = -1;
+    int shadowDiagnostic = 0;
+    float shadowSearch = -1.0f;
+    float shadowSunSize = -1.0f;
 };
 
 bool ParseTriple (const std::string& text, float out[3])
@@ -177,6 +180,12 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.shadowPcss = std::stoi (next ());
         else if (a == "--shadow-resolution")
             o.shadowResolution = std::stoi (next ());
+        else if (a == "--shadow-sun-size")
+            o.shadowSunSize = std::stof (next ());
+        else if (a == "--shadow-search")
+            o.shadowSearch = std::stof (next ());
+        else if (a == "--shadow-diag")
+            o.shadowDiagnostic = std::stoi (next ());
         else if (a == "--shadow-fit")
             o.shadowFit = std::stoi (next ());
         else if (a == "--off") {
@@ -358,6 +367,11 @@ void RenderFrame (av::DiligentScene& scene, Diligent::IDeviceContext* context, T
     shadow.pcssEnabled = hud.shadowPcss;
     shadow.filterWorldSize = hud.shadowFilterWorldSize;
     shadow.shadowsOnly = hud.shadowOnly;
+    shadow.diagnostic = o.shadowDiagnostic;
+    if (o.shadowSearch >= 0.0f)
+        shadow.pcssBlockerSearch = o.shadowSearch;
+    if (o.shadowSunSize >= 0.0f)
+        shadow.pcssLightAngularDiameter = o.shadowSunSize;
     shadow.resolution = uint32_t (o.shadowResolution);
     if (o.shadowFit >= 0)
         shadow.fitCascadesToScene = o.shadowFit != 0;
@@ -512,7 +526,8 @@ int main (int argc, char** argv)
     }
 
     renderbench::SunVisibility sunVisibility;
-    if (std::find (o.styles.begin (), o.styles.end (), "sunvis") != o.styles.end ())
+    if (std::find (o.styles.begin (), o.styles.end (), "sunvis") != o.styles.end () ||
+        std::find (o.styles.begin (), o.styles.end (), "sunsoft") != o.styles.end ())
         sunVisibility.Build (obj); // before the elements are handed to the queue
 
     av::SceneCmdQueue& queue = av::SceneCmdQueue::Get ();
@@ -549,23 +564,27 @@ int main (int argc, char** argv)
     bool firstRender = true;
     for (const View& view : o.views) {
         for (const std::string& style : o.styles) {
-            if (style == "sunvis") {
+            if (style == "sunvis" || style == "sunsoft") {
                 // CPU-traced, so it needs no GPU ray tracing (SunVisibility.hpp). The sun as
                 // DiligentSceneImpl::EffectiveSun derives it from the override.
                 const float az = o.sunAz * 3.14159265f / 180.0f, alt = o.sunAlt * 3.14159265f / 180.0f;
                 const float sun[3] = { std::cos (alt) * std::cos (az), std::cos (alt) * std::sin (az), std::sin (alt) };
                 const auto start = std::chrono::steady_clock::now ();
+                // sunsoft: the sun as the disk the PCSS path assumes (--shadow-sun-size).
+                const float diameter = style == "sunvis"         ? 0.0f
+                                       : o.shadowSunSize >= 0.0f ? o.shadowSunSize
+                                                                 : av::DiligentShadowSettings {}.pcssLightAngularDiameter;
                 const std::vector<uint8_t> vis =
-                    sunVisibility.Render (view.eye, view.target, view.fov, o.width, o.height, sun);
+                    sunVisibility.Render (view.eye, view.target, view.fov, o.width, o.height, sun, diameter);
                 const double seconds =
                     std::chrono::duration<double> (std::chrono::steady_clock::now () - start).count ();
-                const std::string file = view.name + "_sunvis.png";
+                const std::string file = view.name + "_" + style + ".png";
                 const bool saved = stbi_write_png ((o.out + "/" + file).c_str (), int (o.width), int (o.height), 1,
                                                    vis.data (), int (o.width)) != 0;
                 av::ArchVizLog ("bench: " + file + (saved ? " saved" : " NOT saved") + " in " +
                                 std::to_string (seconds) + " s (CPU)");
                 report << (firstRender ? "" : ",\n") << "    { \"view\": \"" << view.name
-                       << "\", \"style\": \"sunvis\", \"file\": \"" << file << "\", \"seconds\": " << seconds << " }";
+                       << "\", \"style\": \"" << style << "\", \"file\": \"" << file << "\", \"seconds\": " << seconds << " }";
                 firstRender = false;
                 continue;
             }

@@ -27,6 +27,10 @@ constexpr uint8_t kSunOccluded = 0;
 // Not a shadow question: sky, glazing, or a surface turned away from the sun (N.L below a small
 // threshold), whose darkness is the lighting's and not the shadow map's.
 constexpr uint8_t kSunExcluded = 128;
+// A sun with a diameter (Render's sunDiameterDegrees > 0) answers with the fraction of its disk
+// in view, 0..kSoftSunScale, and marks the pixels that are not a shadow question kSoftSunExcluded.
+constexpr uint8_t kSoftSunScale = 250;
+constexpr uint8_t kSoftSunExcluded = 255;
 
 class SunVisibility {
   public:
@@ -36,8 +40,9 @@ class SunVisibility {
     void Build (const ObjScene& scene);
     // One byte per pixel, rows top to bottom. `sun` points toward the sun; the camera is
     // LookAtRH(eye, target, +Z) with a vertical field of view in degrees, as the bench's.
+    // sunDiameterDegrees > 0 traces the sun as a disk of that angular diameter (see kSoftSunScale).
     std::vector<uint8_t> Render (const float eye[3], const float target[3], float fovDegrees, uint32_t width,
-                                 uint32_t height, const float sun[3]) const;
+                                 uint32_t height, const float sun[3], float sunDiameterDegrees = 0.0f) const;
 
   private:
     struct Impl;

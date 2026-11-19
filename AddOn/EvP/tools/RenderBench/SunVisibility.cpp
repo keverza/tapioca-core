@@ -98,8 +98,9 @@ void SunVisibility::Build (const ObjScene& scene)
 }
 
 std::vector<uint8_t> SunVisibility::Render (const float eye[3], const float target[3], float fovDegrees, uint32_t width,
-                                            uint32_t height, const float sunIn[3]) const
+                                            uint32_t height, const float sunIn[3], float sunDiameterDegrees) const
 {
+    constexpr int kSoftSunRays = 64;
     std::vector<uint8_t> out (size_t (width) * height, kSunExcluded);
     float f[3] = { target[0] - eye[0], target[1] - eye[1], target[2] - eye[2] };
     Normalize (f);
@@ -110,6 +111,14 @@ std::vector<uint8_t> SunVisibility::Render (const float eye[3], const float targ
     const float tanX = tanY * float (width) / float (height);
     float sun[3] = { sunIn[0], sunIn[1], sunIn[2] };
     Normalize (sun);
+    if (sunDiameterDegrees > 0.0f)
+        std::fill (out.begin (), out.end (), kSoftSunExcluded);
+    // The disk's plane: two axes perpendicular to the sun, and the tangent of its angular radius.
+    float a[3] = { std::fabs (sun[2]) < 0.9f ? -sun[1] : 0.0f, std::fabs (sun[2]) < 0.9f ? sun[0] : -sun[2],
+                   std::fabs (sun[2]) < 0.9f ? 0.0f : sun[1] };
+    Normalize (a);
+    const float b[3] = { sun[1] * a[2] - sun[2] * a[1], sun[2] * a[0] - sun[0] * a[2], sun[0] * a[1] - sun[1] * a[0] };
+    const float sunTan = std::tan (sunDiameterDegrees * 0.5f * 3.14159265f / 180.0f);
 
     auto rows = [&] (uint32_t y0, uint32_t y1) {
         for (uint32_t y = y0; y < y1; ++y) {
@@ -141,7 +150,25 @@ std::vector<uint8_t> SunVisibility::Render (const float eye[3], const float targ
                 for (int k = 0; k < 3; ++k)
                     p[k] = eye[k] + d[k] * hit.t + n[k] * lift;
                 nanort::TriangleIntersection<float> blocker;
-                out[size_t (y) * width + x] = impl_->casters.Hit (p, sun, 0.0f, blocker) ? kSunOccluded : kSunLit;
+                if (sunDiameterDegrees <= 0.0f) {
+                    out[size_t (y) * width + x] = impl_->casters.Hit (p, sun, 0.0f, blocker) ? kSunOccluded : kSunLit;
+                    continue;
+                }
+                // The sun as a disk: kSoftSunRays directions spread evenly over it (a Vogel disk,
+                // turned per pixel so the stratification does not band), the fraction unblocked.
+                int visible = 0;
+                const float turn = std::fmod (float (x) * 0.7548777f + float (y) * 0.5698403f, 1.0f) * 6.2831853f;
+                for (int i = 0; i < kSoftSunRays; ++i) {
+                    const float radius = sunTan * std::sqrt ((float (i) + 0.5f) / float (kSoftSunRays));
+                    const float angle = float (i) * 2.39996323f + turn;
+                    float s[3];
+                    for (int k = 0; k < 3; ++k)
+                        s[k] = sun[k] + radius * (std::cos (angle) * a[k] + std::sin (angle) * b[k]);
+                    Normalize (s);
+                    visible += impl_->casters.Hit (p, s, 0.0f, blocker) ? 0 : 1;
+                }
+                out[size_t (y) * width + x] =
+                    uint8_t (std::lround (float (kSoftSunScale) * float (visible) / float (kSoftSunRays)));
             }
         }
     };
