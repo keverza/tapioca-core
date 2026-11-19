@@ -77,6 +77,13 @@ struct DiligentShadowSettings {
     float pcssLightAngularDiameter = 2.0f;
     float pcssBlockerSearch = 2.0f;
     float pcssMaxPenumbra = 1.0f;
+    // #234: what the PCSS path returns instead of its light amount, for the shadowsOnly view (it
+    // forces PCSS). 0 = the light amount. 1 = one depth comparison at the receiver's texel with
+    // every bias; 2 = the same without the receiver-plane and fixed bias; 6 = as 1 without the
+    // normal offset. 3 = 0 where the blocker search found a blocker. 4 = the filter radius ranked
+    // (floor, <= 4, <= 8, wider texels). 5 = the cascade, (index + 1) / 4. 7 = the light amount with
+    // the blocker search before #234 (2 m disk, no cone test, no centre tap). RenderBench --shadow-diag.
+    int diagnostic = 0;
 };
 
 bool CompileDiligentShadowPixelShader (Diligent::IRenderDevice* device, DiligentShadowMode mode,

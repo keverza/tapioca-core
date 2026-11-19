@@ -2376,6 +2376,12 @@ float2 VogelDisk (int index, int count, float phase)
     return float2 (cosine, sine) * radius;
 }
 
+// g_pcssParams.x: 0 PCF, 1 PCSS, 1 + n PCSS with diagnostic n (DiligentShadowSettings).
+int PcssDiagnostic ()
+{
+    return max (int (g_pcssParams.x + 0.5) - 1, 0);
+}
+
 float FilterPcssCascade (float3 ddxLightPosition, float3 ddyLightPosition, CascadeSamplingInfo sampling,
                          float2 screenPixel)
 {
@@ -2388,28 +2394,69 @@ float FilterPcssCascade (float3 ddxLightPosition, float3 ddyLightPosition, Casca
     receiverBias = clamp (receiverBias, -biasClamp, biasClamp) * g_shadowAttribs.f4ShadowMapDim.zw;
     float receiverDepth = sampling.fDepth - dot (1.0.xx, abs (receiverBias)) - g_shadowAttribs.fFixedDepthBias;
 
+    // #234 diagnostics (DiligentShadowSettings::diagnostic), for the shadowsOnly view. Every
+    // answer is 0/1 or a rank, because that view is tone-mapped on its way to a picture.
+    int diagnostic = PcssDiagnostic ();
+    if (diagnostic == 1 || diagnostic == 6 || diagnostic == 2) {
+        // One depth comparison at the receiver's own texel: no filter, no search. 1 and 6 with
+        // every bias, 2 with neither the receiver-plane nor the fixed bias.
+        int2 texel = clamp (int2 (sampling.f2UV * g_shadowAttribs.f4ShadowMapDim.xy), int2 (0, 0),
+                            int2 (g_shadowAttribs.f4ShadowMapDim.xy) - 1);
+        float depth = g_shadowMap.Load (int4 (texel, sampling.iCascadeIdx, 0));
+        return depth < (diagnostic == 2 ? sampling.fDepth : receiverDepth) ? 0.0 : 1.0;
+    }
+    if (diagnostic == 5)
+        return float (sampling.iCascadeIdx + 1) * 0.25;
+
     // ⚠️ THE BLOCKER SEARCH AND THE FILTER USE THE SAME DITHER WITH A HALF-TURN
     // BETWEEN THEM. Sharing one phase outright correlates the estimate with the
     // samples taken from it, which biases the penumbra; the offset decorrelates
     // them for free.
     float phase = PcssDitherPhase (screenPixel);
 
-    float2 searchRadius = g_pcssParams.z * abs (sampling.f3LightSpaceScale.xy) * 0.5;
+    // ---- #234: the blocker search is bounded by the sun's cone ----------------
+    //
+    // ⚠️ A TEXEL IS A BLOCKER FOR THIS RECEIVER ONLY IF THE SUN'S DISK CAN SEE IT: lateral
+    // distance <= separation * tan(sun radius). The search used to take every texel nearer the
+    // sun within g_pcssParams.z (2 m) -- in a room that averages in the ceiling a metre away,
+    // so a join, whose true penumbra is zero, got a penumbra several texels wide, and RenderBench
+    // measured it as light inside fully occluded corners. The disk is also never wider than the
+    // cone reaches at the deepest possible blocker (the light's near plane), still capped by .z.
+    //
+    // ⚠️ AND THE RECEIVER'S OWN TEXEL IS ALWAYS SEARCHED. The Vogel disk's nearest tap sits at
+    // 0.2 of the radius; a search that skips the texel straight above could find nothing and
+    // return fully lit for a pixel whose own comparison is occluded.
+    float depthToMetres = 1.0 / max (abs (sampling.f3LightSpaceScale.z), 1e-6);
+    float2 metresToUv = abs (sampling.f3LightSpaceScale.xy) * 0.5;
+    bool legacySearch = diagnostic == 7; // the search before #234, for an A/B
+    float searchMetres = legacySearch ? g_pcssParams.z : min (g_pcssParams.z, receiverDepth * depthToMetres * g_pcssParams.y);
     float blockerDepth = 0.0;
     float blockerCount = 0.0;
+    {
+        int2 texel = clamp (int2 (sampling.f2UV * g_shadowAttribs.f4ShadowMapDim.xy), int2 (0, 0),
+                            int2 (g_shadowAttribs.f4ShadowMapDim.xy) - 1);
+        float depth = g_shadowMap.Load (int4 (texel, sampling.iCascadeIdx, 0));
+        if (depth < receiverDepth && !legacySearch) {
+            blockerDepth += depth;
+            blockerCount += 1.0;
+        }
+    }
     [unroll]
     for (int i = 0; i < kPcssBlockerTaps; ++i) {
-        float2 offset = VogelDisk (i, kPcssBlockerTaps, phase + 3.14159265) * searchRadius;
-        int2 texel = int2 ((sampling.f2UV + offset) * g_shadowAttribs.f4ShadowMapDim.xy);
+        float2 disk = VogelDisk (i, kPcssBlockerTaps, phase + 3.14159265) * searchMetres;
+        int2 texel = int2 ((sampling.f2UV + disk * metresToUv) * g_shadowAttribs.f4ShadowMapDim.xy);
         texel = clamp (texel, int2 (0, 0), int2 (g_shadowAttribs.f4ShadowMapDim.xy) - 1);
         float depth = g_shadowMap.Load (int4 (texel, sampling.iCascadeIdx, 0));
-        if (depth < receiverDepth) {
+        if (depth < receiverDepth &&
+            (legacySearch || length (disk) <= (receiverDepth - depth) * depthToMetres * g_pcssParams.y)) {
             blockerDepth += depth;
             blockerCount += 1.0;
         }
     }
     if (blockerCount < 0.5)
         return 1.0;
+    if (diagnostic == 3)
+        return 0.0; // the search found a blocker: the pixels left lit here are the search's
 
     float averageBlockerDepth = blockerDepth / blockerCount;
     float blockerSeparation = (receiverDepth - averageBlockerDepth) /
@@ -2423,6 +2470,11 @@ float FilterPcssCascade (float3 ddxLightPosition, float3 ddyLightPosition, Casca
     // pixel. See kPcssMinFilterTexels for why the floor exists at all.
     filterRadius = max (filterRadius, kPcssMinFilterTexels * g_shadowAttribs.f4ShadowMapDim.zw);
     float2 filterRadiusTexels = filterRadius * g_shadowAttribs.f4ShadowMapDim.xy;
+    if (diagnostic == 4) {
+        // The filter radius in texels, ranked: at the floor, <= 4, <= 8, wider.
+        float r = max (filterRadiusTexels.x, filterRadiusTexels.y);
+        return r <= kPcssMinFilterTexels + 0.01 ? 0.25 : r <= 4.0 ? 0.5 : r <= 8.0 ? 0.75 : 1.0;
+    }
 
     // The tap count follows the radius: eight taps cover a two-to-three texel
     // disk as evenly as sixteen do, and the Vogel sequence stays uniform at both.
@@ -2456,7 +2508,8 @@ FilteredShadow FilterPcssShadowMap (float3 lightPosition, float3 ddxLightPositio
         return shadow;
 
     shadow.fLightAmount = FilterPcssCascade (ddxLightPosition, ddyLightPosition, sampling, screenPixel);
-    if (sampling.iCascadeIdx + 1 < g_shadowAttribs.iNumCascades) {
+    // A diagnostic answers for one cascade; a blend would turn its 0/1 into a grey.
+    if (sampling.iCascadeIdx + 1 < g_shadowAttribs.iNumCascades && (PcssDiagnostic () == 0 || PcssDiagnostic () == 7)) {
         CascadeSamplingInfo nextSampling = GetCascadeSamplingInfo (
             g_shadowAttribs, lightPosition, sampling.iCascadeIdx + 1);
         shadow.fNextCascadeBlendAmount = GetNextCascadeBlendAmount (
@@ -2509,6 +2562,10 @@ float4 SampleSunShadow (float3 worldPos, float3 normal, float2 screenPixel)
         offsetMetres = texelMetres * kNormalOffsetTexels;
     }
 
+#if SHADOW_MODE == SHADOW_MODE_PCF
+    if (g_pcssParams.x > 0.5 && PcssDiagnostic () == 6)
+        offsetMetres = 0.0; // #234: the hard comparison without the normal offset
+#endif
     float3 offsetPos = worldPos + normal * offsetMetres;
     float4 lightPosition = mul (g_shadowAttribs.mWorldToLightView, float4 (offsetPos, 1.0));
     float3 lightViewPosition = lightPosition.xyz / lightPosition.w;

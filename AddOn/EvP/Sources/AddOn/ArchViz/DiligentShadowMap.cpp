@@ -345,7 +345,10 @@ bool DiligentShadowMap::Prepare (Diligent::IDeviceContext* context, const float 
     constants.attribs = impl_->shadowAttribs;
     constexpr float kPi = 3.14159265358979323846f;
     const float lightRadiusTangent = std::tan (impl_->settings.pcssLightAngularDiameter * kPi / 360.0f);
-    constants.pcssParams = Diligent::float4 { impl_->settings.pcssEnabled ? 1.0f : 0.0f, lightRadiusTangent,
+    const float pcssMode = impl_->settings.diagnostic > 0 ? 1.0f + float (impl_->settings.diagnostic)
+                           : impl_->settings.pcssEnabled ? 1.0f
+                                                         : 0.0f;
+    constants.pcssParams = Diligent::float4 { pcssMode, lightRadiusTangent,
                                               impl_->settings.pcssBlockerSearch, impl_->settings.pcssMaxPenumbra };
     if (Diligent::MapHelper<ShadowConstants> mapped { context, impl_->attribs, Diligent::MAP_WRITE,
                                                       Diligent::MAP_FLAG_DISCARD })
