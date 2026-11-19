@@ -434,9 +434,10 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
                           overlaylayers::Layer* onPlan = nullptr);
 // #201 M2: every building's planned floors as the exploded diagram draws them -- flats and cells
 // inside their walls, coloured by the programme and the space types -- copied from the cell
-// complexes TakeFloorPlanLayers last built (State::diagramCells asks for them). The same pointer
+// complexes TakeFloorPlanLayers last built (State::diagramCells asks for them), coloured by the
+// cell complex preset in `style` as the Massing workflow's preview colours them. The same pointer
 // while nothing changed; null when no floor is planned. MAIN THREAD.
-std::shared_ptr<const diagram::FloorPlans> DiagramFloorPlans (State& state);
+std::shared_ptr<const diagram::FloorPlans> DiagramFloorPlans (State& state, const diagram::PlanStyle& style);
 // The storey the floor plan overlay shows, read by its owner each turn; INT_MIN when it is not running.
 void SetPlanStorey (State& state, int storey);
 std::vector<massingrules::Edit> TakeMassingRuleEdits (State& state);

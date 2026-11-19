@@ -29,6 +29,11 @@ struct Controls {
     diagram::Detail detail = diagram::Detail::Topology;
     bool outlines = true;   // the shells' edges
     bool connectors = true; // dashed corner lines between a building's storeys
+    // The planned floors' look; its colour preset, stair highlight and hidden lines are the
+    // Massing workflow's cell complex settings, kept in step both ways by Follow.
+    diagram::PlanStyle style;
+    bool hiddenLines = false;    // edges behind other bodies, dashed
+    bool shellWireframe = false; // storey shells as edges only, around their planned floors
     auto operator<=> (const Controls&) const = default;
 };
 Controls ReadControls ();

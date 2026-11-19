@@ -33,7 +33,7 @@ struct DiagramConstants {
     float style[4];       // x: white study-model weight (0 = function colours), yzw unused
     float second[4];      // xyz: the translation of a line's end 1, w unused
     float ink[4];         // rgb: line colour; a: dash period in metres (0 = solid)
-    float dash[4];        // x: world z where a dash starts, yzw unused
+    float dash[4];        // x: world z where a dash starts; y: 1 = dash along the line in any direction
     float eye[4];         // xyz: the camera in world metres; w: how far a line moves toward it (0 = none)
 };
 
@@ -119,7 +119,9 @@ struct PSInput
 void main (in VSInput vsIn, out PSInput psIn)
 {
     float3 world = vsIn.position + lerp (g_translation.xyz, g_second.xyz, vsIn.end);
-    psIn.along = g_dash.x - world.z;
+    // A connector dashes down from its upper end; a hidden edge in any direction, measured
+    // on the diagonal so no axis-aligned edge runs solid.
+    psIn.along = g_dash.y > 0.5 ? dot (world, float3 (0.57735, 0.57735, 0.57735)) : g_dash.x - world.z;
     // Along the view ray toward the eye: the same pixel, a nearer depth. A depth bias
     // cannot do this: the faces carry a slope bias and a line has no slope, so at a
     // grazing face the face would win its own edge.
@@ -217,8 +219,8 @@ bool Ensure (Diligent::IRenderDevice* device, RefCntAutoPtr<Diligent::IBuffer>& 
 } // namespace
 
 struct DiagramLayer::Impl {
-    RefCntAutoPtr<Diligent::IPipelineState> pso, linePso;
-    RefCntAutoPtr<Diligent::IShaderResourceBinding> srb, lineSrb;
+    RefCntAutoPtr<Diligent::IPipelineState> pso, linePso, hiddenPso;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> srb, lineSrb, hiddenSrb;
     RefCntAutoPtr<Diligent::IBuffer> constants, vertices, indices, lines;
     size_t vertexCapacity = 0, indexCapacity = 0, lineCapacity = 0;
     size_t lineVertices = 0, lastLineDraws = 0;
@@ -264,6 +266,8 @@ void DiagramLayer::Shutdown ()
     impl_->pso.Release ();
     impl_->lineSrb.Release ();
     impl_->linePso.Release ();
+    impl_->hiddenSrb.Release ();
+    impl_->hiddenPso.Release ();
     impl_->constants.Release ();
     impl_->vertices.Release ();
     impl_->indices.Release ();
@@ -388,6 +392,24 @@ bool DiagramLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBufferFo
         error = "Diligent CreateShaderResourceBinding(Diagram line PSO) failed";
         return false;
     }
+    // Hidden lines: the same lines where a body is in front of them. Pulled toward the eye
+    // like the visible pass, so an edge on top of its own face never counts as hidden.
+    Diligent::GraphicsPipelineStateCreateInfo hci = lci;
+    hci.PSODesc.Name = "Diagram hidden line PSO";
+    hci.GraphicsPipeline.DepthStencilDesc.DepthFunc = Diligent::COMPARISON_FUNC_GREATER;
+    device->CreateGraphicsPipelineState (hci, &impl_->hiddenPso);
+    if (impl_->hiddenPso == nullptr) {
+        error = "Diligent CreateGraphicsPipelineState(Diagram hidden line PSO) failed";
+        return false;
+    }
+    for (const auto stage : { Diligent::SHADER_TYPE_VERTEX, Diligent::SHADER_TYPE_PIXEL })
+        if (auto* v = impl_->hiddenPso->GetStaticVariableByName (stage, "DiagramConstants"))
+            v->Set (impl_->constants);
+    impl_->hiddenPso->CreateShaderResourceBinding (&impl_->hiddenSrb, true);
+    if (impl_->hiddenSrb == nullptr) {
+        error = "Diligent CreateShaderResourceBinding(Diagram hidden line PSO) failed";
+        return false;
+    }
     impl_->ready = true;
     return true;
 }
@@ -497,6 +519,7 @@ void DiagramLayer::Draw (Diligent::IDeviceContext* context, const float viewProj
         Rgb (line.dashed ? params.connectorRgba : params.outlineRgba, constants.ink);
         constants.ink[3] = line.dashed ? (std::max) (params.dashMetres, 0.05f) : 0.0f;
         constants.dash[0] = line.dashOrigin;
+        constants.dash[1] = 0.0f;
         Diligent::PVoid mapped = nullptr;
         context->MapBuffer (impl_->constants, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
         if (mapped == nullptr)
@@ -504,6 +527,33 @@ void DiagramLayer::Draw (Diligent::IDeviceContext* context, const float viewProj
         *static_cast<DiagramConstants*> (mapped) = constants;
         context->UnmapBuffer (impl_->constants, Diligent::MAP_WRITE);
         context->CommitShaderResources (impl_->lineSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        Diligent::DrawAttribs attribs;
+        attribs.NumVertices = line.lineCount;
+        attribs.StartVertexLocation = line.firstLine;
+        attribs.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+        context->Draw (attribs);
+        ++impl_->lastLineDraws;
+    }
+    if (!params.hiddenLines || impl_->hiddenPso == nullptr)
+        return;
+    context->SetPipelineState (impl_->hiddenPso);
+    Rgb (params.hiddenRgba, constants.ink);
+    constants.ink[3] = (std::max) (params.hiddenDashMetres, 0.05f);
+    constants.dash[1] = 1.0f;
+    for (const auto& line : lines) {
+        if (line.dashed || line.lineCount == 0 || size_t (line.firstLine) + line.lineCount > impl_->lineVertices)
+            continue; // outlines only: a connector is already dashed and has nothing behind it
+        for (int k = 0; k < 3; ++k) {
+            constants.translation[k] = line.first[size_t (k)];
+            constants.second[k] = line.second[size_t (k)];
+        }
+        Diligent::PVoid mapped = nullptr;
+        context->MapBuffer (impl_->constants, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
+        if (mapped == nullptr)
+            return;
+        *static_cast<DiagramConstants*> (mapped) = constants;
+        context->UnmapBuffer (impl_->constants, Diligent::MAP_WRITE);
+        context->CommitShaderResources (impl_->hiddenSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         Diligent::DrawAttribs attribs;
         attribs.NumVertices = line.lineCount;
         attribs.StartVertexLocation = line.firstLine;

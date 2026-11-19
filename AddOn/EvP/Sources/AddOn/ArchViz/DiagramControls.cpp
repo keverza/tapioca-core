@@ -111,6 +111,31 @@ void Draw (Memory& memory)
         Wrapped (planned);
     }
 
+    // The planned floors' look (user, 2026-11-19): shared with the Massing workflow's cell
+    // complex preview where it has the same setting, the diagram's own otherwise.
+    if (ImGui::TreeNodeEx ("Cell complex", ImGuiTreeNodeFlags_DefaultOpen)) {
+        static const char* const presets[] = { "Unit mix",     "Programs",      "Space types",
+                                               "Unique units", "Story heights", "Buildings" };
+        int preset = (std::min) (int (controls.style.cellColours), int (IM_ARRAYSIZE (presets)) - 1);
+        if (ImGui::Combo ("Colour cells by", &preset, presets, IM_ARRAYSIZE (presets)))
+            controls.style.cellColours = uint8_t (preset);
+        Tip ("The Massing workflow's cell colour preset: changing it here changes it there.");
+        static const char* const stairs[] = { "Highlight", "Neutral", "Hidden" };
+        int stair = int (controls.style.stairs);
+        if (ImGui::Combo ("Stair cores", &stair, stairs, IM_ARRAYSIZE (stairs)))
+            controls.style.stairs = diagram::SpaceShow (stair);
+        Tip ("Highlight is the Massing workflow's \"Highlight stair core cells\".");
+        static const char* const circulation[] = { "Space colour", "Neutral", "Hidden" };
+        int corridor = int (controls.style.circulation);
+        if (ImGui::Combo ("Corridors and lobbies", &corridor, circulation, IM_ARRAYSIZE (circulation)))
+            controls.style.circulation = diagram::SpaceShow (corridor);
+        ImGui::Checkbox ("Hidden lines (dashed)", &controls.hiddenLines);
+        Tip ("Edges behind other bodies, dashed and faint: the Massing workflow's \"Show hidden lines\".");
+        ImGui::Checkbox ("Storeys as wireframe", &controls.shellWireframe);
+        Tip ("Topology as edges only; with Units or Rooms, the storey's edges around its planned floor.");
+        ImGui::TreePop ();
+    }
+
     int colouring = int (controls.colouring);
     ImGui::TextUnformatted ("Colour");
     ImGui::SameLine ();

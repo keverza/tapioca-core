@@ -231,3 +231,28 @@ TEST (DiagramPlans, AFloorMatchesByElevationThenByStory)
     EXPECT_EQ (dg::PlannedFloorOf (&plans, "building:B", 0, 0, true), nullptr);
     EXPECT_EQ (dg::PlannedFloorOf (nullptr, "building:A", 0, 0, true), nullptr);
 }
+
+// "Show topology as wireframe": a shell draws no faces, only its edges -- around its planned
+// floor when units or rooms show, alone otherwise.
+TEST (DiagramPlans, WireframeStoreysDrawEdgesOnly)
+{
+    const auto prepared = dg::Prepare (Snapshot (Plans ()), {}, dg::DefaultRequest (), 1);
+    ASSERT_TRUE (prepared.publication);
+    const auto& p = *prepared.publication;
+    const auto frame = dg::Evaluate (p.plan, {}, 1.0);
+    const auto* ground = StoreyAt (p.plan, "building:A", 0);
+    ASSERT_TRUE (ground);
+    // Topology: no faces at all; every shell's edges, outlines on or off.
+    EXPECT_TRUE (dg::DrawsOf (p.geometry, p.plan, frame, {}, dg::Detail::Topology, true).empty ());
+    EXPECT_EQ (dg::LineDrawsOf (p.geometry, p.plan, frame, {}, false, false, dg::Detail::Topology, true).size (), 4u);
+    // Units: the three flats' faces, and the ground shell's edges besides the flats' own.
+    const auto draws = dg::DrawsOf (p.geometry, p.plan, frame, {}, dg::Detail::Units, true);
+    ASSERT_EQ (draws.size (), 3u);
+    for (const auto& draw : draws)
+        EXPECT_EQ (p.geometry.meshes[draw.mesh].detail, dg::Detail::Units);
+    const auto shell = p.geometry.meshes[size_t (p.geometry.Find (ground->id))];
+    const auto lines = dg::LineDrawsOf (p.geometry, p.plan, frame, {}, true, false, dg::Detail::Units, true);
+    EXPECT_EQ (lines.size (), 3u + 4u); // three flats, four shells
+    EXPECT_TRUE (std::any_of (lines.begin (), lines.end (),
+                              [&] (const dg::DiagramLineDraw& d) { return d.firstLine == shell.firstLine; }));
+}

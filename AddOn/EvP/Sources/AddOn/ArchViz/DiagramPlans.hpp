@@ -8,6 +8,7 @@
 // the walls -- so neighbouring flats never share a face. Colours are decided where the
 // programme is known, never re-derived here.
 #include <array>
+#include <compare>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -17,6 +18,18 @@ namespace geomsrv::archviz::diagram {
 // stairs beside them), its rooms, or its walls (not drawn yet). A storey with no planned
 // floor shows its shell at every level.
 enum class Detail : uint8_t { Topology, Units, Rooms, Walls };
+
+// How the diagram shows the planned circulation and stairs (user, 2026-11-19): in their space
+// colour (stairs: highlighted), neutral grey, or not at all.
+enum class SpaceShow : uint8_t { Colour, Neutral, Hidden };
+// What colours the planned floors. `cellColours` is overlayhud::CellColours, shared with the
+// Massing workflow's cell complex preview, as is the stair highlight (stairs == Colour).
+struct PlanStyle {
+    uint8_t cellColours = 0;
+    SpaceShow stairs = SpaceShow::Colour;
+    SpaceShow circulation = SpaceShow::Colour;
+    auto operator<=> (const PlanStyle&) const = default;
+};
 
 using PlanPoint = std::array<double, 2>;
 using PlanRing = std::vector<PlanPoint>; // counter-clockwise outer, clockwise holes

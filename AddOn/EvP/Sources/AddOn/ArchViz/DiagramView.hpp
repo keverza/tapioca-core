@@ -39,9 +39,11 @@ struct DiagramView {
     Colouring colouring = Colouring::Function;
     Detail detail = Detail::Topology;
     EntityId selected;
-    bool outlines = true;   // the shells' edges
-    bool connectors = true; // dashed corner lines from each storey down to the one below
-    bool animate = true;    // false: show `spacing` at once (offline pictures)
+    bool outlines = true;        // the shells' edges
+    bool connectors = true;      // dashed corner lines from each storey down to the one below
+    bool hiddenLines = false;    // edges behind a body: dashed and faint
+    bool shellWireframe = false; // shells as edges only; around the units/rooms when those show
+    bool animate = true;         // false: show `spacing` at once (offline pictures)
 };
 } // namespace geomsrv::archviz::diagram
 #endif

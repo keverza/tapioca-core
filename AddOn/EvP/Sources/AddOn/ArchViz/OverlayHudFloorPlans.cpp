@@ -742,14 +742,15 @@ double ClearArea (const std::vector<fs::Ring>& rings)
 }
 } // namespace
 
-std::shared_ptr<const diagram::FloorPlans> DiagramFloorPlans (State& state)
+std::shared_ptr<const diagram::FloorPlans> DiagramFloorPlans (State& state, const diagram::PlanStyle& style)
 {
     // Keyed on what the complexes were built from and the programme that colours the flats.
     static std::string s_from; // MAIN THREAD
     static std::shared_ptr<const diagram::FloorPlans> s_plans;
     std::ostringstream from;
     from << fp::Key (state.massingProgramme) << fp::ColoursKey (state.massingProgramme) << '|'
-         << state.floorPlanner.Revision ();
+         << state.floorPlanner.Revision () << '|' << int (style.cellColours) << int (style.stairs)
+         << int (style.circulation);
     for (const auto& [key, held] : state.floorComplexes)
         from << '|' << key << ':' << (held ? held->from : std::string ("-"));
     if (from.str () == s_from)
@@ -766,12 +767,70 @@ std::shared_ptr<const diagram::FloorPlans> DiagramFloorPlans (State& state)
         }
         return out;
     };
+    // The preset's keys over every building, in a stable order, as TakeFloorPlanLayers keys them.
+    const auto preset = CellColours (style.cellColours);
+    std::map<std::string, size_t> looks;
+    std::map<long long, size_t> heights;
+    for (const auto& [key, held] : state.floorComplexes) {
+        if (!held)
+            continue;
+        for (size_t u = 0; u < held->units.size () && u < held->complex.units.size (); ++u)
+            looks.emplace (Signature (held->complex.units[u], held->units[u]), 0);
+        for (const auto& floor : held->complex.floors)
+            heights.emplace (std::llround (floor.height * 100), 0);
+    }
+    size_t next = 0;
+    for (auto& [look, index] : looks)
+        index = next++;
+    next = 0;
+    for (auto& [height, index] : heights)
+        index = next++;
     auto plans = std::make_shared<diagram::FloorPlans> ();
     plans->revision = state.floorPlanner.Revision ();
+    size_t buildingIndex = 0;
     for (const auto& [key, held] : state.floorComplexes) {
+        const size_t index = buildingIndex++;
         if (!held || held->complex.floors.empty ())
             continue;
         const auto& complex = held->complex;
+        const auto snapshot = state.floorPlanSnapshots.find (key);
+        const auto programmeOf = [&] (int story) {
+            if (snapshot != state.floorPlanSnapshots.end ())
+                for (const auto& floor : snapshot->second.floors)
+                    if (floor.story == story && (floor.programmeRgba & 0xFFu) != 0)
+                        return floor.programmeRgba | 0xFFu;
+            return kNoProgramme;
+        };
+        // A flat's colour under the preset (TakeFloorPlanLayers' ownColour, without a Stats hover).
+        const auto unitColour = [&] (const bt::Unit& unit, size_t u) -> uint32_t {
+            const auto& floor = complex.floors[size_t (unit.floor)];
+            switch (preset) {
+                case CellColours::Programs:
+                    return programmeOf (floor.story);
+                case CellColours::SpaceTypes:
+                    return 0xCF9F98FFu; // a whole flat, as the space types colour one
+                case CellColours::UniqueUnits:
+                    return Paletted (looks[Signature (unit, held->units[u])]);
+                case CellColours::StoryHeights:
+                    return Paletted (heights[std::llround (floor.height * 100)]);
+                case CellColours::Buildings:
+                    return Paletted (index);
+                default:
+                    return fp::Colour (state.massingProgramme, unit.type, unit.rooms) | 0xFFu;
+            }
+        };
+        // A cell no flat holds: stairs and circulation by the diagram's own choice. Zero: hidden.
+        const auto aside = [&] (const bt::Cell& cell) -> uint32_t {
+            const bool stair = cell.kind == bt::CellKind::Core;
+            switch (stair ? style.stairs : style.circulation) {
+                case diagram::SpaceShow::Hidden:
+                    return 0u;
+                case diagram::SpaceShow::Neutral:
+                    return stair ? kCoreNeutral : kNeutral;
+                default:
+                    return CellRgba (cell);
+            }
+        };
         diagram::PlannedBuilding building;
         building.key = key;
         for (const auto& f : complex.floors)
@@ -782,8 +841,7 @@ std::shared_ptr<const diagram::FloorPlans> DiagramFloorPlans (State& state)
                 continue;
             char label[64];
             std::snprintf (label, sizeof (label), "%g-room flat", unit.rooms);
-            diagram::PlannedSpace space { unit.id, rings (held->units[u]),
-                                          fp::Colour (state.massingProgramme, unit.type, unit.rooms) | 0xFFu, label,
+            diagram::PlannedSpace space { unit.id, rings (held->units[u]), unitColour (unit, u), label,
                                           ClearArea (held->units[u]) };
             if (!space.rings.empty ())
                 building.floors[size_t (unit.floor)].units.push_back (std::move (space));
@@ -792,7 +850,16 @@ std::shared_ptr<const diagram::FloorPlans> DiagramFloorPlans (State& state)
             const auto& cell = complex.cells[id];
             if (cell.context || cell.floor < 0 || size_t (cell.floor) >= building.floors.size ())
                 continue;
-            diagram::PlannedSpace space { cell.id, rings (held->cells[id]), CellRgba (cell), CellLabel (cell),
+            uint32_t rgba = 0;
+            if (cell.unit < 0)
+                rgba = aside (cell);
+            else if (preset == CellColours::SpaceTypes)
+                rgba = CellRgba (cell);
+            else if (size_t (cell.unit) < complex.units.size ())
+                rgba = unitColour (complex.units[size_t (cell.unit)], size_t (cell.unit));
+            if (rgba == 0u)
+                continue; // hidden by the diagram's stairs or circulation choice
+            diagram::PlannedSpace space { cell.id, rings (held->cells[id]), rgba, CellLabel (cell),
                                           ClearArea (held->cells[id]) };
             if (space.rings.empty ())
                 continue;

@@ -91,7 +91,7 @@ struct DiagramDraw {
 // order. A draw is selected when its own id or its storey's is in the frame's selection. `origin` is the render origin
 // the viewProj is expressed against; the viewer draws world metres, so it passes zero.
 std::vector<DiagramDraw> DrawsOf (const DiagramGeometry& geometry, const LayoutPlan& plan, const Frame& frame,
-                                  const Vec3& origin, Detail detail = Detail::Topology);
+                                  const Vec3& origin, Detail detail = Detail::Topology, bool shellWireframe = false);
 
 struct DiagramLineDraw {
     uint32_t firstLine = 0, lineCount = 0;
@@ -100,10 +100,12 @@ struct DiagramLineDraw {
     bool dashed = false;
 };
 // Outlines of the visible meshes, then the connectors whose two storeys are both visible.
+// `shellWireframe`: a shell draws no faces (DrawsOf) and its edges always; around a planned
+// floor shown as units or rooms, too.
 // A connector shorter than a centimetre (an assembled stack) is left out.
 std::vector<DiagramLineDraw> LineDrawsOf (const DiagramGeometry& geometry, const LayoutPlan& plan, const Frame& frame,
                                           const Vec3& origin, bool outlines, bool connectors,
-                                          Detail detail = Detail::Topology);
+                                          Detail detail = Detail::Topology, bool shellWireframe = false);
 
 // What a click hits (§5.8): the bodies each visible storey shows at `detail` -- its shell,
 // or its planned flats or rooms -- tested exactly. The hit's id is the storey for a shell

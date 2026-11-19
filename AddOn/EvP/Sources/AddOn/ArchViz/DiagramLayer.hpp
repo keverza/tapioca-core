@@ -62,9 +62,14 @@ class DiagramLayer final {
         uint32_t outlineRgba = 0x2C3036FF;   // edges of the shells
         uint32_t connectorRgba = 0x5A6068FF; // dashed corner lines between storeys
         float dashMetres = 0.5f;             // one dash plus one gap
+        // Edges behind a body (the Massing workflow's "Show hidden lines"): dashed and faint.
+        bool hiddenLines = false;
+        uint32_t hiddenRgba = 0x8A9098FF;
+        float hiddenDashMetres = 0.25f;
     };
     // Shells first, then lines over them: an outline is pulled further toward the camera
-    // than its faces, so it wins the coincident edge, and it writes no depth.
+    // than its faces, so it wins the coincident edge, and it writes no depth. With hidden
+    // lines, the outlines again where something is in front of them (depth GREATER), dashed.
     void Draw (Diligent::IDeviceContext* context, const float viewProj[16],
                const std::vector<diagram::DiagramDraw>& draws, const std::vector<diagram::DiagramLineDraw>& lines,
                const DrawParams& params);

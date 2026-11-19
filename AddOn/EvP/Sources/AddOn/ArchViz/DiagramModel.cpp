@@ -34,6 +34,13 @@ std::future<diagram::Prepared> s_job;
 uint64_t s_requested = 0; // generation of the latest request
 std::shared_ptr<const massingslices::Result> s_seenSlices;
 std::shared_ptr<const diagram::FloorPlans> s_seenPlans;
+// The cell complex settings shared with the Massing workflow, as last agreed (Sync).
+struct Shared {
+    int colours = -1; // -1: never synced; the store wins first
+    bool stairs = false, hidden = false;
+    auto operator<=> (const Shared&) const = default;
+};
+Shared s_synced;
 std::string s_seenStoreys;
 uint64_t s_slicesGeneration = 0, s_lastFollow = 0;
 std::shared_ptr<const diagram::DiagramInputSnapshot> s_lastSnapshot;
@@ -146,6 +153,35 @@ void Adopt ()
     s_publication.store (std::move (prepared.publication));
 }
 
+// ⚠️ BOTH WAYS, ON THE MAIN THREAD. The viewer's own Massing tab sets the controls from the
+// render thread, so it never touches the HUD store; this follow carries a change across: the
+// diagram's when the controls moved since the last agreement, else the Massing workflow's.
+void Sync (overlayhud::State& store, Controls controls)
+{
+    const Shared mine { controls.style.cellColours, controls.style.stairs == diagram::SpaceShow::Colour,
+                        controls.hiddenLines };
+    const Shared theirs { int (store.cellColours), store.previewStairs, store.cellHiddenLines };
+    if (s_synced.colours >= 0 && mine != s_synced) {
+        store.cellColours = overlayhud::CellColours (mine.colours);
+        store.previewStairs = mine.stairs;
+        store.cellHiddenLines = mine.hidden;
+        s_synced = mine;
+        return;
+    }
+    if (theirs == s_synced)
+        return;
+    s_synced = theirs;
+    if (theirs == mine)
+        return;
+    controls.style.cellColours = uint8_t (theirs.colours);
+    if (theirs.stairs)
+        controls.style.stairs = diagram::SpaceShow::Colour;
+    else if (controls.style.stairs == diagram::SpaceShow::Colour)
+        controls.style.stairs = diagram::SpaceShow::Neutral;
+    controls.hiddenLines = theirs.hidden;
+    SetControls (controls);
+}
+
 void Request (std::shared_ptr<const diagram::DiagramInputSnapshot> snapshot, std::string content)
 {
     s_lastSnapshot = snapshot;
@@ -197,6 +233,8 @@ diagram::DiagramView View ()
     view.detail = s_controls.detail;
     view.outlines = s_controls.outlines;
     view.connectors = s_controls.connectors;
+    view.hiddenLines = s_controls.hiddenLines;
+    view.shellWireframe = s_controls.shellWireframe;
     view.selected = s_selected;
     return view;
 }
@@ -243,6 +281,7 @@ void Follow ()
         hud->diagramCells = cells;
     if (!controls.enabled)
         return;
+    Sync (*hud, controls);
     const uint64_t now = ::GetTickCount64 ();
     if (now - s_lastFollow < 250)
         return; // massingslicesmodel itself polls no faster
@@ -255,7 +294,7 @@ void Follow ()
     std::string signature = StoreySignature (storeys);
     // The planned floors travel with every snapshot once any exist, whatever the detail shown:
     // switching the detail then never rebuilds, it only picks another uploaded body.
-    auto plans = overlayhud::DiagramFloorPlans (*hud);
+    auto plans = overlayhud::DiagramFloorPlans (*hud, ReadControls ().style);
     const bool changed =
         slices != s_seenSlices || plans != s_seenPlans || signature != s_seenStoreys || !s_lastSnapshot;
     if (!changed || s_job.valid ())
@@ -297,6 +336,7 @@ void Forget ()
     s_requested = 0;
     s_seenSlices.reset ();
     s_seenPlans.reset ();
+    s_synced = {};
     s_seenStoreys.clear ();
     guesttext::HudState ()->diagramCells = false;
     s_slicesGeneration = 0;

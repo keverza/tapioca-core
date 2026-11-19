@@ -286,7 +286,7 @@ void AddConnectors (DiagramGeometry& geometry, const LayoutPlan& plan)
 }
 
 std::vector<DiagramDraw> DrawsOf (const DiagramGeometry& geometry, const LayoutPlan& plan, const Frame& frame,
-                                  const Vec3& origin, Detail detail)
+                                  const Vec3& origin, Detail detail, bool shellWireframe)
 {
     std::vector<DiagramDraw> draws;
     if (frame.poses.size () != plan.nodes.size ())
@@ -295,7 +295,7 @@ std::vector<DiagramDraw> DrawsOf (const DiagramGeometry& geometry, const LayoutP
         if (!pose.visible)
             continue;
         const auto range = geometry.Shown (pose.id, detail);
-        if (!range.count)
+        if (!range.count || (shellWireframe && range.detail == Detail::Topology))
             continue;
         const auto matrix = DisplayMatrix (pose, origin);
         const bool storey = std::binary_search (frame.selected.begin (), frame.selected.end (), pose.id);
@@ -312,7 +312,8 @@ std::vector<DiagramDraw> DrawsOf (const DiagramGeometry& geometry, const LayoutP
     return draws;
 }
 std::vector<DiagramLineDraw> LineDrawsOf (const DiagramGeometry& geometry, const LayoutPlan& plan, const Frame& frame,
-                                          const Vec3& origin, bool outlines, bool connectors, Detail detail)
+                                          const Vec3& origin, bool outlines, bool connectors, Detail detail,
+                                          bool shellWireframe)
 {
     std::vector<DiagramLineDraw> draws;
     if (frame.poses.size () != plan.nodes.size ())
@@ -321,12 +322,11 @@ std::vector<DiagramLineDraw> LineDrawsOf (const DiagramGeometry& geometry, const
         const auto matrix = DisplayMatrix (frame.poses[size_t (node)], origin);
         return std::array<float, 3> { matrix[12], matrix[13], matrix[14] };
     };
-    if (outlines)
-        for (size_t i = 0; i < frame.poses.size (); ++i) {
-            const auto& pose = frame.poses[i];
-            if (!pose.visible)
-                continue;
-            const auto range = geometry.Shown (pose.id, detail);
+    for (size_t i = 0; i < frame.poses.size (); ++i) {
+        const auto& pose = frame.poses[i];
+        if (!pose.visible)
+            continue;
+        const auto add = [&] (const DiagramGeometry::Range& range) {
             for (uint32_t m = range.first; m < range.first + range.count; ++m) {
                 if (geometry.meshes[m].lineCount == 0)
                     continue;
@@ -336,7 +336,13 @@ std::vector<DiagramLineDraw> LineDrawsOf (const DiagramGeometry& geometry, const
                 draw.first = draw.second = translation (int (i));
                 draws.push_back (draw);
             }
-        }
+        };
+        const auto range = geometry.Shown (pose.id, detail);
+        if (outlines || (shellWireframe && range.detail == Detail::Topology))
+            add (range);
+        if (shellWireframe && range.detail != Detail::Topology)
+            add (geometry.Of (pose.id, Detail::Topology));
+    }
     if (connectors)
         for (const auto& connector : geometry.connectors) {
             const int upper = plan.Find (connector.upper), lower = plan.Find (connector.lower);
