@@ -87,14 +87,26 @@ void Draw (Memory& memory)
             const auto level = diagram::Detail (i);
             const bool available = diagram::DetailAvailable (level);
             const std::string label =
-                std::string (details[i]) + (available ? "" : "  (needs floor plans)") + "##detail" + std::to_string (i);
+                std::string (details[i]) + (available ? "" : "  (not drawn yet)") + "##detail" + std::to_string (i);
             if (ImGui::Selectable (label.c_str (), detail == i, available ? 0 : ImGuiSelectableFlags_Disabled))
                 detail = i;
         }
         ImGui::EndCombo ();
     }
     controls.detail = diagram::Detail (detail);
-    Tip ("Topology: one shell per storey. Units, rooms and walls come with the floor plans in the diagram.");
+    Tip ("Topology: one shell per storey. Units: each planned flat, with the corridors and stairs beside it. "
+         "Rooms: each planned room. A storey with no planned floor keeps its shell.");
+    // The plans come from the Massing workflow's floor planner; say how far it got.
+    if (controls.enabled && controls.detail != diagram::Detail::Topology && publication) {
+        char planned[160];
+        if (publication->plannedStoreys == 0)
+            std::snprintf (planned, sizeof (planned),
+                           "No planned floors yet: they are planned in the Massing workflow (shells shown).");
+        else
+            std::snprintf (planned, sizeof (planned), "%zu of %zu storeys planned; the rest show their shell.",
+                           publication->plannedStoreys, publication->storeys);
+        Wrapped (planned);
+    }
 
     int colouring = int (controls.colouring);
     ImGui::TextUnformatted ("Colour");
@@ -215,7 +227,12 @@ void DrawSelection (Memory& memory)
         functions += (functions.empty () ? "" : ", ") + f;
     if (!functions.empty ())
         Wrapped ("Function: " + functions);
-    Wrapped (s.planned ? "Planned" : "Not planned: a storey shell, no apartments yet");
+    if (s.planned) {
+        std::snprintf (line, sizeof (line), "Planned: %zu flat(s) and circulation, %zu cell(s)", s.units, s.rooms);
+        Wrapped (line);
+    }
+    else
+        Wrapped ("Not planned: a storey shell, no apartments yet");
     std::snprintf (line, sizeof (line), "%zu source slab(s); read-only", s.slabs.size ());
     Wrapped (line);
     if (ImGui::Button ("Clear selection"))

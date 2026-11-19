@@ -77,6 +77,7 @@
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayText.hpp"
 #include "ArchViz/StorySliceOverlayContent.hpp" // the storey slices' controls, on Settings
+#include "ArchViz/DiagramPlans.hpp"
 
 #include <cstdint>
 #include <array>
@@ -431,6 +432,11 @@ std::vector<massingbake::Kind> TakeMassingBakes (State& state);
 // cells filled; none while the storey is unknown.
 bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylayers::Layer& units,
                           overlaylayers::Layer* onPlan = nullptr);
+// #201 M2: every building's planned floors as the exploded diagram draws them -- flats and cells
+// inside their walls, coloured by the programme and the space types -- copied from the cell
+// complexes TakeFloorPlanLayers last built (State::diagramCells asks for them). The same pointer
+// while nothing changed; null when no floor is planned. MAIN THREAD.
+std::shared_ptr<const diagram::FloorPlans> DiagramFloorPlans (State& state);
 // The storey the floor plan overlay shows, read by its owner each turn; INT_MIN when it is not running.
 void SetPlanStorey (State& state, int storey);
 std::vector<massingrules::Edit> TakeMassingRuleEdits (State& state);

@@ -5,9 +5,9 @@
 // The file holds exactly what Capture and BuildScene read: the published massing rows
 // (guid, function, story, elevation, height, colour, slice chains), the building records,
 // the story cut when there is one, the project storeys with their floorIds, and the
-// revision stamps. Nothing else of massingslices::Result is kept -- overlay layers, metrics
-// and coverage are derived presentation, not diagram input -- so a replayed file rebuilds
-// the same Scene, LayoutPlan and Frame as the live session that wrote it.
+// revision stamps, and -- optional -- the Massing workflow's planned floors. Nothing else of massingslices::Result is
+// kept -- overlay layers, metrics and coverage are derived presentation, not diagram input -- so a replayed file
+// rebuilds the same Scene, LayoutPlan and Frame as the live session that wrote it.
 //
 // Pure: no ACAPI, file IO or renderer. The caller reads and writes the text.
 #include "ArchViz/DiagramSnapshot.hpp"
@@ -22,7 +22,8 @@ struct CaptureInputs {
     std::shared_ptr<const massingslices::Result> slices; // null: the session had none
     ProjectStoreys storeys;
     RevisionSet revisions;
-    std::string note; // free text the writer attached (project, build, reason)
+    std::shared_ptr<const FloorPlans> plans; // null: the session had none
+    std::string note;                        // free text the writer attached (project, build, reason)
 };
 
 // The snapshot's inputs, never its derived fields: Capture re-derives them on replay.

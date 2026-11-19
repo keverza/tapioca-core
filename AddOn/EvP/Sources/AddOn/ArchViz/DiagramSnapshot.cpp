@@ -3,6 +3,7 @@
 #include <cmath>
 #include <limits>
 #include <set>
+#include <tuple>
 
 namespace geomsrv::archviz::diagram {
 namespace {
@@ -102,9 +103,10 @@ const char* Describe (SnapshotIssue issue)
 }
 
 DiagramInputSnapshot Capture (std::shared_ptr<const massingslices::Result> slices, ProjectStoreys storeys,
-                              RevisionSet revisions)
+                              RevisionSet revisions, std::shared_ptr<const FloorPlans> plans)
 {
     DiagramInputSnapshot snapshot;
+    snapshot.plans = std::move (plans);
     snapshot.slices = std::move (slices);
     snapshot.storeys = std::move (storeys);
     snapshot.revisions = revisions;
@@ -170,6 +172,83 @@ DiagramInputSnapshot Capture (std::shared_ptr<const massingslices::Result> slice
     status.compatible = status.failures.empty ();
     return snapshot;
 }
+
+const PlannedFloor* PlannedFloorOf (const FloorPlans* plans, const std::string& buildingKey, int story, double z,
+                                    bool byStory)
+{
+    if (!plans)
+        return nullptr;
+    const auto building =
+        std::lower_bound (plans->buildings.begin (), plans->buildings.end (), buildingKey,
+                          [] (const PlannedBuilding& b, const std::string& key) { return b.key < key; });
+    if (building == plans->buildings.end () || building->key != buildingKey)
+        return nullptr;
+    const PlannedFloor* best = nullptr;
+    for (const auto& floor : building->floors)
+        if (std::abs (floor.z - z) <= kStoreyTolerance && (!best || std::abs (floor.z - z) < std::abs (best->z - z)))
+            best = &floor;
+    if (!best && byStory)
+        for (const auto& floor : building->floors)
+            if (floor.story == story)
+                return &floor;
+    return best;
+}
+
+namespace {
+// One planned space as a node-local prism; false (and nothing added) when it does not
+// triangulate.
+bool SpacePrism (const PlannedSpace& space, double bottom, double top, const Vec3& pivot, DetailSpace& out,
+                 std::string& error)
+{
+    std::vector<SliceChain> chains;
+    for (const auto& ring : space.rings) {
+        if (ring.size () < 3)
+            continue;
+        SliceChain chain;
+        chain.closed = true;
+        for (const auto& p : ring) {
+            chain.xy.push_back (p[0]);
+            chain.xy.push_back (p[1]);
+        }
+        chains.push_back (std::move (chain));
+    }
+    overlaylayers::Mesh mesh;
+    if (chains.empty () || !massingslices::ExtrudeChains (chains, bottom, top, mesh, error) || mesh.indices.empty ())
+        return false;
+    out.positions.reserve (mesh.points.size ());
+    for (size_t p = 0; p < mesh.points.size (); ++p)
+        out.positions.push_back (mesh.points[p] - pivot[p % 3]);
+    out.indices = std::move (mesh.indices);
+    out.rgba = space.rgba;
+    return true;
+}
+
+// The Units and Rooms of one planned storey, appended to `built.details`.
+void AddDetails (const PlannedFloor& floor, const EntityId& storey, const Vec3& pivot, const std::string& label,
+                 BuiltScene& built)
+{
+    const double top = floor.z + std::max (0.0, floor.height - std::min (kDetailSlabGap, 0.1 * floor.height));
+    size_t failed = 0;
+    for (const auto& [detail, spaces] :
+         { std::pair { Detail::Units, &floor.units }, std::pair { Detail::Rooms, &floor.rooms } }) {
+        DetailMesh mesh;
+        mesh.id = storey;
+        mesh.detail = detail;
+        for (const auto& space : *spaces) {
+            DetailSpace prism;
+            std::string error;
+            if (SpacePrism (space, floor.z, top, pivot, prism, error))
+                mesh.spaces.push_back (std::move (prism));
+            else
+                ++failed;
+        }
+        if (!mesh.spaces.empty ())
+            built.details.push_back (std::move (mesh));
+    }
+    if (failed)
+        built.notes.push_back (label + ": " + std::to_string (failed) + " planned space(s) not triangulated");
+}
+} // namespace
 
 BuiltScene BuildScene (const DiagramInputSnapshot& snapshot, StoreyBindings& bindings)
 {
@@ -308,6 +387,21 @@ BuiltScene BuildScene (const DiagramInputSnapshot& snapshot, StoreyBindings& bin
                     storeys[i].boundsMin[k] = xyLo[k];
                     storeys[i].boundsMax[k] = xyHi[k];
                 }
+            // M2: the Massing workflow's planned floor, in the same node-local frame as the
+            // shell (the plan's pivot is the storey's bounds centre), so it moves with it.
+            if (const auto* planned = PlannedFloorOf (snapshot.plans.get (), group.key, floors[i].story, floors[i].z,
+                                                      snapshot.domain == StoreyDomain::ProjectStories)) {
+                Vec3 pivot;
+                for (int k = 0; k < 3; ++k)
+                    pivot[k] = 0.5 * (storeys[i].boundsMin[k] + storeys[i].boundsMax[k]);
+                AddDetails (*planned, storeys[i].id, pivot, group.key + " story " + std::to_string (floors[i].story),
+                            built);
+                storeys[i].planned = true;
+                auto& summary = built.storeys[storeys[i].id];
+                summary.planned = true;
+                summary.units = planned->units.size ();
+                summary.rooms = planned->rooms.size ();
+            }
             for (int k = 0; k < 3; ++k) {
                 building.boundsMin[k] =
                     anyBuilding ? std::min (building.boundsMin[k], storeys[i].boundsMin[k]) : storeys[i].boundsMin[k];
@@ -333,6 +427,9 @@ BuiltScene BuildScene (const DiagramInputSnapshot& snapshot, StoreyBindings& bin
     std::sort (built.dropped.begin (), built.dropped.end ());
     std::sort (built.shells.begin (), built.shells.end (),
                [] (const PickMesh& a, const PickMesh& b) { return a.id < b.id; });
+    std::sort (built.details.begin (), built.details.end (), [] (const DetailMesh& a, const DetailMesh& b) {
+        return std::tie (a.id, a.detail) < std::tie (b.id, b.detail);
+    });
     built.representedGuids.assign (represented.begin (), represented.end ());
     for (const auto& warning : snapshot.status.warnings)
         scene->notes.push_back (warning);

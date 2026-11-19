@@ -5,6 +5,9 @@
 #include "ArchViz/MassingModel.hpp"
 #include "ArchViz/MassingSlicesModel.hpp"
 #include "ArchViz/ModelWatch.hpp"
+#include "ArchViz/OverlayGuestText.hpp"
+#include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
 #include "Server/ServerState.hpp"
 
 #include <windows.h>
@@ -30,6 +33,7 @@ diagram::StoreyBindings s_bindings;
 std::future<diagram::Prepared> s_job;
 uint64_t s_requested = 0; // generation of the latest request
 std::shared_ptr<const massingslices::Result> s_seenSlices;
+std::shared_ptr<const diagram::FloorPlans> s_seenPlans;
 std::string s_seenStoreys;
 uint64_t s_slicesGeneration = 0, s_lastFollow = 0;
 std::shared_ptr<const diagram::DiagramInputSnapshot> s_lastSnapshot;
@@ -232,6 +236,11 @@ void Follow ()
     Save ();
     const Controls controls = ReadControls ();
     UpdateHidden (controls);
+    // M2: Units and Rooms ask the Massing workflow to plan its floors (State::diagramCells).
+    const auto hud = guesttext::HudState ();
+    const bool cells = controls.enabled && controls.detail != diagram::Detail::Topology;
+    if (hud->diagramCells != cells)
+        hud->diagramCells = cells;
     if (!controls.enabled)
         return;
     const uint64_t now = ::GetTickCount64 ();
@@ -244,7 +253,11 @@ void Follow ()
     auto slices = massingslicesmodel::Read ();
     ProjectStoreys storeys = ReadStoreys ();
     std::string signature = StoreySignature (storeys);
-    const bool changed = slices != s_seenSlices || signature != s_seenStoreys || !s_lastSnapshot;
+    // The planned floors travel with every snapshot once any exist, whatever the detail shown:
+    // switching the detail then never rebuilds, it only picks another uploaded body.
+    auto plans = overlayhud::DiagramFloorPlans (*hud);
+    const bool changed =
+        slices != s_seenSlices || plans != s_seenPlans || signature != s_seenStoreys || !s_lastSnapshot;
     if (!changed || s_job.valid ())
         return; // an in-flight build finishes first; the next tick sees the change again
     // ⚠️ A NEW POINTER IS NOT A NEW MASSING. massingslicesmodel republishes whenever its
@@ -254,13 +267,15 @@ void Follow ()
     // is keyed on the captured content; the stamps alone never start one.
     const bool slicesMoved = slices != s_seenSlices;
     s_seenSlices = slices;
+    s_seenPlans = plans;
     s_seenStoreys = std::move (signature);
     diagram::RevisionSet revisions;
     revisions.projectEpoch = massingmodel::ProjectEpoch ();
     revisions.modelStamp = modelwatch::CaptureStamp ();
     revisions.slices = s_slicesGeneration + (slicesMoved ? 1 : 0);
+    revisions.topology = plans ? plans->revision : 0;
     auto snapshot = std::make_shared<const diagram::DiagramInputSnapshot> (
-        diagram::Capture (std::move (slices), std::move (storeys), revisions));
+        diagram::Capture (std::move (slices), std::move (storeys), revisions, std::move (plans)));
     std::string content = diagram::ContentSignature (*snapshot);
     if (s_lastSnapshot && content == s_lastContent) {
         std::lock_guard<std::mutex> lock (s_mutex);
@@ -281,7 +296,9 @@ void Forget ()
     s_bindings = {};
     s_requested = 0;
     s_seenSlices.reset ();
+    s_seenPlans.reset ();
     s_seenStoreys.clear ();
+    guesttext::HudState ()->diagramCells = false;
     s_slicesGeneration = 0;
     s_lastFollow = 0;
     s_lastSnapshot.reset ();

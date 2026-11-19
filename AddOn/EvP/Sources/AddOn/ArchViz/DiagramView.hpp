@@ -11,9 +11,8 @@
 namespace geomsrv::archviz::diagram {
 // How a storey is coloured: by its massing function, or one plain white study-model tone.
 enum class Colouring : uint8_t { Function, White };
-// How much of the building a storey shows. Topology (the storey shells) is drawn today; the
-// others need the floor plans in the publication (M2) and fall back to Topology until then.
-enum class Detail : uint8_t { Topology, Units, Rooms, Walls };
+// Detail (DiagramPlans.hpp): Units and Rooms draw the Massing workflow's planned floors;
+// a storey without one keeps its shell. Walls are not drawn yet.
 constexpr const char* DetailName (Detail detail)
 {
     switch (detail) {
@@ -28,10 +27,10 @@ constexpr const char* DetailName (Detail detail)
     }
     return "Topology";
 }
-// Detail levels the publication can draw now.
+// Detail levels the diagram can draw now.
 constexpr bool DetailAvailable (Detail detail)
 {
-    return detail == Detail::Topology;
+    return detail != Detail::Walls;
 }
 
 struct DiagramView {

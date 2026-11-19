@@ -147,6 +147,9 @@ struct State {
     // Massing tab: the buildings' cell complexes, and their stair cells highlighted (user, 2026-10-15),
     // coloured by one of the presets (user, 2026-10-16: "different graphics override presets").
     bool previewStairs = false, previewCells = false;
+    // #201 M2: the exploded diagram draws Units or Rooms. The floors are planned and their cell
+    // complexes built as for the previews, without drawing the preview layers.
+    bool diagramCells = false;
     CellColours cellColours = CellColours::UnitMix;
     bool cellHiddenLines = true; // the cells' edges behind other cells, dashed (Massing tab)
     std::string floorPlanPublished;

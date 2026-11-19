@@ -362,7 +362,7 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
             asked << floor.story << '@' << floor.z << floor.outlineKey.size () << floor.outlineKey.substr (0, 64);
     }
     const bool arrived = state.floorPlanner.Poll ();
-    const bool wanted = state.previewStairs || state.previewCells;
+    const bool wanted = state.previewStairs || state.previewCells || state.diagramCells;
     if (wanted && (arrived || asked.str () != state.floorPlanAsked)) {
         state.floorPlanAsked = asked.str ();
         for (const auto& [key, plan] : state.floorPlanSnapshots)
@@ -374,9 +374,9 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         if (auto s = hudfloorscheme::Selected (editor))
             selected.push_back (std::move (*s));
     std::ostringstream signature;
-    signature << std::setprecision (17) << state.previewStairs << state.previewCells << int (state.cellColours)
-              << state.cellHiddenLines << state.massingStatsFunction << ':' << state.floorPlanner.Revision () << ':'
-              << (onPlan ? state.planStorey : INT_MIN);
+    signature << std::setprecision (17) << state.previewStairs << state.previewCells << state.diagramCells
+              << int (state.cellColours) << state.cellHiddenLines << state.massingStatsFunction << ':'
+              << state.floorPlanner.Revision () << ':' << (onPlan ? state.planStorey : INT_MIN);
     for (const auto& [key, plan] : state.floorPlanSnapshots) {
         const auto* shown = Displayed (plan, state.buildingPlans[key]);
         signature << '|' << key << ':' << plan.floors.size () << '@' << (shown ? shown->story : INT_MIN);
@@ -430,7 +430,7 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         auto& held = state.floorComplexes[key];
         if (held && held->from != from)
             held.reset ();
-        if (drawn && !held) {
+        if ((drawn || state.diagramCells) && !held) {
             auto built = std::make_shared<FloorCells> ();
             built->from = from;
             built->complex = ComplexOf (state, key, plan, options);
@@ -693,5 +693,67 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         }
     }
     return true;
+}
+
+std::shared_ptr<const diagram::FloorPlans> DiagramFloorPlans (State& state)
+{
+    // Keyed on what the complexes were built from and the programme that colours the flats.
+    static std::string s_from; // MAIN THREAD
+    static std::shared_ptr<const diagram::FloorPlans> s_plans;
+    std::ostringstream from;
+    from << fp::Key (state.massingProgramme) << fp::ColoursKey (state.massingProgramme) << '|'
+         << state.floorPlanner.Revision ();
+    for (const auto& [key, held] : state.floorComplexes)
+        from << '|' << key << ':' << (held ? held->from : std::string ("-"));
+    if (from.str () == s_from)
+        return s_plans;
+    s_from = from.str ();
+    const auto rings = [] (const std::vector<fs::Ring>& clear) {
+        std::vector<diagram::PlanRing> out;
+        for (const auto& ring : clear) {
+            diagram::PlanRing points;
+            for (const auto& p : ring)
+                points.push_back ({ p.x, p.y });
+            if (points.size () >= 3)
+                out.push_back (std::move (points));
+        }
+        return out;
+    };
+    auto plans = std::make_shared<diagram::FloorPlans> ();
+    plans->revision = state.floorPlanner.Revision ();
+    for (const auto& [key, held] : state.floorComplexes) {
+        if (!held || held->complex.floors.empty ())
+            continue;
+        const auto& complex = held->complex;
+        diagram::PlannedBuilding building;
+        building.key = key;
+        for (const auto& f : complex.floors)
+            building.floors.push_back ({ f.story, f.z, f.height, {}, {} });
+        for (size_t u = 0; u < complex.units.size () && u < held->units.size (); ++u) {
+            const auto& unit = complex.units[u];
+            if (unit.floor < 0 || size_t (unit.floor) >= building.floors.size ())
+                continue;
+            diagram::PlannedSpace space { unit.id, rings (held->units[u]),
+                                          fp::Colour (state.massingProgramme, unit.type, unit.rooms) | 0xFFu };
+            if (!space.rings.empty ())
+                building.floors[size_t (unit.floor)].units.push_back (std::move (space));
+        }
+        for (size_t id = 0; id < complex.cells.size () && id < held->cells.size (); ++id) {
+            const auto& cell = complex.cells[id];
+            if (cell.context || cell.floor < 0 || size_t (cell.floor) >= building.floors.size ())
+                continue;
+            diagram::PlannedSpace space { cell.id, rings (held->cells[id]), CellRgba (cell) };
+            if (space.rings.empty ())
+                continue;
+            auto& floor = building.floors[size_t (cell.floor)];
+            if (cell.unit < 0)
+                floor.units.push_back (space); // circulation and stairs stand beside the flats
+            floor.rooms.push_back (std::move (space));
+        }
+        plans->buildings.push_back (std::move (building));
+    }
+    // floorComplexes is a std::map: the buildings are already sorted by key.
+    s_plans = plans->buildings.empty () ? nullptr : std::shared_ptr<const diagram::FloorPlans> (std::move (plans));
+    return s_plans;
 }
 } // namespace geomsrv::archviz::overlayhud

@@ -1,5 +1,6 @@
 #include "ArchViz/DiagramReplay.hpp"
 #include "NodeGraph/Json.hpp"
+#include <algorithm>
 #include <cmath>
 
 namespace geomsrv::archviz::diagram {
@@ -60,6 +61,43 @@ V WriteResult (const massingslices::Result& result, bool nested)
     if (!nested && result.stories)
         o["stories"] = WriteResult (*result.stories, true);
     return V::Object (std::move (o));
+}
+
+V WriteSpaces (const std::vector<PlannedSpace>& spaces)
+{
+    js::JsonArray out;
+    for (const auto& space : spaces) {
+        js::JsonArray rings;
+        for (const auto& ring : space.rings) {
+            js::JsonArray xy;
+            xy.reserve (ring.size () * 2);
+            for (const auto& p : ring) {
+                xy.push_back (Number (p[0]));
+                xy.push_back (Number (p[1]));
+            }
+            rings.push_back (V::Array (std::move (xy)));
+        }
+        out.push_back (V::Object ({ { "id", Unsigned (space.id) },
+                                    { "rgba", V::Integer (static_cast<int64_t> (space.rgba)) },
+                                    { "rings", V::Array (std::move (rings)) } }));
+    }
+    return V::Array (std::move (out));
+}
+V WritePlans (const FloorPlans& plans)
+{
+    js::JsonArray buildings;
+    for (const auto& building : plans.buildings) {
+        js::JsonArray floors;
+        for (const auto& floor : building.floors)
+            floors.push_back (V::Object ({ { "story", V::Integer (floor.story) },
+                                           { "z", Number (floor.z) },
+                                           { "height", Number (floor.height) },
+                                           { "units", WriteSpaces (floor.units) },
+                                           { "rooms", WriteSpaces (floor.rooms) } }));
+        buildings.push_back (
+            V::Object ({ { "key", V::String (building.key) }, { "floors", V::Array (std::move (floors)) } }));
+    }
+    return V::Object ({ { "buildings", V::Array (std::move (buildings)) } });
 }
 
 bool ReadDouble (const V& object, const char* key, double& out)
@@ -155,6 +193,75 @@ bool ReadResult (const V& value, massingslices::Result& out, bool nested, std::s
     }
     return true;
 }
+bool ReadSpaces (const V* value, std::vector<PlannedSpace>& out)
+{
+    const auto* list = value ? value->AsArray () : nullptr;
+    if (!list)
+        return false;
+    for (const auto& item : *list) {
+        PlannedSpace space;
+        int64_t id = 0, rgba = 0;
+        const V* i = item.Find ("id");
+        const V* c = item.Find ("rgba");
+        const V* r = item.Find ("rings");
+        const auto* rings = r ? r->AsArray () : nullptr;
+        if (!i || !i->AsInteger (id) || id < 0 || !c || !c->AsInteger (rgba) || !rings)
+            return false;
+        space.id = static_cast<uint64_t> (id);
+        space.rgba = static_cast<uint32_t> (rgba);
+        for (const auto& ring : *rings) {
+            const auto* xy = ring.AsArray ();
+            if (!xy || xy->size () % 2 != 0)
+                return false;
+            PlanRing points;
+            for (size_t k = 0; k + 1 < xy->size (); k += 2) {
+                double x = 0, y = 0;
+                if (!(*xy)[k].AsDouble (x) || !(*xy)[k + 1].AsDouble (y) || !std::isfinite (x) || !std::isfinite (y))
+                    return false;
+                points.push_back ({ x, y });
+            }
+            space.rings.push_back (std::move (points));
+        }
+        out.push_back (std::move (space));
+    }
+    return true;
+}
+bool ReadPlans (const V& value, FloorPlans& out, std::string& error)
+{
+    const V* b = value.Find ("buildings");
+    const auto* buildings = b ? b->AsArray () : nullptr;
+    if (!buildings) {
+        error = "The capture's plans lack buildings.";
+        return false;
+    }
+    for (const auto& item : *buildings) {
+        PlannedBuilding building;
+        const V* f = item.Find ("floors");
+        const auto* floors = f ? f->AsArray () : nullptr;
+        if (!ReadString (item, "key", building.key) || !floors) {
+            error = "A capture plan building is malformed.";
+            return false;
+        }
+        for (const auto& entry : *floors) {
+            PlannedFloor floor;
+            int64_t story = 0;
+            const V* s = entry.Find ("story");
+            if (!s || !s->AsInteger (story) || !ReadDouble (entry, "z", floor.z) ||
+                !ReadDouble (entry, "height", floor.height) || !ReadSpaces (entry.Find ("units"), floor.units) ||
+                !ReadSpaces (entry.Find ("rooms"), floor.rooms)) {
+                error = "A capture plan floor of " + building.key + " is malformed.";
+                return false;
+            }
+            floor.story = static_cast<int> (story);
+            building.floors.push_back (std::move (floor));
+        }
+        out.buildings.push_back (std::move (building));
+    }
+    std::sort (out.buildings.begin (), out.buildings.end (),
+               [] (const PlannedBuilding& a, const PlannedBuilding& b) { return a.key < b.key; });
+    return true;
+}
+
 template <typename T, typename F> bool ReadList (const V& object, const char* key, std::vector<T>& out, F read)
 {
     const V* v = object.Find (key);
@@ -200,6 +307,8 @@ std::string WriteCapture (const DiagramInputSnapshot& snapshot, const std::strin
                                   { "metrics", Unsigned (r.metrics) } });
     if (snapshot.slices)
         o["slices"] = WriteResult (*snapshot.slices, false);
+    if (snapshot.plans)
+        o["plans"] = WritePlans (*snapshot.plans);
     return js::Write (V::Object (std::move (o)), 1);
 }
 
@@ -273,6 +382,13 @@ bool ReadCapture (const std::string& text, CaptureInputs& out, std::string& erro
             return false;
         out.slices = std::move (result);
     }
+    if (const V* plans = parsed.value.Find ("plans")) {
+        auto read = std::make_shared<FloorPlans> ();
+        if (!ReadPlans (*plans, *read, error))
+            return false;
+        read->revision = out.revisions.topology;
+        out.plans = std::move (read);
+    }
     return true;
 }
 
@@ -281,7 +397,7 @@ bool ReplayCapture (const std::string& text, DiagramInputSnapshot& out, std::str
     CaptureInputs inputs;
     if (!ReadCapture (text, inputs, error))
         return false;
-    out = Capture (std::move (inputs.slices), std::move (inputs.storeys), inputs.revisions);
+    out = Capture (std::move (inputs.slices), std::move (inputs.storeys), inputs.revisions, std::move (inputs.plans));
     return true;
 }
 } // namespace geomsrv::archviz::diagram

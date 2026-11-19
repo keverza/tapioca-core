@@ -31,6 +31,7 @@ static_assert (sizeof (DiagramLineVertex) == 16, "DiagramLayer's line layout ass
 
 struct DiagramMesh {
     EntityId id;
+    Detail detail = Detail::Topology; // Topology: the storey shell; Units/Rooms: its planned floor
     uint32_t firstIndex = 0, indexCount = 0;
     uint32_t firstLine = 0, lineCount = 0; // its outline: line-list vertices in `lines`
 };
@@ -45,7 +46,7 @@ struct DiagramConnector {
 struct DiagramGeometry {
     std::vector<DiagramVertex> vertices;
     std::vector<uint32_t> indices;            // absolute into `vertices`
-    std::vector<DiagramMesh> meshes;          // sorted by id
+    std::vector<DiagramMesh> meshes;          // sorted by (id, detail)
     std::vector<DiagramLineVertex> lines;     // line list: outlines, then connectors
     std::vector<DiagramConnector> connectors; // in plan order of the upper storey
     size_t Bytes () const
@@ -53,7 +54,9 @@ struct DiagramGeometry {
         return vertices.size () * sizeof (DiagramVertex) + indices.size () * sizeof (uint32_t) +
                lines.size () * sizeof (DiagramLineVertex);
     }
-    int Find (const EntityId& id) const;
+    int Find (const EntityId& id, Detail detail = Detail::Topology) const;
+    // What a storey shows at `detail`: Rooms, else Units, else its shell. -1 when none.
+    int Shown (const EntityId& id, Detail detail) const;
 };
 
 // Fallback colour for a storey with no function colour: the massing's neutral grey.
@@ -75,10 +78,11 @@ struct DiagramDraw {
     std::array<float, 3> translation {}; // pivot + offset - origin
     bool selected = false;
 };
-// One draw per visible node that has a mesh, in plan order. `origin` is the render origin
+// One draw per visible node that has a mesh, in plan order, at `detail` where the storey
+// has it (DiagramGeometry::Shown). `origin` is the render origin
 // the viewProj is expressed against; the viewer draws world metres, so it passes zero.
 std::vector<DiagramDraw> DrawsOf (const DiagramGeometry& geometry, const LayoutPlan& plan, const Frame& frame,
-                                  const Vec3& origin);
+                                  const Vec3& origin, Detail detail = Detail::Topology);
 
 struct DiagramLineDraw {
     uint32_t firstLine = 0, lineCount = 0;
@@ -89,6 +93,7 @@ struct DiagramLineDraw {
 // Outlines of the visible meshes, then the connectors whose two storeys are both visible.
 // A connector shorter than a centimetre (an assembled stack) is left out.
 std::vector<DiagramLineDraw> LineDrawsOf (const DiagramGeometry& geometry, const LayoutPlan& plan, const Frame& frame,
-                                          const Vec3& origin, bool outlines, bool connectors);
+                                          const Vec3& origin, bool outlines, bool connectors,
+                                          Detail detail = Detail::Topology);
 } // namespace geomsrv::archviz::diagram
 #endif

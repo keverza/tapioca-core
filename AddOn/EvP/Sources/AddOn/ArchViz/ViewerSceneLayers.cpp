@@ -38,9 +38,10 @@ LayerPtr GuestDrawn (const LayerPtr& layer)
 
 bool DrawsStoreysInPlace (const std::string& layer)
 {
-    for (const char* name : { massingslices::kLayer, massingslices::kHighlightLayer, massingslices::kLargeFloorsLayer,
-                              massingslices::kLowHeadroomLayer, massingbuildings::kUniqueLayer,
-                              massingbuildings::kSelectedLayer, massingbuildings::kFloorsLayer })
+    for (const char* name :
+         { massingslices::kLayer, massingslices::kHighlightLayer, massingslices::kLargeFloorsLayer,
+           massingslices::kLowHeadroomLayer, massingbuildings::kUniqueLayer, massingbuildings::kSelectedLayer,
+           massingbuildings::kFloorsLayer, buildingplan::kUnitsLayer, buildingplan::kStairsLayer })
         if (layer == name)
             return true;
     return false;

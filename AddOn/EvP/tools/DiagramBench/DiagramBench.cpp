@@ -7,7 +7,7 @@
 //
 //   TapiocaDiagramBench --capture diagram-capture.json --out dir [--size 1280x800]
 //       [--gaps 0,3,8] [--building building:A=12 ...] [--colour function|white|both]
-//       [--views iso,front,side,top]
+//       [--views iso,front,side,top] [--detail topology|units|rooms]
 //
 // ⚠️ THE VIEWER'S DRAW, NOT A COPY OF IT. Everything after the capture is the add-on's own code;
 // only the camera (framed on the spaced plan's bounds) and the clear colour are the bench's.
@@ -59,7 +59,8 @@ struct Options {
     std::map<std::string, double> buildingGaps;
     std::vector<dg::Colouring> colourings { dg::Colouring::Function };
     std::vector<std::string> views { "iso", "front", "side" };
-    bool lines = true; // outlines and corner connectors
+    bool lines = true;                        // outlines and corner connectors
+    dg::Detail detail = dg::Detail::Topology; // units/rooms need a capture with plans (M2)
 };
 
 std::vector<std::string> Split (const std::string& text, char by)
@@ -112,6 +113,17 @@ bool ParseArgs (int argc, char** argv, Options& o)
         }
         else if (a == "--views")
             o.views = Split (next (), ',');
+        else if (a == "--detail") {
+            const std::string v = next ();
+            if (v == "topology")
+                o.detail = dg::Detail::Topology;
+            else if (v == "units")
+                o.detail = dg::Detail::Units;
+            else if (v == "rooms")
+                o.detail = dg::Detail::Rooms;
+            else
+                return false;
+        }
         else if (a == "--lines") {
             const std::string v = next ();
             if (v != "on" && v != "off")
@@ -199,7 +211,7 @@ int main (int argc, char** argv)
     if (!ParseArgs (argc, argv, o)) {
         std::fprintf (stderr, "usage: TapiocaDiagramBench --capture file.json --out dir [--size WxH] [--gaps 0,3,8] "
                               "[--building building:A=12 ...] [--colour function|white|both] [--lines on|off] "
-                              "[--views iso,front,side,top]\n");
+                              "[--views iso,front,side,top] [--detail topology|units|rooms]\n");
         return 2;
     }
     std::filesystem::create_directories (o.out);
@@ -257,6 +269,7 @@ int main (int argc, char** argv)
             view.spacing.buildingGap = o.buildingGaps;
             view.colouring = colouring;
             view.outlines = view.connectors = o.lines;
+            view.detail = o.detail;
             view.animate = false; // the asked spacing at once: one picture per setting
             dg::Vec3 lo {}, hi {};
             dg::FramingBounds (dg::Spaced (publication.plan, view.spacing), lo, hi);
@@ -295,8 +308,11 @@ int main (int argc, char** argv)
                     scene.DrawDiagram (context, viewProj, uint32_t (Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB),
                                        uint32_t (Diligent::TEX_FORMAT_D32_FLOAT), &view);
                 char file[160];
-                std::snprintf (file, sizeof (file), "%s_gap%.1f_%s.png", name.c_str (), gap,
-                               colouring == dg::Colouring::White ? "white" : "function");
+                std::snprintf (file, sizeof (file), "%s_gap%.1f_%s%s.png", name.c_str (), gap,
+                               colouring == dg::Colouring::White ? "white" : "function",
+                               o.detail == dg::Detail::Units   ? "_units"
+                               : o.detail == dg::Detail::Rooms ? "_rooms"
+                                                               : "");
                 const std::string path = (std::filesystem::path (o.out) / file).string ();
                 if (!SavePng (context, targets, o.width, o.height, path)) {
                     av::ArchVizLog ("diagram bench: could not write " + path);

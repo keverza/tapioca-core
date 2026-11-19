@@ -36,7 +36,8 @@ build_29\DiagramBench\TapiocaDiagramBench.exe --capture diagram-capture.json --o
 | `--colour` | `function`, `white` or `both`. |
 | `--views` | `iso`, `front`, `side`, `top`. Each view is framed on the spaced diagram's bounds. |
 | `--lines` | `on` (default) or `off`: the storey outlines and the dashed corner lines. |
+| `--detail` | `topology` (default), `units` or `rooms`. Needs a capture saved with planned floors (the Massing workflow's floor planner); unplanned storeys keep their shell. |
 | `--size` | `WxH`, 1280x800 by default. |
 
-Each picture is `<view>_gap<g>_<colour>.png`. The console says how many draws and uploads it took.
+Each picture is `<view>_gap<g>_<colour>[_units|_rooms].png`. The console says how many draws and uploads it took.
 Uploads stay at 1 across every gap and colour, because spacing moves translations, not bytes.

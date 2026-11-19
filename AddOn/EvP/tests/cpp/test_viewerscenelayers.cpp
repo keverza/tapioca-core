@@ -82,6 +82,7 @@ TEST (ViewerSceneLayers, EditorAloneDrawsItsLayerTheMassingWorkflowDrawsTheShown
     EXPECT_EQ (Names (vs::Select (all, { true, true, shown })),
                (std::set<std::string> { av::editlayers::kLayer, av::massingcalculation::kEnvelopeLayer }));
     EXPECT_TRUE (vs::DrawsStoreysInPlace (av::massingslices::kHighlightLayer));
+    EXPECT_TRUE (vs::DrawsStoreysInPlace (av::buildingplan::kUnitsLayer)); // the planned flats too
     EXPECT_FALSE (vs::DrawsStoreysInPlace (av::massingcalculation::kEnvelopeLayer));
 }
 

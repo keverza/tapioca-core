@@ -7,6 +7,7 @@
 // global, writes the model or touches the renderer. An incompatible snapshot builds no
 // scene: the caller keeps its last coherent diagram and shows the status instead.
 #include "ArchViz/DiagramLayout.hpp"
+#include "ArchViz/DiagramPlans.hpp"
 #include "ArchViz/ExtractionStorySlices.hpp"
 #include "ArchViz/MassingBuildings.hpp"
 #include "ArchViz/MassingSlices.hpp"
@@ -48,6 +49,9 @@ struct DiagramInputSnapshot {
     std::shared_ptr<const massingslices::Result> slices; // as published
     ProjectStoreys storeys;
     RevisionSet revisions;
+    // The Massing workflow's planned floors (M2), when it has any: Units and Rooms detail.
+    // Optional input: without it every storey is its shell.
+    std::shared_ptr<const FloorPlans> plans;
     // Derived by Capture:
     std::shared_ptr<const massingslices::Result> floors; // `slices` or its story cut
     StoreyDomain domain = StoreyDomain::MassingFloors;
@@ -58,7 +62,7 @@ struct DiagramInputSnapshot {
 // Validates and freezes. Never mixes the massing's own floors with the story cut: the
 // story cut wins whenever the published result has one or already follows the stories.
 DiagramInputSnapshot Capture (std::shared_ptr<const massingslices::Result> slices, ProjectStoreys storeys,
-                              RevisionSet revisions);
+                              RevisionSet revisions, std::shared_ptr<const FloorPlans> plans = nullptr);
 
 // Session state that outlives scenes: storey bindings per building key.
 struct StoreyBindings {
@@ -76,12 +80,36 @@ struct StoreySummary {
     double rawArea = 0, allowedArea = 0; // sums of the storey's rows, m2
     std::vector<std::string> functions;  // distinct, in row order
     std::vector<std::string> slabs;      // source GUIDs, sorted
-    bool planned = false;
+    bool planned = false;                // a planned floor of the Massing workflow matched it
+    size_t units = 0, rooms = 0;         // its planned flats and cells, when planned
 };
+
+// A storey's planned floor as node-local prisms (relative to the storey's pivot, as its
+// shell): one space per flat at Units detail, one per cell at Rooms. Each space keeps its
+// own colour and its own outline.
+struct DetailSpace {
+    std::vector<double> positions; // xyz
+    std::vector<uint32_t> indices;
+    uint32_t rgba = 0;
+};
+struct DetailMesh {
+    EntityId id; // the storey
+    Detail detail = Detail::Units;
+    std::vector<DetailSpace> spaces;
+};
+// A planned space stops this far under the next floor, so stacked flats read as storeys
+// (at most a tenth of the floor height).
+constexpr double kDetailSlabGap = 0.3; // m
+
+// The planned floor of a storey: its building's floor at the storey's elevation (within
+// kStoreyTolerance), else -- on project stories -- the one on its story. Null when none.
+const PlannedFloor* PlannedFloorOf (const FloorPlans* plans, const std::string& buildingKey, int story, double z,
+                                    bool byStory);
 
 struct BuiltScene {
     std::shared_ptr<const Scene> scene;        // null when the snapshot is incompatible
     std::vector<PickMesh> shells;              // one per storey, node-local; also the draw source
+    std::vector<DetailMesh> details;           // planned storeys' Units and Rooms, sorted by (id, detail)
     std::vector<std::string> representedGuids; // source slabs the diagram stands in for, sorted
     std::map<EntityId, uint32_t> colours;      // storey -> its first row's function colour, 0xRRGGBBAA
     std::map<EntityId, StoreySummary> storeys; // storey -> inspector fields

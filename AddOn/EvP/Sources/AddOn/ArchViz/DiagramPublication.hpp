@@ -21,6 +21,7 @@ struct Publication {
     std::map<EntityId, StoreySummary> storeyInfo; // the inspector's fields per storey
     std::vector<std::string> notes;
     size_t buildings = 0, storeys = 0;
+    size_t plannedStoreys = 0; // storeys with a planned floor: they draw Units and Rooms
     double buildMs = 0;
 };
 

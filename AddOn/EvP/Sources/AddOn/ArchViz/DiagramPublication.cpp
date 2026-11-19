@@ -34,6 +34,7 @@ Prepared Prepare (const DiagramInputSnapshot& snapshot, StoreyBindings bindings,
     for (const auto& entity : built.scene->entities) {
         publication->buildings += entity.id.level == Level::Building;
         publication->storeys += entity.id.level == Level::Storey;
+        publication->plannedStoreys += entity.id.level == Level::Storey && entity.planned;
     }
     publication->shells = std::move (built.shells);
     publication->scene = std::move (built.scene);

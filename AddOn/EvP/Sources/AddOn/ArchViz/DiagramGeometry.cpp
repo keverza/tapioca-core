@@ -115,64 +115,105 @@ void Outline (const PickMesh& shell, std::vector<DiagramLineVertex>& lines)
             PushLine (lines, edge.a, edge.b);
     }
 }
+
+// Opaque: a diagram body is a body, and a row's alpha is an outline's. 0 is the neutral grey.
+uint32_t Opaque (uint32_t rgba)
+{
+    return ((rgba ? rgba : kDiagramNeutralRgba) & 0xFFFFFF00u) | 0xFFu;
+}
+
+// Flat-shaded triangles of one node-local body, and its outline, appended.
+void Append (DiagramGeometry& out, const PickMesh& body, uint32_t rgba)
+{
+    const size_t points = body.positions.size () / 3;
+    const size_t first = out.indices.size ();
+    for (size_t t = 0; t + 2 < body.indices.size (); t += 3) {
+        const uint32_t a = body.indices[t], b = body.indices[t + 1], c = body.indices[t + 2];
+        if (a >= points || b >= points || c >= points)
+            continue; // a malformed triangle is dropped, never read out of bounds
+        const double* p[3] = { &body.positions[a * 3], &body.positions[b * 3], &body.positions[c * 3] };
+        const double u[3] = { p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2] };
+        const double v[3] = { p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2] };
+        double n[3] = { u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
+        const double len = std::sqrt (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (!(len > 1e-12))
+            continue; // degenerate: nothing to see, no normal to shade
+        for (double& k : n)
+            k /= len;
+        for (int corner = 0; corner < 3; ++corner) {
+            DiagramVertex vertex {};
+            for (int k = 0; k < 3; ++k) {
+                vertex.position[k] = float (p[corner][k]);
+                vertex.normal[k] = float (n[k]);
+            }
+            vertex.rgba = rgba;
+            out.indices.push_back (uint32_t (out.vertices.size ()));
+            out.vertices.push_back (vertex);
+        }
+    }
+    if (out.indices.size () > first)
+        Outline (body, out.lines);
+}
 } // namespace
 
-int DiagramGeometry::Find (const EntityId& id) const
+int DiagramGeometry::Find (const EntityId& id, Detail detail) const
 {
-    auto it = std::lower_bound (meshes.begin (), meshes.end (), id,
-                                [] (const DiagramMesh& m, const EntityId& key) { return m.id < key; });
-    return it != meshes.end () && it->id == id ? int (it - meshes.begin ()) : -1;
+    const auto key = std::tie (id, detail);
+    auto it = std::lower_bound (meshes.begin (), meshes.end (), key,
+                                [] (const DiagramMesh& m, const auto& k) { return std::tie (m.id, m.detail) < k; });
+    return it != meshes.end () && it->id == id && it->detail == detail ? int (it - meshes.begin ()) : -1;
+}
+
+int DiagramGeometry::Shown (const EntityId& id, Detail detail) const
+{
+    if (detail == Detail::Rooms || detail == Detail::Walls)
+        if (const int rooms = Find (id, Detail::Rooms); rooms >= 0)
+            return rooms;
+    if (detail != Detail::Topology)
+        if (const int units = Find (id, Detail::Units); units >= 0)
+            return units;
+    return Find (id, Detail::Topology);
 }
 
 DiagramGeometry BuildGeometry (const BuiltScene& built)
 {
     DiagramGeometry out;
-    std::vector<const PickMesh*> shells;
-    for (const auto& shell : built.shells)
-        shells.push_back (&shell);
-    std::sort (shells.begin (), shells.end (), [] (const auto* a, const auto* b) { return a->id < b->id; });
-    for (const PickMesh* shell : shells) {
-        const auto colour = built.colours.find (shell->id);
-        // Opaque: a diagram storey is a body, and the row's alpha is an outline's.
-        const uint32_t rgba =
-            ((colour != built.colours.end () && colour->second ? colour->second : kDiagramNeutralRgba) & 0xFFFFFF00u) |
-            0xFFu;
+    const auto add = [&] (const EntityId& id, Detail detail, const auto& bodies) {
         DiagramMesh mesh;
-        mesh.id = shell->id;
+        mesh.id = id;
+        mesh.detail = detail;
         mesh.firstIndex = uint32_t (out.indices.size ());
-        const size_t points = shell->positions.size () / 3;
-        for (size_t t = 0; t + 2 < shell->indices.size (); t += 3) {
-            const uint32_t a = shell->indices[t], b = shell->indices[t + 1], c = shell->indices[t + 2];
-            if (a >= points || b >= points || c >= points)
-                continue; // a malformed triangle is dropped, never read out of bounds
-            const double* p[3] = { &shell->positions[a * 3], &shell->positions[b * 3], &shell->positions[c * 3] };
-            const double u[3] = { p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2] };
-            const double v[3] = { p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2] };
-            double n[3] = { u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
-            const double len = std::sqrt (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-            if (!(len > 1e-12))
-                continue; // degenerate: nothing to see, no normal to shade
-            for (double& k : n)
-                k /= len;
-            for (int corner = 0; corner < 3; ++corner) {
-                DiagramVertex vertex {};
-                for (int k = 0; k < 3; ++k) {
-                    vertex.position[k] = float (p[corner][k]);
-                    vertex.normal[k] = float (n[k]);
-                }
-                vertex.rgba = rgba;
-                out.indices.push_back (uint32_t (out.vertices.size ()));
-                out.vertices.push_back (vertex);
-            }
-        }
-        mesh.indexCount = uint32_t (out.indices.size ()) - mesh.firstIndex;
         mesh.firstLine = uint32_t (out.lines.size ());
-        if (mesh.indexCount > 0)
-            Outline (*shell, out.lines);
+        for (const auto& [body, rgba] : bodies)
+            Append (out, *body, Opaque (rgba));
+        mesh.indexCount = uint32_t (out.indices.size ()) - mesh.firstIndex;
         mesh.lineCount = uint32_t (out.lines.size ()) - mesh.firstLine;
         if (mesh.indexCount > 0)
             out.meshes.push_back (std::move (mesh));
+    };
+    for (const auto& shell : built.shells) {
+        const auto colour = built.colours.find (shell.id);
+        const std::vector<std::pair<const PickMesh*, uint32_t>> one {
+            { &shell, colour != built.colours.end () ? colour->second : 0u }
+        };
+        add (shell.id, Detail::Topology, one);
     }
+    // Each planned space is a body of its own: its own colour, its own rim between flats.
+    std::vector<PickMesh> bodies;
+    for (const auto& detail : built.details) {
+        bodies.assign (detail.spaces.size (), {});
+        std::vector<std::pair<const PickMesh*, uint32_t>> spaces;
+        for (size_t i = 0; i < detail.spaces.size (); ++i) {
+            bodies[i].id = detail.id;
+            bodies[i].positions = detail.spaces[i].positions;
+            bodies[i].indices = detail.spaces[i].indices;
+            spaces.emplace_back (&bodies[i], detail.spaces[i].rgba);
+        }
+        add (detail.id, detail.detail, spaces);
+    }
+    std::sort (out.meshes.begin (), out.meshes.end (), [] (const DiagramMesh& a, const DiagramMesh& b) {
+        return std::tie (a.id, a.detail) < std::tie (b.id, b.detail);
+    });
     return out;
 }
 
@@ -236,7 +277,7 @@ void AddConnectors (DiagramGeometry& geometry, const LayoutPlan& plan)
 }
 
 std::vector<DiagramDraw> DrawsOf (const DiagramGeometry& geometry, const LayoutPlan& plan, const Frame& frame,
-                                  const Vec3& origin)
+                                  const Vec3& origin, Detail detail)
 {
     std::vector<DiagramDraw> draws;
     if (frame.poses.size () != plan.nodes.size ())
@@ -244,7 +285,7 @@ std::vector<DiagramDraw> DrawsOf (const DiagramGeometry& geometry, const LayoutP
     for (const auto& pose : frame.poses) {
         if (!pose.visible)
             continue;
-        const int mesh = geometry.Find (pose.id);
+        const int mesh = geometry.Shown (pose.id, detail);
         if (mesh < 0)
             continue;
         DiagramDraw draw;
@@ -257,7 +298,7 @@ std::vector<DiagramDraw> DrawsOf (const DiagramGeometry& geometry, const LayoutP
     return draws;
 }
 std::vector<DiagramLineDraw> LineDrawsOf (const DiagramGeometry& geometry, const LayoutPlan& plan, const Frame& frame,
-                                          const Vec3& origin, bool outlines, bool connectors)
+                                          const Vec3& origin, bool outlines, bool connectors, Detail detail)
 {
     std::vector<DiagramLineDraw> draws;
     if (frame.poses.size () != plan.nodes.size ())
@@ -271,7 +312,7 @@ std::vector<DiagramLineDraw> LineDrawsOf (const DiagramGeometry& geometry, const
             const auto& pose = frame.poses[i];
             if (!pose.visible)
                 continue;
-            const int mesh = geometry.Find (pose.id);
+            const int mesh = geometry.Shown (pose.id, detail);
             if (mesh < 0 || geometry.meshes[size_t (mesh)].lineCount == 0)
                 continue;
             DiagramLineDraw draw;

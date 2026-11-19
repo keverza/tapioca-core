@@ -1178,6 +1178,7 @@ set (EVP_TEST_SOURCES
     test_diagramlayout.cpp
     test_diagramsnapshot.cpp
     test_diagramreplay.cpp
+    test_diagramplans.cpp
     test_hudbuildingplan.cpp
     test_floorscheme.cpp
     test_floorscheme_edit.cpp

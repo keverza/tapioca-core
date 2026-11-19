@@ -64,9 +64,11 @@ DiligentScene::DiagramFrameStats DiligentScene::DrawDiagram (Diligent::IDeviceCo
         *impl_->diagramPlan,
         view->selected.Empty () ? std::vector<diagram::EntityId> {} : std::vector { view->selected }, 1.0);
     // The viewer draws world metres: the render origin is zero (DiagramGeometry.hpp).
-    const auto draws = diagram::DrawsOf (publication->geometry, *impl_->diagramPlan, frame, diagram::Vec3 {});
+    // Detail picks which uploaded body a storey draws; switching it uploads nothing.
+    const auto draws =
+        diagram::DrawsOf (publication->geometry, *impl_->diagramPlan, frame, diagram::Vec3 {}, view->detail);
     const auto lines = diagram::LineDrawsOf (publication->geometry, *impl_->diagramPlan, frame, diagram::Vec3 {},
-                                             view->outlines, view->connectors);
+                                             view->outlines, view->connectors, view->detail);
     DiagramLayer::DrawParams params;
     params.monochrome = view->colouring == diagram::Colouring::White ? 1.0f : 0.0f;
     impl_->diagram.Draw (context, viewProj, draws, lines, params);
