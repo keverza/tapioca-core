@@ -84,6 +84,29 @@ TEST (EditTerrainBakeSurface, TheMeshSurfaceIsLightAndKeepsEveryDividedContour17
         }
 }
 
+TEST (EditTerrainBakeSurface, ALongDivideStillMakesASurface177)
+{
+    // The batter's levels lie about 0.4 m apart: pieces of 3 to 20 m would cut across each other
+    // if each contour were divided alone.
+    std::vector<double> points;
+    std::vector<uint32_t> triangles;
+    Pad (20, points, triangles);
+    bool guarded = false;
+    for (const double divide : { 3.0, 6.0, 10.0, 20.0 }) {
+        ed::BakeOptions options;
+        options.interval = 0.5;
+        options.divide = divide;
+        const auto plan = ed::PlanTerrainBake (points, triangles, options);
+        ASSERT_TRUE (plan.ok) << divide << ": " << plan.error;
+        ed::BakeSurface surface;
+        std::string error;
+        EXPECT_TRUE (ed::BakePlanSurface (plan, surface, error)) << divide << ": " << error;
+        for (const auto& note : plan.notes)
+            guarded = guarded || note.find ("divided more finely") != std::string::npos;
+    }
+    EXPECT_TRUE (guarded) << "some length had pieces that would have crossed, and says so";
+}
+
 TEST (EditTerrainBakeSurface, NoPlanNoSurface177)
 {
     ed::BakePlan plan;

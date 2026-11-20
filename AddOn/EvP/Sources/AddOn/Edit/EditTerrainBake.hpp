@@ -25,7 +25,8 @@
 // Each Contours or Signature line is reduced to `tolerance`: a point is dropped while the line stays within that
 // distance of the traced one. With `divide`, a contour is instead cut into equal pieces of about
 // that length (divide by length; the user, 2026-11-20: a light Mesh, its contours as even
-// polylines), whatever detail the built surface had. Where a line ends on the boundary, the
+// polylines), whatever detail the built surface had; a piece that would cross a neighbour or the
+// outline is divided more finely there (EditTerrainBakeDivide.hpp). Where a line ends on the boundary, the
 // boundary has a vertex.
 //
 // This is a plan only: pure geometry, no model read or write. The plan is what the preview

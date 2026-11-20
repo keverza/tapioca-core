@@ -1,6 +1,7 @@
 #include "Edit/EditTerrainBake.hpp"
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathNetwork.hpp"
+#include "Edit/EditTerrainBakeDivide.hpp"
 #include <set>
 #include <algorithm>
 #include <cmath>
@@ -94,39 +95,6 @@ std::vector<Vec3> ReduceRing (const std::vector<Vec3>& ring, std::vector<char> f
         if (keep[i])
             out.push_back (turned[i]);
     return out.size () >= 3 ? out : ring;
-}
-
-// A contour cut into equal pieces along its length (divide by length): round(length / `step`)
-// pieces, at least three for a ring and one for an open line, whose ends stay exactly where they
-// were (on the boundary). Every point is on the traced line, so its height is the contour's.
-std::vector<Vec3> DivideLine (const std::vector<Vec3>& line, bool closed, double step)
-{
-    const size_t n = line.size ();
-    if (n < 2)
-        return line;
-    const size_t spans = closed ? n : n - 1;
-    std::vector<double> along (1, 0.0);
-    for (size_t i = 0; i < spans; ++i)
-        along.push_back (along.back () + Length (line[(i + 1) % n] - line[i]));
-    const double total = along.back ();
-    if (!(total > 0.0))
-        return line;
-    size_t pieces = size_t (std::max (1.0, std::round (total / step)));
-    if (closed)
-        pieces = std::max<size_t> (pieces, 3);
-    std::vector<Vec3> out;
-    size_t k = 0;
-    for (size_t j = 0; j < (closed ? pieces : pieces + 1); ++j) {
-        const double d = total * double (j) / double (pieces);
-        while (k + 1 < spans && along[k + 1] < d)
-            ++k;
-        const double span = along[k + 1] - along[k];
-        const double t = span > 0.0 ? std::clamp ((d - along[k]) / span, 0.0, 1.0) : 0.0;
-        out.push_back (line[k] + (line[(k + 1) % n] - line[k]) * t);
-    }
-    if (!closed)
-        out.back () = line.back ();
-    return out;
 }
 
 double Area (const std::vector<Vec3>& ring)
@@ -780,10 +748,30 @@ BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<u
 
     const double tolerance = std::max (options.tolerance, 1.0e-9);
     plan.outline = ReduceRing (threaded, anchors, tolerance);
+    // #177: the contours divided together, so a long step cannot make one cross another.
+    const bool divide = options.divide > 0.0;
+    std::vector<std::vector<Vec3>> contours;
+    std::vector<char> rings;
+    if (divide) {
+        for (const auto& line : traced)
+            if (line.kind == BakeLineKind::Contour)
+                contours.push_back (line.points), rings.push_back (line.closed ? 1 : 0);
+        auto divided = DivideContours (contours, rings, plan.outline, options.divide, tolerance);
+        if (!divided.ok) {
+            plan.error = divided.error;
+            return plan;
+        }
+        if (divided.shortened)
+            plan.notes.push_back (std::to_string (divided.shortened) +
+                                  (divided.shortened == 1 ? " contour is" : " contours are") +
+                                  " divided more finely where a piece would cross a neighbour or the outline.");
+        contours = std::move (divided.lines);
+    }
+    size_t nextContour = 0;
     for (auto& line : traced) {
         line.traced = line.points.size ();
-        if (options.divide > 0.0 && line.kind == BakeLineKind::Contour)
-            line.points = DivideLine (line.points, line.closed, options.divide);
+        if (divide && line.kind == BakeLineKind::Contour)
+            line.points = std::move (contours[nextContour++]);
         else
             line.points = line.closed ? ReduceRing (line.points, {}, tolerance) : ReduceOpen (line.points, tolerance);
         // A line shorter than the tolerance says nothing the reduction would keep.

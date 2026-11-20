@@ -963,6 +963,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathNetwork.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathContours.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainBake.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainBakeDivide.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathCrossing.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathAlignment.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathProfile.cpp"
@@ -1049,6 +1050,7 @@ set (EVP_TEST_SOURCES
     test_fillet2d.cpp
     test_editpathcontours.cpp
     test_editterrainbake.cpp
+    test_editterrainbakedivide.cpp
     test_editpathcrossing.cpp
     test_edittracker.cpp
     test_editdisplayunits.cpp
