@@ -10,6 +10,7 @@
 // range to DiligentScene::SetSunStudyFilter.
 
 #include "ArchViz/DiligentHud.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/GradientPresetChoice.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
@@ -232,7 +233,7 @@ void DrawMachineLimits (const SunStudyOverlayStatus& study)
     // domain -- the common case -- so the readout is useful before the first run.
     const size_t steps = study.stepCount > 0 ? study.stepCount : 49;
     const bool patch = study.stepCount > 0 ? study.patchDomain : true;
-    const evp::sunstudy::AnalysisLimits limits = evp::sunstudy::ComputeAnalysisLimits (
+    const evp::sunstudy::AnalysisLimits limits = evp::sunstudy::kernels::ComputeAnalysisLimits (
         machine, steps, patch ? evp::sunstudy::kPatchAtlasOccupancy : evp::sunstudy::kTriangleAtlasOccupancy);
 
     if (machine.gpuKnown)

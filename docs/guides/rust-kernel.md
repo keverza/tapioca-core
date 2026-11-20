@@ -1472,9 +1472,12 @@ not completed soft/solve constraint enforcement.
 The SDK-free sun-study analysis core was ported from `Sources/AddOn/SunStudy/` in
 phases. Since P7a the study core -- the accumulator, the session and the follower
 policy -- exists only in Rust: every study runs on `rust::RustStudyCore`, and a build
-without the archive has no sun-study core. The kernels (sampler, atlases, roles,
-series, raster, reading, ...) still run their C++ originals in production, pinned to
-their Rust twins by the parity tests, until P7b switches and deletes them.
+without the archive has no sun-study core. Production reaches the kernels (series,
+limits, roles, receivers, preset advice, samplers, surface sampling, atlases, the
+selection binding, texture deltas) only through `SunStudy/SunStudyKernels.hpp`
+(`evp::sunstudy::kernels`), which runs the Rust kernel in a build with the archive
+and the C++ original otherwise (P7b). The C++ originals stay compiled as the parity
+oracle until they are deleted; `test_sunstudy_kernels.cpp` pins the facade to them.
 
 - **P0:** the crate, its `check_rust.py` registration (no dependencies; a
   `sunstudy -> geometry` edge is added only with a consumer) and
@@ -1527,8 +1530,10 @@ their Rust twins by the parity tests, until P7b switches and deletes them.
   index and the ported sampler/atlases; `rust::RunViewpointStudy`,
   `rust::RunVisibilityStudy`). Every viewpoint mode (plan, field of view,
   sphere) and both point views (cone, sphere band) run in Rust since
-  sun-study ABI v2; a sphere's seen surfaces stay a host pass over the C++
-  triangles (`AddViewpointSeenSurfaces`). Parity: lockstep scripted follower
+  sun-study ABI v2. A sphere's seen surfaces are Rust too
+  (`viewpoint::seen`, `tapioca_sunstudy_viewpoint_seen` + `_read`/`_destroy`,
+  reading the request's mesh triangles; corners and bisection midpoints go to
+  the host index in batches). Parity: lockstep scripted follower
   runs and the C++ studies over the same BVH, bit for bit.
 - **P5 (flip behind `TAPIOCA_SUNSTUDY_CORE`):** studies
   started under the flag attach the Rust core (`AttachRustStudyCore` refuses

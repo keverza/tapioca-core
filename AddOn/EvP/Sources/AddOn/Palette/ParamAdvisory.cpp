@@ -1,4 +1,5 @@
 #include "Palette/ParamAdvisory.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "Palette/PaletteScroll.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "SunStudy/SunStudyPreset.hpp"
@@ -38,7 +39,7 @@ bool ParamAdvisory::Refresh (const GS::UniString& selected)
                              : 0;
     }
     const std::string preset = selected == "early model" ? "early" : selected == "late model" ? "late" : "";
-    const GS::UniString next (evp::sunstudy::SunStudyPresetAdvice (knownTriangles, preset).c_str (), CC_UTF8);
+    const GS::UniString next (evp::sunstudy::kernels::SunStudyPresetAdvice (knownTriangles, preset).c_str (), CC_UTF8);
     if (next == text)
         return false;
     text = next;

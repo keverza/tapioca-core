@@ -15,7 +15,7 @@
 #include "NativeCommands/SunStudyDisplayPreparation.hpp"
 #include "NativeCommands/SunStudyFollowerSignature.hpp" // BuildCurrentSignature
 #include "NativeCommands/SelectionSetStore.hpp"
-#include "SunStudy/SunStudyRoles.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/SunStudyAdvanceWorker.hpp"
 #include "SunStudy/SunStudyStore.hpp"
@@ -241,8 +241,9 @@ void RefreshRoleSelections ()
     };
     const auto context = read (binding.contextSet), ignored = read (binding.ignoredSet),
                analysis = read (binding.analysisSet);
-    const auto refreshed = binding.Refresh (generation, context, ignored, gConfig.contextElements,
-                                            gConfig.ignoredElements, analysis, &gConfig.analysisElements);
+    const auto refreshed =
+        evp::sunstudy::kernels::RefreshSelectionBinding (binding, generation, context, ignored, gConfig.contextElements,
+                                                         gConfig.ignoredElements, analysis, &gConfig.analysisElements);
     if (refreshed == evp::sunstudy::SelectionBindingRefresh::Detached)
         Log ("role selection source detached -- retaining the last exclusions");
     else if (refreshed == evp::sunstudy::SelectionBindingRefresh::Changed)

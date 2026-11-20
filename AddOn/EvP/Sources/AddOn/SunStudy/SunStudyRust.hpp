@@ -6,8 +6,9 @@
 // Thin, SDK-free wrappers over SunStudyRustFfi.h: they own the error buffer,
 // translate the existing C++ value types to POD views and back, and turn a
 // refused call into `false` plus a message. The study core (accumulator,
-// session, follower) runs only here; the kernel wrappers are pinned to their
-// C++ twins by test_sunstudy_rust_parity.cpp until those are switched (P7b).
+// session, follower) runs only here. Production reaches the kernel wrappers
+// through SunStudy/SunStudyKernels.hpp (P7b); test_sunstudy_rust_parity.cpp pins
+// them to their C++ twins until those are deleted.
 //
 // The signatures deliberately speak the C++ types so that a switch swaps an
 // implementation, not a vocabulary.

@@ -12,6 +12,7 @@
 // host call.
 
 #include "ArchViz/DiligentHud.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/HudGumball.hpp"
 #include "ArchViz/HudShell.hpp"
@@ -710,7 +711,7 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
                                      ? snapshot->TotalTriangles ()
                                      : 0;
     const std::string advice =
-        evp::sunstudy::SunStudyPresetAdvice (triangleCount, state.sunRunPreset == 1 ? "late" : "early");
+        evp::sunstudy::kernels::SunStudyPresetAdvice (triangleCount, state.sunRunPreset == 1 ? "late" : "early");
     if (!advice.empty ())
         SunStudyNote (advice.c_str ());
 

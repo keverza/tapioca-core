@@ -1,4 +1,5 @@
 #include "ArchViz/SunStudyDisplayAssembler.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyDisplayData.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyResultKey.hpp" // MatchFaces
@@ -179,14 +180,14 @@ SunStudyDisplayAssembler::Prepare (const evp::sunstudy::StudyRecord& record, con
         if (auto base = previousImage_.lock (); base != nullptr && base->size () == upload->texels->size ()) {
             upload->baseTexels = std::move (base);
             if (upload->baseTexels != upload->texels)
-                upload->atlasRegions = evp::sunstudy::AtlasChangedRegions (width_, height_, 1, *upload->baseTexels,
-                                                                           *upload->texels, 512, cancelled);
+                upload->atlasRegions = evp::sunstudy::kernels::AtlasChangedRegions (
+                    width_, height_, 1, *upload->baseTexels, *upload->texels, 512, cancelled);
         }
         if (words_ == upload->stepWords) {
             if (auto base = previousSteps_.lock (); base != nullptr && base->size () == upload->stepMasks->size ()) {
                 upload->baseStepMasks = std::move (base);
                 if (upload->baseStepMasks != upload->stepMasks)
-                    upload->stepRegions = evp::sunstudy::AtlasChangedRegions (
+                    upload->stepRegions = evp::sunstudy::kernels::AtlasChangedRegions (
                         width_, height_, words_, *upload->baseStepMasks, *upload->stepMasks, 512, cancelled);
             }
         }

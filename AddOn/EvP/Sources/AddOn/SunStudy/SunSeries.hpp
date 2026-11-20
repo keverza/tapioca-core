@@ -68,6 +68,19 @@ class SunSeries final {
     static SunSeries FromSteps (const std::vector<SunStep>& steps, int timestepMinutes,
                                 double minAltitudeDegrees = 0.0);
 
+    // A series built elsewhere (the Rust kernel), restored as it was built:
+    // the kept steps, the source count and the content hash, not recomputed.
+    static SunSeries FromParts (std::vector<SunStep> steps, int timestepMinutes, size_t sourceStepCount,
+                                uint64_t version)
+    {
+        SunSeries series;
+        series.steps_ = std::move (steps);
+        series.timestepMinutes_ = timestepMinutes;
+        series.sourceStepCount_ = sourceStepCount;
+        series.version_ = version;
+        return series;
+    }
+
     size_t StepCount () const
     {
         return steps_.size ();

@@ -14,7 +14,7 @@
 #include "SunStudy/SunStudyRaster.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
-#include "SunStudy/SunStudyAtlasReuse.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudySurfaceSampling.hpp"
@@ -170,7 +170,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         const auto& effectiveContext = clip.radius > 0.0 ? boundedContext : contextPicked;
         // In a design preset, all unpicked geometry is CONTEXT, not implicitly
         // ignored just because the user also named some Context elements.
-        auto roles = evp::sunstudy::ResolveElementRoles (
+        auto roles = evp::sunstudy::kernels::ResolveElementRoles (
             *snapshot, effectiveAnalysis,
             !preset.empty () && !effectiveAnalysis.empty () ? std::vector<std::string> {} : effectiveContext,
             ignoredPicked);
@@ -182,8 +182,8 @@ class StartSunStudyCommand : public MainThreadCommand {
                 GS::UniString ("none of the ") + GS::UniString::Printf ("%u", (unsigned) analysisPicked.size ()) +
                 " analysis element(s) is left to measure - they are absent from the snapshot or all ignored");
         }
-        const auto receivers = evp::sunstudy::BuildSunStudyReceivers (*snapshot, roles, preset == "late",
-                                                                      captured->materialTransparency, glassThreshold);
+        const auto receivers = evp::sunstudy::kernels::BuildSunStudyReceivers (
+            *snapshot, roles, preset == "late", captured->materialTransparency, glassThreshold);
         if (preset == "late" && receivers.analysisFaces == 0)
             return NativeCommandResult::Failure (
                 "no transparency-qualified glass faces in the analysis scope - adjust glassThreshold or picks, or "
@@ -322,7 +322,7 @@ class StartSunStudyCommand : public MainThreadCommand {
             options.normalOffset = zOffset;
             options.jitter = ReadDouble (params, "jitter", 0.0);
             std::tie (options.clipX, options.clipY, options.clipRadius) = std::tie (clip.x, clip.y, clip.radius);
-            auto sampling = evp::sunstudy::BuildSurfaceSampling (
+            auto sampling = evp::sunstudy::kernels::BuildSurfaceSampling (
                 *snapshot, sampleMask, options, reuseSource.get (), [this] { return IsCancelled (); }, receivers.faces);
             trace.Mark ("sampling", (sampling.triangles.Count () + sampling.patches.Count ()) * 6 * sizeof (double));
             LogSunStudySurfaceSampling (snapshot->id, sampling);
@@ -352,7 +352,7 @@ class StartSunStudyCommand : public MainThreadCommand {
                 if (reuseSource != nullptr && reuseSource->IsPatchDomain () && reuseSource->gridSpacing == spacing &&
                     reuseSource->patchAtlas.Width () <= limits.maxAtlasDimension)
                     record->patchAtlas = reuseSource->patchAtlas;
-                record->patchAtlas.Fit (patches, 1, limits.maxAtlasDimension);
+                evp::sunstudy::kernels::FitPatchAtlas (record->patchAtlas, patches, 1, limits.maxAtlasDimension);
                 trace.Mark ("atlas", record->patchAtlas.TexelCount () * sizeof (float));
                 if (record->patchAtlas.Width () == 0) {
                     return NativeCommandResult::Failure (
@@ -378,7 +378,7 @@ class StartSunStudyCommand : public MainThreadCommand {
                 degenerateFaces = samples.degenerateFaces;
                 excludedSurfaces = samples.excludedFaces;
 
-                record->atlas = evp::sunstudy::BuildStableTriangleAtlas (
+                record->atlas = evp::sunstudy::kernels::BuildStableTriangleAtlas (
                     samples, *snapshot, record->triangleAllocations,
                     reuseSource != nullptr && !reuseSource->IsPatchDomain () && reuseSource->gridSpacing == spacing
                         ? &reuseSource->triangleAllocations
@@ -393,7 +393,7 @@ class StartSunStudyCommand : public MainThreadCommand {
             } // end of the triangle domain
         }
         else {
-            const evp::sunstudy::GroundGrid grid = evp::sunstudy::MakeGroundSampleGrid (
+            const evp::sunstudy::GroundGrid grid = evp::sunstudy::kernels::MakeGroundSampleGrid (
                 evp::sunstudy::Vec3 { snapshotMin[0], snapshotMin[1], snapshotMin[2] },
                 evp::sunstudy::Vec3 { snapshotMax[0], snapshotMax[1], snapshotMax[2] }, spacing, pad, zOffset);
             if (!grid.valid) {

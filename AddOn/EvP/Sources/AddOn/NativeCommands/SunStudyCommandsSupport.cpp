@@ -1,4 +1,5 @@
 #include "APIEnvir.h"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "ACAPinc.h"
 
 #include "NativeCommands/SunStudyCommandsSupport.hpp"
@@ -108,7 +109,7 @@ std::vector<std::string> ReadStringList (const GS::ObjectState& params, const ch
 
 evp::sunstudy::AnalysisLimits MachineAnalysisLimits (size_t steps, bool patchDomain)
 {
-    return evp::sunstudy::ComputeAnalysisLimits (
+    return evp::sunstudy::kernels::ComputeAnalysisLimits (
         evp::sunstudy::CurrentMachineResources (evp::sunstudy::AvailableSystemMemory ()), steps,
         patchDomain ? evp::sunstudy::kPatchAtlasOccupancy : evp::sunstudy::kTriangleAtlasOccupancy);
 }

@@ -199,6 +199,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyWinding.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlasReuse.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyKernels.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyDisplayData.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyDisplayAssembler.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/VisibilityStudyDisplay.cpp"
@@ -1521,6 +1522,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_annual.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_views.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_flip.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_kernels.cpp"
         # A study runs only on the Rust core (P7a): every test that files one in
         # the store, advances it or reuses it needs the archive.
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudystore.cpp"

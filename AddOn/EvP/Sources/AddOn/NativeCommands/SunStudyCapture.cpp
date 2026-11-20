@@ -1,4 +1,5 @@
 #include "APIEnvir.h"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "ACAPinc.h"
 
 #include "NativeCommands/SunStudyCommands.hpp"
@@ -51,7 +52,7 @@ evp::sunstudy::SunSeries CaptureSeries (const API_PlaceInfo& place, const GS::Ob
         step.direction[2] = std::sin (momentPlace.sunAngZ);
         raw.push_back (step);
     }
-    return evp::sunstudy::SunSeries::FromSteps (raw, timestep, minAltitude);
+    return evp::sunstudy::kernels::SeriesFromSteps (raw, timestep, minAltitude);
 }
 
 } // namespace

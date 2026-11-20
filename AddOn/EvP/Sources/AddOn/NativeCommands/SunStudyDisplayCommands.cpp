@@ -1,4 +1,5 @@
 #include "APIEnvir.h"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "ACAPinc.h"
 #include "ArchViz/ScenePacketTrace.hpp"
 
@@ -385,20 +386,20 @@ class SunStudyPatchPreviewCommand : public MainThreadCommand {
         // ---- the patch domain ------------------------------------------------
         evp::sunstudy::PatchSamplerOptions patchOptions;
         patchOptions.spacing = spacing;
-        const evp::sunstudy::PatchSampleGrid patchGrid =
-            evp::sunstudy::BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, triangles.data (),
-                                                 triangles.size () / 3, groups.data (), elementOf, patchOptions);
+        const evp::sunstudy::PatchSampleGrid patchGrid = evp::sunstudy::kernels::BuildPatchSampleGrid (
+            vertices.data (), vertices.size () / 3, triangles.data (), triangles.size () / 3, groups.data (), elementOf,
+            patchOptions);
 
         evp::sunstudy::SunStudyPatchAtlas patchAtlas;
-        const evp::sunstudy::PatchAtlasUpdate fitted = patchAtlas.Fit (patchGrid);
+        const evp::sunstudy::PatchAtlasUpdate fitted = evp::sunstudy::kernels::FitPatchAtlas (patchAtlas, patchGrid);
 
         // ---- the triangle domain, as the oracle ------------------------------
         evp::sunstudy::SamplerOptions legacy;
         legacy.spacing = spacing;
         legacy.wantLayouts = true;
-        const evp::sunstudy::SampleGrid triangleGrid = evp::sunstudy::BuildSampleGrid (
+        const evp::sunstudy::SampleGrid triangleGrid = evp::sunstudy::kernels::BuildSampleGrid (
             vertices.data (), vertices.size () / 3, triangles.data (), triangles.size () / 3, groups.data (), legacy);
-        const evp::sunstudy::SunStudyAtlas triangleAtlas = evp::sunstudy::BuildSunStudyAtlas (triangleGrid);
+        const evp::sunstudy::SunStudyAtlas triangleAtlas = evp::sunstudy::kernels::BuildSunStudyAtlas (triangleGrid);
 
         double triangleArea = 0.0;
         for (const double area : triangleGrid.areas)
