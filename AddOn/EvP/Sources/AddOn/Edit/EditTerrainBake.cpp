@@ -96,6 +96,39 @@ std::vector<Vec3> ReduceRing (const std::vector<Vec3>& ring, std::vector<char> f
     return out.size () >= 3 ? out : ring;
 }
 
+// A contour cut into equal pieces along its length (divide by length): round(length / `step`)
+// pieces, at least three for a ring and one for an open line, whose ends stay exactly where they
+// were (on the boundary). Every point is on the traced line, so its height is the contour's.
+std::vector<Vec3> DivideLine (const std::vector<Vec3>& line, bool closed, double step)
+{
+    const size_t n = line.size ();
+    if (n < 2)
+        return line;
+    const size_t spans = closed ? n : n - 1;
+    std::vector<double> along (1, 0.0);
+    for (size_t i = 0; i < spans; ++i)
+        along.push_back (along.back () + Length (line[(i + 1) % n] - line[i]));
+    const double total = along.back ();
+    if (!(total > 0.0))
+        return line;
+    size_t pieces = size_t (std::max (1.0, std::round (total / step)));
+    if (closed)
+        pieces = std::max<size_t> (pieces, 3);
+    std::vector<Vec3> out;
+    size_t k = 0;
+    for (size_t j = 0; j < (closed ? pieces : pieces + 1); ++j) {
+        const double d = total * double (j) / double (pieces);
+        while (k + 1 < spans && along[k + 1] < d)
+            ++k;
+        const double span = along[k + 1] - along[k];
+        const double t = span > 0.0 ? std::clamp ((d - along[k]) / span, 0.0, 1.0) : 0.0;
+        out.push_back (line[k] + (line[(k + 1) % n] - line[k]) * t);
+    }
+    if (!closed)
+        out.back () = line.back ();
+    return out;
+}
+
 double Area (const std::vector<Vec3>& ring)
 {
     double twice = 0.0;
@@ -749,7 +782,10 @@ BakePlan PlanTerrainBake (const std::vector<double>& points, const std::vector<u
     plan.outline = ReduceRing (threaded, anchors, tolerance);
     for (auto& line : traced) {
         line.traced = line.points.size ();
-        line.points = line.closed ? ReduceRing (line.points, {}, tolerance) : ReduceOpen (line.points, tolerance);
+        if (options.divide > 0.0 && line.kind == BakeLineKind::Contour)
+            line.points = DivideLine (line.points, line.closed, options.divide);
+        else
+            line.points = line.closed ? ReduceRing (line.points, {}, tolerance) : ReduceOpen (line.points, tolerance);
         // A line shorter than the tolerance says nothing the reduction would keep.
         if (line.points.size () < 2 || (line.closed && line.points.size () < 3) || RunLength (line) <= tolerance)
             continue;

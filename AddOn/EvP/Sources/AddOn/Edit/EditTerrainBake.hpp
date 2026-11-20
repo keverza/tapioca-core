@@ -23,7 +23,10 @@
 //              polylines through those points (the first As built) drew as stray lines across the
 //              ground in Archicad, and every level line is a visible ridge (the user, 2026-11-18).
 // Each Contours or Signature line is reduced to `tolerance`: a point is dropped while the line stays within that
-// distance of the traced one. Where a line ends on the boundary, the boundary has a vertex.
+// distance of the traced one. With `divide`, a contour is instead cut into equal pieces of about
+// that length (divide by length; the user, 2026-11-20: a light Mesh, its contours as even
+// polylines), whatever detail the built surface had. Where a line ends on the boundary, the
+// boundary has a vertex.
 //
 // This is a plan only: pure geometry, no model read or write. The plan is what the preview
 // draws and, unchanged, what the native Mesh is created from.
@@ -41,6 +44,7 @@ struct BakeOptions {
     BakeMode mode = BakeMode::Contours;
     double interval = 0.0;      // metres; 0: a round one (about ten levels, four for Signature)
     double tolerance = 0.05;    // metres a reduced line may leave the traced one by
+    double divide = 0.0;        // metres: each contour in equal pieces of about this length; 0: reduced
     double creaseDegrees = 4.0; // Signature with folds: the fold an edge needs to be a line
     bool folds = false;         // Signature: the surface's folds as well as the design's lines
     double shortest = 1.0;      // Signature: metres an open design line needs to be kept

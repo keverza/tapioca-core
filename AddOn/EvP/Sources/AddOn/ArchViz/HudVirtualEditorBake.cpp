@@ -306,6 +306,13 @@ void TerrainBakePanel (Session& s)
         LengthSlider ({ "##bake-tolerance", 0.0, 0.5, 0.0, 3 }, options.tolerance);
         if (ImGui::IsItemHovered ())
             hudshell::HoverTip ("A point is dropped while its line stays within this distance of the traced one.");
+        ImGui::TextWrapped ("%s", WithLengthUnit (units, "Divide contours by length (0: off)").c_str ());
+        ImGui::SetNextItemWidth (width);
+        LengthDrag ({ "##bake-divide", 0.0, 50.0, 0.1, 2 }, options.divide);
+        options.divide = std::max (0.0, options.divide);
+        if (ImGui::IsItemHovered ())
+            hudshell::HoverTip ("Cuts each contour into equal pieces of about this length, in place of the point "
+                                "reduction: even polylines and a light Mesh. 0 keeps the reduction.");
     }
     if (signature) {
         ImGui::TextWrapped ("%s", WithLengthUnit (units, "Shortest design line").c_str ());

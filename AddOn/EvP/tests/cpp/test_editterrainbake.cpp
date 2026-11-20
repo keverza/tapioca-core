@@ -115,6 +115,70 @@ TEST (EditTerrainBake, AnOpenContourEndsOnAnOutlineVertex)
     EXPECT_NEAR (twice / 2, 400.0, 1e-9);
 }
 
+// The user, 2026-11-20: a light Mesh whose contours are even polylines, divided by length. Each
+// contour is cut into equal pieces along its traced length, whatever detail the surface had; a
+// ring keeps at least three, an open line keeps its ends on the boundary.
+TEST (EditTerrainBake, DivideByLengthCutsEachContourIntoEqualPieces177)
+{
+    const auto length = [] (const std::vector<ed::Vec3>& points, bool closed) {
+        double total = 0.0;
+        for (size_t i = 0; i + (closed ? 0 : 1) < points.size (); ++i) {
+            const auto a = points[i], b = points[(i + 1) % points.size ()];
+            total += std::hypot (b.x - a.x, b.y - a.y);
+        }
+        return total;
+    };
+    // Rings: the pad's batter, a fine 0.25 m grid so each traced contour has many points.
+    const auto g = MakeGrid (80, [] (double x, double y) { return Pad (x / 4, y / 4); });
+    ed::BakeOptions options;
+    options.interval = 0.5;
+    const auto traced = ed::PlanTerrainBake (g.points, g.triangles, [] {
+        ed::BakeOptions exact;
+        exact.interval = 0.5;
+        exact.tolerance = 0.0;
+        return exact;
+    }());
+    ASSERT_TRUE (traced.ok) << traced.error;
+    options.divide = 5.0;
+    const auto divided = ed::PlanTerrainBake (g.points, g.triangles, options);
+    ASSERT_TRUE (divided.ok) << divided.error;
+    ASSERT_EQ (divided.lines.size (), traced.lines.size ());
+    for (size_t i = 0; i < divided.lines.size (); ++i) {
+        const auto& line = divided.lines[i];
+        ASSERT_TRUE (line.closed);
+        const double perimeter = length (traced.lines[i].points, true);
+        EXPECT_EQ (line.points.size (), size_t (std::max (3.0, std::round (perimeter / 5.0))))
+            << "level " << line.points[0].z << ", traced " << perimeter << " m";
+        for (const auto& p : line.points)
+            EXPECT_NEAR (p.z, line.points[0].z, 1e-12) << "every point stays on its level";
+    }
+    // A step longer than a ring still leaves a triangle.
+    options.divide = 1000.0;
+    const auto coarse = ed::PlanTerrainBake (g.points, g.triangles, options);
+    ASSERT_TRUE (coarse.ok);
+    for (const auto& line : coarse.lines)
+        EXPECT_EQ (line.points.size (), 3u);
+
+    // Open lines: a plane rising 2 m over 20 m. Each level crosses the site in 20 m: four pieces
+    // of 5 m, the ends exactly on the outline's vertices.
+    const auto plane = MakeGrid (20, [] (double x, double) { return 0.1 * x; });
+    options.divide = 5.0;
+    const auto open = ed::PlanTerrainBake (plane.points, plane.triangles, options);
+    ASSERT_TRUE (open.ok) << open.error;
+    ASSERT_EQ (open.lines.size (), 3u);
+    for (const auto& line : open.lines) {
+        EXPECT_FALSE (line.closed);
+        ASSERT_EQ (line.points.size (), 5u);
+        for (size_t k = 0; k < line.points.size (); ++k)
+            EXPECT_NEAR (line.points[k].y,
+                         line.points.front ().y + (line.points.back ().y - line.points.front ().y) * double (k) / 4.0,
+                         1e-9);
+        for (const auto& end : { line.points.front (), line.points.back () })
+            EXPECT_TRUE (std::any_of (open.outline.begin (), open.outline.end (),
+                                      [&] (const ed::Vec3& v) { return Near (v, end); }));
+    }
+}
+
 // With no design given (or with `folds`), Signature still traces the surface's folds.
 TEST (EditTerrainBake, WithoutADesignSignatureLinesAreTheSurfacesFolds)
 {
