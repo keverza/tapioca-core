@@ -287,6 +287,26 @@ TEST_F (GraphicsSettings, UiSizesAndInteractionColoursSurvivePanelLookPushesWith
     }
 }
 
+// The user, 2026-11-20: "vertical slider bar does not have visible grip". On a light card and on
+// a dark one the grip is clearly more ink than its track, and the bar is wide enough to take.
+TEST_F (GraphicsSettings, AScrollBarsGripStandsOutFromItsTrackOnLightAndDarkCards)
+{
+    Context context;
+    for (const bool dark : { false, true }) {
+        shell::BaseStyle (1);
+        auto look = shell::PlainLook ();
+        look.backgroundRgba = dark ? 0x202020E6u : 0xF2F2F2E6u;
+        look.textRgba = dark ? 0xF0F0F0FFu : 0x202020FFu;
+        const int colours = shell::PushLook (look, 1);
+        const ImVec4 track = ImGui::GetStyleColorVec4 (ImGuiCol_ScrollbarBg);
+        const ImVec4 grip = ImGui::GetStyleColorVec4 (ImGuiCol_ScrollbarGrab);
+        EXPECT_GT (grip.w - track.w, 0.25f) << (dark ? "dark" : "light") << " card";
+        EXPECT_GE (ImGui::GetStyle ().ScrollbarSize, 8.0f);
+        ImGui::PopStyleColor (colours);
+        ImGui::PopStyleVar (shell::kLookVars);
+    }
+}
+
 TEST_F (GraphicsSettings, ViewerTraceLabelsFollowTheSameTextSizeColourHaloAndProjectedHideControls)
 {
     using namespace geomsrv::archviz;

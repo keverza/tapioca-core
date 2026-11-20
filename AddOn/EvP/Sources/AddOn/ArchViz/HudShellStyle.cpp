@@ -44,7 +44,7 @@ void BaseStyle (float scale)
     style.ItemInnerSpacing = ImVec2 (4.0f, 3.0f);
     style.CellPadding = ImVec2 (4.0f, 1.0f);
     style.ScaleAllSizes (scale);
-    style.ScrollbarSize /= 3.0f;
+    style.ScrollbarSize = (std::max) (style.ScrollbarSize / 3.0f, 8.0f * scale); // thin, yet a grip to take
     style.WindowMinSize = ImVec2 (1.0f, 1.0f);
     style.FrameRounding = 2.0f * scale;
     graphicssettingsui::ApplyStyle (style, scale);
@@ -102,6 +102,14 @@ int PushLook (const layers::Panel& panel, float scale)
         { ImGuiCol_CheckMark, accent },
         { ImGuiCol_SliderGrab, accent },
         { ImGuiCol_SliderGrabActive, accent },
+        // ⚠️ A SCROLL BAR'S GRIP STANDS OUT FROM ITS TRACK (the user, 2026-11-20: "vertical slider
+        // bar does not have visible grip"). The dark theme's near-black track and mid-grey grip
+        // read as one dark bar on a light card: the track is the card's faintest ink, the grip a
+        // clear step darker, the accent while held.
+        { ImGuiCol_ScrollbarBg, ink (0.04f) },
+        { ImGuiCol_ScrollbarGrab, ink (0.34f) },
+        { ImGuiCol_ScrollbarGrabHovered, ink (0.50f) },
+        { ImGuiCol_ScrollbarGrabActive, accent },
         // A tab bar: the tab shown a step greyer, a line of the accent over it. The same whether
         // ImGui thinks the panel focused or not -- the HUD takes no focus the user sees.
         { ImGuiCol_Tab, ink (0.06f) },
