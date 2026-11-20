@@ -562,34 +562,6 @@ bool ToggleViewpointContext (std::vector<std::string>& context, const std::strin
     return true;
 }
 
-void AddViewpointSeenSurfaces (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,
-                               const std::vector<std::string>& context, ViewpointStudyResult& result,
-                               const std::function<bool ()>& isCancelled)
-{
-    if (!result.valid || result.options.mode != ViewpointMode::Sphere || snapshot == nullptr)
-        return;
-    std::set<std::string> selected;
-    for (const auto& guid : context)
-        selected.insert (CanonicalGuid (guid));
-    std::vector<uint8_t> mask (snapshot->meshes.size (), 0);
-    for (size_t mesh = 0; mesh < snapshot->meshes.size (); ++mesh)
-        mask[mesh] = selected.find (CanonicalGuid (snapshot->meshes[mesh].guid)) != selected.end ();
-    const auto engine = context.empty () ? nullptr : geomsrv::QueryIndexCache::Get ().For (snapshot);
-    const auto cancelled = [&] { return isCancelled && isCancelled (); };
-    if ((!context.empty () && engine == nullptr) ||
-        !SeenSurfaces (*snapshot, engine.get (), mask,
-                       std::all_of (mask.begin (), mask.end (), [] (uint8_t on) { return on != 0; }), result.options,
-                       result, cancelled)) {
-        result.perimeter.clear ();
-        result.rayMesh.clear ();
-        result.seenSurface.clear ();
-        result.valid = false;
-        result.error = engine == nullptr && !context.empty ()
-                           ? "viewpoint could not acquire the shared snapshot query index"
-                           : "viewpoint calculation cancelled";
-    }
-}
-
 ViewpointStudyResult RunSelectedViewpointStudy (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,
                                                 const std::vector<std::string>& context,
                                                 const ViewpointOptions& options,

@@ -7,8 +7,9 @@
 //! counter-clockwise without a closing duplicate, and the area is the fan's
 //! shoelace sum about the point, so concave isovists keep their shape.
 //!
-//! The sphere's seen surfaces are not computed here: the host reconstructs
-//! them from these ray ends over its own triangles.
+//! The sphere's seen surfaces (the parts of the scene's triangles the eye
+//! reaches) are [`seen::seen_surfaces`], a pass of their own over the
+//! snapshot's triangles.
 
 use crate::raster::{cpp_max, cpp_min};
 use crate::rays::{FirstHitRay, RayError, RayHit, RayQueries};
@@ -237,20 +238,7 @@ pub fn run_viewpoint(
     queries: &dyn RayQueries,
 ) -> Result<ViewpointResult, ViewpointError> {
     validate(options)?;
-    let selected: BTreeSet<String> = context.iter().map(|g| canonical_guid(g)).collect();
-    let mut missing = selected.clone();
-    let mask: Vec<u8> = meshes
-        .iter()
-        .map(|g| {
-            let guid = canonical_guid(g);
-            let hit = u8::from(selected.contains(&guid));
-            missing.remove(&guid);
-            hit
-        })
-        .collect();
-    if !missing.is_empty() {
-        return Err(ViewpointError::MissingContext);
-    }
+    let mask = context_mask(meshes, context)?;
     if !context.is_empty() {
         queries.prepare().map_err(|_| ViewpointError::NoIndex)?;
     }
@@ -316,6 +304,29 @@ pub fn run_viewpoint(
     Ok(result)
 }
 
+/// One byte per snapshot mesh, nonzero where its element is Context.
+///
+/// # Errors
+/// [`ViewpointError::MissingContext`] when a Context GUID names no mesh.
+fn context_mask(meshes: &[&str], context: &[&str]) -> Result<Vec<u8>, ViewpointError> {
+    let selected: BTreeSet<String> = context.iter().map(|g| canonical_guid(g)).collect();
+    let mut missing = selected.clone();
+    let mask: Vec<u8> = meshes
+        .iter()
+        .map(|g| {
+            let guid = canonical_guid(g);
+            let hit = u8::from(selected.contains(&guid));
+            missing.remove(&guid);
+            hit
+        })
+        .collect();
+    if missing.is_empty() {
+        Ok(mask)
+    } else {
+        Err(ViewpointError::MissingContext)
+    }
+}
+
 /// The shoelace sum about the point; a field of view stays open, its two
 /// edges meeting at the point and adding no area.
 fn fan_area(perimeter: &[[f64; 3]], options: &ViewpointOptions) -> f64 {
@@ -333,6 +344,8 @@ fn fan_area(perimeter: &[[f64; 3]], options: &ViewpointOptions) -> f64 {
     }
     area
 }
+
+pub mod seen;
 
 #[cfg(test)]
 mod tests;

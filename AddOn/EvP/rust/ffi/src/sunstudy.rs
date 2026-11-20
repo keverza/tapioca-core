@@ -27,6 +27,7 @@ mod steps;
 mod study;
 mod study_read;
 mod surface;
+mod viewpoint_seen;
 mod views;
 mod visibility;
 mod winding;
@@ -120,6 +121,10 @@ pub use surface::{
     SurfaceBuildRequest, SurfaceOptionsRecord, SurfaceReadOutput, SurfaceResultHandle,
     SurfaceResultSummary, tapioca_sunstudy_surface_build, tapioca_sunstudy_surface_destroy,
     tapioca_sunstudy_surface_read, tapioca_sunstudy_surface_summary,
+};
+pub use viewpoint_seen::{
+    SeenHandle, SeenSummary, tapioca_sunstudy_viewpoint_seen,
+    tapioca_sunstudy_viewpoint_seen_destroy, tapioca_sunstudy_viewpoint_seen_read,
 };
 pub use views::{
     FirstHitRayRecord, OcclusionRayRecord, RayHitRecord, RayQueryVtable, ViewpointOutput,

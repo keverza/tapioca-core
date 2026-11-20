@@ -326,6 +326,58 @@ TEST (SunStudyRustViewsParity, ViewpointMatchesEveryBitInEveryMode)
     }
 }
 
+// The seen-surface pass in Rust (#83) against the C++ one, on the paths the
+// corpus above leaves out: every mesh in Context (plain occlusion, no mask), the
+// cell side taken from the radius, and a fine cell that has to coarsen and runs
+// in several host batches. Then a cancelled sphere on both sides.
+TEST (SunStudyRustViewsParity, SphereSeenSurfacesMatchEveryBitForEveryCellAndContext)
+{
+    Lcg lcg (0x715b5ull);
+    size_t cut = 0, coarsened = 0;
+    for (int scene = 0; scene < 4; ++scene) {
+        const auto snapshot = Scene (lcg, 500 + scene);
+        const std::vector<std::string> everything { kFloor, kTower, kShed, kWall };
+        for (const auto& context : { std::vector<std::string> {}, everything, std::vector<std::string> { kWall } }) {
+            for (const double cell : { 0.0, 0.02, 0.4 }) {
+                ViewpointOptions options;
+                options.mode = ViewpointMode::Sphere;
+                options.point = { lcg.Uniform (-5, 15), lcg.Uniform (-8, 12), lcg.Uniform (0.5, 3) };
+                options.radius = lcg.Uniform (8, 30);
+                options.minElevationDegrees = lcg.Uniform (-90, -10);
+                options.maxElevationDegrees = lcg.Uniform (10, 90);
+                options.sphereColumns = 24;
+                options.sphereRows = 5;
+                options.surfaceCellMetres = cell;
+                const auto e = RunViewpointStudy (snapshot, context, options);
+                const auto a = rs::RunViewpointStudy (snapshot, context, options);
+                const std::string what = "scene " + std::to_string (scene) + " context " +
+                                         std::to_string (context.size ()) + " cell " + std::to_string (cell);
+                ExpectSameViewpoint (e, a, what);
+                if (::testing::Test::HasFatalFailure ())
+                    return;
+                EXPECT_TRUE (e.valid) << what << ": " << e.error;
+                coarsened += cell > 0.0 && e.surfaceCellMetres > cell ? 1 : 0;
+                cut += e.seenSurface.size () > 3 * 2 * snapshot->meshes.size () ? 1 : 0;
+            }
+        }
+    }
+    EXPECT_GT (cut, 12u) << "the corpus must cut cells, not only keep whole triangles";
+    EXPECT_GT (coarsened, 0u) << "some 2 cm run must exceed the cell budget and coarsen";
+
+    ViewpointOptions sphere;
+    sphere.mode = ViewpointMode::Sphere;
+    const std::function<bool ()> always = [] { return true; };
+    for (const auto& context : { std::vector<std::string> {}, std::vector<std::string> { kWall } }) {
+        const auto snapshot = Scene (lcg, 600);
+        const auto e = RunViewpointStudy (snapshot, context, sphere, always);
+        const auto a = rs::RunViewpointStudy (snapshot, context, sphere, always);
+        EXPECT_FALSE (a.valid);
+        EXPECT_EQ (a.valid, e.valid);
+        EXPECT_EQ (a.error, e.error);
+        EXPECT_TRUE (a.seenSurface.empty () && a.perimeter.empty ());
+    }
+}
+
 TEST (SunStudyRustViewsParity, TheSelectedViewpointIsTheRustStudyAndMatchesTheCppOne)
 {
     Lcg lcg (0x715b4ull);

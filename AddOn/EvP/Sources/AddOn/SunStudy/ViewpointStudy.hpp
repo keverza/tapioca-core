@@ -115,14 +115,6 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
                                         const std::vector<std::string>& context, const ViewpointOptions& options,
                                         const std::function<bool ()>& isCancelled = {});
 
-// The host half of a sphere run elsewhere (the Rust kernel casts its rays):
-// fills result.seenSurface, seenArea and surfaceCellMetres as
-// RunViewpointStudy does. Nothing to do for another mode or an invalid result.
-// A cancelled pass leaves the result invalid with RunViewpointStudy's message.
-void AddViewpointSeenSurfaces (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,
-                               const std::vector<std::string>& context, ViewpointStudyResult& result,
-                               const std::function<bool ()>& isCancelled = {});
-
 // RunViewpointStudy on the Rust policy when this build links it, which returns the
 // same result through the same C++ query index; the C++ body otherwise.
 ViewpointStudyResult RunSelectedViewpointStudy (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,

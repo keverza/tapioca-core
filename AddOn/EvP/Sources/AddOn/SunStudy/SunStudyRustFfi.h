@@ -1391,7 +1391,7 @@ typedef struct {
 } TapiocaRayQueryVtable;
 
 typedef struct {
-    TapiocaReuseMeshArray meshes; /* only the GUIDs are read */
+    TapiocaReuseMeshArray meshes; /* GUIDs; the seen surfaces also read the triangles */
     TapiocaTextArrayView context;
     double point[3];
     double radius;
@@ -1410,10 +1410,28 @@ typedef struct {
     int64_t* rayMesh;      /* capacity entries: stopping mesh index, or -1 */
 } TapiocaViewpointOutput;
 
-/* RunViewpointStudy without the sphere's seen surfaces (the host's pass over its
- * own triangles); a refusal returns TAPIOCA_ERR_STATE with its message. */
+/* RunViewpointStudy without the sphere's seen surfaces (tapioca_sunstudy_viewpoint_seen);
+ * a refusal returns TAPIOCA_ERR_STATE with its message. */
 TapiocaStatus tapioca_sunstudy_viewpoint (const TapiocaViewpointRequest* request, const TapiocaViewpointOutput* output,
                                           char* error, size_t errorCapacity);
+
+typedef struct TapiocaViewpointSeen TapiocaViewpointSeen;
+
+typedef struct {
+    size_t points; /* triangle corners, three per triangle */
+    double area;   /* m^2 */
+    double cellMetres;
+} TapiocaViewpointSeenSummary;
+
+/* A sphere viewpoint's seen surfaces over the request's mesh triangles (empty off the
+ * sphere); cellMetres > 0 fixes the starting cell side. A refusal or cancellation
+ * returns TAPIOCA_ERR_STATE with the study's message. */
+TapiocaStatus tapioca_sunstudy_viewpoint_seen (const TapiocaViewpointRequest* request, double cellMetres,
+                                               TapiocaViewpointSeen** out, TapiocaViewpointSeenSummary* summary,
+                                               char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_viewpoint_seen_read (const TapiocaViewpointSeen* handle, double (*points)[3],
+                                                    size_t capacity, char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_viewpoint_seen_destroy (TapiocaViewpointSeen* handle, char* error, size_t errorCapacity);
 
 typedef struct {
     double reals[6];  /* spacing, normalOffset, tmin, coneDegrees, min and max elevation degrees */

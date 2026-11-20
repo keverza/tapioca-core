@@ -242,7 +242,7 @@ pub(super) unsafe fn texts<'a>(
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ViewpointRequest {
-    /// Snapshot meshes (only the GUIDs are read).
+    /// Snapshot meshes (the GUIDs; the seen surfaces also read the triangles).
     pub meshes: SliceView<ReuseMeshView>,
     /// Context element GUIDs.
     pub context: SliceView<SliceView<u8>>,
@@ -276,6 +276,28 @@ pub struct ViewpointOutput {
     pub measures: *mut [f64; 3],
     /// Per ray: the stopping mesh index, or -1 (`capacity` entries).
     pub ray_mesh: *mut i64,
+}
+
+/// The study options a request carries; an unknown mode is refused first.
+pub(super) fn viewpoint_options(request: &ViewpointRequest) -> Result<ViewpointOptions, Failure> {
+    let [bearing, field_of_view, min_elevation, max_elevation] = request.angles;
+    Ok(ViewpointOptions {
+        point: request.point,
+        radius: request.radius,
+        rays: request.rays,
+        mode: match request.mode {
+            0 => ViewpointMode::Plan,
+            1 => ViewpointMode::FieldOfView,
+            2 => ViewpointMode::Sphere,
+            _ => return Err(Failure::State(ViewpointError::BadMode.message())),
+        },
+        bearing_degrees: bearing,
+        field_of_view_degrees: field_of_view,
+        min_elevation_degrees: min_elevation,
+        max_elevation_degrees: max_elevation,
+        sphere_columns: request.grid[0],
+        sphere_rows: request.grid[1],
+    })
 }
 
 /// `RunViewpointStudy`; a refusal fails with its message.
@@ -316,24 +338,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_viewpoint(
             let queries = VtableQueries {
                 vtable: context.record(request.queries)?,
             };
-            let [bearing, field_of_view, min_elevation, max_elevation] = request.angles;
-            let options = ViewpointOptions {
-                point: request.point,
-                radius: request.radius,
-                rays: request.rays,
-                mode: match request.mode {
-                    0 => ViewpointMode::Plan,
-                    1 => ViewpointMode::FieldOfView,
-                    2 => ViewpointMode::Sphere,
-                    _ => return Err(Failure::State(ViewpointError::BadMode.message())),
-                },
-                bearing_degrees: bearing,
-                field_of_view_degrees: field_of_view,
-                min_elevation_degrees: min_elevation,
-                max_elevation_degrees: max_elevation,
-                sphere_columns: request.grid[0],
-                sphere_rows: request.grid[1],
-            };
+            let options = viewpoint_options(&request)?;
             let result = run_viewpoint(&guids, &picked, &options, &queries)
                 .map_err(|e| Failure::State(e.message()))?;
             if target.capacity < result.perimeter.len() {

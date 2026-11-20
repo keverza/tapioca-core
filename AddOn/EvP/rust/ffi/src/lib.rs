@@ -247,6 +247,10 @@ pub use sunstudy::{
     tapioca_sunstudy_patch_grid,
 };
 pub use sunstudy::{
+    SeenHandle, SeenSummary, tapioca_sunstudy_viewpoint_seen,
+    tapioca_sunstudy_viewpoint_seen_destroy, tapioca_sunstudy_viewpoint_seen_read,
+};
+pub use sunstudy::{
     SessionAdvanceRequest, SessionHandle, SessionProgress, SessionSeedRequest, SessionSyncRequest,
     StepObserverCallback, tapioca_sunstudy_session_advance, tapioca_sunstudy_session_create,
     tapioca_sunstudy_session_destroy, tapioca_sunstudy_session_progress,

@@ -125,6 +125,41 @@ struct SurfaceDeleter {
     }
 };
 
+struct SeenDeleter {
+    void operator() (TapiocaViewpointSeen* handle) const noexcept
+    {
+        ErrorBuffer buffer {};
+        tapioca_sunstudy_viewpoint_seen_destroy (handle, buffer.data (), buffer.size ());
+    }
+};
+
+// The sphere's seen surfaces from the viewpoint's own request (#83). False with
+// the study's message (cancelled, or no index) in `result.error`.
+bool AddSeenSurfaces (const TapiocaViewpointRequest& request, double cellMetres, ViewpointStudyResult& result)
+{
+    TapiocaViewpointSeen* raw = nullptr;
+    TapiocaViewpointSeenSummary summary {};
+    if (!Invoke (
+            [&] (char* m, size_t n) {
+                return tapioca_sunstudy_viewpoint_seen (&request, cellMetres, &raw, &summary, m, n);
+            },
+            result.error))
+        return false;
+    const std::unique_ptr<TapiocaViewpointSeen, SeenDeleter> handle (raw);
+    std::vector<std::array<double, 3>> points (summary.points);
+    if (!Invoke (
+            [&] (char* m, size_t n) {
+                return tapioca_sunstudy_viewpoint_seen_read (
+                    handle.get (), reinterpret_cast<double (*)[3]> (points.data ()), points.size (), m, n);
+            },
+            result.error))
+        return false;
+    result.seenSurface = std::move (points);
+    result.seenArea = summary.area;
+    result.surfaceCellMetres = summary.cellMetres;
+    return true;
+}
+
 } // namespace
 
 ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,
@@ -182,7 +217,12 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
     result.volume = measures[1];
     result.openFraction = measures[2];
     result.valid = true;
-    AddViewpointSeenSurfaces (snapshot, context, result, isCancelled);
+    if (options.mode == ViewpointMode::Sphere && !AddSeenSurfaces (request, options.surfaceCellMetres, result)) {
+        result.perimeter.clear ();
+        result.rayMesh.clear ();
+        result.seenSurface.clear ();
+        result.valid = false;
+    }
     return result;
 }
 
