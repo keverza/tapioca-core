@@ -813,8 +813,8 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     io.AddKeyEvent (ImGuiMod_Shift, input.shift);
     impl_->PointerButtons (input);
     impl_->KeyboardInput (input);
-    // The wheel the input layer took over a page that scrolls: ImGui scrolls the page under the
-    // pointer by it.
+    // The wheel the input layer took over a panel: ImGui scrolls what scrolls under the pointer
+    // by it -- the page, or a list inside it.
     if (input.wheel != 0.0f)
         io.AddMouseWheelEvent (0.0f, input.wheel);
     int frames = kFrames + int (input.buttons.size () + input.keys.size ()) + (input.buttons.empty () ? 0 : 1);

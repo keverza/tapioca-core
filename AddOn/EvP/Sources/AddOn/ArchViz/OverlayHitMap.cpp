@@ -52,7 +52,7 @@ int HitMap::Hit (float x, float y, float width, float height) const
     return -1;
 }
 
-Route Router::Verdict (const Event& event, bool overHud, bool overScroll, Owner& owner)
+Route Router::Verdict (const Event& event, bool overHud, bool overPanel, Owner& owner)
 {
     // A gesture whose release went unseen ends at the first move with nothing held.
     if (owner != Owner::None && event.kind == EventKind::Move && event.held == 0)
@@ -60,18 +60,21 @@ Route Router::Verdict (const Event& event, bool overHud, bool overScroll, Owner&
     switch (event.kind) {
         case EventKind::Press:
             if (event.button == Button::Middle) {
+                // Over a panel every button is the panel's (the user, 2026-11-20); elsewhere the
+                // middle button navigates, a locked view's included.
                 if (owner == Owner::None)
-                    owner = Owner::Host;
-                return Route::Pass;
+                    owner = overPanel ? Owner::Hud : Owner::Host;
+                return owner == Owner::Hud && overPanel ? Route::Take : Route::Pass;
             }
             if (owner == Owner::None)
                 owner = !overHud ? Owner::Host : Owner::Hud;
             return owner == Owner::Hud ? Route::Take : Route::Pass;
         case EventKind::Release: {
             if (event.button == Button::Middle) {
+                const Route route = owner == Owner::Hud && overPanel ? Route::Take : Route::Pass;
                 if (event.held == 0)
                     owner = Owner::None;
-                return Route::Pass;
+                return route;
             }
             // One whose press was never seen is Archicad's: it may be waiting for it.
             const Route route = owner == Owner::Hud ? Route::Take : Route::Pass;
@@ -80,30 +83,33 @@ Route Router::Verdict (const Event& event, bool overHud, bool overScroll, Owner&
             return route;
         }
         case EventKind::Move:
+            // The middle button navigates through any gesture, a HUD's included -- but not over a
+            // panel, where it is the panel's.
             if ((event.held & Bit (Button::Middle)) != 0)
-                return Route::Pass;
+                return owner == Owner::Hud && overPanel ? Route::Take : Route::Pass;
             if (owner == Owner::Hud)
                 return Route::Take;
             if (owner == Owner::Host)
                 return Route::Pass;
             return overHud ? Route::Take : Route::Pass;
         case EventKind::Wheel:
-            // A page that scrolls under the pointer scrolls; everywhere else the view zooms --
-            // and while a gesture is Archicad's, the wheel is its too.
-            return overScroll && event.wheel != 0.0f && owner != Owner::Host ? Route::Take : Route::Pass;
+            // Over a panel the wheel scrolls it, whether its page or a list inside it scrolls
+            // (the user, 2026-11-20: the wheel zoomed the view under the panel); elsewhere the
+            // view zooms -- and while a gesture is Archicad's, the wheel is its too.
+            return overPanel && event.wheel != 0.0f && owner != Owner::Host ? Route::Take : Route::Pass;
     }
     return Route::Pass;
 }
 
-Route Router::Decide (const Event& event, bool overHud, bool overScroll)
+Route Router::Decide (const Event& event, bool overHud, bool overPanel)
 {
-    return Verdict (event, overHud, overScroll, owner_);
+    return Verdict (event, overHud, overPanel, owner_);
 }
 
-Route Router::Preview (const Event& event, bool overHud, bool overScroll) const
+Route Router::Preview (const Event& event, bool overHud, bool overPanel) const
 {
     Owner owner = owner_;
-    return Verdict (event, overHud, overScroll, owner);
+    return Verdict (event, overHud, overPanel, owner);
 }
 
 } // namespace overlayinput

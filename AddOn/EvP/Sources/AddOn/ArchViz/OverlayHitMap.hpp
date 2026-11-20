@@ -15,10 +15,12 @@
 // whose release was never seen (the button came up outside every window) ends at the
 // first move with no button held.
 //
-// ⚠️ NAVIGATION IS NEVER TAKEN. The wheel and the middle button pan and zoom over the
-// HUD as anywhere else -- but for the wheel over a panel whose page scrolls (`Region::scrolls`;
-// the user, 2026-10-03: a vertical scroll bar when a page is taller than the view): there it
-// scrolls the page, as over any scrolling list, and the view does not zoom under it.
+// ⚠️ NAVIGATION IS NEVER TAKEN FROM THE VIEW. The wheel and the middle button pan and zoom over
+// the view, a locked one's included, and through any gesture the HUD holds there. Over a PANEL --
+// a published region: a panel, a legend, an open menu -- every button and the wheel are the
+// panel's (the user, 2026-11-20: "when the mouse is inside the panel all mouse buttons work for
+// the panel"; the wheel had zoomed the view under a panel whose lists, not its page, scroll).
+// `Region::scrolls` (2026-10-03) no longer decides it: a list inside a page scrolls too.
 //
 // Pure: no Win32, tests/cpp builds it.
 
@@ -193,12 +195,12 @@ constexpr bool EatsLockedHover (bool locked, bool middleHeld, bool settling)
 
 class Router {
   public:
-    // A message being removed from the queue: its route, the latch moved by it. `overScroll`:
-    // the pointer is over a region that scrolls (`Region::scrolls`).
-    Route Decide (const Event& event, bool overHud, bool overScroll = false);
+    // A message being removed from the queue: its route, the latch moved by it. `overPanel`:
+    // the pointer is over a published region, where the wheel and the middle button are the HUD's.
+    Route Decide (const Event& event, bool overHud, bool overPanel = false);
     // A message only peeked at: the route it would get, the latch untouched -- it
     // comes back to be removed.
-    Route Preview (const Event& event, bool overHud, bool overScroll = false) const;
+    Route Preview (const Event& event, bool overHud, bool overPanel = false) const;
     Owner GetOwner () const
     {
         return owner_;
@@ -209,7 +211,7 @@ class Router {
     }
 
   private:
-    static Route Verdict (const Event& event, bool overHud, bool overScroll, Owner& owner);
+    static Route Verdict (const Event& event, bool overHud, bool overPanel, Owner& owner);
     Owner owner_ = Owner::None;
 };
 

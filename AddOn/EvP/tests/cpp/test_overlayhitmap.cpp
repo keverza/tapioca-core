@@ -154,6 +154,35 @@ TEST (OverlayHitMap, APressOnTheHudIsTheHudsUntilItsRelease)
 }
 
 // ⚠️ A wall drawn across a panel still draws: the gesture began in the view.
+// The user, 2026-11-20: over a panel the wheel zoomed the view instead of scrolling the panel's
+// list, and the middle button navigated. Over a panel every button and the wheel are the panel's;
+// over the view -- a locked one, which the HUD owns, included -- they still navigate.
+TEST (OverlayHitMap, OverAPanelTheWheelAndTheMiddleButtonAreThePanels)
+{
+    input::Event wheel { input::EventKind::Wheel, input::Button::Left, 0 };
+    wheel.wheel = 1.0f;
+    input::Router router;
+    EXPECT_EQ (router.Decide (wheel, true, true), input::Route::Take) << "a panel whose page does not scroll too";
+    EXPECT_EQ (router.Decide (wheel, true, false), input::Route::Pass) << "the locked view zooms";
+
+    EXPECT_EQ (router.Decide (Press (input::Button::Middle, kMiddle), true, true), input::Route::Take);
+    EXPECT_EQ (router.GetOwner (), input::Owner::Hud);
+    EXPECT_EQ (router.Decide (Move (kMiddle), true, true), input::Route::Take);
+    EXPECT_EQ (router.Decide (Release (input::Button::Middle, 0), true, true), input::Route::Take);
+    EXPECT_EQ (router.GetOwner (), input::Owner::None);
+
+    EXPECT_EQ (router.Decide (Press (input::Button::Middle, kMiddle), true, false), input::Route::Pass)
+        << "on the locked view the middle button navigates";
+    EXPECT_EQ (router.GetOwner (), input::Owner::Host);
+    EXPECT_EQ (router.Decide (wheel, true, true), input::Route::Pass) << "Archicad's gesture keeps the wheel";
+    EXPECT_EQ (router.Decide (Release (input::Button::Middle, 0), true, false), input::Route::Pass);
+
+    // A HUD drag on the view with a middle-button pan through it: the pan is still Archicad's.
+    EXPECT_EQ (router.Decide (Press (input::Button::Left, kLeft), true, false), input::Route::Take);
+    EXPECT_EQ (router.Decide (Press (input::Button::Middle, kLeft | kMiddle), true, false), input::Route::Pass);
+    EXPECT_EQ (router.Decide (Move (kLeft | kMiddle), true, false), input::Route::Pass);
+}
+
 TEST (OverlayHitMap, APressInTheViewIsArchicadsEvenAcrossTheHud)
 {
     input::Router router;

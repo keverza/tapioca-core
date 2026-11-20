@@ -155,7 +155,7 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     // to Archicad, to navigate.
     const bool over = self->map.Owns (float (point.x), float (point.y), float (client.right - client.left),
                                       float (client.bottom - client.top));
-    const bool overScroll = hit >= 0 && self->map.regions[size_t (hit)].scrolls;
+    const bool overPanel = hit >= 0; // there the wheel and the middle button are the HUD's too
     const bool shown = self->owner.shown != nullptr && self->owner.shown ();
     if (removing)
         ++g_stats.seen;
@@ -179,8 +179,7 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
         }
         return Route::Pass;
     }
-    const Route route =
-        removing ? g_router.Decide (event, over, overScroll) : g_router.Preview (event, over, overScroll);
+    const Route route = removing ? g_router.Decide (event, over, overPanel) : g_router.Preview (event, over, overPanel);
     if (removing && event.kind == EventKind::Press && route == Route::Take) {
         s_gestureTarget = self, s_keyboardTarget = self;
         if (s_hudTextKeys && ::GetAncestor (self->canvas, GA_ROOT) == desktop.foregroundWindow ())
@@ -226,8 +225,8 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
         else
             navwatch::NoteNavigationEnd ();
     }
-    if (event.kind == EventKind::Move)
-        self->navigating = (event.held & Bit (Button::Middle)) != 0;
+    if (event.kind == EventKind::Move) // a middle drag the panel holds is not Archicad's navigation
+        self->navigating = (event.held & Bit (Button::Middle)) != 0 && route == Route::Pass;
     const bool button = route == Route::Take && (event.kind == EventKind::Press || event.kind == EventKind::Release);
     if (button && self->buttons.size () < 32)
         self->buttons.push_back ({ int (event.button), event.kind == EventKind::Press, true, self->x, self->y });
