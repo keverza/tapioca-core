@@ -1523,6 +1523,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_views.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_flip.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_kernels.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudysolarcut_facade.cpp"
         # A study runs only on the Rust core (P7a): every test that files one in
         # the store, advances it or reuses it needs the archive.
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudystore.cpp"
