@@ -60,6 +60,30 @@ struct Drive {
         if (hud::FollowVirtualEditor (*view.state, layer, clear) && !clear)
             layers::Set (layer);
     }
+    void At (float x, float y)
+    {
+        input.x = x, input.y = y;
+        Frame ();
+    }
+    void Press (float x, float y)
+    {
+        At (x, y);
+        input.buttons = { { 0, true } };
+        Frame ();
+    }
+    void Release (float x, float y)
+    {
+        input.x = x, input.y = y;
+        input.buttons = { { 0, false } };
+        Frame ();
+    }
+    // Where the view shows a model point, as the editor maps it.
+    ImVec2 Pixel (ed::Vec3 p)
+    {
+        ImVec2 out;
+        EXPECT_TRUE ((eh::detail::Map { input }).Screen (p, out));
+        return out;
+    }
     bool Offers (const std::string& id)
     {
         for (const auto& item : eh::MenuItems (S ()))
@@ -167,4 +191,66 @@ TEST (HudVirtualEditorPolar, ATypedCentreAndUnrotatedCopiesAndTheKindSwitch130)
     ASSERT_TRUE (eh::detail::BeginPolarArray (d.S ()));
     ASSERT_TRUE (eh::detail::BeginRectangularArray (d.S ()));
     EXPECT_FALSE (d.S ().rectangularArray->polar);
+}
+
+// #130 (the user, 2026-11-20: "array commands should create grabbable gizmos to change centre,
+// size, angle"): the draft's dots in the view are dragged like any handle, and what they set is
+// what Apply makes; the view picks nothing under them.
+TEST (HudVirtualEditorPolar, TheArrayHandlesInTheViewSetSpacingCentreAndAngle130)
+{
+    ed::Document doc;
+    const ed::Id source = ed::AddPolyline (doc, { { 2, -5, 0 }, { 3, -5, 0 } }, false);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { source, ed::Part::Entity, ed::kNoId } });
+    d.input.plan[0] = 20, d.input.plan[2] = 600, d.input.plan[4] = -20, d.input.plan[5] = 500;
+    ASSERT_TRUE (eh::detail::BeginRectangularArray (d.S ())) << d.S ().message;
+    d.S ().rectangularArray->countX = 3;
+    d.S ().rectangularArray->spacingX = 4.0;
+    d.Frame ();
+    // The first copy along X: the middle (2.5, -5) plus the spacing.
+    const ImVec2 x = d.Pixel ({ 6.5, -5, 0 });
+    d.Press (x.x, x.y);
+    ASSERT_EQ (d.S ().rectangularArray->held, 0) << "the spacing handle is under the pointer";
+    d.At (x.x + 20.0f, x.y); // one metre further out
+    d.At (x.x + 40.0f, x.y);
+    d.Release (x.x + 40.0f, x.y);
+    d.Frame ();
+    ASSERT_TRUE (d.S ().rectangularArray.has_value ()) << d.S ().message;
+    EXPECT_NEAR (d.S ().rectangularArray->spacingX, 6.0, 1e-6);
+    EXPECT_EQ (d.S ().rectangularArray->held, -1);
+    EXPECT_EQ (d.S ().selection.Items ().size (), 1u) << "the press picked nothing under the handle";
+    EXPECT_EQ (d.D ().entities.size (), 1u) << "dragging a handle edits only the draft";
+
+    // Polar: the centre dragged to the origin's pixel, then the last copy to a quarter turn.
+    ASSERT_TRUE (eh::detail::BeginPolarArray (d.S ()));
+    auto& draft = *d.S ().rectangularArray;
+    draft.count = 3;
+    draft.sweepDegrees = 180.0;
+    draft.centreAtPivot = false;
+    draft.centre = { 2.5, -2, 0 };
+    eh::detail::UpdateRectangularArrayPreview (d.S ());
+    d.Frame ();
+    const ImVec2 c = d.Pixel ({ 2.5, -2, 0 }), to = d.Pixel ({ 0, 0, 0 });
+    d.Press (c.x, c.y);
+    ASSERT_EQ (d.S ().rectangularArray->held, 3) << "the centre handle";
+    d.At ((c.x + to.x) / 2.0f, (c.y + to.y) / 2.0f);
+    d.At (to.x, to.y);
+    d.Release (to.x, to.y);
+    d.Frame ();
+    EXPECT_NEAR (d.S ().rectangularArray->centre.x, 0.0, 1e-6);
+    EXPECT_NEAR (d.S ().rectangularArray->centre.y, 0.0, 1e-6);
+    EXPECT_FALSE (d.S ().rectangularArray->centreAtPivot) << "put where it was dragged";
+
+    // The last copy sits half a turn round, at (-2.5, 5): carried to (5, 0) -- a quarter turn the
+    // other way round from the source at (2.5, -5), counter-clockwise: 90 degrees.
+    const ImVec2 last = d.Pixel ({ -2.5, 5, 0 }), quarter = d.Pixel ({ 5, 0, 0 });
+    d.Press (last.x, last.y);
+    ASSERT_EQ (d.S ().rectangularArray->held, 4) << "the angle handle";
+    d.At (quarter.x, quarter.y);
+    d.Release (quarter.x, quarter.y);
+    d.Frame ();
+    const double expected = std::atan2 (0.0, 5.0) - std::atan2 (-5.0, 2.5);
+    EXPECT_NEAR (d.S ().rectangularArray->sweepDegrees, expected * 180.0 / 3.14159265358979323846, 1e-6);
+    ASSERT_TRUE (eh::detail::ApplyRectangularArray (d.S ())) << d.S ().message;
+    EXPECT_EQ (d.D ().entities.size (), 3u);
 }

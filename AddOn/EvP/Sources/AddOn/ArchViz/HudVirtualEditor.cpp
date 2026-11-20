@@ -223,6 +223,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // A resting profile binding (the panel's field) withholds the pointer from the view, as a
     // plane entry does: it owns the number until Enter, Esc or a digit takes it.
     hovered = hovered && !s.navigation.blocked && !s.planeTyping && !s.profileTyping;
+    // #130: an array draft's handles take the pointer before anything of the view's.
+    if (ArrayHandles (s, m, mouse, hovered, scale))
+        hovered = false;
     // Ctrl over the view picks with Select whatever tool is on, before anything of it is placed;
     // once Ctrl is up and the click (or its drag) is over, the tool comes back.
     if (!s.ctrlReturn && v.ctrl && hovered && s.tool != Tool::Select && s.drawing.empty () && s.drag == Drag::None)

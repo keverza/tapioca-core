@@ -397,7 +397,8 @@ void PolarArrayControls (Session& s)
                      ImGuiInputTextFlags_EnterReturnsTrue))
         draft.centreAtPivot = false;
     WrappedHint ("The count includes the source. A full turn (360) spreads it evenly with no copy back on the "
-                 "source; a smaller angle puts the last copy at its end. Negative turns clockwise.");
+                 "source; a smaller angle puts the last copy at its end. Negative turns clockwise. Or drag the dots "
+                 "in the view: the centre moves the axis, the last copy sets the angle.");
     UpdateRectangularArrayPreview (s);
     if (ImGui::SmallButton ("Apply array")) {
         if (ApplyRectangularArray (s))
@@ -450,7 +451,8 @@ void RectangularArrayControls (Session& s)
     ImGui::SetNextItemWidth (150.0f);
     LengthInput ({ "Array spacing Y", 0.0, 0.0, 0.1, 3 }, draft.spacingY, 0.1, 1.0,
                  ImGuiInputTextFlags_EnterReturnsTrue);
-    WrappedHint ("Counts include the source; signed spacing is centre-to-centre.");
+    WrappedHint ("Counts include the source; signed spacing is centre-to-centre. Or drag the dots in the view: "
+                 "the first copy along X or Y sets its spacing, the far corner both.");
     UpdateRectangularArrayPreview (s);
     if (ImGui::SmallButton ("Apply array")) {
         if (ApplyRectangularArray (s))
@@ -466,6 +468,128 @@ void RectangularArrayControls (Session& s)
     else if (draft.truncated)
         ImGui::TextWrapped ("Preview is capped at %zu outline segments; Apply still creates every cell.",
                             kMaxPreviewLines);
+}
+
+namespace {
+enum ArrayHandle : int { kSpacingX, kSpacingY, kExtent, kCentre, kAngle, kHandleCount };
+
+// Where handle `h` of the draft is, at the selection's height; false for one it does not have.
+bool HandleAt (const RectangularArrayDraft& d, int h, edit::Vec3& at)
+{
+    const edit::Vec3 base = d.middle;
+    if (d.polar) {
+        if (h == kCentre) {
+            at = { d.centre.x, d.centre.y, base.z };
+            return true;
+        }
+        if (h == kAngle && d.count > 1 && d.previewError.empty ()) {
+            const double last = edit::PolarStep (size_t (d.count), d.sweepDegrees * kDegrees) * double (d.count - 1);
+            at = edit::TurnInPlan (base, d.centre, last);
+            return true;
+        }
+        return false;
+    }
+    if (h == kSpacingX && d.countX > 1) {
+        at = base + edit::Vec3 { d.spacingX, 0.0, 0.0 };
+        return true;
+    }
+    if (h == kSpacingY && d.countY > 1) {
+        at = base + edit::Vec3 { 0.0, d.spacingY, 0.0 };
+        return true;
+    }
+    if (h == kExtent && d.countX > 1 && d.countY > 1) {
+        at = base + edit::Vec3 { double (d.countX - 1) * d.spacingX, double (d.countY - 1) * d.spacingY, 0.0 };
+        return true;
+    }
+    return false;
+}
+
+// Handle `h` carried to `p`: the field it stands for, set as the drag says.
+void DragHandle (RectangularArrayDraft& d, int h, edit::Vec3 p)
+{
+    constexpr double kLeast = 1.0e-3; // a spacing never dragged to nothing
+    const edit::Vec3 base = d.middle;
+    const auto spacing = [] (double delta, double cells, double was) {
+        const double value = delta / cells;
+        return std::abs (value) >= kLeast ? value : was;
+    };
+    switch (h) {
+        case kSpacingX:
+            d.spacingX = spacing (p.x - base.x, 1.0, d.spacingX);
+            break;
+        case kSpacingY:
+            d.spacingY = spacing (p.y - base.y, 1.0, d.spacingY);
+            break;
+        case kExtent:
+            d.spacingX = spacing (p.x - base.x, double (d.countX - 1), d.spacingX);
+            d.spacingY = spacing (p.y - base.y, double (d.countY - 1), d.spacingY);
+            break;
+        case kCentre:
+            d.centre = { p.x, p.y, d.centre.z };
+            d.centreAtPivot = false; // where it was put, not where the gumball is
+            break;
+        case kAngle: {
+            if (std::hypot (p.x - d.centre.x, p.y - d.centre.y) < kLeast)
+                break;
+            const double from = std::atan2 (base.y - d.centre.y, base.x - d.centre.x);
+            double degrees = (std::atan2 (p.y - d.centre.y, p.x - d.centre.x) - from) / kDegrees;
+            // The way it turned before: the last copy is put where the pointer is, going round
+            // the same way, and the angle ends there (a part turn).
+            if (d.sweepDegrees >= 0.0)
+                while (degrees <= 0.0)
+                    degrees += 360.0;
+            else
+                while (degrees >= 0.0)
+                    degrees -= 360.0;
+            while (std::abs (degrees) > 360.0)
+                degrees -= std::copysign (360.0, degrees);
+            d.sweepDegrees = degrees;
+            break;
+        }
+        default:
+            break;
+    }
+}
+} // namespace
+
+bool ArrayHandles (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale)
+{
+    if (!s.rectangularArray || !CheckRectangularArrayDraft (s))
+        return false;
+    auto& d = *s.rectangularArray;
+    if (d.held >= 0) {
+        if (!ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
+            d.held = -1;
+            return true; // the release is the handle's too
+        }
+        edit::Vec3 p;
+        if (m.Onto (mouse.x, mouse.y, d.middle.z, d.middle, p)) {
+            DragHandle (d, d.held, p + d.grab);
+            UpdateRectangularArrayPreview (s);
+        }
+        return true;
+    }
+    d.hover = -1;
+    if (!hovered)
+        return false;
+    float nearest = 9.0f * scale; // pixels
+    for (int h = 0; h < kHandleCount; ++h) {
+        edit::Vec3 at;
+        ImVec2 pixel;
+        if (!HandleAt (d, h, at) || !m.Screen (at, pixel))
+            continue;
+        if (const float gap = std::hypot (pixel.x - mouse.x, pixel.y - mouse.y); gap < nearest)
+            nearest = gap, d.hover = h;
+    }
+    if (d.hover < 0)
+        return false;
+    if (ImGui::IsMouseClicked (ImGuiMouseButton_Left)) {
+        edit::Vec3 at, p;
+        HandleAt (d, d.hover, at);
+        d.grab = m.Onto (mouse.x, mouse.y, d.middle.z, d.middle, p) ? at - p : edit::Vec3 {};
+        d.held = d.hover;
+    }
+    return true;
 }
 
 void DrawRectangularArrayPreview (Session& s, const Map& m, float scale)
@@ -484,6 +608,10 @@ void DrawRectangularArrayPreview (Session& s, const Map& m, float scale)
         Line (s, m, centre, draft.middle, kAccent, 1.0f * scale);
         Line (s, m, centre, edit::TurnInPlan (draft.middle, centre, last), kAccent, 1.0f * scale);
     }
+    // The handles to drag: filled, larger under the pointer or while held.
+    for (int h = 0; h < kHandleCount; ++h)
+        if (edit::Vec3 at; HandleAt (draft, h, at))
+            Dot (s, m, at, (h == draft.hover || h == draft.held ? 6.5f : 4.5f) * scale, kAccent, true);
 }
 
 } // namespace geomsrv::archviz::edithud::detail

@@ -130,6 +130,10 @@ void DuplicateOffsetControls (Session& s);
 // entry, except a valid 1x1 no-op. Cancel never changes the selection or document.
 bool BeginRectangularArray (Session& s);
 bool BeginPolarArray (Session& s); // #130: the same draft, repeated about the gumball pivot
+// #130 (the user, 2026-11-20): the draft's handles in the view -- the first copy along X and
+// along Y and the far corner set the spacing; a polar array's centre and last copy set its axis
+// and angle. True while one is under the pointer or held: the view's own picking waits.
+bool ArrayHandles (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);
 bool CheckRectangularArrayDraft (Session& s);
 void CancelRectangularArray (Session& s);
 bool ApplyRectangularArray (Session& s);

@@ -146,6 +146,10 @@ struct RectangularArrayDraft {
     double builtSweep = 0.0;
     bool builtPolar = false, builtRotate = false;
     edit::Vec3 builtCentre;
+    // The handles in the view (ArrayHandles): the one under the pointer, the one held, and where
+    // the press was from the handle, so a drag does not jump it under the pointer.
+    int hover = -1, held = -1;
+    edit::Vec3 grab;
     std::vector<edit::Ref> refs;
     uint64_t revision = 0;
     Tool tool = Tool::Select;
