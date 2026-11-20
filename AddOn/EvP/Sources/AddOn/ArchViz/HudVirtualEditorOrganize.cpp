@@ -2,6 +2,7 @@
 #include "ArchViz/HudShell.hpp"
 #include "Edit/EditOrganize.hpp"
 #include <imgui.h>
+#include <imgui_internal.h> // the row band and the drop marks: the window's work rect
 #include <cctype>
 #include <cfloat>
 #include <algorithm>
@@ -79,6 +80,137 @@ std::string Label (const edit::Document& doc, edit::Id id)
     return kind + (role.empty () ? "" : " " + role) + "  #" + std::to_string (id);
 }
 
+// ---- Rows carried by the pointer (#124; the user, 2026-11-20: "dragging a layer changes the stack
+// order, dragging objects allows a layer switch; while dragged the item should glue to the cursor,
+// as a list editor does"). The carried row's name rides with the pointer, the row it left is dimmed,
+// and the row under it shows where it would go: a line where a reordered row lands, a band over a
+// layer an object or group would move onto.
+constexpr const char* kLayerPayload = "TAPIOCA_LAYER_ROW";
+constexpr const char* kGroupPayload = "TAPIOCA_GROUP_ROW";
+constexpr const char* kObjectPayload = "TAPIOCA_OBJECT_ROW";
+
+// Whether the row being carried is `id` of `kind`: it is drawn dimmed where it was.
+bool Carried (const char* kind, edit::Id id)
+{
+    const ImGuiPayload* p = ImGui::GetDragDropPayload ();
+    edit::Id carried = edit::kNoId;
+    if (p == nullptr || !p->IsDataType (kind) || p->DataSize != int (sizeof carried))
+        return false;
+    std::memcpy (&carried, p->Data, sizeof carried);
+    return carried == id;
+}
+
+// The last item, a drag source carrying `id`: its name goes with the pointer.
+void CarryFrom (const char* kind, edit::Id id, const std::string& name)
+{
+    if (ImGui::BeginDragDropSource ()) {
+        ImGui::SetDragDropPayload (kind, &id, sizeof id);
+        ImGui::Text ("=  %s", name.c_str ());
+        ImGui::EndDragDropSource ();
+    }
+}
+
+// Inside a drop target: the `kind` carried over the last item, if it is one -- while it is held
+// over it (to mark the spot) and when it is let go (`delivered`).
+bool Offered (const char* kind, edit::Id& id, bool& delivered)
+{
+    const ImGuiPayload* p = ImGui::AcceptDragDropPayload (kind, ImGuiDragDropFlags_AcceptBeforeDelivery |
+                                                                    ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
+    if (p == nullptr || p->DataSize != int (sizeof id))
+        return false;
+    std::memcpy (&id, p->Data, sizeof id);
+    delivered = p->IsDelivery ();
+    return true;
+}
+
+// Where a reordered row lands: a line across the list at the last item's top or bottom.
+void InsertLine (bool below)
+{
+    ImGuiWindow* window = ImGui::GetCurrentWindow ();
+    const float y = below ? ImGui::GetItemRectMax ().y : ImGui::GetItemRectMin ().y;
+    window->DrawList->AddLine ({ window->WorkRect.Min.x, y }, { window->WorkRect.Max.x, y },
+                               ImGui::GetColorU32 (ImGuiCol_CheckMark), 2.0f);
+}
+
+// The row something would move into: a band of the accent over it.
+void IntoBand ()
+{
+    ImGuiWindow* window = ImGui::GetCurrentWindow ();
+    window->DrawList->AddRectFilled ({ window->WorkRect.Min.x, ImGui::GetItemRectMin ().y },
+                                     { window->WorkRect.Max.x, ImGui::GetItemRectMax ().y },
+                                     ImGui::GetColorU32 (ImGuiCol_CheckMark, 0.22f));
+}
+
+// #124: the last item a drag source (carrying `id`) and a drop target for rows of the same kind;
+// `below (moved)` says whether a row dropped here goes after it.
+template <typename Drop, typename Below>
+void DragRow (const char* payload, edit::Id id, const std::string& name, Drop drop, Below below)
+{
+    CarryFrom (payload, id, name);
+    if (ImGui::BeginDragDropTarget ()) {
+        edit::Id moved = edit::kNoId;
+        bool delivered = false;
+        if (Offered (payload, moved, delivered) && moved != id) {
+            InsertLine (below (moved));
+            if (delivered)
+                drop (moved);
+        }
+        ImGui::EndDragDropTarget ();
+    }
+}
+
+// What a carried object moves: the selection when it holds the object, else the object alone.
+std::vector<edit::Ref> ObjectsCarried (const Session& s, edit::Id id)
+{
+    const edit::Ref ref { id, edit::Part::Entity, edit::kNoId };
+    return s.selection.Contains (ref) ? s.selection.Items () : std::vector<edit::Ref> { ref };
+}
+
+std::vector<edit::Ref> Whole (const std::vector<edit::Id>& ids)
+{
+    std::vector<edit::Ref> refs;
+    for (const edit::Id id : ids)
+        refs.push_back ({ id, edit::Part::Entity, edit::kNoId });
+    return refs;
+}
+
+void MoveOnto (Session& s, const std::vector<edit::Ref>& refs, edit::Id layer)
+{
+    Change (s, [refs, layer] (edit::Document& d, std::string& e) { return edit::MoveToLayer (d, refs, layer, e); });
+}
+
+// A "Move to layer" submenu for `refs`.
+void MoveToLayerMenu (Session& s, const std::vector<edit::Ref>& refs)
+{
+    ImGui::BeginDisabled (refs.empty ());
+    if (ImGui::BeginMenu ("Move to layer")) {
+        std::vector<edit::Layer> layers { Doc (s).layer0 };
+        layers.insert (layers.end (), Doc (s).layers.begin (), Doc (s).layers.end ());
+        for (const auto& layer : layers)
+            if (ImGui::MenuItem (layer.name.c_str ()))
+                MoveOnto (s, refs, layer.id);
+        ImGui::EndMenu ();
+    }
+    ImGui::EndDisabled ();
+}
+
+// The order a layer has in the list (layer 0 first), for which side of a row a carried one lands.
+size_t LayerIndex (const edit::Document& doc, edit::Id id)
+{
+    for (size_t i = 0; i < doc.layers.size (); ++i)
+        if (doc.layers[i].id == id)
+            return i + 1;
+    return 0;
+}
+
+size_t GroupIndex (const edit::Document& doc, edit::Id id)
+{
+    for (size_t i = 0; i < doc.groups.size (); ++i)
+        if (doc.groups[i].id == id)
+            return i;
+    return 0;
+}
+
 // An object's row: shown and locked toggles, then its name, which selects it (Ctrl adds). Hovered,
 // it is what the view highlights; selected in the view, it is scrolled into sight once (#191 U5).
 void ObjectRow (Session& s, edit::Id id, bool reveal = false)
@@ -88,6 +220,9 @@ void ObjectRow (Session& s, edit::Id id, bool reveal = false)
     const bool pickable = edit::Pickable (Doc (s), id);
     const std::vector<edit::Ref> ref { { id, edit::Part::Entity, edit::kNoId } };
     ImGui::PushID (int (id));
+    const bool carried = Carried (kObjectPayload, id);
+    if (carried)
+        ImGui::PushStyleVar (ImGuiStyleVar_Alpha, ImGui::GetStyle ().Alpha * 0.45f);
     bool shown = !m.hidden, locked = m.locked;
     if (ImGui::Checkbox ("##shown", &shown))
         Change (s, [ref, shown] (edit::Document& d, std::string& e) { return edit::SetHidden (d, ref, !shown, e); });
@@ -107,14 +242,37 @@ void ObjectRow (Session& s, edit::Id id, bool reveal = false)
     }
     if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
         s.outlinerHover = ref.front ();
+    CarryFrom (kObjectPayload, id, label); // onto a layer's row: moved to that layer
+    // The user, 2026-11-20: an object's own operations on its right-click. They act on the
+    // selection, so a right-click on an object not in it selects it first.
     if (ImGui::BeginPopupContextItem ("object")) { // #124
+        if (ImGui::IsWindowAppearing () && !s.selection.Contains (ref.front ()))
+            s.selection.Set (ref);
         if (ImGui::MenuItem ("Focus in view"))
             FocusOn (s, { ref.front ().entity }, label);
+        ImGui::Separator ();
+        if (ImGui::MenuItem ("Hide"))
+            Organize (s, OrganizeCommand::Hide);
+        if (ImGui::MenuItem ("Lock"))
+            Organize (s, OrganizeCommand::Lock);
+        if (ImGui::MenuItem ("Isolate"))
+            Organize (s, OrganizeCommand::Isolate);
+        ImGui::Separator ();
+        if (ImGui::MenuItem ("Group"))
+            GroupSelection (s, true);
+        if (ImGui::MenuItem ("Ungroup"))
+            GroupSelection (s, false);
+        MoveToLayerMenu (s, s.selection.Items ());
+        ImGui::Separator ();
+        if (ImGui::MenuItem ("Delete"))
+            DeleteSelection (s);
         ImGui::EndPopup ();
     }
     if (reveal && selected)
         ImGui::SetScrollHereY (0.5f);
     ImGui::EndDisabled ();
+    if (carried)
+        ImGui::PopStyleVar ();
     ImGui::PopID ();
 }
 
@@ -142,26 +300,6 @@ void Contents (const edit::Document& doc, edit::Id group, std::vector<edit::Id>&
             objects.push_back (e.id);
 }
 
-// #124: the last item a drag source (carrying `id`) and a drop target for rows of the same kind.
-template <typename Drop> void DragRow (const char* payload, edit::Id id, const std::string& name, Drop drop)
-{
-    if (ImGui::BeginDragDropSource ()) {
-        ImGui::SetDragDropPayload (payload, &id, sizeof id);
-        ImGui::Text ("Move %s", name.c_str ());
-        ImGui::EndDragDropSource ();
-    }
-    if (ImGui::BeginDragDropTarget ()) {
-        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload (payload); p != nullptr && p->DataSize == sizeof id) {
-            edit::Id moved = edit::kNoId;
-            std::memcpy (&moved, p->Data, sizeof moved);
-            drop (moved);
-        }
-        ImGui::EndDragDropTarget ();
-    }
-}
-constexpr const char* kLayerPayload = "TAPIOCA_LAYER_ROW";
-constexpr const char* kGroupPayload = "TAPIOCA_GROUP_ROW";
-
 void GroupTree (Session& s, edit::Id group, bool reveal, std::optional<edit::Id> layer = std::nullopt)
 {
     const edit::Group* g = edit::FindGroup (Doc (s), group);
@@ -183,7 +321,9 @@ void GroupTree (Session& s, edit::Id group, bool reveal, std::optional<edit::Id>
                 members.push_back ({ id, edit::Part::Entity, edit::kNoId });
         s.selection.Set (members);
     }
-    DragRow (kGroupPayload, group, g->name, [&s, group] (edit::Id moved) { DropGroup (s, moved, group); });
+    DragRow (
+        kGroupPayload, group, g->name, [&s, group] (edit::Id moved) { DropGroup (s, moved, group); },
+        [&s, group] (edit::Id moved) { return GroupIndex (Doc (s), moved) < GroupIndex (Doc (s), group); });
     if (ImGui::IsItemHovered () && !ImGui::IsPopupOpen ("rename") && ImGui::GetDragDropPayload () == nullptr)
         hudshell::HoverTip ("Click selects the group. Drag onto a group beside it to move it there. Right-click to "
                             "focus on it or rename it.");
@@ -193,9 +333,22 @@ void GroupTree (Session& s, edit::Id group, bool reveal, std::optional<edit::Id>
         const bool appearing = ImGui::IsWindowAppearing ();
         if (appearing)
             std::snprintf (name, sizeof name, "%s", g->name.c_str ());
+        const auto members = edit::GroupMembers (Doc (s), group);
         if (ImGui::MenuItem ("Focus in view")) {
-            FocusOn (s, edit::GroupMembers (Doc (s), group), "group " + g->name);
+            FocusOn (s, members, "group " + g->name);
             ImGui::CloseCurrentPopup ();
+        }
+        // The user, 2026-11-20: the group's own operations on its right-click.
+        if (ImGui::MenuItem ("Select"))
+            s.selection.Set (Whole (members));
+        if (ImGui::MenuItem ("Ungroup")) {
+            s.selection.Set (Whole (members));
+            GroupSelection (s, false);
+        }
+        MoveToLayerMenu (s, Whole (members));
+        if (ImGui::MenuItem ("Delete its objects")) {
+            s.selection.Set (Whole (members));
+            DeleteSelection (s);
         }
         ImGui::Separator ();
         ImGui::TextUnformatted ("Rename group");
@@ -470,6 +623,21 @@ void LayerMenu (Session& s, const edit::Layer& layer, const std::vector<edit::Id
     ImGui::EndDisabled ();
     if (ImGui::MenuItem ("Focus in view")) // #124: frame what is shown on it; the document is untouched
         FocusOn (s, on, "layer " + layer.name);
+    // The user, 2026-11-20: the layer's own operations on its right-click.
+    if (ImGui::MenuItem ("Select its objects")) {
+        std::vector<edit::Ref> pickable;
+        for (const edit::Id object : on)
+            if (edit::Pickable (Doc (s), object))
+                pickable.push_back ({ object, edit::Part::Entity, edit::kNoId });
+        s.selection.Set (pickable);
+    }
+    if (ImGui::MenuItem (layer.visible ? "Hide layer" : "Show layer"))
+        ChangeLayer (s, id, [shown = !layer.visible] (edit::Layer& l) { l.visible = shown; });
+    if (ImGui::MenuItem (layer.locked ? "Unlock layer" : "Lock layer"))
+        ChangeLayer (s, id, [locked = !layer.locked] (edit::Layer& l) { l.locked = locked; });
+    if (ImGui::MenuItem ("New layer"))
+        Change (s, [] (edit::Document& d, std::string&) { return edit::AddLayer (d, {}) != edit::kNoId; });
+    ImGui::Separator ();
     if (id != edit::kNoId) { // layer 0 keeps its name and cannot go
         char name[64];
         std::snprintf (name, sizeof name, "%s", layer.name.c_str ());
@@ -504,12 +672,22 @@ void LayerRows (Session& s, bool reveal)
         const auto on = OnLayer (Doc (s), id);
         ImGui::PushID ("layer-objects");
         ImGui::PushID (int (id));
+        // The user, 2026-11-20: a layer's row stands apart from its objects' -- a darker band behind
+        // it, drawn under the row's own items.
+        ImDrawList* const rows = ImGui::GetWindowDrawList ();
+        const float rowTop = ImGui::GetCursorScreenPos ().y;
+        rows->ChannelsSplit (2);
+        rows->ChannelsSetCurrent (1);
+        const bool carried = Carried (kLayerPayload, id);
+        if (carried)
+            ImGui::PushStyleVar (ImGuiStyleVar_Alpha, ImGui::GetStyle ().Alpha * 0.45f);
+        const auto below = [&s, id] (edit::Id moved) { return LayerIndex (Doc (s), moved) < LayerIndex (Doc (s), id); };
         // #124: the grip to drag the row by; layer 0 stays first.
         ImGui::BeginDisabled (id == edit::kNoId);
         ImGui::SmallButton ("=");
         ImGui::EndDisabled ();
         if (id != edit::kNoId) {
-            DragRow (kLayerPayload, id, layer.name, [&s, id] (edit::Id moved) { DropLayer (s, moved, id); });
+            DragRow (kLayerPayload, id, layer.name, [&s, id] (edit::Id moved) { DropLayer (s, moved, id); }, below);
             if (ImGui::IsItemHovered () && ImGui::GetDragDropPayload () == nullptr)
                 hudshell::HoverTip ("Drag onto another layer to move it there");
         }
@@ -543,9 +721,44 @@ void LayerRows (Session& s, bool reveal)
                     pickable.push_back ({ object, edit::Part::Entity, edit::kNoId });
             s.selection.Set (pickable);
         }
+        if (carried)
+            ImGui::PopStyleVar ();
+        {
+            ImGuiWindow* const window = ImGui::GetCurrentWindow ();
+            rows->ChannelsSetCurrent (0);
+            rows->AddRectFilled ({ window->WorkRect.Min.x, rowTop },
+                                 { window->WorkRect.Max.x, ImGui::GetItemRectMax ().y + 1.0f },
+                                 ImGui::GetColorU32 (ImGuiCol_HeaderActive));
+            rows->ChannelsMerge ();
+        }
+        // The whole row is dragged as its grip is; and it is where layers, objects and groups land.
+        if (id != edit::kNoId)
+            CarryFrom (kLayerPayload, id, layer.name);
+        if (ImGui::BeginDragDropTarget ()) {
+            edit::Id moved = edit::kNoId;
+            bool delivered = false;
+            if (Offered (kLayerPayload, moved, delivered)) {
+                if (id != edit::kNoId && moved != id) {
+                    InsertLine (below (moved));
+                    if (delivered)
+                        DropLayer (s, moved, id);
+                }
+            }
+            else if (Offered (kObjectPayload, moved, delivered)) {
+                IntoBand ();
+                if (delivered)
+                    MoveOnto (s, ObjectsCarried (s, moved), id);
+            }
+            else if (Offered (kGroupPayload, moved, delivered)) {
+                IntoBand ();
+                if (delivered)
+                    MoveOnto (s, Whole (edit::GroupMembers (Doc (s), moved)), id);
+            }
+            ImGui::EndDragDropTarget ();
+        }
         if (ImGui::IsItemHovered () && ImGui::GetDragDropPayload () == nullptr)
-            hudshell::HoverTip ("Click selects what is on this layer. Right-click: move the selection here, focus, "
-                                "rename, delete.");
+            hudshell::HoverTip ("Click selects what is on this layer; drag the row to reorder the layers; drop "
+                                "objects or a group here to move them onto it. Right-click for more.");
         LayerMenu (s, layer, on, refs);
         if (open) {
             std::vector<edit::Id> groups, objects;

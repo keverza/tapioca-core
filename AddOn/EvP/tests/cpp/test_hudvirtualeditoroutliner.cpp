@@ -520,3 +520,63 @@ TEST (HudVirtualEditorOutliner, LayersAreFoldersListedOnceAndTheirHeaderCollapse
     EXPECT_EQ (text.find ("Empty  (0)"), std::string::npos) << text;
     EXPECT_EQ (text.find (object), std::string::npos) << "collapsed, the objects go with their layers: " << text;
 }
+
+// The user, 2026-11-20: "dragging a layer changes the stack order, dragging objects allows a layer
+// switch". An object's row carried onto a layer's row moves it there, one undo step; a layer is
+// carried by its whole row, not only its grip.
+TEST (HudVirtualEditorOutliner, AnObjectCarriedOntoALayerMovesThereAndALayerRowReorders)
+{
+    auto doc = Squares (2);
+    const edit::Id a = edit::AddLayer (doc, "A"), b = edit::AddLayer (doc, "B");
+    const edit::Id first = doc.entities[0].id;
+    eh::Session s (doc);
+    Gui gui;
+    gui.Frame (s);
+    constexpr float kRow = 200.0f; // on the names, past each row's toggles
+    const auto objects = Handles (gui, s, kRow, "TAPIOCA_OBJECT_ROW");
+    ASSERT_TRUE (objects.count (first)) << objects.size ();
+    const auto layers = Handles (gui, s, kRow, "TAPIOCA_LAYER_ROW");
+    ASSERT_TRUE (layers.count (a) && layers.count (b)) << "a layer is carried by its name too";
+    EXPECT_EQ (s.edits.UndoDepth (), 0u);
+
+    DragOnto (gui, s, kRow, objects.at (first), layers.at (b));
+    ASSERT_NE (edit::MemberOf (s.edits.Doc (), first), nullptr);
+    EXPECT_EQ (edit::MemberOf (s.edits.Doc (), first)->layer, b) << s.message;
+    EXPECT_EQ (s.edits.UndoDepth (), 1u);
+
+    const auto again = Handles (gui, s, kRow, "TAPIOCA_LAYER_ROW");
+    ASSERT_TRUE (again.count (a) && again.count (b));
+    DragOnto (gui, s, kRow, again.at (b), again.at (a));
+    EXPECT_EQ (s.edits.Doc ().layers.front ().id, b) << s.message;
+    EXPECT_EQ (s.edits.UndoDepth (), 2u);
+}
+
+// The user, 2026-11-20: an object's right-click holds its operations; it selects the object first.
+TEST (HudVirtualEditorOutliner, AnObjectsRightClickSelectsItAndOffersItsOperations)
+{
+    auto doc = Squares (2);
+    const edit::Id second = doc.entities[1].id;
+    eh::Session s (doc);
+    Gui gui;
+    gui.Frame (s);
+    const auto popupOpen = [&] { return gui.context->OpenPopupStack.Size > 0; };
+    std::string menu;
+    for (float y = 20; y < 690 && menu.empty (); y += 3) {
+        gui.Frame (s, { 200, y });
+        gui.Frame (s, { 200, y }, true, 1);
+        gui.Frame (s, { 200, y }, false, 1);
+        if (!popupOpen ())
+            continue;
+        const std::string text = gui.Frame (s, { 200, y });
+        if (text.find ("Ungroup") != std::string::npos && text.find ("Move selection here") == std::string::npos &&
+            s.selection.Items ().size () == 1 && s.selection.Items ()[0].entity == second)
+            menu = text;
+        else {
+            gui.Frame (s, { 399, 799 }, true);
+            gui.Frame (s, { 399, 799 });
+        }
+    }
+    ASSERT_FALSE (menu.empty ()) << "the second square's row opens its own menu, the square selected";
+    for (const char* item : { "Focus in view", "Hide", "Lock", "Isolate", "Group", "Move to layer", "Delete" })
+        EXPECT_NE (menu.find (item), std::string::npos) << item;
+}
