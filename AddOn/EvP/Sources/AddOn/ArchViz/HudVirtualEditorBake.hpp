@@ -13,7 +13,8 @@
 
 namespace geomsrv::edit {
 struct BakePlan;
-}
+struct BakeSurface;
+} // namespace geomsrv::edit
 namespace geomsrv::archviz::overlaylayers {
 struct Layer;
 }
@@ -27,6 +28,9 @@ const edit::BakePlan* TerrainBakePlan (Session& session, std::string* why = null
 void TerrainBakePanel (Session& session);
 // The cached plan over the terrain, while the preview is on and the plan is the built surface's.
 void DrawTerrainBake (const Session& session, overlaylayers::Layer& layer);
+// #177: the surface the current plan makes, when the terrain is to be shown as the Mesh it will
+// become (the plan follows the built surface, its lines and points are drawn); null otherwise.
+const edit::BakeSurface* ShownBakeSurface (const Session& session);
 // The File menu's entry: with nothing selected the Inspector shows the terrain, and the section is
 // opened and scrolled to. False, with the reason in `message`, when there is no terrain design.
 bool RevealTerrainBake (Session& session);

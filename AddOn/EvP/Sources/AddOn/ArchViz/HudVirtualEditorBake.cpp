@@ -123,6 +123,11 @@ const edit::BakePlan* TerrainBakePlan (Session& s, std::string* why)
         bake.generation = built->generation;
         bake.planned = bake.options;
         bake.surface = detailed;
+        bake.mesh = {};
+        bake.meshError.clear ();
+        if (bake.plan.ok && !edit::BakePlanSurface (bake.plan, bake.mesh, bake.meshError))
+            bake.mesh = {};
+        s.publishedRevision = UINT64_MAX; // the lines, points and surface drawn follow the plan
     }
     if (!bake.plan.ok && why)
         *why = bake.plan.error;
@@ -131,6 +136,20 @@ const edit::BakePlan* TerrainBakePlan (Session& s, std::string* why)
     (void) s;
     if (why)
         *why = "Terrain design requires the Rust geometry build.";
+    return nullptr;
+#endif
+}
+
+const edit::BakeSurface* ShownBakeSurface (const Session& s)
+{
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    const auto& bake = s.bake;
+    if (!bake.preview || !bake.meshShown || !bake.plan.ok || bake.mesh.triangles.empty ())
+        return nullptr;
+    const auto* built = Built (s, nullptr);
+    return built && built->generation == bake.generation ? &bake.mesh : nullptr;
+#else
+    (void) s;
     return nullptr;
 #endif
 }
@@ -336,7 +355,15 @@ void TerrainBakePanel (Session& s)
     ImGui::TextWrapped ("%s", WithLengthUnit (units, "Depth under the lowest point").c_str ());
     ImGui::SetNextItemWidth (width);
     LengthDrag ({ "##bake-skirt", 0.0, 50.0, 0.05, 2 }, bake.skirt);
-    ImGui::Checkbox ("Show the lines and points", &bake.preview);
+    if (ImGui::Checkbox ("Show the lines and points", &bake.preview))
+        s.publishedRevision = UINT64_MAX;
+    ImGui::BeginDisabled (!bake.preview);
+    if (ImGui::Checkbox ("Show the terrain as this Mesh", &bake.meshShown))
+        s.publishedRevision = UINT64_MAX;
+    ImGui::EndDisabled ();
+    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+        hudshell::HoverTip ("Draws the surface these lines and points make -- the Mesh Create will make -- in place "
+                            "of the built terrain. Volumes still come from the built terrain.");
     ImGui::EndDisabled ();
 
     std::string why;
@@ -368,6 +395,10 @@ void TerrainBakePanel (Session& s)
     else
         ImGui::TextWrapped ("%zu contours at %.*f m", contours, edit::StepDecimals (plan->interval), plan->interval);
     ImGui::TextWrapped ("Line points: %zu (%zu traced)", plan->points, plan->traced);
+    if (!bake.mesh.triangles.empty ())
+        ImGui::TextWrapped ("Mesh surface: %zu triangles", bake.mesh.triangles.size () / 3);
+    else if (!bake.meshError.empty ())
+        ImGui::TextWrapped ("The Mesh surface could not be shown: %s", bake.meshError.c_str ());
     for (const auto& note : plan->notes)
         ImGui::TextWrapped ("%s", note.c_str ());
     ImGui::BeginDisabled (bake.requested);

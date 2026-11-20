@@ -597,8 +597,10 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         // Mesh detail: the surface shown is the one baked (EditTerrainDetail.hpp), the published
         // snapshot staying the quantities' authority.
         const auto* detailed = ShownTerrainDetail (s);
-        const auto& shownPoints = detailed ? detailed->points : points;
-        const auto& shownTriangles = detailed ? detailed->triangles : triangles;
+        // #177: or the surface the Archicad Mesh will have, while the Mesh panel shows it.
+        const auto* planned = ShownBakeSurface (s);
+        const auto& shownPoints = planned ? planned->points : detailed ? detailed->points : points;
+        const auto& shownTriangles = planned ? planned->triangles : detailed ? detailed->triangles : triangles;
         overlaylayers::Mesh mesh;
         mesh.points = shownPoints;
         mesh.indices = shownTriangles;
@@ -637,7 +639,8 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         // Its contours, as the paths' are drawn: the interval asked, else about ten over the heights
         // the surface spans; every fifth level an index line. On the surface's own triangles, so a
         // line lies on the face the user sees, and drawn whole through the host surface it lies on.
-        if (s.contours) {
+        // The Mesh's own surface draws its level lines (DrawTerrainBake): they are its contours.
+        if (s.contours && !planned) {
             auto& state = *s.terrainDesign;
             double lo = INFINITY, hi = -INFINITY;
             for (size_t i = 2; i < shownPoints.size (); i += 3)

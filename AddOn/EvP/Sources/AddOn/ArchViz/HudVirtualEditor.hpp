@@ -24,6 +24,7 @@
 #include "Edit/EditProfileView.hpp"
 #include "Edit/EditSnap.hpp"
 #include "Edit/EditTerrainBake.hpp"
+#include "Edit/EditTerrainBakeSurface.hpp"
 #include "Edit/EditTracker.hpp"
 #include "Edit/EditWorkingPlane.hpp"
 #include <chrono>
@@ -200,6 +201,11 @@ struct Session {
         uint64_t generation = UINT64_MAX;
         const void* surface = nullptr; // Surface mode: the detailed surface the plan was made from
         edit::BakePlan plan;
+        // #177: the surface the plan makes (EditTerrainBakeSurface.hpp), shown in place of the built
+        // one while `meshShown`: the light Mesh as it will be created.
+        bool meshShown = true;
+        edit::BakeSurface mesh;
+        std::string meshError;
         bool requested = false, queued = false;
         bool reveal = false; // the File menu asked for the section: open it and scroll to it once
         std::string status;
