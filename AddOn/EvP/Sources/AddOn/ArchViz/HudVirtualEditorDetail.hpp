@@ -98,7 +98,8 @@ std::optional<RunningCommand> Running (const Session& s);
 bool ApplyRunning (Session& s);
 bool CancelRunning (Session& s);
 void Toolbar (Session& s);
-void Inspector (Session& s);
+// `profileDocked`: the panel draws the path profile editor itself, under the Inspector (#124).
+void Inspector (Session& s, bool profileDocked = false);
 void Outliner (Session& s);
 // #191 U5: the warnings the Issues view lists -- what its tab and the state chip count.
 size_t IssueCount (const Session& s);

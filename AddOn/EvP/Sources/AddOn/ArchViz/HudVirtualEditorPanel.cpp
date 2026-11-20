@@ -574,8 +574,31 @@ void Panel (Session& s)
 {
     if (s.panelHeaderFrame != ImGui::GetFrameCount ())
         PanelHeader (s);
-    Inspector (s);
+    // #124 (the user, 2026-11-19: "ui keeps jumping around"): fixed places. The Inspector scrolls in
+    // the room above the profile editor (docked while a path is selected) and the Outliner, so a
+    // selection with more or fewer controls never moves either. Their heights are last frame's:
+    // until both are known, and where the page is too short for a useful Inspector, it flows as
+    // before.
+    const bool profile = ResolveContext (s) == InspectorContext::Path;
+    const float reserve = s.outlinerHeight + (profile ? s.profileHeight : 0.0f);
+    const float room = ImGui::GetContentRegionAvail ().y - reserve;
+    const bool fixed = s.outlinerHeight > 0.0f && (!profile || s.profileHeight > 0.0f) &&
+                       room >= ImGui::GetFrameHeightWithSpacing () * 6.0f;
+    if (fixed) {
+        if (ImGui::BeginChild ("##inspector", ImVec2 (0.0f, room)))
+            Inspector (s, true);
+        ImGui::EndChild ();
+    }
+    else
+        Inspector (s, true);
+    if (profile) {
+        const float top = ImGui::GetCursorPosY ();
+        ProfileEditor (s);
+        s.profileHeight = ImGui::GetCursorPosY () - top;
+    }
+    const float top = ImGui::GetCursorPosY ();
     Outliner (s);
+    s.outlinerHeight = ImGui::GetCursorPosY () - top;
 }
 
 namespace {

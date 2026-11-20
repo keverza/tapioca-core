@@ -300,7 +300,7 @@ std::string Title (const Session& s, InspectorContext context)
 
 // #191 U4: one context at a time (ResolveContext), each drawn by the functions that drew its
 // controls before; a selection context ends with the shared action row, More and Expert.
-void detail::Inspector (Session& s)
+void detail::Inspector (Session& s, bool profileDocked)
 {
     const auto context = ResolveContext (s);
     if (Doc (s).landscape)
@@ -352,7 +352,8 @@ void detail::Inspector (Session& s)
             AddFromArchicad (s);
             return;
         case InspectorContext::Path:
-            ProfileEditor (s);
+            if (!profileDocked)
+                ProfileEditor (s);
             LandscapePanel (s);
             break;
         case InspectorContext::Entity:

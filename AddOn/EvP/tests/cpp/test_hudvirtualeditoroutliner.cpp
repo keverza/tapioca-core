@@ -440,3 +440,45 @@ TEST (HudVirtualEditorOutliner, LayersAndGroupsReorderByDraggingTheirRows124)
     ASSERT_TRUE (s.edits.Undo ());
     EXPECT_EQ (s.edits.Doc ().layers.front ().id, a);
 }
+
+// #124 (the user, 2026-11-19: "objects should go to their layers, not be below all layers"): the
+// Objects view lists each layer with what is on it; a group with members on two layers is under
+// both, marked as a part there; a click on a layer's name selects what is on it.
+TEST (HudVirtualEditorOutliner, ObjectsAreListedUnderTheirLayers124)
+{
+    auto doc = Squares (3);
+    const edit::Id a = edit::AddLayer (doc, "Paving");
+    std::string error;
+    const auto R = [&] (size_t i) { return edit::Ref { doc.entities[i].id, edit::Part::Entity, 0 }; };
+    ASSERT_TRUE (edit::MoveToLayer (doc, { R (2) }, a, error)) << error;
+    ASSERT_NE (edit::GroupObjects (doc, { R (1), R (2) }, "Pair", error), edit::kNoId) << error;
+    const std::string zero = doc.layer0.name;
+    const auto id = [&] (size_t i) { return "#" + std::to_string (doc.entities[i].id); };
+    eh::Session s (doc);
+    Gui gui;
+    gui.Frame (s);
+    const auto text = gui.Frame (s);
+    const auto at = [&] (const std::string& what, size_t from = 0) { return text.find (what, from); };
+    const size_t first = at (zero + "  (2)"), second = at ("Paving  (1)");
+    ASSERT_NE (first, std::string::npos) << text;
+    ASSERT_NE (second, std::string::npos) << text;
+    EXPECT_LT (first, second);
+    // Layer 0: the loose square and its part of the group; Paving: the group's other member.
+    EXPECT_LT (at (id (0), first), second) << text;
+    EXPECT_LT (at (id (1), first), second) << text;
+    EXPECT_GT (at (id (2), second), second) << text;
+    EXPECT_EQ (at (id (2)), at (id (2), second)) << "listed once, under its own layer";
+    EXPECT_NE (at ("Pair  (part)", first), std::string::npos);
+    EXPECT_NE (at ("Pair  (part)", second), std::string::npos) << text;
+    // A layer row's name selects what is on it.
+    bool selected = false;
+    for (float y = 20; y < 690 && !selected; y += 3) {
+        s.selection.Clear ();
+        gui.Frame (s, { 120, y });
+        gui.Frame (s, { 120, y }, true);
+        gui.Frame (s, { 120, y }, false);
+        const auto items = s.selection.Items ();
+        selected = items.size () == 1 && items[0].entity == doc.entities[2].id && s.outlinerHover.entity == 0;
+    }
+    EXPECT_TRUE (selected) << "the Paving layer's row selects its one object";
+}

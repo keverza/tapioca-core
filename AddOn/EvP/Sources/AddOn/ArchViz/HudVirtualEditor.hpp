@@ -306,6 +306,10 @@ struct Session {
     std::string outlinerFilter;
     bool outlinerCollapsed = false;
     int outlinerShow = -1;
+    // #124: the heights the Outliner and the docked profile editor took last frame. The Inspector
+    // scrolls in what is left above them, so a selection that brings other controls changes what
+    // the Inspector holds, never where the Outliner or the profile is (the user, 2026-11-19).
+    float outlinerHeight = 0.0f, profileHeight = 0.0f;
     edit::Ref outlinerHover; // the row under the pointer: the view highlights it
     // #124: focus-in-view, a change of view and never of the document. A row's Focus asks for
     // the box of its shown objects (`focusPending`); the next frame of a view turns it into

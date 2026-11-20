@@ -120,16 +120,25 @@ void ObjectRow (Session& s, edit::Id id, bool reveal = false)
 
 // What sits directly in `group` (kNoId: in none), read before any row edits the document: an
 // edit replaces it, so nothing is iterated in place.
-void Contents (const edit::Document& doc, edit::Id group, std::vector<edit::Id>& groups, std::vector<edit::Id>& objects)
+// #124: with `layer`, only what is on that layer -- a group when any of its members is.
+void Contents (const edit::Document& doc, edit::Id group, std::vector<edit::Id>& groups, std::vector<edit::Id>& objects,
+               std::optional<edit::Id> layer = std::nullopt)
 {
+    const auto on = [&] (edit::Id id) {
+        const auto* m = edit::MemberOf (doc, id);
+        return m != nullptr && (!layer || m->layer == *layer);
+    };
     for (const auto& g : doc.groups)
-        if (g.parent == group)
-            groups.push_back (g.id);
+        if (g.parent == group) {
+            const auto members = edit::GroupMembers (doc, g.id);
+            if (!layer || std::any_of (members.begin (), members.end (), on))
+                groups.push_back (g.id);
+        }
     for (const auto& p : doc.paths)
-        if (p.member.group == group)
+        if (p.member.group == group && (!layer || p.member.layer == *layer))
             objects.push_back (p.id);
     for (const auto& e : doc.entities)
-        if (e.member.group == group)
+        if (e.member.group == group && (!layer || e.member.layer == *layer))
             objects.push_back (e.id);
 }
 
@@ -153,13 +162,20 @@ template <typename Drop> void DragRow (const char* payload, edit::Id id, const s
 constexpr const char* kLayerPayload = "TAPIOCA_LAYER_ROW";
 constexpr const char* kGroupPayload = "TAPIOCA_GROUP_ROW";
 
-void GroupTree (Session& s, edit::Id group, bool reveal)
+void GroupTree (Session& s, edit::Id group, bool reveal, std::optional<edit::Id> layer = std::nullopt)
 {
     const edit::Group* g = edit::FindGroup (Doc (s), group);
     if (g == nullptr)
         return; // gone with an edit made earlier this frame
     ImGui::PushID (int (group));
-    const bool open = ImGui::TreeNodeEx ("##group", ImGuiTreeNodeFlags_SpanAvailWidth, "%s", g->name.c_str ());
+    // #124: a group with members on other layers too is listed under each; here, this layer's part.
+    bool part = false;
+    if (layer)
+        for (const edit::Id id : edit::GroupMembers (Doc (s), group))
+            if (const auto* m = edit::MemberOf (Doc (s), id); m != nullptr && m->layer != *layer)
+                part = true;
+    const bool open = ImGui::TreeNodeEx ("##group", ImGuiTreeNodeFlags_SpanAvailWidth, "%s%s", g->name.c_str (),
+                                         part ? "  (part)" : "");
     if (ImGui::IsItemClicked () && !ImGui::IsItemToggledOpen ()) {
         std::vector<edit::Ref> members;
         for (const edit::Id id : edit::GroupMembers (Doc (s), group))
@@ -196,9 +212,9 @@ void GroupTree (Session& s, edit::Id group, bool reveal)
     }
     if (open) {
         std::vector<edit::Id> groups, objects;
-        Contents (Doc (s), group, groups, objects);
+        Contents (Doc (s), group, groups, objects, layer);
         for (const edit::Id child : groups)
-            GroupTree (s, child, reveal);
+            GroupTree (s, child, reveal, layer);
         for (const edit::Id id : objects)
             if (edit::MemberOf (Doc (s), id) != nullptr)
                 ObjectRow (s, id, reveal);
@@ -436,6 +452,12 @@ void LayerRows (Session& s)
     const auto refs = s.selection.Items ();
     std::vector<edit::Layer> layers { Doc (s).layer0 }; // copies: a row's edit replaces the document
     layers.insert (layers.end (), Doc (s).layers.begin (), Doc (s).layers.end ());
+    // #124: many layers scroll in a box of their own, so the objects stay in reach below.
+    constexpr size_t kLayerRows = 6;
+    const bool boxed = layers.size () > kLayerRows;
+    if (boxed)
+        ImGui::BeginChild ("##layer-rows", ImVec2 (0.0f, ImGui::GetFrameHeightWithSpacing () * float (kLayerRows)),
+                           ImGuiChildFlags_Borders);
     for (const auto& layer : layers) {
         const edit::Id id = layer.id;
         ImGui::PushID (int (id));
@@ -498,6 +520,8 @@ void LayerRows (Session& s)
         }
         ImGui::PopID ();
     }
+    if (boxed)
+        ImGui::EndChild ();
     if (ImGui::SmallButton ("New layer")) {
         // Named and coloured in turn: each new layer takes the next swatch.
         const uint32_t colour = kSwatches[(layers.size () - 1) % std::size (kSwatches)];
@@ -580,15 +604,57 @@ void ObjectRows (Session& s, const std::string& filter, bool reveal)
         ImGui::EndDisabled ();
         return;
     }
-    // Objects, by group. A group's name selects all of it; an object's, itself.
-    std::vector<edit::Id> groups, objects;
-    Contents (Doc (s), edit::kNoId, groups, objects);
-    for (const edit::Id g : groups)
-        GroupTree (s, g, reveal);
-    for (const edit::Id id : objects)
-        if (edit::MemberOf (Doc (s), id) != nullptr)
-            ObjectRow (s, id, reveal);
-    if (groups.empty () && objects.empty ())
+    // #124 (the user, 2026-11-19: objects should go to their layers): objects under their layer,
+    // by group within it. A layer's name selects what is pickable on it, a group's all of it, an
+    // object's itself. A layer with nothing on it is listed only in the Layers section above.
+    std::vector<edit::Layer> layers { Doc (s).layer0 };
+    layers.insert (layers.end (), Doc (s).layers.begin (), Doc (s).layers.end ());
+    bool any = false;
+    for (const auto& layer : layers) {
+        std::vector<edit::Id> groups, objects;
+        Contents (Doc (s), edit::kNoId, groups, objects, layer.id);
+        std::vector<edit::Id> on;
+        for (const auto& p : Doc (s).paths)
+            if (p.member.layer == layer.id)
+                on.push_back (p.id);
+        for (const auto& e : Doc (s).entities)
+            if (e.member.layer == layer.id)
+                on.push_back (e.id);
+        if (on.empty ())
+            continue;
+        any = true;
+        ImGui::PushID ("layer-objects");
+        ImGui::PushID (int (layer.id));
+        // The view selected something on a collapsed layer: open it, so its row can come into sight.
+        if (reveal && std::any_of (on.begin (), on.end (), [&] (edit::Id id) {
+                return s.selection.Contains ({ id, edit::Part::Entity, edit::kNoId });
+            }))
+            ImGui::SetNextItemOpen (true);
+        const bool open =
+            ImGui::TreeNodeEx ("##layer", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen,
+                               "%s  (%zu)%s", layer.name.c_str (), on.size (), layer.visible ? "" : "  hidden");
+        if (ImGui::IsItemClicked () && !ImGui::IsItemToggledOpen ()) {
+            std::vector<edit::Ref> pickable;
+            for (const edit::Id id : on)
+                if (edit::Pickable (Doc (s), id))
+                    pickable.push_back ({ id, edit::Part::Entity, edit::kNoId });
+            s.selection.Set (pickable);
+        }
+        if (ImGui::IsItemHovered () && ImGui::GetDragDropPayload () == nullptr)
+            hudshell::HoverTip ("Click selects what is on this layer. Its shown, locked, colour and name are in "
+                                "Layers above.");
+        if (open) {
+            for (const edit::Id g : groups)
+                GroupTree (s, g, reveal, layer.id);
+            for (const edit::Id id : objects)
+                if (edit::MemberOf (Doc (s), id) != nullptr)
+                    ObjectRow (s, id, reveal);
+            ImGui::TreePop ();
+        }
+        ImGui::PopID ();
+        ImGui::PopID ();
+    }
+    if (!any)
         ImGui::TextDisabled ("No objects yet.");
     ImGui::EndDisabled ();
 }

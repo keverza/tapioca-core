@@ -44,13 +44,14 @@ struct Gui {
         ImGui::SetCurrentContext (previous);
     }
     // One frame of `draw` in a 320 x 700 window: the narrowest panel the native shell docks.
-    std::string Frame (const std::function<void ()>& draw)
+    std::string Frame (const std::function<void ()>& draw, float height = 700.0f)
     {
         auto& io = ImGui::GetIO ();
+        io.DisplaySize = { 400, std::max (800.0f, height + 100.0f) };
         io.AddMousePosEvent (399, 799);
         ImGui::NewFrame ();
         ImGui::SetNextWindowPos ({ 0, 0 });
-        ImGui::SetNextWindowSize ({ 320, 700 });
+        ImGui::SetNextWindowSize ({ 320, height });
         ImGui::Begin ("inspector", nullptr, ImGuiWindowFlags_NoDecoration);
         ImGui::LogToBuffer ();
         draw ();
@@ -578,4 +579,40 @@ TEST (HudVirtualEditorInspector, ABooleansInputsStandForItsResult189)
     EXPECT_EQ (lg::TerrainRegionObjects (s.edits.Doc ()).size (), 2u);
     s.selection.Set ({ { site.region, edit::Part::Entity, 0 } });
     EXPECT_EQ (eh::ResolveContext (s), eh::InspectorContext::Region);
+}
+
+// #124 (the user, 2026-11-19: selecting another object brings other controls and "ui keeps jumping
+// around"): the Inspector scrolls in the room above the Outliner and, for a path, the profile docked
+// under it. Nothing selected, a region, the reference line and a path: the Outliner stays where it
+// is, and the profile is drawn below the Inspector, not in it.
+TEST (HudVirtualEditorInspector, TheOutlinerStaysPutWhateverIsSelected124)
+{
+    const auto site = MakeSite ();
+    Gui gui;
+    eh::Session s (site.doc);
+    // A docked panel on a 1080p screen; a shorter one flows as before (the Inspector would be
+    // too short to use).
+    const auto outlinerTop = [&] {
+        for (int i = 0; i < 4; ++i)
+            gui.Frame ([&] { eh::Panel (s); }, 1000.0f);
+        for (auto* window : gui.context->Windows)
+            if (std::string (window->Name).find ("##objects") != std::string::npos && window->Active)
+                return window->Pos.y;
+        return -1.0f;
+    };
+    const float idle = outlinerTop ();
+    ASSERT_GT (idle, 0.0f);
+    for (const edit::Id id : { site.region, site.reference, site.path }) {
+        s.selection.Set ({ { id, edit::Part::Entity, 0 } });
+        EXPECT_FLOAT_EQ (outlinerTop (), idle) << "selection " << id;
+    }
+    // The path's profile sits under the Inspector's scroll, not inside it.
+    ImGuiWindow* inspector = nullptr;
+    for (auto* window : gui.context->Windows)
+        if (std::string (window->Name).find ("##inspector") != std::string::npos && window->Active)
+            inspector = window;
+    ASSERT_NE (inspector, nullptr);
+    ASSERT_FALSE (s.profilePlaced.empty ());
+    for (const auto& label : s.profilePlaced)
+        EXPECT_GE (label.box.y0, inspector->Pos.y + inspector->Size.y - 1.0f);
 }
