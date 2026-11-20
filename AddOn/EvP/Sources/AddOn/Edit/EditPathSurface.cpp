@@ -25,7 +25,8 @@ Edge Key (uint32_t a, uint32_t b)
 {
     return { std::min (a, b), std::max (a, b) };
 }
-void ImproveEdges (PavedArea& area)
+// Delaunay edge flips, at most `passes` rounds; each round flips a face at most once.
+void ImproveEdges (PavedArea& area, int passes = 8)
 {
     struct Incident {
         size_t face;
@@ -36,7 +37,7 @@ void ImproveEdges (PavedArea& area)
         Incident at;
     };
     std::vector<Use> uses;
-    for (int pass = 0; pass < 8; ++pass) {
+    for (int pass = 0; pass < passes; ++pass) {
         // Every edge with the faces on it, in edge order and each edge's faces in the order
         // they were met: what a std::map<Edge, std::vector<Incident>> gives, without a node per edge.
         uses.clear ();
@@ -226,7 +227,10 @@ void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, doub
                      area.triangles.begin () + (area.triangles.size () / 3) * 3);
         area.triangles = std::move (next);
     }
-    ImproveEdges (area);
+    // The cover may come in as an ear-clipped fan of long slivers rather than a Delaunay
+    // one. Flip it until it settles, while it is still small: a sliver left here is split
+    // by `step` along its whole length and multiplies the refined triangle count.
+    ImproveEdges (area, 1000);
     // Mark edges globally before splitting triangles: neighbours always receive
     // the same midpoint, so refinement introduces neither cracks nor T-junctions.
     // The long edges in key order, each with its midpoint's vertex: a sorted table rather
