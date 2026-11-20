@@ -30,7 +30,7 @@ evp::sunstudy::SunSeries CaptureSeries (const API_PlaceInfo& place, const GS::Ob
     const double minAltitude = sunstudysupport::ReadDouble (params, "minAltitudeDeg", 0.0);
     std::vector<evp::sunstudy::SunStep> raw;
     failedSunCalls = 0;
-    for (const auto& moment : evp::sunstudy::EnumerateTimesteps (timestep, hourFrom, hourTo)) {
+    for (const auto& moment : evp::sunstudy::kernels::EnumerateTimesteps (timestep, hourFrom, hourTo)) {
         API_PlaceInfo momentPlace = place;
         momentPlace.year = (unsigned short) year;
         momentPlace.month = (unsigned short) month;

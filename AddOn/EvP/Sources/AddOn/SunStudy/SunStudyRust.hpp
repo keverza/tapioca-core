@@ -259,6 +259,16 @@ class RustSunStudySession final {
     mutable std::string error_;
 };
 
+bool EnumerateTimesteps (int timestepMinutes, int hourFrom, int hourTo, std::vector<TimeOfDay>& out,
+                         std::string& error);
+
+bool FanSteps (const std::vector<uint16_t>& stepMinutes, double intervalMinutes, std::vector<uint32_t>& out,
+               std::string& error);
+
+// ScatterToAtlas; `out` is empty for a refused atlas.
+bool ScatterToAtlas (const SunStudyAtlas& atlas, const std::vector<double>& perSample, float emptyValue,
+                     std::vector<float>& out, std::string& error);
+
 // SetSampleMeshes, with the patch-domain map built in Rust.
 bool SetSampleMeshes (StudyRecord& record, std::string& error);
 

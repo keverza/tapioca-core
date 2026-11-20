@@ -7,12 +7,14 @@
 
 #include "SunStudy/SunStudyAtlasReuse.hpp"
 #include "SunStudy/SunStudyKernels.hpp"
+#include "SunStudy/SunStudyStepAtlas.hpp"
 
 #include <gtest/gtest.h>
 
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -290,4 +292,44 @@ TEST (SunStudyKernels, ChangedRegionsMatchTheKernelAndHonourAnEarlyCancel)
     EXPECT_EQ (kernels::AtlasChangedRegions (width, height, 2, words, changed).size (),
                AtlasChangedRegions (width, height, 2, words, changed).size ());
     EXPECT_TRUE (kernels::AtlasChangedRegions (width, height, 1, before, after, 512, [] { return true; }).empty ());
+}
+
+TEST (SunStudyKernels, TimestepsFanScatterAndFinestGridMatchTheKernels)
+{
+    for (const int timestep : { 1, 7, 15, 60, 90 })
+        for (const auto& [from, to] : { std::pair { 0, 24 }, std::pair { 6, 18 }, std::pair { 13, 13 } }) {
+            const auto e = EnumerateTimesteps (timestep, from, to);
+            const auto a = kernels::EnumerateTimesteps (timestep, from, to);
+            ASSERT_EQ (a.size (), e.size ()) << timestep << " " << from << "-" << to;
+            for (size_t i = 0; i < e.size (); ++i) {
+                EXPECT_EQ (a[i].hour, e[i].hour);
+                EXPECT_EQ (a[i].minute, e[i].minute);
+            }
+        }
+    std::vector<uint16_t> minutes;
+    for (uint16_t m = 6 * 60 + 7; m < 19 * 60; m += 15)
+        minutes.push_back (m);
+    for (const double interval : { 0.0, 15.0, 30.0, 60.0, 120.0 })
+        EXPECT_EQ (kernels::FanSteps (minutes, interval), FanSteps (minutes, interval)) << interval;
+
+    SunStudyAtlas atlas;
+    atlas.width = 8;
+    atlas.height = 4;
+    atlas.valid = true;
+    atlas.texels = { 0, 9, 31, 40, 5 };
+    const std::vector<double> values { 1.0, 2.25, 3.5, 4.0 };
+    EXPECT_TRUE (SameBits (kernels::ScatterToAtlas (atlas, values, -1.0f), ScatterToAtlas (atlas, values, -1.0f)));
+    atlas.valid = false;
+    EXPECT_TRUE (kernels::ScatterToAtlas (atlas, values).empty ());
+
+    MachineResources machine;
+    machine.gpuKnown = true;
+    machine.gpuMemoryBytes = 4ull << 30;
+    machine.maxTextureDimension = 16384;
+    machine.availableRamBytes = 8ull << 30;
+    for (const double area : { 0.0, 850.0, 125000.0 }) {
+        const auto [limits, finest] = kernels::ReportAnalysisLimits (machine, 49, kPatchAtlasOccupancy, area);
+        EXPECT_EQ (limits.maxSamples, ComputeAnalysisLimits (machine, 49, kPatchAtlasOccupancy).maxSamples);
+        EXPECT_EQ (finest, FinestGridSpacing (area, limits.maxSamples)) << area;
+    }
 }

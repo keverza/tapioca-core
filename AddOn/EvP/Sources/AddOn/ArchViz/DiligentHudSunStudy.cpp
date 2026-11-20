@@ -37,6 +37,7 @@
 #include <utility>
 #include <vector>
 
+namespace sun = evp::sunstudy;
 namespace geomsrv {
 namespace archviz {
 
@@ -233,8 +234,8 @@ void DrawMachineLimits (const SunStudyOverlayStatus& study)
     // domain -- the common case -- so the readout is useful before the first run.
     const size_t steps = study.stepCount > 0 ? study.stepCount : 49;
     const bool patch = study.stepCount > 0 ? study.patchDomain : true;
-    const evp::sunstudy::AnalysisLimits limits = evp::sunstudy::kernels::ComputeAnalysisLimits (
-        machine, steps, patch ? evp::sunstudy::kPatchAtlasOccupancy : evp::sunstudy::kTriangleAtlasOccupancy);
+    const auto [limits, finest] = sun::kernels::ReportAnalysisLimits (
+        machine, steps, patch ? sun::kPatchAtlasOccupancy : sun::kTriangleAtlasOccupancy, study.analysedArea);
 
     if (machine.gpuKnown)
         ImGui::TextDisabled ("GPU %s, %.1f GB, textures up to %u", machine.adapter.c_str (),
@@ -253,8 +254,7 @@ void DrawMachineLimits (const SunStudyOverlayStatus& study)
     ImGui::Text ("max %.0f M rays per study (%u steps, %s domain)", Mega (double (limits.maxRays)), unsigned (steps),
                  patch ? "patch" : "triangle");
     if (study.analysedArea > 0.0) {
-        ImGui::Text ("finest grid on this model: %.2f m (%.0f m2 analysed)",
-                     evp::sunstudy::FinestGridSpacing (study.analysedArea, limits.maxSamples), study.analysedArea);
+        ImGui::Text ("finest grid on this model: %.2f m (%.0f m2 analysed)", finest, study.analysedArea);
     }
     if (study.sampleCount > 0 && limits.maxSamples > 0) {
         const double used = double (study.sampleCount) / double (limits.maxSamples);
@@ -643,7 +643,7 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     if (effective == 7 && state.sunFanInterval >= 0 && state.sunFanInterval < kFanCount) {
         // The same picking as the web study (SunStudyStepAtlas::FanSteps),
         // capped at the 96 steps the constant buffer carries.
-        for (const uint32_t step : evp::sunstudy::FanSteps (state.sunStepMinutes, kFanMinutes[state.sunFanInterval])) {
+        for (const uint32_t step : sun::kernels::FanSteps (state.sunStepMinutes, kFanMinutes[state.sunFanInterval])) {
             if (step >= evp::sunstudy::kFanMaxSteps)
                 break;
             if (step < interval.first || step >= interval.second)

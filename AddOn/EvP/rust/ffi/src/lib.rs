@@ -247,6 +247,10 @@ pub use sunstudy::{
     tapioca_sunstudy_patch_grid,
 };
 pub use sunstudy::{
+    ScatterRequest, tapioca_sunstudy_enumerate_timesteps, tapioca_sunstudy_fan_steps,
+    tapioca_sunstudy_scatter_to_atlas,
+};
+pub use sunstudy::{
     SeenHandle, SeenSummary, tapioca_sunstudy_viewpoint_seen,
     tapioca_sunstudy_viewpoint_seen_destroy, tapioca_sunstudy_viewpoint_seen_read,
 };

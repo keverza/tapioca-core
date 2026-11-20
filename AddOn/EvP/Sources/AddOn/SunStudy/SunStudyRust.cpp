@@ -288,4 +288,64 @@ bool ComputeAnalysisLimits (const MachineResources& machine, size_t steps, doubl
     return true;
 }
 
+bool EnumerateTimesteps (int timestepMinutes, int hourFrom, int hourTo, std::vector<TimeOfDay>& out, std::string& error)
+{
+    // At most one step per minute of the day.
+    std::vector<std::array<int32_t, 2>> times (24 * 60);
+    size_t written = 0;
+    if (!Invoke (
+            [&] (char* e, size_t c) {
+                return tapioca_sunstudy_enumerate_timesteps (timestepMinutes, hourFrom, hourTo,
+                                                             reinterpret_cast<int32_t (*)[2]> (times.data ()),
+                                                             times.size (), &written, e, c);
+            },
+            error))
+        return false;
+    out.clear ();
+    out.reserve (written);
+    for (size_t i = 0; i < written; ++i)
+        out.push_back ({ times[i][0], times[i][1] });
+    return true;
+}
+
+bool FanSteps (const std::vector<uint16_t>& stepMinutes, double intervalMinutes, std::vector<uint32_t>& out,
+               std::string& error)
+{
+    std::vector<uint32_t> fan (stepMinutes.size ());
+    size_t written = 0;
+    if (!Invoke (
+            [&] (char* e, size_t c) {
+                return tapioca_sunstudy_fan_steps (stepMinutes.data (), stepMinutes.size (), intervalMinutes,
+                                                   fan.data (), fan.size (), &written, e, c);
+            },
+            error))
+        return false;
+    fan.resize (written);
+    out = std::move (fan);
+    return true;
+}
+
+bool ScatterToAtlas (const SunStudyAtlas& atlas, const std::vector<double>& perSample, float emptyValue,
+                     std::vector<float>& out, std::string& error)
+{
+    TapiocaScatterRequest request {};
+    request.texels = { atlas.texels.data (), atlas.texels.size () };
+    request.values = { perSample.data (), perSample.size () };
+    request.width = atlas.width;
+    request.height = atlas.height;
+    request.emptyValue = emptyValue;
+    request.valid = atlas.valid ? 1u : 0u;
+    std::vector<float> image (atlas.valid ? atlas.TexelCount () : 0);
+    size_t written = 0;
+    if (!Invoke (
+            [&] (char* e, size_t c) {
+                return tapioca_sunstudy_scatter_to_atlas (&request, image.data (), image.size (), &written, e, c);
+            },
+            error))
+        return false;
+    image.resize (written);
+    out = std::move (image);
+    return true;
+}
+
 } // namespace evp::sunstudy::rust

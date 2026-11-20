@@ -14,6 +14,7 @@ mod atlas;
 mod camera;
 mod follower;
 mod ground;
+mod host;
 mod limits;
 mod occlusion;
 mod patch_atlas;
@@ -56,6 +57,10 @@ pub use follower::{
 };
 pub use ground::{
     GroundGridOutput, GroundGridRequest, GroundGridSummary, tapioca_sunstudy_ground_grid,
+};
+pub use host::{
+    ScatterRequest, tapioca_sunstudy_enumerate_timesteps, tapioca_sunstudy_fan_steps,
+    tapioca_sunstudy_scatter_to_atlas,
 };
 pub use limits::{LimitsOutput, LimitsRequest, tapioca_sunstudy_limits};
 pub use occlusion::{

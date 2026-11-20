@@ -1483,6 +1483,36 @@ TapiocaStatus tapioca_sunstudy_visibility_read (const TapiocaVisibilityResult* h
 TapiocaStatus tapioca_sunstudy_visibility_grids (const TapiocaVisibilityResult* handle, TapiocaSurfaceResult** out,
                                                  char* error, size_t errorCapacity);
 
+/* ---- small host kernels (P7b) ---------------------------------------- */
+
+/* EnumerateTimesteps: {hour, minute} per step of [hourFrom, hourTo). */
+TapiocaStatus tapioca_sunstudy_enumerate_timesteps (int32_t timestepMinutes, int32_t hourFrom, int32_t hourTo,
+                                                    int32_t (*times)[2], size_t capacity, size_t* written, char* error,
+                                                    size_t errorCapacity);
+
+/* FanSteps over the steps' minutes of day; `fan` holds at most `count`. */
+TapiocaStatus tapioca_sunstudy_fan_steps (const uint16_t* minutes, size_t count, double intervalMinutes, uint32_t* fan,
+                                          size_t capacity, size_t* written, char* error, size_t errorCapacity);
+
+typedef struct {
+    struct {
+        const uint32_t* data;
+        size_t count;
+    } texels; /* atlas texel per sample */
+    struct {
+        const double* data;
+        size_t count;
+    } values; /* value per sample */
+    uint32_t width;
+    uint32_t height;
+    float emptyValue;
+    uint8_t valid;
+} TapiocaScatterRequest;
+
+/* ScatterToAtlas: writes width * height texels, or none for a refused atlas. */
+TapiocaStatus tapioca_sunstudy_scatter_to_atlas (const TapiocaScatterRequest* request, float* image, size_t capacity,
+                                                 size_t* written, char* error, size_t errorCapacity);
+
 /* The sun-study surface's own version, independent of TAPIOCA_ABI_VERSION. */
 TapiocaStatus tapioca_sunstudy_version (uint32_t* version, char* error, size_t errorCapacity);
 

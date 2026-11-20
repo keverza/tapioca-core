@@ -1,4 +1,5 @@
 #include "ArchViz/VisibilityStudyDisplay.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 
 #include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
@@ -47,7 +48,7 @@ std::unique_ptr<SunStudyAtlasUpload> BuildVisibilityStudyUpload (const evp::suns
         }
     }
     else
-        image = evp::sunstudy::ScatterToAtlas (result.atlas, result.values, -1.0f);
+        image = evp::sunstudy::kernels::ScatterToAtlas (result.atlas, result.values, -1.0f);
     if (image.size () != static_cast<size_t> (result.AtlasWidth ()) * result.AtlasHeight ()) {
         error = "visibility values could not be scattered into their atlas";
         return nullptr;

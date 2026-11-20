@@ -46,6 +46,27 @@ SunSeries SeriesFromSteps (const std::vector<SunStep>& steps, int timestepMinute
 AnalysisLimits ComputeAnalysisLimits (const MachineResources& machine, size_t steps, double occupancy,
                                       std::string* error = nullptr);
 
+// The limits plus the finest grid spacing (metres) that keeps `analysedArea`
+// (m2) within the sample ceiling; 0 for no area.
+struct AnalysisLimitsReport {
+    AnalysisLimits limits;
+    double finestGridSpacing = 0.0;
+};
+AnalysisLimitsReport ReportAnalysisLimits (const MachineResources& machine, size_t steps, double occupancy,
+                                           double analysedArea, std::string* error = nullptr);
+
+// EnumerateTimesteps: the clock times of [hourFrom, hourTo) at the timestep.
+std::vector<TimeOfDay> EnumerateTimesteps (int timestepMinutes, int hourFrom = 0, int hourTo = 24,
+                                           std::string* error = nullptr);
+
+// FanSteps: the steps the HUD's sun fan draws, from the steps' minutes of day.
+std::vector<uint32_t> FanSteps (const std::vector<uint16_t>& stepMinutes, double intervalMinutes,
+                                std::string* error = nullptr);
+
+// ScatterToAtlas: per-sample values into an atlas image; empty when refused.
+std::vector<float> ScatterToAtlas (const SunStudyAtlas& atlas, const std::vector<double>& perSample,
+                                   float emptyValue = -1.0f, std::string* error = nullptr);
+
 // ResolveElementRoles over the snapshot's meshes.
 ElementRoles ResolveElementRoles (const geomsrv::Snapshot& snapshot, const std::vector<std::string>& analysisPicked,
                                   const std::vector<std::string>& contextPicked,

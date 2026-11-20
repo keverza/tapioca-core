@@ -4,6 +4,7 @@
 #include "SunStudy/SunStudyRust.hpp"
 #else
 #include "SunStudy/SunStudyAtlasReuse.hpp"
+#include "SunStudy/SunStudyStepAtlas.hpp"
 #endif
 
 namespace evp::sunstudy::kernels {
@@ -43,6 +44,53 @@ AnalysisLimits ComputeAnalysisLimits (const MachineResources& machine, size_t st
         return AnalysisLimits ();
     }
     return limits;
+}
+
+AnalysisLimitsReport ReportAnalysisLimits (const MachineResources& machine, size_t steps, double occupancy,
+                                           double analysedArea, std::string* error)
+{
+    AnalysisLimitsReport report;
+    std::string message;
+    if (!rust::ComputeAnalysisLimits (machine, steps, occupancy, analysedArea, report.limits, report.finestGridSpacing,
+                                      message)) {
+        Report (error, std::move (message));
+        return AnalysisLimitsReport ();
+    }
+    return report;
+}
+
+std::vector<TimeOfDay> EnumerateTimesteps (int timestepMinutes, int hourFrom, int hourTo, std::string* error)
+{
+    std::vector<TimeOfDay> times;
+    std::string message;
+    if (!rust::EnumerateTimesteps (timestepMinutes, hourFrom, hourTo, times, message)) {
+        Report (error, std::move (message));
+        return {};
+    }
+    return times;
+}
+
+std::vector<uint32_t> FanSteps (const std::vector<uint16_t>& stepMinutes, double intervalMinutes, std::string* error)
+{
+    std::vector<uint32_t> fan;
+    std::string message;
+    if (!rust::FanSteps (stepMinutes, intervalMinutes, fan, message)) {
+        Report (error, std::move (message));
+        return {};
+    }
+    return fan;
+}
+
+std::vector<float> ScatterToAtlas (const SunStudyAtlas& atlas, const std::vector<double>& perSample, float emptyValue,
+                                   std::string* error)
+{
+    std::vector<float> image;
+    std::string message;
+    if (!rust::ScatterToAtlas (atlas, perSample, emptyValue, image, message)) {
+        Report (error, std::move (message));
+        return {};
+    }
+    return image;
 }
 
 ElementRoles ResolveElementRoles (const geomsrv::Snapshot& snapshot, const std::vector<std::string>& analysisPicked,
@@ -230,6 +278,31 @@ SunSeries SeriesFromSteps (const std::vector<SunStep>& steps, int timestepMinute
 AnalysisLimits ComputeAnalysisLimits (const MachineResources& machine, size_t steps, double occupancy, std::string*)
 {
     return evp::sunstudy::ComputeAnalysisLimits (machine, steps, occupancy);
+}
+
+AnalysisLimitsReport ReportAnalysisLimits (const MachineResources& machine, size_t steps, double occupancy,
+                                           double analysedArea, std::string*)
+{
+    AnalysisLimitsReport report;
+    report.limits = evp::sunstudy::ComputeAnalysisLimits (machine, steps, occupancy);
+    report.finestGridSpacing = evp::sunstudy::FinestGridSpacing (analysedArea, report.limits.maxSamples);
+    return report;
+}
+
+std::vector<TimeOfDay> EnumerateTimesteps (int timestepMinutes, int hourFrom, int hourTo, std::string*)
+{
+    return evp::sunstudy::EnumerateTimesteps (timestepMinutes, hourFrom, hourTo);
+}
+
+std::vector<uint32_t> FanSteps (const std::vector<uint16_t>& stepMinutes, double intervalMinutes, std::string*)
+{
+    return evp::sunstudy::FanSteps (stepMinutes, intervalMinutes);
+}
+
+std::vector<float> ScatterToAtlas (const SunStudyAtlas& atlas, const std::vector<double>& perSample, float emptyValue,
+                                   std::string*)
+{
+    return evp::sunstudy::ScatterToAtlas (atlas, perSample, emptyValue);
 }
 
 ElementRoles ResolveElementRoles (const geomsrv::Snapshot& snapshot, const std::vector<std::string>& analysisPicked,
