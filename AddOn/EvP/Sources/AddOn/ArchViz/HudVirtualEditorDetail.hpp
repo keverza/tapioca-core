@@ -129,6 +129,7 @@ void DuplicateOffsetControls (Session& s);
 // Check closes a stale draft; a kernel refusal keeps it open for correction. Apply is one history
 // entry, except a valid 1x1 no-op. Cancel never changes the selection or document.
 bool BeginRectangularArray (Session& s);
+bool BeginPolarArray (Session& s); // #130: the same draft, repeated about the gumball pivot
 bool CheckRectangularArrayDraft (Session& s);
 void CancelRectangularArray (Session& s);
 bool ApplyRectangularArray (Session& s);

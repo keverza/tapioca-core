@@ -125,8 +125,10 @@ struct TrimPreview {
     bool mapped = false; // the pointer resolved on the picked segment, not a fallback seed
     bool valid = false;
 };
-// Uncommitted rectangular-array parameters and lightweight source outlines. The preview cache is
+// Uncommitted array parameters and lightweight source outlines. The preview cache is
 // rebuilt only for a parameter change, never for a pointer/camera change, and never edits the document.
+// `polar` (#130) repeats about a vertical axis instead of along a grid; both share the draft's
+// binding to its selection, revision and tool, and its Apply/Cancel.
 struct RectangularArrayDraft {
     struct Outline {
         std::vector<edit::Vec3> points;
@@ -134,6 +136,16 @@ struct RectangularArrayDraft {
     };
     int countX = 3, countY = 1; // totals, including the source cell
     double spacingX = 1.0, spacingY = 1.0;
+    bool polar = false;
+    int count = 6;               // polar total, including the source
+    double sweepDegrees = 360.0; // signed total angle; a full turn puts no copy back on the source
+    bool rotate = true;          // copies turn with their angle; else they only move round
+    bool centreAtPivot = true;   // the centre follows the gumball pivot (its reposition is the snapped pick)
+    edit::Vec3 centre, middle;   // the axis; the plan centre of the selection's extent
+    int builtCount = 0;
+    double builtSweep = 0.0;
+    bool builtPolar = false, builtRotate = false;
+    edit::Vec3 builtCentre;
     std::vector<edit::Ref> refs;
     uint64_t revision = 0;
     Tool tool = Tool::Select;

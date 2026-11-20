@@ -43,6 +43,26 @@ bool Paste (Document& doc, const Clipboard& clip, Vec3 offset, std::vector<Ref>&
 bool RectangularArray (Document& doc, const std::vector<Ref>& refs, size_t countX, size_t countY, double spacingX,
                        double spacingY, std::vector<Ref>& placed, std::string& error);
 
+// #130: the angle between neighbouring items of a polar array of `count` (the source included)
+// over the signed total `sweep` in radians. A full turn spreads the count evenly, so no copy lands
+// back on the source at 360 degrees; a part turn puts the last copy at the sweep's end. Preview and
+// commit both place copy k at k times this angle.
+double PolarStep (size_t count, double sweep);
+// `p` turned by `angle` radians (counter-clockwise) about the vertical through `centre`; its
+// height stays.
+Vec3 TurnInPlan (Vec3 p, Vec3 centre, double angle);
+
+// Repeats the whole objects `refs` reach about the vertical through `centre` (its height is not
+// used). `count` includes the source and `sweep` is the signed total angle, at most a full turn;
+// copy k sits at k * PolarStep. With `rotate` each copy turns by its angle; without, it only moves,
+// the plan centre of the selection's extent carried round the circle. A copy is a new object, so a
+// vertex lock pins the source, not where its copies go. A path turns in plan and keeps its profile
+// by station. `placed` receives source objects first, then each copy in angle order, with paths
+// before entities within it. One item is a valid no-op. The bounds, atomicity and free-object
+// semantics are RectangularArray's.
+bool PolarArray (Document& doc, const std::vector<Ref>& refs, size_t count, Vec3 centre, double sweep, bool rotate,
+                 std::vector<Ref>& placed, std::string& error);
+
 // Reflects the whole objects `refs` reach across the vertical plane through `point` along
 // the plan direction `axis`; heights stay. A closed outline keeps its winding (its order
 // reverses with the reflection) and an open line its direction; Bezier handles and live

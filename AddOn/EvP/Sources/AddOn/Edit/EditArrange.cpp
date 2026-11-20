@@ -285,6 +285,126 @@ bool RectangularArray (Document& doc, const std::vector<Ref>& refs, size_t count
     return true;
 }
 
+double PolarStep (size_t count, double sweep)
+{
+    constexpr double kTurn = 6.283185307179586;
+    if (count < 2 || !std::isfinite (sweep))
+        return 0.0;
+    if (std::abs (std::abs (sweep) - kTurn) <= 1.0e-9)
+        return sweep / static_cast<double> (count);
+    return sweep / static_cast<double> (count - 1);
+}
+
+Vec3 TurnInPlan (Vec3 p, Vec3 centre, double angle)
+{
+    const double c = std::cos (angle), s = std::sin (angle);
+    const double x = p.x - centre.x, y = p.y - centre.y;
+    return { centre.x + x * c - y * s, centre.y + x * s + y * c, p.z };
+}
+
+namespace {
+// A plan offset (a Bezier handle, an ellipse axis) turned with its point.
+Vec3 TurnVector (Vec3 v, double angle)
+{
+    const Vec3 turned = TurnInPlan (v, {}, angle);
+    return { turned.x, turned.y, v.z };
+}
+
+bool Turned (const Clipboard& clip, Vec3 centre, double angle, Clipboard& out, std::string& error)
+{
+    out = clip;
+    for (auto& path : out.paths)
+        for (auto& point : path.points)
+            point.p = TurnInPlan (point.p, centre, angle);
+    for (auto& entity : out.entities) {
+        for (auto& vertex : entity.vertices) {
+            vertex.p = TurnInPlan (vertex.p, centre, angle);
+            vertex.in = TurnVector (vertex.in, angle);
+            vertex.out = TurnVector (vertex.out, angle);
+        }
+        if (entity.ellipse) {
+            entity.ellipse->center = TurnInPlan (entity.ellipse->center, centre, angle);
+            entity.ellipse->axisU = TurnVector (entity.ellipse->axisU, angle);
+            entity.ellipse->axisV = TurnVector (entity.ellipse->axisV, angle);
+            if (!RegenerateEllipse (entity, error))
+                return false;
+        }
+    }
+    return true;
+}
+} // namespace
+
+bool PolarArray (Document& doc, const std::vector<Ref>& refs, size_t count, Vec3 centre, double sweep, bool rotate,
+                 std::vector<Ref>& placed, std::string& error)
+{
+    constexpr double kTurn = 6.283185307179586;
+    const Clipboard clip = Copy (doc, refs);
+    if (clip.Empty ()) {
+        error = "select the objects to array";
+        return false;
+    }
+    if (count == 0 || count > kMaxArrayCells) {
+        error = "polar array count must be positive and at most 10000";
+        return false;
+    }
+    const size_t sourceObjects = clip.paths.size () + clip.entities.size ();
+    if (sourceObjects > kMaxArrayObjects / count) {
+        error = "polar array exceeds the 100000 object-placement budget";
+        return false;
+    }
+    if (!Finite (centre) || !std::isfinite (sweep) || std::abs (sweep) > kTurn + 1.0e-9 ||
+        (count > 1 && sweep == 0.0)) {
+        error = "polar array angle must be finite, nonzero when repeated, and at most a full turn";
+        return false;
+    }
+    Vec3 middle;
+    if (!Centre (clip, middle) || !FinitePlacement (clip, {})) {
+        error = "polar array placement exceeds finite coordinates";
+        return false;
+    }
+    size_t idsPerCopy = 0;
+    if (!PasteIdCount (clip, idsPerCopy) || (count > 1 && idsPerCopy > kMaxArrayIds / (count - 1))) {
+        error = "polar array exceeds the one-million-fresh-id budget";
+        return false;
+    }
+    const size_t requiredIds = (count - 1) * idsPerCopy;
+    if (doc.nextId == kNoId || requiredIds > std::numeric_limits<Id>::max () - doc.nextId) {
+        error = "polar array exceeds the document's id capacity";
+        return false;
+    }
+
+    const double step = PolarStep (count, sweep);
+    Document candidate = doc;
+    std::vector<Ref> result = WholeObjects (clip);
+    for (size_t k = 1; k < count; ++k) {
+        const double angle = step * static_cast<double> (k);
+        std::vector<Ref> copies;
+        Clipboard turned;
+        Vec3 offset {};
+        if (rotate) {
+            if (!Turned (clip, centre, angle, turned, error))
+                return false;
+        }
+        else
+            offset = TurnInPlan (middle, centre, angle) - middle;
+        const Clipboard& source = rotate ? turned : clip;
+        if (!FinitePlacement (source, offset)) {
+            error = "polar array placement exceeds finite coordinates";
+            return false;
+        }
+        if (!Paste (candidate, source, offset, copies, error))
+            return false;
+        result.insert (result.end (), copies.begin (), copies.end ());
+    }
+    if (!Validate (candidate, error)) {
+        error = "polar array produced an invalid document: " + error;
+        return false;
+    }
+    doc = std::move (candidate);
+    placed = std::move (result);
+    return true;
+}
+
 namespace {
 KerbSide Opposite (KerbSide side)
 {

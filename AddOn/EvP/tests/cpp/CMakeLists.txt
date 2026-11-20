@@ -1059,6 +1059,7 @@ set (EVP_TEST_SOURCES
     test_editprimitives.cpp
     test_editimport.cpp
     test_editarrange.cpp
+    test_editarraypolar.cpp
     test_editorganize.cpp
     test_editpolyline.cpp
     test_editpolylineoffset.cpp
@@ -1077,6 +1078,7 @@ set (EVP_TEST_SOURCES
     test_hudvirtualeditorfixtures.cpp
     test_hudvirtualeditorcommandbar.cpp
     test_hudvirtualeditorinspector.cpp
+    test_hudvirtualeditorpolar.cpp
     test_hudvirtualeditoroutliner.cpp
     test_hudvirtualeditorellipse.cpp
     test_viewereditor.cpp
