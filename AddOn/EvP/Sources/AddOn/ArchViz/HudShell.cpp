@@ -480,6 +480,8 @@ float TallestPanel (const layers::Panel& panel, const Placement& placement, floa
 // what it holds, never narrower than `least` -- the tab row's width, which a control that fills
 // its row takes, as the panel's own did; never the panel's current width either, or a wide page
 // once shown would hold every later one as wide.
+float s_pageRoom = 0.0f; // PageRoom: set while a page draws
+
 bool ScrollingPage (const std::string& key, const std::function<void (const std::string& key)>& page, float tallest,
                     float footer, bool setWidth, float least)
 {
@@ -494,7 +496,10 @@ bool ScrollingPage (const std::string& key, const std::function<void (const std:
     if (ImGui::BeginChild ("##page", ImVec2 (0.0f, 0.0f), sizing, ImGuiWindowFlags_NoNav)) {
         if (setWidth)
             ImGui::PushTextWrapPos (ImGui::GetCursorPosX () + ImGui::GetContentRegionAvail ().x);
+        const float outer = s_pageRoom; // a page in a page (none today) gets its own, then the outer's back
+        s_pageRoom = most;
         page (key);
+        s_pageRoom = outer;
         if (setWidth)
             ImGui::PopTextWrapPos ();
         scrolls = ImGui::GetScrollMaxY () > 0.0f;
@@ -505,6 +510,11 @@ bool ScrollingPage (const std::string& key, const std::function<void (const std:
 }
 
 } // namespace
+
+float PageRoom ()
+{
+    return s_pageRoom;
+}
 
 HostResult Host (const HostSpec& spec, const std::string& held, std::string& shownLast, Placement& placement,
                  const std::function<void (const std::string& key)>& page, const std::function<void ()>& footer,

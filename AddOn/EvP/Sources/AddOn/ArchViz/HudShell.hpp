@@ -320,6 +320,12 @@ constexpr float kLeastPageEm = 4.0f;
 // a margin at each when it is centred or was dragged); a page taller than what is left under
 // the tab row and over the footer scrolls inside it, by the wheel and by its bar, each tab's
 // at its own place.
+// While a Host page draws: how tall its page may grow, from the page's own top, in pixels -- the
+// view less the panel's place, tab row and footer. 0 outside a page. A page that splits its room
+// between parts (the virtual editor's Inspector over its Outliner) sizes them from this, not from
+// the room its last frame happened to take, which would never let it grow (the user, 2026-11-20:
+// "after resize the panel should take more height").
+float PageRoom ();
 HostResult Host (const HostSpec& spec, const std::string& held, std::string& shownLast, Placement& placement,
                  const std::function<void (const std::string& key)>& page, const std::function<void ()>& footer,
                  NavigationState* navigation = nullptr);

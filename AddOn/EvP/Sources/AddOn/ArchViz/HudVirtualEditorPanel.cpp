@@ -581,7 +581,12 @@ void Panel (Session& s)
     // before.
     const bool profile = ResolveContext (s) == InspectorContext::Path;
     const float reserve = s.outlinerHeight + (profile ? s.profileHeight : 0.0f);
-    const float room = ImGui::GetContentRegionAvail ().y - reserve;
+    // The room the page may grow to, not what it took last frame: sized from that, the panel
+    // could never grow when the view did (the user, 2026-11-20). Outside a host page, what is left.
+    const float most = hudshell::PageRoom ();
+    const float used = ImGui::GetCursorScreenPos ().y - ImGui::GetCurrentWindow ()->Pos.y;
+    const float room =
+        (most > 0.0f ? most - used - ImGui::GetStyle ().ItemSpacing.y : ImGui::GetContentRegionAvail ().y) - reserve;
     const bool fixed = s.outlinerHeight > 0.0f && (!profile || s.profileHeight > 0.0f) &&
                        room >= ImGui::GetFrameHeightWithSpacing () * 6.0f;
     if (fixed) {

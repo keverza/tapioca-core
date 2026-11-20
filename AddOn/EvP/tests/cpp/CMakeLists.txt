@@ -1,4 +1,4 @@
-﻿cmake_minimum_required (VERSION 3.16)
+cmake_minimum_required (VERSION 3.16)
 
 # ============================================================================
 # EvPGeomTests â€” L2 offline unit tests for Sources/AddOn/Geometry/
@@ -1081,6 +1081,7 @@ set (EVP_TEST_SOURCES
     test_hudvirtualeditorcommandbar.cpp
     test_hudvirtualeditorinspector.cpp
     test_hudvirtualeditorpolar.cpp
+    test_hudvirtualeditorresize.cpp
     test_hudvirtualeditoroutliner.cpp
     test_hudvirtualeditorellipse.cpp
     test_viewereditor.cpp
