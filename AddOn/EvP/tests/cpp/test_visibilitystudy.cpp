@@ -87,7 +87,7 @@ class VisibilityStudyControllerTests : public testing::Test {
 
 TEST (VisibilityStudy, SurfaceModeUsesFromCellsAndFractionalTargetVisibility)
 {
-    const auto clear = RunVisibilityStudy (Scene (false), { "FROM" }, { "TO" }, Options ());
+    const auto clear = RunSelectedVisibilityStudy (Scene (false), { "FROM" }, { "TO" }, Options ());
     ASSERT_TRUE (clear.valid) << clear.error;
     EXPECT_EQ (clear.origin, VisibilityOrigin::Surfaces);
     EXPECT_EQ (clear.displayElements, std::vector<std::string> ({ "FROM" }));
@@ -96,7 +96,7 @@ TEST (VisibilityStudy, SurfaceModeUsesFromCellsAndFractionalTargetVisibility)
     EXPECT_GT (clear.aimPointCount, 1u);
     EXPECT_GT (clear.meanVisibility, 0.0);
     EXPECT_LT (clear.meanVisibility, 1.0);
-    const auto blocked = RunVisibilityStudy (Scene (true), { "from" }, { "to" }, Options ());
+    const auto blocked = RunSelectedVisibilityStudy (Scene (true), { "from" }, { "to" }, Options ());
     ASSERT_TRUE (blocked.valid) << blocked.error;
     EXPECT_LT (blocked.meanVisibility, clear.meanVisibility);
     EXPECT_TRUE (std::any_of (blocked.values.begin (), blocked.values.end (),
@@ -114,14 +114,14 @@ TEST (VisibilityStudy, PointModeColoursTargetCellsInsideTheViewCone)
     options.direction[1] = 0.0;
     options.direction[2] = 0.0;
     options.coneDegrees = 60.0;
-    const auto facing = RunVisibilityStudy (Scene (false), {}, { "to" }, options);
+    const auto facing = RunSelectedVisibilityStudy (Scene (false), {}, { "to" }, options);
     ASSERT_TRUE (facing.valid) << facing.error;
     EXPECT_EQ (facing.displayElements, std::vector<std::string> ({ "to" }));
     EXPECT_GT (facing.visibleSamples, 0u);
     EXPECT_GT (facing.meanVisibility, 0.0);
 
     options.direction[0] = -1.0;
-    const auto away = RunVisibilityStudy (Scene (false), {}, { "to" }, options);
+    const auto away = RunSelectedVisibilityStudy (Scene (false), {}, { "to" }, options);
     ASSERT_TRUE (away.valid) << away.error;
     EXPECT_EQ (away.visibleSamples, 0u);
     EXPECT_DOUBLE_EQ (away.meanVisibility, 0.0);
@@ -129,27 +129,28 @@ TEST (VisibilityStudy, PointModeColoursTargetCellsInsideTheViewCone)
 
 TEST (VisibilityStudy, RejectsOverlappingRolesAndHonoursCancellation)
 {
-    const auto overlap = RunVisibilityStudy (Scene (false), { "from", "to" }, { "to" }, Options ());
+    const auto overlap = RunSelectedVisibilityStudy (Scene (false), { "from", "to" }, { "to" }, Options ());
     EXPECT_FALSE (overlap.valid);
     EXPECT_NE (overlap.error.find ("must not overlap"), std::string::npos);
 
     std::atomic<bool> cancelled { true };
-    const auto stopped = RunVisibilityStudy (Scene (false), { "from" }, { "to" }, Options (),
-                                             [&cancelled] { return cancelled.load (); });
+    const auto stopped = RunSelectedVisibilityStudy (Scene (false), { "from" }, { "to" }, Options (),
+                                                     [&cancelled] { return cancelled.load (); });
     EXPECT_FALSE (stopped.valid);
     EXPECT_EQ (stopped.error, "visibility study cancelled");
 }
 
 TEST (VisibilityStudy, RefusesMissingAndStaleRoleMembers)
 {
-    const auto noTarget = RunVisibilityStudy (Scene (false), { "from" }, {}, Options ());
+    const auto noTarget = RunSelectedVisibilityStudy (Scene (false), { "from" }, {}, Options ());
     EXPECT_FALSE (noTarget.valid);
     EXPECT_NE (noTarget.error.find ("TO element"), std::string::npos);
 
-    const auto absent = RunVisibilityStudy (Scene (false), { "from" }, { "deleted-guid" }, Options ());
+    const auto absent = RunSelectedVisibilityStudy (Scene (false), { "from" }, { "deleted-guid" }, Options ());
     EXPECT_FALSE (absent.valid);
     EXPECT_NE (absent.error.find ("absent from the live snapshot"), std::string::npos);
-    const auto partiallyAbsent = RunVisibilityStudy (Scene (false), { "from" }, { "to", "deleted-guid" }, Options ());
+    const auto partiallyAbsent =
+        RunSelectedVisibilityStudy (Scene (false), { "from" }, { "to", "deleted-guid" }, Options ());
     EXPECT_FALSE (partiallyAbsent.valid);
     EXPECT_NE (partiallyAbsent.error.find ("absent from the live snapshot"), std::string::npos);
 }
@@ -159,7 +160,7 @@ TEST (VisibilityStudy, FullyBlockingGeometryProducesZeroVisibility)
     auto snapshot = std::make_shared<geomsrv::Snapshot> (*Scene (false));
     snapshot->id = 31;
     snapshot->meshes.push_back (evptest::MakeBox ("full-blocker", 2.0, -10.0, -10.0, 0.5, 22.0, 22.0));
-    const auto result = RunVisibilityStudy (snapshot, { "from" }, { "to" }, Options ());
+    const auto result = RunSelectedVisibilityStudy (snapshot, { "from" }, { "to" }, Options ());
     ASSERT_TRUE (result.valid) << result.error;
     EXPECT_EQ (result.visibleSamples, 0u);
     EXPECT_DOUBLE_EQ (result.meanVisibility, 0.0);
@@ -169,10 +170,10 @@ TEST (VisibilityStudy, SerialAndParallelResultsAreDeterministic)
 {
     auto options = Options ();
     options.spacing = 0.1;
-    const auto serial = RunVisibilityStudy (Scene (true), { "from" }, { "to" }, options);
+    const auto serial = RunSelectedVisibilityStudy (Scene (true), { "from" }, { "to" }, options);
     ASSERT_TRUE (serial.valid) << serial.error;
     options.maxParallel = 4;
-    const auto parallel = RunVisibilityStudy (Scene (true), { "from" }, { "to" }, options);
+    const auto parallel = RunSelectedVisibilityStudy (Scene (true), { "from" }, { "to" }, options);
     ASSERT_TRUE (parallel.valid) << parallel.error;
     EXPECT_EQ (serial.values, parallel.values);
     EXPECT_EQ (serial.rayCount, parallel.rayCount);
@@ -182,23 +183,23 @@ TEST (VisibilityStudy, RejectsInvalidOptionsAndAnInsufficientRayBudget)
 {
     auto options = Options ();
     options.maxRays = 1;
-    const auto capped = RunVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
+    const auto capped = RunSelectedVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
     EXPECT_FALSE (capped.valid);
     EXPECT_NE (capped.error.find ("ray budget"), std::string::npos);
     options = Options ();
     options.tmin = std::numeric_limits<double>::quiet_NaN ();
-    EXPECT_FALSE (RunVisibilityStudy (Scene (false), { "from" }, { "to" }, options).valid);
+    EXPECT_FALSE (RunSelectedVisibilityStudy (Scene (false), { "from" }, { "to" }, options).valid);
     options = Options ();
     options.origin = VisibilityOrigin::Point;
     options.point[0] = std::numeric_limits<double>::infinity ();
-    EXPECT_FALSE (RunVisibilityStudy (Scene (false), {}, { "to" }, options).valid);
+    EXPECT_FALSE (RunSelectedVisibilityStudy (Scene (false), {}, { "to" }, options).valid);
 }
 
 TEST (VisibilityStudy, CancellationDuringCalculationNeverPublishesACompleteResult)
 {
     size_t checks = 0;
-    const auto result =
-        RunVisibilityStudy (Scene (false), { "from" }, { "to" }, Options (), [&checks] { return ++checks >= 12; });
+    const auto result = RunSelectedVisibilityStudy (Scene (false), { "from" }, { "to" }, Options (),
+                                                    [&checks] { return ++checks >= 12; });
     EXPECT_FALSE (result.valid);
     EXPECT_EQ (result.error, "visibility study cancelled");
 }
@@ -209,10 +210,10 @@ TEST (VisibilityStudy, FirstHitClassificationHonoursTheRayLowerBound)
     snapshot->id = 32;
     snapshot->meshes.push_back (evptest::MakeBox ("near-sheet", 1.025, -10.0, -10.0, 0.005, 22.0, 22.0));
     auto options = Options ();
-    const auto blocked = RunVisibilityStudy (snapshot, { "from" }, { "to" }, options);
+    const auto blocked = RunSelectedVisibilityStudy (snapshot, { "from" }, { "to" }, options);
     ASSERT_TRUE (blocked.valid) << blocked.error;
     options.tmin = 0.1;
-    const auto beyondLowerBound = RunVisibilityStudy (snapshot, { "from" }, { "to" }, options);
+    const auto beyondLowerBound = RunSelectedVisibilityStudy (snapshot, { "from" }, { "to" }, options);
     ASSERT_TRUE (beyondLowerBound.valid) << beyondLowerBound.error;
     EXPECT_GT (beyondLowerBound.meanVisibility, blocked.meanVisibility);
 }
@@ -224,7 +225,7 @@ TEST (VisibilityStudy, SmallAimCapNeverDropsAnEntireTarget)
     snapshot->meshes.push_back (evptest::MakeBox ("second-to", 4.0, 4.0, 0.0));
     auto options = Options ();
     options.maxAimPoints = 1;
-    const auto result = RunVisibilityStudy (snapshot, { "from" }, { "to", "second-to" }, options);
+    const auto result = RunSelectedVisibilityStudy (snapshot, { "from" }, { "to", "second-to" }, options);
     ASSERT_TRUE (result.valid) << result.error;
     EXPECT_EQ (result.aimPointCount, 2u);
 }
@@ -236,7 +237,7 @@ TEST (VisibilityStudy, RefusesAnEmptyTargetAmongOtherwiseValidTargets)
     geomsrv::Mesh empty;
     empty.guid = "empty-to";
     snapshot->meshes.push_back (std::move (empty));
-    const auto result = RunVisibilityStudy (snapshot, { "from" }, { "to", "empty-to" }, Options ());
+    const auto result = RunSelectedVisibilityStudy (snapshot, { "from" }, { "to", "empty-to" }, Options ());
     EXPECT_FALSE (result.valid);
     EXPECT_NE (result.error.find ("no valid target triangles"), std::string::npos);
 }
@@ -245,14 +246,14 @@ TEST (VisibilityStudy, ZeroRayLowerBoundStillIncludesTheTargetEndpoint)
 {
     auto options = Options ();
     options.tmin = 0.0;
-    const auto result = RunVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
+    const auto result = RunSelectedVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
     ASSERT_TRUE (result.valid) << result.error;
     EXPECT_GT (result.visibleSamples, 0u);
 }
 
 TEST (VisibilityStudy, ReusesTheSunStudyAtlasAndFaceMapDisplayChannel)
 {
-    auto result = RunVisibilityStudy (Scene (false), { "from" }, { "to" }, Options ());
+    auto result = RunSelectedVisibilityStudy (Scene (false), { "from" }, { "to" }, Options ());
     ASSERT_TRUE (result.valid) << result.error;
     result.id = "visibility-test";
     std::string error;
@@ -274,15 +275,15 @@ TEST (VisibilityStudy, ExplicitContextAloneOccludesAndUnassignedObjectsAreIgnore
     snapshot->meshes.push_back (evptest::MakeBox ("blocker", 2.0, -10.0, -10.0, 0.5, 22.0, 22.0));
     auto options = Options ();
     options.explicitContext = true;
-    const auto clear = RunVisibilityStudy (snapshot, { "from" }, { "to" }, options);
+    const auto clear = RunSelectedVisibilityStudy (snapshot, { "from" }, { "to" }, options);
     ASSERT_TRUE (clear.valid) << clear.error;
     EXPECT_GT (clear.visibleSamples, 0u);
     options.contextElements = { "BLOCKER" };
-    const auto blocked = RunVisibilityStudy (snapshot, { "from" }, { "to" }, options);
+    const auto blocked = RunSelectedVisibilityStudy (snapshot, { "from" }, { "to" }, options);
     ASSERT_TRUE (blocked.valid) << blocked.error;
     EXPECT_EQ (blocked.visibleSamples, 0u);
     options.contextElements.clear ();
-    const auto cleared = RunVisibilityStudy (snapshot, { "from" }, { "to" }, options);
+    const auto cleared = RunSelectedVisibilityStudy (snapshot, { "from" }, { "to" }, options);
     ASSERT_TRUE (cleared.valid) << cleared.error;
     EXPECT_EQ (clear.values, cleared.values);
 }
@@ -293,12 +294,12 @@ TEST (VisibilityStudy, ExplicitContextRejectsOverlapsAndMissingMembers)
     options.explicitContext = true;
     for (const auto& context : std::vector<std::string> { "FROM", "TO" }) {
         options.contextElements = { context };
-        const auto overlap = RunVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
+        const auto overlap = RunSelectedVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
         EXPECT_FALSE (overlap.valid);
         EXPECT_NE (overlap.error.find ("must not overlap"), std::string::npos);
     }
     options.contextElements = { "deleted" };
-    const auto missing = RunVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
+    const auto missing = RunSelectedVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
     EXPECT_FALSE (missing.valid);
     EXPECT_NE (missing.error.find ("absent"), std::string::npos);
 }
@@ -308,7 +309,7 @@ TEST (VisibilityStudy, PatchDomainSharesLatticeAndAtlasAcrossCoplanarTriangleSea
     auto options = Options ();
     options.domain = SamplingDomain::SurfacePatch;
     options.explicitContext = true;
-    const auto result = RunVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
+    const auto result = RunSelectedVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
     ASSERT_TRUE (result.valid) << result.error;
     EXPECT_TRUE (result.IsPatchDomain ());
     EXPECT_TRUE (result.grid.areas.empty ());
@@ -344,11 +345,11 @@ TEST (VisibilityStudy, PointPatchModeUsesExplicitContextAndFocusFirstHits)
     options.origin = VisibilityOrigin::Point;
     options.point[0] = 1.5;
     options.point[1] = options.point[2] = 1.0;
-    const auto clear = RunVisibilityStudy (Scene (true), {}, { "to" }, options);
+    const auto clear = RunSelectedVisibilityStudy (Scene (true), {}, { "to" }, options);
     ASSERT_TRUE (clear.valid) << clear.error;
     EXPECT_GT (clear.visibleSamples, 0u);
     options.contextElements = { "blocker" };
-    const auto blocked = RunVisibilityStudy (Scene (true), {}, { "to" }, options);
+    const auto blocked = RunSelectedVisibilityStudy (Scene (true), {}, { "to" }, options);
     ASSERT_TRUE (blocked.valid) << blocked.error;
     EXPECT_LT (blocked.meanVisibility, clear.meanVisibility);
 }
@@ -402,7 +403,7 @@ TEST (VisibilityStudy, DisplayOwnershipRejectsSupersededProducersAndSurvivesAQue
 
 TEST (VisibilityStudy, CancellationAfterAnalysisPreventsAtlasPublication)
 {
-    const auto result = RunVisibilityStudy (Scene (false), { "from" }, { "to" }, Options ());
+    const auto result = RunSelectedVisibilityStudy (Scene (false), { "from" }, { "to" }, Options ());
     ASSERT_TRUE (result.valid);
     std::string error;
     EXPECT_EQ (geomsrv::archviz::BuildVisibilityStudyUpload (result, error, [] { return true; }), nullptr);
@@ -485,24 +486,24 @@ TEST (VisibilityStudy, PointSphereSeesEveryDirectionWithinItsElevationBand)
     options.point[2] = 1.0;
     options.direction[0] = -1.0; // facing away: a cone would see nothing
     options.coneDegrees = 60.0;
-    const auto cone = RunVisibilityStudy (Scene (false), {}, { "to" }, options);
+    const auto cone = RunSelectedVisibilityStudy (Scene (false), {}, { "to" }, options);
     ASSERT_TRUE (cone.valid) << cone.error;
     EXPECT_EQ (cone.visibleSamples, 0u);
 
     options.view = VisibilityView::Sphere;
-    const auto sphere = RunVisibilityStudy (Scene (false), {}, { "to" }, options);
+    const auto sphere = RunSelectedVisibilityStudy (Scene (false), {}, { "to" }, options);
     ASSERT_TRUE (sphere.valid) << sphere.error;
     EXPECT_GT (sphere.visibleSamples, 0u) << "the sphere has no facing";
 
     // Only the sky above 60 degrees: the target sits about the horizon.
     options.minElevationDegrees = 60.0;
-    const auto sky = RunVisibilityStudy (Scene (false), {}, { "to" }, options);
+    const auto sky = RunSelectedVisibilityStudy (Scene (false), {}, { "to" }, options);
     ASSERT_TRUE (sky.valid) << sky.error;
     EXPECT_EQ (sky.visibleSamples, 0u);
 
     options.minElevationDegrees = 10.0;
     options.maxElevationDegrees = -10.0;
-    EXPECT_FALSE (RunVisibilityStudy (Scene (false), {}, { "to" }, options).valid) << "an inverted band";
+    EXPECT_FALSE (RunSelectedVisibilityStudy (Scene (false), {}, { "to" }, options).valid) << "an inverted band";
 }
 
 TEST (VisibilityStudy, TheSelectedSphereViewHasNoFacing)

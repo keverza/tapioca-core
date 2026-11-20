@@ -1,4 +1,5 @@
 #include "SunStudy/SunStudyStore.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "sunstudy_core_fixture.hpp"
 
 #include <gtest/gtest.h>
@@ -57,7 +58,7 @@ std::unique_ptr<StudyRecord> Record (std::shared_ptr<const ITraversal> traversal
     step.time = { 12, 0 };
     step.altitudeDegrees = 90.0;
     step.direction[2] = 1.0;
-    record->series = SunSeries::FromSteps ({ step }, 60);
+    record->series = kernels::SeriesFromSteps ({ step }, 60);
     evp::sunstudy::fixture::AttachTestCore (*record, { 31, record->series.Version (), 1 });
     return record;
 }

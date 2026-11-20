@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "SunStudy/SunStudyRoles.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "gtest/gtest.h"
 
 using namespace evp::sunstudy;
@@ -22,7 +23,7 @@ const std::vector<std::string> kElements { "{AAAA-1}", "{BBBB-2}", "{CCCC-3}" };
 
 TEST (SunStudyRoles, NamingNothingAnalysesEverything)
 {
-    const ElementRoles roles = ResolveElementRoles (kElements, {}, {});
+    const ElementRoles roles = kernels::ResolveElementRoles (kElements, {}, {});
     EXPECT_EQ (roles.analysis, 3u);
     EXPECT_FALSE (roles.RestrictsOccluders ());
     EXPECT_EQ (roles.SampleMask (), (std::vector<uint8_t> { 1, 1, 1 }));
@@ -30,7 +31,7 @@ TEST (SunStudyRoles, NamingNothingAnalysesEverything)
 
 TEST (SunStudyRoles, NamingOnlyContextAnalysesEverythingElse)
 {
-    const ElementRoles roles = ResolveElementRoles (kElements, {}, { "{BBBB-2}" });
+    const ElementRoles roles = kernels::ResolveElementRoles (kElements, {}, { "{BBBB-2}" });
     EXPECT_EQ (roles.roles[0], ElementRole::Analysis);
     EXPECT_EQ (roles.roles[1], ElementRole::Context);
     EXPECT_EQ (roles.roles[2], ElementRole::Analysis);
@@ -41,7 +42,7 @@ TEST (SunStudyRoles, NamingOnlyAnalysisKeepsEveryOtherElementCastingShadow)
 {
     // The case a person reaches for first: "study this facade". The rest of
     // the model must go on shading it.
-    const ElementRoles roles = ResolveElementRoles (kElements, { "{AAAA-1}" }, {});
+    const ElementRoles roles = kernels::ResolveElementRoles (kElements, { "{AAAA-1}" }, {});
     EXPECT_EQ (roles.roles[0], ElementRole::Analysis);
     EXPECT_EQ (roles.roles[1], ElementRole::Context);
     EXPECT_EQ (roles.roles[2], ElementRole::Context);
@@ -52,7 +53,7 @@ TEST (SunStudyRoles, NamingOnlyAnalysisKeepsEveryOtherElementCastingShadow)
 
 TEST (SunStudyRoles, NamingBothIgnoresTheRestAndRestrictsTheOccluders)
 {
-    const ElementRoles roles = ResolveElementRoles (kElements, { "{AAAA-1}" }, { "{BBBB-2}" });
+    const ElementRoles roles = kernels::ResolveElementRoles (kElements, { "{AAAA-1}" }, { "{BBBB-2}" });
     EXPECT_EQ (roles.roles[0], ElementRole::Analysis);
     EXPECT_EQ (roles.roles[1], ElementRole::Context);
     EXPECT_EQ (roles.roles[2], ElementRole::Ignored);
@@ -61,14 +62,14 @@ TEST (SunStudyRoles, NamingBothIgnoresTheRestAndRestrictsTheOccluders)
 
 TEST (SunStudyRoles, AnElementInBothListsIsAnalysed)
 {
-    const ElementRoles roles = ResolveElementRoles (kElements, { "{AAAA-1}" }, { "{AAAA-1}", "{BBBB-2}" });
+    const ElementRoles roles = kernels::ResolveElementRoles (kElements, { "{AAAA-1}" }, { "{AAAA-1}", "{BBBB-2}" });
     EXPECT_EQ (roles.roles[0], ElementRole::Analysis);
     EXPECT_EQ (roles.roles[1], ElementRole::Context);
 }
 
 TEST (SunStudyRoles, GuidsMatchAcrossBracesAndCase)
 {
-    const ElementRoles roles = ResolveElementRoles (kElements, { "aaaa-1" }, { "{bbbb-2}" });
+    const ElementRoles roles = kernels::ResolveElementRoles (kElements, { "aaaa-1" }, { "{bbbb-2}" });
     EXPECT_EQ (roles.roles[0], ElementRole::Analysis);
     EXPECT_EQ (roles.roles[1], ElementRole::Context);
     EXPECT_EQ (roles.unmatchedAnalysis, 0u);
@@ -77,7 +78,7 @@ TEST (SunStudyRoles, GuidsMatchAcrossBracesAndCase)
 
 TEST (SunStudyRoles, PickedElementsTheSnapshotDoesNotHoldAreCountedNotDropped)
 {
-    const ElementRoles roles = ResolveElementRoles (kElements, { "{AAAA-1}", "{GONE-9}" }, { "{GONE-8}" });
+    const ElementRoles roles = kernels::ResolveElementRoles (kElements, { "{AAAA-1}", "{GONE-9}" }, { "{GONE-8}" });
     EXPECT_EQ (roles.unmatchedAnalysis, 1u);
     EXPECT_EQ (roles.unmatchedContext, 1u);
     EXPECT_FALSE (roles.analysisNamedButAbsent);
@@ -94,10 +95,10 @@ TEST (SunStudyRoles, TheOccludersDropOnlyTheIgnoredAndKeepTheSnapshotsIdentity)
     }
 
     // Nothing ignored: no subset, the caller keeps the cached BVH.
-    EXPECT_EQ (OccluderSnapshot (snapshot, ResolveElementRoles (snapshot, { "{AAAA-1}" }, {})), nullptr);
+    EXPECT_EQ (OccluderSnapshot (snapshot, kernels::ResolveElementRoles (snapshot, { "{AAAA-1}" }, {})), nullptr);
 
     // Both lists named: the third element is ignored and leaves the occluders.
-    const ElementRoles roles = ResolveElementRoles (snapshot, { "{AAAA-1}" }, { "{BBBB-2}" });
+    const ElementRoles roles = kernels::ResolveElementRoles (snapshot, { "{AAAA-1}" }, { "{BBBB-2}" });
     const auto subset = OccluderSnapshot (snapshot, roles);
     ASSERT_NE (subset, nullptr);
     EXPECT_EQ (subset->id, 41u) << "the subset claims to be a different model state";
@@ -109,7 +110,7 @@ TEST (SunStudyRoles, TheOccludersDropOnlyTheIgnoredAndKeepTheSnapshotsIdentity)
 TEST (SunStudyRoles, AnIgnoredElementNeitherCastsShadowNorIsMeasured)
 {
     // "What would this look like without the tree?" -- nothing deleted.
-    const ElementRoles roles = ResolveElementRoles (kElements, {}, {}, { "{CCCC-3}" });
+    const ElementRoles roles = kernels::ResolveElementRoles (kElements, {}, {}, { "{CCCC-3}" });
     EXPECT_EQ (roles.roles[0], ElementRole::Analysis);
     EXPECT_EQ (roles.roles[1], ElementRole::Analysis);
     EXPECT_EQ (roles.roles[2], ElementRole::Ignored);
@@ -118,8 +119,8 @@ TEST (SunStudyRoles, AnIgnoredElementNeitherCastsShadowNorIsMeasured)
 
 TEST (SunStudyRoles, TheIgnoredListWinsOverAnalysisAndContext)
 {
-    const ElementRoles roles =
-        ResolveElementRoles (kElements, { "{AAAA-1}", "{BBBB-2}" }, { "{CCCC-3}" }, { "{BBBB-2}", "{CCCC-3}" });
+    const ElementRoles roles = kernels::ResolveElementRoles (kElements, { "{AAAA-1}", "{BBBB-2}" }, { "{CCCC-3}" },
+                                                             { "{BBBB-2}", "{CCCC-3}" });
     EXPECT_EQ (roles.roles[0], ElementRole::Analysis);
     EXPECT_EQ (roles.roles[1], ElementRole::Ignored);
     EXPECT_EQ (roles.roles[2], ElementRole::Ignored);
@@ -129,7 +130,7 @@ TEST (SunStudyRoles, AnAnalysisListThatIsAllIgnoredIsRefusedNotWidened)
 {
     // ⚠️ THE TRAP: thinning the analysis list by the ignore list leaves it
     // empty, and "empty" means "analyse everything". A NAMED list stays named.
-    const ElementRoles roles = ResolveElementRoles (kElements, { "{AAAA-1}" }, {}, { "{AAAA-1}" });
+    const ElementRoles roles = kernels::ResolveElementRoles (kElements, { "{AAAA-1}" }, {}, { "{AAAA-1}" });
     EXPECT_TRUE (roles.analysisNamedButAbsent);
     EXPECT_EQ (roles.analysis, 0u);
     EXPECT_EQ (roles.roles[1], ElementRole::Context);
@@ -137,7 +138,7 @@ TEST (SunStudyRoles, AnAnalysisListThatIsAllIgnoredIsRefusedNotWidened)
 
 TEST (SunStudyRoles, AnIgnoredElementTheModelDoesNotHoldIsCounted)
 {
-    const ElementRoles roles = ResolveElementRoles (kElements, {}, {}, { "{GONE-7}" });
+    const ElementRoles roles = kernels::ResolveElementRoles (kElements, {}, {}, { "{GONE-7}" });
     EXPECT_EQ (roles.unmatchedIgnored, 1u);
     EXPECT_FALSE (roles.RestrictsOccluders ()) << "a missing element was ignored out of a model it is not in";
 }
@@ -146,7 +147,7 @@ TEST (SunStudyRoles, AnAnalysisListWithNothingInTheModelIsNotAStudyOfEverything)
 {
     // ⚠️ THE FAILURE THIS PREVENTS: an empty intersection must not fall back
     // to "analyse everything", which is what an empty LIST means.
-    const ElementRoles roles = ResolveElementRoles (kElements, { "{GONE-9}" }, {});
+    const ElementRoles roles = kernels::ResolveElementRoles (kElements, { "{GONE-9}" }, {});
     EXPECT_TRUE (roles.analysisNamedButAbsent);
     EXPECT_EQ (roles.analysis, 0u);
 }

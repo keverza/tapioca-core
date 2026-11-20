@@ -6,7 +6,8 @@
 // every test that builds a StudyRecord by hand goes through here. A ground
 // record (no sample grid) needs no snapshot.
 
-#include "SunStudy/SunStudyAtlasReuse.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyRustStudy.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 
@@ -23,10 +24,11 @@ inline void BuildTestAtlas (StudyRecord& record, uint32_t maxDimension = 8192)
 {
     if (record.IsPatchDomain ()) {
         record.patchAtlas = SunStudyPatchAtlas ();
-        record.patchAtlas.Fit (record.patchGrid, 1, maxDimension);
+        kernels::FitPatchAtlas (record.patchAtlas, record.patchGrid, 1, maxDimension);
     }
     else if (record.sampleGrid.Count () != 0 && record.snapshot != nullptr)
-        record.atlas = BuildStableTriangleAtlas (record.sampleGrid, *record.snapshot, record.triangleAllocations);
+        record.atlas =
+            kernels::BuildStableTriangleAtlas (record.sampleGrid, *record.snapshot, record.triangleAllocations);
 }
 
 inline bool AttachTestCore (StudyRecord& record, const StudyInputs& inputs, const geomsrv::Snapshot* snapshot = nullptr,

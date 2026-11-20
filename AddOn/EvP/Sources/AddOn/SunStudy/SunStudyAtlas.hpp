@@ -85,26 +85,6 @@ struct AtlasOptions {
     uint32_t maxDimension = 8192;
 };
 
-// Pack the sampler's per-face layouts into one atlas.
-SunStudyAtlas BuildSunStudyAtlas (const SampleGrid& grid, const AtlasOptions& options = AtlasOptions ());
-
-// Scatter per-sample values into a texel image, `atlas.TexelCount()` long.
-//
-// `emptyValue` fills every texel no sample landed on -- the gutters, the cells
-// that fell outside their triangle, and any face that was never placed.
-// ⚠️ IT MUST NOT BE ZERO IN A CONSUMER THAT DRAWS HOURS: zero is a legitimate
-// result meaning "never sunlit", so an empty texel drawn as zero is a shadow
-// that is not there. Use a negative sentinel and test for it in the shader.
-std::vector<float> ScatterToAtlas (const SunStudyAtlas& atlas, const std::vector<double>& perSample,
-                                   float emptyValue = -1.0f);
-
-// Where a point on a face lands in the atlas, as texture coordinates in [0, 1].
-//
-// Returns false when the face was not placed, in which case the caller has to
-// fall back to that face's single sample -- see `FaceLayout::gridded`.
-bool AtlasUv (const SunStudyAtlas& atlas, const SampleGrid& grid, uint32_t face, const double point[3], double spacing,
-              float outUv[2]);
-
 } // namespace evp::sunstudy
 
 #endif // EVP_SUNSTUDY_SUNSTUDYATLAS_HPP

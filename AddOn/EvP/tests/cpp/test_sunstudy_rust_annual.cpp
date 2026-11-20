@@ -3,6 +3,7 @@
 // the day's own core, and the refusals that keep a period on one scene.
 
 #include "SunStudy/ITraversal.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunSeries.hpp"
 #include "SunStudy/SunStudyRustAnnual.hpp"
 #include "SunStudy/SunStudyRustStudy.hpp"
@@ -49,7 +50,7 @@ SunSeries ThreeHours ()
         step.altitudeDegrees = 40.0;
         steps.push_back (step);
     }
-    return SunSeries::FromSteps (steps, 60);
+    return kernels::SeriesFromSteps (steps, 60);
 }
 
 std::unique_ptr<rs::RustStudyCore> Ground (const std::vector<double>& positions)

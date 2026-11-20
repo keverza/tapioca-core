@@ -1,5 +1,6 @@
-//! Mirrors the pure cases of `tests/cpp/test_viewpointstudy.cpp`; parity with
-//! the C++ study over a real BVH is in `test_sunstudy_rust_views.cpp`.
+//! Mirrors the pure cases of `tests/cpp/test_viewpointstudy.cpp`, which runs
+//! this study over a real BVH (the C++ study it was pinned to bit for bit
+//! was deleted in P7b).
 
 use super::*;
 use crate::rays::OcclusionRay;

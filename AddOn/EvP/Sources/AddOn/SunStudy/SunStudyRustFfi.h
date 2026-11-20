@@ -56,7 +56,7 @@ typedef struct {
     TapiocaSunSeriesSummary* summary;
 } TapiocaSunSeriesOutput;
 
-/* Horizon filter, normalisation and content version (SunSeries::FromSteps). */
+/* Horizon filter, normalisation and content version (kernels::SeriesFromSteps). */
 TapiocaStatus tapioca_sunstudy_series (const TapiocaSunSeriesRequest* request, const TapiocaSunSeriesOutput* output,
                                        char* error, size_t errorCapacity);
 

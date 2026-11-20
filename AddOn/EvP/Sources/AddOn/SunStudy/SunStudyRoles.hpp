@@ -85,16 +85,6 @@ struct ElementRoles {
 // API produced them. Compared in one canonical form: no braces, upper case.
 std::string CanonicalGuid (const std::string& guid);
 
-ElementRoles ResolveElementRoles (const std::vector<std::string>& elements,
-                                  const std::vector<std::string>& analysisPicked,
-                                  const std::vector<std::string>& contextPicked,
-                                  const std::vector<std::string>& ignoredPicked = {});
-
-// The same, over a snapshot's meshes -- roles[m] is meshes[m]'s role.
-ElementRoles ResolveElementRoles (const geomsrv::Snapshot& snapshot, const std::vector<std::string>& analysisPicked,
-                                  const std::vector<std::string>& contextPicked,
-                                  const std::vector<std::string>& ignoredPicked = {});
-
 // The OCCLUDERS: the snapshot without its ignored meshes, or null when nothing
 // is ignored (use the snapshot's own cached BVH then).
 //

@@ -28,8 +28,7 @@
 #include <string>
 #include <vector>
 
-#include "SunStudy/SunStudyCache.hpp" // PatchKey
-#include "SunStudy/SurfacePatch.hpp"
+#include "SunStudy/SunStudyRaster.hpp" // Vec3
 
 namespace evp::sunstudy {
 
@@ -40,6 +39,64 @@ enum class SamplingDomain : uint8_t {
     // One grid per coplanar edge-connected SURFACE. Sample positions do not
     // depend on the tessellation.
     SurfacePatch = 1,
+};
+
+// A patch's identity ACROSS MODEL EDITS.
+//
+// ⚠️ NOT AN INDEX, AND NOT A TRIANGLE. An index moves when an unrelated element
+// is added; a triangle is created and destroyed by any re-tessellation, so a
+// triangle-keyed cache would invalidate itself on edits that changed nothing
+// about the surface. The key is what the surface IS -- which element owns it,
+// and where its plane sits -- so a patch of an untouched element keeps its
+// identity through any change elsewhere in the model.
+struct PatchKey {
+    // The owning element. ⚠️ THE GUID, NOT THE SNAPSHOT'S MESH INDEX: that index
+    // is a position in an array that changes whenever anything is added.
+    std::string element;
+    // The patch's plane and position, quantised. Two extractions of an unchanged
+    // surface agree on it; a surface that moved does not.
+    uint64_t plane = 0;
+
+    // Distinct disconnected patches can share the same quantised plane/origin.
+    // Their occurrence within that element's ordered patch set keeps tiles
+    // separate; it is stable across edits/reorders of OTHER elements.
+    uint32_t occurrence = 0;
+
+    bool operator< (const PatchKey& other) const
+    {
+        if (element != other.element)
+            return element < other.element;
+        if (plane != other.plane)
+            return plane < other.plane;
+        return occurrence < other.occurrence;
+    }
+    bool operator== (const PatchKey& other) const
+    {
+        return element == other.element && plane == other.plane && occurrence == other.occurrence;
+    }
+};
+
+// ⚠️ THE QUANTUM IS A DECISION, NOT A DETAIL. Too fine and floating-point noise
+// between two extractions of the same wall gives it two identities, so the cache
+// re-analyses a building that did not change. Too coarse and a wall nudged by
+// less than the quantum keeps the identity -- and therefore the sunlight -- of
+// where it used to be. A millimetre is far below anything a person models and
+// far above extraction noise.
+constexpr double kPatchKeyQuantumM = 1.0e-3;
+
+// How triangles group into one surface (the Rust patch builder's options).
+struct SurfacePatchOptions {
+    // How far two triangle normals may point apart and still be one surface.
+    // ⚠️ SMALL ON PURPOSE. A tessellated cylinder is a run of nearly-coplanar
+    // strips, and merging it into one flat patch would grid a curved surface as
+    // if it were a plane. One degree keeps a genuinely flat wall together and a
+    // curve apart.
+    double coplanarDegrees = 1.0;
+
+    // How far a neighbour's centroid may sit off this triangle's plane, metres.
+    // Two parallel faces of a thin slab have identical normals up to sign and
+    // must not merge; this is what separates them.
+    double planeToleranceM = 1e-3;
 };
 
 // One patch's samples, as a CONTIGUOUS RANGE of the study's arrays.
@@ -127,7 +184,16 @@ struct PatchSampleGrid {
     {
         return areas.size ();
     }
-    double TotalArea () const;
+    // ⚠️ SUMMED IN PATCH ORDER RATHER THAN BY std::accumulate OVER A REORDERING.
+    // The total is compared against the triangle sampler's, and a different
+    // summation order changes the last bits.
+    double TotalArea () const
+    {
+        double total = 0.0;
+        for (const double area : areas)
+            total += area;
+        return total;
+    }
 };
 
 struct PatchSamplerOptions {
@@ -150,17 +216,6 @@ struct PatchSamplerOptions {
     // only -- a triangle tile cannot lose cells without losing its mapping.
     double clipX = 0.0, clipY = 0.0, clipRadius = 0.0;
 };
-
-// Build the patch-domain sample set for a snapshot's concatenated geometry.
-//
-// `elementOf` maps a group id to the owning element's GUID -- the identity the
-// cache keys on. ⚠️ THE GUID IS NOT OPTIONAL: without it a patch has no identity
-// that survives an edit, and the cache degenerates into the whole-study
-// replacement it exists to replace.
-PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount, const uint32_t* triangles,
-                                      size_t faceCount, const uint32_t* groups,
-                                      const std::vector<std::string>& elementOf,
-                                      const PatchSamplerOptions& options = PatchSamplerOptions ());
 
 } // namespace evp::sunstudy
 

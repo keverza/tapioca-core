@@ -73,17 +73,6 @@ constexpr double kTriangleAtlasOccupancy = 0.15;
 constexpr double kRamBudgetFraction = 0.50;
 constexpr double kGpuBudgetFraction = 0.25;
 
-// Bytes one sample costs in system memory at `steps` timesteps, display copy
-// included, and bytes one atlas texel costs on the GPU.
-double SystemBytesPerSample (size_t steps, double occupancy);
-double GpuBytesPerTexel (size_t steps);
-
-AnalysisLimits ComputeAnalysisLimits (const MachineResources& machine, size_t steps, double occupancy);
-
-// The finest grid spacing (m) at which `analysedArea` (m2) stays within
-// `maxSamples`: one sample per spacing-squared of surface.
-double FinestGridSpacing (double analysedArea, size_t maxSamples);
-
 const char* LimitBindingName (LimitBinding binding);
 
 // The viewer's GPU facts, published once its device exists; thread-safe.

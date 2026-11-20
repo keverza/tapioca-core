@@ -41,7 +41,7 @@ bool Wait ()
 TEST (ViewpointStudy, EmptyContextIsTheRadiusCircleAndUnassignedObjectsHaveNoEffect)
 {
     ViewpointOptions options;
-    const auto result = RunViewpointStudy (Scene (), {}, options);
+    const auto result = RunSelectedViewpointStudy (Scene (), {}, options);
     ASSERT_TRUE (result.valid) << result.error;
     EXPECT_EQ (result.collisionCount, 0u);
     ASSERT_EQ (result.perimeter.size (), options.rays);
@@ -56,34 +56,36 @@ TEST (ViewpointStudy, ContextStopsAtFirstCollisionAndMovingPointChangesThePerime
 {
     const auto scene = Scene ();
     ViewpointOptions options;
-    const auto blocked = RunViewpointStudy (scene, { "WALL" }, options);
+    const auto blocked = RunSelectedViewpointStudy (scene, { "WALL" }, options);
     ASSERT_TRUE (blocked.valid) << blocked.error;
     EXPECT_NEAR (blocked.perimeter.front ()[0], 2.0, 1e-9);
     EXPECT_GT (blocked.collisionCount, 0u);
     EXPECT_LT (blocked.area, 3.14159265358979323846 * options.radius * options.radius);
     options.point[0] = 4.0;
-    const auto moved = RunViewpointStudy (scene, { "wall" }, options);
+    const auto moved = RunSelectedViewpointStudy (scene, { "wall" }, options);
     ASSERT_TRUE (moved.valid) << moved.error;
     EXPECT_NEAR (moved.perimeter.front ()[0], 24.0, 1e-9);
     EXPECT_NEAR (moved.perimeter[options.rays / 2][0], 2.5, 1e-9);
     options.point[2] = 20.0;
-    const auto above = RunViewpointStudy (scene, { "wall" }, options);
+    const auto above = RunSelectedViewpointStudy (scene, { "wall" }, options);
     ASSERT_TRUE (above.valid) << above.error;
     EXPECT_EQ (above.collisionCount, 0u);
 }
 
 TEST (ViewpointStudy, RejectsMissingContextAndNeverPublishesPartialCancellation)
 {
-    const auto missing = RunViewpointStudy (Scene (), { "deleted" }, {});
+    const auto missing = RunSelectedViewpointStudy (Scene (), { "deleted" }, {});
     EXPECT_FALSE (missing.valid);
     EXPECT_NE (missing.error.find ("absent"), std::string::npos);
-    size_t checks = 0;
-    const auto cancelled = RunViewpointStudy (Scene (), {}, {}, [&] { return ++checks == 20; });
+    // Cancelled before it finishes, a run publishes nothing. (The C++ study
+    // polled once per ray; the Rust one polls between batches, and a run with
+    // no Context casts none -- so the cancel stands from the first poll.)
+    const auto cancelled = RunSelectedViewpointStudy (Scene (), {}, {}, [] { return true; });
     EXPECT_FALSE (cancelled.valid);
     EXPECT_TRUE (cancelled.perimeter.empty ());
     ViewpointOptions invalid;
     invalid.radius = 0;
-    EXPECT_FALSE (RunViewpointStudy (Scene (), {}, invalid).valid);
+    EXPECT_FALSE (RunSelectedViewpointStudy (Scene (), {}, invalid).valid);
 }
 
 TEST (ViewpointStudy, IgnoresNearerUnassignedGeometryAndStopsAtTheNearestContextSurface)
@@ -92,7 +94,7 @@ TEST (ViewpointStudy, IgnoresNearerUnassignedGeometryAndStopsAtTheNearestContext
         { evptest::MakeBox ("unassigned", 1, -20, -10, 0.2, 40, 20), evptest::MakeBox ("far", 5, -20, -10, 0.2, 40, 20),
           evptest::MakeBox ("near", 3, -20, -10, 0.2, 40, 20) },
         geomsrv::MeshStore::Get ().NextId ()));
-    const auto result = RunViewpointStudy (scene, { "far", "near" }, {});
+    const auto result = RunSelectedViewpointStudy (scene, { "far", "near" }, {});
     ASSERT_TRUE (result.valid) << result.error;
     EXPECT_NEAR (result.perimeter.front ()[0], 3.0, 1e-9);
 }
@@ -358,7 +360,7 @@ TEST (ViewpointStudy, FieldOfViewIsAnOpenSectorAboutItsBearing)
     options.mode = ViewpointMode::FieldOfView;
     options.bearingDegrees = 90.0;
     options.fieldOfViewDegrees = 60.0;
-    const auto result = RunViewpointStudy (Scene (), {}, options);
+    const auto result = RunSelectedViewpointStudy (Scene (), {}, options);
     ASSERT_TRUE (result.valid) << result.error;
     EXPECT_FALSE (result.Closed ());
     ASSERT_GE (result.perimeter.size (), 2u);
@@ -373,21 +375,21 @@ TEST (ViewpointStudy, FieldOfViewIsAnOpenSectorAboutItsBearing)
     EXPECT_NEAR (result.area, sector, sector * 0.01);
     EXPECT_DOUBLE_EQ (result.openFraction, 1.0);
     options.fieldOfViewDegrees = 360.0;
-    EXPECT_FALSE (RunViewpointStudy (Scene (), {}, options).valid) << "all round is the plan isovist";
+    EXPECT_FALSE (RunSelectedViewpointStudy (Scene (), {}, options).valid) << "all round is the plan isovist";
 }
 
 TEST (ViewpointStudy, SphereMeasuresVolumeAndOpenSkyWithinItsBand)
 {
     ViewpointOptions options;
     options.mode = ViewpointMode::Sphere;
-    const auto open = RunViewpointStudy (Scene (), {}, options);
+    const auto open = RunSelectedViewpointStudy (Scene (), {}, options);
     ASSERT_TRUE (open.valid) << open.error;
     EXPECT_EQ (open.perimeter.size (), options.sphereRows * options.sphereColumns);
     const double ball = 4.0 / 3.0 * 3.14159265358979323846 * std::pow (options.radius, 3.0);
     EXPECT_NEAR (open.volume, ball, ball * 1e-9);
     EXPECT_DOUBLE_EQ (open.openFraction, 1.0);
 
-    const auto walled = RunViewpointStudy (Scene (), { "wall" }, options);
+    const auto walled = RunSelectedViewpointStudy (Scene (), { "wall" }, options);
     ASSERT_TRUE (walled.valid) << walled.error;
     EXPECT_GT (walled.collisionCount, 0u);
     EXPECT_LT (walled.openFraction, 1.0);
@@ -395,12 +397,12 @@ TEST (ViewpointStudy, SphereMeasuresVolumeAndOpenSkyWithinItsBand)
 
     // Only the sky above 80 degrees passes over the 10 m wall 2 m away.
     options.minElevationDegrees = 80.0;
-    const auto sky = RunViewpointStudy (Scene (), { "wall" }, options);
+    const auto sky = RunSelectedViewpointStudy (Scene (), { "wall" }, options);
     ASSERT_TRUE (sky.valid) << sky.error;
     EXPECT_EQ (sky.collisionCount, 0u);
 
     options.minElevationDegrees = 90.0;
-    EXPECT_FALSE (RunViewpointStudy (Scene (), {}, options).valid) << "an empty band";
+    EXPECT_FALSE (RunSelectedViewpointStudy (Scene (), {}, options).valid) << "an empty band";
 }
 
 TEST (ViewpointStudy, SphereSeesOnlyTheNearFaceOfContextWithinItsRadius)
@@ -411,7 +413,7 @@ TEST (ViewpointStudy, SphereSeesOnlyTheNearFaceOfContextWithinItsRadius)
     options.mode = ViewpointMode::Sphere;
     options.radius = 5.0;
     options.surfaceCellMetres = 0.5;
-    const auto walled = RunViewpointStudy (Scene (), { "wall" }, options);
+    const auto walled = RunSelectedViewpointStudy (Scene (), { "wall" }, options);
     ASSERT_TRUE (walled.valid) << walled.error;
     ASSERT_FALSE (walled.seenSurface.empty ());
     EXPECT_EQ (walled.seenSurface.size () % 3, 0u);
@@ -429,7 +431,7 @@ TEST (ViewpointStudy, SphereSeesOnlyTheNearFaceOfContextWithinItsRadius)
 
     // Out of reach: nothing seen.
     options.radius = 1.5;
-    const auto short_ = RunViewpointStudy (Scene (), { "wall" }, options);
+    const auto short_ = RunSelectedViewpointStudy (Scene (), { "wall" }, options);
     ASSERT_TRUE (short_.valid) << short_.error;
     EXPECT_TRUE (short_.seenSurface.empty ());
 }
@@ -446,7 +448,7 @@ TEST (ViewpointStudy, ASpheresShadowBorderFollowsTheOccludersEdge)
     options.point = { 0, 0, 0 };
     options.radius = 5.0;
     options.surfaceCellMetres = 0.5;
-    const auto result = RunViewpointStudy (scene, { "wall", "post" }, options);
+    const auto result = RunSelectedViewpointStudy (scene, { "wall", "post" }, options);
     ASSERT_TRUE (result.valid) << result.error;
     size_t onBorder = 0;
     for (const auto& corner : result.seenSurface) {
@@ -673,7 +675,7 @@ TEST (ViewpointStudy, APlanIsovistBakesAsItsRayEndsAndAFieldOfViewFromItsPoint)
     options.rays = 64;
     options.radius = 5.0;
     options.point = { 1.0, 2.0, 1.6 };
-    const auto plan = RunViewpointStudy (Scene (), {}, options);
+    const auto plan = RunSelectedViewpointStudy (Scene (), {}, options);
     ASSERT_TRUE (plan.valid) << plan.error;
     const auto ring = ViewpointPlanOutline (plan);
     ASSERT_EQ (ring.size (), 64u);
@@ -682,14 +684,14 @@ TEST (ViewpointStudy, APlanIsovistBakesAsItsRayEndsAndAFieldOfViewFromItsPoint)
 
     options.mode = ViewpointMode::FieldOfView;
     options.fieldOfViewDegrees = 90.0;
-    const auto fan = RunViewpointStudy (Scene (), {}, options);
+    const auto fan = RunSelectedViewpointStudy (Scene (), {}, options);
     ASSERT_TRUE (fan.valid) << fan.error;
     const auto wedge = ViewpointPlanOutline (fan);
     ASSERT_EQ (wedge.size (), fan.perimeter.size () + 1);
     EXPECT_DOUBLE_EQ (wedge.front ()[0], 1.0) << "the point opens the wedge";
 
     options.mode = ViewpointMode::Sphere;
-    EXPECT_TRUE (ViewpointPlanOutline (RunViewpointStudy (Scene (), {}, options)).empty ()) << "not a plan";
+    EXPECT_TRUE (ViewpointPlanOutline (RunSelectedViewpointStudy (Scene (), {}, options)).empty ()) << "not a plan";
 }
 
 TEST (ViewpointStudy, ABakedContourDrawsTheRadiusAsArcsAndAWallAsItsTwoEnds)
@@ -707,7 +709,7 @@ TEST (ViewpointStudy, ABakedContourDrawsTheRadiusAsArcsAndAWallAsItsTwoEnds)
     options.rays = 64;
     options.radius = 5.0;
     options.point = { 1.0, 2.0, 1.6 };
-    const auto circle = ViewpointBakeContour (RunViewpointStudy (Scene (), {}, options));
+    const auto circle = ViewpointBakeContour (RunSelectedViewpointStudy (Scene (), {}, options));
     ASSERT_EQ (circle.points.size (), circle.arcAngles.size ());
     EXPECT_LE (circle.points.size (), 4u) << "64 ray ends become a few arcs";
     EXPECT_NEAR (sumOfArcs (circle), 2.0 * kPi, 1e-9);
@@ -716,7 +718,7 @@ TEST (ViewpointStudy, ABakedContourDrawsTheRadiusAsArcsAndAWallAsItsTwoEnds)
 
     options.mode = ViewpointMode::FieldOfView;
     options.fieldOfViewDegrees = 90.0;
-    const auto wedge = ViewpointBakeContour (RunViewpointStudy (Scene (), {}, options));
+    const auto wedge = ViewpointBakeContour (RunSelectedViewpointStudy (Scene (), {}, options));
     ASSERT_EQ (wedge.points.size (), 3u) << "the point and one arc";
     EXPECT_DOUBLE_EQ (wedge.arcAngles[0], 0.0);
     EXPECT_NEAR (wedge.arcAngles[1], kPi / 2.0, 1e-9);
@@ -724,7 +726,7 @@ TEST (ViewpointStudy, ABakedContourDrawsTheRadiusAsArcsAndAWallAsItsTwoEnds)
 
     // The wall's face x = 2 stops every ray within acos(0.1) of +X.
     options = {};
-    const auto walled = RunViewpointStudy (Scene (), { "wall" }, options);
+    const auto walled = RunSelectedViewpointStudy (Scene (), { "wall" }, options);
     ASSERT_TRUE (walled.valid) << walled.error;
     const auto contour = ViewpointBakeContour (walled);
     ASSERT_EQ (contour.points.size (), contour.arcAngles.size ());
@@ -749,7 +751,7 @@ TEST (ViewpointStudy, ABakedContourDrawsTheRadiusAsArcsAndAWallAsItsTwoEnds)
     room->completeModel = true;
     room->captureStamp = geomsrv::MeshStore::Get ().CaptureStamp ();
     options.point = { 0.3, -0.2, 1.6 };
-    const auto enclosed = RunViewpointStudy (room, { "east", "west", "north", "south" }, options);
+    const auto enclosed = RunSelectedViewpointStudy (room, { "east", "west", "north", "south" }, options);
     ASSERT_TRUE (enclosed.valid) << enclosed.error;
     ASSERT_EQ (enclosed.collisionCount, options.rays);
     const auto walls = ViewpointBakeContour (enclosed);

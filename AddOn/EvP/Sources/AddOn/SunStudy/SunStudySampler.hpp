@@ -158,17 +158,8 @@ inline bool SamplesFace (const std::vector<uint8_t>* sampleGroup, const uint32_t
     return group >= sampleGroup->size () || (*sampleGroup)[group] != 0;
 }
 
-// `vertices` is xyz-interleaved; `triangles` is 3 indices per face; `groups` is
-// one id per face or empty. Faces whose normal cannot be computed are skipped.
-SampleGrid BuildSampleGrid (const double* vertices, size_t vertexCount, const uint32_t* triangles, size_t faceCount,
-                            const uint32_t* groups, const SamplerOptions& options);
-
 // Exposed for testing, and because both are useful on their own.
 Vec3 TriangleNormal (const Vec3& a, const Vec3& b, const Vec3& c, double* areaOut = nullptr);
-
-// The deterministic per-cell offset described under `jitter`. Returns two values
-// in [-0.5, 0.5], scaled by the caller.
-void CellJitter (uint32_t face, uint32_t u, uint32_t v, double out[2]);
 
 } // namespace evp::sunstudy
 

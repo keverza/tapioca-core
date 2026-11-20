@@ -1,4 +1,5 @@
 #include "SunStudy/SunStudyObstruction.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyLiftedPoint.hpp"
 
 #include "MeshFixtures.hpp"
@@ -31,7 +32,7 @@ TEST (SunStudyObstruction, CellsDistinguishExactBlockersClearAndBackFacing)
     record.snapshot = snapshot;
     record.snapshotId = snapshot->id;
     record.occluders =
-        BuildSunStudyOccluders (*snapshot, ResolveElementRoles (*snapshot, {}, { "context" }, { "ignored" }));
+        BuildSunStudyOccluders (*snapshot, kernels::ResolveElementRoles (*snapshot, {}, { "context" }, { "ignored" }));
     record.positions = { 0.25, 0.25, -1.0, 4.25, 0.25, -1.0, 8.25, 0.25, -1.0, 100.0, 100.0, 0.0, 0.25, 0.25, -1.0 };
     record.normals = { 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1 };
 
@@ -59,7 +60,8 @@ TEST (SunStudyObstruction, NearerContextWinsAndMeshPrefixBecomesALocalTriangle)
     snapshot->meshes = { evptest::MakeBox ("first-analysis", 8, 0, 5), evptest::MakeBox ("second-analysis", 4, 0, 5),
                          evptest::MakeBox ("near-context", 4, 0, 2) };
     StudyRecord record;
-    record.occluders = BuildSunStudyOccluders (*snapshot, ResolveElementRoles (*snapshot, {}, { "near-context" }, {}));
+    record.occluders =
+        BuildSunStudyOccluders (*snapshot, kernels::ResolveElementRoles (*snapshot, {}, { "near-context" }, {}));
     record.positions = { 4.25, 0.25, 0.0 };
     record.normals = { 0, 0, 1 };
     SunObstructionResult result;
@@ -70,7 +72,7 @@ TEST (SunStudyObstruction, NearerContextWinsAndMeshPrefixBecomesALocalTriangle)
 
     for (size_t vertex = 0; vertex < snapshot->meshes[2].vertices.size (); vertex += 3)
         snapshot->meshes[2].vertices[vertex] += 100.0;
-    record.occluders = BuildSunStudyOccluders (*snapshot, ResolveElementRoles (*snapshot, {}, {}, {}));
+    record.occluders = BuildSunStudyOccluders (*snapshot, kernels::ResolveElementRoles (*snapshot, {}, {}, {}));
     ASSERT_TRUE (AttributeSunObstruction (record, { 0 }, Noon (), result)) << result.error;
     EXPECT_EQ (result.cells[0].blockerGuid, "second-analysis");
     EXPECT_EQ (result.cells[0].sourceTriangle, 1u); // global triangle 13 -> local triangle 1
@@ -83,13 +85,13 @@ TEST (SunStudyObstruction, WholeDayKeepsEachTimedHitAndDropsCancelledPartialResu
     snapshot->id = 43;
     snapshot->meshes = { evptest::MakeBox ("roof", 0, 0, 5) };
     StudyRecord record;
-    record.occluders = BuildSunStudyOccluders (*snapshot, ResolveElementRoles (*snapshot, {}, {}, {}));
+    record.occluders = BuildSunStudyOccluders (*snapshot, kernels::ResolveElementRoles (*snapshot, {}, {}, {}));
     record.positions = { 0.25, 0.25, 0.0 }; // null normal: a ground sample faces every direction
     std::vector<SunStep> steps (2, Noon ());
     steps[0].time = TimeOfDay { 8, 0 };
     steps[1].time = TimeOfDay { 9, 0 };
     steps[1].direction[2] = -1.0;
-    record.series = SunSeries::FromSteps (steps, 60);
+    record.series = kernels::SeriesFromSteps (steps, 60);
 
     SunObstructionDayResult result;
     ASSERT_TRUE (AttributeSunObstructionDay (record, { 0 }, result)) << result.error;
@@ -118,7 +120,7 @@ TEST (SunStudyObstruction, FootprintIsTheCellCastOntoTheBlockerWhateverItsTessel
         StudyRecord record;
         record.snapshot = snapshot;
         record.snapshotId = snapshot->id;
-        record.occluders = BuildSunStudyOccluders (*snapshot, ResolveElementRoles (*snapshot, {}, {}, {}));
+        record.occluders = BuildSunStudyOccluders (*snapshot, kernels::ResolveElementRoles (*snapshot, {}, {}, {}));
         record.positions = { 0.0, 0.0, 0.0 };
         record.normals = { 0, 0, 1 };
         record.gridSpacing = 1.0;
@@ -150,7 +152,7 @@ TEST (SunStudyObstruction, PartialFootprintOnALitCellAndNoneBehindTheSurface)
     StudyRecord record;
     record.snapshot = snapshot;
     record.snapshotId = snapshot->id;
-    record.occluders = BuildSunStudyOccluders (*snapshot, ResolveElementRoles (*snapshot, {}, {}, {}));
+    record.occluders = BuildSunStudyOccluders (*snapshot, kernels::ResolveElementRoles (*snapshot, {}, {}, {}));
     record.positions = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
     record.normals = { 0, 0, 1, 0, 0, -1 };
     record.gridSpacing = 1.0;
@@ -172,7 +174,7 @@ TEST (SunStudyLiftedPoint, LiftIsClampedUnderAnOverhangAndTracedAsOneReceiver)
     StudyRecord record;
     record.snapshot = snapshot;
     record.snapshotId = snapshot->id;
-    record.occluders = BuildSunStudyOccluders (*snapshot, ResolveElementRoles (*snapshot, {}, {}, {}));
+    record.occluders = BuildSunStudyOccluders (*snapshot, kernels::ResolveElementRoles (*snapshot, {}, {}, {}));
     std::vector<SunStep> steps (2);
     steps[0].time = TimeOfDay { 9, 0 };
     steps[0].direction[2] = 1.0; // overhead: blocked under the canopy
@@ -181,7 +183,7 @@ TEST (SunStudyLiftedPoint, LiftIsClampedUnderAnOverhangAndTracedAsOneReceiver)
     steps[1].direction[0] = 1.0; // low from +x: passes under the canopy edge
     steps[1].direction[2] = 0.05;
     steps[1].altitudeDegrees = 3.0;
-    record.series = SunSeries::FromSteps (steps, 60);
+    record.series = kernels::SeriesFromSteps (steps, 60);
     record.timestepMinutes = 60;
     record.hourFrom = 8;
     record.hourTo = 18;

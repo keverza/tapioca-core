@@ -1,4 +1,5 @@
-#include "SunStudy/SunStudyAtlasReuse.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyTextureDelta.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudySurfaceSampling.hpp"
@@ -17,7 +18,7 @@ SampleGrid Sample (const geomsrv::Snapshot& scene, std::vector<uint8_t> mask = {
         mask.assign (scene.meshes.size (), 1u);
     SurfaceSamplingOptions options;
     options.spacing = 0.3;
-    return BuildSurfaceSampling (scene, mask, options).triangles;
+    return kernels::BuildSurfaceSampling (scene, mask, options).triangles;
 }
 } // namespace
 
@@ -26,13 +27,13 @@ TEST (SunStudyTextureUpdates, TriangleTilesSurviveMeshReorderCreationAndReceiver
     auto scene = evptest::MakeSnapshot ({ evptest::MakeBox ("a", 0, 0, 0), evptest::MakeBox ("b", 5, 0, 0) });
     const auto grid = Sample (scene);
     SunStudyPatchAtlas original;
-    const auto atlas = BuildStableTriangleAtlas (grid, scene, original);
+    const auto atlas = kernels::BuildStableTriangleAtlas (grid, scene, original);
     ASSERT_TRUE (atlas.valid);
     std::swap (scene.meshes[0], scene.meshes[1]);
     scene.meshes.push_back (evptest::MakeBox ("new", 10, 0, 0, 0.1, 0.1, 0.1));
     const auto nextGrid = Sample (scene);
     SunStudyPatchAtlas next;
-    const auto nextAtlas = BuildStableTriangleAtlas (nextGrid, scene, next, &original);
+    const auto nextAtlas = kernels::BuildStableTriangleAtlas (nextGrid, scene, next, &original);
     ASSERT_TRUE (nextAtlas.valid);
     ASSERT_EQ (nextAtlas.width, atlas.width);
     for (size_t face = 0; face < 12; ++face) {
@@ -41,7 +42,7 @@ TEST (SunStudyTextureUpdates, TriangleTilesSurviveMeshReorderCreationAndReceiver
     }
     const auto excluded = Sample (scene, { 0, 1, 1 });
     SunStudyPatchAtlas third;
-    const auto thirdAtlas = BuildStableTriangleAtlas (excluded, scene, third, &next);
+    const auto thirdAtlas = kernels::BuildStableTriangleAtlas (excluded, scene, third, &next);
     ASSERT_TRUE (thirdAtlas.valid);
     EXPECT_FALSE (thirdAtlas.tiles[0].Placed ());
     EXPECT_EQ (thirdAtlas.tiles[12].x, nextAtlas.tiles[12].x);
@@ -52,16 +53,16 @@ TEST (SunStudyTextureUpdates, GrowthIsCompleteAndAmbiguousGuidsNeverAliasAllocat
 {
     auto scene = evptest::MakeSnapshot ({ evptest::MakeBox ("a", 0, 0, 0) });
     SunStudyPatchAtlas original, next;
-    const auto atlas = BuildStableTriangleAtlas (Sample (scene), scene, original);
+    const auto atlas = kernels::BuildStableTriangleAtlas (Sample (scene), scene, original);
     ASSERT_TRUE (atlas.valid);
     scene.meshes.push_back (evptest::MakeBox ("big", 5, 0, 0, 30, 30, 1));
-    const auto grown = BuildStableTriangleAtlas (Sample (scene), scene, next, &original);
+    const auto grown = kernels::BuildStableTriangleAtlas (Sample (scene), scene, next, &original);
     ASSERT_TRUE (grown.valid);
     EXPECT_GT (grown.width, atlas.width);
     EXPECT_EQ (grown.placedFaces, 24u);
     EXPECT_EQ (original.Width (), atlas.width);
     scene.meshes[1].guid = "A"; // duplicate canonical identity forces the baseline packer
-    const auto ambiguous = BuildStableTriangleAtlas (Sample (scene), scene, next, &original);
+    const auto ambiguous = kernels::BuildStableTriangleAtlas (Sample (scene), scene, next, &original);
     ASSERT_TRUE (ambiguous.valid);
     EXPECT_EQ (next.AllocationCount (), 0u);
     EXPECT_EQ (ambiguous.placedFaces, 24u);
@@ -125,7 +126,7 @@ TEST (SunStudyTextureUpdates, ExactDeltasReconstructHoursAndStepBitsIncludingRet
     after[3 * width + 4] = 0x80000001u;
     after[4 * width + 4] = 0x40000000u;
     after[width * height + 9] = 7u;
-    auto regions = AtlasChangedRegions (width, height, layers, before, after);
+    auto regions = kernels::AtlasChangedRegions (width, height, layers, before, after);
     ASSERT_EQ (regions.size (), 2u);
     EXPECT_TRUE (AtlasRegionsValid (regions, width, height, layers));
     auto applied = before;
@@ -139,13 +140,13 @@ TEST (SunStudyTextureUpdates, ExactDeltasReconstructHoursAndStepBitsIncludingRet
     std::vector<float> oldHours (width * height, -1.0f), newHours = oldHours;
     oldHours[12] = 8.0f; // deleted receiver must revert to sentinel, not remain lit
     newHours[25] = 0.0f; // valid permanent shade is not an empty texel
-    const auto floats = AtlasChangedRegions (width, height, 1, oldHours, newHours);
+    const auto floats = kernels::AtlasChangedRegions (width, height, 1, oldHours, newHours);
     applied.assign (width * height, 0u);
     size_t covered = 0;
     for (const auto& r : floats)
         covered += r.width * r.height;
     EXPECT_EQ (covered, 2u);
-    EXPECT_TRUE (AtlasChangedRegions (width, height, 1, newHours, newHours).empty ());
+    EXPECT_TRUE (kernels::AtlasChangedRegions (width, height, 1, newHours, newHours).empty ());
 }
 
 TEST (SunStudyTextureUpdates, FragmentationIsBoundedAndInvalidRegionsCannotReachGpu)
@@ -153,14 +154,14 @@ TEST (SunStudyTextureUpdates, FragmentationIsBoundedAndInvalidRegionsCannotReach
     std::vector<uint32_t> before (64, 0u), after = before;
     for (size_t i = 0; i < after.size (); i += 2)
         after[i] = 1;
-    const auto regions = AtlasChangedRegions (8, 8, 1, before, after, 2);
+    const auto regions = kernels::AtlasChangedRegions (8, 8, 1, before, after, 2);
     ASSERT_EQ (regions.size (), 1u);
     EXPECT_EQ (regions[0].width, 8u);
     EXPECT_EQ (regions[0].height, 8u);
     EXPECT_FALSE (AtlasRegionsValid ({ { 7, 0, 2, 1, 0 } }, 8, 8, 1));
     EXPECT_FALSE (AtlasRegionsValid ({ { 0, 0, 1, 1, 1 } }, 8, 8, 1));
     EXPECT_FALSE (AtlasRegionsValid ({ { 0, 0, 0, 1, 0 } }, 8, 8, 1));
-    EXPECT_TRUE (AtlasChangedRegions (0, 8, 1, before, after).empty ());
+    EXPECT_TRUE (kernels::AtlasChangedRegions (0, 8, 1, before, after).empty ());
 }
 
 TEST (SunStudyTextureUpdates, RandomizedRegionsCoverEveryChangedCellWithoutTouchingAnotherLayer)
@@ -171,7 +172,7 @@ TEST (SunStudyTextureUpdates, RandomizedRegionsCoverEveryChangedCellWithoutTouch
         for (auto& value : after)
             if (random () % 5 == 0)
                 value = random ();
-        const auto regions = AtlasChangedRegions (32, 24, 3, before, after, trial % 2 ? 512 : 4);
+        const auto regions = kernels::AtlasChangedRegions (32, 24, 3, before, after, trial % 2 ? 512 : 4);
         ASSERT_TRUE (AtlasRegionsValid (regions, 32, 24, 3));
         auto reconstructed = before;
         for (const auto& r : regions)

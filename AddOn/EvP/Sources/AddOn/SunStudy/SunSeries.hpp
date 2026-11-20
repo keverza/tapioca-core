@@ -1,10 +1,12 @@
 #ifndef EVP_SUNSTUDY_SUNSERIES_HPP
 #define EVP_SUNSTUDY_SUNSERIES_HPP
 
-// SunStudy/SunSeries — the day, as a list of sun directions.
+// SunStudy/SunSeries — the day, as a list of sun directions: the value type.
 //
-// Timestep enumeration, the below-horizon filter, and the hours arithmetic. Pure
-// data in, pure data out.
+// Timestep enumeration, the below-horizon filter and the content hash run in
+// the Rust core (tapioca_sunstudy::series), reached through
+// SunStudy/SunStudyKernels.hpp (kernels::EnumerateTimesteps,
+// kernels::SeriesFromSteps). This header keeps the value and its hours arithmetic.
 //
 // ⚠️ IT COMPUTES NO SOLAR POSITION, AND MUST NOT. Archicad's own place settings
 // are the authority for where the sun is; a second implementation would be a
@@ -38,37 +40,18 @@ struct SunStep {
     double altitudeDegrees = 0.0;
 };
 
-// (hour, minute) across the day at the given step. `hourTo` is exclusive.
-//
-// ⚠️ THE DEFAULT IS THE WHOLE DAY and the horizon filter then decides what
-// counts, which is the honest default for "how much sun does this surface get".
-//
-// ⚠️ A WINDOW MAKES TOTALS INCOMPARABLE between tools. Reference implementations
-// commonly default to an 08:00–20:00 window, so a whole-day total from here
-// reads higher than the same model elsewhere. Whenever a window is set, the
-// report has to say so.
-std::vector<TimeOfDay> EnumerateTimesteps (int timestepMinutes, int hourFrom = 0, int hourTo = 24);
-
-double HoursPerStep (int timestepMinutes);
+inline double HoursPerStep (int timestepMinutes)
+{
+    return static_cast<double> (timestepMinutes) / 60.0;
+}
 
 // The day's sun directions, above the horizon only.
 class SunSeries final {
   public:
     SunSeries () = default;
 
-    // Keeps the steps whose altitude exceeds `minAltitudeDegrees`, in order.
-    //
-    // ⚠️ THE CUTOFF IS 0 DEGREES BY DEFAULT, AND A HIGHER FLOOR BIASES EVERY
-    // TOTAL DOWN. A three-degree floor silently discards the first and last
-    // steps of every day — roughly half an hour on an equinox at mid latitude —
-    // against references that count a step whenever altitude exceeds zero, with
-    // no refraction and no sun-disc term. It stays an input because a grazing
-    // sun behind distant terrain is a legitimate thing to exclude; it is simply
-    // not the default.
-    static SunSeries FromSteps (const std::vector<SunStep>& steps, int timestepMinutes,
-                                double minAltitudeDegrees = 0.0);
-
-    // A series built elsewhere (the Rust kernel), restored as it was built:
+    // A series built by the Rust kernel (kernels::SeriesFromSteps), restored as
+    // it was built:
     // the kept steps, the source count and the content hash, not recomputed.
     static SunSeries FromParts (std::vector<SunStep> steps, int timestepMinutes, size_t sourceStepCount,
                                 uint64_t version)
@@ -102,11 +85,17 @@ class SunSeries final {
     {
         return timestepMinutes_;
     }
-    double HoursPerStep () const;
+    double HoursPerStep () const
+    {
+        return evp::sunstudy::HoursPerStep (timestepMinutes_);
+    }
 
     // What a fully sunlit sample would score. The denominator of every
     // percentage the report prints.
-    double DaylightHours () const;
+    double DaylightHours () const
+    {
+        return static_cast<double> (steps_.size ()) * HoursPerStep ();
+    }
 
     // How many steps the source had before the horizon filter, so a report can
     // say what it dropped rather than silently showing a shorter day.

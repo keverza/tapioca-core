@@ -37,14 +37,6 @@ struct SunStudyReading {
     bool nearest = false;
 };
 
-// Triangle domain. `grid` must have been built with `wantLayouts`.
-SunStudyReading ReadTriangleStudyAt (const SampleGrid& grid, double spacing, const std::vector<double>& hours,
-                                     size_t face, const double point[3]);
-
-// Patch domain.
-SunStudyReading ReadPatchStudyAt (const PatchSampleGrid& grid, double spacing, const std::vector<double>& hours,
-                                  size_t face, const double point[3]);
-
 } // namespace evp::sunstudy
 
 #endif // EVP_SUNSTUDY_SUNSTUDYREADING_HPP

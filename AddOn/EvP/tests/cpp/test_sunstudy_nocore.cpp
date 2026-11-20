@@ -1,10 +1,15 @@
 // A build without the Rust archive (TAPIOCA_LINK_RUST_GEOMETRY=OFF) has no
-// sun-study core (P7a). It still compiles; a study is refused with the message
-// StartSunStudy reports, every store reader refuses a record, and the follower
-// policy the driver holds never adopts anything. With the archive this file
-// has no tests: the store and follower tests run the real core.
+// sun-study core (P7a) and no sun-study kernels (P7b). It still compiles; a
+// study is refused with the message StartSunStudy reports, every store reader
+// refuses a record, the follower policy the driver holds never adopts
+// anything, every kernel refuses with the same reason, and so do the viewpoint
+// and visibility studies. With the archive this file has no tests: the store,
+// follower, kernel and view tests run the real core.
 
 #include "SunStudy/SunStudyFollowerPolicy.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
+#include "SunStudy/ViewpointStudy.hpp"
+#include "SunStudy/VisibilityStudy.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 
 #include <gtest/gtest.h>
@@ -48,6 +53,37 @@ TEST (SunStudyNoCore, TheFollowerPolicyNeverAdopts)
     EXPECT_FALSE (follower.Observe ({ 2, 2, 3 }, 1100));
     EXPECT_FALSE (follower.ShouldStart (5000));
     EXPECT_EQ (follower.Describe (), "this build has no sun-study core");
+}
+
+TEST (SunStudyNoCore, EveryKernelAndBothViewsRefuseWithTheBuildsReason)
+{
+    const std::string reason = "this build has no sun-study core";
+    std::string error;
+    EXPECT_EQ (kernels::SeriesFromSteps ({ SunStep () }, 60, 0.0, &error).StepCount (), 0u);
+    EXPECT_EQ (error, reason);
+    error.clear ();
+    EXPECT_TRUE (kernels::EnumerateTimesteps (60, 0, 24, &error).empty ());
+    EXPECT_EQ (error, reason);
+    error.clear ();
+    EXPECT_EQ (kernels::ComputeAnalysisLimits (MachineResources (), 49, kPatchAtlasOccupancy, &error).maxSamples, 0u);
+    EXPECT_EQ (error, reason);
+    const geomsrv::Snapshot snapshot;
+    SurfaceSamplingOptions options;
+    error.clear ();
+    EXPECT_FALSE (kernels::BuildSurfaceSampling (snapshot, {}, options, nullptr, {}, {}, &error).valid);
+    EXPECT_EQ (error, reason);
+    SunStudyPatchAtlas atlas;
+    error.clear ();
+    kernels::FitPatchAtlas (atlas, PatchSampleGrid (), 1, 8192, &error);
+    EXPECT_EQ (error, reason);
+    EXPECT_EQ (atlas.Width (), 0u);
+
+    const auto viewpoint = RunSelectedViewpointStudy (std::make_shared<geomsrv::Snapshot> (), {}, ViewpointOptions ());
+    EXPECT_FALSE (viewpoint.valid);
+    EXPECT_EQ (viewpoint.error, reason);
+    const auto visibility = RunSelectedVisibilityStudy (std::make_shared<geomsrv::Snapshot> (), {}, {});
+    EXPECT_FALSE (visibility.valid);
+    EXPECT_EQ (visibility.error, reason);
 }
 
 #endif

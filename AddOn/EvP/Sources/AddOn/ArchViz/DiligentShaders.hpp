@@ -969,7 +969,7 @@ float3 FanColor (float t)
 }
 
 // The RANK of the LAST chosen step at which the texel was shadowed, or -1.
-// ⚠️ SunStudyStepAtlas::FanRank, line for line, and tested there.
+// ⚠️ tapioca_sunstudy::step_atlas fan_rank, line for line, and tested there.
 int FanRank (int2 texel)
 {
     uint chosen[3] = { asuint (g_sunStudyFan.x), asuint (g_sunStudyFan.y), asuint (g_sunStudyFan.z) };

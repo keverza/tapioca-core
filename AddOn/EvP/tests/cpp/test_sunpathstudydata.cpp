@@ -1,4 +1,5 @@
 #include "SunStudy/SunPathStudyData.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunPathPeriodPublication.hpp"
 #include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/SunStudyStore.hpp"
@@ -33,7 +34,7 @@ std::string InsertDay (bool complete)
         step.direction[2] = 1.0;
         step.altitudeDegrees = 90.0;
     }
-    record->series = evp::sunstudy::SunSeries::FromSteps (steps, 15);
+    record->series = evp::sunstudy::kernels::SeriesFromSteps (steps, 15);
     evp::sunstudy::StudyInputs inputs;
     inputs.geometryVersion = 1;
     inputs.sunVersion = record->series.Version ();

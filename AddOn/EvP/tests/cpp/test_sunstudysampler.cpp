@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "SunStudy/SunStudySampler.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "gtest/gtest.h"
 
 using namespace evp::sunstudy;
@@ -39,8 +40,8 @@ Quad MakeQuad (double size, bool vertical = false)
 
 SampleGrid Build (const Quad& quad, const SamplerOptions& options, const uint32_t* groups = nullptr)
 {
-    return BuildSampleGrid (quad.vertices.data (), quad.vertices.size () / 3, quad.triangles.data (),
-                            quad.triangles.size () / 3, groups, options);
+    return kernels::BuildSampleGrid (quad.vertices.data (), quad.vertices.size () / 3, quad.triangles.data (),
+                                     quad.triangles.size () / 3, groups, options);
 }
 
 } // namespace
@@ -48,7 +49,7 @@ SampleGrid Build (const Quad& quad, const SamplerOptions& options, const uint32_
 TEST (SunStudySampler, EmptyInputIsNotValid)
 {
     SamplerOptions options;
-    EXPECT_FALSE (BuildSampleGrid (nullptr, 0, nullptr, 0, nullptr, options).valid);
+    EXPECT_FALSE (kernels::BuildSampleGrid (nullptr, 0, nullptr, 0, nullptr, options).valid);
 }
 
 TEST (SunStudySampler, NonPositiveSpacingIsRefused)
@@ -165,7 +166,7 @@ TEST (SunStudySampler, DegenerateFacesAreCountedAndSkipped)
 
     SamplerOptions options;
     options.spacing = 0.5;
-    const SampleGrid grid = BuildSampleGrid (vertices.data (), 3, triangles.data (), 1, nullptr, options);
+    const SampleGrid grid = kernels::BuildSampleGrid (vertices.data (), 3, triangles.data (), 1, nullptr, options);
 
     EXPECT_TRUE (grid.valid);
     EXPECT_EQ (grid.Count (), 0u);
@@ -179,7 +180,7 @@ TEST (SunStudySampler, OutOfRangeIndicesAreRejectedNotDereferenced)
 
     SamplerOptions options;
     options.spacing = 0.5;
-    const SampleGrid grid = BuildSampleGrid (vertices.data (), 3, triangles.data (), 1, nullptr, options);
+    const SampleGrid grid = kernels::BuildSampleGrid (vertices.data (), 3, triangles.data (), 1, nullptr, options);
 
     EXPECT_EQ (grid.Count (), 0u);
     EXPECT_EQ (grid.degenerateFaces, 1u);
@@ -333,20 +334,6 @@ TEST (SunStudySampler, TriangleNormalOfADegenerateFaceIsZeroNotNan)
     EXPECT_DOUBLE_EQ (n[2], 0.0);
 }
 
-TEST (SunStudySampler, CellJitterStaysWithinOneCell)
-{
-    for (uint32_t f = 0; f < 8; ++f) {
-        for (uint32_t u = 0; u < 8; ++u) {
-            double out[2] = { 0.0, 0.0 };
-            CellJitter (f, u, u * 3 + 1, out);
-            EXPECT_GE (out[0], -0.5);
-            EXPECT_LE (out[0], 0.5);
-            EXPECT_GE (out[1], -0.5);
-            EXPECT_LE (out[1], 0.5);
-        }
-    }
-}
-
 // A slab modelled as a box: the sampler must not merge the top and the bottom.
 // The engine this replaces welded vertices and needed a normal-aware variant to
 // avoid exactly this, at a cost of a quarter more samples.
@@ -363,7 +350,7 @@ TEST (SunStudySampler, OppositeFacesOfASlabKeepSeparateSamples)
     options.spacing = 1.0;
     options.normalOffset = 0.01;
 
-    const SampleGrid grid = BuildSampleGrid (vertices.data (), 8, triangles.data (), 4, nullptr, options);
+    const SampleGrid grid = kernels::BuildSampleGrid (vertices.data (), 8, triangles.data (), 4, nullptr, options);
     ASSERT_TRUE (grid.valid);
 
     size_t up = 0, down = 0;

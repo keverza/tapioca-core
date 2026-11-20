@@ -1,13 +1,14 @@
 // A study's every store reader -- and the display packet the overlay draws --
-// against the C++ kernels over the record's own grids and atlases
+// against the reference kernels (sunstudy_reference_kernels.hpp) over the record's own grids and atlases
 // (sunstudy_kernel_oracle.hpp), after every slice, cold and through a reuse
 // rerun; and a rerun that reused samples ends where a cold study of the same
 // model ends. These replaced the C++-against-Rust flip comparison when the
 // C++ study core was deleted (P7a); the atlas-mismatch refusal is pinned too.
 
 #include "Geometry/QueryEngine.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/CpuTraversal.hpp"
-#include "SunStudy/SunStudyAtlasReuse.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyDisplayData.hpp"
 #include "SunStudy/SunStudyRaster.hpp"
 #include "SunStudy/SunStudyReuse.hpp"
@@ -90,7 +91,7 @@ SunSeries Day (size_t count)
         step.altitudeDegrees = altitude * 57.29;
         steps.push_back (step);
     }
-    return SunSeries::FromSteps (steps, 15);
+    return kernels::SeriesFromSteps (steps, 15);
 }
 
 enum class Domain { Ground, Triangle, Patch };
@@ -105,12 +106,12 @@ std::string Start (std::shared_ptr<geomsrv::Snapshot> snapshot, Domain domain,
     record->series = Day (13);
     record->gridSpacing = 1.5;
     record->traversal = std::make_shared<CpuTraversal> (std::make_shared<geomsrv::QueryEngine> (snapshot));
-    const auto roles = ResolveElementRoles (*snapshot, {}, {}, {});
+    const auto roles = kernels::ResolveElementRoles (*snapshot, {}, {}, {});
     for (const auto role : roles.roles)
         record->elementRoles.push_back (static_cast<uint8_t> (role));
     uint64_t gridVersion = 1;
     if (domain == Domain::Ground) {
-        const GroundGrid grid = MakeGroundSampleGrid ({ -12, -22, 0 }, { 22, 22, 9 }, 1.5, 2.0, 0.1);
+        const GroundGrid grid = kernels::MakeGroundSampleGrid ({ -12, -22, 0 }, { 22, 22, 9 }, 1.5, 2.0, 0.1);
         record->positions = grid.positions;
         record->normals = grid.normals;
     }
@@ -118,7 +119,7 @@ std::string Start (std::shared_ptr<geomsrv::Snapshot> snapshot, Domain domain,
         SurfaceSamplingOptions options;
         options.domain = domain == Domain::Patch ? SamplingDomain::SurfacePatch : SamplingDomain::TriangleLegacy;
         options.spacing = 1.5;
-        auto sampling = BuildSurfaceSampling (*snapshot, roles.SampleMask (), options, previous.get ());
+        auto sampling = kernels::BuildSurfaceSampling (*snapshot, roles.SampleMask (), options, previous.get ());
         record->samplingLayout = std::move (sampling.layout);
         if (domain == Domain::Patch) {
             record->domain = SamplingDomain::SurfacePatch;
@@ -126,14 +127,15 @@ std::string Start (std::shared_ptr<geomsrv::Snapshot> snapshot, Domain domain,
             record->normals = sampling.patches.normals;
             if (previous != nullptr && previous->IsPatchDomain ())
                 record->patchAtlas = previous->patchAtlas;
-            record->patchAtlas.Fit (sampling.patches, 1, 8192);
+            kernels::FitPatchAtlas (record->patchAtlas, sampling.patches, 1, 8192);
             record->patchGrid = std::move (sampling.patches);
         }
         else {
             record->positions = sampling.triangles.positions;
             record->normals = sampling.triangles.normals;
-            record->atlas = BuildStableTriangleAtlas (sampling.triangles, *snapshot, record->triangleAllocations,
-                                                      previous != nullptr ? &previous->triangleAllocations : nullptr);
+            record->atlas =
+                kernels::BuildStableTriangleAtlas (sampling.triangles, *snapshot, record->triangleAllocations,
+                                                   previous != nullptr ? &previous->triangleAllocations : nullptr);
             record->sampleGrid = std::move (sampling.triangles);
         }
         gridVersion = record->positions.size ();
@@ -290,8 +292,8 @@ TEST (SunStudyRustFlip, ACorelessSourceSeedsNothingAndAMismatchIsRefused)
     SurfaceSamplingOptions options;
     options.domain = SamplingDomain::SurfacePatch;
     options.spacing = 1.5;
-    const auto roles = ResolveElementRoles (*scene, {}, {}, {});
-    auto sampling = BuildSurfaceSampling (*scene, roles.SampleMask (), options);
+    const auto roles = kernels::ResolveElementRoles (*scene, {}, {}, {});
+    auto sampling = kernels::BuildSurfaceSampling (*scene, roles.SampleMask (), options);
     record->domain = SamplingDomain::SurfacePatch;
     record->positions = sampling.patches.positions;
     record->normals = sampling.patches.normals;

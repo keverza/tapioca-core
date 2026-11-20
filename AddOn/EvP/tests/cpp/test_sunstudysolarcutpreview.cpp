@@ -1,4 +1,5 @@
 #include "ArchViz/SunStudyObstructionGeometry.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 
 #include "MeshFixtures.hpp"
 
@@ -329,8 +330,8 @@ TEST (SunStudySolarCutPreview, WonRegionUsesTheSingleShadowTriangleLatticeAndRea
     options.spacing = 1.0;
     options.normalOffset = 0.0;
     options.wantLayouts = true;
-    const auto grid = evp::sunstudy::BuildSampleGrid (mesh.vertices.data (), mesh.VertexCount (),
-                                                      mesh.triangles.data (), mesh.TriangleCount (), nullptr, options);
+    const auto grid = evp::sunstudy::kernels::BuildSampleGrid (
+        mesh.vertices.data (), mesh.VertexCount (), mesh.triangles.data (), mesh.TriangleCount (), nullptr, options);
     ASSERT_TRUE (grid.valid);
     ASSERT_GT (grid.Count (), 8u);
     std::vector<SolarCutWonCell> surface (grid.Count ());
@@ -357,9 +358,9 @@ TEST (SunStudySolarCutPreview, WonPatchRegionClipsToItsSquareWithoutInternalEdge
     evp::sunstudy::PatchSamplerOptions options;
     options.spacing = 1.0;
     options.normalOffset = 0.0;
-    const auto grid =
-        evp::sunstudy::BuildPatchSampleGrid (mesh.vertices.data (), mesh.VertexCount (), mesh.triangles.data (),
-                                             mesh.TriangleCount (), nullptr, { "floor" }, options);
+    const auto grid = evp::sunstudy::kernels::BuildPatchSampleGrid (mesh.vertices.data (), mesh.VertexCount (),
+                                                                    mesh.triangles.data (), mesh.TriangleCount (),
+                                                                    nullptr, { "floor" }, options);
     ASSERT_TRUE (grid.valid);
     ASSERT_GT (grid.Count (), 3u);
     std::vector<SolarCutWonCell> surface (grid.Count ());

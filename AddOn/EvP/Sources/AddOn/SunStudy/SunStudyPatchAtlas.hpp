@@ -25,6 +25,10 @@
 // from. A stable address is worth far more than a tight packing, and the
 // occupancy figure is not a defect to chase.
 //
+// The fitting itself runs in the Rust core (tapioca_sunstudy::patch_atlas),
+// through kernels::FitPatchAtlas; this class holds what it produced -- the
+// allocations, the shelf cursor and the generation -- and answers lookups.
+//
 // ⚠️ NO ACAPI, NO Diligent, NO GPU TYPE -- it is arithmetic over rectangles.
 
 #include <cstdint>
@@ -32,8 +36,7 @@
 #include <string>
 #include <vector>
 
-#include "SunStudy/SunStudyCache.hpp"        // PatchKey
-#include "SunStudy/SunStudyPatchSampler.hpp" // PatchSampleGrid
+#include "SunStudy/SunStudyPatchSampler.hpp" // PatchKey, PatchSampleGrid
 
 namespace evp::sunstudy {
 
@@ -85,17 +88,9 @@ struct PatchAtlasState {
 class SunStudyPatchAtlas final {
   public:
     // The atlas `state` describes, cursor and generation included, so a later
-    // Fit continues exactly where the atlas that produced it would have.
+    // fit continues exactly where the atlas that produced it would have.
     static SunStudyPatchAtlas FromState (PatchAtlasState state);
     PatchAtlasState State () const;
-
-    // Fit `grid`'s patches, keeping every allocation whose key and lattice size
-    // are unchanged. Returns what it did.
-    //
-    // ⚠️ IDEMPOTENT ON AN UNCHANGED GRID: calling it twice with the same patches
-    // must report `retained == patches` and move nothing. A repack hiding behind
-    // an "update" is the failure mode, so the test asserts exactly that.
-    PatchAtlasUpdate Fit (const PatchSampleGrid& grid, uint32_t gutter = 1, uint32_t maxDimension = 8192);
 
     const PatchAtlasAllocation* Find (const PatchKey& key) const;
 
@@ -123,25 +118,7 @@ class SunStudyPatchAtlas final {
     // The texel index of one sample, or -1 when its patch is not placed.
     int64_t TexelOf (const PatchSampleGrid& grid, size_t sampleIndex) const;
 
-    // Scatter one PATCH's values into `image`, which must be TexelCount() long.
-    //
-    // ⚠️ ONE PATCH, NOT THE WHOLE STUDY, AND THAT IS THE POINT. The incremental
-    // path writes only the rectangles it recomputed; a whole-image scatter would
-    // touch every texel and there would be nothing partial about the upload.
-    bool ScatterPatch (const PatchSampleGrid& grid, size_t spanIndex, const std::vector<double>& hoursForSpan,
-                       std::vector<float>& image) const;
-
-    // Everything an allocation's rectangle covers, for a partial GPU upload.
-    // `out` is `width * height` floats read from `image`.
-    bool ReadRectangle (const PatchAtlasAllocation& allocation, const std::vector<float>& image,
-                        std::vector<float>& out) const;
-
-    void Clear ();
-
   private:
-    bool Place (uint32_t width, uint32_t height, uint32_t gutter, uint32_t& x, uint32_t& y);
-    void Rebuild (const PatchSampleGrid& grid, uint32_t gutter, uint32_t side);
-
     std::map<PatchKey, PatchAtlasAllocation> allocations_;
     uint32_t width_ = 0;
     uint32_t height_ = 0;

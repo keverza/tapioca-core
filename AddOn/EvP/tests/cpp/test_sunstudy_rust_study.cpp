@@ -1,6 +1,6 @@
 // Differential tests: a Rust study core built directly from the grids against
 // SunStudyStore's readers over a record built from the same inputs, and both
-// against the C++ kernels (sunstudy_kernel_oracle.hpp) recomputing every
+// against the reference kernels (sunstudy_kernel_oracle.hpp, sunstudy_reference_kernels.hpp) recomputing every
 // image, mask, summary and reading from the hours. Arrays are compared BIT FOR
 // BIT.
 //
@@ -12,8 +12,10 @@
 // results count too.
 
 #include "Geometry/QueryEngine.hpp"
+#include "SunStudy/SunStudyRust.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/CpuTraversal.hpp"
-#include "SunStudy/SunStudyAtlasReuse.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyRaster.hpp"
 #include "SunStudy/SunStudyReuse.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
@@ -118,7 +120,7 @@ SunSeries Day (size_t count)
         step.altitudeDegrees = altitude * 57.29;
         steps.push_back (step);
     }
-    return SunSeries::FromSteps (steps, 15);
+    return kernels::SeriesFromSteps (steps, 15);
 }
 
 std::shared_ptr<geomsrv::Snapshot> Scene (Lcg& lcg, int edit, const geomsrv::Snapshot* base)
@@ -180,7 +182,7 @@ Study Start (std::shared_ptr<const geomsrv::Snapshot> snapshot, Domain domain, s
     record->gridSpacing = spacing;
     record->traversal = std::make_shared<CpuTraversal> (std::make_shared<geomsrv::QueryEngine> (snapshot));
     study.traversal = record->traversal;
-    const auto roles = ResolveElementRoles (*snapshot, {}, {}, {});
+    const auto roles = kernels::ResolveElementRoles (*snapshot, {}, {}, {});
     for (const auto role : roles.roles)
         record->elementRoles.push_back (static_cast<uint8_t> (role));
     study.roles = record->elementRoles;
@@ -190,7 +192,7 @@ Study Start (std::shared_ptr<const geomsrv::Snapshot> snapshot, Domain domain, s
     uint64_t gridVersion = 0;
 
     if (domain == Domain::Ground) {
-        const GroundGrid grid = MakeGroundSampleGrid ({ -12, -22, 0 }, { 22, 22, 9 }, spacing, 2.0, 0.1);
+        const GroundGrid grid = kernels::MakeGroundSampleGrid ({ -12, -22, 0 }, { 22, 22, 9 }, spacing, 2.0, 0.1);
         record->positions = grid.positions;
         record->normals = grid.normals;
         gridVersion = grid.columns * 73856093ull ^ grid.rows * 19349663ull;
@@ -200,7 +202,7 @@ Study Start (std::shared_ptr<const geomsrv::Snapshot> snapshot, Domain domain, s
         SurfaceSamplingOptions options;
         options.domain = domain == Domain::Patch ? SamplingDomain::SurfacePatch : SamplingDomain::TriangleLegacy;
         options.spacing = spacing;
-        auto sampling = BuildSurfaceSampling (*snapshot, roles.SampleMask (), options, source);
+        auto sampling = kernels::BuildSurfaceSampling (*snapshot, roles.SampleMask (), options, source);
         EXPECT_TRUE (sampling.valid);
         record->samplingLayout = std::move (sampling.layout);
         if (domain == Domain::Patch) {
@@ -211,7 +213,7 @@ Study Start (std::shared_ptr<const geomsrv::Snapshot> snapshot, Domain domain, s
             if (source != nullptr && source->IsPatchDomain () && source->gridSpacing == spacing &&
                 source->patchAtlas.Width () <= kMaxDimension)
                 record->patchAtlas = source->patchAtlas;
-            record->patchAtlas.Fit (patches, 1, kMaxDimension);
+            kernels::FitPatchAtlas (record->patchAtlas, patches, 1, kMaxDimension);
             gridVersion = patches.Count () * 73856093ull ^ patches.spans.size () * 19349663ull;
             study.core = rs::RustStudyCore::Patch (record->series, spacing, patches, sourceCore, kMaxDimension, error);
             record->patchGrid = std::move (patches);
@@ -220,11 +222,11 @@ Study Start (std::shared_ptr<const geomsrv::Snapshot> snapshot, Domain domain, s
             auto samples = std::move (sampling.triangles);
             record->positions = samples.positions;
             record->normals = samples.normals;
-            record->atlas = BuildStableTriangleAtlas (samples, *snapshot, record->triangleAllocations,
-                                                      source != nullptr && !source->IsPatchDomain () &&
-                                                              source->gridSpacing == spacing
-                                                          ? &source->triangleAllocations
-                                                          : nullptr);
+            record->atlas = kernels::BuildStableTriangleAtlas (samples, *snapshot, record->triangleAllocations,
+                                                               source != nullptr && !source->IsPatchDomain () &&
+                                                                       source->gridSpacing == spacing
+                                                                   ? &source->triangleAllocations
+                                                                   : nullptr);
             gridVersion = samples.Count () * 73856093ull;
             rs::RustStudyCore::TriangleInputs inputs;
             inputs.grid = &samples;
@@ -559,10 +561,10 @@ TEST (SunStudyRustStudyParity, RefusalsMatchTheStore)
     SurfaceSamplingOptions options;
     options.domain = SamplingDomain::SurfacePatch;
     options.spacing = 0.25;
-    const auto roles = ResolveElementRoles (*scene, {}, {}, {});
-    const auto sampling = BuildSurfaceSampling (*scene, roles.SampleMask (), options);
+    const auto roles = kernels::ResolveElementRoles (*scene, {}, {}, {});
+    const auto sampling = kernels::BuildSurfaceSampling (*scene, roles.SampleMask (), options);
     SunStudyPatchAtlas atlas;
-    atlas.Fit (sampling.patches, 1, 32);
+    kernels::FitPatchAtlas (atlas, sampling.patches, 1, 32);
     EXPECT_EQ (atlas.Width (), 0u);
     error.clear ();
     EXPECT_EQ (rs::RustStudyCore::Patch (day, 0.25, sampling.patches, nullptr, 32, error), nullptr);
@@ -610,4 +612,15 @@ TEST (SunStudyRustStudyParity, ConcurrentAdvancesOnOneCoreNeverDoubleClaimAStep)
     size_t advanced = 0;
     ASSERT_TRUE (SunStudyStore::Get ().Advance (study.id, 64, 1, 0.001, 0.0, advanced, error)) << error;
     ExpectSameReads (study, "concurrent");
+}
+
+// The linked archive speaks this header's sun-study ABI (moved from the deleted
+// C++/Rust parity file, P7b).
+TEST (SunStudyRustAbi, TheArchiveSpeaksThisHeadersVersion)
+{
+    uint32_t version = 0;
+    std::string error;
+    ASSERT_TRUE (evp::sunstudy::rust::ReadAbiVersion (version, error)) << error;
+    EXPECT_EQ (version, TAPIOCA_SUNSTUDY_ABI_VERSION);
+    EXPECT_EQ (version, 4u); // v4: the analysis cylinder in the sampling records; v3 annual archive (#152)
 }

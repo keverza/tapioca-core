@@ -13,6 +13,7 @@
 // UTC+1 on 21 March), _SPACING (default 1.0).
 
 #include "ArchViz/SunStudyObstructionController.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/SunStudyOccluders.hpp"
@@ -107,7 +108,7 @@ SunSeries Day (double latitude, double longitude, double zone, int timestep)
         step.direction[2] = std::sin (altitude);
         steps.push_back (step);
     }
-    return SunSeries::FromSteps (steps, timestep);
+    return kernels::SeriesFromSteps (steps, timestep);
 }
 
 // The replay study: a patch-domain day study over the scene, advanced to the
@@ -125,21 +126,21 @@ std::string ReplayStudy (const std::shared_ptr<geomsrv::Snapshot>& snapshot, int
     record->hourFrom = 0;
     record->hourTo = 24;
     record->gridSpacing = spacing;
-    const auto roles = ResolveElementRoles (*snapshot, {}, {}, {});
+    const auto roles = kernels::ResolveElementRoles (*snapshot, {}, {}, {});
     for (const auto role : roles.roles)
         record->elementRoles.push_back (uint8_t (role));
     SurfaceSamplingOptions options;
     options.domain = SamplingDomain::SurfacePatch;
     options.spacing = spacing;
     options.normalOffset = 0.10;
-    auto sampling = BuildSurfaceSampling (*snapshot, roles.SampleMask (), options);
+    auto sampling = kernels::BuildSurfaceSampling (*snapshot, roles.SampleMask (), options);
     if (!sampling.valid)
         return {};
     record->samplingLayout = std::move (sampling.layout);
     record->domain = SamplingDomain::SurfacePatch;
     record->positions = sampling.patches.positions;
     record->normals = sampling.patches.normals;
-    record->patchAtlas.Fit (sampling.patches, 1, 8192);
+    kernels::FitPatchAtlas (record->patchAtlas, sampling.patches, 1, 8192);
     record->patchGrid = std::move (sampling.patches);
     record->occluders = BuildSunStudyOccluders (*snapshot, roles);
     record->traversal =

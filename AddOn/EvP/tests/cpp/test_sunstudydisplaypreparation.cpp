@@ -1,6 +1,8 @@
 #include "ArchViz/SunStudyDisplayAssembler.hpp"
+#include "sunstudy_reference_kernels.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyDisplayData.hpp"
-#include "SunStudy/SunStudyAtlasReuse.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include "MeshFixtures.hpp"
 #include "sunstudy_core_fixture.hpp"
@@ -27,24 +29,24 @@ std::unique_ptr<StudyRecord> Record (bool patch = false)
     SurfaceSamplingOptions options;
     options.domain = record->domain;
     options.spacing = record->gridSpacing;
-    auto sampling = BuildSurfaceSampling (*snapshot, { 1 }, options);
+    auto sampling = kernels::BuildSurfaceSampling (*snapshot, { 1 }, options);
     record->sampleGrid = std::move (sampling.triangles);
     record->patchGrid = std::move (sampling.patches);
     if (patch) {
         record->positions = record->patchGrid.positions;
         record->normals = record->patchGrid.normals;
-        record->patchAtlas.Fit (record->patchGrid);
+        kernels::FitPatchAtlas (record->patchAtlas, record->patchGrid);
     }
     else {
         record->positions = record->sampleGrid.positions;
         record->normals = record->sampleGrid.normals;
-        record->atlas = BuildStableTriangleAtlas (record->sampleGrid, *snapshot, record->triangleAllocations);
+        record->atlas = kernels::BuildStableTriangleAtlas (record->sampleGrid, *snapshot, record->triangleAllocations);
     }
     SunStep step;
     step.time = { 12, 0 };
     step.altitudeDegrees = 90.0;
     step.direction[2] = 1.0;
-    record->series = SunSeries::FromSteps ({ step, step, step }, 15);
+    record->series = kernels::SeriesFromSteps ({ step, step, step }, 15);
     record->traversal = std::make_shared<CpuTraversal> (std::make_shared<geomsrv::QueryEngine> (snapshot));
     AttachTestCore (*record, { 1, record->series.Version (), 1 }, snapshot.get ());
     return record;
@@ -183,7 +185,7 @@ TEST (SunStudyDisplayPreparation, SummaryAndOptionalCopiesPreserveExactLegacyNum
     EXPECT_TRUE (normals.empty ());
     SunStudyResultSummary summary;
     ASSERT_TRUE (store.Summary (id, summary, error));
-    const auto expected = SummarizeSunHours (hours, 0.75);
+    const auto expected = evp::sunstudy::reference::SummarizeSunHours (hours, 0.75);
     EXPECT_EQ (summary.count, hours.size ());
     EXPECT_EQ (summary.fullyLit, expected.fullyLit);
     EXPECT_EQ (summary.fullyShaded, expected.fullyShaded);
@@ -196,7 +198,7 @@ TEST (SunStudyDisplayPreparation, SummaryAndOptionalCopiesPreserveExactLegacyNum
     store.Clear ();
 }
 
-TEST (SunStudyDisplayPreparation, MultiwordDaysKeepEveryBinaryStepAndCancelledPackingDiscardsTheWholeImage)
+TEST (SunStudyDisplayPreparation, MultiwordDaysKeepEveryBinaryStep)
 {
     for (bool patch : { false, true }) {
         auto record = Record (patch);
@@ -207,7 +209,7 @@ TEST (SunStudyDisplayPreparation, MultiwordDaysKeepEveryBinaryStepAndCancelledPa
             day[step].direction[0] = step % 2 == 0 ? 1.0 : -1.0;
             day[step].direction[2] = 1.0;
         }
-        record->series = SunSeries::FromSteps (day, 15);
+        record->series = kernels::SeriesFromSteps (day, 15);
         record->rustCore.reset (); // the core is made for one day
         ASSERT_TRUE (AttachTestCore (*record, { 1, record->series.Version (), 1 }, record->snapshot.get ()));
         ASSERT_EQ (AdvanceTestCore (*record, 65), 65u);
@@ -239,20 +241,6 @@ TEST (SunStudyDisplayPreparation, MultiwordDaysKeepEveryBinaryStepAndCancelledPa
                            lit[sample * 65 + step] != 0 ? 1u : 0u);
         }
     }
-    std::vector<int64_t> texels (5000);
-    for (size_t sample = 0; sample < texels.size (); ++sample)
-        texels[sample] = static_cast<int64_t> (sample);
-    size_t polls = 0, reads = 0;
-    const auto cancelled = PackStepMasks (
-        5000, 65,
-        [&] (size_t, size_t) {
-            ++reads;
-            return true;
-        },
-        texels, 128, 64, [&] { return ++polls >= 3; });
-    EXPECT_TRUE (cancelled.masks.empty ());
-    EXPECT_EQ (cancelled.width, 0u);
-    EXPECT_EQ (reads, 1024u * 65u);
 }
 
 TEST (SunStudyDisplayPreparation, CancelledPartialDayRefreshNeverReplacesThePriorCache)

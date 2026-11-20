@@ -60,7 +60,7 @@ ViewpointOptions Eye ()
 TEST (ViewpointCollisions, EveryRayNamesTheContextElementThatStoppedIt)
 {
     const auto snapshot = Scene ();
-    const auto result = RunViewpointStudy (snapshot, { kNear, kFar }, Eye ());
+    const auto result = RunSelectedViewpointStudy (snapshot, { kNear, kFar }, Eye ());
     ASSERT_TRUE (result.valid) << result.error;
     ASSERT_EQ (result.rayMesh.size (), result.perimeter.size ());
     size_t stopped = 0;
@@ -80,7 +80,7 @@ TEST (ViewpointCollisions, EveryRayNamesTheContextElementThatStoppedIt)
     EXPECT_EQ (result.rayMesh[90], 1) << "due north is the far box";
     EXPECT_EQ (result.rayMesh[180], -1) << "due west passes the ignored box";
 
-    const auto open = RunViewpointStudy (snapshot, {}, Eye ());
+    const auto open = RunSelectedViewpointStudy (snapshot, {}, Eye ());
     ASSERT_TRUE (open.valid);
     EXPECT_TRUE (std::all_of (open.rayMesh.begin (), open.rayMesh.end (), [] (int64_t m) { return m == -1; }));
 }
@@ -88,7 +88,7 @@ TEST (ViewpointCollisions, EveryRayNamesTheContextElementThatStoppedIt)
 TEST (ViewpointCollisions, BlockersAreSummarisedMostRaysFirst)
 {
     const auto snapshot = Scene ();
-    const auto result = RunViewpointStudy (snapshot, { kFar, kNear }, Eye ());
+    const auto result = RunSelectedViewpointStudy (snapshot, { kFar, kNear }, Eye ());
     ASSERT_TRUE (result.valid) << result.error;
     const auto blockers = ViewpointBlockers (result, *snapshot);
     ASSERT_EQ (blockers.size (), 2u);
@@ -126,7 +126,7 @@ TEST (ViewpointCollisions, ArcsGroupConsecutiveRaysAndWrapAroundRayZero)
     EXPECT_EQ (wrapped->first, 6u);
     EXPECT_EQ (wrapped->count, 4u);
 
-    const auto study = RunViewpointStudy (Scene (), { kNear, kFar }, Eye ());
+    const auto study = RunSelectedViewpointStudy (Scene (), { kNear, kFar }, Eye ());
     ASSERT_TRUE (study.valid);
     size_t blocked = 0;
     for (const auto& arc : ViewpointArcs (study.rayMesh))

@@ -1,4 +1,5 @@
 #include "MeshFixtures.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudySurfaceSampling.hpp"
 #include "SunStudy/SunStudyReuse.hpp"
 
@@ -47,8 +48,9 @@ SurfaceSamplingResult WholeScene (const geomsrv::Snapshot& scene, const std::vec
                 faces.insert (faces.end (), faceMasks[mesh].begin (), faceMasks[mesh].end ());
         }
     }
-    const auto oriented = OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (),
-                                         triangles.size () / 3, groups.data (), groups.size (), result.winding);
+    const auto oriented =
+        kernels::OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (), triangles.size () / 3,
+                                groups.data (), groups.size (), result.winding);
     if (settings.domain == SamplingDomain::SurfacePatch) {
         PatchSamplerOptions options;
         options.spacing = settings.spacing;
@@ -56,8 +58,8 @@ SurfaceSamplingResult WholeScene (const geomsrv::Snapshot& scene, const std::vec
         options.maxSamples = settings.maxSamples;
         options.sampleGroup = &mask;
         options.sampleFace = faceMasks.empty () ? nullptr : &faces;
-        result.patches = BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
-                                               oriented.size () / 3, groups.data (), elements, options);
+        result.patches = kernels::BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
+                                                        oriented.size () / 3, groups.data (), elements, options);
         result.valid = result.patches.valid;
     }
     else {
@@ -69,8 +71,8 @@ SurfaceSamplingResult WholeScene (const geomsrv::Snapshot& scene, const std::vec
         options.wantLayouts = true;
         options.sampleGroup = &mask;
         options.sampleFace = faceMasks.empty () ? nullptr : &faces;
-        result.triangles = BuildSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
-                                            oriented.size () / 3, groups.data (), options);
+        result.triangles = kernels::BuildSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
+                                                     oriented.size () / 3, groups.data (), options);
         result.valid = result.triangles.valid;
     }
     return result;
@@ -175,7 +177,7 @@ TEST_P (SurfaceSampling, ColdAndUnchangedMaterialOnlyMatchWholeSceneExactly)
 {
     auto scene = Scene ();
     const auto options = Options ();
-    auto cold = BuildSurfaceSampling (*scene, { 1, 1, 1 }, options);
+    auto cold = kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options);
     ExpectSame (cold, WholeScene (*scene, { 1, 1, 1 }, options));
     EXPECT_EQ (cold.rebuiltMeshes, 3u);
     EXPECT_EQ (cold.reusedMeshes, 0u);
@@ -185,7 +187,7 @@ TEST_P (SurfaceSampling, ColdAndUnchangedMaterialOnlyMatchWholeSceneExactly)
     next->meshes[0].triMaterial.assign (12, 42);
     next->meshes[0].normals.assign (24, 0.5); // sampling uses geometric normals
     next->meshes[0].bounds = {};              // bounds do not define the grid
-    const auto warm = BuildSurfaceSampling (*next, { 1, 1, 1 }, options, source.get ());
+    const auto warm = kernels::BuildSurfaceSampling (*next, { 1, 1, 1 }, options, source.get ());
     ExpectSame (warm, WholeScene (*next, { 1, 1, 1 }, options));
     EXPECT_EQ (warm.reusedMeshes, 3u);
     EXPECT_EQ (warm.rebuiltMeshes, 0u);
@@ -197,7 +199,7 @@ TEST_P (SurfaceSampling, MoveAddDeleteReorderAndExactSubQuantumEditRebaseAllMapp
 {
     const auto scene = Scene ();
     const auto options = Options ();
-    const auto source = Record (scene, BuildSurfaceSampling (*scene, { 1, 1, 1 }, options));
+    const auto source = Record (scene, kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options));
     for (int edit = 0; edit < 6; ++edit) {
         SCOPED_TRACE (edit);
         auto next = *scene;
@@ -212,7 +214,7 @@ TEST_P (SurfaceSampling, MoveAddDeleteReorderAndExactSubQuantumEditRebaseAllMapp
         if (edit == 5)
             std::swap (next.meshes[1].triangles[0], next.meshes[1].triangles[1]);
         const std::vector<uint8_t> mask (next.meshes.size (), 1);
-        const auto result = BuildSurfaceSampling (next, mask, options, source.get ());
+        const auto result = kernels::BuildSurfaceSampling (next, mask, options, source.get ());
         ExpectSame (result, WholeScene (next, mask, options));
         EXPECT_EQ (result.rebuiltMeshes, edit == 2 || edit == 3 ? 0u : 1u);
         EXPECT_EQ (result.reusedMeshes + result.rebuiltMeshes, next.meshes.size ());
@@ -220,7 +222,7 @@ TEST_P (SurfaceSampling, MoveAddDeleteReorderAndExactSubQuantumEditRebaseAllMapp
         EXPECT_EQ (result.reusedSamples + result.generatedSamples, result.triangles.Count () + result.patches.Count ());
         if (GetParam () == SamplingDomain::SurfacePatch) {
             SunStudyPatchAtlas atlas;
-            atlas.Fit (result.patches);
+            kernels::FitPatchAtlas (atlas, result.patches);
             EXPECT_EQ (atlas.AllocationCount (), result.patches.spans.size ());
             std::set<int64_t> texels;
             for (size_t sample = 0; sample < result.patches.Count (); ++sample) {
@@ -230,8 +232,8 @@ TEST_P (SurfaceSampling, MoveAddDeleteReorderAndExactSubQuantumEditRebaseAllMapp
             }
         }
         else {
-            const auto atlas = BuildSunStudyAtlas (result.triangles);
-            const auto fresh = BuildSunStudyAtlas (WholeScene (next, mask, options).triangles);
+            const auto atlas = kernels::BuildSunStudyAtlas (result.triangles);
+            const auto fresh = kernels::BuildSunStudyAtlas (WholeScene (next, mask, options).triangles);
             EXPECT_EQ (atlas.texels, fresh.texels);
         }
     }
@@ -242,10 +244,10 @@ TEST_P (SurfaceSampling, CanonicalGuidRewritesPatchSpellingWithoutResampling)
     auto scene = Scene ();
     scene->meshes[1].guid = "{ABC-def}";
     const auto options = Options ();
-    const auto source = Record (scene, BuildSurfaceSampling (*scene, { 1, 1, 1 }, options));
+    const auto source = Record (scene, kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options));
     auto next = *scene;
     next.meshes[1].guid = "abc-DEF";
-    const auto result = BuildSurfaceSampling (next, { 1, 1, 1 }, options, source.get ());
+    const auto result = kernels::BuildSurfaceSampling (next, { 1, 1, 1 }, options, source.get ());
     ExpectSame (result, WholeScene (next, { 1, 1, 1 }, options));
     EXPECT_EQ (result.reusedMeshes, 3u);
 }
@@ -254,9 +256,9 @@ TEST_P (SurfaceSampling, RoleExclusionRestorationAndAllExcludedPreserveValidity)
 {
     const auto scene = Scene ();
     const auto options = Options ();
-    const auto source = Record (scene, BuildSurfaceSampling (*scene, { 0, 1, 1 }, options));
+    const auto source = Record (scene, kernels::BuildSurfaceSampling (*scene, { 0, 1, 1 }, options));
     for (const auto mask : { std::vector<uint8_t> { 0, 1, 1 }, { 1, 1, 1 }, { 0, 0, 1 }, { 0, 0, 0 } }) {
-        const auto result = BuildSurfaceSampling (*scene, mask, options, source.get ());
+        const auto result = kernels::BuildSurfaceSampling (*scene, mask, options, source.get ());
         ExpectSame (result, WholeScene (*scene, mask, options));
         if (result.valid)
             EXPECT_EQ (result.rebuiltMeshes, static_cast<size_t> (mask[0] != 0) + static_cast<size_t> (mask[1] == 0) +
@@ -272,10 +274,10 @@ TEST_P (SurfaceSampling, EmptyDegenerateAndCentroidMeshesDoNotInvalidateOtherRec
     scene->meshes.push_back (MakeSliverTriangle ());
     const auto options = Options ();
     const std::vector<uint8_t> mask (scene->meshes.size (), 1);
-    const auto cold = BuildSurfaceSampling (*scene, mask, options);
+    const auto cold = kernels::BuildSurfaceSampling (*scene, mask, options);
     ExpectSame (cold, WholeScene (*scene, mask, options));
     const auto source = Record (scene, cold);
-    const auto warm = BuildSurfaceSampling (*scene, mask, options, source.get ());
+    const auto warm = kernels::BuildSurfaceSampling (*scene, mask, options, source.get ());
     ExpectSame (warm, WholeScene (*scene, mask, options));
     EXPECT_EQ (warm.reusedMeshes, scene->meshes.size ());
     EXPECT_EQ (warm.generatedSamples, 0u);
@@ -285,7 +287,7 @@ TEST_P (SurfaceSampling, SettingsChangesRebuildAndGlobalCapRefusesRatherThanTrun
 {
     const auto scene = Scene ();
     const auto options = Options ();
-    const auto source = Record (scene, BuildSurfaceSampling (*scene, { 1, 1, 1 }, options));
+    const auto source = Record (scene, kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options));
     for (int setting = 0; setting < 4; ++setting) {
         auto changed = options;
         if (setting == 0)
@@ -297,7 +299,7 @@ TEST_P (SurfaceSampling, SettingsChangesRebuildAndGlobalCapRefusesRatherThanTrun
         if (setting == 3)
             changed.domain = GetParam () == SamplingDomain::SurfacePatch ? SamplingDomain::TriangleLegacy
                                                                          : SamplingDomain::SurfacePatch;
-        const auto result = BuildSurfaceSampling (*scene, { 1, 1, 1 }, changed, source.get ());
+        const auto result = kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, changed, source.get ());
         ExpectSame (result, WholeScene (*scene, { 1, 1, 1 }, changed));
         EXPECT_EQ (result.reusedMeshes, 0u);
     }
@@ -307,7 +309,7 @@ TEST_P (SurfaceSampling, SettingsChangesRebuildAndGlobalCapRefusesRatherThanTrun
         changed.maxSamples = cap;
         for (const StudyRecord* previous :
              { static_cast<const StudyRecord*> (nullptr), static_cast<const StudyRecord*> (source.get ()) }) {
-            const auto result = BuildSurfaceSampling (*scene, { 1, 1, 1 }, changed, previous);
+            const auto result = kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, changed, previous);
             EXPECT_EQ (result.valid, cap >= count);
             if (cap >= count)
                 ExpectSame (result, WholeScene (*scene, { 1, 1, 1 }, changed));
@@ -325,10 +327,10 @@ TEST_P (SurfaceSampling, JitterKeepsGlobalFaceIdentityAndOnlyRebuildsChangedSeed
     const auto scene = Scene ();
     auto options = Options ();
     options.jitter = 0.7;
-    const auto source = Record (scene, BuildSurfaceSampling (*scene, { 1, 1, 1 }, options));
+    const auto source = Record (scene, kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options));
     auto next = *scene;
     std::reverse (next.meshes.begin (), next.meshes.end ());
-    const auto result = BuildSurfaceSampling (next, { 1, 1, 1 }, options, source.get ());
+    const auto result = kernels::BuildSurfaceSampling (next, { 1, 1, 1 }, options, source.get ());
     ExpectSame (result, WholeScene (next, { 1, 1, 1 }, options));
     EXPECT_EQ (result.reusedMeshes, GetParam () == SamplingDomain::SurfacePatch ? 3u : 1u);
 }
@@ -337,7 +339,7 @@ TEST_P (SurfaceSampling, AmbiguousGuidsAndMalformedMetadataRebuildWithoutGuessin
 {
     const auto scene = Scene ();
     const auto options = Options ();
-    const auto source = Record (scene, BuildSurfaceSampling (*scene, { 1, 1, 1 }, options));
+    const auto source = Record (scene, kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options));
     for (int bad = 0; bad < 7; ++bad) {
         SCOPED_TRACE (bad);
         StudyRecord damaged;
@@ -371,13 +373,13 @@ TEST_P (SurfaceSampling, AmbiguousGuidsAndMalformedMetadataRebuildWithoutGuessin
             ambiguous->meshes[2].guid = "{NEAR}";
             damaged.snapshot = ambiguous;
         }
-        const auto result = BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, &damaged);
+        const auto result = kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, &damaged);
         ExpectSame (result, WholeScene (*scene, { 1, 1, 1 }, options));
         EXPECT_GT (result.rebuiltMeshes, 0u);
     }
     auto ambiguous = *scene;
     ambiguous.meshes[2].guid = "near";
-    const auto result = BuildSurfaceSampling (ambiguous, { 1, 1, 1 }, options, source.get ());
+    const auto result = kernels::BuildSurfaceSampling (ambiguous, { 1, 1, 1 }, options, source.get ());
     ExpectSame (result, WholeScene (ambiguous, { 1, 1, 1 }, options));
     EXPECT_FALSE (result.layout.valid);
     EXPECT_EQ (result.reusedMeshes, 0u);
@@ -387,11 +389,11 @@ TEST_P (SurfaceSampling, CancellationAndMalformedInputsPublishNoPartialGrid)
 {
     const auto scene = Scene ();
     const auto options = Options ();
-    const auto source = Record (scene, BuildSurfaceSampling (*scene, { 1, 1, 1 }, options));
+    const auto source = Record (scene, kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options));
     for (size_t cancelAt = 1; cancelAt <= 7; ++cancelAt) {
         size_t checks = 0;
-        const auto result =
-            BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, source.get (), [&] { return ++checks >= cancelAt; });
+        const auto result = kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, source.get (),
+                                                           [&] { return ++checks >= cancelAt; });
         EXPECT_FALSE (result.valid);
         EXPECT_FALSE (result.layout.valid);
         EXPECT_EQ (result.triangles.Count (), 0u);
@@ -407,9 +409,9 @@ TEST_P (SurfaceSampling, CancellationAndMalformedInputsPublishNoPartialGrid)
             damaged.meshes[0].triangles[0] = UINT32_MAX;
         if (bad == 3)
             damaged.meshes[0].vertices[0] = std::numeric_limits<double>::quiet_NaN ();
-        EXPECT_FALSE (BuildSurfaceSampling (damaged, { 1, 1, 1 }, options, source.get ()).valid);
+        EXPECT_FALSE (kernels::BuildSurfaceSampling (damaged, { 1, 1, 1 }, options, source.get ()).valid);
     }
-    EXPECT_FALSE (BuildSurfaceSampling (*scene, {}, options).valid);
+    EXPECT_FALSE (kernels::BuildSurfaceSampling (*scene, {}, options).valid);
 }
 
 TEST_P (SurfaceSampling, FaceReceiverChangesRebuildOnlyTheirMeshAndNeverMergeIntoContext)
@@ -419,19 +421,19 @@ TEST_P (SurfaceSampling, FaceReceiverChangesRebuildOnlyTheirMeshAndNeverMergeInt
     faces[0].assign (12, 0);
     faces[0][2] = faces[0][3] = 1; // top glass; sides and bottom remain context
     const auto options = Options ();
-    auto cold = BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, nullptr, {}, faces);
+    auto cold = kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, nullptr, {}, faces);
     ExpectSame (cold, WholeScene (*scene, { 1, 1, 1 }, options, faces));
     const auto source = Record (scene, std::move (cold));
-    const auto warm = BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, source.get (), {}, faces);
+    const auto warm = kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, source.get (), {}, faces);
     ExpectSame (warm, WholeScene (*scene, { 1, 1, 1 }, options, faces));
     EXPECT_EQ (warm.reusedMeshes, 3u);
     faces[0][0] = 1;
-    const auto changed = BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, source.get (), {}, faces);
+    const auto changed = kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, source.get (), {}, faces);
     ExpectSame (changed, WholeScene (*scene, { 1, 1, 1 }, options, faces));
     EXPECT_EQ (changed.reusedMeshes, 2u);
     EXPECT_EQ (changed.rebuiltMeshes, 1u);
     faces[0].pop_back ();
-    EXPECT_FALSE (BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, source.get (), {}, faces).valid);
+    EXPECT_FALSE (kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, source.get (), {}, faces).valid);
 }
 
 INSTANTIATE_TEST_SUITE_P (Domains, SurfaceSampling,

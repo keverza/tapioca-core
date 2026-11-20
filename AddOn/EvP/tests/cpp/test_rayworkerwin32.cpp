@@ -5,6 +5,7 @@
 // that a dead, missing or refusing worker becomes a CPU fallback with a reason.
 
 #include "RayWorker/RayWorkerClient.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "RayWorker/RayWorkerPacket.hpp"
 #include "RayWorker/RayWorkerService.hpp"
 #include "RayWorker/RayWorkerTraversal.hpp"
@@ -549,7 +550,7 @@ std::vector<uint8_t> RunStudyThroughTheStore (const TraversalFixture& f,
         std::copy (&day[k * 3], &day[k * 3] + 3, steps[k].direction);
         steps[k].altitudeDegrees = 20.0;
     }
-    record->series = SunSeries::FromSteps (steps, 60);
+    record->series = kernels::SeriesFromSteps (steps, 60);
     record->traversal = std::move (traversal);
     record->timestepMinutes = 60;
     record->gridSpacing = 1.0;

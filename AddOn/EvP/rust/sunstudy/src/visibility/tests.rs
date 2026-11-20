@@ -1,5 +1,6 @@
 //! Refusal order and scoring against a fake index; parity with the C++ study
-//! over a real BVH is in `tests/cpp/test_sunstudy_rust_views.cpp`.
+//! over a real BVH is `tests/cpp/test_visibilitystudy.cpp` (the C++ study it was
+//! pinned to bit for bit was deleted in P7b).
 
 use super::*;
 use crate::rays::{FirstHitRay, OcclusionRay, RayHit};

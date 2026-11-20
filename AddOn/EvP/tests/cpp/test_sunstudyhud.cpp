@@ -2,6 +2,7 @@
 // and the run form, DiligentHudSunRun.cpp): its widget IDs and the shadow
 // views' hover text (#116).
 #include "ArchViz/DiligentHud.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/SunPathCompass.hpp"
@@ -363,8 +364,8 @@ std::string InsertPointDayStudy (bool advance = true, evp::sunstudy::StudyRecord
     record->positions = { 0.0, 0.0, 0.0, 10.0, 0.0, 0.0 };
     record->normals = { 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 };
     record->timestepMinutes = 60;
-    record->occluders =
-        evp::sunstudy::BuildSunStudyOccluders (*snapshot, evp::sunstudy::ResolveElementRoles (*snapshot, {}, {}, {}));
+    record->occluders = evp::sunstudy::BuildSunStudyOccluders (
+        *snapshot, evp::sunstudy::kernels::ResolveElementRoles (*snapshot, {}, {}, {}));
     record->traversal = std::make_shared<evp::sunstudy::CpuTraversal> (record->occluders->analysis);
     std::vector<evp::sunstudy::SunStep> steps (4);
     for (size_t index = 0; index < steps.size (); ++index) {
@@ -372,7 +373,7 @@ std::string InsertPointDayStudy (bool advance = true, evp::sunstudy::StudyRecord
         steps[index].direction[2] = 1.0;
         steps[index].altitudeDegrees = 45.0;
     }
-    record->series = evp::sunstudy::SunSeries::FromSteps (steps, 60);
+    record->series = evp::sunstudy::kernels::SeriesFromSteps (steps, 60);
     evp::sunstudy::StudyInputs inputs;
     inputs.geometryVersion = snapshot->id;
     inputs.sunVersion = record->series.Version ();

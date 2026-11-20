@@ -111,12 +111,9 @@ ViewpointPlanContour ViewpointBakeContour (const ViewpointStudyResult& result, d
 // canonical form; order otherwise kept). Returns true when it was added.
 bool ToggleViewpointContext (std::vector<std::string>& context, const std::string& guid);
 
-ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,
-                                        const std::vector<std::string>& context, const ViewpointOptions& options,
-                                        const std::function<bool ()>& isCancelled = {});
-
-// RunViewpointStudy on the Rust policy when this build links it, which returns the
-// same result through the same C++ query index; the C++ body otherwise.
+// The isovist, run by the Rust core (tapioca_sunstudy::viewpoint, seen surfaces
+// included) over the snapshot's shared C++ query index. A build without the
+// Rust core refuses it ("this build has no sun-study core").
 ViewpointStudyResult RunSelectedViewpointStudy (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,
                                                 const std::vector<std::string>& context,
                                                 const ViewpointOptions& options,

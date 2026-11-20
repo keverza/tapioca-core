@@ -1,5 +1,5 @@
-//! The core's contracts; bit parity with `SunStudyStore` is proven in
-//! `tests/cpp/test_sunstudy_rust_parity.cpp`.
+//! The core's contracts; the store's readers over it are checked against
+//! the reference kernels in `tests/cpp/test_sunstudy_rust_study.cpp`.
 
 use super::*;
 use crate::occlusion::{DirectionalQuery, StepOptions, Traversal, TraversalError};

@@ -12,15 +12,14 @@
 #include <vector>
 
 #include "ArchViz/SceneCmdQueue.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "gtest/gtest.h"
 
 using namespace geomsrv::archviz;
-using evp::sunstudy::BuildSampleGrid;
-using evp::sunstudy::BuildSunStudyAtlas;
+namespace kernels = evp::sunstudy::kernels;
 using evp::sunstudy::SampleGrid;
 using evp::sunstudy::SamplerOptions;
-using evp::sunstudy::ScatterToAtlas;
 using evp::sunstudy::SunStudyAtlas;
 
 namespace {
@@ -46,8 +45,8 @@ SampleGrid SampleQuad (const Quad& quad, double spacing)
     // along z would be testing the lift rather than the mapping.
     options.normalOffset = 0.0;
     options.wantLayouts = true;
-    return BuildSampleGrid (quad.vertices.data (), quad.vertices.size () / 3, quad.triangles.data (),
-                            quad.triangles.size () / 3, nullptr, options);
+    return kernels::BuildSampleGrid (quad.vertices.data (), quad.vertices.size () / 3, quad.triangles.data (),
+                                     quad.triangles.size () / 3, nullptr, options);
 }
 
 } // namespace
@@ -60,7 +59,7 @@ TEST (SunStudyOverlay, OneRecordPerRenderedTriangle)
 {
     const Quad quad;
     const SampleGrid grid = SampleQuad (quad, 1.0);
-    const SunStudyAtlas atlas = BuildSunStudyAtlas (grid);
+    const SunStudyAtlas atlas = kernels::BuildSunStudyAtlas (grid);
     ASSERT_TRUE (atlas.valid);
 
     SunStudyElementMap map;
@@ -81,7 +80,7 @@ TEST (SunStudyOverlay, EverySampleMapsBackToItsOwnTexel)
 {
     const Quad quad;
     const SampleGrid grid = SampleQuad (quad, 1.0);
-    const SunStudyAtlas atlas = BuildSunStudyAtlas (grid);
+    const SunStudyAtlas atlas = kernels::BuildSunStudyAtlas (grid);
     ASSERT_TRUE (atlas.valid);
     ASSERT_GT (grid.Count (), 0u);
 
@@ -107,7 +106,7 @@ TEST (SunStudyOverlay, NeighbouringFacesNeverShareATexel)
 {
     const Quad quad;
     const SampleGrid grid = SampleQuad (quad, 1.0);
-    const SunStudyAtlas atlas = BuildSunStudyAtlas (grid);
+    const SunStudyAtlas atlas = kernels::BuildSunStudyAtlas (grid);
     ASSERT_TRUE (atlas.valid);
 
     SunStudyElementMap map;
@@ -149,7 +148,7 @@ TEST (SunStudyOverlay, PointsOutsideTheFaceClampInsideItsOwnTile)
     // as a one-texel unshaded seam along every element edge.
     const Quad quad;
     const SampleGrid grid = SampleQuad (quad, 1.0);
-    const SunStudyAtlas atlas = BuildSunStudyAtlas (grid);
+    const SunStudyAtlas atlas = kernels::BuildSunStudyAtlas (grid);
     ASSERT_TRUE (atlas.valid);
 
     SunStudyElementMap map;
@@ -181,7 +180,7 @@ TEST (SunStudyOverlay, FaceRecordsFollowTheMaterialReordering)
     // of a building whose surfaces have been shuffled.
     const Quad quad;
     const SampleGrid grid = SampleQuad (quad, 1.0);
-    const SunStudyAtlas atlas = BuildSunStudyAtlas (grid);
+    const SunStudyAtlas atlas = kernels::BuildSunStudyAtlas (grid);
     ASSERT_TRUE (atlas.valid);
 
     SunStudyElementMap identity;
@@ -222,7 +221,7 @@ TEST (SunStudyOverlay, TheSideCarCarriesTheHashOfTheBufferTheViewerWouldDraw)
     // through one permutation is wrong for the other.
     const Quad quad;
     const SampleGrid grid = SampleQuad (quad, 1.0);
-    const SunStudyAtlas atlas = BuildSunStudyAtlas (grid);
+    const SunStudyAtlas atlas = kernels::BuildSunStudyAtlas (grid);
     ASSERT_TRUE (atlas.valid);
 
     SunStudyElementMap identity;
@@ -250,7 +249,7 @@ TEST (SunStudyOverlay, ElementOutsideTheStudyIsRefused)
 {
     const Quad quad;
     const SampleGrid grid = SampleQuad (quad, 1.0);
-    const SunStudyAtlas atlas = BuildSunStudyAtlas (grid);
+    const SunStudyAtlas atlas = kernels::BuildSunStudyAtlas (grid);
     ASSERT_TRUE (atlas.valid);
 
     SunStudyElementMap map;
@@ -276,7 +275,7 @@ TEST (SunStudyOverlay, TheRoleSideCarIsTheHoursSideCarsShapeWithOneRoleEverywher
     const Quad quad;
     const std::vector<int32_t> materials { 1, 0 }; // a real permutation
     const SampleGrid grid = SampleQuad (quad, 1.0);
-    const SunStudyAtlas atlas = BuildSunStudyAtlas (grid);
+    const SunStudyAtlas atlas = kernels::BuildSunStudyAtlas (grid);
     SunStudyElementMap hours;
     ASSERT_TRUE (BuildSunStudyElementMap (atlas.tiles, grid.layouts, 1.0, quad.triangles, materials, 0, hours));
 
@@ -309,13 +308,13 @@ TEST (SunStudyOverlay, ZeroHoursIsNotTheEmptySentinel)
 {
     const Quad quad;
     const SampleGrid grid = SampleQuad (quad, 1.0);
-    const SunStudyAtlas atlas = BuildSunStudyAtlas (grid);
+    const SunStudyAtlas atlas = kernels::BuildSunStudyAtlas (grid);
     ASSERT_TRUE (atlas.valid);
 
     // Every sample measured nought hours — a north-facing wall in December is
     // exactly this, and it is a RESULT.
     const std::vector<double> hours (grid.Count (), 0.0);
-    const std::vector<float> image = ScatterToAtlas (atlas, hours, -1.0f);
+    const std::vector<float> image = kernels::ScatterToAtlas (atlas, hours, -1.0f);
     ASSERT_EQ (image.size (), atlas.TexelCount ());
 
     SunStudyElementMap map;

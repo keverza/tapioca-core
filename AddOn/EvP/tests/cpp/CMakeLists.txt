@@ -175,13 +175,10 @@ set (EVP_GRASSHOPPER_SOURCES
 # viewport, the WebGL study page and a headless run share one engine -- and what
 # puts the whole of it under this offline gate rather than behind a live Archicad
 # run. SunStudyRaster.cpp is the shadow camera's arithmetic, transcribed from
-# private/Commands/SunStudy/sunraster.py; test_sunstudyraster.cpp pins the two
 # together.
 set (EVP_SUNSTUDY_SOURCES
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRaster.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/CpuTraversal.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOccluders.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunSeries.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPointProfile.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunPathStudyData.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyObstruction.cpp"
@@ -191,14 +188,10 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySolarCutCells.cpp"
     "${EVP_ROOT}/Sources/AddOn/NativeCommands/SunStudySeasonal.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySampler.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySurfaceSampling.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/VisibilityStudy.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/ViewpointStudy.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPreset.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyBackend.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyWinding.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlas.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlasReuse.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyKernels.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyDisplayData.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyDisplayAssembler.cpp"
@@ -230,13 +223,6 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReuse.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAdvanceWorker.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyTaskWorker.cpp"
-    # SurfacePatch is the analysis domain ABOVE the renderer's triangles: the
-    # coplanar, edge-connected run of source triangles that one BIM surface was
-    # tessellated into. It is here because the artefact it removes -- a diagonal
-    # seam down the middle of a flat slab, from two triangle-local lattices --
-    # is a geometric claim that can be checked numerically and cannot be judged
-    # from a viewport.
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SurfacePatch.cpp"
     # RayWorker is the GPU ray worker's platform-free half: wire, packets,
     # supervisor, and the worker service over a CPU reference backend, so the
     # crash lifecycle and the bit-exact contract run without a GPU.
@@ -247,26 +233,12 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerService.cpp"
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerBatch.cpp"
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerClient.cpp"
-    # SunStudyCache is the persistent analysis and, more importantly, the rule
-    # for which patches a geometry change invalidates. That rule fails PLAUSIBLY
-    # -- a patch left stale keeps a shadow from a wall that has moved, in a
-    # picture that looks finished -- so it is checked here against a full clean
-    # recomputation rather than by looking at a viewport.
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyCache.cpp"
-    # The patch DOMAIN as the running engine sees it: the sampler front end that
-    # replaces triangle grids with surface grids, and the atlas that gives each
-    # surface an address which SURVIVES an edit. Both are here because their
-    # central claims -- "each patch owns a contiguous span" and "nothing moved" --
-    # are invisible on screen: a repack hiding behind an update draws an
-    # identical picture and invalidates every coordinate already handed out.
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPatchSampler.cpp"
+    # The patch atlas's value holder: what the Rust fit produced, and its lookups.
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPatchAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRoles.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyBounds.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerFramePacing.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerStatus.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReading.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStepAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyLimits.cpp")
 
 # NodeGraph is the owned graph document and evaluator with no host dependencies.
@@ -1008,7 +980,6 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
 endif ()
 
 set (EVP_TEST_SOURCES
-    test_viewpointcollisions.cpp
     test_extractioncapture.cpp
     test_mesh_extraction.cpp
     test_editdocument.cpp
@@ -1272,62 +1243,34 @@ set (EVP_TEST_SOURCES
     test_pointcloudhierarchy.cpp
     test_pointcloudlod.cpp
     test_cloudcompare.cpp
-    test_sunstudyraster.cpp
     test_queryoccluded.cpp
     test_bvhbuild.cpp
     test_cputraversal.cpp
-    test_sunseries.cpp
     test_sunstudy_point_profile.cpp
-    test_visibilitystudy.cpp
-    test_viewpointstudy.cpp
     test_analysistabs.cpp
     test_analysisliverun.cpp
     test_analysispath.cpp
     test_analysisprofile.cpp
     test_viewpointoverlay.cpp
-    test_sunstudyoccluders.cpp
-    test_sunstudyobstruction.cpp
     test_sunstudysolarcut.cpp
     test_sunstudysolarexposure.cpp
     test_sunstudysolarcutcells.cpp
-    test_sunstudysolarcut_replay.cpp
-    test_sunstudysolarcutpreview.cpp
     test_sunstudyobstruction_geometry.cpp
-    test_sunstudyobstruction_controller.cpp
     test_sunstudyseasonal.cpp
-    test_sunstudyselectionbinding.cpp
-    test_sunstudygputraversal.cpp
     test_sunstudypreview.cpp
-    test_sunstudyhud.cpp
     test_sunpath.cpp
     test_sunpathmoment.cpp
-    test_sunpathstudydata.cpp
     test_sunpathrender.cpp
     test_sunpathband.cpp
     test_sunpathscene.cpp
     test_sunpathcharts.cpp
     test_analysisruncontrol.cpp
-    test_sunstudytextureupdates.cpp
     test_sunstudytaskworker.cpp
-    test_sunstudysampler.cpp
-    test_sunstudysurfacesampling.cpp
-    test_sunstudypreset.cpp
     test_sunstudybackend.cpp
-    test_sunstudyreceivers.cpp
-    test_sunstudywinding.cpp
-    test_sunstudyatlas.cpp
-    test_sunstudyoverlay.cpp
     test_viewerpalettestate.cpp
-    test_surfacepatch.cpp
-    test_sunstudycache.cpp
-    test_sunstudypatchatlas.cpp
-    test_sunstudyroles.cpp
     test_sunstudybounds.cpp
     test_viewerframepacing.cpp
     test_viewerstatus.cpp
-    test_sunstudyreading.cpp
-    test_sunstudystepatlas.cpp
-    test_sunstudylimits.cpp
     test_sunstudy_nocore.cpp
     test_cursortotarget.cpp
     test_camera_cursorray.cpp
@@ -1517,13 +1460,9 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         # so it and every test held to it need the archive (P7).
         "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerCpuReference.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_rayworker.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_parity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_study.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_annual.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_views.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_flip.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_kernels.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudysolarcut_facade.cpp"
         # A study runs only on the Rust core (P7a): every test that files one in
         # the store, advances it or reuses it needs the archive.
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudystore.cpp"
@@ -1536,6 +1475,34 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyocclusion.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudysession.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyfollower.cpp"
+        # Since P7b every sun-study kernel runs in the Rust core: the tests that
+        # reach a kernel (directly, through the facade or through a study) need it.
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunpathstudydata.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunseries.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyatlas.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudygputraversal.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyhud.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudylimits.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyobstruction.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyobstruction_controller.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyoccluders.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyoverlay.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudypatchatlas.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudypreset.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyreading.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyreceivers.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyroles.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudysampler.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyselectionbinding.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudysolarcut_replay.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudysolarcutpreview.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudystepatlas.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudysurfacesampling.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudytextureupdates.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudywinding.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_viewpointcollisions.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_viewpointstudy.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_visibilitystudy.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_parity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_identity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_value.cpp"

@@ -6,12 +6,11 @@
 // Thin, SDK-free wrappers over SunStudyRustFfi.h: they own the error buffer,
 // translate the existing C++ value types to POD views and back, and turn a
 // refused call into `false` plus a message. The study core (accumulator,
-// session, follower) runs only here. Production reaches the kernel wrappers
-// through SunStudy/SunStudyKernels.hpp (P7b); test_sunstudy_rust_parity.cpp pins
-// them to their C++ twins until those are deleted.
+// session, follower) and every kernel run only in Rust; production reaches the
+// kernels through SunStudy/SunStudyKernels.hpp, which keeps the signatures the
+// C++ kernels had (P7b deleted those).
 //
-// The signatures deliberately speak the C++ types so that a switch swaps an
-// implementation, not a vocabulary.
+// The signatures speak the C++ value types, so callers kept their vocabulary.
 
 #include "SunStudy/SunSeries.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
@@ -49,7 +48,7 @@ namespace evp::sunstudy::rust {
 // The linked archive's sun-study ABI version; refuses a header/archive skew.
 bool ReadAbiVersion (uint32_t& outVersion, std::string& error);
 
-// SunSeries::FromSteps, with the series' read-outs flattened.
+// The series kernel (kernels::SeriesFromSteps), with its read-outs flattened.
 struct SunSeriesResult {
     std::vector<SunStep> steps;
     size_t sourceStepCount = 0;

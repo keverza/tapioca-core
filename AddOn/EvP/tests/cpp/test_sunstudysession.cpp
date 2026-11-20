@@ -7,6 +7,7 @@
 // away.
 
 #include "SunStudy/CpuTraversal.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyRust.hpp"
 
 #include <gtest/gtest.h>
@@ -52,7 +53,7 @@ SunSeries MakeDay (int steps, int timestepMinutes = 60)
         step.direction[2] = 1.0;
         raw.push_back (step);
     }
-    return SunSeries::FromSteps (raw, timestepMinutes);
+    return kernels::SeriesFromSteps (raw, timestepMinutes);
 }
 
 struct Fixture {
@@ -247,7 +248,7 @@ TEST (SunStudySession, AnEmptyStudyIsNotAConvergedOne)
     std::vector<SunStep> night (1);
     night[0].altitudeDegrees = -20.0;
     night[0].direction[2] = 1.0;
-    const SunSeries polarNight = SunSeries::FromSteps (night, 60);
+    const SunSeries polarNight = kernels::SeriesFromSteps (night, 60);
     ASSERT_TRUE (polarNight.Empty ());
 
     session.Sync (Inputs (1, polarNight.Version (), 1), polarNight, fixture.Samples ());

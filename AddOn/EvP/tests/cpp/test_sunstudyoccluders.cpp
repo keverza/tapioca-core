@@ -1,4 +1,5 @@
 #include "SunStudy/SunStudyOccluders.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "MeshFixtures.hpp"
 
 #include <gtest/gtest.h>
@@ -17,7 +18,7 @@ geomsrv::Snapshot Scene ()
 }
 ElementRoles Roles (const geomsrv::Snapshot& snapshot)
 {
-    return ResolveElementRoles (snapshot, {}, { "context" }, { "ignored" });
+    return kernels::ResolveElementRoles (snapshot, {}, { "context" }, { "ignored" });
 }
 } // namespace
 
@@ -77,12 +78,12 @@ TEST (SunStudyOccluders, ContextAddDeleteAndRoleChangesInvalidateMembership)
     const auto first = BuildSunStudyOccluders (original, Roles (original));
     auto added = original;
     added.meshes.push_back (evptest::MakeBox ("new-context", 12, 0, 5));
-    auto roles = ResolveElementRoles (added, {}, { "context", "new-context" }, { "ignored" });
+    auto roles = kernels::ResolveElementRoles (added, {}, { "context", "new-context" }, { "ignored" });
     const auto next = BuildSunStudyOccluders (added, roles, first.get ());
     ASSERT_NE (next, nullptr);
     EXPECT_FALSE (next->contextReused);
     EXPECT_EQ (next->context->MeshCount (), 2u);
-    roles = ResolveElementRoles (original, {}, { "analysis", "context" }, { "ignored" });
+    roles = kernels::ResolveElementRoles (original, {}, { "analysis", "context" }, { "ignored" });
     const auto changedRole = BuildSunStudyOccluders (original, roles, first.get ());
     ASSERT_NE (changedRole, nullptr);
     EXPECT_FALSE (changedRole->contextReused);

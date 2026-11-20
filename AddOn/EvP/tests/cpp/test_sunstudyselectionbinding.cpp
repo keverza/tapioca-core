@@ -1,4 +1,5 @@
 #include "SunStudy/SunStudySelectionBinding.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyFollowerPolicy.hpp"
 
 #include <gtest/gtest.h>
@@ -9,23 +10,27 @@ TEST (SunStudySelectionBinding, RemovingLastContextEntryReturnsItToAnalysis)
 {
     SunStudySelectionBinding binding { "Context", "Ignored", 8, 10 };
     std::vector<std::string> context { "site" }, ignored { "excluded" };
-    ASSERT_EQ (binding.Refresh (8, {}, ignored, context, ignored), SelectionBindingRefresh::Changed);
+    ASSERT_EQ (kernels::RefreshSelectionBinding (binding, 8, {}, ignored, context, ignored),
+               SelectionBindingRefresh::Changed);
     EXPECT_TRUE (context.empty ());
-    const auto roles = ResolveElementRoles ({ "site", "excluded", "new" }, {}, context, ignored);
+    const auto roles = kernels::ResolveElementRoles ({ "site", "excluded", "new" }, {}, context, ignored);
     EXPECT_EQ (roles.SampleMask (), (std::vector<uint8_t> { 1, 0, 1 }));
-    EXPECT_EQ (binding.Refresh (8, {}, ignored, context, ignored), SelectionBindingRefresh::Unchanged);
+    EXPECT_EQ (kernels::RefreshSelectionBinding (binding, 8, {}, ignored, context, ignored),
+               SelectionBindingRefresh::Unchanged);
 }
 
 TEST (SunStudySelectionBinding, RemovingIgnoredAndMovingBetweenSetsUpdatesBothRoles)
 {
     SunStudySelectionBinding binding { "Context", "Ignored", 8, 10 };
     std::vector<std::string> context { "site" }, ignored { "excluded" };
-    ASSERT_EQ (binding.Refresh (8, { "excluded" }, {}, context, ignored), SelectionBindingRefresh::Changed);
-    const auto roles = ResolveElementRoles ({ "site", "excluded" }, {}, context, ignored);
+    ASSERT_EQ (kernels::RefreshSelectionBinding (binding, 8, { "excluded" }, {}, context, ignored),
+               SelectionBindingRefresh::Changed);
+    const auto roles = kernels::ResolveElementRoles ({ "site", "excluded" }, {}, context, ignored);
     EXPECT_EQ (roles.SampleMask (), (std::vector<uint8_t> { 1, 0 }));
     EXPECT_TRUE (ignored.empty ());
-    ASSERT_EQ (binding.Refresh (8, {}, { "site" }, context, ignored), SelectionBindingRefresh::Changed);
-    EXPECT_EQ (ResolveElementRoles ({ "site", "excluded" }, {}, context, ignored).SampleMask (),
+    ASSERT_EQ (kernels::RefreshSelectionBinding (binding, 8, {}, { "site" }, context, ignored),
+               SelectionBindingRefresh::Changed);
+    EXPECT_EQ (kernels::ResolveElementRoles ({ "site", "excluded" }, {}, context, ignored).SampleMask (),
                (std::vector<uint8_t> { 0, 1 }));
 }
 
@@ -33,7 +38,7 @@ TEST (SunStudySelectionBinding, EquivalentCanonicalPicksDoNotInvalidate)
 {
     SunStudySelectionBinding binding { "Context", "Ignored", 8, 10 };
     std::vector<std::string> context { "a", "b" }, ignored { "c" };
-    EXPECT_EQ (binding.Refresh (8, { "{B}", " A ", "b" }, { "{C}" }, context, ignored),
+    EXPECT_EQ (kernels::RefreshSelectionBinding (binding, 8, { "{B}", " A ", "b" }, { "{C}" }, context, ignored),
                SelectionBindingRefresh::Unchanged);
     EXPECT_EQ (context, (std::vector<std::string> { "a", "b" }));
 }
@@ -42,22 +47,26 @@ TEST (SunStudySelectionBinding, SwitchingCommandsOrRescanningCannotConsumeAnothe
 {
     SunStudySelectionBinding binding { "Context", "Ignored", 8, 10 };
     std::vector<std::string> context { "site" }, ignored { "excluded" };
-    EXPECT_EQ (binding.Refresh (9, {}, {}, context, ignored), SelectionBindingRefresh::Detached);
+    EXPECT_EQ (kernels::RefreshSelectionBinding (binding, 9, {}, {}, context, ignored),
+               SelectionBindingRefresh::Detached);
     EXPECT_EQ (context, (std::vector<std::string> { "site" }));
     EXPECT_EQ (ignored, (std::vector<std::string> { "excluded" }));
     EXPECT_TRUE (binding.contextSet.empty ());
     EXPECT_EQ (binding.generation, 0u);
-    EXPECT_EQ (binding.Refresh (9, { "other" }, {}, context, ignored), SelectionBindingRefresh::Inactive);
+    EXPECT_EQ (kernels::RefreshSelectionBinding (binding, 9, { "other" }, {}, context, ignored),
+               SelectionBindingRefresh::Inactive);
 }
 
 TEST (SunStudySelectionBinding, ExplicitListsStayFixedAndPartialBindingRetainsOtherRole)
 {
     SunStudySelectionBinding fixed;
     std::vector<std::string> context { "site" }, ignored { "excluded" };
-    EXPECT_EQ (fixed.Refresh (8, {}, {}, context, ignored), SelectionBindingRefresh::Inactive);
+    EXPECT_EQ (kernels::RefreshSelectionBinding (fixed, 8, {}, {}, context, ignored),
+               SelectionBindingRefresh::Inactive);
     EXPECT_EQ (context, (std::vector<std::string> { "site" }));
     SunStudySelectionBinding binding { "Context", "", 8, 10 };
-    EXPECT_EQ (binding.Refresh (8, {}, {}, context, ignored), SelectionBindingRefresh::Changed);
+    EXPECT_EQ (kernels::RefreshSelectionBinding (binding, 8, {}, {}, context, ignored),
+               SelectionBindingRefresh::Changed);
     EXPECT_TRUE (context.empty ());
     EXPECT_EQ (ignored, (std::vector<std::string> { "excluded" }));
 }
@@ -71,10 +80,12 @@ TEST (SunStudySelectionBinding, RoleChangesSupersedeInFlightResultsWithoutCleari
     SunStudyFollowerPolicy follower;
     SunStudyDependencySignature initial { 41, 7, 1 }, first { 41, 7, 2 }, latest { 41, 7, 3 };
     follower.Adopt ("accepted", initial, 1000);
-    ASSERT_EQ (binding.Refresh (8, { "site", "another" }, {}, context, ignored), SelectionBindingRefresh::Changed);
+    ASSERT_EQ (kernels::RefreshSelectionBinding (binding, 8, { "site", "another" }, {}, context, ignored),
+               SelectionBindingRefresh::Changed);
     follower.Observe (first, 1100);
     const auto obsolete = follower.NoteStarted (first, 1400);
-    ASSERT_EQ (binding.Refresh (8, {}, {}, context, ignored), SelectionBindingRefresh::Changed);
+    ASSERT_EQ (kernels::RefreshSelectionBinding (binding, 8, {}, {}, context, ignored),
+               SelectionBindingRefresh::Changed);
     follower.Observe (latest, 1450);
     EXPECT_FALSE (follower.CanPublishResult (obsolete, first));
     EXPECT_EQ (follower.DirtyReason (), SunStudyDirtyReason::Sampling);

@@ -1,18 +1,17 @@
 #ifndef EVP_SUNSTUDY_SUNSTUDYKERNELS_HPP
 #define EVP_SUNSTUDY_SUNSTUDYKERNELS_HPP
 
-// SunStudy/SunStudyKernels -- the one entry production code uses for the
-// sun-study kernels (P7b of the Rust migration).
+// SunStudy/SunStudyKernels -- the sun-study kernels, as production calls them.
 //
-// Each function keeps the C++ kernel's signature and answer. A build that links
-// the Rust core runs the Rust kernel (pinned bit for bit to the C++ one by
-// test_sunstudy_rust_parity.cpp); a build without it runs the C++ body. When the
-// C++ bodies are deleted only this file's implementation changes.
+// Every kernel runs in the Rust core (tapioca_sunstudy, through the rust::
+// wrappers in SunStudyRust.hpp); there is no C++ implementation. Each function
+// keeps the signature the C++ kernel had, so a caller speaks the C++ value
+// types. A build without the Rust core refuses every call ("this build has no
+// sun-study core"), as StartSunStudy and the views do.
 //
-// A refused Rust call (an ABI failure: a version skew the study handshake
-// already refuses, or a caught panic) returns the kernel's own refused answer --
-// `valid == false`, an empty list, or default limits -- and puts the message in
-// `error` when one is given. It never falls back to the C++ body.
+// A refused call returns the kernel's own refused answer -- `valid == false`,
+// an empty list, or default limits -- and puts the message in `error` when one
+// is given.
 
 #include "SunStudy/SunSeries.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
@@ -26,6 +25,7 @@
 #include "SunStudy/SunStudySelectionBinding.hpp"
 #include "SunStudy/SunStudySurfaceSampling.hpp"
 #include "SunStudy/SunStudyTextureDelta.hpp"
+#include "SunStudy/SunStudyWinding.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -39,7 +39,16 @@ struct StudyRecord;
 
 namespace evp::sunstudy::kernels {
 
-// SunSeries::FromSteps.
+// The day's sun directions: keeps the steps whose altitude exceeds
+// `minAltitudeDegrees`, in order, normalised, with a content hash as Version().
+//
+// ⚠️ THE CUTOFF IS 0 DEGREES BY DEFAULT, AND A HIGHER FLOOR BIASES EVERY
+// TOTAL DOWN. A three-degree floor silently discards the first and last
+// steps of every day -- roughly half an hour on an equinox at mid latitude --
+// against references that count a step whenever altitude exceeds zero, with
+// no refraction and no sun-disc term. It stays an input because a grazing sun
+// behind distant terrain is a legitimate thing to exclude; it is simply not
+// the default.
 SunSeries SeriesFromSteps (const std::vector<SunStep>& steps, int timestepMinutes, double minAltitudeDegrees = 0.0,
                            std::string* error = nullptr);
 
@@ -55,7 +64,15 @@ struct AnalysisLimitsReport {
 AnalysisLimitsReport ReportAnalysisLimits (const MachineResources& machine, size_t steps, double occupancy,
                                            double analysedArea, std::string* error = nullptr);
 
-// EnumerateTimesteps: the clock times of [hourFrom, hourTo) at the timestep.
+// (hour, minute) across the day at the given step. `hourTo` is exclusive.
+//
+// ⚠️ THE DEFAULT IS THE WHOLE DAY and the horizon filter then decides what
+// counts, which is the honest default for "how much sun does this surface get".
+//
+// ⚠️ A WINDOW MAKES TOTALS INCOMPARABLE between tools. Reference
+// implementations commonly default to an 08:00-20:00 window, so a whole-day
+// total from here reads higher than the same model elsewhere. Whenever a
+// window is set, the report has to say so.
 std::vector<TimeOfDay> EnumerateTimesteps (int timestepMinutes, int hourFrom = 0, int hourTo = 24,
                                            std::string* error = nullptr);
 
@@ -71,6 +88,24 @@ std::vector<float> ScatterToAtlas (const SunStudyAtlas& atlas, const std::vector
 ElementRoles ResolveElementRoles (const geomsrv::Snapshot& snapshot, const std::vector<std::string>& analysisPicked,
                                   const std::vector<std::string>& contextPicked,
                                   const std::vector<std::string>& ignoredPicked = {}, std::string* error = nullptr);
+
+// ResolveElementRoles over element GUIDs in snapshot mesh order.
+ElementRoles ResolveElementRoles (const std::vector<std::string>& elements,
+                                  const std::vector<std::string>& analysisPicked,
+                                  const std::vector<std::string>& contextPicked,
+                                  const std::vector<std::string>& ignoredPicked = {}, std::string* error = nullptr);
+
+// A copy of `triangles` with each closed, inward-wound element's winding
+// swapped. `groups` is one element id per face (`groupCount` of them), or null
+// for one element; fewer ids than faces flips nothing.
+//
+// ⚠️ ADJACENCY IS A QUESTION ABOUT POSITIONS, NOT INDICES. The snapshot merges
+// elements without sharing vertices, so corners are welded by `weldTolerance`
+// before edges are matched; comparing indices would find every element open,
+// which fails safe and therefore silently never flips anything.
+std::vector<uint32_t> OrientOutward (const double* vertices, size_t vertexCount, const uint32_t* triangles,
+                                     size_t faceCount, const uint32_t* groups, size_t groupCount, WindingReport& report,
+                                     double weldTolerance = 1e-4, std::string* error = nullptr);
 
 SunStudyReceivers BuildSunStudyReceivers (const geomsrv::Snapshot& snapshot, const ElementRoles& roles, bool glassOnly,
                                           const std::map<int32_t, double>& transparency, double threshold,
@@ -121,8 +156,8 @@ RefreshSelectionBinding (SunStudySelectionBinding& binding, uint64_t currentGene
                          const std::vector<std::string>& analysis = {},
                          std::vector<std::string>* studyAnalysis = nullptr, std::string* error = nullptr);
 
-// AtlasChangedRegions for float and uint32_t texels. The Rust diff is not
-// cancellable; `isCancelled` is polled before it starts.
+// The atlas regions that changed, for float and uint32_t texels. The Rust diff
+// is not cancellable; `isCancelled` is polled before it starts.
 template <typename T>
 std::vector<AtlasRegion>
 AtlasChangedRegions (uint32_t width, uint32_t height, uint32_t layers, const std::vector<T>& before,

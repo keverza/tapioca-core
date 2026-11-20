@@ -1,4 +1,5 @@
 #include "SunStudy/SunStudyReuse.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyRustStudy.hpp"
 #include "sunstudy_core_fixture.hpp"
 #include "SunStudy/SunStudyWinding.hpp"
@@ -53,7 +54,7 @@ SunSeries Day (size_t count = 4)
         step.altitudeDegrees = angle * 180.0 / 3.141592653589793;
         steps.push_back (step);
     }
-    return SunSeries::FromSteps (steps, 1);
+    return kernels::SeriesFromSteps (steps, 1);
 }
 
 class CountTraversal : public ITraversal {
@@ -95,7 +96,7 @@ std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> 
     record->snapshotId = snapshot->id;
     record->series = Day (steps);
     record->gridSpacing = 0.75;
-    const auto roles = ResolveElementRoles (*snapshot, {}, context, ignored);
+    const auto roles = kernels::ResolveElementRoles (*snapshot, {}, context, ignored);
     const auto subset = OccluderSnapshot (*snapshot, roles);
     record->traversal = std::make_shared<CountTraversal> (subset != nullptr ? subset : snapshot);
     for (const auto role : roles.roles)
@@ -105,7 +106,7 @@ std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> 
         SurfaceSamplingOptions options;
         options.domain = patch ? SamplingDomain::SurfacePatch : SamplingDomain::TriangleLegacy;
         options.spacing = record->gridSpacing;
-        auto sampling = BuildSurfaceSampling (*snapshot, sampleMask, options, previous, {}, faceMasks);
+        auto sampling = kernels::BuildSurfaceSampling (*snapshot, sampleMask, options, previous, {}, faceMasks);
         record->domain = options.domain;
         record->samplingLayout = std::move (sampling.layout);
         record->sampleGrid = std::move (sampling.triangles);
@@ -141,8 +142,8 @@ std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> 
         options.normalOffset = 0.01;
         options.sampleGroup = &sampleMask;
         options.sampleFace = faceMasks.empty () ? nullptr : &faces;
-        record->patchGrid = BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, triangles.data (),
-                                                  triangles.size () / 3, groups.data (), elements, options);
+        record->patchGrid = kernels::BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, triangles.data (),
+                                                           triangles.size () / 3, groups.data (), elements, options);
         record->positions = record->patchGrid.positions;
         record->normals = record->patchGrid.normals;
     }
@@ -152,8 +153,8 @@ std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> 
         options.normalOffset = 0.01;
         options.sampleGroup = &sampleMask;
         options.sampleFace = faceMasks.empty () ? nullptr : &faces;
-        record->sampleGrid = BuildSampleGrid (vertices.data (), vertices.size () / 3, triangles.data (),
-                                              triangles.size () / 3, groups.data (), options);
+        record->sampleGrid = kernels::BuildSampleGrid (vertices.data (), vertices.size () / 3, triangles.data (),
+                                                       triangles.size () / 3, groups.data (), options);
         record->positions = record->sampleGrid.positions;
         record->normals = record->sampleGrid.normals;
     }
@@ -409,7 +410,7 @@ TEST_P (SunStudyReuse, OppositeSunsDoNotDirtyTheWholeSiteThroughTheUnionEnvelope
     auto steps = Day ().Steps ();
     steps[1].direction[0] = -steps[1].direction[0];
     steps[3].direction[0] = -steps[3].direction[0];
-    const auto sun = SunSeries::FromSteps (steps, 1);
+    const auto sun = kernels::SeriesFromSteps (steps, 1);
     auto source = Prepared (Scene (), GetParam ());
     source->series = sun;
     AttachCore (*source);

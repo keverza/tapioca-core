@@ -59,16 +59,5 @@ struct SurfaceSamplingResult {
     bool valid = false;
 };
 
-// Exact canonical-GUID geometry/settings/membership checks precede reuse of
-// winding, cells and layouts. No sunlight is copied here; shadow invalidation
-// remains ReuseUnaffectedSamples' job. The source must remain immutable/owned.
-// Cancellation/refusal returns no partial grid. Checks are between meshes;
-// a single mesh's existing sampler is still indivisible.
-SurfaceSamplingResult BuildSurfaceSampling (const geomsrv::Snapshot& snapshot, const std::vector<uint8_t>& sampleMask,
-                                            const SurfaceSamplingOptions& options,
-                                            const StudyRecord* previous = nullptr,
-                                            const std::function<bool ()>& isCancelled = {},
-                                            const std::vector<std::vector<uint8_t>>& faceMasks = {});
-
 } // namespace evp::sunstudy
 #endif

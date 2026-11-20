@@ -2,13 +2,13 @@
 #define EVP_TESTS_SUNSTUDY_KERNEL_ORACLE_HPP
 
 // What every SunStudyStore reader answered when the C++ study core ran the
-// study, recomputed with the C++ kernels (atlas scatter, patch fan-out, step
+// study, recomputed with the reference kernels of sunstudy_reference_kernels.hpp (atlas scatter, patch fan-out, step
 // masks, summary, hover reading) from the Rust core's own hours and step bits,
 // over the record's own grids and atlases. The store now answers from the
 // Rust core; these say it still draws, summarises and reads exactly what the
 // record's display atlas promises. The kernels stay C++ until P7b.
 
-#include "SunStudy/SunStudyReading.hpp"
+#include "sunstudy_reference_kernels.hpp"
 #include "SunStudy/SunStudyRustStudy.hpp"
 #include "SunStudy/SunStudyStepAtlas.hpp"
 #include "SunStudy/SunStudyStore.hpp"
@@ -63,7 +63,7 @@ inline std::vector<float> ScatterPatchImage (const StudyRecord& record, const st
         if (span.first + span.count > hours.size ())
             continue;
         forSpan.assign (hours.begin () + span.first, hours.begin () + span.first + span.count);
-        record.patchAtlas.ScatterPatch (record.patchGrid, spanIndex, forSpan, image);
+        reference::ScatterPatch (record.patchAtlas, record.patchGrid, spanIndex, forSpan, image);
     }
     return image;
 }
@@ -89,7 +89,7 @@ inline KernelReads ReadThroughKernels (const std::string& id)
             const size_t steps = record.series.StepCount ();
             const auto lit = [&] (size_t sample, size_t step) { return out.bits[sample * steps + step] != 0; };
             const double quantum = record.series.HoursPerStep ();
-            out.summary = SummarizeSunHours (samples, record.series.DaylightHours (), [&] (size_t sample) {
+            out.summary = reference::SummarizeSunHours (samples, record.series.DaylightHours (), [&] (size_t sample) {
                 size_t count = 0;
                 for (size_t step = 0; step < steps; ++step)
                     count += lit (sample, step) ? 1 : 0;
@@ -97,9 +97,11 @@ inline KernelReads ReadThroughKernels (const std::string& id)
             });
 
             if (record.atlas.valid) {
-                out.triangle = {
-                    true, record.atlas.width, record.atlas.height, ScatterToAtlas (record.atlas, out.hours), {}
-                };
+                out.triangle = { true,
+                                 record.atlas.width,
+                                 record.atlas.height,
+                                 reference::ScatterToAtlas (record.atlas, out.hours),
+                                 {} };
             }
             else {
                 out.triangle.error =
@@ -158,9 +160,9 @@ inline KernelReads ReadThroughKernels (const std::string& id)
                 for (size_t sample = 0; sample < samples && sample < record.atlas.texels.size (); ++sample)
                     texelOf[sample] = record.atlas.texels[sample];
             }
-            out.masks = PackStepMasks (samples, steps, lit, texelOf, width, height);
-            out.minutes = StepMinutes (record.series);
-            out.noon = SolarNoonStep (record.series);
+            out.masks = reference::PackStepMasks (samples, steps, lit, texelOf, width, height);
+            out.minutes = reference::StepMinutes (record.series);
+            out.noon = reference::SolarNoonStep (record.series);
             out.masksOk = true;
         },
         error);
@@ -264,8 +266,8 @@ inline void ExpectReadingMatchesKernels (const std::string& id, uint64_t snapsho
             std::string coreError;
             ASSERT_TRUE (record.rustCore != nullptr && record.rustCore->SunHours (hours, coreError)) << coreError;
             expected = record.IsPatchDomain ()
-                           ? ReadPatchStudyAt (record.patchGrid, record.gridSpacing, hours, face, point)
-                           : ReadTriangleStudyAt (record.sampleGrid, record.gridSpacing, hours, face, point);
+                           ? reference::ReadPatchStudyAt (record.patchGrid, record.gridSpacing, hours, face, point)
+                           : reference::ReadTriangleStudyAt (record.sampleGrid, record.gridSpacing, hours, face, point);
         },
         error))
         << error;

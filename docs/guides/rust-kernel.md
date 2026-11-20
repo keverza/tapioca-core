@@ -1470,14 +1470,15 @@ not completed soft/solve constraint enforcement.
 ## Sun-study core (`tapioca-sunstudy`)
 
 The SDK-free sun-study analysis core was ported from `Sources/AddOn/SunStudy/` in
-phases. Since P7a the study core -- the accumulator, the session and the follower
-policy -- exists only in Rust: every study runs on `rust::RustStudyCore`, and a build
-without the archive has no sun-study core. Production reaches the kernels (series,
-limits, roles, receivers, preset advice, samplers, surface sampling, atlases, the
-selection binding, texture deltas) only through `SunStudy/SunStudyKernels.hpp`
-(`evp::sunstudy::kernels`), which runs the Rust kernel in a build with the archive
-and the C++ original otherwise (P7b). The C++ originals stay compiled as the parity
-oracle until they are deleted; `test_sunstudy_kernels.cpp` pins the facade to them.
+phases and is now the only implementation: the study core (accumulator, session,
+follower policy) since P7a, every kernel since P7b. Every study runs on
+`rust::RustStudyCore`; production reaches the kernels (series, timesteps, limits,
+roles, receivers, preset advice, winding, samplers, surface sampling, atlases, the
+selection binding, texture deltas, fan steps, atlas scatter) only through
+`SunStudy/SunStudyKernels.hpp` (`evp::sunstudy::kernels`), which keeps the C++
+kernels' signatures. A build without the archive has no sun-study core: the facade,
+`StartSunStudy` and the viewpoint and visibility studies refuse with "this build
+has no sun-study core".
 
 - **P0:** the crate, its `check_rust.py` registration (no dependencies; a
   `sunstudy -> geometry` edge is added only with a consumer) and
@@ -1533,8 +1534,9 @@ oracle until they are deleted; `test_sunstudy_kernels.cpp` pins the facade to th
   sun-study ABI v2. A sphere's seen surfaces are Rust too
   (`viewpoint::seen`, `tapioca_sunstudy_viewpoint_seen` + `_read`/`_destroy`,
   reading the request's mesh triangles; corners and bisection midpoints go to
-  the host index in batches). Parity: lockstep scripted follower
-  runs and the C++ studies over the same BVH, bit for bit.
+  the host index in batches). Parity, until P7b deleted the C++ studies:
+  lockstep scripted follower runs and the C++ studies over the same BVH, bit
+  for bit.
 - **P5 (flip behind `TAPIOCA_SUNSTUDY_CORE`):** studies
   started under the flag attach the Rust core (`AttachRustStudyCore` refuses
   a core whose atlas disagrees with the record's) and `SunStudyStore`,
@@ -1561,10 +1563,26 @@ oracle until they are deleted; `test_sunstudy_kernels.cpp` pins the facade to th
   `test_sunstudyfollower.cpp`), and the flip and study tests hold every store
   reader and the display packet to the C++ kernels recomputed from the core's
   hours and bits (`sunstudy_kernel_oracle.hpp`).
+- **P7b (C++ kernels deleted):** production first reached every kernel
+  through the facade (`SunStudyKernels`), then the C++ bodies went: series,
+  raster, winding (`SignedVolume` stays: the solar cut uses it), limits (host
+  machine probing stays), roles (`CanonicalGuid`, `OccluderSnapshot` stay),
+  preset, sampler (`TriangleNormal` stays), surface patch, patch sampler,
+  atlas, step atlas, stable triangle atlas, surface sampling, reading, texture
+  delta, summary, the selection binding's refresh, `SunStudyCache` (never
+  ported; `PatchKey` moved to the patch sampler) and the C++ viewpoint and
+  visibility studies. `SunStudyPatchAtlas` is a value holder (state, lookups).
+  The C++ tests of those kernels run through the facade with their
+  assertions; cases about internals the facade does not expose were removed,
+  each covered by the cargo test that mirrors its file. The store-reader
+  oracle keeps an independent reference in the tests only
+  (`sunstudy_reference_kernels.hpp`). Retargeting found one drift: the
+  analysis-cylinder cell clip had been added to the C++ sampler only, and was
+  ported (sun-study ABI v4).
 
-Parity is **bit-for-bit**, not within a tolerance: `test_sunstudy_rust_parity.cpp`
-runs each kernel and its C++ original over fixed-seed generated corpora and
-compares IEEE bits. Ports therefore mirror C++ evaluation order exactly, including
+Parity was **bit-for-bit**, not within a tolerance: until P7b,
+`test_sunstudy_rust_parity.cpp` ran each kernel and its C++ original over
+fixed-seed generated corpora and compared IEEE bits. Ports therefore mirror C++ evaluation order exactly, including
 `std::min`/`std::max` NaN semantics and `(lo + hi) * 0.5` rather than a midpoint.
 Where the C++ original has undefined behaviour (integer overflow in timestep
 enumeration, out-of-range float-to-integer casts, a group list shorter than the

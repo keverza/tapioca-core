@@ -1,4 +1,5 @@
 #include "ArchViz/SunStudyGpuShader.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "ArchViz/SunStudyGpuTraversal.hpp"
 #if defined(TAPIOCA_GEOMETRY_RUST)
 #include "SunStudy/SunStudyRust.hpp"
@@ -79,8 +80,8 @@ geomsrv::Snapshot PartitionScene ()
 
 auto Partition (const geomsrv::Snapshot& scene, const evp::sunstudy::SunStudyOccluders* previous = nullptr)
 {
-    return evp::sunstudy::BuildSunStudyOccluders (scene, evp::sunstudy::ResolveElementRoles (scene, {}, { "site" }),
-                                                  previous);
+    return evp::sunstudy::BuildSunStudyOccluders (
+        scene, evp::sunstudy::kernels::ResolveElementRoles (scene, {}, { "site" }), previous);
 }
 } // namespace
 

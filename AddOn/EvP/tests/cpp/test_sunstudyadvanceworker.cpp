@@ -1,4 +1,5 @@
 #include "SunStudy/SunStudyAdvanceWorker.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyRustStudy.hpp"
 #include "sunstudy_core_fixture.hpp"
@@ -72,7 +73,7 @@ std::unique_ptr<StudyRecord> Record (const std::shared_ptr<const ITraversal>& tr
         steps[step].altitudeDegrees = 90.0;
         steps[step].direction[2] = 1.0;
     }
-    record->series = SunSeries::FromSteps (steps, 60);
+    record->series = kernels::SeriesFromSteps (steps, 60);
     evp::sunstudy::fixture::AttachTestCore (*record, { 31, record->series.Version (), 1 });
     return record;
 }

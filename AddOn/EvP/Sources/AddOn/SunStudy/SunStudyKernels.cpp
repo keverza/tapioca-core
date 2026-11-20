@@ -1,17 +1,12 @@
 #include "SunStudy/SunStudyKernels.hpp"
 
-#if defined(TAPIOCA_GEOMETRY_RUST)
 #include "SunStudy/SunStudyRust.hpp"
-#else
-#include "SunStudy/SunStudyAtlasReuse.hpp"
-#include "SunStudy/SunStudyStepAtlas.hpp"
-#endif
 
 namespace evp::sunstudy::kernels {
 
 namespace {
 
-[[maybe_unused]] void Report (std::string* error, std::string message)
+void Report (std::string* error, std::string message)
 {
     if (error != nullptr)
         *error = std::move (message);
@@ -19,7 +14,108 @@ namespace {
 
 } // namespace
 
-#if defined(TAPIOCA_GEOMETRY_RUST)
+#if !defined(TAPIOCA_GEOMETRY_RUST)
+// A build without the Rust core has no sun-study kernels: every call refuses
+// with the reason, and the facade returns the kernel's refused answer.
+namespace rust {
+namespace {
+bool NoCore (std::string& error)
+{
+    error = "this build has no sun-study core";
+    return false;
+}
+} // namespace
+
+bool BuildSunSeries (const std::vector<SunStep>&, int, double, SunSeriesResult&, std::string& error)
+{
+    return NoCore (error);
+}
+bool ComputeAnalysisLimits (const MachineResources&, size_t, double, double, AnalysisLimits&, double&,
+                            std::string& error)
+{
+    return NoCore (error);
+}
+bool EnumerateTimesteps (int, int, int, std::vector<TimeOfDay>&, std::string& error)
+{
+    return NoCore (error);
+}
+bool FanSteps (const std::vector<uint16_t>&, double, std::vector<uint32_t>&, std::string& error)
+{
+    return NoCore (error);
+}
+bool ScatterToAtlas (const SunStudyAtlas&, const std::vector<double>&, float, std::vector<float>&, std::string& error)
+{
+    return NoCore (error);
+}
+bool ResolveElementRoles (const std::vector<std::string>&, const std::vector<std::string>&,
+                          const std::vector<std::string>&, const std::vector<std::string>&, ElementRoles&,
+                          std::string& error)
+{
+    return NoCore (error);
+}
+bool BuildSunStudyReceivers (const geomsrv::Snapshot&, const ElementRoles&, bool, const std::map<int32_t, double>&,
+                             double, SunStudyReceivers&, std::string& error)
+{
+    return NoCore (error);
+}
+bool SunStudyPresetAdvice (size_t, const std::string&, std::string&, std::string& error)
+{
+    return NoCore (error);
+}
+bool BuildSurfaceSampling (const geomsrv::Snapshot&, const std::vector<uint8_t>&, const SurfaceSamplingOptions&,
+                           const StudyRecord*, const std::function<bool ()>&, const std::vector<std::vector<uint8_t>>&,
+                           SurfaceSamplingResult&, std::string& error)
+{
+    return NoCore (error);
+}
+bool FitPatchAtlas (PatchAtlasState&, const PatchSampleGrid&, uint32_t, uint32_t, PatchAtlasUpdate&, std::string& error)
+{
+    return NoCore (error);
+}
+bool BuildStableTriangleAtlas (const SampleGrid&, const geomsrv::Snapshot&, PatchAtlasState&, const PatchAtlasState*,
+                               const AtlasOptions&, SunStudyAtlas&, std::string& error)
+{
+    return NoCore (error);
+}
+bool MakeGroundSampleGrid (const Vec3&, const Vec3&, double, double, double, size_t, GroundGrid&, std::string& error)
+{
+    return NoCore (error);
+}
+bool BuildSampleGrid (const double*, size_t, const uint32_t*, size_t, const uint32_t*, const SamplerOptions&,
+                      SampleGrid&, std::string& error)
+{
+    return NoCore (error);
+}
+bool BuildPatchSampleGrid (const double*, size_t, const uint32_t*, size_t, const uint32_t*,
+                           const std::vector<std::string>&, const PatchSamplerOptions&, PatchSampleGrid&,
+                           std::string& error)
+{
+    return NoCore (error);
+}
+bool BuildSunStudyAtlas (const SampleGrid&, const AtlasOptions&, SunStudyAtlas&, std::string& error)
+{
+    return NoCore (error);
+}
+bool RefreshSelectionBinding (SunStudySelectionBinding&, uint64_t, const std::vector<std::string>&,
+                              const std::vector<std::string>&, std::vector<std::string>&, std::vector<std::string>&,
+                              const std::vector<std::string>&, std::vector<std::string>*, SelectionBindingRefresh&,
+                              std::string& error)
+{
+    return NoCore (error);
+}
+template <typename T>
+bool AtlasChangedRegions (uint32_t, uint32_t, uint32_t, const std::vector<T>&, const std::vector<T>&, size_t,
+                          std::vector<AtlasRegion>&, std::string& error)
+{
+    return NoCore (error);
+}
+bool OrientOutward (const std::vector<double>&, const std::vector<uint32_t>&, const std::vector<uint32_t>&, double,
+                    std::vector<uint32_t>&, WindingReport&, std::string& error)
+{
+    return NoCore (error);
+}
+} // namespace rust
+#endif
 
 SunSeries SeriesFromSteps (const std::vector<SunStep>& steps, int timestepMinutes, double minAltitudeDegrees,
                            std::string* error)
@@ -108,6 +204,46 @@ ElementRoles ResolveElementRoles (const geomsrv::Snapshot& snapshot, const std::
         return ElementRoles ();
     }
     return roles;
+}
+
+ElementRoles ResolveElementRoles (const std::vector<std::string>& elements,
+                                  const std::vector<std::string>& analysisPicked,
+                                  const std::vector<std::string>& contextPicked,
+                                  const std::vector<std::string>& ignoredPicked, std::string* error)
+{
+    ElementRoles roles;
+    std::string message;
+    if (!rust::ResolveElementRoles (elements, analysisPicked, contextPicked, ignoredPicked, roles, message)) {
+        Report (error, std::move (message));
+        return ElementRoles ();
+    }
+    return roles;
+}
+
+std::vector<uint32_t> OrientOutward (const double* vertices, size_t vertexCount, const uint32_t* triangles,
+                                     size_t faceCount, const uint32_t* groups, size_t groupCount, WindingReport& report,
+                                     double weldTolerance, std::string* error)
+{
+    const std::vector<double> points (vertices, vertices + (vertices != nullptr ? vertexCount * 3 : 0));
+    const std::vector<uint32_t> faces (triangles, triangles + (triangles != nullptr ? faceCount * 3 : 0));
+    // Fewer ids than faces flips nothing (the C++ contract): send none, and the
+    // Rust kernel reads the whole soup as one element -- unless ids were given
+    // short, which is refused below rather than guessed.
+    std::vector<uint32_t> ids;
+    if (groups != nullptr && groupCount >= faceCount)
+        ids.assign (groups, groups + faceCount);
+    report = WindingReport ();
+    if (groups != nullptr && groupCount < faceCount) {
+        report.groups = 0;
+        return faces;
+    }
+    std::vector<uint32_t> out;
+    std::string message;
+    if (!rust::OrientOutward (points, faces, ids, weldTolerance, out, report, message)) {
+        Report (error, std::move (message));
+        return faces;
+    }
+    return out;
 }
 
 SunStudyReceivers BuildSunStudyReceivers (const geomsrv::Snapshot& snapshot, const ElementRoles& roles, bool glassOnly,
@@ -266,131 +402,6 @@ std::vector<AtlasRegion> AtlasChangedRegions (uint32_t width, uint32_t height, u
     }
     return regions;
 }
-
-#else // the C++ kernels
-
-SunSeries SeriesFromSteps (const std::vector<SunStep>& steps, int timestepMinutes, double minAltitudeDegrees,
-                           std::string*)
-{
-    return SunSeries::FromSteps (steps, timestepMinutes, minAltitudeDegrees);
-}
-
-AnalysisLimits ComputeAnalysisLimits (const MachineResources& machine, size_t steps, double occupancy, std::string*)
-{
-    return evp::sunstudy::ComputeAnalysisLimits (machine, steps, occupancy);
-}
-
-AnalysisLimitsReport ReportAnalysisLimits (const MachineResources& machine, size_t steps, double occupancy,
-                                           double analysedArea, std::string*)
-{
-    AnalysisLimitsReport report;
-    report.limits = evp::sunstudy::ComputeAnalysisLimits (machine, steps, occupancy);
-    report.finestGridSpacing = evp::sunstudy::FinestGridSpacing (analysedArea, report.limits.maxSamples);
-    return report;
-}
-
-std::vector<TimeOfDay> EnumerateTimesteps (int timestepMinutes, int hourFrom, int hourTo, std::string*)
-{
-    return evp::sunstudy::EnumerateTimesteps (timestepMinutes, hourFrom, hourTo);
-}
-
-std::vector<uint32_t> FanSteps (const std::vector<uint16_t>& stepMinutes, double intervalMinutes, std::string*)
-{
-    return evp::sunstudy::FanSteps (stepMinutes, intervalMinutes);
-}
-
-std::vector<float> ScatterToAtlas (const SunStudyAtlas& atlas, const std::vector<double>& perSample, float emptyValue,
-                                   std::string*)
-{
-    return evp::sunstudy::ScatterToAtlas (atlas, perSample, emptyValue);
-}
-
-ElementRoles ResolveElementRoles (const geomsrv::Snapshot& snapshot, const std::vector<std::string>& analysisPicked,
-                                  const std::vector<std::string>& contextPicked,
-                                  const std::vector<std::string>& ignoredPicked, std::string*)
-{
-    return evp::sunstudy::ResolveElementRoles (snapshot, analysisPicked, contextPicked, ignoredPicked);
-}
-
-SunStudyReceivers BuildSunStudyReceivers (const geomsrv::Snapshot& snapshot, const ElementRoles& roles, bool glassOnly,
-                                          const std::map<int32_t, double>& transparency, double threshold, std::string*)
-{
-    return evp::sunstudy::BuildSunStudyReceivers (snapshot, roles, glassOnly, transparency, threshold);
-}
-
-std::string SunStudyPresetAdvice (size_t triangleCount, const std::string& selectedPreset, std::string*)
-{
-    return evp::sunstudy::SunStudyPresetAdvice (triangleCount, selectedPreset);
-}
-
-SurfaceSamplingResult BuildSurfaceSampling (const geomsrv::Snapshot& snapshot, const std::vector<uint8_t>& sampleMask,
-                                            const SurfaceSamplingOptions& options, const StudyRecord* previous,
-                                            const std::function<bool ()>& isCancelled,
-                                            const std::vector<std::vector<uint8_t>>& faceMasks, std::string*)
-{
-    return evp::sunstudy::BuildSurfaceSampling (snapshot, sampleMask, options, previous, isCancelled, faceMasks);
-}
-
-PatchAtlasUpdate FitPatchAtlas (SunStudyPatchAtlas& atlas, const PatchSampleGrid& grid, uint32_t gutter,
-                                uint32_t maxDimension, std::string*)
-{
-    return atlas.Fit (grid, gutter, maxDimension);
-}
-
-SunStudyAtlas BuildStableTriangleAtlas (const SampleGrid& grid, const geomsrv::Snapshot& snapshot,
-                                        SunStudyPatchAtlas& allocations, const SunStudyPatchAtlas* previous,
-                                        const AtlasOptions& options, std::string*)
-{
-    return evp::sunstudy::BuildStableTriangleAtlas (grid, snapshot, allocations, previous, options);
-}
-
-GroundGrid MakeGroundSampleGrid (const Vec3& aabbMin, const Vec3& aabbMax, double spacing, double pad, double zOffset,
-                                 size_t maxSamples, std::string*)
-{
-    return evp::sunstudy::MakeGroundSampleGrid (aabbMin, aabbMax, spacing, pad, zOffset, maxSamples);
-}
-
-SampleGrid BuildSampleGrid (const double* vertices, size_t vertexCount, const uint32_t* triangles, size_t faceCount,
-                            const uint32_t* groups, const SamplerOptions& options, std::string*)
-{
-    return evp::sunstudy::BuildSampleGrid (vertices, vertexCount, triangles, faceCount, groups, options);
-}
-
-PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount, const uint32_t* triangles,
-                                      size_t faceCount, const uint32_t* groups,
-                                      const std::vector<std::string>& elementOf, const PatchSamplerOptions& options,
-                                      std::string*)
-{
-    return evp::sunstudy::BuildPatchSampleGrid (vertices, vertexCount, triangles, faceCount, groups, elementOf,
-                                                options);
-}
-
-SunStudyAtlas BuildSunStudyAtlas (const SampleGrid& grid, const AtlasOptions& options, std::string*)
-{
-    return evp::sunstudy::BuildSunStudyAtlas (grid, options);
-}
-
-SelectionBindingRefresh RefreshSelectionBinding (SunStudySelectionBinding& binding, uint64_t currentGeneration,
-                                                 const std::vector<std::string>& context,
-                                                 const std::vector<std::string>& ignored,
-                                                 std::vector<std::string>& studyContext,
-                                                 std::vector<std::string>& studyIgnored,
-                                                 const std::vector<std::string>& analysis,
-                                                 std::vector<std::string>* studyAnalysis, std::string*)
-{
-    return binding.Refresh (currentGeneration, context, ignored, studyContext, studyIgnored, analysis, studyAnalysis);
-}
-
-template <typename T>
-std::vector<AtlasRegion> AtlasChangedRegions (uint32_t width, uint32_t height, uint32_t layers,
-                                              const std::vector<T>& before, const std::vector<T>& after,
-                                              size_t maxRegionsPerLayer, const std::function<bool ()>& isCancelled,
-                                              std::string*)
-{
-    return evp::sunstudy::AtlasChangedRegions (width, height, layers, before, after, maxRegionsPerLayer, isCancelled);
-}
-
-#endif
 
 template std::vector<AtlasRegion> AtlasChangedRegions<float> (uint32_t, uint32_t, uint32_t, const std::vector<float>&,
                                                               const std::vector<float>&, size_t,

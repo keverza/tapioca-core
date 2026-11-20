@@ -9,6 +9,7 @@
 // level; everything below the commands is here.
 
 #include "SunStudy/SunStudyRaster.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyRustAnnual.hpp"
 #include "SunStudy/SunStudyRustStudy.hpp"
@@ -50,7 +51,7 @@ SunSeries MakeDay (int steps)
         step.direction[2] = 1.0;
         raw.push_back (step);
     }
-    return SunSeries::FromSteps (raw, 60);
+    return kernels::SeriesFromSteps (raw, 60);
 }
 
 // Builds a record whose sample arrays are LOCAL to this function, so a store
@@ -391,7 +392,8 @@ TEST (SunStudyStore, EndToEndOverTheGroundGrid)
     StoreFixture fixture;
 
     auto engine = std::make_shared<QueryEngine> (MakeRoofSnapshot ());
-    const GroundGrid grid = MakeGroundSampleGrid (Vec3 { -1, -1, 0 }, Vec3 { 1, 1, 5 }, 1.0, 4.0 /* pad */, 0.1);
+    const GroundGrid grid =
+        kernels::MakeGroundSampleGrid (Vec3 { -1, -1, 0 }, Vec3 { 1, 1, 5 }, 1.0, 4.0 /* pad */, 0.1);
     ASSERT_TRUE (grid.valid);
 
     auto record = std::make_unique<StudyRecord> ();

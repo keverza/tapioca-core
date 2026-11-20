@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "ArchViz/SunStudyOverlay.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyPatchAtlas.hpp"
 #include "SunStudy/SunStudyReading.hpp"
 #include "SunStudy/SunStudyStore.hpp"
@@ -71,124 +72,11 @@ PatchSampleGrid Patches (const Scene& scene, double spacing, const std::vector<u
     options.spacing = spacing;
     options.normalOffset = 0.0;
     options.sampleGroup = mask;
-    return BuildPatchSampleGrid (scene.vertices.data (), scene.vertices.size () / 3, scene.triangles.data (),
-                                 scene.Faces (), scene.groups.data (), scene.elementOf, options);
+    return kernels::BuildPatchSampleGrid (scene.vertices.data (), scene.vertices.size () / 3, scene.triangles.data (),
+                                          scene.Faces (), scene.groups.data (), scene.elementOf, options);
 }
 
 } // namespace
-
-TEST (SunStudyReading, EveryPatchSampleReadsItselfFromEveryTriangleOfItsSurface)
-{
-    const Scene scene;
-    const PatchSampleGrid grid = Patches (scene, 0.7); // does not divide either rectangle
-    ASSERT_TRUE (grid.valid);
-    const std::vector<double> hours = Hours (grid.Count ());
-
-    for (size_t sample = 0; sample < grid.Count (); ++sample) {
-        const double point[3] = { grid.positions[sample * 3], grid.positions[sample * 3 + 1],
-                                  grid.positions[sample * 3 + 2] };
-        for (size_t face = 0; face < scene.Faces (); ++face) {
-            if (grid.patchOfTriangle[face] != grid.spanOf[sample])
-                continue;
-            const SunStudyReading reading = ReadPatchStudyAt (grid, 0.7, hours, face, point);
-            ASSERT_TRUE (reading.measured);
-            EXPECT_EQ (reading.sample, sample) << "through face " << face;
-            EXPECT_FALSE (reading.nearest);
-            EXPECT_DOUBLE_EQ (reading.hours, hours[sample]);
-        }
-    }
-}
-
-TEST (SunStudyReading, EveryTriangleSampleReadsItself)
-{
-    const Scene scene;
-    SamplerOptions options;
-    options.spacing = 0.7;
-    options.normalOffset = 0.0;
-    options.wantLayouts = true;
-    const SampleGrid grid = BuildSampleGrid (scene.vertices.data (), scene.vertices.size () / 3,
-                                             scene.triangles.data (), scene.Faces (), scene.groups.data (), options);
-    ASSERT_TRUE (grid.valid);
-    const std::vector<double> hours = Hours (grid.Count ());
-
-    for (size_t sample = 0; sample < grid.Count (); ++sample) {
-        const double point[3] = { grid.positions[sample * 3], grid.positions[sample * 3 + 1],
-                                  grid.positions[sample * 3 + 2] };
-        const SunStudyReading reading = ReadTriangleStudyAt (grid, 0.7, hours, grid.faces[sample], point);
-        ASSERT_TRUE (reading.measured);
-        EXPECT_EQ (reading.sample, sample);
-        EXPECT_DOUBLE_EQ (reading.hours, hours[sample]);
-    }
-}
-
-TEST (SunStudyReading, ANonFiniteHoverPointReadsCellZeroNotUndefinedBehaviour)
-{
-    // #21: std::clamp passed a NaN cell through to a uint32_t cast.
-    const Scene scene;
-    SamplerOptions options;
-    options.spacing = 0.7;
-    options.normalOffset = 0.0;
-    options.wantLayouts = true;
-    const SampleGrid grid = BuildSampleGrid (scene.vertices.data (), scene.vertices.size () / 3,
-                                             scene.triangles.data (), scene.Faces (), scene.groups.data (), options);
-    ASSERT_TRUE (grid.valid);
-    const std::vector<double> hours = Hours (grid.Count ());
-    const double nan = std::numeric_limits<double>::quiet_NaN ();
-    const double oneNaN[3] = { nan, 0.0, 0.0 }, allNaN[3] = { nan, nan, nan };
-    for (const double* point : { oneNaN, allNaN })
-        for (size_t face = 0; face < grid.layouts.size (); ++face) {
-            const SunStudyReading reading = ReadTriangleStudyAt (grid, 0.7, hours, face, point);
-            if (reading.measured) {
-                ASSERT_LT (reading.sample, grid.Count ());
-                EXPECT_EQ (grid.faces[reading.sample], face) << "a NaN reads within its own face";
-            }
-        }
-}
-
-TEST (SunStudyReading, TheReaderAndTheShaderReadTheSameCellAcrossTheSurface)
-{
-    // ⚠️ THE DECISIVE ONE. A dense walk of points over the wall, including cell
-    // boundaries: wherever the reader found the cell's own sample, the shader's
-    // arithmetic on the real display record lands on that sample's texel.
-    const Scene scene;
-    const PatchSampleGrid grid = Patches (scene, 0.7);
-    SunStudyPatchAtlas atlas;
-    atlas.Fit (grid);
-    std::vector<AtlasTile> tiles;
-    std::vector<FaceLayout> layouts;
-    ASSERT_TRUE (PatchFaceArrays (grid, atlas, tiles, layouts));
-    geomsrv::archviz::SunStudyElementMap map;
-    const std::vector<int32_t> material (scene.Faces (), 0); // identity draw order
-    ASSERT_TRUE (geomsrv::archviz::BuildSunStudyElementMap (tiles, layouts, 0.7, scene.triangles, material, 0, map));
-    const std::vector<double> hours = Hours (grid.Count ());
-
-    size_t checked = 0;
-    for (double x = 0.01; x < 6.0; x += 0.13) {
-        for (double y = 0.01; y < 2.0; y += 0.11) {
-            const double point[3] = { x, y, 0.0 };
-            const size_t face = 0; // any triangle of the wall: one record for all
-            const SunStudyReading reading = ReadPatchStudyAt (grid, 0.7, hours, face, point);
-            ASSERT_TRUE (reading.measured);
-            if (reading.nearest)
-                continue;
-            const int64_t shaderTexel =
-                geomsrv::archviz::SunStudyTexelAt (map.faces[face], point, atlas.Width (), atlas.Height ());
-            EXPECT_EQ (shaderTexel, atlas.TexelOf (grid, reading.sample)) << "at " << x << ", " << y;
-            ++checked;
-        }
-    }
-    EXPECT_GT (checked, 500u);
-}
-
-TEST (SunStudyReading, AContextSurfaceHasNoMeasurement)
-{
-    const Scene scene;
-    const std::vector<uint8_t> analysed { 1u, 0u }; // the slab is context
-    const PatchSampleGrid grid = Patches (scene, 1.0, &analysed);
-    const double point[3] = { 21.0, 1.0, 0.0 };
-    const SunStudyReading reading = ReadPatchStudyAt (grid, 1.0, Hours (grid.Count ()), 12, point);
-    EXPECT_FALSE (reading.measured) << "a context surface reported some other surface's hours";
-}
 
 TEST (SunStudyReading, PickedMeshRaycastNeedsNoWholeSnapshotCacheOrInvisibleHitLimit)
 {
@@ -253,7 +141,7 @@ TEST (SunStudyReading, RolePartitionedStudiesReadPickedSourceFacesInBothDomainsW
                     mesh.triangles = { 0, 1, 2, 0, 2, 3 };
                     snapshot->meshes.push_back (std::move (mesh));
                 }
-                const auto roles = ResolveElementRoles (
+                const auto roles = kernels::ResolveElementRoles (
                     *snapshot, {}, context ? std::vector<std::string> { "context" } : std::vector<std::string> {},
                     ignored ? std::vector<std::string> { "ignored" } : std::vector<std::string> {});
                 auto record = std::make_unique<StudyRecord> ();
@@ -268,7 +156,7 @@ TEST (SunStudyReading, RolePartitionedStudiesReadPickedSourceFacesInBothDomainsW
                     record->elementRoles.push_back (static_cast<uint8_t> (role));
                 SurfaceSamplingOptions options;
                 options.domain = patch ? SamplingDomain::SurfacePatch : SamplingDomain::TriangleLegacy;
-                auto sampling = BuildSurfaceSampling (*snapshot, roles.SampleMask (), options);
+                auto sampling = kernels::BuildSurfaceSampling (*snapshot, roles.SampleMask (), options);
                 ASSERT_TRUE (sampling.valid);
                 record->domain = options.domain;
                 record->sampleGrid = std::move (sampling.triangles);
@@ -279,7 +167,7 @@ TEST (SunStudyReading, RolePartitionedStudiesReadPickedSourceFacesInBothDomainsW
                 step.time = { 12, 0 };
                 step.altitudeDegrees = 90;
                 step.direction[2] = 1;
-                record->series = SunSeries::FromSteps ({ step }, 60);
+                record->series = kernels::SeriesFromSteps ({ step }, 60);
                 evp::sunstudy::fixture::BuildTestAtlas (*record);
                 evp::sunstudy::fixture::AttachTestCore (*record, { snapshot->id, record->series.Version (), 1 },
                                                         snapshot.get ());

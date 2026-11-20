@@ -1,4 +1,5 @@
 #include "ArchViz/SunStudyObstructionController.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 
 #include "MeshFixtures.hpp"
 #include "SunStudy/SunStudyOccluders.hpp"
@@ -35,15 +36,15 @@ std::string InsertDay (bool defaultRayBounds = true)
     record->snapshotId = snapshot->id;
     record->defaultRayBounds = defaultRayBounds;
     record->positions = { 0.25, 0.25, 0.0 };
-    record->occluders =
-        evp::sunstudy::BuildSunStudyOccluders (*snapshot, evp::sunstudy::ResolveElementRoles (*snapshot, {}, {}, {}));
+    record->occluders = evp::sunstudy::BuildSunStudyOccluders (
+        *snapshot, evp::sunstudy::kernels::ResolveElementRoles (*snapshot, {}, {}, {}));
     std::vector<evp::sunstudy::SunStep> steps (2);
     for (size_t index = 0; index < steps.size (); ++index) {
         steps[index].time = evp::sunstudy::TimeOfDay { 8 + int (index), 0 };
         steps[index].direction[2] = index == 0 ? 1.0 : -1.0;
         steps[index].altitudeDegrees = 45.0;
     }
-    record->series = evp::sunstudy::SunSeries::FromSteps (steps, 60);
+    record->series = evp::sunstudy::kernels::SeriesFromSteps (steps, 60);
     record->traversal = std::make_shared<evp::sunstudy::CpuTraversal> (record->occluders->analysis);
     evp::sunstudy::StudyInputs inputs;
     inputs.geometryVersion = snapshot->id;
@@ -104,8 +105,8 @@ std::string InsertCutDay (bool defaultRayBounds = true, bool surfaceReceiver = t
     options.normalOffset = 0.0;
     options.wantLayouts = true;
     record->sampleGrid =
-        evp::sunstudy::BuildSampleGrid (floor.vertices.data (), floor.VertexCount (), floor.triangles.data (),
-                                        floor.TriangleCount (), nullptr, options);
+        evp::sunstudy::kernels::BuildSampleGrid (floor.vertices.data (), floor.VertexCount (), floor.triangles.data (),
+                                                 floor.TriangleCount (), nullptr, options);
     record->positions = record->sampleGrid.positions;
     record->normals = record->sampleGrid.normals;
     record->sampleMeshes = { 1 };
@@ -115,8 +116,8 @@ std::string InsertCutDay (bool defaultRayBounds = true, bool surfaceReceiver = t
     record->sampleGrid.layouts[12] = layout;
     record->gridSpacing = 2.0;
     record->timestepMinutes = 60;
-    record->occluders =
-        evp::sunstudy::BuildSunStudyOccluders (*snapshot, evp::sunstudy::ResolveElementRoles (*snapshot, {}, {}, {}));
+    record->occluders = evp::sunstudy::BuildSunStudyOccluders (
+        *snapshot, evp::sunstudy::kernels::ResolveElementRoles (*snapshot, {}, {}, {}));
     std::vector<evp::sunstudy::SunStep> steps (2);
     for (size_t index = 0; index < steps.size (); ++index) {
         steps[index].time = evp::sunstudy::TimeOfDay { 8 + int (index), 0 };
@@ -126,7 +127,7 @@ std::string InsertCutDay (bool defaultRayBounds = true, bool surfaceReceiver = t
         steps[index].direction[2] = 1.0 / length;
         steps[index].altitudeDegrees = 80.0;
     }
-    record->series = evp::sunstudy::SunSeries::FromSteps (steps, 60);
+    record->series = evp::sunstudy::kernels::SeriesFromSteps (steps, 60);
     record->traversal = std::make_shared<evp::sunstudy::CpuTraversal> (record->occluders->analysis);
     evp::sunstudy::StudyInputs inputs;
     inputs.geometryVersion = snapshot->id;

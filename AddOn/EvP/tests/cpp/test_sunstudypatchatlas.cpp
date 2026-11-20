@@ -16,6 +16,7 @@
 #include <cstring>
 
 #include "ArchViz/MeshGroups.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "SunStudy/SunStudyPatchAtlas.hpp"
 #include "SunStudy/SunStudyPatchSampler.hpp"
@@ -86,8 +87,8 @@ PatchSampleGrid SampleOf (const Scene& scene, double spacing)
     PatchSamplerOptions options;
     options.spacing = spacing;
     options.normalOffset = 0.0;
-    return BuildPatchSampleGrid (scene.vertices.data (), scene.vertices.size () / 3, scene.triangles.data (),
-                                 scene.triangles.size () / 3, scene.groups.data (), scene.elementOf, options);
+    return kernels::BuildPatchSampleGrid (scene.vertices.data (), scene.vertices.size () / 3, scene.triangles.data (),
+                                          scene.triangles.size () / 3, scene.groups.data (), scene.elementOf, options);
 }
 
 } // namespace
@@ -185,8 +186,8 @@ TEST (PatchSampler, TheMeasuredAreaMatchesTheTriangleSamplerToTheSurfaceItself)
     legacy.normalOffset = 0.0;
     legacy.wantLayouts = true;
     const SampleGrid triangles =
-        BuildSampleGrid (scene.vertices.data (), scene.vertices.size () / 3, scene.triangles.data (),
-                         scene.triangles.size () / 3, scene.groups.data (), legacy);
+        kernels::BuildSampleGrid (scene.vertices.data (), scene.vertices.size () / 3, scene.triangles.data (),
+                                  scene.triangles.size () / 3, scene.groups.data (), legacy);
     ASSERT_TRUE (triangles.valid);
 
     double legacyArea = 0.0;
@@ -228,7 +229,7 @@ TEST (PatchAtlas, EverySampleLandsOnItsOwnPatchsTile)
     const PatchSampleGrid grid = SampleOf (scene, 1.0);
 
     SunStudyPatchAtlas atlas;
-    const PatchAtlasUpdate update = atlas.Fit (grid);
+    const PatchAtlasUpdate update = kernels::FitPatchAtlas (atlas, grid);
     EXPECT_EQ (update.added, 2u);
     EXPECT_GT (atlas.Width (), 0u);
 
@@ -248,37 +249,6 @@ TEST (PatchAtlas, EverySampleLandsOnItsOwnPatchsTile)
         EXPECT_GE (y, allocation->y);
         EXPECT_LT (y, allocation->y + allocation->height);
     }
-}
-
-TEST (PatchAtlas, CollidingQuantisedPlanesKeepSeparateTilesAndZeroResults)
-{
-    Scene scene;
-    AddQuad (scene, "same-element", 0, 0, 4, 3, 0);
-    AddQuad (scene, "same-element", 0, 0, 4, 3, 0);      // disconnected, coincident geometry
-    AddQuad (scene, "same-element", 0, 0, 4, 3, 0.0001); // below the key quantum
-    const auto grid = SampleOf (scene, 1.0);
-    ASSERT_TRUE (grid.valid);
-    ASSERT_EQ (grid.spans.size (), 3u);
-    EXPECT_EQ (grid.spans[0].key.plane, grid.spans[1].key.plane);
-    EXPECT_EQ (grid.spans[0].key.plane, grid.spans[2].key.plane);
-
-    SunStudyPatchAtlas atlas;
-    atlas.Fit (grid);
-    ASSERT_EQ (atlas.AllocationCount (), grid.spans.size ());
-    std::vector<float> image (atlas.TexelCount (), -1.0f);
-    for (size_t span = 0; span < grid.spans.size (); ++span)
-        ASSERT_TRUE (atlas.ScatterPatch (grid, span, std::vector<double> (grid.spans[span].count, span * 3.0), image));
-    std::set<int64_t> texels;
-    for (size_t sample = 0; sample < grid.Count (); ++sample) {
-        const auto texel = atlas.TexelOf (grid, sample);
-        ASSERT_GE (texel, 0);
-        ASSERT_LT (static_cast<size_t> (texel), image.size ());
-        EXPECT_TRUE (texels.insert (texel).second);
-        EXPECT_FLOAT_EQ (image[static_cast<size_t> (texel)], grid.spanOf[sample] * 3.0f);
-    }
-    EXPECT_EQ (texels.size (), grid.Count ());
-    EXPECT_GT (std::count (image.begin (), image.end (), -1.0f), 0);
-    EXPECT_EQ (std::count (image.begin (), image.end (), 0.0f), grid.spans[0].count);
 }
 
 TEST (PatchAtlas, CollisionDiscriminatorsSurviveAnUnrelatedElementInsertedBeforeThem)
@@ -310,10 +280,10 @@ TEST (PatchAtlas, RefittingAnUnchangedGridMovesNothing)
     const PatchSampleGrid grid = SampleOf (scene, 1.0);
 
     SunStudyPatchAtlas atlas;
-    atlas.Fit (grid);
+    kernels::FitPatchAtlas (atlas, grid);
     std::map<PatchKey, PatchAtlasAllocation> before = atlas.Allocations ();
 
-    const PatchAtlasUpdate again = atlas.Fit (grid);
+    const PatchAtlasUpdate again = kernels::FitPatchAtlas (atlas, grid);
     EXPECT_EQ (again.retained, 2u);
     EXPECT_EQ (again.added, 0u);
     EXPECT_EQ (again.moved, 0u);
@@ -339,7 +309,7 @@ TEST (PatchAtlas, AChangedElementLeavesEveryOtherTileWhereItWas)
     const PatchSampleGrid gridBefore = SampleOf (before, 1.0);
 
     SunStudyPatchAtlas atlas;
-    atlas.Fit (gridBefore);
+    kernels::FitPatchAtlas (atlas, gridBefore);
     const PatchAtlasAllocation floorBefore = *atlas.Find (gridBefore.spans[0].key);
     // Find wallB's key by element name.
     PatchKey wallBKey;
@@ -356,7 +326,7 @@ TEST (PatchAtlas, AChangedElementLeavesEveryOtherTileWhereItWas)
     AddQuad (after, "wallB", 30, 0, 31, 8, 2);
     const PatchSampleGrid gridAfter = SampleOf (after, 1.0);
 
-    const PatchAtlasUpdate update = atlas.Fit (gridAfter);
+    const PatchAtlasUpdate update = kernels::FitPatchAtlas (atlas, gridAfter);
     EXPECT_GE (update.retained, 2u) << "the floor and the far wall must have kept their tiles";
     EXPECT_EQ (update.removed, 1u) << "the moved wall's old key must be retired";
     EXPECT_EQ (update.added, 1u) << "and its new key allocated";
@@ -374,77 +344,6 @@ TEST (PatchAtlas, AChangedElementLeavesEveryOtherTileWhereItWas)
     ASSERT_NE (wallBNow, nullptr);
     EXPECT_EQ (wallBNow->x, wallBBefore.x);
     EXPECT_EQ (wallBNow->y, wallBBefore.y);
-}
-
-TEST (PatchAtlas, OnePatchScattersIntoItsOwnRectangleAndNowhereElse)
-{
-    // ⚠️ THE MECHANISM THAT MAKES A PARTIAL GPU UPLOAD POSSIBLE. If scattering one
-    // patch touched a texel outside its rectangle, uploading that rectangle
-    // alone would lose the write -- and the picture would be right in the places
-    // that were re-uploaded and stale everywhere else.
-    Scene scene;
-    AddQuad (scene, "a", 0, 0, 4, 3, 0);
-    AddQuad (scene, "b", 10, 0, 13, 5, 0);
-    const PatchSampleGrid grid = SampleOf (scene, 1.0);
-
-    SunStudyPatchAtlas atlas;
-    atlas.Fit (grid);
-    std::vector<float> image (atlas.TexelCount (), -1.0f);
-
-    const std::vector<double> hours (grid.spans[0].count, 4.0);
-    ASSERT_TRUE (atlas.ScatterPatch (grid, 0, hours, image));
-
-    const PatchAtlasAllocation* mine = atlas.Find (grid.spans[0].key);
-    const PatchAtlasAllocation* other = atlas.Find (grid.spans[1].key);
-    ASSERT_NE (mine, nullptr);
-    ASSERT_NE (other, nullptr);
-
-    for (size_t texel = 0; texel < image.size (); ++texel) {
-        if (image[texel] < 0.0f)
-            continue;
-        const uint32_t x = static_cast<uint32_t> (texel % atlas.Width ());
-        const uint32_t y = static_cast<uint32_t> (texel / atlas.Width ());
-        EXPECT_GE (x, mine->x);
-        EXPECT_LT (x, mine->x + mine->width);
-        EXPECT_GE (y, mine->y);
-        EXPECT_LT (y, mine->y + mine->height);
-    }
-
-    // The other patch's rectangle is untouched -- still every texel a sentinel.
-    std::vector<float> otherRectangle;
-    ASSERT_TRUE (atlas.ReadRectangle (*other, image, otherRectangle));
-    for (const float value : otherRectangle)
-        EXPECT_LT (value, 0.0f) << "scattering one patch wrote into another's tile";
-}
-
-TEST (PatchAtlas, TheRectangleReadBackIsWhatAPartialUploadWouldSend)
-{
-    Scene scene;
-    AddQuad (scene, "a", 0, 0, 4, 3, 0);
-    const PatchSampleGrid grid = SampleOf (scene, 1.0);
-
-    SunStudyPatchAtlas atlas;
-    atlas.Fit (grid);
-    std::vector<float> image (atlas.TexelCount (), -1.0f);
-    std::vector<double> hours (grid.spans[0].count);
-    for (size_t i = 0; i < hours.size (); ++i)
-        hours[i] = double (i);
-    ASSERT_TRUE (atlas.ScatterPatch (grid, 0, hours, image));
-
-    const PatchAtlasAllocation* allocation = atlas.Find (grid.spans[0].key);
-    ASSERT_NE (allocation, nullptr);
-    std::vector<float> rectangle;
-    ASSERT_TRUE (atlas.ReadRectangle (*allocation, image, rectangle));
-    EXPECT_EQ (rectangle.size (), size_t (allocation->width) * allocation->height);
-
-    // Every hour written is somewhere in the rectangle, and the rectangle is all
-    // this patch needs to upload.
-    for (const double hour : hours) {
-        bool present = false;
-        for (const float value : rectangle)
-            present = present || std::fabs (value - float (hour)) < 1e-6f;
-        EXPECT_TRUE (present) << "hour " << hour << " is outside the patch's own rectangle";
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -591,7 +490,7 @@ bool DisplayOf (const Scene& scene, double spacing, PatchDisplay& out)
     out.grid = SampleOf (scene, spacing);
     if (!out.grid.valid)
         return false;
-    out.atlas.Fit (out.grid);
+    kernels::FitPatchAtlas (out.atlas, out.grid);
     if (!PatchFaceArrays (out.grid, out.atlas, out.tiles, out.layouts))
         return false;
 
@@ -733,7 +632,7 @@ TEST (PatchDisplay, AnAtlasFromAnotherStudyIsRefusedRatherThanPartlyDrawn)
     AddQuad (two, "wall-b", 20, 0, 24, 3, 0);
 
     SunStudyPatchAtlas atlas;
-    atlas.Fit (SampleOf (one, 1.0)); // knows wall-a only
+    kernels::FitPatchAtlas (atlas, SampleOf (one, 1.0)); // knows wall-a only
     const PatchSampleGrid grid = SampleOf (two, 1.0);
     ASSERT_TRUE (grid.valid);
 
@@ -762,8 +661,8 @@ TEST (PatchSampler, AContextElementFormsNoSpanAndItsTrianglesDrawNormally)
     const std::vector<uint8_t> analysed { 1u, 0u };
     options.sampleGroup = &analysed;
     const PatchSampleGrid grid =
-        BuildPatchSampleGrid (scene.vertices.data (), scene.vertices.size () / 3, scene.triangles.data (),
-                              scene.triangles.size () / 3, scene.groups.data (), scene.elementOf, options);
+        kernels::BuildPatchSampleGrid (scene.vertices.data (), scene.vertices.size () / 3, scene.triangles.data (),
+                                       scene.triangles.size () / 3, scene.groups.data (), scene.elementOf, options);
     ASSERT_TRUE (grid.valid);
 
     ASSERT_EQ (grid.spans.size (), 1u);
@@ -779,7 +678,7 @@ TEST (PatchSampler, AContextElementFormsNoSpanAndItsTrianglesDrawNormally)
 
     // And the display draws the context triangles with ordinary shading.
     SunStudyPatchAtlas atlas;
-    atlas.Fit (grid);
+    kernels::FitPatchAtlas (atlas, grid);
     std::vector<AtlasTile> tiles;
     std::vector<FaceLayout> layouts;
     ASSERT_TRUE (PatchFaceArrays (grid, atlas, tiles, layouts));
@@ -803,8 +702,8 @@ TEST (SunStudyPatchAtlas, AnalysisCylinderClipsCellsNotPatches)
     options.clipY = 10.0;
     options.clipRadius = 5.0;
     const PatchSampleGrid grid =
-        BuildPatchSampleGrid (scene.vertices.data (), scene.vertices.size () / 3, scene.triangles.data (),
-                              scene.triangles.size () / 3, scene.groups.data (), scene.elementOf, options);
+        kernels::BuildPatchSampleGrid (scene.vertices.data (), scene.vertices.size () / 3, scene.triangles.data (),
+                                       scene.triangles.size () / 3, scene.groups.data (), scene.elementOf, options);
     ASSERT_TRUE (grid.valid);
     ASSERT_EQ (grid.spans.size (), 1u);
     EXPECT_EQ (grid.spans[0].key.element, "slab");
@@ -817,7 +716,7 @@ TEST (SunStudyPatchAtlas, AnalysisCylinderClipsCellsNotPatches)
 
     // The atlas still maps the clipped slab.
     SunStudyPatchAtlas atlas;
-    atlas.Fit (grid);
+    kernels::FitPatchAtlas (atlas, grid);
     std::vector<AtlasTile> tiles;
     std::vector<FaceLayout> layouts;
     ASSERT_TRUE (PatchFaceArrays (grid, atlas, tiles, layouts));

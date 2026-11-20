@@ -2,7 +2,9 @@
 #define EVP_SUNSTUDY_SUNSTUDYWINDING_HPP
 
 // SunStudy/SunStudyWinding — proving which way a face points before anything
-// measures it.
+// measures it. The proof (OrientOutward) runs in the Rust core
+// (tapioca_sunstudy::winding, inside surface sampling); this header keeps its
+// report type and SignedVolume, which the solar cut uses for volumes.
 //
 // ⚠️ EVERY ANSWER THIS ENGINE GIVES RESTS ON THE FACE NORMAL, and nothing
 // upstream guarantees which way it points. The occlusion pass refuses a sample
@@ -38,19 +40,6 @@ struct WindingReport {
     size_t flipped = 0;          // groups whose volume came out negative
     size_t flippedTriangles = 0; // triangles whose winding was swapped
 };
-
-// Returns a copy of `triangles` with inward-wound groups' winding swapped.
-// `groups` is one element id per face (`groupCount` of them), or null for
-// "all one element". Fewer ids than faces flips nothing.
-//
-// ⚠️ ADJACENCY IS A QUESTION ABOUT POSITIONS, NOT INDICES. The snapshot merges
-// elements without sharing vertices, so two triangles meeting along an edge
-// generally hold four distinct indices for its two corners. Comparing indices
-// would find no shared edges at all and every element would read as open --
-// which fails safe, and therefore silently never flips anything.
-std::vector<uint32_t> OrientOutward (const double* vertices, size_t vertexCount, const uint32_t* triangles,
-                                     size_t faceCount, const uint32_t* groups, size_t groupCount, WindingReport& report,
-                                     double weldTolerance = 1e-4);
 
 // The signed volume of a closed triangle soup, by the divergence theorem.
 //

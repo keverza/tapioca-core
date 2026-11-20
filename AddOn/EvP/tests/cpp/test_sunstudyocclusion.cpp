@@ -10,6 +10,7 @@
 // rule that an incomplete study must be recognisable as incomplete.
 
 #include "SunStudy/CpuTraversal.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyRust.hpp"
 
 #include <gtest/gtest.h>
@@ -286,7 +287,7 @@ TEST (SunStudyOcclusion, RangeAccumulationWalksTheSeriesInSlices)
         step.direction[2] = 1.0;
         steps.push_back (step);
     }
-    const SunSeries series = SunSeries::FromSteps (steps, 60);
+    const SunSeries series = kernels::SeriesFromSteps (steps, 60);
     ASSERT_EQ (series.StepCount (), 5u);
 
     OcclusionAccumulator accumulator (2, series.StepCount ());
