@@ -15,6 +15,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstdio>
 #include <string>
 #include <windows.h>
 
@@ -53,6 +55,34 @@ void Decline (const char* why)
         return;
     g_declined = why;
     ArchVizLog (std::string ("HOVER 3D     the pointer is not read: ") + why);
+}
+
+// ⚠️ #254 (the user, 2026-11-20: after a resize "cursor and edit location do not sync"). The editor
+// maps model metres to pixels through the camera's captured viewport; the pointer and the HUD are in
+// the canvas's client pixels. Whether the two still agree after a resize -- and whether the camera is
+// decoded again at all -- is what the next live run must show before anything in the camera's
+// lifecycle is touched (OVERLAY-INVARIANTS.md §0, §3). Said once per change (§7).
+std::string g_fitSaid;
+
+void NoteViewportFit (const freshness::CameraCopy& camera, const overlayhud::Input& input)
+{
+    if (!(input.width >= 1.0f && input.height >= 1.0f))
+        return;
+    const bool fits =
+        std::abs (camera.viewport[2] - input.width) <= 1.5f && std::abs (camera.viewport[3] - input.height) <= 1.5f;
+    char shape[160] = {};
+    _snprintf_s (shape, sizeof (shape), _TRUNCATE, "viewport %.0fx%.0f at (%.0f, %.0f), canvas %.0fx%.0f",
+                 camera.viewport[2], camera.viewport[3], camera.viewport[0], camera.viewport[1], input.width,
+                 input.height);
+    const std::string key = fits ? std::string ("fits") : std::string (shape);
+    if (key == g_fitSaid)
+        return;
+    g_fitSaid = key;
+    char line[256] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE, "PROJ 3D      the camera's %s: %s (decode %llu)", shape,
+                 fits ? "they agree" : "THEY DISAGREE -- the editor draws and picks off the model",
+                 static_cast<unsigned long long> (camera.serial));
+    ArchVizLog (line);
 }
 
 } // namespace
@@ -157,6 +187,7 @@ void Projection (overlayhud::Input& input)
     cameralayout::ViewProjection (camera.projection, camera.view, viewProjection.data ());
     std::array<float, 4> viewport {};
     std::copy (std::begin (camera.viewport), std::end (camera.viewport), viewport.begin ());
+    NoteViewportFit (camera, input);
     // This captured projection's homogeneous-w column points into the visible half-space
     // (ProjectThrough accepts w > 0), so it is the camera-to-scene direction in model space.
     input.hasCameraDirection = true;
