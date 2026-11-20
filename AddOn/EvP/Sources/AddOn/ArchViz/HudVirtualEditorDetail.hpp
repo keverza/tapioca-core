@@ -267,7 +267,7 @@ void Organize (Session& s, OrganizeCommand command);
 // scrolled into view when `reveal`.
 void OrganizeVisibility (Session& s);
 void SelectMenuItems (Session& s);
-void LayerRows (Session& s);
+void LayerRows (Session& s, bool reveal = false); // the layers as folders of their objects (2026-11-20)
 // #124: renames a group as one undo step; false, with the reason in s.message, when refused (an
 // unchanged name is refused with no reason).
 bool RenameGroup (Session& s, edit::Id group, const std::string& name);
@@ -282,7 +282,7 @@ bool FocusOn (Session& s, const std::vector<edit::Id>& objects, const std::strin
 // The view's half: a pending focus becomes this view's request -- its box in the plan, or the
 // pixel rectangle its corners project to in 3D (refused when none of them is in front).
 void TakeFocus (Session& s, const Map& m);
-void ObjectRows (Session& s, const std::string& filter, bool reveal);
+void ObjectRows (Session& s, const std::string& filter, bool reveal); // the search: flat
 // #191 U5: under every Inspector selection context: the selection's layer (choosing one moves it
 // there) and Group / Ungroup.
 void LayerAndGroupRow (Session& s);

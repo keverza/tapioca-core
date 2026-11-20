@@ -443,25 +443,68 @@ bool RenameGroup (Session& s, edit::Id group, const std::string& name)
     return Doc (s).revision != revision;
 }
 
-void LayerRows (Session& s)
+namespace {
+// What is on `layer`, paths first: what its row counts, selects and frames.
+std::vector<edit::Id> OnLayer (const edit::Document& doc, edit::Id layer)
+{
+    std::vector<edit::Id> on;
+    for (const auto& p : doc.paths)
+        if (p.member.layer == layer)
+            on.push_back (p.id);
+    for (const auto& e : doc.entities)
+        if (e.member.layer == layer)
+            on.push_back (e.id);
+    return on;
+}
+
+// A layer's right-click menu: what its row no longer spells out as buttons.
+void LayerMenu (Session& s, const edit::Layer& layer, const std::vector<edit::Id>& on,
+                const std::vector<edit::Ref>& refs)
+{
+    const edit::Id id = layer.id;
+    if (!ImGui::BeginPopupContextItem ("##layer-menu"))
+        return;
+    ImGui::BeginDisabled (refs.empty ());
+    if (ImGui::MenuItem ("Move selection here"))
+        Change (s, [refs, id] (edit::Document& d, std::string& e) { return edit::MoveToLayer (d, refs, id, e); });
+    ImGui::EndDisabled ();
+    if (ImGui::MenuItem ("Focus in view")) // #124: frame what is shown on it; the document is untouched
+        FocusOn (s, on, "layer " + layer.name);
+    if (id != edit::kNoId) { // layer 0 keeps its name and cannot go
+        char name[64];
+        std::snprintf (name, sizeof name, "%s", layer.name.c_str ());
+        ImGui::SetNextItemWidth (140.0f);
+        if (ImGui::InputText ("Rename", name, sizeof name, ImGuiInputTextFlags_EnterReturnsTrue) &&
+            layer.name != name) {
+            const std::string renamed = name; // #124: refused (empty, taken) with the reason
+            Change (
+                s, [id, renamed] (edit::Document& d, std::string& e) { return edit::RenameLayer (d, id, renamed, e); });
+            ImGui::CloseCurrentPopup ();
+        }
+        if (ImGui::MenuItem ("Delete layer (its objects go to layer 0)"))
+            Change (s, [id] (edit::Document& d, std::string& e) { return edit::DeleteLayer (d, id, e); });
+    }
+    ImGui::EndPopup ();
+}
+} // namespace
+
+void LayerRows (Session& s, bool reveal)
 {
     ImGui::BeginDisabled (s.drag != Drag::None || !s.drawing.empty ());
-    // Layers, 0 first: shown, locked, colour, name; the selection moves onto one. They are the
-    // editor's alone: none of them is an Archicad layer.
-    // Under the Outliner's Layers header (#191 U5): no second title.
+    // The user, 2026-11-20: layers as folders -- "layer 0 -> object 1, object 2; Layer 1 -> object
+    // 3, object 4" -- not the layers and then the layers again with their objects. Each layer is
+    // one row: its grip, shown, locked and colour, then its name, which opens on what is on it, by
+    // group. The name selects what is pickable on it; its right-click holds the rest. The layers
+    // are the editor's alone: none of them is an Archicad layer.
     const auto refs = s.selection.Items ();
     std::vector<edit::Layer> layers { Doc (s).layer0 }; // copies: a row's edit replaces the document
     layers.insert (layers.end (), Doc (s).layers.begin (), Doc (s).layers.end ());
-    // #124: many layers scroll in a box of their own, so the objects stay in reach below.
-    constexpr size_t kLayerRows = 6;
-    const bool boxed = layers.size () > kLayerRows;
-    if (boxed)
-        ImGui::BeginChild ("##layer-rows", ImVec2 (0.0f, ImGui::GetFrameHeightWithSpacing () * float (kLayerRows)),
-                           ImGuiChildFlags_Borders);
     for (const auto& layer : layers) {
         const edit::Id id = layer.id;
+        const auto on = OnLayer (Doc (s), id);
+        ImGui::PushID ("layer-objects");
         ImGui::PushID (int (id));
-        // #124: the grip to drag the row by (the name is a text box); layer 0 stays first.
+        // #124: the grip to drag the row by; layer 0 stays first.
         ImGui::BeginDisabled (id == edit::kNoId);
         ImGui::SmallButton ("=");
         ImGui::EndDisabled ();
@@ -484,44 +527,39 @@ void LayerRows (Session& s)
         if (SwatchPicker ("colour", colour, kEditorLine))
             ChangeLayer (s, id, [colour] (edit::Layer& l) { l.rgba = colour; });
         ImGui::SameLine ();
-        char name[64];
-        std::snprintf (name, sizeof name, "%s", layer.name.c_str ());
-        ImGui::SetNextItemWidth (120.0f);
-        ImGui::BeginDisabled (id == edit::kNoId); // layer 0 keeps its name
-        if (ImGui::InputText ("##name", name, sizeof name, ImGuiInputTextFlags_EnterReturnsTrue) &&
-            layer.name != name) {
-            const std::string renamed = name; // #124: refused (empty, taken) with the reason
-            Change (
-                s, [id, renamed] (edit::Document& d, std::string& e) { return edit::RenameLayer (d, id, renamed, e); });
+        // The view selected something on a collapsed layer: open it, so its row can come into sight.
+        if (reveal && std::any_of (on.begin (), on.end (), [&] (edit::Id object) {
+                return s.selection.Contains ({ object, edit::Part::Entity, edit::kNoId });
+            }))
+            ImGui::SetNextItemOpen (true);
+        const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen |
+                                         (on.empty () ? ImGuiTreeNodeFlags_Leaf : 0);
+        const bool open = ImGui::TreeNodeEx ("##layer", flags, "%s  (%zu)%s", layer.name.c_str (), on.size (),
+                                             layer.visible ? "" : "  hidden");
+        if (ImGui::IsItemClicked () && !ImGui::IsItemToggledOpen ()) {
+            std::vector<edit::Ref> pickable;
+            for (const edit::Id object : on)
+                if (edit::Pickable (Doc (s), object))
+                    pickable.push_back ({ object, edit::Part::Entity, edit::kNoId });
+            s.selection.Set (pickable);
         }
-        ImGui::EndDisabled ();
-        ImGui::SameLine ();
-        ImGui::BeginDisabled (refs.empty ());
-        if (ImGui::SmallButton ("Move here"))
-            Change (s, [refs, id] (edit::Document& d, std::string& e) { return edit::MoveToLayer (d, refs, id, e); });
-        ImGui::EndDisabled ();
-        ImGui::SameLine ();
-        if (ImGui::SmallButton ("Focus")) { // #124: frame what is shown on it; the document is untouched
-            std::vector<edit::Id> on;
-            for (const auto& p : Doc (s).paths)
-                if (p.member.layer == id)
-                    on.push_back (p.id);
-            for (const auto& e : Doc (s).entities)
-                if (e.member.layer == id)
-                    on.push_back (e.id);
-            FocusOn (s, on, "layer " + layer.name);
-        }
-        hudshell::Tip ("Frame what is shown on this layer in the view", hudshell::TipSide::Above);
-        if (id != edit::kNoId) {
-            ImGui::SameLine ();
-            if (ImGui::SmallButton ("Delete"))
-                Change (s, [id] (edit::Document& d, std::string& e) { return edit::DeleteLayer (d, id, e); });
-            hudshell::Tip ("Its objects go to layer 0", hudshell::TipSide::Above);
+        if (ImGui::IsItemHovered () && ImGui::GetDragDropPayload () == nullptr)
+            hudshell::HoverTip ("Click selects what is on this layer. Right-click: move the selection here, focus, "
+                                "rename, delete.");
+        LayerMenu (s, layer, on, refs);
+        if (open) {
+            std::vector<edit::Id> groups, objects;
+            Contents (Doc (s), edit::kNoId, groups, objects, id);
+            for (const edit::Id g : groups)
+                GroupTree (s, g, reveal, id);
+            for (const edit::Id object : objects)
+                if (edit::MemberOf (Doc (s), object) != nullptr)
+                    ObjectRow (s, object, reveal);
+            ImGui::TreePop ();
         }
         ImGui::PopID ();
+        ImGui::PopID ();
     }
-    if (boxed)
-        ImGui::EndChild ();
     if (ImGui::SmallButton ("New layer")) {
         // Named and coloured in turn: each new layer takes the next swatch.
         const uint32_t colour = kSwatches[(layers.size () - 1) % std::size (kSwatches)];
@@ -535,7 +573,6 @@ void LayerRows (Session& s)
         });
     }
     hudshell::Tip ("A new layer, with the selection moved onto it", hudshell::TipSide::Above);
-
     ImGui::EndDisabled ();
 }
 
@@ -579,8 +616,8 @@ void LayerAndGroupRow (Session& s)
 void ObjectRows (Session& s, const std::string& filter, bool reveal)
 {
     ImGui::BeginDisabled (s.drag != Drag::None || !s.drawing.empty ());
-    if (!filter.empty ()) {
-        // Searching: every object whose row reads the text, flat, whatever group it is in.
+    {
+        // Searching: every object whose row reads the text, flat, whatever group or layer it is in.
         const auto lower = [] (std::string text) {
             for (auto& c : text)
                 c = char (std::tolower (static_cast<unsigned char> (c)));
@@ -601,61 +638,7 @@ void ObjectRows (Session& s, const std::string& filter, bool reveal)
             }
         if (!shown)
             ImGui::TextDisabled ("No object matches \"%s\".", filter.c_str ());
-        ImGui::EndDisabled ();
-        return;
     }
-    // #124 (the user, 2026-11-19: objects should go to their layers): objects under their layer,
-    // by group within it. A layer's name selects what is pickable on it, a group's all of it, an
-    // object's itself. A layer with nothing on it is listed only in the Layers section above.
-    std::vector<edit::Layer> layers { Doc (s).layer0 };
-    layers.insert (layers.end (), Doc (s).layers.begin (), Doc (s).layers.end ());
-    bool any = false;
-    for (const auto& layer : layers) {
-        std::vector<edit::Id> groups, objects;
-        Contents (Doc (s), edit::kNoId, groups, objects, layer.id);
-        std::vector<edit::Id> on;
-        for (const auto& p : Doc (s).paths)
-            if (p.member.layer == layer.id)
-                on.push_back (p.id);
-        for (const auto& e : Doc (s).entities)
-            if (e.member.layer == layer.id)
-                on.push_back (e.id);
-        if (on.empty ())
-            continue;
-        any = true;
-        ImGui::PushID ("layer-objects");
-        ImGui::PushID (int (layer.id));
-        // The view selected something on a collapsed layer: open it, so its row can come into sight.
-        if (reveal && std::any_of (on.begin (), on.end (), [&] (edit::Id id) {
-                return s.selection.Contains ({ id, edit::Part::Entity, edit::kNoId });
-            }))
-            ImGui::SetNextItemOpen (true);
-        const bool open =
-            ImGui::TreeNodeEx ("##layer", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen,
-                               "%s  (%zu)%s", layer.name.c_str (), on.size (), layer.visible ? "" : "  hidden");
-        if (ImGui::IsItemClicked () && !ImGui::IsItemToggledOpen ()) {
-            std::vector<edit::Ref> pickable;
-            for (const edit::Id id : on)
-                if (edit::Pickable (Doc (s), id))
-                    pickable.push_back ({ id, edit::Part::Entity, edit::kNoId });
-            s.selection.Set (pickable);
-        }
-        if (ImGui::IsItemHovered () && ImGui::GetDragDropPayload () == nullptr)
-            hudshell::HoverTip ("Click selects what is on this layer. Its shown, locked, colour and name are in "
-                                "Layers above.");
-        if (open) {
-            for (const edit::Id g : groups)
-                GroupTree (s, g, reveal, layer.id);
-            for (const edit::Id id : objects)
-                if (edit::MemberOf (Doc (s), id) != nullptr)
-                    ObjectRow (s, id, reveal);
-            ImGui::TreePop ();
-        }
-        ImGui::PopID ();
-        ImGui::PopID ();
-    }
-    if (!any)
-        ImGui::TextDisabled ("No objects yet.");
     ImGui::EndDisabled ();
 }
 

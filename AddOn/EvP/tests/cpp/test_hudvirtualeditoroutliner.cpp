@@ -208,13 +208,19 @@ TEST (HudVirtualEditorOutliner, AGroupRenamesFromItsRowAsOneUndo124)
     Gui gui;
     gui.Frame (s);
     const auto popupOpen = [&] { return gui.context->OpenPopupStack.Size > 0; };
-    // Right-click down the rows until a box opens: the first group row is "beds".
+    // Right-click down the rows until a group's box opens: the first group row is "beds". A layer
+    // row's own menu (2026-11-20: the layers are folders, their actions on right-click) is let go.
     ImVec2 at {};
     for (float y = 20; y < 690 && !popupOpen (); y += 3) {
         at = { 120, y };
         gui.Frame (s, at);
         gui.Frame (s, at, true, 1);
         gui.Frame (s, at, false, 1);
+        if (popupOpen () && gui.Frame (s, at).find ("Move selection here") != std::string::npos) {
+            gui.Frame (s, { 399, 799 }, true);
+            gui.Frame (s, { 399, 799 });
+            gui.Frame (s, { 399, 799 });
+        }
         gui.Frame (s, at);
     }
     ASSERT_TRUE (popupOpen ()) << "a group row opens its rename box on right-click";
@@ -470,15 +476,47 @@ TEST (HudVirtualEditorOutliner, ObjectsAreListedUnderTheirLayers124)
     EXPECT_EQ (at (id (2)), at (id (2), second)) << "listed once, under its own layer";
     EXPECT_NE (at ("Pair  (part)", first), std::string::npos);
     EXPECT_NE (at ("Pair  (part)", second), std::string::npos) << text;
-    // A layer row's name selects what is on it.
+    // A layer row's name -- after its grip, shown, locked and colour -- selects what is on it.
     bool selected = false;
     for (float y = 20; y < 690 && !selected; y += 3) {
         s.selection.Clear ();
-        gui.Frame (s, { 120, y });
-        gui.Frame (s, { 120, y }, true);
-        gui.Frame (s, { 120, y }, false);
+        gui.Frame (s, { 200, y });
+        gui.Frame (s, { 200, y }, true);
+        gui.Frame (s, { 200, y }, false);
         const auto items = s.selection.Items ();
         selected = items.size () == 1 && items[0].entity == doc.entities[2].id && s.outlinerHover.entity == 0;
     }
     EXPECT_TRUE (selected) << "the Paving layer's row selects its one object";
+}
+
+// The user, 2026-11-20: "layer hierarchy display should be like a folder structure -- layer 0 ->
+// object 1, object 2; Layer 1 -> object 3, object 4 -- not all layers, then layers and objects: do
+// not duplicate information. The collapsible layers section should collapse layers with objects too."
+TEST (HudVirtualEditorOutliner, LayersAreFoldersListedOnceAndTheirHeaderCollapsesAll)
+{
+    auto doc = Squares (2);
+    ASSERT_NE (edit::AddLayer (doc, "Empty"), edit::kNoId);
+    const std::string zero = doc.layer0.name, object = "#" + std::to_string (doc.entities[0].id);
+    eh::Session s (doc);
+    Gui gui;
+    gui.Frame (s);
+    auto text = gui.Frame (s);
+    const auto count = [&] (const std::string& what) {
+        size_t n = 0;
+        for (size_t at = text.find (what); at != std::string::npos; at = text.find (what, at + 1))
+            ++n;
+        return n;
+    };
+    EXPECT_EQ (count (zero + "  (2)"), 1u) << text;
+    EXPECT_EQ (count ("Empty  (0)"), 1u) << "an empty layer is a folder too: " << text;
+    EXPECT_EQ (count ("Empty"), 1u) << "each layer once, not in a second list: " << text;
+    EXPECT_LT (text.find (zero + "  (2)"), text.find (object)) << "the object inside its layer";
+    EXPECT_LT (text.find (object), text.find ("Empty  (0)"));
+
+    ImGuiWindow* objects = gui.Child ("##objects");
+    ASSERT_NE (objects, nullptr);
+    objects->StateStorage.SetInt (objects->GetID ("Layers"), 0);
+    text = gui.Frame (s);
+    EXPECT_EQ (text.find ("Empty  (0)"), std::string::npos) << text;
+    EXPECT_EQ (text.find (object), std::string::npos) << "collapsed, the objects go with their layers: " << text;
 }

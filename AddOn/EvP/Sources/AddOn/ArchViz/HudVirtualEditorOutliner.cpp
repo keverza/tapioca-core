@@ -83,9 +83,12 @@ void detail::Outliner (Session& s)
         if (ImGui::BeginTabItem ("Objects", nullptr, ShowTab (s, 0) ? ImGuiTabItemFlags_SetSelected : 0)) {
             ViewBody ("##objects", [&] {
                 OrganizeVisibility (s);
-                if (ImGui::CollapsingHeader ("Layers"))
-                    LayerRows (s);
-                ObjectRows (s, s.outlinerFilter, reveal);
+                // The user, 2026-11-20: one tree, the layers as folders of their objects, and its
+                // header collapses all of it. A search lists what matches, flat.
+                if (!s.outlinerFilter.empty ())
+                    ObjectRows (s, s.outlinerFilter, reveal);
+                else if (ImGui::CollapsingHeader ("Layers", ImGuiTreeNodeFlags_DefaultOpen))
+                    LayerRows (s, reveal);
             });
             ImGui::EndTabItem ();
         }
