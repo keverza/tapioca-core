@@ -4623,13 +4623,32 @@ TEST (HudVirtualEditor, RectangularArrayDraftCancellationCorrectionAndNoOpAreAto
     EXPECT_EQ (d.D ().entities, before);
 
     d.S ().selection.Set ({ whole });
+    // The user, 2026-11-20: moving the source does not end the command; the preview follows it.
     ASSERT_TRUE (eh::detail::BeginRectangularArray (d.S ()));
+    d.S ().rectangularArray->countX = 2;
+    d.S ().rectangularArray->spacingX = 4.0;
+    eh::detail::UpdateRectangularArrayPreview (d.S ());
+    const ed::Vec3 middle = d.S ().rectangularArray->middle;
+    const auto previewBefore = d.S ().rectangularArray->lines;
     ed::Transform move;
     move.translate = { 1, 0, 0 };
     ASSERT_TRUE (d.S ().edits.Apply (ed::TransformOperation ({ whole }, move)));
     EXPECT_EQ (d.S ().selection.Items (), selected);
-    EXPECT_FALSE (eh::detail::CheckRectangularArrayDraft (d.S ())); // same refs, new document revision
+    ASSERT_TRUE (eh::detail::CheckRectangularArrayDraft (d.S ())) << d.S ().message;
+    eh::detail::UpdateRectangularArrayPreview (d.S ());
+    EXPECT_DOUBLE_EQ (d.S ().rectangularArray->middle.x, middle.x + 1.0);
+    ASSERT_EQ (d.S ().rectangularArray->lines.size (), previewBefore.size ());
+    EXPECT_DOUBLE_EQ (d.S ().rectangularArray->lines[0].first.x, previewBefore[0].first.x + 1.0)
+        << "the preview moved with its source";
+    EXPECT_EQ (d.S ().rectangularArray->countX, 2) << "and kept what was typed";
+    // A source that is gone closes it.
+    ASSERT_TRUE (d.S ().edits.Apply ([source] (ed::Document& doc, std::string&) {
+        return std::erase_if (doc.entities, [source] (const ed::Entity& e) { return e.id == source; }) == 1;
+    }));
+    EXPECT_FALSE (eh::detail::CheckRectangularArrayDraft (d.S ()));
     EXPECT_FALSE (d.S ().rectangularArray.has_value ());
+    ASSERT_TRUE (d.S ().edits.Undo ());
+    d.S ().selection.Set ({ whole });
 
     ASSERT_TRUE (eh::detail::BeginRectangularArray (d.S ()));
     eh::detail::SetTool (d.S (), eh::Tool::Polyline);

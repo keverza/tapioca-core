@@ -12,6 +12,7 @@ namespace {
 
 constexpr size_t kMaxPreviewLines = 20000;
 constexpr double kPreviewMaxAngle = 0.2;
+constexpr ImU32 kArrayHandle = IM_COL32 (225, 40, 225, 255); // #130: the array's own handles
 
 bool PathOutline (const edit::Path& path, RectangularArrayDraft::Outline& outline, std::string& error)
 {
@@ -132,17 +133,63 @@ bool PreviewCells (const RectangularArrayDraft& draft, size_t& cells, std::strin
 
 } // namespace
 
+namespace {
+// The selection's outlines and the centre of its extent, read from the document as it is now.
+bool Capture (const edit::Document& doc, const std::vector<edit::Ref>& refs, RectangularArrayDraft& draft,
+              std::string& error)
+{
+    const edit::Clipboard clip = edit::Copy (doc, refs);
+    if (clip.Empty ()) {
+        error = "Select the objects to array.";
+        return false;
+    }
+    std::vector<RectangularArrayDraft::Outline> outlines;
+    for (const auto& path : clip.paths) {
+        RectangularArrayDraft::Outline outline;
+        if (!PathOutline (path, outline, error)) {
+            error = "Rectangular array preview refused: " + error;
+            return false;
+        }
+        outlines.push_back (std::move (outline));
+    }
+    for (const auto& entity : clip.entities)
+        for (auto& ring : edit::ShapeRings (entity, kPreviewMaxAngle)) { // a compound: each contour
+            RectangularArrayDraft::Outline outline;
+            outline.points = std::move (ring);
+            outline.closed = entity.closed;
+            if (outline.points.size () < 2) {
+                error = "Rectangular array preview needs an outline for every selected object.";
+                return false;
+            }
+            outlines.push_back (std::move (outline));
+        }
+    draft.outlines = std::move (outlines);
+    edit::Centre (clip, draft.middle);
+    return true;
+}
+} // namespace
+
 bool CheckRectangularArrayDraft (Session& s)
 {
     if (!s.rectangularArray)
         return false;
-    const auto& draft = *s.rectangularArray;
-    const bool current = draft.revision == Doc (s).revision && draft.refs == s.selection.Items () &&
-                         draft.tool == s.tool && draft.landscapeMode == s.landscapeMode;
-    if (current)
+    auto& draft = *s.rectangularArray;
+    // The user, 2026-11-20: "do not cancel the array command if the object was moved -- it should
+    // allow repositioning the parent geometry during the command". The same selection, tool and mode
+    // keep the draft; a document that changed under it is read again, so the preview follows the
+    // moved source. Only a selection, tool or mode change -- or a source that is gone -- closes it.
+    const bool same =
+        draft.refs == s.selection.Items () && draft.tool == s.tool && draft.landscapeMode == s.landscapeMode;
+    if (same && draft.revision == Doc (s).revision)
         return true;
+    std::string error;
+    if (same && Capture (Doc (s), draft.refs, draft, error)) {
+        draft.revision = Doc (s).revision;
+        draft.builtPolar = !draft.polar; // the cache is of the old outlines: rebuilt at the next update
+        return true;
+    }
     s.rectangularArray.reset ();
-    s.message = "Rectangular array draft cancelled: its selection, document or tool changed.";
+    s.message = same ? "Array draft closed: " + error : "Array draft closed: its selection or tool changed.";
     return false;
 }
 
@@ -168,40 +215,17 @@ bool BeginArray (Session& s, bool polar)
                           : "Finish the current input or Esc it, then start the rectangular array from Select.";
         return false;
     }
-    const edit::Clipboard clip = edit::Copy (Doc (s), s.selection.Items ());
-    if (clip.Empty ()) {
-        s.message = "Select the objects to array.";
-        return false;
-    }
-
     RectangularArrayDraft draft;
     draft.refs = s.selection.Items ();
     draft.revision = Doc (s).revision;
     draft.tool = s.tool;
     draft.landscapeMode = s.landscapeMode;
     draft.polar = polar;
-    edit::Centre (clip, draft.middle);
     draft.centre = GizmoFrame (s).origin;
-    std::string error;
-    for (const auto& path : clip.paths) {
-        RectangularArrayDraft::Outline outline;
-        if (!PathOutline (path, outline, error)) {
-            s.message = "Rectangular array preview refused: " + error;
-            return false;
-        }
-        draft.outlines.push_back (std::move (outline));
+    if (std::string error; !Capture (Doc (s), draft.refs, draft, error)) {
+        s.message = error;
+        return false;
     }
-    for (const auto& entity : clip.entities)
-        for (auto& ring : edit::ShapeRings (entity, kPreviewMaxAngle)) { // a compound: each contour
-            RectangularArrayDraft::Outline outline;
-            outline.points = std::move (ring);
-            outline.closed = entity.closed;
-            if (outline.points.size () < 2) {
-                s.message = "Rectangular array preview needs an outline for every selected object.";
-                return false;
-            }
-            draft.outlines.push_back (std::move (outline));
-        }
     s.rectangularArray = std::move (draft);
     s.message.clear ();
     UpdateRectangularArrayPreview (s);
@@ -610,8 +634,13 @@ void DrawRectangularArrayPreview (Session& s, const Map& m, float scale)
     }
     // The handles to drag: filled, larger under the pointer or while held.
     for (int h = 0; h < kHandleCount; ++h)
-        if (edit::Vec3 at; HandleAt (draft, h, at))
-            Dot (s, m, at, (h == draft.hover || h == draft.held ? 6.5f : 4.5f) * scale, kAccent, true);
+        if (edit::Vec3 at; HandleAt (draft, h, at)) {
+            // ⚠️ NOT THE GUMBALL'S COLOURS (the user, 2026-11-20: "hard to see next to the gumball"):
+            // magenta in a white ring, a step larger under the pointer or while held.
+            const float radius = (h == draft.hover || h == draft.held ? 7.5f : 5.5f) * scale;
+            Dot (s, m, at, radius + 1.5f * scale, IM_COL32 (255, 255, 255, 255), true);
+            Dot (s, m, at, radius, kArrayHandle, true);
+        }
 }
 
 } // namespace geomsrv::archviz::edithud::detail
