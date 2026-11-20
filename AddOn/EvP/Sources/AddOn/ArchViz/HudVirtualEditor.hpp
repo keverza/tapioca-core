@@ -245,6 +245,7 @@ struct Session {
     tapioca::geometry::LandscapeResult landscape;
     uint64_t landscapeRevision = UINT64_MAX, landscapeBuilds = 0;
     double publishedLandscapeZ = 0.0;
+    bool publishedLandscapeFaces = false; // #160: whether that layer outlined every planar face
     edit::Id landscapeObject = edit::kNoId;
     edit::Id landscapeSet = edit::kNoId, landscapeOperandSet = edit::kNoId;
     std::string landscapeSaved; // the in-memory session snapshot ("Session snapshot"), not a durable save

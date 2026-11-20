@@ -39,6 +39,9 @@ struct Style {
     uint32_t landscapeSource = 0x5A7F62FFu, propertyLine = 0x37523DFFu;
     uint32_t landscapeFill = 0x5A7F6228u, landscapeEdge = 0x5A7F62FFu;
     uint32_t landscapeHover = 0x839987FFu, landscapeSelected = 0x37523DFFu;
+    // #160/#189: a Boolean's construction inputs, grey and finely dashed, so the result (solid
+    // green, filled) and what it is built from read apart without selecting anything.
+    uint32_t landscapeConstruction = 0x8A9099D0u;
     double pathStep = 0.5; // metres between drawn path samples
     float lineWidth = 2.0f, selectedWidth = 3.5f, vertexPixels = 7.0f;
     float textPixels = 12.0f;
@@ -59,6 +62,10 @@ struct Feedback {
     const edit::Selection* selection = nullptr;
     const tapioca::geometry::LandscapeResult* landscape = nullptr;
     double landscapeZ = 0.0; // Explicit XY preview datum; not terrain draping.
+    // #160: outline every planar face (Face mode picks them). Otherwise only a selected or hovered
+    // face is outlined: the faces are cut from every source line, construction inputs included,
+    // and a solid outline on each one hid the inputs' dashes.
+    bool landscapeFaces = false;
     const edit::SnapResult* snap = nullptr;
     // The paths' contour lines (PathContours), drawn under their lines; the view writes
     // their heights. None when null.

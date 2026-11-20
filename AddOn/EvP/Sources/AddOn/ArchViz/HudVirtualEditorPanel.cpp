@@ -578,6 +578,14 @@ void Panel (Session& s)
     Outliner (s);
 }
 
+namespace {
+// #160: every planar face is outlined only while faces are what the pointer picks.
+bool LandscapeFacesShown (const Session& s)
+{
+    return s.landscapeMode == LandscapeMode::Face;
+}
+} // namespace
+
 bool Follow (Session& s, overlaylayers::Layer& layer)
 {
     PollTerrainDesign (s);
@@ -590,7 +598,9 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
         s.enteredGroup = edit::kNoId; // ungrouped or undone since it was entered
     if (doc.revision == s.publishedRevision && s.selection.Items () == s.publishedSelection &&
         s.publishedPathStep == ShownSurfaceStep (s) && s.quietPaths == s.publishedQuietPaths &&
-        s.publishedGroup == s.enteredGroup && (!doc.landscape || s.publishedLandscapeZ == s.plane.origin.z))
+        s.publishedGroup == s.enteredGroup &&
+        (!doc.landscape ||
+         (s.publishedLandscapeZ == s.plane.origin.z && s.publishedLandscapeFaces == LandscapeFacesShown (s))))
         return false;
     edit::Selection shown = s.selection;
     shown.hover = {}; // hover is the view's transient feedback, not the layer's
@@ -599,6 +609,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     f.selection = &shown;
     f.landscape = doc.landscape ? &s.landscape : nullptr;
     f.landscapeZ = s.plane.origin.z;
+    f.landscapeFaces = LandscapeFacesShown (s);
     f.paved = &PavedSurface (s);
     f.outlines = &s.outlines;
     f.quietPaths = &s.quietPaths;
@@ -621,6 +632,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     s.publishedSelection = s.selection.Items ();
     s.publishedQuietPaths = s.quietPaths;
     s.publishedLandscapeZ = s.plane.origin.z;
+    s.publishedLandscapeFaces = f.landscapeFaces;
     return true;
 }
 

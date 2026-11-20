@@ -1,6 +1,9 @@
 #include "ArchViz/EditLayers.hpp"
 #include "Edit/EditShape.hpp"
 
+#include <algorithm>
+#include <set>
+
 // OVERLAY-INVARIANTS.md: command-scoped model geometry only. No camera, GPU state,
 // native reads or cursor ownership changes. The two renderers keep their own transforms.
 namespace geomsrv::archviz::editlayers {
@@ -20,7 +23,24 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
         out.widthPixels = width;
         return out;
     };
-    const auto region = [&] (const lg::DerivedRegion& r, uint32_t edge, bool fill) {
+    // #160/#189: what a Boolean consumed, and what it built. An input's source line is drawn as
+    // construction (grey, fine dashes); a result's outline is drawn heavier than a plain region's.
+    std::set<lg::Id> constructionSources, results;
+    for (const auto& input : lg::LandscapeConstructionInputs (*doc.landscape)) {
+        results.insert (input.consumer);
+        for (const auto& object : doc.landscape->objects)
+            if (object.id == input.object && object.boundarySource)
+                constructionSources.insert (object.boundarySource);
+    }
+    for (const auto& source : doc.landscape->sources)
+        if (!source.deleted && source.role != lg::SourceRole::ReferenceLine &&
+            std::none_of (doc.landscape->objects.begin (), doc.landscape->objects.end (),
+                          [&] (const auto& object) { return object.boundarySource == source.id; }))
+            if (const auto result = lg::LandscapeSourceResult (*doc.landscape, source.id); result != edit::kNoId) {
+                constructionSources.insert (source.id); // #210: a line a Boolean took whole
+                results.insert (result);
+            }
+    const auto region = [&] (const lg::DerivedRegion& r, uint32_t edge, bool fill, float width) {
         const lg::RegionSurface* surface = nullptr;
         const lg::HardscapeObject* owner = nullptr;
         for (const auto& object : doc.landscape->objects)
@@ -47,7 +67,7 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
         for (auto ring : r.rings) {
             for (auto& p : ring)
                 p = at (p);
-            layer.polylines.push_back (line (ring, true, edge, style.lineWidth, false));
+            layer.polylines.push_back (line (ring, true, edge, width, false));
         }
         if (!fill)
             return;
@@ -79,16 +99,19 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
     // only the region built from it is solid and filled.
     for (const auto& r : f.landscape->regions)
         if (!r.constructionOf)
-            region (r, style.landscapeEdge, true);
+            region (r, style.landscapeEdge, true,
+                    results.count (r.objectId) ? style.lineWidth + 1.0f : style.lineWidth);
     for (const auto& face : f.landscape->faces) {
         const edit::Ref ref { edit::kNoId, edit::Part::LandscapeFace, face.faceId, f.landscape->revision };
         const bool selected = f.selection && f.selection->Contains (ref);
         const bool hover = f.selection && f.selection->hover == ref;
+        if (!selected && !hover && !f.landscapeFaces)
+            continue; // #160: an idle face outline would draw solid over every source's dashes
         region (face,
                 selected ? style.landscapeSelected
                 : hover  ? style.landscapeHover
                          : style.landscapeEdge,
-                selected || hover);
+                selected || hover, style.lineWidth);
     }
     for (const auto& source : doc.landscape->sources) {
         if (source.deleted || (source.role == lg::SourceRole::ReferenceLine && !source.lineStyle.visible))
@@ -110,6 +133,7 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
             rings.push_back (std::move (points));
         }
         const bool property = source.id == doc.landscape->propertyLineSourceId;
+        const bool construction = !property && constructionSources.count (source.id) > 0;
         for (const auto& points : rings) {
             auto stroke = line (points, closed, property ? style.propertyLine : style.landscapeSource,
                                 property ? style.selectedWidth : style.lineWidth, false);
@@ -117,8 +141,13 @@ void AddLandscape (const edit::Document& doc, const Feedback& f, const Style& st
                 stroke.rgba = source.lineStyle.rgba;
                 stroke.widthPixels = static_cast<float> (source.lineStyle.widthPixels);
             }
-            stroke.dashMetres =
-                property ? std::vector<float> { 0.8f, 0.15f, 0.15f, 0.15f } : std::vector<float> { 0.4f, 0.25f };
+            stroke.dashMetres = property       ? std::vector<float> { 0.8f, 0.15f, 0.15f, 0.15f }
+                                : construction ? std::vector<float> { 0.15f, 0.15f }
+                                               : std::vector<float> { 0.4f, 0.25f };
+            if (construction) {
+                stroke.rgba = style.landscapeConstruction;
+                stroke.widthPixels = style.lineWidth - 0.75f;
+            }
             layer.polylines.push_back (std::move (stroke));
         }
     }

@@ -1,5 +1,7 @@
 #include "ArchViz/EditLayers.hpp"
 #include "Edit/EditLandscape.hpp"
+#include "Edit/EditLandscapeDomain.hpp"
+#include "Edit/EditPolyline.hpp"
 
 #include <gtest/gtest.h>
 
@@ -285,9 +287,16 @@ TEST (LandscapePreviewLayers, FaceSelectionAndHoverKeepExistingFillStyleAndOutli
     feedback.selection = &selection;
     layers::Layer layer;
     const el::Style style;
+    // #160: an idle face is outlined only while faces are being picked (Face mode).
+    el::AddLandscape (doc, feedback, style, layer);
+    EXPECT_TRUE (layer.polylines.empty ());
+    EXPECT_TRUE (layer.meshes.empty ());
+    feedback.landscapeFaces = true;
+    layer = {};
     el::AddLandscape (doc, feedback, style, layer);
     EXPECT_EQ (layer.polylines.size (), 2u);
     EXPECT_TRUE (layer.meshes.empty ());
+    feedback.landscapeFaces = false;
     const edit::Ref ref { edit::kNoId, edit::Part::LandscapeFace, 77, 8 };
     selection.Set ({ ref });
     layer = {};
@@ -329,4 +338,79 @@ TEST (LandscapePreviewLayers, AConstructionInputIsNotDrawnAsARegion189)
         EXPECT_TRUE (line.dashMetres.empty ());
         EXPECT_GE (line.points[0], 20.0) << "the input at x 0..4 has no solid outline";
     }
+}
+
+// #160/#189 live run 2026-11-19: outside the Boolean pick, the result and its inputs could not be
+// told apart. Every planar face was outlined solid in the source colour, over every source line,
+// so the inputs' dashes never showed. Now, from the default drawing workflow (two region lines,
+// Union): the inputs' lines are grey and finely dashed, nothing solid is drawn over them, and only
+// the result is outlined solid -- heavier than a plain region -- and filled.
+TEST (LandscapePreviewLayers, BooleanInputsReadAsConstructionAndTheResultAsTheShape160)
+{
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (geo::StartLandscape (doc, { 1, 2, 3, 4 }, error)) << error;
+    const auto square = [&] (double x) {
+        const auto line =
+            edit::AddPolyline (doc, { { x, 0, 0 }, { x + 10, 0, 0 }, { x + 10, 10, 0 }, { x, 10, 0 } }, true);
+        EXPECT_TRUE (geo::SetLandscapeSourceRole (doc, line, geo::SourceRole::RegionBoundary, error)) << error;
+        return doc.landscape->objects.back ();
+    };
+    const auto a = square (0), b = square (5), plain = square (30);
+    geo::DomainCommand command;
+    command.kind = geo::OperationKind::Union;
+    command.name = "Union";
+    command.subject.input = a.footprintOperation;
+    command.operand.input = b.footprintOperation;
+    const auto applied = geo::ApplyDomainCommand (doc, command);
+    ASSERT_TRUE (applied.ok) << applied.error;
+    geo::LandscapeResult result;
+    ASSERT_TRUE (geo::EvaluateLandscape (doc, result)) << result.error;
+    ASSERT_FALSE (result.faces.empty ());
+
+    el::Feedback feedback;
+    feedback.landscape = &result;
+    layers::Layer layer;
+    const el::Style style;
+    el::AddLandscape (doc, feedback, style, layer);
+
+    const auto inside = [] (const layers::Polyline& line, double lo, double hi) {
+        for (size_t i = 0; i < line.points.size (); i += 3)
+            if (line.points[i] < lo - 1e-9 || line.points[i] > hi + 1e-9)
+                return false;
+        return true;
+    };
+    size_t construction = 0, resultOutlines = 0, plainOutlines = 0;
+    for (const auto& line : layer.polylines) {
+        if (line.rgba == style.landscapeConstruction) {
+            ++construction;
+            EXPECT_EQ (line.dashMetres, (std::vector<float> { 0.15f, 0.15f }));
+            EXPECT_LT (line.widthPixels, style.lineWidth);
+            EXPECT_TRUE (inside (line, 0, 15));
+            continue;
+        }
+        if (!line.dashMetres.empty ()) {
+            EXPECT_TRUE (inside (line, 30, 40)) << "only the plain region's line keeps the source dash";
+            continue;
+        }
+        // Solid: a region's outline, never an idle face's.
+        if (inside (line, 0, 15)) {
+            ++resultOutlines;
+            EXPECT_EQ (line.widthPixels, style.lineWidth + 1.0f) << "the result is drawn heavier";
+            double lo = 1e9, hi = -1e9;
+            for (size_t i = 0; i < line.points.size (); i += 3)
+                lo = std::min (lo, line.points[i]), hi = std::max (hi, line.points[i]);
+            EXPECT_NEAR (lo, 0.0, 1e-9) << "the union's one outline, not an input square";
+            EXPECT_NEAR (hi, 15.0, 1e-9);
+        }
+        else {
+            ++plainOutlines;
+            EXPECT_EQ (line.widthPixels, style.lineWidth);
+        }
+    }
+    EXPECT_EQ (construction, 2u) << "both input squares, grey and finely dashed";
+    EXPECT_EQ (resultOutlines, 1u);
+    EXPECT_EQ (plainOutlines, 1u);
+    EXPECT_EQ (layer.meshes.size (), 2u) << "fills: the result and the plain region, no input";
+    (void) plain;
 }
