@@ -183,7 +183,7 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
         removing ? g_router.Decide (event, over, overScroll) : g_router.Preview (event, over, overScroll);
     if (removing && event.kind == EventKind::Press && route == Route::Take) {
         s_gestureTarget = self, s_keyboardTarget = self;
-        if (s_hudTextKeys && ::GetAncestor (self->canvas, GA_ROOT) == ::GetForegroundWindow ())
+        if (s_hudTextKeys && ::GetAncestor (self->canvas, GA_ROOT) == desktop.foregroundWindow ())
             ::SetFocus (self->canvas);
     }
     if (removing && g_router.GetOwner () == Owner::None)
@@ -212,7 +212,7 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     if (route == Route::Pass && (middle || event.kind == EventKind::Wheel ||
                                  (event.kind == EventKind::Move && (event.held & Bit (Button::Middle)) != 0))) {
         self->lastNavigationMs = ::GetTickCount64 ();
-        self->shiftNavigation = (::GetAsyncKeyState (VK_SHIFT) & 0x8000) != 0;
+        self->shiftNavigation = (desktop.asyncKeyState (VK_SHIFT) & 0x8000) != 0;
         state::ArmHostLeave (*self, g_window); // Archicad was told where the pointer is: untold after the settle
     }
     if (route == Route::Pass && (middle || (event.kind == EventKind::Wheel && event.wheel != 0.0f))) {
@@ -328,7 +328,7 @@ void Activate (const Target& target)
     if (target.canvas == nullptr)
         return;
     const HWND root = ::GetAncestor (target.canvas, GA_ROOT);
-    if (root != nullptr && ::GetForegroundWindow () != root && ::SetForegroundWindow (root))
+    if (root != nullptr && desktop.foregroundWindow () != root && ::SetForegroundWindow (root))
         ++g_stats.activations;
     const HWND focus = ::GetFocus ();
     if (focus != target.canvas && (focus == nullptr || !::IsChild (target.canvas, focus)))
@@ -434,7 +434,7 @@ bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16str
         if (!target || !target->canvas || TextField (window) || !state::OwnsPointer (*target))
             return false;
         const HWND root = ::GetAncestor (target->canvas, GA_ROOT);
-        if (root != ::GetForegroundWindow () || ::GetAncestor (window, GA_ROOTOWNER) != root)
+        if (root != desktop.foregroundWindow () || ::GetAncestor (window, GA_ROOTOWNER) != root)
             return false;
         if (take) {
             if (key.code && target->keys.size () < 128)
@@ -878,7 +878,7 @@ bool EnableHudTextKeys (bool enabled)
     // canvas once on explicit text activation, never another window or a timer's
     // recurring refresh, so an old palette Edit cannot receive criteria text.
     if (starting && s_keyboardTarget && s_keyboardTarget->canvas && state::OwnsPointer (*s_keyboardTarget) &&
-        ::GetAncestor (s_keyboardTarget->canvas, GA_ROOT) == ::GetForegroundWindow ())
+        ::GetAncestor (s_keyboardTarget->canvas, GA_ROOT) == desktop.foregroundWindow ())
         ::SetFocus (s_keyboardTarget->canvas);
     if (enabled && !keyboard::Install (&QueueKey)) {
         s_hudTextKeys = false;

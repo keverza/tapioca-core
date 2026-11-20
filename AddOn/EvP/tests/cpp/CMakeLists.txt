@@ -1218,6 +1218,7 @@ set (EVP_TEST_SOURCES
     test_overlayclicktiming.cpp
     test_overlayhitmap.cpp
     test_overlayinput.cpp
+    quiet_desktop.cpp
     test_overlayhover.cpp
     test_overlaycomposer.cpp
     test_composetiming.cpp

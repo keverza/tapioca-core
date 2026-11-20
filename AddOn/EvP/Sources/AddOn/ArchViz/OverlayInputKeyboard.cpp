@@ -1,4 +1,5 @@
 #include "ArchViz/OverlayInputKeyboard.hpp"
+#include "ArchViz/OverlayInputDesktop.hpp"
 
 namespace geomsrv::archviz::overlayinput::keyboard {
 namespace {
@@ -72,9 +73,9 @@ bool Install (Sink sink)
 {
     s_sink = sink;
     if (!s_hook) {
-        s_ctrl = ::GetAsyncKeyState (VK_CONTROL) < 0;
-        s_shift = ::GetAsyncKeyState (VK_SHIFT) < 0;
-        s_alt = ::GetAsyncKeyState (VK_MENU) < 0;
+        s_ctrl = desktop.asyncKeyState (VK_CONTROL) < 0;
+        s_shift = desktop.asyncKeyState (VK_SHIFT) < 0;
+        s_alt = desktop.asyncKeyState (VK_MENU) < 0;
         s_hook = ::SetWindowsHookExW (WH_KEYBOARD, &Hook, nullptr, ::GetCurrentThreadId ());
     }
     return s_hook != nullptr;

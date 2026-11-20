@@ -181,9 +181,9 @@ bool OwnsPointer (const Target& target)
     if (owner != Owner::None)
         return owner == Owner::Hud;
     POINT screen = {};
-    if (!::GetCursorPos (&screen))
+    if (!desktop.cursorPos (&screen))
         return false;
-    const HWND under = ::WindowFromPoint (screen);
+    const HWND under = desktop.windowFromPoint (screen);
     if (under != target.canvas && !::IsChild (target.canvas, under))
         return false;
     POINT point = screen;
@@ -205,7 +205,7 @@ HCURSOR DesiredCursor (const Target& target, Cursor& desired)
     POINT point = {};
     RECT client = {};
     const bool overRegion =
-        ::GetCursorPos (&point) && ::ScreenToClient (target.canvas, &point) &&
+        desktop.cursorPos (&point) && ::ScreenToClient (target.canvas, &point) &&
         ::GetClientRect (target.canvas, &client) &&
         target.map.Hit (float (point.x), float (point.y), float (client.right), float (client.bottom)) >= 0;
     desired = CursorFor (target.map, overRegion, router.GetOwner () == Owner::Hud && PhysicalButtons () != 0);

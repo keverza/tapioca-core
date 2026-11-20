@@ -27,8 +27,8 @@ overlayhud::Input InputOf (Target& target, bool take)
     // Coalesced layout messages can sit behind queued moves. Sample the current
     // cursor for hover, but preserve event coordinates when delivering a click.
     POINT screen = {};
-    if (target.buttons.empty () && target.canvas != nullptr && ::GetCursorPos (&screen)) {
-        const HWND under = ::WindowFromPoint (screen);
+    if (target.buttons.empty () && target.canvas != nullptr && desktop.cursorPos (&screen)) {
+        const HWND under = desktop.windowFromPoint (screen);
         POINT point = screen;
         if (::ScreenToClient (target.canvas, &point)) {
             input.pointer = (under == target.canvas || ::IsChild (target.canvas, under)) && point.x >= 0 &&
@@ -49,8 +49,8 @@ overlayhud::Input InputOf (Target& target, bool take)
     input.navigationRevision = target.navigationRevision;
     input.viewIdentity = uint64_t (reinterpret_cast<uintptr_t> (target.canvas));
     // Read as the layout is: it follows the press that asked for it, the key held through both.
-    input.shift = ::GetKeyState (VK_SHIFT) < 0;
-    input.ctrl = ::GetKeyState (VK_CONTROL) < 0;
+    input.shift = desktop.keyState (VK_SHIFT) < 0;
+    input.ctrl = desktop.keyState (VK_CONTROL) < 0;
     if (take) {
         input.buttons = std::move (target.buttons);
         input.editActions = std::move (target.editActions);

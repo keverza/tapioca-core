@@ -121,7 +121,7 @@ bool OverRegion (const Target& target)
 {
     POINT point = {};
     RECT client = {};
-    return target.canvas != nullptr && ::GetCursorPos (&point) && ::ScreenToClient (target.canvas, &point) &&
+    return target.canvas != nullptr && desktop.cursorPos (&point) && ::ScreenToClient (target.canvas, &point) &&
            ::GetClientRect (target.canvas, &client) &&
            target.map.Hit (float (point.x), float (point.y), float (client.right - client.left),
                            float (client.bottom - client.top)) >= 0;
@@ -136,7 +136,7 @@ HostMode HostPointerMode (const Target& target)
     state.hudGesture = router.GetOwner () == Owner::Hud && PhysicalButtons () != 0;
     CURSORINFO info = {};
     info.cbSize = sizeof (info);
-    if (state.locked && !state.hudGesture && ::GetCursorInfo (&info)) {
+    if (state.locked && !state.hudGesture && desktop.cursorInfo (&info)) {
         state.showing = info.flags != 0; // 0: hidden by its thread; CURSOR_SUPPRESSED is touch, not a mode
         state.admitted = s_cursorMode;
         if (state.showing && s_cursorMode) {
@@ -195,7 +195,7 @@ void HoldSettleForShift (HWND inputWindow)
     for (Target& target : targets) {
         if (!target.shiftNavigation)
             continue;
-        target.shiftNavigation = (::GetAsyncKeyState (VK_SHIFT) & 0x8000) != 0;
+        target.shiftNavigation = (desktop.asyncKeyState (VK_SHIFT) & 0x8000) != 0;
         target.lastNavigationMs = ::GetTickCount64 ();
         ArmHostLeave (target, inputWindow);
     }

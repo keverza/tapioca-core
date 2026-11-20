@@ -7,6 +7,8 @@
 #include "ArchViz/OverlayInputKeyboard.hpp"
 #include "ArchViz/OverlayNavigationWatch.hpp"
 
+#include "quiet_desktop.hpp"
+
 #include <gtest/gtest.h>
 
 #include <windows.h>
@@ -270,6 +272,7 @@ TEST (OverlayInput, TheHudsCursorWinsAfterAnotherWindowDispatches)
 
 TEST (OverlayInput, CursorLocationQueriesDoNotReenterThroughNativeHitTesting)
 {
+    hudtest::LiveDesktop live; // this case's input is the real pointer over a shown window
     const HMODULE controls = ::LoadLibraryW (L"comctl32.dll");
     ASSERT_NE (controls, nullptr);
     const HWND canvas = Canvas ();
@@ -536,6 +539,16 @@ TEST (OverlayInput, HoverAfterALockedNavigationReachesTheHostUntilItSettles)
 // pointer; shown again, the view is the HUD's as before.
 TEST (OverlayInput, AHiddenCursorHandsTheLockedViewToTheHost)
 {
+    // The cursor Archicad hides is the desktop's state, said here by the test's own desktop: the
+    // real one's was hidden only when this machine's pointer device and input desktop allowed it.
+    static bool s_hidden = false;
+    auto desktop = hudtest::QuietDesktop ();
+    desktop.cursorInfo = [] (PCURSORINFO info) -> BOOL {
+        info->flags = s_hidden ? 0 : CURSOR_SHOWING;
+        info->hCursor = ::GetCursor ();
+        return TRUE;
+    };
+    input::desktop = desktop;
     const HWND canvas = Canvas ();
     ASSERT_NE (canvas, nullptr);
     std::string error;
@@ -544,40 +557,27 @@ TEST (OverlayInput, AHiddenCursorHandsTheLockedViewToTheHost)
     map.locked = true;
     input::SetHitMap (input::View::Plan, map);
     Pump ();
-    int hides = 0;
-    while (::ShowCursor (FALSE) >= 0 && ++hides < 16) {
-    }
-    ++hides; // the call that took the count below zero
-    CURSORINFO info = {};
-    info.cbSize = sizeof (info);
-    const bool hidden = ::GetCursorInfo (&info) && info.flags == 0;
-    if (hidden) {
-        ::PostMessageW (canvas, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM (40, 40));
-        ::PostMessageW (canvas, WM_LBUTTONUP, 0, MAKELPARAM (40, 40));
-        Pump ();
-        const auto events = input::TakeInput (input::View::Plan);
-        EXPECT_TRUE (events.buttons.empty ()) << "the click is the host's: it leaves Explore";
-        EXPECT_TRUE (events.navigating);
-        EXPECT_FALSE (events.pointer);
-        EXPECT_TRUE (input::NavigatingNatively (input::View::Plan));
-    }
-    for (int i = 0; i < hides; ++i)
-        ::ShowCursor (TRUE);
-    info.cbSize = sizeof (info);
-    const bool shown = ::GetCursorInfo (&info) && info.flags != 0;
-    if (shown) {
-        ::PostMessageW (canvas, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM (40, 40));
-        Pump ();
-        EXPECT_EQ (input::TakeInput (input::View::Plan).buttons.size (), 1u) << "shown again, the view is the HUD's";
-        ::PostMessageW (canvas, WM_LBUTTONUP, 0, MAKELPARAM (40, 40));
-        Pump ();
-    }
+
+    s_hidden = true;
+    ::PostMessageW (canvas, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM (40, 40));
+    ::PostMessageW (canvas, WM_LBUTTONUP, 0, MAKELPARAM (40, 40));
+    Pump ();
+    const auto events = input::TakeInput (input::View::Plan);
+    EXPECT_TRUE (events.buttons.empty ()) << "the click is the host's: it leaves Explore";
+    EXPECT_TRUE (events.navigating);
+    EXPECT_FALSE (events.pointer);
+    EXPECT_TRUE (input::NavigatingNatively (input::View::Plan));
+
+    s_hidden = false;
+    ::PostMessageW (canvas, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM (40, 40));
+    Pump ();
+    EXPECT_EQ (input::TakeInput (input::View::Plan).buttons.size (), 1u) << "shown again, the view is the HUD's";
+    ::PostMessageW (canvas, WM_LBUTTONUP, 0, MAKELPARAM (40, 40));
+    Pump ();
     input::Shutdown ();
     ::DestroyWindow (canvas);
     Pump ();
-    if (!hidden || !shown)
-        GTEST_SKIP () << "this desktop does not report the thread's hidden cursor (no pointer device, or not "
-                         "the input desktop)";
+    input::desktop = hudtest::QuietDesktop ();
 }
 
 TEST (OverlayInput, LockedRoofConsumesParentDeleteBeforeNativeAcceleratorsAndForwardsText)

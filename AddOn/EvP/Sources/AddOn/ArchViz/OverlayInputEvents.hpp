@@ -4,6 +4,7 @@
 // Win32 message decoding only. Routing, cursor ownership and session state remain
 // in OverlayInput.cpp; these helpers allocate nothing and call no ACAPI.
 #include "ArchViz/OverlayHitMap.hpp"
+#include "ArchViz/OverlayInputDesktop.hpp"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -32,7 +33,7 @@ inline uint32_t PhysicalButtons ()
     uint32_t held = 0;
     const int keys[] = { VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2 };
     for (int button = 0; button < 5; ++button)
-        if ((::GetAsyncKeyState (keys[button]) & 0x8000) != 0)
+        if ((desktop.asyncKeyState (keys[button]) & 0x8000) != 0)
             held |= 1u << button;
     return held;
 }
