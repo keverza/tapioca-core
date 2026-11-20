@@ -41,6 +41,8 @@ pub struct PatchGridRequest {
     pub plane_tolerance_m: f64,
     /// Refusal ceiling.
     pub max_samples: usize,
+    /// The analysis cylinder in plan: x, y, radius (0 no clip).
+    pub clip: [f64; 3],
 }
 
 /// One span in C layout.
@@ -172,6 +174,7 @@ unsafe fn sample(
             },
             sample_group: (!sample_group.is_empty()).then_some(sample_group),
             sample_face: (!sample_face.is_empty()).then_some(sample_face),
+            clip: request.clip,
         };
         Ok(patch_sampler::build_patch_sample_grid(
             context.slice(request.vertices)?,

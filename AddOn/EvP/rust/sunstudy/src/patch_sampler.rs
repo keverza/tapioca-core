@@ -193,6 +193,9 @@ pub struct PatchSamplerOptions<'a> {
     pub sample_group: Option<&'a [u8]>,
     /// Per face, 0 = not a receiver; also splits patches.
     pub sample_face: Option<&'a [u8]>,
+    /// The analysis cylinder in plan, `[x, y, radius]` metres: cells whose
+    /// centre lies outside it are not sampled. Radius 0 is no clip.
+    pub clip: [f64; 3],
 }
 
 impl Default for PatchSamplerOptions<'_> {
@@ -204,7 +207,26 @@ impl Default for PatchSamplerOptions<'_> {
             patch: SurfacePatchOptions::default(),
             sample_group: None,
             sample_face: None,
+            clip: [0.0; 3],
         }
+    }
+}
+
+/// Drops the cells whose centre lies outside the analysis cylinder (#152).
+///
+/// ⚠️ CELLS, NOT PATCHES. A slab larger than the cylinder keeps only its
+/// inside cells; the lattice is already sparse (cells outside the outline are
+/// absent), so a clipped cell is one more absence, and a patch left with none
+/// gets no span.
+fn clip_cells(lattice: &mut PatchGrid, clip: [f64; 3]) {
+    let [x, y, radius] = clip;
+    if radius > 0.0 {
+        let r2 = radius * radius;
+        lattice.cells.retain(|cell| {
+            let (dx, dy) = (cell.centre[0] - x, cell.centre[1] - y);
+            // Kept unless strictly outside: a NaN centre stays, as in C++.
+            (dx * dx + dy * dy).partial_cmp(&r2) != Some(std::cmp::Ordering::Greater)
+        });
     }
 }
 
@@ -276,7 +298,8 @@ pub fn build_patch_sample_grid(
             lattices.push(None);
             continue;
         }
-        let lattice = build_patch_grid(patch, vertices, triangles, options.spacing);
+        let mut lattice = build_patch_grid(patch, vertices, triangles, options.spacing);
+        clip_cells(&mut lattice, options.clip);
         projected += lattice.cells.len();
         lattices.push(Some(lattice));
         if projected > options.max_samples {

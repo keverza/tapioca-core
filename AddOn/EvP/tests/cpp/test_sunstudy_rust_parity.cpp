@@ -122,7 +122,9 @@ TEST (SunStudyRustParity, AbiVersionHandshake)
     uint32_t version = 0;
     std::string error = "stale";
     ASSERT_TRUE (rs::ReadAbiVersion (version, error)) << error;
-    EXPECT_EQ (version, 3u); // v3: the annual playback archive (#152); v2 viewpoint modes (#80)
+    EXPECT_EQ (
+        version,
+        4u); // v4: the analysis cylinder in the sampling records; v3 annual archive (#152); v2 viewpoint modes (#80)
     EXPECT_TRUE (error.empty ());
 }
 

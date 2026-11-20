@@ -9,22 +9,23 @@ namespace evp::sunstudy::rust {
 
 using namespace detail;
 
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaSurfaceOptions) == 40);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSurfaceOptions) == 64);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaMeshSpan) == 136);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaSampleGridView) == 160);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchSpanEntry) == 208);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchGridView) == 160);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaPreviousSampling) == 400);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaSurfaceBuildRequest) == 512);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaSurfaceResultSummary) == 224);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaPreviousSampling) == 424);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSurfaceBuildRequest) == 560);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSurfaceResultSummary) == 248);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaSurfaceReadOutput) == 160);
 
 namespace {
 
 TapiocaSurfaceOptions OptionsPod (const SurfaceSamplingOptions& options)
 {
-    return { options.spacing, options.normalOffset, options.jitter, options.maxSamples,
-             static_cast<uint8_t> (options.domain) };
+    return { options.spacing,    options.normalOffset,
+             options.jitter,     { options.clipX, options.clipY, options.clipRadius },
+             options.maxSamples, static_cast<uint8_t> (options.domain) };
 }
 
 PatchSampleSpan SpanOf (const TapiocaPatchSpan& pod, std::string element)
@@ -226,7 +227,14 @@ bool Read (const TapiocaSurfaceResult* handle, SurfaceSamplingResult& out, std::
     p.valid = summary.flags[2] != 0;
     SurfaceSamplingLayout& layout = result.layout;
     const TapiocaSurfaceOptions& o = summary.options;
-    layout.options = { static_cast<SamplingDomain> (o.domain), o.spacing, o.normalOffset, o.jitter, o.maxSamples };
+    layout.options = { static_cast<SamplingDomain> (o.domain),
+                       o.spacing,
+                       o.normalOffset,
+                       o.jitter,
+                       o.maxSamples,
+                       o.clip[0],
+                       o.clip[1],
+                       o.clip[2] };
     layout.valid = summary.flags[3] != 0;
     for (const TapiocaMeshSpan& pod : b.meshSpans)
         layout.meshes.push_back (MeshSpanOf (pod, b.masks));

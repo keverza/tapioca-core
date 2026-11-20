@@ -35,6 +35,8 @@ pub struct SurfaceOptionsRecord {
     pub normal_offset: f64,
     /// Triangle-domain jitter.
     pub jitter: f64,
+    /// The analysis cylinder in plan: x, y, radius (0 no clip); patch domain.
+    pub clip: [f64; 3],
     /// Refusal ceiling.
     pub max_samples: usize,
     /// 0 triangle, 1 patch.
@@ -179,6 +181,7 @@ fn options(record: &SurfaceOptionsRecord) -> Result<SurfaceSamplingOptions, Fail
         normal_offset: record.normal_offset,
         jitter: record.jitter,
         max_samples: record.max_samples,
+        clip: record.clip,
     })
 }
 
@@ -613,6 +616,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_surface_summary(
                     spacing: opt.spacing,
                     normal_offset: opt.normal_offset,
                     jitter: opt.jitter,
+                    clip: opt.clip,
                     max_samples: opt.max_samples,
                     domain: opt.domain as u8,
                 },

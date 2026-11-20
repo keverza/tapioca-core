@@ -42,7 +42,7 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaSampleGridRequest) == 120);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaFaceLayout) == 104);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaSampleGridSummary) == 48);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaSampleGridOutput) == 88);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchGridRequest) == 136);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchGridRequest) == 160);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchSpan) == 192);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchGridSummary) == 56);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchGridOutput) == 96);

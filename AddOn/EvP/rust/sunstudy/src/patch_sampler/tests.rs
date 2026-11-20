@@ -129,3 +129,46 @@ fn a_flipped_normal_is_a_different_key() {
         down.spans.first().map(|s| s.key.plane)
     );
 }
+
+/// A square quad `[x0, x1] x [y0, y1]` at z = 0 as two triangles, appended.
+fn quad(v: &mut Vec<f64>, t: &mut Vec<u32>, [x0, y0, x1, y1]: [f64; 4]) {
+    let base = u32::try_from(v.len() / 3).unwrap_or(u32::MAX);
+    v.extend_from_slice(&[x0, y0, 0.0, x1, y0, 0.0, x1, y1, 0.0, x0, y1, 0.0]);
+    t.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+}
+
+/// Mirrors `SunStudyPatchAtlas.AnalysisCylinderClipsCellsNotPatches` (#152):
+/// a 20 m slab under a 5 m cylinder keeps its patch but only the cells
+/// inside the circle; a quad wholly outside keeps no span at all.
+#[test]
+fn the_analysis_cylinder_clips_cells_not_patches() {
+    let (mut v, mut t) = (Vec::new(), Vec::new());
+    quad(&mut v, &mut t, [0.0, 0.0, 20.0, 20.0]);
+    quad(&mut v, &mut t, [40.0, 40.0, 44.0, 44.0]);
+    let groups = [0, 0, 1, 1];
+    let options = PatchSamplerOptions {
+        normal_offset: 0.0,
+        clip: [10.0, 10.0, 5.0],
+        ..spaced(1.0)
+    };
+    let grid = build_patch_sample_grid(&v, &t, Some(&groups), &["slab", "far"], &options);
+    assert!(grid.valid);
+    assert_eq!(grid.spans.len(), 1);
+    assert_eq!(
+        grid.spans.first().map(|s| s.key.element.as_str()),
+        Some("slab")
+    );
+    let cells = grid.count();
+    assert!(cells > 70 && cells < 90, "pi * 25 = 78.5, got {cells}");
+    for p in grid.positions.as_chunks::<3>().0 {
+        assert!((p[0] - 10.0).hypot(p[1] - 10.0) <= 5.0);
+    }
+    assert_eq!(
+        grid.patch_of_triangle.get(2),
+        Some(&NO_PATCH),
+        "the far quad kept a patch"
+    );
+    let unclipped = build_patch_sample_grid(&v, &t, Some(&groups), &["slab", "far"], &spaced(1.0));
+    assert_eq!(unclipped.spans.len(), 2);
+    assert!(unclipped.count() > 400);
+}

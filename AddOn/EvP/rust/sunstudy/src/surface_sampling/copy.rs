@@ -34,6 +34,7 @@ pub(super) fn compatible(
         || old.spacing != options.spacing
         || old.normal_offset != options.normal_offset
         || old.jitter != options.jitter
+        || old.clip != options.clip
     {
         return false;
     }

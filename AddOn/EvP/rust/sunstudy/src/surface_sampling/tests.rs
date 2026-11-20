@@ -263,3 +263,33 @@ fn a_context_mesh_keeps_its_faces_but_no_samples() {
     let wall = result.layout.meshes.get(1).cloned().unwrap_or_default();
     assert!(!wall.sampled && wall.sample_count == 0 && wall.excluded == 12);
 }
+
+/// The analysis cylinder is part of reuse compatibility (#152): a rerun with
+/// another circle rebuilds every mesh instead of copying the bounded samples.
+#[test]
+fn a_different_analysis_cylinder_reuses_nothing() {
+    let scene = Scene::new();
+    let meshes = scene.meshes();
+    let bounded = SurfaceSamplingOptions {
+        clip: [0.0, 0.0, 50.0],
+        ..options(SamplingDomain::SurfacePatch)
+    };
+    let first = sample(&meshes, bounded, None);
+    assert!(first.valid);
+    let same = sample(
+        &meshes,
+        bounded,
+        Some(previous(&meshes, &first, SamplingDomain::SurfacePatch)),
+    );
+    assert_eq!(same.rebuilt_meshes, 0);
+    let moved = SurfaceSamplingOptions {
+        clip: [1.0, 0.0, 50.0],
+        ..bounded
+    };
+    let second = sample(
+        &meshes,
+        moved,
+        Some(previous(&meshes, &first, SamplingDomain::SurfacePatch)),
+    );
+    assert_eq!(second.reused_meshes, 0);
+}

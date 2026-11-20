@@ -43,6 +43,9 @@ pub struct SurfaceSamplingOptions {
     pub jitter: f64,
     /// Refusal ceiling across the whole study.
     pub max_samples: usize,
+    /// The analysis cylinder in plan, `[x, y, radius]` metres (patch domain
+    /// only); radius 0 is no clip.
+    pub clip: [f64; 3],
 }
 
 impl Default for SurfaceSamplingOptions {
@@ -53,6 +56,7 @@ impl Default for SurfaceSamplingOptions {
             normal_offset: 0.01,
             jitter: 0.0,
             max_samples: 4_000_000,
+            clip: [0.0; 3],
         }
     }
 }
@@ -207,6 +211,7 @@ fn patch_options(options: &SurfaceSamplingOptions) -> PatchSamplerOptions<'stati
         spacing: options.spacing,
         normal_offset: options.normal_offset,
         max_samples: options.max_samples,
+        clip: options.clip,
         ..PatchSamplerOptions::default()
     }
 }

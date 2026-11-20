@@ -249,6 +249,9 @@ bool BuildPatchSampleGrid (const double* vertices, size_t vertexCount, const uin
     request.coplanarDegrees = options.patch.coplanarDegrees;
     request.planeToleranceM = options.patch.planeToleranceM;
     request.maxSamples = options.maxSamples;
+    request.clip[0] = options.clipX;
+    request.clip[1] = options.clipY;
+    request.clip[2] = options.clipRadius;
 
     TapiocaPatchGridSummary summary {};
     TapiocaPatchGridOutput output {};

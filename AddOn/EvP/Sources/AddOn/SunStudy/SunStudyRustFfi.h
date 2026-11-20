@@ -16,7 +16,7 @@
 
 #include "Geometry/GeometryRustFfi.h"
 
-#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (3)
+#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (4)
 
 #ifdef __cplusplus
 extern "C" {
@@ -367,6 +367,7 @@ typedef struct {
     double coplanarDegrees;
     double planeToleranceM;
     size_t maxSamples;
+    double clip[3]; /* analysis cylinder in plan: x, y, radius (0 no clip) */
 } TapiocaPatchGridRequest;
 
 /* Key element = elementOf[group], or "" for a group past its end. */
@@ -886,6 +887,7 @@ typedef struct {
     double spacing;
     double normalOffset;
     double jitter;
+    double clip[3]; /* analysis cylinder in plan: x, y, radius (0 no clip); patch domain */
     size_t maxSamples;
     uint8_t domain; /* SamplingDomain: 0 triangle, 1 patch */
 } TapiocaSurfaceOptions;

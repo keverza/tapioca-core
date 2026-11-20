@@ -184,7 +184,7 @@ const _: () = {
     assert!(size_of::<FaceLayoutRecord>() == 104);
     assert!(size_of::<SampleGridSummary>() == 48);
     assert!(size_of::<SampleGridOutput>() == 88);
-    assert!(size_of::<PatchGridRequest>() == 136);
+    assert!(size_of::<PatchGridRequest>() == 160);
     assert!(size_of::<PatchSpanRecord>() == 192);
     assert!(size_of::<PatchGridSummary>() == 56);
     assert!(size_of::<PatchGridOutput>() == 96);
@@ -237,14 +237,14 @@ const _: () = {
     assert!(size_of::<SampleMeshOutput>() == 24);
     assert!(size_of::<SummaryRequest>() == 24);
     assert!(size_of::<tapioca_sunstudy::summary::SunStudyResultSummary>() == 56);
-    assert!(size_of::<SurfaceOptionsRecord>() == 40);
+    assert!(size_of::<SurfaceOptionsRecord>() == 64);
     assert!(size_of::<MeshSpanRecord>() == 136);
     assert!(size_of::<SampleGridView>() == 160);
     assert!(size_of::<PatchSpanView>() == 208);
     assert!(size_of::<PatchGridView>() == 160);
-    assert!(size_of::<PreviousView>() == 400);
-    assert!(size_of::<SurfaceBuildRequest>() == 512);
-    assert!(size_of::<SurfaceResultSummary>() == 224);
+    assert!(size_of::<PreviousView>() == 424);
+    assert!(size_of::<SurfaceBuildRequest>() == 560);
+    assert!(size_of::<SurfaceResultSummary>() == 248);
     assert!(size_of::<SurfaceReadOutput>() == 160);
     assert!(size_of::<StudyCreateRequest>() == 440);
     assert!(size_of::<StudyMeshesView>() == 16);
@@ -369,7 +369,7 @@ pub(crate) fn flag(value: u8, message: &'static str) -> Result<bool, Failure> {
     }
 }
 
-/// Read the sun-study ABI version (currently 1), independent of the aggregate
+/// Read the sun-study ABI version (`tapioca_sunstudy::ABI_VERSION`), independent of the aggregate
 /// `tapioca_version`, so the C++ wrapper can refuse a mismatched archive.
 ///
 /// Returns status 0 on success, 1 for malformed arguments, or 3 for a caught

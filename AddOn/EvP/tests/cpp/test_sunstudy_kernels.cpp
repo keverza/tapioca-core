@@ -333,3 +333,48 @@ TEST (SunStudyKernels, TimestepsFanScatterAndFinestGridMatchTheKernels)
         EXPECT_EQ (finest, FinestGridSpacing (area, limits.maxSamples)) << area;
     }
 }
+
+// The analysis cylinder reaches the Rust sampler (#152): clipped patch grids
+// and surface samplings equal the C++ ones, and the circle survives the
+// layout round trip that a rerun's reuse check reads.
+TEST (SunStudyKernels, TheAnalysisCylinderClipsTheSameCellsInBothSamplers)
+{
+    const auto snapshot = Scene ();
+    const Flat flat = Flatten (*snapshot);
+    PatchSamplerOptions patchOptions;
+    patchOptions.spacing = 0.8;
+    patchOptions.clipX = 4.0;
+    patchOptions.clipY = 2.0;
+    patchOptions.clipRadius = 6.0;
+    const size_t vertexCount = flat.vertices.size () / 3, faceCount = flat.triangles.size () / 3;
+    const PatchSampleGrid e = BuildPatchSampleGrid (flat.vertices.data (), vertexCount, flat.triangles.data (),
+                                                    faceCount, flat.groups.data (), flat.elementOf, patchOptions);
+    const PatchSampleGrid a =
+        kernels::BuildPatchSampleGrid (flat.vertices.data (), vertexCount, flat.triangles.data (), faceCount,
+                                       flat.groups.data (), flat.elementOf, patchOptions);
+    ASSERT_TRUE (e.valid);
+    EXPECT_TRUE (SameBits (a.positions, e.positions));
+    EXPECT_EQ (a.spans.size (), e.spans.size ());
+    EXPECT_EQ (a.patchOfTriangle, e.patchOfTriangle);
+    patchOptions.clipRadius = 0.0;
+    EXPECT_GT (kernels::BuildPatchSampleGrid (flat.vertices.data (), vertexCount, flat.triangles.data (), faceCount,
+                                              flat.groups.data (), flat.elementOf, patchOptions)
+                   .Count (),
+               a.Count ())
+        << "without the circle every cell is sampled";
+
+    SurfaceSamplingOptions options;
+    options.domain = SamplingDomain::SurfacePatch;
+    options.spacing = 0.8;
+    options.clipX = 4.0;
+    options.clipY = 2.0;
+    options.clipRadius = 6.0;
+    const std::vector<uint8_t> mask { 1, 1, 1 };
+    const SurfaceSamplingResult es = BuildSurfaceSampling (*snapshot, mask, options);
+    const SurfaceSamplingResult as = kernels::BuildSurfaceSampling (*snapshot, mask, options);
+    ASSERT_TRUE (as.valid);
+    EXPECT_TRUE (SameBits (as.patches.positions, es.patches.positions));
+    EXPECT_EQ (as.layout.options.clipX, 4.0);
+    EXPECT_EQ (as.layout.options.clipY, 2.0);
+    EXPECT_EQ (as.layout.options.clipRadius, 6.0);
+}

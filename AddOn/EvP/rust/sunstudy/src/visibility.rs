@@ -334,6 +334,7 @@ fn sample(
             normal_offset: o.normal_offset,
             jitter: 0.0,
             max_samples: o.max_samples,
+            clip: [0.0; 3],
         },
         previous: None,
         face_masks: &[],
