@@ -1561,6 +1561,27 @@ bool SeenPlane (float2 q, out float3 plane)
     return true;
 }
 
+// #14 moire: how strongly an edge may draw where its face is only a few pixels wide on screen. The
+// face's own plane is followed inward from the edge: if the surface leaves it within 1.5, 2.5 or
+// 3.5 px, the face -- a louvre slat, a mullion seen from afar -- is that narrow, and a line on each
+// of its sides at that pitch beats against the pixel grid into the arcs the live run showed in
+// Technical (its lines are drawn after the still image's mean, so nothing averages them). Such
+// lines fade with their density, the way a pen drawing greys a dense screen into a tone. A large
+// face never leaves its plane within 3.5 px: its outline keeps full strength.
+float DenseEdgeFade (float2 p, float2 across, float distanceToEdge, float3 plane)
+{
+    const float reach[4] = { 1.5, 2.5, 3.5, 4.5 };
+    const float fade[4] = { 0.0, 0.2, 0.45, 0.75 };
+    [unroll] for (int k = 0; k < 4; ++k)
+    {
+        float2 q = p - across * (distanceToEdge + reach[k]);
+        float gap = PlaneGap (q, plane);
+        if (gap == kOffPlane || abs (gap) > PlaneTolerance (plane, q, reach[k]))
+            return fade[k];
+    }
+    return 1.0;
+}
+
 float4 main (TechnicalEdgeInput input) : SV_TARGET
 {
     float3 d = input.distanceToEdges;
@@ -1599,6 +1620,7 @@ float4 main (TechnicalEdgeInput input) : SV_TARGET
             if (abs (PlaneGap (a1, plane)) <= PlaneTolerance (plane, a1, 2.0) &&
                 abs (PlaneGap (a2, plane)) <= PlaneTolerance (plane, a2, 4.0))
                 discard;
+            coverage *= DenseEdgeFade (p, across, distanceToEdge, plane);
         }
     }
     return float4 (g_baseColor.rgb, g_baseColor.a * coverage);
