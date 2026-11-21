@@ -1,0 +1,41 @@
+newmtl ground
+Kd 0.3 0.38 0.2
+d 1
+Ns 10
+Ks 0 0 0
+
+newmtl wall_a
+Kd 0.8 0.8 0.78
+d 1
+Ns 10
+Ks 0 0 0
+
+newmtl wall_b
+Kd 0.8 0.8 0.78
+d 1
+Ns 10
+Ks 0 0 0
+
+newmtl wall_c
+Kd 0.8 0.8 0.78
+d 1
+Ns 10
+Ks 0 0 0
+
+newmtl slab
+Kd 0.8 0.8 0.78
+d 1
+Ns 10
+Ks 0 0 0
+
+newmtl return
+Kd 0.8 0.8 0.78
+d 1
+Ns 10
+Ks 0 0 0
+
+newmtl panel
+Kd 0.8 0.8 0.78
+d 1
+Ns 10
+Ks 0 0 0

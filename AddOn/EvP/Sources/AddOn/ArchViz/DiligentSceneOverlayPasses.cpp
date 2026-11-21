@@ -141,6 +141,7 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
         const float lineWidth = constants.wireParams[1];
         constants.edgeParams[0] = kSelectionEdgeDepthPull * nearClip;
         constants.edgeParams[1] = float (technical.maskShift);
+        constants.edgeParams[2] = nearClip; // #14: kArchVizTechnicalEdgePS's tolerance in metres
         const size_t tier =
             (std::min) ((technical.maskShift - kSelectionEdgeShift) / 3u, uint32_t (kCreaseTierCount - 1));
         for (const int passIndex : { Impl::kHiddenEdges, Impl::kVisibleEdges }) {
@@ -154,7 +155,24 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
                 sel.edgeSrb[passIndex]->GetVariableByName (Diligent::SHADER_TYPE_HULL, "g_wirePatchFlags");
             if (edgeVariable == nullptr)
                 continue;
-            context->SetPipelineState (sel.edgePso[passIndex]);
+            // #14: the visible pass drops the coplanar joints where it can (kArchVizTechnicalEdgePS).
+            Diligent::IShaderResourceBinding* srb = sel.edgeSrb[passIndex];
+            Diligent::IPipelineState* pso = sel.edgePso[passIndex];
+            if (!hidden && sel.technicalPso != nullptr) {
+                if (Diligent::ITextureView* depth = CopyTechnicalEdgeDepth (context)) {
+                    Diligent::IShaderResourceVariable* technicalEdges =
+                        sel.technicalSrb->GetVariableByName (Diligent::SHADER_TYPE_HULL, "g_wirePatchFlags");
+                    Diligent::IShaderResourceVariable* depthVariable =
+                        sel.technicalSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_edgeDepth");
+                    if (technicalEdges != nullptr && depthVariable != nullptr) {
+                        depthVariable->Set (depth);
+                        edgeVariable = technicalEdges;
+                        srb = sel.technicalSrb;
+                        pso = sel.technicalPso;
+                    }
+                }
+            }
+            context->SetPipelineState (pso);
             const float alpha = technical.rgba[3] * (hidden ? technical.hiddenAlpha : 1.0f);
             float uploadedFade = 1.0f;
             for (const Entry& e : impl_->elements) {
@@ -180,14 +198,14 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
                     uploadedFade = fade;
                 }
                 edgeVariable->Set (e.wireEdgeBuffer->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
-                context->CommitShaderResources (sel.edgeSrb[passIndex],
-                                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+                context->CommitShaderResources (srb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
                 drawWhole (e);
             }
         }
         constants.wireParams[1] = lineWidth;
         constants.edgeParams[0] = 0.0f;
         constants.edgeParams[1] = 0.0f;
+        constants.edgeParams[2] = 0.0f;
     }
     if (!anyMark)
         return;
@@ -343,6 +361,52 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
             break; // one element carries an id; nothing after it can match
         }
     }
+}
+
+// #14: the depth the Technical edges test their coplanar joints against. The frame's depth is the
+// bound depth-stencil target, which the edge pass also tests, so it is copied into a texture the
+// pixel shader can read, and the targets are bound again. Null when it cannot be: the edges then
+// draw every joint, as before.
+Diligent::ITextureView* DiligentScene::CopyTechnicalEdgeDepth (Diligent::IDeviceContext* context)
+{
+    Impl::SelectionPipelines& sel = impl_->selectionPipelines;
+    Diligent::ITextureView* depthTarget = impl_->overlayDepth;
+    if (depthTarget == nullptr || impl_->overlayColor == nullptr || sel.technicalPso == nullptr)
+        return nullptr;
+    Diligent::ITexture* source = depthTarget->GetTexture ();
+    const Diligent::TextureDesc& want = source->GetDesc ();
+    if (want.SampleCount != 1)
+        return nullptr;
+    RefCntAutoPtr<Diligent::ITexture>& copy = sel.technicalDepth;
+    if (copy == nullptr || copy->GetDesc ().Width != want.Width || copy->GetDesc ().Height != want.Height ||
+        copy->GetDesc ().Format != want.Format) {
+        copy.Release ();
+        Diligent::TextureDesc desc;
+        desc.Name = "ArchViz technical edge depth";
+        desc.Type = Diligent::RESOURCE_DIM_TEX_2D;
+        desc.Width = want.Width;
+        desc.Height = want.Height;
+        desc.Format = want.Format;
+        desc.MipLevels = 1;
+        desc.BindFlags = Diligent::BIND_SHADER_RESOURCE | Diligent::BIND_DEPTH_STENCIL;
+        desc.Usage = Diligent::USAGE_DEFAULT;
+        impl_->device->CreateTexture (desc, nullptr, &copy);
+        if (copy == nullptr) {
+            ArchVizLog ("Diligent scene: technical edges keep their coplanar joints (no depth copy)");
+            sel.technicalPso.Release ();
+            sel.technicalSrb.Release ();
+            return nullptr;
+        }
+    }
+    Diligent::CopyTextureAttribs attribs (source, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION, copy,
+                                          Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->CopyTexture (attribs);
+    Diligent::ITextureView* view = copy->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    // BOUND AGAIN: the copy moved the depth target out of its depth-write state.
+    Diligent::ITextureView* color = impl_->overlayColor;
+    context->SetRenderTargets (1, &color, depthTarget, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->SetViewports (1, nullptr, 0, 0);
+    return view;
 }
 
 } // namespace archviz

@@ -11,8 +11,12 @@
 #include "ArchViz/DiligentSceneImpl.hpp"
 
 #include "ArchViz/DiligentShaders.hpp"
+#include "ArchViz/ArchVizLog.hpp"
 
 #include <Sampler.h>
+
+#include <string>
+#include <utility>
 
 namespace geomsrv {
 namespace archviz {
@@ -492,6 +496,48 @@ bool DiligentScene::CreateSelectionPipelines (Diligent::IRenderDevice* device, u
         }
         if (!finish (pci, sel.edgePso[i], sel.edgeSrb[i], sel.semantic))
             return false;
+    }
+
+    // #14: the Technical view's visible edges -- the visible pass with kArchVizTechnicalEdgePS,
+    // which drops an edge whose surface continues flush past it. Optional: on any failure the
+    // visible selection PSO draws them, every joint included, as before.
+    if (sel.semantic) {
+        const std::string source = ArchVizShaderSource (kArchVizTechnicalEdgePS);
+        Diligent::ShaderCreateInfo sci;
+        sci.Desc.Name = "ArchViz technical edge PS";
+        sci.Desc.ShaderType = Diligent::SHADER_TYPE_PIXEL;
+        sci.EntryPoint = "main";
+        sci.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_HLSL;
+        sci.Source = source.c_str ();
+        sci.SourceLength = source.size ();
+        device->CreateShader (sci, &sel.technicalPs, nullptr);
+        const Diligent::ShaderResourceVariableDesc technicalVariables[] = {
+            { Diligent::SHADER_TYPE_HULL, "g_wirePatchFlags", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_edgeDepth", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+        };
+        Diligent::GraphicsPipelineStateCreateInfo pci;
+        describe (pci, "ArchViz technical visible edges PSO");
+        Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
+        gp.RasterizerDesc.CullMode = Diligent::CULL_MODE_NONE;
+        gp.DepthStencilDesc.DepthWriteEnable = Diligent::False;
+        gp.DepthStencilDesc.DepthFunc = Diligent::COMPARISON_FUNC_LESS_EQUAL;
+        gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+        pci.pVS = impl_->wireVs;
+        pci.pHS = impl_->wireHs;
+        pci.pDS = impl_->wireDs;
+        pci.pGS = impl_->wireGs;
+        pci.pPS = sel.technicalPs;
+        pci.PSODesc.ResourceLayout.Variables = technicalVariables;
+        pci.PSODesc.ResourceLayout.NumVariables = _countof (technicalVariables);
+        std::string technicalError;
+        std::swap (error, technicalError);
+        if (sel.technicalPs == nullptr || !finish (pci, sel.technicalPso, sel.technicalSrb, true)) {
+            ArchVizLog ("Diligent scene: technical edges keep their coplanar joints (" +
+                        (error.empty () ? std::string ("the shader did not compile") : error) + ")");
+            sel.technicalPso.Release ();
+            sel.technicalSrb.Release ();
+        }
+        std::swap (error, technicalError);
     }
     return true;
 }

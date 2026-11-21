@@ -409,8 +409,14 @@ bool DiligentScene::EnsureStableDepthPipelines ()
 }
 
 void DiligentScene::UnjitterOverlays (Diligent::IDeviceContext* context, DiligentSceneConstants& constants,
-                                      CullMode cull, Diligent::ITextureView* depthTarget, bool drawSurfaces)
+                                      CullMode cull, Diligent::ITextureView* colorTarget,
+                                      Diligent::ITextureView* depthTarget, bool drawSurfaces)
 {
+    if (impl_ != nullptr) {
+        // #14: what the line overlays draw into, so the Technical edges can copy the depth and rebind.
+        impl_->overlayColor = colorTarget;
+        impl_->overlayDepth = depthTarget;
+    }
     if (impl_ == nullptr || context == nullptr || depthTarget == nullptr ||
         !impl_->temporalConvergenceSettings.stableOverlays)
         return;

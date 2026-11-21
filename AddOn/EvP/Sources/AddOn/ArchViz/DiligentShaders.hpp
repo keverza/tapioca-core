@@ -486,7 +486,8 @@ cbuffer ArchVizConstants
     float4   g_visibilityRamp[16]; // the visibility colours: rgb = sRGB, w = position 0..1
     float4   g_visibilityRampInfo; // x = how many stops; 0 = g_visibilityLow/High
     float4   g_sunStudyShadowPalette[5]; // sRGB: single lit, shadowed; AM/PM sunlit, morning, evening
-    float4   g_edgeParams;      // x = clip z the wire GS pulls toward the camera, y = edge-mask bit shift (#118)
+    float4   g_edgeParams;      // x = clip z the wire GS pulls toward the camera, y = edge-mask bit shift (#118),
+                                // z = the near plane, for the Technical edges' coplanar test (#14)
     float4   g_sectionPlane;    // keep where dot(xyz, p) + w >= 0; (0,0,0,1) = no section (#14 P2)
     float4   g_textureParams;   // #252 per range: x textured, yz 1/repeat size, w mirror bits (1 x, 2 y)
 };
@@ -1257,8 +1258,49 @@ struct WirePixelInput
 {
     float4 position : SV_POSITION;
     noperspective float3 distanceToEdges : EDGEDISTANCE;
+    // #14: for the Technical view's coplanar test (kArchVizTechnicalEdgePS); the wire PS reads
+    // only the prefix above. Pixel space: the triangle's depth z = x*a + y*b + c (c < -5: none),
+    // and each edge's outward unit normal, edge k opposite corner k.
+    nointerpolation float3 depthPlane : DEPTHPLANE;
+    nointerpolation float4 edgeOut01 : EDGEOUT01;
+    nointerpolation float2 edgeOut2 : EDGEOUT2;
     float clipDistance : SV_ClipDistance0; // last: kArchVizWirePS's input is the prefix above
 };
+
+static const float3 kNoDepthPlane = float3 (0.0, 0.0, -10.0);
+
+float2 WirePixel (float4 clip, float2 viewport)
+{
+    return float2 (0.5 + 0.5 * clip.x / clip.w, 0.5 - 0.5 * clip.y / clip.w) * viewport;
+}
+
+// The edge from a to b, pointing away from c (the corner opposite it).
+float2 WireOutward (float2 a, float2 b, float2 c)
+{
+    float2 d = b - a;
+    float len = length (d);
+    float2 n = len > 1.0e-6 ? float2 (-d.y, d.x) / len : float2 (0.0, 0.0);
+    return dot (n, c - a) > 0.0 ? -n : n;
+}
+
+// #14: the triangle's depth as a plane in pixel space (depth after the divide is affine across a
+// flat triangle on screen) and its edges' outward normals.
+void WirePlane (float4 c0, float4 c1, float4 c2, float2 viewport, out float3 plane, out float4 out01,
+                out float2 out2)
+{
+    float2 s0 = WirePixel (c0, viewport), s1 = WirePixel (c1, viewport), s2 = WirePixel (c2, viewport);
+    out01 = float4 (WireOutward (s1, s2, s0), WireOutward (s2, s0, s1));
+    out2 = WireOutward (s0, s1, s2);
+    float2 e1 = s1 - s0, e2 = s2 - s0;
+    float det = e1.x * e2.y - e1.y * e2.x;
+    plane = kNoDepthPlane;
+    if (abs (det) < 1.0e-4)
+        return;
+    float z0 = c0.z / c0.w, dz1 = c1.z / c1.w - z0, dz2 = c2.z / c2.w - z0;
+    float a = (dz1 * e2.y - e1.y * dz2) / det;
+    float b = (e1.x * dz2 - dz1 * e2.x) / det;
+    plane = float3 (a, b, z0 - a * s0.x - b * s0.y);
+}
 
 bool GeneratedEdgeIsVisible (float3 domainA, float3 domainB, uint edgeMask)
 {
@@ -1363,6 +1405,9 @@ void EmitClippedWire (triangle WireDomainOutput input[3], inout TriangleStream<W
         output.distanceToEdges = float3 (live[0] ? WireDistance (q, from[0], dir[0]) : disabled,
                                          live[1] ? WireDistance (q, from[1], dir[1]) : disabled,
                                          live[2] ? WireDistance (q, from[2], dir[2]) : disabled);
+        output.depthPlane = kNoDepthPlane; // near the eye: no coplanar test, the edge draws
+        output.edgeOut01 = float4 (0.0, 0.0, 0.0, 0.0);
+        output.edgeOut2 = float2 (0.0, 0.0);
         output.clipDistance = clipDist[v];
         stream.Append (output);
     }
@@ -1404,6 +1449,8 @@ void main (triangle WireDomainOutput input[3], inout TriangleStream<WirePixelInp
     // Only z moves, so the edge stays on exactly the same pixels.
     const float4 pull = float4 (0.0, 0.0, g_edgeParams.x, 0.0);
     WirePixelInput output;
+    WirePlane (input[0].position, input[1].position, input[2].position, viewport, output.depthPlane,
+               output.edgeOut01, output.edgeOut2);
     output.position = input[0].position - pull;
     output.distanceToEdges = d0;
     output.clipDistance = input[0].clipDistance;
@@ -1433,6 +1480,123 @@ float4 main (WirePixelInput input) : SV_TARGET
     float halfWidth = max (0.5 * g_wireParams.y, 0.25);
     float coverage = 1.0 - smoothstep (halfWidth - 0.75, halfWidth + 0.75, distanceToEdge);
     clip (coverage - 0.001);
+    return float4 (g_baseColor.rgb, g_baseColor.a * coverage);
+}
+)hlsl";
+
+// #14: the Technical view's visible edges. kArchVizWirePS, but an edge whose surface continues
+// flush past it is not drawn: a wall that runs on into a slab edge, a column or the next wall
+// segment, which each draw their own border along the joint (live check: "the inside edges should
+// not be visible, like in ray traced the wall is clean"). The test reads the scene's depth a few
+// pixels ACROSS the nearest edge: if it still lies on this triangle's depth plane, the surface
+// there is the same plane and the edge is a joint. A corner, a step, a reveal or a silhouette
+// leaves the plane, and draws. Per pixel, so it needs no knowledge of the neighbouring element.
+constexpr const char* kArchVizTechnicalEdgePS = R"hlsl(
+Texture2D<float> g_edgeDepth; // a copy of the depth the edges are tested against
+
+struct TechnicalEdgeInput
+{
+    float4 position : SV_POSITION;
+    noperspective float3 distanceToEdges : EDGEDISTANCE;
+    nointerpolation float3 depthPlane : DEPTHPLANE;
+    nointerpolation float4 edgeOut01 : EDGEOUT01;
+    nointerpolation float2 edgeOut2 : EDGEOUT2;
+};
+
+static const float kOffPlane = 1.0e9; // no depth there: off the screen, or the background
+
+// The scene's depth at pixel q against the plane's, signed: negative where something is NEARER
+// than the plane. ⚠️ AT THE TEXEL'S CENTRE, where its depth was rasterised, not at q: a pixel's
+// worth of slope is more than the tolerance, and the joints came out dashed.
+float PlaneGap (float2 q, float3 plane)
+{
+    uint width, height;
+    g_edgeDepth.GetDimensions (width, height);
+    if (q.x < 0.0 || q.y < 0.0 || q.x >= float (width) || q.y >= float (height))
+        return kOffPlane;
+    int2 texel = int2 (q);
+    float z = g_edgeDepth.Load (int3 (texel, 0));
+    if (z >= 1.0)
+        return kOffPlane;
+    float2 centre = float2 (texel) + 0.5;
+    return z - (plane.x * centre.x + plane.y * centre.y + plane.z);
+}
+
+// How far off the plane still counts as on it, in depth-buffer units at `reach` pixels from the
+// edge. ⚠️ IN METRES, NOT DEPTH UNITS: depth after the divide is 1 - near / distance, so a fixed
+// depth tolerance is centimetres up close and metres far away, and a 2 cm step read as flush.
+// 5 mm in the world (g_edgeParams.z is the near plane), never below the depth buffer's rounding,
+// plus a share of the plane's own slope for the extrapolation over `reach`.
+float PlaneTolerance (float3 plane, float2 q, float reach)
+{
+    float z = plane.x * q.x + plane.y * q.y + plane.z;
+    float near = max (g_edgeParams.z, 1.0e-4);
+    float oneMinus = max (1.0 - z, 0.0);
+    float world = 0.005 * oneMinus * oneMinus / near;
+    return max (world, 4.0e-7) + 0.1 * reach * (abs (plane.x) + abs (plane.y));
+}
+
+// The depth plane of whatever is seen around pixel q, from its neighbours' depths: false where
+// any of them is the background or off the screen.
+bool SeenPlane (float2 q, out float3 plane)
+{
+    plane = float3 (0.0, 0.0, 0.0);
+    uint width, height;
+    g_edgeDepth.GetDimensions (width, height);
+    int2 c = int2 (q);
+    if (c.x < 1 || c.y < 1 || c.x + 1 >= int (width) || c.y + 1 >= int (height))
+        return false;
+    float z = g_edgeDepth.Load (int3 (c, 0));
+    float l = g_edgeDepth.Load (int3 (c - int2 (1, 0), 0)), r = g_edgeDepth.Load (int3 (c + int2 (1, 0), 0));
+    float u = g_edgeDepth.Load (int3 (c - int2 (0, 1), 0)), b = g_edgeDepth.Load (int3 (c + int2 (0, 1), 0));
+    if (max (max (z, l), max (max (r, u), b)) >= 1.0)
+        return false;
+    float gx = 0.5 * (r - l), gy = 0.5 * (b - u);
+    float2 centre = float2 (c) + 0.5;
+    plane = float3 (gx, gy, z - gx * centre.x - gy * centre.y);
+    return true;
+}
+
+float4 main (TechnicalEdgeInput input) : SV_TARGET
+{
+    float3 d = input.distanceToEdges;
+    float distanceToEdge = min (d.x, min (d.y, d.z));
+    float halfWidth = max (0.5 * g_wireParams.y, 0.25);
+    float coverage = 1.0 - smoothstep (halfWidth - 0.75, halfWidth + 0.75, distanceToEdge);
+    clip (coverage - 0.001);
+    if (input.depthPlane.z > -5.0)
+    {
+        float2 across = d.x <= d.y && d.x <= d.z ? input.edgeOut01.xy
+                     : d.y <= d.z             ? input.edgeOut01.zw
+                                              : input.edgeOut2;
+        if (dot (across, across) > 0.5)
+        {
+            float2 p = input.position.xy;
+            // ⚠️ THIS FACE MUST BE THE ONE SEEN. A wall segment's end face, sandwiched against the
+            // next segment, has its border exactly on the visible front face, so the border passes
+            // the depth test -- and its plane, square to the front, fails the test below: every
+            // joint drew a second line. Just inside the edge such a face is behind the front one,
+            // so something nearer covers it there and the edge is not this face's to draw. A thin
+            // face whose inside sample falls past it finds the scene farther, not nearer: kept.
+            float2 inside = p - across * (2.0 - distanceToEdge);
+            float3 plane = input.depthPlane;
+            float own = PlaneGap (inside, plane);
+            if (own != kOffPlane && own < -PlaneTolerance (plane, inside, 2.0)) {
+                // Hidden here, so test the plane that IS seen there instead, read off the depth
+                // itself: dropped where it runs on across the edge (the sandwiched end face), drawn
+                // where it does not -- a hidden face's half of a silhouette or a corner line keeps
+                // the line its full width.
+                if (!SeenPlane (inside, plane))
+                    return float4 (g_baseColor.rgb, g_baseColor.a * coverage);
+            }
+            // Two samples across, so a perpendicular face, which meets the plane only along the
+            // edge itself, cannot pass for it by matching at one distance.
+            float2 a1 = p + across * (distanceToEdge + 2.0), a2 = p + across * (distanceToEdge + 4.0);
+            if (abs (PlaneGap (a1, plane)) <= PlaneTolerance (plane, a1, 2.0) &&
+                abs (PlaneGap (a2, plane)) <= PlaneTolerance (plane, a2, 4.0))
+                discard;
+        }
+    }
     return float4 (g_baseColor.rgb, g_baseColor.a * coverage);
 }
 )hlsl";

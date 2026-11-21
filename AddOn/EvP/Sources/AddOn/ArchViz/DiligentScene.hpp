@@ -1013,8 +1013,9 @@ class DiligentScene final {
     bool EnsureStableDepthPipelines ();
     // #252, DiligentSceneMeshResources.cpp: the material table's images onto the GPU.
     void SyncAlbedoTextures (Diligent::IRenderDevice* device);
+    Diligent::ITextureView* CopyTechnicalEdgeDepth (Diligent::IDeviceContext* context); // #14
     void UnjitterOverlays (Diligent::IDeviceContext* context, DiligentSceneConstants& constants, CullMode cull,
-                           Diligent::ITextureView* depthTarget, bool drawSurfaces);
+                           Diligent::ITextureView* colorTarget, Diligent::ITextureView* depthTarget, bool drawSurfaces);
     // The opaque geometry, into the G-buffer's MRTs. The SSR call follows with
     // transparent glass receivers without clearing, after AO has consumed the
     // opaque-only buffers.

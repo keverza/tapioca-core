@@ -33,6 +33,8 @@ import compare  # noqa: E402
 #                    shades with the flat triangle normal instead of the vertex normals
 #   louvres          30 mm slats at 60 mm centres over a glazed box (#14): sub-pixel detail that
 #                    shimmers while the camera moves; score it with --extra "--motion 48".
+#   joints           flush wall segments, a slab and a return wall, and a panel 2 cm proud (#14): run
+#                    with --styles technical; only the panel's outline and the real corners draw.
 #   glazing          a glazed front (#231): the sky and a block in the pane, a red wall through it.
 #                    The bench's own fixture (scenes/, from make_glazing.py); a path starting with
 #                    "@" is relative to that folder, not to --scenes.
@@ -98,6 +100,14 @@ SCENES = {
         [
             "facade:5,-8,1.7:-1,2,1.4:55",
             "front:0,-6,1.5:0,3,1.4:50",
+        ],
+    ),
+    "joints": (
+        "@joints.obj",
+        1.0,
+        [
+            "front:-5,-11,2.5:1.5,0,1.6:50",
+            "corner:13,-9,4.5:3,1.5,1.5:50",
         ],
     ),
 }

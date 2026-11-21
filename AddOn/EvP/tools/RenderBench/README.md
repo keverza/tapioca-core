@@ -34,6 +34,12 @@ block outside it. The archive scenes have no architectural glass, so it is the o
 compares how the styles draw a pane (#231). Its pane is not in the G-buffer, so `glossy MAE` is
 empty there; read the montage and the whole-image error.
 
+The `joints` case is the bench's own fixture too (`scenes/make_joints.py`), for Technical's edges
+(#14). It has three wall segments flush along one face, a slab flush with it, a return wall flush
+around the corner, and a panel standing 2 cm proud. Every box is its own element, so each joint lies
+between two elements. Run it with `--styles technical`. The flush joints must not draw. The panel's
+outline, the corners, the silhouettes and the line along the ground must.
+
 Textures: the raster styles and the Ray traced reference both draw the scene's `map_Kd` images
 (#252, #231), gated by the same switch, so `--extra "--off textures"` turns them off on both sides.
 The log's `textured materials N` says how many materials the traced passes sampled.

@@ -981,7 +981,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // the model's own data; painting the study over a normals or roughness read
     // would hide the thing the view exists to show.
     // #248: on a jittered frame everything from here on draws unjittered, over a redrawn depth.
-    UnjitterOverlays (context, constants, cull, depthTarget, drawSurfaces);
+    UnjitterOverlays (context, constants, cull, colorTarget, depthTarget, drawSurfaces);
     if (drawSurfaces && debugView == 0)
         DrawSunStudyTint (context, constants, cull);
 

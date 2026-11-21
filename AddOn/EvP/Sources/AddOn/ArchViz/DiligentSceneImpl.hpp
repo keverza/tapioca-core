@@ -404,7 +404,16 @@ struct geomsrv::archviz::DiligentScene::Impl {
         RefCntAutoPtr<Diligent::IShaderResourceBinding> edgeSrb[2];
         bool semantic = false;
         bool initFailed = false;
+        // #14: the Technical view's visible edges, with the coplanar test (kArchVizTechnicalEdgePS),
+        // and the copy of the depth it reads. Optional: without them the selection's PSO draws them.
+        RefCntAutoPtr<Diligent::IShader> technicalPs;
+        RefCntAutoPtr<Diligent::IPipelineState> technicalPso;
+        RefCntAutoPtr<Diligent::IShaderResourceBinding> technicalSrb;
+        RefCntAutoPtr<Diligent::ITexture> technicalDepth;
     };
+    // #14: the frame's final targets, which the line overlays draw into (UnjitterOverlays).
+    Diligent::ITextureView* overlayColor = nullptr;
+    Diligent::ITextureView* overlayDepth = nullptr;
     static constexpr int kVisibleEdges = 0;
     static constexpr int kHiddenEdges = 1;
     SelectionPipelines selectionPipelines;
