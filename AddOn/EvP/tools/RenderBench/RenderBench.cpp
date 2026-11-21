@@ -446,32 +446,61 @@ FrameChange CompareFrames (const std::vector<uint8_t>& a, const std::vector<uint
     return change;
 }
 
-// #14: how much a moving camera's picture flickers. A smooth motion changes each pixel at a steady
-// rate, so its SECOND difference over three frames, |c - 2b + a|, stays near zero; geometry or
-// lines finer than a pixel falling in and out of pixel centres (moire, edge shimmer) make it spike.
-// `mean` is that difference in levels over every pixel; `pixels` counts those above `threshold`.
+// #14: how much a moving camera's picture flickers. Each frame of the path is also rendered
+// kMotionSupersample x larger with TAA off and box-filtered down: what the pixel should be. A
+// frame's error against that is its aliasing; how much the error CHANGES from one frame to the next
+// is the flicker -- moire and edge shimmer, with the content's own motion taken out (a fine pattern
+// sliding across the screen changes every pixel, anti-aliased or not; its error does not).
+// `mean` is that change in levels over every pixel; `pixels` counts those above `threshold`.
+constexpr uint32_t kMotionSupersample = 4;
+
 struct Flicker {
     double mean = 0.0;
     size_t pixels = 0;
+    double error = 0.0; // this frame's mean |frame - reference|, levels
 };
 
-Flicker MotionFlicker (const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, const std::vector<uint8_t>& c,
-                       int threshold)
+Flicker MotionFlicker (const std::vector<uint8_t>& previous, const std::vector<uint8_t>& previousReference,
+                       const std::vector<uint8_t>& current, const std::vector<uint8_t>& reference, int threshold)
 {
     Flicker f;
-    if (a.size () != b.size () || b.size () != c.size () || a.empty ())
+    const size_t n = current.size ();
+    if (n == 0 || reference.size () != n || previous.size () != n || previousReference.size () != n)
         return f;
-    double sum = 0.0;
-    for (size_t p = 0; p + 3 < a.size (); p += 4) {
-        int worst = 0;
-        for (size_t k = 0; k < 3; ++k)
-            worst = std::max (worst, std::abs (int (c[p + k]) - 2 * int (b[p + k]) + int (a[p + k])));
+    double sum = 0.0, error = 0.0;
+    for (size_t p = 0; p + 3 < n; p += 4) {
+        int worst = 0, worstError = 0;
+        for (size_t k = 0; k < 3; ++k) {
+            const int now = int (current[p + k]) - int (reference[p + k]);
+            const int before = int (previous[p + k]) - int (previousReference[p + k]);
+            worst = std::max (worst, std::abs (now - before));
+            worstError = std::max (worstError, std::abs (now));
+        }
         sum += worst;
+        error += worstError;
         if (worst > threshold)
             ++f.pixels;
     }
-    f.mean = sum / double (a.size () / 4);
+    f.mean = sum / double (n / 4);
+    f.error = error / double (n / 4);
     return f;
+}
+
+// `factor` x `factor` boxes of an RGBA image `w` x `h` (its size, not the result's).
+std::vector<uint8_t> BoxDown (const std::vector<uint8_t>& image, uint32_t w, uint32_t h, uint32_t factor)
+{
+    const uint32_t ow = w / factor, oh = h / factor;
+    std::vector<uint8_t> out (size_t (ow) * oh * 4, 255);
+    for (uint32_t y = 0; y < oh; ++y)
+        for (uint32_t x = 0; x < ow; ++x)
+            for (uint32_t c = 0; c < 3; ++c) {
+                uint32_t sum = 0;
+                for (uint32_t dy = 0; dy < factor; ++dy)
+                    for (uint32_t dx = 0; dx < factor; ++dx)
+                        sum += image[(size_t (y * factor + dy) * w + x * factor + dx) * 4 + c];
+                out[(size_t (y) * ow + x) * 4 + c] = uint8_t ((sum + factor * factor / 2) / (factor * factor));
+            }
+    return out;
 }
 
 // The camera `k` frames into --motion.
@@ -873,41 +902,86 @@ int main (int argc, char** argv)
                                ", \"lastLargest\": " + std::to_string (last.largest) +
                                ", \"settledAt\": " + std::to_string (settledAt) + " }";
             }
-            // --motion: the moving camera's flicker (#14), one row per frame.
+            // --motion: the moving camera's flicker (#14), one row per frame (see MotionFlicker).
             if (o.motion > 2 && style != "reference" && style != "mask") {
                 constexpr int kThreshold = 24;
+                // 1. The references: the same path, kMotionSupersample x larger, TAA off.
+                Options big = o;
+                big.width = o.width * kMotionSupersample;
+                big.height = o.height * kMotionSupersample;
+                av::HudState still = hud;
+                still.temporalAntiAliasing = false;
+                // No edges in the reference: at its size their width and density fade differ from the
+                // frame's, so they would read as error. Without them a steady edge is a steady error
+                // (no flicker), and only edges that shimmer score.
+                still.technicalEdges = false;
+                std::vector<std::vector<uint8_t>> references;
+                Targets bigTargets;
+                if (CreateTargets (device, big.width, big.height, bigTargets)) {
+                    for (uint32_t k = 0; k < o.motion; ++k) {
+                        RenderFrame (scene, context, bigTargets, big, MovedView (view, o, k), still, nextFrame++);
+                        references.push_back (BoxDown (ReadBack (context, bigTargets, big.width, big.height),
+                                                       big.width, big.height, kMotionSupersample));
+                    }
+                }
+                // 2. The style along the path, after a still start long enough for TAA to settle.
+                scene.ResetTemporalAntiAliasingHistory ();
+                for (uint32_t warm = 0; warm < 16; ++warm)
+                    RenderFrame (scene, context, targets, o, MovedView (view, o, 0), hud, nextFrame++);
                 std::ofstream csv (o.out + "/" + view.name + "_" + style + "_motion.csv");
-                csv << "frame,flickerMean,flickerPixels\n";
-                std::vector<uint8_t> a, b;
-                double meanSum = 0.0;
+                csv << "frame,flicker,flickerPixels,error\n";
+                std::vector<uint8_t> previous;
+                double meanSum = 0.0, errorSum = 0.0;
                 size_t pixelSum = 0, worstPixels = 0;
                 uint32_t scored = 0;
-                for (uint32_t k = 0; k < o.motion; ++k) {
+                for (uint32_t k = 0; k < o.motion && k < references.size (); ++k) {
                     RenderFrame (scene, context, targets, o, MovedView (view, o, k), hud, nextFrame++);
-                    std::vector<uint8_t> c = ReadBack (context, targets, o.width, o.height);
-                    if (k == o.motion / 2)
+                    std::vector<uint8_t> current = ReadBack (context, targets, o.width, o.height);
+                    if (k == o.motion / 2) {
                         stbi_write_png ((o.out + "/" + view.name + "_" + style + "_moving.png").c_str (), int (o.width),
-                                        int (o.height), 4, c.data (), int (o.width) * 4);
-                    if (k >= 2) {
-                        const Flicker f = MotionFlicker (a, b, c, kThreshold);
-                        csv << (nextFrame - 1) << "," << f.mean << "," << f.pixels << "\n";
+                                        int (o.height), 4, current.data (), int (o.width) * 4);
+                        stbi_write_png ((o.out + "/" + view.name + "_" + style + "_moving_ref.png").c_str (),
+                                        int (o.width), int (o.height), 4, references[k].data (), int (o.width) * 4);
+                    }
+                    if (k >= 1) {
+                        const Flicker f = MotionFlicker (previous, references[k - 1], current, references[k], kThreshold);
+                        // Where it flickers: the change in error at the middle of the path, x4, grey.
+                        if (k == o.motion / 2) {
+                            std::vector<uint8_t> heat (size_t (o.width) * o.height);
+                            for (size_t p = 0; p < heat.size (); ++p) {
+                                int worst = 0;
+                                for (size_t c = 0; c < 3; ++c)
+                                    worst = std::max (worst, std::abs ((int (current[p * 4 + c]) -
+                                                                        int (references[k][p * 4 + c])) -
+                                                                       (int (previous[p * 4 + c]) -
+                                                                        int (references[k - 1][p * 4 + c]))));
+                                heat[p] = uint8_t (std::min (255, worst * 4));
+                            }
+                            stbi_write_png ((o.out + "/" + view.name + "_" + style + "_flicker.png").c_str (),
+                                            int (o.width), int (o.height), 1, heat.data (), int (o.width));
+                        }
+                        csv << k << "," << f.mean << "," << f.pixels << "," << f.error << "\n";
                         meanSum += f.mean;
+                        errorSum += f.error;
                         pixelSum += f.pixels;
                         worstPixels = std::max (worstPixels, f.pixels);
                         ++scored;
                     }
-                    a = std::move (b);
-                    b = std::move (c);
+                    previous = std::move (current);
                 }
                 const double mean = scored > 0 ? meanSum / scored : 0.0;
                 const double pixels = scored > 0 ? double (pixelSum) / scored : 0.0;
+                const double error = scored > 0 ? errorSum / scored : 0.0;
                 av::ArchVizLog ("bench: motion " + view.name + "_" + style + ": " + std::to_string (o.motion) +
-                                " frames " + (o.motionOrbit ? "orbit" : "dolly") + ", flicker mean " +
+                                " frames " + (o.motionOrbit ? "orbit" : "dolly") + ", flicker " +
                                 std::to_string (mean) + " levels, " + std::to_string (pixels) +
-                                " px > 24 a frame (worst " + std::to_string (worstPixels) + ")");
+                                " px > 24 a frame (worst " + std::to_string (worstPixels) + "), error vs " +
+                                std::to_string (kMotionSupersample) + "x supersampled " + std::to_string (error) +
+                                " levels");
                 temporalJson += ", \"motion\": { \"frames\": " + std::to_string (o.motion) +
-                                ", \"flickerMean\": " + std::to_string (mean) +
-                                ", \"flickerPixels\": " + std::to_string (pixels) + " }";
+                                ", \"flicker\": " + std::to_string (mean) +
+                                ", \"flickerPixels\": " + std::to_string (pixels) +
+                                ", \"error\": " + std::to_string (error) + " }";
             }
             const av::RayTracedStats s = scene.RayTracedStatus ();
             av::ArchVizLog ("bench: " + file + (saved ? " saved" : " NOT saved") + " in " + std::to_string (seconds) +
