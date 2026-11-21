@@ -29,6 +29,9 @@ import compare  # noqa: E402
 #   bathroom         a real wall mirror and glossy tiles, reflecting what is behind the camera
 #   living           glossy floor, long room: far objects in the reflection
 #   fireplace        polished floor, small room, mixed materials
+#   glazing          a glazed front (#231): the sky and a block in the pane, a red wall through it.
+#                    The bench's own fixture (scenes/, from make_glazing.py); a path starting with
+#                    "@" is relative to that folder, not to --scenes.
 SCENES = {
     "cornell-mirror": ("CornellBox/CornellBox-Mirror.obj", 1.0, [
         "front:0,-3.6,1:0,0,1:40",
@@ -48,6 +51,10 @@ SCENES = {
     ]),
     "fireplace": ("fireplace_room/fireplace_room.obj", 1.0, [
         "room:4.8,1.5,1.5:0,1.5,1.0:65",
+    ]),
+    "glazing": ("@glazing.obj", 1.0, [
+        "facade:5,-8,1.7:-1,2,1.4:55",
+        "front:0,-6,1.5:0,3,1.4:50",
     ]),
 }
 
@@ -69,7 +76,7 @@ def main():
     for name, (rel, scale, views) in SCENES.items():
         if only and name not in only:
             continue
-        scene = Path(args.scenes) / rel
+        scene = HERE / "scenes" / rel[1:] if rel.startswith("@") else Path(args.scenes) / rel
         if not scene.exists():
             print(f"skip {name}: {scene} not found")
             continue

@@ -28,6 +28,16 @@ Use the Tapioca runtime's Python (numpy and Pillow). `--scenes` holds McGuire's 
 Archive OBJ scenes, one extracted folder each: `CornellBox`, `salle_de_bain`, `living_room` and
 `fireplace_room`. They are not in the repository. A missing scene is skipped.
 
+The `glazing` case is the bench's own fixture, in `scenes/` (regenerate it with
+`scenes/make_glazing.py`): a room with a glazed front, a red back wall behind the pane and a white
+block outside it. The archive scenes have no architectural glass, so it is the only case that
+compares how the styles draw a pane (#231). Its pane is not in the G-buffer, so `glossy MAE` is
+empty there; read the montage and the whole-image error.
+
+⚠️ **The reference has no textures yet.** The raster styles draw Archicad's textures (#252) and the
+Ray traced style does not, so on a textured scene (`bathroom`, `living`) part of every error is
+the texture. Pass `--extra "--off textures"` to compare like with like.
+
 Each scene folder gets these files:
 
 - `<view>_<style>.png` for every style.
