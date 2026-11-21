@@ -168,6 +168,20 @@ float Epsilon (float3 p)
     return max (1.0e-3, m * 4.8e-7);
 }
 
+)hlsl"
+                                           // ⚠️ TWO ADJACENT LITERALS: MSVC caps one string literal near 16 KB (C2026).
+                                           R"hlsl(
+// THE G-BUFFER PASSES START FROM A POINT REBUILT FROM DEPTH, which is only as exact as the depth:
+// tens of metres away the rebuilt point lies centimetres off the surface, and Epsilon's millimetre
+// left half the rays starting under it -- every one hit its own surface, so a large model's sky
+// light and sun went black in streaks and speckles that changed every frame (Bistro aerial).
+// The offset grows with the pixel's footprint at that distance, the scale the depth resolves:
+// one footprint cleared the streaks on RenderBench Bistro, 0 left them; 1.5 is the margin.
+float GBufferOffset (float3 p, float distance)
+{
+    return max (Epsilon (p), distance * g_cone.x * 1.5);
+}
+
 // The surface a committed hit landed on: position, normal facing the ray, base colour and finish
 // (params: x roughness, y metallic, z reflectance -- the raster's DrawnSurface) and alpha. A back
 // face with the section on is the cut: the cap colour lying in the plane, facing the ray, matte.
@@ -495,7 +509,7 @@ void main (uint3 id : SV_DispatchThreadID)
     n = dot (n, n) > 0.0 ? normalize (n) : -v;
     if (dot (n, v) > 0.0)
         n = -n;
-    float3 at = p + n * Epsilon (p);
+    float3 at = p + n * GBufferOffset (p, length (p - eye));
 
     uint rng = Seed (id.xy, g_frame.z);
     // ONE RAY FOR A MIRROR, FOUR FOR A GLOSS: the GGX lobe is sampled, and TAA (on in Rendered)
@@ -582,7 +596,7 @@ void main (uint3 id : SV_DispatchThreadID)
     n = dot (n, n) > 0.0 ? normalize (n) : -v;
     if (dot (n, v) > 0.0)
         n = -n;
-    float3 at = p + n * Epsilon (p);
+    float3 at = p + n * GBufferOffset (p, length (p - eye));
 
     uint rng = Seed (id.xy, g_frame.z);
     float open = 0.0, seen = 0.0;
