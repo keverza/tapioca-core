@@ -142,7 +142,7 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
         constants.edgeParams[0] = kSelectionEdgeDepthPull * nearClip;
         constants.edgeParams[1] = float (technical.maskShift);
         const size_t tier =
-            std::min ((technical.maskShift - kSelectionEdgeShift) / 3u, uint32_t (kCreaseTierCount - 1));
+            (std::min) ((technical.maskShift - kSelectionEdgeShift) / 3u, uint32_t (kCreaseTierCount - 1));
         for (const int passIndex : { Impl::kHiddenEdges, Impl::kVisibleEdges }) {
             const bool hidden = passIndex == Impl::kHiddenEdges;
             if (hidden && !technical.showHidden)
