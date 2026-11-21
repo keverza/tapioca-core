@@ -94,7 +94,7 @@ Pass bench arguments through `run_suite.py --extra "..."`, or call the exe direc
   frame). The reference's log line reports the frames it took to converge and the measured
   samples/frame and ms/sample; the picture is the same at any budget, only the frame count changes.
 - `--rt-fade S` fades the Ray traced image in over S seconds of wall clock (#14; default 0). The
-  viewer also holds it back until the view has been still 0.2 s and fades over 0.2 s; the bench
+  viewer also holds it back until the view has been still 0.2 s and fades over 0.4 s; the bench
   sets both to 0 by default because its frames are not paced, so timing would decide the picture.
 - `--converge-settle N` and `--converge-samples N` override the still-camera mean's settle frames and
   sample target (`TemporalConvergenceSettings`).

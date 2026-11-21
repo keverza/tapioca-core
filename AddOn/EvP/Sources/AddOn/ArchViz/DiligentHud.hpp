@@ -650,7 +650,7 @@ struct HudState {
     float rayTracedBudgetMs = 8.0f; // #231: GPU time a still frame traces for; 0 = one sample a frame
     // #14: the Ray traced image waits this long still, then fades in over the raster image.
     float rayTracedHoldSeconds = 0.2f;
-    float rayTracedFadeSeconds = 0.2f;
+    float rayTracedFadeSeconds = 0.4f; // #14: 0.2 still read as a jump in the light (live check)
     // #232: Rendered's reflections traced on a DXR 1.1 device; SSR everywhere else.
     bool rayTracedReflections = true;
 

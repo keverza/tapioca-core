@@ -73,7 +73,9 @@ constexpr Knobs kPresets[] = {
     { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 1, 1, 0, 1 }, // Rendered
     { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 1, -1, -1, -1, -1, -1 }, // Clay
     { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 0, -1, 1, 1, -1, 1, 0, -1 }, // Technical
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 0, 0, 1, -1 }, // RayTraced
+    // #14: RayTraced keeps TAA and traced light, so the frames drawn while moving take the sun's
+    // shadow from the same shadow rays as the traced image: stopping no longer moves the shadows.
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 0, 1, 1, 1 }, // RayTraced
 };
 constexpr const char* kPreviewNames[] = { "Shaded", "Wireframe", "Architecture", "Rendered",
                                           "Clay",   "Technical", "Ray traced",   "Custom" };
