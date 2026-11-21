@@ -914,10 +914,10 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // #231: the ray-traced style's image replaces the raster colour, never its depth or coverage.
         Diligent::ITextureView* traced = TraceView (context, constants, viewProj, eye);
 
-        // #247/#248: the still-camera mean. ⚠️ AFTER RememberScreenSpaceReflectionFrame, which
-        // keeps TAA's output for SSR's history. Traced images accumulate on their own: no mean.
+        // #247/#248: the still-camera mean, after SSR's history. Only the Ray traced style accumulates on
+        // its own; traced sky light needs the mean (#14: else a still Rendered view never converged).
         Diligent::ITextureView* mean =
-            StepTemporalConvergence (context, (traced == nullptr && !skyTraced) ? impl_->taaView : nullptr, pointDraws);
+            StepTemporalConvergence (context, traced == nullptr ? impl_->taaView : nullptr, pointDraws);
         if (traced != nullptr)
             resolvedHdr = traced;
         else if (mean != nullptr)
