@@ -1240,6 +1240,7 @@ set (EVP_TEST_SOURCES
     test_materialtexture.cpp
     test_viewermemory.cpp
     test_startup_antialiasing.cpp
+    test_frame_flash.cpp
     test_raytracedview.cpp
     test_occlusionprepass.cpp
     test_pointcloudply.cpp

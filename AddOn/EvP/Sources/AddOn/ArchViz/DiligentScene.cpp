@@ -994,6 +994,7 @@ void DiligentScene::Shutdown ()
     impl_->occlusionDepthInitFailed = false;
     impl_->taaView = nullptr;
     impl_->depthRange.Shutdown ();
+    impl_->frameFlash.Shutdown ();
     impl_->envBackgroundSrb.Release ();
     impl_->envBackgroundPso.Release ();
     impl_->resolveSrb.Release ();

@@ -66,7 +66,7 @@
 namespace Diligent {
 struct IRenderDevice;
 struct IDeviceContext;
-}   // namespace Diligent
+} // namespace Diligent
 
 namespace geomsrv {
 namespace archviz {
@@ -78,7 +78,7 @@ uint32_t PickColorFormat ();
 uint32_t PickDepthFormat ();
 
 class DiligentPickBuffer final {
-public:
+  public:
     DiligentPickBuffer ();
     ~DiligentPickBuffer ();
     DiligentPickBuffer (const DiligentPickBuffer&) = delete;
@@ -103,8 +103,7 @@ public:
     // ⚠️ NEVER WHILE THE TARGET IS BOUND, and never between Begin and Request:
     // it releases the textures the context is holding. Call it first, or not at
     // all this frame.
-    bool EnsureSize (Diligent::IRenderDevice* device, uint32_t width, uint32_t height,
-                     std::string& error);
+    bool EnsureSize (Diligent::IRenderDevice* device, uint32_t width, uint32_t height, std::string& error);
 
     // Bind the id target and clear it. ⚠️ CLEARED TO ZERO, and that is what
     // makes "the user clicked the sky" representable: id 0 is reserved for
@@ -127,24 +126,25 @@ public:
     // hover outline and fills in a callout. Keeping them one request rather than
     // two buffers is what stops a hover in flight from delaying a click behind a
     // second readback.
-    bool Request (Diligent::IDeviceContext* context, int32_t px, int32_t py,
-                  uint64_t currentFrame, uint32_t tag);
+    bool Request (Diligent::IDeviceContext* context, int32_t px, int32_t py, uint64_t currentFrame, uint32_t tag);
 
     // True once the pixels for the last Request are readable, with the winning
     // id in `outId` (0 = nothing was under the cursor) and the Request's own
     // `tag` in `outTag`. Call once per frame, with the same monotonically
     // increasing frame counter Request was given.
-    bool Poll (Diligent::IDeviceContext* context, uint64_t currentFrame, uint32_t& outId,
-               uint32_t& outTag);
+    bool Poll (Diligent::IDeviceContext* context, uint64_t currentFrame, uint32_t& outId, uint32_t& outTag);
 
     bool HasPendingRequest () const;
 
-private:
+  private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
 
-}   // namespace archviz
-}   // namespace geomsrv
+// #14 white-frame diagnostic (DiligentFrameFlashWatch): pick requests issued so far, process-wide.
+uint64_t PickRequestsIssued ();
+
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

@@ -34,6 +34,7 @@
 #include "ArchViz/DiligentTemporalAntiAliasing.hpp"
 #include "ArchViz/DiligentShaders.hpp" // DiligentSceneConstants, for UploadConstants below
 #include "ArchViz/DiligentDepthRange.hpp"
+#include "ArchViz/DiligentFrameFlashWatch.hpp"
 #include <algorithm>
 #include <future>
 #include <memory>
@@ -940,6 +941,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     uint64_t lastEarlyKey = 0;
     // #14 white-flash diagnostic (NoteLightChange): last frame's light lanes, and the log budget.
     std::vector<float> lightSignature;
+    DiligentFrameFlashWatch frameFlash; // #14: DiligentScene::WatchFrameFlash
     int64_t lightLogSecond = -1;
     int lightLogLines = 0;
     void NoteLightChange (const DiligentSceneConstants& constants, const ClayLook& look, bool drawSurfaces);

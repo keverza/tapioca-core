@@ -13,6 +13,8 @@
 #include <Texture.h>
 #include <TextureView.h>
 
+#include <atomic>
+
 namespace geomsrv {
 namespace archviz {
 
@@ -290,6 +292,15 @@ void DiligentPickBuffer::End (Diligent::IDeviceContext* context)
     context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 }
 
+namespace {
+std::atomic<uint64_t> g_pickRequestsIssued { 0 };
+} // namespace
+
+uint64_t PickRequestsIssued ()
+{
+    return g_pickRequestsIssued.load (std::memory_order_relaxed);
+}
+
 bool DiligentPickBuffer::Request (Diligent::IDeviceContext* context, int32_t px, int32_t py, uint64_t currentFrame,
                                   uint32_t tag)
 {
@@ -331,6 +342,7 @@ bool DiligentPickBuffer::Request (Diligent::IDeviceContext* context, int32_t px,
         context->EnqueueSignal (impl_->fence, ++impl_->fenceValue); // submitted with the frame's flush
 
     impl_->pending = true;
+    g_pickRequestsIssued.fetch_add (1, std::memory_order_relaxed);
     impl_->readyAtFrame = currentFrame + kReadbackDelayFrames;
     impl_->tag = tag;
     impl_->boxWidth = plan.width;

@@ -15,6 +15,7 @@
 #include "ArchViz/DiligentSceneImpl.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/DiligentPickBuffer.hpp" // PickRequestsIssued
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/SurfaceClassifier.hpp"
 
@@ -302,6 +303,22 @@ void DiligentScene::Impl::NoteLightChange (const DiligentSceneConstants& constan
         }
     }
     lightSignature = now;
+}
+
+void DiligentScene::WatchFrameFlash (Diligent::IDeviceContext* context, Diligent::ITextureView* target,
+                                     Diligent::ITextureView* depth, uint64_t frameIndex)
+{
+    if (impl_ == nullptr || !impl_->ready)
+        return;
+    FrameFlashState state;
+    state.frame = frameIndex;
+    state.picksIssued = PickRequestsIssued ();
+    state.drawCalls = impl_->drawCalls;
+    state.meshCommits = impl_->meshCommits;
+    state.stillPhase = int (impl_->temporalConvergence.Phase ());
+    state.idle = impl_->idleLastFrame;
+    state.taa = impl_->taaResolvedThisFrame;
+    impl_->frameFlash.Sample (impl_->device, context, target, depth, state);
 }
 
 void DiligentScene::Impl::BeginFrameContent (const DiligentSceneConstants& constants, const ClayLook& look,

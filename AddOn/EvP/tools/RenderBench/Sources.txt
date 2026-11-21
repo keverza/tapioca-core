@@ -41,6 +41,7 @@ ArchViz/SectionPlane.cpp
 ArchViz/TemporalConvergence.cpp
 ArchViz/DiagramLayer.cpp
 ArchViz/DiligentDepthRange.cpp
+ArchViz/DiligentFrameFlashWatch.cpp
 ArchViz/DiligentPointCloudLayer.cpp
 ArchViz/EnvironmentMap.cpp
 ArchViz/GhPreviewLayer.cpp

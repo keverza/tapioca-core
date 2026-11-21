@@ -152,8 +152,7 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
         return;
     }
 
-    // Re-arm the log, so switching away and back reports the camera as it is
-    // THEN rather than staying silent.
+    // Re-arm the log: switching away and back reports the camera as it is THEN, not silence.
     lastLoggedGBufferView = -1;
 
     // ⚠️ BEFORE Draw, AND IT IS A SECOND GEOMETRY PASS. See
@@ -172,6 +171,7 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
                 request.motionViewProj, request.eye, request.jitter, CullMode::Cw, request.debugView,
                 Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex, request.surfaceFocus,
                 request.surfaceContextOpacity, request.surfaceWhiteModel);
+    scene.WatchFrameFlash (context, request.target, request.depth, request.frameIndex); // #14 diagnostic
     scene.AdvanceFrame (request.motionViewProj);
 }
 

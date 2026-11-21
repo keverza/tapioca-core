@@ -129,6 +129,8 @@ struct Options {
     bool edges = false;
     // --traced-light: traced sky light on whatever the style says -- the viewer's start state.
     bool tracedLight = false;
+    // --flash-at K: frame K cleared to white after the draw, to prove the frame flash watch (#14).
+    int flashAt = -1;
     // --converge-settle N / --converge-samples N: the still-camera mean's settle frames and target
     // (TemporalConvergenceSettings); negative / 0 keeps the viewer's.
     int convergeSettle = -1;
@@ -247,6 +249,8 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.shadowSearch = std::stof (next ());
         else if (a == "--shadow-diag")
             o.shadowDiagnostic = std::stoi (next ());
+        else if (a == "--flash-at")
+            o.flashAt = std::stoi (next ());
         else if (a == "--traced-light")
             o.tracedLight = true;
         else if (a == "--edges")
@@ -662,6 +666,11 @@ void RenderFrame (av::DiligentScene& scene, Diligent::IDeviceContext* context, T
                                    focus, frame, av::CullMode::Cw);
     scene.Draw (context, rtv, dsv, view16, proj, viewProj, motionViewProj, view.eye, jitter, av::CullMode::Cw, 0,
                 nearClip, farClip, focus, frame);
+    if (o.flashAt >= 0 && frame == uint32_t (o.flashAt)) { // --flash-at: a white frame for the watch
+        const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        context->ClearRenderTarget (rtv, white, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    }
+    scene.WatchFrameFlash (context, rtv, dsv, frame); // #14, as DrawSceneOrDebugView
     scene.AdvanceFrame (motionViewProj);
     // ⚠️ AN UNPRESENTED FRAME MUST STILL END: without FinishFrame, D3D12 recycles no descriptors and
     // the GPU heap runs out a hundred frames in (DiligentNativeInterop.hpp, pitfall 2).

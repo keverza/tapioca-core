@@ -814,6 +814,9 @@ class DiligentScene final {
     bool SelectionBounds (float outMin[3], float outMax[3]) const;
 
     DiligentSceneStats Stats () const;
+    // #14 white-frame diagnostic (DiligentFrameFlashWatch): after Draw, on the targets it drew into.
+    void WatchFrameFlash (Diligent::IDeviceContext* context, Diligent::ITextureView* target,
+                          Diligent::ITextureView* depth, uint64_t frameIndex);
     // #14: the memory report alone, without the rest of Stats -- for the archviz.log line written
     // after a texture sync and a ray-traced build.
     ViewerMemory MemoryReport () const;
