@@ -2753,9 +2753,16 @@ void main (in PSInput psIn, out PSOutput psOut)
         // ⚠️ INTENSITY IS NOT THE EFFECT'S RADIUS. C3's acceptance asks for the
         // two to be separable; a radius change is a different request and lives
         // in the AO pass's own settings.
-        aoVisible = lerp (1.0, saturate (occlusion.x), saturate (g_gradeParams.w));
-        ambientTerm *= aoVisible;
-        tracedSun = g_gradeParams.w > 1.5 && g_baseColor.a >= 0.99 ? occlusion.y : -1.0;
+        // A BLENDED SURFACE IS NOT IN THE DEPTH THE OCCLUSION WAS MEASURED ON: the texel under a
+        // pane belongs to whatever stands behind it. Applied to the pane, a window took the dark of
+        // the room behind it -- traced sky light made every glazed front read black and grainy
+        // (#231, RenderBench `glazing`). Panes keep the open sky, as their sun keeps the shadow map.
+        if (g_baseColor.a >= 0.99)
+        {
+            aoVisible = lerp (1.0, saturate (occlusion.x), saturate (g_gradeParams.w));
+            ambientTerm *= aoVisible;
+            tracedSun = g_gradeParams.w > 1.5 ? occlusion.y : -1.0;
+        }
     }
 
     // ---- direct: the sun, occluded by the shadow map, or by a ray (#233) --

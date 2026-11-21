@@ -595,7 +595,8 @@ Diligent::ITextureView* DiligentScene::TraceReflections (Diligent::IDeviceContex
 {
     Impl::RayTraced& rt = impl_->rayTraced;
     rt.stats.reflectionsTraced = false;
-    if (!rt.settings.reflections || depth == nullptr || normal == nullptr || roughness == nullptr)
+    // ⚠️ ONLY UNDER TAA (see TraceSkyLight): a gloss gets four rays a frame, and TAA is what averages them.
+    if (!rt.settings.reflections || !impl_->taaEnabled || depth == nullptr || normal == nullptr || roughness == nullptr)
         return nullptr;
     const Diligent::TextureDesc& size = depth->GetTexture ()->GetDesc ();
     RayTracedConstants c;
@@ -668,7 +669,10 @@ bool DiligentScene::TraceSkyLight (Diligent::IDeviceContext* context, const Dili
 {
     Impl::RayTraced& rt = impl_->rayTraced;
     rt.stats.skyLightTraced = false;
-    if (!rt.settings.skyLight || impl_->aoView == nullptr || impl_->gBuffer == nullptr)
+    // ⚠️ ONLY UNDER TAA. Four rays a pixel a frame is a noisy estimate that TAA averages; with TAA
+    // off -- the Architecture preset -- that noise WAS the picture: every surface grainy, every
+    // frame different (#231, RenderBench `glazing` architecture). Without TAA, GTAO stays.
+    if (!rt.settings.skyLight || !impl_->taaEnabled || impl_->aoView == nullptr || impl_->gBuffer == nullptr)
         return false;
     Diligent::ITextureView* depth =
         impl_->gBuffer->GetBuffer (kGBufferDepth)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);

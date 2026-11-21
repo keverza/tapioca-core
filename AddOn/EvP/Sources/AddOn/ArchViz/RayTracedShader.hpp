@@ -15,11 +15,18 @@
 // differs from Rendered by what tracing adds -- exact shadows, interreflection, sky occlusion --
 // and not by exposure.
 //
-// ⚠️ THE SECTION PLANE AND GLASS ARE CANDIDATE TESTS. Every triangle is non-opaque so each
-// candidate passes through the loop: one beyond the plane is skipped (the clip), and one whose
-// material is translucent is committed with probability alpha (stochastic transparency, which
-// converges to the blend). A back face hit with the plane on is the cut: shaded as the cap colour
-// lying in the plane, the same reading the raster's back-face pass gives.
+// ⚠️ THE SECTION PLANE IS A CANDIDATE TEST. Every triangle is non-opaque so each candidate passes
+// through the loop: one beyond the plane is skipped (the clip). A back face hit with the plane on
+// is the cut: shaded as the cap colour lying in the plane, the same reading the raster's back-face
+// pass gives.
+//
+// ⚠️ GLASS IS DECIDED BY WHO ASKS (TraceMode). A shadow ray and the Rendered style's one-level
+// passes commit a translucent candidate with probability alpha (stochastic transparency, which
+// converges to the blend). The path tracer commits every pane and splits it itself, the raster's
+// way (kArchVizMeshPS, "THE TRANSMITTED HALF IS SCALED BY ALPHA AND THE REFLECTED HALF IS NOT"):
+// the reflection at full Fresnel strength, the diffuse film times alpha, and the rest straight
+// through times (1 - alpha). Committed stochastically, a 70 %-transparent pane reflected the sky
+// at 30 % strength -- the fault the raster had and fixed (#231 slice 2, RenderBench `glazing`).
 //
 // Constants mirror RayTracedConstants in DiligentSceneRayTraced.cpp field for field.
 
@@ -59,6 +66,25 @@ float Rand (inout uint s)
     return float (w) * (1.0 / 4294967296.0);
 }
 
+uint HashU (uint x)
+{
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    x *= 0x846ca68bu;
+    x ^= x >> 16;
+    return x;
+}
+
+// A NESTED HASH, NOT A SUM. The seed was x*1973 + y*9277 + n*26699, and a linear seed repeats:
+// pixel (x, y) at sample n started the very sequence of pixel (x-61, y-82) at sample n+33, so the
+// two shared every path but 33 of them (74 such pairs inside 960x540x512; RenderBench bathroom:
+// the 64-sample error correlated +0.10 at that offset, 0.00 at a neighbouring one).
+uint Seed (uint2 px, uint n)
+{
+    return HashU (px.x + HashU (px.y + HashU (n)));
+}
+
 float2 EnvUv (float3 d)
 {
     float theta = acos (clamp (d.z, -1.0, 1.0));
@@ -82,7 +108,14 @@ bool Clipped (float3 p)
 
 struct Hit { bool hit; float t; uint prim; };
 
-Hit Trace (float3 o, float3 d, bool anyHit, inout uint rng)
+// What a translucent candidate is to the ray (see the header): a shadow ray stops at the first
+// committed hit; the stochastic modes commit a pane with probability alpha; kTraceClosest commits
+// every surface and leaves the pane to the caller.
+static const uint kTraceShadow = 0u;
+static const uint kTraceStochastic = 1u;
+static const uint kTraceClosest = 2u;
+
+Hit Trace (float3 o, float3 d, uint mode, inout uint rng)
 {
     RayDesc ray;
     ray.Origin = o;
@@ -90,7 +123,8 @@ Hit Trace (float3 o, float3 d, bool anyHit, inout uint rng)
     ray.TMin = 0.0;
     ray.TMax = 1.0e30;
     RayQuery<RAY_FLAG_NONE> q;
-    q.TraceRayInline (g_scene, anyHit ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE, 0xFF, ray);
+    q.TraceRayInline (g_scene, mode == kTraceShadow ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE, 0xFF,
+                      ray);
     while (q.Proceed ())
     {
         if (q.CandidateType () != CANDIDATE_NON_OPAQUE_TRIANGLE)
@@ -99,7 +133,7 @@ Hit Trace (float3 o, float3 d, bool anyHit, inout uint rng)
         if (Clipped (o + d * t))
             continue;
         float alpha = g_materials[g_triangleMaterial[q.CandidatePrimitiveIndex ()]].colorAlpha.a;
-        if (alpha >= 0.99 || Rand (rng) < alpha)
+        if (mode == kTraceClosest || alpha >= 0.99 || Rand (rng) < alpha)
             q.CommitNonOpaqueTriangleHit ();
     }
     Hit h;
@@ -125,9 +159,10 @@ float Epsilon (float3 p)
 }
 
 // The surface a committed hit landed on: position, normal facing the ray, base colour and finish
-// (params: x roughness, y metallic, z reflectance -- the raster's DrawnSurface). A back face with
-// the section on is the cut: the cap colour lying in the plane, facing the ray, matte.
-void SurfaceFull (Hit h, float3 o, float3 d, out float3 p, out float3 n, out float3 albedo, out float3 finish)
+// (params: x roughness, y metallic, z reflectance -- the raster's DrawnSurface) and alpha. A back
+// face with the section on is the cut: the cap colour lying in the plane, facing the ray, matte.
+void SurfaceFull (Hit h, float3 o, float3 d, out float3 p, out float3 n, out float3 albedo, out float3 finish,
+                  out float alpha)
 {
     p = o + d * h.t;
     uint i0 = g_indices[h.prim * 3], i1 = g_indices[h.prim * 3 + 1], i2 = g_indices[h.prim * 3 + 2];
@@ -140,6 +175,7 @@ void SurfaceFull (Hit h, float3 o, float3 d, out float3 p, out float3 n, out flo
     Material m = g_materials[g_triangleMaterial[h.prim]];
     albedo = m.colorAlpha.rgb;
     finish = m.params.xyz;
+    alpha = m.colorAlpha.a;
     if (back && g_cap.w > 0.5 && m.colorAlpha.a >= 0.99)
     {
         finish = float3 (1.0, 0.0, 0.5);
@@ -155,19 +191,13 @@ void SurfaceFull (Hit h, float3 o, float3 d, out float3 p, out float3 n, out flo
     }
 }
 
-void Surface (Hit h, float3 o, float3 d, out float3 p, out float3 n, out float3 albedo)
-{
-    float3 finish;
-    SurfaceFull (h, o, d, p, n, albedo, finish);
-}
-
 // The sun's irradiance at an offset point, shadow ray included.
 float3 SunLight (float3 at, float3 n, inout uint rng)
 {
     float ndl = dot (n, g_sun.xyz);
     if (ndl <= 0.0 || g_sun.w <= 0.0)
         return 0.0;
-    Hit s = Trace (at, g_sun.xyz, true, rng);
+    Hit s = Trace (at, g_sun.xyz, kTraceShadow, rng);
     return s.hit ? 0.0 : (g_sun.w * ndl).xxx;
 }
 
@@ -236,12 +266,17 @@ float3 Indirect (float3 c, uint bounce)
     return y > cap ? c * (cap / y) : c;
 }
 
+// Panes a path may pass straight through on top of its bounces: a pass costs no bounce (seeing
+// through a window is not interreflection), so this is what stops a stack of glass looping.
+static const uint kMaxPanes = 8u;
+
 float3 Radiance (float3 o, float3 d, inout uint rng)
 {
     float3 L = 0.0, T = 1.0;
-    for (uint i = 0; i <= g_frame.w; ++i)
+    uint i = 0; // bounces so far
+    for (uint step = 0; step <= g_frame.w + kMaxPanes; ++step)
     {
-        Hit h = Trace (o, d, false, rng);
+        Hit h = Trace (o, d, kTraceClosest, rng);
         if (!h.hit)
         {
             if (i > 0 || (g_env.w > 0.5 && g_env.z > 0.5))
@@ -249,7 +284,10 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
             break;
         }
         float3 p, n, albedo, finish;
-        SurfaceFull (h, o, d, p, n, albedo, finish);
+        float alpha;
+        SurfaceFull (h, o, d, p, n, albedo, finish, alpha);
+        // The pane's split (see the header): its diffuse film is alpha of it, the rest passes.
+        float film = alpha >= 0.99 ? 1.0 : saturate (alpha);
         float rough = saturate (finish.x), metal = saturate (finish.y);
         float3 f0 = lerp ((0.08 * saturate (finish.z)).xxx, albedo, metal);
         float3 diffuse = albedo * (1.0 - metal);
@@ -258,15 +296,33 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
         float3 F = FresnelSchlick (f0, ndv);
         float3 at = p + n * Epsilon (p);
         float3 sun = SunLight (at, n, rng);
-        L += Indirect (T * (diffuse * (1.0 - F) * sun + SunSpecular (n, v, f0, rough, sun)), i);
+        L += Indirect (T * (film * diffuse * (1.0 - F) * sun + SunSpecular (n, v, f0, rough, sun)), i);
+        float passShare = 1.0 - film;
         if (i == g_frame.w)
-            break;
-        // One lobe per bounce, chosen by its share of the reflected energy.
+        {
+            // Out of bounces: no lobe may scatter, but a pane is still seen through.
+            if (passShare <= 0.0)
+                break;
+            T *= passShare;
+            o = p + d * Epsilon (p);
+            continue;
+        }
+        // One lobe per event, chosen by its share of the energy: reflect, diffuse, or pass.
         float specularShare = Luminance (F);
-        float diffuseShare = Luminance (diffuse * (1.0 - F));
-        float pSpecular = clamp (specularShare / max (specularShare + diffuseShare, 1.0e-4), 0.05, 1.0);
+        float diffuseShare = film * Luminance (diffuse * (1.0 - F));
+        float total = max (specularShare + diffuseShare + passShare, 1.0e-4);
+        float pSpecular = clamp (specularShare / total, 0.05, 1.0);
+        float pPass = (1.0 - pSpecular) * passShare / max (passShare + diffuseShare, 1.0e-4);
+        float u = Rand (rng);
+        if (u >= pSpecular && u < pSpecular + pPass)
+        {
+            T *= passShare / pPass;
+            o = p + d * Epsilon (p);
+            continue;
+        }
+        ++i;
         o = at;
-        if (Rand (rng) < pSpecular)
+        if (u < pSpecular)
         {
             float alpha = max (rough * rough, 1.0e-4);
             float3 hv = SampleGgxHalf (n, alpha, rng);
@@ -283,7 +339,7 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
         }
         else
         {
-            T *= diffuse * (1.0 - F) / (1.0 - pSpecular);
+            T *= film * diffuse * (1.0 - F) / max (1.0 - pSpecular - pPass, 1.0e-4);
             d = CosineSample (n, rng);
         }
     }
@@ -306,8 +362,7 @@ void main (uint3 id : SV_DispatchThreadID)
     for (uint s = 0; s < count; ++s)
     {
         uint sample = g_frame.z + s;
-        uint rng = (id.x * 1973u + id.y * 9277u + sample * 26699u) | 1u;
-        Rand (rng);
+        uint rng = Seed (id.xy, sample);
         float2 px = float2 (id.xy) + float2 (Rand (rng), Rand (rng));
         float2 ndc = float2 (px.x / g_frame.x * 2.0 - 1.0, 1.0 - px.y / g_frame.y * 2.0);
         float4 a = mul (g_invViewProj, float4 (ndc, g_ray.x, 1.0));
@@ -380,8 +435,7 @@ void main (uint3 id : SV_DispatchThreadID)
         n = -n;
     float3 at = p + n * Epsilon (p);
 
-    uint rng = (id.x * 1973u + id.y * 9277u + g_frame.z * 26699u) | 1u;
-    Rand (rng);
+    uint rng = Seed (id.xy, g_frame.z);
     // ONE RAY FOR A MIRROR, FOUR FOR A GLOSS: the GGX lobe is sampled, and TAA (on in Rendered)
     // averages the remaining noise across frames.
     uint count = rough < 0.03 ? 1u : 4u;
@@ -391,21 +445,22 @@ void main (uint3 id : SV_DispatchThreadID)
         float3 d = count == 1u ? reflect (v, n) : SampleReflection (v, n, rough, rng);
         if (dot (d, n) <= 0.0)
             d = reflect (v, n);
-        Hit h = Trace (at, d, false, rng);
+        Hit h = Trace (at, d, kTraceStochastic, rng);
         if (!h.hit)
         {
             sum += SkyLevel (d, 0.0);
             continue;
         }
         float3 hp, hn, albedo, finish;
-        SurfaceFull (h, at, d, hp, hn, albedo, finish);
+        float alpha;
+        SurfaceFull (h, at, d, hp, hn, albedo, finish, alpha);
         float3 hat = hp + hn * Epsilon (hp);
         // #232: THE SKY AT THE HIT IS SEEN THROUGH ONE VISIBILITY RAY, not assumed. Unoccluded,
         // every wall a reflection landed on inside a closed room was lit as if it stood outdoors,
         // and an indoor mirror glowed (RenderBench bathroom: the mirror twice the reference's
         // brightness). One cosine-distributed ray per sample; TAA averages the rest.
         float3 skyDir = CosineSample (hn, rng);
-        float skySeen = Trace (hat, skyDir, true, rng).hit ? 0.0 : 1.0;
+        float skySeen = Trace (hat, skyDir, kTraceShadow, rng).hit ? 0.0 : 1.0;
         float metal = saturate (finish.y);
         float3 diffuseLight = SunLight (hat, hn, rng) + SkyLevel (hn, g_ray.z) * skySeen;
         // A metal seen in a reflection has no diffuse lobe; it shows its own reflection of the sky
@@ -467,22 +522,22 @@ void main (uint3 id : SV_DispatchThreadID)
         n = -n;
     float3 at = p + n * Epsilon (p);
 
-    uint rng = (id.x * 1973u + id.y * 9277u + g_frame.z * 26699u) | 1u;
-    Rand (rng);
+    uint rng = Seed (id.xy, g_frame.z);
     float open = 0.0, seen = 0.0;
     for (uint s = 0; s < 4u; ++s)
     {
         float3 d = CosineSample (n, rng);
         float sky = Luminance (SkyDiffuse (d));
         open += sky;
-        Hit h = Trace (at, d, false, rng);
+        Hit h = Trace (at, d, kTraceStochastic, rng);
         if (!h.hit)
         {
             seen += sky;
             continue;
         }
         float3 hp, hn, albedo, finish;
-        SurfaceFull (h, at, d, hp, hn, albedo, finish);
+        float alpha;
+        SurfaceFull (h, at, d, hp, hn, albedo, finish, alpha);
         float3 hat = hp + hn * Epsilon (hp);
         seen += Luminance (albedo * (1.0 - saturate (finish.y)) * SunLight (hat, hn, rng));
     }
@@ -490,7 +545,7 @@ void main (uint3 id : SV_DispatchThreadID)
     // g_ray.y: the raster's shadows are on. Off, the sun stays unshadowed, as the raster draws it.
     float sun = g_ray.y > 0.5 ? 1.0 : -1.0;
     if (g_ray.y > 0.5 && g_sun.w > 0.0)
-        sun = dot (n, g_sun.xyz) <= 0.0 || Trace (at, g_sun.xyz, true, rng).hit ? 0.0 : 1.0;
+        sun = dot (n, g_sun.xyz) <= 0.0 || Trace (at, g_sun.xyz, kTraceShadow, rng).hit ? 0.0 : 1.0;
     g_skyLight[id.xy] = float2 (min (gtao, traced), sun);
 }
 )hlsl";
