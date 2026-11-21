@@ -664,6 +664,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     struct RayTraced {
         RayTracedSettings settings;
         RayTracedAccumulator accumulator;
+        RayTracedBudget budget; // #231: samples per frame from the measured GPU cost
         RayTracedStats stats;
         std::shared_ptr<RayTracedGpu> gpu;
         bool failed = false;

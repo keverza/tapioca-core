@@ -88,6 +88,9 @@ Pass bench arguments through `run_suite.py --extra "..."`, or call the exe direc
   sweeps, to look at history over time: without a readback per frame the frames are queued, and
   effects that build their pipelines asynchronously switch on after a wall-clock delay, not a frame
   count.
+- `--rt-budget MS` sets the Ray traced style's GPU time per frame (#231; default 8, 0 = one sample a
+  frame). The reference's log line reports the frames it took to converge and the measured
+  samples/frame and ms/sample; the picture is the same at any budget, only the frame count changes.
 - `--converge-settle N` and `--converge-samples N` override the still-camera mean's settle frames and
   sample target (`TemporalConvergenceSettings`).
 - `--shadow-bias`, `--shadow-clamp`, `--shadow-filter` and `--shadow-pcss 0|1` override the

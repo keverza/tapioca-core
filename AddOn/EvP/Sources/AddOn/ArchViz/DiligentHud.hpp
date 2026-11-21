@@ -647,6 +647,7 @@ struct HudState {
     bool rayTraced = false;
     int rayTracedMaxSamples = 512;
     int rayTracedBounces = 2;
+    float rayTracedBudgetMs = 8.0f; // #231: GPU time a still frame traces for; 0 = one sample a frame
     // #232: Rendered's reflections traced on a DXR 1.1 device; SSR everywhere else.
     bool rayTracedReflections = true;
 

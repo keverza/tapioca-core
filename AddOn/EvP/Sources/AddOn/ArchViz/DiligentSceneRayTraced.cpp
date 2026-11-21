@@ -29,6 +29,7 @@
 #include "ArchViz/SurfaceClassifier.hpp"
 
 #include <BottomLevelAS.h>
+#include <Query.h>
 #include <TopLevelAS.h>
 
 #include <algorithm>
@@ -92,6 +93,14 @@ struct RayTracedGpu {
     std::vector<uint64_t> textureKeys;
     uint32_t texturedMaterials = 0;
     uint32_t textureOverflow = 0;
+    // #231: timestamp pairs around the style's dispatch, read back without waiting a few frames
+    // later (RayTracedBudget). Empty where the device has no timestamp queries: one sample a frame.
+    struct Timing {
+        RefCntAutoPtr<Diligent::IQuery> begin, end;
+        uint32_t samples = 0;
+        bool pending = false;
+    };
+    std::vector<Timing> timings;
     RefCntAutoPtr<Diligent::IBottomLevelAS> blas;
     RefCntAutoPtr<Diligent::ITopLevelAS> tlas;
     RefCntAutoPtr<Diligent::IBuffer> blasScratch, tlasScratch, instances;
@@ -229,6 +238,19 @@ bool DiligentScene::CreateRayTracedPipeline (std::string& error)
     if (gpu->constants == nullptr || gpu->dummyEnv == nullptr || gpu->whiteTexel == nullptr) {
         error = "the ray-traced constants or sky/texture placeholders could not be created";
         return false;
+    }
+    if (device->GetDeviceInfo ().Features.TimestampQueries == Diligent::DEVICE_FEATURE_STATE_ENABLED) {
+        gpu->timings.resize (4);
+        for (RayTracedGpu::Timing& t : gpu->timings) {
+            Diligent::QueryDesc qd { Diligent::QUERY_TYPE_TIMESTAMP };
+            qd.Name = "ArchViz ray-traced timing";
+            device->CreateQuery (qd, &t.begin);
+            device->CreateQuery (qd, &t.end);
+            if (t.begin == nullptr || t.end == nullptr) {
+                gpu->timings.clear (); // no budget, not a failure: one sample a frame
+                break;
+            }
+        }
     }
     gpu->textureViews.assign (kRayTracedTextureSlots,
                               gpu->whiteTexel->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
@@ -639,7 +661,23 @@ Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* cont
         rt.accumulator.Reset ();
     }
 
-    const RayTracedStep step = rt.accumulator.Advance (key, (std::max) (rt.settings.maxSamples, 1u));
+    // #231: finished dispatches report their cost; the budget turns it into this frame's count.
+    for (RayTracedGpu::Timing& t : gpu.timings) {
+        if (!t.pending)
+            continue;
+        Diligent::QueryDataTimestamp a, b;
+        if (!t.begin->GetData (&a, sizeof (a), false) || !t.end->GetData (&b, sizeof (b), false))
+            continue;
+        t.pending = false;
+        if (a.Frequency != 0 && b.Frequency != 0 && b.Counter >= a.Counter)
+            rt.budget.Measured (
+                (double (b.Counter) / double (b.Frequency) - double (a.Counter) / double (a.Frequency)) * 1000.0,
+                t.samples);
+    }
+    const uint32_t perFrame = gpu.timings.empty () ? 1u : rt.budget.SamplesThisFrame (rt.settings.budgetMs);
+    rt.stats.samplesPerFrame = perFrame;
+    rt.stats.msPerSample = rt.budget.MsPerSample ();
+    const RayTracedStep step = rt.accumulator.Advance (key, (std::max) (rt.settings.maxSamples, 1u), perFrame);
     rt.stats.samples = rt.accumulator.Samples ();
     if (!step.show) {
         rt.stats.state = RayTracedState::Moving;
@@ -670,7 +708,20 @@ Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* cont
         dispatch.ThreadGroupCountX = (hdr.Width + 7) / 8;
         dispatch.ThreadGroupCountY = (hdr.Height + 7) / 8;
         dispatch.ThreadGroupCountZ = 1;
+        RayTracedGpu::Timing* timing = nullptr;
+        for (RayTracedGpu::Timing& t : gpu.timings)
+            if (!t.pending) {
+                timing = &t;
+                break;
+            }
+        if (timing != nullptr)
+            context->EndQuery (timing->begin);
         context->DispatchCompute (dispatch);
+        if (timing != nullptr) {
+            context->EndQuery (timing->end);
+            timing->samples = step.trace;
+            timing->pending = true;
+        }
     }
     return gpu.accum->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
 }

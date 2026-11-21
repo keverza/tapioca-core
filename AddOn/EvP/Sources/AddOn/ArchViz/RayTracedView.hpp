@@ -41,6 +41,7 @@ struct RayTracedSettings {
     bool enabled = false;
     uint32_t maxSamples = 512; // per pixel; the image is final after this many
     uint32_t bounces = 2;      // diffuse bounces after the first hit (0 = direct light only)
+    float budgetMs = 8.0f;     // #231: GPU time a still frame may spend tracing (RayTracedBudget)
     // #232: the Rendered style's reflections traced instead of screen-space, where the device can.
     // Independent of `enabled`: it changes the raster image's reflections, not the style.
     bool reflections = true;
@@ -92,6 +93,29 @@ RayTracedTextureSlots AssignTextureSlots (const std::vector<uint64_t>& keys, uin
 // General 4x4 inverse in double, row-major storage like MatrixMath. False when singular.
 bool InvertMatrix4 (const float in[16], float out[16]);
 
+// #231: how many samples a frame traces, from the GPU's measured cost per sample. One sample a frame
+// took ~8.5 s to reach 512 at 60 Hz while the GPU idled most of each frame; this fills `targetMs`
+// instead. The measurement arrives a few frames late (timestamp queries), so until one exists the
+// count is 1, and it may at most double per frame -- a wrong estimate can cost a slow frame, never
+// a dispatch long enough for Windows to reset the GPU.
+class RayTracedBudget {
+  public:
+    static constexpr uint32_t kMaxPerFrame = 32;
+
+    // A finished dispatch: `samples` samples took `milliseconds` of GPU time.
+    void Measured (double milliseconds, uint32_t samples);
+    // The count for this frame, for a budget of `targetMs` (<= 0: one sample a frame, as before).
+    uint32_t SamplesThisFrame (float targetMs);
+    double MsPerSample () const
+    {
+        return msPerSample_;
+    }
+
+  private:
+    double msPerSample_ = 0.0; // 0 = not measured yet
+    uint32_t last_ = 1;
+};
+
 // What the GPU half does this frame, decided from the view key alone.
 struct RayTracedStep {
     bool show = false;        // hand the accumulated image to the resolve
@@ -104,7 +128,8 @@ class RayTracedAccumulator {
   public:
     // ⚠️ THE KEY IS EVERYTHING THE IMAGE DEPENDS ON -- camera, light, materials, geometry, plane,
     // viewport size, settings. A key that misses an input shows a stale image that never updates.
-    RayTracedStep Advance (uint64_t key, uint32_t maxSamples);
+    // `perFrame` is RayTracedBudget's count; the first still frame traces at least kFirstBurst.
+    RayTracedStep Advance (uint64_t key, uint32_t maxSamples, uint32_t perFrame = 1);
     void Reset ();
     uint32_t Samples () const
     {
@@ -142,6 +167,8 @@ struct RayTracedStats {
     uint32_t textureOverflow = 0;   // #231: textured materials past kRayTracedTextureSlots
     bool reflectionsTraced = false; // #232: last frame's reflections came from rays, not SSR
     bool skyLightTraced = false;    // #233: last frame's sky light was occluded by rays
+    uint32_t samplesPerFrame = 0;   // #231: what RayTracedBudget asked for this frame
+    double msPerSample = 0.0;       // #231: the measured GPU cost of one sample, 0 = not yet
     std::string reason;
 };
 

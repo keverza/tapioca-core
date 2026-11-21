@@ -284,6 +284,12 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
             ImGui::SliderInt ("samples##raytraced", &state.rayTracedMaxSamples, 16, 4096, "%d max",
                               ImGuiSliderFlags_Logarithmic);
             ImGui::SliderInt ("bounces##raytraced", &state.rayTracedBounces, 1, 6);
+            ImGui::SliderFloat ("time per frame##raytraced", &state.rayTracedBudgetMs, 0.0f, 30.0f, "%.0f ms");
+            hudshell::Tip ("GPU time a still frame spends tracing. More converges sooner and leaves less for "
+                           "everything else; 0 traces one sample a frame");
+            if (traced.msPerSample > 0.0)
+                ImGui::TextDisabled ("%u samples a frame, %.2f ms a sample", traced.samplesPerFrame,
+                                     traced.msPerSample);
             ImGui::TextDisabled ("%s -- %u / %u samples, %llu triangles", RayTracedStateName (traced.state),
                                  traced.samples, traced.maxSamples, (unsigned long long) traced.triangles);
             // #231: textured materials traced, and any the fixed texture array had no room for.

@@ -131,7 +131,26 @@ bool InvertMatrix4 (const float in[16], float out[16])
     return true;
 }
 
-RayTracedStep RayTracedAccumulator::Advance (uint64_t key, uint32_t maxSamples)
+void RayTracedBudget::Measured (double milliseconds, uint32_t samples)
+{
+    if (samples == 0 || !(milliseconds > 0.0) || !std::isfinite (milliseconds))
+        return;
+    const double perSample = milliseconds / double (samples);
+    // A moving average: one slow frame (the OS, a shader cache miss) does not halve the count.
+    msPerSample_ = msPerSample_ <= 0.0 ? perSample : msPerSample_ * 0.7 + perSample * 0.3;
+}
+
+uint32_t RayTracedBudget::SamplesThisFrame (float targetMs)
+{
+    uint32_t count = 1;
+    if (targetMs > 0.0f && msPerSample_ > 0.0)
+        count = uint32_t (std::clamp (std::floor (double (targetMs) / msPerSample_), 1.0, double (kMaxPerFrame)));
+    count = std::min (count, last_ * 2);
+    last_ = count;
+    return count;
+}
+
+RayTracedStep RayTracedAccumulator::Advance (uint64_t key, uint32_t maxSamples, uint32_t perFrame)
 {
     RayTracedStep step;
     if (!haveKey_ || key != key_) {
@@ -144,7 +163,7 @@ RayTracedStep RayTracedAccumulator::Advance (uint64_t key, uint32_t maxSamples)
     if (!still_) {
         still_ = true;
         step.firstSample = 0;
-        step.trace = std::min (kFirstBurst, std::max (maxSamples, 1u));
+        step.trace = std::min (std::max (kFirstBurst, perFrame), std::max (maxSamples, 1u));
         samples_ = step.trace;
         step.show = true;
         return step;
@@ -153,8 +172,8 @@ RayTracedStep RayTracedAccumulator::Advance (uint64_t key, uint32_t maxSamples)
     if (samples_ >= maxSamples)
         return step; // converged: re-show
     step.firstSample = samples_;
-    step.trace = 1;
-    samples_ += 1;
+    step.trace = std::min (std::max (perFrame, 1u), maxSamples - samples_);
+    samples_ += step.trace;
     return step;
 }
 

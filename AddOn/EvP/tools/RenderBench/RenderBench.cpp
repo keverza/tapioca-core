@@ -89,6 +89,8 @@ struct Options {
     std::vector<std::string> styles { "mask", "ssr", "traced", "reference" };
     float sunAz = 135.0f, sunAlt = 40.0f;
     uint32_t samples = 256;
+    // --rt-budget MS: the Ray traced style's time per frame (#231); 0 = one sample a frame, as before.
+    float rtBudgetMs = -1.0f;
     uint32_t frames = 48;
     float ssrThickness = -1.0f;
     int ssrSteps = -1;
@@ -184,6 +186,8 @@ bool ParseArgs (int argc, char** argv, Options& o)
         }
         else if (a == "--samples")
             o.samples = uint32_t (std::stoul (next ()));
+        else if (a == "--rt-budget")
+            o.rtBudgetMs = std::stof (next ());
         else if (a == "--frames")
             o.frames = uint32_t (std::stoul (next ()));
         else if (a == "--temporal")
@@ -279,6 +283,8 @@ av::HudState StyleState (const std::string& style, const Options& o)
         hud.temporalAntiAliasing = !reference;
         hud.rayTraced = reference;
         hud.rayTracedMaxSamples = int (o.samples);
+        if (o.rtBudgetMs >= 0.0f)
+            hud.rayTracedBudgetMs = o.rtBudgetMs;
         // "ssr" is the fallback every non-DXR machine sees; "traced" is Rendered on DXR.
         hud.rayTracedReflections = style == "traced";
     }
@@ -691,9 +697,14 @@ int main (int argc, char** argv)
             const bool reference = style == "reference";
             const uint32_t frames = reference ? o.samples + 8 : (style == "mask" ? 2u : o.frames);
             const auto start = std::chrono::steady_clock::now ();
+            // #231: with the time budget a reference converges in far fewer frames than samples.
+            // Checked every frame, so `framesRun` is the frame count to converge, the figure the
+            // budget is for (the bench draws without vsync, so its seconds are not a viewer's).
+            uint32_t framesRun = 0;
             for (uint32_t f = 0; f < frames; ++f) {
                 RenderFrame (scene, context, targets, o, view, hud, f);
-                if (reference && f % 16 == 15) {
+                framesRun = f + 1;
+                if (reference) {
                     const av::RayTracedStats s = scene.RayTracedStatus ();
                     if (s.state == av::RayTracedState::Converged || s.state == av::RayTracedState::Unavailable)
                         break;
@@ -793,7 +804,10 @@ int main (int argc, char** argv)
                             "/" + std::to_string (s.maxSamples) + " samples, reflections " +
                             (s.reflectionsTraced ? "traced" : "screen-space") + ", sky light " +
                             (s.skyLightTraced ? "traced" : "AO") + ", textured materials " +
-                            std::to_string (s.texturedMaterials) +
+                            std::to_string (s.texturedMaterials) + ", " + std::to_string (framesRun) + " frames" +
+                            (s.msPerSample > 0.0 ? ", " + std::to_string (s.samplesPerFrame) + " samples/frame at " +
+                                                       std::to_string (s.msPerSample) + " ms/sample"
+                                                 : std::string ()) +
                             (s.textureOverflow > 0 ? " (" + std::to_string (s.textureOverflow) + " over the limit)"
                                                    : std::string ()) +
                             (s.reason.empty () ? std::string () : " (" + s.reason + ")"));

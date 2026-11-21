@@ -146,3 +146,41 @@ TEST (RayTracedView, FlattensNormalsParallelToPositions)
     for (size_t k = 12; k < 24; ++k)
         EXPECT_EQ (g.normals[k], 0.0f);
 }
+
+// #231: the per-frame count fills the time budget from the measured cost, but starts at one,
+// at most doubles per frame, never passes the cap, and a still frame never overshoots maxSamples.
+TEST (RayTracedView, BudgetFillsTheTargetButRampsAndCaps)
+{
+    RayTracedBudget budget;
+    EXPECT_EQ (budget.SamplesThisFrame (8.0f), 1u); // nothing measured yet
+    budget.Measured (2.0, 4);                       // 0.5 ms a sample -> 16 fit in 8 ms
+    EXPECT_EQ (budget.SamplesThisFrame (8.0f), 2u); // ramps: 1 -> 2 -> 4 -> 8 -> 16
+    EXPECT_EQ (budget.SamplesThisFrame (8.0f), 4u);
+    EXPECT_EQ (budget.SamplesThisFrame (8.0f), 8u);
+    EXPECT_EQ (budget.SamplesThisFrame (8.0f), 16u);
+    EXPECT_EQ (budget.SamplesThisFrame (8.0f), 16u);
+    EXPECT_EQ (budget.SamplesThisFrame (0.0f), 1u); // budget off: one a frame
+    budget.Measured (0.001, 1);                     // absurdly cheap: still capped
+    for (int k = 0; k < 10; ++k)
+        budget.SamplesThisFrame (100.0f);
+    EXPECT_EQ (budget.SamplesThisFrame (100.0f), RayTracedBudget::kMaxPerFrame);
+    budget.Measured (-1.0, 3); // garbage is ignored
+    budget.Measured (5.0, 0);
+    EXPECT_GT (budget.MsPerSample (), 0.0);
+}
+
+TEST (RayTracedView, PerFrameSamplesStopExactlyAtTheCap)
+{
+    RayTracedAccumulator acc;
+    EXPECT_FALSE (acc.Advance (7, 20, 8).show); // moving
+    RayTracedStep s = acc.Advance (7, 20, 8);   // first still frame: max(burst, perFrame)
+    EXPECT_EQ (s.trace, 8u);
+    s = acc.Advance (7, 20, 8);
+    EXPECT_EQ (s.firstSample, 8u);
+    EXPECT_EQ (s.trace, 8u);
+    s = acc.Advance (7, 20, 8);
+    EXPECT_EQ (s.firstSample, 16u);
+    EXPECT_EQ (s.trace, 4u); // only 4 left
+    EXPECT_EQ (acc.Samples (), 20u);
+    EXPECT_EQ (acc.Advance (7, 20, 8).trace, 0u); // converged
+}
