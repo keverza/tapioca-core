@@ -52,6 +52,8 @@ The whole run's summary goes to `suite.json` in `--out`.
 | `traced` | Rendered with traced reflections (DXR 1.1). |
 | `reference` | The Ray traced style, converged (`--samples`). |
 | `architecture` | The Architecture preset. |
+| `clay` | The Clay preset: Architecture's light over the clay material, TAA on. |
+| `technical` | The Technical preset: clay in the Fast light, no AO or shadows. OBJ scenes carry no Archicad edge data, so its edges do not draw here. |
 | `mask` | The G-buffer material view, which `compare.py` uses to find the glossy pixels. |
 | `shadow` | The raster sun visibility alone (the shadow map's `shadowsOnly` view): white lit, black occluded. |
 | `sunvis` | The sun visibility traced on the CPU (`SunVisibility.cpp`): 255 lit, 0 occluded, 128 not a shadow question (sky, glazing, surfaces facing away from the sun). Needs no GPU ray tracing. |

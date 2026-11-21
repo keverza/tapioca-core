@@ -288,6 +288,21 @@ av::HudState StyleState (const std::string& style, const Options& o)
         // "ssr" is the fallback every non-DXR machine sees; "traced" is Rendered on DXR.
         hud.rayTracedReflections = style == "traced";
     }
+    if (style == "clay") {
+        // kPresets' Clay row: Architecture's light over the clay material, from Rendered (TAA on).
+        hud.ambientOcclusionIntensity = 1.4f;
+        hud.environmentBackground = false;
+        hud.clay = true;
+    }
+    if (style == "technical") {
+        // kPresets' Technical row: clay under the edges in the flat Fast light, no AO or shadows;
+        // TAA and reflections are left as the previous preset had them (here Rendered's).
+        hud.renderQuality = int (av::RenderQuality::Fast);
+        hud.ambientOcclusion = false;
+        hud.shadowsEnabled = false;
+        hud.clay = true;
+        hud.technicalEdges = true;
+    }
     if (style == "shadow") {
         // The raster sun visibility alone (DiligentShadowMap's shadowsOnly view): what the
         // CPU-traced "sunvis" picture is compared against (#234). Nothing that blurs or adds
