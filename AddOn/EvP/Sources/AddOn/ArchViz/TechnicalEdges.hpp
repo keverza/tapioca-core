@@ -24,6 +24,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace geomsrv {
 namespace archviz {
@@ -62,6 +63,40 @@ struct TechnicalEdgeStyle {
 // The HUD stores the colour as sRGB 0xRRGGBBAA; the flat line shader writes linear.
 TechnicalEdgeStyle TechnicalEdgeStyleFromHud (bool enabled, uint32_t srgbRgba, float pixels, bool showHidden,
                                               float angleDegrees);
+
+// ---- the density fade (#14) ------------------------------------------------------------------
+// ⚠️ A SCREEN OF SLATS IS HUNDREDS OF OUTLINES A PIXEL APART. From a distance they fall in and out
+// of pixel centres as the camera moves, and the whole facade jumped between white and dark (live
+// check on a louvred facade; RenderBench `louvres` --motion). An element whose edges would lie
+// closer than kTechnicalEdgeFadeFrom pixels on average fades them out, gone at kTechnicalEdgeFadeTo:
+// up close every slat is drawn, from afar the facade reads as its surfaces. Per ELEMENT, not per
+// triangle: Archicad's triangulation leaves slivers along the borders of large faces, and a
+// triangle-level test would thin those real borders.
+constexpr float kTechnicalEdgeFadeFrom = 4.0f;
+constexpr float kTechnicalEdgeFadeTo = 1.5f;
+
+// The world length of the edges each tier draws, summed once at upload. An edge between two drawn
+// triangles is counted from both sides -- the figure is a density, read only against itself.
+struct TechnicalEdgeLengths {
+    float metres[kCreaseTierCount] = {};
+};
+TechnicalEdgeLengths MeasureTechnicalEdges (const std::vector<float>& positions, const std::vector<uint32_t>& indices,
+                                            const std::vector<uint32_t>& wireMasks);
+
+// The edges' mean spacing on screen: 4 x the element's largest bounds face over the length of its
+// edges, scaled to pixels. Area over length is exact for a field of parallel lines; the 4 undoes the
+// double count (each crease drawn from both faces) and the back faces' edges, so a screen of 30 mm
+// slats reads about 30 mm and a plain box about its face size. 0 when it has no edges.
+float TechnicalEdgeSpacingPixels (const float boundsMin[3], const float boundsMax[3], float edgeMetres,
+                                  float pixelsPerMetre);
+
+// How many pixels a metre spans at `point`, from the frame's view-projection (MatrixMath's
+// convention): the longest screen image of a 10 cm step along a world axis, so the most face-on
+// axis decides. 0 when the point is at or behind the eye -- the caller then draws in full.
+float PixelsPerMetreAt (const float viewProj[16], const float point[3], float viewportWidth, float viewportHeight);
+
+// 1 at kTechnicalEdgeFadeFrom pixels and wider, 0 at kTechnicalEdgeFadeTo and closer, smooth between.
+float TechnicalEdgeFade (float spacingPixels);
 
 } // namespace archviz
 } // namespace geomsrv

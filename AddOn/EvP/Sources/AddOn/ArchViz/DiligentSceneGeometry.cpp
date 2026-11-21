@@ -256,6 +256,7 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 }
 
                 CreateWireEdgeBuffer (device, e, upload.wireEdges);
+                e.technicalEdgeLengths = MeasureTechnicalEdges (upload.vertices, upload.indices, upload.wireEdges);
                 if (!upload.uvs.empty ()) {
                     CreateUvBuffer (device, e, upload.uvs, verts); // #252: Archicad's texture coordinates
                     LogUvRange (upload.guid, upload.vertices, upload.indices, upload.uvs, impl_->uvElementsLogged);

@@ -181,6 +181,9 @@ struct Entry {
     RefCntAutoPtr<Diligent::IBuffer> vertexBuffer;
     RefCntAutoPtr<Diligent::IBuffer> indexBuffer;
     RefCntAutoPtr<Diligent::IBuffer> wireEdgeBuffer;
+    // #14: the world length of the edges each crease tier draws, for the technical edges' density
+    // fade (TechnicalEdges.hpp). Measured with the wire masks, at upload.
+    TechnicalEdgeLengths technicalEdgeLengths;
     // #252: the texture coordinates (float2 per vertex) at vertex slot 1, for the shaded mesh
     // pipelines; zeros for an entry Archicad gave none. Every entry has one (CreateUvBuffer).
     RefCntAutoPtr<Diligent::IBuffer> uvBuffer;

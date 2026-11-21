@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include "ArchViz/SelectionEdges.hpp"
+#include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/TechnicalEdges.hpp"
 
 #include <cmath>
@@ -144,4 +145,62 @@ TEST (TechnicalEdges, HudStyleDecodesColourAndPicksTheShift)
     EXPECT_FLOAT_EQ (style.pixels, 6.0f); // clamped
     EXPECT_EQ (style.maskShift, CreaseTierShift (NearestCreaseTier (30.0f)));
     EXPECT_NE (style.maskShift, kSelectionEdgeShift);
+}
+
+// #14: the density fade's inputs. A cube's 12 creases, each drawn from both faces, at every tier.
+TEST (TechnicalEdges, MeasuresEachTiersEdgeLength)
+{
+    const TestMesh m = Prism (4); // a square prism: four 90-degree side creases plus the caps' rims
+    const std::vector<uint32_t> wire (m.indices.size () / 3, 0x7u);
+    const std::vector<uint32_t> creases =
+        BuildCreaseEdgeMasks (m.positions, m.indices, wire, kCreaseTierDegrees, kCreaseTierCount);
+    std::vector<uint32_t> packed (creases.size ());
+    for (size_t t = 0; t < creases.size (); ++t)
+        packed[t] = wire[t] | (creases[t] << kSelectionEdgeShift);
+    const TechnicalEdgeLengths lengths = MeasureTechnicalEdges (m.positions, m.indices, packed);
+    for (size_t tier = 0; tier < kCreaseTierCount; ++tier) {
+        EXPECT_GT (lengths.metres[tier], 0.0f) << tier;
+        EXPECT_FLOAT_EQ (lengths.metres[tier], lengths.metres[0]) << tier; // 90 degrees passes every tier
+    }
+    // No crease bits, nothing measured -- the wireframe's own bits are not technical edges.
+    const TechnicalEdgeLengths none = MeasureTechnicalEdges (m.positions, m.indices, wire);
+    EXPECT_FLOAT_EQ (none.metres[0], 0.0f);
+    // Mismatched or empty input is safe.
+    EXPECT_FLOAT_EQ (MeasureTechnicalEdges ({}, m.indices, packed).metres[0], 0.0f);
+}
+
+// A 12 m x 3 m screen of 200 slats, 4 long edges of 3 m each counted from both faces: 4 x 36 m2 over
+// 4800 m is 30 mm apart, so at 50 px/m (about 50 m away) 1.5 px -- gone; at 200 px/m, 6 px -- drawn.
+TEST (TechnicalEdges, FadesWhereEdgesCrowdOnScreen)
+{
+    const float lo[3] = { 0.0f, 0.0f, 0.0f };
+    const float hi[3] = { 12.0f, 0.15f, 3.0f };
+    EXPECT_NEAR (TechnicalEdgeSpacingPixels (lo, hi, 4800.0f, 50.0f), 1.5f, 1.0e-4f);
+    EXPECT_FLOAT_EQ (TechnicalEdgeFade (TechnicalEdgeSpacingPixels (lo, hi, 4800.0f, 50.0f)), 0.0f);
+    EXPECT_FLOAT_EQ (TechnicalEdgeFade (TechnicalEdgeSpacingPixels (lo, hi, 4800.0f, 200.0f)), 1.0f);
+    const float mid = TechnicalEdgeFade (0.5f * (kTechnicalEdgeFadeFrom + kTechnicalEdgeFadeTo));
+    EXPECT_GT (mid, 0.0f);
+    EXPECT_LT (mid, 1.0f);
+    EXPECT_LE (TechnicalEdgeFade (2.0f), TechnicalEdgeFade (3.0f)); // monotonic
+    // No edges, or no scale: no spacing to fade by.
+    EXPECT_FLOAT_EQ (TechnicalEdgeSpacingPixels (lo, hi, 0.0f, 100.0f), 0.0f);
+    EXPECT_FLOAT_EQ (TechnicalEdgeSpacingPixels (lo, hi, 4800.0f, 0.0f), 0.0f);
+}
+
+// A 60-degree camera 20 m from a point, 1080 px tall: a metre there spans 540 / (20 tan 30) px.
+TEST (TechnicalEdges, PixelsPerMetreFollowsDistance)
+{
+    float view[16], proj[16], viewProj[16];
+    const float eye[3] = { 0.0f, -20.0f, 0.0f }, at[3] = { 0.0f, 0.0f, 0.0f }, up[3] = { 0.0f, 0.0f, 1.0f };
+    LookAtRH (view, eye, at, up);
+    PerspectiveRH (proj, 60.0f, 1920.0f / 1080.0f, 0.1f, 1000.0f);
+    Multiply (viewProj, view, proj);
+    const float point[3] = { 0.0f, 0.0f, 0.0f };
+    const float expected = 540.0f / (20.0f * std::tan (30.0f * 3.14159265f / 180.0f));
+    const float near20 = PixelsPerMetreAt (viewProj, point, 1920.0f, 1080.0f);
+    EXPECT_NEAR (near20, expected, expected * 0.01f);
+    const float far[3] = { 0.0f, 20.0f, 0.0f }; // twice as far: half the pixels
+    EXPECT_NEAR (PixelsPerMetreAt (viewProj, far, 1920.0f, 1080.0f), near20 * 0.5f, near20 * 0.01f);
+    const float behind[3] = { 0.0f, -40.0f, 0.0f };
+    EXPECT_FLOAT_EQ (PixelsPerMetreAt (viewProj, behind, 1920.0f, 1080.0f), 0.0f);
 }

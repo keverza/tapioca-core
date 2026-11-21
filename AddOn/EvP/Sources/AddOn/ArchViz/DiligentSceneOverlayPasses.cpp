@@ -14,7 +14,9 @@
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/SelectionEdges.hpp"
+#include "ArchViz/TechnicalEdges.hpp"
 
+#include <algorithm>
 #include <cstring>
 
 namespace geomsrv {
@@ -139,6 +141,8 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
         const float lineWidth = constants.wireParams[1];
         constants.edgeParams[0] = kSelectionEdgeDepthPull * nearClip;
         constants.edgeParams[1] = float (technical.maskShift);
+        const size_t tier =
+            std::min ((technical.maskShift - kSelectionEdgeShift) / 3u, uint32_t (kCreaseTierCount - 1));
         for (const int passIndex : { Impl::kHiddenEdges, Impl::kVisibleEdges }) {
             const bool hidden = passIndex == Impl::kHiddenEdges;
             if (hidden && !technical.showHidden)
@@ -151,9 +155,30 @@ void DiligentScene::DrawLineOverlays (Diligent::IDeviceContext* context, Diligen
             if (edgeVariable == nullptr)
                 continue;
             context->SetPipelineState (sel.edgePso[passIndex]);
+            const float alpha = technical.rgba[3] * (hidden ? technical.hiddenAlpha : 1.0f);
+            float uploadedFade = 1.0f;
             for (const Entry& e : impl_->elements) {
                 if (!drawable (e) || e.wireEdgeBuffer == nullptr)
                     continue;
+                // #14: edges crowded closer than a few pixels fade out (TechnicalEdges.hpp).
+                float fade = 1.0f;
+                if (e.hasBounds) {
+                    const float centre[3] = { 0.5f * (e.boundsMin[0] + e.boundsMax[0]),
+                                              0.5f * (e.boundsMin[1] + e.boundsMax[1]),
+                                              0.5f * (e.boundsMin[2] + e.boundsMax[2]) };
+                    const float pixelsPerMetre = PixelsPerMetreAt (
+                        constants.viewProj, centre, float (impl_->viewportWidth), float (impl_->viewportHeight));
+                    const float spacing = TechnicalEdgeSpacingPixels (
+                        e.boundsMin, e.boundsMax, e.technicalEdgeLengths.metres[tier], pixelsPerMetre);
+                    if (spacing > 0.0f)
+                        fade = TechnicalEdgeFade (spacing);
+                }
+                if (fade < 0.02f)
+                    continue;
+                if (fade != uploadedFade) {
+                    uploadConstants (technical.rgba[0], technical.rgba[1], technical.rgba[2], alpha * fade);
+                    uploadedFade = fade;
+                }
                 edgeVariable->Set (e.wireEdgeBuffer->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
                 context->CommitShaderResources (sel.edgeSrb[passIndex],
                                                 Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
