@@ -36,6 +36,7 @@
 #include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/SunPathMoment.hpp"
 #include "ArchViz/SunPathBand.hpp"
+#include "ArchViz/StartupAntiAliasing.hpp"
 #include "ArchViz/SunPathLabels.hpp"
 #include "ArchViz/TraceAnnotationLayer.hpp"
 #include "SunStudy/SunStudyPointProfile.hpp"
@@ -773,10 +774,10 @@ struct HudState {
     int ssrMaxSteps = 256;
 
     // ---- RE51.C8: temporal anti-aliasing -----------------------------------
-    // On (#14): every preview but Wireframe turns it on, and the viewer opened with it off -- a start
-    // view matching no preview, the one live run showed with strong moire on a louvred facade. The
-    // checkbox still turns it off.
-    bool temporalAntiAliasing = true;
+    // Off at start, and turned on once the model has arrived (ArchViz/StartupAntiAliasing.hpp, #14):
+    // on from the first frame, every streamed batch reset its history while loading.
+    bool temporalAntiAliasing = false;
+    StartupAntiAliasing startupAntiAliasing; // when the start view turns it on (render thread)
     // Sub-pixel smoothing of drag navigation (Camera::SetNavigationSmoothing).
     bool navSmoothing = true;
     // What the last orbit turned about, an OrbitAnchorSource (OrbitAnchor.hpp): the HUD says it.

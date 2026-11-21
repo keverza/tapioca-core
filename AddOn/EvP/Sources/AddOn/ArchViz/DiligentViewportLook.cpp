@@ -4,12 +4,26 @@
 
 #include "ArchViz/DiligentViewportSupport.hpp"
 
+#include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ClayLook.hpp"
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentScene.hpp"
 
 namespace geomsrv {
 namespace archviz {
+
+void TurnOnAntiAliasingOnceLoaded (HudState& hud, const DiligentScene& scene, std::chrono::duration<double> sinceStart)
+{
+    if (!hud.startupAntiAliasing.armed)
+        return;
+    const DiligentSceneStats loading = scene.Stats ();
+    if (hud.startupAntiAliasing.Step (hud.temporalAntiAliasing, hud.renderMode == int (SceneRenderMode::Shaded),
+                                      loading.elements, loading.pending, sinceStart.count ())) {
+        hud.temporalAntiAliasing = true;
+        ArchVizLog ("Diligent viewport: the model has arrived (" + std::to_string (loading.elements) +
+                    " elements); temporal anti-aliasing on");
+    }
+}
 
 void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay)
 {

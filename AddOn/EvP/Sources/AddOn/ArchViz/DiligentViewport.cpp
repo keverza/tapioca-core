@@ -600,7 +600,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             float jitter[2] = { 0.0f, 0.0f };
             camera.GetViewMatrix (view);
             camera.GetProjMatrix (stableProj, height > 0 ? float (width) / float (height) : 1.0f);
-
+            TurnOnAntiAliasingOnceLoaded (hudState, scene, std::chrono::steady_clock::now () - started);
             const bool taaActive =
                 hudState.temporalAntiAliasing && !hudState.readOnly && // #14: Fast too, not the overlay
                 hudState.debugView == int (DiligentDebugView::Final) &&

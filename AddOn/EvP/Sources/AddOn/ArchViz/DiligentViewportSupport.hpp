@@ -24,6 +24,7 @@
 #include "ArchViz/TraceAnnotationLayer.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <vector>
@@ -43,6 +44,10 @@ class PlanAnchorLayer;
 struct HudState;
 
 void ApplyShadowSettings (DiligentScene& scene, const HudState& hud);
+// #14: the start view's TAA, on once the model has arrived (StartupAntiAliasing.hpp); in
+// DiligentViewportLook.cpp. `sinceStart`: the time since the viewer's render loop began.
+void TurnOnAntiAliasingOnceLoaded (HudState& hud, const DiligentScene& scene, std::chrono::duration<double> sinceStart);
+
 // The HUD's grading and clay override (issue #14 P2), in DiligentViewportLook.cpp. `overlay`
 // withholds clay: the overlay is compared AGAINST Archicad's shading and keeps the materials.
 void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay);
