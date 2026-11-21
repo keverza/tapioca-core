@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 #include <limits>
 
 namespace geomsrv {
@@ -36,6 +37,32 @@ bool FitShadowDepthRange (const float view[16], const float boxMin[3], const flo
         return false;
     nearDepth = newNear;
     farDepth = newFar;
+    return true;
+}
+
+bool VisibleShadowDepthRange (const float projection[16], float nearNdc, float farNdc, float margin, float& nearDepth,
+                              float& farDepth)
+{
+    if (projection == nullptr || !(nearNdc <= farNdc) || !(margin >= 1.0f))
+        return false;
+    // Row-vector order: a view-space point (0, 0, -d, 1) gives z_clip = -d*P[10] + P[14] and
+    // w = -d*P[11] + P[15]; solved for d at a given NDC depth.
+    const auto depthAt = [projection] (float ndc) {
+        const float denominator = projection[10] - ndc * projection[11];
+        return std::abs (denominator) > 1e-12f ? (projection[14] - ndc * projection[15]) / denominator : -1.0f;
+    };
+    float a = depthAt (nearNdc), b = depthAt (farNdc);
+    if (a > b)
+        std::swap (a, b); // a reversed-Z projection
+    if (!(a > 0.0f) || !std::isfinite (b))
+        return false;
+    constexpr float kStepsPerOctave = 4.0f;
+    const float lo = std::exp2 (std::floor (std::log2 (a / margin) * kStepsPerOctave) / kStepsPerOctave);
+    const float hi = std::exp2 (std::ceil (std::log2 (b * margin) * kStepsPerOctave) / kStepsPerOctave);
+    if (!(hi > lo))
+        return false;
+    nearDepth = lo;
+    farDepth = hi;
     return true;
 }
 

@@ -109,8 +109,11 @@ class DiligentShadowMap final {
     // `sceneMin`/`sceneMax` (optional, world metres): the casters' and receivers' bounds. With
     // them the cascades split the depth range the scene occupies, not the projection's whole
     // near..far (#234, see ShadowDepthFit.hpp).
+    // `visibleDepth` (#14), when given: the view-depth range the frame shows ({near, far} metres,
+    // VisibleShadowDepthRange). The cascades split the intersection of it and the scene box's range.
     bool Prepare (Diligent::IDeviceContext* context, const float view[16], const float projection[16],
-                  const float towardSun[3], const float* sceneMin = nullptr, const float* sceneMax = nullptr);
+                  const float towardSun[3], const float* sceneMin = nullptr, const float* sceneMax = nullptr,
+                  const float* visibleDepth = nullptr);
     void BeginCascade (Diligent::IDeviceContext* context, uint32_t cascade);
     void End (Diligent::IDeviceContext* context);
 

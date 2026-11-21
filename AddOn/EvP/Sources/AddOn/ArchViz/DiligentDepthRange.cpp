@@ -11,11 +11,14 @@
 #include <Buffer.h>
 #include <BufferView.h>
 #include <DeviceContext.h>
+#include <Fence.h>
 #include <PipelineState.h>
 #include <RefCntAutoPtr.hpp>
 #include <RenderDevice.h>
 #include <Shader.h>
 #include <ShaderResourceBinding.h>
+
+#include <cstring>
 
 namespace geomsrv {
 namespace archviz {
@@ -58,6 +61,18 @@ struct DiligentDepthRange::Impl {
     Reduced smooth;
     Diligent::RefCntAutoPtr<Diligent::IPipelineState> smoothPso;
     Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> smoothSrb;
+    // #14 readback (RequestReadback / ReadBack): three staging slots, oldest first, each with the
+    // fence value its copy signalled (D3D12; null fence on D3D11, where the map itself says "not yet").
+    static constexpr int kSlots = 3;
+    Diligent::RefCntAutoPtr<Diligent::IBuffer> staging[kSlots];
+    uint64_t slotFence[kSlots] = {};
+    bool slotPending[kSlots] = {};
+    int nextSlot = 0;
+    Diligent::RefCntAutoPtr<Diligent::IFence> fence;
+    uint64_t fenceValue = 0;
+    bool executed = false; // `raw` holds a range from this frame's Execute
+    bool have = false;
+    float nearNdc = 1.0f, farNdc = 0.0f;
 };
 
 DiligentDepthRange::DiligentDepthRange () : impl_ (std::make_unique<Impl> ())
@@ -141,6 +156,21 @@ bool DiligentDepthRange::Init (Diligent::IRenderDevice* device, std::string& err
     if (!createReduced ("ArchViz depth range raw", impl_->raw) ||
         !createReduced ("ArchViz depth range smooth", impl_->smooth))
         return false;
+    // #14 readback: if any of it fails the cascades simply keep the scene-box fit.
+    for (auto& staging : impl_->staging) {
+        Diligent::BufferDesc sd;
+        sd.Name = "ArchViz depth range readback";
+        sd.Size = sizeof (kEmptyRange);
+        sd.Usage = Diligent::USAGE_STAGING;
+        sd.CPUAccessFlags = Diligent::CPU_ACCESS_READ;
+        device->CreateBuffer (sd, nullptr, &staging);
+    }
+    if (device->GetDeviceInfo ().Type == Diligent::RENDER_DEVICE_TYPE_D3D12) {
+        Diligent::FenceDesc fd;
+        fd.Name = "ArchViz depth range readback fence";
+        fd.Type = Diligent::FENCE_TYPE_CPU_WAIT_ONLY;
+        device->CreateFence (fd, &impl_->fence);
+    }
 
     auto createPso = [&] (const char* name, Diligent::IShader* shader,
                           const Diligent::ShaderResourceVariableDesc* variables, Diligent::Uint32 variableCount,
@@ -192,6 +222,13 @@ void DiligentDepthRange::Shutdown ()
     impl_->pso.Release ();
     impl_->smooth.Release ();
     impl_->raw.Release ();
+    for (int i = 0; i < Impl::kSlots; ++i) {
+        impl_->staging[i].Release ();
+        impl_->slotPending[i] = false;
+    }
+    impl_->fence.Release ();
+    impl_->fenceValue = 0;
+    impl_->executed = impl_->have = false;
 }
 
 Diligent::IBufferView* DiligentDepthRange::BufferView () const
@@ -239,6 +276,53 @@ void DiligentDepthRange::Execute (Diligent::IDeviceContext* context, Diligent::I
     ease.ThreadGroupCountY = 1;
     ease.ThreadGroupCountZ = 1;
     context->DispatchCompute (ease);
+    impl_->executed = true;
+}
+
+void DiligentDepthRange::RequestReadback (Diligent::IDeviceContext* context)
+{
+    const int slot = impl_->nextSlot;
+    if (context == nullptr || !impl_->executed || impl_->staging[slot] == nullptr || impl_->slotPending[slot])
+        return; // every slot still in flight: skip this frame rather than wait
+    impl_->executed = false;
+    context->CopyBuffer (impl_->raw.buffer, 0, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
+                         impl_->staging[slot], 0, sizeof (kEmptyRange),
+                         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    if (impl_->fence != nullptr)
+        context->EnqueueSignal (impl_->fence, ++impl_->fenceValue);
+    impl_->slotFence[slot] = impl_->fenceValue;
+    impl_->slotPending[slot] = true;
+    impl_->nextSlot = (slot + 1) % Impl::kSlots;
+}
+
+bool DiligentDepthRange::ReadBack (Diligent::IDeviceContext* context, float& nearNdc, float& farNdc)
+{
+    if (context != nullptr) {
+        // Oldest first: the slot after the one written next.
+        for (int k = 0; k < Impl::kSlots; ++k) {
+            const int slot = (impl_->nextSlot + k) % Impl::kSlots;
+            if (!impl_->slotPending[slot])
+                continue;
+            if (impl_->fence != nullptr && impl_->fence->GetCompletedValue () < impl_->slotFence[slot])
+                break; // the GPU has not reached it, nor anything after it
+            void* data = nullptr;
+            context->MapBuffer (impl_->staging[slot], Diligent::MAP_READ, Diligent::MAP_FLAG_DO_NOT_WAIT, data);
+            if (data == nullptr)
+                break; // D3D11: not finished yet
+            uint32_t bits[2];
+            std::memcpy (bits, data, sizeof (bits));
+            context->UnmapBuffer (impl_->staging[slot], Diligent::MAP_READ);
+            impl_->slotPending[slot] = false;
+            impl_->have = bits[0] <= bits[1];
+            if (impl_->have) {
+                std::memcpy (&impl_->nearNdc, &bits[0], sizeof (float));
+                std::memcpy (&impl_->farNdc, &bits[1], sizeof (float));
+            }
+        }
+    }
+    nearNdc = impl_->nearNdc;
+    farNdc = impl_->farNdc;
+    return impl_->have;
 }
 
 } // namespace archviz

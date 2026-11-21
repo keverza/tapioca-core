@@ -107,3 +107,43 @@ TEST (ShadowDepthFit, BoxBehindTheCameraOrBadInputLeavesTheRange)
     float badNear = 0.0f;
     EXPECT_FALSE (FitShadowDepthRange (view, lo, hi, badNear, farDepth));
 }
+
+// #14: the visible range read back from the depth buffer, through a right-handed perspective of the
+// viewer's form (0.05 m .. 20 km), widened by the margin and snapped to quarter octaves.
+namespace {
+void Perspective (float m[16], float n, float f)
+{
+    for (int i = 0; i < 16; ++i)
+        m[i] = 0.0f;
+    m[0] = m[5] = 1.0f;
+    m[10] = f / (n - f);
+    m[11] = -1.0f;
+    m[14] = n * f / (n - f);
+}
+float NdcAt (const float m[16], float d)
+{
+    return (-d * m[10] + m[14]) / (-d * m[11] + m[15]);
+}
+} // namespace
+
+TEST (ShadowDepthFit, VisibleRangeSplitsWhatTheFrameShowsNotTheNearPlane)
+{
+    float p[16];
+    Perspective (p, 0.05f, 20000.0f);
+    float nearDepth = 0.0f, farDepth = 0.0f;
+    // The live project: buildings 20..110 m away.
+    ASSERT_TRUE (
+        geomsrv::archviz::VisibleShadowDepthRange (p, NdcAt (p, 20.0f), NdcAt (p, 110.0f), 1.5f, nearDepth, farDepth));
+    EXPECT_LE (nearDepth, 20.0f / 1.5f);
+    EXPECT_GT (nearDepth, 20.0f / 1.5f / 1.19f) << "at most a quarter octave below";
+    EXPECT_GE (farDepth, 110.0f * 1.5f);
+    EXPECT_LT (farDepth, 110.0f * 1.5f * 1.19f);
+    // Quantised: a few centimetres of jitter in the readback gives exactly the same cascades.
+    float n2 = 0.0f, f2 = 0.0f;
+    ASSERT_TRUE (geomsrv::archviz::VisibleShadowDepthRange (p, NdcAt (p, 20.03f), NdcAt (p, 110.1f), 1.5f, n2, f2));
+    EXPECT_EQ (n2, nearDepth);
+    EXPECT_EQ (f2, farDepth);
+    // Nothing drawn (min > max) and a margin below 1 leave the range alone.
+    EXPECT_FALSE (geomsrv::archviz::VisibleShadowDepthRange (p, 1.0f, 0.0f, 1.5f, n2, f2));
+    EXPECT_FALSE (geomsrv::archviz::VisibleShadowDepthRange (p, NdcAt (p, 20.0f), NdcAt (p, 30.0f), 0.5f, n2, f2));
+}

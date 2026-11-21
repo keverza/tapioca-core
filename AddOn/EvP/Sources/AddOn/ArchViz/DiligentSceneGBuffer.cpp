@@ -23,7 +23,8 @@
 
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog -- a failed bind must say so, not crash
 #include "ArchViz/DiligentShaders.hpp"
-#include "ArchViz/MatrixMath.hpp" // JitterProjection
+#include "ArchViz/MatrixMath.hpp"     // JitterProjection
+#include "ArchViz/ShadowDepthFit.hpp" // VisibleShadowDepthRange
 #include "ArchViz/SurfaceClassifier.hpp"
 
 #include <chrono>
@@ -51,6 +52,21 @@ void DiligentScene::SetScreenSpaceReflection (bool enabled, float intensity, flo
     impl_->ssrIntensity = intensity < 0.0f ? 0.0f : (intensity > 2.0f ? 2.0f : intensity);
     impl_->ssrRoughnessThreshold =
         roughnessThreshold < 0.0f ? 0.0f : (roughnessThreshold > 1.0f ? 1.0f : roughnessThreshold);
+}
+
+// #14: see DiligentSceneImpl.hpp. ⚠️ ONLY WHILE TAA RUNS: its G-buffer depth is what the reduction
+// reads, and a range kept from before TAA stopped (an orthographic view, the overlay) would split the
+// cascades for a picture no longer on screen.
+const float* DiligentScene::Impl::SeenDepth (Diligent::IDeviceContext* context, const float projection[16],
+                                             float out[2])
+{
+    constexpr float kMargin = 1.5f; // near / 1.5, far * 1.5: the readback's lag, and turning the camera
+    float nearNdc = 0.0f, farNdc = 0.0f;
+    const bool seen = depthRange.ReadBack (context, nearNdc, farNdc);
+    return taaResolvedThisFrame && seen &&
+                   VisibleShadowDepthRange (projection, nearNdc, farNdc, kMargin, out[0], out[1])
+               ? out
+               : nullptr;
 }
 
 void DiligentScene::SetTemporalAntiAliasing (bool enabled, float stability)
@@ -653,6 +669,9 @@ DiligentScene::ExecuteTemporalAntiAliasing (Diligent::IDeviceContext* context, D
         impl_->gBuffer->GetBuffer (kGBufferDepth)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
     Diligent::ITextureView* motionSrv =
         impl_->gBuffer->GetBuffer (kGBufferMotion)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    // #14: the depth this frame shows, for the next frames' shadow cascades (VisibleShadowDepth).
+    impl_->depthRange.Execute (context, depthSrv, impl_->viewportWidth, impl_->viewportHeight);
+    impl_->depthRange.RequestReadback (context);
     // #14 moire: no history while the still image accumulates (TemporalConvergence::RawSamplesThisFrame).
     const float stability = impl_->temporalConvergence.RawSamplesThisFrame () ? 0.0f : impl_->taaStability;
     impl_->taaView = impl_->temporalAntiAliasing.Execute (

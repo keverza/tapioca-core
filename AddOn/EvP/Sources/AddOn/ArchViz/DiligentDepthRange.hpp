@@ -55,6 +55,13 @@ class DiligentDepthRange final {
     // then once per group into the buffer.
     void Execute (Diligent::IDeviceContext* context, Diligent::ITextureView* depth, uint32_t width, uint32_t height);
 
+    // #14: the last Execute's raw range, copied for the CPU (the shadow cascades' split). Never waits:
+    // RequestReadback copies into one of three staging slots behind a fence; ReadBack takes every
+    // slot the GPU has finished and reports the newest range read so far, a frame or two old, as
+    // depth-buffer values. False until one has arrived, or when the last one was empty (nothing drawn).
+    void RequestReadback (Diligent::IDeviceContext* context);
+    bool ReadBack (Diligent::IDeviceContext* context, float& nearNdc, float& farNdc);
+
   private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

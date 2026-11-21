@@ -2,6 +2,7 @@
 
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/ShadowDepthFit.hpp"
+#include "ArchViz/ArchVizLog.hpp"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -23,6 +24,9 @@
 #include <TextureView.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <string>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -75,6 +79,24 @@ float FirstCascadeTexelMetresOf (const Diligent::ShadowMapAttribs& attribs, uint
     return scale > 1e-8f ? (2.0f / scale) / float (resolution) : 0.0f;
 }
 
+// #14: the cascades as fitted -- each one's camera-depth range and the world size of its texel --
+// logged when the layout changes by more than rounding, so a live "the shadows are rough HERE" names
+// the cascade and its texel instead of a colour in the visualisation.
+std::string CascadeLayout (const Diligent::ShadowMapAttribs& attribs, uint32_t resolution)
+{
+    std::string text = "shadow cascades:";
+    char part[96];
+    for (int i = 0; i < attribs.iNumCascades && i < 8; ++i) {
+        const auto& c = attribs.Cascades[i];
+        const float scale = std::abs (c.f4LightSpaceScale.x);
+        const float texelCm = scale > 1e-8f && resolution > 0 ? 100.0f * (2.0f / scale) / float (resolution) : 0.0f;
+        std::snprintf (part, sizeof (part), " [%d] %.2g-%.2g m, texel %.2g cm;", i, c.f4StartEndZ.x, c.f4StartEndZ.y,
+                       texelCm);
+        text += part;
+    }
+    return text;
+}
+
 } // namespace
 
 bool CompileDiligentShadowPixelShader (Diligent::IRenderDevice* device, DiligentShadowMode mode,
@@ -117,6 +139,9 @@ struct DiligentShadowMap::Impl {
     DiligentShadowSettings settings;
     bool ready = false;
     bool fitted = false;
+    std::string lastLayout; // #14: the cascade layout last logged, at most every 2 s
+    std::chrono::steady_clock::time_point lastLayoutAt {};
+    bool lastLayoutVisible = false; // logged with the visible depth range, or the scene box alone
 };
 
 DiligentShadowMap::DiligentShadowMap () : impl_ (new Impl ())
@@ -266,7 +291,8 @@ bool DiligentShadowMap::SetSettings (const DiligentShadowSettings& requested, st
 }
 
 bool DiligentShadowMap::Prepare (Diligent::IDeviceContext* context, const float view[16], const float projection[16],
-                                 const float towardSun[3], const float* sceneMin, const float* sceneMax)
+                                 const float towardSun[3], const float* sceneMin, const float* sceneMax,
+                                 const float* visibleDepth)
 {
     impl_->fitted = false;
     if (context == nullptr || !impl_->ready || impl_->manager == nullptr || view == nullptr || projection == nullptr ||
@@ -327,12 +353,30 @@ bool DiligentShadowMap::Prepare (Diligent::IDeviceContext* context, const float 
     distribute.PackMatrixRowMajor = true;
     // #234: split the scene's depth range, not the projection's (ShadowDepthFit.hpp). Index -1
     // is the whole range, before DistributeCascades partitions it.
+    // #14: and then the depth the frame really shows (VisibleShadowDepthRange), when it is known.
     if (impl_->settings.fitCascadesToScene && sceneMin != nullptr && sceneMax != nullptr)
-        distribute.AdjustCascadeRange = [view, sceneMin, sceneMax] (int cascade, float& minZ, float& maxZ) {
-            if (cascade == -1)
-                FitShadowDepthRange (view, sceneMin, sceneMax, minZ, maxZ);
+        distribute.AdjustCascadeRange = [view, sceneMin, sceneMax, visibleDepth] (int cascade, float& minZ,
+                                                                                  float& maxZ) {
+            if (cascade != -1)
+                return;
+            FitShadowDepthRange (view, sceneMin, sceneMax, minZ, maxZ);
+            if (visibleDepth != nullptr && visibleDepth[0] < maxZ && visibleDepth[1] > minZ) {
+                minZ = (std::max) (minZ, visibleDepth[0]);
+                maxZ = (std::min) (maxZ, visibleDepth[1]);
+            }
         };
     impl_->manager->DistributeCascades (distribute, impl_->shadowAttribs);
+    const bool fittedToView = visibleDepth != nullptr;
+    const std::string layout = CascadeLayout (impl_->shadowAttribs, impl_->settings.resolution) +
+                               (fittedToView ? " (fitted to the depth on screen)" : " (scene box)");
+    const auto now = std::chrono::steady_clock::now ();
+    if (layout != impl_->lastLayout &&
+        (now - impl_->lastLayoutAt > std::chrono::seconds (2) || fittedToView != impl_->lastLayoutVisible)) {
+        impl_->lastLayoutVisible = fittedToView;
+        impl_->lastLayout = layout;
+        impl_->lastLayoutAt = now;
+        ArchVizLog (layout);
+    }
 
     // ⚠️ AFTER DistributeCascades, BECAUSE IT NEEDS THE FITTED CASCADE. See
     // kMinFilterTexels: the configured metres are a lower bound on the penumbra
@@ -346,10 +390,10 @@ bool DiligentShadowMap::Prepare (Diligent::IDeviceContext* context, const float 
     constexpr float kPi = 3.14159265358979323846f;
     const float lightRadiusTangent = std::tan (impl_->settings.pcssLightAngularDiameter * kPi / 360.0f);
     const float pcssMode = impl_->settings.diagnostic > 0 ? 1.0f + float (impl_->settings.diagnostic)
-                           : impl_->settings.pcssEnabled ? 1.0f
-                                                         : 0.0f;
-    constants.pcssParams = Diligent::float4 { pcssMode, lightRadiusTangent,
-                                              impl_->settings.pcssBlockerSearch, impl_->settings.pcssMaxPenumbra };
+                           : impl_->settings.pcssEnabled  ? 1.0f
+                                                          : 0.0f;
+    constants.pcssParams = Diligent::float4 { pcssMode, lightRadiusTangent, impl_->settings.pcssBlockerSearch,
+                                              impl_->settings.pcssMaxPenumbra };
     if (Diligent::MapHelper<ShadowConstants> mapped { context, impl_->attribs, Diligent::MAP_WRITE,
                                                       Diligent::MAP_FLAG_DISCARD })
         *mapped = constants;

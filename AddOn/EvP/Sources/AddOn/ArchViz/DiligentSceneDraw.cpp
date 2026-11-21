@@ -44,10 +44,10 @@ bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context, const fl
     float shadowSun[3];
     impl_->EffectiveSun (shadowSun);
     // #234: the cascades split the depth the model occupies, not the projection's 20 km.
-    float sceneMin[3] = {}, sceneMax[3] = {};
+    float sceneMin[3] = {}, sceneMax[3] = {}, visible[2] = {}; // #14: and the depth on screen, read back
     const bool bounded = SceneBounds (sceneMin, sceneMax);
     if (!impl_->shadowMap.Prepare (context, view, projection, shadowSun, bounded ? sceneMin : nullptr,
-                                   bounded ? sceneMax : nullptr))
+                                   bounded ? sceneMax : nullptr, impl_->SeenDepth (context, projection, visible)))
         return false;
     // #247: an idle frame keeps the map it converged with. The fit above still runs (CPU only, the
     // same camera gives the same cascades) because SetShadowSettings clears it every frame.

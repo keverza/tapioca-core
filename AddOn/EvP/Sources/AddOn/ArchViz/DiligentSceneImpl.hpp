@@ -1054,6 +1054,11 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // casters, AO depth, G-buffer) do not know it, so a diagnostic view during a study
     // shows them the study model -- what the study's image is lit and occluded by. The
     // forward pass additionally requires the final view, as it always did.
+    // #14: the view-depth range the last frames showed (DiligentDepthRange read back, widened and
+    // quantised by VisibleShadowDepthRange), written to `out`; null when none is current -- TAA,
+    // whose G-buffer depth it reduces, did not run last frame. DiligentSceneGBuffer.cpp.
+    const float* SeenDepth (Diligent::IDeviceContext* context, const float projection[16], float out[2]);
+
     bool StudyModelShown () const
     {
         const uint32_t mode = sunViewOverride >= 0 ? uint32_t (sunViewOverride) : sunDebugMode;
