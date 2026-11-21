@@ -4,6 +4,7 @@
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp"
+#include "Geometry/MeshStore.hpp"
 
 #include <atomic>
 #include <mutex>
@@ -75,6 +76,14 @@ void ExtractionWorker::RunDeferredUv (const Options& opt, bool afterCompleteFull
             extractiondeferreduv::g_suspended.store (false);
         }
     } suspend;
+    // ⚠️ A CAPTURE OF ITS OWN, SO THE STAMP MOVES. SnapshotAssembly::CanUpdate splices a partial
+    // pass onto the full pass's snapshot only at that snapshot's stamp + 1 -- the step every edit
+    // gets from the model watch before its pass starts. Without it this pass acquired at the full
+    // pass's own stamp, was refused as `incompatible-incremental-baseline` and ran as ANOTHER full
+    // pass (89 s live, 2026-11-21), and every edit during it restarted it as full: the whole scene
+    // reloaded after each change. If Archicad changes the model meanwhile, the stamp is past + 1
+    // and the pass is full, as it should be.
+    MeshStore::Get ().BumpCaptureStamp ();
     RunPass (opt, /*full*/ false, guids, nullptr);
 }
 
