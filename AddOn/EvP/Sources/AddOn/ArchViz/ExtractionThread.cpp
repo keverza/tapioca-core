@@ -4,6 +4,7 @@
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/ExtractionReport.hpp"
 #include "ArchViz/ExtractionSlice.hpp"       // SliceState, Run -- one slice's work
+#include "ArchViz/ExtractionDeferredUv.hpp"  // the texture pass refines its capture (#14)
 #include "ArchViz/ArchVizLog.hpp"            // ArchVizLog
 #include "ArchViz/HudConsole.hpp"            // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/ExtractionEnvironment.hpp" // ReadMaterials, ReadEnvironment
@@ -366,20 +367,15 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                 " hostCaptureMs=" + std::to_string (handle->captureMilliseconds) +
                 " gateRoundTripMs=" + std::to_string (acquireMs) + " full=" + std::to_string (full));
 
+    const bool refining = partial && extractiondeferreduv::Suspended (); // same capture, no edit
+    bool abandon = false; // a refinement the model moved under: given up, never a full pass
     if (partial && (handle->materialIdentity.empty () || handle->surfaceAttributes.empty () ||
                     !SnapshotAssembly::CanUpdate (baseSnapshot.get (), handle->captureStamp, handle->transparency,
-                                                  handle->materialIdentity, handle->surfaceAttributes))) {
-        // A pool renumber or missing/intermediate baseline cannot be spliced.
-        // Use this same acquired model for a complete sliced viewer/study pass.
-        effectiveFilter.clear ();
-        partial = false;
-        full = true;
-        MeshStore::Get ().SetFullPassInFlight (true);
-        ArchVizLog ("pipeline: stage=geometry-shared-full reason=incompatible-incremental-baseline");
-    }
+                                                  handle->materialIdentity, handle->surfaceAttributes, refining)))
+        abandon = !extractiondeferreduv::FallBackToFull (refining, effectiveFilter, partial, full);
     SnapshotAssembly assembly (MeshStore::Get ().NextId (), handle->captureStamp, handle->transparency,
                                partial ? baseSnapshot : nullptr, effectiveFilter, handle->materialIdentity,
-                               handle->surfaceAttributes);
+                               handle->surfaceAttributes, refining);
 
     StorySliceAccumulator storeySlices;
     storeySlices.Begin (*storeys, wantStorySlices && full, wantPlanCut && full, planCutZ, full);
@@ -405,6 +401,10 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                         "the job dispatches, or leaked if it never does (" +
                         std::string (err.ToCStr ().Get ()) + ")");
     };
+    if (abandon) {
+        releaseModel ();
+        return false;
+    }
 
     if (handle->count <= 0) {
         // ⚠️ AN EMPTY MODEL IS NOT AN ERROR AND MUST NOT LOOK LIKE ONE. It is
@@ -710,7 +710,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         return RunPass (opt, full, filter, extractedGuids);
     }
     restarts_ = 0;
-    RunDeferredUv (opt, !partial && complete); // #14: textured elements' coordinates, the model being up
+    RunDeferredUv (opt, complete); // #14: textured elements' coordinates, once a pass is complete
     return true;
 }
 

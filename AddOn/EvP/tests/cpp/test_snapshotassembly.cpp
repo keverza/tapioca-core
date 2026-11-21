@@ -63,6 +63,25 @@ TEST (SnapshotAssembly, MissingRevisionsIncompleteSelectionAndRenumberedPoolsReq
     EXPECT_FALSE (SnapshotAssembly::CanUpdate (&bad, 1, bad.materialTransparency));
 }
 
+// #14: the texture-coordinate pass after a full pass refines THAT capture: it splices at the base's
+// own stamp. An edit since (the stamp moved) refuses it, so it can never cover an unseen change.
+TEST (SnapshotAssembly, ARefinementSplicesAtTheBasesOwnStampOnly)
+{
+    const auto base = Base ();
+    const auto& t = base->materialTransparency;
+    EXPECT_TRUE (SnapshotAssembly::CanUpdate (base.get (), 10, t, {}, {}, /*sameCapture*/ true));
+    EXPECT_FALSE (SnapshotAssembly::CanUpdate (base.get (), 11, t, {}, {}, true)) << "an edit came in between";
+    EXPECT_FALSE (SnapshotAssembly::CanUpdate (base.get (), 10, t)) << "an edit's pass still needs + 1";
+    SnapshotAssembly assembly (503, 10, t, base, { "edit" }, {}, {}, true);
+    assembly.Add (evptest::MakeBox ("edit", 5, 0, 0));
+    const auto refined = assembly.Finish (true);
+    ASSERT_NE (refined, nullptr);
+    EXPECT_EQ (refined->meshes.size (), 3u);
+    EXPECT_EQ (refined->captureStamp, 10u);
+    // The edit's update after it fits at + 1, as it would have on the full pass.
+    EXPECT_TRUE (SnapshotAssembly::CanUpdate (refined.get (), 11, t));
+}
+
 TEST (SnapshotAssembly, CancelledDuplicateAndUnrequestedMeshesNeverPublishPartialSnapshots)
 {
     SnapshotAssembly cancelled (501, 10, {});

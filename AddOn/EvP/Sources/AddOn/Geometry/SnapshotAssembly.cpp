@@ -25,17 +25,18 @@ template <typename Value> bool Extends (const std::map<int32_t, Value>& base, co
 
 bool SnapshotAssembly::CanUpdate (const Snapshot* base, uint64_t stamp, const std::map<int32_t, double>& transparency,
                                   const std::map<int32_t, CapturedMaterialIdentity>& materialIdentity,
-                                  const std::map<int32_t, CapturedSurface>& surfaceAttributes)
+                                  const std::map<int32_t, CapturedSurface>& surfaceAttributes, bool sameCapture)
 {
     return base != nullptr && base->completeModel && base->scope == "all" && base->captureStamp != 0 &&
-           base->captureStamp + 1 == stamp && Extends (base->materialTransparency, transparency) &&
-           Extends (base->materialIdentity, materialIdentity) && Extends (base->surfaceAttributes, surfaceAttributes);
+           base->captureStamp + (sameCapture ? 0u : 1u) == stamp &&
+           Extends (base->materialTransparency, transparency) && Extends (base->materialIdentity, materialIdentity) &&
+           Extends (base->surfaceAttributes, surfaceAttributes);
 }
 
 SnapshotAssembly::SnapshotAssembly (uint64_t id, uint64_t stamp, std::map<int32_t, double> transparency,
                                     std::shared_ptr<const Snapshot> base, std::set<std::string> changed,
                                     std::map<int32_t, CapturedMaterialIdentity> materialIdentity,
-                                    std::map<int32_t, CapturedSurface> surfaceAttributes)
+                                    std::map<int32_t, CapturedSurface> surfaceAttributes, bool sameCapture)
     : result_ (std::make_shared<Snapshot> ()), base_ (std::move (base)), changed_ (std::move (changed))
 {
     result_->id = id;
@@ -45,7 +46,7 @@ SnapshotAssembly::SnapshotAssembly (uint64_t id, uint64_t stamp, std::map<int32_
     result_->surfaceAttributes = std::move (surfaceAttributes);
     if (base_ != nullptr)
         valid_ = !changed_.empty () && CanUpdate (base_.get (), stamp, result_->materialTransparency,
-                                                  result_->materialIdentity, result_->surfaceAttributes);
+                                                  result_->materialIdentity, result_->surfaceAttributes, sameCapture);
 }
 
 void SnapshotAssembly::Add (Mesh mesh)

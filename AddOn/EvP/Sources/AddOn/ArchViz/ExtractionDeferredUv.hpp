@@ -34,6 +34,15 @@ std::set<std::string> Take ();
 // them again and ask for another deferred pass, without end.
 bool Suspended ();
 
+// A partial pass whose base no longer fits (a pool renumber, a missing or older baseline). An edit's
+// pass becomes a full pass over the same acquired model: `filter` cleared, `partial` false, `full`
+// true, and true returned. ⚠️ THE TEXTURE PASS (`refining`) DOES NOT: its base no longer fitting
+// means Archicad changed the model under it, and a full pass there is what reloaded the whole scene
+// after every edit (2026-11-21: 84-91 s each). It puts its elements back (Note), returns false, and
+// the caller gives the pass up; the edit's own pass runs at its stamp, and the texture pass follows
+// the next complete pass.
+bool FallBackToFull (bool refining, std::set<std::string>& filter, bool& partial, bool& full);
+
 } // namespace extractiondeferreduv
 } // namespace archviz
 } // namespace geomsrv
