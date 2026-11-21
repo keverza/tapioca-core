@@ -328,6 +328,9 @@ class ExtractionWorker final {
     // those GUIDs, and anything in the filter the model does NOT contain is
     // pushed as a removal (that is how a delete reaches the scene).
     // Returns false if the pass could not run at all.
+    // #14, ExtractionDeferredUv.cpp: after a complete full pass, the textured elements again with
+    // their texture coordinates.
+    void RunDeferredUv (const Options& opt, bool afterCompleteFullPass);
     bool RunPass (const Options& opt, bool full, const std::set<std::string>& filter,
                   std::vector<std::string>* extractedGuids);
 

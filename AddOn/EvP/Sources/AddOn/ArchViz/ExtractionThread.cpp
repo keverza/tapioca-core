@@ -710,6 +710,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         return RunPass (opt, full, filter, extractedGuids);
     }
     restarts_ = 0;
+    RunDeferredUv (opt, !partial && complete); // #14: textured elements' coordinates, the model being up
     return true;
 }
 

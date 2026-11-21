@@ -32,6 +32,7 @@ namespace geomsrv {
 namespace {
 
 thread_local TextureCoordinateCost g_uvCost;
+thread_local bool g_deferUv = false; // #14: SetTextureCoordinateDeferral
 
 bool TextureCoordinatesEnabled ()
 {
@@ -166,6 +167,11 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                         textured = false;
                     }
                     g_uvCost.milliseconds += MillisecondsSince (asked);
+                    // #14: known textured, read later (ExtractionDeferredUv.hpp).
+                    if (textured && g_deferUv) {
+                        g_uvCost.deferred = true;
+                        textured = false;
+                    }
                 }
                 if (recorder != nullptr)
                     recorder->BeginPolygon (iPoly, material, surfaceAttribute, visibleEdges);
@@ -795,6 +801,11 @@ std::map<int32_t, CapturedSurface> ReadSurfaceAttributes ()
                                           APIGuidToString (attribute.header.guid).ToCStr ().Get (), rgba });
     }
     return result;
+}
+
+void SetTextureCoordinateDeferral (bool defer)
+{
+    g_deferUv = defer;
 }
 
 TextureCoordinateCost TakeTextureCoordinateCost ()

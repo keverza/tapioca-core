@@ -5,6 +5,8 @@
 
 #include "ArchViz/ExtractionSlice.hpp"
 
+#include "ArchViz/ExtractionDeferredUv.hpp"
+
 #include "Geometry/GeometryExtractor.hpp"
 
 #include <Model.hpp>
@@ -37,6 +39,8 @@ bool CaptureElementPacket (ModelerAPI::Model& model, int32_t index, std::vector<
     const TextureCoordinateCost uv = TakeTextureCoordinateCost ();
     packet.uvMilliseconds = uv.milliseconds;
     packet.uvCorners = uv.corners;
+    if (uv.deferred)
+        extractiondeferreduv::Note (packet.mesh.guid);
     packet.captureMilliseconds = std::chrono::duration<double, std::milli> (packet.capturedAt - started).count ();
     packets.push_back (std::move (packet));
     return true;
@@ -63,6 +67,18 @@ void Run (ModelerAPI::Model& model, int32_t count, SliceState& st, const std::se
         st.completed.store (true);
         return;
     }
+    // #14: a full pass (no filter) draws the model before its texture coordinates; they follow in a
+    // partial pass over the textured elements (ExtractionDeferredUv.hpp). Off again on every exit.
+    struct DeferUv {
+        explicit DeferUv (bool on)
+        {
+            SetTextureCoordinateDeferral (on);
+        }
+        ~DeferUv ()
+        {
+            SetTextureCoordinateDeferral (false);
+        }
+    } deferUv (wanted.empty () && !extractiondeferreduv::Suspended ());
     while (i <= count) {
         if (wanted.empty ()) {
             if (!CaptureElementPacket (model, i, st.meshes))

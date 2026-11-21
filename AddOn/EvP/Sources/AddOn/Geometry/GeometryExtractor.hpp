@@ -72,8 +72,13 @@ bool ExtractElementAt (const ModelerAPI::Model& model, int32_t index1Based, Mesh
 struct TextureCoordinateCost {
     double milliseconds = 0.0;
     uint64_t corners = 0;
+    bool deferred = false; // #14: a textured polygon was seen and its coordinates NOT read
 };
 TextureCoordinateCost TakeTextureCoordinateCost ();
+
+// #14: while on, on this thread, a textured polygon's coordinates are not read; the element is
+// marked `deferred` instead (ArchViz/ExtractionDeferredUv.hpp reads them in a later pass).
+void SetTextureCoordinateDeferral (bool defer);
 
 // MAIN THREAD, beside `ExtractElementAt`: what KIND of element sits at this
 // index. A short lowercase name -- "wall", "slab", "railing" -- or "type<N>" for
