@@ -259,6 +259,43 @@ inline void BindAlbedo (Diligent::IShaderResourceBinding* srb, Diligent::ITextur
             variable->Set (view);
 }
 
+// What the mesh draws last set and committed, so a range commits only what changed.
+//
+// ⚠️ COMMIT ONLY WHAT CHANGED. On D3D12 every CommitShaderResources takes fresh descriptors for the
+// SRB's DYNAMIC variables (AO, shadow map, albedo) from a heap shared by every frame in flight.
+// Committing per range (#252) took three per range: a 15,000-element model exhausted it while
+// loading and the driver crashed in CommitRootTables (2026-11-21). The constants are a dynamic
+// buffer every draw re-binds by itself (Diligent's PrepareForDraw), so a range with the same
+// pipeline, the same binding and no new texture needs no commit; an untextured range samples no
+// texture (textureParams.x gates it), so whatever is bound serves it. Reset() wherever anything
+// else sets a pipeline between two mesh draws.
+struct MeshBinding {
+    Diligent::IPipelineState* pso = nullptr;
+    Diligent::IShaderResourceBinding* srb = nullptr;
+    Diligent::ITextureView* albedo = nullptr;
+    void Reset ()
+    {
+        *this = MeshBinding {};
+    }
+    // True when it committed.
+    bool Use (Diligent::IDeviceContext* context, Diligent::IPipelineState* wantPso,
+              Diligent::IShaderResourceBinding* wantSrb, Diligent::ITextureView* wantAlbedo, bool textured)
+    {
+        if (wantPso != pso) {
+            context->SetPipelineState (wantPso);
+            pso = wantPso;
+            srb = nullptr;
+        }
+        if (wantSrb == srb && !(textured && wantAlbedo != albedo))
+            return false;
+        BindAlbedo (wantSrb, wantAlbedo);
+        context->CommitShaderResources (wantSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        srb = wantSrb;
+        albedo = wantAlbedo;
+        return true;
+    }
+};
+
 inline void DrawEntryRange (Diligent::IDeviceContext* context, const Entry& e, const MaterialRange& r)
 {
     Diligent::DrawIndexedAttribs draw;
@@ -1191,6 +1228,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
 
     bool ready = false;
     size_t drawCalls = 0;
+    size_t meshCommits = 0; // resource commits among the mesh draws (each takes D3D12 descriptors)
     // ⚠️ MONOTONIC FOR THE LIFE OF THE SCENE, never reused. Recycling the id of a
     // removed element would let a pick issued before the removal resolve to the
     // element that inherited the number.

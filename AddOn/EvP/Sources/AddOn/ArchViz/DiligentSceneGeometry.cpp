@@ -703,6 +703,7 @@ DiligentSceneStats DiligentScene::Stats () const
     std::copy (std::begin (impl_->textureLaneDrawn), std::end (impl_->textureLaneDrawn), s.texturedRanges);
     s.pending = SceneCmdQueue::Get ().PendingCount ();
     s.drawCalls = impl_->drawCalls;
+    s.meshCommits = impl_->meshCommits;
     s.storeySlices = impl_->storeySliceCount;
     s.storeySliceVertices = impl_->storySlices.OutlineVertexCount ();
     s.storeySliceFillVertices = impl_->storySlices.FillVertexCount ();

@@ -659,6 +659,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
 
     const int shadowMode = ShadowModeIndex (impl_->shadowMap.Settings ().mode);
     Diligent::ITextureView* albedo = nullptr; // #252: the range's texture, set per range below
+    MeshBinding binding;                      // what drawRange last set and committed
+    impl_->meshCommits = 0;
     auto drawRange = [&] (const Entry& e, const MaterialRange& r, bool blended) {
         // ⚠️ HDR PATH SELECTS THE HDR PSO SET. Same shaders, same SRB layout,
         // different RTV format (RGBA16_FLOAT). The pixel shader branches on
@@ -673,9 +675,10 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
             pso = blended ? impl_->blendPso[shadowMode][index] : impl_->opaquePso[shadowMode][index];
             srb = blended ? impl_->blendSrb[shadowMode][index] : impl_->opaqueSrb[shadowMode][index];
         }
-        context->SetPipelineState (pso);
-        BindAlbedo (srb, albedo != nullptr ? albedo : impl_->AlbedoFallbackView ());
-        context->CommitShaderResources (srb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        // Commits only what changed since the last range (MeshBinding, for why).
+        const bool textured = constants.textureParams[0] > 0.5f;
+        if (binding.Use (context, pso, srb, albedo != nullptr ? albedo : impl_->AlbedoFallbackView (), textured))
+            ++impl_->meshCommits;
         BindMesh (context, e);
         DrawEntryRange (context, e, r);
         ++impl_->drawCalls;
@@ -843,6 +846,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         if (!transparentPass && debugView == 0) {
             pointDraws = impl_->pointCloud.Draw (context, viewProj, proj, eye, impl_->viewportWidth,
                                                  impl_->viewportHeight, useHdr, frameIndex);
+            binding.Reset (); // the splats set their own pipeline and binding
             impl_->drawCalls += pointDraws;
         }
     }

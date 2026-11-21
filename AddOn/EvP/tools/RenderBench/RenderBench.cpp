@@ -804,7 +804,9 @@ int main (int argc, char** argv)
                             "/" + std::to_string (s.maxSamples) + " samples, reflections " +
                             (s.reflectionsTraced ? "traced" : "screen-space") + ", sky light " +
                             (s.skyLightTraced ? "traced" : "AO") + ", textured materials " +
-                            std::to_string (s.texturedMaterials) + ", " + std::to_string (framesRun) + " frames" +
+                            std::to_string (s.texturedMaterials) + ", " + std::to_string (framesRun) + " frames, " +
+                            std::to_string (scene.Stats ().drawCalls) + " draws, " +
+                            std::to_string (scene.Stats ().meshCommits) + " commits" +
                             (s.msPerSample > 0.0 ? ", " + std::to_string (s.samplesPerFrame) + " samples/frame at " +
                                                        std::to_string (s.msPerSample) + " ms/sample"
                                                  : std::string ()) +

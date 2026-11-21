@@ -154,6 +154,7 @@ struct DiligentSceneStats {
     size_t gpuBytes = 0;
     size_t pending = 0;
     size_t drawCalls = 0;
+    size_t meshCommits = 0; // of those draws, how many committed resources (D3D12 descriptors)
     // ⚠️ THESE TWO TOGETHER ARE THE DIAGNOSIS FOR A WHITE BUILDING, which is
     // otherwise indistinguishable from a white building: 0 materials = the
     // table never arrived; N materials with misses = the pool was renumbered

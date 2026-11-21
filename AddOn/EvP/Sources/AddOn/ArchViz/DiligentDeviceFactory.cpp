@@ -117,6 +117,14 @@ bool TryCreateD3D12 (RenderBackendChoice& choice, RefCntAutoPtr<Diligent::IRende
     // REQUIRED, not optional: the adapter was chosen for it, so a device without
     // it is the wrong device rather than a lesser one.
     engineCI.Features.RayTracing = Diligent::DEVICE_FEATURE_STATE_ENABLED;
+    // ⚠️ DESCRIPTOR HEAPS SIZED FOR A BUILDING, NOT A SAMPLE. Diligent's defaults (16,384 static,
+    // 8,192 dynamic CBV/SRV/UAV) assume a demo scene; the dynamic part is shared by every frame in
+    // flight, and exhausting it is not an error the app sees -- the driver writes through a null
+    // table and Archicad dies (2026-11-21, a 15,000-element model while loading). Draw commits are
+    // now made only on a change (DiligentSceneDraw.cpp, drawRange); this is the margin on top.
+    // 64 Ki each is 4 MB of descriptors, far inside D3D12's 1,000,000 shader-visible limit.
+    engineCI.GPUDescriptorHeapSize[0] = 65536;
+    engineCI.GPUDescriptorHeapDynamicSize[0] = 65536;
     const std::string dxc = BundledDxCompilerPath ();
     if (!dxc.empty ())
         engineCI.pDxCompilerPath = dxc.c_str ();

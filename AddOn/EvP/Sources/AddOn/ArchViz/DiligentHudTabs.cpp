@@ -179,6 +179,7 @@ void DebugPage (Shell& shell, HudState& state, const DiligentSceneStats& scene, 
                                                              : std::string ("Direct3D 11") });
     gpu.figures.push_back ({ "Adapter", state.adapter.empty () ? std::string ("not known yet") : state.adapter });
     gpu.figures.push_back ({ "Draws", Count (scene.drawCalls) });
+    gpu.figures.push_back ({ "Commits", Count (scene.meshCommits) });
     gpu.figures.push_back ({ "Materials in pool", Count (scene.materials) });
     if (frame.fontNote != nullptr && frame.fontNote[0] != 0)
         gpu.note = frame.fontNote;
