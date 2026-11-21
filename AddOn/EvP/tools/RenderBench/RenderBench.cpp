@@ -122,6 +122,9 @@ struct Options {
     // through it (0.1 degree a frame) -- scored for flicker (#14): see MotionFlicker.
     uint32_t motion = 0;
     bool motionOrbit = false;
+    // --motion N:orbit-stopgo[H] / dolly-stopgo[H]: five frames moving, then H held (default 5), as a hand navigates --
+    // the still image starts and is thrown away again (the Technical white flash, #14).
+    uint32_t motionStopGo = 0; // the held frames after every five moving ones; 0: always moving
     // --edges: the technical edges on (#14 P2), the lines #248 reports moving with the jitter.
     bool edges = false;
     // --converge-settle N / --converge-samples N: the still-camera mean's settle frames and target
@@ -207,7 +210,12 @@ bool ParseArgs (int argc, char** argv, Options& o)
             const std::string m = next ();
             const size_t colon = m.find (':');
             o.motion = uint32_t (std::stoul (m.substr (0, colon)));
-            o.motionOrbit = colon != std::string::npos && m.substr (colon + 1) == "orbit";
+            const std::string kind = colon != std::string::npos ? m.substr (colon + 1) : std::string ();
+            o.motionOrbit = kind.rfind ("orbit", 0) == 0;
+            if (kind.find ("stopgo") != std::string::npos) {
+                const std::string held = kind.substr (kind.find ("stopgo") + 6);
+                o.motionStopGo = held.empty () ? 5u : uint32_t (std::stoul (held));
+            }
         }
         else if (a == "--temporal-change")
             o.temporalChange = std::stoi (next ());
@@ -518,6 +526,8 @@ std::vector<uint8_t> BoxDown (const std::vector<uint8_t>& image, uint32_t w, uin
 View MovedView (const View& view, const Options& o, uint32_t k)
 {
     View moved = view;
+    if (o.motionStopGo)
+        k = (k / (5u + o.motionStopGo)) * 5u + (std::min) (k % (5u + o.motionStopGo), 5u);
     float d[3];
     for (int i = 0; i < 3; ++i)
         d[i] = view.eye[i] - view.target[i];
@@ -945,7 +955,7 @@ int main (int argc, char** argv)
                 for (uint32_t warm = 0; warm < 16; ++warm)
                     RenderFrame (scene, context, targets, o, MovedView (view, o, 0), hud, nextFrame++);
                 std::ofstream csv (o.out + "/" + view.name + "_" + style + "_motion.csv");
-                csv << "frame,flicker,flickerPixels,error\n";
+                csv << "frame,flicker,flickerPixels,error,meanLevel\n";
                 std::vector<uint8_t> previous;
                 double meanSum = 0.0, errorSum = 0.0;
                 size_t pixelSum = 0, worstPixels = 0;
@@ -977,7 +987,11 @@ int main (int argc, char** argv)
                             stbi_write_png ((o.out + "/" + view.name + "_" + style + "_flicker.png").c_str (),
                                             int (o.width), int (o.height), 1, heat.data (), int (o.width));
                         }
-                        csv << k << "," << f.mean << "," << f.pixels << "," << f.error << "\n";
+                        double level = 0.0;
+                        for (size_t p = 0; p < current.size (); p += 4)
+                            level += (int (current[p]) + int (current[p + 1]) + int (current[p + 2])) / 3.0;
+                        level /= double (current.size () / 4);
+                        csv << k << "," << f.mean << "," << f.pixels << "," << f.error << "," << level << "\n";
                         meanSum += f.mean;
                         errorSum += f.error;
                         pixelSum += f.pixels;

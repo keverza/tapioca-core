@@ -773,9 +773,10 @@ struct HudState {
     int ssrMaxSteps = 256;
 
     // ---- RE51.C8: temporal anti-aliasing -----------------------------------
-    // Off until its first live A/B. The control makes the port reversible while
-    // the unfiltered HDR fallback remains exactly the previously verified path.
-    bool temporalAntiAliasing = false;
+    // On (#14): every preview but Wireframe turns it on, and the viewer opened with it off -- a start
+    // view matching no preview, the one live run showed with strong moire on a louvred facade. The
+    // checkbox still turns it off.
+    bool temporalAntiAliasing = true;
     // Sub-pixel smoothing of drag navigation (Camera::SetNavigationSmoothing).
     bool navSmoothing = true;
     // What the last orbit turned about, an OrbitAnchorSource (OrbitAnchor.hpp): the HUD says it.

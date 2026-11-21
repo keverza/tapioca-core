@@ -1572,9 +1572,15 @@ float DenseEdgeFade (float2 p, float2 across, float distanceToEdge, float3 plane
 {
     const float reach[4] = { 1.5, 2.5, 3.5, 4.5 };
     const float fade[4] = { 0.0, 0.2, 0.45, 0.75 };
+    uint width, height;
+    g_edgeDepth.GetDimensions (width, height);
     [unroll] for (int k = 0; k < 4; ++k)
     {
-        float2 q = p - across * (distanceToEdge + reach[k]);
+        // `reach` px inside the face from the edge itself: p is `distanceToEdge` inside already.
+        float2 q = p - across * (reach[k] - distanceToEdge);
+        // ⚠️ OFF THE SCREEN IS NOT THE FACE ENDING: unknown there, so the line keeps its strength.
+        if (q.x < 0.0 || q.y < 0.0 || q.x >= float (width) || q.y >= float (height))
+            return 1.0;
         float gap = PlaneGap (q, plane);
         if (gap == kOffPlane || abs (gap) > PlaneTolerance (plane, q, reach[k]))
             return fade[k];
