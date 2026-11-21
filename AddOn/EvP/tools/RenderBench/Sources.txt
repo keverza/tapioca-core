@@ -31,6 +31,7 @@ ArchViz/StorySliceLayer.cpp
 ArchViz/SceneCmdQueue.cpp
 ArchViz/MaterialTable.cpp
 ArchViz/MaterialTexture.cpp
+ArchViz/ViewerMemory.cpp
 ArchViz/MatrixMath.cpp
 Geometry/SliceEngine.cpp
 Geometry/PlanarTriangulation.cpp

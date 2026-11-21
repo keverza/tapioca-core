@@ -128,6 +128,7 @@ struct Options {
     // (TemporalConvergenceSettings); negative / 0 keeps the viewer's.
     int convergeSettle = -1;
     int convergeSamples = 0;
+    float convergeFilter = -1.0f; // --converge-filter R: the still image's tent radius, px (#14 moire)
     bool section = false;
     int sectionAxis = 2;
     float sectionPosition = 0.5f;
@@ -214,6 +215,8 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.convergeSettle = std::stoi (next ());
         else if (a == "--converge-samples")
             o.convergeSamples = std::stoi (next ());
+        else if (a == "--converge-filter")
+            o.convergeFilter = std::stof (next ());
         else if (a == "--ssr-thickness")
             o.ssrThickness = std::stof (next ());
         else if (a == "--ssr-steps")
@@ -567,6 +570,8 @@ void RenderFrame (av::DiligentScene& scene, Diligent::IDeviceContext* context, T
         convergence.settleFrames = uint32_t (o.convergeSettle);
     if (o.convergeSamples > 0)
         convergence.targetSamples = uint32_t (o.convergeSamples);
+    if (o.convergeFilter >= 0.0f)
+        convergence.filterRadiusPixels = o.convergeFilter;
     scene.SetTemporalConvergence (convergence);
     scene.PrepareTemporalAntiAliasingFrame (context, frame, view16, stableProj, proj, jitter);
     av::Multiply (motionViewProj, view16, stableProj);
@@ -596,6 +601,9 @@ void RenderFrame (av::DiligentScene& scene, Diligent::IDeviceContext* context, T
     scene.SetEnvironmentBackground (hud.environmentBackground);
     scene.SetSunWithSkyWeight (hud.sunWithSkyWeight);
     av::ApplySurfaceLook (scene, hud, false);
+    // ⚠️ AGAIN AFTER THE LOOK, which sets the HUD's convergence settings: without this the traced passes,
+    // which read them while drawing, never saw --converge-filter/-settle/-samples (#14).
+    scene.SetTemporalConvergence (convergence);
     scene.SetAutoExposure (hud.autoExposure);
     scene.SetWhiteBalance (hud.whiteBalanceKelvin, hud.whiteBalanceTint);
     scene.SetAtmosphere (hud.epipolarAtmosphere, hud.atmosphereIntensity, hud.atmosphereLightShafts,
