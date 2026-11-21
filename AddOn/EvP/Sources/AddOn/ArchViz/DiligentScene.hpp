@@ -47,6 +47,7 @@
 #include "ArchViz/GhPreviewLayer.hpp"  // GhPreviewLayer::DrawParams
 #include "ArchViz/StorySliceLayer.hpp" // StorySliceLayer::DrawParams
 #include "ArchViz/Uniforms.hpp"
+#include "ArchViz/ViewerMemory.hpp"
 #include "ArchViz/ViewerSettings.hpp"
 
 #include <cstddef>
@@ -194,6 +195,8 @@ struct DiligentSceneStats {
     SectionCapCounts sectionCaps;
     // The ray-traced style (#231): state, samples, and why it cannot run when it cannot.
     RayTracedStats rayTraced;
+    // #14: what the scene holds, GPU and CPU, and the traced build's cost (ViewerMemory.hpp).
+    ViewerMemory memory;
     // ⚠️ `sunApplied` false means no SetEnvironment ever arrived and the shader
     // is running on a hardcoded default -- indistinguishable from a real sun by
     // eye, and the first thing to check when the model reads flat.
@@ -811,6 +814,9 @@ class DiligentScene final {
     bool SelectionBounds (float outMin[3], float outMax[3]) const;
 
     DiligentSceneStats Stats () const;
+    // #14: the memory report alone, without the rest of Stats -- for the archviz.log line written
+    // after a texture sync and a ray-traced build.
+    ViewerMemory MemoryReport () const;
 
     // ---- RE51.C3: ambient occlusion in the ORDINARY path --------------------
 

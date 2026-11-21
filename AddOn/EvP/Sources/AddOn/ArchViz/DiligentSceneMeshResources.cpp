@@ -180,6 +180,7 @@ void DiligentScene::SyncAlbedoTextures (Diligent::IRenderDevice* device)
     ArchVizLog ("Diligent textures: table materials=" + std::to_string (impl_->materials.Size ()) +
                 " textured=" + std::to_string (textured) + " images=" + std::to_string (wanted.size ()) +
                 " gpuImages=" + std::to_string (impl_->albedoTextures.size ()));
+    ArchVizLog ("Diligent " + FormatViewerMemoryLog (MemoryReport ()));
 }
 
 // #252: the texture lane for one draw range, into `constants`, and the view Draw binds with it.

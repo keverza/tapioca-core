@@ -405,6 +405,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyOverlay.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MaterialTable.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MaterialTexture.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerMemory.cpp"
     # ArchViz/SurfaceClassifier.cpp decides what a surface IS from its numeric
     # channels alone. It is here for the strongest version of the ArchViz
     # argument: every wrong threshold renders a complete, correct building in
@@ -1237,6 +1238,7 @@ set (EVP_TEST_SOURCES
     test_sectioncaps.cpp
     test_temporalconvergence.cpp
     test_materialtexture.cpp
+    test_viewermemory.cpp
     test_raytracedview.cpp
     test_occlusionprepass.cpp
     test_pointcloudply.cpp

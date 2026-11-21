@@ -183,6 +183,11 @@ struct RayTracedStats {
     bool skyLightTraced = false;    // #233: last frame's sky light was occluded by rays
     uint32_t samplesPerFrame = 0;   // #231: what RayTracedBudget asked for this frame
     double msPerSample = 0.0;       // #231: the measured GPU cost of one sample, 0 = not yet
+    // #14 memory and timing: the last build's buffers (positions, uvs, normals, indices, triangle
+    // materials), its BLAS + TLAS scratch, and the CPU time to flatten and record it (0 = never).
+    uint64_t bufferBytes = 0;
+    uint64_t scratchBytes = 0;
+    double buildMs = 0.0;
     std::string reason;
 };
 

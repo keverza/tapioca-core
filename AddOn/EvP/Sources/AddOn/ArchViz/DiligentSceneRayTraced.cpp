@@ -60,7 +60,7 @@ namespace {
 struct GpuMaterial {
     float colorAlpha[4];
     float params[4];
-    float texture[4]; // #231: x slot (-1 untextured), yz 1 / repeat size, w mirror bits
+    float texture[4];  // #231: x slot (-1 untextured), yz 1 / repeat size, w mirror bits
     float rotation[4]; // #252: xy (cos, sin) of the material's texture rotation, zw unused
 };
 
@@ -274,6 +274,24 @@ bool DiligentScene::BuildRayTracedScene (Diligent::IDeviceContext* context, uint
 {
     RayTracedGpu& gpu = *impl_->rayTraced.gpu;
     Diligent::IRenderDevice* device = impl_->device;
+    // #14 memory and timing: the build's CPU time and what it allocated, logged once per build.
+    const auto buildStart = std::chrono::steady_clock::now ();
+    RayTracedStats& buildStats = impl_->rayTraced.stats;
+    buildStats.bufferBytes = 0;
+    buildStats.scratchBytes = 0;
+    auto noteBuild = [&] () {
+        buildStats.buildMs =
+            (std::max) (std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - buildStart)
+                            .count (),
+                        1e-3);
+        for (const Diligent::IBuffer* b : { gpu.positions.RawPtr (), gpu.uvs.RawPtr (), gpu.normals.RawPtr (),
+                                            gpu.indices.RawPtr (), gpu.triangleMaterial.RawPtr () })
+            buildStats.bufferBytes += b != nullptr ? b->GetDesc ().Size : 0;
+        for (const Diligent::IBuffer* b : { gpu.blasScratch.RawPtr (), gpu.tlasScratch.RawPtr () })
+            buildStats.scratchBytes += b != nullptr ? b->GetDesc ().Size : 0;
+        buildStats.triangles = gpu.triangles;
+        ArchVizLog ("Diligent ray traced: scene built; " + FormatViewerMemoryLog (MemoryReport ()));
+    };
     std::vector<RayTracedSource> sources;
     sources.reserve (impl_->elements.size ());
     for (const Entry& e : impl_->elements)
@@ -295,8 +313,10 @@ bool DiligentScene::BuildRayTracedScene (Diligent::IDeviceContext* context, uint
     gpu.triangles = geometry.TriangleCount ();
     gpu.materialIds = geometry.materials;
     gpu.lastMaterials.clear ();
-    if (geometry.TriangleCount () == 0)
+    if (geometry.TriangleCount () == 0) {
+        noteBuild ();
         return true; // an empty model traces as sky
+    }
 
     auto makeBuffer = [&] (const char* name, const void* bytes, size_t size, uint32_t stride, bool tracing,
                            RefCntAutoPtr<Diligent::IBuffer>& out) {
@@ -421,6 +441,7 @@ bool DiligentScene::BuildRayTracedScene (Diligent::IDeviceContext* context, uint
     tlasBuild.InstanceBufferTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
     tlasBuild.ScratchBufferTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
     context->BuildTLAS (tlasBuild);
+    noteBuild ();
     return true;
 }
 
@@ -430,6 +451,9 @@ void DiligentScene::LatchRayTracingFailure (const std::string& why)
     rt.failed = true;
     rt.failure = why;
     rt.gpu.reset ();
+    rt.stats.bufferBytes = 0; // nothing traced is held any more
+    rt.stats.scratchBytes = 0;
+    rt.stats.buildMs = 0.0;
     rt.stats.state = RayTracedState::Unavailable;
     rt.stats.reason = why;
     ArchVizLog ("Diligent scene: ray tracing unavailable (" + why + ")");

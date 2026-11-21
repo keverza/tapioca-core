@@ -615,6 +615,37 @@ bool DiligentScene::SceneBounds (float outMin[3], float outMax[3]) const
     return any;
 }
 
+ViewerMemory DiligentScene::MemoryReport () const
+{
+    ViewerMemory m;
+    if (impl_ == nullptr)
+        return m;
+    for (const std::vector<Entry>* list : { &impl_->elements, &impl_->staticMeshes })
+        for (const Entry& e : *list) {
+            m.meshGpuBytes += e.gpuBytes;
+            if (e.sectionMesh != nullptr) {
+                const SectionMesh& mesh = *e.sectionMesh;
+                m.meshCpuBytes += sizeof (SectionMesh) + mesh.positions.capacity () * sizeof (float) +
+                                  mesh.indices.capacity () * sizeof (uint32_t) + mesh.uvs.capacity () * sizeof (float) +
+                                  mesh.normals.capacity () * sizeof (float);
+            }
+        }
+    for (const auto& [key, texture] : impl_->albedoTextures) {
+        if (texture == nullptr)
+            continue;
+        const Diligent::TextureDesc& desc = texture->GetDesc ();
+        m.textureGpuBytes += TextureGpuBytes (desc.Width, desc.Height, desc.MipLevels, 4); // RGBA8 sRGB
+        ++m.textureImages;
+    }
+    const RayTracedStats& traced = impl_->rayTraced.stats;
+    m.tracedBufferBytes = traced.bufferBytes;
+    m.tracedScratchBytes = traced.scratchBytes;
+    m.tracedTriangles = traced.triangles;
+    m.tracedBuildMs = traced.buildMs;
+    m.msPerSample = traced.msPerSample;
+    return m;
+}
+
 DiligentSceneStats DiligentScene::Stats () const
 {
     DiligentSceneStats s;
@@ -726,6 +757,7 @@ DiligentSceneStats DiligentScene::Stats () const
     s.planCutAreaM2 = impl_->planCutAreaM2;
     s.sectionCaps = impl_->sectionCaps.counts;
     s.rayTraced = RayTracedStatus ();
+    s.memory = MemoryReport ();
 
     const DiligentPointCloudStats pointStats = impl_->pointCloud.Stats ();
     s.pointLayers = pointStats.layers;

@@ -65,6 +65,8 @@ void StatsPage (HudState& state, const DiligentSceneStats& scene, float ui)
                   Count (scene.texturedRanges[0]) + " drawn" +
                   (scene.texturedRanges[1] > 0 ? ", " + Count (scene.texturedRanges[1]) + " lost" : std::string ()) +
                   (scene.texturedRanges[2] > 0 ? ", " + Count (scene.texturedRanges[2]) + " off" : std::string ()) });
+    if (scene.memory.GpuBytes () > 0)
+        model.figures.push_back ({ "Memory", FormatViewerMemoryFigure (scene.memory) }); // #14
     if (scene.pointLayers > 0)
         model.figures.push_back ({ "Point clouds", Count (scene.pointLayers) + ", " + Count (scene.visiblePoints) +
                                                        " of " + Count (scene.points) + " points shown" });
