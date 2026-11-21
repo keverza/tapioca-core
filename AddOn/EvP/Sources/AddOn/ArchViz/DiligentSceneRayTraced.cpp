@@ -61,6 +61,7 @@ struct GpuMaterial {
     float colorAlpha[4];
     float params[4];
     float texture[4]; // #231: x slot (-1 untextured), yz 1 / repeat size, w mirror bits
+    float rotation[4]; // #252: xy (cos, sin) of the material's texture rotation, zw unused
 };
 
 float SrgbToLinear (float c)
@@ -483,12 +484,15 @@ bool DiligentScene::PrepareRayTracedFrame (Diligent::IDeviceContext* context, co
         const DrawnSurface drawn = ResolveDrawnSurface (mat, PresetFor (mat), look);
         table[k] = { { drawn.r, drawn.g, drawn.b, drawn.alpha },
                      { drawn.roughness, drawn.metallic, drawn.reflectance, 0.0f },
-                     { -1.0f, 1.0f, 1.0f, 0.0f } };
+                     { -1.0f, 1.0f, 1.0f, 0.0f },
+                     { 1.0f, 0.0f, 0.0f, 0.0f } };
         if (slots.slotOf[k] >= 0) {
             table[k].texture[0] = float (slots.slotOf[k]);
             table[k].texture[1] = 1.0f / (std::max) (mat.textureSizeX, 1e-6f);
             table[k].texture[2] = 1.0f / (std::max) (mat.textureSizeY, 1e-6f);
             table[k].texture[3] = float ((mat.textureMirrorX ? 1 : 0) | (mat.textureMirrorY ? 2 : 0));
+            table[k].rotation[0] = mat.textureRotation.cosA;
+            table[k].rotation[1] = mat.textureRotation.sinA;
             ++gpu.texturedMaterials;
         }
     }

@@ -53,6 +53,21 @@ void FitTexturePixels (TexturePixels& pixels, uint32_t maxSide);
 // RenderBench). Never 0, which SurfaceMaterial::textureKey reserves for "no texture".
 uint64_t TextureKeyOf (const std::string& identity);
 
+// #252: a material's texture rotation (ModelerAPI::Material::GetTextureRotationAngle, radians) as
+// the (cos, sin) pair the shaders apply. Archicad's coordinate (u, v), in model units, turns to
+// (u cos - v sin, u sin + v cos) BEFORE it is divided by the repeat size -- the order Graphisoft's
+// example renderer uses (DevKitRendering, NewRend::GetTextureUV), so a rotated rectangular image
+// keeps its proportions. A non-finite angle, or one within 1e-6 rad of a whole turn, gives exactly
+// (1, 0), so an unrotated material samples bit for bit as it did before rotation was read.
+struct TextureRotation {
+    float cosA = 1.0f;
+    float sinA = 0.0f;
+};
+TextureRotation TextureRotationOf (double angleRadians);
+
+// CPU reference for the shaders' rotation, for the tests: (u, v) -> (u cos - v sin, u sin + v cos).
+void RotateTextureCoordinate (const TextureRotation& rotation, double& u, double& v);
+
 // #252 diagnostic: how evenly a triangle's texture coordinates map its surface -- the two
 // singular values of the position -> (u, v) map, in coordinate units per model unit. Equal for an
 // undistorted mapping; far apart for a squeezed one (streaks). Zero for a degenerate triangle.

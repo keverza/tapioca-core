@@ -56,7 +56,8 @@ StructuredBuffer<uint>   g_indices;
 StructuredBuffer<uint>   g_triangleMaterial;
 // texture: x the slot in g_albedo (< 0 untextured), yz 1 / the size one repeat covers, w mirror
 // bits (1 x, 2 y) -- the raster's g_textureParams, resolved by the same gate (TexturesShown).
-struct Material { float4 colorAlpha; float4 params; float4 texture; };
+// rotation: xy (cos, sin) of the material's texture rotation -- the raster's g_textureRotation.
+struct Material { float4 colorAlpha; float4 params; float4 texture; float4 rotation; };
 StructuredBuffer<Material> g_materials;
 Texture2D<float4> g_envMap;
 SamplerState      g_envMap_sampler;
@@ -198,7 +199,8 @@ float3 TextureColour (Material m, Hit h, uint i0, uint i1, uint i2, float3 a, fl
 {
     float2 u0 = g_uvs[i0], u1 = g_uvs[i1], u2 = g_uvs[i2];
     float2 uv = u0 + h.bary.x * (u1 - u0) + h.bary.y * (u2 - u0);
-    float2 t = uv * m.texture.yz;
+    float2 cs = m.rotation.xy; // rotate in Archicad's units, then scale (TextureRotationOf)
+    float2 t = float2 (uv.x * cs.x - uv.y * cs.y, uv.x * cs.y + uv.y * cs.x) * m.texture.yz;
     float2 s = float2 (t.x, -t.y);
     uint mirror = (uint) (m.texture.w + 0.5);
     if ((mirror & 1u) != 0u)

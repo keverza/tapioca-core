@@ -375,6 +375,9 @@ struct DiligentSceneConstants {
     // #252, per draw range: x = 1 when the range samples g_albedoMap, y/z = 1 / the size one repeat
     // of the image covers, w = mirror bits (1 = x, 2 = y). x = 0 draws the surface colour.
     float textureParams[4] = { 0.0f, 1.0f, 1.0f, 0.0f };
+    // #252, per draw range: xy = the material's texture rotation (cos, sin), applied to Archicad's
+    // coordinate before the repeat scale (TextureRotationOf). zw unused. (1, 0) = unrotated.
+    float textureRotation[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -416,7 +419,7 @@ enum class DiligentDebugView : int {
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
                                                       16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48 + 32 + 256 +
-                                                      16 + 256 + 16 + 80 + 16 + 16 + 16,
+                                                      16 + 256 + 16 + 80 + 16 + 16 + 16 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -490,6 +493,7 @@ cbuffer ArchVizConstants
                                 // z = the near plane, for the Technical edges' coplanar test (#14)
     float4   g_sectionPlane;    // keep where dot(xyz, p) + w >= 0; (0,0,0,1) = no section (#14 P2)
     float4   g_textureParams;   // #252 per range: x textured, yz 1/repeat size, w mirror bits (1 x, 2 y)
+    float4   g_textureRotation; // #252 per range: xy = (cos, sin) of the material's texture rotation
 };
 
 // The section plane's signed distance, for SV_ClipDistance0: negative is cut away.
@@ -2624,7 +2628,9 @@ SamplerState g_albedoMap_sampler;
 
 float4 SampleAlbedoMap (float2 uv)
 {
-    float2 t = uv * g_textureParams.yz;
+    // Rotate in Archicad's units, then scale: a rectangular image keeps its proportions.
+    const float2 cs = g_textureRotation.xy;
+    float2 t = float2 (uv.x * cs.x - uv.y * cs.y, uv.x * cs.y + uv.y * cs.x) * g_textureParams.yz;
     const float2 dx = ddx (t);
     const float2 dy = ddy (t);
     const uint mirror = (uint) (g_textureParams.w + 0.5);

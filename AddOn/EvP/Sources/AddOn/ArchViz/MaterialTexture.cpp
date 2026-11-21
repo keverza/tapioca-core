@@ -45,6 +45,28 @@ uint64_t TextureKeyOf (const std::string& identity)
     return hash == 0 ? 1 : hash;
 }
 
+TextureRotation TextureRotationOf (double angleRadians)
+{
+    TextureRotation r;
+    if (!std::isfinite (angleRadians))
+        return r;
+    const double turn = 6.283185307179586;
+    const double wrapped = angleRadians - turn * std::floor (angleRadians / turn); // [0, 2 pi)
+    if (wrapped < 1e-6 || turn - wrapped < 1e-6)
+        return r;
+    r.cosA = float (std::cos (wrapped));
+    r.sinA = float (std::sin (wrapped));
+    return r;
+}
+
+void RotateTextureCoordinate (const TextureRotation& rotation, double& u, double& v)
+{
+    const double ru = u * rotation.cosA - v * rotation.sinA;
+    const double rv = u * rotation.sinA + v * rotation.cosA;
+    u = ru;
+    v = rv;
+}
+
 UvStretch TriangleUvStretch (const float* p0, const float* p1, const float* p2, const float* t0, const float* t1,
                              const float* t2)
 {

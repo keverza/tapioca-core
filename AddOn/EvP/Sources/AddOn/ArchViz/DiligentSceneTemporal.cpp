@@ -307,6 +307,8 @@ void DiligentScene::Impl::BeginFrameContent (const DiligentSceneConstants& const
                 const DrawnSurface drawn = ResolveDrawnSurface (mat, PresetFor (mat), look);
                 NoteDrawnContent (e, &r, &drawn);
                 frameContent.Add (mat.textureKey); // #252: a texture swapped under an unchanged colour
+                frameContent.Add (mat.textureRotation.cosA); // #252: or turned
+                frameContent.Add (mat.textureRotation.sinA);
             }
         }
     }

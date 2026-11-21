@@ -207,6 +207,8 @@ Diligent::ITextureView* DiligentScene::Impl::AlbedoFor (const SurfaceMaterial& m
     constants.textureParams[1] = 1.0f / (std::max) (material.textureSizeX, 1e-6f);
     constants.textureParams[2] = 1.0f / (std::max) (material.textureSizeY, 1e-6f);
     constants.textureParams[3] = float ((material.textureMirrorX ? 1 : 0) | (material.textureMirrorY ? 2 : 0));
+    constants.textureRotation[0] = material.textureRotation.cosA;
+    constants.textureRotation[1] = material.textureRotation.sinA;
     return found->second->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
 }
 

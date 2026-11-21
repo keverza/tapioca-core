@@ -169,6 +169,19 @@ void ReadMaterialTexture (const ModelerAPI::Model& model, const ModelerAPI::Mate
         m.textureSizeY = texture.GetYSize () > 1e-6 ? float (texture.GetYSize ()) : 1.0f;
         m.textureMirrorX = texture.IsMirroredInX ();
         m.textureMirrorY = texture.IsMirroredInY ();
+        const double angle = material.GetTextureRotationAngle ();
+        m.textureRotation = TextureRotationOf (angle);
+        // Live check of the rotation's convention: one line per rotated material and angle.
+        static std::map<std::string, double> s_rotationsLogged; // main thread only
+        if (m.textureRotation.sinA != 0.0f) {
+            const std::string materialName = material.GetName ().ToCStr ().Get ();
+            auto logged = s_rotationsLogged.find (materialName);
+            if (logged == s_rotationsLogged.end () || logged->second != angle) {
+                s_rotationsLogged[materialName] = angle;
+                ArchVizLog ("Diligent textures: '" + materialName + "' rotates '" + found->second->name + "' by " +
+                            std::to_string (angle * 57.29577951308232) + " deg");
+            }
+        }
         table.SetTexture (m.textureKey, found->second);
     }
     catch (const GS::Exception&) {

@@ -140,6 +140,8 @@ struct SurfaceMaterial {
     float textureSizeY = 1.0f;
     bool textureMirrorX = false;
     bool textureMirrorY = false;
+    // Material::GetTextureRotationAngle as (cos, sin); (1, 0) unrotated. See TextureRotationOf.
+    TextureRotation textureRotation;
 
     std::string name;
 

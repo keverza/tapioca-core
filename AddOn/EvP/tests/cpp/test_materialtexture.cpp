@@ -11,6 +11,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 using namespace geomsrv;
 using namespace geomsrv::archviz;
 
@@ -145,4 +147,34 @@ TEST (MaterialTexture, WeldKeepsTheFirstVertexsOwnCoordinate)
     EXPECT_FLOAT_EQ (mesh.uvs[1], -228.25f);
     EXPECT_FLOAT_EQ (mesh.uvs[2], 88.25f);
     EXPECT_FLOAT_EQ (mesh.uvs[4], 0.0f);
+}
+
+// Material::GetTextureRotationAngle: an unrotated material must stay bit-identical, and a turn
+// follows Graphisoft's example renderer, (u cos - v sin, u sin + v cos), before the repeat scale.
+TEST (MaterialTexture, RotationZeroAndWholeTurnsAreExactlyTheIdentity)
+{
+    for (double angle : { 0.0, 6.283185307179586, -6.283185307179586, 1e-9, std::nan ("") }) {
+        const TextureRotation r = TextureRotationOf (angle);
+        EXPECT_EQ (r.cosA, 1.0f) << angle;
+        EXPECT_EQ (r.sinA, 0.0f) << angle;
+    }
+}
+
+TEST (MaterialTexture, RotationTurnsTheCoordinateCounterClockwise)
+{
+    const TextureRotation quarter = TextureRotationOf (1.5707963267948966);
+    double u = 2.0, v = 0.0;
+    RotateTextureCoordinate (quarter, u, v);
+    EXPECT_NEAR (u, 0.0, 1e-6);
+    EXPECT_NEAR (v, 2.0, 1e-6);
+
+    const TextureRotation negative = TextureRotationOf (-0.5235987755982988); // -30 deg == 330 deg
+    const TextureRotation wrapped = TextureRotationOf (5.759586531581287);
+    EXPECT_NEAR (negative.cosA, wrapped.cosA, 1e-6);
+    EXPECT_NEAR (negative.sinA, wrapped.sinA, 1e-6);
+    u = 1.0;
+    v = 1.0;
+    RotateTextureCoordinate (negative, u, v);
+    EXPECT_NEAR (u, 0.8660254 + 0.5, 1e-6); // u cos - v sin, sin = -0.5
+    EXPECT_NEAR (v, -0.5 + 0.8660254, 1e-6);
 }
