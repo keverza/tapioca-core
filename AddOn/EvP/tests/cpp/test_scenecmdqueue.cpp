@@ -375,3 +375,27 @@ TEST_F (SceneQueueTest, SurvivesConcurrentProducerAndConsumer)
     EXPECT_EQ (q.PendingCount (), 0u);
     EXPECT_EQ (q.PendingBytes (), 0u);
 }
+
+// #14: the scene skips a re-read of the same sun (DiligentScene::Consume), so equality must see
+// every field that changes the light and none that a re-read could change by itself.
+TEST (SceneCmdQueue, EnvironmentEqualityIsEveryField)
+{
+    EnvironmentUpload a;
+    a.sunX = 0.3f;
+    a.sunY = -0.5f;
+    a.sunZ = 0.8f;
+    a.hour = 14;
+    EnvironmentUpload b = a;
+    EXPECT_TRUE (a == b);
+    b.sunZ = 0.81f;
+    EXPECT_FALSE (a == b);
+    b = a;
+    b.ambient = 0.4f;
+    EXPECT_FALSE (a == b);
+    b = a;
+    b.minute = 1;
+    EXPECT_FALSE (a == b);
+    b = a;
+    b.sunBelowHorizon = true;
+    EXPECT_FALSE (a == b);
+}

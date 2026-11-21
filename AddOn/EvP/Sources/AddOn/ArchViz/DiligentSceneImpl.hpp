@@ -1010,6 +1010,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     float sun[3] = { 0.0f, 0.0f, 1.0f };
     float ambient = 0.35f;
     bool sunApplied = false;
+    EnvironmentUpload lastEnvironment; // #14: the last applied, so an identical re-read is not a change
     bool sunBelowHorizon = false;
     // The HUD's override. See DiligentScene.hpp -- it exists to settle whether
     // Archicad's sunAngXY is measured from +X or from project north.

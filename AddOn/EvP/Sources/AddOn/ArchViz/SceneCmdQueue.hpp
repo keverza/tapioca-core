@@ -245,6 +245,9 @@ struct EnvironmentUpload {
     bool haveComputedSun = false;
     float computedAzimuthDegrees = 0.0f;
     float computedAltitudeDegrees = 0.0f;
+
+    // #14: every field, so the consumer can tell a re-read of the same sun from a new one.
+    bool operator== (const EnvironmentUpload&) const = default;
 };
 
 // Every storey's cut, unioned and already turned into triangles.

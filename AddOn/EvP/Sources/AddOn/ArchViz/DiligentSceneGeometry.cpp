@@ -176,6 +176,17 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
 
             case SceneCmdType::SetEnvironment: {
                 const EnvironmentUpload& env = cmd.environment;
+                // ⚠️ THE SAME SUN AGAIN IS NOT A CHANGE (#14). The model watch re-reads it on every
+                // poll that finds no element change, about once a second, and a consumed command
+                // resets TAA and the still-camera mean (DiligentViewport.cpp): a still view in
+                // Archicad converged, was thrown back, and converged again, a rhythmic flicker
+                // that RenderBench, with no model watch, never showed. A changed sun still
+                // restarts the mean through the content key.
+                if (impl_->sunApplied && env == impl_->lastEnvironment) {
+                    --applied;
+                    break;
+                }
+                impl_->lastEnvironment = env;
                 // ⚠️ NORMALISED HERE, not by the producer: a sun below the
                 // horizon can arrive as a zero-length vector, and normalize(0)
                 // in a shader is a NaN that renders as black geometry.
