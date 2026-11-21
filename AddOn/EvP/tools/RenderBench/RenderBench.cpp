@@ -114,6 +114,11 @@ struct Options {
     // --temporal-change K: from the K-th of those frames on, the white balance moves to 4500 K -- a
     // content change made while the view is converged (and idle), which must reach the picture.
     int temporalChange = -1;
+    // --motion N[:dolly|orbit]: after the picture (and --temporal), N frames of a moving camera --
+    // a dolly towards the target (0.3 % of the distance a frame) or an orbit about the vertical
+    // through it (0.1 degree a frame) -- scored for flicker (#14): see MotionFlicker.
+    uint32_t motion = 0;
+    bool motionOrbit = false;
     // --edges: the technical edges on (#14 P2), the lines #248 reports moving with the jitter.
     bool edges = false;
     // --converge-settle N / --converge-samples N: the still-camera mean's settle frames and target
@@ -192,6 +197,12 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.frames = uint32_t (std::stoul (next ()));
         else if (a == "--temporal")
             o.temporal = uint32_t (std::stoul (next ()));
+        else if (a == "--motion") {
+            const std::string m = next ();
+            const size_t colon = m.find (':');
+            o.motion = uint32_t (std::stoul (m.substr (0, colon)));
+            o.motionOrbit = colon != std::string::npos && m.substr (colon + 1) == "orbit";
+        }
         else if (a == "--temporal-change")
             o.temporalChange = std::stoi (next ());
         else if (a == "--converge-settle")
@@ -433,6 +444,55 @@ FrameChange CompareFrames (const std::vector<uint8_t>& a, const std::vector<uint
             ++change.pixels;
     }
     return change;
+}
+
+// #14: how much a moving camera's picture flickers. A smooth motion changes each pixel at a steady
+// rate, so its SECOND difference over three frames, |c - 2b + a|, stays near zero; geometry or
+// lines finer than a pixel falling in and out of pixel centres (moire, edge shimmer) make it spike.
+// `mean` is that difference in levels over every pixel; `pixels` counts those above `threshold`.
+struct Flicker {
+    double mean = 0.0;
+    size_t pixels = 0;
+};
+
+Flicker MotionFlicker (const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, const std::vector<uint8_t>& c,
+                       int threshold)
+{
+    Flicker f;
+    if (a.size () != b.size () || b.size () != c.size () || a.empty ())
+        return f;
+    double sum = 0.0;
+    for (size_t p = 0; p + 3 < a.size (); p += 4) {
+        int worst = 0;
+        for (size_t k = 0; k < 3; ++k)
+            worst = std::max (worst, std::abs (int (c[p + k]) - 2 * int (b[p + k]) + int (a[p + k])));
+        sum += worst;
+        if (worst > threshold)
+            ++f.pixels;
+    }
+    f.mean = sum / double (a.size () / 4);
+    return f;
+}
+
+// The camera `k` frames into --motion.
+View MovedView (const View& view, const Options& o, uint32_t k)
+{
+    View moved = view;
+    float d[3];
+    for (int i = 0; i < 3; ++i)
+        d[i] = view.eye[i] - view.target[i];
+    if (o.motionOrbit) {
+        const float angle = 0.1f * float (k) * 3.14159265f / 180.0f;
+        const float c = std::cos (angle), s = std::sin (angle);
+        moved.eye[0] = view.target[0] + c * d[0] - s * d[1];
+        moved.eye[1] = view.target[1] + s * d[0] + c * d[1];
+    }
+    else {
+        const float scale = std::pow (0.997f, float (k));
+        for (int i = 0; i < 3; ++i)
+            moved.eye[i] = view.target[i] + d[i] * scale;
+    }
+    return moved;
 }
 
 // One frame, in DiligentViewport's order. `frame` drives TAA's jitter sequence and the tracer's
@@ -812,6 +872,42 @@ int main (int argc, char** argv)
                                ", \"lastPixels\": " + std::to_string (last.pixels) +
                                ", \"lastLargest\": " + std::to_string (last.largest) +
                                ", \"settledAt\": " + std::to_string (settledAt) + " }";
+            }
+            // --motion: the moving camera's flicker (#14), one row per frame.
+            if (o.motion > 2 && style != "reference" && style != "mask") {
+                constexpr int kThreshold = 24;
+                std::ofstream csv (o.out + "/" + view.name + "_" + style + "_motion.csv");
+                csv << "frame,flickerMean,flickerPixels\n";
+                std::vector<uint8_t> a, b;
+                double meanSum = 0.0;
+                size_t pixelSum = 0, worstPixels = 0;
+                uint32_t scored = 0;
+                for (uint32_t k = 0; k < o.motion; ++k) {
+                    RenderFrame (scene, context, targets, o, MovedView (view, o, k), hud, nextFrame++);
+                    std::vector<uint8_t> c = ReadBack (context, targets, o.width, o.height);
+                    if (k == o.motion / 2)
+                        stbi_write_png ((o.out + "/" + view.name + "_" + style + "_moving.png").c_str (), int (o.width),
+                                        int (o.height), 4, c.data (), int (o.width) * 4);
+                    if (k >= 2) {
+                        const Flicker f = MotionFlicker (a, b, c, kThreshold);
+                        csv << (nextFrame - 1) << "," << f.mean << "," << f.pixels << "\n";
+                        meanSum += f.mean;
+                        pixelSum += f.pixels;
+                        worstPixels = std::max (worstPixels, f.pixels);
+                        ++scored;
+                    }
+                    a = std::move (b);
+                    b = std::move (c);
+                }
+                const double mean = scored > 0 ? meanSum / scored : 0.0;
+                const double pixels = scored > 0 ? double (pixelSum) / scored : 0.0;
+                av::ArchVizLog ("bench: motion " + view.name + "_" + style + ": " + std::to_string (o.motion) +
+                                " frames " + (o.motionOrbit ? "orbit" : "dolly") + ", flicker mean " +
+                                std::to_string (mean) + " levels, " + std::to_string (pixels) +
+                                " px > 24 a frame (worst " + std::to_string (worstPixels) + ")");
+                temporalJson += ", \"motion\": { \"frames\": " + std::to_string (o.motion) +
+                                ", \"flickerMean\": " + std::to_string (mean) +
+                                ", \"flickerPixels\": " + std::to_string (pixels) + " }";
             }
             const av::RayTracedStats s = scene.RayTracedStatus ();
             av::ArchVizLog ("bench: " + file + (saved ? " saved" : " NOT saved") + " in " + std::to_string (seconds) +

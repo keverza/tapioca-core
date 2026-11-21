@@ -31,37 +31,75 @@ import compare  # noqa: E402
 #   fireplace        polished floor, small room, mixed materials
 #   cornell-sphere   two glossy spheres (#231): a tessellated curve, faceted wherever a pass
 #                    shades with the flat triangle normal instead of the vertex normals
+#   louvres          30 mm slats at 60 mm centres over a glazed box (#14): sub-pixel detail that
+#                    shimmers while the camera moves; score it with --extra "--motion 48".
 #   glazing          a glazed front (#231): the sky and a block in the pane, a red wall through it.
 #                    The bench's own fixture (scenes/, from make_glazing.py); a path starting with
 #                    "@" is relative to that folder, not to --scenes.
 SCENES = {
-    "cornell-mirror": ("CornellBox/CornellBox-Mirror.obj", 1.0, [
-        "front:0,-3.6,1:0,0,1:40",
-        "oblique:0.8,-2.2,1.5:-0.2,0.2,0.8:50",
-    ]),
-    "cornell-glossy": ("CornellBox/CornellBox-Glossy-Floor.obj", 1.0, [
-        "front:0,-3.6,1:0,0,1:40",
-        "low:0.3,-2.0,0.35:0,0.4,0.4:55",
-    ]),
-    "cornell-sphere": ("CornellBox/CornellBox-Sphere.obj", 1.0, [
-        "front:0,-3.6,1:0,0,1:40",
-        "close:0.2,-1.4,0.6:0,0.3,0.4:50",
-    ]),
-    "bathroom": ("salle_de_bain/salle_de_bain.obj", 0.1, [
-        "mirror:0,-1.9,1.6:0,2.3,1.4:65",
-        "tiles:1.2,-1.6,1.5:-0.6,1.5,0.6:65",
-    ]),
-    "living": ("living_room/living_room.obj", 1.0, [
-        "long:0.3,0.1,1.4:0.3,-6.0,0.9:60",
-        "floor:2.5,-1.0,1.0:-1.5,-5.5,0.3:60",
-    ]),
-    "fireplace": ("fireplace_room/fireplace_room.obj", 1.0, [
-        "room:4.8,1.5,1.5:0,1.5,1.0:65",
-    ]),
-    "glazing": ("@glazing.obj", 1.0, [
-        "facade:5,-8,1.7:-1,2,1.4:55",
-        "front:0,-6,1.5:0,3,1.4:50",
-    ]),
+    "cornell-mirror": (
+        "CornellBox/CornellBox-Mirror.obj",
+        1.0,
+        [
+            "front:0,-3.6,1:0,0,1:40",
+            "oblique:0.8,-2.2,1.5:-0.2,0.2,0.8:50",
+        ],
+    ),
+    "cornell-glossy": (
+        "CornellBox/CornellBox-Glossy-Floor.obj",
+        1.0,
+        [
+            "front:0,-3.6,1:0,0,1:40",
+            "low:0.3,-2.0,0.35:0,0.4,0.4:55",
+        ],
+    ),
+    "cornell-sphere": (
+        "CornellBox/CornellBox-Sphere.obj",
+        1.0,
+        [
+            "front:0,-3.6,1:0,0,1:40",
+            "close:0.2,-1.4,0.6:0,0.3,0.4:50",
+        ],
+    ),
+    "bathroom": (
+        "salle_de_bain/salle_de_bain.obj",
+        0.1,
+        [
+            "mirror:0,-1.9,1.6:0,2.3,1.4:65",
+            "tiles:1.2,-1.6,1.5:-0.6,1.5,0.6:65",
+        ],
+    ),
+    "living": (
+        "living_room/living_room.obj",
+        1.0,
+        [
+            "long:0.3,0.1,1.4:0.3,-6.0,0.9:60",
+            "floor:2.5,-1.0,1.0:-1.5,-5.5,0.3:60",
+        ],
+    ),
+    "fireplace": (
+        "fireplace_room/fireplace_room.obj",
+        1.0,
+        [
+            "room:4.8,1.5,1.5:0,1.5,1.0:65",
+        ],
+    ),
+    "louvres": (
+        "@louvres.obj",
+        1.0,
+        [
+            "aerial:-22,-30,20:0,2,3.5:45",
+            "street:-9,-14,4:0,0,4:50",
+        ],
+    ),
+    "glazing": (
+        "@glazing.obj",
+        1.0,
+        [
+            "facade:5,-8,1.7:-1,2,1.4:55",
+            "front:0,-6,1.5:0,3,1.4:50",
+        ],
+    ),
 }
 
 
@@ -90,12 +128,33 @@ def main():
         out.mkdir(parents=True, exist_ok=True)
         for old in out.glob("*.png"):
             old.unlink()
-        cmd = [str(BENCH), "--scene", str(scene), "--yup", "--scale", str(scale), "--out", str(out),
-               "--size", args.size, "--samples", args.samples, "--frames", args.frames, "--styles", args.styles,
-               "--sun", args.sun] + [a for v in views for a in ("--view", v)] + args.extra.split()
+        cmd = (
+            [
+                str(BENCH),
+                "--scene",
+                str(scene),
+                "--yup",
+                "--scale",
+                str(scale),
+                "--out",
+                str(out),
+                "--size",
+                args.size,
+                "--samples",
+                args.samples,
+                "--frames",
+                args.frames,
+                "--styles",
+                args.styles,
+                "--sun",
+                args.sun,
+            ]
+            + [a for v in views for a in ("--view", v)]
+            + args.extra.split()
+        )
         run = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
         lines = [l for l in run.stderr.splitlines() if l.startswith("bench:") and "material" not in l]
-        print("\n".join(lines[-len(views) * 4:]))
+        print("\n".join(lines[-len(views) * 4 :]))
         if run.returncode != 0:
             print(f"{name}: bench exit {run.returncode}")
             print("\n".join(run.stderr.splitlines()[-20:]))
