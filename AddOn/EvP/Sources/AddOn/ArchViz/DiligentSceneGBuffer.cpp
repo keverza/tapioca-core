@@ -653,9 +653,11 @@ DiligentScene::ExecuteTemporalAntiAliasing (Diligent::IDeviceContext* context, D
         impl_->gBuffer->GetBuffer (kGBufferDepth)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
     Diligent::ITextureView* motionSrv =
         impl_->gBuffer->GetBuffer (kGBufferMotion)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    // #14 moire: no history while the still image accumulates (TemporalConvergence::RawSamplesThisFrame).
+    const float stability = impl_->temporalConvergence.RawSamplesThisFrame () ? 0.0f : impl_->taaStability;
     impl_->taaView = impl_->temporalAntiAliasing.Execute (
         impl_->device, context, sourceColor, depthSrv, motionSrv, impl_->viewportWidth, impl_->viewportHeight,
-        frameIndex, view, proj, viewProj, eye, nearClip, farClip, focusDistance, jitter, impl_->taaStability);
+        frameIndex, view, proj, viewProj, eye, nearClip, farClip, focusDistance, jitter, stability);
     impl_->taaResolvedThisFrame = impl_->taaView != nullptr;
 
     // ---- RE51.C8: resolve the coverage as well ----------------------------
@@ -686,7 +688,7 @@ DiligentScene::ExecuteTemporalAntiAliasing (Diligent::IDeviceContext* context, D
         context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
 
         impl_->taaCoverageView = impl_->temporalAntiAliasing.ExecuteCoverage (
-            impl_->device, context, impl_->coverageSRV, frameIndex, impl_->taaStability);
+            impl_->device, context, impl_->coverageSRV, frameIndex, stability);
     }
     return impl_->taaView;
 }

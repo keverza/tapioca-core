@@ -181,6 +181,16 @@ class TemporalConvergence {
     {
         return phase_;
     }
+    // #14 moire: whether TAA should hand the mean THIS frame's sample, with no history -- every
+    // accumulating frame after the first. The mean is then of independent tent-jittered samples,
+    // i.e. a true tent-filtered image. TAA's own history (variance-clipped against each frame's
+    // neighbourhood) otherwise shaped what was averaged, and 64 frames of it came out with more
+    // moire than a plain 16-sample box (RenderBench louvres). The first sample stays TAA's, so
+    // the mean starts from the picture already on screen.
+    bool RawSamplesThisFrame () const
+    {
+        return phase_ == TemporalPhase::Accumulating && samples_ > 0;
+    }
     uint32_t Samples () const
     {
         return samples_;

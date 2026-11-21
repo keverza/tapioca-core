@@ -9,6 +9,8 @@
 
 #include <gtest/gtest.h>
 
+#include <vector>
+
 #include <cmath>
 
 using namespace geomsrv::archviz;
@@ -305,4 +307,21 @@ TEST (TemporalConvergence, TentOffsetsSpanTheRadiusMonotonicAndSymmetric)
     }
     // Half the samples within 1 - sqrt(1/2) of the centre: the tent's median distance.
     EXPECT_NEAR (TentOffsetPixels (0.75f, 1.0f), 1.0f - std::sqrt (0.5f), 1e-5f);
+}
+
+// #14 moire: TAA hands the mean raw samples (no history) on every accumulating frame but the first,
+// which stays TAA's so the mean starts from the picture on screen; never while moving or settling.
+TEST (TemporalConvergence, RawSamplesOnlyAfterTheMeansFirstSample)
+{
+    TemporalConvergence t;
+    Frame f;
+    std::vector<bool> raw;
+    for (int i = 0; i < 9; ++i) {
+        t.BeginFrame (f.view, f.proj, f.width, f.height, true, Small ());
+        raw.push_back (t.RawSamplesThisFrame ());
+        t.EndFrame (7, true);
+    }
+    // moving, settle x2, sample 1 (TAA), samples 2..4 (raw), converged x2
+    const std::vector<bool> expected { false, false, false, false, true, true, true, false, false };
+    EXPECT_EQ (raw, expected);
 }
