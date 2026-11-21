@@ -602,7 +602,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             camera.GetProjMatrix (stableProj, height > 0 ? float (width) / float (height) : 1.0f);
 
             const bool taaActive =
-                hudState.temporalAntiAliasing && hudState.renderQuality == int (RenderQuality::Realistic) &&
+                hudState.temporalAntiAliasing && !hudState.readOnly && // #14: Fast too, not the overlay
                 hudState.debugView == int (DiligentDebugView::Final) &&
                 debugView_.load () == int (DiligentDebugView::Final) && !camera.IsOrthographic () && !blanked;
             scene.SetTemporalAntiAliasing (taaActive, hudState.taaStability);

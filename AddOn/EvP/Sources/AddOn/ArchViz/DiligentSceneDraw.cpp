@@ -387,11 +387,11 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // would tone-map the normals or the roughness, which is exactly what the
     // debug views exist to avoid.
     //
-    // ⚠️ IF THE HDR TARGET CANNOT BE ALLOCATED, FALL BACK TO LDR. A resize that
-    // fails to create the offscreen texture must not take the whole frame with
-    // it; the LDR path produces a correct image, just one where each shader
-    // tone-maps individually rather than in one resolve.
-    const bool useHdr = (impl_->renderQuality == RenderQuality::Realistic && debugView == 0 && EnsureHdrTarget ());
+    // ⚠️ IF THE HDR TARGET CANNOT BE ALLOCATED, FALL BACK TO LDR: a correct image, each shader
+    // tone-mapping itself rather than in one resolve. #14: Fast goes through it too when TAA is on
+    // (TAA resolves the HDR image), the same Grade() applied once at the end instead of per shader.
+    const bool hdrWanted = impl_->renderQuality == RenderQuality::Realistic || impl_->taaEnabled;
+    const bool useHdr = hdrWanted && debugView == 0 && EnsureHdrTarget ();
 
     // ⚠️ BOUND HERE, NOT INHERITED. See the header: two passes inside this call
     // rebind the render targets for their own purposes, and inheriting the
@@ -593,7 +593,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // mesh PS and the env background PS skip Grade() and write raw radiance;
     // the resolve pass at the end applies it once. Set once here and it rides
     // through every per-range upload, exactly as materialParams[1] does.
-    constants.frameControl[0] = useHdr ? 1.0f : 0.0f;
+    constants.frameControl[0] = useHdr ? (impl_->renderQuality == RenderQuality::Realistic ? 1.0f : 2.0f) : 0.0f;
     // 0: no material focus; 1: desaturated context; 2: white-model context
     // (SurfaceFocusContext and the mesh PS's albedo in DiligentShaders.hpp).
     constants.frameControl[2] = surfaceFocus && debugView == 0 ? (surfaceWhiteModel ? 2.0f : 1.0f) : 0.0f;
@@ -861,8 +861,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     //
     // ⚠️ THE FRAME CONTROL FLAG IS SET BACK TO 0 BEFORE THE UPLOAD, so the
     // resolve PS's own Grade() call reads the same exposure and white balance
-    // the LDR path would have applied. The resolve PS does NOT branch on
-    // g_frameControl.x -- it always tone-maps.
+    // the LDR path would have applied. #14: 2 is Fast's own display colour under TAA, which
+    // the resolve passes through ungraded and every other shader treats as 0.
     //
     // ⚠️ g_gradeParams.w IS REUSED AS THE SSR INTENSITY IN THE RESOLVE PASS.
     // In the mesh shader it is the AO intensity; in the resolve pass AO is
@@ -923,7 +923,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         else if (mean != nullptr)
             resolvedHdr = mean;
 
-        constants.frameControl[0] = 0.0f;
+        constants.frameControl[0] = impl_->renderQuality == RenderQuality::Realistic ? 0.0f : 2.0f;
         // ⚠️ SET HERE, WITH THE OTHER CONSTANTS AND BEFORE UploadConstants. The
         // texture it describes is bound further down, after the upload; writing
         // the lane down there instead leaves the shader reading last frame's

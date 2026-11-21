@@ -66,13 +66,13 @@ struct Knobs {
 // image is converged rather than reprojected. Clay leaves tracing as it is -- traced clay is the
 // classic massing render.
 constexpr Knobs kPresets[] = {
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 1, -1, 0, 0, -1, -1, 0, -1 }, // Shaded
-    { int (SceneRenderMode::Wireframe), -1, -1, -1, -1.0f, 0, -1, -1, -1, -1, -1, 0, -1 },                  // Wireframe
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 1, -1, 0, 0, -1, 1, 0, -1 }, // Shaded
+    { int (SceneRenderMode::Wireframe), -1, -1, -1, -1.0f, 0, -1, -1, -1, -1, -1, 0, -1 },                 // Wireframe
     { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 0, 0, 0, 1, 0,
       0 }, // Architecture
     { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 1, 1, 0, 1 }, // Rendered
     { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 1, -1, -1, -1, -1, -1 }, // Clay
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 0, -1, 1, 1, -1, -1, 0, -1 }, // Technical
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 0, -1, 1, 1, -1, 1, 0, -1 }, // Technical
     { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 0, 0, 1, -1 }, // RayTraced
 };
 constexpr const char* kPreviewNames[] = { "Shaded", "Wireframe", "Architecture", "Rendered",

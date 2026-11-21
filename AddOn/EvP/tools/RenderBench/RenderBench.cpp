@@ -557,7 +557,7 @@ void RenderFrame (av::DiligentScene& scene, Diligent::IDeviceContext* context, T
                                 Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 
     scene.SetViewportSize (w, h);
-    const bool taa = hud.temporalAntiAliasing && hud.renderQuality == int (av::RenderQuality::Realistic);
+    const bool taa = hud.temporalAntiAliasing; // #14: Fast too, as DiligentViewport.cpp
     scene.SetTemporalAntiAliasing (taa, hud.taaStability);
     av::TemporalConvergenceSettings convergence;
     convergence.enabled = hud.temporalConvergence;

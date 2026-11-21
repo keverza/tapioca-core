@@ -1803,8 +1803,9 @@ void main (float4 position : SV_POSITION, float3 ray : TEXCOORD0, out float4 col
     // apart exactly when someone was trying to judge them together.
     //
     // ⚠️ CONDITIONAL ON g_frameControl.x, same as the mesh PS: HDR output skips
-    // Grade here and the resolve pass applies it once to the whole frame.
-    if (g_frameControl.x > 0.5)
+    // Grade here and the resolve pass applies it once to the whole frame. 2 is Fast under TAA
+    // (#14): its image is already display-referred, so the sky grades itself as in LDR.
+    if (g_frameControl.x > 0.5 && g_frameControl.x < 1.5)
         color = float4 (sky, 1.0);
     else
         color = float4 (Grade (sky), 1.0);
@@ -2152,7 +2153,10 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
     // image was steady, reported live on 2026-08-24. Tutorial27_PostProcessing
     // composites SSR into the radiance BEFORE ComputeTAA for exactly this
     // reason. kArchVizSsrCompositePS is that pass; this one now only tone-maps.
-    color = float4 (SurfaceFocusContext (Grade (radiance)), coverage);
+    // #14: g_frameControl.x == 2 is Fast quality under TAA. Its shaders wrote display colour,
+    // exactly what they write to the swap chain without TAA, so it passes through ungraded.
+    float3 shown = g_frameControl.x > 1.5 ? radiance : SurfaceFocusContext (Grade (radiance));
+    color = float4 (shown, coverage);
 }
 )hlsl";
 
@@ -3162,7 +3166,7 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
         // Material focus in Fast quality too: the Realistic branch applies it
         // after Grade, the HDR resolve after its own; Fast has neither (#193).
         float3 lit = base.rgb * lighting;
-        if (g_frameControl.x < 0.5)
+        if (g_frameControl.x < 0.5 || g_frameControl.x > 1.5) // 2: Fast under TAA, as LDR (#14)
             lit = SurfaceFocusContext (lit);
         float3 shaded = premultiplied ? base.rgb : lit * base.a;
         // Apply diagnostics after both quality paths. Realistic has already
