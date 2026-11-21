@@ -59,6 +59,7 @@ struct RayTracedSource {
 // per-frame material table (clay, presets, study model) is a few dozen entries, not one per triangle.
 struct RayTracedGeometry {
     std::vector<float> positions;           // xyz per vertex, world metres
+    std::vector<float> uvs;                 // #231: Archicad's uv per vertex, (0, 0) where it gave none
     std::vector<uint32_t> indices;          // 3 per triangle, into `positions`
     std::vector<uint32_t> triangleMaterial; // one per triangle, into `materials`
     std::vector<int32_t> materials;         // material ids
@@ -71,6 +72,21 @@ struct RayTracedGeometry {
 // Flattens the sources. A triangle no range covers gets the default material (id -1); indices that
 // fall outside their element's vertices are dropped rather than traced into garbage.
 RayTracedGeometry BuildRayTracedGeometry (const std::vector<RayTracedSource>& sources);
+
+// #231: the texture array the traced passes sample (Texture2D g_albedo[kRayTracedTextureSlots]).
+// Fixed, because the shader declares it; a project naming more images than this traces the rest in
+// their surface colour, counted in `overflow` rather than silently.
+constexpr uint32_t kRayTracedTextureSlots = 256;
+
+struct RayTracedTextureSlots {
+    std::vector<int32_t> slotOf; // per material, -1 = untextured
+    std::vector<uint64_t> keys;  // the image key in each used slot, first seen first
+    uint32_t overflow = 0;       // materials left untextured because the array was full
+};
+
+// `keys[m]` is material m's image key, or 0 when it draws untextured (no image, the image is not on
+// the GPU, or textures are gated off). Materials sharing an image share its slot.
+RayTracedTextureSlots AssignTextureSlots (const std::vector<uint64_t>& keys, uint32_t capacity);
 
 // General 4x4 inverse in double, row-major storage like MatrixMath. False when singular.
 bool InvertMatrix4 (const float in[16], float out[16]);
@@ -121,6 +137,8 @@ struct RayTracedStats {
     uint32_t samples = 0;
     uint32_t maxSamples = 0;
     uint64_t triangles = 0;
+    uint32_t texturedMaterials = 0; // #231: materials the traced passes sample a texture for
+    uint32_t textureOverflow = 0;   // #231: textured materials past kRayTracedTextureSlots
     bool reflectionsTraced = false; // #232: last frame's reflections came from rays, not SSR
     bool skyLightTraced = false;    // #233: last frame's sky light was occluded by rays
     std::string reason;

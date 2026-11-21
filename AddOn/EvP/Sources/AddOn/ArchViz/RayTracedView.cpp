@@ -42,6 +42,10 @@ RayTracedGeometry BuildRayTracedGeometry (const std::vector<RayTracedSource>& so
         }
         const uint32_t base = uint32_t (out.positions.size () / 3);
         out.positions.insert (out.positions.end (), mesh.positions.begin (), mesh.positions.begin () + vertexCount * 3);
+        if (mesh.uvs.size () >= vertexCount * 2)
+            out.uvs.insert (out.uvs.end (), mesh.uvs.begin (), mesh.uvs.begin () + vertexCount * 2);
+        else
+            out.uvs.resize (out.uvs.size () + vertexCount * 2, 0.0f);
         for (size_t t = 0; t < triangleCount; ++t) {
             const uint32_t a = mesh.indices[t * 3], b = mesh.indices[t * 3 + 1], c = mesh.indices[t * 3 + 2];
             if (a >= vertexCount || b >= vertexCount || c >= vertexCount)
@@ -49,6 +53,31 @@ RayTracedGeometry BuildRayTracedGeometry (const std::vector<RayTracedSource>& so
             out.indices.insert (out.indices.end (), { base + a, base + b, base + c });
             out.triangleMaterial.push_back (perTriangle[t]);
         }
+    }
+    return out;
+}
+
+RayTracedTextureSlots AssignTextureSlots (const std::vector<uint64_t>& keys, uint32_t capacity)
+{
+    RayTracedTextureSlots out;
+    out.slotOf.assign (keys.size (), -1);
+    std::unordered_map<uint64_t, int32_t> slotOfKey;
+    for (size_t m = 0; m < keys.size (); ++m) {
+        if (keys[m] == 0)
+            continue;
+        const auto found = slotOfKey.find (keys[m]);
+        if (found != slotOfKey.end ()) {
+            out.slotOf[m] = found->second;
+            continue;
+        }
+        if (out.keys.size () >= capacity) {
+            ++out.overflow;
+            continue;
+        }
+        const int32_t slot = int32_t (out.keys.size ());
+        out.keys.push_back (keys[m]);
+        slotOfKey.emplace (keys[m], slot);
+        out.slotOf[m] = slot;
     }
     return out;
 }

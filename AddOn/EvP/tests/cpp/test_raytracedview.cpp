@@ -95,3 +95,37 @@ TEST (RayTracedView, BurstNeverExceedsTheCap)
     EXPECT_EQ (s.trace, 2u);
     EXPECT_EQ (acc.Advance (5, 2).trace, 0u);
 }
+
+// #231: the traced styles' textures read Archicad's coordinates per vertex. An element without
+// them contributes zeros, so the flattened array stays parallel to the positions.
+TEST (RayTracedView, FlattensTextureCoordinatesParallelToPositions)
+{
+    auto textured = Quad (0.0f);
+    textured->uvs = { 0, 0, 2, 0, 2, 3, 0, 3 };
+    std::vector<RayTracedSource> sources;
+    sources.push_back ({ Quad (5.0f), { { 1, 0, 6 } } }); // no coordinates
+    sources.push_back ({ textured, { { 2, 0, 6 } } });
+    const RayTracedGeometry g = BuildRayTracedGeometry (sources);
+    ASSERT_EQ (g.uvs.size (), g.positions.size () / 3 * 2);
+    for (size_t k = 0; k < 8; ++k)
+        EXPECT_EQ (g.uvs[k], 0.0f);
+    EXPECT_EQ (g.uvs[8 + 4], 2.0f); // the textured quad's third vertex, after the first four
+    EXPECT_EQ (g.uvs[8 + 5], 3.0f);
+}
+
+// #231: one slot per distinct image, shared by the materials that name it; untextured materials
+// get none, and a full array is counted, never wrapped onto another image.
+TEST (RayTracedView, TextureSlotsAreSharedPerImageAndOverflowIsCounted)
+{
+    const RayTracedTextureSlots s = AssignTextureSlots ({ 0, 11, 22, 11, 33, 0, 44 }, 3);
+    ASSERT_EQ (s.slotOf.size (), 7u);
+    EXPECT_EQ (s.slotOf[0], -1);
+    EXPECT_EQ (s.slotOf[1], 0);
+    EXPECT_EQ (s.slotOf[2], 1);
+    EXPECT_EQ (s.slotOf[3], 0);
+    EXPECT_EQ (s.slotOf[4], 2);
+    EXPECT_EQ (s.slotOf[5], -1);
+    EXPECT_EQ (s.slotOf[6], -1); // the fourth image: no room
+    EXPECT_EQ (s.overflow, 1u);
+    EXPECT_EQ (s.keys, (std::vector<uint64_t> { 11, 22, 33 }));
+}

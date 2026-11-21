@@ -792,7 +792,10 @@ int main (int argc, char** argv)
                             " s; ray tracing " + av::RayTracedStateName (s.state) + " " + std::to_string (s.samples) +
                             "/" + std::to_string (s.maxSamples) + " samples, reflections " +
                             (s.reflectionsTraced ? "traced" : "screen-space") + ", sky light " +
-                            (s.skyLightTraced ? "traced" : "AO") +
+                            (s.skyLightTraced ? "traced" : "AO") + ", textured materials " +
+                            std::to_string (s.texturedMaterials) +
+                            (s.textureOverflow > 0 ? " (" + std::to_string (s.textureOverflow) + " over the limit)"
+                                                   : std::string ()) +
                             (s.reason.empty () ? std::string () : " (" + s.reason + ")"));
             report << (firstRender ? "" : ",\n") << "    { \"view\": \"" << view.name << "\", \"style\": \"" << style
                    << "\", \"file\": \"" << file << "\", \"seconds\": " << seconds << ", \"rtState\": \""

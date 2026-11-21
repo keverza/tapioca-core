@@ -55,6 +55,9 @@ namespace archviz {
 struct SectionMesh {
     std::vector<float> positions;
     std::vector<uint32_t> indices;
+    // #231: Archicad's texture coordinates, two per vertex, for the ray-traced styles' textures;
+    // empty for an element Archicad gave none. The caps never read them.
+    std::vector<float> uvs;
     float boundsMin[3] = { 0.0f, 0.0f, 0.0f };
     float boundsMax[3] = { 0.0f, 0.0f, 0.0f };
 };

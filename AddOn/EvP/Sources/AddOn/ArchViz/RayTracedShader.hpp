@@ -45,16 +45,24 @@ cbuffer RayTracedConstants
     float4   g_cap;     // rgb cut colour (linear), w section on
     uint4    g_frame;   // x width, y height, z first sample, w bounces
     float4   g_ray;     // x near-plane NDC depth, y samples this dispatch
+    float4   g_cone;    // x the camera's spread per pixel, radians (texture mip selection)
 };
 
 RaytracingAccelerationStructure g_scene;
 StructuredBuffer<float3> g_positions;
+StructuredBuffer<float2> g_uvs;
 StructuredBuffer<uint>   g_indices;
 StructuredBuffer<uint>   g_triangleMaterial;
-struct Material { float4 colorAlpha; float4 params; };
+// texture: x the slot in g_albedo (< 0 untextured), yz 1 / the size one repeat covers, w mirror
+// bits (1 x, 2 y) -- the raster's g_textureParams, resolved by the same gate (TexturesShown).
+struct Material { float4 colorAlpha; float4 params; float4 texture; };
 StructuredBuffer<Material> g_materials;
 Texture2D<float4> g_envMap;
 SamplerState      g_envMap_sampler;
+// #231: Archicad's images, sRGB-formatted so a sample is linear. RT_TEXTURE_SLOTS is
+// kRayTracedTextureSlots, defined by the C++ side; unused slots hold a white texel.
+Texture2D<float4> g_albedo[RT_TEXTURE_SLOTS];
+SamplerState      g_albedoSampler;
 
 static const float kPi = 3.14159265359;
 
@@ -106,7 +114,7 @@ bool Clipped (float3 p)
     return g_cap.w > 0.5 && dot (g_plane.xyz, p) + g_plane.w < 0.0;
 }
 
-struct Hit { bool hit; float t; uint prim; };
+struct Hit { bool hit; float t; uint prim; float2 bary; };
 
 // What a translucent candidate is to the ray (see the header): a shadow ray stops at the first
 // committed hit; the stochastic modes commit a pane with probability alpha; kTraceClosest commits
@@ -140,6 +148,7 @@ Hit Trace (float3 o, float3 d, uint mode, inout uint rng)
     h.hit = q.CommittedStatus () == COMMITTED_TRIANGLE_HIT;
     h.t = h.hit ? q.CommittedRayT () : 0.0;
     h.prim = h.hit ? q.CommittedPrimitiveIndex () : 0;
+    h.bary = h.hit ? q.CommittedTriangleBarycentrics () : float2 (0, 0);
     return h;
 }
 
@@ -161,8 +170,43 @@ float Epsilon (float3 p)
 // The surface a committed hit landed on: position, normal facing the ray, base colour and finish
 // (params: x roughness, y metallic, z reflectance -- the raster's DrawnSurface) and alpha. A back
 // face with the section on is the cut: the cap colour lying in the plane, facing the ray, matte.
-void SurfaceFull (Hit h, float3 o, float3 d, out float3 p, out float3 n, out float3 albedo, out float3 finish,
-                  out float alpha)
+//
+// #231: a textured surface takes its texture's colour, as the raster's does (SampleAlbedoMap): uv
+// over the repeat size, v growing upward, every other repeat mirrored when asked; the texture
+// REPLACES the colour and the opacity stays the surface's. The mip is the ray cone's (Akenine-
+// Moller et al., "Improved Shader and Texture Level of Detail Using Ray Cones", 2021): the width
+// the pixel's cone has reached at the hit -- `travelled` is the path length before `o` -- over the
+// triangle's texel density, widened at grazing angles. A path's bounces keep the camera's cone,
+// which over-sharpens a texture seen in a rough reflection; the accumulation averages that out.
+float3 TextureColour (Material m, Hit h, uint i0, uint i1, uint i2, float3 a, float3 b, float3 c, float3 d,
+                      float travelled)
+{
+    float2 u0 = g_uvs[i0], u1 = g_uvs[i1], u2 = g_uvs[i2];
+    float2 uv = u0 + h.bary.x * (u1 - u0) + h.bary.y * (u2 - u0);
+    float2 t = uv * m.texture.yz;
+    float2 s = float2 (t.x, -t.y);
+    uint mirror = (uint) (m.texture.w + 0.5);
+    if ((mirror & 1u) != 0u)
+        s.x = 1.0 - abs (frac (s.x * 0.5) * 2.0 - 1.0);
+    if ((mirror & 2u) != 0u)
+        s.y = 1.0 - abs (frac (s.y * 0.5) * 2.0 - 1.0);
+    uint slot = (uint) (m.texture.x + 0.5);
+    uint width, height, levels;
+    g_albedo[NonUniformResourceIndex (slot)].GetDimensions (0, width, height, levels);
+    float2 texels = m.texture.yz * float2 (width, height);
+    float2 e1 = (u1 - u0) * texels, e2 = (u2 - u0) * texels;
+    float texelArea = abs (e1.x * e2.y - e1.y * e2.x);
+    float3 nw = cross (b - a, c - a);
+    float worldArea = length (nw);
+    float cosine = max (abs (dot (nw / max (worldArea, 1.0e-20), d)), 0.05);
+    float cone = g_cone.x * (travelled + h.t);
+    float lod = 0.5 * log2 (max (texelArea / max (worldArea, 1.0e-20), 1.0e-20)) + log2 (max (cone, 1.0e-9)) -
+                log2 (cosine);
+    return g_albedo[NonUniformResourceIndex (slot)].SampleLevel (g_albedoSampler, s, max (lod, 0.0)).rgb;
+}
+
+void SurfaceFull (Hit h, float3 o, float3 d, float travelled, out float3 p, out float3 n, out float3 albedo,
+                  out float3 finish, out float alpha)
 {
     p = o + d * h.t;
     uint i0 = g_indices[h.prim * 3], i1 = g_indices[h.prim * 3 + 1], i2 = g_indices[h.prim * 3 + 2];
@@ -173,7 +217,7 @@ void SurfaceFull (Hit h, float3 o, float3 d, out float3 p, out float3 n, out flo
     if (back)
         n = -n;
     Material m = g_materials[g_triangleMaterial[h.prim]];
-    albedo = m.colorAlpha.rgb;
+    albedo = m.texture.x >= 0.0 ? TextureColour (m, h, i0, i1, i2, a, b, c, d, travelled) : m.colorAlpha.rgb;
     finish = m.params.xyz;
     alpha = m.colorAlpha.a;
     if (back && g_cap.w > 0.5 && m.colorAlpha.a >= 0.99)
@@ -273,7 +317,8 @@ static const uint kMaxPanes = 8u;
 float3 Radiance (float3 o, float3 d, inout uint rng)
 {
     float3 L = 0.0, T = 1.0;
-    uint i = 0; // bounces so far
+    uint i = 0;             // bounces so far
+    float travelled = 0.0;  // path length to o, for the texture cone
     for (uint step = 0; step <= g_frame.w + kMaxPanes; ++step)
     {
         Hit h = Trace (o, d, kTraceClosest, rng);
@@ -285,7 +330,8 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
         }
         float3 p, n, albedo, finish;
         float alpha;
-        SurfaceFull (h, o, d, p, n, albedo, finish, alpha);
+        SurfaceFull (h, o, d, travelled, p, n, albedo, finish, alpha);
+        travelled += h.t;
         // The pane's split (see the header): its diffuse film is alpha of it, the rest passes.
         float film = alpha >= 0.99 ? 1.0 : saturate (alpha);
         float rough = saturate (finish.x), metal = saturate (finish.y);
@@ -453,7 +499,7 @@ void main (uint3 id : SV_DispatchThreadID)
         }
         float3 hp, hn, albedo, finish;
         float alpha;
-        SurfaceFull (h, at, d, hp, hn, albedo, finish, alpha);
+        SurfaceFull (h, at, d, length (p - eye), hp, hn, albedo, finish, alpha);
         float3 hat = hp + hn * Epsilon (hp);
         // #232: THE SKY AT THE HIT IS SEEN THROUGH ONE VISIBILITY RAY, not assumed. Unoccluded,
         // every wall a reflection landed on inside a closed room was lit as if it stood outdoors,
@@ -537,7 +583,7 @@ void main (uint3 id : SV_DispatchThreadID)
         }
         float3 hp, hn, albedo, finish;
         float alpha;
-        SurfaceFull (h, at, d, hp, hn, albedo, finish, alpha);
+        SurfaceFull (h, at, d, length (p - eye), hp, hn, albedo, finish, alpha);
         float3 hat = hp + hn * Epsilon (hp);
         seen += Luminance (albedo * (1.0 - saturate (finish.y)) * SunLight (hat, hn, rng));
     }

@@ -193,7 +193,7 @@ Diligent::ITextureView* DiligentScene::Impl::AlbedoFor (const SurfaceMaterial& m
         albedoFallback != nullptr ? albedoFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE) : nullptr;
     if (material.textureKey == 0)
         return fallback;
-    if (!materialTexturesEnabled || look.enabled || renderQuality != RenderQuality::Realistic) {
+    if (!TexturesShown (look)) {
         ++textureLane[2];
         return fallback;
     }

@@ -49,14 +49,16 @@ struct RayTracedConstants {
     float cap[4];
     uint32_t frame[4];
     float ray[4];
+    float cone[4]; // #231: x the camera's spread per pixel, radians
 };
-static_assert (sizeof (RayTracedConstants) == 16 * 4 + 8 * 16, "kRayTracedCommon cbuffer layout");
+static_assert (sizeof (RayTracedConstants) == 16 * 4 + 9 * 16, "kRayTracedCommon cbuffer layout");
 
 namespace {
 
 struct GpuMaterial {
     float colorAlpha[4];
     float params[4];
+    float texture[4]; // #231: x slot (-1 untextured), yz 1 / repeat size, w mirror bits
 };
 
 float SrgbToLinear (float c)
@@ -82,7 +84,14 @@ struct RayTracedGpu {
     Diligent::ITextureView* skyBound[4] = {}; // depth, normal, occlusion, env the SRB holds
     bool skySrbDirty = true;
     RefCntAutoPtr<Diligent::IBuffer> constants;
-    RefCntAutoPtr<Diligent::IBuffer> positions, indices, triangleMaterial, materials;
+    RefCntAutoPtr<Diligent::IBuffer> positions, uvs, indices, triangleMaterial, materials;
+    // #231: the texture array, one view per slot (the white texel where a slot is unused), and the
+    // image keys in slot order -- compared every frame, and every binding is rebuilt on a change.
+    RefCntAutoPtr<Diligent::ITexture> whiteTexel;
+    std::vector<Diligent::IDeviceObject*> textureViews;
+    std::vector<uint64_t> textureKeys;
+    uint32_t texturedMaterials = 0;
+    uint32_t textureOverflow = 0;
     RefCntAutoPtr<Diligent::IBottomLevelAS> blas;
     RefCntAutoPtr<Diligent::ITopLevelAS> tlas;
     RefCntAutoPtr<Diligent::IBuffer> blasScratch, tlasScratch, instances;
@@ -132,7 +141,8 @@ bool DiligentScene::CreateRayTracedPipeline (std::string& error)
     // ⚠️ ONLY DXC COMPILES RayQuery (SM 6.5). It is bundled beside Tapioca.apx and loaded by
     // DiligentDeviceFactory; without it this is the refusal the HUD shows.
     auto compile = [&] (const char* shaderName, const char* main, RefCntAutoPtr<Diligent::IShader>& out) {
-        const std::string source = std::string (kRayTracedCommon) + main;
+        const std::string source = "#define RT_TEXTURE_SLOTS " + std::to_string (kRayTracedTextureSlots) + "\n" +
+                                   std::string (kRayTracedCommon) + main;
         Diligent::ShaderCreateInfo sci;
         sci.Desc.Name = shaderName;
         sci.Desc.ShaderType = Diligent::SHADER_TYPE_COMPUTE;
@@ -160,8 +170,18 @@ bool DiligentScene::CreateRayTracedPipeline (std::string& error)
     envSampler.AddressU = Diligent::TEXTURE_ADDRESS_WRAP;
     envSampler.AddressV = Diligent::TEXTURE_ADDRESS_CLAMP;
     envSampler.AddressW = Diligent::TEXTURE_ADDRESS_CLAMP;
+    // #231: the textures repeat both ways. Compute has no derivatives, so the mip is chosen in the
+    // shader (ray cone) and the filter is trilinear, not anisotropic.
+    Diligent::SamplerDesc albedoSampler;
+    albedoSampler.MinFilter = Diligent::FILTER_TYPE_LINEAR;
+    albedoSampler.MagFilter = Diligent::FILTER_TYPE_LINEAR;
+    albedoSampler.MipFilter = Diligent::FILTER_TYPE_LINEAR;
+    albedoSampler.AddressU = Diligent::TEXTURE_ADDRESS_WRAP;
+    albedoSampler.AddressV = Diligent::TEXTURE_ADDRESS_WRAP;
+    albedoSampler.AddressW = Diligent::TEXTURE_ADDRESS_WRAP;
     const Diligent::ImmutableSamplerDesc samplers[] = {
         { Diligent::SHADER_TYPE_COMPUTE, "g_envMap_sampler", envSampler },
+        { Diligent::SHADER_TYPE_COMPUTE, "g_albedoSampler", albedoSampler },
     };
     Diligent::ComputePipelineStateCreateInfo pci;
     pci.PSODesc.Name = "ArchViz ray-traced PSO";
@@ -200,10 +220,18 @@ bool DiligentScene::CreateRayTracedPipeline (std::string& error)
     Diligent::TextureSubResData sub { zero, sizeof (zero) };
     Diligent::TextureData data { &sub, 1 };
     device->CreateTexture (td, &data, &gpu->dummyEnv);
-    if (gpu->constants == nullptr || gpu->dummyEnv == nullptr) {
-        error = "the ray-traced constants or sky placeholder could not be created";
+    const uint8_t white[4] = { 255, 255, 255, 255 };
+    td.Name = "ArchViz ray-traced empty texture slot";
+    td.Format = Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB;
+    Diligent::TextureSubResData whiteSub { white, sizeof (white) };
+    Diligent::TextureData whiteData { &whiteSub, 1 };
+    device->CreateTexture (td, &whiteData, &gpu->whiteTexel);
+    if (gpu->constants == nullptr || gpu->dummyEnv == nullptr || gpu->whiteTexel == nullptr) {
+        error = "the ray-traced constants or sky/texture placeholders could not be created";
         return false;
     }
+    gpu->textureViews.assign (kRayTracedTextureSlots,
+                              gpu->whiteTexel->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
     impl_->rayTraced.gpu = gpu;
     return true;
 }
@@ -221,6 +249,7 @@ bool DiligentScene::BuildRayTracedScene (Diligent::IDeviceContext* context, uint
     const RayTracedGeometry geometry = BuildRayTracedGeometry (sources);
 
     gpu.positions.Release ();
+    gpu.uvs.Release ();
     gpu.indices.Release ();
     gpu.triangleMaterial.Release ();
     gpu.blas.Release ();
@@ -250,6 +279,8 @@ bool DiligentScene::BuildRayTracedScene (Diligent::IDeviceContext* context, uint
     };
     if (!makeBuffer ("ArchViz ray-traced positions", geometry.positions.data (),
                      geometry.positions.size () * sizeof (float), 12, true, gpu.positions) ||
+        !makeBuffer ("ArchViz ray-traced texture coordinates", geometry.uvs.data (),
+                     geometry.uvs.size () * sizeof (float), 8, false, gpu.uvs) ||
         !makeBuffer ("ArchViz ray-traced indices", geometry.indices.data (),
                      geometry.indices.size () * sizeof (uint32_t), 4, true, gpu.indices) ||
         !makeBuffer ("ArchViz ray-traced triangle materials", geometry.triangleMaterial.data (),
@@ -400,12 +431,46 @@ bool DiligentScene::PrepareRayTracedFrame (Diligent::IDeviceContext* context, co
 
     // ---- the material table, resolved as the raster pass resolves it ----------------------
     const ClayLook look = impl_->SurfaceLook (impl_->StudyModelShown ());
+    // #231: the textures, gated exactly as the raster's (TexturesShown), and only images the GPU
+    // holds -- a key without one draws its surface colour in both styles.
+    const bool texturesShown = impl_->TexturesShown (look);
+    std::vector<uint64_t> imageKeys (gpu.materialIds.size (), 0);
+    for (size_t k = 0; k < gpu.materialIds.size (); ++k) {
+        const SurfaceMaterial& mat = impl_->materials.Lookup (gpu.materialIds[k]);
+        if (texturesShown && mat.textureKey != 0 && impl_->albedoTextures.count (mat.textureKey) != 0)
+            imageKeys[k] = mat.textureKey;
+    }
+    const RayTracedTextureSlots slots = AssignTextureSlots (imageKeys, kRayTracedTextureSlots);
     std::vector<GpuMaterial> table (std::max<size_t> (gpu.materialIds.size (), 1));
+    gpu.texturedMaterials = 0;
     for (size_t k = 0; k < gpu.materialIds.size (); ++k) {
         const SurfaceMaterial& mat = impl_->materials.Lookup (gpu.materialIds[k]);
         const DrawnSurface drawn = ResolveDrawnSurface (mat, PresetFor (mat), look);
         table[k] = { { drawn.r, drawn.g, drawn.b, drawn.alpha },
-                     { drawn.roughness, drawn.metallic, drawn.reflectance, 0.0f } };
+                     { drawn.roughness, drawn.metallic, drawn.reflectance, 0.0f },
+                     { -1.0f, 1.0f, 1.0f, 0.0f } };
+        if (slots.slotOf[k] >= 0) {
+            table[k].texture[0] = float (slots.slotOf[k]);
+            table[k].texture[1] = 1.0f / (std::max) (mat.textureSizeX, 1e-6f);
+            table[k].texture[2] = 1.0f / (std::max) (mat.textureSizeY, 1e-6f);
+            table[k].texture[3] = float ((mat.textureMirrorX ? 1 : 0) | (mat.textureMirrorY ? 2 : 0));
+            ++gpu.texturedMaterials;
+        }
+    }
+    gpu.textureOverflow = slots.overflow;
+    rt.stats.texturedMaterials = gpu.texturedMaterials;
+    rt.stats.textureOverflow = gpu.textureOverflow;
+    if (slots.keys != gpu.textureKeys) {
+        // ⚠️ EVERY BINDING HOLDS THE ARRAY, so a changed image set rebuilds all three.
+        Diligent::IDeviceObject* white = gpu.whiteTexel->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+        gpu.textureViews.assign (kRayTracedTextureSlots, white);
+        for (size_t slot = 0; slot < slots.keys.size (); ++slot)
+            gpu.textureViews[slot] =
+                impl_->albedoTextures.at (slots.keys[slot])->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+        gpu.textureKeys = slots.keys;
+        gpu.srbDirty = true;
+        gpu.reflectSrbDirty = true;
+        gpu.skySrbDirty = true;
     }
     const size_t tableBytes = table.size () * sizeof (GpuMaterial);
     if (gpu.materials == nullptr || gpu.materials->GetDesc ().Size < tableBytes) {
@@ -477,11 +542,32 @@ bool DiligentScene::PrepareRayTracedFrame (Diligent::IDeviceContext* context, co
     c.ray[0] = distanceAt (0.0f) <= distanceAt (1.0f) ? 0.0f : 1.0f;
     // The environment's last mip: the hit's diffuse sky in the reflection pass.
     c.ray[2] = (std::max) (constants.envParams[3] - 1.0f, 0.0f);
+    // #231: the angle between neighbouring pixels' rays at the centre, for the texture cone.
+    auto rayThrough = [&] (float x, float y, float out[3]) {
+        const float nearPoint[4] = { x, y, c.ray[0], 1.0f };
+        float w[4];
+        TransformPoint (w, nearPoint, c.invViewProj);
+        const float inv = std::fabs (w[3]) > 1e-12f ? 1.0f / w[3] : 0.0f;
+        float length = 0.0f;
+        for (int k = 0; k < 3; ++k) {
+            out[k] = w[k] * inv - eye[k];
+            length += out[k] * out[k];
+        }
+        length = std::sqrt (length);
+        for (int k = 0; k < 3; ++k)
+            out[k] = length > 0.0f ? out[k] / length : 0.0f;
+    };
+    float centre[3], next[3];
+    rayThrough (0.0f, 0.0f, centre);
+    rayThrough (0.0f, 2.0f / float (height), next);
+    const float cosine = std::clamp (centre[0] * next[0] + centre[1] * next[1] + centre[2] * next[2], -1.0f, 1.0f);
+    c.cone[0] = std::acos (cosine);
 
     key = HashBytes (kHashSeed, &c, sizeof (c)); // frame[2], ray[1] and ray[3] are still zero here
     key = HashBytes (key, &geometryKey, sizeof (geometryKey));
     key = HashBytes (key, table.data (), tableBytes);
     key = HashBytes (key, &envView, sizeof (envView));
+    key = HashBytes (key, gpu.textureKeys.data (), gpu.textureKeys.size () * sizeof (uint64_t));
     gpu.envView = envView != nullptr ? envView : gpu.dummyEnv->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
     return true;
 }
@@ -496,6 +582,9 @@ static void BindRayTracedScene (RayTracedGpu& gpu, Diligent::IShaderResourceBind
     set ("RayTracedConstants", gpu.constants);
     set ("g_scene", gpu.tlas);
     set ("g_positions", gpu.positions->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
+    set ("g_uvs", gpu.uvs->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
+    if (Diligent::IShaderResourceVariable* v = srb->GetVariableByName (Diligent::SHADER_TYPE_COMPUTE, "g_albedo"))
+        v->SetArray (gpu.textureViews.data (), 0, Diligent::Uint32 (gpu.textureViews.size ()));
     set ("g_indices", gpu.indices->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
     set ("g_triangleMaterial", gpu.triangleMaterial->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
     set ("g_materials", gpu.materials->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));

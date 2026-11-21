@@ -286,6 +286,12 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
             ImGui::SliderInt ("bounces##raytraced", &state.rayTracedBounces, 1, 6);
             ImGui::TextDisabled ("%s -- %u / %u samples, %llu triangles", RayTracedStateName (traced.state),
                                  traced.samples, traced.maxSamples, (unsigned long long) traced.triangles);
+            // #231: textured materials traced, and any the fixed texture array had no room for.
+            ImGui::TextDisabled ("%u textured materials", traced.texturedMaterials);
+            if (traced.textureOverflow > 0)
+                ImGui::TextColored (ImVec4 (0.95f, 0.70f, 0.25f, 1.0f),
+                                    "%u textured materials over the %u-image limit trace in their colour",
+                                    traced.textureOverflow, kRayTracedTextureSlots);
         }
     }
     // ---- section: one movable cut through the model (SectionPlane.hpp) ---------------------

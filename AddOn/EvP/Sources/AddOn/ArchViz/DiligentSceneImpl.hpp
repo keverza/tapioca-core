@@ -859,6 +859,12 @@ struct geomsrv::archviz::DiligentScene::Impl {
     RefCntAutoPtr<Diligent::IShader> vsTextured;
     Diligent::ITextureView* AlbedoFor (const SurfaceMaterial& material, const ClayLook& look,
                                        DiligentSceneConstants& constants) const;
+    // Whether surfaces show their textures at all this frame: the raster (AlbedoFor) and the traced
+    // passes (#231) ask the same question, so the two styles never disagree about a surface.
+    bool TexturesShown (const ClayLook& look) const
+    {
+        return materialTexturesEnabled && !look.enabled && renderQuality == RenderQuality::Realistic;
+    }
     // #252 diagnostic, per textured range (one with a textureKey) as AlbedoFor answers it:
     // [0] bound its image, [1] named an image the GPU does not hold, [2] gated off (quality,
     // clay, study model, HUD toggle). Counted this frame; the last drawn frame's totals are
