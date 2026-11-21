@@ -1272,9 +1272,110 @@ bool GeneratedEdgeIsVisible (float3 domainA, float3 domainB, uint edgeMask)
     return true;
 }
 
-[maxvertexcount(3)]
+// A vertex behind the eye (w <= 0) has no screen position: dividing by w mirrors it, the edge
+// distances below come out meaningless, and the whole triangle drew in the line colour -- a site
+// or ground slab whose far edge passed behind the camera painted the ground black (#14,
+// RenderBench louvres). Such a triangle is clipped at w = kWireNearW first; each edge's distance
+// is then to the screen line of its part in front of the eye, which is still a straight line, so
+// the noperspective interpolation stays exact. Triangles wholly in front take the path below.
+static const float kWireNearW = 1.0e-3;
+
+float2 WireScreen (float4 clip, float2 viewport)
+{
+    return 0.5 * viewport * clip.xy / clip.w;
+}
+
+// The screen line of the edge a..b's visible part: false when all of it is behind the eye.
+bool WireEdgeLine (float4 a, float4 b, float2 viewport, out float2 from, out float2 dir)
+{
+    from = float2 (0.0, 0.0);
+    dir = float2 (1.0, 0.0);
+    if (a.w <= kWireNearW && b.w <= kWireNearW)
+        return false;
+    if (a.w <= kWireNearW)
+        a = lerp (a, b, (kWireNearW - a.w) / (b.w - a.w));
+    if (b.w <= kWireNearW)
+        b = lerp (b, a, (kWireNearW - b.w) / (a.w - b.w));
+    from = WireScreen (a, viewport);
+    float2 to = WireScreen (b, viewport);
+    float len = length (to - from);
+    dir = len > 1.0e-5 ? (to - from) / len : float2 (1.0, 0.0);
+    return true;
+}
+
+float WireDistance (float2 q, float2 from, float2 dir)
+{
+    float2 d = q - from;
+    return abs (d.x * dir.y - d.y * dir.x);
+}
+
+void EmitClippedWire (triangle WireDomainOutput input[3], inout TriangleStream<WirePixelInput> stream)
+{
+    float2 viewport = max (g_wireParams.zw, float2 (1.0, 1.0));
+    uint mask = input[0].edgeMask;
+    const float disabled = 1e6;
+    // Edge k is opposite vertex k, as in the unclipped path: k = 0 is 1..2, 1 is 2..0, 2 is 0..1.
+    float2 from[3], dir[3];
+    bool live[3];
+    live[0] = WireEdgeLine (input[1].position, input[2].position, viewport, from[0], dir[0]) &&
+              GeneratedEdgeIsVisible (input[1].domain, input[2].domain, mask);
+    live[1] = WireEdgeLine (input[2].position, input[0].position, viewport, from[1], dir[1]) &&
+              GeneratedEdgeIsVisible (input[2].domain, input[0].domain, mask);
+    live[2] = WireEdgeLine (input[0].position, input[1].position, viewport, from[2], dir[2]) &&
+              GeneratedEdgeIsVisible (input[0].domain, input[1].domain, mask);
+
+    // Sutherland-Hodgman against w = kWireNearW: a triangle keeps 3 or 4 corners.
+    float4 pos[4] = { input[0].position, input[1].position, input[2].position, input[2].position };
+    float clipDist[4] = { 0.0, 0.0, 0.0, 0.0 };
+    uint count = 0;
+    [unroll] for (uint i = 0; i < 3; ++i)
+    {
+        WireDomainOutput a = input[i];
+        WireDomainOutput b = input[(i + 1) % 3];
+        bool aIn = a.position.w > kWireNearW, bIn = b.position.w > kWireNearW;
+        if (aIn && count < 4)
+        {
+            pos[count] = a.position;
+            clipDist[count] = a.clipDistance;
+            ++count;
+        }
+        if (aIn != bIn && count < 4)
+        {
+            float t = (kWireNearW - a.position.w) / (b.position.w - a.position.w);
+            pos[count] = lerp (a.position, b.position, t);
+            clipDist[count] = lerp (a.clipDistance, b.clipDistance, t);
+            ++count;
+        }
+    }
+    if (count < 3)
+        return;
+    const float4 pull = float4 (0.0, 0.0, g_edgeParams.x, 0.0);
+    // A strip: 0 1 2 for a triangle, 0 1 3 2 for a quad.
+    const uint order[4] = { 0, 1, count == 4 ? 3 : 2, 2 };
+    [unroll] for (uint k = 0; k < 4; ++k)
+    {
+        if (k >= count)
+            break;
+        uint v = order[k];
+        float2 q = WireScreen (pos[v], viewport);
+        WirePixelInput output;
+        output.position = pos[v] - pull;
+        output.distanceToEdges = float3 (live[0] ? WireDistance (q, from[0], dir[0]) : disabled,
+                                         live[1] ? WireDistance (q, from[1], dir[1]) : disabled,
+                                         live[2] ? WireDistance (q, from[2], dir[2]) : disabled);
+        output.clipDistance = clipDist[v];
+        stream.Append (output);
+    }
+}
+
+[maxvertexcount(4)]
 void main (triangle WireDomainOutput input[3], inout TriangleStream<WirePixelInput> stream)
 {
+    if (min (input[0].position.w, min (input[1].position.w, input[2].position.w)) <= kWireNearW)
+    {
+        EmitClippedWire (input, stream);
+        return;
+    }
     float2 viewport = max (g_wireParams.zw, float2 (1.0, 1.0));
     float2 p0 = 0.5 * viewport * input[0].position.xy / input[0].position.w;
     float2 p1 = 0.5 * viewport * input[1].position.xy / input[1].position.w;
