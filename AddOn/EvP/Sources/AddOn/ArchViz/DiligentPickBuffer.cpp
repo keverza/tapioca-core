@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
 #include <DeviceContext.h>
+#include <Fence.h>
 #include <GraphicsTypes.h>
 #include <RefCntAutoPtr.hpp>
 #include <RenderDevice.h>
@@ -33,12 +34,16 @@ constexpr uint32_t kReadbackSize = 8;
 
 // How many presents must go by before the staging texture is mapped.
 //
-// ⚠️ TWO, AND THEN A BLOCKING MAP -- deliberately, rather than polling with
-// MAP_FLAG_DO_NOT_WAIT. By the time two vsynced Presents have happened the copy
-// finished long ago, so the map returns immediately and the code has no
-// "it was not ready, try again" state to get wrong. A `DO_NOT_WAIT` poll would
-// buy back at most a frame of latency on a click, and it buys it by adding the
-// one path that is hard to test without a GPU.
+// On D3D11, TWO AND THEN A BLOCKING MAP: by the time two vsynced Presents have happened the copy
+// finished long ago, so the map returns at once.
+//
+// ⚠️ ON D3D12 A FENCE, NOT WaitForIdle. Diligent's D3D12 map never waits, so the read used to be
+// preceded by SyncBeforeStagingRead -- a WaitForIdle, written for "a click, a capture". But the
+// pick also runs for HOVER, about twice a second: a full GPU drain each time (912 Diligent
+// "never waits for GPU when mapping" warnings in one live session, RTX 4070 Ti, 2026-11-21, beside
+// 10-40 frame hitches per 10 s). Now the copy is followed by a fence signal; Poll leaves the
+// request pending until the fence has passed and then maps with MAP_FLAG_DO_NOT_WAIT, which is
+// what Diligent asks for. Without a fence (creation failed) the old WaitForIdle path stays.
 constexpr uint64_t kReadbackDelayFrames = 2;
 
 } // namespace
@@ -56,6 +61,9 @@ struct DiligentPickBuffer::Impl {
     RefCntAutoPtr<Diligent::ITexture> color;
     RefCntAutoPtr<Diligent::ITexture> depth;
     RefCntAutoPtr<Diligent::ITexture> staging;
+    // D3D12 only: signalled after each copy into `staging`. Null on D3D11 or if creation failed.
+    RefCntAutoPtr<Diligent::IFence> fence;
+    uint64_t fenceValue = 0;
     Diligent::ITextureView* rtv = nullptr; // owned by `color`
     Diligent::ITextureView* dsv = nullptr; // owned by `depth`
 
@@ -144,6 +152,14 @@ bool DiligentPickBuffer::Init (Diligent::IRenderDevice* device, std::string& err
         return false;
     }
 
+    if (device->GetDeviceInfo ().Type == Diligent::RENDER_DEVICE_TYPE_D3D12) {
+        Diligent::FenceDesc fd;
+        fd.Name = "ArchViz pick readback fence";
+        fd.Type = Diligent::FENCE_TYPE_CPU_WAIT_ONLY;
+        device->CreateFence (fd, &impl_->fence); // null keeps the WaitForIdle fallback in Poll
+        impl_->fenceValue = 0;
+    }
+
     impl_->ready = true;
     return true;
 }
@@ -154,6 +170,8 @@ void DiligentPickBuffer::Shutdown ()
         return;
     impl_->ReleaseTarget ();
     impl_->staging.Release ();
+    impl_->fence.Release ();
+    impl_->fenceValue = 0;
     impl_->ready = false;
     impl_->pending = false;
 }
@@ -309,6 +327,8 @@ bool DiligentPickBuffer::Request (Diligent::IDeviceContext* context, int32_t px,
     copy.DstY = 0;
     copy.DstTextureTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
     context->CopyTexture (copy);
+    if (impl_->fence != nullptr)
+        context->EnqueueSignal (impl_->fence, ++impl_->fenceValue); // submitted with the frame's flush
 
     impl_->pending = true;
     impl_->readyAtFrame = currentFrame + kReadbackDelayFrames;
@@ -325,15 +345,23 @@ bool DiligentPickBuffer::Poll (Diligent::IDeviceContext* context, uint64_t curre
 {
     if (context == nullptr || !impl_->ready || !impl_->pending || currentFrame < impl_->readyAtFrame)
         return false;
+    // D3D12: still pending until the GPU has passed the copy -- NOT a wait (kReadbackDelayFrames).
+    if (impl_->fence != nullptr && impl_->fence->GetCompletedValue () < impl_->fenceValue)
+        return false;
 
     impl_->pending = false;
     outTag = impl_->tag;
 
     // D3D11's Map would block here; Diligent's D3D12 map never does, and two
-    // presents are a likelihood there, not a guarantee (RE51.D2).
-    SyncBeforeStagingRead (context);
+    // presents are a likelihood there, not a guarantee (RE51.D2) -- hence the
+    // fence above, or the drain below when there is no fence.
+    Diligent::MAP_FLAGS mapFlags = Diligent::MAP_FLAG_NONE;
+    if (impl_->fence != nullptr)
+        mapFlags = Diligent::MAP_FLAG_DO_NOT_WAIT;
+    else
+        SyncBeforeStagingRead (context);
     Diligent::MappedTextureSubresource mapped;
-    context->MapTextureSubresource (impl_->staging, 0, 0, Diligent::MAP_READ, Diligent::MAP_FLAG_NONE, nullptr, mapped);
+    context->MapTextureSubresource (impl_->staging, 0, 0, Diligent::MAP_READ, mapFlags, nullptr, mapped);
     if (mapped.pData == nullptr)
         return false;
 
