@@ -912,7 +912,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // same point, for the same reason.
         RememberScreenSpaceReflectionFrame (context, resolvedHdr);
         // #231: the ray-traced style's image replaces the raster colour, never its depth or coverage.
-        Diligent::ITextureView* traced = TraceView (context, constants, viewProj, eye);
+        Diligent::ITextureView* traced = TraceView (context, constants, viewProj, eye, resolvedHdr);
 
         // #247/#248: the still-camera mean, after SSR's history. Only the Ray traced style accumulates on
         // its own; traced sky light needs the mean (#14: else a still Rendered view never converged).

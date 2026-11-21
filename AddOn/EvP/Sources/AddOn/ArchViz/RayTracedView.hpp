@@ -42,6 +42,10 @@ struct RayTracedSettings {
     uint32_t maxSamples = 512; // per pixel; the image is final after this many
     uint32_t bounces = 2;      // diffuse bounces after the first hit (0 = direct light only)
     float budgetMs = 8.0f;     // #231: GPU time a still frame may spend tracing (RayTracedBudget)
+    // #14: how long the view must be still before the traced image shows, and how long it then
+    // takes to fade in over the raster image (RayTracedAccumulator::Advance). 0, 0: at once.
+    float holdSeconds = 0.2f;
+    float fadeSeconds = 0.2f;
     // #232: the Rendered style's reflections traced instead of screen-space, where the device can.
     // Independent of `enabled`: it changes the raster image's reflections, not the style.
     bool reflections = true;
@@ -119,6 +123,7 @@ class RayTracedBudget {
 // What the GPU half does this frame, decided from the view key alone.
 struct RayTracedStep {
     bool show = false;        // hand the accumulated image to the resolve
+    float blend = 1.0f;       // #14: its weight over the raster image while it fades in
     uint32_t trace = 0;       // samples to trace this frame
     uint32_t firstSample = 0; // the index of the first of them (0 = overwrite the accumulation)
 };
@@ -129,7 +134,15 @@ class RayTracedAccumulator {
     // ⚠️ THE KEY IS EVERYTHING THE IMAGE DEPENDS ON -- camera, light, materials, geometry, plane,
     // viewport size, settings. A key that misses an input shows a stale image that never updates.
     // `perFrame` is RayTracedBudget's count; the first still frame traces at least kFirstBurst.
-    RayTracedStep Advance (uint64_t key, uint32_t maxSamples, uint32_t perFrame = 1);
+    //
+    // #14: ⚠️ A WHEEL ZOOM IS A STILL VIEW BETWEEN TICKS. Each tick moves the camera, and the
+    // frames until the next one are still -- at 144 Hz, several -- so the traced image used to show
+    // between ticks and the raster image come back on the next: shadows swapped dark and light all
+    // through a zoom. Now the image traces from the first still frame but shows only once the view
+    // has been still `holdSeconds` (by `nowSeconds`), then fades in over `fadeSeconds`. A negative
+    // `nowSeconds` shows it at once, as before.
+    RayTracedStep Advance (uint64_t key, uint32_t maxSamples, uint32_t perFrame = 1, double nowSeconds = -1.0,
+                           float holdSeconds = 0.0f, float fadeSeconds = 0.0f);
     void Reset ();
     uint32_t Samples () const
     {
@@ -144,6 +157,7 @@ class RayTracedAccumulator {
     bool haveKey_ = false;
     bool still_ = false; // the key held for at least one frame
     uint32_t samples_ = 0;
+    double stillSince_ = 0.0; // #14: when the key last changed
 };
 
 // FNV-1a over raw bytes, for the view key.

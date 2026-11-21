@@ -184,3 +184,47 @@ TEST (RayTracedView, PerFrameSamplesStopExactlyAtTheCap)
     EXPECT_EQ (acc.Samples (), 20u);
     EXPECT_EQ (acc.Advance (7, 20, 8).trace, 0u); // converged
 }
+
+// #14: a wheel zoom is a still view between ticks. The image traces from the first still frame but
+// shows only after the hold, then fades in; a tick inside the hold restarts it unseen.
+TEST (RayTracedView, HoldsThenFadesInAndATickInsideTheHoldNeverShows)
+{
+    RayTracedAccumulator acc;
+    EXPECT_FALSE (acc.Advance (1, 64, 4, 0.00, 0.2f, 0.2f).show); // the camera moved
+    RayTracedStep s = acc.Advance (1, 64, 4, 0.01, 0.2f, 0.2f);
+    EXPECT_FALSE (s.show);
+    EXPECT_GT (s.trace, 0u); // tracing already, unseen
+    s = acc.Advance (1, 64, 4, 0.10, 0.2f, 0.2f);
+    EXPECT_FALSE (s.show);
+    EXPECT_FALSE (acc.Advance (2, 64, 4, 0.15, 0.2f, 0.2f).show); // the next wheel tick
+    EXPECT_FALSE (acc.Advance (2, 64, 4, 0.30, 0.2f, 0.2f).show); // 0.15 s still: held
+    s = acc.Advance (2, 64, 4, 0.45, 0.2f, 0.2f);                 // 0.3 s still: halfway in
+    EXPECT_TRUE (s.show);
+    EXPECT_NEAR (s.blend, 0.5f, 1.0e-4f);
+    s = acc.Advance (2, 64, 4, 0.80, 0.2f, 0.2f);
+    EXPECT_FLOAT_EQ (s.blend, 1.0f);
+    EXPECT_GT (acc.Samples (), 4u); // the samples kept accumulating through the hold
+}
+
+// Without a clock, or with no hold and fade, it shows at once at full weight, as before #14.
+TEST (RayTracedView, NoClockOrNoHoldShowsAtOnce)
+{
+    RayTracedAccumulator a;
+    a.Advance (1, 8, 2);
+    RayTracedStep s = a.Advance (1, 8, 2);
+    EXPECT_TRUE (s.show);
+    EXPECT_FLOAT_EQ (s.blend, 1.0f);
+    RayTracedAccumulator b;
+    b.Advance (1, 8, 2, 5.0, 0.0f, 0.0f);
+    s = b.Advance (1, 8, 2, 5.0, 0.0f, 0.0f);
+    EXPECT_TRUE (s.show);
+    EXPECT_FLOAT_EQ (s.blend, 1.0f);
+    // Converged frames still report the fade.
+    RayTracedAccumulator c;
+    c.Advance (3, 4, 4, 0.0, 0.1f, 0.4f);
+    c.Advance (3, 4, 4, 0.01, 0.1f, 0.4f); // traces all 4
+    s = c.Advance (3, 4, 4, 0.3, 0.1f, 0.4f);
+    EXPECT_EQ (s.trace, 0u);
+    EXPECT_TRUE (s.show);
+    EXPECT_NEAR (s.blend, 0.5f, 1.0e-4f);
+}

@@ -91,6 +91,9 @@ struct Options {
     uint32_t samples = 256;
     // --rt-budget MS: the Ray traced style's time per frame (#231); 0 = one sample a frame, as before.
     float rtBudgetMs = -1.0f;
+    // --rt-fade S: the Ray traced image fades in over S seconds of wall clock (#14). Default 0: the
+    // bench's frames are not paced, so a held or fading image would land in the pictures by timing.
+    float rtFadeSeconds = 0.0f;
     uint32_t frames = 48;
     float ssrThickness = -1.0f;
     int ssrSteps = -1;
@@ -193,6 +196,8 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.samples = uint32_t (std::stoul (next ()));
         else if (a == "--rt-budget")
             o.rtBudgetMs = std::stof (next ());
+        else if (a == "--rt-fade")
+            o.rtFadeSeconds = std::stof (next ());
         else if (a == "--frames")
             o.frames = uint32_t (std::stoul (next ()));
         else if (a == "--temporal")
@@ -296,6 +301,8 @@ av::HudState StyleState (const std::string& style, const Options& o)
         hud.rayTracedMaxSamples = int (o.samples);
         if (o.rtBudgetMs >= 0.0f)
             hud.rayTracedBudgetMs = o.rtBudgetMs;
+        hud.rayTracedHoldSeconds = 0.0f;
+        hud.rayTracedFadeSeconds = o.rtFadeSeconds;
         // "ssr" is the fallback every non-DXR machine sees; "traced" is Rendered on DXR.
         hud.rayTracedReflections = style == "traced";
     }
@@ -920,8 +927,8 @@ int main (int argc, char** argv)
                 if (CreateTargets (device, big.width, big.height, bigTargets)) {
                     for (uint32_t k = 0; k < o.motion; ++k) {
                         RenderFrame (scene, context, bigTargets, big, MovedView (view, o, k), still, nextFrame++);
-                        references.push_back (BoxDown (ReadBack (context, bigTargets, big.width, big.height),
-                                                       big.width, big.height, kMotionSupersample));
+                        references.push_back (BoxDown (ReadBack (context, bigTargets, big.width, big.height), big.width,
+                                                       big.height, kMotionSupersample));
                     }
                 }
                 // 2. The style along the path, after a still start long enough for TAA to settle.
@@ -944,17 +951,18 @@ int main (int argc, char** argv)
                                         int (o.width), int (o.height), 4, references[k].data (), int (o.width) * 4);
                     }
                     if (k >= 1) {
-                        const Flicker f = MotionFlicker (previous, references[k - 1], current, references[k], kThreshold);
+                        const Flicker f =
+                            MotionFlicker (previous, references[k - 1], current, references[k], kThreshold);
                         // Where it flickers: the change in error at the middle of the path, x4, grey.
                         if (k == o.motion / 2) {
                             std::vector<uint8_t> heat (size_t (o.width) * o.height);
                             for (size_t p = 0; p < heat.size (); ++p) {
                                 int worst = 0;
                                 for (size_t c = 0; c < 3; ++c)
-                                    worst = std::max (worst, std::abs ((int (current[p * 4 + c]) -
-                                                                        int (references[k][p * 4 + c])) -
-                                                                       (int (previous[p * 4 + c]) -
-                                                                        int (references[k - 1][p * 4 + c]))));
+                                    worst = std::max (
+                                        worst,
+                                        std::abs ((int (current[p * 4 + c]) - int (references[k][p * 4 + c])) -
+                                                  (int (previous[p * 4 + c]) - int (references[k - 1][p * 4 + c]))));
                                 heat[p] = uint8_t (std::min (255, worst * 4));
                             }
                             stbi_write_png ((o.out + "/" + view.name + "_" + style + "_flicker.png").c_str (),

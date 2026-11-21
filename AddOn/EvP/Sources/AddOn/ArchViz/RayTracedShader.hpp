@@ -454,6 +454,24 @@ void main (uint3 id : SV_DispatchThreadID)
 }
 )hlsl";
 
+// #14: the traced image fading in over the raster one -- g_ray.z its weight -- so a view that
+// comes to rest does not swap its shadows and light in one frame.
+inline constexpr char kRayTracedBlendMain[] = R"hlsl(
+Texture2D<float4> g_rasterColor;
+Texture2D<float4> g_tracedColor;
+RWTexture2D<float4> g_display;
+
+[numthreads (8, 8, 1)]
+void main (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= g_frame.x || id.y >= g_frame.y)
+        return;
+    float4 raster = g_rasterColor.Load (int3 (id.xy, 0));
+    float4 traced = g_tracedColor.Load (int3 (id.xy, 0));
+    g_display[id.xy] = lerp (raster, traced, saturate (g_ray.z));
+}
+)hlsl";
+
 // Traced reflections for the Rendered style (#232): one pass over the G-buffer writing what
 // DiligentFX's SSR writes -- reflected radiance and a confidence -- so the SSR composite is
 // unchanged. Every glossy pixel reflects the real model, offscreen and occluded parts included.

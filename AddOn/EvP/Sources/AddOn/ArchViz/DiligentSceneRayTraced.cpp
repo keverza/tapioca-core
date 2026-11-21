@@ -33,6 +33,7 @@
 #include <TopLevelAS.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 
@@ -105,6 +106,11 @@ struct RayTracedGpu {
     RefCntAutoPtr<Diligent::ITopLevelAS> tlas;
     RefCntAutoPtr<Diligent::IBuffer> blasScratch, tlasScratch, instances;
     RefCntAutoPtr<Diligent::ITexture> accum;
+    // #14: the fade from the raster image: its own pass and the blended picture it writes.
+    RefCntAutoPtr<Diligent::IPipelineState> blendPso;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> blendSrb;
+    RefCntAutoPtr<Diligent::ITexture> display;
+    Diligent::ITextureView* blendBound[2] = {};
     RefCntAutoPtr<Diligent::ITexture> dummyEnv;
     std::vector<int32_t> materialIds;
     std::vector<GpuMaterial> lastMaterials;
@@ -164,10 +170,11 @@ bool DiligentScene::CreateRayTracedPipeline (std::string& error)
         device->CreateShader (sci, &out, nullptr);
         return out != nullptr;
     };
-    RefCntAutoPtr<Diligent::IShader> cs, reflectCs, skyCs;
+    RefCntAutoPtr<Diligent::IShader> cs, reflectCs, skyCs, blendCs;
     if (!compile ("ArchViz ray-traced CS", kRayTracedAccumulateMain, cs) ||
         !compile ("ArchViz traced reflections CS", kRayTracedReflectMain, reflectCs) ||
-        !compile ("ArchViz traced sky light CS", kRayTracedSkyMain, skyCs)) {
+        !compile ("ArchViz traced sky light CS", kRayTracedSkyMain, skyCs) ||
+        !compile ("ArchViz ray-traced fade CS", kRayTracedBlendMain, blendCs)) {
         error = "the ray-traced shaders did not compile (dxcompiler.dll missing beside Tapioca.apx, or rejected)";
         return false;
     }
@@ -206,7 +213,10 @@ bool DiligentScene::CreateRayTracedPipeline (std::string& error)
     pci.PSODesc.Name = "ArchViz traced sky light PSO";
     pci.pCS = skyCs;
     device->CreateComputePipelineState (pci, &gpu->skyPso);
-    if (gpu->pso == nullptr || gpu->reflectPso == nullptr || gpu->skyPso == nullptr) {
+    pci.PSODesc.Name = "ArchViz ray-traced fade PSO";
+    pci.pCS = blendCs;
+    device->CreateComputePipelineState (pci, &gpu->blendPso);
+    if (gpu->pso == nullptr || gpu->reflectPso == nullptr || gpu->skyPso == nullptr || gpu->blendPso == nullptr) {
         error = "Diligent CreateComputePipelineState(ray-traced) failed";
         return false;
     }
@@ -619,7 +629,7 @@ static void BindRayTracedScene (RayTracedGpu& gpu, Diligent::IShaderResourceBind
 
 Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* context,
                                                   const DiligentSceneConstants& constants, const float viewProj[16],
-                                                  const float eye[3])
+                                                  const float eye[3], Diligent::ITextureView* raster)
 {
     Impl::RayTraced& rt = impl_->rayTraced;
     rt.stats.state = RayTracedState::Off;
@@ -677,13 +687,15 @@ Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* cont
     const uint32_t perFrame = gpu.timings.empty () ? 1u : rt.budget.SamplesThisFrame (rt.settings.budgetMs);
     rt.stats.samplesPerFrame = perFrame;
     rt.stats.msPerSample = rt.budget.MsPerSample ();
-    const RayTracedStep step = rt.accumulator.Advance (key, (std::max) (rt.settings.maxSamples, 1u), perFrame);
+    // #14: the clock for the hold and the fade (RayTracedAccumulator::Advance).
+    const double now = std::chrono::duration<double> (std::chrono::steady_clock::now ().time_since_epoch ()).count ();
+    const RayTracedStep step = rt.accumulator.Advance (key, (std::max) (rt.settings.maxSamples, 1u), perFrame, now,
+                                                       rt.settings.holdSeconds, rt.settings.fadeSeconds);
     rt.stats.samples = rt.accumulator.Samples ();
-    if (!step.show) {
-        rt.stats.state = RayTracedState::Moving;
-        return nullptr;
-    }
-    rt.stats.state = step.trace > 0 ? RayTracedState::Accumulating : RayTracedState::Converged;
+    // Traced even while held back, so the image that fades in already has its samples.
+    rt.stats.state = !step.show       ? RayTracedState::Moving
+                     : step.trace > 0 ? RayTracedState::Accumulating
+                                      : RayTracedState::Converged;
     if (step.trace > 0) {
         if (gpu.srbDirty || gpu.srb == nullptr || gpu.boundEnv != gpu.envView) {
             gpu.srb.Release ();
@@ -723,7 +735,58 @@ Diligent::ITextureView* DiligentScene::TraceView (Diligent::IDeviceContext* cont
             timing->pending = true;
         }
     }
-    return gpu.accum->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    if (!step.show)
+        return nullptr;
+    Diligent::ITextureView* traced = gpu.accum->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    if (step.blend >= 1.0f || raster == nullptr)
+        return traced;
+    return FadeInTraced (context, c, traced, raster, step.blend);
+}
+
+// #14: the traced image at `weight` over the raster image, into its own target.
+Diligent::ITextureView* DiligentScene::FadeInTraced (Diligent::IDeviceContext* context, RayTracedConstants& c,
+                                                     Diligent::ITextureView* traced, Diligent::ITextureView* raster,
+                                                     float weight)
+{
+    RayTracedGpu& gpu = *impl_->rayTraced.gpu;
+    const Diligent::TextureDesc& size = gpu.accum->GetDesc ();
+    if (gpu.display == nullptr || gpu.display->GetDesc ().Width != size.Width ||
+        gpu.display->GetDesc ().Height != size.Height) {
+        gpu.display.Release ();
+        Diligent::TextureDesc desc = size;
+        desc.Name = "ArchViz ray-traced fade";
+        impl_->device->CreateTexture (desc, nullptr, &gpu.display);
+        gpu.blendSrb.Release ();
+        if (gpu.display == nullptr)
+            return traced; // no fade, not a failure: the image shows at once
+    }
+    if (gpu.blendSrb == nullptr || gpu.blendBound[0] != traced || gpu.blendBound[1] != raster) {
+        gpu.blendSrb.Release ();
+        gpu.blendPso->CreateShaderResourceBinding (&gpu.blendSrb, true);
+        if (gpu.blendSrb == nullptr)
+            return traced;
+        auto set = [&] (const char* name, Diligent::IDeviceObject* object) {
+            if (Diligent::IShaderResourceVariable* v =
+                    gpu.blendSrb->GetVariableByName (Diligent::SHADER_TYPE_COMPUTE, name))
+                v->Set (object);
+        };
+        set ("RayTracedConstants", gpu.constants);
+        set ("g_rasterColor", raster);
+        set ("g_tracedColor", traced);
+        set ("g_display", gpu.display->GetDefaultView (Diligent::TEXTURE_VIEW_UNORDERED_ACCESS));
+        gpu.blendBound[0] = traced;
+        gpu.blendBound[1] = raster;
+    }
+    c.ray[2] = weight;
+    context->UpdateBuffer (gpu.constants, 0, sizeof (c), &c, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->SetPipelineState (gpu.blendPso);
+    context->CommitShaderResources (gpu.blendSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    Diligent::DispatchComputeAttribs dispatch;
+    dispatch.ThreadGroupCountX = (size.Width + 7) / 8;
+    dispatch.ThreadGroupCountY = (size.Height + 7) / 8;
+    dispatch.ThreadGroupCountZ = 1;
+    context->DispatchCompute (dispatch);
+    return gpu.display->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
 }
 
 // #232: traced reflections in SSR's place. Same output contract as DiligentFX SSR -- reflected

@@ -945,7 +945,9 @@ class DiligentScene final {
                                               Diligent::ITextureView* normal, Diligent::ITextureView* roughness,
                                               uint32_t frameIndex, float roughnessThreshold);
     Diligent::ITextureView* TraceView (Diligent::IDeviceContext* context, const DiligentSceneConstants& constants,
-                                       const float viewProj[16], const float eye[3]);
+                                       const float viewProj[16], const float eye[3], Diligent::ITextureView* raster);
+    Diligent::ITextureView* FadeInTraced (Diligent::IDeviceContext* context, struct RayTracedConstants& c,
+                                          Diligent::ITextureView* traced, Diligent::ITextureView* raster, float weight);
     // ---- the sun study tint, all of it in DiligentSceneSunStudy.cpp ---------
     //
     // ⚠️ BUILT LAZILY ON THE FIRST STUDY, like the occlusion prepass and for

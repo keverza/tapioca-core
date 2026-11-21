@@ -150,7 +150,8 @@ uint32_t RayTracedBudget::SamplesThisFrame (float targetMs)
     return count;
 }
 
-RayTracedStep RayTracedAccumulator::Advance (uint64_t key, uint32_t maxSamples, uint32_t perFrame)
+RayTracedStep RayTracedAccumulator::Advance (uint64_t key, uint32_t maxSamples, uint32_t perFrame, double nowSeconds,
+                                             float holdSeconds, float fadeSeconds)
 {
     RayTracedStep step;
     if (!haveKey_ || key != key_) {
@@ -158,6 +159,7 @@ RayTracedStep RayTracedAccumulator::Advance (uint64_t key, uint32_t maxSamples, 
         haveKey_ = true;
         still_ = false;
         samples_ = 0;
+        stillSince_ = nowSeconds;
         return step; // moving: the raster image
     }
     if (!still_) {
@@ -165,15 +167,26 @@ RayTracedStep RayTracedAccumulator::Advance (uint64_t key, uint32_t maxSamples, 
         step.firstSample = 0;
         step.trace = std::min (std::max (kFirstBurst, perFrame), std::max (maxSamples, 1u));
         samples_ = step.trace;
-        step.show = true;
-        return step;
     }
+    else if (samples_ < maxSamples) {
+        step.firstSample = samples_;
+        step.trace = std::min (std::max (perFrame, 1u), maxSamples - samples_);
+        samples_ += step.trace;
+    }
+    // Converged: nothing traced, the image re-shown.
     step.show = true;
-    if (samples_ >= maxSamples)
-        return step; // converged: re-show
-    step.firstSample = samples_;
-    step.trace = std::min (std::max (perFrame, 1u), maxSamples - samples_);
-    samples_ += step.trace;
+    step.blend = 1.0f;
+    if (nowSeconds >= 0.0) {
+        const double still = nowSeconds - stillSince_;
+        const float hold = std::max (holdSeconds, 0.0f), fade = std::max (fadeSeconds, 0.0f);
+        step.show = still >= double (hold);
+        step.blend = !step.show    ? 0.0f
+                     : fade > 0.0f ? float (std::clamp ((still - double (hold)) / double (fade), 0.0, 1.0))
+                                   : 1.0f;
+        // Shown at all means some of it: the first shown frame is not an invisible one.
+        if (step.show && step.blend <= 0.0f)
+            step.blend = 1.0e-3f;
+    }
     return step;
 }
 
