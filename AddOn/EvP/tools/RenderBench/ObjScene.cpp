@@ -1,5 +1,8 @@
 #include "ObjScene.hpp"
 
+#include "ArchViz/SelectionEdges.hpp"
+#include "ArchViz/TechnicalEdges.hpp"
+
 // #252: the MTL's map_Kd images. STATIC: DiligentTools carries its own stb_image, and two
 // non-static implementations in one link collide.
 #define STB_IMAGE_STATIC
@@ -381,6 +384,13 @@ bool LoadObjScene (const std::string& path, bool yUp, float scale, ObjScene& out
         const uint32_t count = uint32_t (e.indices.size ());
         e.ranges.push_back (av::MaterialRange { int32_t (i), 0, count });
         e.wireEdges.assign (count / 3, 0x7u);
+        // #14: the crease tiers above the wireframe's bits, exactly as ElementPacket packs them, so
+        // the technical edges and the selection draw here as in the viewer. Coplanar fan diagonals
+        // are neither borders nor creases, so they drop out.
+        const std::vector<uint32_t> creases =
+            av::BuildCreaseEdgeMasks (e.vertices, e.indices, e.wireEdges, av::kCreaseTierDegrees, av::kCreaseTierCount);
+        for (size_t t = 0; t < e.wireEdges.size () && t < creases.size (); ++t)
+            e.wireEdges[t] |= creases[t] << av::kSelectionEdgeShift;
         for (int axis = 0; axis < 3; ++axis) {
             e.boundsMin[axis] = 1.0e30f;
             e.boundsMax[axis] = -1.0e30f;

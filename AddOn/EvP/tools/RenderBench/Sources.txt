@@ -64,3 +64,4 @@ ArchViz/Dxgi/HostOccluders.cpp
 ArchViz/HudConsole.cpp
 ArchViz/Dxgi/OccluderStore.cpp
 SunStudy/SunStudyLimits.cpp
+ArchViz/SelectionEdges.cpp
