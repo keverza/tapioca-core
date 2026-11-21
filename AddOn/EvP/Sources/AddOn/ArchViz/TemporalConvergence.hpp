@@ -34,6 +34,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace geomsrv {
 namespace archviz {
@@ -110,6 +111,29 @@ struct TemporalStatus {
     bool idle = false;     // this frame presented the mean without drawing the scene
     uint32_t restarts = 0; // interruptions of a still image (Settling or later)
     TemporalRestart lastRestart = TemporalRestart::None;
+    uint32_t restartsBy[5] = {}; // `restarts` by TemporalRestart
+};
+
+// #14: the still image over the last few seconds, for the log. A camera change and an explicit
+// Reset restart the mean without a log line of their own, so a view that "flickers rhythmically and
+// never settles" in Archicad but settles in RenderBench needs these counts to say which one it is.
+class TemporalActivityLog {
+  public:
+    explicit TemporalActivityLog (double windowSeconds = 10.0) : window_ (windowSeconds)
+    {
+    }
+    // Once a frame, after BeginFrame. Returns a line when a window closes, else empty. A window in
+    // which nothing temporal ran says nothing.
+    std::string Note (const TemporalStatus& status, bool idle, double nowSeconds);
+
+  private:
+    double window_;
+    double started_ = -1.0;
+    uint32_t frames_ = 0;
+    uint32_t phaseFrames_[5] = {};
+    uint32_t idleFrames_ = 0;
+    uint32_t restartsAtStart_[5] = {};
+    bool haveStart_ = false;
 };
 
 // What the renderer does with the accumulator this frame.
@@ -161,6 +185,8 @@ class TemporalConvergence {
         status.targetSamples = settings_.targetSamples;
         status.restarts = restarts_;
         status.lastRestart = lastRestart_;
+        for (int i = 0; i < 5; ++i)
+            status.restartsBy[i] = restartsBy_[i];
         return status;
     }
 
@@ -177,6 +203,7 @@ class TemporalConvergence {
     uint32_t stillFrames_ = 0;
     uint32_t samples_ = 0;
     uint32_t restarts_ = 0;
+    uint32_t restartsBy_[5] = {};
     TemporalRestart lastRestart_ = TemporalRestart::None;
 };
 

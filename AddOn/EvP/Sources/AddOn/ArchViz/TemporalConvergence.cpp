@@ -1,5 +1,6 @@
 #include "ArchViz/TemporalConvergence.hpp"
 
+#include <cstdio>
 #include <cstring>
 
 namespace geomsrv {
@@ -62,6 +63,48 @@ void ContentKey::Add (uint64_t value)
     Add (&value, sizeof (value));
 }
 
+std::string TemporalActivityLog::Note (const TemporalStatus& status, bool idle, double nowSeconds)
+{
+    if (!haveStart_ || started_ < 0.0) {
+        started_ = nowSeconds;
+        for (int i = 0; i < 5; ++i)
+            restartsAtStart_[i] = status.restartsBy[i];
+        haveStart_ = true;
+    }
+    ++frames_;
+    ++phaseFrames_[int (status.phase)];
+    if (idle)
+        ++idleFrames_;
+    if (nowSeconds - started_ < window_)
+        return {};
+
+    std::string line;
+    if (phaseFrames_[int (TemporalPhase::Off)] < frames_) {
+        uint32_t by[5];
+        for (int i = 0; i < 5; ++i)
+            by[i] = status.restartsBy[i] - restartsAtStart_[i];
+        char text[320];
+        std::snprintf (text, sizeof (text),
+                       "still image: %u frames over %.1f s -- moving %u, settling %u, accumulating %u, converged %u "
+                       "(idle %u), off %u; still image restarted by camera %u, content %u, unresolved %u, reset %u; "
+                       "now %s %u/%u",
+                       unsigned (frames_), nowSeconds - started_, unsigned (phaseFrames_[1]),
+                       unsigned (phaseFrames_[2]), unsigned (phaseFrames_[3]), unsigned (phaseFrames_[4]),
+                       unsigned (idleFrames_), unsigned (phaseFrames_[0]), unsigned (by[1]), unsigned (by[2]),
+                       unsigned (by[3]), unsigned (by[4]), TemporalPhaseName (status.phase), unsigned (status.samples),
+                       unsigned (status.targetSamples));
+        line = text;
+    }
+    started_ = nowSeconds;
+    frames_ = 0;
+    idleFrames_ = 0;
+    for (int i = 0; i < 5; ++i) {
+        phaseFrames_[i] = 0;
+        restartsAtStart_[i] = status.restartsBy[i];
+    }
+    return line;
+}
+
 void TemporalConvergence::Restart (TemporalPhase phase, TemporalRestart reason)
 {
     // Only an interrupted still image counts: Moving -> Moving is the camera still moving.
@@ -69,6 +112,7 @@ void TemporalConvergence::Restart (TemporalPhase phase, TemporalRestart reason)
         (phase_ == TemporalPhase::Settling || phase_ == TemporalPhase::Accumulating ||
          phase_ == TemporalPhase::Converged)) {
         ++restarts_;
+        ++restartsBy_[int (reason)];
         lastRestart_ = reason;
     }
     phase_ = phase;

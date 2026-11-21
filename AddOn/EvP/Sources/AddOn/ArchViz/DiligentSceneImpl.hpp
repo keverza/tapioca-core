@@ -875,6 +875,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // target and no clear: the first sample's weight is 1. ⚠️ 32-BIT, NOT 16: at 1/64 a half
     // float's ten mantissa bits round each step and the mean drifts.
     TemporalConvergence temporalConvergence;
+    TemporalActivityLog temporalActivity; // #14: the still image every 10 s, for the log
     TemporalConvergenceSettings temporalConvergenceSettings;
     // The content key folded in while Draw runs; see TemporalConvergence.hpp. Both are defined in
     // DiligentSceneTemporal.cpp: the frame constants and settings, then one call per drawn range

@@ -25,6 +25,7 @@
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/SurfaceClassifier.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <string>
@@ -88,6 +89,12 @@ void DiligentScene::PrepareTemporalAntiAliasingFrame (Diligent::IDeviceContext* 
                                            convergence);
     impl_->idleThisFrame = convergence.idleWhenConverged && impl_->idleEligible &&
                            impl_->temporalConvergence.Phase () == TemporalPhase::Converged;
+    // #14: which input keeps a still image from settling, every 10 s (TemporalActivityLog).
+    const std::string activity = impl_->temporalActivity.Note (
+        impl_->temporalConvergence.Status (), impl_->idleThisFrame,
+        std::chrono::duration<double> (std::chrono::steady_clock::now ().time_since_epoch ()).count ());
+    if (!activity.empty ())
+        ArchVizLog ("Diligent scene: " + activity);
     if (!running)
         return;
 

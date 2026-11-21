@@ -244,3 +244,41 @@ TEST (TemporalConvergence, RestartsAreCountedWithTheirReason)
     EXPECT_EQ (t.Status ().restarts, 4u);
     EXPECT_EQ (t.Status ().lastRestart, TemporalRestart::Content);
 }
+
+// #14: the log line that names what keeps a still image from settling in Archicad.
+TEST (TemporalActivityLog, CountsPhasesAndRestartsByReasonPerWindow)
+{
+    TemporalConvergence t;
+    TemporalActivityLog log (1.0);
+    Frame f;
+    double now = 0.0;
+    std::string line;
+    auto frame = [&] (const Frame& at) {
+        t.BeginFrame (at.view, at.proj, at.width, at.height, true, Small ());
+        const std::string l = log.Note (t.Status (), false, now);
+        if (!l.empty ())
+            line = l;
+        t.EndFrame (7, true);
+        now += 0.1;
+    };
+    for (int i = 0; i < 4; ++i)
+        frame (f); // moving, then settling
+    Frame moved = f;
+    moved.view[12] = 1.0f;
+    frame (moved); // a camera change interrupts the still image
+    for (int i = 0; i < 4; ++i)
+        frame (moved);
+    t.Reset ();
+    for (int i = 0; i < 3; ++i)
+        frame (moved);
+    ASSERT_FALSE (line.empty ());
+    EXPECT_NE (line.find ("by camera 1, content 0, unresolved 0, reset 1"), std::string::npos) << line;
+
+    // A window with nothing temporal running says nothing.
+    TemporalActivityLog quiet (1.0);
+    TemporalStatus off;
+    std::string said;
+    for (int i = 0; i < 30; ++i)
+        said += quiet.Note (off, false, i * 0.1);
+    EXPECT_TRUE (said.empty ());
+}
