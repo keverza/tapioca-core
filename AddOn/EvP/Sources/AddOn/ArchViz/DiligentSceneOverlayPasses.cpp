@@ -398,6 +398,9 @@ Diligent::ITextureView* DiligentScene::CopyTechnicalEdgeDepth (Diligent::IDevice
             return nullptr;
         }
     }
+    // ⚠️ UNBOUND FIRST: copying the bound depth target made Diligent unbind it itself and log an
+    // info line every Technical frame -- 144 a second, which rotated archviz.log within minutes.
+    context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
     Diligent::CopyTextureAttribs attribs (source, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION, copy,
                                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     context->CopyTexture (attribs);

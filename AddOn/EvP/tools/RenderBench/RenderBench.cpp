@@ -127,6 +127,8 @@ struct Options {
     uint32_t motionStopGo = 0; // the held frames after every five moving ones; 0: always moving
     // --edges: the technical edges on (#14 P2), the lines #248 reports moving with the jitter.
     bool edges = false;
+    // --traced-light: traced sky light on whatever the style says -- the viewer's start state.
+    bool tracedLight = false;
     // --converge-settle N / --converge-samples N: the still-camera mean's settle frames and target
     // (TemporalConvergenceSettings); negative / 0 keeps the viewer's.
     int convergeSettle = -1;
@@ -245,6 +247,8 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.shadowSearch = std::stof (next ());
         else if (a == "--shadow-diag")
             o.shadowDiagnostic = std::stoi (next ());
+        else if (a == "--traced-light")
+            o.tracedLight = true;
         else if (a == "--edges")
             o.edges = true;
         else if (a == "--section") {
@@ -349,6 +353,8 @@ av::HudState StyleState (const std::string& style, const Options& o)
         hud.temporalAntiAliasing = false;
         hud.screenSpaceReflection = false;
     }
+    if (o.tracedLight) // --traced-light: the viewer's default, which Technical keeps (#14)
+        hud.rayTracedReflections = true;
     if (o.ssrThickness > 0.0f)
         hud.ssrThickness = o.ssrThickness;
     if (o.ssrSteps > 0)
