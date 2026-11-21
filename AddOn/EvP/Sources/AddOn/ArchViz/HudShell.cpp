@@ -831,10 +831,11 @@ std::string Cards (const std::vector<Card>& cards, const layers::Panel& look, fl
         ImGui::PushID (int (c));
         if (!card.title.empty ())
             ImGui::SeparatorText (card.title.c_str ());
-        float valueWidth = 0;
+        float valueWidth = 0, labelWidth = 0;
         float prefixWidth = 0, suffixWidth = 0;
         for (const auto& figure : card.figures) {
             valueWidth = (std::max) (valueWidth, ImGui::CalcTextSize (figure.value.c_str ()).x);
+            labelWidth = (std::max) (labelWidth, ImGui::CalcTextSize (figure.label.c_str ()).x);
             const auto anchor = NumericAnchor (figure.value);
             if (card.alignDecimals && anchor != std::string::npos) {
                 prefixWidth =
@@ -844,9 +845,14 @@ std::string Cards (const std::vector<Card>& cards, const layers::Panel& look, fl
             }
         }
         valueWidth = (std::max) (valueWidth, prefixWidth + suffixWidth);
+        // ⚠️ THE LABELS KEEP A FLOOR. Values are reserved whole and labels give way (the tests pin
+        // that), but a long text value used to take the entire row and leave every label of the
+        // card as "El...". Each label keeps up to four ems; past that the value is cut with "..."
+        // and its full text is the tooltip.
+        const float labelFloor = (std::min) (labelWidth, 4.0f * ImGui::GetFontSize ());
         valueWidth = (std::min) (valueWidth, (std::max) (1.0f, ImGui::GetContentRegionAvail ().x -
                                                                    4 * ImGui::GetStyle ().CellPadding.x -
-                                                                   ImGui::CalcTextSize ("...").x));
+                                                                   ImGui::CalcTextSize ("...").x - labelFloor));
         if (!card.figures.empty () &&
             ImGui::BeginTable ("##figures", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
             ImGui::TableSetupColumn ("##name", ImGuiTableColumnFlags_WidthStretch);

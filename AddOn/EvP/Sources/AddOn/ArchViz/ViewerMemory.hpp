@@ -42,8 +42,8 @@ uint64_t TextureGpuBytes (uint32_t width, uint32_t height, uint32_t mips, uint32
 // "12.3 MB" -- one decimal below 100 MB, none above; bytes under 0.05 MB read "0.0 MB".
 std::string FormatMegabytes (uint64_t bytes);
 
-// The Model card's "Memory" figure: "GPU 412 MB (meshes 120, textures 88, traced 204), CPU 95 MB".
-// The traced part appears only once the structures were built.
+// The Model card's "GPU memory" figure: "412 MB (meshes 120, textures 88, traced 204)". The traced
+// part appears only once the structures were built; the CPU side is its own figure.
 std::string FormatViewerMemoryFigure (const ViewerMemory& memory);
 
 // The archviz.log line, with the counts and timings the card leaves out.

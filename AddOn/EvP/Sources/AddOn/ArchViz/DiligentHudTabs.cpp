@@ -38,6 +38,12 @@ std::string Format (const char* format, double value)
     return text;
 }
 
+struct LoadingNote {
+    double lastSeen = -1e9;
+    size_t count = 0;
+};
+constexpr double kLoadingNoteHoldSeconds = 3.0;
+
 std::string Count (size_t value)
 {
     return std::to_string (value);
@@ -65,13 +71,25 @@ void StatsPage (HudState& state, const DiligentSceneStats& scene, float ui)
                   Count (scene.texturedRanges[0]) + " drawn" +
                   (scene.texturedRanges[1] > 0 ? ", " + Count (scene.texturedRanges[1]) + " lost" : std::string ()) +
                   (scene.texturedRanges[2] > 0 ? ", " + Count (scene.texturedRanges[2]) + " off" : std::string ()) });
-    if (scene.memory.GpuBytes () > 0)
-        model.figures.push_back ({ "Memory", FormatViewerMemoryFigure (scene.memory) }); // #14
+    if (scene.memory.GpuBytes () > 0) { // #14
+        model.figures.push_back ({ "GPU memory", FormatViewerMemoryFigure (scene.memory) });
+        model.figures.push_back ({ "CPU memory", FormatMegabytes (scene.memory.meshCpuBytes) });
+    }
     if (scene.pointLayers > 0)
         model.figures.push_back ({ "Point clouds", Count (scene.pointLayers) + ", " + Count (scene.visiblePoints) +
                                                        " of " + Count (scene.points) + " points shown" });
+    // ⚠️ HELD, NOT FRAME BY FRAME. The queue empties and refills between upload batches, so a note
+    // shown only while it is non-empty blinked on and off for a whole pass, and the panel's height
+    // with it. The note stays until the queue has been empty for kLoadingNoteHoldSeconds.
+    static LoadingNote loading; // the HUD draws on the render thread only
+    const double now = ImGui::GetTime ();
     if (scene.pending > 0) {
-        model.note = "Reading the model: " + Count (scene.pending) + " element(s) queued";
+        loading.lastSeen = now;
+        loading.count = scene.pending;
+    }
+    if (loading.count > 0 && now - loading.lastSeen <= kLoadingNoteHoldSeconds) {
+        model.note = scene.pending > 0 ? "Reading the model: " + Count (scene.pending) + " element(s) queued"
+                                       : std::string ("Reading the model: up to date");
         model.noteRgba = kAmber;
     }
     cards.push_back (std::move (model));

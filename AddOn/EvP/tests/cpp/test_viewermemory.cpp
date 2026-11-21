@@ -36,7 +36,7 @@ TEST (ViewerMemory, TracedPartAppearsOnlyAfterABuild)
     m.textureGpuBytes = 5ull << 20;
     m.textureImages = 3;
     m.meshCpuBytes = 2ull << 20;
-    EXPECT_EQ (FormatViewerMemoryFigure (m), "GPU 15.0 MB (meshes 10.0, textures 5.0), CPU 2.0 MB");
+    EXPECT_EQ (FormatViewerMemoryFigure (m), "15.0 MB (meshes 10.0, textures 5.0)");
     EXPECT_EQ (FormatViewerMemoryLog (m).find ("traced"), std::string::npos);
 
     m.tracedBufferBytes = 4ull << 20;
@@ -45,7 +45,7 @@ TEST (ViewerMemory, TracedPartAppearsOnlyAfterABuild)
     m.tracedBuildMs = 42.4;
     m.msPerSample = 0.5;
     EXPECT_EQ (m.GpuBytes (), 20ull << 20);
-    EXPECT_EQ (FormatViewerMemoryFigure (m), "GPU 20.0 MB (meshes 10.0, textures 5.0, traced 5.0), CPU 2.0 MB");
+    EXPECT_EQ (FormatViewerMemoryFigure (m), "20.0 MB (meshes 10.0, textures 5.0, traced 5.0)");
     EXPECT_EQ (FormatViewerMemoryLog (m), "memory: GPU 20.0 MB -- meshes 10.0 MB, textures 5.0 MB (3 images), traced "
                                           "4.0 MB buffers + 1.0 MB build scratch (1234 triangles, built in 42 ms, "
                                           "0.50 ms per sample); CPU meshes 2.0 MB");

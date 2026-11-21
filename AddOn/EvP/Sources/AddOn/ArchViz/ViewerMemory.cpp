@@ -42,11 +42,11 @@ std::string Number (uint64_t bytes)
 
 std::string FormatViewerMemoryFigure (const ViewerMemory& memory)
 {
-    std::string text = "GPU " + FormatMegabytes (memory.GpuBytes ()) + " (meshes " + Number (memory.meshGpuBytes) +
+    std::string text = FormatMegabytes (memory.GpuBytes ()) + " (meshes " + Number (memory.meshGpuBytes) +
                        ", textures " + Number (memory.textureGpuBytes);
     if (memory.tracedBuildMs > 0.0)
         text += ", traced " + Number (memory.tracedBufferBytes + memory.tracedScratchBytes);
-    return text + "), CPU " + FormatMegabytes (memory.meshCpuBytes);
+    return text + ")";
 }
 
 std::string FormatViewerMemoryLog (const ViewerMemory& memory)
