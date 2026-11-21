@@ -2782,7 +2782,13 @@ void main (in PSInput psIn, out PSOutput psOut)
     // ⚠️ n.z, NOT n.y. Archicad is Z-UP, and this is the one place in the
     // shader where that matters: with n.y the ambient gradient would run
     // north-south and every roof would be lit like a north wall.
-    float  hemi = saturate (n.z * 0.5 + 0.5);
+    // ⚠️ n.z / 3, NOT n.z / 2 (#14). The sky's radiance runs from ground to sky colour as
+    // d.z * 0.5 + 0.5; what a surface receives is that averaged over the half of the sky it faces,
+    // cosine-weighted, and the mean of d.z there is 2/3 n.z. Taking the radiance at the normal lit
+    // every roof and the ground with the sky colour alone, ~20 % brighter than the traced passes
+    // (RayTracedShader.hpp SkyRadiance, which integrates it), so the Ray traced style darkened the
+    // moment the camera stopped. The mean over all normals is still 0.5 (AutoExposure.cpp).
+    float  hemi = saturate (n.z * (1.0 / 3.0) + 0.5);
     float3 ambientColor = lerp (g_groundColor.rgb, g_skyColor.rgb, hemi);
     float  ambient = g_sunAndAmbient.w;
 
