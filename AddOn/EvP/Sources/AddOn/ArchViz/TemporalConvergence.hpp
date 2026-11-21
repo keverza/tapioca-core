@@ -92,6 +92,13 @@ struct TemporalConvergenceSettings {
     // A whole number of DiligentFX's 16-position Halton cycles, so every jitter position is
     // in the mean the same number of times.
     uint32_t targetSamples = 64;
+    // #14 moire: the pixel filter the still image is the mean of, as a tent's radius in pixels. ⚠️ A
+    // MEAN OF SAMPLES INSIDE THE PIXEL (+/-0.5, DiligentFX's Halton) IS A 1-PIXEL BOX FILTER, and a
+    // box passes 23 % of a pattern at 0.8 of the pixel frequency -- 30 mm louvres a few pixels apart
+    // fold into the wide arcs the live run showed in every settled style. A tent of radius 1 passes
+    // 5 % there. Only the still image's own samples move (Accumulating); TAA while moving keeps its
+    // in-pixel jitter. The Ray traced style's samples use the same tent. <= 0.5 is the old box.
+    float filterRadiusPixels = 1.0f;
     // #248: on a jittered frame, redraw the depth buffer without the jitter after the resolve and
     // draw everything after it (tint, section, wireframe, edges, outlines, previews, labels) with
     // the unjittered camera, so those marks stand still while TAA and the mean are still moving.
@@ -102,6 +109,11 @@ struct TemporalConvergenceSettings {
     // mean over a depth-only redraw, so the overlays and the HUD stay live (DiligentSceneTemporal.cpp).
     bool idleWhenConverged = true;
 };
+
+// A sample offset in pixels from the pixel's centre, drawn from a tent of `radius` pixels: the
+// inverse of its cumulative distribution at `u` in [0, 1]. Monotonic, so a stratified `u` (a Halton
+// position) stays stratified. `radius` <= 0.5 is the plain in-pixel box, u - 0.5.
+float TentOffsetPixels (float u, float radius);
 
 // The readout (scene and viewport stats, the HUD's "still image" line, RenderBench).
 struct TemporalStatus {

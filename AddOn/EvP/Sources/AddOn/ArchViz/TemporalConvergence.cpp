@@ -1,10 +1,19 @@
 #include "ArchViz/TemporalConvergence.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
 namespace geomsrv {
 namespace archviz {
+
+float TentOffsetPixels (float u, float radius)
+{
+    u = u < 0.0f ? 0.0f : (u > 1.0f ? 1.0f : u);
+    if (!(radius > 0.5f))
+        return u - 0.5f;
+    return u < 0.5f ? radius * (std::sqrt (2.0f * u) - 1.0f) : radius * (1.0f - std::sqrt (2.0f - 2.0f * u));
+}
 
 const char* TemporalPhaseName (TemporalPhase phase)
 {

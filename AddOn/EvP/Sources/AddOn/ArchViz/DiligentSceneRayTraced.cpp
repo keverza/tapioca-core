@@ -625,6 +625,7 @@ bool DiligentScene::PrepareRayTracedFrame (Diligent::IDeviceContext* context, co
     rayThrough (0.0f, 2.0f / float (height), next);
     const float cosine = std::clamp (centre[0] * next[0] + centre[1] * next[1] + centre[2] * next[2], -1.0f, 1.0f);
     c.cone[0] = std::acos (cosine);
+    c.cone[1] = impl_->temporalConvergenceSettings.filterRadiusPixels; // #14: the pixel filter's tent
 
     key = HashBytes (kHashSeed, &c, sizeof (c)); // frame[2], ray[1] and ray[3] are still zero here
     key = HashBytes (key, &geometryKey, sizeof (geometryKey));

@@ -9,6 +9,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 using namespace geomsrv::archviz;
 
 namespace {
@@ -281,4 +283,26 @@ TEST (TemporalActivityLog, CountsPhasesAndRestartsByReasonPerWindow)
     for (int i = 0; i < 30; ++i)
         said += quiet.Note (off, false, i * 0.1);
     EXPECT_TRUE (said.empty ());
+}
+
+// #14 moire: the still image's samples are spread over a tent (TemporalConvergenceSettings::
+// filterRadiusPixels). Measured on RenderBench louvres, geometry only: the louvre crop's error
+// against a 4x Lanczos truth 2.08 -> 1.62 (Architecture) and 3.22 -> 2.34 (Ray traced) at radius 1.
+TEST (TemporalConvergence, TentOffsetsSpanTheRadiusMonotonicAndSymmetric)
+{
+    using geomsrv::archviz::TentOffsetPixels;
+    EXPECT_FLOAT_EQ (TentOffsetPixels (0.25f, 0.5f), -0.25f) << "radius 0.5 is the old in-pixel box";
+    EXPECT_FLOAT_EQ (TentOffsetPixels (0.0f, 1.0f), -1.0f);
+    EXPECT_FLOAT_EQ (TentOffsetPixels (0.5f, 1.0f), 0.0f);
+    EXPECT_FLOAT_EQ (TentOffsetPixels (1.0f, 1.0f), 1.0f);
+    float previous = -2.0f;
+    for (int i = 0; i <= 100; ++i) {
+        const float u = float (i) / 100.0f;
+        const float x = TentOffsetPixels (u, 1.0f);
+        EXPECT_GE (x, previous) << "monotonic, so a stratified Halton stays stratified";
+        EXPECT_NEAR (x, -TentOffsetPixels (1.0f - u, 1.0f), 1e-5f);
+        previous = x;
+    }
+    // Half the samples within 1 - sqrt(1/2) of the centre: the tent's median distance.
+    EXPECT_NEAR (TentOffsetPixels (0.75f, 1.0f), 1.0f - std::sqrt (0.5f), 1e-5f);
 }

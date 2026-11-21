@@ -23,6 +23,7 @@
 
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog -- a failed bind must say so, not crash
 #include "ArchViz/DiligentShaders.hpp"
+#include "ArchViz/MatrixMath.hpp" // JitterProjection
 #include "ArchViz/SurfaceClassifier.hpp"
 
 #include <chrono>
@@ -110,6 +111,16 @@ void DiligentScene::PrepareTemporalAntiAliasingFrame (Diligent::IDeviceContext* 
         std::memcpy (jitteredProjection, projection, sizeof (float) * 16);
         jitter[0] = 0.0f;
         jitter[1] = 0.0f;
+    }
+    // #14 moire: while the mean accumulates, the same Halton position, spread over a tent of
+    // `filterRadiusPixels` (TemporalConvergenceSettings), so the still image is a tent-filtered one.
+    // TAA is told the jitter actually used (the caller passes `jitter` on to it).
+    else if (impl_->temporalConvergence.Phase () == TemporalPhase::Accumulating &&
+             convergence.filterRadiusPixels > 0.5f && impl_->viewportWidth > 0 && impl_->viewportHeight > 0) {
+        const float w = float (impl_->viewportWidth), h = float (impl_->viewportHeight);
+        jitter[0] = TentOffsetPixels (jitter[0] * 0.5f * w + 0.5f, convergence.filterRadiusPixels) * 2.0f / w;
+        jitter[1] = TentOffsetPixels (jitter[1] * 0.5f * h + 0.5f, convergence.filterRadiusPixels) * 2.0f / h;
+        JitterProjection (jitteredProjection, projection, jitter[0], jitter[1]);
     }
     // ⚠️ IN PIXELS, NOT NDC. DiligentFX's offset is (halton - 0.5) / (0.5 * W),
     // so multiplying back by half the viewport recovers the sub-pixel shift the

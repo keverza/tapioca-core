@@ -45,7 +45,8 @@ cbuffer RayTracedConstants
     float4   g_cap;     // rgb cut colour (linear), w section on
     uint4    g_frame;   // x width, y height, z first sample, w bounces
     float4   g_ray;     // x near-plane NDC depth, y samples this dispatch
-    float4   g_cone;    // x the camera's spread per pixel, radians (texture mip selection)
+    float4   g_cone;    // x the camera's spread per pixel, radians (texture mip selection); y the
+                        // pixel filter's tent radius in pixels, <= 0.5 the in-pixel box (#14 moire)
 };
 
 RaytracingAccelerationStructure g_scene;
@@ -90,6 +91,16 @@ uint HashU (uint x)
 // pixel (x, y) at sample n started the very sequence of pixel (x-61, y-82) at sample n+33, so the
 // two shared every path but 33 of them (74 such pairs inside 960x540x512; RenderBench bathroom:
 // the 64-sample error correlated +0.10 at that offset, 0.00 at a neighbouring one).
+// #14 moire: a sample's offset from the pixel centre, from a tent of radius g_cone.y pixels (the
+// still image's TentOffsetPixels); the in-pixel box when the radius is 0.5 or less.
+float TentOffset (float u)
+{
+    float r = g_cone.y;
+    if (r <= 0.5)
+        return u - 0.5;
+    return u < 0.5 ? r * (sqrt (2.0 * u) - 1.0) : r * (1.0 - sqrt (2.0 - 2.0 * u));
+}
+
 uint Seed (uint2 px, uint n)
 {
     return HashU (px.x + HashU (px.y + HashU (n)));
@@ -441,7 +452,7 @@ void main (uint3 id : SV_DispatchThreadID)
     {
         uint sample = g_frame.z + s;
         uint rng = Seed (id.xy, sample);
-        float2 px = float2 (id.xy) + float2 (Rand (rng), Rand (rng));
+        float2 px = float2 (id.xy) + 0.5 + float2 (TentOffset (Rand (rng)), TentOffset (Rand (rng)));
         float2 ndc = float2 (px.x / g_frame.x * 2.0 - 1.0, 1.0 - px.y / g_frame.y * 2.0);
         float4 a = mul (g_invViewProj, float4 (ndc, g_ray.x, 1.0));
         float4 b = mul (g_invViewProj, float4 (ndc, 0.5, 1.0));
