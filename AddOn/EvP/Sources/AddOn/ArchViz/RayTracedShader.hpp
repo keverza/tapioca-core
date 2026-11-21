@@ -51,6 +51,7 @@ cbuffer RayTracedConstants
 RaytracingAccelerationStructure g_scene;
 StructuredBuffer<float3> g_positions;
 StructuredBuffer<float2> g_uvs;
+StructuredBuffer<float3> g_normals; // #231: Archicad's per-corner normals, zero where none
 StructuredBuffer<uint>   g_indices;
 StructuredBuffer<uint>   g_triangleMaterial;
 // texture: x the slot in g_albedo (< 0 untextured), yz 1 / the size one repeat covers, w mirror
@@ -205,16 +206,27 @@ float3 TextureColour (Material m, Hit h, uint i0, uint i1, uint i2, float3 a, fl
     return g_albedo[NonUniformResourceIndex (slot)].SampleLevel (g_albedoSampler, s, max (lod, 0.0)).rgb;
 }
 
-void SurfaceFull (Hit h, float3 o, float3 d, float travelled, out float3 p, out float3 n, out float3 albedo,
-                  out float3 finish, out float alpha)
+//
+// #231: TWO NORMALS. `n` shades: Archicad's per-corner normals interpolated across the triangle,
+// as the raster interpolates them, so a tessellated column or sphere reads as curved instead of
+// as facets (RenderBench cornell-sphere: a mirror sphere reflected in blocks, its sun highlight
+// one square facet). `ng` is the flat triangle's, facing the ray, and decides geometry: which side
+// a ray leaves from and whether a new direction goes into the surface. The welder already splits
+// the normals at creases, so a box's faces stay flat. An element without normals (zeros) shades flat.
+void SurfaceFull (Hit h, float3 o, float3 d, float travelled, out float3 p, out float3 n, out float3 ng,
+                  out float3 albedo, out float3 finish, out float alpha)
 {
     p = o + d * h.t;
     uint i0 = g_indices[h.prim * 3], i1 = g_indices[h.prim * 3 + 1], i2 = g_indices[h.prim * 3 + 2];
     float3 a = g_positions[i0], b = g_positions[i1], c = g_positions[i2];
-    n = cross (b - a, c - a);
-    n = dot (n, n) > 0.0 ? normalize (n) : -d;
-    bool back = dot (n, d) > 0.0;
+    ng = cross (b - a, c - a);
+    ng = dot (ng, ng) > 0.0 ? normalize (ng) : -d;
+    bool back = dot (ng, d) > 0.0;
     if (back)
+        ng = -ng;
+    float3 ns = g_normals[i0] + h.bary.x * (g_normals[i1] - g_normals[i0]) + h.bary.y * (g_normals[i2] - g_normals[i0]);
+    n = dot (ns, ns) > 1.0e-12 ? normalize (ns) : ng;
+    if (dot (n, ng) < 0.0)
         n = -n;
     Material m = g_materials[g_triangleMaterial[h.prim]];
     albedo = m.texture.x >= 0.0 ? TextureColour (m, h, i0, i1, i2, a, b, c, d, travelled) : m.colorAlpha.rgb;
@@ -231,6 +243,7 @@ void SurfaceFull (Hit h, float3 o, float3 d, float travelled, out float3 p, out 
                 p = o + d * tPlane;
         }
         n = facing < 0.0 ? g_plane.xyz : -g_plane.xyz;
+        ng = n;
         albedo = g_cap.rgb;
     }
 }
@@ -328,9 +341,9 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
                 L += Indirect (T * SkyRadiance (d), i);
             break;
         }
-        float3 p, n, albedo, finish;
+        float3 p, n, ng, albedo, finish;
         float alpha;
-        SurfaceFull (h, o, d, travelled, p, n, albedo, finish, alpha);
+        SurfaceFull (h, o, d, travelled, p, n, ng, albedo, finish, alpha);
         travelled += h.t;
         // The pane's split (see the header): its diffuse film is alpha of it, the rest passes.
         float film = alpha >= 0.99 ? 1.0 : saturate (alpha);
@@ -340,7 +353,7 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
         float3 v = -d;
         float ndv = max (dot (n, v), 1.0e-4);
         float3 F = FresnelSchlick (f0, ndv);
-        float3 at = p + n * Epsilon (p);
+        float3 at = p + ng * Epsilon (p);
         float3 sun = SunLight (at, n, rng);
         L += Indirect (T * (film * diffuse * (1.0 - F) * sun + SunSpecular (n, v, f0, rough, sun)), i);
         float passShare = 1.0 - film;
@@ -374,7 +387,8 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
             float3 hv = SampleGgxHalf (n, alpha, rng);
             float3 l = reflect (d, hv);
             float ndl = dot (n, l);
-            if (ndl <= 0.0)
+            // Below the triangle itself: the smooth normal bent the lobe into the surface.
+            if (ndl <= 0.0 || dot (l, ng) <= 0.0)
                 break;
             float vdh = saturate (dot (v, hv));
             float ndh = max (dot (n, hv), 1.0e-4);
@@ -387,6 +401,8 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
         {
             T *= film * diffuse * (1.0 - F) / max (1.0 - pSpecular - pPass, 1.0e-4);
             d = CosineSample (n, rng);
+            if (dot (d, ng) <= 0.0)
+                break;
         }
     }
     return L;
@@ -497,10 +513,10 @@ void main (uint3 id : SV_DispatchThreadID)
             sum += SkyLevel (d, 0.0);
             continue;
         }
-        float3 hp, hn, albedo, finish;
+        float3 hp, hn, hng, albedo, finish;
         float alpha;
-        SurfaceFull (h, at, d, length (p - eye), hp, hn, albedo, finish, alpha);
-        float3 hat = hp + hn * Epsilon (hp);
+        SurfaceFull (h, at, d, length (p - eye), hp, hn, hng, albedo, finish, alpha);
+        float3 hat = hp + hng * Epsilon (hp);
         // #232: THE SKY AT THE HIT IS SEEN THROUGH ONE VISIBILITY RAY, not assumed. Unoccluded,
         // every wall a reflection landed on inside a closed room was lit as if it stood outdoors,
         // and an indoor mirror glowed (RenderBench bathroom: the mirror twice the reference's
@@ -581,10 +597,10 @@ void main (uint3 id : SV_DispatchThreadID)
             seen += sky;
             continue;
         }
-        float3 hp, hn, albedo, finish;
+        float3 hp, hn, hng, albedo, finish;
         float alpha;
-        SurfaceFull (h, at, d, length (p - eye), hp, hn, albedo, finish, alpha);
-        float3 hat = hp + hn * Epsilon (hp);
+        SurfaceFull (h, at, d, length (p - eye), hp, hn, hng, albedo, finish, alpha);
+        float3 hat = hp + hng * Epsilon (hp);
         seen += Luminance (albedo * (1.0 - saturate (finish.y)) * SunLight (hat, hn, rng));
     }
     float traced = saturate (seen / max (open, 1.0e-4));

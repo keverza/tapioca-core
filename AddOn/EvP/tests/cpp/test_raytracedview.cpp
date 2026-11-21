@@ -129,3 +129,20 @@ TEST (RayTracedView, TextureSlotsAreSharedPerImageAndOverflowIsCounted)
     EXPECT_EQ (s.overflow, 1u);
     EXPECT_EQ (s.keys, (std::vector<uint64_t> { 11, 22, 33 }));
 }
+
+// #231: the traced styles shade with Archicad's per-corner normals, flattened parallel to the
+// positions; an element without them contributes zeros, which the shader reads as "shade flat".
+TEST (RayTracedView, FlattensNormalsParallelToPositions)
+{
+    auto smooth = Quad (0.0f);
+    smooth->normals = { 0, 0, 1, 0, 0.6f, 0.8f, 0, 0, 1, 0, -0.6f, 0.8f };
+    std::vector<RayTracedSource> sources;
+    sources.push_back ({ smooth, { { 1, 0, 6 } } });
+    sources.push_back ({ Quad (5.0f), { { 2, 0, 6 } } }); // no normals
+    const RayTracedGeometry g = BuildRayTracedGeometry (sources);
+    ASSERT_EQ (g.normals.size (), g.positions.size ());
+    EXPECT_FLOAT_EQ (g.normals[4], 0.6f); // the first quad's second vertex
+    EXPECT_FLOAT_EQ (g.normals[10], -0.6f);
+    for (size_t k = 12; k < 24; ++k)
+        EXPECT_EQ (g.normals[k], 0.0f);
+}

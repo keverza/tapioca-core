@@ -84,7 +84,7 @@ struct RayTracedGpu {
     Diligent::ITextureView* skyBound[4] = {}; // depth, normal, occlusion, env the SRB holds
     bool skySrbDirty = true;
     RefCntAutoPtr<Diligent::IBuffer> constants;
-    RefCntAutoPtr<Diligent::IBuffer> positions, uvs, indices, triangleMaterial, materials;
+    RefCntAutoPtr<Diligent::IBuffer> positions, uvs, normals, indices, triangleMaterial, materials;
     // #231: the texture array, one view per slot (the white texel where a slot is unused), and the
     // image keys in slot order -- compared every frame, and every binding is rebuilt on a change.
     RefCntAutoPtr<Diligent::ITexture> whiteTexel;
@@ -250,6 +250,7 @@ bool DiligentScene::BuildRayTracedScene (Diligent::IDeviceContext* context, uint
 
     gpu.positions.Release ();
     gpu.uvs.Release ();
+    gpu.normals.Release ();
     gpu.indices.Release ();
     gpu.triangleMaterial.Release ();
     gpu.blas.Release ();
@@ -281,6 +282,8 @@ bool DiligentScene::BuildRayTracedScene (Diligent::IDeviceContext* context, uint
                      geometry.positions.size () * sizeof (float), 12, true, gpu.positions) ||
         !makeBuffer ("ArchViz ray-traced texture coordinates", geometry.uvs.data (),
                      geometry.uvs.size () * sizeof (float), 8, false, gpu.uvs) ||
+        !makeBuffer ("ArchViz ray-traced normals", geometry.normals.data (), geometry.normals.size () * sizeof (float),
+                     12, false, gpu.normals) ||
         !makeBuffer ("ArchViz ray-traced indices", geometry.indices.data (),
                      geometry.indices.size () * sizeof (uint32_t), 4, true, gpu.indices) ||
         !makeBuffer ("ArchViz ray-traced triangle materials", geometry.triangleMaterial.data (),
@@ -583,6 +586,7 @@ static void BindRayTracedScene (RayTracedGpu& gpu, Diligent::IShaderResourceBind
     set ("g_scene", gpu.tlas);
     set ("g_positions", gpu.positions->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
     set ("g_uvs", gpu.uvs->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
+    set ("g_normals", gpu.normals->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
     if (Diligent::IShaderResourceVariable* v = srb->GetVariableByName (Diligent::SHADER_TYPE_COMPUTE, "g_albedo"))
         v->SetArray (gpu.textureViews.data (), 0, Diligent::Uint32 (gpu.textureViews.size ()));
     set ("g_indices", gpu.indices->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));

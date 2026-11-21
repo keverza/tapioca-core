@@ -29,6 +29,8 @@ import compare  # noqa: E402
 #   bathroom         a real wall mirror and glossy tiles, reflecting what is behind the camera
 #   living           glossy floor, long room: far objects in the reflection
 #   fireplace        polished floor, small room, mixed materials
+#   cornell-sphere   two glossy spheres (#231): a tessellated curve, faceted wherever a pass
+#                    shades with the flat triangle normal instead of the vertex normals
 #   glazing          a glazed front (#231): the sky and a block in the pane, a red wall through it.
 #                    The bench's own fixture (scenes/, from make_glazing.py); a path starting with
 #                    "@" is relative to that folder, not to --scenes.
@@ -40,6 +42,10 @@ SCENES = {
     "cornell-glossy": ("CornellBox/CornellBox-Glossy-Floor.obj", 1.0, [
         "front:0,-3.6,1:0,0,1:40",
         "low:0.3,-2.0,0.35:0,0.4,0.4:55",
+    ]),
+    "cornell-sphere": ("CornellBox/CornellBox-Sphere.obj", 1.0, [
+        "front:0,-3.6,1:0,0,1:40",
+        "close:0.2,-1.4,0.6:0,0.3,0.4:50",
     ]),
     "bathroom": ("salle_de_bain/salle_de_bain.obj", 0.1, [
         "mirror:0,-1.9,1.6:0,2.3,1.4:65",

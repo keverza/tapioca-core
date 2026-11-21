@@ -46,6 +46,10 @@ RayTracedGeometry BuildRayTracedGeometry (const std::vector<RayTracedSource>& so
             out.uvs.insert (out.uvs.end (), mesh.uvs.begin (), mesh.uvs.begin () + vertexCount * 2);
         else
             out.uvs.resize (out.uvs.size () + vertexCount * 2, 0.0f);
+        if (mesh.normals.size () >= vertexCount * 3)
+            out.normals.insert (out.normals.end (), mesh.normals.begin (), mesh.normals.begin () + vertexCount * 3);
+        else
+            out.normals.resize (out.normals.size () + vertexCount * 3, 0.0f);
         for (size_t t = 0; t < triangleCount; ++t) {
             const uint32_t a = mesh.indices[t * 3], b = mesh.indices[t * 3 + 1], c = mesh.indices[t * 3 + 2];
             if (a >= vertexCount || b >= vertexCount || c >= vertexCount)

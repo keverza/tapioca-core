@@ -60,6 +60,7 @@ struct RayTracedSource {
 struct RayTracedGeometry {
     std::vector<float> positions;           // xyz per vertex, world metres
     std::vector<float> uvs;                 // #231: Archicad's uv per vertex, (0, 0) where it gave none
+    std::vector<float> normals;             // #231: per-corner normal per vertex, zero where none (flat)
     std::vector<uint32_t> indices;          // 3 per triangle, into `positions`
     std::vector<uint32_t> triangleMaterial; // one per triangle, into `materials`
     std::vector<int32_t> materials;         // material ids

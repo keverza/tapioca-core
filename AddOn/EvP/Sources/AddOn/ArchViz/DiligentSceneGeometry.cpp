@@ -298,6 +298,8 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                     mesh->indices = upload.indices;
                     if (upload.uvs.size () == size_t (verts) * 2)
                         mesh->uvs = upload.uvs; // #231: the ray-traced styles' textures
+                    if (upload.normals.size () == size_t (verts) * 3)
+                        mesh->normals = upload.normals; // #231: the ray-traced styles' smooth shading
                     for (int k = 0; k < 3; ++k) {
                         mesh->boundsMin[k] = upload.boundsMin[k];
                         mesh->boundsMax[k] = upload.boundsMax[k];

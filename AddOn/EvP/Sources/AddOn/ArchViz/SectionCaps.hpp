@@ -58,6 +58,9 @@ struct SectionMesh {
     // #231: Archicad's texture coordinates, two per vertex, for the ray-traced styles' textures;
     // empty for an element Archicad gave none. The caps never read them.
     std::vector<float> uvs;
+    // #231: Archicad's per-corner normals, three per vertex, for the traced styles' smooth shading;
+    // empty when the upload had none. The caps never read them.
+    std::vector<float> normals;
     float boundsMin[3] = { 0.0f, 0.0f, 0.0f };
     float boundsMax[3] = { 0.0f, 0.0f, 0.0f };
 };
