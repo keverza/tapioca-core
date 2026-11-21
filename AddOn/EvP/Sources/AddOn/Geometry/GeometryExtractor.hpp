@@ -65,6 +65,16 @@ std::map<int32_t, CapturedSurface> ReadSurfaceAttributes ();
 // MAIN THREAD ONLY.
 bool ExtractElementAt (const ModelerAPI::Model& model, int32_t index1Based, Mesh& mesh);
 
+// #252 measurement: the main-thread time and the corners spent reading texture coordinates
+// (HasMaterialTexture, GetTextureCoordinate) on this thread since the last call, which resets it.
+// The viewer logs it per element beside captureMs. TAPIOCA_VIEWER_TEXTURE_COORDINATES=0 in the
+// environment before Archicad starts skips the reads (textures then draw untextured), for an A/B.
+struct TextureCoordinateCost {
+    double milliseconds = 0.0;
+    uint64_t corners = 0;
+};
+TextureCoordinateCost TakeTextureCoordinateCost ();
+
 // MAIN THREAD, beside `ExtractElementAt`: what KIND of element sits at this
 // index. A short lowercase name -- "wall", "slab", "railing" -- or "type<N>" for
 // one this does not spell.

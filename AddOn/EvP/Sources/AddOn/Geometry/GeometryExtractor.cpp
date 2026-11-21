@@ -20,6 +20,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
+#include <cstdlib>
 #include <cmath>
 #include <set>
 #include <string>
@@ -28,6 +30,22 @@
 namespace geomsrv {
 
 namespace {
+
+thread_local TextureCoordinateCost g_uvCost;
+
+bool TextureCoordinatesEnabled ()
+{
+    static const bool enabled = [] {
+        const char* v = std::getenv ("TAPIOCA_VIEWER_TEXTURE_COORDINATES");
+        return v == nullptr || v[0] != '0';
+    }();
+    return enabled;
+}
+
+double MillisecondsSince (std::chrono::steady_clock::time_point t)
+{
+    return std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - t).count ();
+}
 
 int32_t ReadPolygonSurfaceAttribute (const ModelerAPI::Polygon& polygon)
 {
@@ -139,11 +157,15 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                 // #252: texture coordinates only where the material has a texture -- the call is
                 // per corner, and most of a model is plain paint.
                 bool textured = false;
-                try {
-                    textured = polygon.HasMaterialTexture ();
-                }
-                catch (const GS::Exception&) {
-                    textured = false;
+                if (TextureCoordinatesEnabled ()) {
+                    const auto asked = std::chrono::steady_clock::now ();
+                    try {
+                        textured = polygon.HasMaterialTexture ();
+                    }
+                    catch (const GS::Exception&) {
+                        textured = false;
+                    }
+                    g_uvCost.milliseconds += MillisecondsSince (asked);
                 }
                 if (recorder != nullptr)
                     recorder->BeginPolygon (iPoly, material, surfaceAttribute, visibleEdges);
@@ -175,7 +197,10 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                             world.y = bodyPos[size_t (bi) * 3 + 1];
                             world.z = bodyPos[size_t (bi) * 3 + 2];
                             ModelerAPI::TextureCoordinate uv;
+                            const auto asked = std::chrono::steady_clock::now ();
                             polygon.GetTextureCoordinate (&world, &uv);
+                            g_uvCost.milliseconds += MillisecondsSince (asked);
+                            ++g_uvCost.corners;
                             if (std::isfinite (uv.u) && std::isfinite (uv.v)) {
                                 corner.hasUv = true;
                                 corner.u = uv.u;
@@ -770,6 +795,13 @@ std::map<int32_t, CapturedSurface> ReadSurfaceAttributes ()
                                           APIGuidToString (attribute.header.guid).ToCStr ().Get (), rgba });
     }
     return result;
+}
+
+TextureCoordinateCost TakeTextureCoordinateCost ()
+{
+    const TextureCoordinateCost cost = g_uvCost;
+    g_uvCost = {};
+    return cost;
 }
 
 bool ExtractElementAt (const ModelerAPI::Model& model, int32_t index1Based, Mesh& mesh)

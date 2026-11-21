@@ -75,8 +75,9 @@ std::unique_ptr<ElementUpload> MakeElementPacket (const CapturedMeshPacket& pack
         "pipeline: stage=geometry-convert packet=" + std::to_string (up->packetId) + " guid=" + mesh.guid +
         " vertices=" + std::to_string (up->VertexCount ()) + " triangles=" + std::to_string (up->indices.size () / 3) +
         " sourceBytes=" + std::to_string (sourceBytes) + " payloadBytes=" + std::to_string (up->PayloadBytes ()) +
-        " retainedBytes=" + std::to_string (up->Bytes ()) +
-        " captureMs=" + std::to_string (packet.captureMilliseconds) + " convertMs=" + std::to_string (convertMs));
+        " retainedBytes=" + std::to_string (up->Bytes ()) + " captureMs=" +
+        std::to_string (packet.captureMilliseconds) + " uvMs=" + std::to_string (packet.uvMilliseconds) +
+        " uvCorners=" + std::to_string (packet.uvCorners) + " convertMs=" + std::to_string (convertMs));
     return up;
 }
 

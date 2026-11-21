@@ -29,10 +29,14 @@ int64_t NowMs ()
 bool CaptureElementPacket (ModelerAPI::Model& model, int32_t index, std::vector<CapturedMeshPacket>& packets)
 {
     CapturedMeshPacket packet;
+    TakeTextureCoordinateCost (); // whatever another caller left on this thread is not this element's
     const auto started = std::chrono::steady_clock::now ();
     if (!ExtractElementAt (model, index, packet.mesh))
         return false;
     packet.capturedAt = std::chrono::steady_clock::now ();
+    const TextureCoordinateCost uv = TakeTextureCoordinateCost ();
+    packet.uvMilliseconds = uv.milliseconds;
+    packet.uvCorners = uv.corners;
     packet.captureMilliseconds = std::chrono::duration<double, std::milli> (packet.capturedAt - started).count ();
     packets.push_back (std::move (packet));
     return true;

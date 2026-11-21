@@ -10,6 +10,8 @@ struct CapturedMeshPacket {
     Mesh mesh;
     std::chrono::steady_clock::time_point capturedAt;
     double captureMilliseconds = 0.0;
+    double uvMilliseconds = 0.0; // #252: of captureMs, the texture-coordinate reads
+    uint64_t uvCorners = 0;
 };
 
 // SDK-free conversion on the extraction worker, not the host or render thread.
