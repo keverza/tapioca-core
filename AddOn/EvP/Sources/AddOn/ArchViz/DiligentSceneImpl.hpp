@@ -938,6 +938,11 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // The last frame's key inputs, so a still image that restarts on content says which one moved
     // (the log line in StepTemporalConvergence; #247 live: "jitter and stop" for minutes at start).
     uint64_t lastEarlyKey = 0;
+    // #14 white-flash diagnostic (NoteLightChange): last frame's light lanes, and the log budget.
+    std::vector<float> lightSignature;
+    int64_t lightLogSecond = -1;
+    int lightLogLines = 0;
+    void NoteLightChange (const DiligentSceneConstants& constants, const ClayLook& look, bool drawSurfaces);
     bool lastAoRan = false, lastSsrRan = false, lastAtmosphereRan = false;
     size_t lastPointDraws = 0;
     DiligentSceneConstants resolveConstants;

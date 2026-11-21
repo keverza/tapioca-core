@@ -18,8 +18,12 @@
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/SurfaceClassifier.hpp"
 
+#include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace geomsrv {
 namespace archviz {
@@ -244,10 +248,67 @@ Diligent::ITextureView* DiligentScene::StepTemporalConvergence (Diligent::IDevic
 // change on exactly the frame the mean converges and restart it forever.
 // ⚠️ A SETTING LEFT OUT OF THIS KEY KEEPS A STALE IMAGE ON SCREEN AFTER IT CHANGES. New state that
 // changes the HDR image goes in here, not only into the constants.
+// #14 white-flash diagnostic. Live: single frames with every surface near white (224-255), the
+// clear colour, the edges and the camera unchanged, in Technical with TAA, the still image and idle
+// all off -- so the shading itself, which RenderBench never reproduced. Every lane the surfaces'
+// light reads that is not the camera's is compared with the last frame, and a change is logged with
+// both values: a lane that flips for one frame shows as a pair of lines. 20 lines a second at most.
+void DiligentScene::Impl::NoteLightChange (const DiligentSceneConstants& constants, const ClayLook& look,
+                                           bool drawSurfaces)
+{
+    static const char* const kNames[] = { "sunDir.x",     "sunDir.y",
+                                          "sunDir.z",     "ambient",
+                                          "sky.r",        "sky.g",
+                                          "sky.b",        "sunStrength",
+                                          "ground.r",     "ground.g",
+                                          "ground.b",     "exposure",
+                                          "reflectance",  "roughnessBias",
+                                          "aoIntensity",  "wb.r",
+                                          "wb.g",         "wb.b",
+                                          "frame.hdr",    "frame.coverage",
+                                          "frame.focus",  "frame.focusOpacity",
+                                          "sunWithSky",   "envIntensity",
+                                          "envActive",    "shadows",
+                                          "clay",         "clay.r",
+                                          "drawSurfaces", "renderQuality",
+                                          "baseColor.r" };
+    const std::vector<float> now = {
+        constants.sunDir[0],        constants.sunDir[1],         constants.sunDir[2],         constants.ambient,
+        constants.skyColor[0],      constants.skyColor[1],       constants.skyColor[2],       constants.skyColor[3],
+        constants.groundColor[0],   constants.groundColor[1],    constants.groundColor[2],    constants.gradeParams[0],
+        constants.gradeParams[1],   constants.gradeParams[2],    constants.gradeParams[3],    constants.whiteBalance[0],
+        constants.whiteBalance[1],  constants.whiteBalance[2],   constants.frameControl[0],   constants.frameControl[1],
+        constants.frameControl[2],  constants.frameControl[3],   constants.materialParams[1], constants.envParams[0],
+        constants.envParams[2],     constants.shadowParams[0],   look.enabled ? 1.0f : 0.0f,  look.r,
+        drawSurfaces ? 1.0f : 0.0f, float (int (renderQuality)), constants.baseColor[0]
+    };
+    static_assert (sizeof (kNames) / sizeof (kNames[0]) == 31, "a name for every lane");
+    if (lightSignature.size () == now.size ()) {
+        std::string changed;
+        for (size_t k = 0; k < now.size (); ++k)
+            if (!(std::abs (now[k] - lightSignature[k]) <= 1e-4f * (std::max) (1.0f, std::abs (now[k]))))
+                changed += std::string (" ") + kNames[k] + " " + std::to_string (lightSignature[k]) + "->" +
+                           std::to_string (now[k]);
+        if (!changed.empty ()) {
+            const int64_t second =
+                std::chrono::duration_cast<std::chrono::seconds> (std::chrono::steady_clock::now ().time_since_epoch ())
+                    .count ();
+            if (second != lightLogSecond) {
+                lightLogSecond = second;
+                lightLogLines = 0;
+            }
+            if (++lightLogLines <= 20)
+                ArchVizLog ("Diligent scene: light changed:" + changed);
+        }
+    }
+    lightSignature = now;
+}
+
 void DiligentScene::Impl::BeginFrameContent (const DiligentSceneConstants& constants, const ClayLook& look,
                                              bool drawSurfaces)
 {
     NoteTextureLane (); // #252 diagnostic: closes the previous frame's textured-range count
+    NoteLightChange (constants, look, drawSurfaces);
     frameContent = ContentKey ();
     DiligentSceneConstants key = constants;
     std::memset (key.viewProj, 0, sizeof (key.viewProj));
