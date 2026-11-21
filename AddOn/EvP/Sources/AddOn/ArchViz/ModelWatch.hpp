@@ -385,6 +385,19 @@ inline size_t RouteModelSize (int32_t contentWatchElements, size_t publishedMesh
     return contentWatchElements > 0 ? size_t (contentWatchElements) : publishedMeshes;
 }
 
+// Which published snapshot sizes the model for RouteModelSize. ⚠️ THE VIEWER'S PASS IS IN
+// MeshStore::Shared, NOT Current. The palette viewer's worker publishes with PublishShared
+// (5fc4fb8b, 2026-10-03); Current is set only by the snapshot commands. The #97 fix read Current,
+// so with the palette viewer alone it found nothing, sized the model 0, and one new element on an
+// 806k-triangle project ran a full 84 s pass again (2026-11-21 19:31:07, `1 new` -> `full=1`).
+// The complete shared pass wins; Current stands in only when there is none.
+inline size_t PublishedMeshCount (bool haveShared, size_t sharedMeshes, bool haveCurrent, size_t currentMeshes)
+{
+    if (haveShared && sharedMeshes > 0)
+        return sharedMeshes;
+    return haveCurrent ? currentMeshes : 0;
+}
+
 // MAIN THREAD. Start what a busy worker had to leave -- a full pass, or the elements to update
 // one by one -- once it is free. ModelContentWatch calls it every tick of the overlay's runtime,
 // so it does not wait for the next poll of the generator (every 30 s on a large project).

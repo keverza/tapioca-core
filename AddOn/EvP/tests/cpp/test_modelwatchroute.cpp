@@ -52,6 +52,20 @@ TEST (ModelWatchRoute, AnUncountedModelIsSizedByItsPublishedSnapshot)
         << "nothing published yet: a full pass";
 }
 
+// 2026-11-21: the palette viewer publishes its passes to MeshStore::Shared only. Sizing from
+// Current alone read 0 and routed one new element to a full 84 s pass.
+TEST (ModelWatchRoute, TheViewersSharedPassSizesTheModel)
+{
+    EXPECT_EQ (watch::PublishedMeshCount (true, 2085, false, 0), 2085u);
+    EXPECT_EQ (watch::PublishedMeshCount (true, 2085, true, 12), 2085u) << "the complete pass wins";
+    EXPECT_EQ (watch::PublishedMeshCount (false, 0, true, 2085), 2085u) << "Current stands in";
+    EXPECT_EQ (watch::PublishedMeshCount (true, 0, true, 40), 40u) << "an empty shared pass sizes nothing";
+    EXPECT_EQ (watch::PublishedMeshCount (false, 0, false, 0), 0u);
+    EXPECT_EQ (
+        watch::RouteChange (1, watch::RouteModelSize (-1, watch::PublishedMeshCount (true, 2085, false, 0)), 0, 0),
+        watch::Route::Update);
+}
+
 // 2026-10-31: a 3,169 ms generator backed the watch off to 30 s, and edits sat
 // unseen that long. A project-database event brings the next poll forward --
 // bounded so a chatty event can never turn polls into a stall loop.

@@ -511,8 +511,11 @@ void PollWatch (bool early)
         }
         gWalkedSince3D.insert (named.begin (), named.end ());
     }
-    const size_t elements =
-        RouteModelSize (modelcontentwatch::Get ().elements, published != nullptr ? published->meshes.size () : 0);
+    const auto viewerPass = MeshStore::Get ().Shared ();
+    const size_t elements = RouteModelSize (
+        modelcontentwatch::Get ().elements,
+        PublishedMeshCount (viewerPass != nullptr, viewerPass != nullptr ? viewerPass->meshes.size () : 0,
+                            published != nullptr, published != nullptr ? published->meshes.size () : 0));
     const Route route = RouteChange (named.size (), elements, gLastFullStartMs, previousPollMs);
     if (route == Route::Update) {
         gPendingElements.insert (named.begin (), named.end ());
