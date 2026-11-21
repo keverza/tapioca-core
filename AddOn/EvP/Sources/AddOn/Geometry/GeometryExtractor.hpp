@@ -80,6 +80,16 @@ TextureCoordinateCost TakeTextureCoordinateCost ();
 // marked `deferred` instead (ArchViz/ExtractionDeferredUv.hpp reads them in a later pass).
 void SetTextureCoordinateDeferral (bool defer);
 
+// #14 load time: while on, on this thread, a polygon's material facts -- its surface attribute
+// (Material::GetExternalReference) and whether it is textured (Polygon::HasMaterialTexture) -- are
+// read once per material INDEX and remembered, instead of once per polygon. Both are properties of
+// the material, and the index is the acquired model's pool index, so the cache is valid for ONE
+// model: `reset` empties it, and a pass resets it on its first slice. Measured live (2026-11-21,
+// RTX 4070 Ti project): HasMaterialTexture alone was 1.84 s of a 3.7 s, 16,900-triangle element,
+// called on every polygon of untextured elements too; GetMaterial copied the whole material per
+// polygon for one integer. Off (the default) every polygon asks, as before.
+void SetPolygonMaterialCache (bool on, bool reset);
+
 // MAIN THREAD, beside `ExtractElementAt`: what KIND of element sits at this
 // index. A short lowercase name -- "wall", "slab", "railing" -- or "type<N>" for
 // one this does not spell.

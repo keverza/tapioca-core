@@ -79,6 +79,19 @@ void Run (ModelerAPI::Model& model, int32_t count, SliceState& st, const std::se
             SetTextureCoordinateDeferral (false);
         }
     } deferUv (wanted.empty () && !extractiondeferreduv::Suspended ());
+    // #14: material facts once per material index (GeometryExtractor.hpp), for this pass's model
+    // only: emptied on the pass's first slice, off again on every exit so no other caller on the
+    // main thread reads a different model's pool through it.
+    struct MaterialCache {
+        explicit MaterialCache (bool firstSlice)
+        {
+            SetPolygonMaterialCache (true, firstSlice);
+        }
+        ~MaterialCache ()
+        {
+            SetPolygonMaterialCache (false, false);
+        }
+    } materialCache (i == 1);
     while (i <= count) {
         if (wanted.empty ()) {
             if (!CaptureElementPacket (model, i, st.meshes))

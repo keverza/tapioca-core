@@ -25,6 +25,7 @@
 #include <cmath>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace geomsrv {
@@ -33,6 +34,15 @@ namespace {
 
 thread_local TextureCoordinateCost g_uvCost;
 thread_local bool g_deferUv = false; // #14: SetTextureCoordinateDeferral
+
+// #14: SetPolygonMaterialCache. Per material pool index: the surface attribute, and -1/0/1 for
+// textured not asked yet / no / yes.
+struct PolygonMaterialFacts {
+    int32_t surfaceAttribute = 0;
+    int8_t textured = -1;
+};
+thread_local bool g_materialCacheOn = false;
+thread_local std::unordered_map<int32_t, PolygonMaterialFacts> g_materialFacts;
 
 bool TextureCoordinatesEnabled ()
 {
@@ -122,6 +132,11 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
         }
 
         welder.Reset (); // source indices below are body-local
+        // #14: each body edge's visibility, read once -- an edge borders two polygons, and each
+        // GetEdge is an SDK call. 0 = not read, 1 = hidden, 2 = visible. Exact: same edge, same answer.
+        const Int32 nEdge = body.GetEdgeCount ();
+        std::vector<uint8_t> edgeState (size_t (std::max<Int32> (nEdge, 0)) + 1, 0);
+        std::vector<std::pair<Int32, Int32>> edgeEnds (edgeState.size (), { 0, 0 });
         if (recorder != nullptr)
             recorder->BeginBody (iBody, bodyPos);
 
@@ -137,14 +152,18 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                 visibleEdges.reserve (static_cast<size_t> (std::max<Int32> (polygon.GetEdgeCount (), 0)));
                 for (Int32 iEdge = 1; iEdge <= polygon.GetEdgeCount (); ++iEdge) {
                     Int32 edgeIndex = 0;
-                    if (!ResolvePolygonEdgeIndex (polygon.GetEdgeIndex (iEdge), body.GetEdgeCount (), edgeIndex))
+                    if (!ResolvePolygonEdgeIndex (polygon.GetEdgeIndex (iEdge), nEdge, edgeIndex))
                         continue;
-                    ModelerAPI::Edge edge;
-                    body.GetEdge (edgeIndex, &edge);
-                    if (edge.IsInvisible () && !edge.IsVisibleIfContour ())
+                    if (edgeState[size_t (edgeIndex)] == 0) {
+                        ModelerAPI::Edge edge;
+                        body.GetEdge (edgeIndex, &edge);
+                        edgeState[size_t (edgeIndex)] = edge.IsInvisible () && !edge.IsVisibleIfContour () ? 1 : 2;
+                        edgeEnds[size_t (edgeIndex)] = { edge.GetVertexIndex1 (), edge.GetVertexIndex2 () };
+                    }
+                    if (edgeState[size_t (edgeIndex)] == 1)
                         continue;
-                    const Int32 v1 = edge.GetVertexIndex1 () - 1;
-                    const Int32 v2 = edge.GetVertexIndex2 () - 1;
+                    const Int32 v1 = edgeEnds[size_t (edgeIndex)].first - 1;
+                    const Int32 v2 = edgeEnds[size_t (edgeIndex)].second - 1;
                     if (v1 >= 0 && v2 >= 0)
                         visibleEdges.push_back (MakeWireEdgeKey (uint32_t (v1), uint32_t (v2)));
                 }
@@ -154,17 +173,34 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                 ModelerAPI::AttributeIndex matIdx;
                 polygon.GetMaterialIndex (matIdx);
                 const int32_t material = matIdx.GetIndex ();
-                const int32_t surfaceAttribute = ReadPolygonSurfaceAttribute (polygon);
+                PolygonMaterialFacts* facts = nullptr;
+                if (g_materialCacheOn) {
+                    auto found = g_materialFacts.find (material);
+                    if (found == g_materialFacts.end ()) {
+                        PolygonMaterialFacts read;
+                        read.surfaceAttribute = ReadPolygonSurfaceAttribute (polygon);
+                        found = g_materialFacts.emplace (material, read).first;
+                    }
+                    facts = &found->second;
+                }
+                const int32_t surfaceAttribute =
+                    facts != nullptr ? facts->surfaceAttribute : ReadPolygonSurfaceAttribute (polygon);
                 // #252: texture coordinates only where the material has a texture -- the call is
                 // per corner, and most of a model is plain paint.
                 bool textured = false;
                 if (TextureCoordinatesEnabled ()) {
                     const auto asked = std::chrono::steady_clock::now ();
-                    try {
-                        textured = polygon.HasMaterialTexture ();
-                    }
-                    catch (const GS::Exception&) {
-                        textured = false;
+                    if (facts != nullptr && facts->textured >= 0)
+                        textured = facts->textured == 1;
+                    else {
+                        try {
+                            textured = polygon.HasMaterialTexture ();
+                        }
+                        catch (const GS::Exception&) {
+                            textured = false;
+                        }
+                        if (facts != nullptr)
+                            facts->textured = textured ? 1 : 0;
                     }
                     g_uvCost.milliseconds += MillisecondsSince (asked);
                     // #14: known textured, read later (ExtractionDeferredUv.hpp).
@@ -806,6 +842,13 @@ std::map<int32_t, CapturedSurface> ReadSurfaceAttributes ()
 void SetTextureCoordinateDeferral (bool defer)
 {
     g_deferUv = defer;
+}
+
+void SetPolygonMaterialCache (bool on, bool reset)
+{
+    if (reset)
+        g_materialFacts.clear ();
+    g_materialCacheOn = on;
 }
 
 TextureCoordinateCost TakeTextureCoordinateCost ()
