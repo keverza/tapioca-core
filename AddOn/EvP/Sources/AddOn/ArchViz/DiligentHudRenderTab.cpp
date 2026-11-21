@@ -41,6 +41,7 @@ struct Knobs {
     int reflections;  // screen-space reflections
     int antiAliasing; // temporal
     int rayTraced;    // #231
+    int tracedLight;  // #14: traced reflections and sky light on DXR (HudState::rayTracedReflections)
 };
 
 // ⚠️ THE REFERENCE'S MODES, WHERE THIS RENDERER CAN HONOUR THEM (HANDOFF-HudTabs.md section 1):
@@ -54,19 +55,25 @@ struct Knobs {
 // is doubled onto this renderer's 0-2 intensity -- Architecture's 0.70 is 1.4, Rendered's 0.40
 // is 0.8. Ground, edge angle and tone-map choice are not native; Architecture is told from
 // Rendered by its AO and by drawing no sky behind the model -- which the 2026-11-17 live run
-// found too close to tell apart. So Rendered also turns on screen-space reflections and temporal
-// anti-aliasing (the full raster path), and Architecture turns both off (the calm, flat reading).
+// found too close to tell apart. So Rendered also turns on screen-space reflections, and
+// Architecture leaves them off (the calm, flat reading).
+// ⚠️ BOTH KEEP TEMPORAL ANTI-ALIASING (#14), AND ARCHITECTURE TURNS TRACED LIGHT OFF. Without TAA a
+// facade of slats shimmered in moire whenever the camera moved (live check; RenderBench `louvres`).
+// But on DXR, TAA is also what lets the traced sky light run, and that made Architecture markedly
+// darker -- a different look, not an anti-aliased one. So Architecture states `tracedLight` off and
+// keeps its GTAO; Rendered states it on, so choosing Rendered after Architecture brings it back.
 // Ray traced (#231) is Rendered's light, path traced: reflections and TAA off, since the traced
 // image is converged rather than reprojected. Clay leaves tracing as it is -- traced clay is the
 // classic massing render.
 constexpr Knobs kPresets[] = {
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 1, -1, 0, 0, -1, -1, 0 }, // Shaded
-    { int (SceneRenderMode::Wireframe), -1, -1, -1, -1.0f, 0, -1, -1, -1, -1, -1, 0 },                  // Wireframe
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 0, 0, 0, 0, 0 }, // Architecture
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 1, 1, 0 }, // Rendered
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 1, -1, -1, -1, -1 }, // Clay
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 0, -1, 1, 1, -1, -1, 0 },     // Technical
-    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 0, 0, 1 },     // RayTraced
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 1, -1, 0, 0, -1, -1, 0, -1 }, // Shaded
+    { int (SceneRenderMode::Wireframe), -1, -1, -1, -1.0f, 0, -1, -1, -1, -1, -1, 0, -1 },                  // Wireframe
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 0, 0, 0, 1, 0,
+      0 }, // Architecture
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 1, 1, 0, 1 }, // Rendered
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 1.4f, 1, 0, 1, -1, -1, -1, -1, -1 }, // Clay
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Fast), -1, 0, -1.0f, 0, -1, 1, 1, -1, -1, 0, -1 }, // Technical
+    { int (SceneRenderMode::Shaded), int (RenderQuality::Realistic), 1, 1, 0.8f, 1, 1, 0, 0, 0, 0, 1, -1 }, // RayTraced
 };
 constexpr const char* kPreviewNames[] = { "Shaded", "Wireframe", "Architecture", "Rendered",
                                           "Clay",   "Technical", "Ray traced",   "Custom" };
@@ -87,7 +94,8 @@ bool Matches (const Knobs& knobs, const HudState& state)
            (knobs.edges < 0 || state.technicalEdges == (knobs.edges != 0)) &&
            (knobs.reflections < 0 || state.screenSpaceReflection == (knobs.reflections != 0)) &&
            (knobs.antiAliasing < 0 || state.temporalAntiAliasing == (knobs.antiAliasing != 0)) &&
-           (knobs.rayTraced < 0 || state.rayTraced == (knobs.rayTraced != 0));
+           (knobs.rayTraced < 0 || state.rayTraced == (knobs.rayTraced != 0)) &&
+           (knobs.tracedLight < 0 || state.rayTracedReflections == (knobs.tracedLight != 0));
 }
 
 } // namespace
@@ -135,6 +143,8 @@ void ApplyPreview (HudState& state, Preview preview)
         state.temporalAntiAliasing = knobs.antiAliasing != 0;
     if (knobs.rayTraced >= 0)
         state.rayTraced = knobs.rayTraced != 0;
+    if (knobs.tracedLight >= 0)
+        state.rayTracedReflections = knobs.tracedLight != 0;
 }
 
 void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scene)

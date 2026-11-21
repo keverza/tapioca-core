@@ -288,7 +288,8 @@ av::HudState StyleState (const std::string& style, const Options& o)
         hud.ambientOcclusionIntensity = 1.4f;
         hud.environmentBackground = false;
         hud.screenSpaceReflection = false;
-        hud.temporalAntiAliasing = false;
+        hud.temporalAntiAliasing = true;  // #14: TAA against the moire...
+        hud.rayTracedReflections = false; // ...without traced light, which darkened the look
         hud.rayTraced = false;
     }
     else {
