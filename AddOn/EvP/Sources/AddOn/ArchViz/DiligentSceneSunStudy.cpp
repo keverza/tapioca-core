@@ -651,7 +651,9 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     // shadow is shown), and it is bound only when the HUD asks for it. No second
     // shadow map, no second pass.
     float studySun[3];
-    const bool pcf = impl_->shadowsEnabled && impl_->shadowMap.IsReady () &&
+    // ⚠️ IsFitted: the shadow block is mapped only by a fit this frame; without one it is a recycled
+    // D3D12 page (the Technical white flash, #14), so the tint must not read it.
+    const bool pcf = impl_->shadowsEnabled && impl_->shadowMap.IsReady () && impl_->shadowMap.IsFitted () &&
                      impl_->shadowMap.Settings ().mode == DiligentShadowMode::Pcf;
     const bool hoursOverlay =
         impl_->sunShadowOverlay && mode == uint32_t (SunStudyDebugMode::Hours) && impl_->sunAnalysisKind == 0;
