@@ -323,8 +323,9 @@ void UpdateAndDrawAnalysisOverlays (DiligentScene& scene, Diligent::IDeviceConte
                                      modelIsDrawn);
     // The sun path last: built by last frame's HUD (DrawSunStudySunPath), which
     // runs after the scene. Its key is 0 whenever the path is hidden.
-    scene.DrawSunPathOverlay (context, viewProj, width, height, colorFormat, depthFormat, state.sunPathScene.get (),
-                              state.sunPathSceneKey, modelIsDrawn);
+    if (!state.ScreenshotCleanView ())
+        scene.DrawSunPathOverlay (context, viewProj, width, height, colorFormat, depthFormat, state.sunPathScene.get (),
+                                  state.sunPathSceneKey, modelIsDrawn);
 }
 
 void UpdateAndDrawModelOverlays (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& state,

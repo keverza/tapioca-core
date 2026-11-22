@@ -31,6 +31,7 @@
 #include "ArchViz/AnalysisProfile.hpp"
 #include "ArchViz/AnalysisLiveRerun.hpp"
 #include "ArchViz/AnalysisTabs.hpp"
+#include "ArchViz/DiligentHudCaptureFrame.hpp"
 #include "ArchViz/DiligentScene.hpp"          // ElementInfo, for the hover callout
 #include "ArchViz/DiligentViewportTarget.hpp" // SurfaceMode, for UpdateAndDrawModelOverlays
 #include "ArchViz/GradientLibrary.hpp"
@@ -70,10 +71,6 @@ struct ShotTable; // ArchViz/SurfaceTakeoffShot.hpp
 // divided by `speed`, wrapping when `loop`.
 // Inner Sunstudy view index: single-shadow tint plus exact obstruction parts.
 constexpr int kSunObstructionView = 5;
-
-// Which still a screenshot request takes (HudState::shotKind).
-constexpr int kShotSunStudy = 0;
-constexpr int kShotExposedSurfaces = 1;
 
 struct HudTimeline {
     bool playing = false;
@@ -201,21 +198,24 @@ struct HudState {
     bool sunGradientFlipped = false; // the preset end for end
     // The user's own stops, when sunGradientPreset is kCustomGradientId.
     std::vector<overlaylayers::ColourStop> sunGradientCustom;
-    // The sun study SCREENSHOT (ArchViz/ViewerScreenshot.cpp): the preset, an
-    // index into kViewerScreenshotScales; the request the frame loop takes; and
-    // what the last one did, path or reason.
-    //
-    // ⚠️ ONE REQUEST, TWO STILLS: `shotKind` says whose. Exposed surfaces
-    // (issue #193) takes the same live still with its area table under it,
-    // pinned in `exposedShot` when asked; each page shows the status only of
-    // its own kind. The fields keep the sun study's names because it was first.
+    // The camera preview and the three screenshot entries share one render-thread
+    // request. Exposed surfaces pins the measured area table for its strip.
+    viewerhud::CaptureFrame captureFrame;
     int sunShotPreset = 1;
     bool sunShotRequested = false;
     bool sunShotBusy = false;
     bool sunShotFailed = false;
     std::string sunShotResult;
-    int shotKind = 0; // kShotSunStudy or kShotExposedSurfaces
+    int shotKind = kShotSunStudy;
     std::shared_ptr<const surfacetakeoff::ShotTable> exposedShot;
+    bool ScreenshotCleanView () const
+    {
+        return captureFrame.active || sunShotBusy;
+    }
+    int ScreenshotKind () const
+    {
+        return captureFrame.active ? captureFrame.kind : shotKind;
+    }
     float sunTimeFrom = 0.0f;
     float sunTimeTo = 24.0f;
     // The hover INSPECTOR: 0 off, 1 a tooltip at the cursor, 2 a line in the

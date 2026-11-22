@@ -6,6 +6,7 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/DiligentHud.hpp"
 #include "SunStudy/SunPathStudyData.hpp"
+#include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
 #include "Geometry/MeshStore.hpp"
 #include <stdexcept>
@@ -34,6 +35,29 @@ void LogMock (const std::string& text)
 }
 } // namespace tapioca::playground
 namespace pg = tapioca::playground;
+namespace evp::sunstudy::kernels {
+// The playground has no analysis worker or machine budget for real studies.
+AnalysisLimitsReport ReportAnalysisLimits (const MachineResources&, size_t, double, double, std::string*)
+{
+    return {};
+}
+std::string SunStudyPresetAdvice (size_t, const std::string&, std::string*)
+{
+    return {};
+}
+std::vector<uint32_t> FanSteps (const std::vector<uint16_t>& minutes, double interval, std::string*)
+{
+    std::vector<uint32_t> steps;
+    double next = 0;
+    for (uint32_t i = 0; i < minutes.size (); ++i) {
+        if (minutes[i] >= next) {
+            steps.push_back (i);
+            next = minutes[i] + interval;
+        }
+    }
+    return steps;
+}
+} // namespace evp::sunstudy::kernels
 namespace geomsrv::sunstudyhud {
 bool Submit (const Request&, std::string& error)
 {

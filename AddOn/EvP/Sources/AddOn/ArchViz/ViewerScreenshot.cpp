@@ -12,6 +12,7 @@
 #include "ArchViz/ViewerScreenshot.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/Camera.hpp"
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentNativeInterop.hpp"
 #include "ArchViz/DiligentScene.hpp"
@@ -24,6 +25,7 @@
 #include <DeviceContext.h>
 #include <GraphicsTypes.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -65,25 +67,14 @@ bool ExportDirectory (std::filesystem::path& out, std::string& error)
     return true;
 }
 
-// "sunstudy-20261031-142205-2x.png" or "exposed-surfaces-20261118-142205-2x.png".
-// The timestamp to the second keeps a sequence of shots in the order they were
-// taken; a second shot within that second gets "-2", "-3"... rather than
-// overwriting the first.
-std::filesystem::path ShotPath (const std::filesystem::path& directory, int kind, float scale)
+std::filesystem::path ShotPath (const std::filesystem::path& directory, int kind, float scale, std::error_code& error)
 {
     const std::time_t now = std::chrono::system_clock::to_time_t (std::chrono::system_clock::now ());
     std::tm local = {};
     localtime_s (&local, &now);
     char stamp[32] = {};
     std::strftime (stamp, sizeof (stamp), "%Y%m%d-%H%M%S", &local);
-    const char* prefix = kind == kShotExposedSurfaces ? "exposed-surfaces" : "sunstudy";
-    char base[96] = {};
-    std::snprintf (base, sizeof (base), "%s-%s-%gx", prefix, stamp, double (scale));
-    std::filesystem::path path = directory / (std::string (base) + ".png");
-    std::error_code code;
-    for (int suffix = 2; std::filesystem::exists (path, code) && suffix < 1000; ++suffix)
-        path = directory / (std::string (base) + "-" + std::to_string (suffix) + ".png");
-    return path;
+    return ViewerScreenshotPath (directory, kind, scale, stamp, error);
 }
 
 // Exposed surfaces: is the published highlight still the one the table was
@@ -117,6 +108,28 @@ bool ViewerScreenshot::Active () const
     return target_ != nullptr;
 }
 
+void ViewerScreenshot::ServiceFramingCamera (Camera& camera, DiligentScene& scene, HudState& state,
+                                             bool& userHasNavigated)
+{
+    state.viewpointOwnsMouse = state.captureFrame.active ? false : state.viewpointOwnsMouse;
+    if (state.captureFrame.active) {
+        if (!framingCamera_) {
+            framingCamera_ = std::make_unique<Camera> (camera);
+            framingUserNavigated_ = userHasNavigated;
+            framingOrbitAnchor_ = state.orbitAnchor;
+        }
+        return;
+    }
+    if (state.captureFrame.cancelled && framingCamera_) {
+        camera = *framingCamera_;
+        userHasNavigated = framingUserNavigated_;
+        state.orbitAnchor = framingOrbitAnchor_;
+        scene.ResetTemporalAntiAliasingHistory ();
+    }
+    state.captureFrame.cancelled = false;
+    framingCamera_.reset ();
+}
+
 DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& surface, Diligent::IRenderDevice* device,
                                                      Diligent::IDeviceContext* context, DiligentScene& scene,
                                                      HudState& state)
@@ -128,6 +141,7 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     state.sunShotRequested = false;
     kind_ = state.shotKind;
     table_ = kind_ == kShotExposedSurfaces ? state.exposedShot : nullptr;
+    state.exposedShot.reset ();
     if (kind_ == kShotExposedSurfaces && (table_ == nullptr || !ExposedShotCurrent (*table_))) {
         table_.reset ();
         Fail (state, "the calculation changed; take the screenshot again");
@@ -140,12 +154,15 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     }
     const int preset = std::clamp (state.sunShotPreset, 0, kViewerScreenshotScaleCount - 1);
     scale_ = kViewerScreenshotScales[preset];
-    const uint32_t width = ViewerScreenshotSize (surface.Width (), scale_);
-    const uint32_t height = ViewerScreenshotSize (surface.Height (), scale_);
+    const ScreenshotSize size = ViewerScreenshotTargetSize (surface.Width (), surface.Height (), scale_);
+    crop_ = ViewerScreenshotCrop (state.captureFrame.rect, size);
+    if (!crop_.Width () || !crop_.Height ()) {
+        Fail (state, "the capture rectangle has no pixels");
+        return surface;
+    }
     auto target = std::make_unique<DiligentViewportTarget> ();
     std::string error;
-    if (width == 0 || height == 0 ||
-        !target->Create (device, context, SurfaceMode::Offscreen, nullptr, width, height, error)) {
+    if (!target->Create (device, context, SurfaceMode::Offscreen, nullptr, size.width, size.height, error)) {
         target->Destroy (context);
         Fail (state, error.empty () ? "the viewer has no size yet" : error);
         return surface;
@@ -156,23 +173,23 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     state.sunShotBusy = true;
     // The window's history is the wrong size and, at worst, the wrong pixels.
     scene.ResetTemporalAntiAliasingHistory ();
-    ArchVizLog ("viewer screenshot: rendering " + std::to_string (width) + "x" + std::to_string (height));
+    ArchVizLog ("viewer screenshot: rendering " + std::to_string (size.width) + "x" + std::to_string (size.height));
     return *target_;
 }
 
-bool ViewerScreenshot::HidesSurfaceFocus () const
+bool ViewerScreenshot::HidesSurfaceFocus (const HudState& state)
 {
-    return Active () && kind_ != kShotExposedSurfaces;
+    return state.ScreenshotCleanView () && state.ScreenshotKind () != kShotExposedSurfaces;
 }
 
-float ViewerScreenshot::Scale () const
+float ViewerScreenshot::EditorDrawScale (const HudState& state) const
 {
-    return Active () ? scale_ : 0.0f;
+    return Active () ? scale_ : state.captureFrame.active ? 1.0f : 0.0f;
 }
 
-bool ViewerScreenshot::DrawsSurfaceHighlight () const
+uint32_t ViewerScreenshot::FrameIndex (uint32_t presented) const
 {
-    return !Active () || kind_ == kShotExposedSurfaces;
+    return presented + uint32_t (frames_);
 }
 
 // The legend as its own white strip, the image's width, read back for stacking
@@ -220,18 +237,22 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
     if (++frames_ < kViewerScreenshotSettleFrames)
         return true;
 
-    const uint32_t width = target_->Width ();
-    const uint32_t viewHeight = target_->Height ();
+    const uint32_t width = crop_.Width ();
+    const uint32_t viewHeight = crop_.Height ();
     uint32_t stripHeight = table_ != nullptr
                                ? hud.CaptureTableHeight (scale_, table_->rows.size (), table_->footer.size ())
-                               : hud.CaptureLegendHeight (scale_);
+                           : kind_ == kShotSunStudy ? hud.CaptureLegendHeight (scale_)
+                                                    : 0;
     std::vector<uint8_t> image;
     std::vector<uint8_t> strip;
     std::string png;
     std::string error;
     std::filesystem::path directory;
-    // The view on top, the legend or area table strip under it, one PNG.
     bool ok = target_->CaptureRgba (context, image, error);
+    if (ok && !CropScreenshotRgba (image, { target_->Width (), target_->Height () }, crop_)) {
+        ok = false;
+        error = "could not crop the captured pixels";
+    }
     if (ok && table_ != nullptr) {
         // Drawn at the estimate; drawn again at what the layout needed when names
         // wrapped; then cut to exactly that. Never truncated: too tall is refused.
@@ -255,6 +276,10 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
             image.insert (image.end (), strip.begin (), strip.end ());
         }
     }
+    else if (ok && stripHeight > kViewerScreenshotMaxDimension - viewHeight) {
+        ok = false;
+        error = "the image and legend are too tall; reduce the capture scale or height";
+    }
     else if (ok && stripHeight > 0) {
         const auto draw = [&] () {
             hud.DrawCaptureLegend (context, width, stripHeight, scale_, scene.Stats (), state);
@@ -264,12 +289,21 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
     }
     ok = ok && EncodeRgbaPng (image, width, viewHeight + (strip.empty () ? 0u : stripHeight), png, error) &&
          ExportDirectory (directory, error);
+    std::filesystem::path path;
+    if (ok) {
+        std::error_code pathError;
+        path = ShotPath (directory, kind_, scale_, pathError);
+        if (pathError) {
+            ok = false;
+            error = "could not choose an export filename: " + pathError.message ();
+        }
+    }
     if (!ok)
         Fail (state, error);
     else {
-        const std::filesystem::path path = ShotPath (directory, kind_, scale_);
         std::ofstream file (path, std::ios::binary);
         file.write (png.data (), static_cast<std::streamsize> (png.size ()));
+        file.close ();
         if (!file)
             Fail (state, "could not write " + Utf8 (path));
         else {
@@ -289,6 +323,8 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
 
 void ViewerScreenshot::Destroy (Diligent::IDeviceContext* context)
 {
+    frames_ = 0;
+    framingCamera_.reset ();
     table_.reset ();
     if (target_ == nullptr)
         return;

@@ -56,6 +56,7 @@ bool NavigateViewer (Camera& camera, HudState& hud, const DiligentScene& scene, 
 // the target slid to the box middle's depth (Camera::FocusAtDepthOf), so the wheel and the pan
 // work at the model's scale without a fit first. The picture does not move either way.
 void AdoptSceneBounds (Camera& camera, const DiligentScene& scene, bool focus);
+bool FrameExtractedViewerScene (Camera& camera, const DiligentScene& scene, bool hasSuppliedCamera, bool consumed);
 
 // The HUD's projection control, on the frame it changed (Camera::SwitchProjection, the one
 // conversion; switched to parallel, the model held in the depth range): true then, and the frame

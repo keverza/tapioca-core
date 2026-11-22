@@ -382,6 +382,7 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
     DrawPostProcessingControls (state, scene);
     // ---- 6. camera -------------------------------------------------------------------------
     if (hudshell::Section ("camera")) {
+        DrawCaptureRow (state, kShotVision);
         // A plan is parallel while it is held to the plan; freed, it can be turned to perspective.
         // ⚠️ ONE SOURCE OF TRUTH: both buttons write `state.orthographic` and nothing else; the frame
         // loop applies it (ViewerPlanMode.cpp `FollowProjectionToggle`). The named views raise a

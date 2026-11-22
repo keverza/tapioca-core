@@ -20,7 +20,6 @@
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "ArchViz/SunStudyObstructionGeometry.hpp"
-#include "ArchViz/ViewerScreenshot.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
@@ -358,43 +357,6 @@ void DrawSunStudyHoursDisplay (HudState& state)
     SunStudyClampBandEdges (count, state.sunBandEdges);
     DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold, count, state.sunBandEdges, state.sunLowSunRgba >> 8,
                           ramp);
-}
-
-// The screenshot row: the size presets, and what the last one did. The frame
-// loop takes the request (ArchViz/ViewerScreenshot.cpp); this only asks.
-void DrawSunStudyScreenshotControls (HudState& state)
-{
-    state.sunShotPreset = std::clamp (state.sunShotPreset, 0, kViewerScreenshotScaleCount - 1);
-    const std::vector<std::string> names = ViewerScreenshotPresetLabels (state.width, state.height);
-    const char* labels[kViewerScreenshotScaleCount];
-    for (int i = 0; i < kViewerScreenshotScaleCount; ++i)
-        labels[i] = names[i].c_str ();
-    ImGui::BeginDisabled (state.sunShotRequested || state.sunShotBusy);
-    ImGui::SetNextItemWidth (ImGui::GetContentRegionAvail ().x * 0.55f);
-    ImGui::Combo ("##sunshotscale", &state.sunShotPreset, labels, kViewerScreenshotScaleCount);
-    ImGui::SameLine ();
-    if (ImGui::Button ("Screenshot##sunshot", ImVec2 (-1.0f, 0.0f))) {
-        state.shotKind = kShotSunStudy;
-        state.exposedShot.reset ();
-        state.sunShotRequested = true;
-        state.sunShotResult.clear ();
-        state.sunShotFailed = false;
-    }
-    ImGui::EndDisabled ();
-    geomsrv::archviz::hudshell::ItemTip (
-        "Renders the view at the chosen size, without the panels or the axis gizmo, adds the "
-        "legend as a white strip below and saves a PNG to Tapioca\\Export.");
-    if (state.shotKind != kShotSunStudy)
-        return; // the status belongs to the other kind's page
-    if (state.sunShotRequested || state.sunShotBusy)
-        ImGui::TextDisabled ("Rendering screenshot...");
-    else if (state.sunShotFailed)
-        hudshell::ErrorNotice ("Screenshot not saved: " + state.sunShotResult);
-    else if (!state.sunShotResult.empty ()) {
-        ImGui::PushStyleColor (ImGuiCol_Text, ImGui::GetStyleColorVec4 (ImGuiCol_TextDisabled));
-        ImGui::TextWrapped ("Saved %s", state.sunShotResult.c_str ());
-        ImGui::PopStyleColor ();
-    }
 }
 
 // One legend row: a flat swatch and its words, on the draw list rather than a
@@ -767,7 +729,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         DrawSunStudyPointDay (state, study.studyId, study.version);
     if (study.preview)
         ImGui::TextUnformatted ("Coarse preview: complete day, not final grid");
-    DrawSunStudyScreenshotControls (state);
+    viewerhud::DrawCaptureRow (state, kShotSunStudy);
 
     // ---- the view ---------------------------------------------------------------
     //

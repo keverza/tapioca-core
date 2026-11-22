@@ -1,11 +1,9 @@
 #ifndef EVP_ARCHVIZ_VIEWERSCREENSHOT_HPP
 #define EVP_ARCHVIZ_VIEWERSCREENSHOT_HPP
 
-// ArchViz/ViewerScreenshot — a high-resolution still of the LIVE viewer, with
-// the sun study's legend in a white strip under it, saved to Tapioca\Export.
-// Exposed surfaces (#193) takes the same still with its area table as the
-// strip instead (HudState::shotKind): the scene keeps its material focus and the
-// measured highlight, and the request is refused if either moves before readback.
+// ArchViz/ViewerScreenshot — a framed high-resolution still of the live viewer,
+// saved to Tapioca\Export. Sun study adds its legend and Exposed surfaces adds its
+// area table. Exposed surfaces keeps the measured highlight while it stays current.
 //
 // ⚠️ NOT StartCapture. That path is headless: it refuses while the viewer
 // runs and re-extracts the whole model, which is minutes on the models a sun
@@ -24,14 +22,10 @@
 // travel through HudState, which only the render thread touches.
 
 #include "ArchViz/DiligentViewportTarget.hpp"
+#include "ArchViz/ViewerScreenshotGeometry.hpp"
 
-#include <algorithm>
-#include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <memory>
-#include <string>
-#include <vector>
 
 namespace Diligent {
 struct IDeviceContext;
@@ -45,33 +39,12 @@ struct ShotTable;
 }
 class DiligentHud;
 class DiligentScene;
+class Camera;
 struct HudState;
 
-constexpr float kViewerScreenshotScales[] = { 1.5f, 2.0f, 3.0f };
-constexpr int kViewerScreenshotScaleCount = 3;
-// D3D11's texture limit; the GPU may refuse smaller, and then says so.
-constexpr uint32_t kViewerScreenshotMaxDimension = 16384;
 // Frames drawn at the new size before the readback: the TAA history is reset
 // there and has to accumulate again, or the still is the aliased first frame.
 constexpr int kViewerScreenshotSettleFrames = 24;
-
-inline uint32_t ViewerScreenshotSize (uint32_t windowSize, float scale)
-{
-    return (std::min) (kViewerScreenshotMaxDimension, uint32_t (std::lround (double (windowSize) * double (scale))));
-}
-
-// The size presets as the pages list them: "2x  3840 x 2160".
-inline std::vector<std::string> ViewerScreenshotPresetLabels (uint32_t width, uint32_t height)
-{
-    std::vector<std::string> labels;
-    for (const float scale : kViewerScreenshotScales) {
-        char label[48] = {};
-        std::snprintf (label, sizeof (label), "%gx  %u x %u", double (scale),
-                       unsigned (ViewerScreenshotSize (width, scale)), unsigned (ViewerScreenshotSize (height, scale)));
-        labels.push_back (label);
-    }
-    return labels;
-}
 
 class ViewerScreenshot final {
   public:
@@ -80,16 +53,15 @@ class ViewerScreenshot final {
     ViewerScreenshot (const ViewerScreenshot&) = delete;
     ViewerScreenshot& operator= (const ViewerScreenshot&) = delete;
 
+    void ServiceFramingCamera (Camera& camera, DiligentScene& scene, HudState& state, bool& userHasNavigated);
     // At the top of a frame: the target THIS frame draws into -- `surface`
     // unless a screenshot is being taken. Starts one when the HUD asked.
     DiligentViewportTarget& TargetFor (DiligentViewportTarget& surface, Diligent::IRenderDevice* device,
                                        Diligent::IDeviceContext* context, DiligentScene& scene, HudState& state);
     bool Active () const;
-    // The sun study's still hides the material focus; Exposed surfaces' keeps it
-    // and the measured highlight (but never the editor's handles or the HUD).
-    bool HidesSurfaceFocus () const;
-    bool DrawsSurfaceHighlight () const; // also true with no screenshot running
-    float Scale () const;                // the running screenshot's, 0 with none
+    static bool HidesSurfaceFocus (const HudState& state);
+    float EditorDrawScale (const HudState& state) const; // nonzero keeps only the area highlight
+    uint32_t FrameIndex (uint32_t presented) const;
 
     // After the frame unbound its targets. True when the frame was the
     // screenshot's, which is never presented and carries no HUD. On the last
@@ -103,10 +75,14 @@ class ViewerScreenshot final {
 
   private:
     std::unique_ptr<DiligentViewportTarget> target_;
+    std::unique_ptr<Camera> framingCamera_;
+    bool framingUserNavigated_ = false;
+    int framingOrbitAnchor_ = 0;
     Diligent::IRenderDevice* device_ = nullptr; // the frame loop's, borrowed while a shot runs
     float scale_ = 1.0f;
     int frames_ = 0;
     int kind_ = 0; // HudState::shotKind, taken with the request
+    ScreenshotPixels crop_;
     std::shared_ptr<const surfacetakeoff::ShotTable> table_;
 };
 

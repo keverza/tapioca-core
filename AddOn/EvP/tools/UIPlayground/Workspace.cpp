@@ -470,6 +470,11 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
     style.Font (nullptr, 13.0f * scale);
     if (compact)
         style.Var (ImGuiStyleVar_ItemSpacing, { 4 * scale, 2 * scale });
+    if (w.native.mocks.hud.captureFrame.active) {
+        DrawNativeCapture (w.native, w.document, { uint32_t (frame.width), uint32_t (frame.height) },
+                           dpi > 0 ? dpi : frame.dpiScale);
+        return;
+    }
     ImGui::SetNextWindowPos ({ 0, 0 });
     ImGui::SetNextWindowSize ({ frame.width, frame.height });
     ImGui::Begin ("Tapioca UI Playground", nullptr,

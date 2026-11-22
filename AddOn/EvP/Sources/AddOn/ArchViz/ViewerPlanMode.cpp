@@ -169,6 +169,20 @@ void AdoptSceneBounds (Camera& camera, const DiligentScene& scene, bool focus)
                     std::to_string (camera.Distance ()));
 }
 
+bool FrameExtractedViewerScene (Camera& camera, const DiligentScene& scene, bool hasSuppliedCamera, bool consumed)
+{
+    // A camera supplied by Archicad keeps its composition when the model arrives.
+    if (hasSuppliedCamera)
+        return consumed;
+    float sceneMin[3], sceneMax[3];
+    // The scene may already be loaded if a capture was in progress on its first batch.
+    if (!scene.SceneBounds (sceneMin, sceneMax))
+        return false;
+    camera.FrameBounds (sceneMin, sceneMax);
+    ArchVizLog ("Diligent viewport framed the extracted model");
+    return true;
+}
+
 bool FollowProjectionToggle (Camera& camera, const HudState& hud, bool& last)
 {
     if (hud.orthographic == last)

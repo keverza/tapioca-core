@@ -39,6 +39,48 @@ std::string Frame (pg::Module& module, std::string state, float dpi = 1, std::st
     Require (ImGui::GetDrawData ()->TotalVtxCount > 0, "DLL and host do not share a drawable context");
     return state;
 }
+
+void VerifyCaptureFrame (pg::Module& module, std::string state)
+{
+    auto& io = ImGui::GetIO ();
+    const auto click = [&] (ImVec2 point) {
+        io.AddMousePosEvent (point.x, point.y);
+        state = Frame (module, state);
+        io.AddMouseButtonEvent (0, true);
+        state = Frame (module, state);
+        io.AddMouseButtonEvent (0, false);
+        state = Frame (module, state);
+    };
+    const auto open = [&] {
+        const auto* entry = ImGui::FindWindowByName ("##capture-entry");
+        Require (entry && entry->Active, "Vision screenshot entry is missing");
+        const ImVec2 start = entry->DC.CursorStartPos;
+        click ({ start.x + 12, start.y + 8 });
+        state = Frame (module, state);
+        state = Frame (module, state);
+        const auto* bar = ImGui::FindWindowByName ("##capture-bar");
+        Require (bar && bar->Active, "Vision screenshot entry did not open framing");
+        Require (!ImGui::FindWindowByName ("###tapioca.dock")->Active, "Framing left the dock visible");
+        Require (!ImGui::FindWindowByName ("Tapioca UI Playground")->Active, "Framing left the host visible");
+        return bar->DC.CursorPosPrevLine;
+    };
+    state = Frame (module, state);
+    state = Frame (module, state);
+    ImVec2 end = open ();
+    float buttonHeight = ImGui::GetFontSize () + 2.0f * ImGui::GetStyle ().FramePadding.y;
+    click ({ end.x - 10.0f, end.y + buttonHeight * 0.5f });
+    Require (state.find ("Mock screenshot request recorded") == std::string::npos, "Cancel requested a screenshot");
+    state = Frame (module, state);
+    state = Frame (module, state);
+    end = open ();
+    const auto& style = ImGui::GetStyle ();
+    const float cancelWidth = ImGui::CalcTextSize ("Cancel").x + 2.0f * style.FramePadding.x;
+    click ({ end.x - cancelWidth - style.ItemSpacing.x - 10.0f, end.y + buttonHeight * 0.5f });
+    Require (state.find ("Mock screenshot request recorded") != std::string::npos, "Capture did not request a shot");
+    state = Frame (module, state);
+    Require (ImGui::FindWindowByName ("###tapioca.dock")->Active, "Capture did not restore the dock");
+}
+
 int main (int argc, char** argv)
 {
     try {
@@ -132,6 +174,17 @@ int main (int argc, char** argv)
                         }
                     }
                 }
+            }
+            {
+                auto native = pg::json::Parse (lastState).value;
+                pg::Put (native, "selected", pg::Value::Integer (programme));
+                pg::Put (native, "nativeMode", pg::Value::Bool (true));
+                pg::Put (native, "nativeRequest", pg::Value::String ("@analysis"));
+                pg::Put (native, "density", pg::Value::Integer (1));
+                pg::Put (native, "dpi", pg::Value::Double (1.0));
+                auto state = pg::json::Write (native, 0);
+                Require (module.Swap (dll, state, error), "Capture fixture restore failed");
+                VerifyCaptureFrame (module, state);
             }
             // #191 U2 / #188: the dump's refusal is in the native editor's command bar, unscrolled.
             {

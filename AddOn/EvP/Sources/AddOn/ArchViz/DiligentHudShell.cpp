@@ -9,7 +9,6 @@
 #include "ArchViz/ViewerEditor.hpp"
 #include "ArchViz/SurfaceTakeoffLayer.hpp"
 #include "ArchViz/SurfaceTakeoffShot.hpp"
-#include "ArchViz/ViewerScreenshot.hpp"
 #include "Geometry/SurfaceTakeoffController.hpp"
 
 #include <imgui.h>
@@ -52,7 +51,8 @@ void ExposedSurfacesPage (Shell& shell, HudState& state)
         highlight ? highlight->summary : surfacetakeoff::HighlightSummary {};
     surfacetakeoff::ShotControls shot;
     shot.preset = state.sunShotPreset;
-    shot.presets = ViewerScreenshotPresetLabels (state.width, state.height);
+    for (const char* label : kViewerScreenshotScaleLabels)
+        shot.presets.emplace_back (label);
     const bool mine = state.shotKind == kShotExposedSurfaces;
     shot.busy = state.sunShotRequested || state.sunShotBusy; // either kind holds the frame loop
     shot.failed = mine && state.sunShotFailed;
@@ -66,31 +66,32 @@ void ExposedSurfacesPage (Shell& shell, HudState& state)
         vieweredit::RequestSurfaceTakeoff (*action);
         return;
     }
-    state.shotKind = kShotExposedSurfaces;
-    state.sunShotFailed = true;
-    state.sunShotResult = "the calculation changed; take the screenshot again";
+    std::string error = "the calculation changed; take the screenshot again";
     if (!result || !highlight || !highlight->capture ||
         result->state != geomsrv::surfacetakeoff::ControllerState::Current || !result->lastGood ||
         !result->lastGood->payload || result->generation != action->generation ||
-        summary.generation != action->generation)
+        summary.generation != action->generation) {
+        state.shotKind = kShotExposedSurfaces;
+        state.sunShotFailed = true;
+        state.sunShotResult = error;
         return;
+    }
     const std::time_t now = std::chrono::system_clock::to_time_t (std::chrono::system_clock::now ());
     std::tm local = {};
     localtime_s (&local, &now);
     char stamp[32] = {};
     std::strftime (stamp, sizeof (stamp), "%Y-%m-%d %H:%M:%S", &local);
     auto table = std::make_shared<surfacetakeoff::ShotTable> ();
-    std::string error;
     if (!surfacetakeoff::BuildShotTable (
             *std::static_pointer_cast<const geomsrv::surfacetakeoff::Result> (result->lastGood->payload), summary,
             highlight->capture->id, stamp, *table, error)) {
+        state.shotKind = kShotExposedSurfaces;
+        state.sunShotFailed = true;
         state.sunShotResult = error;
         return;
     }
-    state.exposedShot = std::move (table);
-    state.sunShotFailed = false;
-    state.sunShotResult.clear ();
-    state.sunShotRequested = true;
+    if (BeginCaptureFrame (state, kShotExposedSurfaces))
+        state.exposedShot = std::move (table);
 }
 
 // The viewer's own circle: busy while it still reads the model, neutral once it holds it.
@@ -114,6 +115,8 @@ hudshell::Circle ViewerCircle (const DiligentSceneStats& scene)
 void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint32_t width, uint32_t height,
            ImFont* font, const Frame& frame)
 {
+    if (state.captureFrame.active)
+        return;
     const ImVec2 view = ImVec2 (float (width), float (height));
     const float scale = frame.dpiScale;
     const layers::Panel& look = ViewerLook ();
@@ -177,10 +180,17 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
         surfaceswitch::Request (surfaceswitch::Surface::Overlay);
     if (dock.press.collapse)
         shell.open = !shell.open;
+    const ImVec2 dockMin = dock.window->Pos;
+    const ImVec2 dockMax = { dockMin.x + dock.window->Size.x, dockMin.y + dock.window->Size.y };
+    shell.captureDock = {
+        { dockMin.x, dockMin.y, dockMax.x, dockMax.y }, { width, height }, shell.dock.edge, shell.dock.horizontal
+    };
 
     // ---- the floating panel -------------------------------------------------------------------
-    if (!shell.open)
+    if (!shell.open) {
+        DrawCaptureEntry (state, shell.captureDock, scale);
         return;
+    }
     hudshell::HostSpec spec;
     spec.look = &look;
     spec.font = font;
@@ -188,8 +198,8 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     spec.ui = ui;
     spec.view = view;
     spec.attached = true;
-    spec.dockMin = dock.window->Pos;
-    spec.dockMax = ImVec2 (dock.window->Pos.x + dock.window->Size.x, dock.window->Pos.y + dock.window->Size.y);
+    spec.dockMin = dockMin;
+    spec.dockMax = dockMax;
     spec.dockEdge = shell.dock.edge;
     spec.dockHorizontal = shell.dock.horizontal;
     spec.tabs = tabs;
@@ -221,6 +231,7 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
         hudshell::Host (spec, shell.held, shell.shownLast, shell.placement, page, nullptr, &shell.navigation);
     if (!result.pressed.empty ())
         select (result.pressed);
+    DrawCaptureEntry (state, shell.captureDock, scale);
     // The dock over everything: a panel dragged onto it never hides it.
     if (ImGuiWindow* const dock = ImGui::FindWindowByName ("###tapioca.dock"); dock != nullptr)
         ImGui::BringWindowToDisplayFront (dock);

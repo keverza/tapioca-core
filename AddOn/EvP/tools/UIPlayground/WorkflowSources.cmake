@@ -14,17 +14,18 @@ list (FILTER editorHud EXCLUDE REGEX "HudVirtualEditorDebug\\.cpp$")
 list (APPEND workflowSources ${editorHud})
 foreach (source
     ArchViz/DiligentHudAnalysisPage.cpp ArchViz/DiligentHudSunStudy.cpp ArchViz/DiligentHudSunRun.cpp
+    ArchViz/DiligentHudCaptureFrame.cpp ArchViz/ViewerScreenshotGeometry.cpp
     ArchViz/DiligentHudSunControls.cpp ArchViz/DiligentHudVisibility.cpp ArchViz/DiligentHudViewpoint.cpp
     ArchViz/GradientPresetChoice.cpp
     ArchViz/DiligentHudControls.cpp ArchViz/AnalysisTabs.cpp
     ArchViz/AnalysisPath.cpp ArchViz/AnalysisProfile.cpp ArchViz/EditLayers.cpp
     ArchViz/EditLayersPlacement.cpp ArchViz/EditLandscapeLayers.cpp ArchViz/RoofSlopeCanvas.cpp
     ArchViz/AnalysisLiveRerun.cpp ArchViz/OverlayHudCriteriaTable.cpp
-    ArchViz/MatrixMath.cpp ArchViz/PointGumball.cpp ArchViz/HudGumball.cpp
+    ArchViz/MatrixMath.cpp ArchViz/PointGumball.cpp ArchViz/HudGumball.cpp ArchViz/HudLengthField.cpp
     Geometry/Fillet2D.cpp Geometry/GeometryEngine.cpp Geometry/SurfaceCriteria.cpp Geometry/PlanarTriangulation.cpp
     Geometry/QueryEngine.cpp Geometry/BvhBuild.cpp
-    SunStudy/SunStudyBackend.cpp SunStudy/SunStudyBounds.cpp SunStudy/SunStudyPreset.cpp
-    SunStudy/SunStudyStepAtlas.cpp SunStudy/SunStudyRoles.cpp SunStudy/SunStudyLimits.cpp SunStudy/ViewpointStudy.cpp)
+    SunStudy/SunStudyBackend.cpp SunStudy/SunStudyBounds.cpp
+    SunStudy/SunStudyRoles.cpp SunStudy/SunStudyLimits.cpp SunStudy/ViewpointStudy.cpp)
     list (APPEND workflowSources "${ADDON_DIR}/${source}")
 endforeach ()
 foreach (source IN LISTS workflowSources)

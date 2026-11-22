@@ -346,7 +346,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 }
             }
 
-            // The window's surface, or a screenshot's offscreen one for its frames.
+            screenshot.ServiceFramingCamera (camera, scene, hudState, userHasNavigated);
             DiligentViewportTarget& drawTo = screenshot.TargetFor (target, device, context, scene, hudState);
             Diligent::ITextureView* rtv = nullptr;
             Diligent::ITextureView* dsv = nullptr;
@@ -439,26 +439,11 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // couple of stores; the FRAMING below still happens exactly once.
             if (consumed > 0)
                 AdoptSceneBounds (camera, scene,
-                                  cameraStart.valid && !userHasNavigated && surface.mode == SurfaceMode::PaletteChild);
+                                  cameraStart.valid && !userHasNavigated && !hudState.ScreenshotCleanView () &&
+                                      surface.mode == SurfaceMode::PaletteChild);
 
-            if (consumed > 0 && !framedRealGeometry) {
-                float sceneMin[3];
-                float sceneMax[3];
-                // ⚠️ ONLY IF ARCHICAD DID NOT GIVE US A CAMERA. Framing the
-                // model would throw away the view the user was looking at, which
-                // is the thing they asked to start from.
-                if (!cameraStart.valid && scene.SceneBounds (sceneMin, sceneMax)) {
-                    camera.FrameBounds (sceneMin, sceneMax);
-                    framedRealGeometry = true;
-                    ArchVizLog ("Diligent viewport framed the extracted model");
-                }
-                else if (cameraStart.valid) {
-                    // The camera came from Archicad and must not be overridden.
-                    // The box is already remembered above, so "zoom to fit" works
-                    // without this path ever framing anything.
-                    framedRealGeometry = true;
-                }
-            }
+            if (!framedRealGeometry && !hudState.ScreenshotCleanView ())
+                framedRealGeometry = FrameExtractedViewerScene (camera, scene, cameraStart.valid, consumed > 0);
 
             if (offscreen) {
                 const ExtractionWorker::Progress progress = ExtractionWorker::Get ().Snapshot ();
@@ -527,7 +512,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // middle-button navigation still belongs to this viewer camera.
             if (vieweredit::Active ())
                 hudState.wantsMouse = false, hudState.viewpointOwnsMouse = false;
-            if (!offscreen && !screenshot.Active ())
+            if (!offscreen && !hudState.ScreenshotCleanView ())
                 ServiceViewpointInput (camera, hudState, input, width, height);
             // ⚠️ THE HUD'S ANSWER IS FROM THE PREVIOUS FRAME, AND THAT IS
             // CORRECT. ImGui only knows whether it wants the mouse after its
@@ -545,7 +530,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // word for the frame, or the mouse would move it right back and the
             // overlay would sit one drag out of register with the window under
             // it. In the standalone viewport nothing pushes and this never runs.
-            if (cameraSyncPending_.exchange (false)) {
+            if (!hudState.ScreenshotCleanView () && cameraSyncPending_.exchange (false)) {
                 CameraStart pushed;
                 uint64_t pushedGeneration = 0;
                 bool cameraDiscontinuity = false;
@@ -582,7 +567,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // second before the first sync lands, and over a PLAN it would
             // replace a parallel top view with a tilted one that then has to be
             // undone. The cube is what this is for, and the cube has no camera.
-            if (!userHasNavigated && !framedRealGeometry && !cameraStart.valid && !vieweredit::Active ()) {
+            if (!userHasNavigated && !framedRealGeometry && !cameraStart.valid && !vieweredit::Active () &&
+                !hudState.ScreenshotCleanView ()) {
                 const double age = std::chrono::duration<double> (std::chrono::steady_clock::now () - started).count ();
                 camera.SetOrbit (float (age * 0.35) - 0.9f, 0.6f);
             }
@@ -599,14 +585,16 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             float motionViewProj[16], viewProj[16];
             float jitter[2] = { 0.0f, 0.0f };
             camera.GetViewMatrix (view);
-            camera.GetProjMatrix (stableProj, height > 0 ? float (width) / float (height) : 1.0f);
+            camera.GetProjMatrix (stableProj,
+                                  target.Height () ? float (target.Width ()) / float (target.Height ()) : 1.0f);
             TurnOnAntiAliasingOnceLoaded (hudState, scene, std::chrono::steady_clock::now () - started);
             const bool taaActive =
                 hudState.temporalAntiAliasing && !hudState.readOnly && // #14: Fast too, not the overlay
                 hudState.debugView == int (DiligentDebugView::Final) &&
                 debugView_.load () == int (DiligentDebugView::Final) && !camera.IsOrthographic () && !blanked;
             scene.SetTemporalAntiAliasing (taaActive, hudState.taaStability);
-            scene.PrepareTemporalAntiAliasingFrame (context, uint32_t (frames), view, stableProj, proj, jitter);
+            scene.PrepareTemporalAntiAliasingFrame (context, screenshot.FrameIndex (uint32_t (frames)), view,
+                                                    stableProj, proj, jitter);
             Multiply (motionViewProj, view, stableProj);
             Multiply (viewProj, view, proj);
 
@@ -664,7 +652,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // ⚠️ CALLED EVEN WHEN IT CANNOT PICK, because clearing the hover is
             // one of its answers. See ServicePick.
             if (!offscreen)
-                ServicePick (pick, pickState, !hudState.wantsMouse && !hudState.viewpointOwnsMouse && modelIsDrawn,
+                ServicePick (pick, pickState,
+                             !hudState.ScreenshotCleanView () && !hudState.wantsMouse && !hudState.viewpointOwnsMouse &&
+                                 modelIsDrawn,
                              device, context, scene, input, frames, width, height, motionViewProj, rtv, dsv, mutex_,
                              stats_);
             const uint32_t hoverId = pickState.hoverId;
@@ -686,10 +676,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             }
 
             // ---- the cursor's coordinate, for the callout --------------------
-            // Where the view ray meets the GROUND PLANE (z=0). ⚠️ NOT the surface
-            // under the cursor -- that needs a depth readback, which this path
-            // throttles; the callout labels it "on z=0" for that reason.
-            ServiceCursorAnalysis (camera, hudState, scene, input, width, height);
+            // The callout reads the ground plane (z=0) without a depth readback.
+            if (!hudState.ScreenshotCleanView ())
+                ServiceCursorAnalysis (camera, hudState, scene, input, width, height);
 
             // ⚠️ THE HUD AND THE COMMAND ARE TWO WAYS TO SET ONE VALUE, so one
             // of them has to lose. The COMMAND wins, but only when it CHANGES:
@@ -823,8 +812,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 request.eye = eye;
                 request.jitter = jitter;
                 request.debugView = hudState.debugView;
-                editorDraw.ApplySurfaceFocus (request, hudState.planMode, screenshot.HidesSurfaceFocus ());
-                request.frameIndex = static_cast<uint32_t> (frames);
+                editorDraw.ApplySurfaceFocus (request, hudState.planMode, screenshot.HidesSurfaceFocus (hudState));
+                request.frameIndex = screenshot.FrameIndex (uint32_t (frames));
                 request.ambientOcclusion = hudState.ambientOcclusion;
                 request.ambientOcclusionIntensity = hudState.ambientOcclusionIntensity;
                 request.ambientOcclusionRadius = hudState.ambientOcclusionRadius;
@@ -860,19 +849,21 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 viewProj, width, height, captureDpi_.load (), Camera::NearClip (), camera.FarClip (),
                 camera.IsPerspective (), hudState);
             captureThisFrame = captureThisFrame && textReady;
-            if (!offscreen && !annotationsOnly && !ShouldIsolateGraphInteraction (hudState, input))
+            if (!offscreen && !annotationsOnly && !hudState.ScreenshotCleanView () &&
+                !ShouldIsolateGraphInteraction (hudState, input))
                 UpdateAndDrawPlanAnchors (planAnchors, device, context, mutex_, pendingPlanAnchors_,
                                           planAnchorSeq_.load (), lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked,
                                           viewProj, width, height, planAnchorWidthPixels_.load (),
                                           planAnchorRgba_.load ());
-            if (screenshot.DrawsSurfaceHighlight () && surface.mode == SurfaceMode::PaletteChild)
+            if (!screenshot.HidesSurfaceFocus (hudState) && surface.mode == SurfaceMode::PaletteChild)
                 editorDraw.Update (device, context, rtv, dsv, view, stableProj, width, height,
-                                   modelIsDrawn && !hudState.planMode, screenshot.Scale ());
+                                   modelIsDrawn && !hudState.planMode, screenshot.EditorDrawScale (hudState));
             ProjectedDrawList annotations = UpdateAndDrawTraceAnnotations (
-                textLayer, device, context, blanked, offscreen, annotationsOnly, surface.nwh, rtv, dsv,
-                drawTo.DepthShaderView (), viewProj, width, height, Camera::NearClip (), camera.FarClip (),
-                camera.IsPerspective (), hudState, input, annotationPlacementHistory, dimensionHoverState);
-            if (!offscreen && !annotationsOnly && !blanked && !screenshot.Active () &&
+                textLayer, device, context, blanked, offscreen || hudState.ScreenshotCleanView (), annotationsOnly,
+                surface.nwh, rtv, dsv, drawTo.DepthShaderView (), viewProj, width, height, Camera::NearClip (),
+                camera.FarClip (), camera.IsPerspective (), hudState, input, annotationPlacementHistory,
+                dimensionHoverState);
+            if (!offscreen && !annotationsOnly && !blanked && !hudState.ScreenshotCleanView () &&
                 !ShouldIsolateGraphInteraction (hudState, input))
                 DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
 

@@ -71,6 +71,11 @@ What it supports today:
   `Tapioca.ViewerAutoOrbit`).
 - **Picking and selection** — picking in the viewport maps back to Archicad's
   selection (`Tapioca.SetDiligentSelectionBridge`).
+- **Screenshots** — choose **Capture screenshot** at the edge of the view. The
+  menus disappear and the frame starts clear of the dock. Drag the frame or its
+  edges and corners, navigate the view, and choose an output scale. **Capture**
+  saves a PNG under `%LOCALAPPDATA%\Tapioca\Export`. Sun study and Exposed
+  surfaces use the same frame and append their legend or area table.
 - **Rendering** — shaded, wireframe, and debug views (`Tapioca.SetDiligentRenderMode`,
   `Tapioca.SetDiligentDebugView`), sun and environment lighting
   (`Tapioca.SetDiligentSun`, `Tapioca.SetDiligentEnvironmentMap`), and

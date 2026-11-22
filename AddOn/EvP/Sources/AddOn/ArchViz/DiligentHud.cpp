@@ -260,6 +260,22 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     impl_->renderer->NewFrame (width, height, Diligent::SURFACE_TRANSFORM_IDENTITY);
     ImGui::NewFrame ();
     ImGui::PushFont (impl_->font, 13.0f * dpiScale);
+    const auto render = [&] () {
+        ImGui::PopFont ();
+        ImGui::Render ();
+        impl_->renderer->RenderDrawData (context, ImGui::GetDrawData ());
+        impl_->renderer->EndFrame ();
+    };
+    if (showControls && state.captureFrame.active) {
+        if (wasTextActive) {
+            viewportcursor::SetHudTextActive (false);
+            io.ClearInputKeys ();
+        }
+        state.graphInteractionActive = false;
+        state.wantsMouse = viewerhud::DrawCaptureFrame (state, impl_->shell.captureDock, { width, height }, dpiScale);
+        render ();
+        return;
+    }
 
     // The frame's cost, every frame: the badge and Debug both say it.
     const float frameMs = io.DeltaTime * 1000.0f;
@@ -305,10 +321,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     if (!showControls) {
         if (wasTextActive)
             viewportcursor::SetHudTextActive (false);
-        ImGui::PopFont ();
-        ImGui::Render ();
-        impl_->renderer->RenderDrawData (context, ImGui::GetDrawData ());
-        impl_->renderer->EndFrame ();
+        render ();
         state.wantsMouse = false;
         return;
     }
@@ -428,10 +441,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     if (state.readOnly)
         DrawSelectedElementWindow (state, height);
 
-    ImGui::PopFont ();
-    ImGui::Render ();
-    impl_->renderer->RenderDrawData (context, ImGui::GetDrawData ());
-    impl_->renderer->EndFrame ();
+    render ();
 
     // ⚠️ READ BACK AFTER Render, NOT BEFORE. WantCaptureMouse is only meaningful
     // once the frame's widgets have been submitted; asking at the top of the

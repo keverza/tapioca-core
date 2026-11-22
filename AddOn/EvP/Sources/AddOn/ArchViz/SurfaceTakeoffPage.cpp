@@ -249,8 +249,7 @@ std::optional<PageAction> ShotRow (PageState& page, const HighlightSummary& high
         action = PageAction { PageAction::Kind::Screenshot, page.scope, highlight.generation };
     ImGui::EndDisabled ();
     if (ImGui::IsItemHovered (ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip ("Renders the view at the chosen size without panels or gizmo, adds the area table of "
-                           "what is highlighted below it and saves a PNG to Tapioca\\Export.");
+        ImGui::SetTooltip ("Frame the highlighted surfaces, then save a PNG with the area table to Tapioca\\Export.");
     if (shot->busy)
         ImGui::TextDisabled ("Rendering screenshot...");
     else if (shot->failed)

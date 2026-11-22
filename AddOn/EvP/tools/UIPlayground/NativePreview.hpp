@@ -29,6 +29,7 @@ struct MockScope {
 struct NativePreview {
     MockServices mocks;
     av::hudshell::DockPlacement dock;
+    av::viewerhud::CaptureDock captureDock;
     av::hudshell::Placement placement;
     av::hudshell::NavigationState navigation;
     std::string held = "@massing", shown;
@@ -37,6 +38,7 @@ struct NativePreview {
 };
 bool RestoreNative (NativePreview& preview, const Value& state);
 void StoreNative (NativePreview& preview, Value& state);
+void DrawNativeCapture (NativePreview& preview, Value& state, av::ScreenshotSize view, float dpi);
 void DrawNative (NativePreview& preview, Value& state, ImVec2 stageMin, ImVec2 stageMax, ImVec2 view,
                  const av::overlaylayers::Panel& look, float dpi, float ui,
                  const std::function<void (const std::string&)>& fixturePage);

@@ -82,6 +82,17 @@ void StoreNative (NativePreview& p, Value& state)
     Put (saved, "values", WorkflowState (p.mocks));
     Put (state, "native", std::move (saved));
 }
+void DrawNativeCapture (NativePreview& p, Value& state, av::ScreenshotSize view, float dpi)
+{
+    auto& hud = p.mocks.hud;
+    av::viewerhud::DrawCaptureFrame (hud, p.captureDock, view, dpi);
+    if (hud.sunShotRequested) {
+        hud.sunShotRequested = false;
+        hud.sunShotResult = "Mock screenshot request recorded; no image was written.";
+        hud.sunShotFailed = true;
+        Event (state, hud.sunShotResult);
+    }
+}
 void DrawNative (NativePreview& p, Value& state, ImVec2 stageMin, ImVec2 stageMax, ImVec2 view,
                  const av::overlaylayers::Panel& look, float dpi, float ui,
                  const std::function<void (const std::string&)>& fixturePage)
@@ -143,6 +154,12 @@ void DrawNative (NativePreview& p, Value& state, ImVec2 stageMin, ImVec2 stageMa
         select (dock.selected);
     if (dock.press.collapse)
         p.open = !p.open;
+    const ImVec2 dockMin = dock.window->Pos;
+    const ImVec2 dockMax = dockMin + dock.window->Size;
+    p.captureDock = { { dockMin.x, dockMin.y, dockMax.x, dockMax.y },
+                      { p.mocks.hud.width, p.mocks.hud.height },
+                      p.dock.edge,
+                      p.dock.horizontal };
     if (p.open) {
         shell::HostSpec spec;
         spec.window = "###playground.native.hud";
@@ -214,6 +231,7 @@ void DrawNative (NativePreview& p, Value& state, ImVec2 stageMin, ImVec2 stageMa
         p.mocks.editor.message = "Mock import recorded; no Archicad selection was read.";
         Event (state, p.mocks.editor.message);
     }
+    av::viewerhud::DrawCaptureEntry (p.mocks.hud, p.captureDock, dpi);
     ImGui::BringWindowToDisplayFront (dock.window);
     for (const auto& popup : ImGui::GetCurrentContext ()->OpenPopupStack)
         if (popup.Window)
@@ -222,12 +240,6 @@ void DrawNative (NativePreview& p, Value& state, ImVec2 stageMin, ImVec2 stageMa
         p.mocks.editor.close = false;
         p.open = false;
         Event (state, "Virtual editor: Done (mock owner)");
-    }
-    if (p.mocks.hud.sunShotRequested) {
-        p.mocks.hud.sunShotRequested = false;
-        p.mocks.hud.sunShotResult = "Mock screenshot request recorded; no image was written.";
-        p.mocks.hud.sunShotFailed = true;
-        Event (state, p.mocks.hud.sunShotResult);
     }
     auto& h = p.mocks.hud;
     if (h.viewpointPlacing) {
