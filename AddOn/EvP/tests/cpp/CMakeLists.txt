@@ -450,6 +450,9 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudLod.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneCmdQueue.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ElementPacket.cpp"
+    # ArchViz/ProjectSceneCache.cpp: the viewer's per-project scene on disk -- format, pool remap,
+    # fingerprint rule, reconciliation and store (#14). Pure; the ACAPI readings live elsewhere.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ProjectSceneCache.cpp"
     # ElementPacket packs the selection's shape-defining edges (issue #118).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SelectionEdges.cpp"
     # ArchViz/TechnicalEdges.cpp: the model-wide technical edges' angle tiers and HUD style (#14 P2).
@@ -1206,6 +1209,7 @@ set (EVP_TEST_SOURCES
     # A stoppable gate wait gives a joining main thread its thread back: header-only.
     test_gatewait.cpp
     test_modelstampwalk.cpp
+    test_projectscenecache.cpp
     test_sunstudyresultkey.cpp
     test_logclaim.cpp
     test_breadcrumb.cpp
