@@ -5,6 +5,7 @@
 #include "ArchViz/ExtractionReport.hpp"
 #include "ArchViz/ExtractionSlice.hpp"       // SliceState, Run -- one slice's work
 #include "ArchViz/ExtractionDeferredUv.hpp"  // the texture pass refines its capture (#14)
+#include "ArchViz/ExtractionSceneCache.hpp"  // the viewer's per-project scene on disk (#14)
 #include "ArchViz/ArchVizLog.hpp"            // ArchVizLog
 #include "ArchViz/HudConsole.hpp"            // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/ExtractionEnvironment.hpp" // ReadMaterials, ReadEnvironment
@@ -61,7 +62,6 @@ using extractionslice::SliceTimeoutMs; // the worst-case freeze on close
 // through. A generation that needs longer than this is not abandoned quietly —
 // the pass says exactly what happened and what to do about it.
 constexpr int AcquireTimeoutMs = 20000;
-
 
 // A pass whose model changed under it starts again this long after, at most this often.
 constexpr int64_t kRestartSettleMs = 500;
@@ -293,6 +293,11 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     double planCutZ = 0.0;
     const bool wantPlanCut = PlanCut (planCutZ);
 
+    // #14: the viewer's cached scene, before the model is asked for -- drawn while Archicad builds it.
+    ExtractionSceneCache& sceneCache = ExtractionSceneCache::Get ();
+    if (full && !partial)
+        sceneCache.BeginFullPass (stopFlag_);
+
     const int64_t acquireStart = NowMs ();
     GS::UniString gateErr;
     evp::gatewait::Outcome acquireOutcome = evp::gatewait::Outcome::TimedOut; // Abandoned: superseded, not slow
@@ -437,6 +442,13 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         ApplySubstanceMemory (substanceMemory_, **materials);
     }
 
+    // #14: what the slices may reuse from the scene cache, remapped to this pool; null otherwise.
+    const auto sliceCache = full && !partial ? sceneCache.Prepare (handle->materialIdentity) : nullptr;
+    if (sliceCache != nullptr) {
+        sceneCache.NoteMaterials (surfaces);
+        if (haveEnv->load ())
+            sceneCache.NoteEnvironment (*env);
+    }
     SceneCmdQueue::Get ().PushBeginBatch (full, partial ? baseSnapshot->id : 0);
     bool packetsComplete = true;
     if (*materials != nullptr)
@@ -491,14 +503,15 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         // every body to record `Unknown` for all of them would be pure cost.
         const bool observeSubstances = full && !substances->byAttribute.empty ();
         const bool ok = evp::MainThreadGate::Get ().InvokeUnlessStopped (
-            [model, count, st, wanted, sliceMs, observeSubstances, substances, handle] {
+            [model, count, st, wanted, sliceMs, observeSubstances, substances, handle, sliceCache] {
                 st->started.store (true);
                 if (modelwatch::CaptureStamp () != handle->captureStamp) {
                     st->changedTo.store (ModelElementCount (*model));
                     st->completed.store (true);
                     return;
                 }
-                extractionslice::Run (*model, count, *st, *wanted, sliceMs, observeSubstances, *substances);
+                extractionslice::Run (*model, count, *st, *wanted, sliceMs, observeSubstances, *substances,
+                                      sliceCache.get ());
             },
             SliceTimeoutMs, stopFlag_, sliceErr); // unless stopped, as the acquire
         const int64_t sliceElapsed = NowMs () - sliceStart;
@@ -577,6 +590,9 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
             SceneCmdQueue::Get ().PushUpsert (std::move (up));
             ++pushed;
         }
+        if (sliceCache != nullptr) // #14: the elements the cache vouched for, sent as captured ones are
+            pushed += sceneCache.HarvestSlice (*st, assembly, storeySlices, observations, extractedGuids, triangles,
+                                               packetsComplete);
         for (const std::string& guid : st->matched)
             found.insert (guid);
         if (!st->observations.empty ())
@@ -584,7 +600,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
 
         {
             std::lock_guard<std::mutex> lock (mutex_);
-            progress_.extracted += uint32_t (st->meshes.size ());
+            progress_.extracted += uint32_t (st->meshes.size () + st->reused.size ());
             progress_.empty += st->empty.load ();
             progress_.MergeEmptyKinds (st->emptyByType, st->emptyReasons);
             progress_.pushed += pushed;
@@ -639,7 +655,10 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     // far a cancelled refresh happened to get.
     if (full && !gaveUp && !observations.empty () && cursor > handle->count) {
         int named = 0;
-        SceneCmdQueue::Get ().PushMaterials (BuildSubstanceTable (surfaces, observations, substanceMemory_, named));
+        std::unique_ptr<MaterialTable> joined = BuildSubstanceTable (surfaces, observations, substanceMemory_, named);
+        if (sliceCache != nullptr)
+            sceneCache.NoteMaterials (*joined);
+        SceneCmdQueue::Get ().PushMaterials (std::move (joined));
 
         extractionreport::SubstanceJoin (named, surfaces.Size (), substances->classified, substances->total,
                                          observations.size (), substances->error);
@@ -658,6 +677,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     const auto snapshot = assembly.Finish (complete);
     SceneCmdQueue::Get ().PushEndBatch (packetsComplete ? snapshot : nullptr);
     lastSceneCapture_ = packetsComplete ? snapshot : nullptr;
+    if (sliceCache != nullptr)
+        sceneCache.FinishFullPass (packetsComplete ? snapshot : nullptr, complete);
     if (snapshot) {
         MeshStore::Get ().PublishShared (snapshot);
         extractionreport::SharedSnapshot (*snapshot, partial);

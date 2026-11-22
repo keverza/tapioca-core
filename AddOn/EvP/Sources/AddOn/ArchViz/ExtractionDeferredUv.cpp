@@ -4,6 +4,7 @@
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp"
+#include "ArchViz/ExtractionSceneCache.hpp" // the coordinates read here are stored too
 #include "Geometry/MeshStore.hpp"
 
 #include <atomic>
@@ -45,6 +46,12 @@ std::set<std::string> Take ()
     std::set<std::string> taken;
     taken.swap (Pending ());
     return taken;
+}
+
+std::set<std::string> Peek ()
+{
+    std::lock_guard<std::mutex> lock (Mutex ());
+    return Pending ();
 }
 
 bool Suspended ()
@@ -102,7 +109,10 @@ void ExtractionWorker::RunDeferredUv (const Options& opt, bool afterCompletePass
     // `sameCapture`). Bumping the stamp here (cc5c25a4) made every edit during this pass
     // land at + 2 and turn into a full pass. An edit meanwhile refuses this pass instead
     // (FallBackToFull), and it runs again after that edit's update.
-    RunPass (opt, /*full*/ false, guids, nullptr);
+    // The scene cache stored these elements as not yet reusable; with their coordinates read, it
+    // stores them for good (ExtractionSceneCache::Refine).
+    if (RunPass (opt, /*full*/ false, guids, nullptr))
+        ExtractionSceneCache::Get ().Refine (lastSceneCapture_.lock (), guids);
 }
 
 } // namespace archviz

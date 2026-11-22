@@ -29,6 +29,9 @@ void Note (const std::string& guid);
 // Every element noted since the last call, which forgets them.
 std::set<std::string> Take ();
 
+// The same, without forgetting: the scene cache stores these as not yet reusable (#14).
+std::set<std::string> Peek ();
+
 // True while the deferred pass runs. ⚠️ A PARTIAL PASS CAN TURN INTO A FULL ONE (an incremental
 // baseline that no longer fits); that full pass must read the coordinates itself, or it would defer
 // them again and ask for another deferred pass, without end.

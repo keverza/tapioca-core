@@ -129,12 +129,13 @@ void SceneCaptureCommit::End (std::shared_ptr<const Snapshot> capture, size_t el
     validBatch = false;
 }
 
-void SceneCmdQueue::PushBeginBatch (bool full, uint64_t baseSnapshotId)
+void SceneCmdQueue::PushBeginBatch (bool full, uint64_t baseSnapshotId, bool feedOccluder)
 {
     // ⚠️ THE OCCLUDER BATCH FOLLOWS THE SCENE BATCH EXACTLY, so a
     // full rebuild replaces the occluder rather than adding a second copy of the
     // building to it.
-    dxgi::hostocclusion::BeginBatch (full);
+    if (feedOccluder)
+        dxgi::hostocclusion::BeginBatch (full);
     std::lock_guard<std::mutex> lock (mutex_);
     if (!consumer_)
         return;
@@ -145,18 +146,20 @@ void SceneCmdQueue::PushBeginBatch (bool full, uint64_t baseSnapshotId)
     queue_.push_back (std::move (cmd));
 }
 
-void SceneCmdQueue::PushUpsert (std::unique_ptr<ElementUpload> upload)
+void SceneCmdQueue::PushUpsert (std::unique_ptr<ElementUpload> upload, bool feedOccluder)
 {
     if (upload == nullptr)
         return; // nothing to hand over; a null node would be a consumer crash
 
     // ⚠️ BEFORE THE MOVE, BECAUSE AFTER IT THERE IS NOTHING TO READ.
-    const auto feedStarted = std::chrono::steady_clock::now ();
-    FeedOpaqueOccluders (*upload);
-    const double feedMs =
-        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - feedStarted).count ();
-    ArchVizLog ("pipeline: stage=geometry-occluders packet=" + std::to_string (upload->packetId) +
-                " payloadBytes=" + std::to_string (upload->PayloadBytes ()) + " wallMs=" + std::to_string (feedMs));
+    if (feedOccluder) {
+        const auto feedStarted = std::chrono::steady_clock::now ();
+        FeedOpaqueOccluders (*upload);
+        const double feedMs =
+            std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - feedStarted).count ();
+        ArchVizLog ("pipeline: stage=geometry-occluders packet=" + std::to_string (upload->packetId) +
+                    " payloadBytes=" + std::to_string (upload->PayloadBytes ()) + " wallMs=" + std::to_string (feedMs));
+    }
 
     std::lock_guard<std::mutex> lock (mutex_);
     if (!consumer_)
@@ -183,12 +186,13 @@ void SceneCmdQueue::PushRemove (const std::string& guid)
     queue_.push_back (std::move (cmd));
 }
 
-void SceneCmdQueue::PushEndBatch (std::shared_ptr<const Snapshot> capture)
+void SceneCmdQueue::PushEndBatch (std::shared_ptr<const Snapshot> capture, bool feedOccluder)
 {
     // Publish the occluder snapshot in one exchange. Until this runs the render
     // thread keeps the previous building, so a half-extracted model never
     // occludes anything.
-    dxgi::hostocclusion::EndBatch ();
+    if (feedOccluder)
+        dxgi::hostocclusion::EndBatch ();
     std::lock_guard<std::mutex> lock (mutex_);
     if (!consumer_)
         return;

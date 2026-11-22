@@ -4,6 +4,7 @@
 #include "ArchViz/DiligentProbe.hpp"
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/ExtractionThread.hpp"
+#include "ArchViz/ExtractionSceneCache.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/ModelWatch.hpp"
@@ -269,6 +270,10 @@ void ArchVizPanel::OpenDiligentViewport (bool planMode)
         // pass. The producer side (ExtractionWorker -> SceneCmdQueue) is
         // renderer-free by design, which is what let the viewer change underneath
         // it without the extraction path being touched at all.
+        //
+        // #14: THE PANEL, AND ONLY THE PANEL, DRAWS FROM THE PER-PROJECT SCENE CACHE FIRST and lets
+        // the live pass re-read only what changed (ExtractionSceneCache.hpp). Off at StopRenderer.
+        geomsrv::archviz::ExtractionSceneCache::Get ().SetEnabled (true);
         geomsrv::archviz::ExtractionWorker::Get ().StartLive ();
 
         // ---- THE PANEL'S THREE DEFAULTS, ALL SET IN ONE PLACE ---------------
@@ -418,6 +423,8 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
     // cover.
     panel.Hide ();
 
+    // #14: never the scene cache: the overlay must agree with Archicad (ExtractionSceneCache.hpp).
+    geomsrv::archviz::ExtractionSceneCache::Get ().SetEnabled (false);
     geomsrv::archviz::ExtractionWorker::Get ().StartLive ();
 
     // ⚠️ THE OVERLAY NEEDS THIS MORE THAN THE PANEL DOES, not less. An overlay
@@ -628,6 +635,8 @@ void ArchVizPanel::StopRenderer ()
     geomsrv::archviz::viewportcursor::Detach ();
 
     geomsrv::archviz::ExtractionWorker::Get ().Stop ();
+    // After the join: the session's held scene goes with the viewer (#14).
+    geomsrv::archviz::ExtractionSceneCache::Get ().SetEnabled (false);
     // Nothing will consume what is left; holding it would mean the next viewer
     // open replays a batch from the previous session, half-applied.
     geomsrv::archviz::SceneCmdQueue::Get ().Clear ();

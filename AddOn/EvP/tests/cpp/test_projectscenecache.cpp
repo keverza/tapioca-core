@@ -167,7 +167,8 @@ TEST (ProjectSceneCache, PoolRemapIsIdentityWhenNothingRenumbered)
 TEST (ProjectSceneCache, PoolRemapFollowsIdentityNotIndex)
 {
     const std::map<int32_t, CapturedMaterialIdentity> cached = { { 1, { "Brick", 10 } }, { 2, { "Glass", 20 } } };
-    const std::map<int32_t, CapturedMaterialIdentity> live = { { 1, { "Glass", 20 } }, { 2, { "Concrete", 5 } },
+    const std::map<int32_t, CapturedMaterialIdentity> live = { { 1, { "Glass", 20 } },
+                                                               { 2, { "Concrete", 5 } },
                                                                { 3, { "Brick", 10 } } };
     const sc::PoolRemap remap = sc::BuildPoolRemap (cached, live);
     EXPECT_FALSE (remap.identity);

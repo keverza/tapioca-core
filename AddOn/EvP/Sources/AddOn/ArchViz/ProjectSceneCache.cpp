@@ -52,7 +52,9 @@ class Writer {
 // ALLOCATED: a corrupt length must refuse the file, not ask for 2^60 bytes.
 class Reader {
   public:
-    Reader (const char* data, size_t size) : p_ (data), end_ (data + size) {}
+    Reader (const char* data, size_t size) : p_ (data), end_ (data + size)
+    {
+    }
     template <typename T> bool Pod (T& value)
     {
         static_assert (std::is_trivially_copyable_v<T>);
@@ -198,9 +200,9 @@ void WriteMesh (Writer& w, const Mesh& m)
 
 bool ReadMesh (Reader& r, Mesh& m)
 {
-    bool ok = r.Str (m.guid) && r.Pod (m.elemType) && r.Vec (m.vertices) && r.Vec (m.normals) &&
-              r.Vec (m.triangles) && r.Vec (m.triMaterial) && r.Vec (m.uvs) && r.Vec (m.triWireEdges) &&
-              r.Vec (m.triSourceBody) && r.Vec (m.triSourcePgon) && r.Vec (m.triSurfaceAttribute);
+    bool ok = r.Str (m.guid) && r.Pod (m.elemType) && r.Vec (m.vertices) && r.Vec (m.normals) && r.Vec (m.triangles) &&
+              r.Vec (m.triMaterial) && r.Vec (m.uvs) && r.Vec (m.triWireEdges) && r.Vec (m.triSourceBody) &&
+              r.Vec (m.triSourcePgon) && r.Vec (m.triSurfaceAttribute);
     for (int k = 0; ok && k < 3; ++k)
         ok = r.Pod (m.bounds.mn[k]) && r.Pod (m.bounds.mx[k]);
     if (!ok)

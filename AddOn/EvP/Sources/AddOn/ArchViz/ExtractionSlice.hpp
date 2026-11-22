@@ -10,10 +10,12 @@
 
 #include "ArchViz/ElementPacket.hpp"       // CapturedMeshPacket
 #include "ArchViz/ExtractionSubstance.hpp" // ProjectSubstances, SurfaceSubstanceObservation
+#include "ArchViz/ProjectSceneCache.hpp"   // Fingerprint, ReuseIndex (#14)
 
 #include <atomic>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -32,6 +34,20 @@ namespace extractionslice {
 // this timeout IS the worst-case freeze on close. A slice is ~8 ms of work, so
 // 1.5 s is already generous.
 constexpr int SliceTimeoutMs = 1500;
+
+// #14, the scene cache (ExtractionSceneCache.hpp): what a FULL pass's slices may reuse instead of
+// capturing. Immutable while the pass runs, shared by value with every slice job.
+struct SliceCache {
+    std::shared_ptr<const scenecache::ReuseIndex> reuse;                     // may be empty
+    std::shared_ptr<const std::map<int32_t, CapturedMaterialIdentity>> pool; // the live pool
+};
+// One element the cache looked at: its live fingerprint, and where its substance observations sit
+// in the slice's `observations` (captured elements only).
+struct CacheVisit {
+    std::string guid;
+    scenecache::Fingerprint fingerprint;
+    size_t observationsFrom = 0, observationsTo = 0;
+};
 
 // What one extraction slice reports back. ATOMICS and shared BY VALUE, because
 // a timed-out Invoke may still run the job LATER, after this loop iteration has
@@ -72,6 +88,11 @@ struct SliceState {
     // hidden, or moved off the storey), and that is how a removal is derived
     // without interpreting an event id.
     std::vector<std::string> matched;
+    // #14, FULL PASSES WITH A SCENE CACHE ONLY. Harvested on the same terms as `meshes`.
+    std::vector<CacheVisit> reused;   // fingerprint agreed: neither captured nor observed
+    std::vector<CacheVisit> captured; // captured, with the reading the next cache stores
+    uint32_t cheapHits = 0, deepHits = 0, deepReads = 0;
+    double readMs = 0.0; // the fingerprint readings' share of the slice
 };
 
 // MAIN THREAD. Capture one element: its packet appended to `packets`, its timings recorded
@@ -82,8 +103,10 @@ bool CaptureElementPacket (ModelerAPI::Model& model, int32_t index, std::vector<
 // element), every element on a full pass (`wanted` empty) or only those named in `wanted`,
 // observing substances when asked; then say where it stopped and that it completed. A model
 // whose element count is no longer `count` ends the slice at once with `changedTo` set.
+// #14: `cache` non-null on a full pass with a scene cache: an element whose fingerprint agrees is
+// recorded in `reused` and neither captured nor observed; every captured one is fingerprinted.
 void Run (ModelerAPI::Model& model, int32_t count, SliceState& st, const std::set<std::string>& wanted, int64_t sliceMs,
-          bool observeSubstances, const ProjectSubstances& substances);
+          bool observeSubstances, const ProjectSubstances& substances, const SliceCache* cache = nullptr);
 
 // What the pass does, `waitedMs` after a slice's Invoke timed out.
 //

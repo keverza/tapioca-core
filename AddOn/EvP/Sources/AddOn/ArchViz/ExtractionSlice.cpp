@@ -6,10 +6,12 @@
 #include "ArchViz/ExtractionSlice.hpp"
 
 #include "ArchViz/ExtractionDeferredUv.hpp"
+#include "ArchViz/SceneCacheFingerprint.hpp" // #14: the scene cache's readings
 
 #include "Geometry/GeometryExtractor.hpp"
 
 #include <Model.hpp>
+#include <ModelElement.hpp>
 
 #include <chrono>
 
@@ -46,8 +48,55 @@ bool CaptureElementPacket (ModelerAPI::Model& model, int32_t index, std::vector<
     return true;
 }
 
+namespace {
+
+double MsSince (std::chrono::steady_clock::time_point started)
+{
+    return std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
+}
+
+// #14: a full pass with a scene cache. True when the element's fingerprint agrees with the cached
+// one -- it is then recorded as reused, and the caller neither captures nor observes it. Otherwise
+// `visit` holds the live reading for the capture that follows (guid empty: never cached).
+bool ReuseFromCache (ModelerAPI::Model& model, int32_t index, SliceState& st, const SliceCache& cache,
+                     CacheVisit& visit, ModelerAPI::Element& element)
+{
+    const auto started = std::chrono::steady_clock::now ();
+    model.GetElement (index, &element);
+    const scenecache::CheapReading reading = scenecache::ReadCheap (element);
+    visit.guid = reading.guid;
+    visit.fingerprint = { reading.genId, reading.shape, 0 };
+    bool reuse = false;
+    if (!reading.guid.empty () && cache.reuse != nullptr) {
+        const auto found = cache.reuse->find (reading.guid);
+        if (found != cache.reuse->end ()) {
+            scenecache::Match match = scenecache::MatchCheap (found->second, reading.genId, reading.shape);
+            if (match == scenecache::Match::NeedDeep) {
+                ++st.deepReads;
+                visit.fingerprint.deep = scenecache::ReadDeep (element, *cache.pool);
+                match = scenecache::MatchDeep (found->second, visit.fingerprint.deep);
+            }
+            if (match == scenecache::Match::Cheap) {
+                ++st.cheapHits;
+                visit.fingerprint.deep = found->second.deep; // the same element: its deep tier carries over
+                reuse = true;
+            }
+            else if (match == scenecache::Match::Deep) {
+                ++st.deepHits;
+                reuse = true;
+            }
+        }
+    }
+    if (reuse)
+        st.reused.push_back (visit);
+    st.readMs += MsSince (started);
+    return reuse;
+}
+
+} // namespace
+
 void Run (ModelerAPI::Model& model, int32_t count, SliceState& st, const std::set<std::string>& wanted, int64_t sliceMs,
-          bool observeSubstances, const ProjectSubstances& substances)
+          bool observeSubstances, const ProjectSubstances& substances, const SliceCache* cache)
 {
     // The budget is checked INSIDE the slice, on the main thread, so
     // the bound is on how long Archicad is actually held — not on
@@ -93,9 +142,25 @@ void Run (ModelerAPI::Model& model, int32_t count, SliceState& st, const std::se
         }
     } materialCache (i == 1);
     while (i <= count) {
+        // #14: a reused element is neither captured nor observed -- the worker re-sends it from the
+        // cache with its cached observations; a captured one is fingerprinted for the next cache.
+        bool reused = false;
+        bool fingerprinted = false;
+        CacheVisit visit;
+        visit.observationsFrom = st.observations.size ();
         if (wanted.empty ()) {
-            if (!CaptureElementPacket (model, i, st.meshes))
+            ModelerAPI::Element element;
+            reused = cache != nullptr && ReuseFromCache (model, i, st, *cache, visit, element);
+            const size_t before = st.meshes.size ();
+            if (!reused && !CaptureElementPacket (model, i, st.meshes))
                 st.NoteEmpty (ElementTypeNameAt (model, i), EmptyReasonAt (model, i));
+            if (cache != nullptr && !reused && st.meshes.size () > before && !visit.guid.empty ()) {
+                const auto started = std::chrono::steady_clock::now ();
+                if (visit.fingerprint.deep == 0)
+                    visit.fingerprint.deep = scenecache::ReadDeep (element, *cache->pool);
+                st.readMs += MsSince (started);
+                fingerprinted = true;
+            }
         }
         else {
             // ⚠️ THE GUID FIRST, THE GEOMETRY ONLY IF IT MATCHES.
@@ -121,8 +186,12 @@ void Run (ModelerAPI::Model& model, int32_t count, SliceState& st, const std::se
         // elements a filter happened to match would be a different
         // vote each refresh, so a surface's substance would change
         // as the user edited unrelated parts of the building.
-        if (observeSubstances)
+        if (observeSubstances && !reused)
             ObserveElementSubstances (model, i, substances, st.observations);
+        if (fingerprinted) {
+            visit.observationsTo = st.observations.size ();
+            st.captured.push_back (std::move (visit));
+        }
         ++i;
         if (NowMs () - begin >= sliceMs)
             break;

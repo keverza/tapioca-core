@@ -345,10 +345,12 @@ class SceneCmdQueue final {
     static SceneCmdQueue& Get ();
 
     // ---- producer ----
-    void PushBeginBatch (bool full, uint64_t baseSnapshotId = 0);
-    void PushUpsert (std::unique_ptr<ElementUpload> upload);
+    // `feedOccluder` false: a batch that must not reach the overlay's host occluder -- the scene
+    // cache's, which is not yet what Archicad holds (ExtractionSceneCache.hpp, #14).
+    void PushBeginBatch (bool full, uint64_t baseSnapshotId = 0, bool feedOccluder = true);
+    void PushUpsert (std::unique_ptr<ElementUpload> upload, bool feedOccluder = true);
     void PushRemove (const std::string& guid);
-    void PushEndBatch (std::shared_ptr<const Snapshot> capture = {});
+    void PushEndBatch (std::shared_ptr<const Snapshot> capture = {}, bool feedOccluder = true);
     void PushMaterials (std::unique_ptr<MaterialTable> materials);
     void PushEnvironment (const EnvironmentUpload& environment);
     void PushSelection (std::vector<std::string> guids);
