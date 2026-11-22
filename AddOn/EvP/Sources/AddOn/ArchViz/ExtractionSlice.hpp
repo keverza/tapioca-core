@@ -26,6 +26,13 @@ namespace geomsrv {
 namespace archviz {
 namespace extractionslice {
 
+// ⚠️ NOT MainThreadGate::DefaultTimeoutMs (30 s), for BackgroundArm's reason:
+// Stop() joins from the MAIN thread, and a worker sitting inside Invoke is
+// waiting for that same thread. Nothing moves until the Invoke times out, so
+// this timeout IS the worst-case freeze on close. A slice is ~8 ms of work, so
+// 1.5 s is already generous.
+constexpr int SliceTimeoutMs = 1500;
+
 // What one extraction slice reports back. ATOMICS and shared BY VALUE, because
 // a timed-out Invoke may still run the job LATER, after this loop iteration has
 // moved on — the gate's contract says so explicitly. `meshes` is plain (not

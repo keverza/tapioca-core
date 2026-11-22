@@ -707,7 +707,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("Python/ApiDispatcher.cpp", "NativeCommands/SchemaValidator.hpp"),
     ("Python/ApiDispatcher.cpp", "Palette/ControlPalette.hpp"),
     ("Python/CommandRunner.cpp", "Diagnostics/ApiError.hpp"),
-    ("ArchViz/ExtractionThread.cpp", "Diagnostics/ApiError.hpp"),
+    # Moved out of ExtractionThread.cpp (2026-11-22, #14) with the observer arming, which reports
+    # the install error: CLAUDE.md forbids a bare GSErrCode.
+    ("ArchViz/ExtractionLiveLoop.cpp", "Diagnostics/ApiError.hpp"),
     # Extracted OUT of ExtractionThread.cpp (2026-08-24) and inherits its reason
     # unchanged: it makes one ACAPI call, and CLAUDE.md forbids reporting a bare
     # GSErrCode. Decoding it is the whole purpose of the include.
