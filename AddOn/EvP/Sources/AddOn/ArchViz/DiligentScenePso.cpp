@@ -511,6 +511,13 @@ bool DiligentScene::CreateSelectionPipelines (Diligent::IRenderDevice* device, u
         sci.Source = source.c_str ();
         sci.SourceLength = source.size ();
         device->CreateShader (sci, &sel.technicalPs, nullptr);
+        // The edges as strips along each edge, not the triangle (#14: kArchVizWireGS has why).
+        const std::string finSource = ArchVizShaderSource ("#define ARCHVIZ_EDGE_FINS 1\n", kArchVizWireGS);
+        sci.Desc.Name = "ArchViz technical edge GS";
+        sci.Desc.ShaderType = Diligent::SHADER_TYPE_GEOMETRY;
+        sci.Source = finSource.c_str ();
+        sci.SourceLength = finSource.size ();
+        device->CreateShader (sci, &sel.technicalGs, nullptr);
         const Diligent::ShaderResourceVariableDesc technicalVariables[] = {
             { Diligent::SHADER_TYPE_HULL, "g_wirePatchFlags", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
             { Diligent::SHADER_TYPE_PIXEL, "g_edgeDepth", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
@@ -525,13 +532,14 @@ bool DiligentScene::CreateSelectionPipelines (Diligent::IRenderDevice* device, u
         pci.pVS = impl_->wireVs;
         pci.pHS = impl_->wireHs;
         pci.pDS = impl_->wireDs;
-        pci.pGS = impl_->wireGs;
+        pci.pGS = sel.technicalGs;
         pci.pPS = sel.technicalPs;
         pci.PSODesc.ResourceLayout.Variables = technicalVariables;
         pci.PSODesc.ResourceLayout.NumVariables = _countof (technicalVariables);
         std::string technicalError;
         std::swap (error, technicalError);
-        if (sel.technicalPs == nullptr || !finish (pci, sel.technicalPso, sel.technicalSrb, true)) {
+        if (sel.technicalPs == nullptr || sel.technicalGs == nullptr ||
+            !finish (pci, sel.technicalPso, sel.technicalSrb, true)) {
             ArchVizLog ("Diligent scene: technical edges keep their coplanar joints (" +
                         (error.empty () ? std::string ("the shader did not compile") : error) + ")");
             sel.technicalPso.Release ();

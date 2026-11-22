@@ -159,3 +159,20 @@ TEST (SceneShaders, ShadowDiagnosticsReadTheShadowBlockOnlyWhileShadowsAreLive)
         }
     }
 }
+
+// #14: the Technical edges' geometry shader -- kArchVizWireGS built with ARCHVIZ_EDGE_FINS, a
+// strip along each drawn edge instead of the triangle -- compiles, with the same outputs.
+TEST (SceneShaders, TechnicalEdgeFinGeometryShaderCompiles)
+{
+    const std::string source = ArchVizShaderSource ("#define ARCHVIZ_EDGE_FINS 1\n", kArchVizWireGS);
+    ID3DBlob* blob = nullptr;
+    ID3DBlob* errors = nullptr;
+    const HRESULT hr = D3DCompile (source.c_str (), source.size (), "fins", nullptr, nullptr, "main", "gs_5_0",
+                                   D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &errors);
+    const std::string error = errors != nullptr ? (const char*) errors->GetBufferPointer () : "";
+    EXPECT_TRUE (SUCCEEDED (hr) && blob != nullptr) << error;
+    if (blob != nullptr)
+        blob->Release ();
+    if (errors != nullptr)
+        errors->Release ();
+}

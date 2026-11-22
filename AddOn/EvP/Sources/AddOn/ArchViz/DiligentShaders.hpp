@@ -1417,7 +1417,49 @@ void EmitClippedWire (triangle WireDomainOutput input[3], inout TriangleStream<W
     }
 }
 
+#if ARCHVIZ_EDGE_FINS
+// #14, the Technical view's edges: a strip along each drawn edge instead of the triangle. The
+// triangle-only path paints the pixels within a line's width of an edge INSIDE that triangle, so a
+// triangle touching the edge at one corner only -- every fan diagonal of a wall, every sliver --
+// cut a wedge out of the line: "a row of stretched triangles". The strip spans `width` px either
+// side of the edge in the triangle's own depth plane, so coverage depends on the distance alone;
+// the distance is SIGNED (negative outside the face). Outside, the PS draws only a silhouette's
+// half: where another surface meets the edge, that face's strip draws it.
+void EmitEdgeFin (WireDomainOutput a, WireDomainOutput b, float2 inward, float3 plane, float2 viewport, float width,
+                  uint slot, float4 out01, float2 out2, inout TriangleStream<WirePixelInput> stream)
+{
+    const float4 pull = float4 (0.0, 0.0, g_edgeParams.x, 0.0);
+    const float disabled = 1e6;
+    WirePixelInput o;
+    o.depthPlane = plane;
+    o.edgeOut01 = out01;
+    o.edgeOut2 = out2;
+    WireDomainOutput ends[2] = { a, b };
+    [unroll] for (uint side = 0; side < 2; ++side)
+    {
+        [unroll] for (uint e = 0; e < 2; ++e)
+        {
+            float4 c = ends[e].position;
+            float t = side == 0 ? -width : width;
+            {
+                float2 p = WirePixel (c, viewport) + inward * t;
+                float z = plane.z > -5.0 ? plane.x * p.x + plane.y * p.y + plane.z : c.z / c.w;
+                float2 ndc = float2 (p.x / viewport.x * 2.0 - 1.0, 1.0 - p.y / viewport.y * 2.0);
+                c = float4 (ndc * c.w, z * c.w, c.w);
+            }
+            o.position = c - pull;
+            o.distanceToEdges = float3 (slot == 0 ? t : disabled, slot == 1 ? t : disabled, slot == 2 ? t : disabled);
+            o.clipDistance = ends[e].clipDistance;
+            stream.Append (o);
+        }
+    }
+    stream.RestartStrip ();
+}
+
+[maxvertexcount(12)]
+#else
 [maxvertexcount(4)]
+#endif
 void main (triangle WireDomainOutput input[3], inout TriangleStream<WirePixelInput> stream)
 {
     if (min (input[0].position.w, min (input[1].position.w, input[2].position.w)) <= kWireNearW)
@@ -1446,6 +1488,24 @@ void main (triangle WireDomainOutput input[3], inout TriangleStream<WirePixelInp
         d0.y = d1.y = d2.y = disabled;
     if (!GeneratedEdgeIsVisible (input[0].domain, input[1].domain, mask))
         d0.z = d1.z = d2.z = disabled;
+
+#if ARCHVIZ_EDGE_FINS
+    {
+        float3 plane;
+        float4 out01;
+        float2 out2;
+        WirePlane (input[0].position, input[1].position, input[2].position, viewport, plane, out01, out2);
+        // The PS's coverage reaches halfWidth + 0.75 px; the strip a little past it.
+        float width = max (0.5 * g_wireParams.y, 0.25) + 1.0;
+        if (d0.x < disabled)
+            EmitEdgeFin (input[1], input[2], -out01.xy, plane, viewport, width, 0u, out01, out2, stream);
+        if (d1.y < disabled)
+            EmitEdgeFin (input[2], input[0], -out01.zw, plane, viewport, width, 1u, out01, out2, stream);
+        if (d2.z < disabled)
+            EmitEdgeFin (input[0], input[1], -out2, plane, viewport, width, 2u, out01, out2, stream);
+        return;
+    }
+#endif
 
     // The selection's edges are pulled toward the camera (g_edgeParams.x, 0 for
     // the global wireframe): tessellated, they are not bit-identical to the
@@ -1591,7 +1651,9 @@ float DenseEdgeFade (float2 p, float2 across, float distanceToEdge, float3 plane
 float4 main (TechnicalEdgeInput input) : SV_TARGET
 {
     float3 d = input.distanceToEdges;
-    float distanceToEdge = min (d.x, min (d.y, d.z));
+    // Signed: negative outside the face (the edge strips of ARCHVIZ_EDGE_FINS, kArchVizWireGS).
+    float signedDistance = min (d.x, min (d.y, d.z));
+    float distanceToEdge = abs (signedDistance);
     float halfWidth = max (0.5 * g_wireParams.y, 0.25);
     float coverage = 1.0 - smoothstep (halfWidth - 0.75, halfWidth + 0.75, distanceToEdge);
     clip (coverage - 0.001);
@@ -1603,6 +1665,31 @@ float4 main (TechnicalEdgeInput input) : SV_TARGET
         if (dot (across, across) > 0.5)
         {
             float2 p = input.position.xy;
+            // From here the distance is signed: every point below is taken from the edge's foot.
+            distanceToEdge = signedDistance;
+            // Outside the face: only a silhouette's outer half is this strip's. If the surface seen
+            // just beyond the edge meets it -- its plane reaches the edge's depth -- that face draws
+            // the line's other half itself, and drawing it here too would double it.
+            if (signedDistance < 0.0)
+            {
+                float2 foot = p + across * signedDistance;
+                // And only by the face that is SEEN inside the edge: at a silhouette the face turned
+                // away reaches the same outer side, covered on its own (a thin face, whose inside
+                // sample falls past it, finds the scene farther, not nearer: kept).
+                float2 within = foot - across * 1.5;
+                float ownGap = PlaneGap (within, input.depthPlane);
+                if (ownGap != kOffPlane && ownGap < -PlaneTolerance (input.depthPlane, within, 1.5))
+                    discard;
+                float3 seen;
+                if (SeenPlane (foot + across * 2.5, seen))
+                {
+                    float3 own = input.depthPlane;
+                    float edgeZ = own.x * foot.x + own.y * foot.y + own.z;
+                    float seenZ = seen.x * foot.x + seen.y * foot.y + seen.z;
+                    if (abs (seenZ - edgeZ) <= PlaneTolerance (own, foot, 2.5))
+                        discard;
+                }
+            }
             // ⚠️ THIS FACE MUST BE THE ONE SEEN. A wall segment's end face, sandwiched against the
             // next segment, has its border exactly on the visible front face, so the border passes
             // the depth test -- and its plane, square to the front, fails the test below: every
