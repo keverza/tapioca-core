@@ -122,7 +122,8 @@ void DiligentScene::PrepareTemporalAntiAliasingFrame (Diligent::IDeviceContext* 
     // position; what still draws each frame -- the sun-study tint, section back faces and caps,
     // wireframe, edges, outlines, all after the resolve -- then rasterises against an unjittered
     // depth buffer and stops moving. TAA still runs (Prepare above keeps its resources and frame
-    // counter in step), so the first moving frame has history to start from.
+    // counter in step), so the first moving frame has history to start from. #14: and a MOVING
+    // frame is not jittered either (TemporalConvergence::JitterThisFrame has the measurements).
     if (!impl_->temporalConvergence.JitterThisFrame ()) {
         std::memcpy (jitteredProjection, projection, sizeof (float) * 16);
         jitter[0] = 0.0f;

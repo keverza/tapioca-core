@@ -163,10 +163,14 @@ class TemporalConvergence {
     void BeginFrame (const float view[16], const float projection[16], uint32_t width, uint32_t height, bool running,
                      const TemporalConvergenceSettings& settings);
 
-    // Whether this frame is jittered. False only once the mean is converged.
+    // Whether this frame is jittered: while the still image settles and accumulates, and when it is
+    // Off (TAA alone). Not once the mean is converged (#247/#248), and not while MOVING (#14): TAA
+    // keeps about half its history at a pixel or two of motion a frame, so the jitter's sub-pixel
+    // steps showed through as shimmer -- the bench's orbit flickered 3.25 levels with it, 2.59 with
+    // no TAA, 2.46 with TAA and no jitter.
     bool JitterThisFrame () const
     {
-        return phase_ != TemporalPhase::Converged;
+        return phase_ != TemporalPhase::Converged && phase_ != TemporalPhase::Moving;
     }
 
     // After TAA. `resolved` is false when TAA (or its coverage) produced nothing this frame,

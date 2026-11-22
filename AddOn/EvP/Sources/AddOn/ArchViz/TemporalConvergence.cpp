@@ -159,8 +159,8 @@ void TemporalConvergence::BeginFrame (const float view[16], const float projecti
     haveCamera_ = true;
 
     // ⚠️ RESTARTED HERE, NOT ONLY IN EndFrame, because the jitter for THIS frame is chosen
-    // between the two calls. A converged view whose camera starts moving must be jittered on
-    // that very frame, or TAA receives one unjittered sample in the middle of its motion.
+    // between the two calls. A converged view whose camera starts moving must be Moving -- and so
+    // unjittered (JitterThisFrame, #14) -- on that very frame, not one frame later.
     if (cameraMovedThisFrame_ || phase_ == TemporalPhase::Off)
         Restart (TemporalPhase::Moving, cameraMovedThisFrame_ ? TemporalRestart::Camera : TemporalRestart::None);
 }

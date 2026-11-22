@@ -86,7 +86,11 @@ TEST (TemporalConvergence, FirstSampleOverwritesTheMean)
     EXPECT_FLOAT_EQ (first.weight, 1.0f);
 }
 
-TEST (TemporalConvergence, CameraMoveRestartsAndJittersThatSameFrame)
+// #14, anti-aliasing while moving: a moving frame is not jittered. TAA keeps about half its history
+// at a pixel or two of motion a frame, so the jitter's sub-pixel steps showed through as shimmer --
+// worse than no TAA at all on the bench's orbit (flicker 3.25 levels vs 2.59), and 2.46 without the
+// jitter. The jitter returns with the first settling frame, where the still image needs it.
+TEST (TemporalConvergence, CameraMoveRestartsAndStopsTheJitterThatSameFrame)
 {
     TemporalConvergence t;
     Frame f;
@@ -95,10 +99,10 @@ TEST (TemporalConvergence, CameraMoveRestartsAndJittersThatSameFrame)
     ASSERT_EQ (t.Phase (), TemporalPhase::Converged);
 
     // The jitter for a frame is chosen between BeginFrame and EndFrame, so a move must be seen at
-    // BeginFrame: a converged view that starts moving is jittered on its first moving frame.
+    // BeginFrame: a converged view that starts moving is unjittered from its first moving frame.
     f.view[12] += 0.001f;
     t.BeginFrame (f.view, f.proj, f.width, f.height, true, Small ());
-    EXPECT_TRUE (t.JitterThisFrame ());
+    EXPECT_FALSE (t.JitterThisFrame ());
     const TemporalStep step = t.EndFrame (7, true);
     EXPECT_FALSE (step.present);
     EXPECT_EQ (t.Phase (), TemporalPhase::Moving);
@@ -133,7 +137,7 @@ TEST (TemporalConvergence, ContentChangeRestartsEvenWhenConverged)
     const TemporalStep step = Step (t, f, 8);
     EXPECT_FALSE (step.present);
     EXPECT_EQ (t.Phase (), TemporalPhase::Moving);
-    EXPECT_TRUE (t.JitterThisFrame ());
+    EXPECT_FALSE (t.JitterThisFrame ());
 }
 
 TEST (TemporalConvergence, UnresolvedTaaNeverAccumulates)
@@ -188,7 +192,7 @@ TEST (TemporalConvergence, ResetRestartsEvenWithAnUnchangedCamera)
         Step (t, f);
     ASSERT_EQ (t.Phase (), TemporalPhase::Converged);
     t.Reset ();
-    EXPECT_TRUE (t.JitterThisFrame ());
+    EXPECT_FALSE (t.JitterThisFrame ()); // a reset is a cut: unjittered, as a camera move (#14)
     Step (t, f);
     EXPECT_EQ (t.Phase (), TemporalPhase::Moving);
 }
@@ -324,4 +328,22 @@ TEST (TemporalConvergence, RawSamplesOnlyAfterTheMeansFirstSample)
     // moving, settle x2, sample 1 (TAA), samples 2..4 (raw), converged x2
     const std::vector<bool> expected { false, false, false, false, true, true, true, false, false };
     EXPECT_EQ (raw, expected);
+}
+
+TEST (TemporalConvergence, TheJitterReturnsWhenTheCameraStops)
+{
+    TemporalConvergence t;
+    Frame f;
+    for (int i = 0; i < 5; ++i) {
+        f.view[12] += 0.01f;
+        Step (t, f);
+        ASSERT_EQ (t.Phase (), TemporalPhase::Moving);
+        EXPECT_FALSE (t.JitterThisFrame ());
+    }
+    // The first still frame is only known to be still at its EndFrame, so it is drawn unjittered
+    // too; it settles, and the frame after it is jittered again.
+    Step (t, f);
+    EXPECT_EQ (t.Phase (), TemporalPhase::Settling);
+    t.BeginFrame (f.view, f.proj, f.width, f.height, true, Small ());
+    EXPECT_TRUE (t.JitterThisFrame ());
 }
