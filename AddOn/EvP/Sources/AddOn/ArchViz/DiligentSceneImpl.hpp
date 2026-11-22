@@ -408,7 +408,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
         // #14: the Technical view's visible edges, with the coplanar test (kArchVizTechnicalEdgePS),
         // and the copy of the depth it reads. Optional: without them the selection's PSO draws them.
         RefCntAutoPtr<Diligent::IShader> technicalPs;
-        RefCntAutoPtr<Diligent::IShader> technicalGs; // kArchVizWireGS with ARCHVIZ_EDGE_FINS (#14)
+        RefCntAutoPtr<Diligent::IShader> edgeStripGs; // kArchVizWireGS with ARCHVIZ_EDGE_FINS (#14)
         RefCntAutoPtr<Diligent::IPipelineState> technicalPso;
         RefCntAutoPtr<Diligent::IShaderResourceBinding> technicalSrb;
         RefCntAutoPtr<Diligent::ITexture> technicalDepth;

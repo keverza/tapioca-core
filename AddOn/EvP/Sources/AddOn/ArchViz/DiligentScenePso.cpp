@@ -465,6 +465,22 @@ bool DiligentScene::CreateSelectionPipelines (Diligent::IRenderDevice* device, u
     // toward the camera (g_edgeParams) so an edge ON a visible face reads as
     // visible. The plain wire runs the shaded pass's own VS and needs no pull.
     sel.semantic = impl_->semanticWirePso != nullptr;
+    // #14: the selection's and the Technical view's edges as strips along each edge, not the
+    // triangle (kArchVizWireGS, ARCHVIZ_EDGE_FINS, has why). Without it they keep the triangle path.
+    if (sel.semantic) {
+        const std::string stripSource = ArchVizShaderSource ("#define ARCHVIZ_EDGE_FINS 1\n", kArchVizWireGS);
+        Diligent::ShaderCreateInfo strip;
+        strip.Desc.Name = "ArchViz edge strip GS";
+        strip.Desc.ShaderType = Diligent::SHADER_TYPE_GEOMETRY;
+        strip.EntryPoint = "main";
+        strip.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_HLSL;
+        strip.Source = stripSource.c_str ();
+        strip.SourceLength = stripSource.size ();
+        device->CreateShader (strip, &sel.edgeStripGs, nullptr);
+        if (sel.edgeStripGs == nullptr)
+            ArchVizLog ("Diligent scene: edges keep the triangle path (the edge strip GS did not compile)");
+    }
+    Diligent::IShader* const edgeGs = sel.edgeStripGs != nullptr ? sel.edgeStripGs.RawPtr () : impl_->wireGs.RawPtr ();
     const Diligent::COMPARISON_FUNCTION tests[2] = { Diligent::COMPARISON_FUNC_LESS_EQUAL,
                                                      Diligent::COMPARISON_FUNC_GREATER };
     const Diligent::ShaderResourceVariableDesc variables[] = {
@@ -484,7 +500,7 @@ bool DiligentScene::CreateSelectionPipelines (Diligent::IRenderDevice* device, u
             pci.pVS = impl_->wireVs;
             pci.pHS = impl_->wireHs;
             pci.pDS = impl_->wireDs;
-            pci.pGS = impl_->wireGs;
+            pci.pGS = edgeGs;
             pci.pPS = impl_->wirePs;
             pci.PSODesc.ResourceLayout.Variables = variables;
             pci.PSODesc.ResourceLayout.NumVariables = _countof (variables);
@@ -511,13 +527,6 @@ bool DiligentScene::CreateSelectionPipelines (Diligent::IRenderDevice* device, u
         sci.Source = source.c_str ();
         sci.SourceLength = source.size ();
         device->CreateShader (sci, &sel.technicalPs, nullptr);
-        // The edges as strips along each edge, not the triangle (#14: kArchVizWireGS has why).
-        const std::string finSource = ArchVizShaderSource ("#define ARCHVIZ_EDGE_FINS 1\n", kArchVizWireGS);
-        sci.Desc.Name = "ArchViz technical edge GS";
-        sci.Desc.ShaderType = Diligent::SHADER_TYPE_GEOMETRY;
-        sci.Source = finSource.c_str ();
-        sci.SourceLength = finSource.size ();
-        device->CreateShader (sci, &sel.technicalGs, nullptr);
         const Diligent::ShaderResourceVariableDesc technicalVariables[] = {
             { Diligent::SHADER_TYPE_HULL, "g_wirePatchFlags", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
             { Diligent::SHADER_TYPE_PIXEL, "g_edgeDepth", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
@@ -532,13 +541,13 @@ bool DiligentScene::CreateSelectionPipelines (Diligent::IRenderDevice* device, u
         pci.pVS = impl_->wireVs;
         pci.pHS = impl_->wireHs;
         pci.pDS = impl_->wireDs;
-        pci.pGS = sel.technicalGs;
+        pci.pGS = sel.edgeStripGs;
         pci.pPS = sel.technicalPs;
         pci.PSODesc.ResourceLayout.Variables = technicalVariables;
         pci.PSODesc.ResourceLayout.NumVariables = _countof (technicalVariables);
         std::string technicalError;
         std::swap (error, technicalError);
-        if (sel.technicalPs == nullptr || sel.technicalGs == nullptr ||
+        if (sel.technicalPs == nullptr || sel.edgeStripGs == nullptr ||
             !finish (pci, sel.technicalPso, sel.technicalSrb, true)) {
             ArchVizLog ("Diligent scene: technical edges keep their coplanar joints (" +
                         (error.empty () ? std::string ("the shader did not compile") : error) + ")");

@@ -1539,8 +1539,9 @@ struct WirePixelInput
 
 float4 main (WirePixelInput input) : SV_TARGET
 {
-    float distanceToEdge = min (input.distanceToEdges.x,
-                                min (input.distanceToEdges.y, input.distanceToEdges.z));
+    // abs: the edge strips' distance is signed, negative outside the face (ARCHVIZ_EDGE_FINS).
+    float distanceToEdge = abs (min (input.distanceToEdges.x,
+                                     min (input.distanceToEdges.y, input.distanceToEdges.z)));
     float halfWidth = max (0.5 * g_wireParams.y, 0.25);
     float coverage = 1.0 - smoothstep (halfWidth - 0.75, halfWidth + 0.75, distanceToEdge);
     clip (coverage - 0.001);
@@ -1680,15 +1681,11 @@ float4 main (TechnicalEdgeInput input) : SV_TARGET
                 float ownGap = PlaneGap (within, input.depthPlane);
                 if (ownGap != kOffPlane && ownGap < -PlaneTolerance (input.depthPlane, within, 1.5))
                     discard;
-                float3 seen;
-                if (SeenPlane (foot + across * 2.5, seen))
-                {
-                    float3 own = input.depthPlane;
-                    float edgeZ = own.x * foot.x + own.y * foot.y + own.z;
-                    float seenZ = seen.x * foot.x + seen.y * foot.y + seen.z;
-                    if (abs (seenZ - edgeZ) <= PlaneTolerance (own, foot, 2.5))
-                        discard;
-                }
+                // ⚠️ NOT "SKIPPED WHERE THE SURFACE BEYOND MEETS THE EDGE". Ground running on under a
+                // wall meets the wall's base exactly like a face that ends there, but has no edge of
+                // its own to draw the other half -- and at grazing angles that test's depth slope
+                // flipped pixel by pixel: the base lines came out dotted (#14, live). Where both
+                // faces do draw, their lines coincide and only the fringe is a little heavier.
             }
             // ⚠️ THIS FACE MUST BE THE ONE SEEN. A wall segment's end face, sandwiched against the
             // next segment, has its border exactly on the visible front face, so the border passes
