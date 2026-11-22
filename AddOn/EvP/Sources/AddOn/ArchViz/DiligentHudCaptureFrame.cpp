@@ -2,6 +2,7 @@
 
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/TapiocaUI/Foundation/ScopedStyle.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -18,6 +19,16 @@ using hudshell::DockEdge;
 constexpr auto kCaptureWindowFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav |
                                      ImGuiWindowFlags_NoFocusOnAppearing;
+
+void UseCaptureLook (ui::ScopedStyle& style, float scale)
+{
+    static const auto look = [] {
+        auto panel = hudshell::PlainLook ();
+        panel.accentRgba = panel.textRgba;
+        return panel;
+    }();
+    style.Adopt (hudshell::PushLook (look, scale), hudshell::kLookVars);
+}
 
 bool ShotPending (const HudState& state)
 {
@@ -275,6 +286,8 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
 
     const float bottomSpace = float (view.height) - rect.bottom;
     const bool atBottom = bottomSpace > rect.top;
+    ui::ScopedStyle style;
+    UseCaptureLook (style, dpiScale);
     ImGui::SetNextWindowPos ({ float (view.width) * 0.5f, atBottom ? float (view.height) - margin : margin },
                              ImGuiCond_Always, { 0.5f, atBottom ? 1.0f : 0.0f });
     bool ownsMouse = dragging;
@@ -328,13 +341,13 @@ void DrawCaptureEntry (HudState& state, const CaptureDock& dock, float dpiScale)
     const float inset = 8.0f * dpiScale;
     const bool left = edge == DockEdge::Right;
     const bool bottom = edge == DockEdge::Top;
+    ui::ScopedStyle style;
+    UseCaptureLook (style, dpiScale);
     ImGui::SetNextWindowPos (
         { left ? inset : float (dock.view.width) - inset, bottom ? float (dock.view.height) - inset : inset },
         ImGuiCond_Always, { left ? 0.0f : 1.0f, bottom ? 1.0f : 0.0f });
     const bool hasResult = !state.sunShotResult.empty () && state.shotKind == kShotVision;
-    const auto background = hasResult ? ImGuiWindowFlags_None : ImGuiWindowFlags_NoBackground;
-    if (ImGui::Begin ("##capture-entry", nullptr,
-                      kCaptureWindowFlags | ImGuiWindowFlags_AlwaysAutoResize | background)) {
+    if (ImGui::Begin ("##capture-entry", nullptr, kCaptureWindowFlags | ImGuiWindowFlags_AlwaysAutoResize)) {
         DrawShotButton (state, kShotVision, "Capture screenshot");
         if (hasResult) {
             ImGui::SameLine ();

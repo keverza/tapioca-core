@@ -7,6 +7,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <limits>
@@ -212,7 +213,38 @@ class CaptureGui : public testing::Test {
         Frame (point, true);
         Frame (point);
     }
+
+    static bool WindowDrawsColour (const char* name, ImU32 colour)
+    {
+        const auto* window = ImGui::FindWindowByName (name);
+        if (!window || !window->Active)
+            return false;
+        const auto& vertices = window->DrawList->VtxBuffer;
+        return std::any_of (vertices.begin (), vertices.end (),
+                            [colour] (const ImDrawVert& vertex) { return vertex.col == colour; });
+    }
 };
+
+TEST_F (CaptureGui, CaptureWindowsUseLightHudColoursEvenOverTheDarkBaseStyle)
+{
+    const auto& look = hudshell::PlainLook ();
+    const auto background = hudshell::Packed (look.backgroundRgba);
+    const auto neutralHover = hudshell::Packed (hudshell::WithAlpha (look.textRgba, 0.30f));
+    const auto baseBackground = ImGui::GetColorU32 (ImGuiCol_WindowBg);
+    ASSERT_NE (baseBackground, background);
+    EXPECT_TRUE (WindowDrawsColour ("##capture-entry", background));
+    Frame (entry_);
+    EXPECT_TRUE (WindowDrawsColour ("##capture-entry", neutralHover));
+
+    Click (entry_);
+    ASSERT_TRUE (state_.captureFrame.active);
+    Frame ();
+    Frame ();
+    EXPECT_TRUE (WindowDrawsColour ("##capture-bar", background));
+    Frame (capture_);
+    EXPECT_TRUE (WindowDrawsColour ("##capture-bar", neutralHover));
+    EXPECT_EQ (ImGui::GetColorU32 (ImGuiCol_WindowBg), baseBackground);
+}
 
 TEST_F (CaptureGui, EntryMovesFrameAndCancelKeepsPreviousResult)
 {
