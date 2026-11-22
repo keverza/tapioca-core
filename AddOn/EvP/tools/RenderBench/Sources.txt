@@ -53,6 +53,7 @@ ArchViz/SurfaceClassifier.cpp
 ArchViz/TechnicalEdges.cpp
 ArchViz/MeshGroups.cpp
 ArchViz/DiligentPickBuffer.cpp
+ArchViz/PickVote.cpp
 ArchViz/DiagramGeometry.cpp
 ArchViz/Camera.cpp
 ArchViz/ColourSpace.cpp

@@ -141,3 +141,21 @@ TEST (SceneShaders, PixelShaderInputsStayPrefixesOfTheirProducers)
     ExpectPrefix (Signature (wireGs.blob, true), Signature (wirePs.blob, false), "wire GS -> wire PS");
     ExpectPrefix (Signature (wireDs.blob, true), Signature (wireGs.blob, false), "wire DS -> wire GS");
 }
+
+// #14: the Technical white flash. With shadows off the shadow block is never mapped, and on D3D12
+// an unmapped dynamic buffer reads a recycled page -- so every read of it in the mesh pass has to
+// sit behind the "shadows live this frame" lane, g_shadowParams.z, or a stale bVisualizeShadowing
+// paints every surface with the unshadowed 1.0.
+TEST (SceneShaders, ShadowDiagnosticsReadTheShadowBlockOnlyWhileShadowsAreLive)
+{
+    const std::string tail = geomsrv::archviz::kArchVizMeshPSMainTail;
+    for (const char* flag : { "g_shadowAttribs.bVisualizeShadowing", "g_shadowAttribs.bVisualizeCascades" }) {
+        size_t at = tail.find (flag);
+        ASSERT_NE (at, std::string::npos) << flag;
+        for (; at != std::string::npos; at = tail.find (flag, at + 1)) {
+            const size_t lineStart = tail.rfind ('\n', at) + 1;
+            EXPECT_NE (tail.substr (lineStart, at - lineStart).find ("g_shadowParams.z > 0.5 &&"), std::string::npos)
+                << flag << " is read without the shadows-live gate";
+        }
+    }
+}

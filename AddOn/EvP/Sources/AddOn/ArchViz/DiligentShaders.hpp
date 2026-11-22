@@ -3118,6 +3118,14 @@ void main (in PSInput psIn, out PSOutput psOut)
 // The classifier's metalness and split-sum fit pushed the entry-point literal
 // over MSVC's 16 KB limit. Keep the split at a statement boundary so the
 // runtime source remains one shader while each C++ literal stays compilable.
+//
+// ⚠️ THE SHADOW DIAGNOSTICS AT THE END READ g_shadowAttribs ONLY WHILE g_shadowParams.z SAYS THE
+// SHADOWS ARE LIVE THIS FRAME, the gate SampleShadow has (#14). With shadows off (Technical) the
+// shadow block is never mapped, and on D3D12 an unmapped dynamic buffer reads whatever page it
+// was last given, recycled since: after the pick pass's ~2000 uploads churned the pages,
+// bVisualizeShadowing read non-zero there, and with no shadows `shadow` is 1 -- every surface
+// white for the frame or two until the next pick re-allocated (the live frame flash watch put all
+// of them between one pick's readback and the next pick).
 constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
     if (g_outline.z > 0.5)
     {
@@ -3370,9 +3378,10 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
         // Apply diagnostics after both quality paths. Realistic has already
         // folded lighting into base.rgb, so applying these earlier is silently
         // overwritten by its GGX branch.
-        if (g_shadowAttribs.bVisualizeShadowing != 0)
+        // ⚠️ GATED ON g_shadowParams.z: the Technical white flash (#14, see kArchVizMeshPSMainTail).
+        if (g_shadowParams.z > 0.5 && g_shadowAttribs.bVisualizeShadowing != 0)
             shaded = shadow.xxx;
-        if (g_shadowAttribs.bVisualizeCascades != 0)
+        if (g_shadowParams.z > 0.5 && g_shadowAttribs.bVisualizeCascades != 0)
             shaded = lerp (shaded, shadow.yzw, 0.18);
         psOut.color = float4 (shaded, base.a);
     }

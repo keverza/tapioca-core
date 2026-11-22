@@ -22,6 +22,7 @@
 #include "ArchViz/DiligentDeviceFactory.hpp"
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentNativeInterop.hpp"
+#include "ArchViz/DiligentPickBuffer.hpp"
 
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentViewportSupport.hpp"
@@ -131,6 +132,12 @@ struct Options {
     bool tracedLight = false;
     // --flash-at K: frame K cleared to white after the draw, to prove the frame flash watch (#14).
     int flashAt = -1;
+    // --pick-every N: the viewer's hover pick -- an id pass into the pick buffer every N frames before
+    // the draw, polled every frame and its answer made the hover (ServicePick's cadence; #14: the live
+    // Technical flashes all ended on a frame that issued a pick). 0: no picking, as before.
+    int pickEvery = 0;
+    // --viewer-clear: the viewer's clear colour (kOpaqueClear) instead of white, so a flash against it shows.
+    bool viewerClear = false;
     // --converge-settle N / --converge-samples N: the still-camera mean's settle frames and target
     // (TemporalConvergenceSettings); negative / 0 keeps the viewer's.
     int convergeSettle = -1;
@@ -251,6 +258,10 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.shadowDiagnostic = std::stoi (next ());
         else if (a == "--flash-at")
             o.flashAt = std::stoi (next ());
+        else if (a == "--pick-every")
+            o.pickEvery = std::stoi (next ());
+        else if (a == "--viewer-clear")
+            o.viewerClear = true;
         else if (a == "--traced-light")
             o.tracedLight = true;
         else if (a == "--edges")
@@ -557,6 +568,39 @@ View MovedView (const View& view, const Options& o, uint32_t k)
 
 // One frame, in DiligentViewport's order. `frame` drives TAA's jitter sequence and the tracer's
 // sample index.
+// --pick-every: the viewer's pick buffer, owned here so RenderFrame keeps its signature.
+Diligent::IRenderDevice* g_benchDevice = nullptr;
+av::DiligentPickBuffer g_benchPick;
+
+// The hover pick as ServicePick runs it: the id pass every `every` frames, aimed at the middle, and
+// the answer the scene's hover.
+void BenchHoverPick (av::DiligentScene& scene, Diligent::IDeviceContext* context, int every, uint32_t frame, uint32_t w,
+                     uint32_t h, const float viewProj[16], Diligent::ITextureView* rtv, Diligent::ITextureView* dsv)
+{
+    if (every <= 0 || g_benchDevice == nullptr)
+        return;
+    std::string error;
+    if (!g_benchPick.IsReady () && !g_benchPick.Init (g_benchDevice, error)) {
+        av::ArchVizLog ("bench: no pick buffer: " + error);
+        g_benchDevice = nullptr;
+        return;
+    }
+    if (frame % uint32_t (every) == 0 && !g_benchPick.HasPendingRequest () &&
+        g_benchPick.EnsureSize (g_benchDevice, w, h, error)) {
+        g_benchPick.Begin (context);
+        scene.DrawIds (context, viewProj, av::CullMode::Cw);
+        g_benchPick.End (context);
+        g_benchPick.Request (context, int32_t (w / 2), int32_t (h / 2), frame, av::kPickTagHover);
+        context->SetRenderTargets (1, &rtv, dsv, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    }
+    uint32_t id = 0, tag = 0;
+    if (g_benchPick.Poll (context, frame, id, tag)) {
+        if (id != scene.HoverId ())
+            av::ArchVizLog ("bench: frame " + std::to_string (frame) + " hover " + std::to_string (id));
+        scene.SetHoverId (id);
+    }
+}
+
 void RenderFrame (av::DiligentScene& scene, Diligent::IDeviceContext* context, Targets& t, const Options& o,
                   const View& view, const av::HudState& hud, uint32_t frame)
 {
@@ -573,7 +617,9 @@ void RenderFrame (av::DiligentScene& scene, Diligent::IDeviceContext* context, T
 
     Diligent::ITextureView* rtv = t.color->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET);
     Diligent::ITextureView* dsv = t.depth->GetDefaultView (Diligent::TEXTURE_VIEW_DEPTH_STENCIL);
-    const float clear[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    const float viewerGrey[4] = { 0.62f, 0.62f, 0.63f, 1.0f }; // kOpaqueClear
+    const float* clear = o.viewerClear ? viewerGrey : white;
     context->SetRenderTargets (1, &rtv, dsv, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     context->ClearRenderTarget (rtv, clear, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     context->ClearDepthStencil (dsv, Diligent::CLEAR_DEPTH_FLAG, 1.0f, 0,
@@ -616,6 +662,8 @@ void RenderFrame (av::DiligentScene& scene, Diligent::IDeviceContext* context, T
         shadow.fitCascadesToScene = o.shadowFit != 0;
     scene.SetShadowSettings (shadow);
     scene.RenderShadowMap (context, view16, stableProj);
+    BenchHoverPick (scene, context, o.pickEvery, frame, w, h, motionViewProj, rtv,
+                    dsv); // as the viewer: after the shadows
     scene.SetSunOverride (hud.sunOverride, hud.sunAzimuthDegrees, hud.sunAltitudeDegrees);
     scene.SetEnvironmentSettings (hud.environmentEnabled, hud.environmentIntensity, hud.environmentRotationDegrees);
     scene.SetEnvironmentBackground (hud.environmentBackground);
@@ -766,6 +814,7 @@ int main (int argc, char** argv)
         av::ArchVizLog ("bench: could not create the render targets");
         return 1;
     }
+    g_benchDevice = device;
     av::DiligentScene scene;
     if (!scene.Init (device, uint32_t (Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB),
                      uint32_t (Diligent::TEX_FORMAT_D32_FLOAT), error)) {
@@ -1053,6 +1102,7 @@ int main (int argc, char** argv)
         }
     }
     report << "\n  ]\n}\n";
+    g_benchPick.Shutdown ();
     scene.Shutdown ();
     return 0;
 }
