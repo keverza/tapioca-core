@@ -79,6 +79,7 @@ class ViewerScreenshot final {
     std::unique_ptr<Camera> framingCamera_;
     std::unique_ptr<Camera> comparisonCamera_;
     bool framingUserNavigated_ = false;
+    bool regionsRead_ = false;
     int framingOrbitAnchor_ = 0;
     Diligent::IRenderDevice* device_ = nullptr; // the frame loop's, borrowed while a shot runs
     float scale_ = 1.0f;

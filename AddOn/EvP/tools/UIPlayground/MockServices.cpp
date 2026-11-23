@@ -59,13 +59,18 @@ std::vector<uint32_t> FanSteps (const std::vector<uint16_t>& minutes, double int
 }
 } // namespace evp::sunstudy::kernels
 namespace geomsrv::sunstudyhud {
-bool Submit (const Request&, std::string& error)
+bool Submit (const Request& request, std::string& error, uint64_t* acceptedRun)
 {
     auto& m = pg::Services ();
     error.clear ();
     m.sun.stage = "done";
     m.sun.studyId = "fixture-sun";
     ++m.sun.runs;
+    if (acceptedRun)
+        *acceptedRun = m.sun.runs;
+    char date[24];
+    std::snprintf (date, sizeof (date), "%04d-%02d-%02d", request.year, request.month, request.day);
+    m.sun.dayDate = date;
     m.scene.sunStudy.drawing = true;
     m.scene.sunStudy.analysisKind = 0;
     m.scene.sunStudy.studyId = "fixture-sun";
@@ -89,6 +94,11 @@ Status CurrentJob ()
 void CancelActive ()
 {
     Cancel ();
+}
+void CancelRun (uint64_t run)
+{
+    if (pg::Services ().sun.runs == run)
+        Cancel ();
 }
 bool ResumeFollowing (std::string& error)
 {

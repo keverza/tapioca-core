@@ -14,6 +14,75 @@
 
 namespace geomsrv::archviz {
 
+static std::shared_ptr<const tapioca::sunstudy::CapturePlan>
+BuildCapturePlan (const Snapshot& snapshot, const std::vector<uint8_t>& roles,
+                  const tapioca::sunstudy::AnalysisRoi& roi)
+{
+    if (!roi.IsValid () || roles.size () != snapshot.meshes.size ())
+        return {};
+    using Plan = tapioca::sunstudy::CapturePlan;
+    const double span = std::max (roi.maxX - roi.minX, roi.maxY - roi.minY) * 1.12;
+    const double cell = span / Plan::side, left = (roi.minX + roi.maxX - span) / 2,
+                 top = (roi.minY + roi.maxY + span) / 2;
+    std::array<double, Plan::side * Plan::side> heights;
+    heights.fill (-std::numeric_limits<double>::infinity ());
+    for (size_t m = 0; m < snapshot.meshes.size (); ++m) {
+        if (roles[m] == uint8_t (evp::sunstudy::ElementRole::Ignored))
+            continue;
+        const auto& mesh = snapshot.meshes[m];
+        for (size_t t = 0; t + 2 < mesh.triangles.size (); t += 3) {
+            double x[3], y[3], z[3];
+            bool valid = true;
+            for (int k = 0; k < 3; ++k) {
+                const size_t v = size_t (mesh.triangles[t + k]) * 3;
+                if (v + 2 >= mesh.vertices.size ()) {
+                    valid = false;
+                    break;
+                }
+                x[k] = (mesh.vertices[v] - left) / cell;
+                y[k] = (top - mesh.vertices[v + 1]) / cell;
+                z[k] = mesh.vertices[v + 2];
+                valid &= std::isfinite (x[k]) && std::isfinite (y[k]) && std::isfinite (z[k]);
+            }
+            if (!valid)
+                continue;
+            const double area = (x[1] - x[0]) * (y[2] - y[0]) - (y[1] - y[0]) * (x[2] - x[0]);
+            if (std::abs (area) < 1e-12)
+                continue;
+            const auto first = [] (const double (&v)[3]) {
+                return int (std::clamp (std::ceil (*std::min_element (v, v + 3) - 0.5), 0., double (Plan::side)));
+            };
+            const auto last = [] (const double (&v)[3]) {
+                return int (std::clamp (std::floor (*std::max_element (v, v + 3) - 0.5), -1., double (Plan::side - 1)));
+            };
+            const int x0 = first (x), x1 = last (x), y0 = first (y), y1 = last (y);
+            for (int j = y0; j <= y1; ++j)
+                for (int i = x0; i <= x1; ++i) {
+                    const double dx = i + 0.5 - x[0], dy = j + 0.5 - y[0];
+                    const double b = (dx * (y[2] - y[0]) - dy * (x[2] - x[0])) / area,
+                                 c = ((x[1] - x[0]) * dy - (y[1] - y[0]) * dx) / area;
+                    if (b >= 0 && c >= 0 && b + c <= 1) {
+                        auto& h = heights[j * Plan::side + i];
+                        h = std::max (h, z[0] + b * (z[1] - z[0]) + c * (z[2] - z[0]));
+                    }
+                }
+        }
+    }
+    double lo = std::numeric_limits<double>::infinity (), hi = -lo;
+    for (double h : heights)
+        if (std::isfinite (h)) {
+            lo = std::min (lo, h);
+            hi = std::max (hi, h);
+        }
+    if (lo > hi)
+        return {};
+    auto plan = std::make_shared<Plan> ();
+    for (size_t i = 0; i < heights.size (); ++i)
+        if (std::isfinite (heights[i]))
+            plan->cells[i] = uint8_t (1 + (hi > lo ? 100 * (heights[i] - lo) / (hi - lo) : 0));
+    return plan;
+}
+
 std::unique_ptr<SunStudyAtlasUpload>
 SunStudyDisplayAssembler::Prepare (const evp::sunstudy::StudyRecord& record, const Snapshot& snapshot,
                                    const SunStudyDisplayOptions& options, std::string& error,
@@ -95,10 +164,12 @@ SunStudyDisplayAssembler::Prepare (const evp::sunstudy::StudyRecord& record, con
                 captureRoi_ = *roi;
         }
         maps_[0].reset ();
+        capturePlan_ = BuildCapturePlan (snapshot, record.elementRoles, captureRoi_);
         maps_[1].reset ();
     }
     const auto mapping = Clock::now ();
     upload->captureRoi = captureRoi_;
+    upload->capturePlan = capturePlan_;
     upload->sharedElements = maps_[roles ? 1 : 0].lock ();
     bool mapsRebuilt = upload->sharedElements == nullptr;
     size_t retinted = 0;

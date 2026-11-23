@@ -49,6 +49,15 @@ std::string Utf8 (const std::filesystem::path& path)
     return std::string (text.begin (), text.end ());
 }
 
+static std::filesystem::path RegionFile (int slot)
+{
+    const wchar_t* root = _wgetenv (L"LOCALAPPDATA");
+    if (!root || !*root || slot < 0 || slot > 2)
+        return {};
+    const wchar_t* names[] = { L"perspective.rect", L"parallel.rect", L"top.rect" };
+    return std::filesystem::path (root) / L"Tapioca" / L"Capture" / names[slot];
+}
+
 // %LOCALAPPDATA%\Tapioca\Export, created if missing: a screenshot is a
 // deliverable, not a diagnostic, so it does not go in the logs.
 bool ExportDirectory (std::filesystem::path& out, std::string& error)
@@ -142,6 +151,17 @@ void ViewerScreenshot::ServiceFramingCamera (Camera& camera, DiligentScene& scen
                                              bool& userHasNavigated)
 {
     state.viewpointOwnsMouse = state.captureFrame.active ? false : state.viewpointOwnsMouse;
+    state.captureTopView = camera.IsTopDown ();
+    if (!regionsRead_) {
+        regionsRead_ = true;
+        for (int slot = 0; slot < 3; ++slot) {
+            ScreenshotRect r;
+            std::ifstream file (RegionFile (slot));
+            if (file >> r.left >> r.top >> r.right >> r.bottom && r.left >= 0 && r.top >= 0 && r.right <= 1 &&
+                r.bottom <= 1 && r.Width () > 0 && r.Height () > 0)
+                state.captureRegions[slot] = r;
+        }
+    }
     if (state.captureFrame.active) {
         if (!framingCamera_) {
             framingCamera_ = std::make_unique<Camera> (camera);
@@ -170,6 +190,10 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
         return surface;
     state.sunShotRequested = false;
     kind_ = state.shotKind;
+    if (kind_ == kShotSunStudy) {
+        const auto payload = scene.ShownAnalysisPayload ();
+        state.captureFrame.legendPlan = payload ? payload->capturePlan : nullptr;
+    }
     if (kind_ == kShotSunStudy && state.captureFrame.studyDay &&
         (!state.captureFrame.planReady || !comparisonCamera_)) {
         Fail (state, "the analysis region has no comparison preview");
@@ -355,6 +379,16 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
             state.sunShotFailed = false;
             state.sunShotBusy = false;
             state.sunShotResult = Utf8 (path);
+            const auto region = RegionFile (state.captureFrame.viewSlot);
+            if (!region.empty ()) {
+                std::error_code ec;
+                std::filesystem::create_directories (region.parent_path (), ec);
+                const auto r = state.captureFrame.rect;
+                std::ofstream saved (region);
+                saved << r.left << ' ' << r.top << ' ' << r.right << ' ' << r.bottom;
+                if (!saved)
+                    ArchVizLog ("viewer screenshot: could not remember the view's capture region");
+            }
             ArchVizLog ("viewer screenshot: saved " + state.sunShotResult + " (" + std::to_string (png.size ()) +
                         " bytes)");
         }

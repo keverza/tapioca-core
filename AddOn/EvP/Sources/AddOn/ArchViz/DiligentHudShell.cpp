@@ -188,7 +188,6 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
 
     // ---- the floating panel -------------------------------------------------------------------
     if (!shell.open) {
-        DrawCaptureEntry (state, shell.captureDock, scale);
         return;
     }
     hudshell::HostSpec spec;
@@ -231,7 +230,6 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
         hudshell::Host (spec, shell.held, shell.shownLast, shell.placement, page, nullptr, &shell.navigation);
     if (!result.pressed.empty ())
         select (result.pressed);
-    DrawCaptureEntry (state, shell.captureDock, scale);
     // The dock over everything: a panel dragged onto it never hides it.
     if (ImGuiWindow* const dock = ImGui::FindWindowByName ("###tapioca.dock"); dock != nullptr)
         ImGui::BringWindowToDisplayFront (dock);

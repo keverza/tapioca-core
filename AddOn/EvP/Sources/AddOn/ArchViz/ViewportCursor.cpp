@@ -14,6 +14,7 @@ namespace viewportcursor {
 namespace {
 
 HWND gWindow = nullptr;
+std::atomic<LPCTSTR> s_captureCursor { IDC_ARROW };
 WNDPROC gPreviousProc = nullptr;
 HHOOK gMessageHook = nullptr;
 bool gExpectedCaptureRelease = false;
@@ -119,7 +120,7 @@ LRESULT CALLBACK ViewportProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lP
     // scrollbars too. Claiming those would fight whatever DG wants there; the
     // client area is the part that is ours.
     if (message == WM_SETCURSOR && LOWORD (lParam) == HTCLIENT) {
-        ::SetCursor (::LoadCursor (nullptr, IDC_ARROW));
+        ::SetCursor (::LoadCursor (nullptr, s_captureCursor.load ()));
         // ⚠️ TRUE MEANS "HANDLED, STOP". Falling through to the previous proc
         // would let DefWindowProc ask the PARENT, and the parent is the palette
         // -- which is where the splitter's resize arrow comes from in the first
@@ -137,6 +138,15 @@ LRESULT CALLBACK ViewportProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lP
 void SetHudTextActive (bool active)
 {
     gHudTextActive.store (active);
+}
+
+void SetCaptureCursor (int xSide, int ySide, bool moving)
+{
+    s_captureCursor.store (xSide && ySide ? (xSide == ySide ? IDC_SIZENWSE : IDC_SIZENESW)
+                           : xSide        ? IDC_SIZEWE
+                           : ySide        ? IDC_SIZENS
+                           : moving       ? IDC_SIZEALL
+                                          : IDC_ARROW);
 }
 
 void FollowHudTextFocus ()

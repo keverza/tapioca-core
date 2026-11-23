@@ -13,6 +13,7 @@
 #include "SunStudy/SunStudyKernels.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/GradientPresetChoice.hpp"
+#include "ArchViz/CaptureLegendPlan.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/SunPathCompass.hpp" // the legend's location and period text
@@ -88,6 +89,8 @@ bool FanOnScreen (const HudState& state)
 
 int ChosenMode (const HudState& state)
 {
+    if ((state.captureFrame.active || state.sunShotBusy || state.sunShotRequested) && state.captureFrame.studyDay)
+        return state.captureFrame.shadowStyle == 0 ? 6 : 5;
     if (FanOnScreen (state) && state.sunFanInterval == kFanAmPm)
         return 6;
     // The solar cut over the day's sun hours (#168): what it gains is read
@@ -438,14 +441,20 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
     // ⚠️ TWO COLUMNS, NO HEADERS, NO RULES (#156): the left half is where and
     // when, one line each joined with " | "; the right half is the colours.
     // The image leaves the panel behind, so where and when travel with them.
-    if (!ImGui::BeginTable ("##sun-capture-columns", 2,
+    if (!ImGui::BeginTable ("##sun-capture-columns", 3,
                             ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
         ImGui::End ();
         ImGui::PopStyleColor (2);
         ImGui::PopStyleVar (4);
         return;
     }
+    const float square = std::min (float (height) - font * .5f, float (width) * .12f);
+    ImGui::TableSetupColumn ("Plan", ImGuiTableColumnFlags_WidthFixed, square);
+    ImGui::TableSetupColumn ("Study", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn ("Colours", ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableNextRow ();
+    ImGui::TableSetColumnIndex (0);
+    DrawCaptureLegendPlan (state.captureFrame.legendPlan.get (), square, scene.northDegrees, scene.sunApplied);
     // Swatches that do not fit beside the colour title go to the left half's
     // third line, so the strip never needs a fourth.
     std::vector<std::pair<unsigned, std::string>> overflow;
@@ -469,7 +478,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
     }
     period.shadowsOfOneDay = mode == 5 || mode == 6 || mode == 7;
     // The colours first, so the left half knows what spilled over.
-    ImGui::TableSetColumnIndex (1);
+    ImGui::TableSetColumnIndex (2);
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     if (mode == 0) {
         const SunStudyViewSettings view = SunStudyViewOf (state);
@@ -519,7 +528,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
             const std::string label = SunStudyValueText (ticks[k], true) + (openTop ? "+" : "");
             const float wide = ImGui::CalcTextSize (label.c_str ()).x;
             // Centred on its tick, held inside the bar's span at the two ends.
-            const float left = std::clamp (x - 0.5f * wide, at.x, at.x + size.x - wide);
+            const float left = std::clamp (x - 0.5f * wide, at.x, (std::max) (at.x, at.x + size.x - wide));
             draw->AddLine (ImVec2 (x, at.y + size.y), ImVec2 (x, labelY), ink, (std::max) (1.0f, 0.08f * font));
             draw->AddText (ImVec2 (left, labelY), ink, label.c_str ());
         }
@@ -536,8 +545,9 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
             }
         };
         char clock[16] = "--:--";
-        if (state.sunStep >= 0 && size_t (state.sunStep) < study.stepMinutes.size ())
-            Clock (study.stepMinutes[size_t (state.sunStep)], clock, sizeof (clock));
+        const auto step = SunStudyViewOf (state).step;
+        if (step < study.stepMinutes.size ())
+            Clock (study.stepMinutes[step], clock, sizeof (clock));
         const std::string at = std::string ("Shadow at ") + clock;
         // The person's colours (#116), the same ones the tint draws.
         if (mode == 5)
@@ -558,7 +568,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
             ImGui::TextUnformatted ("Sun study diagnostic view");
     }
     // The left half: location on one line, the analysis period on the next.
-    ImGui::TableSetColumnIndex (0);
+    ImGui::TableSetColumnIndex (1);
     ImGui::TextUnformatted (SunStudyCaptureJoin (SunStudyCaptureLocationLines (
                                                      scene.sunApplied, scene.latitudeDegrees, scene.longitudeDegrees,
                                                      scene.siteAltitudeMetres, scene.northDegrees))
@@ -588,6 +598,11 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     view.endShadowStep = interval.second;
     view.viewOverride = ChosenMode (state);
     view.step = state.sunStep > 0 ? uint32_t (state.sunStep) : 0u;
+    if ((state.captureFrame.active || state.sunShotBusy || state.sunShotRequested) && state.captureFrame.studyDay) {
+        view.step = uint32_t (state.captureFrame.shadowStep);
+        view.firstShadowStep = 0;
+        view.endShadowStep = uint32_t (state.sunStepMinutes.size ());
+    }
     view.lowSunRgba = state.sunLowSunRgba;
     view.shadowRgba = state.sunShadowRgba;
     view.singleLitRgba = state.sunSingleLitRgba;

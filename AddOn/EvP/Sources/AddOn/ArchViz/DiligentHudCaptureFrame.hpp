@@ -3,6 +3,8 @@
 
 #include "ArchViz/ViewerScreenshotGeometry.hpp"
 #include "SunStudy/AnalysisRoi.hpp"
+#include "SunStudy/CapturePlan.hpp"
+#include <memory>
 #include <string>
 
 namespace geomsrv::archviz {
@@ -23,6 +25,9 @@ struct CaptureFrame {
     int preset = 1;
     int aspect = 0;
     bool studyDay = false;
+    std::shared_ptr<const tapioca::sunstudy::CapturePlan> legendPlan;
+    int shadowStyle = 0, shadowStep = 0;
+    int hotX = 0, hotY = 0, viewSlot = 0;
     tapioca::sunstudy::AnalysisRoi roi;
     float north = 0, bottom = 0, top = 0;
     bool planReady = false;
@@ -55,7 +60,6 @@ void CancelStudyDay (const CaptureFrame& frame);
 bool BeginCaptureFrame (HudState& state, int kind);
 bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize view, float dpiScale,
                        const SunStudyOverlayStatus* shown = nullptr);
-void DrawCaptureEntry (HudState& state, const CaptureDock& dock, float dpiScale);
 void DrawCaptureRow (HudState& state, int kind);
 
 } // namespace viewerhud

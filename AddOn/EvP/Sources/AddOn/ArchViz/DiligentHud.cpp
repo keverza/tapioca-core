@@ -274,10 +274,13 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
         state.graphInteractionActive = false;
         state.wantsMouse =
             viewerhud::DrawCaptureFrame (state, impl_->shell.captureDock, { width, height }, dpiScale, &scene.sunStudy);
+        viewportcursor::SetCaptureCursor (state.captureFrame.hotX, state.captureFrame.hotY,
+                                          ImGui::GetMouseCursor () == ImGuiMouseCursor_ResizeAll);
         render ();
         return;
     }
 
+    viewportcursor::SetCaptureCursor (0, 0, false);
     // The frame's cost, every frame: the badge and Debug both say it.
     const float frameMs = io.DeltaTime * 1000.0f;
     if (frameMs > impl_->worstMsInWindow)

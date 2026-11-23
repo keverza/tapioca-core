@@ -37,6 +37,7 @@ namespace viewportcursor {
 bool Attach (void* hwnd);
 // The renderer reports explicit text-field activation. Only the main thread focuses its child.
 void SetHudTextActive (bool active);
+void SetCaptureCursor (int xSide, int ySide, bool moving);
 void FollowHudTextFocus ();
 
 // Restore the original WndProc. Safe to call when nothing is attached.

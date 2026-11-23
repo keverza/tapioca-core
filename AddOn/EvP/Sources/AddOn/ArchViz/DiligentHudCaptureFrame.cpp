@@ -1,6 +1,7 @@
 #include "ArchViz/DiligentHudCaptureFrame.hpp"
 
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/GradientPresetChoice.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/TapiocaUI/Foundation/ScopedStyle.hpp"
 
@@ -24,7 +25,7 @@ void UseCaptureLook (ui::ScopedStyle& style, float scale)
 {
     static const auto look = [] {
         auto panel = hudshell::PlainLook ();
-        panel.accentRgba = panel.textRgba;
+        panel.accentRgba = 0x4178CBFF;
         return panel;
     }();
     style.Adopt (hudshell::PushLook (look, scale), hudshell::kLookVars);
@@ -111,6 +112,7 @@ bool DragFrame (CaptureFrame& frame, ScreenshotSize view, float grip, float mini
     ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, { 0, 0 });
     ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
     bool active = false;
+    frame.hotX = frame.hotY = 0;
     if (ImGui::Begin ("##capture-frame", nullptr,
                       kCaptureWindowFlags | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoBringToFrontOnFocus)) {
         ImGui::InvisibleButton ("##move-resize", { end.x - start.x, end.y - start.y });
@@ -131,15 +133,18 @@ bool DragFrame (CaptureFrame& frame, ScreenshotSize view, float grip, float mini
                                  frame.dragSideX, frame.dragSideY, minimum, CaptureAspect (frame.aspect, view));
             frame.rect = ToNormalized (edited, view);
         }
-        if (active || ImGui::IsItemHovered ())
-            ImGui::SetMouseCursor (active ? DragCursor (frame.dragSideX, frame.dragSideY) : DragCursor (sideX, sideY));
+        if (active || ImGui::IsItemHovered ()) {
+            frame.hotX = active ? frame.dragSideX : sideX;
+            frame.hotY = active ? frame.dragSideY : sideY;
+            ImGui::SetMouseCursor (DragCursor (frame.hotX, frame.hotY));
+        }
     }
     ImGui::End ();
     ImGui::PopStyleVar (2);
     return active;
 }
 
-void DrawMask (ScreenshotRect rect, ScreenshotSize view, float dpiScale)
+void DrawMask (ScreenshotRect rect, ScreenshotSize view, float dpiScale, const CaptureFrame& frame, bool active)
 {
     ImDrawList* draw = ImGui::GetBackgroundDrawList ();
     const float width = float (view.width);
@@ -156,9 +161,13 @@ void DrawMask (ScreenshotRect rect, ScreenshotSize view, float dpiScale)
     const ImVec2 handles[] = { { rect.left, rect.top }, { midX, rect.top },         { rect.right, rect.top },
                                { rect.left, midY },     { rect.right, midY },       { rect.left, rect.bottom },
                                { midX, rect.bottom },   { rect.right, rect.bottom } };
-    const float radius = 3.0f * dpiScale;
-    for (const ImVec2 p : handles)
-        draw->AddRectFilled ({ p.x - radius, p.y - radius }, { p.x + radius, p.y + radius }, frameColor);
+    for (const ImVec2 p : handles) {
+        const bool hot = (frame.hotX || frame.hotY) && frame.hotX == (p.x > midX) - (p.x < midX) &&
+                         frame.hotY == (p.y > midY) - (p.y < midY);
+        const float radius = (hot ? active ? 6.f : 5.f : 3.f) * dpiScale;
+        draw->AddRectFilled ({ p.x - radius, p.y - radius }, { p.x + radius, p.y + radius },
+                             hot ? active ? IM_COL32 (28, 86, 194, 255) : IM_COL32 (85, 157, 255, 255) : frameColor);
+    }
 }
 
 void DrawResult (const HudState& state, int kind)
@@ -261,6 +270,8 @@ bool BeginCaptureFrame (HudState& state, int kind)
     state.captureFrame = {};
     state.captureFrame.active = true;
     state.captureFrame.kind = kind;
+    state.captureFrame.viewSlot = state.captureTopView ? 2 : state.orthographic ? 1 : 0;
+    state.captureFrame.rect = state.captureRegions[state.captureFrame.viewSlot];
     state.captureFrame.month = std::clamp (state.sunRunMonth, 1, 12);
     state.captureFrame.day = state.sunRunDay;
     state.captureFrame.preset = std::clamp (state.sunShotPreset, 0, kViewerScreenshotScaleCount - 1);
@@ -285,7 +296,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
     frame.view = view;
     const bool dragging = HasArea (frame.rect) && DragFrame (frame, view, 7.0f * dpiScale, minimum);
     const ScreenshotRect rect = ToPixels (frame.rect, view);
-    DrawMask (rect, view, dpiScale);
+    DrawMask (rect, view, dpiScale, frame, dragging);
 
     const float bottomSpace = float (view.height) - rect.bottom;
     const bool atBottom = bottomSpace > rect.top;
@@ -295,7 +306,52 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                              ImGuiCond_Always, { 0.5f, atBottom ? 1.0f : 0.0f });
     bool ownsMouse = dragging;
     if (ImGui::Begin ("##capture-bar", nullptr, kCaptureWindowFlags | ImGuiWindowFlags_AlwaysAutoResize)) {
+        const bool previousDay = frame.studyDay;
         const bool ready = DrawStudyDay (state, shown);
+        if (previousDay != frame.studyDay) {
+            state.captureRegions[frame.viewSlot] = frame.rect;
+            frame.viewSlot = frame.studyDay || state.captureTopView ? 2 : state.orthographic ? 1 : 0;
+            if (HasArea (state.captureRegions[frame.viewSlot]))
+                frame.rect = state.captureRegions[frame.viewSlot];
+        }
+        if (frame.kind == kShotSunStudy && !frame.studyDay) {
+            ImGui::SetNextItemWidth (220 * dpiScale);
+            gradientchoice::GradientPresetChoice ("Colours##capture", state.sunGradientPreset, state.sunGradientCustom,
+                                                  state.sunGradientFlipped, 220 * dpiScale,
+                                                  overlaylayers::GradientCategory::Sun);
+            ImGui::SameLine ();
+            ImGui::Checkbox ("Stepped gradient", &state.sunGradientStepped);
+        }
+        if (frame.studyDay) {
+            const char* modes[] = { "Morning / evening", "Single shadow" };
+            ImGui::SetNextItemWidth (160 * dpiScale);
+            ImGui::Combo ("Shadows", &frame.shadowStyle, modes, 2);
+            const auto colour = [] (const char* label, uint32_t& rgba) {
+                ImGui::SameLine ();
+                gradientchoice::ColourChoice (label, rgba, false, label);
+            };
+            if (frame.shadowStyle == 0) {
+                colour ("Sunlit", state.sunAmPmSunlitRgba);
+                colour ("Morning", state.sunAmPmMorningRgba);
+                colour ("Evening", state.sunAmPmEveningRgba);
+            }
+            else {
+                colour ("Sunlit", state.sunSingleLitRgba);
+                colour ("Shadow", state.sunSingleShadowedRgba);
+            }
+            if (shown && !shown->stepMinutes.empty ()) {
+                state.sunStepMinutes = shown->stepMinutes;
+                frame.shadowStep = std::clamp (frame.shadowStep, 0, int (shown->stepMinutes.size ()) - 1);
+                if (frame.shadowStyle == 1) {
+                    const int minute = shown->stepMinutes[frame.shadowStep];
+                    char clock[16];
+                    std::snprintf (clock, sizeof (clock), "%02d:%02d", minute / 60, minute % 60);
+                    ImGui::SliderInt ("Time", &frame.shadowStep, 0, int (shown->stepMinutes.size ()) - 1, clock);
+                }
+            }
+            else
+                ImGui::TextDisabled ("This study has no measured shadow steps.");
+        }
         const float barWidth = ImGui::CalcTextSize ("Capture   Cancel   16:9   1.5x   12345 x 12345").x +
                                14.0f * ImGui::GetStyle ().FramePadding.x;
         const bool inlineControls = float (view.width) >= barWidth + 2.0f * margin;
@@ -315,8 +371,11 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             ImGui::SameLine ();
         ImGui::Text ("%u x %u", crop.Width (), crop.Height ());
         ImGui::SameLine ();
-        ImGui::BeginDisabled (!ready || ShotPending (state) || !crop.Width () || !crop.Height ());
+        ImGui::BeginDisabled (!ready ||
+                              (frame.studyDay && (!shown || !shown->stepCount || shown->stepMinutes.empty ())) ||
+                              ShotPending (state) || !crop.Width () || !crop.Height ());
         if (ImGui::Button ("Capture")) {
+            state.captureRegions[frame.viewSlot] = frame.rect;
             state.shotKind = frame.kind;
             state.sunShotPreset = frame.preset;
             state.sunShotRequested = true;
@@ -334,40 +393,11 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
         }
         ownsMouse = ownsMouse || ImGui::IsWindowHovered (ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) ||
                     ImGui::IsPopupOpen (nullptr, ImGuiPopupFlags_AnyPopupId);
-        ImGui::BringWindowToDisplayFront (ImGui::GetCurrentWindow ());
+        if (!ImGui::IsPopupOpen (nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+            ImGui::BringWindowToDisplayFront (ImGui::GetCurrentWindow ());
     }
     ImGui::End ();
     return ownsMouse;
-}
-
-void DrawCaptureEntry (HudState& state, const CaptureDock& dock, float dpiScale)
-{
-    const DockEdge edge = CaptureDockEdge (dock);
-    const float inset = 8.0f * dpiScale;
-    const bool left = edge == DockEdge::Right;
-    const bool bottom = edge == DockEdge::Top;
-    ui::ScopedStyle style;
-    UseCaptureLook (style, dpiScale);
-    ImGui::SetNextWindowPos (
-        { left ? inset : float (dock.view.width) - inset, bottom ? float (dock.view.height) - inset : inset },
-        ImGuiCond_Always, { left ? 0.0f : 1.0f, bottom ? 1.0f : 0.0f });
-    const bool hasResult = !state.sunShotResult.empty () && state.shotKind == kShotVision;
-    if (ImGui::Begin ("##capture-entry", nullptr, kCaptureWindowFlags | ImGuiWindowFlags_AlwaysAutoResize)) {
-        DrawShotButton (state, kShotVision, "Capture screenshot");
-        if (hasResult) {
-            ImGui::SameLine ();
-            if (ImGui::SmallButton ("Dismiss"))
-                state.sunShotResult.clear ();
-            ImGui::PushTextWrapPos (ImGui::GetCursorPosX () + (std::min) (360.0f * dpiScale, dock.view.width * 0.55f));
-            if (state.sunShotFailed)
-                ImGui::TextWrapped ("Screenshot not saved: %s", state.sunShotResult.c_str ());
-            else
-                DrawResult (state, kShotVision);
-            ImGui::PopTextWrapPos ();
-        }
-        ImGui::BringWindowToDisplayFront (ImGui::GetCurrentWindow ());
-    }
-    ImGui::End ();
 }
 
 void DrawCaptureRow (HudState& state, int kind)

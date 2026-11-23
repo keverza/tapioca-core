@@ -192,20 +192,15 @@ class CaptureGui : public testing::Test {
                 capture_ = { end.x - cancelWidth - style.ItemSpacing.x - captureWidth * 0.5f, y };
             }
         }
-        else if (sunRow_) {
+        else {
             ImGui::SetNextWindowPos ({ 10, 10 });
             ImGui::SetNextWindowSize ({ 400, 175 });
             ImGui::Begin ("Sun study row");
-            DrawCaptureRow (state_, kShotSunStudy);
+            DrawCaptureRow (state_, sunRow_ ? kShotSunStudy : kShotVision);
             const auto min = ImGui::GetItemRectMin ();
             const auto max = ImGui::GetItemRectMax ();
             entry_ = { (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f };
             ImGui::End ();
-        }
-        else {
-            DrawCaptureEntry (state_, kDock, 1.0f);
-            const ImVec2 p = ImGui::FindWindowByName ("##capture-entry")->DC.CursorStartPos;
-            entry_ = { p.x + 15, p.y + 8 };
         }
         ImGui::Render ();
     }
@@ -232,13 +227,9 @@ TEST_F (CaptureGui, CaptureWindowsUseLightHudColoursEvenOverTheDarkBaseStyle)
 {
     const auto& look = hudshell::PlainLook ();
     const auto background = hudshell::Packed (look.backgroundRgba);
-    const auto neutralHover = hudshell::Packed (hudshell::WithAlpha (look.textRgba, 0.30f));
+    const auto neutralHover = hudshell::Packed (hudshell::WithAlpha (0x4178CBFF, 0.30f));
     const auto baseBackground = ImGui::GetColorU32 (ImGuiCol_WindowBg);
     ASSERT_NE (baseBackground, background);
-    EXPECT_TRUE (WindowDrawsColour ("##capture-entry", background));
-    Frame (entry_);
-    EXPECT_TRUE (WindowDrawsColour ("##capture-entry", neutralHover));
-
     Click (entry_);
     ASSERT_TRUE (state_.captureFrame.active);
     Frame ();
@@ -320,6 +311,8 @@ TEST_F (CaptureGui, DateCaptureWaitsForTheCompletedDayToBeAttached)
     status.studyId = "new";
     shown_.studyId = "old";
     shown_.elementsAttached = 1;
+    shown_.stepCount = 1;
+    shown_.stepMinutes = { 720 };
     Frame ();
     Frame ();
     Click (capture_);
@@ -331,8 +324,31 @@ TEST_F (CaptureGui, DateCaptureWaitsForTheCompletedDayToBeAttached)
     Click (capture_);
     EXPECT_TRUE (state_.sunShotRequested);
     EXPECT_EQ (state_.captureFrame.pinnedVersion, 6u);
+    EXPECT_EQ (SunStudyViewOf (state_).viewOverride, 6);
+    state_.captureFrame.shadowStyle = 1;
+    EXPECT_EQ (SunStudyViewOf (state_).viewOverride, 5);
     EXPECT_EQ (tapioca::test::SunStudyTestSubmissions (), 0);
     tapioca::test::ResetSunStudyHudServices ();
+}
+
+TEST_F (CaptureGui, ATopViewCaptureCannotReplaceThePerspectiveRegion)
+{
+    state_.captureRegions[0] = { .1f, .2f, .6f, .8f };
+    state_.captureTopView = true;
+    ASSERT_TRUE (BeginCaptureFrame (state_, kShotVision));
+    state_.captureFrame.rect = { .2f, .1f, .7f, .9f };
+    Frame ();
+    Frame ();
+    Click (capture_);
+    ASSERT_TRUE (state_.sunShotRequested);
+    state_.sunShotRequested = false;
+    state_.captureTopView = false;
+    ASSERT_TRUE (BeginCaptureFrame (state_, kShotVision));
+    EXPECT_FLOAT_EQ (state_.captureFrame.rect.left, .1f);
+    state_.captureFrame.active = false;
+    state_.captureTopView = true;
+    ASSERT_TRUE (BeginCaptureFrame (state_, kShotVision));
+    EXPECT_FLOAT_EQ (state_.captureFrame.rect.left, .2f);
 }
 
 } // namespace

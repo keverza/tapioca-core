@@ -90,6 +90,10 @@ TEST (SunStudyDisplayPreparation, BothDomainsMatchLegacyHoursAndEveryStepBitWith
             error));
         ASSERT_NE (upload, nullptr) << error;
         EXPECT_TRUE (upload->captureRoi.IsValid ());
+        ASSERT_NE (upload->capturePlan, nullptr);
+        const auto& cells = upload->capturePlan->cells;
+        EXPECT_TRUE (std::any_of (cells.begin (), cells.end (), [] (auto v) { return v != 0; }));
+        EXPECT_EQ (cells.front (), 0);
         EXPECT_EQ (*upload->texels, image);
         EXPECT_EQ (*upload->stepMasks, steps.masks);
         EXPECT_EQ (upload->width, width);

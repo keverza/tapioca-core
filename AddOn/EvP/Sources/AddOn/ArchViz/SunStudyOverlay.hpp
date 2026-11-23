@@ -45,6 +45,7 @@
 
 #include "ArchViz/GradientLibrary.hpp"
 #include "SunStudy/AnalysisRoi.hpp"
+#include "SunStudy/CapturePlan.hpp"
 #include "ArchViz/MeshGroups.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudyTextureDelta.hpp"
@@ -104,6 +105,7 @@ bool SameSunStudyElementMap (const SunStudyElementMap& a, const SunStudyElementM
 // hand-over rule as every other payload in SceneCmdQueue, expressed as a
 // shared_ptr because a display-only change reuses the identical image.
 struct SunStudyAtlasUpload {
+    std::shared_ptr<const tapioca::sunstudy::CapturePlan> capturePlan;
     tapioca::sunstudy::AnalysisRoi captureRoi; // empty if the receiver envelope is unavailable
     std::string studyId;
     // Bumped by the producer whenever the CONTENT changes. The render thread

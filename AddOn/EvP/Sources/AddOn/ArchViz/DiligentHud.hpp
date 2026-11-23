@@ -201,6 +201,8 @@ struct HudState {
     // The camera preview and the three screenshot entries share one render-thread
     // request. Exposed surfaces pins the measured area table for its strip.
     viewerhud::CaptureFrame captureFrame;
+    ScreenshotRect captureRegions[3]; // perspective, orthographic orbit, top
+    bool captureTopView = false;
     int sunShotPreset = 1;
     bool sunShotRequested = false;
     bool sunShotBusy = false;

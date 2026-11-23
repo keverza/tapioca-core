@@ -85,8 +85,20 @@ void StoreNative (NativePreview& p, Value& state)
 void DrawNativeCapture (NativePreview& p, Value& state, av::ScreenshotSize view, float dpi)
 {
     auto& hud = p.mocks.hud;
-    av::viewerhud::DrawCaptureFrame (hud, p.captureDock, view, dpi);
+    MockScope scope (p.mocks);
+    av::viewerhud::DrawCaptureFrame (hud, p.captureDock, view, dpi, &p.mocks.scene.sunStudy);
     if (hud.sunShotRequested) {
+        if (hud.shotKind == av::kShotSunStudy) {
+            auto scene = p.mocks.scene;
+            scene.sunStudy.drawing = true;
+            scene.sunApplied = true;
+            auto inset = std::make_shared<tapioca::sunstudy::CapturePlan> ();
+            for (int y = 8; y < 24; ++y)
+                for (int x = 6; x < 20; ++x)
+                    inset->cells[y * inset->side + x] = 100;
+            hud.captureFrame.legendPlan = inset;
+            av::DrawSunStudyCaptureLegend (hud, scene, view.width, uint32_t (ImGui::GetFontSize () * 4));
+        }
         hud.sunShotRequested = false;
         hud.sunShotResult = "Mock screenshot request recorded; no image was written.";
         hud.sunShotFailed = true;
@@ -134,7 +146,10 @@ void DrawNative (NativePreview& p, Value& state, ImVec2 stageMin, ImVec2 stageMa
     };
     const auto requested = Text (state, "nativeRequest");
     if (!requested.empty ()) {
-        select (requested);
+        if (requested == "@capture")
+            av::viewerhud::BeginCaptureFrame (p.mocks.hud, av::kShotSunStudy);
+        else
+            select (requested);
         Put (state, "nativeRequest", Value::String (""));
     }
     const auto visibleTabs = [&] {
@@ -231,7 +246,6 @@ void DrawNative (NativePreview& p, Value& state, ImVec2 stageMin, ImVec2 stageMa
         p.mocks.editor.message = "Mock import recorded; no Archicad selection was read.";
         Event (state, p.mocks.editor.message);
     }
-    av::viewerhud::DrawCaptureEntry (p.mocks.hud, p.captureDock, dpi);
     ImGui::BringWindowToDisplayFront (dock.window);
     for (const auto& popup : ImGui::GetCurrentContext ()->OpenPopupStack)
         if (popup.Window)

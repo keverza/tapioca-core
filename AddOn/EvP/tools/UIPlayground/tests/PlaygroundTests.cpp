@@ -40,7 +40,7 @@ std::string Frame (pg::Module& module, std::string state, float dpi = 1, std::st
     return state;
 }
 
-void VerifyCaptureFrame (pg::Module& module, std::string state)
+void VerifyCaptureFrame (pg::Module& module, std::string state, const std::filesystem::path& dll)
 {
     auto& io = ImGui::GetIO ();
     const auto click = [&] (ImVec2 point) {
@@ -53,9 +53,12 @@ void VerifyCaptureFrame (pg::Module& module, std::string state)
     };
     const auto open = [&] {
         const auto* entry = ImGui::FindWindowByName ("##capture-entry");
-        Require (entry && entry->Active, "Vision screenshot entry is missing");
-        const ImVec2 start = entry->DC.CursorStartPos;
-        click ({ start.x + 12, start.y + 8 });
+        Require (!entry || !entry->Active, "Duplicate floating screenshot entry");
+        auto saved = pg::json::Parse (state).value;
+        pg::Put (saved, "nativeRequest", pg::Value::String ("@capture"));
+        std::string error;
+        Require (module.Swap (dll, pg::json::Write (saved, 0), error), "Capture fixture failed");
+        state = Frame (module, state);
         state = Frame (module, state);
         state = Frame (module, state);
         const auto* bar = ImGui::FindWindowByName ("##capture-bar");
@@ -67,6 +70,33 @@ void VerifyCaptureFrame (pg::Module& module, std::string state)
     state = Frame (module, state);
     state = Frame (module, state);
     ImVec2 end = open ();
+    // Exercise the actual frame window, outside the bar: the native platform
+    // backend consumes these cursor requests.
+    const auto* drag = ImGui::FindWindowByName ("##capture-frame");
+    Require (drag && drag->Active, "Missing resize surface");
+    io.AddMousePosEvent (drag->Pos.x + 7, drag->Pos.y + 7);
+    state = Frame (module, state);
+    Require (ImGui::GetMouseCursor () == ImGuiMouseCursor_ResizeNWSE, "Corner did not request a diagonal cursor");
+    io.AddMouseButtonEvent (0, true);
+    state = Frame (module, state);
+    const auto* feedback = ImGui::GetBackgroundDrawList ();
+    Require (std::any_of (feedback->VtxBuffer.begin (), feedback->VtxBuffer.end (),
+                          [] (auto& v) { return v.col == IM_COL32 (28, 86, 194, 255); }),
+             "Pressed grip missing");
+    io.AddMouseButtonEvent (0, false);
+    state = Frame (module, state);
+    const auto* bar = ImGui::FindWindowByName ("##capture-bar");
+    click ({ bar->DC.CursorStartPos.x + 12, end.y + ImGui::GetFontSize () * .5f });
+    state = Frame (module, state);
+    const auto& popups = ImGui::GetCurrentContext ()->OpenPopupStack;
+    Require (!popups.empty () && popups.back ().Window, "Scale dropdown did not open");
+    const auto* popup = popups.back ().Window;
+    Require (ImGui::FindWindowDisplayIndex ((ImGuiWindow*) popup) > ImGui::FindWindowDisplayIndex ((ImGuiWindow*) bar),
+             "Capture bar covered its dropdown");
+    click ({ popup->Pos.x + 12, popup->Pos.y + ImGui::GetTextLineHeight () / 2 + 4 });
+    state = Frame (module, state);
+    Require (ImGui::GetCurrentContext ()->OpenPopupStack.empty (), "Scale dropdown did not accept the selection");
+    end = bar->DC.CursorPosPrevLine;
     float buttonHeight = ImGui::GetFontSize () + 2.0f * ImGui::GetStyle ().FramePadding.y;
     click ({ end.x - 10.0f, end.y + buttonHeight * 0.5f });
     Require (state.find ("Mock screenshot request recorded") == std::string::npos, "Cancel requested a screenshot");
@@ -77,6 +107,12 @@ void VerifyCaptureFrame (pg::Module& module, std::string state)
     const float cancelWidth = ImGui::CalcTextSize ("Cancel").x + 2.0f * style.FramePadding.x;
     click ({ end.x - cancelWidth - style.ItemSpacing.x - 10.0f, end.y + buttonHeight * 0.5f });
     Require (state.find ("Mock screenshot request recorded") != std::string::npos, "Capture did not request a shot");
+    const auto* legend = ImGui::FindWindowByName ("##sun-capture-legend");
+    Require (legend && legend->Active, "Capture did not render the production footer");
+    const auto& pixels = legend->DrawList->VtxBuffer;
+    Require (std::any_of (pixels.begin (), pixels.end (),
+                          [] (const auto& v) { return v.col == IM_COL32 (122, 122, 122, 255); }),
+             "Mini-plan did not render the fixture building");
     state = Frame (module, state);
     Require (ImGui::FindWindowByName ("###tapioca.dock")->Active, "Capture did not restore the dock");
 }
@@ -184,7 +220,7 @@ int main (int argc, char** argv)
                 pg::Put (native, "dpi", pg::Value::Double (1.0));
                 auto state = pg::json::Write (native, 0);
                 Require (module.Swap (dll, state, error), "Capture fixture restore failed");
-                VerifyCaptureFrame (module, state);
+                VerifyCaptureFrame (module, state, dll);
             }
             // #191 U2 / #188: the dump's refusal is in the native editor's command bar, unscrolled.
             {
