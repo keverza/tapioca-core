@@ -92,6 +92,33 @@ float TopDownRotationForNorth (float northDegrees)
     return northDegrees * (kPi / 180.0f) - 0.5f * kPi;
 }
 
+bool FitAnalysisPlanCamera (Camera& output, const tapioca::sunstudy::AnalysisRoi& roi, float northDegrees, float aspect,
+                            float sceneBottom, float sceneTop)
+{
+    if (!roi.IsValid () || !std::isfinite (aspect) || aspect <= 0 || !std::isfinite (northDegrees) ||
+        !std::isfinite (sceneBottom) || !std::isfinite (sceneTop) || sceneBottom > sceneTop)
+        return false;
+    const float rotation = TopDownRotationForNorth (northDegrees);
+    const double c = std::abs (std::cos (rotation)), s = std::abs (std::sin (rotation));
+    const double dx = roi.maxX - roi.minX, dy = roi.maxY - roi.minY;
+    constexpr double kFitPadding = 1.10;
+    const float halfHeight = float (0.5 * kFitPadding * std::max ((dx * c + dy * s) / aspect, dx * s + dy * c));
+    const float x = float (roi.minX + dx * 0.5), y = float (roi.minY + dy * 0.5);
+    if (!std::isfinite (halfHeight) || !std::isfinite (x) || !std::isfinite (y))
+        return false;
+
+    Camera camera;
+    camera.SetTopDown (rotation);
+    camera.SetOrthographic (true, halfHeight);
+    const float halfDepth = sceneTop * 0.5f - sceneBottom * 0.5f;
+    camera.SetDistance (halfDepth + 1.0f);
+    if (!camera.IsOrthographic () || camera.Distance () <= halfDepth + Camera::NearClip ())
+        return false;
+    camera.SetTarget (x, y, sceneBottom * 0.5f + sceneTop * 0.5f);
+    output = camera;
+    return true;
+}
+
 const char* ViewPresetNote (ViewPresetOutcome outcome)
 {
     switch (outcome) {

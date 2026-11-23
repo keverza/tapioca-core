@@ -13,6 +13,9 @@
 // is outside the circle (clipX/clipY/clipRadius on StartSunStudy), so a slab
 // larger than the cylinder is measured only inside it.
 
+#include "SunStudy/AnalysisRoi.hpp"
+
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -29,6 +32,12 @@ struct AnalysisCylinder {
 
 // The scene's axis-aligned bounds; false for a snapshot without vertices.
 bool SnapshotBounds (const geomsrv::Snapshot& snapshot, double min[3], double max[3]);
+
+// Resolve once per capture. An explicit boundary takes precedence; Auto uses
+// only resolved receiver GUIDs (an empty list never means the entire project).
+std::optional<tapioca::sunstudy::AnalysisRoi>
+ResolveAnalysisRoi (const geomsrv::Snapshot& snapshot, const std::vector<std::string>& receivers,
+                    const std::optional<tapioca::sunstudy::AnalysisRoi>& boundary);
 
 // The role lists StartSunStudy takes, with BOTH named so nothing is left to the
 // "everything else" defaults: inside and not picked -> analysis; outside, or

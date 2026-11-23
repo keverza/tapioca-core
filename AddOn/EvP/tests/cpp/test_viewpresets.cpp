@@ -97,6 +97,22 @@ Camera PlanMode (float rotation)
 
 } // namespace
 
+TEST (AnalysisCapture, FitsRotatedNarrowRegionAtEitherPanelAspect)
+{
+    const float lo[] = { 20, 60, -15 }, hi[] = { 220, 63, 80 };
+    const tapioca::sunstudy::AnalysisRoi roi { lo[0], lo[1], hi[0], hi[1] };
+    for (const unsigned width : { 400u, 1200u }) {
+        Camera camera;
+        ASSERT_TRUE (FitAnalysisPlanCamera (camera, roi, 31, float (width) / 800, lo[2], hi[2]));
+        ExpectBoxShown (camera, lo, hi, width, 800, true, "analysis ROI");
+        ExpectBoxShown (camera, lo, hi, width * 3, 2400, true, "scaled export");
+        const float middle[] = { 120, 61.5f, 0 };
+        const Clip centre = Project (camera, middle, width, 800);
+        EXPECT_NEAR (centre.px, width / 2, 0.01f);
+        EXPECT_NEAR (centre.py, 400, 0.01f);
+    }
+}
+
 // The issue's table at north = +Y: the eye of "SE" stands south-east of and above the model.
 TEST (ViewPresets, TheIsometricCornersAtTheDefaultNorth)
 {

@@ -23,6 +23,36 @@ bool SnapshotBounds (const geomsrv::Snapshot& snapshot, double min[3], double ma
     return any;
 }
 
+std::optional<tapioca::sunstudy::AnalysisRoi>
+ResolveAnalysisRoi (const geomsrv::Snapshot& snapshot, const std::vector<std::string>& receivers,
+                    const std::optional<tapioca::sunstudy::AnalysisRoi>& boundary)
+{
+    if (boundary)
+        return boundary->IsValid () ? boundary : std::nullopt;
+    std::set<std::string> eligible;
+    for (const auto& guid : receivers)
+        eligible.insert (CanonicalGuid (guid));
+    std::optional<tapioca::sunstudy::AnalysisRoi> roi;
+    for (const auto& mesh : snapshot.meshes) {
+        if (!eligible.count (CanonicalGuid (mesh.guid)))
+            continue;
+        for (size_t v = 0; v + 2 < mesh.vertices.size (); v += 3) {
+            const double x = mesh.vertices[v], y = mesh.vertices[v + 1];
+            if (!std::isfinite (x) || !std::isfinite (y))
+                return std::nullopt;
+            if (!roi)
+                roi = tapioca::sunstudy::AnalysisRoi { x, y, x, y };
+            else {
+                roi->minX = std::min (roi->minX, x);
+                roi->minY = std::min (roi->minY, y);
+                roi->maxX = std::max (roi->maxX, x);
+                roi->maxY = std::max (roi->maxY, y);
+            }
+        }
+    }
+    return roi && roi->IsValid () ? roi : std::nullopt;
+}
+
 BoundedRoles SplitByCylinder (const geomsrv::Snapshot& snapshot, const AnalysisCylinder& cylinder,
                               const std::vector<std::string>& context, const std::vector<std::string>& ignored,
                               const std::vector<std::string>& analysis)
@@ -66,7 +96,8 @@ BoundedRoles SplitByCylinder (const geomsrv::Snapshot& snapshot, const AnalysisC
         const bool inside = dx * dx + dy * dy <= cylinder.radius * cylinder.radius;
         (inside && picked.count (canonical) == 0 && (allowed.empty () || allowed.count (canonical) != 0)
              ? roles.analysis
-             : roles.context).push_back (box.guid);
+             : roles.context)
+            .push_back (box.guid);
     }
     return roles;
 }

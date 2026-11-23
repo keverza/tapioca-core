@@ -34,6 +34,22 @@ geomsrv::Snapshot Scene ()
 
 } // namespace
 
+TEST (AnalysisCapture, AutoFramesOnlyReceiversAndExplicitBoundaryStaysFixed)
+{
+    auto scene = Scene ();
+    scene.meshes.push_back (Square ("remote", 100000, -200000));
+    const auto roi = ResolveAnalysisRoi (scene, { "aaaa-1" }, {});
+    ASSERT_TRUE (roi);
+    EXPECT_EQ (roi->maxX, 1);
+    EXPECT_EQ (roi->minY, 0);
+    EXPECT_FALSE (ResolveAnalysisRoi (scene, {}, {}));
+    EXPECT_FALSE (ResolveAnalysisRoi (scene, { "aaaa-1" }, tapioca::sunstudy::AnalysisRoi {}));
+    const auto otherDate = ResolveAnalysisRoi (scene, { "remote" }, roi);
+    ASSERT_TRUE (otherDate);
+    EXPECT_EQ (otherDate->maxX, 1);
+    EXPECT_EQ (otherDate->minY, 0);
+}
+
 TEST (SunStudyBounds, BoundsCoverEveryVertex)
 {
     double min[3], max[3];

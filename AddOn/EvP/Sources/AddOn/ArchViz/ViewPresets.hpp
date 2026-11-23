@@ -44,6 +44,7 @@
 // offline. RENDER THREAD, like the camera.
 
 #include <cstdint>
+#include "SunStudy/AnalysisRoi.hpp"
 
 namespace geomsrv {
 namespace archviz {
@@ -70,6 +71,11 @@ bool ViewPresetDirection (ViewPreset preset, float northDegrees, float out[3]);
 
 // The top-down rotation (Camera::SetTopDown) that puts project north up the screen.
 float TopDownRotationForNorth (float northDegrees);
+
+// Build a detached export camera. Scene depth is shared by the panels but
+// cannot enlarge their plan extent. On failure output is untouched.
+bool FitAnalysisPlanCamera (Camera& output, const tapioca::sunstudy::AnalysisRoi& roi, float northDegrees, float aspect,
+                            float sceneBottom, float sceneTop);
 
 enum class ViewPresetOutcome : uint8_t {
     None = 0,          // nothing was asked for
