@@ -524,13 +524,21 @@ void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t
     ImGui::NewFrame ();
     ImGui::PushFont (impl_->font, 13.0f * dpiScale);
     if (captionRow == -2) {
+        const auto& look = hudshell::PlainLook ();
+        const int colors = hudshell::PushLook (look, dpiScale);
+        ImGui::GetBackgroundDrawList ()->AddRectFilled ({ 0, 0 }, { float (width), float (height) },
+                                                        hudshell::Packed (look.backgroundRgba | 255u));
         ImGui::SetNextWindowPos ({ width * .5f, height * .5f }, ImGuiCond_Always, { .5f, .5f });
         ImGui::Begin ("Shadow analysis export", nullptr,
                       ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings |
                           ImGuiWindowFlags_NoCollapse);
         ImGui::TextUnformatted (state.captureFrame.progressText.c_str ());
+        ImGui::PushStyleColor (ImGuiCol_PlotHistogram, ImGui::GetStyleColorVec4 (ImGuiCol_TextDisabled));
         ImGui::ProgressBar (state.captureFrame.progress, { 240 * dpiScale, 0 });
+        ImGui::PopStyleColor ();
         ImGui::End ();
+        ImGui::PopStyleColor (colors);
+        ImGui::PopStyleVar (hudshell::kLookVars);
     }
     else if (captionRow < 0)
         DrawSunStudyCaptureLegend (state, scene, width, height);
@@ -543,6 +551,34 @@ void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t
             const size_t i = size_t (captionRow) * grid.width + col;
             if (i >= f.captions.size ())
                 break;
+            if (f.seasonal) {
+                const auto tile = SeasonalTileOf ({ width, f.gridHeight }, grid.width, unsigned (i), scale);
+                const float top =
+                    float (captionRow ? tile.header + (f.gridHeight - tile.header) * unsigned (captionRow) / 3 : 0);
+                const auto& box = tile.image;
+                const float cx = (box.left + box.right) * .5f;
+                auto textAt = [&] (const char* s, float x, float y, float maxWidth, float maxHeight) {
+                    const auto extent = ImGui::CalcTextSize (s);
+                    const float ratio = (std::min) ({ 1.f, maxWidth / (std::max) (extent.x, 1.f),
+                                                      maxHeight / (std::max) (extent.y, 1.f) });
+                    ImGui::GetForegroundDrawList ()->AddText (
+                        ImGui::GetFont (), ImGui::GetFontSize () * ratio,
+                        { x - extent.x * ratio * .5f, y - extent.y * ratio * .5f },
+                        hudshell::Packed (hudshell::PlainLook ().textRgba), s);
+                };
+                if (!captionRow) {
+                    char clock[12];
+                    int m = f.clocks[col];
+                    std::snprintf (clock, sizeof (clock), "%02d:%02d", m / 60, m % 60);
+                    textAt (clock, cx, tile.header * .5f, float (box.Width ()), float (tile.header));
+                }
+                if (!col)
+                    textAt (f.seasonLabels[captionRow].c_str (), tile.gutter * .5f, (box.top + box.bottom) * .5f - top,
+                            tile.gutter - 2.f * tile.gap, float (box.Height ()));
+                textAt (f.captions[i].c_str (), cx, box.bottom - top + tile.gap + tile.caption * .5f,
+                        (width - tile.gutter) / grid.width - 2.f * tile.gap, float (tile.caption));
+                continue;
+            }
             const char* text = f.captions[i].c_str ();
             const float measured = ImGui::CalcTextSize (text).x;
             const auto fitted =

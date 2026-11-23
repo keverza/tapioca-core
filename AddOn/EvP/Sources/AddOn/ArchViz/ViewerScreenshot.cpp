@@ -392,9 +392,7 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         if (frames_ % 6 == 0 && progressSurface_) {
             Diligent::ITextureView *rtv = nullptr, *dsv = nullptr;
             if (progressSurface_->BeginFrame (rtv, dsv)) {
-                constexpr float bg[] = { .12f, .13f, .15f, 1.f };
                 context->SetRenderTargets (1, &rtv, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-                context->ClearRenderTarget (rtv, bg, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
                 hud.DrawCaptureLegend (context, progressSurface_->Width (), progressSurface_->Height (), 1,
                                        scene.Stats (), state, -2);
                 context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
@@ -461,14 +459,23 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         }
         previousShaded_ = percent;
         char label[180];
-        std::snprintf (label, sizeof (label), "%s%02d/%02d | %02d:%02d\n%s",
-                       frame.seasonal ? (rowIndex == 0   ? "Equinox "
-                                         : rowIndex == 1 ? "Summer "
-                                                         : "Winter ")
-                                      : "",
-                       frame.month, frame.day, minute / 60, minute % 60, metric.c_str ());
-        frame.captions.emplace_back (label);
-        ok = step < 0 || PlaceTimePanel (layoutImage_, { width, viewHeight }, total, panelIndex_, caption, image, grid);
+        std::snprintf (label, sizeof (label), "%02d/%02d | %02d:%02d\n%s", frame.month, frame.day, minute / 60,
+                       minute % 60, metric.c_str ());
+        if (frame.seasonal && !column) {
+            char heading[48];
+            std::snprintf (heading, sizeof (heading), "%s\n%02d/%02d",
+                           rowIndex == 0   ? "Equinox"
+                           : rowIndex == 1 ? "Summer solstice"
+                                           : "Winter solstice",
+                           frame.month, frame.day);
+            frame.seasonLabels[rowIndex] = heading;
+        }
+        frame.captions.emplace_back (frame.seasonal ? metric : label);
+        const auto tile = frame.seasonal
+                              ? SeasonalTileOf ({ width, viewHeight }, grid.width, unsigned (panelIndex_), scale_)
+                              : SeasonalTile {};
+        ok = step < 0 ||
+             PlaceTimePanel (layoutImage_, { width, viewHeight }, total, panelIndex_, caption, image, grid, tile.image);
         if (!ok)
             error = "invalid time panel dimensions";
         if (ok && ++panelIndex_ < total) {
@@ -485,12 +492,25 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         image.swap (layoutImage_);
         const auto stats = scene.Stats ();
         for (unsigned row = 0; ok && row < grid.height; ++row) {
-            const auto draw = [&] { hud.DrawCaptureLegend (context, width, caption, scale_, stats, state, int (row)); };
+            const auto boundary = [&] (unsigned r) {
+                return r ? tile.header + (viewHeight - tile.header) * r / 3 : 0u;
+            };
+            const unsigned top = frame.seasonal ? boundary (row) : (row + 1) * viewHeight / grid.height - caption;
+            const unsigned band = frame.seasonal ? boundary (row + 1) - top : caption;
+            const auto draw = [&] { hud.DrawCaptureLegend (context, width, band, scale_, stats, state, int (row)); };
             std::vector<uint8_t> labels;
-            ok = RenderStrip (device_, context, width, caption, draw, labels, error);
-            if (ok)
-                std::copy (labels.begin (), labels.end (),
-                           image.begin () + size_t ((row + 1) * viewHeight / grid.height - caption) * width * 4);
+            ok = RenderStrip (device_, context, width, band, draw, labels, error);
+            if (ok) {
+                if (frame.seasonal)
+                    for (unsigned col = 0; col < grid.width; ++col) {
+                        const auto box =
+                            SeasonalTileOf ({ width, viewHeight }, grid.width, row * grid.width + col, scale_).image;
+                        for (unsigned y = box.top; y < box.bottom; ++y)
+                            std::copy_n (image.data () + (size_t (y) * width + box.left) * 4, box.Width () * 4,
+                                         labels.data () + (size_t (y - top) * width + box.left) * 4);
+                    }
+                std::copy (labels.begin (), labels.end (), image.begin () + size_t (top) * width * 4);
+            }
         }
     }
     if (ok && table_ != nullptr) {

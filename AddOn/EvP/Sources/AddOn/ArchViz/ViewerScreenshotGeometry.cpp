@@ -74,8 +74,30 @@ ScreenshotSize TimeGrid (size_t count, ScreenshotSize canvas)
     return canvas.width >= canvas.height ? ScreenshotSize { longer, shorter } : ScreenshotSize { shorter, longer };
 }
 
+SeasonalTile SeasonalTileOf (ScreenshotSize canvas, unsigned columns, unsigned index, float scale)
+{
+    SeasonalTile tile;
+    if (!columns || index / columns >= 3 || canvas.width / columns < 32 || canvas.height < 48)
+        return tile;
+    tile.gutter = std::min (uint32_t (110 * scale), canvas.width / 6);
+    tile.header = std::min (uint32_t (24 * scale), canvas.height / 10);
+    const unsigned dx = canvas.width - tile.gutter, dy = canvas.height - tile.header, c = index % columns,
+                   r = index / columns;
+    const unsigned l = tile.gutter + dx * c / columns, t = tile.header + dy * r / 3;
+    const unsigned w = tile.gutter + dx * (c + 1) / columns - l, h = tile.header + dy * (r + 1) / 3 - t;
+    tile.gap = std::max (1u, std::min ({ uint32_t (4 * scale), w / 10, h / 10 }));
+    tile.caption = std::min (uint32_t (18 * scale), h / 4);
+    const unsigned roomW = w - 2 * tile.gap, roomH = h - 3 * tile.gap - tile.caption;
+    const double fit = std::min (double (roomW) / canvas.width, double (roomH) / canvas.height);
+    const unsigned iw = std::max (1u, uint32_t (std::lround (canvas.width * fit))),
+                   ih = std::max (1u, uint32_t (std::lround (canvas.height * fit)));
+    const unsigned x = l + (w - iw) / 2, y = t + tile.gap + (roomH - ih) / 2;
+    tile.image = { x, y, x + iw, y + ih };
+    return tile;
+}
+
 bool PlaceTimePanel (std::vector<uint8_t>& layout, ScreenshotSize panel, size_t count, size_t index, uint32_t caption,
-                     const std::vector<uint8_t>& pixels, ScreenshotSize grid)
+                     const std::vector<uint8_t>& pixels, ScreenshotSize grid, ScreenshotPixels destination)
 {
     if (!grid.width)
         grid = TimeGrid (count, panel);
@@ -93,9 +115,18 @@ bool PlaceTimePanel (std::vector<uint8_t>& layout, ScreenshotSize panel, size_t 
     if (!cw || ch <= caption)
         return false;
     const auto scale = std::min (double (cw) / panel.width, double (ch - caption) / panel.height);
-    const auto w = std::max (1u, uint32_t (std::lround (panel.width * scale))),
-               h = std::max (1u, uint32_t (std::lround (panel.height * scale)));
-    const auto x0 = left + (cw - w) / 2, y0 = top + (ch - caption - h) / 2;
+    auto w = std::max (1u, uint32_t (std::lround (panel.width * scale))),
+         h = std::max (1u, uint32_t (std::lround (panel.height * scale)));
+    auto x0 = left + (cw - w) / 2, y0 = top + (ch - caption - h) / 2;
+    if (destination.right) {
+        if (destination.right > panel.width || destination.bottom > panel.height ||
+            destination.left >= destination.right || destination.top >= destination.bottom)
+            return false;
+        x0 = destination.left;
+        y0 = destination.top;
+        w = destination.Width ();
+        h = destination.Height ();
+    }
     // Average the source footprint instead of dropping thin shadows on reduction.
     for (uint32_t y = 0; y < h; ++y)
         for (uint32_t x = 0; x < w; ++x) {

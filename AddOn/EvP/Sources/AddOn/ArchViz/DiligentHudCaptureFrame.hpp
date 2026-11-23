@@ -31,6 +31,7 @@ struct CaptureFrame {
     bool seasonal = false;
     std::vector<int> clocks;
     std::vector<std::string> captions;
+    std::string seasonLabels[3];
     std::string progressText;
     float progress = 0;
     int hotX = 0, hotY = 0, viewSlot = 0;

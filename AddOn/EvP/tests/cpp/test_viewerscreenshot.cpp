@@ -61,6 +61,28 @@ TEST (ViewerScreenshot, FiveTimesUseTwoRowsOnOneCanvasWithSpaceForCaptions)
     EXPECT_EQ (layout.size (), 24 * 16 * 4u);
 }
 
+TEST (ViewerScreenshot, SeasonalMatrixKeepsHeadingsGuttersAndMetricOutsideEachImage)
+{
+    for (ScreenshotSize canvas : { ScreenshotSize { 503, 401 }, ScreenshotSize { 307, 521 } }) {
+        std::vector<uint8_t> sheet (size_t (canvas.width) * canvas.height * 4, 255);
+        for (unsigned i = 0; i < 15; ++i) {
+            const auto tile = SeasonalTileOf (canvas, 5, i, 1.5f);
+            const auto b = tile.image;
+            ASSERT_GT (b.left, tile.gutter);
+            ASSERT_GT (b.top, tile.header);
+            ASSERT_LT (b.bottom + tile.gap + tile.caption,
+                       tile.header + (canvas.height - tile.header) * (i / 5 + 1) / 3);
+            const std::vector<uint8_t> pixels (sheet.size (), uint8_t (i));
+            ASSERT_TRUE (PlaceTimePanel (sheet, canvas, 15, i, 0, pixels, { 5, 3 }, b));
+            const auto at = [&] (unsigned x, unsigned y) { return sheet[(size_t (y) * canvas.width + x) * 4]; };
+            EXPECT_EQ (at (b.left, b.top), i);
+            EXPECT_EQ (at (b.right - 1, b.bottom - 1), i);
+            EXPECT_EQ (at (b.left - 1, b.top), 255);
+            EXPECT_EQ (at (b.left, b.bottom + tile.gap), 255);
+        }
+    }
+}
+
 constexpr ScreenshotSize kView { 800, 600 };
 constexpr CaptureDock kDock { { 200, 0, 600, 52 }, kView, DockEdge::Top, true };
 

@@ -59,8 +59,13 @@ ScreenshotPixels ViewerScreenshotCrop (ScreenshotRect normalized, ScreenshotSize
 bool CropScreenshotRgba (std::vector<uint8_t>& image, ScreenshotSize size, ScreenshotPixels crop);
 std::vector<int> DaylightPanelSteps (const std::vector<uint16_t>& minutes, int hourStep);
 ScreenshotSize TimeGrid (size_t count, ScreenshotSize canvas);
+struct SeasonalTile {
+    ScreenshotPixels image;
+    uint32_t gutter = 0, header = 0, gap = 0, caption = 0;
+};
+SeasonalTile SeasonalTileOf (ScreenshotSize canvas, unsigned columns, unsigned index, float scale);
 bool PlaceTimePanel (std::vector<uint8_t>& layout, ScreenshotSize panel, size_t count, size_t index, uint32_t caption,
-                     const std::vector<uint8_t>& pixels, ScreenshotSize grid = {});
+                     const std::vector<uint8_t>& pixels, ScreenshotSize grid = {}, ScreenshotPixels destination = {});
 std::filesystem::path ViewerScreenshotPath (const std::filesystem::path& directory, int kind, float scale,
                                             const char* timestamp, std::error_code& error);
 
