@@ -59,6 +59,7 @@ sc::State MakeState ()
     brick.index = 1;
     brick.r = 0.6f;
     brick.name = "Brick";
+    brick.emission[2] = 0.625f;
     brick.textureKey = 99;
     brick.substance = Substance::Concrete;
     materials->Set (brick);
@@ -107,6 +108,7 @@ TEST (ProjectSceneCache, RoundTripKeepsEverything)
     EXPECT_EQ (out.records.at ("A").observations[0].substance, Substance::Concrete);
     EXPECT_DOUBLE_EQ (out.records.at ("A").observations[0].weight, 6.0);
     ASSERT_NE (out.materials, nullptr);
+    EXPECT_FLOAT_EQ (out.materials->Lookup (1).emission[2], 0.625f);
     EXPECT_EQ (out.materials->Lookup (1).name, "Brick");
     EXPECT_FLOAT_EQ (out.materials->Lookup (1).r, 0.6f);
     EXPECT_EQ (out.materials->Lookup (1).substance, Substance::Concrete);

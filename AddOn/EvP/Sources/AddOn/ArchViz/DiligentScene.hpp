@@ -536,6 +536,8 @@ class DiligentScene final {
     // beside Stats::fixedExposure) so the comparison stays available.
     void SetAutoExposure (bool enabled);
 
+    void SetFinishing (float bloom, float sharpen);
+
     // White balance, as the temperature of the light being CORRECTED FOR.
     // 6500 K and tint 0 is the exact identity -- see AutoExposure.hpp.
     void SetWhiteBalance (float kelvin, float tint);

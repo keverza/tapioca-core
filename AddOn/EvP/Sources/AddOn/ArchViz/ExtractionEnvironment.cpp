@@ -257,6 +257,10 @@ std::unique_ptr<MaterialTable> ReadMaterials (const ModelerAPI::Model& model)
         m.specularR = static_cast<float> (std::clamp (sc.red, 0.0, 1.0));
         m.specularG = static_cast<float> (std::clamp (sc.green, 0.0, 1.0));
         m.specularB = static_cast<float> (std::clamp (sc.blue, 0.0, 1.0));
+        const ModelerAPI::Color emission = material.GetEmissionColor ();
+        m.emission[0] = SrgbToLinear (float (emission.red));
+        m.emission[1] = SrgbToLinear (float (emission.green));
+        m.emission[2] = SrgbToLinear (float (emission.blue));
         m.name = material.GetName ().ToCStr ().Get ();
         ReadMaterialTexture (model, material, m, *table);
 

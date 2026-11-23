@@ -27,6 +27,7 @@ void TurnOnAntiAliasingOnceLoaded (HudState& hud, const DiligentScene& scene, st
 
 void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay)
 {
+    scene.SetFinishing (overlay ? 0.0f : hud.bloomStrength, overlay ? 0.0f : hud.sharpenStrength);
     scene.SetGrading (hud.exposure, hud.reflectance, hud.roughnessBias);
     scene.SetScreenSpaceReflectionTuning (hud.ssrThickness, uint32_t (hud.ssrMaxSteps < 16 ? 16 : hud.ssrMaxSteps));
     // #247/#248: the still-camera mean (TemporalConvergence.hpp). Read by the NEXT frame's

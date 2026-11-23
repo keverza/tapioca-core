@@ -193,6 +193,9 @@ void DrawPostProcessingControls (HudState& state, const DiligentSceneStats& scen
         }
 
         ImGui::Checkbox ("material textures", &state.materialTextures); // #252
+        ImGui::SliderFloat ("Bloom", &state.bloomStrength, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat ("Sharpen", &state.sharpenStrength, 0.0f, 1.0f, "%.2f");
+        ImGui::TextDisabled ("Photographic finishing in Realistic shaded views");
         ImGui::Checkbox ("auto exposure", &state.autoExposure);
         ImGui::TextDisabled ("  auto would pick %.2f (scene luminance %.4f, albedo %.3f)", scene.autoExposure,
                              scene.sceneLuminance, scene.meanAlbedo);

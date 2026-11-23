@@ -940,6 +940,14 @@ void DiligentScene::SetAutoExposure (bool enabled)
         impl_->autoExposureEnabled = enabled;
 }
 
+void DiligentScene::SetFinishing (float bloom, float sharpen)
+{
+    if (impl_ == nullptr)
+        return;
+    impl_->bloomStrength = std::clamp (bloom, 0.0f, 1.0f);
+    impl_->sharpenStrength = std::clamp (sharpen, 0.0f, 1.0f);
+}
+
 void DiligentScene::SetWhiteBalance (float kelvin, float tint)
 {
     if (impl_ == nullptr)

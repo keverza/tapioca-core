@@ -50,7 +50,7 @@ namespace archviz {
 namespace scenecache {
 
 // Bump on ANY change to what Encode writes. An older or newer file is refused, never migrated.
-constexpr uint32_t kFormatVersion = 1;
+constexpr uint32_t kFormatVersion = 2;
 // A project bigger than this is not cached; all projects together are kept under the total, the
 // least recently used file going first.
 constexpr uint64_t kMaxFileBytes = 1ull << 30;

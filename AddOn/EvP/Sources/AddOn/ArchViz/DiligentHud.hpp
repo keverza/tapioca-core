@@ -796,6 +796,8 @@ struct HudState {
 
     // 6500 K and tint 0 are the EXACT identity (AutoExposure.hpp), so these
     // defaults change no image rendered before this existed.
+    float bloomStrength = 0.0f;
+    float sharpenStrength = 0.0f;
     float whiteBalanceKelvin = 6500.0f;
     float whiteBalanceTint = 0.0f;
 

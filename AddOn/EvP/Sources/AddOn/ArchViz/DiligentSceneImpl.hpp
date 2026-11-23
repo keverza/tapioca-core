@@ -1224,6 +1224,8 @@ struct geomsrv::archviz::DiligentScene::Impl {
     bool havePrevViewProj = false;
     float lastAutoExposure = 0.0f;
     float lastSceneLuminance = 0.0f;
+    float bloomStrength = 0.0f;
+    float sharpenStrength = 0.0f;
     float whiteBalanceKelvin = 6500.0f;
     float whiteBalanceTint = 0.0f;
     // The view ray basis for the background pass, world space. See

@@ -144,6 +144,7 @@ struct SurfaceMaterial {
     TextureRotation textureRotation;
 
     std::string name;
+    float emission[3] = {}; // linear emitted radiance, independent of incident light
 
     size_t Bytes () const
     {

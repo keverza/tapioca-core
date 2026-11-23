@@ -378,6 +378,8 @@ struct DiligentSceneConstants {
     // #252, per draw range: xy = the material's texture rotation (cos, sin), applied to Archicad's
     // coordinate before the repeat scale (TextureRotationOf). zw unused. (1, 0) = unrotated.
     float textureRotation[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+    float emission[4] = {};
+    float finishing[4] = {}; // HDR resolve: bloom and sharpening strengths
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -419,7 +421,7 @@ enum class DiligentDebugView : int {
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
                                                       16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48 + 32 + 256 +
-                                                      16 + 256 + 16 + 80 + 16 + 16 + 16 + 16,
+                                                      16 + 256 + 16 + 80 + 16 + 16 + 16 + 16 + 16 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -494,6 +496,8 @@ cbuffer ArchVizConstants
     float4   g_sectionPlane;    // keep where dot(xyz, p) + w >= 0; (0,0,0,1) = no section (#14 P2)
     float4   g_textureParams;   // #252 per range: x textured, yz 1/repeat size, w mirror bits (1 x, 2 y)
     float4   g_textureRotation; // #252 per range: xy = (cos, sin) of the material's texture rotation
+    float4   g_emission;
+    float4   g_finishing;
 };
 
 // The section plane's signed distance, for SV_ClipDistance0: negative is cut away.
@@ -2390,7 +2394,7 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 
         float ao = lerp (1.0, saturate (g_ambientOcclusion.Load (int3 (pixel, 0))), saturate (g_materialParams.w));
         envColor *= SpecularOcclusion (ndotv, ao, roughness);
-        radiance += (ssr.rgb - envColor) * envBrdf * g_gradeParams.y * g_skyColor.w * ssrWeight;
+        radiance += (ssr.rgb - envColor) * envBrdf * g_gradeParams.y * ssrWeight;
     }
 
     color = float4 (radiance, hdr.a);
@@ -2426,6 +2430,28 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
         discard;
 
     float3 radiance = hdr.rgb;
+
+    if (any (g_finishing.xy > 0.0))
+    {
+        uint width, height;
+        g_hdrColor.GetDimensions (width, height);
+        int2 last = int2 (width, height) - 1;
+        float3 blur = 0.0;
+        float3 glow = 0.0;
+        // Gaussian weights spread exposed highlights before the tone curve.
+        [unroll] for (int y = -1; y <= 1; ++y)
+        {
+            [unroll] for (int x = -1; x <= 1; ++x)
+            {
+                float weight = (2 - abs (x)) * (2 - abs (y)) / 16.0;
+                float3 sampleColor = g_hdrColor.Load (int3 (clamp (pixel + int2 (x, y), 0, last), 0)).rgb;
+                blur += weight * sampleColor;
+                float luma = dot (sampleColor * g_whiteBalance.rgb, float3 (0.2126, 0.7152, 0.0722)) * g_gradeParams.x;
+                glow += weight * sampleColor * saturate (1.0 - 1.0 / max (luma, 1.0));
+            }
+        }
+        radiance = max (0.0, radiance + g_finishing.y * (radiance - blur)) + g_finishing.x * glow;
+    }
 
     // ⚠️ THE SSR COMPOSITION USED TO LIVE HERE AND DELIBERATELY NO LONGER DOES.
     // It ran AFTER temporal anti-aliasing, so nothing could stabilise it: the
@@ -3400,8 +3426,8 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
         // what is behind it. Scaling both -- which SRC_ALPHA blending did for
         // free -- made this project's 69%-transparent glass reflect at under a
         // third strength and get dimmer the clearer it was authored.
-        float3 colour = base.rgb * lighting * kd * base.a +
-                        (spec + envSpec) * g_skyColor.w;
+        float3 colour = (base.rgb * lighting * kd + g_emission.rgb) * base.a +
+                        spec * (directWeight * g_skyColor.w) + envSpec;
 
         // ACES, the fitted form. ⚠️ SEE AcesFitted IN THE PRELUDE for why this is
         // no longer a per-channel curve: the per-channel one was pushing the

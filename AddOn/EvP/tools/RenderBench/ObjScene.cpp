@@ -135,13 +135,7 @@ av::SurfaceMaterial ToSurface (int32_t index, const std::string& name, const Mtl
     s.r = m.kd[0];
     s.g = m.kd[1];
     s.b = m.kd[2];
-    if (m.ke[0] + m.ke[1] + m.ke[2] > 0.0f) {
-        // No emitters in the viewer: an emitter reads as a bright, plain surface.
-        const float peak = std::max ({ m.ke[0], m.ke[1], m.ke[2] });
-        s.r = m.ke[0] / peak;
-        s.g = m.ke[1] / peak;
-        s.b = m.ke[2] / peak;
-    }
+    std::copy_n (m.ke, 3, s.emission);
     s.alpha = std::clamp (m.d, 0.0f, 1.0f);
     s.shininess = std::clamp (m.ns / av::kMaxShininessFactor, 0.0f, 1.0f);
     const float ksPeak = std::max ({ m.ks[0], m.ks[1], m.ks[2] });

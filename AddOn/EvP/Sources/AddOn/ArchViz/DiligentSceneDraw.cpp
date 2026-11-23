@@ -379,17 +379,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         return;
     }
 
-    // ---- the HDR scene-colour path (RE51.C7 prerequisite) -------------------
-    //
-    // ⚠️ REALISTIC + FINAL VIEW ONLY. Fast quality has no tone mapping to move,
-    // and every debug view answers a question about the model's own data, not
-    // about the finished image. Routing those through the HDR target and resolve
-    // would tone-map the normals or the roughness, which is exactly what the
-    // debug views exist to avoid.
-    //
-    // ⚠️ IF THE HDR TARGET CANNOT BE ALLOCATED, FALL BACK TO LDR: a correct image, each shader
-    // tone-mapping itself rather than in one resolve. #14: Fast goes through it too when TAA is on
-    // (TAA resolves the HDR image), the same Grade() applied once at the end instead of per shader.
+    // Realistic resolves HDR lighting here. Fast also needs an offscreen target for TAA.
+    // Debug views present raw material data and bypass photographic finishing.
     const bool hdrWanted = impl_->renderQuality == RenderQuality::Realistic || impl_->taaEnabled;
     const bool useHdr = hdrWanted && debugView == 0 && EnsureHdrTarget ();
 
@@ -758,6 +749,11 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // A display-only matte-white override; original materials/render preferences
     // return when the study is hidden. Opaque glass writes the same nearest depth
     // as other receivers, preventing translucent study colours stacking by draw order.
+    if (useHdr && impl_->renderQuality == RenderQuality::Realistic && impl_->renderMode == SceneRenderMode::Shaded &&
+        !surfaceFocus && !surfaceLook.enabled && !impl_->technicalEdges.enabled) {
+        constants.finishing[0] = impl_->bloomStrength;
+        constants.finishing[1] = impl_->sharpenStrength;
+    }
     const bool drawSurfaces = studyModel || impl_->renderMode != SceneRenderMode::Wireframe;
     // ⚠️ THE SUPPRESSION THAT WAS HERE WAS GLOBAL, AND IT SWITCHED
     // OFF THE FLOOR PLAN. It read "if the injected overlay is Active, do not draw
@@ -833,6 +829,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 // ⚠️ PER RANGE, NOT PER FRAME. Hoisting the upload out of this
                 // loop paints every range in the last material's colour -- and
                 // now its finish too, in both channels.
+                for (int channel = 0; channel < 3; ++channel)
+                    constants.emission[channel] = surfaceLook.enabled || surfaceFocus ? 0.0f : mat.emission[channel];
                 albedo = impl_->AlbedoFor (mat, surfaceLook, constants);
                 uploadConstants (drawn.r, drawn.g, drawn.b, drawn.alpha, drawn.roughness, drawn.reflectance,
                                  drawn.metallic);

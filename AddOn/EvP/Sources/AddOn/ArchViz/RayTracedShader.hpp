@@ -58,7 +58,7 @@ StructuredBuffer<uint>   g_triangleMaterial;
 // texture: x the slot in g_albedo (< 0 untextured), yz 1 / the size one repeat covers, w mirror
 // bits (1 x, 2 y) -- the raster's g_textureParams, resolved by the same gate (TexturesShown).
 // rotation: xy (cos, sin) of the material's texture rotation -- the raster's g_textureRotation.
-struct Material { float4 colorAlpha; float4 params; float4 texture; float4 rotation; };
+struct Material { float4 emission; float4 colorAlpha; float4 params; float4 texture; float4 rotation; };
 StructuredBuffer<Material> g_materials;
 Texture2D<float4> g_envMap;
 SamplerState      g_envMap_sampler;
@@ -241,7 +241,7 @@ float3 TextureColour (Material m, Hit h, uint i0, uint i1, uint i2, float3 a, fl
 // a ray leaves from and whether a new direction goes into the surface. The welder already splits
 // the normals at creases, so a box's faces stay flat. An element without normals (zeros) shades flat.
 void SurfaceFull (Hit h, float3 o, float3 d, float travelled, out float3 p, out float3 n, out float3 ng,
-                  out float3 albedo, out float3 finish, out float alpha)
+                  out float3 albedo, out float3 finish, out float alpha, out float3 emission)
 {
     p = o + d * h.t;
     uint i0 = g_indices[h.prim * 3], i1 = g_indices[h.prim * 3 + 1], i2 = g_indices[h.prim * 3 + 2];
@@ -259,6 +259,7 @@ void SurfaceFull (Hit h, float3 o, float3 d, float travelled, out float3 p, out 
     albedo = m.texture.x >= 0.0 ? TextureColour (m, h, i0, i1, i2, a, b, c, d, travelled) : m.colorAlpha.rgb;
     finish = m.params.xyz;
     alpha = m.colorAlpha.a;
+    emission = m.emission.rgb;
     if (back && g_cap.w > 0.5 && m.colorAlpha.a >= 0.99)
     {
         finish = float3 (1.0, 0.0, 0.5);
@@ -272,6 +273,7 @@ void SurfaceFull (Hit h, float3 o, float3 d, float travelled, out float3 p, out 
         n = facing < 0.0 ? g_plane.xyz : -g_plane.xyz;
         ng = n;
         albedo = g_cap.rgb;
+        emission = 0.0;
     }
 }
 
@@ -368,9 +370,9 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
                 L += Indirect (T * SkyRadiance (d), i);
             break;
         }
-        float3 p, n, ng, albedo, finish;
+        float3 p, n, ng, albedo, finish, emission;
         float alpha;
-        SurfaceFull (h, o, d, travelled, p, n, ng, albedo, finish, alpha);
+        SurfaceFull (h, o, d, travelled, p, n, ng, albedo, finish, alpha, emission);
         travelled += h.t;
         // The pane's split (see the header): its diffuse film is alpha of it, the rest passes.
         float film = alpha >= 0.99 ? 1.0 : saturate (alpha);
@@ -382,7 +384,7 @@ float3 Radiance (float3 o, float3 d, inout uint rng)
         float3 F = FresnelSchlick (f0, ndv);
         float3 at = p + ng * Epsilon (p);
         float3 sun = SunLight (at, n, rng);
-        L += Indirect (T * (film * diffuse * (1.0 - F) * sun + SunSpecular (n, v, f0, rough, sun)), i);
+        L += Indirect (T * (film * (emission + diffuse * (1.0 - F) * sun) + SunSpecular (n, v, f0, rough, sun)), i);
         float passShare = 1.0 - film;
         if (i == g_frame.w)
         {
@@ -558,9 +560,9 @@ void main (uint3 id : SV_DispatchThreadID)
             sum += SkyLevel (d, 0.0);
             continue;
         }
-        float3 hp, hn, hng, albedo, finish;
+        float3 hp, hn, hng, albedo, finish, emission;
         float alpha;
-        SurfaceFull (h, at, d, length (p - eye), hp, hn, hng, albedo, finish, alpha);
+        SurfaceFull (h, at, d, length (p - eye), hp, hn, hng, albedo, finish, alpha, emission);
         float3 hat = hp + hng * Epsilon (hp);
         // #232: THE SKY AT THE HIT IS SEEN THROUGH ONE VISIBILITY RAY, not assumed. Unoccluded,
         // every wall a reflection landed on inside a closed room was lit as if it stood outdoors,
@@ -573,7 +575,7 @@ void main (uint3 id : SV_DispatchThreadID)
         // A metal seen in a reflection has no diffuse lobe; it shows its own reflection of the sky
         // (unoccluded -- one level deep is where this pass stops).
         float3 mirrored = SkyLevel (reflect (d, hn), g_ray.z * saturate (finish.x));
-        sum += albedo * lerp (diffuseLight, mirrored, metal);
+        sum += emission * alpha + albedo * lerp (diffuseLight, mirrored, metal);
     }
     g_reflection[id.xy] = float4 (sum / float (count), 1.0);
 }
@@ -642,11 +644,11 @@ void main (uint3 id : SV_DispatchThreadID)
             seen += sky;
             continue;
         }
-        float3 hp, hn, hng, albedo, finish;
+        float3 hp, hn, hng, albedo, finish, emission;
         float alpha;
-        SurfaceFull (h, at, d, length (p - eye), hp, hn, hng, albedo, finish, alpha);
+        SurfaceFull (h, at, d, length (p - eye), hp, hn, hng, albedo, finish, alpha, emission);
         float3 hat = hp + hng * Epsilon (hp);
-        seen += Luminance (albedo * (1.0 - saturate (finish.y)) * SunLight (hat, hn, rng));
+        seen += Luminance (emission * alpha + albedo * (1.0 - saturate (finish.y)) * SunLight (hat, hn, rng));
     }
     float traced = saturate (seen / max (open, 1.0e-4));
     // g_ray.y: the raster's shadows are on. Off, the sun stays unshadowed, as the raster draws it.

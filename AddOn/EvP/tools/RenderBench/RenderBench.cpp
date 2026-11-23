@@ -96,6 +96,7 @@ struct Options {
     // bench's frames are not paced, so a held or fading image would land in the pictures by timing.
     float rtFadeSeconds = 0.0f;
     uint32_t frames = 48;
+    float bloom = 0.0f, sharpen = 0.0f;
     float ssrThickness = -1.0f;
     int ssrSteps = -1;
     // --off: effects switched off in every style, to isolate one in a picture (ao, ssr, taa,
@@ -213,6 +214,10 @@ bool ParseArgs (int argc, char** argv, Options& o)
             o.rtBudgetMs = std::stof (next ());
         else if (a == "--rt-fade")
             o.rtFadeSeconds = std::stof (next ());
+        else if (a == "--bloom")
+            o.bloom = std::stof (next ());
+        else if (a == "--sharpen")
+            o.sharpen = std::stof (next ());
         else if (a == "--frames")
             o.frames = uint32_t (std::stoul (next ()));
         else if (a == "--temporal")
@@ -303,6 +308,8 @@ av::HudState StyleState (const std::string& style, const Options& o)
     hud.ambientOcclusion = true;
     hud.shadowsEnabled = true;
     hud.clay = false;
+    hud.bloomStrength = o.bloom;
+    hud.sharpenStrength = o.sharpen;
     hud.technicalEdges = o.edges;
     if (o.section) {
         hud.sectionEnabled = true;
@@ -771,10 +778,11 @@ int main (int argc, char** argv)
     SetUnhandledExceptionFilter (&PrintCrash);
     Options o;
     if (!ParseArgs (argc, argv, o)) {
-        std::fprintf (stderr, "usage: TapiocaRenderBench --scene file.obj [--yup] [--scale s] --out dir "
-                              "[--size WxH] --view name:ex,ey,ez:tx,ty,tz[:fov] ... [--styles ssr,traced,reference] "
-                              "[--sun az,alt] [--env sky.hdr] [--samples N] [--frames N] "
-                              "[--section x|y|z,pos[,hatchMm[,angle]]]\n");
+        std::fprintf (stderr,
+                      "usage: TapiocaRenderBench --scene file.obj [--yup] [--scale s] --out dir "
+                      "[--size WxH] --view name:ex,ey,ez:tx,ty,tz[:fov] ... [--styles ssr,traced,reference] "
+                      "[--sun az,alt] [--env sky.hdr] [--samples N] [--frames N] [--bloom 0..1] [--sharpen 0..1] "
+                      "[--section x|y|z,pos[,hatchMm[,angle]]]\n");
         return 2;
     }
     av::g_log.open (o.out + "/bench.log");

@@ -58,6 +58,7 @@ static_assert (sizeof (RayTracedConstants) == 16 * 4 + 9 * 16, "kRayTracedCommon
 namespace {
 
 struct GpuMaterial {
+    float emission[4];
     float colorAlpha[4];
     float params[4];
     float texture[4];  // #231: x slot (-1 untextured), yz 1 / repeat size, w mirror bits
@@ -506,10 +507,13 @@ bool DiligentScene::PrepareRayTracedFrame (Diligent::IDeviceContext* context, co
     for (size_t k = 0; k < gpu.materialIds.size (); ++k) {
         const SurfaceMaterial& mat = impl_->materials.Lookup (gpu.materialIds[k]);
         const DrawnSurface drawn = ResolveDrawnSurface (mat, PresetFor (mat), look);
-        table[k] = { { drawn.r, drawn.g, drawn.b, drawn.alpha },
+        table[k] = { {},
+                     { drawn.r, drawn.g, drawn.b, drawn.alpha },
                      { drawn.roughness, drawn.metallic, drawn.reflectance, 0.0f },
                      { -1.0f, 1.0f, 1.0f, 0.0f },
                      { 1.0f, 0.0f, 0.0f, 0.0f } };
+        if (!look.enabled)
+            std::copy_n (mat.emission, 3, table[k].emission);
         if (slots.slotOf[k] >= 0) {
             table[k].texture[0] = float (slots.slotOf[k]);
             table[k].texture[1] = 1.0f / (std::max) (mat.textureSizeX, 1e-6f);

@@ -26,7 +26,7 @@ struct ObjScene {
     float boundsMin[3] = { 0.0f, 0.0f, 0.0f };
     float boundsMax[3] = { 0.0f, 0.0f, 0.0f };
     size_t triangles = 0;
-    size_t emissive = 0; // MTL Ke surfaces: drawn as their Kd; the viewer has no emitters
+    size_t emissive = 0; // MTL surfaces with nonzero Ke
     size_t textured = 0; // #252: materials whose map_Kd image loaded
 };
 

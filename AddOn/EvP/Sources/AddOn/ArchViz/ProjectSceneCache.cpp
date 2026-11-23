@@ -112,6 +112,7 @@ void WriteMaterial (Writer& w, const SurfaceMaterial& m)
     w.Pod (m.specularR);
     w.Pod (m.specularG);
     w.Pod (m.specularB);
+    w.Pod (m.emission);
     w.Pod (int32_t (m.substance));
     w.Pod (m.substanceConfidence);
     w.Pod (m.textureKey);
@@ -130,10 +131,10 @@ bool ReadMaterial (Reader& r, SurfaceMaterial& m)
     uint8_t mirrorX = 0, mirrorY = 0;
     const bool ok = r.Pod (m.index) && r.Pod (m.r) && r.Pod (m.g) && r.Pod (m.b) && r.Pod (m.alpha) &&
                     r.Pod (m.shininess) && r.Pod (m.specular) && r.Pod (m.diffuse) && r.Pod (m.specularR) &&
-                    r.Pod (m.specularG) && r.Pod (m.specularB) && r.Pod (substance) && r.Pod (m.substanceConfidence) &&
-                    r.Pod (m.textureKey) && r.Pod (m.textureSizeX) && r.Pod (m.textureSizeY) && r.Pod (mirrorX) &&
-                    r.Pod (mirrorY) && r.Pod (m.textureRotation.cosA) && r.Pod (m.textureRotation.sinA) &&
-                    r.Str (m.name);
+                    r.Pod (m.specularG) && r.Pod (m.specularB) && r.Pod (m.emission) && r.Pod (substance) &&
+                    r.Pod (m.substanceConfidence) && r.Pod (m.textureKey) && r.Pod (m.textureSizeX) &&
+                    r.Pod (m.textureSizeY) && r.Pod (mirrorX) && r.Pod (mirrorY) && r.Pod (m.textureRotation.cosA) &&
+                    r.Pod (m.textureRotation.sinA) && r.Str (m.name);
     m.substance = Substance (substance);
     m.textureMirrorX = mirrorX != 0;
     m.textureMirrorY = mirrorY != 0;
