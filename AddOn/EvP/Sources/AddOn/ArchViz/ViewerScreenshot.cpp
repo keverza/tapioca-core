@@ -226,6 +226,16 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
     if (target_ == nullptr)
         return false;
     EndUnpresentedFrame (context); // a screenshot frame is never presented, so it ends (and is paced) here
+    if (kind_ == kShotSunStudy && state.captureFrame.studyDay) {
+        const auto& study = scene.Stats ().sunStudy;
+        if (study.studyId != state.captureFrame.pinnedStudy || study.version != state.captureFrame.pinnedVersion ||
+            study.analysisKind != 0 || study.preview || !study.elementsAttached) {
+            Fail (state, "the selected day's study changed while rendering; take the screenshot again");
+            Destroy (context);
+            scene.ResetTemporalAntiAliasingHistory ();
+            return true;
+        }
+    }
     // Every frame, not only the last: frames drawn after a change would mix the
     // old table with new geometry, and settling would hide that in the average.
     if (table_ != nullptr && !ExposedShotCurrent (*table_)) {

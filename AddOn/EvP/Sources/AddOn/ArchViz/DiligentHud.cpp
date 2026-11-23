@@ -272,7 +272,8 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
             io.ClearInputKeys ();
         }
         state.graphInteractionActive = false;
-        state.wantsMouse = viewerhud::DrawCaptureFrame (state, impl_->shell.captureDock, { width, height }, dpiScale);
+        state.wantsMouse =
+            viewerhud::DrawCaptureFrame (state, impl_->shell.captureDock, { width, height }, dpiScale, &scene.sunStudy);
         render ();
         return;
     }

@@ -46,10 +46,15 @@ namespace geomsrv::sunstudyhud {
 static Status s_status;
 static int s_cancels = 0;
 static int s_submissions = 0;
-bool Submit (const Request&, std::string&)
+bool Submit (const Request&, std::string&, uint64_t* acceptedRun)
 {
     ++s_submissions;
+    if (acceptedRun)
+        *acceptedRun = s_status.runs + 1;
     return true;
+}
+void CancelRun (uint64_t)
+{
 }
 void Cancel ()
 {
@@ -154,6 +159,11 @@ int SunStudyTestViewRequests ()
 const geomsrv::sunstudyhud::PeriodView& SunStudyTestRequestedView ()
 {
     return geomsrv::sunstudyhud::s_shownView;
+}
+
+geomsrv::sunstudyhud::Status& SunStudyTestStatus ()
+{
+    return geomsrv::sunstudyhud::s_status;
 }
 
 int SunStudyTestSubmissions ()

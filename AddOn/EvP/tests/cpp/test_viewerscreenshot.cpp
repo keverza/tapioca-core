@@ -1,6 +1,8 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentHudCaptureFrame.hpp"
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/DiligentScene.hpp"
+#include "SunStudyHudTestServices.hpp"
 #include "ArchViz/ViewerScreenshotGeometry.hpp"
 
 #include <gtest/gtest.h>
@@ -150,6 +152,7 @@ class CaptureGui : public testing::Test {
     ImVec2 cancel_;
     bool ownsMouse_ = false;
     bool sunRow_ = false;
+    SunStudyOverlayStatus shown_;
 
     void SetUp () override
     {
@@ -178,7 +181,7 @@ class CaptureGui : public testing::Test {
         io.AddMouseButtonEvent (0, down);
         ImGui::NewFrame ();
         if (state_.captureFrame.active) {
-            ownsMouse_ = DrawCaptureFrame (state_, kDock, kView, 1.0f);
+            ownsMouse_ = DrawCaptureFrame (state_, kDock, kView, 1.0f, &shown_);
             if (const ImGuiWindow* bar = ImGui::FindWindowByName ("##capture-bar")) {
                 const auto& style = ImGui::GetStyle ();
                 const float cancelWidth = ImGui::CalcTextSize ("Cancel").x + 2.0f * style.FramePadding.x;
@@ -297,6 +300,38 @@ TEST_F (CaptureGui, SunStudyRowFramesBeforeCaptureAndBusyBlocksAnotherShot)
     Click (entry_);
     EXPECT_FALSE (state_.captureFrame.active);
     EXPECT_FALSE (state_.sunShotRequested);
+}
+
+TEST_F (CaptureGui, DateCaptureWaitsForTheCompletedDayToBeAttached)
+{
+    tapioca::test::ResetSunStudyHudServices ();
+    ASSERT_TRUE (BeginCaptureFrame (state_, kShotSunStudy));
+    state_.captureFrame.studyDay = true;
+    auto& status = tapioca::test::SunStudyTestStatus ();
+    status.running = true;
+    status.dayDate = "2026-03-21";
+    Frame ();
+    Frame ();
+    Click (capture_);
+    EXPECT_FALSE (state_.sunShotRequested);
+    status.running = false;
+    status.stage = "done";
+    status.studyId = "new";
+    shown_.studyId = "old";
+    shown_.elementsAttached = 1;
+    Frame ();
+    Frame ();
+    Click (capture_);
+    EXPECT_FALSE (state_.sunShotRequested);
+    shown_.studyId = "new";
+    shown_.version = 6;
+    Frame ();
+    Frame ();
+    Click (capture_);
+    EXPECT_TRUE (state_.sunShotRequested);
+    EXPECT_EQ (state_.captureFrame.pinnedVersion, 6u);
+    EXPECT_EQ (tapioca::test::SunStudyTestSubmissions (), 0);
+    tapioca::test::ResetSunStudyHudServices ();
 }
 
 } // namespace

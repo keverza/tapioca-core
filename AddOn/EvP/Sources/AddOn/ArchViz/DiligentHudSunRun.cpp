@@ -357,7 +357,7 @@ bool RadiusGrip (const HudState& state, const float viewProj[16], uint32_t width
 
 // The form as a Request. Every input comes from `state`, so a rerun after
 // switching the backend changes nothing else.
-void SubmitRun (HudState& state)
+void SubmitRun (HudState& state, uint64_t* acceptedRun = nullptr)
 {
     sunstudyhud::Request request;
     request.year = state.sunRunYear;
@@ -382,12 +382,12 @@ void SubmitRun (HudState& state)
     request.backend = evp::sunstudy::SunStudyBackendForChoice (state.sunRunBackend);
     state.sunRunPickingCentre = false;
     state.sunRunSubmitError.clear ();
-    sunstudyhud::Submit (request, state.sunRunSubmitError);
+    sunstudyhud::Submit (request, state.sunRunSubmitError, acceptedRun);
 }
 
 } // namespace
 
-void RunSunStudyDay (HudState& state, int month, int day)
+void RunSunStudyDay (HudState& state, int month, int day, uint64_t* acceptedRun)
 {
     // The form's own settings, for one day: the same grid, hours, step, roles
     // and bounds, so the result belongs to the same scene. The form keeps the
@@ -396,10 +396,65 @@ void RunSunStudyDay (HudState& state, int month, int day)
     state.sunRunPeriod = 0;
     state.sunRunMonth = month;
     state.sunRunDay = day;
-    SubmitRun (state);
+    SubmitRun (state, acceptedRun);
     state.sunRunPeriod = period;
     state.sunRunMonth = formMonth;
     state.sunRunDay = formDay;
+}
+
+void viewerhud::CancelStudyDay (const CaptureFrame& frame)
+{
+    if (frame.requestedRun)
+        sunstudyhud::CancelRun (frame.requestedRun);
+}
+
+bool viewerhud::DrawStudyDay (HudState& state, const SunStudyOverlayStatus* shown)
+{
+    auto& frame = state.captureFrame;
+    if (frame.kind != kShotSunStudy)
+        return true;
+    ImGui::Checkbox ("Shadow study for a date", &frame.studyDay);
+    if (!frame.studyDay)
+        return true;
+    const auto status = sunstudyhud::Current ();
+    ImGui::BeginDisabled (status.running);
+    ImGui::Text ("%04d", state.sunRunYear);
+    ImGui::SameLine ();
+    ImGui::SetNextItemWidth (80.0f);
+    ImGui::SliderInt ("Month", &frame.month, 1, 12);
+    ImGui::SameLine ();
+    const int last = DaysIn (state.sunRunYear, frame.month);
+    frame.day = std::clamp (frame.day, 1, last);
+    ImGui::SetNextItemWidth (80.0f);
+    ImGui::SliderInt ("Day", &frame.day, 1, last);
+    char date[24];
+    std::snprintf (date, sizeof (date), "%04d-%02d-%02d", state.sunRunYear, frame.month, frame.day);
+    const bool ready = !status.running && status.stage == "done" && status.dayDate == date && !status.period && shown &&
+                       shown->analysisKind == 0 && shown->elementsAttached && !shown->preview &&
+                       !status.studyId.empty () && shown->studyId == status.studyId;
+    frame.pinnedStudy = ready ? status.studyId : "";
+    frame.pinnedVersion = ready ? shown->version : 0;
+    if (!ready && !status.running)
+        ImGui::TextDisabled ("Run replaces the current study using the Sun Study form settings.");
+    if (!ready && ImGui::Button ("Run and show day")) {
+        RunSunStudyDay (state, frame.month, frame.day, &frame.requestedRun);
+    }
+    ImGui::EndDisabled ();
+    if (status.running) {
+        const auto& activeDate = status.period ? status.currentDate : status.dayDate;
+        ImGui::Text ("Sun study: %s %s", activeDate.c_str (), status.stage.c_str ());
+        const float fraction = status.period       ? float (sunstudyhud::PeriodProgress (status))
+                               : status.totalSteps ? float (status.resolvedSteps) / float (status.totalSteps)
+                                                   : 0.0f;
+        ImGui::ProgressBar (fraction, { -1, 0 });
+    }
+    else if (!state.sunRunSubmitError.empty ())
+        ImGui::TextWrapped ("%s", state.sunRunSubmitError.c_str ());
+    else if (frame.requestedRun && frame.requestedRun == status.runs && status.stage == "failed")
+        ImGui::TextWrapped ("%s", status.error.c_str ());
+    else if (!ready)
+        ImGui::TextDisabled ("Capture needs the completed day on screen.");
+    return ready;
 }
 
 void DrawSunStudySunPathStatus (HudState& state, const std::string& studyId)

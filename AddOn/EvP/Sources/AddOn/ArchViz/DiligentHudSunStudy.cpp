@@ -457,6 +457,10 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
     // ⚠️ NOT THE RUN FORM'S DATE as a fallback: that may be a pending pick, and
     // an image must not caption a study with a date it was not run for.
     period.shownDate = state.sunShownDate;
+    if (state.captureFrame.studyDay && state.captureFrame.pinnedStudy == study.studyId) {
+        period.showsPeriod = false;
+        period.shownDate = state.sunRunYear * 10000 + state.captureFrame.month * 100 + state.captureFrame.day;
+    }
     if (!study.stepMinutes.empty ()) {
         period.firstMinute = study.stepMinutes.front ();
         period.lastMinute = study.stepMinutes.back ();
@@ -470,7 +474,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
     if (mode == 0) {
         const SunStudyViewSettings view = SunStudyViewOf (state);
         // A period names its quantity, unit and frame (#156); a day is hours.
-        const bool periodTitle = state.sunShowsPeriod && !state.sunMapTitle.empty ();
+        const bool periodTitle = period.showsPeriod && !state.sunMapTitle.empty ();
         const float right = ImGui::GetCursorScreenPos ().x + ImGui::GetContentRegionAvail ().x;
         ImGui::TextUnformatted (periodTitle ? state.sunMapTitle.c_str () : "Direct sun hours");
         // Beside the title while it fits the column, else to the left half:

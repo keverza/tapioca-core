@@ -629,7 +629,7 @@ void Run (Request request, std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
 
 } // namespace
 
-bool Submit (const Request& request, std::string& error)
+bool Submit (const Request& request, std::string& error, uint64_t* acceptedRun)
 {
     if (request.period != "day" && request.period != "period" && request.period != "year") {
         error = "period must be day, period or year";
@@ -662,6 +662,8 @@ bool Submit (const Request& request, std::string& error)
     gStatus.running = true;
     gStatus.stage = "queued";
     gStatus.runs = runs;
+    if (acceptedRun)
+        *acceptedRun = runs;
     gStatus.requestedBackend = request.backend;
     if (request.period == "day")
         gStatus.dayDate = DateText (request.year, request.month, request.day);
@@ -691,8 +693,13 @@ bool ClearPeriodCache (std::string& error)
 
 void Cancel ()
 {
+    CancelRun (0);
+}
+
+void CancelRun (uint64_t run)
+{
     std::lock_guard<std::mutex> lock (gMutex);
-    if (!gStatus.running || s_ticket == nullptr || !s_ticket->Cancel ())
+    if ((run && gStatus.runs != run) || !gStatus.running || s_ticket == nullptr || !s_ticket->Cancel ())
         return;
     period::InvalidateSunPath ();
     gStatus.cancelRequestedMs =

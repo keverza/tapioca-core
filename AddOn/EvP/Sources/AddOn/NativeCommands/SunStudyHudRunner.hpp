@@ -290,7 +290,8 @@ struct SunPath {
 void RequestSunPath (int year, int month, int day);
 std::shared_ptr<const SunPath> LatestSunPath ();
 
-bool Submit (const Request& request, std::string& error);
+bool Submit (const Request& request, std::string& error, uint64_t* acceptedRun = nullptr);
+void CancelRun (uint64_t run);
 void Cancel ();
 Status Current ();
 // Plain-data boundary for the HUD: exactly one owner of the primary control.

@@ -261,13 +261,16 @@ bool BeginCaptureFrame (HudState& state, int kind)
     state.captureFrame = {};
     state.captureFrame.active = true;
     state.captureFrame.kind = kind;
+    state.captureFrame.month = std::clamp (state.sunRunMonth, 1, 12);
+    state.captureFrame.day = state.sunRunDay;
     state.captureFrame.preset = std::clamp (state.sunShotPreset, 0, kViewerScreenshotScaleCount - 1);
     if (kind != kShotExposedSurfaces)
         state.exposedShot.reset ();
     return true;
 }
 
-bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize view, float dpiScale)
+bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize view, float dpiScale,
+                       const SunStudyOverlayStatus* shown)
 {
     if (!view.width || !view.height)
         return false;
@@ -292,6 +295,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                              ImGuiCond_Always, { 0.5f, atBottom ? 1.0f : 0.0f });
     bool ownsMouse = dragging;
     if (ImGui::Begin ("##capture-bar", nullptr, kCaptureWindowFlags | ImGuiWindowFlags_AlwaysAutoResize)) {
+        const bool ready = DrawStudyDay (state, shown);
         const float barWidth = ImGui::CalcTextSize ("Capture   Cancel   16:9   1.5x   12345 x 12345").x +
                                14.0f * ImGui::GetStyle ().FramePadding.x;
         const bool inlineControls = float (view.width) >= barWidth + 2.0f * margin;
@@ -311,7 +315,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             ImGui::SameLine ();
         ImGui::Text ("%u x %u", crop.Width (), crop.Height ());
         ImGui::SameLine ();
-        ImGui::BeginDisabled (ShotPending (state) || !crop.Width () || !crop.Height ());
+        ImGui::BeginDisabled (!ready || ShotPending (state) || !crop.Width () || !crop.Height ());
         if (ImGui::Button ("Capture")) {
             state.shotKind = frame.kind;
             state.sunShotPreset = frame.preset;
@@ -323,6 +327,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
         ImGui::EndDisabled ();
         ImGui::SameLine ();
         if (ImGui::Button ("Cancel")) {
+            CancelStudyDay (frame);
             frame.active = false;
             frame.cancelled = true;
             state.exposedShot.reset ();

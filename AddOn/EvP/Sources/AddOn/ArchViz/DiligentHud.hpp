@@ -1084,7 +1084,7 @@ void RefreshSunStudySunPathData (HudState& state, const std::string& shownStudyI
 void DrawSunStudySunPathStatus (HudState& state, const std::string& studyId);
 // Run a single day at `month`/`day` with the run form's other settings; the
 // form keeps its own period and date.
-void RunSunStudyDay (HudState& state, int month, int day);
+void RunSunStudyDay (HudState& state, int month, int day, uint64_t* acceptedRun = nullptr);
 void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, const float origin[3],
                                 const float direction[3]);
