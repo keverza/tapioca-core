@@ -28,9 +28,8 @@ struct CaptureFrame {
     std::shared_ptr<const tapioca::sunstudy::CapturePlan> legendPlan;
     int shadowStyle = 0, shadowStep = 0;
     int hotX = 0, hotY = 0, viewSlot = 0;
-    tapioca::sunstudy::AnalysisRoi roi;
-    float north = 0, bottom = 0, top = 0;
-    bool planReady = false;
+    std::vector<int> panelSteps;
+    std::vector<uint16_t> layoutMinutes;
     int month = 1, day = 1;
     uint64_t requestedRun = 0;
     std::string pinnedStudy;

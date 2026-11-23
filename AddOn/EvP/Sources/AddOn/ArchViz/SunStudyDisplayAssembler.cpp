@@ -21,7 +21,7 @@ BuildCapturePlan (const Snapshot& snapshot, const std::vector<uint8_t>& roles,
     if (!roi.IsValid () || roles.size () != snapshot.meshes.size ())
         return {};
     using Plan = tapioca::sunstudy::CapturePlan;
-    const double span = std::max (roi.maxX - roi.minX, roi.maxY - roi.minY) * 1.12;
+    const double span = std::max (roi.maxX - roi.minX, roi.maxY - roi.minY);
     const double cell = span / Plan::side, left = (roi.minX + roi.maxX - span) / 2,
                  top = (roi.minY + roi.maxY + span) / 2;
     std::array<double, Plan::side * Plan::side> heights;

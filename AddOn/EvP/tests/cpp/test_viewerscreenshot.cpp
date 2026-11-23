@@ -20,6 +20,15 @@ using namespace geomsrv::archviz;
 using namespace geomsrv::archviz::viewerhud;
 using hudshell::DockEdge;
 
+TEST (ViewerScreenshot, TimePanelsKeepTheirOwnRowsAndTimeOrder)
+{
+    std::vector<uint8_t> layout (16), left { 1, 2, 3, 4, 5, 6, 7, 8 }, right { 9, 10, 11, 12, 13, 14, 15, 16 };
+    ASSERT_TRUE (PlaceTimePanel (layout, { 1, 2 }, 2, 1, right));
+    ASSERT_TRUE (PlaceTimePanel (layout, { 1, 2 }, 2, 0, left));
+    EXPECT_EQ (layout, (std::vector<uint8_t> { 1, 2, 3, 4, 9, 10, 11, 12, 5, 6, 7, 8, 13, 14, 15, 16 }));
+    EXPECT_FALSE (PlaceTimePanel (layout, { 1, 2 }, 2, 2, left));
+}
+
 constexpr ScreenshotSize kView { 800, 600 };
 constexpr CaptureDock kDock { { 200, 0, 600, 52 }, kView, DockEdge::Top, true };
 
@@ -298,7 +307,6 @@ TEST_F (CaptureGui, DateCaptureWaitsForTheCompletedDayToBeAttached)
     tapioca::test::ResetSunStudyHudServices ();
     ASSERT_TRUE (BeginCaptureFrame (state_, kShotSunStudy));
     state_.captureFrame.studyDay = true;
-    state_.captureFrame.planReady = true;
     auto& status = tapioca::test::SunStudyTestStatus ();
     status.running = true;
     status.dayDate = "2026-03-21";

@@ -59,7 +59,7 @@ class ViewerScreenshot final {
     DiligentViewportTarget& TargetFor (DiligentViewportTarget& surface, Diligent::IRenderDevice* device,
                                        Diligent::IDeviceContext* context, DiligentScene& scene, HudState& state);
     bool Active () const;
-    Camera& CameraFor (Camera& live, DiligentScene& scene, HudState& state, float aspect);
+    Camera& CameraFor (Camera& live);
     static bool HidesSurfaceFocus (const HudState& state);
     float EditorDrawScale (const HudState& state) const; // nonzero keeps only the area highlight
     uint32_t FrameIndex (uint32_t presented) const;
@@ -86,6 +86,8 @@ class ViewerScreenshot final {
     int frames_ = 0;
     int kind_ = 0; // HudState::shotKind, taken with the request
     ScreenshotPixels crop_;
+    size_t panelIndex_ = 0;
+    std::vector<uint8_t> layoutImage_;
     std::shared_ptr<const surfacetakeoff::ShotTable> table_;
 };
 

@@ -454,9 +454,7 @@ bool viewerhud::DrawStudyDay (HudState& state, const SunStudyOverlayStatus* show
         ImGui::TextWrapped ("%s", status.error.c_str ());
     else if (!ready)
         ImGui::TextDisabled ("Capture needs the completed day on screen.");
-    if (!frame.planReady)
-        ImGui::TextDisabled ("Waiting for a valid analysis region to frame.");
-    return ready && frame.planReady;
+    return ready;
 }
 
 void DrawSunStudySunPathStatus (HudState& state, const std::string& studyId)

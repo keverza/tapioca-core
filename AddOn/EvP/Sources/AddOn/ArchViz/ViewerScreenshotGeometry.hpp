@@ -57,6 +57,8 @@ struct ScreenshotPixels {
 ScreenshotSize ViewerScreenshotTargetSize (uint32_t width, uint32_t height, float scale);
 ScreenshotPixels ViewerScreenshotCrop (ScreenshotRect normalized, ScreenshotSize size);
 bool CropScreenshotRgba (std::vector<uint8_t>& image, ScreenshotSize size, ScreenshotPixels crop);
+bool PlaceTimePanel (std::vector<uint8_t>& layout, ScreenshotSize panel, size_t count, size_t index,
+                     const std::vector<uint8_t>& pixels);
 std::filesystem::path ViewerScreenshotPath (const std::filesystem::path& directory, int kind, float scale,
                                             const char* timestamp, std::error_code& error);
 

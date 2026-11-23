@@ -25,7 +25,7 @@ inline void DrawCaptureLegendPlan (const tapioca::sunstudy::CapturePlan* plan, f
     }
     if (northKnown) {
         const float r = north * 0.01745329252f, dx = std::cos (r), dy = -std::sin (r);
-        const ImVec2 c { at.x + size * 0.25f, at.y + size * 0.26f };
+        const ImVec2 c { at.x + size * 1.22f, at.y + size * 0.42f };
         const auto ink = IM_COL32 (32, 45, 65, 255);
         draw->AddTriangleFilled (
             { c.x + dx * size * .18f, c.y + dy * size * .18f },
@@ -33,7 +33,7 @@ inline void DrawCaptureLegendPlan (const tapioca::sunstudy::CapturePlan* plan, f
             { c.x - dx * size * .09f + dy * size * .06f, c.y - dy * size * .09f - dx * size * .06f }, ink);
         draw->AddText ({ c.x - size * .06f, c.y + size * .17f }, ink, "N");
     }
-    ImGui::Dummy ({ size, size });
+    ImGui::Dummy ({ size * 1.45f, size });
 }
 } // namespace geomsrv::archviz
 #endif

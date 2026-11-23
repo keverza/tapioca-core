@@ -306,14 +306,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                              ImGuiCond_Always, { 0.5f, atBottom ? 1.0f : 0.0f });
     bool ownsMouse = dragging;
     if (ImGui::Begin ("##capture-bar", nullptr, kCaptureWindowFlags | ImGuiWindowFlags_AlwaysAutoResize)) {
-        const bool previousDay = frame.studyDay;
         const bool ready = DrawStudyDay (state, shown);
-        if (previousDay != frame.studyDay) {
-            state.captureRegions[frame.viewSlot] = frame.rect;
-            frame.viewSlot = frame.studyDay || state.captureTopView ? 2 : state.orthographic ? 1 : 0;
-            if (HasArea (state.captureRegions[frame.viewSlot]))
-                frame.rect = state.captureRegions[frame.viewSlot];
-        }
         if (frame.kind == kShotSunStudy && !frame.studyDay) {
             ImGui::SetNextItemWidth (220 * dpiScale);
             gradientchoice::GradientPresetChoice ("Colours##capture", state.sunGradientPreset, state.sunGradientCustom,
@@ -323,7 +316,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             ImGui::Checkbox ("Stepped gradient", &state.sunGradientStepped);
         }
         if (frame.studyDay) {
-            const char* modes[] = { "Morning / evening", "Single shadow" };
+            const char* modes[] = { "Morning / evening", "Single shadows by time" };
             ImGui::SetNextItemWidth (160 * dpiScale);
             ImGui::Combo ("Shadows", &frame.shadowStyle, modes, 2);
             const auto colour = [] (const char* label, uint32_t& rgba) {
@@ -343,10 +336,47 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                 state.sunStepMinutes = shown->stepMinutes;
                 frame.shadowStep = std::clamp (frame.shadowStep, 0, int (shown->stepMinutes.size ()) - 1);
                 if (frame.shadowStyle == 1) {
-                    const int minute = shown->stepMinutes[frame.shadowStep];
-                    char clock[16];
-                    std::snprintf (clock, sizeof (clock), "%02d:%02d", minute / 60, minute % 60);
-                    ImGui::SliderInt ("Time", &frame.shadowStep, 0, int (shown->stepMinutes.size ()) - 1, clock);
+                    if (frame.layoutMinutes != shown->stepMinutes) {
+                        frame.layoutMinutes = shown->stepMinutes;
+                        frame.panelSteps.clear ();
+                        int last = int (frame.layoutMinutes.size ()) - 1;
+                        for (int i = 0; i <= std::min (3, last); ++i)
+                            frame.panelSteps.push_back (i * last / std::max (1, std::min (3, last)));
+                        std::vector<int> standard;
+                        for (int minute : { 540, 720, 900, 1080 }) {
+                            const auto it =
+                                std::find (frame.layoutMinutes.begin (), frame.layoutMinutes.end (), minute);
+                            if (it != frame.layoutMinutes.end ())
+                                standard.push_back (int (it - frame.layoutMinutes.begin ()));
+                        }
+                        if (standard.size () == 4 && std::is_sorted (standard.begin (), standard.end ()))
+                            frame.panelSteps = std::move (standard);
+                        frame.shadowStep = frame.panelSteps.front ();
+                    }
+                    ImGui::TextUnformatted ("Panel times (edit a time to preview)");
+                    for (int i = 0; i < int (frame.panelSteps.size ()); ++i) {
+                        ImGui::PushID (i);
+                        if (i)
+                            ImGui::SameLine ();
+                        int& step = frame.panelSteps[i];
+                        int minute = frame.layoutMinutes[step];
+                        char clock[16];
+                        std::snprintf (clock, sizeof (clock), "%02d:%02d", minute / 60, minute % 60);
+                        ImGui::SetNextItemWidth (84 * dpiScale);
+                        if (ImGui::BeginCombo ("##time", clock)) {
+                            const int first = i ? frame.panelSteps[i - 1] + 1 : 0;
+                            const int end = i + 1 < int (frame.panelSteps.size ()) ? frame.panelSteps[i + 1]
+                                                                                   : int (frame.layoutMinutes.size ());
+                            for (int k = first; k < end; ++k) {
+                                int t = frame.layoutMinutes[k];
+                                std::snprintf (clock, sizeof (clock), "%02d:%02d", t / 60, t % 60);
+                                if (ImGui::Selectable (clock, k == step))
+                                    frame.shadowStep = step = k;
+                            }
+                            ImGui::EndCombo ();
+                        }
+                        ImGui::PopID ();
+                    }
                 }
             }
             else
@@ -369,10 +399,15 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             frame.rect, ViewerScreenshotTargetSize (view.width, view.height, kViewerScreenshotScales[frame.preset]));
         if (inlineControls)
             ImGui::SameLine ();
-        ImGui::Text ("%u x %u", crop.Width (), crop.Height ());
+        if (frame.studyDay && frame.shadowStyle == 1)
+            ImGui::Text ("%u panels | %u x %u each", unsigned (frame.panelSteps.size ()), crop.Width (),
+                         crop.Height ());
+        else
+            ImGui::Text ("%u x %u", crop.Width (), crop.Height ());
         ImGui::SameLine ();
         ImGui::BeginDisabled (!ready ||
-                              (frame.studyDay && (!shown || !shown->stepCount || shown->stepMinutes.empty ())) ||
+                              (frame.studyDay && (!shown || !shown->stepCount || shown->stepMinutes.empty () ||
+                                                  (frame.shadowStyle == 1 && frame.panelSteps.size () < 2))) ||
                               ShotPending (state) || !crop.Width () || !crop.Height ());
         if (ImGui::Button ("Capture")) {
             state.captureRegions[frame.viewSlot] = frame.rect;

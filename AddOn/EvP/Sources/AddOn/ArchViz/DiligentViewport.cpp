@@ -523,7 +523,6 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // latency on "was that click for the combo box" is invisible; the
             // alternative is an orbit every time the user opens the dropdown.
             if (!offscreen && !screenshot.Active () &&
-                !(hudState.captureFrame.active && hudState.captureFrame.studyDay) &&
                 NavigateViewer (liveCamera, hudState, scene, input, width, height))
                 userHasNavigated = true;
 
@@ -581,8 +580,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             if (FollowProjectionToggle (liveCamera, hudState, lastOrthographic))
                 scene.ResetTemporalAntiAliasingHistory ();
 
-            Camera& camera = screenshot.CameraFor (
-                liveCamera, scene, hudState, target.Height () ? float (target.Width ()) / target.Height () : 1.0f);
+            Camera& camera = screenshot.CameraFor (liveCamera);
             const bool blanked = blanked_.load ();
             scene.SetViewportSize (width, height);
             float view[16], stableProj[16], proj[16];

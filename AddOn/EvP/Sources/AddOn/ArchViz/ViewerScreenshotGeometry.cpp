@@ -48,6 +48,20 @@ bool CropScreenshotRgba (std::vector<uint8_t>& image, ScreenshotSize size, Scree
     return true;
 }
 
+bool PlaceTimePanel (std::vector<uint8_t>& layout, ScreenshotSize panel, size_t count, size_t index,
+                     const std::vector<uint8_t>& pixels)
+{
+    if (!panel.width || !panel.height || count < 2 || count > 4 || index >= count ||
+        panel.width > kViewerScreenshotMaxDimension / count || panel.height > kViewerScreenshotMaxDimension)
+        return false;
+    const size_t stride = size_t (panel.width) * 4;
+    if (pixels.size () != stride * panel.height || layout.size () != pixels.size () * count)
+        return false;
+    for (uint32_t y = 0; y < panel.height; ++y)
+        std::memcpy (layout.data () + (y * count + index) * stride, pixels.data () + y * stride, stride);
+    return true;
+}
+
 std::filesystem::path ViewerScreenshotPath (const std::filesystem::path& directory, int kind, float scale,
                                             const char* timestamp, std::error_code& error)
 {

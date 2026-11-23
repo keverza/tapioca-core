@@ -51,11 +51,11 @@ void VerifyCaptureFrame (pg::Module& module, std::string state, const std::files
         io.AddMouseButtonEvent (0, false);
         state = Frame (module, state);
     };
-    const auto open = [&] {
+    const auto open = [&] (bool times = false) {
         const auto* entry = ImGui::FindWindowByName ("##capture-entry");
         Require (!entry || !entry->Active, "Duplicate floating screenshot entry");
         auto saved = pg::json::Parse (state).value;
-        pg::Put (saved, "nativeRequest", pg::Value::String ("@capture"));
+        pg::Put (saved, "nativeRequest", pg::Value::String (times ? "@capture-times" : "@capture"));
         std::string error;
         Require (module.Swap (dll, pg::json::Write (saved, 0), error), "Capture fixture failed");
         state = Frame (module, state);
@@ -102,7 +102,7 @@ void VerifyCaptureFrame (pg::Module& module, std::string state, const std::files
     Require (state.find ("Mock screenshot request recorded") == std::string::npos, "Cancel requested a screenshot");
     state = Frame (module, state);
     state = Frame (module, state);
-    end = open ();
+    end = open (true);
     const auto& style = ImGui::GetStyle ();
     const float cancelWidth = ImGui::CalcTextSize ("Cancel").x + 2.0f * style.FramePadding.x;
     click ({ end.x - cancelWidth - style.ItemSpacing.x - 10.0f, end.y + buttonHeight * 0.5f });
@@ -113,6 +113,14 @@ void VerifyCaptureFrame (pg::Module& module, std::string state, const std::files
     Require (std::any_of (pixels.begin (), pixels.end (),
                           [] (const auto& v) { return v.col == IM_COL32 (122, 122, 122, 255); }),
              "Mini-plan did not render the fixture building");
+    float east = -1, arrowWest = 1e6f;
+    for (const auto& v : pixels) {
+        if (v.col == IM_COL32 (247, 247, 247, 255))
+            east = std::max (east, v.pos.x);
+        if (v.col == IM_COL32 (32, 45, 65, 255))
+            arrowWest = std::min (arrowWest, v.pos.x);
+    }
+    Require (east > 0 && arrowWest < 1e6f && arrowWest >= east, "North arrow must be outside the plan");
     state = Frame (module, state);
     Require (ImGui::FindWindowByName ("###tapioca.dock")->Active, "Capture did not restore the dock");
 }

@@ -146,7 +146,23 @@ void DrawNative (NativePreview& p, Value& state, ImVec2 stageMin, ImVec2 stageMa
     };
     const auto requested = Text (state, "nativeRequest");
     if (!requested.empty ()) {
-        if (requested == "@capture")
+        if (requested == "@capture-times") {
+            auto& hud = p.mocks.hud;
+            av::viewerhud::BeginCaptureFrame (hud, av::kShotSunStudy);
+            hud.captureFrame.studyDay = true;
+            hud.captureFrame.shadowStyle = 1;
+            auto& study = p.mocks.scene.sunStudy;
+            study.studyId = p.mocks.sun.studyId = "fixture-sun";
+            p.mocks.sun.stage = "done";
+            char date[24];
+            std::snprintf (date, sizeof (date), "%04d-%02d-%02d", hud.sunRunYear, hud.captureFrame.month,
+                           hud.captureFrame.day);
+            p.mocks.sun.dayDate = date;
+            study.elementsAttached = 1;
+            study.stepCount = 4;
+            study.stepMinutes = { 540, 720, 900, 1080 };
+        }
+        else if (requested == "@capture")
             av::viewerhud::BeginCaptureFrame (p.mocks.hud, av::kShotSunStudy);
         else
             select (requested);

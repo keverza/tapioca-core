@@ -118,33 +118,9 @@ bool ViewerScreenshot::Active () const
     return target_ != nullptr;
 }
 
-Camera& ViewerScreenshot::CameraFor (Camera& live, DiligentScene& scene, HudState& state, float aspect)
+Camera& ViewerScreenshot::CameraFor (Camera& live)
 {
-    auto& frame = state.captureFrame;
-    if (!frame.studyDay || (!frame.active && !Active ())) {
-        frame.planReady = false;
-        frame.roi = {};
-        comparisonCamera_.reset ();
-        return live;
-    }
-    if (Active () && comparisonCamera_)
-        return *comparisonCamera_;
-    if (!frame.roi.IsValid ()) {
-        const auto payload = scene.ShownAnalysisPayload ();
-        float lo[3], hi[3];
-        if (payload && payload->analysisKind == 0 && !payload->preview && payload->captureRoi.IsValid () &&
-            scene.SceneBounds (lo, hi)) {
-            frame.roi = payload->captureRoi;
-            frame.north = scene.Stats ().northDegrees;
-            frame.bottom = lo[2];
-            frame.top = hi[2];
-        }
-    }
-    if (!comparisonCamera_)
-        comparisonCamera_ = std::make_unique<Camera> ();
-    frame.planReady = FitAnalysisCaptureRect (*comparisonCamera_, frame.roi, frame.north, aspect, frame.bottom,
-                                              frame.top, frame.rect);
-    return frame.planReady ? *comparisonCamera_ : live;
+    return Active () && comparisonCamera_ ? *comparisonCamera_ : live;
 }
 
 void ViewerScreenshot::ServiceFramingCamera (Camera& camera, DiligentScene& scene, HudState& state,
@@ -152,6 +128,10 @@ void ViewerScreenshot::ServiceFramingCamera (Camera& camera, DiligentScene& scen
 {
     state.viewpointOwnsMouse = state.captureFrame.active ? false : state.viewpointOwnsMouse;
     state.captureTopView = camera.IsTopDown ();
+    if (state.sunShotRequested && state.captureFrame.studyDay)
+        comparisonCamera_ = std::make_unique<Camera> (camera);
+    else if (!Active ())
+        comparisonCamera_.reset ();
     if (!regionsRead_) {
         regionsRead_ = true;
         for (int slot = 0; slot < 3; ++slot) {
@@ -194,11 +174,6 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
         const auto payload = scene.ShownAnalysisPayload ();
         state.captureFrame.legendPlan = payload ? payload->capturePlan : nullptr;
     }
-    if (kind_ == kShotSunStudy && state.captureFrame.studyDay &&
-        (!state.captureFrame.planReady || !comparisonCamera_)) {
-        Fail (state, "the analysis region has no comparison preview");
-        return surface;
-    }
     table_ = kind_ == kShotExposedSurfaces ? state.exposedShot : nullptr;
     state.exposedShot.reset ();
     if (kind_ == kShotExposedSurfaces && (table_ == nullptr || !ExposedShotCurrent (*table_))) {
@@ -220,9 +195,22 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
         return surface;
     }
     auto target = std::make_unique<DiligentViewportTarget> ();
+    const auto& frame = state.captureFrame;
+    if (kind_ == kShotSunStudy && frame.studyDay && frame.shadowStyle == 1) {
+        const size_t count = frame.panelSteps.size ();
+        if (count < 2 || count > 4 || crop_.Width () * count > kViewerScreenshotMaxDimension ||
+            uint64_t (crop_.Width ()) * crop_.Height () * count > 64ull * 1024 * 1024) {
+            Fail (state, "the time layout needs 2-4 panels within the image limit; reduce the scale or crop");
+            return surface;
+        }
+        panelIndex_ = 0;
+        layoutImage_.resize (crop_.Width () * count * crop_.Height () * 4);
+        state.captureFrame.shadowStep = frame.panelSteps.front ();
+    }
     std::string error;
     if (!target->Create (device, context, SurfaceMode::Offscreen, nullptr, size.width, size.height, error)) {
         target->Destroy (context);
+        std::vector<uint8_t> ().swap (layoutImage_);
         Fail (state, error.empty () ? "the viewer has no size yet" : error);
         return surface;
     }
@@ -306,7 +294,7 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
     if (++frames_ < kViewerScreenshotSettleFrames)
         return true;
 
-    const uint32_t width = crop_.Width ();
+    uint32_t width = crop_.Width ();
     const uint32_t viewHeight = crop_.Height ();
     uint32_t stripHeight = table_ != nullptr
                                ? hud.CaptureTableHeight (scale_, table_->rows.size (), table_->footer.size ())
@@ -321,6 +309,21 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
     if (ok && !CropScreenshotRgba (image, { target_->Width (), target_->Height () }, crop_)) {
         ok = false;
         error = "could not crop the captured pixels";
+    }
+    if (ok && !layoutImage_.empty ()) {
+        auto& frame = state.captureFrame;
+        ok = PlaceTimePanel (layoutImage_, { width, viewHeight }, frame.panelSteps.size (), panelIndex_, image);
+        if (!ok)
+            error = "invalid time panel dimensions";
+        width *= uint32_t (frame.panelSteps.size ());
+        if (ok && ++panelIndex_ < frame.panelSteps.size ()) {
+            frame.shadowStep = frame.panelSteps[panelIndex_];
+            frames_ = 0;
+            scene.ResetTemporalAntiAliasingHistory ();
+            return true;
+        }
+        image.swap (layoutImage_);
+        stripHeight += stripHeight / 2; // separate panel-time row above the common footer
     }
     if (ok && table_ != nullptr) {
         // Drawn at the estimate; drawn again at what the layout needed when names
@@ -403,6 +406,7 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
 void ViewerScreenshot::Destroy (Diligent::IDeviceContext* context)
 {
     frames_ = 0;
+    std::vector<uint8_t> ().swap (layoutImage_);
     framingCamera_.reset ();
     table_.reset ();
     if (target_ == nullptr)

@@ -429,18 +429,29 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
     ImGui::SetNextWindowPos (ImVec2 (0.0f, 0.0f));
     ImGui::SetNextWindowSize (ImVec2 (float (width), float (height)));
     // Tight: the strip is CaptureLegendHeight's three lines and a margin.
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (font, 0.25f * font));
+    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0, 0));
     ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar (ImGuiStyleVar_CellPadding, ImVec2 (font, 0.0f));
+    ImGui::PushStyleVar (ImGuiStyleVar_CellPadding, ImVec2 (0, 0));
     ImGui::PushStyleVar (ImGuiStyleVar_ItemSpacing, ImVec2 (ImGui::GetStyle ().ItemSpacing.x, 0.15f * font));
     ImGui::PushStyleColor (ImGuiCol_WindowBg, ImVec4 (1.0f, 1.0f, 1.0f, 1.0f));
     ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.12f, 0.12f, 0.12f, 1.0f));
     ImGui::Begin ("##sun-capture-legend", nullptr,
                   ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs |
                       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollbar);
-    // ⚠️ TWO COLUMNS, NO HEADERS, NO RULES (#156): the left half is where and
-    // when, one line each joined with " | "; the right half is the colours.
-    // The image leaves the panel behind, so where and when travel with them.
+    const auto& frame = state.captureFrame;
+    const bool layout = frame.studyDay && frame.shadowStyle == 1 && frame.panelSteps.size () >= 2;
+    const float captions = layout ? float (height / 3) : 0.f;
+    if (layout) {
+        for (size_t i = 0; i < frame.panelSteps.size (); ++i) {
+            char clock[16] = "--:--";
+            if (size_t (frame.panelSteps[i]) < frame.layoutMinutes.size ())
+                Clock (frame.layoutMinutes[frame.panelSteps[i]], clock, sizeof (clock));
+            const float x = (i + .5f) * width / frame.panelSteps.size () - ImGui::CalcTextSize (clock).x * .5f;
+            ImGui::GetWindowDrawList ()->AddText ({ x, (captions - font) * .5f }, ImGui::GetColorU32 (ImGuiCol_Text),
+                                                  clock);
+        }
+        ImGui::SetCursorPosY (captions);
+    }
     if (!ImGui::BeginTable ("##sun-capture-columns", 3,
                             ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
         ImGui::End ();
@@ -448,8 +459,8 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
         ImGui::PopStyleVar (4);
         return;
     }
-    const float square = std::min (float (height) - font * .5f, float (width) * .12f);
-    ImGui::TableSetupColumn ("Plan", ImGuiTableColumnFlags_WidthFixed, square);
+    const float square = std::min (float (height) - captions, float (width) * .20f);
+    ImGui::TableSetupColumn ("Plan", ImGuiTableColumnFlags_WidthFixed, square * 1.45f);
     ImGui::TableSetupColumn ("Study", ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableSetupColumn ("Colours", ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableNextRow ();
@@ -479,6 +490,11 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
     period.shadowsOfOneDay = mode == 5 || mode == 6 || mode == 7;
     // The colours first, so the left half knows what spilled over.
     ImGui::TableSetColumnIndex (2);
+    const auto centreRows = [&] (float lines) {
+        ImGui::SetCursorPosY (ImGui::GetCursorPosY () +
+                              std::max (0.f, (square - lines * ImGui::GetTextLineHeightWithSpacing ()) * .5f));
+    };
+    centreRows (mode == 0 ? 3.f : 2.f);
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     if (mode == 0) {
         const SunStudyViewSettings view = SunStudyViewOf (state);
@@ -551,7 +567,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
         const std::string at = std::string ("Shadow at ") + clock;
         // The person's colours (#116), the same ones the tint draws.
         if (mode == 5)
-            row (at.c_str (),
+            row (layout ? "Single shadow by time" : at.c_str (),
                  { { state.sunSingleLitRgba >> 8, "sunlit" }, { state.sunSingleShadowedRgba >> 8, "shadowed" } });
         else if (mode == 6)
             row ("Shadow duration",
@@ -569,6 +585,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
     }
     // The left half: location on one line, the analysis period on the next.
     ImGui::TableSetColumnIndex (1);
+    centreRows (overflow.empty () ? 2.f : 3.f);
     ImGui::TextUnformatted (SunStudyCaptureJoin (SunStudyCaptureLocationLines (
                                                      scene.sunApplied, scene.latitudeDegrees, scene.longitudeDegrees,
                                                      scene.siteAltitudeMetres, scene.northDegrees))

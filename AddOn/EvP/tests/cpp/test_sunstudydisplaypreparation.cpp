@@ -93,7 +93,7 @@ TEST (SunStudyDisplayPreparation, BothDomainsMatchLegacyHoursAndEveryStepBitWith
         ASSERT_NE (upload->capturePlan, nullptr);
         const auto& cells = upload->capturePlan->cells;
         EXPECT_TRUE (std::any_of (cells.begin (), cells.end (), [] (auto v) { return v != 0; }));
-        EXPECT_EQ (cells.front (), 0);
+        EXPECT_NE (cells.front (), 0); // square receiver fills the inset to its edge
         EXPECT_EQ (*upload->texels, image);
         EXPECT_EQ (*upload->stepMasks, steps.masks);
         EXPECT_EQ (upload->width, width);
