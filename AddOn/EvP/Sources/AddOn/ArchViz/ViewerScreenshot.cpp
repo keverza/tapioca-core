@@ -17,10 +17,13 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentNativeInterop.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/SunStudyOverlay.hpp"
+#include "ArchViz/ShadowCaptureArea.hpp"
 #include "ArchViz/SurfaceTakeoffShot.hpp"
 #include "ArchViz/ViewerEditor.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/SurfaceTakeoffController.hpp"
+#include "SunStudy/SunStudyStore.hpp"
 
 #include <windows.h>
 #include <DeviceContext.h>
@@ -28,6 +31,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -106,6 +110,52 @@ void Fail (HudState& state, const std::string& reason)
     state.sunShotBusy = false;
     state.sunShotResult = reason;
     ArchVizLog ("viewer screenshot: not saved -- " + reason);
+}
+
+// Use the same per-sample lit mask as the single-shadow shader. Padding and
+// duplicated border texels have no receiver area and never enter the sum.
+std::string ShadeMetric (const SunStudyAtlasUpload& payload, int step, double& percent)
+{
+    const auto rec = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (payload.studyId);
+    const size_t plane = size_t (payload.width) * payload.height;
+    if (!rec || !plane || step < 0 || uint32_t (step) >= payload.stepCount || !payload.stepMasks ||
+        payload.stepMasks->size () / plane <= size_t (step / 32))
+        return "No area data";
+    const bool patch = rec->IsPatchDomain ();
+    const auto& areas = patch ? rec->patchGrid.areas : rec->sampleGrid.areas;
+    if (areas.size () != rec->positions.size () / 3 || (!patch && areas.size () != rec->atlas.texels.size ()))
+        return "No area data";
+    const auto area = MeasureShadowArea (areas, *payload.stepMasks, plane, unsigned (step), [&] (size_t i) {
+        return patch ? rec->patchAtlas.TexelOf (rec->patchGrid, i) : int64_t (rec->atlas.texels[i]);
+    });
+    if (!area.valid || area.measured <= 0)
+        return "No measured area";
+    char text[96];
+    percent = 100 * area.shaded / area.measured;
+    std::snprintf (text, sizeof (text), "%.1f%% shaded", percent);
+    if (area.missing > 0)
+        std::snprintf (text, sizeof (text), "%.1f%% shaded | %.1f m2 missing", 100 * area.shaded / area.measured,
+                       area.missing);
+    return text;
+}
+
+void StartSeason (HudState& state, size_t row, bool south)
+{
+    auto& f = state.captureFrame;
+    f.month = row == 0 ? 3 : (row == 1) != south ? 6 : 12;
+    f.day = row == 0 ? 20 : 21; // same seasonal dates as the Sun Path arcs
+    f.requestedRun = 0;
+    // The form is restored immediately. All columns are on the five-minute
+    // clock; trace the inclusive last clock even at a whole hour.
+    const int from = state.sunRunHourFrom, to = state.sunRunHourTo, step = state.sunRunTimestep;
+    state.sunRunHourFrom = f.startMinute / 60;
+    state.sunRunHourTo = f.endMinute / 60 + 1;
+    state.sunRunTimestep = 0;
+    RunSunStudyDay (state, f.month, f.day, &f.requestedRun);
+    state.sunRunHourFrom = from;
+    state.sunRunHourTo = to;
+    state.sunRunTimestep = step;
+    f.progressText = "Preparing seasonal study " + std::to_string (row + 1) + " / 3";
 }
 
 } // namespace
@@ -198,7 +248,8 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     const auto& frame = state.captureFrame;
     if (kind_ == kShotSunStudy && frame.studyDay && frame.shadowStyle == 1) {
         const size_t count = frame.panelSteps.size ();
-        const auto grid = TimeGrid (count, { crop_.Width (), crop_.Height () });
+        const auto grid = frame.seasonal ? ScreenshotSize { uint32_t (count), 3 }
+                                         : TimeGrid (count, { crop_.Width (), crop_.Height () });
         if (!grid.width || crop_.Width () / grid.width < 32 || crop_.Height () / grid.height < 16 ||
             uint64_t (crop_.Width ()) * crop_.Height () > 64ull * 1024 * 1024) {
             Fail (state, "the grid does not fit this capture size; adjust the interval, scale or crop");
@@ -207,7 +258,12 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
         panelIndex_ = 0;
         layoutImage_.assign (size_t (crop_.Width ()) * crop_.Height () * 4, 255);
         state.captureFrame.gridHeight = crop_.Height ();
-        state.captureFrame.shadowStep = frame.panelSteps.front ();
+        state.captureFrame.shadowStep = (std::max) (0, frame.panelSteps.front ());
+        state.captureFrame.captions.clear ();
+        state.captureFrame.progress = 0;
+        state.captureFrame.progressText = "Preparing shadow analysis";
+        progressSurface_ = &surface;
+        sourceStamp_ = MeshStore::Get ().CaptureStamp ();
     }
     std::string error;
     if (!target->Create (device, context, SurfaceMode::Offscreen, nullptr, size.width, size.height, error)) {
@@ -220,6 +276,10 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     device_ = device;
     frames_ = 0;
     state.sunShotBusy = true;
+    if (!layoutImage_.empty () && frame.seasonal) {
+        waitingDay_ = true;
+        StartSeason (state, 0, scene.Stats ().latitudeDegrees < 0);
+    }
     // The window's history is the wrong size and, at worst, the wrong pixels.
     scene.ResetTemporalAntiAliasingHistory ();
     ArchVizLog ("viewer screenshot: rendering " + std::to_string (size.width) + "x" + std::to_string (size.height));
@@ -275,6 +335,77 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
     if (target_ == nullptr)
         return false;
     EndUnpresentedFrame (context); // a screenshot frame is never presented, so it ends (and is paced) here
+    auto& f = state.captureFrame;
+    if (!layoutImage_.empty ()) {
+        const size_t columns = f.panelSteps.size (), total = columns * (f.seasonal ? 3 : 1);
+        const auto abort = [&] (const std::string& why) {
+            if (waitingDay_)
+                viewerhud::CancelStudyDay (f);
+            Fail (state, why);
+            Destroy (context);
+            scene.ResetTemporalAntiAliasingHistory ();
+            return true;
+        };
+        if (sourceStamp_ != MeshStore::Get ().CaptureStamp ())
+            return abort ("model changed during shadow comparison");
+        if (waitingDay_) {
+            const auto& shown = scene.Stats ().sunStudy;
+            std::string detail;
+            const auto phase = viewerhud::PollStudyDay (state, shown, detail);
+            if (phase == viewerhud::StudyDayState::Publishing) {
+                const auto now = std::chrono::steady_clock::now ();
+                if (publishingSince_ == std::chrono::steady_clock::time_point {})
+                    publishingSince_ = now;
+                if (now - publishingSince_ > std::chrono::seconds (30))
+                    return abort ("seasonal study completed but was not displayed");
+            }
+            else
+                publishingSince_ = {};
+            if (phase == viewerhud::StudyDayState::Failed)
+                return abort (detail);
+            if (phase == viewerhud::StudyDayState::Ready) {
+                if (panelIndex_ == 0) {
+                    const auto first = scene.ShownAnalysisPayload ();
+                    f.legendPlan = first ? first->capturePlan : nullptr;
+                }
+                f.layoutMinutes = shown.stepMinutes;
+                for (size_t i = 0; i < columns; ++i) {
+                    auto it = std::find (f.layoutMinutes.begin (), f.layoutMinutes.end (), f.clocks[i]);
+                    f.panelSteps[i] = it == f.layoutMinutes.end () ? -1 : int (it - f.layoutMinutes.begin ());
+                }
+                f.pinnedStudy = shown.studyId;
+                f.pinnedVersion = shown.version;
+                f.shadowStep = (std::max) (0, f.panelSteps[0]);
+                state.sunStepMinutes = f.layoutMinutes;
+                waitingDay_ = false;
+                frames_ = 0;
+                scene.ResetTemporalAntiAliasingHistory ();
+                return true;
+            }
+            f.progressText = "Study " + std::to_string (panelIndex_ / columns + 1) + " / 3 | " + detail;
+        }
+        else {
+            f.progressText = "Rendering panel " + std::to_string (panelIndex_ + 1) + " / " + std::to_string (total);
+        }
+        f.progress =
+            float (panelIndex_ + (!waitingDay_ ? float (frames_) / kViewerScreenshotSettleFrames : 0)) / float (total);
+        if (frames_ % 6 == 0 && progressSurface_) {
+            Diligent::ITextureView *rtv = nullptr, *dsv = nullptr;
+            if (progressSurface_->BeginFrame (rtv, dsv)) {
+                constexpr float bg[] = { .12f, .13f, .15f, 1.f };
+                context->SetRenderTargets (1, &rtv, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+                context->ClearRenderTarget (rtv, bg, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+                hud.DrawCaptureLegend (context, progressSurface_->Width (), progressSurface_->Height (), 1,
+                                       scene.Stats (), state, -2);
+                context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
+                progressSurface_->Present ();
+            }
+        }
+        if (waitingDay_) {
+            ++frames_;
+            return true;
+        }
+    }
     if (kind_ == kShotSunStudy && state.captureFrame.studyDay) {
         const auto& study = scene.Stats ().sunStudy;
         if (study.studyId != state.captureFrame.pinnedStudy || study.version != state.captureFrame.pinnedVersion ||
@@ -314,14 +445,39 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
     }
     if (ok && !layoutImage_.empty ()) {
         auto& frame = state.captureFrame;
-        const auto grid = TimeGrid (frame.panelSteps.size (), { width, viewHeight });
-        const uint32_t caption = std::clamp (stripHeight / 2, 1u, viewHeight / grid.height / 3);
-        ok =
-            PlaceTimePanel (layoutImage_, { width, viewHeight }, frame.panelSteps.size (), panelIndex_, caption, image);
+        const size_t cols = frame.panelSteps.size (), total = cols * (frame.seasonal ? 3 : 1),
+                     column = panelIndex_ % cols, rowIndex = panelIndex_ / cols;
+        const auto grid =
+            frame.seasonal ? ScreenshotSize { uint32_t (cols), 3 } : TimeGrid (cols, { width, viewHeight });
+        const uint32_t caption = std::clamp (stripHeight, 1u, viewHeight / grid.height / 3);
+        const int step = frame.panelSteps[column], minute = frame.clocks[column];
+        const auto payload = scene.ShownAnalysisPayload ();
+        double percent = -1;
+        auto metric = step < 0 ? "Not measured" : payload ? ShadeMetric (*payload, step, percent) : "No area data";
+        if (column && percent >= 0 && previousShaded_ >= 0) {
+            char change[40];
+            std::snprintf (change, sizeof (change), " (%+.1f pp)", percent - previousShaded_);
+            metric += change;
+        }
+        previousShaded_ = percent;
+        char label[180];
+        std::snprintf (label, sizeof (label), "%s%02d/%02d | %02d:%02d\n%s",
+                       frame.seasonal ? (rowIndex == 0   ? "Equinox "
+                                         : rowIndex == 1 ? "Summer "
+                                                         : "Winter ")
+                                      : "",
+                       frame.month, frame.day, minute / 60, minute % 60, metric.c_str ());
+        frame.captions.emplace_back (label);
+        ok = step < 0 || PlaceTimePanel (layoutImage_, { width, viewHeight }, total, panelIndex_, caption, image, grid);
         if (!ok)
             error = "invalid time panel dimensions";
-        if (ok && ++panelIndex_ < frame.panelSteps.size ()) {
-            frame.shadowStep = frame.panelSteps[panelIndex_];
+        if (ok && ++panelIndex_ < total) {
+            if (frame.seasonal && panelIndex_ % cols == 0) {
+                StartSeason (state, panelIndex_ / cols, scene.Stats ().latitudeDegrees < 0);
+                waitingDay_ = true;
+            }
+            else
+                frame.shadowStep = (std::max) (0, frame.panelSteps[panelIndex_ % cols]);
             frames_ = 0;
             scene.ResetTemporalAntiAliasingHistory ();
             return true;
@@ -417,6 +573,9 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
 
 void ViewerScreenshot::Destroy (Diligent::IDeviceContext* context)
 {
+    waitingDay_ = false;
+    publishingSince_ = {};
+    progressSurface_ = nullptr;
     frames_ = 0;
     std::vector<uint8_t> ().swap (layoutImage_);
     framingCamera_.reset ();

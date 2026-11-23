@@ -60,7 +60,7 @@ bool CropScreenshotRgba (std::vector<uint8_t>& image, ScreenshotSize size, Scree
 std::vector<int> DaylightPanelSteps (const std::vector<uint16_t>& minutes, int hourStep);
 ScreenshotSize TimeGrid (size_t count, ScreenshotSize canvas);
 bool PlaceTimePanel (std::vector<uint8_t>& layout, ScreenshotSize panel, size_t count, size_t index, uint32_t caption,
-                     const std::vector<uint8_t>& pixels);
+                     const std::vector<uint8_t>& pixels, ScreenshotSize grid = {});
 std::filesystem::path ViewerScreenshotPath (const std::filesystem::path& directory, int kind, float scale,
                                             const char* timestamp, std::error_code& error);
 

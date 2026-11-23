@@ -75,9 +75,12 @@ ScreenshotSize TimeGrid (size_t count, ScreenshotSize canvas)
 }
 
 bool PlaceTimePanel (std::vector<uint8_t>& layout, ScreenshotSize panel, size_t count, size_t index, uint32_t caption,
-                     const std::vector<uint8_t>& pixels)
+                     const std::vector<uint8_t>& pixels, ScreenshotSize grid)
 {
-    const auto grid = TimeGrid (count, panel);
+    if (!grid.width)
+        grid = TimeGrid (count, panel);
+    if (!grid.height || size_t (grid.width) * grid.height < count)
+        return false;
     if (!grid.width || !panel.width || !panel.height || index >= count || panel.width > kViewerScreenshotMaxDimension ||
         panel.height > kViewerScreenshotMaxDimension)
         return false;

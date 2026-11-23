@@ -408,6 +408,27 @@ void viewerhud::CancelStudyDay (const CaptureFrame& frame)
         sunstudyhud::CancelRun (frame.requestedRun);
 }
 
+viewerhud::StudyDayState viewerhud::PollStudyDay (const HudState& state, const SunStudyOverlayStatus& shown,
+                                                  std::string& text)
+{
+    const auto& f = state.captureFrame;
+    const auto status = sunstudyhud::Current ();
+    if (!f.requestedRun || status.runs != f.requestedRun || status.stage == "failed" || status.stage == "cancelled") {
+        text = !state.sunRunSubmitError.empty () ? state.sunRunSubmitError
+               : status.error.empty ()           ? "seasonal run interrupted"
+                                                 : status.error;
+        return StudyDayState::Failed;
+    }
+    text = status.dayDate + " | " + status.stage;
+    if (status.running && status.totalSteps)
+        text += " " + std::to_string (status.resolvedSteps) + "/" + std::to_string (status.totalSteps);
+    if (status.running || status.stage != "done")
+        return StudyDayState::Waiting;
+    if (shown.studyId != status.studyId || shown.preview || !shown.elementsAttached)
+        return StudyDayState::Publishing;
+    return StudyDayState::Ready;
+}
+
 bool viewerhud::DrawStudyDay (HudState& state, const SunStudyOverlayStatus* shown)
 {
     auto& frame = state.captureFrame;
@@ -416,6 +437,10 @@ bool viewerhud::DrawStudyDay (HudState& state, const SunStudyOverlayStatus* show
     ImGui::Checkbox ("Shadow study for a date", &frame.studyDay);
     if (!frame.studyDay)
         return true;
+    if (frame.seasonal && frame.shadowStyle == 1) {
+        ImGui::TextDisabled ("Shadow analysis | March 20, June 21, December 21 | %04d", state.sunRunYear);
+        return true;
+    }
     const auto status = sunstudyhud::Current ();
     ImGui::BeginDisabled (status.running);
     ImGui::Text ("%04d", state.sunRunYear);

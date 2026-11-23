@@ -523,22 +523,33 @@ void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t
     impl_->renderer->NewFrame (width, height, Diligent::SURFACE_TRANSFORM_IDENTITY);
     ImGui::NewFrame ();
     ImGui::PushFont (impl_->font, 13.0f * dpiScale);
-    if (captionRow < 0)
+    if (captionRow == -2) {
+        ImGui::SetNextWindowPos ({ width * .5f, height * .5f }, ImGuiCond_Always, { .5f, .5f });
+        ImGui::Begin ("Shadow analysis export", nullptr,
+                      ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings |
+                          ImGuiWindowFlags_NoCollapse);
+        ImGui::TextUnformatted (state.captureFrame.progressText.c_str ());
+        ImGui::ProgressBar (state.captureFrame.progress, { 240 * dpiScale, 0 });
+        ImGui::End ();
+    }
+    else if (captionRow < 0)
         DrawSunStudyCaptureLegend (state, scene, width, height);
     else {
         const auto& f = state.captureFrame;
-        const auto grid = TimeGrid (f.panelSteps.size (), { width, state.captureFrame.gridHeight });
-        const auto font = (std::min) (ImGui::GetFontSize (), float (height) * .85f);
+        const auto grid = f.seasonal ? ScreenshotSize { uint32_t (f.clocks.size ()), 3 }
+                                     : TimeGrid (f.panelSteps.size (), { width, state.captureFrame.gridHeight });
+        const auto font = (std::min) (ImGui::GetFontSize (), float (height) * .45f);
         for (unsigned col = 0; col < grid.width; ++col) {
             const size_t i = size_t (captionRow) * grid.width + col;
-            if (i >= f.panelSteps.size ())
+            if (i >= f.captions.size ())
                 break;
-            const int m = f.layoutMinutes[f.panelSteps[i]];
-            char text[12];
-            std::snprintf (text, sizeof (text), "%02d:%02d", m / 60, m % 60);
-            const auto w = ImGui::CalcTextSize (text).x * font / ImGui::GetFontSize ();
+            const char* text = f.captions[i].c_str ();
+            const float measured = ImGui::CalcTextSize (text).x;
+            const auto fitted =
+                (std::min) (font, ImGui::GetFontSize () * (width / grid.width - 3) / (std::max) (1.f, measured));
+            const auto w = measured * fitted / ImGui::GetFontSize ();
             ImGui::GetForegroundDrawList ()->AddText (
-                ImGui::GetFont (), font, { (col + .5f) * width / grid.width - w * .5f, (height - font) * .5f },
+                ImGui::GetFont (), fitted, { (col + .5f) * width / grid.width - w * .5f, (height - 2 * fitted) * .5f },
                 IM_COL32 (32, 32, 32, 255), text);
         }
     }

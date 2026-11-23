@@ -26,7 +26,13 @@ struct CaptureFrame {
     int aspect = 0;
     bool studyDay = false;
     std::shared_ptr<const tapioca::sunstudy::CapturePlan> legendPlan;
-    int shadowStyle = 0, shadowStep = 0, hourStep = 1;
+    int shadowStyle = 0, shadowStep = 0;
+    int startMinute = 540, endMinute = 900, divisions = 3, grip = 0;
+    bool seasonal = false;
+    std::vector<int> clocks;
+    std::vector<std::string> captions;
+    std::string progressText;
+    float progress = 0;
     int hotX = 0, hotY = 0, viewSlot = 0;
     std::vector<int> panelSteps;
     uint32_t gridHeight = 0;
@@ -57,6 +63,8 @@ ScreenshotRect EditCaptureRect (ScreenshotRect rect, ScreenshotSize view, float 
 ScreenshotRect FitCaptureAspect (ScreenshotRect rect, ScreenshotSize view, float minimum, float aspect);
 bool DrawStudyDay (HudState& state, const SunStudyOverlayStatus* shown);
 void CancelStudyDay (const CaptureFrame& frame);
+enum class StudyDayState { Waiting, Publishing, Ready, Failed };
+StudyDayState PollStudyDay (const HudState& state, const SunStudyOverlayStatus& shown, std::string& status);
 bool BeginCaptureFrame (HudState& state, int kind);
 bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize view, float dpiScale,
                        const SunStudyOverlayStatus* shown = nullptr);

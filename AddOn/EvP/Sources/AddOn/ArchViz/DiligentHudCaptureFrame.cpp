@@ -17,6 +17,54 @@ namespace {
 
 using hudshell::DockEdge;
 
+void ShadowClockRange (CaptureFrame& f, float dpi)
+{
+    ImGui::Text ("Start %02d:%02d     End %02d:%02d", f.startMinute / 60, f.startMinute % 60, f.endMinute / 60,
+                 f.endMinute % 60);
+    ImGui::SameLine ();
+    if (ImGui::SmallButton ("-##shadow-divisions"))
+        f.divisions = std::max (1, f.divisions - 1);
+    ImGui::SameLine ();
+    ImGui::Text ("%d divisions", f.divisions);
+    ImGui::SameLine ();
+    if (ImGui::SmallButton ("+##shadow-divisions"))
+        f.divisions = std::min (8, f.divisions + 1);
+    auto pos = ImGui::GetCursorScreenPos ();
+    float w = std::min (324.f * dpi, std::max (120.f * dpi, ImGui::GetIO ().DisplaySize.x - 48 * dpi));
+    ImGui::InvisibleButton ("##shadow-clock-range", { w, 24 * dpi });
+    const auto x = [&] (int minute) { return pos.x + 6 * dpi + (w - 12 * dpi) * minute / 1435.f; };
+    float y = pos.y + 12 * dpi, mx = ImGui::GetIO ().MousePos.x;
+    if (ImGui::IsItemActivated ())
+        f.grip = std::abs (mx - x (f.startMinute)) <= std::abs (mx - x (f.endMinute)) ? 1 : 2;
+    if (ImGui::IsItemActive ()) {
+        int minute = std::clamp (int (std::lround ((mx - x (0)) / (w - 12 * dpi) * 287)) * 5, 0, 1435);
+        if (f.grip == 1)
+            f.startMinute = std::min (minute, f.endMinute - 5 * f.divisions);
+        else
+            f.endMinute = std::max (minute, f.startMinute + 5 * f.divisions);
+    }
+    f.divisions = std::min (f.divisions, (f.endMinute - f.startMinute) / 5);
+    auto* draw = ImGui::GetWindowDrawList ();
+    draw->AddLine ({ x (0), y }, { x (1435), y }, IM_COL32 (150, 150, 150, 255), 3 * dpi);
+    draw->AddLine ({ x (f.startMinute), y }, { x (f.endMinute), y }, IM_COL32 (65, 120, 203, 255), 4 * dpi);
+    f.clocks.clear ();
+    int closest = 0;
+    for (int i = 0; i <= f.divisions; ++i) {
+        int m = f.startMinute + 5 * int (std::lround (double (i) * (f.endMinute - f.startMinute) / (5 * f.divisions)));
+        f.clocks.push_back (m);
+        if (std::abs (mx - x (m)) < std::abs (mx - x (f.clocks[closest])))
+            closest = i;
+        if (i == 0 || i == f.divisions)
+            draw->AddCircleFilled ({ x (m), y }, 6 * dpi, IM_COL32 (65, 120, 203, 255));
+        else
+            draw->AddLine ({ x (m), y - 5 * dpi }, { x (m), y + 5 * dpi }, ImGui::GetColorU32 (ImGuiCol_Text),
+                           1.5f * dpi);
+    }
+    int hover = f.clocks[closest];
+    if (ImGui::IsItemHovered () && std::abs (mx - x (hover)) <= 7 * dpi)
+        ImGui::SetTooltip ("%02d:%02d", hover / 60, hover % 60);
+}
+
 constexpr auto kCaptureWindowFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav |
                                      ImGuiWindowFlags_NoFocusOnAppearing;
@@ -331,25 +379,33 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             else {
                 colour ("Sunlit", state.sunSingleLitRgba);
                 colour ("Shadow", state.sunSingleShadowedRgba);
+                if (ImGui::Checkbox ("Seasonal comparison: equinox and both solstices", &frame.seasonal) &&
+                    frame.seasonal) {
+                    state.sunSingleLitRgba = 0xeeeeeeff;
+                    state.sunSingleShadowedRgba = 0x545454ff;
+                }
+                ShadowClockRange (frame, dpiScale);
+                frame.panelSteps.clear ();
+                for (int m : frame.clocks) {
+                    int step = -1;
+                    if (shown) {
+                        auto it = std::find (shown->stepMinutes.begin (), shown->stepMinutes.end (), m);
+                        if (it != shown->stepMinutes.end ())
+                            step = int (it - shown->stepMinutes.begin ());
+                    }
+                    frame.panelSteps.push_back (step);
+                }
             }
             if (shown && !shown->stepMinutes.empty ()) {
                 state.sunStepMinutes = shown->stepMinutes;
                 frame.shadowStep = std::clamp (frame.shadowStep, 0, int (shown->stepMinutes.size ()) - 1);
                 if (frame.shadowStyle == 1) {
-                    ImGui::SetNextItemWidth (145 * dpiScale);
-                    const bool changed = ImGui::SliderInt ("Daylight interval", &frame.hourStep, 1, 6, "%d h");
-                    if (changed || frame.layoutMinutes != shown->stepMinutes) {
-                        frame.layoutMinutes = shown->stepMinutes;
-                        frame.panelSteps = DaylightPanelSteps (frame.layoutMinutes, frame.hourStep);
-                        if (!frame.panelSteps.empty ())
-                            frame.shadowStep = frame.panelSteps.front ();
-                    }
-                    if (!frame.panelSteps.empty ()) {
-                        int from = frame.layoutMinutes[frame.panelSteps.front ()],
-                            to = frame.layoutMinutes[frame.panelSteps.back ()];
-                        ImGui::TextDisabled ("Measured daylight: %02d:%02d - %02d:%02d", from / 60, from % 60, to / 60,
-                                             to % 60);
-                    }
+                    frame.layoutMinutes = shown->stepMinutes;
+                    for (int s : frame.panelSteps)
+                        if (s >= 0) {
+                            frame.shadowStep = s;
+                            break;
+                        }
                 }
             }
             else
@@ -373,15 +429,16 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
         if (inlineControls)
             ImGui::SameLine ();
         if (frame.studyDay && frame.shadowStyle == 1)
-            ImGui::Text ("%u panels | %u x %u grid", unsigned (frame.panelSteps.size ()), crop.Width (),
-                         crop.Height ());
+            ImGui::Text ("%u panels | %u x %u grid", unsigned (frame.panelSteps.size ()) * (frame.seasonal ? 3 : 1),
+                         crop.Width (), crop.Height ());
         else
             ImGui::Text ("%u x %u", crop.Width (), crop.Height ());
         ImGui::SameLine ();
-        ImGui::BeginDisabled (!ready ||
-                              (frame.studyDay && (!shown || !shown->stepCount || shown->stepMinutes.empty () ||
-                                                  (frame.shadowStyle == 1 && frame.panelSteps.empty ()))) ||
-                              ShotPending (state) || !crop.Width () || !crop.Height ());
+        const bool seasons = frame.studyDay && frame.shadowStyle == 1 && frame.seasonal;
+        ImGui::BeginDisabled (
+            (!seasons && (!ready || (frame.studyDay && (!shown || !shown->stepCount || shown->stepMinutes.empty () ||
+                                                        (frame.shadowStyle == 1 && frame.panelSteps.empty ()))))) ||
+            ShotPending (state) || !crop.Width () || !crop.Height ());
         if (ImGui::Button ("Capture")) {
             state.captureRegions[frame.viewSlot] = frame.rect;
             state.shotKind = frame.kind;

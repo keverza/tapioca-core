@@ -14,11 +14,27 @@
 #include <fstream>
 #include <limits>
 
+#include "ArchViz/ShadowCaptureArea.hpp"
+
 namespace {
 
 using namespace geomsrv::archviz;
 using namespace geomsrv::archviz::viewerhud;
 using hudshell::DockEdge;
+
+TEST (ViewerScreenshot, ShadedFractionUsesMappedAreaAndTheCorrectStepWord)
+{
+    const auto measure = [] (unsigned step) {
+        return MeasureShadowArea ({ 1, 9, 4 }, { 1, 0, 0, 1 }, 2, step, [] (size_t i) { return int (i); });
+    };
+    auto morning = measure (0), evening = measure (32);
+    ASSERT_TRUE (morning.valid);
+    EXPECT_EQ (morning.measured, 10);
+    EXPECT_EQ (morning.shaded, 9);
+    EXPECT_EQ (morning.missing, 4);
+    EXPECT_EQ (evening.shaded, 1);
+    EXPECT_FALSE (measure (64).valid);
+}
 
 TEST (ViewerScreenshot, DaylightIntervalStartsAtFirstSampleAndIncludesLastOnce)
 {
@@ -263,6 +279,26 @@ TEST_F (CaptureGui, CaptureWindowsUseLightHudColoursEvenOverTheDarkBaseStyle)
     Frame (capture_);
     EXPECT_TRUE (WindowDrawsColour ("##capture-bar", neutralHover));
     EXPECT_EQ (ImGui::GetColorU32 (ImGuiCol_WindowBg), baseBackground);
+}
+
+TEST_F (CaptureGui, SeasonalColumnsRetainUnmeasuredClocksAndCanStartWithoutAnExistingDay)
+{
+    ASSERT_TRUE (BeginCaptureFrame (state_, kShotSunStudy));
+    auto& f = state_.captureFrame;
+    f.studyDay = f.seasonal = true;
+    f.shadowStyle = 1;
+    shown_.stepMinutes = { 660, 780 };
+    Frame ();
+    Frame ();
+    EXPECT_EQ (f.clocks, (std::vector<int> { 540, 660, 780, 900 }));
+    EXPECT_EQ (f.panelSteps, (std::vector<int> { -1, 0, 1, -1 }));
+    f.startMinute = 600;
+    f.endMinute = 720;
+    f.divisions = 4;
+    Frame ();
+    EXPECT_EQ (f.clocks, (std::vector<int> { 600, 630, 660, 690, 720 }));
+    Click (capture_);
+    EXPECT_TRUE (state_.sunShotRequested);
 }
 
 TEST_F (CaptureGui, EntryMovesFrameAndCancelKeepsPreviousResult)

@@ -25,6 +25,7 @@
 #include "ArchViz/ViewerScreenshotGeometry.hpp"
 
 #include <cstdint>
+#include <chrono>
 #include <memory>
 
 namespace Diligent {
@@ -87,6 +88,11 @@ class ViewerScreenshot final {
     int kind_ = 0; // HudState::shotKind, taken with the request
     ScreenshotPixels crop_;
     size_t panelIndex_ = 0;
+    double previousShaded_ = -1;
+    bool waitingDay_ = false;
+    std::chrono::steady_clock::time_point publishingSince_ {};
+    uint64_t sourceStamp_ = 0;
+    DiligentViewportTarget* progressSurface_ = nullptr;
     std::vector<uint8_t> layoutImage_;
     std::shared_ptr<const surfacetakeoff::ShotTable> table_;
 };

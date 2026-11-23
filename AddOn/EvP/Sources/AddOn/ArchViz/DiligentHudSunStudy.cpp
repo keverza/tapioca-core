@@ -555,7 +555,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
         const std::string at = std::string ("Shadow at ") + clock;
         // The person's colours (#116), the same ones the tint draws.
         if (mode == 5)
-            row (layout ? "Single shadow by time" : at.c_str (),
+            row (layout ? (frame.seasonal ? "Shadow analysis" : "Single shadow by time") : at.c_str (),
                  { { state.sunSingleLitRgba >> 8, "sunlit" }, { state.sunSingleShadowedRgba >> 8, "shadowed" } });
         else if (mode == 6)
             row ("Shadow duration",
@@ -578,7 +578,10 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
                                                      scene.sunApplied, scene.latitudeDegrees, scene.longitudeDegrees,
                                                      scene.siteAltitudeMetres, scene.northDegrees))
                                 .c_str ());
-    ImGui::TextUnformatted (SunStudyCaptureJoin (SunStudyCapturePeriodLines (period)).c_str ());
+    if (layout && frame.seasonal)
+        ImGui::Text ("Seasonal shadow analysis | %04d | shaded receiver area", state.sunRunYear);
+    else
+        ImGui::TextUnformatted (SunStudyCaptureJoin (SunStudyCapturePeriodLines (period)).c_str ());
     for (size_t i = 0; i < overflow.size (); ++i) {
         if (i > 0)
             ImGui::SameLine (0.0f, 2.0f * font);
