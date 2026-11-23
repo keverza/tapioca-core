@@ -159,7 +159,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         // and sun. The helper meshes (the axis gnomon, and the debug cube until
         // geometry arrives) are static meshes beside them.
         HudState hudState;
-        Camera camera;
+        Camera liveCamera;
         {
             std::string sceneError;
             if (!scene.Init (device, target.ColorFormat (), target.DepthFormat (), sceneError))
@@ -206,7 +206,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             // ---- where the camera starts ------------------------------------
             float distance = 0.0f;
-            if (StartViewerCamera (camera, hudState, cameraStart, surface.width, surface.height, &distance)) {
+            if (StartViewerCamera (liveCamera, hudState, cameraStart, surface.width, surface.height, &distance)) {
                 ArchVizLog ("Diligent viewport camera from Archicad (" + cameraStart.source + "): target " +
                             std::to_string (cameraStart.target[0]) + "," + std::to_string (cameraStart.target[1]) +
                             "," + std::to_string (cameraStart.target[2]) + " distance " + std::to_string (distance) +
@@ -216,7 +216,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 const float half = debugcubemesh::kHalfExtent;
                 const float boundsMin[3] = { -half, -half, -half };
                 const float boundsMax[3] = { half, half, half };
-                camera.FrameBounds (boundsMin, boundsMax);
+                liveCamera.FrameBounds (boundsMin, boundsMax);
                 ArchVizLog ("Diligent viewport camera: no Archicad camera (" + cameraStart.source +
                             "); framing the debug cube instead");
             }
@@ -346,7 +346,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 }
             }
 
-            screenshot.ServiceFramingCamera (camera, scene, hudState, userHasNavigated);
+            screenshot.ServiceFramingCamera (liveCamera, scene, hudState, userHasNavigated);
             DiligentViewportTarget& drawTo = screenshot.TargetFor (target, device, context, scene, hudState);
             Diligent::ITextureView* rtv = nullptr;
             Diligent::ITextureView* dsv = nullptr;
@@ -438,12 +438,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // for the rest of the session. Refreshing is a bounds read and a
             // couple of stores; the FRAMING below still happens exactly once.
             if (consumed > 0)
-                AdoptSceneBounds (camera, scene,
+                AdoptSceneBounds (liveCamera, scene,
                                   cameraStart.valid && !userHasNavigated && !hudState.ScreenshotCleanView () &&
                                       surface.mode == SurfaceMode::PaletteChild);
 
             if (!framedRealGeometry && !hudState.ScreenshotCleanView ())
-                framedRealGeometry = FrameExtractedViewerScene (camera, scene, cameraStart.valid, consumed > 0);
+                framedRealGeometry = FrameExtractedViewerScene (liveCamera, scene, cameraStart.valid, consumed > 0);
 
             if (offscreen) {
                 const ExtractionWorker::Progress progress = ExtractionWorker::Get ().Snapshot ();
@@ -513,7 +513,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             if (vieweredit::Active ())
                 hudState.wantsMouse = false, hudState.viewpointOwnsMouse = false;
             if (!offscreen && !hudState.ScreenshotCleanView ())
-                ServiceViewpointInput (camera, hudState, input, width, height);
+                ServiceViewpointInput (liveCamera, hudState, input, width, height);
             // ⚠️ THE HUD'S ANSWER IS FROM THE PREVIOUS FRAME, AND THAT IS
             // CORRECT. ImGui only knows whether it wants the mouse after its
             // widgets have been submitted, and the HUD is drawn at the END of
@@ -522,7 +522,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // scene, which puts the panel underneath the building. One frame of
             // latency on "was that click for the combo box" is invisible; the
             // alternative is an orbit every time the user opens the dropdown.
-            if (!offscreen && !screenshot.Active () && NavigateViewer (camera, hudState, scene, input, width, height))
+            if (!offscreen && !screenshot.Active () &&
+                !(hudState.captureFrame.active && hudState.captureFrame.studyDay) &&
+                NavigateViewer (liveCamera, hudState, scene, input, width, height))
                 userHasNavigated = true;
 
             // ---- the overlay path: Archicad drives ----------------------------
@@ -547,7 +549,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                     cameraDiscontinuity = pendingCameraDiscontinuity_;
                 }
                 adoptedGeneration = pushedGeneration;
-                if (ApplyArchicadCamera (camera, pushed, width, height)) {
+                if (ApplyArchicadCamera (liveCamera, pushed, width, height)) {
                     if (cameraDiscontinuity)
                         scene.ResetTemporalAntiAliasingHistory ();
                     userHasNavigated = true; // stop the idle auto-orbit for good
@@ -570,15 +572,17 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             if (!userHasNavigated && !framedRealGeometry && !cameraStart.valid && !vieweredit::Active () &&
                 !hudState.ScreenshotCleanView ()) {
                 const double age = std::chrono::duration<double> (std::chrono::steady_clock::now () - started).count ();
-                camera.SetOrbit (float (age * 0.35) - 0.9f, 0.6f);
+                liveCamera.SetOrbit (float (age * 0.35) - 0.9f, 0.6f);
             }
 
             // Apply the projection mode before deriving either stable or
             // jittered matrices. Doing it later records one frame in the wrong
             // projection and contaminates temporal history.
-            if (FollowProjectionToggle (camera, hudState, lastOrthographic))
+            if (FollowProjectionToggle (liveCamera, hudState, lastOrthographic))
                 scene.ResetTemporalAntiAliasingHistory ();
 
+            Camera& camera = screenshot.CameraFor (
+                liveCamera, scene, hudState, target.Height () ? float (target.Width ()) / target.Height () : 1.0f);
             const bool blanked = blanked_.load ();
             scene.SetViewportSize (width, height);
             float view[16], stableProj[16], proj[16];
@@ -602,7 +606,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             camera.GetEyePosition (eye);
             {
                 CameraStart snapshot;
-                const bool available = SnapshotPerspectiveCamera (camera, width, height, snapshot);
+                const bool available = SnapshotPerspectiveCamera (liveCamera, width, height, snapshot);
                 std::lock_guard<std::mutex> lock (mutex_);
                 currentCameraAvailable_ = available;
                 if (available)

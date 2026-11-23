@@ -71,6 +71,9 @@ bool ViewPresetDirection (ViewPreset preset, float northDegrees, float out[3]);
 
 // The top-down rotation (Camera::SetTopDown) that puts project north up the screen.
 float TopDownRotationForNorth (float northDegrees);
+struct ScreenshotRect;
+bool FitAnalysisCaptureRect (Camera& camera, const tapioca::sunstudy::AnalysisRoi& roi, float north, float aspect,
+                             float bottom, float top, ScreenshotRect rect);
 
 // Build a detached export camera. Scene depth is shared by the panels but
 // cannot enlarge their plan extent. On failure output is untouched.

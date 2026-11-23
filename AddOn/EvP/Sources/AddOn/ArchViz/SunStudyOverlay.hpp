@@ -44,6 +44,7 @@
 // the viewer holds is not the geometry the study measured.
 
 #include "ArchViz/GradientLibrary.hpp"
+#include "SunStudy/AnalysisRoi.hpp"
 #include "ArchViz/MeshGroups.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudyTextureDelta.hpp"
@@ -103,6 +104,7 @@ bool SameSunStudyElementMap (const SunStudyElementMap& a, const SunStudyElementM
 // hand-over rule as every other payload in SceneCmdQueue, expressed as a
 // shared_ptr because a display-only change reuses the identical image.
 struct SunStudyAtlasUpload {
+    tapioca::sunstudy::AnalysisRoi captureRoi; // empty if the receiver envelope is unavailable
     std::string studyId;
     // Bumped by the producer whenever the CONTENT changes. The render thread
     // keeps it so a HUD can say which study is on screen, and so a stale push

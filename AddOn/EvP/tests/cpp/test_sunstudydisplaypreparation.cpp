@@ -89,6 +89,7 @@ TEST (SunStudyDisplayPreparation, BothDomainsMatchLegacyHoursAndEveryStepBitWith
             },
             error));
         ASSERT_NE (upload, nullptr) << error;
+        EXPECT_TRUE (upload->captureRoi.IsValid ());
         EXPECT_EQ (*upload->texels, image);
         EXPECT_EQ (*upload->stepMasks, steps.masks);
         EXPECT_EQ (upload->width, width);

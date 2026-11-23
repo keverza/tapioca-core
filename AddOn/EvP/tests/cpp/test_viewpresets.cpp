@@ -4,6 +4,7 @@
 // volume.
 
 #include "ArchViz/Camera.hpp"
+#include "ArchViz/ViewerScreenshotGeometry.hpp"
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/ViewPresets.hpp"
 
@@ -114,6 +115,29 @@ TEST (AnalysisCapture, FitsRotatedNarrowRegionAtEitherPanelAspect)
 }
 
 // The issue's table at north = +Y: the eye of "SE" stands south-east of and above the model.
+TEST (AnalysisCapture, OffCentreCropContainsTheSameWorldRegionAtPreviewAndExportScale)
+{
+    Camera camera;
+    const ScreenshotRect rect { 0.55f, 0.10f, 0.90f, 0.65f };
+    ASSERT_TRUE (FitAnalysisCaptureRect (camera, { 40, 5, 90, 9 }, 37, 1.5f, -10, 20, rect));
+    for (unsigned scale : { 1u, 3u }) {
+        const unsigned w = 900 * scale, h = 600 * scale;
+        for (float x : { 40.f, 90.f })
+            for (float y : { 5.f, 9.f }) {
+                const float corner[] = { x, y, 0 };
+                const auto p = Project (camera, corner, w, h);
+                EXPECT_GT (p.px, w * rect.left);
+                EXPECT_LT (p.px, w * rect.right);
+                EXPECT_GT (p.py, h * rect.top);
+                EXPECT_LT (p.py, h * rect.bottom);
+            }
+        const float centre[] = { 65, 7, 0 };
+        const auto p = Project (camera, centre, w, h);
+        EXPECT_NEAR (p.px, w * (rect.left + rect.right) / 2, 0.01);
+        EXPECT_NEAR (p.py, h * (rect.top + rect.bottom) / 2, 0.01);
+    }
+}
+
 TEST (ViewPresets, TheIsometricCornersAtTheDefaultNorth)
 {
     const float third = 1.0f / std::sqrt (3.0f);

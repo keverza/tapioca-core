@@ -3,6 +3,7 @@
 #include "ArchViz/ViewPresets.hpp"
 
 #include "ArchViz/Camera.hpp"
+#include "ArchViz/ViewerScreenshotGeometry.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -116,6 +117,29 @@ bool FitAnalysisPlanCamera (Camera& output, const tapioca::sunstudy::AnalysisRoi
         return false;
     camera.SetTarget (x, y, sceneBottom * 0.5f + sceneTop * 0.5f);
     output = camera;
+    return true;
+}
+
+bool FitAnalysisCaptureRect (Camera& output, const tapioca::sunstudy::AnalysisRoi& roi, float north, float aspect,
+                             float bottom, float top, ScreenshotRect rect)
+{
+    Camera panel;
+    if (!(rect.left >= 0 && rect.top >= 0 && rect.right <= 1 && rect.bottom <= 1 && rect.Width () > 0 &&
+          rect.Height () > 0) ||
+        !FitAnalysisPlanCamera (panel, roi, north, aspect * rect.Width () / rect.Height (), bottom, top))
+        return false;
+    // The renderer draws the full surface before cropping. Place the ROI at
+    // the crop centre, accounting for screen Y increasing downwards.
+    const float half = panel.OrthoHalfHeightMetres () / rect.Height ();
+    const float dx = (1 - rect.left - rect.right) * half * aspect;
+    const float dy = (rect.top + rect.bottom - 1) * half;
+    const float r = TopDownRotationForNorth (north);
+    float centre[3];
+    panel.GetTarget (centre);
+    panel.SetTarget (centre[0] + dx * std::cos (r) - dy * std::sin (r),
+                     centre[1] + dx * std::sin (r) + dy * std::cos (r), centre[2]);
+    panel.SetOrthographic (true, half);
+    output = panel;
     return true;
 }
 

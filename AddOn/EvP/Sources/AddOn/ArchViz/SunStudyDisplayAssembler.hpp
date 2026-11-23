@@ -37,6 +37,7 @@ class SunStudyDisplayAssembler {
   private:
     std::mutex mutex_;
     std::weak_ptr<const evp::sunstudy::StudyDisplayData> source_;
+    tapioca::sunstudy::AnalysisRoi captureRoi_;
     std::weak_ptr<const std::vector<SunStudyElementMap>> maps_[2];
     std::weak_ptr<const std::vector<float>> previousImage_;
     std::weak_ptr<const std::vector<uint32_t>> previousSteps_;

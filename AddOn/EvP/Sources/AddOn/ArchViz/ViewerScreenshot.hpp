@@ -59,6 +59,7 @@ class ViewerScreenshot final {
     DiligentViewportTarget& TargetFor (DiligentViewportTarget& surface, Diligent::IRenderDevice* device,
                                        Diligent::IDeviceContext* context, DiligentScene& scene, HudState& state);
     bool Active () const;
+    Camera& CameraFor (Camera& live, DiligentScene& scene, HudState& state, float aspect);
     static bool HidesSurfaceFocus (const HudState& state);
     float EditorDrawScale (const HudState& state) const; // nonzero keeps only the area highlight
     uint32_t FrameIndex (uint32_t presented) const;
@@ -76,6 +77,7 @@ class ViewerScreenshot final {
   private:
     std::unique_ptr<DiligentViewportTarget> target_;
     std::unique_ptr<Camera> framingCamera_;
+    std::unique_ptr<Camera> comparisonCamera_;
     bool framingUserNavigated_ = false;
     int framingOrbitAnchor_ = 0;
     Diligent::IRenderDevice* device_ = nullptr; // the frame loop's, borrowed while a shot runs

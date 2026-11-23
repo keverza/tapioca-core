@@ -13,6 +13,7 @@
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/Camera.hpp"
+#include "ArchViz/ViewPresets.hpp"
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentNativeInterop.hpp"
 #include "ArchViz/DiligentScene.hpp"
@@ -108,6 +109,35 @@ bool ViewerScreenshot::Active () const
     return target_ != nullptr;
 }
 
+Camera& ViewerScreenshot::CameraFor (Camera& live, DiligentScene& scene, HudState& state, float aspect)
+{
+    auto& frame = state.captureFrame;
+    if (!frame.studyDay || (!frame.active && !Active ())) {
+        frame.planReady = false;
+        frame.roi = {};
+        comparisonCamera_.reset ();
+        return live;
+    }
+    if (Active () && comparisonCamera_)
+        return *comparisonCamera_;
+    if (!frame.roi.IsValid ()) {
+        const auto payload = scene.ShownAnalysisPayload ();
+        float lo[3], hi[3];
+        if (payload && payload->analysisKind == 0 && !payload->preview && payload->captureRoi.IsValid () &&
+            scene.SceneBounds (lo, hi)) {
+            frame.roi = payload->captureRoi;
+            frame.north = scene.Stats ().northDegrees;
+            frame.bottom = lo[2];
+            frame.top = hi[2];
+        }
+    }
+    if (!comparisonCamera_)
+        comparisonCamera_ = std::make_unique<Camera> ();
+    frame.planReady = FitAnalysisCaptureRect (*comparisonCamera_, frame.roi, frame.north, aspect, frame.bottom,
+                                              frame.top, frame.rect);
+    return frame.planReady ? *comparisonCamera_ : live;
+}
+
 void ViewerScreenshot::ServiceFramingCamera (Camera& camera, DiligentScene& scene, HudState& state,
                                              bool& userHasNavigated)
 {
@@ -140,6 +170,11 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
         return surface;
     state.sunShotRequested = false;
     kind_ = state.shotKind;
+    if (kind_ == kShotSunStudy && state.captureFrame.studyDay &&
+        (!state.captureFrame.planReady || !comparisonCamera_)) {
+        Fail (state, "the analysis region has no comparison preview");
+        return surface;
+    }
     table_ = kind_ == kShotExposedSurfaces ? state.exposedShot : nullptr;
     state.exposedShot.reset ();
     if (kind_ == kShotExposedSurfaces && (table_ == nullptr || !ExposedShotCurrent (*table_))) {

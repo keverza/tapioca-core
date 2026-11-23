@@ -2,6 +2,8 @@
 #include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyDisplayData.hpp"
 #include "SunStudy/SunStudyStore.hpp"
+#include "SunStudy/SunStudyBounds.hpp"
+#include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyResultKey.hpp" // MatchFaces
 #include "ArchViz/ArchVizLog.hpp"
 
@@ -79,10 +81,24 @@ SunStudyDisplayAssembler::Prepare (const evp::sunstudy::StudyRecord& record, con
     std::lock_guard<std::mutex> lock (mutex_);
     if (source_.lock () != data) {
         source_ = data;
+        captureRoi_ = {};
+        if (record.clipRadius > 0) {
+            captureRoi_ = { record.clipX - record.clipRadius, record.clipY - record.clipRadius,
+                            record.clipX + record.clipRadius, record.clipY + record.clipRadius };
+        }
+        else if (record.elementRoles.size () == snapshot.meshes.size ()) {
+            std::vector<std::string> receivers;
+            for (size_t i = 0; i < snapshot.meshes.size (); ++i)
+                if (record.elementRoles[i] == uint8_t (evp::sunstudy::ElementRole::Analysis))
+                    receivers.push_back (snapshot.meshes[i].guid);
+            if (auto roi = evp::sunstudy::ResolveAnalysisRoi (snapshot, receivers, {}))
+                captureRoi_ = *roi;
+        }
         maps_[0].reset ();
         maps_[1].reset ();
     }
     const auto mapping = Clock::now ();
+    upload->captureRoi = captureRoi_;
     upload->sharedElements = maps_[roles ? 1 : 0].lock ();
     bool mapsRebuilt = upload->sharedElements == nullptr;
     size_t retinted = 0;

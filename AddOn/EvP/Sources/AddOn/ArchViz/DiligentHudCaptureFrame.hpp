@@ -2,6 +2,7 @@
 #define EVP_ARCHVIZ_DILIGENTHUDCAPTUREFRAME_HPP
 
 #include "ArchViz/ViewerScreenshotGeometry.hpp"
+#include "SunStudy/AnalysisRoi.hpp"
 #include <string>
 
 namespace geomsrv::archviz {
@@ -22,6 +23,9 @@ struct CaptureFrame {
     int preset = 1;
     int aspect = 0;
     bool studyDay = false;
+    tapioca::sunstudy::AnalysisRoi roi;
+    float north = 0, bottom = 0, top = 0;
+    bool planReady = false;
     int month = 1, day = 1;
     uint64_t requestedRun = 0;
     std::string pinnedStudy;

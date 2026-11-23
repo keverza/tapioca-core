@@ -307,6 +307,7 @@ TEST_F (CaptureGui, DateCaptureWaitsForTheCompletedDayToBeAttached)
     tapioca::test::ResetSunStudyHudServices ();
     ASSERT_TRUE (BeginCaptureFrame (state_, kShotSunStudy));
     state_.captureFrame.studyDay = true;
+    state_.captureFrame.planReady = true;
     auto& status = tapioca::test::SunStudyTestStatus ();
     status.running = true;
     status.dayDate = "2026-03-21";
