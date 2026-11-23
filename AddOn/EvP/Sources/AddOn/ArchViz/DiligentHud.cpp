@@ -10,6 +10,8 @@
 #include "ArchViz/ImGuiContextLock.hpp" // ImGui's one global context: every use under its lock
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/ViewportCursor.hpp"
+#include <algorithm>
+#include <cstdio>
 #include "ArchViz/ImGuiGraphInteractionLab.hpp"
 #include "ArchViz/SceneTextLiveCheck.hpp"
 #include "ArchViz/SurfaceTakeoffShot.hpp"
@@ -505,7 +507,7 @@ uint32_t DiligentHud::DrawCaptureTable (Diligent::IDeviceContext* context, uint3
 }
 
 void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,
-                                     const DiligentSceneStats& scene, const HudState& state)
+                                     const DiligentSceneStats& scene, const HudState& state, int captionRow)
 {
     if (context == nullptr || !impl_->ready || width == 0 || height == 0)
         return;
@@ -521,7 +523,25 @@ void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t
     impl_->renderer->NewFrame (width, height, Diligent::SURFACE_TRANSFORM_IDENTITY);
     ImGui::NewFrame ();
     ImGui::PushFont (impl_->font, 13.0f * dpiScale);
-    DrawSunStudyCaptureLegend (state, scene, width, height);
+    if (captionRow < 0)
+        DrawSunStudyCaptureLegend (state, scene, width, height);
+    else {
+        const auto& f = state.captureFrame;
+        const auto grid = TimeGrid (f.panelSteps.size (), { width, state.captureFrame.gridHeight });
+        const auto font = (std::min) (ImGui::GetFontSize (), float (height) * .85f);
+        for (unsigned col = 0; col < grid.width; ++col) {
+            const size_t i = size_t (captionRow) * grid.width + col;
+            if (i >= f.panelSteps.size ())
+                break;
+            const int m = f.layoutMinutes[f.panelSteps[i]];
+            char text[12];
+            std::snprintf (text, sizeof (text), "%02d:%02d", m / 60, m % 60);
+            const auto w = ImGui::CalcTextSize (text).x * font / ImGui::GetFontSize ();
+            ImGui::GetForegroundDrawList ()->AddText (
+                ImGui::GetFont (), font, { (col + .5f) * width / grid.width - w * .5f, (height - font) * .5f },
+                IM_COL32 (32, 32, 32, 255), text);
+        }
+    }
     ImGui::PopFont ();
     ImGui::Render ();
     impl_->renderer->RenderDrawData (context, ImGui::GetDrawData ());

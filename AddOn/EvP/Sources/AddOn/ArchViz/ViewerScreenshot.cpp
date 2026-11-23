@@ -198,13 +198,15 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     const auto& frame = state.captureFrame;
     if (kind_ == kShotSunStudy && frame.studyDay && frame.shadowStyle == 1) {
         const size_t count = frame.panelSteps.size ();
-        if (count < 2 || count > 4 || crop_.Width () * count > kViewerScreenshotMaxDimension ||
-            uint64_t (crop_.Width ()) * crop_.Height () * count > 64ull * 1024 * 1024) {
-            Fail (state, "the time layout needs 2-4 panels within the image limit; reduce the scale or crop");
+        const auto grid = TimeGrid (count, { crop_.Width (), crop_.Height () });
+        if (!grid.width || crop_.Width () / grid.width < 32 || crop_.Height () / grid.height < 16 ||
+            uint64_t (crop_.Width ()) * crop_.Height () > 64ull * 1024 * 1024) {
+            Fail (state, "the grid does not fit this capture size; adjust the interval, scale or crop");
             return surface;
         }
         panelIndex_ = 0;
-        layoutImage_.resize (crop_.Width () * count * crop_.Height () * 4);
+        layoutImage_.assign (size_t (crop_.Width ()) * crop_.Height () * 4, 255);
+        state.captureFrame.gridHeight = crop_.Height ();
         state.captureFrame.shadowStep = frame.panelSteps.front ();
     }
     std::string error;
@@ -312,10 +314,12 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
     }
     if (ok && !layoutImage_.empty ()) {
         auto& frame = state.captureFrame;
-        ok = PlaceTimePanel (layoutImage_, { width, viewHeight }, frame.panelSteps.size (), panelIndex_, image);
+        const auto grid = TimeGrid (frame.panelSteps.size (), { width, viewHeight });
+        const uint32_t caption = std::clamp (stripHeight / 2, 1u, viewHeight / grid.height / 3);
+        ok =
+            PlaceTimePanel (layoutImage_, { width, viewHeight }, frame.panelSteps.size (), panelIndex_, caption, image);
         if (!ok)
             error = "invalid time panel dimensions";
-        width *= uint32_t (frame.panelSteps.size ());
         if (ok && ++panelIndex_ < frame.panelSteps.size ()) {
             frame.shadowStep = frame.panelSteps[panelIndex_];
             frames_ = 0;
@@ -323,7 +327,15 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
             return true;
         }
         image.swap (layoutImage_);
-        stripHeight += stripHeight / 2; // separate panel-time row above the common footer
+        const auto stats = scene.Stats ();
+        for (unsigned row = 0; ok && row < grid.height; ++row) {
+            const auto draw = [&] { hud.DrawCaptureLegend (context, width, caption, scale_, stats, state, int (row)); };
+            std::vector<uint8_t> labels;
+            ok = RenderStrip (device_, context, width, caption, draw, labels, error);
+            if (ok)
+                std::copy (labels.begin (), labels.end (),
+                           image.begin () + size_t ((row + 1) * viewHeight / grid.height - caption) * width * 4);
+        }
     }
     if (ok && table_ != nullptr) {
         // Drawn at the estimate; drawn again at what the layout needed when names

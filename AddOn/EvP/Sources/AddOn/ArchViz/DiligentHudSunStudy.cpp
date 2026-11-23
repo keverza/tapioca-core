@@ -439,19 +439,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
                   ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs |
                       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollbar);
     const auto& frame = state.captureFrame;
-    const bool layout = frame.studyDay && frame.shadowStyle == 1 && frame.panelSteps.size () >= 2;
-    const float captions = layout ? float (height / 3) : 0.f;
-    if (layout) {
-        for (size_t i = 0; i < frame.panelSteps.size (); ++i) {
-            char clock[16] = "--:--";
-            if (size_t (frame.panelSteps[i]) < frame.layoutMinutes.size ())
-                Clock (frame.layoutMinutes[frame.panelSteps[i]], clock, sizeof (clock));
-            const float x = (i + .5f) * width / frame.panelSteps.size () - ImGui::CalcTextSize (clock).x * .5f;
-            ImGui::GetWindowDrawList ()->AddText ({ x, (captions - font) * .5f }, ImGui::GetColorU32 (ImGuiCol_Text),
-                                                  clock);
-        }
-        ImGui::SetCursorPosY (captions);
-    }
+    const bool layout = frame.studyDay && frame.shadowStyle == 1 && !frame.panelSteps.empty ();
     if (!ImGui::BeginTable ("##sun-capture-columns", 3,
                             ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
         ImGui::End ();
@@ -459,7 +447,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
         ImGui::PopStyleVar (4);
         return;
     }
-    const float square = std::min (float (height) - captions, float (width) * .20f);
+    const float square = std::min (float (height), float (width) * .20f);
     ImGui::TableSetupColumn ("Plan", ImGuiTableColumnFlags_WidthFixed, square * 1.45f);
     ImGui::TableSetupColumn ("Study", ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableSetupColumn ("Colours", ImGuiTableColumnFlags_WidthStretch);

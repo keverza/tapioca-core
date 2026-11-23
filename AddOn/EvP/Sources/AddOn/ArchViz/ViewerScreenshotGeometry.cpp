@@ -48,17 +48,64 @@ bool CropScreenshotRgba (std::vector<uint8_t>& image, ScreenshotSize size, Scree
     return true;
 }
 
-bool PlaceTimePanel (std::vector<uint8_t>& layout, ScreenshotSize panel, size_t count, size_t index,
+std::vector<int> DaylightPanelSteps (const std::vector<uint16_t>& minutes, int hourStep)
+{
+    if (minutes.empty () || minutes.back () >= 1440 || hourStep < 1 || hourStep > 6 ||
+        !std::is_sorted (minutes.begin (), minutes.end ()))
+        return {};
+    std::vector<int> steps { 0 };
+    for (int time = minutes.front () + hourStep * 60; time < minutes.back (); time += hourStep * 60) {
+        const auto it = std::lower_bound (minutes.begin (), minutes.end (), time);
+        const int index = int (it - minutes.begin ());
+        if (minutes[index] != minutes[steps.back ()])
+            steps.push_back (index);
+    }
+    if (minutes[steps.back ()] != minutes.back ())
+        steps.push_back (int (minutes.size () - 1));
+    return steps;
+}
+
+ScreenshotSize TimeGrid (size_t count, ScreenshotSize canvas)
+{
+    if (!count || count > 25)
+        return {};
+    const auto longer = uint32_t (std::ceil (std::sqrt (double (count))));
+    const auto shorter = uint32_t ((count + longer - 1) / longer);
+    return canvas.width >= canvas.height ? ScreenshotSize { longer, shorter } : ScreenshotSize { shorter, longer };
+}
+
+bool PlaceTimePanel (std::vector<uint8_t>& layout, ScreenshotSize panel, size_t count, size_t index, uint32_t caption,
                      const std::vector<uint8_t>& pixels)
 {
-    if (!panel.width || !panel.height || count < 2 || count > 4 || index >= count ||
-        panel.width > kViewerScreenshotMaxDimension / count || panel.height > kViewerScreenshotMaxDimension)
+    const auto grid = TimeGrid (count, panel);
+    if (!grid.width || !panel.width || !panel.height || index >= count || panel.width > kViewerScreenshotMaxDimension ||
+        panel.height > kViewerScreenshotMaxDimension)
         return false;
     const size_t stride = size_t (panel.width) * 4;
-    if (pixels.size () != stride * panel.height || layout.size () != pixels.size () * count)
+    if (pixels.size () != stride * panel.height || layout.size () != pixels.size ())
         return false;
-    for (uint32_t y = 0; y < panel.height; ++y)
-        std::memcpy (layout.data () + (y * count + index) * stride, pixels.data () + y * stride, stride);
+    const auto col = uint32_t (index % grid.width), row = uint32_t (index / grid.width);
+    const auto left = col * panel.width / grid.width, top = row * panel.height / grid.height;
+    const auto cw = (col + 1) * panel.width / grid.width - left, ch = (row + 1) * panel.height / grid.height - top;
+    if (!cw || ch <= caption)
+        return false;
+    const auto scale = std::min (double (cw) / panel.width, double (ch - caption) / panel.height);
+    const auto w = std::max (1u, uint32_t (std::lround (panel.width * scale))),
+               h = std::max (1u, uint32_t (std::lround (panel.height * scale)));
+    const auto x0 = left + (cw - w) / 2, y0 = top + (ch - caption - h) / 2;
+    // Average the source footprint instead of dropping thin shadows on reduction.
+    for (uint32_t y = 0; y < h; ++y)
+        for (uint32_t x = 0; x < w; ++x) {
+            uint32_t x1 = x * panel.width / w, x2 = (x + 1) * panel.width / w, y1 = y * panel.height / h,
+                     y2 = (y + 1) * panel.height / h;
+            uint64_t sum[4] = {};
+            for (auto sy = y1; sy < y2; ++sy)
+                for (auto sx = x1; sx < x2; ++sx)
+                    for (int k = 0; k < 4; ++k)
+                        sum[k] += pixels[sy * stride + sx * 4 + k];
+            for (int k = 0; k < 4; ++k)
+                layout[(y0 + y) * stride + (x0 + x) * 4 + k] = uint8_t (sum[k] / ((x2 - x1) * (y2 - y1)));
+        }
     return true;
 }
 

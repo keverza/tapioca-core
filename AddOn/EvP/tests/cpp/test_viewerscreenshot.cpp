@@ -20,13 +20,29 @@ using namespace geomsrv::archviz;
 using namespace geomsrv::archviz::viewerhud;
 using hudshell::DockEdge;
 
-TEST (ViewerScreenshot, TimePanelsKeepTheirOwnRowsAndTimeOrder)
+TEST (ViewerScreenshot, DaylightIntervalStartsAtFirstSampleAndIncludesLastOnce)
 {
-    std::vector<uint8_t> layout (16), left { 1, 2, 3, 4, 5, 6, 7, 8 }, right { 9, 10, 11, 12, 13, 14, 15, 16 };
-    ASSERT_TRUE (PlaceTimePanel (layout, { 1, 2 }, 2, 1, right));
-    ASSERT_TRUE (PlaceTimePanel (layout, { 1, 2 }, 2, 0, left));
-    EXPECT_EQ (layout, (std::vector<uint8_t> { 1, 2, 3, 4, 9, 10, 11, 12, 5, 6, 7, 8, 13, 14, 15, 16 }));
-    EXPECT_FALSE (PlaceTimePanel (layout, { 1, 2 }, 2, 2, left));
+    EXPECT_EQ (DaylightPanelSteps ({ 390, 420, 450, 480, 510, 540, 565 }, 1), (std::vector<int> { 0, 2, 4, 6 }));
+    EXPECT_EQ (DaylightPanelSteps ({ 390, 450, 510, 570 }, 2), (std::vector<int> { 0, 2, 3 }));
+    EXPECT_EQ (DaylightPanelSteps ({ 420 }, 1), (std::vector<int> { 0 }));
+    EXPECT_TRUE (DaylightPanelSteps ({ 450, 390 }, 1).empty ());
+}
+
+TEST (ViewerScreenshot, FiveTimesUseTwoRowsOnOneCanvasWithSpaceForCaptions)
+{
+    const ScreenshotSize size { 24, 16 };
+    const auto grid = TimeGrid (5, size);
+    ASSERT_EQ (grid.width, 3u);
+    ASSERT_EQ (grid.height, 2u);
+    std::vector<uint8_t> layout (24 * 16 * 4, 255);
+    for (unsigned i = 0; i < 5; ++i)
+        ASSERT_TRUE (PlaceTimePanel (layout, size, 5, i, 2, std::vector<uint8_t> (layout.size (), i + 1)));
+    for (unsigned i = 0; i < 6; ++i) {
+        auto at = [&] (unsigned x, unsigned y) { return layout[((i / 3 * 8 + y) * 24 + i % 3 * 8 + x) * 4]; };
+        EXPECT_EQ (at (4, 3), i < 5 ? i + 1 : 255);
+        EXPECT_EQ (at (4, 7), 255);
+    }
+    EXPECT_EQ (layout.size (), 24 * 16 * 4u);
 }
 
 constexpr ScreenshotSize kView { 800, 600 };
